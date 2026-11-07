@@ -9,6 +9,11 @@ S6's accepted runtime evidence is recorded in the last S6 status bullet of
 The earlier S10 probe built for both ABIs. The extended probe in this change
 still needs both builds and the complete run below. S11 acceptance remains open.
 
+Current-tree protocol: S13 advances the version to **978**, appending request
+325 `load_e1s_profile`. S10 request 324, its byte records and the 88-byte raw
+carrier are unchanged. The harness pins the current two-request suffix even
+when S13 coverage is disabled.
+
 Read with [S10's wire contract and mode table](E1_S10_TOKEN.md),
 [S6's owned fixture](E1_S6_TRANSPORT.md), [S5](E1_S5_BROKER_RECORDS.md),
 [standard-user packages 10 and 11](E1_S_STANDARD_USERS.md#7-ordered-delegated-work-packages) and
@@ -53,7 +58,8 @@ Before invoking it:
 
 1. Sync and assemble the exact Wine and project overlays in a root-controlled
    Linux source tree. Regenerate `tools/make_requests` and compare the three
-   checked-in artifacts as S10 step 1 requires. Verify protocol 977, request 324,
+   checked-in artifacts as S10 step 1 requires. Verify protocol 978, request 324
+   and appended request 325,
    fixed request/reply 32/24 and max 88. Resolve any generator differences.
 2. Configure/build **two separate root-protected WoW64 runtimes**, both with
    `--enable-archs=i386,x86_64`, matching S10's exports and S6's corrected handle
@@ -106,11 +112,21 @@ Each case starts a LocalSystem service adapter in Bob's standard-user prefix.
 The adapter starts the selected ABI staged as the exact root-controlled
 `windows/system32/wexelevate_test.exe`. The shipping broker is not replaced.
 The peer uses the other ABI, Bob's same prefix/server/session and a fresh pipe.
-Both broker ABIs are exercised sequentially. An independent outer 20-second
-broker watchdog stops only that owned prefix on timeout; the peer has its own
-`timeout -k 2 20`. A timeout/setup/transport failure always fails the case.
+Both broker ABIs are exercised sequentially. An independent outer 120-second
+broker watchdog stops only that owned prefix on timeout; the peer and standalone
+denial clients have their own `timeout -k 2 90`. Bootstrap is bounded at 130
+seconds. S6's `el_wait_file` permits 90 seconds and its service-report wait
+permits 120 seconds; the old shared 20-second budget also included cold
+Wine/SCM and the other ABI's startup. Only outer orchestration limits changed:
+S6 and synthetic token-install authority still expire after five seconds, the
+membership gate after three seconds. A timeout/setup/transport failure always fails the case.
 The adapter's flushed `.done` must report broker exit 0, broker output must
-include exact `E1S10 OK`, peer exit must be 0, and neither log may contain FAIL.
+include exact `E1S10 OK` and `E1S10 CASE MODE OK`, peer exit must be 0 with
+`E1S10 PEER OK`, and neither log may contain FAIL. Positive S10 cases also
+require exactly two `E1S10 IDENTITY OK` lines. Broker greps run after `.done`,
+since a peer can exit before broker cleanup and final output complete.
+The wait also requires nonempty `.done`: the adapter creates that file before
+writing its exit code, so existence alone can race an empty completion file.
 Standalone denial/normal checks have no peer and still require exit 0 and OK.
 
 The lab fixture is completely cleaned before provisioning the normal fixture.
@@ -146,7 +162,7 @@ Bob = `wexstd`, Carol = `wexcar`. The private configured administrator group
 | Normal runtime SYSTEM, Bob, Limited Alice | All three operations return STATUS_NOT_SUPPORTED, including from the correctly staged LocalSystem image. |
 | Benign child and grandchild | After successful positive issuance and replay check, close the context and use CreateProcessAsUser with the issued primary. Child queries its own SID, primary type, Full elevation, AuthenticationId, derived logon SID and session; ordinary CreateProcess descendant must preserve them. Both exit 0. No credentials/profile handoff or production launch code. |
 
-The raw driver mirrors only protocol 977's 88-byte request union and the
+The raw driver mirrors S10's unchanged 88-byte request union and the
 native/32-bit request-info pointer/iovec carrier; it does not include Wine SDK
 headers in a MinGW compilation. Compile-time offsets and a harness protocol
 number/version/count guard reject drift. These four raw cases cover bounded
@@ -189,9 +205,126 @@ cleanup covers only accounts created by this invocation. No global wineserver
 kill, shared guest reset, password, PAM policy or production installation occurs.
 If a fixture directory/image was replaced, cleanup refuses the foreign object
 and reports FAIL; manual inspection is then required. Result logs and empty lock
-files remain. Cleanup copies setup and per-case broker/completion/timeout logs
-into the phase's `fixture/` directory, including on failed peers or provisioning;
-the harness then cleans the owned provisioning directories.
+files remain. Cleanup copies setup and per-case broker/completion/timeout logs,
+peer logs, bootstrap output, `case-N-wineserver.stderr.log`, command text and
+exact UTF-16LE command bytes into the phase's `fixture/` directory, including on
+failed peers or provisioning. The stderr file captures the prefix wineserver
+and service children inheriting bootstrap stderr, as in S6's `e1s6-wine.log`.
+Failure collection runs before prefix teardown and again after shutdown for
+final output. The watchdog also snapshots before killing a timed-out prefix.
+`failure-pipes.log` or `timeout-pipes.log` enumerates `\\.\pipe\*` in Bob's same
+prefix, capped at 256 entries and `timeout -k 2 5`; unsupported enumeration or
+a stalled server is recorded as unavailable/incomplete. Wine pipe objects are
+not Linux FIFOs. The harness then cleans the owned provisioning directories.
+
+## 2026-11-07 failure repair and static case audit
+
+The original evidence remains in [E1_S10_HARNESS_FAILURE.md](E1_S10_HARNESS_FAILURE.md).
+There is a concrete pre-transport rights mismatch: the original `broker()` opened
+Bob's process with only `PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE`, then
+called `OpenProcessToken(TOKEN_QUERY)`. In `wine/server/token.c:open_token`,
+`sysrun_active && elevation_enforced()` requires `PROCESS_QUERY_INFORMATION` on
+that process handle. `wine/server/handle.c:get_handle_obj` denies missing rights
+with STATUS_ACCESS_DENIED; `kernelbase/security.c:OpenProcessToken` maps that to
+Win32 5. SYSTEM does not bypass the granted-access mask of an existing handle.
+The probe now requests `PROCESS_QUERY_INFORMATION | SYNCHRONIZE`.
+`wine/server/process.c:process_map_access` adds LIMITED_INFORMATION to that grant,
+preserving TEST_INSTALL's limited-query requirement. No server check changed.
+
+This deterministically predicts an `OpenProcessToken` failure before S6 OPEN
+on the old enforced fixture. It fits READY without TRANSPORT OK, but the old
+silent branch log does not prove the precise executed branch. Nor does it alone
+prove the peer's 20-second timeout: the old cleanup attempted to write failure
+marker 1, which a running peer should read and return. The original peer printed
+no lines on either success or early failure. Its empty log cannot distinguish
+pre-main loader startup, WaitNamedPipe, the result read, teardown or buffering.
+New flushed startup/stage lines and captured stderr resolve that distinction on
+the next run. An empty new peer log indicates it did not reach the startup print.
+
+Other candidate checks against source:
+
+* The pipe SD is `D:(A;;GA;;;SY)(A;;GRGW;;;WD)`: SYSTEM all, World read/write.
+  Bob is `wexstd`, the ordinary standard-token peer, not the selected S4
+  administrator. In this tree its initial user SID is `local_user_sid`,
+  S-1-5-21-0-0-0-1000 (`security_unix_uid_to_sid`); it retains enabled World
+  membership when filtered/made standard. No administrator SID is needed for
+  the pipe DACL. The explicit SD has no mandatory label/SACL; object SD defaults
+  do not invent one here. The DACL and remote-client rejection are unchanged.
+* Bash `pipe="\\\\.\\pipe\\e1s10-..."` produces `\\.\pipe\e1s10-...`.
+  `quote_arg` adds Windows argument quotes and rejects embedded quotes/trailing
+  backslashes. Backslashes before ordinary characters remain literal under the
+  Windows argv parser. `printf '%s'` and iconv encode the command verbatim as
+  UTF-16LE; the service adapter reads even byte counts, adds a zero terminator
+  using calloc and passes the writable command directly to CreateProcessW.
+  Registry escaping applies to the adapter ImagePath, not to command-file bytes.
+  No extra command-file unescaping occurs. Both endpoints now print the name;
+  retained command files allow byte-for-byte inspection of the actual run.
+* The broker creates the pipe, flushes READY, then calls ConnectNamedPipe;
+  the harness launches the peer after READY. Blocking ConnectNamedPipe does
+  not prevent that separate Wine process from starting. ERROR_PIPE_CONNECTED
+  remains a valid raced connection. The adapter reports SERVICE_RUNNING before
+  CreateProcessW, so SCM startup does not wait for the broker to accept a peer.
+  No static circular wait was found.
+* Peer traffic is one byte in each direction; it shares no native structure
+  with the broker. S6 records use fixed-size byte buffers. The raw carrier is
+  broker-local, with compile-time offsets matching `wine/server.h` and the
+  `__server_request_info32`/`wow64_wine_server_call` translation in
+  `ntdll/unix/server.c`. Mixed ABI is intentional; runtime ABI proof is still open.
+* Before first ISSUE, the broker must consume marker 0x5a, query Bob's retained
+  token/session, complete S6 OPEN/CHILD_START/byte-identical EXCHANGE, negotiate
+  exactly TOKEN_V1 + ACCOUNT_MAP_V1, then install the synthetic record. The
+  record copies root/server/broker generations from S6 and Bob's queried
+  session. None of these checks was bypassed to reach issuance.
+
+All failure jumps now use a named `require` check; each assertion reports its
+step, function, line, expression, GetLastError and the last explicitly captured
+NT operation/status. LastError on logical assertions is ambient context, not
+an API failure code; transport failures report their actual Win32 return too.
+There is no terminal `check(FALSE)` hiding an earlier cause. Export resolution
+now stores the function pointer in `token_export`, completing the interrupted
+diagnostic wrapper edit. Copied-process stdout/stderr inheritance is retained.
+
+The following table rechecks **every row** of the covered-case table above,
+including invocation shape and pass-output agreement. All paired cases use
+`broker PIPE NAME KEY GENERATION SID MODE GATE` (argc 9); peer arguments are
+`peer PIPE` (argc 3), except the caller-death row. Common paired success means
+broker `E1S10 TRANSPORT OK`, `E1S10 CASE MODE OK`, `E1S10 OK`, exit 0 and
+flushed adapter `.done=0`; peer `E1S10 PEER RESULT marker=0`, `E1S10 PEER OK`,
+exit 0. Harness greps the completion lines, rejects FAIL, and keeps the real
+transport positive control mandatory even for negative token cases. Additional
+stage names below have the same `E1S10 ` prefix; they aid diagnosis, while the
+case-specific completion certifies all assertions for that mode succeeded.
+
+| Cases checked | Broker path / additional output on pass | Peer / harness agreement |
+| --- | --- | --- |
+| `accept` Alice/Carol; `replay` | Two installed contexts issue successfully with different logons; `ISSUED FIRST`, `ISSUED SECOND`, `REPLAY CHECKED`; all token-shape/response/caller checks remain. | Common paired success; exactly two `IDENTITY OK` lines are required for child/grandchild. Alice/Carol SID difference is checked before the cases. |
+| `unknown`, `tombstone`, `stale` | Install succeeds, then real lookup denies ISSUE and retry: `INSTALLED`, `ISSUE DENIED`, `REPLAY CHECKED`. Unknown uses absent name/arbitrary key; tombstone uses saved retired key/SID with NSS identity removed; stale increments generation only in the record. | Common paired success; all three modes exist and args match. |
+| `no-cap` | After real transport, NEGOTIATE without TOKEN_V1 must return STATUS_NOT_SUPPORTED with zero caps/context/token/size; `NO CAP DENIED`. No installation or ISSUE. | Common paired success; tightened from any nonzero status to the handler's precise status. |
+| `digest`, `evidence` | Mutate only after install; ISSUE denies, restore bytes, retry denies; `ISSUE DENIED`, `REPLAY CHECKED`. | Common paired success; original input restored before retry. |
+| `expired` | Sleep 5100 ms after install; ISSUE and retry deny; `ISSUE DENIED`, `REPLAY CHECKED`. | Common paired success; five-second token expiry unchanged despite larger outer bounds. |
+| `absent-install` | Skip TEST_INSTALL; ISSUE and retry deny; no INSTALLED marker. | Common paired success; the mode is recognized and uses negotiated context. |
+| `raw-short`, `raw-trailing`, `raw-oversized`, `raw-malformed` | Raw calls submit 203/205/269 bytes or reserved-field corruption; status ACCESS_DENIED, no raw reply handles, canonical server failure; restored 204-byte retry denies. | Common paired success; four names match dispatch; carrier offsets and current protocol guard checked. |
+| `thread`, `process` | Copied context ISSUE denies; original owner then issues twice; `COPY DENIED`, `ISSUED FIRST`, `ISSUED SECOND`, `REPLAY CHECKED`. Process uses inherited mapping/context; `copied HANDLE` argc 3 exists. | Common paired success plus two IDENTITY OK lines. Copied child inherits adapter stdout/stderr; failure is checked through its exit code and retained output. |
+| `caller-death` | Install, send marker 0x7e, wait for retained process signal, ISSUE/retry deny; `CALLER EXITED`, `ISSUE DENIED`, `REPLAY CHECKED`. No second result write to the exited peer. | Uses existing `peer-death PIPE` mode; peer requires marker **126**, prints PEER OK and exits 0. Forced timeout cannot count as caller death. |
+| `group-removed`, `missing-group` | INSTALLED is flushed before root mutates membership/group; gate release within 3s, ISSUE/retry denial; `MEMBERSHIP GATE RELEASED`, `ISSUE DENIED`, `REPLAY CHECKED`. | Common paired success. Harness waits exact INSTALLED, verifies key/generation unchanged for membership removal, releases gate, restores membership/group and syncs before next case. Deadline failures stay failures. |
+| Lab `denied` Bob/Limited Alice | `denied default` / `denied limited` argc 3 queries actual elevation then requires ACCESS_DENIED for NEGOTIATE/ISSUE/TEST_INSTALL and canonical ISSUE failure; `E1S10 OK`. | No peer. Harness requires exit 0, exact OK, no FAIL, both ABIs. |
+| Normal SYSTEM/Bob/Limited Alice | SYSTEM `normal` argc 2 also checks SYSTEM SID; ordinary `normal-denied default/limited` argc 3 checks elevation. All three operations require STATUS_NOT_SUPPORTED, canonical ISSUE failure and no token; `E1S10 OK`. | No peer/S6. Service case requires `.done=0` plus OK; ordinary cases require exit 0 plus OK and no FAIL. All modes exist. |
+| Benign child/grandchild | `identity SID AUTH_HIGH AUTH_LOW SESSION DEPTH` argc 7 checks its primary SID/type/Full/auth/logon SID/session; depth 1 creates depth 0; each flushes `E1S10 IDENTITY OK`. | Both exit codes are checked; positive S10 cases now also grep exactly two completion lines after `.done`. No profile/production launch interface was added. |
+
+S13 still selects its own source, compiler defines, profile/storage checks and
+`hku-peer PIPE SID KEY NAME LOADED` argc 7 route. Its peer now uses the same
+90-second outer bound and PEER OK check; before/after HKCU checks and the two
+required `E1S13 HKU CHECK OK` lines remain. S13's conditional child behavior is
+unchanged; the unconditional two-IDENTITY-line requirement applies only to S10
+positive `run_case` modes. The diagnostic `pipes` mode runs before private export
+resolution and does not issue tokens or count as a matrix case.
+
+Static verification: Git Bash `bash -n` for the two changed shell files and
+`git diff --check`; no build, harness, Wine, WSL, guest, service or generator
+execution. No table row was omitted from source review. All runtime results,
+actual mixed-ABI compilation, precise old executed branch/peer stall, namespace
+enumeration support, cold-prefix timing, cleanup behavior and S13 regressions
+remain unverified. The existing NOT_COVERED items below remain outside this repair.
 
 ## Explicitly not covered / acceptance still required
 

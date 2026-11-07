@@ -29,7 +29,9 @@ static void e1s13_key_path( HKEY key, const char *sid )
     query_fn query = (query_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtQueryKey");
     check(MultiByteToWideChar(CP_UTF8, 0, sid, -1, sidW, ARRAY_SIZE(sidW)) != 0);
     swprintf(expected, ARRAY_SIZE(expected), L"\\Registry\\User\\%ls", sidW);
-    check(query && !query(key, 3, &value, sizeof(value), &size));
+    last_nt_call = "NtQueryKey(KeyNameInformation)";
+    last_status = query ? query(key, 3, &value, sizeof(value), &size) : (NTSTATUS)0xc00000bb;
+    check(query && !last_status);
     if (query && value.bytes < sizeof(value.name))
     { value.name[value.bytes / sizeof(WCHAR)] = 0; check(!_wcsicmp(value.name, expected)); }
     else check(FALSE);

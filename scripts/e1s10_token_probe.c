@@ -18,16 +18,66 @@
 
 typedef NTSTATUS (WINAPI *create_fn)(ULONG,HANDLE*,HANDLE,ULONGLONG*,const void*,ULONG,HANDLE*,void*,ULONG*);
 typedef DWORD (WINAPI *transport_fn)(HANDLE,DWORD,void*,DWORD,UINT64*);
-static create_fn create_token;
+static create_fn token_export;
 typedef NTSTATUS (__cdecl *server_call_fn)(void *);
 static server_call_fn server_call;
 static unsigned int failures;
-#define check(c) do { if (!(c)) { printf("FAIL line %u: %s\n", __LINE__, #c); failures++; } } while (0)
+static NTSTATUS last_status;
+static const char *last_nt_call = "none";
+static const char *step = "startup";
+
+static BOOL checked( BOOL ok, const char *function, unsigned int line, const char *call )
+{
+    DWORD error = GetLastError();
+    if (!ok)
+    {
+        printf("FAIL step=%s %s:%u call=%s GetLastError=%lu last_NT_call=%s NTSTATUS=%08lx\n",
+               step, function, line, call, (unsigned long)error, last_nt_call, (unsigned long)last_status);
+        fflush(stdout);
+        failures++;
+        SetLastError(error);
+    }
+    return ok;
+}
+
+/* Sample LastError immediately after the expression. For logical assertions
+ * it is ambient context, not a claimed API error. NT calls record their actual
+ * status separately. Function, line and expression distinguish every check. */
+#define test(c) checked(!!(c), __func__, __LINE__, #c)
+#define check(c) do { test(c); } while (0)
+#define require(s,c) do { step = (s); if (!test(c)) goto done; } while (0)
+
+static void progress( const char *stage )
+{
+    step = stage;
+    printf("E1S10 %s\n", stage);
+    fflush(stdout);
+}
+
+static NTSTATUS create_token( ULONG operation, HANDLE *context, HANDLE caller, ULONGLONG *caps,
+                              const void *record, ULONG length, HANDLE *token, void *response, ULONG *size )
+{
+    last_nt_call = operation == WEX_TOKEN_NEGOTIATE ? "NtCreateWexAccountToken(NEGOTIATE)" :
+                   operation == WEX_TOKEN_TEST_INSTALL ? "NtCreateWexAccountToken(TEST_INSTALL)" :
+                   "NtCreateWexAccountToken(ISSUE)";
+    last_status = token_export(operation, context, caller, caps, record, length, token, response, size);
+    return last_status;
+}
 
 static BOOL info( HANDLE token, TOKEN_INFORMATION_CLASS type, void *out, DWORD size )
 {
     DWORD needed;
-    return GetTokenInformation( token, type, out, size, &needed );
+    BOOL ok = GetTokenInformation( token, type, out, size, &needed );
+    if (!ok)
+    {
+        DWORD error = GetLastError();
+        printf("FAIL step=%s GetTokenInformation(class=%u) GetLastError=%lu\n",
+               step, (unsigned int)type, (unsigned long)error);
+        fflush(stdout);
+        failures++;
+        SetLastError(error);
+    }
+    return ok;
 }
 
 #ifdef WEX_E1S13_HKU_PROBE
@@ -126,7 +176,7 @@ static void check_token( HANDLE token, HANDLE caller, PSID expected, const BYTE 
             }
         }
     }
-    else check(FALSE);
+    else check(groups->GroupCount != 0); /* info() printed the failing class. */
     check(admin && logon && primary_found);
     if (info(token, TokenPrivileges, priv_buf, sizeof(priv_buf)))
     {
@@ -144,7 +194,7 @@ static void check_token( HANDLE token, HANDLE caller, PSID expected, const BYTE 
         }
         check(tcb && notify);
     }
-    else check(FALSE);
+    else check(privs->PrivilegeCount != 0);
     check( info(token, TokenOwner, owner_buf, sizeof(owner_buf)) && EqualSid(owner->Owner, expected) );
     if (info(token, TokenDefaultDacl, dacl_buf, sizeof(dacl_buf)) && dacl->DefaultDacl)
     {
@@ -153,15 +203,15 @@ static void check_token( HANDLE token, HANDLE caller, PSID expected, const BYTE 
         for (i = 0; i < dacl->DefaultDacl->AceCount; i++)
         {
             ACCESS_ALLOWED_ACE *ace;
-            if (!GetAce(dacl->DefaultDacl, i, (void **)&ace)) { check(FALSE); break; }
+            if (!test(GetAce(dacl->DefaultDacl, i, (void **)&ace))) break;
             check(ace->Header.AceType == ACCESS_ALLOWED_ACE_TYPE && ace->Mask == GENERIC_ALL);
             if (EqualSid((PSID)&ace->SidStart, expected)) found_user = TRUE;
             else if (system && EqualSid((PSID)&ace->SidStart, system)) found_system = TRUE;
-            else check(FALSE);
+            else check(EqualSid((PSID)&ace->SidStart, expected) || (system && EqualSid((PSID)&ace->SidStart, system)));
         }
         check(found_user && found_system);
     }
-    else check(FALSE);
+    else check(dacl->DefaultDacl != NULL);
     check(wex_token_u32(response + 72) == GetLengthSid(expected) && EqualSid((PSID)(response + 76), expected));
     check(wex_token_u64(response + 104) == ((ULONGLONG)(DWORD)stats.AuthenticationId.HighPart << 32 | stats.AuthenticationId.LowPart));
     check(wex_token_u64(response + 112) == ((ULONGLONG)(DWORD)stats.TokenId.HighPart << 32 | stats.TokenId.LowPart));
@@ -209,6 +259,8 @@ static NTSTATUS raw_request( ULONG operation, HANDLE context, ULONGLONG caps,
     r.count = length != 0; r.reply = output;
     r.data[0].ptr = input; r.data[0].size = length;
     status = server_call(&r);
+    last_nt_call = "wine_server_call(create_e1s_account_token/ISSUE)";
+    last_status = status;
     check(!wex_token_u32(r.u.bytes + 8) && !wex_token_u32(r.u.bytes + 12));
     /* Raw replies do not receive the PE wrapper's canonicalization. These
      * cases reach e1s_issue, which must supply its own cleared failure. */
@@ -257,7 +309,7 @@ static int denied( TOKEN_ELEVATION_TYPE expected, BOOL normal, BOOL system_check
     status = create_token(WEX_TOKEN_TEST_INSTALL, &context, GetCurrentProcess(), &caps,
                           input, sizeof(input), &token, NULL, &size);
     check(status == (normal ? (NTSTATUS)0xc00000bb : (NTSTATUS)0xc0000022) && !token && !size);
-    if (!failures) puts("E1S10 OK");
+    if (!failures) progress("OK");
     return failures ? 1 : 0;
 }
 
@@ -280,10 +332,22 @@ static DWORD WINAPI copied_thread( void *arg )
 
 static BOOL wait_child( PROCESS_INFORMATION *pi )
 {
-    DWORD code = ~0u;
-    BOOL done = WaitForSingleObject(pi->hProcess, 5000) == WAIT_OBJECT_0;
-    if (!done) { TerminateProcess(pi->hProcess, 1); WaitForSingleObject(pi->hProcess, INFINITE); }
-    check(done && GetExitCodeProcess(pi->hProcess, &code) && !code);
+    DWORD code = ~0u, result = WaitForSingleObject(pi->hProcess, 5000);
+    BOOL done = result == WAIT_OBJECT_0;
+    check(result == WAIT_OBJECT_0); /* WAIT_TIMEOUT is not a GetLastError result. */
+    if (!done)
+    {
+        printf("FAIL step=%s call=WaitForSingleObject(child) wait_result=%lu\n", step, (unsigned long)result);
+        fflush(stdout);
+        if (test(TerminateProcess(pi->hProcess, 1))) check(WaitForSingleObject(pi->hProcess, 5000) == WAIT_OBJECT_0);
+    }
+    check(GetExitCodeProcess(pi->hProcess, &code));
+    if (code)
+    {
+        printf("FAIL step=%s call=GetExitCodeProcess(child) exit_code=%lu\n", step, (unsigned long)code);
+        fflush(stdout);
+        failures++;
+    }
     CloseHandle(pi->hThread); CloseHandle(pi->hProcess);
     return done && !code;
 }
@@ -315,6 +379,10 @@ static void copy_context( HANDLE context, const BYTE *input, BOOL process )
             check(GetModuleFileNameA(NULL, exe, sizeof(exe)) != 0);
             snprintf(command, sizeof(command), "\"%s\" copied %llu", exe, (unsigned long long)(ULONG_PTR)mapping);
             si.cb = sizeof(si);
+            si.dwFlags = STARTF_USESTDHANDLES;
+            si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+            si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+            si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
             check(CreateProcessA(exe, command, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi));
             if (pi.hProcess) wait_child(&pi);
         }
@@ -382,7 +450,7 @@ static int identity( char **argv )
     e1s13_identity(argv[2]);
 #endif
     LocalFree(expected);
-    if (!failures) puts("E1S10 IDENTITY OK");
+    if (!failures) progress("IDENTITY OK");
     return failures ? 1 : 0;
 }
 
@@ -390,24 +458,49 @@ static int identity( char **argv )
  * cannot receive token/context handles; one byte is the whole fixture message. */
 static int peer( const char *name, BOOL death )
 {
-    HANDLE pipe;
-    DWORD n;
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    DWORD n = 0;
     BYTE marker = 0x5a;
+    printf("E1S10 PEER START pipe=%s death=%u\n", name, (unsigned int)death); fflush(stdout);
 #ifdef WEX_E1S13_HKU_PROBE
     e1s13_peer_state(FALSE);
+    progress("PEER S13 BEFORE");
 #endif
-    if (!WaitNamedPipeA(name, 10000)) return 2;
+    progress("PEER WAIT PIPE");
+    require("peer-wait-pipe", WaitNamedPipeA(name, 10000));
+    progress("PEER PIPE AVAILABLE");
     pipe = CreateFileA(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-    if (pipe == INVALID_HANDLE_VALUE) return 2;
-    if (!WriteFile(pipe, &marker, 1, &n, NULL) || n != 1 || !ReadFile(pipe, &marker, 1, &n, NULL) || n != 1)
-    { CloseHandle(pipe); return 2; }
-    if (death && marker == 0x7e) marker = 0;
+    require("peer-open-pipe/CreateFileA", pipe != INVALID_HANDLE_VALUE);
+    progress("PEER CONNECTED");
+    require("peer-send-marker", WriteFile(pipe, &marker, 1, &n, NULL));
+    require("peer-send-marker-length", n == 1);
+    progress("PEER MARKER SENT");
+    require("peer-read-result", ReadFile(pipe, &marker, 1, &n, NULL));
+    require("peer-read-result-length", n == 1);
+    printf("E1S10 PEER RESULT marker=%u\n", (unsigned int)marker); fflush(stdout);
+    require("peer-result", marker == (death ? 0x7e : 0));
 #ifdef WEX_E1S13_HKU_PROBE
     e1s13_peer_state(TRUE);
-    if (failures) marker = 1;
+    progress("PEER S13 AFTER");
 #endif
-    CloseHandle(pipe);
-    return marker;
+done:
+    if (pipe != INVALID_HANDLE_VALUE) check(CloseHandle(pipe));
+    if (!failures) progress("PEER OK");
+    return failures ? 1 : 0;
+}
+
+static BOOL transport_step( transport_fn transport, HANDLE pipe, DWORD operation,
+                            void *buffer, DWORD size, UINT64 *channel, const char *name )
+{
+    DWORD error = transport(pipe, operation, buffer, size, channel);
+    if (error)
+    {
+        printf("FAIL step=%s call=WexE1s6Transport(%s) Win32_return=%lu GetLastError=%lu\n",
+               step, name, (unsigned long)error, (unsigned long)GetLastError());
+        fflush(stdout);
+        failures++;
+    }
+    return !error;
 }
 
 static BOOL transport_control( transport_fn transport, HANDLE pipe, BYTE *reg, UINT64 *channel )
@@ -420,11 +513,14 @@ static BOOL transport_control( transport_fn transport, HANDLE pipe, BYTE *reg, U
     wex_token_put32(answer + 28, 1); wex_token_put32(answer + 36, 2);
     memset(answer + 40, 0x33, 96); memcpy(answer + 136, reg + 88, 16);
     memcpy(original, answer, sizeof(original));
-    if (transport(pipe, E1S6_CHILD_START, packet, sizeof(packet), channel) ||
-        transport(pipe, E1S6_EXCHANGE, packet, sizeof(packet), channel) ||
-        memcmp(answer, original, sizeof(original))) return FALSE;
-    puts("E1S10 TRANSPORT OK"); fflush(stdout);
+    require("s6-child-start", transport_step(transport, pipe, E1S6_CHILD_START, packet, sizeof(packet), channel, "CHILD_START"));
+    progress("S6 CHILD STARTED");
+    require("s6-exchange", transport_step(transport, pipe, E1S6_EXCHANGE, packet, sizeof(packet), channel, "EXCHANGE"));
+    require("s6-byte-identical-echo/memcmp", !memcmp(answer, original, sizeof(original)));
+    progress("TRANSPORT OK");
     return TRUE;
+done:
+    return FALSE;
 }
 
 static int broker( int argc, char **argv )
@@ -441,49 +537,71 @@ static int broker( int argc, char **argv )
     TOKEN_STATISTICS before, after;
     NTSTATUS status;
     BYTE marker;
-    BOOL negative, transported = FALSE;
-    HMODULE host = LoadLibraryW(L"wexhost.dll");
-    transport_fn transport = host ? (transport_fn)(void *)GetProcAddress(host, "WexE1s6Transport") : NULL;
-    const char *mode;
-    if ((argc != 8 && argc != 9) || !transport) return 2;
+    BOOL negative, transported = FALSE, greeted = FALSE;
+    HMODULE host = NULL;
+    transport_fn transport = NULL;
+    const char *mode = "invalid";
+    require("broker-arguments/argc", argc == 8 || argc == 9);
     mode = argv[7];
+    printf("E1S10 BROKER START pipe=%s mode=%s abi=%u\n", argv[2], mode, (unsigned int)(8 * sizeof(void *)));
+    fflush(stdout);
+    step = "broker-load-wexhost/LoadLibraryW";
+    host = LoadLibraryW(L"wexhost.dll");
+    require("broker-load-wexhost/LoadLibraryW", host != NULL);
+    transport = (transport_fn)(void *)GetProcAddress(host, "WexE1s6Transport");
+    require("broker-transport-export/GetProcAddress(WexE1s6Transport)", transport != NULL);
     negative = strcmp(mode, "accept") && strcmp(mode, "replay") &&
                strcmp(mode, "thread") && strcmp(mode, "process");
-    if (strcmp(mode,"accept") && strcmp(mode,"unknown") && strcmp(mode,"tombstone") &&
+    require("broker-mode/strcmp", !(strcmp(mode,"accept") && strcmp(mode,"unknown") && strcmp(mode,"tombstone") &&
         strcmp(mode,"stale") && strcmp(mode,"no-cap") && strcmp(mode,"digest") &&
         strcmp(mode,"evidence") && strcmp(mode,"expired") && strcmp(mode,"replay") &&
         strcmp(mode,"thread") && strcmp(mode,"process") && strcmp(mode,"caller-death") &&
         strcmp(mode,"group-removed") && strcmp(mode,"missing-group") && strcmp(mode,"absent-install") &&
         strcmp(mode,"raw-short") && strcmp(mode,"raw-trailing") && strcmp(mode,"raw-oversized") &&
-        strcmp(mode,"raw-malformed")) return 2;
+        strcmp(mode,"raw-malformed")));
     generation = _strtoui64(argv[5], NULL, 10);
-    if (!generation || !unhex(argv[4], in + 124) || strlen(argv[3]) > 63 ||
-        !ConvertStringSidToSidA(argv[6], &expected)) return 2;
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GRGW;;;WD)",
-          SDDL_REVISION_1, &sd, NULL)) goto done;
+    require("broker-map-generation/_strtoui64", generation != 0);
+    require("broker-account-key/unhex", unhex(argv[4], in + 124));
+    require("broker-account-name/strlen", strlen(argv[3]) > 0 && strlen(argv[3]) <= 63);
+    require("broker-account-sid", ConvertStringSidToSidA(argv[6], &expected));
+    require("broker-pipe-sd", ConvertStringSecurityDescriptorToSecurityDescriptorA("D:(A;;GA;;;SY)(A;;GRGW;;;WD)",
+          SDDL_REVISION_1, &sd, NULL));
     sa.lpSecurityDescriptor = sd;
     pipe = CreateNamedPipeA(argv[2], PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
         PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS, 1, 1, 1, 10000, &sa);
-    if (pipe == INVALID_HANDLE_VALUE) goto done;
-    puts("E1S10 READY"); fflush(stdout);
-    if (!ConnectNamedPipe(pipe, NULL) && GetLastError() != ERROR_PIPE_CONNECTED) goto done;
-    if (!ReadFile(pipe, &marker, 1, &n, NULL) || n != 1 || marker != 0x5a ||
-        !GetNamedPipeClientProcessId(pipe, &pid)) goto done;
-    process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
-    if (!process || !OpenProcessToken(process, TOKEN_QUERY, &caller) ||
-        !info(caller, TokenStatistics, &before, sizeof(before)) ||
-        !info(caller, TokenSessionId, &session, sizeof(session))) goto done;
-    if (transport(pipe, E1S6_OPEN, reg, sizeof(reg), &channel)) goto done;
+    require("broker-create-pipe/CreateNamedPipeA", pipe != INVALID_HANDLE_VALUE);
+    progress("READY");
+    require("broker-connect-pipe", ConnectNamedPipe(pipe, NULL) || GetLastError() == ERROR_PIPE_CONNECTED);
+    progress("BROKER CONNECTED");
+    require("broker-read-marker", ReadFile(pipe, &marker, 1, &n, NULL));
+    require("broker-read-marker-length", n == 1);
+    require("broker-read-marker-value", marker == 0x5a);
+    greeted = TRUE;
+    require("broker-peer-pid", GetNamedPipeClientProcessId(pipe, &pid));
+    /* open_token requires PROCESS_QUERY_INFORMATION when elevation is enforced
+     * (server/token.c). LIMITED_INFORMATION alone cannot open even TOKEN_QUERY.
+     * process_map_access also grants LIMITED_INFORMATION, needed by TEST_INSTALL. */
+    process = OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, FALSE, pid);
+    require("broker-open-peer/OpenProcess(PROCESS_QUERY_INFORMATION|SYNCHRONIZE)", process != NULL);
+    require("broker-open-peer-token", OpenProcessToken(process, TOKEN_QUERY, &caller));
+    require("broker-peer-statistics", info(caller, TokenStatistics, &before, sizeof(before)));
+    require("broker-peer-session", info(caller, TokenSessionId, &session, sizeof(session)));
+    progress("BROKER PEER QUERIED");
+    require("s6-open", transport_step(transport, pipe, E1S6_OPEN, reg, sizeof(reg), &channel, "OPEN"));
     transported = TRUE;
-    if (!transport_control(transport, pipe, reg, &channel)) goto done;
+    progress("S6 OPENED");
+    require("s6-positive-control/transport_control", transport_control(transport, pipe, reg, &channel));
     if (!strcmp(mode,"no-cap")) caps &= ~0x80u;
+    step = "broker-first-negotiate";
     status = create_token(WEX_TOKEN_NEGOTIATE, &context, NULL, &caps, NULL, 0, &token, NULL, &size);
     if (!strcmp(mode,"no-cap"))
     {
-        check(status != 0 && !context && !token && !caps);
+        check(status == (NTSTATUS)0xc00000bb && !context && !token && !caps && !size);
+        progress("NO CAP DENIED");
         goto complete;
     }
-    if (status || !context) goto done;
+    require("broker-first-negotiate/NtCreateWexAccountToken", !status && context && !token && !size);
+    progress("NEGOTIATED");
     wex_token_put32(in, 0x00010004); wex_token_put32(in + 4, WEX_TOKEN_REQUEST_SIZE);
     wex_token_put64(in + 8, caps); wex_token_put64(in + 16, 1);
     /* Synthetic metadata, never authentication evidence. Real S6 role and real
@@ -495,27 +613,39 @@ static int broker( int argc, char **argv )
     memset(in + 188, 0x22, 16); memcpy(in + 204, argv[3], strlen(argv[3]));
     if (strcmp(mode,"absent-install"))
     {
+        step = "broker-first-install";
         status = create_token(WEX_TOKEN_TEST_INSTALL, &context, process, &caps, in, sizeof(in), &token, NULL, &size);
-        if (status) goto done;
+        require("broker-first-install/NtCreateWexAccountToken", !status && !token && !size);
+        progress("INSTALLED");
     }
-    if (!strcmp(mode,"thread") || !strcmp(mode,"process")) copy_context(context, in, !strcmp(mode,"process"));
+    if (!strcmp(mode,"thread") || !strcmp(mode,"process"))
+    {
+        step = "broker-copy-context";
+        copy_context(context, in, !strcmp(mode,"process"));
+        require("broker-copy-context/result", !failures);
+        progress("COPY DENIED");
+    }
     if (!strcmp(mode,"group-removed") || !strcmp(mode,"missing-group"))
     {
         DWORD start = GetTickCount();
-        if (argc != 9) goto done;
-        puts("E1S10 INSTALLED"); fflush(stdout);
+        require("broker-membership-gate/argc", argc == 9);
         while (GetFileAttributesA(argv[8]) == INVALID_FILE_ATTRIBUTES && GetTickCount() - start < 3000) Sleep(10);
-        if (GetFileAttributesA(argv[8]) == INVALID_FILE_ATTRIBUTES) goto done;
+        require("broker-membership-gate", GetFileAttributesA(argv[8]) != INVALID_FILE_ATTRIBUTES);
+        progress("MEMBERSHIP GATE RELEASED");
     }
     if (!strcmp(mode,"caller-death"))
     {
         marker = 0x7e;
-        if (!WriteFile(pipe, &marker, 1, &n, NULL) || n != 1 || WaitForSingleObject(process, 3000) != WAIT_OBJECT_0) goto done;
+        require("broker-caller-death-send", WriteFile(pipe, &marker, 1, &n, NULL));
+        require("broker-caller-death-send-length", n == 1);
+        require("broker-caller-death-wait/WaitForSingleObject", WaitForSingleObject(process, 3000) == WAIT_OBJECT_0);
+        progress("CALLER EXITED");
     }
     if (!strcmp(mode,"digest")) in[24] ^= 1;
     if (!strcmp(mode,"evidence")) in[188] ^= 1;
     if (!strcmp(mode,"expired")) Sleep(5100);
     size = sizeof(out); memset(out, 0xcc, sizeof(out));
+    step = "broker-first-issue";
     if (!strncmp(mode,"raw-",4))
     {
         if (!strcmp(mode,"raw-short")) input_size--;
@@ -538,11 +668,13 @@ static int broker( int argc, char **argv )
     if (negative)
     {
         check(status == (NTSTATUS)0xc0000022 && !token); failure_record(out, size, status);
+        progress("ISSUE DENIED");
     }
     else
     {
         BYTE first_auth[8];
-        check(!status && token && size == sizeof(out));
+        require("broker-first-issue/NtCreateWexAccountToken", !status && token && size == sizeof(out));
+        progress("ISSUED FIRST");
         if (token) check_token(token, caller, expected, out);
 #ifdef WEX_E1S13_HKU_PROBE
         if (token) e1s13_load_checks(context, token, expected, argv[6], in, argc == 9 ? argv[8] : NULL);
@@ -551,20 +683,23 @@ static int broker( int argc, char **argv )
         if (token) { CloseHandle(token); token = NULL; }
         /* Check the first successful transaction as well as the second. */
         size = sizeof(out);
+        step = "broker-first-replay";
         status = create_token(WEX_TOKEN_ISSUE, &context, NULL, &caps, in, WEX_TOKEN_INPUT_SIZE, &token, out, &size);
         check(status == (NTSTATUS)0xc0000022 && !token); failure_record(out, size, status);
         if (token) { CloseHandle(token); token = NULL; }
         CloseHandle(context); context = NULL; size = 0;
+        step = "broker-second-negotiate";
         status = create_token(WEX_TOKEN_NEGOTIATE, &context, NULL, &caps, NULL, 0, &token, NULL, &size);
-        check(!status && context && !token);
-        if (status || !context) goto done;
+        require("broker-second-negotiate/NtCreateWexAccountToken", !status && context && !token && !size);
         wex_token_put64(in + 16, 2); in[88] ^= 1; in[188] ^= 1;
+        step = "broker-second-install";
         status = create_token(WEX_TOKEN_TEST_INSTALL, &context, process, &caps, in, sizeof(in), &token, NULL, &size);
-        check(!status && !token);
-        if (status) goto done;
+        require("broker-second-install/NtCreateWexAccountToken", !status && !token && !size);
         size = sizeof(out);
+        step = "broker-second-issue";
         status = create_token(WEX_TOKEN_ISSUE, &context, NULL, &caps, in, WEX_TOKEN_INPUT_SIZE, &token, out, &size);
-        check(!status && token && size == sizeof(out));
+        require("broker-second-issue/NtCreateWexAccountToken", !status && token && size == sizeof(out));
+        progress("ISSUED SECOND");
         if (token) check_token(token, caller, expected, out);
         check(memcmp(first_auth, out + 104, sizeof(first_auth)) != 0);
 #ifdef WEX_E1S13_HKU_PROBE
@@ -578,10 +713,13 @@ static int broker( int argc, char **argv )
     {
         HANDLE replay = NULL;
         size = sizeof(out);
+        step = "broker-final-replay";
         status = create_token(WEX_TOKEN_ISSUE, &context, NULL, &caps, in, WEX_TOKEN_INPUT_SIZE, &replay, out, &size);
         check(status == (NTSTATUS)0xc0000022 && !replay); failure_record(out, size, status);
         if (replay) CloseHandle(replay);
     }
+    progress("REPLAY CHECKED");
+    step = "broker-caller-unchanged";
     check(info(caller, TokenStatistics, &after, sizeof(after)) && same_luid(before.TokenId, after.TokenId) &&
           same_luid(before.ModifiedId, after.ModifiedId) && same_luid(before.AuthenticationId, after.AuthenticationId));
     if (!negative && token && !failures)
@@ -591,6 +729,7 @@ static int broker( int argc, char **argv )
 #endif
         {
         TOKEN_STATISTICS stats = {0};
+        step = "broker-child-and-grandchild";
         check(info(token, TokenStatistics, &stats, sizeof(stats)));
         /* End the context before any process API can enable a broker privilege
          * and change ModifiedId. Replay above must use the original authority. */
@@ -601,33 +740,81 @@ static int broker( int argc, char **argv )
         }
     }
 complete:
-    if (!failures) puts("E1S10 OK");
+done:
     marker = failures ? 1 : 0;
-    if (strcmp(mode,"caller-death"))
-        check(WriteFile(pipe, &marker, 1, &n, NULL) && n == 1);
-    if (transported) transport(pipe, E1S6_CLOSE, NULL, 0, &channel);
+    step = "broker-peer-result/WriteFile";
+    if (greeted && strcmp(mode,"caller-death"))
+    {
+        if (test(WriteFile(pipe, &marker, 1, &n, NULL)))
+        {
+            step = "broker-peer-result-length/WriteFile";
+            check(n == 1);
+        }
+    }
+    step = "broker-close-transport";
+    if (transported) check(transport_step(transport, pipe, E1S6_CLOSE, NULL, 0, &channel, "CLOSE"));
     if (context) CloseHandle(context);
     if (token) CloseHandle(token);
     if (caller) CloseHandle(caller);
     if (process) CloseHandle(process);
     if (pipe != INVALID_HANDLE_VALUE) CloseHandle(pipe);
     LocalFree(sd); LocalFree(expected); if (host) FreeLibrary(host);
+    if (!failures)
+    {
+        printf("E1S10 CASE %s OK\n", mode); fflush(stdout);
+        progress("OK");
+    }
     return failures ? 1 : 0;
-done:
-    check(FALSE);
-    goto complete;
+}
+
+/* Best-effort failure snapshot in the same owned prefix/server. Wine pipes are
+ * server objects, not entries in /tmp/.wine-UID or Linux FIFOs. */
+static int pipe_namespace( void )
+{
+    WIN32_FIND_DATAA data;
+    HANDLE search;
+    DWORD error;
+    unsigned int count = 0;
+    progress("PIPE NAMESPACE START");
+    search = FindFirstFileA("\\\\.\\pipe\\*", &data);
+    if (search == INVALID_HANDLE_VALUE)
+    {
+        printf("E1S10 PIPE NAMESPACE unavailable GetLastError=%lu\n", (unsigned long)GetLastError());
+        fflush(stdout);
+        return 2;
+    }
+    do
+    {
+        printf("E1S10 PIPE %s\n", data.cFileName); fflush(stdout);
+    } while (++count < 256 && FindNextFileA(search, &data));
+    error = GetLastError();
+    if (count == 256) progress("PIPE NAMESPACE TRUNCATED");
+    else if (error != ERROR_NO_MORE_FILES)
+    {
+        printf("E1S10 PIPE NAMESPACE FindNextFileA GetLastError=%lu\n", (unsigned long)error);
+        fflush(stdout);
+    }
+    FindClose(search);
+    progress("PIPE NAMESPACE END");
+    return 0;
 }
 
 int main( int argc, char **argv )
 {
+    printf("E1S10 START mode=%s abi=%u\n", argc > 1 ? argv[1] : "missing", (unsigned int)(8 * sizeof(void *)));
+    fflush(stdout);
+    if (argc == 2 && !strcmp(argv[1], "pipes")) return pipe_namespace();
 #ifdef WEX_E1S13_HKU_PROBE
     if (argc > 1 && (!strcmp(argv[1],"denied") || !strcmp(argv[1],"normal-denied") || !strcmp(argv[1],"normal")))
         e1s13_denied(strcmp(argv[1],"denied") != 0);
 #endif
-    create_token = (create_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtCreateWexAccountToken");
-    if (!create_token) { puts("FAIL: private export missing"); return 2; }
+    step = "startup-token-export/GetProcAddress(NtCreateWexAccountToken)";
+    token_export = (create_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtCreateWexAccountToken");
+    if (!test(token_export != NULL)) return 2;
+    step = "startup-raw-export/GetProcAddress(wine_server_call)";
     server_call = (server_call_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_server_call");
-    if (!server_call) { puts("FAIL: raw server export missing"); return 2; }
+    if (!test(server_call != NULL)) return 2;
+    step = argc > 1 ? argv[1] : "missing-mode";
 #ifdef WEX_E1S13_HKU_PROBE
     if (argc == 7 && !strcmp(argv[1], "hku-peer"))
     {
@@ -648,7 +835,7 @@ int main( int argc, char **argv )
         HANDLE mapping = (HANDLE)(ULONG_PTR)_strtoui64(argv[2], NULL, 10);
         struct copied_context *copy = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, sizeof(*copy));
         int rc;
-        if (!copy) return 2;
+        if (!test(copy != NULL)) return 2;
         rc = copied_thread(copy);
         CloseHandle(copy->context); UnmapViewOfFile(copy); CloseHandle(mapping);
         return rc;
@@ -656,6 +843,7 @@ int main( int argc, char **argv )
     if (argc == 3 && (!strcmp(argv[1], "peer") || !strcmp(argv[1], "peer-death")))
         return peer(argv[2], !strcmp(argv[1], "peer-death"));
     if (argc > 1 && !strcmp(argv[1], "broker")) return broker(argc, argv);
-    puts("usage: probe denied default|limited | normal | peer[-death] PIPE | broker PIPE NAME KEY GENERATION SID MODE [GATE]");
+    puts("usage: probe denied|normal-denied default|limited | normal | pipes | peer[-death] PIPE | broker PIPE NAME KEY GENERATION SID MODE [GATE]");
+    fflush(stdout);
     return 2;
 }

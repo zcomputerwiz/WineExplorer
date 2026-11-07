@@ -267,8 +267,10 @@ installers/probes on the Windows host. No commands below were executed here.
    from the current root-owned S4 map, never from the caller's SID. The probe
    prints `E1S10 READY` after creating its one-instance pipe. Concurrently, in
    Bob's same server/prefix/session, run the other selected ABI as an ordinary
-   standard client with `peer PIPE`. Use an outer 20-second timeout for **both**
-   processes; the pipe API has blocking waits. Run `denied` separately as a
+   standard client with `peer PIPE`. The current harness uses a finite 120-second
+   broker watchdog and `timeout -k 2 90` for the peer to cover cold prefix/SCM
+   startup (see the S11 failure audit); the pipe API has blocking waits. S6 and
+   synthetic install authority deadlines remain five seconds. Run `denied` separately as a
    filtered Limited administrator and as Bob. Do not use concurrent `wexdev`
    commands that contend on its shared lock; its service adapter may be paired
    with a direct owned-fixture `runuser`/Wine peer invocation as in its harness.

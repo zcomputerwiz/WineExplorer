@@ -67,6 +67,10 @@ requires Linux and all of `WEX_E1S13_HKU_TEST`, `WEX_E1S10_TOKEN_TEST`,
 environment enable switch or new capability advertisement exists. S18 remains
 disabled; S13 registration is not an S1 kind-6 lease, and all S12 reserved lease
 fields remain zero. There is no credential or host-identity transition here.
+Automatic ntdll/kernelbase current-user/classes hooks additionally require
+`WEX_E1S13_HKU_TEST` in both PE architectures; normal clients do not query S13
+on these registry paths. The private PE export remains available for explicit
+denial probes against a normal server.
 
 Append request 325 `load_e1s_profile`; protocol **978**, previously 977.
 S10 request 324 and its byte records remain unchanged. Fixed request layout:
@@ -185,6 +189,15 @@ so SYSTEM/Bob handles and earlier token-security versions do not shape Alice's
 HKCU/HKCR. Bob's startup mapping and legacy cache remain unchanged.
 Managed maximum-access opens below High integrity deny explicitly; they do not
 gain implicit write rights from the ordinary MIC path's explicit-write check.
+Kernelbase resolves its cached roots with explicit `KEY_ALL_ACCESS` and retries
+only ACCESS_DENIED with `KEY_READ`; every attempt uses the existing server
+DACL/MIC checks. Medium/Low callers can obtain read-only roots where those
+checks allow them, while writes to High-labelled keys remain denied. Other
+errors and a failed read attempt never fall back to Bob's roots.
+Raw cache entries/handles remain until process exit, without detection of an
+unexpected close/reuse; S14 must implement handle lifetime and generation
+invalidation before unloading. SID/TokenId/ModifiedId selection is not that
+lifetime contract.
 
 HKCR's private unnamed cache combines live machine classes and Alice's classes
 on open/query/enumeration, with user names/values taking precedence. Its
@@ -210,6 +223,70 @@ Ordinary default-build stubs keep returning predefined HKCU. Managed unload
 calls the clearly named `e1s_profile_unload_s14()` TODO and fails closed while
 the hive stays loaded. No S15 environment/path fallback work was pulled in.
 
+## S12/S13 review repair (2026-11-07)
+
+Read the independent report named in `E1_S12_S13_FINDINGS.md` and checked its
+claims against the current source before editing. All changes below are
+uncommitted and reviewed statically; no build, fixture or runtime execution.
+
+| Finding | Source verdict and repair |
+| --- | --- |
+| 1: query errors treated as managed | The expression did treat failures as true, causing a real default-client compatibility problem. Fail-closed behavior is intentional when identity cannot be established in the enabled lab. Replaced the Boolean classification with a separate NTSTATUS and managed flag. Only a successful reply with managed=1 selects managed roots; successful managed=0 and disabled-server NOT_SUPPORTED can select stock paths. Token-open denial, NO_TOKEN after both effective-token opens, NO_MEMORY and query denial do not prove unmanaged identity, so still deny in the lab. The compile gate removes these new failures from normal-client paths. The review's unconditional success-only Boolean/fallback suggestion would open an identity-error bypass and was not adopted. |
+| 2: extra IPC in ordinary registry use | Real. All kernelbase S13 automatic root, WoW64 union and explicit-token classes hooks, and ntdll RtlOpenCurrentUser's hook, are under WEX_E1S13_HKU_TEST. The test build still queries each effective identity; no process-global unmanaged answer can survive impersonation, primary-token replacement or token security changes. The harness now forces/relinks both client ABIs with the define. |
+| 3: non-High cached roots denied | Real. Kernelbase's implicit MAXIMUM_ALLOWED request conflicted with the server guard. Explicit KEY_ALL_ACCESS with ACCESS_DENIED-only KEY_READ retry preserves read access allowed by DACL/MIC. Server guards, labels and all other authorization checks are unchanged. |
+| 4: ancestor opens on every file open | Real recurring cost, although the old walk already had a 128-iteration bound. One cached unmanaged parent ancestry now retains at most 129 directory pins. Hits verify starting identity and every parent edge/root by statx device/inode/mount ID, avoiding ancestor openat/close calls and repeated secured-list scans. Cache misses/reparenting rebuild the proof; new security publication clears it, including inherited registrations. Cold-walk I/O/mount-ID/depth uncertainty denies and closes all provisional pins. No client path string is accepted as a containment proof. |
+| 5: raw root handles cached indefinitely | Real S13 lifetime limitation; documented in code and above, as the task requests. No S14 unload/invalidation work was added. The report's contrast with stock cached dummy handles is inaccurate: stock special_root_keys also holds opened real handles. |
+
+The ancestry cache retains only one chain: alternating directories can still
+require cold walks to `/`, and hits retain O(depth) statx work plus the existing
+immediate-parent descriptor check. Cache construction and replacement are
+bounded; steady-state latency and syscall improvements have not been measured.
+Cached negative proofs hold descriptors and recheck edges rather than assuming
+an unchanged ctime, path spelling or native directory placement. These checks
+do not make native same-UID races atomic with the later file open; the existing
+same-UID boundary and S14 lifetime limits remain.
+Constructing a negative proof explicitly requires successful fstat and an
+inode lookup that finds no registration; the ordinary SD helper's NULL result
+can also mean fstat failed and is not used as proof of unmanaged ancestry.
+
+The disabled-server fallback must not conflate a missing private export or a
+malformed successful reply with server NOT_SUPPORTED. Kernelbase now returns
+PROCEDURE_NOT_FOUND for the former; the ntdll wrapper rejects the latter with
+DATA_ERROR, retaining output clearing and unexpected-handle closure. These
+indeterminate failures therefore deny rather than selecting stock roots.
+
+Additional Qwen follow-up cases, **not implemented by the existing case table
+below and not run here**, are required in both ABIs:
+
+* Normal clients: trace repeated HKCU/HKCR/WoW64 and RegOpenUserClassesRoot
+  calls and establish that no `load_e1s_profile` request is emitted. With the
+  lab client, alternate Bob/Alice impersonation and token ModifiedId changes;
+  verify success/managed=0 uses stock roots, managed=1 never uses Bob's cache,
+  and injected token-open/query/resource failures deny without a returned key.
+  Also inject a missing private export and malformed success replies (invalid
+  flag, unexpected key or reply payload); require failure and handle cleanup.
+* Lower an otherwise managed token to Medium and Low. Read-only HKCU/HKCR
+  opens and direct queries must succeed where the DACL permits; set/create/
+  delete/security-write and explicit maximum-access requests must remain
+  denied by High NW. Repeat after cache population and token modification.
+* Warm an unmanaged directory cache, then move that directory or an ancestor
+  under a registered profile and try a native-inserted unregistered descendant.
+  Repeat through relative paths, symlink aliases and bind-mount views; denial
+  must survive a moved registered subtree, too. Warm a negative proof before
+  loading another profile or publishing inherited security and check invalidation.
+* Measure cold/repeated/alternating outside-profile opens and inspect directory
+  FD counts. Inject fstat/statx/open failures, missing mount IDs and depth exhaustion;
+  require denial, no leaked provisional descriptors, at most 129 cached pins,
+  and unchanged registered-parent create/inherit/access enforcement.
+
+Repair verification performed: source-text preprocessor guard checks for all
+kernelbase managed helpers/call sites and ntdll's RtlOpenCurrentUser calls;
+manual access-mask, cache-proof, publication invalidation and descriptor
+ownership/cleanup review; `git diff --check` in Wine and for the touched project
+files. The server registry/token/file/fd authorization and protocol/generated
+files match HEAD. No compilation, harness execution, shell syntax parsing,
+generator, runtime probe, benchmark, WSL or VM use in this repair.
+
 ## Qwen build/test handoff
 
 All tests below are implemented but **unrun here**. Use root in clean wexbuild
@@ -231,7 +308,10 @@ bash scripts/test_hku_load.sh
 The entry point conditionally reuses the existing S10 harness and actual S6
 fixture, not copies of their ownership/cleanup code. It forces/rechecks the
 three lab defines on token/registry/storage/security/file/fd objects, separately
-rebuilds S6 objects, relinks, checks normal artifact exclusion, compiles both
+forces ntdll `reg.o` and kernelbase `registry.o` in both `x86_64-windows` and
+`i386-windows` with `WEX_E1S13_HKU_TEST` via architecture-specific CFLAGS,
+rebuilds S6 objects, relinks both client DLLs and server, checks normal artifact
+exclusion (including the UTF-16 union marker in both kernelbase DLLs), compiles both
 probe ABIs and a native S12 provisioner. Root opens a protected synthetic offline
 seed; the native provisioner permanently drops to Bob before prefix mutation.
 Only tracked fixture users/prefixes/configuration/services are used; foreign
@@ -292,3 +372,22 @@ Git Bash invocation was misquoted by the runner; encoded PowerShell invocation
 ran syntax parsing. An initial protocol text-check regex also matched two reply
 dumpers; restricting it to the request-dumper table confirmed matching order.
 None of those failures ran or changed a fixture, VM or service.
+
+Review-repair tooling: initial default PowerShell read/search calls again
+returned exit 0 with empty output; discarded, cause not established, and reads
+were repeated successfully with explicit cmd.exe/login:false. `rg --files
+--hidden -g AGENTS.md -g CLAUDE.md -g !.git` reported access denied for
+`unsloth-tmp`; scoped searches of docs/wine found no additional instruction
+files. `rg -n "^" ... -m ...` returned no matches under this runner; `rg -n .`
+provided the intended source reads. Several cmd.exe searches accidentally
+included a semicolon as part of a path (`registry.c;`, `object.c;`) or a `-m`
+argument and failed with path/not-a-number errors; independent commands
+without separators succeeded. Searches for `wine/server/security.c` and
+`wine/Makefile.in` failed because those files do not exist; checks used
+token.c/handle.c and tools/makedep.c instead. A quoted alternation search also
+returned no matches; separate rg `-e` patterns found the fixture references.
+A quoted multiword rg search split `review` and `repair` into path arguments
+and failed with OS errors 2/123; a single-token `-F S12/S13` search succeeded.
+Large combined output was truncated and relevant portions were reread with
+bounded individual searches. All edits used apply_patch, with no C escapes
+passed through a shell heredoc. No VM/session/service state was changed.

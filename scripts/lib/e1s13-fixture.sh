@@ -57,11 +57,12 @@ PY
         wait_line 'E1S10 READY'
         loaded=0
         case "$mode" in accept|already-loaded|replay) loaded=1 ;; esac
-        run_as "$STD" timeout -k 2 20 "$BUILD/wine" "$OWNED_OUT/e1s10-$((96 - arch)).exe" hku-peer "$pipe" "$SID" "$KEY" "$ADM" "$loaded" \
+        run_as "$STD" timeout -k 2 "$PEER_SECONDS" "$BUILD/wine" "$OWNED_OUT/e1s10-$((96 - arch)).exe" hku-peer "$pipe" "$SID" "$KEY" "$ADM" "$loaded" \
             >"$LOG/$name.peer.log" 2>&1 &
         PEER_PID=$!
         wait "$PEER_PID" || fail "S13 peer: $mode"; PEER_PID=
         ! grep -q FAIL "$LOG/$name.peer.log" || fail 'Bob HKCU changed'
+        tr -d '\r' < "$LOG/$name.peer.log" | grep -qx 'E1S10 PEER OK' || fail 'missing S13 peer completion'
         service_finish "$name"
         [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S13 HKU CHECK OK$')" = 2 ] || fail 'missing S13 checks'
         if [ "$loaded" = 1 ]; then

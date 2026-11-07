@@ -73,6 +73,13 @@ for build in "$LAB_BUILD" "$NORMAL_BUILD"; do
         [ -f "$build/$f" ] || fail "missing built artifact $build/$f"
         protected_path "$build/$f"
     done
+    if [ "$S13_HARNESS" = 1 ]; then
+        for arch in x86_64 i386; do
+            f="dlls/kernelbase/$arch-windows/kernelbase.dll"
+            [ -f "$build/$f" ] || fail "missing built artifact $build/$f"
+            protected_path "$build/$f"
+        done
+    fi
 done
 OWNED_OUT=$(mktemp -d /var/tmp/e1s10-results.XXXXXXXX)
 chmod 0755 "$OWNED_OUT"
@@ -101,16 +108,33 @@ ok probes_both_abis
 # a flag change alone does not cause make to rebuild an existing object.
 LAB_TOKEN_FLAGS='-DWEX_E1S10_TOKEN_TEST -DWEX_E1S6_TRANSPORT_TEST'
 LAB_TOKEN_OBJECTS=(server/token.o)
+LAB_PROFILE_OBJECTS=() LAB_PROFILE_DLLS=()
 if [ "$S13_HARNESS" = 1 ]; then
     LAB_TOKEN_FLAGS+=' -DWEX_E1S13_HKU_TEST'
     LAB_TOKEN_OBJECTS+=(server/registry.o server/e1s_profile.o server/wex_profile_storage.o server/file.o server/fd.o)
+    for arch in x86_64 i386; do
+        LAB_PROFILE_OBJECTS+=("dlls/ntdll/$arch-windows/reg.o" "dlls/kernelbase/$arch-windows/registry.o")
+        LAB_PROFILE_DLLS+=("dlls/ntdll/$arch-windows/ntdll.dll" "dlls/kernelbase/$arch-windows/kernelbase.dll")
+    done
 fi
-for object in "${LAB_TOKEN_OBJECTS[@]}" server/sysrun.o server/named_pipe.o dlls/wexhost/e1s6.o; do rm -f -- "$LAB_BUILD/$object"; done
+for object in "${LAB_TOKEN_OBJECTS[@]}" "${LAB_PROFILE_OBJECTS[@]}" server/sysrun.o server/named_pipe.o dlls/wexhost/e1s6.o; do rm -f -- "$LAB_BUILD/$object"; done
 make -C "$LAB_BUILD" -j1 V=1 CFLAGS="-g -O2 $LAB_TOKEN_FLAGS" \
     "${LAB_TOKEN_OBJECTS[@]}" >"$OWNED_OUT/build-token.log" 2>&1 || fail 'lab token/profile objects build (see results)'
+if [ "$S13_HARNESS" = 1 ]; then
+    # PE objects use architecture-specific CFLAGS, independently of the server.
+    # Force both ABIs so old ungated/default objects cannot silently survive.
+    make -C "$LAB_BUILD" -j1 V=1 \
+        x86_64_CFLAGS='-g -O2 -DWEX_E1S13_HKU_TEST' i386_CFLAGS='-g -O2 -DWEX_E1S13_HKU_TEST' \
+        "${LAB_PROFILE_OBJECTS[@]}" >"$OWNED_OUT/build-profile-client.log" 2>&1 || fail 'S13 client objects build'
+    for object in "${LAB_PROFILE_OBJECTS[@]}"; do
+        grep -F -- "$object" "$OWNED_OUT/build-profile-client.log" >/dev/null || fail "missing S13 client compile: $object"
+    done
+    tr '\n' ' ' <"$OWNED_OUT/build-profile-client.log" |
+        grep -F -- -DWEX_E1S13_HKU_TEST >/dev/null || fail 'missing S13 client compiler flag'
+fi
 make -C "$LAB_BUILD" -j1 V=1 CFLAGS="-g -O2 -DWEX_E1S6_TRANSPORT_TEST" \
     server/sysrun.o server/named_pipe.o dlls/wexhost/e1s6.o >"$OWNED_OUT/build-s6.log" 2>&1 || fail 'lab S6 objects build'
-make -C "$LAB_BUILD" -j1 V=1 server/wineserver dlls/wexhost/wexhost.so \
+make -C "$LAB_BUILD" -j1 V=1 server/wineserver dlls/wexhost/wexhost.so "${LAB_PROFILE_DLLS[@]}" \
     >"$OWNED_OUT/build-link.log" 2>&1 || fail 'lab relink'
 # make V=1 prints each compile command over several continuation lines: join the log into one line first
 tr '\n' ' ' <"$OWNED_OUT/build-token.log" |
@@ -122,11 +146,20 @@ done
 has_str() { LC_ALL=C grep -aFq -- "$2" "$1"; }
 if [ "$S13_HARNESS" = 1 ]; then
     for object in "${LAB_TOKEN_OBJECTS[@]}"; do
-        grep -F "${object%.o}.c" "$OWNED_OUT/build-token.log" | grep -F -- -DWEX_E1S13_HKU_TEST >/dev/null || fail "missing S13 compiler flag: $object"
+        tr '\n' ' ' <"$OWNED_OUT/build-token.log" |
+            grep -E "(gcc|clang|cc) .* -c .*${object%.o}\\.c .*-DWEX_E1S13_HKU_TEST" >/dev/null || fail "missing S13 compiler flag: $object"
     done
     has_str "$LAB_BUILD/server/wineserver" E1S13View || fail 'S13 lab hook absent'
     for marker in E1S13View user.WEX_E1S13_SD; do
         ! has_str "$NORMAL_BUILD/server/wineserver" "$marker" || fail "normal server contains $marker"
+    done
+    for arch in x86_64 i386; do
+        client="dlls/kernelbase/$arch-windows/kernelbase.dll"
+        # The view marker is WCHAR data; a raw ASCII scan cannot find it.
+        LC_ALL=C strings -e l "$LAB_BUILD/$client" >"$OWNED_OUT/client-lab-$arch.strings" || fail 'lab client strings'
+        LC_ALL=C strings -e l "$NORMAL_BUILD/$client" >"$OWNED_OUT/client-normal-$arch.strings" || fail 'normal client strings'
+        grep -qxF _E1S13View "$OWNED_OUT/client-lab-$arch.strings" || fail "S13 lab client hook absent: $arch"
+        ! grep -qxF _E1S13View "$OWNED_OUT/client-normal-$arch.strings" || fail "normal client contains S13 hook: $arch"
     done
 fi
 has_str "$LAB_BUILD/server/wineserver" 'E1S token context (private)' || fail 'S10 lab token hook absent'
@@ -148,7 +181,12 @@ run_fixture() (
     LOG="$OWNED_OUT/$phase"
     CONF=/etc/wineexplorer/sysrun.conf LIBEXEC=/usr/local/libexec/wineexplorer
     SYS32="$M/drive_c/windows/system32"
-    STAGED_ID= HIVE_ID= MACHINE_ID= XV_PID= BOOT_PID= PEER_PID= WATCH_PID=
+    STAGED_ID= HIVE_ID= MACHINE_ID= XV_PID= BOOT_PID= PEER_PID= WATCH_PID= CASE_DIR=
+    # S6's el_wait_file allows 90s, and its service-report wait allows 120s.
+    # Cold Wine/SCM and the other ABI can start before main() prints anything.
+    # These are outer orchestration limits; S6 and TEST_INSTALL keep their
+    # original five-second authority deadlines, and the membership gate is 3s.
+    CASE_SECONDS=120 PEER_SECONDS=90
     declare -a OWNED_USERS=() OWNED_GROUPS=() OWNED_DIRS=() DIR_IDS=()
     install -d -m 0755 "$LOG"
     run_as() {
@@ -167,10 +205,48 @@ run_fixture() (
         done
         return "$rc"
     }
+    snapshot_pipes() {
+        local output=$1 rc
+        if [ ! -d "/home/$STD/.wine" ]; then
+            echo 'Pipe namespace unavailable: owned prefix has not been created' > "$output"
+            return 0
+        fi
+        # A server stalled in a request may not answer enumeration. Do not let
+        # evidence collection delay cleanup indefinitely or use a different UID.
+        if run_as "$STD" timeout -k 2 5 "$BUILD/wine" "$OWNED_OUT/e1s10-64.exe" pipes >"$output" 2>&1; then :
+        else rc=$?; echo "Pipe namespace unavailable/incomplete: exit=$rc (5s bound)" >> "$output"; fi
+    }
+    retain_evidence() {
+        local file
+        install -d -m 0755 "$LOG/fixture" || return 1
+        # Copy before deleting provisioning, including peers that failed before
+        # service_finish and all server/service stderr inherited from bootstrap.
+        for file in "$ROOT"/case-*/broker.log "$ROOT"/case-*/broker.log.done \
+                    "$ROOT"/case-*/broker-timeout "$ROOT"/case-*/*.stderr.log \
+                    "$ROOT"/case-*/*pipes.log "$ROOT"/case-*/command.txt \
+                    "$ROOT"/case-*/command.bin "$ROOT/setup.log"; do
+            [ -f "$file" ] && [ ! -L "$file" ] || continue
+            cp -- "$file" "$LOG/fixture/$(basename "$(dirname "$file")")-$(basename "$file")" || return 1
+        done
+        for file in "$LOG"/*.peer.log "$LOG"/bootstrap-*.log "$LOG"/denied-*.log; do
+            [ -f "$file" ] && [ ! -L "$file" ] || continue
+            cp -- "$file" "$LOG/fixture/$(basename "$file")" || return 1
+        done
+    }
     cleanup_phase() {
         local rc=$? i user uid safe_clean=1 child_owned=$E1S6_CHILD_ID policy_owned=$E1S6_POLICY_ID
         trap - EXIT
         set +e
+        # Disable the watchdog before the failure snapshot so it cannot tear
+        # down the pipe namespace during enumeration. A timeout watchdog takes
+        # its own snapshot before killing the prefix too.
+        if [ -n "$WATCH_PID" ]; then kill "$WATCH_PID" 2>/dev/null; wait "$WATCH_PID" 2>/dev/null; WATCH_PID=; fi
+        if [ "$rc" != 0 ] && [ -n "$CASE_DIR" ] && [ ! -L "$CASE_DIR" ] &&
+           [ -d "$CASE_DIR" ] && [ "${#DIR_IDS[@]}" -gt 0 ] &&
+           [ "$(stat -c '%d:%i' "$ROOT" 2>/dev/null)" = "${DIR_IDS[0]}" ]; then
+            snapshot_pipes "$CASE_DIR/failure-pipes.log"
+            retain_evidence || rc=1
+        fi
         stop_prefixes || rc=1
         for i in "$WATCH_PID" "$PEER_PID" "$BOOT_PID"; do
             [ -z "$i" ] || { kill "$i" 2>/dev/null; wait "$i" 2>/dev/null; }
@@ -180,14 +256,9 @@ run_fixture() (
            { [ -n "$policy_owned" ] && { [ -e "$E1S6_POLICY" ] || [ -L "$E1S6_POLICY" ]; }; }; then
             echo 'FAIL: S6 fixture cleanup refused a replacement' >&2; rc=1
         fi
-        # Preserve failure output too (a failed peer can precede service_finish).
+        # Copy again after shutdown to include final flushed diagnostics.
         if [ "${#DIR_IDS[@]}" -gt 0 ] && [ "$(stat -c '%d:%i' "$ROOT" 2>/dev/null)" = "${DIR_IDS[0]}" ]; then
-            install -d -m 0755 "$LOG/fixture" || rc=1
-            for i in "$ROOT"/case-*/broker.log "$ROOT"/case-*/broker.log.done \
-                     "$ROOT"/case-*/broker-timeout "$ROOT/setup.log"; do
-                [ -f "$i" ] && [ ! -L "$i" ] || continue
-                cp -- "$i" "$LOG/fixture/$(basename "$(dirname "$i")")-$(basename "$i")" || rc=1
-            done
+            retain_evidence || rc=1
         fi
         [ -z "$XV_PID" ] || { kill "$XV_PID" 2>/dev/null; wait "$XV_PID" 2>/dev/null; }
         if [ -n "$MACHINE_ID" ] && { [ -L "$M" ] || [ "$(stat -c '%d:%i' "$M" 2>/dev/null)" != "$MACHINE_ID" ]; }; then
@@ -254,8 +325,11 @@ run_fixture() (
     wex_fixture_machine || fail "machine provisioning; see $ROOT/setup.log"
     MACHINE_ID=$(stat -c '%d:%i' "$M")
     if [ "$S13_HARNESS" = 1 ]; then
-        printf 'WINE REGISTRY Version 2\n\n' > "$ROOT/s13-seed.reg"
-        chmod 0600 "$ROOT/s13-seed.reg"
+        printf '%s\n' 'WINE REGISTRY Version 2' '' \
+            '[Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced] 0' \
+            '"HideFileExt"=dword:00000000' > "$ROOT/s13-seed.reg"
+        chmod 0644 "$ROOT/s13-seed.reg"
+        { stat -c '%n %u:%g %a size=%s links=%h' "$ROOT" "$ROOT/s13-seed.reg"; getfacl -p "$ROOT" "$ROOT/s13-seed.reg"; getfattr -d -m - "$ROOT" "$ROOT/s13-seed.reg"; } >"$LOG/seed-state.log" 2>&1 || true
         E1S13_BASE_ID=
     fi
     [ "$(stat -c '%a %U:%G' "$LIBEXEC/wex-sysrun")" = "2755 root:$GRP" ] || fail 'launcher not setgid root:fixture-group'
@@ -265,7 +339,8 @@ run_fixture() (
         OWNED_USERS+=("$user")
     done
     for user in "$ADM" "$CAR" "$RET"; do usermod -a -G "$ADMIN_GROUP" "$user"; done
-    "$OWNED_OUT/wex-accounts" sync >"$LOG/map-sync.log"
+    { stat -c '%n %u:%g %a links=%h' / /etc /etc/wineexplorer /etc/wineexplorer/accounts.map; getfacl -p / /etc /etc/wineexplorer /etc/wineexplorer/accounts.map 2>&1; getent group "$GRP"; ls -la /etc/wineexplorer; } >"$LOG/map-state-pre.log" 2>&1 || true
+    "$OWNED_OUT/wex-accounts" sync >"$LOG/map-sync.log" || { cp -p /etc/wineexplorer/sysrun.conf "$LOG/sysrun.conf.copy" 2>/dev/null; fail "wex-accounts sync (see map-state-pre.log)"; }
     map_fields() {
         local row
         GENERATION=$(awk 'NR == 1 {print $3}' /etc/wineexplorer/accounts.map)
@@ -276,6 +351,7 @@ run_fixture() (
     map_fields "$ADM"; ALICE_SID=$SID
     map_fields "$CAR"; [ "$SID" != "$ALICE_SID" ] || fail 'Alice and Carol have the same SID'
     map_fields "$RET"; RET_KEY=$KEY RET_SID=$SID
+    { stat -c '%n %u:%g %a links=%h' /etc/wineexplorer /etc/wineexplorer/accounts.map; getfacl -p /etc/wineexplorer /etc/wineexplorer/accounts.map 2>&1; getent group "$GRP"; } >"$LOG/map-state.log" 2>&1 || true
     "$OWNED_OUT/wex-accounts" retire "$RET" >"$LOG/map-retire.log"
     grep -q "^$RET .* $RET_KEY tombstone " /etc/wineexplorer/accounts.map || fail 'retire did not preserve old key'
     # Keep the tombstone but remove NSS identity so later membership syncs
@@ -314,26 +390,29 @@ run_fixture() (
         BROKER_LOG="$CASE_DIR/broker.log"
         cmd=$(quote_arg "$(winpath "$SYS32/wexelevate_test.exe")")
         for arg in "$@"; do cmd+=" $(quote_arg "$arg")"; done
-        printf '%s' "$cmd" | iconv -f UTF-8 -t UTF-16LE > "$ROOT/command.bin"
-        chmod 0644 "$ROOT/command.bin"
-        image="$(quote_arg "$(winpath "$OWNED_OUT/service64.exe")") E1S10Driver $(quote_arg "$(winpath "$BROKER_LOG")") $(quote_arg "$(winpath "$ROOT/command.bin")")"
+        printf '%s\n' "$cmd" > "$CASE_DIR/command.txt"
+        printf '%s' "$cmd" | iconv -f UTF-8 -t UTF-16LE > "$CASE_DIR/command.bin"
+        chmod 0644 "$CASE_DIR/command.bin"
+        image="$(quote_arg "$(winpath "$OWNED_OUT/service64.exe")") E1S10Driver $(quote_arg "$(winpath "$BROKER_LOG")") $(quote_arg "$(winpath "$CASE_DIR/command.bin")")"
         image=${image//\\/\\\\}; image=${image//\"/\\\"}
         add_service E1S10Driver LocalSystem unused 2 "$image"
-        # This bootstrap has its own 20s bound. Broker completion/exit is
-        # observed via the existing service adapter's flushed .done file.
-        run_as "$STD" timeout -k 2 20 "$BUILD/wine" "$OWNED_OUT/roles64.exe" hold \
-            >"$LOG/bootstrap-$CASE_NO.log" 2>&1 &
+        # Wineserver and service children inherit this stderr: retain it apart
+        # from probe stdout, even if the broker fails before transport startup.
+        run_as "$STD" timeout -k 2 "$((CASE_SECONDS + 10))" "$BUILD/wine" "$OWNED_OUT/roles64.exe" hold \
+            >"$LOG/bootstrap-$CASE_NO.log" 2>"$CASE_DIR/wineserver.stderr.log" &
         BOOT_PID=$!
-        DEADLINE=$((SECONDS + 20))
+        DEADLINE=$((SECONDS + CASE_SECONDS))
         # An independent outer guard bounds the broker even while the parent
         # waits for its separately bounded peer. It only stops Bob's owned
         # prefix and is reaped before another case can start in that prefix.
         (
             trap - EXIT INT TERM
             trap 'exit 0' TERM
-            until [ -f "$BROKER_LOG.done" ]; do
+            until [ -s "$BROKER_LOG.done" ]; do
                 if [ "$SECONDS" -ge "$DEADLINE" ]; then
-                    echo 'FAIL: broker outer 20s timeout' > "$CASE_DIR/broker-timeout"
+                    echo "FAIL: broker outer ${CASE_SECONDS}s timeout" > "$CASE_DIR/broker-timeout"
+                    snapshot_pipes "$CASE_DIR/timeout-pipes.log"
+                    retain_evidence || true
                     run_as "$STD" timeout -k 2 20 "$BUILD/server/wineserver" -k || true
                     exit 1
                 fi
@@ -343,14 +422,16 @@ run_fixture() (
     }
     wait_line() {
         until [ -f "$BROKER_LOG" ] && tr -d '\r' < "$BROKER_LOG" | grep -qxF "$1"; do
-            [ "$SECONDS" -lt "$DEADLINE" ] && [ ! -f "$BROKER_LOG.done" ] || fail "broker readiness $1 ($BROKER_LOG)"
+            [ "$SECONDS" -lt "$DEADLINE" ] && [ ! -s "$BROKER_LOG.done" ] || fail "broker readiness $1 ($BROKER_LOG)"
             sleep .02
         done
     }
     service_finish() {
-        local name=$1 rc
-        until [ -f "$BROKER_LOG.done" ]; do
-            [ "$SECONDS" -lt "$DEADLINE" ] || fail "20s broker timeout: $name"
+        local name=$1 mode=${2:-} rc
+        # The adapter creates .done before writing its exit code. Existence
+        # alone can observe an empty file in that small publication window.
+        until [ -s "$BROKER_LOG.done" ]; do
+            [ "$SECONDS" -lt "$DEADLINE" ] || fail "${CASE_SECONDS}s broker timeout: $name"
             sleep .02
         done
         rc=$(tr -d '\r\n' < "$BROKER_LOG.done")
@@ -361,7 +442,17 @@ run_fixture() (
         if [ "$phase" = lab ]; then
             tr -d '\r' < "$BROKER_LOG" | grep -qx 'E1S10 TRANSPORT OK' || fail "missing S6 positive control: $name"
         fi
-        ! grep -q FAIL "$BROKER_LOG" "$LOG/bootstrap-$CASE_NO.log" || fail "FAIL line: $name"
+        ! grep -q FAIL "$BROKER_LOG" "$LOG/bootstrap-$CASE_NO.log" "$CASE_DIR/wineserver.stderr.log" || fail "FAIL line: $name"
+        if [ -n "$mode" ]; then
+            # Read only after the adapter has flushed all output and published
+            # .done; the peer can exit before the broker finishes cleanup.
+            tr -d '\r' < "$BROKER_LOG" | grep -qxF "E1S10 CASE $mode OK" || fail "missing case completion: $name"
+            case "$mode" in
+                accept|replay|thread|process)
+                    [ "$(tr -d '\r' < "$BROKER_LOG" | grep -cx 'E1S10 IDENTITY OK')" = 2 ] || fail "missing child/grandchild completion: $name"
+                    ;;
+            esac
+        fi
         stop_prefixes || fail "shutdown: $name"
         wait "$BOOT_PID" 2>/dev/null || true; BOOT_PID=
         # Remove the auto-start adapter before standalone denied clients boot
@@ -381,7 +472,7 @@ run_fixture() (
         service_start "$arch" broker "$pipe" "$account" "$KEY" "$GENERATION" "$SID" "$mode" "$(winpath "$gate")"
         wait_line 'E1S10 READY'
         [ "$mode" != caller-death ] || peer_mode=peer-death
-        run_as "$STD" timeout -k 2 20 "$BUILD/wine" "$OWNED_OUT/e1s10-$((96 - arch)).exe" "$peer_mode" "$pipe" \
+        run_as "$STD" timeout -k 2 "$PEER_SECONDS" "$BUILD/wine" "$OWNED_OUT/e1s10-$((96 - arch)).exe" "$peer_mode" "$pipe" \
             >"$LOG/$name.peer.log" 2>&1 &
         PEER_PID=$!
         if [ "$mode" = group-removed ] || [ "$mode" = missing-group ]; then
@@ -397,9 +488,12 @@ run_fixture() (
             else groupdel "$ADMIN_GROUP"; fi
             touch "$gate"
         fi
-        wait "$PEER_PID" || fail "peer exit/20s timeout: $name"; PEER_PID=
+        local peer_rc=0
+        wait "$PEER_PID" || peer_rc=$?; PEER_PID=
+        [ "$peer_rc" = 0 ] || fail "peer exit=$peer_rc (${PEER_SECONDS}s bound): $name; broker=$BROKER_LOG peer=$LOG/$name.peer.log"
         ! grep -q FAIL "$LOG/$name.peer.log" || fail "peer FAIL line: $name"
-        service_finish "$name"
+        tr -d '\r' < "$LOG/$name.peer.log" | grep -qx 'E1S10 PEER OK' || fail "missing peer completion: $name"
+        service_finish "$name" "$mode"
         if [ "$mode" = group-removed ]; then
             usermod -a -G "$ADMIN_GROUP" "$ADM"
             "$OWNED_OUT/wex-accounts" sync >>"$LOG/$name.group.log"
@@ -426,7 +520,7 @@ run_fixture() (
         for spec in "$STD:default" "$ADM:limited"; do
             user=${spec%:*} elevation=${spec#*:}
             deny_mode=denied; [ "$phase" != normal ] || deny_mode=normal-denied
-            run_as "$user" timeout -k 2 20 "$BUILD/wine" "$OWNED_OUT/e1s10-$arch.exe" "$deny_mode" "$elevation" \
+            run_as "$user" timeout -k 2 "$PEER_SECONDS" "$BUILD/wine" "$OWNED_OUT/e1s10-$arch.exe" "$deny_mode" "$elevation" \
                 >"$LOG/denied-$user-$arch.log" 2>&1 || fail "denied as $user ($arch)"
             tr -d '\r' < "$LOG/denied-$user-$arch.log" | grep -qx 'E1S10 OK' || fail 'missing denied completion'
             ! grep -q FAIL "$LOG/denied-$user-$arch.log" || fail 'denied FAIL line'

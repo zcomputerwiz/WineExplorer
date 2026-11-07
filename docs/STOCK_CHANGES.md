@@ -2,6 +2,37 @@
 
 ## E1-S13 disabled managed HKU load (2026-11-07; static only)
 
+S12/S13 independent-review repair (working tree only, static review):
+
+* `wine/dlls/kernelbase/registry.c`, `wine/dlls/ntdll/reg.c`: compile automatic
+  current-user/classes hooks only with `WEX_E1S13_HKU_TEST`, including the
+  kernelbase WoW64 union helper and explicit-token classes path. Normal registry
+  calls no longer issue S13 queries. Keep query status separate from the managed
+  flag: successful unmanaged replies and disabled-server replies may use stock
+  paths; indeterminate token/query failures in the lab still deny. No permanent
+  process verdict that could survive impersonation or token changes is cached.
+  A missing private export reports PROCEDURE_NOT_FOUND and malformed successful
+  replies report DATA_ERROR, keeping both out of the disabled-server fallback.
+* `wine/dlls/kernelbase/registry.c`: cached managed roots request explicit
+  `KEY_ALL_ACCESS`, retrying only ACCESS_DENIED with `KEY_READ`. Below-High
+  read-only access can pass existing DACL/MIC checks without implicit maximum
+  rights. Server `registry.c` and its maximum-access denial are unchanged.
+  Record the raw-handle lifetime/close-reuse limitation for S14 in the cache
+  comment; no invalidation/unload implementation is introduced.
+* `wine/server/e1s_profile.c`: cache one verified unmanaged ancestry, with at
+  most 129 pinned directory descriptors. Each hit rechecks every `..` edge by
+  device/inode/mount identity, including the terminal root edge. Replacement,
+  new security registration and failed verification discard the cache; a cold
+  walk that cannot prove absence of a managed ancestor denies. Repeated opens
+  avoid ancestor opens/closes and repeated secured-inode scans, while retaining
+  per-edge statx work. No lexical profile-path bypass is added.
+
+Project handoff: `scripts/test_e1s10_token.sh` forces both ntdll/kernelbase PE
+registry objects with the S13 test define and relinks both ABIs only for S13.
+It checks the wide union marker in lab/normal kernelbase DLLs. Existing dirty
+S10/S11 fixture work is preserved. No build, runtime, benchmark or acceptance
+claim; follow-up cases and limitations are in [the S13 report](E1_S13_HKU_LOAD.md#s12s13-review-repair-2026-11-07).
+
 Protocol **977 -> 978**, appended request **325** `load_e1s_profile`.
 Normal builds deny every operation. No installer, production caller, service
 or environment switch enables it. See [survey, ABI and test handoff](E1_S13_HKU_LOAD.md).
