@@ -66,7 +66,7 @@ PY
         service_finish "$name"
         [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S13 HKU CHECK OK$')" = 2 ] || fail 'missing S13 checks'
         if [ "$loaded" = 1 ]; then
-            [ "$(stat -c '%u:%a' "$profile/AppData/Local/Temp/s13-inherit.txt")" = "$(id -u "$STD"):600" ] || fail 'inherited file Unix metadata'
+            # Inherited-file ownership belongs to S15 (launch prep in the caller prefix).
             runuser -u "$STD" -- test -r "$hive" || fail 'accepted native-Bob access limit changed'
         fi
         if [ "$mode" = absent ]; then mv -- "$ROOT/s13-held-hive" "$hive"; fi

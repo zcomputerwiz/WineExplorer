@@ -182,6 +182,15 @@ lifetime/recovery handling still require S14; no production launch is enabled.
 
 ## HKCU, classes, caches and userenv
 
+S13 lab-failure repair: `RegOpenCurrentUser` now delegates directly to
+`RtlOpenCurrentUser`, returning a real effective-user handle without temporary
+Identification impersonation or predefined-HKCU success on token-open failure.
+The same existing managed QUERY/CURRENT gate applies. Server access checks and
+managed cache behavior are unchanged. The S10/S13 fixture also suppresses setup's
+automatic account writers and diagnoses sync protection/lock failures. See
+[static cause, changes and unrun checks](E1_S13_LAB_FAILURE.md#static-repair-2026-11-07).
+No new build or runtime evidence is claimed by this repair.
+
 Managed RtlOpenCurrentUser asks the server for CURRENT instead of creating an
 empty SID key. Missing registration denies even if an unknown tree is present.
 Kernelbase selects a separate cache by effective SID, TokenId and ModifiedId,

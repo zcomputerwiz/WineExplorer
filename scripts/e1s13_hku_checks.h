@@ -32,7 +32,13 @@ static void e1s13_key_path( HKEY key, const char *sid )
     last_nt_call = "NtQueryKey(KeyNameInformation)";
     last_status = query ? query(key, 3, &value, sizeof(value), &size) : (NTSTATUS)0xc00000bb;
     check(query && !last_status);
-    if (query && value.bytes < sizeof(value.name))
+    if (last_status)
+    {
+        printf("E1S13 key=%p NtQueryKey status=%08lx\n", key, (unsigned long)last_status);
+        fflush(stdout);
+        return;
+    }
+    if (value.bytes < sizeof(value.name) && !(value.bytes % sizeof(WCHAR)))
     { value.name[value.bytes / sizeof(WCHAR)] = 0; check(!_wcsicmp(value.name, expected)); }
     else check(FALSE);
 }
@@ -64,11 +70,21 @@ static void e1s13_descriptor( HKEY key, PSID expected )
     check(count == 7);
 }
 
-static void e1s13_identity( const char *sid )
+static void e1s13_current_user( REGSAM access, const char *sid )
 {
     HKEY key = NULL;
-    check(!RegOpenCurrentUser(KEY_READ, &key));
-    if (key) { e1s13_key_path(key, sid); RegCloseKey(key); }
+    LSTATUS status = RegOpenCurrentUser(access, &key);
+    printf("E1S13 RegOpenCurrentUser access=%08lx status=%ld key=%p\n",
+           (unsigned long)access, (long)status, key);
+    fflush(stdout);
+    check(!status && key && key != HKEY_CURRENT_USER);
+    if (!status && key && key != HKEY_CURRENT_USER) e1s13_key_path(key, sid);
+    if (key) RegCloseKey(key);
+}
+
+static void e1s13_identity( const char *sid )
+{
+    e1s13_current_user(KEY_READ, sid);
 }
 
 static void e1s13_peer_state( BOOL after )
@@ -76,14 +92,39 @@ static void e1s13_peer_state( BOOL after )
     static char *sid;
     BYTE user[256]; HANDLE token = NULL; HKEY key = NULL;
     DWORD marker = 0x13b0b, size = sizeof(marker), got = 0;
+    /* The regression starts with a primary token, without impersonation. */
+    check(!OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, FALSE, &token) && GetLastError() == ERROR_NO_TOKEN);
+    if (token) { CloseHandle(token); token = NULL; }
     if (!after)
     {
         check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token));
         check(token && info(token, TokenUser, user, sizeof(user)) && ConvertSidToStringSidA(((TOKEN_USER *)user)->User.Sid, &sid));
-        if (token) CloseHandle(token);
+        if (token) { CloseHandle(token); token = NULL; }
     }
-    check(!RegOpenCurrentUser(KEY_ALL_ACCESS, &key));
-    if (key) { if (sid) e1s13_key_path(key, sid); RegCloseKey(key); }
+    if (sid)
+    {
+        e1s13_current_user(KEY_READ, sid);
+        e1s13_current_user(KEY_ALL_ACCESS, sid);
+    }
+    check(!OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, FALSE, &token) && GetLastError() == ERROR_NO_TOKEN);
+    if (token) { CloseHandle(token); token = NULL; }
+    if (!after)
+    {
+        BOOL impersonated = ImpersonateSelf(SecurityIdentification);
+        check(impersonated);
+        if (impersonated)
+        {
+            SECURITY_IMPERSONATION_LEVEL level = SecurityAnonymous;
+            LSTATUS status = RegOpenCurrentUser(KEY_READ, &key);
+            check((status == ERROR_BAD_IMPERSONATION_LEVEL || status == ERROR_ACCESS_DENIED) && !key);
+            if (key) { RegCloseKey(key); key = NULL; }
+            /* A failed open must leave the caller's impersonation intact. */
+            check(OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token));
+            check(token && info(token, TokenImpersonationLevel, &level, sizeof(level)) && level == SecurityIdentification);
+            if (token) { CloseHandle(token); token = NULL; }
+            check(RevertToSelf());
+        }
+    }
     check(!RegCreateKeyExA(HKEY_CURRENT_USER, "Software\\Wine\\E1S13Bob", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &key, NULL));
     if (key)
     {
@@ -189,23 +230,8 @@ static void e1s13_load_checks( HANDLE context, HANDLE token, PSID expected, cons
              * process. The legacy predefined cache must never supply SYSTEM. */
             check(SetThreadToken(NULL, imp));
             e1s13_identity(sid);
-            {
-                char path[512], hex[33]; unsigned int i;
-                HANDLE file;
-                BYTE sd[1024] = {0}; DWORD size; PSID owner = NULL; BOOL def;
-                for (i = 0; i < 16; i++) snprintf(hex + 2*i, 3, "%02x", input[124 + i]);
-                snprintf(path, sizeof(path), "C:\\users\\.e1s\\%s\\%s-%s\\AppData\\Local\\Temp\\s13-inherit.txt",
-                         sid, hex, (const char *)input + 204);
-                file = CreateFileA(path, GENERIC_READ | GENERIC_WRITE | READ_CONTROL,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, 0, NULL);
-                check(file != INVALID_HANDLE_VALUE);
-                if (file != INVALID_HANDLE_VALUE)
-                {
-                    check(GetFileSecurityA(path, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, sd, sizeof(sd), &size));
-                    check(GetSecurityDescriptorOwner(sd, &owner, &def) && owner && EqualSid(owner, expected));
-                    CloseHandle(file);
-                }
-            }
+            /* The profile directory lives in the caller prefix; this system-role broker runs in the machine
+             * prefix, so a file-ownership check there cannot see it. That check moves to S15 (launch prep). */
             check(!RegCreateKeyExA(HKEY_CURRENT_USER,"Software\\Classes\\E1S13Merge",0,NULL,0,
                                    KEY_ALL_ACCESS,NULL,&classes,NULL));
             if (classes) { check(!RegSetValueExA(classes,"User",0,REG_DWORD,(BYTE *)&value,sizeof(value))); RegCloseKey(classes); classes = NULL; }

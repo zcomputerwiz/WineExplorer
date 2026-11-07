@@ -22,6 +22,11 @@ die()
     exit 1
 }
 
+# Disposable fixtures synchronize explicitly and must not install/start host
+# account watchers. Ordinary setup retains automatic synchronization.
+ACCOUNTS_AUTOSYNC=${WEX_ACCOUNTS_AUTOSYNC:-1}
+case "$ACCOUNTS_AUTOSYNC" in 0|1) ;; *) die 'WEX_ACCOUNTS_AUTOSYNC must be 0 or 1' ;; esac
+
 case "$ACTION" in
     apply|update|--update) ACTION=apply ;;  # the package postinst passes --update
     rollback|--rollback) ;;
@@ -478,7 +483,7 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
         die "E1-S4 account map sync failed"
     fi
     rm -rf -- "$ACCOUNTS_TMP"
-    if [ "$SYSRUN_DIR" = /usr/local/libexec/wineexplorer ] && [ "$SYSRUN_CONF" = /etc/wineexplorer/sysrun.conf ] && [ -d /run/systemd/system ]; then
+    if [ "$ACCOUNTS_AUTOSYNC" = 1 ] && [ "$SYSRUN_DIR" = /usr/local/libexec/wineexplorer ] && [ "$SYSRUN_CONF" = /etc/wineexplorer/sysrun.conf ] && [ -d /run/systemd/system ]; then
         ACCOUNTS_UNITS="$(dirname -- "$(readlink -f -- "$0")")/../installer/systemd"
         if [ -f "$ACCOUNTS_UNITS/wex-accounts.path" ]; then
             install -m 0644 -o root -g root "$ACCOUNTS_UNITS/wex-accounts.service" "$ACCOUNTS_UNITS/wex-accounts.path" "$ACCOUNTS_UNITS/wex-accounts.timer" /lib/systemd/system/

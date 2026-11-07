@@ -101,9 +101,18 @@ static int checked_lock( int dir )
 {
     struct stat st;
     int fd = openat( dir, ".accounts.lock", O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600 );
-    if (fd == -1) return -1;
-    if (fstat( fd, &st ) || !S_ISREG( st.st_mode ) || st.st_uid || (st.st_mode & 0077) || st.st_nlink != 1 || !no_access_acl( fd ) ||
-        flock( fd, LOCK_EX | LOCK_NB )) { close( fd ); return -1; }
+    if (fd == -1)
+    { protection_error( ".accounts.lock", strerror(errno), -1, (gid_t)-1 ); return -1; }
+    if (fstat( fd, &st ) || !S_ISREG( st.st_mode ) || st.st_uid || (st.st_mode & 0077) || st.st_nlink != 1 || !no_access_acl( fd ))
+    {
+        protection_error( ".accounts.lock", "unsafe lock metadata or ACL", fd, (gid_t)-1 );
+        close( fd ); return -1;
+    }
+    if (flock( fd, LOCK_EX | LOCK_NB ))
+    {
+        fprintf( stderr, "wex-accounts: lock acquisition failed: %s\n", strerror(errno) );
+        close( fd ); return -1;
+    }
     return fd;
 }
 

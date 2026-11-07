@@ -33,6 +33,21 @@ trap 'exit 143' TERM
 LAB_BUILD=$(realpath -e "$WINE_BUILD_DIR")
 NORMAL_BUILD=$(realpath -e "$WINE_NORMAL_BUILD_DIR")
 [ "$LAB_BUILD" != "$NORMAL_BUILD" ] || fail 'normal and lab builds must be separate'
+account_autosync_idle()
+{
+    local unit state
+    [ ! -d /run/systemd/system ] || {
+        command -v systemctl >/dev/null || fail 'cannot check account synchronization units'
+        for unit in wex-accounts.path wex-accounts.timer wex-accounts.service; do
+            state=$(systemctl show -p ActiveState --value "$unit") || fail "cannot inspect $unit"
+            case "$state" in
+                inactive|failed) ;;
+                *) fail "foreign account synchronization unit $unit state=$state; use a clean machine" ;;
+            esac
+        done
+    }
+}
+account_autosync_idle
 # No inherited fixture reuse/keep/skip options. Cleanup is mandatory.
 for p in /etc/wineexplorer /usr/local/libexec/wineexplorer /var/lib/wexsys-s10; do
     [ ! -e "$p" ] && [ ! -L "$p" ] || fail "foreign fixture: $p exists; use a clean machine"
@@ -322,7 +337,11 @@ run_fixture() (
     read -r -t 10 -u "${XV[0]}" DNUM || fail 'Xvfb did not start'
     DISPLAY=":$DNUM"; export DISPLAY
     export WEX_ADMIN_GROUP="$ADMIN_GROUP"
-    wex_fixture_machine || fail "machine provisioning; see $ROOT/setup.log"
+    # Use this checkout's tool for initialization as well as later syncs.
+    # The normal installer otherwise enables path/timer writers before useradd.
+    account_autosync_idle
+    wex_fixture_machine env WEX_ACCOUNTS_AUTOSYNC=0 WEX_ACCOUNTS_BIN="$OWNED_OUT/wex-accounts" || fail "machine provisioning; see $ROOT/setup.log"
+    account_autosync_idle
     MACHINE_ID=$(stat -c '%d:%i' "$M")
     if [ "$S13_HARNESS" = 1 ]; then
         printf '%s\n' 'WINE REGISTRY Version 2' '' \
@@ -339,8 +358,8 @@ run_fixture() (
         OWNED_USERS+=("$user")
     done
     for user in "$ADM" "$CAR" "$RET"; do usermod -a -G "$ADMIN_GROUP" "$user"; done
-    { stat -c '%n %u:%g %a links=%h' / /etc /etc/wineexplorer /etc/wineexplorer/accounts.map; getfacl -p / /etc /etc/wineexplorer /etc/wineexplorer/accounts.map 2>&1; getent group "$GRP"; ls -la /etc/wineexplorer; } >"$LOG/map-state-pre.log" 2>&1 || true
-    "$OWNED_OUT/wex-accounts" sync >"$LOG/map-sync.log" || { cp -p /etc/wineexplorer/sysrun.conf "$LOG/sysrun.conf.copy" 2>/dev/null; fail "wex-accounts sync (see map-state-pre.log)"; }
+    { stat -c '%n %u:%g %a links=%h' / /etc /etc/wineexplorer /etc/wineexplorer/sysrun.conf /etc/wineexplorer/accounts.map /etc/wineexplorer/.accounts.lock; getfacl -p / /etc /etc/wineexplorer /etc/wineexplorer/sysrun.conf /etc/wineexplorer/accounts.map /etc/wineexplorer/.accounts.lock; getent group "$GRP"; ls -la /etc/wineexplorer; } >"$LOG/map-state-pre.log" 2>&1 || true
+    "$OWNED_OUT/wex-accounts" sync >"$LOG/map-sync.log" 2>&1 || { cp -p /etc/wineexplorer/sysrun.conf "$LOG/sysrun.conf.copy" 2>/dev/null; fail "wex-accounts sync (see map-sync.log and map-state-pre.log)"; }
     map_fields() {
         local row
         GENERATION=$(awk 'NR == 1 {print $3}' /etc/wineexplorer/accounts.map)

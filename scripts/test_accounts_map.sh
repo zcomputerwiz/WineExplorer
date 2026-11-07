@@ -196,6 +196,9 @@ if command -v setfacl >/dev/null; then
 fi
 
 # Mode/owner/ancestor, symlink, hardlink, missing map and config protection.
+chown 0:19998 "$MAP"; expect_lookup 6 bob; refuse_sync
+grep -q 'accounts.map: group mismatch .*expected_gid=19999' "$FIXTURE/refusal.log" || fail 'missing group-mismatch diagnostic'
+chown 0:19999 "$MAP"
 chmod 0660 "$MAP"; expect_lookup 6 bob; refuse_sync
 chmod 0640 "$MAP"
 chown 65534:19999 "$MAP"; expect_lookup 6 bob; refuse_sync
@@ -216,6 +219,8 @@ cp -p "$MAP" "$FIXTURE/pre-lock"
 (
     flock -n 9 || fail 'fixture lock acquisition'
     refuse_sync
+    grep -q 'lock acquisition failed:' "$FIXTURE/refusal.log" || fail 'lock contention misdiagnosed'
+    grep -q 'FAIL status=6 ' "$FIXTURE/refusal.log" || fail 'lock contention status changed'
 ) 9<> "$CONF/.accounts.lock"
 cmp "$MAP" "$FIXTURE/pre-lock" || fail 'contended writer changed map'
 

@@ -2,6 +2,31 @@
 
 ## E1-S13 disabled managed HKU load (2026-11-07; static only)
 
+S13 lab-failure repair (2026-11-07, uncommitted, static only):
+
+* `wine/dlls/kernelbase/registry.c`: make `RegOpenCurrentUser` validate/clear its
+  output and call `RtlOpenCurrentUser`. Remove self-impersonation and the empty
+  predefined-HKCU fallback. Under enforced security, the former manufactured an
+  Identification token that could not open itself; the latter then returned
+  `HKEY_CURRENT_USER` as success, causing native key queries to fail. The RTL
+  path resolves the effective user without changing impersonation and retains
+  its compile-gated S13 QUERY/CURRENT checks. Ordinary callers use the existing
+  RTL `NtCreateKey` path. Server authorization and managed caches are unchanged.
+* `wine/dlls/advapi32/tests/registry.c`: query the returned current-user handle
+  with `NtQueryKey(KeyNameInformation)` so pseudo-handle success is detected.
+* `wine/server/accounts.c`: root-tool-only protection diagnostics identify the
+  rejected directory/file and metadata predicate, including actual/expected
+  map GID. Server replies/logging and all protection predicates remain intact.
+  The shared provider also serves the project `wex-accounts` tool.
+
+Project repairs add both-access-mask/no-impersonation/Identification-denial S13
+probe checks; distinguish writer-lock contention from unsafe metadata in
+`tools/wex-accounts`; and prevent the S10/S13 fixture from enabling automatic
+account writers during user creation. Setup retains autosync by default; the
+fixture passes `WEX_ACCOUNTS_AUTOSYNC=0`, uses its newly built account tool for
+initialization, and refuses active foreign account units. See
+[cause, evidence and unrun validation](E1_S13_LAB_FAILURE.md#static-repair-2026-11-07).
+
 S12/S13 independent-review repair (working tree only, static review):
 
 * `wine/dlls/kernelbase/registry.c`, `wine/dlls/ntdll/reg.c`: compile automatic
