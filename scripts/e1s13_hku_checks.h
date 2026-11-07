@@ -12,6 +12,155 @@ typedef NTSTATUS (WINAPI *hku_fn)(ULONG,HANDLE,HANDLE,ACCESS_MASK,const void*,UL
 static BOOL e1s13_loaded;
 static unsigned int e1s13_loads;
 static char e1s13_bob_denied_path[512];
+static HANDLE e1s14_stale;
+static HANDLE e1s14_cached_imp;
+static ULONGLONG e1s14_previous_generation;
+
+typedef NTSTATUS (WINAPI *hku_ex_fn)(ULONG,HANDLE,HANDLE,ACCESS_MASK,const void*,ULONG,HANDLE*,ULONG*,ULONGLONG*);
+
+static void e1s14_stale_check(void)
+{
+    typedef NTSTATUS (WINAPI *query_fn)(HANDLE,ULONG,void*,ULONG,ULONG*);
+    query_fn query = (query_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtQueryKey");
+    BYTE data[1024]; ULONG size;
+    if (!e1s14_stale) return;
+    last_status = query ? query(e1s14_stale, 3, data, sizeof(data), &size) : (NTSTATUS)0xc00000bb;
+    check(last_status == (NTSTATUS)0xc000017c); /* STATUS_KEY_DELETED, including after reload */
+}
+
+/* Runs in the SYSTEM broker in the machine prefix, on the shared server.
+ * Registry APIs and a same-server suspended child exercise lifetime. Native
+ * persistence/recovery checks run in the shell against Bob's profile path. */
+static void e1s14_lifecycle( HANDLE token, HANDLE imp, const char *mode )
+{
+    hku_fn load = (hku_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtLoadWexProfile");
+    hku_ex_fn load_ex = (hku_ex_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtLoadWexProfileEx");
+    HANDLE unused = NULL, proxy = NULL;
+    HKEY child = NULL;
+    ULONG managed = 0; ULONGLONG before = 0, after = 0;
+    DWORD marker = 0x14a11ce, got = 0, length = sizeof(got), start;
+    NTSTATUS status;
+    STARTUPINFOA si = {0}; PROCESS_INFORMATION pi = {0};
+    char exe[MAX_PATH], command[2 * MAX_PATH];
+    typedef BOOL (WINAPI *profile_fn)(HANDLE,LPPROFILEINFOA);
+    typedef BOOL (WINAPI *unload_fn)(HANDLE,HANDLE);
+    typedef ULONG (WINAPI *error_fn)(NTSTATUS);
+    HMODULE userenv = NULL;
+    profile_fn profile = NULL; unload_fn unload = NULL;
+    error_fn status_error = NULL;
+    PROFILEINFOA profile_info = {0};
+    check(load && load_ex && imp);
+    if (!load || !load_ex || !imp) return;
+    e1s14_stale_check();
+    if (e1s14_stale) { CloseHandle(e1s14_stale); e1s14_stale = NULL; }
+    check(!load_ex(WEX_HKU_QUERY,NULL,token,0,NULL,0,&unused,&managed,&before) && managed && before);
+    check(before > e1s14_previous_generation);
+    e1s14_previous_generation = before;
+    if (e1s14_cached_imp)
+    {
+        /* Same effective token as the preceding load: only the hive generation
+         * changed. This exercises kernelbase's generation key, not TokenId. */
+        check(SetThreadToken(NULL,e1s14_cached_imp));
+        check(!RegOpenKeyExA(HKEY_CURRENT_USER,"Software\\Wine\\E1S14",0,KEY_READ,&child));
+        if (child)
+        {
+            check(!RegQueryValueExA(child,"Persisted",NULL,NULL,(BYTE *)&got,&length) && got == marker);
+            RegCloseKey(child); child = NULL;
+        }
+        check(RevertToSelf());
+        CloseHandle(e1s14_cached_imp); e1s14_cached_imp = NULL;
+    }
+    check(DuplicateHandle(GetCurrentProcess(),imp,GetCurrentProcess(),&e1s14_cached_imp,0,FALSE,DUPLICATE_SAME_ACCESS));
+    check(!load_ex(WEX_HKU_CACHE_CURRENT,NULL,token,KEY_READ,NULL,0,&proxy,&managed,&after) && proxy && after == before);
+    check(SetThreadToken(NULL, imp));
+    check(!RegCreateKeyExA(HKEY_CURRENT_USER,"Software\\Wine\\E1S14",0,NULL,0,KEY_ALL_ACCESS,NULL,&child,NULL));
+    if (child)
+    {
+        if (e1s13_loads) check(!RegQueryValueExA(child,"Persisted",NULL,NULL,(BYTE *)&got,&length) && got == marker);
+        check(!RegSetValueExA(child,"Persisted",0,REG_DWORD,(BYTE *)&marker,sizeof(marker)));
+        RegCloseKey(child); child = NULL;
+    }
+    /* Warm both predefined caches while impersonating, then revert. Their
+     * proxy handles must neither pin this hive nor survive its generation. */
+    check(!RegOpenKeyExA(HKEY_CLASSES_ROOT,"E1S13Merge",0,KEY_READ,&child));
+    if (child) { RegCloseKey(child); child = NULL; }
+    check(RevertToSelf());
+    if (e1s13_loads && !strcmp(mode,"unload"))
+    {
+        userenv = LoadLibraryA("userenv.dll");
+        profile = userenv ? (profile_fn)(void *)GetProcAddress(userenv,"LoadUserProfileA") : NULL;
+        unload = userenv ? (unload_fn)(void *)GetProcAddress(userenv,"UnloadUserProfile") : NULL;
+        status_error = (error_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"),"RtlNtStatusToDosError");
+        profile_info.dwSize = sizeof(profile_info); profile_info.lpUserName = (char *)"ignored-label";
+        check(profile && unload && status_error && profile(token,&profile_info) && profile_info.hProfile);
+    }
+    if (!strncmp(mode,"crash-",6))
+    {
+        ULONG crash = strtoul(mode + 6, NULL, 10);
+        check(!load(WEX_HKU_TEST_CRASH,NULL,token,crash,NULL,0,&unused,&managed));
+        printf("E1S14 CRASH ARMED %lu\n", (unsigned long)crash); fflush(stdout);
+        check(!load(WEX_HKU_OPEN,NULL,token,KEY_READ,NULL,0,(HANDLE *)&child,&managed) && child);
+        if (child && RegFlushKey(child)) /* wineserver deliberately exits 86 */
+        { puts("E1S14 SERVER LOST"); fflush(stdout); ExitProcess(86); }
+        check(FALSE); /* returning from the flush is not the expected crash */
+        return;
+    }
+    /* Hold a deleted descendant; walking only linked keys would miss it. */
+    check(SetThreadToken(NULL, imp));
+    check(!RegCreateKeyExA(HKEY_CURRENT_USER,"Software\\Wine\\E1S14Busy",0,NULL,0,KEY_ALL_ACCESS,NULL,&child,NULL));
+    check(RevertToSelf());
+    status = load(WEX_HKU_UNLOAD_S14,NULL,token,0,NULL,0,&unused,&managed);
+    check(status == (NTSTATUS)0xc0000121 && !unused && !managed);
+    check(SetThreadToken(NULL, imp));
+    if (child) check(!RegDeleteKeyA(HKEY_CURRENT_USER,"Software\\Wine\\E1S14Busy"));
+    check(RevertToSelf());
+    status = load(WEX_HKU_UNLOAD_S14,NULL,token,0,NULL,0,&unused,&managed);
+    check(status == (NTSTATUS)0xc0000121 && !unused && !managed);
+    if (child) { RegCloseKey(child); child = NULL; }
+    /* This driver intentionally holds no key handle. The live-process check
+     * runs first and has a distinct status from the descendant-handle check. */
+    check(GetModuleFileNameA(NULL, exe, sizeof(exe)) != 0);
+    snprintf(command,sizeof(command),"\"%s\" hku-hold",exe);
+    si.cb = sizeof(si);
+    check(CreateProcessAsUserA(token,exe,command,NULL,NULL,FALSE,CREATE_SUSPENDED | CREATE_NO_WINDOW,NULL,NULL,&si,&pi));
+    if (pi.hProcess)
+    {
+        check(!load(WEX_HKU_TEST_TRANSFER,pi.hProcess,token,0,NULL,0,&unused,&managed) && managed == 1);
+        status = load(WEX_HKU_UNLOAD_S14,NULL,token,0,NULL,0,&unused,&managed);
+        check(status == (NTSTATUS)0xc0000708 && !unused && !managed);
+        check(TerminateProcess(pi.hProcess,0));
+        check(WaitForSingleObject(pi.hProcess,5000) == WAIT_OBJECT_0);
+        CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+    }
+    start = GetTickCount();
+    do
+    {
+        if (e1s13_loads)
+        {
+            BOOL ok = unload && profile_info.hProfile && unload(token,profile_info.hProfile);
+            DWORD error = GetLastError();
+            if (ok) { status = 0; unused = NULL; managed = 1; profile_info.hProfile = NULL; }
+            else if (status_error && error == status_error((NTSTATUS)0xc0000708)) status = (NTSTATUS)0xc0000708;
+            else { printf("E1S14 UnloadUserProfile error=%lu\n",(unsigned long)error); status = (NTSTATUS)0xc0000001; }
+        }
+        else status = load(WEX_HKU_UNLOAD_S14,NULL,token,0,NULL,0,&unused,&managed);
+        if (status != (NTSTATUS)0xc0000708) break; /* final native death can lag the process signal */
+        Sleep(10);
+    } while (GetTickCount() - start < 5000);
+    check(!status && !unused && managed == 1);
+    if (!status) e1s13_loaded = FALSE;
+    check(!load_ex(WEX_HKU_QUERY,NULL,token,0,NULL,0,&unused,&managed,&after) && managed && !after);
+    e1s14_stale = proxy;
+    e1s14_stale_check();
+    check(SetThreadToken(NULL, imp));
+    check(RegOpenKeyExA(HKEY_CURRENT_USER,"Software\\Wine\\E1S14",0,KEY_READ,&child) != ERROR_SUCCESS && !child);
+    check(RevertToSelf());
+    status = load(WEX_HKU_UNLOAD_S14,NULL,token,0,NULL,0,&unused,&managed);
+    check(status == (NTSTATUS)0xc000003a && !unused && !managed);
+    if (profile_info.hProfile) RegCloseKey(profile_info.hProfile);
+    if (userenv) FreeLibrary(userenv);
+    if (!failures) { puts("E1S14 UNLOAD OK"); fflush(stdout); }
+}
 
 static hku_fn hku_export(void)
 {
@@ -150,7 +299,7 @@ static void e1s13_denied( BOOL normal )
     BYTE record[WEX_HKU_RECORD_SIZE] = {0};
     check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token));
     if (!load || !token) return;
-    for (op = WEX_HKU_LOAD; op <= WEX_HKU_CLASSES; op++)
+    for (op = WEX_HKU_LOAD; op <= WEX_HKU_TEST_TRANSFER; op++)
     {
         key = (HANDLE)1; managed = ~0u;
         status = load(op, NULL, token, op == WEX_HKU_QUERY ? 0 : KEY_READ,
@@ -179,8 +328,10 @@ static void e1s13_load_checks( HANDLE context, HANDLE token, PSID expected, cons
     memcpy(mode, spec, colon - spec); mode[colon - spec] = 0;
     if (!strcmp(mode,"absent") || !strcmp(mode,"unprovisioned")) wanted = (NTSTATUS)0xc000003a;
     else if (!strcmp(mode,"wrong-incarnation") || !strcmp(mode,"wrong-reference") || !strcmp(mode,"owner")) wanted = (NTSTATUS)0xc0000022;
-    else if (strcmp(mode,"accept") && strcmp(mode,"already-loaded") && strcmp(mode,"replay")) { check(FALSE); return; }
-    if (!wanted && e1s13_loads) wanted = (NTSTATUS)0xc0000035;
+    else if (!strcmp(mode,"recovery")) wanted = (NTSTATUS)0xc000014c;
+    else if (strcmp(mode,"accept") && strcmp(mode,"already-loaded") && strcmp(mode,"replay") &&
+             strcmp(mode,"unload") && strncmp(mode,"crash-",6)) { check(FALSE); return; }
+    if (!wanted && e1s13_loaded) wanted = (NTSTATUS)0xc0000035;
     wex_token_put32(record, 1); wex_token_put32(record + 4, sizeof(record));
     memcpy(record + 8, input + 124, 16); memcpy(record + 24, input + 164, 8);
     wex_token_put64(record + 32, _strtoui64(colon + 1, NULL, 10));
@@ -197,6 +348,7 @@ static void e1s13_load_checks( HANDLE context, HANDLE token, PSID expected, cons
         check(RevertToSelf());
     }
     status = load(WEX_HKU_LOAD, context, token, KEY_ALL_ACCESS, record, sizeof(record), &key, &managed);
+    last_nt_call = "NtLoadWexProfile(WEX_HKU_LOAD)"; last_status = status;
     check(status == wanted && (!!key == !wanted) && managed == !wanted);
     if (!status) e1s13_loaded = TRUE;
     if (key) { e1s13_key_path(key, sid); e1s13_descriptor(key, expected); RegCloseKey(key); }
@@ -251,8 +403,7 @@ static void e1s13_load_checks( HANDLE context, HANDLE token, PSID expected, cons
             check(RevertToSelf());
         }
         if (machine) RegCloseKey(machine);
-        status = load(WEX_HKU_UNLOAD_S14,NULL,token,0,NULL,0,&key,&managed);
-        check(status == (NTSTATUS)0xc00000bb && !key && !managed);
+        if (!strcmp(mode,"unload") || !strncmp(mode,"crash-",6)) e1s14_lifecycle(token,imp,mode);
     }
     if (imp) CloseHandle(imp);
     e1s13_loads++;

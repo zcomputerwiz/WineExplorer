@@ -1,5 +1,54 @@
 # Changes to stock Wine / third-party code
 
+## E1-S14 disabled managed hive leases and persistence (2026-11-07; static only)
+
+Protocol **978 -> 979**, existing request 325 now has a 24-byte generation-bearing
+reply; request remains 32 bytes, request count and 88-byte generator limit stay
+unchanged. No production enablement or commit. See
+[design, survey, statuses and unrun validation](E1_S14_LEASES.md).
+
+* `wine/server/registry.c`: server-local canonical-key/exact-SID lease table,
+  S1 fields and trusted ownership handoff; serialized phases and distinct
+  conflicts; actual live-user/deleted-descendant/handle-safe unload, periodic
+  last-user draining, checked managed save-branch registration and one durable
+  saver for flush/shutdown/unload. Managed persistence remains isolated from
+  Bob's branches; generic client-file save/unload deny. Detached generation
+  proxies replace persistent references from client root caches. Managed save
+  serialization preserves values/classes/explicit volatility and denies states
+  whose descriptors or links the S13 format cannot restore.
+* `wine/server/wex_profile_storage.c/.h`: stable per-SID flock shared with S12
+  provisioners; load snapshot/lock/chain rechecks; descriptor-only marker/temp,
+  file fsync, rename and directory fsync transaction; SID-wide interrupted-state
+  denial without deleting recovery data. Additional crash hook is lab-only.
+* `wine/server/process.c/.h`: retain an inventory including pending children and
+  final native death; inspect actual primary/thread token references rather
+  than token object refcounts. Managed process creation/primary replacement in
+  the S13 lab denies absent registration before publication. Bob is unchanged.
+* `wine/server/token.c`, `e1s_token.h`: obtain the lease request/server generation
+  from the retained, revalidated S10 context, without new client authority.
+* `wine/server/e1s_profile.c/.h`, `fd.c`, `file.h`: replace the unload TODO with
+  actual manager integration; apply/query temporary-hive security, deduplicate
+  file pins and retire unlinked pins only after server inode and anonymous/
+  imported-descriptor references end; indeterminate reference checks retain pins.
+* `wine/server/protocol.def`, `request_handlers.h`, `request_trace.h`,
+  `include/wine/server_protocol.h`: consistent generation field/layout/trace and
+  version; actual tools/make_requests regeneration remains unrun.
+* `wine/include/wine/wex_profile.h`, `include/winternl.h`, `dlls/ntdll/reg.c`,
+  `ntdll.spec`: cache and separate lab controls; private NtLoadWexProfileEx
+  generation output with existing export ABI retained and all failure outputs
+  cleared. No syscall/thunk table changes or generator-limit increase.
+* `wine/dlls/kernelbase/registry.c`: include generation in the existing effective
+  query/cache; bounded retired proxy entries avoid concurrent close/reuse and
+  add no per-call IPC. Existing normal-client compile gates remain.
+* `wine/dlls/userenv/userenv_main.c`: broker-gated managed profile proxies and
+  checked successful unload; ordinary stubs retain their existing behavior.
+* `wine/dlls/advapi32/tests/wex_hku.c`: normal-server denial/output clearing for
+  all ten operations and both wrappers, including generation.
+
+Project changes extend the existing S13/S10 harness, fixtures and probe checks,
+update the shared `tools/wex-profile` descriptor cleanup, and add the S14 note
+and decision-log status. All tests remain unrun in this sandbox.
+
 ## E1-S13 disabled managed HKU load (2026-11-07; static only)
 
 S13 lab-failure repair (2026-11-07, uncommitted, static only):

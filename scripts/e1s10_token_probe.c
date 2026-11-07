@@ -805,6 +805,7 @@ int main( int argc, char **argv )
     fflush(stdout);
     if (argc == 2 && !strcmp(argv[1], "pipes")) return pipe_namespace();
 #ifdef WEX_E1S13_HKU_PROBE
+    if (argc == 2 && !strcmp(argv[1],"hku-hold")) return 0; /* created suspended, never resumed */
     if (argc > 1 && (!strcmp(argv[1],"denied") || !strcmp(argv[1],"normal-denied") || !strcmp(argv[1],"normal")))
         e1s13_denied(strcmp(argv[1],"denied") != 0);
 #endif

@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+missing_class HRESULT TO BE OBSERVED
+missing_dll HRESULT TO BE OBSERVED
+unpackaged HRESULT TO BE OBSERVED

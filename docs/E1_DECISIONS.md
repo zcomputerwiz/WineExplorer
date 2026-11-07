@@ -53,6 +53,14 @@ Owner decisions and the first-release design for Track E1 (production elevation)
 
 ## Status
 
+* **E1-S14 disabled implementation (2026-11-07), static only.** Server-owned
+  managed-profile leases, stable SID locks, checked durable save/unload,
+  generation-aware proxy roots and fail-closed interrupted-state detection are
+  implemented in [E1_S14_LEASES.md](E1_S14_LEASES.md). Protocol is 979 (existing
+  request 325). Both-ABI/normal/crash tests are extended but unrun; no build or
+  runtime acceptance is claimed. S18 still owns authenticated transfer/rollback
+  and guarded launch integration. All production gates remain disabled.
+
 * **E1-S13 disabled implementation (2026-11-07), static only.** Broker/S10-bound
   prefix-local exact-SID HKU/classes loading, explicit Windows descriptors,
   managed HKCU/HKCR/cache/userenv paths and normal/lab test sources are in
@@ -162,3 +170,4 @@ Owner decisions and the first-release design for Track E1 (production elevation)
 - 2026-11-07 VM B redeploy after clean rebuild (protocol 978, S12/S13 static code, kernelbase fix): test-e1h2 approve 0 and deny 1223, test-e1t and test-e1t2 all PASS, S5 matrix 38 of 38 PASS. S10/S11 harness failure still open.
 - 2026-11-07 E1-S10 harness repaired (probe rights fix, diagnostics, finite longer timeouts, evidence retention): E1S10_TOKEN OK with 52 PASS. S12 storage test passes. S12/S13 review findings fixed by Codex (hooks gated by WEX_E1S13_HKU_TEST, bounded access masks, ancestor cache); main and normal builds pass. S13 lab harness: first run fails at the peer BEFORE state (see docs/E1_S13_LAB_FAILURE.md); S13 stays disabled by default.
 - 2026-11-07 E1-S13 lab harness passes (E1S13_HKU_LOAD OK, 46 PASS, both ABIs). Fixes: kernelbase RegOpenCurrentUser now delegates to RtlOpenCurrentUser (the old self-impersonation fallback returned the predefined HKCU value as a handle), fixture suppresses the account watcher units that raced the accounts lock (sync status 6), seed file mode and format, and the inherited-file ownership check moved to S15 because the system-role broker runs in the machine prefix. test_accounts_map.sh passes.
+- 2026-11-07 E1-S14 (Codex, static) built and brought up in the lab: protocol 979, leases, managed unload, generation-checked root caches. Lab harness: S13 cases and the S14 unload case pass (64-bit broker); reload after unload needed NAME_EXISTS clearing in the managed load path. Crash cases (checkpoints 1..3) and recovery still open, see docs/E1_S14_LAB_STATUS.md. 32-bit broker leg and Wine-side normal-server test not yet run for S14.

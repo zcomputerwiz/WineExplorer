@@ -102,7 +102,7 @@ echo "results=$OWNED_OUT"
 cd "$SRC"
 # Pin the raw carrier used by the probe. This deliberately fails on drift;
 # protocol regeneration/comparison itself remains Qwen's prerequisite.
-python3 -c 'import pathlib,re; s=pathlib.Path("wine/include/wine/server_protocol.h").read_text(); e=s.split("enum request\n{")[1].split("};")[0]; names=[n for n in re.findall(r"REQ_(\w+)",e) if n!="NB_REQUESTS"]; assert names[324:]==["create_e1s_account_token","load_e1s_profile"]; assert "#define SERVER_PROTOCOL_VERSION 978" in s and "int pad[22];" in s'
+python3 -c 'import pathlib,re; s=pathlib.Path("wine/include/wine/server_protocol.h").read_text(); e=s.split("enum request\n{")[1].split("};")[0]; names=[n for n in re.findall(r"REQ_(\w+)",e) if n!="NB_REQUESTS"]; assert names[324:]==["create_e1s_account_token","load_e1s_profile"]; assert "#define SERVER_PROTOCOL_VERSION 979" in s and "int pad[22];" in s'
 PROBE_SOURCE=scripts/e1s10_token_probe.c
 if [ "$S13_HARNESS" = 1 ]; then PROBE_SOURCE=scripts/e1s13_hku_probe.c; fi
 x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror -Isrc/include \
@@ -125,11 +125,11 @@ LAB_TOKEN_FLAGS='-DWEX_E1S10_TOKEN_TEST -DWEX_E1S6_TRANSPORT_TEST'
 LAB_TOKEN_OBJECTS=(server/token.o)
 LAB_PROFILE_OBJECTS=() LAB_PROFILE_DLLS=()
 if [ "$S13_HARNESS" = 1 ]; then
-    LAB_TOKEN_FLAGS+=' -DWEX_E1S13_HKU_TEST'
-    LAB_TOKEN_OBJECTS+=(server/registry.o server/e1s_profile.o server/wex_profile_storage.o server/file.o server/fd.o)
+    LAB_TOKEN_FLAGS+=' -DWEX_E1S13_HKU_TEST -DWEX_E1S14_CRASH_TEST'
+    LAB_TOKEN_OBJECTS+=(server/registry.o server/process.o server/e1s_profile.o server/wex_profile_storage.o server/file.o server/fd.o)
     for arch in x86_64 i386; do
-        LAB_PROFILE_OBJECTS+=("dlls/ntdll/$arch-windows/reg.o" "dlls/kernelbase/$arch-windows/registry.o")
-        LAB_PROFILE_DLLS+=("dlls/ntdll/$arch-windows/ntdll.dll" "dlls/kernelbase/$arch-windows/kernelbase.dll")
+        LAB_PROFILE_OBJECTS+=("dlls/ntdll/$arch-windows/reg.o" "dlls/kernelbase/$arch-windows/registry.o" "dlls/userenv/$arch-windows/userenv_main.o")
+        LAB_PROFILE_DLLS+=("dlls/ntdll/$arch-windows/ntdll.dll" "dlls/kernelbase/$arch-windows/kernelbase.dll" "dlls/userenv/$arch-windows/userenv.dll")
     done
 fi
 for object in "${LAB_TOKEN_OBJECTS[@]}" "${LAB_PROFILE_OBJECTS[@]}" server/sysrun.o server/named_pipe.o dlls/wexhost/e1s6.o; do rm -f -- "$LAB_BUILD/$object"; done
@@ -165,7 +165,8 @@ if [ "$S13_HARNESS" = 1 ]; then
             grep -E "(gcc|clang|cc) .* -c .*${object%.o}\\.c .*-DWEX_E1S13_HKU_TEST" >/dev/null || fail "missing S13 compiler flag: $object"
     done
     has_str "$LAB_BUILD/server/wineserver" E1S13View || fail 'S13 lab hook absent'
-    for marker in E1S13View user.WEX_E1S13_SD; do
+    has_str "$LAB_BUILD/server/wineserver" 'E1S14 save-crash=' || fail 'S14 lab crash hook absent'
+    for marker in E1S13View user.WEX_E1S13_SD E1S14Proxy .e1s14-state 'E1S14 save-crash='; do
         ! has_str "$NORMAL_BUILD/server/wineserver" "$marker" || fail "normal server contains $marker"
     done
     for arch in x86_64 i386; do

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+PASS winrt_init
+PASS package_full_name
+PASS token_identity
+PASS package_path
+PASS factory_module
+PASS package_activation
+PASS async_folder
+PASS missing_class
+PASS missing_dll
+PASS unpackaged

@@ -139,16 +139,16 @@ int main( int argc, char **argv )
     s = wex_profile_prepare( pfd, st.st_dev, st.st_ino, uid, gid, sfd, &a, &out );
     if (!s && ((s = check_absolute( &prefix )) || (s = check_absolute( &seed ))))
     {
-        close( out.profile_fd ); close( out.hive_fd );
+        wex_profile_storage_close( &out );
         memset( &out, 0, sizeof(out) );
-        out.profile_fd = out.hive_fd = -1;
+        out.profile_fd = out.hive_fd = out.sid_lock_fd = -1;
     }
     if (!s)
     {
         printf( "status=0 reused=%d acl_pending=%d generation=%"PRIu64" reserved_zero=%d\nprofile=%s\nhive=%s\nwindows=%s\nintent=%s\n",
             out.reused, out.acl_pending, out.profile_generation, !memcmp( zero, &out.reserved, sizeof(zero) ),
             out.path.relative, out.path.hive, out.path.windows, out.acl_intent );
-        close( out.profile_fd ); close( out.hive_fd );
+        wex_profile_storage_close( &out );
     }
     else printf( "status=%u profile_fd=%d hive_fd=%d reserved_zero=%d\n", s, out.profile_fd,
                  out.hive_fd, !memcmp( zero, &out.reserved, sizeof(zero) ) );
