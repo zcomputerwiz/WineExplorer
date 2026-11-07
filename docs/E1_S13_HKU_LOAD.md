@@ -183,6 +183,8 @@ empty SID key. Missing registration denies even if an unknown tree is present.
 Kernelbase selects a separate cache by effective SID, TokenId and ModifiedId,
 so SYSTEM/Bob handles and earlier token-security versions do not shape Alice's
 HKCU/HKCR. Bob's startup mapping and legacy cache remain unchanged.
+Managed maximum-access opens below High integrity deny explicitly; they do not
+gain implicit write rights from the ordinary MIC path's explicit-write check.
 
 HKCR's private unnamed cache combines live machine classes and Alice's classes
 on open/query/enumeration, with user names/values taking precedence. Its
@@ -257,6 +259,12 @@ text checks; Git whitespace checks; Git Bash `bash -n` only. No compilation,
 generator execution, Wine/probe/fixture execution, WSL, VM or guest changes.
 No commit. Existing S10/S11/S6 changes were preserved, including sysrun.c and
 the project broker/transport changes that predated this package.
+
+Concurrent-worktree observation at final review: another writer created project
+commit `dca694e0` and Wine commit `19eb31d9` containing the in-progress S13 tree.
+This implementation pass issued no commit/reset and preserved that history;
+its final corrections remain uncommitted. Those commits' S6/S10 test messages
+are not S13 runtime evidence.
 
 Unverified: compilation/linking/headers on Linux; actual regeneration; every
 lab case; filesystem xattr/ACL/mount enforcement and persistence; inherited

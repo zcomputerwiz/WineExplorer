@@ -30,6 +30,8 @@ or environment switch enables it. See [survey, ABI and test handoff](E1_S13_HKU_
   rollback. Dynamic private HKCR union reads user-over-machine values/names;
   writes select Alice's classes. No Bob-default or startup/save-branch edits.
   Loaded roots reject deletion/unload; flush reports unsupported until S14.
+  Union rename/notifications fail explicitly; managed implicit maximum-access
+  opens below High integrity deny without changing Bob's default MIC path.
 * New `wine/server/e1s_profile.c`, `.h`, plus `file.c` and `fd.c`: descriptor
   anchored Windows SD application/fsync/query-back on S12 storage and existing
   children, private inherited descriptors on later Wine opens/creates under
@@ -50,7 +52,8 @@ or environment switch enables it. See [survey, ABI and test handoff](E1_S13_HKU_
 Project lab additions: `scripts/test_hku_load.sh`, `lib/e1s13-fixture.sh`,
 `e1s13_hku_probe.c`, `e1s13_hku_checks.h`; conditional S13 extensions in the
 existing S10 probe/harness and updated protocol pin. Existing S10/S6/sysrun
-work was preserved. No build/runtime evidence or commit; S14/S15/S18 still gate
+work was preserved. This S13 pass made no build/runtime claim or commit; another
+writer committed the in-progress tree (see the S13 note). S14/S15/S18 still gate
 managed launching and durable profiles.
 
 ## E1-S12 disabled prefix profile storage (2026-11-07; static only)

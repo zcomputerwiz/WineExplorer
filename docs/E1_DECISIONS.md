@@ -159,3 +159,4 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   silent peer; see `E1_S10_HARNESS_FAILURE.md`); S12 (profile storage, `tools/wex-profile`, `test_profile_storage.sh`) and S13
   (HKU load, `test_hku_load.sh`) are untested static work, disabled by default. Lab recipe corrections: Wine makefiles use
   `CFLAGS`, not `EXTRA_CFLAGS`; the lab objects are `server/sysrun.o`, `server/named_pipe.o`, `dlls/wexhost/e1s6.o`.
+- 2026-11-07 VM B redeploy after clean rebuild (protocol 978, S12/S13 static code, kernelbase fix): test-e1h2 approve 0 and deny 1223, test-e1t and test-e1t2 all PASS, S5 matrix 38 of 38 PASS. S10/S11 harness failure still open.
