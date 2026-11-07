@@ -24,6 +24,7 @@
 #include <appmodel.h>
 #include <roapi.h>
 #include <activation.h>
+#include <winstring.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Storage.h>
 #include <cstdio>
@@ -133,9 +134,9 @@ int wmain(int argc, wchar_t **argv)
     {
         if (!path.empty())
         {
-            auto operation = Windows::Storage::StorageFolder::GetFolderFromPathAsync(path);
+            auto operation = winrt::Windows::Storage::StorageFolder::GetFolderFromPathAsync(path);
             auto folder = operation.get();
-            async_ok = folder && operation.Status() == Windows::Foundation::AsyncStatus::Completed;
+            async_ok = folder && operation.Status() == winrt::Windows::Foundation::AsyncStatus::Completed;
         }
     }
     catch (winrt::hresult_error const &) { }

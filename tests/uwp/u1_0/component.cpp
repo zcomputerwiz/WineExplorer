@@ -24,6 +24,7 @@
 #include <windows.h>
 #include <roapi.h>
 #include <activation.h>
+#include <winstring.h>
 #include <new>
 #include <cwchar>
 
@@ -122,7 +123,7 @@ public:
     }
 };
 
-extern "C" __declspec(dllexport) HRESULT WINAPI DllGetActivationFactory(
+extern "C" HRESULT WINAPI DllGetActivationFactory(
     HSTRING name, IActivationFactory **factory)
 {
     if (!factory) return E_POINTER;
@@ -135,7 +136,7 @@ extern "C" __declspec(dllexport) HRESULT WINAPI DllGetActivationFactory(
     return *factory ? S_OK : E_OUTOFMEMORY;
 }
 
-extern "C" __declspec(dllexport) HRESULT WINAPI DllCanUnloadNow()
+extern "C" HRESULT WINAPI DllCanUnloadNow(void)
 {
     return InterlockedCompareExchange(&live_objects, 0, 0) ? S_FALSE : S_OK;
 }
