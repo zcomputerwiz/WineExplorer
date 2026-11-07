@@ -65,6 +65,7 @@
 @ stdcall WexLeaseTake(ptr ptr ptr)
 @ stdcall WexLeaseArm(int64 long)
 @ stdcall WexLeaseRelease(int64 ptr)
+@ stdcall WexE1s6Transport(ptr long ptr long ptr)
 @ stdcall WexElevateRun(wstr wstr wstr ptr long long long ptr ptr)
 @ stdcall WexOobeGetComponents(ptr long ptr)
 @ stdcall WexOobeGetTerms(str ptr long ptr long ptr)

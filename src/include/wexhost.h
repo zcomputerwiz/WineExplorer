@@ -437,6 +437,10 @@ DWORD WINAPI WexLeaseTake(HANDLE file, HANDLE event, UINT64 *lease);
 DWORD WINAPI WexLeaseArm(UINT64 lease, DWORD pid);
 DWORD WINAPI WexLeaseRelease(UINT64 lease, BOOL *broken);
 
+/* Private E1-S6 metadata-only interface. Production builds return NOT_SUPPORTED.
+ * Operations and bounded byte encodings: e1s6_protocol.h, docs/E1_S6_TRANSPORT.md. */
+DWORD WINAPI WexE1s6Transport(HANDLE pipe, DWORD operation, void *buffer, DWORD size, UINT64 *channel);
+
 /* Ask the elevation broker to start image elevated (docs/ELEVATION_CALLERS_WORKORDER.md, E1). Same arguments and
  * errors as wexelevate_run() in wexelevate.h. Stock shell32 and msi call it while elevation is enforced. */
 DWORD WINAPI WexElevateRun(const WCHAR *image, const WCHAR *cmdline, const WCHAR *cwd, const WCHAR *env,

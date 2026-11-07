@@ -7,6 +7,7 @@
 # (WEX_SYSRUN_ENABLE=1; the paths are compiled into ntdll, so it uses /etc/wineexplorer and
 # /usr/local/libexec/wineexplorer and refuses to run if they exist) and removes everything at the end.
 # Needs Xvfb, gcc and the mingw compilers, runuser, setfacl. WEX_C2_KEEP=1 keeps the fixture for inspection.
+# ROOT IN CLEAN wexbuild OR A THROWAWAY VM ONLY; NEVER shared lab guest VM B.
 #
 # Checks: (i) a limited client cannot create, write, rename or delete in the machine root through Win32 file APIs
 # (the server's path), while a client with the system group can; (ii) a replacement server started by the user
@@ -21,6 +22,9 @@ set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/sysrun-fixture.sh
 source "$SRC/scripts/lib/sysrun-fixture.sh"
+if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
+    source "$SRC/scripts/lib/e1s6-fixture.sh"
+fi
 BUILD="${WINE_BUILD_DIR:-/home/user/build/dev}"
 ROOT=/var/lib/wexsys-c2
 M="$ROOT/machine"
@@ -40,13 +44,23 @@ XV_PID=""
 REUSE="${WEX_C3_REUSE:-0}"
 if [ "$REUSE" != 1 ]; then
 for p in "$ROOT" /etc/wineexplorer "$LIBEXEC"; do
-    [ ! -e "$p" ] || { echo "$p exists; remove it first" >&2; exit 2; }
+    [ ! -e "$p" ] || { echo "$p exists; use clean wexbuild or a throwaway VM, never remove VM B's role" >&2; exit 2; }
 done
 getent group "$GRP" >/dev/null && { echo "group $GRP exists" >&2; exit 2; }
 for u in "$ADM" "$STD"; do id "$u" >/dev/null 2>&1 && { echo "user $u exists" >&2; exit 2; }; done
 fi
 
-fail() { echo "FAIL: $*" >&2; exit 1; }
+fail()
+{
+    echo "FAIL: $*" >&2
+    if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
+        local log
+        for log in "$ROOT/e1s6-wine.log" "$ROOT/e1s6-service.log"; do
+            [ ! -f "$log" ] || { echo "--- $log" >&2; tail -120 "$log" >&2; }
+        done
+    fi
+    exit 1
+}
 ok() { echo "$1=PASS"; PASS=$((PASS + 1)); }
 
 kill_servers()
@@ -63,6 +77,7 @@ cleanup()
 {
     local rc=$?
     set +e
+    ! type e1s6_stop >/dev/null 2>&1 || e1s6_stop
     ! type standin_off >/dev/null 2>&1 || standin_off
     [ -z "$DUMPABLE_SAVED" ] || echo "$DUMPABLE_SAVED" > /proc/sys/fs/suid_dumpable
     [ -z "${LEASES_SAVED:-}" ] || echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
@@ -611,7 +626,16 @@ bp()   # name user arch mode args...: the probe must print "<mode>=PASS"
     ok "$name"
 }
 # a user32 program keeps WinSta0 in existence, as the shell does in a session; the broker makes the secure desktop in it
-el_up() { probe "$1" 64 hold >/dev/null 2>&1 & EL_HOLD=$!; wine_as "$1" "$ROOT/probes/sdprobe64.exe" hold >/dev/null 2>&1 & sleep 4; }
+el_up()
+{
+    # The server and service children inherit bootstrap stderr. Preserve it in
+    # S6 runs; otherwise their gated denial-site diagnostics disappear.
+    local log=/dev/null
+    [ "${WEX_E1S6_LAB:-0}" != 1 ] || log="$ROOT/e1s6-wine.log"
+    probe "$1" 64 hold >>"$log" 2>&1 & EL_HOLD=$!
+    wine_as "$1" "$ROOT/probes/sdprobe64.exe" hold >>"$log" 2>&1 &
+    sleep 4
+}
 el_down() { prefix_server_env "$1" -k || true; prefix_server_env "$1" -w; wait "$EL_HOLD" 2>/dev/null || true; }
 el_wait_file() { local i; for i in $(seq 1 90); do [ -e "$1" ] && return 0; sleep 1; done; fail "no $1"; }
 el_proc() { local p; for p in $(pgrep -u "$1" -f "$2"); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || { echo "$p"; return; }; done; }
@@ -655,17 +679,41 @@ x86_64-w64-mingw32-gcc -O2 -Wall -municode -DWEXELEVATE_TEST_APPROVAL -I"$SRC/sr
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/wexelevate_stub.exe" "$SRC/scripts/wexelevate_stub.c"
 for arch in 64 32; do
     cc=x86_64-w64-mingw32-gcc; [ $arch = 32 ] && cc=i686-w64-mingw32-gcc
-    $cc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_probe$arch.exe" "$SRC/scripts/wexelevate_probe.c" -ladvapi32 -lshell32 -lmsi
+    $cc -O2 -Wall -DWEXELEVATE_TEST_APPROVAL -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_probe$arch.exe" "$SRC/scripts/wexelevate_probe.c" -ladvapi32 -lshell32 -lmsi
     $cc -O2 -Wall -o "$ROOT/probes/sdprobe$arch.exe" "$SRC/scripts/secure_desktop_probe.c" -ladvapi32 2>/dev/null
 done
 gcc -O2 -Wall -o "$ROOT/bin/x11probe" "$SRC/scripts/x11_grab_probe.c" -lX11
 chmod 0755 "$ROOT/probes"/*.exe
 has_str "$ROOT/probes/wexelevate_test.exe" wexelevate_stub || fail "the test broker does not call the stub (control)"
 ! has_str "$ROOT/probes/wexelevate_ship.exe" wexelevate_stub || fail "a broker built without the macro contains the stub name"
+has_str "$ROOT/probes/wexelevate_test.exe" E1S1-REQ || fail "the test broker has no E1-S5 record code (control)"
+! has_str "$ROOT/probes/wexelevate_ship.exe" E1S1-REQ || fail "a shipping broker contains disabled E1-S5 record code"
+has_str "$ROOT/probes/wexelevate_test.exe" E1S6_DENY || fail 'test broker has no denial-site audit (control)'
+! has_str "$ROOT/probes/wexelevate_ship.exe" E1S6_DENY || fail 'shipping broker contains lab denial-site audit'
 ! grep -rn 'WEXELEVATE_TEST_APPROVAL' "$SRC/src" "$SRC/installer" "$SRC/tools" --include=Makefile.in --include='*.mk' --include='*.inf' \
     --include='*.sh' --include='*.py' >/dev/null 2>&1 || fail "a build file defines WEXELEVATE_TEST_APPROVAL"
+! grep -rEn 'WEXELEVATE_TEST_APPROVAL|WEXCONSENT_TEST_HOOK|WEX_E1S6_TRANSPORT_TEST|WEX_E1S10_TOKEN_TEST|WEX_E1S7_LAB|WEX_E1S7_TEST|WEX_ACCOUNTS_TEST' \
+    "$SRC/src" "$SRC/installer" "$SRC/tools" "$SRC/wine" \
+    --include=Makefile.in --include=Makefile --include=configure.ac --include='*.mk' --include='*.inf' \
+    --include='*.sh' --include='*.py' >/dev/null 2>&1 || fail "a production build file names an E1 test gate"
+# Positive lab controls and separate normal-runtime exclusions. Never label a
+# lab runtime as shipping merely because its PE broker was compiled normally.
+[ -f "$BUILD/server/wineserver" ] && [ -f "$BUILD/dlls/wexhost/wexhost.so" ] || fail 'missing runtime artifacts for exclusion checks'
+if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
+    has_str "$BUILD/server/wineserver" wexelevate_test.exe || fail 'lab server has no S6 image hook'
+    has_str "$BUILD/dlls/wexhost/wexhost.so" org.wineexplorer.E1S6Lab || fail 'lab wexhost has no S6 bus hook'
+    has_str "$BUILD/server/wineserver" E1S6_DENY || fail 'lab server has no S6 denial-site audit'
+    has_str "$BUILD/dlls/wexhost/wexhost.so" E1S6_DENY || fail 'lab wexhost has no S6 denial-site audit'
+else
+    for marker in wexelevate_test.exe 'E1S token context (private)' E1S6_DENY; do
+        ! has_str "$BUILD/server/wineserver" "$marker" || fail "normal server contains $marker"
+    done
+    ! has_str "$BUILD/dlls/wexhost/wexhost.so" org.wineexplorer.E1S6Lab || fail 'normal wexhost contains S6 bus hook'
+    ! has_str "$BUILD/dlls/wexhost/wexhost.so" E1S6_DENY || fail 'normal wexhost contains S6 denial-site audit'
+fi
 for f in "$BUILD"/programs/wexelevate/*-windows/wexelevate.exe; do
     ! has_str "$f" wexelevate_stub || fail "the installed program $f contains the stub name"
+    ! has_str "$f" E1S1-REQ || fail "the installed program $f contains E1-S5 test code"
 done
 [ -z "$(find "$M" "$BUILD/programs" "$BUILD/dlls" \( -name 'wexelevate_stub*' -o -name 'wexelevate_test*' \) -print -quit)" ] ||
     fail "the stub or the test broker is in the installed tree"
@@ -907,6 +955,61 @@ for arch in 64 32; do
     done
 done
 bp c4_caller_death_leaves_no_child "$ADM" 64 callerdeath "$IMG" "$(winpath $EL/out.death)" "$TAGCD"
+# E1-S5: broker-owned disabled records, actual H2/S3 consumed message binding.
+# Endpoint/account identities, verifier and clock are fixtures; no credentials
+# or administrator token are issued. Both client ABIs use the same lab envelope.
+for arch in 64 32; do
+    pimage="$(winpath /home/$ADM/wexel/p$arch.exe)"
+    for record_case in accept request-id nonce digest replay expired token-replaced account cancel binding sequence generation logon \
+                       expiry-consume expiry-commit token-precommit version redemption mutated-request; do
+        rm -f "$EL/started.p$arch.exe"
+        bp "c4_e1s5_${record_case}_$arch" "$ADM" "$arch" e1s "$record_case" "$pimage" "$(winpath $EL/out.e1s5.$record_case.$arch)"
+        [ ! -e "$EL/started.p$arch.exe" ] || fail "E1-S5 fixture reached consent: $record_case/$arch"
+    done
+done
+if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
+    e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+    for arch in 64 32; do
+        pimage="$(winpath /home/$ADM/wexel/p$arch.exe)"
+        for transport_case in accept stale replay late owner disconnect cancel child-impostor; do
+            rm -f "$EL/started.p$arch.exe"
+            native_line=$(wc -l < "$ROOT/e1s6-service.log")
+            wine_line=$(wc -l < "$ROOT/e1s6-wine.log")
+            bp "c4_e1s6_${transport_case}_$arch" "$ADM" "$arch" e1s "transport-$transport_case" \
+                "$pimage" "$(winpath $EL/out.e1s6.$transport_case.$arch)"
+            [ ! -e "$EL/started.p$arch.exe" ] || fail "S6 transport reached consent"
+            # A generic setup denial must never pass a negative fixture. Check
+            # the actual targeted boundary, in this case's new log lines only.
+            native_case=$(tail -n +"$((native_line + 1))" "$ROOT/e1s6-service.log")
+            wine_case=$(tail -n +"$((wine_line + 1))" "$ROOT/e1s6-wine.log")
+            grep -qx 'E1S6_STAGE native phase=open' <<<"$native_case" || fail "S6 $transport_case/$arch: no real Open"
+            case "$transport_case" in
+                accept) grep -qx 'E1S6_STAGE native phase=exchange' <<<"$native_case" ;;
+                stale) grep -q 'site=exchange-registration ' <<<"$native_case" ;;
+                replay) grep -q 'site=late-replay ' <<<"$native_case" ;;
+                late) grep -q 'site=live-child-pin ' <<<"$native_case" ;;
+                owner) grep -q 'site=live-owner ' <<<"$wine_case" ;;
+                disconnect) grep -q 'site=receive-eof ' <<<"$native_case" ;;
+                cancel) grep -qx 'E1S6_STAGE native phase=cancel' <<<"$native_case" ;;
+                child-impostor) grep -q 'site=child-identity ' <<<"$native_case" ;;
+            esac || fail "S6 $transport_case/$arch: target denial/completion site missing"
+        done
+        wine_line=$(wc -l < "$ROOT/e1s6-wine.log")
+        bp "c4_e1s6_pipe_impostor_$arch" "$ADM" "$arch" transport-impostor
+        wine_case=$(tail -n +"$((wine_line + 1))" "$ROOT/e1s6-wine.log")
+        grep -q '^E1S6_DENY pipe site=authority$' <<<"$wine_case" ||
+            fail "S6 pipe impostor/$arch: server authority denial missing"
+    done
+    native_line=$(wc -l < "$ROOT/e1s6-service.log")
+    run_as "$ADM" /usr/bin/python3 -I "$E1S6_CHILD" --impostor >"$ROOT/e1s6-impostor.log" 2>&1 ||
+        { cat "$ROOT/e1s6-impostor.log" >&2; fail 'same-UID bus impostor probe failed'; }
+    grep -qx 'E1S6_IMPOSTOR PASS' "$ROOT/e1s6-impostor.log" || fail 'bus impostor did not complete'
+    native_case=$(tail -n +"$((native_line + 1))" "$ROOT/e1s6-service.log")
+    grep -q 'site=endorsement-gid ' <<<"$native_case" ||
+        fail 'bus impostor was not rejected at its actual sender credentials'
+    ok c4_e1s6_same_uid_bus_impostor
+    e1s6_stop
+fi
 bp c4_relative_image_path_is_rejected "$ADM" 64 run p64.exe 87 "$(winpath $EL/out.bad)" -
 bp c4_missing_image_is_reported "$ADM" 64 run "$(winpath $EL/missing.exe)" 2 "$(winpath $EL/out.bad)" -
 rm -f "$EL/approve.all"

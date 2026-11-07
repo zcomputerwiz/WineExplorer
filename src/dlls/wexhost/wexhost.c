@@ -287,6 +287,18 @@ DWORD WINAPI WexLeaseRelease( UINT64 lease, BOOL *broken )
     return params.err;
 }
 
+/* Private metadata transport; shipping Unix builds return NOT_SUPPORTED. */
+DWORD WINAPI WexE1s6Transport( HANDLE pipe, DWORD operation, void *buffer, DWORD size, UINT64 *channel )
+{
+    struct e1s6_transport_params params = { (ULONG_PTR)pipe, 0, (ULONG_PTR)buffer, operation, size };
+    if (!channel) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.channel = *channel;
+    WEXHOST_CALL( e1s6_transport, &params );
+    *channel = params.channel;
+    return params.err;
+}
+
 DWORD WINAPI WexPowerCan( DWORD action, DWORD *result )
 {
     struct power_can_params params = { action };

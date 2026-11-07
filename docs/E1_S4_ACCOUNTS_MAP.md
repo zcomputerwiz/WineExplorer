@@ -38,7 +38,7 @@ permanently reserves its SID and nonzero 128-bit random incarnation. The fixed
 legacy SID is reserved separately and never assigned to a recreated account.
 Duplicate SIDs are rejected even across tombstones, as are duplicate keys and
 active names/UIDs. Machine components must match the header or be the one
-permitted legacy all-zero domain. Limits: 1 MiB, 4096 records, 63-byte supported
+permitted legacy all-zero domain. Limits: 1 MiB, 63-byte supported
 ASCII names, 32 lowercase hexadecimal incarnation digits, UID 1..4294967294,
 nonzero u64 generation. No skipped lines, trailing fields or embedded NULs.
 
@@ -62,7 +62,9 @@ sudo /usr/local/libexec/wineexplorer/wex-accounts rename oldname newname
 Provisioning builds or installs the helper, then runs sync at the end when the
 system role is enabled. `WEX_ACCOUNTS_BIN` selects a trusted prebuilt tool;
 packaging provides `wex-accounts.bin`. `WEX_ACCOUNTS_LEGACY_USER` supplies the
-explicit initial legacy account. Without it the legacy SID remains unassigned;
+explicit initial legacy account. Setup passes it only before initialization;
+later updates retain the existing binding, including after a legacy rename.
+Without it the legacy SID remains unassigned;
 provisioning never guesses from root, SUDO_USER, the first passwd entry or UID
 1000. Once initialized, a legacy binding cannot be added or reassigned. Existing
 ordinary tokens/prefixes keep their current SID regardless. New lookup of a
@@ -77,8 +79,16 @@ config directories in fixtures do not configure a production server. Setup
 preserves an existing protected `admin_group=` choice, or accepts the root
 provisioner's `WEX_ADMIN_GROUP`; sudo remains the compatibility default.
 
-Sync enumerates local `/etc/passwd` candidates and requires canonical
-`getpwnam`/`getpwuid` agreement, including primary GID, and unique names/UIDs.
+Sync enumerates at most 26214 local `/etc/passwd` candidates and requires canonical
+`getpwnam_r`/`getpwuid_r` agreement, including primary GID, and unique names/UIDs.
+The 1 MiB map size also bounds its records, including tombstones. Lookup scans
+that map but does not enumerate the host passwd database: it checks only the
+selected record against both NSS lookups. An unrelated duplicate UID is found
+only if it changes the UID round trip; full ambiguity detection belongs to sync.
+The bounded reentrant passwd/group buffers grow on ERANGE up to 1 MiB; lookup
+fails closed if resolution exceeds that bound. A mapped local entry replaced
+by a matching directory-only NSS identity between syncs is not detectable by
+this lookup alone; lifecycle synchronization remains required.
 Root is excluded. Directory-only NSS accounts are outside this local subset.
 Records may include service users to reserve their identity, but lookup denies
 accounts with empty shell or the standard false/nologin shells. This limited
@@ -94,6 +104,12 @@ from UID reuse. Use the explicit root-only `rename OLD NEW` immediately after
 the host rename: it requires OLD absent and NEW holding the same UID, with no
 active NEW mapping, and preserves key/SID. It is an authoritative lifecycle
 assertion, never an inference from UID equality alone.
+Before a host rename, stop `wex-accounts.path`, `wex-accounts.timer` and any
+active `wex-accounts.service`, then perform the host rename and immediately run
+`wex-accounts rename OLD NEW` as root. Restart the path and timer afterward.
+This also applies to the legacy account; update any external provisioning
+configuration that refers to its old name. The watcher must not sync between
+the host rename and the authoritative rename command.
 
 Sync cannot detect an account deleted and recreated with the identical name
 and UID between observations. Root lifecycle tooling must `retire NAME` before
@@ -105,21 +121,34 @@ there is no cross-tool NSS/account-database transaction in S4. Until that
 operational requirement and the later policy/registration gates are validated,
 the provider must not be advertised for production credential elevation.
 
-Wexhost's successful AccountsService CreateUser calls sync immediately, before
-session/password setup, best effort with failures logged. There is no deletion
-method in the current wexhost source, so no deletion call site was fabricated.
-AccountsService's authorization does not give the calling Wine process root:
-ordinary wexhost will log the tool's root-required refusal, and protected
-provisioning/lifecycle maintenance must perform the update. No new root broker
-or privilege acquisition was added to disguise that limitation.
+The S4 review fix deliberately removed `sync_account_map()` and its call from
+`wexhost`'s `user_create()`: an unprivileged fork cannot execute root-only sync
+successfully. This is an intentional production lifecycle correction, not S6
+test code; do not restore that ineffective call. Provisioning performs the
+initial/end-of-update sync and the root lifecycle path performs later syncs.
+Wexhost does not invoke the root-only tool. On a running systemd host with
+default paths, provisioning enables a root path unit watching `/etc/passwd`
+and a one-minute retry timer, both calling the oneshot sync service. Package
+installation stages these units. Alternate tool/config paths, non-systemd
+systems and offline provisioning require equivalent root lifecycle integration;
+the units use the default paths only. Sync is asynchronous, may fail or race
+host account changes, and does not replace explicit retirement/rename handling.
+Inspect the service journal and retry failures; it cannot make account creation
+transactional with the authority.
 
 The tool holds a nonblocking exclusive `.accounts.lock`, validated on its open
 descriptor. It refuses an already-running writer. It writes a random O_EXCL
 temporary file in the same checked directory, sets root:system-group 0640,
 flushes and fsyncs it, renames it atomically, and fsyncs the directory. The
 root-only `.accounts.initialized` guard prevents a missing map from silently
-resetting RID/key history on reinstall. Interrupted initialization can leave a
-guard without a map and intentionally requires manual, reviewed recovery. A
+resetting RID/key history on reinstall. The first complete map is fsynced as
+`.accounts.pending` before the guard; a root `sync` validates and publishes
+those exact bytes if interrupted after the guard. An unguarded pending file is
+discarded and initialization retried; an unguarded missing map is likewise
+initialized by root sync. Provide the same `--legacy-user` choice if the first
+attempt did not reach the guard. A guard with neither map nor
+pending map still fails closed, because published history may have been lost.
+Under the lock, exact random `.accounts-` temporary names are removed. A
 post-rename directory-fsync failure reports failure even if a new map is visible;
 re-read under the lock for recovery. Never remove tombstones or reset the counter.
 Backup/rollback of this authority must preserve history; root disk rollback is
@@ -161,8 +190,12 @@ An inaccessible/missing ancestor fails protection; inaccessible/missing map
 contents fail unreadable. SID validation checks the entire map before returning
 any account. Files must be regular, root-owned, not group/other writable,
 single-linked and opened without following symlinks. The map must have the
-configured system GID. Directories are traversed with checked open descriptors
-and openat; the server temporarily uses the existing sysrun group helpers only
+configured system GID. On Linux, any extended POSIX access ACL on the map,
+configuration, lock, marker or traversed directory is rejected, even a
+read-only ACL; unsupported xattr filesystems are accepted, other xattr errors
+fail closed. Non-Linux targets currently fail the ACL check closed. Directories
+are traversed with checked open descriptors and openat; the server temporarily
+uses the existing sysrun group helpers only
 for this private lookup and restores the group on all exits.
 
 This API is compiled but unused in the production server. Its capability

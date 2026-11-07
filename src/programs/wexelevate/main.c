@@ -55,6 +55,15 @@
 #define NT_SUCCESS(s) ((LONG)(s) >= 0)
 #endif
 
+#ifdef WEXELEVATE_TEST_APPROVAL
+#include <stdio.h>
+#include "e1s.h"
+#include "e1s6_protocol.h"
+#define E1S_AUDIT(site) fprintf( stderr, "E1S6_DENY broker site=%s\n", site )
+#else
+#define E1S_AUDIT(site) do {} while (0)
+#endif
+
 #define MAX_REQUESTS      32   /* pending at once */
 #define MAX_PER_CALLER    4
 #define READ_TIMEOUT      10000
@@ -78,6 +87,10 @@ struct request
     DWORD caller_pid;
     HANDLE caller;        /* process handle of the caller */
     HANDLE caller_token;  /* its primary token */
+    TOKEN_STATISTICS caller_stats; /* frozen H2/S3 security version and caller logon */
+    LARGE_INTEGER caller_start;
+    DWORD caller_session, caller_sid_len;
+    BYTE caller_sid[SECURITY_MAX_SID_SIZE];
     DWORD flags, show;
     WCHAR *image, *cmdline, *cwd, *env;
     DWORD env_len;
@@ -176,7 +189,7 @@ static ULONGLONG random_id(void)
  * can be generated */
 static DWORD table_add( struct request *req )
 {
-    DWORD err = ERROR_BUSY, i, same = 0;
+    DWORD err = ERROR_BUSY, i, j, tries, same = 0;
 
     EnterCriticalSection( &table_cs );
     for (i = 0; i < MAX_REQUESTS; i++) if (table[i] && table[i]->caller_pid == req->caller_pid) same++;
@@ -185,8 +198,16 @@ static DWORD table_add( struct request *req )
         for (i = 0; i < MAX_REQUESTS; i++)
         {
             if (table[i]) continue;
-            req->id = random_id();
-            if (!req->id)
+            /* A correlation id is not authority, but it must still be unique
+             * among live requests. Bound retries; RNG failure always denies. */
+            for (tries = 0; tries < MAX_REQUESTS; ++tries)
+            {
+                req->id = random_id();
+                if (!req->id) break;
+                for (j = 0; j < MAX_REQUESTS; ++j) if (table[j] && table[j]->id == req->id) break;
+                if (j == MAX_REQUESTS) break;
+            }
+            if (!req->id || tries == MAX_REQUESTS)
             {
                 err = ERROR_GEN_FAILURE;
                 break;
@@ -201,7 +222,8 @@ static DWORD table_add( struct request *req )
     return err;
 }
 
-/* the single use of an id: it is found once, and gone afterwards */
+/* Single use; retain the occupied slot/id until cleanup so a consumed request
+ * still in launch preparation cannot collide with a newly admitted request. */
 static BOOL table_consume( struct request *req )
 {
     BOOL found = FALSE;
@@ -213,7 +235,6 @@ static BOOL table_consume( struct request *req )
         if (table[i] != req || !req->live || table[i]->id != req->id) continue;
         found = TRUE;
         req->live = 0;
-        table[i] = NULL;
         break;
     }
     LeaveCriticalSection( &table_cs );
@@ -255,7 +276,8 @@ static DWORD pipe_io( HANDLE pipe, void *buf, DWORD size, BOOL write, DWORD time
     DWORD err = ERROR_SUCCESS, ret;
 
     *done = 0;
-    if (!(ov.hEvent = CreateEventW( NULL, TRUE, FALSE, NULL ))) return GetLastError();
+    if (!(ov.hEvent = CreateEventW( NULL, TRUE, FALSE, NULL )))
+    { err = GetLastError(); E1S_AUDIT( "pipe-create-event" ); return err; }
     if (!(write ? WriteFile( pipe, buf, size, NULL, &ov ) : ReadFile( pipe, buf, size, NULL, &ov )))
     {
         err = GetLastError();
@@ -276,11 +298,13 @@ static DWORD pipe_io( HANDLE pipe, void *buf, DWORD size, BOOL write, DWORD time
         }
         else
         {
+            E1S_AUDIT( "pipe-start-io" );
             CloseHandle( ov.hEvent );
             return err;
         }
     }
-    if (!GetOverlappedResult( pipe, &ov, done, TRUE )) err = GetLastError();
+    if (!GetOverlappedResult( pipe, &ov, done, TRUE ))
+    { err = GetLastError(); E1S_AUDIT( "pipe-io-result" ); }
     CloseHandle( ov.hEvent );
     return err;
 }
@@ -290,7 +314,18 @@ static DWORD pipe_io( HANDLE pipe, void *buf, DWORD size, BOOL write, DWORD time
 static BOOL token_user_sid( HANDLE token, BYTE *buf, DWORD size )
 {
     DWORD len;
-    return GetTokenInformation( token, TokenUser, buf, size, &len );
+    ULONG_PTR offset;
+    SID *sid;
+
+    if (!GetTokenInformation( token, TokenUser, buf, size, &len ) || len > size || len < sizeof(TOKEN_USER))
+        return FALSE;
+    sid = ((TOKEN_USER *)buf)->User.Sid;
+    if ((ULONG_PTR)sid < (ULONG_PTR)buf) return FALSE;
+    offset = (ULONG_PTR)sid - (ULONG_PTR)buf;
+    if (offset > len || len - offset < FIELD_OFFSET( SID, SubAuthority )) return FALSE;
+    if (sid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES ||
+        len - offset - FIELD_OFFSET( SID, SubAuthority ) < sid->SubAuthorityCount * sizeof(DWORD)) return FALSE;
+    return IsValidSid( sid );
 }
 
 static BOOL token_is_system_with_tcb(void)
@@ -347,51 +382,91 @@ struct pipe_caller_binding
 
 /* E1-S3: compare retained objects and versions at open, consumed write and query.
  * The Ex export and exact capability/version checks make older implementations deny. */
-static NTSTATUS (WINAPI *pQueryBinding)( HANDLE, struct pipe_caller_binding * );
-static BOOL (WINAPI *pCompareObjectHandles)( HANDLE, HANDLE );
-
 static BOOL token_stats( HANDLE token, TOKEN_STATISTICS *stats )
 {
     DWORD len;
     return GetTokenInformation( token, TokenStatistics, stats, sizeof(*stats), &len ) && len == sizeof(*stats);
 }
 
-static DWORD check_binding( struct request *req, DWORD pid, HANDLE pipe_token )
+static BOOL same_luid( LUID a, LUID b )
+{
+    return a.LowPart == b.LowPart && a.HighPart == b.HighPart;
+}
+
+/* capture only once, after consuming the one request message. Every later call
+ * queries that same retained opener AND consumed writer; never a fresh read. */
+static DWORD check_binding( struct request *req, DWORD pid, HANDLE pipe_token, BOOL capture )
 {
     struct pipe_caller_binding binding = { .Size = sizeof(binding) };
     TOKEN_STATISTICS primary, pipe;
+    BYTE user[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
+    HANDLE current = NULL, impersonation = NULL;
     DWORD err = ERROR_ACCESS_DENIED, sid1 = 0, sid2 = 0, len;
+    HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" ), kb = GetModuleHandleW( L"kernelbase.dll" );
+    NTSTATUS (WINAPI *query)( HANDLE, struct pipe_caller_binding * ) =
+        ntdll ? (void *)GetProcAddress( ntdll, "NtQueryWexPipeCallerBindingEx" ) : NULL;
+    BOOL (WINAPI *compare)( HANDLE, HANDLE ) = kb ? (void *)GetProcAddress( kb, "CompareObjectHandles" ) : NULL;
 
-    if (!pQueryBinding)
+    /* In particular, a failed RevertToSelf must never reach authorization. */
+    if (OpenThreadToken( GetCurrentThread(), TOKEN_QUERY, TRUE, &impersonation ))
     {
-        HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" ), kb = GetModuleHandleW( L"kernelbase.dll" );
-        pQueryBinding = ntdll ? (void *)GetProcAddress( ntdll, "NtQueryWexPipeCallerBindingEx" ) : NULL;
-        pCompareObjectHandles = kb ? (void *)GetProcAddress( kb, "CompareObjectHandles" ) : NULL;
-    }
-    if (!pQueryBinding || !pCompareObjectHandles) return ERROR_NOT_SUPPORTED;
-    if (!NT_SUCCESS(pQueryBinding( req->pipe, &binding )))
+        CloseHandle( impersonation );
+        E1S_AUDIT( "binding-broker-impersonating" );
         return ERROR_ACCESS_DENIED;
+    }
+    if (GetLastError() != ERROR_NO_TOKEN) { E1S_AUDIT( "binding-thread-token-query" ); return ERROR_ACCESS_DENIED; }
+    if (!query || !compare) { E1S_AUDIT( "binding-missing-export" ); return ERROR_NOT_SUPPORTED; }
+    if (!NT_SUCCESS(query( req->pipe, &binding ))) { E1S_AUDIT( "binding-server-query" ); return ERROR_ACCESS_DENIED; }
 
-    if (binding.Size == sizeof(binding) && binding.Version == PIPE_BINDING_VERSION && binding.Pid == pid &&
-        !binding.Impersonated && binding.TokenCurrent &&
-        binding.WriterFlags == (PIPE_WRITER_VALID | PIPE_WRITER_TOKEN_CURRENT) &&
-        pCompareObjectHandles( binding.Process, req->caller ) &&
-        pCompareObjectHandles( binding.Token, req->caller_token ) &&
-        pCompareObjectHandles( binding.WriterProcess, binding.Process ) &&
-        pCompareObjectHandles( binding.WriterToken, binding.Token ) &&
-        binding.WriterTokenId.LowPart == binding.TokenId.LowPart &&
-        binding.WriterTokenId.HighPart == binding.TokenId.HighPart &&
-        binding.WriterModifiedId.LowPart == binding.ModifiedId.LowPart &&
-        binding.WriterModifiedId.HighPart == binding.ModifiedId.HighPart &&
-        token_stats( req->caller_token, &primary ) && token_stats( pipe_token, &pipe ) &&
-        primary.TokenId.LowPart == binding.TokenId.LowPart && primary.TokenId.HighPart == binding.TokenId.HighPart &&
-        primary.ModifiedId.LowPart == binding.ModifiedId.LowPart && primary.ModifiedId.HighPart == binding.ModifiedId.HighPart &&
-        (primary.AuthenticationId.LowPart || primary.AuthenticationId.HighPart) &&
-        primary.AuthenticationId.LowPart == pipe.AuthenticationId.LowPart &&
-        primary.AuthenticationId.HighPart == pipe.AuthenticationId.HighPart &&
-        GetTokenInformation( req->caller_token, TokenSessionId, &sid1, sizeof(sid1), &len ) &&
-        GetTokenInformation( pipe_token, TokenSessionId, &sid2, sizeof(sid2), &len ) && sid1 == sid2)
+#define CHECK_BINDING(c, site) do { if (!(c)) { E1S_AUDIT( site ); goto done; } } while (0)
+    CHECK_BINDING( binding.Size == sizeof(binding) && binding.Version == PIPE_BINDING_VERSION, "binding-version" );
+    CHECK_BINDING( binding.Pid == pid, "binding-pid" );
+    CHECK_BINDING( WaitForSingleObject( req->caller, 0 ) == WAIT_TIMEOUT, "binding-caller-live" );
+    CHECK_BINDING( !binding.Impersonated, "binding-opener-impersonated" );
+    CHECK_BINDING( binding.TokenCurrent, "binding-opener-current" );
+    CHECK_BINDING( binding.WriterFlags == (PIPE_WRITER_VALID | PIPE_WRITER_TOKEN_CURRENT), "binding-writer-flags" );
+    CHECK_BINDING( compare( binding.Process, req->caller ), "binding-opener-process" );
+    CHECK_BINDING( compare( binding.Token, req->caller_token ), "binding-opener-token" );
+    CHECK_BINDING( compare( binding.WriterProcess, binding.Process ), "binding-writer-process" );
+    CHECK_BINDING( compare( binding.WriterToken, binding.Token ), "binding-writer-token" );
+    CHECK_BINDING( OpenProcessToken( req->caller, TOKEN_QUERY, &current ), "binding-open-current" );
+    CHECK_BINDING( compare( current, req->caller_token ), "binding-current-object" );
+    CHECK_BINDING( same_luid( binding.WriterTokenId, binding.TokenId ), "binding-writer-token-id" );
+    CHECK_BINDING( same_luid( binding.WriterModifiedId, binding.ModifiedId ), "binding-writer-modified-id" );
+    CHECK_BINDING( token_stats( current, &primary ) && primary.TokenType == TokenPrimary, "binding-primary-statistics" );
+    CHECK_BINDING( same_luid( primary.TokenId, binding.TokenId ), "binding-primary-token-id" );
+    CHECK_BINDING( same_luid( primary.ModifiedId, binding.ModifiedId ), "binding-primary-modified-id" );
+    CHECK_BINDING( primary.AuthenticationId.LowPart || primary.AuthenticationId.HighPart, "binding-authentication-id" );
+    CHECK_BINDING( GetTokenInformation( req->caller_token, TokenSessionId, &sid1, sizeof(sid1), &len ) &&
+                   len == sizeof(sid1), "binding-session" );
+    CHECK_BINDING( token_user_sid( current, user, sizeof(user) ) && IsValidSid( ((TOKEN_USER *)user)->User.Sid ),
+                   "binding-user-sid" );
+    {
+        PSID sid = ((TOKEN_USER *)user)->User.Sid;
+        if (pipe_token && (!token_stats( pipe_token, &pipe ) || pipe.TokenType != TokenImpersonation ||
+            pipe.ImpersonationLevel < SecurityIdentification || !same_luid( primary.AuthenticationId, pipe.AuthenticationId ) ||
+            !GetTokenInformation( pipe_token, TokenSessionId, &sid2, sizeof(sid2), &len ) || len != sizeof(sid2) || sid1 != sid2))
+        { E1S_AUDIT( "binding-pipe-token" ); goto done; }
+        if (capture)
+        {
+            req->caller_stats = primary;
+            req->caller_start = binding.StartTime;
+            req->caller_session = sid1;
+            req->caller_sid_len = GetLengthSid( sid );
+            if (req->caller_sid_len > sizeof(req->caller_sid) ||
+                !CopySid( sizeof(req->caller_sid), req->caller_sid, sid ))
+            { E1S_AUDIT( "binding-copy-sid" ); goto done; }
+        }
+        else if (!same_luid( primary.TokenId, req->caller_stats.TokenId ) ||
+                 !same_luid( primary.ModifiedId, req->caller_stats.ModifiedId ) ||
+                 !same_luid( primary.AuthenticationId, req->caller_stats.AuthenticationId ) ||
+                 sid1 != req->caller_session || binding.StartTime.QuadPart != req->caller_start.QuadPart ||
+                 !EqualSid( sid, req->caller_sid )) { E1S_AUDIT( "binding-frozen-identity" ); goto done; }
         err = ERROR_SUCCESS;
+    }
+done:
+#undef CHECK_BINDING
+    if (current) CloseHandle( current );
     CloseHandle( binding.Process );
     CloseHandle( binding.Token );
     CloseHandle( binding.WriterProcess );
@@ -412,10 +487,14 @@ static DWORD identify_caller( struct request *req )
     if (!ImpersonateNamedPipeClient( req->pipe )) return ERROR_ACCESS_DENIED;
     if (!OpenThreadToken( GetCurrentThread(), TOKEN_QUERY, TRUE, &thread_token ))
     {
-        RevertToSelf();
+        if (!RevertToSelf()) return ERROR_ACCESS_DENIED;
         return ERROR_ACCESS_DENIED;
     }
-    RevertToSelf();
+    if (!RevertToSelf())
+    {
+        CloseHandle( thread_token );
+        return ERROR_ACCESS_DENIED;
+    }
     if (!token_user_sid( thread_token, pipe_user, sizeof(pipe_user) ))
     {
         CloseHandle( thread_token );
@@ -429,7 +508,7 @@ static DWORD identify_caller( struct request *req )
     if (!token_user_sid( req->caller_token, proc_user, sizeof(proc_user) ) ||
         !EqualSid( ((TOKEN_USER *)pipe_user)->User.Sid, ((TOKEN_USER *)proc_user)->User.Sid )) goto denied;
     /* the server's record of the opener must be this very process and token (E1-H2) */
-    if ((err = check_binding( req, pid, thread_token )))
+    if ((err = check_binding( req, pid, thread_token, TRUE )))
     {
         CloseHandle( thread_token );
         return err;
@@ -438,7 +517,8 @@ static DWORD identify_caller( struct request *req )
     /* the pid must still be the client's, and the process must not have gone away meanwhile */
     if (!GetNamedPipeClientProcessId( req->pipe, &pid2 ) || pid2 != pid || WaitForSingleObject( req->caller, 0 ) != WAIT_TIMEOUT)
         return ERROR_ACCESS_DENIED;
-    if (!GetTokenInformation( req->caller_token, TokenElevationType, &elevation, sizeof(elevation), &len )) return ERROR_ACCESS_DENIED;
+    if (!GetTokenInformation( req->caller_token, TokenElevationType, &elevation, sizeof(elevation), &len ) ||
+        len != sizeof(elevation)) return ERROR_ACCESS_DENIED;
     /* only the limited half of a split administrator token has something to elevate to */
     return elevation == TokenElevationTypeLimited ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
 denied:
@@ -522,7 +602,8 @@ static DWORD hash_file( HANDLE file, BYTE *out )
         !NT_SUCCESS(BCryptCreateHash( alg, &hash, NULL, 0, NULL, 0, 0 ))) err = ERROR_GEN_FAILURE;
     while (!err)
     {
-        if (!ReadFile( file, buf, 65536, &got, NULL )) err = GetLastError();
+        if (!ReadFile( file, buf, 65536, &got, NULL ))
+        { err = GetLastError(); E1S_AUDIT( "image-hash-read" ); }
         else if (!got) break;
         else if (!NT_SUCCESS(BCryptHashData( hash, buf, got, 0 ))) err = ERROR_GEN_FAILURE;
     }
@@ -548,14 +629,19 @@ static DWORD freeze_image( struct request *req )
 
     req->image_file = CreateFileW( req->image, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
                                    FILE_ATTRIBUTE_NORMAL, NULL );
-    if (req->image_file == INVALID_HANDLE_VALUE) return GetLastError();
+    if (req->image_file == INVALID_HANDLE_VALUE)
+    { err = GetLastError(); E1S_AUDIT( "freeze-open-image" ); return err; }
     if (GetFileType( req->image_file ) != FILE_TYPE_DISK || !GetFileInformationByHandle( req->image_file, &req->info ) ||
-        (req->info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return ERROR_FILE_NOT_FOUND;
+        (req->info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+    { E1S_AUDIT( "freeze-image-info" ); return ERROR_FILE_NOT_FOUND; }
     /* the lease first, then the hash: from here on the bytes cannot change without the broker noticing */
-    if (!pLeaseTake) return ERROR_FILE_SYSTEM_LIMITATION;
-    if (!(req->lease_event = CreateEventW( NULL, TRUE, FALSE, NULL ))) return GetLastError();
-    if ((err = pLeaseTake( req->image_file, req->lease_event, &req->lease ))) return err;
-    if ((err = hash_file( req->image_file, req->hash ))) return err;
+    if (!pLeaseTake) { E1S_AUDIT( "freeze-lease-export" ); return ERROR_FILE_SYSTEM_LIMITATION; }
+    if (!(req->lease_event = CreateEventW( NULL, TRUE, FALSE, NULL )))
+    { err = GetLastError(); E1S_AUDIT( "freeze-lease-event" ); return err; }
+    if ((err = pLeaseTake( req->image_file, req->lease_event, &req->lease )))
+    { E1S_AUDIT( "freeze-lease-take" ); return err; }
+    if ((err = hash_file( req->image_file, req->hash )))
+    { E1S_AUDIT( "freeze-image-hash" ); return err; }
     return ERROR_SUCCESS;
 }
 
@@ -943,21 +1029,27 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
     WCHAR *cmdline = NULL;
     void *default_env = NULL;
     void *env;
-    BOOL guard_owns = FALSE;
-    DWORD err = ERROR_SUCCESS, len, type;
+    BYTE user[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
+    DWORD err = ERROR_SUCCESS, len, type, session;
 
     if (!GetTokenInformation( req->caller_token, TokenLinkedToken, &linked, sizeof(linked), &len ))
     {
         err = GetLastError();
-        return err == ERROR_NO_SUCH_LOGON_SESSION ? ERROR_NOT_SUPPORTED : err;
+        return err == ERROR_NO_SUCH_LOGON_SESSION ? ERROR_NOT_SUPPORTED : err ? err : ERROR_ACCESS_DENIED;
+    }
+    if (len != sizeof(linked) || !linked)
+    {
+        if (linked) CloseHandle( linked );
+        return ERROR_ACCESS_DENIED;
     }
     /* the broker needs a usable primary token of the full half; an identification token is no use */
-    if (!GetTokenInformation( linked, TokenType, &type, sizeof(type), &len ) || type != TokenPrimary)
+    if (!GetTokenInformation( linked, TokenType, &type, sizeof(type), &len ) || len != sizeof(type) || type != TokenPrimary)
     {
         CloseHandle( linked );
         return ERROR_NOT_SUPPORTED;
     }
-    if (!GetTokenInformation( linked, TokenElevationType, &type, sizeof(type), &len ) || type != TokenElevationTypeFull)
+    if (!GetTokenInformation( linked, TokenElevationType, &type, sizeof(type), &len ) ||
+        len != sizeof(type) || type != TokenElevationTypeFull)
     {
         CloseHandle( linked );
         return ERROR_NOT_SUPPORTED;
@@ -967,8 +1059,12 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
         TOKEN_STATISTICS caller_stats, linked_stats;
 
         if (!token_stats( req->caller_token, &caller_stats ) || !token_stats( linked, &linked_stats ) ||
-            caller_stats.AuthenticationId.LowPart != linked_stats.AuthenticationId.LowPart ||
-            caller_stats.AuthenticationId.HighPart != linked_stats.AuthenticationId.HighPart)
+            !same_luid( caller_stats.AuthenticationId, req->caller_stats.AuthenticationId ) ||
+            !same_luid( linked_stats.AuthenticationId, req->caller_stats.AuthenticationId ) ||
+            !token_user_sid( linked, user, sizeof(user) ) || !IsValidSid( ((TOKEN_USER *)user)->User.Sid ) ||
+            !EqualSid( ((TOKEN_USER *)user)->User.Sid, req->caller_sid ) ||
+            !GetTokenInformation( linked, TokenSessionId, &session, sizeof(session), &len ) ||
+            len != sizeof(session) || session != req->caller_session)
         {
             CloseHandle( linked );
             return ERROR_ACCESS_DENIED;
@@ -1025,6 +1121,8 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
     }
     lstrcpyW( cmdline, req->cmdline );
 
+    if ((err = check_binding( req, req->caller_pid, NULL, FALSE ))) goto done;
+    if (WaitForSingleObject( stop_event, 0 ) != WAIT_TIMEOUT) { err = ERROR_CANCELLED; goto done; }
     /* the target starts suspended: it runs only once the handle, the lease and the guard are in place */
     if (!CreateProcessAsUserW( linked, req->image, cmdline, NULL, NULL, FALSE,
                                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE |
@@ -1050,22 +1148,43 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
     }
     if (req->lease)
     {
+        HANDLE guard_process = NULL;
         /* name the process to the lease: if a writer has opened the image meanwhile, it ends here */
         DWORD arm = pLeaseArm( req->lease, pi.dwProcessId );
-        if (arm || !start_guard( req, pi.hProcess ))
+        if (arm)
         {
-            err = arm ? arm : ERROR_NOT_ENOUGH_MEMORY;
+            err = arm;
             goto fail;
         }
-        guard_owns = TRUE;   /* the guard owns the process handle now */
+        /* Keep our own process handle through the new precommit checks. The
+         * guard may observe lease-break death and close its handle at any time. */
+        if (!DuplicateHandle( GetCurrentProcess(), pi.hProcess, GetCurrentProcess(), &guard_process,
+                              0, FALSE, DUPLICATE_SAME_ACCESS ))
+        {
+            err = GetLastError();
+            goto fail;
+        }
+        if (!start_guard( req, guard_process ))
+        {
+            CloseHandle( guard_process );
+            err = ERROR_NOT_ENOUGH_MEMORY;
+            goto fail;
+        }
     }
-    if (ResumeThread( pi.hThread ) == (DWORD)-1)
+    /* Last caller-object/version check, after suspended creation and lease setup.
+     * Credential launches will additionally require a distinct administrator
+     * logon; the linked-token branch above deliberately retains same-logon. */
+    EnterCriticalSection( &table_cs );
+    err = check_binding( req, req->caller_pid, NULL, FALSE );
+    if (!err && WaitForSingleObject( stop_event, 0 ) != WAIT_TIMEOUT) err = ERROR_CANCELLED;
+    if (!err && ResumeThread( pi.hThread ) == (DWORD)-1) err = GetLastError();
+    LeaveCriticalSection( &table_cs );
+    if (err)
     {
-        err = GetLastError();
         goto fail;
     }
     CloseHandle( pi.hThread );
-    if (!guard_owns) CloseHandle( pi.hProcess );
+    CloseHandle( pi.hProcess );
     goto done;
 fail:
     /* a rejected launch leaves no running child: end it, wait for it, and close the remote handle in the caller */
@@ -1074,12 +1193,8 @@ fail:
     *pid = 0;
     *tid = 0;
     TerminateProcess( pi.hProcess, 1 );
-    /* once the guard owns the process handle it may close it at any time: do not wait on it from here */
-    if (!guard_owns)
-    {
-        WaitForSingleObject( pi.hProcess, 5000 );
-        CloseHandle( pi.hProcess );
-    }
+    WaitForSingleObject( pi.hProcess, 5000 );
+    CloseHandle( pi.hProcess );
     CloseHandle( pi.hThread );
     goto done;
 done:
@@ -1096,23 +1211,482 @@ done:
 
 /* ---- one request --------------------------------------------------------------------------------------------- */
 
+#ifdef WEXELEVATE_TEST_APPROVAL
+/* E1-S5 is deliberately unreachable in shipping builds. The native clock,
+ * registrations, eligibility, verifier redemption and launch gates do not yet
+ * exist. These fixtures exercise broker code, not authentication or execution. */
+static UINT64 e1s_luid( LUID id )
+{
+    return ((UINT64)(DWORD)id.HighPart << 32) | id.LowPart;
+}
+
+static void e1s_caller_snapshot( const struct request *req, struct e1s_binding *s )
+{
+    memset( s, 0, sizeof(*s) );
+    s->token_id = e1s_luid( req->caller_stats.TokenId );
+    s->modified_id = e1s_luid( req->caller_stats.ModifiedId );
+    s->auth_id = e1s_luid( req->caller_stats.AuthenticationId );
+    s->start_time = req->caller_start.QuadPart;
+    s->session = req->caller_session; s->sid_len = req->caller_sid_len;
+    memcpy( s->sid, req->caller_sid, s->sid_len );
+}
+
+/* The consumed S3 message is never read again to refresh a stale binding.
+ * e1s_advance checks a snapshot; other fixture operations hold table_cs. */
+static BOOL e1s_checkpoint( struct request *req, struct e1s_attempt *a, UINT64 now,
+                            const struct e1s_context *current )
+{
+    struct e1s_binding s;
+    struct e1s_frozen copy = { 0 };
+    BYTE digest[32];
+    BOOL ok;
+    if (a->state >= E1S_COMMITTED || !now || now >= a->frozen->deadline ||
+        (e1s_nonzero( a->evidence_ref, 16 ) && now >= a->evidence_expiry) ||
+        !e1s_same_generations( &a->context.gen, &current->gen ) ||
+        memcmp( a->context.channel, current->channel, 16 ) ||
+        WaitForSingleObject( stop_event, 0 ) != WAIT_TIMEOUT ||
+        WaitForSingleObject( req->lease_event, 0 ) != WAIT_TIMEOUT ||
+        !PeekNamedPipe( req->pipe, NULL, 0, NULL, NULL, NULL ) ||
+        check_binding( req, req->caller_pid, NULL, FALSE )) return FALSE;
+    e1s_caller_snapshot( req, &s );
+    if (!e1s_binding_digest( current, &s, digest ) || memcmp( digest, a->frozen->binding_digest, 32 ) ||
+        !e1s_sha256( "E1S1-REQ", sizeof("E1S1-REQ"), a->frozen->bytes, a->frozen->length, digest ) ||
+        memcmp( digest, a->frozen->request_digest, 32 )) return FALSE;
+    ok = e1s_freeze( &copy, req->id, now, a->frozen->deadline, current, &s, &req->info, req->hash,
+                     req->image, req->cmdline, req->cwd, req->show, req->flags ) &&
+         !memcmp( copy.request_digest, a->frozen->request_digest, 32 ) &&
+         !memcmp( copy.environment_digest, a->frozen->environment_digest, 32 );
+    free( copy.bytes );
+    return ok;
+}
+
+static BOOL e1s_advance( struct request *req, struct e1s_attempt *a, enum e1s_state next,
+                         UINT64 now, const struct e1s_context *current )
+{
+    struct e1s_attempt snapshot;
+    BOOL ok;
+    EnterCriticalSection( &table_cs );
+    memcpy( &snapshot, a, sizeof(snapshot) );
+    LeaveCriticalSection( &table_cs );
+    ok = (next != E1S_COMMITTED || !verify_image( req )) && e1s_checkpoint( req, &snapshot, now, current );
+    EnterCriticalSection( &table_cs );
+    /* Cancellation or any other attempt change invalidates the checked snapshot.
+     * Stop and lease break must still be clear immediately before committing. */
+    ok = ok && !memcmp( a, &snapshot, sizeof(snapshot) ) &&
+         WaitForSingleObject( stop_event, 0 ) == WAIT_TIMEOUT &&
+         WaitForSingleObject( req->lease_event, 0 ) == WAIT_TIMEOUT;
+    if (ok) ok = e1s_broker_step( a, next );
+    if (!ok) e1s_cancel( a );
+    LeaveCriticalSection( &table_cs );
+    return ok;
+}
+
+static BOOL e1s_broker_answer( struct request *req, struct e1s_attempt *a, const struct e1s_answer *r,
+                               UINT64 now, const struct e1s_context *current )
+{
+    BOOL ok;
+    EnterCriticalSection( &table_cs );
+    ok = e1s_checkpoint( req, a, now, current ) && e1s_answer_matches( a, r, now );
+    if (!ok || r->answer_kind == 3) { e1s_cancel( a ); ok = FALSE; }
+    else a->consent = TRUE; /* receipt alone cannot move to an authorization state */
+    LeaveCriticalSection( &table_cs );
+    return ok;
+}
+
+/* Binding metadata for the broker's consent challenge. S7 owns rendering and
+ * the native conversation channel; credential payloads never enter this API. */
+static BOOL e1s_broker_challenge( struct request *req, struct e1s_attempt *a, struct e1s_answer *r,
+                                  UINT64 now, const struct e1s_context *current )
+{
+    BOOL ok;
+    EnterCriticalSection( &table_cs );
+    ok = a->state == E1S_AUTHENTICATING && e1s_checkpoint( req, a, now, current );
+    if (ok)
+    {
+        memset( r, 0, sizeof(*r) );
+        r->kind = 2; r->version = 1; r->length = E1S_ANSWER_LENGTH; r->caps = E1S_CAPS;
+        r->id = a->frozen->id; r->attempt = a->number; r->round = a->round; r->index = a->index;
+        r->answer_kind = 2;
+        memcpy( r->nonce, a->nonce, 32 ); memcpy( r->binding_digest, a->frozen->binding_digest, 32 );
+        memcpy( r->request_digest, a->frozen->request_digest, 32 ); memcpy( r->channel, current->channel, 16 );
+    }
+    else e1s_cancel( a );
+    LeaveCriticalSection( &table_cs );
+    return ok;
+}
+
+static BOOL e1s_broker_identity( struct request *req, struct e1s_attempt *a, const struct e1s_evidence *e,
+                                 const BYTE ref[16], UINT64 now, const struct e1s_context *current, UINT64 uid )
+{
+    BOOL ok;
+    EnterCriticalSection( &table_cs );
+    ok = e1s_checkpoint( req, a, now, current ) && a->consent && e1s_nonzero( ref, 16 ) &&
+         e1s_evidence_matches( a, e, now, &current->gen, uid );
+    if (ok)
+    {
+        memcpy( a->evidence_ref, ref, 16 );
+        a->evidence_completed = e->completed; a->evidence_expiry = e->expiry;
+        ok = e1s_broker_step( a, E1S_IDENTITY_READY );
+    }
+    if (!ok) e1s_cancel( a );
+    LeaveCriticalSection( &table_cs );
+    return ok;
+}
+
+/* A real S8 transport must remove its connection-owned evidence atomically and
+ * return the verifier's retained bytes. This local object is only a test double. */
+struct e1s_test_verifier { struct e1s_evidence record; BYTE ref[16]; BOOL used; };
+
+static BOOL e1s_test_same_object( HANDLE a, HANDLE b )
+{
+    BOOL (WINAPI *compare)( HANDLE, HANDLE ) =
+        (void *)GetProcAddress( GetModuleHandleW( L"kernelbase.dll" ), "CompareObjectHandles" );
+    return compare && compare( a, b );
+}
+
+static BOOL e1s_broker_consume( struct request *req, struct e1s_attempt *a, struct e1s_test_verifier *v,
+                                UINT64 now, const struct e1s_context *current, UINT64 uid )
+{
+    BOOL ok;
+    EnterCriticalSection( &table_cs );
+    ok = e1s_checkpoint( req, a, now, current ) && a->state == E1S_IDENTITY_READY &&
+         !a->redeemed && table_consume( req );
+    if (ok)
+    {
+        ok = !v->used && !memcmp( v->ref, a->evidence_ref, 16 );
+        v->used = TRUE; /* even a mismatching redemption cannot be retried */
+        if (ok) ok = e1s_evidence_matches( a, &v->record, now, &current->gen, uid );
+        if (ok) { a->redeemed = TRUE; ok = e1s_broker_step( a, E1S_CONSUMED ); }
+    }
+    if (!ok) e1s_cancel( a );
+    LeaveCriticalSection( &table_cs );
+    return ok;
+}
+
+/* Change the actual caller process primary token in the disposable fixture.
+ * The duplicate has the same account/logon/session; only the object changes.
+ * Always restore the exact original object before returning a completion marker.
+ * No token/right is transferred to the client. ProcessAccessToken is private NT
+ * class 9; mirror its two HANDLE fields for the external-SDK lab build. */
+static BOOL e1s_test_token_replacement( struct request *req, struct e1s_attempt *a, enum e1s_state next,
+                                       UINT64 now, const struct e1s_context *current )
+{
+    struct { HANDLE Token, Thread; } info = { 0 };
+    HANDLE process = NULL, original = NULL, replacement = NULL;
+    BOOL ok = FALSE, denied, advanced;
+    NTSTATUS (WINAPI *set_process)( HANDLE, ULONG, void *, ULONG ) =
+        (void *)GetProcAddress( GetModuleHandleW( L"ntdll.dll" ), "NtSetInformationProcess" );
+
+    if (!set_process || !(process = OpenProcess( PROCESS_SET_INFORMATION, FALSE, req->caller_pid )) ||
+        !e1s_test_same_object( process, req->caller ) ||
+        !OpenProcessToken( req->caller, TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY, &original ) ||
+        !e1s_test_same_object( original, req->caller_token ) ||
+        !DuplicateTokenEx( original, TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY, NULL, SecurityImpersonation, TokenPrimary,
+                           &replacement )) goto done;
+    info.Token = replacement;
+    if (!NT_SUCCESS(set_process( process, 9, &info, sizeof(info) ))) goto done;
+    denied = check_binding( req, req->caller_pid, NULL, FALSE ) == ERROR_ACCESS_DENIED;
+    advanced = e1s_advance( req, a, next, now, current );
+    info.Token = original;
+    if (!NT_SUCCESS(set_process( process, 9, &info, sizeof(info) ))) goto done;
+    ok = denied && !advanced && a->state == E1S_CANCELLED &&
+         !check_binding( req, req->caller_pid, NULL, FALSE );
+done:
+    if (replacement) CloseHandle( replacement );
+    if (original) CloseHandle( original );
+    if (process) CloseHandle( process );
+    return ok;
+}
+
+static BOOL e1s_test_token_version( struct request *req, struct e1s_attempt *a, UINT64 now,
+                                   const struct e1s_context *current )
+{
+    BYTE saved[8192]; /* bounded lab token, no changed DACL contents */
+    TOKEN_STATISTICS before, after;
+    HANDLE token;
+    DWORD len;
+    BOOL ok;
+    if (!OpenProcessToken( req->caller, TOKEN_QUERY | TOKEN_ADJUST_DEFAULT, &token )) return FALSE;
+    ok = e1s_test_same_object( token, req->caller_token ) && token_stats( token, &before ) &&
+         GetTokenInformation( token, TokenDefaultDacl, saved, sizeof(saved), &len ) &&
+         SetTokenInformation( token, TokenDefaultDacl, saved, len ) && token_stats( token, &after ) &&
+         same_luid( before.TokenId, after.TokenId ) && !same_luid( before.ModifiedId, after.ModifiedId ) &&
+         check_binding( req, req->caller_pid, NULL, FALSE ) == ERROR_ACCESS_DENIED &&
+         !e1s_advance( req, a, E1S_AUTHENTICATING, now, current ) && a->state == E1S_CANCELLED;
+    CloseHandle( token );
+    return ok;
+}
+
+static DWORD e1s6_probe( struct request *req, DWORD mode, const struct e1s_frozen *f,
+                         const BYTE *nonce, struct wexelevate_reply *reply )
+{
+    DWORD (WINAPI *transport)( HANDLE, DWORD, void *, DWORD, UINT64 * ) =
+        (void *)GetProcAddress( GetModuleHandleW( L"wexhost.dll" ), "WexE1s6Transport" );
+    BYTE packet[E1S6_REG_SIZE + E1S6_ANSWER_SIZE] = { 0 }, *a = packet + E1S6_REG_SIZE;
+    UINT64 channel = 0, old_channel;
+    DWORD err = ERROR_INVALID_DATA, result = ERROR_SUCCESS;
+    BOOL passed = FALSE;
+    if (!transport) { E1S_AUDIT( "probe-transport-export" ); return ERROR_NOT_SUPPORTED; }
+#define S6_EXPECT(c, site) do { if (!(c)) { \
+    fprintf( stderr, "E1S6_DENY broker site=%s mode=%lu transport_error=%lu fixture_error=%lu\n", \
+             site, (unsigned long)mode, (unsigned long)result, (unsigned long)err ); goto done; \
+} } while (0)
+    result = transport( req->pipe, E1S6_OPEN, packet, E1S6_OPEN_SIZE, &channel );
+    S6_EXPECT( !result, "probe-open" );
+    memset( a, 0, E1S6_ANSWER_SIZE );
+    e1s6_put32(a, 0x10002); e1s6_put32(a + 4, E1S6_ANSWER_SIZE);
+    e1s6_put64(a + 16, f->id); e1s6_put32(a + 24, 1); e1s6_put32(a + 28, 1);
+    e1s6_put32(a + 36, 2);
+    memcpy(a + 40, nonce, 32); memcpy(a + 72, f->binding_digest, 32);
+    memcpy(a + 104, f->request_digest, 32); memcpy(a + 136, packet + 88, 16);
+    if (mode == E1S_TRANSPORT_CHILD_IMPOSTOR)
+    {
+        result = transport( req->pipe, E1S6_TEST_CHILD_IMPOSTOR, packet, sizeof(packet), &channel );
+        S6_EXPECT( result == ERROR_ACCESS_DENIED && !channel, "probe-child-impostor" );
+        S6_EXPECT( !check_binding( req, req->caller_pid, NULL, FALSE ), "probe-impostor-binding" );
+        passed = TRUE; err = ERROR_ACCESS_DENIED; goto done;
+    }
+    result = transport( req->pipe, E1S6_CHILD_START, packet, sizeof(packet), &channel );
+    S6_EXPECT( !result, "probe-child-start" );
+    old_channel = channel;
+    if (mode == E1S_TRANSPORT_STALE) packet[48] ^= 1;
+    if (mode == E1S_TRANSPORT_CANCEL) e1s6_put32(a + 36, 3);
+    if (mode == E1S_TRANSPORT_OWNER)
+    {
+        result = transport( req->pipe, E1S6_TEST_WRONG_OWNER, packet, sizeof(packet), &channel );
+        S6_EXPECT( !result, "probe-inject-owner" );
+    }
+    if (mode == E1S_TRANSPORT_LATE)
+    {
+        result = transport( req->pipe, E1S6_TEST_KILL_CHILD, packet, sizeof(packet), &channel );
+        S6_EXPECT( !result, "probe-kill-child" );
+    }
+    if (mode == E1S_TRANSPORT_DISCONNECT)
+    {
+        result = transport( req->pipe, E1S6_TEST_DISCONNECT, packet, sizeof(packet), &channel );
+        S6_EXPECT( !result && !channel, "probe-disconnect" );
+    }
+    else
+    {
+        result = transport( req->pipe, E1S6_EXCHANGE, packet, sizeof(packet), &channel );
+        if (mode == E1S_TRANSPORT_ACCEPT || mode == E1S_TRANSPORT_REPLAY)
+        {
+            S6_EXPECT( !result, "probe-exchange" );
+            if (mode == E1S_TRANSPORT_REPLAY)
+            {
+                result = transport( req->pipe, E1S6_EXCHANGE, packet, sizeof(packet), &channel );
+                S6_EXPECT( result == ERROR_ACCESS_DENIED && !channel, "probe-replay" );
+            }
+        }
+        else S6_EXPECT( result == ERROR_ACCESS_DENIED && !channel, "probe-negative-exchange" );
+    }
+    if (mode != E1S_TRANSPORT_ACCEPT)
+    {
+        /* A late call using the revoked local channel cannot reopen it. */
+        UINT64 stale = old_channel;
+        result = transport( req->pipe, E1S6_EXCHANGE, packet, sizeof(packet), &stale );
+        S6_EXPECT( result && !stale, "probe-revoked-channel" );
+    }
+    S6_EXPECT( !check_binding( req, req->caller_pid, NULL, FALSE ), "probe-final-binding" );
+    passed = TRUE;
+    err = mode == E1S_TRANSPORT_ACCEPT ? ERROR_SUCCESS : ERROR_ACCESS_DENIED;
+done:
+#undef S6_EXPECT
+    if (channel) transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
+    if (passed) { reply->pid = E1S_PROBE_MAGIC; reply->tid = mode; reply->handle = 0; }
+    return err;
+}
+
+static DWORD e1s_probe( struct request *req, DWORD mode, struct wexelevate_reply *reply )
+{
+    struct e1s_context c = { .gen = { 1, 2, 3, 4, 5, 6 }, .host_uid = 1000 };
+    struct e1s_binding s, changed;
+    struct e1s_frozen f = { 0 };
+    struct e1s_attempt a, trial;
+    struct e1s_answer answer;
+    struct e1s_answer bad;
+    struct e1s_test_verifier v = { 0 };
+    BYTE nonce[32], account[16] = { 42 }, ref[16] = { 24 };
+    UINT64 now = 1000, deadline = 120000001000ULL, uid = 1001, admin;
+    DWORD err = ERROR_INVALID_DATA;
+    BOOL ok;
+
+    /* Explicitly synthetic endpoint/account identities and host clock. Actual
+     * caller/token/SID/session and held image/hash always come from this request. */
+    c.prefix[0] = 1; c.host_process[0] = 2; c.opener[0] = c.writer[0] = 3;
+    c.desktop[0] = 4; c.channel[0] = 5;
+    if (!NT_SUCCESS(BCryptGenRandom( NULL, nonce, sizeof(nonce), BCRYPT_USE_SYSTEM_PREFERRED_RNG )) ||
+        !e1s_nonzero( nonce, sizeof(nonce) )) return ERROR_GEN_FAILURE;
+    if (check_binding( req, req->caller_pid, NULL, FALSE )) return ERROR_ACCESS_DENIED;
+    e1s_caller_snapshot( req, &s );
+    changed = s; changed.token_id ^= 1;
+    if (e1s_same_binding( &s, &changed )) { E1S_AUDIT( "probe-binding-comparator" ); return ERROR_INVALID_DATA; }
+    if (!e1s_freeze( &f, req->id, now, deadline, &c, &s, &req->info, req->hash,
+                     req->image, req->cmdline, req->cwd, req->show, req->flags ))
+    { E1S_AUDIT( "probe-freeze-record" ); goto done; }
+    if (mode >= E1S_TRANSPORT_ACCEPT)
+    {
+        err = e1s6_probe( req, mode, &f, nonce, reply );
+        goto done;
+    }
+    if (!e1s_begin( &a, &f, &c, 1, nonce, account )) goto done;
+    if (!e1s_advance( req, &a, E1S_PROMPTING, now, &c )) goto done;
+    if (mode == E1S_TOKEN_REPLACED)
+    {
+        if (!e1s_test_token_replacement( req, &a, E1S_AUTHENTICATING, now, &c )) goto done;
+        goto denied;
+    }
+    if (mode == E1S_VERSION)
+    {
+        if (!e1s_test_token_version( req, &a, now, &c )) goto done;
+        goto denied;
+    }
+    if (!e1s_advance( req, &a, E1S_AUTHENTICATING, now, &c )) goto done;
+    if (!e1s_broker_challenge( req, &a, &answer, now, &c )) goto done;
+    bad = answer;
+    switch (mode)
+    {
+    case E1S_REQUEST_ID: bad.id ^= 1; break;
+    case E1S_NONCE: bad.nonce[0] ^= 1; break;
+    case E1S_DIGEST: bad.request_digest[0] ^= 1; break;
+    case E1S_BINDING: bad.binding_digest[0] ^= 1; break;
+    case E1S_SEQUENCE: bad.index++; break;
+    default: break;
+    }
+    if (mode == E1S_REQUEST_ID || mode == E1S_NONCE || mode == E1S_DIGEST ||
+        mode == E1S_BINDING || mode == E1S_SEQUENCE)
+    {
+        trial = a;
+        if (e1s_broker_answer( req, &trial, &bad, now, &c ) || trial.state != E1S_CANCELLED) goto done;
+    }
+    if (!e1s_broker_answer( req, &a, &answer, now, &c )) goto done;
+    /* Replaying an otherwise correct answer also fails and cancels its copy. */
+    trial = a;
+    if (e1s_broker_answer( req, &trial, &answer, now, &c ) || trial.state != E1S_CANCELLED) goto done;
+    v.record.kind = 3; v.record.version = 1; v.record.length = E1S_EVIDENCE_LENGTH; v.record.caps = E1S_CAPS;
+    v.record.id = f.id; v.record.attempt = a.number; v.record.uid = uid;
+    v.record.completed = now; v.record.expiry = deadline - 1; v.record.gen = c.gen;
+    v.record.method = v.record.service = 1;
+    memcpy( v.record.nonce, a.nonce, 32 ); memcpy( v.record.account, account, 16 );
+    memcpy( v.record.request_digest, f.request_digest, 32 ); memcpy( v.record.binding_digest, f.binding_digest, 32 );
+    memcpy( v.ref, ref, 16 );
+    switch (mode)
+    {
+    case E1S_REQUEST_ID: v.record.id ^= 1; break;
+    case E1S_NONCE: v.record.nonce[0] ^= 1; break;
+    case E1S_DIGEST: v.record.request_digest[0] ^= 1; break;
+    case E1S_BINDING: v.record.binding_digest[0] ^= 1; break;
+    case E1S_SEQUENCE: v.record.attempt++; break;
+    case E1S_EXPIRED: v.record.expiry = now; break;
+    case E1S_ACCOUNT: v.record.account[0] ^= 1; break;
+    case E1S_GENERATION: c.gen.policy++; break;
+    default: break;
+    }
+    ok = e1s_broker_identity( req, &a, &v.record, ref, now, &c, uid );
+    if (mode == E1S_REQUEST_ID || mode == E1S_NONCE || mode == E1S_DIGEST || mode == E1S_BINDING ||
+        mode == E1S_SEQUENCE || mode == E1S_EXPIRED || mode == E1S_ACCOUNT || mode == E1S_GENERATION)
+    {
+        if (ok || a.state != E1S_CANCELLED) goto done;
+        goto denied;
+    }
+    if (!ok) goto done;
+    if (mode == E1S_EXPIRY_CONSUME || mode == E1S_REDEMPTION)
+    {
+        /* Different retained expiry at redemption is a mismatch even if both
+         * timestamps are still in the future. Expiry itself is exclusive. */
+        if (mode == E1S_REDEMPTION) v.record.expiry--;
+        else now = v.record.expiry;
+        if (e1s_broker_consume( req, &a, &v, now, &c, uid ) || a.state != E1S_CANCELLED) goto done;
+        goto denied;
+    }
+    if (mode == E1S_CANCEL)
+    {
+        EnterCriticalSection( &table_cs );
+        e1s_cancel( &a ); e1s_cancel( &a );
+        LeaveCriticalSection( &table_cs );
+        if (e1s_broker_consume( req, &a, &v, now, &c, uid ) || a.state != E1S_CANCELLED || v.used) goto done;
+        goto denied;
+    }
+    trial = a; /* preserve identity-ready to also test replay past the table gate */
+    if (!e1s_broker_consume( req, &a, &v, now, &c, uid ) || !v.used) goto done;
+    if (mode == E1S_REPLAY)
+    {
+        if (e1s_broker_consume( req, &trial, &v, now, &c, uid ) || trial.state != E1S_CANCELLED) goto done;
+        if (e1s_broker_consume( req, &a, &v, now, &c, uid ) || a.state != E1S_CANCELLED) goto done;
+        goto denied;
+    }
+    admin = s.auth_id ^ 1;
+    if (!admin) admin = 2;
+    if (mode == E1S_LOGON) admin = s.auth_id;
+    if (!e1s_admin_logon( s.auth_id, admin, s.session, s.session ))
+    {
+        e1s_cancel( &a );
+        if (mode != E1S_LOGON) goto done;
+        goto denied;
+    }
+    a.admin_auth_id = admin; /* simulated token validation, never an issued token */
+    if (!e1s_advance( req, &a, E1S_LAUNCH_PREPARED, now, &c )) goto done;
+    if (mode == E1S_TOKEN_COMMIT)
+    {
+        if (!e1s_test_token_replacement( req, &a, E1S_COMMITTED, now, &c )) goto done;
+        goto denied;
+    }
+    if (mode == E1S_EXPIRY_COMMIT || mode == E1S_MUTATED_REQUEST)
+    {
+        if (mode == E1S_EXPIRY_COMMIT) now = v.record.expiry;
+        else req->show ^= 1;
+        ok = e1s_advance( req, &a, E1S_COMMITTED, now, &c );
+        if (mode == E1S_MUTATED_REQUEST) req->show ^= 1;
+        if (ok || a.state != E1S_CANCELLED) goto done;
+        goto denied;
+    }
+    if (!e1s_advance( req, &a, E1S_COMMITTED, now, &c ) || e1s_cancel( &a ) || a.state != E1S_COMMITTED) goto done;
+    err = ERROR_SUCCESS;
+    goto passed;
+denied:
+    err = ERROR_ACCESS_DENIED;
+passed:
+    /* A lab result marker, never a target PID or authorization capability. */
+    reply->pid = E1S_PROBE_MAGIC; reply->tid = mode; reply->handle = 0;
+done:
+    free( f.bytes );
+    SecureZeroMemory( nonce, sizeof(nonce) );
+    return err;
+}
+#endif
+
 static DWORD handle_request( struct request *req, BYTE *buf, DWORD size, struct wexelevate_reply *reply )
 {
     DWORD err;
+#ifdef WEXELEVATE_TEST_APPROVAL
+    DWORD probe = 0;
+    /* One message: private lab envelope followed by a normal v1 request. */
+    if (size >= 8 && ((DWORD *)buf)[0] == E1S_PROBE_MAGIC)
+    {
+        probe = ((DWORD *)buf)[1];
+        if (!probe || probe >= E1S_CASE_COUNT) return ERROR_INVALID_PARAMETER;
+        buf += 8; size -= 8;
+    }
+#endif
 
     if (!system_role) return ERROR_NOT_SUPPORTED;
-    if ((err = identify_caller( req ))) return err;
-    if ((err = parse_request( req, buf, size ))) return err;
-    if ((err = table_add( req ))) return err;
-    if ((err = freeze_image( req ))) return err;
+    if ((err = identify_caller( req ))) { E1S_AUDIT( "request-identify" ); return err; }
+    if ((err = parse_request( req, buf, size ))) { E1S_AUDIT( "request-parse" ); return err; }
+    if ((err = table_add( req ))) { E1S_AUDIT( "request-table" ); return err; }
+    if ((err = freeze_image( req ))) { E1S_AUDIT( "request-freeze-image" ); return err; }
+#ifdef WEXELEVATE_TEST_APPROVAL
+    if (probe) return e1s_probe( req, probe, reply );
+#endif
+    if ((err = check_binding( req, req->caller_pid, NULL, FALSE ))) return err;
     if ((err = approve( req ))) return err;
+    if ((err = check_binding( req, req->caller_pid, NULL, FALSE ))) return err;
     /* from here on the request is used: once */
     if (!table_consume( req )) return ERROR_CANCELLED;
     if (WaitForSingleObject( req->caller, 0 ) != WAIT_TIMEOUT) return ERROR_CANCELLED;
     if ((err = verify_image( req ))) return err;
     if (req->lease && ((err = pLeaseArm( req->lease, 0 )) || WaitForSingleObject( req->lease_event, 0 ) != WAIT_TIMEOUT))
         return err ? err : ERROR_FILE_CORRUPT;
-    if (WaitForSingleObject( stop_event, 0 ) == WAIT_OBJECT_0) return ERROR_CANCELLED;
+    if (WaitForSingleObject( stop_event, 0 ) != WAIT_TIMEOUT) return ERROR_CANCELLED;
     return launch( req, &reply->pid, &reply->tid, &reply->handle );
 }
 
@@ -1177,7 +1751,9 @@ static DWORD WINAPI handler( DWORD ctrl, DWORD event_type, void *event_data, voi
     if (ctrl == SERVICE_CONTROL_STOP || ctrl == SERVICE_CONTROL_SHUTDOWN)
     {
         report( SERVICE_STOP_PENDING, 0 );
+        EnterCriticalSection( &table_cs );
         SetEvent( stop_event );
+        LeaveCriticalSection( &table_cs );
         return NO_ERROR;
     }
     return ctrl == SERVICE_CONTROL_INTERROGATE ? NO_ERROR : ERROR_CALL_NOT_IMPLEMENTED;
@@ -1254,16 +1830,18 @@ static void serve(void)
     }
     CloseHandle( ov.hEvent );
     if (pipe != INVALID_HANDLE_VALUE) CloseHandle( pipe );
+    EnterCriticalSection( &table_cs );
     SetEvent( stop_event );
+    LeaveCriticalSection( &table_cs );
     while (active_threads) Sleep( 50 );
 }
 
 static void WINAPI service_main( DWORD argc, WCHAR **argv )
 {
+    InitializeCriticalSection( &table_cs );
     status_handle = RegisterServiceCtrlHandlerExW( WEXELEVATE_SERVICE, handler, NULL );
     if (!status_handle) return;
     report( SERVICE_START_PENDING, 0 );
-    InitializeCriticalSection( &table_cs );
     stop_event = CreateEventW( NULL, TRUE, FALSE, NULL );
     InitializeCriticalSection( &secure_cs );
     system_role = token_is_system_with_tcb();

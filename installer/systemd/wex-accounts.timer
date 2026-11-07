@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+[Unit]
+Description=Retry WineExplorer account synchronization
+
+[Timer]
+OnBootSec=1min
+OnUnitInactiveSec=1min
+Unit=wex-accounts.service
+
+[Install]
+WantedBy=timers.target

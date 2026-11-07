@@ -29,6 +29,9 @@
  *   forge <image> <out> a request whose advisory_pid names another process; the parent must be this process
  *   provenance <self|transceive|write-impersonate|transceive-impersonate|delegate|delegate-transceive|dacl-restore> <image> <out>
  *                      lab-only consumed-writer controls; delegated and impersonating writes must deny before consent
+ *   e1s <case> <image> <out>
+ *                      WEXELEVATE_TEST_APPROVAL only: exercise disabled broker records/states, never launch.
+ *                      Cases and fixture limits: docs/E1_S5_BROKER_RECORDS.md.
  *   impersonate <image> <out>
  *                      open the broker pipe while the thread impersonates its own token; the broker must deny
  *                      (ERROR_ACCESS_DENIED) and start nothing
@@ -86,6 +89,12 @@
 #include <msi.h>
 
 #include "wexelevate.h"
+
+#ifdef WEXELEVATE_TEST_APPROVAL
+#define WEXELEVATE_E1S_PROBE_CLIENT
+#include "../src/programs/wexelevate/e1s.h"
+#include "../src/include/e1s6_protocol.h"
+#endif
 
 #define POLICY_DIR "Z:\\tmp\\wexelev\\"
 
@@ -440,6 +449,22 @@ static DWORD WINAPI conc_thread(void *param)
     return 0;
 }
 
+/* like conc_thread, but waits while the machine root is still starting its services (error 1055, service database locked):
+ * a lab harness must not rerun a probe whose first request never reached the broker */
+static DWORD WINAPI patient_thread(void *param)
+{
+    struct conc *c = param;
+    int tries;
+
+    for (tries = 0; tries < 60; tries++)
+    {
+        c->err = ask(c->image, c->out, NULL, NULL, &c->process);
+        if (c->err != ERROR_SERVICE_DATABASE_LOCKED) break;
+        Sleep(5000);
+    }
+    return 0;
+}
+
 static void concurrent_mode(const char *imageA, const char *imageB, const char *outA, const char *outB)
 {
     struct conc a = { imageA, outA }, b = { imageB, outB };
@@ -733,6 +758,23 @@ static void provenance_mode(const char *which, const char *image, const char *ou
 /* the image is replaced while the consent is pending: the harness (from Unix, where the rename is not blocked by
  * the broker's read handle) renames a different file over the path after the probe signals imgrace.ready, and
  * writes imgrace.done; the broker must deny (ERROR_FILE_CORRUPT) and start nothing */
+/* what the image is right now (file index, size, write time): evidence for the replacement */
+static void imgrace_diag(const char *when, const char *image)
+{
+    BY_HANDLE_FILE_INFORMATION info;
+    HANDLE f = CreateFileA(image, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                           OPEN_EXISTING, 0, NULL);
+    char detail[256];
+
+    if (f != INVALID_HANDLE_VALUE && GetFileInformationByHandle(f, &info))
+        sprintf(detail, "%s: volume %08lx index %08lx%08lx size %lu write %08lx%08lx", when, info.dwVolumeSerialNumber,
+                info.nFileIndexHigh, info.nFileIndexLow, info.nFileSizeLow, info.ftLastWriteTime.dwHighDateTime,
+                info.ftLastWriteTime.dwLowDateTime);
+    else sprintf(detail, "%s: cannot read the image (error %lu)", when, GetLastError());
+    if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+    printf("ok image identity %s\n", detail);
+}
+
 static void imagerace_mode(const char *image, const char *out)
 {
     struct conc c = { image, out };
@@ -740,16 +782,21 @@ static void imagerace_mode(const char *image, const char *out)
     char name[MAX_PATH], path[2 * MAX_PATH], *base;
     DWORD i;
 
-    t = CreateThread(NULL, 0, conc_thread, &c, 0, NULL);
+    DeleteFileA(POLICY_DIR "imgrace.ready");   /* no stale markers from an earlier run */
+    DeleteFileA(POLICY_DIR "imgrace.done");
+    t = CreateThread(NULL, 0, patient_thread, &c, 0, NULL);
     base = strrchr(image, '\\');
     strncpy(name, base ? base + 1 : image, sizeof(name) - 1);
     name[sizeof(name) - 1] = 0;
     sprintf(path, POLICY_DIR "started.%s", name);
-    for (i = 0; i < 600 && GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
+    /* up to 5 minutes: the machine root can still be starting its services when the probe starts */
+    for (i = 0; i < 3000 && GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
     check(GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES, "the consent is pending (the stub wrote started.<name>)");
+    imgrace_diag("before the replacement", image);
     write_whole(POLICY_DIR "imgrace.ready", "x", 1);
     for (i = 0; i < 600 && GetFileAttributesA(POLICY_DIR "imgrace.done") == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
     check(GetFileAttributesA(POLICY_DIR "imgrace.done") != INVALID_FILE_ATTRIBUTES, "the harness replaced the image");
+    imgrace_diag("after the replacement", image);
     write_whole(POLICY_DIR "gate", "x", 1);
     WaitForSingleObject(t, 120000);
     CloseHandle(t);
@@ -1144,12 +1191,126 @@ static void winwrite_mode(const char *path)
     CloseHandle(f);
 }
 
+#ifdef WEXELEVATE_TEST_APPROVAL
+static void transport_impostor(void)
+{
+    DWORD (WINAPI *transport)(HANDLE, DWORD, void *, DWORD, UINT64 *) = NULL;
+    HANDLE server = INVALID_HANDLE_VALUE, client = INVALID_HANDLE_VALUE;
+    HMODULE module = NULL;
+    char name[128], path[MAX_PATH + 16], message[8] = { 0 }, readback[8];
+    BYTE record[E1S6_OPEN_SIZE];
+    UINT64 channel = 0;
+    DWORD done, len;
+    BOOL ok = FALSE;
+    len = GetSystemDirectoryA(path, MAX_PATH);
+    if (!len || len >= MAX_PATH) goto out;
+    strcpy(path + len, "\\wexhost.dll");
+    if (!(module = LoadLibraryA(path)) || !(transport = (void *)GetProcAddress(module, "WexE1s6Transport"))) goto out;
+    sprintf(name, "\\\\.\\pipe\\wex-e1s6-impostor-%lu", GetCurrentProcessId());
+    server = CreateNamedPipeA(name, PIPE_ACCESS_DUPLEX, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                              1, 128, 128, 1000, NULL);
+    if (server == INVALID_HANDLE_VALUE) goto out;
+    client = CreateFileA(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (client == INVALID_HANDLE_VALUE) goto out;
+    if (!ConnectNamedPipe(server, NULL) && GetLastError() != ERROR_PIPE_CONNECTED) goto out;
+    if (!WriteFile(client, message, sizeof(message), &done, NULL) || done != sizeof(message) ||
+        !ReadFile(server, readback, sizeof(readback), &done, NULL) || done != sizeof(readback)) goto out;
+    /* Same host UID, real opener/writer, arbitrary pipe: no endorsed broker role. */
+    ok = transport(server, E1S6_OPEN, record, sizeof(record), &channel) == ERROR_ACCESS_DENIED && !channel;
+out:
+    if (channel && transport) transport(server, E1S6_CLOSE, NULL, 0, &channel);
+    if (client != INVALID_HANDLE_VALUE) CloseHandle(client);
+    if (server != INVALID_HANDLE_VALUE) { DisconnectNamedPipe(server); CloseHandle(server); }
+    if (module) FreeLibrary(module);
+    check(ok, "same-UID pipe process cannot register as broker");
+}
+
+static void e1s_mode(const char *which, const char *image, const char *out)
+{
+    static const char *const cases[] = {
+        NULL, "accept", "request-id", "nonce", "digest", "replay", "expired", "token-replaced",
+        "account", "cancel", "binding", "sequence", "generation", "logon",
+        "expiry-consume", "expiry-commit", "token-precommit", "version", "redemption", "mutated-request",
+        "transport-accept", "transport-stale", "transport-replay", "transport-late", "transport-owner", "transport-disconnect",
+        "transport-cancel", "transport-child-impostor"
+    };
+    WCHAR *wimage = NULL, *cmd = NULL, *data;
+    const WCHAR cwd[] = L"C:\\windows";
+    struct wexelevate_request *req;
+    struct wexelevate_reply reply = { 0 };
+    BYTE *message = NULL;
+    char *command = NULL;
+    DWORD mode, size, done = 0, expected;
+    HANDLE pipe = INVALID_HANDLE_VALUE, watchdog;
+    BOOL ok = FALSE;
+
+    for (mode = 1; mode < E1S_CASE_COUNT; ++mode) if (!strcmp(which, cases[mode])) break;
+    check(mode < E1S_CASE_COUNT, "recognized E1-S5 case");
+    if (mode == E1S_CASE_COUNT) return;
+    watchdog = CreateThread(NULL, 0, provenance_watchdog, NULL, 0, NULL);
+    check(watchdog != NULL, "created the bounded probe watchdog");
+    if (!watchdog) return;
+    CloseHandle(watchdog);
+    DeleteFileA(out);
+    wimage = widen(image);
+    command = malloc(strlen(image) + strlen(out) + 32);
+    if (!wimage || !command) goto done;
+    sprintf(command, "\"%s\" child \"%s\"", image, out);
+    if (!(cmd = widen(command))) goto done;
+    size = 8 + sizeof(*req) + (lstrlenW(wimage) + lstrlenW(cmd) + lstrlenW(cwd)) * sizeof(WCHAR);
+    if (!(message = calloc(1, size))) goto done;
+    ((DWORD *)message)[0] = E1S_PROBE_MAGIC; ((DWORD *)message)[1] = mode;
+    req = (void *)(message + 8);
+    req->magic = WEXELEVATE_MAGIC; req->version = WEXELEVATE_VERSION; req->show = SW_SHOWNORMAL;
+    req->image_len = lstrlenW(wimage); req->cmdline_len = lstrlenW(cmd); req->cwd_len = lstrlenW(cwd);
+    data = (WCHAR *)(req + 1);
+    memcpy(data, wimage, req->image_len * sizeof(WCHAR));
+    memcpy(data + req->image_len, cmd, req->cmdline_len * sizeof(WCHAR));
+    memcpy(data + req->image_len + req->cmdline_len, cwd, req->cwd_len * sizeof(WCHAR));
+    if (wexelevate_connect(&pipe)) goto done;
+    if (!WriteFile(pipe, message, size, &done, NULL) || done != size) goto done;
+    if (!ReadFile(pipe, &reply, sizeof(reply), &done, NULL) || done != sizeof(reply)) goto done;
+    expected = mode == E1S_ACCEPT || mode == E1S_TRANSPORT_ACCEPT ? ERROR_SUCCESS : ERROR_ACCESS_DENIED;
+    if (reply.error != expected || reply.pid != E1S_PROBE_MAGIC || reply.tid != mode)
+        printf("E1S6_REPLY mode=%lu error=%lu expected=%lu completed=%u%s\n",
+               (unsigned long)mode, (unsigned long)reply.error, (unsigned long)expected,
+               (unsigned int)(reply.pid == E1S_PROBE_MAGIC && reply.tid == mode),
+               reply.error == ERROR_INVALID_DATA ? " (ERROR_INVALID_DATA: fixture did not complete)" : "");
+    SetLastError(reply.error);
+    check(reply.magic == WEXELEVATE_MAGIC && reply.pid == E1S_PROBE_MAGIC && reply.tid == mode,
+          "the broker completed the requested record fixture (not an early denial)");
+    check(reply.error == expected, "the accept/mismatch result is correct");
+    check(!reply.handle, "the state fixture returned no process handle");
+    ok = TRUE;
+done:
+    check(ok, "completed E1-S5 broker exchange");
+    if (pipe != INVALID_HANDLE_VALUE) CloseHandle(pipe);
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES && !child_running(image),
+          "the record fixture launched no child");
+    free(message); free(cmd); free(command); free(wimage);
+}
+#endif
+
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 ? argv[1] : "";
 
     if (!strcmp(mode, "child")) return child_mode(argc, argv);
     if (!strcmp(mode, "hold")) { Sleep(120000); return 0; }
+#ifdef WEXELEVATE_TEST_APPROVAL
+    if (!strcmp(mode, "transport-impostor"))
+    {
+        transport_impostor();
+        printf("transport-impostor=%s\n", failures ? "FAIL" : "PASS");
+        return failures ? 1 : 0;
+    }
+    if (!strcmp(mode, "e1s") && argc > 4)
+    {
+        e1s_mode(argv[2], argv[3], argv[4]);
+        printf("e1s=%s\n", failures ? "FAIL" : "PASS");
+        return failures ? 1 : 0;
+    }
+#endif
     if (!strcmp(mode, "run") && argc > 4) run_mode(argv[2], atoi(argv[3]), argv[4], argc > 5 ? argv[5] : NULL, argc > 6 ? argv[6] : NULL);
     else if (!strcmp(mode, "args") && argc > 3) args_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "concurrent") && argc > 5) concurrent_mode(argv[2], argv[3], argv[4], argv[5]);

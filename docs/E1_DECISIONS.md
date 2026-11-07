@@ -108,9 +108,23 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   filtered-admin flow. The standard-user path still returns error 50. New 32/64-bit probes and fixture/remaining-gate details:
   [E1-S5 broker records](E1_S5_BROKER_RECORDS.md). No build or run here; endpoint/account/clock/verifier/launch inputs are synthetic
   lab fixtures, not production authentication. Caller-primary replacement probes and concurrency/crash tests remain unrun.
+* **E1-S6 disabled transport (2026-11-06), static review only.** Server endorsement of the specific broker image/process/connection,
+  fresh generations, system-bus unique-owner plus kernel process pins, private metadata FD channel and native child fixture.
+  Requires explicit WEX_E1S6_TRANSPORT_TEST; no production enablement or readiness capabilities. No credentials, PAM, evidence,
+  profile/token creation or launch authority. Both-ABI probes and Qwen VM B handoff: [E1_S6_TRANSPORT.md](E1_S6_TRANSPORT.md).
+  Compilation, kernel/bus behavior, restart/race controls and all runtime tests remain unverified.
 * **E1-S4 done (2026-11-06).** Account map authority: `/etc/wineexplorer/accounts.map` (0640 root:wexsys, incarnation ids, SIDs, tombstones,
   generation), `tools/wex-accounts` (locked atomic sync, retire, rename), server `lookup_account` (unused by default, strict file
   checks, distinct statuses), provisioning hook and wexhost post-create sync. Known gap: an account deleted and recreated with the
   same name and uid between syncs needs a `retire` call. Codex sol wrote it, Qwen built and tested it: tool 0 warnings,
   `scripts/test_accounts_map.sh` passes, Wine build ok, `kernel32 pipe` 0 failures, `advapi32 security` the same 10 baseline
   failures, VM B regression (approve 0, deny 1223, impersonate/callerdeath/writerfirst/imagerace PASS).
+* **E1 batch S4 fixes, S5, S6, S7, S8, S10 committed (2026-11-07), S6 acceptance still failing.** Built and tested together in wexbuild
+  and VM B. Passing: full WoW64 build with zero warnings, `kernel32 pipe` 0 failures, `advapi32 security` the 10 baseline failures,
+  S10 `wex_token` 128 tests, accounts map, S8 evidence (35 cases), S7 PAM worker (35 cases incl. the unknown/wrong/ineligible timing
+  comparison within 250 ms), brokers and probes with no test code in production binaries, VM B regression (approve 0, deny 1223,
+  impersonate/callerdeath/writerfirst/imagerace) and the S5 matrix 38/38. An independent Antigravity review found 8 issues in
+  S6 to S8 (fixed or answered in `E1_BATCH_REPAIR.md`) and 3 in S10/S5 (lost-reply termination: S19; stop_event race and a
+  reference leak in `e1s_install_consumed`: still to fix). **Open:** `scripts/test_e1s6_transport.sh` fails at the S6 accept case;
+  the denial site is `wexhost` `endorse-import-control` (`wine_server_fd_to_handle` on the control socket received over D-Bus,
+  see `E1_S6_ACCEPT_REVIEW.md`). The S10 probe matrix waits for S6 acceptance. All of this stays disabled by default.

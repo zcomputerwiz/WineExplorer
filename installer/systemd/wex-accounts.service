@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+[Unit]
+Description=Synchronize WineExplorer account authority
+ConditionPathExists=/etc/wineexplorer/accounts.map
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/wineexplorer/wex-accounts sync

@@ -470,7 +470,7 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
     ACCOUNTS_ARGS=(--directory "$(dirname -- "$SYSRUN_CONF")" sync --initialize)
     # Bind the fixed old local_user_sid only on an explicit provisioning choice.
     # Existing multi-user legacy prefixes need separate migration/review.
-    if [ -n "${WEX_ACCOUNTS_LEGACY_USER:-}" ]; then
+    if [ -n "${WEX_ACCOUNTS_LEGACY_USER:-}" ] && [ ! -e "$(dirname -- "$SYSRUN_CONF")/accounts.map" ] && [ ! -e "$(dirname -- "$SYSRUN_CONF")/.accounts.initialized" ]; then
         ACCOUNTS_ARGS+=(--legacy-user "$WEX_ACCOUNTS_LEGACY_USER")
     fi
     if ! "$SYSRUN_DIR/wex-accounts" "${ACCOUNTS_ARGS[@]}"; then
@@ -478,6 +478,14 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
         die "E1-S4 account map sync failed"
     fi
     rm -rf -- "$ACCOUNTS_TMP"
+    if [ "$SYSRUN_DIR" = /usr/local/libexec/wineexplorer ] && [ "$SYSRUN_CONF" = /etc/wineexplorer/sysrun.conf ] && [ -d /run/systemd/system ]; then
+        ACCOUNTS_UNITS="$(dirname -- "$(readlink -f -- "$0")")/../installer/systemd"
+        if [ -f "$ACCOUNTS_UNITS/wex-accounts.path" ]; then
+            install -m 0644 -o root -g root "$ACCOUNTS_UNITS/wex-accounts.service" "$ACCOUNTS_UNITS/wex-accounts.path" "$ACCOUNTS_UNITS/wex-accounts.timer" /lib/systemd/system/
+        fi
+        systemctl daemon-reload
+        systemctl enable --now wex-accounts.path wex-accounts.timer
+    fi
 fi
 
 echo "=== S3 Machine Root Setup Completed Successfully ==="

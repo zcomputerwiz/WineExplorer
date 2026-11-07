@@ -10,6 +10,7 @@ SOURCES = \
 	compose.c \
 	display.c \
 	elevate.c \
+	e1s6.c \
 	greeter.c \
 	lease.c \
 	hardware.c \

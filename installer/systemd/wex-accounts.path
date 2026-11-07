@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+[Unit]
+Description=Watch local account database for WineExplorer
+ConditionPathExists=/etc/wineexplorer/accounts.map
+
+[Path]
+PathChanged=/etc/passwd
+Unit=wex-accounts.service
+
+[Install]
+WantedBy=multi-user.target

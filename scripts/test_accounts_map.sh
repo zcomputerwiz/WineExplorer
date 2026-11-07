@@ -26,6 +26,7 @@ cc -O2 -Wall -Wextra -Werror -DWEX_ACCOUNTS_TEST \
 cc -O2 -Wall -Wextra -Werror \
     -o "$FIXTURE/production" "$REPO/tools/wex-accounts/wex-accounts.c"
 TOOL=("$FIXTURE/lab" --directory "$CONF" --test-passwd "$PASSWD" --test-group "$GROUP")
+"$FIXTURE/lab" test-small-number || fail 'small numeric bound'
 sync_map() { "${TOOL[@]}" sync "$@" > "$FIXTURE/sync.log" || { cat "$FIXTURE/sync.log"; fail sync; }; }
 expect_lookup()
 {
@@ -42,6 +43,7 @@ refuse_sync() { if "${TOOL[@]}" sync > "$FIXTURE/refusal.log" 2>&1; then fail 'u
 
 # Initial provision, explicit legacy input, name/uid lookups and both group routes.
 sync_map --initialize --legacy-user bob
+"$FIXTURE/lab" --directory "$CONF///" --test-passwd "$PASSWD" --test-group "$GROUP" lookup bob >/dev/null || fail 'trailing slash'
 [ "$(stat -c '%u:%g:%a' "$MAP")" = '0:19999:640' ] || fail 'map metadata'
 [ "$(generation)" = 1 ] || fail 'first generation'
 grep -q '^bob 1001 .* active 21 0 0 0 1000$' "$MAP" || fail 'legacy SID'
@@ -60,6 +62,22 @@ status=0
 [ "$status" = 11 ] || fail 'ordinary local SID ambiguity accepted'
 "${TOOL[@]}" --test-server-uid 1001 lookup bob > "$FIXTURE/legacy.log" || fail 'explicit legacy control denied'
 cp "$MAP" "$FIXTURE/first"
+# Simulate interruption after the guard and durable pending map, before rename.
+cp -p "$MAP" "$CONF/.accounts.pending"
+rm "$MAP"
+sync_map
+cmp "$MAP" "$FIXTURE/first" || fail 'pending recovery changed identities'
+[ ! -e "$CONF/.accounts.pending" ] || fail 'pending map not published'
+mkdir -m 0755 "$FIXTURE/retry"
+cp "$CONF/sysrun.conf" "$FIXTURE/retry/sysrun.conf"
+printf 'incomplete' > "$FIXTURE/retry/.accounts.pending"
+"$FIXTURE/lab" --directory "$FIXTURE/retry" --test-passwd "$PASSWD" --test-group "$GROUP" sync --legacy-user bob >/dev/null || fail 'unguarded pending recovery'
+grep -q '^bob 1001 .* active 21 0 0 0 1000$' "$FIXTURE/retry/accounts.map" || fail 'recovered legacy identity'
+touch "$CONF/.accounts-0123456789abcdef0123456789abcdef"
+touch "$CONF/.accounts-not-ours"
+sync_map
+[ ! -e "$CONF/.accounts-0123456789abcdef0123456789abcdef" ] || fail 'stale temporary file'
+[ -e "$CONF/.accounts-not-ours" ] || fail 'unrelated file removed'
 sync_map --initialize --legacy-user bob
 cmp "$MAP" "$FIXTURE/first" || fail 'resync changed bytes or generation'
 
@@ -136,12 +154,46 @@ expect_lookup 7 bob
 refuse_sync
 cp -p "$FIXTURE/good" "$MAP"
 
-# Duplicate NSS UIDs are ambiguous even when one name happens to match.
+# A later duplicate elsewhere no longer breaks this lookup; sync still refuses
+# the ambiguous snapshot. UID round trips detect a conflicting first entry.
 cp "$PASSWD" "$FIXTURE/passwd.good"
 printf 'alias:x:1001:2001::/home/alias:/bin/sh\n' >> "$PASSWD"
-expect_lookup 9 bob
+expect_lookup 0 bob
 refuse_sync
 cp "$FIXTURE/passwd.good" "$PASSWD"
+
+# Unrelated records beyond the old enumeration ceiling do not affect lookup.
+for ((n=0; n<4100; n++)); do printf 'extra%s:x:%s:2001::/none:/bin/sh\n' "$n" "$((30000+n))"; done >> "$PASSWD"
+expect_lookup 0 alice
+cp "$FIXTURE/passwd.good" "$PASSWD"
+# The map parser itself must also accept more than 4096 records.
+cp -p "$MAP" "$FIXTURE/map.large.backup"
+awk 'NR == 1 {print $1, $2, $3, 6000, $5, $6, $7; a=$5; b=$6; c=$7; next}
+     $1 == "bob" && $4 == "active" {print}
+     END {for (i=1; i<=4100; i++) printf "extra%d %d %032x active 21 %s %s %s %d\n", i, 30000+i, i, a, b, c, 1000+i}' "$FIXTURE/map.large.backup" > "$MAP"
+expect_lookup 0 bob
+cp -p "$FIXTURE/map.large.backup" "$MAP"
+# Oversized NSS fields exercise reentrant buffer growth in fake NSS.
+LONG_FIELD="$(printf '%04096d' 0)"
+printf 'bob:x:1001:2001:%s:/home/bob:/bin/sh\n' "$LONG_FIELD" > "$PASSWD"
+awk -F: '$1 != "bob"' "$FIXTURE/passwd.good" >> "$PASSWD"
+printf 'wexsys:x:19999:\nsudo:x:2000:%s,bob\nusers:x:2001:\nwheel:x:2002:bob\n' "$LONG_FIELD" > "$GROUP"
+expect_lookup 0 bob
+grep -q 'admin=1' "$FIXTURE/lookup.log" || fail 'large group membership'
+cp "$FIXTURE/passwd.good" "$PASSWD"
+cp "$FIXTURE/group.good" "$GROUP"
+expect_lookup 1 .
+expect_lookup 1 ..
+expect_lookup 1 -bad
+
+if command -v setfacl >/dev/null; then
+    setfacl -m u:65534:r "$MAP"
+    expect_lookup 6 bob
+    setfacl -b "$MAP"
+    setfacl -m u:65534:r "$CONF"
+    expect_lookup 6 bob
+    setfacl -b "$CONF"
+fi
 
 # Mode/owner/ancestor, symlink, hardlink, missing map and config protection.
 chmod 0660 "$MAP"; expect_lookup 6 bob; refuse_sync
@@ -173,4 +225,13 @@ if "$FIXTURE/production" lookup bob > /dev/null 2>&1; then fail 'production look
 # Re-run the good control after every tamper family.
 expect_lookup 0 bob
 sync_map
+# A legacy rename retains the identity and subsequent update-style sync does
+# not repeat the stale provisioning name.
+BOB="$(active bob)"
+sed 's/^bob:/robert:/' "$PASSWD" > "$FIXTURE/passwd.next"
+mv "$FIXTURE/passwd.next" "$PASSWD"
+"${TOOL[@]}" rename bob robert > "$FIXTURE/rename-legacy.log"
+[ "$(active robert | cut -d' ' -f2-)" = "$(printf '%s\n' "$BOB" | cut -d' ' -f2-)" ] || fail 'legacy rename changed identity'
+sync_map --initialize
+expect_lookup 0 robert
 echo 'OK: accounts map lifecycle, lookup and protection fixture'

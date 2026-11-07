@@ -29,6 +29,19 @@ The `scripts/wexbuild-root` files are a read-only 2026-11-05 mirror, not proof o
 | Sync a selected source delta | `scripts/sync-files.py`, `sync-archive.py`, `sync-overlay.py` | Archive streams to stdout; deletion is a separate destructive step. |
 | Add project license headers | `python3 scripts/add-license.py --dry-run` | Without `--dry-run` modifies eligible source files. |
 
+## Tests that provision a system role
+
+Tests that provision a system role (`test_sysrun_server.sh`,
+`test_e1s6_transport.sh`, `test_pam_worker.sh --disposable-guest`) run as root
+in **wexbuild or a throwaway VM** and must never remove `/etc/wineexplorer` or
+`/usr/local/libexec/wineexplorer` in shared lab guest **VM B**. A job once deleted
+them from VM B and the guest had to be re-provisioned with
+`guest-sysrole/push.sh`. NEVER run these provisioning fixtures in VM B. A refusal
+because system-role paths or users already exist is correct: select a clean
+owned machine instead of deleting or moving installed state. S6/S10 need the
+clean sysrun fixture; S7 also needs its disposable S2 identities/password file
+provisioned in that owned environment. Do not borrow VM B's live role for them.
+
 ## Recipes
 
 These are source-derived commands for a later coordinated run, not tested by this documentation pass. In Debian WSL set `LAB=/mnt/d/DeepThought/ChromiumLab`. VM B uses SSH 2236; the fixed MSI tracing/deployment wrappers below use VM A on 2235. Coordinate disk and guest ownership first.
@@ -118,7 +131,7 @@ Antigravity: user-reported operational guidance is `agy_run`, `mode: edit` for w
   source tree, and `setup-machine-root.sh` does not follow a moved runtime (edit `sysrun.conf`, re-link).
 * `wexdev build <paths...>` copies only the named files (fast). Without paths it scans every tracked file over `/mnt/d` and
   takes minutes (`WEXDEV_SYNC_TIMEOUT`, default 900 s).
-* `test_sysrun_server.sh` refuses to run while `/etc/wineexplorer` exists: `wexdev sysrole reset` first.
+* `test_sysrun_server.sh` correctly refuses an installed `/etc/wineexplorer` or foreign fixture users. Run as root in clean wexbuild or a throwaway VM; never reset/remove VM B's installed role to bypass that check.
 * To see why a server request is denied, instrument `wine/server` (the client trace never shows it), rebuild with
   `wexdev build server/...`, and push only `server/wineserver` to the guest runtime; revert with `git checkout` after.
 * Compare with the native Windows 11 result with a tiny probe (`scripts/keywrite_dacl.c` is the pattern) before assuming

@@ -380,8 +380,18 @@ enum wexhost_funcs
     unix_wm_backend_peek,
     unix_wm_clock,
     unix_wm_clock_wait,
+    unix_e1s6_transport,
     unix_funcs_count
 };
+
+struct e1s6_transport_params
+{
+    UINT64 pipe, channel, buffer;
+    DWORD operation, size, err, reserved;
+};
+C_ASSERT( sizeof(struct e1s6_transport_params) == 40 );
+C_ASSERT( FIELD_OFFSET(struct e1s6_transport_params, operation) == 24 );
+extern NTSTATUS e1s6_transport(void *args);
 
 #define WEXHOST_CALL( func, params ) WINE_UNIX_CALL( unix_ ## func, params )
 

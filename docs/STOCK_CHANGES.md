@@ -1,5 +1,161 @@
 # Changes to stock Wine / third-party code
 
+## E1-S6 acceptance diagnostics (2026-11-07; static only)
+
+`wine/server/named_pipe.c` and `wine/server/sysrun.c`: add distinct denial-site
+audits under WEX_E1S6_TRANSPORT_TEST. Split existing combined comparisons without
+relaxing authority, consumed-writer, image, token, generation or FD checks.
+No protocol or token factory changes. Project fixture corrections, complete
+route inventory and unresolved original failure attribution are recorded in
+[E1_S6_ACCEPT_REVIEW.md](E1_S6_ACCEPT_REVIEW.md). Force rebuild named_pipe.o with
+the test define too. No build, runtime acceptance or commit.
+
+Follow-up: `sysrun.c:e1s6_get_fd` additionally distinguishes control/pin handle
+lookup, FD-object lookup and F_DUPFD_CLOEXEC failure, recording NTSTATUS/errno
+under the same test gate. Project broker I/O/image failures and native child
+exit/proc/packet failures have finer gated diagnostics too. The exact failure
+output is now read; error 13 still does not identify its underlying denial site.
+
+## E1 combined-build/review repairs (2026-11-06; static only)
+
+`wine/server/sysrun.c`: cast the S6 retained `grab_object` result to
+`struct token *`, use `F_DUPFD_CLOEXEC` for lab transport fd duplicates and make
+lab read/send/format-size comparisons explicitly signed/unsigned as appropriate.
+All endorsement implementation remains behind WEX_E1S6_TRANSPORT_TEST/Linux.
+`wine/server/token.c`: the restricted null-SID group allocation now reserves
+at least `sizeof(struct group)` (the original allocation ended at one SID
+subauthority, smaller than its declared C object), addressing the combined
+build's array-bounds warning without changing the logical SID. The S10 factory,
+context and fixture remain behind BOTH S10/S6 test defines; no further uncast
+object-reference assignments were found in those gated blocks.
+
+Project repairs: collision-free S7 `RES_*` names; worker executable-pin closure;
+fixed prompt and bounded four-second failure/decoy policy, with S8's shared
+attempt/concurrency path; locked CANCEL and per-request cancellation audit;
+explicit D-Bus reply fd lifetime and pidfd-checked retained proc-directory
+executable validation; MinGW-only S10 probe headers/GetProcAddress casts.
+Native regression cases, production-exclusion assertions and clean-wexbuild
+handoffs updated. No defines added to build/install files; no build/runtime
+acceptance or commit. Full per-item verdicts and Qwen handoff:
+[E1_BATCH_REPAIR.md](E1_BATCH_REPAIR.md).
+
+The S4 review removal of `sync_account_map()` from wexhost `user_create()` is
+intentional production behavior: its unprivileged fork could not run the
+root-only tool. Do not re-add it. Enabled provisioning runs sync; the root path
+unit, retry timer and oneshot service maintain it later. Non-systemd/custom-path
+hosts need equivalent explicit root lifecycle integration, as S4 documents.
+
+## E1-S10 disabled account-specific server token (2026-11-06)
+
+`wine/server/token.c`, new `server/e1s_token.h`, `server/Makefile.in`: constrained
+Primary/Full/High account token, explicit S4 user/owner SID and primary GID,
+fresh administrator membership, fixed supported administrator privileges and
+SYSTEM/account default DACL. Fresh H2a AuthenticationId and derived logon SID;
+caller's session, no host identity change. No linked/getuid-admin/SYSTEM-SID-swap
+factory. Re-resolve through `lookup_account` twice and compare incarnation,
+generation and trusted snapshot. S4 supplies primary GID and mapped admin
+membership, not arbitrary supplementary-group SIDs. Existing duplicate/child
+propagation and standard-session linked-token/grant denials are unchanged.
+
+Require elevation enforcement, protected system role, privileged sysrun
+connection, SYSTEM, enabled SeTcbPrivilege, no impersonation, S6's actual broker
+image/registration and unchanged retained primary/TokenId/ModifiedId. Negotiated
+contexts are broker-process/server-connection scoped. Installed records retain
+the original caller/primary, exact S1 request/reference and expiry; issuance
+burns them before validation/lookup/allocation. Internal consumed-record handoff
+requires a trusted authority/lifecycle validator. S18's real S8 redemption and
+producer/validator are unwired. The only current producer is explicitly
+synthetic and requires both WEX_E1S10_TOKEN_TEST and WEX_E1S6_TRANSPORT_TEST on
+Linux. Normal builds deny all operations; no production capabilities or caller.
+
+`wine/server/protocol.def`, `request_handlers.h`, `request_trace.h`,
+`include/wine/server_protocol.h`: append `create_e1s_account_token` (number 324),
+protocol **976 -> 977**, fixed 32-byte request/24-byte reply. Existing 88-byte
+maximum and `tools/make_requests` limit remain sufficient and unchanged.
+Canonical kind-4 input is 188 bytes plus 16-byte connection-local evidence ref;
+kind-5 output is 136 bytes on success or 108 on failure (empty SID, zero result
+fields). Test installation is exactly 268 bytes. Generated artifacts updated
+by hand; regeneration remains unverified. `server/trace.c` adds byte-count-only
+redaction selected by the protocol's `e1s_token` varargs type, preserved by the
+generator rather than dumping account/nonces/references.
+
+`wine/dlls/ntdll/sec.c`, `ntdll.spec`, `include/winternl.h`: private
+`NtCreateWexAccountToken` export via the existing WoW64-aware server transport;
+bounded byte buffers, output clearing and unexpected-handle cleanup. New
+`include/wine/wex_token.h` and `include/Makefile.in` define/inventory byte sizes,
+operations and LE helpers. Token handles are non-inheritable broker-only
+TOKEN_ASSIGN_PRIMARY|TOKEN_DUPLICATE|TOKEN_QUERY; no handle goes to the caller.
+`dlls/advapi32/tests/wex_token.c` and its `Makefile.in` add ordinary/unnegotiated
+denial and failure-clearing tests. New project probe
+`scripts/e1s10_token_probe.c` runs as the explicitly staged broker test image,
+using real S6 endorsement and a retained standard peer for identity/session,
+duplicate/fresh-logon and negative issuance controls.
+
+No S5–S8 broker/wexhost/native transport or existing server process/sysrun/
+named-pipe/account-provider edits were changed by S10. No accounts.c hook was
+needed. Full wire/authority details, exact file inventory, Qwen WoW64 build and
+lab handoff, probe matrix and unverified items:
+[E1_S10_TOKEN.md](E1_S10_TOKEN.md). Static review, protocol table/layout checks
+and Git whitespace checks only. No generator, build, WSL, VM or runtime tests;
+no S9/S11 acceptance evidence, production enablement or commit.
+
+## E1-S8 disabled native evidence and quotas (2026-11-06)
+
+Zero additional stock Wine changes. Connection-owned, single-use S1 evidence,
+service-wide bounded attempt/deadline/failure/concurrency accounting and generic
+errors live in the new native S6 component `tools/e1s6/evidence.py`. The root-only
+component client and `scripts/test_evidence.sh` remain isolated lab work. No
+existing broker, server, wexhost, S4 or S7 source is edited; no production startup,
+capability or installer enables the component. S18's required native calls and
+endorsed-channel framing, test coverage and unverified items:
+[E1_S8_EVIDENCE.md](E1_S8_EVIDENCE.md). Static review only; no build/runtime tests.
+
+## E1-S7 disabled native PAM worker (2026-11-06)
+
+Zero additional stock Wine changes. The worker compiles the existing S4
+`wine/server/accounts.c` provider unchanged. New native worker/protocol,
+supervisor and disposable PAM tests live under `tools/e1s7` and
+`scripts/test_pam_worker.sh`; the only transport hook is in the existing native
+`tools/e1s6/e1s6-lab.py` fixture. No broker/wexhost/server edits, PAM installation
+or production enablement. Static review only; Qwen build/runtime handoff and
+limits: [E1_S7_PAM_WORKER.md](E1_S7_PAM_WORKER.md).
+
+## E1-S6 disabled endpoint/metadata transport, statically reviewed (2026-11-06)
+
+`wine/server/sysrun.c`, `sysrun.h`: `sysrun_e1s6_endorse` is enabled only with
+WEX_E1S6_TRANSPORT_TEST. First mapped executable device/inode must match the
+machine-root broker (including the harness's exact test-broker name). Require
+the existing protected system role, privileged sysrun connection, SYSTEM
+service account, enabled SeTcbPrivilege and no thread token; S3 checks precede
+the helper. Kernel socket creator UID/PID must match this process's native
+identity. Server/broker CSPRNG generations are server-owned; re-registration
+revokes the old broker generation. Renewals compare the retained primary object
+and TokenId/ModifiedId. The server sends bounded metadata directly on a private
+FD, with kernel-checked effective-wexsys SCM_CREDENTIALS, then drops its group
+and closes local duplicate FDs. No credentials, authentication Boolean, token/
+profile creation or launch operation is added.
+
+`wine/server/process.h`, `process.c`: initialize first-image/role markers,
+broker generation and retained registration primary-token reference; release
+that reference on destruction. Existing process/token creation is unchanged.
+
+`wine/server/named_pipe.c`: optional 96-byte lab sideband on the existing
+get_pipe_caller_binding request. Require actual opener == consumed writer,
+equal unchanged primary objects/IDs and no open/write impersonation, then
+endorse. Shipping builds deny this sideband. Empty-input query, reply layout
+and four non-inheritable handle rights are unchanged. No protocol.def,
+generated protocol, ntdll, export or request-number changes; an old server's
+binding reply cannot replace the absent native endorsement and fails closed.
+
+Project wexhost adds a private system-D-Bus handshake, unique-owner/kernel
+process pins, metadata-only FD channel and native child stub behind the same
+define. Native/WoW64 slots append in matching order. Root verifier/bus policy
+are temporary lab fixtures; no production startup enables them. Complete
+protocol/file list, Qwen VM B procedure and outstanding verification:
+[E1_S6_TRANSPORT.md](E1_S6_TRANSPORT.md). Static review only: no build, Wine,
+WSL, VM, bus or kernel validation. Standard-user error 50 remains; no S1
+readiness capability is advertised.
+
 ## E1-S4 protected account/SID provider implemented, statically reviewed (2026-11-06)
 
 `wine/server/accounts.c`, `accounts.h`, `Makefile.in`: compile the private,
@@ -26,10 +182,14 @@ this and policy/endpoint readiness continue to gate production advertisement.
 
 `scripts/setup-machine-root.sh` installs/syncs at the end of enabled system-role
 provisioning and preserves the protected administrator-group setting;
-`installer/package-wine.sh` stages the native production tool. Wexhost's existing
-CreateUser path attempts sync best effort and logs failures; it gains no root
-privileges. No deletion path exists there. Root lifecycle maintenance remains
-necessary for unprivileged notifications. Test-only CLI/NSS/self-UID controls
+`installer/package-wine.sh` stages the native production tool and root systemd
+path, timer and oneshot units. Provisioning enables them for default paths;
+the ineffective unprivileged wexhost hook was removed. Automatic sync is
+asynchronous and explicit root lifecycle coordination is still required.
+Lookup checks only the selected NSS identity, with reentrant growing buffers;
+the map retains its 1 MiB limit and sync has a bounded snapshot. First publication
+uses a durable pending map for recovery, access ACLs are rejected, and stale
+writer temporaries are removed under the lock. Test-only CLI/NSS/self-UID controls
 are compiled only with WEX_ACCOUNTS_TEST, with no production environment hook.
 
 Format, API/status numbers, lifecycle limits, provisioning inputs and Qwen

@@ -7,6 +7,9 @@
 #define WEX_ACCOUNTS_TOOL
 #include "../../wine/server/accounts.c"
 #include <sys/file.h>
+#include <dirent.h>
+
+static int mark_initialized( int dir );
 
 static int random_bytes( void *data, size_t size )
 {
@@ -53,19 +56,23 @@ static int new_record( struct account_map *map, const struct account_native *u, 
     return 1;
 }
 
-static int save_map( int dir, const struct account_map *map, gid_t group )
+static int save_map( int dir, const struct account_map *map, gid_t group, int fresh )
 {
     char name[64];
     unsigned char random[16];
     unsigned int i;
     int fd = -1, ok = 0;
     FILE *f;
-    if (!random_bytes( random, sizeof(random) )) return 0;
-    strcpy( name, ".accounts-" );
-    for (i = 0; i < 16; i++) sprintf( name + 10 + 2*i, "%02x", random[i] );
+    if (fresh) strcpy( name, ".accounts.pending" );
+    else
+    {
+        if (!random_bytes( random, sizeof(random) )) return 0;
+        strcpy( name, ".accounts-" );
+        for (i = 0; i < 16; i++) sprintf( name + 10 + 2*i, "%02x", random[i] );
+    }
     if ((fd = openat( dir, name, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600 )) == -1) return 0;
     /* fchmod constrains inherited default ACL masks; no group may write. */
-    if (fchown( fd, 0, group ) || fchmod( fd, 0640 )) goto done;
+    if (fchown( fd, 0, group ) || fchmod( fd, 0640 ) || !no_access_acl( fd )) goto done;
     if (!(f = fdopen( fd, "w" ))) goto done;
     fprintf( f, "WEXACCOUNTS 1 %llu %llu %u %u %u\n",
              (unsigned long long)map->generation, (unsigned long long)map->next_rid,
@@ -80,10 +87,13 @@ static int save_map( int dir, const struct account_map *map, gid_t group )
     ok = !ferror( f ) && !fflush( f ) && ftell( f ) >= 0 && ftell( f ) <= MAP_LIMIT && !fsync( fd );
     if (fclose( f )) ok = 0;
     fd = -1;
+    /* The durable pending map precedes the guard. After the guard, recovery
+     * publishes these exact bytes; it must never invent a new identity. */
+    if (ok && fresh) ok = !fsync( dir ) && mark_initialized( dir );
     if (ok) ok = !renameat( dir, name, dir, "accounts.map" ) && !fsync( dir );
 done:
     if (fd != -1) close( fd );
-    unlinkat( dir, name, 0 );
+    if (!fresh) unlinkat( dir, name, 0 );
     return ok;
 }
 
@@ -92,7 +102,7 @@ static int checked_lock( int dir )
     struct stat st;
     int fd = openat( dir, ".accounts.lock", O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600 );
     if (fd == -1) return -1;
-    if (fstat( fd, &st ) || !S_ISREG( st.st_mode ) || st.st_uid || (st.st_mode & 0077) || st.st_nlink != 1 ||
+    if (fstat( fd, &st ) || !S_ISREG( st.st_mode ) || st.st_uid || (st.st_mode & 0077) || st.st_nlink != 1 || !no_access_acl( fd ) ||
         flock( fd, LOCK_EX | LOCK_NB )) { close( fd ); return -1; }
     return fd;
 }
@@ -103,9 +113,33 @@ static int mark_initialized( int dir )
     int fd = openat( dir, ".accounts.initialized", O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600 );
     int ok;
     if (fd == -1) return 0;
-    ok = !fstat( fd, &st ) && S_ISREG( st.st_mode ) && !st.st_uid && !(st.st_mode & 0077) && st.st_nlink == 1 &&
+    ok = !fstat( fd, &st ) && S_ISREG( st.st_mode ) && !st.st_uid && !(st.st_mode & 0077) && st.st_nlink == 1 && no_access_acl( fd ) &&
          !fsync( fd ) && !fsync( dir );
     close( fd );
+    return ok;
+}
+
+/* The lock excludes live writers. Only the exact random temporary-file name
+ * is ours; never follow or remove unrelated files or the pending map. */
+static int cleanup_temps( int dir )
+{
+    DIR *stream;
+    struct dirent *entry;
+    int copy = openat( dir, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC );
+    int ok = 1;
+    if (copy == -1) return 0;
+    if (!(stream = fdopendir( copy ))) { close( copy ); return 0; }
+    errno = 0;
+    while ((entry = readdir( stream )))
+    {
+        const char *n = entry->d_name;
+        if (strlen( n ) == 42 && !strncmp( n, ".accounts-", 10 ) &&
+            strspn( n + 10, "0123456789abcdef" ) == 32 && unlinkat( dir, n, 0 ) && errno != ENOENT)
+        { ok = 0; break; }
+        errno = 0;
+    }
+    if (errno) ok = 0;
+    if (closedir( stream )) ok = 0;
     return ok;
 }
 
@@ -130,6 +164,11 @@ int main( int argc, char **argv )
         else if (!strcmp( argv[i], "--initialize" )) initialize = 1;
         else if (!strcmp( argv[i], "--legacy-user" ) && i + 1 < (unsigned int)argc) legacy = argv[++i];
 #ifdef WEX_ACCOUNTS_TEST
+        else if (!strcmp( argv[i], "test-small-number" ))
+        {
+            uint64_t number;
+            return parse_number( "9", 5, &number ) || !parse_number( "5", 5, &number );
+        }
         else if (!strcmp( argv[i], "--test-passwd" ) && i + 1 < (unsigned int)argc) test_passwd = argv[++i];
         else if (!strcmp( argv[i], "--test-group" ) && i + 1 < (unsigned int)argc) test_group = argv[++i];
         else if (!strcmp( argv[i], "--test-server-uid" ) && i + 1 < (unsigned int)argc)
@@ -171,13 +210,29 @@ int main( int argc, char **argv )
     if ((status = read_policy( dir, &policy ))) goto done;
     status = WEX_ACCOUNT_MAP_UNPROTECTED;
     if ((lock = checked_lock( dir )) == -1) goto done;
+    if (!cleanup_temps( dir )) goto done;
     status = WEX_ACCOUNT_MAP_UNREADABLE;
     if (!(map = calloc( 1, sizeof(*map) )) || !(users = malloc( ACCOUNT_LIMIT * sizeof(*users) ))) goto done;
     if (fstatat( dir, "accounts.map", &st, AT_SYMLINK_NOFOLLOW ))
     {
-        if (errno != ENOENT || !initialize) goto done;
-        /* Losing a map after first initialization must never reset RID/key history. */
-        if (!fstatat( dir, ".accounts.initialized", &st, AT_SYMLINK_NOFOLLOW ) || errno != ENOENT) goto done;
+        int guarded;
+        if (errno != ENOENT || strcmp( command, "sync" )) goto done;
+        guarded = !fstatat( dir, ".accounts.initialized", &st, AT_SYMLINK_NOFOLLOW );
+        if (!guarded && errno != ENOENT) goto done;
+        if (guarded)
+        {
+            /* A missing pending file means a previously published map may
+             * have been lost: never reset its history automatically. */
+            if (!mark_initialized( dir ) ||
+                (status = read_protected( dir, ".accounts.pending", policy.system_gid, &buf, &length )) ||
+                (status = parse_map( buf, map )) ||
+                renameat( dir, ".accounts.pending", dir, "accounts.map" ) || fsync( dir )) goto done;
+            free( buf );
+            buf = NULL;
+            goto recovered;
+        }
+        /* An unguarded pending file was never published and can be retried. */
+        if (unlinkat( dir, ".accounts.pending", 0 ) && errno != ENOENT) goto done;
         fresh = changed = 1;
         map->next_rid = 1001;
         for (i = 0; i < 3; i++)
@@ -188,6 +243,7 @@ int main( int argc, char **argv )
         if ((status = read_protected( dir, "accounts.map", policy.system_gid, &buf, &length )) ||
             (status = parse_map( buf, map ))) goto done;
     }
+recovered:
     if ((status = native_accounts( users, &count ))) goto done;
     status = WEX_ACCOUNT_MAP_INVALID;
     if (legacy)
@@ -236,14 +292,11 @@ int main( int argc, char **argv )
         }
     }
     status = WEX_ACCOUNT_MAP_UNREADABLE;
-    /* Persist the initialization guard before the first publish. A crash here
-     * leaves a fail-closed recovery task, never an automatically reset map. */
-    if (fresh && !mark_initialized( dir )) goto done;
     if (changed)
     {
         if (map->generation == UINT64_MAX) goto done;
         map->generation++;
-        if (!save_map( dir, map, policy.system_gid )) goto done;
+        if (!save_map( dir, map, policy.system_gid, fresh )) goto done;
     }
     if (!mark_initialized( dir )) goto done;
     ok = 1;
