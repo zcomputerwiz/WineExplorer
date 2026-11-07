@@ -166,7 +166,7 @@ good
 
 # Duplicate published labels for one SID/incarnation are never guessed between.
 duplicate="$P/drive_c/users/.e1s/$SID/$KEY-otherlabel"
-mkdir "$duplicate"
+mkdir -m 0700 "$duplicate"; chown "$BOB_UID:$BOB_GID" "$duplicate"
 expect 8 run
 rmdir "$duplicate"
 good
