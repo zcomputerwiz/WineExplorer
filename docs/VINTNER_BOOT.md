@@ -54,8 +54,8 @@ All paths in this section are in the Vintner Boot repository.
 
 Vintner needs a way for a product to declare extra command-line tokens (for example a file that adds
 `wexmode=safecmd`). The publisher would then build a matching entry per generation on UEFI and BIOS. The same
-mechanism serves an XP-style "Enable VGA Mode" (`nomodeset`). Vintner must also decide whether a boot through a
-variant blesses the generation.
+mechanism serves an XP-style "Enable VGA Mode" (`nomodeset`). Decided 2026-11-07: a variant boot changes no boot
+count or state, so each variant is its own uncounted UKI (WO-0010 decisions D-C and D-D).
 
 **V2. Changing the kernel command line after installation.** Each publish copies the command line of the newest
 `GOOD` image (`publish.go:436-456`). Vintner does not read `/etc/kernel/cmdline` and has no command to change the
@@ -76,8 +76,9 @@ line. Desktop users will need `nomodeset`, NVIDIA options or a serial console.
 - `vintner-core` is `Architecture: all` although it will carry a Go binary.
 - The designed `Conflicts` with the GRUB, shim and systemd-boot packages (`docs/architecture.md:146-155`) are not
   in `debian/control`.
-- `/etc/plymouth/plymouthd.conf` is probably also shipped by Debian's `plymouth` package. Check with `dpkg -S` on
-  trixie before packaging it.
+- `/etc/plymouth/plymouthd.conf` is probably also shipped by Debian's `plymouth` package. Recommended (WO-0010
+  decision D-E): Vintner stops shipping it, and `vintner install --plymouth-theme` selects the boot screen, so
+  WineExplorer passes its own theme.
 
 The WineExplorer ISO installs from packages, so it needs these debs.
 
@@ -89,9 +90,10 @@ finishing inside a chroot, where `/proc/cmdline` is the live ISO's and the publi
 chroot".
 
 **V6. Restart into recovery.** `LoaderEntryOneShot` is designed (ADR-0003) but no `vintner` command sets it.
-WineExplorer would need it for a "Restart into Recovery Console" action. Vintner has only a CLI. `CLAUDE.md`
-prefers D-Bus through wexhost over spawning tools, so either Vintner gets a small D-Bus service or we accept running
-`vintner`.
+WineExplorer would need it for a "Restart into Recovery Console" action. Vintner has only a CLI. Recommended
+(WO-0010 decision D-F): Vintner offers `--json` commands and no D-Bus service, because its Go code may use only the
+standard library. A privileged WineExplorer D-Bus service runs them, which keeps the `CLAUDE.md` preference for
+D-Bus on WineExplorer's side.
 
 **V7. Secure Boot beyond tier A.** Only tier A is implemented: a per-machine key enrolled in `db`, which needs the
 firmware in setup mode (`docs/secure-boot.md`). Tiers B (MOK) and C (Debian-signed) are not. WineExplorer does not
@@ -148,12 +150,42 @@ Changes:
 
 ### 4.3 Safe Mode
 
-- Port `installer/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_safemode` to a Vintner variant
-  once V1 exists. Remove the generator from the live-build include and from the session package
-  (`installer/package-wine.sh:260-262`).
-- `wex-safemode.service`, `wex-safemode-setup.sh` and the PAM check stay unchanged.
-- Map XP's Advanced Options onto Vintner: "Last Known Good Configuration" is the previous generation in the
-  Vintner menu, and "Enable VGA Mode" is a `nomodeset` variant.
+Goal (owner, 2026-11-07): starting up and recovering should feel familiar to people who know Windows. The Vintner
+side of this is recorded in Vintner Boot's `docs/work-orders/WO-0010-product-readiness.md` ("Decisions" and items
+4.1-4.8). The WineExplorer side, recommended here:
+
+- Remove the GRUB generator once Vintner variants exist: drop
+  `installer/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_safemode` from the live-build include
+  and from the session package (`installer/package-wine.sh:260-262`).
+- Declare one Vintner variant, "Advanced Options", with the token `wexmode=menu`. A variant boot changes no boot
+  count or state (owner decision): a good image stays good, a bad image stays bad.
+- **Advanced Options Menu.** A `wexmode=menu` boot shows an XP-style text menu early in boot, before the display
+  manager, on `tty1`. It offers the XP F8 list, with what each item does here:
+
+  | Item | Here |
+  |---|---|
+  | Safe Mode | `wexmode=safe` for this boot: the desktop with the minimum of services (new) |
+  | Safe Mode with Networking | `wexmode=safenet` (new) |
+  | Safe Mode with Command Prompt | `wexmode=safecmd`, as today (`scripts/wex-safemode-setup.sh`) |
+  | Enable Boot Logging | Persistent, verbose journal for this boot, plus a boot log in the Windows directory, as XP writes one |
+  | Enable VGA Mode | Keep the GPU's KMS driver from loading for this boot (a `modprobe` blacklist under `/run`), with an X fallback that does not force `modesetting`; see section 6. If that proves unreliable, declare a second variant with `nomodeset` |
+  | Last Known Good Configuration | `vintner next-boot previous-good`, then restart |
+  | Directory Services Restore Mode | Grayed out (does not apply) |
+  | Debugging Mode | Kernel log level raised for this boot |
+  | Disable automatic restart on system failure | `kernel.panic=0` for this boot |
+  | Start WineExplorer Normally | Continue this boot in normal mode |
+  | Reboot | Restart |
+  | Return to OS Choices Menu | `vintner next-boot menu`, then restart |
+
+  `wex-safemode.service`, `wex-safemode-setup.sh` and the PAM check keep working on the `wexmode=` token. They
+  gain the `safe` and `safenet` modes.
+- **"WineExplorer did not start successfully".** XP shows this screen after a failed start. When
+  `vintner status --json` reports failed attempts of the booted image, an ordinary boot shows the same choices
+  early, with a 30-second countdown that defaults to "Start WineExplorer Normally". A Safe Mode choice records the
+  mode for one boot and restarts into the Advanced Options variant (`vintner next-boot variant`), which goes
+  straight to that mode. The boot that showed the screen was counted, so finishing it in Safe Mode would mark the
+  image good.
+- Press F8 at start to reach the menu (UEFI; BIOS uses Shift unless Vintner's WO-0010 item 4.8 finds a way).
 
 ### 4.4 Boot health check
 
@@ -164,8 +196,12 @@ one (`Before=boot-complete.target`, `RequiredBy=boot-complete.target`):
 - The setup stages must count as healthy. LightDM is deliberately held back while
   `/etc/wineexplorer/setup/stage` exists, and setup reboots partway through, so a strict check could use up the
   tries and fall back to recovery during installation.
-- Safe Mode boots must count as healthy.
+- Safe Mode boots from the Advanced Options variant are not counted at all (owner decision), so they need no rule.
 - Give the unit a short `Description=`; Vintner's CI found systemd cuts status lines at 80 columns on serial.
+
+Recommended rule (D3), from Windows: XP updates its last known good configuration after a successful logon. The
+check passes when the logon screen is up: the greeter (`logonui.exe`) is running, or a setup stage screen is
+showing.
 
 ### 4.5 Live ISO menu
 
@@ -175,9 +211,19 @@ loader instead, or remove the entry. The ISO's own boot (live-build GRUB) is una
 
 ### 4.6 sysdm.cpl "Startup and Recovery"
 
-The button currently reports that systemd manages startup (`src/dlls/sysdm.cpl/advanced.c:43-46`). Keep the
-controls grayed out: Vintner treats menu timeout and default-entry changes as foreign. Later the dialog could show
-the Vintner generations read-only.
+The button currently reports that systemd manages startup (`src/dlls/sysdm.cpl/advanced.c:43-46`). With
+Vintner's `--json` commands (WO-0010 items 4.2, 4.5, 4.7) the dialog can work as on XP:
+
+- "Default operating system": the one WineExplorer entry, read-only.
+- "Time to display list of operating systems": `vintner menu-timeout`.
+- "Time to display recovery options when needed": the countdown of the "did not start successfully" screen
+  (section 4.3).
+- "Edit": opens the kernel command line in Notepad, as XP opens `boot.ini`. Saving applies it with
+  `vintner cmdline set`. A bad change then falls back to the previous generation by itself.
+- "System failure": `kernel.panic` and the crash log settings.
+
+The `vintner` commands need root. Following `CLAUDE.md` (D-Bus over spawning tools), sysdm.cpl talks to a
+privileged WineExplorer D-Bus service that runs them; Vintner offers no D-Bus interface of its own.
 
 ### 4.7 Documentation
 
@@ -187,23 +233,32 @@ the Vintner generations read-only.
 
 Update both when the switch lands.
 
-## 5. Decisions to make
+## 5. Decisions
 
-- **D1. Safe Mode before V1.** Either wait for Vintner variants, or ship Vintner without Safe Mode for a while.
-  There is no other way to put `wexmode=safecmd` on the command line at boot.
-- **D2. Plymouth.** WineExplorer masks it everywhere (`installer/live-build/config/hooks/normal/0500-enable-services.hook.chroot:48`,
-  `screens.c:1631`). Vintner recommends it and adds `quiet splash` to the command line. Keeping it masked works,
-  with a text or blank boot. If we turn it on, the boot art must be original: no XP boot screen and no Windows logo
-  (`CLAUDE.md`, `docs/ASSETS.md`). Vintner's `vintner-bgrt` theme shows the PC maker's firmware logo, which fits.
-  Setup and OOBE already run `plymouth --quit` before starting their own Xorg.
-- **D3. Health check scope** (section 4.4): kernel and early boot only, or also the display manager.
-- **D4. RAID roots** (section 4.1): accept boot storage on a single disk, or not support RAID roots with Vintner.
-- **D5. Install failure.** Vintner's design keeps the stock GRUB path when its own install fails. WineExplorer
-  would then still need the GRUB install code as a fallback, or setup stops with an error.
-- **D6. Recovery naming.** Vintner's recovery image could appear as XP's "Recovery Console". It is a BusyBox shell
-  with the root mounted read-only and no password (Vintner decision D1), while XP asked for the Administrator
-  password and WineExplorer's Safe Mode admits only `sudo` members. Document that anyone at the keyboard gets a
-  root shell.
+Recorded 2026-11-07. The owner decided that the installer partitions and that a Safe Mode boot changes no boot
+count or state. For the rest the owner set the goal of a Windows-familiar experience; the entries marked
+"recommended" serve that goal and await the owner's confirmation.
+
+- **Partitioning (decided).** textsetup partitions to Vintner's layout (section 4.1); `vintner install` only
+  checks it and deploys.
+- **Safe Mode boots (decided).** A Safe Mode boot changes no boot count or state (section 4.3).
+- **D1. Safe Mode before Vintner variants (recommended): wait.** Windows users expect F8 and Safe Mode. Vintner
+  becomes the default boot path only once its variants (WO-0010 item 4.3) exist.
+- **D2. Plymouth (recommended): turn it on.** Use an original WineExplorer boot screen: a black background, the
+  WineExplorer logo and a moving progress bar, as XP's start-up looks. The art must be original: no XP boot screen,
+  no Windows logo and nothing traced from them (`CLAUDE.md`, `docs/ASSETS.md`). Until that art exists, use
+  Vintner's `vintner-bgrt` (the PC maker's firmware logo, as Windows 8 and later show). Unmask Plymouth in
+  `installer/live-build/config/hooks/normal/0500-enable-services.hook.chroot:48` and `screens.c:1631`; setup and
+  OOBE already run `plymouth --quit` before starting their own Xorg.
+- **D3. Health check (recommended): pass at the logon screen** (section 4.4).
+- **D4. RAID roots (recommended): allow them.** XP installed onto RAID volumes. Put the ESP and boot storage on the
+  first disk and say on the partition screen that the start-up partitions are not mirrored.
+- **D5. Install failure (recommended): stop with an XP-style "Setup cannot continue" screen** that names the log
+  file. No GRUB fallback code stays behind; running Setup again starts over, as on XP.
+- **D6. Recovery naming (recommended): "WineExplorer Recovery Console"** and "WineExplorer Recovery Console
+  (backup)", passed to `vintner install --recovery-title`. One known difference from XP: Vintner's recovery asks
+  for no password (it is a BusyBox shell with the root mounted read-only), while XP's Recovery Console asked for the
+  Administrator password. Document that anyone at the keyboard gets a root shell.
 
 ## 6. Smaller points
 
@@ -211,7 +266,11 @@ Update both when the switch lands.
 - Vintner only publishes kernels owned by a dpkg package (`publish.go:481-484`). setup copies the dpkg database
   with `/boot`, so this holds.
 - WineExplorer ships no DKMS modules today. A proprietary NVIDIA driver (`nvidia-detect` is already installed)
-  would mark images out of date (`schema/manifest.md:62`) and would need module signing under Secure Boot.
+  needs Vintner's Secure Boot tier B, with the machine key enrolled as a MOK and used by DKMS for signing (WO-0010
+  decision D-G and item 5.3). On tier A it cannot load with Secure Boot on.
+- The forced `modesetting` X configuration (`scripts/20-wineexplorer-modesetting.conf`, installed for all
+  hardware by `installer/package-wine.sh:257`) leaves X without a fallback when no KMS driver loads. Enable VGA
+  Mode (section 4.3) needs one.
 - `unattended-upgrades` (enabled by OOBE) will install kernels unattended; Vintner publishes each one through its
   hook. Vintner keeps retained kernels with `APT::NeverAutoRemove`.
 - `console=ttyS0` makes Plymouth fall back to its text theme; Vintner's CI adds `plymouth.ignore-serial-consoles`.
