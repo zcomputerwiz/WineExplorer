@@ -44,7 +44,13 @@ its ordinary successful binding reply is insufficient. Shipping code denies
 nonempty sidebands.
 
 Wexhost imports two non-inheritable Wine handles for this call: the private
-endorsement socket and a broker-created socket. The server reads kernel
+endorsement socket and a broker-created socket. Each import requests only
+`FILE_READ_ATTRIBUTES`, with attributes zero. Wine's normal `alloc_handle`
+rejects a zero mapped access mask with STATUS_ACCESS_DENIED; attributes zero
+are valid and keep the handles non-inheritable. `create_file_for_fd` accepts
+an fstat-capable socket without a file-type filter, so no new server object,
+request or bypass is needed. Both fixture sockets are Unix SOCK_SEQPACKET;
+the existing endorsement type check still rejects SOCK_STREAM. The server reads kernel
 SO_PEERCRED on the latter, compares UID/native PID with this actual server
 process object, and closes local FD duplicates. The native verifier separately
 pins that socket creator with SO_PEERPIDFD and compares it with the actual
@@ -137,8 +143,10 @@ registration wrapper must equal the issued bytes, including generations.
 Replay/late messages, endpoint replacement, wrong identity/nonce/digest/channel/
 sequence, extra FD, cancellation and disconnect are terminal. One absolute
 five-second monotonic lab deadline includes setup; no retry extends it. Limits
-are eight pending connections and 4096 generation histories. Packet content and
-arbitrary diagnostics are not logged. Metadata echo is never authentication.
+are eight pending connections and 4096 generation histories. Packet content,
+method arguments and authentication answers are not logged. The native lab
+logs bounded, single-line escaped exception text/class, D-Bus error name and
+method metadata to diagnose OS/bus failures. Metadata echo is never authentication.
 
 Private export:
 `WexE1s6Transport(pipe, operation, buffer, size, &channel)`. OPEN (1) uses 224
@@ -304,3 +312,40 @@ silent `_exit(1)` failures now have private exit codes and fixed parent-side
 verifier checks have explicit site names, including the proc/executable pin and
 inode checks. These are diagnostic changes; the underlying original failure
 still requires the matching broker/server/native denial logs from Qwen's run.
+
+## Round-3 descriptor import repair (2026-11-07; static only)
+
+The newly supplied `s6-logs-round3/e1s6-wine.log:404-405` identifies
+`endorse-import-control`, then `open-endorsement`, before any native private
+Open packet. Source review establishes a deterministic zero-access import bug:
+`wine_server_fd_to_handle(fd, 0, 0, ...)` reaches the normal `alloc_handle`,
+which rejects zero access. Both imports now request `FILE_READ_ATTRIBUTES`.
+STATUS_ACCESS_DENIED (c0000022) is the source-derived prediction; the old log
+did not record the returned NTSTATUS. Its errno 11 is unrelated ambient state.
+No stock Wine change or authorization relaxation is part of this repair.
+
+Every wexhost denial now reports `source`, `status` and `errno`. `source=ntstatus`
+contains the actual returned Wine status with errno zero; `source=errno`
+contains the immediately captured syscall errno with a local unsuccessful
+status. Logical checks, timeout/poll states, short sends and allocation failures
+have explicit sources/local statuses and errno zero. D-Bus failures additionally
+report the actual error name. Wrapper sites preserve their callee's cause.
+Native child sites retain their private exit codes and publish status/errno in
+one anonymous shared diagnostic mapping; the parent reads it only after waitpid
+and unmaps it during cleanup. No extra child FD, packet or authority is added.
+Late-child injection now checks kill/wait and the actual SIGKILL wait status;
+disconnect still requires natural exit zero before cleanup, with wait errors
+distinguished from timeout.
+
+The native `call_blocking:696` location belongs to dbus-python, not this fixture.
+After the import denial, broker cleanup closes its private bus connection;
+`Transaction.live` can then query its vanished unique name before processing
+EOF. This explains a reachable consequent bus exception. The old log omitted
+the exception class/message and calling method, so it cannot establish the
+exact bus error or exclude an additional bus failure. New diagnostics include
+the originating fixture frame and synchronous bus method metadata, without
+call arguments, for that distinction. Errors still cancel the transaction.
+
+The complete cause/candidate analysis, subsequent-case re-review and Qwen
+handoff are in the round-3 section of [E1_S6_ACCEPT_REVIEW.md](E1_S6_ACCEPT_REVIEW.md).
+No compilation, service execution, runtime acceptance or ABI result is claimed.

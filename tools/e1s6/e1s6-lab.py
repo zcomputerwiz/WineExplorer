@@ -8,6 +8,7 @@ S7 may provision an explicit native worker; answers never pass through Python.
 No evidence redemption, token creation or target execution lives here.
 """
 import array
+import json
 import os
 import select
 import socket
@@ -24,7 +25,7 @@ REG_SIZE, ANSWER_SIZE, ENDORSE_SIZE = 112, 156, 96
 
 def audit(site, frame):
     # This module is the uninstalled lab fixture, never a production endpoint.
-    # Fixed site names and source locations only; no packets/exception messages.
+    # Fixed site names and source locations; packet contents are never logged.
     print("E1S6_DENY native site=%s function=%s line=%d" %
           (site, frame.f_code.co_name, frame.f_lineno), file=sys.stderr, flush=True)
 
@@ -37,11 +38,29 @@ def require(ok, site="check"):
 
 def audit_exception(exc):
     trace = exc.__traceback__
-    while trace.tb_next is not None:
+    origin = trace
+    call = None
+    while trace is not None:
+        if trace.tb_frame.f_code.co_filename == __file__:
+            origin = trace
+        if trace.tb_frame.f_code.co_name == "call_blocking":
+            # dbus-python's synchronous proxy call: method metadata only, not
+            # args (which could include transport bytes or FDs).
+            call = {key: str(trace.tb_frame.f_locals.get(key, ""))[:256]
+                    for key in ("bus_name", "object_path", "dbus_interface", "method")}
+        if trace.tb_next is None:
+            break
         trace = trace.tb_next
-    print("E1S6_DENY native site=exception function=%s line=%d errno=%d" %
-          (trace.tb_frame.f_code.co_name, trace.tb_lineno,
-           exc.errno if isinstance(exc, OSError) and exc.errno is not None else 0),
+    name = getattr(exc, "get_dbus_name", None)
+    # Bound/escape exception diagnostics to one line. Never include packet
+    # buffers, call args, authentication answers or other traceback locals.
+    detail = {"type": type(exc).__name__, "text": str(exc)[:1024],
+              "dbus_name": str(name())[:256] if callable(name) else "", "call": call}
+    print("E1S6_DENY native site=exception function=%s line=%d origin=%s:%d errno=%d detail=%s" %
+          (trace.tb_frame.f_code.co_name if trace else "none", trace.tb_lineno if trace else 0,
+           origin.tb_frame.f_code.co_name if origin else "none", origin.tb_lineno if origin else 0,
+           exc.errno if isinstance(exc, OSError) and exc.errno is not None else 0,
+           json.dumps(detail, ensure_ascii=True, separators=(",", ":"))),
           file=sys.stderr, flush=True)
 
 

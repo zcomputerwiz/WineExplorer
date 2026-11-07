@@ -128,3 +128,11 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   reference leak in `e1s_install_consumed`: still to fix). **Open:** `scripts/test_e1s6_transport.sh` fails at the S6 accept case;
   the denial site is `wexhost` `endorse-import-control` (`wine_server_fd_to_handle` on the control socket received over D-Bus,
   see `E1_S6_ACCEPT_REVIEW.md`). The S10 probe matrix waits for S6 acceptance. All of this stays disabled by default.
+* **E1-S6 acceptance passes (2026-11-07).** Root cause of the failing accept case: both Wine handle imports in `src/dlls/wexhost/e1s6.c`
+  asked for access 0, which the server rejects (`alloc_handle`, STATUS_ACCESS_DENIED). They now ask for `FILE_READ_ATTRIBUTES`; every
+  wexhost denial site now logs the real NTSTATUS/errno and the native service logs exception text. `scripts/test_e1s6_transport.sh`
+  (root, clean wexbuild): `E1S6_TRANSPORT OK`, 302 PASS, 0 FAIL, all 9 cases in both ABIs plus the same-UID bus impostor. After redeploy
+  to VM B: approve 0, deny 1223, impersonate/callerdeath/writerfirst/imagerace PASS, S5 matrix 38/38. Not run yet: the S10 probe matrix
+  of `E1_S10_TOKEN.md` (its negative cases need the S11 trusted driver or server fault injection); the probe builds clean for both ABIs.
+  Process note: a Qwen job left the kept S6 fixture installed in wexbuild; it was removed by hand (users wexadm/wexstd/wexcar, group
+  wexsysc2, system role directories).

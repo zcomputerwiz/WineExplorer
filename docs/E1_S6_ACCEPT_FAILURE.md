@@ -41,3 +41,29 @@ denial from setup/kernel/procfs/child failure, or implicate S10. See
 [E1_S6_ACCEPT_REVIEW.md](E1_S6_ACCEPT_REVIEW.md) for the full static trace and
 test-only diagnostic sites. The original transport failure remains unlocated
 until matching denial-site logs are available; no runtime repair is claimed.
+
+## Round-3 matching logs and static repair
+
+Read from `D:/DeepThought/ChromiumLab/e1s-baseline/s6-logs-round3/`:
+
+```
+e1s6-wine.log:404: E1S6_DENY wexhost site=endorse-import-control phase=0 sequence=0 errno=11
+e1s6-wine.log:405: E1S6_DENY wexhost site=open-endorsement phase=0 sequence=0 errno=11
+e1s6-service.log:1: E1S6 READY
+e1s6-service.log:2: E1S6_DENY native site=exception function=call_blocking line=696 errno=0
+```
+
+The directory contains those two logs plus `dbus-policy-state.txt`; no impostor
+log is present. The policy-state file describes absence after cleanup and has
+an invalid `/org/freedesktop.DBus` object-path query; it cannot establish live
+policy/name-owner state during this Open.
+
+The boundary is now located. Both imports supplied access zero; normal Wine
+`alloc_handle` rejects that with STATUS_ACCESS_DENIED before its DACL check.
+The new minimal access is `FILE_READ_ATTRIBUTES`, attributes still zero. The
+expected c0000022 is source-derived, not measured in the old log; errno 11 was
+ambient state. Full evidence, alternative causes and subsequent cases are in
+the round-3 section of [E1_S6_ACCEPT_REVIEW.md](E1_S6_ACCEPT_REVIEW.md).
+This supersedes the earlier lack-of-site statement, not the unrun acceptance
+gate. The native exception's exact type/text remains unavailable in these old
+logs; new bounded diagnostics expose it on rerun. No runtime success is claimed.

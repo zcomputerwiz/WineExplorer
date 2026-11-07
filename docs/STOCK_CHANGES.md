@@ -2,6 +2,16 @@
 
 ## E1-S6 acceptance diagnostics (2026-11-07; static only)
 
+Round-3 follow-up: the control import failure is a project-side zero access
+mask passed to Wine's existing `alloc_file_handle` path. Both wexhost imports
+now request only `FILE_READ_ATTRIBUTES`, attributes zero. No further stock Wine
+files, protocol layouts or access checks change. Project-only diagnostics
+capture actual NTSTATUS/syscall errno (including private child failures),
+D-Bus errors and bounded escaped native exception text/method context; late
+child injection validates kill/wait instead of accepting their failure.
+See the round-3 section of [E1_S6_ACCEPT_REVIEW.md](E1_S6_ACCEPT_REVIEW.md)
+for evidence and the static re-review of all later cases. Runtime remains open.
+
 `wine/server/named_pipe.c` and `wine/server/sysrun.c`: add distinct denial-site
 audits under WEX_E1S6_TRANSPORT_TEST. Split existing combined comparisons without
 relaxing authority, consumed-writer, image, token, generation or FD checks.
