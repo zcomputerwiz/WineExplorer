@@ -93,6 +93,8 @@ The installer polish work completed the visual parity and integration items:
 - Installed GRUB boots straight through (`GRUB_TIMEOUT_STYLE=hidden`, `GRUB_TIMEOUT=0`, `GRUB_TERMINAL=console`, Debian theme removed).
 - The desktop template properly displays the Recycle Bin icon on first logon.
 
+GRUB on the installed system is planned to be replaced by Vintner Boot; see [VINTNER_BOOT.md](VINTNER_BOOT.md).
+
 ---
 
 ## 1. Architecture and Stages
