@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
  * Copyright 2026 WineExplorer contributors
  * Disposable Wine-only S10 test broker and standard-user peer. Never install
- * this as the shipping broker. No PAM, launch, profile or password interface.
+ * this as the shipping broker. No PAM, profile or password interface; the
+ * only process creation below is a benign identity/copy test driver.
  */
 #define COBJMACROS
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 #include <windows.h>
 #include <sddl.h>
 #include <winternl.h>
@@ -17,6 +19,8 @@
 typedef NTSTATUS (WINAPI *create_fn)(ULONG,HANDLE*,HANDLE,ULONGLONG*,const void*,ULONG,HANDLE*,void*,ULONG*);
 typedef DWORD (WINAPI *transport_fn)(HANDLE,DWORD,void*,DWORD,UINT64*);
 static create_fn create_token;
+typedef NTSTATUS (__cdecl *server_call_fn)(void *);
+static server_call_fn server_call;
 static unsigned int failures;
 #define check(c) do { if (!(c)) { printf("FAIL line %u: %s\n", __LINE__, #c); failures++; } } while (0)
 
@@ -26,9 +30,23 @@ static BOOL info( HANDLE token, TOKEN_INFORMATION_CLASS type, void *out, DWORD s
     return GetTokenInformation( token, type, out, size, &needed );
 }
 
+#ifdef WEX_E1S13_HKU_PROBE
+#include "e1s13_hku_checks.h"
+#endif
+
 static BOOL same_luid( LUID a, LUID b )
 {
     return a.LowPart == b.LowPart && a.HighPart == b.HighPart;
+}
+
+static BOOL logon_sid_matches( PSID sid, LUID auth )
+{
+    SID_IDENTIFIER_AUTHORITY nt = SECURITY_NT_AUTHORITY;
+    return IsValidSid(sid) && *GetSidSubAuthorityCount(sid) == 3 &&
+           !memcmp(GetSidIdentifierAuthority(sid), &nt, sizeof(nt)) &&
+           *GetSidSubAuthority(sid, 0) == 5 &&
+           *GetSidSubAuthority(sid, 1) == (DWORD)auth.HighPart &&
+           *GetSidSubAuthority(sid, 2) == auth.LowPart;
 }
 
 static BOOL unhex( const char *s, BYTE *out )
@@ -97,14 +115,14 @@ static void check_token( HANDLE token, HANDLE caller, PSID expected, const BYTE 
             SID_AND_ATTRIBUTES *g = &groups->Groups[i];
             if (admins && EqualSid(g->Sid, admins))
                 admin = (g->Attributes & SE_GROUP_ENABLED) && !(g->Attributes & SE_GROUP_USE_FOR_DENY_ONLY);
-            if (primary->PrimaryGroup && EqualSid(g->Sid, primary->PrimaryGroup)) primary_found = TRUE;
+            if (primary->PrimaryGroup && EqualSid(g->Sid, primary->PrimaryGroup))
+                primary_found = (g->Attributes & SE_GROUP_ENABLED) && !(g->Attributes & SE_GROUP_USE_FOR_DENY_ONLY);
             if ((g->Attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID)
             {
                 check( !logon );
-                logon = *GetSidSubAuthorityCount(g->Sid) == 3 &&
-                    *GetSidSubAuthority(g->Sid, 0) == 5 &&
-                    *GetSidSubAuthority(g->Sid, 1) == (DWORD)stats.AuthenticationId.HighPart &&
-                    *GetSidSubAuthority(g->Sid, 2) == stats.AuthenticationId.LowPart;
+                logon = logon_sid_matches(g->Sid, stats.AuthenticationId) && (g->Attributes & SE_GROUP_ENABLED) &&
+                        !(g->Attributes & SE_GROUP_USE_FOR_DENY_ONLY);
+                check(logon);
             }
         }
     }
@@ -161,31 +179,252 @@ static void failure_record( const BYTE *out, ULONG size, NTSTATUS status )
         if (i < 32 || i >= 36) check(out[i] == 0);
 }
 
-static int denied(void)
+/* Private protocol 977, request 324. Mirror only the transport carrier, not
+ * Wine's Windows SDK headers. The union is the protocol's fixed 88 bytes;
+ * pointer/iovec layout follows wine/server.h and ntdll's WoW64 carrier. */
+struct raw_call
+{
+    union { BYTE bytes[88]; ULONGLONG align; } u;
+    unsigned int count;
+    void *reply;
+    struct { const void *ptr; unsigned int size; } data[5];
+};
+typedef char raw_count_offset[(offsetof(struct raw_call, count) == 88) ? 1 : -1];
+typedef char raw_reply_offset[(offsetof(struct raw_call, reply) == (sizeof(void *) == 8 ? 96 : 92)) ? 1 : -1];
+typedef char raw_data_offset[(offsetof(struct raw_call, data) == (sizeof(void *) == 8 ? 104 : 96)) ? 1 : -1];
+
+static NTSTATUS raw_request( ULONG operation, HANDLE context, ULONGLONG caps,
+                             const BYTE *input, ULONG length, BYTE *output )
+{
+    struct raw_call r;
+    NTSTATUS status;
+    memset(&r, 0, sizeof(r));
+    memset(output, 0xcc, WEX_TOKEN_RESPONSE_SIZE);
+    wex_token_put32(r.u.bytes, 324);
+    wex_token_put32(r.u.bytes + 4, length);
+    wex_token_put32(r.u.bytes + 8, WEX_TOKEN_RESPONSE_SIZE);
+    wex_token_put32(r.u.bytes + 12, operation);
+    wex_token_put32(r.u.bytes + 16, (ULONG)(ULONG_PTR)context);
+    wex_token_put64(r.u.bytes + 24, caps);
+    r.count = length != 0; r.reply = output;
+    r.data[0].ptr = input; r.data[0].size = length;
+    status = server_call(&r);
+    check(!wex_token_u32(r.u.bytes + 8) && !wex_token_u32(r.u.bytes + 12));
+    /* Raw replies do not receive the PE wrapper's canonicalization. These
+     * cases reach e1s_issue, which must supply its own cleared failure. */
+    if (wex_token_u32(r.u.bytes + 4))
+    {
+        check(wex_token_u32(r.u.bytes + 4) == WEX_TOKEN_FAILURE_SIZE);
+        /* The raw server transfers only 108 bytes, not the wrapper's tail. */
+        memset(output + WEX_TOKEN_FAILURE_SIZE, 0, WEX_TOKEN_RESPONSE_SIZE - WEX_TOKEN_FAILURE_SIZE);
+        failure_record(output, WEX_TOKEN_FAILURE_SIZE, status);
+    }
+    return status;
+}
+
+static int denied( TOKEN_ELEVATION_TYPE expected, BOOL normal, BOOL system_check )
 {
     HANDLE context = NULL, token = NULL;
     ULONGLONG caps = WEX_TOKEN_CAPS;
     ULONG size = 0;
-    NTSTATUS status = create_token(WEX_TOKEN_NEGOTIATE, &context, NULL, &caps, NULL, 0, &token, NULL, &size);
-    check(status == (NTSTATUS)0xc0000022 || status == (NTSTATUS)0xc00000bb);
+    BYTE input[WEX_TOKEN_FIXTURE_SIZE] = {0}, out[WEX_TOKEN_RESPONSE_SIZE];
+    HANDLE own = NULL;
+    TOKEN_ELEVATION_TYPE elevation = 0;
+    NTSTATUS status;
+    check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &own));
+    if (own)
+    {
+        check(info(own, TokenElevationType, &elevation, sizeof(elevation)) && elevation == expected);
+        if (system_check)
+        {
+            BYTE user[256]; PSID system = NULL;
+            check(ConvertStringSidToSidA("S-1-5-18", &system));
+            check(info(own, TokenUser, user, sizeof(user)) && system && EqualSid(((TOKEN_USER *)user)->User.Sid, system));
+            LocalFree(system);
+        }
+        CloseHandle(own);
+    }
+    status = create_token(WEX_TOKEN_NEGOTIATE, &context, NULL, &caps, NULL, 0, &token, NULL, &size);
+    check(status == (normal ? (NTSTATUS)0xc00000bb : (NTSTATUS)0xc0000022));
     check(!context && !token && !caps && !size);
+    if (context) CloseHandle(context);
+    if (token) { CloseHandle(token); token = NULL; }
+    context = (HANDLE)(ULONG_PTR)0x1234; caps = WEX_TOKEN_CAPS; size = sizeof(out);
+    status = create_token(WEX_TOKEN_ISSUE, &context, NULL, &caps, input, WEX_TOKEN_INPUT_SIZE, &token, out, &size);
+    check(status == (normal ? (NTSTATUS)0xc00000bb : (NTSTATUS)0xc0000022) && !token);
+    failure_record(out, size, status);
+    size = 0;
+    status = create_token(WEX_TOKEN_TEST_INSTALL, &context, GetCurrentProcess(), &caps,
+                          input, sizeof(input), &token, NULL, &size);
+    check(status == (normal ? (NTSTATUS)0xc00000bb : (NTSTATUS)0xc0000022) && !token && !size);
+    if (!failures) puts("E1S10 OK");
+    return failures ? 1 : 0;
+}
+
+struct copied_context { HANDLE context; BYTE input[WEX_TOKEN_INPUT_SIZE]; };
+
+static DWORD WINAPI copied_thread( void *arg )
+{
+    struct copied_context *copy = arg;
+    HANDLE token = NULL, context = copy->context;
+    BYTE out[WEX_TOKEN_RESPONSE_SIZE];
+    ULONG size = sizeof(out);
+    ULONGLONG caps = WEX_TOKEN_CAPS;
+    NTSTATUS status = create_token(WEX_TOKEN_ISSUE, &context, NULL, &caps, copy->input,
+                                   sizeof(copy->input), &token, out, &size);
+    check(status == (NTSTATUS)0xc0000022 && !token);
+    failure_record(out, size, status);
+    if (token) CloseHandle(token);
+    return failures ? 1 : 0;
+}
+
+static BOOL wait_child( PROCESS_INFORMATION *pi )
+{
+    DWORD code = ~0u;
+    BOOL done = WaitForSingleObject(pi->hProcess, 5000) == WAIT_OBJECT_0;
+    if (!done) { TerminateProcess(pi->hProcess, 1); WaitForSingleObject(pi->hProcess, INFINITE); }
+    check(done && GetExitCodeProcess(pi->hProcess, &code) && !code);
+    CloseHandle(pi->hThread); CloseHandle(pi->hProcess);
+    return done && !code;
+}
+
+static void copy_context( HANDLE context, const BYTE *input, BOOL process )
+{
+    struct copied_context local, *copy = &local;
+    SECURITY_ATTRIBUTES sa = {sizeof(sa), NULL, TRUE};
+    HANDLE mapping = NULL, thread;
+    char exe[MAX_PATH], command[2 * MAX_PATH];
+    STARTUPINFOA si = {0}; PROCESS_INFORMATION pi = {0};
+    if (process)
+    {
+        mapping = CreateFileMappingA(INVALID_HANDLE_VALUE, &sa, PAGE_READWRITE, 0, sizeof(local), NULL);
+        check(mapping != NULL);
+        if (!mapping) return;
+        copy = MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, sizeof(local));
+        check(copy != NULL);
+        if (!copy) { CloseHandle(mapping); return; }
+    }
+    copy->context = NULL;
+    check(DuplicateHandle(GetCurrentProcess(), context, GetCurrentProcess(), &copy->context,
+                          0, process, DUPLICATE_SAME_ACCESS));
+    memcpy(copy->input, input, sizeof(copy->input));
+    if (copy->context)
+    {
+        if (process)
+        {
+            check(GetModuleFileNameA(NULL, exe, sizeof(exe)) != 0);
+            snprintf(command, sizeof(command), "\"%s\" copied %llu", exe, (unsigned long long)(ULONG_PTR)mapping);
+            si.cb = sizeof(si);
+            check(CreateProcessA(exe, command, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi));
+            if (pi.hProcess) wait_child(&pi);
+        }
+        else
+        {
+            thread = CreateThread(NULL, 0, copied_thread, copy, 0, NULL);
+            check(thread != NULL);
+            if (thread) { check(WaitForSingleObject(thread, INFINITE) == WAIT_OBJECT_0); CloseHandle(thread); }
+        }
+        CloseHandle(copy->context);
+    }
+    if (process) { UnmapViewOfFile(copy); CloseHandle(mapping); }
+}
+
+/* A benign child and grandchild query their own primary, without a profile or
+ * environment handoff. This is a lab driver, not broker launch integration. */
+static void spawn_identity( HANDLE token, const char *sid, LUID auth, DWORD session, unsigned int depth )
+{
+    char exe[MAX_PATH], command[2 * MAX_PATH + 256];
+    STARTUPINFOA si = {0}; PROCESS_INFORMATION pi = {0};
+    check(GetModuleFileNameA(NULL, exe, sizeof(exe)) != 0);
+    snprintf(command, sizeof(command), "\"%s\" identity %s %lu %lu %lu %u", exe, sid,
+             (unsigned long)(DWORD)auth.HighPart, (unsigned long)auth.LowPart, (unsigned long)session, depth);
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    if (token) check(CreateProcessAsUserA(token, exe, command, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi));
+    else check(CreateProcessA(exe, command, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi));
+    if (pi.hProcess) wait_child(&pi);
+}
+
+static int identity( char **argv )
+{
+    BYTE user[256], groups_buf[4096];
+    TOKEN_GROUPS *groups = (TOKEN_GROUPS *)groups_buf;
+    TOKEN_STATISTICS stats = {0};
+    LUID auth = {strtoul(argv[4], NULL, 10), (LONG)strtoul(argv[3], NULL, 10)};
+    DWORD session = strtoul(argv[5], NULL, 10), actual = ~0u, i;
+    TOKEN_ELEVATION_TYPE elevation = 0;
+    HANDLE token = NULL; PSID expected = NULL;
+    BOOL logon = FALSE;
+    check(ConvertStringSidToSidA(argv[2], &expected));
+    check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token));
+    if (token)
+    {
+        check(info(token, TokenUser, user, sizeof(user)) && expected && EqualSid(((TOKEN_USER *)user)->User.Sid, expected));
+        check(info(token, TokenStatistics, &stats, sizeof(stats)) && stats.TokenType == TokenPrimary && same_luid(stats.AuthenticationId, auth));
+        check(info(token, TokenSessionId, &actual, sizeof(actual)) && actual == session);
+        check(info(token, TokenElevationType, &elevation, sizeof(elevation)) && elevation == TokenElevationTypeFull);
+        if (info(token, TokenGroups, groups_buf, sizeof(groups_buf)))
+            for (i = 0; i < groups->GroupCount; i++)
+                if ((groups->Groups[i].Attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID)
+                {
+                    PSID s = groups->Groups[i].Sid;
+                    check(!logon && logon_sid_matches(s, auth) && (groups->Groups[i].Attributes & SE_GROUP_ENABLED));
+                    logon = TRUE;
+                }
+        check(logon);
+        CloseHandle(token);
+    }
+    if (!failures && !strcmp(argv[6], "1")) spawn_identity(NULL, argv[2], auth, session, 0);
+#ifdef WEX_E1S13_HKU_PROBE
+    e1s13_identity(argv[2]);
+#endif
+    LocalFree(expected);
+    if (!failures) puts("E1S10 IDENTITY OK");
     return failures ? 1 : 0;
 }
 
 /* The peer remains alive while the broker compares its retained token. It
  * cannot receive token/context handles; one byte is the whole fixture message. */
-static int peer( const char *name )
+static int peer( const char *name, BOOL death )
 {
     HANDLE pipe;
     DWORD n;
     BYTE marker = 0x5a;
+#ifdef WEX_E1S13_HKU_PROBE
+    e1s13_peer_state(FALSE);
+#endif
     if (!WaitNamedPipeA(name, 10000)) return 2;
     pipe = CreateFileA(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
     if (pipe == INVALID_HANDLE_VALUE) return 2;
     if (!WriteFile(pipe, &marker, 1, &n, NULL) || n != 1 || !ReadFile(pipe, &marker, 1, &n, NULL) || n != 1)
     { CloseHandle(pipe); return 2; }
+    if (death && marker == 0x7e) marker = 0;
+#ifdef WEX_E1S13_HKU_PROBE
+    e1s13_peer_state(TRUE);
+    if (failures) marker = 1;
+#endif
     CloseHandle(pipe);
     return marker;
+}
+
+static BOOL transport_control( transport_fn transport, HANDLE pipe, BYTE *reg, UINT64 *channel )
+{
+    BYTE packet[E1S6_REG_SIZE + E1S6_ANSWER_SIZE] = {0}, original[E1S6_ANSWER_SIZE];
+    BYTE *answer = packet + E1S6_REG_SIZE;
+    memcpy(packet, reg, E1S6_REG_SIZE);
+    wex_token_put32(answer, 0x00010002); wex_token_put32(answer + 4, E1S6_ANSWER_SIZE);
+    wex_token_put64(answer + 16, 1); wex_token_put32(answer + 24, 1);
+    wex_token_put32(answer + 28, 1); wex_token_put32(answer + 36, 2);
+    memset(answer + 40, 0x33, 96); memcpy(answer + 136, reg + 88, 16);
+    memcpy(original, answer, sizeof(original));
+    if (transport(pipe, E1S6_CHILD_START, packet, sizeof(packet), channel) ||
+        transport(pipe, E1S6_EXCHANGE, packet, sizeof(packet), channel) ||
+        memcmp(answer, original, sizeof(original))) return FALSE;
+    puts("E1S10 TRANSPORT OK"); fflush(stdout);
+    return TRUE;
 }
 
 static int broker( int argc, char **argv )
@@ -196,7 +435,7 @@ static int broker( int argc, char **argv )
     PSECURITY_DESCRIPTOR sd = NULL;
     PSID expected = NULL;
     DWORD n, pid;
-    ULONG size = 0, session;
+    ULONG size = 0, session, input_size = WEX_TOKEN_INPUT_SIZE;
     UINT64 channel = 0;
     ULONGLONG caps = WEX_TOKEN_CAPS, generation;
     TOKEN_STATISTICS before, after;
@@ -206,12 +445,17 @@ static int broker( int argc, char **argv )
     HMODULE host = LoadLibraryW(L"wexhost.dll");
     transport_fn transport = host ? (transport_fn)(void *)GetProcAddress(host, "WexE1s6Transport") : NULL;
     const char *mode;
-    if (argc != 8 || !transport) return 2;
+    if ((argc != 8 && argc != 9) || !transport) return 2;
     mode = argv[7];
-    negative = strcmp(mode, "accept") != 0;
+    negative = strcmp(mode, "accept") && strcmp(mode, "replay") &&
+               strcmp(mode, "thread") && strcmp(mode, "process");
     if (strcmp(mode,"accept") && strcmp(mode,"unknown") && strcmp(mode,"tombstone") &&
         strcmp(mode,"stale") && strcmp(mode,"no-cap") && strcmp(mode,"digest") &&
-        strcmp(mode,"evidence") && strcmp(mode,"expired")) return 2;
+        strcmp(mode,"evidence") && strcmp(mode,"expired") && strcmp(mode,"replay") &&
+        strcmp(mode,"thread") && strcmp(mode,"process") && strcmp(mode,"caller-death") &&
+        strcmp(mode,"group-removed") && strcmp(mode,"missing-group") && strcmp(mode,"absent-install") &&
+        strcmp(mode,"raw-short") && strcmp(mode,"raw-trailing") && strcmp(mode,"raw-oversized") &&
+        strcmp(mode,"raw-malformed")) return 2;
     generation = _strtoui64(argv[5], NULL, 10);
     if (!generation || !unhex(argv[4], in + 124) || strlen(argv[3]) > 63 ||
         !ConvertStringSidToSidA(argv[6], &expected)) return 2;
@@ -225,12 +469,13 @@ static int broker( int argc, char **argv )
     if (!ConnectNamedPipe(pipe, NULL) && GetLastError() != ERROR_PIPE_CONNECTED) goto done;
     if (!ReadFile(pipe, &marker, 1, &n, NULL) || n != 1 || marker != 0x5a ||
         !GetNamedPipeClientProcessId(pipe, &pid)) goto done;
-    process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
     if (!process || !OpenProcessToken(process, TOKEN_QUERY, &caller) ||
         !info(caller, TokenStatistics, &before, sizeof(before)) ||
         !info(caller, TokenSessionId, &session, sizeof(session))) goto done;
     if (transport(pipe, E1S6_OPEN, reg, sizeof(reg), &channel)) goto done;
     transported = TRUE;
+    if (!transport_control(transport, pipe, reg, &channel)) goto done;
     if (!strcmp(mode,"no-cap")) caps &= ~0x80u;
     status = create_token(WEX_TOKEN_NEGOTIATE, &context, NULL, &caps, NULL, 0, &token, NULL, &size);
     if (!strcmp(mode,"no-cap"))
@@ -248,23 +493,66 @@ static int broker( int argc, char **argv )
     wex_token_put64(in + 164, !strcmp(mode,"stale") ? generation + 1 : generation);
     wex_token_put64(in + 172, 1); wex_token_put32(in + 180, session);
     memset(in + 188, 0x22, 16); memcpy(in + 204, argv[3], strlen(argv[3]));
-    status = create_token(WEX_TOKEN_TEST_INSTALL, &context, process, &caps, in, sizeof(in), &token, NULL, &size);
-    if (status) goto done;
+    if (strcmp(mode,"absent-install"))
+    {
+        status = create_token(WEX_TOKEN_TEST_INSTALL, &context, process, &caps, in, sizeof(in), &token, NULL, &size);
+        if (status) goto done;
+    }
+    if (!strcmp(mode,"thread") || !strcmp(mode,"process")) copy_context(context, in, !strcmp(mode,"process"));
+    if (!strcmp(mode,"group-removed") || !strcmp(mode,"missing-group"))
+    {
+        DWORD start = GetTickCount();
+        if (argc != 9) goto done;
+        puts("E1S10 INSTALLED"); fflush(stdout);
+        while (GetFileAttributesA(argv[8]) == INVALID_FILE_ATTRIBUTES && GetTickCount() - start < 3000) Sleep(10);
+        if (GetFileAttributesA(argv[8]) == INVALID_FILE_ATTRIBUTES) goto done;
+    }
+    if (!strcmp(mode,"caller-death"))
+    {
+        marker = 0x7e;
+        if (!WriteFile(pipe, &marker, 1, &n, NULL) || n != 1 || WaitForSingleObject(process, 3000) != WAIT_OBJECT_0) goto done;
+    }
     if (!strcmp(mode,"digest")) in[24] ^= 1;
     if (!strcmp(mode,"evidence")) in[188] ^= 1;
     if (!strcmp(mode,"expired")) Sleep(5100);
     size = sizeof(out); memset(out, 0xcc, sizeof(out));
-    status = create_token(WEX_TOKEN_ISSUE, &context, NULL, &caps, in, WEX_TOKEN_INPUT_SIZE, &token, out, &size);
+    if (!strncmp(mode,"raw-",4))
+    {
+        if (!strcmp(mode,"raw-short")) input_size--;
+        if (!strcmp(mode,"raw-trailing")) input_size++;
+        if (!strcmp(mode,"raw-oversized")) input_size = WEX_TOKEN_FIXTURE_SIZE + 1;
+        if (!strcmp(mode,"raw-malformed")) in[184] = 1;
+        /* Oversize is larger than even TEST_INSTALL, but remains bounded. */
+        if (input_size > sizeof(in))
+        {
+            BYTE oversized[WEX_TOKEN_FIXTURE_SIZE + 1];
+            memcpy(oversized, in, sizeof(in)); oversized[sizeof(in)] = 0x55;
+            status = raw_request(WEX_TOKEN_ISSUE, context, caps, oversized, sizeof(oversized), out);
+        }
+        else status = raw_request(WEX_TOKEN_ISSUE, context, caps, in, input_size, out);
+        check(status == (NTSTATUS)0xc0000022);
+        size = WEX_TOKEN_FAILURE_SIZE;
+        if (!strcmp(mode,"raw-malformed")) in[184] = 0;
+    }
+    else status = create_token(WEX_TOKEN_ISSUE, &context, NULL, &caps, in, WEX_TOKEN_INPUT_SIZE, &token, out, &size);
     if (negative)
     {
-        check(status != 0 && !token); failure_record(out, size, status);
+        check(status == (NTSTATUS)0xc0000022 && !token); failure_record(out, size, status);
     }
     else
     {
         BYTE first_auth[8];
         check(!status && token && size == sizeof(out));
         if (token) check_token(token, caller, expected, out);
+#ifdef WEX_E1S13_HKU_PROBE
+        if (token) e1s13_load_checks(context, token, expected, argv[6], in, argc == 9 ? argv[8] : NULL);
+#endif
         memcpy(first_auth, out + 104, sizeof(first_auth));
+        if (token) { CloseHandle(token); token = NULL; }
+        /* Check the first successful transaction as well as the second. */
+        size = sizeof(out);
+        status = create_token(WEX_TOKEN_ISSUE, &context, NULL, &caps, in, WEX_TOKEN_INPUT_SIZE, &token, out, &size);
+        check(status == (NTSTATUS)0xc0000022 && !token); failure_record(out, size, status);
         if (token) { CloseHandle(token); token = NULL; }
         CloseHandle(context); context = NULL; size = 0;
         status = create_token(WEX_TOKEN_NEGOTIATE, &context, NULL, &caps, NULL, 0, &token, NULL, &size);
@@ -279,21 +567,44 @@ static int broker( int argc, char **argv )
         check(!status && token && size == sizeof(out));
         if (token) check_token(token, caller, expected, out);
         check(memcmp(first_auth, out + 104, sizeof(first_auth)) != 0);
+#ifdef WEX_E1S13_HKU_PROBE
+        if (token) e1s13_load_checks(context, token, expected, argv[6], in, argc == 9 ? argv[8] : NULL);
+#endif
     }
-    if (token) { CloseHandle(token); token = NULL; }
     /* Every issued or failed transaction is consumed, including digest/account
      * failures. Retrying the original bytes must never produce another token. */
     if (!strcmp(mode,"digest")) in[24] ^= 1;
     if (!strcmp(mode,"evidence")) in[188] ^= 1;
-    size = sizeof(out);
-    status = create_token(WEX_TOKEN_ISSUE, &context, NULL, &caps, in, WEX_TOKEN_INPUT_SIZE, &token, out, &size);
-    check(status != 0 && !token); failure_record(out, size, status);
+    {
+        HANDLE replay = NULL;
+        size = sizeof(out);
+        status = create_token(WEX_TOKEN_ISSUE, &context, NULL, &caps, in, WEX_TOKEN_INPUT_SIZE, &replay, out, &size);
+        check(status == (NTSTATUS)0xc0000022 && !replay); failure_record(out, size, status);
+        if (replay) CloseHandle(replay);
+    }
     check(info(caller, TokenStatistics, &after, sizeof(after)) && same_luid(before.TokenId, after.TokenId) &&
           same_luid(before.ModifiedId, after.ModifiedId) && same_luid(before.AuthenticationId, after.AuthenticationId));
+    if (!negative && token && !failures)
+    {
+#ifdef WEX_E1S13_HKU_PROBE
+        if (e1s13_loaded)
+#endif
+        {
+        TOKEN_STATISTICS stats = {0};
+        check(info(token, TokenStatistics, &stats, sizeof(stats)));
+        /* End the context before any process API can enable a broker privilege
+         * and change ModifiedId. Replay above must use the original authority. */
+        CloseHandle(context); context = NULL;
+        spawn_identity(token, argv[6], stats.AuthenticationId, session, 1);
+        check(info(caller, TokenStatistics, &after, sizeof(after)) && same_luid(before.TokenId, after.TokenId) &&
+              same_luid(before.ModifiedId, after.ModifiedId) && same_luid(before.AuthenticationId, after.AuthenticationId));
+        }
+    }
 complete:
     if (!failures) puts("E1S10 OK");
     marker = failures ? 1 : 0;
-    WriteFile(pipe, &marker, 1, &n, NULL);
+    if (strcmp(mode,"caller-death"))
+        check(WriteFile(pipe, &marker, 1, &n, NULL) && n == 1);
     if (transported) transport(pipe, E1S6_CLOSE, NULL, 0, &channel);
     if (context) CloseHandle(context);
     if (token) CloseHandle(token);
@@ -309,11 +620,42 @@ done:
 
 int main( int argc, char **argv )
 {
+#ifdef WEX_E1S13_HKU_PROBE
+    if (argc > 1 && (!strcmp(argv[1],"denied") || !strcmp(argv[1],"normal-denied") || !strcmp(argv[1],"normal")))
+        e1s13_denied(strcmp(argv[1],"denied") != 0);
+#endif
     create_token = (create_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtCreateWexAccountToken");
     if (!create_token) { puts("FAIL: private export missing"); return 2; }
-    if (argc == 2 && !strcmp(argv[1], "denied")) return denied();
-    if (argc == 3 && !strcmp(argv[1], "peer")) return peer(argv[2]);
+    server_call = (server_call_fn)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_server_call");
+    if (!server_call) { puts("FAIL: raw server export missing"); return 2; }
+#ifdef WEX_E1S13_HKU_PROBE
+    if (argc == 7 && !strcmp(argv[1], "hku-peer"))
+    {
+        if (!strcmp(argv[6], "1"))
+            snprintf(e1s13_bob_denied_path, sizeof(e1s13_bob_denied_path), "C:\\users\\.e1s\\%s\\%s-%s\\user.reg",
+                     argv[3], argv[4], argv[5]);
+        return peer(argv[2], FALSE);
+    }
+#endif
+    if (argc == 3 && !strcmp(argv[1], "denied"))
+        return denied(!strcmp(argv[2], "limited") ? TokenElevationTypeLimited : TokenElevationTypeDefault, FALSE, FALSE);
+    if (argc == 3 && !strcmp(argv[1], "normal-denied"))
+        return denied(!strcmp(argv[2], "limited") ? TokenElevationTypeLimited : TokenElevationTypeDefault, TRUE, FALSE);
+    if (argc == 2 && !strcmp(argv[1], "normal")) return denied(TokenElevationTypeDefault, TRUE, TRUE);
+    if (argc == 7 && !strcmp(argv[1], "identity")) return identity(argv);
+    if (argc == 3 && !strcmp(argv[1], "copied"))
+    {
+        HANDLE mapping = (HANDLE)(ULONG_PTR)_strtoui64(argv[2], NULL, 10);
+        struct copied_context *copy = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, sizeof(*copy));
+        int rc;
+        if (!copy) return 2;
+        rc = copied_thread(copy);
+        CloseHandle(copy->context); UnmapViewOfFile(copy); CloseHandle(mapping);
+        return rc;
+    }
+    if (argc == 3 && (!strcmp(argv[1], "peer") || !strcmp(argv[1], "peer-death")))
+        return peer(argv[2], !strcmp(argv[1], "peer-death"));
     if (argc > 1 && !strcmp(argv[1], "broker")) return broker(argc, argv);
-    puts("usage: probe denied | peer PIPE | broker PIPE NAME KEY GENERATION SID MODE");
+    puts("usage: probe denied default|limited | normal | peer[-death] PIPE | broker PIPE NAME KEY GENERATION SID MODE [GATE]");
     return 2;
 }

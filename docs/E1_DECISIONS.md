@@ -53,6 +53,14 @@ Owner decisions and the first-release design for Track E1 (production elevation)
 
 ## Status
 
+* **E1-S13 disabled implementation (2026-11-07), static only.** Broker/S10-bound
+  prefix-local exact-SID HKU/classes loading, explicit Windows descriptors,
+  managed HKCU/HKCR/cache/userenv paths and normal/lab test sources are in
+  [E1_S13_HKU_LOAD.md](E1_S13_HKU_LOAD.md). Protocol is now 978 (request 325).
+  No build, generation or runtime evidence here. S14 leases/save/unload/recovery,
+  S15 consumers/environment and S18 integration still gate managed launching;
+  no production enablement or S16/S20 acceptance is claimed.
+
 * **E1-H1 done (2026-11-06).** Suspended create with full rollback, remote handle close in the caller's table, `stop_event` gate
   before launch, deny when no random id. Qwen wrote it, review fixed `ResumeThread` error test (`== (DWORD)-1`) and a wait on a
   handle the guard may close. Guest test (VM B, lab test broker): approve path exit 0; deny path (no approval) error 1223 with no
@@ -136,3 +144,18 @@ Owner decisions and the first-release design for Track E1 (production elevation)
   of `E1_S10_TOKEN.md` (its negative cases need the S11 trusted driver or server fault injection); the probe builds clean for both ABIs.
   Process note: a Qwen job left the kept S6 fixture installed in wexbuild; it was removed by hand (users wexadm/wexstd/wexcar, group
   wexsysc2, system role directories).
+* **E1-S11 prerequisites and two review fixes written (2026-11-07), static only.** The real early-stop race in broker
+  `service_main` is fixed by creating/checking its stop event before handler registration. The real retained caller/primary
+  reference leak in `wine/server/token.c:e1s_install_consumed` now releases/clears both objects on failed caller validation;
+  no matching function exists in broker `e1s.h`. New `scripts/test_e1s10_token.sh` sources the S6 fixture, builds both extended
+  probes and forces the lab objects, runs both ABI matrices plus normal-runtime denial controls, and cleans owned state on exit.
+  [E1_S11_TOKEN_TESTS.md](E1_S11_TOKEN_TESTS.md) records invocation, coverage and open fault/mutation/acceptance work. The new
+  probe/harness have not been built or run here; S11 is not accepted. Lost-reply termination remains S19; production stays disabled.
+* **E1 batch 2 committed (2026-11-07): S6 review fixes, S11 fixes, S12 and S13 as work in progress.** Validated: S6 acceptance
+  (`scripts/test_e1s6_transport.sh`) 302 PASS / 0 FAIL twice with Codex's S6 review fixes (control-socket peer checks on both
+  sides, transactional endorsement, pidfd cap, polled control read); Wine tests `advapi32 wex_token` 128/0 and `kernel32 pipe` 0
+  failures in both ABIs. The S11 fixes (service handler created after `stop_event`, `e1s_install_consumed` reference leak) are
+  in. Not validated: the S10/S11 token harness (`scripts/test_e1s10_token.sh`) stops in its first case (broker probe `FAIL line 617`,
+  silent peer; see `E1_S10_HARNESS_FAILURE.md`); S12 (profile storage, `tools/wex-profile`, `test_profile_storage.sh`) and S13
+  (HKU load, `test_hku_load.sh`) are untested static work, disabled by default. Lab recipe corrections: Wine makefiles use
+  `CFLAGS`, not `EXTRA_CFLAGS`; the lab objects are `server/sysrun.o`, `server/named_pipe.o`, `dlls/wexhost/e1s6.o`.

@@ -239,6 +239,14 @@ def service(server_path, system_group, pam_paths=None):
     seen_generations = set()
     server_generations = {}
 
+    def prune_server_pins():
+        for server_gen, (pid, pin) in list(server_generations.items()):
+            if pin is not None and not alive(pin):
+                os.close(pin)
+                # Retain a bounded tombstone: closing a dead pin must not let
+                # another server reuse that generation during this service.
+                server_generations[server_gen] = pid, None
+
     class Transaction:
         def __init__(self, owner, pin):
             self.owner, self.pin = owner, pin
@@ -310,6 +318,14 @@ def service(server_path, system_group, pam_paths=None):
                 require(alive(self.child_pin), "live-child-pin")
 
         def endorsement(self, operation, child_pid=0):
+            self.live()
+            poll = select.poll()
+            poll.register(self.control.fileno(), select.POLLIN)
+            timeout = min(1000, max(0, (self.deadline - time.monotonic_ns()) // 1_000_000))
+            require(poll.poll(timeout) == [(self.control.fileno(), select.POLLIN)],
+                    "endorsement-control-ready")
+            # Readiness never extends the one absolute transaction deadline.
+            self.live()
             raw, cred, pin, rights = receive(self.control, ENDORSE_SIZE)
             try:
                 server_gen, broker_gen, broker_pid, session = struct.unpack_from("<QQII", raw)
@@ -327,10 +343,14 @@ def service(server_path, system_group, pam_paths=None):
                 if self.server_pin is None:
                     # Refuse reused generations, even from another server PID.
                     require(broker_gen not in seen_generations, "endorsement-reused-broker-generation")
+                    require(len(seen_generations) < 4096, "endorsement-broker-capacity")
+                    prune_server_pins()
                     if server_gen in server_generations:
                         previous_pid, previous_pin = server_generations[server_gen]
-                        require(cred[0] == previous_pid and alive(previous_pin), "endorsement-reused-server-generation")
+                        require(cred[0] == previous_pid and previous_pin is not None and alive(previous_pin),
+                                "endorsement-reused-server-generation")
                     else:
+                        require(len(server_generations) < 4096, "endorsement-server-capacity")
                         server_generations[server_gen] = cred[0], os.dup(pin)
                     seen_generations.add(broker_gen)
                     self.server_pid = cred[0]
@@ -450,7 +470,8 @@ def service(server_path, system_group, pam_paths=None):
             require(int(minimum) == 1 and int(maximum) == 1 and int(caps) == 0, "open-negotiation")
             if sender in pending:
                 pending[sender].cancel()
-            require(len(pending) < 8 and len(seen_generations) < 4096, "open-capacity")
+            require(len(pending) < 8 and len(seen_generations) < 4096
+                    and len(server_generations) < 4096, "open-capacity")
             sock = tx = None
             try:
                 sock = socket.socket(fileno=pin.take())
@@ -473,6 +494,7 @@ def service(server_path, system_group, pam_paths=None):
                 raise dbus.exceptions.DBusException("transport denied", name=BUS + ".Denied")
 
     def tick():
+        prune_server_pins()
         for tx in list(pending.values()):
             try:
                 tx.live()
@@ -501,7 +523,8 @@ def service(server_path, system_group, pam_paths=None):
         for tx in list(pending.values()):
             tx.cancel()
         for _, fd in server_generations.values():
-            os.close(fd)
+            if fd is not None:
+                os.close(fd)
         os.close(server_exe)
         for fd in (pam_exe, pam_audit):
             if fd is not None:

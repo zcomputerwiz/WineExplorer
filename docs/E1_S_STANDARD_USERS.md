@@ -146,8 +146,8 @@ The initial layout is specified below; implementation must validate the format a
 
 | State | Location and identity |
 | --- | --- |
-| Windows profile tree | `$WINEPREFIX/drive_c/users/.e1s/<administrator SID>/<incarnation>/`, exposed as its validated `C:\users\.e1s\...` path. Stable SID/incarnation components, not a typed username or logon ID, select storage. |
-| Registry backing | `$WINEPREFIX/.e1s/profiles/<administrator SID>/<incarnation>/user.reg`, and separate classes backing if required by the supported registry view. Use Wine's supported hive format; the filename does not imply a native Windows hive implementation. |
+| Windows profile tree | `$WINEPREFIX/drive_c/users/.e1s/<administrator SID>/<incarnation>-<initial readable name>/`, exposed as its validated `C:\users\.e1s\...` path. Stable SID/incarnation components, not a typed username or logon ID, select storage. An authoritative rename retains the initial label. [S12](E1_S12_PROFILE_STORAGE.md) refines the preliminary layout so one rename publishes the whole storage bundle. |
+| Registry backing | `user.reg` inside that same profile directory, and separate classes backing if required by the supported registry view. Keeping the backing inside the transaction directory avoids a half-published split profile/hive pair. Use Wine's supported hive format; the filename does not imply a native Windows hive implementation. |
 | Loaded registry identity | `HKU\<administrator SID>` (and `HKU\<administrator SID>_Classes` where needed), owned by Alice's Windows SID with explicit descriptors. HKCU resolves from the target token. Bob's HKCU, `.DEFAULT` and SYSTEM are never substitutes. |
 | Profile mapping | Server-managed per-prefix mapping to the above profile path, consulted by userenv/shell-folder APIs. Any `ProfileList\<SID>` projection must be scoped to this prefix; do not publish a Bob-home path into shared machine HKLM as Alice's universal profile. |
 

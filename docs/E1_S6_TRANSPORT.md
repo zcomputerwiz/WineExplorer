@@ -43,20 +43,25 @@ An old server ignoring sideband cannot send the required native endorsement;
 its ordinary successful binding reply is insufficient. Shipping code denies
 nonempty sidebands.
 
-Wexhost imports two non-inheritable Wine handles for this call: the private
-endorsement socket and a broker-created socket. Each import requests only
+Wexhost imports three non-inheritable Wine handles for this call: the private
+endorsement socket, a broker-created socket and the data socket. Each import requests only
 `FILE_READ_ATTRIBUTES`, with attributes zero. Wine's normal `alloc_handle`
 rejects a zero mapped access mask with STATUS_ACCESS_DENIED; attributes zero
 are valid and keep the handles non-inheritable. `create_file_for_fd` accepts
 an fstat-capable socket without a file-type filter, so no new server object,
-request or bypass is needed. Both fixture sockets are Unix SOCK_SEQPACKET;
-the existing endorsement type check still rejects SOCK_STREAM. The server reads kernel
-SO_PEERCRED on the latter, compares UID/native PID with this actual server
+request or bypass is needed. All fixture sockets are Unix SOCK_SEQPACKET;
+the endorsement type checks still reject SOCK_STREAM. The server reads kernel
+SO_PEERCRED on the broker-created socket, compares UID/native PID with this actual server
 process object, and closes local FD duplicates. The native verifier separately
 pins that socket creator with SO_PEERPIDFD and compares it with the actual
 D-Bus sender's unique connection and daemon UID/PID. A PID lookup alone,
 inherited `process.peer_pid`, SYSTEM SID or prefix secret is insufficient.
 Wexhost closes imported handles and all ordinary S3 result handles on exit.
+Both wexhost and wineserver require the control and data peers to be the same
+live native root service: matching kernel SO_PEERCRED PID/UID plus two live
+SO_PEERPIDFD pins. Wexhost also binds both to the unique bus owner's identity.
+Wineserver checks both before raising its effective group; unsupported peer
+pinning fails closed. No pidfd inode comparison or PID-only fallback is used.
 
 The server sends directly to the verifier, explicitly supplying actual PID,
 UID and **effective** wexsys GID as kernel-checked SCM_CREDENTIALS (automatic
@@ -84,8 +89,8 @@ owner and kernel process identity. Values are correlation, never bearer grants.
 The native verifier is the root-started `tools/e1s6/e1s6-lab.py`, owning system
 bus name/interface `org.wineexplorer.E1S6Lab`, object
 `/org/wineexplorer/E1S6Lab`. Wexhost resolves the unique owner, queries UID/PID,
-calls that **unique** destination, checks reply sender and ties the returned
-socket's SO_PEERCRED/SO_PEERPIDFD to it. It checks name ownership again after
+calls that **unique** destination, checks reply sender and ties both returned
+sockets' SO_PEERCRED/SO_PEERPIDFD to it. It checks name ownership again after
 pinning and at operations. The verifier pins the broker's bus connection and
 native process. NameOwnerChanged, process death, ownership loss and deadline
 cancel all subordinate state. Only protected root startup registers the native
@@ -123,7 +128,7 @@ operation.
 | Operation | Encoding |
 | --- | --- |
 | Public D-Bus `Open(huut) -> ayhh` | Broker pin FD, minimum/maximum version, capabilities; returns 96-byte challenge plus endorsement/data FDs. The only application method; standard D-Bus introspection contains interface metadata. No application properties or signals. |
-| Server sideband (96) | Input offsets: imported socket handles 0/4 (u32); expected broker generation 8 (u64, zero initially); reserved input 16..23; root/verifier generations 24/32 (u64); nonce 40 (32 bytes); sequence 72 (u64); operation 80 (u32); child PID 84 (u32); zero reserved 88 (u64). |
+| Server sideband (96) | Input offsets: imported control/broker-pin socket handles 0/4 (u32); expected broker generation 8 (u64, zero initially); imported data socket handle 16 (u32), reserved input 20..23; root/verifier generations 24/32 (u64); nonce 40 (32 bytes); sequence 72 (u64); operation 80 (u32); child PID 84 (u32); zero reserved 88 (u64). |
 | Direct endorsement (96) | Server overwrites 0/8 with server/broker generations (u64), 16/20 with pinned broker native PID/Wine session (u32). Verifier compares challenge, generation, sequence, operation, child and reserved fields. This is transport framing, not an additional S1 record kind. |
 | Private open | `E1S6OPEN` (8), after sequence-0 endorsement. Reply: broker and verifier kind-7 records, each exactly 112 bytes. |
 | Child bind | Broker registration (112), kind-2 empty answer template (156), child PID (u32), exactly one SCM_RIGHTS socket. After sequence-1 endorsement and actual child hello, reply: role-3 registration (112). |
@@ -176,9 +181,9 @@ test users. The wrapper does not weaken these ownership rules.
    for shipping controls. The service refuses wineserver under user-writable
    ancestors: use root-controlled `/root/...` or protected `/opt/...` real paths.
 2. Build the changed server, both PE wexhost DLLs, wexhost Unix library and normal
-   broker. In the isolated lab build, force recompilation of `server/sysrun.o`
+   broker. In the isolated lab build (also `server/named_pipe.o`: its pipe-impostor audit line is compiled only with the define), force recompilation of `server/sysrun.o`
    and `dlls/wexhost/e1s6.o` with
-   `EXTRA_CFLAGS=-DWEX_E1S6_TRANSPORT_TEST`, then relink `server/wineserver` and
+   `CFLAGS='-g -O2 -DWEX_E1S6_TRANSPORT_TEST'` (Wine's makefiles use CFLAGS; EXTRA_CFLAGS is ignored), then relink `server/wineserver` and
    `dlls/wexhost/wexhost.so`. Inspect compile commands: changing flags alone
    does not invalidate old objects. The harness compiles its own test broker/
    probes with WEXELEVATE_TEST_APPROVAL; do not add that define to production.
@@ -349,3 +354,70 @@ call arguments, for that distinction. Errors still cancel the transaction.
 The complete cause/candidate analysis, subsequent-case re-review and Qwen
 handoff are in the round-3 section of [E1_S6_ACCEPT_REVIEW.md](E1_S6_ACCEPT_REVIEW.md).
 No compilation, service execution, runtime acceptance or ABI result is claimed.
+
+## Independent post-import review fixes (2026-11-07; static only)
+
+The full `s6-review2-antigravity.md` was checked against the committed sources
+before edits. Findings are numbered as in that report:
+
+1. **Real: control peer unchecked.** Previously `open_channel` pinned only
+   data, while `sysrun_e1s6_endorse` checked only the control socket type. The
+   S1/S6 endpoint is the native service that creates both socket pairs, so both
+   must identify the same live root process. Both sides now check credentials
+   and acquire live pidfds for both peers. Equal kernel PIDs with both acquired
+   pins still live exclude different PID lifetimes. Wexhost checks the bus
+   owner too. Server comparison needs the third metadata import at sideband
+   input offset 16; the size remains 96 and the server overwrites 16..23 with
+   broker PID/session before delivery. Rebuild server and wexhost together.
+   Every new handle, duplicate and temporary pidfd is closed on exit. The
+   server cannot independently resolve the bus owner; that remains wexhost's
+   check and protected native service startup remains the provisioning authority.
+2. **Real: registration published before delivery.** Server/broker generation,
+   grabbed primary reference and its TokenId/ModifiedId are staged locally.
+   Only a complete successful `sendmsg` publishes them, after group drop.
+   Raise/send failure preserves the prior registration and releases the staged
+   reference. Renewal retains the existing primary/version comparisons.
+   Successful kernel enqueue is the boundary here, not a verifier acknowledgement
+   or atomic success of the later ordinary binding-reply allocations.
+3. **Not real in this tree: partial handle leak.** The existing
+   `get_pipe_caller_binding` `done:` block (`named_pipe.c:1861-1868`) closes
+   writer token/process and opener token/process on error. All locals start at
+   zero and reply handles are assigned only after all four allocations succeed.
+   No named_pipe.c edit was needed.
+4. **Real: unbounded retained server pidfds.** The native lab now caps server
+   history at 4096, checks capacity at Open and at endorsement insertion, and
+   closes dead pins during ticks and before insertion. Bounded tombstones retain
+   used generations so pruning cannot authorize generation reuse. Final service
+   cleanup skips already-closed pins. Broker history capacity is also checked
+   at insertion so the eight pending Opens cannot overrun its existing bound.
+5. **Real unpolled read; claimed happy-path race unproven.** The nonblocking
+   control receive now polls for at most one second, limited by the remaining
+   five-second absolute deadline, then rechecks liveness/deadline. Timeout,
+   HUP/ERR, unexpected readiness or receive failure cancels. Normal wexhost sends
+   each data packet only after its synchronous server endorsement call succeeds,
+   and that call sends the control packet first. Scheduling jitter alone does
+   not establish the report's proposed reordering or acceptance flakiness. The
+   bounded poll defensively handles data arriving without an already-queued
+   endorsement; no timeout retry extends the deadline.
+
+All C changes stay under WEX_E1S6_TRANSPORT_TEST/Linux and the native changes
+stay in the uninstalled lab fixture. Existing GPL-compatible headers remain.
+No production define, capability, installer, broker/probe, acceptance assertion,
+Wine protocol layout or generated artifact was changed. The only stock Wine
+file edited in this follow-up is `server/sysrun.c`; pre-existing unrelated
+working-tree changes are preserved. No commit, build, WSL/VM, Python/service or
+fixture execution was performed. Static source/diff review and whitespace
+checks cannot prove kernel behavior, descriptor counts or either ABI's results.
+
+Qwen must force rebuild/relink of lab sysrun and wexhost, install the updated
+Python fixture, and rerun `scripts/test_e1s6_transport.sh` as root in clean
+wexbuild: **302 PASS expected, not measured here**. Preserve the complete
+accept/stale/replay/late/owner/disconnect/cancel/child-impostor/pipe-impostor/
+same-UID-bus-impostor matrix and shipping exclusion checks. Static path review
+finds no intended change to their target sites: real service pairs share the
+same root creator; the forged bus endorsement still reaches endorsement-gid;
+the ordinary Wine pipe impostor still fails the earlier authority gate.
+Also unverified: swapped control peer (including a different root PID), missing
+peer-pidfd support, raise/send failure with prior registration retained and no
+reference leak, partial handle allocation pressure, generation capacity/dead-pin
+pruning/tombstone rejection, missing/delayed endorsement deadlines and FD stress.

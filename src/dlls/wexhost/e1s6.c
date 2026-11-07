@@ -331,7 +331,7 @@ static int receive_packet( unsigned char *buffer, unsigned int size )
 
 static int endorse( unsigned int operation, pid_t child )
 {
-    HANDLE fd_handle = 0, pin_handle = 0;
+    HANDLE fd_handle = 0, pin_handle = 0, data_handle = 0;
     unsigned char data[E1S6_ENDORSE_SIZE];
     NTSTATUS status;
     int ok = 0;
@@ -342,9 +342,13 @@ static int endorse( unsigned int operation, pid_t child )
     { denied_error( "endorse-import-control", "ntstatus", status, 0 ); goto done; }
     if ((status = wine_server_fd_to_handle( pin_fd, FILE_READ_ATTRIBUTES, 0, &pin_handle )))
     { denied_error( "endorse-import-pin", "ntstatus", status, 0 ); goto done; }
+    if ((status = wine_server_fd_to_handle( data_fd, FILE_READ_ATTRIBUTES, 0, &data_handle )))
+    { denied_error( "endorse-import-data", "ntstatus", status, 0 ); goto done; }
     memcpy( data, challenge, sizeof(data) );
     e1s6_put32( data, wine_server_obj_handle( fd_handle ) );
     e1s6_put32( data + 4, wine_server_obj_handle( pin_handle ) );
+    /* Formerly reserved input; overwritten by broker PID/session in output. */
+    e1s6_put32( data + 16, wine_server_obj_handle( data_handle ) );
     e1s6_put64( data + 72, sequence );
     e1s6_put32( data + 80, operation ); e1s6_put32( data + 84, child );
     SERVER_START_REQ( get_pipe_caller_binding )
@@ -364,6 +368,7 @@ static int endorse( unsigned int operation, pid_t child )
     if (status) denied_error( "endorse-server", "ntstatus", status, 0 );
     else { sequence++; ok = 1; }
 done:
+    if (data_handle) NtClose( data_handle );
     if (fd_handle) NtClose( fd_handle );
     if (pin_handle) NtClose( pin_handle );
     return ok;
@@ -395,6 +400,7 @@ static int open_channel( HANDLE pipe, unsigned char *output )
     socklen_t len;
     char again[256];
     int pair[2] = { -1, -1 }, count, parsed, control = -1, remote = -1, ok = 0, one = 1;
+    int control_pin = -1;
     DBusError error;
 
     REQUIRE_OK( load_bus(), "open-load-bus" );
@@ -433,6 +439,17 @@ static int open_channel( HANDLE pipe, unsigned char *output )
     len = sizeof(service_pin);
     REQUIRE_ERRNO( !getsockopt( data_fd, SOL_SOCKET, SO_PEERPIDFD_LAB, &service_pin, &len ), "open-peerpidfd" );
     REQUIRE( len == sizeof(service_pin), "open-peerpidfd-size" );
+    len = sizeof(cred);
+    REQUIRE_ERRNO( !getsockopt( endorse_fd, SOL_SOCKET, SO_PEERCRED, &cred, &len ), "open-control-peercred" );
+    REQUIRE( len == sizeof(cred) && cred.pid == pid && cred.uid == uid && !uid,
+             "open-control-peer-identity" );
+    len = sizeof(control_pin);
+    REQUIRE_ERRNO( !getsockopt( endorse_fd, SOL_SOCKET, SO_PEERPIDFD_LAB, &control_pin, &len ), "open-control-peerpidfd" );
+    REQUIRE( len == sizeof(control_pin) && control_pin >= 0 && service_pin >= 0, "open-control-peerpidfd-size" );
+    /* Equal kernel PIDs with both acquired pins still live identify the same
+     * process, including on kernels where pidfds share an anon_inode inode. */
+    REQUIRE_OK( ready( control_pin, 0, 1, "open-control-pin-live" ), "open-control-pin-live" );
+    REQUIRE_OK( ready( service_pin, 0, 1, "open-data-pin-live" ), "open-data-pin-live" );
     REQUIRE_OK( bus_identity( again, &again_pid, &again_uid ), "open-owner-identity" );
     REQUIRE( !strcmp( again, owner ) &&
              pid == again_pid && uid == again_uid, "open-owner-recheck" );
@@ -457,6 +474,7 @@ done:
     if (pair[1] >= 0) close( pair[1] );
     if (control >= 0) close( control );
     if (remote >= 0) close( remote );
+    if (control_pin >= 0) close( control_pin );
     return ok;
 }
 

@@ -1839,10 +1839,18 @@ static void serve(void)
 static void WINAPI service_main( DWORD argc, WCHAR **argv )
 {
     InitializeCriticalSection( &table_cs );
-    status_handle = RegisterServiceCtrlHandlerExW( WEXELEVATE_SERVICE, handler, NULL );
-    if (!status_handle) return;
-    report( SERVICE_START_PENDING, 0 );
+    /* The handler may run as soon as it is registered. Publish all of its
+     * synchronization objects first so an early stop remains latched. */
     stop_event = CreateEventW( NULL, TRUE, FALSE, NULL );
+    if (!stop_event) return;
+    status_handle = RegisterServiceCtrlHandlerExW( WEXELEVATE_SERVICE, handler, NULL );
+    if (!status_handle)
+    {
+        CloseHandle( stop_event );
+        stop_event = NULL;
+        return;
+    }
+    report( SERVICE_START_PENDING, 0 );
     InitializeCriticalSection( &secure_cs );
     system_role = token_is_system_with_tcb();
     if (!load_wexhost()) pLeaseTake = NULL;   /* no lease possible: every request then fails closed */

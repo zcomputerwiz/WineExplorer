@@ -2,6 +2,12 @@
 <!-- Copyright 2026 WineExplorer contributors -->
 # E1-S10 account-specific server token
 
+Current-tree protocol note: [S13](E1_S13_HKU_LOAD.md) advances the protocol to
+978 and appends request 325. Request 324 and S10's byte records are unchanged.
+S13 adds internal token provenance and a separate one-shot load attempt; the
+977 layouts/commands below document S10's original package revision. Use the
+current harness pin and regenerate the current protocol for new validation.
+
 Implemented for disabled lab evaluation, 2026-11-06. **Static review only: no
 build, generator execution, Wine, WSL, VM or probe execution.** Read with
 [S1](E1_S1_CONTRACTS.md), [S4](E1_S4_ACCOUNTS_MAP.md),
@@ -195,6 +201,12 @@ ISSUE calls the existing lookup and compares the key/generation. No commit.
 
 ## Qwen build and lab procedure
 
+The runnable entry point is now `scripts/test_e1s10_token.sh`; see
+[E1-S11 prerequisites and coverage](E1_S11_TOKEN_TESTS.md) for its two-build
+invocation, owned-fixture cleanup, implemented extra modes and remaining gaps.
+The extended harness/probe are statically reviewed only, not new acceptance
+evidence. The procedure and wire requirements below still apply.
+
 Run S6/S7/S10 system-role tests **as root in wexbuild or an exclusively owned
 throwaway VM**, with no installed system role before the sysrun/S6 provisioning
 harness starts. NEVER run that harness in shared lab guest VM B or remove its
@@ -214,7 +226,7 @@ installers/probes on the Windows host. No commands below were executed here.
    must deny; missing export on this Wine runtime is a failed build/deployment
    check, even though the test skips it on unrelated Wine/native Windows.
 2. In the isolated lab tree, force recompilation of server/token.o with
-   `EXTRA_CFLAGS='-DWEX_E1S10_TOKEN_TEST -DWEX_E1S6_TRANSPORT_TEST'`, and of
+   `CFLAGS='-g -O2 -DWEX_E1S10_TOKEN_TEST -DWEX_E1S6_TRANSPORT_TEST'` (not EXTRA_CFLAGS: Wine's makefiles ignore it), and of
    server/sysrun.o and the S6 wexhost Unix component with the existing S6 flag.
    Relink, inspecting the actual compiler command lines. A flag change alone
    does not invalidate existing objects. Keep the S10 flag out of all production
@@ -279,14 +291,14 @@ installers/probes on the Windows host. No commands below were executed here.
 | denied (separate invocation) | Limited/ordinary client cannot negotiate even with an asserted capability mask. |
 | normal build (separate runtime) | Every new operation denies, including the correctly named SYSTEM lab probe. No S10 fixture code in normal server. |
 
-Also test removal from the configured administrator group and a missing group
-at ISSUE; malformed/trailing/oversized raw requests; absent install; copied
-contexts across threads/processes; broker primary replacement/security-version
-mutation; S6 re-registration; caller death/replacement; injected allocation
-failures and exhausted LUID allocation. These require the S11 trusted driver or
-controlled server fault injection, not changing production checks. Verify actual
-child/descendant SID, logon SID, auth_id, session and host UID inheritance with a
-benign lab driver before profile or broker launch integration. Preserve old
+The S11 harness implements removal from the configured administrator group and
+a missing group at ISSUE; malformed/trailing/oversized raw requests; absent
+install; copied contexts across threads/processes; caller death; and a benign
+child/descendant SID, logon SID, auth_id and session driver. These remain unrun.
+Broker primary replacement/security-version mutation, S6 re-registration,
+caller replacement, injected allocation failures, exhausted LUID allocation and
+child host UID measurement remain explicitly open in the S11 note. They need
+controlled drivers/injection without changing production checks. Preserve old
 filtered-admin success/cancel, standard linked-token/grant denial, S3 provenance
 and S6 impostor controls. Check installed artifact exclusion separately.
 

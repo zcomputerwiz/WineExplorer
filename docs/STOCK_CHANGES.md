@@ -1,5 +1,77 @@
 # Changes to stock Wine / third-party code
 
+## E1-S13 disabled managed HKU load (2026-11-07; static only)
+
+Protocol **977 -> 978**, appended request **325** `load_e1s_profile`.
+Normal builds deny every operation. No installer, production caller, service
+or environment switch enables it. See [survey, ABI and test handoff](E1_S13_HKU_LOAD.md).
+
+* `wine/server/protocol.def`, `request_handlers.h`, `request_trace.h`,
+  `include/wine/server_protocol.h`: fixed 32/16-byte request/reply, redacted
+  48-byte storage reference, tables, unions and layout assertions. Existing
+  88-byte protocol/generator limits stay unchanged; hand edits need regeneration.
+* `wine/include/wine/wex_profile.h`, `include/Makefile.in`,
+  `include/winternl.h`, `dlls/ntdll/reg.c`, `ntdll.spec`: pointer-free private
+  `NtLoadWexProfile` PE wrapper, cleared outputs, managed current-user open
+  without absent-key creation. No syscall/WoW64 thunk-table slot added.
+* `wine/server/token.c`, `e1s_token.h`: server-only S10 account provenance,
+  copied through token duplication, retained original issuance object, shared
+  unchanged S10/S6 broker gate, one-shot profile attempt and repeated current
+  S4/caller/deadline/endorsement validation. No ordinary token identity changes.
+* New `wine/server/wex_profile_storage.c`, `.h`, `server/Makefile.in`: move
+  S12's existing native implementation into shared server sources, preserving
+  the tool via thin `tools/wex-profile/profile.c/.h` includes. Add a no-create,
+  no-seed, no-cleanup reopen/recheck API with distinct absent-storage result
+  and provisional held-inode exclusion. S12 provisioning remains separately
+  gated; no server request invokes it.
+* `wine/server/registry.c`: validated exact-SID HKU and `_Classes` registration,
+  explicit Alice/SYSTEM/Administrators owner/DACL/High descriptors, inherited
+  managed defaults, strict bounded relative text-hive load and failed-load
+  rollback. Dynamic private HKCR union reads user-over-machine values/names;
+  writes select Alice's classes. No Bob-default or startup/save-branch edits.
+  Loaded roots reject deletion/unload; flush reports unsupported until S14.
+* New `wine/server/e1s_profile.c`, `.h`, plus `file.c` and `fd.c`: descriptor
+  anchored Windows SD application/fsync/query-back on S12 storage and existing
+  children, private inherited descriptors on later Wine opens/creates under
+  registered parents, held-inode authority rather than standalone xattr trust,
+  and open checks before truncation/disposition. Preserve Bob's Unix ownership
+  and private modes. Native same-UID access remains the accepted limit.
+  Internal `e1s_profile_unload_s14()` fails closed and keeps state until exit.
+* `wine/dlls/kernelbase/registry.c`: separate managed HKCU/HKCR cache keyed by
+  SID, TokenId and ModifiedId; effective-token view selection, explicit-token
+  classes opens and shared WoW64 classes-cache handling. Bob's legacy cache
+  and ordinary machine HKCR behavior are retained.
+* New `wine/dlls/advapi32/tests/wex_hku.c`, tests `Makefile.in`: normal-server
+  denial/output-clearing tests for every operation and malformed API lengths.
+* `wine/dlls/userenv/userenv_main.c`: managed tokens open only pre-registered
+  hives through the broker gate; ordinary default-build load stubs stay intact.
+  Managed unload returns S14's unsupported result, never a false success.
+
+Project lab additions: `scripts/test_hku_load.sh`, `lib/e1s13-fixture.sh`,
+`e1s13_hku_probe.c`, `e1s13_hku_checks.h`; conditional S13 extensions in the
+existing S10 probe/harness and updated protocol pin. Existing S10/S6/sysrun
+work was preserved. No build/runtime evidence or commit; S14/S15/S18 still gate
+managed launching and durable profiles.
+
+## E1-S12 disabled prefix profile storage (2026-11-07; static only)
+
+Zero additional stock Wine changes. New `tools/wex-profile/profile.h`,
+`profile.c` and `wex-profile.c` define a default-denied native storage API and
+an explicitly compiled `WEX_E1S12_PROFILE_TEST` lab driver. They consume S4's
+existing account snapshot type without changing accounts.c, tokens, registry,
+userenv, shell32, protocol, server startup or Bob's ordinary profile behavior.
+No production installer, service, capability or runtime switch enables it.
+
+SID/incarnation storage, descriptor/mount/mapping checks, Bob-only Unix modes,
+bounded offline default seeding, private temp recovery, no-replace atomic
+publication and Alice/SYSTEM Windows ACL intent are documented in
+[E1_S12_PROFILE_STORAGE.md](E1_S12_PROFILE_STORAGE.md). S13 still must apply and
+verify Windows ACLs and load HKU; S14 owns leases/persistence. The S1 lease
+fields are reserved and zero. `scripts/test_profile_storage.sh` supplies a
+root-only temporary-root lab with crashes, contention and substitution cases.
+Only static review, shell syntax parsing and whitespace checks here; Qwen must
+compile and run the fixture in wexbuild. No Wine source was changed or commit made.
+
 ## E1-S6 acceptance diagnostics (2026-11-07; static only)
 
 Round-3 follow-up: the control import failure is a project-side zero access
@@ -56,6 +128,13 @@ unit, retry timer and oneshot service maintain it later. Non-systemd/custom-path
 hosts need equivalent explicit root lifecycle integration, as S4 documents.
 
 ## E1-S10 disabled account-specific server token (2026-11-06)
+
+S11 prerequisite review repair (2026-11-07, static only):
+`server/token.c:e1s_install_consumed` now releases and clears its caller/primary
+references immediately if the post-grab caller validation fails. The context
+stays consumed and validator-cookie ownership still transfers only on success.
+Existing lab guards are unchanged. Runnable matrix and remaining evidence:
+[E1_S11_TOKEN_TESTS.md](E1_S11_TOKEN_TESTS.md).
 
 `wine/server/token.c`, new `server/e1s_token.h`, `server/Makefile.in`: constrained
 Primary/Full/High account token, explicit S4 user/owner SID and primary GID,
@@ -131,6 +210,37 @@ or production enablement. Static review only; Qwen build/runtime handoff and
 limits: [E1_S7_PAM_WORKER.md](E1_S7_PAM_WORKER.md).
 
 ## E1-S6 disabled endpoint/metadata transport, statically reviewed (2026-11-06)
+
+Independent post-import review follow-up (2026-11-07; uncommitted/static only):
+
+- Finding 1, real: `server/sysrun.c` independently requires control/data
+  SOCK_SEQPACKET peers to have root UID, the same positive kernel PID and two
+  live SO_PEERPIDFD pins before group raise; unsupported options deny. Wexhost
+  checks both against its unique root bus owner and imports a third minimal,
+  non-inheritable metadata handle at previously reserved sideband input offset
+  16. The 96-byte sideband and native endorsement output size are unchanged;
+  broker PID/session overwrite 16..23 on output. Rebuild both components together.
+- Finding 2, real: `server/sysrun.c` stages server/broker generations and the
+  grabbed primary/TokenId/ModifiedId locally; publish only after full send
+  success and group drop. Failure preserves prior process state and releases
+  the staged reference. This follow-up changes no other stock Wine file.
+- Finding 3, not real: existing `named_pipe.c:1861-1868` closes all partially
+  allocated result handles on error. No change to that file.
+- Finding 4, real, project lab only: cap native server history at 4096; close
+  dead pidfds on tick/insertion, retaining bounded replay tombstones. Check
+  server and broker history capacity at insertion as well as Open; final cleanup
+  skips closed pins.
+- Finding 5, unpolled read confirmed, flakiness unproven, project lab only:
+  poll control for at most one second within the existing absolute deadline;
+  timeout/error denies. Normal broker data follows synchronous endorsement
+  send success, so the report's scheduling-jitter explanation is not established.
+
+Existing test defines and GPL-compatible notices remain. No production
+enablement, protocol/generated layout or acceptance assertion changes. Static
+review/whitespace checks only; Qwen must rerun the complete transport wrapper
+as root in clean wexbuild (302 PASS expected), including both ABIs and normal
+shipping controls. Evidence, cleanup reasoning and extra failure/stress probes:
+[E1_S6_TRANSPORT.md](E1_S6_TRANSPORT.md#independent-post-import-review-fixes-2026-11-07-static-only).
 
 `wine/server/sysrun.c`, `sysrun.h`: `sysrun_e1s6_endorse` is enabled only with
 WEX_E1S6_TRANSPORT_TEST. First mapped executable device/inode must match the
