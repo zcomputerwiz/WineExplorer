@@ -138,7 +138,8 @@ int wex_verify_answer_record( const uint8_t *buf, size_t len,
 {
     const struct wex_s1_answer_record *rec;
 
-    if (!buf || len < WEX_S1_ANSWER_LENGTH) return 0;
+    /* R15: an S1 answer is exactly WEX_S1_ANSWER_LENGTH bytes; reject shorter and longer. */
+    if (!buf || len != WEX_S1_ANSWER_LENGTH) return 0;
     rec = (const struct wex_s1_answer_record *)buf;
 
     if (rec->kind != WEX_S1_ANSWER_KIND ||
@@ -219,7 +220,8 @@ int wex_conversation_apply_answer( struct wex_conversation *conv,
 {
     const struct wex_s1_answer_record *rec;
 
-    if (!conv || !buf || len < WEX_S1_ANSWER_LENGTH)
+    /* R15: an S1 answer is exactly WEX_S1_ANSWER_LENGTH bytes; reject shorter and longer. */
+    if (!conv || !buf || len != WEX_S1_ANSWER_LENGTH)
         return WEX_STATUS_INVALID_PARAMETER;
     if (conv->state != WEX_CONV_STATE_PROMPTING &&
         conv->state != WEX_CONV_STATE_AUTHENTICATING)

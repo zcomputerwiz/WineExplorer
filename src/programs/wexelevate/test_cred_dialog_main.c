@@ -226,6 +226,56 @@ static int test_conversation_cancel_and_timeout( void )
     return 1;
 }
 
+static int test_answer_record_exact_length( void )
+{
+    struct wex_conversation conv;
+    uint8_t nonce[32], b_digest[32], r_digest[32], channel[16];
+    uint8_t ans_buf[WEX_S1_ANSWER_LENGTH + 8];
+    size_t ans_len = 0;
+
+    memset( nonce, 0x11, 32 );
+    memset( b_digest, 0x22, 32 );
+    memset( r_digest, 0x33, 32 );
+    memset( channel, 0x44, 16 );
+
+    /* Build a valid confirm answer (exactly WEX_S1_ANSWER_LENGTH bytes) */
+    ASSERT( wex_build_answer_record( 0x1000, 1, 0, 0, WEX_ANSWER_KIND_CONFIRM,
+                                     nonce, b_digest, r_digest, channel,
+                                     ans_buf, sizeof(ans_buf), &ans_len ) == WEX_STATUS_OK );
+    ASSERT( ans_len == WEX_S1_ANSWER_LENGTH );
+
+    /* wex_verify_answer_record: exactly WEX_S1_ANSWER_LENGTH is accepted */
+    ASSERT( wex_verify_answer_record( ans_buf, WEX_S1_ANSWER_LENGTH,
+                                      0x1000, 1, 0, 0, WEX_ANSWER_KIND_CONFIRM,
+                                      nonce, b_digest, r_digest, channel ) );
+
+    /* wex_verify_answer_record: one byte long (157) is rejected */
+    ASSERT( !wex_verify_answer_record( ans_buf, WEX_S1_ANSWER_LENGTH + 1,
+                                       0x1000, 1, 0, 0, WEX_ANSWER_KIND_CONFIRM,
+                                       nonce, b_digest, r_digest, channel ) );
+
+    /* wex_verify_answer_record: one byte short (155) is rejected */
+    ASSERT( !wex_verify_answer_record( ans_buf, WEX_S1_ANSWER_LENGTH - 1,
+                                       0x1000, 1, 0, 0, WEX_ANSWER_KIND_CONFIRM,
+                                       nonce, b_digest, r_digest, channel ) );
+
+    /* wex_conversation_apply_answer: one byte long (157) is rejected */
+    wex_conversation_init( &conv, 0x1000, 1, nonce, b_digest, r_digest, channel );
+    ASSERT( wex_conversation_set_account( &conv, "alice" ) == WEX_STATUS_OK );
+    ASSERT( wex_conversation_apply_answer( &conv, ans_buf, WEX_S1_ANSWER_LENGTH + 1, 100, 200 )
+            == WEX_STATUS_INVALID_PARAMETER );
+    ASSERT( !wex_conversation_is_approved( &conv ) );
+
+    /* wex_conversation_apply_answer: one byte short (155) is rejected */
+    wex_conversation_init( &conv, 0x1001, 1, nonce, b_digest, r_digest, channel );
+    ASSERT( wex_conversation_set_account( &conv, "alice" ) == WEX_STATUS_OK );
+    ASSERT( wex_conversation_apply_answer( &conv, ans_buf, WEX_S1_ANSWER_LENGTH - 1, 100, 200 )
+            == WEX_STATUS_INVALID_PARAMETER );
+    ASSERT( !wex_conversation_is_approved( &conv ) );
+
+    return 1;
+}
+
 static int test_prompt_queue_fifo( void )
 {
     struct wex_prompt_queue q;
@@ -377,6 +427,8 @@ int main( int argc, char **argv )
         if (test_conversation_binding_mismatch_denies()) printf( "PASS test_conversation_binding_mismatch_denies\n" );
         else return 1;
         if (test_conversation_cancel_and_timeout()) printf( "PASS test_conversation_cancel_and_timeout\n" );
+        else return 1;
+        if (test_answer_record_exact_length()) printf( "PASS test_answer_record_exact_length\n" );
         else return 1;
     }
 

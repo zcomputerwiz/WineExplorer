@@ -15,6 +15,9 @@
 #include <string.h>
 #include <assert.h>
 
+/* R15 policy-value decision, exported from e1s18_broker.c for native testing. */
+extern BOOL e1s18_policy_value_enabled( DWORD val );
+
 #define TEST_PASS 0
 #define TEST_FAIL 1
 
@@ -627,13 +630,16 @@ static void reset_export_state( void )
     g_export_state.issue_rec_size = WEX_TOKEN_RESPONSE_SIZE;
     g_export_state.issue_status_field = 0;
 
-    /* Alice SID: S-1-5-21-999-1001 */
-    g_export_state.issue_sid[0] = 1;
-    g_export_state.issue_sid[1] = 2;
-    g_export_state.issue_sid[7] = 5;
-    wex_token_put32( g_export_state.issue_sid + 8, 999 );
-    wex_token_put32( g_export_state.issue_sid + 12, 1001 );
-    g_export_state.issue_sid_len = 16;
+    /* Alice mapped SID: S-1-5-21-999-1001 (fixed 28-byte mapped-SID size, 5 sub-authorities) */
+    g_export_state.issue_sid[0] = 1;   /* revision */
+    g_export_state.issue_sid[1] = 5;   /* sub_authority_count */
+    g_export_state.issue_sid[7] = 5;   /* identifier authority = NT (5) */
+    wex_token_put32( g_export_state.issue_sid + 8, 21 );    /* subauth[0] */
+    wex_token_put32( g_export_state.issue_sid + 12, 999 );  /* subauth[1] */
+    wex_token_put32( g_export_state.issue_sid + 16, 1001 ); /* subauth[2] */
+    wex_token_put32( g_export_state.issue_sid + 20, 0 );    /* subauth[3] */
+    wex_token_put32( g_export_state.issue_sid + 24, 0 );    /* subauth[4] */
+    g_export_state.issue_sid_len = 28;
 
     g_export_state.issue_session = 1;
     g_export_state.issue_auth_id = 0x88884444ULL;
@@ -835,7 +841,7 @@ static int test_export_boundary_success( void )
     CHECK_EQ( err, ERROR_SUCCESS, "default issue_token must succeed with fake exports" );
     CHECK_EQ( (uintptr_t)token, 0x2222, "Token handle must match fake export returned token" );
     CHECK_EQ( (uintptr_t)req.s10_context, 0x1111, "req->s10_context must be retained for Stage 4" );
-    CHECK_EQ( req.alice_sid_len, 16, "req->alice_sid_len must match S1 response" );
+    CHECK_EQ( req.alice_sid_len, 28, "req->alice_sid_len must match the fixed 28-byte mapped SID" );
     CHECK_EQ( g_export_state.negotiate_calls, 1, "Negotiate must be called once" );
     CHECK_EQ( g_export_state.issue_calls, 1, "Issue must be called once" );
 
@@ -988,24 +994,37 @@ static int test_export_boundary_wrong_sid( void )
     e1s18_set_export_table( &s_fake_export_table );
     ops = e1s18_get_ops();
 
-    /* Bob's SID reflected instead of Alice */
+    /* R15: the mapped SID must be exactly 28 bytes (the fixed size the ntdll
+     * wrapper enforces). One byte short (27) and one byte long (29) deny. */
     reset_export_state();
-    memcpy( g_export_state.issue_sid, req.caller_sid, req.caller_sid_len );
-    g_export_state.issue_sid_len = req.caller_sid_len;
+    g_export_state.issue_sid_len = 27;
+    err = ops->issue_token( &req, buf16, buf16, buf32, buf32, buf32, &token );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "27-byte SID must fail closed with ERROR_INVALID_PARAMETER" );
+    CHECK_EQ( (uintptr_t)token, 0, "Token handle must be NULL on 27-byte SID" );
+
+    reset_export_state();
+    g_export_state.issue_sid_len = 29;
+    err = ops->issue_token( &req, buf16, buf16, buf32, buf32, buf32, &token );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "29-byte SID must fail closed with ERROR_INVALID_PARAMETER" );
+    CHECK_EQ( (uintptr_t)token, 0, "Token handle must be NULL on 29-byte SID" );
+
+    /* Exactly 28 bytes with a valid SID is accepted. */
+    reset_export_state();
+    g_export_state.issue_sid_len = 28;
+    err = ops->issue_token( &req, buf16, buf16, buf32, buf32, buf32, &token );
+    CHECK_EQ( err, ERROR_SUCCESS, "28-byte valid SID must be accepted" );
+    CHECK_EQ( (uintptr_t)token, 0x2222, "Token handle must be the issued token" );
+    CHECK_EQ( req.alice_sid_len, 28, "req->alice_sid_len must be 28" );
+    if (token) ops->close_handle( token );
+    ops->close_handle( req.s10_context );
+    req.s10_context = NULL;
+
+    /* Bob's 28-byte SID reflected instead of Alice (identical SIDs) */
+    reset_export_state();
+    req.caller_sid_len = 28;
+    memcpy( req.caller_sid, g_export_state.issue_sid, 28 );
     err = ops->issue_token( &req, buf16, buf16, buf32, buf32, buf32, &token );
     CHECK_EQ( err, ERROR_INVALID_PARAMETER, "Caller SID reflection must fail closed with ERROR_INVALID_PARAMETER" );
-
-    /* Invalid SID length: too short */
-    reset_export_state();
-    g_export_state.issue_sid_len = 4;
-    err = ops->issue_token( &req, buf16, buf16, buf32, buf32, buf32, &token );
-    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "Short SID length must fail closed with ERROR_INVALID_PARAMETER" );
-
-    /* Invalid SID length: too long */
-    reset_export_state();
-    g_export_state.issue_sid_len = 80;
-    err = ops->issue_token( &req, buf16, buf16, buf32, buf32, buf32, &token );
-    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "Overlong SID length must fail closed with ERROR_INVALID_PARAMETER" );
 
     e1s18_reset_export_table();
     return TEST_PASS;
@@ -1439,10 +1458,12 @@ struct fake_boundary_state
     BOOL dialog_corrupt_request;
     BOOL dialog_corrupt_token;
     BOOL dialog_empty_answer;
+    size_t dialog_answer_len_override; /* 0 = normal WEX_S1_ANSWER_LENGTH */
     char dialog_account_to_return[64];
 
     /* Transport controls */
     DWORD transport_return_code;
+    size_t transport_out_len_override; /* 0 = normal sizeof(struct wex_s1_evidence_record) */
     uint16_t transport_evidence_kind;
     uint16_t transport_evidence_ver;
     uint32_t transport_evidence_len;
@@ -1503,6 +1524,8 @@ static DWORD fake_dialog_boundary_exec( struct request *req,
                                  g_boundary_state.dialog_answer_kind,
                                  n, bind, req_dig, tok,
                                  out_answer_buf, WEX_S1_ANSWER_LENGTH, out_answer_len );
+        if (g_boundary_state.dialog_answer_len_override)
+            *out_answer_len = g_boundary_state.dialog_answer_len_override;
     }
 
     if (out_account && account_max > 0)
@@ -1551,7 +1574,8 @@ static DWORD fake_transport_boundary_redeem( struct request *req,
     ev.service = g_boundary_state.transport_service ? g_boundary_state.transport_service : 1;
 
     memcpy( out_evidence_buf, &ev, sizeof(ev) );
-    *out_evidence_len = sizeof(ev);
+    *out_evidence_len = g_boundary_state.transport_out_len_override
+                         ? g_boundary_state.transport_out_len_override : sizeof(ev);
     memcpy( out_evidence_ref, g_boundary_state.transport_evidence_ref, 16 );
     *out_storage_generation = g_boundary_state.transport_storage_gen;
 
@@ -2398,6 +2422,89 @@ static int test_r6_image_lease_and_token_cleanup( void )
     e1s18_reset_ops();
     return TEST_PASS;
 }
+
+/*
+ * Test 44: R15 - Dialog answer must be exactly WEX_S1_ANSWER_LENGTH bytes.
+ * One byte long (157) and one byte short (155) are both denied.
+ */
+static int test_dialog_boundary_answer_length( void )
+{
+    struct request req;
+    char account[64];
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    e1s18_reset_ops();
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    /* One byte long (157) must be denied */
+    init_fake_boundary_state();
+    g_boundary_state.dialog_answer_len_override = WEX_S1_ANSWER_LENGTH + 1;
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_CANCELLED, "One-byte-long answer must be denied with ERROR_CANCELLED" );
+    CHECK_EQ( account[0], '\0', "Account name must be wiped on overlong answer" );
+
+    /* One byte short (155) must be denied */
+    init_fake_boundary_state();
+    g_boundary_state.dialog_answer_len_override = WEX_S1_ANSWER_LENGTH - 1;
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_CANCELLED, "One-byte-short answer must be denied with ERROR_CANCELLED" );
+    CHECK_EQ( account[0], '\0', "Account name must be wiped on short answer" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+/*
+ * Test 45: R15 - Evidence buffer must be exactly one S1 Kind 3 record (220 B).
+ * One byte longer (221) is denied.
+ */
+static int test_transport_boundary_evidence_length( void )
+{
+    struct request req;
+    uint8_t account_key[16];
+    uint8_t evidence_ref[16];
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    g_boundary_state.transport_out_len_override = WEX_S1_EVIDENCE_SIZE + 1;
+    e1s18_reset_ops();
+    e1s18_reset_burned_evidence();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest,
+                                account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_INVALID_DATA, "One-byte-longer evidence must be denied with ERROR_INVALID_DATA" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+/*
+ * Test 46: R15 - The policy DWORD enables standard-user elevation only when
+ * it is exactly 1; 0, 2 and 0xffffffff stay disabled.
+ */
+static int test_policy_value_exact_one( void )
+{
+    CHECK( !e1s18_policy_value_enabled( 0 ), "Policy value 0 must stay disabled" );
+    CHECK( e1s18_policy_value_enabled( 1 ), "Policy value 1 must enable" );
+    CHECK( !e1s18_policy_value_enabled( 2 ), "Policy value 2 must stay disabled" );
+    CHECK( !e1s18_policy_value_enabled( 0xffffffff ), "Policy value 0xffffffff must stay disabled" );
+    return TEST_PASS;
+}
 #endif
 
 int main( int argc, char **argv )
@@ -2538,6 +2645,15 @@ int main( int argc, char **argv )
 
     printf("41. Testing R6 regression: image lease guard & token cleanup...\n");
     if (test_r6_image_lease_and_token_cleanup() != TEST_PASS) ret = 1;
+
+    printf("42. Testing R15 dialog answer exact length (157 long / 155 short denied)...\n");
+    if (test_dialog_boundary_answer_length() != TEST_PASS) ret = 1;
+
+    printf("43. Testing R15 evidence buffer exact length (221 longer denied)...\n");
+    if (test_transport_boundary_evidence_length() != TEST_PASS) ret = 1;
+
+    printf("44. Testing R15 policy DWORD enables only when exactly 1 (0/1/2/0xffffffff)...\n");
+    if (test_policy_value_exact_one() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

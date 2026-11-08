@@ -266,6 +266,16 @@ static uint64_t default_get_capabilities( const struct request *req )
 #endif
 }
 
+/*
+ * R15: The EnableStandardUserElevation policy DWORD enables standard-user
+ * elevation only when it is exactly 1. Any other value (0, 2, 0xffffffff, ...)
+ * leaves the feature disabled.
+ */
+BOOL e1s18_policy_value_enabled( DWORD val )
+{
+    return val == 1;
+}
+
 static BOOL default_is_policy_enabled( void )
 {
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
@@ -276,7 +286,7 @@ static BOOL default_is_policy_enabled( void )
         if (RegQueryValueExW( key, L"EnableStandardUserElevation", NULL, &type, (BYTE *)&val, &sz ) == ERROR_SUCCESS && type == REG_DWORD)
         {
             RegCloseKey( key );
-            return val != 0;
+            return e1s18_policy_value_enabled( val );
         }
         RegCloseKey( key );
     }
@@ -762,7 +772,8 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
                                      out_account, account_max );
         if (err == ERROR_SUCCESS)
         {
-            if (answer_len >= WEX_S1_ANSWER_LENGTH)
+            /* R15: the dialog answer must be exactly WEX_S1_ANSWER_LENGTH bytes. */
+            if (answer_len == WEX_S1_ANSWER_LENGTH)
             {
                 if (!wex_verify_answer_record( answer_buf, answer_len,
                                                req->id, 1, 0, 0,
@@ -891,7 +902,8 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
         return ERROR_INVALID_DATA;
     }
 
-    if (evidence_len < sizeof(struct wex_s1_evidence_record))
+    /* R15: the evidence buffer must be exactly one S1 Kind 3 record, no more. */
+    if (evidence_len != sizeof(struct wex_s1_evidence_record))
     {
         e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
         return ERROR_INVALID_DATA;
@@ -1086,12 +1098,18 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
         goto verify_fail;
     }
 
-    /* Verify Alice's mapped SID */
+    /* Verify Alice's mapped SID: exactly the fixed 28-byte mapped-SID size the
+     * ntdll wrapper enforces (wine/dlls/ntdll/sec.c), and a valid SID on Wine.
+     * Native builds check the length only. */
     sid_len = wex_token_u32( out + 72 );
-    if (sid_len < 8 || sid_len > SECURITY_MAX_SID_SIZE)
+    if (sid_len != 28)
     {
         goto verify_fail;
     }
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    if (!IsValidSid( (PSID)(out + 76) ))
+        goto verify_fail;
+#endif
     /* Alice SID must not match caller's Bob SID */
     if (req->caller_sid_len > 0 && sid_len == req->caller_sid_len &&
         memcmp( out + 76, req->caller_sid, sid_len ) == 0)
