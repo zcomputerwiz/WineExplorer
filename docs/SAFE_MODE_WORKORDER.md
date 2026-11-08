@@ -39,9 +39,10 @@ grayed. The VM test lives only in a scratchpad.
 - **Changes to stock Wine stay small** and each one is listed in `docs/STOCK_CHANGES.md` (`CLAUDE.md`).
 - **Every Wine build is WoW64**, and every step is checked in a VM on BIOS and UEFI with a 32-bit program.
 - **XP references.** The F8 menu, the Safe Mode desktop, the message box, the classic logon dialog and
-  `ntbtlog.txt` have to be measured on the XP reference VM in VirtualBox (decision 6). The local-only repository
-  for those captures (`../WineExplorer-local`, `docs/ASSETS.md`) is not on this machine. Microsoft text and art
-  never enter this repository, so the plan describes XP's behaviour and does not quote it.
+  `ntbtlog.txt` have to be measured on the XP reference VM in VirtualBox (decision 6). They go in the local-only
+  repository (`docs/ASSETS.md`), in `../WineExplorer-local/notes/xp/safe-mode/`, whose README lists what to
+  capture and how. Microsoft text and art never enter this repository, so the plan describes XP's behaviour and
+  does not quote it.
 - **ReactOS code may be ported.** `IntPaintDesktop` in ReactOS
   (`win32ss/user/ntuser/desktop.c:2130-2355` at `e0e659386641`, GPL-2.0-or-later) draws the Safe Mode desktop.
 
@@ -241,8 +242,8 @@ options when needed" setting is D1's countdown, so add it when D1 lands.
    other E1 code stay as they are.
 6. **XP captures:** taken on the XP reference VM registered in VirtualBox (the F8 menu, the OS list, the failure
    screen, the Safe Mode desktop, the message box, the classic logon dialog, `ntbtlog.txt` and the `SafeBoot`
-   key), and kept in the local-only repository. On 2026-11-08 the VM's files were on this machine but the VM was
-   not registered; the owner registers it.
+   key), and kept in `../WineExplorer-local/notes/xp/safe-mode/`. On 2026-11-08 the VM's files were on this
+   machine but the VM was not registered; the owner registers it.
 
 ## 5. Order
 
