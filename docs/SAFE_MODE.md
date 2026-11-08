@@ -75,9 +75,11 @@ generator steps aside and the update runs first.
 - `/etc/pam.d/lightdm`: in Safe Mode with Command Prompt only root and members of `sudo` may log on, as before.
   In the other modes everyone may, as in Windows.
 
-`wex-greeter.sh` starts the GTK greeter instead of `logonui.exe` in every Safe Mode, so the logon screen needs no
-Wine. It asks for a user name and a password over Debian's greeter background. XP itself shows the Welcome screen
-in Safe Mode (`docs/SAFE_MODE_WORKORDER.md` C4); matching it is a phase 2 item.
+`wex-greeter.sh` shows the Welcome screen (`logonui.exe`) in Safe Mode too, as XP does
+(`docs/SAFE_MODE_WORKORDER.md` C4, decision 1). In Safe Mode it first checks that Wine starts in the logon prefix
+(`cmd.exe /c exit 0`, at most 120 seconds, and the prefix update at most 300). If Wine is missing, does not
+start, or the logon screen ends with an error, it starts the GTK greeter instead: that one needs no Wine, so Safe
+Mode with Command Prompt can still be reached with a broken Wine. A normal start is unchanged.
 
 **Session.** The session keeps its name (`wine-explorer`), so LightDM records no new session for the account.
 `wine-explorer-session.sh` reads the mode:
@@ -137,8 +139,7 @@ stock Wine (`docs/STOCK_CHANGES.md`):
   in WineExplorer today, in any mode).
 - The desktop draws "Safe Mode" in the corners on black, and Explorer shows the XP message box after logon;
   measured against the XP VM.
-- The logon screen in Safe Mode matches XP's: the Welcome screen, with the classic logon dialog after
-  Ctrl+Alt+Del twice.
+- The classic logon dialog after Ctrl+Alt+Del twice on the Safe Mode Welcome screen, as on XP.
 
 ## 6. Tests
 
@@ -156,15 +157,17 @@ changes one fails.
 
 | Phase | Checks |
 |---|---|
-| `safe` | OS list shows "Safe Mode"; logon screen without automatic logon; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; Explorer session with `WEXMODE=safe`; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open |
+| `safe` | OS list shows "Safe Mode"; the Welcome screen instead of automatic logon; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; Explorer session with `WEXMODE=safe`; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open |
 | `safenet` | The same with `wex-safenet.target`, NetworkManager active and `WEXMODE=safenet` |
-| `safecmd` | Logon screen; the recovery console after logging on, and no wineserver |
+| `safecmd` | The Welcome screen; the recovery console after logging on, and no wineserver |
+| `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, and logging on still starts the recovery console |
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active |
 | `normal` | No F8: the same, and the boot-mode generator wrote nothing |
 
-Run 2026-11-08 on the round 3 GPT installs (`docs/VINTNER_BOOT.md` section 4.1) with this branch's files: every
-phase passed on SeaBIOS and on OVMF in one run, about 13 minutes per firmware. No boot changed a file under `/etc`
+Run 2026-11-08 on the round 3 GPT installs (`docs/VINTNER_BOOT.md` section 4.1) with this branch's files: all
+seven phases passed on SeaBIOS and on OVMF in one run, about 13 minutes per firmware, with the Welcome screen in
+Safe Mode and the GTK greeter taking over when Wine was hidden. No boot changed a file under `/etc`
 or `/var/lib/AccountsService`, or a `.dmrc`. The round 3 image predates the prefetch service, so the Prefetcher
 reads "absent" there; its mask is covered by the generator's unit test until the A2 install
 (`docs/SAFE_MODE_WORKORDER.md`).

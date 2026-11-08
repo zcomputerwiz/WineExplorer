@@ -192,13 +192,14 @@ should not save one (check `desk.cpl`'s save path).
 
 **C4. Logon in Safe Mode.** On the XP VM, all three Safe Modes showed the Welcome screen, with the built-in
 Administrator account added to the accounts; the classic logon dialog appeared only after Ctrl+Alt+Del was pressed
-twice, on the black Safe Mode desktop. This differs from what decision 1 assumed, so decision 1 is being revisited
-with the owner. The likely shape:
+twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (decision 1):
 
 - `wex-greeter.sh` starts `logonui.exe` (`src/programs/logonui/logonui.c`, the Welcome screen it already uses
   for normal starts) in Safe Mode as well. The GTK greeter stays only the last resort, when Wine fails to start;
-  a broken Wine is exactly what Safe Mode with Command Prompt must survive.
-- An Administrator tile has no direct counterpart: which account, if any, it stands for is an owner decision.
+  a broken Wine is exactly what Safe Mode with Command Prompt must survive. In Safe Mode the script first checks
+  that Wine starts in the logon prefix, and falls back if it does not or if the logon screen ends with an error.
+- An Administrator tile has no direct counterpart: which account, if any, it stands for is an open owner decision.
+  Until then the Welcome screen shows the same accounts as in a normal start.
 - The classic dialog (Ctrl+Alt+Del twice) goes into `src/dlls/msgina`, which has only the Turn Off and Log Off
   dialogs today. On a workgroup machine its Options button only adds Shut Down.
 - Any banner must be WineExplorer's own art (no Windows logo, `CLAUDE.md`).
@@ -266,8 +267,9 @@ options when needed" setting is D1's countdown, so add it when D1 lands.
 
 ## 4. Owner decisions (2026-11-08)
 
-1. **Logon dialog in Safe Mode:** XP's classic dialog (C4) in all three modes. The GTK greeter is only the last
-   resort, when Wine cannot start. Being revisited: the XP captures show the Welcome screen in Safe Mode (C4).
+1. **Logon screen in Safe Mode:** the Welcome screen (`logonui.exe`), as XP shows it in Safe Mode (C4), in all
+   three modes. The GTK greeter is only the last resort, when Wine cannot start. (Decided 2026-11-08 after the XP
+   captures; it replaces the earlier choice of the classic dialog.)
 2. **The message box's No button** (C2): XP's Yes/No box. No logs off to the logon screen, and is connected to a
    restore tool (Vintner rollback) when one exists.
 3. **Starts through the menu do not count:** no boot through the menu changes the start-up state, whatever mode
@@ -285,7 +287,7 @@ options when needed" setting is D1's countdown, so add it when D1 lands.
 1. A1, A2 (tests first; they check every later step).
 2. B0-B8 on the Wine branch, then C1 and C2. These need B2, or `WEXMODE` as a stopgap.
 3. D1 (GRUB), then A3 and A4.
-4. C1-C3, C5 and C6 (the XP captures exist); C4 once decision 1 is settled again.
+4. C1-C6 (the XP captures exist); C4's Welcome screen first, the classic dialog (Ctrl+Alt+Del twice) later.
 5. D2 stays grayed; look at it again after C3. D3 and the Vintner variant when Vintner's commands exist.
 
 Each step: unit tests, the A1 VM test on BIOS and UEFI with a 32-bit program, a commit, and an update to

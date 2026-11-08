@@ -5,10 +5,12 @@
 #
 # Boots a copy-on-write overlay of an installed test disk once per phase, pressing F8 during GRUB's hidden timeout,
 # and checks each start:
-#   safe         Safe Mode: the OS list shows the mode, no automatic logon, only the Safe Mode units run, the
-#                Explorer session has WEXMODE=safe, and Wine's 32-bit and 64-bit Notepad open
-#   safenet      Safe Mode with Networking: no automatic logon, NetworkManager runs, no timers, WEXMODE=safenet
+#   safe         Safe Mode: the OS list shows the mode, the Welcome screen instead of automatic logon, only the
+#                Safe Mode units run, the Explorer session has WEXMODE=safe, Wine's 32-bit and 64-bit Notepad open
+#   safenet      Safe Mode with Networking: the Welcome screen, NetworkManager runs, no timers, WEXMODE=safenet
 #   safecmd      Safe Mode with Command Prompt: logging on starts the recovery console and no wineserver
+#   nowine       Safe Mode with Command Prompt with Wine missing: the GTK greeter takes over, and logging on still
+#                starts the recovery console (the test hides /usr/local/bin/wine for this boot only)
 #   bootlog      Enable Boot Logging: a normal start with automatic logon, and ntbtlog.txt gains driver lines
 #   startnormal  Start WineExplorer Normally: a normal start with automatic logon, timers and networking
 #   normal       no F8: automatic logon, and the boot-mode generator wrote nothing
@@ -27,6 +29,7 @@
 #                                 update-grub in the guest during one provisioning boot.
 #   WEX_TEST_USER                 the account that logs on (default wineuser); it also logs on on the serial console
 #   WEX_TEST_PASSWORD_FILE        its password (default: empty)
+#   WEX_TEST_TILE                 its name on the Welcome screen (default: the first tile, chosen with Enter)
 # Requires root, QEMU/KVM, qemu-nbd, Tesseract and ImageMagick (scripts/vmtest.py). Every VM ends stopped.
 # Screenshots, logs and the configuration records go to $VMTEST_DIR/TEST_VM/safe-mode/.
 set -uo pipefail
@@ -36,13 +39,16 @@ SOURCE=${1:?$usage}
 TEST=${2:?$usage}
 shift 2
 PHASES=("$@")
-[ ${#PHASES[@]} -gt 0 ] || PHASES=(safe safenet safecmd bootlog startnormal normal)
+[ ${#PHASES[@]} -gt 0 ] || PHASES=(safe safenet safecmd nowine bootlog startnormal normal)
 for name in "$SOURCE" "$TEST"; do
     [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name: $name"; exit 2; }
 done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
-    case "$phase" in safe|safenet|safecmd|bootlog|startnormal|normal) ;; *) echo "Unknown phase: $phase"; exit 2 ;; esac
+    case "$phase" in
+        safe|safenet|safecmd|nowine|bootlog|startnormal|normal) ;;
+        *) echo "Unknown phase: $phase"; exit 2 ;;
+    esac
 done
 FIRMWARE=${WEX_TEST_FIRMWARE:-bios}
 case "$FIRMWARE" in
@@ -211,12 +217,30 @@ menu_choice() {   # menu_choice DOWNS LABEL: choose an item, check the OS list s
     "${V[@]}" key "$TEST" ret >/dev/null
 }
 
-logon_screen() {
-    wait_text "Cancel" 240 || fail "no logon screen (automatic logon in Safe Mode?)"
+logon_screen() {   # the Welcome screen (logonui.exe)
+    wait_text "To begin" 240 || fail "no Welcome screen (automatic logon in Safe Mode, or the GTK greeter?)"
     shot logon
 }
 
-logon() {   # the GTK greeter asks for the user name, then the password
+logon() {   # a tile, then the password box if the account has a password
+    if [ -n "${WEX_TEST_TILE:-}" ]; then
+        "${V[@]}" clicktext "$TEST" "$WEX_TEST_TILE" >/dev/null || fail "no tile '$WEX_TEST_TILE' on the Welcome screen"
+    else
+        "${V[@]}" key "$TEST" ret >/dev/null   # Enter starts the logon of the first tile
+    fi
+    if [ -s "$PWFILE" ]; then
+        wait_text "password" 30 || fail "no password box on the Welcome screen"
+        "${V[@]}" type "$TEST" "$(cat "$PWFILE")"
+        "${V[@]}" key "$TEST" ret >/dev/null
+    fi
+}
+
+logon_screen_gtk() {   # the GTK greeter, the last resort when Wine does not start
+    wait_text "Cancel" 240 || fail "no GTK greeter"
+    shot logon-gtk
+}
+
+logon_gtk() {   # the GTK greeter asks for the user name, then the password
     "${V[@]}" type "$TEST" "$USER_NAME"
     "${V[@]}" key "$TEST" ret >/dev/null
     sleep 4
@@ -294,16 +318,29 @@ phase_safenet() {
 }
 
 phase_safecmd() {
-    local out
     menu_choice 2 "Safe Mode with Command Prompt"
     logon_screen
     expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
     logon
+    recovery_console
+    shutdown_vm
+}
+
+recovery_console() {   # after logging on in Safe Mode with Command Prompt: the console, and no wineserver
+    local out
     wait_text "Recovery Commands" 120 || fail "no recovery console after logging on"
     shot console
     out=$(gsh 'echo wineservers=$(pgrep -c wineserver) xterms=$(pgrep -c xterm)' | grep '^wineservers=')
     echo "  $out"
     case "$out" in "wineservers=0 xterms="[1-9]*) ;; *) fail "expected the recovery console without Wine: $out" ;; esac
+}
+
+phase_nowine() {   # /usr/local/bin/wine is hidden for this boot (the main loop does it)
+    menu_choice 2 "Safe Mode with Command Prompt"
+    logon_screen_gtk
+    expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
+    logon_gtk
+    recovery_console
     shutdown_vm
 }
 
@@ -430,10 +467,23 @@ detach
 
 # ---- the phases ----
 
+hide_wine() {   # hide_wine on|off: /usr/local/bin/wine away for the nowine phase, and back (outside the records)
+    attach rw || return 1
+    if [ "$1" = on ]; then
+        mv "$MNT/usr/local/bin/wine" "$MNT/usr/local/bin/wine.wex-test-hidden"
+    else
+        mv "$MNT/usr/local/bin/wine.wex-test-hidden" "$MNT/usr/local/bin/wine"
+    fi
+    local rc=$?
+    detach
+    return $rc
+}
+
 overall=0
 summary=()
 for PHASE in "${PHASES[@]}"; do
     snapshot "$OUT/before-$PHASE.txt" || die "cannot record the configuration before $PHASE"
+    if [ "$PHASE" = nowine ]; then hide_wine on || die "cannot hide /usr/local/bin/wine"; fi
     echo "=== $PHASE ($(date +%T))"
     ( "phase_$PHASE" ) 2>&1 | tee "$OUT/$PHASE.log"
     rc=${PIPESTATUS[0]}
@@ -441,6 +491,7 @@ for PHASE in "${PHASES[@]}"; do
         "${V[@]}" stop "$TEST" >/dev/null 2>&1 || true
     fi
     wait_off 60 || die "$TEST did not stop after $PHASE"
+    if [ "$PHASE" = nowine ]; then hide_wine off || die "cannot put /usr/local/bin/wine back"; fi
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
     if ! diff -u "$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt" > "$OUT/$PHASE-changes.diff"; then
         echo "FAIL ($PHASE): the boot changed files under /etc, /var/lib/AccountsService or a .dmrc:"

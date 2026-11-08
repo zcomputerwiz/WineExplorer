@@ -288,9 +288,53 @@ class TestSessionAndGreeter(unittest.TestCase):
         self.assertLess(skip, common.index("--apply-user-defaults"))
         self.assertLess(skip, common.index("vulkan prepare"))
 
-    def test_greeter_needs_no_wine_in_safe_mode(self):
-        greeter = (SCRIPTS / "wex-greeter.sh").read_text(encoding="utf-8")
-        self.assertLess(greeter.index("exec /usr/sbin/lightdm-gtk-greeter"), greeter.index("export WINEPREFIX="))
+
+class TestGreeter(TempDirTest):
+    """wex-greeter.sh: the Welcome screen in every mode; in Safe Mode the GTK greeter when Wine cannot start."""
+
+    def run_greeter(self, mode, wine_exists=True, cmd_status=0, explorer_status=0):
+        log = self.tmp / "calls.log"
+        log.unlink(missing_ok=True)
+        wine = self.tmp / "wine"
+        if wine_exists:
+            wine.write_text('#!/bin/sh\necho "wine $*" >> "$LOG"\ncase "$1" in\n'
+                            '    cmd.exe) exit "$FAKE_CMD" ;;\n    explorer.exe) exit "$FAKE_EXPLORER" ;;\nesac\n',
+                            encoding="ascii")
+            wine.chmod(0o755)
+        gtk = self.tmp / "gtk-greeter"
+        gtk.write_text('#!/bin/sh\necho gtk >> "$LOG"\n', encoding="ascii")
+        gtk.chmod(0o755)
+        prefix = self.tmp / "prefix"
+        prefix.mkdir(exist_ok=True)
+        (prefix / "system.reg").write_text("", encoding="ascii")   # no prefix update
+        env = {"PATH": os.environ["PATH"], "LOG": str(log), "WINE": str(wine), "WINEPREFIX": str(prefix),
+               "WEX_BOOTMODE_HELPER": self.fake_helper(mode), "WEX_GTK_GREETER": str(gtk),
+               "FAKE_CMD": str(cmd_status), "FAKE_EXPLORER": str(explorer_status)}
+        result = subprocess.run(["bash", str(SCRIPTS / "wex-greeter.sh")], env=env, capture_output=True, text=True,
+                                timeout=60)
+        calls = log.read_text().splitlines() if log.exists() else []
+        return result.returncode, calls
+
+    def test_normal_start_shows_the_welcome_screen(self):
+        status, calls = self.run_greeter("normal", cmd_status=1)
+        self.assertEqual(calls, ["wine explorer.exe /desktop=Logon,1024x768 logonui.exe"])
+
+    def test_safe_mode_shows_the_welcome_screen(self):
+        for mode in ("safe", "safenet", "safecmd"):
+            status, calls = self.run_greeter(mode)
+            self.assertEqual(status, 0, mode)
+            self.assertEqual(calls, ["wine cmd.exe /c exit 0",
+                                     "wine explorer.exe /desktop=Logon,1024x768 logonui.exe"], mode)
+
+    def test_safe_mode_falls_back_when_wine_is_missing(self):
+        self.assertEqual(self.run_greeter("safecmd", wine_exists=False)[1], ["gtk"])
+
+    def test_safe_mode_falls_back_when_wine_does_not_start(self):
+        self.assertEqual(self.run_greeter("safe", cmd_status=1)[1], ["wine cmd.exe /c exit 0", "gtk"])
+
+    def test_safe_mode_falls_back_when_the_logon_screen_fails(self):
+        self.assertEqual(self.run_greeter("safe", explorer_status=3)[1],
+                         ["wine cmd.exe /c exit 0", "wine explorer.exe /desktop=Logon,1024x768 logonui.exe", "gtk"])
 
 
 class TestUnitsAndGrub(unittest.TestCase):

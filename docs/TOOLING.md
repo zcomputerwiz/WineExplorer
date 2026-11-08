@@ -75,8 +75,10 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   TEST_VM disk that is not an overlay of SOURCE_VM is refused. By default it copies this checkout's Safe Mode files
   onto the overlay and runs the package postinst's Safe Mode part and `update-grub` in one provisioning boot;
   `WEX_SAFEMODE_FILES=installed` skips that for a disk installed from an ISO with the package. Then one boot per
-  phase (`safe safenet safecmd bootlog startnormal normal`), each checked on the screen (OCR) and over the serial
-  console as `WEX_TEST_USER` (default `wineuser`, empty password unless `WEX_TEST_PASSWORD_FILE`). A boot that
+  phase (`safe safenet safecmd nowine bootlog startnormal normal`), each checked on the screen (OCR) and over the
+  serial console as `WEX_TEST_USER` (default `wineuser`, empty password unless `WEX_TEST_PASSWORD_FILE`; on the
+  Welcome screen the first tile unless `WEX_TEST_TILE` names one). `nowine` hides `/usr/local/bin/wine` on the
+  overlay for its boot and puts it back. A boot that
   changes a file under `/etc` or `/var/lib/AccountsService`, or a `.dmrc`, fails. It mounts the overlay through the
   first free NBD device, so run one at a time. Needs QEMU/KVM, qemu-nbd, Tesseract and ImageMagick; the VM ends
   stopped; evidence in `$VMTEST_DIR/TEST_VM/safe-mode/`. All six phases took about 13 minutes per firmware
