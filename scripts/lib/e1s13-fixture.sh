@@ -12,7 +12,7 @@ e1s13_cases()
     local -a car_sid_words=()
     base="$prefix/drive_c/users/.e1s"
     for mode in accept absent unprovisioned wrong-incarnation wrong-reference owner already-loaded replay \
-                unload crash-1 recovery crash-2 recovery crash-3 recovery \
+                unload commit crash-1 recovery crash-2 recovery crash-3 recovery \
                 two-admins descendants handle-held save-fail post-subst host-uid; do
         stop_prefixes || fail 'S13 prefix shutdown'
         # This prefix belongs to a user created by this fixture; still refuse
@@ -144,6 +144,12 @@ PY
             [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S14 UNLOAD OK$')" = 2 ] || fail 'missing unload/reload checks'
             grep -F 'E1S14' "$hive" >/dev/null && grep -F '"Persisted"=dword:014a11ce' "$hive" >/dev/null || fail 'durable hive lost session writes'
             [ ! -e "$profile/.e1s14-state" ] && [ ! -e "$profile/.e1s14-save" ] || fail 'successful unload left interrupted state'
+        elif [ "$mode" = commit ]; then
+            local commit_case
+            for commit_case in WRONG-ACCOUNT OTHER-ISSUANCE DEAD RUNNING RESUSPENDED INVALID-CONTEXT FOREIGN-HANDLE NON-BROKER ACCEPT DOUBLE AFTER-UNLOAD; do
+                [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c "^E1S14 COMMIT $commit_case OK$")" = 2 ] || fail "missing commit check: $commit_case"
+            done
+            [ ! -e "$profile/.e1s14-state" ] && [ ! -e "$profile/.e1s14-save" ] || fail 'commit unload left interrupted state'
         elif [ "$mode" = recovery ]; then
             [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S14 RECOVERY DENIED$')" = 2 ] || fail 'missing recovery denial checks'
             e1s14_recovery_hash "$profile" >"$LOG/$name.recovery.after"
@@ -163,12 +169,14 @@ PY
             [ ! -e "$profile/.e1s14-state" ] && [ ! -e "$profile/.e1s14-save" ] || fail 'handle-held interrupted state'
         elif [ "$mode" = save-fail ]; then
             [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S16 SAVE-DENIED OK$')" = 2 ] || fail 'missing save-fail checks'
+            [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S14 COMMIT POISONED OK$')" = 2 ] || fail 'missing poisoned commit denial'
             chmod 0700 "$profile"
             sha256sum --check --status "$LOG/$name.hive.before" || fail 'save-fail changed durable hive'
             [ ! -e "$profile/.e1s14-state" ] && [ ! -e "$profile/.e1s14-save" ] || fail 'save-fail left interrupted state'
             rm -f "$gate"
         elif [ "$mode" = post-subst ]; then
             [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S16 POST-SUBST OK$')" = 2 ] || fail 'missing post-subst checks'
+            [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S14 COMMIT POISONED OK$')" = 2 ] || fail 'missing substituted commit denial'
             rm -f "$hive" && mv "$hive.orig" "$hive"
             sha256sum --check --status "$LOG/$name.hive.before" || fail 'post-subst changed durable hive'
             rm -f "$gate"

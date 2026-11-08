@@ -124,7 +124,7 @@ ok probes_both_abis
 # Follow S6's documented lab recipe, then S10 step 2. Force the exact objects:
 # a flag change alone does not cause make to rebuild an existing object.
 LAB_TOKEN_FLAGS='-DWEX_E1S10_TOKEN_TEST -DWEX_E1S6_TRANSPORT_TEST'
-LAB_TOKEN_OBJECTS=(server/token.o server/registry.o server/process.o server/e1s_profile.o server/wex_profile_storage.o server/file.o server/fd.o) # always rebuilt: an earlier S13 run leaves S13-defined objects behind
+LAB_TOKEN_OBJECTS=(server/token.o server/registry.o server/process.o server/thread.o server/e1s_profile.o server/wex_profile_storage.o server/file.o server/fd.o) # always rebuilt: an earlier S13 run leaves S13-defined objects behind
 LAB_PROFILE_OBJECTS=() LAB_PROFILE_DLLS=()
 if [ "$S13_HARNESS" = 1 ]; then
     LAB_TOKEN_FLAGS+=' -DWEX_E1S13_HKU_TEST -DWEX_E1S14_CRASH_TEST'

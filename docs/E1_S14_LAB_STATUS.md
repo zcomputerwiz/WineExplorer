@@ -1,5 +1,30 @@
 # E1-S14 lab status
 
+## S14b production commit update (2026-11-08; static only)
+
+Added COMMIT_PROCESS=11 on request 325/protocol 979, independent of the crash
+define. The original S10 context now carries a server-only lease binding and
+must survive LOAD through commit or rollback. Exact issuance, broker ownership,
+lease state, alive local process and never-resumed initial suspension gates
+are in [the S14b report](E1_S14_LEASES.md#e1-s14b-broker-only-production-lease-commit-2026-11-08).
+S18 and the unload lifecycle now use it; TEST_TRANSFER=10 is retired.
+
+The existing 92 PASS S13/S14/S16 baseline is to be rerun by the lab owner.
+Added one commit mode per broker ABI, with both fresh LOADs checking accept,
+double, wrong-account process, same-SID other issuance, dead, non-broker,
+after-unload, running, resuspended, invalid-context and foreign-handle-value
+denial. Existing save-fail/post-subst modes add poison denial. thread.o is now
+forced with process/token/registry; the running child signals an inherited
+event before the denial check. All existing fixture ownership and crash
+checkpoint/recovery evidence requirements remain.
+
+No build, tests (including test_broker_e1s18.sh), harness, shell syntax check,
+Wine, generator, WSL, VM or service was run for S14b. In addition to both ABIs
+and normal-server Wine tests, validate commit in a lab server built without
+WEX_E1S14_CRASH_TEST. No commit or production enablement.
+
+The earlier lab history below is unchanged.
+
 Run 2026-11-07 (scripts/test_hku_load.sh in the clean wexbuild; owned lab tree rebuilt from the synced clone):
 builds pass (main and normal, protocol 979); S13 cases accept, absent, unprovisioned, wrong-incarnation,
 wrong-reference, owner, already-loaded, replay and the S14 unload case (unload with live process denied, unload after the

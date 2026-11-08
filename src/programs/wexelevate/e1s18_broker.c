@@ -561,14 +561,12 @@ static DWORD default_load_profile( struct request *req, HANDLE token, const uint
                                            record, sizeof(record),
                                            &key, &managed, &generation );
 
-    /* S10 context has completed its role; close it and clear req->s10_context */
-#ifdef WEXELEVATE_E1S18
-    if (ops && ops->close_handle) ops->close_handle( req->s10_context );
-    req->s10_context = NULL;
-#endif
-
     if (status != 0 || !key || managed != 1 || generation == 0)
     {
+#ifdef WEXELEVATE_E1S18
+        if (ops && ops->close_handle) ops->close_handle( req->s10_context );
+        req->s10_context = NULL;
+#endif
         if (key && ops && ops->close_handle) ops->close_handle( key );
         if (status == (NTSTATUS)0xc0000034 /* STATUS_OBJECT_NAME_NOT_FOUND */ ||
             status == (NTSTATUS)0xc000003a /* STATUS_OBJECT_PATH_NOT_FOUND */)
@@ -870,20 +868,24 @@ static DWORD default_transfer_lease( struct request *req, uint64_t lease_id, HAN
     ULONG managed = 0;
     ULONGLONG generation = 0;
     NTSTATUS status;
+    uint8_t record[WEX_HKU_COMMIT_RECORD_SIZE];
+    HANDLE context = NULL;
 
-    (void)req;
-    (void)lease_id;
     if (!exports || !exports->pNtLoadWexProfileEx) return ERROR_NOT_SUPPORTED;
-    if (!process || !token) return ERROR_INVALID_PARAMETER;
-
-    /* S14 profile lease transfer.
-     * Note: wine/server/registry.c:3476-3493 exposes ONLY WEX_HKU_TEST_TRANSFER (op 10).
-     * It is guarded on the server by #ifdef WEX_E1S14_CRASH_TEST. There is no separate
-     * production-named commit operation; transfer_lease calls WEX_HKU_TEST_TRANSFER.
-     */
-    status = exports->pNtLoadWexProfileEx( WEX_HKU_TEST_TRANSFER, process, token, 0, NULL, 0, &unused, &managed, &generation );
-    if (status != 0 || managed != 1)
+    if (!req || !lease_id || !process || !token) return ERROR_INVALID_PARAMETER;
+#ifdef WEXELEVATE_E1S18
+    context = req->s10_context;
+#endif
+    if (!context) return ERROR_ACCESS_DENIED;
+    /* The server compares this original LOAD context's private lease binding;
+     * lease_id is the broker's cache generation, not the S1 128-bit lease ID. */
+    wex_token_put32( record, (uint32_t)(uintptr_t)process );
+    status = exports->pNtLoadWexProfileEx( WEX_HKU_COMMIT_PROCESS, context, token, 0,
+                                          record, sizeof(record), &unused, &managed, &generation );
+    if (status != 0 || unused || managed != 1 || generation)
     {
+        const struct e1s18_ops *ops = e1s18_get_ops();
+        if (unused && ops && ops->close_handle) ops->close_handle( unused );
         if (status == (NTSTATUS)0xc00000bb /* STATUS_NOT_SUPPORTED */)
             return ERROR_NOT_SUPPORTED;
         return ERROR_ACCESS_DENIED;

@@ -187,13 +187,22 @@ void wex_conversation_init( struct wex_conversation *conv,
     if (channel_id) memcpy( conv->channel_id, channel_id, 16 );
 }
 
+/* Bounded copy that never reads past the terminator (Wine headers forbid strncpy). */
+static void wex_copy_bounded( char *dst, size_t dstsize, const char *src )
+{
+    size_t n = 0;
+    while (n + 1 < dstsize && src[n]) n++;
+    memcpy( dst, src, n );
+    dst[n] = 0;
+}
+
 int wex_conversation_set_account( struct wex_conversation *conv, const char *account )
 {
     if (!conv || !account) return WEX_STATUS_INVALID_PARAMETER;
     if (!wex_valid_account_name( account )) return WEX_STATUS_INVALID_PARAMETER;
 
     wex_secure_wipe( conv->typed_account, sizeof(conv->typed_account) );
-    strncpy( conv->typed_account, account, WEX_MAX_ACCOUNT_NAME_LEN );
+    wex_copy_bounded( conv->typed_account, WEX_MAX_ACCOUNT_NAME_LEN + 1, account );
     conv->typed_account[WEX_MAX_ACCOUNT_NAME_LEN] = '\0';
 
     if (conv->state == WEX_CONV_STATE_INIT)
@@ -373,7 +382,7 @@ int wex_prompt_queue_enqueue( struct wex_prompt_queue *q,
     entry->session_id = session_id;
     if (desktop)
     {
-        strncpy( entry->desktop, desktop, sizeof(entry->desktop) - 1 );
+        wex_copy_bounded( entry->desktop, sizeof(entry->desktop), desktop );
         entry->desktop[sizeof(entry->desktop) - 1] = '\0';
     }
     entry->deadline = deadline;

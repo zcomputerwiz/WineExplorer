@@ -209,8 +209,8 @@ struct e1s18_ops
     DWORD (*duplicate_handle)( struct request *req, HANDLE process, HANDLE *out_remote );
 
     /* Stage 11: Lease Transfer to committed process tracking.
-     * Calls NtLoadWexProfileEx WEX_HKU_TEST_TRANSFER (op 10).
-     * Note: on the server side, load_e1s_profile gates transfer behind WEX_E1S14_CRASH_TEST.
+     * Calls NtLoadWexProfileEx WEX_HKU_COMMIT_PROCESS (op 11), using the
+     * original S10 context retained through LOAD. No crash-test hook required.
      */
     DWORD (*transfer_lease)( struct request *req, uint64_t lease_id, HANDLE process, HANDLE token );
 

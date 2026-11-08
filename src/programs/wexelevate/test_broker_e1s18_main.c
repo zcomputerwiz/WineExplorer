@@ -756,13 +756,14 @@ static NTSTATUS WINAPI fake_NtLoadWexProfileEx(
         if (generation) *generation = g_export_state.load_generation;
         return 0;
     }
-    if (operation == WEX_HKU_TEST_TRANSFER)
+    if (operation == WEX_HKU_COMMIT_PROCESS)
     {
         g_export_state.transfer_calls++;
-        g_export_state.last_transfer_process = context;
+        if (!record || length != WEX_HKU_COMMIT_RECORD_SIZE || access) return (NTSTATUS)0xc000000d;
+        g_export_state.last_transfer_process = (HANDLE)(uintptr_t)wex_token_u32(record);
         if (g_export_state.transfer_status != 0)
             return g_export_state.transfer_status;
-        if (!context) return (NTSTATUS)0xc0000008;
+        if (context != (HANDLE)(intptr_t)0x1111) return (NTSTATUS)0xc0000008;
         if (!token || token != (HANDLE)(intptr_t)0x2222)
             return (NTSTATUS)0xc0000022;
         if (managed) *managed = g_export_state.transfer_managed;
@@ -843,7 +844,7 @@ static int test_export_boundary_success( void )
     CHECK_EQ( err, ERROR_SUCCESS, "default load_profile must succeed with fake exports" );
     CHECK_EQ( lease_id, 0xbeef01ULL, "lease_id must match fake export generation" );
     CHECK_EQ( (uintptr_t)hkey, 0x3333, "hkey must match fake export key handle" );
-    CHECK_EQ( (uintptr_t)req.s10_context, 0, "req->s10_context must be cleared after load_profile" );
+    CHECK_EQ( (uintptr_t)req.s10_context, 0x1111, "LOAD context must survive until commit or rollback" );
     CHECK_EQ( g_export_state.load_calls, 1, "Load must be called once" );
 
     /* 3. Stage 5: prep_launch */
@@ -857,6 +858,8 @@ static int test_export_boundary_success( void )
     err = ops->transfer_lease( &req, lease_id, (HANDLE)(intptr_t)0x4444, token );
     CHECK_EQ( err, ERROR_SUCCESS, "default transfer_lease must succeed" );
     CHECK_EQ( g_export_state.transfer_calls, 1, "Transfer must be called once" );
+    CHECK_EQ( (uintptr_t)g_export_state.last_transfer_process, 0x4444, "Commit payload must name the exact child" );
+    ops->close_handle( req.s10_context ); req.s10_context = NULL;
 
     /* 5. Cleanup: unload_profile */
     ops->unload_profile( lease_id, hkey, token );
@@ -1127,6 +1130,7 @@ static int test_export_boundary_transfer_failure( void )
     const struct e1s18_ops *ops;
 
     init_dummy_request( &req );
+    req.s10_context = (HANDLE)(intptr_t)0x1111;
     e1s18_reset_ops();
     e1s18_set_export_table( &s_fake_export_table );
     ops = e1s18_get_ops();
@@ -1137,7 +1141,7 @@ static int test_export_boundary_transfer_failure( void )
     err = ops->transfer_lease( &req, 0xbeef01ULL, (HANDLE)(intptr_t)0x4444, (HANDLE)(intptr_t)0x2222 );
     CHECK_EQ( err, ERROR_ACCESS_DENIED, "Transfer STATUS_ACCESS_DENIED must map to ERROR_ACCESS_DENIED" );
 
-    /* Server lacking WEX_E1S14_CRASH_TEST -> STATUS_NOT_SUPPORTED */
+    /* Disabled/older server -> STATUS_NOT_SUPPORTED */
     reset_export_state();
     g_export_state.transfer_status = (NTSTATUS)0xc00000bb;
     err = ops->transfer_lease( &req, 0xbeef01ULL, (HANDLE)(intptr_t)0x4444, (HANDLE)(intptr_t)0x2222 );

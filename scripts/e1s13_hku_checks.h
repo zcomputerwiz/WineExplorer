@@ -18,6 +18,129 @@ static ULONGLONG e1s14_previous_generation;
 
 typedef NTSTATUS (WINAPI *hku_ex_fn)(ULONG,HANDLE,HANDLE,ACCESS_MASK,const void*,ULONG,HANDLE*,ULONG*,ULONGLONG*);
 
+static void e1s14_commit_check( HANDLE context, HANDLE token, HANDLE process, NTSTATUS wanted, const char *label )
+{
+    hku_ex_fn load = (hku_ex_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtLoadWexProfileEx");
+    BYTE record[WEX_HKU_COMMIT_RECORD_SIZE];
+    HANDLE key = (HANDLE)1;
+    ULONG managed = ~0u;
+    ULONGLONG generation = ~(ULONGLONG)0;
+    wex_token_put32(record, (ULONG)(ULONG_PTR)process);
+    { static char callname[96]; snprintf(callname,sizeof(callname),"NtLoadWexProfileEx(COMMIT_PROCESS) case=%s want=%08lx",label,(unsigned long)wanted); last_nt_call = callname; }
+    last_status = load ? load(WEX_HKU_COMMIT_PROCESS,context,token,0,record,sizeof(record),
+                              &key,&managed,&generation) : (NTSTATUS)0xc00000bb;
+    check(last_status == wanted && !key && managed == !wanted && !generation);
+    if (key && key != (HANDLE)1) CloseHandle(key);
+    if (!failures) { printf("E1S14 COMMIT %s OK\n",label); fflush(stdout); }
+}
+
+static void e1s14_stop_child( PROCESS_INFORMATION *pi )
+{
+    if (pi->hProcess)
+    {
+        check(TerminateProcess(pi->hProcess,0));
+        check(WaitForSingleObject(pi->hProcess,5000) == WAIT_OBJECT_0);
+    }
+    if (pi->hThread) CloseHandle(pi->hThread);
+    if (pi->hProcess) CloseHandle(pi->hProcess);
+    memset(pi,0,sizeof(*pi));
+}
+
+/* New independent mode, run twice with fresh contexts in each broker ABI.
+ * Every failed candidate precedes the accepted child: no failure may consume
+ * or commit the setup lease. No new native fixture or global cleanup. */
+static void e1s14_commit_cases( HANDLE context, HANDLE token, HANDLE imp, HANDLE caller, const BYTE *in )
+{
+    hku_ex_fn load = (hku_ex_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtLoadWexProfileEx");
+    STARTUPINFOA si = {0}; PROCESS_INFORMATION pi = {0};
+    SECURITY_ATTRIBUTES sa = {sizeof(sa),NULL,TRUE};
+    char exe[MAX_PATH], command[2 * MAX_PATH];
+    HANDLE ready = NULL, other_context = NULL, other_token = NULL, unused = NULL;
+    BYTE other_in[WEX_TOKEN_FIXTURE_SIZE], out[WEX_TOKEN_RESPONSE_SIZE];
+    ULONG size = 0, managed = 0;
+    ULONGLONG caps = WEX_TOKEN_CAPS, generation = 0;
+    NTSTATUS status;
+    DWORD start;
+    si.cb = sizeof(si);
+    check(load && GetModuleFileNameA(NULL,exe,sizeof(exe)));
+    if (!load) return;
+    snprintf(command,sizeof(command),"\"%s\" hku-hold",exe);
+    /* A valid local suspended SYSTEM process is a different account, not an
+     * invalid handle or a running-process surrogate for that denial. */
+    check(CreateProcessA(exe,command,NULL,NULL,FALSE,CREATE_SUSPENDED | CREATE_NO_WINDOW,NULL,NULL,&si,&pi));
+    if (pi.hProcess) e1s14_commit_check(context,token,pi.hProcess,(NTSTATUS)0xc0000064,"WRONG-ACCOUNT");
+    e1s14_stop_child(&pi);
+
+    /* A second S10 issuance of Alice has the same SID/key but a different
+     * token lineage and AuthenticationId. That process must also deny. */
+    memcpy(other_in,in,sizeof(other_in));
+    wex_token_put64(other_in + 16,300 + e1s13_loads);
+    check(!create_token(WEX_TOKEN_NEGOTIATE,&other_context,NULL,&caps,NULL,0,&other_token,NULL,&size));
+    check(!create_token(WEX_TOKEN_TEST_INSTALL,&other_context,caller,&caps,other_in,sizeof(other_in),&other_token,NULL,&size));
+    size = sizeof(out);
+    check(!create_token(WEX_TOKEN_ISSUE,&other_context,NULL,&caps,other_in,WEX_TOKEN_INPUT_SIZE,&other_token,out,&size) && other_token);
+    if (other_token)
+    {
+        check(CreateProcessAsUserA(other_token,exe,command,NULL,NULL,FALSE,CREATE_SUSPENDED | CREATE_NO_WINDOW,NULL,NULL,&si,&pi));
+        if (pi.hProcess) e1s14_commit_check(context,token,pi.hProcess,(NTSTATUS)0xc00000a8,"OTHER-ISSUANCE");
+        e1s14_stop_child(&pi);
+        CloseHandle(other_token);
+    }
+    if (other_context) CloseHandle(other_context);
+
+    check(CreateProcessAsUserA(token,exe,command,NULL,NULL,FALSE,CREATE_SUSPENDED | CREATE_NO_WINDOW,NULL,NULL,&si,&pi));
+    if (pi.hProcess)
+    {
+        check(TerminateProcess(pi.hProcess,0));
+        check(WaitForSingleObject(pi.hProcess,5000) == WAIT_OBJECT_0);
+        e1s14_commit_check(context,token,pi.hProcess,(NTSTATUS)0xc000010a,"DEAD");
+        CloseHandle(pi.hThread); CloseHandle(pi.hProcess); memset(&pi,0,sizeof(pi));
+    }
+
+    ready = CreateEventA(&sa,TRUE,FALSE,NULL);
+    check(ready != NULL);
+    snprintf(command,sizeof(command),"\"%s\" hku-running %llu",exe,(unsigned long long)(ULONG_PTR)ready);
+    check(CreateProcessAsUserA(token,exe,command,NULL,NULL,TRUE,CREATE_SUSPENDED | CREATE_NO_WINDOW,NULL,NULL,&si,&pi));
+    if (pi.hProcess)
+    {
+        check(ResumeThread(pi.hThread) == 1);
+        check(WaitForSingleObject(ready,5000) == WAIT_OBJECT_0);
+        e1s14_commit_check(context,token,pi.hProcess,(NTSTATUS)0xc0000184,"RUNNING");
+        check(SuspendThread(pi.hThread) != (DWORD)-1);
+        e1s14_commit_check(context,token,pi.hProcess,(NTSTATUS)0xc0000184,"RESUSPENDED");
+    }
+    e1s14_stop_child(&pi);
+    if (ready) CloseHandle(ready);
+
+    snprintf(command,sizeof(command),"\"%s\" hku-hold",exe);
+    check(CreateProcessAsUserA(token,exe,command,NULL,NULL,FALSE,CREATE_SUSPENDED | CREATE_NO_WINDOW,NULL,NULL,&si,&pi));
+    if (pi.hProcess)
+    {
+        e1s14_commit_check(NULL,token,pi.hProcess,(NTSTATUS)0xc0000008,"INVALID-CONTEXT");
+        e1s14_commit_check(context,token,(HANDLE)0x12345678,(NTSTATUS)0xc000000b,"FOREIGN-HANDLE");
+        check(SetThreadToken(NULL,imp));
+        e1s14_commit_check(context,token,pi.hProcess,(NTSTATUS)0xc0000022,"NON-BROKER");
+        check(RevertToSelf());
+        e1s14_commit_check(context,token,pi.hProcess,0,"ACCEPT");
+        e1s14_commit_check(context,token,pi.hProcess,(NTSTATUS)0xc0000021,"DOUBLE");
+        status = load(WEX_HKU_UNLOAD_S14,NULL,token,0,NULL,0,&unused,&managed,&generation);
+        check(status == (NTSTATUS)0xc0000708 && !unused && !managed && !generation);
+        check(TerminateProcess(pi.hProcess,0));
+        check(WaitForSingleObject(pi.hProcess,5000) == WAIT_OBJECT_0);
+    }
+    start = GetTickCount();
+    do
+    {
+        status = load(WEX_HKU_UNLOAD_S14,NULL,token,0,NULL,0,&unused,&managed,&generation);
+        if (status == (NTSTATUS)0xc0000708) Sleep(20);
+    } while (status == (NTSTATUS)0xc0000708 && GetTickCount() - start < 3000);
+    check(!status && !unused && managed == 1 && !generation);
+    e1s13_loaded = FALSE;
+    e1s14_commit_check(context,token,pi.hProcess,(NTSTATUS)0xc000003a,"AFTER-UNLOAD");
+    if (pi.hThread) CloseHandle(pi.hThread);
+    if (pi.hProcess) CloseHandle(pi.hProcess);
+}
+
 static void e1s14_stale_check(void)
 {
     typedef NTSTATUS (WINAPI *query_fn)(HANDLE,ULONG,void*,ULONG,ULONG*);
@@ -31,7 +154,7 @@ static void e1s14_stale_check(void)
 /* Runs in the SYSTEM broker in the machine prefix, on the shared server.
  * Registry APIs and a same-server suspended child exercise lifetime. Native
  * persistence/recovery checks run in the shell against Bob's profile path. */
-static void e1s14_lifecycle( HANDLE token, HANDLE imp, const char *mode )
+static void e1s14_lifecycle( HANDLE context, HANDLE token, HANDLE imp, const char *mode )
 {
     hku_fn load = (hku_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtLoadWexProfile");
     hku_ex_fn load_ex = (hku_ex_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtLoadWexProfileEx");
@@ -134,7 +257,7 @@ static void e1s14_lifecycle( HANDLE token, HANDLE imp, const char *mode )
     check(CreateProcessAsUserA(token,exe,command,NULL,NULL,FALSE,CREATE_SUSPENDED | CREATE_NO_WINDOW,NULL,NULL,&si,&pi));
     if (pi.hProcess)
     {
-        check(!load(WEX_HKU_TEST_TRANSFER,pi.hProcess,token,0,NULL,0,&unused,&managed) && managed == 1);
+        e1s14_commit_check(context,token,pi.hProcess,0,"LIFECYCLE");
         status = load(WEX_HKU_UNLOAD_S14,NULL,token,0,NULL,0,&unused,&managed);
         check(status == (NTSTATUS)0xc0000708 && !unused && !managed);
         check(TerminateProcess(pi.hProcess,0));
@@ -327,7 +450,7 @@ static void e1s13_denied( BOOL normal )
     BYTE record[WEX_HKU_RECORD_SIZE] = {0};
     check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token));
     if (!load || !token) return;
-    for (op = WEX_HKU_LOAD; op <= WEX_HKU_TEST_TRANSFER; op++)
+    for (op = WEX_HKU_LOAD; op <= WEX_HKU_COMMIT_PROCESS; op++)
     {
         key = (HANDLE)1; managed = ~0u;
         status = load(op, NULL, token, op == WEX_HKU_QUERY ? 0 : KEY_READ,
@@ -966,7 +1089,7 @@ static void e1s13_load_checks( HANDLE context, HANDLE token, PSID expected, cons
     else if (!strcmp(mode,"recovery")) wanted = (NTSTATUS)0xc000014c;
     else if (e1s13_loads && (!strcmp(mode,"save-fail") || !strcmp(mode,"post-subst"))) wanted = (NTSTATUS)0xc000014c;
     else if (strcmp(mode,"accept") && strcmp(mode,"already-loaded") && strcmp(mode,"replay") &&
-             strcmp(mode,"unload") && strncmp(mode,"crash-",6) &&
+             strcmp(mode,"unload") && strcmp(mode,"commit") && strncmp(mode,"crash-",6) &&
              strcmp(mode,"two-admins") && strcmp(mode,"descendants") && strcmp(mode,"handle-held") &&
              strcmp(mode,"save-fail") && strcmp(mode,"post-subst") && strcmp(mode,"host-uid")) { check(FALSE); return; }
     if (!wanted && e1s13_loaded) wanted = (NTSTATUS)0xc0000035;
@@ -1024,10 +1147,12 @@ static void e1s13_load_checks( HANDLE context, HANDLE token, PSID expected, cons
     else if (e1s13_loads && !strcmp(mode,"save-fail"))
     {
         e1s16_save_fail(token, imp, gate);
+        e1s14_commit_check(context,token,NULL,(NTSTATUS)0xc000014c,"POISONED");
     }
     else if (e1s13_loads && !strcmp(mode,"post-subst"))
     {
         e1s16_post_subst(token, imp, gate);
+        e1s14_commit_check(context,token,NULL,(NTSTATUS)0xc000014c,"POISONED");
     }
     if (e1s13_loaded)
     {
@@ -1163,12 +1288,21 @@ static void e1s13_load_checks( HANDLE context, HANDLE token, PSID expected, cons
             check(RevertToSelf());
         }
         if (machine) RegCloseKey(machine);
-        if (!strcmp(mode,"unload") || !strncmp(mode,"crash-",6)) e1s14_lifecycle(token,imp,mode);
+        if (!strcmp(mode,"unload") || !strncmp(mode,"crash-",6)) e1s14_lifecycle(context,token,imp,mode);
+        else if (!strcmp(mode,"commit")) e1s14_commit_cases(context,token,imp,process,input);
         else if (!strcmp(mode,"two-admins")) e1s16_two_admins(token, imp, process, input, spec);
         else if (!strcmp(mode,"descendants")) e1s16_descendants(token);
         else if (!strcmp(mode,"handle-held")) e1s16_handle_held(token);
-        else if (!strcmp(mode,"save-fail")) e1s16_save_fail(token, imp, gate);
-        else if (!strcmp(mode,"post-subst")) e1s16_post_subst(token, imp, gate);
+        else if (!strcmp(mode,"save-fail"))
+        {
+            e1s16_save_fail(token, imp, gate);
+            e1s14_commit_check(context,token,NULL,(NTSTATUS)0xc000014c,"POISONED");
+        }
+        else if (!strcmp(mode,"post-subst"))
+        {
+            e1s16_post_subst(token, imp, gate);
+            e1s14_commit_check(context,token,NULL,(NTSTATUS)0xc000014c,"POISONED");
+        }
         else if (!strcmp(mode,"host-uid")) e1s16_host_uid(token, spec);
     }
     if (imp) CloseHandle(imp);

@@ -1,5 +1,47 @@
 # Changes to stock Wine / third-party code
 
+## E1-S14b disabled production lease commit (2026-11-08; static only)
+
+Adds broker-only `WEX_HKU_COMMIT_PROCESS=11` to existing request 325; protocol
+979 and all wire layouts stay unchanged. It requires the LOAD S6 broker gate,
+the original S10/LOAD context bound to the server's lease/request/generation,
+state exactly 1, and a local alive child created with that exact S10-issued
+token. Initial CREATE_SUSPENDED, never-resumed and single-thread proofs precede
+atomic state-2/process-accounting publication. Every denial leaves state intact.
+No production define, build enablement or installer policy changes.
+
+Stock-Wine files changed in this package:
+
+* `include/wine/wex_profile.h`: op 11 and four-byte LE child-handle input contract;
+  retired op 10 stays reserved and denies.
+* `server/token.c`, `server/e1s_token.h`: server-only lease binding in retained
+  S10 contexts; read-only broker/context/token/request/server validation and
+  installed-primary lineage/authentication/version/shape checks.
+* `server/process.c`, `server/process.h`: retain/release the exact explicit
+  creation token; validate local process accounting, alive/pre-entry state and
+  no prior binding; committed SID lifetime remains busy after primary replacement.
+* `server/thread.c`: track initial suspended creation and permanently clear
+  eligibility after resume-to-zero or another thread; resuspension cannot restore it.
+* `server/registry.c`, `server/e1s_profile.h`: bind LOAD's context, remove the
+  unchecked exported internal transfer and lab TEST_TRANSFER implementation;
+  validate then atomically publish the lease/process binding. Existing durable
+  save, unload, last-user and descendant accounting remain authoritative.
+* `dlls/ntdll/reg.c`: validate op 11's keyless managed=1/generation=0 reply.
+* `dlls/advapi32/tests/wex_hku.c`: normal-server op 11 denial and cleared outputs
+  through both wrappers, including a correctly sized payload.
+
+Project S18 default_transfer_lease now uses op 11; successful LOAD retains its
+S10 context until existing commit/rollback cleanup, failed LOAD closes it.
+The export fake asserts the context and exact child payload. Harness changes
+are exactly `scripts/e1s13_hku_checks.h`, `scripts/lib/e1s13-fixture.sh`,
+`scripts/e1s10_token_probe.c`, `scripts/test_e1s10_token.sh` (force thread.o).
+See [S14b gate table and complete unrun matrix](E1_S14_LEASES.md#e1-s14b-broker-only-production-lease-commit-2026-11-08).
+
+No build, test, harness, generator, Wine, WSL, VM or service was run; no commit.
+The 92 PASS baseline predates this patch. Fake tests and both-ABI old/new lab
+cases, actual no-crash-define commit, normal-server Wine tests and S18 end-to-end
+execution remain unverified. Other S18 authentication/enablement gaps remain.
+
 ## E1-S18 disabled broker Wine-only integration (2026-11-07)
 
 Survey, implementation and verification for Work Package E1-S18 of [E1-S](E1_S_STANDARD_USERS.md).

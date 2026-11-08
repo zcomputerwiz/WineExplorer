@@ -778,7 +778,7 @@ static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
             }
 
             GetDlgItemTextW(hwnd, IDC_UAC_PASSWORD, data->password, ARRAY_SIZE(data->password));
-            strncpy(data->account, ascii_account, sizeof(data->account) - 1);
+            lstrcpynA(data->account, ascii_account, sizeof(data->account));
             data->account[sizeof(data->account) - 1] = '\0';
 
             /* Transmit S1 Answer record with answer_kind = CONFIRM */

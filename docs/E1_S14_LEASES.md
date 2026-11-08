@@ -2,6 +2,125 @@
 <!-- Copyright 2026 WineExplorer contributors -->
 # E1-S14: managed hive leases, persistence and recovery
 
+## E1-S14b: broker-only production lease commit (2026-11-08)
+
+Implemented and reviewed statically; no build, test, harness, generator, Wine,
+service, WSL or VM was run. The existing 92 PASS baseline is historical evidence,
+not a result for this patch. All existing E1 default-disabled gates remain.
+
+`WEX_HKU_COMMIT_PROCESS=11` uses request 325 and protocol 979 unchanged
+(32-byte fixed request, 24-byte fixed reply, existing variable input). It is
+outside WEX_E1S14_CRASH_TEST. The original S10 context used by LOAD is the
+profile context: LOAD binds its server-owned 128-bit lease ID and issued-token
+ModifiedId into that context. Its existing request/server generations and
+owner process/thread/S6 primary/generation remain authoritative. Keep that
+handle open through commit or rollback; closing/reopening an HKU key cannot
+replace it. No caller-supplied lease ID or SID grants authority.
+
+Call `NtLoadWexProfileEx(COMMIT_PROCESS, s10_context, issued_token, 0,
+record, 4, &unused, &managed, &generation)`. The record is exactly one LE u32
+process handle from the broker's handle table, using the existing Wine handle
+representation in both ABIs. A foreign-server numeric value has no meaning
+outside that table; an invalid value or wrong object type denies. A numeric
+collision naming a valid local process is checked as that local process under
+all remaining gates. Success returns NULL key, managed=1, generation=0.
+
+Ordered gates below leave lease state, process binding, idle observation and
+registry/storage state unchanged on failure. Each denial has a named E1S14 audit
+site and explicit status; no paths, record contents or secrets are logged.
+
+| Gate / denied condition | NTSTATUS / audit site |
+| --- | --- |
+| Caller fails exact LOAD `token_e1s_broker` role, including S6 image/process/primary/version endorsement or any impersonation | ACCESS_DENIED / commit-broker |
+| Missing explicit token, nonzero access, input not exactly four bytes, or variable reply requested | INVALID_PARAMETER / commit-shape |
+| Issued token handle cannot be queried | NO_TOKEN / commit-token-handle |
+| Token account has no loaded lease (including after unload) | OBJECT_PATH_NOT_FOUND / commit-unloaded |
+| Hive loading / unloading / poisoned | DEVICE_NOT_READY / DELETE_PENDING / REGISTRY_CORRUPT / commit-phase |
+| Missing, closed or wrong-type S10 context | INVALID_HANDLE / commit-context-handle |
+| Context belongs to another broker or thread, or its retained endorsement differs | INVALID_OWNER / commit-context-owner |
+| Context not consumed for LOAD, supplied token is not its exact issued object, or issued ModifiedId changed since LOAD | BAD_TOKEN_TYPE / commit-context-token |
+| Context or lease server generation differs | REVISION_MISMATCH / commit-context-generation or commit-server |
+| Context request ID or private lease ID differs from this lease | INVALID_PARAMETER_MIX / commit-context-lease |
+| S1 lease state is anything other than exactly 1, including double commit | ALREADY_COMMITTED / commit-state |
+| Missing/invalid/pseudo/wrong-type process handle or missing local accounting entry | INVALID_CID / commit-process-handle or commit-foreign-server |
+| Child finally dead, terminating, threadless or startup aborted | PROCESS_IS_TERMINATING / commit-dead |
+| Child already bound to any lease | RESOURCE_IN_USE / commit-process-bound |
+| Startup incomplete, multiple threads, initial thread not created suspended, ever resumed, or no longer suspended | INVALID_DEVICE_STATE / commit-not-suspended |
+| Child primary is unmanaged or has different S4 incarnation/key or SID | NO_SUCH_USER / commit-account |
+| Exact explicit creation-token object differs, or child primary lineage, AuthenticationId, ModifiedId, account generation, session or Full/High/unrestricted shape differs | BAD_TOKEN_TYPE / commit-issued-token |
+
+The precise pre-entry rule is in `process_e1s_profile_committable`: STARTUP_DONE,
+exactly one live thread, initial CREATE_SUSPENDED flag, positive initial-thread
+suspend count and a sticky never-resumed proof. The proof is cleared when a
+resume reduces the count to zero and cannot be restored by suspending again or
+replacing/adding threads. `running_threads` counts live threads even while
+suspended; requiring zero would reject every usable child. Wine's native loader
+and process initialization necessarily execute before CreateProcess returns;
+this rule proves the Windows initial thread has not been released to its entry
+point, not that no native bootstrap instruction executed. The server dispatch
+serializes commit with ResumeThread, process termination and token replacement.
+
+Wine internally duplicates a process primary. `create_process` now also retains
+the exact explicit managed creation-token object, released in process_destroy.
+That object must be the context's S10-issued token; lineage/authentication/version
+checks then validate the installed duplicate. A separately issued same-SID token,
+a public token duplicate supplied instead of the issued object, or a modified
+primary does not pass. No parent-ID check is used: S18 selects Bob as designated
+parent with PROC_THREAD_ATTRIBUTE_PARENT_PROCESS.
+
+Only after all gates pass, the existing e1s_profile_processes entry receives the
+lease ID and committed SID, and the lease changes 1 -> 2 with idle_sweeps=0.
+Processes were already inserted before their first thread; commit never inserts
+a second list entry. The committed SID remains busy even after later primary
+replacement, until final native death. Existing primary/impersonation/descendant,
+key-handle, durable save, last-user timer and unload checks continue to apply.
+Commit neither resumes nor terminates a child. S18 must terminate/reap a rejected
+candidate and perform its final deadline, authority, image and cancellation checks.
+
+The old TEST_TRANSFER=10 implementation is retired; its number remains reserved
+and denies. The crash harness uses TEST_CRASH=9 and never needed TEST_TRANSFER.
+The prior unload case now uses COMMIT_PROCESS with its retained LOAD context.
+S18 default_transfer_lease does the same, retains the context on successful LOAD,
+and closes it through existing success/rollback cleanup. Failed LOAD closes it
+immediately. The broker's u64 `lease_id` variable remains a cache generation,
+not the server's 128-bit S1 lease ID.
+
+Exact harness code touched:
+
+* `scripts/e1s13_hku_checks.h`: migrated unload lifecycle; added commit mode and
+  output-clearing assertions for accept, double, wrong-account suspended SYSTEM
+  process, distinct same-account S10 issuance, dead, running, resuspended,
+  non-broker impersonation, invalid context, invalid foreign process-handle value,
+  and commit after unload. Existing save-fail/post-subst cases also assert poison
+  denial. Successful commit must block live-child unload, then allow unload after
+  owned child termination/reaping. Both fresh LOAD contexts run the checks.
+* `scripts/lib/e1s13-fixture.sh`: added one commit mode in each broker ABI, requires
+  two lines for every named check and poison case, and checks no interrupted save
+  files remain. Existing provisioning, crash/recovery ordering and cleanup stay
+  under the shared S6 fixture ownership rules.
+* `scripts/e1s10_token_probe.c`: added inherited-event hku-running child mode,
+  signalling actual Windows entry before running/resuspended denial assertions.
+* `scripts/test_e1s10_token.sh`: also forces server/thread.o in the existing lab
+  object rebuild set, alongside process/token/registry.
+
+`advapi32/tests/wex_hku.c` adds normal-server denial/output clearing for op 11
+through both wrappers and a valid-sized commit payload. The broker export fake
+now requires the original context and decodes the exact child payload; the
+success test checks context retention and child identity. `test_broker_e1s18.sh`
+itself is unchanged and was not run.
+
+Unverified: compilation/linking in both ABIs; fake-based broker tests; normal
+Wine tests; the historical 92-case baseline and new commit cases; actual loader
+suspend timing, broker token-version stability across CreateProcessAsUser,
+designated-parent S18 execution, stale/copied contexts, primary mutation,
+allocation/FD failures, concurrent resume/death/unload and automatic last-user
+draining. Also test a lab server without WEX_E1S14_CRASH_TEST to prove op 11 is
+usable while crash injection remains absent. No protocol files changed and no
+generator was run. No commit was made; no production readiness is claimed.
+
+The original S14 implementation report follows; its TEST_TRANSFER descriptions
+are historical where superseded above.
+
 2026-11-07, implementation and static review only; no build, generator, Wine,
 WSL, VM, fixture or runtime test was run. This implements section 7 row 14 of
 [E1-S](E1_S_STANDARD_USERS.md), following [S12](E1_S12_PROFILE_STORAGE.md),
@@ -13,9 +132,9 @@ The implementation remains disabled: Linux plus WEX_E1S13_HKU_TEST,
 WEX_E1S10_TOKEN_TEST and WEX_E1S6_TRANSPORT_TEST are required by the request
 handler. Automatic PE hooks still require WEX_E1S13_HKU_TEST in both ABIs.
 WEX_E1S14_CRASH_TEST is an additional, independent lab-only define for crash
-injection and the synthetic ownership-transfer driver. No default Makefile,
+injection. S14b below replaces the synthetic ownership-transfer driver. No default Makefile,
 installer, capability advertisement, environment switch or production broker
-activates this work. S18 authenticated integration remains absent.
+activates this work. S18 authenticated dialog/evidence integration remains incomplete.
 
 ## Survey and implementation evidence
 
@@ -59,11 +178,9 @@ zero. It is neither an IPC capability nor a new client-submittable record.
 State 1 owns setup. Creation or primary replacement checks that the managed
 hive is still loaded, but does not manufacture a commit. State 2 transfers
 ownership to server process/descendant tracking through
-`e1s_profile_commit_process(process, lease_id, request_id)`: the trusted S18
-producer must already have retained/verified the suspended child and performed
-its other commit/guard checks. This function does not resume a process or
-authenticate serialized bytes. The lab-only TEST_TRANSFER operation exercises
-this interface on the endorsed broker's actual direct child. State 3 is set
+the broker-gated `WEX_HKU_COMMIT_PROCESS` operation described in S14b above.
+The trusted S18 producer must also perform its other commit/guard checks.
+This operation does not resume a process or authenticate serialized bytes. State 3 is set
 only at release/owned setup rollback, after closing the storage resources on
 successful unload. Failed durable saves retain the lease and its locks.
 
@@ -175,8 +292,9 @@ malformed successes deny. No syscall or WoW64 thunk-table slot is added.
 
 Operations 1..6 retain their roles; OPEN now returns the userenv-compatible
 proxy. CACHE_CURRENT=7 and CACHE_CLASSES=8 obtain cache proxies under the same
-identity/DACL/MIC checks. TEST_CRASH=9 and TEST_TRANSFER=10 require the separate
-lab hook define and exact broker gate; normal servers deny every operation.
+identity/DACL/MIC checks. TEST_CRASH=9 requires the separate lab hook define
+and exact broker gate. S14b retires TEST_TRANSFER=10 and adds production commit
+op 11 independently of that hook; normal servers still deny every operation.
 
 Kernelbase includes generation in its existing SID/TokenId/ModifiedId lookup.
 This adds eight reply bytes to S13's existing QUERY and **no additional server

@@ -806,6 +806,14 @@ int main( int argc, char **argv )
     if (argc == 2 && !strcmp(argv[1], "pipes")) return pipe_namespace();
 #ifdef WEX_E1S13_HKU_PROBE
     if (argc == 2 && !strcmp(argv[1],"hku-hold")) return 0; /* created suspended, never resumed */
+    if (argc == 3 && !strcmp(argv[1],"hku-running"))
+    {
+        HANDLE ready = (HANDLE)(ULONG_PTR)_strtoui64(argv[2],NULL,10);
+        check(ready && SetEvent(ready));
+        if (ready) CloseHandle(ready);
+        Sleep(20000); /* parent terminates only this owned candidate */
+        return failures ? 1 : 0;
+    }
     if (argc >= 2 && !strcmp(argv[1], "hku-descendant")) return e1s16_descendant_child(argc, argv);
     if (argc >= 3 && !strcmp(argv[1], "hku-handle-held")) return e1s16_handle_held_child(argc, argv);
     if (argc >= 4 && !strcmp(argv[1], "hku-host-uid")) return e1s16_host_uid_child(argc, argv);
