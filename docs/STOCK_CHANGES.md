@@ -1,5 +1,57 @@
 # Changes to stock Wine / third-party code
 
+## E1-S15 disabled profile environment and launch preparation (2026-11-07)
+
+Survey, implementation and verification for Work Package E1-S15 of [E1-S](E1_S_STANDARD_USERS.md).
+See [survey, architecture, files and results](E1_S15_PROFILE_ENV.md). Disabled by default; nothing
+active in normal builds, zero behavioral change for ordinary processes.
+
+* `wine/server/registry.c`:
+  When a managed profile is loaded in `e1s_load_hive`:
+  Populates `Volatile Environment` subkey on `m->user` with Alice's 9 variables (`USERPROFILE`,
+  `USERNAME`, `HOMEDRIVE`, `HOMEPATH`, `USERDOMAIN`, `APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP`),
+  and standard session values (`CLIENTNAME`, `SESSIONNAME`, `HOMESHARE`).
+  Marked with `KEY_VOLATILE` and without `KEY_E1S_PERSIST`, isolating it completely from durable
+  hive serialization on disk via `e1s_write_keys`.
+* `wine/dlls/userenv/userenv_main.c`:
+  - `GetUserProfileDirectoryW` and `GetUserProfileDirectoryA`: gated under `WEX_E1S13_HKU_TEST`.
+    Queries `NtLoadWexProfileEx(WEX_HKU_QUERY, ...)`. When and only when the effective/supplied
+    token is a managed account token whose profile is loaded (`managed == 1 && gen > 0`), reads
+    `USERPROFILE` from `Volatile Environment`. When managed but unloaded (`gen == 0`), fails
+    closed with `ERROR_NOT_READY`. Unmanaged tokens execute stock Wine logic unchanged.
+  - `CreateEnvironmentBlock`: gated under `WEX_E1S13_HKU_TEST`. When the token is managed, forces
+    `bInherit = FALSE` (caller environment inheritance rejected) and populates Alice's 9 variables
+    from Alice's profile and `Volatile Environment`, avoiding `profiles_dir + username` concatenation.
+  - `ExpandEnvironmentStringsForUserW` and `ExpandEnvironmentStringsForUserA`: gated under
+    `WEX_E1S13_HKU_TEST`. When token is managed, expands using Alice's managed environment block
+    rather than the calling process environment.
+* `wine/dlls/shell32/shellpath.c`:
+  - `_SHGetUserProfilePath`: gated under `WEX_E1S13_HKU_TEST`. When the token is managed and
+    loaded: for `CSIDL_PROFILE` (0x28), returns Alice's S12 profile path directly via userenv;
+    for other CSIDLs, queries Alice's `User Shell Folders` and fails closed (`E_FAIL`) if
+    missing, never falling back to HKLM or stock defaults.
+  - `_SHExpandEnvironmentStrings`: gated under `WEX_E1S13_HKU_TEST`. When expanding `%USERPROFILE%`,
+    checks if effective token is managed and expands to Alice's S12 profile path rather than
+    appending `GetUserNameW()`.
+* `wine/dlls/advapi32/tests/wex_hku.c`:
+  Added normal-server test assertions for `GetUserProfileDirectoryW`, `CreateEnvironmentBlock`, and
+  `ExpandEnvironmentStringsForUserW`, verifying ordinary process behavior is preserved and `.e1s`
+  is never exposed to normal tokens.
+
+Project changes:
+* `src/programs/wexelevate/launch_prep.c` and `.h`: Pure, unit-testable launch preparation
+  function `wex_prepare_launch` taking explicit same-server inputs, generating clean allow-list
+  Windows environment, sanitized Unix environment (Bob's host identities retained, stripping
+  forbidden variables `SSH_*`, `LD_*`, `WINE*`, `KRB5*`, `GPG_*`, `DBUS_*`), verifying
+  descriptor-anchored working directory without symlinks/traversal, and hard rejection of
+  real-UID transitions (`WEX_LAUNCH_PREP_ERR_REAL_UID_UNSUPPORTED`).
+* `src/programs/wexelevate/test_launch_prep_main.c` and `scripts/test_launch_prep.sh`: Native C
+  unit test harness runnable in `wexbuild` as root, covering allow-list, overrides rejected,
+  inherited env rejected, real-UID rejected, sanitized Unix env, and CWD checks.
+* `scripts/e1s13_hku_checks.h` and `scripts/test_e1s10_token.sh`: Extended with assertions that
+  effective Alice token sees her profile path and variables, while peer sees Bob's.
+
+
 ## E1-S14 disabled managed hive leases and persistence (2026-11-07; static only)
 
 Protocol **978 -> 979**, existing request 325 now has a 24-byte generation-bearing

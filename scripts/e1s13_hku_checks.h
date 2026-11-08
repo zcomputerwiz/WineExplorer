@@ -290,6 +290,25 @@ static void e1s13_peer_state( BOOL after )
         check(!RegQueryValueExA(key, "Marker", NULL, NULL, (BYTE *)&got, &size) && got == marker);
         RegCloseKey(key);
     }
+    {
+        typedef BOOL (WINAPI *get_prof_fn)(HANDLE, LPWSTR, LPDWORD);
+        HMODULE hUserenv = LoadLibraryA("userenv.dll");
+        if (hUserenv)
+        {
+            get_prof_fn pGetUserProfileDirectoryW = (get_prof_fn)(void *)GetProcAddress(hUserenv, "GetUserProfileDirectoryW");
+            if (pGetUserProfileDirectoryW)
+            {
+                WCHAR dir[MAX_PATH];
+                DWORD dsize = ARRAY_SIZE(dir);
+                HANDLE proc_tok = NULL;
+                check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &proc_tok) && proc_tok);
+                check(pGetUserProfileDirectoryW(proc_tok, dir, &dsize));
+                if (proc_tok) CloseHandle(proc_tok);
+                check(wcsstr(dir, L".e1s") == NULL);
+            }
+            FreeLibrary(hUserenv);
+        }
+    }
     if (after) { LocalFree(sid); sid = NULL; }
     if (after && e1s13_bob_denied_path[0])
     {
@@ -414,6 +433,97 @@ static void e1s13_load_checks( HANDLE context, HANDLE token, PSID expected, cons
             e1s13_identity(sid);
             /* The profile directory lives in the caller prefix; this system-role broker runs in the machine
              * prefix, so a file-ownership check there cannot see it. That check moves to S15 (launch prep). */
+            /* S15 checks: effective Alice token sees her profile path and variables */
+            {
+                typedef BOOL (WINAPI *get_prof_fn)(HANDLE, LPWSTR, LPDWORD);
+                typedef BOOL (WINAPI *create_env_fn)(LPVOID*, HANDLE, BOOL);
+                typedef BOOL (WINAPI *destroy_env_fn)(LPVOID);
+                typedef BOOL (WINAPI *expand_env_fn)(HANDLE, LPCWSTR, LPWSTR, DWORD);
+                const char *acc_name = (const char *)(input + 204);
+                WCHAR acc_nameW[128] = {0};
+                MultiByteToWideChar(CP_ACP, 0, acc_name, -1, acc_nameW, ARRAY_SIZE(acc_nameW));
+                HMODULE hUserenv = LoadLibraryA("userenv.dll");
+                if (hUserenv)
+                {
+                    get_prof_fn pGetUserProfileDirectoryW = (get_prof_fn)(void *)GetProcAddress(hUserenv, "GetUserProfileDirectoryW");
+                    create_env_fn pCreateEnvironmentBlock = (create_env_fn)(void *)GetProcAddress(hUserenv, "CreateEnvironmentBlock");
+                    destroy_env_fn pDestroyEnvironmentBlock = (destroy_env_fn)(void *)GetProcAddress(hUserenv, "DestroyEnvironmentBlock");
+                    expand_env_fn pExpandEnvironmentStringsForUserW = (expand_env_fn)(void *)GetProcAddress(hUserenv, "ExpandEnvironmentStringsForUserW");
+
+                    if (pGetUserProfileDirectoryW)
+                    {
+                        WCHAR prof_dir[MAX_PATH];
+                        DWORD size = ARRAY_SIZE(prof_dir);
+                        check(pGetUserProfileDirectoryW(NULL, prof_dir, &size));
+                        check(wcsstr(prof_dir, L".e1s") != NULL);
+                        check(wcsstr(prof_dir, acc_nameW) != NULL);
+                        check(wcsstr(prof_dir, L"bob") == NULL);
+                    }
+
+                    if (pCreateEnvironmentBlock && pDestroyEnvironmentBlock)
+                    {
+                        LPVOID env = NULL;
+                        check(pCreateEnvironmentBlock(&env, NULL, FALSE) && env);
+                        if (env) pDestroyEnvironmentBlock(env);
+                    }
+
+                    if (pExpandEnvironmentStringsForUserW)
+                    {
+                        WCHAR exp[MAX_PATH];
+                        check(pExpandEnvironmentStringsForUserW(NULL, L"%USERPROFILE%", exp, ARRAY_SIZE(exp)));
+                        check(wcsstr(exp, L".e1s") != NULL);
+                        check(wcsstr(exp, acc_nameW) != NULL);
+                        check(wcsstr(exp, L"bob") == NULL);
+                    }
+                    FreeLibrary(hUserenv);
+                }
+
+                /* Shell folder CSIDL_PROFILE check */
+                {
+                    typedef HRESULT (WINAPI *sh_get_folder_path_fn)(HWND, int, HANDLE, DWORD, LPWSTR);
+                    HMODULE hShell32 = LoadLibraryA("shell32.dll");
+                    if (hShell32)
+                    {
+                        sh_get_folder_path_fn pSHGetFolderPathW = (sh_get_folder_path_fn)(void *)GetProcAddress(hShell32, "SHGetFolderPathW");
+                        if (pSHGetFolderPathW)
+                        {
+                            WCHAR shell_prof[MAX_PATH];
+                            check(SUCCEEDED(pSHGetFolderPathW(NULL, 0x28 /* CSIDL_PROFILE */, NULL, 0, shell_prof)));
+                            check(wcsstr(shell_prof, L".e1s") != NULL);
+                            check(wcsstr(shell_prof, acc_nameW) != NULL);
+                            check(wcsstr(shell_prof, L"bob") == NULL);
+                        }
+                        FreeLibrary(hShell32);
+                    }
+                }
+
+                /* Volatile Environment key values check */
+                {
+                    HKEY hVol = NULL;
+                    check(RegOpenKeyExA(HKEY_CURRENT_USER, "Volatile Environment", 0, KEY_READ, &hVol) == ERROR_SUCCESS && hVol);
+                    if (hVol)
+                    {
+                        char str_buf[MAX_PATH];
+                        DWORD dlen = sizeof(str_buf);
+                        check(RegQueryValueExA(hVol, "USERNAME", NULL, NULL, (BYTE *)str_buf, &dlen) == ERROR_SUCCESS && !strcmp(str_buf, acc_name));
+                        dlen = sizeof(str_buf);
+                        check(RegQueryValueExA(hVol, "USERPROFILE", NULL, NULL, (BYTE *)str_buf, &dlen) == ERROR_SUCCESS && strstr(str_buf, ".e1s"));
+                        dlen = sizeof(str_buf);
+                        check(RegQueryValueExA(hVol, "HOMEDRIVE", NULL, NULL, (BYTE *)str_buf, &dlen) == ERROR_SUCCESS && !strcmp(str_buf, "C:"));
+                        dlen = sizeof(str_buf);
+                        check(RegQueryValueExA(hVol, "HOMEPATH", NULL, NULL, (BYTE *)str_buf, &dlen) == ERROR_SUCCESS && strstr(str_buf, ".e1s"));
+                        dlen = sizeof(str_buf);
+                        check(RegQueryValueExA(hVol, "APPDATA", NULL, NULL, (BYTE *)str_buf, &dlen) == ERROR_SUCCESS && strstr(str_buf, "AppData\\Roaming"));
+                        dlen = sizeof(str_buf);
+                        check(RegQueryValueExA(hVol, "LOCALAPPDATA", NULL, NULL, (BYTE *)str_buf, &dlen) == ERROR_SUCCESS && strstr(str_buf, "AppData\\Local"));
+                        dlen = sizeof(str_buf);
+                        check(RegQueryValueExA(hVol, "TEMP", NULL, NULL, (BYTE *)str_buf, &dlen) == ERROR_SUCCESS && strstr(str_buf, "Temp"));
+                        dlen = sizeof(str_buf);
+                        check(RegQueryValueExA(hVol, "TMP", NULL, NULL, (BYTE *)str_buf, &dlen) == ERROR_SUCCESS && strstr(str_buf, "Temp"));
+                        RegCloseKey(hVol);
+                    }
+                }
+            }
             check(!RegCreateKeyExA(HKEY_CURRENT_USER,"Software\\Classes\\E1S13Merge",0,NULL,0,
                                    KEY_ALL_ACCESS,NULL,&classes,NULL));
             if (classes) { check(!RegSetValueExA(classes,"User",0,REG_DWORD,(BYTE *)&value,sizeof(value))); RegCloseKey(classes); classes = NULL; }

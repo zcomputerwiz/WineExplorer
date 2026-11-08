@@ -90,9 +90,11 @@ for build in "$LAB_BUILD" "$NORMAL_BUILD"; do
     done
     if [ "$S13_HARNESS" = 1 ]; then
         for arch in x86_64 i386; do
-            f="dlls/kernelbase/$arch-windows/kernelbase.dll"
-            [ -f "$build/$f" ] || fail "missing built artifact $build/$f"
-            protected_path "$build/$f"
+            for dll in kernelbase userenv shell32; do
+                f="dlls/$dll/$arch-windows/$dll.dll"
+                [ -f "$build/$f" ] || fail "missing built artifact $build/$f"
+                protected_path "$build/$f"
+            done
         done
     fi
 done
@@ -128,8 +130,8 @@ if [ "$S13_HARNESS" = 1 ]; then
     LAB_TOKEN_FLAGS+=' -DWEX_E1S13_HKU_TEST -DWEX_E1S14_CRASH_TEST'
     : # server objects already listed above
     for arch in x86_64 i386; do
-        LAB_PROFILE_OBJECTS+=("dlls/ntdll/$arch-windows/reg.o" "dlls/kernelbase/$arch-windows/registry.o" "dlls/userenv/$arch-windows/userenv_main.o")
-        LAB_PROFILE_DLLS+=("dlls/ntdll/$arch-windows/ntdll.dll" "dlls/kernelbase/$arch-windows/kernelbase.dll" "dlls/userenv/$arch-windows/userenv.dll")
+        LAB_PROFILE_OBJECTS+=("dlls/ntdll/$arch-windows/reg.o" "dlls/kernelbase/$arch-windows/registry.o" "dlls/userenv/$arch-windows/userenv_main.o" "dlls/shell32/$arch-windows/shellpath.o")
+        LAB_PROFILE_DLLS+=("dlls/ntdll/$arch-windows/ntdll.dll" "dlls/kernelbase/$arch-windows/kernelbase.dll" "dlls/userenv/$arch-windows/userenv.dll" "dlls/shell32/$arch-windows/shell32.dll")
     done
 fi
 for object in "${LAB_TOKEN_OBJECTS[@]}" "${LAB_PROFILE_OBJECTS[@]}" server/sysrun.o server/named_pipe.o dlls/wexhost/e1s6.o; do rm -f -- "$LAB_BUILD/$object"; done
