@@ -29,9 +29,11 @@
 #include <time.h>
 #ifdef _WIN32
 #include <io.h>
+#include <bcrypt.h>
 #else
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/random.h>
 #endif
 
 /*
@@ -341,6 +343,64 @@ static uint64_t e1s18_get_monotonic_time( void )
 #else
     return 0;
 #endif
+}
+
+/*
+ * R4: Cryptographic random source for the attempt nonce and channel id.
+ * Windows: BCryptGenRandom with the system-preferred RNG.
+ * Native: getrandom(2), full length required.
+ * Test hooks: e1s18_set_test_random() supplies deterministic bytes so existing
+ * tests stay deterministic; e1s18_set_test_random_fail() forces the RNG to fail
+ * so the fail-closed denial path can be exercised.
+ */
+static uint8_t s_test_random[256];
+static size_t s_test_random_len = 0;
+static size_t s_test_random_pos = 0;
+static BOOL s_test_random_fail = FALSE;
+
+void e1s18_set_test_random( const uint8_t *bytes, size_t len )
+{
+    if (bytes && len > 0 && len <= sizeof(s_test_random))
+    {
+        memcpy( s_test_random, bytes, len );
+        s_test_random_len = len;
+    }
+    else
+    {
+        s_test_random_len = 0;
+    }
+    s_test_random_pos = 0;
+}
+
+void e1s18_set_test_random_fail( BOOL fail )
+{
+    s_test_random_fail = fail;
+}
+
+static BOOL e1s18_fill_random( uint8_t *buf, size_t len )
+{
+    size_t i;
+    if (s_test_random_fail)
+        return FALSE;
+    if (s_test_random_len)
+    {
+        for (i = 0; i < len; i++)
+            buf[i] = s_test_random[(s_test_random_pos++) % s_test_random_len];
+        return TRUE;
+    }
+#if defined(_WIN32)
+    return BCryptGenRandom( NULL, buf, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG ) == 0;
+#else
+    return getrandom( buf, len, 0 ) == (ssize_t)len;
+#endif
+}
+
+static BOOL e1s18_is_all_zero( const uint8_t *buf, size_t len )
+{
+    size_t i;
+    for (i = 0; i < len; i++)
+        if (buf[i]) return FALSE;
+    return TRUE;
 }
 
 /*
@@ -697,7 +757,6 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
     int q_res;
     DWORD err = ERROR_SUCCESS;
     BOOL secure = TRUE;
-    int i;
 
     if (!req || !nonce || !binding_digest || !request_digest || !out_account || account_max == 0)
         return ERROR_INVALID_PARAMETER;
@@ -706,7 +765,12 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
 
     caller_logon = ((uint64_t)req->caller_stats.AuthenticationId.HighPart << 32) |
                    (uint32_t)req->caller_stats.AuthenticationId.LowPart;
-    for (i = 0; i < 16; i++) channel_token[i] = nonce[i] ^ 0x5c;
+    /* R4: the channel id is 16 independent random bytes, not derived from the
+     * nonce. RNG failure or an all-zero id denies before any dialog starts. */
+    if (!e1s18_fill_random( channel_token, 16 ))
+        return ERROR_ACCESS_DENIED;
+    if (e1s18_is_all_zero( channel_token, 16 ))
+        return ERROR_ACCESS_DENIED;
 
     deadline = e1s18_get_monotonic_time() + 120000000000ULL; /* 120s */
 
@@ -863,6 +927,12 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
         return ERROR_NOT_SUPPORTED;
     }
 #endif
+
+    /* R4: take the clock again after the transport call returns, so evidence
+     * that expires during the call is rejected. */
+    now = e1s18_get_monotonic_time();
+    if (now == 0)
+        return ERROR_INVALID_DATA;
 
     /* R15: the evidence buffer must be exactly one S1 Kind 3 record, no more. */
     if (evidence_len != sizeof(struct wex_s1_evidence_record))
@@ -1807,7 +1877,6 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     char *cwd = NULL;
     PROCESS_INFORMATION pi;
     DWORD err = ERROR_SUCCESS;
-    int i;
 
     memset( &pi, 0, sizeof(pi) );
     memset( account_name, 0, sizeof(account_name) );
@@ -1834,8 +1903,12 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
         return ERROR_INVALID_PARAMETER;
     }
 
-    /* Generate nonce and canonical digests */
-    for (i = 0; i < 32; i++) nonce[i] = (uint8_t)(i ^ 0xa5);
+    /* R4: the attempt nonce is 32 random bytes. RNG failure or an all-zero
+     * nonce denies the request before any dialog starts. */
+    if (!e1s18_fill_random( nonce, 32 ))
+        return ERROR_ACCESS_DENIED;
+    if (e1s18_is_all_zero( nonce, 32 ))
+        return ERROR_ACCESS_DENIED;
     e1s18_compute_digests( req, nonce, binding_digest, request_digest, env_digest );
 
     /* Step 1: Serialized prompt queue and bound credential dialog (S17) */

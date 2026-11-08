@@ -1571,6 +1571,9 @@ struct fake_boundary_state
     uint32_t transport_method;
     uint32_t transport_service;
     uint8_t transport_evidence_ref[16];
+    /* R4: if nonzero, set the test clock to this absolute value during the
+     * (fake) transport call, so evidence that expires mid-call is rejected. */
+    uint64_t transport_set_clock;
 };
 
 static struct fake_boundary_state g_boundary_state;
@@ -1641,6 +1644,11 @@ static DWORD fake_transport_boundary_redeem( struct request *req,
 
     if (g_boundary_state.transport_return_code != ERROR_SUCCESS)
         return g_boundary_state.transport_return_code;
+
+    /* R4: simulate the passage of time during the transport call so evidence
+     * that expires mid-call is rejected by the post-call clock re-fetch. */
+    if (g_boundary_state.transport_set_clock)
+        e1s18_set_test_clock( g_boundary_state.transport_set_clock );
 
     memset( &ev, 0, sizeof(ev) );
     ev.kind = g_boundary_state.transport_evidence_kind ? g_boundary_state.transport_evidence_kind : 3;
@@ -2708,6 +2716,226 @@ static int test_export_boundary_storage_query( void )
     e1s18_reset_export_table();
     return TEST_PASS;
 }
+
+/*
+ * WO-5: R4 - Random nonce and channel id.
+ */
+
+/* Capturing dialog boundary: records the nonce and channel id passed to it. */
+static uint8_t g_cap_nonce[2][32];
+static uint8_t g_cap_channel[2][16];
+static int g_cap_count = 0;
+
+static DWORD capturing_dialog_exec( struct request *req,
+                                    uint64_t request_id,
+                                    const uint8_t nonce[32],
+                                    const uint8_t binding_digest[32],
+                                    const uint8_t request_digest[32],
+                                    const uint8_t channel_token[16],
+                                    BOOL secure,
+                                    uint8_t *out_answer_buf,
+                                    size_t *out_answer_len,
+                                    char *out_account,
+                                    size_t account_max )
+{
+    (void)secure; (void)req;
+    if (g_cap_count < 2)
+    {
+        memcpy( g_cap_nonce[g_cap_count], nonce, 32 );
+        memcpy( g_cap_channel[g_cap_count], channel_token, 16 );
+        g_cap_count++;
+    }
+    /* Return a valid confirm answer so prompt_dialog succeeds. */
+    wex_build_answer_record( request_id, 1, 0, 0,
+                             WEX_ANSWER_KIND_CONFIRM,
+                             nonce, binding_digest, request_digest, channel_token,
+                             out_answer_buf, WEX_S1_ANSWER_LENGTH, out_answer_len );
+    if (out_account && account_max > 0)
+    {
+        strncpy( out_account, "alice", account_max - 1 );
+        out_account[account_max - 1] = 0;
+    }
+    return ERROR_SUCCESS;
+}
+
+static struct e1s18_boundary_table s_capturing_boundary_table = {
+    capturing_dialog_exec,
+    fake_transport_boundary_redeem
+};
+
+/* Counting dialog boundary: counts how many times the dialog is executed. */
+static int g_dialog_exec_count = 0;
+
+static DWORD counting_dialog_exec( struct request *req,
+                                   uint64_t request_id,
+                                   const uint8_t nonce[32],
+                                   const uint8_t binding_digest[32],
+                                   const uint8_t request_digest[32],
+                                   const uint8_t channel_token[16],
+                                   BOOL secure,
+                                   uint8_t *out_answer_buf,
+                                   size_t *out_answer_len,
+                                   char *out_account,
+                                   size_t account_max )
+{
+    (void)secure; (void)req;
+    g_dialog_exec_count++;
+    wex_build_answer_record( request_id, 1, 0, 0,
+                             WEX_ANSWER_KIND_CONFIRM,
+                             nonce, binding_digest, request_digest, channel_token,
+                             out_answer_buf, WEX_S1_ANSWER_LENGTH, out_answer_len );
+    if (out_account && account_max > 0)
+    {
+        strncpy( out_account, "alice", account_max - 1 );
+        out_account[account_max - 1] = 0;
+    }
+    return ERROR_SUCCESS;
+}
+
+static struct e1s18_boundary_table s_counting_boundary_table = {
+    counting_dialog_exec,
+    fake_transport_boundary_redeem
+};
+
+/*
+ * Test 47: WO-5 - RNG failure denies the request before any dialog starts.
+ */
+static int test_rng_failure_denies_no_dialog( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    struct e1s18_ops hybrid_ops;
+    const struct e1s18_ops *default_ops;
+    DWORD err;
+
+    e1s18_set_test_random_fail( TRUE );
+    g_dialog_exec_count = 0;
+
+    e1s18_reset_ops();
+    default_ops = e1s18_get_ops();
+    hybrid_ops = *default_ops;
+    hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
+    hybrid_ops.get_capabilities = fake_get_capabilities;
+    hybrid_ops.prompt_dialog = default_ops->prompt_dialog; /* default: would spawn a dialog */
+    hybrid_ops.terminate_child = fake_terminate_child;
+    hybrid_ops.close_remote_handle = fake_close_remote_handle;
+    e1s18_set_ops( &hybrid_ops );
+    e1s18_set_boundary_table( &s_counting_boundary_table );
+
+    init_dummy_request( &req );
+    reset_tracker();
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK( err != ERROR_SUCCESS, "RNG failure must deny the request" );
+    CHECK_EQ( g_dialog_exec_count, 0, "No dialog must be spawned on RNG failure" );
+
+    e1s18_set_test_random_fail( FALSE );
+    e1s18_reset_ops();
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+/*
+ * Test 48: WO-5 - The attempt nonce and channel id differ between two
+ * requests (real RNG, no test hook).
+ */
+static int test_random_nonce_and_channel_differ( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    struct e1s18_ops hybrid_ops;
+    const struct e1s18_ops *default_ops;
+    DWORD err;
+
+    /* Use the real RNG (no test hook). */
+    e1s18_set_test_random( NULL, 0 );
+    e1s18_set_test_random_fail( FALSE );
+    g_cap_count = 0;
+
+    e1s18_reset_ops();
+    default_ops = e1s18_get_ops();
+    hybrid_ops = *default_ops;
+    hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
+    hybrid_ops.get_capabilities = fake_get_capabilities;
+    hybrid_ops.prompt_dialog = default_ops->prompt_dialog; /* default: generates the channel id */
+    hybrid_ops.redeem_evidence = fake_redeem_evidence;    /* fails at stage 2 to keep it light */
+    hybrid_ops.terminate_child = fake_terminate_child;
+    hybrid_ops.close_remote_handle = fake_close_remote_handle;
+    e1s18_set_ops( &hybrid_ops );
+    e1s18_set_boundary_table( &s_capturing_boundary_table );
+
+    /* Request 1 */
+    init_dummy_request( &req );
+    reset_tracker();
+    g_track.fail_at_stage = 2;
+    g_track.fail_error_code = 0x9002;
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, 0x9002, "Request 1 must fail at stage 2 (redeem_evidence)" );
+    CHECK_EQ( g_cap_count, 1, "Request 1 must capture the nonce and channel id" );
+
+    /* Request 2 */
+    init_dummy_request( &req );
+    reset_tracker();
+    g_track.fail_at_stage = 2;
+    g_track.fail_error_code = 0x9002;
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, 0x9002, "Request 2 must fail at stage 2 (redeem_evidence)" );
+    CHECK_EQ( g_cap_count, 2, "Request 2 must capture the nonce and channel id" );
+
+    /* The nonce and channel id must differ between the two requests. */
+    CHECK( memcmp( g_cap_nonce[0], g_cap_nonce[1], 32 ) != 0,
+           "The attempt nonce must differ between two requests" );
+    CHECK( memcmp( g_cap_channel[0], g_cap_channel[1], 16 ) != 0,
+           "The channel id must differ between two requests" );
+
+    e1s18_reset_ops();
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+/*
+ * Test 49: WO-5 - Evidence that expires during the (fake) transport call is
+ * rejected by the post-call clock re-fetch.
+ */
+static int test_transport_boundary_expires_during_call( void )
+{
+    struct request req;
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    uint8_t account_key[16];
+    uint8_t evidence_ref[16];
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    e1s18_reset_ops();
+    e1s18_reset_burned_evidence();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    /* Clock starts at 5000, expiry is 10000 (future). The (fake) transport
+     * call advances the clock to 15000 (past the expiry), so the evidence
+     * must be rejected by the post-call clock re-fetch. */
+    e1s18_set_test_clock( 5000 );
+    g_boundary_state.transport_expiry = 10000;
+    g_boundary_state.transport_set_clock = 15000;
+
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest,
+                                account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED,
+              "Evidence that expires during the transport call must be rejected" );
+
+    e1s18_set_test_clock( 0 );
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
 #endif
 
 int main( int argc, char **argv )
@@ -2863,6 +3091,15 @@ int main( int argc, char **argv )
 
     printf("46. Testing WO-3 storage generation query (op 12): success, denial, LOAD generation...\n");
     if (test_export_boundary_storage_query() != TEST_PASS) ret = 1;
+
+    printf("47. Testing WO-5 RNG failure denies before any dialog starts...\n");
+    if (test_rng_failure_denies_no_dialog() != TEST_PASS) ret = 1;
+
+    printf("48. Testing WO-5 nonce and channel id differ between two requests...\n");
+    if (test_random_nonce_and_channel_differ() != TEST_PASS) ret = 1;
+
+    printf("49. Testing WO-5 evidence expiring during the transport call is rejected...\n");
+    if (test_transport_boundary_expires_during_call() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)
