@@ -44,6 +44,7 @@ typedef struct _PROCESS_INFORMATION
 #define ERROR_GEN_FAILURE                 31
 #define ERROR_NOT_SUPPORTED               50
 #define ERROR_INVALID_PARAMETER           87
+#define ERROR_CHILD_NOT_COMPLETE          129
 #define ERROR_BUSY                        170
 #define ERROR_OPERATION_ABORTED           995
 #define ERROR_SERVICE_NOT_ACTIVE          1062
@@ -313,8 +314,11 @@ struct e1s18_ops
     /* Stage 13: Guarded Resume */
     DWORD (*resume_thread)( struct request *req, HANDLE thread );
 
-    /* Cleanup / Rollback Hooks */
-    void (*terminate_child)( HANDLE process );
+    /* Cleanup / Rollback Hooks.
+     * terminate_child returns TRUE only when the child is confirmed dead
+     * (R7 item 2); FALSE means the broker must keep the process/thread
+     * references and skip the profile unload. */
+    BOOL (*terminate_child)( HANDLE process );
     void (*close_remote_handle)( HANDLE caller, HANDLE remote );
     void (*unload_profile)( uint64_t lease_id, HANDLE hkey, HANDLE token );
     void (*close_handle)( HANDLE handle );

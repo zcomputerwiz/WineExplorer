@@ -1721,16 +1721,20 @@ static DWORD default_resume_thread( struct request *req, HANDLE thread )
 #endif
 }
 
-static void default_terminate_child( HANDLE process )
+static BOOL default_terminate_child( HANDLE process )
 {
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
     if (process)
     {
+        /* TerminateProcess failure alone does not decide: the process may
+         * have already exited. Death is confirmed only by the wait. */
         TerminateProcess( process, 1 );
-        WaitForSingleObject( process, 5000 );
+        return WaitForSingleObject( process, 5000 ) == WAIT_OBJECT_0;
     }
+    return FALSE;
 #else
     (void)process;
+    return FALSE;
 #endif
 }
 
@@ -1916,6 +1920,7 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     char *cwd = NULL;
     PROCESS_INFORMATION pi;
     DWORD err = ERROR_SUCCESS;
+    BOOL child_unconfirmed = FALSE;
 
     memset( &pi, 0, sizeof(pi) );
     memset( account_name, 0, sizeof(account_name) );
@@ -2089,13 +2094,23 @@ fail:
     }
     if (pi.hProcess)
     {
-        ops->terminate_child( pi.hProcess );
-        if (pi.hThread) ops->close_handle( pi.hThread );
-        ops->close_handle( pi.hProcess );
-        pi.hProcess = NULL;
-        pi.hThread = NULL;
+        if (ops->terminate_child( pi.hProcess ))
+        {
+            if (pi.hThread) ops->close_handle( pi.hThread );
+            ops->close_handle( pi.hProcess );
+            pi.hProcess = NULL;
+            pi.hThread = NULL;
+        }
+        else
+        {
+            /* ponytail: termination could not be confirmed; the child may still
+             * be alive. Keep the process and thread references for a
+             * supervisor-owned reaper (R7 design follow-up) and skip the
+             * profile unload below: the child may still use the hive. */
+            child_unconfirmed = TRUE;
+        }
     }
-    if (lease_id || hkey)
+    if (!child_unconfirmed && (lease_id || hkey))
     {
         ops->unload_profile( lease_id, hkey, issued_token );
         lease_id = 0;
@@ -2132,5 +2147,7 @@ fail:
         reply->tid = 0;
         reply->handle = 0;
     }
+    if (child_unconfirmed)
+        return ERROR_CHILD_NOT_COMPLETE;
     return err ? err : ERROR_ACCESS_DENIED;
 }

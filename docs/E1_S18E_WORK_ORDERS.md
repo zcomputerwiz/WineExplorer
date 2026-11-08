@@ -147,3 +147,27 @@ list, so two dialogs can inherit each other's pipe ends. Use `STARTUPINFOEXW` wi
 `EXTENDED_STARTUPINFO_PRESENT`. Check every attribute call and free the list on all paths. Do not
 change the dialog protocol (that is R8 design work). Check: two-ABI MinGW lab compile in the broker
 test.
+
+## WO-8 Confirmed child termination on rollback (R7, item 2)
+
+Files: `src/programs/wexelevate/e1s18_broker.c`, `src/programs/wexelevate/e1s18_broker.h`,
+`src/programs/wexelevate/test_broker_e1s18_main.c`.
+
+`default_terminate_child` ignores the results of TerminateProcess and of the five-second wait,
+and the `fail:` path of `e1s18_handle_standard_request` then closes the process handle and
+unloads the profile as if the child were gone.
+
+1. Change the ops hook to `BOOL (*terminate_child)( HANDLE process )`, returning TRUE only when
+   the child is confirmed dead: call TerminateProcess (its failure alone does not decide, the
+   process may already have exited), then require `WaitForSingleObject( process, 5000 ) ==
+   WAIT_OBJECT_0`.
+2. In the `fail:` path, when termination is not confirmed: do not close `pi.hProcess` or
+   `pi.hThread` (keep the references; add a `ponytail:` comment that a supervisor-owned reaper
+   is the R7 design follow-up), do not unload the profile (the child may still use the hive),
+   still close the remote handle and everything else, and return `ERROR_CHILD_NOT_COMPLETE`
+   instead of the original error.
+3. Fake: add a switch to make `fake_terminate_child` report failure.
+
+Tests: unconfirmed termination returns ERROR_CHILD_NOT_COMPLETE, closes no process handle, does
+not unload, still closes the remote handle; the confirmed path and the existing stage matrix
+behave as before.

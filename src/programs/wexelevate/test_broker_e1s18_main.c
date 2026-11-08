@@ -74,6 +74,10 @@ struct test_tracker
     int profile_unloaded;
     int handles_closed;
     int buffers_freed;
+    int process_handle_closed;
+    int thread_handle_closed;
+    /* WO-8: when set, fake_terminate_child reports the child is not confirmed dead */
+    int terminate_child_fail;
 
     /* Injected capabilities */
     uint64_t injected_caps;
@@ -309,10 +313,11 @@ static DWORD fake_resume_thread( struct request *req, HANDLE thread )
     return ERROR_SUCCESS;
 }
 
-static void fake_terminate_child( HANDLE process )
+static BOOL fake_terminate_child( HANDLE process )
 {
     (void)process;
     g_track.child_terminated++;
+    return g_track.terminate_child_fail ? FALSE : TRUE;
 }
 
 static void fake_close_remote_handle( HANDLE caller, HANDLE remote )
@@ -329,8 +334,11 @@ static void fake_unload_profile( uint64_t lease_id, HANDLE hkey, HANDLE token )
 
 static void fake_close_handle( HANDLE handle )
 {
-    (void)handle;
     g_track.handles_closed++;
+    /* Track the suspended child's process/thread handles (set by
+     * fake_create_process_suspended) so rollback ownership can be asserted. */
+    if (handle == (HANDLE)(intptr_t)0x3003) g_track.process_handle_closed++;
+    if (handle == (HANDLE)(intptr_t)0x4004) g_track.thread_handle_closed++;
 }
 
 static void fake_free_buffer( void *ptr )
@@ -2936,6 +2944,66 @@ static int test_transport_boundary_expires_during_call( void )
     e1s18_reset_boundary_table();
     return TEST_PASS;
 }
+
+/*
+ * Test 50: WO-8 - Confirmed child termination on rollback (R7, item 2).
+ *
+ * Unconfirmed: terminate_child reports the child is not confirmed dead. The
+ * broker must return ERROR_CHILD_NOT_COMPLETE, close no process/thread handle
+ * (kept for a supervisor-owned reaper), not unload the profile (the child may
+ * still use the hive), and still close the remote handle.
+ *
+ * Confirmed: terminate_child confirms the child is dead. The broker must
+ * return the original error, close the process/thread handles, unload the
+ * profile, and close the remote handle (the existing stage-matrix behavior).
+ */
+static int test_wo8_confirmed_child_termination( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    DWORD err;
+
+    /* --- Unconfirmed termination --- */
+    init_dummy_request( &req );
+    reset_tracker();
+    g_track.fail_at_stage = 12; /* transfer_lease fails, after child + remote handle */
+    g_track.fail_error_code = 0x900c;
+    g_track.terminate_child_fail = 1; /* fake reports the child is not confirmed dead */
+    e1s18_set_ops( &s_fake_ops );
+
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, ERROR_CHILD_NOT_COMPLETE, "Unconfirmed termination must return ERROR_CHILD_NOT_COMPLETE" );
+    CHECK_EQ( g_track.child_terminated, 1, "terminate_child must be called once" );
+    CHECK_EQ( g_track.process_handle_closed, 0, "Process handle must NOT be closed when termination is unconfirmed" );
+    CHECK_EQ( g_track.thread_handle_closed, 0, "Thread handle must NOT be closed when termination is unconfirmed" );
+    CHECK_EQ( g_track.profile_unloaded, 0, "Profile must NOT be unloaded when termination is unconfirmed" );
+    CHECK_EQ( g_track.remote_handle_closed, 1, "Remote handle must still be closed in caller" );
+    CHECK_EQ( reply.pid, 0, "Reply pid must be zero" );
+    CHECK_EQ( reply.tid, 0, "Reply tid must be zero" );
+    CHECK_EQ( reply.handle, 0, "Reply handle must be zero" );
+
+    /* --- Confirmed termination (existing stage-matrix behavior) --- */
+    init_dummy_request( &req );
+    reset_tracker();
+    g_track.fail_at_stage = 12;
+    g_track.fail_error_code = 0x900c;
+    g_track.terminate_child_fail = 0; /* fake confirms the child is dead */
+    e1s18_set_ops( &s_fake_ops );
+
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, 0x900c, "Confirmed termination must return the original error" );
+    CHECK_EQ( g_track.child_terminated, 1, "terminate_child must be called once" );
+    CHECK_EQ( g_track.process_handle_closed, 1, "Process handle must be closed when termination is confirmed" );
+    CHECK_EQ( g_track.thread_handle_closed, 1, "Thread handle must be closed when termination is confirmed" );
+    CHECK_EQ( g_track.profile_unloaded, 1, "Profile must be unloaded when termination is confirmed" );
+    CHECK_EQ( g_track.remote_handle_closed, 1, "Remote handle must be closed in caller" );
+    CHECK_EQ( reply.pid, 0, "Reply pid must be zero" );
+    CHECK_EQ( reply.tid, 0, "Reply tid must be zero" );
+    CHECK_EQ( reply.handle, 0, "Reply handle must be zero" );
+
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
 #endif
 
 int main( int argc, char **argv )
@@ -3100,6 +3168,9 @@ int main( int argc, char **argv )
 
     printf("49. Testing WO-5 evidence expiring during the transport call is rejected...\n");
     if (test_transport_boundary_expires_during_call() != TEST_PASS) ret = 1;
+
+    printf("50. Testing WO-8 confirmed child termination on rollback (unconfirmed keeps handles, no unload)...\n");
+    if (test_wo8_confirmed_child_termination() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)
