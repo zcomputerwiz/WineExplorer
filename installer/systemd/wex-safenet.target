@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Safe Mode with Networking (docs/SAFE_MODE.md): Safe Mode plus NetworkManager, the counterpart of Windows'
+# SafeBoot\Network list. wex-bootmode-generator makes this default.target for wexmode=safenet.
+[Unit]
+Description=WineExplorer Safe Mode with Networking
+Requires=wex-safemode.target
+After=wex-safemode.target
+Wants=NetworkManager.service network.target
+AllowIsolate=yes

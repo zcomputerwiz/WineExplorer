@@ -90,7 +90,7 @@ The installer polish work completed the visual parity and integration items:
 - Date and Time settings use a shared XP time zone list (`wextimezone.h`) with full Unicode CLDR Windows<->IANA mapping, date and time pickers, and DST indicator.
 - Automatic Updates choice from OOBE is written to `/etc/wineexplorer/setup/automatic-updates` and applied to `/etc/apt/apt.conf.d/20auto-upgrades` via `unattended-upgrades`; `AutomaticUpdates=Yes/No` is supported in answer files.
 - Text setup partition and format screens use Windows XP wording (`C: Partition4 ... on Disk 0 at Id 0 on bus 0 ... [GPT]`) with disk bus adaptation, keeping Linux device paths in logs only; the reboot countdown bar is red/brown without percentage text.
-- Installed GRUB boots straight through (`GRUB_TIMEOUT_STYLE=hidden`, `GRUB_TIMEOUT=0`, `GRUB_TERMINAL=console`, Debian theme removed).
+- Installed GRUB boots straight through (`GRUB_TIMEOUT_STYLE=hidden`, `GRUB_TIMEOUT=1`, `GRUB_TERMINAL=console`, Debian theme removed). F8 during that second boots the "Advanced Options for WineExplorer" entry (`wexmode=menu`), which shows the XP Advanced Options menu ([SAFE_MODE.md](SAFE_MODE.md)).
 - The desktop template properly displays the Recycle Bin icon on first logon.
 
 GRUB on the installed system is planned to be replaced by Vintner Boot; see [VINTNER_BOOT.md](VINTNER_BOOT.md).

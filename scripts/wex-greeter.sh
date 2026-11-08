@@ -4,6 +4,15 @@
 # LIGHTDM_TO_SERVER_FD / LIGHTDM_FROM_SERVER_FD, which reach logonui.exe through wine and explorer.
 # Installed as /usr/local/bin/wex-greeter.sh; prepare its isolated prefix on first use.
 # See docs/WINLOGON_AND_DWM.md, phase W2.
+
+# Safe Mode: the GTK greeter, so that logging on needs no Wine (docs/SAFE_MODE.md)
+case "$(/usr/local/bin/wex-bootmode 2>/dev/null)" in
+    safe|safenet|safecmd)
+        echo "=== Safe Mode logon started: $(date) ==="
+        exec /usr/sbin/lightdm-gtk-greeter
+        ;;
+esac
+
 export WINEPREFIX="${WINEPREFIX:-/var/lib/lightdm/.wine-logon}"
 export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"   # see wine-explorer-session.sh
 export WINEDEBUG="${WINEDEBUG:--all,err+all}"

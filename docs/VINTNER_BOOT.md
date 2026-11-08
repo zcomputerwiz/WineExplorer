@@ -24,9 +24,9 @@ Two things already work in our favour:
 - Vintner's kernel and initramfs hooks do nothing unless the running kernel's command line has
   `vintner.bootstorage=` (`src/internal/publish/publish.go:314-337` in Vintner Boot). Installing Vintner
   packages into the live-build chroot or the live ISO therefore cannot break either.
-- WineExplorer's Safe Mode only looks for `wexmode=safecmd` in `/proc/cmdline`
-  (`scripts/wex-safemode-setup.sh:12-14`, `scripts/wex-safemode-pam-check.sh:7`). Only the way that token gets
-  onto the command line has to change.
+- WineExplorer's Safe Mode needs one token on the command line, `wexmode=menu`, which opens the Advanced Options
+  menu; the menu chooses the mode at run time (`docs/SAFE_MODE.md`). Only the way that token gets onto the
+  command line has to change.
 
 ## 2. Who owns what after the switch
 
@@ -36,7 +36,7 @@ Two things already work in our favour:
 | Bootloader | textsetup: `grub-install`, `update-grub` | Vintner (systemd-boot on UEFI, static GRUB on BIOS) |
 | Kernel command line | `/etc/default/grub` and `grub.d` | Vintner manifest; gen 1 written at install time |
 | Boot menu | GRUB, hidden, 1 s timeout | Vintner, hidden; key press (UEFI) or Shift (BIOS) |
-| Safe Mode entry | `/etc/grub.d/11_wineexplorer_safemode` | Vintner variant entry (needs V1) |
+| Safe Mode entry | `/etc/grub.d/11_wineexplorer_advanced` (F8, `wexmode=menu`) | Vintner variant entry (needs V1) |
 | Kernel fallback | none | Vintner boot counting |
 | Recovery | Safe Mode in the installed system; ISO rescue shell | Safe Mode stays; Vintner recovery image added |
 | Boot splash | Plymouth masked | Open decision D2 |
@@ -192,40 +192,35 @@ Status (2026-11-07): not started; it waits for `vintner install`. Per the Vintne
 
 Goal (owner, 2026-11-07): starting up and recovering should feel familiar to people who know Windows. The Vintner
 side of this is recorded in Vintner Boot's `docs/work-orders/WO-0010-product-readiness.md` ("Decisions" and items
-4.1-4.8). The WineExplorer side, recommended here:
+4.1-4.8).
+
+Status (2026-11-08): the WineExplorer side works with GRUB and is described in `docs/SAFE_MODE.md`. One
+`wexmode=menu` boot shows the XP Advanced Options menu on `tty1` before `basic.target`. The menu chooses the mode
+at run time and keeps it in `/run`; a systemd generator selects the services. Nothing on disk changes. The GRUB
+entry `11_wineexplorer_advanced` carries `--hotkey=f8`, and during GRUB's hidden timeout a menu hotkey boots its
+entry directly, so F8 works on BIOS and UEFI. It was tested on SeaBIOS and OVMF.
+
+Left for Vintner:
 
 - Remove the GRUB generator once Vintner variants exist: drop
-  `installer/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_safemode` from the live-build include
-  and from the session package (`installer/package-wine.sh:260-262`).
+  `installer/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_advanced` from the live-build include
+  and from the session package.
 - Declare one Vintner variant, "Advanced Options", with the token `wexmode=menu`. A variant boot changes no boot
   count or state (owner decision): a good image stays good, a bad image stays bad.
-- **Advanced Options Menu.** A `wexmode=menu` boot shows an XP-style text menu early in boot, before the display
-  manager, on `tty1`. It offers the XP F8 list, with what each item does here:
-
-  | Item | Here |
-  |---|---|
-  | Safe Mode | `wexmode=safe` for this boot: the desktop with the minimum of services (new) |
-  | Safe Mode with Networking | `wexmode=safenet` (new) |
-  | Safe Mode with Command Prompt | `wexmode=safecmd`, as today (`scripts/wex-safemode-setup.sh`) |
-  | Enable Boot Logging | Persistent, verbose journal for this boot, plus a boot log in the Windows directory, as XP writes one |
-  | Enable VGA Mode | Keep the GPU's KMS driver from loading for this boot (a `modprobe` blacklist under `/run`), with an X fallback that does not force `modesetting`; see section 6. If that proves unreliable, declare a second variant with `nomodeset` |
-  | Last Known Good Configuration | `vintner next-boot previous-good`, then restart |
-  | Directory Services Restore Mode | Grayed out (does not apply) |
-  | Debugging Mode | Kernel log level raised for this boot |
-  | Disable automatic restart on system failure | `kernel.panic=0` for this boot |
-  | Start WineExplorer Normally | Continue this boot in normal mode |
-  | Reboot | Restart |
-  | Return to OS Choices Menu | `vintner next-boot menu`, then restart |
-
-  `wex-safemode.service`, `wex-safemode-setup.sh` and the PAM check keep working on the `wexmode=` token. They
-  gain the `safe` and `safenet` modes.
+- Enable the grayed menu items that need Vintner: Last Known Good Configuration (`vintner next-boot
+  previous-good`, then restart). Return to OS Choices Menu shows the local list (one entry) today; it can restart
+  into the loader menu (`vintner next-boot menu`) once that menu lists the recovery images.
+- Enable VGA Mode stays grayed until there is an X fallback that does not force `modesetting` (section 6). Then
+  keep the GPU's KMS driver from loading for the boot (a `modprobe` blacklist under `/run`), or declare a second
+  variant with `nomodeset`.
 - **"WineExplorer did not start successfully".** XP shows this screen after a failed start. When
   `vintner status --json` reports failed attempts of the booted image, an ordinary boot shows the same choices
   early, with a 30-second countdown that defaults to "Start WineExplorer Normally". A Safe Mode choice records the
   mode for one boot and restarts into the Advanced Options variant (`vintner next-boot variant`), which goes
   straight to that mode. The boot that showed the screen was counted, so finishing it in Safe Mode would mark the
   image good.
-- Press F8 at start to reach the menu (UEFI; BIOS uses Shift unless Vintner's WO-0010 item 4.8 finds a way).
+- F8 at start reaches the menu. On Vintner's static BIOS GRUB the same `--hotkey=f8` on the variant's entry gives
+  F8 during the hidden timeout (WO-0010 item 4.8); systemd-boot on UEFI needs its own key handling.
 
 ### 4.4 Boot health check
 
@@ -267,8 +262,7 @@ privileged WineExplorer D-Bus service that runs them; Vintner offers no D-Bus in
 
 ### 4.7 Documentation
 
-- `docs/INSTALLER.md` describes GRUB on the installed system and still says `GRUB_TIMEOUT=0` (line 93); the code
-  uses `1` since `ccbf98ba`.
+- `docs/INSTALLER.md` describes GRUB and its F8 entry on the installed system (line 93).
 - `docs/ADMIN_GUIDE.md:40` names `grub-efi-amd64`, which is not installed.
 
 Update both when the switch lands.

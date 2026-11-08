@@ -1,6 +1,9 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-or-later
-# WineExplorer Safe Mode with Command Prompt GRUB menu entry generator.
+# GRUB menu entry for WineExplorer's Advanced Options menu (docs/SAFE_MODE.md): the latest kernel with
+# wexmode=menu. Its hotkey is F8: during GRUB's hidden timeout a menu hotkey boots its entry at once
+# (grub-core/normal/menu.c), so F8 at start opens the menu, as on Windows XP. Replaced by a Vintner Boot variant
+# once Vintner is the loader (docs/VINTNER_BOOT.md section 4.3).
 set -e
 
 prefix="/usr"
@@ -14,19 +17,12 @@ export TEXTDOMAINDIR="${datarootdir}/locale"
 
 CLASS="--class wineexplorer --class debian --class gnu-linux --class gnu --class os"
 
-# Locate available Linux kernels in /boot
+# The newest kernel in /boot, as 10_linux puts first
 list=""
 for i in /boot/vmlinuz-* /vmlinuz-* /boot/kernel-* ; do
     if grub_file_is_not_garbage "$i" ; then list="$list $i" ; fi
 done
-
-# Select the primary / latest kernel
-latest_kernel=""
-for k in $list; do
-    latest_kernel="$k"
-    break
-done
-
+latest_kernel=$(echo $list | tr ' ' '\n' | version_sort -r | head -n 1)
 if [ -z "$latest_kernel" ]; then
     exit 0
 fi
@@ -36,7 +32,6 @@ dirname=$(dirname "$latest_kernel")
 basename=$(basename "$latest_kernel")
 rel_dirname=$(make_system_path_relative_to_its_root "$dirname")
 
-# Locate corresponding initrd image
 initrd=""
 for i in "initrd.img-${version}" "initrd-${version}.img" "initrd-${version}.gz" "initrd-${version}" ; do
     if test -e "${dirname}/${i}" ; then
@@ -57,15 +52,11 @@ else
     root_device="UUID=${GRUB_DEVICE_UUID}"
 fi
 
-title="WineExplorer (Safe Mode with Command Prompt)"
+title="Advanced Options for WineExplorer (F8)"
 
-echo "menuentry '$(echo "$title" | grub_quote)' ${CLASS} \$menuentry_id_option 'wex-safecmd-$boot_device_id' {"
-if [ "x$GRUB_GFXPAYLOAD_LINUX" = x ]; then
+echo "menuentry '$(echo "$title" | grub_quote)' ${CLASS} --hotkey=f8 \$menuentry_id_option 'wex-advanced-$boot_device_id' {"
+if [ "x$GRUB_GFXPAYLOAD_LINUX" = x ] || [ "x$GRUB_GFXPAYLOAD_LINUX" != xtext ]; then
     echo "	load_video"
-else
-    if [ "x$GRUB_GFXPAYLOAD_LINUX" != xtext ]; then
-        echo "	load_video"
-    fi
 fi
 echo "	insmod gzio"
 if [ x$dirname = x/ ]; then
@@ -73,10 +64,8 @@ if [ x$dirname = x/ ]; then
 else
     prepare_grub_to_access_device ${GRUB_DEVICE_BOOT} | grub_add_tab
 fi
-echo "	echo	'Loading Linux ${version} (Safe Mode) ...'"
-echo "	linux	${rel_dirname}/${basename} root=${root_device} ro ${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_DEFAULT} wexmode=safecmd"
+echo "	linux	${rel_dirname}/${basename} root=${root_device} ro ${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_DEFAULT} wexmode=menu"
 if test -n "$initrd"; then
-    echo "	echo	'Loading initial ramdisk ...'"
     echo "	initrd	${rel_dirname}/${initrd}"
 fi
 echo "}"

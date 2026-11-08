@@ -1923,7 +1923,7 @@ SetupStage screen_init(SetupState *state)
         FILE *f_grub = fopen("/target/etc/default/grub.d/wineexplorer.cfg", "w");
         if (f_grub) {
             fprintf(f_grub,
-                    "# Silent instant boot for single-OS WineExplorer installation (hold Shift / Esc for Safe Mode menu)\n"
+                    "# Silent instant boot for single-OS WineExplorer installation (F8 for the Advanced Options menu)\n"
                     "GRUB_TIMEOUT_STYLE=hidden\n"
                     "GRUB_TIMEOUT=1\n"
                     "GRUB_TERMINAL=console\n"
@@ -1931,7 +1931,7 @@ SetupStage screen_init(SetupState *state)
                     "GRUB_BACKGROUND=\"\"\n");
             fclose(f_grub);
         }
-        chmod("/target/etc/grub.d/11_wineexplorer_safemode", 0755);
+        chmod("/target/etc/grub.d/11_wineexplorer_advanced", 0755);
     }
     if (!state->target_disk[0]) {
         if (state->target_part[0]) {

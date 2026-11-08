@@ -285,6 +285,16 @@ The repository includes specialized standalone diagnostic probes in `scripts/`:
    - *Cause*: Standard users attempting to write to `/var/lib/wineexplorer/machine`.
    - *Fix*: Run installers as a user belonging to the `sudo` group, or execute administrative installations using `pkexec` / elevation leases.
 
+### 6.5 Safe Mode and the Advanced Options Menu
+
+Press F8 at start (during GRUB's hidden one-second timeout) for the XP Advanced Options menu on the text console:
+Safe Mode, Safe Mode with Networking, Safe Mode with Command Prompt, Enable Boot Logging, Debugging Mode and
+Disable automatic restart on system failure work; items that need Vintner Boot or do not apply are grayed. A Safe
+Mode boot starts only what logging on needs, never logs on automatically and changes nothing on disk; the next
+start is normal again. Safe Mode with Command Prompt opens a recovery console without Wine and admits only members
+of `sudo`. Enable Boot Logging appends to `C:\WINDOWS\ntbtlog.txt` in the machine root. `wex-bootmode` prints the
+current mode. Design and tests: [SAFE_MODE.md](SAFE_MODE.md).
+
 ---
 
 ## 7. How to Verify (Test Script Inventory)
@@ -429,7 +439,7 @@ The repository provides comprehensive test suites in `installer/tests/` and `scr
 - `test_oobe_capture_audit.py`: Audits screenshots taken during OOBE execution for visual regressions.
 - `test_oobe_review.py` / `test_oobe_review_layout.py`: Tests OOBE user interface layout and DPI scaling.
 - `test_runtime_repairs.py`: Verifies runtime error detection and automatic repair mechanisms.
-- `test_safemode.py`: Validates Safe Mode boot option and minimal service initialization.
+- `test_safemode.py`: Safe Mode and the Advanced Options menu: boot mode parsing, generator output, PAM decisions, menu navigation and the package's migration from the old Safe Mode (run on Linux).
 - `test_sysrun_server.sh`: Tests sysrun system-level service daemon operation.
 - `test_webview2_analysis.py`: Performs static and dynamic analysis of WebView2 runtime initialization logs.
 - `test_wex_sysrun.sh`: Tests sysrun elevation lease API and privilege granting.

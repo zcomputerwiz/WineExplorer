@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Safe Mode (docs/SAFE_MODE.md): the counterpart of Windows' SafeBoot\Minimal list. basic.target (the boot
+# drivers' equivalent), logind, user sessions, the display manager and the text consoles; nothing else that a
+# normal boot starts through multi-user.target. wex-bootmode-generator makes this default.target for wexmode=safe
+# and wexmode=safecmd, and masks the Task Scheduler (timers), the Prefetcher and networking for the boot.
+[Unit]
+Description=WineExplorer Safe Mode
+Requires=basic.target
+After=basic.target
+Wants=systemd-logind.service systemd-user-sessions.service display-manager.service getty.target
+After=systemd-logind.service systemd-user-sessions.service display-manager.service getty.target
+Conflicts=rescue.service rescue.target
+AllowIsolate=yes

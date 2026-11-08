@@ -222,9 +222,13 @@ cp "$ROOT_DIR/scripts/wine-explorer-session-common.sh" "$STAGE_SESSION/usr/local
 cp "$ROOT_DIR/scripts/personalize-prefix.sh" "$STAGE_SESSION/usr/local/bin/wex-personalize-prefix"
 chmod 755 "$STAGE_SESSION/usr/local/bin/wex-personalize-prefix"
 cp "$ROOT_DIR/scripts/wine-explorer-wayland-session.sh" "$STAGE_SESSION/usr/local/bin/"
+# Safe Mode and the Advanced Options menu (docs/SAFE_MODE.md)
 cp "$ROOT_DIR/scripts/wex-safe-terminal.sh" "$STAGE_SESSION/usr/local/bin/wex-safe-terminal.sh"
-cp "$ROOT_DIR/scripts/wex-safemode-setup.sh" "$STAGE_SESSION/usr/local/sbin/wex-safemode-setup.sh"
+cp "$ROOT_DIR/scripts/wex-bootmode.sh" "$STAGE_SESSION/usr/local/bin/wex-bootmode"
 cp "$ROOT_DIR/scripts/wex-safemode-pam-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-safemode-pam-check.sh"
+cp "$ROOT_DIR/scripts/wex-advanced-options.py" "$STAGE_SESSION/usr/local/sbin/wex-advanced-options"
+cp "$ROOT_DIR/scripts/wex-bootlog.sh" "$STAGE_SESSION/usr/local/sbin/wex-bootlog"
+install -D -m755 "$SCRIPT_DIR/systemd/wex-bootmode-generator" "$STAGE_SESSION/usr/lib/systemd/system-generators/wex-bootmode-generator"
 cp "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$STAGE_SESSION/usr/local/bin/wex-gui-setup.sh"
 cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
 cp "$ROOT_DIR/scripts/wex-greeter.sh" "$STAGE_SESSION/usr/local/bin/wex-greeter.sh"
@@ -246,7 +250,6 @@ chmod 755 "$STAGE_SESSION/usr/local/sbin/"*
 
 # Desktop session definition
 cp "$ROOT_DIR/scripts/wine-explorer.desktop" "$STAGE_SESSION/usr/share/xsessions/wine-explorer.desktop"
-cp "$ROOT_DIR/scripts/wex-safe-terminal.desktop" "$STAGE_SESSION/usr/share/xsessions/wex-safe-terminal.desktop"
 chmod 644 "$STAGE_SESSION/usr/share/xsessions/"*.desktop
 install -m644 "$ROOT_DIR/scripts/wine-explorer-wayland.desktop" "$STAGE_SESSION/usr/share/wayland-sessions/"
 install -m644 "$ROOT_DIR/scripts/wayland/"*.xml "$STAGE_SESSION/etc/xdg/wineexplorer/wayland/"
@@ -257,15 +260,18 @@ install -m644 "$SCRIPT_DIR/live-build/config/includes.chroot/etc/lightdm/lightdm
 cp "$ROOT_DIR/scripts/20-wineexplorer-modesetting.conf" "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
 chmod 644 "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
 
-# GRUB Safe Mode boot entry
-cp "$SCRIPT_DIR/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_safemode" "$STAGE_SESSION/etc/grub.d/"
+# GRUB entry for the Advanced Options menu (F8)
+cp "$SCRIPT_DIR/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_advanced" "$STAGE_SESSION/etc/grub.d/"
 chmod 755 "$STAGE_SESSION/etc/grub.d/"*
 
 # Setup systemd units and polkit rule
 cp "$SCRIPT_DIR/systemd/wex-textsetup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-setup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
-cp "$SCRIPT_DIR/systemd/wex-safemode.service" "$STAGE_SESSION/lib/systemd/system/"
+for unit in wex-advanced-options.target wex-advanced-options.service wex-safemode.target wex-safenet.target \
+            wex-bootlog.service; do
+    cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
+done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
 # the session and everything it starts become candidates for kernel samepage merging (wexksmtuned decides when it runs)
 install -D -m644 "$SCRIPT_DIR/systemd/wex-ksm.conf" "$STAGE_SESSION/lib/systemd/system/lightdm.service.d/wex-ksm.conf"
@@ -285,7 +291,7 @@ install -d "$STAGE_SESSION/etc/systemd" "$STAGE_SESSION/usr/lib/sysctl.d"
 install -m644 "$SCRIPT_DIR/systemd/zram-generator.conf" "$STAGE_SESSION/etc/systemd/zram-generator.conf"
 echo /etc/systemd/zram-generator.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 install -m644 "$SCRIPT_DIR/systemd/99-wineexplorer-memory.conf" "$STAGE_SESSION/usr/lib/sysctl.d/99-wineexplorer-memory.conf"
-chmod 644 "$STAGE_SESSION/lib/systemd/system/"*.service
+chmod 644 "$STAGE_SESSION/lib/systemd/system/"*.service "$STAGE_SESSION/lib/systemd/system/"*.target
 cp "$SCRIPT_DIR/systemd/49-wexsetup.rules" "$STAGE_SESSION/etc/polkit-1/rules.d/"
 chmod 644 "$STAGE_SESSION/etc/polkit-1/rules.d/49-wexsetup.rules"
 
@@ -295,8 +301,39 @@ cat > "$STAGE_SESSION/DEBIAN/postinst" <<'EOF'
 set -e
 systemd-sysusers wexprefetchd.conf || true
 systemd-tmpfiles --create wexprefetchd.conf || true
+
+# Safe Mode (docs/SAFE_MODE.md). The earlier implementation (wex-safemode-setup.sh) edited LightDM, PAM and
+# AccountsService files at every boot; remove what it may have left behind.
+rm -f /etc/systemd/system/*.wants/wex-safemode.service /etc/lightdm/lightdm.conf.d/99-safemode.conf
+if [ -d /run/wex-safemode ]; then
+    for f in /run/wex-safemode/*.conf.bak; do
+        if [ -f "$f" ]; then mv -f "$f" "/etc/lightdm/lightdm.conf.d/$(basename "$f" .bak)"; fi
+    done
+    for f in /run/wex-safemode/orig-*; do
+        if [ -f "$f" ]; then cp -f "$f" "/var/lib/AccountsService/users/${f##*/orig-}"; fi
+    done
+    rm -rf /run/wex-safemode
+fi
+for f in /var/lib/AccountsService/users/*; do
+    if [ -f "$f" ]; then
+        sed -i -e 's/^Session=wex-safe-terminal$/Session=wine-explorer/' \
+               -e 's/^XSession=wex-safe-terminal$/XSession=wine-explorer/' "$f"
+    fi
+done
+# Two pam_exec lines, added once, consult the boot mode: no automatic logon in Safe Mode, and administrators only
+# in Safe Mode with Command Prompt. The account phase knows the user name even for a typed-in logon.
+for pam in /etc/pam.d/lightdm /etc/pam.d/lightdm-autologin; do
+    if [ -f "$pam" ]; then sed -i '/wex-safemode-pam-check\.sh/d' "$pam"; fi
+done
+if [ -f /etc/pam.d/lightdm ]; then
+    echo "account requisite pam_exec.so quiet stdout /usr/local/sbin/wex-safemode-pam-check.sh" >> /etc/pam.d/lightdm
+fi
+if [ -f /etc/pam.d/lightdm-autologin ]; then
+    echo "account requisite pam_exec.so quiet /usr/local/sbin/wex-safemode-pam-check.sh autologin" >> /etc/pam.d/lightdm-autologin
+fi
+
 systemctl daemon-reload || true
-systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service wex-safemode.service || true
+systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service || true
 systemctl enable wexprefetchd.socket || true
 systemctl start wexprefetchd.socket || true
 systemctl enable wexksmtuned.service || true

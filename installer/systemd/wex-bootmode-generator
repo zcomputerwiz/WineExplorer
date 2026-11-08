@@ -1,0 +1,56 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# systemd generator for WineExplorer's boot modes (docs/SAFE_MODE.md), installed in
+# /usr/lib/systemd/system-generators. It writes only to the early generator directory, which systemd empties at
+# every boot and every reload, so Safe Mode changes nothing on disk. systemd runs it again on daemon-reload, which
+# is how the Advanced Options menu applies its choice.
+#
+#   menu             default.target = wex-advanced-options.target (sysinit.target and the menu, nothing else)
+#   safe, safecmd    default.target = wex-safemode.target; Task Scheduler (timers), Prefetcher and networking masked
+#   safenet          default.target = wex-safenet.target; timers and Prefetcher masked
+#   normal           nothing
+set -eu
+early=${2:?usage: wex-bootmode-generator NORMAL_DIR EARLY_DIR LATE_DIR}
+units=${WEX_BOOTMODE_UNIT_DIR:-/usr/lib/systemd/system}
+bootmode=${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}
+
+# A pending offline update runs first: systemd-system-update-generator owns default.target for that boot.
+for update in ${WEX_BOOTMODE_SYSTEM_UPDATE:-/system-update /etc/system-update}; do
+    if [ -e "$update" ] || [ -L "$update" ]; then
+        exit 0
+    fi
+done
+
+mode=$("$bootmode" 2>/dev/null) || mode=normal
+
+mask()
+{
+    for unit in "$@"; do
+        ln -sfn /dev/null "$early/$unit"
+    done
+}
+
+# Counterparts of what Windows leaves out of SafeBoot\Minimal: Task Scheduler and the Prefetcher.
+not_in_safe_mode="timers.target wexprefetchd.socket wexprefetchd.service"
+# Networking, which "Safe Mode with Networking" keeps. NetworkManager is D-Bus activatable, so leaving it out of
+# the target is not enough: its D-Bus alias is masked as well.
+networking="NetworkManager.service dbus-org.freedesktop.NetworkManager.service NetworkManager-wait-online.service
+NetworkManager-dispatcher.service dbus-org.freedesktop.nm-dispatcher.service wpa_supplicant.service
+ModemManager.service networking.service"
+
+case "$mode" in
+    menu)
+        ln -sfn "$units/wex-advanced-options.target" "$early/default.target"
+        ;;
+    safe|safecmd)
+        ln -sfn "$units/wex-safemode.target" "$early/default.target"
+        mask $not_in_safe_mode $networking
+        ;;
+    safenet)
+        ln -sfn "$units/wex-safenet.target" "$early/default.target"
+        mask $not_in_safe_mode
+        ;;
+esac
+exit 0

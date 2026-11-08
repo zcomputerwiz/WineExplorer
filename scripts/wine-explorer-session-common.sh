@@ -51,6 +51,12 @@ wex_prepare_prefix()
         sleep 2
     fi
 
+    # Safe Mode (docs/SAFE_MODE.md): the steps above are what logging on needs; the optional ones below are
+    # skipped, so the account starts with Wine's defaults and the shared graphics view, and nothing is seeded.
+    case "${WEXMODE:-normal}" in
+        safe|safenet) return 0 ;;
+    esac
+
     # Seed only missing native-runtime choices before starting the desktop. This
     # helper refuses live hives and never launches Wine; user/app overrides win.
     if [ -x /usr/local/bin/wex-components ]; then
