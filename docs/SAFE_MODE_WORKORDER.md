@@ -2,8 +2,8 @@
 # Safe Mode: Remaining Work
 
 Date: 2026-11-08  
-Status: plan. Phase 1 (boot modes, Advanced Options menu, logon, session) is done and tested
-(`docs/SAFE_MODE.md`, WineExplorer commit `14286423`).  
+Status: plan; the owner's decisions are in section 4 (2026-11-08). Phase 1 (boot modes, Advanced Options menu,
+logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer commit `14286423`).  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
@@ -34,13 +34,14 @@ grayed. The VM test lives only in a scratchpad.
   `PATH`, `WINEPREFIX`, `WINESERVERSOCKET`, `LANG`/`LC_*` and the display variables (`tools/wex-sysrun/wex-sysrun.c:293-331`).
   Adding a variable there would change E1 code, so Wine reads the mode from the root-owned file
   `/run/wineexplorer/bootmode` instead (item B0).
-- **A Safe Mode boot changes no boot state** (owner decision, 2026-11-07). Item D1 must keep that.
+- **A Safe Mode boot changes no boot state** (owner decision, 2026-11-07), and neither does any other boot through
+  the menu (decision 3). Item D1 must keep that.
 - **Changes to stock Wine stay small** and each one is listed in `docs/STOCK_CHANGES.md` (`CLAUDE.md`).
 - **Every Wine build is WoW64**, and every step is checked in a VM on BIOS and UEFI with a 32-bit program.
 - **XP references.** The F8 menu, the Safe Mode desktop, the message box, the classic logon dialog and
-  `ntbtlog.txt` have to be measured on the XP VM. The local-only repository with those captures
-  (`../WineExplorer-local`, `docs/ASSETS.md`) is not on this machine. Microsoft text and art never enter this
-  repository, so the plan describes XP's behaviour and does not quote it.
+  `ntbtlog.txt` have to be measured on the XP reference VM in VirtualBox (decision 6). The local-only repository
+  for those captures (`../WineExplorer-local`, `docs/ASSETS.md`) is not on this machine. Microsoft text and art
+  never enter this repository, so the plan describes XP's behaviour and does not quote it.
 - **ReactOS code may be ported.** `IntPaintDesktop` in ReactOS
   (`win32ss/user/ntuser/desktop.c:2130-2355` at `e0e659386641`, GPL-2.0-or-later) draws the Safe Mode desktop.
 
@@ -165,7 +166,8 @@ the XP VM.
 
 **C2. Message box after logon.** XP shows a Yes/No message box on the Safe Mode desktop; No opens System Restore.
 Show it once from `WexShellStart` (`src/dlls/wexshell/desktop.c:1321`) after the desktop appears. WineExplorer has
-no System Restore: see decision 2.
+no System Restore, so No logs off to the logon screen until a restore tool (Vintner rollback) can take its place
+(decision 2).
 
 **C3. Basic resolution.** XP starts Safe Mode with its basic display driver at a low resolution. Measure it on
 the XP VM, then let `wine-explorer-session.sh` set that mode with `xrandr` for the session only, never saving it
@@ -176,8 +178,8 @@ path).
 
 - `src/dlls/msgina` has only the Turn Off and Log Off dialogs today. Add the logon dialog there.
 - Give `logonui.exe` (`src/programs/logonui/logonui.c`) a classic mode that uses it.
-- `wex-greeter.sh` starts that mode in Safe Mode and falls back to the GTK greeter if Wine fails to start. A
-  broken Wine is exactly what Safe Mode with Command Prompt must survive (decision 1).
+- `wex-greeter.sh` starts that mode in all three Safe Modes. The GTK greeter is only the last resort, when Wine
+  fails to start; a broken Wine is exactly what Safe Mode with Command Prompt must survive (decision 1).
 - The banner must be WineExplorer's own art (no Windows logo, `CLAUDE.md`).
 
 **C5. Menu and OS list layout.** Compare the positions, the bar width and the wording of `wex-advanced-options`
@@ -205,15 +207,16 @@ a countdown to a normal start. With GRUB it can work now:
 - `grubenv` sits on the ext4 root, which GRUB can write. With Vintner this becomes `vintner status --json` and
   the boot counters (`docs/VINTNER_BOOT.md` section 4.3).
 
-**D2. Enable VGA Mode.** Today it is grayed: X forces the `modesetting` driver
-(`scripts/20-wineexplorer-modesetting.conf`), so with no DRM device it has no fallback. `fbdev` and `vesa` are
-installed. Spike:
+**D2. Enable VGA Mode.** It stays grayed for now (decision 4: only if it is simple). X forces the `modesetting`
+driver (`scripts/20-wineexplorer-modesetting.conf`), so with no DRM device it has no fallback. `fbdev` and `vesa`
+are installed. The two ways, neither simple today:
 
 - (a) Restart once into a GRUB entry with `nomodeset` and `set gfxpayload=keep` at a VESA mode, so that
-  `simpledrm` has a framebuffer and X's `modesetting` runs on it. The entry is chosen with `grub-reboot`; on
-  Vintner it becomes a second variant.
-- (b) No restart: X on the current DRM device at 640x480. That is cheaper but is not a basic driver.
-- Recommended: (a), which matches XP's intent.
+  `simpledrm` has a framebuffer and X's `modesetting` runs on it. The entry is chosen with `grub-reboot`, which
+  writes `grubenv`; on Vintner it becomes a second variant. It needs a new GRUB entry and tests on BIOS and UEFI.
+- (b) No restart: X on the current DRM device at 640x480. It is not a basic driver, so it does not help when the
+  graphics driver is the problem. Once C3 sets a basic resolution for Safe Mode, (b) is a few lines on top of it.
+- Look at it again after C3.
 
 **D3. Last Known Good Configuration and Return to OS Choices Menu.** These wait for Vintner's `next-boot
 previous-good` and `next-boot menu` (`docs/VINTNER_BOOT.md` V6). Until then the first stays grayed and the second
@@ -225,31 +228,29 @@ the first serial port as well, which is closer to XP's kernel debugger on COM1. 
 **D5. Startup and Recovery in sysdm.cpl** (`docs/VINTNER_BOOT.md` section 4.6). The "Time to display recovery
 options when needed" setting is D1's countdown, so add it when D1 lands.
 
-## 4. Decisions for the owner
+## 4. Owner decisions (2026-11-08)
 
-1. **Logon dialog in Safe Mode.** Recommended: XP's classic dialog (C4) in all three modes, falling back to the
-   GTK greeter when Wine cannot start. The alternative is the GTK greeter always, which is safer but not XP.
-2. **The message box's No button** (C2), because there is no System Restore. Recommended: show XP's Yes/No box,
-   where No logs off to the logon screen, and connect it to a restore tool when one exists (Vintner rollback).
-   The alternative is an OK-only box.
-3. **Does a start through the menu count?** Recommended: no boot through the menu changes the start-up state,
-   whatever mode it ends in. That is the same rule as Vintner's uncounted variant, so it behaves the same on
-   both loaders.
-4. **Enable VGA Mode** (D2): a restart into a basic-display entry (recommended), or a low resolution without a
-   restart.
-5. **Where Wine reads the mode** (B1): the WineExplorer file `/run/wineexplorer/bootmode` (recommended; no E1
-   change), or adding a variable to `wex-sysrun`'s allow-list together with the E1 owners.
-6. **XP captures.** Who captures the F8 menu, the OS list, the failure screen, the Safe Mode desktop, the message
-   box, the classic logon dialog, `ntbtlog.txt` and the `SafeBoot` key on the XP VM? They are kept in the
-   local-only repository.
+1. **Logon dialog in Safe Mode:** XP's classic dialog (C4) in all three modes. The GTK greeter is only the last
+   resort, when Wine cannot start.
+2. **The message box's No button** (C2): XP's Yes/No box. No logs off to the logon screen, and is connected to a
+   restore tool (Vintner rollback) when one exists.
+3. **Starts through the menu do not count:** no boot through the menu changes the start-up state, whatever mode
+   it ends in, good or bad. That is the same rule as Vintner's uncounted variant, so both loaders behave alike.
+4. **Enable VGA Mode** (D2): stays grayed for now, unless an implementation turns out to be simple.
+5. **Where Wine reads the mode** (B1): the WineExplorer file `/run/wineexplorer/bootmode`; `wex-sysrun` and the
+   other E1 code stay as they are.
+6. **XP captures:** taken on the XP reference VM registered in VirtualBox (the F8 menu, the OS list, the failure
+   screen, the Safe Mode desktop, the message box, the classic logon dialog, `ntbtlog.txt` and the `SafeBoot`
+   key), and kept in the local-only repository. On 2026-11-08 the VM's files were on this machine but the VM was
+   not registered; the owner registers it.
 
 ## 5. Order
 
 1. A1, A2 (tests first; they check every later step).
 2. B0-B8 on the Wine branch, then C1 and C2. These need B2, or `WEXMODE` as a stopgap.
 3. D1 (GRUB), then A3 and A4.
-4. C3-C6 once the XP captures exist; C4 after decision 1.
-5. D2 after its spike; D3 and the Vintner variant when Vintner's commands exist.
+4. C3-C6 once the XP captures exist.
+5. D2 stays grayed; look at it again after C3. D3 and the Vintner variant when Vintner's commands exist.
 
 Each step: unit tests, the A1 VM test on BIOS and UEFI with a 32-bit program, a commit, and an update to
 `docs/SAFE_MODE.md`.
