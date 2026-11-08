@@ -15,7 +15,8 @@
 #   startnormal  Start WineExplorer Normally: a normal start with automatic logon, timers and networking
 #   normal       no F8: automatic logon, and the boot-mode generator wrote nothing
 # Before and after every boot it records checksums of every file and link under /etc and /var/lib/AccountsService
-# and of each account's .dmrc. A boot that changes any of them fails.
+# and of each account's .dmrc. A boot that changes any of them fails. Every boot also reports the guest's disk use:
+# a warning from 80%, a failure from 95%.
 #
 #   safe-mode.sh SOURCE_VM TEST_VM [PHASE...]          (default: all phases, in the order above)
 #
@@ -254,11 +255,12 @@ logon_gtk() {   # the GTK greeter asks for the user name, then the password
     fi
 }
 
-# prefetch is "absent" on images made before the prefetch service (docs/PREFETCH_SERVICE.md)
-STATE_CMD='printf "mode=%s default=%s nm=%s timers=%s cron=%s prefetch=%s\n" "$(wex-bootmode)" "$(systemctl get-default)" "$(systemctl is-active NetworkManager.service)" "$(systemctl list-units --type=timer --state=active --no-legend | wc -l)" "$(systemctl is-active cron.service)" "$(if [ -e /lib/systemd/system/wexprefetchd.socket ]; then systemctl is-active wexprefetchd.socket; else echo absent; fi)"'
+# prefetch is "absent" on images made before the prefetch service (docs/PREFETCH_SERVICE.md); disk is the root
+# file system's use in percent
+STATE_CMD='printf "mode=%s default=%s nm=%s timers=%s cron=%s prefetch=%s disk=%s\n" "$(wex-bootmode)" "$(systemctl get-default)" "$(systemctl is-active NetworkManager.service)" "$(systemctl list-units --type=timer --state=active --no-legend | wc -l)" "$(systemctl is-active cron.service)" "$(if [ -e /lib/systemd/system/wexprefetchd.socket ]; then systemctl is-active wexprefetchd.socket; else echo absent; fi)" "$(df --output=pcent / | tail -n 1 | tr -d " %")"'
 
 expect_state() {   # expect_state key=value|key!=value...: the guest's mode and units, read on the serial console
-    local line kv
+    local line kv disk
     line=$(gsh "$STATE_CMD" | grep '^mode=' | tail -n 1)
     echo "  $line"
     [ -n "$line" ] || fail "no answer on the serial console"
@@ -268,6 +270,12 @@ expect_state() {   # expect_state key=value|key!=value...: the guest's mode and 
             *) case " $line " in *" $kv "*) ;; *) fail "expected $kv: $line" ;; esac ;;
         esac
     done
+    # a full test disk makes every later result unreliable (VMs have run out of space before)
+    disk=${line##*disk=}
+    disk=${disk%% *}
+    case "$disk" in ''|*[!0-9]*) fail "no disk use in: $line" ;; esac
+    if [ "$disk" -ge 95 ]; then fail "the guest's root file system is ${disk}% full"; fi
+    if [ "$disk" -ge 80 ]; then echo "  WARNING: the guest's root file system is ${disk}% full"; fi
 }
 
 expect_session_mode() {   # the logged-on Explorer session's WEXMODE

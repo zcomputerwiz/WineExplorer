@@ -78,7 +78,9 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   phase (`safe safenet safecmd nowine bootlog startnormal normal`), each checked on the screen (OCR) and over the
   serial console as `WEX_TEST_USER` (default `wineuser`, empty password unless `WEX_TEST_PASSWORD_FILE`; on the
   Welcome screen the first tile unless `WEX_TEST_TILE` names one). `nowine` hides `/usr/local/bin/wine` on the
-  overlay for its boot and puts it back. A boot that
+  overlay for its boot and puts it back. Each boot reports the guest's disk use (a warning from 80%, a failure from
+  95%). The overlay is replaced on every run, so runs do not pile up; delete superseded test disks of your own once a
+  newer base exists. A boot that
   changes a file under `/etc` or `/var/lib/AccountsService`, or a `.dmrc`, fails. It mounts the overlay through the
   first free NBD device, so run one at a time. Needs QEMU/KVM, qemu-nbd, Tesseract and ImageMagick; the VM ends
   stopped; evidence in `$VMTEST_DIR/TEST_VM/safe-mode/`. All six phases took about 13 minutes per firmware
