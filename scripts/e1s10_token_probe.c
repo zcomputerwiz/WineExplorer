@@ -80,10 +80,6 @@ static BOOL info( HANDLE token, TOKEN_INFORMATION_CLASS type, void *out, DWORD s
     return ok;
 }
 
-#ifdef WEX_E1S13_HKU_PROBE
-#include "e1s13_hku_checks.h"
-#endif
-
 static BOOL same_luid( LUID a, LUID b )
 {
     return a.LowPart == b.LowPart && a.HighPart == b.HighPart;
@@ -116,6 +112,10 @@ static BOOL unhex( const char *s, BYTE *out )
     }
     return TRUE;
 }
+
+#ifdef WEX_E1S13_HKU_PROBE
+#include "e1s13_hku_checks.h"
+#endif
 
 static void check_token( HANDLE token, HANDLE caller, PSID expected, const BYTE *response )
 {
@@ -541,7 +541,7 @@ static int broker( int argc, char **argv )
     HMODULE host = NULL;
     transport_fn transport = NULL;
     const char *mode = "invalid";
-    require("broker-arguments/argc", argc == 8 || argc == 9);
+    require("broker-arguments/argc", argc >= 8 && argc <= 10);
     mode = argv[7];
     printf("E1S10 BROKER START pipe=%s mode=%s abi=%u\n", argv[2], mode, (unsigned int)(8 * sizeof(void *)));
     fflush(stdout);
@@ -677,7 +677,7 @@ static int broker( int argc, char **argv )
         progress("ISSUED FIRST");
         if (token) check_token(token, caller, expected, out);
 #ifdef WEX_E1S13_HKU_PROBE
-        if (token) e1s13_load_checks(context, token, expected, argv[6], in, argc == 9 ? argv[8] : NULL);
+        if (token) e1s13_load_checks(context, token, expected, argv[6], in, argc >= 9 ? argv[8] : NULL, process, argc >= 10 ? argv[9] : NULL);
 #endif
         memcpy(first_auth, out + 104, sizeof(first_auth));
         if (token) { CloseHandle(token); token = NULL; }
@@ -703,7 +703,7 @@ static int broker( int argc, char **argv )
         if (token) check_token(token, caller, expected, out);
         check(memcmp(first_auth, out + 104, sizeof(first_auth)) != 0);
 #ifdef WEX_E1S13_HKU_PROBE
-        if (token) e1s13_load_checks(context, token, expected, argv[6], in, argc == 9 ? argv[8] : NULL);
+        if (token) e1s13_load_checks(context, token, expected, argv[6], in, argc >= 9 ? argv[8] : NULL, process, argc >= 10 ? argv[9] : NULL);
 #endif
     }
     /* Every issued or failed transaction is consumed, including digest/account
@@ -806,6 +806,9 @@ int main( int argc, char **argv )
     if (argc == 2 && !strcmp(argv[1], "pipes")) return pipe_namespace();
 #ifdef WEX_E1S13_HKU_PROBE
     if (argc == 2 && !strcmp(argv[1],"hku-hold")) return 0; /* created suspended, never resumed */
+    if (argc >= 2 && !strcmp(argv[1], "hku-descendant")) return e1s16_descendant_child(argc, argv);
+    if (argc >= 3 && !strcmp(argv[1], "hku-handle-held")) return e1s16_handle_held_child(argc, argv);
+    if (argc >= 4 && !strcmp(argv[1], "hku-host-uid")) return e1s16_host_uid_child(argc, argv);
     if (argc > 1 && (!strcmp(argv[1],"denied") || !strcmp(argv[1],"normal-denied") || !strcmp(argv[1],"normal")))
         e1s13_denied(strcmp(argv[1],"denied") != 0);
 #endif

@@ -8,9 +8,12 @@ e1s13_cases()
 {
     local arch=$1 mode prefix="/home/$STD/.wine" base hive profile storage_gen name pipe row loaded peer_rc recovery_hash=
     local -a sid_words=()
+    local car_row car_key car_sid car_profile car_hive car_storage_gen spec_arg gate=""
+    local -a car_sid_words=()
     base="$prefix/drive_c/users/.e1s"
     for mode in accept absent unprovisioned wrong-incarnation wrong-reference owner already-loaded replay \
-                unload crash-1 recovery crash-2 recovery crash-3 recovery; do
+                unload crash-1 recovery crash-2 recovery crash-3 recovery \
+                two-admins descendants handle-held save-fail post-subst host-uid; do
         stop_prefixes || fail 'S13 prefix shutdown'
         # This prefix belongs to a user created by this fixture; still refuse
         # any replaced managed base. Never adopt a preexisting profile tree.
@@ -18,6 +21,7 @@ e1s13_cases()
             [ -n "$E1S13_BASE_ID" ] && [ ! -L "$base" ] &&
                 [ "$(stat -c '%d:%i' "$base")" = "$E1S13_BASE_ID" ] || fail 'foreign/replaced S13 base'
             [ "$(realpath -e "$base")" = "$base" ] || fail 'substituted S13 ancestors'
+            chmod -R u+w "$base" 2>/dev/null || true
             rm -rf -- "$base"
             E1S13_BASE_ID=
         fi
@@ -64,15 +68,63 @@ PY
             [ -n "$recovery_hash" ] || fail 'recovery has no preceding crash'
             cmp "$recovery_hash" "$LOG/$name.recovery.before" || fail 'transaction changed between crash and recovery'
         fi
+        spec_arg="$mode:$storage_gen"
+        gate=""
+        if [ "$mode" = two-admins ]; then
+            map_fields "$CAR"
+            car_key=$KEY
+            car_sid=$SID
+            map_fields "$ADM"
+            car_row=$(awk -v name="$CAR" '$1 == name && $4 == "active" {print $6, $7, $8, $9}' /etc/wineexplorer/accounts.map)
+            read -r -a car_sid_words <<<"$car_row"
+            [ "${#car_sid_words[@]}" = 4 ] || fail 'S13 Carol SID words'
+            "$OWNED_OUT/wex-profile-s13" "$prefix" "$ROOT/s13-seed.reg" \
+                "$(id -u "$STD")" "$(id -g "$STD")" "$CAR" "$car_key" "${car_sid_words[@]}" "$GENERATION" \
+                >"$LOG/hku-two-admins-$arch.car-storage.log" || fail "S12 provisioning Carol: $mode"
+            car_storage_gen=$(awk '{for(i=1;i<=NF;i++)if($i~/^generation=/){sub(/^generation=/,"",$i);print $i}}' "$LOG/hku-two-admins-$arch.car-storage.log")
+            [[ "$car_storage_gen" =~ ^[1-9][0-9]*$ ]] || fail 'missing S12 Carol storage reference'
+            car_profile="$base/$car_sid/$car_key-$CAR"
+            car_hive="$car_profile/user.reg"
+            [ -f "$car_hive" ] && [ ! -L "$car_hive" ] || fail 'missing provisioned Carol hive'
+            spec_arg="$mode:$storage_gen:$CAR:$car_key:$car_sid:$car_storage_gen"
+        elif [ "$mode" = host-uid ]; then
+            printf 'alice secret\n' > "/home/$ADM/s16-alice-secret.txt"
+            chown "$ADM:$ADM" "/home/$ADM/s16-alice-secret.txt"
+            chmod 0600 "/home/$ADM/s16-alice-secret.txt"
+
+            printf 'bob data\n' > "/home/$STD/s16-bob-data.txt"
+            chown "$STD:$STD" "/home/$STD/s16-bob-data.txt"
+            chmod 0600 "/home/$STD/s16-bob-data.txt"
+
+            spec_arg="$mode:$storage_gen:$(id -u "$STD"):$(id -g "$STD"):$ADM:$STD"
+        elif [ "$mode" = save-fail ] || [ "$mode" = post-subst ]; then
+            sha256sum -- "$hive" >"$LOG/$name.hive.before"
+            gate="$ROOT/gate-$mode-$arch"
+            rm -f "$gate"
+        fi
         case "$mode" in crash-*) sha256sum -- "$hive" >"$LOG/$name.hive.before" ;; esac
         pipe="\\\\.\\pipe\\e1s13-$$-$CASE_NO-$arch"
-        service_start "$arch" broker "$pipe" "$ADM" "$KEY" "$GENERATION" "$SID" accept "$mode:$storage_gen"
+        if [ -n "$gate" ]; then
+            service_start "$arch" broker "$pipe" "$ADM" "$KEY" "$GENERATION" "$SID" accept "$spec_arg" "$(winpath "$gate")"
+        else
+            service_start "$arch" broker "$pipe" "$ADM" "$KEY" "$GENERATION" "$SID" accept "$spec_arg"
+        fi
         wait_line 'E1S10 READY'
         loaded=0
         case "$mode" in accept|already-loaded|replay) loaded=1 ;; esac
         run_as "$STD" timeout -k 2 "$PEER_SECONDS" "$BUILD/wine" "$OWNED_OUT/e1s10-$((96 - arch)).exe" hku-peer "$pipe" "$SID" "$KEY" "$ADM" "$loaded" \
             >"$LOG/$name.peer.log" 2>&1 &
         PEER_PID=$!
+        if [ "$mode" = save-fail ]; then
+            wait_line 'E1S16 SAVE-DENIED LOADED'
+            chmod 0500 "$profile"
+            touch "$gate"
+        elif [ "$mode" = post-subst ]; then
+            wait_line 'E1S16 POST-SUBST LOADED'
+            mv "$hive" "$hive.orig"
+            ln -s "$hive.orig" "$hive"
+            touch "$gate"
+        fi
         case "$mode" in
             crash-*)
                 e1s14_crash_finish "$name" "${mode#crash-}" "$profile"
@@ -97,6 +149,32 @@ PY
             e1s14_recovery_hash "$profile" >"$LOG/$name.recovery.after"
             cmp "$LOG/$name.recovery.before" "$LOG/$name.recovery.after" || fail 'recovery denial changed transaction data'
             recovery_hash=
+        elif [ "$mode" = two-admins ]; then
+            [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S16 TWO-ADMINS OK$')" = 2 ] || fail 'missing two-admins checks'
+            grep -F 'AliceVal' "$hive" >/dev/null && ! grep -F 'CarolVal' "$hive" >/dev/null || fail 'Alice hive cross-contamination'
+            grep -F 'CarolVal' "$car_hive" >/dev/null && ! grep -F 'AliceVal' "$car_hive" >/dev/null || fail 'Carol hive cross-contamination'
+            [ ! -e "$profile/.e1s14-state" ] && [ ! -e "$profile/.e1s14-save" ] || fail 'Alice interrupted state'
+            [ ! -e "$car_profile/.e1s14-state" ] && [ ! -e "$car_profile/.e1s14-save" ] || fail 'Carol interrupted state'
+        elif [ "$mode" = descendants ]; then
+            [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S16 DESCENDANTS OK$')" = 2 ] || fail 'missing descendants checks'
+            [ ! -e "$profile/.e1s14-state" ] && [ ! -e "$profile/.e1s14-save" ] || fail 'descendants interrupted state'
+        elif [ "$mode" = handle-held ]; then
+            [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S16 HANDLE-HELD OK$')" = 2 ] || fail 'missing handle-held checks'
+            [ ! -e "$profile/.e1s14-state" ] && [ ! -e "$profile/.e1s14-save" ] || fail 'handle-held interrupted state'
+        elif [ "$mode" = save-fail ]; then
+            [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S16 SAVE-DENIED OK$')" = 2 ] || fail 'missing save-fail checks'
+            chmod 0700 "$profile"
+            sha256sum --check --status "$LOG/$name.hive.before" || fail 'save-fail changed durable hive'
+            [ ! -e "$profile/.e1s14-state" ] && [ ! -e "$profile/.e1s14-save" ] || fail 'save-fail left interrupted state'
+            rm -f "$gate"
+        elif [ "$mode" = post-subst ]; then
+            [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S16 POST-SUBST OK$')" = 2 ] || fail 'missing post-subst checks'
+            rm -f "$hive" && mv "$hive.orig" "$hive"
+            sha256sum --check --status "$LOG/$name.hive.before" || fail 'post-subst changed durable hive'
+            rm -f "$gate"
+        elif [ "$mode" = host-uid ]; then
+            [ "$(tr -d '\r' < "$LOG/$name.broker.log" | grep -c '^E1S16 HOST-UID OK$')" = 2 ] || fail 'missing host-uid checks'
+            rm -f "/home/$ADM/s16-alice-secret.txt" "/home/$STD/s16-bob-data.txt"
         fi
         if [ "$loaded" = 1 ]; then
             # Inherited-file ownership belongs to S15 (launch prep in the caller prefix).
