@@ -692,7 +692,7 @@ has_str "$ROOT/probes/wexelevate_test.exe" E1S6_DENY || fail 'test broker has no
 ! has_str "$ROOT/probes/wexelevate_ship.exe" E1S6_DENY || fail 'shipping broker contains lab denial-site audit'
 ! grep -rn 'WEXELEVATE_TEST_APPROVAL' "$SRC/src" "$SRC/installer" "$SRC/tools" --include=Makefile.in --include='*.mk' --include='*.inf' \
     --include='*.sh' --include='*.py' >/dev/null 2>&1 || fail "a build file defines WEXELEVATE_TEST_APPROVAL"
-! grep -rEn 'WEXELEVATE_TEST_APPROVAL|WEXCONSENT_TEST_HOOK|WEX_E1S6_TRANSPORT_TEST|WEX_E1S10_TOKEN_TEST|WEX_E1S7_LAB|WEX_E1S7_TEST|WEX_ACCOUNTS_TEST' \
+! grep -rEn 'WEXELEVATE_TEST_APPROVAL|WEXELEVATE_E1S18|WEXCONSENT_TEST_HOOK|WEX_E1S6_TRANSPORT_TEST|WEX_E1S10_TOKEN_TEST|WEX_E1S7_LAB|WEX_E1S7_TEST|WEX_ACCOUNTS_TEST' \
     "$SRC/src" "$SRC/installer" "$SRC/tools" "$SRC/wine" \
     --include=Makefile.in --include=Makefile --include=configure.ac --include='*.mk' --include='*.inf' \
     --include='*.sh' --include='*.py' >/dev/null 2>&1 || fail "a production build file names an E1 test gate"

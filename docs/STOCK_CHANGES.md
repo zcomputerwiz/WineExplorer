@@ -1,5 +1,42 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18 disabled broker Wine-only integration (2026-11-07)
+
+Survey, implementation and verification for Work Package E1-S18 of [E1-S](E1_S_STANDARD_USERS.md).
+See [survey, architecture, trust decisions and failure handling](E1_S18_BROKER_INTEGRATION.md). Disabled by default;
+unreachable from production broker path (gated behind new lab define `WEXELEVATE_E1S18` and runtime policy `EnableStandardUserElevation`).
+
+Zero stock Wine changes. No changes to `wine/server`, `wine/dlls`, protocol, or Wine submodule files.
+
+Project changes:
+* `src/programs/wexelevate/e1s18_broker.h` and `e1s18_broker.c`:
+  - Separate supported standard-token branch for `TokenElevationTypeDefault` callers.
+  - S1 Negotiated Capability Enforcement: all 10 S1 capabilities (`0x3ff`: `H2_OPENER`, `MESSAGE_PROVENANCE`, `BINDING_V1`, `DIALOG_V1`, `VERIFIER_V1`, `EVIDENCE_V1`, `ACCOUNT_MAP_V1`, `TOKEN_V1`, `PROFILE_V1`, `COMMIT_GUARD_V1`) must be present; missing any capability denies with `ERROR_NOT_SUPPORTED` (50), never falling back to filtered-admin or weaker paths.
+  - Runtime policy check: `HKLM\Software\WineExplorer\Elevation\EnableStandardUserElevation` (DWORD, default 0/off).
+  - Rejection of inherited environment: `WEXELEVATE_ENV_INHERIT` strictly rejected for standard users with `ERROR_INVALID_PARAMETER` (87).
+  - Canonical SHA-256 digest calculations for binding digest (`"E1S1-BIND\0"`), request digest (`"E1S1-REQ\0"`), and environment digest (`"E1S1-ENV\0"`).
+  - S17 Prompt Queue & Bound Credential Dialog: serialized queue per session/desktop, FIFO ordering, per-caller (<=2), per-session (<=8), global (<=32) quotas; dialog spawned on `WinSta0\Winlogon`; explicit S1 Kind 2 Confirm answer required; child exit or crash fails closed.
+  - S8 Single-Use Evidence Verification & Redemption: verifies 220-byte S1 Kind 3 evidence record against frozen digests, nonce, and Bob host UID; burns reference atomically.
+  - S10 Account Token Issuance: dispatches `NtCreateWexAccountToken(WEX_TOKEN_ISSUE)`; verifies returned token is Primary, Full elevation, High integrity, distinct nonzero AuthenticationId, caller session, and Alice SID.
+  - S13/S14 Profile Load & Lease: calls `load_e1s_profile(WEX_HKU_LOAD)` to load `HKU\<Alice SID>`, acquires S14 profile lease in state 1 (setup), and publishes Volatile Environment with Alice's 9 variables.
+  - S15 Launch Preparation: calls `wex_prepare_launch()`, enforces Bob host UID (`requested_uid == bob_uid`), verifies cwd containment without symlink traversal, builds clean Alice Windows environment and sanitized Bob Unix environment.
+  - Suspended Child Creation: verifies held image identity and hash (`verify_image`), creates child suspended in caller's server and session with `CreateProcessAsUserW`, Bob parent attribute, and normal desktop `WinSta0\Default`.
+  - Installed Child Verification: queries child token to confirm Alice SID and caller session; arms image read lease on child PID (`pLeaseArm`).
+  - Limited Handle Duplication: duplicates `SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION` to caller; transfers profile lease to state 2 (`e1s_profile_commit_process`).
+  - Guarded Resume: re-checks caller binding, stop event, and lease event under `table_cs`; calls `ResumeThread` exactly once.
+  - Explicit Rollback / Cleanup: on failure at any stage, terminates suspended child, closes remote handle in caller table (`DUPLICATE_CLOSE_SOURCE`), unloads profile lease, closes token, wipes secrets with `e1s18_wipe`, and releases prompt queue slot.
+  - Pluggable `struct e1s18_ops` operations table enabling mock injection and stage-by-stage testing without live wineserver.
+* `src/programs/wexelevate/main.c`:
+  - Hook in `identify_caller()`: standard users (`TokenElevationTypeDefault`) gated under `#ifdef WEXELEVATE_E1S18`, requiring policy enabled and all 10 S1 capabilities present; filtered admin (`TokenElevationTypeLimited`) byte-for-byte unchanged in behavior.
+  - Hook in `handle_request()`: routes standard user requests to `e1s18_handle_standard_request()`.
+  - Conditionally includes `e1s18_broker.h` and `e1s18_broker.c` when `WEXELEVATE_E1S18` is defined.
+* `src/programs/wexelevate/test_broker_e1s18_main.c` and `scripts/test_broker_e1s18.sh`:
+  - Native C unit test runnable as root in WSL `wexbuild`.
+  - Verifies production binary disabled-by-default behavior and exclusion check.
+  - Lab test suite verifies: disabled-by-default policy, capability enforcement across all 10 bits, inherited env rejection, exact 13-stage success ordering, single guarded resume, complete 13-stage failure & rollback matrix, and filtered-admin preservation.
+* `scripts/test_sysrun_server.sh`:
+  - Added `WEXELEVATE_E1S18` to the production build exclusion check next to existing test defines.
+
 ## E1-S17 disabled credential dialog, bound conversation and prompt queue (2026-11-07)
 
 Survey, implementation and verification for Work Package E1-S17 of [E1-S](E1_S_STANDARD_USERS.md).

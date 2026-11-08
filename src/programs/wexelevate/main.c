@@ -64,6 +64,10 @@
 #define E1S_AUDIT(site) do {} while (0)
 #endif
 
+#ifdef WEXELEVATE_E1S18
+#include "e1s18_broker.h"
+#endif
+
 #define MAX_REQUESTS      32   /* pending at once */
 #define MAX_PER_CALLER    4
 #define READ_TIMEOUT      10000
@@ -80,27 +84,7 @@
 #define CONSENT_EXE L"consent.exe"
 #endif
 
-struct request
-{
-    ULONGLONG id;
-    HANDLE pipe;
-    DWORD caller_pid;
-    HANDLE caller;        /* process handle of the caller */
-    HANDLE caller_token;  /* its primary token */
-    TOKEN_STATISTICS caller_stats; /* frozen H2/S3 security version and caller logon */
-    LARGE_INTEGER caller_start;
-    DWORD caller_session, caller_sid_len;
-    BYTE caller_sid[SECURITY_MAX_SID_SIZE];
-    DWORD flags, show;
-    WCHAR *image, *cmdline, *cwd, *env;
-    DWORD env_len;
-    HANDLE image_file;    /* held open with FILE_SHARE_READ from the freeze to the launch */
-    UINT64 lease;         /* read lease on the image (0: none needed), see lease_* below */
-    HANDLE lease_event;   /* set when the lease broke */
-    BY_HANDLE_FILE_INFORMATION info;
-    BYTE hash[32];
-    int live;             /* in the table: the id can be used once */
-};
+#include "wexelevate_request.h"
 
 static SERVICE_STATUS_HANDLE status_handle;
 static HANDLE stop_event;
@@ -519,6 +503,15 @@ static DWORD identify_caller( struct request *req )
         return ERROR_ACCESS_DENIED;
     if (!GetTokenInformation( req->caller_token, TokenElevationType, &elevation, sizeof(elevation), &len ) ||
         len != sizeof(elevation)) return ERROR_ACCESS_DENIED;
+#ifdef WEXELEVATE_E1S18
+    if (elevation == TokenElevationTypeDefault)
+    {
+        if (!e1s18_policy_enabled()) return ERROR_NOT_SUPPORTED;
+        if (!e1s18_check_capabilities( req )) return ERROR_NOT_SUPPORTED;
+        req->is_standard_user = TRUE;
+        return ERROR_SUCCESS;
+    }
+#endif
     /* only the limited half of a split administrator token has something to elevate to */
     return elevation == TokenElevationTypeLimited ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
 denied:
@@ -1677,6 +1670,12 @@ static DWORD handle_request( struct request *req, BYTE *buf, DWORD size, struct 
 #ifdef WEXELEVATE_TEST_APPROVAL
     if (probe) return e1s_probe( req, probe, reply );
 #endif
+#ifdef WEXELEVATE_E1S18
+    if (req->is_standard_user)
+    {
+        return e1s18_handle_standard_request( req, reply );
+    }
+#endif
     if ((err = check_binding( req, req->caller_pid, NULL, FALSE ))) return err;
     if ((err = approve( req ))) return err;
     if ((err = check_binding( req, req->caller_pid, NULL, FALSE ))) return err;
@@ -1867,3 +1866,7 @@ int wmain( int argc, WCHAR **argv )
     StartServiceCtrlDispatcherW( table_entries );
     return 0;
 }
+
+#ifdef WEXELEVATE_E1S18
+#include "e1s18_broker.c"
+#endif
