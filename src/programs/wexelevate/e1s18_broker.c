@@ -991,6 +991,7 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
     const struct e1s18_ops *ops = e1s18_get_ops();
     HANDLE context = NULL;
     HANDLE token = NULL;
+    HANDLE negotiate_token = NULL;
     ULONGLONG caps = WEX_TOKEN_CAPS; /* 0xc0 */
     ULONG size = 0;
     uint8_t in[WEX_TOKEN_INPUT_SIZE]; /* 204 bytes */
@@ -1011,10 +1012,18 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
         return ERROR_INVALID_DATA;
 #endif
 
-    /* Step 3a: NEGOTIATE */
-    status = exports->pNtCreateWexAccountToken( WEX_TOKEN_NEGOTIATE, &context, NULL, &caps, NULL, 0, NULL, NULL, &size );
+    /* Step 3a: NEGOTIATE. The ntdll export rejects a NULL token output with
+     * STATUS_INVALID_PARAMETER before reaching the server, so pass a real
+     * output slot and deny if the server ever fills it. */
+    status = exports->pNtCreateWexAccountToken( WEX_TOKEN_NEGOTIATE, &context, NULL, &caps, NULL, 0, &negotiate_token, NULL, &size );
     if (status != 0 || !context || caps != WEX_TOKEN_CAPS || size != 0)
     {
+        if (context && ops && ops->close_handle) ops->close_handle( context );
+        return ERROR_ACCESS_DENIED;
+    }
+    if (negotiate_token)
+    {
+        if (ops && ops->close_handle) ops->close_handle( negotiate_token );
         if (context && ops && ops->close_handle) ops->close_handle( context );
         return ERROR_ACCESS_DENIED;
     }

@@ -571,6 +571,8 @@ struct fake_export_state
     NTSTATUS negotiate_status;
     ULONGLONG negotiate_caps;
     ULONG negotiate_size;
+    BOOL negotiate_sets_token;
+    int negotiate_null_token_calls;
 
     /* Issue controls */
     NTSTATUS issue_status;
@@ -670,6 +672,14 @@ static NTSTATUS WINAPI fake_NtCreateWexAccountToken(
     ULONG *response_size )
 {
     (void)caller;
+    /* The real ntdll export rejects a NULL token output with
+     * STATUS_INVALID_PARAMETER before reaching the server. */
+    if (!token)
+    {
+        if (operation == WEX_TOKEN_NEGOTIATE)
+            g_export_state.negotiate_null_token_calls++;
+        return (NTSTATUS)0xc000000d; /* STATUS_INVALID_PARAMETER */
+    }
     if (operation == WEX_TOKEN_NEGOTIATE)
     {
         g_export_state.negotiate_calls++;
@@ -678,6 +688,8 @@ static NTSTATUS WINAPI fake_NtCreateWexAccountToken(
         if (context) *context = (HANDLE)(intptr_t)0x1111;
         if (caps) *caps = g_export_state.negotiate_caps;
         if (response_size) *response_size = g_export_state.negotiate_size;
+        if (g_export_state.negotiate_sets_token)
+            *token = (HANDLE)(intptr_t)0x5555;
         return 0;
     }
     if (operation == WEX_TOKEN_ISSUE)
@@ -2505,6 +2517,53 @@ static int test_policy_value_exact_one( void )
     CHECK( !e1s18_policy_value_enabled( 0xffffffff ), "Policy value 0xffffffff must stay disabled" );
     return TEST_PASS;
 }
+
+/*
+ * Test 45: R10 (first part) - NEGOTIATE must receive a real token output slot
+ * (the ntdll export rejects NULL with STATUS_INVALID_PARAMETER), and a
+ * NEGOTIATE that fills the token output must deny the request.
+ */
+static int test_export_boundary_negotiate_token_output( void )
+{
+    struct request req;
+    HANDLE token = NULL;
+    DWORD err;
+    uint8_t buf16[16] = {0x42};
+    uint8_t buf32[32] = {0x11};
+    const struct e1s18_ops *ops;
+
+    e1s18_reset_ops();
+    e1s18_set_export_table( &s_fake_export_table );
+    ops = e1s18_get_ops();
+
+    /* 1. The broker must pass a non-NULL token output slot to NEGOTIATE: the
+     * real ntdll export rejects a NULL pointer with STATUS_INVALID_PARAMETER
+     * before reaching the server, so a NULL slot can never succeed. */
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    reset_export_state();
+    err = ops->issue_token( &req, buf16, buf16, buf32, buf32, buf32, &token );
+    CHECK_EQ( err, ERROR_SUCCESS, "issue_token must succeed when NEGOTIATE gets a token slot" );
+    CHECK_EQ( g_export_state.negotiate_null_token_calls, 0, "NEGOTIATE must receive a non-NULL token pointer" );
+    CHECK_EQ( (uintptr_t)token, 0x2222, "Token handle must match the fake ISSUE token" );
+    ops->close_handle( req.s10_context ); req.s10_context = NULL;
+    ops->close_handle( token ); token = NULL;
+
+    /* 2. A NEGOTIATE that fills the token output must deny the request: the
+     * real ntdll wrapper never returns a token on NEGOTIATE. */
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    reset_export_state();
+    g_export_state.negotiate_sets_token = TRUE;
+    err = ops->issue_token( &req, buf16, buf16, buf32, buf32, buf32, &token );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Negotiate token output must deny with ERROR_ACCESS_DENIED" );
+    CHECK_EQ( (uintptr_t)token, 0, "Token handle must be NULL on error" );
+    CHECK_EQ( (uintptr_t)req.s10_context, 0, "req->s10_context must be NULL on error" );
+    CHECK_EQ( g_export_state.issue_calls, 0, "Issue must never be reached after a NEGOTIATE token" );
+
+    e1s18_reset_export_table();
+    return TEST_PASS;
+}
 #endif
 
 int main( int argc, char **argv )
@@ -2654,6 +2713,9 @@ int main( int argc, char **argv )
 
     printf("44. Testing R15 policy DWORD enables only when exactly 1 (0/1/2/0xffffffff)...\n");
     if (test_policy_value_exact_one() != TEST_PASS) ret = 1;
+
+    printf("45. Testing R10 NEGOTIATE token output (non-NULL slot required; token output denies)...\n");
+    if (test_export_boundary_negotiate_token_output() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)
