@@ -15,7 +15,13 @@ The standard-user chain stays disabled (`WEXELEVATE_E1S18`, lab define, off by d
 | R9 evidence adapter | Partly: init order, connection after endorsement, S1 digest offsets | `tools/e1s6/e1s6-lab.py` | same static test, S6 transport test |
 | R12 broker worker exhaustion (production path) | Fixed | `main.c`, `wexelevate_request.h` | S6 transport test (filtered-admin path) |
 | R13 caller-as-parent | Standard-user branch fixed; filtered-admin unchanged (see below) | `e1s18_broker.c` | Not testable natively; needs a live designated-parent test |
-| R4, R5, R7, R8, R10, R11, R14, R15 | Open | | |
+| R15 exact decoding | Fixed for answer, evidence, policy value and S10 SID (WO-1); dialog dump/copy controls open | `cred_dialog.c`, `e1s18_broker.c` | broker tests 42-44, `test_answer_record_exact_length` |
+| R10 part 1 NEGOTIATE output | Fixed (WO-2); authenticated consumed-record install open | `e1s18_broker.c` | broker test 45 (fake enforces ntdll's NULL check) |
+| Broker uses op 12 | Done (WO-3); S6 storage query retired (WO-4) | `e1s18_broker.c/.h`, wexhost, evidence service | broker test 46, evidence test, S6 302 PASS |
+| R4 part: random nonce/channel, clock after transport | Done (WO-5); canonical digests, identities, generations open | `e1s18_broker.c` | broker tests 47-49 |
+| R11 part: account lookup, UTF-16 env block, exact cwd | Done (WO-6); native-authority prefix/profile mapping and retained cwd open | `launch_prep.c/.h`, `e1s18_broker.c` | `test_launch_prep.sh` |
+| R8 part: dialog inherits only its pipe | Done (WO-7, two fixes by review); duplex channel open | `e1s18_broker.c` | two-ABI compile only; no live run |
+| R4 rest, R5, R7, R8 rest, R10 rest, R14 | Open (design) | | |
 
 ## What changed
 

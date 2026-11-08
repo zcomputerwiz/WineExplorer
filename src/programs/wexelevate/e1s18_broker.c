@@ -523,12 +523,14 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
                                          const uint8_t channel_token[16],
                                          BOOL secure, char *out_account, size_t account_max )
 {
-    STARTUPINFOW si = { sizeof(si) };
+    STARTUPINFOEXW si = { { sizeof(si) } };
     PROCESS_INFORMATION pi;
     WCHAR dir[MAX_PATH], *cmd;
     HANDLE handles[4];
     HANDLE hPipeRead = INVALID_HANDLE_VALUE, hPipeWrite = INVALID_HANDLE_VALUE;
     SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE }; /* child pipe inheritable */
+    SIZE_T attr_size = 0;
+    HANDLE inherit_handles[1];
     DWORD ret, code, len;
     size_t cmd_size;
     uint8_t answer_buf[WEX_S1_ANSWER_LENGTH];
@@ -579,9 +581,48 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         return ERROR_NOT_READY;
     }
 
-    si.lpDesktop = (WCHAR *)(secure ? L"WinSta0\\Winlogon" : L"WinSta0\\Default");
-    if (!CreateProcessW( NULL, cmd, NULL, NULL, TRUE, 0, NULL, dir, &si, &pi ))
+    si.StartupInfo.lpDesktop = (WCHAR *)(secure ? L"WinSta0\\Winlogon" : L"WinSta0\\Default");
+
+    /* Only this dialog's pipe write end may be inherited. With bInheritHandles TRUE and no
+     * handle list, two dialogs could inherit each other's pipe ends (R8). */
+    /* The sizing call fails with ERROR_INSUFFICIENT_BUFFER by design; only the size matters.
+     * The broker's read end must never be inherited by any child. */
+    InitializeProcThreadAttributeList( NULL, 1, 0, &attr_size );
+    if (!attr_size || !SetHandleInformation( hPipeRead, HANDLE_FLAG_INHERIT, 0 ))
     {
+        free( cmd );
+        CloseHandle( hPipeRead );
+        CloseHandle( hPipeWrite );
+        if (secure) secure_leave();
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+    si.lpAttributeList = malloc( attr_size );
+    if (!si.lpAttributeList || !InitializeProcThreadAttributeList( si.lpAttributeList, 1, 0, &attr_size ))
+    {
+        free( si.lpAttributeList );
+        free( cmd );
+        CloseHandle( hPipeRead );
+        CloseHandle( hPipeWrite );
+        if (secure) secure_leave();
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+    inherit_handles[0] = hPipeWrite;
+    if (!UpdateProcThreadAttribute( si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                                    inherit_handles, sizeof(inherit_handles), NULL, NULL ))
+    {
+        DeleteProcThreadAttributeList( si.lpAttributeList );
+        free( si.lpAttributeList );
+        free( cmd );
+        CloseHandle( hPipeRead );
+        CloseHandle( hPipeWrite );
+        if (secure) secure_leave();
+        return GetLastError();
+    }
+    if (!CreateProcessW( NULL, cmd, NULL, NULL, TRUE, EXTENDED_STARTUPINFO_PRESENT, NULL, dir,
+                         &si.StartupInfo, &pi ))
+    {
+        DeleteProcThreadAttributeList( si.lpAttributeList );
+        free( si.lpAttributeList );
         free( cmd );
         CloseHandle( hPipeRead );
         CloseHandle( hPipeWrite );
@@ -589,6 +630,8 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         return ERROR_SERVICE_NOT_ACTIVE;
     }
 
+    DeleteProcThreadAttributeList( si.lpAttributeList );
+    free( si.lpAttributeList );
     free( cmd );
     CloseHandle( hPipeWrite ); /* Child holds write end; parent closes its copy so EOF works */
     CloseHandle( pi.hThread );
