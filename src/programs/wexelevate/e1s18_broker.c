@@ -614,23 +614,19 @@ DWORD e1s18_transport_redeem_live( struct request *req,
                                    const uint8_t request_digest[32],
                                    uint8_t *out_evidence_buf,
                                    size_t *out_evidence_len,
-                                   uint8_t out_evidence_ref[16],
-                                   uint64_t *out_storage_generation )
+                                   uint8_t out_evidence_ref[16] )
 {
     (void)account_name; (void)binding_digest; (void)request_digest;
 
     if (!req || !req->pipe || !nonce || !out_evidence_buf || !out_evidence_len ||
-        !out_evidence_ref || !out_storage_generation)
+        !out_evidence_ref)
         return ERROR_INVALID_PARAMETER;
-
-    *out_storage_generation = 0;
 
 #if defined(_WIN32)
     UINT64 channel = 0;
     DWORD err = ERROR_SUCCESS;
     unsigned char open_buf[E1S6_OPEN_SIZE];
     unsigned char redeem_buf[E1S6_REDEEM_REQ_SIZE];
-    unsigned char query_buf[E1S6_STORAGE_QUERY_REQ_SIZE];
     HMODULE wexhost = NULL;
     typedef DWORD (WINAPI *pfn_WexE1s6Transport)( HANDLE, DWORD, void *, DWORD, UINT64 * );
     pfn_WexE1s6Transport transport = NULL;
@@ -642,7 +638,6 @@ DWORD e1s18_transport_redeem_live( struct request *req,
 
     memset( open_buf, 0, sizeof(open_buf) );
     memset( redeem_buf, 0, sizeof(redeem_buf) );
-    memset( query_buf, 0, sizeof(query_buf) );
 
     /* Step 1: Open S6 transport channel */
     err = transport( req->pipe, E1S6_OPEN, open_buf, sizeof(open_buf), &channel );
@@ -672,40 +667,14 @@ DWORD e1s18_transport_redeem_live( struct request *req,
     if (*out_evidence_len > 220) *out_evidence_len = 220;
     memcpy( out_evidence_buf, redeem_buf + 20, *out_evidence_len );
 
-    /* Step 3: S12 STORAGE_QUERY operation (32 bytes req, 16 bytes resp) */
-    memcpy( query_buf, "E1S8CTL\0", 8 );
-    query_buf[8]  = 1; query_buf[9]  = 0; /* Version 1 */
-    query_buf[10] = 6; query_buf[11] = 0; /* Operation 6 (STORAGE_QUERY) */
-    e1s6_put32( query_buf + 12, E1S6_STORAGE_QUERY_REQ_SIZE );
-    memcpy( query_buf + 16, redeem_buf + 20 + 124, 16 ); /* account_key from evidence offset 124 */
-
-    err = transport( req->pipe, E1S6_STORAGE_QUERY, query_buf, sizeof(query_buf), &channel );
-    if (err != ERROR_SUCCESS || e1s6_u32( query_buf ) != 0)
-    {
-        transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
-        e1s18_wipe( open_buf, sizeof(open_buf) );
-        e1s18_wipe( redeem_buf, sizeof(redeem_buf) );
-        e1s18_wipe( query_buf, sizeof(query_buf) );
-        return err ? err : (e1s6_u32( query_buf ) ? e1s6_u32( query_buf ) : ERROR_NOT_FOUND);
-    }
-
-    *out_storage_generation = e1s6_u64( query_buf + 8 );
-    if (*out_storage_generation == 0)
-    {
-        transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
-        e1s18_wipe( open_buf, sizeof(open_buf) );
-        e1s18_wipe( redeem_buf, sizeof(redeem_buf) );
-        e1s18_wipe( query_buf, sizeof(query_buf) );
-        return ERROR_INVALID_DATA;
-    }
-
-    /* Step 4: Close transport channel */
+    /* Step 3: Close transport channel. The S12 storage generation is no
+     * longer produced here; the broker asks the server for it via
+     * WEX_HKU_STORAGE_QUERY (op 12) after S10 issuance. */
     transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
 
     /* Wipe sensitive buffers */
     e1s18_wipe( open_buf, sizeof(open_buf) );
     e1s18_wipe( redeem_buf, sizeof(redeem_buf) );
-    e1s18_wipe( query_buf, sizeof(query_buf) );
 
     return ERROR_SUCCESS;
 #else
@@ -847,7 +816,6 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
     uint8_t evidence_buf[256];
     size_t evidence_len = sizeof(evidence_buf);
     uint8_t evidence_ref[16];
-    uint64_t storage_gen = 0;
     uint64_t expected_host_uid;
     uint64_t now = e1s18_get_monotonic_time();
     const struct wex_s1_evidence_record *ev = NULL;
@@ -871,7 +839,7 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
     if (boundary && boundary->transport_redeem)
     {
         err = boundary->transport_redeem( req, account_name, nonce, binding_digest, request_digest,
-                                          evidence_buf, &evidence_len, evidence_ref, &storage_gen );
+                                          evidence_buf, &evidence_len, evidence_ref );
         if (err != ERROR_SUCCESS)
         {
             e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
@@ -882,7 +850,7 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
     else
     {
         err = e1s18_transport_redeem_live( req, account_name, nonce, binding_digest, request_digest,
-                                           evidence_buf, &evidence_len, evidence_ref, &storage_gen );
+                                           evidence_buf, &evidence_len, evidence_ref );
         if (err != ERROR_SUCCESS)
         {
             e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
@@ -895,12 +863,6 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
         return ERROR_NOT_SUPPORTED;
     }
 #endif
-
-    if (storage_gen == 0)
-    {
-        e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
-        return ERROR_INVALID_DATA;
-    }
 
     /* R15: the evidence buffer must be exactly one S1 Kind 3 record, no more. */
     if (evidence_len != sizeof(struct wex_s1_evidence_record))
@@ -960,7 +922,9 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
     strncpy( req->account_name, account_name, sizeof(req->account_name) - 1 );
     memcpy( req->account_key, ev->account_key, 16 );
     req->map_generation = ev->map_gen;
-    req->storage_generation = storage_gen;
+    /* The S12 storage generation is no longer produced by Stage 2; the
+     * broker asks the server for it via WEX_HKU_STORAGE_QUERY (op 12) in
+     * query_storage, after S10 issuance and before LOAD. */
 #endif
 
     memcpy( out_account_key, ev->account_key, 16 );
@@ -1007,8 +971,10 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
         return ERROR_INVALID_PARAMETER;
 
 #ifdef WEXELEVATE_E1S18
-    /* Fail closed if Stage 2 fields are unset */
-    if (is_zero_key( req->account_key ) || req->map_generation == 0 || req->storage_generation == 0)
+    /* Fail closed if Stage 2 fields are unset. The S12 storage generation is
+     * not a Stage 2 field: it is queried from the server (op 12) after S10
+     * issuance, so it is not checked here. */
+    if (is_zero_key( req->account_key ) || req->map_generation == 0)
         return ERROR_INVALID_DATA;
 #endif
 
@@ -1219,7 +1185,7 @@ static DWORD default_load_profile( struct request *req, HANDLE token, const uint
 #ifdef WEXELEVATE_E1S18
     memcpy( record + 8, req->account_key, 16 );          /* account_key from Stage 2 */
     wex_token_put64( record + 24, req->map_generation ); /* map_generation from Stage 2 */
-    wex_token_put64( record + 32, req->storage_generation ); /* storage_generation from Stage 2 */
+    wex_token_put64( record + 32, req->storage_generation ); /* storage_generation from the op 12 query */
 #else
     memcpy( record + 8, account_key, 16 );               /* account_key */
     wex_token_put64( record + 24, 1 );                   /* map_generation: 1 */
@@ -1249,6 +1215,74 @@ static DWORD default_load_profile( struct request *req, HANDLE token, const uint
 
     *out_lease_id = (uint64_t)generation;
     *out_hkey = key;
+    return ERROR_SUCCESS;
+}
+
+/*
+ * Stage 3b: S12 storage generation query (WEX_HKU_STORAGE_QUERY, op 12).
+ *
+ * Called after S10 issuance and before LOAD. The record is built exactly like
+ * the LOAD record in default_load_profile but with the storage generation
+ * field (offset 32) zero: op 12 is the only operation where 0 is accepted.
+ * Success only when status is 0, key is NULL, managed is 1 and generation is
+ * nonzero; then the generation is stored in req->storage_generation for LOAD
+ * to compare exactly. Anything else denies. Does not consume the one-shot
+ * LOAD attempt.
+ */
+static DWORD default_query_storage( struct request *req, HANDLE token )
+{
+    const struct e1s18_export_table *exports = e1s18_get_export_table();
+    const struct e1s18_ops *ops = e1s18_get_ops();
+    HANDLE context = NULL;
+    uint8_t record[WEX_HKU_RECORD_SIZE]; /* 48 bytes */
+    HANDLE key = NULL;
+    ULONG managed = 0;
+    ULONGLONG generation = 0;
+    NTSTATUS status;
+
+    if (!exports || !exports->pNtLoadWexProfileEx) return ERROR_NOT_SUPPORTED;
+    if (!req || !token) return ERROR_INVALID_PARAMETER;
+
+#ifdef WEXELEVATE_E1S18
+    /* Fail closed if Stage 2 fields are unset */
+    if (is_zero_key( req->account_key ) || req->map_generation == 0)
+        return ERROR_INVALID_DATA;
+
+    context = req->s10_context;
+#endif
+    if (!context) return ERROR_ACCESS_DENIED;
+
+    /* Build the LOAD record (48 bytes) with the storage generation field
+     * (offset 32) zero. */
+    memset( record, 0, sizeof(record) );
+    wex_token_put32( record + 0, 1 );                    /* version: 1 */
+    wex_token_put32( record + 4, WEX_HKU_RECORD_SIZE );   /* size: 48 */
+#ifdef WEXELEVATE_E1S18
+    memcpy( record + 8, req->account_key, 16 );          /* account_key from Stage 2 */
+    wex_token_put64( record + 24, req->map_generation ); /* map_generation from Stage 2 */
+    wex_token_put64( record + 32, 0 );                   /* storage_generation: 0 (query) */
+#else
+    wex_token_put64( record + 24, 1 );                   /* map_generation: 1 */
+    wex_token_put64( record + 32, 0 );                   /* storage_generation: 0 (query) */
+#endif
+    wex_token_put64( record + 40, 0 );                   /* reserved: 0 */
+
+    status = exports->pNtLoadWexProfileEx( WEX_HKU_STORAGE_QUERY, context, token,
+                                           0 /* access: 0 */,
+                                           record, sizeof(record),
+                                           &key, &managed, &generation );
+
+    /* Success only when status is 0, key is NULL, managed is 1 and
+     * generation is nonzero. */
+    if (status != 0 || key != NULL || managed != 1 || generation == 0)
+    {
+        if (key && ops && ops->close_handle) ops->close_handle( key );
+        return ERROR_ACCESS_DENIED;
+    }
+
+#ifdef WEXELEVATE_E1S18
+    req->storage_generation = generation;
+#endif
     return ERROR_SUCCESS;
 }
 
@@ -1655,6 +1689,7 @@ static struct e1s18_ops s_default_ops = {
     default_redeem_evidence,
     default_issue_token,
     default_load_profile,
+    default_query_storage,
     default_prep_launch,
     default_verify_image,
     default_create_process_suspended,
@@ -1816,12 +1851,20 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     err = ops->issue_token( req, req->account_key, evidence_ref, nonce, binding_digest, request_digest, &issued_token );
     if (err) goto fail;
 
+    /* Step 3b: S12 storage generation query (WEX_HKU_STORAGE_QUERY, op 12) */
+    err = ops->query_storage( req, issued_token );
+    if (err) goto fail;
+
     /* Step 4: Profile load & lease acquisition (S13/S14) */
     err = ops->load_profile( req, issued_token, req->account_key, &lease_id, &hkey );
     if (err) goto fail;
 #else
     /* Step 3: Server-issued account token (S10) */
     err = ops->issue_token( req, account_key, evidence_ref, nonce, binding_digest, request_digest, &issued_token );
+    if (err) goto fail;
+
+    /* Step 3b: S12 storage generation query (WEX_HKU_STORAGE_QUERY, op 12) */
+    err = ops->query_storage( req, issued_token );
     if (err) goto fail;
 
     /* Step 4: Profile load & lease acquisition (S13/S14) */

@@ -83,7 +83,6 @@ struct test_tracker
     int omit_stage2_account_name;
     int omit_stage2_account_key;
     int omit_stage2_map_gen;
-    int omit_stage2_storage_gen;
 };
 
 static struct test_tracker g_track;
@@ -142,8 +141,8 @@ static DWORD fake_redeem_evidence( struct request *req, const char *account_name
     }
     if (!g_track.omit_stage2_map_gen)
         req->map_generation = 1;
-    if (!g_track.omit_stage2_storage_gen)
-        req->storage_generation = 1;
+    /* The S12 storage generation is no longer a Stage 2 field; it is set by
+     * query_storage (op 12) after S10 issuance. */
 #else
     (void)req;
     if (out_account_key) memset( out_account_key, 0x42, 16 );
@@ -175,8 +174,8 @@ static DWORD fake_load_profile( struct request *req, HANDLE token, const uint8_t
                                 uint64_t *out_lease_id, HANDLE *out_hkey )
 {
     (void)token; (void)account_key;
-    g_track.order[g_track.order_count++] = 4;
-    if (g_track.fail_at_stage == 4) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_FILE_NOT_FOUND;
+    g_track.order[g_track.order_count++] = 5;
+    if (g_track.fail_at_stage == 5) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_FILE_NOT_FOUND;
 #ifdef WEXELEVATE_E1S18
     /* Fail closed if Stage 2 fields are unset */
     if (is_zero_key( req->account_key ) || req->map_generation == 0 || req->storage_generation == 0)
@@ -189,14 +188,31 @@ static DWORD fake_load_profile( struct request *req, HANDLE token, const uint8_t
     return ERROR_SUCCESS;
 }
 
+static DWORD fake_query_storage( struct request *req, HANDLE token )
+{
+    (void)token;
+    g_track.order[g_track.order_count++] = 4;
+    if (g_track.fail_at_stage == 4) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_ACCESS_DENIED;
+#ifdef WEXELEVATE_E1S18
+    /* Fail closed if Stage 2 fields are unset */
+    if (is_zero_key( req->account_key ) || req->map_generation == 0)
+        return ERROR_INVALID_DATA;
+    /* Stage 3b sets the S12 storage generation for LOAD to compare exactly. */
+    req->storage_generation = 1;
+#else
+    (void)req;
+#endif
+    return ERROR_SUCCESS;
+}
+
 static DWORD fake_prep_launch( struct request *req, HANDLE token,
                                char **out_win_env, size_t *out_win_env_sz,
                                char ***out_unix_env, size_t *out_unix_env_cnt,
                                char **out_cwd )
 {
     (void)token;
-    g_track.order[g_track.order_count++] = 5;
-    if (g_track.fail_at_stage == 5) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_NOT_SUPPORTED;
+    g_track.order[g_track.order_count++] = 6;
+    if (g_track.fail_at_stage == 6) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_NOT_SUPPORTED;
 #ifdef WEXELEVATE_E1S18
     /* Fail closed if Stage 2 fields are unset */
     if (!req->account_name[0] || is_zero_key( req->account_key ) ||
@@ -220,8 +236,8 @@ static DWORD fake_prep_launch( struct request *req, HANDLE token,
 static DWORD fake_verify_image( struct request *req )
 {
     (void)req;
-    g_track.order[g_track.order_count++] = 6;
-    if (g_track.fail_at_stage == 6) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_FILE_CORRUPT;
+    g_track.order[g_track.order_count++] = 7;
+    if (g_track.fail_at_stage == 7) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_FILE_CORRUPT;
     return ERROR_SUCCESS;
 }
 
@@ -231,8 +247,8 @@ static DWORD fake_create_process_suspended( struct request *req, HANDLE token,
                                            PROCESS_INFORMATION *out_pi )
 {
     (void)req; (void)token; (void)win_env; (void)win_env_sz; (void)cwd;
-    g_track.order[g_track.order_count++] = 7;
-    if (g_track.fail_at_stage == 7) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_ACCESS_DENIED;
+    g_track.order[g_track.order_count++] = 8;
+    if (g_track.fail_at_stage == 8) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_ACCESS_DENIED;
     if (out_pi)
     {
         out_pi->hProcess = (HANDLE)(intptr_t)0x3003;
@@ -246,24 +262,24 @@ static DWORD fake_create_process_suspended( struct request *req, HANDLE token,
 static DWORD fake_verify_child( struct request *req, HANDLE token, const PROCESS_INFORMATION *pi )
 {
     (void)req; (void)token; (void)pi;
-    g_track.order[g_track.order_count++] = 8;
-    if (g_track.fail_at_stage == 8) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_ACCESS_DENIED;
+    g_track.order[g_track.order_count++] = 9;
+    if (g_track.fail_at_stage == 9) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_ACCESS_DENIED;
     return ERROR_SUCCESS;
 }
 
 static DWORD fake_arm_lease( UINT64 lease, DWORD pid )
 {
     (void)lease; (void)pid;
-    g_track.order[g_track.order_count++] = 9;
-    if (g_track.fail_at_stage == 9) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_FILE_CORRUPT;
+    g_track.order[g_track.order_count++] = 10;
+    if (g_track.fail_at_stage == 10) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_FILE_CORRUPT;
     return ERROR_SUCCESS;
 }
 
 static DWORD fake_duplicate_handle( struct request *req, HANDLE process, HANDLE *out_remote )
 {
     (void)req; (void)process;
-    g_track.order[g_track.order_count++] = 10;
-    if (g_track.fail_at_stage == 10) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_ACCESS_DENIED;
+    g_track.order[g_track.order_count++] = 11;
+    if (g_track.fail_at_stage == 11) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_ACCESS_DENIED;
     if (out_remote) *out_remote = (HANDLE)(intptr_t)0x5005;
     return ERROR_SUCCESS;
 }
@@ -271,25 +287,25 @@ static DWORD fake_duplicate_handle( struct request *req, HANDLE process, HANDLE 
 static DWORD fake_transfer_lease( struct request *req, uint64_t lease_id, HANDLE process, HANDLE token )
 {
     (void)req; (void)lease_id; (void)process; (void)token;
-    g_track.order[g_track.order_count++] = 11;
-    if (g_track.fail_at_stage == 11) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_ACCESS_DENIED;
+    g_track.order[g_track.order_count++] = 12;
+    if (g_track.fail_at_stage == 12) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_ACCESS_DENIED;
     return ERROR_SUCCESS;
 }
 
 static DWORD fake_check_pre_resume( struct request *req )
 {
     (void)req;
-    g_track.order[g_track.order_count++] = 12;
-    if (g_track.fail_at_stage == 12) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_CANCELLED;
+    g_track.order[g_track.order_count++] = 13;
+    if (g_track.fail_at_stage == 13) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_CANCELLED;
     return ERROR_SUCCESS;
 }
 
 static DWORD fake_resume_thread( struct request *req, HANDLE thread )
 {
     (void)req; (void)thread;
-    g_track.order[g_track.order_count++] = 13;
+    g_track.order[g_track.order_count++] = 14;
     g_track.resume_count++;
-    if (g_track.fail_at_stage == 13) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_GEN_FAILURE;
+    if (g_track.fail_at_stage == 14) return g_track.fail_error_code ? g_track.fail_error_code : ERROR_GEN_FAILURE;
     return ERROR_SUCCESS;
 }
 
@@ -330,6 +346,7 @@ static struct e1s18_ops s_fake_ops = {
     fake_redeem_evidence,
     fake_issue_token,
     fake_load_profile,
+    fake_query_storage,
     fake_prep_launch,
     fake_verify_image,
     fake_create_process_suspended,
@@ -451,7 +468,7 @@ static int test_success_path_ordering( void )
     struct request req;
     struct wexelevate_reply reply;
     DWORD err;
-    int expected_order[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 };
+    int expected_order[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 };
     int i;
 
     init_dummy_request( &req );
@@ -460,9 +477,9 @@ static int test_success_path_ordering( void )
 
     err = e1s18_handle_standard_request( &req, &reply );
     CHECK_EQ( err, ERROR_SUCCESS, "Success path must return ERROR_SUCCESS" );
-    CHECK_EQ( g_track.order_count, 13, "All 13 stages must execute in order" );
+    CHECK_EQ( g_track.order_count, 14, "All 14 stages must execute in order" );
 
-    for (i = 0; i < 13; i++)
+    for (i = 0; i < 14; i++)
     {
         CHECK_EQ( g_track.order[i], expected_order[i], "Stage order mismatch" );
     }
@@ -490,7 +507,7 @@ static int test_stage_failures_and_cleanup( void )
 
     e1s18_set_ops( &s_fake_ops );
 
-    for (stage = 1; stage <= 13; stage++)
+    for (stage = 1; stage <= 14; stage++)
     {
         init_dummy_request( &req );
         reset_tracker();
@@ -503,14 +520,14 @@ static int test_stage_failures_and_cleanup( void )
         CHECK_EQ( reply.tid, 0, "Failure reply tid must be zero" );
         CHECK_EQ( reply.handle, 0, "Failure reply handle must be zero" );
 
-        /* Stages 1..12 must NEVER call ResumeThread */
-        if (stage < 13)
+        /* Stages 1..13 must NEVER call ResumeThread */
+        if (stage < 14)
         {
             CHECK_EQ( g_track.resume_count, 0, "ResumeThread must not be called when an earlier stage fails" );
         }
 
-        /* Stages >= 8: child process was created by stage 7; must terminate on failure */
-        if (stage >= 8)
+        /* Stages >= 9: child process was created by stage 8; must terminate on failure */
+        if (stage >= 9)
         {
             CHECK( g_track.child_terminated > 0, "Suspended child must be terminated on failure" );
         }
@@ -519,8 +536,8 @@ static int test_stage_failures_and_cleanup( void )
             CHECK_EQ( g_track.child_terminated, 0, "No child termination if not created" );
         }
 
-        /* Stages >= 11: remote handle was duplicated by stage 10; must close in caller on failure */
-        if (stage >= 11)
+        /* Stages >= 12: remote handle was duplicated by stage 11; must close in caller on failure */
+        if (stage >= 12)
         {
             CHECK( g_track.remote_handle_closed > 0, "Remote handle must be closed in caller on failure" );
         }
@@ -529,8 +546,8 @@ static int test_stage_failures_and_cleanup( void )
             CHECK_EQ( g_track.remote_handle_closed, 0, "No remote handle closure if not duplicated" );
         }
 
-        /* Stages >= 5: profile lease was acquired by stage 4; must unload on failure */
-        if (stage >= 5)
+        /* Stages >= 6: profile lease was acquired by stage 5; must unload on failure */
+        if (stage >= 6)
         {
             CHECK( g_track.profile_unloaded > 0, "Profile lease must be unloaded on failure" );
         }
@@ -596,6 +613,14 @@ struct fake_export_state
     ULONGLONG load_generation;
     BOOL load_null_key;
 
+    /* Storage query (WEX_HKU_STORAGE_QUERY, op 12) controls */
+    NTSTATUS query_status;
+    ULONG query_managed;
+    ULONGLONG query_generation;
+    BOOL query_null_key;
+    BOOL query_generation_valid;  /* set when op 12 succeeded; LOAD must match */
+    ULONGLONG last_load_storage_gen;
+
     /* Transfer controls */
     NTSTATUS transfer_status;
     ULONG transfer_managed;
@@ -608,6 +633,7 @@ struct fake_export_state
     int negotiate_calls;
     int issue_calls;
     int load_calls;
+    int query_calls;
     int transfer_calls;
     int unload_calls;
 
@@ -652,6 +678,13 @@ static void reset_export_state( void )
     g_export_state.load_status = 0;
     g_export_state.load_managed = 1;
     g_export_state.load_generation = 0xbeef01ULL;
+
+    g_export_state.query_status = 0;
+    g_export_state.query_managed = 1;
+    g_export_state.query_generation = 0x5e1fULL;
+    g_export_state.query_null_key = TRUE; /* op 12 success returns a NULL key */
+    g_export_state.query_generation_valid = FALSE;
+    g_export_state.last_load_storage_gen = 0;
 
     g_export_state.transfer_status = 0;
     g_export_state.transfer_managed = 1;
@@ -769,9 +802,43 @@ static NTSTATUS WINAPI fake_NtLoadWexProfileEx(
         if (!record || length != WEX_HKU_RECORD_SIZE)
             return (NTSTATUS)0xc0000004;
 
+        /* Capture the storage generation the broker passed to LOAD. If op 12
+         * already ran in this session, LOAD must carry exactly the generation
+         * the server returned for the query. */
+        g_export_state.last_load_storage_gen = wex_token_u64( (const uint8_t *)record + 32 );
+        if (g_export_state.query_generation_valid &&
+            g_export_state.last_load_storage_gen != g_export_state.query_generation)
+            return (NTSTATUS)0xc000000d; /* STATUS_INVALID_PARAMETER */
+
         if (key) *key = g_export_state.load_null_key ? NULL : (HANDLE)(intptr_t)0x3333;
         if (managed) *managed = g_export_state.load_managed;
         if (generation) *generation = g_export_state.load_generation;
+        return 0;
+    }
+    if (operation == WEX_HKU_STORAGE_QUERY)
+    {
+        g_export_state.query_calls++;
+        if (g_export_state.query_status != 0)
+            return g_export_state.query_status;
+        if (access != 0)
+            return (NTSTATUS)0xc000000d; /* access must be 0 */
+        if (!context || context != (HANDLE)(intptr_t)0x1111)
+            return (NTSTATUS)0xc0000008;
+        if (!token || token != (HANDLE)(intptr_t)0x2222)
+            return (NTSTATUS)0xc0000022;
+        if (!record || length != WEX_HKU_RECORD_SIZE)
+            return (NTSTATUS)0xc0000004;
+        /* The record must be the LOAD record with the storage field (offset 32) zero. */
+        if (wex_token_u64( (const uint8_t *)record + 32 ) != 0)
+            return (NTSTATUS)0xc000000d;
+
+        if (key) *key = g_export_state.query_null_key ? NULL : (HANDLE)(intptr_t)0x4444;
+        if (managed) *managed = g_export_state.query_managed;
+        if (generation) *generation = g_export_state.query_generation;
+        g_export_state.query_generation_valid =
+            g_export_state.query_null_key &&
+            (g_export_state.query_managed == 1) &&
+            (g_export_state.query_generation != 0);
         return 0;
     }
     if (operation == WEX_HKU_COMMIT_PROCESS)
@@ -811,7 +878,8 @@ static void set_dummy_stage2_fields( struct request *req )
     req->account_name[sizeof(req->account_name) - 1] = '\0';
     memset( req->account_key, 0x42, sizeof(req->account_key) );
     req->map_generation = 1;
-    req->storage_generation = 1;
+    /* The S12 storage generation is no longer a Stage 2 field; it is set by
+     * query_storage (op 12) after S10 issuance. */
 #else
     (void)req;
 #endif
@@ -857,13 +925,20 @@ static int test_export_boundary_success( void )
     CHECK_EQ( g_export_state.negotiate_calls, 1, "Negotiate must be called once" );
     CHECK_EQ( g_export_state.issue_calls, 1, "Issue must be called once" );
 
-    /* 2. Stage 4: load_profile */
+    /* 2. Stage 3b: query_storage (WEX_HKU_STORAGE_QUERY, op 12) */
+    err = ops->query_storage( &req, token );
+    CHECK_EQ( err, ERROR_SUCCESS, "default query_storage must succeed with fake exports" );
+    CHECK_EQ( req.storage_generation, 0x5e1fULL, "req->storage_generation must match the queried generation" );
+    CHECK_EQ( g_export_state.query_calls, 1, "Storage query must be called once" );
+
+    /* 3. Stage 4: load_profile */
     err = ops->load_profile( &req, token, account_key, &lease_id, &hkey );
     CHECK_EQ( err, ERROR_SUCCESS, "default load_profile must succeed with fake exports" );
     CHECK_EQ( lease_id, 0xbeef01ULL, "lease_id must match fake export generation" );
     CHECK_EQ( (uintptr_t)hkey, 0x3333, "hkey must match fake export key handle" );
     CHECK_EQ( (uintptr_t)req.s10_context, 0x1111, "LOAD context must survive until commit or rollback" );
     CHECK_EQ( g_export_state.load_calls, 1, "Load must be called once" );
+    CHECK_EQ( g_export_state.last_load_storage_gen, 0x5e1fULL, "LOAD must carry the queried storage generation" );
 
     /* 3. Stage 5: prep_launch */
     err = ops->prep_launch( &req, token, &win_env, &win_env_sz, &unix_env, &unix_env_cnt, &cwd );
@@ -1109,6 +1184,7 @@ static int test_export_boundary_load_profile_failure( void )
 
     init_dummy_request( &req );
     set_dummy_stage2_fields( &req );
+    req.storage_generation = 1; /* query_storage (op 12) would have set this */
     e1s18_reset_ops();
     e1s18_set_export_table( &s_fake_export_table );
     ops = e1s18_get_ops();
@@ -1355,7 +1431,7 @@ static int test_unset_stage2_map_generation( void )
     return TEST_PASS;
 }
 
-static int test_unset_stage2_storage_generation( void )
+static int test_query_storage_failure_stops_pipeline( void )
 {
     struct request req;
     struct wexelevate_reply reply;
@@ -1363,12 +1439,14 @@ static int test_unset_stage2_storage_generation( void )
 
     init_dummy_request( &req );
     reset_tracker();
-    g_track.omit_stage2_storage_gen = 1;
+    g_track.fail_at_stage = 4; /* query_storage (op 12) fails */
+    g_track.fail_error_code = ERROR_ACCESS_DENIED;
     e1s18_set_ops( &s_fake_ops );
 
     err = e1s18_handle_standard_request( &req, &reply );
-    CHECK_EQ( err, ERROR_INVALID_DATA, "Unset storage_generation must fail closed with ERROR_INVALID_DATA" );
-    CHECK_EQ( g_track.order_count, 4, "Pipeline must stop at stage 4 when storage_generation unset" );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "query_storage failure must deny with ERROR_ACCESS_DENIED" );
+    CHECK_EQ( g_track.order_count, 4, "Pipeline must stop at stage 4 (query_storage) on failure" );
+    CHECK_EQ( g_track.profile_unloaded, 0, "No profile unload when query_storage fails before LOAD" );
     CHECK_EQ( reply.pid, 0, "Reply pid must be 0 on failure" );
     CHECK_EQ( reply.tid, 0, "Reply tid must be 0 on failure" );
     CHECK_EQ( reply.handle, 0, "Reply handle must be 0 on failure" );
@@ -1390,8 +1468,8 @@ static int test_unset_stage2_account_name( void )
 
     err = e1s18_handle_standard_request( &req, &reply );
     CHECK_EQ( err, ERROR_INVALID_DATA, "Unset account_name must fail closed with ERROR_INVALID_DATA" );
-    CHECK_EQ( g_track.order_count, 5, "Pipeline must stop at stage 5 when account_name unset" );
-    CHECK_EQ( g_track.profile_unloaded, 1, "Profile must be unloaded when stage 5 fails" );
+    CHECK_EQ( g_track.order_count, 6, "Pipeline must stop at stage 6 when account_name unset" );
+    CHECK_EQ( g_track.profile_unloaded, 1, "Profile must be unloaded when stage 6 fails" );
     CHECK_EQ( reply.pid, 0, "Reply pid must be 0 on failure" );
     CHECK_EQ( reply.tid, 0, "Reply tid must be 0 on failure" );
     CHECK_EQ( reply.handle, 0, "Reply handle must be 0 on failure" );
@@ -1448,6 +1526,7 @@ static int test_export_boundary_unset_fields_fail_closed( void )
     /* 4. Stage 5 default_prep_launch: Unset account_name fails closed */
     init_dummy_request( &req );
     set_dummy_stage2_fields( &req );
+    req.storage_generation = 1; /* only account_name is unset here */
     req.account_name[0] = '\0';
     err = ops->prep_launch( &req, (HANDLE)(intptr_t)0x2222, &win_env, &win_env_sz, &unix_env, &unix_env_cnt, &cwd );
     CHECK_EQ( err, ERROR_INVALID_DATA, "default_prep_launch with unset account_name must return ERROR_INVALID_DATA" );
@@ -1492,7 +1571,6 @@ struct fake_boundary_state
     uint32_t transport_method;
     uint32_t transport_service;
     uint8_t transport_evidence_ref[16];
-    uint64_t transport_storage_gen;
 };
 
 static struct fake_boundary_state g_boundary_state;
@@ -1556,8 +1634,7 @@ static DWORD fake_transport_boundary_redeem( struct request *req,
                                              const uint8_t request_digest[32],
                                              uint8_t *out_evidence_buf,
                                              size_t *out_evidence_len,
-                                             uint8_t out_evidence_ref[16],
-                                             uint64_t *out_storage_generation )
+                                             uint8_t out_evidence_ref[16] )
 {
     struct wex_s1_evidence_record ev;
     (void)account_name;
@@ -1589,7 +1666,6 @@ static DWORD fake_transport_boundary_redeem( struct request *req,
     *out_evidence_len = g_boundary_state.transport_out_len_override
                          ? g_boundary_state.transport_out_len_override : sizeof(ev);
     memcpy( out_evidence_ref, g_boundary_state.transport_evidence_ref, 16 );
-    *out_storage_generation = g_boundary_state.transport_storage_gen;
 
     return ERROR_SUCCESS;
 }
@@ -1616,7 +1692,6 @@ static void init_fake_boundary_state( void )
     for (i = 0; i < 16; i++) g_boundary_state.transport_account_key[i] = (uint8_t)(0x10 + i);
     for (i = 0; i < 16; i++) g_boundary_state.transport_evidence_ref[i] = (uint8_t)(0xe0 + i);
     g_boundary_state.transport_map_gen = 42;
-    g_boundary_state.transport_storage_gen = 1001;
     g_boundary_state.transport_method = 1;
     g_boundary_state.transport_service = 1;
 }
@@ -1868,7 +1943,7 @@ static int test_transport_boundary_evidence_ok( void )
     CHECK( !strcmp(req.account_name, "alice"), "req->account_name must be populated" );
     CHECK( !memcmp(req.account_key, g_boundary_state.transport_account_key, 16), "req->account_key must match" );
     CHECK_EQ( req.map_generation, 42, "req->map_generation must match evidence map_gen" );
-    CHECK_EQ( req.storage_generation, 1001, "req->storage_generation must match S12 profile storage gen" );
+    CHECK_EQ( req.storage_generation, 0, "Stage 2 must no longer set the storage generation" );
     CHECK( e1s18_is_evidence_burned( evidence_ref ), "Evidence ref must be marked as burned" );
 
     e1s18_reset_boundary_table();
@@ -2111,41 +2186,36 @@ static int test_transport_redeem_live_null_params( void )
     uint8_t ev_buf[256];
     size_t ev_len = sizeof(ev_buf);
     uint8_t ev_ref[16];
-    uint64_t storage_gen = 0;
     DWORD err;
 
     memset( &req, 0, sizeof(req) );
     req.pipe = (HANDLE)(intptr_t)42;
 
     /* NULL req */
-    err = e1s18_transport_redeem_live( NULL, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, &storage_gen );
+    err = e1s18_transport_redeem_live( NULL, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref );
     CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL req must return ERROR_INVALID_PARAMETER" );
 
     /* NULL pipe */
     req.pipe = NULL;
-    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, &storage_gen );
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref );
     CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL pipe must return ERROR_INVALID_PARAMETER" );
     req.pipe = (HANDLE)(intptr_t)42;
 
     /* NULL nonce */
-    err = e1s18_transport_redeem_live( &req, "alice", NULL, binding, req_digest, ev_buf, &ev_len, ev_ref, &storage_gen );
+    err = e1s18_transport_redeem_live( &req, "alice", NULL, binding, req_digest, ev_buf, &ev_len, ev_ref );
     CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL nonce must return ERROR_INVALID_PARAMETER" );
 
     /* NULL out_evidence_buf */
-    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, NULL, &ev_len, ev_ref, &storage_gen );
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, NULL, &ev_len, ev_ref );
     CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL out_evidence_buf must return ERROR_INVALID_PARAMETER" );
 
     /* NULL out_evidence_len */
-    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, NULL, ev_ref, &storage_gen );
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, NULL, ev_ref );
     CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL out_evidence_len must return ERROR_INVALID_PARAMETER" );
 
     /* NULL out_evidence_ref */
-    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, NULL, &storage_gen );
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, NULL );
     CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL out_evidence_ref must return ERROR_INVALID_PARAMETER" );
-
-    /* NULL out_storage_generation */
-    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, NULL );
-    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL out_storage_generation must return ERROR_INVALID_PARAMETER" );
 
     return TEST_PASS;
 }
@@ -2159,13 +2229,12 @@ static int test_transport_redeem_live_unsupported_without_pipe( void )
     uint8_t ev_buf[256];
     size_t ev_len = sizeof(ev_buf);
     uint8_t ev_ref[16];
-    uint64_t storage_gen = 0;
     DWORD err;
 
     memset( &req, 0, sizeof(req) );
     req.pipe = (HANDLE)(intptr_t)9999; /* Mock non-existent pipe */
 
-    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, &storage_gen );
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref );
     CHECK( err == ERROR_NOT_SUPPORTED || err == ERROR_ACCESS_DENIED, "Live redeem without live wexhost transport must fail closed" );
 
     return TEST_PASS;
@@ -2182,37 +2251,19 @@ static int test_r3_remediation_storage_generation_and_defaults( void )
     uint8_t req_digest[32] = {0x22};
     uint8_t account_key[16] = {0};
     uint8_t ev_ref[16] = {0};
-    uint64_t storage_gen = 999;
     DWORD err;
     const struct e1s18_ops *ops;
-    uint8_t ev_buf[256];
-    size_t ev_len = sizeof(ev_buf);
 
     init_dummy_request( &req );
     e1s18_reset_ops();
     ops = e1s18_get_ops();
 
-    /* 1. Storage generation zero fails closed in redeem_evidence */
-    err = ops->redeem_evidence( &req, "alice", nonce, binding, req_digest, account_key, ev_ref );
-    CHECK( err != ERROR_SUCCESS, "Stage 2 with unset storage generation must fail closed" );
-
-    /* 2. Live transport redeem: NULL storage_generation must return ERROR_INVALID_PARAMETER */
-    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, NULL );
-    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL storage_gen output must return ERROR_INVALID_PARAMETER" );
-
-    /* 3. Output storage_generation is cleared to 0 initially and query failure does NOT default to 1 */
-    storage_gen = 12345;
-    req.pipe = (HANDLE)(intptr_t)9999;
-    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, &storage_gen );
-    CHECK_EQ( storage_gen, 0, "Failed storage query must clear output generation to 0, never invent 1" );
-    CHECK( err == ERROR_NOT_SUPPORTED || err == ERROR_ACCESS_DENIED, "Query failure must deny with distinct error" );
-
-    /* 4. Missing caller PID fails closed */
+    /* 1. Missing caller PID fails closed */
     req.caller_pid = 0;
     err = ops->redeem_evidence( &req, "alice", nonce, binding, req_digest, account_key, ev_ref );
     CHECK_EQ( err, ERROR_INVALID_PARAMETER, "Caller PID 0 must fail closed with ERROR_INVALID_PARAMETER" );
 
-    /* 5. Invalid account name fails closed (no fallback to 'alice') */
+    /* 2. Invalid account name fails closed (no fallback to 'alice') */
     req.caller_pid = 1234;
     err = ops->redeem_evidence( &req, "", nonce, binding, req_digest, account_key, ev_ref );
     CHECK( err != ERROR_SUCCESS, "Empty account name must fail closed" );
@@ -2220,7 +2271,7 @@ static int test_r3_remediation_storage_generation_and_defaults( void )
     err = ops->redeem_evidence( &req, "alice/root", nonce, binding, req_digest, account_key, ev_ref );
     CHECK( err != ERROR_SUCCESS, "Invalid account name must fail closed" );
 
-    /* 6. Clock failure (returns 0) fails closed with ERROR_INVALID_DATA */
+    /* 3. Clock failure (returns 0) fails closed with ERROR_INVALID_DATA */
     e1s18_set_test_clock( 0 );
     err = ops->redeem_evidence( &req, "alice", nonce, binding, req_digest, account_key, ev_ref );
     CHECK( err == ERROR_INVALID_DATA || err == ERROR_NOT_SUPPORTED, "Clock returning 0 must fail closed" );
@@ -2564,6 +2615,99 @@ static int test_export_boundary_negotiate_token_output( void )
     e1s18_reset_export_table();
     return TEST_PASS;
 }
+
+/*
+ * Test 46: WO-3 - Broker asks the server for the storage generation (op 12).
+ * query_storage (WEX_HKU_STORAGE_QUERY) runs after S10 issuance and before
+ * LOAD. Success requires status 0, NULL key, managed 1 and a nonzero
+ * generation, which is stored in req->storage_generation and passed to LOAD
+ * exactly. Anything else denies and leaves storage_generation 0, so LOAD
+ * fails closed (and the pipeline never reaches it, see
+ * test_query_storage_failure_stops_pipeline).
+ */
+static int test_export_boundary_storage_query( void )
+{
+    struct request req;
+    HANDLE token = NULL;
+    HANDLE hkey = NULL;
+    uint64_t lease_id = 0;
+    DWORD err;
+    uint8_t account_key[16] = {0x42};
+    uint8_t evidence_ref[16] = {0x77};
+    uint8_t nonce[32] = {0xa5};
+    uint8_t binding_digest[32] = {0x11};
+    uint8_t request_digest[32] = {0x22};
+    const struct e1s18_ops *ops;
+
+    e1s18_reset_ops();
+    e1s18_set_export_table( &s_fake_export_table );
+    ops = e1s18_get_ops();
+
+    /* 1. Success: query_storage stores the queried generation (0x5e1f) and
+     * LOAD carries it exactly. */
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    reset_export_state();
+    err = ops->issue_token( &req, account_key, evidence_ref, nonce, binding_digest, request_digest, &token );
+    CHECK_EQ( err, ERROR_SUCCESS, "issue_token must succeed before the storage query" );
+    CHECK_EQ( (uintptr_t)req.s10_context, 0x1111, "s10_context must be retained for the storage query" );
+
+    err = ops->query_storage( &req, token );
+    CHECK_EQ( err, ERROR_SUCCESS, "query_storage must succeed with a valid op 12 response" );
+    CHECK_EQ( req.storage_generation, 0x5e1fULL, "req->storage_generation must be the queried generation" );
+    CHECK_EQ( g_export_state.query_calls, 1, "Storage query must be called once" );
+
+    err = ops->load_profile( &req, token, account_key, &lease_id, &hkey );
+    CHECK_EQ( err, ERROR_SUCCESS, "load_profile must succeed after a valid storage query" );
+    CHECK_EQ( g_export_state.last_load_storage_gen, 0x5e1fULL, "LOAD must carry exactly the queried generation" );
+    ops->close_handle( req.s10_context ); req.s10_context = NULL;
+    ops->close_handle( token ); token = NULL;
+
+    /* 2. op 12 status failure denies; storage_generation stays 0 so LOAD
+     * fails closed (the pipeline never reaches LOAD). */
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    reset_export_state();
+    g_export_state.query_status = (NTSTATUS)0xc0000022; /* STATUS_ACCESS_DENIED */
+    err = ops->issue_token( &req, account_key, evidence_ref, nonce, binding_digest, request_digest, &token );
+    CHECK_EQ( err, ERROR_SUCCESS, "issue_token must succeed before the failing storage query" );
+    err = ops->query_storage( &req, token );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "op 12 status failure must deny with ERROR_ACCESS_DENIED" );
+    CHECK_EQ( req.storage_generation, 0, "req->storage_generation must stay 0 on query failure" );
+    err = ops->load_profile( &req, token, account_key, &lease_id, &hkey );
+    CHECK_EQ( err, ERROR_INVALID_DATA, "LOAD must fail closed when the storage generation is unset" );
+    ops->close_handle( req.s10_context ); req.s10_context = NULL;
+    ops->close_handle( token ); token = NULL;
+
+    /* 3. op 12 returning generation 0 denies */
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    reset_export_state();
+    g_export_state.query_generation = 0;
+    err = ops->issue_token( &req, account_key, evidence_ref, nonce, binding_digest, request_digest, &token );
+    CHECK_EQ( err, ERROR_SUCCESS, "issue_token must succeed before the zero-generation query" );
+    err = ops->query_storage( &req, token );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "op 12 zero generation must deny with ERROR_ACCESS_DENIED" );
+    CHECK_EQ( req.storage_generation, 0, "req->storage_generation must stay 0 on zero generation" );
+    ops->close_handle( req.s10_context ); req.s10_context = NULL;
+    ops->close_handle( token ); token = NULL;
+
+    /* 4. op 12 returning a key (non-NULL) denies */
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    reset_export_state();
+    g_export_state.query_null_key = FALSE; /* return a non-NULL key */
+    err = ops->issue_token( &req, account_key, evidence_ref, nonce, binding_digest, request_digest, &token );
+    CHECK_EQ( err, ERROR_SUCCESS, "issue_token must succeed before the key-returning query" );
+    err = ops->query_storage( &req, token );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "op 12 non-NULL key must deny with ERROR_ACCESS_DENIED" );
+    CHECK_EQ( req.storage_generation, 0, "req->storage_generation must stay 0 when a key is returned" );
+    ops->close_handle( req.s10_context ); req.s10_context = NULL;
+    ops->close_handle( token ); token = NULL;
+
+    e1s18_reset_export_table();
+    return TEST_PASS;
+}
 #endif
 
 int main( int argc, char **argv )
@@ -2637,8 +2781,8 @@ int main( int argc, char **argv )
     printf("19. Testing unset Stage 2 map_generation fails closed (ERROR_INVALID_DATA)...\n");
     if (test_unset_stage2_map_generation() != TEST_PASS) ret = 1;
 
-    printf("20. Testing unset Stage 2 storage_generation fails closed (ERROR_INVALID_DATA)...\n");
-    if (test_unset_stage2_storage_generation() != TEST_PASS) ret = 1;
+    printf("20. Testing query_storage (op 12) failure stops the pipeline before LOAD...\n");
+    if (test_query_storage_failure_stops_pipeline() != TEST_PASS) ret = 1;
 
     printf("21. Testing unset Stage 2 account_name fails closed (ERROR_INVALID_DATA)...\n");
     if (test_unset_stage2_account_name() != TEST_PASS) ret = 1;
@@ -2716,6 +2860,9 @@ int main( int argc, char **argv )
 
     printf("45. Testing R10 NEGOTIATE token output (non-NULL slot required; token output denies)...\n");
     if (test_export_boundary_negotiate_token_output() != TEST_PASS) ret = 1;
+
+    printf("46. Testing WO-3 storage generation query (op 12): success, denial, LOAD generation...\n");
+    if (test_export_boundary_storage_query() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

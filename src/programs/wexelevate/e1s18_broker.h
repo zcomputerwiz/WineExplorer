@@ -188,8 +188,7 @@ typedef DWORD (*e1s18_transport_fn)( struct request *req,
                                      const uint8_t request_digest[32],
                                      uint8_t *out_evidence_buf,
                                      size_t *out_evidence_len,
-                                     uint8_t out_evidence_ref[16],
-                                     uint64_t *out_storage_generation );
+                                     uint8_t out_evidence_ref[16] );
 
 struct e1s18_boundary_table
 {
@@ -260,6 +259,15 @@ struct e1s18_ops
     DWORD (*load_profile)( struct request *req, HANDLE token, const uint8_t account_key[16],
                            uint64_t *out_lease_id, HANDLE *out_hkey );
 
+    /* Stage 3b: S12 storage generation query (WEX_HKU_STORAGE_QUERY, op 12).
+     * Called after S10 issuance and before LOAD. Calls NtLoadWexProfileEx
+     * WEX_HKU_STORAGE_QUERY with the LOAD record (storage_generation 0, the
+     * only operation where 0 is accepted). Success: no key, managed=1 and a
+     * verified nonzero generation, stored in req->storage_generation.
+     * Does not consume the one-shot LOAD attempt.
+     */
+    DWORD (*query_storage)( struct request *req, HANDLE token );
+
     /* Stage 5: S15 Launch Preparation.
      * Calls wex_prepare_launch from launch_prep.c with explicit same-server inputs:
      * Bob's uid/gid from caller, profile record, cwd; real-UID requests denied;
@@ -327,8 +335,7 @@ DWORD e1s18_transport_redeem_live( struct request *req,
                                    const uint8_t request_digest[32],
                                    uint8_t *out_evidence_buf,
                                    size_t *out_evidence_len,
-                                   uint8_t out_evidence_ref[16],
-                                   uint64_t *out_storage_generation );
+                                   uint8_t out_evidence_ref[16] );
 #endif
 
 #ifdef __cplusplus
