@@ -1,6 +1,33 @@
 # Changes to stock Wine / third-party code
 
-## E1-S15 disabled profile environment and launch preparation (2026-11-07)
+## E1-S17 disabled credential dialog, bound conversation and prompt queue (2026-11-07)
+
+Survey, implementation and verification for Work Package E1-S17 of [E1-S](E1_S_STANDARD_USERS.md).
+See [survey, architecture, files and results](E1_S17_CREDENTIAL_DIALOG.md). Disabled by default;
+unreachable from the production broker path (gated for S18 integration).
+
+Zero stock Wine changes. No changes to `wine/server`, `wine/dlls`, protocol, or Wine submodule files.
+
+Project changes:
+* `src/programs/wexelevate/cred_dialog.h` and `cred_dialog.c`:
+  - Pure typed account name validation implementing S4 account-map rules (`wine/server/accounts.c:valid_name`): length 1..63, character set `[a-zA-Z0-9_.-]`, no leading dash, no `.` or `..`, trailing `$` permitted only as last char for machine accounts, rejection of path separators, control characters, quotes, spaces, and markup injection.
+  - Secure memory wiping primitive `wex_secure_wipe` using `SecureZeroMemory` on Windows and `explicit_bzero` / non-elided volatile zeroing on POSIX, with buffer verification `wex_is_buffer_zeroed`.
+  - Versioned S1 Answer Record (Kind 2, version 1, length 156, required_caps 0x3ff) serialization and verification: matching request ID, attempt, round, index, nonce, binding digest, request digest, and channel ID.
+  - Conversation state machine (`INIT -> PROMPTING -> AUTHENTICATING -> CONFIRMED -> CANCELLED / TIMED_OUT / DENIED`). Helper exit never approves: process exit (code 0 or otherwise) without an explicit valid signed-by-binding Confirm message fails closed (`WEX_CONV_STATE_DENIED`).
+  - Shared serialized prompt queue (H3b): strictly one active prompt per desktop/session, FIFO queueing, cancellation and deadline timeout handling (timed-out or cancelled entries never approve), and per-caller starvation DoS protection enforcing a limit of at most 2 queued entries per caller (`WEX_PROMPT_QUEUE_PER_CALLER_LIMIT = 2`), at most 8 per session, and at most 32 globally.
+* `src/programs/consent/resource.h` and `consent.rc`:
+  - Updated `IDD_CREDENTIALS` (260x215) with banner, program name, publisher, prominent Wine-only profile and host-access explanation text (`IDC_UAC_EXPLANATION`: "The administrator account's rights apply inside this Wine prefix only, with no host or root access. The requesting user's host account and files are unchanged."), insecure desktop policy warning label (`IDC_UAC_DESKTOP_WARN`), typed account name edit control (`IDC_UAC_ACCOUNT`), masked password edit control (`IDC_UAC_PASSWORD`), error label (`IDC_UAC_ERROR`), Yes (`IDYES`) and No (`IDNO`) buttons.
+* `src/programs/consent/consent.c`:
+  - Supported `/broker`, `/credentials`, `/request <id>`, `/token <token>`, `/channel <handle>`, `/pipe <pipename>`, and `/ppid <pid>`.
+  - If `/credentials` is invoked standalone or without valid bound broker channel, fails closed with `ERROR_NOT_SUPPORTED` (50).
+  - Handles `IDD_CREDENTIALS` with S4 account validation, password masking, immediate buffer wiping, S1 Confirm transmission over bound channel on `IDYES`, S1 Cancel transmission on `IDNO`/cancel, and helper exit fail-closed enforcement.
+  - Test hook gated under `#ifdef WEX_CRED_DIALOG_TEST_HOOK` for lab-only input injection and status reporting. Production build contains zero test hook strings.
+* `src/programs/wexelevate/test_cred_dialog_main.c` and `scripts/test_credential_dialog.sh`:
+  - Native C unit test and test harness runnable as root in `wexbuild` WSL.
+  - Verifies production binary disabled-by-default behavior and string-exclusion assertion (no test strings in production binary).
+  - Exercises unit test suite in lab binary: account name validation, secure buffer wiping, conversation state machine, early exit denial, binding mismatch denial, cancel/timeout handling, prompt queue FIFO ordering, and prompt queue per-caller limit.
+  - Exercises headless Xvfb runs with `scripts/cred_dialog_probe.c` verifying dialog rendering, Confirm action transmission, Cancel action transmission, invalid account rejection, and child kill denial.
+
 
 Survey, implementation and verification for Work Package E1-S15 of [E1-S](E1_S_STANDARD_USERS.md).
 See [survey, architecture, files and results](E1_S15_PROFILE_ENV.md). Disabled by default; nothing

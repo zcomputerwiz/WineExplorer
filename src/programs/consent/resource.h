@@ -29,5 +29,7 @@
 #define IDC_UAC_ERROR           1012
 #define IDC_UAC_USERTILE        1013
 #define IDC_UAC_PROMPT          1014
+#define IDC_UAC_EXPLANATION     1015
+#define IDC_UAC_DESKTOP_WARN    1016
 
 #endif /* WEX_CONSENT_RESOURCE_H */

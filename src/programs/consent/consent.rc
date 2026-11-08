@@ -34,23 +34,24 @@ BEGIN
     DEFPUSHBUTTON   "&Cancel", IDNO, 198, 160, 50, 14
 END
 
-IDD_CREDENTIALS DIALOGEX 0, 0, 260, 180
+IDD_CREDENTIALS DIALOGEX 0, 0, 260, 215
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "User Account Control"
 FONT 8, "Tahoma"
 BEGIN
     CONTROL         "", IDC_UAC_BANNER, "Static", SS_OWNERDRAW, 0, 0, 260, 36
-    LTEXT           "Program name:", -1, 14, 44, 56, 10
-    LTEXT           "", IDC_UAC_PROGRAM, 74, 44, 174, 12, SS_LEFT | SS_NOPREFIX
-    LTEXT           "Publisher:", -1, 14, 58, 56, 10
-    LTEXT           "", IDC_UAC_PUBLISHER, 74, 58, 174, 12, SS_LEFT | SS_NOPREFIX
-    CONTROL         "", -1, "Static", SS_ETCHEDHORZ, 12, 72, 236, 1
-    LTEXT           "To continue, type an administrator password, and then click Yes.", IDC_UAC_PROMPT, 14, 78, 232, 16
-    CONTROL         "", IDC_UAC_USERTILE, "Static", SS_OWNERDRAW | WS_CHILD | WS_VISIBLE, 18, 100, 22, 24
-    COMBOBOX        IDC_UAC_ACCOUNT, 48, 100, 196, 80, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "Password:", IDC_UAC_PW_LABEL, 48, 121, 38, 10
-    EDITTEXT        IDC_UAC_PASSWORD, 90, 119, 154, 13, ES_PASSWORD | ES_AUTOHSCROLL
-    LTEXT           "", IDC_UAC_ERROR, 14, 144, 232, 12
-    DEFPUSHBUTTON   "&Yes", IDYES, 144, 158, 50, 14
-    PUSHBUTTON      "&No", IDNO, 198, 158, 50, 14
+    LTEXT           "Program name:", -1, 14, 42, 56, 10
+    LTEXT           "", IDC_UAC_PROGRAM, 74, 42, 174, 12, SS_LEFT | SS_NOPREFIX
+    LTEXT           "Publisher:", -1, 14, 56, 56, 10
+    LTEXT           "", IDC_UAC_PUBLISHER, 74, 56, 174, 12, SS_LEFT | SS_NOPREFIX
+    CONTROL         "", -1, "Static", SS_ETCHEDHORZ, 12, 70, 236, 1
+    LTEXT           "The administrator account's rights apply inside this Wine prefix only, with no host or root access. The requesting user's host account and files are unchanged.", IDC_UAC_EXPLANATION, 14, 76, 232, 28
+    LTEXT           "", IDC_UAC_DESKTOP_WARN, 14, 106, 232, 10, SS_LEFT
+    LTEXT           "User name:", -1, 14, 120, 56, 10
+    EDITTEXT        IDC_UAC_ACCOUNT, 74, 118, 172, 14, ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Password:", IDC_UAC_PW_LABEL, 14, 138, 56, 10
+    EDITTEXT        IDC_UAC_PASSWORD, 74, 136, 172, 14, ES_PASSWORD | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "", IDC_UAC_ERROR, 14, 156, 232, 18, SS_LEFT
+    DEFPUSHBUTTON   "&Yes", IDYES, 144, 188, 50, 14, WS_TABSTOP
+    PUSHBUTTON      "&No", IDNO, 198, 188, 50, 14, WS_TABSTOP
 END

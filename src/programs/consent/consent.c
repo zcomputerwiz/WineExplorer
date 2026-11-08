@@ -18,9 +18,20 @@
 #include <stdlib.h>
 
 #include "resource.h"
+#ifdef __WINE__
 #include "wine/debug.h"
-
 WINE_DEFAULT_DEBUG_CHANNEL(consent);
+#else
+#define TRACE(...) do {} while (0)
+#define WARN(...) do {} while (0)
+#define ERR(...) do {} while (0)
+#endif
+#include "../wexelevate/cred_dialog.h"
+#include "../wexelevate/cred_dialog.c"
+
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+#endif
 
 struct consent_data
 {
@@ -32,8 +43,8 @@ struct consent_data
     BOOL broker;               /* /broker: started by the elevation broker, which waits for the exit code */
     BOOL secure;               /* /secure: on the secure desktop, which the driver already covers and dims */
     DWORD parent_pid;          /* /ppid: the broker; this process ends when the broker does */
-#ifdef WEXCONSENT_TEST_HOOK
-    WCHAR testid[32];          /* /testid: the test hook (WEXCONSENT_TEST_HOOK builds only) */
+#if defined(WEXCONSENT_TEST_HOOK) || defined(WEX_CRED_DIALOG_TEST_HOOK)
+    WCHAR testid[32];          /* /testid: the test hook */
 #endif
     WCHAR progname[256];
     WCHAR publisher[256];
@@ -41,6 +52,18 @@ struct consent_data
     BOOL is_verified;
     BOOL credentials_mode;
     BOOL details_visible;
+
+    /* E1-S17: Bound conversation fields */
+    UINT64 request_id;
+    HANDLE channel_pipe;
+    BYTE channel_token[16];
+    BYTE nonce[32];
+    BYTE binding_digest[32];
+    BYTE request_digest[32];
+    DWORD attempt;
+    BOOL confirmed;
+    char account[WEX_MAX_ACCOUNT_NAME_LEN + 1];
+    WCHAR password[256];
 };
 
 /* Draws authentic 4-quadrant Windows Vista UAC shield with golden border */
@@ -168,13 +191,13 @@ static void draw_banner(const DRAWITEMSTRUCT *dis, BOOL is_verified)
     DeleteObject(font);
 }
 
-
 static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
 {
     const WCHAR *p = cmd;
     WCHAR *dst;
 
     memset(data, 0, sizeof(*data));
+    data->channel_pipe = INVALID_HANDLE_VALUE;
     lstrcpyW(data->origin, L"Hard drive on this computer");
 
     while (*p)
@@ -198,13 +221,53 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
             p += 7;
             data->secure = TRUE;
         }
+        else if (!wcsnicmp(p, L"/credentials", 12))
+        {
+            p += 12;
+            data->credentials_mode = TRUE;
+        }
         else if (!wcsnicmp(p, L"/ppid", 5))
         {
             p += 5;
             while (*p == ' ' || *p == '\t') p++;
             data->parent_pid = wcstoul(p, (WCHAR **)&p, 10);
         }
-#ifdef WEXCONSENT_TEST_HOOK
+        else if (!wcsnicmp(p, L"/request", 8))
+        {
+            p += 8;
+            while (*p == ' ' || *p == '\t') p++;
+            data->request_id = _wcstoui64(p, (WCHAR **)&p, 16);
+        }
+        else if (!wcsnicmp(p, L"/token", 6))
+        {
+            int i;
+            p += 6;
+            while (*p == ' ' || *p == '\t') p++;
+            for (i = 0; i < 16 && *p; i++)
+            {
+                WCHAR hex[3] = { p[0], p[1], 0 };
+                if (!p[0] || !p[1]) break;
+                data->channel_token[i] = (BYTE)wcstoul(hex, NULL, 16);
+                p += 2;
+            }
+        }
+        else if (!wcsnicmp(p, L"/channel", 8))
+        {
+            p += 8;
+            while (*p == ' ' || *p == '\t') p++;
+            data->channel_pipe = (HANDLE)(ULONG_PTR)wcstoul(p, (WCHAR **)&p, 0);
+        }
+        else if (!wcsnicmp(p, L"/pipe", 5))
+        {
+            WCHAR pipename[MAX_PATH];
+            int i = 0;
+            p += 5;
+            while (*p == ' ' || *p == '\t') p++;
+            while (*p && *p != ' ' && i < MAX_PATH - 1) pipename[i++] = *p++;
+            pipename[i] = 0;
+            data->channel_pipe = CreateFileW(pipename, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        }
+#if defined(WEXCONSENT_TEST_HOOK) || defined(WEX_CRED_DIALOG_TEST_HOOK)
         else if (!wcsnicmp(p, L"/testid", 7))
         {
             p += 7;
@@ -357,12 +420,10 @@ static BOOL is_credentials_mode_required(void)
     return (mode == 1 || mode == 3);
 }
 
+#define HOOK_DIR L"Z:\\tmp\\wexelev\\"
+
 #ifdef WEXCONSENT_TEST_HOOK
 #include <sddl.h>
-/* Test harness only (never defined by a build file; the harness compiles a copy of this file as consent_test.exe).
- * It writes what the window shows to Z:\tmp\wexelev\consent.<id>.shown and answers when the harness has created
- * consent.<id>.approve or consent.<id>.cancel there. It posts the command to its own dialog; no input is injected. */
-#define HOOK_DIR L"Z:\\tmp\\wexelev\\"
 
 static void test_hook_path(const struct consent_data *data, const WCHAR *suffix, WCHAR *path)
 {
@@ -449,6 +510,96 @@ static int test_hook_answer(const struct consent_data *data)
 }
 #endif
 
+#ifdef WEX_CRED_DIALOG_TEST_HOOK
+static void test_cred_hook_path(const struct consent_data *data, const WCHAR *suffix, WCHAR *path)
+{
+    lstrcpyW(path, HOOK_DIR L"cred.");
+    lstrcatW(path, data->testid);
+    lstrcatW(path, suffix);
+}
+
+static void test_cred_hook_shown(const struct consent_data *data)
+{
+    WCHAR path[MAX_PATH];
+    HANDLE file;
+    DWORD done;
+    char line[256];
+    int n;
+
+    test_cred_hook_path(data, L".shown", path);
+    file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return;
+
+    WriteFile(file, "shown=1\n", 8, &done, NULL);
+    WriteFile(file, "explanation=The administrator account's rights apply inside this Wine prefix only, with no host or root access. The requesting user's host account and files are unchanged.\n", 170, &done, NULL);
+    n = snprintf(line, sizeof(line), "request_id=%08lx%08lx\n", (DWORD)(data->request_id >> 32), (DWORD)data->request_id);
+    WriteFile(file, line, n, &done, NULL);
+    CloseHandle(file);
+}
+
+static void test_cred_hook_record_invalid(const struct consent_data *data)
+{
+    WCHAR path[MAX_PATH];
+    HANDLE file;
+    DWORD done;
+
+    test_cred_hook_path(data, L".invalid", path);
+    file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file != INVALID_HANDLE_VALUE)
+    {
+        WriteFile(file, "invalid=1\n", 10, &done, NULL);
+        CloseHandle(file);
+    }
+}
+
+static void test_cred_hook_action(struct consent_data *data, HWND hwnd)
+{
+    WCHAR path[MAX_PATH];
+    HANDLE file;
+    char buf[128];
+    DWORD read_len = 0;
+
+    test_cred_hook_path(data, L".action", path);
+    file = CreateFileW(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return;
+
+    if (ReadFile(file, buf, sizeof(buf) - 1, &read_len, NULL) && read_len > 0)
+    {
+        buf[read_len] = '\0';
+        CloseHandle(file);
+        DeleteFileW(path);
+
+        if (!strncmp(buf, "confirm:", 8))
+        {
+            char *acc = buf + 8;
+            char *pw = strchr(acc, ':');
+            if (pw)
+            {
+                *pw++ = '\0';
+                SetDlgItemTextA(hwnd, IDC_UAC_ACCOUNT, acc);
+                SetDlgItemTextA(hwnd, IDC_UAC_PASSWORD, pw);
+                PostMessageW(hwnd, WM_COMMAND, IDYES, 0);
+            }
+        }
+        else if (!strncmp(buf, "invalid:", 8))
+        {
+            char *acc = buf + 8;
+            SetDlgItemTextA(hwnd, IDC_UAC_ACCOUNT, acc);
+            PostMessageW(hwnd, WM_COMMAND, IDYES, 0);
+        }
+        else if (!strncmp(buf, "cancel", 6))
+        {
+            PostMessageW(hwnd, WM_COMMAND, IDNO, 0);
+        }
+    }
+    else
+    {
+        CloseHandle(file);
+    }
+}
+#endif
+
+/* Click consent dialog proc */
 static INT_PTR CALLBACK consent_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     struct consent_data *data = (struct consent_data *)GetWindowLongPtrW(hwnd, DWLP_USER);
@@ -540,6 +691,174 @@ static INT_PTR CALLBACK consent_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
     return FALSE;
 }
 
+/* Credential consent dialog proc */
+static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    struct consent_data *data = (struct consent_data *)GetWindowLongPtrW(hwnd, DWLP_USER);
+
+    switch (msg)
+    {
+    case WM_INITDIALOG:
+    {
+        HFONT font_bold;
+        LOGFONTW lf;
+
+        data = (struct consent_data *)lparam;
+        SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)data);
+
+        SetDlgItemTextW(hwnd, IDC_UAC_PROGRAM, data->progname);
+        SetDlgItemTextW(hwnd, IDC_UAC_PUBLISHER, data->publisher);
+        SetDlgItemTextW(hwnd, IDC_UAC_EXPLANATION,
+            L"The administrator account's rights apply inside this Wine prefix only, "
+            L"with no host or root access. The requesting user's host account and files are unchanged.");
+
+        if (!data->secure)
+            SetDlgItemTextW(hwnd, IDC_UAC_DESKTOP_WARN, L"Warning: Prompt running on ordinary desktop (insecure desktop policy).");
+        else
+            SetDlgItemTextW(hwnd, IDC_UAC_DESKTOP_WARN, L"");
+
+        SetDlgItemTextW(hwnd, IDC_UAC_ERROR, L"");
+
+        memset(&lf, 0, sizeof(lf));
+        lf.lfHeight = -12;
+        lf.lfWeight = FW_BOLD;
+        lstrcpyW(lf.lfFaceName, L"Tahoma");
+        if ((font_bold = CreateFontIndirectW(&lf)))
+            SendDlgItemMessageW(hwnd, IDC_UAC_PROGRAM, WM_SETFONT, (WPARAM)font_bold, TRUE);
+
+#ifdef WEX_CRED_DIALOG_TEST_HOOK
+        test_cred_hook_shown(data);
+        SetTimer(hwnd, 2, 50, NULL);
+#endif
+
+        SetFocus(GetDlgItem(hwnd, IDC_UAC_ACCOUNT));
+        return FALSE;
+    }
+
+#ifdef WEX_CRED_DIALOG_TEST_HOOK
+    case WM_TIMER:
+    {
+        if (wparam == 2)
+        {
+            test_cred_hook_action(data, hwnd);
+            return TRUE;
+        }
+        break;
+    }
+#endif
+
+    case WM_DRAWITEM:
+        if (wparam == IDC_UAC_BANNER)
+        {
+            draw_banner((const DRAWITEMSTRUCT *)lparam, data->is_verified);
+            return TRUE;
+        }
+        break;
+
+    case WM_COMMAND:
+        switch (LOWORD(wparam))
+        {
+        case IDYES:
+        {
+            WCHAR waccount[128];
+            char ascii_account[128];
+
+            GetDlgItemTextW(hwnd, IDC_UAC_ACCOUNT, waccount, ARRAY_SIZE(waccount));
+            WideCharToMultiByte(CP_ACP, 0, waccount, -1, ascii_account, sizeof(ascii_account), NULL, NULL);
+
+            if (!wex_valid_account_name(ascii_account))
+            {
+                SetDlgItemTextW(hwnd, IDC_UAC_ERROR, L"Invalid account name format. Rights apply inside Wine prefix only.");
+                SetDlgItemTextW(hwnd, IDC_UAC_PASSWORD, L"");
+                SetFocus(GetDlgItem(hwnd, IDC_UAC_ACCOUNT));
+#ifdef WEX_CRED_DIALOG_TEST_HOOK
+                test_cred_hook_record_invalid(data);
+#endif
+                return TRUE;
+            }
+
+            GetDlgItemTextW(hwnd, IDC_UAC_PASSWORD, data->password, ARRAY_SIZE(data->password));
+            strncpy(data->account, ascii_account, sizeof(data->account) - 1);
+            data->account[sizeof(data->account) - 1] = '\0';
+
+            /* Transmit S1 Answer record with answer_kind = CONFIRM */
+            if (data->channel_pipe && data->channel_pipe != INVALID_HANDLE_VALUE)
+            {
+                BYTE answer_buf[WEX_S1_ANSWER_LENGTH];
+                size_t ans_len = 0;
+                DWORD written = 0;
+
+                if (wex_build_answer_record(data->request_id,
+                                            data->attempt ? data->attempt : 1,
+                                            0, 0,
+                                            WEX_ANSWER_KIND_CONFIRM,
+                                            data->nonce,
+                                            data->binding_digest,
+                                            data->request_digest,
+                                            data->channel_token,
+                                            answer_buf, sizeof(answer_buf),
+                                            &ans_len) == WEX_STATUS_OK)
+                {
+                    WriteFile(data->channel_pipe, answer_buf, (DWORD)ans_len, &written, NULL);
+                    FlushFileBuffers(data->channel_pipe);
+                }
+                wex_secure_wipe(answer_buf, sizeof(answer_buf));
+            }
+
+            wex_secure_wipe(data->password, sizeof(data->password));
+            SetDlgItemTextW(hwnd, IDC_UAC_PASSWORD, L"");
+            data->confirmed = TRUE;
+            EndDialog(hwnd, IDYES);
+            return TRUE;
+        }
+
+        case IDNO:
+        case IDCANCEL:
+        {
+            /* Transmit S1 Answer record with answer_kind = CANCEL */
+            if (!data->confirmed && data->channel_pipe && data->channel_pipe != INVALID_HANDLE_VALUE)
+            {
+                BYTE answer_buf[WEX_S1_ANSWER_LENGTH];
+                size_t ans_len = 0;
+                DWORD written = 0;
+
+                if (wex_build_answer_record(data->request_id,
+                                            data->attempt ? data->attempt : 1,
+                                            0, 0,
+                                            WEX_ANSWER_KIND_CANCEL,
+                                            data->nonce,
+                                            data->binding_digest,
+                                            data->request_digest,
+                                            data->channel_token,
+                                            answer_buf, sizeof(answer_buf),
+                                            &ans_len) == WEX_STATUS_OK)
+                {
+                    WriteFile(data->channel_pipe, answer_buf, (DWORD)ans_len, &written, NULL);
+                    FlushFileBuffers(data->channel_pipe);
+                }
+                wex_secure_wipe(answer_buf, sizeof(answer_buf));
+            }
+
+            wex_secure_wipe(data->password, sizeof(data->password));
+            SetDlgItemTextW(hwnd, IDC_UAC_PASSWORD, L"");
+            data->confirmed = FALSE;
+            EndDialog(hwnd, IDNO);
+            return TRUE;
+        }
+        }
+        break;
+
+    case WM_CLOSE:
+        PostMessageW(hwnd, WM_COMMAND, IDNO, 0);
+        return TRUE;
+
+    case WM_DESTROY:
+        wex_secure_wipe(data->password, sizeof(data->password));
+        wex_secure_wipe(data->account, sizeof(data->account));
+        break;
+    }
+    return FALSE;
+}
 
 /* The broker returns the input to the user's desktop on every exit path, but a consent window that outlived a
  * broker that was killed would stay on the secure desktop (and hold the display on X11). It ends with its broker. */
@@ -559,14 +878,51 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
 
     InitCommonControls();
     parse_command_line(cmdline, &data);
-    data.credentials_mode = data.broker ? FALSE : is_credentials_mode_required();
+
+    if (!data.credentials_mode && !data.broker)
+        data.credentials_mode = is_credentials_mode_required();
+
     if (data.credentials_mode)
     {
-        /* Checking a password is not authorization to become an administrator.
-         * A request-bound polkit/backend identity contract is not implemented
-         * yet. Do not collect secrets or substitute a test approval fixture. */
-        WARN("Administrator credential authorization is not available.\n");
-        return ERROR_NOT_SUPPORTED;
+        /* Disabled by default unless spawned by broker with a valid bound channel */
+        if (!data.broker || !data.request_id || data.channel_pipe == INVALID_HANDLE_VALUE)
+        {
+            /* Checking a password is not authorization to become an administrator.
+             * A request-bound polkit/backend identity contract is not implemented
+             * yet. Do not collect secrets or substitute a test approval fixture. */
+            WARN("Administrator credential authorization is not available.\n");
+            return ERROR_NOT_SUPPORTED;
+        }
+
+        if (data.parent_pid)
+        {
+            HANDLE parent = OpenProcess(SYNCHRONIZE, FALSE, data.parent_pid), thread;
+
+            if (!parent) return ERROR_CANCELLED;   /* the broker is gone already */
+            if ((thread = CreateThread(NULL, 0, parent_watch, parent, 0, NULL))) CloseHandle(thread);
+        }
+
+        /* Cosmetic dimmer on the shared desktop. The secure desktop is covered and dimmed by the display driver. */
+        if (!data.secure) hdim = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                               L"STATIC", L"", WS_POPUP | WS_VISIBLE,
+                               GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
+                               GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN),
+                               NULL, NULL, inst, NULL);
+        if (hdim)
+            SetLayeredWindowAttributes(hdim, 0, 160, LWA_ALPHA);
+
+        res = DialogBoxParamW(inst, MAKEINTRESOURCEW(IDD_CREDENTIALS), hdim ? hdim : data.hwnd_parent,
+                              credentials_dlg_proc, (LPARAM)&data);
+        dialog_error = res == -1 ? GetLastError() : ERROR_SUCCESS;
+        if (res == -1 && !dialog_error) dialog_error = ERROR_GEN_FAILURE;
+
+        if (hdim)
+            DestroyWindow(hdim);
+
+        TRACE("Credential dialog finished with result %Id, confirmed=%d\n", res, data.confirmed);
+        /* Helper exit never approves: only explicit Confirm on channel does */
+        if (res == -1) return dialog_error;
+        return (data.confirmed && res == IDYES) ? ERROR_SUCCESS : ERROR_CANCELLED;
     }
 
     if (data.broker && data.parent_pid)
