@@ -12,8 +12,17 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname -- "$SCRIPT_DIR")"
 FIXTURE="$(mktemp -d /run/wex-launch-prep-test-XXXXXXXX)"
 
+BOB_UID=62001
+BOB_GID=62001
+BOB_USER="wexlaunch"
+CREATED_USER=0
+CREATED_GROUP=0
+
 cleanup()
 {
+    # Remove only what this run created; never an account that existed before.
+    [ "$CREATED_USER" = 1 ] && { userdel -r "$BOB_USER" 2>/dev/null || true; }
+    [ "$CREATED_GROUP" = 1 ] && { groupdel "$BOB_USER" 2>/dev/null || true; }
     rm -rf -- "$FIXTURE"
 }
 trap cleanup EXIT
@@ -21,6 +30,18 @@ trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 chmod 0755 "$FIXTURE"
+
+# Ensure a disposable host account exists so the launch-prep account lookup
+# succeeds. The lookup-failure test uses a different, non-existent UID.
+if ! getent group "$BOB_GID" >/dev/null 2>&1; then
+    groupadd -g "$BOB_GID" "$BOB_USER" || fail "cannot create group $BOB_GID"
+    CREATED_GROUP=1
+fi
+if ! getent passwd "$BOB_UID" >/dev/null 2>&1; then
+    useradd -u "$BOB_UID" -g "$BOB_GID" -d "/home/$BOB_USER" -m -s /bin/bash "$BOB_USER" \
+        || fail "cannot create user $BOB_UID"
+    CREATED_USER=1
+fi
 
 # Compile production (disabled by default) and lab builds
 cc -O2 -Wall -Wextra -Werror -I"$REPO/src/programs/wexelevate" \
@@ -33,9 +54,6 @@ cc -O2 -Wall -Wextra -Werror -DWEX_E1S15_LAUNCH_PREP_TEST \
     -o "$FIXTURE/lab" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/test_launch_prep_main.c"
-
-BOB_UID=62001
-BOB_GID=62001
 
 PREFIX="$FIXTURE/prefix"
 mkdir -m 0700 "$PREFIX"

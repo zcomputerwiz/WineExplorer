@@ -42,20 +42,31 @@ static void fill_valid_params( struct wex_launch_prep_params *params,
 }
 
 #if defined(WEX_E1S15_LAUNCH_PREP_TEST)
+/* The Windows environment block is UTF-16LE (double-NUL terminated). Keys are
+ * ASCII, so they compare byte-for-byte as code units; the value is converted
+ * back to UTF-8 for comparison. */
 static int get_win_env_var( const char *env, size_t size, const char *key, char *out, size_t out_size )
 {
-    const char *p = env;
-    const char *end = env + size;
+    const uint16_t *p = (const uint16_t *)env;
+    const uint16_t *end = (const uint16_t *)(env + size);
     size_t klen = strlen( key );
 
     while (p < end && *p)
     {
-        if (strncmp( p, key, klen ) == 0 && p[klen] == '=')
+        size_t i;
+        int match = 1;
+        for (i = 0; i < klen; i++)
         {
-            snprintf( out, out_size, "%s", p + klen + 1 );
-            return 1;
+            if (p[i] != (uint16_t)(unsigned char)key[i]) { match = 0; break; }
         }
-        p += strlen( p ) + 1;
+        if (match && p[klen] == '=')
+        {
+            if (wex_utf16le_to_utf8( p + klen + 1, out, out_size ) == 0)
+                return 1;
+            return 0;
+        }
+        while (*p) p++;
+        p++; /* skip the entry's NUL */
     }
     return 0;
 }
@@ -479,6 +490,134 @@ int main( int argc, char **argv )
         wex_launch_prep_result_free( &result );
 
         printf( "PASS test_cwd_checks\n" );
+    }
+
+    if (strcmp( mode, "test_lookup_failure" ) == 0 || strcmp( mode, "all" ) == 0)
+    {
+        /* A host UID with no passwd entry must fail closed, not invent a home. */
+        fill_valid_params( &params, prefix_fd, profile_fd, 62002, 62002 );
+        status = wex_prepare_launch( &params, &result );
+        if (status != WEX_LAUNCH_PREP_ERR_ACCOUNT_LOOKUP)
+        {
+            fprintf( stderr, "FAIL: lookup failure got %d, expected ACCOUNT_LOOKUP\n", status );
+            return 1;
+        }
+        wex_launch_prep_result_free( &result );
+        printf( "PASS test_lookup_failure\n" );
+    }
+
+    if (strcmp( mode, "test_nonascii_env" ) == 0 || strcmp( mode, "all" ) == 0)
+    {
+        /* "alicé-中" in UTF-8: a l i c \xc3\xa9 - \xe4\xb8\xad */
+        static const char nonascii_name[] = "alic\xc3\xa9-\xe4\xb8\xad";
+        char val[512];
+
+        fill_valid_params( &params, prefix_fd, profile_fd, bob_uid, bob_gid );
+        strcpy( params.profile.account_name, nonascii_name );
+        status = wex_prepare_launch( &params, &result );
+        if (status != WEX_LAUNCH_PREP_OK)
+        {
+            fprintf( stderr, "FAIL: non-ASCII env status=%d\n", status );
+            return 1;
+        }
+
+        /* The non-ASCII account name must round-trip into the UTF-16LE block. */
+        if (!get_win_env_var( result.win_env, result.win_env_size, "USERNAME", val, sizeof(val) ) ||
+            strcmp( val, nonascii_name ) != 0)
+        {
+            fprintf( stderr, "FAIL: non-ASCII USERNAME round-trip (got %s)\n", val );
+            return 1;
+        }
+
+        /* The block must end with two NUL code units (four zero bytes). */
+        if (result.win_env_size < 4 ||
+            result.win_env[result.win_env_size - 4] != 0 ||
+            result.win_env[result.win_env_size - 3] != 0 ||
+            result.win_env[result.win_env_size - 2] != 0 ||
+            result.win_env[result.win_env_size - 1] != 0)
+        {
+            fprintf( stderr, "FAIL: UTF-16LE block does not end with two NUL code units\n" );
+            return 1;
+        }
+
+        wex_launch_prep_result_free( &result );
+        printf( "PASS test_nonascii_env\n" );
+    }
+
+    if (strcmp( mode, "test_cwd_conversion" ) == 0 || strcmp( mode, "all" ) == 0)
+    {
+        char out[512];
+
+        /* A non-ASCII cwd is converted exactly. "C:\dökument" (ö = U+00F6). */
+        {
+            static const uint16_t cwd16a[] = { 'C', ':', '\\', 'd', 0x00f6, 'k', 'u', 'm', 'e', 'n', 't', 0 };
+            /* Expected UTF-8: "C:\d" + \xc3\xb6 + "kument" */
+            static const char expected[] = "C:\\d\xc3\xb6kument";
+            if (wex_utf16le_to_utf8( cwd16a, out, sizeof(out) ) != 0 ||
+                strcmp( out, expected ) != 0)
+            {
+                fprintf( stderr, "FAIL: non-ASCII cwd conversion (got %s)\n", out );
+                return 1;
+            }
+        }
+
+        /* A surrogate pair (U+1D11E) is converted exactly. */
+        {
+            static const uint16_t cwd16b[] = { 'a', 0xd834, 0xdd1e, 'b', 0 };
+            /* U+1D11E in UTF-8: \xf0\x9d\x84\x9e */
+            static const char expected[] = "a\xf0\x9d\x84\x9e" "b";
+            if (wex_utf16le_to_utf8( cwd16b, out, sizeof(out) ) != 0 ||
+                strcmp( out, expected ) != 0)
+            {
+                fprintf( stderr, "FAIL: surrogate pair cwd conversion (got %s)\n", out );
+                return 1;
+            }
+        }
+
+        /* An overlong cwd that does not fit the buffer denies. */
+        {
+            static uint16_t long16[64];
+            int i;
+            for (i = 0; i < 63; i++) long16[i] = 'x';
+            long16[63] = 0;
+            if (wex_utf16le_to_utf8( long16, out, 10 ) == 0)
+            {
+                fprintf( stderr, "FAIL: overlong cwd must deny when it does not fit\n" );
+                return 1;
+            }
+        }
+
+        /* A lone high surrogate denies. */
+        {
+            static const uint16_t lone_hi[] = { 'a', 0xd800, 'b', 0 };
+            if (wex_utf16le_to_utf8( lone_hi, out, sizeof(out) ) == 0)
+            {
+                fprintf( stderr, "FAIL: lone high surrogate must deny\n" );
+                return 1;
+            }
+        }
+
+        /* A lone low surrogate denies. */
+        {
+            static const uint16_t lone_lo[] = { 'a', 0xdc00, 'b', 0 };
+            if (wex_utf16le_to_utf8( lone_lo, out, sizeof(out) ) == 0)
+            {
+                fprintf( stderr, "FAIL: lone low surrogate must deny\n" );
+                return 1;
+            }
+        }
+
+        /* A truncated pair (high surrogate at end of string) denies. */
+        {
+            static const uint16_t trunc16[] = { 'a', 0xd800, 0 };
+            if (wex_utf16le_to_utf8( trunc16, out, sizeof(out) ) == 0)
+            {
+                fprintf( stderr, "FAIL: truncated surrogate pair must deny\n" );
+                return 1;
+            }
+        }
+
+        printf( "PASS test_cwd_conversion\n" );
     }
 
     close( prefix_fd );

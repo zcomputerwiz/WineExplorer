@@ -1438,16 +1438,12 @@ static DWORD default_prep_launch( struct request *req, HANDLE token,
     strncpy( params.profile.windows_path, "C:\\users\\.e1s\\admin", sizeof(params.profile.windows_path) - 1 );
     strncpy( params.profile.unix_relative_path, "drive_c/users/.e1s/admin", sizeof(params.profile.unix_relative_path) - 1 );
 
-    /* Working directory */
+    /* Working directory: convert the caller's UTF-16 cwd to UTF-8 exactly.
+     * Unpaired surrogates, truncation, or a result that does not fit deny. */
     if (req->cwd)
     {
-        int i = 0;
-        while (req->cwd[i] && i < (int)sizeof(cwd_buf) - 1)
-        {
-            cwd_buf[i] = (char)(req->cwd[i] & 0x7f);
-            i++;
-        }
-        cwd_buf[i] = 0;
+        if (wex_utf16le_to_utf8( (const uint16_t *)req->cwd, cwd_buf, sizeof(cwd_buf) ) != 0)
+            return ERROR_ACCESS_DENIED;
         params.requested_cwd = cwd_buf;
     }
     else

@@ -24,6 +24,70 @@
 #include <pwd.h>
 #endif
 
+/* Convert a NUL-terminated UTF-16LE string to UTF-8. dst must have room for
+ * dst_size bytes including the terminating NUL. Returns 0 on success, -1 on an
+ * unpaired surrogate, a truncated input, or if the result does not fit. */
+int wex_utf16le_to_utf8( const uint16_t *src, char *dst, size_t dst_size )
+{
+    size_t out = 0;
+
+    if (!src || !dst || dst_size == 0) return -1;
+
+    while (*src)
+    {
+        uint32_t cp;
+        uint16_t w = *src++;
+
+        if (w >= 0xd800 && w <= 0xdbff)
+        {
+            /* High surrogate: must be immediately followed by a low surrogate.
+             * A NUL here means the input was truncated mid-pair. */
+            uint16_t lo = *src;
+            if (lo < 0xdc00 || lo > 0xdfff) return -1;
+            cp = 0x10000 + ((uint32_t)(w - 0xd800) << 10) + (uint32_t)(lo - 0xdc00);
+            src++;
+        }
+        else if (w >= 0xdc00 && w <= 0xdfff)
+        {
+            return -1; /* lone low surrogate */
+        }
+        else
+        {
+            cp = w;
+        }
+
+        if (cp < 0x80)
+        {
+            if (out + 1 >= dst_size) return -1;
+            dst[out++] = (char)cp;
+        }
+        else if (cp < 0x800)
+        {
+            if (out + 2 >= dst_size) return -1;
+            dst[out++] = (char)(0xc0 | (cp >> 6));
+            dst[out++] = (char)(0x80 | (cp & 0x3f));
+        }
+        else if (cp < 0x10000)
+        {
+            if (out + 3 >= dst_size) return -1;
+            dst[out++] = (char)(0xe0 | (cp >> 12));
+            dst[out++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+            dst[out++] = (char)(0x80 | (cp & 0x3f));
+        }
+        else
+        {
+            if (out + 4 >= dst_size) return -1;
+            dst[out++] = (char)(0xf0 | (cp >> 18));
+            dst[out++] = (char)(0x80 | ((cp >> 12) & 0x3f));
+            dst[out++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+            dst[out++] = (char)(0x80 | (cp & 0x3f));
+        }
+    }
+    if (out >= dst_size) return -1;
+    dst[out] = '\0';
+    return 0;
+}
+
 #if !defined(WEX_E1S15_LAUNCH_PREP_TEST)
 
 enum wex_launch_prep_status wex_prepare_launch(
@@ -192,10 +256,83 @@ static int is_safe_wayland_display( const char *w )
     return 1;
 }
 
-/* Dynamic buffer builder for double-NUL terminated Windows environment */
+/* Convert a NUL-terminated UTF-8 string to UTF-16LE in dst (capacity
+ * dst_size code units including the NUL). Returns the number of code units
+ * written including the NUL, or (size_t)-1 on invalid UTF-8 or if it does not
+ * fit. */
+static size_t utf8_to_utf16le( const char *src, uint16_t *dst, size_t dst_size )
+{
+    size_t out = 0;
+    size_t max_content = dst_size ? dst_size - 1 : 0;
+    const unsigned char *p = (const unsigned char *)src;
+
+    while (*p)
+    {
+        uint32_t cp;
+        size_t units;
+        unsigned char c = *p;
+
+        if (c < 0x80)
+        {
+            cp = c;
+            p += 1;
+            units = 1;
+        }
+        else if ((c & 0xe0) == 0xc0)
+        {
+            if (p[1] < 0x80 || p[1] >= 0xc0) return (size_t)-1;
+            cp = ((uint32_t)(c & 0x1f) << 6) | (p[1] & 0x3f);
+            if (cp < 0x80) return (size_t)-1; /* overlong */
+            p += 2;
+            units = 1;
+        }
+        else if ((c & 0xf0) == 0xe0)
+        {
+            if (p[1] < 0x80 || p[1] >= 0xc0 || p[2] < 0x80 || p[2] >= 0xc0)
+                return (size_t)-1;
+            cp = ((uint32_t)(c & 0x0f) << 12) | ((uint32_t)(p[1] & 0x3f) << 6) | (p[2] & 0x3f);
+            if (cp < 0x800) return (size_t)-1; /* overlong */
+            if (cp >= 0xd800 && cp <= 0xdfff) return (size_t)-1; /* encoded surrogate */
+            p += 3;
+            units = 1;
+        }
+        else if ((c & 0xf8) == 0xf0)
+        {
+            if (p[1] < 0x80 || p[1] >= 0xc0 || p[2] < 0x80 || p[2] >= 0xc0 ||
+                p[3] < 0x80 || p[3] >= 0xc0)
+                return (size_t)-1;
+            cp = ((uint32_t)(c & 0x07) << 18) | ((uint32_t)(p[1] & 0x3f) << 12) |
+                 ((uint32_t)(p[2] & 0x3f) << 6) | (p[3] & 0x3f);
+            if (cp < 0x10000 || cp > 0x10ffff) return (size_t)-1; /* overlong / out of range */
+            p += 4;
+            units = 2; /* surrogate pair */
+        }
+        else
+        {
+            return (size_t)-1; /* invalid lead byte */
+        }
+
+        if (out + units > max_content) return (size_t)-1;
+        if (units == 1)
+        {
+            dst[out++] = (uint16_t)cp;
+        }
+        else
+        {
+            cp -= 0x10000;
+            dst[out++] = (uint16_t)(0xd800 + (cp >> 10));
+            dst[out++] = (uint16_t)(0xdc00 + (cp & 0x3ff));
+        }
+    }
+    dst[out] = 0;
+    return out + 1;
+}
+
+/* Dynamic buffer builder for the double-NUL terminated UTF-16LE Windows
+ * environment block. length and capacity are in code units. */
 struct win_env_builder
 {
-    char *buf;
+    uint16_t *buf;
     size_t capacity;
     size_t length;
     int error;
@@ -203,28 +340,63 @@ struct win_env_builder
 
 static void win_env_add( struct win_env_builder *b, const char *key, const char *val )
 {
-    size_t klen, vlen, need;
+    size_t klen, vlen;
+    uint16_t *k16, *v16;
+    size_t k16_len, v16_len;
+
     if (b->error) return;
     klen = strlen( key );
     vlen = strlen( val );
-    need = b->length + klen + 1 + vlen + 1 + 1; /* extra 1 for final terminator */
-    if (need > b->capacity)
+
+    k16 = malloc( (klen + 1) * sizeof(uint16_t) );
+    v16 = malloc( (vlen + 1) * sizeof(uint16_t) );
+    if (!k16 || !v16)
     {
-        size_t new_cap = b->capacity ? b->capacity * 2 : 1024;
-        char *new_buf;
-        while (new_cap < need) new_cap *= 2;
-        new_buf = realloc( b->buf, new_cap );
-        if (!new_buf) { b->error = 1; return; }
-        b->buf = new_buf;
-        b->capacity = new_cap;
+        free( k16 );
+        free( v16 );
+        b->error = 1;
+        return;
     }
-    memcpy( b->buf + b->length, key, klen );
-    b->length += klen;
-    b->buf[b->length++] = '=';
-    memcpy( b->buf + b->length, val, vlen );
-    b->length += vlen;
-    b->buf[b->length++] = '\0';
-    b->buf[b->length] = '\0'; /* double NUL termination */
+
+    k16_len = utf8_to_utf16le( key, k16, klen + 1 );
+    v16_len = utf8_to_utf16le( val, v16, vlen + 1 );
+    if (k16_len == (size_t)-1 || v16_len == (size_t)-1)
+    {
+        free( k16 );
+        free( v16 );
+        b->error = 1;
+        return;
+    }
+
+    {
+        size_t add_units = (k16_len - 1) + 1 + (v16_len - 1) + 1 + 1; /* key '=' val NUL + final NUL */
+        if (b->length + add_units > b->capacity)
+        {
+            size_t new_cap = b->capacity ? b->capacity * 2 : 1024;
+            uint16_t *new_buf;
+            while (new_cap < b->length + add_units) new_cap *= 2;
+            new_buf = realloc( b->buf, new_cap * sizeof(uint16_t) );
+            if (!new_buf)
+            {
+                free( k16 );
+                free( v16 );
+                b->error = 1;
+                return;
+            }
+            b->buf = new_buf;
+            b->capacity = new_cap;
+        }
+        memcpy( b->buf + b->length, k16, (k16_len - 1) * sizeof(uint16_t) );
+        b->length += k16_len - 1;
+        b->buf[b->length++] = '=';
+        memcpy( b->buf + b->length, v16, (v16_len - 1) * sizeof(uint16_t) );
+        b->length += v16_len - 1;
+        b->buf[b->length++] = 0; /* NUL terminator for this entry */
+        b->buf[b->length] = 0;   /* double NUL termination */
+    }
+
+    free( k16 );
+    free( v16 );
 }
 
 /* Working directory traversal and verification */
@@ -584,27 +756,31 @@ enum wex_launch_prep_status wex_prepare_launch(
         return WEX_LAUNCH_PREP_ERR_IO;
     }
 
-    /* Derive Bob's home directory */
+    /* Derive Bob's home directory. The host account lookup must succeed; a
+     * missing or incomplete entry fails closed instead of inventing a home or
+     * user name for an identity the host does not know. */
     {
         struct passwd pw_buf, *pw = NULL;
         char pw_str[1024];
-        const char *home = NULL;
-        const char *user = "bob";
 
-        if (getpwuid_r( params->bob_uid, &pw_buf, pw_str, sizeof(pw_str), &pw ) == 0 && pw)
+        if (getpwuid_r( params->bob_uid, &pw_buf, pw_str, sizeof(pw_str), &pw ) != 0 ||
+            !pw || !pw->pw_dir || pw->pw_dir[0] != '/' || !pw->pw_name || !pw->pw_name[0])
         {
-            home = pw->pw_dir;
-            user = pw->pw_name;
+            size_t i;
+            for (i = 0; i < uenv_count; i++) free( uenv[i] );
+            free( uenv );
+            free( wb.buf );
+            close( verified_cwd_fd );
+            return WEX_LAUNCH_PREP_ERR_ACCOUNT_LOOKUP;
         }
 
-        if (home && home[0] == '/') snprintf( buf, sizeof(buf), "HOME=%s", home );
-        else snprintf( buf, sizeof(buf), "HOME=/home/bob" );
+        snprintf( buf, sizeof(buf), "HOME=%s", pw->pw_dir );
         uenv[uenv_count++] = strdup( buf );
 
-        snprintf( buf, sizeof(buf), "USER=%s", user );
+        snprintf( buf, sizeof(buf), "USER=%s", pw->pw_name );
         uenv[uenv_count++] = strdup( buf );
 
-        snprintf( buf, sizeof(buf), "LOGNAME=%s", user );
+        snprintf( buf, sizeof(buf), "LOGNAME=%s", pw->pw_name );
         uenv[uenv_count++] = strdup( buf );
     }
 
@@ -670,8 +846,8 @@ enum wex_launch_prep_status wex_prepare_launch(
     /* Populate results */
     result->exec_uid = params->bob_uid;
     result->exec_gid = params->bob_gid;
-    result->win_env = wb.buf;
-    result->win_env_size = wb.length + 1; /* includes final double-NUL */
+    result->win_env = (char *)wb.buf;
+    result->win_env_size = (wb.length + 1) * sizeof(uint16_t); /* bytes, includes final double-NUL */
     result->unix_env = uenv;
     result->unix_env_count = uenv_count;
     result->verified_cwd_fd = verified_cwd_fd;

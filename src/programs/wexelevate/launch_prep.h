@@ -33,6 +33,7 @@ enum wex_launch_prep_status
     WEX_LAUNCH_PREP_ERR_TOKEN_INVALID = 9,
     WEX_LAUNCH_PREP_ERR_PROFILE_INVALID = 10,
     WEX_LAUNCH_PREP_ERR_IO = 11,
+    WEX_LAUNCH_PREP_ERR_ACCOUNT_LOOKUP = 12,
 };
 
 /* Flags for wex_launch_prep_params */
@@ -95,9 +96,9 @@ struct wex_launch_prep_result
     uid_t exec_uid;
     gid_t exec_gid;
 
-    /* Windows environment block for Alice (double-NUL terminated) */
+    /* Windows environment block for Alice (UTF-16LE, double-NUL terminated) */
     char *win_env;
-    size_t win_env_size;
+    size_t win_env_size; /* size of win_env in bytes */
 
     /* Sanitized Unix environment (NULL-terminated array of strings) */
     char **unix_env;
@@ -115,5 +116,10 @@ enum wex_launch_prep_status wex_prepare_launch(
 
 /* Free result buffers and close verified_cwd_fd */
 void wex_launch_prep_result_free( struct wex_launch_prep_result *result );
+
+/* Convert a NUL-terminated UTF-16LE string to UTF-8. dst must have room for
+ * dst_size bytes including the terminating NUL. Returns 0 on success, -1 on an
+ * unpaired surrogate, a truncated input, or if the result does not fit. */
+int wex_utf16le_to_utf8( const uint16_t *src, char *dst, size_t dst_size );
 
 #endif /* WEXELEVATE_LAUNCH_PREP_H */
