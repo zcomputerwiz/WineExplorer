@@ -126,7 +126,8 @@ at the bottom; ENTER starts it and F8 returns to the menu.
 
 ## 5. Phase 2: Windows programs see Safe Mode (proposed)
 
-These need changes to stock Wine (`docs/STOCK_CHANGES.md`):
+The plan for this and the other open items is `docs/SAFE_MODE_WORKORDER.md`. In short, these need changes to
+stock Wine (`docs/STOCK_CHANGES.md`):
 
 - wineboot creates the volatile `SafeBoot\Option` key (`OptionValue` 1 or 2, `UseAlternateShell`) from `WEXMODE`,
   and `GetSystemMetrics(SM_CLEANBOOT)` returns it (`dlls/win32u/sysparams.c`, a constant 0 today).
