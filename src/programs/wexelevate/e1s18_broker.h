@@ -15,9 +15,15 @@
 #include <stdint.h>
 
 #include "wexelevate_request.h"
+#include "../../../wine/include/wine/wex_token.h"
+#include "../../../wine/include/wine/wex_profile.h"
 
 #ifndef _WIN32
 #include <sys/types.h>
+
+typedef int32_t  NTSTATUS;
+typedef uint32_t ACCESS_MASK;
+typedef uint32_t ULONG;
 
 typedef struct _PROCESS_INFORMATION
 {
@@ -33,6 +39,7 @@ typedef struct _PROCESS_INFORMATION
 #define ERROR_SUCCESS                     0
 #define ERROR_FILE_NOT_FOUND              2
 #define ERROR_ACCESS_DENIED               5
+#define ERROR_INVALID_DATA                13
 #define ERROR_GEN_FAILURE                 31
 #define ERROR_NOT_SUPPORTED               50
 #define ERROR_INVALID_PARAMETER           87
@@ -81,6 +88,48 @@ extern "C" {
 #define E1S1_ALL_REQUIRED_CAPS      0x03ffULL /* All 10 capabilities required */
 
 /*
+ * NTDLL Export Boundary Types & Table.
+ * Allows test injection of fakes at the export boundary for NtCreateWexAccountToken
+ * and NtLoadWexProfileEx to verify success, failures, wrong token shape, wrong SID,
+ * wrong session, and busy unload.
+ */
+typedef NTSTATUS (WINAPI *e1s18_pfn_NtCreateWexAccountToken)(
+    ULONG operation,
+    HANDLE *context,
+    HANDLE caller,
+    ULONGLONG *caps,
+    const void *record,
+    ULONG length,
+    HANDLE *token,
+    void *response,
+    ULONG *response_size );
+
+typedef NTSTATUS (WINAPI *e1s18_pfn_NtLoadWexProfileEx)(
+    ULONG operation,
+    HANDLE context,
+    HANDLE token,
+    ACCESS_MASK access,
+    const void *record,
+    ULONG length,
+    HANDLE *key,
+    ULONG *managed,
+    ULONGLONG *generation );
+
+struct e1s18_export_table
+{
+    e1s18_pfn_NtCreateWexAccountToken pNtCreateWexAccountToken;
+    e1s18_pfn_NtLoadWexProfileEx     pNtLoadWexProfileEx;
+};
+
+void e1s18_set_export_table( const struct e1s18_export_table *table );
+void e1s18_reset_export_table( void );
+const struct e1s18_export_table *e1s18_get_export_table( void );
+
+/* S19 rollback tracking for busy profile unloads */
+BOOL e1s18_is_unload_busy( uint64_t *out_lease_id );
+void e1s18_clear_unload_busy( void );
+
+/*
  * Pluggable Operations Table for Test Injection / Mocking.
  * In production/Wine, default ops invoke the actual server/subsystem routines.
  * In unit testing, injected fakes test every stage and failure rollback.
@@ -93,64 +142,88 @@ struct e1s18_ops
     /* Runtime policy query */
     BOOL (*is_policy_enabled)( void );
 
-    /* S17 Prompt Queue & Dialog */
+    /* Stage 1: S17 Prompt Queue & Dialog.
+     * Service plumbing needed: spawn consent.exe /credentials on WinSta0\Winlogon,
+     * named pipe IPC channel handshake, conversation loop with S17 prompt queue (H3b),
+     * timeout (120s) and cancellation handling.
+     * Status in S18: Not yet wired; fails closed with ERROR_NOT_SUPPORTED.
+     */
     DWORD (*prompt_dialog)( struct request *req, const uint8_t nonce[32],
                             const uint8_t binding_digest[32], const uint8_t request_digest[32],
                             char *out_account, size_t account_max );
 
-    /* S8 Evidence Redemption */
+    /* Stage 2: S8 Evidence Redemption.
+     * Service plumbing needed: connect to native S8 evidence daemon over Unix domain socket
+     * /run/wineexplorer/evidence.sock, send S1 Kind 2 Answer record, receive S1 Kind 3
+     * Evidence record (220 B) and 16-byte reference, verify S7 PAM worker authentication.
+     * Status in S18: Not yet wired; fails closed with ERROR_NOT_SUPPORTED.
+     */
     DWORD (*redeem_evidence)( struct request *req, const char *account_name,
                               const uint8_t nonce[32], const uint8_t binding_digest[32],
                               const uint8_t request_digest[32],
                               uint8_t out_account_key[16], uint8_t out_evidence_ref[16] );
 
-    /* S10 Token Issuance */
+    /* Stage 3: S10 Token Issuance.
+     * Calls NtCreateWexAccountToken NEGOTIATE then ISSUE with S1 envelope (204 bytes).
+     * Verifies returned token: Primary, Full elevation, High integrity, caller session,
+     * distinct nonzero AuthenticationId, Alice's mapped SID; closes handles on any mismatch.
+     */
     DWORD (*issue_token)( struct request *req, const uint8_t account_key[16],
                           const uint8_t evidence_ref[16], const uint8_t nonce[32],
                           const uint8_t binding_digest[32], const uint8_t request_digest[32],
                           HANDLE *out_token );
 
-    /* S13/S14 Profile Load & Lease Acquisition */
+    /* Stage 4: S13/S14 Profile Load & Lease Acquisition.
+     * Calls NtLoadWexProfileEx WEX_HKU_LOAD with S12/S13 record (48 bytes),
+     * retains lease id for transfer and unload.
+     */
     DWORD (*load_profile)( struct request *req, HANDLE token, const uint8_t account_key[16],
                            uint64_t *out_lease_id, HANDLE *out_hkey );
 
-    /* S15 Launch Preparation */
+    /* Stage 5: S15 Launch Preparation.
+     * Calls wex_prepare_launch from launch_prep.c with explicit same-server inputs:
+     * Bob's uid/gid from caller, profile record, cwd; real-UID requests denied;
+     * builds sanitized Windows environment block; no caller environment accepted.
+     */
     DWORD (*prep_launch)( struct request *req, HANDLE token,
                           char **out_win_env, size_t *out_win_env_sz,
                           char ***out_unix_env, size_t *out_unix_env_cnt,
                           char **out_cwd );
 
-    /* Image Re-verification before create */
+    /* Stage 6: Image Re-verification before create */
     DWORD (*verify_image)( struct request *req );
 
-    /* Process Creation Suspended */
+    /* Stage 7: Process Creation Suspended */
     DWORD (*create_process_suspended)( struct request *req, HANDLE token,
                                        const char *win_env, size_t win_env_sz,
                                        const char *cwd,
                                        PROCESS_INFORMATION *out_pi );
 
-    /* Installed Child Process & Token Identity Verification */
+    /* Stage 8: Installed Child Process & Token Identity Verification */
     DWORD (*verify_child)( struct request *req, HANDLE token, const PROCESS_INFORMATION *pi );
 
-    /* Lease Arming on child PID */
+    /* Stage 9: Lease Arming on child PID */
     DWORD (*arm_lease)( UINT64 lease, DWORD pid );
 
-    /* Handle Duplication */
+    /* Stage 10: Handle Duplication */
     DWORD (*duplicate_handle)( struct request *req, HANDLE process, HANDLE *out_remote );
 
-    /* Lease Transfer to committed process tracking */
-    DWORD (*transfer_lease)( struct request *req, uint64_t lease_id, HANDLE process );
+    /* Stage 11: Lease Transfer to committed process tracking.
+     * Calls NtLoadWexProfileEx WEX_HKU_TEST_TRANSFER (op 10).
+     * Note: on the server side, load_e1s_profile gates transfer behind WEX_E1S14_CRASH_TEST.
+     */
+    DWORD (*transfer_lease)( struct request *req, uint64_t lease_id, HANDLE process, HANDLE token );
 
-    /* Pre-resume Checks (binding, stop_event, lease_event) */
+    /* Stage 12: Pre-resume Checks (binding, stop_event, lease_event) */
     DWORD (*check_pre_resume)( struct request *req );
 
-    /* Guarded Resume */
+    /* Stage 13: Guarded Resume */
     DWORD (*resume_thread)( struct request *req, HANDLE thread );
 
     /* Cleanup / Rollback Hooks */
     void (*terminate_child)( HANDLE process );
     void (*close_remote_handle)( HANDLE caller, HANDLE remote );
-    void (*unload_profile)( uint64_t lease_id, HANDLE hkey );
+    void (*unload_profile)( uint64_t lease_id, HANDLE hkey, HANDLE token );
     void (*close_handle)( HANDLE handle );
     void (*free_buffer)( void *ptr );
 };

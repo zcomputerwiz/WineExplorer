@@ -29,15 +29,18 @@ cc -O2 -Wall -Wextra -Werror \
     -I"$REPO/src/include" \
     -I"$REPO/src/programs/wexelevate" \
     -o "$FIXTURE/production" \
+    "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/e1s18_broker.c" \
     "$REPO/src/programs/wexelevate/test_broker_e1s18_main.c"
 
-# 2. Compile lab build (with -DWEXELEVATE_E1S18)
+# 2. Compile lab build (with -DWEXELEVATE_E1S18 -DWEX_E1S15_LAUNCH_PREP_TEST)
 cc -O2 -Wall -Wextra -Werror \
     -DWEXELEVATE_E1S18 \
+    -DWEX_E1S15_LAUNCH_PREP_TEST \
     -I"$REPO/src/include" \
     -I"$REPO/src/programs/wexelevate" \
     -o "$FIXTURE/lab" \
+    "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/e1s18_broker.c" \
     "$REPO/src/programs/wexelevate/test_broker_e1s18_main.c"
 
@@ -62,6 +65,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -I"$REPO/src/include" \
     -o "$FIXTURE/wexelevate_lab64.exe" \
     "$REPO/src/programs/wexelevate/main.c" \
+    "$REPO/src/programs/wexelevate/launch_prep.c" \
     -ladvapi32 -luserenv -lbcrypt
 
 i686-w64-mingw32-gcc -O2 -Wall -Werror -municode \
@@ -69,6 +73,7 @@ i686-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -I"$REPO/src/include" \
     -o "$FIXTURE/wexelevate_lab32.exe" \
     "$REPO/src/programs/wexelevate/main.c" \
+    "$REPO/src/programs/wexelevate/launch_prep.c" \
     -ladvapi32 -luserenv -lbcrypt
 
 echo "==> ALL E1-S18 broker integration tests passed successfully."

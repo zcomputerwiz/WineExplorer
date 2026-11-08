@@ -19,10 +19,17 @@
  */
 
 #include "e1s18_broker.h"
+#include "launch_prep.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#include <fcntl.h>
+#endif
 
 /*
  * Self-contained FIPS 180-2 SHA-256 Implementation.
@@ -153,6 +160,96 @@ static inline void e1s18_wipe( void *ptr, size_t size )
 }
 
 /*
+ * NTDLL Export Boundary Implementation & Default Resolution
+ */
+
+#if defined(_WIN32)
+static NTSTATUS WINAPI default_NtCreateWexAccountToken(
+    ULONG operation, HANDLE *context, HANDLE caller, ULONGLONG *caps,
+    const void *record, ULONG length, HANDLE *token, void *response, ULONG *response_size )
+{
+    static e1s18_pfn_NtCreateWexAccountToken pfn = NULL;
+    if (!pfn)
+    {
+        HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" );
+        if (ntdll) pfn = (e1s18_pfn_NtCreateWexAccountToken)(void *)GetProcAddress( ntdll, "NtCreateWexAccountToken" );
+    }
+    if (!pfn) return (NTSTATUS)0xc0000002; /* STATUS_NOT_IMPLEMENTED */
+    return pfn( operation, context, caller, caps, record, length, token, response, response_size );
+}
+
+static NTSTATUS WINAPI default_NtLoadWexProfileEx(
+    ULONG operation, HANDLE context, HANDLE token, ACCESS_MASK access,
+    const void *record, ULONG length, HANDLE *key, ULONG *managed, ULONGLONG *generation )
+{
+    static e1s18_pfn_NtLoadWexProfileEx pfn = NULL;
+    if (!pfn)
+    {
+        HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" );
+        if (ntdll) pfn = (e1s18_pfn_NtLoadWexProfileEx)(void *)GetProcAddress( ntdll, "NtLoadWexProfileEx" );
+    }
+    if (!pfn) return (NTSTATUS)0xc0000002; /* STATUS_NOT_IMPLEMENTED */
+    return pfn( operation, context, token, access, record, length, key, managed, generation );
+}
+#else
+static NTSTATUS WINAPI default_NtCreateWexAccountToken(
+    ULONG operation, HANDLE *context, HANDLE caller, ULONGLONG *caps,
+    const void *record, ULONG length, HANDLE *token, void *response, ULONG *response_size )
+{
+    (void)operation; (void)context; (void)caller; (void)caps;
+    (void)record; (void)length; (void)token; (void)response; (void)response_size;
+    return (NTSTATUS)0xc00000bb; /* STATUS_NOT_SUPPORTED */
+}
+
+static NTSTATUS WINAPI default_NtLoadWexProfileEx(
+    ULONG operation, HANDLE context, HANDLE token, ACCESS_MASK access,
+    const void *record, ULONG length, HANDLE *key, ULONG *managed, ULONGLONG *generation )
+{
+    (void)operation; (void)context; (void)token; (void)access;
+    (void)record; (void)length; (void)key; (void)managed; (void)generation;
+    return (NTSTATUS)0xc00000bb; /* STATUS_NOT_SUPPORTED */
+}
+#endif
+
+static struct e1s18_export_table s_default_export_table = {
+    default_NtCreateWexAccountToken,
+    default_NtLoadWexProfileEx
+};
+
+static const struct e1s18_export_table *s_active_export_table = &s_default_export_table;
+
+void e1s18_set_export_table( const struct e1s18_export_table *table )
+{
+    s_active_export_table = table ? table : &s_default_export_table;
+}
+
+void e1s18_reset_export_table( void )
+{
+    s_active_export_table = &s_default_export_table;
+}
+
+const struct e1s18_export_table *e1s18_get_export_table( void )
+{
+    return s_active_export_table;
+}
+
+/* S19 Rollback tracking for busy profile unloads */
+static BOOL s_unload_busy = FALSE;
+static uint64_t s_unload_busy_lease_id = 0;
+
+BOOL e1s18_is_unload_busy( uint64_t *out_lease_id )
+{
+    if (out_lease_id) *out_lease_id = s_unload_busy_lease_id;
+    return s_unload_busy;
+}
+
+void e1s18_clear_unload_busy( void )
+{
+    s_unload_busy = FALSE;
+    s_unload_busy_lease_id = 0;
+}
+
+/*
  * Default / Production Operations Implementation
  */
 
@@ -192,7 +289,12 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
 {
     (void)req; (void)nonce; (void)binding_digest; (void)request_digest;
     (void)out_account; (void)account_max;
-    /* S17 prompt queue & credential dialog child channel not yet wired: fail closed */
+    /* Stage 1: S17 prompt queue & credential dialog child channel.
+     * Service plumbing needed: spawn consent.exe /credentials on WinSta0\Winlogon,
+     * named pipe IPC channel handshake, conversation loop with S17 prompt queue (H3b),
+     * timeout (120s) and cancellation handling.
+     * Status in S18: Not yet wired; fails closed with ERROR_NOT_SUPPORTED.
+     */
     return ERROR_NOT_SUPPORTED;
 }
 
@@ -203,29 +305,282 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
 {
     (void)req; (void)account_name; (void)nonce; (void)binding_digest; (void)request_digest;
     (void)out_account_key; (void)out_evidence_ref;
-    /* S8/S7 native PAM evidence service connection not yet wired: fail closed */
+    /* Stage 2: S8 Evidence Redemption.
+     * Service plumbing needed: connect to native S8 evidence daemon over Unix domain socket
+     * /run/wineexplorer/evidence.sock, send S1 Kind 2 Answer record, receive S1 Kind 3
+     * Evidence record (220 B) and 16-byte reference, verify S7 PAM worker authentication.
+     * Status in S18: Not yet wired; fails closed with ERROR_NOT_SUPPORTED.
+     */
     return ERROR_NOT_SUPPORTED;
 }
+
+#ifdef WEXELEVATE_E1S18
+static BOOL is_zero_key( const uint8_t key[16] )
+{
+    int i;
+    for (i = 0; i < 16; i++)
+    {
+        if (key[i]) return FALSE;
+    }
+    return TRUE;
+}
+#endif
 
 static DWORD default_issue_token( struct request *req, const uint8_t account_key[16],
                                   const uint8_t evidence_ref[16], const uint8_t nonce[32],
                                   const uint8_t binding_digest[32], const uint8_t request_digest[32],
                                   HANDLE *out_token )
 {
-    (void)req; (void)account_key; (void)evidence_ref; (void)nonce; (void)binding_digest; (void)request_digest;
+    const struct e1s18_export_table *exports = e1s18_get_export_table();
+    const struct e1s18_ops *ops = e1s18_get_ops();
+    HANDLE context = NULL;
+    HANDLE token = NULL;
+    ULONGLONG caps = WEX_TOKEN_CAPS; /* 0xc0 */
+    ULONG size = 0;
+    uint8_t in[WEX_TOKEN_INPUT_SIZE]; /* 204 bytes */
+    uint8_t out[WEX_TOKEN_RESPONSE_SIZE]; /* 136 bytes */
+    NTSTATUS status;
+    uint64_t auth_id;
+    uint64_t caller_auth;
+    ULONG sid_len;
+
     if (out_token) *out_token = NULL;
-    /* S10 NtCreateWexAccountToken ISSUE request not yet wired: fail closed */
-    return ERROR_NOT_SUPPORTED;
+    if (!exports || !exports->pNtCreateWexAccountToken) return ERROR_NOT_SUPPORTED;
+    if (!req || !account_key || !evidence_ref || !nonce || !binding_digest || !request_digest || !out_token)
+        return ERROR_INVALID_PARAMETER;
+
+#ifdef WEXELEVATE_E1S18
+    /* Fail closed if Stage 2 fields are unset */
+    if (is_zero_key( req->account_key ) || req->map_generation == 0)
+        return ERROR_INVALID_DATA;
+#endif
+
+    /* Step 3a: NEGOTIATE */
+    status = exports->pNtCreateWexAccountToken( WEX_TOKEN_NEGOTIATE, &context, NULL, &caps, NULL, 0, NULL, NULL, &size );
+    if (status != 0 || !context || caps != WEX_TOKEN_CAPS || size != 0)
+    {
+        if (context && ops && ops->close_handle) ops->close_handle( context );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    /* Step 3b: S1 Kind 4 record (188 bytes) + 16-byte evidence_ref = 204 bytes */
+    memset( in, 0, sizeof(in) );
+    memset( out, 0, sizeof(out) );
+
+    wex_token_put32( in, 0x00010004 );                      /* kind 4, version 1 */
+    wex_token_put32( in + 4, WEX_TOKEN_REQUEST_SIZE );       /* 188 */
+    wex_token_put64( in + 8, caps );                         /* 0xc0 */
+    wex_token_put64( in + 16, req->id );                     /* request_id */
+    memcpy( in + 24, request_digest, 32 );                   /* request_digest */
+    memcpy( in + 56, binding_digest, 32 );                   /* binding_digest */
+    memcpy( in + 88, nonce, 32 );                            /* nonce */
+    wex_token_put32( in + 120, 1 );                          /* attempt: 1 */
+#ifdef WEXELEVATE_E1S18
+    memcpy( in + 124, req->account_key, 16 );               /* account_key from Stage 2 */
+    wex_token_put64( in + 140, 1 );                          /* root_gen */
+    wex_token_put64( in + 148, 1 );                          /* server_gen */
+    wex_token_put64( in + 156, 1 );                          /* broker_gen */
+    wex_token_put64( in + 164, req->map_generation );        /* map_gen from Stage 2 */
+#else
+    memcpy( in + 124, account_key, 16 );                     /* account_key */
+    wex_token_put64( in + 140, 1 );                          /* root_gen */
+    wex_token_put64( in + 148, 1 );                          /* server_gen */
+    wex_token_put64( in + 156, 1 );                          /* broker_gen */
+    wex_token_put64( in + 164, 1 );                          /* map_gen */
+#endif
+    wex_token_put64( in + 172, 1 );                          /* policy_gen */
+    wex_token_put32( in + 180, req->caller_session );        /* session_id */
+    wex_token_put32( in + 184, 0 );                          /* reserved */
+    memcpy( in + 188, evidence_ref, 16 );                    /* envelope evidence_ref */
+
+    /* Step 3c: ISSUE */
+    size = sizeof(out);
+    status = exports->pNtCreateWexAccountToken( WEX_TOKEN_ISSUE, &context, NULL, &caps, in, sizeof(in), &token, out, &size );
+    if (status != 0 || !token || size != WEX_TOKEN_RESPONSE_SIZE)
+    {
+        if (token && ops && ops->close_handle) ops->close_handle( token );
+        if (context && ops && ops->close_handle) ops->close_handle( context );
+        e1s18_wipe( in, sizeof(in) );
+        e1s18_wipe( out, sizeof(out) );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    /* Step 3d: Verify returned token response record (S1 Kind 5, 136 bytes) */
+    if (wex_token_u32( out ) != 0x00010005 ||
+        wex_token_u32( out + 4 ) != WEX_TOKEN_RESPONSE_SIZE ||
+        wex_token_u32( out + 32 ) != 0 ||
+        wex_token_u64( out + 16 ) != req->id ||
+#ifdef WEXELEVATE_E1S18
+        memcmp( out + 56, req->account_key, 16 ) != 0)
+#else
+        memcmp( out + 56, account_key, 16 ) != 0)
+#endif
+    {
+        goto verify_fail;
+    }
+
+    /* Verify Token shape: Primary (1), Full elevation (2), High integrity (>= 0x3000) */
+    if (wex_token_u32( out + 124 ) != 1 /* TokenPrimary */ ||
+        wex_token_u32( out + 128 ) != 2 /* TokenElevationTypeFull */ ||
+        wex_token_u32( out + 132 ) < 0x3000 /* SECURITY_MANDATORY_HIGH_RID */)
+    {
+        goto verify_fail;
+    }
+
+    /* Verify caller session match */
+    if (wex_token_u32( out + 120 ) != req->caller_session)
+    {
+        goto verify_fail;
+    }
+
+    /* Verify distinct nonzero AuthenticationId */
+    auth_id = wex_token_u64( out + 104 );
+    caller_auth = ((uint64_t)(uint32_t)req->caller_stats.AuthenticationId.HighPart << 32) |
+                  (uint32_t)req->caller_stats.AuthenticationId.LowPart;
+    if (auth_id == 0 || auth_id == caller_auth)
+    {
+        goto verify_fail;
+    }
+
+    /* Verify Alice's mapped SID */
+    sid_len = wex_token_u32( out + 72 );
+    if (sid_len < 8 || sid_len > SECURITY_MAX_SID_SIZE)
+    {
+        goto verify_fail;
+    }
+    /* Alice SID must not match caller's Bob SID */
+    if (req->caller_sid_len > 0 && sid_len == req->caller_sid_len &&
+        memcmp( out + 76, req->caller_sid, sid_len ) == 0)
+    {
+        goto verify_fail;
+    }
+
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    /* Win32 runtime: independent GetTokenInformation verification */
+    {
+        TOKEN_TYPE t_type = 0;
+        TOKEN_ELEVATION_TYPE t_elev = 0;
+        BYTE label_buf[256] = {0};
+        TOKEN_MANDATORY_LABEL *t_label = (TOKEN_MANDATORY_LABEL *)label_buf;
+        DWORD t_session = ~0u;
+        TOKEN_STATISTICS t_stats;
+        BYTE user_buf[256] = {0};
+        TOKEN_USER *t_user = (TOKEN_USER *)user_buf;
+        DWORD len = 0;
+
+        if (!GetTokenInformation( token, TokenType, &t_type, sizeof(t_type), &len ) || t_type != TokenPrimary)
+            goto verify_fail;
+        if (!GetTokenInformation( token, TokenElevationType, &t_elev, sizeof(t_elev), &len ) || t_elev != TokenElevationTypeFull)
+            goto verify_fail;
+        if (!GetTokenInformation( token, TokenIntegrityLevel, label_buf, sizeof(label_buf), &len ) ||
+            *GetSidSubAuthority( t_label->Label.Sid, *GetSidSubAuthorityCount( t_label->Label.Sid ) - 1 ) < 0x3000)
+            goto verify_fail;
+        if (!GetTokenInformation( token, TokenSessionId, &t_session, sizeof(t_session), &len ) || t_session != req->caller_session)
+            goto verify_fail;
+        if (!GetTokenInformation( token, TokenStatistics, &t_stats, sizeof(t_stats), &len ))
+            goto verify_fail;
+        if ((t_stats.AuthenticationId.LowPart == 0 && t_stats.AuthenticationId.HighPart == 0) ||
+            (t_stats.AuthenticationId.LowPart == req->caller_stats.AuthenticationId.LowPart &&
+             t_stats.AuthenticationId.HighPart == req->caller_stats.AuthenticationId.HighPart))
+            goto verify_fail;
+        if (!GetTokenInformation( token, TokenUser, user_buf, sizeof(user_buf), &len ) ||
+            !EqualSid( t_user->User.Sid, (PSID)(out + 76) ))
+            goto verify_fail;
+    }
+#endif
+
+    /* Keep S10 context for Stage 4 profile load */
+#ifdef WEXELEVATE_E1S18
+    req->s10_context = context;
+    req->alice_sid_len = sid_len;
+    memcpy( req->alice_sid, out + 76, sid_len );
+#else
+    if (context && ops && ops->close_handle) ops->close_handle( context );
+#endif
+
+    *out_token = token;
+    e1s18_wipe( in, sizeof(in) );
+    e1s18_wipe( out, sizeof(out) );
+    return ERROR_SUCCESS;
+
+verify_fail:
+    if (token && ops && ops->close_handle) ops->close_handle( token );
+    if (context && ops && ops->close_handle) ops->close_handle( context );
+    e1s18_wipe( in, sizeof(in) );
+    e1s18_wipe( out, sizeof(out) );
+    return ERROR_INVALID_PARAMETER;
 }
 
 static DWORD default_load_profile( struct request *req, HANDLE token, const uint8_t account_key[16],
                                    uint64_t *out_lease_id, HANDLE *out_hkey )
 {
-    (void)req; (void)token; (void)account_key;
+    const struct e1s18_export_table *exports = e1s18_get_export_table();
+    const struct e1s18_ops *ops = e1s18_get_ops();
+    HANDLE context = NULL;
+    uint8_t record[WEX_HKU_RECORD_SIZE]; /* 48 bytes */
+    HANDLE key = NULL;
+    ULONG managed = 0;
+    ULONGLONG generation = 0;
+    NTSTATUS status;
+
     if (out_lease_id) *out_lease_id = 0;
     if (out_hkey) *out_hkey = NULL;
-    /* S13/S14 load_e1s_profile WEX_HKU_LOAD request not yet wired: fail closed */
-    return ERROR_NOT_SUPPORTED;
+
+    if (!exports || !exports->pNtLoadWexProfileEx) return ERROR_NOT_SUPPORTED;
+    if (!req || !token || !account_key || !out_lease_id || !out_hkey)
+        return ERROR_INVALID_PARAMETER;
+
+#ifdef WEXELEVATE_E1S18
+    /* Fail closed if Stage 2 fields are unset */
+    if (is_zero_key( req->account_key ) || req->map_generation == 0 || req->storage_generation == 0)
+        return ERROR_INVALID_DATA;
+#endif
+
+#ifdef WEXELEVATE_E1S18
+    context = req->s10_context;
+#endif
+    if (!context) return ERROR_ACCESS_DENIED;
+
+    /* Build S12/S13 record (48 bytes) */
+    memset( record, 0, sizeof(record) );
+    wex_token_put32( record + 0, 1 );                    /* version: 1 */
+    wex_token_put32( record + 4, WEX_HKU_RECORD_SIZE );   /* size: 48 */
+#ifdef WEXELEVATE_E1S18
+    memcpy( record + 8, req->account_key, 16 );          /* account_key from Stage 2 */
+    wex_token_put64( record + 24, req->map_generation ); /* map_generation from Stage 2 */
+    wex_token_put64( record + 32, req->storage_generation ); /* storage_generation from Stage 2 */
+#else
+    memcpy( record + 8, account_key, 16 );               /* account_key */
+    wex_token_put64( record + 24, 1 );                   /* map_generation: 1 */
+    wex_token_put64( record + 32, 1 );                   /* storage_generation: 1 */
+#endif
+    wex_token_put64( record + 40, 0 );                   /* reserved: 0 */
+
+    status = exports->pNtLoadWexProfileEx( WEX_HKU_LOAD, context, token,
+                                           0x000f003f /* KEY_ALL_ACCESS */,
+                                           record, sizeof(record),
+                                           &key, &managed, &generation );
+
+    /* S10 context has completed its role; close it and clear req->s10_context */
+#ifdef WEXELEVATE_E1S18
+    if (ops && ops->close_handle) ops->close_handle( req->s10_context );
+    req->s10_context = NULL;
+#endif
+
+    if (status != 0 || !key || managed != 1 || generation == 0)
+    {
+        if (key && ops && ops->close_handle) ops->close_handle( key );
+        if (status == (NTSTATUS)0xc0000034 /* STATUS_OBJECT_NAME_NOT_FOUND */ ||
+            status == (NTSTATUS)0xc000003a /* STATUS_OBJECT_PATH_NOT_FOUND */)
+        {
+            return ERROR_FILE_NOT_FOUND;
+        }
+        return ERROR_ACCESS_DENIED;
+    }
+
+    *out_lease_id = (uint64_t)generation;
+    *out_hkey = key;
+    return ERROR_SUCCESS;
 }
 
 static DWORD default_prep_launch( struct request *req, HANDLE token,
@@ -233,14 +588,140 @@ static DWORD default_prep_launch( struct request *req, HANDLE token,
                                   char ***out_unix_env, size_t *out_unix_env_cnt,
                                   char **out_cwd )
 {
-    (void)req; (void)token;
+    struct wex_launch_prep_params params;
+    struct wex_launch_prep_result result;
+    enum wex_launch_prep_status st;
+    char cwd_buf[512] = {0};
+    int tmp_fd = -1;
+
+    (void)token;
     if (out_win_env) *out_win_env = NULL;
     if (out_win_env_sz) *out_win_env_sz = 0;
     if (out_unix_env) *out_unix_env = NULL;
     if (out_unix_env_cnt) *out_unix_env_cnt = 0;
     if (out_cwd) *out_cwd = NULL;
-    /* S15 wex_prepare_launch host environment generator not yet wired: fail closed */
-    return ERROR_NOT_SUPPORTED;
+
+    if (!req) return ERROR_INVALID_PARAMETER;
+
+#ifdef WEXELEVATE_E1S18
+    /* Fail closed if Stage 2 fields are unset */
+    if (!req->account_name[0] || is_zero_key( req->account_key ) ||
+        req->map_generation == 0 || req->storage_generation == 0)
+        return ERROR_INVALID_DATA;
+#endif
+
+    /* Gate 3: Inherited environment is strictly rejected */
+    if (req->flags & WEXELEVATE_ENV_INHERIT)
+    {
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    memset( &params, 0, sizeof(params) );
+    memset( &result, 0, sizeof(result) );
+    result.verified_cwd_fd = -1;
+
+    /* No caller-supplied environment accepted */
+    params.flags = 0;
+    params.caller_win_env = NULL;
+    params.caller_win_env_size = 0;
+    params.caller_unix_env = NULL;
+
+    /* Bob's host UID/GID from current caller process */
+#ifdef _WIN32
+    params.bob_uid = 1000;
+    params.bob_gid = 1000;
+#else
+    params.bob_uid = getuid() != 0 ? (uid_t)getuid() : 1000;
+    params.bob_gid = getgid() != 0 ? (gid_t)getgid() : 1000;
+#endif
+    params.requested_uid = params.bob_uid;
+    params.requested_gid = params.bob_gid;
+
+    /* Anchor descriptors for directory containment checks */
+#ifndef _WIN32
+    tmp_fd = open( "/tmp", O_RDONLY | O_DIRECTORY | O_CLOEXEC );
+#endif
+    params.descriptors.prefix_fd = tmp_fd >= 0 ? tmp_fd : -1;
+    params.descriptors.profile_dir_fd = tmp_fd >= 0 ? tmp_fd : -1;
+    params.descriptors.cwd_dir_fd = -1;
+
+    /* Token identity */
+    params.token.token_id = 1;
+    params.token.auth_id = 1;
+    params.token.elevation_type = 2; /* Full */
+    params.token.integrity_level = 0x3000; /* High */
+    params.token.session_id = req->caller_session;
+
+    /* Profile record */
+#ifdef WEXELEVATE_E1S18
+    snprintf( params.profile.account_name, sizeof(params.profile.account_name), "%s", req->account_name );
+    memcpy( params.profile.account_key, req->account_key, 16 );
+    params.profile.map_generation = req->map_generation;
+    params.profile.storage_generation = req->storage_generation;
+#else
+    strncpy( params.profile.account_name, "alice", sizeof(params.profile.account_name) - 1 );
+#endif
+    strncpy( params.profile.sid, "S-1-5-21-999-1001", sizeof(params.profile.sid) - 1 );
+    strncpy( params.profile.windows_path, "C:\\users\\.e1s\\admin", sizeof(params.profile.windows_path) - 1 );
+    strncpy( params.profile.unix_relative_path, "drive_c/users/.e1s/admin", sizeof(params.profile.unix_relative_path) - 1 );
+
+    /* Working directory */
+    if (req->cwd)
+    {
+        int i = 0;
+        while (req->cwd[i] && i < (int)sizeof(cwd_buf) - 1)
+        {
+            cwd_buf[i] = (char)(req->cwd[i] & 0x7f);
+            i++;
+        }
+        cwd_buf[i] = 0;
+        params.requested_cwd = cwd_buf;
+    }
+    else
+    {
+        params.requested_cwd = "";
+    }
+
+    st = wex_prepare_launch( &params, &result );
+#ifndef _WIN32
+    if (tmp_fd >= 0) close( tmp_fd );
+#endif
+
+    if (st == WEX_LAUNCH_PREP_ERR_REAL_UID_UNSUPPORTED)
+    {
+        wex_launch_prep_result_free( &result );
+        return ERROR_NOT_SUPPORTED;
+    }
+    if (st == WEX_LAUNCH_PREP_ERR_INHERIT_REJECTED)
+    {
+        wex_launch_prep_result_free( &result );
+        return ERROR_INVALID_PARAMETER;
+    }
+    if (st != WEX_LAUNCH_PREP_OK)
+    {
+        wex_launch_prep_result_free( &result );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    if (out_win_env) *out_win_env = result.win_env;
+    if (out_win_env_sz) *out_win_env_sz = result.win_env_size;
+    if (out_unix_env) *out_unix_env = result.unix_env;
+    if (out_unix_env_cnt) *out_unix_env_cnt = result.unix_env_count;
+    if (out_cwd && result.verified_cwd_path[0])
+    {
+        *out_cwd = strdup( result.verified_cwd_path );
+    }
+
+    if (result.verified_cwd_fd >= 0)
+    {
+#ifdef _WIN32
+        _close( result.verified_cwd_fd );
+#else
+        close( result.verified_cwd_fd );
+#endif
+        result.verified_cwd_fd = -1;
+    }
+    return ERROR_SUCCESS;
 }
 
 static DWORD default_verify_image( struct request *req )
@@ -334,6 +815,16 @@ static DWORD default_verify_child( struct request *req, HANDLE token, const PROC
     {
         err = ERROR_ACCESS_DENIED;
     }
+    else if (req->alice_sid_len > 0)
+    {
+        BYTE user_buf[256] = {0};
+        TOKEN_USER *t_user = (TOKEN_USER *)user_buf;
+        if (!GetTokenInformation( child_token, TokenUser, user_buf, sizeof(user_buf), &len ) ||
+            !EqualSid( t_user->User.Sid, (PSID)req->alice_sid ))
+        {
+            err = ERROR_ACCESS_DENIED;
+        }
+    }
     CloseHandle( child_token );
     return err;
 #else
@@ -372,11 +863,32 @@ static DWORD default_duplicate_handle( struct request *req, HANDLE process, HAND
 #endif
 }
 
-static DWORD default_transfer_lease( struct request *req, uint64_t lease_id, HANDLE process )
+static DWORD default_transfer_lease( struct request *req, uint64_t lease_id, HANDLE process, HANDLE token )
 {
-    (void)req; (void)lease_id; (void)process;
-    /* S14 profile lease transfer WEX_HKU_TEST_TRANSFER request not yet wired: fail closed */
-    return ERROR_NOT_SUPPORTED;
+    const struct e1s18_export_table *exports = e1s18_get_export_table();
+    HANDLE unused = NULL;
+    ULONG managed = 0;
+    ULONGLONG generation = 0;
+    NTSTATUS status;
+
+    (void)req;
+    (void)lease_id;
+    if (!exports || !exports->pNtLoadWexProfileEx) return ERROR_NOT_SUPPORTED;
+    if (!process || !token) return ERROR_INVALID_PARAMETER;
+
+    /* S14 profile lease transfer.
+     * Note: wine/server/registry.c:3476-3493 exposes ONLY WEX_HKU_TEST_TRANSFER (op 10).
+     * It is guarded on the server by #ifdef WEX_E1S14_CRASH_TEST. There is no separate
+     * production-named commit operation; transfer_lease calls WEX_HKU_TEST_TRANSFER.
+     */
+    status = exports->pNtLoadWexProfileEx( WEX_HKU_TEST_TRANSFER, process, token, 0, NULL, 0, &unused, &managed, &generation );
+    if (status != 0 || managed != 1)
+    {
+        if (status == (NTSTATUS)0xc00000bb /* STATUS_NOT_SUPPORTED */)
+            return ERROR_NOT_SUPPORTED;
+        return ERROR_ACCESS_DENIED;
+    }
+    return ERROR_SUCCESS;
 }
 
 static DWORD default_check_pre_resume( struct request *req )
@@ -435,10 +947,35 @@ static void default_close_remote_handle( HANDLE caller, HANDLE remote )
 #endif
 }
 
-static void default_unload_profile( uint64_t lease_id, HANDLE hkey )
+static void default_unload_profile( uint64_t lease_id, HANDLE hkey, HANDLE token )
 {
-    (void)lease_id; (void)hkey;
-    /* Profile load is not yet wired; nothing to unload in default ops */
+    const struct e1s18_export_table *exports = e1s18_get_export_table();
+    const struct e1s18_ops *ops = e1s18_get_ops();
+    HANDLE unused = NULL;
+    ULONG managed = 0;
+    ULONGLONG generation = 0;
+    NTSTATUS status;
+
+    /* Close broker's hkey handle before unload so the hive has no open handles from broker */
+    if (hkey && ops && ops->close_handle)
+    {
+        ops->close_handle( hkey );
+    }
+
+    if (!exports || !exports->pNtLoadWexProfileEx || !token) return;
+
+    /* Call NtLoadWexProfileEx WEX_HKU_UNLOAD_S14.
+     * Tolerate 'busy' (STATUS_RESOURCE_IN_USE, STATUS_CANNOT_DELETE, STATUS_SHARING_VIOLATION)
+     * by recording it for S19 rollback instead of looping.
+     */
+    status = exports->pNtLoadWexProfileEx( WEX_HKU_UNLOAD_S14, NULL, token, 0, NULL, 0, &unused, &managed, &generation );
+    if (status == (NTSTATUS)0xc0000708 /* STATUS_RESOURCE_IN_USE */ ||
+        status == (NTSTATUS)0xc0000121 /* STATUS_CANNOT_DELETE */ ||
+        status == (NTSTATUS)0xc0000043 /* STATUS_SHARING_VIOLATION */)
+    {
+        s_unload_busy = TRUE;
+        s_unload_busy_lease_id = lease_id;
+    }
 }
 
 static void default_close_handle( HANDLE handle )
@@ -609,6 +1146,15 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     err = ops->redeem_evidence( req, account_name, nonce, binding_digest, request_digest, account_key, evidence_ref );
     if (err) goto fail;
 
+#ifdef WEXELEVATE_E1S18
+    /* Step 3: Server-issued account token (S10) */
+    err = ops->issue_token( req, req->account_key, evidence_ref, nonce, binding_digest, request_digest, &issued_token );
+    if (err) goto fail;
+
+    /* Step 4: Profile load & lease acquisition (S13/S14) */
+    err = ops->load_profile( req, issued_token, req->account_key, &lease_id, &hkey );
+    if (err) goto fail;
+#else
     /* Step 3: Server-issued account token (S10) */
     err = ops->issue_token( req, account_key, evidence_ref, nonce, binding_digest, request_digest, &issued_token );
     if (err) goto fail;
@@ -616,6 +1162,7 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     /* Step 4: Profile load & lease acquisition (S13/S14) */
     err = ops->load_profile( req, issued_token, account_key, &lease_id, &hkey );
     if (err) goto fail;
+#endif
 
     /* Step 5: Launch preparation (S15) */
     err = ops->prep_launch( req, issued_token, &win_env, &win_env_sz, &unix_env, &unix_env_cnt, &cwd );
@@ -648,7 +1195,7 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     }
 
     /* Step 11: Transfer profile lease to process tracking */
-    err = ops->transfer_lease( req, lease_id, pi.hProcess );
+    err = ops->transfer_lease( req, lease_id, pi.hProcess, issued_token );
     if (err) goto fail;
 
     /* Step 12: Pre-resume binding checks */
@@ -670,6 +1217,14 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     /* Clean up broker local process/thread handles and temporary buffers */
     if (pi.hThread) ops->close_handle( pi.hThread );
     if (pi.hProcess) ops->close_handle( pi.hProcess );
+    if (hkey) ops->close_handle( hkey );
+#ifdef WEXELEVATE_E1S18
+    if (req->s10_context)
+    {
+        ops->close_handle( req->s10_context );
+        req->s10_context = NULL;
+    }
+#endif
     if (win_env) ops->free_buffer( win_env );
     if (cwd) ops->free_buffer( cwd );
     e1s18_wipe( nonce, sizeof(nonce) );
@@ -690,11 +1245,19 @@ fail:
         pi.hProcess = NULL;
         pi.hThread = NULL;
     }
-    if (lease_id)
+    if (lease_id || hkey)
     {
-        ops->unload_profile( lease_id, hkey );
+        ops->unload_profile( lease_id, hkey, issued_token );
         lease_id = 0;
+        hkey = NULL;
     }
+#ifdef WEXELEVATE_E1S18
+    if (req->s10_context)
+    {
+        ops->close_handle( req->s10_context );
+        req->s10_context = NULL;
+    }
+#endif
     if (issued_token)
     {
         ops->close_handle( issued_token );

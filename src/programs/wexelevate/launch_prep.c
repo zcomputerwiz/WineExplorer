@@ -20,7 +20,9 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <pwd.h>
+#endif
 
 #if !defined(WEX_E1S15_LAUNCH_PREP_TEST)
 

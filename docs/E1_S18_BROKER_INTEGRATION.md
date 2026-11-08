@@ -209,9 +209,9 @@ Every failure in the sequence leads to immediate denial with a documented error 
 
 ---
 
-## 5. Lab Guest Case Design (Section 8 Matrix)
+## 5. Lab Guest Case Design (Section 8 Matrix & S20 End-to-End Suite)
 
-This test scenario design defines the multi-user lab validation suite for execution in a clean, snapshotted guest environment (e.g. following S2 baseline with fixture accounts Bob, Alice, Carol, and Eve). **Per standing instructions, this case design is documented statically and must NOT be run on VM B.**
+This test scenario design defines the multi-user lab validation suite for execution in a clean, snapshotted guest environment (e.g. following S2 baseline with fixture accounts Bob, Alice, Carol, and Eve). **Per standing instructions, this case design is documented statically and must NOT be run on VM B (which is down). Real end-to-end guest execution is designated for Work Package E1-S20.**
 
 ### Test Setup & Fixtures
 1. **Accounts**:
@@ -223,6 +223,7 @@ This test scenario design defines the multi-user lab validation suite for execut
    - Test PAM service `wineexplorer-elevate` (configured with `pam-lab-module.so`).
    - `HKLM\Software\WineExplorer\Elevation\EnableStandardUserElevation = 1`.
    - Broker running under SYSTEM with enabled `SeTcbPrivilege` and S6 transport registration.
+   - Wine build with `WEX_E1S10_TOKEN_TEST`, `WEX_E1S13_HKU_TEST`, `WEX_E1S14_CRASH_TEST`, and `WEX_E1S18` enabled on wineserver and ntdll.
 
 ### Test Cases
 
@@ -239,6 +240,57 @@ This test scenario design defines the multi-user lab validation suite for execut
 | **TC-S18-09: Image Rewrite During Consent** | Image binary overwritten while credential prompt is waiting for input. | 1. Host lease break fires or `verify_image` hash mismatch detected.<br>2. Broker aborts launch with `ERROR_FILE_CORRUPT`.<br>3. No process executed. |
 | **TC-S18-10: Filtered-Admin Regression** | Filtered-admin caller (`TokenElevationTypeLimited`) executes click consent. | 1. Standard-user branch NOT taken.<br>2. Existing filtered-admin path executes byte-for-byte unchanged.<br>3. Linked full token used with caller's same logon LUID.<br>4. Success with exit 0. |
 
+### S20 End-to-End Guest Execution Test Design (Wired In-Process Stages)
+
+Work Package E1-S20 will run the full end-to-end sequence in the guest VM with real server processes once the service plumbing for Stages 1 and 2 is integrated. The guest test harness exercises the exact in-process stages wired in S18b:
+
+1. **Guest NTDLL Dynamic Export Resolution**:
+   - `wexelevate.exe` loads `ntdll.dll` and locates `NtCreateWexAccountToken` and `NtLoadWexProfileEx` via `GetProcAddress`.
+   - Harness verifies both function pointers resolve successfully without fallback stubs.
+
+2. **Stage 3 Server Token Issuance (End-to-End)**:
+   - Call `NtCreateWexAccountToken(WEX_TOKEN_NEGOTIATE)`: verify wineserver grants `0xc0` capabilities and returns valid S10 broker context handle.
+   - Construct S1 Kind 4 envelope (188 bytes) + 16-byte evidence reference (204 bytes total).
+   - Call `NtCreateWexAccountToken(WEX_TOKEN_ISSUE)`: verify wineserver creates real primary token and returns S1 Kind 5 record (136 bytes).
+   - In-guest assertions:
+     - `GetTokenInformation(TokenType)` returns `TokenPrimary` (1).
+     - `GetTokenInformation(TokenElevationType)` returns `TokenElevationTypeFull` (2).
+     - `GetTokenInformation(TokenIntegrityLevel)` returns High integrity (>= `0x3000`).
+     - `GetTokenInformation(TokenSessionId)` matches Bob's caller session.
+     - `GetTokenInformation(TokenStatistics)` returns nonzero `AuthenticationId` distinct from Bob's logon LUID.
+     - `GetTokenInformation(TokenUser)` SID equals Alice's mapped administrator SID and does NOT equal Bob's caller SID.
+
+3. **Stage 4 Profile Load & Lease Generation (End-to-End)**:
+   - Construct S12/S13 record (48 bytes: version 1, size 48, Alice's account key).
+   - Call `NtLoadWexProfileEx(WEX_HKU_LOAD, context, token, KEY_ALL_ACCESS, ...)`:
+     - Verifies S10 context claim in `wine/server/token.c:token_claim_e1s_profile`.
+     - Verifies hive lock, volatile environment creation under `\Registry\User\<Alice SID>\Volatile Environment` with Alice's 9 variables (`USERPROFILE`, `USERNAME`, `HOMEDRIVE`, `HOMEPATH`, `USERDOMAIN`, `APPDATA`, `LOCALAPPDATA`, `TEMP`, `TMP`).
+     - Returns valid HKU proxy key handle and non-zero lease generation (`lease_id`).
+   - S10 context closed immediately by broker.
+
+4. **Stage 5 Launch Preparation & Environment Generation (End-to-End)**:
+   - `wex_prepare_launch` executes with Bob's host UID/GID (`62001/62001`), prefix descriptors, and cwd.
+   - Generates sanitized double-NUL Windows environment block for `CreateProcessAsUserW` containing Alice's profile variables and clean system paths.
+   - Confirms caller-supplied environment inheritance is denied with `ERROR_INVALID_PARAMETER`.
+
+5. **Stage 7 & 8 Process Creation & Identity Verification (End-to-End)**:
+   - `CreateProcessAsUserW` called with Alice's token, suspended flag, parent attribute set to Bob caller, and sanitized environment.
+   - `OpenProcessToken` on suspended child verified: user SID matches Alice SID, session matches caller session.
+
+6. **Stage 11 Lease Transfer to Child Process Tracking (End-to-End)**:
+   - Call `NtLoadWexProfileEx(WEX_HKU_TEST_TRANSFER, pi.hProcess, token, 0, NULL, 0, &unused, &managed, &generation)`.
+   - Requires server built with `WEX_E1S14_CRASH_TEST`.
+   - Wineserver calls `e1s_profile_commit_process(child, lease_id, request_id)`: transfers lease from setup state (state 1) to committed process lifetime (state 2).
+   - Broker closes local HKU proxy key handle on commit.
+
+7. **Stage 13 Guarded Resume & S19 Rollback / Busy Unload Handling**:
+   - Broker calls `ResumeThread(pi.hThread)` exactly once.
+   - In positive test: child executes, uses Alice's HKU registry hive, exits with code 0.
+   - In negative/termination test: child terminated while holding open registry key handle.
+   - Broker calls `NtLoadWexProfileEx(WEX_HKU_UNLOAD_S14, NULL, token, ...)`.
+   - If child or key is still active, server returns `STATUS_RESOURCE_IN_USE` (0xc0000708) or `STATUS_CANNOT_DELETE` (0xc0000121).
+   - Broker records `s_unload_busy = TRUE` with `s_unload_busy_lease_id` for S19 background reaper rollback instead of hanging or looping.
+
 ---
 
 ## 6. Production Safety & Gating
@@ -252,25 +304,43 @@ This test scenario design defines the multi-user lab validation suite for execut
 
 ---
 
-## 7. Not Yet Wired
+## 7. Stage Status & Wiring Audit
 
 The default operations table (`struct e1s18_ops s_default_ops`) strictly enforces a **fail-closed** policy for any stage whose external subsystem connection is not yet completed in the tree. Under no circumstances does a missing subsystem connection return `ERROR_SUCCESS` as a stub.
+
+### Known Gaps Before Enablement
+
+Before standard-user elevation can be enabled in production or shipping builds, the following known gaps must be resolved:
+
+1. **Server Lease Transfer Operation (Stage 11 Production Commit Gate Missing)**:
+   - In the S14 Wine server (`wine/server/registry.c:3476-3493`, `load_e1s_profile`), lease transfer is exposed only as `WEX_HKU_TEST_TRANSFER` (op 10) behind the test compile guard `#ifdef WEX_E1S14_CRASH_TEST`.
+   - A production-named commit operation with its own broker-only gates is missing in the server. Without this server gate, any call to lease transfer in a production build returns `STATUS_NOT_SUPPORTED` (`0xc00000bb`), mapping to `ERROR_NOT_SUPPORTED`. Consequently, Stage 11 cannot commit in a production build.
+2. **Stage 1 (Prompt Queue & Bound Credential Dialog) Not Wired**:
+   - Spawning `consent.exe /credentials` on secure desktop `WinSta0\Winlogon`, the named pipe IPC channel handshake, the conversation loop with the S17 prompt queue (H3b), and 120s timeout/cancellation handling are not yet wired into the elevation broker.
+   - Stage 1 fails closed by default with `ERROR_NOT_SUPPORTED` (50).
+3. **Stage 2 (Evidence Verification & Redemption) Not Wired**:
+   - Connection to the native S8 evidence daemon over Unix domain socket `/run/wineexplorer/evidence.sock`, sending the S1 Kind 2 Answer record, receiving the S1 Kind 3 Evidence record (220 bytes) and 16-byte reference, and verifying S7 PAM worker authentication are not yet wired.
+   - Stage 2 fails closed by default with `ERROR_NOT_SUPPORTED` (50).
+4. **Stage 2 Dependent Fields Unset by Default (Fail Closed at Stages 3–5)**:
+   - Authoritative S4 `account_name`, `account_key`, `map_generation` and S12 `storage_generation` in `struct request` must be populated upon Stage 2 evidence redemption.
+   - Because Stage 2 is not yet wired, these fields remain unset (zero) by default.
+   - Stages 3 (`issue_token`), 4 (`load_profile`), and 5 (`prep_launch`) strictly fail closed with `ERROR_INVALID_DATA` (13) if any required Stage 2 fields are unset; they never fall back to hardcoded defaults or guesses (e.g. literal `"alice"` or hardcoded generation 1).
 
 ### Detailed Stage Audit (Default Operations Table)
 
 | Stage # | Stage Name | Implementation Status | Behavior / Subsystem Invoked |
 |---|---|---|---|
-| **Stage 1** | `prompt_dialog` | **Not yet wired (Fail closed)** | Returns `ERROR_NOT_SUPPORTED` (50). The S17 prompt queue and conversation engine exist in `cred_dialog.c`, but the IPC channel spawn to `consent.exe /credentials` on `WinSta0\Winlogon` is not yet connected to the broker event loop. |
-| **Stage 2** | `redeem_evidence` | **Not yet wired (Fail closed)** | Returns `ERROR_NOT_SUPPORTED` (50). The S8 evidence daemon and S7 PAM worker exist in `tools/e1s7/` and `tools/e1s6/`, but the Unix domain socket client connection from the Windows service is not yet wired. |
-| **Stage 3** | `issue_token` | **Not yet wired (Fail closed)** | Returns `ERROR_NOT_SUPPORTED` (50). The S10 server implementation (`create_e1s_account_token`, request 324) is implemented in `wine/server/token.c`, but the client ntdll/broker issuance RPC wrapper is not yet wired. |
-| **Stage 4** | `load_profile` | **Not yet wired (Fail closed)** | Returns `ERROR_NOT_SUPPORTED` (50). The S13/S14 server profile loader (`load_e1s_profile`, request 325) is implemented in `wine/server/registry.c`, but the client server call in `wexelevate` is not yet wired. |
-| **Stage 5** | `prep_launch` | **Not yet wired (Fail closed)** | Returns `ERROR_NOT_SUPPORTED` (50). `wex_prepare_launch()` in `launch_prep.c` is implemented for host POSIX testing, but host UID descriptor inspection and environment sanitization is disabled in Win32 service builds. |
+| **Stage 1** | `prompt_dialog` | **Not yet wired (Fail closed)** | Returns `ERROR_NOT_SUPPORTED` (50). Service plumbing needed: spawn `consent.exe /credentials` on `WinSta0\Winlogon`, establish named pipe IPC channel handshake, execute conversation loop with S17 prompt queue (H3b), and enforce 120s timeout and cancellation. |
+| **Stage 2** | `redeem_evidence` | **Not yet wired (Fail closed)** | Returns `ERROR_NOT_SUPPORTED` (50). Service plumbing needed: connect to native S8 evidence daemon over Unix domain socket `/run/wineexplorer/evidence.sock`, send S1 Kind 2 Answer record, receive S1 Kind 3 Evidence record (220 B) and 16-byte reference, and verify S7 PAM worker authentication. |
+| **Stage 3** | `issue_token` | **Wired (Real NTDLL export)** | Requires Stage 2 `account_key` and `map_generation`; fails closed with `ERROR_INVALID_DATA` (13) if unset. Calls `NtCreateWexAccountToken(WEX_TOKEN_NEGOTIATE)` then `NtCreateWexAccountToken(WEX_TOKEN_ISSUE)` with S1 204-byte envelope. Verifies returned token: Primary, Full elevation, High integrity, caller session, distinct nonzero AuthenticationId, Alice's mapped SID. Closes handles and fails closed on any mismatch. Retains `s10_context` for Stage 4. |
+| **Stage 4** | `load_profile` | **Wired (Real NTDLL export)** | Requires Stage 2 `account_key`, `map_generation`, and `storage_generation`; fails closed with `ERROR_INVALID_DATA` (13) if unset. Calls `NtLoadWexProfileEx(WEX_HKU_LOAD)` with 48-byte S12/S13 record and `s10_context`. Retains `lease_id` (generation) for transfer and unload. Closes `s10_context` on completion. Returns HKU root key handle. |
+| **Stage 5** | `prep_launch` | **Wired (Real launch_prep)** | Requires Stage 2 `account_name`, `account_key`, `map_generation`, and `storage_generation`; fails closed with `ERROR_INVALID_DATA` (13) if unset. Calls `wex_prepare_launch` from `launch_prep.c` with explicit same-server inputs: Bob's host UID/GID from caller, profile record, cwd. Real-UID switch requests denied with `ERROR_NOT_SUPPORTED`. Inherited environment rejected with `ERROR_INVALID_PARAMETER`. Builds sanitized Windows environment block for `CreateProcessAsUserW`. |
 | **Stage 6** | `verify_image` | **Real Subsystem** | Calls the real broker routine `verify_image(req)` (`main.c:629`), checking held file handle, volume serial, file index, timestamps, and SHA-256 digest against frozen request metadata. |
 | **Stage 7** | `create_process_suspended` | **Real Subsystem** | Invokes Win32 `CreateProcessAsUserW` with `CREATE_SUSPENDED`, `CREATE_UNICODE_ENVIRONMENT`, `CREATE_NEW_CONSOLE`, `EXTENDED_STARTUPINFO_PRESENT`, and `PROC_THREAD_ATTRIBUTE_PARENT_PROCESS` set to `req->caller`. |
-| **Stage 8** | `verify_child` | **Real Subsystem** | Opens child token with `OpenProcessToken` and queries `TokenSessionId` to verify child runs in caller session. |
+| **Stage 8** | `verify_child` | **Real Subsystem** | Opens child token with `OpenProcessToken`, verifies `TokenSessionId` matches caller session and `TokenUser` matches Alice's mapped SID (`req->alice_sid`). |
 | **Stage 9** | `arm_lease` | **Real Subsystem** | Calls the real wexhost `pLeaseArm(req->lease, pi.dwProcessId)` routine to bind Linux file lease to the created child PID. |
 | **Stage 10** | `duplicate_handle` | **Real Subsystem** | Calls Win32 `DuplicateHandle(GetCurrentProcess(), pi.hProcess, req->caller, &remote, SYNCHRONIZE \| PROCESS_QUERY_LIMITED_INFORMATION, FALSE, 0)`. |
-| **Stage 11** | `transfer_lease` | **Not yet wired (Fail closed)** | Returns `ERROR_NOT_SUPPORTED` (50). S14 profile lease transfer (`WEX_HKU_TEST_TRANSFER`, request 325) client call is not yet connected. |
+| **Stage 11** | `transfer_lease` | **Wired (Real NTDLL export)** | Calls `NtLoadWexProfileEx(WEX_HKU_TEST_TRANSFER)` (op 10) with child process handle and Alice token. Note: on the server side (`wine/server/registry.c:3476-3493`), this operation is gated behind `#ifdef WEX_E1S14_CRASH_TEST`. |
 | **Stage 12** | `check_pre_resume` | **Real Subsystem** | Invokes real `check_binding(req, req->caller_pid, NULL, FALSE)` and verifies that neither `stop_event` nor `req->lease_event` has fired. |
 | **Stage 13** | `resume_thread` | **Real Subsystem** | Enters `table_cs` critical section, performs final binding and stop event validation, and executes `ResumeThread(pi.hThread)`. |
 
@@ -280,6 +350,6 @@ The default operations table (`struct e1s18_ops s_default_ops`) strictly enforce
 |---|---|---|
 | `terminate_child` | **Real Subsystem** | Calls `TerminateProcess(process, 1)` and `WaitForSingleObject(process, 5000)`. |
 | `close_remote_handle` | **Real Subsystem** | Calls `DuplicateHandle(caller, remote, NULL, NULL, 0, FALSE, DUPLICATE_CLOSE_SOURCE)`. |
-| `unload_profile` | **No-op (Not yet wired)** | Safe no-op because profile loading is not yet wired and fails closed at Stage 4. |
+| `unload_profile` | **Wired (Real NTDLL export)** | Closes broker's local `hkey` handle, then calls `NtLoadWexProfileEx(WEX_HKU_UNLOAD_S14)`. Tolerates 'busy' (`STATUS_RESOURCE_IN_USE` 0xc0000708, `STATUS_CANNOT_DELETE` 0xc0000121, `STATUS_SHARING_VIOLATION` 0xc0000043) by recording `s_unload_busy = TRUE` and `s_unload_busy_lease_id` for S19 rollback instead of looping. |
 | `close_handle` | **Real Subsystem** | Calls `CloseHandle(handle)`. |
 | `free_buffer` | **Real Subsystem** | Calls `free(ptr)`. |

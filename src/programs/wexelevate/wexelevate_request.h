@@ -95,6 +95,14 @@ struct request
     int live;             /* in the table: the id can be used once */
 #ifdef WEXELEVATE_E1S18
     BOOL is_standard_user;
+    HANDLE s10_context;
+    HANDLE issued_token;
+    BYTE alice_sid[SECURITY_MAX_SID_SIZE];
+    DWORD alice_sid_len;
+    char account_name[64];
+    BYTE account_key[16];
+    ULONGLONG map_generation;
+    ULONGLONG storage_generation;
 #endif
 };
 

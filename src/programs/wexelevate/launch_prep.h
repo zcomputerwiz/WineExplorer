@@ -12,7 +12,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#ifdef _WIN32
+typedef unsigned int uid_t;
+typedef unsigned int gid_t;
+#else
 #include <sys/types.h>
+#endif
 
 enum wex_launch_prep_status
 {
