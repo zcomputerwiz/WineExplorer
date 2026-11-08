@@ -198,31 +198,44 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
   for normal starts) in Safe Mode as well. The GTK greeter stays only the last resort, when Wine fails to start;
   a broken Wine is exactly what Safe Mode with Command Prompt must survive. In Safe Mode the script first checks
   that Wine starts in the logon prefix, and falls back if it does not or if the logon screen ends with an error.
-- **The Administrator tile** (decision 7). WineExplorer's built-in Administrator is root. Setup's "Computer Name
-  and Administrator Password" page sets root's password (`root_pass_set` in `src/dlls/wexhost/unixlib.c`); left
-  empty, root keeps no password (`*`) and cannot log on anywhere. Found on the round 3 image (2026-11-08):
+- **The Administrator account and tile** (decision 7): a dedicated account, `administrator`, not root. Today
+  Setup's "Computer Name and Administrator Password" page sets root's password (`WexRootPasswordSet`,
+  `src/programs/setup/setup.c`); left empty, root keeps no password (`*`). Found on the round 3 image (2026-11-08):
   - The Welcome screen never lists root: AccountsService leaves it out of `ListCachedUsers`.
   - With a password, root can log on at a text console (Ctrl+Alt+F2 to F6; there is no `securetty`), and in the GTK
     fallback by typing `root`: `/etc/pam.d/lightdm` does not refuse root, only `lightdm-autologin` does.
   - There is no network logon. The installed system has no SSH, RDP or Samba server, and `/root/.ssh` is empty.
     Samba is an optional component, off by default.
+  - Root would make a poor Administrator for Windows programs. In the token model, uid 0 outside `sudo` is a
+    standard user, yet uid 0 passes every file permission check (`docs/ELEVATION_SYSTEM_ROLE_WORKORDER.md`), and
+    every Windows program in its session would run as root.
 
   The work:
-  - In Safe Mode, `users_list` (`src/dlls/wexhost/unixlib.c`) adds a tile named Administrator for root when root
-    has a password. In a normal start the tile stays hidden, as on XP Professional; the classic dialog will accept
-    "Administrator" as root. The logon screen runs as `lightdm` and cannot read `/etc/shadow`, and AccountsService's
-    `Locked` and `PasswordMode` may not tell `*` from a real password, so check that first.
-  - A blank Administrator password stays unlike XP's. Debian's `common-auth` has `pam_unix.so nullok`, and `su`
-    includes it, so an empty root password would let every local user become root with no password at all. A
-    blank password therefore leaves root without one, and there is no tile.
-  - No network logon for root, with or without a password: install `/etc/ssh/sshd_config.d/wineexplorer.conf`
-    with `PermitRootLogin no` and `PermitEmptyPasswords no`. It only takes effect if someone installs an SSH server,
-    whose Debian default still lets root log on with a key. The Samba component must never add root to Samba's
-    accounts.
-  - Check that a root session starts. Its prefix comes from `/etc/skel/.wine` on first logon
-    (`wine-explorer-session-common.sh`). Its Windows account name will be `root` unless it is renamed. The E1
-    accounts map is not touched; whether root needs an entry there is for the E1 work to decide.
-  - VM test: a Safe Mode phase logs on through the Administrator tile. A normal phase checks that there is no tile.
+  - Setup creates `administrator` (display name Administrator) through AccountsService: an administrator (account
+    type 1, the `sudo` group), with the `wine-explorer` session and the password from the same page. Root still
+    gets that password, as it does today, so nothing about root changes (Debian's emergency shell needs it).
+    The two passwords are independent from then on. The E1 accounts map picks the new account up through its
+    `/etc/passwd` path unit, like any other account; no E1 code changes. A home costs about 2 MB (round 3 image:
+    `/etc/skel` 108 KB, `wineuser`'s home 2.3 MB). Homes are 0700, so working on another user's profile goes
+    through elevation, as for any administrator.
+  - In a normal start the account is hidden from the Welcome screen, as on XP Professional: `SystemAccount=true` in
+    AccountsService, set once when the account is made and never changed per boot. (Phase 1 hid accounts by
+    toggling that flag on every boot; that is gone, and only `scripts/setup-default-session.sh` writes it, for
+    `wineuser`.) In Safe Mode, `users_list` (`src/dlls/wexhost/unixlib.c`) adds the account. Check that
+    `ListCachedUsers` leaves system accounts out and that `FindUserByName` still finds this one. The classic dialog
+    will accept it in any start.
+  - With a blank Administrator password, the account stays locked and gets no tile. Debian's `common-auth` has
+    `pam_unix.so nullok`, and `su` and `sudo` include it. An empty password would let every local user run
+    `su administrator` and then `sudo` to root.
+  - No network logon, with or without a password: install `/etc/ssh/sshd_config.d/wineexplorer.conf` with
+    `PermitRootLogin no`, `DenyUsers administrator` and `PermitEmptyPasswords no`. It only takes effect if someone
+    installs an SSH server; Debian's own default still lets root log on with a key. The Samba component never adds
+    either account to Samba's accounts.
+  - OOBE refuses Administrator, in any case, as a new user's name. Check what XP's OOBE does with that name.
+  - Existing installs: the package's postinst creates the account, locked, if it is missing; its password is then
+    set in User Accounts.
+  - VM test: Safe Mode logs on through the Administrator tile. A normal start shows no tile. With a blank password,
+    `su administrator` fails for a standard user.
 - The classic dialog (Ctrl+Alt+Del twice) goes into `src/dlls/msgina`, which has only the Turn Off and Log Off
   dialogs today. On a workgroup machine its Options button only adds Shut Down.
 - Any banner must be WineExplorer's own art (no Windows logo, `CLAUDE.md`).
@@ -304,10 +317,11 @@ options when needed" setting is D1's countdown, so add it when D1 lands.
    screen, the Safe Mode desktop, the message box, the classic logon dialog, `ntbtlog.txt` and the `SafeBoot`
    key), and kept in `../WineExplorer-local/notes/xp/safe-mode/`. On 2026-11-08 the VM's files were on this
    machine but the VM was not registered; the owner registers it.
-7. **The Administrator account** (C4): root, whose password Setup sets. It is hidden from the Welcome screen in a
-   normal start and gets a tile in Safe Mode, as on XP Professional. It is for troubleshooting, such as a broken
-   user profile. It never gets a network logon, and with no password it cannot log on anywhere. It is a
-   nice-to-have: Safe Mode works without it.
+7. **The Administrator account** (C4): a dedicated administrator account, `administrator`, so root's behavior does
+   not change (the owner's suggestion; it replaces using root, from earlier the same day). Setup sets its password
+   on the Administrator password page. It is hidden from the Welcome screen in a normal start and gets a tile in
+   Safe Mode, as on XP Professional. It is for troubleshooting, such as a broken user profile. It never gets a
+   network logon, and with no password it cannot log on anywhere. It is a nice-to-have: Safe Mode works without it.
 
 ## 5. Order
 
