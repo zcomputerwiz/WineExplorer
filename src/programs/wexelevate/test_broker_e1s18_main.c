@@ -1418,6 +1418,647 @@ static int test_export_boundary_unset_fields_fail_closed( void )
     e1s18_reset_export_table();
     return TEST_PASS;
 }
+
+/*
+ * Fake Dialog & Transport Boundary Implementation & Tests
+ */
+
+struct fake_boundary_state
+{
+    /* Dialog controls */
+    DWORD dialog_return_code;
+    uint32_t dialog_answer_kind;
+    BOOL dialog_corrupt_binding;
+    BOOL dialog_corrupt_nonce;
+    BOOL dialog_corrupt_request;
+    BOOL dialog_corrupt_token;
+    BOOL dialog_empty_answer;
+    char dialog_account_to_return[64];
+
+    /* Transport controls */
+    DWORD transport_return_code;
+    uint16_t transport_evidence_kind;
+    uint16_t transport_evidence_ver;
+    uint32_t transport_evidence_len;
+    uint64_t transport_evidence_caps;
+    uint64_t transport_evidence_req_id;
+    BOOL transport_corrupt_req_digest;
+    BOOL transport_corrupt_bind_digest;
+    BOOL transport_corrupt_nonce;
+    uint32_t transport_evidence_attempt;
+    uint8_t transport_account_key[16];
+    uint64_t transport_host_uid;
+    uint64_t transport_expiry;
+    uint64_t transport_map_gen;
+    uint32_t transport_method;
+    uint32_t transport_service;
+    uint8_t transport_evidence_ref[16];
+    uint64_t transport_storage_gen;
+};
+
+static struct fake_boundary_state g_boundary_state;
+
+static DWORD fake_dialog_boundary_exec( struct request *req,
+                                        uint64_t request_id,
+                                        const uint8_t nonce[32],
+                                        const uint8_t binding_digest[32],
+                                        const uint8_t request_digest[32],
+                                        const uint8_t channel_token[16],
+                                        BOOL secure,
+                                        uint8_t *out_answer_buf,
+                                        size_t *out_answer_len,
+                                        char *out_account,
+                                        size_t account_max )
+{
+    (void)secure; (void)req;
+    if (g_boundary_state.dialog_return_code != ERROR_SUCCESS)
+        return g_boundary_state.dialog_return_code;
+
+    if (g_boundary_state.dialog_empty_answer)
+    {
+        *out_answer_len = 0;
+        return ERROR_SUCCESS;
+    }
+
+    if (g_boundary_state.dialog_answer_kind != 0)
+    {
+        uint8_t bind[32], req_dig[32], n[32], tok[16];
+        memcpy( bind, binding_digest, 32 );
+        memcpy( req_dig, request_digest, 32 );
+        memcpy( n, nonce, 32 );
+        memcpy( tok, channel_token, 16 );
+
+        if (g_boundary_state.dialog_corrupt_binding) bind[0] ^= 0xff;
+        if (g_boundary_state.dialog_corrupt_request) req_dig[0] ^= 0xff;
+        if (g_boundary_state.dialog_corrupt_nonce) n[0] ^= 0xff;
+        if (g_boundary_state.dialog_corrupt_token) tok[0] ^= 0xff;
+
+        wex_build_answer_record( request_id, 1, 0, 0,
+                                 g_boundary_state.dialog_answer_kind,
+                                 n, bind, req_dig, tok,
+                                 out_answer_buf, WEX_S1_ANSWER_LENGTH, out_answer_len );
+    }
+
+    if (out_account && account_max > 0)
+    {
+        strncpy( out_account, g_boundary_state.dialog_account_to_return, account_max - 1 );
+        out_account[account_max - 1] = 0;
+    }
+
+    return ERROR_SUCCESS;
+}
+
+static DWORD fake_transport_boundary_redeem( struct request *req,
+                                             const char *account_name,
+                                             const uint8_t nonce[32],
+                                             const uint8_t binding_digest[32],
+                                             const uint8_t request_digest[32],
+                                             uint8_t *out_evidence_buf,
+                                             size_t *out_evidence_len,
+                                             uint8_t out_evidence_ref[16],
+                                             uint64_t *out_storage_generation )
+{
+    struct wex_s1_evidence_record ev;
+    (void)account_name;
+
+    if (g_boundary_state.transport_return_code != ERROR_SUCCESS)
+        return g_boundary_state.transport_return_code;
+
+    memset( &ev, 0, sizeof(ev) );
+    ev.kind = g_boundary_state.transport_evidence_kind ? g_boundary_state.transport_evidence_kind : 3;
+    ev.version = g_boundary_state.transport_evidence_ver ? g_boundary_state.transport_evidence_ver : 1;
+    ev.length = g_boundary_state.transport_evidence_len ? g_boundary_state.transport_evidence_len : 220;
+    ev.required_caps = g_boundary_state.transport_evidence_caps ? g_boundary_state.transport_evidence_caps : 0x3ff;
+    ev.request_id = g_boundary_state.transport_evidence_req_id ? g_boundary_state.transport_evidence_req_id : req->id;
+    memcpy( ev.request_digest, request_digest, 32 );
+    if (g_boundary_state.transport_corrupt_req_digest) ev.request_digest[0] ^= 0xff;
+    memcpy( ev.binding_digest, binding_digest, 32 );
+    if (g_boundary_state.transport_corrupt_bind_digest) ev.binding_digest[0] ^= 0xff;
+    memcpy( ev.nonce, nonce, 32 );
+    if (g_boundary_state.transport_corrupt_nonce) ev.nonce[0] ^= 0xff;
+    ev.attempt = g_boundary_state.transport_evidence_attempt ? g_boundary_state.transport_evidence_attempt : 1;
+    memcpy( ev.account_key, g_boundary_state.transport_account_key, 16 );
+    ev.host_uid = g_boundary_state.transport_host_uid ? g_boundary_state.transport_host_uid : (req->caller_pid ? (uint64_t)req->caller_pid : 1000);
+    ev.expiry = g_boundary_state.transport_expiry;
+    ev.map_gen = g_boundary_state.transport_map_gen ? g_boundary_state.transport_map_gen : 42;
+    ev.method = g_boundary_state.transport_method ? g_boundary_state.transport_method : 1;
+    ev.service = g_boundary_state.transport_service ? g_boundary_state.transport_service : 1;
+
+    memcpy( out_evidence_buf, &ev, sizeof(ev) );
+    *out_evidence_len = sizeof(ev);
+    memcpy( out_evidence_ref, g_boundary_state.transport_evidence_ref, 16 );
+    *out_storage_generation = g_boundary_state.transport_storage_gen;
+
+    return ERROR_SUCCESS;
+}
+
+static struct e1s18_boundary_table s_fake_boundary_table = {
+    fake_dialog_boundary_exec,
+    fake_transport_boundary_redeem
+};
+
+static void init_fake_boundary_state( void )
+{
+    int i;
+    memset( &g_boundary_state, 0, sizeof(g_boundary_state) );
+    g_boundary_state.dialog_return_code = ERROR_SUCCESS;
+    g_boundary_state.dialog_answer_kind = WEX_ANSWER_KIND_CONFIRM;
+    strcpy( g_boundary_state.dialog_account_to_return, "alice" );
+
+    g_boundary_state.transport_return_code = ERROR_SUCCESS;
+    g_boundary_state.transport_evidence_kind = 3;
+    g_boundary_state.transport_evidence_ver = 1;
+    g_boundary_state.transport_evidence_len = 220;
+    g_boundary_state.transport_evidence_caps = 0x3ff;
+    g_boundary_state.transport_evidence_attempt = 1;
+    for (i = 0; i < 16; i++) g_boundary_state.transport_account_key[i] = (uint8_t)(0x10 + i);
+    for (i = 0; i < 16; i++) g_boundary_state.transport_evidence_ref[i] = (uint8_t)(0xe0 + i);
+    g_boundary_state.transport_map_gen = 42;
+    g_boundary_state.transport_storage_gen = 1001;
+    g_boundary_state.transport_method = 1;
+    g_boundary_state.transport_service = 1;
+}
+
+static int test_dialog_boundary_confirm( void )
+{
+    struct request req;
+    char account[64];
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    e1s18_reset_ops();
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_SUCCESS, "Stage 1 dialog confirm must return ERROR_SUCCESS" );
+    CHECK( !strcmp(account, "alice"), "Returned account name must match dialog output" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_dialog_boundary_cancel( void )
+{
+    struct request req;
+    char account[64] = "garbage";
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    g_boundary_state.dialog_answer_kind = WEX_ANSWER_KIND_CANCEL;
+    e1s18_reset_ops();
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_CANCELLED, "Stage 1 dialog cancel must return ERROR_CANCELLED" );
+    CHECK_EQ( account[0], '\0', "Account name must be wiped on cancel" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_dialog_boundary_timeout( void )
+{
+    struct request req;
+    char account[64];
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    g_boundary_state.dialog_return_code = ERROR_TIMEOUT;
+    e1s18_reset_ops();
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_TIMEOUT, "Stage 1 dialog timeout must return ERROR_TIMEOUT" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_dialog_boundary_child_crash( void )
+{
+    struct request req;
+    char account[64];
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    g_boundary_state.dialog_empty_answer = TRUE;
+    e1s18_reset_ops();
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_CANCELLED, "Stage 1 dialog child crash / empty answer must return ERROR_CANCELLED" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_dialog_boundary_bad_binding( void )
+{
+    struct request req;
+    char account[64];
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    e1s18_reset_ops();
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    /* 1. Corrupt binding digest */
+    init_fake_boundary_state();
+    g_boundary_state.dialog_corrupt_binding = TRUE;
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Corrupt binding digest must fail with ERROR_ACCESS_DENIED" );
+
+    /* 2. Corrupt request digest */
+    init_fake_boundary_state();
+    g_boundary_state.dialog_corrupt_request = TRUE;
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Corrupt request digest must fail with ERROR_ACCESS_DENIED" );
+
+    /* 3. Corrupt nonce */
+    init_fake_boundary_state();
+    g_boundary_state.dialog_corrupt_nonce = TRUE;
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Corrupt nonce must fail with ERROR_ACCESS_DENIED" );
+
+    /* 4. Corrupt channel token */
+    init_fake_boundary_state();
+    g_boundary_state.dialog_corrupt_token = TRUE;
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Corrupt channel token must fail with ERROR_ACCESS_DENIED" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_dialog_boundary_replay_old_answer( void )
+{
+    struct request req;
+    char account[64];
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    e1s18_reset_ops();
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    /* First run succeeds */
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_SUCCESS, "First dialog answer must succeed" );
+
+    /* Second run with same request_id and nonce is a replay attack */
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Replaying identical answer record must return ERROR_ACCESS_DENIED" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_dialog_boundary_queue_full( void )
+{
+    struct request req;
+    char account[64];
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    DWORD err;
+    const struct e1s18_ops *ops;
+    struct wex_prompt_queue *q;
+    struct wex_prompt_queue_entry *e1 = NULL, *e2 = NULL;
+    uint64_t caller_logon;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    e1s18_reset_ops();
+    e1s18_reset_answers();
+    e1s18_reset_prompt_queue();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    q = e1s18_get_prompt_queue();
+    caller_logon = ((uint64_t)req.caller_stats.AuthenticationId.HighPart << 32) |
+                   (uint32_t)req.caller_stats.AuthenticationId.LowPart;
+
+    /* Fill caller quota (limit is 2 per caller) */
+    wex_prompt_queue_enqueue( q, 0x111, req.caller_pid, caller_logon, req.caller_session, "WinSta0\\Winlogon", 0, &e1 );
+    wex_prompt_queue_enqueue( q, 0x222, req.caller_pid, caller_logon, req.caller_session, "WinSta0\\Winlogon", 0, &e2 );
+
+    /* 3rd request from same caller must fail with ERROR_BUSY */
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_BUSY, "prompt_dialog when caller queue is full must return ERROR_BUSY" );
+
+    /* Release entries and retest */
+    wex_prompt_queue_release( q, e1 );
+    wex_prompt_queue_release( q, e2 );
+
+    err = ops->prompt_dialog( &req, nonce, binding_digest, request_digest, account, sizeof(account) );
+    CHECK_EQ( err, ERROR_SUCCESS, "prompt_dialog after releasing slots must succeed" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_transport_boundary_evidence_ok( void )
+{
+    struct request req;
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    uint8_t account_key[16];
+    uint8_t evidence_ref[16];
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    e1s18_reset_ops();
+    e1s18_reset_burned_evidence();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest, account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_SUCCESS, "Stage 2 valid evidence redemption must return ERROR_SUCCESS" );
+    CHECK( !strcmp(req.account_name, "alice"), "req->account_name must be populated" );
+    CHECK( !memcmp(req.account_key, g_boundary_state.transport_account_key, 16), "req->account_key must match" );
+    CHECK_EQ( req.map_generation, 42, "req->map_generation must match evidence map_gen" );
+    CHECK_EQ( req.storage_generation, 1001, "req->storage_generation must match S12 profile storage gen" );
+    CHECK( e1s18_is_evidence_burned( evidence_ref ), "Evidence ref must be marked as burned" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_transport_boundary_expired( void )
+{
+    struct request req;
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    uint8_t account_key[16];
+    uint8_t evidence_ref[16];
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    e1s18_reset_ops();
+    e1s18_reset_burned_evidence();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    /* Set clock to 5000 and expiry to 4000 (past) */
+    e1s18_set_test_clock( 5000 );
+    g_boundary_state.transport_expiry = 4000;
+
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest, account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Expired evidence must fail with ERROR_ACCESS_DENIED" );
+
+    e1s18_set_test_clock( 0 );
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_transport_boundary_replayed( void )
+{
+    struct request req;
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    uint8_t account_key[16];
+    uint8_t evidence_ref[16];
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    e1s18_reset_ops();
+    e1s18_reset_burned_evidence();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    /* First redemption burns evidence */
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest, account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_SUCCESS, "First evidence redemption must succeed" );
+
+    /* Second redemption with same evidence ref fails closed */
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest, account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Replaying burned evidence must return ERROR_ACCESS_DENIED" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_transport_boundary_wrong_digest( void )
+{
+    struct request req;
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    uint8_t account_key[16];
+    uint8_t evidence_ref[16];
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    e1s18_reset_ops();
+    e1s18_reset_burned_evidence();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    /* 1. Corrupt request digest */
+    init_fake_boundary_state();
+    g_boundary_state.transport_corrupt_req_digest = TRUE;
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest, account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Wrong request digest in evidence must fail with ERROR_ACCESS_DENIED" );
+
+    /* 2. Corrupt binding digest */
+    init_fake_boundary_state();
+    g_boundary_state.transport_corrupt_bind_digest = TRUE;
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest, account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Wrong binding digest in evidence must fail with ERROR_ACCESS_DENIED" );
+
+    /* 3. Corrupt nonce */
+    init_fake_boundary_state();
+    g_boundary_state.transport_corrupt_nonce = TRUE;
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest, account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Wrong nonce in evidence must fail with ERROR_ACCESS_DENIED" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_transport_boundary_wrong_host_uid( void )
+{
+    struct request req;
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    uint8_t account_key[16];
+    uint8_t evidence_ref[16];
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    init_fake_boundary_state();
+    g_boundary_state.transport_host_uid = 999999ULL; /* Wrong host UID */
+    e1s18_reset_ops();
+    e1s18_reset_burned_evidence();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest, account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Wrong host UID in evidence must fail with ERROR_ACCESS_DENIED" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_transport_boundary_service_unavailable( void )
+{
+    struct request req;
+    uint8_t nonce[32] = {0x11};
+    uint8_t binding_digest[32] = {0x22};
+    uint8_t request_digest[32] = {0x33};
+    uint8_t account_key[16];
+    uint8_t evidence_ref[16];
+    DWORD err;
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    e1s18_reset_ops();
+    e1s18_reset_burned_evidence();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+    ops = e1s18_get_ops();
+
+    /* 1. Service not active */
+    init_fake_boundary_state();
+    g_boundary_state.transport_return_code = ERROR_SERVICE_NOT_ACTIVE;
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest, account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_SERVICE_NOT_ACTIVE, "Unavailable transport service must return ERROR_SERVICE_NOT_ACTIVE" );
+
+    /* 2. Not supported */
+    init_fake_boundary_state();
+    g_boundary_state.transport_return_code = ERROR_NOT_SUPPORTED;
+    err = ops->redeem_evidence( &req, "alice", nonce, binding_digest, request_digest, account_key, evidence_ref );
+    CHECK_EQ( err, ERROR_NOT_SUPPORTED, "Unsupported transport must return ERROR_NOT_SUPPORTED" );
+
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
+
+static int test_transport_boundary_fields_populated_and_secrets_wiped( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    DWORD err;
+    const struct e1s18_ops *default_ops;
+    struct e1s18_ops hybrid_ops;
+
+    init_dummy_request( &req );
+    reset_tracker();
+    reset_export_state();
+    init_fake_boundary_state();
+    e1s18_reset_ops();
+    e1s18_reset_answers();
+    e1s18_reset_burned_evidence();
+    e1s18_reset_prompt_queue();
+
+    default_ops = e1s18_get_ops();
+    hybrid_ops = *default_ops;
+    hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
+    hybrid_ops.get_capabilities = fake_get_capabilities;
+    hybrid_ops.prompt_dialog = default_ops->prompt_dialog;
+    hybrid_ops.redeem_evidence = default_ops->redeem_evidence;
+    hybrid_ops.issue_token = default_ops->issue_token;
+    hybrid_ops.load_profile = default_ops->load_profile;
+    hybrid_ops.prep_launch = default_ops->prep_launch;
+    hybrid_ops.transfer_lease = default_ops->transfer_lease;
+    hybrid_ops.unload_profile = default_ops->unload_profile;
+    hybrid_ops.verify_image = fake_verify_image;
+    hybrid_ops.create_process_suspended = fake_create_process_suspended;
+    hybrid_ops.verify_child = fake_verify_child;
+    hybrid_ops.arm_lease = fake_arm_lease;
+    hybrid_ops.duplicate_handle = fake_duplicate_handle;
+    hybrid_ops.check_pre_resume = fake_check_pre_resume;
+    hybrid_ops.resume_thread = fake_resume_thread;
+    hybrid_ops.terminate_child = fake_terminate_child;
+    hybrid_ops.close_remote_handle = fake_close_remote_handle;
+
+    e1s18_set_ops( &hybrid_ops );
+    e1s18_set_export_table( &s_fake_export_table );
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+
+    /* Test 1: Full pipeline success populates fields and wipes secrets from req on commit */
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, ERROR_SUCCESS, "Full pipeline with boundary fakes must succeed" );
+    CHECK_EQ( reply.pid, 12345, "Reply pid must match child pid" );
+    CHECK_EQ( req.account_name[0], '\0', "req->account_name must be wiped on commit" );
+    CHECK( is_zero_key( req.account_key ), "req->account_key must be wiped on commit" );
+    CHECK( e1s18_is_evidence_burned( g_boundary_state.transport_evidence_ref ), "Evidence ref must be burned" );
+
+    /* Test 2: Failure rollback wipes secrets from req on failure */
+    init_dummy_request( &req );
+    reset_tracker();
+    reset_export_state();
+    init_fake_boundary_state();
+    /* Force failure after stage 2 (e.g. stage 3 issue_token fails) */
+    g_export_state.issue_status = (NTSTATUS)0xc0000001; /* STATUS_UNSUCCESSFUL */
+
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Issue failure must return ERROR_ACCESS_DENIED" );
+    CHECK_EQ( req.account_name[0], '\0', "req->account_name must be wiped on rollback" );
+    CHECK( is_zero_key( req.account_key ), "req->account_key must be wiped on rollback" );
+
+    e1s18_reset_ops();
+    e1s18_reset_export_table();
+    e1s18_reset_boundary_table();
+    return TEST_PASS;
+}
 #endif
 
 int main( int argc, char **argv )
@@ -1499,6 +2140,48 @@ int main( int argc, char **argv )
 
     printf("22. Testing export boundary unset Stage 2 fields fail closed directly...\n");
     if (test_export_boundary_unset_fields_fail_closed() != TEST_PASS) ret = 1;
+
+    printf("23. Testing dialog boundary confirm (Stage 1)...\n");
+    if (test_dialog_boundary_confirm() != TEST_PASS) ret = 1;
+
+    printf("24. Testing dialog boundary cancel (Stage 1)...\n");
+    if (test_dialog_boundary_cancel() != TEST_PASS) ret = 1;
+
+    printf("25. Testing dialog boundary timeout (Stage 1)...\n");
+    if (test_dialog_boundary_timeout() != TEST_PASS) ret = 1;
+
+    printf("26. Testing dialog boundary child crash (Stage 1)...\n");
+    if (test_dialog_boundary_child_crash() != TEST_PASS) ret = 1;
+
+    printf("27. Testing dialog boundary bad binding digests (Stage 1)...\n");
+    if (test_dialog_boundary_bad_binding() != TEST_PASS) ret = 1;
+
+    printf("28. Testing dialog boundary replay of old answer (Stage 1)...\n");
+    if (test_dialog_boundary_replay_old_answer() != TEST_PASS) ret = 1;
+
+    printf("29. Testing dialog boundary queue quota & full (Stage 1)...\n");
+    if (test_dialog_boundary_queue_full() != TEST_PASS) ret = 1;
+
+    printf("30. Testing transport boundary valid evidence redemption (Stage 2)...\n");
+    if (test_transport_boundary_evidence_ok() != TEST_PASS) ret = 1;
+
+    printf("31. Testing transport boundary expired evidence (Stage 2)...\n");
+    if (test_transport_boundary_expired() != TEST_PASS) ret = 1;
+
+    printf("32. Testing transport boundary replayed / burned evidence (Stage 2)...\n");
+    if (test_transport_boundary_replayed() != TEST_PASS) ret = 1;
+
+    printf("33. Testing transport boundary wrong digest & nonce (Stage 2)...\n");
+    if (test_transport_boundary_wrong_digest() != TEST_PASS) ret = 1;
+
+    printf("34. Testing transport boundary wrong host UID (Stage 2)...\n");
+    if (test_transport_boundary_wrong_host_uid() != TEST_PASS) ret = 1;
+
+    printf("35. Testing transport boundary service unavailable / unsupported (Stage 2)...\n");
+    if (test_transport_boundary_service_unavailable() != TEST_PASS) ret = 1;
+
+    printf("36. Testing transport boundary fields populated and secrets wiped (Stages 1..13)...\n");
+    if (test_transport_boundary_fields_populated_and_secrets_wiped() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

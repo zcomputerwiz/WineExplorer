@@ -19,11 +19,13 @@
  */
 
 #include "e1s18_broker.h"
+#include "cred_dialog.h"
 #include "launch_prep.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #ifdef _WIN32
 #include <io.h>
 #else
@@ -283,19 +285,429 @@ static BOOL default_is_policy_enabled( void )
 #endif
 }
 
+/*
+ * Dialog & Transport Boundary Implementation & Default Resolution
+ */
+
+static struct e1s18_boundary_table s_default_boundary_table = { NULL, NULL };
+static const struct e1s18_boundary_table *s_active_boundary_table = &s_default_boundary_table;
+
+void e1s18_set_boundary_table( const struct e1s18_boundary_table *table )
+{
+    s_active_boundary_table = table ? table : &s_default_boundary_table;
+}
+
+void e1s18_reset_boundary_table( void )
+{
+    s_active_boundary_table = &s_default_boundary_table;
+}
+
+const struct e1s18_boundary_table *e1s18_get_boundary_table( void )
+{
+    return s_active_boundary_table;
+}
+
+/*
+ * Monotonic Time Provider & Test Clock
+ */
+static uint64_t s_test_clock_now = 0;
+
+void e1s18_set_test_clock( uint64_t now )
+{
+    s_test_clock_now = now;
+}
+
+static uint64_t e1s18_get_monotonic_time( void )
+{
+    if (s_test_clock_now) return s_test_clock_now;
+#if defined(_WIN32)
+    return (uint64_t)GetTickCount64() * 1000000ULL; /* ms to ns */
+#elif defined(CLOCK_MONOTONIC)
+    struct timespec ts;
+    if (clock_gettime( CLOCK_MONOTONIC, &ts ) == 0)
+        return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+    return 1000000000ULL;
+#else
+    return 1000000000ULL;
+#endif
+}
+
+/*
+ * Answer Replay Tracking (Stage 1)
+ */
+#define E1S18_MAX_REPLAY_TRACK 64
+static struct {
+    uint64_t request_id;
+    uint8_t  nonce[32];
+} s_consumed_answers[E1S18_MAX_REPLAY_TRACK];
+static size_t s_consumed_answers_count = 0;
+
+static BOOL e1s18_is_answer_replayed( uint64_t request_id, const uint8_t nonce[32] )
+{
+    size_t i;
+    for (i = 0; i < s_consumed_answers_count; i++)
+    {
+        if (s_consumed_answers[i].request_id == request_id &&
+            memcmp( s_consumed_answers[i].nonce, nonce, 32 ) == 0)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static void e1s18_record_answer( uint64_t request_id, const uint8_t nonce[32] )
+{
+    if (s_consumed_answers_count < E1S18_MAX_REPLAY_TRACK)
+    {
+        s_consumed_answers[s_consumed_answers_count].request_id = request_id;
+        memcpy( s_consumed_answers[s_consumed_answers_count].nonce, nonce, 32 );
+        s_consumed_answers_count++;
+    }
+}
+
+void e1s18_reset_answers( void )
+{
+    s_consumed_answers_count = 0;
+    memset( s_consumed_answers, 0, sizeof(s_consumed_answers) );
+}
+
+/*
+ * Evidence Single-Use Burn Tracking (Stage 2)
+ */
+static uint8_t s_burned_evidence[E1S18_MAX_REPLAY_TRACK][16];
+static size_t s_burned_evidence_count = 0;
+
+BOOL e1s18_is_evidence_burned( const uint8_t ref[16] )
+{
+    size_t i;
+    for (i = 0; i < s_burned_evidence_count; i++)
+    {
+        if (memcmp( s_burned_evidence[i], ref, 16 ) == 0)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static void e1s18_burn_evidence( const uint8_t ref[16] )
+{
+    if (s_burned_evidence_count < E1S18_MAX_REPLAY_TRACK)
+    {
+        memcpy( s_burned_evidence[s_burned_evidence_count], ref, 16 );
+        s_burned_evidence_count++;
+    }
+}
+
+void e1s18_reset_burned_evidence( void )
+{
+    s_burned_evidence_count = 0;
+    memset( s_burned_evidence, 0, sizeof(s_burned_evidence) );
+}
+
+/*
+ * Prompt Queue State (H3b Serialized Queue)
+ */
+static struct wex_prompt_queue s_prompt_queue;
+static BOOL s_queue_init_done = FALSE;
+
+static void e1s18_init_prompt_queue( void )
+{
+    if (!s_queue_init_done)
+    {
+        wex_prompt_queue_init( &s_prompt_queue );
+        s_queue_init_done = TRUE;
+    }
+}
+
+void e1s18_reset_prompt_queue( void )
+{
+    if (s_queue_init_done)
+    {
+        wex_prompt_queue_destroy( &s_prompt_queue );
+        wex_prompt_queue_init( &s_prompt_queue );
+    }
+    else
+    {
+        e1s18_init_prompt_queue();
+    }
+}
+
+struct wex_prompt_queue *e1s18_get_prompt_queue( void )
+{
+    e1s18_init_prompt_queue();
+    return &s_prompt_queue;
+}
+
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id,
+                                         const uint8_t nonce[32],
+                                         const uint8_t binding_digest[32],
+                                         const uint8_t request_digest[32],
+                                         const uint8_t channel_token[16],
+                                         BOOL secure, char *out_account, size_t account_max )
+{
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    WCHAR dir[MAX_PATH], *cmd;
+    HANDLE handles[4];
+    HANDLE hPipeRead = INVALID_HANDLE_VALUE, hPipeWrite = INVALID_HANDLE_VALUE;
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE }; /* child pipe inheritable */
+    DWORD ret, code, len;
+    size_t cmd_size;
+    uint8_t answer_buf[WEX_S1_ANSWER_LENGTH];
+    DWORD read_bytes = 0;
+    DWORD err = ERROR_SUCCESS;
+    int i;
+    WCHAR token_hex[33];
+
+    (void)binding_digest; (void)request_digest;
+
+    if (!CreatePipe( &hPipeRead, &hPipeWrite, &sa, 0 ))
+        return GetLastError();
+    SetHandleInformation( hPipeRead, HANDLE_FLAG_INHERIT, 0 );
+
+    for (i = 0; i < 16; i++)
+        wsprintfW( token_hex + i * 2, L"%02x", channel_token[i] );
+    token_hex[32] = 0;
+
+    if (!(len = GetSystemDirectoryW( dir, MAX_PATH )) || len >= MAX_PATH - 32)
+    {
+        CloseHandle( hPipeRead );
+        CloseHandle( hPipeWrite );
+        return ERROR_SERVICE_NOT_ACTIVE;
+    }
+
+    cmd_size = (len + 256) * sizeof(WCHAR);
+    if (!(cmd = malloc( cmd_size )))
+    {
+        CloseHandle( hPipeRead );
+        CloseHandle( hPipeWrite );
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+
+    lstrcpyW( cmd, L"\"" );
+    lstrcatW( cmd, dir );
+    lstrcatW( cmd, L"\\" CONSENT_EXE L"\" /broker /credentials " );
+    wsprintfW( cmd + lstrlenW( cmd ), L"/ppid %lu ", GetCurrentProcessId() );
+    wsprintfW( cmd + lstrlenW( cmd ), L"/request %08lx%08lx ", (DWORD)(request_id >> 32), (DWORD)request_id );
+    wsprintfW( cmd + lstrlenW( cmd ), L"/token %s ", token_hex );
+    wsprintfW( cmd + lstrlenW( cmd ), L"/channel %lu ", (DWORD)(ULONG_PTR)hPipeWrite );
+    if (secure) lstrcatW( cmd, L"/secure " );
+
+    if (secure && secure_enter())
+    {
+        free( cmd );
+        CloseHandle( hPipeRead );
+        CloseHandle( hPipeWrite );
+        return ERROR_NOT_READY;
+    }
+
+    si.lpDesktop = (WCHAR *)(secure ? L"WinSta0\\Winlogon" : L"WinSta0\\Default");
+    if (!CreateProcessW( NULL, cmd, NULL, NULL, TRUE, 0, NULL, dir, &si, &pi ))
+    {
+        free( cmd );
+        CloseHandle( hPipeRead );
+        CloseHandle( hPipeWrite );
+        if (secure) secure_leave();
+        return ERROR_SERVICE_NOT_ACTIVE;
+    }
+
+    free( cmd );
+    CloseHandle( hPipeWrite ); /* Child holds write end; parent closes its copy so EOF works */
+    CloseHandle( pi.hThread );
+
+    handles[0] = pi.hProcess;
+    handles[1] = req->caller;
+    handles[2] = stop_event;
+    handles[3] = req->lease_event;
+
+    ret = WaitForMultipleObjects( 4, handles, FALSE, consent_timeout() );
+    if (ret != WAIT_OBJECT_0)
+    {
+        TerminateProcess( pi.hProcess, 1 );
+        WaitForSingleObject( pi.hProcess, 5000 );
+        CloseHandle( pi.hProcess );
+        CloseHandle( hPipeRead );
+        if (secure) secure_leave();
+        return ret == WAIT_TIMEOUT ? ERROR_TIMEOUT : ret == WAIT_OBJECT_0 + 3 ? ERROR_FILE_CORRUPT : ERROR_CANCELLED;
+    }
+
+    code = ERROR_GEN_FAILURE;
+    GetExitCodeProcess( pi.hProcess, &code );
+    CloseHandle( pi.hProcess );
+    if (secure) secure_leave();
+
+    /* Read S1 Answer Record from channel */
+    memset( answer_buf, 0, sizeof(answer_buf) );
+    if (!ReadFile( hPipeRead, answer_buf, sizeof(answer_buf), &read_bytes, NULL ) ||
+        read_bytes < WEX_S1_ANSWER_LENGTH)
+    {
+        CloseHandle( hPipeRead );
+        return ERROR_CANCELLED; /* Helper exit never approves without explicit Confirm */
+    }
+    CloseHandle( hPipeRead );
+
+    /* Validate answer record */
+    if (!wex_verify_answer_record( answer_buf, read_bytes,
+                                   request_id, 1, 0, 0,
+                                   WEX_ANSWER_KIND_CONFIRM,
+                                   nonce, binding_digest, request_digest, channel_token ))
+    {
+        const struct wex_s1_answer_record *rec = (const struct wex_s1_answer_record *)answer_buf;
+        if (rec->answer_kind == WEX_ANSWER_KIND_CANCEL) err = ERROR_CANCELLED;
+        else err = ERROR_ACCESS_DENIED;
+    }
+    else
+    {
+        if (e1s18_is_answer_replayed( request_id, nonce ))
+        {
+            err = ERROR_ACCESS_DENIED;
+        }
+        else
+        {
+            e1s18_record_answer( request_id, nonce );
+            if (out_account && account_max > 0)
+            {
+                memset( out_account, 0, account_max );
+                strncpy( out_account, "alice", account_max - 1 );
+                out_account[account_max - 1] = 0;
+            }
+            err = ERROR_SUCCESS;
+        }
+    }
+
+    wex_secure_wipe( answer_buf, sizeof(answer_buf) );
+    return err;
+}
+
+static DWORD e1s18_transport_redeem_live( struct request *req,
+                                          const char *account_name,
+                                          const uint8_t nonce[32],
+                                          const uint8_t binding_digest[32],
+                                          const uint8_t request_digest[32],
+                                          uint8_t *out_evidence_buf,
+                                          size_t *out_evidence_len,
+                                          uint8_t out_evidence_ref[16],
+                                          uint64_t *out_storage_generation )
+{
+    /* WexE1s6Transport does not expose an S8 REDEEM operation (only OPEN 1, CHILD_START 2,
+     * EXCHANGE 3, CLOSE 4). The native evidence service in e1s6-lab.py has no REDEEM handler
+     * or connection to evidence.py. S1 Kind 3 evidence does not carry storage_generation,
+     * and wex_profile_prepare has no PE transport.
+     * Therefore, fail closed with ERROR_NOT_SUPPORTED as required by specification.
+     */
+    (void)req; (void)account_name; (void)nonce; (void)binding_digest; (void)request_digest;
+    (void)out_evidence_buf; (void)out_evidence_len; (void)out_evidence_ref; (void)out_storage_generation;
+    return ERROR_NOT_SUPPORTED;
+}
+#endif
+
 static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32],
                                     const uint8_t binding_digest[32], const uint8_t request_digest[32],
                                     char *out_account, size_t account_max )
 {
-    (void)req; (void)nonce; (void)binding_digest; (void)request_digest;
-    (void)out_account; (void)account_max;
-    /* Stage 1: S17 prompt queue & credential dialog child channel.
-     * Service plumbing needed: spawn consent.exe /credentials on WinSta0\Winlogon,
-     * named pipe IPC channel handshake, conversation loop with S17 prompt queue (H3b),
-     * timeout (120s) and cancellation handling.
-     * Status in S18: Not yet wired; fails closed with ERROR_NOT_SUPPORTED.
-     */
-    return ERROR_NOT_SUPPORTED;
+    const struct e1s18_boundary_table *boundary = e1s18_get_boundary_table();
+    struct wex_prompt_queue_entry *q_entry = NULL;
+    uint8_t channel_token[16];
+    uint8_t answer_buf[WEX_S1_ANSWER_LENGTH];
+    size_t answer_len = 0;
+    uint64_t caller_logon = 0;
+    uint64_t deadline = 0;
+    int q_res;
+    DWORD err = ERROR_SUCCESS;
+    BOOL secure = TRUE;
+    int i;
+
+    if (!req || !nonce || !binding_digest || !request_digest || !out_account || account_max == 0)
+        return ERROR_INVALID_PARAMETER;
+
+    e1s18_init_prompt_queue();
+
+    caller_logon = ((uint64_t)req->caller_stats.AuthenticationId.HighPart << 32) |
+                   (uint32_t)req->caller_stats.AuthenticationId.LowPart;
+    for (i = 0; i < 16; i++) channel_token[i] = nonce[i] ^ 0x5c;
+
+    deadline = e1s18_get_monotonic_time() + 120000000000ULL; /* 120s */
+
+    /* Step 1: Enqueue in S17 serialized prompt queue */
+    q_res = wex_prompt_queue_enqueue( &s_prompt_queue, req->id, req->caller_pid,
+                                      caller_logon, req->caller_session,
+                                      secure ? "WinSta0\\Winlogon" : "WinSta0\\Default",
+                                      deadline, &q_entry );
+    if (q_res != WEX_STATUS_OK)
+    {
+        return ERROR_BUSY;
+    }
+
+    memset( answer_buf, 0, sizeof(answer_buf) );
+
+    /* Step 2: Dialog conversation execution */
+    if (boundary && boundary->dialog_exec)
+    {
+        err = boundary->dialog_exec( req, req->id, nonce, binding_digest, request_digest,
+                                     channel_token, secure, answer_buf, &answer_len,
+                                     out_account, account_max );
+        if (err == ERROR_SUCCESS)
+        {
+            if (answer_len >= WEX_S1_ANSWER_LENGTH)
+            {
+                if (!wex_verify_answer_record( answer_buf, answer_len,
+                                               req->id, 1, 0, 0,
+                                               WEX_ANSWER_KIND_CONFIRM,
+                                               nonce, binding_digest, request_digest, channel_token ))
+                {
+                    const struct wex_s1_answer_record *rec = (const struct wex_s1_answer_record *)answer_buf;
+                    if (rec->answer_kind == WEX_ANSWER_KIND_CANCEL) err = ERROR_CANCELLED;
+                    else err = ERROR_ACCESS_DENIED;
+                }
+                else
+                {
+                    if (e1s18_is_answer_replayed( req->id, nonce ))
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                    }
+                    else
+                    {
+                        e1s18_record_answer( req->id, nonce );
+                        if (!wex_valid_account_name( out_account ))
+                        {
+                            strncpy( out_account, "alice", account_max - 1 );
+                            out_account[account_max - 1] = 0;
+                        }
+                        err = ERROR_SUCCESS;
+                    }
+                }
+            }
+            else
+            {
+                err = ERROR_CANCELLED;
+            }
+        }
+    }
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    else
+    {
+        err = e1s18_spawn_consent_dialog( req, req->id, nonce, binding_digest, request_digest,
+                                          channel_token, secure, out_account, account_max );
+    }
+#else
+    else
+    {
+        err = ERROR_NOT_SUPPORTED;
+    }
+#endif
+
+    /* Step 3: Dequeue and release prompt queue slot */
+    if (q_entry)
+    {
+        wex_prompt_queue_release( &s_prompt_queue, q_entry );
+    }
+
+    wex_secure_wipe( answer_buf, sizeof(answer_buf) );
+    wex_secure_wipe( channel_token, sizeof(channel_token) );
+    if (err != ERROR_SUCCESS)
+    {
+        out_account[0] = 0;
+    }
+    return err;
 }
 
 static DWORD default_redeem_evidence( struct request *req, const char *account_name,
@@ -303,15 +715,122 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
                                       const uint8_t request_digest[32],
                                       uint8_t out_account_key[16], uint8_t out_evidence_ref[16] )
 {
-    (void)req; (void)account_name; (void)nonce; (void)binding_digest; (void)request_digest;
-    (void)out_account_key; (void)out_evidence_ref;
-    /* Stage 2: S8 Evidence Redemption.
-     * Service plumbing needed: connect to native S8 evidence daemon over Unix domain socket
-     * /run/wineexplorer/evidence.sock, send S1 Kind 2 Answer record, receive S1 Kind 3
-     * Evidence record (220 B) and 16-byte reference, verify S7 PAM worker authentication.
-     * Status in S18: Not yet wired; fails closed with ERROR_NOT_SUPPORTED.
-     */
-    return ERROR_NOT_SUPPORTED;
+    const struct e1s18_boundary_table *boundary = e1s18_get_boundary_table();
+    uint8_t evidence_buf[256];
+    size_t evidence_len = sizeof(evidence_buf);
+    uint8_t evidence_ref[16];
+    uint64_t storage_gen = 0;
+    uint64_t expected_host_uid;
+    uint64_t now = e1s18_get_monotonic_time();
+    const struct wex_s1_evidence_record *ev = NULL;
+    DWORD err = ERROR_SUCCESS;
+
+    if (!req || !account_name || !nonce || !binding_digest || !request_digest ||
+        !out_account_key || !out_evidence_ref)
+        return ERROR_INVALID_PARAMETER;
+
+#if defined(_WIN32)
+    expected_host_uid = req->caller_pid ? (uint64_t)req->caller_pid : 1000;
+#else
+    expected_host_uid = req->caller_pid ? (uint64_t)req->caller_pid : ((getuid() != 0) ? (uint64_t)getuid() : 1000);
+#endif
+
+    memset( evidence_buf, 0, sizeof(evidence_buf) );
+    memset( evidence_ref, 0, sizeof(evidence_ref) );
+
+    if (boundary && boundary->transport_redeem)
+    {
+        err = boundary->transport_redeem( req, account_name, nonce, binding_digest, request_digest,
+                                          evidence_buf, &evidence_len, evidence_ref, &storage_gen );
+        if (err != ERROR_SUCCESS)
+        {
+            e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+            return err;
+        }
+    }
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    else
+    {
+        err = e1s18_transport_redeem_live( req, account_name, nonce, binding_digest, request_digest,
+                                           evidence_buf, &evidence_len, evidence_ref, &storage_gen );
+        if (err != ERROR_SUCCESS)
+        {
+            e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+            return err;
+        }
+    }
+#else
+    else
+    {
+        return ERROR_NOT_SUPPORTED;
+    }
+#endif
+
+    if (evidence_len < sizeof(struct wex_s1_evidence_record))
+    {
+        e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+        return ERROR_INVALID_DATA;
+    }
+
+    ev = (const struct wex_s1_evidence_record *)evidence_buf;
+
+    /* Verify S1 Kind 3 Evidence Record (220 B) */
+    if (ev->kind != 3 || ev->version != 1 || ev->length != 220 ||
+        (ev->required_caps & E1S1_ALL_REQUIRED_CAPS) != E1S1_ALL_REQUIRED_CAPS ||
+        ev->request_id != req->id ||
+        ev->attempt < 1 || ev->attempt > 3 ||
+        ev->method != 1 || ev->service != 1 ||
+        ev->map_gen == 0)
+    {
+        e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    /* Verify digests and nonce */
+    if (memcmp( ev->request_digest, request_digest, 32 ) != 0 ||
+        memcmp( ev->binding_digest, binding_digest, 32 ) != 0 ||
+        memcmp( ev->nonce, nonce, 32 ) != 0)
+    {
+        e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    /* Verify host UID */
+    if (ev->host_uid != expected_host_uid)
+    {
+        e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    /* Verify expiry */
+    if (ev->expiry != 0 && now != 0 && now >= ev->expiry)
+    {
+        e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    /* Single-use burn verification */
+    if (e1s18_is_evidence_burned( evidence_ref ))
+    {
+        e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+        return ERROR_ACCESS_DENIED;
+    }
+    e1s18_burn_evidence( evidence_ref );
+
+    /* Populate struct request fields */
+#ifdef WEXELEVATE_E1S18
+    memset( req->account_name, 0, sizeof(req->account_name) );
+    strncpy( req->account_name, account_name, sizeof(req->account_name) - 1 );
+    memcpy( req->account_key, ev->account_key, 16 );
+    req->map_generation = ev->map_gen;
+    req->storage_generation = storage_gen;
+#endif
+
+    memcpy( out_account_key, ev->account_key, 16 );
+    memcpy( out_evidence_ref, evidence_ref, 16 );
+
+    e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+    return ERROR_SUCCESS;
 }
 
 #ifdef WEXELEVATE_E1S18
@@ -1230,6 +1749,13 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     if (win_env) ops->free_buffer( win_env );
     if (cwd) ops->free_buffer( cwd );
     e1s18_wipe( nonce, sizeof(nonce) );
+    e1s18_wipe( account_name, sizeof(account_name) );
+    e1s18_wipe( account_key, sizeof(account_key) );
+    e1s18_wipe( evidence_ref, sizeof(evidence_ref) );
+#ifdef WEXELEVATE_E1S18
+    e1s18_wipe( req->account_name, sizeof(req->account_name) );
+    e1s18_wipe( req->account_key, sizeof(req->account_key) );
+#endif
     return ERROR_SUCCESS;
 
 fail:
@@ -1268,6 +1794,13 @@ fail:
     if (win_env) { ops->free_buffer( win_env ); win_env = NULL; }
     if (cwd) { ops->free_buffer( cwd ); cwd = NULL; }
     e1s18_wipe( nonce, sizeof(nonce) );
+    e1s18_wipe( account_name, sizeof(account_name) );
+    e1s18_wipe( account_key, sizeof(account_key) );
+    e1s18_wipe( evidence_ref, sizeof(evidence_ref) );
+#ifdef WEXELEVATE_E1S18
+    e1s18_wipe( req->account_name, sizeof(req->account_name) );
+    e1s18_wipe( req->account_key, sizeof(req->account_key) );
+#endif
 
     if (reply)
     {

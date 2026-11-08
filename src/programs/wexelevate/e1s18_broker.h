@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "wexelevate_request.h"
+#include "cred_dialog.h"
 #include "../../../wine/include/wine/wex_token.h"
 #include "../../../wine/include/wine/wex_profile.h"
 
@@ -45,6 +46,7 @@ typedef struct _PROCESS_INFORMATION
 #define ERROR_INVALID_PARAMETER           87
 #define ERROR_BUSY                        170
 #define ERROR_OPERATION_ABORTED           995
+#define ERROR_SERVICE_NOT_ACTIVE          1062
 #define ERROR_CANCELLED                   1223
 #define ERROR_FILE_CORRUPT                1392
 #define ERROR_TIMEOUT                     1460
@@ -128,6 +130,84 @@ const struct e1s18_export_table *e1s18_get_export_table( void );
 /* S19 rollback tracking for busy profile unloads */
 BOOL e1s18_is_unload_busy( uint64_t *out_lease_id );
 void e1s18_clear_unload_busy( void );
+
+/*
+ * S1 Kind 3 Evidence Record (220 bytes)
+ * Defined in docs/E1_S1_CONTRACTS.md line 29.
+ */
+#pragma pack(push, 1)
+struct wex_s1_evidence_record
+{
+    uint16_t kind;              /* 3 */
+    uint16_t version;           /* 1 */
+    uint32_t length;            /* 220 */
+    uint64_t required_caps;     /* 0x3ff */
+    uint64_t request_id;
+    uint8_t  request_digest[32];
+    uint8_t  binding_digest[32];
+    uint8_t  nonce[32];
+    uint32_t attempt;
+    uint8_t  account_key[16];
+    uint64_t host_uid;
+    uint64_t completed;
+    uint64_t expiry;
+    uint64_t root_gen;
+    uint64_t server_gen;
+    uint64_t broker_gen;
+    uint64_t verifier_gen;
+    uint64_t map_gen;
+    uint64_t policy_gen;
+    uint32_t method;            /* 1 = PAM */
+    uint32_t service;           /* 1 = fixed service */
+};
+#pragma pack(pop)
+
+#define WEX_S1_EVIDENCE_SIZE sizeof(struct wex_s1_evidence_record)
+
+/*
+ * Dialog & Transport Boundary Types & Table.
+ * Allows test injection of fakes at the dialog boundary (Stage 1)
+ * and evidence transport boundary (Stage 2).
+ */
+typedef DWORD (*e1s18_dialog_fn)( struct request *req,
+                                  uint64_t request_id,
+                                  const uint8_t nonce[32],
+                                  const uint8_t binding_digest[32],
+                                  const uint8_t request_digest[32],
+                                  const uint8_t channel_token[16],
+                                  BOOL secure,
+                                  uint8_t *out_answer_buf,
+                                  size_t *out_answer_len,
+                                  char *out_account,
+                                  size_t account_max );
+
+typedef DWORD (*e1s18_transport_fn)( struct request *req,
+                                     const char *account_name,
+                                     const uint8_t nonce[32],
+                                     const uint8_t binding_digest[32],
+                                     const uint8_t request_digest[32],
+                                     uint8_t *out_evidence_buf,
+                                     size_t *out_evidence_len,
+                                     uint8_t out_evidence_ref[16],
+                                     uint64_t *out_storage_generation );
+
+struct e1s18_boundary_table
+{
+    e1s18_dialog_fn    dialog_exec;
+    e1s18_transport_fn transport_redeem;
+};
+
+void e1s18_set_boundary_table( const struct e1s18_boundary_table *table );
+void e1s18_reset_boundary_table( void );
+const struct e1s18_boundary_table *e1s18_get_boundary_table( void );
+
+/* Test state reset helpers */
+void e1s18_reset_answers( void );
+void e1s18_reset_burned_evidence( void );
+BOOL e1s18_is_evidence_burned( const uint8_t ref[16] );
+void e1s18_reset_prompt_queue( void );
+struct wex_prompt_queue *e1s18_get_prompt_queue( void );
+void e1s18_set_test_clock( uint64_t now );
 
 /*
  * Pluggable Operations Table for Test Injection / Mocking.

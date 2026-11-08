@@ -246,13 +246,46 @@ This test scenario design defines the multi-user lab validation suite for execut
 
 ### S20 End-to-End Guest Execution Test Design (Wired In-Process Stages)
 
-Work Package E1-S20 will run the full end-to-end sequence in the guest VM with real server processes once the service plumbing for Stages 1 and 2 is integrated. The guest test harness exercises the exact in-process stages wired in S18b:
+Work Package E1-S20 will run the full end-to-end sequence in the guest VM with real server processes once the Unix service plumbing for Stage 2 is integrated. The guest test harness exercises the exact in-process stages wired in S18b and S18c:
 
-1. **Guest NTDLL Dynamic Export Resolution**:
+1. **Stage 1 Prompt Queue & Bound Credential Dialog (End-to-End)**:
+   - Broker enqueues request in S17 prompt queue (enforcing quotas: caller <= 2, session <= 8, global <= 32).
+   - Broker creates anonymous pipe, sets write handle inheritable, and derives 16-byte channel token (`nonce ^ 0x5c`).
+   - Broker enters secure desktop (`WinSta0\Winlogon`), spawns `consent.exe /broker /credentials /ppid <pid> /request %016llx /token <hex> /channel <hWrite> /secure`.
+   - Broker closes local write end so EOF triggers on child termination.
+   - Dialog displays credential prompt, acquires typed administrator account name and credential, and writes 156-byte S1 Kind 2 Answer record (`answer_kind == 2` for Confirm, `3` for Cancel) with `payload_len = 0` over channel handle.
+   - Broker reads S1 Answer record, validates via `wex_verify_answer_record` (request ID, attempt 1, nonce, binding/request digests, channel token).
+   - In-guest assertions:
+     - Explicit Confirm returns `ERROR_SUCCESS` and advances to Stage 2.
+     - User clicking Cancel (`IDNO`) returns `ERROR_CANCELLED` (1223) and wipes buffers.
+     - Process crash or kill without answer fails closed as `ERROR_CANCELLED`.
+     - Tampering with channel token, nonce, or digests fails closed as `ERROR_ACCESS_DENIED`.
+     - Replay of an identical answer record fails closed as `ERROR_ACCESS_DENIED`.
+     - 120s timeout without answer returns `ERROR_TIMEOUT` (1460).
+     - Broker releases queue slot and restores desktop on all exit paths.
+
+2. **Stage 2 Evidence Redemption through S6 Transport & S7/S8 Service (End-to-End)**:
+   - Broker submits conversation (account name and credential) to S8 evidence daemon via S6 privileged transport endpoint.
+   - S8 evidence daemon delegates authentication to S7 PAM worker (`tools/e1s7/pam-worker.c`) under PAM service `wineexplorer-elevate`.
+   - On successful authentication, evidence daemon constructs S1 Kind 3 Evidence record (220 bytes, version 1, method 1, service 1, required caps `0x3ff`, Bob host UID, fresh expiry).
+   - Broker receives 220-byte record and 16-byte evidence reference.
+   - Broker validates S1 Kind 3 layout: `kind == 3`, `version == 1`, `length == 220`, `required_caps == 0x3ff`, `request_id == req->id`, `attempt` in 1..3, `method == 1`, `service == 1`, `map_gen > 0`.
+   - Broker validates `request_digest`, `binding_digest`, `nonce`, and `host_uid == Bob UID`.
+   - Broker checks expiry (`now < expiry`).
+   - Broker checks single-use burn tracking (`e1s18_is_evidence_burned`); replayed evidence rejected with `ERROR_ACCESS_DENIED`.
+   - Broker marks evidence reference as burned (`e1s18_burn_evidence`).
+   - Broker populates `req->account_name`, `req->account_key`, `req->map_generation`, and `req->storage_generation` (from S12 profile query).
+   - In-guest assertions:
+     - Valid evidence populates all 4 fields and advances to Stage 3.
+     - Expired or replayed evidence fails closed with `ERROR_ACCESS_DENIED`.
+     - Mismatched host UID fails closed with `ERROR_ACCESS_DENIED`.
+     - Broker securely wipes credentials and secrets from memory immediately after submission.
+
+3. **Guest NTDLL Dynamic Export Resolution**:
    - `wexelevate.exe` loads `ntdll.dll` and locates `NtCreateWexAccountToken` and `NtLoadWexProfileEx` via `GetProcAddress`.
    - Harness verifies both function pointers resolve successfully without fallback stubs.
 
-2. **Stage 3 Server Token Issuance (End-to-End)**:
+4. **Stage 3 Server Token Issuance (End-to-End)**:
    - Call `NtCreateWexAccountToken(WEX_TOKEN_NEGOTIATE)`: verify wineserver grants `0xc0` capabilities and returns valid S10 broker context handle.
    - Construct S1 Kind 4 envelope (188 bytes) + 16-byte evidence reference (204 bytes total).
    - Call `NtCreateWexAccountToken(WEX_TOKEN_ISSUE)`: verify wineserver creates real primary token and returns S1 Kind 5 record (136 bytes).
@@ -264,7 +297,7 @@ Work Package E1-S20 will run the full end-to-end sequence in the guest VM with r
      - `GetTokenInformation(TokenStatistics)` returns nonzero `AuthenticationId` distinct from Bob's logon LUID.
      - `GetTokenInformation(TokenUser)` SID equals Alice's mapped administrator SID and does NOT equal Bob's caller SID.
 
-3. **Stage 4 Profile Load & Lease Generation (End-to-End)**:
+5. **Stage 4 Profile Load & Lease Generation (End-to-End)**:
    - Construct S12/S13 record (48 bytes: version 1, size 48, Alice's account key).
    - Call `NtLoadWexProfileEx(WEX_HKU_LOAD, context, token, KEY_ALL_ACCESS, ...)`:
      - Verifies S10 context claim in `wine/server/token.c:token_claim_e1s_profile`.
@@ -273,16 +306,16 @@ Work Package E1-S20 will run the full end-to-end sequence in the guest VM with r
    - S14b retains the S10 context through Stage 11 or rollback; LOAD binds the
      server's lease ID into it. Failed LOAD closes it immediately.
 
-4. **Stage 5 Launch Preparation & Environment Generation (End-to-End)**:
+6. **Stage 5 Launch Preparation & Environment Generation (End-to-End)**:
    - `wex_prepare_launch` executes with Bob's host UID/GID (`62001/62001`), prefix descriptors, and cwd.
    - Generates sanitized double-NUL Windows environment block for `CreateProcessAsUserW` containing Alice's profile variables and clean system paths.
    - Confirms caller-supplied environment inheritance is denied with `ERROR_INVALID_PARAMETER`.
 
-5. **Stage 7 & 8 Process Creation & Identity Verification (End-to-End)**:
+7. **Stage 7 & 8 Process Creation & Identity Verification (End-to-End)**:
    - `CreateProcessAsUserW` called with Alice's token, suspended flag, parent attribute set to Bob caller, and sanitized environment.
    - `OpenProcessToken` on suspended child verified: user SID matches Alice SID, session matches caller session.
 
-6. **Stage 11 Lease Transfer to Child Process Tracking (End-to-End)**:
+8. **Stage 11 Lease Transfer to Child Process Tracking (End-to-End)**:
    - S14b calls `NtLoadWexProfileEx(WEX_HKU_COMMIT_PROCESS, req->s10_context, token, 0, record, 4, &unused, &managed, &generation)`.
    - `record` is the LE u32 child process handle from the broker handle table;
      no WEX_E1S14_CRASH_TEST is required for this operation. Other default-disabled
@@ -293,7 +326,7 @@ Work Package E1-S20 will run the full end-to-end sequence in the guest VM with r
      changes state 1 -> 2 and binds that existing process-accounting entry.
    - Broker closes local HKU proxy key handle on commit.
 
-7. **Stage 13 Guarded Resume & S19 Rollback / Busy Unload Handling**:
+9. **Stage 13 Guarded Resume & S19 Rollback / Busy Unload Handling**:
    - Broker calls `ResumeThread(pi.hThread)` exactly once.
    - In positive test: child executes, uses Alice's HKU registry hive, exits with code 0.
    - In negative/termination test: child terminated while holding open registry key handle.
@@ -330,23 +363,43 @@ Before standard-user elevation can be enabled in production or shipping builds, 
      The export fake and both-ABI lab/normal-server cases are updated but unrun;
      this is source-level closure of the missing operation, not live S18 proof
      or permission to enable the existing default-disabled packages.
-2. **Stage 1 (Prompt Queue & Bound Credential Dialog) Not Wired**:
-   - Spawning `consent.exe /credentials` on secure desktop `WinSta0\Winlogon`, the named pipe IPC channel handshake, the conversation loop with the S17 prompt queue (H3b), and 120s timeout/cancellation handling are not yet wired into the elevation broker.
-   - Stage 1 fails closed by default with `ERROR_NOT_SUPPORTED` (50).
-3. **Stage 2 (Evidence Verification & Redemption) Not Wired**:
-   - Connection to the native S8 evidence daemon over Unix domain socket `/run/wineexplorer/evidence.sock`, sending the S1 Kind 2 Answer record, receiving the S1 Kind 3 Evidence record (220 bytes) and 16-byte reference, and verifying S7 PAM worker authentication are not yet wired.
-   - Stage 2 fails closed by default with `ERROR_NOT_SUPPORTED` (50).
-4. **Stage 2 Dependent Fields Unset by Default (Fail Closed at Stages 3–5)**:
-   - Authoritative S4 `account_name`, `account_key`, `map_generation` and S12 `storage_generation` in `struct request` must be populated upon Stage 2 evidence redemption.
-   - Because Stage 2 is not yet wired, these fields remain unset (zero) by default.
-   - Stages 3 (`issue_token`), 4 (`load_profile`), and 5 (`prep_launch`) strictly fail closed with `ERROR_INVALID_DATA` (13) if any required Stage 2 fields are unset; they never fall back to hardcoded defaults or guesses (e.g. literal `"alice"` or hardcoded generation 1).
+### Known Gaps Before Enablement
+
+Before standard-user elevation can be enabled in production or shipping builds, the following known gaps must be resolved:
+
+1. **Server Lease Commit Validation Still Unrun (S14b source implementation)**:
+   - S14b replaces TEST_TRANSFER with broker-only COMMIT_PROCESS=11 independently
+     of WEX_E1S14_CRASH_TEST, on request 325/protocol 979 unchanged. See
+     [the complete gate table](E1_S14_LEASES.md#e1-s14b-broker-only-production-lease-commit-2026-11-08).
+   - Broker LOAD now retains the original S10 context for commit or rollback.
+     The export fake and both-ABI lab/normal-server cases are updated but unrun;
+     this is source-level closure of the missing operation, not live S18 proof
+     or permission to enable the existing default-disabled packages.
+2. **Stage 1 (Prompt Queue & Bound Credential Dialog) - Wired (E1-S18c)**:
+   - Wired in `e1s18_broker.c`: enqueues in S17 prompt queue (`wex_prompt_queue_enqueue` enforcing 2-per-caller, 8-per-session, 32-global limits; returns `ERROR_BUSY` when full).
+   - Spawns `consent.exe /broker /credentials` with broker-owned arguments only (`/ppid <pid> /request %016llx /token <hex> /channel <hWrite> [/secure]`) on secure desktop `WinSta0\Winlogon` (or `WinSta0\Default`), reusing secure desktop helper functions (`secure_enter()`, `secure_leave()`, `consent_timeout()`).
+   - Conversation loop reads S1 Answer records over the pipe channel, validates with `wex_verify_answer_record` (request ID, attempt 1, nonce, binding/request digests, channel token).
+   - Only an explicit Confirm approves; helper exit, crash, Cancel return `ERROR_CANCELLED`; timeout (120s) returns `ERROR_TIMEOUT`; digest or token mismatch returns `ERROR_ACCESS_DENIED`.
+   - Replay protection enforces single-use answer records (`e1s18_record_answer`, `e1s18_is_answer_replayed`).
+   - Keeps typed account name only in broker memory; wipes buffers and channel tokens immediately with `wex_secure_wipe`.
+3. **Stage 2 (Evidence Redemption & Burn) - Wired in Broker, Fails Closed on Missing Unix Interfaces (E1-S18c)**:
+   - Fully implemented in broker `e1s18_broker.c`: validates S1 Kind 3 evidence record (220 B layout: kind 3, version 1, length 220, method 1, service 1, required caps `0x3ff`, attempt 1..3, map_gen > 0) against frozen request/binding digests, nonce, caller's host UID (`bob_uid`), and expiry (`now < expiry`).
+   - Enforces single-use evidence burn tracking (`e1s18_burn_evidence`, `e1s18_is_evidence_burned`), rejecting replayed evidence with `ERROR_ACCESS_DENIED`.
+   - On valid redemption, populates `struct request` fields: `account_name`, `account_key`, `map_generation`, and `storage_generation`.
+   - Enforces secure wiping (`e1s18_wipe`) of `req->account_name`, `req->account_key`, and `evidence_ref` on both commit and failure rollback.
+   - **Exact Missing Unix-Side Interfaces (Stage 2 Default Live Operations Fail Closed with `ERROR_NOT_SUPPORTED` = 50)**:
+     - **Missing Interface 1 (S8 REDEEM Transport Opcode in `wexhost`)**: `WexE1s6Transport` in `src/dlls/wexhost/e1s6.c` only defines operations 1..4 (`E1S6_OPEN`, `E1S6_CHILD_START`, `E1S6_EXCHANGE`, `E1S6_CLOSE`). There is no transport operation or opcode to submit the S8 REDEEM envelope (252 bytes) or receive the 240-byte redemption response.
+     - **Missing Interface 2 (S8 Service Endpoint in `e1s6-lab.py`)**: `tools/e1s6/e1s6-lab.py` line 8 explicitly states: *"No evidence redemption, token creation or target execution lives here."* It does not instantiate `evidence.py` `Service` or `Connection`, nor route incoming packets to `connection.serve()`.
+     - **Missing Interface 3 (S7 PAM Worker Integration into S8 Evidence Service)**: `tools/e1s7/pam-worker.c` returns RESULT to its parent, but `e1s6-lab.py` does not spawn `pam-worker` or feed worker results into `Service.collect()`.
+     - **Missing Interface 4 (S12 `storage_generation` PE Query Interface)**: S1 Kind 3 evidence records (220 bytes) carry `map_gen` (offset 108), but do NOT carry `storage_generation`. In S12 (`docs/E1_S12_PROFILE_STORAGE.md`), `storage_generation` is returned by native `wex_profile_prepare` in `tools/wex-profile`, which has no PE transport or export in the broker.
+     - Per project standing instructions, the broker does NOT invent a protocol silently: in default live operations (`e1s18_transport_redeem_live`), Stage 2 fails closed with `ERROR_NOT_SUPPORTED` (50) until these 4 Unix interfaces are completed.
 
 ### Detailed Stage Audit (Default Operations Table)
 
 | Stage # | Stage Name | Implementation Status | Behavior / Subsystem Invoked |
 |---|---|---|---|
-| **Stage 1** | `prompt_dialog` | **Not yet wired (Fail closed)** | Returns `ERROR_NOT_SUPPORTED` (50). Service plumbing needed: spawn `consent.exe /credentials` on `WinSta0\Winlogon`, establish named pipe IPC channel handshake, execute conversation loop with S17 prompt queue (H3b), and enforce 120s timeout and cancellation. |
-| **Stage 2** | `redeem_evidence` | **Not yet wired (Fail closed)** | Returns `ERROR_NOT_SUPPORTED` (50). Service plumbing needed: connect to native S8 evidence daemon over Unix domain socket `/run/wineexplorer/evidence.sock`, send S1 Kind 2 Answer record, receive S1 Kind 3 Evidence record (220 B) and 16-byte reference, and verify S7 PAM worker authentication. |
+| **Stage 1** | `prompt_dialog` | **Wired (Live Win32 / Boundary Hook)** | Enqueues in S17 prompt queue (`wex_prompt_queue_enqueue` enforcing quotas; returns `ERROR_BUSY` when full). Spawns `consent.exe /broker /credentials` with `/channel <hWrite>` on secure desktop `WinSta0\Winlogon` (or `WinSta0\Default`), reusing secure desktop helper functions (`secure_enter()`, `secure_leave()`, `consent_timeout()`). Reads S1 Answer record, validates digests, nonce, channel token via `wex_verify_answer_record`. Only explicit Confirm approves; helper exit/crash/Cancel return `ERROR_CANCELLED`; timeout (120s) returns `ERROR_TIMEOUT`; corrupt binding returns `ERROR_ACCESS_DENIED`. Replay rejected with `ERROR_ACCESS_DENIED`. Keeps typed account name in broker memory, wipes buffers. |
+| **Stage 2** | `redeem_evidence` | **Wired in Broker, Fails Closed on Missing Unix Interfaces** | In default live runtime, returns `ERROR_NOT_SUPPORTED` (50) due to 4 missing Unix-side interfaces (S8 REDEEM transport opcode in `wexhost`, S8 Service endpoint in `e1s6-lab.py`, S7 PAM worker feeding S8 evidence daemon, S12 storage_generation PE query). In test/lab with boundary hook: verifies 220-byte S1 Kind 3 evidence record (version 1, method 1, service 1, caps `0x3ff`, attempt 1..3, digests, nonce, host UID, expiry), burns evidence single-use (`ERROR_ACCESS_DENIED` on replay), populates `req->account_name`, `req->account_key`, `req->map_generation`, `req->storage_generation`, and wipes secrets on commit and rollback. |
 | **Stage 3** | `issue_token` | **Wired (Real NTDLL export)** | Requires Stage 2 `account_key` and `map_generation`; fails closed with `ERROR_INVALID_DATA` (13) if unset. Calls `NtCreateWexAccountToken(WEX_TOKEN_NEGOTIATE)` then `NtCreateWexAccountToken(WEX_TOKEN_ISSUE)` with S1 204-byte envelope. Verifies returned token: Primary, Full elevation, High integrity, caller session, distinct nonzero AuthenticationId, Alice's mapped SID. Closes handles and fails closed on any mismatch. Retains `s10_context` for Stage 4. |
 | **Stage 4** | `load_profile` | **Wired (Real NTDLL export)** | Requires Stage 2 `account_key`, `map_generation`, and `storage_generation`; fails closed with `ERROR_INVALID_DATA` (13) if unset. Calls `NtLoadWexProfileEx(WEX_HKU_LOAD)` with 48-byte S12/S13 record and `s10_context`. Retains `lease_id` (cache generation), HKU root key and original S10 context through commit or rollback; failed LOAD closes context. |
 | **Stage 5** | `prep_launch` | **Wired (Real launch_prep)** | Requires Stage 2 `account_name`, `account_key`, `map_generation`, and `storage_generation`; fails closed with `ERROR_INVALID_DATA` (13) if unset. Calls `wex_prepare_launch` from `launch_prep.c` with explicit same-server inputs: Bob's host UID/GID from caller, profile record, cwd. Real-UID switch requests denied with `ERROR_NOT_SUPPORTED`. Inherited environment rejected with `ERROR_INVALID_PARAMETER`. Builds sanitized Windows environment block for `CreateProcessAsUserW`. |
