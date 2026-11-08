@@ -89,7 +89,7 @@ The installer polish work completed the visual parity and integration items:
 - GUI setup uses Wizard97 headers, classic styling without themes, sequential billboard step indicator advancement, and an initially empty Owner Name field.
 - Date and Time settings use a shared XP time zone list (`wextimezone.h`) with full Unicode CLDR Windows<->IANA mapping, date and time pickers, and DST indicator.
 - Automatic Updates choice from OOBE is written to `/etc/wineexplorer/setup/automatic-updates` and applied to `/etc/apt/apt.conf.d/20auto-upgrades` via `unattended-upgrades`; `AutomaticUpdates=Yes/No` is supported in answer files.
-- Text setup partition and format screens use Windows XP wording (`C: Partition1 ... on Disk 0 at Id 0 on bus 0 ... [MBR]`) with disk bus adaptation, keeping Linux device paths in logs only; the reboot countdown bar is red/brown without percentage text.
+- Text setup partition and format screens use Windows XP wording (`C: Partition4 ... on Disk 0 at Id 0 on bus 0 ... [GPT]`) with disk bus adaptation, keeping Linux device paths in logs only; the reboot countdown bar is red/brown without percentage text.
 - Installed GRUB boots straight through (`GRUB_TIMEOUT_STYLE=hidden`, `GRUB_TIMEOUT=0`, `GRUB_TERMINAL=console`, Debian theme removed).
 - The desktop template properly displays the Recycle Bin icon on first logon.
 
@@ -114,6 +114,27 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
     - **C**: Displays "Create partition" screen with minimum and maximum size prompts, creating the partition in the selected free region.
     - **D**: Displays XP partition deletion confirmation screen requiring **L** to confirm deletion.
     - **ENTER**: Selects an existing partition or creates a partition filling the free space.
+  - **Partition layout** (the layout Vintner Boot needs, [VINTNER_BOOT.md](VINTNER_BOOT.md) section 4.1): every disk
+    Setup prepares is GPT, on BIOS and UEFI machines alike. A blank disk, or an MBR disk with no partitions, gets a
+    new GPT label. An MBR disk that has partitions is refused with a message (delete them first), as Windows Setup
+    refuses an MBR disk on UEFI. Setup gives the disk three system partitions, in this order, before the first
+    partition the user creates or selects:
+    - BIOS boot, 2 MB, no file system: GRUB's core image on BIOS machines;
+    - EFI system, 512 MB, FAT32;
+    - Boot storage (XBOOTLDR type `BC13C2FF-59E6-4262-A352-B275FD6F7172`), 2048 MB, FAT32 labelled `BOOTSTORAGE`,
+      with GPT attribute 63 ("no-auto") so `systemd-gpt-auto-generator` never mounts it. It is never listed in
+      `/etc/fstab`: Vintner Boot mounts it by PARTUUID when it needs it.
+
+    A system partition the disk already has (found by its GPT type, for example the EFI system partition of an
+    installed Windows) is reused and never formatted unless it has no FAT file system. A notice lists the
+    partitions Setup will add before anything is created; ESC goes back. System partitions are listed without a
+    drive letter (`Partition2 (EFI System) [vfat]`) and cannot be selected as the install target; C: is the first
+    partition that is not a system partition. Partitions start on 1 MB boundaries. A partition Setup has only
+    planned (not yet written) shows `[New (Raw)]`, never the file system of a deleted partition that started at the
+    same place, and Setup clears old file system signatures (`wipefs`) from the system partitions it creates
+    before formatting them; the BIOS boot partition gets no file system.
+  - Unattended mode always writes a new GPT label on the target disk: the three system partitions and the root in
+    the rest of the disk.
 - **Filesystem Formatting**:
   - "Format the partition using the ext4 file system (Quick)"
   - "Format the partition using the ext4 file system"
@@ -127,7 +148,9 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
 - **Target Sanitization & Swap**:
   - Automatically purges live-boot artifacts (`live-boot`, `live-config`, `/etc/sudoers.d/live`, `/etc/sudoers.d/wineuser`, live `wineuser` home, `/setup`, `/etc/live`, `wex-textsetup.service`).
   - Creates a dedicated swap file (`/swapfile`) sized at 1.5× RAM (capped at 8 GB) with `/etc/fstab` entry.
-  - Installs GRUB MBR (`grub-install --target=i386-pc /dev/sdX`) with generated `device.map`.
+  - Installs GRUB with a generated `device.map`: `grub-install --target=i386-pc /dev/sdX` on BIOS machines (its
+    core image goes into the BIOS boot partition), `--target=x86_64-efi --removable` into the EFI system partition on
+    UEFI machines. Vintner Boot replaces this step later ([VINTNER_BOOT.md](VINTNER_BOOT.md) section 4.2).
   - Sets `/etc/wineexplorer/setup/stage` to `gui` and triggers a 15-second red countdown bar before ejecting media and rebooting.
 
 ---

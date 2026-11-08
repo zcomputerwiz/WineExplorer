@@ -68,6 +68,15 @@ typedef struct {
     struct fdisk_context *cxt;
 } DiskDevice;
 
+/* System partitions, recognised by their GPT partition type (docs/VINTNER_BOOT.md section 4.1). They hold boot
+ * files, get no drive letter and cannot be chosen for the installation. */
+typedef enum {
+    SYS_NONE = 0,
+    SYS_BIOS_BOOT,         /* BIOS boot partition: GRUB's core image on BIOS machines */
+    SYS_ESP,               /* EFI system partition */
+    SYS_BOOT_STORAGE,      /* boot storage (XBOOTLDR) for Vintner Boot; never mounted by the installed system */
+} SystemPartKind;
+
 typedef struct {
     char device[64];       /* e.g. /dev/sda1 or empty for free space */
     char fstype[32];       /* e.g. ext4, vfat, ntfs, Unformatted */
@@ -78,6 +87,7 @@ typedef struct {
     size_t partno;
     bool is_free_space;
     bool is_esp;
+    SystemPartKind sys_kind;
     int disk_index;
 } PartitionEntry;
 
@@ -97,6 +107,12 @@ typedef struct {
     uint64_t target_disk_size_mb;
     char target_disk_bus[32];
     bool target_disk_is_gpt;
+    char target_letter;    /* drive letter shown for the target partition */
+    char boot_storage_part[64];
+    char bios_boot_part[64];
+    bool format_esp;       /* Setup created the ESP: format it even if an old signature is found */
+    bool format_boot_storage;
+    bool wipe_bios_boot;   /* Setup created the BIOS boot partition: clear old file system signatures in it */
 } SetupState;
 
 /* Screen helper routines */

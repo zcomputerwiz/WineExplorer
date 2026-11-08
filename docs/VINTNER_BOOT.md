@@ -131,6 +131,33 @@ Changes:
 - Boot storage is never added to fstab; Vintner mounts it on demand.
 - RAID roots: boot storage has to be a plain partition on one disk. Decide whether that is acceptable (D4).
 
+Status (2026-11-07, branch `claude/vintner-boot-integration`): implemented, GRUB still the loader. Every disk Setup
+prepares is GPT: BIOS boot (2 MiB), ESP (512 MiB, FAT32; an existing one is reused and never resized), boot storage
+(2 GiB, FAT32, GPT attribute 63 "no-auto"), then the ext4 root. MBR disks that have partitions are refused. Details
+and screens: [INSTALLER.md](INSTALLER.md), Partition Editor. Test: `installer/tests/check-disk-layout.py`, called by
+`install-unattended.sh` (`WEX_TEST_FIRMWARE=uefi` for OVMF) and `install-interactive.sh`.
+
+Verified 2026-11-07 on the 2026-10-17 ISO repacked with the new `textsetup` (QEMU/KVM, 20 GiB virtio disk):
+`install-unattended.sh` passes on SeaBIOS and on OVMF (zero-input install to the desktop, layout, attribute 63,
+fstab; GRUB core image in the BIOS boot partition on BIOS, `x86_64-efi --removable` on UEFI). Scripted interactive
+cases, checked by reading the disk back: a blank disk (C, notice, list, format screen); an MBR disk with an ext4
+partition (ENTER and C refused, nothing written until D frees the disk; the freed disk gets the notice, and the old
+ext4 signature is gone from the new BIOS boot partition); a GPT disk with a 100 MiB ESP holding a file (ENTER on
+the ESP refused, the notice lists only BIOS boot and boot storage, the ESP keeps its FAT UUID and its file).
+`install-interactive.sh` was not run end to end: its OOBE steps are newer than that ISO.
+
+Agreed with the Vintner Boot side (WO-0010 phase 1, 2026-11-07):
+
+- Vintner relies only on the boot storage type GUID for the layout, and at run time on
+  `vintner.bootstorage=PARTUUID=<p3>`, which must equal the manifest's `boot_storage.partuuid`. The PARTLABEL and
+  the FAT label are cosmetic. The sizes match Vintner's architecture section 5 (2 GiB default, about 1.5 GiB
+  measured need; the ESP holds only the loader).
+- On BIOS, Vintner's core.img finds boot storage by its FAT file system UUID (`search --fs-uuid`), written at
+  install time: boot storage must never be reformatted after the Vintner install.
+- Attribute 63 makes `systemd-gpt-auto-generator` skip boot storage whatever `/boot` holds, which matters once
+  systemd-boot reports `LoaderDevicePartUUID`. Vintner's check is row A5 of `ci/integration/uefi-bless/run.sh`;
+  Vintner adds the bit to its layout contract (WO-0010 3.1).
+
 ### 4.2 Bootloader step (`installer/textsetup/screens.c:1562-1630`)
 
 - Remove `device.map`, `sfdisk -A`/`--part-type`, `grub-install` and `update-grub`.
@@ -147,6 +174,19 @@ Changes:
   VMs (`screens.c:1567-1572`) has to be decided at this point too.
 - Delete `/etc/default/grub.d/wineexplorer.cfg` (both copies: the live-build include and the string written at
   `screens.c:1574-1585`) once GRUB is gone.
+
+Status (2026-11-07): not started; it waits for `vintner install`. Per the Vintner Boot side:
+
+- There is no `vintner install` and no Debian package yet (WO-0010 3.2 and phase 2). The install sequence lives in
+  Vintner's CI (`ci/lib/vintner-base.sh`), which 3.2 replaces. Callable today on `main`: `vintner publish`, `bless`,
+  `reconcile`, `manifest`, `secureboot`, and `recovery/build.sh`.
+- Build against `origin/main` for the CLI and `schema/manifest.md`; the install entry point comes with phase 3. Ask
+  the Vintner side to pull a command forward if 4.2 needs it earlier.
+- The plan above matches 3.2: Setup writes `/etc/kernel/cmdline` and runs the sequence inside the target chroot.
+  `vintner install --esp` writes `esp.partuuid` into the manifest itself; Setup does not.
+- `vintner publish` refuses an image whose command line lacks `vintner.bootstorage=PARTUUID=`.
+- BIOS needs nothing from Setup beyond the GPT disk, the BIOS boot partition and boot storage's FAT UUID; Vintner
+  builds core.img from its own module list.
 
 ### 4.3 Safe Mode
 
