@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright 2026 WineExplorer contributors
-missing_class HRESULT TO BE OBSERVED
-missing_dll HRESULT TO BE OBSERVED
-unpackaged HRESULT TO BE OBSERVED
+HRESULT missing_class 0x80040154
+HRESULT missing_dll 0x8007007E
+HRESULT unpackaged 0x80040154
