@@ -11,8 +11,6 @@
 #define E1S6_ENDORSE_SIZE 96
 #define E1S6_REDEEM_REQ_SIZE 252
 #define E1S6_REDEEM_RESP_SIZE 240
-#define E1S6_STORAGE_QUERY_REQ_SIZE 32
-#define E1S6_STORAGE_QUERY_RESP_SIZE 16
 #define E1S6_BUS "org.wineexplorer.E1S6Lab"
 #define E1S6_PATH "/org/wineexplorer/E1S6Lab"
 /* No S1 readiness capability is advertised by this metadata-only transport. */
@@ -27,6 +25,7 @@
 #define E1S6_TEST_CHILD_IMPOSTOR 8
 /* E1-S18d operations */
 #define E1S6_REDEEM 9
+/* Retired, never reuse. The storage generation now comes from the wineserver. */
 #define E1S6_STORAGE_QUERY 10
 
 static inline unsigned int e1s6_u32( const unsigned char *p )

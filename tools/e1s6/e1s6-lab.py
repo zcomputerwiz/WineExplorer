@@ -231,8 +231,8 @@ def service(server_path, system_group, pam_paths=None):
         evidence_service = evidence.Service(root_gen, verifier_gen, evidence_audit,
                                             lambda c, b: not getattr(c.tx, "stale", False), lab=True)
 
-        # No storage-generation provider yet: the S12 generation has no safe descriptor-anchored
-        # source here (see docs/E1_S18D_UNIX_SIDE.md). STORAGE_QUERY therefore denies; nothing is guessed.
+        # The storage generation now comes from the wineserver; the retired
+        # STORAGE_QUERY operation is denied (see docs/E1_S18D_UNIX_SIDE.md).
 
     server_exe = protected(server_path)
     server_stat = os.fstat(server_exe)

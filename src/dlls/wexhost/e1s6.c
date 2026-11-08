@@ -677,23 +677,7 @@ NTSTATUS e1s6_transport( void *args )
             if (ok) params->err = 0;
             else { cleanup(); params->channel = 0; params->err = ERROR_ACCESS_DENIED; }
         }
-        else if (params->channel && params->channel == active_id && buffer &&
-                 params->pipe == (ULONG_PTR)bound_pipe && params->size == E1S6_STORAGE_QUERY_REQ_SIZE)
-        {
-            if (params->operation == E1S6_STORAGE_QUERY && phase >= 1)
-            {
-                if (!endorse( 6, 0 )) denied_again( "storage-endorsement" );
-                else if (sent( send( data_fd, buffer, params->size, MSG_NOSIGNAL ), params->size, "storage-send" ))
-                {
-                    if (!receive_packet( buffer, E1S6_STORAGE_QUERY_RESP_SIZE )) denied_again( "storage-receive" );
-                    else if (e1s6_u32( buffer ) != 0) denied( "storage-status" );
-                    else ok = 1;
-                }
-            }
-            else denied( "operation-phase" );
-            if (ok) params->err = 0;
-            else { cleanup(); params->channel = 0; params->err = ERROR_ACCESS_DENIED; }
-        }
+        /* E1S6_STORAGE_QUERY (10) is retired; it is denied like an unknown operation. */
         else denied( "channel-parameters" );
         if (params->err && active_id && params->channel == active_id) cleanup();
         pthread_mutex_unlock( &lock );

@@ -657,35 +657,18 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(wrong, malformed)
         self.assertEqual(self.s.redeem(self.c, ref, record), record)
 
-    def test_seqpacket_storage_query_without_provider_is_denied(self):
+    def test_seqpacket_storage_query_is_denied(self):
         c = self.connection()
         key = b"k" * 16
         raw = struct.pack("<8sHHI", e.MAGIC, 1, e.STORAGE_QUERY, 32) + key
         c.tx.remote.send(raw)
         reply = c.serve()
         self.assertEqual(struct.unpack_from("<I", reply)[0], e.DENIED)
-        # R3: an unsupported storage query is an ordinary denial, not an audit
+        # The retired storage query is an ordinary denial, not an audit
         # failure that disables the whole service.
         self.assertFalse(c.service.failed)
-        c.service.query_storage = lambda conn, key: 7
-        c2 = self.connection(c.service)  # a denial closes its own connection only
-        c2.tx.remote.send(raw)
-        self.assertEqual(struct.unpack_from("<I", c2.serve())[0], e.OK)
 
-    def test_seqpacket_storage_query_with_provider(self):
-        c = self.connection()
-        c.service.query_storage = lambda conn, key: 7
-        key = b"k" * 16
-        raw = struct.pack("<8sHHI", e.MAGIC, 1, e.STORAGE_QUERY, 32) + key
-        c.tx.remote.send(raw)
-        reply = c.serve()
-        self.assertEqual(len(reply), 16)
-        status, reserved, gen = struct.unpack("<IIQ", reply)
-        self.assertEqual(status, e.OK)
-        self.assertEqual(reserved, 0)
-        self.assertEqual(gen, 7)
-
-    def test_e2e_pam_to_evidence_redemption_and_storage_query(self):
+    def test_e2e_pam_to_evidence_redemption(self):
         # 1. Success redemption and secret omission check
         canary_secret = b"SUPER-SECRET-CANARY-PASSWORD-12345"
         c = self.connection()
@@ -715,16 +698,6 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(status, e.OK)
         self.assertEqual(rep_ref, ref)
         self.assertEqual(rep_record, record)
-
-        # Storage generation query on live connection (explicit provider; no default is ever invented)
-        c.service.query_storage = lambda conn, key: 1
-        raw_query = struct.pack("<8sHHI", e.MAGIC, 1, e.STORAGE_QUERY, 32) + b.account_key
-        c.tx.remote.send(raw_query)
-        query_reply = c.serve()
-        self.assertEqual(len(query_reply), 16)
-        q_status, _, q_gen = struct.unpack("<IIQ", query_reply)
-        self.assertEqual(q_status, e.OK)
-        self.assertEqual(q_gen, 1)
 
         # Replay attempt: must fail closed (status == DENIED)
         c.tx.remote.send(raw_redeem)
