@@ -660,6 +660,40 @@ NTSTATUS e1s6_transport( void *args )
             if (ok) params->err = 0;
             else { cleanup(); params->channel = 0; params->err = ERROR_ACCESS_DENIED; }
         }
+        else if (params->channel && params->channel == active_id && buffer &&
+                 params->pipe == (ULONG_PTR)bound_pipe && params->size == E1S6_REDEEM_REQ_SIZE)
+        {
+            if (params->operation == E1S6_REDEEM && phase >= 1)
+            {
+                if (!endorse( 4, 0 )) denied_again( "redeem-endorsement" );
+                else if (sent( send( data_fd, buffer, params->size, MSG_NOSIGNAL ), params->size, "redeem-send" ))
+                {
+                    if (!receive_packet( buffer, E1S6_REDEEM_RESP_SIZE )) denied_again( "redeem-receive" );
+                    else if (e1s6_u32( buffer ) != 0) denied( "redeem-status" );
+                    else ok = 1;
+                }
+            }
+            else denied( "operation-phase" );
+            if (ok) params->err = 0;
+            else { cleanup(); params->channel = 0; params->err = ERROR_ACCESS_DENIED; }
+        }
+        else if (params->channel && params->channel == active_id && buffer &&
+                 params->pipe == (ULONG_PTR)bound_pipe && params->size == E1S6_STORAGE_QUERY_REQ_SIZE)
+        {
+            if (params->operation == E1S6_STORAGE_QUERY && phase >= 1)
+            {
+                if (!endorse( 6, 0 )) denied_again( "storage-endorsement" );
+                else if (sent( send( data_fd, buffer, params->size, MSG_NOSIGNAL ), params->size, "storage-send" ))
+                {
+                    if (!receive_packet( buffer, E1S6_STORAGE_QUERY_RESP_SIZE )) denied_again( "storage-receive" );
+                    else if (e1s6_u32( buffer ) != 0) denied( "storage-status" );
+                    else ok = 1;
+                }
+            }
+            else denied( "operation-phase" );
+            if (ok) params->err = 0;
+            else { cleanup(); params->channel = 0; params->err = ERROR_ACCESS_DENIED; }
+        }
         else denied( "channel-parameters" );
         if (params->err && active_id && params->channel == active_id) cleanup();
         pthread_mutex_unlock( &lock );
@@ -668,7 +702,7 @@ NTSTATUS e1s6_transport( void *args )
     if (params->err)
     {
         params->channel = 0;
-        if (params->buffer && params->size <= E1S6_REG_SIZE + E1S6_ANSWER_SIZE)
+        if (params->buffer && params->size <= 512)
             memset( (void *)(ULONG_PTR)params->buffer, 0, params->size );
     }
     return STATUS_SUCCESS;

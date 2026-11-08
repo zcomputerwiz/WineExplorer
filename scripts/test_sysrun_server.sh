@@ -1081,7 +1081,11 @@ has_str "$ROOT/probes/consent_test.exe" '/testid' || fail "the test consent prog
 ! has_str "$ROOT/consent_ship.exe" '/testid' || fail "a consent program built without the macro contains the hook"
 ! has_str "$ROOT/consent_ship.exe" 'wexelev' || fail "a consent program built without the macro names the hook directory"
 for f in "$BUILD"/programs/consent/*-windows/consent.exe; do
-    ! has_str "$f" '/testid' && ! has_str "$f" 'wexelev' || fail "the installed program $f contains the hook"
+    # Debug information carries source paths (consent.c includes ../wexelevate/cred_dialog.c): scan the loadable image only.
+    case "$f" in *i386-windows*) strip_tool=i686-w64-mingw32-strip ;; *) strip_tool=x86_64-w64-mingw32-strip ;; esac
+    "$strip_tool" --strip-debug -o "$ROOT/consent_installed_stripped.exe" "$f" || fail "cannot strip $f for the hook check"
+    ! has_str "$ROOT/consent_installed_stripped.exe" '/testid' && ! has_str "$ROOT/consent_installed_stripped.exe" 'wexelev' || fail "the installed program $f contains the hook"
+    rm -f "$ROOT/consent_installed_stripped.exe"
 done
 ! has_str "$ROOT/probes/wexelevate_ship.exe" consent_test || fail "a broker built without the macro names the test consent program"
 has_str "$ROOT/probes/wexelevate_test.exe" consent_test || fail "the test broker does not use the test consent program (control)"

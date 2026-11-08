@@ -2059,6 +2059,75 @@ static int test_transport_boundary_fields_populated_and_secrets_wiped( void )
     e1s18_reset_boundary_table();
     return TEST_PASS;
 }
+
+static int test_transport_redeem_live_null_params( void )
+{
+    struct request req;
+    uint8_t nonce[32] = {0};
+    uint8_t binding[32] = {0};
+    uint8_t req_digest[32] = {0};
+    uint8_t ev_buf[256];
+    size_t ev_len = sizeof(ev_buf);
+    uint8_t ev_ref[16];
+    uint64_t storage_gen = 0;
+    DWORD err;
+
+    memset( &req, 0, sizeof(req) );
+    req.pipe = (HANDLE)(intptr_t)42;
+
+    /* NULL req */
+    err = e1s18_transport_redeem_live( NULL, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, &storage_gen );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL req must return ERROR_INVALID_PARAMETER" );
+
+    /* NULL pipe */
+    req.pipe = NULL;
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, &storage_gen );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL pipe must return ERROR_INVALID_PARAMETER" );
+    req.pipe = (HANDLE)(intptr_t)42;
+
+    /* NULL nonce */
+    err = e1s18_transport_redeem_live( &req, "alice", NULL, binding, req_digest, ev_buf, &ev_len, ev_ref, &storage_gen );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL nonce must return ERROR_INVALID_PARAMETER" );
+
+    /* NULL out_evidence_buf */
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, NULL, &ev_len, ev_ref, &storage_gen );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL out_evidence_buf must return ERROR_INVALID_PARAMETER" );
+
+    /* NULL out_evidence_len */
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, NULL, ev_ref, &storage_gen );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL out_evidence_len must return ERROR_INVALID_PARAMETER" );
+
+    /* NULL out_evidence_ref */
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, NULL, &storage_gen );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL out_evidence_ref must return ERROR_INVALID_PARAMETER" );
+
+    /* NULL out_storage_generation */
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, NULL );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL out_storage_generation must return ERROR_INVALID_PARAMETER" );
+
+    return TEST_PASS;
+}
+
+static int test_transport_redeem_live_unsupported_without_pipe( void )
+{
+    struct request req;
+    uint8_t nonce[32] = {0x01};
+    uint8_t binding[32] = {0x02};
+    uint8_t req_digest[32] = {0x03};
+    uint8_t ev_buf[256];
+    size_t ev_len = sizeof(ev_buf);
+    uint8_t ev_ref[16];
+    uint64_t storage_gen = 0;
+    DWORD err;
+
+    memset( &req, 0, sizeof(req) );
+    req.pipe = (HANDLE)(intptr_t)9999; /* Mock non-existent pipe */
+
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, &storage_gen );
+    CHECK( err == ERROR_NOT_SUPPORTED || err == ERROR_ACCESS_DENIED, "Live redeem without live wexhost transport must fail closed" );
+
+    return TEST_PASS;
+}
 #endif
 
 int main( int argc, char **argv )
@@ -2182,6 +2251,12 @@ int main( int argc, char **argv )
 
     printf("36. Testing transport boundary fields populated and secrets wiped (Stages 1..13)...\n");
     if (test_transport_boundary_fields_populated_and_secrets_wiped() != TEST_PASS) ret = 1;
+
+    printf("37. Testing transport redeem live parameter validation...\n");
+    if (test_transport_redeem_live_null_params() != TEST_PASS) ret = 1;
+
+    printf("38. Testing transport redeem live unsupported without active transport...\n");
+    if (test_transport_redeem_live_unsupported_without_pipe() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

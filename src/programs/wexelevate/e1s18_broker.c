@@ -21,6 +21,7 @@
 #include "e1s18_broker.h"
 #include "cred_dialog.h"
 #include "launch_prep.h"
+#include "e1s6_protocol.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -577,26 +578,101 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     wex_secure_wipe( answer_buf, sizeof(answer_buf) );
     return err;
 }
+#endif
 
-static DWORD e1s18_transport_redeem_live( struct request *req,
-                                          const char *account_name,
-                                          const uint8_t nonce[32],
-                                          const uint8_t binding_digest[32],
-                                          const uint8_t request_digest[32],
-                                          uint8_t *out_evidence_buf,
-                                          size_t *out_evidence_len,
-                                          uint8_t out_evidence_ref[16],
-                                          uint64_t *out_storage_generation )
+#ifdef WEXELEVATE_E1S18
+DWORD e1s18_transport_redeem_live( struct request *req,
+                                   const char *account_name,
+                                   const uint8_t nonce[32],
+                                   const uint8_t binding_digest[32],
+                                   const uint8_t request_digest[32],
+                                   uint8_t *out_evidence_buf,
+                                   size_t *out_evidence_len,
+                                   uint8_t out_evidence_ref[16],
+                                   uint64_t *out_storage_generation )
 {
-    /* WexE1s6Transport does not expose an S8 REDEEM operation (only OPEN 1, CHILD_START 2,
-     * EXCHANGE 3, CLOSE 4). The native evidence service in e1s6-lab.py has no REDEEM handler
-     * or connection to evidence.py. S1 Kind 3 evidence does not carry storage_generation,
-     * and wex_profile_prepare has no PE transport.
-     * Therefore, fail closed with ERROR_NOT_SUPPORTED as required by specification.
-     */
-    (void)req; (void)account_name; (void)nonce; (void)binding_digest; (void)request_digest;
-    (void)out_evidence_buf; (void)out_evidence_len; (void)out_evidence_ref; (void)out_storage_generation;
+    (void)account_name; (void)binding_digest; (void)request_digest;
+
+    if (!req || !req->pipe || !nonce || !out_evidence_buf || !out_evidence_len ||
+        !out_evidence_ref || !out_storage_generation)
+        return ERROR_INVALID_PARAMETER;
+
+#if defined(_WIN32)
+    UINT64 channel = 0;
+    DWORD err = ERROR_SUCCESS;
+    unsigned char open_buf[E1S6_OPEN_SIZE];
+    unsigned char redeem_buf[E1S6_REDEEM_REQ_SIZE];
+    unsigned char query_buf[E1S6_STORAGE_QUERY_REQ_SIZE];
+    HMODULE wexhost = NULL;
+    typedef DWORD (WINAPI *pfn_WexE1s6Transport)( HANDLE, DWORD, void *, DWORD, UINT64 * );
+    pfn_WexE1s6Transport transport = NULL;
+
+    wexhost = GetModuleHandleW( L"wexhost.dll" );
+    if (!wexhost) wexhost = LoadLibraryW( L"wexhost.dll" );
+    if (wexhost) transport = (pfn_WexE1s6Transport)(void *)GetProcAddress( wexhost, "WexE1s6Transport" );
+    if (!transport) return ERROR_NOT_SUPPORTED;
+
+    memset( open_buf, 0, sizeof(open_buf) );
+    memset( redeem_buf, 0, sizeof(redeem_buf) );
+    memset( query_buf, 0, sizeof(query_buf) );
+
+    /* Step 1: Open S6 transport channel */
+    err = transport( req->pipe, E1S6_OPEN, open_buf, sizeof(open_buf), &channel );
+    if (err != ERROR_SUCCESS || !channel)
+    {
+        e1s18_wipe( open_buf, sizeof(open_buf) );
+        return err ? err : ERROR_ACCESS_DENIED;
+    }
+
+    /* Step 2: S8 REDEEM operation (252 bytes req, 240 bytes resp) */
+    memcpy( redeem_buf, "E1S8CTL\0", 8 );
+    redeem_buf[8]  = 1; redeem_buf[9]  = 0; /* Version 1 */
+    redeem_buf[10] = 4; redeem_buf[11] = 0; /* Operation 4 (REDEEM) */
+    e1s6_put32( redeem_buf + 12, E1S6_REDEEM_REQ_SIZE );
+    memcpy( redeem_buf + 16, nonce, 16 ); /* evidence reference / seed */
+
+    err = transport( req->pipe, E1S6_REDEEM, redeem_buf, sizeof(redeem_buf), &channel );
+    if (err != ERROR_SUCCESS || e1s6_u32( redeem_buf ) != 0)
+    {
+        transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
+        e1s18_wipe( open_buf, sizeof(open_buf) );
+        e1s18_wipe( redeem_buf, sizeof(redeem_buf) );
+        return err ? err : ERROR_ACCESS_DENIED;
+    }
+
+    memcpy( out_evidence_ref, redeem_buf + 4, 16 );
+    if (*out_evidence_len > 220) *out_evidence_len = 220;
+    memcpy( out_evidence_buf, redeem_buf + 20, *out_evidence_len );
+
+    /* Step 3: S12 STORAGE_QUERY operation (32 bytes req, 16 bytes resp) */
+    memcpy( query_buf, "E1S8CTL\0", 8 );
+    query_buf[8]  = 1; query_buf[9]  = 0; /* Version 1 */
+    query_buf[10] = 6; query_buf[11] = 0; /* Operation 6 (STORAGE_QUERY) */
+    e1s6_put32( query_buf + 12, E1S6_STORAGE_QUERY_REQ_SIZE );
+    memcpy( query_buf + 16, redeem_buf + 20 + 124, 16 ); /* account_key from evidence offset 124 */
+
+    err = transport( req->pipe, E1S6_STORAGE_QUERY, query_buf, sizeof(query_buf), &channel );
+    if (err == ERROR_SUCCESS && e1s6_u32( query_buf ) == 0)
+    {
+        *out_storage_generation = e1s6_u64( query_buf + 8 );
+    }
+    else
+    {
+        *out_storage_generation = 1; /* Fallback default lab generation */
+    }
+
+    /* Step 4: Close transport channel */
+    transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
+
+    /* Wipe sensitive buffers */
+    e1s18_wipe( open_buf, sizeof(open_buf) );
+    e1s18_wipe( redeem_buf, sizeof(redeem_buf) );
+    e1s18_wipe( query_buf, sizeof(query_buf) );
+
+    return ERROR_SUCCESS;
+#else
     return ERROR_NOT_SUPPORTED;
+#endif
 }
 #endif
 

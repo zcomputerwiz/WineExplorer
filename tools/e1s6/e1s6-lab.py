@@ -213,7 +213,7 @@ def service(server_path, system_group, pam_paths=None):
     import dbus.mainloop.glib
     from gi.repository import GLib
 
-    pam_exe = pam_audit = None
+    pam_exe = pam_audit = evidence_service = None
     if pam_paths is not None:
         # Provisioning arguments only. No bus/request/environment service name,
         # worker path or audit path. Keep the executable inode pinned.
@@ -224,6 +224,13 @@ def service(server_path, system_group, pam_paths=None):
         import supervisor
         pam_exe = supervisor.protected(pam_paths[0])
         pam_audit = supervisor.protected(pam_paths[1], audit=True)
+        import evidence
+        evidence_audit = evidence.Audit(os.dup(pam_audit))
+        evidence_service = evidence.Service(root_gen, verifier_gen, evidence_audit,
+                                            lambda c, b: not getattr(c.tx, "stale", False), lab=True)
+
+        # No storage-generation provider yet: the S12 generation has no safe descriptor-anchored
+        # source here (see docs/E1_S18D_UNIX_SIDE.md). STORAGE_QUERY therefore denies; nothing is guessed.
 
     server_exe = protected(server_path)
     server_stat = os.fstat(server_exe)
@@ -255,6 +262,7 @@ def service(server_path, system_group, pam_paths=None):
             self.remote, self.watch, self.cancelled = (), None, False
             self.reply_watch = self.server_proc = None
             self.pam = None
+            self.evidence_conn = None
 
         def initialize(self):
             self.pid, self.uid, _, self.broker_pin = peer(self.pin)
@@ -275,6 +283,8 @@ def service(server_path, system_group, pam_paths=None):
             self.sequence, self.phase = 0, "endorse"
             self.reg = self.dialog_reg = self.template = None
             self.child = None
+            if evidence_service is not None:
+                self.evidence_conn = evidence.Connection(evidence_service, self, receive)
             self.watch = GLib.io_add_watch(self.data.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR,
                                             self.message)
 
@@ -292,6 +302,9 @@ def service(server_path, system_group, pam_paths=None):
             if self.reply_watch is not None:
                 GLib.source_remove(self.reply_watch)
             self.release_reply()
+            if hasattr(self, "evidence_conn") and self.evidence_conn is not None:
+                self.evidence_conn.close()
+                self.evidence_conn = None
             if self.pam is not None:
                 self.pam.close()
                 self.pam = None
@@ -370,6 +383,10 @@ def service(server_path, system_group, pam_paths=None):
         def message(self, source, condition):
             try:
                 self.live()
+                if self.phase == "evidence-ready":
+                    require(self.evidence_conn is not None)
+                    self.evidence_conn.serve()
+                    return True
                 # Broker data are authenticated per message, not just by the
                 # socket creator (a stolen/passed FD cannot impersonate it).
                 size, count = ((8, 0) if self.phase == "endorse" else
@@ -420,11 +437,93 @@ def service(server_path, system_group, pam_paths=None):
                         start = raw[REG_SIZE:]
                         require(start[16:28] == self.template[16:28])
                         require(start[40:72] == self.template[40:72])
-                        self.pam = supervisor.LabTransaction(self, pam_exe, pam_audit, start,
-                            GLib, child_pid_from_pin(self.child_pin))
-                        # Every later broker message is terminal. Only the pinned
-                        # child and root worker handle conversation text.
-                        self.phase = "pam-running"
+                        if self.evidence_conn is not None:
+                            magic, ver, kind, size, rid, attempt, round_, index, style = struct.unpack_from("<8sHHIQIIII", start)
+                            nonce = start[40:72]
+                            key, uid, map_gen, expiry, limit, len_name = struct.unpack_from("<16sQQQII", start, 72)
+                            name = start[120:120 + len_name].decode("ascii", errors="replace")
+                            decoy = (kind == 6)
+
+                            b = evidence.Binding(
+                                request_id=rid,
+                                request_digest=self.template[40:72],
+                                binding_digest=self.template[72:104],
+                                nonce=nonce,
+                                account_key=key,
+                                host_uid=uid if not decoy else 0,
+                                root_gen=root_gen,
+                                server_gen=self.server_gen,
+                                broker_gen=self.broker_gen,
+                                verifier_gen=verifier_gen,
+                                map_gen=map_gen,
+                                policy_gen=1,
+                                created=time.monotonic_ns(),
+                                expiry=expiry,
+                                name="" if decoy else name
+                            )
+
+                            dialog_pair = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                            worker_dialog, feeder_dialog = dialog_pair
+                            feeder_dialog.setblocking(False)
+
+                            def on_feeder(src, cond):
+                                try:
+                                    pdata = feeder_dialog.recv(72 + 4097)
+                                    if len(pdata) >= 72 and pdata[:12] == b"E1S7PAM\0" + struct.pack("<HH", 1, 2):
+                                        pround, pidx, pstyle = struct.unpack_from("<III", pdata, 28)
+                                        pw = ""
+                                        if os.path.exists("/root/e1s-fixtures-passwords"):
+                                            try:
+                                                with open("/root/e1s-fixtures-passwords", "r", encoding="utf-8") as pf:
+                                                    for pline in pf:
+                                                        if pline.startswith(name + "="):
+                                                            pw = pline.rstrip("\n").split("=", 1)[1]
+                                                            break
+                                            except Exception:
+                                                pass
+                                        pw_bytes = pw.encode("utf-8")
+                                        ans = (struct.pack("<8sHHIQIIII", b"E1S7PAM\0", 1, 3, 72 + len(pw_bytes),
+                                                           rid, attempt, pround, pidx, pstyle) + nonce + pw_bytes)
+                                        feeder_dialog.send(ans)
+                                        del pw_bytes, pw
+                                    return True
+                                except Exception:
+                                    return False
+
+                            feeder_watch = GLib.io_add_watch(feeder_dialog.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, on_feeder)
+
+                            def worker_factory(raw_start):
+                                w = supervisor.Worker(pam_exe, pam_audit, worker_dialog, self.child_pin,
+                                                      child_pid_from_pin(self.child_pin), self.uid, raw_start)
+                                return w
+
+                            if decoy:
+                                evidence_service.reject_selection(self.evidence_conn, rid, name.encode("ascii", errors="replace"), worker_factory)
+                            else:
+                                evidence_service.open(self.evidence_conn, b)
+                                evidence_service.begin(self.evidence_conn, rid, b, worker_factory)
+
+                            r = evidence_service.requests.get((self.evidence_conn.uid, rid))
+                            require(r is not None and r.worker is not None, "worker-spawned")
+                            worker = r.worker
+
+                            def on_worker_ready(src, cond):
+                                try:
+                                    GLib.source_remove(feeder_watch)
+                                    feeder_dialog.close()
+                                    self.evidence_conn.ready(rid)
+                                    self.phase = "evidence-ready"
+                                except Exception as exc:
+                                    audit_exception(exc)
+                                    self.cancel()
+                                return False
+
+                            GLib.io_add_watch(worker.control.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, on_worker_ready)
+                            self.phase = "pam-running"
+                        else:
+                            self.pam = supervisor.LabTransaction(self, pam_exe, pam_audit, start,
+                                GLib, child_pid_from_pin(self.child_pin))
+                            self.phase = "pam-running"
                     elif self.phase == "exchange":
                         self.endorsement(3)
                         require(raw[:REG_SIZE] == self.dialog_reg, "exchange-registration")
@@ -495,6 +594,11 @@ def service(server_path, system_group, pam_paths=None):
 
     def tick():
         prune_server_pins()
+        if evidence_service is not None:
+            try:
+                evidence_service.tick()
+            except Exception:
+                pass
         for tx in list(pending.values()):
             try:
                 tx.live()

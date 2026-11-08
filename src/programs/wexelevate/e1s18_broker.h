@@ -318,6 +318,18 @@ void e1s18_set_ops( const struct e1s18_ops *ops );
 void e1s18_reset_ops( void );
 const struct e1s18_ops *e1s18_get_ops( void );
 
+#ifdef WEXELEVATE_E1S18
+DWORD e1s18_transport_redeem_live( struct request *req,
+                                   const char *account_name,
+                                   const uint8_t nonce[32],
+                                   const uint8_t binding_digest[32],
+                                   const uint8_t request_digest[32],
+                                   uint8_t *out_evidence_buf,
+                                   size_t *out_evidence_len,
+                                   uint8_t out_evidence_ref[16],
+                                   uint64_t *out_storage_generation );
+#endif
+
 #ifdef __cplusplus
 }
 #endif

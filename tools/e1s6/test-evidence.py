@@ -53,7 +53,7 @@ class Tx:
 
     def endorsement(self, operation):
         self.live()
-        if operation not in (e.REDEEM, e.CANCEL):
+        if operation not in (e.REDEEM, e.CANCEL, e.STORAGE_QUERY):
             raise e.Denied()
         self.operations.append((self.sequence, operation))
         self.sequence += 1
@@ -656,6 +656,94 @@ class EvidenceTests(unittest.TestCase):
         malformed = self.packet(c2, 999, b"x" * 8)
         self.assertEqual(wrong, malformed)
         self.assertEqual(self.s.redeem(self.c, ref, record), record)
+
+    def test_seqpacket_storage_query_without_provider_is_denied(self):
+        c = self.connection()
+        key = b"k" * 16
+        raw = struct.pack("<8sHHI", e.MAGIC, 1, e.STORAGE_QUERY, 32) + key
+        c.tx.remote.send(raw)
+        reply = c.serve()
+        self.assertEqual(struct.unpack_from("<I", reply)[0], e.DENIED)
+
+    def test_seqpacket_storage_query_with_provider(self):
+        c = self.connection()
+        c.service.query_storage = lambda conn, key: 7
+        key = b"k" * 16
+        raw = struct.pack("<8sHHI", e.MAGIC, 1, e.STORAGE_QUERY, 32) + key
+        c.tx.remote.send(raw)
+        reply = c.serve()
+        self.assertEqual(len(reply), 16)
+        status, reserved, gen = struct.unpack("<IIQ", reply)
+        self.assertEqual(status, e.OK)
+        self.assertEqual(reserved, 0)
+        self.assertEqual(gen, 7)
+
+    def test_e2e_pam_to_evidence_redemption_and_storage_query(self):
+        # 1. Success redemption and secret omission check
+        canary_secret = b"SUPER-SECRET-CANARY-PASSWORD-12345"
+        c = self.connection()
+        b = self.binding(c)
+        c.service.open(c, b)
+
+        def worker_factory(raw):
+            w = Worker(raw, status=0)
+            return w
+
+        c.service.begin(c, b.request_id, b, worker_factory)
+        ref, record = c.service.collect(c, b.request_id)
+        self.assertEqual(len(ref), 16)
+        self.assertEqual(len(record), e.EVIDENCE_SIZE)
+
+        # Audit log verification: secret must never be present
+        with open(sys.argv[1] + "/audit", "rb") as f:
+            audit_bytes = f.read()
+        self.assertNotIn(canary_secret, audit_bytes)
+
+        # Wire redemption: send REDEEM packet over seqpacket
+        raw_redeem = struct.pack("<8sHHI", e.MAGIC, 1, e.REDEEM, 16 + 16 + e.EVIDENCE_SIZE) + ref + record
+        c.tx.remote.send(raw_redeem)
+        reply = c.serve()
+        self.assertEqual(len(reply), e.REPLY_SIZE)
+        status, rep_ref, rep_record = struct.unpack_from("<I16s220s", reply)
+        self.assertEqual(status, e.OK)
+        self.assertEqual(rep_ref, ref)
+        self.assertEqual(rep_record, record)
+
+        # Storage generation query on live connection (explicit provider; no default is ever invented)
+        c.service.query_storage = lambda conn, key: 1
+        raw_query = struct.pack("<8sHHI", e.MAGIC, 1, e.STORAGE_QUERY, 32) + b.account_key
+        c.tx.remote.send(raw_query)
+        query_reply = c.serve()
+        self.assertEqual(len(query_reply), 16)
+        q_status, _, q_gen = struct.unpack("<IIQ", query_reply)
+        self.assertEqual(q_status, e.OK)
+        self.assertEqual(q_gen, 1)
+
+        # Replay attempt: must fail closed (status == DENIED)
+        c.tx.remote.send(raw_redeem)
+        reply_replayed = c.serve()
+        status_replayed = struct.unpack_from("<I", reply_replayed)[0]
+        self.assertEqual(status_replayed, e.DENIED)
+
+    def test_e2e_wrong_password_quota_exceeded_and_worker_crash(self):
+        # Wrong password flow
+        c = self.connection()
+        b = self.binding(c)
+        c.service.open(c, b)
+        for attempt in range(1, 4):
+            c.service.begin(c, b.request_id, b, lambda raw: Worker(raw, status=1))
+            self.deny(c.service.collect, c, b.request_id)
+            b = replace(b, nonce=os.getrandom(32))
+
+        # 4th attempt: quota exceeded
+        self.deny(c.service.begin, c, b.request_id, b, Worker)
+
+        # Worker crash (abnormal termination) on fresh account
+        c2 = self.connection()
+        b2 = self.binding(c2, account_key=b"c" * 16)
+        c2.service.open(c2, b2)
+        c2.service.begin(c2, b2.request_id, b2, lambda raw: Worker(raw, status=0, abnormal=True))
+        self.deny(c2.service.collect, c2, b2.request_id)
 
 
 if __name__ == "__main__":

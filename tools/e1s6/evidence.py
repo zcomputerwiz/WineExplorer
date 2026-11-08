@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass, replace
 
 OK, DENIED = 0, 1
-REDEEM, CANCEL = 4, 5  # S6 direct-endorsement operation numbers
+REDEEM, CANCEL, STORAGE_QUERY = 4, 5, 6  # S6 direct-endorsement operation numbers
 MAGIC = b"E1S8CTL\0"
 EVIDENCE = struct.Struct("<HHIQQ32s32s32sI16sQQQQQQQQQII")
 EVIDENCE_SIZE = 220
@@ -495,6 +495,26 @@ class Service:
                     self._stop(r)
                     self._log("cancel", r)
 
+    def storage_generation(self, c, account_key):
+        with self.lock:
+            now = self._now()
+            self._sweep(now)
+            if not self.enabled or self.failed:
+                self._deny("disabled")
+            try:
+                c.live()
+            except Exception:
+                self._deny("authority")
+            if (not isinstance(account_key, (bytes, bytearray)) or len(account_key) != 16
+                    or not any(account_key)):
+                self._deny("binding")
+            if hasattr(self, "query_storage") and callable(self.query_storage):
+                gen = self.query_storage(c, account_key)
+                if isinstance(gen, int) and 0 < gen <= U64:
+                    return gen
+            # No provider, or it gave no valid generation: never guess one.
+            self._deny("storage")
+
     def tick(self):
         """S18 must schedule <=50ms, also during PAM/NSS and queue waits."""
         with self.lock:
@@ -576,11 +596,11 @@ class Connection:
 
     def _send(self, result):
         try:
-            if self.tx.data.send(result) != REPLY_SIZE:
+            if self.tx.data.send(result) != len(result):
                 raise Denied()
         except Exception:
             self.close()
-            result = struct.pack("<I", DENIED) + bytes(REPLY_SIZE - 4)
+            result = struct.pack("<I", DENIED) + bytes(len(result) - 4)
         return result
 
     def serve(self):
@@ -608,6 +628,10 @@ class Connection:
                     rid = struct.unpack_from("<Q", raw, 16)[0]
                     self.service.cancel(self, rid)
                     # Cancellation is deliberately the same public denial class.
+                elif operation == STORAGE_QUERY and len(raw) == 32:
+                    result = struct.pack("<IIQ", DENIED, 0, 0)
+                    gen = self.service.storage_generation(self, raw[16:32])
+                    result = struct.pack("<IIQ", OK, 0, gen)
                 else:
                     raise Denied()
             finally:
