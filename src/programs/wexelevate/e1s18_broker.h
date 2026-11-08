@@ -312,6 +312,7 @@ struct e1s18_ops
 BOOL e1s18_policy_enabled( void );
 BOOL e1s18_check_capabilities( const struct request *req );
 DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_reply *reply );
+void e1s18_stop_prompt_queue( void );
 
 /* Operations override for testing */
 void e1s18_set_ops( const struct e1s18_ops *ops );

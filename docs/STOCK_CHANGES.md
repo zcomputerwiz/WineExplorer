@@ -1,5 +1,26 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e broker storage-generation query (2026-11-08)
+
+Adds broker-only `WEX_HKU_STORAGE_QUERY=12` to existing request 325 (review R3
+and the storage-generation gap in `docs/E1_S18_REVIEW.md`). Protocol 979 and all
+wire layouts stay unchanged. The broker calls it after S10 issuance and before
+LOAD with the LOAD record, storage generation 0. The server checks the S6 broker
+gate, the original S10 context and issued token (same checks as LOAD, without
+burning the one-shot LOAD attempt), then discovers the S12 generation from its
+own `config_dir_fd` with the same no-create validator LOAD uses. Discovery takes
+no SID hive lock, never opens or creates `.hive.lock`, opens the hive read-only
+and denies missing, unprovisioned, recovery or substituted profiles. LOAD keeps
+its nonzero precondition and exact generation comparison.
+
+* `include/wine/wex_profile.h`: op 12 and its contract.
+* `server/wex_profile_storage.c`, `.h`: `discover` mode of the reopen and
+  `wex_profile_query_generation`; `validate_profile` can open the hive read-only.
+* `server/token.c`, `server/e1s_token.h`: `token_query_e1s_profile`.
+* `server/registry.c`: op 12 handler.
+* `dlls/ntdll/reg.c`: validate op 12's keyless managed=1/nonzero generation reply.
+* `dlls/advapi32/tests/wex_hku.c`: normal-server op 12 denial.
+
 ## E1-S14b disabled production lease commit (2026-11-08; static only)
 
 Adds broker-only `WEX_HKU_COMMIT_PROCESS=11` to existing request 325; protocol

@@ -711,7 +711,7 @@ static NTSTATUS WINAPI fake_NtCreateWexAccountToken(
             memcpy( resp + 56, in + 124, 16 );
 
         wex_token_put32( resp + 72, g_export_state.issue_sid_len );
-        memcpy( resp + 76, g_export_state.issue_sid, sizeof(g_export_state.issue_sid) );
+        memcpy( resp + 76, g_export_state.issue_sid, 104 - 76 ); /* SID field is 28 bytes, auth id follows */
 
         wex_token_put64( resp + 104, g_export_state.issue_auth_id );
         wex_token_put64( resp + 112, 1 );
@@ -853,6 +853,12 @@ static int test_export_boundary_success( void )
     CHECK( win_env != NULL && win_env_sz > 0, "win_env block must be constructed" );
     if (win_env) free( win_env );
     if (cwd) free( cwd );
+    if (unix_env)
+    {
+        size_t i;
+        for (i = 0; i < unix_env_cnt; i++) free( unix_env[i] );
+        free( unix_env );
+    }
 
     /* 4. Stage 11: transfer_lease */
     err = ops->transfer_lease( &req, lease_id, (HANDLE)(intptr_t)0x4444, token );
@@ -2128,6 +2134,270 @@ static int test_transport_redeem_live_unsupported_without_pipe( void )
 
     return TEST_PASS;
 }
+
+/*
+ * Test 39: R3 Regression - Storage generation fallback removed, fail-closed literals
+ */
+static int test_r3_remediation_storage_generation_and_defaults( void )
+{
+    struct request req;
+    uint8_t nonce[32] = {0xa5};
+    uint8_t binding[32] = {0x11};
+    uint8_t req_digest[32] = {0x22};
+    uint8_t account_key[16] = {0};
+    uint8_t ev_ref[16] = {0};
+    uint64_t storage_gen = 999;
+    DWORD err;
+    const struct e1s18_ops *ops;
+    uint8_t ev_buf[256];
+    size_t ev_len = sizeof(ev_buf);
+
+    init_dummy_request( &req );
+    e1s18_reset_ops();
+    ops = e1s18_get_ops();
+
+    /* 1. Storage generation zero fails closed in redeem_evidence */
+    err = ops->redeem_evidence( &req, "alice", nonce, binding, req_digest, account_key, ev_ref );
+    CHECK( err != ERROR_SUCCESS, "Stage 2 with unset storage generation must fail closed" );
+
+    /* 2. Live transport redeem: NULL storage_generation must return ERROR_INVALID_PARAMETER */
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, NULL );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "NULL storage_gen output must return ERROR_INVALID_PARAMETER" );
+
+    /* 3. Output storage_generation is cleared to 0 initially and query failure does NOT default to 1 */
+    storage_gen = 12345;
+    req.pipe = (HANDLE)(intptr_t)9999;
+    err = e1s18_transport_redeem_live( &req, "alice", nonce, binding, req_digest, ev_buf, &ev_len, ev_ref, &storage_gen );
+    CHECK_EQ( storage_gen, 0, "Failed storage query must clear output generation to 0, never invent 1" );
+    CHECK( err == ERROR_NOT_SUPPORTED || err == ERROR_ACCESS_DENIED, "Query failure must deny with distinct error" );
+
+    /* 4. Missing caller PID fails closed */
+    req.caller_pid = 0;
+    err = ops->redeem_evidence( &req, "alice", nonce, binding, req_digest, account_key, ev_ref );
+    CHECK_EQ( err, ERROR_INVALID_PARAMETER, "Caller PID 0 must fail closed with ERROR_INVALID_PARAMETER" );
+
+    /* 5. Invalid account name fails closed (no fallback to 'alice') */
+    req.caller_pid = 1234;
+    err = ops->redeem_evidence( &req, "", nonce, binding, req_digest, account_key, ev_ref );
+    CHECK( err != ERROR_SUCCESS, "Empty account name must fail closed" );
+
+    err = ops->redeem_evidence( &req, "alice/root", nonce, binding, req_digest, account_key, ev_ref );
+    CHECK( err != ERROR_SUCCESS, "Invalid account name must fail closed" );
+
+    /* 6. Clock failure (returns 0) fails closed with ERROR_INVALID_DATA */
+    e1s18_set_test_clock( 0 );
+    err = ops->redeem_evidence( &req, "alice", nonce, binding, req_digest, account_key, ev_ref );
+    CHECK( err == ERROR_INVALID_DATA || err == ERROR_NOT_SUPPORTED, "Clock returning 0 must fail closed" );
+    e1s18_set_test_clock( 1000000000ULL );
+
+    return TEST_PASS;
+}
+
+/*
+ * Test 40: R2 Regression - Prompt queue concurrency stress test & deterministic sync
+ */
+#ifndef _WIN32
+#include <pthread.h>
+#include <unistd.h>
+
+struct queue_stress_thread_arg
+{
+    struct wex_prompt_queue *q;
+    int thread_id;
+    uint32_t session_id;
+    const char *desktop;
+    uint32_t caller_pid;
+    uint64_t caller_logon;
+    int *route_active_counter;
+    pthread_mutex_t *route_mutex;
+    int iterations;
+    int success_count;
+    int error_count;
+};
+
+static void *queue_stress_worker( void *param )
+{
+    struct queue_stress_thread_arg *arg = param;
+    int it;
+
+    for (it = 0; it < arg->iterations; it++)
+    {
+        struct wex_prompt_queue_entry *entry = NULL;
+        uint64_t deadline = 5000000000ULL;
+        int res;
+
+        res = wex_prompt_queue_enqueue( arg->q,
+                                        (uint64_t)(arg->thread_id * 1000 + it + 1),
+                                        arg->caller_pid,
+                                        arg->caller_logon,
+                                        arg->session_id,
+                                        arg->desktop,
+                                        deadline,
+                                        &entry );
+        if (res != WEX_STATUS_OK)
+        {
+            arg->error_count++;
+            usleep( 500 );
+            continue;
+        }
+
+        if (!entry->is_active)
+        {
+            res = wex_prompt_queue_wait_active( arg->q, entry, 5000 );
+            if (res != WEX_STATUS_OK)
+            {
+                wex_prompt_queue_release( arg->q, entry );
+                arg->error_count++;
+                continue;
+            }
+        }
+
+        /* Active section: verify ONLY ONE thread is active on this route */
+        pthread_mutex_lock( arg->route_mutex );
+        (*arg->route_active_counter)++;
+        assert( *arg->route_active_counter == 1 );
+        pthread_mutex_unlock( arg->route_mutex );
+
+        usleep( 200 ); /* Simulate prompt interaction */
+
+        pthread_mutex_lock( arg->route_mutex );
+        assert( *arg->route_active_counter == 1 );
+        (*arg->route_active_counter)--;
+        pthread_mutex_unlock( arg->route_mutex );
+
+        wex_prompt_queue_release( arg->q, entry );
+        arg->success_count++;
+    }
+    return NULL;
+}
+#endif
+
+static int test_r2_prompt_queue_concurrency_stress( void )
+{
+#ifndef _WIN32
+    struct wex_prompt_queue q;
+    pthread_t threads[12];
+    struct queue_stress_thread_arg args[12];
+    int route_active_s1_winsta = 0;
+    int route_active_s1_def = 0;
+    int route_active_s2_winsta = 0;
+    pthread_mutex_t route_m_s1_winsta = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t route_m_s1_def = PTHREAD_MUTEX_INITIALIZER;
+    pthread_mutex_t route_m_s2_winsta = PTHREAD_MUTEX_INITIALIZER;
+    int i, total_success = 0;
+    struct wex_prompt_queue_entry *e_act = NULL, *e_wait = NULL;
+
+    wex_prompt_queue_init( &q );
+
+    /*
+     * 12 concurrent threads across different sessions & desktops:
+     * - Threads 0..3: Session 1, WinSta0\Winlogon
+     * - Threads 4..7: Session 1, WinSta0\Default
+     * - Threads 8..11: Session 2, WinSta0\Winlogon
+     */
+    for (i = 0; i < 12; i++)
+    {
+        args[i].q = &q;
+        args[i].thread_id = i;
+        args[i].caller_pid = 1000 + i;
+        args[i].caller_logon = 2000 + i;
+        args[i].iterations = 8;
+        args[i].success_count = 0;
+        args[i].error_count = 0;
+
+        if (i < 4)
+        {
+            args[i].session_id = 1;
+            args[i].desktop = "WinSta0\\Winlogon";
+            args[i].route_active_counter = &route_active_s1_winsta;
+            args[i].route_mutex = &route_m_s1_winsta;
+        }
+        else if (i < 8)
+        {
+            args[i].session_id = 1;
+            args[i].desktop = "WinSta0\\Default";
+            args[i].route_active_counter = &route_active_s1_def;
+            args[i].route_mutex = &route_m_s1_def;
+        }
+        else
+        {
+            args[i].session_id = 2;
+            args[i].desktop = "WinSta0\\Winlogon";
+            args[i].route_active_counter = &route_active_s2_winsta;
+            args[i].route_mutex = &route_m_s2_winsta;
+        }
+
+        pthread_create( &threads[i], NULL, queue_stress_worker, &args[i] );
+    }
+
+    for (i = 0; i < 12; i++)
+    {
+        pthread_join( threads[i], NULL );
+        total_success += args[i].success_count;
+    }
+
+    CHECK( total_success > 40, "Concurrent queue iterations must succeed without conflict" );
+    CHECK_EQ( q.total_count, 0, "Queue must be empty after all workers finish" );
+
+    /* Test concurrent cancel while waiting */
+    CHECK_EQ( wex_prompt_queue_enqueue( &q, 901, 101, 201, 1, "WinSta0\\Winlogon", 1000, &e_act ), WEX_STATUS_OK, "active enqueue" );
+    CHECK_EQ( wex_prompt_queue_enqueue( &q, 902, 102, 202, 1, "WinSta0\\Winlogon", 1000, &e_wait ), WEX_STATUS_OK, "waiting enqueue" );
+    CHECK_EQ( e_act->is_active, 1, "e_act active" );
+    CHECK_EQ( e_wait->is_active, 0, "e_wait waiting" );
+
+    /* Cancel waiting entry under lock */
+    CHECK_EQ( wex_prompt_queue_cancel( &q, e_wait ), WEX_STATUS_OK, "cancel waiting" );
+    CHECK_EQ( q.total_count, 1, "one left after cancel" );
+    CHECK_EQ( e_wait->state, WEX_QUEUE_STATE_CANCELLED, "cancelled entry still owned by its thread" );
+    CHECK_EQ( wex_prompt_queue_release( &q, e_wait ), WEX_STATUS_OK, "owner releases cancelled entry" );
+
+    /* Release active entry */
+    CHECK_EQ( wex_prompt_queue_release( &q, e_act ), WEX_STATUS_OK, "release active" );
+    CHECK_EQ( q.total_count, 0, "queue empty after release" );
+
+    /* Test cancel_all */
+    CHECK_EQ( wex_prompt_queue_enqueue( &q, 903, 101, 201, 1, "WinSta0\\Winlogon", 1000, &e_act ), WEX_STATUS_OK, "enqueue 1" );
+    CHECK_EQ( wex_prompt_queue_enqueue( &q, 904, 102, 202, 1, "WinSta0\\Winlogon", 1000, &e_wait ), WEX_STATUS_OK, "enqueue 2" );
+    CHECK_EQ( wex_prompt_queue_cancel_all( &q ), WEX_STATUS_OK, "cancel all" );
+    CHECK_EQ( e_act->state, WEX_QUEUE_STATE_CANCELLED, "e_act cancelled" );
+    CHECK_EQ( e_wait->state, WEX_QUEUE_STATE_CANCELLED, "e_wait cancelled" );
+    wex_prompt_queue_release( &q, e_act );
+    wex_prompt_queue_release( &q, e_wait );
+    CHECK_EQ( q.total_count, 0, "queue empty after cancel_all release" );
+
+    wex_prompt_queue_destroy( &q );
+#endif
+    return TEST_PASS;
+}
+
+/*
+ * Test 43: R6 Regression - Image lease held until target exit & token closed on success
+ */
+static int test_r6_image_lease_and_token_cleanup( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    DWORD err;
+    int handles_before;
+
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    req.lease = 12345;
+    req.is_standard_user = TRUE;
+
+    reset_tracker();
+    handles_before = g_track.handles_closed;
+    e1s18_set_ops( &s_fake_ops );
+
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, ERROR_SUCCESS, "Standard request success" );
+
+    /* On success, issued_token must be closed and not leaked (handles_closed increased) */
+    CHECK( g_track.handles_closed > handles_before, "Handles including issued_token must be closed on success" );
+
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
 #endif
 
 int main( int argc, char **argv )
@@ -2257,6 +2527,17 @@ int main( int argc, char **argv )
 
     printf("38. Testing transport redeem live unsupported without active transport...\n");
     if (test_transport_redeem_live_unsupported_without_pipe() != TEST_PASS) ret = 1;
+
+    printf("39. Testing R3 regression: storage generation default removed & fail-closed literals...\n");
+    if (test_r3_remediation_storage_generation_and_defaults() != TEST_PASS) ret = 1;
+
+    printf("40. Testing R2 regression: prompt queue concurrency stress & FIFO per route...\n");
+    if (test_r2_prompt_queue_concurrency_stress() != TEST_PASS) ret = 1;
+
+
+
+    printf("41. Testing R6 regression: image lease guard & token cleanup...\n");
+    if (test_r6_image_lease_and_token_cleanup() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

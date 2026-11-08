@@ -25,7 +25,7 @@ chmod 0755 "$FIXTURE"
 echo "==> Compiling production and lab binaries"
 
 # 1. Compile production build (no WEXELEVATE_E1S18)
-cc -O2 -Wall -Wextra -Werror \
+cc -O2 -Wall -Wextra -Werror -lpthread \
     -I"$REPO/src/include" \
     -I"$REPO/src/programs/wexelevate" \
     -o "$FIXTURE/production" \
@@ -35,7 +35,7 @@ cc -O2 -Wall -Wextra -Werror \
     "$REPO/src/programs/wexelevate/test_broker_e1s18_main.c"
 
 # 2. Compile lab build (with -DWEXELEVATE_E1S18 -DWEX_E1S15_LAUNCH_PREP_TEST)
-cc -O2 -Wall -Wextra -Werror \
+cc -O2 -Wall -Wextra -Werror -lpthread \
     -DWEXELEVATE_E1S18 \
     -DWEX_E1S15_LAUNCH_PREP_TEST \
     -I"$REPO/src/include" \
@@ -60,6 +60,17 @@ echo "==> Checking production exclusion (no test defines in build files)"
 echo "==> Testing lab binary (all stages, matrix, single resume, ordering)"
 "$FIXTURE/lab"
 
+# 5b. Same tests under AddressSanitizer/UBSan (queue races, record overruns, leaks)
+echo "==> Testing lab binary under ASan/UBSan"
+cc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer \
+    -Wall -Wextra -Werror -DWEXELEVATE_E1S18 -DWEX_E1S15_LAUNCH_PREP_TEST \
+    -I"$REPO/src/include" -I"$REPO/src/programs/wexelevate" -o "$FIXTURE/lab-asan" \
+    "$REPO/src/programs/wexelevate/launch_prep.c" \
+    "$REPO/src/programs/wexelevate/cred_dialog.c" \
+    "$REPO/src/programs/wexelevate/e1s18_broker.c" \
+    "$REPO/src/programs/wexelevate/test_broker_e1s18_main.c" -lpthread
+"$FIXTURE/lab-asan" > "$FIXTURE/lab-asan.log" 2>&1 || { tail -n 40 "$FIXTURE/lab-asan.log"; fail "sanitizer run"; }
+
 # 6. Cross-compile real broker with lab define for both x86_64 and i686 ABIs (WoW64)
 echo "==> Cross-compiling real broker with lab define for x86_64 and i686 MinGW (-Wall -Werror)"
 x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
@@ -80,7 +91,9 @@ i686-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
     -ladvapi32 -luserenv -lbcrypt
 
-# 7. Production objects byte-for-byte unchanged check (cmp)
+# 7. Production objects byte-for-byte unchanged check (cmp). The baseline is the
+# last reviewed production main.c (since S18e: with the R12 bounded-reply fix,
+# docs/E1_S18E_REMEDIATION.md); regenerate it only after reviewing a main.c change.
 echo "==> Verifying production objects are byte-for-byte identical (cmp)"
 x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -I"$REPO/src/include" \

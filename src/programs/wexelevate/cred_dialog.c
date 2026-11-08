@@ -3,8 +3,10 @@
 
 #include "cred_dialog.h"
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -308,24 +310,118 @@ void wex_conversation_wipe( struct wex_conversation *conv )
 /*
  * Serialized Prompt Queue (H3b)
  */
+
+static void queue_lock( struct wex_prompt_queue *q )
+{
+#if defined(_WIN32)
+    EnterCriticalSection( &q->lock );
+#else
+    pthread_mutex_lock( &q->lock );
+#endif
+}
+
+static void queue_unlock( struct wex_prompt_queue *q )
+{
+#if defined(_WIN32)
+    LeaveCriticalSection( &q->lock );
+#else
+    pthread_mutex_unlock( &q->lock );
+#endif
+}
+
+static void entry_signal( struct wex_prompt_queue_entry *entry )
+{
+#if defined(_WIN32)
+    if (entry->event) SetEvent( entry->event );
+#else
+    entry->signaled = 1;
+    pthread_cond_broadcast( &entry->cond );
+#endif
+}
+
+static void entry_destroy_sync( struct wex_prompt_queue_entry *entry )
+{
+#if defined(_WIN32)
+    if (entry->event)
+    {
+        CloseHandle( entry->event );
+        entry->event = NULL;
+    }
+#else
+    pthread_cond_destroy( &entry->cond );
+#endif
+}
+
+static void queue_unlink( struct wex_prompt_queue *q, struct wex_prompt_queue_entry *entry )
+{
+    if (entry->unlinked) return;
+    if (entry->prev) entry->prev->next = entry->next;
+    else q->head = entry->next;
+
+    if (entry->next) entry->next->prev = entry->prev;
+    else q->tail = entry->prev;
+
+    entry->prev = NULL;
+    entry->next = NULL;
+    entry->unlinked = 1;
+    if (q->total_count > 0) q->total_count--;
+}
+
+static void queue_promote_next( struct wex_prompt_queue *q, const struct wex_prompt_queue_entry *rel )
+{
+    struct wex_prompt_queue_entry *next;
+
+    for (next = q->head; next != NULL; next = next->next)
+    {
+        if (next->state == WEX_QUEUE_STATE_WAITING &&
+            next->session_id == rel->session_id &&
+            !strcmp( next->desktop, rel->desktop ))
+        {
+            next->is_active = 1;
+            next->state = WEX_QUEUE_STATE_ACTIVE;
+            entry_signal( next );
+            break;
+        }
+    }
+
+    q->active_entry = NULL;
+    for (next = q->head; next != NULL; next = next->next)
+    {
+        if (next->is_active)
+        {
+            q->active_entry = next;
+            break;
+        }
+    }
+}
+
 void wex_prompt_queue_init( struct wex_prompt_queue *q )
 {
     if (!q) return;
+    memset( q, 0, sizeof(*q) );
+#if defined(_WIN32)
+    InitializeCriticalSection( &q->lock );
+#else
+    pthread_mutex_init( &q->lock, NULL );
+#endif
     q->head = NULL;
     q->tail = NULL;
     q->active_entry = NULL;
     q->total_count = 0;
+    q->initialized = 1;
 }
 
 void wex_prompt_queue_destroy( struct wex_prompt_queue *q )
 {
     struct wex_prompt_queue_entry *cur, *next;
 
-    if (!q) return;
+    if (!q || !q->initialized) return;
+    queue_lock( q );
     cur = q->head;
     while (cur)
     {
         next = cur->next;
+        entry_destroy_sync( cur );
         free( cur );
         cur = next;
     }
@@ -333,6 +429,14 @@ void wex_prompt_queue_destroy( struct wex_prompt_queue *q )
     q->tail = NULL;
     q->active_entry = NULL;
     q->total_count = 0;
+    queue_unlock( q );
+
+#if defined(_WIN32)
+    DeleteCriticalSection( &q->lock );
+#else
+    pthread_mutex_destroy( &q->lock );
+#endif
+    q->initialized = 0;
 }
 
 int wex_prompt_queue_enqueue( struct wex_prompt_queue *q,
@@ -347,12 +451,18 @@ int wex_prompt_queue_enqueue( struct wex_prompt_queue *q,
     struct wex_prompt_queue_entry *cur, *entry;
     unsigned int caller_count = 0;
     unsigned int session_count = 0;
+    int route_active = 0;
 
     if (!q || !request_id || !out_entry)
         return WEX_STATUS_INVALID_PARAMETER;
 
+    queue_lock( q );
+
     if (q->total_count >= WEX_PROMPT_QUEUE_GLOBAL_LIMIT)
+    {
+        queue_unlock( q );
         return WEX_STATUS_BUSY;
+    }
 
     /* Count per-caller and per-session queued entries */
     for (cur = q->head; cur != NULL; cur = cur->next)
@@ -367,15 +477,36 @@ int wex_prompt_queue_enqueue( struct wex_prompt_queue *q,
     }
 
     if (caller_count >= WEX_PROMPT_QUEUE_PER_CALLER_LIMIT)
+    {
+        queue_unlock( q );
         return WEX_STATUS_QUOTA_EXCEEDED;
+    }
 
     if (session_count >= WEX_PROMPT_QUEUE_PER_SESSION_LIMIT)
+    {
+        queue_unlock( q );
         return WEX_STATUS_BUSY;
+    }
 
     entry = (struct wex_prompt_queue_entry *)malloc( sizeof(*entry) );
-    if (!entry) return WEX_STATUS_BUSY;
+    if (!entry)
+    {
+        queue_unlock( q );
+        return WEX_STATUS_BUSY;
+    }
 
     memset( entry, 0, sizeof(*entry) );
+#if defined(_WIN32)
+    entry->event = CreateEventW( NULL, FALSE, FALSE, NULL );
+    if (!entry->event)
+    {
+        free( entry );
+        queue_unlock( q );
+        return WEX_STATUS_BUSY;
+    }
+#else
+    pthread_cond_init( &entry->cond, NULL );
+#endif
     entry->request_id = request_id;
     entry->caller_pid = caller_pid;
     entry->caller_logon = caller_logon;
@@ -387,6 +518,16 @@ int wex_prompt_queue_enqueue( struct wex_prompt_queue *q,
     }
     entry->deadline = deadline;
 
+    /* Check if an entry for this (session_id, desktop) route is already active */
+    for (cur = q->head; cur != NULL; cur = cur->next)
+    {
+        if (cur->is_active && cur->session_id == session_id && !strcmp( cur->desktop, entry->desktop ))
+        {
+            route_active = 1;
+            break;
+        }
+    }
+
     /* Link at tail of FIFO */
     entry->prev = q->tail;
     entry->next = NULL;
@@ -395,12 +536,11 @@ int wex_prompt_queue_enqueue( struct wex_prompt_queue *q,
     q->tail = entry;
     q->total_count++;
 
-    /* If no active prompt in this queue, this entry becomes active immediately */
-    if (!q->active_entry)
+    if (!route_active)
     {
         entry->is_active = 1;
         entry->state = WEX_QUEUE_STATE_ACTIVE;
-        q->active_entry = entry;
+        if (!q->active_entry) q->active_entry = entry;
     }
     else
     {
@@ -409,67 +549,165 @@ int wex_prompt_queue_enqueue( struct wex_prompt_queue *q,
     }
 
     *out_entry = entry;
+    queue_unlock( q );
     return WEX_STATUS_OK;
 }
 
-static void queue_unlink( struct wex_prompt_queue *q, struct wex_prompt_queue_entry *entry )
+int wex_prompt_queue_wait_active( struct wex_prompt_queue *q,
+                                  struct wex_prompt_queue_entry *entry,
+                                  uint64_t timeout_ms )
 {
-    if (entry->prev) entry->prev->next = entry->next;
-    else q->head = entry->next;
+    if (!q || !entry) return WEX_STATUS_INVALID_PARAMETER;
 
-    if (entry->next) entry->next->prev = entry->prev;
-    else q->tail = entry->prev;
+    queue_lock( q );
+    if (entry->is_active && entry->state == WEX_QUEUE_STATE_ACTIVE)
+    {
+        queue_unlock( q );
+        return WEX_STATUS_OK;
+    }
 
-    entry->prev = NULL;
-    entry->next = NULL;
-    if (q->total_count > 0) q->total_count--;
+    entry->waiter_count++;
+
+#if defined(_WIN32)
+    while (!entry->is_active && entry->state == WEX_QUEUE_STATE_WAITING)
+    {
+        HANDLE ev = entry->event;
+        queue_unlock( q );
+        DWORD wr = WaitForSingleObject( ev, (DWORD)timeout_ms );
+        queue_lock( q );
+        if (wr == WAIT_TIMEOUT)
+        {
+            if (!entry->is_active && entry->state == WEX_QUEUE_STATE_WAITING)
+            {
+                entry->state = WEX_QUEUE_STATE_TIMED_OUT;
+                queue_unlink( q, entry );
+                entry->waiter_count--;
+                queue_unlock( q );
+                return WEX_STATUS_TIMED_OUT;
+            }
+        }
+        break;
+    }
+#else
+    {
+        struct timespec ts;
+        clock_gettime( CLOCK_REALTIME, &ts );
+        ts.tv_sec += timeout_ms / 1000;
+        ts.tv_nsec += (timeout_ms % 1000) * 1000000ULL;
+        if (ts.tv_nsec >= 1000000000L)
+        {
+            ts.tv_sec += ts.tv_nsec / 1000000000L;
+            ts.tv_nsec %= 1000000000L;
+        }
+
+        while (!entry->is_active && entry->state == WEX_QUEUE_STATE_WAITING && !entry->signaled)
+        {
+            int rc = pthread_cond_timedwait( &entry->cond, &q->lock, &ts );
+            if (rc == ETIMEDOUT)
+            {
+                if (!entry->is_active && entry->state == WEX_QUEUE_STATE_WAITING)
+                {
+                    entry->state = WEX_QUEUE_STATE_TIMED_OUT;
+                    queue_unlink( q, entry );
+                    entry->waiter_count--;
+                    queue_unlock( q );
+                    return WEX_STATUS_TIMED_OUT;
+                }
+                break;
+            }
+        }
+    }
+#endif
+
+    entry->waiter_count--;
+    if (entry->is_active && entry->state == WEX_QUEUE_STATE_ACTIVE)
+    {
+        queue_unlock( q );
+        return WEX_STATUS_OK;
+    }
+
+    if (entry->state == WEX_QUEUE_STATE_CANCELLED)
+    {
+        queue_unlock( q );
+        return WEX_STATUS_CANCELLED;
+    }
+    if (entry->state == WEX_QUEUE_STATE_TIMED_OUT)
+    {
+        queue_unlock( q );
+        return WEX_STATUS_TIMED_OUT;
+    }
+
+    queue_unlock( q );
+    return WEX_STATUS_DENIED;
 }
 
 int wex_prompt_queue_cancel( struct wex_prompt_queue *q,
                              struct wex_prompt_queue_entry *entry )
 {
+    int was_active;
+
     if (!q || !entry) return WEX_STATUS_INVALID_PARAMETER;
 
+    queue_lock( q );
+    was_active = entry->is_active;
     entry->state = WEX_QUEUE_STATE_CANCELLED;
+    entry->is_active = 0;
 
-    if (q->active_entry == entry)
+    queue_unlink( q, entry );
+
+    if (was_active)
     {
-        return wex_prompt_queue_release( q, entry );
+        queue_promote_next( q, entry );
     }
 
-    /* Unlink waiting entry and free */
-    queue_unlink( q, entry );
-    free( entry );
+    /* The owning request thread still holds the entry; only its release frees it (R2). */
+    entry_signal( entry );
+    queue_unlock( q );
+    return WEX_STATUS_OK;
+}
+
+int wex_prompt_queue_cancel_all( struct wex_prompt_queue *q )
+{
+    struct wex_prompt_queue_entry *cur, *next;
+
+    if (!q) return WEX_STATUS_INVALID_PARAMETER;
+
+    queue_lock( q );
+    cur = q->head;
+    while (cur)
+    {
+        next = cur->next;
+        cur->state = WEX_QUEUE_STATE_CANCELLED;
+        cur->is_active = 0;
+        entry_signal( cur );
+        cur = next;
+    }
+    q->active_entry = NULL;
+    queue_unlock( q );
     return WEX_STATUS_OK;
 }
 
 int wex_prompt_queue_release( struct wex_prompt_queue *q,
                               struct wex_prompt_queue_entry *entry )
 {
-    struct wex_prompt_queue_entry *next;
+    int was_active;
 
     if (!q || !entry) return WEX_STATUS_INVALID_PARAMETER;
 
-    if (q->active_entry == entry)
-    {
-        q->active_entry = NULL;
-    }
+    queue_lock( q );
+    was_active = entry->is_active;
+    entry->is_active = 0;
 
     queue_unlink( q, entry );
-    free( entry );
 
-    /* Promote next waiting entry in FIFO order */
-    for (next = q->head; next != NULL; next = next->next)
+    if (was_active)
     {
-        if (next->state == WEX_QUEUE_STATE_WAITING)
-        {
-            next->is_active = 1;
-            next->state = WEX_QUEUE_STATE_ACTIVE;
-            q->active_entry = next;
-            break;
-        }
+        queue_promote_next( q, entry );
     }
 
+    entry_destroy_sync( entry );
+    free( entry );
+    queue_unlock( q );
     return WEX_STATUS_OK;
 }
 
@@ -480,17 +718,26 @@ int wex_prompt_queue_check_deadlines( struct wex_prompt_queue *q, uint64_t now )
 
     if (!q || !now) return 0;
 
+    queue_lock( q );
     cur = q->head;
     while (cur)
     {
         next = cur->next;
         if (cur->deadline && now >= cur->deadline)
         {
+            int was_active = cur->is_active;
             cur->state = WEX_QUEUE_STATE_TIMED_OUT;
-            wex_prompt_queue_release( q, cur );
+            cur->is_active = 0;
+            queue_unlink( q, cur );
+            if (was_active)
+            {
+                queue_promote_next( q, cur );
+            }
+            entry_signal( cur ); /* the owner's release frees it (R2) */
             count++;
         }
         cur = next;
     }
+    queue_unlock( q );
     return count;
 }

@@ -327,9 +327,9 @@ static uint64_t e1s18_get_monotonic_time( void )
     struct timespec ts;
     if (clock_gettime( CLOCK_MONOTONIC, &ts ) == 0)
         return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
-    return 1000000000ULL;
+    return 0;
 #else
-    return 1000000000ULL;
+    return 0;
 #endif
 }
 
@@ -428,6 +428,14 @@ void e1s18_reset_prompt_queue( void )
     else
     {
         e1s18_init_prompt_queue();
+    }
+}
+
+void e1s18_stop_prompt_queue( void )
+{
+    if (s_queue_init_done)
+    {
+        wex_prompt_queue_cancel_all( &s_prompt_queue );
     }
 }
 
@@ -567,11 +575,19 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
             e1s18_record_answer( request_id, nonce );
             if (out_account && account_max > 0)
             {
-                memset( out_account, 0, account_max );
-                strncpy( out_account, "alice", account_max - 1 );
-                out_account[account_max - 1] = 0;
+                if (!wex_valid_account_name( out_account ))
+                {
+                    err = ERROR_ACCESS_DENIED;
+                }
+                else
+                {
+                    err = ERROR_SUCCESS;
+                }
             }
-            err = ERROR_SUCCESS;
+            else
+            {
+                err = ERROR_SUCCESS;
+            }
         }
     }
 
@@ -596,6 +612,8 @@ DWORD e1s18_transport_redeem_live( struct request *req,
     if (!req || !req->pipe || !nonce || !out_evidence_buf || !out_evidence_len ||
         !out_evidence_ref || !out_storage_generation)
         return ERROR_INVALID_PARAMETER;
+
+    *out_storage_generation = 0;
 
 #if defined(_WIN32)
     UINT64 channel = 0;
@@ -652,13 +670,23 @@ DWORD e1s18_transport_redeem_live( struct request *req,
     memcpy( query_buf + 16, redeem_buf + 20 + 124, 16 ); /* account_key from evidence offset 124 */
 
     err = transport( req->pipe, E1S6_STORAGE_QUERY, query_buf, sizeof(query_buf), &channel );
-    if (err == ERROR_SUCCESS && e1s6_u32( query_buf ) == 0)
+    if (err != ERROR_SUCCESS || e1s6_u32( query_buf ) != 0)
     {
-        *out_storage_generation = e1s6_u64( query_buf + 8 );
+        transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
+        e1s18_wipe( open_buf, sizeof(open_buf) );
+        e1s18_wipe( redeem_buf, sizeof(redeem_buf) );
+        e1s18_wipe( query_buf, sizeof(query_buf) );
+        return err ? err : (e1s6_u32( query_buf ) ? e1s6_u32( query_buf ) : ERROR_NOT_FOUND);
     }
-    else
+
+    *out_storage_generation = e1s6_u64( query_buf + 8 );
+    if (*out_storage_generation == 0)
     {
-        *out_storage_generation = 1; /* Fallback default lab generation */
+        transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
+        e1s18_wipe( open_buf, sizeof(open_buf) );
+        e1s18_wipe( redeem_buf, sizeof(redeem_buf) );
+        e1s18_wipe( query_buf, sizeof(query_buf) );
+        return ERROR_INVALID_DATA;
     }
 
     /* Step 4: Close transport channel */
@@ -713,6 +741,17 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
         return ERROR_BUSY;
     }
 
+    /* Wait for our turn in FIFO order for this desktop/session */
+    if (!q_entry->is_active)
+    {
+        q_res = wex_prompt_queue_wait_active( &s_prompt_queue, q_entry, 120000 );
+        if (q_res != WEX_STATUS_OK)
+        {
+            wex_prompt_queue_release( &s_prompt_queue, q_entry );
+            return (q_res == WEX_STATUS_TIMED_OUT) ? ERROR_TIMEOUT : ERROR_CANCELLED;
+        }
+    }
+
     memset( answer_buf, 0, sizeof(answer_buf) );
 
     /* Step 2: Dialog conversation execution */
@@ -745,10 +784,12 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
                         e1s18_record_answer( req->id, nonce );
                         if (!wex_valid_account_name( out_account ))
                         {
-                            strncpy( out_account, "alice", account_max - 1 );
-                            out_account[account_max - 1] = 0;
+                            err = ERROR_ACCESS_DENIED;
                         }
-                        err = ERROR_SUCCESS;
+                        else
+                        {
+                            err = ERROR_SUCCESS;
+                        }
                     }
                 }
             }
@@ -805,11 +846,13 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
         !out_account_key || !out_evidence_ref)
         return ERROR_INVALID_PARAMETER;
 
-#if defined(_WIN32)
-    expected_host_uid = req->caller_pid ? (uint64_t)req->caller_pid : 1000;
-#else
-    expected_host_uid = req->caller_pid ? (uint64_t)req->caller_pid : ((getuid() != 0) ? (uint64_t)getuid() : 1000);
-#endif
+    if (now == 0)
+        return ERROR_INVALID_DATA;
+
+    if (!req->caller_pid)
+        return ERROR_INVALID_PARAMETER;
+
+    expected_host_uid = (uint64_t)req->caller_pid;
 
     memset( evidence_buf, 0, sizeof(evidence_buf) );
     memset( evidence_ref, 0, sizeof(evidence_ref) );
@@ -841,6 +884,12 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
         return ERROR_NOT_SUPPORTED;
     }
 #endif
+
+    if (storage_gen == 0)
+    {
+        e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+        return ERROR_INVALID_DATA;
+    }
 
     if (evidence_len < sizeof(struct wex_s1_evidence_record))
     {
@@ -946,7 +995,7 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
 
 #ifdef WEXELEVATE_E1S18
     /* Fail closed if Stage 2 fields are unset */
-    if (is_zero_key( req->account_key ) || req->map_generation == 0)
+    if (is_zero_key( req->account_key ) || req->map_generation == 0 || req->storage_generation == 0)
         return ERROR_INVALID_DATA;
 #endif
 
@@ -1333,8 +1382,7 @@ static DWORD default_create_process_suspended( struct request *req, HANDLE token
                                               PROCESS_INFORMATION *out_pi )
 {
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
-    STARTUPINFOEXW si;
-    SIZE_T attr_size = 0;
+    STARTUPINFOW si;
     WCHAR *cmdline = NULL;
     DWORD err = ERROR_SUCCESS;
 
@@ -1343,47 +1391,31 @@ static DWORD default_create_process_suspended( struct request *req, HANDLE token
     if (!out_pi) return ERROR_INVALID_PARAMETER;
     memset( out_pi, 0, sizeof(*out_pi) );
     memset( &si, 0, sizeof(si) );
-    si.StartupInfo.cb = sizeof(si);
-
-    InitializeProcThreadAttributeList( NULL, 1, 0, &attr_size );
-    si.lpAttributeList = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc( attr_size );
-    if (!si.lpAttributeList || !InitializeProcThreadAttributeList( si.lpAttributeList, 1, 0, &attr_size ))
-    {
-        free( si.lpAttributeList );
-        return ERROR_NOT_ENOUGH_MEMORY;
-    }
-    if (!UpdateProcThreadAttribute( si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_PARENT_PROCESS, &req->caller,
-                                    sizeof(HANDLE), NULL, NULL ))
-    {
-        err = GetLastError();
-        DeleteProcThreadAttributeList( si.lpAttributeList );
-        free( si.lpAttributeList );
-        return err;
-    }
-
-    si.StartupInfo.dwFlags = STARTF_USESHOWWINDOW;
-    si.StartupInfo.wShowWindow = (WORD)req->show;
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = (WORD)req->show;
 
     cmdline = (WCHAR *)malloc( (lstrlenW( req->cmdline ) + 1) * sizeof(WCHAR) );
     if (!cmdline)
     {
-        DeleteProcThreadAttributeList( si.lpAttributeList );
-        free( si.lpAttributeList );
         return ERROR_NOT_ENOUGH_MEMORY;
     }
     lstrcpyW( cmdline, req->cmdline );
 
+    /*
+     * R13 remediation: do NOT designate Bob (req->caller) as parent process.
+     * Designating Bob imports Bob's debug port (debug_obj) and job membership (job)
+     * into Alice's child process. The child is created with the broker (SYSTEM)
+     * as parent, and caller handle/PID are returned via the broker reply.
+     */
     if (!CreateProcessAsUserW( token, req->image, cmdline, NULL, NULL, FALSE,
-                               EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE |
-                               CREATE_SUSPENDED,
-                               (void *)win_env, req->cwd, &si.StartupInfo, out_pi ))
+                               CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE | CREATE_SUSPENDED,
+                               (void *)win_env, req->cwd, &si, out_pi ))
     {
         err = GetLastError();
     }
 
     free( cmdline );
-    DeleteProcThreadAttributeList( si.lpAttributeList );
-    free( si.lpAttributeList );
     return err;
 #else
     (void)req; (void)token; (void)win_env; (void)win_env_sz; (void)cwd; (void)out_pi;
@@ -1679,6 +1711,15 @@ static void e1s18_compute_digests( const struct request *req,
     sha256_final( &ctx, out_env_digest );
 }
 
+/* Launch preparation hands over the Unix environment; free it on every exit. */
+static void e1s18_free_unix_env( char **env, size_t count )
+{
+    size_t i;
+    if (!env) return;
+    for (i = 0; i < count; i++) free( env[i] );
+    free( env );
+}
+
 /*
  * Main standard-user request sequencing function.
  * Coordinates all steps and rolls back completely on any intermediate failure.
@@ -1782,6 +1823,27 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     {
         err = ops->arm_lease( req->lease, pi.dwProcessId );
         if (err) goto fail;
+#if defined(_WIN32)
+        /* R6 remediation: keep image protection until TARGET process exits by transferring ownership to guard thread */
+        {
+            HANDLE guard_proc = NULL;
+            if (DuplicateHandle( GetCurrentProcess(), pi.hProcess, GetCurrentProcess(), &guard_proc,
+                                 SYNCHRONIZE | PROCESS_TERMINATE, FALSE, 0 ))
+            {
+                if (!start_guard( req, guard_proc ))
+                {
+                    CloseHandle( guard_proc );
+                    err = ERROR_NOT_ENOUGH_MEMORY;
+                    goto fail;
+                }
+            }
+            else
+            {
+                err = GetLastError();
+                goto fail;
+            }
+        }
+#endif
     }
 
     /* Step 10: Duplicate limited handle to caller */
@@ -1812,6 +1874,7 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     }
 
     /* Clean up broker local process/thread handles and temporary buffers */
+    if (issued_token) ops->close_handle( issued_token );
     if (pi.hThread) ops->close_handle( pi.hThread );
     if (pi.hProcess) ops->close_handle( pi.hProcess );
     if (hkey) ops->close_handle( hkey );
@@ -1824,6 +1887,7 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
 #endif
     if (win_env) ops->free_buffer( win_env );
     if (cwd) ops->free_buffer( cwd );
+    e1s18_free_unix_env( unix_env, unix_env_cnt );
     e1s18_wipe( nonce, sizeof(nonce) );
     e1s18_wipe( account_name, sizeof(account_name) );
     e1s18_wipe( account_key, sizeof(account_key) );
@@ -1869,6 +1933,8 @@ fail:
     }
     if (win_env) { ops->free_buffer( win_env ); win_env = NULL; }
     if (cwd) { ops->free_buffer( cwd ); cwd = NULL; }
+    e1s18_free_unix_env( unix_env, unix_env_cnt );
+    unix_env = NULL;
     e1s18_wipe( nonce, sizeof(nonce) );
     e1s18_wipe( account_name, sizeof(account_name) );
     e1s18_wipe( account_key, sizeof(account_key) );

@@ -114,7 +114,7 @@ class Audit:
     REASONS = ("open", "attempt", "ready", "redeemed", "cancel", "expired",
                "binding", "limit", "throttle", "pressure", "worker-status",
                "worker-protocol", "authority", "connection", "rng", "cleanup",
-               "disabled", "clock", "protocol", "account-unknown")
+               "disabled", "clock", "protocol", "account-unknown", "storage")
 
     def __init__(self, fd):
         st = os.fstat(fd)

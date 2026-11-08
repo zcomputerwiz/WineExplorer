@@ -93,6 +93,7 @@ struct request
     BY_HANDLE_FILE_INFORMATION info;
     BYTE hash[32];
     int live;             /* in the table: the id can be used once */
+    DWORD admitted_pid;   /* R12 per-caller admission, client PID of the pipe at accept */
 #ifdef WEXELEVATE_E1S18
     BOOL is_standard_user;
     HANDLE s10_context;

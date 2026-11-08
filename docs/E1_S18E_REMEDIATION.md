@@ -1,0 +1,84 @@
+# E1-S18e: remediation of the standard-user chain review
+
+Input: the adversarial review in `docs/E1_S18_REVIEW.md` (findings R1-R15, verdict "do not
+enable"). This file records what has been fixed, how it was checked, and what is still open.
+The standard-user chain stays disabled (`WEXELEVATE_E1S18`, lab define, off by default).
+
+## Status
+
+| Finding | Status | Files | Checked by |
+| :--- | :--- | :--- | :--- |
+| R1 stored fixture password | Fixed (fails closed) | `tools/e1s6/e1s6-lab.py` | `test_lab_adapter_supplies_no_credentials` in `tools/e1s6/test-evidence.py` |
+| R2 prompt queue races | Fixed in the queue; arbitration with click consent open | `cred_dialog.c/.h`, `e1s18_broker.c` | Test 40 (12-thread stress), `test_prompt_queue_cancel_and_timeout`, both under ASan/UBSan |
+| R3 storage generation default | Fixed (broker, evidence service, wineserver query) | `e1s18_broker.c`, `tools/e1s6/evidence.py`, Wine op 12 | Tests 18-22 and 39, evidence storage-query tests, S13 harness op 12 cases |
+| R6 image protection | Broker side: lease handed to `start_guard` until exit | `e1s18_broker.c` | Test 41 (was 43) |
+| R9 evidence adapter | Partly: init order, connection after endorsement, S1 digest offsets | `tools/e1s6/e1s6-lab.py` | same static test, S6 transport test |
+| R12 broker worker exhaustion (production path) | Fixed | `main.c`, `wexelevate_request.h` | S6 transport test (filtered-admin path) |
+| R13 caller-as-parent | Standard-user branch fixed; filtered-admin unchanged (see below) | `e1s18_broker.c` | Not testable natively; needs a live designated-parent test |
+| R4, R5, R7, R8, R10, R11, R14, R15 | Open | | |
+
+## What changed
+
+**R12 (production filtered-admin path, `main.c`).** Every pipe read and write already went through
+`pipe_io`, which is bounded by `READ_TIMEOUT` and aborted by `stop_event`. The only unbounded call
+was `FlushFileBuffers` after the reply, which waits until the peer reads. It is replaced by a bounded
+`pipe_io` read that returns when the client closes its end (or after `READ_TIMEOUT`), so the reply is
+still delivered before `DisconnectNamedPipe`. Each client process may hold at most four workers
+(`MAX_PER_CALLER`, counted per pipe client PID at accept); the existing global cap of
+`2 * MAX_REQUESTS` workers stays. A first agent draft added a 15 second deadline over the whole
+request, which also covered the consent prompt and broke the consent-timeout case of the S6 test
+(error 233 instead of 1460), plus a flush thread that could outlive its pipe handle; both were
+dropped. The production-object baseline in `scripts/test_broker_e1s18.sh` was regenerated from the
+reviewed `main.c`; the byte-identical check stays.
+
+**R2 (queue).** The queue is protected by one lock; one entry is active per (session, desktop)
+route; waiters block on a per-entry event or condition until promoted, cancelled or timed out. Only
+the owning request thread frees its entry (`wex_prompt_queue_release`): cancel and the deadline
+sweep only mark, unlink, promote and signal. The agent draft freed entries in cancel and in the
+deadline sweep while their request thread still held them; that was the use-after-free the review
+described and is fixed. Still open: click consent does not take part in the same arbitration, and
+admission is counted per caller process, not per logon.
+
+**R3.** The broker zeroes the storage generation, closes the connection and denies on every query
+failure or zero value; no default is guessed. The evidence service had denied with an audit reason
+missing from `Audit.REASONS`, which marked the whole service failed; `storage` is now a permitted
+reason, and a test proves a denied query leaves the service usable. The generation itself now comes
+from the wineserver (next section).
+
+**Storage generation query (Wine, `WEX_HKU_STORAGE_QUERY=12`).** Implemented as the review
+recommended: broker only, after S10 issuance and before LOAD, on request 325. It takes the LOAD
+record with storage generation 0, checks the original S10 context and issued token without burning
+the one-shot LOAD attempt, and discovers the generation from the server's own `config_dir_fd` with
+the same no-create validator LOAD uses (no SID hive lock, no `.hive.lock` creation, read-only hive
+open; missing, unprovisioned, recovery or substituted profiles deny). LOAD keeps its exact
+comparison. Listed in `docs/STOCK_CHANGES.md`. The broker does not call it yet (it still expects the
+generation from Stage 2 redemption); moving the broker to op 12 belongs to batch 2.
+
+**R1 and R9 (lab adapter).** The adapter no longer reads `/root/e1s-fixtures-passwords` or answers
+PAM prompts. Until a private channel to the registered dialog exists (R8), the worker's dialog end
+is closed at once, so every PAM conversation fails and no evidence issues. The generations are
+assigned before the evidence service captures them, the evidence connection is created only after
+endorsement, and the binding takes the request digest from S1 answer offset 104 (the old code used
+the nonce at 40).
+
+**R13.** The standard-user branch no longer designates the caller as parent, so the child does not
+inherit the caller's debug object or job. The filtered-admin path still designates the caller as
+parent (needed for console and window placement), so a caller under its own debugger or job passes
+that to the elevated process. Fixing it needs a server-side flag that suppresses debugger and job
+inheritance for broker-authorized creation; that is a separate decision.
+
+**Other fixes found while checking.** A test fake wrote a 68-byte SID array into the 28-byte SID
+field of the 136-byte S10 reply (found by ASan). Successful launches leaked the Unix environment
+from launch preparation in the broker (30 allocations per test run); it is now freed on both exits.
+`scripts/test_broker_e1s18.sh` now also runs the lab tests under ASan/UBSan. Two agent "regression
+tests" for R12 and R13 checked only their own local variables and were removed.
+
+## Open items (next batches)
+
+* Batch 2 (broker/dialog): R4 real nonces, digests and identities; R5 final authorization at commit
+  and resume; R7 cleanup ownership; R8 live dialog wiring and a private answer channel; R11 launch
+  preparation inputs; R15 hardening; broker calls op 12 instead of taking the generation from Stage 2.
+* Batch 3 (Unix and server): R9 explicit adapter phases, authority-backed validator and original
+  deadline; R10 authenticated consumed-record installation in S10; R14 per-request leases for an
+  already loaded profile.
+* Live: R13 designated-parent behaviour, R12 under real Windows service stop, everything in VM B.

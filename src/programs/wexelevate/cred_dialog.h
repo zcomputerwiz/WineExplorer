@@ -149,6 +149,19 @@ void wex_conversation_child_exit( struct wex_conversation *conv, int exit_code )
 int wex_conversation_is_approved( const struct wex_conversation *conv );
 void wex_conversation_wipe( struct wex_conversation *conv );
 
+/*
+ * Platform Synchronization Primitives for Prompt Queue
+ */
+#if defined(_WIN32)
+#include <windows.h>
+typedef CRITICAL_SECTION wex_queue_lock_t;
+typedef HANDLE wex_queue_event_t;
+#else
+#include <pthread.h>
+typedef pthread_mutex_t wex_queue_lock_t;
+typedef pthread_cond_t wex_queue_event_t;
+#endif
+
 /* Serialized Prompt Queue (H3b) */
 struct wex_prompt_queue_entry
 {
@@ -160,12 +173,22 @@ struct wex_prompt_queue_entry
     uint64_t deadline;
     enum wex_queue_entry_state state;
     int      is_active;
+    int      waiter_count;
+    int      unlinked;
+#if defined(_WIN32)
+    HANDLE event;
+#else
+    pthread_cond_t cond;
+    int      signaled;
+#endif
     struct wex_prompt_queue_entry *prev;
     struct wex_prompt_queue_entry *next;
 };
 
 struct wex_prompt_queue
 {
+    wex_queue_lock_t lock;
+    int initialized;
     struct wex_prompt_queue_entry *head;
     struct wex_prompt_queue_entry *tail;
     struct wex_prompt_queue_entry *active_entry;
@@ -184,8 +207,14 @@ int wex_prompt_queue_enqueue( struct wex_prompt_queue *q,
                               uint64_t deadline,
                               struct wex_prompt_queue_entry **out_entry );
 
+int wex_prompt_queue_wait_active( struct wex_prompt_queue *q,
+                                  struct wex_prompt_queue_entry *entry,
+                                  uint64_t timeout_ms );
+
 int wex_prompt_queue_cancel( struct wex_prompt_queue *q,
                              struct wex_prompt_queue_entry *entry );
+
+int wex_prompt_queue_cancel_all( struct wex_prompt_queue *q );
 
 int wex_prompt_queue_release( struct wex_prompt_queue *q,
                               struct wex_prompt_queue_entry *entry );

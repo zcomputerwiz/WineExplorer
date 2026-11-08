@@ -214,6 +214,8 @@ def service(server_path, system_group, pam_paths=None):
     from gi.repository import GLib
 
     pam_exe = pam_audit = evidence_service = None
+    # Assigned before the evidence service captures them (R9).
+    root_gen, verifier_gen = generation(), generation()
     if pam_paths is not None:
         # Provisioning arguments only. No bus/request/environment service name,
         # worker path or audit path. Keep the executable inode pinned.
@@ -235,7 +237,6 @@ def service(server_path, system_group, pam_paths=None):
     server_exe = protected(server_path)
     server_stat = os.fstat(server_exe)
     system_gid = grp.getgrnam(system_group).gr_gid
-    root_gen, verifier_gen = generation(), generation()
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus(private=True)
     daemon = dbus.Interface(bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus"),
@@ -283,8 +284,8 @@ def service(server_path, system_group, pam_paths=None):
             self.sequence, self.phase = 0, "endorse"
             self.reg = self.dialog_reg = self.template = None
             self.child = None
-            if evidence_service is not None:
-                self.evidence_conn = evidence.Connection(evidence_service, self, receive)
+            # The evidence connection is created only after endorsement has set
+            # server_gen/broker_gen/session (R9); see the pam-start phase.
             self.watch = GLib.io_add_watch(self.data.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR,
                                             self.message)
 
@@ -437,7 +438,8 @@ def service(server_path, system_group, pam_paths=None):
                         start = raw[REG_SIZE:]
                         require(start[16:28] == self.template[16:28])
                         require(start[40:72] == self.template[40:72])
-                        if self.evidence_conn is not None:
+                        if evidence_service is not None:
+                            self.evidence_conn = evidence.Connection(evidence_service, self, receive)
                             magic, ver, kind, size, rid, attempt, round_, index, style = struct.unpack_from("<8sHHIQIIII", start)
                             nonce = start[40:72]
                             key, uid, map_gen, expiry, limit, len_name = struct.unpack_from("<16sQQQII", start, 72)
@@ -446,7 +448,9 @@ def service(server_path, system_group, pam_paths=None):
 
                             b = evidence.Binding(
                                 request_id=rid,
-                                request_digest=self.template[40:72],
+                                # S1 answer layout: nonce 40..72, binding digest
+                                # 72..104, request digest 104..136 (R9).
+                                request_digest=self.template[104:136],
                                 binding_digest=self.template[72:104],
                                 nonce=nonce,
                                 account_key=key,
@@ -462,35 +466,13 @@ def service(server_path, system_group, pam_paths=None):
                                 name="" if decoy else name
                             )
 
-                            dialog_pair = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-                            worker_dialog, feeder_dialog = dialog_pair
-                            feeder_dialog.setblocking(False)
-
-                            def on_feeder(src, cond):
-                                try:
-                                    pdata = feeder_dialog.recv(72 + 4097)
-                                    if len(pdata) >= 72 and pdata[:12] == b"E1S7PAM\0" + struct.pack("<HH", 1, 2):
-                                        pround, pidx, pstyle = struct.unpack_from("<III", pdata, 28)
-                                        pw = ""
-                                        if os.path.exists("/root/e1s-fixtures-passwords"):
-                                            try:
-                                                with open("/root/e1s-fixtures-passwords", "r", encoding="utf-8") as pf:
-                                                    for pline in pf:
-                                                        if pline.startswith(name + "="):
-                                                            pw = pline.rstrip("\n").split("=", 1)[1]
-                                                            break
-                                            except Exception:
-                                                pass
-                                        pw_bytes = pw.encode("utf-8")
-                                        ans = (struct.pack("<8sHHIQIIII", b"E1S7PAM\0", 1, 3, 72 + len(pw_bytes),
-                                                           rid, attempt, pround, pidx, pstyle) + nonce + pw_bytes)
-                                        feeder_dialog.send(ans)
-                                        del pw_bytes, pw
-                                    return True
-                                except Exception:
-                                    return False
-
-                            feeder_watch = GLib.io_add_watch(feeder_dialog.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, on_feeder)
+                            # R1: this service never reads, stores or manufactures a
+                            # credential. Typed answers may only reach the worker over a
+                            # private channel delegated to the registered dialog process
+                            # (not built yet, R8). Until then the dialog end is closed at
+                            # once, so every PAM conversation fails and no evidence issues.
+                            worker_dialog, unwired_dialog = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                            unwired_dialog.close()
 
                             def worker_factory(raw_start):
                                 w = supervisor.Worker(pam_exe, pam_audit, worker_dialog, self.child_pin,
@@ -509,8 +491,6 @@ def service(server_path, system_group, pam_paths=None):
 
                             def on_worker_ready(src, cond):
                                 try:
-                                    GLib.source_remove(feeder_watch)
-                                    feeder_dialog.close()
                                     self.evidence_conn.ready(rid)
                                     self.phase = "evidence-ready"
                                 except Exception as exc:

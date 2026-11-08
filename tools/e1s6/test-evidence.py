@@ -664,6 +664,13 @@ class EvidenceTests(unittest.TestCase):
         c.tx.remote.send(raw)
         reply = c.serve()
         self.assertEqual(struct.unpack_from("<I", reply)[0], e.DENIED)
+        # R3: an unsupported storage query is an ordinary denial, not an audit
+        # failure that disables the whole service.
+        self.assertFalse(c.service.failed)
+        c.service.query_storage = lambda conn, key: 7
+        c2 = self.connection(c.service)  # a denial closes its own connection only
+        c2.tx.remote.send(raw)
+        self.assertEqual(struct.unpack_from("<I", c2.serve())[0], e.OK)
 
     def test_seqpacket_storage_query_with_provider(self):
         c = self.connection()
@@ -744,6 +751,16 @@ class EvidenceTests(unittest.TestCase):
         c2.service.open(c2, b2)
         c2.service.begin(c2, b2.request_id, b2, lambda raw: Worker(raw, status=0, abnormal=True))
         self.deny(c2.service.collect, c2, b2.request_id)
+
+    def test_lab_adapter_supplies_no_credentials(self):
+        # R1: the evidence path must never answer PAM prompts from stored data.
+        src = Path(__file__).with_name("e1s6-lab.py").read_text()
+        self.assertNotIn("fixtures-passwords", src)
+        self.assertNotIn("on_feeder", src)
+        # R9: digests come from the S1 answer layout, generations exist before use.
+        self.assertIn("request_digest=self.template[104:136]", src)
+        self.assertLess(src.index("root_gen, verifier_gen = generation()"),
+                        src.index("evidence.Service(root_gen"))
 
 
 if __name__ == "__main__":

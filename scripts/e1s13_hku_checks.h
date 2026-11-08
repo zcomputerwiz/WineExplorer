@@ -450,7 +450,7 @@ static void e1s13_denied( BOOL normal )
     BYTE record[WEX_HKU_RECORD_SIZE] = {0};
     check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token));
     if (!load || !token) return;
-    for (op = WEX_HKU_LOAD; op <= WEX_HKU_COMMIT_PROCESS; op++)
+    for (op = WEX_HKU_LOAD; op <= WEX_HKU_STORAGE_QUERY; op++)
     {
         key = (HANDLE)1; managed = ~0u;
         status = load(op, NULL, token, op == WEX_HKU_QUERY ? 0 : KEY_READ,
@@ -1108,6 +1108,43 @@ static void e1s13_load_checks( HANDLE context, HANDLE token, PSID expected, cons
         check(RegOpenCurrentUser(KEY_READ, &visible) != ERROR_SUCCESS && !visible);
         check(RevertToSelf());
     }
+    {
+        /* Storage query: broker-only discovery before LOAD. It accepts only a
+         * zero storage generation, never burns the LOAD attempt, and returns
+         * the verified on-disk generation (the one this case seeded). */
+        hku_ex_fn query = (hku_ex_fn)(void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtLoadWexProfileEx");
+        BYTE probe[WEX_HKU_RECORD_SIZE];
+        ULONGLONG gen = ~(ULONGLONG)0;
+        HANDLE qkey = (HANDLE)1;
+        check(query != NULL);
+        if (query)
+        {
+            memcpy(probe, record, sizeof(probe));
+            managed = ~0u;
+            status = query(WEX_HKU_STORAGE_QUERY, context, token, 0, probe, sizeof(probe), &qkey, &managed, &gen);
+            check(status != 0 && !qkey && !managed && !gen); /* nonzero storage generation */
+            wex_token_put64(probe + 32, 0);
+            qkey = (HANDLE)1; managed = ~0u; gen = ~(ULONGLONG)0;
+            status = query(WEX_HKU_STORAGE_QUERY, NULL, token, 0, probe, sizeof(probe), &qkey, &managed, &gen);
+            check(status != 0 && !qkey && !managed && !gen); /* no context */
+            qkey = (HANDLE)1; managed = ~0u; gen = ~(ULONGLONG)0;
+            status = query(WEX_HKU_STORAGE_QUERY, context, token, KEY_READ, probe, sizeof(probe), &qkey, &managed, &gen);
+            check(status != 0 && !qkey && !managed && !gen); /* access must be 0 */
+            qkey = (HANDLE)1; managed = ~0u; gen = ~(ULONGLONG)0;
+            status = query(WEX_HKU_STORAGE_QUERY, context, token, 0, probe, sizeof(probe), &qkey, &managed, &gen);
+            last_nt_call = "NtLoadWexProfileEx(WEX_HKU_STORAGE_QUERY)"; last_status = status;
+            check(!qkey);
+            if (!strcmp(mode,"accept"))
+                check(!status && managed == 1 && gen == _strtoui64(colon + 1, NULL, 10));
+            else if (!strcmp(mode,"absent") || !strcmp(mode,"unprovisioned"))
+                check(status == (NTSTATUS)0xc000003a && !managed && !gen);
+            else if (!strcmp(mode,"wrong-reference") || !strcmp(mode,"recovery"))
+                check(status != 0 && !managed && !gen);
+            else check(status ? !managed && !gen : managed == 1 && gen != 0);
+            if (qkey) CloseHandle(qkey);
+        }
+    }
+    managed = 0;
     status = load(WEX_HKU_LOAD, context, token, KEY_ALL_ACCESS, record, sizeof(record), &key, &managed);
     last_nt_call = "NtLoadWexProfile(WEX_HKU_LOAD)"; last_status = status;
     check(status == wanted && (!!key == !wanted) && managed == !wanted);

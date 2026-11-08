@@ -1689,12 +1689,54 @@ static DWORD handle_request( struct request *req, BYTE *buf, DWORD size, struct 
     return launch( req, &reply->pid, &reply->tid, &reply->handle );
 }
 
+/* ---- per-caller admission (R12) -------------------------------------------------------------------------------- */
+
+/* Every pipe read/write goes through pipe_io (bounded, aborted by stop_event), and the reply is no longer flushed
+ * with FlushFileBuffers, which waited without bound for the peer to read. A caller process may hold at most
+ * MAX_PER_CALLER workers, so one client cannot occupy the whole worker budget.
+ * ponytail: counted per client PID; per-logon accounting if PID churn becomes a problem (review R2/R12). */
+#define MAX_PER_CALLER 4
+#define CALLER_SLOTS   (2 * MAX_REQUESTS)
+
+static struct { ULONG pid; LONG count; } callers[CALLER_SLOTS];
+static CRITICAL_SECTION callers_cs;
+
+static BOOL admit_caller( ULONG pid )
+{
+    int i, slot = -1;
+    BOOL ok = FALSE;
+    EnterCriticalSection( &callers_cs );
+    for (i = 0; i < CALLER_SLOTS; i++)
+    {
+        if (callers[i].count && callers[i].pid == pid) { slot = i; break; }
+        if (!callers[i].count && slot < 0) slot = i;
+    }
+    if (slot >= 0 && callers[slot].count < MAX_PER_CALLER)
+    {
+        callers[slot].pid = pid;
+        callers[slot].count++;
+        ok = TRUE;
+    }
+    LeaveCriticalSection( &callers_cs );
+    return ok;
+}
+
+static void release_caller( ULONG pid )
+{
+    int i;
+    EnterCriticalSection( &callers_cs );
+    for (i = 0; i < CALLER_SLOTS; i++)
+        if (callers[i].count && callers[i].pid == pid) { callers[i].count--; break; }
+    LeaveCriticalSection( &callers_cs );
+}
+
 static DWORD WINAPI client_thread( void *param )
 {
     struct request *req = param;
     struct wexelevate_reply reply = { WEXELEVATE_MAGIC };
     DWORD size = 0, done;
     BYTE *buf;
+    BYTE eof;
 
     if (!(buf = malloc( WEXELEVATE_MAX_REQUEST + 1 ))) reply.error = ERROR_NOT_ENOUGH_MEMORY;
     else
@@ -1704,16 +1746,22 @@ static DWORD WINAPI client_thread( void *param )
         if (!reply.error) reply.error = handle_request( req, buf, size, &reply );
     }
     if (reply.error == ERROR_OPERATION_ABORTED || reply.error == ERROR_BROKEN_PIPE) goto done;
-    /* the handle is in the caller's table: if the reply does not reach the caller, close it there, and leave the
-     * process alone (it was committed) */
-    if (pipe_io( req->pipe, &reply, sizeof(reply), TRUE, READ_TIMEOUT, &done ) && !reply.error && reply.handle)
-        DuplicateHandle( req->caller, (HANDLE)(ULONG_PTR)reply.handle, NULL, NULL, 0, FALSE, DUPLICATE_CLOSE_SOURCE );
-    FlushFileBuffers( req->pipe );
+    if (pipe_io( req->pipe, &reply, sizeof(reply), TRUE, READ_TIMEOUT, &done ))
+    {
+        /* the handle is in the caller's table: if the reply does not reach the caller, close it there, and leave
+         * the process alone (it was committed) */
+        if (!reply.error && reply.handle)
+            DuplicateHandle( req->caller, (HANDLE)(ULONG_PTR)reply.handle, NULL, NULL, 0, FALSE, DUPLICATE_CLOSE_SOURCE );
+    }
+    /* R12: instead of FlushFileBuffers (unbounded on a peer that never reads), give the client a bounded time to
+     * read the reply and close its end before the disconnect discards unread data. */
+    else pipe_io( req->pipe, &eof, 1, FALSE, READ_TIMEOUT, &done );
 done:
     DisconnectNamedPipe( req->pipe );
     CloseHandle( req->pipe );
     req->pipe = INVALID_HANDLE_VALUE;
     free( buf );
+    release_caller( req->admitted_pid );
     free_request( req );
     InterlockedDecrement( &active_threads );
     return 0;
@@ -1753,6 +1801,9 @@ static DWORD WINAPI handler( DWORD ctrl, DWORD event_type, void *event_data, voi
         EnterCriticalSection( &table_cs );
         SetEvent( stop_event );
         LeaveCriticalSection( &table_cs );
+#ifdef WEXELEVATE_E1S18
+        e1s18_stop_prompt_queue();
+#endif
         return NO_ERROR;
     }
     return ctrl == SERVICE_CONTROL_INTERROGATE ? NO_ERROR : ERROR_CALL_NOT_IMPLEMENTED;
@@ -1798,18 +1849,26 @@ static void serve(void)
         }
         if (!err)
         {
-            if (InterlockedIncrement( &active_threads ) > 2 * MAX_REQUESTS || !(req = calloc( 1, sizeof(*req) )))
+            ULONG client_pid = 0;
+
+            /* R12: a caller beyond its per-process share is disconnected before any work */
+            if (!GetNamedPipeClientProcessId( pipe, &client_pid ) || !client_pid || !admit_caller( client_pid ))
+                DisconnectNamedPipe( pipe );
+            else if (InterlockedIncrement( &active_threads ) > 2 * MAX_REQUESTS || !(req = calloc( 1, sizeof(*req) )))
             {
                 InterlockedDecrement( &active_threads );
+                release_caller( client_pid );
                 DisconnectNamedPipe( pipe );
             }
             else
             {
                 req->pipe = pipe;
+                req->admitted_pid = client_pid;
                 req->image_file = INVALID_HANDLE_VALUE;
                 if (!(thread = CreateThread( NULL, 0, client_thread, req, 0, NULL )))
                 {
                     InterlockedDecrement( &active_threads );
+                    release_caller( client_pid );
                     free( req );
                     DisconnectNamedPipe( pipe );
                     CloseHandle( pipe );
@@ -1832,12 +1891,16 @@ static void serve(void)
     EnterCriticalSection( &table_cs );
     SetEvent( stop_event );
     LeaveCriticalSection( &table_cs );
+#ifdef WEXELEVATE_E1S18
+    e1s18_stop_prompt_queue();
+#endif
     while (active_threads) Sleep( 50 );
 }
 
 static void WINAPI service_main( DWORD argc, WCHAR **argv )
 {
     InitializeCriticalSection( &table_cs );
+    InitializeCriticalSection( &callers_cs );
     /* The handler may run as soon as it is registered. Publish all of its
      * synchronization objects first so an early stop remains latched. */
     stop_event = CreateEventW( NULL, TRUE, FALSE, NULL );

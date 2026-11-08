@@ -317,6 +317,8 @@ static int test_prompt_queue_cancel_and_timeout( void )
     wex_prompt_queue_cancel( &q, e2 );
     ASSERT( q.total_count == 1 );
     ASSERT( q.active_entry == e1 );
+    ASSERT( e2->state == WEX_QUEUE_STATE_CANCELLED ); /* still owned by its request thread */
+    ASSERT( wex_prompt_queue_release( &q, e2 ) == WEX_STATUS_OK );
 
     /* Enqueue e3 with deadline 100 */
     ASSERT( wex_prompt_queue_enqueue( &q, 303, 1003, 6003, 1, "WinSta0\\Winlogon", 100, &e3 ) == WEX_STATUS_OK );
@@ -325,6 +327,9 @@ static int test_prompt_queue_cancel_and_timeout( void )
     ASSERT( wex_prompt_queue_check_deadlines( &q, 600 ) == 2 ); /* both e1 and e3 timed out */
     ASSERT( q.total_count == 0 );
     ASSERT( q.active_entry == NULL );
+    ASSERT( e1->state == WEX_QUEUE_STATE_TIMED_OUT && e3->state == WEX_QUEUE_STATE_TIMED_OUT );
+    ASSERT( wex_prompt_queue_release( &q, e1 ) == WEX_STATUS_OK );
+    ASSERT( wex_prompt_queue_release( &q, e3 ) == WEX_STATUS_OK );
 
     wex_prompt_queue_destroy( &q );
     return 1;
