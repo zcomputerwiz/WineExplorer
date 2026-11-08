@@ -20,6 +20,7 @@ BOOTMODE = SCRIPTS / "wex-bootmode.sh"
 GENERATOR = SYSTEMD / "wex-bootmode-generator"
 PAM_CHECK = SCRIPTS / "wex-safemode-pam-check.sh"
 PACKAGE = REPO_ROOT / "installer" / "package-wine.sh"
+VM_TEST = REPO_ROOT / "installer" / "tests" / "safe-mode.sh"
 
 
 def load_menu():
@@ -50,9 +51,12 @@ class TestSyntax(unittest.TestCase):
             result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         for script in (SCRIPTS / "wex-greeter.sh", SCRIPTS / "wine-explorer-session.sh",
-                       SCRIPTS / "wine-explorer-session-common.sh", SCRIPTS / "wex-safe-terminal.sh", PACKAGE):
+                       SCRIPTS / "wine-explorer-session-common.sh", SCRIPTS / "wex-safe-terminal.sh", PACKAGE,
+                       VM_TEST):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+        session_run = VM_TEST.with_name("session-run.py")
+        compile(session_run.read_text(encoding="utf-8"), str(session_run), "exec")
 
     def test_old_implementation_is_gone(self):
         for old in (SCRIPTS / "wex-safemode-setup.sh", SYSTEMD / "wex-safemode.service",
@@ -337,6 +341,29 @@ class TestPackage(TempDirTest):
         self.assertFalse("scripts/wex-safemode-setup.sh" in script, "the old setup script is still packaged")
         self.assertFalse("xsessions/wex-safe-terminal.desktop" in script, "the old session is still packaged")
         self.assertIsNone(re.search(r"systemctl enable [^\n]*wex-safemode", script))
+
+    def test_vm_test_installs_what_the_package_installs(self):
+        """installer/tests/safe-mode.sh copies the Safe Mode files to the places the package puts them."""
+        package = PACKAGE.read_text(encoding="utf-8")
+        vm_test = VM_TEST.read_text(encoding="utf-8")
+        listing = vm_test[vm_test.index("SAFE_MODE_FILES=(\n"):]
+        listing = listing[:listing.index("\n)\n")]
+        entries = re.findall(r'^\s+"(\d{3}) (\S+) (\S+)"$', listing, re.M)
+        self.assertGreater(len(entries), 10)
+        for mode, src, dst in entries:
+            self.assertTrue((REPO_ROOT / src).is_file(), f"{src} does not exist")
+            src_name, dst_dir, dst_name = Path(src).name, str(Path(dst).parent), Path(dst).name
+            self.assertIn(src_name, package, f"the package does not install {src}")
+            installed = (f'$STAGE_SESSION/{dst}"' in package
+                         or (src_name == dst_name and f'$STAGE_SESSION/{dst_dir}/' in package))
+            self.assertTrue(installed, f"the package does not install {src} as /{dst}")
+        sources = {Path(src).name for _, src, _ in entries}
+        for piece in ("wex-bootmode.sh", "wex-advanced-options.py", "wex-bootlog.sh", "wex-bootmode-generator",
+                      "wex-safemode-pam-check.sh", "wex-greeter.sh", "wine-explorer-session.sh",
+                      "wine-explorer-session-common.sh", "wex-safe-terminal.sh", "wex-advanced-options.target",
+                      "wex-advanced-options.service", "wex-safemode.target", "wex-safenet.target",
+                      "wex-bootlog.service", "11_wineexplorer_advanced"):
+            self.assertIn(piece, sources, f"the VM test does not install {piece}")
 
     def test_postinst_migrates_and_is_idempotent(self):
         etc, run, acc = self.tmp / "etc", self.tmp / "run", self.tmp / "var/lib/AccountsService/users"

@@ -69,6 +69,18 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
 * `scripts/theme-gallery-probe.c`: from repo root, `x86_64-w64-mingw32-gcc -municode -mwindows -o theme-gallery-probe.exe scripts/theme-gallery-probe.c -luxtheme -lcomctl32 -lgdi32 -luser32 -ladvapi32`. Run `theme-gallery-probe.exe STYLE LOG`, where STYLE is a `.msstyles` path or `-` to keep the current style and LOG is optional. It applies a style, opens two control galleries for 40 seconds and overwrites the specified log. Inspect source for temporary manifest behavior before use.
 * `scripts/sync-files.py`: `python3 scripts/sync-files.py BASE [--deleted] [--full]` prints selected project and stock paths; `--deleted` selects deletions, `--full` includes tracked `src` files. Requires initialized Wine submodule; does not itself copy. `python3 scripts/sync-archive.py PATH_LIST > archive.tar` streams listed repo files as tar, normalizing known text extensions to LF and preserving tracked Git modes. `python3 scripts/sync-overlay.py SOURCE PATH_LIST > overlay.tar` streams mapped private overlays. `python3 scripts/sync-delete.py DEST_ROOT < PATH_LIST` unlinks listed files/symlinks inside that root: destructive, validate the list and destination first. Runtime depends on selected files.
 * `scripts/add-license.py`: `python3 scripts/add-license.py --dry-run` reports eligible files; omit `--dry-run` to rewrite eligible project-authored C/H/RC files lacking a license notice. It consults the Wine `wine-11.19` tag, skips named upstream/ReactOS paths and preserves detected line endings. Runtime depends on tree size.
+* `installer/tests/safe-mode.sh` (Safe Mode VM test, `docs/SAFE_MODE.md` section 6): as root in WSL Debian, from a
+  script file, `VMTEST_DIR=/var/tmp/vmtest-gpt WEX_TEST_FIRMWARE=bios|uefi bash installer/tests/safe-mode.sh SOURCE_VM TEST_VM [PHASE...]`.
+  It replaces TEST_VM with a new qcow2 overlay of the installed disk SOURCE_VM, which is never written; an existing
+  TEST_VM disk that is not an overlay of SOURCE_VM is refused. By default it copies this checkout's Safe Mode files
+  onto the overlay and runs the package postinst's Safe Mode part and `update-grub` in one provisioning boot;
+  `WEX_SAFEMODE_FILES=installed` skips that for a disk installed from an ISO with the package. Then one boot per
+  phase (`safe safenet safecmd bootlog startnormal normal`), each checked on the screen (OCR) and over the serial
+  console as `WEX_TEST_USER` (default `wineuser`, empty password unless `WEX_TEST_PASSWORD_FILE`). A boot that
+  changes a file under `/etc` or `/var/lib/AccountsService`, or a `.dmrc`, fails. It mounts the overlay through the
+  first free NBD device, so run one at a time. Needs QEMU/KVM, qemu-nbd, Tesseract and ImageMagick; the VM ends
+  stopped; evidence in `$VMTEST_DIR/TEST_VM/safe-mode/`. All six phases took about 13 minutes per firmware
+  (2026-11-08).
 * `scripts/vmtest.py` provides `start`, `stop`, `shutdown`, `shot`, `key`, `type`, `click`, `doubleclick`, `drag`, `clicktext`, `wait` and `sh` subcommands. It controls real VMs and disks; inspect its current source for exact arguments, disk locations, shutdown semantics and dependencies before use. `scripts/open_assets.py`, setup scripts, remaining `test_*`, `check-*`, `sysrun_*`, `wayland-pointer-move.c`, `reg-acl-probe.c` and other tools have not yet been individually verified in this catalog.
 
 ### wexbuild `/root`: snapshot reference

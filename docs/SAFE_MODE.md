@@ -76,8 +76,8 @@ generator steps aside and the update runs first.
   In the other modes everyone may, as in Windows.
 
 `wex-greeter.sh` starts the GTK greeter instead of `logonui.exe` in every Safe Mode, so the logon screen needs no
-Wine. It asks for a user name and a password, as XP's classic logon does, but over Debian's greeter background.
-The XP classic logon dialog is a phase 2 item.
+Wine. It asks for a user name and a password over Debian's greeter background. XP itself shows the Welcome screen
+in Safe Mode (`docs/SAFE_MODE_WORKORDER.md` C4); matching it is a phase 2 item.
 
 **Session.** The session keeps its name (`wine-explorer`), so LightDM records no new session for the account.
 `wine-explorer-session.sh` reads the mode:
@@ -137,29 +137,37 @@ stock Wine (`docs/STOCK_CHANGES.md`):
   in WineExplorer today, in any mode).
 - The desktop draws "Safe Mode" in the corners on black, and Explorer shows the XP message box after logon;
   measured against the XP VM.
-- logonui.exe gains the classic "Log On to Windows" dialog, which XP uses in Safe Mode.
+- The logon screen in Safe Mode matches XP's: the Welcome screen, with the classic logon dialog after
+  Ctrl+Alt+Del twice.
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (26 tests, Linux) covers mode parsing, generator output, PAM decisions, menu navigation
-and choices, and the postinst migration from the old implementation, run twice to show it is idempotent.
+`scripts/test_safemode.py` (27 tests, Linux) covers mode parsing, generator output, PAM decisions, menu navigation
+and choices, the postinst migration from the old implementation (run twice to show it is idempotent), and that the
+VM test installs the Safe Mode files where the package does.
 
-VM run, 2026-11-08: the round 3 GPT installs (`docs/VINTNER_BOOT.md` section 4.1) on SeaBIOS and OVMF, with this
-branch's files put where the session package installs them. One boot ran the postinst block and `update-grub`
-in the guest. Each later boot pressed F8 during GRUB's hidden timeout. The checksums of every file and link under
-`/etc` and `/var/lib/AccountsService` and the accounts' `.dmrc` were compared before and after each boot.
+`installer/tests/safe-mode.sh` is the VM test (usage in `docs/TOOLING.md`). It boots a copy-on-write overlay of an
+installed test disk once per phase, pressing F8 during GRUB's hidden timeout, and checks each start on the screen
+and over the serial console. By default it first copies this checkout's Safe Mode files where the session package
+installs them and runs the package postinst's Safe Mode part and `update-grub` in the guest; with
+`WEX_SAFEMODE_FILES=installed` it tests what an ISO installed. Before and after every boot it records the checksums
+of every file and link under `/etc` and `/var/lib/AccountsService` and of the accounts' `.dmrc`; a boot that
+changes one fails.
 
-| Boot | Result | BIOS | UEFI |
-|---|---|---|---|
-| Safe Mode | Menu, OS list with "Safe Mode", logon screen without automatic logon, Explorer desktop. `wex-safemode.target`; NetworkManager, cron, Prefetcher and every timer inactive | pass | pass |
-| Safe Mode with Command Prompt | Recovery console after logging on; no wineserver | pass | pass |
-| Safe Mode with Networking | Logon screen; NetworkManager active with an address; no timers | pass | not run |
-| Enable Boot Logging | Normal start with automatic logon; `ntbtlog.txt` appended (82 drivers) | pass | not run |
-| Start WineExplorer Normally (menu) | Normal start with automatic logon; timers and NetworkManager active | pass | not run |
-| Normal start (no F8) | Automatic logon; no generator output | pass | pass |
-| Safe Mode, 32-bit and 64-bit programs | Wine's `syswow64` and `system32` Notepad open in the Safe Mode session | pass | not run |
+| Phase | Checks |
+|---|---|
+| `safe` | OS list shows "Safe Mode"; logon screen without automatic logon; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; Explorer session with `WEXMODE=safe`; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open |
+| `safenet` | The same with `wex-safenet.target`, NetworkManager active and `WEXMODE=safenet` |
+| `safecmd` | Logon screen; the recovery console after logging on, and no wineserver |
+| `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
+| `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active |
+| `normal` | No F8: the same, and the boot-mode generator wrote nothing |
 
-No boot changed a file under `/etc` or `/var/lib/AccountsService`, or a `.dmrc`.
+Run 2026-11-08 on the round 3 GPT installs (`docs/VINTNER_BOOT.md` section 4.1) with this branch's files: every
+phase passed on SeaBIOS and on OVMF in one run, about 13 minutes per firmware. No boot changed a file under `/etc`
+or `/var/lib/AccountsService`, or a `.dmrc`. The round 3 image predates the prefetch service, so the Prefetcher
+reads "absent" there; its mask is covered by the generator's unit test until the A2 install
+(`docs/SAFE_MODE_WORKORDER.md`).
 
 Seen during the run and not part of this change: the installed image sets `LANG=en_US.UTF-8` without generating
 that locale, so the recovery console prints `setlocale` warnings.
