@@ -58,13 +58,19 @@ fi
 echo "==> Testing lab binary (account validation, buffer wipe, states, queue)"
 "$FIXTURE/lab" all
 
+# Use the current Wine build, never a stale system install (its server protocol may differ).
+WINE_BIN="${WINE_BUILD_DIR:-/root/owned-e1s11/build/normal-wow64}/wine"
+export WINESERVER="$(dirname "$WINE_BIN")/server/wineserver" WINEPREFIX="${FIXTURE:-/tmp}/wine-prefix"
+export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
 # 5. Headless Xvfb run of dialog child if MinGW and Xvfb are available
-if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mingw32-windres >/dev/null 2>&1 && command -v Xvfb >/dev/null 2>&1 && command -v wine >/dev/null 2>&1; then
+if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mingw32-windres >/dev/null 2>&1 && command -v Xvfb >/dev/null 2>&1 && [ -x "$WINE_BIN" ]; then
     echo "==> Headless Xvfb dialog render and input verification"
     DISP=":98"
-    Xvfb "$DISP" -screen 0 1024x768x16 >/dev/null 2>&1 &
+    Xvfb "$DISP" -screen 0 1024x768x24 >/dev/null 2>&1 &
     XVFB_PID=$!
     sleep 1
+    # First run creates the prefix; do it before the timed waits.
+    DISPLAY="$DISP" WINEDEBUG=-all timeout 240 "$WINE_BIN" wineboot -u >/dev/null 2>&1 || echo "warning: prefix initialisation did not finish cleanly"
 
     mkdir -p "$FIXTURE/wine_build"
     HOOK_DIR="/tmp/wexelev"
@@ -128,13 +134,13 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
         rm -f "$HOOK_DIR"/cred."$TEST_ID".*
         printf "confirm:alice:SecretPassword123\n" > "$HOOK_DIR/cred.$TEST_ID.action"
 
-        WINEDEBUG=-all DISPLAY="$DISP" wine "$FIXTURE/wine_build/consent_test.exe" \
+        WINEDEBUG=err+all DISPLAY="$DISP" "$WINE_BIN" "$FIXTURE/wine_build/consent_test.exe" \
             /broker /credentials /request 12345678abcdef01 /token 0102030405060708090a0b0c0d0e0f10 \
-            /channel 0 /testid "$TEST_ID" >/dev/null 2>&1 &
+            /channel 0 /testid "$TEST_ID" >"$FIXTURE/render.log" 2>&1 &
         WINE_CHILD_PID=$!
 
         SHOWN_OK=0
-        for ((i=0; i<50; i++)); do
+        for ((i=0; i<600; i++)); do
             if [ -f "$HOOK_DIR/cred.$TEST_ID.shown" ]; then
                 SHOWN_OK=1
                 break
@@ -147,6 +153,8 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
             grep -q "shown=1" "$HOOK_DIR/cred.$TEST_ID.shown" || fail ".shown missing shown=1"
             grep -q "The administrator account's rights apply inside this Wine prefix only" "$HOOK_DIR/cred.$TEST_ID.shown" || fail "missing Wine-only explanation"
         else
+            tail -30 "$FIXTURE/render.log" >&2 || :
+            ls -la "$HOOK_DIR" >&2 || :
             fail "Headless dialog render did not produce .shown within timeout"
         fi
         wait "$WINE_CHILD_PID" 2>/dev/null || :
@@ -154,7 +162,7 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
 
         # 2. Confirm probe test
         rm -f "$HOOK_DIR"/cred.p_confirm.*
-        WINEDEBUG=-all DISPLAY="$DISP" wine "$FIXTURE/wine_build/cred_dialog_probe.exe" \
+        WINEDEBUG=-all DISPLAY="$DISP" "$WINE_BIN" "$FIXTURE/wine_build/cred_dialog_probe.exe" \
             confirm "$FIXTURE/wine_build/consent_test.exe" p_confirm > "$FIXTURE/probe_confirm.out" 2>&1 || {
                 cat "$FIXTURE/probe_confirm.out"
                 fail "Confirm probe failed"
@@ -165,7 +173,7 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
 
         # 3. Cancel probe test
         rm -f "$HOOK_DIR"/cred.p_cancel.*
-        WINEDEBUG=-all DISPLAY="$DISP" wine "$FIXTURE/wine_build/cred_dialog_probe.exe" \
+        WINEDEBUG=-all DISPLAY="$DISP" "$WINE_BIN" "$FIXTURE/wine_build/cred_dialog_probe.exe" \
             cancel "$FIXTURE/wine_build/consent_test.exe" p_cancel > "$FIXTURE/probe_cancel.out" 2>&1 || {
                 cat "$FIXTURE/probe_cancel.out"
                 fail "Cancel probe failed"
@@ -176,7 +184,7 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
 
         # 4. Invalid account probe test
         rm -f "$HOOK_DIR"/cred.p_invalid.*
-        WINEDEBUG=-all DISPLAY="$DISP" wine "$FIXTURE/wine_build/cred_dialog_probe.exe" \
+        WINEDEBUG=-all DISPLAY="$DISP" "$WINE_BIN" "$FIXTURE/wine_build/cred_dialog_probe.exe" \
             invalid "$FIXTURE/wine_build/consent_test.exe" p_invalid > "$FIXTURE/probe_invalid.out" 2>&1 || {
                 cat "$FIXTURE/probe_invalid.out"
                 fail "Invalid account probe failed"
@@ -187,7 +195,7 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
 
         # 5. Early child exit probe test (Helper exit NEVER approves)
         rm -f "$HOOK_DIR"/cred.p_early.*
-        WINEDEBUG=-all DISPLAY="$DISP" wine "$FIXTURE/wine_build/cred_dialog_probe.exe" \
+        WINEDEBUG=-all DISPLAY="$DISP" "$WINE_BIN" "$FIXTURE/wine_build/cred_dialog_probe.exe" \
             early_exit "$FIXTURE/wine_build/consent_test.exe" p_early > "$FIXTURE/probe_early.out" 2>&1 || {
                 cat "$FIXTURE/probe_early.out"
                 fail "Early exit probe failed"
