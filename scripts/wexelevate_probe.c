@@ -35,6 +35,14 @@
  *   impersonate <image> <out>
  *                      open the broker pipe while the thread impersonates its own token; the broker must deny
  *                      (ERROR_ACCESS_DENIED) and start nothing
+ *   mismatch <image> <out>
+ *                      second process shares the pipe handle with opener; writes request; broker denies
+ *                      (ERROR_ACCESS_DENIED) and starts nothing
+ *   brokerstop <image> <out>
+ *                      stop broker service while consent is pending; fails closed with distinct error,
+ *                      starts nothing, and restarted broker serves fresh request normally
+ *   promptcrash <image> <out>
+ *                      kill consent prompt child while pending; broker denies (ERROR_CANCELLED) and starts nothing
  *   imagerace <image> <out>
  *                      ask the broker, and while the consent is pending (the harness holds it open with
  *                      wait-for-gate and approve.<name>) let the harness rename a different file over the image
@@ -806,6 +814,179 @@ static void imagerace_mode(const char *image, const char *out)
     check(!child_running(image), "no child is running after the refusal");
 }
 
+static int mismatch_child(int argc, char **argv)
+{
+    HANDLE pipe = (HANDLE)(ULONG_PTR)strtoull(argv[2], NULL, 10);
+    const char *image = argv[3];
+    const char *out = argv[4];
+    WCHAR *wimage = widen(image), *cmd, *data;
+    char *command = malloc(strlen(image) + strlen(out) + 32);
+    struct wexelevate_request *req;
+    struct wexelevate_reply reply = { 0 };
+    DWORD size, done = 0, mode = PIPE_READMODE_MESSAGE;
+    BOOL ok = FALSE;
+
+    if (!command || !wimage) return 1;
+    sprintf(command, "\"%s\" child \"%s\"", image, out);
+    cmd = widen(command);
+    free(command);
+    if (!cmd) { free(wimage); return 1; }
+
+    size = sizeof(*req) + (lstrlenW(wimage) + lstrlenW(cmd)) * sizeof(WCHAR);
+    req = calloc(1, size);
+    if (!req) { free(wimage); free(cmd); return 1; }
+    req->magic = WEXELEVATE_MAGIC;
+    req->version = WEXELEVATE_VERSION;
+    req->show = SW_SHOWNORMAL;
+    req->image_len = lstrlenW(wimage);
+    req->cmdline_len = lstrlenW(cmd);
+    data = (WCHAR *)(req + 1);
+    memcpy(data, wimage, req->image_len * sizeof(WCHAR));
+    memcpy(data + req->image_len, cmd, req->cmdline_len * sizeof(WCHAR));
+
+    if (SetNamedPipeHandleState(pipe, &mode, NULL, NULL) &&
+        WriteFile(pipe, req, size, &done, NULL) && done == size &&
+        ReadFile(pipe, &reply, sizeof(reply), &done, NULL) &&
+        done == sizeof(reply) && reply.magic == WEXELEVATE_MAGIC)
+    {
+        /* Expected: denied with ERROR_ACCESS_DENIED, zero result fields */
+        if (reply.error == ERROR_ACCESS_DENIED && !reply.pid && !reply.tid && !reply.handle &&
+            GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES)
+            ok = TRUE;
+    }
+    free(req); free(cmd); free(wimage);
+    CloseHandle(pipe);
+    return ok ? 0 : 1;
+}
+
+static void mismatch_mode(const char *image, const char *out)
+{
+    HANDLE pipe = INVALID_HANDLE_VALUE, inherited = NULL;
+    PROCESS_INFORMATION pi;
+    STARTUPINFOA si = { sizeof(si) };
+    char self[MAX_PATH], *command;
+    DWORD exit_code = 1;
+
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the output is absent before the mismatch probe");
+    check(wexelevate_connect(&pipe) == 0, "connected to the broker pipe as opener");
+    if (pipe == INVALID_HANDLE_VALUE) return;
+
+    check(DuplicateHandle(GetCurrentProcess(), pipe, GetCurrentProcess(), &inherited, 0, TRUE, DUPLICATE_SAME_ACCESS),
+          "duplicated the pipe handle with inheritance");
+    if (inherited)
+    {
+        GetModuleFileNameA(NULL, self, sizeof(self));
+        command = malloc(strlen(self) + strlen(image) + strlen(out) + 96);
+        check(command != NULL, "allocated the mismatch child command");
+        if (command)
+        {
+            sprintf(command, "\"%s\" mismatch-child %llu \"%s\" \"%s\"", self,
+                    (unsigned long long)(ULONG_PTR)inherited, image, out);
+            if (CreateProcessA(self, command, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
+            {
+                DWORD wait = WaitForSingleObject(pi.hProcess, 140000);
+                check(wait == WAIT_OBJECT_0, "the second process completed within the deadline");
+                if (wait != WAIT_OBJECT_0) { TerminateProcess(pi.hProcess, 3); WaitForSingleObject(pi.hProcess, 5000); }
+                if (GetExitCodeProcess(pi.hProcess, &exit_code))
+                    check(exit_code == 0, "the mismatched process/token request was denied");
+                else check(0, "queried the mismatched process exit status");
+                CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+            }
+            else check(0, "started the second process");
+            free(command);
+        }
+        CloseHandle(inherited);
+    }
+    CloseHandle(pipe);
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the mismatched request started nothing");
+    check(!child_running(image), "no child is running after the mismatch refusal");
+}
+
+static void brokerstop_mode(const char *image, const char *out)
+{
+    struct conc c = { image, out };
+    HANDLE t;
+    char name[MAX_PATH], path[2 * MAX_PATH], *base;
+    char out_fresh[MAX_PATH];
+    HANDLE process = NULL;
+    DWORD i, err_fresh;
+
+    DeleteFileA(POLICY_DIR "brokerstop.ready");
+    DeleteFileA(POLICY_DIR "brokerstop.done");
+    sprintf(out_fresh, "%s.fresh", out);
+    DeleteFileA(out_fresh);
+
+    t = CreateThread(NULL, 0, patient_thread, &c, 0, NULL);
+    base = strrchr(image, '\\');
+    strncpy(name, base ? base + 1 : image, sizeof(name) - 1);
+    name[sizeof(name) - 1] = 0;
+    sprintf(path, POLICY_DIR "started.%s", name);
+
+    for (i = 0; i < 3000 && GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
+    check(GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES, "the consent wait is pending (the stub wrote started.<name>)");
+
+    write_whole(POLICY_DIR "brokerstop.ready", "x", 1);
+    for (i = 0; i < 600 && GetFileAttributesA(POLICY_DIR "brokerstop.done") == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
+    check(GetFileAttributesA(POLICY_DIR "brokerstop.done") != INVALID_FILE_ATTRIBUTES, "the broker service was stopped by the harness");
+
+    WaitForSingleObject(t, 120000);
+    CloseHandle(t);
+
+    SetLastError(c.err);
+    check(c.err == ERROR_BROKEN_PIPE || c.err == ERROR_PIPE_NOT_CONNECTED || c.err == ERROR_CANCELLED,
+          "the pending request fails closed with a distinct error when the broker stops");
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the stopped broker request started nothing");
+    check(!child_running(image), "no child is running after the broker was stopped");
+
+    /* Release any gate in policy directory so the fresh request can proceed immediately */
+    write_whole(POLICY_DIR "gate", "x", 1);
+
+    /* Verify that a restarted broker serves a fresh request normally */
+    err_fresh = ask(image, out_fresh, NULL, NULL, &process);
+    SetLastError(err_fresh);
+    check(err_fresh == 0, "the restarted broker served a fresh request normally");
+    if (!err_fresh && process)
+    {
+        check(wait_exit(process, 42), "the fresh request ran to completion");
+        CloseHandle(process);
+    }
+    check(GetFileAttributesA(out_fresh) != INVALID_FILE_ATTRIBUTES, "the fresh request produced output");
+    DeleteFileA(out_fresh);
+}
+
+static void promptcrash_mode(const char *image, const char *out)
+{
+    struct conc c = { image, out };
+    HANDLE t;
+    char name[MAX_PATH], path[2 * MAX_PATH], *base;
+    DWORD i;
+
+    DeleteFileA(POLICY_DIR "promptcrash.ready");
+    DeleteFileA(POLICY_DIR "promptcrash.done");
+
+    t = CreateThread(NULL, 0, patient_thread, &c, 0, NULL);
+    base = strrchr(image, '\\');
+    strncpy(name, base ? base + 1 : image, sizeof(name) - 1);
+    name[sizeof(name) - 1] = 0;
+    sprintf(path, POLICY_DIR "started.%s", name);
+
+    for (i = 0; i < 3000 && GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
+    check(GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES, "the consent prompt is pending (the stub wrote started.<name>)");
+
+    write_whole(POLICY_DIR "promptcrash.ready", "x", 1);
+    for (i = 0; i < 600 && GetFileAttributesA(POLICY_DIR "promptcrash.done") == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
+    check(GetFileAttributesA(POLICY_DIR "promptcrash.done") != INVALID_FILE_ATTRIBUTES, "the consent prompt child was killed by the harness");
+
+    WaitForSingleObject(t, 120000);
+    CloseHandle(t);
+
+    SetLastError(c.err);
+    check(c.err == ERROR_CANCELLED || c.err == ERROR_SERVICE_NOT_ACTIVE,
+          "the broker denies a request whose consent prompt crashed (got ERROR_CANCELLED or documented status)");
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the crashed prompt request started nothing");
+    check(!child_running(image), "no child is running after the prompt crash");
+}
+
 /* a writer holds the image open when the request is made: the broker's read open of the image must fail
  * (ERROR_SHARING_VIOLATION) and start nothing */
 static void writerfirst_mode(const char *image, const char *out)
@@ -1323,6 +1504,10 @@ int main(int argc, char **argv)
         provenance_send(pipe, atoi(argv[3]), 0, 1, argv[4], argv[5]);
         CloseHandle(pipe);
     }
+    else if (!strcmp(mode, "mismatch") && argc > 3) mismatch_mode(argv[2], argv[3]);
+    else if (!strcmp(mode, "mismatch-child") && argc > 4) return mismatch_child(argc, argv);
+    else if (!strcmp(mode, "brokerstop") && argc > 3) brokerstop_mode(argv[2], argv[3]);
+    else if (!strcmp(mode, "promptcrash") && argc > 3) promptcrash_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "imagerace") && argc > 3) imagerace_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "writerfirst") && argc > 3) writerfirst_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "callerdeath") && argc > 4) callerdeath_mode(argv[2], argv[3], argv[4]);
