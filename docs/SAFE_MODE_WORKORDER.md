@@ -218,12 +218,11 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
     `/etc/passwd` path unit, like any other account; no E1 code changes. A home costs about 2 MB (round 3 image:
     `/etc/skel` 108 KB, `wineuser`'s home 2.3 MB). Homes are 0700, so working on another user's profile goes
     through elevation, as for any administrator.
-  - In a normal start the account is hidden from the Welcome screen, as on XP Professional: `SystemAccount=true` in
-    AccountsService, set once when the account is made and never changed per boot. (Phase 1 hid accounts by
-    toggling that flag on every boot; that is gone, and only `scripts/setup-default-session.sh` writes it, for
-    `wineuser`.) In Safe Mode, `users_list` (`src/dlls/wexhost/unixlib.c`) adds the account. Check that
-    `ListCachedUsers` leaves system accounts out and that `FindUserByName` still finds this one. The classic dialog
-    will accept it in any start.
+  - In a normal start the account is hidden from the Welcome screen, as on XP Professional, and Safe Mode shows its
+    tile. `logonui.exe` applies XP's own rule for the built-in Administrator and the registry's hidden-account list
+    (C7). The account therefore stays an ordinary AccountsService account with no `SystemAccount` flag, and an
+    `Administrator` value of 1 in that list shows it in a normal start, as on XP. The classic dialog will accept it
+    in any start.
   - With a blank Administrator password, the account stays locked and gets no tile. Debian's `common-auth` has
     `pam_unix.so nullok`, and `su` and `sudo` include it. An empty password would let every local user run
     `su administrator` and then `sudo` to root.
@@ -256,6 +255,39 @@ A Safe Mode start always writes the log, whether or not Enable Boot Logging was 
 
 The A1 test can then also check the recovery console's shape: on XP, Safe Mode with Command Prompt shows a
 maximized 80-column console titled with the program name only, with no taskbar, desktop icons or Explorer.
+
+**C7. Hidden accounts on the Welcome screen** (decision 8). XP's Welcome screen leaves out every account that has a
+REG_DWORD value of 0 under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList`.
+The value's name is the account name; a value of 1 shows the account. Hidden accounts can still log on through
+the classic dialog and Run As. The built-in Administrator has its own rule: it is hidden in a normal start (XP
+Professional, when another administrator account exists) and shown in Safe Mode, and an `Administrator` value of 1
+shows it in a normal start too. Check on the XP VM:
+- what a value of 0 does to Administrator in Safe Mode;
+- whether the key also hides accounts in User Accounts (WineExplorer has no User Accounts yet; when it does, it
+  follows XP);
+- whether the Welcome screen reads the key every time it appears.
+
+The work:
+
+- `logonui.exe` (`src/programs/logonui/logonui.c`, `load_users`) reads the key with the registry API after
+  `WexUsersList`. It leaves out every account whose value is 0 (account names compared without regard to case)
+  and applies the Administrator rule, using `wex-bootmode`'s mode as the Safe Mode test. Nothing on the Unix side
+  filters accounts.
+- The logon prefix must see the machine's `HKLM`, and today it does not. On the round 3 image
+  `/var/lib/lightdm/.wine-logon/system.reg` is a private 3.3 MB hive that `wineboot` made at the greeter's first
+  start. User prefixes link `system.reg` and `userdef.reg` to the machine root instead (`/etc/skel/.wine`, made by
+  `scripts/setup-machine-root.sh`). `setup-greeter.sh` and `wex-greeter.sh` should give the logon prefix the same
+  two links, and convert an existing logon prefix. The `lightdm` account cannot write the machine hive. Check that
+  its `wineserver` neither writes the machine file nor replaces the links with private copies when it saves, as
+  `scripts/test_sysrun_server.sh` checks for user prefixes, and that `wineboot -u` in the logon prefix still
+  works.
+- A change shows the next time the Welcome screen starts, once the writing session's `wineserver` has saved the
+  hive (within 30 seconds). Writing the key is an administrator's `HKLM` write, which needs E1's elevation broker;
+  until that exists, only a root step can write the machine hive. C7 changes nothing in E1.
+- The GTK fallback lists no accounts (`greeter-hide-users=true`), so it needs no change.
+- Tests: the filter in `logonui.exe` with a list and a key made for the test. In the VM, an account with a value
+  of 0 is missing from the Welcome screen in a normal start. The Administrator tile is shown in Safe Mode only, and
+  also in a normal start once `Administrator` is 1.
 
 ### Phase D: start-up failure and recovery (GRUB now, Vintner later)
 
@@ -322,6 +354,9 @@ options when needed" setting is D1's countdown, so add it when D1 lands.
    on the Administrator password page. It is hidden from the Welcome screen in a normal start and gets a tile in
    Safe Mode, as on XP Professional. It is for troubleshooting, such as a broken user profile. It never gets a
    network logon, and with no password it cannot log on anywhere. It is a nice-to-have: Safe Mode works without it.
+8. **Hidden accounts** (C7): the Welcome screen reads the hidden-account list (`SpecialAccounts\UserList`) from the
+   machine registry, as XP does. The Administrator account is hidden by XP's own rule, not by an AccountsService
+   flag, so the registry can show it as on XP. (The owner's request, 2026-11-08.)
 
 ## 5. Order
 
@@ -329,7 +364,8 @@ options when needed" setting is D1's countdown, so add it when D1 lands.
 2. B0-B8 on the Wine branch, then C1 and C2. These need B2, or `WEXMODE` as a stopgap.
 3. D1 (GRUB), then A3 and A4.
 4. C1-C6 (the XP captures exist); C4's Welcome screen first, the classic dialog (Ctrl+Alt+Del twice) later. C4's
-   Administrator tile (decision 7) is optional and can come at any point.
+   Administrator account (decision 7) and C7's hidden accounts (decision 8) go together, C7's logon-prefix links
+   first; both are optional and can come at any point.
 5. D2 stays grayed; look at it again after C3. D3 and the Vintner variant when Vintner's commands exist.
 
 Each step: unit tests, the A1 VM test on BIOS and UEFI with a 32-bit program, a commit, and an update to
