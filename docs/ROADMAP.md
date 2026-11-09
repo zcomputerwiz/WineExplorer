@@ -282,6 +282,21 @@ async, clean exit), then CoreWindow, then a separate native XAML track (Uno is r
 and only later the installed Calculator (private test, never committed). Everything is off by default behind one gate.
 Plan, review, repository split and first backlog: `docs/uwp/` (start with `docs/uwp/README.md`).
 
+## Track: Safe Mode and start-up recovery (2026-11-08)
+
+The XP Advanced Options menu (F8) and Safe Mode work with GRUB: Safe Mode, with Networking and with Command Prompt,
+Enable Boot Logging, Debugging Mode and Disable automatic restart; the rest is grayed until Vintner Boot provides it.
+Safe Mode logs on through the Welcome screen. The VM test `installer/tests/safe-mode.sh` passes on SeaBIOS and OVMF.
+Design: `docs/SAFE_MODE.md`. Remaining work, owner decisions and order: `docs/SAFE_MODE_WORKORDER.md`:
+- the full ISO install test (A2);
+- Windows programs seeing Safe Mode, on the Wine branch (B);
+- the Safe Mode desktop, 640x480, the classic logon dialog, and XP's menu layout and boot log (C);
+- the Administrator account and the registry's hidden accounts (C4, C7; optional);
+- the start-up failure screen through GRUB's `recordfail` (D1).
+
+The boot-loader side (Last Known Good, the failure screen's boot counting) waits on Vintner Boot
+(`docs/VINTNER_BOOT.md`). XP reference captures are kept only in the local-only repository (`docs/ASSETS.md`).
+
 ## Track E1: production elevation and installer authorization (2026-11-05)
 
 New open track, scheduled immediately before and alongside "Future: stock browser installers": machine-wide installers

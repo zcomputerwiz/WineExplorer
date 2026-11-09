@@ -291,8 +291,9 @@ Press F8 at start (during GRUB's hidden one-second timeout) for the XP Advanced 
 Safe Mode, Safe Mode with Networking, Safe Mode with Command Prompt, Enable Boot Logging, Debugging Mode and
 Disable automatic restart on system failure work; items that need Vintner Boot or do not apply are grayed. A Safe
 Mode boot starts only what logging on needs, never logs on automatically and changes nothing on disk; the next
-start is normal again. Safe Mode with Command Prompt opens a recovery console without Wine and admits only members
-of `sudo`. Enable Boot Logging appends to `C:\WINDOWS\ntbtlog.txt` in the machine root. `wex-bootmode` prints the
+start is normal again. Safe Mode logs on through the Welcome screen, as XP does; the plain Linux logon screen
+appears only when Wine cannot start. Safe Mode with Command Prompt opens a recovery console without Wine and
+admits only root and members of `sudo`. Enable Boot Logging appends to `C:\WINDOWS\ntbtlog.txt` in the machine root. `wex-bootmode` prints the
 current mode. Design and tests: [SAFE_MODE.md](SAFE_MODE.md).
 
 ---

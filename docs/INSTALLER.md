@@ -162,7 +162,7 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
 - **Interactive Wizard Pages**:
   1. *Regional and Language Options*: Locale selection, keyboard layout.
   2. *Personalize Your Software*: Registered Owner, Organization.
-  3. *Computer Name and Administrator Password*: Hostname validation (alphanumeric and dashes, max 15 chars), root password input and verification.
+  3. *Computer Name and Administrator Password*: Hostname validation (alphanumeric and dashes, max 15 chars), root password input and verification. Planned (2026-11-08, `docs/SAFE_MODE_WORKORDER.md` C4): the same password also goes to a new `administrator` account, XP's built-in Administrator. Root keeps getting it as now. A blank password leaves both locked.
   4. *Date and Time Settings*: Time zone combo, NTP synchronization checkbox.
   5. *Networking Settings*: Typical (DHCP) vs Custom settings.
   6. *Workgroup or Computer Domain*: Workgroup name (`WORKGROUP`).
@@ -190,6 +190,7 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
 - **User Provisioning**:
   - Accounts created via AccountsService `CreateUser` (`WexUserCreate`).
   - First user is provisioned with `AccountType=1` (administrator, automatically assigned to `sudo` group).
+  - Planned (`docs/SAFE_MODE_WORKORDER.md` C4): the user name fields refuse Administrator, in any case, because that account is made by Setup.
   - Copies template prefix from `/etc/skel/.wine` to `/home/<user>/.wine` with proper user ownership.
 - **Display Manager & Autologin**:
   - If exactly one user was created and that user has no password: `WexUserSetSession` asks AccountsService to enable automatic login. In Debian 13 this writes LightDM's main configuration (the legacy `[SeatDefaults]` section).

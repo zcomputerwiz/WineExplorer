@@ -81,6 +81,11 @@ generator steps aside and the update runs first.
 start, or the logon screen ends with an error, it starts the GTK greeter instead: that one needs no Wine, so Safe
 Mode with Command Prompt can still be reached with a broken Wine. A normal start is unchanged.
 
+Not done yet: the Welcome screen shows the same accounts in Safe Mode as in a normal start. XP adds its built-in
+Administrator there and hides the accounts listed in the registry. The plan is a dedicated `administrator` account
+(work order C4, decision 7) and the registry's hidden-account list (C7, decision 8), which first needs the logon
+prefix to read the machine's `HKLM`.
+
 **Session.** The session keeps its name (`wine-explorer`), so LightDM records no new session for the account.
 `wine-explorer-session.sh` reads the mode:
 

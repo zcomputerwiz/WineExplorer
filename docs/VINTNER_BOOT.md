@@ -198,7 +198,10 @@ Status (2026-11-08): the WineExplorer side works with GRUB and is described in `
 `wexmode=menu` boot shows the XP Advanced Options menu on `tty1` before `basic.target`. The menu chooses the mode
 at run time and keeps it in `/run`; a systemd generator selects the services. Nothing on disk changes. The GRUB
 entry `11_wineexplorer_advanced` carries `--hotkey=f8`, and during GRUB's hidden timeout a menu hotkey boots its
-entry directly, so F8 works on BIOS and UEFI. It was tested on SeaBIOS and OVMF.
+entry directly, so F8 works on BIOS and UEFI. It was tested on SeaBIOS and OVMF. Since then (2026-11-08) Safe Mode
+logs on through the Welcome screen, a permanent VM test (`installer/tests/safe-mode.sh`) passes all seven phases on
+both firmwares, and the remaining WineExplorer work is planned in `docs/SAFE_MODE_WORKORDER.md`. Its D1 (the
+start-up failure screen) and D3 (Last Known Good) are the items that meet Vintner.
 
 Left for Vintner:
 

@@ -123,12 +123,21 @@ makedep, so a changed picture never rebuilt the resource: `scripts/rc-makedep.py
 after adding pictures; `--check` reports missing ones).
 Not done: "N programs running" (needs a per-session count), the password hint text (`PasswordHint` is admin-only in
 AccountsService), the fades, scrolling for more accounts than fit, the open logo (wanted art, `docs/ASSETS.md`).
+Planned (2026-11-08, `docs/SAFE_MODE_WORKORDER.md`): hidden accounts read from the machine registry
+(`Winlogon\SpecialAccounts\UserList`, C7), and a dedicated Administrator account that is hidden in a normal start
+and shown in Safe Mode (C4). C7 first links the logon prefix's `system.reg` and `userdef.reg` to the machine root:
+today the logon prefix has a private hive and sees none of the machine's `HKLM`.
 
 ### W4: classic logon (`LogonType` 0)
 - "Welcome to Windows: press Ctrl+Alt+Delete" (unless `DisableCAD`), the Log On to Windows dialog with the options
   button, Computer Locked and Unlock Computer, as in ReactOS `msgina` and the XP VM.
 - System settings live outside any user prefix (`/etc/wineexplorer/winlogon.conf`, readable by the greeter); the
   greeter maps them to the XP values (`LogonType`, `DisableCAD`, `DontDisplayLastUserName`, `LegalNoticeCaption/Text`).
+  To decide when W4 starts (2026-11-08): once the logon prefix reads the machine's `HKLM`
+  (`docs/SAFE_MODE_WORKORDER.md` C7), these values can come from `HKLM\...\Winlogon` as on XP, instead of a separate
+  file. The owner asked for the hidden-account list to come from the registry, which points that way.
+- Classic logon accepts hidden accounts by name, the Administrator account included (C4 and C7 of the Safe Mode
+  work order).
 
 ### W5: inside the session
 - Ctrl+Alt+Delete in the session: Task Manager with the Welcome screen on, the Windows Security dialog (Lock, Log Off,
@@ -138,7 +147,9 @@ AccountsService), the fades, scrolling for more accounts than fit, the open logo
 
 ### W6: accounts and profiles
 - User Accounts (`nusrmgr.cpl`) through AccountsService: create, delete, account type (administrator = `sudo` group),
-  picture, password, with the polkit agent we already have.
+  picture, password, with the polkit agent we already have. Whether it also leaves out the registry's hidden accounts
+  is to be checked on the XP VM (`docs/SAFE_MODE_WORKORDER.md` C7). It sets the Administrator account's password on
+  existing installs, where the package creates that account locked (C4).
 - "Use the Welcome screen" and "Use Fast User Switching" options write the system settings through a polkit action.
 - Automatic logon (`AutoAdminLogon`, `DefaultUserName`) maps to LightDM `autologin-user`.
 - A Default User prefix template, so a new user's first logon shows XP's "Applying your personal settings" instead of
