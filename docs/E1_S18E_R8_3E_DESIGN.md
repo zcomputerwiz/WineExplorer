@@ -122,3 +122,14 @@ Build order (each a work order with tests; Claude reviews each result before com
 3e-1 lab pin for every process (receive_fd recording, lab gate); 3e-2 desktop retention at consume;
 3e-3 BINDING op with the binding record, IDs and generations; 3d-1 ENDORSE_DIALOG op using 3a-3c and
 3e; 3d-2 RECHECK op; then the broker ingests BINDING into its R8 context (replaces the zero context).
+
+## 10. Amendments (Claude, 2026-11-09, while writing WO-23)
+
+* **Decision 2 amended:** `get_pipe_caller_binding` has no reply payload, and the S6 path returns its
+  data to the verifier, not the broker. BINDING therefore needs one protocol addition: a reply
+  `VARARG(binding,bytes)`, empty unless the lab-only op 1 is used. Shipping callers see no change.
+* **Decision 4 simplified:** the desktop retained with the consumed writer is authoritative; no separate
+  switch check at BINDING (the writing thread may be gone). ENDORSE compares D's desktop with it.
+* **Decision 5 amended:** `verifier_gen` is checked by the verifier itself (it owns the value and sees it
+  in ENDORSED); the server does not retain it. The BINDING reply carries the five server-owned
+  generations; the broker adds the verifier's from its S6 registration.

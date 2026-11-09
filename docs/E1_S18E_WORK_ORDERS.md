@@ -585,3 +585,60 @@ run the system-role suite against both (`WINE_BUILD_DIR=<tree> timeout 3300 bash
 scripts/test_sysrun_server.sh`), report both PASS counts and the new PASS lines. Run long commands in
 the background; before a wexbuild run check nothing else runs; afterwards run
 `bash unsloth-tmp/clean-wexbuild-fixture.sh`. No commits. Never use VM B.
+
+## WO-23 R8 3e-2/3e-3: caller desktop and the BINDING operation (lab only; for Antigravity)
+
+Design: docs/E1_S18E_R8_3E_DESIGN.md sections 9 and 10 (read both; section 10 amends 9). Read the
+existing `get_pipe_caller_binding` handler, `struct pipe_writer`, `retain_consumed_writer` and
+`clear_pipe_writer` (wine/server/named_pipe.c), `sysrun_e1s6_endorse` (sysrun.c), `process_pin_matches`
+(process.c), `read_policy`/`read_protected`/`parse_map` (accounts.c) and `e1s_prefix_id` (registry.c).
+Claude reviews the result before anything is committed.
+
+Files: wine/server/named_pipe.c, protocol.def (one reply field, then regenerate with
+`tools/make_requests` as Wine does: include/wine/server_protocol.h, server/request_handlers.h,
+server/request_trace.h), sysrun.c/.h, accounts.c/.h, registry.c (only to expose `e1s_prefix_id` to
+the lab code), wine/dlls/ntdll/unix (the existing `NtQueryWexPipeCallerBindingEx` path: pass a reply
+buffer for the new data; both ABIs), scripts/test_sysrun_server.sh, scripts/wexelevate_probe.c.
+All new server behaviour inside `#ifdef WEX_E1S6_TRANSPORT_TEST`; without it the reply data is always
+empty and everything else is unchanged.
+
+1. Desktop at write (3e-2): `struct pipe_writer` gains `struct desktop *desktop` (retained, NULL if the
+   writing thread has none); set where a message's writer is recorded (`get_thread_desktop_quiet(current)`,
+   take a reference), moved with the writer into `consumed_writer`, released in `clear_pipe_writer`.
+2. protocol.def: `get_pipe_caller_binding` REPLY gains `VARARG(binding,bytes);` (empty unless op 1).
+3. BINDING (op 1): the request payload is exactly 8 bytes: magic `E1R8`, version u16 = 1, op u16 = 1
+   (little-endian). Any other payload keeps today's S6 meaning. On op 1, after all the existing
+   authority and writer checks (factor them into one function used by both paths):
+   * the caller is the verified broker (`sysrun_process_is_broker`) with a current S6 registration;
+   * the opener has a live pin (`process_pin_matches( client->client_process )`);
+   * the consumed writer has a retained desktop;
+   * no binding exists yet on this pipe end (one BINDING per connection);
+   * create a binding record owned by the server end: five fresh 16-byte random IDs (`/dev/urandom`,
+     all-zero rejected) for prefix_id, host_process_id, opener_id, writer_id, desktop_route; retained
+     references to the opener process, the writer process and the desktop; `server_gen` and
+     `broker_gen` from the broker's S6 registration (expose a sysrun.c helper; deny if unset);
+     `map_gen` read now from the protected accounts map (new accounts.c helper reusing
+     read_policy/read_protected/parse_map; deny on any error); `root_gen` and `policy_gen` from a new
+     sysrun.c helper keeping a server-global random tag per path that changes when the stat tuple
+     (st_dev, st_ino, st_size, st_mtim, st_ctim) of the machine root directory, respectively the
+     protected sysrun.conf, differs from the last one seen; `caller_session` = opener's session id;
+   * the reply data is exactly 124 bytes, little-endian, in this order: prefix_id, host_process_id,
+     opener_id, writer_id, desktop_route (16 each), server_gen, root_gen, broker_gen, map_gen,
+     policy_gen (u64 each), caller_session (u32).
+   The record is released with the server end (disconnect, close, destroy). Denials use the existing
+   `E1S6_BINDING_AUDIT` sites with new names.
+4. ntdll: `NtQueryWexPipeCallerBindingEx` takes an optional output buffer for the binding data (keep the
+   existing callers working; follow how the request payload is passed today), both ABIs.
+5. Tests (lab tree; the lab build compiles named_pipe.o sysrun.o accounts.o registry.o process.o
+   request.o handle.o with `-DWEX_E1S6_TRANSPORT_TEST -DWEX_R8_SERVER_TEST`, see
+   unsloth-tmp/r8-3bc-trace.sh): a probe mode (in the S6 test broker path the harness already uses for
+   transport tests) that runs op 1 and checks the reply: 124 bytes, all IDs nonzero and distinct,
+   generations nonzero, session equals the caller's; a second op 1 on the same pipe is denied; a
+   payload of 7 or 9 bytes or a wrong magic/version/op is denied; with the map's generation changed
+   between two requests map_gen differs; touching sysrun.conf changes policy_gen; the normal build
+   still passes 325 and its reply data is empty.
+
+Check: main and lab trees built, both suites run (report both PASS counts and new PASS lines), the S6
+transport suite (`WINE_BUILD_DIR=<lab> bash scripts/test_e1s6_transport.sh`, was 302 PASS) still
+passes, the broker test command passes. Long runs in the background, nothing else running in
+wexbuild, `bash unsloth-tmp/clean-wexbuild-fixture.sh` afterwards. No commits. Never use VM B.
