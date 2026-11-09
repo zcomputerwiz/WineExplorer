@@ -1627,6 +1627,33 @@ done:
 }
 #endif
 
+static void r8child_mode(const char *pidfile)
+{
+    FILE *f = fopen(pidfile, "w");
+    if (f)
+    {
+        fprintf(f, "pid=%lu\n", (unsigned long)GetCurrentProcessId());
+        fflush(f);
+        fclose(f);
+    }
+    Sleep(40000);
+    exit(0);
+}
+
+static void openpid_mode(const char *pid_str, const char *outfile)
+{
+    DWORD pid = (DWORD)strtoul(pid_str, NULL, 10);
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    DWORD err = h ? 0 : GetLastError();
+    FILE *f = fopen(outfile, "w");
+    if (f)
+    {
+        fprintf(f, "error=%lu\n", (unsigned long)err);
+        fclose(f);
+    }
+    if (h) CloseHandle(h);
+}
+
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 ? argv[1] : "";
@@ -1677,6 +1704,12 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "msi") && argc > 4) msi_mode(argv[2], argv[3], atoi(argv[4]), argc > 5 ? argv[5] : NULL);
     else if (!strcmp(mode, "consentattack")) consentattack_mode();
     else if (!strcmp(mode, "winwrite") && argc > 2) winwrite_mode(argv[2]);
+    else if (!strcmp(mode, "r8child") && argc > 2)
+    {
+        r8child_mode(argv[2]);
+        return 0;
+    }
+    else if (!strcmp(mode, "openpid") && argc > 3) openpid_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "facts") && argc > 2)
     {
         FILE *out = fopen(argv[2], "w");

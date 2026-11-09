@@ -1050,7 +1050,117 @@ for arch in 64 32; do
     TAGD="wexdbg-$$-$arch"
     bp "c4_caller_debugger_not_inherited_$arch" "$ADM" "$arch" debugparent "$pimage" "$(winpath $EL/out.dbg.$arch)" "$TAGD"
 done
+# R8 step 3: dialog protection, loader pin, dialog image
+cat "$M/system.reg" > "$ROOT/system.reg.r8"
+regpath() { echo "Z:${1//\//\\\\}"; }
+
+for arch in 64 32; do
+    # protected: mode 1, image probe r8child; openpid gets error 5
+    el_down "$ADM"
+    el_clean
+    cat "$ROOT/system.reg.r8" > "$M/system.reg"
+    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+        '"Start"=dword:00000002'
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+        '"R8DialogTest"=dword:00000001' \
+        '"R8DialogImage"="'"$(regpath "/home/$ADM/wexel/p$arch.exe")"'"' \
+        '"R8DialogArgs"="r8child '"$(regpath "$EL/r8_pid_$arch.txt")"'"' \
+        '"R8DialogResult"="'"$(regpath "$EL/r8_res_$arch.txt")"'"'
+    r8_log="/tmp/wex_el_r8_${arch}.log"
+    rm -f "$r8_log"
+    WEX_EL_LOG="$r8_log" el_up "$ADM"
+    wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" start-service wexelevate 0 >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do [ -s "$EL/r8_res_$arch.txt" ] && break; sleep 1; done
+    [ -s "$EL/r8_res_$arch.txt" ] || fail "r8_dialog_protected_open_denied_$arch: no result file"
+    tr -d '\r' < "$EL/r8_res_$arch.txt" | grep -qx 'create_error=0' || fail "r8_dialog_protected_open_denied_$arch: create_error not 0"
+    child_pid="$(tr -d '\r' < "$EL/r8_res_$arch.txt" | grep '^pid=' | cut -d= -f2)"
+    [ -n "$child_pid" ] && [ "$child_pid" != 0 ] || fail "r8_dialog_protected_open_denied_$arch: no child pid"
+    bprobe "$ADM" "$arch" openpid "$child_pid" "$(winpath "$EL/r8_open_${arch}.txt")"
+    tr -d '\r' < "$EL/r8_open_${arch}.txt" | grep -qx 'error=5' || fail "r8_dialog_protected_open_denied_$arch: open not denied"
+    ok "r8_dialog_protected_open_denied_$arch"
+
+    if has_str "$BUILD/server/wineserver" "wex-r8:"; then
+        grep -q 'wex-r8: dialog [0-9a-fA-F]* protected' "$r8_log" || fail "r8_pin_is_child_pid_$arch: no protected log"
+        child_unix_pid="$(el_proc root "r8child")"
+        [ -n "$child_unix_pid" ] || child_unix_pid="$(el_proc "$ADM" "r8child")"
+        [ -n "$child_unix_pid" ] || fail "r8_pin_is_child_pid_$arch: child unix process not found"
+        grep -q "wex-r8: dialog [0-9a-fA-F]* pin pid=$child_unix_pid" "$r8_log" || fail "r8_pin_is_child_pid_$arch: pin pid does not match unix pid"
+        ok "r8_pin_is_child_pid_$arch"
+        if [ "$arch" = 64 ]; then
+            grep -q 'image consent=0' "$r8_log" || fail "r8_image_probe_not_dialog: probe not consent=0"
+            ok r8_image_probe_not_dialog
+        fi
+    fi
+
+    # control: mode 3, same image; openpid gets error 0
+    el_down "$ADM"
+    el_clean
+    cat "$ROOT/system.reg.r8" > "$M/system.reg"
+    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+        '"Start"=dword:00000002'
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+        '"R8DialogTest"=dword:00000003' \
+        '"R8DialogImage"="'"$(regpath "/home/$ADM/wexel/p$arch.exe")"'"' \
+        '"R8DialogArgs"="r8child '"$(regpath "$EL/r8_pid_ctrl_$arch.txt")"'"' \
+        '"R8DialogResult"="'"$(regpath "$EL/r8_res_ctrl_$arch.txt")"'"'
+    el_up "$ADM"
+    wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" start-service wexelevate 0 >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do [ -s "$EL/r8_res_ctrl_$arch.txt" ] && break; sleep 1; done
+    [ -s "$EL/r8_res_ctrl_$arch.txt" ] || fail "r8_unprotected_control_opens_$arch: no result file"
+    tr -d '\r' < "$EL/r8_res_ctrl_$arch.txt" | grep -qx 'create_error=0' || fail "r8_unprotected_control_opens_$arch: create_error not 0"
+    child_pid="$(tr -d '\r' < "$EL/r8_res_ctrl_$arch.txt" | grep '^pid=' | cut -d= -f2)"
+    [ -n "$child_pid" ] && [ "$child_pid" != 0 ] || fail "r8_unprotected_control_opens_$arch: no child pid"
+    bprobe "$ADM" "$arch" openpid "$child_pid" "$(winpath "$EL/r8_open_ctrl_${arch}.txt")"
+    tr -d '\r' < "$EL/r8_open_ctrl_${arch}.txt" | grep -qx 'error=0' || fail "r8_unprotected_control_opens_$arch: open failed"
+    ok "r8_unprotected_control_opens_$arch"
+done
+
+# bad rights: mode 2; create_error=5, pid=0, no child process
 el_down "$ADM"
+el_clean
+cat "$ROOT/system.reg.r8" > "$M/system.reg"
+reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+    '"Start"=dword:00000002'
+reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+    '"R8DialogTest"=dword:00000002' \
+    '"R8DialogImage"="'"$(regpath "/home/$ADM/wexel/p64.exe")"'"' \
+    '"R8DialogArgs"="r8child '"$(regpath "$EL/r8_pid_bad.txt")"'"' \
+    '"R8DialogResult"="'"$(regpath "$EL/r8_res_bad.txt")"'"'
+el_up "$ADM"
+wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" start-service wexelevate 0 >/dev/null 2>&1 || true
+for _ in $(seq 1 10); do [ -s "$EL/r8_res_bad.txt" ] && break; sleep 1; done
+[ -s "$EL/r8_res_bad.txt" ] || fail "r8_dialog_unnarrowed_refused: no result file"
+tr -d '\r' < "$EL/r8_res_bad.txt" | grep -qx 'create_error=5' || fail "r8_dialog_unnarrowed_refused: expected create_error=5"
+tr -d '\r' < "$EL/r8_res_bad.txt" | grep -qx 'pid=0' || fail "r8_dialog_unnarrowed_refused: expected pid=0"
+child_bad="$(el_proc root "r8child")"
+[ -n "$child_bad" ] || child_bad="$(el_proc "$ADM" "r8child")"
+[ -z "$child_bad" ] || fail "r8_dialog_unnarrowed_refused: child process was created"
+ok r8_dialog_unnarrowed_refused
+
+if has_str "$BUILD/server/wineserver" "wex-r8:"; then
+    # further mode 1 run with consent.exe
+    el_down "$ADM"
+    el_clean
+    cat "$ROOT/system.reg.r8" > "$M/system.reg"
+    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+        '"Start"=dword:00000002'
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+        '"R8DialogTest"=dword:00000001' \
+        '"R8DialogImage"="C:\\windows\\system32\\consent.exe"' \
+        '"R8DialogArgs"="/broker /credentials"' \
+        '"R8DialogResult"="'"$(regpath "$EL/r8_res_consent.txt")"'"'
+    r8_consent_log="/tmp/wex_el_r8_consent.log"
+    rm -f "$r8_consent_log"
+    WEX_EL_LOG="$r8_consent_log" el_up "$ADM"
+    wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" start-service wexelevate 0 >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do [ -s "$EL/r8_res_consent.txt" ] && break; sleep 1; done
+    grep -q 'image consent=1' "$r8_consent_log" || fail "r8_image_consent_is_dialog: consent not recognized"
+    ok r8_image_consent_is_dialog
+fi
+
+el_down "$ADM"
+cat "$ROOT/system.reg.r8" > "$M/system.reg"
+rm -f "$ROOT/system.reg.r8"
 rm -f "$SYS32/wexelevate.exe"
 [ -z "$R13_ORIG" ] || mv "$R13_ORIG" "$SYS32/wexelevate.exe"
 el_up "$ADM"

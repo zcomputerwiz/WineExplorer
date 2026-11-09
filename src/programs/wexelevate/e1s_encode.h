@@ -33,14 +33,14 @@ struct e1s_bytes
     int failed;
 };
 
-static void e1s_put( struct e1s_bytes *b, const void *data, uint32_t len )
+static inline void e1s_put( struct e1s_bytes *b, const void *data, uint32_t len )
 {
     if (b->failed || len > b->capacity - b->length) { b->failed = 1; return; }
     if (len) memcpy( b->data + b->length, data, len );
     b->length += len;
 }
 
-static void e1s_uint( struct e1s_bytes *b, uint64_t n, uint32_t size )
+static inline void e1s_uint( struct e1s_bytes *b, uint64_t n, uint32_t size )
 {
     uint8_t v[8];
     uint32_t i;
@@ -48,7 +48,7 @@ static void e1s_uint( struct e1s_bytes *b, uint64_t n, uint32_t size )
     e1s_put( b, v, size );
 }
 
-static void e1s_blob( struct e1s_bytes *b, const void *p, uint32_t len )
+static inline void e1s_blob( struct e1s_bytes *b, const void *p, uint32_t len )
 {
     e1s_uint( b, len, 4 );
     e1s_put( b, p, len );
@@ -57,7 +57,7 @@ static void e1s_blob( struct e1s_bytes *b, const void *p, uint32_t len )
 /* Explicit UTF-16LE, independent of native structure padding. NUL/surrogate
  * validation. The string is NUL-terminated; the length is counted here so no
  * Win32 call is needed. */
-static void e1s_string( struct e1s_bytes *b, const uint16_t *s )
+static inline void e1s_string( struct e1s_bytes *b, const uint16_t *s )
 {
     uint32_t i, n = 0;
     if (!s) { b->failed = 1; return; }
@@ -83,7 +83,7 @@ static void e1s_string( struct e1s_bytes *b, const uint16_t *s )
  * no allocation. Field order per docs/E1_S1_CONTRACTS.md record 1. The caller
  * validates the SID and the generations and performs the SHA-256.
  */
-static void e1s_encode_binding( struct e1s_bytes *b,
+static inline void e1s_encode_binding( struct e1s_bytes *b,
                                 uint64_t server_gen, uint64_t root_gen, uint64_t broker_gen,
                                 const uint8_t prefix[16], uint64_t host_uid,
                                 const uint8_t host_process[16],
@@ -119,7 +119,7 @@ static void e1s_encode_binding( struct e1s_bytes *b,
  * allocation. Field order per docs/E1_S1_CONTRACTS.md "Encoding and
  * negotiation" (request digest): no common header, starts at request_id.
  */
-static void e1s_encode_request( struct e1s_bytes *b,
+static inline void e1s_encode_request( struct e1s_bytes *b,
                                 uint64_t request_id, const uint8_t binding_digest[32],
                                 uint64_t volume_serial, uint64_t file_index,
                                 uint64_t file_size, uint64_t last_write,

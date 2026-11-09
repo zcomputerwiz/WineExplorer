@@ -729,6 +729,200 @@ static DWORD secure_desktop_test(void)
                   &value, &size );
     return value;
 }
+
+#ifndef PROC_THREAD_ATTRIBUTE_HANDLE_LIST
+#define PROC_THREAD_ATTRIBUTE_HANDLE_LIST 0x00020002
+#endif
+
+struct r8_reap_ctx
+{
+    HANDLE process;
+    HANDLE thread;
+    HANDLE to_d_write;
+    HANDLE from_d_read;
+};
+
+static DWORD WINAPI r8_reap_thread( void *arg )
+{
+    struct r8_reap_ctx *ctx = (struct r8_reap_ctx *)arg;
+    if (ctx)
+    {
+        WaitForSingleObject( ctx->process, INFINITE );
+        CloseHandle( ctx->process );
+        if (ctx->thread) CloseHandle( ctx->thread );
+        if (ctx->to_d_write) CloseHandle( ctx->to_d_write );
+        if (ctx->from_d_read) CloseHandle( ctx->from_d_read );
+        free( ctx );
+    }
+    return 0;
+}
+
+static void r8_dialog_test(void)
+{
+    DWORD mode = 0, size = sizeof(mode);
+    WCHAR image[MAX_PATH], args[512], result_path[MAX_PATH], cmd[2048];
+    DWORD img_size = sizeof(image), args_size = sizeof(args), res_size = sizeof(result_path);
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE };
+    HANDLE to_d_read = NULL, to_d_write = NULL;
+    HANDLE from_d_read = NULL, from_d_write = NULL;
+    HANDLE child_in = NULL, child_out = NULL;
+    STARTUPINFOEXW si;
+    PROCESS_INFORMATION pi;
+    SIZE_T attr_size = 0;
+    BOOL b_inherit = FALSE;
+    DWORD flags = 0;
+    BOOL ok;
+    DWORD create_error, child_pid;
+    HANDLE hfile;
+    char res_buf[128];
+    DWORD written = 0;
+    int len;
+
+    if (RegGetValueW( HKEY_LOCAL_MACHINE, L"Software\\WineExplorer\\ElevationTest",
+                      L"R8DialogTest", RRF_RT_REG_DWORD, NULL, &mode, &size ) ||
+        (mode != 1 && mode != 2 && mode != 3))
+        return;
+
+    image[0] = 0;
+    if (RegGetValueW( HKEY_LOCAL_MACHINE, L"Software\\WineExplorer\\ElevationTest",
+                      L"R8DialogImage", RRF_RT_REG_SZ, NULL, image, &img_size ) || !image[0])
+        return;
+
+    args[0] = 0;
+    RegGetValueW( HKEY_LOCAL_MACHINE, L"Software\\WineExplorer\\ElevationTest",
+                  L"R8DialogArgs", RRF_RT_REG_SZ, NULL, args, &args_size );
+
+    result_path[0] = 0;
+    if (RegGetValueW( HKEY_LOCAL_MACHINE, L"Software\\WineExplorer\\ElevationTest",
+                      L"R8DialogResult", RRF_RT_REG_SZ, NULL, result_path, &res_size ) || !result_path[0])
+        return;
+
+    if (!CreatePipe( &to_d_read, &to_d_write, &sa, 0 ) ||
+        !CreatePipe( &from_d_read, &from_d_write, &sa, 0 ))
+    {
+        if (to_d_read) CloseHandle( to_d_read );
+        if (to_d_write) CloseHandle( to_d_write );
+        if (from_d_read) CloseHandle( from_d_read );
+        if (from_d_write) CloseHandle( from_d_write );
+        return;
+    }
+
+    if (mode == 1)
+    {
+        DuplicateHandle( GetCurrentProcess(), to_d_read, GetCurrentProcess(), &child_in,
+                         FILE_GENERIC_READ, TRUE, 0 );
+        CloseHandle( to_d_read );
+        to_d_read = NULL;
+        DuplicateHandle( GetCurrentProcess(), from_d_write, GetCurrentProcess(), &child_out,
+                         FILE_GENERIC_WRITE, TRUE, 0 );
+        CloseHandle( from_d_write );
+        from_d_write = NULL;
+    }
+    else if (mode == 2)
+    {
+        child_in = to_d_read;
+        to_d_read = NULL;
+        child_out = from_d_write;
+        from_d_write = NULL;
+        SetHandleInformation( child_in, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT );
+        SetHandleInformation( child_out, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT );
+    }
+    else /* mode == 3 */
+    {
+        child_in = to_d_read;
+        to_d_read = NULL;
+        child_out = from_d_write;
+        from_d_write = NULL;
+    }
+
+    if (args[0])
+        _snwprintf( cmd, sizeof(cmd) / sizeof(cmd[0]), L"\"%s\" %s /in %lu /out %lu",
+                    image, args, (DWORD)(ULONG_PTR)child_in, (DWORD)(ULONG_PTR)child_out );
+    else
+        _snwprintf( cmd, sizeof(cmd) / sizeof(cmd[0]), L"\"%s\" /in %lu /out %lu",
+                    image, (DWORD)(ULONG_PTR)child_in, (DWORD)(ULONG_PTR)child_out );
+
+    memset( &si, 0, sizeof(si) );
+    memset( &pi, 0, sizeof(pi) );
+
+    if (mode == 1 || mode == 2)
+    {
+        HANDLE inherit_handles[2];
+        si.StartupInfo.cb = sizeof(si);
+        b_inherit = TRUE;
+        flags = EXTENDED_STARTUPINFO_PRESENT;
+        InitializeProcThreadAttributeList( NULL, 1, 0, &attr_size );
+        if (attr_size)
+        {
+            si.lpAttributeList = malloc( attr_size );
+            if (si.lpAttributeList && InitializeProcThreadAttributeList( si.lpAttributeList, 1, 0, &attr_size ))
+            {
+                inherit_handles[0] = child_in;
+                inherit_handles[1] = child_out;
+                UpdateProcThreadAttribute( si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                                           inherit_handles, sizeof(inherit_handles), NULL, NULL );
+            }
+        }
+    }
+    else
+    {
+        si.StartupInfo.cb = sizeof(si.StartupInfo);
+        b_inherit = FALSE;
+        flags = 0;
+    }
+
+    ok = CreateProcessW( NULL, cmd, NULL, NULL, b_inherit, flags, NULL, NULL,
+                         &si.StartupInfo, &pi );
+    create_error = ok ? 0 : GetLastError();
+    child_pid = ok ? pi.dwProcessId : 0;
+
+    if (si.lpAttributeList)
+    {
+        DeleteProcThreadAttributeList( si.lpAttributeList );
+        free( si.lpAttributeList );
+    }
+
+    if (child_in) CloseHandle( child_in );
+    if (child_out) CloseHandle( child_out );
+
+    hfile = CreateFileW( result_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                         FILE_ATTRIBUTE_NORMAL, NULL );
+    if (hfile != INVALID_HANDLE_VALUE)
+    {
+        len = snprintf( res_buf, sizeof(res_buf), "create_error=%lu\r\npid=%lu\r\n",
+                        (unsigned long)create_error, (unsigned long)child_pid );
+        if (len > 0) WriteFile( hfile, res_buf, len, &written, NULL );
+        CloseHandle( hfile );
+    }
+
+    if (ok)
+    {
+        struct r8_reap_ctx *ctx = malloc( sizeof(*ctx) );
+        if (ctx)
+        {
+            HANDLE t;
+            ctx->process = pi.hProcess;
+            ctx->thread = pi.hThread;
+            ctx->to_d_write = to_d_write;
+            ctx->from_d_read = from_d_read;
+            t = CreateThread( NULL, 0, r8_reap_thread, ctx, 0, NULL );
+            if (t) CloseHandle( t );
+            else
+            {
+                CloseHandle( pi.hProcess );
+                if (pi.hThread) CloseHandle( pi.hThread );
+                CloseHandle( to_d_write );
+                CloseHandle( from_d_read );
+                free( ctx );
+            }
+        }
+    }
+    else
+    {
+        if (to_d_write) CloseHandle( to_d_write );
+        if (from_d_read) CloseHandle( from_d_read );
+    }
+}
 #endif
 
 static DWORD create_secure_desktop(void)
@@ -1916,6 +2110,9 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
     InitializeCriticalSection( &secure_cs );
     system_role = token_is_system_with_tcb();
     if (!load_wexhost()) pLeaseTake = NULL;   /* no lease possible: every request then fails closed */
+#ifdef WEXELEVATE_TEST_APPROVAL
+    r8_dialog_test();
+#endif
     serve();
     if (secure_desktop) return_input();   /* whatever happened: the input goes back */
     report( SERVICE_STOPPED, 0 );
