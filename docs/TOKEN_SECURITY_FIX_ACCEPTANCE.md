@@ -99,6 +99,8 @@ All requirements specified in `docs/TOKEN_SECURITY_FIX_WORKORDER.md` have been i
     ```
 - **Authentic Credentials Verification:**
   - Implemented `check_credentials_pam()` using Linux standard setgid shadow helper `/sbin/unix_chkpwd <username> nullok` via pipe. Password verified against Linux shadow PAM database; passwords are never placed in argv, environment, logs, or Git.
+    (Historical, removed: see docs/ELEVATION.md. Credentials are now checked only by the S7 PAM
+    worker with `PAM_DISALLOW_NULL_AUTHTOK`; a passwordless account never authenticates.)
 - **Root-Only Automated Test Fixture:**
   - Added `check_unattended_fixture()` which only reads `/etc/wineexplorer/test-elevation.conf` (`Z:\etc\wineexplorer\test-elevation.conf`). The fixture requires root ownership (`root:root`), read permissions, and explicit opt-in:
     ```

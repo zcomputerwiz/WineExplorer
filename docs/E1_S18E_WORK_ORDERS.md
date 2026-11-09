@@ -171,3 +171,55 @@ unloads the profile as if the child were gone.
 Tests: unconfirmed termination returns ERROR_CHILD_NOT_COMPLETE, closes no process handle, does
 not unload, still closes the remote handle; the confirmed path and the existing stage matrix
 behave as before.
+
+## WO-9 Probe tests: the caller's job and debugger do not reach the elevated process (R13)
+
+Files: `scripts/wexelevate_probe.c`, `scripts/test_sysrun_server.sh`. Do not edit anything under
+`wine/` or `src/`.
+
+The wineserver now (wine/server/process.c, `new_process`, look for `isolate`) skips the
+designated parent's job and debugger when the verified broker creates a process for an explicit
+token. Add two probe modes, modelled on `attack_mode` (same "child <out> hold <tag>" command, the
+same `wexelevate_run(..., WEXELEVATE_WANT_HANDLE, &process, &pid)`, the same wait for `ready=1`
+and the same release file at the end):
+
+1. `jobparent <image> <out> <tag>`: create a job with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and no
+   breakaway permission, assign the probe itself to it, then request the elevated "hold" child.
+   Checks: `IsProcessInJob( process, job, &in )` gives FALSE; `IsProcessInJob( process, NULL, &in )`
+   gives FALSE; after `TerminateJobObject( job, 1 )` and a short wait the elevated process is still
+   running (`WaitForSingleObject( process, 0 ) == WAIT_TIMEOUT`). Note that `TerminateJobObject`
+   also ends the probe itself: do every check and write every result line before it, then call
+   it, and let a second probe instance (or the harness) check that the elevated process survived
+   by its tag (see how `callerdeath_mode` finds processes by tag with a toolhelp snapshot). Choose
+   whichever is simpler and say which.
+2. `debugparent <image> <out> <tag>`: start a second copy of the probe in a new mode
+   `debugparent-inner <image> <out> <tag>` with `DEBUG_PROCESS` (so children of the inner copy
+   would be debugged too), run a debug loop that records the process ids of every
+   CREATE_PROCESS_DEBUG_EVENT and continues every event with DBG_CONTINUE (DBG_EXCEPTION_NOT_HANDLED
+   for exceptions other than the initial breakpoint). The inner copy requests the elevated "hold"
+   child and writes its pid to a file. Check: the debugger never saw a create-process event for
+   that pid, and the elevated process reaches `ready=1`.
+
+Harness: next to `c4_caller_death_leaves_no_child` in `scripts/test_sysrun_server.sh`, add
+`c4_caller_job_not_inherited` and `c4_caller_debugger_not_inherited` with the same `bp` pattern,
+for both ABIs (64 and 32) like other cases that run both. Both probe modes must compile with the
+existing two MinGW compile lines of the harness (-Wall, no new libraries unless already linked).
+
+Check (compile only here; Claude runs the system-role harness): compile the probe for both ABIs
+the way `scripts/test_sysrun_server.sh` does, with `-Wall -Werror`, and run `bash -n` on the
+script.
+
+## WO-10 Passwordless administrator never authenticates
+
+Files: `tools/e1s7/test-client.py` (and `scripts/test_pam_worker.sh` only if a new fixture account
+needs creating or removing there).
+
+The S7 worker calls `pam_authenticate( pam, PAM_DISALLOW_NULL_AUTHTOK )`
+(`tools/e1s7/pam-worker.c`, stage 3), so an account with an empty password must be refused even
+if the PAM stack says `nullok`. Nothing tests it. Add a disposable fixture account in the
+administrator group whose password is removed (`passwd -d`), make the lab PAM stack used by the
+test include `pam_unix.so nullok` for that run, and check that an empty answer, a single space
+and a wrong password are all refused for it, and that a normal account with a password still
+works. Remove the account at the end (only if the test created it). Run
+`bash scripts/test_pam_worker.sh --disposable-guest wex-e1s-test` as root in wexbuild; it must
+pass.
