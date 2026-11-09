@@ -1,6 +1,6 @@
-# E1-S18e R8 step 1: attempt tuple, states and messages (frozen spec v4, not implemented)
+# E1-S18e R8 step 1: attempt tuple, states and messages (frozen spec v5, not implemented)
 
-v4 adopts docs/E1_S18E_R8_SPEC_REVIEW.md "v3 check". Design: docs/E1_S18E_R8_DESIGN.md,
+v5 adopts docs/E1_S18E_R8_SPEC_REVIEW.md "v3 check" and "v4 check". Design: docs/E1_S18E_R8_DESIGN.md,
 docs/E1_S18E_R8_REVIEW.md. Participants: broker B (wexelevate, SYSTEM), dialog D (consent.exe started
 by B), server S (wineserver), verifier V (root service, tools/e1s6), worker W (S7 PAM worker, run by
 V's supervisor). The standard-user chain stays disabled; normal builds keep ERROR_NOT_SUPPORTED; the
@@ -39,7 +39,18 @@ S, V, W, B and D each keep the sealed tuple and compare all of it wherever it ap
   verified broker (R13), the new process is protected from creation until retirement: S refuses, to
   every process other than B and the process itself, opening it or its threads, duplicating handles to
   or from it, and using existing handles to it or its threads for anything but SYNCHRONIZE and
-  PROCESS_QUERY_LIMITED_INFORMATION. D's inherited pipe ends keep exactly the rights B gave them.
+  PROCESS_QUERY_LIMITED_INFORMATION.
+* **Pipe objects protected from creation.** In the same `new_process` call, atomically with D's
+  creation, S marks the objects behind the handles in B's explicit handle list (D's two pipe ends)
+  and their peer objects (B's two ends) as protected for D's lifetime plus retirement. S first
+  requires: the list holds exactly two handles, one pipe read end with access exactly
+  `FILE_GENERIC_READ` and one pipe write end with access exactly `FILE_GENERIC_WRITE`, from two
+  distinct anonymous pipes created by B; and, scanning every process's handle table once (as
+  `get_system_handles` does, wine/server/handle.c `enum_handles`), that no process other than B holds
+  a handle to any of the four objects. Otherwise the creation is denied. While protected, S refuses
+  to create a handle to any of the four objects (open, duplicate with B or D as source or target,
+  inherit) in any process other than B and D, SYSTEM included, and refuses inheritance of them by any
+  further child of B or D. D inherits its two ends with exactly the rights above.
 * **Kernel pin from D's loader.** In `new_process`, before returning success (so before B spawns D),
   for such a process S sets and checks `SO_PASSCRED` and `SO_PASSPIDFD` on its end of the process
   socket; failure denies the creation. D's first sends on that socket are its loader's `reply_pipe`
@@ -65,8 +76,8 @@ S, V, W, B and D each keep the sealed tuple and compare all of it wherever it ap
 * **Rechecks.** Each authorizing step asks S to recheck atomically: D's process and token objects and
   ids, session, desktop route, pin, the caller's retained S3 objects and versions, the generations.
   Steps: attach (V asks), READY (B), RESULT publication (B), Confirm acceptance (B), redemption (B).
-* **S → V:** ENDORSED (section 6) on the existing control socket, with D's pidfd (SCM_RIGHTS, owned by
-  V until release).
+* **S → V:** ENDORSED (section 6) on the existing control socket, with D's pin pid and uid and D's
+  pidfd (SCM_RIGHTS, owned by V until release); transfer rules in section 6.
 
 ## 4. Encoding
 
@@ -79,10 +90,26 @@ ASCII D-Bus unique name `:<digits>.<digits>`, 4..255 bytes. Unknown type, unknow
 length, nonzero reserved, invalid string, duplicate, missing, late or out-of-order frame, or trailing
 bytes ends the attempt. Fields appear in the listed order with no gaps.
 
+Common header offsets: magic 0, version 4, type 6, length 8, request_id 12, attempt 20, reserved 24,
+nonce 28, channel_id 60; body at 76. Tuple tail offsets (relative to the tail's start): binding_digest
+0, request_digest 32, deadline 64, root_gen 72, server_gen 80, broker_gen 88, verifier_gen 96,
+map_gen 104, policy_gen 112, caller_session 120, desktop_route 124, desktop_mode 140, dialog_id 144;
+end 160. Pre-endorsement tuple and sealed tuple: request_id 0, attempt 8, nonce 12, channel_id 44,
+then the tail fields at 60 + tail offset (the pre-endorsement tuple ends at 204 without dialog_id).
+Message bodies follow in the listed order from offset 76; strings are length-prefixed in place.
+
+UTF-8 (the secret password payload): strict RFC 3629. Refused: truncated or missing continuation
+bytes, overlong encodings, encoded surrogates U+D800..U+DFFF, scalars above U+10FFFF, bytes C0, C1,
+F5..FF, embedded NUL; payload length 1..4096 bytes.
+
 ## 5. B↔D messages (two anonymous pipes)
 
-D's read end and write end are in the explicit handle list (WO-7); B's ends are non-inheritable; all
-redundant copies are closed right after creation. B's writes and reads run in cancellable I/O workers.
+B creates both pipes with non-inheritable handles. Only for D's `CreateProcess` call does B make its
+copies of D's two ends inheritable, and passes exactly those two handles in the explicit handle list
+(WO-7, `EXTENDED_STARTUPINFO_PRESENT`); B's own ends are never inheritable. B spawns no other child
+while D's ends are open (WO-15 single in flight). After `CreateProcess` succeeds, B closes its copies
+of D's two ends; if it fails, B closes all four handles. D spawns no child process. B's writes and
+reads run in cancellable I/O workers.
 
 | Type | Name | Dir | Body after the header | Total bytes |
 | --- | --- | --- | --- | --- |
@@ -113,7 +140,7 @@ this pipe. `required_caps` must be within the negotiated mask.
 
 | Type | Name | Path | Body after the header | Total |
 | --- | --- | --- | --- | --- |
-| 16 | ENDORSED | S→V control socket | tuple tail; D's pidfd as SCM_RIGHTS | 236 |
+| 16 | ENDORSED | S→V control socket | tuple tail, D's pin pid:u32, uid:u32; D's pidfd as SCM_RIGHTS | 244 |
 | 17 | START | B→V S6 data | account:str, account_key:16 (zero for an unknown name: decoy) | 97..159 |
 | 18 | WORKER_READY | V→B | (none) | 76 |
 | 19 | DELEGATED | V→B | (none) | 76 |
@@ -127,6 +154,20 @@ this pipe. `required_caps` must be within the negotiated mask.
 | 27 | W_SETUP | supervisor→W at spawn | tuple tail; D's pid:u32, uid:u32; D's pidfd as SCM_RIGHTS | 244 |
 
 A decoy (zero account_key) can never produce RESULT 1 or evidence.
+
+**Pidfd transfers (ENDORSED, W_SETUP).** Endpoints: ENDORSED is accepted only on V's S6 control
+socket to S, established and peer-checked at S6 endpoint establishment (docs/E1_S1_CONTRACTS.md);
+W_SETUP is accepted only as the first message on W's supervisor control socket, a socketpair created
+by the supervisor whose other end only the supervisor holds, passed to W at spawn (transfer list,
+CLOEXEC) separately from the secret end. Each message is one `recvmsg` with `MSG_CMSG_CLOEXEC` and
+must have the exact body length (244), no `MSG_TRUNC` or `MSG_CTRUNC`, and exactly one control
+message: one SCM_RIGHTS carrying exactly one fd. No SCM_CREDENTIALS or SCM_PIDFD records are carried
+on these two transfers (the senders are authenticated by the endpoint); any other, duplicate or
+truncated ancillary data is refused. The received fd must be a pidfd whose `fdinfo` `Pid:` equals the
+body's pid and is not -1 (alive); the receiver also checks the process's real uid equals the body's
+uid while the pidfd is alive. V checks ENDORSED's tail against its own records; the supervisor builds
+W_SETUP only from V's validated ENDORSED record and checks the pidfd again before sending. Any failure
+cancels the attempt; every received fd that is rejected or surplus is closed at once.
 
 ## 7. Attach, secret socket and readiness
 
@@ -227,10 +268,19 @@ Codec vectors (step 2): every message type at minimum and maximum length; one by
 byte long; wrong magic, version, type, reserved; unknown enum values; strings with odd length,
 overlength, NUL, control characters, unpaired surrogates, non-ASCII account names; S1 records with
 wrong header, caps outside the mask, payload on Confirm/Cancel, `answer_kind` 1 on the broker pipe,
-wrong round or index; replayed and out-of-order frames; refused RESULT with nonzero fields.
+wrong round or index; replayed and out-of-order frames; refused RESULT with nonzero fields. Password
+UTF-8: truncated continuation, missing continuation, overlong encodings (C0 80, E0 80 80, F0 80 80
+80), encoded surrogates (ED A0 80, ED BF BF), scalars above U+10FFFF (F4 90 80 80), bytes F5..FF,
+embedded NUL; a valid 4096-byte payload accepted and a 4097-byte payload refused. Pidfd transfers:
+no fd, two fds, two SCM_RIGHTS, an added SCM_CREDENTIALS, `MSG_CTRUNC`, a non-pidfd fd, a pidfd for
+a different or exited pid, wrong uid, body one byte short or long.
 
 Pipe tests (step 4): oversized and partial INIT, a blocked writer, a broken pipe, cancellation at
-each wait, an unrelated inherited handle, and redundant handle closure.
+each wait, an unrelated inherited handle, B's copies of D's ends closed after successful creation,
+all four closed after failed creation, B's own ends never inheritable. Server pipe protection (step 3
+gate tests): a third handle in the list, wrong access masks, a pre-existing handle to a pipe object in
+another process, duplication to a third process (SYSTEM included) from B or D, inheritance by a further
+child of B or D.
 
 Gate tests (steps 3, 5, 8, 9): foreign or spoofed attach without victim change; attach before
 ATTACH_OK; duplicate attach; missing, extra or truncated ancillary data; pin mismatch on a later

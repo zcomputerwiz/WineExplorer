@@ -167,3 +167,41 @@ Unfinished v2 corrections and exact fixes:
 - **Quotas/inventory/acceptance (126-127,184-194):** bound admission/in-flight records and refused-sender tracking, preserving foreign-call nonmutation; explicitly retain request-owned channels or WO-15 lifetime serialization with no OPEN/CLOSE rotation. Replace the wexhost directory allowance with `e1s6.c`, `wexhost.c`, `wexhost.spec`, `wexhost_unix.h`, `unixlib.c`, and name codec/test files. Carry forward named malformed/replay/caps/UTF-8 vectors and step-4 oversized/partial INIT, blocked writer, broken pipe, cancellation and unrelated-handle tests; the current negative list omits them.
 
 Step 2 still requires the missing control/registration/release codecs and enums; step 4 requires the final INIT/display contract and creation-time pipe protection contract. Refreeze those precise inputs before issuing mechanical orders. Correct arithmetic and source-level design do not establish supported-kernel, WoW64 or lifecycle acceptance.
+
+## v4 check
+
+2026-11-09. Read TOOLING.md and CLAUDE.md first. Static only; no code changes, builds, generators or runtime tests. E1-S remains disabled. References are to v4 sections.
+
+| v3 required item | v4 disposition |
+| --- | --- |
+| Tuple/INIT/display | **Not fixed completely.** Sections 2/4/5 correctly define the 160-byte tail, authenticated desktop_mode and verifier owner; offsets remain implicit despite the requested explicit offset table. Add the offsets below. |
+| Other codecs | **Fixed.** Sections 5–7 define status/reason enums, refused-field exceptions, actual S1-field equality, exact S7 prompt and D-Bus argument/reply order and binding. |
+| Registration/reply/pins | **Not fixed completely.** W_SETUP, attach reply, verifier-owner delivery and owners are defined. Section 7.5's per-message ancillary rule describes the secret socket; ENDORSED/W_SETUP still lack explicit transfer-specific cardinality, authentication and rejection rules. Apply the correction below. |
+| ACK/readiness/bootstrap | **Fixed.** ATTACH_OK, W_ACK and PROMPT_RELEASE establish the barriers; Python never watches/receives on secret ends; bootstrap retains deadline/death/stop cancellation. |
+| Access/rechecks | **Not fixed completely.** Section 3 adds creation-time process/thread protection and typed lookup rights, but omits explicit protection of pipe/connection objects and existing handles to those objects. Section 5 leaves closure timing ambiguous. See below. |
+| Final account | **Fixed.** Section 8 requires fresh eligibility, selected key and canonical-name equality before RESULT and Confirm, with the retained key/name/evidence/challenge binding. |
+| Retirement/release | **Fixed.** RELEASE/RELEASED and sections 6/9 define terminal acknowledgement, parked W cleanup, retained evidence/pins/watches and one-use redemption without premature retirement. |
+| Quotas/inventory/acceptance | **Not fixed completely.** Sections 1/11 add bounds, lifetime serialization, named files and pipe tests. Section 11 still omits the explicitly requested malformed UTF-8 vectors; add those below. |
+
+All stated totals in sections 4–7 are correct; ancillary FDs are outside payload lengths:
+
+| Layout/messages | Recomputed bytes |
+| --- | --- |
+| Common header; pre-endorsement/sealed tuple; tail | 4+2+2+4+8+4+4+32+16=76; 204/220; 220−60=160 |
+| 1 INIT | 76+160+4*4+(4..255)+3*(0..520)=256..2067 |
+| 2 ACK; 3 SELECT_OK; 4 SELECT; 9 ATTACH_OK; 5 READY | 76+32+32+16=156; 76; 76+4+(1..63)=81..143; 76; 76 |
+| 6 B→D RESULT; 7 ANSWER; 8 DONE | 76+4+4+32+(0 or 1..63)=116 or 117..179; 76+32+156=264; 76+4=80 |
+| 16 ENDORSED; 17 START; 18 WORKER_READY; 19 DELEGATED | 76+160=236; 76+4+(1..63)+16=97..159; 76; 76 |
+| 20 V→B RESULT; 21 CANCEL | 76+4+16+4+16+(0 or 1..63)=116 or 117..179; 76+4=80 |
+| 22 W_ACK; 23 ATTACH_ACK; 24 PROMPT_RELEASE; 25 RELEASE; 26 RELEASED; 27 W_SETUP | 76; 76; 76; 76+4=80; 76; 76+160+4+4=244 |
+| S7 header/prompt; secret S1 answer | header() at tools/e1s7/pam-worker.c:108–116 gives 72; 72+16+32+32+16+10=178; unchanged S1 kind 2 is 156+payload=156..4252 (no E1R8 envelope on the secret answer) |
+| DialogAttach/reply | D-Bus signatures t,u,ay,ay,ay / h,h,u,u,ay; array data 32/16/16 and 160 respectively. D-Bus marshaling is not an E1R8 fixed-length frame. |
+
+Concrete remaining corrections before mechanical orders:
+
+- **Codec freeze/tests:** add common-header offsets 0/4/6/8/12/20/24/28/60 and tail offsets binding=0, request_digest=32, deadline=64, six generations=72..112, session=120, route=124, mode=140, dialog_id=144; use the recomputed per-type bounds above. Add malformed UTF-8 vectors for truncated continuation, overlong encodings, surrogate scalars, >U+10FFFF and embedded NUL, plus valid 4096-byte and rejected 4097-byte payloads.
+- **Registration transfers:** specify authenticated S→V and supervisor→W endpoints; ENDORSED and W_SETUP each transfer exactly one live CLOEXEC pidfd in one SCM_RIGHTS, with exact body length, no duplicate/unknown/truncated ancillary data, and closure of all rejected/surplus FDs. State any required credential/PIDFD ancillary records separately from the transferred pin; validate D PID/UID against the authoritative endorsement before W_SETUP.
+- **Pipe contract:** extend creation-time restrictions explicitly to D's private pipe/connection objects, existing handles and duplication via either B or D against other Wine clients, including SYSTEM. State D's exact read/write rights; check every creation/inheritance/list operation. Close B's copies of D's ends only after successful child creation, clear inheritance on D's retained ends before any child spawn, and close all owned ends on creation failure; “right after creation” must not close the handles before inheritance.
+
+Step 2: no.
+Step 4: no.
