@@ -172,6 +172,11 @@ chmod 644 "$CONF"
 cp "$CONF" "$CONF.good"
 echo "bogus=1" >> "$CONF"
 expect_refused sysrun_config_unknown_key_refused "unknown config key" sysrun "$SYSRUN" wineserver
+cp "$CONF.good" "$CONF"
+# Keys the launcher does not use but other readers of sysrun.conf do (accounts provider, wex-is-admin).
+printf 'admin_group=sudo\nbuiltin_administrator=administrator\n' >> "$CONF"
+OUT="$(sysrun "$SYSRUN" wineserver </dev/null)" || fail "sysrun_config_account_keys_accepted: $OUT"
+case "$OUT" in *"READY"*) ok "sysrun_config_account_keys_accepted" ;; *) fail "account keys output: $OUT" ;; esac
 cp "$CONF.good" "$CONF"; rm -f "$CONF.good"
 mv "$CONF" "$CONF.real"; ln -s "$CONF.real" "$CONF"
 expect_refused sysrun_config_symlink_refused "cannot open config" sysrun "$SYSRUN" wineserver

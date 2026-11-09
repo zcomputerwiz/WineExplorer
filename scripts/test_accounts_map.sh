@@ -239,4 +239,108 @@ mv "$FIXTURE/passwd.next" "$PASSWD"
 [ "$(active robert | cut -d' ' -f2-)" = "$(printf '%s\n' "$BOB" | cut -d' ' -f2-)" ] || fail 'legacy rename changed identity'
 sync_map --initialize
 expect_lookup 0 robert
+
+# Built-in Administrator: sysrun.conf "builtin_administrator=NAME" gives that
+# account the reserved RID 500 once (separate fixture directory).
+B5="$FIXTURE/b5"
+mkdir -m 0755 "$B5"
+printf 'wexsys:x:19999:\nsudo:x:2000:administrator,alice\nusers:x:2001:\n' > "$FIXTURE/b5.group"
+printf 'administrator:x:1100:2001::/home/administrator:/bin/sh\nalice:x:1101:2001::/home/alice:/bin/sh\nbob:x:1102:2001::/home/bob:/bin/sh\n' > "$FIXTURE/b5.passwd"
+B5TOOL=("$FIXTURE/lab" --directory "$B5" --test-passwd "$FIXTURE/b5.passwd" --test-group "$FIXTURE/b5.group")
+b5_conf() { printf 'group=wexsys\nadmin_group=sudo\n%s' "$1" > "$B5/sysrun.conf"; chmod 0644 "$B5/sysrun.conf"; }
+b5_sync() { "${B5TOOL[@]}" sync "$@" > "$FIXTURE/b5.log" 2>&1 || { cat "$FIXTURE/b5.log"; fail "b5 sync $*"; }; }
+b5_refuse() { if "${B5TOOL[@]}" sync > "$FIXTURE/b5.log" 2>&1; then fail "b5: $1 accepted"; fi; }
+b5_active() { awk -v name="$1" '$1 == name && $4 == "active" {print}' "$B5/accounts.map"; }
+b5_rid() { b5_active "$1" | awk '{print $9}'; }
+
+# (a) Without the key the account gets a counter RID (what Safe Mode C4 has today).
+b5_conf ''
+b5_sync --initialize
+[ "$(b5_rid administrator)" -ge 1001 ] || fail 'b5: counter RID expected without the key'
+OLD_ADMIN="$(b5_active administrator)"
+# (b) With the key, one sync retires that record and maps RID 500 with a new key.
+b5_conf 'builtin_administrator=administrator
+'
+b5_sync
+[ "$(b5_rid administrator)" = 500 ] || fail 'b5: RID 500 not assigned'
+grep -q "^administrator 1100 $(printf '%s\n' "$OLD_ADMIN" | awk '{print $3}') tombstone " "$B5/accounts.map" || fail 'b5: old record not retired'
+[ "$(b5_active administrator | awk '{print $3}')" != "$(printf '%s\n' "$OLD_ADMIN" | awk '{print $3}')" ] || fail 'b5: key reused'
+"${B5TOOL[@]}" lookup administrator > "$FIXTURE/b5.lookup" || { cat "$FIXTURE/b5.lookup"; fail 'b5: lookup'; }
+grep -q 'admin=1 .*sid=S-1-5-21-[0-9]*-[0-9]*-[0-9]*-500$' "$FIXTURE/b5.lookup" || { cat "$FIXTURE/b5.lookup"; fail 'b5: lookup SID'; }
+[ "$(b5_rid alice)" -ge 1001 ] && [ "$(b5_rid bob)" -ge 1001 ] || fail 'b5: other accounts must keep counter RIDs'
+# (c) Idempotent: a further sync (the path/timer unit) changes nothing.
+cp -p "$B5/accounts.map" "$FIXTURE/b5.good"
+b5_sync
+cmp "$B5/accounts.map" "$FIXTURE/b5.good" || fail 'b5: resync changed the map'
+# (d) A duplicate or invalid key refuses sync and lookup (nobody resolves).
+b5_conf 'builtin_administrator=administrator
+builtin_administrator=administrator
+'
+b5_refuse 'duplicate builtin_administrator'
+status=0; "${B5TOOL[@]}" lookup alice > "$FIXTURE/b5.lookup" || status=$?
+[ "$status" = 7 ] || fail "b5: duplicate key lookup status $status"
+b5_conf 'builtin_administrator=-bad
+'
+b5_refuse 'invalid builtin_administrator'
+# (e) RID 500 is never reassigned: after retirement a new account gets a counter RID.
+b5_conf 'builtin_administrator=administrator
+'
+awk -F: '$1 != "administrator"' "$FIXTURE/b5.passwd" > "$FIXTURE/b5.next"; mv "$FIXTURE/b5.next" "$FIXTURE/b5.passwd"
+b5_sync
+[ -z "$(b5_active administrator)" ] || fail 'b5: removed account still active'
+printf 'administrator:x:1103:2001::/home/administrator:/bin/sh\n' >> "$FIXTURE/b5.passwd"
+b5_sync
+[ "$(b5_rid administrator)" -ge 1001 ] || fail 'b5: RID 500 reused'
+# (f) The account must be an administrator, else sync refuses and the map is unchanged.
+mkdir -m 0755 "$FIXTURE/b5n"
+printf 'group=wexsys\nadmin_group=sudo\nbuiltin_administrator=bob\n' > "$FIXTURE/b5n/sysrun.conf"; chmod 0644 "$FIXTURE/b5n/sysrun.conf"
+if "$FIXTURE/lab" --directory "$FIXTURE/b5n" --test-passwd "$FIXTURE/b5.passwd" --test-group "$FIXTURE/b5.group" sync --initialize > "$FIXTURE/b5.log" 2>&1; then
+    fail 'b5: non-administrator given RID 500'
+fi
+[ ! -e "$FIXTURE/b5n/accounts.map" ] || fail 'b5: refused sync wrote a map'
+# (g) A second RID 500 record (here a tombstone) is a SID collision.
+cp -p "$B5/accounts.map" "$FIXTURE/b5.keep"
+python3 -I - "$B5/accounts.map" <<'PY'
+import sys
+p = sys.argv[1]
+lines = open(p).read().splitlines()
+recs = [l.split(' ') for l in lines[1:]]
+r500 = [r for r in recs if r[8] == '500']
+assert len(r500) == 1, r500
+twin = list(r500[0]); twin[0] = 'eve'; twin[1] = '1199'; twin[2] = 'f' * 32; twin[3] = 'tombstone'
+open(p, 'w').write('\n'.join(lines + [' '.join(twin)]) + '\n')
+PY
+status=0; "${B5TOOL[@]}" lookup alice > "$FIXTURE/b5.lookup" || status=$?
+[ "$status" = 4 ] || fail "b5: duplicate RID 500 lookup status $status"
+cp -p "$FIXTURE/b5.keep" "$B5/accounts.map"
+
+# wex-is-admin: same policy parser and membership rule as the server.
+cc -O2 -Wall -Wextra -Werror -DWEX_ACCOUNTS_TEST -o "$FIXTURE/is-admin-lab" "$REPO/tools/wex-is-admin/wex-is-admin.c"
+cc -O2 -Wall -Wextra -Werror -o "$FIXTURE/is-admin" "$REPO/tools/wex-is-admin/wex-is-admin.c"
+ISA=("$FIXTURE/is-admin-lab" --directory "$B5" --test-passwd "$FIXTURE/b5.passwd" --test-group "$FIXTURE/b5.group")
+expect_admin()
+{
+    local wanted="$1" status=0; shift
+    "$@" > "$FIXTURE/isa.log" 2>&1 || status=$?
+    [ "$status" -eq "$wanted" ] || { cat "$FIXTURE/isa.log"; fail "wex-is-admin $* expected $wanted got $status"; }
+}
+expect_admin 0 "${ISA[@]}" alice
+expect_admin 0 "${ISA[@]}" administrator
+expect_admin 1 "${ISA[@]}" bob
+expect_admin 1 "${ISA[@]}" nosuchuser
+expect_admin 1 "${ISA[@]}" -bad
+expect_admin 2 "${ISA[@]}"
+expect_admin 2 "${ISA[@]}" alice bob
+b5_conf 'admin_group=sudo
+'
+expect_admin 1 "${ISA[@]}" alice   # duplicate admin_group: nobody is an administrator
+printf 'group=wexsys\nadmin_group=nosuchgroup\n' > "$B5/sysrun.conf"
+expect_admin 1 "${ISA[@]}" alice   # missing group: nobody is an administrator
+b5_conf ''
+chmod 0664 "$B5/sysrun.conf"
+expect_admin 1 "${ISA[@]}" alice   # group-writable configuration
+chmod 0644 "$B5/sysrun.conf"
+expect_admin 0 "${ISA[@]}" alice
+# The production build has no fixture options: they are just extra arguments.
+expect_admin 2 "$FIXTURE/is-admin" --directory "$B5" alice
 echo 'OK: accounts map lifecycle, lookup and protection fixture'

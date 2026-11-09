@@ -294,6 +294,12 @@ NAME=alice
 for KEY in '' 0 00000000000000000000000000000000 0123456789ABCDEF0123456789ABCDEF ../0123456789abcdef0123456789abcdef; do expect 2 run; done
 KEY="$SAVED_KEY"
 RID=1000; expect 7 run
+RID=999; expect 7 run
+# The reserved built-in Administrator RID 500 is a mapped account, not legacy.
+KEY=cccccccccccccccccccccccccccccccc
+RID=500; good
+[[ "$(profile)" = "drive_c/users/.e1s/S-1-5-21-11-22-33-500/$KEY-$NAME" ]] || fail 'RID 500 layout'
+KEY="$SAVED_KEY"
 RID=1001
 MAP_GEN=0; expect 2 run
 MAP_GEN=2

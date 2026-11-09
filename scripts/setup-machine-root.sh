@@ -393,15 +393,23 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
     if [ -f "$SYSRUN_TMP/wex-sysrun" ]; then
         echo "Installing wex-sysrun to $SYSRUN_DIR (root:$MACHINE_GROUP, mode 2755), configuration $SYSRUN_CONF..."
         install -d -m 0755 -o root -g root -- "$SYSRUN_DIR" "$(dirname -- "$SYSRUN_CONF")"
-        # Preserve the existing protected administrator-group choice on update.
+        # Preserve the existing protected administrator-group and built-in Administrator choices on update.
+        # WEX_BUILTIN_ADMINISTRATOR=NAME names the account that wex-accounts maps with the reserved RID 500.
         ADMIN_GROUP="${WEX_ADMIN_GROUP:-sudo}"
-        if [ -z "${WEX_ADMIN_GROUP:-}" ] && [ -f "$SYSRUN_CONF" ] && [ ! -L "$SYSRUN_CONF" ]; then
+        BUILTIN_ADMIN="${WEX_BUILTIN_ADMINISTRATOR:-}"
+        if [ -f "$SYSRUN_CONF" ] && [ ! -L "$SYSRUN_CONF" ] && { [ -z "${WEX_ADMIN_GROUP:-}" ] || [ -z "$BUILTIN_ADMIN" ]; }; then
             [ "$(stat -c '%u' -- "$SYSRUN_CONF")" = 0 ] || die "sysrun config is not root-owned"
             [ $(( 0$(stat -c '%a' -- "$SYSRUN_CONF") & 022 )) -eq 0 ] || die "sysrun config is writable by others"
+            seen_admin=0 seen_builtin=0
             while IFS= read -r config_line; do
-                case "$config_line" in admin_group=*) ADMIN_GROUP="${config_line#admin_group=}"; break ;; esac
+                case "$config_line" in
+                    admin_group=*) [ -n "${WEX_ADMIN_GROUP:-}" ] || [ "$seen_admin" = 1 ] || ADMIN_GROUP="${config_line#admin_group=}"; seen_admin=1 ;;
+                    builtin_administrator=*) [ -n "${WEX_BUILTIN_ADMINISTRATOR:-}" ] || [ "$seen_builtin" = 1 ] || BUILTIN_ADMIN="${config_line#builtin_administrator=}"; seen_builtin=1 ;;
+                esac
             done < "$SYSRUN_CONF"
         fi
+        # A coarse check here; wex-accounts and the server apply the exact account-name grammar.
+        case "$BUILTIN_ADMIN" in *[!A-Za-z0-9_.\$-]*|-*) die "invalid built-in Administrator account name: $BUILTIN_ADMIN" ;; esac
         install -m 2755 -o root -g "$MACHINE_GROUP" -- "$SYSRUN_TMP/wex-sysrun" "$SYSRUN_DIR/wex-sysrun"
         cat > "$SYSRUN_TMP/sysrun.conf" <<EOF
 # Written by setup-machine-root.sh. Read by wex-sysrun; it refuses a file that is not root-owned or that
@@ -413,6 +421,7 @@ wineserver=$WINESERVER_BIN
 machine_root=$MACHINE_ROOT
 admin_group=$ADMIN_GROUP
 EOF
+        [ -z "$BUILTIN_ADMIN" ] || printf 'builtin_administrator=%s\n' "$BUILTIN_ADMIN" >> "$SYSRUN_TMP/sysrun.conf"
         install -m 0644 -o root -g root -- "$SYSRUN_TMP/sysrun.conf" "$SYSRUN_CONF"
     fi
     rm -rf -- "$SYSRUN_TMP"
@@ -472,6 +481,18 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
         die "E1-S4 requires a prebuilt wex-accounts binary or its source and cc"
     fi
     install -m 0755 -o root -g root -- "$ACCOUNTS_TMP/wex-accounts" "$SYSRUN_DIR/wex-accounts"
+    # wex-is-admin USER: the administrator rule of the server, for scripts (Safe Mode). Unprivileged.
+    IS_ADMIN_SOURCE="$(dirname -- "$(readlink -f -- "$0")")/../tools/wex-is-admin/wex-is-admin.c"
+    IS_ADMIN_PKG="$(dirname -- "$(readlink -f -- "$0")")/wex-is-admin.bin"
+    if [ -f "$IS_ADMIN_PKG" ]; then
+        install -m 0755 -o root -g root -- "$IS_ADMIN_PKG" "$SYSRUN_DIR/wex-is-admin"
+    elif [ -f "$IS_ADMIN_SOURCE" ] && command -v cc >/dev/null 2>&1; then
+        cc -O2 -Wall -Wextra -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+            -o "$ACCOUNTS_TMP/wex-is-admin" "$IS_ADMIN_SOURCE"
+        install -m 0755 -o root -g root -- "$ACCOUNTS_TMP/wex-is-admin" "$SYSRUN_DIR/wex-is-admin"
+    else
+        echo "Warning: no wex-is-admin binary or source and compiler; the helper is not installed" >&2
+    fi
     ACCOUNTS_ARGS=(--directory "$(dirname -- "$SYSRUN_CONF")" sync --initialize)
     # Bind the fixed old local_user_sid only on an explicit provisioning choice.
     # Existing multi-user legacy prefixes need separate migration/review.

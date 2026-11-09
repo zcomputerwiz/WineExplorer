@@ -79,6 +79,41 @@ config directories in fixtures do not configure a production server. Setup
 preserves an existing protected `admin_group=` choice, or accepts the root
 provisioner's `WEX_ADMIN_GROUP`; sudo remains the compatibility default.
 
+### Built-in Administrator (reserved RID 500)
+
+`builtin_administrator=NAME` in the protected `sysrun.conf` (at most one line, S4
+name grammar; a duplicate or invalid line makes the configuration invalid for sync
+and lookup) names the native account that every sync, including the automatic
+path/timer unit, maps with the reserved RID 500, the well-known built-in
+Administrator SID `S-1-5-21-<machine>-500`. Setup writes it from
+`WEX_BUILTIN_ADMINISTRATOR` and preserves an existing line on update; `wex-sysrun`
+ignores the key. Rules:
+
+* RID 500 is assigned once. While no record (active or tombstone) holds RID 500 and
+  NAME is a local account, sync maps NAME with RID 500. If NAME already has an
+  active counter-RID record, that record is retired once and replaced by a new
+  record (new incarnation, new SID); data keyed to the old SID is not migrated.
+* NAME must be a member of the administrator group, else sync fails and writes
+  nothing. A legacy-bound NAME also fails.
+* RID 500 is never reassigned: after NAME is retired, a recreated account of any
+  name gets a counter RID. A rename keeps it (the record is unchanged).
+* The parser accepts RID 500 for exactly one non-legacy record (the SID collision
+  check covers tombstones). The S12 profile layout treats RID 500 as a mapped
+  account (`server/wex_profile_storage.c`).
+
+### wex-is-admin
+
+`/usr/local/libexec/wineexplorer/wex-is-admin USER` answers whether USER is an
+administrator with the server's own rule and parser (it compiles
+`server/accounts.c`): `admin_group=` of the protected `sysrun.conf`, default
+`sudo`, membership through `getgrouplist` including the primary group, two-way
+NSS agreement. It needs no privileges and prints nothing. Exit status: 0
+administrator; 1 not an administrator or not decidable (unknown user, root, NSS
+disagreement, a duplicate or invalid key, a missing group, an unprotected
+configuration); 2 usage error. Callers treat every nonzero status as "not an
+administrator". Setup installs it beside `wex-accounts`; packaging provides
+`wex-is-admin.bin`.
+
 Sync enumerates at most 26214 local `/etc/passwd` candidates and requires canonical
 `getpwnam_r`/`getpwuid_r` agreement, including primary GID, and unique names/UIDs.
 The 1 MiB map size also bounds its records, including tombstones. Lookup scans

@@ -1,5 +1,15 @@
 # Changes to stock Wine / third-party code
 
+## E1-S4: reserved RID 500 for the built-in Administrator (2026-11-09)
+
+Both files are WineExplorer additions to the server (no stock code changed).
+`server/accounts.c` reads `builtin_administrator=` from `sysrun.conf` (at most one
+line, `valid_name`; a bad line makes the configuration invalid, as for
+`admin_group=`; only the root tool `wex-accounts` acts on it) and accepts RID 500
+for one non-legacy map record besides the counter RIDs from 1001.
+`server/wex_profile_storage.c` treats RID 500 as a mapped account, not legacy.
+Details: docs/E1_S4_ACCOUNTS_MAP.md "Built-in Administrator".
+
 ## E1-S18e: registry.c reads admin_group like accounts.c (2026-11-08)
 
 The server's administrator-group parser (`admin_group_name` in `server/registry.c`)

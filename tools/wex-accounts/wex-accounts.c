@@ -29,7 +29,7 @@ static int random_bytes( void *data, size_t size )
     return 1;
 }
 
-static int new_record( struct account_map *map, const struct account_native *u, int legacy )
+static int new_record( struct account_map *map, const struct account_native *u, int legacy, int builtin )
 {
     static const char hex[] = "0123456789abcdef";
     struct account_record *r;
@@ -51,7 +51,7 @@ static int new_record( struct account_map *map, const struct account_native *u, 
     r->uid = u->uid;
     r->active = 1;
     r->legacy = legacy;
-    r->rid = legacy ? 1000 : map->next_rid++;
+    r->rid = legacy ? 1000 : builtin ? BUILTIN_ADMIN_RID : map->next_rid++;
     map->count++;
     return 1;
 }
@@ -156,6 +156,7 @@ int main( int argc, char **argv )
 {
     struct account_map *map = NULL;
     struct account_native *users = NULL;
+    const struct account_native *builtin = NULL;
     struct account_policy policy;
     struct stat st;
     char *buf = NULL;
@@ -262,7 +263,7 @@ recovered:
         if (!fresh && (i == map->count || strcmp( map->records[i].name, legacy ))) goto done;
         for (j = 0; j < count; j++) if (!strcmp( users[j].name, legacy ) && users[j].supported) break;
         if (j == count) goto done;
-        if (fresh && !new_record( map, &users[j], 1 )) goto done;
+        if (fresh && !new_record( map, &users[j], 1, 0 )) goto done;
     }
     if (retire)
     {
@@ -289,13 +290,42 @@ recovered:
                 if (map->records[i].uid == users[j].uid && !strcmp( map->records[i].name, users[j].name )) break;
             if (j == count) { map->records[i].active = 0; changed = 1; }
         }
+        /* The built-in Administrator (sysrun.conf "builtin_administrator=NAME")
+         * receives the reserved RID 500 the first time it is mapped. A counter-RID
+         * record it already has is retired once and replaced (a new SID). RID 500
+         * is never reassigned: once any record holds it, nothing changes here. The
+         * account must be in the administrator group, else the sync fails. */
+        if (policy.builtin_admin[0])
+        {
+            for (i = 0; i < map->count; i++)
+                if (!map->records[i].legacy && map->records[i].rid == BUILTIN_ADMIN_RID) break;
+            if (i == map->count)
+            {
+                for (j = 0; j < count; j++) if (!strcmp( users[j].name, policy.builtin_admin )) break;
+                if (j < count)
+                {
+                    int member;
+                    if ((status = administrator_member( &users[j], policy.admin_group, &member ))) goto done;
+                    status = WEX_ACCOUNT_MAP_INVALID;
+                    if (!member) goto done;
+                    for (i = 0; i < map->count; i++)
+                        if (map->records[i].active && !strcmp( map->records[i].name, users[j].name ))
+                        {
+                            if (map->records[i].legacy) goto done;
+                            map->records[i].active = 0;
+                            changed = 1;
+                        }
+                    builtin = &users[j];
+                }
+            }
+        }
         for (j = 0; j < count; j++)
         {
             for (i = 0; i < map->count; i++)
                 if (map->records[i].active && map->records[i].uid == users[j].uid && !strcmp( map->records[i].name, users[j].name )) break;
             if (i == map->count)
             {
-                if (!new_record( map, &users[j], 0 )) goto done;
+                if (!new_record( map, &users[j], 0, &users[j] == builtin )) goto done;
                 changed = 1;
             }
         }

@@ -172,7 +172,7 @@ static void read_config(struct config *c)
         else if (!strcmp(line, "ntdll")) set_value(c->ntdll, sizeof(c->ntdll), eq, line);
         else if (!strcmp(line, "wineserver")) set_value(c->wineserver, sizeof(c->wineserver), eq, line);
         else if (!strcmp(line, "machine_root")) set_value(c->machine_root, sizeof(c->machine_root), eq, line);
-        else if (!strcmp(line, "admin_group")) continue;
+        else if (!strcmp(line, "admin_group") || !strcmp(line, "builtin_administrator")) continue;
         else refuse("unknown config key", line);
     }
     if (!c->loader[0] || !c->ntdll[0] || !c->wineserver[0] || !c->machine_root[0])
