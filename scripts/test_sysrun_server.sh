@@ -955,6 +955,19 @@ for arch in 64 32; do
     done
 done
 bp c4_caller_death_leaves_no_child "$ADM" 64 callerdeath "$IMG" "$(winpath $EL/out.death)" "$TAGCD"
+# R13: the caller's job and debugger do not reach the elevated process (both ABIs)
+for arch in 64 32; do
+    pimage="$(winpath /home/$ADM/wexel/p$arch.exe)"
+    TAGJ="wexjob-$$-$arch"
+    bp "c4_caller_job_not_inherited_$arch" "$ADM" "$arch" jobparent "$pimage" "$(winpath $EL/out.job.$arch)" "$TAGJ"
+    # the probe ended itself in TerminateJobObject; the elevated child must have survived it
+    CP=""
+    for _ in $(seq 1 30); do CP="$(el_proc "$ADM" "child .*hold $TAGJ")"; [ -n "$CP" ] && break; sleep 1; done
+    [ -n "${CP:-}" ] || fail "c4_caller_job_not_inherited_$arch: the elevated process did not survive the job termination"
+    touch "$EL/release.$TAGJ"
+    TAGD="wexdbg-$$-$arch"
+    bp "c4_caller_debugger_not_inherited_$arch" "$ADM" "$arch" debugparent "$pimage" "$(winpath $EL/out.dbg.$arch)" "$TAGD"
+done
 # E1-S5: broker-owned disabled records, actual H2/S3 consumed message binding.
 # Endpoint/account identities, verifier and clock are fixtures; no credentials
 # or administrator token are issued. Both client ABIs use the same lab envelope.

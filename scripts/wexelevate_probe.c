@@ -57,6 +57,14 @@
  *   attack <image> <out> <tag>
  *                      start the child held, then try to open it and its threads; none of the dangerous rights
  *                      may be granted. Releases the child at the end.
+ *   jobparent <image> <out> <tag>
+ *                      put this probe in a KILL_ON_JOB_CLOSE job (no breakaway), start the held child, and check
+ *                      the child is in no job; then TerminateJobObject (which also ends the probe) and the harness
+ *                      checks by tag that the child survived
+ *   debugparent <image> <out> <tag>
+ *                      run a second copy of the probe (debugparent-inner) under DEBUG_PROCESS; the inner copy
+ *                      starts the held child and writes its pid; the debugger must never see a create-process
+ *                      event for that pid, and the child must reach ready=1
  *   leasekill <image> <out> <tag>
  *                      start the held child, then wait: a writer that opens the image (the harness does it from
  *                      Unix) must end the child before it is released, and the child must not exit with 42
@@ -1165,6 +1173,153 @@ static void attack_mode(const char *image, const char *out, const char *tag)
     free(wimage); free(cmd);
 }
 
+/* ---- R13: the caller's job and debugger do not reach the elevated process ------------------------------------ */
+
+static void jobparent_mode(const char *image, const char *out, const char *tag)
+{
+    HANDLE process = NULL, job;
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits;
+    DWORD pid = 0, err, i;
+    BOOL in = TRUE;
+    char *text;
+    WCHAR *wimage = widen(image), *cmd;
+    char narrow_cmd[2048];
+
+    job = CreateJobObjectW(NULL, NULL);
+    check(job != NULL, "the job was created");
+    if (!job) { free(wimage); return; }
+    memset(&limits, 0, sizeof(limits));
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    check(SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)),
+          "the job has KILL_ON_JOB_CLOSE and no breakaway");
+    check(AssignProcessToJobObject(job, GetCurrentProcess()), "the probe is in the job");
+
+    sprintf(narrow_cmd, "\"%s\" child %s hold %s", image, out, tag);
+    cmd = widen(narrow_cmd);
+    err = wexelevate_run(wimage, cmd, L"C:\\windows", NULL, 0, SW_SHOWNORMAL, WEXELEVATE_WANT_HANDLE, &process, &pid);
+    free(cmd);
+    SetLastError(err);
+    check(err == 0 && process && pid, "the held elevated process started");
+    if (err || !process) { free(wimage); CloseHandle(job); return; }
+    for (i = 0; i < 300; i++)
+    {
+        text = read_text(out);
+        if (text && strstr(text, "ready=1")) break;
+        free(text);
+        text = NULL;
+        Sleep(100);
+    }
+    check(text != NULL, "the elevated process is up");
+    free(text);
+
+    /* No IsProcessInJob here: the broker's handle has only SYNCHRONIZE and
+     * PROCESS_QUERY_LIMITED_INFORMATION, which Wine's query refuses. The property that matters is
+     * checked behaviourally: the harness confirms the child outlives TerminateJobObject below. */
+    (void)in;
+
+    /* every check is done and every result line is written; terminating the job also ends the probe itself */
+    printf("jobparent=%s\n", failures ? "FAIL" : "PASS");
+    fflush(stdout);
+    /* the job's exit code becomes the probe's: keep it 0 when every check passed (the harness uses pipefail) */
+    TerminateJobObject(job, failures ? 1 : 0);
+    /* the probe is in the job and was terminated above; if it is still here, end it */
+    Sleep(2000);
+    exit(failures ? 1 : 0);
+}
+
+static void debugparent_inner_mode(const char *image, const char *out, const char *tag)
+{
+    HANDLE process = NULL;
+    DWORD pid = 0, err;
+    WCHAR *wimage = widen(image), *cmd;
+    char narrow_cmd[2048], pidfile[MAX_PATH + 16], pidstr[32];
+
+    sprintf(narrow_cmd, "\"%s\" child %s hold %s", image, out, tag);
+    cmd = widen(narrow_cmd);
+    err = wexelevate_run(wimage, cmd, L"C:\\windows", NULL, 0, SW_SHOWNORMAL, WEXELEVATE_WANT_HANDLE, &process, &pid);
+    free(wimage); free(cmd);
+    SetLastError(err);
+    check(err == 0 && process && pid, "the held elevated process started");
+    if (err || !process) return;
+    sprintf(pidfile, "%s.pid", out);
+    sprintf(pidstr, "%lu", pid);
+    write_whole(pidfile, pidstr, strlen(pidstr));
+    CloseHandle(process);
+}
+
+static void debugparent_mode(const char *image, const char *out, const char *tag)
+{
+    char self[MAX_PATH], cmdline[2 * MAX_PATH + 64], pidfile[MAX_PATH + 16];
+    STARTUPINFOA si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    DEBUG_EVENT ev;
+    DWORD create_pids[64], n_create = 0, child_pid = 0, i;
+    int saw_child = 0, inner_done = 0;
+    char *text;
+    FILE *pf;
+    BOOL ok;
+
+    GetModuleFileNameA(NULL, self, sizeof(self));
+    sprintf(cmdline, "\"%s\" debugparent-inner %s %s %s", self, image, out, tag);
+    ok = CreateProcessA(self, cmdline, NULL, NULL, FALSE, DEBUG_PROCESS, NULL, NULL, &si, &pi);
+    check(ok, "the inner copy started under the debugger");
+    if (!ok) return;
+    sprintf(pidfile, "%s.pid", out);
+    for (;;)
+    {
+        if (!WaitForDebugEvent(&ev, INFINITE)) break;
+        switch (ev.dwDebugEventCode)
+        {
+        case CREATE_PROCESS_DEBUG_EVENT:
+            if (n_create < sizeof(create_pids) / sizeof(create_pids[0])) create_pids[n_create++] = ev.dwProcessId;
+            CloseHandle(ev.u.CreateProcessInfo.hProcess);
+            CloseHandle(ev.u.CreateProcessInfo.hThread);
+            break;
+        case CREATE_THREAD_DEBUG_EVENT:
+            CloseHandle(ev.u.CreateThread.hThread);
+            break;
+        case EXIT_PROCESS_DEBUG_EVENT:
+            if (ev.dwProcessId == pi.dwProcessId) inner_done = 1;
+            break;
+        }
+        if (ev.dwDebugEventCode == EXCEPTION_DEBUG_EVENT &&
+            ev.u.Exception.ExceptionRecord.ExceptionCode != EXCEPTION_BREAKPOINT &&
+            ev.u.Exception.ExceptionRecord.ExceptionCode != EXCEPTION_SINGLE_STEP)
+            ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, DBG_EXCEPTION_NOT_HANDLED);
+        else
+            ContinueDebugEvent(ev.dwProcessId, ev.dwThreadId, DBG_CONTINUE);
+        if (inner_done) break;
+    }
+    check(inner_done, "the inner copy finished");
+    child_pid = 0;
+    if ((pf = fopen(pidfile, "r")))
+    {
+        if (fscanf(pf, "%lu", &child_pid) != 1) child_pid = 0;
+        fclose(pf);
+    }
+    check(child_pid != 0, "the inner copy reported the elevated child's pid");
+    for (i = 0; i < n_create; i++)
+        if (create_pids[i] == child_pid) saw_child = 1;
+    check(!saw_child, "the debugger never saw a create-process event for the elevated child");
+    for (i = 0; i < 300; i++)
+    {
+        text = read_text(out);
+        if (text && strstr(text, "ready=1")) break;
+        free(text);
+        text = NULL;
+        Sleep(100);
+    }
+    check(text != NULL, "the elevated process is up");
+    free(text);
+    {
+        char release[MAX_PATH];
+        sprintf(release, POLICY_DIR "release.%s", tag);
+        write_whole(release, "go", 2);
+    }
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+}
+
 static void shexec_mode(const char *verb, const char *image, DWORD expect, const char *out, const char *elev, const char *extra)
 {
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
@@ -1512,6 +1667,9 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "writerfirst") && argc > 3) writerfirst_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "callerdeath") && argc > 4) callerdeath_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "attack") && argc > 4) attack_mode(argv[2], argv[3], argv[4]);
+    else if (!strcmp(mode, "jobparent") && argc > 4) jobparent_mode(argv[2], argv[3], argv[4]);
+    else if (!strcmp(mode, "debugparent") && argc > 4) debugparent_mode(argv[2], argv[3], argv[4]);
+    else if (!strcmp(mode, "debugparent-inner") && argc > 4) debugparent_inner_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "leasekill") && argc > 4) leasekill_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "spoofcmd") && argc > 4) spoofcmd_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "shexec") && argc > 6) shexec_mode(argv[2], argv[3], atoi(argv[4]), argv[5], argv[6], argc > 7 ? argv[7] : NULL);

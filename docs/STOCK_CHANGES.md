@@ -1,5 +1,23 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e R13: elevated process does not inherit the caller's job or debugger (2026-11-09)
+
+The filtered-admin broker names the caller as designated parent (console and window placement).
+Stock `new_process` then also puts the child in the parent's job and attaches the parent's
+debugger when it debugs its children, so a caller could stall or kill the elevated process
+through them. Now, when the creating process is the verified elevation broker and the request
+names a parent and an explicit token, the server skips job inheritance (and its breakaway
+check) and debugger inheritance, and refuses such a request that also passes a debug object, a
+job list or handle inheritance. Ordinary CreateProcess is unchanged. The broker is recognised
+by the actual mapped file (device and inode of the machine-root `system32/wexelevate.exe`), the
+system role and its SYSTEM primary token; this check is in production builds (the lab S6 hook
+also accepts the test broker image under `WEX_E1S6_TRANSPORT_TEST`). No protocol change.
+
+* `server/process.c`: `isolate` in `new_process`.
+* `server/process.h`: `wex_broker_image`.
+* `server/sysrun.c`, `server/sysrun.h`: broker image recognition in `sysrun_main_image`,
+  `sysrun_process_is_broker`.
+
 ## E1-S18e broker storage-generation query (2026-11-08)
 
 Adds broker-only `WEX_HKU_STORAGE_QUERY=12` to existing request 325 (review R3
@@ -2111,6 +2129,9 @@ Project modules: `dlls/wexhost` (`elevate.c`, export `WexElevateRun`, imports `a
 - `programs/consent/consent.c`:
   - Removed `WINE_CONSENT_AUTO_APPROVE` and `WINE_CONSENT_AUTO_DENY` environment bypasses.
   - Implemented genuine PAM shadow password verification via `/sbin/unix_chkpwd <username> nullok`.
+    (Historical, removed: consent.exe no longer checks passwords; see docs/ELEVATION.md. The
+    current path is the S7 PAM worker, which calls `pam_authenticate` with
+    `PAM_DISALLOW_NULL_AUTHTOK`, so an account without a password never authenticates.)
   - Added root-only opt-in fixture `/etc/wineexplorer/test-elevation.conf`.
 - `dlls/shell32/shell32_main.c`, `shellpath.c`, `shell32_main.h` (always; upstreamable): `DllInstall(TRUE, L"U")` (was a stub) does the per-user setup, as Windows' Active Setup does at first logon (`regsvr32 /s /n /i:U shell32.dll`): `_SHRegisterUserShellFolders(FALSE)` (HKCU, creates the user's folders) and `create_extra_folders(TRUE)` (TEMP/TMP, Temp, Themes, AccountPictures, Screenshots; not the COMMON_APPDATA step). It writes no HKLM, so it works when the elevation helper denies machine writes, where `DllRegisterServer` stops at its first HKLM write and never creates the folders. `DllRegisterServer` and other `DllInstall` arguments are unchanged.
 
