@@ -1222,6 +1222,14 @@ static INT_PTR CALLBACK OobeUsersProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
                     char clean[64];
                     GetDlgItemTextA(hwnd, ids[i], raw, sizeof(raw));
                     SanitizeUsername(raw, clean, sizeof(clean));
+                    /* the built-in Administrator account exists already (docs/SAFE_MODE_WORKORDER.md C4) */
+                    if (!strcmp(clean, "administrator")) {
+                        MessageBoxA(hwnd, "Administrator is the name of a built-in account. Type a different name.",
+                                    "OOBE", MB_OK | MB_ICONEXCLAMATION);
+                        SetFocus(GetDlgItem(hwnd, ids[i]));
+                        SetWindowLongPtrA(hwnd, DWLP_MSGRESULT, -1);
+                        return TRUE;
+                    }
                     if (clean[0]) {
                         int idx = g_ctx.user_count++;
                         snprintf(g_ctx.users[idx].name, sizeof(g_ctx.users[idx].name), "%s", clean);

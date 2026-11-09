@@ -182,6 +182,9 @@ merge `0753aec`), as reported by the Vintner session:
 - It publishes generation 1, takes over `BOOTX64.EFI` and the BIOS boot code, and then removes the stock loader.
 - Its documentation is Vintner Boot's `docs/accepted-platforms.md` and `docs/architecture.md` section 5.
 - Its `ci/install` row boots the result on SeaBIOS and OVMF.
+- Since PR #76 (merge `851963d`) it also creates the UEFI NVRAM boot entry. The health report flags a missing or
+  demoted entry, and `vintner boot-entry` recreates it. The bless point is still `boot-complete.target`, so
+  `wex-startup-check.service` keeps its ordering.
 
 Read those before building this step; the 2026-11-07 notes below predate the command.
 

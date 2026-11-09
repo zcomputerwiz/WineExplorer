@@ -81,10 +81,16 @@ generator steps aside and the update runs first.
 start, or the logon screen ends with an error, it starts the GTK greeter instead: that one needs no Wine, so Safe
 Mode with Command Prompt can still be reached with a broken Wine. A normal start is unchanged.
 
-Not done yet: the Welcome screen shows the same accounts in Safe Mode as in a normal start. XP adds its built-in
-Administrator there and hides the accounts listed in the registry. The plan is a dedicated `administrator` account
-(work order C4, decision 7) and the registry's hidden-account list (C7, decision 8), which first needs the logon
-prefix to read the machine's `HKLM`.
+**The Administrator account and hidden accounts** (work order C4 and C7, decisions 7 and 8; 2026-11-09):
+- The package creates `administrator`, display name Administrator, locked and in the administrators' group.
+  Setup gives it the Administrator password by copying root's hash. Without a password it stays locked and
+  `wexhost`'s account list leaves it out, as XP leaves disabled accounts out.
+- `logonui.exe` shows it in Safe Mode only, as XP Professional does, unless
+  `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList` says otherwise. Any account
+  with a value of 0 there is left out of the Welcome screen.
+- The logon prefix is `lightdm`'s `~/.wine`. Until it is linked to the machine's hives (once the system role
+  runs), the list it reads is the one in its own registry.
+- No SSH logon is possible for root or Administrator (`/etc/ssh/sshd_config.d/wineexplorer.conf`).
 
 **Session.** The session keeps its name (`wine-explorer`), so LightDM records no new session for the account.
 `wine-explorer-session.sh` reads the mode:
@@ -218,6 +224,7 @@ changes one fails.
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" and `wex_boot_pending` is back at 0 |
 | `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending` |
 | `failed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards), the serial console shows `wex_boot_pending=1` once Linux runs: GRUB recorded the start. Then the Reset button (QMP `system_reset`) and the failure screen with its countdown. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold, and GRUB's "Loading Linux" text was not readable on OVMF. Up stops the countdown and removes its line, and Safe Mode with Command Prompt starts at once; that start leaves `wex_boot_pending` at 1. The next start shows the screen again; left alone, the countdown starts normally, and that start counts and clears the variable |
+| `accounts` | Needs `WEX_TEST_WINE`, a tarball of this branch's Wine. Provisioning gives Administrator a random password and adds `wexhidden` ("Hidden Test") with a value of 0 in the logon prefix's `SpecialAccounts\UserList`. The Safe Mode Welcome screen then shows Administrator and the test user but not Hidden Test, and Administrator logs on. In a normal start, the logon screen (after switching user) shows the test user only |
 
 Every phase starts with `wex_boot_pending` cleared on the overlay, so a phase that failed does not leave the next
 one on the failure screen. After a run that showed the Welcome screen, the test checks that the greeter's prefix
@@ -240,6 +247,10 @@ With the failure screen (D1, 2026-11-08):
 - In `safe`, the start-up check's pattern matched only `logonui.exe`. Wine shows that process's command line as
   the bare `logonui.exe`, and the same pattern did not match `explorer.exe /desktop=Logon,1280x800 logonui.exe`.
 - No boot changed a recorded file.
+
+With the Administrator account and hidden accounts (C4 and C7, 2026-11-09): all nine phases passed on SeaBIOS and
+on OVMF with this branch's Wine, unpacked over the round 3 image's October Wine through `WEX_TEST_WINE`. No boot
+changed a recorded file.
 
 Seen during the run and not part of this change: the installed image sets `LANG=en_US.UTF-8` without generating
 that locale, so the recovery console prints `setlocale` warnings.

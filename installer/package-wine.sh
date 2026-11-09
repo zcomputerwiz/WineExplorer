@@ -337,6 +337,27 @@ if [ -f /etc/pam.d/lightdm-autologin ]; then
 fi
 # The start-up check clears GRUB's wex_boot_pending once the logon screen is up ("did not start successfully").
 systemctl enable wex-startup-check.service || true
+# The built-in Administrator account (docs/SAFE_MODE_WORKORDER.md C4): created locked, in the administrators' group
+# (E1's admin_group= in sysrun.conf, default sudo). Setup gives it the Administrator password (wex-gui-setup.sh copies
+# root's); until then it cannot log on, and the Welcome screen leaves it out. The AccountsService file makes it a
+# cached account, which the Welcome screen lists (in Safe Mode only, or as SpecialAccounts\UserList says).
+if ! getent passwd administrator >/dev/null 2>&1; then
+    admin_group=sudo
+    if [ -f /etc/wineexplorer/sysrun.conf ] && [ ! -L /etc/wineexplorer/sysrun.conf ]; then
+        admin_group=$(sed -n 's/^admin_group=//p' /etc/wineexplorer/sysrun.conf | head -n 1)
+        admin_group=${admin_group:-sudo}
+    fi
+    if getent group "$admin_group" >/dev/null 2>&1; then
+        useradd --create-home --comment Administrator --shell /bin/bash --groups "$admin_group" administrator || true
+    else
+        useradd --create-home --comment Administrator --shell /bin/bash administrator || true
+    fi
+fi
+if getent passwd administrator >/dev/null 2>&1 && [ ! -e /var/lib/AccountsService/users/administrator ]; then
+    mkdir -p /var/lib/AccountsService/users
+    printf '[User]\nSession=wine-explorer\nXSession=wine-explorer\nSystemAccount=false\n' \
+        > /var/lib/AccountsService/users/administrator
+fi
 
 systemctl daemon-reload || true
 systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service || true

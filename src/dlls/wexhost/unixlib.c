@@ -611,8 +611,10 @@ static void logged_on_users( char *out, size_t size )
     p_dbus_message_unref( reply );
 }
 
-/* The accounts the logon screen offers: AccountsService's cached users without system accounts, one per line as
- * "name\treal name\ticon file\tlogged on (0 or 1)".  needed gets the size including the terminating NUL. */
+/* The accounts the logon screen offers: AccountsService's cached users without system accounts and without locked
+ * ones (they cannot log on; XP leaves disabled accounts off the Welcome screen too, and the built-in Administrator
+ * stays locked while it has no password), one per line as "name\treal name\ticon file\tlogged on (0 or 1)".
+ * needed gets the size including the terminating NUL. */
 static NTSTATUS users_list( void *args )
 {
     struct users_list_params *params = args;
@@ -637,17 +639,18 @@ static NTSTATUS users_list( void *args )
         {
             const char *path;
             char name[64] = "", real[128] = "", icon[260] = "", line[512], key[80];
-            int system = 0, n;
+            int system = 0, locked = 0, n;
             struct prop props[] = {
                 { "UserName", DBUS_TYPE_STRING, name, sizeof(name) },
                 { "RealName", DBUS_TYPE_STRING, real, sizeof(real) },
                 { "IconFile", DBUS_TYPE_STRING, icon, sizeof(icon) },
-                { "SystemAccount", DBUS_TYPE_BOOLEAN, &system, 0 } };
+                { "SystemAccount", DBUS_TYPE_BOOLEAN, &system, 0 },
+                { "Locked", DBUS_TYPE_BOOLEAN, &locked, 0 } };
 
             p_dbus_message_iter_get_basic( &arr, &path );
             p_dbus_message_iter_next( &arr );
             if (get_properties( "org.freedesktop.Accounts", path, "org.freedesktop.Accounts.User", props, ARRAYSIZE(props) )
-                || system || !name[0] || strpbrk( name, "\t\n" ) || strpbrk( real, "\t\n" ) || strpbrk( icon, "\t\n" ))
+                || system || locked || !name[0] || strpbrk( name, "\t\n" ) || strpbrk( real, "\t\n" ) || strpbrk( icon, "\t\n" ))
                 continue;
             snprintf( key, sizeof(key), "\n%s\n", name );
             n = snprintf( line, sizeof(line), "%s\t%s\t%s\t%d\n", name, real, icon, strstr( logged, key ) != NULL );

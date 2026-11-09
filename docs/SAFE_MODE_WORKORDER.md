@@ -247,15 +247,20 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
     installs an SSH server; Debian's own default still lets root log on with a key. The Samba component never adds
     either account to Samba's accounts. **Done 2026-11-08:** `installer/ssh/sshd-wineexplorer.conf`, packaged as a
     conffile.
-  - **Order and status (2026-11-08).** The account itself waits until `logonui.exe` filters accounts (C7) and
-    `wexhost`'s account list skips locked accounts. Without both, the current Welcome screen would show a locked
-    Administrator tile in every start.
-    - Both, and OOBE refusing the name, are Wine-side C changes, and this machine cannot build them: WSL Debian
-      has no MinGW compilers, and the `wexbuild` distro is not here.
-    - The skip is one condition in `users_list` (`src/dlls/wexhost/unixlib.c`); it adds no new `wexhost` call.
-    - Once those build, the account follows. The package postinst's Safe Mode part creates it locked (new and
-      existing installs alike), and `wex-gui-setup.sh` copies root's password hash to it after Setup. So Setup's
-      page and `wexhost` need no new password call.
+  - **Done 2026-11-09**, built in the new `wexbuild` distro (`docs/TOOLING.md`):
+    - `users_list` (`src/dlls/wexhost/unixlib.c`) skips locked accounts; that is one condition, with no new
+      `wexhost` call.
+    - `logonui.exe` applies the Administrator rule and the hidden-account list (C7).
+    - OOBE refuses "Administrator".
+    - The package postinst's Safe Mode part creates the account, locked, in E1's administrators' group, with an
+      AccountsService file (new and existing installs alike).
+    - `wex-gui-setup.sh` copies root's password hash to it after Setup. So Setup's page and `wexhost` need no new
+      password call.
+    - The VM test's `accounts` phase checks it with this branch's Wine (`WEX_TEST_WINE`).
+  - Still open:
+    - E1's reserved RID 500 and `wex-is-admin`, queued for this step on the E1 side;
+    - the classic dialog accepting "Administrator";
+    - the XP checks listed under C7.
   - One definition of "administrator". E1 decides it from `admin_group=` in `/etc/wineexplorer/sysrun.conf` (default
     `sudo`; strict rules: root-owned, not group- or world-writable, no symlink, at most one key, and a bad file
     means nobody is an administrator), through `getgrouplist` at logon. The Administrator account goes into that
@@ -307,7 +312,10 @@ The work:
 - `logonui.exe` (`src/programs/logonui/logonui.c`, `load_users`) reads the key with the registry API after
   `WexUsersList`. It leaves out every account whose value is 0 (account names compared without regard to case)
   and applies the Administrator rule, using `wex-bootmode`'s mode as the Safe Mode test. Nothing on the Unix side
-  filters accounts.
+  filters accounts. **Done 2026-11-09.**
+  - The mode comes from `WEXMODE`, which `wex-greeter.sh` exports, or `SM_CLEANBOOT` once B2 exists.
+  - The VM test's `accounts` phase writes the value into the logon prefix's own registry. On an image without
+    the system role, that is the registry the logon screen reads.
 - The logon prefix must see the machine's `HKLM`, and today it does not. On the round 3 image
   `/var/lib/lightdm/.wine-logon/system.reg` is a private 3.3 MB hive that `wineboot` made at the greeter's first
   start. User prefixes link `system.reg` and `userdef.reg` to the machine root instead (`/etc/skel/.wine`, made by

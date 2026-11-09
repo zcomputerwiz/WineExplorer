@@ -20,6 +20,13 @@
 #                button once Linux runs (GRUB has recorded the start), then the failure screen with its countdown;
 #                an arrow key stops it, and Safe Mode with Command Prompt from there does not count (the screen comes
 #                back at the next start); left alone, the countdown starts normally, which counts
+#   accounts     the Administrator account and hidden accounts (work order C4, C7; needs this branch's Wine, so
+#                WEX_TEST_WINE): the Safe Mode Welcome screen shows Administrator and not the test
+#                account hidden through SpecialAccounts\UserList, and Administrator logs on; then, in a normal start,
+#                the logon screen shows neither
+# Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
+# account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
+# prefix's registry.
 # Before and after every boot it records checksums of every file and link under /etc and /var/lib/AccountsService
 # and of each account's .dmrc. A boot that changes any of them fails. Every boot also reports the guest's disk use:
 # a warning from 80%, a failure from 95%. Before each phase the overlay's wex_boot_pending is cleared, so a phase
@@ -35,9 +42,14 @@
 #                                 The default, branch, copies this checkout's Safe Mode files onto the overlay where
 #                                 the package installs them, then runs the package postinst's Safe Mode part and
 #                                 update-grub in the guest during one provisioning boot.
+#   WEX_TEST_WINE                 with branch: a .tar.gz of this branch's Wine (make install prefix=/usr/local into
+#                                 a staging directory, packed from there), unpacked over / in the provisioning boot
+#                                 before the Safe Mode files are set up. It tests Wine-side changes (logonui.exe,
+#                                 wexhost) without packaging, which downloads third-party assets.
 #   WEX_TEST_USER                 the account that logs on (default wineuser); it also logs on on the serial console
 #   WEX_TEST_PASSWORD_FILE        its password (default: empty)
-#   WEX_TEST_TILE                 its name on the Welcome screen (default: the first tile, chosen with Enter)
+#   WEX_TEST_TILE                 its name on the Welcome screen (default: WEX_TEST_USER), clicked; Enter (the first
+#                                 tile) when OCR cannot find it
 # Requires root, QEMU/KVM, qemu-nbd, Tesseract and ImageMagick (scripts/vmtest.py). Every VM ends stopped.
 # Screenshots, logs and the configuration records go to $VMTEST_DIR/TEST_VM/safe-mode/.
 set -uo pipefail
@@ -54,7 +66,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|startnormal|normal|failed) ;;
+        safe|safenet|safecmd|nowine|bootlog|startnormal|normal|failed|accounts) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -66,6 +78,14 @@ case "$FIRMWARE" in
 esac
 FILES=${WEX_SAFEMODE_FILES:-branch}
 case "$FILES" in branch|installed) ;; *) echo "Invalid WEX_SAFEMODE_FILES: $FILES"; exit 2 ;; esac
+WINE_TAR=${WEX_TEST_WINE:-}
+if [ -n "$WINE_TAR" ]; then
+    [ "$FILES" = branch ] || { echo "WEX_TEST_WINE needs WEX_SAFEMODE_FILES=branch"; exit 2; }
+    [ -f "$WINE_TAR" ] || { echo "No Wine tarball: $WINE_TAR"; exit 2; }
+fi
+case " ${PHASES[*]} " in
+    *" accounts "*) [ -n "$WINE_TAR" ] || { echo "The accounts phase needs this branch's Wine: WEX_TEST_WINE"; exit 2; } ;;
+esac
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
@@ -187,14 +207,25 @@ screen_sum() { "${V[@]}" shot "$TEST" >/dev/null 2>&1; md5sum < "$STATE/screen.p
 wait_text() { "${V[@]}" wait "$TEST" "$1" --timeout "$2" >/dev/null; }
 
 open_menu() {
-    start_vm
     # During GRUB's hidden timeout F8, the menu entry's hotkey, boots the Advanced Options entry. Keys sent while the
-    # firmware runs are buffered, so press it repeatedly from the start.
-    local _
-    for _ in $(seq 1 40); do "${V[@]}" key "$TEST" f8 >/dev/null 2>&1; sleep 0.25; done
-    wait_text "Advanced Options Menu" 180 || fail "no Advanced Options menu after F8"
-    sleep 3   # the menu discards the F8 presses that opened it
-    shot menu
+    # firmware runs are buffered, so press it repeatedly from the start. Once in a while no press reaches GRUB and the
+    # machine starts normally; then stop it, clear the start-up state that start may have left, and try once more.
+    local _ try
+    for try in 1 2; do
+        start_vm
+        for _ in $(seq 1 40); do "${V[@]}" key "$TEST" f8 >/dev/null 2>&1; sleep 0.25; done
+        if wait_text "Advanced Options Menu" 180; then
+            sleep 3   # the menu discards the F8 presses that opened it
+            shot menu
+            return 0
+        fi
+        [ "$try" = 2 ] && fail "no Advanced Options menu after F8"
+        shot no-menu
+        echo "  (F8 was not taken; starting again)"
+        "${V[@]}" stop "$TEST" >/dev/null 2>&1
+        wait_off 60 || fail "the VM did not stop"
+        clear_pending || fail "cannot clear wex_boot_pending"
+    done
 }
 
 move_down() {   # move_down N: N items down; a key the screen does not show is pressed again
@@ -232,17 +263,23 @@ logon_screen() {   # the Welcome screen (logonui.exe)
     shot logon
 }
 
-logon() {   # a tile, then the password box if the account has a password
-    if [ -n "${WEX_TEST_TILE:-}" ]; then
-        "${V[@]}" clicktext "$TEST" "$WEX_TEST_TILE" >/dev/null || fail "no tile '$WEX_TEST_TILE' on the Welcome screen"
-    else
-        "${V[@]}" key "$TEST" ret >/dev/null   # Enter starts the logon of the first tile
-    fi
-    if [ -s "$PWFILE" ]; then
-        wait_text "password" 30 || fail "no password box on the Welcome screen"
-        "${V[@]}" type "$TEST" "$(cat "$PWFILE")"
+logon() {   # logon [TILE PASSWORD_FILE]: click a tile (by default the test user's), then the password if it has one
+    local tile=${1:-${WEX_TEST_TILE:-$USER_NAME}} pwfile=${2:-$PWFILE}
+    if ! "${V[@]}" clicktext "$TEST" "$tile" --timeout 15 >/dev/null 2>&1; then
+        [ -z "${1:-}" ] || fail "no tile '$tile' on the Welcome screen"
+        echo "  (OCR did not find the tile '$tile'; Enter starts the first tile's logon)"
         "${V[@]}" key "$TEST" ret >/dev/null
     fi
+    if [ -s "$pwfile" ]; then
+        # "Type your password" under the name; the pointer, left on the name, can hide the second word
+        wait_text "Type your" 30 || wait_text "password" 5 || fail "no password box on the Welcome screen"
+        "${V[@]}" type "$TEST" "$(cat "$pwfile")"
+        "${V[@]}" key "$TEST" ret >/dev/null
+    fi
+}
+
+tiles() {   # the Welcome screen's text (OCR), for checking which tiles it shows
+    "${V[@]}" text "$TEST" | tr '\n' ' '
 }
 
 logon_screen_gtk() {   # the GTK greeter, the last resort when Wine does not start
@@ -498,6 +535,44 @@ phase_failed() {   # the main loop holds the logon screen back for this phase (d
     shutdown_vm
 }
 
+shows() { wait_text "$1" 20; }          # a tile is on the screen (wait also tries the white-text threshold)
+hides() { ! wait_text "$1" 8; }         # ... and is not
+
+to_logon_screen() {   # from a normal start's desktop to the logon screen (fast user switching)
+    if ! gsh 'XDG_SEAT_PATH=/org/freedesktop/DisplayManager/Seat0 dm-tool switch-to-greeter' >/dev/null; then
+        "${V[@]}" key "$TEST" meta_l-l >/dev/null   # Windows+L
+    fi
+    logon_screen
+}
+
+phase_accounts() {   # provisioning gave Administrator a test password and hid wexhidden ("Hidden Test")
+    local out
+    menu_choice 0 "Safe Mode"
+    logon_screen
+    shows Administrator || fail "no Administrator tile on the Safe Mode Welcome screen"
+    hides "Hidden Test" || fail "the Safe Mode Welcome screen shows the account hidden by SpecialAccounts\\UserList"
+    shows "$USER_NAME" || fail "the Safe Mode Welcome screen does not show $USER_NAME"
+    shot tiles-safe
+    echo "  Safe Mode Welcome screen: Administrator and $USER_NAME shown, Hidden Test not"
+    logon Administrator "$ADMIN_PWFILE"
+    desktop 400
+    out=$(gsh 'loginctl list-sessions --no-legend | awk "{ print \$3 }" | sort -u | tr "\n" " "' | tail -n 1)
+    echo "  sessions: $out"
+    grep -qw administrator <<< "$out" || fail "Administrator did not log on"
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    # a normal start logs the test user on automatically; its logon screen leaves out both accounts
+    start_vm
+    desktop 600
+    to_logon_screen
+    shows "$USER_NAME" || fail "the logon screen of a normal start does not show $USER_NAME"
+    hides Administrator || fail "the logon screen of a normal start shows Administrator"
+    hides "Hidden Test" || fail "the logon screen of a normal start shows the hidden account"
+    shot tiles-normal
+    echo "  normal start's logon screen: $USER_NAME shown, Administrator and Hidden Test not"
+    shutdown_vm
+}
+
 # ---- the overlay ----
 
 command -v qemu-nbd >/dev/null || die "qemu-nbd is missing"
@@ -522,30 +597,76 @@ echo "=== $TEST: overlay of $SOURCE, $FIRMWARE, Safe Mode files: $FILES"
 
 attach rw || die "cannot mount the overlay"
 install -D -m 755 "$HERE/session-run.py" "$MNT$HELPER" || die "cannot install the test helper"
-if [ "$FILES" = branch ]; then
-    for entry in "${SAFE_MODE_FILES[@]}"; do
-        read -r mode src dst <<< "$entry"
-        install -D -m "$mode" "$REPO/$src" "$MNT/$dst" || die "cannot install $src"
-    done
-    for old in "${OLD_FILES[@]}"; do rm -f "$MNT/$old"; done
+ADMIN_PWFILE=$OUT/admin-password
+if [ "$FILES" != installed ]; then
+    if [ "$FILES" = branch ]; then
+        for entry in "${SAFE_MODE_FILES[@]}"; do
+            read -r mode src dst <<< "$entry"
+            install -D -m "$mode" "$REPO/$src" "$MNT/$dst" || die "cannot install $src"
+        done
+        for old in "${OLD_FILES[@]}"; do rm -f "$MNT/$old"; done
+        {
+            echo '#!/bin/sh'
+            echo 'set -e'
+            awk '/^# Safe Mode \(docs\/SAFE_MODE\.md\)/ { p = 1 } /^systemctl daemon-reload/ { p = 0 } p' \
+                "$REPO/installer/package-wine.sh"
+        } > "$MNT/root/wex-test-safemode-postinst.sh"
+        grep -q pam_exec "$MNT/root/wex-test-safemode-postinst.sh" \
+            || die "the Safe Mode part of the postinst was not found in installer/package-wine.sh"
+        STEP='sh -x /root/wex-test-safemode-postinst.sh; echo "postinst=$?"'
+        if [ -n "$WINE_TAR" ]; then
+            cp -- "$WINE_TAR" "$MNT/root/wex-test-wine.tar.gz" || die "cannot copy the Wine tarball onto the overlay"
+            STEP='tar -xzf /root/wex-test-wine.tar.gz -C / --no-same-owner; echo "wine=$?"; rm -f /root/wex-test-wine.tar.gz
+'"$STEP"
+        fi
+    fi
+    # a random password for the Administrator account (work order C4), for this overlay only
+    head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16 > "$ADMIN_PWFILE"
+    install -m 600 "$ADMIN_PWFILE" "$MNT/root/wex-test-admin-password" || die "cannot copy the Administrator password"
     {
         echo '#!/bin/sh'
-        echo 'set -e'
-        awk '/^# Safe Mode \(docs\/SAFE_MODE\.md\)/ { p = 1 } /^systemctl daemon-reload/ { p = 0 } p' \
-            "$REPO/installer/package-wine.sh"
-    } > "$MNT/root/wex-test-safemode-postinst.sh"
-    grep -q pam_exec "$MNT/root/wex-test-safemode-postinst.sh" \
-        || die "the Safe Mode part of the postinst was not found in installer/package-wine.sh"
-    cat > "$MNT/root/wex-test-provision.sh" <<'EOF'
-#!/bin/sh
-# installer/tests/safe-mode.sh: runs once, removes itself and powers off
-exec > /root/wex-test-provision.log 2>&1
-sh -x /root/wex-test-safemode-postinst.sh; echo "postinst=$?"
+        echo '# installer/tests/safe-mode.sh: runs once, removes itself and powers off'
+        echo 'exec > /root/wex-test-provision.log 2>&1'
+        echo "$STEP"
+        cat <<'EOF'
 update-grub; echo "update-grub=$?"
+# test accounts (work order C4, C7): Administrator with the test password; wexhidden hidden by SpecialAccounts\UserList
+if getent passwd administrator >/dev/null; then
+    printf 'administrator:%s\n' "$(cat /root/wex-test-admin-password)" | chpasswd; echo "adminpw=$?"
+fi
+rm -f /root/wex-test-admin-password
+if ! getent passwd wexhidden >/dev/null; then
+    useradd --create-home --comment 'Hidden Test' wexhidden && passwd -d wexhidden >/dev/null
+fi
+echo "wexhidden=$?"
+mkdir -p /var/lib/AccountsService/users
+printf '[User]\nSession=wine-explorer\nXSession=wine-explorer\nSystemAccount=false\n' > /var/lib/AccountsService/users/wexhidden
+if [ ! -e /var/lib/lightdm/.wine ] && [ -d /var/lib/lightdm/.wine-logon ]; then
+    mv /var/lib/lightdm/.wine-logon /var/lib/lightdm/.wine
+fi
+# The greeter makes its prefix at its first start; make it now, as wex-greeter.sh does, so its registry can get the
+# value (an image without the system role has no logon prefix until then)
+if [ ! -e /var/lib/lightdm/.wine/system.reg ]; then
+    runuser -u lightdm -- env -u DISPLAY HOME=/var/lib/lightdm WINEPREFIX=/var/lib/lightdm/.wine WINELINKFAKEDLLS=1 \
+        WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' WINEDEBUG=-all /usr/local/bin/wine wineboot.exe -u
+    runuser -u lightdm -- env HOME=/var/lib/lightdm WINEPREFIX=/var/lib/lightdm/.wine /usr/local/bin/wineserver -w
+    echo "logonprefix=$?"
+fi
+# Wine's text registry format; the logon screen reads the machine hive (system role) or the prefix's own
+for hive in /var/lib/wineexplorer/machine/system.reg /var/lib/lightdm/.wine/system.reg; do
+    if [ -f "$hive" ] && [ ! -L "$hive" ]; then
+        printf '\n%s\n%s\n%s\n' '[Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\SpecialAccounts\\UserList] 1700000000' \
+            '#time=1d9a0000000000' '"wexhidden"=dword:00000000' >> "$hive"
+        echo "userlist=$hive"
+    fi
+done
 rm -f /etc/systemd/system/multi-user.target.wants/wex-test-provision.service /etc/systemd/system/wex-test-provision.service
+# /usr changed (a Wine tarball): record that now, so no later boot changes /etc/.updated
+/usr/lib/systemd/systemd-update-done; echo "update-done=$?"
 sync
 systemctl --no-block poweroff
 EOF
+    } > "$MNT/root/wex-test-provision.sh"
     chmod 755 "$MNT/root/wex-test-provision.sh"
     cat > "$MNT/etc/systemd/system/wex-test-provision.service" <<'EOF'
 [Unit]
@@ -563,16 +684,22 @@ EOF
 fi
 detach
 
-if [ "$FILES" = branch ]; then
+if [ "$FILES" != installed ]; then
     echo "=== provisioning boot ($(date +%T))"
     "${V[@]}" start "$TEST" "${START_ARGS[@]}" >/dev/null || die "QEMU did not start"
-    wait_off 900 || die "the provisioning boot did not power off"
+    wait_off 1500 || die "the provisioning boot did not power off"
 fi
 attach ro || die "cannot mount the overlay"
-if [ "$FILES" = branch ]; then
+if [ "$FILES" != installed ]; then
     cp "$MNT/root/wex-test-provision.log" "$OUT/provision.log" 2>/dev/null
+    if [ -n "$WINE_TAR" ]; then
+        grep -qx 'wine=0' "$OUT/provision.log" || { detach; die "unpacking the Wine tarball failed (see $OUT/provision.log)"; }
+    fi
     grep -qx 'postinst=0' "$OUT/provision.log" || { detach; die "the postinst's Safe Mode part failed (see $OUT/provision.log)"; }
     grep -qx 'update-grub=0' "$OUT/provision.log" || { detach; die "update-grub failed (see $OUT/provision.log)"; }
+    grep -qx 'adminpw=0' "$OUT/provision.log" || { detach; die "the Administrator account is missing or got no password (see $OUT/provision.log)"; }
+    grep -qx 'userlist=/var/lib/lightdm/.wine/system.reg' "$OUT/provision.log" \
+        || { detach; die "the logon prefix's registry did not get the SpecialAccounts\\UserList value (see $OUT/provision.log)"; }
 fi
 grep -q 'wexmode=menu' "$MNT/boot/grub/grub.cfg" && grep -q -- '--hotkey=f8' "$MNT/boot/grub/grub.cfg" \
     || { detach; die "grub.cfg has no Advanced Options entry with the F8 hotkey"; }

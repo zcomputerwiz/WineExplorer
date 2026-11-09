@@ -30,6 +30,11 @@ the earlier 11.20 pin.
   - Delete superseded disks and prefixes as you go: the VMs have run out of disk space before.
 - **XP captures:** they stay in the local-only repository `../WineExplorer-local`, which has no remote and is never
   pushed.
+- **Machines (2026-11-09):** the E1 elevation work runs on another machine, which has its own `wexbuild`.
+  This machine has:
+  - WSL `Debian`, for VM tests, shared with the Vintner session and compacted to 25 GB on 2026-11-09;
+  - WSL `wexbuild`, for Wine builds (`docs/TOOLING.md`);
+  - VirtualBox `WineExplorer-VM` (off) and `Windows XP Pro`.
 
 Use `development` in both `zcomputerwiz/WineExplorer` and `zcomputerwiz/wine` for
 ongoing integration. WineExplorer combines the completed OOBE/recovery work,

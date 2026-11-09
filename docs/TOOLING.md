@@ -69,13 +69,26 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
 * `scripts/theme-gallery-probe.c`: from repo root, `x86_64-w64-mingw32-gcc -municode -mwindows -o theme-gallery-probe.exe scripts/theme-gallery-probe.c -luxtheme -lcomctl32 -lgdi32 -luser32 -ladvapi32`. Run `theme-gallery-probe.exe STYLE LOG`, where STYLE is a `.msstyles` path or `-` to keep the current style and LOG is optional. It applies a style, opens two control galleries for 40 seconds and overwrites the specified log. Inspect source for temporary manifest behavior before use.
 * `scripts/sync-files.py`: `python3 scripts/sync-files.py BASE [--deleted] [--full]` prints selected project and stock paths; `--deleted` selects deletions, `--full` includes tracked `src` files. Requires initialized Wine submodule; does not itself copy. `python3 scripts/sync-archive.py PATH_LIST > archive.tar` streams listed repo files as tar, normalizing known text extensions to LF and preserving tracked Git modes. `python3 scripts/sync-overlay.py SOURCE PATH_LIST > overlay.tar` streams mapped private overlays. `python3 scripts/sync-delete.py DEST_ROOT < PATH_LIST` unlinks listed files/symlinks inside that root: destructive, validate the list and destination first. Runtime depends on selected files.
 * `scripts/add-license.py`: `python3 scripts/add-license.py --dry-run` reports eligible files; omit `--dry-run` to rewrite eligible project-authored C/H/RC files lacking a license notice. It consults the Wine `wine-11.19` tag, skips named upstream/ReactOS paths and preserves detected line endings. Runtime depends on tree size.
+* `wexbuild` WSL distro on the owner's Windows machine (since 2026-11-09). It is Debian 13 at `C:\WSL\wexbuild`,
+  separate from the shared `Debian` distro, with Wine's build dependencies and both MinGW cross compilers.
+  - Its `/root/WineExplorer` is a clone of this repository with its own `wine` clone at the branch's gitlink, so
+    the Windows checkout's `wine` tree is never assembled into.
+  - `scripts/assemble.sh` was run there. The build is `build/wow64` (`--enable-archs=i386,x86_64`); a full build
+    takes about 21 minutes on 16 threads.
+  - To test uncommitted changes, copy the working tree in without `.git`, `wine`, `build` or `wexcomp`. Touch
+    the files that differ from the clone's commit, because a sync can carry older times, then run `make`.
+  - `make install prefix=/usr/local DESTDIR=...`, packed as a `.tar.gz`, feeds `safe-mode.sh` through
+    `WEX_TEST_WINE`.
+  - `installer/package-wine.sh` needs python3-pil and fetches third-party assets (icons, ReactOS sources, runtime
+    payloads), so run it only with the owner's agreement to those downloads.
 * `installer/tests/safe-mode.sh` (Safe Mode VM test, `docs/SAFE_MODE.md` section 6): as root in WSL Debian, from a
   script file, `VMTEST_DIR=/var/tmp/vmtest-gpt WEX_TEST_FIRMWARE=bios|uefi bash installer/tests/safe-mode.sh SOURCE_VM TEST_VM [PHASE...]`.
   It replaces TEST_VM with a new qcow2 overlay of the installed disk SOURCE_VM, which is never written; an existing
   TEST_VM disk that is not an overlay of SOURCE_VM is refused. By default it copies this checkout's Safe Mode files
   onto the overlay and runs the package postinst's Safe Mode part and `update-grub` in one provisioning boot;
   `WEX_SAFEMODE_FILES=installed` skips that for a disk installed from an ISO with the package. Then one boot per
-  phase (`safe safenet safecmd nowine bootlog startnormal normal failed`), each checked on the screen (OCR) and over the
+  phase (`safe safenet safecmd nowine bootlog startnormal normal failed`, plus `accounts` with `WEX_TEST_WINE`, a
+  tarball of this branch's Wine unpacked over `/` first), each checked on the screen (OCR) and over the
   serial console as `WEX_TEST_USER` (default `wineuser`, empty password unless `WEX_TEST_PASSWORD_FILE`; on the
   Welcome screen the first tile unless `WEX_TEST_TILE` names one). `nowine` hides `/usr/local/bin/wine` on the
   overlay for its boot and puts it back. `failed` holds LightDM back 90 seconds with a drop-in it removes

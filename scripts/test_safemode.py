@@ -660,6 +660,33 @@ class TestPackage(TempDirTest):
         self.assertFalse("xsessions/wex-safe-terminal.desktop" in script, "the old session is still packaged")
         self.assertIsNone(re.search(r"systemctl enable [^\n]*wex-safemode", script))
 
+    def test_administrator_joins_e1s_administrators_group(self):
+        """admin_group= in sysrun.conf (E1) names the group; a missing group gives an account outside any."""
+        etc = self.tmp / "etc"
+        (etc / "wineexplorer").mkdir(parents=True)
+        (etc / "pam.d").mkdir()
+        (etc / "wineexplorer" / "sysrun.conf").write_text("group=wexsys\nadmin_group=wexadmins\n", encoding="ascii")
+        block = self.safe_mode_block()
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        for name, body in (("systemctl", "exit 0\n"),
+                           ("getent", '[ "$1" = group ] && [ "$2" = "$FAKE_GROUP" ]\n'),
+                           ("useradd", 'echo "useradd $*" >> "$LOG"\n')):
+            (bin_dir / name).write_text("#!/bin/sh\n" + body, encoding="ascii")
+            (bin_dir / name).chmod(0o755)
+        log = self.tmp / "calls.log"
+        for group, expected in (("wexadmins", "--groups wexadmins administrator"), ("other", "--shell /bin/bash administrator")):
+            log.unlink(missing_ok=True)
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", LOG=str(log), FAKE_GROUP=group)
+            subprocess.run(["sh", "-e", "-c", block], check=True, env=env)
+            self.assertTrue(log.read_text().strip().endswith(expected), log.read_text())
+
+    def test_setup_copies_roots_password_to_administrator(self):
+        setup = (REPO_ROOT / "installer" / "scripts" / "wex-gui-setup.sh").read_text(encoding="utf-8")
+        copy = setup.index("chpasswd -e")
+        self.assertLess(setup.index("wex-setup-machine.sh || echo"), copy)
+        self.assertIn("''|'*'|'!'*) echo \"No Administrator password", setup)
+
     def test_no_network_logon_for_root_or_administrator(self):
         conf = (REPO_ROOT / "installer" / "ssh" / "sshd-wineexplorer.conf").read_text(encoding="utf-8").splitlines()
         for line in ("PermitRootLogin no", "DenyUsers administrator", "PermitEmptyPasswords no"):
@@ -706,13 +733,26 @@ class TestPackage(TempDirTest):
         block = self.safe_mode_block()
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
-        (bin_dir / "systemctl").write_text('#!/bin/sh\necho "$*" >> "$LOG"\n', encoding="ascii")
-        (bin_dir / "systemctl").chmod(0o755)
-        log = self.tmp / "systemctl.log"
-        env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", LOG=str(log))
+        fakes = {
+            "systemctl": 'echo "systemctl $*" >> "$LOG"\n',
+            # getent passwd NAME: known once the fake useradd made it; getent group GROUP: only $FAKE_GROUP exists
+            "getent": 'case "$1" in\n    passwd) grep -qx "$2" "$LOG.users" 2>/dev/null ;;\n'
+                      '    group) [ "$2" = "$FAKE_GROUP" ] ;;\n    *) exit 2 ;;\nesac\n',
+            "useradd": 'echo "useradd $*" >> "$LOG"\nfor last; do :; done\necho "$last" >> "$LOG.users"\n',
+        }
+        for name, body in fakes.items():
+            (bin_dir / name).write_text("#!/bin/sh\n" + body, encoding="ascii")
+            (bin_dir / name).chmod(0o755)
+        log = self.tmp / "calls.log"
+        env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", LOG=str(log), FAKE_GROUP="sudo")
         for _ in range(2):
             subprocess.run(["sh", "-e", "-c", block], check=True, env=env)
-        self.assertEqual(log.read_text().splitlines(), ["enable wex-startup-check.service"] * 2)
+        self.assertEqual(log.read_text().splitlines(), [
+            "systemctl enable wex-startup-check.service",
+            "useradd --create-home --comment Administrator --shell /bin/bash --groups sudo administrator",
+            "systemctl enable wex-startup-check.service"])
+        self.assertEqual((acc / "administrator").read_text(),
+                         "[User]\nSession=wine-explorer\nXSession=wine-explorer\nSystemAccount=false\n")
         lightdm = (etc / "pam.d/lightdm").read_text()
         self.assertEqual(lightdm.count("wex-safemode-pam-check.sh"), 1)
         self.assertTrue(lightdm.rstrip().endswith(

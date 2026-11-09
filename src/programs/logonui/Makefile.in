@@ -1,5 +1,5 @@
 MODULE    = logonui.exe
-IMPORTS   = wexhost comctl32 gdiplus user32 gdi32
+IMPORTS   = wexhost comctl32 gdiplus user32 gdi32 advapi32
 
 EXTRADLLFLAGS = -mwindows -municode
 

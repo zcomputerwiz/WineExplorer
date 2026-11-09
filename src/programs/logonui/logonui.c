@@ -40,6 +40,7 @@
 #include <winnls.h>
 #include <wingdi.h>
 #include <winuser.h>
+#include <winreg.h>
 #include <commctrl.h>
 #include <objbase.h>
 #include <gdiplus.h>
@@ -174,10 +175,41 @@ static HBITMAP load_picture( const char *unix_path )
 
 /* ------------------------------------------------------------------ accounts */
 
+/* The accounts XP's Welcome screen leaves out: a REG_DWORD value of 0 named after the account (1 shows it) */
+static const WCHAR special_accounts[] =
+    L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\SpecialAccounts\\UserList";
+
+/* Safe Mode: SM_CLEANBOOT once Wine reports it (docs/SAFE_MODE_WORKORDER.md B2); until then wex-greeter.sh passes
+ * the mode in WEXMODE, as the session scripts do for Explorer */
+static BOOL safe_mode( void )
+{
+    WCHAR mode[16];
+
+    if (GetSystemMetrics( SM_CLEANBOOT )) return TRUE;
+    if (!GetEnvironmentVariableW( L"WEXMODE", mode, ARRAY_SIZE(mode) )) return FALSE;
+    return !lstrcmpiW( mode, L"safe" ) || !lstrcmpiW( mode, L"safenet" ) || !lstrcmpiW( mode, L"safecmd" );
+}
+
+/* A value in SpecialAccounts\UserList decides. Without one, the built-in Administrator (the account named
+ * administrator, docs/SAFE_MODE_WORKORDER.md C4) shows only in Safe Mode, as on XP Professional. */
+static BOOL user_hidden( HKEY list, const char *name, BOOL safe )
+{
+    WCHAR wname[64];
+    DWORD value = 1, size = sizeof(value), type;
+
+    if (list && MultiByteToWideChar( CP_UTF8, 0, name, -1, wname, ARRAY_SIZE(wname) ) &&
+        !RegQueryValueExW( list, wname, NULL, &type, (BYTE *)&value, &size ) && type == REG_DWORD &&
+        size == sizeof(value))
+        return value == 0;
+    return !safe && !lstrcmpiA( name, "administrator" );
+}
+
 static void load_users( void )
 {
     char *buffer = NULL, *line, *next;
     DWORD needed = 0, size = 4096;
+    HKEY list = NULL;
+    BOOL safe = safe_mode();
 
     user_count = 0;
     for (;;)
@@ -190,6 +222,7 @@ static void load_users( void )
         if (err) { WARN( "no account list: %lu\n", err ); free( buffer ); return; }
         break;
     }
+    if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, special_accounts, 0, KEY_READ, &list )) list = NULL;
     for (line = buffer; *line && user_count < MAX_USERS; line = next)
     {
         char *field[4] = { line }, *p = line;
@@ -200,12 +233,18 @@ static void load_users( void )
         else next = line + strlen( line );
         while (n < 4 && (p = strchr( p, '\t' ))) { *p++ = 0; field[n++] = p; }
         if (n < 3) continue;
+        if (user_hidden( list, field[0], safe ))
+        {
+            TRACE( "%s is hidden (SpecialAccounts\\UserList or the Administrator rule)\n", debugstr_a(field[0]) );
+            continue;
+        }
         lstrcpynA( u->name, field[0], sizeof(u->name) );
         MultiByteToWideChar( CP_UTF8, 0, *field[1] ? field[1] : field[0], -1, u->display, ARRAY_SIZE(u->display) );
         u->logged_on = n > 3 && field[3][0] == '1';
         u->picture = load_picture( field[2] );
         user_count++;
     }
+    if (list) RegCloseKey( list );
     free( buffer );
 }
 
