@@ -45,6 +45,13 @@
 #define GUID_BOOT_STORAGE "BC13C2FF-59E6-4262-A352-B275FD6F7172"
 #define GUID_LINUX        "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
 
+/* Setup's start-up step with Vintner Boot; build-iso.sh --vintner puts it and the packages on the ISO. */
+#define VINTNER_STEP "/setup/install-vintner.sh"
+
+static void install_grub(SetupState *state);
+static bool install_vintner(SetupState *state);
+static SetupStage screen_start_files_failed(SetupState *state);
+
 #define ROOT_MIN_MB 8      /* smallest new partition, as on the Create partition screen */
 
 /* GPT attribute bit 63 (no-auto): systemd-gpt-auto-generator never mounts the partition. Boot storage carries it,
@@ -1907,17 +1914,52 @@ SetupStage screen_init(SetupState *state)
     system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/sbin/groupdel wineuser 2>/dev/null || true");
     system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/sh -c 'dpkg --purge live-boot live-config live-config-systemd live-tools live-boot-doc live-config-doc live-boot-initramfs-tools 2>/dev/null || true'");
 
-    /* 7. Install GRUB */
-    safe_mkdir_p("/target/boot/grub");
-    safe_mkdir_p("/target/etc/default/grub.d");
-    remove("/target/etc/default/grub.d/desktop-base.cfg");
-
     /* The install tests (scripts/vmtest.py) mark their QEMU machines with an fw_cfg entry; only then does the
      * installed system get a serial login, which they use to run programs.  Real machines never have it. */
     int has_serial_console = 0;
     system("modprobe qemu_fw_cfg 2>/dev/null");
     if (access("/sys/firmware/qemu_fw_cfg/by_name/opt/org.wineexplorer/serial-login/raw", R_OK) == 0)
         has_serial_console = 1;
+
+    if (!state->target_disk[0]) {
+        if (state->target_part[0]) {
+            snprintf(state->target_disk, sizeof(state->target_disk), "%s", state->target_part);
+            char *p = state->target_disk + strlen(state->target_disk) - 1;
+            while (p > state->target_disk && isdigit((unsigned char)*p)) *p-- = '\0';
+            if (p > state->target_disk && *p == 'p' && isdigit((unsigned char)*(p - 1))) *p = '\0';
+        } else {
+            snprintf(state->target_disk, sizeof(state->target_disk), "/dev/sda");
+        }
+    }
+
+    /* 7. Start-up files: Vintner Boot on an ISO built with build-iso.sh --vintner (docs/VINTNER_BOOT.md section
+     * 4.2), otherwise GRUB. */
+    if (access(VINTNER_STEP, X_OK) == 0) {
+        ui_draw_status("Setup is installing the start-up files...");
+        if (!install_vintner(state)) {
+            system("umount /target/run /target/sys /target/proc /target/dev/pts /target/dev 2>/dev/null || true");
+            return screen_start_files_failed(state);
+        }
+    } else {
+        install_grub(state);
+    }
+    system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl mask plymouth-quit-wait.service plymouth-start.service plymouth.service 2>/dev/null || true");
+    if (has_serial_console) {
+        system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl enable serial-getty@ttyS0.service 2>/dev/null || true");
+    }
+
+    system("umount /target/run /target/sys /target/proc /target/dev/pts /target/dev 2>/dev/null || true");
+
+    sleep(1);
+    return STAGE_REBOOT;
+}
+
+/* GRUB, the default loader: its settings, the core image on the disk and grub.cfg. */
+static void install_grub(SetupState *state)
+{
+    safe_mkdir_p("/target/boot/grub");
+    safe_mkdir_p("/target/etc/default/grub.d");
+    remove("/target/etc/default/grub.d/desktop-base.cfg");
 
     {
         FILE *f_grub = fopen("/target/etc/default/grub.d/wineexplorer.cfg", "w");
@@ -1932,16 +1974,6 @@ SetupStage screen_init(SetupState *state)
             fclose(f_grub);
         }
         chmod("/target/etc/grub.d/11_wineexplorer_advanced", 0755);
-    }
-    if (!state->target_disk[0]) {
-        if (state->target_part[0]) {
-            snprintf(state->target_disk, sizeof(state->target_disk), "%s", state->target_part);
-            char *p = state->target_disk + strlen(state->target_disk) - 1;
-            while (p > state->target_disk && isdigit((unsigned char)*p)) *p-- = '\0';
-            if (p > state->target_disk && *p == 'p' && isdigit((unsigned char)*(p - 1))) *p = '\0';
-        } else {
-            snprintf(state->target_disk, sizeof(state->target_disk), "/dev/sda");
-        }
     }
 
     FILE *f_map = fopen("/target/boot/grub/device.map", "w");
@@ -1977,15 +2009,36 @@ SetupStage screen_init(SetupState *state)
     }
     system(grub_cmd);
     system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/sbin/update-grub >>/target/var/log/grub-install.log 2>&1 || true");
-    system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl mask plymouth-quit-wait.service plymouth-start.service plymouth.service 2>/dev/null || true");
-    if (has_serial_console) {
-        system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl enable serial-getty@ttyS0.service 2>/dev/null || true");
+}
+
+/* Vintner Boot (install-vintner.sh, on the ISO only with build-iso.sh --vintner). True when the disk now starts
+ * through it. */
+static bool install_vintner(SetupState *state)
+{
+    char cmd[1024];
+    if (!state->boot_storage_part[0]) return false;
+    snprintf(cmd, sizeof(cmd), "%s /target '%s' '%s' '%s' '%s' '%s'", VINTNER_STEP, state->target_disk,
+             state->target_part, state->boot_storage_part, state->efi_part, state->bios_boot_part);
+    return system(cmd) == 0;
+}
+
+/* The start-up files could not be installed (decision D5 in docs/VINTNER_BOOT.md): no fallback to another loader;
+ * running Setup again starts over. */
+static SetupStage screen_start_files_failed(SetupState *state)
+{
+    ui_clear_screen();
+    ui_draw_header("Debian GNU/Linux with WineExplorer Setup");
+    attron(COLOR_PAIR(PAIR_NORMAL));
+    mvprintw(6, 6, "Setup could not install the start-up files on %s.", state->target_disk);
+    mvprintw(8, 6, "Your computer cannot start from this disk. The details are in");
+    mvprintw(9, 6, "/var/log/vintner-install.log on the partition Setup installed to.");
+    mvprintw(11, 6, "Setup cannot continue. Press F3 to quit.");
+    attroff(COLOR_PAIR(PAIR_NORMAL));
+    ui_draw_status("F3=Quit");
+    while (1) {
+        int ch = ui_getch();
+        if (ch == KEY_F(3) || ch == 'q' || ch == 'Q') return STAGE_QUIT;
     }
-
-    system("umount /target/run /target/sys /target/proc /target/dev/pts /target/dev 2>/dev/null || true");
-
-    sleep(1);
-    return STAGE_REBOOT;
 }
 
 SetupStage screen_reboot(SetupState *state)

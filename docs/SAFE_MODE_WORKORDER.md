@@ -78,6 +78,10 @@ by hand. Then:
 
 - Build the ISO with the new `wineexplorer-session` package (`installer/package-wine.sh`).
 - Run `install-unattended.sh` and A1 on BIOS and UEFI.
+
+The ISO is built in wexbuild now (`docs/TOOLING.md`). On 2026-11-09 an ISO built with `--vintner` installed and
+passed on both firmwares (`docs/VINTNER_BOOT.md` section 4.2), but a Vintner install has no F8 yet. A2 itself needs
+the default (GRUB) ISO.
 - Upgrade test: install from an ISO that has the old Safe Mode, boot it into the old Safe Mode with Command Prompt
   once, install the new package, and check that the postinst removed the leftovers. The leftovers are
   `99-safemode.conf`, the old PAM line, `Session=wex-safe-terminal` and the enabled `wex-safemode.service`.

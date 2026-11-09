@@ -80,7 +80,18 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   - `make install prefix=/usr/local DESTDIR=...`, packed as a `.tar.gz`, feeds `safe-mode.sh` through
     `WEX_TEST_WINE`.
   - `installer/package-wine.sh` needs python3-pil and fetches third-party assets (icons, ReactOS sources, runtime
-    payloads), so run it only with the owner's agreement to those downloads.
+    payloads), so run it only with the owner's agreement to those downloads (given 2026-11-09).
+  - The ISO is built there as well, as root, from the clone:
+    `WORK_DIR=/root/iso-build OUT_ISO=/root/out/NAME.iso bash installer/build-iso.sh --clean [--vintner=DIR]`.
+    It needs live-build, debootstrap, squashfs-tools, xorriso, mtools, msitools, zstd, unzip, the textsetup libraries
+    (libncurses-dev, libfdisk-dev, libblkid-dev) and `apt-get build-dep labwc` for the compositor package. The
+    `wexcomp` submodule is cloned from the Windows checkout's `wexcomp` at the branch's gitlink. On 2026-11-09
+    packaging plus `lb build` took 11 minutes, giving a 2.4 GB ISO. Delete `/root/iso-build` afterwards: the
+    distro's disk is on C:.
+  - Vintner Boot's packages for `--vintner` are built there too: a clone of `D:\Projects\vintner-boot` at its
+    `main` in `/root/vintner-boot`, then `ci/package/build-debs.sh /root/vintner-debs` (golang-go, debhelper,
+    grub-pc-bin, systemd-boot-efi, python3-pefile). It takes about a minute and downloads the recovery image's
+    packages.
 * `installer/tests/safe-mode.sh` (Safe Mode VM test, `docs/SAFE_MODE.md` section 6): as root in WSL Debian, from a
   script file, `VMTEST_DIR=/var/tmp/vmtest-gpt WEX_TEST_FIRMWARE=bios|uefi bash installer/tests/safe-mode.sh SOURCE_VM TEST_VM [PHASE...]`.
   It replaces TEST_VM with a new qcow2 overlay of the installed disk SOURCE_VM, which is never written; an existing

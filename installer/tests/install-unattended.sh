@@ -6,6 +6,7 @@
 #
 #   install-unattended.sh ISO [VM_NAME]
 #   WEX_TEST_FIRMWARE=uefi install-unattended.sh ISO [VM_NAME]     (OVMF; default bios, SeaBIOS)
+#   WEX_TEST_LOADER=vintner install-unattended.sh ISO [VM_NAME]    (an ISO built with --vintner; default grub)
 set -euo pipefail
 ISO=${1:?usage: install-unattended.sh ISO [VM_NAME]}
 VM=${2:-wex-unattended-codex}
@@ -16,6 +17,8 @@ case "$FIRMWARE" in
     uefi) START_ARGS=(--efi) ;;
     *) echo "Invalid firmware: $FIRMWARE"; exit 2 ;;
 esac
+LOADER=${WEX_TEST_LOADER:-grub}
+case "$LOADER" in grub|vintner) ;; *) echo "Invalid loader: $LOADER"; exit 2 ;; esac
 HERE=$(cd "$(dirname "$0")" && pwd)
 V=(python3 "$HERE/../../scripts/vmtest.py")
 STATE=${VMTEST_DIR:-/tmp/vmtest}/$VM
@@ -23,6 +26,9 @@ NBD=
 CONNECTED=false
 MOUNTED=false
 cleanup() {
+    for m in check-esp check-bootstorage; do
+        if mountpoint -q "$STATE/$m" 2>/dev/null; then umount "$STATE/$m"; fi
+    done
     if $MOUNTED; then umount "$STATE/check-root"; fi
     if $CONNECTED; then qemu-nbd --disconnect "$NBD" >/dev/null; fi
 }
@@ -65,6 +71,17 @@ ROOT=$STATE/check-root
 python3 "$HERE/check-disk-layout.py" "$NBD" "$ROOT" >/dev/null || fail "installed fstab is wrong"
 if [ "$FIRMWARE" = uefi ]; then
     grep -q '[[:space:]]/boot/efi[[:space:]]' "$ROOT/etc/fstab" || fail "UEFI install does not mount the EFI system partition"
+fi
+if [ "$LOADER" = vintner ]; then
+    # Vintner Boot's loader, packages and generation 1, blessed by the starts that reached the desktop.
+    mkdir -p "$STATE/check-esp" "$STATE/check-bootstorage"
+    mount -o ro "${NBD}p2" "$STATE/check-esp"
+    mount -o ro "${NBD}p3" "$STATE/check-bootstorage"
+    python3 "$HERE/check-vintner.py" "$ROOT" "$STATE/check-bootstorage" "$STATE/check-esp" \
+        || fail "Vintner Boot checks failed"
+    cp "$ROOT/var/log/vintner-install.log" "$STATE/" 2>/dev/null || true
+else
+    [ -f "$ROOT/boot/grub/grub.cfg" ] || fail "GRUB has no configuration"
 fi
 python3 "$HERE/check-lightdm.py" "$ROOT" wineuser || fail "installed display manager checks failed"
 grep -qx 'WEX-PC' "$ROOT/etc/hostname" || fail "hostname was not applied"

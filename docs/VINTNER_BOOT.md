@@ -2,7 +2,8 @@
 # Vintner Boot Integration Plan
 
 Date: 2026-11-07  
-Status: plan only; nothing below is implemented in either project.  
+Status: written as a plan on 2026-11-07. Sections 4.1, 4.2 (behind a build option), 4.4 and 4.5 are implemented
+since then; each section has its own status.  
 Sources read: WineExplorer `development` at `d718f379`; Vintner Boot (`D:\Projects\vintner-boot`, sibling
 repository) `local-test-env` at `cbc683b`, which is `main` plus two CI/docs commits. Line numbers refer to those
 commits.
@@ -175,6 +176,55 @@ Agreed with the Vintner Boot side (WO-0010 phase 1, 2026-11-07):
 - Delete `/etc/default/grub.d/wineexplorer.cfg` (both copies: the live-build include and the string written at
   `screens.c:1574-1585`) once GRUB is gone.
 
+Status (2026-11-09): implemented behind a build option, GRUB still the default (D1: Safe Mode needs Vintner's
+variants first).
+- `installer/build-iso.sh --vintner=DIR` puts `vintner-core` and `vintner-platform` from DIR on the ISO as files
+  under `/setup/vintner`, together with Setup's step `installer/textsetup/install-vintner.sh`. It also adds
+  `systemd-boot-efi`, `systemd-ukify` and `sbsigntool` (vintner-core's dependencies) to the live system. Neither
+  Vintner package is installed in the live system, and an ISO built without the option has nothing of Vintner.
+- When `/setup/install-vintner.sh` exists, text-mode Setup runs it in place of the GRUB step. It runs after the
+  live packages are purged, with the live system's `/dev`, `/proc`, `/sys` and `/run` bound into the target. The
+  step follows Vintner Boot's `ci/install` row:
+  1. install vintner-core in the target and unpack vintner-platform beside it;
+  2. write `/etc/kernel/cmdline` (`quiet`) and run `update-initramfs -u -k all`;
+  3. mount boot storage, the ESP (also on BIOS machines) and efivarfs (UEFI only);
+  4. run `vintner install --disk D --firmware both --root-partuuid --boot-storage-partuuid --esp-partuuid
+     --payload-dir ... --update-initramfs`. The root needs `--root-partuuid` because its type is the generic Linux
+     one;
+  5. once `grub-pc` is gone, install vintner-platform and delete `/etc/default/grub.d/wineexplorer.cfg`.
+  The log is `/var/log/vintner-install.log` on the new installation.
+- `--firmware both` is always used, because every disk Setup prepares has a BIOS boot partition and an ESP, so the
+  disk starts on either firmware. When Setup itself started through BIOS there is no efivarfs. `vintner install`
+  then writes no NVRAM entry and relies on `\EFI\BOOT\BOOTX64.EFI`.
+- If the step fails, Setup shows "Setup cannot continue" with the log's path and quits (D5). There is no GRUB
+  fallback.
+- The recovery images keep Vintner's own command line (it already has `console=ttyS0,115200`) and its titles
+  ("Recovery Console"; `--recovery-title`, D6, does not exist yet).
+- Test: `WEX_TEST_LOADER=vintner installer/tests/install-unattended.sh` checks the installed disk with
+  `installer/tests/check-vintner.py`:
+  - vintner-core and vintner-platform are installed, and no stock loader is;
+  - Setup's step ended well and GRUB has no configuration;
+  - the manifest holds generation 1, GOOD, for both firmwares, with the root and boot storage on its command line;
+  - the ESP holds Vintner's loader, also as `\EFI\BOOT\BOOTX64.EFI`.
+
+Verified 2026-11-09 with Vintner Boot `main` at `79a0f61` (#78). The ISO was built in wexbuild from this branch, and
+the installs ran in QEMU/KVM in WSL Debian.
+- Zero-input install (`install-unattended.sh`, with the CD left in) passed on SeaBIOS and on OVMF. The installed
+  disk reached the desktop and generation 1 was blessed GOOD. `vintner install` purged `grub-pc`,
+  `grub-efi-amd64-signed` and `shim-signed`, which the target had from the live system.
+- On OVMF it created the NVRAM entry `Boot0008 "Vintner Boot"`. On SeaBIOS it reported "no UEFI variables here" and
+  wrote only the removable path: the first boot test of that case.
+- Started again from the disk alone, with no CD:
+  - SeaBIOS booted `/vintner/bios/os-1/vmlinuz` through Vintner's GRUB;
+  - OVMF's systemd-boot selected `vintner-os-1.efi` (the test machines' OVMF keeps no variables across a power-off,
+    so this came through `BOOTX64.EFI`);
+  - on both, `vintner-bless.service`, `wex-startup-check.service` and `boot-complete.target` were active, Wine's
+    32-bit and 64-bit Notepad opened on the desktop, and generation 1 stayed GOOD.
+
+Still open: Safe Mode and F8 on a Vintner install (section 4.3; V1 is not started), and the Plymouth decision (D2).
+Not tested: the interactive install (`install-interactive.sh`) on a Vintner ISO, an existing ESP that holds
+another system, and the "Setup cannot continue" screen (no run has failed the step).
+
 Status (2026-11-08): not started, and now unblocked. `vintner install` is on Vintner Boot's `main` (PRs #71-#73,
 merge `0753aec`), as reported by the Vintner session:
 - Usage: `vintner install --disk D --firmware uefi|bios|both [--target / --esp --boot-storage --payload-dir]
@@ -269,6 +319,11 @@ Implemented for GRUB (2026-11-08, `docs/SAFE_MODE_WORKORDER.md` D1) as `wex-star
 "Continue Setup from the hard disk" (`installer/live-build/config/hooks/live/9000-grub-menu.binary:27-39`) runs
 `configfile /boot/grub/grub.cfg` from the installed root. That file will not exist. Chain-load the disk's ESP
 loader instead, or remove the entry. The ISO's own boot (live-build GRUB) is unaffected.
+
+Status (2026-11-09): done. The entry still loads the installed `grub.cfg` when it exists (GRUB installs). Otherwise
+it chain-loads Vintner's loader: on UEFI `\EFI\vintner\systemd-bootx64.efi`, found on the disk's ESP, and on BIOS
+the disk's own boot code (`chainloader +1` on the disk that holds the setup stage file). Both Vintner installs
+above went through it: the CD stayed in for GUI-mode setup.
 
 ### 4.6 sysdm.cpl "Startup and Recovery"
 

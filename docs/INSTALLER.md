@@ -148,9 +148,14 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
 - **Target Sanitization & Swap**:
   - Automatically purges live-boot artifacts (`live-boot`, `live-config`, `/etc/sudoers.d/live`, `/etc/sudoers.d/wineuser`, live `wineuser` home, `/setup`, `/etc/live`, `wex-textsetup.service`).
   - Creates a dedicated swap file (`/swapfile`) sized at 1.5× RAM (capped at 8 GB) with `/etc/fstab` entry.
-  - Installs GRUB with a generated `device.map`: `grub-install --target=i386-pc /dev/sdX` on BIOS machines (its
-    core image goes into the BIOS boot partition), `--target=x86_64-efi --removable` into the EFI system partition on
-    UEFI machines. Vintner Boot replaces this step later ([VINTNER_BOOT.md](VINTNER_BOOT.md) section 4.2).
+  - Installs the start-up files. By default this is GRUB with a generated `device.map`: `grub-install
+    --target=i386-pc /dev/sdX` on BIOS machines (its core image goes into the BIOS boot partition),
+    `--target=x86_64-efi --removable` into the EFI system partition on UEFI machines.
+  - On an ISO built with `build-iso.sh --vintner=DIR`, Setup installs Vintner Boot instead
+    (`installer/textsetup/install-vintner.sh`, [VINTNER_BOOT.md](VINTNER_BOOT.md) section 4.2). The disk then starts
+    on BIOS and UEFI alike. If this step fails, Setup stops with "Setup cannot continue" and names
+    `/var/log/vintner-install.log` on the new installation; it never falls back to GRUB. Until Vintner Boot has
+    variants, such an install has no F8 and no Safe Mode, so GRUB stays the default.
   - Sets `/etc/wineexplorer/setup/stage` to `gui` and triggers a 15-second red countdown bar before ejecting media and rebooting.
 
 ---
@@ -241,6 +246,11 @@ User1Admin = 1
 ```
 
 - Build with `--unattended --clean`: `sudo ./installer/build-iso.sh --unattended --clean` (sets GRUB default entry to `Install (unattended)`).
+- `--vintner=DIR` puts Vintner Boot's `vintner-core` and `vintner-platform` packages from DIR on the ISO as files
+  under `/setup/vintner`, together with Setup's step, and adds their dependencies (`systemd-boot-efi`,
+  `systemd-ukify`, `sbsigntool`) to the live system. Setup then installs Vintner Boot instead of GRUB. Build the
+  packages from Vintner Boot's `main` with its `ci/package/build-debs.sh DIR` on Debian 13. That build downloads the
+  recovery image's Debian packages.
 - Boots directly into Stage 1, partitions `TargetDisk`, formats, copies files, reboots into Stage 2 (applies hostname, timezone, locale), transitions to Stage 3 (provisions `wineuser` as administrator), configures LightDM autologin, cleans up temporary setup state, and launches into the WineExplorer desktop session without a single keystroke.
 
 ### Running Automated Install Tests in WSL2 (`wexbuild`)

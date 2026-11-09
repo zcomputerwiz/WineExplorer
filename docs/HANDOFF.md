@@ -20,7 +20,9 @@ the earlier 11.20 pin.
 - **What is next:** `docs/SAFE_MODE_WORKORDER.md` has the plan, the owner decisions and the order.
   - Decision 7: a dedicated Administrator account.
   - Decision 8: hidden accounts from the registry.
-- **Bootloader:** the Vintner Boot side is `docs/VINTNER_BOOT.md`, worked on by a separate session.
+- **Bootloader:** the Vintner Boot side is `docs/VINTNER_BOOT.md`, worked on by a separate session. Since
+  2026-11-09 an ISO built with `build-iso.sh --vintner=DIR` installs Vintner Boot instead of GRUB, tested on both
+  firmwares (section 4.2). GRUB stays the default until Vintner's variants carry Safe Mode.
 - **WSL:** the two sessions share WSL Debian. Agree before `wsl --terminate` or anything else that stops the other's
   VMs, and give chroot bind mounts `--make-rslave`. A leftover bind mount once stopped every new `wsl` command until
   WSL was restarted.
@@ -33,7 +35,8 @@ the earlier 11.20 pin.
 - **Machines (2026-11-09):** the E1 elevation work runs on another machine, which has its own `wexbuild`.
   This machine has:
   - WSL `Debian`, for VM tests, shared with the Vintner session and compacted to 25 GB on 2026-11-09;
-  - WSL `wexbuild`, for Wine builds (`docs/TOOLING.md`);
+  - WSL `wexbuild`, for Wine builds, the ISO and Vintner Boot's packages (`docs/TOOLING.md`);
+  - WSL `vbtest`, the Vintner session's own test distro (it uses `/dev/nbd8` and up);
   - VirtualBox `WineExplorer-VM` (off) and `Windows XP Pro`.
 
 Use `development` in both `zcomputerwiz/WineExplorer` and `zcomputerwiz/wine` for
