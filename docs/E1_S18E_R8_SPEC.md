@@ -28,7 +28,7 @@ channel_id:16, binding_digest:32, request_digest:32, deadline:u64, root_gen:u64,
 broker_gen:u64, verifier_gen:u64, map_gen:u64, policy_gen:u64, caller_session:u32,
 desktop_route:16, desktop_mode:u32` (1 secure desktop, 2 explicitly configured insecure desktop),
 204 bytes. **Sealed tuple** = pre-endorsement tuple + `dialog_id:16`, 220 bytes, assigned by S.
-The **tuple tail** is the sealed tuple without the 64 bytes that the common header already carries
+The **tuple tail** is the sealed tuple without the 60 bytes that the common header already carries
 (`request_id, attempt, nonce, channel_id`): `binding_digest` through `dialog_id`, 160 bytes.
 S, V, W, B and D each keep the sealed tuple and compare all of it wherever it appears.
 
@@ -86,7 +86,7 @@ redundant copies are closed right after creation. B's writes and reads run in ca
 
 | Type | Name | Dir | Body after the header | Total bytes |
 | --- | --- | --- | --- | --- |
-| 1 | INIT | B→D | tuple tail (160), verifier_owner:str, requester:str, image:str, publisher:str | 252..2063 |
+| 1 | INIT | B→D | tuple tail (160), verifier_owner:str, requester:str, image:str, publisher:str | 256..2067 |
 | 2 | ACK | D→B | binding_digest:32, request_digest:32, dialog_id:16 | 156 |
 | 3 | SELECT_OK | B→D | (none): account selection allowed, no secret input | 76 |
 | 4 | SELECT | D→B | account:str | 81..143 |
@@ -148,10 +148,12 @@ A decoy (zero account_key) can never produce RESULT 1 or evidence.
    never watches or receives on either secret end), moves to `DELEGATED`, sends DELEGATED to B and
    PROMPT_RELEASE to W. A duplicate valid attach, a failed or lost transfer, or a missing ACK before
    the deadline cancels; nothing is reassigned.
-4. B asks S to recheck D and sends READY. W sends its prompt: S7 header (`magic "E1S7PAM\0"`,
-   `version` 1, `type` 2 PROMPT, `length` 178, the tuple's `request_id`, `attempt`, `round` 1,
-   `index` 0, `style` 1 echo-off, `nonce`) + `channel_id:16, binding_digest:32, request_digest:32,
-   dialog_id:16` + ASCII `Password: ` (10 bytes, no NUL). D enables the password field only after
+4. B asks S to recheck D and sends READY. W sends its prompt, S7 version 2 (R8 only; version 1
+   stays today's lab format): the 72-byte S7 header (tools/e1s7/pam-worker.c `header()`: offset 0
+   magic `"E1S7PAM\0"`, 8 version:u16 = 2, 10 type:u16 = 2 PROMPT, 12 length:u32 = 178,
+   16 request_id:u64, 24 attempt:u32, 28 round:u32 = 1, 32 index:u32 = 0, 36 style:u32 = 1
+   (PAM_PROMPT_ECHO_OFF), 40 nonce:32) + `channel_id:16, binding_digest:32, request_digest:32,
+   dialog_id:16` from the sealed tuple + ASCII `Password: ` (10 bytes, no NUL); exactly 178 bytes. D enables the password field only after
    both READY and a prompt whose sender pidfd identifies W's pin.
 5. D sends one S1 kind-2 record: `answer_kind` 1, `round` 1, `message_index` 0, UTF-8 password
    (checked conversion from UTF-16, at most 4096 bytes, no NUL; longer input is refused in the UI,
