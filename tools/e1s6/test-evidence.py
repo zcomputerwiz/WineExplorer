@@ -339,6 +339,28 @@ class EvidenceTests(unittest.TestCase):
         self.deny(self.s.open, self.c, replace(b, created=self.clock.now,
                                               expiry=self.clock.now + 120_000_000_001))
 
+    def test_verifier_keeps_broker_deadline(self):
+        now = 1_000_000_000
+        txs = []
+        try:
+            # Past, equal or more than 300 s ahead: the broker's expiry denies
+            # and the five-second setup deadline is kept.
+            for bad in (now - 1, now, now + 300_000_000_001):
+                with self.subTest(expiry=bad):
+                    tx = Tx()
+                    txs.append(tx)
+                    with self.assertRaises(ValueError):
+                        s6.broker_deadline(tx, now, bad)
+                    self.assertFalse(hasattr(tx, "deadline"))
+            # A valid expiry becomes the transaction deadline.
+            tx = Tx()
+            txs.append(tx)
+            s6.broker_deadline(tx, now, now + 300_000_000_000)
+            self.assertEqual(tx.deadline, now + 300_000_000_000)
+        finally:
+            for tx in txs:
+                tx.close()
+
     def test_account_throttle_across_requesters(self):
         for uid in range(1, 4):
             c = self.connection(uid=uid)

@@ -205,6 +205,13 @@ def answer(data):
     require(data[152:] == b"\0" * 4, "answer-payload")  # no payload; credential text is unsupported
 
 
+def broker_deadline(tx, now, expiry):
+    # Groundwork step 2: after the PAM start packet the verifier keeps the
+    # broker's absolute deadline, checked against its own clock and bound.
+    require(now < expiry <= now + 300_000_000_000, "pam-start-expiry")
+    tx.deadline = expiry
+
+
 def service(server_path, system_group, pam_paths=None):
     require(os.getuid() == 0 and os.geteuid() == 0)
     import grp
@@ -443,6 +450,7 @@ def service(server_path, system_group, pam_paths=None):
                             magic, ver, kind, size, rid, attempt, round_, index, style = struct.unpack_from("<8sHHIQIIII", start)
                             nonce = start[40:72]
                             key, uid, map_gen, expiry, limit, len_name = struct.unpack_from("<16sQQQII", start, 72)
+                            broker_deadline(self, time.monotonic_ns(), expiry)
                             name = start[120:120 + len_name].decode("ascii", errors="replace")
                             decoy = (kind == 6)
 
