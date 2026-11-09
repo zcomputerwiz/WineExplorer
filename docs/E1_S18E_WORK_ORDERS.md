@@ -466,7 +466,9 @@ Files: `src/programs/wexelevate/e1s18_broker.c`, `src/programs/wexelevate/e1s18_
      An ACK that fails decoding, has wrong digests or dialog_id, is short, long, or late cancels.
    * After a valid ACK the existing flow continues unchanged: D's existing S1 Confirm/Cancel record
      arrives on `from_d` and is verified as today. No other message types in this order.
-2. consent.exe (`/broker /credentials` mode only): parse `/in` and `/out` instead of `/channel`
+2. consent.exe (`/broker /credentials` mode only). `consent.c` ships: every change below goes inside
+   `#ifdef WEXELEVATE_E1S18`, and without that define `consent.c` must compile to today's behaviour
+   (the existing `/channel` path stays in the `#else`). In the lab build: parse `/in` and `/out` instead of `/channel`
    (reject both missing, duplicated or equal); before showing anything, read exactly one INIT from
    `/in` (bounded total size: the INIT maximum), decode it with `e1r8_decode_init_learn` (WO-18)
    passing the existing `/request` and `/token` arguments and attempt 1, keep the
@@ -484,4 +486,6 @@ Files: `src/programs/wexelevate/e1s18_broker.c`, `src/programs/wexelevate/e1s18_
    pipe is created.
 
 Check: the broker test command passes (ASan/UBSan and byte-identical production check included);
-both MinGW lab broker compiles pass; consent builds in the lab tree (report the command you used).
+both MinGW lab broker compiles pass; `consent.c` compiles with both MinGW compilers with and without
+`-DWEXELEVATE_E1S18` (`-Wall -Werror`, the include paths and libraries of
+`scripts/test_credential_dialog.sh` lines 186-209); report the commands you used.
