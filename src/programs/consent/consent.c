@@ -28,6 +28,9 @@ WINE_DEFAULT_DEBUG_CHANNEL(consent);
 #endif
 #include "../wexelevate/cred_dialog.h"
 #include "../wexelevate/cred_dialog.c"
+#ifdef WEXELEVATE_E1S18
+#include "../wexelevate/e1r8_codec.h"
+#endif
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -64,6 +67,14 @@ struct consent_data
     BOOL confirmed;
     char account[WEX_MAX_ACCOUNT_NAME_LEN + 1];
     WCHAR password[256];
+#ifdef WEXELEVATE_E1S18
+    /* WO-20: two explicit-list pipes (lab only). /in carries the INIT,
+     * /out carries the ACK and the S1 record. */
+    HANDLE in_pipe;
+    HANDLE out_pipe;
+    int in_count;
+    int out_count;
+#endif
 };
 
 /* Draws authentic 4-quadrant Windows Vista UAC shield with golden border */
@@ -191,6 +202,39 @@ static void draw_banner(const DRAWITEMSTRUCT *dis, BOOL is_verified)
     DeleteObject(font);
 }
 
+#ifdef WEXELEVATE_E1S18
+/* WO-20: read exactly n bytes from a pipe, returning FALSE on any short
+ * read or EOF. Used to read the R8 INIT before anything is shown. */
+static BOOL r8_read_exact(HANDLE h, uint8_t *buf, size_t n)
+{
+    size_t off = 0;
+    while (off < n)
+    {
+        DWORD got = 0;
+        if (!ReadFile(h, buf + off, (DWORD)(n - off), &got, NULL) || !got)
+            return FALSE;
+        off += got;
+    }
+    return TRUE;
+}
+
+/* WO-20: read exactly one INIT from /in. The total size is bounded by the
+ * INIT maximum (2067); the 76-byte header carries the exact length, which
+ * must be 256..2067. Returns FALSE on any short read, EOF or bad length. */
+static BOOL r8_read_init(HANDLE in_pipe, uint8_t *buf, size_t buf_size, size_t *out_len)
+{
+    uint32_t total;
+
+    if (buf_size < 2067) return FALSE;
+    if (!r8_read_exact(in_pipe, buf, E1R8_HEADER_SIZE)) return FALSE;
+    total = e1r8_get_u32(buf + 8);
+    if (total < 256 || total > 2067) return FALSE;
+    if (!r8_read_exact(in_pipe, buf + E1R8_HEADER_SIZE, total - E1R8_HEADER_SIZE)) return FALSE;
+    *out_len = total;
+    return TRUE;
+}
+#endif
+
 static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
 {
     const WCHAR *p = cmd;
@@ -198,6 +242,10 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
 
     memset(data, 0, sizeof(*data));
     data->channel_pipe = INVALID_HANDLE_VALUE;
+#ifdef WEXELEVATE_E1S18
+    data->in_pipe = INVALID_HANDLE_VALUE;
+    data->out_pipe = INVALID_HANDLE_VALUE;
+#endif
     lstrcpyW(data->origin, L"Hard drive on this computer");
 
     while (*p)
@@ -251,6 +299,22 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
                 p += 2;
             }
         }
+#ifdef WEXELEVATE_E1S18
+        else if (!wcsnicmp(p, L"/in", 3))
+        {
+            p += 3;
+            while (*p == ' ' || *p == '\t') p++;
+            data->in_pipe = (HANDLE)(ULONG_PTR)wcstoul(p, (WCHAR **)&p, 0);
+            data->in_count++;
+        }
+        else if (!wcsnicmp(p, L"/out", 4))
+        {
+            p += 4;
+            while (*p == ' ' || *p == '\t') p++;
+            data->out_pipe = (HANDLE)(ULONG_PTR)wcstoul(p, (WCHAR **)&p, 0);
+            data->out_count++;
+        }
+#else
         else if (!wcsnicmp(p, L"/channel", 8))
         {
             p += 8;
@@ -267,6 +331,7 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
             pipename[i] = 0;
             data->channel_pipe = CreateFileW(pipename, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
         }
+#endif
 #if defined(WEXCONSENT_TEST_HOOK) || defined(WEX_CRED_DIALOG_TEST_HOOK)
         else if (!wcsnicmp(p, L"/testid", 7))
         {
@@ -884,6 +949,59 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
 
     if (data.credentials_mode)
     {
+#ifdef WEXELEVATE_E1S18
+        /* WO-20: two explicit-list pipes. Both /in and /out must be present
+         * exactly once and distinct; otherwise deny before showing anything. */
+        if (!data.broker || !data.request_id ||
+            data.in_pipe == INVALID_HANDLE_VALUE || data.out_pipe == INVALID_HANDLE_VALUE ||
+            data.in_count != 1 || data.out_count != 1 ||
+            data.in_pipe == data.out_pipe)
+        {
+            WARN("Administrator credential authorization is not available.\n");
+            return ERROR_NOT_SUPPORTED;
+        }
+
+        /* Clear inheritance on both handles; consent spawns no child. */
+        SetHandleInformation(data.in_pipe, HANDLE_FLAG_INHERIT, 0);
+        SetHandleInformation(data.out_pipe, HANDLE_FLAG_INHERIT, 0);
+
+        /* Read exactly one INIT from /in, decode it, fill the S1 fields from
+         * the sealed tuple, and write the ACK to /out. A malformed or missing
+         * INIT exits with the existing failure code without showing the dialog. */
+        {
+            uint8_t init_buf[2067];
+            uint8_t ack_buf[156];
+            struct e1r8_init init;
+            size_t init_len = 0;
+            DWORD written = 0;
+
+            if (!r8_read_init(data.in_pipe, init_buf, sizeof(init_buf), &init_len) ||
+                e1r8_decode_init_learn(init_buf, init_len, data.request_id, 1,
+                                       data.channel_token, &init) != 0)
+            {
+                WARN("R8 INIT missing or malformed.\n");
+                return ERROR_NOT_SUPPORTED;
+            }
+
+            memcpy(data.nonce, init.tuple.nonce, 32);
+            memcpy(data.binding_digest, init.tuple.binding_digest, 32);
+            memcpy(data.request_digest, init.tuple.request_digest, 32);
+            data.attempt = 1;
+
+            if (e1r8_encode_ack(ack_buf, sizeof(ack_buf), &init.tuple) != 0 ||
+                !WriteFile(data.out_pipe, ack_buf, sizeof(ack_buf), &written, NULL) ||
+                written != sizeof(ack_buf))
+            {
+                WARN("R8 ACK write failed.\n");
+                return ERROR_NOT_SUPPORTED;
+            }
+            FlushFileBuffers(data.out_pipe);
+            wex_secure_wipe(init_buf, sizeof(init_buf));
+        }
+
+        /* The S1 Confirm/Cancel record goes to /out. */
+        data.channel_pipe = data.out_pipe;
+#else
         /* Disabled by default unless spawned by broker with a valid bound channel */
         if (!data.broker || !data.request_id || data.channel_pipe == INVALID_HANDLE_VALUE)
         {
@@ -893,6 +1011,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
             WARN("Administrator credential authorization is not available.\n");
             return ERROR_NOT_SUPPORTED;
         }
+#endif
 
         if (data.parent_pid)
         {

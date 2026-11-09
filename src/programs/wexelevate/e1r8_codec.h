@@ -245,13 +245,13 @@ struct e1r8_w_setup
 /*
  * Explicit little-endian put/get helpers.
  */
-static void e1r8_put_u16( uint8_t *p, uint16_t v )
+static inline void e1r8_put_u16( uint8_t *p, uint16_t v )
 {
     p[0] = (uint8_t)(v & 0xff);
     p[1] = (uint8_t)((v >> 8) & 0xff);
 }
 
-static void e1r8_put_u32( uint8_t *p, uint32_t v )
+static inline void e1r8_put_u32( uint8_t *p, uint32_t v )
 {
     p[0] = (uint8_t)(v & 0xff);
     p[1] = (uint8_t)((v >> 8) & 0xff);
@@ -259,25 +259,25 @@ static void e1r8_put_u32( uint8_t *p, uint32_t v )
     p[3] = (uint8_t)((v >> 24) & 0xff);
 }
 
-static void e1r8_put_u64( uint8_t *p, uint64_t v )
+static inline void e1r8_put_u64( uint8_t *p, uint64_t v )
 {
     int i;
     for (i = 0; i < 8; ++i)
         p[i] = (uint8_t)((v >> (8 * i)) & 0xff);
 }
 
-static uint16_t e1r8_get_u16( const uint8_t *p )
+static inline uint16_t e1r8_get_u16( const uint8_t *p )
 {
     return (uint16_t)(p[0] | ((uint16_t)p[1] << 8));
 }
 
-static uint32_t e1r8_get_u32( const uint8_t *p )
+static inline uint32_t e1r8_get_u32( const uint8_t *p )
 {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
            ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
-static uint64_t e1r8_get_u64( const uint8_t *p )
+static inline uint64_t e1r8_get_u64( const uint8_t *p )
 {
     uint64_t v = 0;
     int i;
@@ -290,13 +290,13 @@ static uint64_t e1r8_get_u64( const uint8_t *p )
  * A wire string is a u32 byte length followed by exactly that many bytes,
  * no NUL terminator (spec section 4).
  */
-static void e1r8_put_string( uint8_t *p, const uint8_t *s, uint32_t len )
+static inline void e1r8_put_string( uint8_t *p, const uint8_t *s, uint32_t len )
 {
     e1r8_put_u32( p, len );
     if (len) memcpy( p + 4, s, len );
 }
 
-static int e1r8_get_string( const uint8_t *buf, size_t len, size_t *off,
+static inline int e1r8_get_string( const uint8_t *buf, size_t len, size_t *off,
                             const uint8_t **out, uint32_t *out_len )
 {
     uint32_t slen;
@@ -314,7 +314,7 @@ static int e1r8_get_string( const uint8_t *buf, size_t len, size_t *off,
  * Account name: ASCII, 1..63 bytes, S4 grammar (valid_name,
  * wine/server/accounts.c), matching wex_valid_account_name.
  */
-static int e1r8_valid_account_name( const uint8_t *s, size_t len )
+static inline int e1r8_valid_account_name( const uint8_t *s, size_t len )
 {
     size_t i;
     if (!s || len < 1 || len > 63) return 0;
@@ -338,7 +338,7 @@ static int e1r8_valid_account_name( const uint8_t *s, size_t len )
  * Display string: UTF-16LE, even length, 0..520 bytes, valid surrogate
  * pairs, no NUL or control characters (spec section 4).
  */
-static int e1r8_valid_display_string( const uint8_t *s, size_t len )
+static inline int e1r8_valid_display_string( const uint8_t *s, size_t len )
 {
     size_t i = 0;
     if (len % 2 != 0) return 0;
@@ -372,7 +372,7 @@ static int e1r8_valid_display_string( const uint8_t *s, size_t len )
  * Verifier owner: ASCII D-Bus unique name ":<digits>.<digits>", 4..255
  * bytes (spec section 4).
  */
-static int e1r8_valid_verifier_owner( const uint8_t *s, size_t len )
+static inline int e1r8_valid_verifier_owner( const uint8_t *s, size_t len )
 {
     size_t i, dot = 0;
     int found_dot = 0;
@@ -402,7 +402,7 @@ static int e1r8_valid_verifier_owner( const uint8_t *s, size_t len )
  * continuation, no overlong, no surrogates, nothing above U+10FFFF, no
  * C0, C1, F5..FF, no NUL. Length 1..4096 bytes.
  */
-static int e1r8_valid_utf8( const uint8_t *s, size_t len )
+static inline int e1r8_valid_utf8( const uint8_t *s, size_t len )
 {
     size_t i = 0;
     if (!s || len < 1 || len > 4096) return 0;
@@ -460,7 +460,7 @@ static int e1r8_valid_utf8( const uint8_t *s, size_t len )
  * Common header (76 bytes), spec section 4 offsets. The request_id,
  * attempt, nonce and channel_id come from the sealed tuple.
  */
-static int e1r8_put_header( uint8_t *buf, size_t len, uint16_t type,
+static inline int e1r8_put_header( uint8_t *buf, size_t len, uint16_t type,
                             uint32_t total_len, const struct e1r8_tuple *t )
 {
     if (len < E1R8_HEADER_SIZE) return E1R8_ERR_SHORT;
@@ -479,7 +479,7 @@ static int e1r8_put_header( uint8_t *buf, size_t len, uint16_t type,
     return 0;
 }
 
-static int e1r8_get_header( const uint8_t *buf, size_t len, uint16_t type,
+static inline int e1r8_get_header( const uint8_t *buf, size_t len, uint16_t type,
                             const struct e1r8_tuple *expected,
                             struct e1r8_header *out )
 {
@@ -513,7 +513,7 @@ static int e1r8_get_header( const uint8_t *buf, size_t len, uint16_t type,
  * 88, verifier_gen 96, map_gen 104, policy_gen 112, caller_session 120,
  * desktop_route 124, desktop_mode 140, dialog_id 144; end 160.
  */
-static int e1r8_encode_tuple_tail( uint8_t *buf, size_t len,
+static inline int e1r8_encode_tuple_tail( uint8_t *buf, size_t len,
                                    const struct e1r8_tuple *t )
 {
     if (len != E1R8_TAIL_SIZE) return E1R8_ERR_LONG;
@@ -533,7 +533,7 @@ static int e1r8_encode_tuple_tail( uint8_t *buf, size_t len,
     return 0;
 }
 
-static int e1r8_decode_tuple_tail( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_tuple_tail( const uint8_t *buf, size_t len,
                                    struct e1r8_tuple *t )
 {
     if (len != E1R8_TAIL_SIZE) return E1R8_ERR_LONG;
@@ -561,7 +561,7 @@ static int e1r8_decode_tuple_tail( const uint8_t *buf, size_t len,
  * channel_id 44, then the tail fields at 60 + tail offset, without
  * dialog_id (spec section 4).
  */
-static int e1r8_encode_pre_endorsement_tuple( uint8_t *buf, size_t len,
+static inline int e1r8_encode_pre_endorsement_tuple( uint8_t *buf, size_t len,
                                               const struct e1r8_tuple *t )
 {
     if (len != E1R8_PRE_ENDORSEMENT_SIZE) return E1R8_ERR_LONG;
@@ -584,7 +584,7 @@ static int e1r8_encode_pre_endorsement_tuple( uint8_t *buf, size_t len,
     return 0;
 }
 
-static int e1r8_decode_pre_endorsement_tuple( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_pre_endorsement_tuple( const uint8_t *buf, size_t len,
                                               struct e1r8_tuple *t )
 {
     if (len != E1R8_PRE_ENDORSEMENT_SIZE) return E1R8_ERR_LONG;
@@ -614,7 +614,7 @@ static int e1r8_decode_pre_endorsement_tuple( const uint8_t *buf, size_t len,
  * Sealed tuple (220 bytes): the pre-endorsement tuple plus dialog_id
  * (spec section 4).
  */
-static int e1r8_encode_sealed_tuple( uint8_t *buf, size_t len,
+static inline int e1r8_encode_sealed_tuple( uint8_t *buf, size_t len,
                                      const struct e1r8_tuple *t )
 {
     if (len != E1R8_SEALED_SIZE) return E1R8_ERR_LONG;
@@ -625,7 +625,7 @@ static int e1r8_encode_sealed_tuple( uint8_t *buf, size_t len,
     return e1r8_encode_tuple_tail( buf + 60, E1R8_TAIL_SIZE, t );
 }
 
-static int e1r8_decode_sealed_tuple( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_sealed_tuple( const uint8_t *buf, size_t len,
                                      struct e1r8_tuple *t )
 {
     if (len != E1R8_SEALED_SIZE) return E1R8_ERR_LONG;
@@ -639,7 +639,7 @@ static int e1r8_decode_sealed_tuple( const uint8_t *buf, size_t len,
 /*
  * Verify a tuple tail against the expected sealed tuple.
  */
-static int e1r8_check_tuple_tail( const uint8_t *buf, size_t len,
+static inline int e1r8_check_tuple_tail( const uint8_t *buf, size_t len,
                                   const struct e1r8_tuple *expected )
 {
     struct e1r8_tuple t;
@@ -665,7 +665,7 @@ static int e1r8_check_tuple_tail( const uint8_t *buf, size_t len,
  * Type 1: INIT (B->D). Body: tuple tail (160), verifier_owner:str,
  * requester:str, image:str, publisher:str. Total 256..2067.
  */
-static int e1r8_encode_init( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_init( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                              const uint8_t *verifier_owner, uint32_t vo_len,
                              const uint8_t *requester, uint32_t req_len,
                              const uint8_t *image, uint32_t img_len,
@@ -697,7 +697,7 @@ static int e1r8_encode_init( uint8_t *buf, size_t len, const struct e1r8_tuple *
     return 0;
 }
 
-static int e1r8_decode_init( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_init( const uint8_t *buf, size_t len,
                              const struct e1r8_tuple *expected,
                              struct e1r8_init *out )
 {
@@ -742,7 +742,7 @@ static int e1r8_decode_init( const uint8_t *buf, size_t len,
  * Type 2: ACK (D->B). Body: binding_digest:32, request_digest:32,
  * dialog_id:16. Total 156.
  */
-static int e1r8_encode_ack( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_ack( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     int err;
     if (len != 156) return E1R8_ERR_LONG;
@@ -754,7 +754,7 @@ static int e1r8_encode_ack( uint8_t *buf, size_t len, const struct e1r8_tuple *t
     return 0;
 }
 
-static int e1r8_decode_ack( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_ack( const uint8_t *buf, size_t len,
                             const struct e1r8_tuple *expected,
                             struct e1r8_ack *out )
 {
@@ -774,13 +774,13 @@ static int e1r8_decode_ack( const uint8_t *buf, size_t len,
 /*
  * Type 3: SELECT_OK (B->D). Body: none. Total 76.
  */
-static int e1r8_encode_select_ok( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_select_ok( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
     return e1r8_put_header( buf, len, E1R8_TYPE_SELECT_OK, E1R8_HEADER_SIZE, t );
 }
 
-static int e1r8_decode_select_ok( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_select_ok( const uint8_t *buf, size_t len,
                                   const struct e1r8_tuple *expected )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
@@ -790,7 +790,7 @@ static int e1r8_decode_select_ok( const uint8_t *buf, size_t len,
 /*
  * Type 4: SELECT (D->B). Body: account:str. Total 81..143.
  */
-static int e1r8_encode_select( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_select( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                                const uint8_t *account, uint32_t acct_len )
 {
     uint32_t total;
@@ -804,7 +804,7 @@ static int e1r8_encode_select( uint8_t *buf, size_t len, const struct e1r8_tuple
     return 0;
 }
 
-static int e1r8_decode_select( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_select( const uint8_t *buf, size_t len,
                                const struct e1r8_tuple *expected,
                                struct e1r8_select *out )
 {
@@ -827,13 +827,13 @@ static int e1r8_decode_select( const uint8_t *buf, size_t len,
 /*
  * Type 5: READY (B->D). Body: none. Total 76.
  */
-static int e1r8_encode_ready( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_ready( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
     return e1r8_put_header( buf, len, E1R8_TYPE_READY, E1R8_HEADER_SIZE, t );
 }
 
-static int e1r8_decode_ready( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_ready( const uint8_t *buf, size_t len,
                               const struct e1r8_tuple *expected )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
@@ -845,7 +845,7 @@ static int e1r8_decode_ready( const uint8_t *buf, size_t len,
  * account:str (empty if refused), challenge:32 (zero if refused). Total
  * 116 refused, 117..179 authenticated.
  */
-static int e1r8_encode_result( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_result( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                                uint32_t status, const uint8_t *account,
                                uint32_t acct_len, const uint8_t challenge[32] )
 {
@@ -874,7 +874,7 @@ static int e1r8_encode_result( uint8_t *buf, size_t len, const struct e1r8_tuple
     return 0;
 }
 
-static int e1r8_decode_result( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_result( const uint8_t *buf, size_t len,
                                const struct e1r8_tuple *expected,
                                struct e1r8_result *out )
 {
@@ -923,7 +923,7 @@ static int e1r8_decode_result( const uint8_t *buf, size_t len,
  * Type 7: ANSWER (D->B). Body: challenge:32, one unchanged 156-byte S1
  * kind-2 record. Total 264 for Confirm/Cancel.
  */
-static int e1r8_encode_answer( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_answer( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                                const uint8_t challenge[32], uint32_t answer_kind,
                                uint32_t round, uint32_t index,
                                uint64_t required_caps )
@@ -964,7 +964,7 @@ static int e1r8_encode_answer( uint8_t *buf, size_t len, const struct e1r8_tuple
     return 0;
 }
 
-static int e1r8_decode_answer( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_answer( const uint8_t *buf, size_t len,
                                const struct e1r8_tuple *expected,
                                uint64_t caps_mask, struct e1r8_answer *out )
 {
@@ -1031,7 +1031,7 @@ static int e1r8_decode_answer( const uint8_t *buf, size_t len,
  * Type 8: DONE (B->D). Body: status:u32 (1 completed, 2 cancelled).
  * Total 80.
  */
-static int e1r8_encode_done( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_done( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                              uint32_t status )
 {
     int err;
@@ -1044,7 +1044,7 @@ static int e1r8_encode_done( uint8_t *buf, size_t len, const struct e1r8_tuple *
     return 0;
 }
 
-static int e1r8_decode_done( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_done( const uint8_t *buf, size_t len,
                              const struct e1r8_tuple *expected,
                              struct e1r8_done *out )
 {
@@ -1059,13 +1059,13 @@ static int e1r8_decode_done( const uint8_t *buf, size_t len,
 /*
  * Type 9: ATTACH_OK (B->D). Body: none. Total 76.
  */
-static int e1r8_encode_attach_ok( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_attach_ok( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
     return e1r8_put_header( buf, len, E1R8_TYPE_ATTACH_OK, E1R8_HEADER_SIZE, t );
 }
 
-static int e1r8_decode_attach_ok( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_attach_ok( const uint8_t *buf, size_t len,
                                   const struct e1r8_tuple *expected )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
@@ -1076,7 +1076,7 @@ static int e1r8_decode_attach_ok( const uint8_t *buf, size_t len,
  * Type 16: ENDORSED (S->V control socket). Body: tuple tail, D's pin
  * pid:u32, uid:u32; D's pidfd as SCM_RIGHTS (not in the body). Total 244.
  */
-static int e1r8_encode_endorsed( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_endorsed( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                                  uint32_t pid, uint32_t uid )
 {
     int err;
@@ -1090,7 +1090,7 @@ static int e1r8_encode_endorsed( uint8_t *buf, size_t len, const struct e1r8_tup
     return 0;
 }
 
-static int e1r8_decode_endorsed( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_endorsed( const uint8_t *buf, size_t len,
                                  const struct e1r8_tuple *expected,
                                  struct e1r8_endorsed *out )
 {
@@ -1110,7 +1110,7 @@ static int e1r8_decode_endorsed( const uint8_t *buf, size_t len,
  * Type 17: START (B->V S6 data). Body: account:str, account_key:16 (zero
  * for an unknown name: decoy). Total 97..159.
  */
-static int e1r8_encode_start( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_start( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                               const uint8_t *account, uint32_t acct_len,
                               const uint8_t account_key[16] )
 {
@@ -1126,7 +1126,7 @@ static int e1r8_encode_start( uint8_t *buf, size_t len, const struct e1r8_tuple 
     return 0;
 }
 
-static int e1r8_decode_start( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_start( const uint8_t *buf, size_t len,
                               const struct e1r8_tuple *expected,
                               struct e1r8_start *out )
 {
@@ -1152,13 +1152,13 @@ static int e1r8_decode_start( const uint8_t *buf, size_t len,
 /*
  * Type 18: WORKER_READY (V->B). Body: none. Total 76.
  */
-static int e1r8_encode_worker_ready( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_worker_ready( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
     return e1r8_put_header( buf, len, E1R8_TYPE_WORKER_READY, E1R8_HEADER_SIZE, t );
 }
 
-static int e1r8_decode_worker_ready( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_worker_ready( const uint8_t *buf, size_t len,
                                      const struct e1r8_tuple *expected )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
@@ -1168,13 +1168,13 @@ static int e1r8_decode_worker_ready( const uint8_t *buf, size_t len,
 /*
  * Type 19: DELEGATED (V->B). Body: none. Total 76.
  */
-static int e1r8_encode_delegated( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_delegated( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
     return e1r8_put_header( buf, len, E1R8_TYPE_DELEGATED, E1R8_HEADER_SIZE, t );
 }
 
-static int e1r8_decode_delegated( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_delegated( const uint8_t *buf, size_t len,
                                   const struct e1r8_tuple *expected )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
@@ -1186,7 +1186,7 @@ static int e1r8_decode_delegated( const uint8_t *buf, size_t len,
  * account_key:16, canonical account:str, evidence_ref:16; refused: all
  * zero/empty. Total 116 refused, 117..179 authenticated.
  */
-static int e1r8_encode_result_v( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_result_v( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                                  uint32_t status, const uint8_t account_key[16],
                                  const uint8_t *account, uint32_t acct_len,
                                  const uint8_t evidence_ref[16] )
@@ -1217,7 +1217,7 @@ static int e1r8_encode_result_v( uint8_t *buf, size_t len, const struct e1r8_tup
     return 0;
 }
 
-static int e1r8_decode_result_v( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_result_v( const uint8_t *buf, size_t len,
                                  const struct e1r8_tuple *expected,
                                  struct e1r8_result_v *out )
 {
@@ -1267,7 +1267,7 @@ static int e1r8_decode_result_v( const uint8_t *buf, size_t len,
 /*
  * Type 21: CANCEL (B<->V). Body: reason:u32 = 1. Total 80.
  */
-static int e1r8_encode_cancel( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_cancel( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                                uint32_t reason )
 {
     int err;
@@ -1279,7 +1279,7 @@ static int e1r8_encode_cancel( uint8_t *buf, size_t len, const struct e1r8_tuple
     return 0;
 }
 
-static int e1r8_decode_cancel( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_cancel( const uint8_t *buf, size_t len,
                                const struct e1r8_tuple *expected,
                                struct e1r8_cancel *out )
 {
@@ -1293,13 +1293,13 @@ static int e1r8_decode_cancel( const uint8_t *buf, size_t len,
 /*
  * Type 22: W_ACK (W->V supervisor). Body: none. Total 76.
  */
-static int e1r8_encode_w_ack( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_w_ack( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
     return e1r8_put_header( buf, len, E1R8_TYPE_W_ACK, E1R8_HEADER_SIZE, t );
 }
 
-static int e1r8_decode_w_ack( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_w_ack( const uint8_t *buf, size_t len,
                               const struct e1r8_tuple *expected )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
@@ -1309,13 +1309,13 @@ static int e1r8_decode_w_ack( const uint8_t *buf, size_t len,
 /*
  * Type 23: ATTACH_ACK (D->W secret socket). Body: none. Total 76.
  */
-static int e1r8_encode_attach_ack( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_attach_ack( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
     return e1r8_put_header( buf, len, E1R8_TYPE_ATTACH_ACK, E1R8_HEADER_SIZE, t );
 }
 
-static int e1r8_decode_attach_ack( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_attach_ack( const uint8_t *buf, size_t len,
                                    const struct e1r8_tuple *expected )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
@@ -1325,13 +1325,13 @@ static int e1r8_decode_attach_ack( const uint8_t *buf, size_t len,
 /*
  * Type 24: PROMPT_RELEASE (V->W supervisor). Body: none. Total 76.
  */
-static int e1r8_encode_prompt_release( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_prompt_release( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
     return e1r8_put_header( buf, len, E1R8_TYPE_PROMPT_RELEASE, E1R8_HEADER_SIZE, t );
 }
 
-static int e1r8_decode_prompt_release( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_prompt_release( const uint8_t *buf, size_t len,
                                        const struct e1r8_tuple *expected )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
@@ -1342,7 +1342,7 @@ static int e1r8_decode_prompt_release( const uint8_t *buf, size_t len,
  * Type 25: RELEASE (B->V S6 data). Body: outcome:u32 (1 completed, 2
  * cancelled). Total 80.
  */
-static int e1r8_encode_release( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_release( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                                 uint32_t outcome )
 {
     int err;
@@ -1355,7 +1355,7 @@ static int e1r8_encode_release( uint8_t *buf, size_t len, const struct e1r8_tupl
     return 0;
 }
 
-static int e1r8_decode_release( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_release( const uint8_t *buf, size_t len,
                                 const struct e1r8_tuple *expected,
                                 struct e1r8_release *out )
 {
@@ -1370,13 +1370,13 @@ static int e1r8_decode_release( const uint8_t *buf, size_t len,
 /*
  * Type 26: RELEASED (V->B). Body: none. Total 76.
  */
-static int e1r8_encode_released( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_released( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
     return e1r8_put_header( buf, len, E1R8_TYPE_RELEASED, E1R8_HEADER_SIZE, t );
 }
 
-static int e1r8_decode_released( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_released( const uint8_t *buf, size_t len,
                                  const struct e1r8_tuple *expected )
 {
     if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
@@ -1387,7 +1387,7 @@ static int e1r8_decode_released( const uint8_t *buf, size_t len,
  * Type 27: W_SETUP (supervisor->W at spawn). Body: tuple tail; D's
  * pid:u32, uid:u32; D's pidfd as SCM_RIGHTS (not in the body). Total 244.
  */
-static int e1r8_encode_w_setup( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+static inline int e1r8_encode_w_setup( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
                                 uint32_t pid, uint32_t uid )
 {
     int err;
@@ -1401,7 +1401,7 @@ static int e1r8_encode_w_setup( uint8_t *buf, size_t len, const struct e1r8_tupl
     return 0;
 }
 
-static int e1r8_decode_w_setup( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_w_setup( const uint8_t *buf, size_t len,
                                 const struct e1r8_tuple *expected,
                                 struct e1r8_w_setup *out )
 {
@@ -1423,7 +1423,7 @@ static int e1r8_decode_w_setup( const uint8_t *buf, size_t len,
  * the tuple from the header's nonce and the tail, then run the normal
  * decoder against it, so every header, tail and body check still applies.
  */
-static int e1r8_learn_tuple( const uint8_t *buf, size_t len, uint64_t request_id,
+static inline int e1r8_learn_tuple( const uint8_t *buf, size_t len, uint64_t request_id,
                              uint32_t attempt, const uint8_t channel_id[16],
                              struct e1r8_tuple *t )
 {
@@ -1438,7 +1438,7 @@ static int e1r8_learn_tuple( const uint8_t *buf, size_t len, uint64_t request_id
     return e1r8_decode_tuple_tail( buf + E1R8_HEADER_SIZE, E1R8_TAIL_SIZE, t );
 }
 
-static int e1r8_decode_init_learn( const uint8_t *buf, size_t len, uint64_t request_id,
+static inline int e1r8_decode_init_learn( const uint8_t *buf, size_t len, uint64_t request_id,
                                    uint32_t attempt, const uint8_t channel_id[16],
                                    struct e1r8_init *out )
 {
@@ -1449,7 +1449,7 @@ static int e1r8_decode_init_learn( const uint8_t *buf, size_t len, uint64_t requ
     return e1r8_decode_init( buf, len, &t, out );
 }
 
-static int e1r8_decode_w_setup_learn( const uint8_t *buf, size_t len, uint64_t request_id,
+static inline int e1r8_decode_w_setup_learn( const uint8_t *buf, size_t len, uint64_t request_id,
                                       uint32_t attempt, const uint8_t channel_id[16],
                                       struct e1r8_w_setup *out )
 {
@@ -1466,7 +1466,7 @@ static int e1r8_decode_w_setup_learn( const uint8_t *buf, size_t len, uint64_t r
  * dialog_id:16 from the sealed tuple + ASCII "Password: " (10 bytes, no
  * NUL).
  */
-static int e1r8_encode_s7_prompt( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+static inline int e1r8_encode_s7_prompt( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
 {
     if (len != E1R8_S7_PROMPT_SIZE) return E1R8_ERR_LONG;
     memcpy( buf + 0, "E1S7PAM\0", 8 );
@@ -1487,7 +1487,7 @@ static int e1r8_encode_s7_prompt( uint8_t *buf, size_t len, const struct e1r8_tu
     return 0;
 }
 
-static int e1r8_decode_s7_prompt( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_s7_prompt( const uint8_t *buf, size_t len,
                                   const struct e1r8_tuple *expected )
 {
     if (len != E1R8_S7_PROMPT_SIZE) return E1R8_ERR_LONG;
@@ -1514,7 +1514,7 @@ static int e1r8_decode_s7_prompt( const uint8_t *buf, size_t len,
  * with answer_kind 1, round 1, index 0 and a payload of 1..4096 bytes
  * (total 157..4252) that passes a strict RFC 3629 UTF-8 check.
  */
-static int e1r8_encode_secret_answer( uint8_t *buf, size_t len,
+static inline int e1r8_encode_secret_answer( uint8_t *buf, size_t len,
                                       const struct e1r8_tuple *t,
                                       uint64_t required_caps,
                                       const uint8_t *password, uint32_t pw_len )
@@ -1542,7 +1542,7 @@ static int e1r8_encode_secret_answer( uint8_t *buf, size_t len,
     return 0;
 }
 
-static int e1r8_decode_secret_answer( const uint8_t *buf, size_t len,
+static inline int e1r8_decode_secret_answer( const uint8_t *buf, size_t len,
                                       const struct e1r8_tuple *expected,
                                       uint64_t caps_mask, struct e1r8_answer *out )
 {

@@ -196,6 +196,56 @@ struct e1s18_s1_context
 };
 
 /*
+ * WO-20: R8 attempt-tuple context for the standard-user branch.
+ *
+ * The INIT message (R8 step 4) needs the sealed-tuple inputs that the server
+ * and verifier will supply later: the dialog id, the verifier owner, the
+ * generations, the caller session and the desktop route. They live here, zero
+ * in the lab today, so any zero required input denies the request with
+ * ERROR_NOT_SUPPORTED before a pipe or process is created (the WO-14 pattern).
+ * Tests set them through e1s18_set_r8_context.
+ */
+#ifdef WEXELEVATE_E1S18
+struct e1r8_tuple;
+
+struct e1s18_r8_context
+{
+    /* Sealed-tuple inputs (all nonzero). */
+    uint8_t dialog_id[16];
+    uint8_t desktop_route[16];
+    uint32_t caller_session;
+    uint64_t root_gen, server_gen, broker_gen, verifier_gen, map_gen, policy_gen;
+    /* Verifier owner: ASCII D-Bus unique name ":<digits>.<digits>", 4..255 bytes. */
+    char verifier_owner[256];
+};
+
+void e1s18_set_r8_context( const struct e1s18_r8_context *ctx );
+void e1s18_reset_r8_context( void );
+
+/* WO-20: portable R8 INIT/ACK helpers (lab branch). The tuple is built from
+ * the request, the in-flight attempt and the R8 context; the INIT is encoded
+ * with the request's validated display strings; the ACK is decoded and checked
+ * against the tuple. e1s18_build_r8_tuple returns 0 on success, -1 if the R8
+ * context is incomplete. e1s18_encode_r8_init returns the encoded length on
+ * success, 0 on denial. e1s18_verify_r8_ack returns 0 on success, negative on
+ * any rejection. */
+int e1s18_build_r8_tuple( const struct request *req,
+                          uint64_t request_id,
+                          uint32_t attempt,
+                          const uint8_t nonce[32],
+                          const uint8_t channel_id[16],
+                          const uint8_t binding_digest[32],
+                          const uint8_t request_digest[32],
+                          BOOL secure,
+                          struct e1r8_tuple *out );
+size_t e1s18_encode_r8_init( const struct request *req,
+                             const struct e1r8_tuple *t,
+                             uint8_t *buf, size_t buf_len );
+int e1s18_verify_r8_ack( const uint8_t *buf, size_t len,
+                         const struct e1r8_tuple *t );
+#endif
+
+/*
  * Dialog & Transport Boundary Types & Table.
  * Allows test injection of fakes at the dialog boundary (Stage 1)
  * and evidence transport boundary (Stage 2).

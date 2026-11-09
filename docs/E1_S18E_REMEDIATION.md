@@ -21,7 +21,10 @@ The standard-user chain stays disabled (`WEXELEVATE_E1S18`, lab define, off by d
 | R4 part: random nonce/channel, clock after transport | Done (WO-5); canonical digests, identities, generations open | `e1s18_broker.c` | broker tests 47-49 |
 | R11 part: account lookup, UTF-16 env block, exact cwd | Done (WO-6); native-authority prefix/profile mapping and retained cwd open | `launch_prep.c/.h`, `e1s18_broker.c` | `test_launch_prep.sh` |
 | R8 part: dialog inherits only its pipe | Done (WO-7, two fixes by review); duplex channel open | `e1s18_broker.c` | two-ABI compile only; no live run |
-| R4 rest, R5, R7, R8 rest, R10 rest, R14 | Open (design) | | |
+| R8 step 1: frozen attempt tuple, messages, states | Done (spec v5.1, Codex cleared steps 2 and 4) | `docs/E1_S18E_R8_SPEC.md` | spec review only |
+| R8 step 2: E1R8 codecs | Done (WO-18 C, WO-19 Python; review fixed a 32-bit length wrap, added tuple learning) | `e1r8_codec.h`, `tools/e1s6/e1r8.py` | native + ASan/UBSan vectors, both MinGW ABIs compile, C/Python golden byte cross-check |
+| R8 step 4: two explicit-list pipes, INIT/ACK | Done in code (WO-20; review fixed CancelSynchronousIo target, worker-join use-after-free, lost wait for the dialog after ACK, display-string stand-ins). Win32 pipe tests (partial INIT, blocked writer, broken pipe, cancellation, handle closure) still open: they need the spawn path driven under Wine | `e1s18_broker.c`, `consent.c` (lab only, under `WEXELEVATE_E1S18`) | native portable tests (test 56); both ABIs compile; shipping `consent.c` objects byte-identical; no Wine run |
+| R4 rest, R5, R7, R8 steps 3 and 5-10, R10 rest, R14 | Open (design) | | |
 
 ## What changed
 

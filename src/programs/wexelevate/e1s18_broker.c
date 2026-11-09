@@ -23,6 +23,9 @@
 #include "launch_prep.h"
 #include "e1s6_protocol.h"
 #include "e1s_encode.h"
+#ifdef WEXELEVATE_E1S18
+#include "e1r8_codec.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -474,6 +477,136 @@ static BOOL e1s18_s1_context_complete( const struct e1s18_s1_context *c )
 }
 
 #ifdef WEXELEVATE_E1S18
+/*
+ * WO-20: R8 attempt-tuple context. Zero in the lab today; any zero required
+ * input denies the request with ERROR_NOT_SUPPORTED before a pipe or process
+ * is created (the WO-14 pattern). Tests set it through e1s18_set_r8_context.
+ */
+static struct e1s18_r8_context s_r8_context;
+
+void e1s18_set_r8_context( const struct e1s18_r8_context *ctx )
+{
+    if (ctx) s_r8_context = *ctx;
+    else memset( &s_r8_context, 0, sizeof(s_r8_context) );
+}
+
+void e1s18_reset_r8_context( void )
+{
+    memset( &s_r8_context, 0, sizeof(s_r8_context) );
+}
+
+/* Every required R8 input must be nonzero/valid; any zero input means the
+ * sealed-tuple inputs are not yet established, so the request denies. */
+static BOOL e1s18_r8_context_complete( const struct e1s18_r8_context *c )
+{
+    size_t vo_len = strlen( c->verifier_owner );
+    return !e1s18_is_all_zero( c->dialog_id, 16 ) &&
+           !e1s18_is_all_zero( c->desktop_route, 16 ) &&
+           c->caller_session &&
+           c->root_gen && c->server_gen && c->broker_gen &&
+           c->verifier_gen && c->map_gen && c->policy_gen &&
+           e1r8_valid_verifier_owner( (const uint8_t *)c->verifier_owner, vo_len );
+}
+
+/*
+ * WO-20: Build the sealed attempt tuple for the R8 INIT/ACK exchange.
+ * The request_id, attempt, nonce, channel_id, binding_digest, request_digest
+ * and deadline come from the request and the in-flight attempt; the dialog_id,
+ * verifier generations, caller_session and desktop_route come from the R8
+ * context; desktop_mode is 1 (secure) or 2 (insecure). Returns 0 on success,
+ * -1 if the R8 context is incomplete (the caller denies with
+ * ERROR_NOT_SUPPORTED).
+ */
+int e1s18_build_r8_tuple( const struct request *req,
+                          uint64_t request_id,
+                          uint32_t attempt,
+                          const uint8_t nonce[32],
+                          const uint8_t channel_id[16],
+                          const uint8_t binding_digest[32],
+                          const uint8_t request_digest[32],
+                          BOOL secure,
+                          struct e1r8_tuple *out )
+{
+    const struct e1s18_r8_context *c = &s_r8_context;
+    if (!e1s18_r8_context_complete( c )) return -1;
+    memset( out, 0, sizeof(*out) );
+    out->request_id = request_id;
+    out->attempt = attempt;
+    memcpy( out->nonce, nonce, 32 );
+    memcpy( out->channel_id, channel_id, 16 );
+    memcpy( out->binding_digest, binding_digest, 32 );
+    memcpy( out->request_digest, request_digest, 32 );
+    out->deadline = E1S18_DEADLINE( req );
+    out->root_gen = c->root_gen;
+    out->server_gen = c->server_gen;
+    out->broker_gen = c->broker_gen;
+    out->verifier_gen = c->verifier_gen;
+    out->map_gen = c->map_gen;
+    out->policy_gen = c->policy_gen;
+    out->caller_session = c->caller_session;
+    memcpy( out->desktop_route, c->desktop_route, 16 );
+    out->desktop_mode = secure ? E1R8_DESKTOP_MODE_SECURE : E1R8_DESKTOP_MODE_INSECURE;
+    memcpy( out->dialog_id, c->dialog_id, 16 );
+    return 0;
+}
+
+/*
+ * WO-20: The request's validated display strings are already UTF-16LE
+ * (WCHAR*). Return the byte length of a display string, checking the 520-byte
+ * bound and the section 4 display-string rules; -1 denies. A NULL string is
+ * the empty (0-byte) display string.
+ */
+static int e1s18_display_string_len( const WCHAR *s, uint32_t *out_len )
+{
+    uint32_t chars = 0;
+    if (!s) { *out_len = 0; return 0; }
+    while (s[chars]) chars++;
+    if (chars * 2 > 520) return -1;
+    if (!e1r8_valid_display_string( (const uint8_t *)s, chars * 2 )) return -1;
+    *out_len = chars * 2;
+    return 0;
+}
+
+/*
+ * WO-20: Encode the R8 INIT message (type 1) for the dialog. The image is the
+ * request's validated image path; the verifier owner comes from the R8
+ * context. The request carries no requester name and the broker checks no
+ * publisher yet, so both are sent empty (never a stand-in such as the command
+ * line or working directory); filling them is R8 step 8. Returns the encoded
+ * length on success, 0 on denial (incomplete context or an invalid string).
+ */
+size_t e1s18_encode_r8_init( const struct request *req,
+                             const struct e1r8_tuple *t,
+                             uint8_t *buf, size_t buf_len )
+{
+    const struct e1s18_r8_context *c = &s_r8_context;
+    uint32_t vo_len, img_len, total;
+    if (!req->image || !req->image[0]) return 0;
+    if (e1s18_display_string_len( req->image, &img_len )) return 0;
+    vo_len = (uint32_t)strlen( c->verifier_owner );
+    total = E1R8_HEADER_SIZE + E1R8_TAIL_SIZE + (4 + vo_len) + 4 + (4 + img_len) + 4;
+    if (total > buf_len) return 0;
+    if (e1r8_encode_init( buf, total, t,
+                          (const uint8_t *)c->verifier_owner, vo_len,
+                          NULL, 0,
+                          (const uint8_t *)req->image, img_len,
+                          NULL, 0 ))
+        return 0;
+    return total;
+}
+
+/*
+ * WO-20: Decode and verify the R8 ACK (type 2) from the dialog. The ACK must
+ * be exactly 156 bytes and carry the tuple's binding_digest, request_digest
+ * and dialog_id. Returns 0 on success, negative on any rejection.
+ */
+int e1s18_verify_r8_ack( const uint8_t *buf, size_t len,
+                         const struct e1r8_tuple *t )
+{
+    struct e1r8_ack ack;
+    return e1r8_decode_ack( buf, len, t, &ack );
+}
+
 /* WO-14 test hook: SHA-256 of tag||data, exposing the broker's digest for
  * golden-vector testing. */
 void e1s18_test_sha256( const char *tag, size_t tag_len, const uint8_t *data, size_t data_len, uint8_t out[32] )
@@ -599,6 +732,63 @@ struct wex_prompt_queue *e1s18_get_prompt_queue( void )
 }
 
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+/*
+ * WO-20: worker-thread context for the R8 INIT/ACK exchange. The worker
+ * writes the INIT to to_d and reads the 156-byte ACK from from_d, each with an
+ * exact-length WriteFile/ReadFile loop, then exits. The context (with both
+ * buffers) is on the heap: if the worker cannot be joined after cancellation,
+ * the broker keeps it (and the two pipe handles) instead of freeing memory the
+ * worker may still touch.
+ */
+struct r8_worker_ctx
+{
+    HANDLE to_d_write;
+    HANDLE from_d_read;
+    size_t init_len;
+    uint8_t init_buf[2067];
+    uint8_t ack_buf[156];
+    int write_ok;
+    int read_ok;
+};
+
+/* Cancel the worker's blocking I/O, terminate D (which breaks both pipes),
+ * then join the worker. FALSE: the worker did not exit within 5 s. */
+static BOOL r8_stop_worker( HANDLE worker, HANDLE process )
+{
+    CancelSynchronousIo( worker );
+    TerminateProcess( process, 1 );
+    WaitForSingleObject( process, 5000 );
+    return WaitForSingleObject( worker, 5000 ) == WAIT_OBJECT_0;
+}
+
+static DWORD WINAPI r8_worker_thread( void *param )
+{
+    struct r8_worker_ctx *ctx = (struct r8_worker_ctx *)param;
+    size_t off;
+    DWORD got;
+
+    off = 0;
+    while (off < ctx->init_len)
+    {
+        if (!WriteFile( ctx->to_d_write, ctx->init_buf + off,
+                        (DWORD)(ctx->init_len - off), &got, NULL ) || !got)
+            break;
+        off += got;
+    }
+    ctx->write_ok = (off == ctx->init_len);
+
+    off = 0;
+    while (off < 156)
+    {
+        if (!ReadFile( ctx->from_d_read, ctx->ack_buf + off,
+                       (DWORD)(156 - off), &got, NULL ) || !got)
+            break;
+        off += got;
+    }
+    ctx->read_ok = (off == 156);
+    return 0;
+}
+
 static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id,
                                          const uint8_t nonce[32],
                                          const uint8_t binding_digest[32],
@@ -609,24 +799,43 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     STARTUPINFOEXW si = { { sizeof(si) } };
     PROCESS_INFORMATION pi;
     WCHAR dir[MAX_PATH], *cmd;
-    HANDLE handles[4];
-    HANDLE hPipeRead = INVALID_HANDLE_VALUE, hPipeWrite = INVALID_HANDLE_VALUE;
-    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE }; /* child pipe inheritable */
+    HANDLE handles[5];
+    HANDLE to_d_read = INVALID_HANDLE_VALUE, to_d_write = INVALID_HANDLE_VALUE;
+    HANDLE from_d_read = INVALID_HANDLE_VALUE, from_d_write = INVALID_HANDLE_VALUE;
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE }; /* non-inheritable by default */
     SIZE_T attr_size = 0;
-    HANDLE inherit_handles[1];
+    HANDLE inherit_handles[2];
     DWORD ret, code, len;
     size_t cmd_size;
     uint8_t answer_buf[WEX_S1_ANSWER_LENGTH];
+    uint8_t init_buf[2067];
     DWORD read_bytes = 0;
     DWORD err = ERROR_SUCCESS;
     int i;
     WCHAR token_hex[33];
+    struct e1r8_tuple tuple;
+    size_t init_len;
+    HANDLE worker_thread = NULL;
+    struct r8_worker_ctx *wc;
+    ULONGLONG start, elapsed;
+    DWORD timeout;
 
-    (void)binding_digest; (void)request_digest;
+    /* WO-20: the R8 context must be complete; a zero required input denies
+     * with ERROR_NOT_SUPPORTED before any pipe or process is created. */
+    if (e1s18_build_r8_tuple( req, request_id, 1, nonce, channel_token,
+                              binding_digest, request_digest, secure, &tuple ))
+        return ERROR_NOT_SUPPORTED;
 
-    if (!CreatePipe( &hPipeRead, &hPipeWrite, &sa, 0 ))
+    /* Two anonymous pipes, non-inheritable handles: to_d (B writes, D reads)
+     * and from_d (D writes, B reads). */
+    if (!CreatePipe( &to_d_read, &to_d_write, &sa, 0 ))
         return GetLastError();
-    SetHandleInformation( hPipeRead, HANDLE_FLAG_INHERIT, 0 );
+    if (!CreatePipe( &from_d_read, &from_d_write, &sa, 0 ))
+    {
+        CloseHandle( to_d_read );
+        CloseHandle( to_d_write );
+        return GetLastError();
+    }
 
     for (i = 0; i < 16; i++)
         wsprintfW( token_hex + i * 2, L"%02x", channel_token[i] );
@@ -634,16 +843,16 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
 
     if (!(len = GetSystemDirectoryW( dir, MAX_PATH )) || len >= MAX_PATH - 32)
     {
-        CloseHandle( hPipeRead );
-        CloseHandle( hPipeWrite );
+        CloseHandle( to_d_read ); CloseHandle( to_d_write );
+        CloseHandle( from_d_read ); CloseHandle( from_d_write );
         return ERROR_SERVICE_NOT_ACTIVE;
     }
 
     cmd_size = (len + 256) * sizeof(WCHAR);
     if (!(cmd = malloc( cmd_size )))
     {
-        CloseHandle( hPipeRead );
-        CloseHandle( hPipeWrite );
+        CloseHandle( to_d_read ); CloseHandle( to_d_write );
+        CloseHandle( from_d_read ); CloseHandle( from_d_write );
         return ERROR_NOT_ENOUGH_MEMORY;
     }
 
@@ -653,51 +862,65 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     wsprintfW( cmd + lstrlenW( cmd ), L"/ppid %lu ", GetCurrentProcessId() );
     wsprintfW( cmd + lstrlenW( cmd ), L"/request %08lx%08lx ", (DWORD)(request_id >> 32), (DWORD)request_id );
     wsprintfW( cmd + lstrlenW( cmd ), L"/token %s ", token_hex );
-    wsprintfW( cmd + lstrlenW( cmd ), L"/channel %lu ", (DWORD)(ULONG_PTR)hPipeWrite );
+    wsprintfW( cmd + lstrlenW( cmd ), L"/in %lu ", (DWORD)(ULONG_PTR)to_d_read );
+    wsprintfW( cmd + lstrlenW( cmd ), L"/out %lu ", (DWORD)(ULONG_PTR)from_d_write );
     if (secure) lstrcatW( cmd, L"/secure " );
+
+    /* Encode the INIT before entering the secure desktop; an invalid display
+     * string or an undersized buffer denies. */
+    init_len = e1s18_encode_r8_init( req, &tuple, init_buf, sizeof(init_buf) );
+    if (!init_len)
+    {
+        free( cmd );
+        CloseHandle( to_d_read ); CloseHandle( to_d_write );
+        CloseHandle( from_d_read ); CloseHandle( from_d_write );
+        return ERROR_NOT_SUPPORTED;
+    }
 
     if (secure && secure_enter())
     {
         free( cmd );
-        CloseHandle( hPipeRead );
-        CloseHandle( hPipeWrite );
+        CloseHandle( to_d_read ); CloseHandle( to_d_write );
+        CloseHandle( from_d_read ); CloseHandle( from_d_write );
         return ERROR_NOT_READY;
     }
 
     si.StartupInfo.lpDesktop = (WCHAR *)(secure ? L"WinSta0\\Winlogon" : L"WinSta0\\Default");
 
-    /* Only this dialog's pipe write end may be inherited. With bInheritHandles TRUE and no
-     * handle list, two dialogs could inherit each other's pipe ends (R8). */
-    /* The sizing call fails with ERROR_INSUFFICIENT_BUFFER by design; only the size matters.
-     * The broker's read end must never be inherited by any child. */
-    InitializeProcThreadAttributeList( NULL, 1, 0, &attr_size );
-    if (!attr_size || !SetHandleInformation( hPipeRead, HANDLE_FLAG_INHERIT, 0 ))
+    /* Only D's two ends (to_d read, from_d write) become inheritable, just
+     * before CreateProcessW; B's own ends (to_d write, from_d read) are never
+     * inheritable. Exactly those two are passed in the explicit handle list. */
+    InitializeProcThreadAttributeList( NULL, 2, 0, &attr_size );
+    if (!attr_size ||
+        !SetHandleInformation( to_d_read, HANDLE_FLAG_INHERIT, 1 ) ||
+        !SetHandleInformation( from_d_write, HANDLE_FLAG_INHERIT, 1 ))
     {
         free( cmd );
-        CloseHandle( hPipeRead );
-        CloseHandle( hPipeWrite );
+        CloseHandle( to_d_read ); CloseHandle( to_d_write );
+        CloseHandle( from_d_read ); CloseHandle( from_d_write );
         if (secure) secure_leave();
         return ERROR_NOT_ENOUGH_MEMORY;
     }
     si.lpAttributeList = malloc( attr_size );
-    if (!si.lpAttributeList || !InitializeProcThreadAttributeList( si.lpAttributeList, 1, 0, &attr_size ))
+    if (!si.lpAttributeList || !InitializeProcThreadAttributeList( si.lpAttributeList, 2, 0, &attr_size ))
     {
         free( si.lpAttributeList );
         free( cmd );
-        CloseHandle( hPipeRead );
-        CloseHandle( hPipeWrite );
+        CloseHandle( to_d_read ); CloseHandle( to_d_write );
+        CloseHandle( from_d_read ); CloseHandle( from_d_write );
         if (secure) secure_leave();
         return ERROR_NOT_ENOUGH_MEMORY;
     }
-    inherit_handles[0] = hPipeWrite;
+    inherit_handles[0] = to_d_read;
+    inherit_handles[1] = from_d_write;
     if (!UpdateProcThreadAttribute( si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
                                     inherit_handles, sizeof(inherit_handles), NULL, NULL ))
     {
         DeleteProcThreadAttributeList( si.lpAttributeList );
         free( si.lpAttributeList );
         free( cmd );
-        CloseHandle( hPipeRead );
-        CloseHandle( hPipeWrite );
+        CloseHandle( to_d_read ); CloseHandle( to_d_write );
+        CloseHandle( from_d_read ); CloseHandle( from_d_write );
         if (secure) secure_leave();
         return GetLastError();
     }
@@ -707,8 +930,8 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         DeleteProcThreadAttributeList( si.lpAttributeList );
         free( si.lpAttributeList );
         free( cmd );
-        CloseHandle( hPipeRead );
-        CloseHandle( hPipeWrite );
+        CloseHandle( to_d_read ); CloseHandle( to_d_write );
+        CloseHandle( from_d_read ); CloseHandle( from_d_write );
         if (secure) secure_leave();
         return ERROR_SERVICE_NOT_ACTIVE;
     }
@@ -716,21 +939,93 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     DeleteProcThreadAttributeList( si.lpAttributeList );
     free( si.lpAttributeList );
     free( cmd );
-    CloseHandle( hPipeWrite ); /* Child holds write end; parent closes its copy so EOF works */
+    /* D holds its own inherited copies; close B's copies of D's two ends. */
+    CloseHandle( to_d_read );
+    CloseHandle( from_d_write );
     CloseHandle( pi.hThread );
 
+    if (!(wc = calloc( 1, sizeof(*wc) )))
+    {
+        TerminateProcess( pi.hProcess, 1 );
+        WaitForSingleObject( pi.hProcess, 5000 );
+        CloseHandle( pi.hProcess );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
+        if (secure) secure_leave();
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+    wc->to_d_write = to_d_write;
+    wc->from_d_read = from_d_read;
+    wc->init_len = init_len;
+    memcpy( wc->init_buf, init_buf, init_len );
+    if (!(worker_thread = CreateThread( NULL, 0, r8_worker_thread, wc, 0, NULL )))
+    {
+        free( wc );
+        TerminateProcess( pi.hProcess, 1 );
+        WaitForSingleObject( pi.hProcess, 5000 );
+        CloseHandle( pi.hProcess );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
+        if (secure) secure_leave();
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+
+    /* One consent deadline covers the INIT/ACK exchange and the dialog. */
+    timeout = consent_timeout();
+    start = GetTickCount64();
+    handles[0] = worker_thread;
+    handles[1] = pi.hProcess;
+    handles[2] = req->caller;
+    handles[3] = stop_event;
+    handles[4] = req->lease_event;
+    ret = WaitForMultipleObjects( 5, handles, FALSE, timeout );
+
+    /* The ACK must have been written and read in full and decode with the
+     * tuple's digests and dialog_id; anything else cancels. */
+    if (ret != WAIT_OBJECT_0 || !wc->write_ok || !wc->read_ok ||
+        e1s18_verify_r8_ack( wc->ack_buf, sizeof(wc->ack_buf), &tuple ))
+    {
+        BOOL joined = TRUE;
+
+        if (ret == WAIT_OBJECT_0)
+        {
+            TerminateProcess( pi.hProcess, 1 );
+            WaitForSingleObject( pi.hProcess, 5000 );
+        }
+        else joined = r8_stop_worker( worker_thread, pi.hProcess );
+        CloseHandle( pi.hProcess );
+        if (joined)
+        {
+            CloseHandle( worker_thread );
+            free( wc );
+            CloseHandle( to_d_write );
+            CloseHandle( from_d_read );
+        }
+        /* else: the worker did not exit; its context and the two pipe handles
+         * are deliberately kept, since it may still touch them. */
+        if (secure) secure_leave();
+        if (ret == WAIT_TIMEOUT) return ERROR_TIMEOUT;
+        if (ret == WAIT_OBJECT_0 + 4) return ERROR_FILE_CORRUPT;
+        return ERROR_CANCELLED;
+    }
+    CloseHandle( worker_thread );
+    free( wc );
+
+    /* After a valid ACK the dialog runs as before: wait for it to exit (or for
+     * the caller, stop or lease break) within what is left of the deadline. */
+    elapsed = GetTickCount64() - start;
     handles[0] = pi.hProcess;
     handles[1] = req->caller;
     handles[2] = stop_event;
     handles[3] = req->lease_event;
-
-    ret = WaitForMultipleObjects( 4, handles, FALSE, consent_timeout() );
+    ret = WaitForMultipleObjects( 4, handles, FALSE, elapsed >= timeout ? 0 : (DWORD)(timeout - elapsed) );
     if (ret != WAIT_OBJECT_0)
     {
         TerminateProcess( pi.hProcess, 1 );
         WaitForSingleObject( pi.hProcess, 5000 );
         CloseHandle( pi.hProcess );
-        CloseHandle( hPipeRead );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
         if (secure) secure_leave();
         return ret == WAIT_TIMEOUT ? ERROR_TIMEOUT : ret == WAIT_OBJECT_0 + 3 ? ERROR_FILE_CORRUPT : ERROR_CANCELLED;
     }
@@ -740,15 +1035,18 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     CloseHandle( pi.hProcess );
     if (secure) secure_leave();
 
-    /* Read S1 Answer Record from channel */
+    /* After a valid ACK the existing flow continues unchanged: D's S1
+     * Confirm/Cancel record arrives on from_d and is verified as today. */
     memset( answer_buf, 0, sizeof(answer_buf) );
-    if (!ReadFile( hPipeRead, answer_buf, sizeof(answer_buf), &read_bytes, NULL ) ||
+    if (!ReadFile( from_d_read, answer_buf, sizeof(answer_buf), &read_bytes, NULL ) ||
         read_bytes < WEX_S1_ANSWER_LENGTH)
     {
-        CloseHandle( hPipeRead );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
         return ERROR_CANCELLED; /* Helper exit never approves without explicit Confirm */
     }
-    CloseHandle( hPipeRead );
+    CloseHandle( to_d_write );
+    CloseHandle( from_d_read );
 
     /* Validate answer record */
     if (!wex_verify_answer_record( answer_buf, read_bytes,

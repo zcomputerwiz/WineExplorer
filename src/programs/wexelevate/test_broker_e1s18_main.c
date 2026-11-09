@@ -10,6 +10,12 @@
 #ifdef WEXELEVATE_E1S18
 /* WO-14: the golden-vector test uses the shared S1 encoder directly. */
 #include "e1s_encode.h"
+/* WO-20: the R8 INIT/ACK test uses the codec directly; only a subset of the
+ * codec's static helpers is used, so suppress the unused-function warnings. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#include "e1r8_codec.h"
+#pragma GCC diagnostic pop
 #endif
 #include "../../../wine/include/wine/wex_token.h"
 #include "../../../wine/include/wine/wex_profile.h"
@@ -3554,6 +3560,142 @@ static int test_wo16_admission_deadline( void )
     return TEST_PASS;
 }
 
+/*
+ * WO-20: Fill a fully valid R8 attempt-tuple context. The context is zero in
+ * the lab today (the request denies); the tests set it here.
+ */
+static void fill_default_r8_context( struct e1s18_r8_context *ctx )
+{
+    int i;
+    memset( ctx, 0, sizeof(*ctx) );
+    for (i = 0; i < 16; i++) ctx->dialog_id[i] = (uint8_t)(0xd0 + i);
+    for (i = 0; i < 16; i++) ctx->desktop_route[i] = (uint8_t)(0x80 + i);
+    ctx->caller_session = 7;
+    ctx->root_gen = 1;
+    ctx->server_gen = 2;
+    ctx->broker_gen = 3;
+    ctx->verifier_gen = 4;
+    ctx->map_gen = 5;
+    ctx->policy_gen = 6;
+    strcpy( ctx->verifier_owner, ":1.42" );
+}
+
+/* WO-20: set a request display-string field (WCHAR*) to an ASCII test value,
+ * freeing any previous buffer so re-setting does not leak. */
+static void wo20_set_wchar_field( WCHAR **field, const char *ascii )
+{
+    size_t len = strlen( ascii ) + 1;
+    WCHAR *buf = malloc( len * sizeof(WCHAR) );
+    size_t i;
+    free( *field );
+    for (i = 0; i < len; i++) buf[i] = (WCHAR)(unsigned char)ascii[i];
+    *field = buf;
+}
+
+/*
+ * WO-20: R8 INIT/ACK portable logic. A zero R8 context denies tuple building
+ * before any pipe or process; a full context builds the tuple (desktop_mode 1
+ * secure / 2 insecure) and encodes the INIT from the request's display
+ * strings; the ACK verifies only with the tuple's digests and dialog_id.
+ */
+static int test_wo20_r8_init_ack( void )
+{
+    struct e1s18_r8_context ctx;
+    struct request req;
+    struct e1r8_tuple t;
+    uint8_t nonce[32], channel[16], binding[32], request_digest[32];
+    uint8_t init_buf[2067], ack_buf[156];
+    size_t i, init_len;
+
+    for (i = 0; i < 32; i++) nonce[i] = (uint8_t)(0x10 + i);
+    for (i = 0; i < 16; i++) channel[i] = (uint8_t)(0x30 + i);
+    for (i = 0; i < 32; i++) binding[i] = (uint8_t)(0x40 + i);
+    for (i = 0; i < 32; i++) request_digest[i] = (uint8_t)(0x60 + i);
+
+    /* Zero R8 context: tuple building denies. */
+    e1s18_reset_r8_context();
+    init_dummy_request( &req );
+    CHECK_EQ( e1s18_build_r8_tuple( &req, req.id, 1, nonce, channel, binding, request_digest, TRUE, &t ),
+              -1, "Zero R8 context must deny tuple building" );
+
+    /* Full R8 context: tuple building succeeds. */
+    fill_default_r8_context( &ctx );
+    e1s18_set_r8_context( &ctx );
+    CHECK_EQ( e1s18_build_r8_tuple( &req, req.id, 1, nonce, channel, binding, request_digest, TRUE, &t ),
+              0, "Full R8 context must build the tuple" );
+    CHECK_EQ( t.desktop_mode, E1R8_DESKTOP_MODE_SECURE, "secure must map to desktop_mode 1" );
+    CHECK_EQ( t.attempt, 1, "attempt must be 1" );
+    CHECK( memcmp( t.dialog_id, ctx.dialog_id, 16 ) == 0, "dialog_id must come from the R8 context" );
+    CHECK( memcmp( t.desktop_route, ctx.desktop_route, 16 ) == 0, "desktop_route must come from the R8 context" );
+    CHECK_EQ( t.caller_session, ctx.caller_session, "caller_session must come from the R8 context" );
+    CHECK_EQ( t.root_gen, ctx.root_gen, "root_gen must come from the R8 context" );
+
+    /* Insecure maps to desktop_mode 2. */
+    CHECK_EQ( e1s18_build_r8_tuple( &req, req.id, 1, nonce, channel, binding, request_digest, FALSE, &t ),
+              0, "Full R8 context must build the tuple (insecure)" );
+    CHECK_EQ( t.desktop_mode, E1R8_DESKTOP_MODE_INSECURE, "insecure must map to desktop_mode 2" );
+
+    /* INIT encoding: the image is the request's image; requester and publisher
+     * are empty (no stand-ins such as the command line or working directory). */
+    wo20_set_wchar_field( &req.cmdline, "cmd.exe /c dir" );
+    wo20_set_wchar_field( &req.image, "C:\\Windows\\System32\\cmd.exe" );
+    wo20_set_wchar_field( &req.cwd, "C:\\Windows" );
+    init_len = e1s18_encode_r8_init( &req, &t, init_buf, sizeof(init_buf) );
+    CHECK( init_len > 0, "INIT must encode with a full context and a valid image" );
+    {
+        struct e1r8_init in;
+        CHECK_EQ( e1r8_decode_init( init_buf, init_len, &t, &in ), 0, "Encoded INIT must decode" );
+        CHECK_EQ( in.requester_len, 0, "requester must be empty" );
+        CHECK_EQ( in.image_len, (uint32_t)(strlen("C:\\Windows\\System32\\cmd.exe") * 2), "image must be the image" );
+        CHECK( !memcmp( in.image, req.image, in.image_len ), "image bytes must be the request's image" );
+        CHECK_EQ( in.publisher_len, 0, "publisher must be empty" );
+        CHECK( !memcmp( in.verifier_owner, ctx.verifier_owner, in.verifier_owner_len ) &&
+               in.verifier_owner_len == strlen( ctx.verifier_owner ), "verifier owner from the context" );
+    }
+
+    /* An oversized or missing image denies the INIT. */
+    {
+        char big[600];
+        memset( big, 'a', sizeof(big) - 1 );
+        big[sizeof(big) - 1] = 0;
+        wo20_set_wchar_field( &req.image, big );
+        CHECK_EQ( e1s18_encode_r8_init( &req, &t, init_buf, sizeof(init_buf) ), 0,
+                  "An oversized image must deny the INIT" );
+        wo20_set_wchar_field( &req.image, "" );
+        CHECK_EQ( e1s18_encode_r8_init( &req, &t, init_buf, sizeof(init_buf) ), 0,
+                  "An empty image must deny the INIT" );
+        wo20_set_wchar_field( &req.image, "C:\\Windows\\System32\\cmd.exe" );
+    }
+
+    /* ACK verification: a valid ACK passes. */
+    CHECK_EQ( e1r8_encode_ack( ack_buf, sizeof(ack_buf), &t ), 0, "ACK must encode" );
+    CHECK_EQ( e1s18_verify_r8_ack( ack_buf, sizeof(ack_buf), &t ), 0, "A valid ACK must verify" );
+
+    /* ACK short (155 bytes) and long (157 bytes) deny. */
+    CHECK( e1s18_verify_r8_ack( ack_buf, 155, &t ) < 0, "A short ACK must deny" );
+    CHECK( e1s18_verify_r8_ack( ack_buf, 157, &t ) < 0, "A long ACK must deny" );
+
+    /* ACK with a wrong binding_digest / request_digest / dialog_id denies. */
+    {
+        uint8_t bad[156];
+        memcpy( bad, ack_buf, 156 );
+        bad[76] ^= 0xff;
+        CHECK( e1s18_verify_r8_ack( bad, 156, &t ) < 0, "An ACK with a wrong binding_digest must deny" );
+        memcpy( bad, ack_buf, 156 );
+        bad[108] ^= 0xff;
+        CHECK( e1s18_verify_r8_ack( bad, 156, &t ) < 0, "An ACK with a wrong request_digest must deny" );
+        memcpy( bad, ack_buf, 156 );
+        bad[140] ^= 0xff;
+        CHECK( e1s18_verify_r8_ack( bad, 156, &t ) < 0, "An ACK with a wrong dialog_id must deny" );
+    }
+
+    free( req.cmdline );
+    free( req.image );
+    free( req.cwd );
+    e1s18_reset_r8_context();
+    return TEST_PASS;
+}
+
 #endif /* WEXELEVATE_E1S18 */
 
 int main( int argc, char **argv )
@@ -3736,6 +3878,9 @@ int main( int argc, char **argv )
 
     printf("55. Testing WO-16 prompt and evidence steps see the admission deadline, not a later one...\n");
     if (test_wo16_admission_deadline() != TEST_PASS) ret = 1;
+
+    printf("56. Testing WO-20 R8 INIT/ACK portable logic (zero context denies, tuple, INIT, ACK)...\n");
+    if (test_wo20_r8_init_ack() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)
