@@ -310,3 +310,47 @@ dependency. Tests: two concurrent requests (pthread in the native test) give one
 one ERROR_BUSY with no dialog/transport call counted for the second; the slot is free again after
 success, after each failure stage and after cancellation.
 Check: the broker test command must pass (ASan/UBSan included).
+
+## WO-16 The broker's clock is the verifier's CLOCK_MONOTONIC (groundwork step 2, part 1)
+
+Files: `src/dlls/wexhost/wexhost.spec`, `src/dlls/wexhost/wexhost.c`, `src/dlls/wexhost/wexhost_unix.h`,
+`src/dlls/wexhost/unixlib.c`, `src/dlls/wexhost/e1s6.c`, `src/programs/wexelevate/e1s18_broker.c`,
+`src/programs/wexelevate/test_broker_e1s18_main.c`.
+
+S1 says all times are nanoseconds of the verifier host's `CLOCK_MONOTONIC`. The broker uses
+`GetTickCount64` (`e1s18_get_monotonic_time` in `e1s18_broker.c`), which is a different clock.
+
+1. Add a wexhost export `DWORD WINAPI WexMonotonicNs( UINT64 *now )` following exactly the
+   pattern of `WexE1s6Transport`: spec line, PE wrapper in `wexhost.c`, params struct and enum entry
+   in `wexhost_unix.h` (with a `C_ASSERT` on its size), the Unix function (in `e1s6.c`) calling
+   `clock_gettime( CLOCK_MONOTONIC )`, and entries in BOTH call tables in `unixlib.c` (the native
+   table and the WoW64 thunk table, keeping their order identical to the enum). It returns
+   ERROR_SUCCESS and a nonzero value, or an error and 0 on clock failure or overflow.
+2. In the PE build of the broker, `e1s18_get_monotonic_time` gets the time through
+   `GetProcAddress( LoadLibraryW( L"wexhost.dll" ), "WexMonotonicNs" )` (cache the pointer; load
+   once) instead of `GetTickCount64`; a missing export or a failure returns 0, which the callers
+   already treat as a denial. Native builds keep `clock_gettime( CLOCK_MONOTONIC )`. The test clock
+   hook stays first.
+3. Set the request's absolute deadline once at the start of the standard-request handling (inside
+   the WO-15 slot, before the prompt queue), store it in `struct request` (new field if needed), and
+   use that same value everywhere a deadline is computed today (the 120 s prompt deadline and the
+   evidence expiry checks must not extend it).
+Tests: a clock failure at admission denies before any dialog; the prompt step and the evidence step
+see the admission deadline, not a later one (advance the test clock between stages).
+Check: the broker test command must pass; build wexhost for both ABIs
+(`bash unsloth-tmp/s9-sync.sh` then `make -C /root/WE-prefetch/build/wow64 -j16 dlls/wexhost`
+as root in wexbuild) and report the result.
+
+## WO-17 The verifier keeps the broker's deadline (groundwork step 2, part 2)
+
+Files: `tools/e1s6/e1s6-lab.py`, `tools/e1s6/test-evidence.py`.
+
+`Transaction` uses its own five-second setup deadline (`self.deadline = time.monotonic_ns() +
+5_000_000_000`) for the whole transaction, and the PAM start packet already carries the broker's
+`expiry` (read at the `struct.unpack_from("<16sQQQII", start, 72)` line). Keep the five-second
+limit only until the PAM start packet arrives; then require `now < expiry <= now + 300 s` (deny
+otherwise) and set `self.deadline = expiry` for everything after, including `live()` and the
+evidence binding. Tests in `test-evidence.py` (or a small new test in the same style): an expiry
+in the past, an expiry more than 300 s ahead, and a valid expiry that becomes the deadline.
+Check: `bash scripts/test_evidence.sh --disposable-guest` as root in wexbuild ends with
+`E1S8_EVIDENCE OK`, and `python3 -I -m py_compile tools/e1s6/e1s6-lab.py` passes.
