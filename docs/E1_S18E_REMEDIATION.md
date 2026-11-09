@@ -25,7 +25,7 @@ The standard-user chain stays disabled (`WEXELEVATE_E1S18`, lab define, off by d
 | R8 step 2: E1R8 codecs | Done (WO-18 C, WO-19 Python; review fixed a 32-bit length wrap, added tuple learning) | `e1r8_codec.h`, `tools/e1s6/e1r8.py` | native + ASan/UBSan vectors, both MinGW ABIs compile, C/Python golden byte cross-check |
 | R8 step 4: two explicit-list pipes, INIT/ACK | Done in code (WO-20; review fixed CancelSynchronousIo target, worker-join use-after-free, lost wait for the dialog after ACK, display-string stand-ins). Win32 pipe tests (partial INIT, blocked writer, broken pipe, cancellation, handle closure) still open: they need the spawn path driven under Wine | `e1s18_broker.c`, `consent.c` (lab only, under `WEXELEVATE_E1S18`) | native portable tests (test 56); both ABIs compile; shipping `consent.c` objects byte-identical; no Wine run |
 | R8 step 3a-3c: protected dialog, loader pin, dialog image | Done (Wine 94f8b2fe; tests WO-21) | `server/process.c`, `handle.c`, `request.c`, `sysrun.c`, `named_pipe.c`, `thread.c` | normal suite 325 PASS (open denied / control opens both ABIs, unnarrowed refused); trace lab build 329 PASS (pin pid equals the child's Unix pid both ABIs, consent.exe recognised, probe not) |
-| R8 step 3e (caller-binding authority) and 3d (endorsement request) | Open (design; Codex review pending its quota) | `docs/E1_S18E_R8_STEP3_PLAN.md` | |
+| R8 step 3e (caller-binding authority) and 3d (endorsement request) | Open: design decided by Claude (docs/E1_S18E_R8_3E_DESIGN.md section 9), build by Antigravity/Qwen work orders | `docs/E1_S18E_R8_STEP3_PLAN.md` | |
 | R4 rest, R5, R7, R8 steps 5-10, R10 rest, R14 | Open (design) | | |
 
 ## What changed

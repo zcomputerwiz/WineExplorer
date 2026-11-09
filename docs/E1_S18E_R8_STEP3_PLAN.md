@@ -1,7 +1,7 @@
 # E1-S18e R8 step 3: server endorsement of the dialog (implementation plan)
 
-Contract: docs/E1_S18E_R8_SPEC.md v5.1 section 3. Careful step (Claude), reviewed by Codex before it is
-called done. Everything is inside the existing system-role gate (`system_role_enabled()`); without a
+Contract: docs/E1_S18E_R8_SPEC.md v5.1 section 3. Claude plans and reviews (Codex is not used for reviews for now);
+Antigravity and Qwen implement from work orders. Everything is inside the existing system-role gate (`system_role_enabled()`); without a
 machine root the server behaves as stock Wine. The standard-user chain stays disabled.
 
 ## Dependency found while planning
@@ -12,7 +12,7 @@ issue those authorities yet: docs/E1_S1_CONTRACTS.md record 1 states that H2/S3 
 opener/writer objects but not the server-issued opaque IDs, `desktop_route`, `prefix_id`, endorsed host
 process or generations. The broker's R8 context (WO-20) is zero for exactly this reason and denies.
 So the endorsement request (3d) needs a caller-binding authority first (3e below), which is design
-work to agree with Codex. Steps 3a-3c do not depend on it.
+work, decided in docs/E1_S18E_R8_3E_DESIGN.md section 9. Steps 3a-3c do not depend on it.
 
 ## Order
 
@@ -36,7 +36,7 @@ work to agree with Codex. Steps 3a-3c do not depend on it.
 * **3c Dialog image recognition.** `sysrun_main_image` decides once, on the first executable image,
   whether a protected process maps machine-root `system32/consent.exe` or `syswow64/consent.exe`
   (device and inode), like the broker recognition. Files: sysrun.c/.h, process.h.
-* **3e Caller-binding authority (design with Codex first).** The server issues and retains the S1
+* **3e Caller-binding authority (decided, section 9 of the 3e design).** The server issues and retains the S1
   record 1 identities for a request: opaque IDs for the retained opener/writer and host process,
   `desktop_route` for the caller's desktop object, `prefix_id`, and the generations it owns
   (`server_gen`, `root_gen`, `broker_gen` registration), with object comparisons, never IDs alone.

@@ -84,3 +84,41 @@ sysrun.c generation code, protocol.def:2692). Open points, to settle with Codex 
    (3d) then needs the pipe handle too (section 6 correction): agree.
 6. Mechanical later (WO): protocol/ntdll wrapper plumbing, broker ingestion into `s_r8_context`, codec
    of the authority reply, tests 5 and 6 of section 7.
+
+## 9. Decisions (Claude, 2026-11-09; Codex is not used for reviews for now)
+
+Claude decides and reviews; Antigravity and Qwen implement from work orders. These decisions replace
+the open points of section 8 and correct sections 1-7 where they differ.
+
+1. **Lab-gated, like S6.** All 3e and 3d server code is compiled only with `WEX_E1S6_TRANSPORT_TEST`,
+   the gate the S6 transport, its generations and `e1s_prefix_id` already use. The standard-user chain
+   stays disabled; moving S6, 3e and 3d into the production build is a separate enablement step with
+   its own review. Shipping behaviour does not change.
+2. **No protocol change.** `get_pipe_caller_binding` already takes a request payload (named_pipe.c
+   1825, the S6 endorsement path). 3e and 3d are new operations selected by a fixed header at the start
+   of that payload (magic `E1R8`, version 1, op u16: 1 BINDING, 2 ENDORSE_DIALOG, 3 RECHECK), lab only;
+   a payload without the header keeps today's S6 meaning. The section 5 field additions are dropped.
+3. **host_process_id is the retained opener process plus its kernel pin.** In lab builds with the
+   system role enabled, every new process socket gets SO_PASSCRED and SO_PASSPIDFD, and `receive_fd`
+   records the first transfer's pid, uid and pidfd (the 3b mechanism; recording only, the kill rules
+   stay for protected dialogs). BINDING requires the opener (equal to the consumed writer, existing
+   checks) to have a live pin whose pid equals its unix pid. The ID is server-issued random; the
+   comparison is the process object and the pin.
+4. **desktop_route is the consumed writer thread's desktop object**, retained when the request message
+   is consumed (not at connect). A desktop switch between write and BINDING denies. ENDORSE requires
+   pointer equality with D's desktop object.
+5. **Generations.** `server_gen` and `broker_gen`: the existing S6 values (sysrun.c), retained per
+   broker registration. `verifier_gen`: carried by the verifier's S6 registration and retained by the
+   server with it (new: today only the broker learns it). `map_gen`: the S4 map header, read fresh at
+   BINDING and at each RECHECK. `root_gen` and `policy_gen`: server-issued random tags bound to a stat
+   snapshot (device, inode, size, mtime, ctime) of the machine root directory and of the protected
+   `sysrun.conf` respectively; a recheck restats and denies on any difference. No constant 1 anywhere.
+6. **prefix_id** is the existing lab `e1s_prefix_id` (registry.c).
+7. **IDs never stand alone.** Every opaque ID maps to a retained object in a per-request binding record
+   owned by the server (released on pipe disconnect, caller death, cancellation or broker
+   re-registration); ENDORSE and RECHECK compare the objects, pins and versions.
+
+Build order (each a work order with tests; Claude reviews each result before commit):
+3e-1 lab pin for every process (receive_fd recording, lab gate); 3e-2 desktop retention at consume;
+3e-3 BINDING op with the binding record, IDs and generations; 3d-1 ENDORSE_DIALOG op using 3a-3c and
+3e; 3d-2 RECHECK op; then the broker ingests BINDING into its R8 context (replaces the zero context).
