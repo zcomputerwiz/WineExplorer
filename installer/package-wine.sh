@@ -291,6 +291,9 @@ echo /etc/wineexplorer/prefetch.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 install -d "$STAGE_SESSION/etc/systemd" "$STAGE_SESSION/usr/lib/sysctl.d"
 install -m644 "$SCRIPT_DIR/systemd/zram-generator.conf" "$STAGE_SESSION/etc/systemd/zram-generator.conf"
 echo /etc/systemd/zram-generator.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
+# no network logon for root or the Administrator account if an SSH server is ever installed (SAFE_MODE_WORKORDER C4)
+install -D -m644 "$SCRIPT_DIR/ssh/sshd-wineexplorer.conf" "$STAGE_SESSION/etc/ssh/sshd_config.d/wineexplorer.conf"
+echo /etc/ssh/sshd_config.d/wineexplorer.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 install -m644 "$SCRIPT_DIR/systemd/99-wineexplorer-memory.conf" "$STAGE_SESSION/usr/lib/sysctl.d/99-wineexplorer-memory.conf"
 chmod 644 "$STAGE_SESSION/lib/systemd/system/"*.service "$STAGE_SESSION/lib/systemd/system/"*.target
 cp "$SCRIPT_DIR/systemd/49-wexsetup.rules" "$STAGE_SESSION/etc/polkit-1/rules.d/"

@@ -5,7 +5,16 @@
 # Installed as /usr/local/bin/wex-greeter.sh; prepare its isolated prefix on first use.
 # See docs/WINLOGON_AND_DWM.md, phase W2.
 
-export WINEPREFIX="${WINEPREFIX:-/var/lib/lightdm/.wine-logon}"
+# The prefix is the account's ~/.wine: the system role (wex-sysrun) serves only <passwd home>/.wine
+# (docs/SAFE_MODE_WORKORDER.md C7). The prefix used to be ~/.wine-logon; move it once.
+if [ -z "${WINEPREFIX:-}" ]; then
+    home=${HOME:-/var/lib/lightdm}
+    if [ ! -e "$home/.wine" ] && [ -d "$home/.wine-logon" ] && [ ! -L "$home/.wine-logon" ]; then
+        mv "$home/.wine-logon" "$home/.wine" && echo "=== moved the logon prefix to $home/.wine ==="
+    fi
+    WINEPREFIX=$home/.wine
+fi
+export WINEPREFIX
 export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"   # see wine-explorer-session.sh
 export WINEDEBUG="${WINEDEBUG:--all,err+all}"
 WINE="${WINE:-/usr/local/bin/wine}"
@@ -17,7 +26,10 @@ echo "=== WineExplorer logon started: $(date) ==="   # the output goes to /var/l
 # (The overrides serve scripts/test_safemode.py; LightDM starts the greeter with a clean environment.)
 SAFE=
 LIMIT=()
-case "$("${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}" 2>/dev/null)" in
+# WEXMODE tells logonui.exe the mode, as the session scripts tell Explorer (it shows the Administrator in Safe Mode)
+WEXMODE=$("${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}" 2>/dev/null) || WEXMODE=normal
+export WEXMODE
+case "$WEXMODE" in
     safe|safenet|safecmd) SAFE=1; LIMIT=(timeout 300) ;;
 esac
 gtk_greeter() {

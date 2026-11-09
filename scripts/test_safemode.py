@@ -52,7 +52,7 @@ class TestSyntax(unittest.TestCase):
         for script in (BOOTMODE, GENERATOR, PAM_CHECK, STARTUP_CHECK, SCRIPTS / "wex-bootlog.sh", GRUB_ENTRY):
             result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
-        for script in (SCRIPTS / "wex-greeter.sh", SCRIPTS / "wine-explorer-session.sh",
+        for script in (SCRIPTS / "wex-greeter.sh", SCRIPTS / "setup-greeter.sh", SCRIPTS / "wine-explorer-session.sh",
                        SCRIPTS / "wine-explorer-session-common.sh", SCRIPTS / "wex-safe-terminal.sh", PACKAGE,
                        VM_TEST):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
@@ -470,28 +470,55 @@ class TestSessionAndGreeter(unittest.TestCase):
 class TestGreeter(TempDirTest):
     """wex-greeter.sh: the Welcome screen in every mode; in Safe Mode the GTK greeter when Wine cannot start."""
 
-    def run_greeter(self, mode, wine_exists=True, cmd_status=0, explorer_status=0):
+    def run_greeter(self, mode, wine_exists=True, cmd_status=0, explorer_status=0, home=None):
+        """home: run with HOME=home and no WINEPREFIX, as LightDM starts the greeter (the prefix is then ~/.wine)."""
         log = self.tmp / "calls.log"
         log.unlink(missing_ok=True)
         wine = self.tmp / "wine"
         if wine_exists:
-            wine.write_text('#!/bin/sh\necho "wine $*" >> "$LOG"\ncase "$1" in\n'
+            wine.write_text('#!/bin/sh\necho "wine $*" >> "$LOG"\necho "$WEXMODE $WINEPREFIX" > "$LOG.env"\n'
+                            'case "$1" in\n'
                             '    cmd.exe) exit "$FAKE_CMD" ;;\n    explorer.exe) exit "$FAKE_EXPLORER" ;;\nesac\n',
                             encoding="ascii")
             wine.chmod(0o755)
         gtk = self.tmp / "gtk-greeter"
         gtk.write_text('#!/bin/sh\necho gtk >> "$LOG"\n', encoding="ascii")
         gtk.chmod(0o755)
-        prefix = self.tmp / "prefix"
-        prefix.mkdir(exist_ok=True)
-        (prefix / "system.reg").write_text("", encoding="ascii")   # no prefix update
-        env = {"PATH": os.environ["PATH"], "LOG": str(log), "WINE": str(wine), "WINEPREFIX": str(prefix),
+        env = {"PATH": os.environ["PATH"], "LOG": str(log), "WINE": str(wine),
                "WEX_BOOTMODE_HELPER": self.fake_helper(mode), "WEX_GTK_GREETER": str(gtk),
                "FAKE_CMD": str(cmd_status), "FAKE_EXPLORER": str(explorer_status)}
+        if home is None:
+            prefix = self.tmp / "prefix"
+            prefix.mkdir(exist_ok=True)
+            (prefix / "system.reg").write_text("", encoding="ascii")   # no prefix update
+            env["WINEPREFIX"] = str(prefix)
+        else:
+            env["HOME"] = str(home)
         result = subprocess.run(["bash", str(SCRIPTS / "wex-greeter.sh")], env=env, capture_output=True, text=True,
                                 timeout=60)
         calls = log.read_text().splitlines() if log.exists() else []
         return result.returncode, calls
+
+    def test_the_prefix_is_the_accounts_wine_and_moves_once(self):
+        """The system role serves only <home>/.wine (docs/SAFE_MODE_WORKORDER.md C7)."""
+        home = self.tmp / "lightdm"
+        old = home / ".wine-logon"
+        old.mkdir(parents=True)
+        (old / "system.reg").write_text("old hive", encoding="ascii")
+        self.assertEqual(self.run_greeter("normal", home=home)[1], ["wine explorer.exe /desktop=Logon,1024x768 logonui.exe"])
+        self.assertFalse(old.exists())
+        self.assertEqual((home / ".wine" / "system.reg").read_text(), "old hive")
+        self.assertEqual((self.tmp / "calls.log.env").read_text().split(), ["normal", str(home / ".wine")])
+        # both exist: nothing moves
+        old.mkdir()
+        self.run_greeter("normal", home=home)
+        self.assertTrue(old.is_dir())
+        self.assertEqual((home / ".wine" / "system.reg").read_text(), "old hive")
+
+    def test_the_logon_screen_learns_the_mode(self):
+        for mode in ("normal", "safe", "safecmd"):
+            self.run_greeter(mode)
+            self.assertEqual((self.tmp / "calls.log.env").read_text().split()[0], mode)
 
     def test_normal_start_shows_the_welcome_screen(self):
         status, calls = self.run_greeter("normal", cmd_status=1)
@@ -626,9 +653,17 @@ class TestPackage(TempDirTest):
             self.assertIn(piece, script)
         self.assertIn("systemctl enable wex-startup-check.service", self.safe_mode_block(),
                       "the VM test runs only the postinst's Safe Mode part, so the unit is enabled there")
+        self.assertIn('"$STAGE_SESSION/etc/ssh/sshd_config.d/wineexplorer.conf"', script)
+        self.assertIn("echo /etc/ssh/sshd_config.d/wineexplorer.conf >> \"$STAGE_SESSION/DEBIAN/conffiles\"", script)
+
         self.assertFalse("scripts/wex-safemode-setup.sh" in script, "the old setup script is still packaged")
         self.assertFalse("xsessions/wex-safe-terminal.desktop" in script, "the old session is still packaged")
         self.assertIsNone(re.search(r"systemctl enable [^\n]*wex-safemode", script))
+
+    def test_no_network_logon_for_root_or_administrator(self):
+        conf = (REPO_ROOT / "installer" / "ssh" / "sshd-wineexplorer.conf").read_text(encoding="utf-8").splitlines()
+        for line in ("PermitRootLogin no", "DenyUsers administrator", "PermitEmptyPasswords no"):
+            self.assertIn(line, conf)
 
     def test_vm_test_installs_what_the_package_installs(self):
         """installer/tests/safe-mode.sh copies the Safe Mode files to the places the package puts them."""

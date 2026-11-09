@@ -6,6 +6,7 @@ Usage: check-lightdm.py ROOT [AUTOLOGIN_USER]
 An empty/omitted user expects the Welcome screen and its isolated greeter prefix.
 """
 import configparser
+import os
 from pathlib import Path
 import sys
 
@@ -39,7 +40,13 @@ account = next(row for row in passwd if row[0] == "lightdm")
 uid, gid = int(account[2]), int(account[3])
 home = root / "var/lib/lightdm"
 assert home.is_dir() and (home.stat().st_uid, home.stat().st_gid) == (uid, gid), "LightDM home ownership lost"
+# the greeter's prefix is the account's ~/.wine, the only prefix wex-sysrun serves (docs/SAFE_MODE_WORKORDER.md C7)
+assert account[5] == "/var/lib/lightdm", f"lightdm's home is {account[5]}, not /var/lib/lightdm"
 if not autologin:
-    registry = root / "var/lib/lightdm/.wine-logon/system.reg"
-    assert registry.is_file() and registry.stat().st_uid == uid, "greeter prefix not owned by lightdm"
+    prefix = home / ".wine"
+    if not prefix.exists():
+        prefix = home / ".wine-logon"   # made before the move; the greeter moves it at its next start
+    registry = prefix / "system.reg"
+    assert os.path.lexists(registry), "greeter prefix has no system.reg"
+    assert prefix.stat().st_uid == uid, "greeter prefix not owned by lightdm"
 print("PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation")

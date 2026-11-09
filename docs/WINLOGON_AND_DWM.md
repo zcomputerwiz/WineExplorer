@@ -85,7 +85,8 @@ Turn Off was not exercised (unchanged path). Found on the way:
 **Done (2026-10-12).** `wexhost/greeter.c` speaks the protocol (`WexGreeterConnect/Authenticate/Respond/Cancel/
 StartSession/Read`), `WexUsersList` reads AccountsService; `programs/logonui` is the plain greeter.
 `scripts/setup-greeter.sh` (root) installs `wex-greeter.sh` and `/usr/share/xgreeters/wineexplorer-greeter.desktop`
-and makes the prefix `/var/lib/lightdm/.wine-logon`; `setup-greeter.sh use` selects it, `setup-greeter.sh gtk` goes
+and makes the prefix `/var/lib/lightdm/.wine-logon` (since 2026-11-08 `/var/lib/lightdm/.wine`, the account's
+`~/.wine`, which the system role requires; `docs/SAFE_MODE_WORKORDER.md` C7); `setup-greeter.sh use` selects it, `setup-greeter.sh gtk` goes
 back. Verified on the dev VM:
 - The pipes reach the Windows process through `wine`, `explorer /desktop` and its child (checked with `/proc/<pid>/fd`).
 - Windows+L shows logonui (LightDM: "Greeter connected version=wineexplorer-logonui"), listing the AccountsService

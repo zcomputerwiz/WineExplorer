@@ -194,7 +194,7 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
   - Copies template prefix from `/etc/skel/.wine` to `/home/<user>/.wine` with proper user ownership.
 - **Display Manager & Autologin**:
   - If exactly one user was created and that user has no password: `WexUserSetSession` asks AccountsService to enable automatic login. In Debian 13 this writes LightDM's main configuration (the legacy `[SeatDefaults]` section).
-  - If multiple users or passwords exist: displays the Wine `logonui.exe` Welcome screen, running as the unprivileged `lightdm` account with its own `/var/lib/lightdm/.wine-logon` prefix. GTK greeter remains installed for recovery.
+  - If multiple users or passwords exist: displays the Wine `logonui.exe` Welcome screen, running as the unprivileged `lightdm` account with its own prefix, `/var/lib/lightdm/.wine` (until 2026-11-08 `.wine-logon`, which the greeter moves on its next start). GTK greeter remains installed for recovery.
 - **Cleanup**:
   - Terminates running Wine instances and user processes.
   - Deletes temporary user `wexsetup` (`userdel -r -f wexsetup`).

@@ -245,7 +245,17 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
   - No network logon, with or without a password: install `/etc/ssh/sshd_config.d/wineexplorer.conf` with
     `PermitRootLogin no`, `DenyUsers administrator` and `PermitEmptyPasswords no`. It only takes effect if someone
     installs an SSH server; Debian's own default still lets root log on with a key. The Samba component never adds
-    either account to Samba's accounts.
+    either account to Samba's accounts. **Done 2026-11-08:** `installer/ssh/sshd-wineexplorer.conf`, packaged as a
+    conffile.
+  - **Order and status (2026-11-08).** The account itself waits until `logonui.exe` filters accounts (C7) and
+    `wexhost`'s account list skips locked accounts. Without both, the current Welcome screen would show a locked
+    Administrator tile in every start.
+    - Both, and OOBE refusing the name, are Wine-side C changes, and this machine cannot build them: WSL Debian
+      has no MinGW compilers, and the `wexbuild` distro is not here.
+    - The skip is one condition in `users_list` (`src/dlls/wexhost/unixlib.c`); it adds no new `wexhost` call.
+    - Once those build, the account follows. The package postinst's Safe Mode part creates it locked (new and
+      existing installs alike), and `wex-gui-setup.sh` copies root's password hash to it after Setup. So Setup's
+      page and `wexhost` need no new password call.
   - One definition of "administrator". E1 decides it from `admin_group=` in `/etc/wineexplorer/sysrun.conf` (default
     `sudo`; strict rules: root-owned, not group- or world-writable, no symlink, at most one key, and a bad file
     means nobody is an administrator), through `getgrouplist` at logon. The Administrator account goes into that
@@ -320,6 +330,12 @@ The work:
       is the `lightdm` account's home; check that on the installed image.
     - That means changes to `setup-greeter.sh`, the `WINEPREFIX` default in `wex-greeter.sh`, and the tests, plus a
       migration of an existing `.wine-logon` (move it, or remove it and let the greeter build the new one).
+    - **Done 2026-11-08.** `wex-greeter.sh` uses `$HOME/.wine` and moves `~/.wine-logon` there once.
+      `setup-greeter.sh` does the same. `installer/tests/check-lightdm.py` checks the account's home and the
+      prefix, and the VM test checks the move.
+    - The links to the machine hives are not made yet. They come once a test image has the system role, which the
+      round 3 image does not (no `sysrun.conf`), and E1's WO-11 has passed. Until then the logon prefix keeps its
+      private hive.
     - The E1 session could teach the launcher one fixed extra prefix for the greeter account instead, but that is
       a bigger change than renaming the directory.
   - The E1 session is writing a variant of `scripts/test_sysrun_server.sh` 3(iii) for exactly this case, as work

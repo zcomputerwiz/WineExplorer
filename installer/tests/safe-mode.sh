@@ -650,6 +650,27 @@ for PHASE in "${PHASES[@]}"; do
     if [ "$rc" -eq 0 ]; then summary+=("PASS $PHASE"); else summary+=("FAIL $PHASE"); overall=1; fi
 done
 
+# The Welcome screen ran (any Safe Mode phase): its prefix is now lightdm's ~/.wine, moved from ~/.wine-logon if
+# the image had one (docs/SAFE_MODE_WORKORDER.md C7)
+case " ${PHASES[*]} " in
+    *" safe "*|*" safenet "*|*" safecmd "*|*" failed "*)
+        if attach ro; then
+            if [ -f "$MNT/var/lib/lightdm/.wine/system.reg" ] || [ -L "$MNT/var/lib/lightdm/.wine/system.reg" ]; then
+                if [ -e "$MNT/var/lib/lightdm/.wine-logon" ]; then
+                    summary+=("FAIL logon prefix (~/.wine-logon is still there)"); overall=1
+                else
+                    summary+=("PASS logon prefix (/var/lib/lightdm/.wine)")
+                fi
+            else
+                summary+=("FAIL logon prefix (no /var/lib/lightdm/.wine/system.reg)"); overall=1
+            fi
+            detach
+        else
+            summary+=("FAIL logon prefix (cannot mount the overlay)"); overall=1
+        fi
+        ;;
+esac
+
 echo "=== $TEST ($FIRMWARE, Safe Mode files: $FILES)"
 printf '%s\n' "${summary[@]}"
 if [ "$overall" -eq 0 ]; then

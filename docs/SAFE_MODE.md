@@ -189,7 +189,7 @@ stock Wine (`docs/STOCK_CHANGES.md`):
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (46 tests, Linux) covers:
+`scripts/test_safemode.py` (49 tests, Linux) covers:
 
 - mode parsing, generator output and PAM decisions;
 - menu navigation and choices, and the logon screen choice;
@@ -220,7 +220,9 @@ changes one fails.
 | `failed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards), the serial console shows `wex_boot_pending=1` once Linux runs: GRUB recorded the start. Then the Reset button (QMP `system_reset`) and the failure screen with its countdown. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold, and GRUB's "Loading Linux" text was not readable on OVMF. Up stops the countdown and removes its line, and Safe Mode with Command Prompt starts at once; that start leaves `wex_boot_pending` at 1. The next start shows the screen again; left alone, the countdown starts normally, and that start counts and clears the variable |
 
 Every phase starts with `wex_boot_pending` cleared on the overlay, so a phase that failed does not leave the next
-one on the failure screen.
+one on the failure screen. After a run that showed the Welcome screen, the test checks that the greeter's prefix
+is `lightdm`'s `~/.wine` and that the old `~/.wine-logon` is gone (work order C7). That passed on SeaBIOS and OVMF
+on 2026-11-08, together with `safe`, `safecmd` and `nowine`.
 
 Run 2026-11-08 on the round 3 GPT installs (`docs/VINTNER_BOOT.md` section 4.1) with this branch's files: all
 seven phases passed on SeaBIOS and on OVMF in one run, about 13 minutes per firmware, with the Welcome screen in
