@@ -223,3 +223,46 @@ and a wrong password are all refused for it, and that a normal account with a pa
 works. Remove the account at the end (only if the test created it). Run
 `bash scripts/test_pam_worker.sh --disposable-guest wex-e1s-test` as root in wexbuild; it must
 pass.
+
+## WO-11 Symlinked machine hives for an unmapped system account (for Safe Mode C7)
+
+Files: `scripts/test_sysrun_server.sh` only.
+
+Section "3. (iii)" checks that a desktop user's prefix whose `system.reg`/`userdef.reg` links point
+into the machine root never overwrites the machine file and still reads HKLM from the machine
+root. Add the same checks for an unmapped system account, as the greeter will use: create a
+disposable account with a UID below 1000 (`useradd --system`), shell `/usr/sbin/nologin`, a home
+under `/var/lib/<name>`, in neither `sudo` nor the system group, not in the accounts map. Give it
+the same skeleton prefix at `<home>/.wine` the harness gives desktop users (the system role is only
+available for `<passwd home>/.wine`, see `wine/dlls/ntdll/unix/sysrun.c` around line 121). Run the
+3(iii) steps as that account (`runuser -u <name> -s /bin/sh -- ...`, since its login shell is
+nologin), add one more check that the server it gets is the launcher-started one (the same way
+3(iii) or section 2 recognises it), and remove the account and its home at the end only if the
+harness created it. New result names: `c2_symlinked_hives_system_account_<check>`.
+Check: `bash -n` on the script; Claude runs the system-role suite.
+
+## WO-12 registry.c reads admin_group like accounts.c
+
+Files: `wine/server/registry.c` (`admin_group_name`, `user_is_administrator`),
+`scripts/test_sysrun_server.sh`.
+
+Two parsers of `/etc/wineexplorer/sysrun.conf` disagree: `wine/server/accounts.c` (`read_policy`)
+treats a second `admin_group=` line or an invalid group name as an invalid configuration, while
+`registry.c` takes the first line. Make `registry.c` match: more than one `admin_group=` line, an
+empty or invalid name (same rule as `valid_name` in accounts.c; copy the check, do not link
+accounts.c) means nobody is an administrator; no key means `sudo`; an unsafe file (not a regular
+root-owned file, group/other writable, or a symlink) keeps today's behaviour. Add a harness case
+next to the existing `admin_group=` override case: a configuration with two `admin_group=` lines
+gives a session member of that group the standard (non-administrator) token shape. List the change
+in `docs/STOCK_CHANGES.md` (you may edit that file too).
+Check: Claude builds and runs the suite; you run `bash -n` on the script.
+
+## WO-13 Consent dialogs at 640x480
+
+Files: `scripts/test_credential_dialog.sh` only.
+
+Safe Mode runs at 640x480. Run the existing headless dialog cases once more on an Xvfb screen of
+640x480x24, and add a check that the dialog window lies fully inside the screen (window position
+and size from `xwininfo` or `xdotool getwindowgeometry`, whichever the wexbuild distro has; if
+neither, install nothing and report it). Keep the existing 24-bit run unchanged.
+Check: run `bash scripts/test_credential_dialog.sh` as root in wexbuild; it must pass.
