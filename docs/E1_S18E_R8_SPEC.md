@@ -160,7 +160,7 @@ socket to S, established and peer-checked at S6 endpoint establishment (docs/E1_
 W_SETUP is accepted only as the first message on W's supervisor control socket, a socketpair created
 by the supervisor whose other end only the supervisor holds, passed to W at spawn (transfer list,
 CLOEXEC) separately from the secret end. Each message is one `recvmsg` with `MSG_CMSG_CLOEXEC` and
-must have the exact body length (244), no `MSG_TRUNC` or `MSG_CTRUNC`, and exactly one control
+must have the exact total received message length 244 (76-byte header + 168-byte body), no `MSG_TRUNC` or `MSG_CTRUNC`, and exactly one control
 message: one SCM_RIGHTS carrying exactly one fd. No SCM_CREDENTIALS or SCM_PIDFD records are carried
 on these two transfers (the senders are authenticated by the endpoint); any other, duplicate or
 truncated ancillary data is refused. The received fd must be a pidfd whose `fdinfo` `Pid:` equals the
@@ -273,7 +273,8 @@ UTF-8: truncated continuation, missing continuation, overlong encodings (C0 80, 
 80), encoded surrogates (ED A0 80, ED BF BF), scalars above U+10FFFF (F4 90 80 80), bytes F5..FF,
 embedded NUL; a valid 4096-byte payload accepted and a 4097-byte payload refused. Pidfd transfers:
 no fd, two fds, two SCM_RIGHTS, an added SCM_CREDENTIALS, `MSG_CTRUNC`, a non-pidfd fd, a pidfd for
-a different or exited pid, wrong uid, body one byte short or long.
+a different or exited pid, wrong uid, total message length 243 or 245. Secret password answer: S1
+kind 2 with an empty payload refused (minimum accepted total 157).
 
 Pipe tests (step 4): oversized and partial INIT, a blocked writer, a broken pipe, cancellation at
 each wait, an unrelated inherited handle, B's copies of D's ends closed after successful creation,

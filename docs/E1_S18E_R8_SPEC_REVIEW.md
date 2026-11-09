@@ -205,3 +205,38 @@ Concrete remaining corrections before mechanical orders:
 
 Step 2: no.
 Step 4: no.
+
+## v5 check
+
+2026-11-09. Read TOOLING.md and CLAUDE.md first. Static only; no code changes, builds or runtime tests. References below are to v5 sections; E1-S remains disabled.
+
+| v4 correction / carried disposition | v5 check |
+| --- | --- |
+| Tuple/INIT/display; explicit offsets | **Fixed.** Sections 2/4/5 supply common-header, tuple and tail offsets, authenticated display fields and INIT bounds. |
+| Other codecs | **Fixed**, subject to the transfer-length correction below. Sections 5–7 retain enums, refused-field exceptions, S1 equality, prompt and attach layouts. |
+| Registration/reply/pins; transfer-specific rules | **Not fixed completely.** Section 6 adds authenticated endpoints, exactly one CLOEXEC SCM_RIGHTS pidfd, PID/UID/liveness checks and rejected-FD cleanup, but calls 244 the body length. Correct it below. |
+| ACK/readiness/bootstrap | **Fixed.** ATTACH_OK, W_ACK, duplicate closure and PROMPT_RELEASE retain the barriers and bootstrap cancellation. |
+| Access/rechecks; pipe contract | **Fixed for the requested mechanical scope.** Section 3 checks exactly two ends/rights, scans existing handles, protects all four objects against third processes including SYSTEM, and forbids further inheritance. Section 5 closes B's D-end copies after successful CreateProcess, all four on failure, keeps B's own ends non-inheritable and forbids D child creation (so no child can inherit D's retained ends). |
+| Final account | **Fixed.** Section 8 retains fresh eligibility and selected key/canonical-name equality plus account/evidence/challenge linkage. |
+| Retirement/release | **Fixed.** Sections 6/9 retain RELEASE/RELEASED, parked-worker cleanup, evidence retention and one-use redemption. |
+| Quotas/inventory/acceptance; malformed UTF-8 vectors | **Fixed.** Sections 1/11 retain bounds/inventory and add the requested malformed sequences, valid 4096-byte and rejected 4097-byte payloads and named pipe tests. |
+
+Recomputed sections 4–7 lengths (ancillary FDs excluded):
+
+| Layout / type | Bytes |
+| --- | --- |
+| Common header; pre-endorsement/sealed tuple; tail | 4+2+2+4+8+4+4+32+16=76; 204/220; 220-60=160; section 4 offsets agree. |
+| 1 INIT | 76+160+4*4+(4..255)+3*(0..520)=256..2067. |
+| 2 ACK; 3 SELECT_OK; 4 SELECT; 9 ATTACH_OK; 5 READY | 76+32+32+16=156; 76; 76+4+(1..63)=81..143; 76; 76. |
+| 6 B→D RESULT; 7 ANSWER; 8 DONE | 76+4+4+32+(0 or 1..63)=116 refused / 117..179 authenticated; 76+32+156=264; 76+4=80. |
+| 16 ENDORSED; 17 START; 18 WORKER_READY; 19 DELEGATED | 76+160+4+4=244; 76+4+(1..63)+16=97..159; 76; 76. |
+| 20 V→B RESULT; 21 CANCEL | 76+4+16+4+16+(0 or 1..63)=116 refused / 117..179 authenticated; 76+4=80. |
+| 22 W_ACK; 23 ATTACH_ACK; 24 PROMPT_RELEASE; 25 RELEASE; 26 RELEASED; 27 W_SETUP | 76; 76; 76; 76+4=80; 76; 76+160+4+4=244. |
+| S7 header / prompt; secret S1 answer | pam-worker.c:108–116 and protocol.h:9 give 72; 72+16+32+32+16+10=178; 156+(1..4096)=157..4252, without an E1R8 envelope. |
+| DialogAttach / reply | D-Bus signatures tuayayay / hhuuay; array data 32/16/16 and 160 respectively; no fixed E1R8 frame length. |
+
+**Remaining codec blocker:** section 6's “exact body length (244)” must say “exact total received message length 244, comprising the 76-byte header and 168-byte body” for both ENDORSED and W_SETUP. Use total lengths 243/245 for their short/long vectors; do not require a 244-byte body. All table totals in v5 are correct.
+**Corrections to this review's v4 arithmetic:** ENDORSED is 244, not 236 (PID and UID add eight bytes); the nonempty secret password answer minimum is 157, not 156. Test an empty password answer as refused under section 4. No further section 5 handle-rule or section 11 pipe-test ambiguity blocks step 4; its server protection remains the separate step 3 dependency, not runtime-proven here.
+
+Step 2: no.
+Step 4: yes.
