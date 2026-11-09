@@ -238,6 +238,9 @@ BOOL e1s18_is_evidence_burned( const uint8_t ref[16] );
 void e1s18_reset_prompt_queue( void );
 struct wex_prompt_queue *e1s18_get_prompt_queue( void );
 void e1s18_set_test_clock( uint64_t now );
+/* WO-16: force the monotonic clock to fail (return 0) so the fail-closed
+ * denial path can be exercised. Pass FALSE to restore the real clock. */
+void e1s18_set_test_clock_fail( BOOL fail );
 /* R4: deterministic random source for the attempt nonce and channel id.
  * Pass NULL/0 to restore the real RNG. e1s18_set_test_random_fail forces the
  * RNG to fail so the fail-closed denial path can be exercised. */

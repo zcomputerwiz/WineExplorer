@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
+#include <time.h>
 #include <unistd.h>
 #include <ntstatus.h>
 #define WIN32_NO_STATUS
@@ -689,5 +690,29 @@ NTSTATUS e1s6_transport( void *args )
         if (params->buffer && params->size <= 512)
             memset( (void *)(ULONG_PTR)params->buffer, 0, params->size );
     }
+    return STATUS_SUCCESS;
+}
+
+/* The verifier host's CLOCK_MONOTONIC in nanoseconds. S1 says all times are
+ * nanoseconds of this clock, so the broker takes its time only from here.
+ * Returns ERROR_SUCCESS and a nonzero value, or an error and 0 on clock
+ * failure or overflow. */
+NTSTATUS monotonic_ns( void *args )
+{
+    struct monotonic_ns_params *params = args;
+    struct timespec ts;
+
+    params->now = 0;
+    params->err = ERROR_INVALID_DATA;
+    if (clock_gettime( CLOCK_MONOTONIC, &ts ) != 0)
+        return STATUS_SUCCESS;
+    if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000)
+        return STATUS_SUCCESS;
+    if ((UINT64)ts.tv_sec > (~(UINT64)0 - 999999999ULL) / 1000000000ULL)
+        return STATUS_SUCCESS;
+    params->now = (UINT64)ts.tv_sec * 1000000000ULL + (UINT64)ts.tv_nsec;
+    if (params->now == 0)
+        return STATUS_SUCCESS;
+    params->err = ERROR_SUCCESS;
     return STATUS_SUCCESS;
 }

@@ -95,6 +95,9 @@ struct request
     int live;             /* in the table: the id can be used once */
     DWORD admitted_pid;   /* R12 per-caller admission, client PID of the pipe at accept */
 #ifdef WEXELEVATE_E1S18
+    /* WO-16: absolute deadline (CLOCK_MONOTONIC ns), set once at admission. Lab-only like the
+     * rest of this block, so the shipping broker's request layout stays unchanged. */
+    ULONGLONG deadline;
     BOOL is_standard_user;
     HANDLE s10_context;
     HANDLE issued_token;

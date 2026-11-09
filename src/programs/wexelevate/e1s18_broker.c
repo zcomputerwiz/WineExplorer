@@ -323,19 +323,55 @@ const struct e1s18_boundary_table *e1s18_get_boundary_table( void )
 
 /*
  * Monotonic Time Provider & Test Clock
+ *
+ * WO-16: S1 says all times are nanoseconds of the verifier host's
+ * CLOCK_MONOTONIC. The PE build takes the time only from the wexhost
+ * WexMonotonicNs export (the native transport); native builds keep
+ * clock_gettime( CLOCK_MONOTONIC ). A missing export or a failure returns 0,
+ * which the callers already treat as a denial. The test clock hooks stay
+ * first so existing tests stay deterministic.
  */
 static uint64_t s_test_clock_now = 0;
+static BOOL s_test_clock_fail = FALSE;
+
+/* The admission deadline lives in the lab-only part of struct request; outside lab builds the
+ * standard-user path is denied by the policy gate before any deadline is used. */
+#ifdef WEXELEVATE_E1S18
+#define E1S18_DEADLINE(req) ((req)->deadline)
+#else
+#define E1S18_DEADLINE(req) ((uint64_t)0)
+#endif
 
 void e1s18_set_test_clock( uint64_t now )
 {
     s_test_clock_now = now;
 }
 
+void e1s18_set_test_clock_fail( BOOL fail )
+{
+    s_test_clock_fail = fail;
+}
+
 static uint64_t e1s18_get_monotonic_time( void )
 {
+    if (s_test_clock_fail) return 0;
     if (s_test_clock_now) return s_test_clock_now;
 #if defined(_WIN32)
-    return (uint64_t)GetTickCount64() * 1000000ULL; /* ms to ns */
+    /* PE build: the verifier host's CLOCK_MONOTONIC via wexhost, loaded once. */
+    typedef DWORD (WINAPI *pfn_WexMonotonicNs)( UINT64 * );
+    static pfn_WexMonotonicNs pfn = NULL;
+    static BOOL resolved = FALSE;
+    UINT64 now = 0;
+    if (!resolved)
+    {
+        resolved = TRUE;
+        HMODULE wexhost = GetModuleHandleW( L"wexhost.dll" );
+        if (!wexhost) wexhost = LoadLibraryW( L"wexhost.dll" );
+        if (wexhost) pfn = (pfn_WexMonotonicNs)(void *)GetProcAddress( wexhost, "WexMonotonicNs" );
+    }
+    if (!pfn) return 0;
+    if (pfn( &now ) != ERROR_SUCCESS || now == 0) return 0;
+    return (uint64_t)now;
 #elif defined(CLOCK_MONOTONIC)
     struct timespec ts;
     if (clock_gettime( CLOCK_MONOTONIC, &ts ) == 0)
@@ -862,7 +898,9 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
     if (e1s18_is_all_zero( channel_token, 16 ))
         return ERROR_ACCESS_DENIED;
 
-    deadline = e1s18_get_monotonic_time() + 120000000000ULL; /* 120s */
+    /* WO-16: use the admission deadline set once at the start of the
+     * standard-request handling; the prompt step must not extend it. */
+    deadline = E1S18_DEADLINE( req );
 
     /* Step 1: Enqueue in S17 serialized prompt queue */
     q_res = wex_prompt_queue_enqueue( &s_prompt_queue, req->id, req->caller_pid,
@@ -1061,11 +1099,24 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
         return ERROR_ACCESS_DENIED;
     }
 
-    /* Verify expiry */
-    if (ev->expiry != 0 && now != 0 && now >= ev->expiry)
+    /* Verify expiry. WO-16: the evidence expiry must not extend the
+     * admission deadline; the effective expiry is the earlier of the two.
+     * A zero deadline (direct test call) retains the old behaviour. */
     {
-        e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
-        return ERROR_ACCESS_DENIED;
+        uint64_t expiry;
+        if (E1S18_DEADLINE( req ) == 0)
+            expiry = ev->expiry;
+        else
+        {
+            expiry = E1S18_DEADLINE( req );
+            if (ev->expiry != 0 && ev->expiry < expiry)
+                expiry = ev->expiry;
+        }
+        if (expiry != 0 && now != 0 && now >= expiry)
+        {
+            e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+            return ERROR_ACCESS_DENIED;
+        }
     }
 
     /* Single-use burn verification */
@@ -2054,6 +2105,19 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
     memset( evidence_ref, 0, sizeof(evidence_ref) );
 
     if (!ops) return ERROR_NOT_SUPPORTED;
+
+    /* WO-16: set the absolute deadline once at admission (inside the WO-15
+     * slot, before the prompt queue). The 120 s prompt deadline and the
+     * evidence expiry checks use this same value and must not extend it.
+     * Clock failure denies. */
+    {
+        uint64_t now = e1s18_get_monotonic_time();
+        if (now == 0)
+            return ERROR_INVALID_DATA;
+#ifdef WEXELEVATE_E1S18
+        req->deadline = now + 120000000000ULL; /* 120s */
+#endif
+    }
 
     /* Gate 1: Check runtime policy */
     if (!ops->is_policy_enabled())

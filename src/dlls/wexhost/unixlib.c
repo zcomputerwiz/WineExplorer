@@ -2589,6 +2589,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     wm_clock,
     wm_clock_wait,
     e1s6_transport,
+    monotonic_ns,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -2686,6 +2687,7 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     wm_clock,
     wm_clock_wait,
     e1s6_transport,
+    monotonic_ns,
 };
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
 #endif

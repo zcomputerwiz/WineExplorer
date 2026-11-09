@@ -381,6 +381,7 @@ enum wexhost_funcs
     unix_wm_clock,
     unix_wm_clock_wait,
     unix_e1s6_transport,
+    unix_monotonic_ns,
     unix_funcs_count
 };
 
@@ -392,6 +393,18 @@ struct e1s6_transport_params
 C_ASSERT( sizeof(struct e1s6_transport_params) == 40 );
 C_ASSERT( FIELD_OFFSET(struct e1s6_transport_params, operation) == 24 );
 extern NTSTATUS e1s6_transport(void *args);
+
+/* The verifier host's CLOCK_MONOTONIC in nanoseconds. now is nonzero and err
+ * is ERROR_SUCCESS on success; on clock failure or overflow err is an error
+ * and now is 0. */
+struct monotonic_ns_params
+{
+    UINT64 now;
+    DWORD err;
+};
+C_ASSERT( sizeof(struct monotonic_ns_params) == 16 );
+C_ASSERT( FIELD_OFFSET(struct monotonic_ns_params, err) == 8 );
+extern NTSTATUS monotonic_ns(void *args);
 
 #define WEXHOST_CALL( func, params ) WINE_UNIX_CALL( unix_ ## func, params )
 

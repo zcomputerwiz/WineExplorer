@@ -299,6 +299,17 @@ DWORD WINAPI WexE1s6Transport( HANDLE pipe, DWORD operation, void *buffer, DWORD
     return params.err;
 }
 
+/* The verifier host's CLOCK_MONOTONIC in nanoseconds; the broker's only clock. */
+DWORD WINAPI WexMonotonicNs( UINT64 *now )
+{
+    struct monotonic_ns_params params = {0};
+    if (!now) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    WEXHOST_CALL( monotonic_ns, &params );
+    *now = params.now;
+    return params.err;
+}
+
 DWORD WINAPI WexPowerCan( DWORD action, DWORD *result )
 {
     struct power_can_params params = { action };

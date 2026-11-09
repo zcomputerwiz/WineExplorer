@@ -3438,6 +3438,122 @@ static int test_e1s14_missing_input_denies( void )
     return TEST_PASS;
 }
 
+/*
+ * WO-16: A clock failure at admission denies the request with
+ * ERROR_INVALID_DATA before any dialog or stage runs.
+ */
+static int test_wo16_clock_failure_at_admission( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    DWORD err;
+
+    init_dummy_request( &req );
+    reset_tracker();
+    e1s18_set_ops( &s_fake_ops );
+    set_default_s1_context();
+
+    /* Force the monotonic clock to fail at admission. */
+    e1s18_set_test_clock_fail( TRUE );
+    err = e1s18_handle_standard_request( &req, &reply );
+    e1s18_set_test_clock_fail( FALSE );
+
+    CHECK_EQ( err, ERROR_INVALID_DATA, "Clock failure at admission must deny with ERROR_INVALID_DATA" );
+    CHECK_EQ( g_track.order_count, 0, "No stage may execute when the clock fails at admission" );
+    CHECK_EQ( req.deadline, 0, "The deadline must not be set when the clock fails" );
+
+    /* With the clock restored, the same request proceeds. */
+    init_dummy_request( &req );
+    reset_tracker();
+    e1s18_set_test_clock( 1000000000ULL );
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, ERROR_SUCCESS, "Request must proceed when the clock is restored" );
+    e1s18_set_test_clock( 0 );
+
+    e1s18_reset_s1_context();
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+
+/*
+ * WO-16: The prompt step and the evidence step see the admission deadline
+ * (set once at the start of the standard-request handling), not a later one.
+ * The test clock is advanced between the prompt stage and the evidence stage;
+ * the evidence must be rejected because the effective expiry is the admission
+ * deadline, not a deadline recomputed from the advanced clock.
+ */
+static int test_wo16_admission_deadline( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    struct e1s18_ops hybrid_ops;
+    const struct e1s18_ops *default_ops;
+    DWORD err;
+    uint64_t t0 = 1000000000ULL; /* 1 s in ns */
+    uint64_t admission_deadline = t0 + 120000000000ULL; /* 120 s */
+
+    init_dummy_request( &req );
+    e1s18_reset_ops();
+    default_ops = e1s18_get_ops();
+
+    /* Hybrid ops: keep the default prompt_dialog and redeem_evidence (which
+     * use req->deadline); provide fakes for the other stages. */
+    hybrid_ops = *default_ops;
+    hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
+    hybrid_ops.get_capabilities = fake_get_capabilities;
+    hybrid_ops.issue_token = fake_issue_token;
+    hybrid_ops.load_profile = fake_load_profile;
+    hybrid_ops.query_storage = fake_query_storage;
+    hybrid_ops.prep_launch = fake_prep_launch;
+    hybrid_ops.verify_image = fake_verify_image;
+    hybrid_ops.create_process_suspended = fake_create_process_suspended;
+    hybrid_ops.verify_child = fake_verify_child;
+    hybrid_ops.arm_lease = fake_arm_lease;
+    hybrid_ops.duplicate_handle = fake_duplicate_handle;
+    hybrid_ops.transfer_lease = fake_transfer_lease;
+    hybrid_ops.check_pre_resume = fake_check_pre_resume;
+    hybrid_ops.resume_thread = fake_resume_thread;
+    hybrid_ops.terminate_child = fake_terminate_child;
+    hybrid_ops.close_remote_handle = fake_close_remote_handle;
+    hybrid_ops.close_handle = fake_close_handle;
+    hybrid_ops.free_buffer = fake_free_buffer;
+
+    e1s18_set_ops( &hybrid_ops );
+    set_default_s1_context();
+    e1s18_reset_prompt_queue();
+    {
+        uint8_t rng[16];
+        int i;
+        for (i = 0; i < 16; i++) rng[i] = (uint8_t)(0x10 + i);
+        e1s18_set_test_random( rng, sizeof(rng) );
+    }
+    init_fake_boundary_state();
+    e1s18_set_boundary_table( &s_fake_boundary_table );
+
+    /* The evidence expiry is well past the admission deadline, so the
+     * effective expiry is the admission deadline itself. The fake transport
+     * advances the test clock past the admission deadline during the call. */
+    g_boundary_state.transport_expiry = t0 + 200000000000ULL; /* 200 s */
+    g_boundary_state.transport_set_clock = t0 + 130000000000ULL; /* 130 s */
+
+    /* Set the test clock to T0; the admission deadline becomes T0 + 120 s. */
+    e1s18_set_test_clock( t0 );
+    err = e1s18_handle_standard_request( &req, &reply );
+
+    /* The evidence must be rejected because the clock advanced past the
+     * admission deadline (the effective expiry is the admission deadline,
+     * not a later one recomputed from the advanced clock). */
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "Evidence must be rejected when the clock advances past the admission deadline" );
+    CHECK_EQ( req.deadline, admission_deadline, "The admission deadline must be T0 + 120 s, set once at admission" );
+
+    e1s18_set_test_clock( 0 );
+    e1s18_set_test_random( NULL, 0 );
+    e1s18_reset_boundary_table();
+    e1s18_reset_s1_context();
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+
 #endif /* WEXELEVATE_E1S18 */
 
 int main( int argc, char **argv )
@@ -3614,6 +3730,12 @@ int main( int argc, char **argv )
 
     printf("53. Testing WO-14 zero S1 endorsed-identity input denies with ERROR_NOT_SUPPORTED...\n");
     if (test_e1s14_missing_input_denies() != TEST_PASS) ret = 1;
+
+    printf("54. Testing WO-16 clock failure at admission denies before any dialog...\n");
+    if (test_wo16_clock_failure_at_admission() != TEST_PASS) ret = 1;
+
+    printf("55. Testing WO-16 prompt and evidence steps see the admission deadline, not a later one...\n");
+    if (test_wo16_admission_deadline() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)
