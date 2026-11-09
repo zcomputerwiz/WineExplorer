@@ -175,6 +175,16 @@ Agreed with the Vintner Boot side (WO-0010 phase 1, 2026-11-07):
 - Delete `/etc/default/grub.d/wineexplorer.cfg` (both copies: the live-build include and the string written at
   `screens.c:1574-1585`) once GRUB is gone.
 
+Status (2026-11-08): not started, and now unblocked. `vintner install` is on Vintner Boot's `main` (PRs #71-#73,
+merge `0753aec`), as reported by the Vintner session:
+- Usage: `vintner install --disk D --firmware uefi|bios|both [--target / --esp --boot-storage --payload-dir]
+  [--check] [--resume]`.
+- It publishes generation 1, takes over `BOOTX64.EFI` and the BIOS boot code, and then removes the stock loader.
+- Its documentation is Vintner Boot's `docs/accepted-platforms.md` and `docs/architecture.md` section 5.
+- Its `ci/install` row boots the result on SeaBIOS and OVMF.
+
+Read those before building this step; the 2026-11-07 notes below predate the command.
+
 Status (2026-11-07): not started; it waits for `vintner install`. Per the Vintner Boot side:
 
 - There is no `vintner install` and no Debian package yet (WO-0010 3.2 and phase 2). The install sequence lives in
