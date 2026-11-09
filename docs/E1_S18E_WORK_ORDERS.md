@@ -266,3 +266,47 @@ Safe Mode runs at 640x480. Run the existing headless dialog cases once more on a
 and size from `xwininfo` or `xdotool getwindowgeometry`, whichever the wexbuild distro has; if
 neither, install nothing and report it). Keep the existing 24-bit run unchanged.
 Check: run `bash scripts/test_credential_dialog.sh` as root in wexbuild; it must pass.
+
+## WO-14 One canonical S1 encoder for S5 and S18 (groundwork step 1)
+
+Files: new `src/programs/wexelevate/e1s_encode.h` (GPL header, see `scripts/add-license.py`),
+`src/programs/wexelevate/e1s.h`, `src/programs/wexelevate/e1s18_broker.c`,
+`src/programs/wexelevate/e1s18_broker.h`, `src/programs/wexelevate/test_broker_e1s18_main.c`,
+`scripts/test_broker_e1s18.sh` only if a new file must be compiled in. Read
+`docs/E1_S18E_GROUNDWORK.md` section 1 and `docs/E1_S1_CONTRACTS.md` "Encoding and negotiation"
+first.
+
+1. Move the pure encoding from `e1s.h` into `e1s_encode.h`: `struct e1s_bytes`, `e1s_uint`,
+   `e1s_put`, `e1s_blob`, `e1s_string`, and two functions that produce the exact byte sequences of
+   the caller binding record and of the frozen request (the field order `e1s_binding_digest` and
+   `e1s_freeze` use today), with no hashing, no Win32 calls and no allocation the caller cannot see.
+   SID validity and the hash are passed in (a function pointer or done by the caller).
+2. `e1s.h` keeps its functions and behaviour but builds its bytes through `e1s_encode.h` (BCrypt and
+   `IsValidSid` stay there). The S5 digests must not change.
+3. `e1s18_compute_digests` is replaced: the standard-user branch builds the binding and the frozen
+   request through `e1s_encode.h` and hashes them with the existing `sha256_*` (domain tags
+   "E1S1-BIND\0", "E1S1-REQ\0", "E1S1-ENV\0"). The inputs it does not have in production
+   (generations, prefix, host process, opener/writer ids, desktop route, channel, image file
+   identity) come from new fields of `struct request` (or a small context struct) that are zero
+   today; any zero required input makes the request deny with ERROR_NOT_SUPPORTED before a dialog
+   starts. Tests set them through a test hook.
+4. Tests: a golden-vector test that the shared encoder yields the same request and binding bytes
+   (and SHA-256) as a fixed hand-checked vector; each missing input denies before any dialog; the
+   full pipeline tests keep passing with the hook-supplied context.
+
+Check: the broker test command must pass, including the byte-identical production `main.c` check
+(this order must not change production objects). Also compile the lab PE broker (the MinGW step).
+
+## WO-15 One standard-user request in flight (groundwork step 3)
+
+Files: `src/programs/wexelevate/e1s18_broker.c`, `src/programs/wexelevate/test_broker_e1s18_main.c`.
+
+The S6 transport in wexhost is process-global, so two standard-user requests must never overlap.
+Add a broker-wide "standard request in flight" slot taken at the start of
+`e1s18_handle_standard_request` (before the prompt queue) and released on every exit. A second
+request while the slot is taken returns ERROR_BUSY at once (no waiting, no dialog, no transport
+call). Use the queue's existing lock type (`wex_queue_lock_t`) or a plain interlocked flag; no new
+dependency. Tests: two concurrent requests (pthread in the native test) give one success path and
+one ERROR_BUSY with no dialog/transport call counted for the second; the slot is free again after
+success, after each failure stage and after cancellation.
+Check: the broker test command must pass (ASan/UBSan included).
