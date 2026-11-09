@@ -106,10 +106,10 @@ is refused on this pipe. `required_caps` must be within the negotiated mask.
 | Type | Name | Path | Body after header | Total |
 | --- | --- | --- | --- | --- |
 | 16 | ENDORSED | S→V control socket | sealed tuple fields after the header (as in INIT's first eight fields + dialog_id) + D's pidfd (SCM_RIGHTS) | 232 |
-| 17 | START | B→V S6 data channel | account:str, account_key:16 (zero for an unknown name: decoy, can never produce evidence) | 101..163 |
+| 17 | START | B→V S6 data channel | account:str, account_key:16 (zero for an unknown name: decoy, can never produce evidence) | 97..159 |
 | 18 | WORKER_READY | V→B | (none); W started, pinned, parked in bootstrap | 76 |
 | 19 | DELEGATED | V→B | (none); W validated D's ATTACH_ACK and V closed both of its secret copies | 76 |
-| 20 | RESULT | V→B | status:u32, account_key:16, canonical account:str, evidence_ref:16 (all zero/empty if refused) | 116..178 |
+| 20 | RESULT | V→B | status:u32, account_key:16, canonical account:str, evidence_ref:16 (all zero/empty if refused) | 116 refused, 117..179 authenticated |
 | 21 | CANCEL | either way on B↔V | reason:u32 | 80 |
 | 22 | W_ACK | W→V supervisor control | (none); W received a valid ATTACH_ACK from D | 76 |
 
