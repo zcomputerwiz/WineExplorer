@@ -468,8 +468,8 @@ Files: `src/programs/wexelevate/e1s18_broker.c`, `src/programs/wexelevate/e1s18_
      arrives on `from_d` and is verified as today. No other message types in this order.
 2. consent.exe (`/broker /credentials` mode only): parse `/in` and `/out` instead of `/channel`
    (reject both missing, duplicated or equal); before showing anything, read exactly one INIT from
-   `/in` (bounded total size: the INIT maximum), decode it with WO-18, require its request id and
-   channel_id to equal the existing `/request` and `/token` arguments and attempt 1, keep the
+   `/in` (bounded total size: the INIT maximum), decode it with `e1r8_decode_init_learn` (WO-18)
+   passing the existing `/request` and `/token` arguments and attempt 1, keep the
    tuple and fill `data->nonce`, `data->binding_digest` and `request_digest` for the S1 record
    from it (today nothing sets them, so they stay zero), write ACK to `/out`, then
    continue as today, writing its S1 record to `/out`. Clear inheritance on both handles at start;
