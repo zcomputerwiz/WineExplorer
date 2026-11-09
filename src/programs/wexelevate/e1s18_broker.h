@@ -166,6 +166,36 @@ struct wex_s1_evidence_record
 #define WEX_S1_EVIDENCE_SIZE sizeof(struct wex_s1_evidence_record)
 
 /*
+ * WO-14: S1 endorsed-identity context for the standard-user branch.
+ *
+ * The canonical S1 caller-binding and frozen-request records need endorsed
+ * identities and generations that do not exist in production yet (the
+ * registration work supplies them). They live here, zero today, so any zero
+ * required input denies the request with ERROR_NOT_SUPPORTED before a dialog
+ * starts. Tests set them through e1s18_set_s1_context.
+ */
+struct e1s18_s1_context
+{
+    /* Generations (all nonzero). */
+    uint64_t root_gen, server_gen, broker_gen, verifier_gen, map_gen, policy_gen;
+    /* Endorsed pinned identities (all nonzero). */
+    uint8_t prefix[16];
+    uint64_t host_uid;
+    uint8_t host_process[16];
+    uint8_t opener[16];
+    uint8_t writer[16];
+    uint8_t desktop[16];
+    uint8_t channel[16];
+    /* Image file identity from the held file. */
+    uint64_t volume_serial;
+    uint64_t file_index;
+    uint64_t file_size;
+    uint64_t last_write;
+    /* Absolute deadline (monotonic ns). */
+    uint64_t deadline;
+};
+
+/*
  * Dialog & Transport Boundary Types & Table.
  * Allows test injection of fakes at the dialog boundary (Stage 1)
  * and evidence transport boundary (Stage 2).
@@ -213,6 +243,14 @@ void e1s18_set_test_clock( uint64_t now );
  * RNG to fail so the fail-closed denial path can be exercised. */
 void e1s18_set_test_random( const uint8_t *bytes, size_t len );
 void e1s18_set_test_random_fail( BOOL fail );
+/* WO-14: test hooks for the S1 endorsed-identity context. The context is
+ * zero in production (the request denies); tests set it here. */
+void e1s18_set_s1_context( const struct e1s18_s1_context *ctx );
+void e1s18_reset_s1_context( void );
+#ifdef WEXELEVATE_E1S18
+/* WO-14 test hook: SHA-256 of tag||data, for golden-vector testing. */
+void e1s18_test_sha256( const char *tag, size_t tag_len, const uint8_t *data, size_t data_len, uint8_t out[32] );
+#endif
 
 /*
  * Pluggable Operations Table for Test Injection / Mocking.

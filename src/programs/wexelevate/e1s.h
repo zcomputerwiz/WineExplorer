@@ -8,6 +8,11 @@
 #define WEXELEVATE_E1S_H
 #ifdef WEXELEVATE_TEST_APPROVAL
 
+/* WO-14: the pure byte encoding (e1s_bytes, e1s_put, e1s_uint, e1s_blob,
+ * e1s_string, and the binding/request field order) lives in e1s_encode.h,
+ * shared with the S18 standard-user branch. BCrypt and IsValidSid stay here. */
+#include "e1s_encode.h"
+
 #define E1S_PROBE_MAGIC 0x35533145u
 #define E1S_MAX_RECORD (1024 * 1024)
 #define E1S_CAPS 0x3ffu
@@ -100,55 +105,12 @@ struct e1s_evidence
     DWORD method, service;
 };
 
-struct e1s_bytes { BYTE *data; DWORD length, capacity; BOOL failed; };
-
 static BOOL e1s_nonzero( const BYTE *p, DWORD len )
 {
     DWORD i;
     BYTE v = 0;
     for (i = 0; i < len; ++i) v |= p[i];
     return v != 0;
-}
-
-static void e1s_put( struct e1s_bytes *b, const void *data, DWORD len )
-{
-    if (b->failed || len > b->capacity - b->length) { b->failed = TRUE; return; }
-    if (len) memcpy( b->data + b->length, data, len );
-    b->length += len;
-}
-
-static void e1s_uint( struct e1s_bytes *b, UINT64 n, DWORD size )
-{
-    BYTE v[8];
-    DWORD i;
-    for (i = 0; i < size; ++i) { v[i] = n & 0xff; n >>= 8; }
-    e1s_put( b, v, size );
-}
-
-static void e1s_blob( struct e1s_bytes *b, const void *p, DWORD len )
-{
-    e1s_uint( b, len, 4 );
-    e1s_put( b, p, len );
-}
-
-/* Explicit UTF-16LE, independent of native structure padding. NUL/surrogate validation. */
-static void e1s_string( struct e1s_bytes *b, const WCHAR *s )
-{
-    DWORD i, n;
-    if (!s || (n = lstrlenW( s )) > WEXELEVATE_MAX_PATH_CHARS) { b->failed = TRUE; return; }
-    e1s_uint( b, n * 2, 4 );
-    for (i = 0; i < n; ++i)
-    {
-        WORD ch = s[i];
-        if (ch >= 0xd800 && ch <= 0xdbff)
-        {
-            if (i + 1 >= n || s[i + 1] < 0xdc00 || s[i + 1] > 0xdfff) { b->failed = TRUE; return; }
-            e1s_uint( b, ch, 2 );
-            ch = s[++i];
-        }
-        else if (ch >= 0xdc00 && ch <= 0xdfff) { b->failed = TRUE; return; }
-        e1s_uint( b, ch, 2 );
-    }
 }
 
 static BOOL e1s_sha256( const char *tag, DWORD tag_len, const BYTE *data, DWORD len, BYTE out[32] )
@@ -195,14 +157,14 @@ static BOOL e1s_binding_digest( const struct e1s_context *c, const struct e1s_bi
         !e1s_nonzero( c->channel, 16 ) || !s->token_id || !s->modified_id || !s->auth_id ||
         s->sid_len < 8 || s->sid_len > sizeof(s->sid) || !IsValidSid( (PSID)s->sid ) ||
         GetLengthSid( (PSID)s->sid ) != s->sid_len) return FALSE;
-    e1s_uint( &b, 1, 2 ); e1s_uint( &b, 1, 2 ); e1s_uint( &b, 164 + s->sid_len, 4 );
-    e1s_uint( &b, 7, 8 ); /* H2_OPENER | MESSAGE_PROVENANCE | BINDING_V1 */
-    e1s_uint( &b, c->gen.server, 8 ); e1s_uint( &b, c->gen.root, 8 ); e1s_uint( &b, c->gen.broker, 8 );
-    e1s_put( &b, c->prefix, 16 ); e1s_uint( &b, c->host_uid, 8 );
-    e1s_put( &b, c->host_process, 16 ); e1s_put( &b, c->opener, 16 ); e1s_put( &b, c->writer, 16 );
-    e1s_uint( &b, s->token_id, 8 ); e1s_uint( &b, s->modified_id, 8 ); e1s_uint( &b, s->auth_id, 8 );
-    e1s_uint( &b, s->session, 4 ); e1s_uint( &b, 0, 4 ); /* two false impersonation flags, reserved=0 */
-    e1s_blob( &b, s->sid, s->sid_len ); e1s_put( &b, c->desktop, 16 );
+    e1s_encode_binding( &b,
+        c->gen.server, c->gen.root, c->gen.broker,
+        c->prefix, c->host_uid,
+        c->host_process, c->opener, c->writer,
+        s->token_id, s->modified_id, s->auth_id,
+        s->session,
+        s->sid, s->sid_len,
+        c->desktop );
     return !b.failed && e1s_sha256( "E1S1-BIND", sizeof("E1S1-BIND"), data, b.length, out );
 }
 
@@ -224,14 +186,15 @@ static BOOL e1s_freeze( struct e1s_frozen *f, UINT64 id, UINT64 now, UINT64 dead
         (flags & ~WEXELEVATE_FLAGS_MASK) || (flags & WEXELEVATE_ENV_INHERIT) ||
         !e1s_binding_digest( c, s, f->binding_digest )) return FALSE;
     b.data = malloc( E1S_MAX_RECORD ); b.length = 0; b.capacity = E1S_MAX_RECORD; b.failed = !b.data;
-    e1s_uint( &b, id, 8 ); e1s_put( &b, f->binding_digest, 32 );
-    e1s_uint( &b, info->dwVolumeSerialNumber, 8 );
-    e1s_uint( &b, ((UINT64)info->nFileIndexHigh << 32) | info->nFileIndexLow, 8 );
-    e1s_uint( &b, ((UINT64)info->nFileSizeHigh << 32) | info->nFileSizeLow, 8 );
-    e1s_uint( &b, ((UINT64)info->ftLastWriteTime.dwHighDateTime << 32) | info->ftLastWriteTime.dwLowDateTime, 8 );
-    e1s_put( &b, image_hash, 32 );
-    e1s_string( &b, image ); e1s_string( &b, cmd ); e1s_string( &b, cwd );
-    e1s_uint( &b, 1, 4 ); e1s_uint( &b, show, 4 ); e1s_uint( &b, flags, 4 ); e1s_uint( &b, deadline, 8 );
+    e1s_encode_request( &b,
+        id, f->binding_digest,
+        info->dwVolumeSerialNumber,
+        ((UINT64)info->nFileIndexHigh << 32) | info->nFileIndexLow,
+        ((UINT64)info->nFileSizeHigh << 32) | info->nFileSizeLow,
+        ((UINT64)info->ftLastWriteTime.dwHighDateTime << 32) | info->ftLastWriteTime.dwLowDateTime,
+        image_hash,
+        image, cmd, cwd,
+        1, show, flags, deadline );
     if (b.failed || !e1s_sha256( "E1S1-REQ", sizeof("E1S1-REQ"), b.data, b.length, f->request_digest ) ||
         !e1s_sha256( "E1S1-ENV", sizeof("E1S1-ENV"), env_policy, sizeof(env_policy), f->environment_digest ))
     { free( b.data ); return FALSE; }

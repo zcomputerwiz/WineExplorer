@@ -7,6 +7,10 @@
  */
 
 #include "e1s18_broker.h"
+#ifdef WEXELEVATE_E1S18
+/* WO-14: the golden-vector test uses the shared S1 encoder directly. */
+#include "e1s_encode.h"
+#endif
 #include "../../../wine/include/wine/wex_token.h"
 #include "../../../wine/include/wine/wex_profile.h"
 
@@ -17,6 +21,9 @@
 
 /* R15 policy-value decision, exported from e1s18_broker.c for native testing. */
 extern BOOL e1s18_policy_value_enabled( DWORD val );
+
+/* WO-14: sets a fully valid S1 endorsed-identity context (defined below). */
+static void set_default_s1_context( void );
 
 #define TEST_PASS 0
 #define TEST_FAIL 1
@@ -96,6 +103,12 @@ static void reset_tracker( void )
     memset( &g_track, 0, sizeof(g_track) );
     g_track.injected_caps = E1S1_ALL_REQUIRED_CAPS;
     g_track.injected_policy = TRUE;
+    /* WO-14: the standard-user branch needs the S1 endorsed-identity context
+     * to build the canonical binding/request records. Every full-pipeline
+     * test resets the tracker, so supply a valid context here; tests that
+     * fail before the context check are unaffected, and the missing-input
+     * test overrides individual fields. */
+    set_default_s1_context();
 }
 
 static uint64_t fake_get_capabilities( const struct request *req )
@@ -395,6 +408,41 @@ static void init_dummy_request( struct request *req )
     wex_token_put32( req->caller_sid + 8, 555 );
     wex_token_put32( req->caller_sid + 12, 500 );
 #endif
+}
+
+/*
+ * WO-14: Fill a fully valid S1 endorsed-identity context. The context is zero
+ * in production (the request denies); the full pipeline tests set it here.
+ */
+static void fill_default_s1_context( struct e1s18_s1_context *ctx )
+{
+    int i;
+    memset( ctx, 0, sizeof(*ctx) );
+    ctx->root_gen = 0x11;
+    ctx->server_gen = 0x22;
+    ctx->broker_gen = 0x33;
+    ctx->verifier_gen = 0x44;
+    ctx->map_gen = 0x55;
+    ctx->policy_gen = 0x66;
+    for (i = 0; i < 16; i++) ctx->prefix[i] = (uint8_t)(0x01 + i);
+    ctx->host_uid = 1000;
+    for (i = 0; i < 16; i++) ctx->host_process[i] = (uint8_t)(0x11 + i);
+    for (i = 0; i < 16; i++) ctx->opener[i] = (uint8_t)(0x21 + i);
+    for (i = 0; i < 16; i++) ctx->writer[i] = (uint8_t)(0x21 + i);
+    for (i = 0; i < 16; i++) ctx->desktop[i] = (uint8_t)(0x31 + i);
+    for (i = 0; i < 16; i++) ctx->channel[i] = (uint8_t)(0x41 + i);
+    ctx->volume_serial = 0xaa00;
+    ctx->file_index = 0xbb00;
+    ctx->file_size = 0xcc00;
+    ctx->last_write = 0xdd00;
+    ctx->deadline = 0xee00;
+}
+
+static void set_default_s1_context( void )
+{
+    struct e1s18_s1_context ctx;
+    fill_default_s1_context( &ctx );
+    e1s18_set_s1_context( &ctx );
 }
 
 /*
@@ -3218,6 +3266,178 @@ static int test_wo15_single_standard_request_in_flight( void )
     return TEST_PASS;
 }
 #endif /* _WIN32 */
+
+/*
+ * WO-14: Golden vector for the canonical S1 encoder. The expected bytes and
+ * digests were computed independently from the field orders in
+ * docs/E1_S1_CONTRACTS.md "Encoding and negotiation". Any change to the
+ * encoder's field order, endianness, or domain tag must update this vector.
+ */
+static int test_e1s14_golden_vector( void )
+{
+    struct e1s18_s1_context ctx;
+    struct request req;
+    struct e1s_bytes binding, request;
+    uint8_t buf[4096];
+    uint8_t bind_digest[32], req_digest[32], env_digest[32];
+    uint8_t env_policy[4];
+    int i;
+
+    static const uint8_t gv_binding_expected[180] = {
+        0x01, 0x00, 0x01, 0x00, 0xb4, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+        0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30,
+        0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30,
+        0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x22, 0x22, 0x11, 0x11, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x10, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x2b, 0x02, 0x00, 0x00,
+        0xf4, 0x01, 0x00, 0x00, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c,
+        0x3d, 0x3e, 0x3f, 0x40
+    };
+    static const uint8_t gv_request_expected[196] = {
+        0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12, 0x64, 0xc0, 0xb3, 0x77, 0x8c, 0x10, 0xab, 0x04,
+        0x4c, 0x8a, 0x79, 0xd5, 0x47, 0x46, 0xa2, 0x81, 0x24, 0x41, 0xed, 0xaa, 0x3c, 0xad, 0xfd, 0x7b,
+        0x54, 0x7b, 0x05, 0xaa, 0x7c, 0x4a, 0x63, 0x98, 0x00, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0xbb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xcc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0xdd, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+        0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+        0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x14, 0x00, 0x00, 0x00, 0x43, 0x00, 0x3a, 0x00,
+        0x5c, 0x00, 0x69, 0x00, 0x6d, 0x00, 0x67, 0x00, 0x2e, 0x00, 0x65, 0x00, 0x78, 0x00, 0x65, 0x00,
+        0x22, 0x00, 0x00, 0x00, 0x43, 0x00, 0x3a, 0x00, 0x5c, 0x00, 0x69, 0x00, 0x6d, 0x00, 0x67, 0x00,
+        0x2e, 0x00, 0x65, 0x00, 0x78, 0x00, 0x65, 0x00, 0x20, 0x00, 0x2d, 0x00, 0x2d, 0x00, 0x74, 0x00,
+        0x65, 0x00, 0x73, 0x00, 0x74, 0x00, 0x06, 0x00, 0x00, 0x00, 0x43, 0x00, 0x3a, 0x00, 0x5c, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0xee, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00
+    };
+    static const uint8_t gv_bind_digest[32] = {
+        0x64, 0xc0, 0xb3, 0x77, 0x8c, 0x10, 0xab, 0x04, 0x4c, 0x8a, 0x79, 0xd5, 0x47, 0x46, 0xa2, 0x81,
+        0x24, 0x41, 0xed, 0xaa, 0x3c, 0xad, 0xfd, 0x7b, 0x54, 0x7b, 0x05, 0xaa, 0x7c, 0x4a, 0x63, 0x98
+    };
+    static const uint8_t gv_req_digest[32] = {
+        0xb4, 0x4e, 0x5a, 0x98, 0x1e, 0x08, 0xb0, 0x37, 0xef, 0x7b, 0xb1, 0x50, 0x19, 0xea, 0xfa, 0x90,
+        0xf7, 0xdb, 0x16, 0xc5, 0xc7, 0x33, 0xf0, 0x4c, 0xfe, 0xdd, 0xf1, 0x2a, 0x39, 0x4b, 0x21, 0xf5
+    };
+    static const uint8_t gv_env_digest[32] = {
+        0x74, 0x50, 0x18, 0x0b, 0x93, 0x02, 0x9b, 0x05, 0x8a, 0xac, 0x4e, 0xaa, 0x45, 0xa4, 0xb6, 0xe2,
+        0xe5, 0x73, 0xe6, 0x8a, 0x50, 0x3c, 0x08, 0x2d, 0x05, 0xb7, 0x1c, 0xc2, 0xf1, 0x4a, 0xae, 0x5c
+    };
+
+    /* Explicit UTF-16LE code units (L"" is 32-bit wchar_t on the native build). */
+    static const uint16_t gv_image[]   = { 'C', ':', '\\', 'i', 'm', 'g', '.', 'e', 'x', 'e', 0 };
+    static const uint16_t gv_cmdline[] = { 'C', ':', '\\', 'i', 'm', 'g', '.', 'e', 'x', 'e', ' ', '-', '-', 't', 'e', 's', 't', 0 };
+    static const uint16_t gv_cwd[]     = { 'C', ':', '\\', 0 };
+
+    fill_default_s1_context( &ctx );
+
+    memset( &req, 0, sizeof(req) );
+    req.id = 0x1234567890abcdefULL;
+    for (i = 0; i < 32; i++) req.hash[i] = 0x33;
+    req.show = 1;
+    req.flags = WEXELEVATE_WANT_HANDLE;
+    req.caller_stats.TokenId.LowPart = 0x1000;
+    req.caller_stats.ModifiedId.LowPart = 0x2000;
+    req.caller_stats.AuthenticationId.HighPart = 0x1111;
+    req.caller_stats.AuthenticationId.LowPart = 0x2222;
+    req.caller_session = 1;
+    req.caller_sid_len = 16;
+    req.caller_sid[0] = 1;
+    req.caller_sid[1] = 2;
+    req.caller_sid[7] = 5;
+    req.caller_sid[8] = 0x2b; req.caller_sid[9] = 0x02;
+    req.caller_sid[12] = 0xf4; req.caller_sid[13] = 0x01;
+
+    /* Binding record (kind 1). */
+    binding.data = buf; binding.capacity = sizeof(buf); binding.length = 0; binding.failed = 0;
+    e1s_encode_binding( &binding, ctx.server_gen, ctx.root_gen, ctx.broker_gen,
+                        ctx.prefix, ctx.host_uid, ctx.host_process, ctx.opener, ctx.writer,
+                        0x1000, 0x2000, 0x11112222,
+                        req.caller_session, req.caller_sid, req.caller_sid_len, ctx.desktop );
+    if (binding.failed || binding.length != 180) { fprintf(stderr, "GV: binding len %u failed=%d\n", binding.length, binding.failed); return TEST_FAIL; }
+    if (memcmp( binding.data, gv_binding_expected, 180 ) != 0) { for (int d=0; d<180; d++) if (binding.data[d]!=gv_binding_expected[d]) fprintf(stderr, "GV: binding byte %d got %02x want %02x\n", d, binding.data[d], gv_binding_expected[d]); return TEST_FAIL; }
+
+    e1s18_test_sha256( "E1S1-BIND\0", 10, binding.data, binding.length, bind_digest );
+    if (memcmp( bind_digest, gv_bind_digest, 32 ) != 0) { fprintf(stderr, "GV: bind digest mismatch\n"); for (int d=0; d<32; d++) fprintf(stderr, "  %02x %02x\n", bind_digest[d], gv_bind_digest[d]); return TEST_FAIL; }
+
+    /* Frozen request record. */
+    request.data = buf; request.capacity = sizeof(buf); request.length = 0; request.failed = 0;
+    e1s_encode_request( &request, req.id, bind_digest,
+                        ctx.volume_serial, ctx.file_index, ctx.file_size, ctx.last_write,
+                        req.hash, gv_image, gv_cmdline, gv_cwd,
+                        1, req.show, req.flags, ctx.deadline );
+    if (request.failed || request.length != 196) { fprintf(stderr, "GV: request len %u failed=%d\n", request.length, request.failed); return TEST_FAIL; }
+    if (memcmp( request.data, gv_request_expected, 196 ) != 0) { for (int d=0; d<196; d++) if (request.data[d]!=gv_request_expected[d]) fprintf(stderr, "GV: request byte %d got %02x want %02x\n", d, request.data[d], gv_request_expected[d]); return TEST_FAIL; }
+
+    e1s18_test_sha256( "E1S1-REQ\0", 9, request.data, request.length, req_digest );
+    if (memcmp( req_digest, gv_req_digest, 32 ) != 0) { fprintf(stderr, "GV: req digest mismatch\n"); return TEST_FAIL; }
+
+    /* Environment digest. */
+    env_policy[0] = 1; env_policy[1] = 0; env_policy[2] = 0; env_policy[3] = 0;
+    e1s18_test_sha256( "E1S1-ENV\0", 9, env_policy, 4, env_digest );
+    if (memcmp( env_digest, gv_env_digest, 32 ) != 0) { fprintf(stderr, "GV: env digest mismatch\n"); return TEST_FAIL; }
+
+    return TEST_PASS;
+}
+
+/*
+ * WO-14: The standard-user branch denies with ERROR_NOT_SUPPORTED (and spawns
+ * no dialog) when any required S1 endorsed-identity input is zero.
+ */
+static int test_e1s14_missing_input_denies( void )
+{
+    struct e1s18_s1_context ctx;
+    struct request req;
+    struct wexelevate_reply reply;
+    DWORD err;
+    int which;
+
+    e1s18_set_ops( &s_fake_ops );
+
+    for (which = 0; which < 18; which++)
+    {
+        fill_default_s1_context( &ctx );
+        switch (which)
+        {
+        case 0:  ctx.root_gen = 0; break;
+        case 1:  ctx.server_gen = 0; break;
+        case 2:  ctx.broker_gen = 0; break;
+        case 3:  ctx.verifier_gen = 0; break;
+        case 4:  ctx.map_gen = 0; break;
+        case 5:  ctx.policy_gen = 0; break;
+        case 6:  ctx.host_uid = 0; break;
+        case 7:  ctx.deadline = 0; break;
+        case 8:  memset( ctx.prefix, 0, 16 ); break;
+        case 9:  memset( ctx.host_process, 0, 16 ); break;
+        case 10: memset( ctx.opener, 0, 16 ); break;
+        case 11: memset( ctx.writer, 0, 16 ); break;
+        case 12: memset( ctx.desktop, 0, 16 ); break;
+        case 13: memset( ctx.channel, 0, 16 ); break;
+        case 14: ctx.volume_serial = 0; break;
+        case 15: ctx.file_index = 0; break;
+        case 16: ctx.file_size = 0; break;
+        case 17: ctx.last_write = 0; break;
+        }
+        init_dummy_request( &req );
+        reset_tracker();
+        e1s18_set_s1_context( &ctx ); /* override the full context with the zeroed one */
+        err = e1s18_handle_standard_request( &req, &reply );
+        CHECK_EQ( err, ERROR_NOT_SUPPORTED, "Zero S1 input must deny with ERROR_NOT_SUPPORTED" );
+        CHECK_EQ( g_track.order_count, 0, "No dialog may spawn on a zero S1 input" );
+    }
+
+    /* Full context: the request proceeds. */
+    init_dummy_request( &req );
+    reset_tracker();
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, ERROR_SUCCESS, "Full S1 context must proceed" );
+
+    e1s18_reset_s1_context();
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+
 #endif /* WEXELEVATE_E1S18 */
 
 int main( int argc, char **argv )
@@ -3388,6 +3608,12 @@ int main( int argc, char **argv )
 
     printf("51. Testing WO-15 one standard-user request in flight (second gets ERROR_BUSY; slot freed after success/failure/cancel)...\n");
     if (test_wo15_single_standard_request_in_flight() != TEST_PASS) ret = 1;
+
+    printf("52. Testing WO-14 canonical S1 encoder golden vector (binding/request bytes + digests)...\n");
+    if (test_e1s14_golden_vector() != TEST_PASS) ret = 1;
+
+    printf("53. Testing WO-14 zero S1 endorsed-identity input denies with ERROR_NOT_SUPPORTED...\n");
+    if (test_e1s14_missing_input_denies() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

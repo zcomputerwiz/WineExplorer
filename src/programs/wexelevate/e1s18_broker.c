@@ -22,6 +22,7 @@
 #include "cred_dialog.h"
 #include "launch_prep.h"
 #include "e1s6_protocol.h"
+#include "e1s_encode.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -402,6 +403,52 @@ static BOOL e1s18_is_all_zero( const uint8_t *buf, size_t len )
         if (buf[i]) return FALSE;
     return TRUE;
 }
+
+/*
+ * WO-14: S1 endorsed-identity context. Zero in production (the request
+ * denies before any dialog); tests set it through e1s18_set_s1_context.
+ */
+static struct e1s18_s1_context s_s1_context;
+
+void e1s18_set_s1_context( const struct e1s18_s1_context *ctx )
+{
+    if (ctx) s_s1_context = *ctx;
+    else memset( &s_s1_context, 0, sizeof(s_s1_context) );
+}
+
+void e1s18_reset_s1_context( void )
+{
+    memset( &s_s1_context, 0, sizeof(s_s1_context) );
+}
+
+/* Every required S1 input must be nonzero; any zero input means the endorsed
+ * identities/generations are not yet established, so the request denies. */
+static BOOL e1s18_s1_context_complete( const struct e1s18_s1_context *c )
+{
+    return c->root_gen && c->server_gen && c->broker_gen &&
+           c->verifier_gen && c->map_gen && c->policy_gen &&
+           c->host_uid && c->deadline &&
+           !e1s18_is_all_zero( c->prefix, 16 ) &&
+           !e1s18_is_all_zero( c->host_process, 16 ) &&
+           !e1s18_is_all_zero( c->opener, 16 ) &&
+           !e1s18_is_all_zero( c->writer, 16 ) &&
+           !e1s18_is_all_zero( c->desktop, 16 ) &&
+           !e1s18_is_all_zero( c->channel, 16 ) &&
+           c->volume_serial && c->file_index && c->file_size && c->last_write;
+}
+
+#ifdef WEXELEVATE_E1S18
+/* WO-14 test hook: SHA-256 of tag||data, exposing the broker's digest for
+ * golden-vector testing. */
+void e1s18_test_sha256( const char *tag, size_t tag_len, const uint8_t *data, size_t data_len, uint8_t out[32] )
+{
+    struct sha256_ctx ctx;
+    sha256_init( &ctx );
+    sha256_update( &ctx, tag, tag_len );
+    sha256_update( &ctx, data, data_len );
+    sha256_final( &ctx, out );
+}
+#endif
 
 /*
  * Answer Replay Tracking (Stage 1)
@@ -1851,32 +1898,73 @@ BOOL e1s18_check_capabilities( const struct request *req )
     return ((caps & E1S1_ALL_REQUIRED_CAPS) == E1S1_ALL_REQUIRED_CAPS);
 }
 
-/* Canonical digest calculation for request and caller binding */
+/* S1 contract: token/auth LUIDs encode low 32 bits then high 32 bits as a u64. */
+static uint64_t e1s18_luid_to_u64( const LUID *luid )
+{
+    return ((uint64_t)(uint32_t)luid->HighPart << 32) | (uint64_t)(uint32_t)luid->LowPart;
+}
+
+/*
+ * WO-14: Canonical digest calculation for the standard-user branch.
+ *
+ * The S1 caller-binding record (kind 1) and the frozen request record are
+ * built through the shared encoder (e1s_encode.h) and hashed with the existing
+ * sha256_* and the S1 domain tags ("E1S1-BIND\0", "E1S1-REQ\0", "E1S1-ENV\0").
+ * The endorsed identities/generations come from the S1 context (zero in
+ * production); the caller token/auth/session/SID and the image identity come
+ * from the request. The nonce is not part of these records.
+ */
 static void e1s18_compute_digests( const struct request *req,
                                    const uint8_t nonce[32],
                                    uint8_t out_binding_digest[32],
                                    uint8_t out_request_digest[32],
                                    uint8_t out_env_digest[32] )
 {
+    const struct e1s18_s1_context *c = &s_s1_context;
     struct sha256_ctx ctx;
     uint32_t env_policy = 1; /* 1 = fresh managed environment */
+    uint8_t *buf;
+    struct e1s_bytes b;
 
-    /* 1. Binding Digest: SHA256("E1S1-BIND\0" || req->id || caller_pid) */
+    (void)nonce; /* the nonce is not part of the S1 binding/request records */
+
+    buf = malloc( E1S_ENCODE_MAX_RECORD );
+    if (!buf)
+    {
+        memset( out_binding_digest, 0, 32 );
+        memset( out_request_digest, 0, 32 );
+        memset( out_env_digest, 0, 32 );
+        return;
+    }
+
+    /* 1. Caller-binding record (kind 1): SHA256("E1S1-BIND\0" || record) */
+    b.data = buf; b.length = 0; b.capacity = E1S_ENCODE_MAX_RECORD; b.failed = 0;
+    e1s_encode_binding( &b,
+        c->server_gen, c->root_gen, c->broker_gen,
+        c->prefix, c->host_uid,
+        c->host_process, c->opener, c->writer,
+        e1s18_luid_to_u64( &req->caller_stats.TokenId ),
+        e1s18_luid_to_u64( &req->caller_stats.ModifiedId ),
+        e1s18_luid_to_u64( &req->caller_stats.AuthenticationId ),
+        req->caller_session,
+        req->caller_sid, req->caller_sid_len,
+        c->desktop );
     sha256_init( &ctx );
     sha256_update( &ctx, "E1S1-BIND\0", 10 );
-    sha256_update( &ctx, &req->id, sizeof(req->id) );
-    sha256_update( &ctx, &req->caller_pid, sizeof(req->caller_pid) );
-    sha256_update( &ctx, &req->caller_session, sizeof(req->caller_session) );
+    sha256_update( &ctx, buf, b.length );
     sha256_final( &ctx, out_binding_digest );
 
-    /* 2. Request Digest: SHA256("E1S1-REQ\0" || req->id || binding_digest || nonce || hash) */
+    /* 2. Frozen request record: SHA256("E1S1-REQ\0" || record) */
+    b.data = buf; b.length = 0; b.capacity = E1S_ENCODE_MAX_RECORD; b.failed = 0;
+    e1s_encode_request( &b,
+        req->id, out_binding_digest,
+        c->volume_serial, c->file_index, c->file_size, c->last_write,
+        req->hash,
+        (const uint16_t *)req->image, (const uint16_t *)req->cmdline, (const uint16_t *)req->cwd,
+        env_policy, req->show, req->flags, c->deadline );
     sha256_init( &ctx );
     sha256_update( &ctx, "E1S1-REQ\0", 9 );
-    sha256_update( &ctx, &req->id, sizeof(req->id) );
-    sha256_update( &ctx, out_binding_digest, 32 );
-    sha256_update( &ctx, nonce, 32 );
-    sha256_update( &ctx, req->hash, 32 );
-    sha256_update( &ctx, &env_policy, sizeof(env_policy) );
+    sha256_update( &ctx, buf, b.length );
     sha256_final( &ctx, out_request_digest );
 
     /* 3. Environment Digest: SHA256("E1S1-ENV\0" || env_policy) */
@@ -1884,6 +1972,8 @@ static void e1s18_compute_digests( const struct request *req,
     sha256_update( &ctx, "E1S1-ENV\0", 9 );
     sha256_update( &ctx, &env_policy, sizeof(env_policy) );
     sha256_final( &ctx, out_env_digest );
+
+    free( buf );
 }
 
 /* Launch preparation hands over the Unix environment; free it on every exit. */
@@ -1989,6 +2079,13 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
         return ERROR_ACCESS_DENIED;
     if (e1s18_is_all_zero( nonce, 32 ))
         return ERROR_ACCESS_DENIED;
+
+    /* WO-14: the canonical S1 binding/request records need endorsed
+     * identities and generations. Any zero required input denies the request
+     * with ERROR_NOT_SUPPORTED before a dialog starts (zero in production). */
+    if (!e1s18_s1_context_complete( &s_s1_context ))
+        return ERROR_NOT_SUPPORTED;
+
     e1s18_compute_digests( req, nonce, binding_digest, request_digest, env_digest );
 
     /* Step 1: Serialized prompt queue and bound credential dialog (S17) */
