@@ -306,7 +306,13 @@ can work now:
   the failure screen: Safe Mode, with Networking, with Command Prompt, Last Known Good (grayed until Vintner),
   Start Normally. A 30-second countdown defaults to Start Normally.
 - A WineExplorer health check clears `recordfail` once the logon screen (or a setup stage screen) is up, and
-  replaces `grub-common.service`'s clear (an override of that unit).
+  replaces `grub-common.service`'s clear (an override of that unit). It is the same check as section 4.4 of
+  `docs/VINTNER_BOOT.md`: a unit with `Before=boot-complete.target` and `RequiredBy=boot-complete.target`. Vintner
+  counts a boot as good once `boot-complete.target` is reached, so its bless and the `recordfail` clear happen at
+  the same point.
+  - Agreed with the Vintner session on 2026-11-08; it will confirm the unit name.
+  - Its boot counters (`VINTNER_T_<g>`) are a separate mechanism from `recordfail`. The two are unified later, so
+    D1 goes ahead on GRUB without waiting.
 - Safe Mode boots and every boot through the menu write the previous value back. A good state stays good and a
   bad one stays bad, as the owner decided (decision 3).
 - `grubenv` sits on the ext4 root, which GRUB can write. With Vintner this becomes `vintner status --json` and
@@ -324,8 +330,8 @@ are installed. The two ways, neither simple today:
 - Look at it again after C3.
 
 **D3. Last Known Good Configuration and Return to OS Choices Menu.** These wait for Vintner's `next-boot
-previous-good` and `next-boot menu` (`docs/VINTNER_BOOT.md` V6). Until then the first stays grayed and the second
-shows the local list.
+previous-good` and `next-boot menu` (`docs/VINTNER_BOOT.md` V6). Neither is in Vintner's current phase 3 (the
+Vintner session, 2026-11-08). Until then the first stays grayed and the second shows the local list.
 
 **D4. Debugging Mode.** Today it raises the service manager's log level only. Consider sending kernel messages to
 the first serial port as well, which is closer to XP's kernel debugger on COM1. Low priority.
