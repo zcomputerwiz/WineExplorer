@@ -3004,7 +3004,221 @@ static int test_wo8_confirmed_child_termination( void )
     e1s18_reset_ops();
     return TEST_PASS;
 }
+
+/*
+ * Test 51: WO-15 - One standard-user request in flight.
+ * The S6 transport in wexhost is process-global, so the broker serializes
+ * standard-user requests with a broker-wide slot: a second request while one
+ * is in flight returns ERROR_BUSY at once (no dialog, no transport call), and
+ * the slot is free again after success, after each failure stage and after
+ * cancellation.
+ */
+#ifndef _WIN32
+struct wo15_sync
+{
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    int entered_prompt;   /* worker is inside prompt_dialog (slot taken) */
+    int release_prompt;   /* test releases the worker */
+    int prompt_calls;     /* prompt_dialog invocations */
+    int prompt_active;    /* requests currently inside prompt_dialog */
+    int transport_calls;  /* redeem_evidence invocations */
+};
+
+static struct wo15_sync g_wo15;
+
+static DWORD wo15_prompt_dialog( struct request *req, const uint8_t nonce[32],
+                                 const uint8_t binding_digest[32], const uint8_t request_digest[32],
+                                 char *out_account, size_t account_max )
+{
+    (void)req; (void)nonce; (void)binding_digest; (void)request_digest;
+    pthread_mutex_lock( &g_wo15.mutex );
+    g_wo15.prompt_calls++;
+    g_wo15.prompt_active++;
+    if (g_wo15.prompt_active > 1)
+    {
+        /* A second request is inside the dialog at the same time: the
+         * in-flight slot is not serializing standard requests. Fail fast so
+         * the test reports a clean failure instead of deadlocking on the
+         * release signal. */
+        g_wo15.prompt_active--;
+        pthread_mutex_unlock( &g_wo15.mutex );
+        return ERROR_ACCESS_DENIED;
+    }
+    g_wo15.entered_prompt = 1;
+    pthread_cond_signal( &g_wo15.cond );
+    while (!g_wo15.release_prompt)
+        pthread_cond_wait( &g_wo15.cond, &g_wo15.mutex );
+    g_wo15.prompt_active--;
+    pthread_mutex_unlock( &g_wo15.mutex );
+    if (out_account && account_max > 5) strncpy( out_account, "alice", account_max - 1 );
+    return ERROR_SUCCESS;
+}
+
+static DWORD wo15_redeem_evidence( struct request *req, const char *account_name,
+                                   const uint8_t nonce[32], const uint8_t binding_digest[32],
+                                   const uint8_t request_digest[32],
+                                   uint8_t out_account_key[16], uint8_t out_evidence_ref[16] )
+{
+    (void)account_name; (void)nonce; (void)binding_digest; (void)request_digest;
+    g_wo15.transport_calls++;
+#ifdef WEXELEVATE_E1S18
+    strncpy( req->account_name, "alice", sizeof(req->account_name) - 1 );
+    req->account_name[sizeof(req->account_name) - 1] = '\0';
+    memset( req->account_key, 0x42, sizeof(req->account_key) );
+    if (out_account_key) memcpy( out_account_key, req->account_key, 16 );
+    req->map_generation = 1;
+#else
+    (void)req;
+    if (out_account_key) memset( out_account_key, 0x42, 16 );
 #endif
+    if (out_evidence_ref) memset( out_evidence_ref, 0x77, 16 );
+    return ERROR_SUCCESS;
+}
+
+static struct e1s18_ops s_wo15_ops = {
+    fake_get_capabilities,
+    fake_is_policy_enabled,
+    wo15_prompt_dialog,
+    wo15_redeem_evidence,
+    fake_issue_token,
+    fake_load_profile,
+    fake_query_storage,
+    fake_prep_launch,
+    fake_verify_image,
+    fake_create_process_suspended,
+    fake_verify_child,
+    fake_arm_lease,
+    fake_duplicate_handle,
+    fake_transfer_lease,
+    fake_check_pre_resume,
+    fake_resume_thread,
+    fake_terminate_child,
+    fake_close_remote_handle,
+    fake_unload_profile,
+    fake_close_handle,
+    fake_free_buffer
+};
+
+struct wo15_worker_arg
+{
+    struct request *req;
+    struct wexelevate_reply *reply;
+    DWORD err;
+};
+
+static void *wo15_worker( void *param )
+{
+    struct wo15_worker_arg *arg = param;
+    arg->err = e1s18_handle_standard_request( arg->req, arg->reply );
+    return NULL;
+}
+
+static int test_wo15_single_standard_request_in_flight( void )
+{
+    struct request req_a, req_b, req_c;
+    struct wexelevate_reply reply_a, reply_b, reply_c;
+    struct wo15_worker_arg warg;
+    pthread_t worker;
+    DWORD err;
+    int stage;
+
+    /* --- Two concurrent requests: one success, one ERROR_BUSY, no
+     *     dialog/transport call counted for the second --- */
+    pthread_mutex_init( &g_wo15.mutex, NULL );
+    pthread_cond_init( &g_wo15.cond, NULL );
+    g_wo15.entered_prompt = 0;
+    g_wo15.release_prompt = 0;
+    g_wo15.prompt_calls = 0;
+    g_wo15.prompt_active = 0;
+    g_wo15.transport_calls = 0;
+
+    init_dummy_request( &req_a );
+    init_dummy_request( &req_b );
+    req_b.id = 0xfedcba0987654321ULL; /* distinct request id */
+    memset( &reply_a, 0, sizeof(reply_a) );
+    memset( &reply_b, 0, sizeof(reply_b) );
+    memset( &reply_c, 0, sizeof(reply_c) );
+    reset_tracker();
+    e1s18_set_ops( &s_wo15_ops );
+
+    warg.req = &req_a;
+    warg.reply = &reply_a;
+    warg.err = 0;
+    pthread_create( &worker, NULL, wo15_worker, &warg );
+
+    /* Wait until the worker is inside prompt_dialog (slot taken) */
+    pthread_mutex_lock( &g_wo15.mutex );
+    while (!g_wo15.entered_prompt)
+        pthread_cond_wait( &g_wo15.cond, &g_wo15.mutex );
+    pthread_mutex_unlock( &g_wo15.mutex );
+
+    /* Second request while the slot is taken must return ERROR_BUSY at once */
+    err = e1s18_handle_standard_request( &req_b, &reply_b );
+    CHECK_EQ( err, ERROR_BUSY, "Second concurrent request must return ERROR_BUSY" );
+    CHECK_EQ( g_wo15.prompt_calls, 1, "Second request must not reach the dialog" );
+    CHECK_EQ( g_wo15.transport_calls, 0, "Second request must not reach the transport" );
+
+    /* Release the worker so request A completes */
+    pthread_mutex_lock( &g_wo15.mutex );
+    g_wo15.release_prompt = 1;
+    pthread_cond_signal( &g_wo15.cond );
+    pthread_mutex_unlock( &g_wo15.mutex );
+
+    pthread_join( worker, NULL );
+    CHECK_EQ( warg.err, ERROR_SUCCESS, "First request must succeed" );
+    CHECK_EQ( g_wo15.prompt_calls, 1, "Only the first request reached the dialog" );
+    CHECK_EQ( g_wo15.transport_calls, 1, "Only the first request reached the transport" );
+
+    /* --- Slot free again after success --- */
+    init_dummy_request( &req_c );
+    err = e1s18_handle_standard_request( &req_c, &reply_c );
+    CHECK_EQ( err, ERROR_SUCCESS, "Slot must be free after success" );
+
+    /* --- Slot free again after each failure stage and after cancellation --- */
+    e1s18_set_ops( &s_fake_ops );
+    for (stage = 1; stage <= 14; stage++)
+    {
+        struct request req_fail, req_after;
+        struct wexelevate_reply reply_fail, reply_after;
+
+        init_dummy_request( &req_fail );
+        reset_tracker();
+        g_track.fail_at_stage = stage;
+        g_track.fail_error_code = 0x9000 + stage;
+        err = e1s18_handle_standard_request( &req_fail, &reply_fail );
+        CHECK_EQ( err, (DWORD)(0x9000 + stage), "Failure stage must return injected error" );
+
+        init_dummy_request( &req_after );
+        reset_tracker();
+        err = e1s18_handle_standard_request( &req_after, &reply_after );
+        CHECK_EQ( err, ERROR_SUCCESS, "Slot must be free after failure stage" );
+    }
+
+    {
+        struct request req_cancel, req_after;
+        struct wexelevate_reply reply_cancel, reply_after;
+
+        init_dummy_request( &req_cancel );
+        reset_tracker();
+        g_track.fail_at_stage = 1;
+        g_track.fail_error_code = ERROR_CANCELLED;
+        err = e1s18_handle_standard_request( &req_cancel, &reply_cancel );
+        CHECK_EQ( err, ERROR_CANCELLED, "Cancelled prompt must return ERROR_CANCELLED" );
+
+        init_dummy_request( &req_after );
+        reset_tracker();
+        err = e1s18_handle_standard_request( &req_after, &reply_after );
+        CHECK_EQ( err, ERROR_SUCCESS, "Slot must be free after cancellation" );
+    }
+
+    e1s18_reset_ops();
+    pthread_mutex_destroy( &g_wo15.mutex );
+    pthread_cond_destroy( &g_wo15.cond );
+    return TEST_PASS;
+}
+#endif /* _WIN32 */
+#endif /* WEXELEVATE_E1S18 */
 
 int main( int argc, char **argv )
 {
@@ -3171,6 +3385,9 @@ int main( int argc, char **argv )
 
     printf("50. Testing WO-8 confirmed child termination on rollback (unconfirmed keeps handles, no unload)...\n");
     if (test_wo8_confirmed_child_termination() != TEST_PASS) ret = 1;
+
+    printf("51. Testing WO-15 one standard-user request in flight (second gets ERROR_BUSY; slot freed after success/failure/cancel)...\n");
+    if (test_wo15_single_standard_request_in_flight() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

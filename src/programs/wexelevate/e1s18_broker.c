@@ -1896,10 +1896,46 @@ static void e1s18_free_unix_env( char **env, size_t count )
 }
 
 /*
+ * WO-15: Broker-wide "standard request in flight" slot.
+ * The S6 transport in wexhost is process-global, so two standard-user
+ * requests must never overlap. The slot is taken at the start of
+ * e1s18_handle_standard_request (before the prompt queue) and released on
+ * every exit; a second request while it is taken returns ERROR_BUSY at once
+ * (no waiting, no dialog, no transport call).
+ */
+#if defined(_WIN32)
+static volatile LONG s_standard_in_flight = 0;
+
+static BOOL e1s18_standard_slot_try_take( void )
+{
+    return InterlockedCompareExchange( &s_standard_in_flight, 1, 0 ) == 0;
+}
+
+static void e1s18_standard_slot_release( void )
+{
+    InterlockedExchange( &s_standard_in_flight, 0 );
+}
+#else
+static volatile int s_standard_in_flight = 0;
+
+static BOOL e1s18_standard_slot_try_take( void )
+{
+    return __sync_bool_compare_and_swap( &s_standard_in_flight, 0, 1 );
+}
+
+static void e1s18_standard_slot_release( void )
+{
+    __sync_lock_release( &s_standard_in_flight );
+}
+#endif
+
+/*
  * Main standard-user request sequencing function.
  * Coordinates all steps and rolls back completely on any intermediate failure.
+ * Runs with the WO-15 standard-request slot already taken (see the wrapper
+ * e1s18_handle_standard_request below).
  */
-DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_reply *reply )
+static DWORD e1s18_handle_standard_request_locked( struct request *req, struct wexelevate_reply *reply )
 {
     const struct e1s18_ops *ops = e1s18_get_ops();
     uint8_t nonce[32];
@@ -2150,4 +2186,22 @@ fail:
     if (child_unconfirmed)
         return ERROR_CHILD_NOT_COMPLETE;
     return err ? err : ERROR_ACCESS_DENIED;
+}
+
+/*
+ * WO-15: Public entry point. Takes the broker-wide standard-request slot
+ * before the prompt queue and releases it on every exit, so a second
+ * standard-user request while one is in flight returns ERROR_BUSY at once.
+ */
+DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_reply *reply )
+{
+    const struct e1s18_ops *ops = e1s18_get_ops();
+    DWORD result;
+
+    if (!ops) return ERROR_NOT_SUPPORTED;
+    if (!e1s18_standard_slot_try_take())
+        return ERROR_BUSY;
+    result = e1s18_handle_standard_request_locked( req, reply );
+    e1s18_standard_slot_release();
+    return result;
 }
