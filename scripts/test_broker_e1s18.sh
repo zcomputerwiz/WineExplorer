@@ -138,4 +138,11 @@ for cc_pe in x86_64-w64-mingw32-gcc i686-w64-mingw32-gcc; do
         -c "$REPO/src/programs/wexelevate/test_e1r8_codec_main.c" -o "$FIXTURE/e1r8_codec_test_$cc_pe.o"
 done
 
+# 11. WO-19: cross-check the Python codec against the C golden output. The
+# golden lines are the WO-18 encoder's fixed-input output; the Python codec
+# must encode byte-identical messages and decode each line back to the input.
+echo "==> Cross-checking the E1R8 Python codec against the C golden output"
+"$FIXTURE/e1r8_codec_test" golden > "$FIXTURE/e1r8-golden.txt"
+E1R8_GOLDEN="$FIXTURE/e1r8-golden.txt" python3 -I "$REPO/tools/e1s6/test-e1r8.py"
+
 echo "==> ALL E1-S18 broker integration tests passed successfully."

@@ -871,7 +871,7 @@ static int golden_output( void )
     uint8_t buf[8192];
     uint16_t req_utf16[300], img_utf16[300];
     size_t req_len, img_len;
-    uint8_t key[16], ev[16];
+    uint8_t key[16], ev[16], chal[32];
     const uint8_t pw[] = { 0x70, 0xc3, 0xa4, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64 };
     int err;
 
@@ -880,6 +880,7 @@ static int golden_output( void )
     img_len = to_utf16le( "x.exe", img_utf16 );
     fill_range( key, 16, 0xa0 );
     fill_range( ev, 16, 0xb0 );
+    fill_range( chal, 32, 0xc0 );
 
     /* Type 1: INIT */
     {
@@ -910,11 +911,11 @@ static int golden_output( void )
 
     /* Type 6: RESULT (authenticated) */
     if (e1r8_encode_result( buf, 76 + 4 + (4 + 5) + 32, &t, 1, (const uint8_t *)"admin", 5,
-                            t.binding_digest )) return 1;
+                            chal )) return 1;
     printf( "6 " ); print_hex( buf, 76 + 4 + (4 + 5) + 32 );
 
     /* Type 7: ANSWER (Confirm) */
-    if (e1r8_encode_answer( buf, 264, &t, t.binding_digest, 2, 2, 0, 0x3ff )) return 1;
+    if (e1r8_encode_answer( buf, 264, &t, chal, 2, 2, 0, 0x3ff )) return 1;
     printf( "7 " ); print_hex( buf, 264 );
 
     /* Type 8: DONE (completed) */
