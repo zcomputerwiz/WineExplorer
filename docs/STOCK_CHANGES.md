@@ -1,5 +1,28 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e R8 step 3a-3c: protected credentials dialog, loader pin, dialog image (2026-11-09)
+
+Only for a process the verified broker (R13) creates with its own token, no designated parent and
+exactly two listed handles; nothing changes for any other process (the shipping click-consent window
+passes no handle list). Plan: docs/E1_S18E_R8_STEP3_PLAN.md; contract: docs/E1_S18E_R8_SPEC.md section 3.
+
+* `server/process.c`, `process.h`: `new_process` checks the two handles (one end each of two distinct
+  single-instance pipes the broker created, access exactly `FILE_GENERIC_READ` / `FILE_GENERIC_WRITE`,
+  no other holder of any of the four ends) and sets and checks `SO_PASSCRED`/`SO_PASSPIDFD` on the
+  server end of the process socket, else denies; then records the broker (retained) and the four ends.
+  `wex_handle_allowed` refuses a handle to the dialog, its threads or the four ends in any process but
+  the broker and the dialog. `any_process` visits every process with an id. Released when the dialog
+  dies or is destroyed. Lab trace under `WEX_R8_SERVER_TEST`.
+* `server/handle.c`, `handle.h`: the check in `alloc_handle_entry`, global handles and inheritance
+  (`inherit_handle`, full table copy); `handles_held_elsewhere`.
+* `server/request.c`: `receive_fd` from a protected dialog needs exactly one SCM_RIGHTS fd, one
+  SCM_CREDENTIALS and one SCM_PIDFD (`MSG_CMSG_CLOEXEC`), pins pid/uid/pidfd on the first transfer and
+  requires the same live process later; a bad transfer or thread linkage kills the dialog.
+* `server/named_pipe.c`, `file.h`: `named_pipe_anonymous_end`.
+* `server/thread.c`, `thread.h`: `thread_of_process`.
+* `server/sysrun.c`: `is_machine_image`; the dialog's first executable image is checked against
+  machine-root `system32`/`syswow64` `consent.exe` (`wex_dialog_image`).
+
 ## E1-S4: reserved RID 500 for the built-in Administrator (2026-11-09)
 
 Both files are WineExplorer additions to the server (no stock code changed).

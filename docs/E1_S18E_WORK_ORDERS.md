@@ -489,3 +489,58 @@ Check: the broker test command passes (ASan/UBSan and byte-identical production 
 both MinGW lab broker compiles pass; `consent.c` compiles with both MinGW compilers with and without
 `-DWEXELEVATE_E1S18` (`-Wall -Werror`, the include paths and libraries of
 `scripts/test_credential_dialog.sh` lines 186-209); report the commands you used.
+
+## WO-21 Tests for R8 step 3a-3c: dialog protection, loader pin, dialog image (for Antigravity)
+
+Read docs/E1_S18E_R8_STEP3_PLAN.md (3a-3c) and the server code it names first: `new_process`,
+`wex_dialog_pipes_valid`, `wex_handle_allowed`, `wex_dialog_pass_credentials` (wine/server/process.c),
+`wex_dialog_fd_message` (request.c), `is_dialog_image` (sysrun.c). The server code is done; this order
+adds a lab hook, two probe modes and harness cases. Do not change any wine/server file.
+
+Files: `src/programs/wexelevate/main.c` (inside `#ifdef WEXELEVATE_TEST_APPROVAL` only),
+`scripts/wexelevate_probe.c`, `scripts/test_sysrun_server.sh`.
+
+1. Test broker hook (main.c, `#ifdef WEXELEVATE_TEST_APPROVAL` only, next to `secure_desktop_test`):
+   when `HKLM\Software\WineExplorer\ElevationTest` DWORD `R8DialogTest` is 1, 2 or 3, the broker,
+   once at service start before it serves requests, starts one child and writes a result file:
+   * image: REG_SZ `R8DialogImage` (a full Windows path), extra arguments REG_SZ `R8DialogArgs`;
+   * two pipes with `CreatePipe` and non-inheritable handles; mode 1 and 2 narrow the child's read end
+     to `FILE_GENERIC_READ` and its write end to `FILE_GENERIC_WRITE` with `DuplicateHandle` (no
+     `DUPLICATE_CLOSE_SOURCE`; close the originals); mode 2 instead passes the un-narrowed ends;
+   * modes 1 and 2: `STARTUPINFOEXW` with `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` holding exactly those two
+     handles, `EXTENDED_STARTUPINFO_PRESENT`, `bInheritHandles` TRUE; mode 3: no handle list,
+     `bInheritHandles` FALSE (the unprotected control);
+   * command line: `"<image>" <args> /in <read handle> /out <write handle>`;
+   * result: REG_SZ `R8DialogResult` names a Windows file path; write `create_error=<GetLastError or 0>`
+     and `pid=<child pid or 0>` lines; keep the broker's own pipe ends open until the child exits.
+   The production `main.c` object must stay byte-identical (the broker test command checks it).
+2. Probe modes (wexelevate_probe.c, follow the existing mode style):
+   * `r8child <pidfile>`: write `pid=<GetCurrentProcessId()>`, then sleep 40 s and exit 0;
+   * `openpid <pid> <outfile>`: `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)` and write
+     `error=<0 or GetLastError()>`.
+3. Harness (test_sysrun_server.sh), inside the R13 block that runs the test broker as the recognised
+   `wexelevate.exe` (the `ln -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate.exe"` part), each case
+   setting the registry values with `reg_append` and restarting with `el_down`/`el_up`, both ABIs
+   where the probe has both:
+   * **protected**: mode 1, image the probe `r8child`; the caller probe `openpid` of the child pid as
+     `$ADM` gets error 5 (access denied); PASS name `r8_dialog_protected_open_denied_<arch>`;
+   * **control**: mode 3, same image; `openpid` gets error 0; `r8_unprotected_control_opens_<arch>`;
+   * **bad rights**: mode 2; `create_error=5`, `pid=0`, no child process; `r8_dialog_unnarrowed_refused`;
+   * lab build only (when the lab server has the trace, see below): the server log (run with
+     `WEX_EL_LOG`) has `wex-r8: dialog <id> protected`, `wex-r8: dialog <id> pin pid=<n>` where `<n>` is
+     the real Unix pid of the child (find it with `el_proc`), `image consent=0` for the probe child,
+     and for a further mode 1 run with image `C:\windows\system32\consent.exe` and args
+     `/broker /credentials`, `image consent=1`; PASS names `r8_pin_is_child_pid_<arch>`,
+     `r8_image_probe_not_dialog`, `r8_image_consent_is_dialog`.
+   Restore the registry and the broker exactly as the R13 block does afterwards.
+4. Lab trace: the lab server objects get `-DWEX_R8_SERVER_TEST`. In the lab-tree build used by the
+   harness (see unsloth-tmp/wo4-verify.sh for the pattern) rebuild `server/process.o server/request.o
+   server/sysrun.o server/handle.o` with `CFLAGS="-g -O2 -DWEX_E1S6_TRANSPORT_TEST -DWEX_R8_SERVER_TEST"`;
+   the normal build has no trace, so the trace cases are skipped there and only the protected,
+   control and bad-rights cases run.
+
+Check: the broker test command passes; `WINE_BUILD_DIR=/root/WE-prefetch/build/wow64 bash
+scripts/test_sysrun_server.sh` as root in wexbuild passes with the new cases (was 320 PASS); report the
+PASS count and the new PASS lines. Run long commands in the background and wait for them; before a
+wexbuild run check nothing else runs (`pgrep -fa 'test_e1s|e1s11-final|make -C|test_sysrun_server'`)
+and afterwards run `bash unsloth-tmp/clean-wexbuild-fixture.sh`. Never use VM B.

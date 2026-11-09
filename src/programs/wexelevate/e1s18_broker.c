@@ -836,6 +836,28 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         CloseHandle( to_d_write );
         return GetLastError();
     }
+    /* R8 step 3a: the server protects the dialog only if its ends carry exactly FILE_GENERIC_READ and
+     * FILE_GENERIC_WRITE (CreatePipe also grants attribute rights), so narrow them before their
+     * values go on the command line. */
+    {
+        HANDLE narrow_read = NULL, narrow_write = NULL;
+        if (!DuplicateHandle( GetCurrentProcess(), to_d_read, GetCurrentProcess(), &narrow_read,
+                              FILE_GENERIC_READ, FALSE, 0 )) narrow_read = NULL;
+        if (!DuplicateHandle( GetCurrentProcess(), from_d_write, GetCurrentProcess(), &narrow_write,
+                              FILE_GENERIC_WRITE, FALSE, 0 )) narrow_write = NULL;
+        CloseHandle( to_d_read );
+        CloseHandle( from_d_write );
+        to_d_read = narrow_read;
+        from_d_write = narrow_write;
+        if (!to_d_read || !from_d_write)
+        {
+            if (to_d_read) CloseHandle( to_d_read );
+            if (from_d_write) CloseHandle( from_d_write );
+            CloseHandle( to_d_write );
+            CloseHandle( from_d_read );
+            return ERROR_NOT_ENOUGH_MEMORY;
+        }
+    }
 
     for (i = 0; i < 16; i++)
         wsprintfW( token_hex + i * 2, L"%02x", channel_token[i] );
