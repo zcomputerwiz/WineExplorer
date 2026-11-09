@@ -293,7 +293,10 @@ Disable automatic restart on system failure work; items that need Vintner Boot o
 Mode boot starts only what logging on needs, never logs on automatically and changes nothing on disk; the next
 start is normal again. Safe Mode logs on through the Welcome screen, as XP does; the plain Linux logon screen
 appears only when Wine cannot start. Safe Mode with Command Prompt opens a recovery console without Wine and
-admits only root and members of `sudo`. Enable Boot Logging appends to `C:\WINDOWS\ntbtlog.txt` in the machine root. `wex-bootmode` prints the
+admits only root and members of `sudo`. When a start ends before the logon screen appears (a power failure,
+the Reset button, a hang), the next start shows "WineExplorer did not start successfully". It offers the Safe
+Modes and starts normally after 30 seconds. `wex-startup-check.service` marks a start as complete once the logon
+screen is up; `grub-editenv /boot/grub/grubenv list` shows `wex_boot_pending=1` while a start is not yet complete. Enable Boot Logging appends to `C:\WINDOWS\ntbtlog.txt` in the machine root. `wex-bootmode` prints the
 current mode. Design and tests: [SAFE_MODE.md](SAFE_MODE.md).
 
 ---

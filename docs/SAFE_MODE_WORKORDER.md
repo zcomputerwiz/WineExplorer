@@ -270,6 +270,8 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
 - The footer is one empty row below the last item, not at the bottom of the screen.
 - XP grays nothing. WineExplorer keeps graying what does not apply (`CLAUDE.md`).
 - In the OS list every line starts at column 0, and the chosen mode is bright blue on row 23, with no countdown.
+- The same changes apply to D1's failure screen, which uses the menu's layout today. On XP its text starts at
+  column 0, and the countdown sits on the row directly under the footer.
 
 **C6. `ntbtlog.txt`** (`scripts/wex-bootlog.sh`). XP writes it as UTF-16 with CRLF line ends. Each start appends a
 header line with no blank line before it, and the date follows the service pack name with no space between them.
@@ -326,29 +328,26 @@ The work:
 **D1. "WineExplorer did not start successfully".** XP shows this screen after a start that did not finish, with
 a countdown to a normal start. On the XP VM it appeared only after a reset during the boot splash, not after one
 during the firmware, the disk check or logon. It offers the three Safe Modes, Last Known Good and Start Normally
-(the default) with a 30-second countdown, and any arrow key stops the countdown and removes its line. With GRUB it
-can work now:
+(the default) with a 30-second countdown, and any arrow key stops the countdown and removes its line.
 
-- Debian's `grub.cfg` already checks `recordfail` (line 60 on the installed system), but no entry sets it, and
-  `grub-common.service` clears it as soon as `multi-user.target` starts. That is too early: section 4.4 of
-  `docs/VINTNER_BOOT.md` counts a start as good only once the logon screen is up (decision D3).
-- Add a grub.d snippet (`06_wineexplorer_recordfail`) that sets `recordfail=1` with `save_env` on every start.
-  Before setting it, keep the previous value in a variable.
-- When the value was already 1, boot the Advanced Options entry with `wexfailed=1` added. The menu then shows
-  the failure screen: Safe Mode, with Networking, with Command Prompt, Last Known Good (grayed until Vintner),
-  Start Normally. A 30-second countdown defaults to Start Normally.
-- A WineExplorer health check clears `recordfail` once the logon screen (or a setup stage screen) is up, and
-  replaces `grub-common.service`'s clear (an override of that unit). It is the same check as section 4.4 of
-  `docs/VINTNER_BOOT.md`: a unit with `Before=boot-complete.target` and `RequiredBy=boot-complete.target`. Vintner
-  counts a boot as good once `boot-complete.target` is reached, so its bless and the `recordfail` clear happen at
-  the same point.
-  - Agreed with the Vintner session on 2026-11-08; it will confirm the unit name.
-  - Its boot counters (`VINTNER_T_<g>`) are a separate mechanism from `recordfail`. The two are unified later, so
-    D1 goes ahead on GRUB without waiting.
-- Safe Mode boots and every boot through the menu write the previous value back. A good state stays good and a
-  bad one stays bad, as the owner decided (decision 3).
-- `grubenv` sits on the ext4 root, which GRUB can write. With Vintner this becomes `vintner status --json` and
-  the boot counters (`docs/VINTNER_BOOT.md` section 4.3).
+**Done (2026-11-08)**, with GRUB; `docs/SAFE_MODE.md` sections 3 and 4 describe it as built.
+- **GRUB:** `11_wineexplorer_advanced` records every start as the grubenv variable `wex_boot_pending`. Debian's
+  `recordfail` is not used: when it is set, Debian's `grub.cfg` shows GRUB's menu for 30 seconds, and
+  `grub-common.service` clears it as soon as `multi-user.target` starts, before the logon screen exists. So no
+  Debian unit is overridden. If the variable is still 1 at the next start, GRUB boots the Advanced Options entry
+  with `wexfailed=1`.
+- **Menu:** `wex-advanced-options` then shows the failure screen. The explanation is in our own words, in XP's
+  layout.
+- **Check:** `wex-startup-check.service` clears the variable once the logon screen is up. It is the check from
+  section 4.4 of `docs/VINTNER_BOOT.md` (`Before=` and `RequiredBy=boot-complete.target`), so Vintner's bless and
+  the clear happen at the same point. The Vintner session has the unit name. Vintner's boot counters
+  (`VINTNER_T_<g>`) stay separate until the two are unified.
+- **Decision 3:** a start through F8 writes the previous value back. A Safe Mode chosen on the failure screen does
+  not count either, so the screen comes back at the next start. Start Normally on it counts.
+- **Tests:** the VM test's `failed` phase passes on SeaBIOS and OVMF.
+- **With Vintner:** this becomes `vintner status --json` and the boot counters (`docs/VINTNER_BOOT.md` section 4.3).
+- **Not measured on XP:** whether a Safe Mode chosen on the failure screen goes through the operating system list
+  (here it starts at once), and whether XP shows the screen again after a Safe Mode start.
 
 **D2. Enable VGA Mode.** It stays grayed for now (decision 4: only if it is simple). X forces the `modesetting`
 driver (`scripts/20-wineexplorer-modesetting.conf`), so with no DRM device it has no fallback. `fbdev` and `vesa`
@@ -400,7 +399,7 @@ options when needed" setting is D1's countdown, so add it when D1 lands.
 
 1. A1, A2 (tests first; they check every later step).
 2. B0-B8 on the Wine branch, then C1 and C2. These need B2, or `WEXMODE` as a stopgap.
-3. D1 (GRUB), then A3 and A4.
+3. D1 (GRUB; done 2026-11-08), then A3 and A4.
 4. C1-C6 (the XP captures exist); C4's Welcome screen first, the classic dialog (Ctrl+Alt+Del twice) later. C4's
    Administrator account (decision 7) and C7's hidden accounts (decision 8) go together, C7's logon-prefix links
    first; both are optional and can come at any point.

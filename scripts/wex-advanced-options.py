@@ -7,18 +7,36 @@ wex-advanced-options.service runs it before basic.target, so no timer, socket or
 started yet. A choice writes the mode to /run/wineexplorer (gone at the next boot), reloads systemd, whose
 wex-bootmode-generator then reads it, and starts default.target. Nothing on disk changes.
 
+With wexfailed=1 as well (GRUB found that the last start did not finish), it shows XP's "did not start
+successfully" screen instead: the three Safe Modes and Start Normally, which a 30-second countdown chooses.
+
 Installed as /usr/local/sbin/wex-advanced-options. The WEX_* variables let the tests use other paths.
 """
 
 import curses
+import math
 import os
 import subprocess
 import sys
+import textwrap
+import time
 
 STATE_DIR = os.environ.get("WEX_BOOTMODE_STATE_DIR", "/run/wineexplorer")
 SETUP_STAGE = os.environ.get("WEX_BOOTMODE_SETUP_STAGE", "/etc/wineexplorer/setup/stage")
 PANIC_SYSCTL = os.environ.get("WEX_PANIC_SYSCTL", "/proc/sys/kernel/panic")
+CMDLINE = os.environ.get("WEX_BOOTMODE_CMDLINE", "/proc/cmdline")
 OS_NAME = "WineExplorer"
+COUNTDOWN = 30      # seconds, as XP's failure screen (its boot.ini timeout)
+
+# The failure screen's explanation. XP's layout (three paragraphs, then the choices); our own wording.
+FAILURE_TEXT = (
+    f"{OS_NAME} did not start successfully last time. A recent hardware or software change might have "
+    "caused this.",
+    "If your computer stopped responding, restarted by itself, or was shut down to protect your files and "
+    "folders, choose Last Known Good Configuration to go back to the most recent settings that worked.",
+    "If the last start was interrupted by a power failure or by the Power or Reset button, or if you are not "
+    f"sure what caused the problem, choose Start {OS_NAME} Normally.",
+)
 
 MODES = ("normal", "safe", "safenet", "safecmd")
 OPTIONS = ("bootlog", "debug", "norestart")
@@ -57,10 +75,34 @@ def menu_items(setup_pending):
         Item("Debugging Mode", "boot", option="debug"),
         Item("Disable automatic restart on system failure", "boot", option="norestart"),
         None,
-        Item("Start WineExplorer Normally", "start"),
+        Item(f"Start {OS_NAME} Normally", "start"),
         Item("Reboot", "reboot"),
         Item("Return to OS Choices Menu", "choices"),
     ]
+
+
+def failure_items(setup_pending):
+    """XP's "did not start successfully" list: the Safe Modes, Last Known Good and Start Normally only."""
+    safe = "Setup has not finished" if setup_pending else None
+    return [
+        Item("Safe Mode", "boot", mode="safe", unavailable=safe),
+        Item("Safe Mode with Networking", "boot", mode="safenet", unavailable=safe),
+        Item("Safe Mode with Command Prompt", "boot", mode="safecmd", unavailable=safe),
+        None,
+        Item("Last Known Good Configuration (your most recent settings that worked)", None,
+             unavailable="needs Vintner Boot"),
+        None,
+        Item(f"Start {OS_NAME} Normally", "start"),
+    ]
+
+
+def start_failed(path=None):
+    """True when GRUB found that the last start did not finish: wexfailed=1 on the command line."""
+    try:
+        with open(path or CMDLINE, encoding="ascii", errors="replace") as f:
+            return "wexfailed=1" in f.read().split()
+    except OSError:
+        return False
 
 
 def first_selectable(items):
@@ -185,6 +227,29 @@ class Screen:
             self.put(bottom - 1, self.LEFT, chosen_label, self.blue)
         self.scr.refresh()
 
+    def failure_screen(self, items, index, seconds):
+        """The explanation, the choices, and the countdown line under the footer while it runs."""
+        self.scr.erase()
+        width = self.scr.getmaxyx()[1] - self.LEFT - 1
+        row = 1
+        for paragraph in FAILURE_TEXT:
+            for line in textwrap.wrap(paragraph, width):
+                self.put(row, self.LEFT, line)
+                row += 1
+            row += 1
+        for n, item in enumerate(items):
+            if item is None:
+                continue
+            if n == index:
+                self.bar(row + n, item.label)
+            else:
+                self.put(row + n, self.ITEM, item.label, curses.A_NORMAL if item.selectable else self.gray)
+        bottom = self.bottom()
+        self.put(bottom - 2, self.LEFT, "Use the up and down arrow keys to move the highlight to your choice.")
+        if seconds is not None:
+            self.put(bottom - 1, self.LEFT, f"Seconds until {OS_NAME} starts: {seconds}")
+        self.scr.refresh()
+
 
 ENTER_KEYS = (curses.KEY_ENTER, 10, 13)
 
@@ -228,9 +293,36 @@ def run_menu(stdscr):
                 in_menu = True
 
 
+def run_failure(stdscr, clock=time.monotonic):
+    """The failure screen. Returns ("boot", mode, None). Start Normally is highlighted and chosen when the countdown
+    ends; an arrow key stops the countdown and removes its line, as on XP. A Safe Mode starts at once."""
+    screen = Screen(stdscr)
+    items = failure_items(os.path.exists(SETUP_STAGE))
+    index = len(items) - 1
+    deadline = clock() + COUNTDOWN
+    counting = True
+    flush = True
+    stdscr.timeout(250)
+    while True:
+        seconds = max(0, math.ceil(deadline - clock())) if counting else None
+        if seconds == 0:
+            return ("boot", "normal", None)
+        screen.failure_screen(items, index, seconds)
+        if flush:
+            screen.flush_input()
+            flush = False
+        key = stdscr.getch()
+        if key in (curses.KEY_UP, curses.KEY_DOWN):
+            counting = False
+            index = move(items, index, -1 if key == curses.KEY_UP else 1)
+        elif key in ENTER_KEYS:
+            item = items[index]
+            return ("boot", "normal" if item.action == "start" else item.mode, None)
+
+
 def main():
     try:
-        action, mode, option = curses.wrapper(run_menu)
+        action, mode, option = curses.wrapper(run_failure if start_failed() else run_menu)
     except Exception as error:  # never leave the machine stuck at the menu: start normally
         print(f"wex-advanced-options: {error}; starting normally", file=sys.stderr)
         action, mode, option = "boot", "normal", None

@@ -4,6 +4,13 @@
 # wexmode=menu. Its hotkey is F8: during GRUB's hidden timeout a menu hotkey boots its entry at once
 # (grub-core/normal/menu.c), so F8 at start opens the menu, as on Windows XP. Replaced by a Vintner Boot variant
 # once Vintner is the loader (docs/VINTNER_BOOT.md section 4.3).
+#
+# It also detects a start that did not finish ("WineExplorer did not start successfully"). GRUB sets
+# wex_boot_pending=1 in grubenv on every start, and wex-startup-check.service clears it once the logon screen is
+# up. If it is still 1 at the next start, that start boots this entry with wexfailed=1, and the menu shows the
+# failure screen. A start through this entry (F8) does not count either way (docs/SAFE_MODE_WORKORDER.md, decision
+# 3): the entry writes the previous value back, which on the failure screen is 1 anyway. Debian's own recordfail
+# is left alone; when it is set, GRUB's menu shows for 30 seconds.
 set -e
 
 prefix="/usr"
@@ -53,8 +60,38 @@ else
 fi
 
 title="Advanced Options for WineExplorer (F8)"
+entry_id="wex-advanced-$boot_device_id"
 
-echo "menuentry '$(echo "$title" | grub_quote)' ${CLASS} --hotkey=f8 \$menuentry_id_option 'wex-advanced-$boot_device_id' {"
+# The start-up state, before any entry boots. Menu entries see only exported variables.
+cat << 'EOF'
+set wex_last_start="${wex_boot_pending}"
+set wex_failed=
+set wex_env=
+if [ -n "${have_grubenv}" ]; then
+  set wex_env=1
+  set wex_boot_pending=1
+  save_env wex_boot_pending
+fi
+if [ "${wex_last_start}" = 1 ]; then
+  if [ -z "${boot_once}" ]; then
+    set wex_failed=wexfailed=1
+EOF
+echo "    set default='$entry_id'"
+cat << 'EOF'
+  fi
+fi
+export wex_last_start
+export wex_failed
+export wex_env
+EOF
+
+echo "menuentry '$(echo "$title" | grub_quote)' ${CLASS} --hotkey=f8 \$menuentry_id_option '$entry_id' {"
+cat << 'EOF'
+	if [ -n "${wex_env}" ]; then
+		if [ "${wex_last_start}" = 1 ]; then set wex_boot_pending=1; else set wex_boot_pending=0; fi
+		save_env wex_boot_pending
+	fi
+EOF
 if [ "x$GRUB_GFXPAYLOAD_LINUX" = x ] || [ "x$GRUB_GFXPAYLOAD_LINUX" != xtext ]; then
     echo "	load_video"
 fi
@@ -64,7 +101,7 @@ if [ x$dirname = x/ ]; then
 else
     prepare_grub_to_access_device ${GRUB_DEVICE_BOOT} | grub_add_tab
 fi
-echo "	linux	${rel_dirname}/${basename} root=${root_device} ro ${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_DEFAULT} wexmode=menu"
+echo "	linux	${rel_dirname}/${basename} root=${root_device} ro ${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_DEFAULT} wexmode=menu \${wex_failed}"
 if test -n "$initrd"; then
     echo "	initrd	${rel_dirname}/${initrd}"
 fi

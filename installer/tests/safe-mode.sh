@@ -12,11 +12,18 @@
 #   nowine       Safe Mode with Command Prompt with Wine missing: the GTK greeter takes over, and logging on still
 #                starts the recovery console (the test hides /usr/local/bin/wine for this boot only)
 #   bootlog      Enable Boot Logging: a normal start with automatic logon, and ntbtlog.txt gains driver lines
-#   startnormal  Start WineExplorer Normally: a normal start with automatic logon, timers and networking
-#   normal       no F8: automatic logon, and the boot-mode generator wrote nothing
+#   startnormal  Start WineExplorer Normally: a normal start with automatic logon, timers and networking; it does
+#                not count, so GRUB's wex_boot_pending is back at 0
+#   normal       no F8: automatic logon, the boot-mode generator wrote nothing, and the start-up check cleared
+#                wex_boot_pending
+#   failed       "did not start successfully": with the logon screen held back 90 seconds for this phase, the Reset
+#                button once Linux runs (GRUB has recorded the start), then the failure screen with its countdown;
+#                an arrow key stops it, and Safe Mode with Command Prompt from there does not count (the screen comes
+#                back at the next start); left alone, the countdown starts normally, which counts
 # Before and after every boot it records checksums of every file and link under /etc and /var/lib/AccountsService
 # and of each account's .dmrc. A boot that changes any of them fails. Every boot also reports the guest's disk use:
-# a warning from 80%, a failure from 95%.
+# a warning from 80%, a failure from 95%. Before each phase the overlay's wex_boot_pending is cleared, so a phase
+# that failed does not leave the next one on the failure screen.
 #
 #   safe-mode.sh SOURCE_VM TEST_VM [PHASE...]          (default: all phases, in the order above)
 #
@@ -40,14 +47,14 @@ SOURCE=${1:?$usage}
 TEST=${2:?$usage}
 shift 2
 PHASES=("$@")
-[ ${#PHASES[@]} -gt 0 ] || PHASES=(safe safenet safecmd nowine bootlog startnormal normal)
+[ ${#PHASES[@]} -gt 0 ] || PHASES=(safe safenet safecmd nowine bootlog startnormal normal failed)
 for name in "$SOURCE" "$TEST"; do
     [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name: $name"; exit 2; }
 done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|startnormal|normal) ;;
+        safe|safenet|safecmd|nowine|bootlog|startnormal|normal|failed) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -84,12 +91,14 @@ SAFE_MODE_FILES=(
     "755 scripts/wex-safemode-pam-check.sh usr/local/sbin/wex-safemode-pam-check.sh"
     "755 scripts/wex-advanced-options.py usr/local/sbin/wex-advanced-options"
     "755 scripts/wex-bootlog.sh usr/local/sbin/wex-bootlog"
+    "755 scripts/wex-startup-check.sh usr/local/sbin/wex-startup-check"
     "755 installer/systemd/wex-bootmode-generator usr/lib/systemd/system-generators/wex-bootmode-generator"
     "644 installer/systemd/wex-advanced-options.target lib/systemd/system/wex-advanced-options.target"
     "644 installer/systemd/wex-advanced-options.service lib/systemd/system/wex-advanced-options.service"
     "644 installer/systemd/wex-safemode.target lib/systemd/system/wex-safemode.target"
     "644 installer/systemd/wex-safenet.target lib/systemd/system/wex-safenet.target"
     "644 installer/systemd/wex-bootlog.service lib/systemd/system/wex-bootlog.service"
+    "644 installer/systemd/wex-startup-check.service lib/systemd/system/wex-startup-check.service"
     "755 installer/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_advanced etc/grub.d/11_wineexplorer_advanced"
 )
 # What the implementation before docs/SAFE_MODE.md installed; dpkg removes these when the package is upgraded.
@@ -290,6 +299,60 @@ desktop() {   # desktop TIMEOUT
     shot desktop
 }
 
+wait_serial() {   # wait_serial TIMEOUT: until the serial console answers; vmtest.py sh waits 15 s for a login prompt
+    local end=$((SECONDS + $1))
+    while [ "$SECONDS" -lt "$end" ]; do
+        gsh 'echo serial=up' 10 2>/dev/null | grep -q '^serial=up' && return 0
+        sleep 3
+    done
+    return 1
+}
+
+expect_pending() {   # expect_pending 0|1|unset: GRUB's wex_boot_pending (11_wineexplorer_advanced) in the guest
+    local out
+    out=$(gsh 'v=$(grub-editenv /boot/grub/grubenv list | sed -n "s/^wex_boot_pending=//p"); echo "pending=${v:-unset}"' \
+        | grep '^pending=' | tail -n 1)
+    echo "  wex_boot_$out"
+    [ "$out" = "pending=$1" ] || fail "expected wex_boot_pending=$1 in grubenv: ${out:-no answer}"
+}
+
+expect_check() {   # the start-up check (scripts/wex-startup-check.sh) finished without error this boot. Its verdict
+                   # is in the system journal, which the test user cannot read; expect_pending shows whether it counted.
+    local out
+    out=$(gsh 'systemctl show -p ActiveState -p Result wex-startup-check.service | tr "\n" " "' | grep 'ActiveState=' | tail -n 1)
+    echo "  start-up check: $out"
+    case " $out " in
+        *" ActiveState=active "*) case " $out " in *" Result=success "*) return 0 ;; esac ;;
+    esac
+    fail "the start-up check did not finish successfully: ${out:-no answer}"
+}
+
+# the pattern scripts/wex-startup-check.sh uses for the Welcome screen (scripts/test_safemode.py keeps them equal)
+LOGONUI_PATTERN='^([^ ]*[\/])?logonui\.exe( |$)'
+
+expect_logonui_process() {   # on the Welcome screen: the start-up check's pattern finds logonui.exe, and only it
+    local out
+    out=$(gsh "pgrep -u lightdm -a -f logonui | cut -c1-150; echo matched=\$(pgrep -u lightdm -f '$LOGONUI_PATTERN' | wc -l)")
+    sed 's/^/  lightdm: /' <<< "$out" | grep -v '^  lightdm: $'
+    grep -qx 'matched=1' <<< "$out" || fail "the start-up check's pattern does not match exactly one logonui.exe process"
+}
+
+countdown() {   # the failure screen's countdown, or nothing when its line is gone
+    "${V[@]}" text "$TEST" | sed -n 's/.*Seconds until WineExplorer starts: *\([0-9][0-9]*\).*/\1/p' | head -n 1
+}
+
+failure_screen() {   # "WineExplorer did not start successfully", with its countdown running
+    local first second
+    wait_text "did not start successfully" 240 || fail "no failure screen"
+    shot failure
+    first=$(countdown)
+    sleep 3
+    second=$(countdown)
+    echo "  failure screen; countdown ${first:-?}, three seconds later ${second:-?}"
+    [ -n "$first" ] && [ -n "$second" ] || fail "no countdown on the failure screen"
+    [ "$second" -lt "$first" ] || fail "the countdown does not count down ($first, then $second)"
+}
+
 programs_32_64() {   # the regression check: Wine's 32-bit (syswow64) and 64-bit (system32) Notepad open
     local bits dir
     for bits in 32 64; do
@@ -308,6 +371,7 @@ phase_safe() {
     menu_choice 0 "Safe Mode"
     logon_screen
     expect_state mode=safe default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
+    expect_logonui_process
     logon
     desktop 400
     expect_session_mode safe
@@ -329,6 +393,7 @@ phase_safecmd() {
     menu_choice 2 "Safe Mode with Command Prompt"
     logon_screen
     expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
+    expect_pending 0
     logon
     recovery_console
     shutdown_vm
@@ -376,6 +441,8 @@ phase_startnormal() {
     "${V[@]}" key "$TEST" ret >/dev/null
     desktop 600
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
+    expect_check
+    expect_pending 0   # not counted: the Advanced Options entry wrote the previous value back
     expect_session_mode normal
     shutdown_vm
 }
@@ -387,6 +454,46 @@ phase_normal() {
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
     out=$(gsh 'echo early=$(ls -A /run/systemd/generator.early 2>/dev/null | grep -c -E "^(default|timers)\.target$")' | grep '^early=')
     [ "$out" = early=0 ] || fail "the boot-mode generator wrote units in a normal start ($out)"
+    expect_check
+    expect_pending unset   # counted: the check cleared it
+    expect_session_mode normal
+    shutdown_vm
+}
+
+phase_failed() {   # the main loop holds the logon screen back for this phase (delay_logon)
+    local try
+    # Once the serial console answers, Linux runs and GRUB has recorded this start, and the logon screen is still
+    # held back: the Reset button now ends a start that did not finish, as the XP capture was made (a reset during
+    # the boot splash). An automatic logon follows Linux within seconds, too soon to reset reliably without the hold.
+    start_vm
+    sleep 15
+    wait_serial 150 || fail "the serial console did not answer"
+    expect_pending 1
+    "${V[@]}" reset "$TEST" >/dev/null || fail "the Reset button did not work"
+    echo "  reset before the logon screen"
+    failure_screen
+    # Up stops the countdown, removes its line and, over the grayed Last Known Good, highlights Safe Mode with
+    # Command Prompt, which starts at once
+    for try in 1 2 3; do
+        "${V[@]}" key "$TEST" up >/dev/null
+        sleep 1.5
+        [ -z "$(countdown)" ] && break
+        [ "$try" = 3 ] && fail "Up did not stop the countdown"
+    done
+    shot stopped
+    "${V[@]}" key "$TEST" ret >/dev/null
+    logon_screen
+    expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
+    expect_pending 1   # a Safe Mode start from the failure screen does not count
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    # so the next start shows the screen again; left alone, its countdown starts normally, and that start counts
+    start_vm
+    failure_screen
+    desktop 600
+    expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
+    expect_check
+    expect_pending unset   # Start Normally on the failure screen counts
     expect_session_mode normal
     shutdown_vm
 }
@@ -471,9 +578,28 @@ grep -q 'wexmode=menu' "$MNT/boot/grub/grub.cfg" && grep -q -- '--hotkey=f8' "$M
     || { detach; die "grub.cfg has no Advanced Options entry with the F8 hotkey"; }
 grep -q 'wex-safemode-pam-check.sh autologin' "$MNT/etc/pam.d/lightdm-autologin" \
     || { detach; die "/etc/pam.d/lightdm-autologin does not consult the boot mode"; }
+grep -q 'save_env wex_boot_pending' "$MNT/boot/grub/grub.cfg" \
+    || { detach; die "grub.cfg does not record unfinished starts (wex_boot_pending)"; }
+[ -L "$MNT/etc/systemd/system/multi-user.target.wants/wex-startup-check.service" ] \
+    || { detach; die "wex-startup-check.service is not enabled"; }
 detach
 
 # ---- the phases ----
+
+LOGON_DELAY=usr/lib/systemd/system/lightdm.service.d/wex-test-delay.conf
+delay_logon() {   # delay_logon on|off: LightDM starts 90 seconds late for the failed phase (outside the records)
+    attach rw || return 1
+    if [ "$1" = on ]; then
+        mkdir -p "$(dirname "$MNT/$LOGON_DELAY")" &&
+            printf '%s\n' '# installer/tests/safe-mode.sh, failed phase only' '[Service]' 'ExecStartPre=/bin/sleep 90' \
+                > "$MNT/$LOGON_DELAY"
+    else
+        rm -f "$MNT/$LOGON_DELAY"
+    fi
+    local rc=$?
+    detach
+    return $rc
+}
 
 hide_wine() {   # hide_wine on|off: /usr/local/bin/wine away for the nowine phase, and back (outside the records)
     attach rw || return 1
@@ -487,11 +613,25 @@ hide_wine() {   # hide_wine on|off: /usr/local/bin/wine away for the nowine phas
     return $rc
 }
 
+clear_pending() {   # every phase starts from a start that counted; say so when the last one did not
+    local value
+    attach rw || return 1
+    value=$(grub-editenv "$MNT/boot/grub/grubenv" list | sed -n 's/^wex_boot_pending=//p')
+    if [ "$value" = 1 ]; then echo "  (the start before $PHASE did not count; wex_boot_pending cleared)"; fi
+    grub-editenv "$MNT/boot/grub/grubenv" unset wex_boot_pending
+    local rc=$?
+    detach
+    return $rc
+}
+
+command -v grub-editenv >/dev/null || die "grub-editenv is missing (package grub-common)"
 overall=0
 summary=()
 for PHASE in "${PHASES[@]}"; do
     snapshot "$OUT/before-$PHASE.txt" || die "cannot record the configuration before $PHASE"
+    clear_pending || die "cannot clear wex_boot_pending before $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine on || die "cannot hide /usr/local/bin/wine"; fi
+    if [ "$PHASE" = failed ]; then delay_logon on || die "cannot hold the logon screen back"; fi
     echo "=== $PHASE ($(date +%T))"
     ( "phase_$PHASE" ) 2>&1 | tee "$OUT/$PHASE.log"
     rc=${PIPESTATUS[0]}
@@ -500,6 +640,7 @@ for PHASE in "${PHASES[@]}"; do
     fi
     wait_off 60 || die "$TEST did not stop after $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine off || die "cannot put /usr/local/bin/wine back"; fi
+    if [ "$PHASE" = failed ]; then delay_logon off || die "cannot remove the logon delay"; fi
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
     if ! diff -u "$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt" > "$OUT/$PHASE-changes.diff"; then
         echo "FAIL ($PHASE): the boot changed files under /etc, /var/lib/AccountsService or a .dmrc:"

@@ -228,6 +228,7 @@ cp "$ROOT_DIR/scripts/wex-bootmode.sh" "$STAGE_SESSION/usr/local/bin/wex-bootmod
 cp "$ROOT_DIR/scripts/wex-safemode-pam-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-safemode-pam-check.sh"
 cp "$ROOT_DIR/scripts/wex-advanced-options.py" "$STAGE_SESSION/usr/local/sbin/wex-advanced-options"
 cp "$ROOT_DIR/scripts/wex-bootlog.sh" "$STAGE_SESSION/usr/local/sbin/wex-bootlog"
+cp "$ROOT_DIR/scripts/wex-startup-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-startup-check"
 install -D -m755 "$SCRIPT_DIR/systemd/wex-bootmode-generator" "$STAGE_SESSION/usr/lib/systemd/system-generators/wex-bootmode-generator"
 cp "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$STAGE_SESSION/usr/local/bin/wex-gui-setup.sh"
 cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
@@ -269,7 +270,7 @@ cp "$SCRIPT_DIR/systemd/wex-textsetup.service" "$STAGE_SESSION/lib/systemd/syste
 cp "$SCRIPT_DIR/systemd/wex-setup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
 for unit in wex-advanced-options.target wex-advanced-options.service wex-safemode.target wex-safenet.target \
-            wex-bootlog.service; do
+            wex-bootlog.service wex-startup-check.service; do
     cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
@@ -331,6 +332,8 @@ fi
 if [ -f /etc/pam.d/lightdm-autologin ]; then
     echo "account requisite pam_exec.so quiet /usr/local/sbin/wex-safemode-pam-check.sh autologin" >> /etc/pam.d/lightdm-autologin
 fi
+# The start-up check clears GRUB's wex_boot_pending once the logon screen is up ("did not start successfully").
+systemctl enable wex-startup-check.service || true
 
 systemctl daemon-reload || true
 systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service || true

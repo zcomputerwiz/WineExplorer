@@ -292,7 +292,8 @@ Design: `docs/SAFE_MODE.md`. Remaining work, owner decisions and order: `docs/SA
 - Windows programs seeing Safe Mode, on the Wine branch (B);
 - the Safe Mode desktop, 640x480, the classic logon dialog, and XP's menu layout and boot log (C);
 - the Administrator account and the registry's hidden accounts (C4, C7; optional);
-- the start-up failure screen through GRUB's `recordfail` (D1).
+- the start-up failure screen, "WineExplorer did not start successfully" (D1). Done 2026-11-08 for GRUB; Vintner
+  takes it over with its boot counters.
 
 The boot-loader side (Last Known Good, the failure screen's boot counting) waits on Vintner Boot
 (`docs/VINTNER_BOOT.md`). XP reference captures are kept only in the local-only repository (`docs/ASSETS.md`).

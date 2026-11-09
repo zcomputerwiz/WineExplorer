@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -19,6 +20,7 @@ GRUB_ENTRY = REPO_ROOT / "installer" / "live-build" / "config" / "includes.chroo
 BOOTMODE = SCRIPTS / "wex-bootmode.sh"
 GENERATOR = SYSTEMD / "wex-bootmode-generator"
 PAM_CHECK = SCRIPTS / "wex-safemode-pam-check.sh"
+STARTUP_CHECK = SCRIPTS / "wex-startup-check.sh"
 PACKAGE = REPO_ROOT / "installer" / "package-wine.sh"
 VM_TEST = REPO_ROOT / "installer" / "tests" / "safe-mode.sh"
 
@@ -47,7 +49,7 @@ class TempDirTest(unittest.TestCase):
 
 class TestSyntax(unittest.TestCase):
     def test_shell_scripts_parse(self):
-        for script in (BOOTMODE, GENERATOR, PAM_CHECK, SCRIPTS / "wex-bootlog.sh", GRUB_ENTRY):
+        for script in (BOOTMODE, GENERATOR, PAM_CHECK, STARTUP_CHECK, SCRIPTS / "wex-bootlog.sh", GRUB_ENTRY):
             result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         for script in (SCRIPTS / "wex-greeter.sh", SCRIPTS / "wine-explorer-session.sh",
@@ -182,7 +184,109 @@ class TestPamCheck(TempDirTest):
         self.assertEqual(self.check("safecmd", None).returncode, 1)
 
 
+class TestStartupCheck(TempDirTest):
+    """wex-startup-check.sh: which starts count, and when a counted start clears GRUB's wex_boot_pending."""
+
+    WELCOME = "lightdm|C:\\windows\\system32\\logonui.exe"
+    GTK = "lightdm|/usr/sbin/lightdm-gtk-greeter"
+
+    def check(self, cmdline="root=UUID=x ro quiet", mode="normal", processes=(), sessions="",
+              session_class="", session_type="", active="", stage=False):
+        """processes: "user|command line" entries that the fake pgrep matches its -u and -f pattern against."""
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        log = self.tmp / "grub-editenv.log"
+        log.unlink(missing_ok=True)
+        fakes = {
+            "grub-editenv": 'echo "$*" >> "$LOG"\n',
+            "pgrep": 'user=\nwhile [ $# -gt 1 ]; do\n    case "$1" in -u) user=$2; shift 2 ;; *) shift ;; esac\ndone\n'
+                     'printf "%s\\n" "$FAKE_PROCS" | while IFS="|" read -r u cmd; do\n'
+                     '    [ "$u" = "$user" ] && printf "%s\\n" "$cmd"\ndone | grep -Eq -- "$1"\n',
+            "loginctl": 'case "$1" in\n    list-sessions) [ -z "$FAKE_SESSIONS" ] || echo "$FAKE_SESSIONS" ;;\n'
+                        '    show-session) case "$4" in Class) echo "$FAKE_CLASS" ;; Type) echo "$FAKE_TYPE" ;; esac ;;\n'
+                        'esac\n',
+            "systemctl": '[ "$2" = is-active ] && [ "$3" = "$FAKE_ACTIVE" ]\n',
+        }
+        for name, body in fakes.items():
+            (bin_dir / name).write_text("#!/bin/sh\n" + body, encoding="ascii")
+            (bin_dir / name).chmod(0o755)
+        cmdline_file = self.tmp / "cmdline"
+        cmdline_file.write_text(cmdline + "\n", encoding="ascii")
+        grubenv = self.tmp / "grubenv"
+        grubenv.touch()
+        stage_file = self.tmp / "stage"
+        if stage:
+            stage_file.touch()
+        else:
+            stage_file.unlink(missing_ok=True)
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "LOG": str(log), "WEX_BOOTMODE_CMDLINE": str(cmdline_file),
+               "WEX_BOOTMODE_HELPER": self.fake_helper(mode), "WEX_BOOTMODE_SETUP_STAGE": str(stage_file),
+               "WEX_GRUBENV": str(grubenv), "WEX_STARTUP_TIMEOUT": "0", "WEX_STARTUP_INTERVAL": "0",
+               "FAKE_PROCS": "\n".join(processes), "FAKE_SESSIONS": sessions, "FAKE_CLASS": session_class, "FAKE_TYPE": session_type,
+               "FAKE_ACTIVE": active}
+        result = subprocess.run(["sh", str(STARTUP_CHECK)], env=env, capture_output=True, text=True, timeout=30)
+        cleared = log.exists() and f"{grubenv} unset wex_boot_pending" in log.read_text()
+        return result.returncode, cleared, result.stdout
+
+    def test_the_logon_screen_counts(self):
+        status, cleared, out = self.check(processes=[self.WELCOME])
+        self.assertEqual((status, cleared), (0, True))
+        self.assertIn("the Welcome screen is up", out)
+        self.assertIn("counts as successful", out)
+        self.assertEqual(self.check(processes=["lightdm|logonui.exe"])[:2], (0, True))
+        status, cleared, out = self.check(processes=[self.GTK])
+        self.assertEqual((status, cleared), (0, True))
+        self.assertIn("the GTK greeter is up", out)
+
+    def test_explorer_starting_the_logon_screen_does_not_count(self):
+        """Explorer's command line names logonui.exe before the Welcome screen exists; Wine may still fail there."""
+        starting = ["lightdm|/usr/local/bin/wine explorer.exe /desktop=Logon,1024x768 logonui.exe",
+                    "lightdm|C:\\windows\\system32\\explorer.exe /desktop=Logon,1024x768 logonui.exe",
+                    "lightdm|/bin/bash /usr/local/bin/wex-greeter.sh"]
+        self.assertEqual(self.check(processes=starting)[:2], (1, False))
+        self.assertEqual(self.check(processes=["wineuser|C:\\windows\\system32\\logonui.exe"])[:2], (1, False))
+        self.assertEqual(self.check(processes=starting + [self.WELCOME])[:2], (0, True))
+
+    def test_the_vm_test_looks_for_the_same_process(self):
+        script = STARTUP_CHECK.read_text(encoding="utf-8")
+        pattern = re.search(r"^LOGONUI_PATTERN='([^']*)'$", VM_TEST.read_text(encoding="utf-8"), re.M).group(1)
+        self.assertIn(f"pgrep -u lightdm -f '{pattern}'", script)
+
+    def test_an_automatic_logon_counts_a_console_logon_does_not(self):
+        session = "3 1000 wineuser seat0 tty7"
+        for kind in ("x11", "wayland"):
+            self.assertEqual(self.check(sessions=session, session_class="user", session_type=kind)[:2], (0, True))
+        self.assertEqual(self.check(sessions=session, session_class="user", session_type="tty")[:2], (1, False))
+        self.assertEqual(self.check(sessions=session, session_class="greeter", session_type="x11")[:2], (1, False))
+
+    def test_a_setup_stage_counts(self):
+        self.assertEqual(self.check(stage=True, active="wex-setup.service")[:2], (0, True))
+        self.assertEqual(self.check(stage=True, active="wex-oobe.service")[:2], (0, True))
+        self.assertEqual(self.check(stage=False, active="wex-setup.service")[:2], (1, False))
+
+    def test_no_logon_screen_is_a_failed_start(self):
+        status, cleared, out = self.check()
+        self.assertEqual((status, cleared), (1, False))
+        self.assertIn("counts as failed", out)
+
+    def test_menu_starts_do_not_count(self):
+        for mode in ("normal", "safe", "safecmd"):
+            status, cleared, out = self.check(cmdline="ro quiet wexmode=menu", mode=mode, processes=[self.WELCOME])
+            self.assertEqual((status, cleared), (0, False), mode)
+            self.assertIn("not counted", out)
+
+    def test_start_normally_on_the_failure_screen_counts(self):
+        failed = "ro quiet wexmode=menu wexfailed=1"
+        self.assertEqual(self.check(cmdline=failed, mode="normal", processes=[self.WELCOME])[:2], (0, True))
+        for mode in ("safe", "safenet", "safecmd"):
+            status, cleared, out = self.check(cmdline=failed, mode=mode, processes=[self.WELCOME])
+            self.assertEqual((status, cleared), (0, False), mode)
+            self.assertIn("failure screen", out)
+
+
 class FakeScreen:
+    shown = []      # (index, seconds) of every failure screen drawn
+
     def __init__(self, stdscr):
         pass
 
@@ -192,16 +296,41 @@ class FakeScreen:
     def os_choices(self, chosen_label):
         pass
 
+    def failure_screen(self, items, index, seconds):
+        FakeScreen.shown.append((index, seconds))
+
     def flush_input(self):
         pass
 
 
 class FakeStdscr:
-    def __init__(self, keys):
+    """Keys in order; -1 is getch's timeout (no key). Each getch call advances the clock by `step` seconds."""
+
+    def __init__(self, keys, clock=None, step=0.0):
         self.keys = list(keys)
+        self.clock = clock
+        self.step = step
+
+    def timeout(self, ms):
+        pass
 
     def getch(self):
-        return self.keys.pop(0)
+        if self.clock is None:
+            if not self.keys:
+                raise AssertionError("the menu asked for more keys than the test gave")
+            return self.keys.pop(0)
+        self.clock.now += self.step
+        if self.clock.now > 1000:
+            raise AssertionError("the failure screen never ended")
+        return self.keys.pop(0) if self.keys else -1
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 100.0
+
+    def __call__(self):
+        return self.now
 
 
 class TestMenu(TempDirTest):
@@ -254,6 +383,55 @@ class TestMenu(TempDirTest):
         self.assertEqual(self.run_keys(*[down] * 7, enter), ("reboot", None, None))
         self.assertEqual(self.run_keys(*[down] * 8, enter, enter), ("boot", "normal", None))  # OS Choices
         self.assertEqual(self.run_keys(down, up, enter, enter), ("boot", "safe", None))
+
+    def test_failure_screen_items_follow_xp(self):
+        items = self.menu.failure_items(False)
+        self.assertEqual([item.label if item else None for item in items], [
+            "Safe Mode", "Safe Mode with Networking", "Safe Mode with Command Prompt", None,
+            "Last Known Good Configuration (your most recent settings that worked)", None,
+            "Start WineExplorer Normally"])
+        self.assertEqual([item.label for item in items if item and not item.selectable],
+                         ["Last Known Good Configuration (your most recent settings that worked)"])
+        pending = [item.label for item in self.menu.failure_items(True) if item and item.selectable]
+        self.assertEqual(pending, ["Start WineExplorer Normally"])
+
+    def run_failure(self, keys, step):
+        FakeScreen.shown = []
+        clock = FakeClock()
+        return self.menu.run_failure(FakeStdscr(keys, clock, step), clock=clock)
+
+    def test_failure_screen_countdown_starts_normally(self):
+        self.assertEqual(self.run_failure([], 0.25), ("boot", "normal", None))
+        seconds = [s for _, s in FakeScreen.shown]
+        self.assertEqual(seconds[0], 30)
+        self.assertEqual(min(seconds), 1)
+        self.assertEqual(seconds, sorted(seconds, reverse=True))
+        self.assertTrue(all(index == 6 for index, _ in FakeScreen.shown), "Start Normally is highlighted")
+
+    def test_failure_screen_arrow_stops_the_countdown(self):
+        enter, up = 10, curses.KEY_UP
+        # Up skips the grayed Last Known Good; the countdown line goes; waiting then chooses nothing
+        self.assertEqual(self.run_failure([-1, up, *[-1] * 200, enter], 0.25), ("boot", "safecmd", None))
+        after = FakeScreen.shown[2:]
+        self.assertTrue(after and all(seconds is None for _, seconds in after))
+        self.assertEqual(after[-1][0], 2)
+        self.assertEqual(self.run_failure([curses.KEY_DOWN, enter], 0.25), ("boot", "normal", None))
+        self.assertEqual(self.run_failure([enter], 0.25), ("boot", "normal", None))
+        self.assertEqual(self.run_failure([up, up, up, enter], 0.25), ("boot", "safe", None))
+
+    def test_failure_screen_needs_wexfailed(self):
+        cmdline = self.tmp / "cmdline"
+        cmdline.write_text("root=UUID=x ro quiet wexmode=menu wexfailed=1\n", encoding="ascii")
+        self.assertTrue(self.menu.start_failed(str(cmdline)))
+        cmdline.write_text("root=UUID=x ro quiet wexmode=menu \n", encoding="ascii")
+        self.assertFalse(self.menu.start_failed(str(cmdline)))
+        self.assertFalse(self.menu.start_failed(str(self.tmp / "missing")))
+
+    def test_failure_text_fits_the_console(self):
+        width = 80 - load_menu().Screen.LEFT - 1      # setUp replaced self.menu.Screen
+        lines = sum(len(textwrap.wrap(p, width)) + 1 for p in self.menu.FAILURE_TEXT)
+        # explanation, the seven list rows, a blank row, the footer and the countdown on a 25-row console
+        self.assertLessEqual(1 + lines + 7 + 1 + 2, 24)
 
     def test_apply_safe_mode(self):
         self.menu.apply_choice("safe", run=self.fake_run)
@@ -364,6 +542,69 @@ class TestUnitsAndGrub(unittest.TestCase):
         self.assertIn("11_wineexplorer_advanced", screens)
         self.assertNotIn("11_wineexplorer_safemode", screens)
 
+    def test_startup_check_unit(self):
+        unit = (SYSTEMD / "wex-startup-check.service").read_text(encoding="utf-8")
+        for line in ("Type=oneshot", "ExecStart=/usr/local/sbin/wex-startup-check", "Before=boot-complete.target",
+                     "WantedBy=multi-user.target", "RequiredBy=boot-complete.target"):
+            self.assertIn(line, unit.splitlines())
+        # Vintner's CI found systemd cuts status lines at 80 columns on serial (docs/VINTNER_BOOT.md section 4.4)
+        self.assertLess(len(re.search(r"^Description=(.*)$", unit, re.M).group(1)), 30)
+
+
+# grub-mkconfig_lib's functions, as far as 11_wineexplorer_advanced uses them
+FAKE_GRUB_LIB = r"""
+grub_file_is_not_garbage() { test -f "$1"; }
+version_sort() { sort -V "$@"; }
+make_system_path_relative_to_its_root() { echo /boot; }
+grub_get_device_id() { echo testid; }
+prepare_grub_to_access_device() { echo "insmod ext2"; }
+grub_add_tab() { sed -e 's/^/\t/'; }
+grub_quote() { cat; }
+uses_abstraction() { return 1; }
+"""
+
+
+class TestGrubOutput(TempDirTest):
+    """What 11_wineexplorer_advanced adds to grub.cfg. GRUB's own syntax check runs in update-grub (the VM test)."""
+
+    def generate(self):
+        boot = self.tmp / "boot"
+        boot.mkdir()
+        (boot / "vmlinuz-6.12.1-amd64").write_text("kernel", encoding="ascii")
+        (boot / "initrd.img-6.12.1-amd64").write_text("initrd", encoding="ascii")
+        (self.tmp / "grub-mkconfig_lib").write_text(FAKE_GRUB_LIB, encoding="ascii")
+        source = GRUB_ENTRY.read_text(encoding="utf-8")
+        kernels = "/boot/vmlinuz-* /vmlinuz-* /boot/kernel-*"
+        self.assertIn(kernels, source)
+        script = self.tmp / "11_test"
+        script.write_text(source.replace(kernels, f"{boot}/vmlinuz-*"), encoding="utf-8")
+        env = {"PATH": os.environ["PATH"], "pkgdatadir": str(self.tmp), "GRUB_DEVICE": "/dev/vda4",
+               "GRUB_DEVICE_BOOT": "/dev/vda4", "GRUB_CMDLINE_LINUX": "", "GRUB_CMDLINE_LINUX_DEFAULT": "quiet"}
+        return subprocess.run(["sh", str(script)], env=env, capture_output=True, text=True, check=True).stdout
+
+    def test_records_every_start_and_boots_the_failure_screen(self):
+        cfg = self.generate()
+        entry = cfg.index("menuentry 'Advanced Options for WineExplorer (F8)'")
+        head, body = cfg[:entry], cfg[entry:]
+        # before any entry boots: remember the last start, mark this one, and choose the failure screen if needed
+        self.assertIn('set wex_last_start="${wex_boot_pending}"', head)
+        self.assertLess(head.index("set wex_boot_pending=1"), head.index("save_env wex_boot_pending"))
+        self.assertIn('if [ -n "${have_grubenv}" ]; then', head)
+        self.assertIn("set wex_failed=wexfailed=1", head)
+        self.assertIn("set default='wex-advanced-testid'", head)
+        self.assertIn('if [ -z "${boot_once}" ]; then', head)
+        for name in ("wex_last_start", "wex_failed", "wex_env"):
+            self.assertIn(f"export {name}", head)
+        self.assertNotIn("recordfail", cfg)
+        # the entry: --id and hotkey as before, the previous value written back, wexfailed passed on
+        self.assertIn("--hotkey=f8 $menuentry_id_option 'wex-advanced-testid' {", body)
+        self.assertIn('if [ "${wex_last_start}" = 1 ]; then set wex_boot_pending=1; else set wex_boot_pending=0; fi',
+                      body)
+        self.assertLess(body.index("save_env wex_boot_pending"), body.index("\tlinux\t"))
+        linux = next(line for line in body.splitlines() if line.startswith("\tlinux\t"))
+        self.assertTrue(linux.endswith("quiet wexmode=menu ${wex_failed}"), linux)
+        self.assertEqual(cfg.count("{"), cfg.count("}"))
+
 
 class TestPackage(TempDirTest):
     def safe_mode_block(self):
@@ -380,8 +621,11 @@ class TestPackage(TempDirTest):
         script = PACKAGE.read_text(encoding="utf-8")
         for piece in ("wex-bootmode.sh", "wex-advanced-options.py", "wex-bootlog.sh", "wex-bootmode-generator",
                       "system-generators", "wex-advanced-options.target", "wex-safemode.target",
-                      "wex-safenet.target", "wex-bootlog.service", "11_wineexplorer_advanced"):
+                      "wex-safenet.target", "wex-bootlog.service", "11_wineexplorer_advanced",
+                      "wex-startup-check.sh", "wex-startup-check.service"):
             self.assertIn(piece, script)
+        self.assertIn("systemctl enable wex-startup-check.service", self.safe_mode_block(),
+                      "the VM test runs only the postinst's Safe Mode part, so the unit is enabled there")
         self.assertFalse("scripts/wex-safemode-setup.sh" in script, "the old setup script is still packaged")
         self.assertFalse("xsessions/wex-safe-terminal.desktop" in script, "the old session is still packaged")
         self.assertIsNone(re.search(r"systemctl enable [^\n]*wex-safemode", script))
@@ -406,7 +650,8 @@ class TestPackage(TempDirTest):
                       "wex-safemode-pam-check.sh", "wex-greeter.sh", "wine-explorer-session.sh",
                       "wine-explorer-session-common.sh", "wex-safe-terminal.sh", "wex-advanced-options.target",
                       "wex-advanced-options.service", "wex-safemode.target", "wex-safenet.target",
-                      "wex-bootlog.service", "11_wineexplorer_advanced"):
+                      "wex-bootlog.service", "11_wineexplorer_advanced", "wex-startup-check.sh",
+                      "wex-startup-check.service"):
             self.assertIn(piece, sources, f"the VM test does not install {piece}")
 
     def test_postinst_migrates_and_is_idempotent(self):
@@ -424,8 +669,15 @@ class TestPackage(TempDirTest):
         (acc / "alice").write_text("[User]\nSession=wex-safe-terminal\nXSession=wex-safe-terminal\n")
         (acc / "carol").write_text("[User]\nSession=wine-explorer-wayland\n")
         block = self.safe_mode_block()
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "systemctl").write_text('#!/bin/sh\necho "$*" >> "$LOG"\n', encoding="ascii")
+        (bin_dir / "systemctl").chmod(0o755)
+        log = self.tmp / "systemctl.log"
+        env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", LOG=str(log))
         for _ in range(2):
-            subprocess.run(["sh", "-e", "-c", block], check=True)
+            subprocess.run(["sh", "-e", "-c", block], check=True, env=env)
+        self.assertEqual(log.read_text().splitlines(), ["enable wex-startup-check.service"] * 2)
         lightdm = (etc / "pam.d/lightdm").read_text()
         self.assertEqual(lightdm.count("wex-safemode-pam-check.sh"), 1)
         self.assertTrue(lightdm.rstrip().endswith(

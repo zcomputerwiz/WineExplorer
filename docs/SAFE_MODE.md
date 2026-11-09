@@ -101,6 +101,35 @@ WineExplorer" with `wexmode=menu` and `--hotkey=f8`. During GRUB's hidden timeou
 directly (`grub-core/normal/menu.c`), so pressing F8 at start opens the menu as on XP. With Vintner this becomes
 the one variant with `wexmode=menu` (`docs/VINTNER_BOOT.md` section 4.3).
 
+**A start that did not finish (GRUB, until Vintner).** XP shows "Windows did not start successfully" when the last
+start ended before it was complete. Here `11_wineexplorer_advanced` also adds code that GRUB runs before any entry
+boots:
+
+- It remembers the grubenv variable `wex_boot_pending` and sets it to 1 (`save_env`).
+- If it was already 1, it makes the Advanced Options entry the default for this start and passes `wexfailed=1`, so
+  the menu shows the failure screen (section 4). A one-time entry chosen with `grub-reboot` still wins.
+- The Advanced Options entry writes the remembered value back before it loads Linux. A start through F8 therefore
+  leaves the state as it was, whatever happens (`docs/SAFE_MODE_WORKORDER.md`, decision 3). On the failure screen
+  that value is 1, so that start counts as an ordinary one.
+
+`wex-startup-check.service` (`scripts/wex-startup-check.sh`) clears the variable once the start is complete, which
+here means the logon screen is up:
+
+- `logonui.exe` or the GTK greeter runs for the `lightdm` account. The program itself must be running: Explorer's
+  `/desktop=Logon,... logonui.exe` command line names it before the Welcome screen exists, and a Wine that fails at
+  that point must not count;
+- or there is a graphical session after an automatic logon (a console or serial logon does not count);
+- or, while Setup runs, `wex-setup.service` or `wex-oobe.service` is active.
+
+It waits up to 15 minutes, enough for a prefix update after a Wine update, and otherwise fails and leaves the
+variable set. Starts through the Advanced Options menu are not counted, except Start Normally on the failure screen.
+Safe Mode boots do not reach `multi-user.target`, so the check does not run in them.
+
+The unit is ordered before `boot-complete.target`, where Vintner Boot marks a start good (`docs/VINTNER_BOOT.md`
+section 4.4), so the same check serves both loaders. Debian's own `recordfail` is not used. When it is set, Debian's
+`grub.cfg` shows GRUB's menu for 30 seconds, and `grub-common.service` clears it as soon as `multi-user.target`
+starts, before the logon screen exists.
+
 ## 4. The Advanced Options menu
 
 `wex-advanced-options` (Python, curses) runs on `tty1` when the mode is `menu`, before `basic.target`, so no
@@ -131,6 +160,18 @@ drawn in dark gray (bold black); the Linux console does not render the dim attri
 Safe Mode items are grayed while setup is pending. A mode choice goes to the operating system list with the mode
 at the bottom; ENTER starts it and F8 returns to the menu.
 
+**The failure screen.** With `wexfailed=1` the menu shows the "did not start successfully" screen instead, laid out
+as XP's, with an explanation in our own words.
+
+- The list is the three Safe Modes, Last Known Good Configuration (grayed until Vintner) and Start WineExplorer
+  Normally, which is highlighted.
+- "Seconds until WineExplorer starts" counts down from 30 under the footer and then starts normally.
+- An arrow key stops the countdown and removes its line, as on XP.
+- Enter on a Safe Mode starts it at once, without the operating system list. The XP captures did not cover that
+  case.
+- The screen uses the menu's current layout (columns, highlight bar, footer row), so C5 of the work order will
+  change both screens together.
+
 ## 5. Phase 2: Windows programs see Safe Mode (proposed)
 
 The plan for this and the other open items is `docs/SAFE_MODE_WORKORDER.md`. In short, these need changes to
@@ -148,9 +189,16 @@ stock Wine (`docs/STOCK_CHANGES.md`):
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (27 tests, Linux) covers mode parsing, generator output, PAM decisions, menu navigation
-and choices, the postinst migration from the old implementation (run twice to show it is idempotent), and that the
-VM test installs the Safe Mode files where the package does.
+`scripts/test_safemode.py` (46 tests, Linux) covers:
+
+- mode parsing, generator output and PAM decisions;
+- menu navigation and choices, and the logon screen choice;
+- the failure screen: its items, the countdown, and arrow keys stopping it;
+- the start-up check: which starts count, and what counts as the logon screen;
+- the GRUB code that `11_wineexplorer_advanced` generates (GRUB's own syntax check runs in `update-grub` in the VM
+  test);
+- the postinst migration from the old implementation (run twice to show it is idempotent) and the unit it enables;
+- that the VM test installs the Safe Mode files where the package does.
 
 `installer/tests/safe-mode.sh` is the VM test (usage in `docs/TOOLING.md`). It boots a copy-on-write overlay of an
 installed test disk once per phase, pressing F8 during GRUB's hidden timeout, and checks each start on the screen
@@ -162,13 +210,17 @@ changes one fails.
 
 | Phase | Checks |
 |---|---|
-| `safe` | OS list shows "Safe Mode"; the Welcome screen instead of automatic logon; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; Explorer session with `WEXMODE=safe`; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open |
+| `safe` | OS list shows "Safe Mode"; the Welcome screen instead of automatic logon, with the start-up check's pattern matching exactly one `logonui.exe` process; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; Explorer session with `WEXMODE=safe`; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open |
 | `safenet` | The same with `wex-safenet.target`, NetworkManager active and `WEXMODE=safenet` |
 | `safecmd` | The Welcome screen; the recovery console after logging on, and no wineserver |
 | `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, and logging on still starts the recovery console |
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
-| `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active |
-| `normal` | No F8: the same, and the boot-mode generator wrote nothing |
+| `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" and `wex_boot_pending` is back at 0 |
+| `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending` |
+| `failed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards), the serial console shows `wex_boot_pending=1` once Linux runs: GRUB recorded the start. Then the Reset button (QMP `system_reset`) and the failure screen with its countdown. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold, and GRUB's "Loading Linux" text was not readable on OVMF. Up stops the countdown and removes its line, and Safe Mode with Command Prompt starts at once; that start leaves `wex_boot_pending` at 1. The next start shows the screen again; left alone, the countdown starts normally, and that start counts and clears the variable |
+
+Every phase starts with `wex_boot_pending` cleared on the overlay, so a phase that failed does not leave the next
+one on the failure screen.
 
 Run 2026-11-08 on the round 3 GPT installs (`docs/VINTNER_BOOT.md` section 4.1) with this branch's files: all
 seven phases passed on SeaBIOS and on OVMF in one run, about 13 minutes per firmware, with the Welcome screen in
@@ -176,6 +228,16 @@ Safe Mode and the GTK greeter taking over when Wine was hidden. No boot changed 
 or `/var/lib/AccountsService`, or a `.dmrc`. The round 3 image predates the prefetch service, so the Prefetcher
 reads "absent" there; its mask is covered by the generator's unit test until the A2 install
 (`docs/SAFE_MODE_WORKORDER.md`).
+
+With the failure screen (D1, 2026-11-08):
+- All eight phases passed on SeaBIOS.
+- On OVMF the first seven passed in the same run. `failed` did not, because its first version waited for GRUB's
+  "Loading Linux" text, which OCR did not find on OVMF.
+- After the change to the serial-console step above, `failed` passed on both firmwares.
+- The product code did not change between those runs.
+- In `safe`, the start-up check's pattern matched only `logonui.exe`. Wine shows that process's command line as
+  the bare `logonui.exe`, and the same pattern did not match `explorer.exe /desktop=Logon,1280x800 logonui.exe`.
+- No boot changed a recorded file.
 
 Seen during the run and not part of this change: the installed image sets `LANG=en_US.UTF-8` without generating
 that locale, so the recovery console prints `setlocale` warnings.

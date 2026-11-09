@@ -241,6 +241,16 @@ Recommended rule (D3), from Windows: XP updates its last known good configuratio
 check passes when the logon screen is up: the greeter (`logonui.exe`) is running, or a setup stage screen is
 showing.
 
+Implemented for GRUB (2026-11-08, `docs/SAFE_MODE_WORKORDER.md` D1) as `wex-startup-check.service`
+(`scripts/wex-startup-check.sh`). It is `Type=oneshot`, `WantedBy=multi-user.target`, and
+`Before=`/`RequiredBy=boot-complete.target`, with the description "Start-up check".
+- It passes when the `logonui.exe` program itself (not Explorer's command line naming it) or the GTK greeter runs
+  for `lightdm`, when a graphical user session exists
+  (automatic logon), or when a setup stage unit is active. It then clears GRUB's `wex_boot_pending`.
+- Starts through the Advanced Options entry and Safe Mode choices do not count, and the check returns at once for
+  them.
+- With Vintner, the same unit gates the bless; only the GRUB variable goes away.
+
 ### 4.5 Live ISO menu
 
 "Continue Setup from the hard disk" (`installer/live-build/config/hooks/live/9000-grub-menu.binary:27-39`) runs

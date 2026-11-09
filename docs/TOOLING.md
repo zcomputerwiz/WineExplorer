@@ -75,10 +75,13 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   TEST_VM disk that is not an overlay of SOURCE_VM is refused. By default it copies this checkout's Safe Mode files
   onto the overlay and runs the package postinst's Safe Mode part and `update-grub` in one provisioning boot;
   `WEX_SAFEMODE_FILES=installed` skips that for a disk installed from an ISO with the package. Then one boot per
-  phase (`safe safenet safecmd nowine bootlog startnormal normal`), each checked on the screen (OCR) and over the
+  phase (`safe safenet safecmd nowine bootlog startnormal normal failed`), each checked on the screen (OCR) and over the
   serial console as `WEX_TEST_USER` (default `wineuser`, empty password unless `WEX_TEST_PASSWORD_FILE`; on the
   Welcome screen the first tile unless `WEX_TEST_TILE` names one). `nowine` hides `/usr/local/bin/wine` on the
-  overlay for its boot and puts it back. Each boot reports the guest's disk use (a warning from 80%, a failure from
+  overlay for its boot and puts it back. `failed` holds LightDM back 90 seconds with a drop-in it removes
+  afterwards, presses the VM's Reset button (`vmtest.py reset`) once the serial console answers, and boots twice
+  more. Every phase starts with GRUB's `wex_boot_pending` cleared on the overlay (host
+  `grub-editenv`, package grub-common). Each boot reports the guest's disk use (a warning from 80%, a failure from
   95%). The overlay is replaced on every run, so runs do not pile up; delete superseded test disks of your own once a
   newer base exists. A boot that
   changes a file under `/etc` or `/var/lib/AccountsService`, or a `.dmrc`, fails. It mounts the overlay through the

@@ -8,6 +8,7 @@ Set VMTEST_DIR to a persistent directory if /tmp is a RAM filesystem.
 
   vmtest.py start NAME [--iso PATH] [--disk-gb 20] [--mem 4096] [--efi]   boot (CD first when --iso is given)
   vmtest.py stop NAME                                                     power off
+  vmtest.py reset NAME                                                    press the Reset button (QMP system_reset)
   vmtest.py shutdown NAME [--timeout 120]                                 ACPI shutdown and wait for exit
   vmtest.py eject NAME                                                    remove the CD
   vmtest.py shot NAME [FILE.png]                                          screenshot (default STATE/last.png)
@@ -243,7 +244,7 @@ def main():
     sub = p.add_subparsers(dest="op", required=True)
     s = sub.add_parser("start"); s.add_argument("name"); s.add_argument("--iso"); s.add_argument("--efi", action="store_true")
     s.add_argument("--disk-gb", type=int, default=20); s.add_argument("--mem", type=int, default=4096)
-    for op in ("stop", "eject", "text"):
+    for op in ("stop", "reset", "eject", "text"):
         sub.add_parser(op).add_argument("name")
     s = sub.add_parser("shutdown"); s.add_argument("name"); s.add_argument("--timeout", type=float, default=120)
     s = sub.add_parser("shot"); s.add_argument("name"); s.add_argument("file", nargs="?")
@@ -267,6 +268,8 @@ def main():
         start(a)
     elif a.op == "stop":
         qmp(a.name, "quit")
+    elif a.op == "reset":
+        qmp(a.name, "system_reset")
     elif a.op == "shutdown":
         shutdown(a.name, a.timeout)
     elif a.op == "eject":
