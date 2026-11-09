@@ -544,3 +544,44 @@ scripts/test_sysrun_server.sh` as root in wexbuild passes with the new cases (wa
 PASS count and the new PASS lines. Run long commands in the background and wait for them; before a
 wexbuild run check nothing else runs (`pgrep -fa 'test_e1s|e1s11-final|make -C|test_sysrun_server'`)
 and afterwards run `bash unsloth-tmp/clean-wexbuild-fixture.sh`. Never use VM B.
+
+## WO-22 R8 3e-1: kernel pin for every process (lab only; for Antigravity)
+
+Design: docs/E1_S18E_R8_3E_DESIGN.md section 9 point 3. Read it, docs/E1_S18E_R8_STEP3_PLAN.md (3b) and
+the 3b code first: `wex_dialog_pass_credentials` and `new_process` in wine/server/process.c,
+`wex_dialog_fd_message`, `pidfd_pid` and `receive_fd` in wine/server/request.c. Claude reviews the result
+before anything is committed.
+
+Files: wine/server/process.c, process.h, request.c (and the place where the first client process is
+created from the master socket, find it), scripts/test_sysrun_server.sh, scripts/wexelevate_probe.c only
+if a probe mode is needed. Everything new is inside `#ifdef WEX_E1S6_TRANSPORT_TEST`; a build without
+that define must produce exactly today's behaviour. Do not touch the protected-dialog rules (3a/3b).
+
+1. In lab builds, when the system role is enabled (`system_role_enabled()` / `sysrun_active`, follow how
+   process.c already tests it), set SO_PASSCRED and SO_PASSPIDFD on the server end of every new process
+   socket: in `new_process` (the existing helper may be reused) and where the first client process is
+   created. Failure leaves the process without a pin; it never denies the creation (only protected
+   dialogs deny).
+2. `receive_fd` for a process that is not a protected dialog, in lab builds: keep today's fd handling
+   exactly, and additionally parse SCM_CREDENTIALS and SCM_PIDFD. Every received pidfd is closed unless it
+   becomes the pin: the first transfer whose pidfd names the live process its credentials name
+   (`pidfd_pid`) sets `wex_pin_pidfd/pid/uid` (CLOEXEC); later pidfds are closed. Never leak an fd: with
+   SO_PASSPIDFD the kernel attaches a pidfd to every message.
+3. A helper `int process_pin_matches( struct process *process )` (process.c, lab only): the pin exists,
+   `pidfd_pid(pin) == wex_pin_pid` (still alive) and `wex_pin_pid == process->unix_pid`. Not used yet;
+   3e-3 will call it.
+4. Trace under `WEX_R8_SERVER_TEST`: `wex-r8: process <id> pin pid=<pid>` when a non-dialog pin is set.
+5. Tests in test_sysrun_server.sh, lab tree only (the lab build compiles server objects with
+   `-DWEX_E1S6_TRANSPORT_TEST -DWEX_R8_SERVER_TEST`; see unsloth-tmp/r8-3bc-trace.sh for building such
+   a tree and its `wine` symlink): (a) a caller probe's pin pid equals its real Unix pid
+   (`r8_caller_pin_is_unix_pid_<arch>`, both ABIs); (b) no fd leak: count the wineserver's open fds
+   (`/proc/<wineserver pid>/fd`) before and after a probe mode that opens and closes 2000 files (add
+   `fdchurn <n>` to the probe if no such mode exists), the count may differ by at most 5
+   (`r8_pidfd_no_leak`); (c) the normal (non-lab) build still passes everything it passed (325).
+
+Check: build the main tree and a lab tree as in unsloth-tmp/r8-3bc-trace.sh (with both defines on
+server/process.o server/request.o server/sysrun.o server/handle.o and any other object you change),
+run the system-role suite against both (`WINE_BUILD_DIR=<tree> timeout 3300 bash
+scripts/test_sysrun_server.sh`), report both PASS counts and the new PASS lines. Run long commands in
+the background; before a wexbuild run check nothing else runs; afterwards run
+`bash unsloth-tmp/clean-wexbuild-fixture.sh`. No commits. Never use VM B.
