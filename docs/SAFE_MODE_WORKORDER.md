@@ -137,7 +137,16 @@ are first set up.
   `Network` adds NDIS and NsiProxy.
 - Check against an export of XP's `SafeBoot` key on the XP VM, kept in the local-only repository. Then check that
   the Safe Mode desktop, the Control Panel and Notepad work with the lists.
-- WineExplorer registers no Windows services of its own today (none found in `src/` or the setup scripts).
+- List E1's elevation broker `wexelevate` in both `Minimal` and `Network` (the E1 session, 2026-11-08), or
+  administrators cannot elevate in Safe Mode:
+  - It is "Application Information", a demand-start service (`StartType=3`) with no `DependOnService`, installed
+    by `wine.inf`. consent.exe is started by the broker and is not a service.
+  - Since B3 filters demand starts as well, listing `wexelevate` is enough for administrators to elevate.
+  - Outside Windows services it needs the system role (the setgid `wex-sysrun` launcher and
+    `/etc/wineexplorer/sysrun.conf`), the machine root and D-Bus. Safe Mode keeps D-Bus (`basic.target`) and must
+    go on doing so.
+  - The later standard-user chain adds native pieces that are not Windows services: a root verifier D-Bus service
+    and the PAM worker.
 
 **B5. RunOnce values in wineboot** (`process_run_key`, `programs/wineboot/wineboot.c:1257-1319`).
 
@@ -188,7 +197,9 @@ Restore, so No logs off to the logon screen until a restore tool (Vintner rollba
 saved mode, separate from the normal driver's, so Safe Mode never takes the normal-mode resolution. Let
 `wine-explorer-session.sh` set 640x480 with `xrandr` for a Safe Mode session, never saving it to the display
 profile. Whether XP saves a resolution chosen in Safe Mode could not be confirmed; until it is, Display Properties
-should not save one (check `desk.cpl`'s save path).
+should not save one (check `desk.cpl`'s save path). E1's consent dialogs measure 260×178 and 260×215 dialog units,
+about 390×350 pixels at 96 dpi, so they fit 640×480. The E1 session offered a 640×480 run of its headless dialog
+test (2026-11-08).
 
 **C4. Logon in Safe Mode.** On the XP VM, all three Safe Modes showed the Welcome screen, with the built-in
 Administrator account added to the accounts; the classic logon dialog appeared only after Ctrl+Alt+Del was pressed
@@ -215,7 +226,12 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
     type 1, the `sudo` group), with the `wine-explorer` session and the password from the same page. Root still
     gets that password, as it does today, so nothing about root changes (Debian's emergency shell needs it).
     The two passwords are independent from then on. The E1 accounts map picks the new account up through its
-    `/etc/passwd` path unit, like any other account; no E1 code changes. A home costs about 2 MB (round 3 image:
+    `/etc/passwd` path unit, like any other account. It should get the well-known RID 500 and the Windows name
+    "Administrator", as on XP, because some programs look for that account. Wine compares account names without
+    regard to case, so the Unix name `administrator` resolves as "Administrator". Setup then provisions it with the
+    reserved RID 500 instead of the next one from the counter, which starts at 1001. That needs a small
+    provisioning option in the accounts map, which the E1 session adds when C4 starts (agreed 2026-11-08). A home
+    costs about 2 MB (round 3 image:
     `/etc/skel` 108 KB, `wineuser`'s home 2.3 MB). Homes are 0700, so working on another user's profile goes
     through elevation, as for any administrator.
   - In a normal start the account is hidden from the Welcome screen, as on XP Professional, and Safe Mode shows its
@@ -230,6 +246,12 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
     `PermitRootLogin no`, `DenyUsers administrator` and `PermitEmptyPasswords no`. It only takes effect if someone
     installs an SSH server; Debian's own default still lets root log on with a key. The Samba component never adds
     either account to Samba's accounts.
+  - One definition of "administrator". E1 decides it from `admin_group=` in `/etc/wineexplorer/sysrun.conf` (default
+    `sudo`; strict rules: root-owned, not group- or world-writable, no symlink, at most one key, and a bad file
+    means nobody is an administrator), through `getgrouplist` at logon. The Administrator account goes into that
+    group. The Safe Mode with Command Prompt check (`scripts/wex-safemode-pam-check.sh`, `sudo` today) uses the same
+    answer. Rather than a third parser, use the helper the E1 session offered, `wex-is-admin <user>` (0 or 1); ask
+    for it when C4 starts.
   - OOBE refuses Administrator, in any case, as a new user's name. Check what XP's OOBE does with that name.
   - Existing installs: the package's postinst creates the account, locked, if it is missing; its password is then
     set in User Accounts.
@@ -277,13 +299,23 @@ The work:
   `/var/lib/lightdm/.wine-logon/system.reg` is a private 3.3 MB hive that `wineboot` made at the greeter's first
   start. User prefixes link `system.reg` and `userdef.reg` to the machine root instead (`/etc/skel/.wine`, made by
   `scripts/setup-machine-root.sh`). `setup-greeter.sh` and `wex-greeter.sh` should give the logon prefix the same
-  two links, and convert an existing logon prefix. The `lightdm` account cannot write the machine hive. Check that
-  its `wineserver` neither writes the machine file nor replaces the links with private copies when it saves, as
-  `scripts/test_sysrun_server.sh` checks for user prefixes, and that `wineboot -u` in the logon prefix still
-  works.
+  two links, and convert an existing logon prefix. Also check that `wineboot -u` in the logon prefix still works.
+- **The greeter's Wine must run under the `wex-sysrun` launcher, as desktop users' does** (the E1 session,
+  2026-11-08). Then its `wineserver` has the system role and loads `HKLM` straight from the machine root.
+  - That server never saves a hive it reached through a link (`save_branch` returns early, `server/registry.c`
+    around line 3999), and only system-role processes write back to the machine root.
+  - A stock server started without the launcher would follow the link. It cannot write the root-owned machine
+    root, but it could leave a private copy behind, so the launcher is required.
+  - Find how desktop sessions start Wine under the launcher, and do the same in `wex-greeter.sh`.
+  - The E1 session offered a variant of `scripts/test_sysrun_server.sh` 3(iii) with an unmapped system account
+    (uid below 1000, nologin, in neither `sudo` nor `wexsys`); ask for it with this step.
+- Reading the key works for `lightdm`. A non-administrator session token holds BUILTIN\Users, and the default
+  machine key descriptor gives BUILTIN\Users `KEY_READ` (`server/token.c`; `key_default_sd` in
+  `server/registry.c`), unless that key gets a custom ACL. E1-S13's "no token/load authority" for unmapped
+  accounts concerns the standard-user elevation token and profile loading, not a session's own token.
 - A change shows the next time the Welcome screen starts, once the writing session's `wineserver` has saved the
-  hive (within 30 seconds). Writing the key is an administrator's `HKLM` write, which needs E1's elevation broker;
-  until that exists, only a root step can write the machine hive. C7 changes nothing in E1.
+  hive (within 30 seconds). Writing the key is an ordinary administrator `HKLM` write. It already works through the
+  filtered-administrator consent path; nothing waits on the standard-user broker. C7 changes nothing in E1.
 - The GTK fallback lists no accounts (`greeter-hide-users=true`), so it needs no change.
 - Tests: the filter in `logonui.exe` with a list and a key made for the test. In the VM, an account with a value
   of 0 is missing from the Welcome screen in a normal start. The Administrator tile is shown in Safe Mode only, and
