@@ -315,9 +315,16 @@ NTSTATUS lease_arm( void *args )
     if (!l) { params->err = ERROR_INVALID_HANDLE; return STATUS_SUCCESS; }
     if (params->pid)
     {
-        int pidfd = -1;
+        int pidfd = -1, tries;
 
-        if ((unix_pid = unix_pid_of( params->pid )) > 0) pidfd = syscall( SYS_pidfd_open, unix_pid, 0 );
+        /* A just-created suspended process may not have connected to the server yet, so its Unix pid
+         * can still be unknown: give it up to a second (bounded) before failing closed. */
+        for (tries = 0; tries < 50; tries++)
+        {
+            if ((unix_pid = unix_pid_of( params->pid )) > 0) break;
+            usleep( 20000 );
+        }
+        if (unix_pid > 0) pidfd = syscall( SYS_pidfd_open, unix_pid, 0 );
         if (pidfd < 0) { params->err = ERROR_NOT_FOUND; return STATUS_SUCCESS; }
         pthread_mutex_lock( &l->lock );
         l->pidfd = pidfd;

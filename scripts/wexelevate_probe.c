@@ -1267,7 +1267,7 @@ static void debugparent_mode(const char *image, const char *out, const char *tag
     sprintf(pidfile, "%s.pid", out);
     for (;;)
     {
-        if (!WaitForDebugEvent(&ev, INFINITE)) break;
+        if (!WaitForDebugEvent(&ev, 120000)) break;   /* bounded: a stuck inner copy fails the case */
         switch (ev.dwDebugEventCode)
         {
         case CREATE_PROCESS_DEBUG_EVENT:

@@ -12,6 +12,11 @@ job list or handle inheritance. Ordinary CreateProcess is unchanged. The broker 
 by the actual mapped file (device and inode of the machine-root `system32/wexelevate.exe`), the
 system role and its SYSTEM primary token; this check is in production builds (the lab S6 hook
 also accepts the test broker image under `WEX_E1S6_TRANSPORT_TEST`). No protocol change.
+After review (docs/E1_S18E_R13_REVIEW.md): recognition is decided once, on the first executable
+image, and holds only while the process keeps the primary token it had then; the syswow64 broker
+image is recognised too; an isolated launch is refused from an impersonating broker thread and
+gets no standard handles from the caller. Still inherited for placement: window station and
+desktop, a console allocation the broker asks for, and processor affinity.
 
 * `server/process.c`: `isolate` in `new_process`.
 * `server/process.h`: `wex_broker_image`.

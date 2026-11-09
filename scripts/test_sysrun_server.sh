@@ -32,6 +32,9 @@ GRP=wexsysc2
 ADM=wexadm
 STD=wexstd
 CAR=wexcar   # a second administrator, made by the callers section (step 7)
+SYS=wexgreeter   # an unmapped system account, made by the symlinked-hives section (3b)
+SYS_HOME=/var/lib/$SYS
+SYS_CREATED=0
 CONF=/etc/wineexplorer/sysrun.conf
 LIBEXEC=/usr/local/libexec/wineexplorer
 SYSRUN="$LIBEXEC/wex-sysrun"
@@ -66,7 +69,7 @@ ok() { echo "$1=PASS"; PASS=$((PASS + 1)); }
 kill_servers()
 {
     local u
-    for u in "$ADM" "$STD" "$CAR"; do
+    for u in "$ADM" "$STD" "$CAR" "$SYS"; do
         id "$u" >/dev/null 2>&1 || continue
         pkill -u "$u" -x wineserver 2>/dev/null || true
     done
@@ -82,11 +85,11 @@ cleanup()
     [ -z "$DUMPABLE_SAVED" ] || echo "$DUMPABLE_SAVED" > /proc/sys/fs/suid_dumpable
     [ -z "${LEASES_SAVED:-}" ] || echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
     kill_servers
-    pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null; pkill -u "$CAR" 2>/dev/null   # includes winedevice.exe, which blocks userdel
-    sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null; pkill -9 -u "$CAR" 2>/dev/null
+    pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null; pkill -u "$CAR" 2>/dev/null; pkill -u "$SYS" 2>/dev/null   # includes winedevice.exe, which blocks userdel
+    sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null; pkill -9 -u "$CAR" 2>/dev/null; pkill -9 -u "$SYS" 2>/dev/null
     [ -z "${XV_PID:-}" ] || kill "$XV_PID" 2>/dev/null
     if [ "${WEX_C2_KEEP:-0}" = 1 ]; then
-        echo "fixture kept: $ROOT, users $ADM $STD $CAR, group $GRP, $CONF, $LIBEXEC" >&2
+        echo "fixture kept: $ROOT, users $ADM $STD $CAR $SYS, group $GRP, $CONF, $LIBEXEC" >&2
         exit "$rc"
     fi
     for u in "$ADM" "$STD" "$CAR"; do
@@ -94,6 +97,9 @@ cleanup()
         userdel -r "$u" 2>/dev/null
         [ -z "$uid" ] || rm -rf "/tmp/.wine-$uid"
     done
+    if [ "$SYS_CREATED" = 1 ]; then
+        userdel -r "$SYS" 2>/dev/null
+    fi
     groupdel "$GRP" 2>/dev/null
     rm -rf "$ROOT" /etc/wineexplorer "$LIBEXEC"
     rmdir /usr/local/libexec 2>/dev/null
@@ -232,6 +238,60 @@ for u in "$STD" "$ADM"; do
     ! grep -q 'WexUnenforced' "$M/system.reg" || fail "an HKLM write of $u reached the machine system.reg without enforced elevation"
     ok "c2_unenforced_hklm_write_not_persisted_$u"
 done
+
+# ---- 3b. (iii) a system.reg symlink into the machine root, for an unmapped system account (Safe Mode C7) ----
+# The greeter runs as a system account that is not in the accounts map. Give it the same skeleton prefix the
+# harness gives desktop users and run the 3(iii) checks as it: the machine file behind the prefix symlink is
+# never overwritten, HKLM still comes from the machine root, and the server it gets is the launcher-started one.
+echo "--- symlinked hives (iii), unmapped system account"
+sysrun_as() { local u="$1"; shift; (cd /tmp && runuser -u "$u" -- env -i HOME="$SYS_HOME" USER="$u" LOGNAME="$u" PATH=/usr/bin:/bin LANG=C \
+    DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' "$@"); }
+sysprefix_env() { sysrun_as "$1" env WINEPREFIX="$SYS_HOME/.wine" "$BUILD/server/wineserver" "${@:2}"; }
+sysprobe() { local u="$1" arch="$2" mode="$3"; shift 3; sysrun_as "$u" "$BUILD/wine" "$ROOT/probes/probe$arch.exe" "$mode" "$WINM" "$@" 2>&1; }
+if ! id "$SYS" >/dev/null 2>&1; then
+    useradd --system -d "$SYS_HOME" -s /usr/sbin/nologin "$SYS"
+    SYS_CREATED=1
+fi
+SYS_UID="$(id -u "$SYS")"; SYS_GID="$(id -g "$SYS")"
+[ "$SYS_UID" -lt 1000 ] || fail "the system account uid is not below 1000"
+[ "$(getent passwd "$SYS" | cut -d: -f7)" = /usr/sbin/nologin ] || fail "the system account shell is not nologin"
+[ "$(getent passwd "$SYS" | cut -d: -f6)" = "$SYS_HOME" ] || fail "the system account home is not $SYS_HOME"
+for g in sudo "$GRP"; do
+    id -nG "$SYS" | grep -qw "$g" && fail "the system account is in $g"
+done
+[ ! -f /etc/wineexplorer/accounts.map ] || ! grep -q "^$SYS " /etc/wineexplorer/accounts.map || fail "the system account is in the accounts map"
+# the same skeleton prefix the harness gives desktop users (the system role is only available for <home>/.wine)
+install -d -o "$SYS" -g "$SYS" -m 0755 "$SYS_HOME"
+cp -a "$ROOT/skel/.wine" "$SYS_HOME/.wine"
+chown -R "$SYS:$SYS" "$SYS_HOME/.wine"
+sysprefix_env "$SYS" -k || true; sysprefix_env "$SYS" -w
+for hive in system.reg userdef.reg; do
+    ls -l "$SYS_HOME/.wine/$hive" | grep -q -- '->' || fail "skeleton prefix has no $hive link"
+done
+for hive in system.reg userdef.reg; do
+    sysrun_as "$SYS" ln -sfn "$M/drive_c/windows/wex_marker2.txt" "$SYS_HOME/.wine/$hive"
+done
+sysprobe "$SYS" 64 hklm-write >/dev/null || fail "hklm-write"
+OUT="$(sysprobe "$SYS" 64 hklm-read)"; grep -q '^hklm-read=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "HKLM not from the machine root with a diverted prefix link"; }
+ok c2_symlinked_hives_system_account_hklm_from_machine_root
+# the server it gets is the launcher-started one: its saved group is the system group (section 1's recognition)
+SPID="$(server_pid "$SYS")"; [ -n "$SPID" ] || fail "no server of $SYS"
+IDS="$(awk '/^Uid:/ { u = $2 "/" $3 "/" $4 } /^Gid:/ { print u, $2, $3, $4 }' "/proc/$SPID/status")"
+[ "$IDS" = "$SYS_UID/$SYS_UID/$SYS_UID $SYS_GID $SYS_GID $GRP_GID" ] || fail "server ids are not (user, user, saved $GRP): $IDS"
+ok c2_symlinked_hives_system_account_server_started_by_launcher
+sysprefix_env "$SYS" -k || true; sysprefix_env "$SYS" -w
+[ "$(cat "$M/drive_c/windows/wex_marker2.txt")" = MARKER2 ] || fail "the machine-root file behind the prefix symlink was overwritten"
+ok c2_symlinked_hives_system_account_target_not_overwritten
+! grep -q '"Written"="yes"' "$M/system.reg" || fail "the machine hive was saved without enforced elevation"
+ok c2_symlinked_hives_system_account_hive_not_saved_without_enforcement
+[ "$(stat -c '%U:%G' "$M/system.reg" "$M/userdef.reg" | sort -u)" = "root:$GRP" ] ||
+    fail "a saved machine hive is not root:$GRP any more: $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
+ok c2_symlinked_hives_system_account_hives_stay_root_owned
+for hive in system.reg userdef.reg; do
+    [ "$(readlink "$SYS_HOME/.wine/$hive")" = "$M/drive_c/windows/wex_marker2.txt" ] || fail "the prefix link $hive was replaced"
+    sysrun_as "$SYS" ln -sfn "$M/$hive" "$SYS_HOME/.wine/$hive"
+done
+ok c2_symlinked_hives_system_account_prefix_links_left_alone
 
 # ---- 4. (ii) a replacement server ------------------------------------------------------------------------------
 echo "--- replacement server (ii)"
@@ -632,6 +692,7 @@ el_up()
     # S6 runs; otherwise their gated denial-site diagnostics disappear.
     local log=/dev/null
     [ "${WEX_E1S6_LAB:-0}" != 1 ] || log="$ROOT/e1s6-wine.log"
+    [ -z "${WEX_EL_LOG:-}" ] || log="$WEX_EL_LOG"   # diagnostics: keep server/service stderr of a normal run
     probe "$1" 64 hold >>"$log" 2>&1 & EL_HOLD=$!
     wine_as "$1" "$ROOT/probes/sdprobe64.exe" hold >>"$log" 2>&1 &
     sleep 4
@@ -955,7 +1016,14 @@ for arch in 64 32; do
     done
 done
 bp c4_caller_death_leaves_no_child "$ADM" 64 callerdeath "$IMG" "$(winpath $EL/out.death)" "$TAGCD"
-# R13: the caller's job and debugger do not reach the elevated process (both ABIs)
+# R13: the caller's job and debugger do not reach the elevated process (both ABIs). These cases run against the
+# production broker recognition, not the lab alias: the canonical system32/wexelevate.exe becomes the test broker's
+# inode (a hard link) and the session restarts, so the broker image is recognised afresh at its first mapping.
+el_down "$ADM"
+R13_ORIG=""
+if [ -e "$SYS32/wexelevate.exe" ]; then R13_ORIG="$ROOT/wexelevate.exe.r13"; cp -p "$SYS32/wexelevate.exe" "$R13_ORIG"; fi
+ln -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate.exe"
+el_up "$ADM"
 for arch in 64 32; do
     pimage="$(winpath /home/$ADM/wexel/p$arch.exe)"
     TAGJ="wexjob-$$-$arch"
@@ -968,6 +1036,10 @@ for arch in 64 32; do
     TAGD="wexdbg-$$-$arch"
     bp "c4_caller_debugger_not_inherited_$arch" "$ADM" "$arch" debugparent "$pimage" "$(winpath $EL/out.dbg.$arch)" "$TAGD"
 done
+el_down "$ADM"
+rm -f "$SYS32/wexelevate.exe"
+[ -z "$R13_ORIG" ] || mv "$R13_ORIG" "$SYS32/wexelevate.exe"
+el_up "$ADM"
 # E1-S5: broker-owned disabled records, actual H2/S3 consumed message binding.
 # Endpoint/account identities, verifier and clock are fixtures; no credentials
 # or administrator token are issued. Both client ABIs use the same lab envelope.
