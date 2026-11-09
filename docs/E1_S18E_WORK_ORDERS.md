@@ -357,3 +357,131 @@ evidence binding. Tests in `test-evidence.py` (or a small new test in the same s
 in the past, an expiry more than 300 s ahead, and a valid expiry that becomes the deadline.
 Check: `bash scripts/test_evidence.sh --disposable-guest` as root in wexbuild ends with
 `E1S8_EVIDENCE OK`, and `python3 -I -m py_compile tools/e1s6/e1s6-lab.py` passes.
+
+## R8 orders (steps 2 and 4 of docs/E1_S18E_R8_REVIEW.md)
+
+The frozen contract is `docs/E1_S18E_R8_SPEC.md` (v5.1; Codex cleared steps 2 and 4 in
+`docs/E1_S18E_R8_SPEC_REVIEW.md` "v5 check"). Read sections 1, 2, 4, 5, 6, 7 and 11 first. Where
+this order and the spec differ, the spec wins: stop and report the difference. Do not invent
+fields, enum values, lengths or messages. Nothing here may touch the server, wexhost, consent's
+UI, PAM, evidence or token formats, or S1 record kinds.
+
+## WO-18 E1R8 C codec (R8 step 2, part 1)
+
+Files: new `src/programs/wexelevate/e1r8_codec.h` and new
+`src/programs/wexelevate/test_e1r8_codec_main.c` (GPL headers, see `scripts/add-license.py`),
+`scripts/test_broker_e1s18.sh` (compile and run the new test).
+
+1. `e1r8_codec.h`: header-only, portable C (`stdint.h`, `string.h` only; no Win32, no allocation),
+   compiling for native gcc and both MinGW ABIs like `e1s_encode.h`. Explicit little-endian
+   put/get helpers; never `memcpy` a struct onto the wire.
+   * `struct e1r8_header` (decoded values) and `struct e1r8_tuple` (sealed tuple fields, section 2)
+     with encode/decode of the 76-byte common header, the 160-byte tuple tail, the 204-byte
+     pre-endorsement tuple and the 220-byte sealed tuple, at the section 4 offsets.
+   * Type constants 1-9 and 16-27 and the enum values of section 5/6 (desktop_mode 1/2, RESULT
+     status 1/2, DONE status 1/2, CANCEL reason 1, RELEASE outcome 1/2).
+   * One encoder and one decoder per message type in the section 5 and 6 tables, each taking
+     `(buf, len)` and the expected header values, returning 0 or a negative error, checking the
+     exact total length for that type (fixed, or the min..max range with the string lengths
+     consistent), magic, version 1, type, reserved 0, enum values, string rules (section 4:
+     account names ASCII S4 grammar 1..63 like `wex_valid_account_name`; display strings UTF-16LE,
+     even length, 0..520, valid surrogate pairs, no NUL or control characters; verifier owner
+     `:<digits>.<digits>` 4..255), refused RESULT with every other body field zero/empty, and no
+     trailing bytes. ANSWER (type 7) carries the unchanged 156-byte S1 kind-2 record: decode it
+     with the fields of `struct wex_s1_answer_record` read field by field, and apply section 5
+     (Confirm: answer_kind 2, round 2, index 0, empty payload; Cancel: answer_kind 3, round 0,
+     index 0, empty payload, challenge zero; answer_kind 1 refused; `required_caps` within a mask
+     argument; present fields equal the tuple).
+   * S7 version 2 PROMPT (section 7 step 4): encode and decode the exact 178-byte prompt.
+   * The secret password answer (section 7 step 5): encode/decode an S1 kind-2 record with
+     `answer_kind` 1, round 1, index 0 and a payload of 1..4096 bytes (total 157..4252) that passes
+     a strict RFC 3629 UTF-8 check (section 4: no truncated or missing continuation, no overlong,
+     no surrogates, nothing above U+10FFFF, no C0, C1, F5..FF, no NUL).
+2. `test_e1r8_codec_main.c` (native, links nothing else): for every message type a round trip at
+   minimum and maximum length, then every section 11 codec vector (one byte short and long, wrong
+   magic/version/type/reserved, unknown enum values, each bad string kind, bad S1 fields, refused
+   RESULT with a nonzero field, the UTF-8 list, 4096 accepted and 4097 refused, empty password
+   payload refused). A `golden` argument prints, one per line, `<type> <hex>` for each message
+   type encoded from this fixed input: request_id 0x0102030405060708, attempt 1, nonce bytes
+   0x10..0x2f, channel_id 0x30..0x3f, binding_digest 0x40..0x5f, request_digest 0x60..0x7f,
+   deadline 0x1122334455667788, generations 1..6, caller_session 7, desktop_route 0x80..0x8f,
+   desktop_mode 1, dialog_id 0x90..0x9f, account "admin", account_key 0xa0..0xaf,
+   evidence_ref 0xb0..0xbf, challenge 0xc0..0xdf, verifier owner ":1.42", requester "Caller",
+   image "x.exe", publisher "" (empty), pid 4242,
+   uid 0, password "pässword" in UTF-8. These lines are WO-19's cross-check input.
+3. `scripts/test_broker_e1s18.sh`: build the test natively with `-Wall -Wextra -Werror` and under
+   ASan/UBSan, run both, and compile `e1r8_codec.h` once with each MinGW compiler (`-fsyntax-only`
+   on a one-line `.c` including it, or `-c` the test file if it builds for PE).
+
+Check: the broker test command passes (byte-identical production check included).
+
+## WO-19 E1R8 Python codec (R8 step 2, part 2; after WO-18)
+
+Files: new `tools/e1s6/e1r8.py`, new `tools/e1s6/test-e1r8.py` (GPL SPDX header like
+`test-evidence.py`), `scripts/test_broker_e1s18.sh` (one cross-check step).
+
+1. `e1r8.py`: standard library only (`struct`, no third-party packages). The same header, tuple,
+   enum, type and string rules as WO-18, with `encode_<name>(...) -> bytes` and
+   `decode_<name>(data, expected) -> dataclass` for every section 5 and 6 type, plus the S7 v2
+   PROMPT and the secret password answer. Decoders raise one exception class, `E1R8Error`, on any
+   rejection, with the reason in the message. UTF-8 is checked by an explicit byte-level validator
+   implementing section 4, not by `bytes.decode` alone.
+2. `test-e1r8.py` (`unittest`): the same vector list as WO-18 item 2, plus a test that reads the
+   WO-18 `golden` lines from a file path given in `E1R8_GOLDEN` (skip if unset) and asserts that
+   `e1r8.py` encodes byte-identical messages from the same fixed input and decodes each line back
+   to that input.
+3. `scripts/test_broker_e1s18.sh`: after the WO-18 test, write its `golden` output to
+   `$FIXTURE/e1r8-golden.txt` and run `E1R8_GOLDEN=$FIXTURE/e1r8-golden.txt python3 -I
+   "$REPO/tools/e1s6/test-e1r8.py"`; fail the script if it fails.
+
+Check: the broker test command passes; `python3 -I -m py_compile tools/e1s6/e1r8.py` passes. Do not
+import `e1r8.py` from `e1s6-lab.py` or any service yet.
+
+## WO-20 Two explicit-list pipes and INIT/ACK (R8 step 4; after WO-18)
+
+Files: `src/programs/wexelevate/e1s18_broker.c`, `src/programs/wexelevate/e1s18_broker.h`,
+`src/programs/wexelevate/test_broker_e1s18_main.c`, `src/programs/consent/consent.c`,
+`scripts/test_broker_e1s18.sh` only if a file must be compiled in. Read spec section 5 and
+`e1s18_spawn_consent_dialog` (e1s18_broker.c, `#if defined(_WIN32) && defined(WEXELEVATE_E1S18)`).
+
+1. Broker (lab branch only, all inside the existing `WEXELEVATE_E1S18` guards):
+   * Create two anonymous pipes with non-inheritable handles: `to_d` (B writes, D reads) and
+     `from_d` (D writes, B reads). Make only D's two ends inheritable, just before
+     `CreateProcessW`; pass exactly those two in `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`. B's own ends
+     are never inheritable. After `CreateProcessW` succeeds close B's copies of D's two ends; on
+     any failure close all four. Replace `/channel <h>` with `/in <h> /out <h>`.
+   * INIT inputs the server and verifier will supply later (dialog_id, verifier owner, the
+     generations, caller_session, desktop_route) come from a new context in the request that is
+     zero in the lab today. A zero required input denies with ERROR_NOT_SUPPORTED before any pipe
+     or process is created (the WO-14 pattern); tests set it through a test hook. Never fill a
+     default. desktop_mode is 1 when `secure`, else 2.
+   * Write INIT (WO-18 encoder; requester, image and publisher from the request's existing
+     validated display strings, converted to UTF-16LE within the 520-byte bounds, else deny)
+     and read exactly one 156-byte ACK, each in a worker thread doing exact-length
+     `WriteFile`/`ReadFile` loops. The main thread waits on {worker done, D process, caller,
+     `stop_event`, `lease_event`} with the existing consent timeout. Any other outcome cancels:
+     `CancelSynchronousIo` on the worker, `TerminateProcess` D, wait for D (bounded 5 s), join the
+     worker (bounded 5 s), close all handles; never return while a worker can still touch a freed
+     buffer (if the join times out, fail closed and keep the buffer allocated; report it).
+     An ACK that fails decoding, has wrong digests or dialog_id, is short, long, or late cancels.
+   * After a valid ACK the existing flow continues unchanged: D's existing S1 Confirm/Cancel record
+     arrives on `from_d` and is verified as today. No other message types in this order.
+2. consent.exe (`/broker /credentials` mode only): parse `/in` and `/out` instead of `/channel`
+   (reject both missing, duplicated or equal); before showing anything, read exactly one INIT from
+   `/in` (bounded total size: the INIT maximum), decode it with WO-18, require its request id and
+   channel_id to equal the existing `/request` and `/token` arguments and attempt 1, keep the
+   tuple and fill `data->nonce`, `data->binding_digest` and `request_digest` for the S1 record
+   from it (today nothing sets them, so they stay zero), write ACK to `/out`, then
+   continue as today, writing its S1 record to `/out`. Clear inheritance on both handles at start;
+   consent spawns no child. Malformed or missing INIT: exit with the existing failure code without
+   showing the dialog.
+3. Tests (native lab test with fake pipes/threads where the Win32 path cannot run, plus the MinGW
+   compile): oversized INIT, partial INIT then EOF, a writer blocked by a reader that never reads
+   (cancellation via stop_event and via caller exit unblocks it), broken pipe (D exits before ACK),
+   ACK short/long/wrong digest/wrong dialog_id, cancellation at each wait, an unrelated inheritable
+   handle in the broker that D must not receive, B's copies of D's ends closed after success, all
+   four closed after a failed `CreateProcessW` (test hook), zero context input denies before any
+   pipe is created.
+
+Check: the broker test command passes (ASan/UBSan and byte-identical production check included);
+both MinGW lab broker compiles pass; consent builds in the lab tree (report the command you used).
