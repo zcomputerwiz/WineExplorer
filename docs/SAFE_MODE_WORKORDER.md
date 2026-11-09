@@ -198,8 +198,8 @@ saved mode, separate from the normal driver's, so Safe Mode never takes the norm
 `wine-explorer-session.sh` set 640x480 with `xrandr` for a Safe Mode session, never saving it to the display
 profile. Whether XP saves a resolution chosen in Safe Mode could not be confirmed; until it is, Display Properties
 should not save one (check `desk.cpl`'s save path). E1's consent dialogs measure 260×178 and 260×215 dialog units,
-about 390×350 pixels at 96 dpi, so they fit 640×480. The E1 session offered a 640×480 run of its headless dialog
-test (2026-11-08).
+about 390×350 pixels at 96 dpi, so they fit 640×480. The E1 session runs its headless dialog test at 640×480 as
+work order WO-13 (queued 2026-11-08, after WO-11).
 
 **C4. Logon in Safe Mode.** On the XP VM, all three Safe Modes showed the Welcome screen, with the built-in
 Administrator account added to the accounts; the classic logon dialog appeared only after Ctrl+Alt+Del was pressed
@@ -250,8 +250,9 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
     `sudo`; strict rules: root-owned, not group- or world-writable, no symlink, at most one key, and a bad file
     means nobody is an administrator), through `getgrouplist` at logon. The Administrator account goes into that
     group. The Safe Mode with Command Prompt check (`scripts/wex-safemode-pam-check.sh`, `sudo` today) uses the same
-    answer. Rather than a third parser, use the helper the E1 session offered, `wex-is-admin <user>` (0 or 1); ask
-    for it when C4 starts.
+    answer. Rather than a third parser, use the helper the E1 session offered, `wex-is-admin <user>` (0 or 1). It
+    is queued on the E1 side for when C4 starts, together with the RID 500 option. E1's WO-12 makes
+    `server/registry.c` read `admin_group=` as strictly as `server/accounts.c`.
   - OOBE refuses Administrator, in any case, as a new user's name. Check what XP's OOBE does with that name.
   - Existing installs: the package's postinst creates the account, locked, if it is missing; its password is then
     set in User Accounts.
@@ -308,9 +309,23 @@ The work:
     around line 3999), and only system-role processes write back to the machine root.
   - A stock server started without the launcher would follow the link. It cannot write the root-owned machine
     root, but it could leave a private copy behind, so the launcher is required.
-  - Find how desktop sessions start Wine under the launcher, and do the same in `wex-greeter.sh`.
-  - The E1 session offered a variant of `scripts/test_sysrun_server.sh` 3(iii) with an unmapped system account
-    (uid below 1000, nologin, in neither `sudo` nor `wexsys`); ask for it with this step.
+  - Nothing has to call the launcher. Wine's ntdll starts the server through
+    `/usr/local/libexec/wineexplorer/wex-sysrun` itself (`wine/dlls/ntdll/unix/sysrun.c`) whenever the root-owned
+    `/etc/wineexplorer/sysrun.conf` names a machine root and the launcher is installed. A plain `wine` from the
+    greeter is enough (the E1 session, 2026-11-08).
+  - **The prefix must be `<passwd home>/.wine` of the calling account.** The launcher serves exactly that prefix,
+    and ntdll checks it (`sysrun.c` around line 121). Any other `WINEPREFIX` gets a stock server and the warning
+    "the prefix ... is not ..., the system role is not available for it".
+    - So the logon prefix moves from `/var/lib/lightdm/.wine-logon` to `/var/lib/lightdm/.wine`. `/var/lib/lightdm`
+      is the `lightdm` account's home; check that on the installed image.
+    - That means changes to `setup-greeter.sh`, the `WINEPREFIX` default in `wex-greeter.sh`, and the tests, plus a
+      migration of an existing `.wine-logon` (move it, or remove it and let the greeter build the new one).
+    - The E1 session could teach the launcher one fixed extra prefix for the greeter account instead, but that is
+      a bigger change than renaming the directory.
+  - The E1 session is writing a variant of `scripts/test_sysrun_server.sh` 3(iii) for exactly this case, as work
+    order WO-11 (in progress 2026-11-08). The account has a system uid below 1000, uses nologin, and is in neither
+    `sudo` nor `wexsys`; its prefix is `~/.wine` with the machine-hive links. The test also checks that the server
+    is the one the launcher started.
 - Reading the key works for `lightdm`. A non-administrator session token holds BUILTIN\Users, and the default
   machine key descriptor gives BUILTIN\Users `KEY_READ` (`server/token.c`; `key_default_sd` in
   `server/registry.c`), unless that key gets a custom ACL. E1-S13's "no token/load authority" for unmapped
