@@ -1654,6 +1654,25 @@ static void openpid_mode(const char *pid_str, const char *outfile)
     if (h) CloseHandle(h);
 }
 
+static void fdchurn_mode(int n)
+{
+    char temp_dir[MAX_PATH];
+    char temp_file[MAX_PATH];
+    int i;
+    GetTempPathA(sizeof(temp_dir), temp_dir);
+    sprintf(temp_file, "%s\\churn_%lu.tmp", temp_dir, (unsigned long)GetCurrentProcessId());
+    for (i = 0; i < n; i++)
+    {
+        HANDLE h = CreateFileA(temp_file, GENERIC_READ | GENERIC_WRITE,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                               NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY, NULL);
+        if (h != INVALID_HANDLE_VALUE)
+            CloseHandle(h);
+    }
+    DeleteFileA(temp_file);
+    printf("fdchurn=PASS\n");
+}
+
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 ? argv[1] : "";
@@ -1710,6 +1729,11 @@ int main(int argc, char **argv)
         return 0;
     }
     else if (!strcmp(mode, "openpid") && argc > 3) openpid_mode(argv[2], argv[3]);
+    else if (!strcmp(mode, "fdchurn") && argc > 2)
+    {
+        fdchurn_mode(atoi(argv[2]));
+        return 0;
+    }
     else if (!strcmp(mode, "facts") && argc > 2)
     {
         FILE *out = fopen(argv[2], "w");

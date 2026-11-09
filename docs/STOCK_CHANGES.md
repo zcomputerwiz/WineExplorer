@@ -1,5 +1,14 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e R8 3e-1: kernel pin for every process (lab only, 2026-11-09)
+
+Only with `WEX_E1S6_TRANSPORT_TEST` (lab builds; production objects unchanged): with the system role
+enabled, every new process socket (`new_process`, and the first client accepted on the master socket in
+`server/request.c`) gets SO_PASSCRED and SO_PASSPIDFD; `receive_fd` records the first transfer whose
+pidfd names the process its credentials name as the process pin and closes every other pidfd.
+`process_pin_matches` (server/process.c) checks that the pin is alive and equals the process's unix pid
+(for the 3e binding, docs/E1_S18E_R8_3E_DESIGN.md section 9).
+
 ## E1-S18e R8 step 3a-3c: protected credentials dialog, loader pin, dialog image (2026-11-09)
 
 Only for a process the verified broker (R13) creates with its own token, no designated parent and

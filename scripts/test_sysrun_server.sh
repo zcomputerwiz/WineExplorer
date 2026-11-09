@@ -1086,9 +1086,31 @@ for arch in 64 32; do
         [ -n "$child_unix_pid" ] || fail "r8_pin_is_child_pid_$arch: child unix process not found"
         grep -q "wex-r8: dialog [0-9a-fA-F]* pin pid=$child_unix_pid" "$r8_log" || fail "r8_pin_is_child_pid_$arch: pin pid does not match unix pid"
         ok "r8_pin_is_child_pid_$arch"
+
+        rm -f "$EL/r8_caller_${arch}.txt"
+        bprobe "$ADM" "$arch" r8child "$(winpath "$EL/r8_caller_${arch}.txt")" >/dev/null 2>&1 &
+        CPID=$!
+        for _ in $(seq 1 10); do [ -s "$EL/r8_caller_${arch}.txt" ] && break; sleep 1; done
+        [ -s "$EL/r8_caller_${arch}.txt" ] || fail "r8_caller_pin_is_unix_pid_$arch: no result file"
+        caller_unix_pid="$(el_proc "$ADM" "r8_caller_${arch}.txt")"
+        [ -n "$caller_unix_pid" ] || fail "r8_caller_pin_is_unix_pid_$arch: caller unix process not found"
+        grep -q "wex-r8: process [0-9a-fA-F]* pin pid=$caller_unix_pid" "$r8_log" || fail "r8_caller_pin_is_unix_pid_$arch: pin pid does not match unix pid"
+        kill -9 "$caller_unix_pid" 2>/dev/null || true
+        wait "$CPID" 2>/dev/null || true
+        ok "r8_caller_pin_is_unix_pid_$arch"
+
         if [ "$arch" = 64 ]; then
             grep -q 'image consent=0' "$r8_log" || fail "r8_image_probe_not_dialog: probe not consent=0"
             ok r8_image_probe_not_dialog
+
+            wspid="$(server_pid "$ADM")"
+            [ -n "$wspid" ] || fail "r8_pidfd_no_leak: wineserver not running"
+            fd_before=$(ls -1 "/proc/$wspid/fd" 2>/dev/null | wc -l)
+            bprobe "$ADM" 64 fdchurn 2000 >/dev/null 2>&1 || fail "r8_pidfd_no_leak: fdchurn failed"
+            fd_after=$(ls -1 "/proc/$wspid/fd" 2>/dev/null | wc -l)
+            diff=$(( fd_after > fd_before ? fd_after - fd_before : fd_before - fd_after ))
+            [ "$diff" -le 5 ] || fail "r8_pidfd_no_leak: fd leaked: before=$fd_before after=$fd_after diff=$diff"
+            ok r8_pidfd_no_leak
         fi
     fi
 
