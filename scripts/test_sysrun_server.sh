@@ -420,6 +420,20 @@ prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
 ! grep -q 'WexEnforced' "$M/system.reg" || fail "a denied HKLM write of $STD reached the machine system.reg"
 ok c2_enforced_standard_user_hklm_write_denied_and_not_persisted
 
+# -- the admin_group= override: a repeated line makes the configuration invalid, so even a member of the named
+# group gets the standard (non-administrator) token shape (same rule as read_policy in accounts.c)
+echo "--- admin_group= override: a repeated line is an invalid configuration"
+cp "$CONF" "$ROOT/sysrun.conf.orig"
+prefix_server_env "$ADM" -k || true; prefix_server_env "$ADM" -w
+grep -v '^admin_group=' "$ROOT/sysrun.conf.orig" > "$CONF"
+printf 'admin_group=sudo\nadmin_group=sudo\n' >> "$CONF"
+OUT="$(wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" token 2>&1 | tr -d '\r')" || { echo "$OUT" >&2; fail "admin_group duplicate: token probe"; }
+grep -q '^admins=absent$' <<<"$OUT" && grep -q '^elevation=1$' <<<"$OUT" && grep -q '^linked=none$' <<<"$OUT" ||
+    { echo "$OUT" >&2; fail "a repeated admin_group= line still gave the administrator token shape"; }
+ok c2_admin_group_duplicate_line_gives_standard_token_shape
+cat "$ROOT/sysrun.conf.orig" > "$CONF"
+prefix_server_env "$ADM" -k || true; prefix_server_env "$ADM" -w
+
 # ---- 8. the system role (C3), elevation enforced --------------------------------------------------------------
 # services.exe, winedevice.exe and the LocalSystem service report SYSTEM; the LocalService and NetworkService
 # services report their accounts and have no system group; a limited and a standard user cannot get at the system

@@ -1,5 +1,17 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e: registry.c reads admin_group like accounts.c (2026-11-08)
+
+The server's administrator-group parser (`admin_group_name` in `server/registry.c`)
+disagreed with the accounts-map parser (`read_policy` in `server/accounts.c`): it took
+the first `admin_group=` line and accepted an empty or invalid name. Now a repeated
+`admin_group=` line, or an empty or invalid name (the same `valid_name` rule as
+accounts.c, copied not linked), makes the configuration invalid and nobody is an
+administrator; a missing key still means `sudo`, and an unsafe file (not a regular
+root-owned file, group/other writable, or a symlink) keeps the `sudo` default.
+
+* `server/registry.c`: `valid_name`, `admin_group_name`, `user_is_administrator`.
+
 ## E1-S18e R13: elevated process does not inherit the caller's job or debugger (2026-11-09)
 
 The filtered-admin broker names the caller as designated parent (console and window placement).
