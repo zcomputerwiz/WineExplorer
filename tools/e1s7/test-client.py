@@ -65,10 +65,11 @@ def main():
     for name in secrets:
         if name in ("bob", "alice", "carol", "eve", "wexs7_locked", "wexs7_expired"):
             require(name in accounts)
+    require("wexs7_nopass" in accounts)
     pamdir = root / "pam.d"
     pamdir.mkdir(mode=0o700)
     allow = root / "allow"
-    allow.write_text("bob\nalice\ncarol\neve\nwexs7_locked\nwexs7_expired\n", encoding="ascii")
+    allow.write_text("bob\nalice\ncarol\neve\nwexs7_locked\nwexs7_expired\nwexs7_nopass\n", encoding="ascii")
     allow.chmod(0o600)
     auth = ("auth requisite pam_listfile.so item=user sense=allow onerr=fail file=" + str(allow) + "\n"
             "auth [success=1 default=ignore] pam_unix.so\n"
@@ -79,6 +80,12 @@ def main():
                          ("style", "unsupported"), ("block", "block")):
         stacks[suffix] = "auth requisite " + str(root / "pam-lab.so") + " " + args + "\n" + auth + account
     stacks["redirect"] = "auth required " + str(root / "pam-lab.so") + " redirect\naccount required pam_permit.so\n"
+    # A nullok stack: pam_unix would accept an empty password, so only the
+    # worker's PAM_DISALLOW_NULL_AUTHTOK can refuse a passwordless account.
+    auth_nullok = ("auth requisite pam_listfile.so item=user sense=allow onerr=fail file=" + str(allow) + "\n"
+                   "auth [success=1 default=ignore] pam_unix.so nullok\n"
+                   "auth requisite pam_deny.so\nauth required pam_permit.so\n")
+    stacks["nullok"] = auth_nullok + account
     for suffix, stack in stacks.items():
         (pamdir / (service + ("-" + suffix if suffix else ""))).write_text(stack, encoding="ascii")
     (pamdir / "other").write_text("auth required pam_permit.so\naccount required pam_permit.so\n", encoding="ascii")
@@ -181,6 +188,10 @@ def main():
                         reply = secrets.get(user, "E1S7-WRONG-CANARY").encode()
                     if action == "wrong" and style == 1:
                         reply = b"E1S7-WRONG-CANARY"
+                    elif action == "empty" and style == 1:
+                        reply = b""
+                    elif action == "space" and style == 1:
+                        reply = b" "
                     elif action == "oversize" and style == 1:
                         reply = b"x" * 4097
                     elif action == "utf8" and style == 1:
@@ -222,7 +233,8 @@ def main():
         require(bool(records))
         if case == "expired-account":
             require(any(b"stage=4 reason=6" in line and b"success=0" in line for line in records))
-        if case in ("wrong-password", "locked-account"):
+        if case in ("wrong-password", "locked-account", "passwordless-empty",
+                    "passwordless-space", "passwordless-wrong"):
             require(any(b"stage=3" in line and b"success=0" in line for line in records))
         try:
             os.waitpid(pid, os.WNOHANG)
@@ -250,6 +262,14 @@ def main():
         run("missing-fixed-service-no-other-fallback", suffix="missing")
         run("locked-account", user="wexs7_locked")
         run("expired-account", user="wexs7_expired")
+        # A passwordless administrator must never authenticate, even with a
+        # nullok stack: the worker's PAM_DISALLOW_NULL_AUTHTOK refuses an empty
+        # answer, a single space and a wrong password, while a passworded
+        # account still works under the same stack.
+        run("passwordless-empty", user="wexs7_nopass", suffix="nullok", action="empty")
+        run("passwordless-space", user="wexs7_nopass", suffix="nullok", action="space")
+        run("passwordless-wrong", user="wexs7_nopass", suffix="nullok", action="wrong")
+        run("passworded-nullok", user="alice", suffix="nullok", expected=0)
         # Exercise the real worker and pam_unix delay, not a Python sleep/mock.
         # Compare full public prompt bytes/order/style and post-answer latency.
         classes = []

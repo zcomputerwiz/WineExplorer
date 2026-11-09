@@ -20,7 +20,7 @@ REPO="$(dirname -- "$SCRIPT_DIR")"
 exec 9</run
 flock -n 9 || { echo 'FAIL: /run fixture lock busy' >&2; exit 1; }
 FIXTURE="$(mktemp -d /run/wex-pam-test-XXXXXXXX)"
-LOCK_UID= EXPIRE_UID=
+LOCK_UID= EXPIRE_UID= NOPASS_UID=
 cleanup()
 {
     status=$?
@@ -32,6 +32,9 @@ cleanup()
     if [ -n "$EXPIRE_UID" ]; then
         if [ "$(id -u wexs7_expired 2>/dev/null || true)" = "$EXPIRE_UID" ]; then userdel wexs7_expired || status=1; else status=1; fi
     fi
+    if [ -n "$NOPASS_UID" ]; then
+        if [ "$(id -u wexs7_nopass 2>/dev/null || true)" = "$NOPASS_UID" ]; then userdel wexs7_nopass || status=1; else status=1; fi
+    fi
     # mktemp produced this absolute direct child of /run; no computed parents.
     case "$FIXTURE" in /run/wex-pam-test-????????) rm -rf -- "$FIXTURE" ;; *) status=1 ;; esac
     if [ "$status" -eq 0 ]; then echo 'E1S7_PAM_WORKER OK'; else echo 'E1S7_PAM_WORKER FAIL'; fi
@@ -39,7 +42,7 @@ cleanup()
 }
 trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
-for name in wexs7_locked wexs7_expired; do
+for name in wexs7_locked wexs7_expired wexs7_nopass; do
     if getent passwd "$name" >/dev/null; then fail "foreign fixture account $name"; fi
 done
 # Read S2's root-only file in the client; passwords never enter shell arguments.
@@ -80,6 +83,11 @@ useradd -M -U -s /bin/sh wexs7_locked
 LOCK_UID="$(id -u wexs7_locked)"
 useradd -M -U -s /bin/sh wexs7_expired
 EXPIRE_UID="$(id -u wexs7_expired)"
+# Passwordless administrator fixture: in the admin group, password removed.
+useradd -M -U -s /bin/sh wexs7_nopass
+NOPASS_UID="$(id -u wexs7_nopass)"
+usermod -aG sudo wexs7_nopass
+passwd -d wexs7_nopass
 # Client prepares only our new fixtures, private pam.d and S4 configuration;
 # real S2 NSS identities and passwords are retained. No Wine build or run.
 python3 "$REPO/tools/e1s7/test-client.py" "$FIXTURE" "$SERVICE" "$REPO/tools/e1s7"
