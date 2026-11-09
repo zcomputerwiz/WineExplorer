@@ -134,3 +134,36 @@ Set/check both options on S's receiving end during new_process, before returning
 - **Retirement/cancel (spec:121-134):** retain evidence/endorsement/pins/watches through redemption and Stage 2 terminal ACK, not just RESULT_SENT. Either park W through DONE or explicitly distinguish its supervised successful exit from unexpected death (today W returns after RESULT at `pam-worker.c:591-598`). Split STAGE2 into uncommitted/committed outcomes per S1: cancellation cannot relabel a committed launch; lost replies require the decided termination/reporting rule. Bound DONE writes, then close/cancel/drain/join I/O without waiting indefinitely on a dead reader; define successful resource release as well as cancellation.
 
 Step 2 needs the corrected tuple, S1 challenge mapping and exact control/prompt layouts first. Step 4 needs the corrected INIT/ACK wire contract, usable D pipe rights, acyclic startup and bounded terminal I/O rules first. The pin-source change resolves the earlier socketpair-creator objection; it does not resolve these mechanical-step prerequisites. All kernel, WoW64, lifecycle and integration acceptance remains unrun.
+
+## v3 check
+
+2026-11-09. **Step 2: no. Step 4: no, against v3 as frozen.** Checked only the v2 re-review corrections; references below are to v3 spec lines. Static only; no code changes, builds, generators, PAM, D-Bus, kernel or VM tests. E1-S stays disabled.
+
+Addressed: pre-endorsement/sealed tuple and full INIT tuple; nonce/challenge separation and Confirm/Cancel rounds; decoy START; selection-before-attach order; W consuming ATTACH_ACK and reporting W_ACK; verifier-owner authentication replacing “signed”; initial desktop/session comparison and operation-specific S rechecks; fresh retry D; parked post-result W; precommit/committed split; bounded terminal pipe cleanup. Loader option/ancillary/pre-entry conditions, validated display text, Wine-only notices, hygiene, disabled normal builds and separate R13 are carried forward. Remaining qualifications follow.
+
+Every stated byte total recomputes correctly (FD ancillary data is outside the payload length):
+
+| Message/layout | Recalculation, bytes |
+| --- | --- |
+| Common header; pre-endorsement/sealed tuple | 4+2+2+4+8+4+4+32+16 = 76; tuples = 200/216 |
+| INIT | 76+(32+32+8+48+4+16+16)+3*4+(0..1560) = 244..1804 |
+| ACK; SELECT_OK; READY | 76+32+32+16 = 156; 76; 76 |
+| SELECT; B→D RESULT | 76+4+(1..63) = 81..143; 76+4+4+32+(0 or 1..63) = 116 or 117..179 |
+| S1 Answer; pipe ANSWER; DONE | 16+8+4+4+4+4+32+32+32+16+4+payload = 156..4252; 76+32+156 = 264 for empty Confirm/Cancel; 76+4 = 80 |
+| ENDORSED; START | 76+156 = 232 for the intended fixed tuple tail; 76+4+(1..63)+16 = 97..159 |
+| WORKER_READY; DELEGATED; W_ACK; ATTACH_ACK | 76 each |
+| V→B RESULT; CANCEL | 76+4+16+4+16+(0 or 1..63) = 116 or 117..179; 76+4 = 80 |
+| S7 header; extended prompt | 8+2+2+4+8+4+4+4+4+32 = 72; 72+16+32+32+16+10 = 178; text is ASCII `Password: `, no NUL (pam-worker.c:311) |
+
+Unfinished v2 corrections and exact fixes:
+
+- **Tuple/INIT/display (69-108):** freeze offsets and per-type bounds explicitly. ENDORSED's “first eight fields + dialog_id” is ambiguous: replace it with the explicit 156-byte tail from binding_digest through dialog_id, excluding display strings. INIT has no specified source for the secure/insecure indication. Add `desktop_mode:u32` (1 secure, 2 explicitly permitted insecure) after dialog_id, authenticated by the inherited pipe; INIT then becomes **248..1808**, ENDORSED stays 232. This changes step 4's frozen input contract.
+- **Other codecs (97-142):** enumerate type-20 status as 1 authenticated/2 refused and type-21 reason values (a single generic reason=1 suffices); specify that refused RESULT zeros everything except its status/header. Define Answer equality as the fields actually present in S1, not the entire sealed tuple. Freeze S7 magic/version/type/style/length and ASCII prompt bytes, and the exact D-Bus argument/reply types, order and full-attempt binding.
+- **Registration/reply/pins (64-65,118-142):** W never receives a specified D pin registration. Freeze authenticated supervisor setup carrying the sealed tuple, D PID/UID and actual pidfd; specify W PID/UID/pin delivery to V/D, protected delivery of D's expected verifier owner, and owners/closure of D's received W pin and W's received D pin. Include exact ancillary size/duplicate/unknown rejection and rejected-FD closure on these transfers. “W validates” cannot replace that registration contract.
+- **ACK/readiness/bootstrap (118-138):** W ends bootstrap before V closes both secret copies, and no event tells W that READY occurred. Freeze V→W prompt-release control: after valid W_ACK, V closes both copies, sends DELEGATED and releases W to prompt; D still waits for both READY and the authenticated prompt. Explicitly forbid Python watches/receives on secret ends. Suppress only premature secret-data checks during bootstrap, never deadline/death/stop cancellation. Give D an authenticated attach-permitted notification after WORKER_READY, so it cannot race into a terminal out-of-order attach.
+- **Access/rechecks (47-63):** protection begins at endorsement, not creation, leaving the prior requested protection gap. Install restrictions atomically at protected D creation, retain them through retirement, cover pipe/connection handles and existing/duplicated handles against other SYSTEM clients, and grant D precisely its inherited read/write rights. Require the typed endorsement lookup's necessary access rights explicitly.
+- **Final account (99-100,112,151-152):** fresh S4 eligibility is stated only at Confirm, and only key equality is explicit. Before publishing successful RESULT and again at Confirm, resolve fresh eligibility and require the selected retained key **and canonical name** to match the evidence/final displayed account; bind the one-use challenge to that key/name/evidence reference. Decoys must never reach either success path.
+- **Retirement/release (143,158-171):** RETIRED still has no authenticated triggering event or release layout. Freeze bound cancellation/release and Stage-2 terminal acknowledgement messages; retain endorsement/pins/watches through that terminal event (consume evidence once at redemption). Release/reap parked W only then; cancellation uses the same bounded cleanup. Redemption alone must not retire D's protection or watches.
+- **Quotas/inventory/acceptance (126-127,184-194):** bound admission/in-flight records and refused-sender tracking, preserving foreign-call nonmutation; explicitly retain request-owned channels or WO-15 lifetime serialization with no OPEN/CLOSE rotation. Replace the wexhost directory allowance with `e1s6.c`, `wexhost.c`, `wexhost.spec`, `wexhost_unix.h`, `unixlib.c`, and name codec/test files. Carry forward named malformed/replay/caps/UTF-8 vectors and step-4 oversized/partial INIT, blocked writer, broken pipe, cancellation and unrelated-handle tests; the current negative list omits them.
+
+Step 2 still requires the missing control/registration/release codecs and enums; step 4 requires the final INIT/display contract and creation-time pipe protection contract. Refreeze those precise inputs before issuing mechanical orders. Correct arithmetic and source-level design do not establish supported-kernel, WoW64 or lifecycle acceptance.
