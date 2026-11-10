@@ -796,3 +796,57 @@ unsloth-tmp/wo20-consent-obj.sh, or state why not possible).
 Check: `bash scripts/test_broker_e1s18.sh` passes (native, ASan, both MinGW compiles, codec cross-check);
 report the new test names. Do not run Wine or anything in wexbuild other than the compilers and this
 script. No commits. Never use VM B.
+
+Amendment (Claude, after reading the S6 control path for WO-26): the verifier keeps its R8 attempt
+records per S6 session, and ENDORSED travels on that session's control socket, so `e1s18_r8_prepare`
+must not close the S6 channel. It keeps the channel in the attempt and closes it when the attempt ends
+(every exit of `e1s18_spawn_consent_dialog` after a successful prepare).
+
+## WO-26 R8: ENDORSED from the server to the verifier (lab only; for Antigravity, after WO-25)
+
+Contract: docs/E1_S18E_R8_SPEC.md section 6 (ENDORSED, type 16, 244 bytes: 76-byte header, 160-byte
+tuple tail, D's pin pid u32, uid u32; D's pidfd as SCM_RIGHTS) with this amendment, which the order also
+writes into the spec: the S6 control socket is shared with the broker (it passes the handle), so the
+endpoint alone does not authenticate the server. ENDORSED therefore carries, like the S6 endorsement
+(wine/server/sysrun.c `sysrun_e1s6_endorse`), explicit SCM_CREDENTIALS with the server's pid, euid and
+the effective system gid (sent under `sysrun_raise`), the kernel's SCM_PIDFD of the sender (the
+verifier sets SO_PASSPIDFD), and exactly one SCM_RIGHTS fd (D's pidfd). The verifier checks the sender
+exactly as `endorsement()` does (tools/e1s6/e1s6-lab.py: uid, system gid, wineserver executable inode,
+the session's server pid and pin).
+
+Files: wine/server/sysrun.c/.h, process.c/.h, named_pipe.c, tools/e1s6/e1s6-lab.py,
+docs/E1_S18E_R8_SPEC.md (section 6 amendment only), scripts/wexelevate_probe.c,
+scripts/test_sysrun_server.sh. Server code inside `#ifdef WEX_E1S6_TRANSPORT_TEST`. Do not touch
+src/programs/wexelevate, src/dlls/wexhost or src/include (WO-25 owns them).
+
+1. Server: at a successful S6 endorsement, retain a duplicate of the control socket fd on the broker
+   process (`e1s6_control_fd`, replacing and closing the previous one; closed when the process is
+   destroyed).
+2. Server, in ENDORSE (WO-24 op 2), after all checks and before publishing the endorsement: build
+   ENDORSED with the R8 header (magic `E1R8`, version 1, type 16, length 244, request_id, attempt,
+   reserved 0, nonce, channel_id from the pre-endorsement tuple), the tuple tail (bytes 60..203 of the
+   tuple plus the new dialog_id), D's pin pid and D's real uid; open a fresh pidfd for D
+   (`pidfd_open`), send one `sendmsg` with the three control messages on `e1s6_control_fd`
+   (`MSG_DONTWAIT | MSG_NOSIGNAL`), close the pidfd. A missing control fd or a short send denies the
+   endorsement with an audit site, and nothing is retained.
+3. Verifier (e1s6-lab.py): watch each session's control socket outside `endorsement()`; a packet that
+   starts with `E1R8` and type 16 is ENDORSED: one `recvmsg` with `MSG_CMSG_CLOEXEC`, exactly 244 bytes,
+   no truncation, exactly SCM_CREDENTIALS + SCM_PIDFD (kernel) + one SCM_RIGHTS fd, no other ancillary
+   data; sender checks as above; the received fd is a pidfd whose fdinfo `Pid:` equals the body pid
+   (alive) and whose process's real uid equals the body uid; header fields valid (version 1, length 244,
+   reserved 0); request_id/attempt not already recorded; at most 8 records per session (spec section 1).
+   Store the record (tuple tail, pid, uid, pidfd owned by the record, closed when the session ends) and
+   audit `E1R8_ENDORSED ok request=<hex> pid=<n>`; any failure audits a distinct denial and closes every
+   received fd. An ENDORSED arriving while `endorsement()` waits on the same socket must not be lost
+   (dispatch by magic in one receive path).
+4. Tests: in the WO-24 `r8endorse` lab case, after the successful ENDORSE the harness finds exactly one
+   `E1R8_ENDORSED ok` line in the verifier log with the consent process's Unix pid
+   (`r8_endorsed_to_verifier_<arch>`); an ENDORSE on a fresh pipe after the probe closed its S6 channel
+   is denied and adds no `E1R8_ENDORSED` line (`r8_endorsed_needs_channel_<arch>`); the existing 38
+   `r8_endorse` lines still pass.
+
+Check: normal suite 325 (no new lines), lab S6 transport suite passes with the new lines, broker test
+passes. Long runs in the background, nothing else running in wexbuild, `bash
+unsloth-tmp/clean-wexbuild-fixture.sh` before and after each suite. Never run `git checkout`, `git
+restore`, `git stash` or any command that discards changes: other agents edit other files of this
+tree. Write the report and end the job when done. No commits. Never use VM B.
