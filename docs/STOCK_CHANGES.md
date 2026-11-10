@@ -1,5 +1,13 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e R8: BINDING host uid and the corrected dialog desktop rule (lab only, 2026-11-10)
+
+Only with `WEX_E1S6_TRANSPORT_TEST`. `server/named_pipe.c`: the BINDING reply grows to 132 bytes with the
+opener's native uid (from its kernel pin) at offset 124. ENDORSE_DIALOG and RECHECK check the dialog's
+desktop with `dialog_desktop_ok`: D must be on the session's visible window station (WinSta0), on its secure
+desktop for desktop_mode 1 or on the caller's own desktop for mode 2 (docs/E1_S18E_R8_3E_DESIGN.md
+section 10). Under `WEX_R8_SERVER_TEST` it traces the window stations it compared.
+
 ## E1-S18e R8: ENDORSED from the server to the verifier (lab only, 2026-11-10)
 
 Only with `WEX_E1S6_TRANSPORT_TEST`. `server/sysrun.c` keeps a duplicate of the broker's S6 control

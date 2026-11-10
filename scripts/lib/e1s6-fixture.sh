@@ -41,8 +41,11 @@ e1s6_start()  # real wineserver path, system group, owned output directory
 {
     local server="$1" group="$2" out="$3" i
     [ "$(id -u)" = 0 ] || fail 'S6 fixture requires root in disposable guest'
-    exec {E1S6_LOCK}>/run/lock/wex-e1s6.lock
-    flock -n "$E1S6_LOCK" || fail 'S6 fixture is already owned'
+    # a restart in the same run keeps the lock it already holds (children inherited the fd)
+    if [ -z "${E1S6_LOCK:-}" ]; then
+        exec {E1S6_LOCK}>/run/lock/wex-e1s6.lock
+        flock -n "$E1S6_LOCK" || fail 'S6 fixture is already owned'
+    fi
     [ ! -e "$E1S6_CHILD" ] && [ ! -L "$E1S6_CHILD" ] || fail 'foreign S6 child exists'
     [ ! -e "$E1S6_POLICY" ] && [ ! -L "$E1S6_POLICY" ] || fail 'foreign S6 policy exists'
     /usr/bin/python3 -I -c 'import dbus; from gi.repository import GLib' || fail 'python3-dbus/python3-gi missing'

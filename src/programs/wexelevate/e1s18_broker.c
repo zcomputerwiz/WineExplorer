@@ -21,6 +21,10 @@
 #include "e1s18_broker.h"
 #include "cred_dialog.h"
 #include "launch_prep.h"
+#ifdef __WINE_PE_BUILD
+#include "cred_dialog.c"
+#include "launch_prep.c"
+#endif
 #include "e1s6_protocol.h"
 #include "e1s_encode.h"
 #ifdef WEXELEVATE_E1S18
@@ -39,6 +43,21 @@
 #include <fcntl.h>
 #include <sys/random.h>
 #endif
+
+static inline void e1s18_safe_copy_str( char *dst, const char *src, size_t max_size )
+{
+    size_t i = 0;
+    if (!dst || !max_size) return;
+    if (src)
+    {
+        while (i + 1 < max_size && src[i])
+        {
+            dst[i] = src[i];
+            i++;
+        }
+    }
+    dst[i] = '\0';
+}
 
 /*
  * Self-contained FIPS 180-2 SHA-256 Implementation.
@@ -619,6 +638,50 @@ void e1s18_set_r8_skip_prepare( BOOL skip )
     s_r8_skip_prepare = skip;
 }
 
+#ifdef _WIN32
+typedef int (__cdecl *e1s18_pfn_wine_dbg_output)( const char * );
+
+static void r8_trace_line( const char *msg )
+{
+    char buf[256];
+    HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" );
+    snprintf( buf, sizeof(buf), "%s\n", msg );
+    if (ntdll)
+    {
+        e1s18_pfn_wine_dbg_output dbg_out = (e1s18_pfn_wine_dbg_output)(void *)GetProcAddress( ntdll, "__wine_dbg_output" );
+        if (dbg_out) dbg_out( buf );
+    }
+    fprintf( stderr, "%s", buf );
+    fflush( stderr );
+}
+
+static void r8_trace_err( const char *step, unsigned long err )
+{
+    char buf[256];
+    HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" );
+    snprintf( buf, sizeof(buf), "r8: %s failed %lu\n", step, err );
+    if (ntdll)
+    {
+        e1s18_pfn_wine_dbg_output dbg_out = (e1s18_pfn_wine_dbg_output)(void *)GetProcAddress( ntdll, "__wine_dbg_output" );
+        if (dbg_out) dbg_out( buf );
+    }
+    fprintf( stderr, "%s", buf );
+    fflush( stderr );
+}
+#else
+static void r8_trace_line( const char *msg )
+{
+    fprintf( stderr, "%s\n", msg );
+    fflush( stderr );
+}
+
+static void r8_trace_err( const char *step, unsigned long err )
+{
+    fprintf( stderr, "r8: %s failed %lu\n", step, err );
+    fflush( stderr );
+}
+#endif
+
 /*
  * WO-25: Fill the R8 context from live inputs instead of relying on a preset
  * context. r8_open (the S6 OPEN record), r8_binding (the BINDING reply) and
@@ -631,15 +694,26 @@ void e1s18_set_r8_skip_prepare( BOOL skip )
  * endorsement). The S6 channel is closed on every path after a successful
  * OPEN. Returns ERROR_SUCCESS on success, or the denial.
  */
+#ifdef _WIN32
+static inline uint64_t e1s18_filetime_u64( const FILETIME *ft )
+{
+    return ((uint64_t)ft->dwHighDateTime << 32) | ft->dwLowDateTime;
+}
+#define E1S18_REQ_LAST_WRITE(req) e1s18_filetime_u64( &(req)->info.ftLastWriteTime )
+#else
+#define E1S18_REQ_LAST_WRITE(req) ((req)->info.ftLastWriteTime)
+#endif
+
 DWORD e1s18_r8_prepare( struct request *req )
 {
     const struct e1s18_ops *ops = e1s18_get_ops();
     unsigned char reg[E1S6_OPEN_SIZE];
-    unsigned char binding[124];
+    unsigned char binding[132];
     char owner[256];
     UINT64 channel = 0;
     uint64_t reg_server_gen, reg_broker_gen, reg_verifier_gen;
     uint64_t b_server_gen, b_root_gen, b_broker_gen, b_map_gen, b_policy_gen;
+    uint64_t b_host_uid;
     uint32_t b_caller_session;
     DWORD err = ERROR_SUCCESS;
     int opened = 0;
@@ -654,9 +728,9 @@ DWORD e1s18_r8_prepare( struct request *req )
     memset( binding, 0, sizeof(binding) );
     memset( owner, 0, sizeof(owner) );
 
-    if (!ops->r8_open) return ERROR_NOT_SUPPORTED;
+    if (!ops->r8_open) { err = ERROR_NOT_SUPPORTED; goto fail; }
     err = ops->r8_open( req, reg, &channel );
-    if (err || !channel) return err ? err : ERROR_ACCESS_DENIED;
+    if (err || !channel) { err = err ? err : ERROR_ACCESS_DENIED; goto fail; }
     opened = 1;
 
     if (!ops->r8_binding) { err = ERROR_NOT_SUPPORTED; goto close; }
@@ -675,13 +749,14 @@ DWORD e1s18_r8_prepare( struct request *req )
 
     /* Parse the BINDING reply: prefix_id 0, host_process_id 16, opener_id 32,
      * writer_id 48, desktop_route 64; server_gen 80, root_gen 88, broker_gen
-     * 96, map_gen 104, policy_gen 112; caller_session 120. */
+     * 96, map_gen 104, policy_gen 112; caller_session 120, host_uid 124. */
     b_server_gen = e1s6_u64( binding + 80 );
     b_root_gen = e1s6_u64( binding + 88 );
     b_broker_gen = e1s6_u64( binding + 96 );
     b_map_gen = e1s6_u64( binding + 104 );
     b_policy_gen = e1s6_u64( binding + 112 );
     b_caller_session = e1s6_u32( binding + 120 );
+    b_host_uid = e1s6_u64( binding + 124 );
 
     /* Deny unless the BINDING server_gen/broker_gen equal the registration's,
      * every value is nonzero, and the owner is a valid D-Bus unique name. */
@@ -692,8 +767,9 @@ DWORD e1s18_r8_prepare( struct request *req )
         e1s18_is_all_zero( binding + 32, 16 ) ||  /* opener_id */
         e1s18_is_all_zero( binding + 48, 16 ) ||  /* writer_id */
         e1s18_is_all_zero( binding + 64, 16 ) ||  /* desktop_route */
+        e1s18_is_all_zero( reg + 88, 16 ) ||      /* channel from registration */
         !b_server_gen || !b_root_gen || !b_broker_gen ||
-        !b_map_gen || !b_policy_gen || !b_caller_session ||
+        !b_map_gen || !b_policy_gen || !b_caller_session || !b_host_uid ||
         !reg_server_gen || !reg_broker_gen || !reg_verifier_gen)
     { err = ERROR_ACCESS_DENIED; goto close; }
     if (!e1r8_valid_verifier_owner( (const uint8_t *)owner, strlen( owner )))
@@ -712,16 +788,44 @@ DWORD e1s18_r8_prepare( struct request *req )
     s_r8_context.policy_gen = b_policy_gen;
     s_r8_context.caller_session = b_caller_session;
     memcpy( s_r8_context.desktop_route, binding + 64, 16 );
-    strncpy( s_r8_context.verifier_owner, owner, sizeof(s_r8_context.verifier_owner) - 1 );
-    s_r8_context.verifier_owner[sizeof(s_r8_context.verifier_owner) - 1] = 0;
+    e1s18_safe_copy_str( s_r8_context.verifier_owner, owner, sizeof(s_r8_context.verifier_owner) );
+
+    /* WO-27: Fill s_s1_context from live inputs */
+    memset( &s_s1_context, 0, sizeof(s_s1_context) );
+    s_s1_context.root_gen = b_root_gen;
+    s_s1_context.server_gen = b_server_gen;
+    s_s1_context.broker_gen = b_broker_gen;
+    s_s1_context.verifier_gen = reg_verifier_gen;
+    s_s1_context.map_gen = b_map_gen;
+    s_s1_context.policy_gen = b_policy_gen;
+    memcpy( s_s1_context.prefix, binding + 0, 16 );
+    s_s1_context.host_uid = b_host_uid;
+    memcpy( s_s1_context.host_process, binding + 16, 16 );
+    memcpy( s_s1_context.opener, binding + 32, 16 );
+    memcpy( s_s1_context.writer, binding + 48, 16 );
+    memcpy( s_s1_context.desktop, binding + 64, 16 );
+    memcpy( s_s1_context.channel, reg + 88, 16 );
+    s_s1_context.volume_serial = req->info.dwVolumeSerialNumber;
+    s_s1_context.file_index = ((uint64_t)req->info.nFileIndexHigh << 32) | req->info.nFileIndexLow;
+    s_s1_context.file_size = ((uint64_t)req->info.nFileSizeHigh << 32) | req->info.nFileSizeLow;
+    s_s1_context.last_write = E1S18_REQ_LAST_WRITE( req );
+    s_s1_context.deadline = E1S18_DEADLINE( req );
+
     /* The verifier keeps the attempt's records per S6 session and ENDORSED
      * travels on its control socket: the channel stays open until the attempt
      * ends (e1s18_r8_release). */
     s_r8_channel = channel;
+#ifdef WEXELEVATE_E1S18
+    r8_trace_line( "r8: prepare ok" );
+#endif
     return ERROR_SUCCESS;
 close:
     if (opened && ops->r8_close)
         ops->r8_close( req, channel ); /* best-effort; result ignored */
+fail:
+#ifdef WEXELEVATE_E1S18
+    r8_trace_err( "prepare", (unsigned long)err );
+#endif
     return err;
 }
 
@@ -950,12 +1054,12 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     DWORD timeout;
     const struct e1s18_ops *ops = e1s18_get_ops();
 
-    /* WO-25: fill the R8 context from live inputs (the S6 OPEN record, the
-     * BINDING reply and the verifier owner) instead of relying on a preset
-     * context. A denial here happens before any pipe or process is created. */
-    if (s_r8_channel) return ERROR_BUSY; /* an attempt is already in flight */
-    if ((err = e1s18_r8_prepare( req )))
-        return err;
+    /* WO-25 / WO-27: reuse open channel and context if already prepared, or prepare now. */
+    if (!s_r8_channel)
+    {
+        if ((err = e1s18_r8_prepare( req )))
+            return err;
+    }
 
     /* WO-20: the R8 context must be complete; a zero required input denies
      * with ERROR_NOT_SUPPORTED before any pipe or process is created. The
@@ -1113,6 +1217,9 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     if (!ops->r8_endorse ||
         ops->r8_endorse( req, pi.hProcess, pre_tuple, dialog_id ))
     {
+#ifdef WEXELEVATE_E1S18
+        r8_trace_err( "endorse", (DWORD)ERROR_ACCESS_DENIED );
+#endif
         TerminateProcess( pi.hProcess, 1 );
         WaitForSingleObject( pi.hProcess, 5000 );
         CloseHandle( pi.hProcess );
@@ -1122,6 +1229,9 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         if (secure) secure_leave();
         return ERROR_ACCESS_DENIED;
     }
+#ifdef WEXELEVATE_E1S18
+    r8_trace_line( "r8: endorse ok" );
+#endif
     memcpy( tuple.dialog_id, dialog_id, 16 );
     memcpy( s_r8_context.dialog_id, dialog_id, 16 );
     /* Encode the INIT from the sealed tuple; an invalid display string or an
@@ -1196,6 +1306,9 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     {
         BOOL joined = TRUE;
 
+#ifdef WEXELEVATE_E1S18
+        r8_trace_err( "ack", (DWORD)ERROR_CANCELLED );
+#endif
         if (ret == WAIT_OBJECT_0)
         {
             TerminateProcess( pi.hProcess, 1 );
@@ -1219,11 +1332,17 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     }
     CloseHandle( worker_thread );
     free( wc );
+#ifdef WEXELEVATE_E1S18
+    r8_trace_line( "r8: ack ok" );
+#endif
 
     /* WO-25: after a valid ACK, recheck the dialog with the server. A failed
      * recheck terminates D and denies. */
     if (!ops->r8_recheck || ops->r8_recheck( req, tuple.dialog_id ))
     {
+#ifdef WEXELEVATE_E1S18
+        r8_trace_err( "recheck", (DWORD)ERROR_ACCESS_DENIED );
+#endif
         TerminateProcess( pi.hProcess, 1 );
         WaitForSingleObject( pi.hProcess, 5000 );
         CloseHandle( pi.hProcess );
@@ -1232,6 +1351,9 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         if (secure) secure_leave();
         return ERROR_ACCESS_DENIED;
     }
+#ifdef WEXELEVATE_E1S18
+    r8_trace_line( "r8: recheck ok" );
+#endif
 
     /* After a valid ACK the dialog runs as before: wait for it to exit (or for
      * the caller, stop or lease break) within what is left of the deadline. */
@@ -1465,7 +1587,7 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
     uint64_t deadline = 0;
     int q_res;
     DWORD err = ERROR_SUCCESS;
-    BOOL secure = TRUE;
+    BOOL secure = TRUE; /* desktop_mode 1 unless an insecure desktop is explicitly configured */
 
     if (!req || !nonce || !binding_digest || !request_digest || !out_account || account_max == 0)
         return ERROR_INVALID_PARAMETER;
@@ -1559,7 +1681,6 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
     {
         err = e1s18_spawn_consent_dialog( req, req->id, nonce, binding_digest, request_digest,
                                           channel_token, secure, out_account, account_max );
-        e1s18_r8_release( req ); /* the attempt's S6 channel, on every exit */
     }
 #else
     else
@@ -1714,7 +1835,7 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
     /* Populate struct request fields */
 #ifdef WEXELEVATE_E1S18
     memset( req->account_name, 0, sizeof(req->account_name) );
-    strncpy( req->account_name, account_name, sizeof(req->account_name) - 1 );
+    e1s18_safe_copy_str( req->account_name, account_name, sizeof(req->account_name) );
     memcpy( req->account_key, ev->account_key, 16 );
     req->map_generation = ev->map_gen;
     /* The S12 storage generation is no longer produced by Stage 2; the
@@ -2157,11 +2278,11 @@ static DWORD default_prep_launch( struct request *req, HANDLE token,
     params.profile.map_generation = req->map_generation;
     params.profile.storage_generation = req->storage_generation;
 #else
-    strncpy( params.profile.account_name, "alice", sizeof(params.profile.account_name) - 1 );
+    e1s18_safe_copy_str( params.profile.account_name, "alice", sizeof(params.profile.account_name) );
 #endif
-    strncpy( params.profile.sid, "S-1-5-21-999-1001", sizeof(params.profile.sid) - 1 );
-    strncpy( params.profile.windows_path, "C:\\users\\.e1s\\admin", sizeof(params.profile.windows_path) - 1 );
-    strncpy( params.profile.unix_relative_path, "drive_c/users/.e1s/admin", sizeof(params.profile.unix_relative_path) - 1 );
+    e1s18_safe_copy_str( params.profile.sid, "S-1-5-21-999-1001", sizeof(params.profile.sid) );
+    e1s18_safe_copy_str( params.profile.windows_path, "C:\\users\\.e1s\\admin", sizeof(params.profile.windows_path) );
+    e1s18_safe_copy_str( params.profile.unix_relative_path, "drive_c/users/.e1s/admin", sizeof(params.profile.unix_relative_path) );
 
     /* Working directory: convert the caller's UTF-16 cwd to UTF-8 exactly.
      * Unpaired surrogates, truncation, or a result that does not fit deny. */
@@ -2515,13 +2636,13 @@ static DWORD default_r8_owner( struct request *req, UINT64 channel, char owner[2
 #endif
 }
 
-static DWORD default_r8_binding( struct request *req, unsigned char out[124] )
+static DWORD default_r8_binding( struct request *req, unsigned char out[132] )
 {
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
     e1s18_pfn_QueryWexPipeCallerBindingEx query;
     e1s18_pipe_caller_binding_ext ext;
     unsigned char payload[8];
-    unsigned char out_buf[124];
+    unsigned char out_buf[132];
     ULONG out_len = sizeof(out_buf);
     NTSTATUS status;
     if (!req || !req->pipe || !out) return ERROR_INVALID_PARAMETER;
@@ -2540,8 +2661,8 @@ static DWORD default_r8_binding( struct request *req, unsigned char out[124] )
     ext.out_size = &out_len;
     status = query( req->pipe, &ext.binding );
     if (status) return ERROR_ACCESS_DENIED;
-    if (out_len != 124) { e1s18_close_binding_handles( &ext.binding ); return ERROR_ACCESS_DENIED; }
-    memcpy( out, out_buf, 124 );
+    if (out_len != 132) { e1s18_close_binding_handles( &ext.binding ); return ERROR_ACCESS_DENIED; }
+    memcpy( out, out_buf, 132 );
     e1s18_close_binding_handles( &ext.binding );
     return ERROR_SUCCESS;
 #else
@@ -2890,6 +3011,12 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
     if (e1s18_is_all_zero( nonce, 32 ))
         return ERROR_ACCESS_DENIED;
 
+#ifdef WEXELEVATE_E1S18
+    /* WO-27: run prepare before the S1 gate, populating live context and opening S6 channel. */
+    if (s_r8_channel) return ERROR_BUSY;
+    if ((err = e1s18_r8_prepare( req ))) goto fail;
+#endif
+
     /* WO-14: the canonical S1 binding/request records need endorsed
      * identities and generations. Any zero required input denies the request
      * with ERROR_NOT_SUPPORTED before a dialog starts (zero in production). */
@@ -3109,6 +3236,9 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     if (!e1s18_standard_slot_try_take())
         return ERROR_BUSY;
     result = e1s18_handle_standard_request_locked( req, reply );
+#ifdef WEXELEVATE_E1S18
+    e1s18_r8_release( req );
+#endif
     e1s18_standard_slot_release();
     return result;
 }

@@ -913,3 +913,18 @@ the consent object).
 Check: normal suite 325, lab S6 transport suite passes with the new lines and every earlier line, broker
 test passes. Same rules as WO-26 (background runs, clean fixture before and after, never discard changes,
 no commits, never VM B, end the job after the report).
+
+Result (2026-11-10; Antigravity 138 minutes, then Claude): the standard-user chain runs end to end in Wine:
+`r8_e2e_ack_64` and `r8_e2e_ack_32` (prepare, endorse, ENDORSED at the verifier, ack, recheck, in order)
+and `r8_e2e_no_verifier_denied` pass; lab S6 transport suite 372 PASS, normal suite 325, broker test
+passes. The first run stopped at ENDORSE (`dialog-desktop-mismatch`): 3e decision 4 was wrong (corrected
+in the 3e design, section 10). Claude's further fixes: the secure desktop stays the default (Antigravity
+had switched it off); the probe joins WinSta0\Default like an interactive program (`runinteractive`, and
+the WO-24 cases, now desktop_mode 2); the lab build keeps the E1S18 broker and consent as separate
+`-e1s18` files and the case swaps them into the build tree in place for its own duration (Wine loads
+system32 builtins from the build tree by module name; the server recognises them by the machine-root
+entry); the case restarts the verifier after its negative step (the fixture lock is reused); the
+`E1S1-REQ` tag rewrite that dodged the installed-tree check is reverted. Open: run earlier in the suite,
+the case leaves state that makes the later `c4_refused_consent_is_error_cancelled` time out (1460); it
+now runs last in the C4 section; the state (a live WinSta0 is the first suspect) is to be identified,
+since a real session always has WinSta0.

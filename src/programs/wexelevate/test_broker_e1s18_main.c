@@ -115,6 +115,23 @@ static void reset_tracker( void )
      * fail before the context check are unaffected, and the missing-input
      * test overrides individual fields. */
     set_default_s1_context();
+#ifdef WEXELEVATE_E1S18
+    {
+        struct e1s18_r8_context r8_ctx;
+        memset( &r8_ctx, 0, sizeof(r8_ctx) );
+        r8_ctx.root_gen = 10;
+        r8_ctx.server_gen = 20;
+        r8_ctx.broker_gen = 30;
+        r8_ctx.verifier_gen = 40;
+        r8_ctx.map_gen = 50;
+        r8_ctx.policy_gen = 60;
+        r8_ctx.caller_session = 1;
+        memset( r8_ctx.desktop_route, 0x55, 16 );
+        strcpy( r8_ctx.verifier_owner, ":1.42" );
+        e1s18_set_r8_context( &r8_ctx );
+        e1s18_set_r8_skip_prepare( TRUE );
+    }
+#endif
 }
 
 static uint64_t fake_get_capabilities( const struct request *req )
@@ -419,6 +436,17 @@ static void init_dummy_request( struct request *req )
     req->caller_sid[7] = 5;
     wex_token_put32( req->caller_sid + 8, 555 );
     wex_token_put32( req->caller_sid + 12, 500 );
+    req->info.dwVolumeSerialNumber = 0x1234;
+    req->info.nFileIndexHigh = 0;
+    req->info.nFileIndexLow = 0x5678;
+    req->info.nFileSizeHigh = 0;
+    req->info.nFileSizeLow = 0x9abc;
+#ifdef _WIN32
+    req->info.ftLastWriteTime.dwHighDateTime = 0;
+    req->info.ftLastWriteTime.dwLowDateTime = 0xdef0;
+#else
+    req->info.ftLastWriteTime = 0xdef0;
+#endif
 #endif
 }
 
@@ -3720,6 +3748,7 @@ struct wo25_r8_state
     /* BINDING reply values. */
     uint64_t b_server_gen, b_root_gen, b_broker_gen, b_map_gen, b_policy_gen;
     uint32_t b_caller_session;
+    uint64_t b_host_uid;
     uint8_t b_prefix[16], b_host[16], b_opener[16], b_writer[16], b_route[16];
     char owner[256];
     uint8_t dialog_id[16];
@@ -3745,6 +3774,7 @@ static void wo25_reset( void )
     s_wo25.b_map_gen = 0x500;
     s_wo25.b_policy_gen = 0x600;
     s_wo25.b_caller_session = 7;
+    s_wo25.b_host_uid = 1000;
     for (i = 0; i < 16; i++)
     {
         s_wo25.b_prefix[i] = (uint8_t)(0x01 + i);
@@ -3769,6 +3799,7 @@ static DWORD wo25_fake_r8_open( struct request *req, unsigned char reg[E1S6_OPEN
     e1s6_put64( reg + 48, s_wo25.reg_server_gen );
     e1s6_put64( reg + 56, s_wo25.reg_broker_gen );
     e1s6_put64( reg + 64, s_wo25.reg_verifier_gen );
+    memset( reg + 88, 0x41, 16 );
     *channel = 0xabc;
     return ERROR_SUCCESS;
 }
@@ -3783,12 +3814,12 @@ static DWORD wo25_fake_r8_owner( struct request *req, UINT64 channel, char owner
     return ERROR_SUCCESS;
 }
 
-static DWORD wo25_fake_r8_binding( struct request *req, unsigned char out[124] )
+static DWORD wo25_fake_r8_binding( struct request *req, unsigned char out[132] )
 {
     (void)req;
     s_wo25.binding_calls++;
     if (s_wo25.binding_err) return s_wo25.binding_err;
-    memset( out, 0, 124 );
+    memset( out, 0, 132 );
     memcpy( out + 0, s_wo25.b_prefix, 16 );
     memcpy( out + 16, s_wo25.b_host, 16 );
     memcpy( out + 32, s_wo25.b_opener, 16 );
@@ -3800,6 +3831,7 @@ static DWORD wo25_fake_r8_binding( struct request *req, unsigned char out[124] )
     e1s6_put64( out + 104, s_wo25.b_map_gen );
     e1s6_put64( out + 112, s_wo25.b_policy_gen );
     e1s6_put32( out + 120, s_wo25.b_caller_session );
+    e1s6_put64( out + 124, s_wo25.b_host_uid );
     return ERROR_SUCCESS;
 }
 
@@ -3927,7 +3959,7 @@ static int test_wo25_r8_prepare_denies( void )
     CHECK_EQ( s_wo25.close_calls, 1, "the channel must be closed after a successful OPEN (broker_gen mismatch)" );
 
     /* Any zero BINDING value denies. */
-    for (i = 0; i < 11; i++)
+    for (i = 0; i < 12; i++)
     {
         wo25_reset();
         switch (i)
@@ -3943,6 +3975,7 @@ static int test_wo25_r8_prepare_denies( void )
         case 8: s_wo25.b_map_gen = 0; break;
         case 9: s_wo25.b_policy_gen = 0; break;
         case 10: s_wo25.b_caller_session = 0; break;
+        case 11: s_wo25.b_host_uid = 0; break;
         }
         wo25_set_ops();
         e1s18_reset_r8_context();

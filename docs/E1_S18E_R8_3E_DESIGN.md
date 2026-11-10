@@ -130,6 +130,14 @@ Build order (each a work order with tests; Claude reviews each result before com
   `VARARG(binding,bytes)`, empty unless the lab-only op 1 is used. Shipping callers see no change.
 * **Decision 4 simplified:** the desktop retained with the consumed writer is authoritative; no separate
   switch check at BINDING (the writing thread may be gone). ENDORSE compares D's desktop with it.
+* **Decision 4 corrected (2026-11-10, found by the first end-to-end run, WO-27):** pointer equality of
+  D's desktop with the caller's cannot hold in secure mode, where the broker puts D on the secure
+  desktop, nor for a caller outside the interactive window station. The rule now, in ENDORSE and every
+  RECHECK (`dialog_desktop_ok`, wine/server/named_pipe.c): like the consent prompt on Windows, D runs
+  on the session's interactive window station (Wine's one visible window station, WinSta0, flagged
+  `WSF_VISIBLE` by user32), whatever window station the caller uses; for `desktop_mode` 1 on its secure
+  desktop (`desktop->secure`), for mode 2 on the caller's own desktop (so mode 2 needs a caller on
+  WinSta0). The session is checked separately. RECHECK uses the mode sealed at ENDORSE.
 * **Decision 5 amended:** `verifier_gen` is checked by the verifier itself (it owns the value and sees it
   in ENDORSED); the server does not retain it. The BINDING reply carries the five server-owned
   generations; the broker adds the verifier's from its S6 registration.

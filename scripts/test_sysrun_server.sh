@@ -1366,7 +1366,119 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     grep -q 'site=endorsement-gid ' <<<"$native_case" ||
         fail 'bus impostor was not rejected at its actual sender credentials'
     ok c4_e1s6_same_uid_bus_impostor
+
+    # WO-27: R8 end-to-end standard-user elevation. Defined here, run at the end of the C4 section (the call
+    # before el_restore_broker; WEX_SKIP_R8_E2E=1 skips it): the cases after it fail when it runs earlier
+    # (refused consent times out, error 1460); the state it leaves behind is not identified yet.
+    r8_e2e_case() {
+    el_down "$ADM"
+    cat "$M/system.reg" > "$ROOT/system.reg.r8e2e"
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
+        '"EnableStandardUserElevation"=dword:00000001'
+    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+        '"Start"=dword:00000002' \
+        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+
+    # The lab build's E1S18 broker and consent variants (unsloth-tmp/wo23-build-lab.sh), for this case only.
+    # Wine loads system32's builtin programs from the build tree by module name, so the build tree's own files
+    # are rewritten in place (same inode: the loader and the server's image recognition both still match) and
+    # their normal content is written back afterwards.
+    # The server recognises the broker and the dialog by the machine-root system32/syswow64 entry, so those
+    # entries point at the build files for this case (the originals are kept and put back).
+    rm -rf "$ROOT/r8e2e-saved"; mkdir -p "$ROOT/r8e2e-saved/root"
+    for pair in "x86_64:$SYS32:system32" "i386:$M/drive_c/windows/syswow64:syswow64"; do
+        a="${pair%%:*}"; rest="${pair#*:}"; dir="${rest%:*}"; tag="${rest##*:}"
+        [ -d "$dir" ] || continue
+        for exe in wexelevate consent; do
+            target="$BUILD/programs/$exe/$a-windows/$exe.exe"
+            variant="$BUILD/programs/$exe/$a-windows/$exe-e1s18.exe"
+            [ -f "$target" ] || continue
+            [ -f "$variant" ] || fail "r8_e2e: $variant missing (lab build)"
+            cp -p "$target" "$ROOT/r8e2e-saved/$a-$exe.exe"
+            cat "$variant" > "$target"
+            [ ! -e "$dir/$exe.exe" ] && [ ! -L "$dir/$exe.exe" ] || cp -a "$dir/$exe.exe" "$ROOT/r8e2e-saved/root/$tag-$exe.exe"
+            ln -sfn "$target" "$dir/$exe.exe"
+        done
+    done
+
+    for arch in 64 32; do
+        el_down "$STD"
+        el_clean
+        rm -f "$EL/r8_e2e_res_${arch}.txt"
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe$arch.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p$arch.exe)" 1223 "$(winpath "$EL/r8_e2e_res_${arch}.txt")" - >/dev/null 2>&1 &
+        PROBE_PID=$!
+
+        for _ in $(seq 1 150); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -q 'r8: recheck ok' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+
+        grep -q 'r8: prepare ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_ack_$arch: prepare ok missing"; }
+        grep -q 'r8: endorse ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_ack_$arch: endorse ok missing"; }
+        grep -q 'r8: ack ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_ack_$arch: ack ok missing"; }
+        grep -q 'r8: recheck ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_ack_$arch: recheck ok missing"; }
+
+        order_check="$(grep -E 'r8: (prepare|endorse|ack|recheck) ok' <<<"$wine_new_log" | tr '\n' ' ')"
+        [[ "$order_check" =~ prepare.*endorse.*ack.*recheck ]] || fail "r8_e2e_ack_$arch: milestones not in order"
+
+        consent_unix_pid="$(grep 'wex-r8: dialog [0-9a-fA-F]* pin pid=' <<<"$wine_new_log" | head -1 | sed -n 's/.*pin pid=\([0-9]*\).*/\1/p')"
+        [ -n "$consent_unix_pid" ] || fail "r8_e2e_ack_$arch: consent unix pid not found in wine log"
+        grep -q "^E1R8_ENDORSED ok .*pid=$consent_unix_pid\$" <<<"$e1s6_new_log" || fail "r8_e2e_ack_$arch: E1R8_ENDORSED ok pid mismatch"
+
+        pkill -f consent 2>/dev/null || true
+        wait "$PROBE_PID" 2>/dev/null || true
+
+        ok "r8_e2e_ack_$arch"
+    done
+
+    # Negative test: with verifier stopped, request is denied and no consent created
     e1s6_stop
+    el_down "$STD"
+    el_clean
+    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+    el_up "$STD"
+    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+        "$(winpath /home/$STD/wexel/p64.exe)" 5 "$(winpath "$EL/out.neg")" - >/dev/null 2>&1 || true
+    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+    grep -q 'r8: prepare failed' <<<"$wine_new_log" || fail "r8_e2e_no_verifier_denied: prepare failure missing"
+    [ ! -e "$EL/out.neg" ] || fail "r8_e2e_no_verifier_denied: child process started"
+    ! pgrep -f 'consent' >/dev/null || fail "r8_e2e_no_verifier_denied: consent created"
+    ok r8_e2e_no_verifier_denied
+    # the later lab cases need the verifier again
+    e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+
+    # Restore fixture state
+    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"; rm -f "$ROOT/system.reg.r8e2e"
+    el_down "$STD"
+    for a in x86_64 i386; do
+        for exe in wexelevate consent; do
+            [ ! -f "$ROOT/r8e2e-saved/$a-$exe.exe" ] || cat "$ROOT/r8e2e-saved/$a-$exe.exe" > "$BUILD/programs/$exe/$a-windows/$exe.exe"
+        done
+    done
+    # machine-root entries: remove the case's links first, so the copy never writes through a link
+    for pair in "$SYS32:system32" "$M/drive_c/windows/syswow64:syswow64"; do
+        dir="${pair%:*}"; tag="${pair##*:}"
+        for exe in wexelevate consent; do
+            [ -L "$dir/$exe.exe" ] && rm -f "$dir/$exe.exe"
+            [ ! -e "$ROOT/r8e2e-saved/root/$tag-$exe.exe" ] && [ ! -L "$ROOT/r8e2e-saved/root/$tag-$exe.exe" ] ||
+                cp -a "$ROOT/r8e2e-saved/root/$tag-$exe.exe" "$dir/$exe.exe"
+        done
+    done
+    rm -rf "$ROOT/r8e2e-saved"
+    # the standard user's interactive processes keep WinSta0 alive; later cases run without it
+    pkill -u "$STD" 2>/dev/null || true
+    sleep 2
+    el_up "$ADM"
+    }
 fi
 bp c4_relative_image_path_is_rejected "$ADM" 64 run p64.exe 87 "$(winpath $EL/out.bad)" -
 bp c4_missing_image_is_reported "$ADM" 64 run "$(winpath $EL/missing.exe)" 2 "$(winpath $EL/out.bad)" -
@@ -2072,6 +2184,9 @@ as_wine "$STD" reg add "$UNI\\BobApp" /v DisplayName /d "Bob" /f >/dev/null || t
 el_down "$STD"
 ! grep -q 'BobApp' "$M/system.reg" || fail "S3: a standard user wrote HKLM"
 ok c7_s3_standard_user_sees_the_registrations_and_cannot_write_hklm
+
+# WO-27 R8 end to end (lab only), last in the section; see r8_e2e_case
+if [ "${WEX_E1S6_LAB:-0}" = 1 ] && [ "${WEX_SKIP_R8_E2E:-0}" != 1 ]; then r8_e2e_case; fi
 
 el_restore_broker
 rm -rf "$EL"

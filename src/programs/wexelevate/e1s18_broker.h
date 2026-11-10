@@ -438,7 +438,7 @@ struct e1s18_ops
      * r8_close closes the S6 channel (E1S6_CLOSE); it is best-effort. */
     DWORD (*r8_open)( struct request *req, unsigned char reg[E1S6_OPEN_SIZE], UINT64 *channel );
     DWORD (*r8_owner)( struct request *req, UINT64 channel, char owner[256] );
-    DWORD (*r8_binding)( struct request *req, unsigned char out[124] );
+    DWORD (*r8_binding)( struct request *req, unsigned char out[132] );
     DWORD (*r8_endorse)( struct request *req, HANDLE dialog, const unsigned char tuple[204],
                          unsigned char dialog_id[16] );
     DWORD (*r8_recheck)( struct request *req, const unsigned char dialog_id[16] );

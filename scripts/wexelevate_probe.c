@@ -398,6 +398,23 @@ static void report_child(const char *out, int expect_var)
     free(text);
 }
 
+/* R8 desktop rule: the dialog runs on the session's interactive (visible) window station. Join
+ * WinSta0\Default as an interactive program does at startup (user32 marks WinSta0 visible), so this
+ * process's requests come from that desktop and its test dialogs can be started there. */
+static BOOL r8_join_winsta0(void)
+{
+    USEROBJECTFLAGS flags = { FALSE, FALSE, WSF_VISIBLE };
+    HWINSTA ws = OpenWindowStationW(L"WinSta0", FALSE, WINSTA_ALL_ACCESS);
+    HDESK desk;
+
+    if (!ws) ws = CreateWindowStationW(L"WinSta0", 0, WINSTA_ALL_ACCESS, NULL);
+    if (!ws || !SetProcessWindowStation(ws)) return FALSE;
+    SetUserObjectInformationW(ws, UOI_FLAGS, &flags, sizeof(flags));
+    if (!(desk = OpenDesktopW(L"Default", 0, FALSE, GENERIC_ALL)))
+        desk = CreateDesktopW(L"Default", NULL, NULL, 0, GENERIC_ALL, NULL);
+    return desk && SetThreadDesktop(desk);
+}
+
 static void run_mode(const char *image, DWORD expect, const char *out, const char *flags, const char *args)
 {
     HANDLE process = NULL;
@@ -1797,9 +1814,9 @@ static void r8binding_mode(const char *result_file)
         fprintf(stderr, "r8binding: op 1 failed: %lx\n", (unsigned long)st);
         ok = 0;
     }
-    if (out_len != 124)
+    if (out_len != 132)
     {
-        fprintf(stderr, "r8binding: op 1 out_len %lu != 124\n", (unsigned long)out_len);
+        fprintf(stderr, "r8binding: op 1 out_len %lu != 132\n", (unsigned long)out_len);
         ok = 0;
     }
 
@@ -1851,6 +1868,15 @@ static void r8binding_mode(const char *result_file)
         ok = 0;
     }
 
+    /* Verify host_uid (u64, offset 124) */
+    UINT64 host_uid = 0;
+    memcpy(&host_uid, out_buf + 124, 8);
+    if (!host_uid)
+    {
+        fprintf(stderr, "r8binding: host_uid is zero\n");
+        ok = 0;
+    }
+
     /* 4. Second op 1 on the same pipe must be denied */
     TRY_OP(op1_req, sizeof(op1_req), 0xc0000022 /* STATUS_ACCESS_DENIED */, "second_op1");
 
@@ -1867,7 +1893,7 @@ static void r8binding_mode(const char *result_file)
 
     if (result_file && (f = fopen(result_file, "wb")))
     {
-        fprintf(f, "op1=%s\n", (op1_st == 0 && op1_len == 124) ? "PASS" : "FAIL");
+        fprintf(f, "op1=%s\n", (op1_st == 0 && op1_len == 132) ? "PASS" : "FAIL");
         fprintf(f, "map_gen=%016llx\n", (unsigned long long)gens[3]);
         fprintf(f, "policy_gen=%016llx\n", (unsigned long long)gens[4]);
         fprintf(f, "r8binding=%s\n", ok ? "PASS" : "FAIL");
@@ -1965,6 +1991,7 @@ static BOOL spawn_test_dialog(const WCHAR *image, HANDLE *child_process, HANDLE 
     memset( &si, 0, sizeof(si) );
     memset( &pi, 0, sizeof(pi) );
     si.StartupInfo.cb = sizeof(si);
+    si.StartupInfo.lpDesktop = (WCHAR *)L"WinSta0\\Default"; /* desktop_mode 2: the caller's desktop */
 
     InitializeProcThreadAttributeList( NULL, 1, 0, &attr_size );
     if (!attr_size)
@@ -2065,14 +2092,14 @@ static BOOL do_binding_op1(NTSTATUS (WINAPI *query)(HANDLE, void *), HANDLE srv,
     ext.input = op1_req;
     ext.in_size = sizeof(op1_req);
     ext.output = out_buf;
-    *out_len = 124;
+    *out_len = 132;
     ext.out_size = out_len;
     NTSTATUS st = query(srv, &ext);
     if (ext.binding.Process) CloseHandle(ext.binding.Process);
     if (ext.binding.Token) CloseHandle(ext.binding.Token);
     if (ext.binding.WriterProcess) CloseHandle(ext.binding.WriterProcess);
     if (ext.binding.WriterToken) CloseHandle(ext.binding.WriterToken);
-    return (st == 0 && *out_len == 124);
+    return (st == 0 && *out_len == 132);
 }
 
 static void build_tuple_from_binding(const unsigned char *binding_reply, unsigned char *tuple)
@@ -2093,7 +2120,7 @@ static void build_tuple_from_binding(const unsigned char *binding_reply, unsigne
     memcpy(tuple + 172, binding_reply + 112, 8); /* policy_gen */
     memcpy(tuple + 180, binding_reply + 120, 4); /* caller_session */
     memcpy(tuple + 184, binding_reply + 64, 16); /* desktop_route */
-    tuple[200] = 1;                              /* desktop_mode */
+    tuple[200] = 2;                              /* desktop_mode 2: D is on the caller's own desktop */
 }
 
 static NTSTATUS call_endorse_op2(NTSTATUS (WINAPI *query)(HANDLE, void *), HANDLE srv,
@@ -2159,7 +2186,7 @@ static HANDLE setup_fresh_binding_pipe(NTSTATUS (WINAPI *query)(HANDLE, void *),
     char name[128];
     HANDLE cli = NULL;
     HANDLE srv = create_test_server_pipe(name, sizeof(name), &cli);
-    ULONG b_len = 124;
+    ULONG b_len = 132;
     if (srv == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
     if (!do_binding_op1(query, srv, binding_reply, &b_len))
     {
@@ -2174,7 +2201,7 @@ static HANDLE setup_fresh_binding_pipe(NTSTATUS (WINAPI *query)(HANDLE, void *),
 static int test_corrupted_tuple(NTSTATUS (WINAPI *query)(HANDLE, void *),
                                 HANDLE d_proc, int offset, unsigned char xor_mask)
 {
-    unsigned char b_tmp[124], tuple_tmp[204], dummy_id[16];
+    unsigned char b_tmp[132], tuple_tmp[204], dummy_id[16];
     HANDLE cli = NULL;
     HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
     NTSTATUS st;
@@ -2201,9 +2228,9 @@ static void r8endorse_mode(const char *result_file)
     char name1[128];
     BYTE record[E1S6_OPEN_SIZE];
     UINT64 channel1 = 0;
-    unsigned char b_reply1[124], tuple1[204], dialog_id1[16], dummy_id[16], bad_id[16];
+    unsigned char b_reply1[132], tuple1[204], dialog_id1[16], dummy_id[16], bad_id[16];
     unsigned char zero16[16] = {0};
-    ULONG b_len1 = 124;
+    ULONG b_len1 = 132;
     HANDLE cli1 = NULL, srv1 = INVALID_HANDLE_VALUE;
     HANDLE d_proc1 = NULL, d_th1 = NULL, pr1 = NULL, pw1 = NULL;
     DWORD d_pid1 = 0;
@@ -2296,7 +2323,7 @@ static void r8endorse_mode(const char *result_file)
 
     /* 9. Payload 215 denied */
     {
-        unsigned char b_tmp[124], tuple_tmp[204];
+        unsigned char b_tmp[132], tuple_tmp[204];
         HANDLE cli = NULL;
         HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
         unsigned char req[216];
@@ -2333,7 +2360,7 @@ static void r8endorse_mode(const char *result_file)
 
     /* 10. Payload 217 denied */
     {
-        unsigned char b_tmp[124], tuple_tmp[204];
+        unsigned char b_tmp[132], tuple_tmp[204];
         HANDLE cli = NULL;
         HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
         unsigned char req[217];
@@ -2371,7 +2398,7 @@ static void r8endorse_mode(const char *result_file)
 
     /* 11. Resumed consent.exe denied */
     {
-        unsigned char b_tmp[124], tuple_tmp[204];
+        unsigned char b_tmp[132], tuple_tmp[204];
         HANDLE cli = NULL;
         HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
         HANDLE d_proc = NULL, d_th = NULL, pr = NULL, pw = NULL;
@@ -2392,7 +2419,7 @@ static void r8endorse_mode(const char *result_file)
 
     /* 12. Probe's own image as D denied */
     {
-        unsigned char b_tmp[124], tuple_tmp[204];
+        unsigned char b_tmp[132], tuple_tmp[204];
         HANDLE cli = NULL;
         HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
         HANDLE d_proc = NULL, d_th = NULL, pr = NULL, pw = NULL;
@@ -2440,7 +2467,7 @@ static void r8endorse_mode(const char *result_file)
 
     /* 14. After TerminateProcess of D, RECHECK is denied */
     {
-        unsigned char b_tmp[124], tuple_tmp[204], term_d_id[16];
+        unsigned char b_tmp[132], tuple_tmp[204], term_d_id[16];
         HANDLE cli = NULL;
         HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
         HANDLE d_proc = NULL, d_th = NULL, pr = NULL, pw = NULL;
@@ -2495,7 +2522,7 @@ static void r8endorse_mode(const char *result_file)
     /* 16. ENDORSE on fresh pipe after channel closed is denied */
     int pass_closed_channel_denied = 0;
     {
-        unsigned char b_tmp[124], tuple_tmp[204], dummy_id[16];
+        unsigned char b_tmp[132], tuple_tmp[204], dummy_id[16];
         HANDLE cli = NULL;
         HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
         HANDLE d_proc = NULL, d_th = NULL, pr = NULL, pw = NULL;
@@ -2561,6 +2588,7 @@ int main(int argc, char **argv)
 #ifdef WEXELEVATE_TEST_APPROVAL
     if (!strcmp(mode, "r8endorse") && argc > 2)
     {
+        if (!r8_join_winsta0()) fprintf(stderr, "r8endorse: cannot join WinSta0\\Default (%lu)\n", GetLastError());
         r8endorse_mode(argv[2]);
         return 0;
     }
@@ -2588,7 +2616,13 @@ int main(int argc, char **argv)
         return failures ? 1 : 0;
     }
 #endif
-    if (!strcmp(mode, "run") && argc > 4) run_mode(argv[2], atoi(argv[3]), argv[4], argc > 5 ? argv[5] : NULL, argc > 6 ? argv[6] : NULL);
+    /* runinteractive: run from WinSta0\Default, as a user's interactive program asks (R8 end to end) */
+    if (!strcmp(mode, "runinteractive") && argc > 4)
+    {
+        if (!r8_join_winsta0()) fprintf(stderr, "runinteractive: cannot join WinSta0\\Default (%lu)\n", GetLastError());
+        run_mode(argv[2], atoi(argv[3]), argv[4], argc > 5 ? argv[5] : NULL, argc > 6 ? argv[6] : NULL);
+    }
+    else if (!strcmp(mode, "run") && argc > 4) run_mode(argv[2], atoi(argv[3]), argv[4], argc > 5 ? argv[5] : NULL, argc > 6 ? argv[6] : NULL);
     else if (!strcmp(mode, "args") && argc > 3) args_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "concurrent") && argc > 5) concurrent_mode(argv[2], argv[3], argv[4], argv[5]);
     else if (!strcmp(mode, "forge") && argc > 3) forge_mode(argv[2], argv[3]);
