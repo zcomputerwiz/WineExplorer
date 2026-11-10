@@ -42,3 +42,11 @@ Files: `tests/uwp/u1_0/probe.cpp`, `tests/uwp/u1_0/component.cpp` (only if neede
 
 Check: both MinGW builds succeed (report the commands and sizes); `bash -n` on both scripts passes; `git diff` shows no
 change to the MSVC build files except what the order allows.
+
+Result (2026-11-10, Claude ran it on the wexbuild main build, private prefix `/root/uwp-u1-prefix`): x64 and x86
+unpackaged `PASS`, HRESULT `0x80040154`, both MATCH the Windows 11 oracle (`actual-wine-x64.txt`,
+`actual-wine-x86.txt`); the package-activation cases are NOT-RUN. Three `run-wine.sh` fixes were needed: the probe gets
+the `Z:` form of its temp output path (`_wfreopen` cannot open a Unix path); a new prefix is created with
+`WINEDLLOVERRIDES=mscoree,mshtml=` (the Mono prompt blocked wineboot without a display and left `syswow64` empty); the
+probe's CRLF output lines are stripped before matching. Wine today: `GetCurrentPackageFullName` is a stub returning
+`APPMODEL_ERROR_NO_PACKAGE`, `RoGetActivationFactory` finds no library for the class.

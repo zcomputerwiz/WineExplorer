@@ -66,6 +66,12 @@ cleanup_servers() {
 trap cleanup_servers EXIT
 
 export WINEPREFIX="$PREFIX"
+# Headless: no Mono/Gecko install prompt (it blocks wineboot without a display, leaving syswow64 empty).
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-mscoree,mshtml=}"
+if [ ! -f "$PREFIX/drive_c/windows/syswow64/kernel32.dll" ]; then
+  timeout 600 "$WINE" wineboot -i
+  [ -f "$PREFIX/drive_c/windows/syswow64/kernel32.dll" ] || { echo "prefix setup failed: no syswow64/kernel32.dll" >&2; exit 2; }
+fi
 
 # --- Set the feature gate in this prefix ---
 "$WINE" reg add 'HKCU\Software\WineExplorer\Shell\UwpCompatibility' /t REG_DWORD /d 1 /f
@@ -87,14 +93,16 @@ for arch in x64 x86; do
   raw="$(mktemp)"
   out="actual-wine-$arch.txt"
   set +e
-  "$WINE" "$probe" unpackaged "$raw" unpackaged
+  # The probe opens its output path with _wfreopen: give it the Windows (Z:) form of the Unix temp file.
+  "$WINE" "$probe" unpackaged "Z:${raw//\//\\}" unpackaged
   exit_code=$?
   set -e
 
   # Determine PASS/FAIL mirroring run.ps1: exactly two lines, one matching
   # HRESULT line, one "PASS negative_activation", and exit code 0.
   lines=()
-  while IFS= read -r line; do lines+=("$line"); done < "$raw"
+  # The probe writes text mode (CRLF line ends): drop the CR before matching.
+  while IFS= read -r line; do lines+=("${line%$'\r'}"); done < "$raw"
   hr_count=0
   pass_count=0
   observed_hr=""
@@ -111,6 +119,8 @@ for arch in x64 x86; do
   else
     echo "FAIL unpackaged" > "$out"
     result="FAIL"
+    echo "[$arch] probe exit $exit_code, output:" >&2
+    sed 's/^/    /' "$raw" >&2
   fi
   rm -f "$raw"
 
