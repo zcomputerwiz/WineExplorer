@@ -734,3 +734,65 @@ reference is released on all paths. Known limits (lab only): ENDORSE and RECHECK
 consumed writer (a later read on the same pipe clears it and RECHECK then denies); the generation
 checks are duplicated between ops 2 and 3. The job also reverted an unrelated uncommitted file
 (tests/uwp/u1_0/run-wine.sh), restored by Claude.
+
+## WO-25 R8: the broker fills its R8 context from S6, BINDING and ENDORSE (lab branch; for Qwen)
+
+Goal: replace the zero R8 context (WO-20) with live inputs, so `e1s18_spawn_consent_dialog`
+(src/programs/wexelevate/e1s18_broker.c) runs the server-side protocol of WO-23/WO-24. Code and native
+unit tests only; the in-Wine end-to-end run is a later order. Claude reviews before commit.
+
+Files: src/programs/wexelevate/e1s18_broker.c, e1s18_broker.h, test_broker_e1s18_main.c,
+src/include/e1s6_protocol.h, src/dlls/wexhost/e1s6.c (step 2 only), scripts/test_broker_e1s18.sh only if a
+new test needs a build line. Everything new stays under `WEXELEVATE_E1S18` (the shipping broker object
+must not change: compare the production `main.c`/broker objects as WO-20 did with
+unsloth-tmp/wo20-consent-obj.sh, or state why not possible).
+
+1. Four new members of `struct e1s18_ops` (the existing test-override table), with default Win32
+   implementations and native stubs returning `ERROR_NOT_SUPPORTED`:
+   * `r8_open( req, unsigned char reg[E1S6_OPEN_SIZE], UINT64 *channel )`: `WexE1s6Transport( req->pipe,
+     E1S6_OPEN, ... )` as in the existing redeem path (e1s18_broker.c around line 1149);
+   * `r8_owner( req, UINT64 channel, char owner[256] )`: the new transport op of step 2;
+   * `r8_binding( req, unsigned char out[124] )`: `NtQueryWexPipeCallerBindingEx` on `req->pipe` with the
+     extended structure (Size = sizeof the extension, input = 8-byte header `E1R8`, version 1, op 1,
+     output buffer 124 bytes; layout of `WEX_PIPE_CALLER_BINDING_EXT` in wine/dlls/ntdll/sec.c and
+     `R8_PIPE_CALLER_BINDING_EXT` in scripts/wexelevate_probe.c); success only with exactly 124 bytes back;
+   * `r8_endorse( req, HANDLE dialog, const unsigned char tuple[204], unsigned char dialog_id[16] )` and
+     `r8_recheck( req, const unsigned char dialog_id[16] )`: ops 2 (216-byte payload: header, the dialog
+     handle as u32, the tuple) and 3 (24 bytes: header, dialog_id), same call; endorse succeeds only with
+     exactly 16 nonzero bytes back.
+2. wexhost: transport operation `E1S6_OWNER_QUERY 11` (header define with a comment): on an open,
+   bound channel only, copies the verifier's unique bus name recorded at OPEN (`owner`, e1s6.c) into a
+   256-byte buffer, NUL-terminated; any other state denies like an unknown operation.
+3. `e1s18_r8_prepare( req )` (portable, called at the top of `e1s18_spawn_consent_dialog` instead of
+   relying on a preset context): `r8_open`, then `r8_binding`, then `r8_owner`; parse the BINDING reply
+   (prefix_id, host_process_id, opener_id, writer_id, desktop_route at 0/16/32/48/64; server_gen 80,
+   root_gen 88, broker_gen 96, map_gen 104, policy_gen 112; caller_session 120) and the broker
+   registration (first 112 bytes of the OPEN record: server_gen at 48, broker_gen at 56, verifier_gen at
+   64; confirm these against the `registration(...)` calls in tools/e1s6/e1s6-lab.py and e1s6.c lines
+   461-468 before coding, and report any difference instead of guessing). Deny (`ERROR_ACCESS_DENIED`) unless the BINDING server_gen and broker_gen equal the
+   registration's and every value is nonzero; the verifier owner must pass
+   `e1r8_valid_verifier_owner`. Fill `s_r8_context` from them (root_gen, map_gen, policy_gen,
+   caller_session, desktop_route from BINDING; verifier_gen and the owner from S6), leaving `dialog_id`
+   zero. Close the S6 channel (`E1S6_CLOSE`) on every path after OPEN. Tests keep using
+   `e1s18_set_r8_context` (a preset complete context skips prepare only when a test flag says so; no
+   production path skips it).
+4. `e1s18_build_r8_tuple` builds the pre-endorsement tuple without requiring `dialog_id`; the sealed tuple
+   is completed by step 5. `e1s18_r8_context_complete` checks everything except `dialog_id`.
+5. In `e1s18_spawn_consent_dialog`: create D with `CREATE_SUSPENDED` (keep everything else of the
+   WO-20/3a creation: two narrowed ends, explicit handle list); encode the 204-byte pre-endorsement tuple
+   with the existing codec (`e1r8_codec.h`); `r8_endorse` with `pi.hProcess`; on success put the
+   returned `dialog_id` into the tuple and the context, encode INIT from the sealed tuple, then
+   `ResumeThread( pi.hThread )` (close the thread handle only after resuming), then the existing INIT/ACK
+   worker. After a valid ACK, `r8_recheck`; a failed endorse or recheck terminates D (`r8_stop_worker`
+   pattern) and returns `ERROR_ACCESS_DENIED`. Every early return closes all four pipe handles, both
+   process and thread handles, leaves the secure desktop if entered, and never leaves D suspended.
+6. Native tests (test_broker_e1s18_main.c, using `e1s18_set_ops`): prepare fills the context from fake
+   OPEN/BINDING/owner data; prepare denies when BINDING server_gen or broker_gen differs from the
+   registration, when any BINDING value is zero, when the owner is invalid, when OPEN/BINDING/owner fails
+   (and closes the channel after a successful OPEN); the pre-endorsement tuple bytes equal the codec
+   golden layout with the context values; the sealed tuple carries the endorsed dialog_id. Keep every
+   existing test passing.
+
+Check: `bash scripts/test_broker_e1s18.sh` passes (native, ASan, both MinGW compiles, codec cross-check);
+report the new test names. Do not run Wine or anything in wexbuild other than the compilers and this
+script. No commits. Never use VM B.
