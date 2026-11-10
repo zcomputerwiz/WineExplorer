@@ -4,8 +4,9 @@
 Date: 2026-11-08  
 Status: in progress; the owner's decisions are in section 4 (2026-11-08). Phase 1 (boot modes, Advanced Options
 menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer commit `14286423`). Done since: A1,
-A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3 and Safe Mode through Vintner Boot's
-variant (2026-11-10). Open: A4, B5, B8's merge, C3-C6 and the rest of C4 and C7, D2-D5.  
+A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape) and
+Safe Mode through Vintner Boot's variant (2026-11-10). Open: A4, B5, B8's merge, C3, C5, the rest of C4, C6 and
+C7, D2-D5.  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
