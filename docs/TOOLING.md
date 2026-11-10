@@ -116,7 +116,8 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   and an edit made meanwhile breaks the running test (this happened on 2026-11-09). Then one boot per
   phase (`safe safenet safecmd nowine bootlog startnormal normal failed`, plus `accounts` with `WEX_TEST_WINE`, a
   tarball of this branch's Wine unpacked over `/` first and the machine root updated, as the Wine package's
-  postinst does), each checked on the screen (OCR) and over the
+  postinst does, and `waylandsafe` and `waylandcmd`, the Wayland session, only when named), each checked on the
+  screen (OCR) and over the
   serial console as `WEX_TEST_USER` (default `wineuser`, empty password unless `WEX_TEST_PASSWORD_FILE`; on the
   Welcome screen the first tile unless `WEX_TEST_TILE` names one). `nowine` hides `/usr/local/bin/wine` on the
   overlay for its boot and puts it back. `failed` holds LightDM back 90 seconds with a drop-in it removes

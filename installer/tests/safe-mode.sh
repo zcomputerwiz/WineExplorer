@@ -24,6 +24,12 @@
 #                WEX_TEST_WINE): the Safe Mode Welcome screen shows Administrator and not the test
 #                account hidden through SpecialAccounts\UserList, and Administrator logs on; then, in a normal start,
 #                the logon screen shows neither
+#   waylandsafe  Safe Mode in the Wayland session, chosen on the Welcome screen (work order A3): the message box, the
+#                desktop, WEXMODE=safe, and the session runs under wexcomp. Only when named.
+#   waylandcmd   Safe Mode with Command Prompt in the Wayland session: the recovery console runs in wexcomp (through
+#                XWayland), with no wineserver. Only when named.
+#                Choosing a session makes LightDM save it as the account's own, so these two phases leave the test
+#                account's AccountsService file and .dmrc out of the record.
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -41,7 +47,7 @@
 #   WEX_TEST_LOADER=vintner       SOURCE_VM starts through Vintner Boot (an ISO built with --vintner, so also
 #                                 WEX_SAFEMODE_FILES=installed): the menu is reached through the Advanced Options
 #                                 variant (installer/vintner/advanced.conf) in Vintner's menu, Shift held on BIOS and
-#                                 Space pressed on UEFI, instead of F8; each start reports its variant on the serial
+#                                 Space held on UEFI, instead of F8; each start reports its variant on the serial
 #                                 console. GRUB's start-up record does not exist there, so the failed phase and the
 #                                 wex_boot_pending checks are left out. Default grub.
 #   WEX_SAFEMODE_FILES            how the overlay gets this branch's Safe Mode; every mode then runs update-grub and
@@ -88,7 +94,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|startnormal|normal|failed|accounts) ;;
+        safe|safenet|safecmd|nowine|bootlog|startnormal|normal|failed|accounts|waylandsafe|waylandcmd) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -161,6 +167,7 @@ SAFE_MODE_FILES=(
     "755 scripts/wex-greeter.sh usr/local/bin/wex-greeter.sh"
     "755 scripts/wine-explorer-session.sh usr/local/bin/wine-explorer-session.sh"
     "755 scripts/wine-explorer-session-common.sh usr/local/bin/wine-explorer-session-common.sh"
+    "755 scripts/wine-explorer-wayland-session.sh usr/local/bin/wine-explorer-wayland-session.sh"
     "755 scripts/wex-safemode-pam-check.sh usr/local/sbin/wex-safemode-pam-check.sh"
     "755 scripts/wex-advanced-options.py usr/local/sbin/wex-advanced-options"
     "755 scripts/wex-bootlog.sh usr/local/sbin/wex-bootlog"
@@ -596,6 +603,43 @@ recovery_console() {   # after logging on in Safe Mode with Command Prompt: the 
     case "$out" in "wineservers=0 xterms="[1-9]*) ;; *) fail "expected the recovery console without Wine: $out" ;; esac
 }
 
+wayland_session() {   # on the Welcome screen: choose "WineExplorer (Wayland)" in logonui.exe's session list
+    # The list's small text: OCR reads "WineExplorer" but not always "(X11)", and it is the only such word there
+    "${V[@]}" clicktext "$TEST" "WineExplorer" --timeout 15 >/dev/null 2>&1 \
+        || fail "no session list on the Welcome screen"
+    "${V[@]}" key "$TEST" down ret >/dev/null
+    wait_text "Wayland" 10 || fail "the Wayland session could not be chosen"
+    shot session
+}
+
+expect_compositor() {   # the logged-on session runs under wexcomp, the Wayland session's compositor
+    local out
+    out=$(gsh 'echo compositors=$(pgrep -c -u '"$USER_NAME"' -x wexcomp)' | grep '^compositors=')
+    echo "  $out"
+    case "$out" in "compositors="[1-9]*) ;; *) fail "the Wayland session's compositor is not running: $out" ;; esac
+}
+
+phase_waylandsafe() {   # work order A3
+    menu_choice 0 "Safe Mode"
+    logon_screen
+    wayland_session
+    logon
+    safe_desktop 400
+    expect_session_mode safe
+    expect_compositor
+    shutdown_vm
+}
+
+phase_waylandcmd() {   # work order A3: the recovery console replaces the shell inside the compositor
+    menu_choice 2 "Safe Mode with Command Prompt"
+    logon_screen
+    wayland_session
+    logon
+    recovery_console
+    expect_compositor
+    shutdown_vm
+}
+
 phase_nowine() {   # /usr/local/bin/wine is hidden for this boot (the main loop does it)
     menu_choice 2 "Safe Mode with Command Prompt"
     logon_screen_gtk
@@ -1011,7 +1055,15 @@ for PHASE in "${PHASES[@]}"; do
     if [ "$PHASE" = nowine ]; then hide_wine off || die "cannot put /usr/local/bin/wine back"; fi
     if [ "$PHASE" = failed ]; then delay_logon off || die "cannot remove the logon delay"; fi
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
-    if ! diff -u "$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt" > "$OUT/$PHASE-changes.diff"; then
+    compare=("$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt")
+    case "$PHASE" in
+        wayland*)   # LightDM saves the session chosen on the Welcome screen as the account's own
+            for f in "${compare[@]}"; do
+                grep -vE "  (var/lib/AccountsService/users/$USER_NAME|home/$USER_NAME/\.dmrc)\$" "$f" > "$f.compared"
+            done
+            compare=("${compare[0]}.compared" "${compare[1]}.compared") ;;
+    esac
+    if ! diff -u "${compare[@]}" > "$OUT/$PHASE-changes.diff"; then
         echo "FAIL ($PHASE): the boot changed files under /etc, /var/lib/AccountsService or a .dmrc:"
         grep '^[-+][^-+]' "$OUT/$PHASE-changes.diff" | head -n 20
         rc=1
@@ -1022,7 +1074,7 @@ done
 # The Welcome screen ran (any Safe Mode phase): its prefix is now lightdm's ~/.wine, moved from ~/.wine-logon if
 # the image had one (docs/SAFE_MODE_WORKORDER.md C7)
 case " ${PHASES[*]} " in
-    *" safe "*|*" safenet "*|*" safecmd "*|*" failed "*)
+    *" safe "*|*" safenet "*|*" safecmd "*|*" failed "*|*" waylandsafe "*|*" waylandcmd "*)
         if attach ro; then
             # a made prefix has user.reg; under the system role its HKLM is the machine root's (no system.reg)
             if [ -f "$MNT/var/lib/lightdm/.wine/user.reg" ]; then

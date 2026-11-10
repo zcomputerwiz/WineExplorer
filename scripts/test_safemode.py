@@ -53,8 +53,8 @@ class TestSyntax(unittest.TestCase):
             result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         for script in (SCRIPTS / "wex-greeter.sh", SCRIPTS / "setup-greeter.sh", SCRIPTS / "wine-explorer-session.sh",
-                       SCRIPTS / "wine-explorer-session-common.sh", SCRIPTS / "wex-safe-terminal.sh", PACKAGE,
-                       VM_TEST):
+                       SCRIPTS / "wine-explorer-wayland-session.sh", SCRIPTS / "wine-explorer-session-common.sh",
+                       SCRIPTS / "wex-safe-terminal.sh", PACKAGE, VM_TEST):
             result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         session_run = VM_TEST.with_name("session-run.py")
@@ -507,6 +507,52 @@ class TestSessionAndGreeter(unittest.TestCase):
         self.assertLess(common.index("wineboot.exe -u"), skip)
         self.assertLess(skip, common.index("--apply-user-defaults"))
         self.assertLess(skip, common.index("vulkan prepare"))
+
+    def test_wayland_session_reads_the_mode_before_the_prefix(self):
+        session = (SCRIPTS / "wine-explorer-wayland-session.sh").read_text(encoding="utf-8")
+        prepare = session.index("\nwex_prepare_prefix")
+        self.assertLess(session.index("export WEXMODE"), prepare)
+        branch = session.index('if [ "$WEXMODE" = safecmd ]')
+        self.assertLess(branch, prepare, "the recovery console must start before anything touches the Wine prefix")
+        self.assertLess(branch, session.index('\n"$WINE" '))   # the first line that runs Wine
+
+
+class TestWaylandSession(TempDirTest):
+    """wine-explorer-wayland-session.sh with a stand-in compositor and Wine."""
+
+    def run_session(self, mode, compositor_status=0):
+        log = self.tmp / "calls.log"
+        log.unlink(missing_ok=True)
+        compositor = self.tmp / "wexcomp"
+        compositor.write_text('#!/bin/sh\necho "wexcomp $* WEXMODE=$WEXMODE DISPLAY=${DISPLAY-unset}" >> "$LOG"\n'
+                              'exit "$FAKE_COMPOSITOR"\n', encoding="ascii")
+        compositor.chmod(0o755)
+        wine = self.tmp / "wine"
+        wine.write_text('#!/bin/sh\necho "wine $*" >> "$LOG"\n', encoding="ascii")
+        wine.chmod(0o755)
+        runtime = self.tmp / "run"
+        runtime.mkdir(exist_ok=True)
+        env = {"PATH": os.environ["PATH"], "LOG": str(log), "HOME": str(self.tmp), "USER": "wineuser",
+               "XDG_RUNTIME_DIR": str(runtime), "DISPLAY": ":9", "WINE": str(wine),
+               "WEX_WEXCOMP_BIN": str(compositor), "WEX_WAYLAND_CONFIG": "/cfg",
+               "WEX_BOOTMODE_HELPER": self.fake_helper(mode), "WEX_SAFE_TERMINAL": "/safe-terminal",
+               "FAKE_COMPOSITOR": str(compositor_status)}
+        result = subprocess.run(["bash", str(SCRIPTS / "wine-explorer-wayland-session.sh")], env=env,
+                                capture_output=True, text=True, timeout=30)
+        calls = log.read_text(encoding="ascii").splitlines() if log.exists() else []
+        return result.returncode, calls
+
+    def test_command_prompt_runs_the_recovery_console_in_the_compositor(self):
+        status, calls = self.run_session("safecmd")
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, ["wexcomp -C /cfg -S /safe-terminal WEXMODE=safecmd DISPLAY=unset"])
+
+    def test_other_modes_start_the_desktop_compositor(self):
+        # The stand-in compositor ends at once, so the session stops before Wine, as it does when wexcomp fails.
+        for mode, expected in (("safe", "safe"), ("safenet", "safenet"), ("normal", "normal"), ("bogus", "normal")):
+            status, calls = self.run_session(mode, compositor_status=1)
+            self.assertEqual(status, 1, mode)
+            self.assertEqual(calls, [f"wexcomp -C /cfg WEXMODE={expected} DISPLAY=unset"], mode)
 
 
 class TestGreeter(TempDirTest):

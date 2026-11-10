@@ -4,8 +4,8 @@
 Date: 2026-11-08  
 Status: in progress; the owner's decisions are in section 4 (2026-11-08). Phase 1 (boot modes, Advanced Options
 menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer commit `14286423`). Done since: A1,
-A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09). Open: A3, A4, B5, B8's merge, C3-C6 and the
-rest of C4 and C7, D2-D5.  
+A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3 and Safe Mode through Vintner Boot's
+variant (2026-11-10). Open: A4, B5, B8's merge, C3-C6 and the rest of C4 and C7, D2-D5.  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
@@ -104,6 +104,10 @@ Proposed:
 - In Safe Mode with Command Prompt, start the recovery console inside the compositor (it needs an X11 or
   Wayland terminal under `wexcomp`).
 - If that cannot work, show a message and end the session, so that the logon screen offers the X11 session.
+
+**Done 2026-11-10** (`docs/SAFE_MODE.md` sections 3 and 6). `wexcomp` has XWayland and a session command option
+(`-S`), so the recovery console's xterm runs inside it and the fallback was not needed. If `wexcomp` itself fails
+to start, the session ends and the Welcome screen comes back, as before.
 
 **A4. Interim logon screen look.** The GTK greeter shows Debian's background in Safe Mode. Try putting a drop-in
 first in `XDG_DATA_DIRS` before `wex-greeter.sh` starts the greeter. The drop-in is

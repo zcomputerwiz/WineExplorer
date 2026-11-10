@@ -110,7 +110,13 @@ Mode with Command Prompt can still be reached with a broken Wine. A normal start
   personalisation, the prefix update after a Wine update) and skips what is optional: the saved display mode, the
   native runtime defaults, the theme copy and the Vulkan preparation.
 
-The Wayland session is not handled in Safe Mode; choose the X11 session on the logon screen.
+The Wayland session (`wine-explorer-wayland-session.sh`, "WineExplorer (Wayland)" in the Welcome screen's session
+list) reads the mode the same way (work order A3, 2026-11-10). In `safe` and `safenet` it starts its compositor,
+`wexcomp`, and Explorer with `WEXMODE` exported, skipping the same optional steps. In `safecmd` it starts no Wine:
+the compositor runs the recovery console as its session command (`wexcomp -S`), an xterm on the compositor's
+XWayland, and the session ends when the console does. Unlike X11, where nothing manages the console's window,
+`wexcomp` gives it a window frame. Choosing a session on the Welcome screen makes LightDM save it as the account's
+own; the Wayland session's own name does not change with the mode.
 
 **Boot menu entry (GRUB, until Vintner).** `/etc/grub.d/11_wineexplorer_advanced` adds "Advanced Options for
 WineExplorer" with `wexmode=menu` and `--hotkey=f8`. During GRUB's hidden timeout a menu hotkey boots its entry
@@ -223,7 +229,7 @@ resolution (C3) and the classic logon dialog after Ctrl+Alt+Del twice (C4).
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (55 tests, Linux) covers:
+`scripts/test_safemode.py` (59 tests, Linux) covers:
 
 - mode parsing, generator output and PAM decisions;
 - menu navigation and choices, and the logon screen choice;
@@ -235,6 +241,7 @@ resolution (C3) and the classic logon dialog after Ctrl+Alt+Del twice (C4).
   users it hid, and the units it enables;
 - the boot mode record: written once, never for the menu, its unit, and `/run/wineexplorer` belonging to root;
 - that the greeter does not update a logon prefix that is already made;
+- the Wayland session in each mode, with a stand-in compositor and Wine;
 - that the VM test installs the Safe Mode files where the package does.
 
 `installer/tests/safe-mode.sh` is the VM test (usage in `docs/TOOLING.md`). It boots a copy-on-write overlay of an
@@ -260,6 +267,8 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" and `wex_boot_pending` is back at 0 |
 | `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending`; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running |
 | `failed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards), the serial console shows `wex_boot_pending=1` once Linux runs: GRUB recorded the start. Then the Reset button (QMP `system_reset`) and the failure screen with its countdown. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold, and GRUB's "Loading Linux" text was not readable on OVMF. Up stops the countdown and removes its line, and Safe Mode with Command Prompt starts at once; that start leaves `wex_boot_pending` at 1. The next start shows the screen again; left alone, the countdown starts normally, and that start counts and clears the variable |
+| `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, and a `wexcomp` process for the account. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |
+| `waylandcmd` | Only when named. Safe Mode with Command Prompt in the Wayland session: the recovery console, no wineserver, and `wexcomp` running |
 | `accounts` | Needs `WEX_TEST_WINE`, a tarball of this branch's Wine. Provisioning gives Administrator a random password and adds `wexhidden` ("Hidden Test") with a value of 0 in the logon prefix's `SpecialAccounts\UserList`. The Safe Mode Welcome screen then shows Administrator and the test user but not Hidden Test, and Administrator logs on, through the message box. In a normal start, the logon screen (after switching user) shows the test user only |
 
 Every phase starts with `wex_boot_pending` cleared on the overlay, so a phase that failed does not leave the next
@@ -346,3 +355,10 @@ the probes. Every start through the variant carried `vintner.variant=advanced` a
 - `check-vintner.py` looked for the variant's UKI on the ESP; Vintner keeps UKIs on boot storage.
 - The provisioning boot ran `update-grub`, which grub2-common keeps on a Vintner install, and it wrote a
   `grub.cfg`. It now runs only where `/boot/grub/grub.cfg` exists.
+
+**The Wayland session** (A3, 2026-11-10). `waylandsafe` and `waylandcmd` passed on SeaBIOS and on OVMF, on the A2
+installs with this branch's files and Wine (`WEX_TEST_WINE`, `WEX_TEST_SAFE_BOX=required`). Safe Mode showed the
+message box and the Safe Mode desktop under `wexcomp`; Safe Mode with Command Prompt showed the recovery console in
+`wexcomp` with no wineserver. The first Wayland logon changed only the test account's AccountsService file and
+`.dmrc`, which LightDM writes for a newly chosen session; the second changed nothing. (The first run could not find
+the session list: OCR read its "(X11)" as "0¢11)", so the test now clicks the word "WineExplorer".)
