@@ -16,7 +16,9 @@
 #   bootlog      Enable Boot Logging: a normal start with automatic logon, and ntbtlog.txt gains driver lines
 #   startnormal  Start WineExplorer Normally: a normal start with automatic logon, timers and networking; it does
 #                not count, so GRUB's wex_boot_pending is back at 0
-#   normal       no F8: automatic logon, the boot-mode generator wrote nothing, and the start-up check cleared
+#   oschoices    Return to OS Choices Menu (work order D3): under GRUB the local OS list, with Vintner Boot a restart
+#                into the loader's own menu (vintner next-boot menu); Enter there starts normally
+#   normal      no F8: automatic logon, the boot-mode generator wrote nothing, and the start-up check cleared
 #                wex_boot_pending
 #   lastgood     Last Known Good Configuration (work order D3): with a control set saved by a start that counted (a
 #                normal start first if there is none), the test adds a key to the machine registry's control set and
@@ -94,14 +96,14 @@ SOURCE=${1:?$usage}
 TEST=${2:?$usage}
 shift 2
 PHASES=("$@")
-[ ${#PHASES[@]} -gt 0 ] || PHASES=(safe safenet safecmd nowine bootlog startnormal normal lastgood failed)
+[ ${#PHASES[@]} -gt 0 ] || PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal lastgood failed)
 for name in "$SOURCE" "$TEST"; do
     [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name: $name"; exit 2; }
 done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|startnormal|normal|lastgood|failed|accounts|waylandsafe|waylandcmd) ;;
+        safe|safenet|safecmd|nowine|bootlog|startnormal|oschoices|normal|lastgood|failed|accounts|waylandsafe|waylandcmd) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -119,7 +121,7 @@ case "$LOADER" in
     vintner)
         [ "$FILES" = installed ] || { echo "WEX_TEST_LOADER=vintner needs WEX_SAFEMODE_FILES=installed"; exit 2; }
         if [ $# -eq 0 ]; then
-            PHASES=(safe safenet safecmd nowine bootlog startnormal normal)
+            PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal)
         else
             case " ${PHASES[*]} " in *" failed "*) echo "The failed phase is GRUB's (WEX_TEST_LOADER=grub)"; exit 2 ;; esac
         fi
@@ -733,6 +735,31 @@ phase_startnormal() {
     move_down $((6 + $(lkg)))
     shot highlight
     "${V[@]}" key "$TEST" ret >/dev/null
+    desktop 600
+    expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
+    expect_check
+    expect_pending 0   # not counted: the Advanced Options entry wrote the previous value back
+    expect_session_mode normal
+    shutdown_vm
+}
+
+phase_oschoices() {   # work order D3: Return to OS Choices Menu
+    open_menu
+    # ... Start Normally, Reboot, Return to OS Choices Menu
+    move_down $((8 + $(lkg)))
+    shot highlight
+    "${V[@]}" key "$TEST" ret >/dev/null
+    if [ "$LOADER" = vintner ]; then
+        # vintner next-boot menu, then a restart: the loader's own menu shows for 30 seconds with no key held. Its
+        # recovery entries tell it from the Advanced Options menu, which also says "Advanced Options".
+        wait_text "Recovery Console" 180 || fail "no boot loader menu after Return to OS Choices Menu"
+        shot loader-menu
+        "${V[@]}" key "$TEST" ret >/dev/null   # the generation, highlighted first
+    else
+        wait_text "operating system to start" 10 || fail "no OS list after Return to OS Choices Menu"
+        shot oslist
+        "${V[@]}" key "$TEST" ret >/dev/null
+    fi
     desktop 600
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
     expect_check

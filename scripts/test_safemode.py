@@ -572,8 +572,23 @@ class TestMenu(TempDirTest):
         self.menu.SETUP_STAGE = str(self.tmp / "stage")
         self.menu.PANIC_SYSCTL = str(self.tmp / "panic")
         self.menu.LASTGOOD = str(self.tmp / "no-lastgood")      # no copy saved: Last Known Good is grayed
+        self.menu.CMDLINE = str(self.tmp / "cmdline")            # none: a GRUB start
+        self.menu.VINTNER = str(self.tmp / "no-vintner")
         self.menu.Screen = FakeScreen
         self.calls = []
+
+    def with_vintner(self, status):
+        """A Vintner Boot start, whose `vintner next-boot` exits with STATUS and logs its arguments."""
+        (self.tmp / "cmdline").write_text("BOOT_IMAGE=x root=UUID=1 vintner.bootstorage=PARTUUID=2 quiet\n",
+                                          encoding="ascii")
+        helper = self.tmp / "fake-vintner"
+        helper.write_text(f'#!/bin/sh\necho "$@" >> "{self.tmp}/vintner.log"\nexit {status}\n', encoding="ascii")
+        helper.chmod(0o755)
+        self.menu.VINTNER = str(helper)
+
+    def vintner_log(self):
+        path = self.tmp / "vintner.log"
+        return path.read_text(encoding="ascii").splitlines() if path.exists() else []
 
     def with_lastgood(self):
         helper = self.tmp / "fake-lastgood"
@@ -621,6 +636,22 @@ class TestMenu(TempDirTest):
         self.assertEqual(self.run_keys(*[down] * 7, enter), ("reboot", None, None))
         self.assertEqual(self.run_keys(*[down] * 8, enter, enter), ("boot", "normal", None))  # OS Choices
         self.assertEqual(self.run_keys(down, up, enter, enter), ("boot", "safe", None))
+        self.assertEqual(self.vintner_log(), [])
+
+    def test_os_choices_with_vintner_restarts_into_its_menu(self):
+        down, enter = curses.KEY_DOWN, 10
+        self.with_vintner(0)
+        self.assertEqual(self.run_keys(*[down] * 8, enter), ("reboot", None, None))
+        self.assertEqual(self.vintner_log(), ["next-boot menu"])
+        # the other items do not ask Vintner
+        self.assertEqual(self.run_keys(enter, enter), ("boot", "safe", None))
+        self.assertEqual(self.vintner_log(), ["next-boot menu"])
+
+    def test_os_choices_when_vintner_cannot_set_the_menu(self):
+        down, enter = curses.KEY_DOWN, 10
+        self.with_vintner(1)
+        self.assertEqual(self.run_keys(*[down] * 8, enter, enter), ("boot", "normal", None))    # the local list
+        self.assertEqual(self.vintner_log(), ["next-boot menu"])
 
     def test_failure_screen_items_follow_xp(self):
         items = self.menu.failure_items(False)

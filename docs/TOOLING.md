@@ -114,7 +114,7 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   hold. It leaves out GRUB's `failed` phase and `wex_boot_pending` checks. Run it from a
   copy of `scripts/` and `installer/` when the checkout may change during the run: bash reads a script as it goes,
   and an edit made meanwhile breaks the running test (this happened on 2026-11-09). Then one boot per
-  phase (`safe safenet safecmd nowine bootlog startnormal normal lastgood failed`, plus `accounts` with `WEX_TEST_WINE`, a
+  phase (`safe safenet safecmd nowine bootlog startnormal oschoices normal lastgood failed`, plus `accounts` with `WEX_TEST_WINE`, a
   tarball of this branch's Wine unpacked over `/` first and the machine root updated, as the Wine package's
   postinst does, and `waylandsafe` and `waylandcmd`, the Wayland session, only when named), each checked on the
   screen (OCR) and over the

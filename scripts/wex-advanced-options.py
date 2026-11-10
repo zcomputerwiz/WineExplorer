@@ -7,6 +7,8 @@ wex-advanced-options.service runs it before basic.target, so no timer, socket or
 started yet. A choice writes the mode to /run/wineexplorer (gone at the next boot), reloads systemd, whose
 wex-bootmode-generator then reads it, and starts default.target. Nothing on disk changes, except with Last Known Good
 Configuration: wex-lastgood puts the machine registry's control set from the last successful start back first.
+Return to OS Choices Menu restarts into the boot loader's menu when Vintner Boot is the loader (`vintner next-boot
+menu`), and shows the local list (one entry) under GRUB.
 
 With wexfailed=1 as well (GRUB found that the last start did not finish), it shows XP's "did not start
 successfully" screen instead: the three Safe Modes, Last Known Good and Start Normally, which a 30-second countdown
@@ -28,6 +30,7 @@ SETUP_STAGE = os.environ.get("WEX_BOOTMODE_SETUP_STAGE", "/etc/wineexplorer/setu
 PANIC_SYSCTL = os.environ.get("WEX_PANIC_SYSCTL", "/proc/sys/kernel/panic")
 CMDLINE = os.environ.get("WEX_BOOTMODE_CMDLINE", "/proc/cmdline")
 LASTGOOD = os.environ.get("WEX_LASTGOOD_HELPER", "/usr/local/sbin/wex-lastgood")
+VINTNER = os.environ.get("WEX_VINTNER", "/usr/sbin/vintner")
 OS_NAME = "WineExplorer"
 LASTGOOD_LABEL = "Last Known Good Configuration (your most recent settings that worked)"
 COUNTDOWN = 30      # seconds, as XP's failure screen (its boot.ini timeout)
@@ -106,6 +109,28 @@ def start_failed(path=None):
             return "wexfailed=1" in f.read().split()
     except OSError:
         return False
+
+
+def vintner_booted(path=None):
+    """True when Vintner Boot started this system: its vintner.bootstorage= is on the command line and its tool is
+    installed. Under GRUB neither is."""
+    try:
+        with open(path or CMDLINE, encoding="ascii", errors="replace") as f:
+            tokens = f.read().split()
+    except OSError:
+        return False
+    return any(t.startswith("vintner.bootstorage=") for t in tokens) and os.access(VINTNER, os.X_OK)
+
+
+def loader_menu(run=subprocess.run):
+    """Return to OS Choices Menu with Vintner Boot: its loader shows its own menu (the generations, the Advanced
+    Options variant and the Recovery Console) at the next start, for the default 30 seconds, as XP's boot.ini list
+    does. True once the request is set; the caller restarts. Vintner Boot's docs/next-boot.md (WO-0010 4.4)."""
+    try:
+        result = run([VINTNER, "next-boot", "menu"], check=False, capture_output=True, text=True)
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
 def lastgood_saved(run=subprocess.run):
@@ -295,6 +320,10 @@ def run_menu(stdscr):
                 if item.action == "start":
                     return ("boot", "normal", None)
                 if item.action == "reboot":
+                    return ("reboot", None, None)
+                # With Vintner Boot the loader's own list, after a restart; under GRUB, or if Vintner cannot set
+                # it, the local list (one entry)
+                if item.action == "choices" and vintner_booted() and loader_menu():
                     return ("reboot", None, None)
                 chosen = item if item.action == "boot" else None
                 in_menu = False
