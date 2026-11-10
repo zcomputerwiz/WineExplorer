@@ -117,6 +117,9 @@ if [ -d /sys/firmware/efi ] && [ -d "$TARGET/sys/firmware/efi/efivars" ] && \
 fi
 
 # 6. vintner install: stage, publish generation 1, take booting over, remove the stock loader, verify.
+#    The recovery images' menu titles are "WineExplorer Recovery Console" and the same with " (backup)" (decision
+#    D6).
+set -- "$@" --recovery-title "WineExplorer Recovery Console"
 echo "--- vintner install --disk $DISK --firmware $firmware $*"
 in_target vintner install --disk "$DISK" --firmware "$firmware" --target / --esp /boot/efi --boot-storage "$BS_DIR" \
     --payload-dir "$WORK/platform/usr/lib/vintner/payloads" --update-initramfs "$@"

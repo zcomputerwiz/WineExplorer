@@ -199,8 +199,9 @@ variants first).
   then writes no NVRAM entry and relies on `\EFI\BOOT\BOOTX64.EFI`.
 - If the step fails, Setup shows "Setup cannot continue" with the log's path and quits (D5). There is no GRUB
   fallback.
-- The recovery images keep Vintner's own command line (it already has `console=ttyS0,115200`) and its titles
-  ("Recovery Console"; `--recovery-title`, D6, does not exist yet).
+- The recovery images keep Vintner's own command line (it already has `console=ttyS0,115200`). Since 2026-11-10
+  Setup passes `--recovery-title "WineExplorer Recovery Console"` (D6; Vintner Boot #82), so the menus show
+  "WineExplorer Recovery Console" and "WineExplorer Recovery Console (backup)".
 - Test: `WEX_TEST_LOADER=vintner installer/tests/install-unattended.sh` checks the installed disk with
   `installer/tests/check-vintner.py`:
   - vintner-core and vintner-platform are installed, and no stock loader is;
@@ -297,6 +298,26 @@ loader menus list it second:
   Interface". These titles come from the UKI's `os-release`. The Vintner session will give both firmwares one title
   source, the product name and the generation, as part of its 4.1.
 
+Since Vintner Boot #82 (4.1, `014aaad`, 2026-11-10) both loaders show the same titles: the installed `PRETTY_NAME`
+and the publish date, the variant as that name followed by `: ` and its title, and the recovery images under the
+product's `--recovery-title`. An ISO built with those packages (`wex-v2`) installed with no input on SeaBIOS and
+OVMF, and both disks carry, in `slot.cfg` and in the UKIs' `.osrel`:
+
+- `Debian GNU/Linux 13 (trixie) (2026-11-10)`;
+- `Debian GNU/Linux 13 (trixie) (2026-11-10): Advanced Options for WineExplorer`;
+- `WineExplorer Recovery Console` and `WineExplorer Recovery Console (backup)`.
+
+The ordinary entry names Debian because WineExplorer leaves Debian's `/etc/os-release` as it is; a WineExplorer
+name there would read `WineExplorer (2026-11-10)` (open, an owner decision).
+
+The Safe Mode VM test through the variant (`WEX_TEST_LOADER=vintner`) passed all seven phases on OVMF. On SeaBIOS
+one `safecmd` start showed a black 1280x800 console instead of the menu for three minutes (the variant was
+highlighted and chosen; the journal, cut off by the forced power-off, ends with the menu's unit started); the other
+six passed, and a second run passed all seven. That is one start in 22 through the variant that day. The VM test now
+writes the journal to disk (Alt+SysRq+S) before stopping a failed VM, and presses Down to see whether the menu
+runs unseen. One suspect: vintner-core puts its Plymouth theme into the initramfs (`ShowDelay=0`), while the menu
+quits Plymouth itself (WineExplorer masks Plymouth's quit units, decision D2 open).
+
 With `WEX_TEST_LOADER=vintner`, the Safe Mode VM test chose the variant in those menus and passed all eight of its
 phases on both firmwares (`docs/SAFE_MODE.md` section 6). grub2-common stays installed on a Vintner install, and
 its `update-grub` writes a `/boot/grub/grub.cfg` that Vintner's GRUB never reads; the Vintner session lists
@@ -309,9 +330,11 @@ Left for Vintner:
   and from the session package.
 - Done (2026-11-10, above): one Vintner variant, "Advanced Options", with the token `wexmode=menu`. A variant boot
   changes no boot count or state (owner decision): a good image stays good, a bad image stays bad.
-- Enable the grayed menu items that need Vintner: Last Known Good Configuration (`vintner next-boot
-  previous-good`, then restart). Return to OS Choices Menu shows the local list (one entry) today; it can restart
-  into the loader menu (`vintner next-boot menu`) once that menu lists the recovery images.
+- Last Known Good Configuration: since 2026-11-10 it puts back the machine registry's control set from the last
+  start that counted, on either loader (`docs/SAFE_MODE.md` section 4). With Vintner it should also go back to the
+  previous good generation (`vintner next-boot previous-good`, then restart) when the booted one is newer. Return
+  to OS Choices Menu shows the local list (one entry) today; it can restart into the loader menu (`vintner
+  next-boot menu`) once that menu lists the recovery images.
 - Enable VGA Mode stays grayed until there is an X fallback that does not force `modesetting` (section 6). Then
   keep the GPU's KMS driver from loading for the boot (a `modprobe` blacklist under `/run`), or declare a second
   variant with `nomodeset`.
@@ -407,7 +430,7 @@ count or state. For the rest the owner set the goal of a Windows-familiar experi
 - **D5. Install failure (recommended): stop with an XP-style "Setup cannot continue" screen** that names the log
   file. No GRUB fallback code stays behind; running Setup again starts over, as on XP.
 - **D6. Recovery naming (recommended): "WineExplorer Recovery Console"** and "WineExplorer Recovery Console
-  (backup)", passed to `vintner install --recovery-title`. One known difference from XP: Vintner's recovery asks
+  (backup)", passed to `vintner install --recovery-title` (Setup does so since 2026-11-10). One known difference from XP: Vintner's recovery asks
   for no password (it is a BusyBox shell with the root mounted read-only), while XP's Recovery Console asked for the
   Administrator password. Document that anyone at the keyboard gets a root shell.
 
