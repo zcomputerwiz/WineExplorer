@@ -266,13 +266,15 @@ open_menu_vintner() {
     # Vintner Boot's menu shows while Shift is held on BIOS (its GRUB's keystatus --shift, then no timeout) and after a
     # key press on UEFI (systemd-boot). Each generation's variants follow it, and the menu highlights the generation,
     # so the Advanced Options variant is one item down. Its start counts nothing (Vintner Boot's docs/variants.md).
-    local _ try
+    # GRUB checks Shift within 2 seconds of power-on, so the VM starts paused and the key is held from its first
+    # instruction (vmtest hold --cont); systemd-boot comes later on OVMF.
+    local try
     for try in 1 2; do
-        start_vm
+        "${V[@]}" start "$TEST" "${START_ARGS[@]}" --paused >/dev/null || fail "QEMU did not start"
         if [ "$FIRMWARE" = bios ]; then
-            "${V[@]}" hold "$TEST" shift 20 >/dev/null 2>&1
+            "${V[@]}" hold "$TEST" shift 6 --cont >/dev/null 2>&1
         else
-            for _ in $(seq 1 60); do "${V[@]}" key "$TEST" spc >/dev/null 2>&1; sleep 0.25; done
+            "${V[@]}" hold "$TEST" spc 25 --cont >/dev/null 2>&1   # 15 seconds once missed systemd-boot
         fi
         if wait_text "Advanced Options for" 30; then
             shot loader
@@ -838,7 +840,9 @@ install -m 600 "$ADMIN_PWFILE" "$MNT/root/wex-test-admin-password" || die "canno
     echo 'exec > /root/wex-test-provision.log 2>&1'
     echo "$STEP"
     cat <<'EOF'
-if command -v update-grub >/dev/null; then update-grub; echo "update-grub=$?"; else echo "update-grub=none"; fi
+# only where GRUB is the loader (Debian's zz-update-grub asks the same); a Vintner install keeps grub2-common's
+# update-grub but has no grub.cfg
+if command -v update-grub >/dev/null && [ -e /boot/grub/grub.cfg ]; then update-grub; echo "update-grub=$?"; else echo "update-grub=none"; fi
 # test accounts (work order C4, C7): Administrator with the test password; wexhidden hidden by SpecialAccounts\UserList
 if getent passwd administrator >/dev/null; then
     printf 'administrator:%s\n' "$(cat /root/wex-test-admin-password)" | chpasswd; echo "adminpw=$?"
@@ -928,7 +932,7 @@ fi
 if [ "$LOADER" = grub ]; then
     provisioned 'update-grub=0' "update-grub failed"
 else
-    provisioned 'update-grub=none' "a Vintner Boot install still has GRUB's update-grub"
+    provisioned 'update-grub=none' "a Vintner Boot install has a GRUB configuration"
     [ -f "$MNT/etc/vintner/variants.d/advanced.conf" ] \
         || { detach; die "no Advanced Options variant (/etc/vintner/variants.d/advanced.conf)"; }
 fi

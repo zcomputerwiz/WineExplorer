@@ -33,22 +33,43 @@ def state(name):
     os.makedirs(d, exist_ok=True)
     return d
 
-def qmp(name, cmd, **args):
-    s = socket.socket(socket.AF_UNIX)
-    s.connect(os.path.join(state(name), "qmp.sock"))
-    f = s.makefile("rw")
-    f.readline()
-    for msg in ({"execute": "qmp_capabilities"}, {"execute": cmd, "arguments": args}):
-        f.write(json.dumps(msg) + "\n")
-        f.flush()
+class QMPError(Exception):
+    pass
+
+class QMP:
+    """One QMP session. QEMU serves one client at a time: a session left open blocks every other vmtest call."""
+    def __init__(self, name):
+        self.s = socket.socket(socket.AF_UNIX)
+        self.s.connect(os.path.join(state(name), "qmp.sock"))
+        self.f = self.s.makefile("rw")
+        self.f.readline()
+        self.call("qmp_capabilities")
+
+    def call(self, cmd, **args):
+        self.f.write(json.dumps({"execute": cmd, "arguments": args}) + "\n")
+        self.f.flush()
         while True:   # skip asynchronous events
-            reply = json.loads(f.readline())
+            reply = json.loads(self.f.readline())
             if "return" in reply or "error" in reply:
                 break
-    s.close()
-    if "error" in reply:
-        sys.exit(f"{cmd}: {reply['error'].get('desc')}")
-    return reply["return"]
+        if "error" in reply:
+            raise QMPError(f"{cmd}: {reply['error'].get('desc')}")
+        return reply["return"]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        # The file object keeps the socket open until it is closed too.
+        self.f.close()
+        self.s.close()
+
+def qmp(name, cmd, **args):
+    try:
+        with QMP(name) as q:
+            return q.call(cmd, **args)
+    except QMPError as e:
+        sys.exit(str(e))
 
 def start(a):
     d = state(a.name)
@@ -69,6 +90,8 @@ def start(a):
            "-device", "ide-cd,drive=cd,bus=ide.1,id=cdrom", "-boot", "order=dc" if a.iso else "order=c"]
     if a.efi:
         cmd += ["-bios", "/usr/share/ovmf/OVMF.fd"]
+    if a.paused:   # the CPU waits for "cont": input that must already be there when the firmware or loader runs
+        cmd += ["-S"]
     log = open(os.path.join(d, "qemu.log"), "w")
     proc = subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
     for _ in range(50):
@@ -142,17 +165,26 @@ def keys(name, combos, hold=80):
         # or text while Ctrl/Alt/Shift from this one is still held.
         time.sleep(max(0.05, hold / 1000 + 0.01))
 
-def hold(name, key, seconds):
+def hold(name, key, seconds, resume=False):
     # A held key: repeated key-down events with no key-up, as a keyboard's typematic repeat sends, then the release.
     # Vintner Boot's BIOS GRUB shows its menu while Shift is down (keystatus --shift), which send-key cannot do.
+    # QEMU takes no input while the VM is paused, and GRUB checks Shift within 2 seconds of power-on, too soon for
+    # a separate call after "start": RESUME runs a VM started with --paused and holds the key in the same session.
+    # Other vmtest calls wait until the key is released.
     event = lambda down: [{"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": key}}}]
-    end = time.time() + seconds
     try:
-        while time.time() < end:
-            qmp(name, "input-send-event", events=event(True))
-            time.sleep(0.2)
-    finally:
-        qmp(name, "input-send-event", events=event(False))
+        with QMP(name) as q:
+            if resume:
+                q.call("cont")
+            end = time.time() + seconds
+            try:
+                while time.time() < end:
+                    q.call("input-send-event", events=event(True))
+                    time.sleep(0.1)
+            finally:
+                q.call("input-send-event", events=event(False))
+    except QMPError as e:
+        sys.exit(str(e))
 
 def move(name, x, y):
     # A compositor's headless second output is outside QEMU's primary scanout,
@@ -256,12 +288,14 @@ def main():
     sub = p.add_subparsers(dest="op", required=True)
     s = sub.add_parser("start"); s.add_argument("name"); s.add_argument("--iso"); s.add_argument("--efi", action="store_true")
     s.add_argument("--disk-gb", type=int, default=20); s.add_argument("--mem", type=int, default=4096)
-    for op in ("stop", "reset", "eject", "text"):
+    s.add_argument("--paused", action="store_true")
+    for op in ("stop", "reset", "eject", "text", "cont"):
         sub.add_parser(op).add_argument("name")
     s = sub.add_parser("shutdown"); s.add_argument("name"); s.add_argument("--timeout", type=float, default=120)
     s = sub.add_parser("shot"); s.add_argument("name"); s.add_argument("file", nargs="?")
     s = sub.add_parser("key"); s.add_argument("name"); s.add_argument("keys", nargs="+")
     s = sub.add_parser("hold"); s.add_argument("name"); s.add_argument("key"); s.add_argument("seconds", type=float)
+    s.add_argument("--cont", action="store_true", help="run a VM started with --paused first")
     s = sub.add_parser("type"); s.add_argument("name"); s.add_argument("text")
     s = sub.add_parser("click"); s.add_argument("name"); s.add_argument("x", type=int); s.add_argument("y", type=int)
     s.add_argument("button", nargs="?", default="left")
@@ -283,6 +317,8 @@ def main():
         qmp(a.name, "quit")
     elif a.op == "reset":
         qmp(a.name, "system_reset")
+    elif a.op == "cont":
+        qmp(a.name, "cont")
     elif a.op == "shutdown":
         shutdown(a.name, a.timeout)
     elif a.op == "eject":
@@ -292,7 +328,7 @@ def main():
     elif a.op == "key":
         keys(a.name, a.keys)
     elif a.op == "hold":
-        hold(a.name, a.key, a.seconds)
+        hold(a.name, a.key, a.seconds, a.cont)
     elif a.op == "type":
         type_text(a.name, a.text.rstrip("\r\n"))
     elif a.op == "click":

@@ -329,3 +329,20 @@ over the serial console; it passed alone once the probe wrote to a file and had 
 
 The message box appeared and was answered in `safe`, `safenet` and `accounts`, Wine's 32-bit and 64-bit Notepad
 opened in Safe Mode, and no boot changed a recorded file.
+
+**Through Vintner Boot's variant** (V1, 2026-11-10). On disks installed from an ISO built with `--vintner`
+(`docs/VINTNER_BOOT.md` section 4.3), `WEX_TEST_LOADER=vintner` with `WEX_SAFEMODE_FILES=installed` reached the
+menu through the Advanced Options variant instead of F8. `safe`, `safenet`, `safecmd`, `nowine`, `bootlog`,
+`startnormal`, `normal` and `accounts` passed on SeaBIOS and on OVMF, with the Wine the ISO installed and without
+the probes. Every start through the variant carried `vintner.variant=advanced` and `normal` none; Wine's 32-bit and
+64-bit Notepad opened in Safe Mode, and no boot changed a recorded file. Getting there:
+
+- The first runs never saw the loader menu. Vintner's BIOS GRUB checks Shift within 2 seconds of power-on, before
+  a hold sent after `vmtest.py start` arrives, and QEMU refuses input while a VM is paused ("VM not running"). The
+  test now starts the VM paused, and `vmtest.py hold --cont` runs it and holds the key in the same QMP session.
+- The first try at that hung: after QEMU's error, `vmtest.py` left its QMP connection open, and QEMU serves one
+  client at a time, so the next call waited for good. QMP calls now always close their connection.
+- On UEFI, Space held for 15 seconds once missed systemd-boot (one retry, in `accounts`); it is now held for 25.
+- `check-vintner.py` looked for the variant's UKI on the ESP; Vintner keeps UKIs on boot storage.
+- The provisioning boot ran `update-grub`, which grub2-common keeps on a Vintner install, and it wrote a
+  `grub.cfg`. It now runs only where `/boot/grub/grub.cfg` exists.

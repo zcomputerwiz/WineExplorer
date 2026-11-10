@@ -221,7 +221,8 @@ the installs ran in QEMU/KVM in WSL Debian.
   - on both, `vintner-bless.service`, `wex-startup-check.service` and `boot-complete.target` were active, Wine's
     32-bit and 64-bit Notepad opened on the desktop, and generation 1 stayed GOOD.
 
-Still open: Safe Mode and F8 on a Vintner install (section 4.3; V1 is not started), and the Plymouth decision (D2).
+Still open: F8 on a Vintner install (section 4.3; Safe Mode through Vintner's variant works since 2026-11-10), and
+the Plymouth decision (D2).
 Not tested: the interactive install (`install-interactive.sh`) on a Vintner ISO, an existing ESP that holds
 another system, and the "Setup cannot continue" screen (no run has failed the step).
 
@@ -280,13 +281,33 @@ contract, from WO-0010 4.3:
   that would boot next, for one boot, with no state change. It comes with 4.5/V6, not V1, so with V1 alone the
   variants can only be chosen in the loader's menu. The Vintner session gives the exact syntax when it starts V6.
 
+Status (2026-11-10): V1 is on Vintner Boot's `main` (PR #81). WineExplorer declares the variant in
+`installer/vintner/advanced.conf`, which the session package installs as the conffile
+`/etc/vintner/variants.d/advanced.conf`: the title "Advanced Options for WineExplorer" and the token `wexmode=menu`.
+An ISO built with `--vintner` and the Vintner packages from `8b6eac4` installed with no input on SeaBIOS and on OVMF.
+`installer/tests/check-vintner.py` found the variant in the manifest, in `slot.cfg`, and as
+`vintner_variant-os-1-advanced.efi` in `EFI/Linux` on boot storage (152 MB, as large as the generation's UKI). Both
+loader menus list it second:
+
+- BIOS (Vintner's GRUB, Shift held): `vintner os 1`, `vintner os 1: Advanced Options for WineExplorer`,
+  `vintner recovery A`, `vintner recovery B`.
+- UEFI (systemd-boot, a key held): "Debian GNU/Linux 13 (trixie), 6.12.116+deb13-amd64", the same followed by
+  "(Advanced Options for WineExplorer)", the two recovery images with their build, and "Reboot Into Firmware
+  Interface". These titles come from the UKI's `os-release`. The Vintner session will give both firmwares one title
+  source, the product name and the generation, as part of its 4.1.
+
+With `WEX_TEST_LOADER=vintner`, the Safe Mode VM test chose the variant in those menus and passed all eight of its
+phases on both firmwares (`docs/SAFE_MODE.md` section 6). grub2-common stays installed on a Vintner install, and
+its `update-grub` writes a `/boot/grub/grub.cfg` that Vintner's GRUB never reads; the Vintner session lists
+diverting it for 4.x.
+
 Left for Vintner:
 
 - Remove the GRUB generator once Vintner variants exist: drop
   `installer/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_advanced` from the live-build include
   and from the session package.
-- Declare one Vintner variant, "Advanced Options", with the token `wexmode=menu`. A variant boot changes no boot
-  count or state (owner decision): a good image stays good, a bad image stays bad.
+- Done (2026-11-10, above): one Vintner variant, "Advanced Options", with the token `wexmode=menu`. A variant boot
+  changes no boot count or state (owner decision): a good image stays good, a bad image stays bad.
 - Enable the grayed menu items that need Vintner: Last Known Good Configuration (`vintner next-boot
   previous-good`, then restart). Return to OS Choices Menu shows the local list (one entry) today; it can restart
   into the loader menu (`vintner next-boot menu`) once that menu lists the recovery images.

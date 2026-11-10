@@ -107,8 +107,11 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   built from `installer/tests/safeboot-probe.c` with MinGW in wexbuild) adds what Windows programs see in Safe
   Mode (phase B); `WEX_TEST_SAFE_BOX=required` demands the message box after a Safe Mode logon (C2).
   `WEX_TEST_LOADER=vintner` (with `installed`, on a disk installed from an ISO built with `--vintner`) reaches the
-  menu through Vintner Boot's Advanced Options variant instead of F8: `vmtest.py hold` keeps Shift down for its BIOS
-  menu, and Space opens systemd-boot's on UEFI. It leaves out GRUB's `failed` phase and `wex_boot_pending` checks. Run it from a
+  menu through Vintner Boot's Advanced Options variant instead of F8. Its BIOS GRUB checks Shift within 2 seconds of
+  power-on and QEMU takes no input while a VM is paused, so the VM starts with `vmtest.py start --paused` and
+  `vmtest.py hold VM KEY SECONDS --cont` runs it and holds the key in one QMP session: Shift for 6 seconds on BIOS,
+  Space for 25 on UEFI (systemd-boot). QEMU serves one QMP client at a time, so other `vmtest.py` calls wait for a
+  hold. It leaves out GRUB's `failed` phase and `wex_boot_pending` checks. Run it from a
   copy of `scripts/` and `installer/` when the checkout may change during the run: bash reads a script as it goes,
   and an edit made meanwhile breaks the running test (this happened on 2026-11-09). Then one boot per
   phase (`safe safenet safecmd nowine bootlog startnormal normal failed`, plus `accounts` with `WEX_TEST_WINE`, a

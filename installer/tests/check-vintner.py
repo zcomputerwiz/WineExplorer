@@ -47,9 +47,10 @@ def check_variant(root, storage, esp, image, cmdline):
     expected = f"{cmdline} wexmode=menu vintner.variant=advanced"
     if variant.get("cmdline") != expected:
         fail(f"the advanced variant's command line is {variant.get('cmdline')!r}, expected {expected!r}")
+    # the UKIs live on boot storage, an XBOOTLDR partition, where systemd-boot also looks; the ESP has the loader only
     entry = (variant.get("uefi") or {}).get("entry", "")
-    if entry != "vintner_variant-os-1-advanced" or not os.path.isfile(f"{esp}/EFI/Linux/{entry}.efi"):
-        fail(f"the ESP has no UKI for the advanced variant ({entry!r})")
+    if entry != "vintner_variant-os-1-advanced" or not os.path.isfile(f"{storage}/EFI/Linux/{entry}.efi"):
+        fail(f"boot storage has no UKI for the advanced variant ({entry!r})")
     try:
         with open(f"{storage}{image['bios']['dir']}/slot.cfg") as slot:
             slot_cfg = slot.read()
