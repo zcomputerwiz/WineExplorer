@@ -859,3 +859,51 @@ passes. Long runs in the background, nothing else running in wexbuild, `bash
 unsloth-tmp/clean-wexbuild-fixture.sh` before and after each suite. Never run `git checkout`, `git
 restore`, `git stash` or any command that discards changes: other agents edit other files of this
 tree. Write the report and end the job when done. No commits. Never use VM B.
+
+## WO-27 R8 end to end in Wine: a standard user's request reaches an endorsed, acknowledged dialog (lab; for Antigravity, after WO-26)
+
+Goal: the first in-Wine run of the standard-user chain as it exists: request, S6 OPEN, BINDING, the S1
+context, consent.exe created suspended, ENDORSE, ENDORSED at the verifier, INIT, ACK, RECHECK. Product
+first (Claude, 2026-11-10): one positive run per caller ABI and only the negative case listed; no matrix.
+Claude reviews before commit.
+
+Files: src/programs/wexelevate/e1s18_broker.c/.h, test_broker_e1s18_main.c (keep it passing; adjust
+only what the moved gate changes), wine/server/named_pipe.c (step 2), scripts/wexelevate_probe.c and
+scripts/test_sysrun_server.sh (the BINDING length and the new case), unsloth-tmp/wo23-build-lab.sh (lab
+build of the broker and consent.exe). Lab defines only; the shipping broker and consent objects stay
+byte-identical (`bash scripts/test_broker_e1s18.sh` checks the broker; unsloth-tmp/wo20-consent-obj.sh
+the consent object).
+
+1. Broker: run `e1s18_r8_prepare` before the WO-14 S1 gate in `e1s18_handle_standard_request` (after the
+   nonce) and fill `s_s1_context` from the same live data instead of leaving it zero: generations (root,
+   server, broker, map, policy from BINDING; verifier from S6), prefix, host_process, opener, writer,
+   desktop (= desktop_route) from BINDING, channel from the S6 broker registration (offset 88, 16 bytes),
+   host_uid from BINDING (step 2), the image identity (volume serial, file index, size, last write) from
+   the image the broker froze (`freeze_image`, main.c; use what it already holds), and the deadline from
+   the request (`E1S18_DEADLINE`). The prompt path then reuses the prepared context and the open
+   channel (prepare is not run twice; `e1s18_r8_release` still closes the channel when the attempt
+   ends, on every exit of `e1s18_handle_standard_request`).
+2. Server: the BINDING reply gains `host_uid` u64 at offset 124 (the opener's native uid from its pin's
+   credentials, `wex_pin_uid`), so the reply is 132 bytes; update the WO-23 probe check and the broker
+   parse (`r8_binding` expects 132). Nothing else in the server changes.
+3. Lab trace: under the lab define, the broker writes one line per milestone to its log
+   (`r8: prepare ok`, `r8: endorse ok`, `r8: ack ok`, `r8: recheck ok`, or `r8: <step> failed <error>`).
+4. Lab build: build the broker (`programs/wexelevate`) with `-DWEXELEVATE_E1S18` and consent.exe
+   (`programs/consent`) with `-DWEXELEVATE_E1S18` in the lab tree (MinGW objects: find how the Wine
+   makefiles pass flags to PE objects, as wo23-build-lab.sh does for the Unix lab objects; report the
+   exact command). The main build stays as it is.
+5. Test (lab S6 transport suite, both caller ABIs): with the lab verifier running and
+   `HKLM\Software\WineExplorer\Elevation\EnableStandardUserElevation` set in the fixture's machine hive,
+   the standard user `wexstd` asks the lab broker to elevate a program (use the probe mode the existing
+   standard-user cases use; report which). Pass when the broker log has `prepare ok`, `endorse ok`,
+   `ack ok` and `recheck ok` in that order and the verifier log has one `E1R8_ENDORSED ok` with the
+   consent.exe pid (`r8_e2e_ack_<arch>`). After `recheck ok` the dialog waits for input: the harness
+   closes it (or lets the consent deadline expire) and the request ends with a denial; the case passes
+   on the milestones, not the final status. Negative (one): with the verifier stopped, the request is
+   denied and no consent.exe process was created (`r8_e2e_no_verifier_denied`).
+6. If the chain stops earlier, do not add workarounds in the server or verifier: report the first
+   failing milestone, its error and the log lines around it.
+
+Check: normal suite 325, lab S6 transport suite passes with the new lines and every earlier line, broker
+test passes. Same rules as WO-26 (background runs, clean fixture before and after, never discard changes,
+no commits, never VM B, end the job after the report).
