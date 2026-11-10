@@ -27,6 +27,8 @@
 #define E1S6_REDEEM 9
 /* Retired, never reuse. The storage generation now comes from the wineserver. */
 #define E1S6_STORAGE_QUERY 10
+/* WO-25: the verifier's unique bus name recorded at OPEN, for the R8 broker. */
+#define E1S6_OWNER_QUERY 11
 
 static inline unsigned int e1s6_u32( const unsigned char *p )
 {

@@ -387,7 +387,13 @@ static struct e1s18_ops s_fake_ops = {
     fake_close_remote_handle,
     fake_unload_profile,
     fake_close_handle,
-    fake_free_buffer
+    fake_free_buffer,
+    NULL, /* r8_open */
+    NULL, /* r8_owner */
+    NULL, /* r8_binding */
+    NULL, /* r8_endorse */
+    NULL, /* r8_recheck */
+    NULL  /* r8_close */
 };
 
 static void init_dummy_request( struct request *req )
@@ -3151,7 +3157,13 @@ static struct e1s18_ops s_wo15_ops = {
     fake_close_remote_handle,
     fake_unload_profile,
     fake_close_handle,
-    fake_free_buffer
+    fake_free_buffer,
+    NULL, /* r8_open */
+    NULL, /* r8_owner */
+    NULL, /* r8_binding */
+    NULL, /* r8_endorse */
+    NULL, /* r8_recheck */
+    NULL  /* r8_close */
 };
 
 struct wo15_worker_arg
@@ -3696,6 +3708,380 @@ static int test_wo20_r8_init_ack( void )
     return TEST_PASS;
 }
 
+/*
+ * WO-25: R8 context preparation from live inputs. The fake r8 ops return
+ * configurable OPEN/BINDING/owner data so the prepare validation can be
+ * exercised; the state tracks the calls and the channel close.
+ */
+struct wo25_r8_state
+{
+    /* Registration (S6 OPEN record) generations. */
+    uint64_t reg_server_gen, reg_broker_gen, reg_verifier_gen;
+    /* BINDING reply values. */
+    uint64_t b_server_gen, b_root_gen, b_broker_gen, b_map_gen, b_policy_gen;
+    uint32_t b_caller_session;
+    uint8_t b_prefix[16], b_host[16], b_opener[16], b_writer[16], b_route[16];
+    char owner[256];
+    uint8_t dialog_id[16];
+    /* Failure injection (0 = success). */
+    DWORD open_err, binding_err, owner_err;
+    /* Call tracking. */
+    int open_calls, binding_calls, owner_calls, close_calls;
+    UINT64 closed_channel;
+};
+static struct wo25_r8_state s_wo25;
+
+static void wo25_reset( void )
+{
+    int i;
+    memset( &s_wo25, 0, sizeof(s_wo25) );
+    /* Valid defaults: registration and BINDING agree, every value nonzero. */
+    s_wo25.reg_server_gen = 0x100;
+    s_wo25.reg_broker_gen = 0x200;
+    s_wo25.reg_verifier_gen = 0x300;
+    s_wo25.b_server_gen = 0x100;
+    s_wo25.b_root_gen = 0x400;
+    s_wo25.b_broker_gen = 0x200;
+    s_wo25.b_map_gen = 0x500;
+    s_wo25.b_policy_gen = 0x600;
+    s_wo25.b_caller_session = 7;
+    for (i = 0; i < 16; i++)
+    {
+        s_wo25.b_prefix[i] = (uint8_t)(0x01 + i);
+        s_wo25.b_host[i] = (uint8_t)(0x11 + i);
+        s_wo25.b_opener[i] = (uint8_t)(0x21 + i);
+        s_wo25.b_writer[i] = (uint8_t)(0x31 + i);
+        s_wo25.b_route[i] = (uint8_t)(0x80 + i);
+    }
+    strcpy( s_wo25.owner, ":1.42" );
+    for (i = 0; i < 16; i++) s_wo25.dialog_id[i] = (uint8_t)(0xd0 + i);
+}
+
+static DWORD wo25_fake_r8_open( struct request *req, unsigned char reg[E1S6_OPEN_SIZE], UINT64 *channel )
+{
+    (void)req;
+    s_wo25.open_calls++;
+    if (s_wo25.open_err) return s_wo25.open_err;
+    memset( reg, 0, E1S6_OPEN_SIZE );
+    reg[0] = 7; reg[1] = 0;             /* kind 7 */
+    reg[2] = 1; reg[3] = 0;             /* version 1 */
+    e1s6_put32( reg + 4, E1S6_REG_SIZE );
+    e1s6_put64( reg + 48, s_wo25.reg_server_gen );
+    e1s6_put64( reg + 56, s_wo25.reg_broker_gen );
+    e1s6_put64( reg + 64, s_wo25.reg_verifier_gen );
+    *channel = 0xabc;
+    return ERROR_SUCCESS;
+}
+
+static DWORD wo25_fake_r8_owner( struct request *req, UINT64 channel, char owner[256] )
+{
+    (void)req; (void)channel;
+    s_wo25.owner_calls++;
+    if (s_wo25.owner_err) return s_wo25.owner_err;
+    memset( owner, 0, 256 );
+    strcpy( owner, s_wo25.owner );
+    return ERROR_SUCCESS;
+}
+
+static DWORD wo25_fake_r8_binding( struct request *req, unsigned char out[124] )
+{
+    (void)req;
+    s_wo25.binding_calls++;
+    if (s_wo25.binding_err) return s_wo25.binding_err;
+    memset( out, 0, 124 );
+    memcpy( out + 0, s_wo25.b_prefix, 16 );
+    memcpy( out + 16, s_wo25.b_host, 16 );
+    memcpy( out + 32, s_wo25.b_opener, 16 );
+    memcpy( out + 48, s_wo25.b_writer, 16 );
+    memcpy( out + 64, s_wo25.b_route, 16 );
+    e1s6_put64( out + 80, s_wo25.b_server_gen );
+    e1s6_put64( out + 88, s_wo25.b_root_gen );
+    e1s6_put64( out + 96, s_wo25.b_broker_gen );
+    e1s6_put64( out + 104, s_wo25.b_map_gen );
+    e1s6_put64( out + 112, s_wo25.b_policy_gen );
+    e1s6_put32( out + 120, s_wo25.b_caller_session );
+    return ERROR_SUCCESS;
+}
+
+static DWORD wo25_fake_r8_endorse( struct request *req, HANDLE dialog, const unsigned char tuple[204],
+                                   unsigned char dialog_id[16] )
+{
+    (void)req; (void)dialog; (void)tuple;
+    memcpy( dialog_id, s_wo25.dialog_id, 16 );
+    return ERROR_SUCCESS;
+}
+
+static DWORD wo25_fake_r8_recheck( struct request *req, const unsigned char dialog_id[16] )
+{
+    (void)req; (void)dialog_id;
+    return ERROR_SUCCESS;
+}
+
+static DWORD wo25_fake_r8_close( struct request *req, UINT64 channel )
+{
+    (void)req;
+    s_wo25.close_calls++;
+    s_wo25.closed_channel = channel;
+    return ERROR_SUCCESS;
+}
+
+static void wo25_set_ops( void )
+{
+    static struct e1s18_ops ops;
+    ops = s_fake_ops;
+    ops.r8_open = wo25_fake_r8_open;
+    ops.r8_owner = wo25_fake_r8_owner;
+    ops.r8_binding = wo25_fake_r8_binding;
+    ops.r8_endorse = wo25_fake_r8_endorse;
+    ops.r8_recheck = wo25_fake_r8_recheck;
+    ops.r8_close = wo25_fake_r8_close;
+    e1s18_set_ops( &ops );
+}
+
+/*
+ * WO-25: prepare fills the R8 context from the fake OPEN/BINDING/owner data
+ * and closes the S6 channel. The context is verified through the tuple it
+ * builds (s_r8_context is static in the broker).
+ */
+static int test_wo25_r8_prepare_fills_context( void )
+{
+    struct request req;
+    struct e1r8_tuple t;
+    uint8_t nonce[32], channel[16], binding[32], request_digest[32];
+    int i;
+    DWORD err;
+
+    for (i = 0; i < 32; i++) nonce[i] = (uint8_t)(0x10 + i);
+    for (i = 0; i < 16; i++) channel[i] = (uint8_t)(0x30 + i);
+    for (i = 0; i < 32; i++) binding[i] = (uint8_t)(0x40 + i);
+    for (i = 0; i < 32; i++) request_digest[i] = (uint8_t)(0x60 + i);
+
+    wo25_reset();
+    wo25_set_ops();
+    e1s18_reset_r8_context();
+    e1s18_set_r8_skip_prepare( FALSE );
+    init_dummy_request( &req );
+
+    err = e1s18_r8_prepare( &req );
+    CHECK_EQ( err, ERROR_SUCCESS, "prepare must succeed with valid OPEN/BINDING/owner" );
+    CHECK_EQ( s_wo25.open_calls, 1, "OPEN must be called once" );
+    CHECK_EQ( s_wo25.binding_calls, 1, "BINDING must be called once" );
+    CHECK_EQ( s_wo25.owner_calls, 1, "owner must be called once" );
+    CHECK_EQ( s_wo25.close_calls, 0, "the S6 channel stays open after a successful prepare" );
+    e1s18_r8_release( &req );
+    CHECK_EQ( s_wo25.close_calls, 1, "release closes the attempt's S6 channel" );
+    CHECK( s_wo25.closed_channel == 0xabc, "the opened channel must be the one closed" );
+    e1s18_r8_release( &req );
+    CHECK_EQ( s_wo25.close_calls, 1, "a second release closes nothing" );
+
+    /* The context is complete (dialog_id may be zero) and builds a tuple. */
+    CHECK_EQ( e1s18_build_r8_tuple( &req, req.id, 1, nonce, channel, binding, request_digest, TRUE, &t ),
+              0, "prepare must leave a complete R8 context" );
+    CHECK_EQ( t.root_gen, s_wo25.b_root_gen, "root_gen must come from the BINDING" );
+    CHECK_EQ( t.server_gen, s_wo25.reg_server_gen, "server_gen must come from the registration" );
+    CHECK_EQ( t.broker_gen, s_wo25.reg_broker_gen, "broker_gen must come from the registration" );
+    CHECK_EQ( t.verifier_gen, s_wo25.reg_verifier_gen, "verifier_gen must come from the registration" );
+    CHECK_EQ( t.map_gen, s_wo25.b_map_gen, "map_gen must come from the BINDING" );
+    CHECK_EQ( t.policy_gen, s_wo25.b_policy_gen, "policy_gen must come from the BINDING" );
+    CHECK_EQ( t.caller_session, s_wo25.b_caller_session, "caller_session must come from the BINDING" );
+    CHECK( memcmp( t.desktop_route, s_wo25.b_route, 16 ) == 0, "desktop_route must come from the BINDING" );
+    for (i = 0; i < 16; i++)
+        CHECK( t.dialog_id[i] == 0, "dialog_id must stay zero after prepare" );
+
+    e1s18_reset_r8_context();
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+
+/*
+ * WO-25: prepare denies on a BINDING/registration generation mismatch, any
+ * zero BINDING value, an invalid owner, or an OPEN/BINDING/owner failure. The
+ * S6 channel is closed after a successful OPEN on every path.
+ */
+static int test_wo25_r8_prepare_denies( void )
+{
+    struct request req;
+    int i;
+    DWORD err;
+
+    init_dummy_request( &req );
+
+    /* BINDING server_gen differs from the registration. */
+    wo25_reset();
+    s_wo25.b_server_gen = 0x999;
+    wo25_set_ops();
+    e1s18_reset_r8_context();
+    e1s18_set_r8_skip_prepare( FALSE );
+    err = e1s18_r8_prepare( &req );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "a BINDING server_gen mismatch must deny" );
+    CHECK_EQ( s_wo25.close_calls, 1, "the channel must be closed after a successful OPEN (server_gen mismatch)" );
+
+    /* BINDING broker_gen differs from the registration. */
+    wo25_reset();
+    s_wo25.b_broker_gen = 0x999;
+    wo25_set_ops();
+    e1s18_reset_r8_context();
+    e1s18_set_r8_skip_prepare( FALSE );
+    err = e1s18_r8_prepare( &req );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "a BINDING broker_gen mismatch must deny" );
+    CHECK_EQ( s_wo25.close_calls, 1, "the channel must be closed after a successful OPEN (broker_gen mismatch)" );
+
+    /* Any zero BINDING value denies. */
+    for (i = 0; i < 11; i++)
+    {
+        wo25_reset();
+        switch (i)
+        {
+        case 0: memset( s_wo25.b_prefix, 0, 16 ); break;
+        case 1: memset( s_wo25.b_host, 0, 16 ); break;
+        case 2: memset( s_wo25.b_opener, 0, 16 ); break;
+        case 3: memset( s_wo25.b_writer, 0, 16 ); break;
+        case 4: memset( s_wo25.b_route, 0, 16 ); break;
+        case 5: s_wo25.b_server_gen = 0; break;
+        case 6: s_wo25.b_root_gen = 0; break;
+        case 7: s_wo25.b_broker_gen = 0; break;
+        case 8: s_wo25.b_map_gen = 0; break;
+        case 9: s_wo25.b_policy_gen = 0; break;
+        case 10: s_wo25.b_caller_session = 0; break;
+        }
+        wo25_set_ops();
+        e1s18_reset_r8_context();
+        e1s18_set_r8_skip_prepare( FALSE );
+        err = e1s18_r8_prepare( &req );
+        CHECK_EQ( err, ERROR_ACCESS_DENIED, "a zero BINDING value must deny" );
+        CHECK_EQ( s_wo25.close_calls, 1, "the channel must be closed after a successful OPEN (zero BINDING)" );
+    }
+
+    /* An invalid owner denies. */
+    wo25_reset();
+    strcpy( s_wo25.owner, "not-a-bus-name" );
+    wo25_set_ops();
+    e1s18_reset_r8_context();
+    e1s18_set_r8_skip_prepare( FALSE );
+    err = e1s18_r8_prepare( &req );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "an invalid owner must deny" );
+    CHECK_EQ( s_wo25.close_calls, 1, "the channel must be closed after a successful OPEN (invalid owner)" );
+
+    /* OPEN failure denies (no channel to close). */
+    wo25_reset();
+    s_wo25.open_err = ERROR_ACCESS_DENIED;
+    wo25_set_ops();
+    e1s18_reset_r8_context();
+    e1s18_set_r8_skip_prepare( FALSE );
+    err = e1s18_r8_prepare( &req );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "an OPEN failure must deny" );
+    CHECK_EQ( s_wo25.close_calls, 0, "no channel must be closed when OPEN fails" );
+
+    /* BINDING failure denies (channel closed after a successful OPEN). */
+    wo25_reset();
+    s_wo25.binding_err = ERROR_ACCESS_DENIED;
+    wo25_set_ops();
+    e1s18_reset_r8_context();
+    e1s18_set_r8_skip_prepare( FALSE );
+    err = e1s18_r8_prepare( &req );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "a BINDING failure must deny" );
+    CHECK_EQ( s_wo25.close_calls, 1, "the channel must be closed after a successful OPEN (BINDING failure)" );
+
+    /* owner failure denies (channel closed after a successful OPEN). */
+    wo25_reset();
+    s_wo25.owner_err = ERROR_ACCESS_DENIED;
+    wo25_set_ops();
+    e1s18_reset_r8_context();
+    e1s18_set_r8_skip_prepare( FALSE );
+    err = e1s18_r8_prepare( &req );
+    CHECK_EQ( err, ERROR_ACCESS_DENIED, "an owner failure must deny" );
+    CHECK_EQ( s_wo25.close_calls, 1, "the channel must be closed after a successful OPEN (owner failure)" );
+
+    e1s18_reset_r8_context();
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+
+/*
+ * WO-25: the pre-endorsement tuple bytes equal the codec golden layout with
+ * the context values.
+ */
+static int test_wo25_r8_pre_endorsement_tuple( void )
+{
+    struct e1s18_r8_context ctx;
+    struct request req;
+    struct e1r8_tuple t;
+    uint8_t nonce[32], channel[16], binding[32], request_digest[32];
+    uint8_t pre[E1R8_PRE_ENDORSEMENT_SIZE];
+    int i;
+
+    for (i = 0; i < 32; i++) nonce[i] = (uint8_t)(0x10 + i);
+    for (i = 0; i < 16; i++) channel[i] = (uint8_t)(0x30 + i);
+    for (i = 0; i < 32; i++) binding[i] = (uint8_t)(0x40 + i);
+    for (i = 0; i < 32; i++) request_digest[i] = (uint8_t)(0x60 + i);
+
+    fill_default_r8_context( &ctx );
+    e1s18_set_r8_context( &ctx );
+    init_dummy_request( &req );
+
+    CHECK_EQ( e1s18_build_r8_tuple( &req, req.id, 1, nonce, channel, binding, request_digest, TRUE, &t ),
+              0, "the tuple must build" );
+    CHECK_EQ( e1r8_encode_pre_endorsement_tuple( pre, sizeof(pre), &t ), 0, "the pre-endorsement tuple must encode" );
+
+    /* Golden layout: request_id 0, attempt 8, nonce 12, channel_id 44,
+     * binding_digest 60, request_digest 92, deadline 124, root_gen 132,
+     * server_gen 140, broker_gen 148, verifier_gen 156, map_gen 164,
+     * policy_gen 172, caller_session 180, desktop_route 184, desktop_mode 200. */
+    CHECK_EQ( e1s6_u64( pre + 0 ), req.id, "request_id at 0" );
+    CHECK_EQ( e1s6_u32( pre + 8 ), 1, "attempt at 8" );
+    CHECK( memcmp( pre + 12, nonce, 32 ) == 0, "nonce at 12" );
+    CHECK( memcmp( pre + 44, channel, 16 ) == 0, "channel_id at 44" );
+    CHECK( memcmp( pre + 60, binding, 32 ) == 0, "binding_digest at 60" );
+    CHECK( memcmp( pre + 92, request_digest, 32 ) == 0, "request_digest at 92" );
+    CHECK_EQ( e1s6_u64( pre + 124 ), t.deadline, "deadline at 124" );
+    CHECK_EQ( e1s6_u64( pre + 132 ), ctx.root_gen, "root_gen at 132" );
+    CHECK_EQ( e1s6_u64( pre + 140 ), ctx.server_gen, "server_gen at 140" );
+    CHECK_EQ( e1s6_u64( pre + 148 ), ctx.broker_gen, "broker_gen at 148" );
+    CHECK_EQ( e1s6_u64( pre + 156 ), ctx.verifier_gen, "verifier_gen at 156" );
+    CHECK_EQ( e1s6_u64( pre + 164 ), ctx.map_gen, "map_gen at 164" );
+    CHECK_EQ( e1s6_u64( pre + 172 ), ctx.policy_gen, "policy_gen at 172" );
+    CHECK_EQ( e1s6_u32( pre + 180 ), ctx.caller_session, "caller_session at 180" );
+    CHECK( memcmp( pre + 184, ctx.desktop_route, 16 ) == 0, "desktop_route at 184" );
+    CHECK_EQ( e1s6_u32( pre + 200 ), E1R8_DESKTOP_MODE_SECURE, "desktop_mode at 200" );
+
+    e1s18_reset_r8_context();
+    return TEST_PASS;
+}
+
+/*
+ * WO-25: the sealed tuple carries the endorsed dialog_id.
+ */
+static int test_wo25_r8_sealed_tuple_dialog_id( void )
+{
+    struct e1s18_r8_context ctx;
+    struct request req;
+    struct e1r8_tuple t;
+    uint8_t nonce[32], channel[16], binding[32], request_digest[32];
+    uint8_t sealed[E1R8_SEALED_SIZE];
+    int i;
+
+    for (i = 0; i < 32; i++) nonce[i] = (uint8_t)(0x10 + i);
+    for (i = 0; i < 16; i++) channel[i] = (uint8_t)(0x30 + i);
+    for (i = 0; i < 32; i++) binding[i] = (uint8_t)(0x40 + i);
+    for (i = 0; i < 32; i++) request_digest[i] = (uint8_t)(0x60 + i);
+
+    fill_default_r8_context( &ctx );
+    e1s18_set_r8_context( &ctx );
+    init_dummy_request( &req );
+
+    CHECK_EQ( e1s18_build_r8_tuple( &req, req.id, 1, nonce, channel, binding, request_digest, TRUE, &t ),
+              0, "the tuple must build" );
+    CHECK_EQ( e1r8_encode_sealed_tuple( sealed, sizeof(sealed), &t ), 0, "the sealed tuple must encode" );
+
+    /* The sealed tuple is the pre-endorsement tuple (204 bytes) plus the
+     * dialog_id (16 bytes) at offset 204. */
+    CHECK( memcmp( sealed + 204, ctx.dialog_id, 16 ) == 0, "dialog_id at 204" );
+    CHECK( memcmp( sealed + 204, t.dialog_id, 16 ) == 0, "dialog_id must be the tuple's" );
+
+    e1s18_reset_r8_context();
+    return TEST_PASS;
+}
+
 #endif /* WEXELEVATE_E1S18 */
 
 int main( int argc, char **argv )
@@ -3881,6 +4267,18 @@ int main( int argc, char **argv )
 
     printf("56. Testing WO-20 R8 INIT/ACK portable logic (zero context denies, tuple, INIT, ACK)...\n");
     if (test_wo20_r8_init_ack() != TEST_PASS) ret = 1;
+
+    printf("57. Testing WO-25 R8 prepare fills the context from OPEN/BINDING/owner and closes the channel...\n");
+    if (test_wo25_r8_prepare_fills_context() != TEST_PASS) ret = 1;
+
+    printf("58. Testing WO-25 R8 prepare denies (gen mismatch, zero BINDING, bad owner, op failure)...\n");
+    if (test_wo25_r8_prepare_denies() != TEST_PASS) ret = 1;
+
+    printf("59. Testing WO-25 R8 pre-endorsement tuple bytes equal the codec golden layout...\n");
+    if (test_wo25_r8_pre_endorsement_tuple() != TEST_PASS) ret = 1;
+
+    printf("60. Testing WO-25 R8 sealed tuple carries the endorsed dialog_id...\n");
+    if (test_wo25_r8_sealed_tuple_dialog_id() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

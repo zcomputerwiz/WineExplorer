@@ -496,12 +496,13 @@ void e1s18_reset_r8_context( void )
 }
 
 /* Every required R8 input must be nonzero/valid; any zero input means the
- * sealed-tuple inputs are not yet established, so the request denies. */
+ * sealed-tuple inputs are not yet established, so the request denies.
+ * WO-25: dialog_id is assigned by the server at endorsement, so it is not
+ * required for the pre-endorsement context; everything else must be set. */
 static BOOL e1s18_r8_context_complete( const struct e1s18_r8_context *c )
 {
     size_t vo_len = strlen( c->verifier_owner );
-    return !e1s18_is_all_zero( c->dialog_id, 16 ) &&
-           !e1s18_is_all_zero( c->desktop_route, 16 ) &&
+    return !e1s18_is_all_zero( c->desktop_route, 16 ) &&
            c->caller_session &&
            c->root_gen && c->server_gen && c->broker_gen &&
            c->verifier_gen && c->map_gen && c->policy_gen &&
@@ -605,6 +606,132 @@ int e1s18_verify_r8_ack( const uint8_t *buf, size_t len,
 {
     struct e1r8_ack ack;
     return e1r8_decode_ack( buf, len, t, &ack );
+}
+
+/* WO-25: test flag: a preset complete context skips prepare only when this is
+ * set; no production path skips it. */
+static BOOL s_r8_skip_prepare = FALSE;
+/* WO-25: the S6 channel of the attempt in flight (single in flight, WO-15). */
+static UINT64 s_r8_channel;
+
+void e1s18_set_r8_skip_prepare( BOOL skip )
+{
+    s_r8_skip_prepare = skip;
+}
+
+/*
+ * WO-25: Fill the R8 context from live inputs instead of relying on a preset
+ * context. r8_open (the S6 OPEN record), r8_binding (the BINDING reply) and
+ * r8_owner (the verifier owner) are called in that order. The BINDING
+ * server_gen/broker_gen must equal the broker registration's, every parsed
+ * value must be nonzero, and the owner must be a valid D-Bus unique name. The
+ * context is filled from the BINDING (root_gen, map_gen, policy_gen,
+ * caller_session, desktop_route) and the S6 record (server_gen, broker_gen,
+ * verifier_gen, owner); dialog_id stays zero (the server assigns it at
+ * endorsement). The S6 channel is closed on every path after a successful
+ * OPEN. Returns ERROR_SUCCESS on success, or the denial.
+ */
+DWORD e1s18_r8_prepare( struct request *req )
+{
+    const struct e1s18_ops *ops = e1s18_get_ops();
+    unsigned char reg[E1S6_OPEN_SIZE];
+    unsigned char binding[124];
+    char owner[256];
+    UINT64 channel = 0;
+    uint64_t reg_server_gen, reg_broker_gen, reg_verifier_gen;
+    uint64_t b_server_gen, b_root_gen, b_broker_gen, b_map_gen, b_policy_gen;
+    uint32_t b_caller_session;
+    DWORD err = ERROR_SUCCESS;
+    int opened = 0;
+
+    if (!req || !ops) return ERROR_INVALID_PARAMETER;
+
+    /* A preset complete context skips prepare only when the test flag says so. */
+    if (s_r8_skip_prepare && e1s18_r8_context_complete( &s_r8_context ))
+        return ERROR_SUCCESS;
+
+    memset( reg, 0, sizeof(reg) );
+    memset( binding, 0, sizeof(binding) );
+    memset( owner, 0, sizeof(owner) );
+
+    if (!ops->r8_open) return ERROR_NOT_SUPPORTED;
+    err = ops->r8_open( req, reg, &channel );
+    if (err || !channel) return err ? err : ERROR_ACCESS_DENIED;
+    opened = 1;
+
+    if (!ops->r8_binding) { err = ERROR_NOT_SUPPORTED; goto close; }
+    err = ops->r8_binding( req, binding );
+    if (err) goto close;
+
+    if (!ops->r8_owner) { err = ERROR_NOT_SUPPORTED; goto close; }
+    err = ops->r8_owner( req, channel, owner );
+    if (err) goto close;
+
+    /* Parse the broker registration (first 112 bytes of the OPEN record):
+     * server_gen at 48, broker_gen at 56, verifier_gen at 64. */
+    reg_server_gen = e1s6_u64( reg + 48 );
+    reg_broker_gen = e1s6_u64( reg + 56 );
+    reg_verifier_gen = e1s6_u64( reg + 64 );
+
+    /* Parse the BINDING reply: prefix_id 0, host_process_id 16, opener_id 32,
+     * writer_id 48, desktop_route 64; server_gen 80, root_gen 88, broker_gen
+     * 96, map_gen 104, policy_gen 112; caller_session 120. */
+    b_server_gen = e1s6_u64( binding + 80 );
+    b_root_gen = e1s6_u64( binding + 88 );
+    b_broker_gen = e1s6_u64( binding + 96 );
+    b_map_gen = e1s6_u64( binding + 104 );
+    b_policy_gen = e1s6_u64( binding + 112 );
+    b_caller_session = e1s6_u32( binding + 120 );
+
+    /* Deny unless the BINDING server_gen/broker_gen equal the registration's,
+     * every value is nonzero, and the owner is a valid D-Bus unique name. */
+    if (b_server_gen != reg_server_gen || b_broker_gen != reg_broker_gen)
+    { err = ERROR_ACCESS_DENIED; goto close; }
+    if (e1s18_is_all_zero( binding + 0, 16 ) ||   /* prefix_id */
+        e1s18_is_all_zero( binding + 16, 16 ) ||  /* host_process_id */
+        e1s18_is_all_zero( binding + 32, 16 ) ||  /* opener_id */
+        e1s18_is_all_zero( binding + 48, 16 ) ||  /* writer_id */
+        e1s18_is_all_zero( binding + 64, 16 ) ||  /* desktop_route */
+        !b_server_gen || !b_root_gen || !b_broker_gen ||
+        !b_map_gen || !b_policy_gen || !b_caller_session ||
+        !reg_server_gen || !reg_broker_gen || !reg_verifier_gen)
+    { err = ERROR_ACCESS_DENIED; goto close; }
+    if (!e1r8_valid_verifier_owner( (const uint8_t *)owner, strlen( owner )))
+    { err = ERROR_ACCESS_DENIED; goto close; }
+
+    /* Fill the context: root_gen, map_gen, policy_gen, caller_session and
+     * desktop_route from the BINDING; server_gen, broker_gen and verifier_gen
+     * from the S6 record (server_gen/broker_gen are validated equal to the
+     * BINDING's); the owner from S6. dialog_id stays zero. */
+    memset( &s_r8_context, 0, sizeof(s_r8_context) );
+    s_r8_context.root_gen = b_root_gen;
+    s_r8_context.server_gen = reg_server_gen;
+    s_r8_context.broker_gen = reg_broker_gen;
+    s_r8_context.verifier_gen = reg_verifier_gen;
+    s_r8_context.map_gen = b_map_gen;
+    s_r8_context.policy_gen = b_policy_gen;
+    s_r8_context.caller_session = b_caller_session;
+    memcpy( s_r8_context.desktop_route, binding + 64, 16 );
+    strncpy( s_r8_context.verifier_owner, owner, sizeof(s_r8_context.verifier_owner) - 1 );
+    s_r8_context.verifier_owner[sizeof(s_r8_context.verifier_owner) - 1] = 0;
+    /* The verifier keeps the attempt's records per S6 session and ENDORSED
+     * travels on its control socket: the channel stays open until the attempt
+     * ends (e1s18_r8_release). */
+    s_r8_channel = channel;
+    return ERROR_SUCCESS;
+close:
+    if (opened && ops->r8_close)
+        ops->r8_close( req, channel ); /* best-effort; result ignored */
+    return err;
+}
+
+/* WO-25: end of the attempt: close the S6 channel prepare kept open. */
+void e1s18_r8_release( struct request *req )
+{
+    const struct e1s18_ops *ops = e1s18_get_ops();
+    UINT64 channel = s_r8_channel;
+    s_r8_channel = 0;
+    if (channel && ops && ops->r8_close) ops->r8_close( req, channel ); /* best-effort */
 }
 
 /* WO-14 test hook: SHA-256 of tag||data, exposing the broker's digest for
@@ -809,6 +936,8 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     size_t cmd_size;
     uint8_t answer_buf[WEX_S1_ANSWER_LENGTH];
     uint8_t init_buf[2067];
+    uint8_t pre_tuple[E1R8_PRE_ENDORSEMENT_SIZE];
+    uint8_t dialog_id[16];
     DWORD read_bytes = 0;
     DWORD err = ERROR_SUCCESS;
     int i;
@@ -819,9 +948,19 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     struct r8_worker_ctx *wc;
     ULONGLONG start, elapsed;
     DWORD timeout;
+    const struct e1s18_ops *ops = e1s18_get_ops();
+
+    /* WO-25: fill the R8 context from live inputs (the S6 OPEN record, the
+     * BINDING reply and the verifier owner) instead of relying on a preset
+     * context. A denial here happens before any pipe or process is created. */
+    if (s_r8_channel) return ERROR_BUSY; /* an attempt is already in flight */
+    if ((err = e1s18_r8_prepare( req )))
+        return err;
 
     /* WO-20: the R8 context must be complete; a zero required input denies
-     * with ERROR_NOT_SUPPORTED before any pipe or process is created. */
+     * with ERROR_NOT_SUPPORTED before any pipe or process is created. The
+     * pre-endorsement tuple carries no dialog_id (the server assigns it at
+     * endorsement). */
     if (e1s18_build_r8_tuple( req, request_id, 1, nonce, channel_token,
                               binding_digest, request_digest, secure, &tuple ))
         return ERROR_NOT_SUPPORTED;
@@ -888,17 +1027,6 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     wsprintfW( cmd + lstrlenW( cmd ), L"/out %lu ", (DWORD)(ULONG_PTR)from_d_write );
     if (secure) lstrcatW( cmd, L"/secure " );
 
-    /* Encode the INIT before entering the secure desktop; an invalid display
-     * string or an undersized buffer denies. */
-    init_len = e1s18_encode_r8_init( req, &tuple, init_buf, sizeof(init_buf) );
-    if (!init_len)
-    {
-        free( cmd );
-        CloseHandle( to_d_read ); CloseHandle( to_d_write );
-        CloseHandle( from_d_read ); CloseHandle( from_d_write );
-        return ERROR_NOT_SUPPORTED;
-    }
-
     if (secure && secure_enter())
     {
         free( cmd );
@@ -946,7 +1074,8 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         if (secure) secure_leave();
         return GetLastError();
     }
-    if (!CreateProcessW( NULL, cmd, NULL, NULL, TRUE, EXTENDED_STARTUPINFO_PRESENT, NULL, dir,
+    if (!CreateProcessW( NULL, cmd, NULL, NULL, TRUE,
+                         EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED, NULL, dir,
                          &si.StartupInfo, &pi ))
     {
         DeleteProcThreadAttributeList( si.lpAttributeList );
@@ -961,9 +1090,67 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     DeleteProcThreadAttributeList( si.lpAttributeList );
     free( si.lpAttributeList );
     free( cmd );
-    /* D holds its own inherited copies; close B's copies of D's two ends. */
+    /* D holds its own inherited copies; close B's copies of D's two ends.
+     * pi.hThread is kept until after ResumeThread (D was created suspended). */
     CloseHandle( to_d_read );
     CloseHandle( from_d_write );
+
+    /* WO-25: encode the 204-byte pre-endorsement tuple and endorse the
+     * suspended dialog. On success the server returns the dialog_id, which is
+     * put into the tuple and the context; INIT is then encoded from the sealed
+     * tuple and D is resumed. A failed endorse terminates D and denies. */
+    if (e1r8_encode_pre_endorsement_tuple( pre_tuple, sizeof(pre_tuple), &tuple ))
+    {
+        TerminateProcess( pi.hProcess, 1 );
+        WaitForSingleObject( pi.hProcess, 5000 );
+        CloseHandle( pi.hProcess );
+        CloseHandle( pi.hThread );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
+        if (secure) secure_leave();
+        return ERROR_NOT_SUPPORTED;
+    }
+    if (!ops->r8_endorse ||
+        ops->r8_endorse( req, pi.hProcess, pre_tuple, dialog_id ))
+    {
+        TerminateProcess( pi.hProcess, 1 );
+        WaitForSingleObject( pi.hProcess, 5000 );
+        CloseHandle( pi.hProcess );
+        CloseHandle( pi.hThread );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
+        if (secure) secure_leave();
+        return ERROR_ACCESS_DENIED;
+    }
+    memcpy( tuple.dialog_id, dialog_id, 16 );
+    memcpy( s_r8_context.dialog_id, dialog_id, 16 );
+    /* Encode the INIT from the sealed tuple; an invalid display string or an
+     * undersized buffer terminates D and denies. */
+    init_len = e1s18_encode_r8_init( req, &tuple, init_buf, sizeof(init_buf) );
+    if (!init_len)
+    {
+        TerminateProcess( pi.hProcess, 1 );
+        WaitForSingleObject( pi.hProcess, 5000 );
+        CloseHandle( pi.hProcess );
+        CloseHandle( pi.hThread );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
+        if (secure) secure_leave();
+        return ERROR_NOT_SUPPORTED;
+    }
+    /* Resume D and close the thread handle only after resuming; D is never
+     * left suspended. */
+    if (ResumeThread( pi.hThread ) == (DWORD)-1)
+    {
+        TerminateProcess( pi.hProcess, 1 );
+        WaitForSingleObject( pi.hProcess, 5000 );
+        CloseHandle( pi.hProcess );
+        CloseHandle( pi.hThread );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
+        if (secure) secure_leave();
+        return ERROR_ACCESS_DENIED;
+    }
     CloseHandle( pi.hThread );
 
     if (!(wc = calloc( 1, sizeof(*wc) )))
@@ -1032,6 +1219,19 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     }
     CloseHandle( worker_thread );
     free( wc );
+
+    /* WO-25: after a valid ACK, recheck the dialog with the server. A failed
+     * recheck terminates D and denies. */
+    if (!ops->r8_recheck || ops->r8_recheck( req, tuple.dialog_id ))
+    {
+        TerminateProcess( pi.hProcess, 1 );
+        WaitForSingleObject( pi.hProcess, 5000 );
+        CloseHandle( pi.hProcess );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
+        if (secure) secure_leave();
+        return ERROR_ACCESS_DENIED;
+    }
 
     /* After a valid ACK the dialog runs as before: wait for it to exit (or for
      * the caller, stop or lease break) within what is left of the deadline. */
@@ -1109,6 +1309,69 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
 
     wex_secure_wipe( answer_buf, sizeof(answer_buf) );
     return err;
+}
+#endif
+
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+/* WO-25: the S6 transport export (wexhost.dll), as in the redeem path. */
+typedef DWORD (WINAPI *e1s18_pfn_WexE1s6Transport)( HANDLE, DWORD, void *, DWORD, UINT64 * );
+
+static e1s18_pfn_WexE1s6Transport e1s18_get_s6_transport( void )
+{
+    HMODULE wexhost = GetModuleHandleW( L"wexhost.dll" );
+    if (!wexhost) wexhost = LoadLibraryW( L"wexhost.dll" );
+    if (!wexhost) return NULL;
+    return (e1s18_pfn_WexE1s6Transport)(void *)GetProcAddress( wexhost, "WexE1s6Transport" );
+}
+
+/* WO-25: the extended caller-binding query (ntdll.dll). The native-layout
+ * structures mirror wine/dlls/ntdll/sec.c (WEX_PIPE_CALLER_BINDING[_EXT]); no
+ * pointer crosses the server transport. */
+typedef struct _e1s18_pipe_caller_binding
+{
+    ULONG Size;
+    ULONG Version;
+    HANDLE Process;
+    HANDLE Token;
+    HANDLE WriterProcess;
+    HANDLE WriterToken;
+    ULONG Pid;
+    LARGE_INTEGER StartTime;
+    LUID TokenId;
+    LUID ModifiedId;
+    LUID WriterTokenId;
+    LUID WriterModifiedId;
+    BOOL Impersonated;
+    BOOL TokenCurrent;
+    ULONG WriterFlags;
+} e1s18_pipe_caller_binding;
+
+typedef struct _e1s18_pipe_caller_binding_ext
+{
+    e1s18_pipe_caller_binding binding;
+    const void *input;
+    ULONG in_size;
+    void *output;
+    ULONG *out_size;
+} e1s18_pipe_caller_binding_ext;
+
+typedef NTSTATUS (WINAPI *e1s18_pfn_QueryWexPipeCallerBindingEx)( HANDLE, e1s18_pipe_caller_binding * );
+
+static e1s18_pfn_QueryWexPipeCallerBindingEx e1s18_get_binding_query( void )
+{
+    HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" );
+    if (!ntdll) return NULL;
+    return (e1s18_pfn_QueryWexPipeCallerBindingEx)(void *)GetProcAddress( ntdll, "NtQueryWexPipeCallerBindingEx" );
+}
+
+/* WO-25: close the four handles the extended binding query returns on success. */
+static void e1s18_close_binding_handles( e1s18_pipe_caller_binding *b )
+{
+    if (b->Process) CloseHandle( b->Process );
+    if (b->Token) CloseHandle( b->Token );
+    if (b->WriterProcess) CloseHandle( b->WriterProcess );
+    if (b->WriterToken) CloseHandle( b->WriterToken );
+    memset( b, 0, sizeof(*b) );
 }
 #endif
 
@@ -1296,6 +1559,7 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
     {
         err = e1s18_spawn_consent_dialog( req, req->id, nonce, binding_digest, request_digest,
                                           channel_token, secure, out_account, account_max );
+        e1s18_r8_release( req ); /* the attempt's S6 channel, on every exit */
     }
 #else
     else
@@ -2213,6 +2477,162 @@ static void default_free_buffer( void *ptr )
     free( ptr );
 }
 
+/* WO-25: default R8 ops. The Win32 implementations use the S6 transport and
+ * the extended caller-binding query; the native stubs fail closed. */
+static DWORD default_r8_open( struct request *req, unsigned char reg[E1S6_OPEN_SIZE], UINT64 *channel )
+{
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    e1s18_pfn_WexE1s6Transport transport;
+    DWORD err;
+    if (!req || !req->pipe || !reg || !channel) return ERROR_INVALID_PARAMETER;
+    transport = e1s18_get_s6_transport();
+    if (!transport) return ERROR_NOT_SUPPORTED;
+    *channel = 0;
+    err = transport( req->pipe, E1S6_OPEN, reg, E1S6_OPEN_SIZE, channel );
+    if (err || !*channel) { e1s18_wipe( reg, E1S6_OPEN_SIZE ); return err ? err : ERROR_ACCESS_DENIED; }
+    return ERROR_SUCCESS;
+#else
+    (void)req; (void)reg; (void)channel;
+    return ERROR_NOT_SUPPORTED;
+#endif
+}
+
+static DWORD default_r8_owner( struct request *req, UINT64 channel, char owner[256] )
+{
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    e1s18_pfn_WexE1s6Transport transport;
+    DWORD err;
+    if (!req || !req->pipe || !channel || !owner) return ERROR_INVALID_PARAMETER;
+    transport = e1s18_get_s6_transport();
+    if (!transport) return ERROR_NOT_SUPPORTED;
+    memset( owner, 0, 256 );
+    err = transport( req->pipe, E1S6_OWNER_QUERY, owner, 256, &channel );
+    if (err) return err;
+    return ERROR_SUCCESS;
+#else
+    (void)req; (void)channel; (void)owner;
+    return ERROR_NOT_SUPPORTED;
+#endif
+}
+
+static DWORD default_r8_binding( struct request *req, unsigned char out[124] )
+{
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    e1s18_pfn_QueryWexPipeCallerBindingEx query;
+    e1s18_pipe_caller_binding_ext ext;
+    unsigned char payload[8];
+    unsigned char out_buf[124];
+    ULONG out_len = sizeof(out_buf);
+    NTSTATUS status;
+    if (!req || !req->pipe || !out) return ERROR_INVALID_PARAMETER;
+    query = e1s18_get_binding_query();
+    if (!query) return ERROR_NOT_SUPPORTED;
+    memset( payload, 0, sizeof(payload) );
+    memcpy( payload, "E1R8", 4 );
+    payload[4] = 1; payload[5] = 0; /* version 1 */
+    payload[6] = 1; payload[7] = 0; /* op 1 (BINDING) */
+    memset( out_buf, 0, sizeof(out_buf) );
+    memset( &ext, 0, sizeof(ext) );
+    ext.binding.Size = sizeof(ext);
+    ext.input = payload;
+    ext.in_size = sizeof(payload);
+    ext.output = out_buf;
+    ext.out_size = &out_len;
+    status = query( req->pipe, &ext.binding );
+    if (status) return ERROR_ACCESS_DENIED;
+    if (out_len != 124) { e1s18_close_binding_handles( &ext.binding ); return ERROR_ACCESS_DENIED; }
+    memcpy( out, out_buf, 124 );
+    e1s18_close_binding_handles( &ext.binding );
+    return ERROR_SUCCESS;
+#else
+    (void)req; (void)out;
+    return ERROR_NOT_SUPPORTED;
+#endif
+}
+
+static DWORD default_r8_endorse( struct request *req, HANDLE dialog, const unsigned char tuple[204],
+                                 unsigned char dialog_id[16] )
+{
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    e1s18_pfn_QueryWexPipeCallerBindingEx query;
+    e1s18_pipe_caller_binding_ext ext;
+    unsigned char payload[216];
+    unsigned char out_buf[16];
+    ULONG out_len = sizeof(out_buf);
+    NTSTATUS status;
+    if (!req || !req->pipe || !dialog || !tuple || !dialog_id) return ERROR_INVALID_PARAMETER;
+    query = e1s18_get_binding_query();
+    if (!query) return ERROR_NOT_SUPPORTED;
+    memset( payload, 0, sizeof(payload) );
+    memcpy( payload, "E1R8", 4 );
+    payload[4] = 1; payload[5] = 0; /* version 1 */
+    payload[6] = 2; payload[7] = 0; /* op 2 (ENDORSE_DIALOG) */
+    e1s6_put32( payload + 8, (unsigned int)(uintptr_t)dialog );
+    memcpy( payload + 12, tuple, 204 );
+    memset( out_buf, 0, sizeof(out_buf) );
+    memset( &ext, 0, sizeof(ext) );
+    ext.binding.Size = sizeof(ext);
+    ext.input = payload;
+    ext.in_size = sizeof(payload);
+    ext.output = out_buf;
+    ext.out_size = &out_len;
+    status = query( req->pipe, &ext.binding );
+    if (status) return ERROR_ACCESS_DENIED;
+    if (out_len != 16 || e1s18_is_all_zero( out_buf, 16 ))
+    { e1s18_close_binding_handles( &ext.binding ); return ERROR_ACCESS_DENIED; }
+    memcpy( dialog_id, out_buf, 16 );
+    e1s18_close_binding_handles( &ext.binding );
+    return ERROR_SUCCESS;
+#else
+    (void)req; (void)dialog; (void)tuple; (void)dialog_id;
+    return ERROR_NOT_SUPPORTED;
+#endif
+}
+
+static DWORD default_r8_recheck( struct request *req, const unsigned char dialog_id[16] )
+{
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    e1s18_pfn_QueryWexPipeCallerBindingEx query;
+    e1s18_pipe_caller_binding_ext ext;
+    unsigned char payload[24];
+    NTSTATUS status;
+    if (!req || !req->pipe || !dialog_id) return ERROR_INVALID_PARAMETER;
+    query = e1s18_get_binding_query();
+    if (!query) return ERROR_NOT_SUPPORTED;
+    memset( payload, 0, sizeof(payload) );
+    memcpy( payload, "E1R8", 4 );
+    payload[4] = 1; payload[5] = 0; /* version 1 */
+    payload[6] = 3; payload[7] = 0; /* op 3 (RECHECK) */
+    memcpy( payload + 8, dialog_id, 16 );
+    memset( &ext, 0, sizeof(ext) );
+    ext.binding.Size = sizeof(ext);
+    ext.input = payload;
+    ext.in_size = sizeof(payload);
+    /* No reply data for RECHECK. */
+    status = query( req->pipe, &ext.binding );
+    if (status) return ERROR_ACCESS_DENIED;
+    e1s18_close_binding_handles( &ext.binding );
+    return ERROR_SUCCESS;
+#else
+    (void)req; (void)dialog_id;
+    return ERROR_NOT_SUPPORTED;
+#endif
+}
+
+static DWORD default_r8_close( struct request *req, UINT64 channel )
+{
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    e1s18_pfn_WexE1s6Transport transport;
+    if (!req || !req->pipe || !channel) return ERROR_INVALID_PARAMETER;
+    transport = e1s18_get_s6_transport();
+    if (!transport) return ERROR_NOT_SUPPORTED;
+    return transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
+#else
+    (void)req; (void)channel;
+    return ERROR_NOT_SUPPORTED;
+#endif
+}
+
 static struct e1s18_ops s_default_ops = {
     default_get_capabilities,
     default_is_policy_enabled,
@@ -2234,7 +2654,13 @@ static struct e1s18_ops s_default_ops = {
     default_close_remote_handle,
     default_unload_profile,
     default_close_handle,
-    default_free_buffer
+    default_free_buffer,
+    default_r8_open,
+    default_r8_owner,
+    default_r8_binding,
+    default_r8_endorse,
+    default_r8_recheck,
+    default_r8_close
 };
 
 static const struct e1s18_ops *s_active_ops = &s_default_ops;

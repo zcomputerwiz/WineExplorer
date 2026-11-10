@@ -802,6 +802,15 @@ records per S6 session, and ENDORSED travels on that session's control socket, s
 must not close the S6 channel. It keeps the channel in the attempt and closes it when the attempt ends
 (every exit of `e1s18_spawn_consent_dialog` after a successful prepare).
 
+Result (2026-11-10, Qwen, 36 minutes; Claude reviewed): six ops (`r8_open`, `r8_owner`, `r8_binding`,
+`r8_endorse`, `r8_recheck`, `r8_close`), `E1S6_OWNER_QUERY 11`, `e1s18_r8_prepare`, D created suspended,
+endorsed, resumed, rechecked after ACK; native tests for prepare and the tuples. Claude's fixes: the
+amendment (prepare keeps the channel, `e1s18_r8_release` closes it after the dialog call, a second
+attempt while one is in flight is refused), a failed `ResumeThread` terminates D, a pointer-sign cast in
+wexhost. `bash scripts/test_broker_e1s18.sh` passes (native, ASan, both MinGW, production objects
+byte-identical, codec cross-check); wexhost e1s6.c compiles cleanly with and without the lab define. Not
+run in Wine yet (WO-27).
+
 ## WO-26 R8: ENDORSED from the server to the verifier (lab only; for Antigravity, after WO-25)
 
 Contract: docs/E1_S18E_R8_SPEC.md section 6 (ENDORSED, type 16, 244 bytes: 76-byte header, 160-byte

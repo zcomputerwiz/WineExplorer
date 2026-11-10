@@ -678,6 +678,22 @@ NTSTATUS e1s6_transport( void *args )
             if (ok) params->err = 0;
             else { cleanup(); params->channel = 0; params->err = ERROR_ACCESS_DENIED; }
         }
+        else if (params->channel && params->channel == active_id && buffer &&
+                 params->pipe == (ULONG_PTR)bound_pipe && params->size == 256)
+        {
+            /* WO-25: on an open, bound channel only, return the verifier's
+             * unique bus name recorded at OPEN; any other state denies like
+             * an unknown operation. */
+            if (params->operation == E1S6_OWNER_QUERY && phase >= 1)
+            {
+                memset( buffer, 0, 256 );
+                strcpy( (char *)buffer, owner );
+                ok = 1;
+            }
+            else denied( "operation-phase" );
+            if (ok) params->err = 0;
+            else { cleanup(); params->channel = 0; params->err = ERROR_ACCESS_DENIED; }
+        }
         /* E1S6_STORAGE_QUERY (10) is retired; it is denied like an unknown operation. */
         else denied( "channel-parameters" );
         if (params->err && active_id && params->channel == active_id) cleanup();

@@ -16,6 +16,7 @@
 
 #include "wexelevate_request.h"
 #include "cred_dialog.h"
+#include "e1s6_protocol.h"
 #include "../../../wine/include/wine/wex_token.h"
 #include "../../../wine/include/wine/wex_profile.h"
 
@@ -243,6 +244,20 @@ size_t e1s18_encode_r8_init( const struct request *req,
                              uint8_t *buf, size_t buf_len );
 int e1s18_verify_r8_ack( const uint8_t *buf, size_t len,
                          const struct e1r8_tuple *t );
+
+/* WO-25: fill the R8 context from live inputs (the S6 OPEN record, the
+ * BINDING reply and the verifier owner) instead of relying on a preset
+ * context. Called at the top of e1s18_spawn_consent_dialog. Returns
+ * ERROR_SUCCESS on success, or the denial (ERROR_ACCESS_DENIED for a
+ * validation failure, the op's error otherwise). A denial closes the S6
+ * channel after a successful OPEN; success keeps it open for the attempt
+ * (ENDORSED travels on that session) until e1s18_r8_release. A preset complete context skips prepare
+ * only when the test flag (e1s18_set_r8_skip_prepare) says so; no production
+ * path skips it. */
+DWORD e1s18_r8_prepare( struct request *req );
+/* Closes the S6 channel a successful prepare kept open for the attempt. */
+void e1s18_r8_release( struct request *req );
+void e1s18_set_r8_skip_prepare( BOOL skip );
 #endif
 
 /*
@@ -414,6 +429,20 @@ struct e1s18_ops
     void (*unload_profile)( uint64_t lease_id, HANDLE hkey, HANDLE token );
     void (*close_handle)( HANDLE handle );
     void (*free_buffer)( void *ptr );
+
+    /* WO-25: R8 context preparation and server endorsement (lab branch). The
+     * default implementations are Win32-only (the S6 transport and the
+     * extended caller-binding query); native stubs return ERROR_NOT_SUPPORTED.
+     * r8_open/r8_owner use the S6 transport channel; r8_binding/r8_endorse/
+     * r8_recheck use the extended NtQueryWexPipeCallerBindingEx on req->pipe.
+     * r8_close closes the S6 channel (E1S6_CLOSE); it is best-effort. */
+    DWORD (*r8_open)( struct request *req, unsigned char reg[E1S6_OPEN_SIZE], UINT64 *channel );
+    DWORD (*r8_owner)( struct request *req, UINT64 channel, char owner[256] );
+    DWORD (*r8_binding)( struct request *req, unsigned char out[124] );
+    DWORD (*r8_endorse)( struct request *req, HANDLE dialog, const unsigned char tuple[204],
+                         unsigned char dialog_id[16] );
+    DWORD (*r8_recheck)( struct request *req, const unsigned char dialog_id[16] );
+    DWORD (*r8_close)( struct request *req, UINT64 channel );
 };
 
 /* Core Broker Integration APIs */
