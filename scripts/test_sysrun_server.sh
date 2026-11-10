@@ -1250,6 +1250,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
             '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8binding '"$(regpath "$EL/r8_bind1_${arch}.txt")"'"'
         r8_log="/tmp/wex_r8_b1_${arch}.log"
         rm -f "$r8_log" "$EL/r8_bind1_${arch}.txt"
+        r8b_service_before=$(wc -l < "$ROOT/e1s6-service.log")
         WEX_EL_LOG="$r8_log" el_up "$ADM"
         wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" start-service wexelevate 0 >/dev/null 2>&1 || true
         for _ in $(seq 1 15); do [ -s "$EL/r8_bind1_${arch}.txt" ] && break; sleep 1; done
@@ -1257,6 +1258,17 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         tr -d '\r' < "$EL/r8_bind1_${arch}.txt" > "$EL/r8_bind1_${arch}.txt.tmp" && mv "$EL/r8_bind1_${arch}.txt.tmp" "$EL/r8_bind1_${arch}.txt"
         grep -qx 'r8binding=PASS' "$EL/r8_bind1_${arch}.txt" || { cat "$EL/r8_bind1_${arch}.txt" >&2; fail "r8_binding_$arch: step 1 failed"; }
         ok "r8_binding_op1_$arch"
+
+        # WO-28: the verified broker's START for an attempt with no ENDORSED record is refused, no worker
+        r8b_service_log="$(tail -n +"$((r8b_service_before + 1))" "$ROOT/e1s6-service.log")"
+        grep -qx 'start_without_endorsed=PASS' "$EL/r8_bind1_${arch}.txt" ||
+            fail "r8_start_without_endorsed_refused_$arch: START was not refused"
+        grep -q 'site=start-without-endorsed' <<<"$r8b_service_log" ||
+            { tail -15 <<<"$r8b_service_log" >&2; grep -a 'E1S6_DENY wexhost' "$r8_log" | tail -5 >&2
+              fail "r8_start_without_endorsed_refused_$arch: verifier audit site missing"; }
+        ! grep -q 'E1R8_WORKER_READY' <<<"$r8b_service_log" ||
+            fail "r8_start_without_endorsed_refused_$arch: a worker was started"
+        ok "r8_start_without_endorsed_refused_$arch"
 
         map_gen1="$(grep '^map_gen=' "$EL/r8_bind1_${arch}.txt" | cut -d= -f2)"
         pol_gen1="$(grep '^policy_gen=' "$EL/r8_bind1_${arch}.txt" | cut -d= -f2)"
@@ -1367,7 +1379,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         fail 'bus impostor was not rejected at its actual sender credentials'
     ok c4_e1s6_same_uid_bus_impostor
 
-    # WO-27: R8 end-to-end standard-user elevation. Defined here, run at the end of the C4 section (the call
+    # WO-28: R8 end-to-end standard-user elevation. Defined here, run at the end of the C4 section (the call
     # before el_restore_broker; WEX_SKIP_R8_E2E=1 skips it): the cases after it fail when it runs earlier
     # (refused consent times out, error 1460): a lab fixture leftover; in a live VM B session refused consent
     # still ends with 1223 (docs/E1_S18E_WORK_ORDERS.md, WO-27 result).
@@ -1379,6 +1391,18 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
         '"Start"=dword:00000002' \
         '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+        '"R8AutoSelect"="'"$ADM"'"'
+
+    # the password worker and its supervisor, next to the verifier (removed again at the end of this case)
+    install -o root -g root -m 0644 "$SRC/tools/e1s7/supervisor.py" "$LIBEXEC/"
+    install -o root -g root -m 0600 /dev/null "$LIBEXEC/pam-audit.log"
+    cc -O2 -Wall -Wextra -Werror -DWEX_E1S7_LAB -o "$LIBEXEC/pam-worker" "$SRC/tools/e1s7/pam-worker.c" -lpam -lrt
+    chown root:root "$LIBEXEC/pam-worker"; chmod 0755 "$LIBEXEC/pam-worker"
+
+    # Restart verifier so it opens pam_exe and pam_audit
+    e1s6_stop
+    e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
 
     # The lab build's E1S18 broker and consent variants (unsloth-tmp/wo23-build-lab.sh), for this case only.
     # Wine loads system32's builtin programs from the build tree by module name, so the build tree's own files
@@ -1416,30 +1440,67 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
 
         for _ in $(seq 1 150); do
             wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-            grep -q 'r8: recheck ok' <<<"$wine_new_log" && break
+            grep -q 'r8: attach_ok sent' <<<"$wine_new_log" && break
             sleep 0.1
         done
 
         wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
         e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
 
-        grep -q 'r8: prepare ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_ack_$arch: prepare ok missing"; }
-        grep -q 'r8: endorse ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_ack_$arch: endorse ok missing"; }
-        grep -q 'r8: ack ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_ack_$arch: ack ok missing"; }
-        grep -q 'r8: recheck ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_ack_$arch: recheck ok missing"; }
+        grep -q 'r8: prepare ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: prepare ok missing"; }
+        grep -q 'r8: endorse ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: endorse ok missing"; }
+        grep -q 'r8: ack ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: ack ok missing"; }
+        grep -q 'r8: recheck ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: recheck ok missing"; }
+        grep -q 'r8: select ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: select ok missing"; }
+        grep -q 'r8: start sent' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: start sent missing"; }
+        grep -q 'r8: worker ready' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: worker ready missing"; }
+        grep -q 'r8: attach_ok sent' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: attach_ok sent missing"; }
 
-        order_check="$(grep -E 'r8: (prepare|endorse|ack|recheck) ok' <<<"$wine_new_log" | tr '\n' ' ')"
-        [[ "$order_check" =~ prepare.*endorse.*ack.*recheck ]] || fail "r8_e2e_ack_$arch: milestones not in order"
+        order_check="$(grep -E 'r8: (prepare|endorse|ack|recheck|select|start|worker|attach_ok)' <<<"$wine_new_log" | tr '\n' ' ')"
+        [[ "$order_check" =~ prepare.*endorse.*ack.*recheck.*select.*start.*worker.*attach_ok ]] || fail "r8_e2e_attach_ok_$arch: milestones not in order"
 
         consent_unix_pid="$(grep 'wex-r8: dialog [0-9a-fA-F]* pin pid=' <<<"$wine_new_log" | head -1 | sed -n 's/.*pin pid=\([0-9]*\).*/\1/p')"
-        [ -n "$consent_unix_pid" ] || fail "r8_e2e_ack_$arch: consent unix pid not found in wine log"
-        grep -q "^E1R8_ENDORSED ok .*pid=$consent_unix_pid\$" <<<"$e1s6_new_log" || fail "r8_e2e_ack_$arch: E1R8_ENDORSED ok pid mismatch"
+        [ -n "$consent_unix_pid" ] || fail "r8_e2e_attach_ok_$arch: consent unix pid not found in wine log"
+        grep -q "^E1R8_ENDORSED ok .*pid=$consent_unix_pid\$" <<<"$e1s6_new_log" || fail "r8_e2e_attach_ok_$arch: E1R8_ENDORSED ok pid mismatch"
+        grep -q "E1R8_WORKER_READY request=" <<<"$e1s6_new_log" || fail "r8_e2e_attach_ok_$arch: E1R8_WORKER_READY missing in verifier log"
+        grep -q 'r8: account known' <<<"$wine_new_log" || fail "r8_e2e_attach_ok_$arch: the administrator account was not resolved (decoy key)"
 
         pkill -f consent 2>/dev/null || true
         wait "$PROBE_PID" 2>/dev/null || true
 
-        ok "r8_e2e_ack_$arch"
+        ok "r8_e2e_attach_ok_$arch"
     done
+
+    # Negative test 2: unknown account name still yields WORKER_READY with a decoy (zero key) and no evidence
+    el_down "$STD"
+    el_clean
+    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
+        '"EnableStandardUserElevation"=dword:00000001'
+    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+        '"Start"=dword:00000002' \
+        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+        '"R8AutoSelect"="decoyuser"'
+    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+    el_up "$STD"
+    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+        "$(winpath /home/$STD/wexel/p64.exe)" 1223 "$(winpath "$EL/r8_e2e_res_decoy.txt")" - >/dev/null 2>&1 &
+    PROBE_PID=$!
+    for _ in $(seq 1 150); do
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        grep -q 'r8: attach_ok sent' <<<"$wine_new_log" && break
+        sleep 0.1
+    done
+    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+    grep -q 'r8: attach_ok sent' <<<"$wine_new_log" || fail "r8_select_unknown_account_is_decoy: attach_ok sent missing"
+    grep -q 'E1R8_WORKER_READY' <<<"$e1s6_new_log" || fail "r8_select_unknown_account_is_decoy: E1R8_WORKER_READY missing"
+    grep -q 'r8: account decoy' <<<"$wine_new_log" || fail "r8_select_unknown_account_is_decoy: the unknown account did not get the zero key"
+    pkill -f consent 2>/dev/null || true
+    wait "$PROBE_PID" 2>/dev/null || true
+    ok r8_select_unknown_account_is_decoy
 
     # Negative test: with verifier stopped, request is denied and no consent created
     e1s6_stop
@@ -1454,7 +1515,9 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     [ ! -e "$EL/out.neg" ] || fail "r8_e2e_no_verifier_denied: child process started"
     ! pgrep -f 'consent' >/dev/null || fail "r8_e2e_no_verifier_denied: consent created"
     ok r8_e2e_no_verifier_denied
-    # the later lab cases need the verifier again
+    # the later lab cases need the verifier again, without the worker this case installed (only its own files
+    # are removed: the launcher and the verifier live in the same directory)
+    rm -f "$LIBEXEC/supervisor.py" "$LIBEXEC/pam-worker" "$LIBEXEC/pam-audit.log"
     e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
 
     # Restore fixture state

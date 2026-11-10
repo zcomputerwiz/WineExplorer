@@ -421,7 +421,7 @@ int main(int argc, char **argv)
     uint64_t uid=0,generation=0,now;
     unsigned int i, name_len, limit;
     ssize_t n;
-    int success=0, one=1, executable_fd=-1, decoy=0;
+    int success=0, one=1, executable_fd=-1, decoy=0, bootstrap=0;
     pid_t parent=getppid();
     char name[64]={0};
     memset(&ctx,0,sizeof(ctx)); ctx.control=ctx.dialog=ctx.audit=ctx.peer_pin=-1;
@@ -434,6 +434,7 @@ int main(int argc, char **argv)
     umask(0077);
     for (i=1; i<(unsigned int)argc; i++)
     {
+        if (!strcmp(argv[i],"--bootstrap")) { bootstrap=1; continue; }
         if (i+1>=(unsigned int)argc) return 1;
         if (!strcmp(argv[i],"--executable-fd")) executable_fd=number(argv[++i]);
         else if (!strcmp(argv[i],"--control-fd")) ctx.control=number(argv[++i]);
@@ -454,18 +455,27 @@ int main(int argc, char **argv)
 #endif
         else return 1;
     }
-    if (executable_fd<3 || executable_fd==ctx.control || executable_fd==ctx.dialog ||
-        executable_fd==ctx.audit || executable_fd==ctx.peer_pin ||
-        ctx.control<3 || ctx.dialog<3 || ctx.audit<3 || ctx.peer_pin<3 || ctx.peer_pid<=0 || ctx.peer_uid<0 ||
-        ctx.control==ctx.dialog || ctx.audit==ctx.control || ctx.audit==ctx.dialog ||
-        ctx.peer_pin==ctx.audit || ctx.peer_pin==ctx.control || ctx.peer_pin==ctx.dialog) return 1;
+    if (bootstrap)
+    {
+        if (executable_fd<3 || executable_fd==ctx.control || executable_fd==ctx.dialog ||
+            executable_fd==ctx.audit || ctx.control<3 || ctx.dialog<3 || ctx.audit<3 ||
+            ctx.control==ctx.dialog || ctx.audit==ctx.control || ctx.audit==ctx.dialog) return 1;
+    }
+    else
+    {
+        if (executable_fd<3 || executable_fd==ctx.control || executable_fd==ctx.dialog ||
+            executable_fd==ctx.audit || executable_fd==ctx.peer_pin ||
+            ctx.control<3 || ctx.dialog<3 || ctx.audit<3 || ctx.peer_pin<3 || ctx.peer_pid<=0 || ctx.peer_uid<0 ||
+            ctx.control==ctx.dialog || ctx.audit==ctx.control || ctx.audit==ctx.dialog ||
+            ctx.peer_pin==ctx.audit || ctx.peer_pin==ctx.control || ctx.peer_pin==ctx.dialog) return 1;
+    }
     /* The pinned ELF has already been executed; no PAM helper needs its fd.
      * pass_fds cleared CLOEXEC on it too. Close before any NSS/PAM handoff. */
     if (close(executable_fd)) return 1;
     /* pass_fds necessarily cleared CLOEXEC for our exec. Do not let a PAM
      * helper exec inherit this private transaction or the audit descriptor. */
     if (fcntl(ctx.control,F_SETFD,FD_CLOEXEC) || fcntl(ctx.dialog,F_SETFD,FD_CLOEXEC) ||
-        fcntl(ctx.audit,F_SETFD,FD_CLOEXEC) || fcntl(ctx.peer_pin,F_SETFD,FD_CLOEXEC)) return 1;
+        fcntl(ctx.audit,F_SETFD,FD_CLOEXEC) || (!bootstrap && fcntl(ctx.peer_pin,F_SETFD,FD_CLOEXEC))) return 1;
     if (fstat(ctx.audit,&st) || !S_ISREG(st.st_mode) || st.st_uid || (st.st_mode&0777)!=0600 ||
         st.st_nlink!=1 || !no_access_acl(ctx.audit) || !(fcntl(ctx.audit,F_GETFL)&O_APPEND)) return 1;
     {
@@ -477,9 +487,10 @@ int main(int argc, char **argv)
         len=sizeof(type);
         if (getsockopt(ctx.dialog,SOL_SOCKET,SO_TYPE,&type,&len) || type!=SOCK_SEQPACKET) return 1;
     }
-    /* S6 pins the process before passing these descriptors. Verify the pin's
-     * PID as well, so an accidentally passed unrelated live pidfd denies. */
+    if (!bootstrap)
     {
+        /* S6 pins the process before passing these descriptors. Verify the pin's
+         * PID as well, so an accidentally passed unrelated live pidfd denies. */
         char path[64], line[128]; FILE *f; int pid=-1;
         snprintf(path,sizeof(path),"/proc/self/fdinfo/%d",ctx.peer_pin);
         if (!(f=fopen(path,"re"))) return 1;
@@ -488,6 +499,105 @@ int main(int argc, char **argv)
     }
     if (setsockopt(ctx.dialog,SOL_SOCKET,SO_PASSCRED,&one,sizeof(one)) ||
         setsockopt(ctx.dialog,SOL_SOCKET,SO_PASSPIDFD,&one,sizeof(one))) return 1;
+    if (bootstrap)
+    {
+        union { struct cmsghdr align; unsigned char bytes[256]; } anc;
+        struct iovec iov = { ctx.io, sizeof(ctx.io) };
+        struct msghdr msg = { 0 };
+        struct cmsghdr *c;
+        int d_pidfd = -1, d_pid = -1, d_uid = -1, rights_cnt = 0, valid = 1;
+        uint64_t w_deadline;
+        char pbuf[64], lbuf[128];
+        FILE *pf;
+
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = anc.bytes;
+        msg.msg_controllen = sizeof(anc.bytes);
+        n = recvmsg(ctx.control, &msg, MSG_CMSG_CLOEXEC);
+        if (n != 244 || (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))) valid = 0;
+        for (c = CMSG_FIRSTHDR(&msg); c; c = CMSG_NXTHDR(&msg, c))
+        {
+            size_t clen = c->cmsg_len >= CMSG_LEN(0) ? c->cmsg_len - CMSG_LEN(0) : 0;
+            if (c->cmsg_level == SOL_SOCKET && c->cmsg_type == SCM_RIGHTS)
+            {
+                size_t j;
+                for (j = 0; j + sizeof(int) <= clen; j += sizeof(int))
+                {
+                    int v;
+                    memcpy(&v, (unsigned char *)CMSG_DATA(c) + j, sizeof(v));
+                    if (rights_cnt == 0) d_pidfd = v;
+                    else { if (v >= 0) close(v); valid = 0; }
+                    rights_cnt++;
+                }
+            }
+            else valid = 0;
+        }
+        if (rights_cnt != 1 || d_pidfd < 0) valid = 0;
+        if (!valid) { if (d_pidfd >= 0) close(d_pidfd); return 1; }
+
+        if (memcmp(ctx.io, "E1R8", 4) || ctx.io[4] != 1 || ctx.io[5] != 0 ||
+            ctx.io[6] != 27 || ctx.io[7] != 0 || le32(ctx.io + 8) != 244 ||
+            le32(ctx.io + 24) != 0)
+        { close(d_pidfd); return 1; }
+
+        ctx.request = le64(ctx.io + 12);
+        ctx.attempt = le32(ctx.io + 20);
+        memcpy(ctx.nonce, ctx.io + 28, 32);
+        if (!ctx.request || !ctx.attempt || ctx.attempt > S7_ATTEMPTS)
+        { close(d_pidfd); return 1; }
+
+        d_pid = (int)le32(ctx.io + 236);
+        d_uid = (int)le32(ctx.io + 240);
+        if (d_pid <= 0 || d_uid < 0) { close(d_pidfd); return 1; }
+
+        w_deadline = le64(ctx.io + 140);
+        now = now_ns();
+        if (!now || w_deadline <= now || w_deadline - now > S7_SECONDS * UINT64_C(1000000000))
+        { close(d_pidfd); return 1; }
+        ctx.deadline = w_deadline;
+        ctx.peer_pin = d_pidfd;
+        ctx.peer_pid = d_pid;
+        ctx.peer_uid = d_uid;
+
+        snprintf(pbuf, sizeof(pbuf), "/proc/self/fdinfo/%d", ctx.peer_pin);
+        if (!(pf = fopen(pbuf, "re"))) { close(ctx.peer_pin); return 1; }
+        d_pid = -1;
+        while (fgets(lbuf, sizeof(lbuf), pf))
+            if (sscanf(lbuf, "Pid: %d", &d_pid) == 1) break;
+        fclose(pf);
+        if (d_pid != ctx.peer_pid || !pin_alive()) { close(ctx.peer_pin); return 1; }
+
+        snprintf(pbuf, sizeof(pbuf), "/proc/%d/status", ctx.peer_pid);
+        if (!(pf = fopen(pbuf, "re"))) { close(ctx.peer_pin); return 1; }
+        d_uid = -1;
+        while (fgets(lbuf, sizeof(lbuf), pf))
+            if (sscanf(lbuf, "Uid: %d", &d_uid) == 1) break;
+        fclose(pf);
+        if (d_uid != ctx.peer_uid) { close(ctx.peer_pin); return 1; }
+
+        while (live())
+        {
+            struct pollfd p[2] = { { ctx.control, POLLIN, 0 }, { ctx.peer_pin, POLLIN, 0 } };
+            int timeout_ms;
+            now = now_ns();
+            if (!now || now >= ctx.deadline) break;
+            timeout_ms = (int)((ctx.deadline - now + 999999) / 1000000);
+            if (timeout_ms > 1000) timeout_ms = 1000;
+            if (poll(p, 2, timeout_ms) <= 0) continue;
+            if (p[1].revents) break;
+            if (p[0].revents)
+            {
+                if (p[0].revents & (POLLERR | POLLHUP | POLLNVAL)) break;
+                break;
+            }
+        }
+        close(ctx.peer_pin);
+        close(ctx.control);
+        close(ctx.dialog);
+        close(ctx.audit);
+        return 0;
+    }
     ctx.locked=!mlock(ctx.io,sizeof(ctx.io)); /* Best effort, audited as 0/1. */
     (void)mlock(ctx.answer,sizeof(ctx.answer));
     /* A missing initial request is bounded too. Parent supplies no secrets in argv. */

@@ -1887,12 +1887,32 @@ static void r8binding_mode(const char *result_file)
     if (ext.binding.WriterProcess) CloseHandle(ext.binding.WriterProcess);
     if (ext.binding.WriterToken) CloseHandle(ext.binding.WriterToken);
 
+    /* 5. WO-28: a START for an attempt the verifier holds no ENDORSED record for is refused (the verifier
+     * audits start-without-endorsed and drops the session). R8 header (76) + account:str + account_key:16. */
+    int pass_start_without_endorsed = 0;
+    {
+        unsigned char start[101];
+        memset(start, 0, sizeof(start));
+        memcpy(start, "E1R8", 4);
+        start[4] = 1;                        /* version */
+        start[6] = 17;                       /* type START */
+        start[8] = sizeof(start);            /* length */
+        memset(start + 12, 0xee, 8);         /* request_id never endorsed */
+        start[20] = 1;                       /* attempt */
+        memset(start + 28, 0x41, 32);        /* nonce */
+        memcpy(start + 60, record + 88, 16); /* channel_id from the broker registration */
+        start[76] = 5; memcpy(start + 80, "admin", 5);
+        if (transport(srv, 12 /* E1S6_R8_START */, start, sizeof(start), &channel) != 0)
+            pass_start_without_endorsed = 1;
+    }
+
     if (channel && transport) transport(srv, E1S6_CLOSE, NULL, 0, &channel);
     CloseHandle(cli);
     CloseHandle(srv);
 
     if (result_file && (f = fopen(result_file, "wb")))
     {
+        fprintf(f, "start_without_endorsed=%s\n", pass_start_without_endorsed ? "PASS" : "FAIL");
         fprintf(f, "op1=%s\n", (op1_st == 0 && op1_len == 132) ? "PASS" : "FAIL");
         fprintf(f, "map_gen=%016llx\n", (unsigned long long)gens[3]);
         fprintf(f, "policy_gen=%016llx\n", (unsigned long long)gens[4]);

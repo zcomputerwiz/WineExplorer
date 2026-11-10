@@ -252,3 +252,40 @@ class LabTransaction:
             self.glib.source_remove(self.watch)
             self.watch = None
         self.worker.close()
+
+
+def spawn_worker_bootstrap(executable_fd, audit_fd, secret_w, w_setup_bytes, d_pidfd):
+    local, remote = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    proc = None
+    w_pidfd = None
+    try:
+        args = ["/proc/self/fd/%d" % executable_fd,
+                "--executable-fd", str(executable_fd),
+                "--control-fd", str(remote.fileno()),
+                "--dialog-fd", str(secret_w.fileno()),
+                "--audit-fd", str(audit_fd),
+                "--bootstrap"]
+        proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, close_fds=True,
+                                pass_fds=(executable_fd, remote.fileno(), secret_w.fileno(), audit_fd),
+                                process_group=0, env={})
+        w_pidfd = os.pidfd_open(proc.pid, 0)
+        ancillary = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, struct.pack("i", d_pidfd))]
+        sent = local.sendmsg([w_setup_bytes], ancillary)
+        if sent != len(w_setup_bytes):
+            raise ValueError("failed to send w_setup")
+        return proc, local, w_pidfd, proc.pid
+    except BaseException:
+        if w_pidfd is not None:
+            os.close(w_pidfd)
+        local.close()
+        if proc is not None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
+        raise
+    finally:
+        remote.close()
+

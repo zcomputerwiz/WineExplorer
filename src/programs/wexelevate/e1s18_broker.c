@@ -529,6 +529,92 @@ static BOOL e1s18_r8_context_complete( const struct e1s18_r8_context *c )
 }
 
 /*
+ * WO-28: S4 account resolution for R8. Looks up the account in accounts.map
+ * (or the test override if set) and fills the 16-byte account key. An unknown
+ * or inactive account yields the 16-byte zero key (the decoy).
+ * Lab limit (Claude review): this reads the map file itself through the Z:
+ * drive. Before the chain leaves the lab it must ask the server instead
+ * (wine/server/accounts.c lookup_account, with its protected-directory and
+ * ownership checks); the final account is resolved again there (spec section 8).
+ */
+static const char *s_r8_test_accounts_map = NULL;
+
+void e1s18_set_test_accounts_map( const char *path )
+{
+    s_r8_test_accounts_map = path;
+}
+
+int e1s18_resolve_account_s4( const char *name, uint8_t key[16] )
+{
+    FILE *f = NULL;
+    char line[1024];
+    int found = 0;
+
+    memset( key, 0, 16 );
+    if (!name || !*name || !e1r8_valid_account_name( (const uint8_t *)name, strlen( name ) ))
+        return 0;
+
+    if (s_r8_test_accounts_map)
+        f = fopen( s_r8_test_accounts_map, "r" );
+    if (!f)
+        f = fopen( "Z:\\etc\\wineexplorer\\accounts.map", "r" );
+    if (!f)
+        f = fopen( "/etc/wineexplorer/accounts.map", "r" );
+    if (!f)
+        return 0;
+
+    if (fgets( line, sizeof(line), f ))
+    {
+        while (fgets( line, sizeof(line), f ))
+        {
+            char *p = line;
+            char *f_name, *f_key, *f_active;
+            size_t l = strlen( line );
+            while (l > 0 && (line[l - 1] == '\r' || line[l - 1] == '\n'))
+                line[--l] = '\0';
+
+            f_name = p;
+            p = strchr( p, ' ' );
+            if (!p) continue;
+            *p++ = '\0';
+
+            /* skip uid */
+            p = strchr( p, ' ' );
+            if (!p) continue;
+            *p++ = '\0';
+
+            f_key = p;
+            p = strchr( p, ' ' );
+            if (!p) continue;
+            *p++ = '\0';
+
+            f_active = p;
+            p = strchr( p, ' ' );
+            if (p) *p = '\0';
+
+            if (!strcmp( f_name, name ) && !strcmp( f_active, "active" ))
+            {
+                if (strlen( f_key ) == 32)
+                {
+                    int i;
+                    for (i = 0; i < 16; i++)
+                    {
+                        char hex[3] = { f_key[2 * i], f_key[2 * i + 1], 0 };
+                        key[i] = (uint8_t)strtoul( hex, NULL, 16 );
+                    }
+                    found = 1;
+                    break;
+                }
+            }
+        }
+    }
+    fclose( f );
+    if (!found)
+        memset( key, 0, 16 );
+    return 0;
+}
+
+/*
  * WO-20: Build the sealed attempt tuple for the R8 INIT/ACK exchange.
  * The request_id, attempt, nonce, channel_id, binding_digest, request_digest
  * and deadline come from the request and the in-flight attempt; the dialog_id,
@@ -1020,6 +1106,88 @@ static DWORD WINAPI r8_worker_thread( void *param )
     return 0;
 }
 
+/* WO-28: worker-thread context for SELECT_OK / SELECT exchange. */
+struct r8_select_worker_ctx
+{
+    HANDLE to_d_write;
+    HANDLE from_d_read;
+    uint8_t select_ok_buf[76];
+    uint8_t select_buf[143];
+    size_t select_len;
+    int write_ok;
+    int read_ok;
+};
+
+static DWORD WINAPI r8_select_worker_thread( void *param )
+{
+    struct r8_select_worker_ctx *ctx = (struct r8_select_worker_ctx *)param;
+    size_t off;
+    DWORD got;
+    uint32_t total;
+
+    off = 0;
+    while (off < 76)
+    {
+        if (!WriteFile( ctx->to_d_write, ctx->select_ok_buf + off,
+                        (DWORD)(76 - off), &got, NULL ) || !got)
+            break;
+        off += got;
+    }
+    ctx->write_ok = (off == 76);
+    if (!ctx->write_ok) return 0;
+
+    off = 0;
+    while (off < 76)
+    {
+        if (!ReadFile( ctx->from_d_read, ctx->select_buf + off,
+                       (DWORD)(76 - off), &got, NULL ) || !got)
+            break;
+        off += got;
+    }
+    if (off != 76) return 0;
+
+    total = e1r8_get_u32( ctx->select_buf + 8 );
+    if (total < 81 || total > 143) return 0;
+
+    while (off < total)
+    {
+        if (!ReadFile( ctx->from_d_read, ctx->select_buf + off,
+                       (DWORD)(total - off), &got, NULL ) || !got)
+            break;
+        off += got;
+    }
+    if (off == total)
+    {
+        ctx->select_len = total;
+        ctx->read_ok = 1;
+    }
+    return 0;
+}
+
+/* WO-28: worker-thread context for writing ATTACH_OK. */
+struct r8_attach_worker_ctx
+{
+    HANDLE to_d_write;
+    uint8_t attach_buf[76];
+    int write_ok;
+};
+
+static DWORD WINAPI r8_attach_worker_thread( void *param )
+{
+    struct r8_attach_worker_ctx *ctx = (struct r8_attach_worker_ctx *)param;
+    size_t off = 0;
+    DWORD got = 0;
+    while (off < 76)
+    {
+        if (!WriteFile( ctx->to_d_write, ctx->attach_buf + off,
+                        (DWORD)(76 - off), &got, NULL ) || !got)
+            break;
+        off += got;
+    }
+    ctx->write_ok = (off == 76);
+    return 0;
+}
+
 static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id,
                                          const uint8_t nonce[32],
                                          const uint8_t binding_digest[32],
@@ -1353,6 +1521,190 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     }
 #ifdef WEXELEVATE_E1S18
     r8_trace_line( "r8: recheck ok" );
+
+    /* WO-28: after recheck ok:
+     * 1. Send SELECT_OK (76 bytes) to D, read SELECT (81..143 bytes) from D. */
+    {
+        struct r8_select_worker_ctx *sc = malloc( sizeof(*sc) );
+        char sel_account[64] = {0};
+        size_t sel_account_len = 0;
+        struct e1r8_select decoded_sel;
+        uint8_t sel_key[16];
+        uint8_t start_pkt[159];
+        size_t start_pkt_len = 0;
+        uint8_t ready_pkt[76];
+        struct r8_attach_worker_ctx *ac;
+        HANDLE attach_thread;
+
+        if (!sc)
+        {
+            TerminateProcess( pi.hProcess, 1 );
+            WaitForSingleObject( pi.hProcess, 5000 );
+            CloseHandle( pi.hProcess );
+            CloseHandle( to_d_write );
+            CloseHandle( from_d_read );
+            if (secure) secure_leave();
+            return ERROR_NOT_ENOUGH_MEMORY;
+        }
+        memset( sc, 0, sizeof(*sc) );
+        sc->to_d_write = to_d_write;
+        sc->from_d_read = from_d_read;
+        e1r8_encode_select_ok( sc->select_ok_buf, sizeof(sc->select_ok_buf), &tuple );
+
+        if (!(worker_thread = CreateThread( NULL, 0, r8_select_worker_thread, sc, 0, NULL )))
+        {
+            free( sc );
+            TerminateProcess( pi.hProcess, 1 );
+            WaitForSingleObject( pi.hProcess, 5000 );
+            CloseHandle( pi.hProcess );
+            CloseHandle( to_d_write );
+            CloseHandle( from_d_read );
+            if (secure) secure_leave();
+            return ERROR_NOT_ENOUGH_MEMORY;
+        }
+
+        elapsed = GetTickCount64() - start;
+        handles[0] = worker_thread;
+        handles[1] = pi.hProcess;
+        handles[2] = req->caller;
+        handles[3] = stop_event;
+        handles[4] = req->lease_event;
+        ret = WaitForMultipleObjects( 5, handles, FALSE, elapsed >= timeout ? 0 : (DWORD)(timeout - elapsed) );
+
+        if (ret != WAIT_OBJECT_0 || !sc->write_ok || !sc->read_ok ||
+            e1r8_decode_select( sc->select_buf, sc->select_len, &tuple, &decoded_sel ) != 0)
+        {
+            BOOL joined = TRUE;
+            r8_trace_err( "select", (DWORD)ERROR_CANCELLED );
+            if (ret == WAIT_OBJECT_0)
+            {
+                TerminateProcess( pi.hProcess, 1 );
+                WaitForSingleObject( pi.hProcess, 5000 );
+            }
+            else joined = r8_stop_worker( worker_thread, pi.hProcess );
+            CloseHandle( pi.hProcess );
+            if (joined)
+            {
+                CloseHandle( worker_thread );
+                free( sc );
+                CloseHandle( to_d_write );
+                CloseHandle( from_d_read );
+            }
+            if (secure) secure_leave();
+            if (ret == WAIT_TIMEOUT) return ERROR_TIMEOUT;
+            if (ret == WAIT_OBJECT_0 + 4) return ERROR_FILE_CORRUPT;
+            return ERROR_CANCELLED;
+        }
+        CloseHandle( worker_thread );
+        free( sc );
+
+        sel_account_len = decoded_sel.account_len < sizeof(sel_account) - 1 ? decoded_sel.account_len : sizeof(sel_account) - 1;
+        memcpy( sel_account, decoded_sel.account, sel_account_len );
+        sel_account[sel_account_len] = '\0';
+
+        r8_trace_line( "r8: select ok" );
+        lstrcpynA( req->account_name, sel_account, sizeof(req->account_name) );
+        if (out_account && account_max)
+            lstrcpynA( out_account, sel_account, (int)account_max );
+
+        /* 2. Resolve account key through S4 (unknown name -> zero key decoy) */
+        e1s18_resolve_account_s4( sel_account, sel_key );
+        memcpy( req->account_key, sel_key, 16 );
+        r8_trace_line( e1s18_is_all_zero( sel_key, 16 ) ? "r8: account decoy" : "r8: account known" );
+
+        /* 3. Send START on open S6 channel */
+        start_pkt_len = 96 + sel_account_len;
+        if (e1r8_encode_start( start_pkt, start_pkt_len, &tuple,
+                               (const uint8_t *)sel_account, (uint32_t)sel_account_len, sel_key ) != 0)
+        {
+            TerminateProcess( pi.hProcess, 1 );
+            WaitForSingleObject( pi.hProcess, 5000 );
+            CloseHandle( pi.hProcess );
+            CloseHandle( to_d_write );
+            CloseHandle( from_d_read );
+            if (secure) secure_leave();
+            return ERROR_INVALID_DATA;
+        }
+        r8_trace_line( "r8: start sent" );
+
+        /* 4. Wait for WORKER_READY from verifier */
+        if (!ops->r8_start ||
+            ops->r8_start( req, s_r8_channel, start_pkt, (size_t)start_pkt_len, ready_pkt ) != ERROR_SUCCESS ||
+            e1r8_decode_worker_ready( ready_pkt, sizeof(ready_pkt), &tuple ) != 0)
+        {
+            r8_trace_err( "worker ready", (DWORD)ERROR_ACCESS_DENIED );
+            TerminateProcess( pi.hProcess, 1 );
+            WaitForSingleObject( pi.hProcess, 5000 );
+            CloseHandle( pi.hProcess );
+            CloseHandle( to_d_write );
+            CloseHandle( from_d_read );
+            if (secure) secure_leave();
+            return ERROR_ACCESS_DENIED;
+        }
+        r8_trace_line( "r8: worker ready" );
+
+        /* 5. Send ATTACH_OK (76 bytes) to D */
+        ac = malloc( sizeof(*ac) );
+        if (!ac)
+        {
+            TerminateProcess( pi.hProcess, 1 );
+            WaitForSingleObject( pi.hProcess, 5000 );
+            CloseHandle( pi.hProcess );
+            CloseHandle( to_d_write );
+            CloseHandle( from_d_read );
+            if (secure) secure_leave();
+            return ERROR_NOT_ENOUGH_MEMORY;
+        }
+        memset( ac, 0, sizeof(*ac) );
+        ac->to_d_write = to_d_write;
+        e1r8_encode_attach_ok( ac->attach_buf, sizeof(ac->attach_buf), &tuple );
+        if (!(attach_thread = CreateThread( NULL, 0, r8_attach_worker_thread, ac, 0, NULL )))
+        {
+            free( ac );
+            TerminateProcess( pi.hProcess, 1 );
+            WaitForSingleObject( pi.hProcess, 5000 );
+            CloseHandle( pi.hProcess );
+            CloseHandle( to_d_write );
+            CloseHandle( from_d_read );
+            if (secure) secure_leave();
+            return ERROR_NOT_ENOUGH_MEMORY;
+        }
+
+        elapsed = GetTickCount64() - start;
+        handles[0] = attach_thread;
+        handles[1] = pi.hProcess;
+        handles[2] = req->caller;
+        handles[3] = stop_event;
+        handles[4] = req->lease_event;
+        ret = WaitForMultipleObjects( 5, handles, FALSE, elapsed >= timeout ? 0 : (DWORD)(timeout - elapsed) );
+
+        if (ret != WAIT_OBJECT_0 || !ac->write_ok)
+        {
+            BOOL joined = TRUE;
+            if (ret == WAIT_OBJECT_0)
+            {
+                TerminateProcess( pi.hProcess, 1 );
+                WaitForSingleObject( pi.hProcess, 5000 );
+            }
+            else joined = r8_stop_worker( attach_thread, pi.hProcess );
+            CloseHandle( pi.hProcess );
+            if (joined)
+            {
+                CloseHandle( attach_thread );
+                free( ac );
+                CloseHandle( to_d_write );
+                CloseHandle( from_d_read );
+            }
+            if (secure) secure_leave();
+            if (ret == WAIT_TIMEOUT) return ERROR_TIMEOUT;
+            if (ret == WAIT_OBJECT_0 + 4) return ERROR_FILE_CORRUPT;
+            return ERROR_CANCELLED;
+        }
+        CloseHandle( attach_thread );
+        free( ac );
+
+        r8_trace_line( "r8: attach_ok sent" );
+    }
 #endif
 
     /* After a valid ACK the dialog runs as before: wait for it to exit (or for
@@ -2754,6 +3106,29 @@ static DWORD default_r8_close( struct request *req, UINT64 channel )
 #endif
 }
 
+static DWORD default_r8_start( struct request *req, UINT64 channel, const unsigned char *start_pkt, size_t start_len,
+                               unsigned char ready_pkt[76] )
+{
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    e1s18_pfn_WexE1s6Transport transport;
+    unsigned char buf[160];
+    DWORD err;
+    if (!req || !req->pipe || !channel || !start_pkt || start_len < 97 || start_len > 159 || !ready_pkt)
+        return ERROR_INVALID_PARAMETER;
+    transport = e1s18_get_s6_transport();
+    if (!transport) return ERROR_NOT_SUPPORTED;
+    memset( buf, 0, sizeof(buf) );
+    memcpy( buf, start_pkt, start_len );
+    err = transport( req->pipe, E1S6_R8_START, buf, (DWORD)start_len, &channel );
+    if (err) return err;
+    memcpy( ready_pkt, buf, 76 );
+    return ERROR_SUCCESS;
+#else
+    (void)req; (void)channel; (void)start_pkt; (void)start_len; (void)ready_pkt;
+    return ERROR_NOT_SUPPORTED;
+#endif
+}
+
 static struct e1s18_ops s_default_ops = {
     default_get_capabilities,
     default_is_policy_enabled,
@@ -2781,7 +3156,8 @@ static struct e1s18_ops s_default_ops = {
     default_r8_binding,
     default_r8_endorse,
     default_r8_recheck,
-    default_r8_close
+    default_r8_close,
+    default_r8_start
 };
 
 static const struct e1s18_ops *s_active_ops = &s_default_ops;

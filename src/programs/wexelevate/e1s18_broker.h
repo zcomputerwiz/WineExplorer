@@ -258,6 +258,14 @@ DWORD e1s18_r8_prepare( struct request *req );
 /* Closes the S6 channel a successful prepare kept open for the attempt. */
 void e1s18_r8_release( struct request *req );
 void e1s18_set_r8_skip_prepare( BOOL skip );
+
+#ifndef E1S6_R8_START
+#define E1S6_R8_START 12
+#endif
+
+/* WO-28: S4 account resolution helper for R8 (and test hook) */
+int e1s18_resolve_account_s4( const char *name, uint8_t key[16] );
+void e1s18_set_test_accounts_map( const char *path );
 #endif
 
 /*
@@ -443,6 +451,8 @@ struct e1s18_ops
                          unsigned char dialog_id[16] );
     DWORD (*r8_recheck)( struct request *req, const unsigned char dialog_id[16] );
     DWORD (*r8_close)( struct request *req, UINT64 channel );
+    DWORD (*r8_start)( struct request *req, UINT64 channel, const unsigned char *start_pkt, size_t start_len,
+                       unsigned char ready_pkt[76] );
 };
 
 /* Core Broker Integration APIs */

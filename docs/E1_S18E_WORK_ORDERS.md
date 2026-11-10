@@ -980,3 +980,20 @@ discard changes (no git checkout, restore, stash or reset), no commits, never VM
 commands in script files (PowerShell strips inner double quotes), and if the chain stops before
 `attach_ok sent`, report the first failing milestone with its log lines instead of working around it. End the
 job after the report.
+
+Result (2026-11-10; Antigravity about 150 minutes, stopped at the user's request; Claude finished it): the
+chain runs to `attach_ok sent` on both caller ABIs (`r8_e2e_attach_ok_64/32`, with the worker parked after
+W_SETUP and `E1R8_WORKER_READY` at the verifier); `r8_start_without_endorsed_refused_64/32` and
+`r8_select_unknown_account_is_decoy` pass; lab S6 transport suite 375 PASS, normal suite 325, broker test and
+codec cross-check pass. Where Antigravity stopped: the positive chain worked, its START negative ran as a plain
+user process and never reached the START check. Claude's fixes: that negative now runs from the verified
+broker-role `r8binding` probe through the transport (`E1S6_R8_START 12`, defined in e1s6_protocol.h); the
+verifier's hardcoded source-tree import paths and its silently optional evidence service are gone (the fixture
+installs `e1r8.py` and `evidence.py` next to the verifier, imports are mandatory, `supervisor.py` is pinned
+again); the case's `rm -rf` of the whole libexec directory (launcher and running verifier) is replaced by
+removing its own three files; the broker traces whether the selected account resolved (`r8: account
+known|decoy`) and the cases assert it. Known limits (lab): the broker resolves the account by reading
+accounts.map through the Z: drive (must become a server lookup before leaving the lab; marked in the code); the
+verifier sends WORKER_READY when W is spawned, without an acknowledgement that W accepted W_SETUP; D blocks its
+dialog thread while it waits for ATTACH_OK; an ENDORSED for a dialog that already died drops the whole S6
+session (`endorsed-dialog-alive`).

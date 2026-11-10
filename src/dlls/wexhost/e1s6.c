@@ -694,6 +694,22 @@ NTSTATUS e1s6_transport( void *args )
             if (ok) params->err = 0;
             else { cleanup(); params->channel = 0; params->err = ERROR_ACCESS_DENIED; }
         }
+        else if (params->channel && params->channel == active_id && buffer &&
+                 params->pipe == (ULONG_PTR)bound_pipe && params->size >= 97 && params->size <= 159)
+        {
+            /* WO-28: send START on the S6 data socket and receive 76-byte WORKER_READY. */
+            if (params->operation == E1S6_R8_START && phase >= 1)
+            {
+                if (sent( send( data_fd, buffer, params->size, MSG_NOSIGNAL ), params->size, "r8-start-send" ))
+                {
+                    if (!receive_packet( buffer, 76 )) denied_again( "r8-worker-ready-receive" );
+                    else ok = 1;
+                }
+            }
+            else denied( "operation-phase" );
+            if (ok) params->err = 0;
+            else { cleanup(); params->channel = 0; params->err = ERROR_ACCESS_DENIED; }
+        }
         /* E1S6_STORAGE_QUERY (10) is retired; it is denied like an unknown operation. */
         else denied( "channel-parameters" );
         if (params->err && active_id && params->channel == active_id) cleanup();

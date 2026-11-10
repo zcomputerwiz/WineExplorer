@@ -29,6 +29,8 @@
 #define E1S6_STORAGE_QUERY 10
 /* WO-25: the verifier's unique bus name recorded at OPEN, for the R8 broker. */
 #define E1S6_OWNER_QUERY 11
+/* WO-28: send an R8 START (97..159 bytes) on the data socket; the buffer returns the 76-byte WORKER_READY. */
+#define E1S6_R8_START 12
 
 static inline unsigned int e1s6_u32( const unsigned char *p )
 {

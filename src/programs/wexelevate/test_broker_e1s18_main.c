@@ -410,7 +410,8 @@ static struct e1s18_ops s_fake_ops = {
     NULL, /* r8_binding */
     NULL, /* r8_endorse */
     NULL, /* r8_recheck */
-    NULL  /* r8_close */
+    NULL, /* r8_close */
+    NULL  /* r8_start */
 };
 
 static void init_dummy_request( struct request *req )
@@ -3191,7 +3192,8 @@ static struct e1s18_ops s_wo15_ops = {
     NULL, /* r8_binding */
     NULL, /* r8_endorse */
     NULL, /* r8_recheck */
-    NULL  /* r8_close */
+    NULL, /* r8_close */
+    NULL  /* r8_start */
 };
 
 struct wo15_worker_arg
@@ -4115,6 +4117,81 @@ static int test_wo25_r8_sealed_tuple_dialog_id( void )
     return TEST_PASS;
 }
 
+static int test_wo28_resolve_account_s4( void )
+{
+    const char *tmp = "/tmp/test_r8_accounts.map";
+    FILE *f = fopen( tmp, "w" );
+    uint8_t key[16];
+    uint8_t expected_key[16] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
+    CHECK( f != NULL, "must create temp map" );
+    fprintf( f, "WEXACCOUNTS 1 42 1002 1 2 3\n" );
+    fprintf( f, "admin 1000 0102030405060708090a0b0c0d0e0f10 active 21 1 2 3 500\n" );
+    fprintf( f, "tomb 1001 02020202020202020202020202020202 tombstone 21 1 2 3 1001\n" );
+    fclose( f );
+
+    e1s18_set_test_accounts_map( tmp );
+
+    /* 1. Active account resolves exact key */
+    memset( key, 0, sizeof(key) );
+    CHECK_EQ( e1s18_resolve_account_s4( "admin", key ), 0, "resolve admin ok" );
+    CHECK( memcmp( key, expected_key, 16 ) == 0, "admin key matches" );
+
+    /* 2. Tombstoned account resolves zero key */
+    memset( key, 0xff, sizeof(key) );
+    CHECK_EQ( e1s18_resolve_account_s4( "tomb", key ), 0, "resolve tomb ok" );
+    CHECK( is_zero_key( key ), "tomb key must be zero" );
+
+    /* 3. Unknown account resolves zero key */
+    memset( key, 0xff, sizeof(key) );
+    CHECK_EQ( e1s18_resolve_account_s4( "unknown", key ), 0, "resolve unknown ok" );
+    CHECK( is_zero_key( key ), "unknown key must be zero" );
+
+    /* 4. Invalid name resolves zero key */
+    memset( key, 0xff, sizeof(key) );
+    CHECK_EQ( e1s18_resolve_account_s4( "invalid name!", key ), 0, "resolve invalid ok" );
+    CHECK( is_zero_key( key ), "invalid name key must be zero" );
+
+    e1s18_set_test_accounts_map( NULL );
+    remove( tmp );
+    return TEST_PASS;
+}
+
+static DWORD fake_r8_start( struct request *req, UINT64 channel, const unsigned char *start_pkt, size_t start_len,
+                            unsigned char ready_pkt[76] )
+{
+    (void)req; (void)channel; (void)start_pkt; (void)start_len;
+    memset( ready_pkt, 0x5a, 76 );
+    return ERROR_SUCCESS;
+}
+
+static int test_wo28_r8_start_op( void )
+{
+    struct request req;
+    uint8_t pkt[100];
+    uint8_t ready[76];
+    struct e1s18_ops ops;
+    const struct e1s18_ops *default_ops = e1s18_get_ops();
+
+    init_dummy_request( &req );
+    memset( pkt, 0, sizeof(pkt) );
+    memset( ready, 0, sizeof(ready) );
+
+    /* Native stub returns ERROR_NOT_SUPPORTED */
+    CHECK_EQ( default_ops->r8_start( &req, 1, pkt, sizeof(pkt), ready ), (DWORD)ERROR_NOT_SUPPORTED,
+              "native r8_start must fail closed" );
+
+    /* Overridden op called */
+    ops = *default_ops;
+    ops.r8_start = fake_r8_start;
+    e1s18_set_ops( &ops );
+    CHECK_EQ( e1s18_get_ops()->r8_start( &req, 1, pkt, sizeof(pkt), ready ), (DWORD)ERROR_SUCCESS,
+              "mocked r8_start must return success" );
+    CHECK( ready[0] == 0x5a, "ready packet filled" );
+
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+
 #endif /* WEXELEVATE_E1S18 */
 
 int main( int argc, char **argv )
@@ -4312,6 +4389,12 @@ int main( int argc, char **argv )
 
     printf("60. Testing WO-25 R8 sealed tuple carries the endorsed dialog_id...\n");
     if (test_wo25_r8_sealed_tuple_dialog_id() != TEST_PASS) ret = 1;
+
+    printf("61. Testing WO-28 R8 resolve account through S4 (active key, tombstone/unknown decoy)...\n");
+    if (test_wo28_resolve_account_s4() != TEST_PASS) ret = 1;
+
+    printf("62. Testing WO-28 R8 start op in boundary table (fail closed, mock)...\n");
+    if (test_wo28_r8_start_op() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

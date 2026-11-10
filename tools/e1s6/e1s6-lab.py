@@ -17,6 +17,11 @@ import struct
 import sys
 import time
 
+# The R8 codec is installed next to this file (scripts/lib/e1s6-fixture.sh).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import e1r8
+
+
 BUS = "org.wineexplorer.E1S6Lab"
 PATH = "/org/wineexplorer/E1S6Lab"
 PEERPIDFD, PASSPIDFD, SCM_PIDFD = 77, 76, 4
@@ -258,13 +263,21 @@ def service(server_path, system_group, pam_paths=None):
     import dbus.mainloop.glib
     from gi.repository import GLib
 
-    pam_exe = pam_audit = evidence_service = None
+    pam_exe = pam_audit = evidence_service = supervisor = None
     # Assigned before the evidence service captures them (R9).
     root_gen, verifier_gen = generation(), generation()
+    if pam_paths is None:
+        def_worker = "/usr/local/libexec/wineexplorer/pam-worker"
+        def_audit = "/usr/local/libexec/wineexplorer/pam-audit.log"
+        if os.path.exists(def_worker) and os.path.exists(def_audit):
+            pam_paths = (def_worker, def_audit)
     if pam_paths is not None:
         # Provisioning arguments only. No bus/request/environment service name,
         # worker path or audit path. Keep the executable inode pinned.
-        module_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "e1s7"))
+        # supervisor.py: next to this file when installed, else the source tree's ../e1s7.
+        module_dir = os.path.dirname(os.path.abspath(__file__))
+        if not os.path.exists(os.path.join(module_dir, "supervisor.py")):
+            module_dir = os.path.abspath(os.path.join(module_dir, "..", "e1s7"))
         module_pin = protected(os.path.join(module_dir, "supervisor.py"))
         os.close(module_pin)
         sys.path.insert(0, module_dir)
@@ -364,6 +377,35 @@ def service(server_path, system_group, pam_paths=None):
                             os.close(pfd)
                         except OSError:
                             pass
+                    wpfd = rec.get("worker_pidfd")
+                    if wpfd is not None and wpfd >= 0:
+                        try:
+                            os.close(wpfd)
+                        except OSError:
+                            pass
+                    wctrl = rec.get("worker_ctrl")
+                    if wctrl is not None:
+                        try:
+                            wctrl.close()
+                        except OSError:
+                            pass
+                    sec_v = rec.get("secret_v")
+                    if sec_v is not None:
+                        try:
+                            sec_v.close()
+                        except OSError:
+                            pass
+                    proc = rec.get("worker_proc")
+                    if proc is not None:
+                        try:
+                            import signal
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except (ProcessLookupError, OSError):
+                            pass
+                        try:
+                            proc.wait(timeout=0.5)
+                        except Exception:
+                            pass
                 self.endorsed_records.clear()
             if hasattr(self, "pending_s6") and self.pending_s6 is not None:
                 raw, cred, pin, fds = self.pending_s6
@@ -445,11 +487,30 @@ def service(server_path, system_group, pam_paths=None):
                         require(len(self.endorsed_records) < 8, "endorsed-capacity")
 
                         fds.pop(0)
+                        tail = e1r8.decode_tuple_tail(data[76:236])
+                        t = e1r8.E1R8Tuple(request_id=request_id, attempt=attempt,
+                                           nonce=data[28:60], channel_id=data[60:76])
+                        t.binding_digest = tail.binding_digest
+                        t.request_digest = tail.request_digest
+                        t.deadline = tail.deadline
+                        t.root_gen = tail.root_gen
+                        t.server_gen = tail.server_gen
+                        t.broker_gen = tail.broker_gen
+                        t.verifier_gen = tail.verifier_gen
+                        t.map_gen = tail.map_gen
+                        t.policy_gen = tail.policy_gen
+                        t.caller_session = tail.caller_session
+                        t.desktop_route = tail.desktop_route
+                        t.desktop_mode = tail.desktop_mode
+                        t.dialog_id = tail.dialog_id
+
                         self.endorsed_records[(request_id, attempt)] = {
                             "tail": data[76:236],
                             "pid": body_pid,
                             "uid": body_uid,
                             "pidfd": d_pidfd,
+                            "tuple": t,
+                            "state": "ENDORSED",
                         }
                         print("E1R8_ENDORSED ok request=%x pid=%d" % (request_id, body_pid), flush=True)
                         return None
@@ -548,6 +609,56 @@ def service(server_path, system_group, pam_paths=None):
                     require(self.evidence_conn is not None)
                     self.evidence_conn.serve()
                     return True
+                try:
+                    peek = self.data.recv(12, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+                except (BlockingIOError, OSError):
+                    peek = b""
+                if len(peek) >= 12 and peek[:4] == b"E1R8":
+                    ver, mtype, length = struct.unpack_from("<HHI", peek, 4)
+                    if mtype == 17:  # START
+                        raw, cred, pin, fds = receive(self.data, length, 0, length)
+                        try:
+                            require((cred[0], cred[1]) == (self.pid, self.uid), "message-broker-identity")
+                            rid, attempt = struct.unpack_from("<QI", raw, 12)
+                            require((rid, attempt) in self.endorsed_records, "start-without-endorsed")
+                            rec = self.endorsed_records[(rid, attempt)]
+                            require(rec.get("state") == "ENDORSED", "start-state-not-endorsed")
+                            start_msg = e1r8.decode_start(raw, rec["tuple"])
+
+                            sec_v, sec_w = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                            for s in (sec_v, sec_w):
+                                s.setsockopt(socket.SOL_SOCKET, socket.SO_PASSCRED, 1)
+                                s.setsockopt(socket.SOL_SOCKET, PASSPIDFD, 1)
+                                require(s.getsockopt(socket.SOL_SOCKET, socket.SO_PASSCRED) != 0, "secret-passcred")
+                                require(s.getsockopt(socket.SOL_SOCKET, PASSPIDFD) != 0, "secret-passpidfd")
+
+                            w_setup = e1r8.encode_w_setup(rec["tuple"], rec["pid"], rec["uid"])
+                            require(pam_exe is not None and pam_audit is not None, "pam-worker-not-provisioned")
+
+                            w_proc, w_ctrl, w_pidfd, w_pid = supervisor.spawn_worker_bootstrap(
+                                pam_exe, pam_audit, sec_w, w_setup, rec["pidfd"]
+                            )
+                            sec_w.close()
+
+                            rec["state"] = "WORKER_READY"
+                            rec["secret_v"] = sec_v
+                            rec["worker_proc"] = w_proc
+                            rec["worker_ctrl"] = w_ctrl
+                            rec["worker_pidfd"] = w_pidfd
+                            rec["worker_pid"] = w_pid
+                            rec["account"] = start_msg.account
+                            rec["account_key"] = start_msg.account_key
+
+                            print("E1R8_WORKER_READY request=%x pid=%d" % (rid, w_pid), flush=True)
+
+                            ready_pkt = e1r8.encode_worker_ready(rec["tuple"])
+                            self.data.send(ready_pkt)
+                            return True
+                        finally:
+                            if pin is not None:
+                                os.close(pin)
+                            for fd in fds:
+                                os.close(fd)
                 # Broker data are authenticated per message, not just by the
                 # socket creator (a stolen/passed FD cannot impersonate it).
                 size, count = ((8, 0) if self.phase == "endorse" else

@@ -25,6 +25,7 @@ e1s6_stop()
     if [ -n "$E1S6_CHILD_ID" ]; then
         if [ "$(stat -c '%d:%i' "$E1S6_CHILD" 2>/dev/null)" = "$E1S6_CHILD_ID" ]; then
             rm -- "$E1S6_CHILD"
+            rm -f -- "$(dirname "$E1S6_CHILD")/e1r8.py" "$(dirname "$E1S6_CHILD")/evidence.py"
         else echo 'FAIL: S6 child replaced; refusing foreign cleanup' >&2; fi
         E1S6_CHILD_ID=
     fi
@@ -51,6 +52,8 @@ e1s6_start()  # real wineserver path, system group, owned output directory
     /usr/bin/python3 -I -c 'import dbus; from gi.repository import GLib' || fail 'python3-dbus/python3-gi missing'
     install -o root -g root -m 0644 "$SRC/tools/e1s6/e1s6-lab.py" "$E1S6_CHILD"
     E1S6_CHILD_ID="$(stat -c '%d:%i' "$E1S6_CHILD")"
+    # the modules the service imports from its own directory (R8 codec, evidence service)
+    install -o root -g root -m 0644 "$SRC/tools/e1s6/e1r8.py" "$SRC/tools/e1s6/evidence.py" "$(dirname "$E1S6_CHILD")/"
     install -o root -g root -m 0644 "$SRC/tools/e1s6/org.wineexplorer.E1S6Lab.conf" "$E1S6_POLICY"
     E1S6_POLICY_ID="$(stat -c '%d:%i' "$E1S6_POLICY")"
     e1s6_reload || fail 'system bus policy reload failed'

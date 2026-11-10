@@ -74,6 +74,9 @@ struct consent_data
     HANDLE out_pipe;
     int in_count;
     int out_count;
+    struct e1r8_tuple r8_tuple;
+    BOOL r8_select_ok;
+    BOOL r8_attach_ok;
 #endif
 };
 
@@ -796,6 +799,12 @@ static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
         SetTimer(hwnd, 2, 50, NULL);
 #endif
 
+#ifdef WEXELEVATE_E1S18
+        /* WO-28: enable the account field only after SELECT_OK; keep the password field disabled */
+        EnableWindow(GetDlgItem(hwnd, IDC_UAC_ACCOUNT), data->r8_select_ok ? TRUE : FALSE);
+        EnableWindow(GetDlgItem(hwnd, IDC_UAC_PASSWORD), FALSE);
+#endif
+
         SetFocus(GetDlgItem(hwnd, IDC_UAC_ACCOUNT));
         return FALSE;
     }
@@ -845,6 +854,34 @@ static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
             GetDlgItemTextW(hwnd, IDC_UAC_PASSWORD, data->password, ARRAY_SIZE(data->password));
             lstrcpynA(data->account, ascii_account, sizeof(data->account));
             data->account[sizeof(data->account) - 1] = '\0';
+
+#ifdef WEXELEVATE_E1S18
+            /* WO-28: on OK send SELECT with the entered name if not already sent */
+            if (!data->r8_attach_ok)
+            {
+                size_t acct_len = strlen(ascii_account);
+                size_t sel_len = 80 + acct_len;
+                uint8_t select_buf[143];
+                uint8_t attach_ok_buf[76];
+                DWORD written = 0;
+
+                if (acct_len > 63 ||
+                    e1r8_encode_select(select_buf, sel_len, &data->r8_tuple, (const uint8_t *)ascii_account, (uint32_t)acct_len) != 0 ||
+                    !WriteFile(data->out_pipe, select_buf, (DWORD)sel_len, &written, NULL) ||
+                    written != sel_len)
+                {
+                    return TRUE;
+                }
+                FlushFileBuffers(data->out_pipe);
+
+                if (!r8_read_exact(data->in_pipe, attach_ok_buf, 76) ||
+                    e1r8_decode_attach_ok(attach_ok_buf, 76, &data->r8_tuple) != 0)
+                {
+                    return TRUE;
+                }
+                data->r8_attach_ok = TRUE;
+            }
+#endif
 
             /* Transmit S1 Answer record with answer_kind = CONFIRM */
             if (data->channel_pipe && data->channel_pipe != INVALID_HANDLE_VALUE)
@@ -987,6 +1024,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
             memcpy(data.binding_digest, init.tuple.binding_digest, 32);
             memcpy(data.request_digest, init.tuple.request_digest, 32);
             data.attempt = 1;
+            memcpy(&data.r8_tuple, &init.tuple, sizeof(data.r8_tuple));
 
             if (e1r8_encode_ack(ack_buf, sizeof(ack_buf), &init.tuple) != 0 ||
                 !WriteFile(data.out_pipe, ack_buf, sizeof(ack_buf), &written, NULL) ||
@@ -997,6 +1035,63 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
             }
             FlushFileBuffers(data.out_pipe);
             wex_secure_wipe(init_buf, sizeof(init_buf));
+        }
+
+        /* WO-28: after ACK, read SELECT_OK (76 bytes) from /in */
+        {
+            uint8_t select_ok_buf[76];
+            if (!r8_read_exact(data.in_pipe, select_ok_buf, 76) ||
+                e1r8_decode_select_ok(select_ok_buf, 76, &data.r8_tuple) != 0)
+            {
+                WARN("R8 SELECT_OK missing or malformed.\n");
+                return ERROR_NOT_SUPPORTED;
+            }
+            data.r8_select_ok = TRUE;
+
+            /* Lab test hook, compiled only with WEXELEVATE_E1S18: if
+             * HKLM\Software\WineExplorer\ElevationTest\R8AutoSelect names an account,
+             * D sends SELECT with it without input (the headless harness cannot type);
+             * never in a shipping build. */
+            {
+                HKEY hkey;
+                char auto_acct[128] = {0};
+                if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\WineExplorer\\ElevationTest", 0, KEY_READ, &hkey) == ERROR_SUCCESS)
+                {
+                    DWORD type = 0, sz = sizeof(auto_acct);
+                    if (RegQueryValueExA(hkey, "R8AutoSelect", NULL, &type, (BYTE *)auto_acct, &sz) == ERROR_SUCCESS && type == REG_SZ)
+                    {
+                        /* auto_acct contains selected account */
+                    }
+                    RegCloseKey(hkey);
+                }
+
+                if (auto_acct[0])
+                {
+                    size_t acct_len = strlen(auto_acct);
+                    size_t sel_len = 80 + acct_len;
+                    uint8_t select_buf[143];
+                    uint8_t attach_ok_buf[76];
+                    DWORD written = 0;
+
+                    if (acct_len > 63 ||
+                        e1r8_encode_select(select_buf, sel_len, &data.r8_tuple, (const uint8_t *)auto_acct, (uint32_t)acct_len) != 0 ||
+                        !WriteFile(data.out_pipe, select_buf, (DWORD)sel_len, &written, NULL) ||
+                        written != sel_len)
+                    {
+                        WARN("R8 SELECT write failed.\n");
+                        return ERROR_NOT_SUPPORTED;
+                    }
+                    FlushFileBuffers(data.out_pipe);
+
+                    if (!r8_read_exact(data.in_pipe, attach_ok_buf, 76) ||
+                        e1r8_decode_attach_ok(attach_ok_buf, 76, &data.r8_tuple) != 0)
+                    {
+                        WARN("R8 ATTACH_OK missing or malformed.\n");
+                        return ERROR_NOT_SUPPORTED;
+                    }
+                    data.r8_attach_ok = TRUE;
+                }
+            }
         }
 
         /* The S1 Confirm/Cancel record goes to /out. */
