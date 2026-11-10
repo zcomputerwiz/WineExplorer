@@ -200,9 +200,26 @@ class TestGenerator(TempDirTest):
 class TestBootLog(TempDirTest):
     """wex-bootlog.sh writes ntbtlog.txt in XP's format (work order C6)."""
 
-    HEADER = re.compile(r"^ Service Pack 3[ 1][0-9] [ 123][0-9] \d{4} \d\d:\d\d:\d\d\.\d{3}$")
+    DATE = r"[ 1][0-9] [ 123][0-9] \d{4} \d\d:\d\d:\d\d\.\d{3}$"
+    HEADER = re.compile(r"^ Service Pack 3" + DATE)
+    # winecfg's XP setting
+    XP_REG = ('[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion] 1731234567\n'
+              '"CSDVersion"="Service Pack 3"\n"CurrentMajorVersionNumber"=dword:00000005\n'
+              '"CurrentMinorVersionNumber"=dword:00000001\n"CurrentVersion"="5.1"\n'
+              '"ProductName"="Microsoft Windows XP"\n\n'
+              '[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon] 1731234567\n'
+              '"CSDVersion"="not this one"\n')
+    # Wine's default (loader/wine.inf.in, [VersionInfo]), as regedit saves it
+    WIN10_REG = ('[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion] 1731234567\n'
+                 '#time=1db33b1c5ac3a2e\n"CurrentBuild"="19045"\n"CurrentBuildNumber"="19045"\n'
+                 '"CurrentMajorVersionNumber"=dword:0000000a\n"CurrentMinorVersionNumber"=dword:00000000\n'
+                 '"CurrentType"="Multiprocessor Free"\n"CurrentVersion"="6.3"\n'
+                 '"DigitalProductId"=hex:00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,\\\n'
+                 '  00,00,00,00\n"EditionId"="Professional"\n"ProductName"="Windows 10 Pro"\n'
+                 '"UBR"=dword:000016a4\n\n'
+                 '[System\\\\CurrentControlSet\\\\Control\\\\Windows] 1731234567\n"CSDVersion"=dword:00000000\n')
 
-    def run_bootlog(self):
+    def run_bootlog(self, registry=XP_REG):
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir(exist_ok=True)
         (bin_dir / "modinfo").write_text('#!/bin/sh\n[ "$2" = virtio_net ] || exit 1\n'
@@ -214,11 +231,8 @@ class TestBootLog(TempDirTest):
         modules = self.tmp / "modules"
         modules.write_text("virtio_net 69632 0 - Live 0x0\nbuiltin_less 4096 1 - Live 0x0\n", encoding="ascii")
         system_reg = self.tmp / "system.reg"
-        system_reg.write_text('WINE REGISTRY Version 2\n\n'
-                              '[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion] 1731234567\n'
-                              '"CSDVersion"="Service Pack 3"\n"CurrentVersion"="5.1"\n\n'
-                              '[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon] 1731234567\n'
-                              '"CSDVersion"="not this one"\n', encoding="ascii")
+        if registry is not None:
+            system_reg.write_text('WINE REGISTRY Version 2\n\n' + registry, encoding="ascii")
         windir = self.tmp / "windows"
         windir.mkdir(exist_ok=True)
         env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "WEX_BOOTLOG_WINDIR": str(windir),
@@ -252,6 +266,15 @@ class TestBootLog(TempDirTest):
         lines = self.lines(self.run_bootlog().read_bytes())
         self.assertEqual(lines[:3], ["WineExplorer 6.12 boot log, 11 08 2026 10:00:00", "Loaded driver a", ""])
         self.assertRegex(lines[3], self.HEADER)
+
+    def header(self, registry):
+        return self.lines(self.run_bootlog(registry).read_bytes())[0]
+
+    def test_without_a_service_pack_the_header_names_wines_version(self):
+        self.assertRegex(self.header(self.WIN10_REG), r"^ Windows 10 Pro Version 10\.0 \(Build 19045\) " + self.DATE)
+
+    def test_without_a_registry_the_header_has_the_date_only(self):
+        self.assertRegex(self.header(None), r"^ " + self.DATE)
 
 
 class TestPamCheck(TempDirTest):

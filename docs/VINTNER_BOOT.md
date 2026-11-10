@@ -3,7 +3,8 @@
 
 Date: 2026-11-07  
 Status: written as a plan on 2026-11-07. Sections 4.1, 4.2 (behind a build option), 4.4 and 4.5 are implemented
-since then; each section has its own status.  
+since then, and 4.3 in part (Safe Mode through Vintner's variant); each section has its own status. GRUB is still
+the default loader.  
 Sources read: WineExplorer `development` at `d718f379`; Vintner Boot (`D:\Projects\vintner-boot`, sibling
 repository) `local-test-env` at `cbc683b`, which is `main` plus two CI/docs commits. Line numbers refer to those
 commits.

@@ -349,9 +349,10 @@ header line with no blank line before it, and the date follows the service pack 
 A Safe Mode start always writes the log, whether or not Enable Boot Logging was chosen.
 
 **Done 2026-11-10** (`scripts/wex-bootlog.sh`, `installer/systemd/wex-bootmode-generator`; `docs/SAFE_MODE.md`
-section 4). The header's service pack string is the machine registry's `CSDVersion` string. On today's image it
-is empty: the machine root's `HKLM\Software\Microsoft\Windows NT\CurrentVersion` still has Wine's Windows 10 values
-(`CurrentBuild` 19045, `CSDVersion` a DWORD 0). XP's lines are
+section 4). The header shows the version Wine reports in the machine registry (owner, 2026-11-10: it need not
+match XP's). A `CSDVersion` string gives XP's header. Wine's default values (Windows 10) have none, so the product
+name, version and build stand in its place: ` Windows 10 Pro Version 10.0 (Build 19045) 11 10 2026 ...`, checked
+against an installed disk's `system.reg`. XP's lines are
 `Loaded driver` and `Did not load driver`; WineExplorer keeps its own `Did not start service` line for systemd
 units that failed, and has no counterpart for drivers held back in Safe Mode. The recovery console's shape (below)
 is still open.

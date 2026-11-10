@@ -169,7 +169,7 @@ drawn in dark gray (bold black); the Linux console does not render the dim attri
 | Safe Mode | `safe` |
 | Safe Mode with Networking | `safenet` |
 | Safe Mode with Command Prompt | `safecmd` |
-| Enable Boot Logging | Normal start; when it is complete, `wex-bootlog` appends the loaded drivers (kernel modules) and the services that failed to `C:\WINDOWS\ntbtlog.txt` in the machine root. Every Safe Mode start writes the log too, as on XP: the boot-mode generator adds `wex-bootlog.service` to the Safe Mode target. The file has XP's format (work order C6): UTF-16LE with a byte order mark at its start, CRLF line ends, and for each start a header line, a space, the machine registry's `CSDVersion` string, then the date and time, with no empty line between starts. Today's machine registry keeps Wine's Windows 10 values, with no `CSDVersion` string, so the header reads ` 11 10 2026 09:40:51.253`; XP's reads ` Service Pack 311  8 2026 08:29:50.500`. A log written before this format is converted once |
+| Enable Boot Logging | Normal start; when it is complete, `wex-bootlog` appends the loaded drivers (kernel modules) and the services that failed to `C:\WINDOWS\ntbtlog.txt` in the machine root. Every Safe Mode start writes the log too, as on XP: the boot-mode generator adds `wex-bootlog.service` to the Safe Mode target. The file has XP's format (work order C6): UTF-16LE with a byte order mark at its start, CRLF line ends, and for each start a header line, a space, the version Wine reports in the machine registry, then the date and time, with no empty line between starts. With a service pack string (`CSDVersion`, as winecfg's XP setting writes) the header is XP's: ` Service Pack 311  8 2026 08:29:50.500`. Wine's default registry (Windows 10) has none, so the product name, version and build stand in its place, followed by a space: ` Windows 10 Pro Version 10.0 (Build 19045) 11 10 2026 09:40:51.253`. A log written before this format is converted once |
 | Enable VGA Mode | Grayed: needs an X fallback without the forced `modesetting` driver (`docs/VINTNER_BOOT.md` section 6) |
 | Last Known Good Configuration | Grayed until Vintner offers `next-boot previous-good` |
 | Directory Services Restore Mode | Grayed: does not apply |
@@ -229,7 +229,7 @@ resolution (C3) and the classic logon dialog after Ctrl+Alt+Del twice (C4).
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (59 tests, Linux) covers:
+`scripts/test_safemode.py` (64 tests, Linux) covers:
 
 - mode parsing, generator output and PAM decisions;
 - menu navigation and choices, and the logon screen choice;
@@ -242,6 +242,8 @@ resolution (C3) and the classic logon dialog after Ctrl+Alt+Del twice (C4).
 - the boot mode record: written once, never for the menu, its unit, and `/run/wineexplorer` belonging to root;
 - that the greeter does not update a logon prefix that is already made;
 - the Wayland session in each mode, with a stand-in compositor and Wine;
+- the boot log: two starts in XP's format, the header's version text from XP's and from Wine's default registry
+  values and with no registry, and the conversion of a log from before the format;
 - that the VM test installs the Safe Mode files where the package does.
 
 `installer/tests/safe-mode.sh` is the VM test (usage in `docs/TOOLING.md`). It boots a copy-on-write overlay of an
