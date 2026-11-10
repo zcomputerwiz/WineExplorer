@@ -91,3 +91,28 @@ version, architecture, package identities and SHA-256, dependency versions,
 locale, account, activation route, trust setup, commands, output and exit
 status. For Wine also record exact source revisions, build, prefix and gate.
 Compare the same package bits and label all unrun and unverified claims.
+
+## MinGW build and Wine run
+
+`build-mingw.sh` cross-compiles `probe.exe` and `component.dll` with the MinGW
+compilers (`x86_64-w64-mingw32-g++` and `i686-w64-mingw32-g++`) for both x64
+and x86, into `build/mingw-x64/` and `build/mingw-x86/` (gitignored like
+`build/`). It uses `-O2 -Wall -municode` with static libstdc++/libgcc so no
+MinGW runtime DLL is needed, and defines `INITGUID` so the WinRT IIDs are
+defined (MinGW ships no library that provides them; the MSVC build links
+`uuid.lib` and is unchanged). The C++/WinRT projection headers and the
+`async_folder` check are MSVC-only (`#ifdef _MSC_VER`), because MinGW does not
+ship the C++/WinRT headers; the async check is a positive-case check and is not
+reached by the no-package Wine cases.
+
+`run-wine.sh <wine build dir> <prefix>` runs only the cases that need no package
+installation on Wine — the unpackaged direct run, which also covers the identity
+queries of an unpackaged process and the missing-class activation failure — with
+that build's `wine` loader in the given prefix, after setting
+`HKCU\Software\WineExplorer\Shell\UwpCompatibility` to 1 in that prefix. It
+writes `actual-wine-<arch>.txt` per architecture, prints a comparison with the
+Windows oracle lines for the same cases (`expected.txt`, `ORACLE_RESULTS.md`
+HRESULTs), and marks every package-activation case `NOT-RUN (no package
+activation in Wine yet)`. It refuses to run if the prefix is the wexbuild test
+fixture or `/etc/wineexplorer` is involved, and it never starts or kills a
+wineserver it did not start.

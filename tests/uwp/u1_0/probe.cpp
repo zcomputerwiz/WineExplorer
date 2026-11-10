@@ -25,15 +25,25 @@
 #include <roapi.h>
 #include <activation.h>
 #include <winstring.h>
+#ifdef _MSC_VER
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Storage.h>
+#endif
 #include <cstdio>
 #include <cwchar>
 #include <string>
 #include <vector>
 #include <cstdlib>
 
+/* MinGW does not ship the C++/WinRT projection headers or this error code; the
+ * value matches the Windows SDK and Wine (wine/include/winerror.h). */
+#ifndef APPMODEL_ERROR_NO_PACKAGE
+#define APPMODEL_ERROR_NO_PACKAGE 15700
+#endif
+
+#ifdef _MSC_VER
 using namespace winrt;
+#endif
 static int failures;
 static void check(char const *name, bool passed)
 {
@@ -129,6 +139,7 @@ int wmain(int argc, wchar_t **argv)
     if (factory) factory->Release();
     WindowsDeleteString(name);
 
+#ifdef _MSC_VER
     bool async_ok = false;
     try
     {
@@ -141,6 +152,7 @@ int wmain(int argc, wchar_t **argv)
     }
     catch (winrt::hresult_error const &) { }
     check("async_folder", async_ok);
+#endif
     RoUninitialize();
     return failures ? 1 : 0;
 }
