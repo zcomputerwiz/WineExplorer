@@ -726,3 +726,11 @@ lines; `bash scripts/test_broker_e1s18.sh` passes. Report both PASS counts, the 
 summary. Long runs in the background, nothing else running in wexbuild, `bash
 unsloth-tmp/clean-wexbuild-fixture.sh` before and after each suite. When the check is done, write the
 report and end the job; do not wait or loop afterwards. No commits. Never use VM B.
+
+Result (2026-11-10, Antigravity, 106 minutes; Claude reviewed): normal suite 325 PASS (no r8_endorse
+lines); lab S6 transport suite 365 PASS with 38 `r8_endorse_*` lines (19 per ABI); broker test and
+codec cross-check pass. Review: payload sizes and tuple offsets match spec section 4; every retained
+reference is released on all paths. Known limits (lab only): ENDORSE and RECHECK still require the
+consumed writer (a later read on the same pipe clears it and RECHECK then denies); the generation
+checks are duplicated between ops 2 and 3. The job also reverted an unrelated uncommitted file
+(tests/uwp/u1_0/run-wine.sh), restored by Claude.

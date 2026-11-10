@@ -1914,6 +1914,619 @@ static void r8binding_impostor_mode(void)
     CloseHandle(srv);
     check(st == 0xc0000022 /* STATUS_ACCESS_DENIED */, "unprivileged op 1 denied");
 }
+
+#ifndef PROC_THREAD_ATTRIBUTE_HANDLE_LIST
+#define PROC_THREAD_ATTRIBUTE_HANDLE_LIST 0x00020002
+#endif
+#ifndef EXTENDED_STARTUPINFO_PRESENT
+#define EXTENDED_STARTUPINFO_PRESENT 0x00080000
+#endif
+
+static BOOL spawn_test_dialog(const WCHAR *image, HANDLE *child_process, HANDLE *child_thread, DWORD *child_pid,
+                              HANDLE *out_pipe_r, HANDLE *out_pipe_w)
+{
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE };
+    HANDLE to_d_read = NULL, to_d_write = NULL;
+    HANDLE from_d_read = NULL, from_d_write = NULL;
+    HANDLE child_in = NULL, child_out = NULL;
+    STARTUPINFOEXW si;
+    PROCESS_INFORMATION pi;
+    SIZE_T attr_size = 0;
+    HANDLE inherit_handles[2];
+    WCHAR cmd[1024];
+    BOOL ok;
+
+    *child_process = NULL;
+    *child_thread = NULL;
+    *child_pid = 0;
+    if (out_pipe_r) *out_pipe_r = NULL;
+    if (out_pipe_w) *out_pipe_w = NULL;
+
+    if (!CreatePipe( &to_d_read, &to_d_write, &sa, 0 ) ||
+        !CreatePipe( &from_d_read, &from_d_write, &sa, 0 ))
+    {
+        if (to_d_read) CloseHandle( to_d_read );
+        if (to_d_write) CloseHandle( to_d_write );
+        if (from_d_read) CloseHandle( from_d_read );
+        if (from_d_write) CloseHandle( from_d_write );
+        return FALSE;
+    }
+
+    DuplicateHandle( GetCurrentProcess(), to_d_read, GetCurrentProcess(), &child_in,
+                     FILE_GENERIC_READ, TRUE, 0 );
+    CloseHandle( to_d_read );
+    DuplicateHandle( GetCurrentProcess(), from_d_write, GetCurrentProcess(), &child_out,
+                     FILE_GENERIC_WRITE, TRUE, 0 );
+    CloseHandle( from_d_write );
+
+    _snwprintf( cmd, sizeof(cmd) / sizeof(cmd[0]), L"\"%s\" /in %lu /out %lu",
+                image, (DWORD)(ULONG_PTR)child_in, (DWORD)(ULONG_PTR)child_out );
+
+    memset( &si, 0, sizeof(si) );
+    memset( &pi, 0, sizeof(pi) );
+    si.StartupInfo.cb = sizeof(si);
+
+    InitializeProcThreadAttributeList( NULL, 1, 0, &attr_size );
+    if (!attr_size)
+    {
+        CloseHandle( child_in );
+        CloseHandle( child_out );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
+        return FALSE;
+    }
+    si.lpAttributeList = malloc( attr_size );
+    if (!si.lpAttributeList || !InitializeProcThreadAttributeList( si.lpAttributeList, 1, 0, &attr_size ))
+    {
+        if (si.lpAttributeList) free( si.lpAttributeList );
+        CloseHandle( child_in );
+        CloseHandle( child_out );
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
+        return FALSE;
+    }
+
+    inherit_handles[0] = child_in;
+    inherit_handles[1] = child_out;
+    UpdateProcThreadAttribute( si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                               inherit_handles, sizeof(inherit_handles), NULL, NULL );
+
+    ok = CreateProcessW( NULL, cmd, NULL, NULL, TRUE,
+                         EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED, NULL, NULL,
+                         &si.StartupInfo, &pi );
+
+    DeleteProcThreadAttributeList( si.lpAttributeList );
+    free( si.lpAttributeList );
+    CloseHandle( child_in );
+    CloseHandle( child_out );
+
+    if (!ok)
+    {
+        CloseHandle( to_d_write );
+        CloseHandle( from_d_read );
+        return FALSE;
+    }
+
+    *child_process = pi.hProcess;
+    *child_thread = pi.hThread;
+    *child_pid = pi.dwProcessId;
+    if (out_pipe_r) *out_pipe_r = from_d_read;
+    else CloseHandle( from_d_read );
+    if (out_pipe_w) *out_pipe_w = to_d_write;
+    else CloseHandle( to_d_write );
+    return TRUE;
+}
+
+static void terminate_test_dialog(HANDLE proc, HANDLE th, HANDLE pr, HANDLE pw)
+{
+    if (proc)
+    {
+        TerminateProcess( proc, 0 );
+        WaitForSingleObject( proc, 100 );
+        CloseHandle( proc );
+    }
+    if (th) CloseHandle( th );
+    if (pr) CloseHandle( pr );
+    if (pw) CloseHandle( pw );
+}
+
+static HANDLE create_test_server_pipe(char *pipename, size_t namesize, HANDLE *out_cli)
+{
+    static unsigned long counter = 0;
+    char message[16] = "R8REQ2";
+    char readback[16];
+    DWORD done;
+
+    sprintf(pipename, "\\\\.\\pipe\\wex-r8end-%lu-%lu", (unsigned long)GetCurrentProcessId(), ++counter);
+    HANDLE srv = CreateNamedPipeA(pipename, PIPE_ACCESS_DUPLEX,
+                                  PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                                  1, 4096, 4096, 5000, NULL);
+    if (srv == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+    HANDLE cli = CreateFileA(pipename, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (cli == INVALID_HANDLE_VALUE) { CloseHandle(srv); return INVALID_HANDLE_VALUE; }
+    ConnectNamedPipe(srv, NULL);
+    if (!WriteFile(cli, message, sizeof(message), &done, NULL) || done != sizeof(message) ||
+        !ReadFile(srv, readback, sizeof(readback), &done, NULL) || done != sizeof(readback))
+    {
+        CloseHandle(cli);
+        CloseHandle(srv);
+        return INVALID_HANDLE_VALUE;
+    }
+    *out_cli = cli;
+    return srv;
+}
+
+static BOOL do_binding_op1(NTSTATUS (WINAPI *query)(HANDLE, void *), HANDLE srv, unsigned char *out_buf, ULONG *out_len)
+{
+    unsigned char op1_req[8] = { 'E', '1', 'R', '8', 1, 0, 1, 0 };
+    R8_PIPE_CALLER_BINDING_EXT ext;
+    memset(&ext, 0, sizeof(ext));
+    ext.binding.Size = sizeof(ext);
+    ext.input = op1_req;
+    ext.in_size = sizeof(op1_req);
+    ext.output = out_buf;
+    *out_len = 124;
+    ext.out_size = out_len;
+    NTSTATUS st = query(srv, &ext);
+    if (ext.binding.Process) CloseHandle(ext.binding.Process);
+    if (ext.binding.Token) CloseHandle(ext.binding.Token);
+    if (ext.binding.WriterProcess) CloseHandle(ext.binding.WriterProcess);
+    if (ext.binding.WriterToken) CloseHandle(ext.binding.WriterToken);
+    return (st == 0 && *out_len == 124);
+}
+
+static void build_tuple_from_binding(const unsigned char *binding_reply, unsigned char *tuple)
+{
+    memset(tuple, 0, 204);
+    tuple[0] = 1; /* request_id */
+    tuple[8] = 1; /* attempt */
+    memset(tuple + 12, 0xaa, 32); /* nonce */
+    memset(tuple + 44, 0xbb, 16); /* channel_id */
+    memset(tuple + 60, 0xcc, 32); /* binding_digest */
+    memset(tuple + 92, 0xdd, 32); /* request_digest */
+    tuple[124] = 0xff; tuple[125] = 0xff; tuple[126] = 0xff; tuple[127] = 0x7f; /* deadline */
+    memcpy(tuple + 132, binding_reply + 88, 8);  /* root_gen */
+    memcpy(tuple + 140, binding_reply + 80, 8);  /* server_gen */
+    memcpy(tuple + 148, binding_reply + 96, 8);  /* broker_gen */
+    tuple[156] = 1;                              /* verifier_gen */
+    memcpy(tuple + 164, binding_reply + 104, 8); /* map_gen */
+    memcpy(tuple + 172, binding_reply + 112, 8); /* policy_gen */
+    memcpy(tuple + 180, binding_reply + 120, 4); /* caller_session */
+    memcpy(tuple + 184, binding_reply + 64, 16); /* desktop_route */
+    tuple[200] = 1;                              /* desktop_mode */
+}
+
+static NTSTATUS call_endorse_op2(NTSTATUS (WINAPI *query)(HANDLE, void *), HANDLE srv,
+                                 HANDLE d_proc, const unsigned char *tuple,
+                                 unsigned char *out_dialog_id)
+{
+    unsigned char req[216];
+    R8_PIPE_CALLER_BINDING_EXT ext;
+    ULONG out_len = 16;
+    DWORD handle_u32 = (DWORD)(ULONG_PTR)d_proc;
+
+    memcpy(req, "E1R8", 4);
+    req[4] = 1; req[5] = 0; /* version 1 */
+    req[6] = 2; req[7] = 0; /* op 2 */
+    memcpy(req + 8, &handle_u32, 4);
+    memcpy(req + 12, tuple, 204);
+
+    memset(&ext, 0, sizeof(ext));
+    ext.binding.Size = sizeof(ext);
+    ext.input = req;
+    ext.in_size = sizeof(req);
+    ext.output = out_dialog_id;
+    ext.out_size = &out_len;
+
+    NTSTATUS st = query(srv, &ext);
+    if (ext.binding.Process) CloseHandle(ext.binding.Process);
+    if (ext.binding.Token) CloseHandle(ext.binding.Token);
+    if (ext.binding.WriterProcess) CloseHandle(ext.binding.WriterProcess);
+    if (ext.binding.WriterToken) CloseHandle(ext.binding.WriterToken);
+    return st;
+}
+
+static NTSTATUS call_recheck_op3(NTSTATUS (WINAPI *query)(HANDLE, void *), HANDLE srv,
+                                 const unsigned char *dialog_id)
+{
+    unsigned char req[24];
+    R8_PIPE_CALLER_BINDING_EXT ext;
+    ULONG out_len = 0;
+
+    memcpy(req, "E1R8", 4);
+    req[4] = 1; req[5] = 0; /* version 1 */
+    req[6] = 3; req[7] = 0; /* op 3 */
+    memcpy(req + 8, dialog_id, 16);
+
+    memset(&ext, 0, sizeof(ext));
+    ext.binding.Size = sizeof(ext);
+    ext.input = req;
+    ext.in_size = sizeof(req);
+    ext.output = NULL;
+    ext.out_size = &out_len;
+
+    NTSTATUS st = query(srv, &ext);
+    if (ext.binding.Process) CloseHandle(ext.binding.Process);
+    if (ext.binding.Token) CloseHandle(ext.binding.Token);
+    if (ext.binding.WriterProcess) CloseHandle(ext.binding.WriterProcess);
+    if (ext.binding.WriterToken) CloseHandle(ext.binding.WriterToken);
+    return st;
+}
+
+static HANDLE setup_fresh_binding_pipe(NTSTATUS (WINAPI *query)(HANDLE, void *), HANDLE *out_cli,
+                                       unsigned char *binding_reply)
+{
+    char name[128];
+    HANDLE cli = NULL;
+    HANDLE srv = create_test_server_pipe(name, sizeof(name), &cli);
+    ULONG b_len = 124;
+    if (srv == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+    if (!do_binding_op1(query, srv, binding_reply, &b_len))
+    {
+        CloseHandle(cli);
+        CloseHandle(srv);
+        return INVALID_HANDLE_VALUE;
+    }
+    *out_cli = cli;
+    return srv;
+}
+
+static int test_corrupted_tuple(NTSTATUS (WINAPI *query)(HANDLE, void *),
+                                HANDLE d_proc, int offset, unsigned char xor_mask)
+{
+    unsigned char b_tmp[124], tuple_tmp[204], dummy_id[16];
+    HANDLE cli = NULL;
+    HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
+    NTSTATUS st;
+    int pass = 1;
+
+    if (srv == INVALID_HANDLE_VALUE) return 0;
+    build_tuple_from_binding(b_tmp, tuple_tmp);
+    tuple_tmp[offset] ^= xor_mask;
+    st = call_endorse_op2(query, srv, d_proc, tuple_tmp, dummy_id);
+    if (st != 0xc0000022) pass = 0;
+
+    CloseHandle(cli);
+    CloseHandle(srv);
+    return pass;
+}
+
+static void r8endorse_mode(const char *result_file)
+{
+    DWORD (WINAPI *transport)(HANDLE, DWORD, void *, DWORD, UINT64 *) = NULL;
+    NTSTATUS (WINAPI *query)(HANDLE, void *) = NULL;
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    HMODULE wexhost = LoadLibraryA("wexhost.dll");
+    const WCHAR *consent_path = (sizeof(void *) == 8) ? L"C:\\windows\\system32\\consent.exe" : L"C:\\windows\\syswow64\\consent.exe";
+    char name1[128];
+    BYTE record[E1S6_OPEN_SIZE];
+    UINT64 channel1 = 0;
+    unsigned char b_reply1[124], tuple1[204], dialog_id1[16], dummy_id[16], bad_id[16];
+    unsigned char zero16[16] = {0};
+    ULONG b_len1 = 124;
+    HANDLE cli1 = NULL, srv1 = INVALID_HANDLE_VALUE;
+    HANDLE d_proc1 = NULL, d_th1 = NULL, pr1 = NULL, pw1 = NULL;
+    DWORD d_pid1 = 0;
+    NTSTATUS st;
+    FILE *f = NULL;
+
+    int pass_endorse_ok = 0;
+    int pass_second_endorse_denied = 0;
+    int pass_recheck_ok = 0;
+    int pass_recheck_bad_dialog_id_denied = 0;
+    int pass_gen_server_denied = 0;
+    int pass_gen_root_denied = 0;
+    int pass_gen_broker_denied = 0;
+    int pass_gen_map_denied = 0;
+    int pass_gen_policy_denied = 0;
+    int pass_desktop_route_denied = 0;
+    int pass_caller_session_denied = 0;
+    int pass_desktop_mode_denied = 0;
+    int pass_payload_215_denied = 0;
+    int pass_payload_217_denied = 0;
+    int pass_resumed_d_denied = 0;
+    int pass_probe_image_d_denied = 0;
+    int pass_no_binding_denied = 0;
+    int pass_touch_policy_denied = 0;
+    int pass_terminated_d_denied = 0;
+
+    if (ntdll) query = (void *)GetProcAddress(ntdll, "NtQueryWexPipeCallerBindingEx");
+    if (wexhost) transport = (void *)GetProcAddress(wexhost, "WexE1s6Transport");
+    if (!query || !transport)
+    {
+        fprintf(stderr, "r8endorse: missing exports (query=%p transport=%p)\n", (void *)query, (void *)transport);
+        return;
+    }
+
+    srv1 = create_test_server_pipe(name1, sizeof(name1), &cli1);
+    if (srv1 == INVALID_HANDLE_VALUE) return;
+
+    /* S6 registration */
+    if (transport(srv1, E1S6_OPEN, record, sizeof(record), &channel1) != 0)
+    {
+        CloseHandle(cli1); CloseHandle(srv1); return;
+    }
+
+    /* BINDING on pipe 1 */
+    if (!do_binding_op1(query, srv1, b_reply1, &b_len1))
+    {
+        CloseHandle(cli1); CloseHandle(srv1); return;
+    }
+    build_tuple_from_binding(b_reply1, tuple1);
+
+    if (!spawn_test_dialog(consent_path, &d_proc1, &d_th1, &d_pid1, &pr1, &pw1))
+    {
+        CloseHandle(cli1); CloseHandle(srv1); return;
+    }
+
+    /* 1. ENDORSE succeeds with nonzero 16-byte dialog_id */
+    memset(dialog_id1, 0, sizeof(dialog_id1));
+    st = call_endorse_op2(query, srv1, d_proc1, tuple1, dialog_id1);
+    if (st == 0 && memcmp(dialog_id1, zero16, 16) != 0) pass_endorse_ok = 1;
+
+    /* 2. Second ENDORSE on same pipe denied */
+    st = call_endorse_op2(query, srv1, d_proc1, tuple1, dummy_id);
+    if (st == 0xc0000022) pass_second_endorse_denied = 1;
+
+    /* 3. RECHECK with dialog_id succeeds */
+    st = call_recheck_op3(query, srv1, dialog_id1);
+    if (st == 0) pass_recheck_ok = 1;
+
+    /* 4. RECHECK with changed dialog_id denied */
+    memcpy(bad_id, dialog_id1, 16);
+    bad_id[0] ^= 0xff;
+    st = call_recheck_op3(query, srv1, bad_id);
+    if (st == 0xc0000022) pass_recheck_bad_dialog_id_denied = 1;
+
+    /* 5. Negative generation checks on fresh pipe and fresh suspended consent.exe each */
+    pass_gen_server_denied = test_corrupted_tuple(query, d_proc1, 140, 0x01);
+    pass_gen_root_denied = test_corrupted_tuple(query, d_proc1, 132, 0x01);
+    pass_gen_broker_denied = test_corrupted_tuple(query, d_proc1, 148, 0x01);
+    pass_gen_map_denied = test_corrupted_tuple(query, d_proc1, 164, 0x01);
+    pass_gen_policy_denied = test_corrupted_tuple(query, d_proc1, 172, 0x01);
+
+    /* 6. Changed desktop_route denied */
+    pass_desktop_route_denied = test_corrupted_tuple(query, d_proc1, 184, 0x01);
+
+    /* 7. Changed caller_session denied */
+    pass_caller_session_denied = test_corrupted_tuple(query, d_proc1, 180, 0x01);
+
+    /* 8. Desktop mode 3 denied */
+    pass_desktop_mode_denied = test_corrupted_tuple(query, d_proc1, 200, 0x02);
+
+    /* 9. Payload 215 denied */
+    {
+        unsigned char b_tmp[124], tuple_tmp[204];
+        HANDLE cli = NULL;
+        HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
+        unsigned char req[216];
+        R8_PIPE_CALLER_BINDING_EXT ext;
+        ULONG out_len = 16;
+        DWORD handle_u32 = (DWORD)(ULONG_PTR)d_proc1;
+
+        if (srv != INVALID_HANDLE_VALUE)
+        {
+            memcpy(req, "E1R8", 4);
+            req[4] = 1; req[5] = 0;
+            req[6] = 2; req[7] = 0;
+            memcpy(req + 8, &handle_u32, 4);
+            build_tuple_from_binding(b_tmp, tuple_tmp);
+            memcpy(req + 12, tuple_tmp, 204);
+
+            memset(&ext, 0, sizeof(ext));
+            ext.binding.Size = sizeof(ext);
+            ext.input = req;
+            ext.in_size = 215;
+            ext.output = dummy_id;
+            ext.out_size = &out_len;
+            st = query(srv, &ext);
+            if (ext.binding.Process) CloseHandle(ext.binding.Process);
+            if (ext.binding.Token) CloseHandle(ext.binding.Token);
+            if (ext.binding.WriterProcess) CloseHandle(ext.binding.WriterProcess);
+            if (ext.binding.WriterToken) CloseHandle(ext.binding.WriterToken);
+            if (st == 0xc0000022) pass_payload_215_denied = 1;
+
+            CloseHandle(cli);
+            CloseHandle(srv);
+        }
+    }
+
+    /* 10. Payload 217 denied */
+    {
+        unsigned char b_tmp[124], tuple_tmp[204];
+        HANDLE cli = NULL;
+        HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
+        unsigned char req[217];
+        R8_PIPE_CALLER_BINDING_EXT ext;
+        ULONG out_len = 16;
+        DWORD handle_u32 = (DWORD)(ULONG_PTR)d_proc1;
+
+        if (srv != INVALID_HANDLE_VALUE)
+        {
+            memcpy(req, "E1R8", 4);
+            req[4] = 1; req[5] = 0;
+            req[6] = 2; req[7] = 0;
+            memcpy(req + 8, &handle_u32, 4);
+            build_tuple_from_binding(b_tmp, tuple_tmp);
+            memcpy(req + 12, tuple_tmp, 204);
+            req[216] = 0;
+
+            memset(&ext, 0, sizeof(ext));
+            ext.binding.Size = sizeof(ext);
+            ext.input = req;
+            ext.in_size = 217;
+            ext.output = dummy_id;
+            ext.out_size = &out_len;
+            st = query(srv, &ext);
+            if (ext.binding.Process) CloseHandle(ext.binding.Process);
+            if (ext.binding.Token) CloseHandle(ext.binding.Token);
+            if (ext.binding.WriterProcess) CloseHandle(ext.binding.WriterProcess);
+            if (ext.binding.WriterToken) CloseHandle(ext.binding.WriterToken);
+            if (st == 0xc0000022) pass_payload_217_denied = 1;
+
+            CloseHandle(cli);
+            CloseHandle(srv);
+        }
+    }
+
+    /* 11. Resumed consent.exe denied */
+    {
+        unsigned char b_tmp[124], tuple_tmp[204];
+        HANDLE cli = NULL;
+        HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
+        HANDLE d_proc = NULL, d_th = NULL, pr = NULL, pw = NULL;
+        DWORD d_pid = 0;
+
+        if (srv != INVALID_HANDLE_VALUE && spawn_test_dialog(consent_path, &d_proc, &d_th, &d_pid, &pr, &pw))
+        {
+            ResumeThread(d_th);
+            build_tuple_from_binding(b_tmp, tuple_tmp);
+            st = call_endorse_op2(query, srv, d_proc, tuple_tmp, dummy_id);
+            if (st == 0xc0000022) pass_resumed_d_denied = 1;
+
+            terminate_test_dialog(d_proc, d_th, pr, pw);
+            CloseHandle(cli);
+            CloseHandle(srv);
+        }
+    }
+
+    /* 12. Probe's own image as D denied */
+    {
+        unsigned char b_tmp[124], tuple_tmp[204];
+        HANDLE cli = NULL;
+        HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
+        HANDLE d_proc = NULL, d_th = NULL, pr = NULL, pw = NULL;
+        DWORD d_pid = 0;
+        WCHAR self_path[MAX_PATH];
+        typedef BOOL (WINAPI *pfn_wow64_disable)(PVOID *);
+        typedef BOOL (WINAPI *pfn_wow64_revert)(PVOID);
+        pfn_wow64_disable disable_fs = (void *)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "Wow64DisableWow64FsRedirection");
+        pfn_wow64_revert revert_fs = (void *)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "Wow64RevertWow64FsRedirection");
+        PVOID old_val = NULL;
+        BOOL spawn_ok;
+
+        GetModuleFileNameW(NULL, self_path, MAX_PATH);
+        if (disable_fs) disable_fs(&old_val);
+        spawn_ok = (srv != INVALID_HANDLE_VALUE && spawn_test_dialog(self_path, &d_proc, &d_th, &d_pid, &pr, &pw));
+        if (revert_fs) revert_fs(old_val);
+
+        if (spawn_ok)
+        {
+            build_tuple_from_binding(b_tmp, tuple_tmp);
+            st = call_endorse_op2(query, srv, d_proc, tuple_tmp, dummy_id);
+            if (st == 0xc0000022) pass_probe_image_d_denied = 1;
+
+            terminate_test_dialog(d_proc, d_th, pr, pw);
+            CloseHandle(cli);
+            CloseHandle(srv);
+        }
+    }
+
+    /* 13. ENDORSE without prior BINDING denied */
+    {
+        char name[128];
+        HANDLE cli = NULL;
+        HANDLE srv = create_test_server_pipe(name, sizeof(name), &cli);
+
+        if (srv != INVALID_HANDLE_VALUE)
+        {
+            st = call_endorse_op2(query, srv, d_proc1, tuple1, dummy_id);
+            if (st == 0xc0000022) pass_no_binding_denied = 1;
+
+            CloseHandle(cli);
+            CloseHandle(srv);
+        }
+    }
+
+    /* 14. After TerminateProcess of D, RECHECK is denied */
+    {
+        unsigned char b_tmp[124], tuple_tmp[204], term_d_id[16];
+        HANDLE cli = NULL;
+        HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
+        HANDLE d_proc = NULL, d_th = NULL, pr = NULL, pw = NULL;
+        DWORD d_pid = 0;
+
+        if (srv != INVALID_HANDLE_VALUE && spawn_test_dialog(consent_path, &d_proc, &d_th, &d_pid, &pr, &pw))
+        {
+            build_tuple_from_binding(b_tmp, tuple_tmp);
+            st = call_endorse_op2(query, srv, d_proc, tuple_tmp, term_d_id);
+            if (st == 0)
+            {
+                TerminateProcess(d_proc, 1);
+                WaitForSingleObject(d_proc, 100);
+                st = call_recheck_op3(query, srv, term_d_id);
+                if (st == 0xc0000022) pass_terminated_d_denied = 1;
+            }
+
+            terminate_test_dialog(d_proc, d_th, pr, pw);
+            CloseHandle(cli);
+            CloseHandle(srv);
+        }
+    }
+
+    /* 15. After touch of sysrun.conf, RECHECK on pipe 1 is denied */
+    {
+        char sync_ready[MAX_PATH], sync_done[MAX_PATH];
+        DWORD i;
+        FILE *rf;
+
+        sprintf(sync_ready, "%s.ready", result_file);
+        sprintf(sync_done, "%s.done", result_file);
+
+        rf = fopen(sync_ready, "wb");
+        if (rf) { fputc('1', rf); fflush(rf); fclose(rf); }
+
+        for (i = 0; i < 600 && GetFileAttributesA(sync_done) == INVALID_FILE_ATTRIBUTES; i++)
+            Sleep(50);
+
+        st = call_recheck_op3(query, srv1, dialog_id1);
+        if (st == 0xc0000022) pass_touch_policy_denied = 1;
+
+        DeleteFileA(sync_ready);
+        DeleteFileA(sync_done);
+    }
+
+    terminate_test_dialog(d_proc1, d_th1, pr1, pw1);
+    if (channel1 && transport) transport(srv1, E1S6_CLOSE, NULL, 0, &channel1);
+    CloseHandle(cli1);
+    CloseHandle(srv1);
+
+    int all_pass = pass_endorse_ok && pass_second_endorse_denied && pass_recheck_ok &&
+                   pass_recheck_bad_dialog_id_denied && pass_gen_server_denied &&
+                   pass_gen_root_denied && pass_gen_broker_denied && pass_gen_map_denied &&
+                   pass_gen_policy_denied && pass_desktop_route_denied &&
+                   pass_caller_session_denied && pass_desktop_mode_denied &&
+                   pass_payload_215_denied && pass_payload_217_denied &&
+                   pass_resumed_d_denied && pass_probe_image_d_denied &&
+                   pass_no_binding_denied && pass_touch_policy_denied &&
+                   pass_terminated_d_denied;
+
+    if (result_file && (f = fopen(result_file, "wb")))
+    {
+        fprintf(f, "endorse_ok=%s\n", pass_endorse_ok ? "PASS" : "FAIL");
+        fprintf(f, "second_endorse_denied=%s\n", pass_second_endorse_denied ? "PASS" : "FAIL");
+        fprintf(f, "recheck_ok=%s\n", pass_recheck_ok ? "PASS" : "FAIL");
+        fprintf(f, "recheck_bad_dialog_id_denied=%s\n", pass_recheck_bad_dialog_id_denied ? "PASS" : "FAIL");
+        fprintf(f, "gen_server_denied=%s\n", pass_gen_server_denied ? "PASS" : "FAIL");
+        fprintf(f, "gen_root_denied=%s\n", pass_gen_root_denied ? "PASS" : "FAIL");
+        fprintf(f, "gen_broker_denied=%s\n", pass_gen_broker_denied ? "PASS" : "FAIL");
+        fprintf(f, "gen_map_denied=%s\n", pass_gen_map_denied ? "PASS" : "FAIL");
+        fprintf(f, "gen_policy_denied=%s\n", pass_gen_policy_denied ? "PASS" : "FAIL");
+        fprintf(f, "desktop_route_denied=%s\n", pass_desktop_route_denied ? "PASS" : "FAIL");
+        fprintf(f, "caller_session_denied=%s\n", pass_caller_session_denied ? "PASS" : "FAIL");
+        fprintf(f, "desktop_mode_denied=%s\n", pass_desktop_mode_denied ? "PASS" : "FAIL");
+        fprintf(f, "payload_215_denied=%s\n", pass_payload_215_denied ? "PASS" : "FAIL");
+        fprintf(f, "payload_217_denied=%s\n", pass_payload_217_denied ? "PASS" : "FAIL");
+        fprintf(f, "resumed_d_denied=%s\n", pass_resumed_d_denied ? "PASS" : "FAIL");
+        fprintf(f, "probe_image_d_denied=%s\n", pass_probe_image_d_denied ? "PASS" : "FAIL");
+        fprintf(f, "no_binding_denied=%s\n", pass_no_binding_denied ? "PASS" : "FAIL");
+        fprintf(f, "touch_policy_denied=%s\n", pass_touch_policy_denied ? "PASS" : "FAIL");
+        fprintf(f, "terminated_d_denied=%s\n", pass_terminated_d_denied ? "PASS" : "FAIL");
+        fprintf(f, "r8endorse=%s\n", all_pass ? "PASS" : "FAIL");
+        fclose(f);
+    }
+    printf("r8endorse=%s\n", all_pass ? "PASS" : "FAIL");
+}
 #endif /* WEXELEVATE_TEST_APPROVAL */
 
 int main(int argc, char **argv)
@@ -1923,6 +2536,11 @@ int main(int argc, char **argv)
     if (!strcmp(mode, "child")) return child_mode(argc, argv);
     if (!strcmp(mode, "hold")) { Sleep(120000); return 0; }
 #ifdef WEXELEVATE_TEST_APPROVAL
+    if (!strcmp(mode, "r8endorse") && argc > 2)
+    {
+        r8endorse_mode(argv[2]);
+        return 0;
+    }
     if (!strcmp(mode, "r8binding") && argc > 2)
     {
         r8binding_mode(argv[2]);

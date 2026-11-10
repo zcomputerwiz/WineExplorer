@@ -1241,6 +1241,10 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         el_down "$ADM"
         cp -p "$SYS32/wexelevate_test.exe" "$ROOT/wexelevate_test.exe.r8bak"
         install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_probe$arch.exe" "$SYS32/wexelevate_test.exe"
+        if [ "$arch" = 32 ] && [ -d "$M/drive_c/windows/syswow64" ]; then
+            [ ! -f "$M/drive_c/windows/syswow64/wexelevate_test.exe" ] || cp -p "$M/drive_c/windows/syswow64/wexelevate_test.exe" "$ROOT/wexelevate_test.exe.r8bak32"
+            install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_probe$arch.exe" "$M/drive_c/windows/syswow64/wexelevate_test.exe"
+        fi
         cat "$M/system.reg" > "$ROOT/system.reg.r8b"
         reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
             '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8binding '"$(regpath "$EL/r8_bind1_${arch}.txt")"'"'
@@ -1291,11 +1295,52 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         [ "$pol_gen1" != "$pol_gen2" ] || fail "r8_binding_$arch: policy_gen did not change ($pol_gen1 == $pol_gen2)"
         ok "r8_binding_policy_gen_changed_$arch"
 
+        # WO-24: verified broker ENDORSE_DIALOG (op 2) and RECHECK (op 3) tests
+        el_down "$ADM"
+        cat "$ROOT/system.reg.r8b" > "$M/system.reg"
+        reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+            '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8endorse '"$(regpath "$EL/r8_end1_${arch}.txt")"'"'
+        r8_log="/tmp/wex_r8_e1_${arch}.log"
+        rm -f "$r8_log" "$EL/r8_end1_${arch}.txt" "$EL/r8_end1_${arch}.txt.ready" "$EL/r8_end1_${arch}.txt.done"
+        WEX_EL_LOG="$r8_log" el_up "$ADM"
+        wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" start-service wexelevate 0 >/dev/null 2>&1 &
+        SP=$!
+
+        for _ in $(seq 1 300); do [ -f "$EL/r8_end1_${arch}.txt.ready" ] && break; sleep 0.1; done
+        [ -f "$EL/r8_end1_${arch}.txt.ready" ] || { kill $SP 2>/dev/null || true; fail "r8_endorse_$arch: phase 1 not ready"; }
+
+        sleep 0.1
+        touch /etc/wineexplorer/sysrun.conf
+        touch "$EL/r8_end1_${arch}.txt.done"
+
+        for _ in $(seq 1 300); do [ -s "$EL/r8_end1_${arch}.txt" ] && break; sleep 0.1; done
+        wait $SP 2>/dev/null || true
+        sleep 0.1
+        touch /etc/wineexplorer/sysrun.conf
+
+        [ -s "$EL/r8_end1_${arch}.txt" ] || fail "r8_endorse_$arch: no result file"
+        tr -d '\r' < "$EL/r8_end1_${arch}.txt" > "$EL/r8_end1_${arch}.txt.tmp" && mv "$EL/r8_end1_${arch}.txt.tmp" "$EL/r8_end1_${arch}.txt"
+
+        for check_name in endorse_ok second_endorse_denied recheck_ok recheck_bad_dialog_id_denied \
+                          gen_server_denied gen_root_denied gen_broker_denied \
+                          gen_map_denied gen_policy_denied desktop_route_denied \
+                          caller_session_denied desktop_mode_denied payload_215_denied \
+                          payload_217_denied resumed_d_denied probe_image_d_denied \
+                          no_binding_denied touch_policy_denied terminated_d_denied; do
+            grep -qx "${check_name}=PASS" "$EL/r8_end1_${arch}.txt" || { cat "$EL/r8_end1_${arch}.txt" >&2; fail "r8_endorse_${check_name}_$arch failed"; }
+            ok "r8_endorse_${check_name}_$arch"
+        done
+
         # Restore broker
         el_down "$ADM"
         cat "$ROOT/system.reg.r8b" > "$M/system.reg"
         rm -f "$ROOT/system.reg.r8b"
         mv "$ROOT/wexelevate_test.exe.r8bak" "$SYS32/wexelevate_test.exe"
+        if [ -f "$ROOT/wexelevate_test.exe.r8bak32" ]; then
+            mv "$ROOT/wexelevate_test.exe.r8bak32" "$M/drive_c/windows/syswow64/wexelevate_test.exe"
+        elif [ "$arch" = 32 ] && [ -d "$M/drive_c/windows/syswow64" ]; then
+            rm -f "$M/drive_c/windows/syswow64/wexelevate_test.exe"
+        fi
         el_up "$ADM"
     done
     native_line=$(wc -l < "$ROOT/e1s6-service.log")

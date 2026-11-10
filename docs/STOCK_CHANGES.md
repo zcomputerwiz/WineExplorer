@@ -1,5 +1,21 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e R8 3d-1/3d-2: ENDORSE_DIALOG and RECHECK operations (lab only, 2026-11-10)
+
+Only with `WEX_E1S6_TRANSPORT_TEST`; no protocol change (the 3e-3 reply VARARG carries `dialog_id`).
+
+* `server/named_pipe.c`: `get_pipe_caller_binding` op 2 (216-byte payload: header, D's process handle,
+  pre-endorsement tuple) endorses the consent dialog after the docs/E1_S18E_R8_SPEC.md section 3 checks
+  (verified broker without a thread token and with a current S6 registration, binding present and not
+  endorsed, D created by the broker, protected, consent.exe image, created suspended and never resumed,
+  SYSTEM token, live pin, caller's session and desktop object, tuple fields equal to the binding record,
+  current generations unchanged, opener alive with its retained token and ids), retains D, its token
+  and ids, the pin pid and the sealed tuple, and returns a fresh `dialog_id`. Op 3 (24-byte payload:
+  header, dialog_id) rechecks all of it on the running dialog. The binding record now also retains the
+  opener's primary token and ids.
+* `server/process.c`, `process.h`: `process_unstarted_suspended`, the created-suspended proof of
+  `process_e1s_profile_committable` without the profile list and lease checks.
+
 ## E1-S18e R8 3e-2/3e-3: caller desktop and BINDING operation (lab only, 2026-11-09)
 
 Design: docs/E1_S18E_R8_3E_DESIGN.md sections 9 and 10. The only change outside
