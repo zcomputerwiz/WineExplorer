@@ -2,8 +2,9 @@
 # Safe Mode and the Advanced Options Menu
 
 Date: 2026-11-08  
-Status: phase 1 (boot modes, menu, logon, session) implemented and tested on SeaBIOS and OVMF (section 6); phase 2
-(Windows programs see Safe Mode) proposed.  
+Status: phase 1 (boot modes, menu, logon, session) implemented and tested on SeaBIOS and OVMF (section 6), also as
+installed from the ISO and as an upgrade; phase 2 (Windows programs see Safe Mode) built on a Wine branch and
+tested (sections 5 and 6).  
 Related: `docs/VINTNER_BOOT.md` section 4.3 (boot loader side).
 
 ## 1. What Windows XP does
@@ -50,6 +51,13 @@ disk.
 The Safe Mode values become `normal` while a setup stage is pending (`/etc/wineexplorer/setup/stage`): setup has
 to finish first.
 
+**The record** (work order B0, 2026-11-09). `wex-bootmode-record.service` runs `wex-bootmode --record` early in
+every boot, before `sysinit.target`. It writes the mode to `/run/wineexplorer/bootmode` unless the file exists; a
+boot through the menu records nothing, and the menu writes its own choice. Wine reads the mode from that file
+(section 5), so `wexmode=` on the command line, as a Vintner variant will pass it, reaches Windows programs too.
+`/run/wineexplorer` belongs to root: Wine cannot check who owns the file, so the prefetch service, which used to own
+the directory (`RuntimeDirectory=`), now only receives its socket there.
+
 **Which services start.** The generator `wex-bootmode-generator` writes only to
 `/run/systemd/generator.early`, which systemd clears at every boot:
 
@@ -88,8 +96,10 @@ Mode with Command Prompt can still be reached with a broken Wine. A normal start
 - `logonui.exe` shows it in Safe Mode only, as XP Professional does, unless
   `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList` says otherwise. Any account
   with a value of 0 there is left out of the Welcome screen.
-- The logon prefix is `lightdm`'s `~/.wine`. Until it is linked to the machine's hives (once the system role
-  runs), the list it reads is the one in its own registry.
+- The logon prefix is `lightdm`'s `~/.wine`. Where the system role runs (an ISO install has
+  `/etc/wineexplorer/sysrun.conf`), its `HKLM` is the machine's, so the list is the machine's and the prefix has no
+  `system.reg` of its own; `wex-greeter.sh` therefore treats a prefix with `user.reg` as made. Without the system
+  role the list is in the prefix's own registry.
 - No SSH logon is possible for root or Administrator (`/etc/ssh/sshd_config.d/wineexplorer.conf`).
 
 **Session.** The session keeps its name (`wine-explorer`), so LightDM records no new session for the account.
@@ -178,24 +188,42 @@ as XP's, with an explanation in our own words.
 - The screen uses the menu's current layout (columns, highlight bar, footer row), so C5 of the work order will
   change both screens together.
 
-## 5. Phase 2: Windows programs see Safe Mode (proposed)
+## 5. Phase 2: Windows programs see Safe Mode
 
-The plan for this and the other open items is `docs/SAFE_MODE_WORKORDER.md`. In short, these need changes to
-stock Wine (`docs/STOCK_CHANGES.md`):
+Built on 2026-11-09 (`docs/SAFE_MODE_WORKORDER.md` B1-B4, B6, B7, C1, C2). The Wine part is commit `46f3a86e33d` on
+the local Wine branch `claude/vintner-boot-integration` (`docs/STOCK_CHANGES.md`); the `wine` submodule still pins `cf1c29be`
+until that branch is merged together with the E1 work (B8). The shell part is in WineExplorer.
 
-- wineboot creates the volatile `SafeBoot\Option` key (`OptionValue` 1 or 2, `UseAlternateShell`) from `WEXMODE`,
-  and `GetSystemMetrics(SM_CLEANBOOT)` returns it (`dlls/win32u/sysparams.c`, a constant 0 today).
-- services.exe starts automatic services only if `SafeBoot\Minimal` or `SafeBoot\Network` lists them or their
-  group; `wine.inf` gains those lists with Wine's own core services.
-- wineboot runs only the `RunOnce` values whose name starts with `*` (Run keys and the Startup folder do not run
-  in WineExplorer today, in any mode).
-- The desktop draws "Safe Mode" in the corners on black, and Explorer shows the XP message box after logon;
-  measured against the XP VM.
-- The classic logon dialog after Ctrl+Alt+Del twice on the Safe Mode Welcome screen, as on XP.
+**What Windows programs see** (Wine):
+
+- `wineboot --init` reads `/run/wineexplorer/bootmode` (section 3) and creates the volatile
+  `HKLM\System\CurrentControlSet\Control\SafeBoot\Option` key: `OptionValue` 1 in Safe Mode and with Command
+  Prompt, 2 with Networking, and `UseAlternateShell` 1 with Command Prompt. In a normal start the key does not
+  exist, as on XP. Without the file, as in a stock prefix, nothing changes.
+- `GetSystemMetrics(SM_CLEANBOOT)` returns `OptionValue`.
+- services.exe starts only the services that `SafeBoot\Minimal` (or `SafeBoot\Network`) names, by service name or
+  load order group, and refuses to start any other with error 1084 (`ERROR_NOT_SAFEBOOT_SERVICE`), as XP does.
+  `wine.inf` lists Wine's own core services: EventLog, MountMgr, PlugPlay, RpcSs, winebus, wineusb, Winmgmt and
+  E1's elevation broker `wexelevate`; with Networking also LanmanServer, NDIS, nsiproxy and TermService. A prefix
+  made before the lists existed holds nothing back. Under the system role the lists live in the machine root's
+  `HKLM`, which only the Wine package's postinst updates (`wex-setup-machine.sh --update`); a user's own prefix
+  update cannot write it.
+- `PaintDesktop` paints the Safe Mode desktop for desktops that WineExplorer's shell does not paint.
+
+**The desktop** (`src/dlls/wexshell`). Explorer paints black instead of the wallpaper, with "Safe Mode" in white in
+the four corners of the work area and "WineExplorer (Wine <version>)" centred on the top row, in the window title
+font, smoothed. It takes Safe Mode from `SM_CLEANBOOT`, or from the session's `WEXMODE` while the Wine branch is not
+merged. Before the taskbar starts it shows a Yes/No message box titled "Desktop", in WineExplorer's own words, with
+Yes as the default; the desktop icons wait for the answer. Yes goes on; No logs off, until a restore tool can take
+the place of XP's System Restore (owner decision 2). Safe Mode with Command Prompt starts no Explorer, so it shows
+neither.
+
+Still open: `RunOnce` values whose name starts with `*` (B5, after a native probe on the XP VM), the basic
+resolution (C3) and the classic logon dialog after Ctrl+Alt+Del twice (C4).
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (49 tests, Linux) covers:
+`scripts/test_safemode.py` (55 tests, Linux) covers:
 
 - mode parsing, generator output and PAM decisions;
 - menu navigation and choices, and the logon screen choice;
@@ -203,28 +231,36 @@ stock Wine (`docs/STOCK_CHANGES.md`):
 - the start-up check: which starts count, and what counts as the logon screen;
 - the GRUB code that `11_wineexplorer_advanced` generates (GRUB's own syntax check runs in `update-grub` in the VM
   test);
-- the postinst migration from the old implementation (run twice to show it is idempotent) and the unit it enables;
+- the postinst migration from the old implementation (run twice to show it is idempotent), including the standard
+  users it hid, and the units it enables;
+- the boot mode record: written once, never for the menu, its unit, and `/run/wineexplorer` belonging to root;
+- that the greeter does not update a logon prefix that is already made;
 - that the VM test installs the Safe Mode files where the package does.
 
 `installer/tests/safe-mode.sh` is the VM test (usage in `docs/TOOLING.md`). It boots a copy-on-write overlay of an
 installed test disk once per phase, pressing F8 during GRUB's hidden timeout, and checks each start on the screen
 and over the serial console. By default it first copies this checkout's Safe Mode files where the session package
 installs them and runs the package postinst's Safe Mode part and `update-grub` in the guest; with
-`WEX_SAFEMODE_FILES=installed` it tests what an ISO installed. Before and after every boot it records the checksums
-of every file and link under `/etc` and `/var/lib/AccountsService` and of the accounts' `.dmrc`; a boot that
-changes one fails.
+`WEX_SAFEMODE_FILES=installed` it tests what an ISO installed, and with `upgrade` an upgrade from the Safe Mode
+before `14286423` (below). Before and after every boot it records the checksums of every file and link under `/etc`
+and `/var/lib/AccountsService` and of the accounts' `.dmrc`; a boot that changes one fails.
+
+With `WEX_TEST_PROBES` it also runs `installer/tests/safeboot-probe.c`, built as a 32-bit and a 64-bit program,
+in the logged-on session. Each prints `SM_CLEANBOOT`, the `Option` key's values, the state of EventLog, PlugPlay,
+MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spooler, which no SafeBoot list names.
+`WEX_TEST_SAFE_BOX=required` fails a Safe Mode logon that shows no message box.
 
 | Phase | Checks |
 |---|---|
-| `safe` | OS list shows "Safe Mode"; the Welcome screen instead of automatic logon, with the start-up check's pattern matching exactly one `logonui.exe` process; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; Explorer session with `WEXMODE=safe`; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open |
-| `safenet` | The same with `wex-safenet.target`, NetworkManager active and `WEXMODE=safenet` |
-| `safecmd` | The Welcome screen; the recovery console after logging on, and no wineserver |
+| `safe` | OS list shows "Safe Mode"; the Welcome screen instead of automatic logon, with the start-up check's pattern matching exactly one `logonui.exe` process; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; the message box, answered Yes, then the desktop; Explorer session with `WEXMODE=safe`; probes: `SM_CLEANBOOT` and `OptionValue` 1, no alternate shell, EventLog, PlugPlay and MountMgr running, NDIS and nsiproxy stopped, the spooler refused with 1084; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open |
+| `safenet` | The same with `wex-safenet.target`, NetworkManager active and `WEXMODE=safenet`; probes: 2, and NDIS and nsiproxy running |
+| `safecmd` | The Welcome screen; the recovery console after logging on, and no wineserver; then the probes, started with `wine` from the serial console as from the recovery console (output to a file): 1, `UseAlternateShell` 1, the services as in `safe` |
 | `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, and logging on still starts the recovery console |
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" and `wex_boot_pending` is back at 0 |
-| `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending` |
+| `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending`; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running |
 | `failed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards), the serial console shows `wex_boot_pending=1` once Linux runs: GRUB recorded the start. Then the Reset button (QMP `system_reset`) and the failure screen with its countdown. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold, and GRUB's "Loading Linux" text was not readable on OVMF. Up stops the countdown and removes its line, and Safe Mode with Command Prompt starts at once; that start leaves `wex_boot_pending` at 1. The next start shows the screen again; left alone, the countdown starts normally, and that start counts and clears the variable |
-| `accounts` | Needs `WEX_TEST_WINE`, a tarball of this branch's Wine. Provisioning gives Administrator a random password and adds `wexhidden` ("Hidden Test") with a value of 0 in the logon prefix's `SpecialAccounts\UserList`. The Safe Mode Welcome screen then shows Administrator and the test user but not Hidden Test, and Administrator logs on. In a normal start, the logon screen (after switching user) shows the test user only |
+| `accounts` | Needs `WEX_TEST_WINE`, a tarball of this branch's Wine. Provisioning gives Administrator a random password and adds `wexhidden` ("Hidden Test") with a value of 0 in the logon prefix's `SpecialAccounts\UserList`. The Safe Mode Welcome screen then shows Administrator and the test user but not Hidden Test, and Administrator logs on, through the message box. In a normal start, the logon screen (after switching user) shows the test user only |
 
 Every phase starts with `wex_boot_pending` cleared on the overlay, so a phase that failed does not leave the next
 one on the failure screen. After a run that showed the Welcome screen, the test checks that the greeter's prefix
@@ -254,3 +290,42 @@ changed a recorded file.
 
 Seen during the run and not part of this change: the installed image sets `LANG=en_US.UTF-8` without generating
 that locale, so the recovery console prints `setlocale` warnings.
+
+**Installed from the ISO** (A2, 2026-11-09). The default (GRUB) ISO, built in wexbuild with this branch, installed
+with no input on SeaBIOS and on OVMF. With `WEX_SAFEMODE_FILES=installed` all nine phases passed on both. It was
+the first run with the prefetch service, which was inactive in every Safe Mode and active otherwise. The check of
+the logon prefix failed at first: an ISO install has the system role, so that prefix has no `system.reg`, and the
+test, `check-lightdm.py` and the greeter all expected one. The greeter therefore ran `wineboot -u` at every start
+of the logon screen. All three now look for `user.reg`.
+
+**Upgrade** (A2, 2026-11-09). An ISO built from the tree before `14286423`, with today's Wine, installed on both
+firmwares; `WEX_SAFEMODE_FILES=upgrade` then started its Safe Mode with Command Prompt, added a standard user and
+installed this branch's packages. The old Safe Mode also wrote an AccountsService file for every account that had
+none, hiding standard users, and the postinst used to restore only the files it had saved (found in the old code
+while writing the test); it now shows those accounts again, and the test's standard user checks it. The run passed
+on both firmwares: of the old Safe Mode's drop-in, `/run` backups, PAM line, sessions, hidden accounts, unit links
+and GRUB entry nothing was left, and the automatic logon was back.
+
+**Phase 2** (B and C, 2026-11-09). This branch's Wine, unpacked over the A2 installs through `WEX_TEST_WINE`, with
+the probes and `WEX_TEST_SAFE_BOX=required`. The first runs showed the box, `SM_CLEANBOOT` and `OptionValue` right,
+but every service started in Safe Mode: unpacking the tarball had not updated the machine root, so its `HKLM` had no
+SafeBoot lists and services.exe held nothing back, as designed for a prefix without them. The provisioning boot now
+runs `wex-setup-machine.sh --update` after the tarball, as the Wine package's postinst does. (OCR also read the box's
+last line in pieces; the test now waits for its first.) The next run found that NDIS and nsiproxy stayed stopped
+with Networking: services.exe starts a driver through an internal `Winedevice` host service, and the first version
+checked the lists in `service_start`, which refused that host, so no driver started in any Safe Mode. The check
+moved to `StartService`, and the probe now also reports MountMgr, a listed driver.
+
+With that, all nine phases passed on SeaBIOS and on OVMF (the first `safecmd` of that run read no probe output
+over the serial console; it passed alone once the probe wrote to a file and had 180 seconds). The 32-bit and
+64-bit probes agreed everywhere:
+
+| Start | `SM_CLEANBOOT` | `UseAlternateShell` | EventLog, PlugPlay, MountMgr | NDIS, nsiproxy | Spooler |
+|---|---|---|---|---|---|
+| Safe Mode | 1 | none | running | stopped | refused, 1084 |
+| with Networking | 2 | none | running | running | refused, 1084 |
+| with Command Prompt | 1 | 1 | running | stopped | refused, 1084 |
+| Normal | 0 (no `Option` key) | none | running | running | not tried |
+
+The message box appeared and was answered in `safe`, `safenet` and `accounts`, Wine's 32-bit and 64-bit Notepad
+opened in Safe Mode, and no boot changed a recorded file.

@@ -77,6 +77,8 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     takes about 21 minutes on 16 threads.
   - To test uncommitted changes, copy the working tree in without `.git`, `wine`, `build` or `wexcomp`. Touch
     the files that differ from the clone's commit, because a sync can carry older times, then run `make`.
+    Also leave out the ignored `references/` and `archives/` (9 GB, 290,000 files, nothing a build reads): with
+    them an `rsync --checksum` over `/mnt/d` took 33 minutes (2026-11-09).
   - `make install prefix=/usr/local DESTDIR=...`, packed as a `.tar.gz`, feeds `safe-mode.sh` through
     `WEX_TEST_WINE`.
   - `installer/package-wine.sh` needs python3-pil and fetches third-party assets (icons, ReactOS sources, runtime
@@ -95,11 +97,23 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
 * `installer/tests/safe-mode.sh` (Safe Mode VM test, `docs/SAFE_MODE.md` section 6): as root in WSL Debian, from a
   script file, `VMTEST_DIR=/var/tmp/vmtest-gpt WEX_TEST_FIRMWARE=bios|uefi bash installer/tests/safe-mode.sh SOURCE_VM TEST_VM [PHASE...]`.
   It replaces TEST_VM with a new qcow2 overlay of the installed disk SOURCE_VM, which is never written; an existing
-  TEST_VM disk that is not an overlay of SOURCE_VM is refused. By default it copies this checkout's Safe Mode files
-  onto the overlay and runs the package postinst's Safe Mode part and `update-grub` in one provisioning boot;
-  `WEX_SAFEMODE_FILES=installed` skips that for a disk installed from an ISO with the package. Then one boot per
+  TEST_VM disk that is not an overlay of SOURCE_VM is refused. Every run starts with one provisioning boot
+  (`update-grub` and the test accounts). By default (`WEX_SAFEMODE_FILES=branch`) it also copies this checkout's
+  Safe Mode files onto the overlay and runs the package postinst's Safe Mode part; `installed` is for a disk
+  installed from an ISO with the package; `upgrade` (with `WEX_UPGRADE_DEBS`, a directory with the three packages)
+  is for a disk installed from an ISO with the Safe Mode before `14286423`: the provisioning boot starts that old
+  Safe Mode with Command Prompt, installs the packages with `dpkg` while it runs, and checks that nothing of it is
+  left (A2's upgrade test). `WEX_TEST_PROBES` (a directory with `safeboot-probe32.exe` and `safeboot-probe64.exe`,
+  built from `installer/tests/safeboot-probe.c` with MinGW in wexbuild) adds what Windows programs see in Safe
+  Mode (phase B); `WEX_TEST_SAFE_BOX=required` demands the message box after a Safe Mode logon (C2).
+  `WEX_TEST_LOADER=vintner` (with `installed`, on a disk installed from an ISO built with `--vintner`) reaches the
+  menu through Vintner Boot's Advanced Options variant instead of F8: `vmtest.py hold` keeps Shift down for its BIOS
+  menu, and Space opens systemd-boot's on UEFI. It leaves out GRUB's `failed` phase and `wex_boot_pending` checks. Run it from a
+  copy of `scripts/` and `installer/` when the checkout may change during the run: bash reads a script as it goes,
+  and an edit made meanwhile breaks the running test (this happened on 2026-11-09). Then one boot per
   phase (`safe safenet safecmd nowine bootlog startnormal normal failed`, plus `accounts` with `WEX_TEST_WINE`, a
-  tarball of this branch's Wine unpacked over `/` first), each checked on the screen (OCR) and over the
+  tarball of this branch's Wine unpacked over `/` first and the machine root updated, as the Wine package's
+  postinst does), each checked on the screen (OCR) and over the
   serial console as `WEX_TEST_USER` (default `wineuser`, empty password unless `WEX_TEST_PASSWORD_FILE`; on the
   Welcome screen the first tile unless `WEX_TEST_TILE` names one). `nowine` hides `/usr/local/bin/wine` on the
   overlay for its boot and puts it back. `failed` holds LightDM back 90 seconds with a drop-in it removes

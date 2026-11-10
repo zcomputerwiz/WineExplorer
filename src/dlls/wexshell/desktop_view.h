@@ -101,5 +101,7 @@ void desktop_view_load_wallpaper(const WCHAR *path);
 void desktop_view_paint(HDC hdc, const RECT *clip_rect);
 void desktop_view_on_display_change(int width, int height);
 HWND desktop_view_get_hwnd(void);
+BOOL desktop_view_safe_mode(void);
+void desktop_view_hold_icons(BOOL hold);
 
 #endif /* __WINE_EXPLORER_DESKTOP_VIEW_H */

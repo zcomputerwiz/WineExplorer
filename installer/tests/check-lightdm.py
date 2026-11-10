@@ -46,7 +46,7 @@ if not autologin:
     prefix = home / ".wine"
     if not prefix.exists():
         prefix = home / ".wine-logon"   # made before the move; the greeter moves it at its next start
-    registry = prefix / "system.reg"
-    assert os.path.lexists(registry), "greeter prefix has no system.reg"
+    # a made prefix has user.reg; under the system role its HKLM comes from the machine root (no system.reg)
+    assert os.path.lexists(prefix / "user.reg"), "greeter prefix has no user.reg"
     assert prefix.stat().st_uid == uid, "greeter prefix not owned by lightdm"
 print("PASS: installed LightDM, custom/recovery greeters, session, automatic logon and prefix isolation")

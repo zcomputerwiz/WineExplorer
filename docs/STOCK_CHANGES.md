@@ -1,5 +1,34 @@
 # Changes to stock Wine / third-party code
 
+## wineboot, win32u, services.exe, wine.inf, user32: Safe Mode (2026-11-09)
+
+Wine branch `claude/vintner-boot-integration`, commit `46f3a86e33d` on `cf1c29be` (local, not pushed;
+`docs/SAFE_MODE_WORKORDER.md` B1-B4, B6, B7). WineExplorer keeps the boot mode in the root-owned `/run/wineexplorer/bootmode` (`safe`, `safenet` or
+`safecmd`); without that file, as in a stock prefix, nothing changes.
+
+* `programs/wineboot/wineboot.c`: `create_safeboot_option_key` reads the file through `\\?\unix\` on every
+  `wineboot --init` and creates the volatile `HKLM\System\CurrentControlSet\Control\SafeBoot\Option` with
+  `OptionValue` (1 or 2) and, with Command Prompt, `UseAlternateShell` 1, as the Windows kernel does. In a normal
+  start it deletes a stray `Option` key. The `SafeBoot` parent is created non-volatile, so `wine.inf` can still
+  add its lists below it. WineExplorer-specific (the path); not for upstream in this form.
+* `dlls/win32u/sysparams.c`: `GetSystemMetrics(SM_CLEANBOOT)` returns `OptionValue` (0 without the key) instead
+  of a constant 0; a value once found is kept for the process.
+* `programs/services/services.c`, `rpc.c`, `services.h`: in Safe Mode only services that `SafeBoot\Minimal` (or
+  `SafeBoot\Network` with Networking) names, by service name or load order group, are started automatically, and
+  `StartService` refuses the others with `ERROR_NOT_SAFEBOOT_SERVICE` (1084), as on Windows. Without a list (a
+  prefix older than the lists) nothing is held back. The check is not in `service_start`, which also starts the
+  internal `Winedevice` hosts that run the drivers.
+* `loader/wine.inf.in`: the `[SafeBoot]` section, added to `BaseInstall`. `Minimal`: EventLog, MountMgr, PlugPlay,
+  RpcSs, winebus, wineusb, Winmgmt and E1's `wexelevate`; `Network` adds LanmanServer, NDIS, nsiproxy and
+  TermService. `SafeBoot\AlternateShell` is `cmd.exe`. NDIS and nsiproxy share MountMgr's "System Bus Extender"
+  group, so no group is listed.
+* `dlls/user32/desktop.c`: `PaintDesktop` paints the Safe Mode desktop when `SM_CLEANBOOT` is set (black, "Safe
+  Mode" in the corners of the work area, the Wine version centred on the top row, in the caption font smoothed in
+  gray), for desktops that WineExplorer's shell does not paint. Written from the XP measurements, not ported.
+* Tests: `dlls/user32/tests/sysparams.c` (`SM_CLEANBOOT` equals `OptionValue`, or 0 without the key) and
+  `programs/services/tests/service.c` (in Safe Mode, starting the spooler fails with 1084; the service tests,
+  whose services are not listed, then stop).
+
 ## E1-S14 disabled managed hive leases and persistence (2026-11-07; static only)
 
 Protocol **978 -> 979**, existing request 325 now has a 24-byte generation-bearing

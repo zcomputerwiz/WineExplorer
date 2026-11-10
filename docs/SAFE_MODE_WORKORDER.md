@@ -2,8 +2,10 @@
 # Safe Mode: Remaining Work
 
 Date: 2026-11-08  
-Status: plan; the owner's decisions are in section 4 (2026-11-08). Phase 1 (boot modes, Advanced Options menu,
-logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer commit `14286423`).  
+Status: in progress; the owner's decisions are in section 4 (2026-11-08). Phase 1 (boot modes, Advanced Options
+menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer commit `14286423`). Done since: A1,
+A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09). Open: A3, A4, B5, B8's merge, C3-C6 and the
+rest of C4 and C7, D2-D5.  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
@@ -54,7 +56,8 @@ grayed. The VM test lives only in a scratchpad.
 Done 2026-11-08: every phase passed on SeaBIOS and OVMF in one run (`docs/SAFE_MODE.md` section 6). The 32-bit
 check uses Wine's own 32-bit and 64-bit Notepad, started by `installer/tests/session-run.py`, which now also runs
 as the logged-on user. `check-wow64.sh` with its MinGW-built test programs still needs a root serial login and
-the compilers. The round 3 image has no prefetch service, so A2 is the first run that checks the Prefetcher's mask.
+the compilers. The round 3 image has no prefetch service, so A2 was the first run that checked the Prefetcher's
+mask (it held).
 What was planned:
 
 - Start from an installed disk, as an overlay or from a fresh `install-unattended.sh` run. Put the session
@@ -82,6 +85,14 @@ by hand. Then:
 The ISO is built in wexbuild now (`docs/TOOLING.md`). On 2026-11-09 an ISO built with `--vintner` installed and
 passed on both firmwares (`docs/VINTNER_BOOT.md` section 4.2), but a Vintner install has no F8 yet. A2 itself needs
 the default (GRUB) ISO.
+
+**Done 2026-11-09** (`docs/SAFE_MODE.md` section 6): the GRUB ISO installed with no input and all nine phases
+passed on SeaBIOS and OVMF, with the Prefetcher masked in every Safe Mode. The upgrade test passed on both
+firmwares (`WEX_SAFEMODE_FILES=upgrade`). Found and fixed on the way:
+- Under the system role the logon prefix has no `system.reg` of its own, so the greeter ran `wineboot -u` at every
+  start of the logon screen; it now looks for `user.reg`.
+- The old Safe Mode hid standard users that had no AccountsService file, and the postinst did not show them again;
+  now it does.
 - Upgrade test: install from an ISO that has the old Safe Mode, boot it into the old Safe Mode with Command Prompt
   once, install the new package, and check that the postinst removed the leftovers. The leftovers are
   `99-safemode.conf`, the old PAM line, `Session=wex-safe-terminal` and the enabled `wex-safemode.service`.
@@ -107,6 +118,12 @@ First check the greeter's precedence for configuration directories. This step be
 - `DefaultDependencies=no`, `After=systemd-tmpfiles-setup.service`, wanted by `sysinit.target`.
 - It writes the output of `wex-bootmode` to the file if the file is missing.
 - `wex-bootmode` keeps preferring the file, so nothing else changes.
+
+**Done 2026-11-09** (`wex-bootmode --record`, `installer/systemd/wex-bootmode-record.service`). A security fix came
+with it: `/run/wineexplorer` belonged to the prefetch service's `wexcache` account (its tmpfiles line and
+`RuntimeDirectory=`). `wex-bootmode` ignores a file that root does not own, but Wine cannot check the owner, so
+that account could have changed the mode Windows programs see, in either direction. The directory now belongs to root,
+and the daemon only receives its socket there from systemd.
 
 **B1. wineboot creates `HKLM\System\CurrentControlSet\Control\SafeBoot\Option`** as a volatile key, as the Windows
 kernel does:
@@ -152,7 +169,28 @@ are first set up.
   - The later standard-user chain adds native pieces that are not Windows services: a root verifier D-Bus service
     and the PAM worker.
 
-**B5. RunOnce values in wineboot** (`process_run_key`, `programs/wineboot/wineboot.c:1257-1319`).
+**B1-B4 and B6 are done on the Wine branch** (2026-11-09; the branch is local, and the submodule still pins
+`cf1c29be`). What was built is in `docs/SAFE_MODE.md` section 5 and the first entry of
+`docs/STOCK_CHANGES.md`. Different from the plan above:
+- B2 reads the key when `SM_CLEANBOOT` is first asked for, not when the metrics are set up, and keeps a value once
+  found: a process that starts before wineboot has made the key asks again.
+- B3 checks the lists in the automatic start and in `StartService` (`rpc.c`), not in `service_start`: that also
+  starts the internal `Winedevice` host services that run the drivers, and a first version there kept every driver
+  from starting in Safe Mode.
+- Not covered: drivers that ntoskrnl's PnP manager loads for the devices of a listed bus (winebus, wineusb) go
+  through `ZwLoadDriver` in the driver host (`dlls/ntoskrnl.exe/ntoskrnl.c`), not through services.exe, so they
+  load in Safe Mode too; Windows checks those in the kernel. They are device drivers (HID, USB), so this was left
+  as it is.
+- B3 fails open: with no SafeBoot list (a prefix made before the lists) every service starts as before. Under the
+  system role the lists are in the machine root's `HKLM`, so they reach an existing install with the Wine
+  package's postinst (`wex-setup-machine.sh --update`), not with a user's prefix update.
+- B4's lists, with no XP export to compare yet: `Minimal` is EventLog, MountMgr, PlugPlay, RpcSs, winebus, wineusb,
+  Winmgmt and `wexelevate`; `Network` adds LanmanServer, NDIS, nsiproxy and TermService. NDIS and nsiproxy share
+  MountMgr's "System Bus Extender" group, so groups are not listed, or `Minimal` would start them too.
+- B6 is written from the XP measurements rather than ported from ReactOS, and shows Wine's version.
+
+**B5. RunOnce values in wineboot** (`process_run_key`, `programs/wineboot/wineboot.c:1257-1319`). Open: it waits for
+the native probe on the XP VM.
 
 - In Safe Mode, run only the values whose name starts with `*`, and leave the others for the next normal start.
 - In every mode, a `!` prefix should defer the deletion until the command has succeeded. Wine handles neither
@@ -172,10 +210,15 @@ draw "Safe Mode" in the four corners plus the version line at the top centre, po
   `SM_CLEANBOOT` reads 1, 2 and 1 in Safe Mode, with Networking and with Command Prompt, and that 32-bit and
   64-bit Notepad still start. (On the XP VM those values come from WMI's boot-state reading; no `GetSystemMetrics`
   probe could be built there without MinGW.)
+- **Done 2026-11-09.** Both conformance tests are on the branch. The VM test's probe is
+  `installer/tests/safeboot-probe.c`, built with MinGW in wexbuild as a 32-bit and a 64-bit program and run in
+  `safe`, `safenet`, `safecmd` and `normal` (`docs/SAFE_MODE.md` section 6). It also checks that starting the
+  spooler fails with 1084.
 
 **B8. Build and record.** WoW64 build (`configure --enable-archs=i386,x86_64`, `docs/BUILDING.md`); entries in
 `docs/STOCK_CHANGES.md` for B1-B6; the WineExplorer submodule pointer moves only when the branch is merged, in
-agreement with the owners of the E1 work.
+agreement with the owners of the E1 work. The build (WoW64, in wexbuild) and the `STOCK_CHANGES.md` entry are done;
+the merge is open.
 
 ### Phase C: Safe Mode desktop and logon (WineExplorer)
 
@@ -188,14 +231,17 @@ instead of the wallpaper, then draws "Safe Mode" in the four corners and the ver
 name and version, never Microsoft's text. Port the layout from ReactOS. On XP the desktop uses the classic look,
 the corner text is white and smoothed and sits flush against the screen edges, the bottom corners sit just above
 the taskbar, and the version line is centred on the top row. The corner glyphs measure the same as the window
-title font, but whether they follow that setting is unconfirmed.
+title font, but whether they follow that setting is unconfirmed. **Done 2026-11-09** (`desktop_view.c`): the
+window title font, smoothed; the version line is "WineExplorer (Wine <version>)". The classic look is not forced.
 
 **C2. Message box after logon.** XP shows a Yes/No message box on the Safe Mode desktop, with Yes as the default;
 it does not appear in Safe Mode with Command Prompt. No opens System Restore while the desktop keeps loading
 behind it, and cancelling System Restore leaves the user in the Safe Mode session. Show it once from
 `WexShellStart` (`src/dlls/wexshell/desktop.c:1321`) after the desktop appears. WineExplorer has no System
 Restore, so No logs off to the logon screen until a restore tool (Vintner rollback) can take its place
-(decision 2).
+(decision 2). **Done 2026-11-09** (`desktop.c`, `safe_mode_message`): the box comes before the taskbar, and the
+desktop icons wait for the answer; the text is WineExplorer's own. The VM test answers it in `safe`, `safenet` and
+`accounts`.
 
 **C3. Basic resolution.** XP starts Safe Mode at 640x480 with its basic display driver. That driver keeps its own
 saved mode, separate from the normal driver's, so Safe Mode never takes the normal-mode resolution. Let
@@ -440,8 +486,9 @@ options when needed" setting is D1's countdown, so add it when D1 lands.
 
 ## 5. Order
 
-1. A1, A2 (tests first; they check every later step).
-2. B0-B8 on the Wine branch, then C1 and C2. These need B2, or `WEXMODE` as a stopgap.
+1. A1, A2 (tests first; they check every later step). Done.
+2. B0-B8 on the Wine branch, then C1 and C2. These need B2, or `WEXMODE` as a stopgap. Done except B5 and B8's
+   merge.
 3. D1 (GRUB; done 2026-11-08), then A3 and A4.
 4. C1-C6 (the XP captures exist); C4's Welcome screen first, the classic dialog (Ctrl+Alt+Del twice) later. C4's
    Administrator account (decision 7) and C7's hidden accounts (decision 8) go together, C7's logon-prefix links

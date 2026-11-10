@@ -266,6 +266,20 @@ logs on through the Welcome screen, a permanent VM test (`installer/tests/safe-m
 both firmwares, and the remaining WineExplorer work is planned in `docs/SAFE_MODE_WORKORDER.md`. Its D1 (the
 start-up failure screen) and D3 (Last Known Good) are the items that meet Vintner.
 
+Vintner's variants (V1, the Vintner session, 2026-11-09): next in its queue, after its Secure Boot row (#80). The
+contract, from WO-0010 4.3:
+
+- A product declares a variant in `/etc/vintner/variants.d/<id>.conf`: a title and extra command-line tokens,
+  validated as in 4.2. Vintner appends `vintner.variant=<id>` and the product's tokens (here `wexmode=menu`) to that
+  variant's command line, so `wex-bootmode` keeps reading `wexmode=` and needs no change. Wine learns the mode from
+  `/run/wineexplorer/bootmode`, which the menu writes; a variant that carries `wexmode=safe` directly needs
+  `wex-bootmode-record.service` (`docs/SAFE_MODE_WORKORDER.md` B0).
+- UEFI: one extra uncounted UKI per retained generation and variant, never the default. BIOS: one more command line
+  per variant in `slot.cfg`, listed in the Shift menu.
+- Choosing a variant from the running system is `vintner next-boot variant <id>`: that variant of the generation
+  that would boot next, for one boot, with no state change. It comes with 4.5/V6, not V1, so with V1 alone the
+  variants can only be chosen in the loader's menu. The Vintner session gives the exact syntax when it starts V6.
+
 Left for Vintner:
 
 - Remove the GRUB generator once Vintner variants exist: drop

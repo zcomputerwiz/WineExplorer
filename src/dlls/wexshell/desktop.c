@@ -1318,6 +1318,24 @@ static void set_shell_window( HWND hwnd )
     }
 }
 
+/* XP's message box after logging on in Safe Mode (docs/SAFE_MODE_WORKORDER.md C2), in WineExplorer's own words.
+ * Until it is answered the desktop shows only its Safe Mode painting, without icons or taskbar. Yes, the default,
+ * goes on; No logs off, until a restore tool can take the place of XP's System Restore (owner decision 2). Safe Mode
+ * with Command Prompt starts no Explorer, so it never shows the box. */
+static void safe_mode_message(void)
+{
+    static const WCHAR text[] =
+        L"WineExplorer is running in Safe Mode.\n\n"
+        L"Safe Mode starts only the services WineExplorer needs, so that you can find and fix a problem caused by a "
+        L"program, a driver or a setting. Some devices and features may not be available in Safe Mode.\n\n"
+        L"To keep working in Safe Mode, click Yes. To log off instead, click No.";
+
+    desktop_view_hold_icons(TRUE);
+    if (MessageBoxW(NULL, text, L"Desktop", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON1 | MB_SETFOREGROUND) == IDNO)
+        ExitWindowsEx(EWX_LOGOFF | EWX_FORCEIFHUNG, 0);
+    desktop_view_hold_icons(FALSE);
+}
+
 BOOL WINAPI WexShellStart(DWORD version, HWND hwnd, UINT width, UINT height,
                            BOOL show_systray, BOOL no_tray_items)
 {
@@ -1346,6 +1364,7 @@ BOOL WINAPI WexShellStart(DWORD version, HWND hwnd, UINT width, UINT height,
                                                            WINEVENT_OUTOFCONTEXT );
             shellfolder_link_media_folders();
 
+    if (desktop_view_safe_mode()) safe_mode_message();
     initialize_systray(FALSE, TRUE, show_systray, no_tray_items);
     set_shell_window(hwnd);
     return TRUE;

@@ -35,4 +35,12 @@ if [ -e "$setup_stage" ]; then
         safe*) mode=normal ;;
     esac
 fi
+# --record (wex-bootmode-record.service, early in every boot): Wine reads the mode from the state file
+# (docs/SAFE_MODE_WORKORDER.md B0), and without the menu nothing else writes it. A menu boot records nothing: the
+# menu writes its own choice.
+if [ "${1:-}" = --record ]; then
+    if [ "$mode" = menu ] || [ -e "$state" ] || [ -L "$state" ]; then exit 0; fi
+    mkdir -p "${state%/*}" && printf '%s\n' "$mode" > "$state.tmp" && chmod 644 "$state.tmp" && mv -f "$state.tmp" "$state"
+    exit
+fi
 echo "$mode"

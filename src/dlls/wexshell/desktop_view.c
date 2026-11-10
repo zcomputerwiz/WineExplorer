@@ -415,13 +415,77 @@ void desktop_view_load_wallpaper(const WCHAR *path)
     }
 }
 
+/* C2: no icons until the Safe Mode message box is answered */
+static BOOL icons_held;
+
+void desktop_view_hold_icons(BOOL hold)
+{
+    icons_held = hold;
+    if (g_desktop_view.hwnd) InvalidateRect(g_desktop_view.hwnd, NULL, TRUE);
+}
+
+/* Safe Mode (docs/SAFE_MODE_WORKORDER.md C1): SM_CLEANBOOT once Wine reports it (B2), otherwise the session's
+ * WEXMODE (scripts/wine-explorer-session.sh) */
+BOOL desktop_view_safe_mode(void)
+{
+    WCHAR mode[16];
+
+    if (GetSystemMetrics(SM_CLEANBOOT)) return TRUE;
+    if (!GetEnvironmentVariableW(L"WEXMODE", mode, ARRAY_SIZE(mode))) return FALSE;
+    return !wcscmp(mode, L"safe") || !wcscmp(mode, L"safenet");
+}
+
+/* The Safe Mode desktop, as XP draws it: black, "Safe Mode" flush in the four corners of the work area (the bottom
+ * ones just above the taskbar) and the version line centred on the top row, white, in the window caption font
+ * smoothed in gray. The icons are drawn over it. The version line is WineExplorer's own. */
+static void draw_safe_mode(HDC hdc, int screen_w, int screen_h)
+{
+    static const WCHAR safe_mode[] = L"Safe Mode";
+    const char *(CDECL *wine_version)(void) = (void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version");
+    NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+    RECT screen_rc = {0, 0, screen_w, screen_h}, work;
+    WCHAR version[96] = L"WineExplorer", wine[48];
+    HFONT font = NULL;
+    int len = lstrlenW(safe_mode), state = SaveDC(hdc);
+
+    FillRect(hdc, &screen_rc, GetStockObject(BLACK_BRUSH));
+    if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0)) work = screen_rc;
+    if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0))
+    {
+        ncm.lfCaptionFont.lfQuality = ANTIALIASED_QUALITY;
+        if ((font = CreateFontIndirectW(&ncm.lfCaptionFont))) SelectObject(hdc, font);
+    }
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, RGB(255, 255, 255));
+    SetTextAlign(hdc, TA_LEFT | TA_TOP);
+    TextOutW(hdc, work.left, work.top, safe_mode, len);
+    SetTextAlign(hdc, TA_RIGHT | TA_TOP);
+    TextOutW(hdc, work.right, work.top, safe_mode, len);
+    SetTextAlign(hdc, TA_LEFT | TA_BOTTOM);
+    TextOutW(hdc, work.left, work.bottom, safe_mode, len);
+    SetTextAlign(hdc, TA_RIGHT | TA_BOTTOM);
+    TextOutW(hdc, work.right, work.bottom, safe_mode, len);
+    if (wine_version && MultiByteToWideChar(CP_ACP, 0, wine_version(), -1, wine, ARRAY_SIZE(wine)))
+        swprintf(version, ARRAY_SIZE(version), L"WineExplorer (Wine %s)", wine);
+    SetTextAlign(hdc, TA_CENTER | TA_TOP);
+    TextOutW(hdc, (work.left + work.right) / 2, work.top, version, lstrlenW(version));
+    RestoreDC(hdc, state);
+    if (font) DeleteObject(font);
+}
+
 static void draw_wallpaper(HDC hdc, int screen_w, int screen_h)
 {
     THEME_CONFIG config, *theme = &config;
-    theme_get_current(theme);
-    HBRUSH bg_brush = CreateSolidBrush(GetSysColor(COLOR_BACKGROUND));
     RECT screen_rc = {0, 0, screen_w, screen_h};
+    HBRUSH bg_brush;
 
+    if (desktop_view_safe_mode())
+    {
+        draw_safe_mode(hdc, screen_w, screen_h);
+        return;
+    }
+    theme_get_current(theme);
+    bg_brush = CreateSolidBrush(GetSysColor(COLOR_BACKGROUND));
     FillRect(hdc, &screen_rc, bg_brush);
     DeleteObject(bg_brush);
 
@@ -628,7 +692,7 @@ void desktop_view_paint(HDC hdc, const RECT *clip_rect)
     draw_wallpaper(mem_dc, screen_w, screen_h);
 
     /* 2. Paint desktop icons */
-    if (g_desktop_view.show_desktop_icons)
+    if (g_desktop_view.show_desktop_icons && !icons_held)
     {
         for (i = 0; i < g_desktop_view.item_count; i++)
         {

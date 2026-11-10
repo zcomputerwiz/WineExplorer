@@ -11,7 +11,8 @@ generation 1 was blessed.
 Checks: vintner-core and vintner-platform are installed and no stock loader package is; Setup's step ended well;
 GRUB has no configuration; the manifest (read with the installed static vintner binary) holds generation 1, GOOD,
 for both firmwares, with the root and boot storage on its command line; the ESP holds Vintner's loader, also as the
-removable path. Prints a one-line summary.
+removable path; when the system declares the Advanced Options variant, generation 1 has it on both firmwares.
+Prints a one-line summary.
 """
 import filecmp
 import json
@@ -31,6 +32,33 @@ def package_status(root, package):
     result = subprocess.run(["dpkg-query", f"--admindir={root}/var/lib/dpkg", "-W", "-f=${Status}", package],
                             capture_output=True, text=True)
     return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def check_variant(root, storage, esp, image, cmdline):
+    """The Advanced Options variant (installer/vintner/advanced.conf, docs/VINTNER_BOOT.md section 4.3), when the
+    installed system declares it: published with generation 1 for both firmwares, with its tokens after the
+    generation's command line. Vintner Boot's docs/variants.md and schema/manifest.md (V1) give the layout."""
+    if not os.path.exists(f"{root}/etc/vintner/variants.d/advanced.conf"):
+        return ""
+    found = [v for v in image.get("variants") or [] if v.get("id") == "advanced"]
+    if not found:
+        fail(f"generation 1 has no advanced variant: {image.get('variants')!r}")
+    variant = found[0]
+    expected = f"{cmdline} wexmode=menu vintner.variant=advanced"
+    if variant.get("cmdline") != expected:
+        fail(f"the advanced variant's command line is {variant.get('cmdline')!r}, expected {expected!r}")
+    entry = (variant.get("uefi") or {}).get("entry", "")
+    if entry != "vintner_variant-os-1-advanced" or not os.path.isfile(f"{esp}/EFI/Linux/{entry}.efi"):
+        fail(f"the ESP has no UKI for the advanced variant ({entry!r})")
+    try:
+        with open(f"{storage}{image['bios']['dir']}/slot.cfg") as slot:
+            slot_cfg = slot.read()
+    except (KeyError, OSError) as error:
+        fail(f"no slot.cfg for generation 1: {error}")
+    for line in ('set vintner_variants="advanced"', f'set vintner_vcmdline_advanced="{expected}"'):
+        if line not in slot_cfg.splitlines():
+            fail(f"generation 1's slot.cfg lacks {line!r}")
+    return f", variant {variant.get('title')!r}"
 
 
 def main():
@@ -81,6 +109,8 @@ def main():
     if not image.get("uefi") or not image.get("bios"):
         fail("generation 1 is not published for both firmwares")
 
+    variant = check_variant(root, storage, esp, image, cmdline)
+
     loader = f"{root}/usr/lib/vintner/payloads/uefi/systemd-bootx64.efi"
     for path in ("EFI/vintner/systemd-bootx64.efi", "EFI/BOOT/BOOTX64.EFI"):
         if not os.path.isfile(f"{esp}/{path}") or not filecmp.cmp(f"{esp}/{path}", loader, shallow=False):
@@ -89,7 +119,7 @@ def main():
         fail("the ESP still has Debian's loader directory")
 
     print(f"vintner: generation 1 GOOD ({image.get('kernel', {}).get('abi')}), "
-          f"{len(images)} image(s), cmdline {cmdline!r}")
+          f"{len(images)} image(s), cmdline {cmdline!r}{variant}")
 
 
 main()

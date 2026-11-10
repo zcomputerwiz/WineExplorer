@@ -38,9 +38,10 @@ gtk_greeter() {
 }
 if [ -n "$SAFE" ] && [ ! -x "$WINE" ]; then gtk_greeter "no Wine at $WINE"; fi
 
-# update the prefix after a Wine (re)install before showing anything (as the session script does)
+# update the prefix after a Wine (re)install before showing anything (as the session script does). A made prefix
+# always has user.reg; under the system role its HKLM comes from the machine root and it has no system.reg.
 NTDLL=$(ls /usr/local/lib/wine/x86_64-unix/ntdll.so 2>/dev/null)
-if [ ! -e "$WINEPREFIX/system.reg" ] || { [ -n "$NTDLL" ] && { [ ! -e "$WINEPREFIX/.update-timestamp" ] || [ "$NTDLL" -nt "$WINEPREFIX/.update-timestamp" ]; }; }; then
+if [ ! -e "$WINEPREFIX/user.reg" ] || { [ -n "$NTDLL" ] && { [ ! -e "$WINEPREFIX/.update-timestamp" ] || [ "$NTDLL" -nt "$WINEPREFIX/.update-timestamp" ]; }; }; then
     # built-in DLLs as links to the packaged files (docs/PREFIX_SPLIT.md), not 1.7 GB of copies
     "${LIMIT[@]}" env -u DISPLAY WINELINKFAKEDLLS=1 "$WINE" wineboot.exe -u
     "${LIMIT[@]}" "$(dirname "$WINE")/wineserver" -w

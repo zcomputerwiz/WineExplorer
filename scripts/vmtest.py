@@ -142,6 +142,18 @@ def keys(name, combos, hold=80):
         # or text while Ctrl/Alt/Shift from this one is still held.
         time.sleep(max(0.05, hold / 1000 + 0.01))
 
+def hold(name, key, seconds):
+    # A held key: repeated key-down events with no key-up, as a keyboard's typematic repeat sends, then the release.
+    # Vintner Boot's BIOS GRUB shows its menu while Shift is down (keystatus --shift), which send-key cannot do.
+    event = lambda down: [{"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": key}}}]
+    end = time.time() + seconds
+    try:
+        while time.time() < end:
+            qmp(name, "input-send-event", events=event(True))
+            time.sleep(0.2)
+    finally:
+        qmp(name, "input-send-event", events=event(False))
+
 def move(name, x, y):
     # A compositor's headless second output is outside QEMU's primary scanout,
     # but the USB tablet spans the whole layout. Keep ordinary VM defaults.
@@ -249,6 +261,7 @@ def main():
     s = sub.add_parser("shutdown"); s.add_argument("name"); s.add_argument("--timeout", type=float, default=120)
     s = sub.add_parser("shot"); s.add_argument("name"); s.add_argument("file", nargs="?")
     s = sub.add_parser("key"); s.add_argument("name"); s.add_argument("keys", nargs="+")
+    s = sub.add_parser("hold"); s.add_argument("name"); s.add_argument("key"); s.add_argument("seconds", type=float)
     s = sub.add_parser("type"); s.add_argument("name"); s.add_argument("text")
     s = sub.add_parser("click"); s.add_argument("name"); s.add_argument("x", type=int); s.add_argument("y", type=int)
     s.add_argument("button", nargs="?", default="left")
@@ -278,6 +291,8 @@ def main():
         print(shot(a.name, a.file))
     elif a.op == "key":
         keys(a.name, a.keys)
+    elif a.op == "hold":
+        hold(a.name, a.key, a.seconds)
     elif a.op == "type":
         type_text(a.name, a.text.rstrip("\r\n"))
     elif a.op == "click":

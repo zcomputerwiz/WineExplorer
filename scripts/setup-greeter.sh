@@ -16,7 +16,7 @@ if [ "$1" != gtk ]; then
     if [ ! -e "$PREFIX" ] && [ -d /var/lib/lightdm/.wine-logon ] && [ ! -L /var/lib/lightdm/.wine-logon ]; then
         mv /var/lib/lightdm/.wine-logon "$PREFIX"   # the earlier name
     fi
-    if [ ! -e "$PREFIX/system.reg" ]; then
+    if [ ! -e "$PREFIX/user.reg" ]; then   # under the system role a made prefix has no system.reg of its own
         echo "Making the logon prefix $PREFIX ..."
         if [ -d "/etc/skel/.wine" ]; then
             cp -a /etc/skel/.wine "$PREFIX"

@@ -261,16 +261,19 @@ install -m644 "$SCRIPT_DIR/live-build/config/includes.chroot/etc/lightdm/lightdm
 cp "$ROOT_DIR/scripts/20-wineexplorer-modesetting.conf" "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
 chmod 644 "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
 
-# GRUB entry for the Advanced Options menu (F8)
+# GRUB entry for the Advanced Options menu (F8), and the same entry as a Vintner Boot variant; each loader ignores
+# the other's file
 cp "$SCRIPT_DIR/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_advanced" "$STAGE_SESSION/etc/grub.d/"
 chmod 755 "$STAGE_SESSION/etc/grub.d/"*
+install -D -m644 "$SCRIPT_DIR/vintner/advanced.conf" "$STAGE_SESSION/etc/vintner/variants.d/advanced.conf"
+echo /etc/vintner/variants.d/advanced.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 
 # Setup systemd units and polkit rule
 cp "$SCRIPT_DIR/systemd/wex-textsetup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-setup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
 for unit in wex-advanced-options.target wex-advanced-options.service wex-safemode.target wex-safenet.target \
-            wex-bootlog.service wex-startup-check.service; do
+            wex-bootlog.service wex-startup-check.service wex-bootmode-record.service; do
     cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
@@ -316,6 +319,14 @@ if [ -d /run/wex-safemode ]; then
     for f in /run/wex-safemode/orig-*; do
         if [ -f "$f" ]; then cp -f "$f" "/var/lib/AccountsService/users/${f##*/orig-}"; fi
     done
+    # It also wrote a file for every account that had none, hiding standard users (SystemAccount=true).
+    for f in /var/lib/AccountsService/users/*; do
+        u=${f##*/}
+        if [ -f "$f" ] && [ ! -e "/run/wex-safemode/orig-$u" ] && [ "$u" != nobody ]; then
+            uid=$(id -u "$u" 2>/dev/null || echo 0)
+            if [ "$uid" -ge 1000 ]; then sed -i 's/^SystemAccount=true$/SystemAccount=false/' "$f"; fi
+        fi
+    done
     rm -rf /run/wex-safemode
 fi
 for f in /var/lib/AccountsService/users/*; do
@@ -337,6 +348,8 @@ if [ -f /etc/pam.d/lightdm-autologin ]; then
 fi
 # The start-up check clears GRUB's wex_boot_pending once the logon screen is up ("did not start successfully").
 systemctl enable wex-startup-check.service || true
+# Every boot records its mode in /run/wineexplorer/bootmode, where Wine reads it (SafeBoot\Option, SM_CLEANBOOT).
+systemctl enable wex-bootmode-record.service || true
 # The built-in Administrator account (docs/SAFE_MODE_WORKORDER.md C4): created locked, in the administrators' group
 # (E1's admin_group= in sysrun.conf, default sudo). Setup gives it the Administrator password (wex-gui-setup.sh copies
 # root's); until then it cannot log on, and the Welcome screen leaves it out. The AccountsService file makes it a

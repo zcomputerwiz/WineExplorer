@@ -38,14 +38,36 @@
 # written. TEST_VM is replaced by a new overlay of it, which is kept for inspection; an existing TEST_VM disk that
 # is not an overlay of SOURCE_VM is refused.
 #   WEX_TEST_FIRMWARE=uefi        boot with OVMF (default bios, SeaBIOS): the firmware SOURCE_VM was installed with
-#   WEX_SAFEMODE_FILES=installed  SOURCE_VM already has this branch's wineexplorer-session package (an ISO install).
-#                                 The default, branch, copies this checkout's Safe Mode files onto the overlay where
-#                                 the package installs them, then runs the package postinst's Safe Mode part and
-#                                 update-grub in the guest during one provisioning boot.
+#   WEX_TEST_LOADER=vintner       SOURCE_VM starts through Vintner Boot (an ISO built with --vintner, so also
+#                                 WEX_SAFEMODE_FILES=installed): the menu is reached through the Advanced Options
+#                                 variant (installer/vintner/advanced.conf) in Vintner's menu, Shift held on BIOS and
+#                                 Space pressed on UEFI, instead of F8; each start reports its variant on the serial
+#                                 console. GRUB's start-up record does not exist there, so the failed phase and the
+#                                 wex_boot_pending checks are left out. Default grub.
+#   WEX_SAFEMODE_FILES            how the overlay gets this branch's Safe Mode; every mode then runs update-grub and
+#                                 sets up the test accounts in one provisioning boot:
+#                   branch        (default) copies this checkout's Safe Mode files onto the overlay where the package
+#                                 installs them, and runs the package postinst's Safe Mode part in the guest
+#                   installed     SOURCE_VM already has this branch's packages (an ISO install)
+#                   upgrade       SOURCE_VM was installed from an ISO with the Safe Mode before docs/SAFE_MODE.md (built
+#                                 before commit 14286423). The provisioning boot starts that Safe Mode with Command
+#                                 Prompt (grubenv next_entry) and, while it runs, installs the packages in
+#                                 WEX_UPGRADE_DEBS with dpkg; then the test checks that nothing of the old Safe Mode
+#                                 is left (docs/SAFE_MODE_WORKORDER.md A2). It first adds the locked standard account
+#                                 wexstd ("Standard Test") with no AccountsService file, which the old Safe Mode hides.
+#   WEX_UPGRADE_DEBS              with upgrade: a directory with this branch's wineexplorer, wineexplorer-session and
+#                                 wexcomp packages (installer/package-wine.sh, installer/package-wexcomp.sh)
 #   WEX_TEST_WINE                 with branch: a .tar.gz of this branch's Wine (make install prefix=/usr/local into
 #                                 a staging directory, packed from there), unpacked over / in the provisioning boot
 #                                 before the Safe Mode files are set up. It tests Wine-side changes (logonui.exe,
-#                                 wexhost) without packaging, which downloads third-party assets.
+#                                 wexhost) without packaging, which downloads third-party assets. With installed and
+#                                 upgrade the packages carry this branch's Wine.
+#   WEX_TEST_PROBES               a directory with safeboot-probe32.exe and safeboot-probe64.exe (installer/tests/
+#                                 safeboot-probe.c, built with MinGW). Then safe, safenet and normal also check what
+#                                 Windows programs see (work order B1-B3): SM_CLEANBOOT, SafeBoot\Option, which
+#                                 services run, and that an unlisted service is refused. Needs a Wine with phase B.
+#   WEX_TEST_SAFE_BOX=required    a Safe Mode logon must show the message box (work order C2); by default (optional)
+#                                 the box is answered when it appears, for images whose Explorer has none
 #   WEX_TEST_USER                 the account that logs on (default wineuser); it also logs on on the serial console
 #   WEX_TEST_PASSWORD_FILE        its password (default: empty)
 #   WEX_TEST_TILE                 its name on the Welcome screen (default: WEX_TEST_USER), clicked; Enter (the first
@@ -77,14 +99,44 @@ case "$FIRMWARE" in
     *) echo "Invalid firmware: $FIRMWARE"; exit 2 ;;
 esac
 FILES=${WEX_SAFEMODE_FILES:-branch}
-case "$FILES" in branch|installed) ;; *) echo "Invalid WEX_SAFEMODE_FILES: $FILES"; exit 2 ;; esac
+case "$FILES" in branch|installed|upgrade) ;; *) echo "Invalid WEX_SAFEMODE_FILES: $FILES"; exit 2 ;; esac
+LOADER=${WEX_TEST_LOADER:-grub}
+case "$LOADER" in
+    grub) ;;
+    vintner)
+        [ "$FILES" = installed ] || { echo "WEX_TEST_LOADER=vintner needs WEX_SAFEMODE_FILES=installed"; exit 2; }
+        if [ $# -eq 0 ]; then
+            PHASES=(safe safenet safecmd nowine bootlog startnormal normal)
+        else
+            case " ${PHASES[*]} " in *" failed "*) echo "The failed phase is GRUB's (WEX_TEST_LOADER=grub)"; exit 2 ;; esac
+        fi
+        ;;
+    *) echo "Invalid WEX_TEST_LOADER: $LOADER"; exit 2 ;;
+esac
 WINE_TAR=${WEX_TEST_WINE:-}
 if [ -n "$WINE_TAR" ]; then
     [ "$FILES" = branch ] || { echo "WEX_TEST_WINE needs WEX_SAFEMODE_FILES=branch"; exit 2; }
     [ -f "$WINE_TAR" ] || { echo "No Wine tarball: $WINE_TAR"; exit 2; }
 fi
+SAFE_BOX=${WEX_TEST_SAFE_BOX:-optional}
+case "$SAFE_BOX" in required|optional) ;; *) echo "Invalid WEX_TEST_SAFE_BOX: $SAFE_BOX"; exit 2 ;; esac
+PROBE_DIR=${WEX_TEST_PROBES:-}
+if [ -n "$PROBE_DIR" ]; then
+    for bits in 32 64; do
+        [ -f "$PROBE_DIR/safeboot-probe$bits.exe" ] || { echo "No $PROBE_DIR/safeboot-probe$bits.exe"; exit 2; }
+    done
+fi
+UPGRADE_DEBS=${WEX_UPGRADE_DEBS:-}
+if [ "$FILES" = upgrade ]; then
+    for pkg in wineexplorer_ wineexplorer-session_ wexcomp_; do
+        compgen -G "$UPGRADE_DEBS/$pkg*.deb" >/dev/null \
+            || { echo "WEX_UPGRADE_DEBS has no $pkg*.deb: ${UPGRADE_DEBS:-unset}"; exit 2; }
+    done
+fi
 case " ${PHASES[*]} " in
-    *" accounts "*) [ -n "$WINE_TAR" ] || { echo "The accounts phase needs this branch's Wine: WEX_TEST_WINE"; exit 2; } ;;
+    *" accounts "*)
+        [ "$FILES" != branch ] || [ -n "$WINE_TAR" ] \
+            || { echo "The accounts phase needs this branch's Wine: WEX_TEST_WINE"; exit 2; } ;;
 esac
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -97,6 +149,7 @@ OUT=$STATE/safe-mode
 MNT=$STATE/root
 USER_NAME=${WEX_TEST_USER:-wineuser}
 HELPER=/usr/local/libexec/wex-tests/session-run.py
+PROBES=/usr/local/libexec/wex-tests
 NTBTLOG=/var/lib/wineexplorer/machine/drive_c/windows/ntbtlog.txt
 NBD=
 
@@ -119,6 +172,9 @@ SAFE_MODE_FILES=(
     "644 installer/systemd/wex-safenet.target lib/systemd/system/wex-safenet.target"
     "644 installer/systemd/wex-bootlog.service lib/systemd/system/wex-bootlog.service"
     "644 installer/systemd/wex-startup-check.service lib/systemd/system/wex-startup-check.service"
+    "644 installer/systemd/wex-bootmode-record.service lib/systemd/system/wex-bootmode-record.service"
+    "644 installer/systemd/wexprefetchd.tmpfiles usr/lib/tmpfiles.d/wexprefetchd.conf"
+    "644 installer/systemd/wexprefetchd.service lib/systemd/system/wexprefetchd.service"
     "755 installer/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_advanced etc/grub.d/11_wineexplorer_advanced"
 )
 # What the implementation before docs/SAFE_MODE.md installed; dpkg removes these when the package is upgraded.
@@ -206,11 +262,43 @@ shot() { "${V[@]}" shot "$TEST" "$OUT/$PHASE-$1.png" >/dev/null; }
 screen_sum() { "${V[@]}" shot "$TEST" >/dev/null 2>&1; md5sum < "$STATE/screen.ppm"; }
 wait_text() { "${V[@]}" wait "$TEST" "$1" --timeout "$2" >/dev/null; }
 
+open_menu_vintner() {
+    # Vintner Boot's menu shows while Shift is held on BIOS (its GRUB's keystatus --shift, then no timeout) and after a
+    # key press on UEFI (systemd-boot). Each generation's variants follow it, and the menu highlights the generation,
+    # so the Advanced Options variant is one item down. Its start counts nothing (Vintner Boot's docs/variants.md).
+    local _ try
+    for try in 1 2; do
+        start_vm
+        if [ "$FIRMWARE" = bios ]; then
+            "${V[@]}" hold "$TEST" shift 20 >/dev/null 2>&1
+        else
+            for _ in $(seq 1 60); do "${V[@]}" key "$TEST" spc >/dev/null 2>&1; sleep 0.25; done
+        fi
+        if wait_text "Advanced Options for" 30; then
+            shot loader
+            move_down 1
+            shot loader-variant
+            "${V[@]}" key "$TEST" ret >/dev/null
+            wait_text "Advanced Options Menu" 180 || fail "the Advanced Options variant did not start the menu"
+            sleep 3
+            shot menu
+            VIA_MENU=1
+            return 0
+        fi
+        [ "$try" = 2 ] && fail "no Vintner Boot menu with the Advanced Options variant"
+        shot no-loader-menu
+        echo "  (Vintner Boot's menu did not show; starting again)"
+        "${V[@]}" stop "$TEST" >/dev/null 2>&1
+        wait_off 60 || fail "the VM did not stop"
+    done
+}
+
 open_menu() {
     # During GRUB's hidden timeout F8, the menu entry's hotkey, boots the Advanced Options entry. Keys sent while the
     # firmware runs are buffered, so press it repeatedly from the start. Once in a while no press reaches GRUB and the
     # machine starts normally; then stop it, clear the start-up state that start may have left, and try once more.
     local _ try
+    if [ "$LOADER" = vintner ]; then open_menu_vintner; return; fi
     for try in 1 2; do
         start_vm
         for _ in $(seq 1 40); do "${V[@]}" key "$TEST" f8 >/dev/null 2>&1; sleep 0.25; done
@@ -303,19 +391,29 @@ logon_gtk() {   # the GTK greeter asks for the user name, then the password
 
 # prefetch is "absent" on images made before the prefetch service (docs/PREFETCH_SERVICE.md); disk is the root
 # file system's use in percent
-STATE_CMD='printf "mode=%s default=%s nm=%s timers=%s cron=%s prefetch=%s disk=%s\n" "$(wex-bootmode)" "$(systemctl get-default)" "$(systemctl is-active NetworkManager.service)" "$(systemctl list-units --type=timer --state=active --no-legend | wc -l)" "$(systemctl is-active cron.service)" "$(if [ -e /lib/systemd/system/wexprefetchd.socket ]; then systemctl is-active wexprefetchd.socket; else echo absent; fi)" "$(df --output=pcent / | tail -n 1 | tr -d " %")"'
+STATE_CMD='printf "mode=%s default=%s nm=%s timers=%s cron=%s prefetch=%s disk=%s variant=%s\n" "$(wex-bootmode)" "$(systemctl get-default)" "$(systemctl is-active NetworkManager.service)" "$(systemctl list-units --type=timer --state=active --no-legend | wc -l)" "$(systemctl is-active cron.service)" "$(if [ -e /lib/systemd/system/wexprefetchd.socket ]; then systemctl is-active wexprefetchd.socket; else echo absent; fi)" "$(df --output=pcent / | tail -n 1 | tr -d " %")" "$(grep -o "vintner[.]variant=[a-z0-9_]*" /proc/cmdline | cut -d= -f2 | grep . || echo none)"'
+
+kv_check() {   # kv_check LINE key=value|key!=value...: prints the first expectation LINE does not meet
+    local line=$1 kv
+    shift
+    for kv in "$@"; do
+        case "$kv" in
+            *!=*) case " $line " in *" ${kv%%!=*}=${kv#*!=} "*) echo "$kv"; return 1 ;; esac ;;
+            *) case " $line " in *" $kv "*) ;; *) echo "$kv"; return 1 ;; esac ;;
+        esac
+    done
+}
 
 expect_state() {   # expect_state key=value|key!=value...: the guest's mode and units, read on the serial console
-    local line kv disk
+                   # (with Vintner Boot also the variant: the Advanced Options one after the menu, else none)
+    local line miss disk variant=()
     line=$(gsh "$STATE_CMD" | grep '^mode=' | tail -n 1)
     echo "  $line"
     [ -n "$line" ] || fail "no answer on the serial console"
-    for kv in "$@"; do
-        case "$kv" in
-            *!=*) case " $line " in *" ${kv%%!=*}=${kv#*!=} "*) fail "expected $kv: $line" ;; esac ;;
-            *) case " $line " in *" $kv "*) ;; *) fail "expected $kv: $line" ;; esac ;;
-        esac
-    done
+    if [ "$LOADER" = vintner ]; then
+        if [ -n "${VIA_MENU:-}" ]; then variant=(variant=advanced); else variant=(variant=none); fi
+    fi
+    miss=$(kv_check "$line" "$@" "${variant[@]}") || fail "expected $miss: $line"
     # a full test disk makes every later result unreliable (VMs have run out of space before)
     disk=${line##*disk=}
     disk=${disk%% *}
@@ -336,6 +434,27 @@ desktop() {   # desktop TIMEOUT
     shot desktop
 }
 
+safe_desktop() {   # safe_desktop TIMEOUT: after a Safe Mode logon the message box (work order C2), answered with Enter
+                   # (Yes, the default), then the desktop. WEX_TEST_SAFE_BOX=required fails when there is no box.
+    local end=$((SECONDS + $1)) screen seen=
+    while [ "$SECONDS" -lt "$end" ]; do
+        screen=$("${V[@]}" text "$TEST" 2>/dev/null | tr '\n' ' ')
+        case "$screen" in
+            *"running in Safe Mode"*) seen=1; shot box; "${V[@]}" key "$TEST" ret >/dev/null; break ;;   # OCR reads the first line whole
+            *"Recycle Bin"*) break ;;
+        esac
+        sleep 3
+    done
+    if [ -n "$seen" ]; then
+        echo "  Safe Mode message box answered with Yes"
+    elif [ "$SAFE_BOX" = required ]; then
+        fail "no Safe Mode message box after logon"
+    else
+        echo "  (no Safe Mode message box)"
+    fi
+    desktop 120
+}
+
 wait_serial() {   # wait_serial TIMEOUT: until the serial console answers; vmtest.py sh waits 15 s for a login prompt
     local end=$((SECONDS + $1))
     while [ "$SECONDS" -lt "$end" ]; do
@@ -347,6 +466,7 @@ wait_serial() {   # wait_serial TIMEOUT: until the serial console answers; vmtes
 
 expect_pending() {   # expect_pending 0|1|unset: GRUB's wex_boot_pending (11_wineexplorer_advanced) in the guest
     local out
+    [ "$LOADER" = grub ] || return 0   # Vintner Boot keeps its own counters (docs/VINTNER_BOOT.md 4.3)
     out=$(gsh 'v=$(grub-editenv /boot/grub/grubenv list | sed -n "s/^wex_boot_pending=//p"); echo "pending=${v:-unset}"' \
         | grep '^pending=' | tail -n 1)
     echo "  wex_boot_$out"
@@ -402,6 +522,32 @@ programs_32_64() {   # the regression check: Wine's 32-bit (syswow64) and 64-bit
     done
 }
 
+expect_safeboot() {   # expect_safeboot 0|1|2|cmd: what Windows programs see, from the 32-bit and the 64-bit probe.
+                      # cmd: Safe Mode with Command Prompt, run from the serial console, as from the recovery console
+    local bits out miss raw run want=()
+    [ -n "$PROBE_DIR" ] || return 0
+    case "$1" in
+        0) want=(cleanboot=0 option=none shell=none MountMgr=running spooler=untried) ;;
+        1) want=(cleanboot=1 option=1 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped spooler=1084) ;;
+        2) want=(cleanboot=2 option=2 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=running nsiproxy=running spooler=1084) ;;
+        cmd) want=(cleanboot=1 option=1 shell=1 EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped spooler=1084) ;;
+    esac
+    for bits in 32 64; do
+        if [ "$1" = cmd ]; then
+            run="timeout 150 env WINEDEBUG=err-all wine $PROBES/safeboot-probe$bits.exe > /tmp/wex-safeboot$bits.out 2>&1; echo wine-rc=\$?; tail -n 15 /tmp/wex-safeboot$bits.out"
+        else
+            run="rm -f /tmp/wex-safeboot$bits.log; python3 $HELPER --user $USER_NAME --wait --log-file /tmp/wex-safeboot$bits.log $PROBES/safeboot-probe$bits.exe >/dev/null; grep '^bits=' /tmp/wex-safeboot$bits.log"
+        fi
+        raw=$(gsh "$run" 180)
+        out=$(grep '^bits=' <<< "$raw" | tail -n 1)
+        echo "  probe: $out"
+        if ! miss=$(kv_check "$out" "bits=$bits" "${want[@]}"); then
+            sed 's/^/  | /' <<< "$raw" | tail -n 20
+            fail "the $bits-bit probe: expected $miss: ${out:-no answer}"
+        fi
+    done
+}
+
 shutdown_vm() { "${V[@]}" shutdown "$TEST" --timeout 180 >/dev/null || fail "no clean shutdown"; }
 
 phase_safe() {
@@ -410,8 +556,9 @@ phase_safe() {
     expect_state mode=safe default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
     expect_logonui_process
     logon
-    desktop 400
+    safe_desktop 400
     expect_session_mode safe
+    expect_safeboot 1
     programs_32_64
     shutdown_vm
 }
@@ -421,8 +568,9 @@ phase_safenet() {
     logon_screen
     expect_state mode=safenet default=wex-safenet.target nm=active timers=0 cron=inactive prefetch!=active
     logon
-    desktop 400
+    safe_desktop 400
     expect_session_mode safenet
+    expect_safeboot 2
     shutdown_vm
 }
 
@@ -433,6 +581,7 @@ phase_safecmd() {
     expect_pending 0
     logon
     recovery_console
+    expect_safeboot cmd   # after the console check, which wants no wineserver
     shutdown_vm
 }
 
@@ -494,6 +643,15 @@ phase_normal() {
     expect_check
     expect_pending unset   # counted: the check cleared it
     expect_session_mode normal
+    # work order B0: a boot without the menu records its mode where Wine reads it (on images that have the unit)
+    out=$(gsh 'echo record=$(cat /run/wineexplorer/bootmode 2>/dev/null || echo none) unit=$(systemctl is-enabled wex-bootmode-record.service 2>/dev/null || echo absent) dir=$(stat -c %U /run/wineexplorer 2>/dev/null)' \
+        | grep '^record=' | tail -n 1)
+    echo "  $out"
+    case "$out" in
+        "record=normal unit=enabled dir=root"|"record=none unit=absent dir="*) ;;
+        *) fail "the boot mode record: ${out:-no answer}" ;;
+    esac
+    expect_safeboot 0
     shutdown_vm
 }
 
@@ -555,7 +713,7 @@ phase_accounts() {   # provisioning gave Administrator a test password and hid w
     shot tiles-safe
     echo "  Safe Mode Welcome screen: Administrator and $USER_NAME shown, Hidden Test not"
     logon Administrator "$ADMIN_PWFILE"
-    desktop 400
+    safe_desktop 400
     out=$(gsh 'loginctl list-sessions --no-legend | awk "{ print \$3 }" | sort -u | tr "\n" " "' | tail -n 1)
     echo "  sessions: $out"
     grep -qw administrator <<< "$out" || fail "Administrator did not log on"
@@ -597,39 +755,90 @@ echo "=== $TEST: overlay of $SOURCE, $FIRMWARE, Safe Mode files: $FILES"
 
 attach rw || die "cannot mount the overlay"
 install -D -m 755 "$HERE/session-run.py" "$MNT$HELPER" || die "cannot install the test helper"
+if [ -n "$PROBE_DIR" ]; then
+    install -m 755 "$PROBE_DIR/safeboot-probe32.exe" "$PROBE_DIR/safeboot-probe64.exe" "$MNT$PROBES/" \
+        || die "cannot install the Safe Mode probes"
+fi
 ADMIN_PWFILE=$OUT/admin-password
-if [ "$FILES" != installed ]; then
-    if [ "$FILES" = branch ]; then
-        for entry in "${SAFE_MODE_FILES[@]}"; do
-            read -r mode src dst <<< "$entry"
-            install -D -m "$mode" "$REPO/$src" "$MNT/$dst" || die "cannot install $src"
-        done
-        for old in "${OLD_FILES[@]}"; do rm -f "$MNT/$old"; done
-        {
-            echo '#!/bin/sh'
-            echo 'set -e'
-            awk '/^# Safe Mode \(docs\/SAFE_MODE\.md\)/ { p = 1 } /^systemctl daemon-reload/ { p = 0 } p' \
-                "$REPO/installer/package-wine.sh"
-        } > "$MNT/root/wex-test-safemode-postinst.sh"
-        grep -q pam_exec "$MNT/root/wex-test-safemode-postinst.sh" \
-            || die "the Safe Mode part of the postinst was not found in installer/package-wine.sh"
-        STEP='sh -x /root/wex-test-safemode-postinst.sh; echo "postinst=$?"'
-        if [ -n "$WINE_TAR" ]; then
-            cp -- "$WINE_TAR" "$MNT/root/wex-test-wine.tar.gz" || die "cannot copy the Wine tarball onto the overlay"
-            STEP='tar -xzf /root/wex-test-wine.tar.gz -C / --no-same-owner; echo "wine=$?"; rm -f /root/wex-test-wine.tar.gz
-'"$STEP"
-        fi
-    fi
-    # a random password for the Administrator account (work order C4), for this overlay only
-    head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16 > "$ADMIN_PWFILE"
-    install -m 600 "$ADMIN_PWFILE" "$MNT/root/wex-test-admin-password" || die "cannot copy the Administrator password"
+STEP=
+# The provisioning unit runs before the logon screen; with upgrade, inside the old Safe Mode, once it is set up
+ORDER='Before=display-manager.service'
+if [ "$FILES" = branch ]; then
+    for entry in "${SAFE_MODE_FILES[@]}"; do
+        read -r mode src dst <<< "$entry"
+        install -D -m "$mode" "$REPO/$src" "$MNT/$dst" || die "cannot install $src"
+    done
+    for old in "${OLD_FILES[@]}"; do rm -f "$MNT/$old"; done
     {
         echo '#!/bin/sh'
-        echo '# installer/tests/safe-mode.sh: runs once, removes itself and powers off'
-        echo 'exec > /root/wex-test-provision.log 2>&1'
-        echo "$STEP"
-        cat <<'EOF'
-update-grub; echo "update-grub=$?"
+        echo 'set -e'
+        awk '/^# Safe Mode \(docs\/SAFE_MODE\.md\)/ { p = 1 } /^systemctl daemon-reload/ { p = 0 } p' \
+            "$REPO/installer/package-wine.sh"
+    } > "$MNT/root/wex-test-safemode-postinst.sh"
+    grep -q pam_exec "$MNT/root/wex-test-safemode-postinst.sh" \
+        || die "the Safe Mode part of the postinst was not found in installer/package-wine.sh"
+    STEP='sh -x /root/wex-test-safemode-postinst.sh; echo "postinst=$?"'
+    if [ -n "$WINE_TAR" ]; then
+        cp -- "$WINE_TAR" "$MNT/root/wex-test-wine.tar.gz" || die "cannot copy the Wine tarball onto the overlay"
+        # then what the Wine package's postinst does: update the machine root, whose HKLM gets wine.inf's changes
+        # (the SafeBoot lists); a user's prefix update cannot write the machine's HKLM under the system role
+        STEP='tar -xzf /root/wex-test-wine.tar.gz -C / --no-same-owner; echo "wine=$?"; rm -f /root/wex-test-wine.tar.gz
+if [ -d /var/lib/wineexplorer/machine/drive_c/windows/system32 ] && [ -x /usr/local/bin/wex-setup-machine.sh ]; then
+    /usr/local/bin/wex-setup-machine.sh --update; echo "machine=$?"
+fi
+'"$STEP"
+    fi
+elif [ "$FILES" = upgrade ]; then
+    [ -e "$MNT/etc/grub.d/11_wineexplorer_safemode" ] \
+        || die "$SOURCE has no Safe Mode from before docs/SAFE_MODE.md (/etc/grub.d/11_wineexplorer_safemode)"
+    old_entry=$(grep -o "^menuentry '[^']*Safe Mode with Command Prompt[^']*'" "$MNT/boot/grub/grub.cfg" | head -n 1 | cut -d"'" -f2)
+    [ -n "$old_entry" ] || die "the grub.cfg of $SOURCE has no Safe Mode with Command Prompt entry"
+    grub-editenv "$MNT/boot/grub/grubenv" set "next_entry=$old_entry" || die "cannot choose '$old_entry' for the next start"
+    AUTOLOGIN_CONFS=$(find "$MNT/etc/lightdm/lightdm.conf.d" -maxdepth 1 -name '*autologin*' | wc -l)
+    install -d -m 700 "$MNT/root/wex-test-debs" && cp -- "$UPGRADE_DEBS"/*.deb "$MNT/root/wex-test-debs/" \
+        || die "cannot copy the packages onto the overlay"
+    useradd --root "$MNT" --create-home --comment 'Standard Test' wexstd || die "cannot add the account wexstd"
+    cat > "$MNT/root/wex-test-upgrade.sh" <<'EOF'
+#!/bin/sh
+# installer/tests/safe-mode.sh, WEX_SAFEMODE_FILES=upgrade: runs while the old Safe Mode with Command Prompt is up
+state() {   # what the old Safe Mode changed: its LightDM drop-in and run-time state, PAM lines, the standard
+            # accounts it gave its session or hid, its unit, and the automatic logon drop-ins it moved away
+    sessions=0
+    hidden=0
+    for f in /var/lib/AccountsService/users/*; do
+        uid=$(id -u "${f##*/}" 2>/dev/null) || continue
+        [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] || continue
+        if grep -qEx 'X?Session=wex-safe-terminal' "$f"; then sessions=$((sessions + 1)); fi
+        if grep -qx 'SystemAccount=true' "$f"; then hidden=$((hidden + 1)); fi
+    done
+    echo "mode=$(grep -o 'wexmode=[a-z]*' /proc/cmdline | head -n 1 | cut -d= -f2)" \
+        "dropin=$(if [ -e /etc/lightdm/lightdm.conf.d/99-safemode.conf ]; then echo yes; else echo no; fi)" \
+        "run=$(if [ -e /run/wex-safemode ]; then echo yes; else echo no; fi)" \
+        "pam=$(cat /etc/pam.d/lightdm /etc/pam.d/lightdm-autologin | grep -c wex-safemode-pam-check)" \
+        "sessions=$sessions hidden=$hidden" \
+        "unit=$(ls /etc/systemd/system/*.wants/wex-safemode.service 2>/dev/null | wc -l)" \
+        "autologin=$(ls /etc/lightdm/lightdm.conf.d | grep -c autologin)"
+}
+echo "old: $(state)"
+dpkg -i /root/wex-test-debs/*.deb; echo "dpkg=$?"
+rm -rf /root/wex-test-debs
+echo "new: $(state)"
+# the logon screen is up; stop it before the test accounts and the logon prefix are set up
+systemctl stop display-manager.service; echo "logon-stopped=$?"
+EOF
+    STEP='sh /root/wex-test-upgrade.sh; rm -f /root/wex-test-upgrade.sh'
+    ORDER='After=wex-safemode.service display-manager.service'
+fi
+# a random password for the Administrator account (work order C4), for this overlay only
+head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16 > "$ADMIN_PWFILE"
+install -m 600 "$ADMIN_PWFILE" "$MNT/root/wex-test-admin-password" || die "cannot copy the Administrator password"
+{
+    echo '#!/bin/sh'
+    echo '# installer/tests/safe-mode.sh: runs once, removes itself and powers off'
+    echo 'exec > /root/wex-test-provision.log 2>&1'
+    echo "$STEP"
+    cat <<'EOF'
+if command -v update-grub >/dev/null; then update-grub; echo "update-grub=$?"; else echo "update-grub=none"; fi
 # test accounts (work order C4, C7): Administrator with the test password; wexhidden hidden by SpecialAccounts\UserList
 if getent passwd administrator >/dev/null; then
     printf 'administrator:%s\n' "$(cat /root/wex-test-admin-password)" | chpasswd; echo "adminpw=$?"
@@ -666,47 +875,75 @@ rm -f /etc/systemd/system/multi-user.target.wants/wex-test-provision.service /et
 sync
 systemctl --no-block poweroff
 EOF
-    } > "$MNT/root/wex-test-provision.sh"
-    chmod 755 "$MNT/root/wex-test-provision.sh"
-    cat > "$MNT/etc/systemd/system/wex-test-provision.service" <<'EOF'
-[Unit]
-Description=Safe Mode test provisioning (installer/tests/safe-mode.sh)
-After=local-fs.target
-Before=display-manager.service
-
-[Service]
-Type=oneshot
-ExecStart=/root/wex-test-provision.sh
-EOF
-    mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
-    ln -sf /etc/systemd/system/wex-test-provision.service \
-        "$MNT/etc/systemd/system/multi-user.target.wants/wex-test-provision.service"
-fi
+} > "$MNT/root/wex-test-provision.sh"
+chmod 755 "$MNT/root/wex-test-provision.sh"
+printf '%s\n' '[Unit]' 'Description=Safe Mode test provisioning (installer/tests/safe-mode.sh)' 'After=local-fs.target' \
+    "$ORDER" '' '[Service]' 'Type=oneshot' 'ExecStart=/root/wex-test-provision.sh' \
+    > "$MNT/etc/systemd/system/wex-test-provision.service"
+mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
+ln -sf /etc/systemd/system/wex-test-provision.service \
+    "$MNT/etc/systemd/system/multi-user.target.wants/wex-test-provision.service"
 detach
 
-if [ "$FILES" != installed ]; then
-    echo "=== provisioning boot ($(date +%T))"
-    "${V[@]}" start "$TEST" "${START_ARGS[@]}" >/dev/null || die "QEMU did not start"
-    wait_off 1500 || die "the provisioning boot did not power off"
-fi
+echo "=== provisioning boot ($(date +%T))"
+"${V[@]}" start "$TEST" "${START_ARGS[@]}" >/dev/null || die "QEMU did not start"
+wait_off 1500 || die "the provisioning boot did not power off"
 attach ro || die "cannot mount the overlay"
-if [ "$FILES" != installed ]; then
-    cp "$MNT/root/wex-test-provision.log" "$OUT/provision.log" 2>/dev/null
-    if [ -n "$WINE_TAR" ]; then
-        grep -qx 'wine=0' "$OUT/provision.log" || { detach; die "unpacking the Wine tarball failed (see $OUT/provision.log)"; }
-    fi
-    grep -qx 'postinst=0' "$OUT/provision.log" || { detach; die "the postinst's Safe Mode part failed (see $OUT/provision.log)"; }
-    grep -qx 'update-grub=0' "$OUT/provision.log" || { detach; die "update-grub failed (see $OUT/provision.log)"; }
-    grep -qx 'adminpw=0' "$OUT/provision.log" || { detach; die "the Administrator account is missing or got no password (see $OUT/provision.log)"; }
-    grep -qx 'userlist=/var/lib/lightdm/.wine/system.reg' "$OUT/provision.log" \
-        || { detach; die "the logon prefix's registry did not get the SpecialAccounts\\UserList value (see $OUT/provision.log)"; }
+cp "$MNT/root/wex-test-provision.log" "$OUT/provision.log" 2>/dev/null
+provisioned() {   # provisioned LINE MESSAGE: the provisioning log has LINE, or the test ends with MESSAGE
+    grep -qx "$1" "$OUT/provision.log" || { detach; die "$2 (see $OUT/provision.log)"; }
+}
+if [ -n "$WINE_TAR" ]; then provisioned 'wine=0' "unpacking the Wine tarball failed"; fi
+if [ -n "$WINE_TAR" ] && grep -q '^machine=' "$OUT/provision.log"; then
+    provisioned 'machine=0' "updating the machine root after the Wine tarball failed"
 fi
-grep -q 'wexmode=menu' "$MNT/boot/grub/grub.cfg" && grep -q -- '--hotkey=f8' "$MNT/boot/grub/grub.cfg" \
-    || { detach; die "grub.cfg has no Advanced Options entry with the F8 hotkey"; }
+if [ "$FILES" = branch ]; then provisioned 'postinst=0' "the postinst's Safe Mode part failed"; fi
+if [ "$FILES" = upgrade ]; then
+    # the old Safe Mode with Command Prompt was running, with everything it changes, when dpkg installed the packages
+    old=$(sed -n 's/^old: //p' "$OUT/provision.log" | tail -n 1)
+    new=$(sed -n 's/^new: //p' "$OUT/provision.log" | tail -n 1)
+    echo "  before the upgrade: $old"
+    echo "  after the upgrade:  $new"
+    # (the old unit is wanted by display-manager.service and multi-user.target)
+    miss=$(kv_check "$old" mode=safecmd dropin=yes run=yes pam!=0 hidden!=0 unit!=0 autologin=0) \
+        || { detach; die "the old Safe Mode with Command Prompt was not running as expected ($miss)"; }
+    provisioned 'dpkg=0' "dpkg did not install the packages"
+    miss=$(kv_check "$new" dropin=no run=no pam=2 sessions=0 hidden=0 unit=0 "autologin=$AUTOLOGIN_CONFS") \
+        || { detach; die "the postinst left part of the old Safe Mode ($miss)"; }
+    # and nothing came back when the old Safe Mode's unit stopped at power-off
+    for left in "${OLD_FILES[@]}" etc/lightdm/lightdm.conf.d/99-safemode.conf; do
+        [ ! -e "$MNT/$left" ] || { detach; die "the upgrade left /$left"; }
+    done
+    ! compgen -G "$MNT/etc/systemd/system/*.wants/wex-safemode.service" >/dev/null \
+        || { detach; die "wex-safemode.service is still enabled"; }
+    ! grep -q "^menuentry '[^']*Safe Mode with Command Prompt" "$MNT/boot/grub/grub.cfg" \
+        || { detach; die "grub.cfg still has the old Safe Mode with Command Prompt entry"; }
+    [ "$(grep -c wex-safemode-pam-check "$MNT/etc/pam.d/lightdm")" = 1 ] \
+        && grep -qx 'account requisite pam_exec.so quiet stdout /usr/local/sbin/wex-safemode-pam-check.sh' "$MNT/etc/pam.d/lightdm" \
+        || { detach; die "/etc/pam.d/lightdm does not have exactly the new boot mode check"; }
+    ! grep -qx 'SystemAccount=true' "$MNT/var/lib/AccountsService/users/wexstd" \
+        || { detach; die "the standard account wexstd is still hidden"; }
+    echo "  upgrade: nothing of the old Safe Mode is left"
+fi
+if [ "$LOADER" = grub ]; then
+    provisioned 'update-grub=0' "update-grub failed"
+else
+    provisioned 'update-grub=none' "a Vintner Boot install still has GRUB's update-grub"
+    [ -f "$MNT/etc/vintner/variants.d/advanced.conf" ] \
+        || { detach; die "no Advanced Options variant (/etc/vintner/variants.d/advanced.conf)"; }
+fi
+provisioned 'adminpw=0' "the Administrator account is missing or got no password"
+# the logon screen reads the logon prefix's own hive, or the machine hive once the system role serves it (C7)
+grep -qE '^userlist=/var/lib/(lightdm/[.]wine|wineexplorer/machine)/system[.]reg$' "$OUT/provision.log" \
+    || { detach; die "neither the logon prefix's nor the machine's registry got the SpecialAccounts\\UserList value (see $OUT/provision.log)"; }
+if [ "$LOADER" = grub ]; then
+    grep -q 'wexmode=menu' "$MNT/boot/grub/grub.cfg" && grep -q -- '--hotkey=f8' "$MNT/boot/grub/grub.cfg" \
+        || { detach; die "grub.cfg has no Advanced Options entry with the F8 hotkey"; }
+    grep -q 'save_env wex_boot_pending' "$MNT/boot/grub/grub.cfg" \
+        || { detach; die "grub.cfg does not record unfinished starts (wex_boot_pending)"; }
+fi
 grep -q 'wex-safemode-pam-check.sh autologin' "$MNT/etc/pam.d/lightdm-autologin" \
     || { detach; die "/etc/pam.d/lightdm-autologin does not consult the boot mode"; }
-grep -q 'save_env wex_boot_pending' "$MNT/boot/grub/grub.cfg" \
-    || { detach; die "grub.cfg does not record unfinished starts (wex_boot_pending)"; }
 [ -L "$MNT/etc/systemd/system/multi-user.target.wants/wex-startup-check.service" ] \
     || { detach; die "wex-startup-check.service is not enabled"; }
 detach
@@ -742,6 +979,7 @@ hide_wine() {   # hide_wine on|off: /usr/local/bin/wine away for the nowine phas
 
 clear_pending() {   # every phase starts from a start that counted; say so when the last one did not
     local value
+    [ "$LOADER" = grub ] || return 0
     attach rw || return 1
     value=$(grub-editenv "$MNT/boot/grub/grubenv" list | sed -n 's/^wex_boot_pending=//p')
     if [ "$value" = 1 ]; then echo "  (the start before $PHASE did not count; wex_boot_pending cleared)"; fi
@@ -782,14 +1020,15 @@ done
 case " ${PHASES[*]} " in
     *" safe "*|*" safenet "*|*" safecmd "*|*" failed "*)
         if attach ro; then
-            if [ -f "$MNT/var/lib/lightdm/.wine/system.reg" ] || [ -L "$MNT/var/lib/lightdm/.wine/system.reg" ]; then
+            # a made prefix has user.reg; under the system role its HKLM is the machine root's (no system.reg)
+            if [ -f "$MNT/var/lib/lightdm/.wine/user.reg" ]; then
                 if [ -e "$MNT/var/lib/lightdm/.wine-logon" ]; then
                     summary+=("FAIL logon prefix (~/.wine-logon is still there)"); overall=1
                 else
                     summary+=("PASS logon prefix (/var/lib/lightdm/.wine)")
                 fi
             else
-                summary+=("FAIL logon prefix (no /var/lib/lightdm/.wine/system.reg)"); overall=1
+                summary+=("FAIL logon prefix (no /var/lib/lightdm/.wine/user.reg)"); overall=1
             fi
             detach
         else

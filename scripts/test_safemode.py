@@ -107,6 +107,48 @@ class TestBootMode(TempDirTest):
         self.assertEqual(self.bootmode("wexmode=safe", stage=True), "normal")
         self.assertEqual(self.bootmode("wexmode=menu", stage=True), "menu")
 
+    def record(self, cmdline, existing=None):
+        """wex-bootmode --record (wex-bootmode-record.service): the state file afterwards, or None."""
+        state_file = self.tmp / "run" / "bootmode"
+        if existing is not None:
+            state_file.parent.mkdir(exist_ok=True)
+            state_file.write_text(existing + "\n", encoding="ascii")
+        (self.tmp / "cmdline").write_text(cmdline + "\n", encoding="ascii")
+        env = dict(os.environ, WEX_BOOTMODE_CMDLINE=str(self.tmp / "cmdline"), WEX_BOOTMODE_STATE=str(state_file),
+                   WEX_BOOTMODE_SETUP_STAGE=str(self.tmp / "no-stage"), WEX_BOOTMODE_ROOT_UID=str(os.getuid()))
+        result = subprocess.run(["sh", str(BOOTMODE), "--record"], env=env, capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout, "")
+        return state_file.read_text(encoding="ascii") if state_file.exists() else None
+
+    def test_record_writes_the_mode_once(self):
+        """B0: every boot leaves its mode where Wine reads it; the menu's own choice is never overwritten."""
+        self.assertEqual(self.record(""), "normal\n")
+        self.assertEqual(oct((self.tmp / "run" / "bootmode").stat().st_mode & 0o777), "0o644")
+        self.assertFalse((self.tmp / "run" / "bootmode.tmp").exists())
+        self.assertEqual(self.record("wexmode=safe"), "normal\n")   # already recorded
+        (self.tmp / "run" / "bootmode").unlink()
+        self.assertEqual(self.record("vintner.variant=safe wexmode=safe"), "safe\n")
+        (self.tmp / "run" / "bootmode").unlink()
+        self.assertIsNone(self.record("wexmode=menu"))
+        self.assertEqual(self.record("wexmode=menu", existing="safecmd"), "safecmd\n")
+
+    def test_record_unit(self):
+        unit = (SYSTEMD / "wex-bootmode-record.service").read_text(encoding="utf-8")
+        for line in ("DefaultDependencies=no", "After=systemd-tmpfiles-setup.service",
+                     "Before=sysinit.target shutdown.target", "ConditionPathExists=!/run/wineexplorer/bootmode",
+                     "ExecStart=/usr/local/bin/wex-bootmode --record", "WantedBy=sysinit.target"):
+            self.assertIn(line + "\n", unit)
+        # the menu starts after sysinit.target, so a menu boot's choice comes after the record
+        self.assertIn("After=sysinit.target", (SYSTEMD / "wex-advanced-options.service").read_text(encoding="utf-8"))
+
+    def test_state_directory_belongs_to_root(self):
+        """Wine cannot check who owns the mode file, so only root may write in /run/wineexplorer."""
+        tmpfiles = (SYSTEMD / "wexprefetchd.tmpfiles").read_text(encoding="utf-8")
+        self.assertIn("d /run/wineexplorer 0755 root root -\n", tmpfiles)
+        service = (SYSTEMD / "wexprefetchd.service").read_text(encoding="utf-8")
+        self.assertNotIn("RuntimeDirectory=", service)
+        self.assertNotIn("/run/wineexplorer\n", service.split("ReadWritePaths=", 1)[1].split("\n", 1)[0] + "\n")
+
 
 class TestGenerator(TempDirTest):
     def generate(self, mode, status=0, system_update=False):
@@ -490,7 +532,7 @@ class TestGreeter(TempDirTest):
         if home is None:
             prefix = self.tmp / "prefix"
             prefix.mkdir(exist_ok=True)
-            (prefix / "system.reg").write_text("", encoding="ascii")   # no prefix update
+            (prefix / "user.reg").write_text("", encoding="ascii")   # a made prefix: no update
             env["WINEPREFIX"] = str(prefix)
         else:
             env["HOME"] = str(home)
@@ -504,16 +546,25 @@ class TestGreeter(TempDirTest):
         home = self.tmp / "lightdm"
         old = home / ".wine-logon"
         old.mkdir(parents=True)
-        (old / "system.reg").write_text("old hive", encoding="ascii")
+        (old / "user.reg").write_text("old hive", encoding="ascii")
         self.assertEqual(self.run_greeter("normal", home=home)[1], ["wine explorer.exe /desktop=Logon,1024x768 logonui.exe"])
         self.assertFalse(old.exists())
-        self.assertEqual((home / ".wine" / "system.reg").read_text(), "old hive")
+        self.assertEqual((home / ".wine" / "user.reg").read_text(), "old hive")
         self.assertEqual((self.tmp / "calls.log.env").read_text().split(), ["normal", str(home / ".wine")])
         # both exist: nothing moves
         old.mkdir()
         self.run_greeter("normal", home=home)
         self.assertTrue(old.is_dir())
-        self.assertEqual((home / ".wine" / "system.reg").read_text(), "old hive")
+        self.assertEqual((home / ".wine" / "user.reg").read_text(), "old hive")
+
+    def test_a_made_prefix_is_not_updated_at_every_start(self):
+        """Under the system role the logon prefix has user.reg but no system.reg; only a new prefix runs wineboot."""
+        home = self.tmp / "lightdm"
+        (home / ".wine").mkdir(parents=True)
+        calls = self.run_greeter("normal", home=home)[1]
+        self.assertTrue(calls[0].startswith("wine wineboot.exe -u"), calls)
+        (home / ".wine" / "user.reg").write_text("", encoding="ascii")
+        self.assertEqual(self.run_greeter("normal", home=home)[1], ["wine explorer.exe /desktop=Logon,1024x768 logonui.exe"])
 
     def test_the_logon_screen_learns_the_mode(self):
         for mode in ("normal", "safe", "safecmd"):
@@ -687,6 +738,31 @@ class TestPackage(TempDirTest):
         self.assertLess(setup.index("wex-setup-machine.sh || echo"), copy)
         self.assertIn("''|'*'|'!'*) echo \"No Administrator password", setup)
 
+    def test_vintner_variant(self):
+        """The Advanced Options entry as a Vintner Boot variant, in the format of Vintner's docs/variants.md (V1,
+        branch wo-0010-p43a): key=value lines, # comments, no quoting; title printable and at most 64 bytes;
+        tokens blank-separated, without root=, vintner.* tokens, quotes, backslashes or $."""
+        path = REPO_ROOT / "installer" / "vintner" / "advanced.conf"
+        self.assertRegex(path.stem, r"^[a-z][a-z0-9_]{0,23}$")
+        values = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            key, _, value = line.partition("=")
+            self.assertIn(key, ("title", "tokens"))
+            self.assertNotIn(key, values)
+            values[key] = value.strip()
+        title, tokens = values["title"], values["tokens"].split()
+        self.assertTrue(title.isprintable() and 0 < len(title.encode("utf-8")) <= 64, title)
+        self.assertEqual(tokens, ["wexmode=menu"])
+        for token in tokens:
+            self.assertFalse(token.startswith(("root=", "vintner.")), token)
+            self.assertFalse(set(token) & set("'\"\\$"), token)
+        script = PACKAGE.read_text(encoding="utf-8")
+        self.assertIn('"$SCRIPT_DIR/vintner/advanced.conf" "$STAGE_SESSION/etc/vintner/variants.d/advanced.conf"', script)
+        self.assertIn('echo /etc/vintner/variants.d/advanced.conf >> "$STAGE_SESSION/DEBIAN/conffiles"', script)
+
     def test_no_network_logon_for_root_or_administrator(self):
         conf = (REPO_ROOT / "installer" / "ssh" / "sshd-wineexplorer.conf").read_text(encoding="utf-8").splitlines()
         for line in ("PermitRootLogin no", "DenyUsers administrator", "PermitEmptyPasswords no"):
@@ -730,6 +806,12 @@ class TestPackage(TempDirTest):
         (etc / "systemd/system/multi-user.target.wants/wex-safemode.service").symlink_to("/nonexistent")
         (acc / "alice").write_text("[User]\nSession=wex-safe-terminal\nXSession=wex-safe-terminal\n")
         (acc / "carol").write_text("[User]\nSession=wine-explorer-wayland\n")
+        # the old Safe Mode wrote dave a file that hid him; erin's own file was backed up; svc is a system account
+        hidden = "[User]\nSession=wine-explorer\nXSession=wine-explorer\nSystemAccount=true\n"
+        (acc / "dave").write_text(hidden)
+        (acc / "erin").write_text(hidden)
+        (run / "wex-safemode/orig-erin").write_text("[User]\nSession=wine-explorer\n")
+        (acc / "svc").write_text(hidden)
         block = self.safe_mode_block()
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
@@ -739,6 +821,8 @@ class TestPackage(TempDirTest):
             "getent": 'case "$1" in\n    passwd) grep -qx "$2" "$LOG.users" 2>/dev/null ;;\n'
                       '    group) [ "$2" = "$FAKE_GROUP" ] ;;\n    *) exit 2 ;;\nesac\n',
             "useradd": 'echo "useradd $*" >> "$LOG"\nfor last; do :; done\necho "$last" >> "$LOG.users"\n',
+            # id -u NAME: the test accounts are standard users, svc a system account
+            "id": 'case "$2" in svc) echo 120 ;; alice|carol|dave|erin) echo 1001 ;; *) exit 1 ;; esac\n',
         }
         for name, body in fakes.items():
             (bin_dir / name).write_text("#!/bin/sh\n" + body, encoding="ascii")
@@ -749,8 +833,10 @@ class TestPackage(TempDirTest):
             subprocess.run(["sh", "-e", "-c", block], check=True, env=env)
         self.assertEqual(log.read_text().splitlines(), [
             "systemctl enable wex-startup-check.service",
+            "systemctl enable wex-bootmode-record.service",
             "useradd --create-home --comment Administrator --shell /bin/bash --groups sudo administrator",
-            "systemctl enable wex-startup-check.service"])
+            "systemctl enable wex-startup-check.service",
+            "systemctl enable wex-bootmode-record.service"])
         self.assertEqual((acc / "administrator").read_text(),
                          "[User]\nSession=wine-explorer\nXSession=wine-explorer\nSystemAccount=false\n")
         lightdm = (etc / "pam.d/lightdm").read_text()
@@ -765,6 +851,9 @@ class TestPackage(TempDirTest):
         self.assertFalse(os.path.lexists(etc / "systemd/system/multi-user.target.wants/wex-safemode.service"))
         self.assertEqual((acc / "alice").read_text(), "[User]\nSession=wine-explorer\nXSession=wine-explorer\n")
         self.assertEqual((acc / "carol").read_text(), "[User]\nSession=wine-explorer-wayland\n")
+        self.assertEqual((acc / "dave").read_text(), hidden.replace("=true", "=false"))
+        self.assertEqual((acc / "erin").read_text(), "[User]\nSession=wine-explorer\n")
+        self.assertEqual((acc / "svc").read_text(), hidden)
 
 
 if __name__ == "__main__":

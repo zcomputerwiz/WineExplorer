@@ -12,10 +12,8 @@ Group=wexcache
 ExecStart=/usr/local/sbin/wexprefetchd
 CacheDirectory=wineexplorer/images wineexplorer/prefetch
 CacheDirectoryMode=0755
-# The .socket unit creates /run/wineexplorer first (DirectoryMode=0755); RuntimeDirectoryPreserve=yes
-# keeps the directory across restarts instead of removing it, so it does not conflict with the socket.
-RuntimeDirectory=wineexplorer
-RuntimeDirectoryPreserve=yes
+# /run/wineexplorer stays root's (tmpfiles, or the .socket unit's DirectoryMode=0755): the daemon only receives its
+# socket from systemd, and Wine trusts the boot mode file there (docs/SAFE_MODE_WORKORDER.md B0, B1).
 Restart=on-failure
 NoNewPrivileges=yes
 ProtectSystem=strict
@@ -33,5 +31,5 @@ MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 CapabilityBoundingSet=
 UMask=0022
-ReadWritePaths=/var/cache/wineexplorer /run/wineexplorer
+ReadWritePaths=/var/cache/wineexplorer
 MemoryMax=2G
