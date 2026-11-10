@@ -21,6 +21,7 @@ BOOTMODE = SCRIPTS / "wex-bootmode.sh"
 GENERATOR = SYSTEMD / "wex-bootmode-generator"
 PAM_CHECK = SCRIPTS / "wex-safemode-pam-check.sh"
 STARTUP_CHECK = SCRIPTS / "wex-startup-check.sh"
+LASTGOOD = SCRIPTS / "wex-lastgood.sh"
 PACKAGE = REPO_ROOT / "installer" / "package-wine.sh"
 VM_TEST = REPO_ROOT / "installer" / "tests" / "safe-mode.sh"
 
@@ -49,7 +50,8 @@ class TempDirTest(unittest.TestCase):
 
 class TestSyntax(unittest.TestCase):
     def test_shell_scripts_parse(self):
-        for script in (BOOTMODE, GENERATOR, PAM_CHECK, STARTUP_CHECK, SCRIPTS / "wex-bootlog.sh", GRUB_ENTRY):
+        for script in (BOOTMODE, GENERATOR, PAM_CHECK, STARTUP_CHECK, SCRIPTS / "wex-bootlog.sh", LASTGOOD,
+                       GRUB_ENTRY):
             result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         for script in (SCRIPTS / "wex-greeter.sh", SCRIPTS / "setup-greeter.sh", SCRIPTS / "wine-explorer-session.sh",
@@ -326,8 +328,11 @@ class TestStartupCheck(TempDirTest):
         bin_dir.mkdir(exist_ok=True)
         log = self.tmp / "grub-editenv.log"
         log.unlink(missing_ok=True)
+        self.lastgood_log = self.tmp / "lastgood.log"
+        self.lastgood_log.unlink(missing_ok=True)
         fakes = {
             "grub-editenv": 'echo "$*" >> "$LOG"\n',
+            "fake-lastgood": 'echo "$*" >> "$LASTGOOD_LOG"\n',
             "pgrep": 'user=\nwhile [ $# -gt 1 ]; do\n    case "$1" in -u) user=$2; shift 2 ;; *) shift ;; esac\ndone\n'
                      'printf "%s\\n" "$FAKE_PROCS" | while IFS="|" read -r u cmd; do\n'
                      '    [ "$u" = "$user" ] && printf "%s\\n" "$cmd"\ndone | grep -Eq -- "$1"\n',
@@ -352,7 +357,8 @@ class TestStartupCheck(TempDirTest):
                "WEX_BOOTMODE_HELPER": self.fake_helper(mode), "WEX_BOOTMODE_SETUP_STAGE": str(stage_file),
                "WEX_GRUBENV": str(grubenv), "WEX_STARTUP_TIMEOUT": "0", "WEX_STARTUP_INTERVAL": "0",
                "FAKE_PROCS": "\n".join(processes), "FAKE_SESSIONS": sessions, "FAKE_CLASS": session_class, "FAKE_TYPE": session_type,
-               "FAKE_ACTIVE": active}
+               "FAKE_ACTIVE": active, "WEX_LASTGOOD_HELPER": str(bin_dir / "fake-lastgood"),
+               "LASTGOOD_LOG": str(self.lastgood_log)}
         result = subprocess.run(["sh", str(STARTUP_CHECK)], env=env, capture_output=True, text=True, timeout=30)
         cleared = log.exists() and f"{grubenv} unset wex_boot_pending" in log.read_text()
         return result.returncode, cleared, result.stdout
@@ -412,6 +418,102 @@ class TestStartupCheck(TempDirTest):
             self.assertEqual((status, cleared), (0, False), mode)
             self.assertIn("failure screen", out)
 
+    def saved_lastgood(self):
+        return self.lastgood_log.exists() and self.lastgood_log.read_text() == "save\n"
+
+    def test_a_counted_start_becomes_the_last_known_good(self):
+        self.assertEqual(self.check(processes=[self.WELCOME])[0], 0)
+        self.assertTrue(self.saved_lastgood())
+        failed = "ro quiet wexmode=menu wexfailed=1"
+        self.check(cmdline=failed, mode="normal", processes=[self.WELCOME])
+        self.assertTrue(self.saved_lastgood(), "Start Normally on the failure screen counts")
+
+    def test_setup_menu_starts_and_failed_starts_are_not_saved(self):
+        self.check(stage=True, active="wex-setup.service")
+        self.assertFalse(self.saved_lastgood(), "Setup's starts")
+        self.check(cmdline="ro quiet wexmode=menu", mode="normal", processes=[self.WELCOME])
+        self.assertFalse(self.saved_lastgood(), "a start through the menu")
+        self.check(cmdline="ro quiet wexmode=menu wexfailed=1", mode="safe", processes=[self.WELCOME])
+        self.assertFalse(self.saved_lastgood(), "Safe Mode from the failure screen")
+        self.check()
+        self.assertFalse(self.saved_lastgood(), "a failed start")
+
+
+class TestLastGood(TempDirTest):
+    """wex-lastgood.sh: the machine registry's control set saved at a successful start and put back from the menu."""
+
+    REG = ('WINE REGISTRY Version 2\n;; All keys relative to \\\\Machine\n\n#arch=win64\n\n'
+           '[Software\\\\Wine] 1731234567\n#time=1db33b1c5ac3a2e\n"Version"="{software}"\n\n'
+           '[System\\\\ControlSet001] 1731234567\n#time=1db33b1c5ac3a2e\n\n'
+           '[System\\\\ControlSet001\\\\Control] 1731234567\n"Marker"="{control}"\n'
+           '"Blob"=hex:00,01,02,03,04,05,06,07,08,09,0a,0b,0c,0d,0e,0f,10,11,12,13,14,15,16,17,\\\n'
+           '  18,19\n\n'
+           '[System\\\\ControlSet001\\\\Services\\\\Spooler] 1731234567\n"Start"=dword:{start}\n\n'
+           '[System\\\\ControlSet0010] 1731234567\n"NotTheSet"="{control}"\n\n'
+           '[System\\\\CurrentControlSet] 1731234567\n#link\n"SymbolicLinkValue"=hex(6):5c,00\n\n'
+           '[System\\\\Select] 1731234567\n"Current"=dword:00000001\n')
+
+    def setUp(self):
+        super().setUp()
+        self.machine = self.tmp / "machine"
+        self.machine.mkdir()
+        self.state = self.tmp / "lastgood"
+        self.system_reg = self.machine / "system.reg"
+
+    def write_reg(self, software="1", control="good", start="00000002"):
+        self.system_reg.write_text(self.REG.format(software=software, control=control, start=start),
+                                   encoding="ascii")
+
+    def lastgood(self, command):
+        env = {"PATH": os.environ["PATH"], "WEX_LASTGOOD_MACHINE": str(self.machine),
+               "WEX_LASTGOOD_DIR": str(self.state)}
+        return subprocess.run(["sh", str(LASTGOOD), command], env=env, capture_output=True, text=True, timeout=30)
+
+    def test_save_copies_the_control_set_only(self):
+        self.write_reg()
+        self.assertNotEqual(self.lastgood("status").returncode, 0)
+        result = self.lastgood("save")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        saved = (self.state / "controlset.reg").read_text(encoding="ascii")
+        keys = re.findall(r"^\[([^]]*)\]", saved, re.M)
+        self.assertEqual(keys, ["System\\\\ControlSet001", "System\\\\ControlSet001\\\\Control",
+                                "System\\\\ControlSet001\\\\Services\\\\Spooler"])
+        self.assertIn("  18,19\n", saved, "continuation lines stay with their key")
+        self.assertEqual(self.lastgood("status").returncode, 0)
+        self.assertEqual(oct((self.state / "controlset.reg").stat().st_mode & 0o777), "0o600")
+
+    def test_restore_puts_the_control_set_back_and_keeps_the_rest(self):
+        self.write_reg()
+        self.lastgood("save")
+        good = self.system_reg.read_text(encoding="ascii")
+        # a later change to a driver's settings, and a program installed after it
+        self.write_reg(software="2", control="bad", start="00000004")
+        self.system_reg.chmod(0o664)
+        result = self.lastgood("restore")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        restored = self.system_reg.read_text(encoding="ascii")
+        self.assertEqual(restored, good.replace('"Version"="1"', '"Version"="2"').replace(
+            '"NotTheSet"="good"', '"NotTheSet"="bad"'), "the control set goes back, its place in the file too")
+        failed = (self.state / "failed-controlset.reg").read_text(encoding="ascii")
+        self.assertIn('"Marker"="bad"', failed)
+        self.assertIn('"Start"=dword:00000004', failed)
+        self.assertEqual(oct(self.system_reg.stat().st_mode & 0o777), "0o664")
+        self.assertEqual(list(self.machine.iterdir()), [self.system_reg], "no temporary file left")
+
+    def test_restore_without_a_copy_changes_nothing(self):
+        self.write_reg(control="bad")
+        before = self.system_reg.read_bytes()
+        result = self.lastgood("restore")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no last known good configuration", result.stdout)
+        self.assertEqual(self.system_reg.read_bytes(), before)
+
+    def test_save_needs_a_control_set(self):
+        self.assertNotEqual(self.lastgood("save").returncode, 0)
+        self.system_reg.write_text('WINE REGISTRY Version 2\n\n[Software\\\\Wine] 1\n"a"="b"\n', encoding="ascii")
+        self.assertIn("no control set", self.lastgood("save").stdout)
+        self.assertNotEqual(self.lastgood("status").returncode, 0)
+
 
 class FakeScreen:
     shown = []      # (index, seconds) of every failure screen drawn
@@ -469,8 +571,15 @@ class TestMenu(TempDirTest):
         self.menu.STATE_DIR = str(self.tmp / "run")
         self.menu.SETUP_STAGE = str(self.tmp / "stage")
         self.menu.PANIC_SYSCTL = str(self.tmp / "panic")
+        self.menu.LASTGOOD = str(self.tmp / "no-lastgood")      # no copy saved: Last Known Good is grayed
         self.menu.Screen = FakeScreen
         self.calls = []
+
+    def with_lastgood(self):
+        helper = self.tmp / "fake-lastgood"
+        helper.write_text('#!/bin/sh\n[ "$1" = status ]\n', encoding="ascii")
+        helper.chmod(0o755)
+        self.menu.LASTGOOD = str(helper)
 
     def run_keys(self, *keys):
         return self.menu.run_menu(FakeStdscr(keys))
@@ -547,6 +656,27 @@ class TestMenu(TempDirTest):
         self.assertEqual(self.run_failure([curses.KEY_DOWN, enter], 0.25), ("boot", "normal", None))
         self.assertEqual(self.run_failure([enter], 0.25), ("boot", "normal", None))
         self.assertEqual(self.run_failure([up, up, up, enter], 0.25), ("boot", "safe", None))
+
+    def test_last_known_good_once_a_copy_is_saved(self):
+        enter, up, down = 10, curses.KEY_UP, curses.KEY_DOWN
+        label = "Last Known Good Configuration (your most recent settings that worked)"
+        self.assertFalse(self.menu.lastgood_saved())
+        self.assertNotIn(label, [i.label for i in self.menu.menu_items(False) if i and i.selectable])
+        self.with_lastgood()
+        self.assertTrue(self.menu.lastgood_saved())
+        self.assertIn(label, [i.label for i in self.menu.menu_items(False, True) if i and i.selectable])
+        self.assertIn(label, [i.label for i in self.menu.failure_items(False, True) if i and i.selectable])
+        # the menu: Safe Mode, ..., Enable Boot Logging, over VGA Mode to Last Known Good, then the OS list
+        self.assertEqual(self.run_keys(down, down, down, down, enter, enter), ("boot", "normal", "lastgood"))
+        # the failure screen: Up from Start Normally
+        self.assertEqual(self.run_failure([up, enter], 0.25), ("boot", "normal", "lastgood"))
+        self.assertEqual(self.run_failure([up, up, enter], 0.25), ("boot", "safecmd", None))
+
+    def test_apply_last_known_good_restores_before_the_start(self):
+        self.menu.apply_choice("normal", "lastgood", run=self.fake_run)
+        self.assertEqual(self.calls, [[self.menu.LASTGOOD, "restore"], ["systemctl", "daemon-reload"],
+                                      ["systemctl", "--no-block", "start", "default.target"]])
+        self.assertEqual((self.tmp / "run" / "bootmode").read_text(), "normal\n")
 
     def test_failure_screen_needs_wexfailed(self):
         cmdline = self.tmp / "cmdline"
@@ -833,7 +963,7 @@ class TestPackage(TempDirTest):
         for piece in ("wex-bootmode.sh", "wex-advanced-options.py", "wex-bootlog.sh", "wex-bootmode-generator",
                       "system-generators", "wex-advanced-options.target", "wex-safemode.target",
                       "wex-safenet.target", "wex-bootlog.service", "11_wineexplorer_advanced",
-                      "wex-startup-check.sh", "wex-startup-check.service"):
+                      "wex-startup-check.sh", "wex-startup-check.service", "wex-lastgood.sh"):
             self.assertIn(piece, script)
         self.assertIn("systemctl enable wex-startup-check.service", self.safe_mode_block(),
                       "the VM test runs only the postinst's Safe Mode part, so the unit is enabled there")
@@ -922,7 +1052,7 @@ class TestPackage(TempDirTest):
                       "wine-explorer-session-common.sh", "wex-safe-terminal.sh", "wex-advanced-options.target",
                       "wex-advanced-options.service", "wex-safemode.target", "wex-safenet.target",
                       "wex-bootlog.service", "11_wineexplorer_advanced", "wex-startup-check.sh",
-                      "wex-startup-check.service"):
+                      "wex-startup-check.service", "wex-lastgood.sh"):
             self.assertIn(piece, sources, f"the VM test does not install {piece}")
 
     def test_postinst_migrates_and_is_idempotent(self):

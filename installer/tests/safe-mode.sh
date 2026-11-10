@@ -16,6 +16,10 @@
 #                not count, so GRUB's wex_boot_pending is back at 0
 #   normal       no F8: automatic logon, the boot-mode generator wrote nothing, and the start-up check cleared
 #                wex_boot_pending
+#   lastgood     Last Known Good Configuration (work order D3): with a control set saved by a start that counted (a
+#                normal start first if there is none), the test adds a key to the machine registry's control set and
+#                a Software key on the stopped disk; after the Last Known Good start the first is gone, the second is
+#                still there, and the replaced control set is the failed copy
 #   failed       "did not start successfully": with the logon screen held back 90 seconds for this phase, the Reset
 #                button once Linux runs (GRUB has recorded the start), then the failure screen with its countdown;
 #                an arrow key stops it, and Safe Mode with Command Prompt from there does not count (the screen comes
@@ -88,14 +92,14 @@ SOURCE=${1:?$usage}
 TEST=${2:?$usage}
 shift 2
 PHASES=("$@")
-[ ${#PHASES[@]} -gt 0 ] || PHASES=(safe safenet safecmd nowine bootlog startnormal normal failed)
+[ ${#PHASES[@]} -gt 0 ] || PHASES=(safe safenet safecmd nowine bootlog startnormal normal lastgood failed)
 for name in "$SOURCE" "$TEST"; do
     [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name: $name"; exit 2; }
 done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|startnormal|normal|failed|accounts|waylandsafe|waylandcmd) ;;
+        safe|safenet|safecmd|nowine|bootlog|startnormal|normal|lastgood|failed|accounts|waylandsafe|waylandcmd) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -158,6 +162,8 @@ USER_NAME=${WEX_TEST_USER:-wineuser}
 HELPER=/usr/local/libexec/wex-tests/session-run.py
 PROBES=/usr/local/libexec/wex-tests
 NTBTLOG=/var/lib/wineexplorer/machine/drive_c/windows/ntbtlog.txt
+MACHINE_REG=/var/lib/wineexplorer/machine/system.reg
+LASTGOOD_DIR=/var/lib/wineexplorer/lastgood
 NBD=
 
 # Where the wineexplorer-session package installs the Safe Mode files (installer/package-wine.sh; the unit test
@@ -173,6 +179,7 @@ SAFE_MODE_FILES=(
     "755 scripts/wex-advanced-options.py usr/local/sbin/wex-advanced-options"
     "755 scripts/wex-bootlog.sh usr/local/sbin/wex-bootlog"
     "755 scripts/wex-startup-check.sh usr/local/sbin/wex-startup-check"
+    "755 scripts/wex-lastgood.sh usr/local/sbin/wex-lastgood"
     "755 installer/systemd/wex-bootmode-generator usr/lib/systemd/system-generators/wex-bootmode-generator"
     "644 installer/systemd/wex-advanced-options.target lib/systemd/system/wex-advanced-options.target"
     "644 installer/systemd/wex-advanced-options.service lib/systemd/system/wex-advanced-options.service"
@@ -252,9 +259,16 @@ snapshot() {   # snapshot FILE: the configuration record, and FILE.ntbtlog with 
     ) > "$1"
     local rc=$?
     driver_lines "$MNT$NTBTLOG" > "$1.ntbtlog" 2>/dev/null || echo 0 > "$1.ntbtlog"
+    # FILE.lastgood: 1 when the menu offers Last Known Good (work order D3), which moves the items below it
+    if [ -x "$MNT/usr/local/sbin/wex-lastgood" ] && [ -s "$MNT$LASTGOOD_DIR/controlset.reg" ]; then
+        echo 1
+    else
+        echo 0
+    fi > "$1.lastgood"
     detach
     return $rc
 }
+lkg() { cat "$OUT/before-$PHASE.txt.lastgood" 2>/dev/null || echo 0; }
 
 driver_lines() {   # driver_lines FILE: ntbtlog.txt's "Loaded driver" lines; UTF-16 with a BOM (C6), plain text before
     if [ "$(od -An -N2 -tx1 "$1" 2>/dev/null | tr -d ' \n')" = fffe ]; then
@@ -270,6 +284,11 @@ fail() {
     echo "FAIL ($PHASE): $*"
     "${V[@]}" shot "$TEST" "$OUT/$PHASE-fail.png" >/dev/null 2>&1
     "${V[@]}" text "$TEST" 2>/dev/null | head -n 30
+    # The VM is then stopped, not shut down: Alt+SysRq+S first writes this boot's journal to the disk, where
+    # journalctl --directory can read it afterwards
+    if running "$STATE/disk.qcow2"; then
+        "${V[@]}" key "$TEST" alt-sysrq-s >/dev/null 2>&1 && sleep 3
+    fi
     exit 1
 }
 gsh() { "${V[@]}" sh "$TEST" "$USER_NAME" "$PWFILE" "$1" --timeout "${2:-60}"; }
@@ -297,7 +316,17 @@ open_menu_vintner() {
             move_down 1
             shot loader-variant
             "${V[@]}" key "$TEST" ret >/dev/null
-            wait_text "Advanced Options Menu" 180 || fail "the Advanced Options variant did not start the menu"
+            if ! wait_text "Advanced Options Menu" 180; then
+                # The menu redraws the lines a key changes: if Down shows them, it runs but its screen was not
+                # visible (seen once on BIOS, 2026-11-10)
+                shot no-menu
+                "${V[@]}" key "$TEST" down >/dev/null
+                if wait_text "Safe Mode" 15; then
+                    shot after-down
+                    fail "the menu ran, but showed nothing until a key was pressed"
+                fi
+                fail "the Advanced Options variant did not start the menu"
+            fi
             sleep 3
             shot menu
             VIA_MENU=1
@@ -677,7 +706,9 @@ phase_bootlog() {
 
 phase_startnormal() {
     open_menu
-    move_down 6   # Safe Mode, the two other Safe Modes, Boot Logging, Debugging, Disable restart, Start Normally
+    # Safe Mode, the two other Safe Modes, Boot Logging, Last Known Good once offered, Debugging, Disable restart,
+    # Start Normally
+    move_down $((6 + $(lkg)))
     shot highlight
     "${V[@]}" key "$TEST" ret >/dev/null
     desktop 600
@@ -710,6 +741,76 @@ phase_normal() {
     shutdown_vm
 }
 
+# The two changes lastgood_change makes: a key in the control set, as a driver's settings added after the saved
+# copy, and a Software key, as a program installed meanwhile. (Wine writes no block for a key without values, such as
+# System\ControlSet001\Control, so a value cannot be added to one reliably.) Patterns for grep.
+LKG_CONTROL_KEY='^\[System\\\\ControlSet001\\\\Control\\\\WexLkgTest\]'
+LKG_SOFTWARE_KEY='^\[Software\\\\WexLkgSoftware\]'
+
+lastgood_change() {   # on the stopped disk, after the saved copy: the two keys above
+    local reg=$MNT$MACHINE_REG rc
+    attach rw || return 1
+    if [ ! -s "$MNT$LASTGOOD_DIR/controlset.reg" ]; then
+        echo "no control set was saved"
+        detach
+        return 1
+    fi
+    cp -a "$reg" "$reg.test-tmp" && awk '
+        { print }
+        END {
+            print ""
+            print "[System\\\\ControlSet001\\\\Control\\\\WexLkgTest] 1794264452"
+            print "\"Marker\"=\"changed\""
+            print ""
+            print "[Software\\\\WexLkgSoftware] 1794264452"
+            print "\"Kept\"=\"yes\""
+        }
+    ' "$reg" > "$reg.test-tmp" && mv -f "$reg.test-tmp" "$reg"
+    rc=$?
+    echo "  changed on the disk: control=$(grep -c "$LKG_CONTROL_KEY" "$reg") software=$(grep -c "$LKG_SOFTWARE_KEY" "$reg")"
+    detach
+    return $rc
+}
+
+lastgood_result() {   # on the stopped disk: control=, software=, failed= and saved= counts of the two keys
+    local reg=$MNT$MACHINE_REG out
+    attach ro || return 1
+    out="control=$(grep -c "$LKG_CONTROL_KEY" "$reg")"
+    out+=" software=$(grep -c "$LKG_SOFTWARE_KEY" "$reg")"
+    out+=" failed=$(grep -c "$LKG_CONTROL_KEY" "$MNT$LASTGOOD_DIR/failed-controlset.reg" 2>/dev/null)"
+    out+=" saved=$(grep -c "$LKG_CONTROL_KEY" "$MNT$LASTGOOD_DIR/controlset.reg" 2>/dev/null)"
+    detach
+    echo "$out"
+}
+
+phase_lastgood() {   # work order D3
+    local out
+    if [ "$(lkg)" != 1 ]; then
+        echo "  no control set saved yet: a normal start first"
+        start_vm
+        desktop 600
+        expect_check
+        shutdown_vm
+        wait_off 60 || fail "the VM did not power off"
+    fi
+    lastgood_change || fail "cannot change the machine registry on the disk"
+    [ "$(attach ro && grep -c "$LKG_CONTROL_KEY" "$MNT$MACHINE_REG"; detach)" = 1 ] \
+        || fail "the test key is not in the machine registry's control set"
+    menu_choice 4 "Last Known Good"   # Safe Mode, the two other Safe Modes, Boot Logging, Last Known Good
+    desktop 600
+    expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
+    expect_check
+    expect_pending 0   # a start through the menu does not count, so it saves nothing either
+    expect_session_mode normal
+    programs_32_64
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    out=$(lastgood_result) || fail "cannot read the machine registry on the disk"
+    echo "  after Last Known Good: $out"
+    [ "$out" = "control=0 software=1 failed=1 saved=0" ] \
+        || fail "expected the control set back, the Software key kept and the change in the failed copy: $out"
+}
+
 phase_failed() {   # the main loop holds the logon screen back for this phase (delay_logon)
     local try
     # Once the serial console answers, Linux runs and GRUB has recorded this start, and the logon screen is still
@@ -722,8 +823,8 @@ phase_failed() {   # the main loop holds the logon screen back for this phase (d
     "${V[@]}" reset "$TEST" >/dev/null || fail "the Reset button did not work"
     echo "  reset before the logon screen"
     failure_screen
-    # Up stops the countdown, removes its line and, over the grayed Last Known Good, highlights Safe Mode with
-    # Command Prompt, which starts at once
+    # Up stops the countdown, removes its line and highlights Last Known Good, or, while no start has been saved
+    # (work order D3), skips it, grayed, to Safe Mode with Command Prompt, which starts at once
     for try in 1 2 3; do
         "${V[@]}" key "$TEST" up >/dev/null
         sleep 1.5
@@ -731,6 +832,11 @@ phase_failed() {   # the main loop holds the logon screen back for this phase (d
         [ "$try" = 3 ] && fail "Up did not stop the countdown"
     done
     shot stopped
+    if [ "$(lkg)" = 1 ]; then
+        "${V[@]}" key "$TEST" up >/dev/null
+        sleep 1
+        shot safecmd-highlighted
+    fi
     "${V[@]}" key "$TEST" ret >/dev/null
     logon_screen
     expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active

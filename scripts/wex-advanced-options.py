@@ -5,10 +5,12 @@
 
 wex-advanced-options.service runs it before basic.target, so no timer, socket or service of the normal boot has
 started yet. A choice writes the mode to /run/wineexplorer (gone at the next boot), reloads systemd, whose
-wex-bootmode-generator then reads it, and starts default.target. Nothing on disk changes.
+wex-bootmode-generator then reads it, and starts default.target. Nothing on disk changes, except with Last Known Good
+Configuration: wex-lastgood puts the machine registry's control set from the last successful start back first.
 
 With wexfailed=1 as well (GRUB found that the last start did not finish), it shows XP's "did not start
-successfully" screen instead: the three Safe Modes and Start Normally, which a 30-second countdown chooses.
+successfully" screen instead: the three Safe Modes, Last Known Good and Start Normally, which a 30-second countdown
+chooses.
 
 Installed as /usr/local/sbin/wex-advanced-options. The WEX_* variables let the tests use other paths.
 """
@@ -25,7 +27,9 @@ STATE_DIR = os.environ.get("WEX_BOOTMODE_STATE_DIR", "/run/wineexplorer")
 SETUP_STAGE = os.environ.get("WEX_BOOTMODE_SETUP_STAGE", "/etc/wineexplorer/setup/stage")
 PANIC_SYSCTL = os.environ.get("WEX_PANIC_SYSCTL", "/proc/sys/kernel/panic")
 CMDLINE = os.environ.get("WEX_BOOTMODE_CMDLINE", "/proc/cmdline")
+LASTGOOD = os.environ.get("WEX_LASTGOOD_HELPER", "/usr/local/sbin/wex-lastgood")
 OS_NAME = "WineExplorer"
+LASTGOOD_LABEL = "Last Known Good Configuration (your most recent settings that worked)"
 COUNTDOWN = 30      # seconds, as XP's failure screen (its boot.ini timeout)
 
 # The failure screen's explanation. XP's layout (three paragraphs, then the choices); our own wording.
@@ -39,7 +43,8 @@ FAILURE_TEXT = (
 )
 
 MODES = ("normal", "safe", "safenet", "safecmd")
-OPTIONS = ("bootlog", "debug", "norestart")
+OPTIONS = ("bootlog", "debug", "norestart", "lastgood")
+NO_LASTGOOD = "no start has succeeded since Setup"
 
 
 class Item:
@@ -58,8 +63,8 @@ class Item:
         return self.unavailable is None
 
 
-def menu_items(setup_pending):
-    """The XP list, with what does not apply here grayed. None is a blank line."""
+def menu_items(setup_pending, lastgood=False):
+    """The XP list, with what does not apply here grayed. None is a blank line. lastgood: a copy to go back to."""
     safe = "Setup has not finished" if setup_pending else None
     return [
         Item("Safe Mode", "boot", mode="safe", unavailable=safe),
@@ -68,8 +73,7 @@ def menu_items(setup_pending):
         None,
         Item("Enable Boot Logging", "boot", option="bootlog"),
         Item("Enable VGA Mode", None, unavailable="needs an X fallback without the modesetting driver"),
-        Item("Last Known Good Configuration (your most recent settings that worked)", None,
-             unavailable="needs Vintner Boot"),
+        Item(LASTGOOD_LABEL, "boot", option="lastgood", unavailable=None if lastgood else NO_LASTGOOD),
         Item("Directory Services Restore Mode (Windows domain controllers only)", None,
              unavailable="does not apply"),
         Item("Debugging Mode", "boot", option="debug"),
@@ -81,7 +85,7 @@ def menu_items(setup_pending):
     ]
 
 
-def failure_items(setup_pending):
+def failure_items(setup_pending, lastgood=False):
     """XP's "did not start successfully" list: the Safe Modes, Last Known Good and Start Normally only."""
     safe = "Setup has not finished" if setup_pending else None
     return [
@@ -89,8 +93,7 @@ def failure_items(setup_pending):
         Item("Safe Mode with Networking", "boot", mode="safenet", unavailable=safe),
         Item("Safe Mode with Command Prompt", "boot", mode="safecmd", unavailable=safe),
         None,
-        Item("Last Known Good Configuration (your most recent settings that worked)", None,
-             unavailable="needs Vintner Boot"),
+        Item(LASTGOOD_LABEL, "boot", option="lastgood", unavailable=None if lastgood else NO_LASTGOOD),
         None,
         Item(f"Start {OS_NAME} Normally", "start"),
     ]
@@ -101,6 +104,14 @@ def start_failed(path=None):
     try:
         with open(path or CMDLINE, encoding="ascii", errors="replace") as f:
             return "wexfailed=1" in f.read().split()
+    except OSError:
+        return False
+
+
+def lastgood_saved(run=subprocess.run):
+    """True when wex-lastgood has a control set from a successful start to go back to."""
+    try:
+        return run([LASTGOOD, "status"], check=False).returncode == 0
     except OSError:
         return False
 
@@ -144,6 +155,9 @@ def apply_choice(mode, option=None, run=subprocess.run):
             f.write("0\n")
     if option == "debug":
         run(["systemd-analyze", "log-level", "debug"], check=False)
+    if option == "lastgood":
+        # before any Wine program reads the machine registry; a failure starts normally (main)
+        run([LASTGOOD, "restore"], check=True)
     # the generator runs again and reads the mode: Safe Mode targets and masks, or nothing for a normal start
     run(["systemctl", "daemon-reload"], check=True)
     units = ["default.target"]
@@ -257,7 +271,7 @@ ENTER_KEYS = (curses.KEY_ENTER, 10, 13)
 def run_menu(stdscr):
     """Returns (action, mode, option): ("boot", mode, option) or ("reboot", None, None)."""
     screen = Screen(stdscr)
-    items = menu_items(os.path.exists(SETUP_STAGE))
+    items = menu_items(os.path.exists(SETUP_STAGE), lastgood_saved())
     index = first_selectable(items)
     chosen = None          # the Item chosen in the menu, shown at the bottom of the OS list
     in_menu = True
@@ -294,10 +308,10 @@ def run_menu(stdscr):
 
 
 def run_failure(stdscr, clock=time.monotonic):
-    """The failure screen. Returns ("boot", mode, None). Start Normally is highlighted and chosen when the countdown
-    ends; an arrow key stops the countdown and removes its line, as on XP. A Safe Mode starts at once."""
+    """The failure screen. Returns ("boot", mode, option). Start Normally is highlighted and chosen when the
+    countdown ends; an arrow key stops the countdown and removes its line, as on XP. A choice starts at once."""
     screen = Screen(stdscr)
-    items = failure_items(os.path.exists(SETUP_STAGE))
+    items = failure_items(os.path.exists(SETUP_STAGE), lastgood_saved())
     index = len(items) - 1
     deadline = clock() + COUNTDOWN
     counting = True
@@ -317,7 +331,9 @@ def run_failure(stdscr, clock=time.monotonic):
             index = move(items, index, -1 if key == curses.KEY_UP else 1)
         elif key in ENTER_KEYS:
             item = items[index]
-            return ("boot", "normal" if item.action == "start" else item.mode, None)
+            if item.action == "start":
+                return ("boot", "normal", None)
+            return ("boot", item.mode, item.option)
 
 
 def main():

@@ -8,7 +8,8 @@
 # wex_boot_pending, so the next start does not show "WineExplorer did not start successfully"
 # (etc/grub.d/11_wineexplorer_advanced sets it on every start). If the logon screen does not come up in time, the
 # check fails and the value stays set. Vintner Boot counts a start as good at boot-complete.target
-# (docs/VINTNER_BOOT.md section 4.4); the unit is ordered before it.
+# (docs/VINTNER_BOOT.md section 4.4); the unit is ordered before it. A successful start after Setup also becomes the
+# last known good configuration (wex-lastgood save), as XP updates its copy once a start succeeds.
 #
 # Starts through the Advanced Options menu do not count (docs/SAFE_MODE_WORKORDER.md, decision 3); GRUB has
 # already written the previous value back for them. The exception is Start Normally on the failure screen, which is
@@ -17,6 +18,7 @@ cmdline_file=${WEX_BOOTMODE_CMDLINE:-/proc/cmdline}
 bootmode=${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}
 stage=${WEX_BOOTMODE_SETUP_STAGE:-/etc/wineexplorer/setup/stage}
 grubenv=${WEX_GRUBENV:-/boot/grub/grubenv}
+lastgood=${WEX_LASTGOOD_HELPER:-/usr/local/sbin/wex-lastgood}
 limit=${WEX_STARTUP_TIMEOUT:-900}
 interval=${WEX_STARTUP_INTERVAL:-2}
 
@@ -83,4 +85,8 @@ if [ -f "$grubenv" ] && command -v grub-editenv >/dev/null 2>&1; then
     grub-editenv "$grubenv" unset wex_boot_pending || { echo "could not clear wex_boot_pending in $grubenv"; exit 1; }
 fi
 echo "$found is up after about $waited seconds: this start counts as successful"
+# Setup's starts are not a configuration to go back to
+if [ ! -e "$stage" ]; then
+    "$lastgood" save || echo "could not save the last known good configuration"
+fi
 exit 0

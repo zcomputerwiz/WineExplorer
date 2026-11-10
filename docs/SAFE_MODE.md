@@ -171,7 +171,7 @@ drawn in dark gray (bold black); the Linux console does not render the dim attri
 | Safe Mode with Command Prompt | `safecmd` |
 | Enable Boot Logging | Normal start; when it is complete, `wex-bootlog` appends the loaded drivers (kernel modules) and the services that failed to `C:\WINDOWS\ntbtlog.txt` in the machine root. Every Safe Mode start writes the log too, as on XP: the boot-mode generator adds `wex-bootlog.service` to the Safe Mode target. The file has XP's format (work order C6): UTF-16LE with a byte order mark at its start, CRLF line ends, and for each start a header line, a space, the version Wine reports in the machine registry, then the date and time, with no empty line between starts. With a service pack string (`CSDVersion`, as winecfg's XP setting writes) the header is XP's: ` Service Pack 311  8 2026 08:29:50.500`. Wine's default registry (Windows 10) has none, so the product name, version and build stand in its place, followed by a space: ` Windows 10 Pro Version 10.0 (Build 19045) 11 10 2026 09:40:51.253`. A log written before this format is converted once |
 | Enable VGA Mode | Grayed: needs an X fallback without the forced `modesetting` driver (`docs/VINTNER_BOOT.md` section 6) |
-| Last Known Good Configuration | Grayed until Vintner offers `next-boot previous-good` |
+| Last Known Good Configuration | Normal start with the machine registry's control set from the last start that counted (work order D3; below). Grayed until one start after Setup has counted |
 | Directory Services Restore Mode | Grayed: does not apply |
 | Debugging Mode | Normal start with the service manager logging at debug level |
 | Disable automatic restart on system failure | Normal start with `kernel.panic=0` |
@@ -182,11 +182,30 @@ drawn in dark gray (bold black); the Linux console does not render the dim attri
 Safe Mode items are grayed while setup is pending. A mode choice goes to the operating system list with the mode
 at the bottom; ENTER starts it and F8 returns to the menu.
 
+**Last Known Good Configuration** (`scripts/wex-lastgood.sh`, installed as `/usr/local/sbin/wex-lastgood`). XP keeps
+a copy of `HKLM\SYSTEM\CurrentControlSet`, the settings of drivers and services, from the last start that succeeded.
+Last Known Good goes back to that copy and keeps the replaced settings as the failed control set; installed
+programs, user settings and files stay as they are. WineExplorer does the same with the machine registry
+(`/var/lib/wineexplorer/machine/system.reg`), where Wine keeps the control set in `System\ControlSet001` and
+`System\CurrentControlSet` links to it.
+
+- **Save:** when the start-up check counts a start as successful (section 4), outside Setup, it runs
+  `wex-lastgood save`, which copies the control set's keys to `/var/lib/wineexplorer/lastgood/controlset.reg`
+  (root only). Starts through the menu are not counted, so they save nothing (decision 3); Start Normally on the
+  failure screen counts, and saves.
+- **Restore:** the menu item, and the same item on the failure screen, runs `wex-lastgood restore` before
+  `default.target` starts, so before any Wine program reads the registry. It writes the saved keys in place of the
+  control set's keys, keeps every other key (`Software` included), and keeps the replaced keys as
+  `failed-controlset.reg`. The new file is a copy of the old one (owner, mode and ACLs) renamed over it, so the
+  prefixes' links to it stay valid. If the restore fails, the menu starts normally.
+- With Vintner Boot, the kernel side of the same idea is the previous good generation (`vintner next-boot
+  previous-good`, V6 in `docs/VINTNER_BOOT.md`), still to come; the registry part does not depend on it.
+
 **The failure screen.** With `wexfailed=1` the menu shows the "did not start successfully" screen instead, laid out
 as XP's, with an explanation in our own words.
 
-- The list is the three Safe Modes, Last Known Good Configuration (grayed until Vintner) and Start WineExplorer
-  Normally, which is highlighted.
+- The list is the three Safe Modes, Last Known Good Configuration (grayed until a start has counted) and Start
+  WineExplorer Normally, which is highlighted.
 - "Seconds until WineExplorer starts" counts down from 30 under the footer and then starts normally.
 - An arrow key stops the countdown and removes its line, as on XP.
 - Enter on a Safe Mode starts it at once, without the operating system list. The XP captures did not cover that
@@ -229,7 +248,7 @@ resolution (C3) and the classic logon dialog after Ctrl+Alt+Del twice (C4).
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (64 tests, Linux) covers:
+`scripts/test_safemode.py` (72 tests, Linux) covers:
 
 - mode parsing, generator output and PAM decisions;
 - menu navigation and choices, and the logon screen choice;
@@ -244,6 +263,9 @@ resolution (C3) and the classic logon dialog after Ctrl+Alt+Del twice (C4).
 - the Wayland session in each mode, with a stand-in compositor and Wine;
 - the boot log: two starts in XP's format, the header's version text from XP's and from Wine's default registry
   values and with no registry, and the conversion of a log from before the format;
+- Last Known Good: which starts save the control set, that only the control set is saved and put back (with
+  continuation lines, and not a key that merely starts with the same name), that the rest of the registry and the
+  file's mode are kept, a restore with no copy, and the item in the menu and on the failure screen;
 - that the VM test installs the Safe Mode files where the package does.
 
 `installer/tests/safe-mode.sh` is the VM test (usage in `docs/TOOLING.md`). It boots a copy-on-write overlay of an
@@ -268,6 +290,7 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" and `wex_boot_pending` is back at 0 |
 | `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending`; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running |
+| `lastgood` | Last Known Good (work order D3). With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Items below Last Known Good move down one once it is offered, which `startnormal` and `failed` follow |
 | `failed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards), the serial console shows `wex_boot_pending=1` once Linux runs: GRUB recorded the start. Then the Reset button (QMP `system_reset`) and the failure screen with its countdown. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold, and GRUB's "Loading Linux" text was not readable on OVMF. Up stops the countdown and removes its line, and Safe Mode with Command Prompt starts at once; that start leaves `wex_boot_pending` at 1. The next start shows the screen again; left alone, the countdown starts normally, and that start counts and clears the variable |
 | `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, and a `wexcomp` process for the account. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |
 | `waylandcmd` | Only when named. Safe Mode with Command Prompt in the Wayland session: the recovery console, no wineserver, and `wexcomp` running |
@@ -369,3 +392,10 @@ the session list: OCR read its "(X11)" as "0¢11)", so the test now clicks the w
 with this branch's files and Wine and the probes. Every Safe Mode start (`safe`, `safenet`, `safecmd`, `nowine`)
 added 98 to 104 driver lines to `ntbtlog.txt`, and Enable Boot Logging still added its own. The file on the OVMF
 disk afterwards was UTF-16LE with a byte order mark, CRLF line ends and seven header lines, one per logged start.
+
+**Last Known Good** (D3, 2026-11-10). With this branch's files, Wine and probes on the A2 GRUB installs, all ten
+phases (`lastgood` and `accounts` included) passed on SeaBIOS and on OVMF, except `lastgood` itself, whose first
+version added a value to `System\ControlSet001\Control`: Wine writes no block for that key, so the change never
+reached the file. With a key added instead, `lastgood` passed on both firmwares: after the Last Known Good start
+the control set key was gone, the `Software` key was kept, and the key was in `failed-controlset.reg`. `startnormal`
+and `failed` passed with Last Known Good offered (one item more above Start Normally).

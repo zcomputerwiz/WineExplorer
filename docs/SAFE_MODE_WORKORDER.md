@@ -4,9 +4,9 @@
 Date: 2026-11-08  
 Status: in progress; the owner's decisions are in section 4 (2026-11-08). Phase 1 (boot modes, Advanced Options
 menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer commit `14286423`). Done since: A1,
-A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape) and
-Safe Mode through Vintner Boot's variant (2026-11-10). Open: A4, B5, B8's merge, C3, C5, the rest of C4, C6 and
-C7, D2-D5.  
+A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape),
+Safe Mode through Vintner Boot's variant and Last Known Good's registry part (2026-11-10). Open: A4, B5, B8's merge,
+C3, C5, the rest of C4, C6 and C7, D2, the rest of D3, D4, D5.  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
@@ -466,6 +466,14 @@ are installed. The two ways, neither simple today:
 **D3. Last Known Good Configuration and Return to OS Choices Menu.** These wait for Vintner's `next-boot
 previous-good` and `next-boot menu` (`docs/VINTNER_BOOT.md` V6). Neither is in Vintner's current phase 3 (the
 Vintner session, 2026-11-08). Until then the first stays grayed and the second shows the local list.
+
+**Last Known Good: the registry part, done 2026-11-10** (`scripts/wex-lastgood.sh`; `docs/SAFE_MODE.md` section 4).
+The owner suggested keeping a copy of the registry, as XP does. XP's copy is the control set, the settings of
+drivers and services, from the last start that succeeded; going back to it keeps programs, user settings and files.
+WineExplorer now saves the machine registry's control set (`System\ControlSet001`) whenever the start-up check
+counts a start, and the menu item, enabled once a copy exists, puts it back before any Wine program runs. This part
+needs no loader, so it works with GRUB today. Still open: with Vintner, the same item also goes back to the
+previous good generation (`vintner next-boot previous-good`, being built as V6), and Return to OS Choices Menu.
 
 **D4. Debugging Mode.** Today it raises the service manager's log level only. Consider sending kernel messages to
 the first serial port as well, which is closer to XP's kernel debugger on COM1. Low priority.
