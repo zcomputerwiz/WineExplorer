@@ -929,3 +929,54 @@ the case leaves state that makes the later `c4_refused_consent_is_error_cancelle
 now runs last in the C4 section. Checked by hand in VM B (2026-11-10: labwc on the real display, the
 wexadm shell running, WinSta0 held as in a real session): a refused admin elevation ends with 1223 in
 14 seconds, so this is a leftover of the lab fixture, not a product hang; not pursued further.
+
+## WO-28 R8 account selection and worker start: SELECT_OK, SELECT, START, WORKER_READY, ATTACH_OK (lab; for Antigravity)
+
+Goal: extend the WO-27 end-to-end chain from `recheck ok` to `attach_ok sent`: after the recheck, B and D
+agree the account (SELECT_OK, SELECT), B starts the verifier's worker for it (START), V spawns W parked with
+W_SETUP and answers WORKER_READY, and B sends ATTACH_OK to D. Product first (Claude, 2026-11-10): one
+positive end-to-end run per caller ABI plus the negatives named below; no matrix. Claude reviews before commit.
+Contract: docs/E1_S18E_R8_SPEC.md sections 4-7 and 9 (messages, encodings, states; section 7 step 1 for W).
+
+Read first: the WO-25..WO-27 sections and their code (e1s18_broker.c `e1s18_spawn_consent_dialog` after the
+recheck; consent.c, the `WEXELEVATE_E1S18` path after the ACK; tools/e1s6/e1s6-lab.py, the session class with
+its `pam-start` phase and `worker_factory`; tools/e1s7/supervisor.py and pam-worker.c, the S7 worker and its
+supervisor; e1r8_codec.h for the message codecs (add any missing one there with a codec test case, and to
+tools/e1s6/e1r8.py with the golden cross-check).
+
+Files: src/programs/wexelevate/e1s18_broker.c/.h and test_broker_e1s18_main.c, e1r8_codec.h and
+test_e1r8_codec_main.c, src/programs/consent/consent.c (lab path only), src/dlls/wexhost/e1s6.c only if START
+needs a transport operation, tools/e1s6/e1s6-lab.py, tools/e1s6/e1r8.py and test-e1r8.py, tools/e1s7/ (W
+bootstrap and W_SETUP), scripts/test_sysrun_server.sh (the WO-27 case), scripts/test_broker_e1s18.sh only for
+build lines. Everything new under `WEXELEVATE_E1S18` or the lab gates; shipping objects byte-identical.
+
+1. B, after `recheck ok`: write SELECT_OK (76 bytes) to D, read SELECT (account:str, S4 grammar, 81..143
+   bytes) within the attempt deadline, resolve the account through S4 (the map lookup the broker already uses
+   for account keys; an unknown name gives the zero key, the decoy of spec section 6), send START on the open S6
+   channel (account:str, account_key:16), wait for WORKER_READY, then write ATTACH_OK (76) to D. One trace line
+   per milestone: `r8: select ok`, `r8: start sent`, `r8: worker ready`, `r8: attach_ok sent`.
+2. D (consent, lab path): after the ACK, enable the account field only after SELECT_OK; on OK send SELECT
+   with the entered name; keep the password field disabled (it is enabled only after READY, a later order).
+   Lab test hook, compiled only with `WEXELEVATE_E1S18`: if
+   `HKLM\Software\WineExplorer\ElevationTest\R8AutoSelect` names an account, D sends SELECT with it without
+   input (the headless harness cannot type); never in a shipping build.
+3. V (e1s6-lab.py): accept START only in state `ENDORSED` for the attempt whose ENDORSED record it holds
+   (request_id, attempt), validate it (spec section 4), and spawn W through the e1s7 supervisor, parked in
+   bootstrap: a SOCK_SEQPACKET pair for the secret socket with SO_PASSCRED and SO_PASSPIDFD on both ends
+   (checked), W's supervisor control socket as a separate socketpair, and W_SETUP as W's first control message
+   (244 bytes: tuple tail from the ENDORSED record, D's pid and uid, D's pidfd as the only SCM_RIGHTS; spec
+   section 6 transfer rules). W checks W_SETUP and the pidfd (fdinfo `Pid:`, real uid), then waits without
+   reading secret data. V moves to `WORKER_READY` and sends WORKER_READY (76) to B on the S6 data socket. Audit
+   `E1R8_WORKER_READY request=<hex> pid=<W pid>`.
+4. Test: extend `r8_e2e_case`: set `R8AutoSelect` to the fixture's admin account; pass on the new milestones
+   in order plus one `E1R8_WORKER_READY` line (`r8_e2e_attach_ok_<arch>`, both ABIs). Negatives: a START for an
+   attempt V holds no ENDORSED record for is refused (verifier audit, no worker)
+   (`r8_start_without_endorsed_refused`); an unknown account name still yields WORKER_READY with a decoy (zero
+   key) and no evidence (`r8_select_unknown_account_is_decoy`). Native codec tests for any new codec.
+
+Check: normal suite 325, lab S6 transport suite passes with every earlier line and the new ones, broker test
+and codec cross-check pass. Same rules as WO-26/27: background runs, clean fixture before and after, never
+discard changes (no git checkout, restore, stash or reset), no commits, never VM B, put multi-part guest or WSL
+commands in script files (PowerShell strips inner double quotes), and if the chain stops before
+`attach_ok sent`, report the first failing milestone with its log lines instead of working around it. End the
+job after the report.
