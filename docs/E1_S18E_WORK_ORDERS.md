@@ -926,5 +926,6 @@ system32 builtins from the build tree by module name; the server recognises them
 entry); the case restarts the verifier after its negative step (the fixture lock is reused); the
 `E1S1-REQ` tag rewrite that dodged the installed-tree check is reverted. Open: run earlier in the suite,
 the case leaves state that makes the later `c4_refused_consent_is_error_cancelled` time out (1460); it
-now runs last in the C4 section; the state (a live WinSta0 is the first suspect) is to be identified,
-since a real session always has WinSta0.
+now runs last in the C4 section. Checked by hand in VM B (2026-11-10: labwc on the real display, the
+wexadm shell running, WinSta0 held as in a real session): a refused admin elevation ends with 1223 in
+14 seconds, so this is a leftover of the lab fixture, not a product hang; not pursued further.

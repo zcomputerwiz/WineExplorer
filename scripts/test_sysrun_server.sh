@@ -1369,7 +1369,8 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
 
     # WO-27: R8 end-to-end standard-user elevation. Defined here, run at the end of the C4 section (the call
     # before el_restore_broker; WEX_SKIP_R8_E2E=1 skips it): the cases after it fail when it runs earlier
-    # (refused consent times out, error 1460); the state it leaves behind is not identified yet.
+    # (refused consent times out, error 1460): a lab fixture leftover; in a live VM B session refused consent
+    # still ends with 1223 (docs/E1_S18E_WORK_ORDERS.md, WO-27 result).
     r8_e2e_case() {
     el_down "$ADM"
     cat "$M/system.reg" > "$ROOT/system.reg.r8e2e"
