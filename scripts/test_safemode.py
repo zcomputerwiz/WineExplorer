@@ -910,7 +910,10 @@ class TestUnitsAndGrub(unittest.TestCase):
         cfg = (GRUB_ENTRY.parent.parent / "default" / "grub.d" / "wineexplorer.cfg").read_text(encoding="utf-8")
         self.assertIn("GRUB_TIMEOUT_STYLE=hidden", cfg)
         self.assertIn("GRUB_TIMEOUT=1", cfg)
+        # the menu names WineExplorer (Debian's 10_linux makes it "WineExplorer GNU/Linux"), in both copies
+        self.assertIn('GRUB_DISTRIBUTOR="WineExplorer"', cfg.splitlines())
         screens = (REPO_ROOT / "installer" / "textsetup" / "screens.c").read_text(encoding="utf-8")
+        self.assertIn(r'"GRUB_DISTRIBUTOR=\"WineExplorer\"\n"', screens)
         self.assertIn("11_wineexplorer_advanced", screens)
         self.assertNotIn("11_wineexplorer_safemode", screens)
 
@@ -956,7 +959,7 @@ class TestGrubOutput(TempDirTest):
 
     def test_records_every_start_and_boots_the_failure_screen(self):
         cfg = self.generate()
-        entry = cfg.index("menuentry 'Advanced Options for WineExplorer (F8)'")
+        entry = cfg.index("menuentry 'WineExplorer Advanced Options (F8)'")
         head, body = cfg[:entry], cfg[entry:]
         # before any entry boots: remember the last start, mark this one, and choose the failure screen if needed
         self.assertIn('set wex_last_start="${wex_boot_pending}"', head)
@@ -1056,6 +1059,17 @@ class TestPackage(TempDirTest):
         script = PACKAGE.read_text(encoding="utf-8")
         self.assertIn('"$SCRIPT_DIR/vintner/advanced.conf" "$STAGE_SESSION/etc/vintner/variants.d/advanced.conf"', script)
         self.assertIn('echo /etc/vintner/variants.d/advanced.conf >> "$STAGE_SESSION/DEBIAN/conffiles"', script)
+
+    def test_vintner_product_name(self):
+        """The menu's name for Vintner Boot, in the format of Vintner's docs/product.md (4.9): key=value lines,
+        # comments, no quoting, only the key name; printable, 1 to 64 bytes."""
+        path = REPO_ROOT / "installer" / "vintner" / "product.conf"
+        lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
+        values = [line for line in lines if line and not line.startswith("#")]
+        self.assertEqual(values, ["name=WineExplorer"])
+        script = PACKAGE.read_text(encoding="utf-8")
+        self.assertIn('"$SCRIPT_DIR/vintner/product.conf" "$STAGE_SESSION/etc/vintner/product.conf"', script)
+        self.assertIn('echo /etc/vintner/product.conf >> "$STAGE_SESSION/DEBIAN/conffiles"', script)
 
     def test_no_network_logon_for_root_or_administrator(self):
         conf = (REPO_ROOT / "installer" / "ssh" / "sshd-wineexplorer.conf").read_text(encoding="utf-8").splitlines()

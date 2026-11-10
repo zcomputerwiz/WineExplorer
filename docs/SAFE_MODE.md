@@ -127,10 +127,12 @@ XWayland, and the session ends when the console does. Unlike X11, where nothing 
 `wexcomp` gives it a window frame. Choosing a session on the Welcome screen makes LightDM save it as the account's
 own; the Wayland session's own name does not change with the mode.
 
-**Boot menu entry (GRUB, until Vintner).** `/etc/grub.d/11_wineexplorer_advanced` adds "Advanced Options for
-WineExplorer" with `wexmode=menu` and `--hotkey=f8`. During GRUB's hidden timeout a menu hotkey boots its entry
-directly (`grub-core/normal/menu.c`), so pressing F8 at start opens the menu as on XP. With Vintner this becomes
-the one variant with `wexmode=menu` (`docs/VINTNER_BOOT.md` section 4.3).
+**Boot menu entry (GRUB, until Vintner).** `/etc/grub.d/11_wineexplorer_advanced` adds "WineExplorer Advanced
+Options (F8)" with `wexmode=menu` and `--hotkey=f8`. During GRUB's hidden timeout a menu hotkey boots its entry
+directly (`grub-core/normal/menu.c`), so pressing F8 at start opens the menu as on XP. Its title does not start with
+"Advanced options for", because Debian's kernel submenu is "Advanced options for WineExplorer GNU/Linux" since the
+menu names WineExplorer (`docs/INSTALLER.md`). With Vintner this becomes the one variant with `wexmode=menu`, titled
+"Advanced Options" after the generation's title (`docs/VINTNER_BOOT.md` section 4.3).
 
 **A start that did not finish (GRUB, until Vintner).** XP shows "Windows did not start successfully" when the last
 start ended before it was complete. Here `11_wineexplorer_advanced` also adds code that GRUB runs before any entry

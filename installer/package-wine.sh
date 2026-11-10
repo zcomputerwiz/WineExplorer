@@ -268,6 +268,9 @@ cp "$SCRIPT_DIR/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_adv
 chmod 755 "$STAGE_SESSION/etc/grub.d/"*
 install -D -m644 "$SCRIPT_DIR/vintner/advanced.conf" "$STAGE_SESSION/etc/vintner/variants.d/advanced.conf"
 echo /etc/vintner/variants.d/advanced.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
+# Vintner Boot's menu names WineExplorer; /etc/os-release stays Debian's
+install -D -m644 "$SCRIPT_DIR/vintner/product.conf" "$STAGE_SESSION/etc/vintner/product.conf"
+echo /etc/vintner/product.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 
 # Setup systemd units and polkit rule
 cp "$SCRIPT_DIR/systemd/wex-textsetup.service" "$STAGE_SESSION/lib/systemd/system/"

@@ -285,7 +285,9 @@ contract, from WO-0010 4.3:
 
 Status (2026-11-10): V1 is on Vintner Boot's `main` (PR #81). WineExplorer declares the variant in
 `installer/vintner/advanced.conf`, which the session package installs as the conffile
-`/etc/vintner/variants.d/advanced.conf`: the title "Advanced Options for WineExplorer" and the token `wexmode=menu`.
+`/etc/vintner/variants.d/advanced.conf`: the title "Advanced Options" (until 2026-11-10 "Advanced Options for
+WineExplorer"; Vintner puts the generation's title, which names WineExplorer, in front of it) and the token
+`wexmode=menu`.
 An ISO built with `--vintner` and the Vintner packages from `8b6eac4` installed with no input on SeaBIOS and on OVMF.
 `installer/tests/check-vintner.py` found the variant in the manifest, in `slot.cfg`, and as
 `vintner_variant-os-1-advanced.efi` in `EFI/Linux` on boot storage (152 MB, as large as the generation's UKI). Both
@@ -307,8 +309,12 @@ OVMF, and both disks carry, in `slot.cfg` and in the UKIs' `.osrel`:
 - `Debian GNU/Linux 13 (trixie) (2026-11-10): Advanced Options for WineExplorer`;
 - `WineExplorer Recovery Console` and `WineExplorer Recovery Console (backup)`.
 
-The ordinary entry names Debian because WineExplorer leaves Debian's `/etc/os-release` as it is; a WineExplorer
-name there would read `WineExplorer (2026-11-10)` (open, an owner decision).
+The ordinary entry names Debian because WineExplorer leaves Debian's `/etc/os-release` as it is. The owner decided
+on 2026-11-10 that the menu names WineExplorer. `/etc/os-release` stays Debian's, because other programs read it.
+Instead, the product declares the name to Vintner, which uses it in place of `PRETTY_NAME` in both loaders:
+`WineExplorer (2026-11-10)` and `WineExplorer (2026-11-10): Advanced Options`. The Vintner session is asked for that
+setting (a conffile the product ships, like `variants.d`, or an install option). GRUB, the default until then, names
+WineExplorer through `GRUB_DISTRIBUTOR` (`docs/INSTALLER.md`).
 
 The Safe Mode VM test through the variant (`WEX_TEST_LOADER=vintner`) passed all seven phases on OVMF. On SeaBIOS
 one `safecmd` start showed a black 1280x800 console instead of the menu for three minutes (the variant was

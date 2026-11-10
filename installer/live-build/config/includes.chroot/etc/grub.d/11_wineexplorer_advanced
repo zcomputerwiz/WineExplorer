@@ -59,7 +59,8 @@ else
     root_device="UUID=${GRUB_DEVICE_UUID}"
 fi
 
-title="Advanced Options for WineExplorer (F8)"
+# Not "Advanced options for ...": that is Debian's submenu of kernels, "Advanced options for WineExplorer GNU/Linux"
+title="WineExplorer Advanced Options (F8)"
 entry_id="wex-advanced-$boot_device_id"
 
 # The start-up state, before any entry boots. Menu entries see only exported variables.

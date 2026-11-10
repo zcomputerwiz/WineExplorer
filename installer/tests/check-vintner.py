@@ -11,12 +11,13 @@ generation 1 was blessed.
 Checks: vintner-core and vintner-platform are installed and no stock loader package is; Setup's step ended well;
 GRUB has no configuration; the manifest (read with the installed static vintner binary) holds generation 1, GOOD,
 for both firmwares, with the root and boot storage on its command line; the ESP holds Vintner's loader, also as the
-removable path; when the system declares the Advanced Options variant, generation 1 has it on both firmwares.
-Prints a one-line summary.
+removable path; when the system declares the Advanced Options variant, generation 1 has it on both firmwares; when
+it declares its product name, both firmwares' titles carry it. Prints a one-line summary.
 """
 import filecmp
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -34,7 +35,43 @@ def package_status(root, package):
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def check_variant(root, storage, esp, image, cmdline):
+def slot_value(slot_cfg, name):
+    """The value of `set NAME="..."` in a slot.cfg, or None."""
+    match = re.search(rf'^set {re.escape(name)}="(.*)"$', slot_cfg, re.M)
+    return match.group(1) if match else None
+
+
+def check_titles(root, storage, image, slot_cfg):
+    """The menu names the product (installer/vintner/product.conf, Vintner Boot's docs/product.md), when the
+    installed system declares it: generation 1's title on BIOS (slot.cfg) and UEFI (the UKI's .osrel) is
+    "NAME (date)", and the Advanced Options variant's is "NAME (date): Advanced Options"."""
+    try:
+        with open(f"{root}/etc/vintner/product.conf", encoding="utf-8") as conf:
+            names = [line.strip()[5:].strip() for line in conf if line.strip().startswith("name=")]
+    except OSError:
+        return ""
+    if len(names) != 1:
+        fail(f"/etc/vintner/product.conf has no single name: {names!r}")
+    name = names[0]
+    title = slot_value(slot_cfg, "vintner_title") or ""
+    if not re.fullmatch(rf"{re.escape(name)} \(\d{{4}}-\d\d-\d\d\)", title):
+        fail(f"generation 1's BIOS title is {title!r}, expected '{name} (date)'")
+    uki = (image.get("uefi") or {}).get("entry", "")
+    try:
+        with open(f"{storage}/EFI/Linux/{uki}.efi", "rb") as efi:
+            data = efi.read()
+    except OSError as error:
+        fail(f"cannot read generation 1's UKI {uki!r}: {error}")
+    if f'PRETTY_NAME="{title}"\n'.encode() not in data and f"PRETTY_NAME={title}\n".encode() not in data:
+        fail(f"generation 1's UKI does not carry PRETTY_NAME {title!r}")
+    if os.path.exists(f"{root}/etc/vintner/variants.d/advanced.conf"):
+        vtitle = slot_value(slot_cfg, "vintner_vtitle_advanced")
+        if vtitle != f"{title}: Advanced Options":
+            fail(f"the advanced variant's BIOS title is {vtitle!r}, expected '{title}: Advanced Options'")
+    return f", title {title!r}"
+
+
+def check_variant(root, storage, esp, image, cmdline, slot_cfg):
     """The Advanced Options variant (installer/vintner/advanced.conf, docs/VINTNER_BOOT.md section 4.3), when the
     installed system declares it: published with generation 1 for both firmwares, with its tokens after the
     generation's command line. Vintner Boot's docs/variants.md and schema/manifest.md (V1) give the layout."""
@@ -51,11 +88,6 @@ def check_variant(root, storage, esp, image, cmdline):
     entry = (variant.get("uefi") or {}).get("entry", "")
     if entry != "vintner_variant-os-1-advanced" or not os.path.isfile(f"{storage}/EFI/Linux/{entry}.efi"):
         fail(f"boot storage has no UKI for the advanced variant ({entry!r})")
-    try:
-        with open(f"{storage}{image['bios']['dir']}/slot.cfg") as slot:
-            slot_cfg = slot.read()
-    except (KeyError, OSError) as error:
-        fail(f"no slot.cfg for generation 1: {error}")
     for line in ('set vintner_variants="advanced"', f'set vintner_vcmdline_advanced="{expected}"'):
         if line not in slot_cfg.splitlines():
             fail(f"generation 1's slot.cfg lacks {line!r}")
@@ -110,7 +142,13 @@ def main():
     if not image.get("uefi") or not image.get("bios"):
         fail("generation 1 is not published for both firmwares")
 
-    variant = check_variant(root, storage, esp, image, cmdline)
+    try:
+        with open(f"{storage}{image['bios']['dir']}/slot.cfg", encoding="utf-8") as slot:
+            slot_cfg = slot.read()
+    except (KeyError, OSError) as error:
+        fail(f"no slot.cfg for generation 1: {error}")
+    variant = check_variant(root, storage, esp, image, cmdline, slot_cfg)
+    variant += check_titles(root, storage, image, slot_cfg)
 
     loader = f"{root}/usr/lib/vintner/payloads/uefi/systemd-bootx64.efi"
     for path in ("EFI/vintner/systemd-bootx64.efi", "EFI/BOOT/BOOTX64.EFI"):

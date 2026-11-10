@@ -1970,7 +1970,10 @@ static void install_grub(SetupState *state)
                     "GRUB_TIMEOUT=1\n"
                     "GRUB_TERMINAL=console\n"
                     "GRUB_THEME=\"\"\n"
-                    "GRUB_BACKGROUND=\"\"\n");
+                    "GRUB_BACKGROUND=\"\"\n"
+                    "# The menu names WineExplorer, not Debian (Debian's 10_linux appends \" GNU/Linux\"). "
+                    "/etc/os-release stays Debian's.\n"
+                    "GRUB_DISTRIBUTOR=\"WineExplorer\"\n");
             fclose(f_grub);
         }
         chmod("/target/etc/grub.d/11_wineexplorer_advanced", 0755);

@@ -313,7 +313,7 @@ open_menu_vintner() {
         else
             "${V[@]}" hold "$TEST" spc 25 --cont >/dev/null 2>&1   # 15 seconds once missed systemd-boot
         fi
-        if wait_text "Advanced Options for" 30; then
+        if wait_text "Advanced Options" 30; then
             shot loader
             move_down 1
             shot loader-variant
@@ -953,6 +953,12 @@ if [ "$FILES" = branch ]; then
         install -D -m "$mode" "$REPO/$src" "$MNT/$dst" || die "cannot install $src"
     done
     for old in "${OLD_FILES[@]}"; do rm -f "$MNT/$old"; done
+    if [ "$LOADER" = grub ]; then
+        # Setup's GRUB settings (the live root's copy; installer/textsetup/screens.c writes the same), which the
+        # provisioning boot's update-grub reads
+        install -D -m 644 "$REPO/installer/live-build/config/includes.chroot/etc/default/grub.d/wineexplorer.cfg" \
+            "$MNT/etc/default/grub.d/wineexplorer.cfg" || die "cannot install the GRUB settings"
+    fi
     {
         echo '#!/bin/sh'
         echo 'set -e'
@@ -1127,6 +1133,10 @@ if [ "$LOADER" = grub ]; then
         || { detach; die "grub.cfg has no Advanced Options entry with the F8 hotkey"; }
     grep -q 'save_env wex_boot_pending' "$MNT/boot/grub/grub.cfg" \
         || { detach; die "grub.cfg does not record unfinished starts (wex_boot_pending)"; }
+    grep -q "^menuentry 'WineExplorer GNU/Linux'" "$MNT/boot/grub/grub.cfg" \
+        && grep -q "^menuentry 'WineExplorer Advanced Options (F8)'" "$MNT/boot/grub/grub.cfg" \
+        && ! grep -q "^menuentry 'Debian" "$MNT/boot/grub/grub.cfg" \
+        || { detach; die "grub.cfg's entries do not name WineExplorer (GRUB_DISTRIBUTOR)"; }
 fi
 grep -q 'wex-safemode-pam-check.sh autologin' "$MNT/etc/pam.d/lightdm-autologin" \
     || { detach; die "/etc/pam.d/lightdm-autologin does not consult the boot mode"; }
