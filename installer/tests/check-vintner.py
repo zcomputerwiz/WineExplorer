@@ -15,6 +15,7 @@ removable path; when the system declares the Advanced Options variant, generatio
 it declares its product name, both firmwares' titles carry it. Prints a one-line summary.
 """
 import filecmp
+import glob
 import json
 import os
 import re
@@ -56,12 +57,14 @@ def check_titles(root, storage, image, slot_cfg):
     title = slot_value(slot_cfg, "vintner_title") or ""
     if not re.fullmatch(rf"{re.escape(name)} \(\d{{4}}-\d\d-\d\d\)", title):
         fail(f"generation 1's BIOS title is {title!r}, expected '{name} (date)'")
+    # a counted entry's file name carries its boot counters, vintner-os-1+3-0.efi (Vintner Boot's ADR-0003)
     uki = (image.get("uefi") or {}).get("entry", "")
-    try:
-        with open(f"{storage}/EFI/Linux/{uki}.efi", "rb") as efi:
-            data = efi.read()
-    except OSError as error:
-        fail(f"cannot read generation 1's UKI {uki!r}: {error}")
+    files = sorted(glob.glob(f"{storage}/EFI/Linux/{glob.escape(uki)}.efi")
+                   + glob.glob(f"{storage}/EFI/Linux/{glob.escape(uki)}+*.efi"))
+    if len(files) != 1:
+        fail(f"generation 1's UKI {uki!r} is not one file on boot storage: {files!r}")
+    with open(files[0], "rb") as efi:
+        data = efi.read()
     if f'PRETTY_NAME="{title}"\n'.encode() not in data and f"PRETTY_NAME={title}\n".encode() not in data:
         fail(f"generation 1's UKI does not carry PRETTY_NAME {title!r}")
     if os.path.exists(f"{root}/etc/vintner/variants.d/advanced.conf"):
