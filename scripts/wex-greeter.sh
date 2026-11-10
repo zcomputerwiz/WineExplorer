@@ -47,6 +47,18 @@ if [ ! -e "$WINEPREFIX/user.reg" ] || { [ -n "$NTDLL" ] && { [ ! -e "$WINEPREFIX
     "${LIMIT[@]}" "$(dirname "$WINE")/wineserver" -w
 fi
 
+# Safe Mode runs at 640x480, as XP's basic display driver does (docs/SAFE_MODE_WORKORDER.md C3). Only this X server
+# changes: the next start's begins at its own mode, and the accounts' display profiles stay as they are. The session
+# script does the same (wine-explorer-session.sh), for a session that gets an X server of its own.
+safe_display() {
+    local output
+    output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" && / primary / { print $1; exit }')
+    [ -n "$output" ] || output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" { print $1; exit }')
+    [ -n "$output" ] || return 0
+    xrandr --output "$output" --mode 640x480 2>/dev/null || echo "=== Safe Mode: $output offers no 640x480 mode ==="
+}
+if [ -n "$SAFE" ]; then safe_display; fi
+
 RES=$(xrandr 2>/dev/null | sed -nE 's/.*current ([0-9]+) x ([0-9]+).*/\1x\2/p' | head -1)
 if [ -z "$SAFE" ]; then
     exec "$WINE" explorer.exe "/desktop=Logon,${RES:-1024x768}" logonui.exe

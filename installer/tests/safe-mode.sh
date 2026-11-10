@@ -6,7 +6,9 @@
 # Boots a copy-on-write overlay of an installed test disk once per phase, pressing F8 during GRUB's hidden timeout,
 # and checks each start:
 #   safe         Safe Mode: the OS list shows the mode, the Welcome screen instead of automatic logon, only the
-#                Safe Mode units run, the Explorer session has WEXMODE=safe, Wine's 32-bit and 64-bit Notepad open
+#                Safe Mode units run, the Explorer session has WEXMODE=safe, Wine's 32-bit and 64-bit Notepad open;
+#                the Welcome screen and the desktop at 640x480 (work order C3), as in every Safe Mode, and a normal
+#                start afterwards not
 #   safenet      Safe Mode with Networking: the Welcome screen, NetworkManager runs, no timers, WEXMODE=safenet
 #   safecmd      Safe Mode with Command Prompt: logging on starts the recovery console and no wineserver
 #   nowine       Safe Mode with Command Prompt with Wine missing: the GTK greeter takes over, and logging on still
@@ -469,6 +471,22 @@ expect_state() {   # expect_state key=value|key!=value...: the guest's mode and 
     if [ "$disk" -ge 80 ]; then echo "  WARNING: the guest's root file system is ${disk}% full"; fi
 }
 
+expect_screen() {   # expect_screen WxH|!WxH: the VM's screen size, from a screenshot's PPM header. Safe Mode runs at
+                    # 640x480 (work order C3) on images whose greeter sets it; older images are reported, not failed.
+    local size
+    if [ "$1" = 640x480 ] && ! gsh 'grep -q -- "--mode 640x480" /usr/local/bin/wex-greeter.sh && echo c3=yes' | grep -q '^c3=yes'; then
+        echo "  (this image's greeter does not set 640x480 in Safe Mode)"
+        return 0
+    fi
+    "${V[@]}" shot "$TEST" >/dev/null 2>&1 || fail "no screenshot"
+    size=$(head -n 2 "$STATE/screen.ppm" | tail -n 1 | tr ' ' x)
+    echo "  screen ${size:-unknown}"
+    case "$1" in
+        !*) [ "$size" != "${1#!}" ] || fail "the screen is ${1#!}" ;;
+        *) [ "$size" = "$1" ] || fail "the screen is ${size:-unknown}, expected $1" ;;
+    esac
+}
+
 expect_session_mode() {   # the logged-on Explorer session's WEXMODE
     local out
     out=$(gsh "python3 $HELPER --user $USER_NAME --report")
@@ -602,8 +620,10 @@ phase_safe() {
     logon_screen
     expect_state mode=safe default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
     expect_logonui_process
+    expect_screen 640x480
     logon
     safe_desktop 400
+    expect_screen 640x480
     expect_session_mode safe
     expect_safeboot 1
     programs_32_64
@@ -616,6 +636,7 @@ phase_safenet() {
     expect_state mode=safenet default=wex-safenet.target nm=active timers=0 cron=inactive prefetch!=active
     logon
     safe_desktop 400
+    expect_screen 640x480
     expect_session_mode safenet
     expect_safeboot 2
     shutdown_vm
@@ -626,6 +647,7 @@ phase_safecmd() {
     logon_screen
     expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
     expect_pending 0
+    expect_screen 640x480
     logon
     recovery_console
     expect_safeboot cmd   # after the console check, which wants no wineserver
@@ -724,6 +746,7 @@ phase_normal() {
     start_vm
     desktop 600
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
+    expect_screen '!640x480'   # each start's X server begins at its own mode: Safe Mode's 640x480 is not kept
     out=$(gsh 'echo early=$(ls -A /run/systemd/generator.early 2>/dev/null | grep -c -E "^(default|timers)\.target$")' | grep '^early=')
     [ "$out" = early=0 ] || fail "the boot-mode generator wrote units in a normal start ($out)"
     expect_check

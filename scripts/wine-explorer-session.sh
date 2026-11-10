@@ -24,7 +24,7 @@ case "$WEXMODE" in
         echo "Safe Mode with Command Prompt: starting the recovery console"
         exec /usr/local/bin/wex-safe-terminal.sh
         ;;
-    safe|safenet) echo "Safe Mode ($WEXMODE): the saved display mode and optional logon steps are skipped" ;;
+    safe|safenet) echo "Safe Mode ($WEXMODE): 640x480, and the saved display mode and optional logon steps are skipped" ;;
     *) WEXMODE=normal ;;
 esac
 export WEXMODE
@@ -40,7 +40,18 @@ xset s off -dpms 2>/dev/null || true
 # Display size: explicit WIDTH/HEIGHT, else xrandr, else 1920x1080
 # Restore the mode accepted in Display Properties. XRandR validates that the
 # current output still supports it; a replaced/disconnected monitor keeps its mode.
-# Safe Mode keeps the mode X chose, as Windows starts Safe Mode with a basic display.
+# Safe Mode runs at 640x480 instead, as XP's basic display driver does (docs/SAFE_MODE_WORKORDER.md C3), and never
+# reads or writes the profile; wex-greeter.sh has set the mode already when the session keeps the greeter's X server.
+safe_display() {
+    local output
+    output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" && / primary / { print $1; exit }')
+    [ -n "$output" ] || output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" { print $1; exit }')
+    [ -n "$output" ] || return 0
+    xrandr --output "$output" --mode 640x480 2>/dev/null || echo "Safe Mode: $output offers no 640x480 mode"
+}
+if [ "$WEXMODE" != normal ] && [ -z "$WIDTH" ] && command -v xrandr >/dev/null 2>&1; then
+    safe_display
+fi
 DISPLAY_PROFILE="${XDG_CONFIG_HOME:-$HOME/.config}/wineexplorer/display"
 if [ "$WEXMODE" = normal ] && [ -z "$WIDTH" ] && [ -r "$DISPLAY_PROFILE" ] && command -v xrandr >/dev/null 2>&1; then
     read -r SAVED_WIDTH SAVED_HEIGHT SAVED_RATE SAVED_MODE < "$DISPLAY_PROFILE"

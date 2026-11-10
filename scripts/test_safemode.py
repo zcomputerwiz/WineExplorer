@@ -719,6 +719,11 @@ class TestSessionAndGreeter(unittest.TestCase):
         self.assertLess(branch, session.index(". \"$(dirname \"$0\")/wine-explorer-session-common.sh\""),
                         "the recovery console must start before anything touches the Wine prefix")
         self.assertIn('[ "$WEXMODE" = normal ] && [ -z "$WIDTH" ] && [ -r "$DISPLAY_PROFILE" ]', session)
+        # C3: Safe Mode sets 640x480 before the desktop's size is read, and only in Safe Mode
+        safe_display = session.index('if [ "$WEXMODE" != normal ] && [ -z "$WIDTH" ]')
+        self.assertLess(session.index("safe_display() {"), safe_display)
+        self.assertLess(safe_display, session.index("RES=$(xrandr"))
+        self.assertIn("--mode 640x480", session)
         common = (SCRIPTS / "wine-explorer-session-common.sh").read_text(encoding="utf-8")
         skip = common.index("safe|safenet) return 0")
         self.assertLess(common.index("wineboot.exe -u"), skip)
@@ -775,10 +780,26 @@ class TestWaylandSession(TempDirTest):
 class TestGreeter(TempDirTest):
     """wex-greeter.sh: the Welcome screen in every mode; in Safe Mode the GTK greeter when Wine cannot start."""
 
-    def run_greeter(self, mode, wine_exists=True, cmd_status=0, explorer_status=0, home=None):
-        """home: run with HOME=home and no WINEPREFIX, as LightDM starts the greeter (the prefix is then ~/.wine)."""
+    def run_greeter(self, mode, wine_exists=True, cmd_status=0, explorer_status=0, home=None, xrandr=False):
+        """home: run with HOME=home and no WINEPREFIX, as LightDM starts the greeter (the prefix is then ~/.wine).
+        xrandr: a stand-in X server at 1280x800 whose output also offers 640x480."""
         log = self.tmp / "calls.log"
         log.unlink(missing_ok=True)
+        path = os.environ["PATH"]
+        if xrandr:
+            bin_dir = self.tmp / "bin"
+            bin_dir.mkdir(exist_ok=True)
+            (self.tmp / "calls.log.mode").unlink(missing_ok=True)
+            (bin_dir / "xrandr").write_text(
+                '#!/bin/sh\ncase "$*" in\n'
+                '    *--output*) echo "xrandr $*" >> "$LOG"; echo "640 x 480" > "$LOG.mode"; exit 0 ;;\nesac\n'
+                'echo "Screen 0: minimum 320 x 200, current $(cat "$LOG.mode" 2>/dev/null || echo "1280 x 800"),'
+                ' maximum 8192 x 8192"\n'
+                'echo "Virtual-2 disconnected (normal left inverted right x axis y axis)"\n'
+                'echo "Virtual-1 connected primary 1280x800+0+0 (normal left inverted right x axis y axis) 0mm x 0mm"\n'
+                'echo "   1280x800      59.81*+"\necho "   640x480       59.94"\n', encoding="ascii")
+            (bin_dir / "xrandr").chmod(0o755)
+            path = f"{bin_dir}:{path}"
         wine = self.tmp / "wine"
         if wine_exists:
             wine.write_text('#!/bin/sh\necho "wine $*" >> "$LOG"\necho "$WEXMODE $WINEPREFIX" > "$LOG.env"\n'
@@ -789,7 +810,7 @@ class TestGreeter(TempDirTest):
         gtk = self.tmp / "gtk-greeter"
         gtk.write_text('#!/bin/sh\necho gtk >> "$LOG"\n', encoding="ascii")
         gtk.chmod(0o755)
-        env = {"PATH": os.environ["PATH"], "LOG": str(log), "WINE": str(wine),
+        env = {"PATH": path, "LOG": str(log), "WINE": str(wine),
                "WEX_BOOTMODE_HELPER": self.fake_helper(mode), "WEX_GTK_GREETER": str(gtk),
                "FAKE_CMD": str(cmd_status), "FAKE_EXPLORER": str(explorer_status)}
         if home is None:
@@ -833,6 +854,16 @@ class TestGreeter(TempDirTest):
         for mode in ("normal", "safe", "safecmd"):
             self.run_greeter(mode)
             self.assertEqual((self.tmp / "calls.log.env").read_text().split()[0], mode)
+
+    def test_safe_mode_runs_at_640x480(self):
+        """work order C3: the connected output switches to 640x480 before the Welcome screen starts"""
+        for mode in ("safe", "safenet", "safecmd"):
+            calls = self.run_greeter(mode, xrandr=True)[1]
+            self.assertEqual([c for c in calls if c.startswith("xrandr")], ["xrandr --output Virtual-1 --mode 640x480"],
+                             mode)
+            self.assertIn("wine explorer.exe /desktop=Logon,640x480 logonui.exe", calls, mode)
+        calls = self.run_greeter("normal", xrandr=True)[1]
+        self.assertEqual(calls, ["wine explorer.exe /desktop=Logon,1280x800 logonui.exe"])
 
     def test_normal_start_shows_the_welcome_screen(self):
         status, calls = self.run_greeter("normal", cmd_status=1)

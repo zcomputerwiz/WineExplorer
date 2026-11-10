@@ -110,6 +110,15 @@ Mode with Command Prompt can still be reached with a broken Wine. A normal start
   personalisation, the prefix update after a Wine update) and skips what is optional: the saved display mode, the
   native runtime defaults, the theme copy and the Vulkan preparation.
 
+**640x480** (work order C3). XP starts Safe Mode at 640x480 with its basic display driver, which keeps a mode of its
+own. In all three Safe Modes `wex-greeter.sh` switches the connected output to 640x480 with `xrandr` before the
+Welcome screen starts, and `wine-explorer-session.sh` does the same for a session that gets an X server of its own;
+an output without that mode keeps its own. Only the running X server changes: the next start's server begins at
+its own mode, and the session restores the saved display profile only in a normal start. Display Properties can
+still change the mode in Safe Mode, for that session only: `WexDisplaySet` (wexhost) does not write the profile
+while Safe Mode runs (`SM_CLEANBOOT`, or `WEXMODE`). Whether XP keeps a mode chosen in Safe Mode is not measured.
+The Wayland session keeps the compositor's mode for now (`wexcomp` takes no `xrandr`).
+
 The Wayland session (`wine-explorer-wayland-session.sh`, "WineExplorer (Wayland)" in the Welcome screen's session
 list) reads the mode the same way (work order A3, 2026-11-10). In `safe` and `safenet` it starts its compositor,
 `wexcomp`, and Explorer with `WEXMODE` exported, skipping the same optional steps. In `safecmd` it starts no Wine:
@@ -243,15 +252,17 @@ Yes as the default; the desktop icons wait for the answer. Yes goes on; No logs 
 the place of XP's System Restore (owner decision 2). Safe Mode with Command Prompt starts no Explorer, so it shows
 neither.
 
-Still open: `RunOnce` values whose name starts with `*` (B5, after a native probe on the XP VM), the basic
-resolution (C3) and the classic logon dialog after Ctrl+Alt+Del twice (C4).
+Still open: `RunOnce` values whose name starts with `*` (B5, after a native probe on the XP VM), 640x480 in the
+Wayland session (C3; X11 is done, section 4) and the classic logon dialog after Ctrl+Alt+Del twice (C4).
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (72 tests, Linux) covers:
+`scripts/test_safemode.py` (73 tests, Linux) covers:
 
 - mode parsing, generator output and PAM decisions;
 - menu navigation and choices, and the logon screen choice;
+- 640x480 in Safe Mode: the greeter switches the output in each Safe Mode and not in a normal start, and the
+  session does so before it reads the desktop's size;
 - the failure screen: its items, the countdown, and arrow keys stopping it;
 - the start-up check: which starts count, and what counts as the logon screen;
 - the GRUB code that `11_wineexplorer_advanced` generates (GRUB's own syntax check runs in `update-grub` in the VM
@@ -283,13 +294,13 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 
 | Phase | Checks |
 |---|---|
-| `safe` | OS list shows "Safe Mode"; the Welcome screen instead of automatic logon, with the start-up check's pattern matching exactly one `logonui.exe` process; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; the message box, answered Yes, then the desktop; Explorer session with `WEXMODE=safe`; probes: `SM_CLEANBOOT` and `OptionValue` 1, no alternate shell, EventLog, PlugPlay and MountMgr running, NDIS and nsiproxy stopped, the spooler refused with 1084; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open |
+| `safe` | OS list shows "Safe Mode"; the Welcome screen instead of automatic logon, with the start-up check's pattern matching exactly one `logonui.exe` process; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; the message box, answered Yes, then the desktop; Explorer session with `WEXMODE=safe`; probes: `SM_CLEANBOOT` and `OptionValue` 1, no alternate shell, EventLog, PlugPlay and MountMgr running, NDIS and nsiproxy stopped, the spooler refused with 1084; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open; the screen at 640x480 on the Welcome screen and the desktop (C3; also checked in `safenet` and `safecmd`) |
 | `safenet` | The same with `wex-safenet.target`, NetworkManager active and `WEXMODE=safenet`; probes: 2, and NDIS and nsiproxy running |
 | `safecmd` | The Welcome screen; the recovery console after logging on, and no wineserver; then the probes, started with `wine` from the serial console as from the recovery console (output to a file): 1, `UseAlternateShell` 1, the services as in `safe` |
 | `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, and logging on still starts the recovery console |
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" and `wex_boot_pending` is back at 0 |
-| `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending`; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running |
+| `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending`; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480 |
 | `lastgood` | Last Known Good (work order D3). With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Items below Last Known Good move down one once it is offered, which `startnormal` and `failed` follow |
 | `failed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards), the serial console shows `wex_boot_pending=1` once Linux runs: GRUB recorded the start. Then the Reset button (QMP `system_reset`) and the failure screen with its countdown. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold, and GRUB's "Loading Linux" text was not readable on OVMF. Up stops the countdown and removes its line, and Safe Mode with Command Prompt starts at once; that start leaves `wex_boot_pending` at 1. The next start shows the screen again; left alone, the countdown starts normally, and that start counts and clears the variable |
 | `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, and a `wexcomp` process for the account. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |

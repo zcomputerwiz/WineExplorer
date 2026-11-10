@@ -87,11 +87,23 @@ DWORD WINAPI WexDisplayGet(WEX_DISPLAY *display)
     return params.err;
 }
 
+/* Safe Mode: SM_CLEANBOOT once Wine reports it, otherwise the session's WEXMODE (as desktop_view_safe_mode) */
+static BOOL safe_mode(void)
+{
+    WCHAR mode[16];
+    if (GetSystemMetrics(SM_CLEANBOOT)) return TRUE;
+    if (!GetEnvironmentVariableW(L"WEXMODE", mode, ARRAY_SIZE(mode))) return FALSE;
+    return !wcscmp(mode, L"safe") || !wcscmp(mode, L"safenet") || !wcscmp(mode, L"safecmd");
+}
+
 DWORD WINAPI WexDisplaySet(const WEX_DISPLAY_MODE *mode, BOOL persist)
 {
     struct display_set_params params;
     if(!unix_ready) return ERROR_NOT_SUPPORTED;
     if(!mode) return ERROR_INVALID_PARAMETER;
+    /* Safe Mode runs at 640x480 (docs/SAFE_MODE_WORKORDER.md C3): a mode chosen there lasts for the session, as the
+     * basic display driver keeps its own mode on XP, and the user's display profile stays as it was */
+    if (persist && safe_mode()) persist = FALSE;
     params.mode=*mode; params.persist=persist;
     WEXHOST_CALL(display_set,&params);
     return params.err;

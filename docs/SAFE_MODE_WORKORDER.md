@@ -5,8 +5,8 @@ Date: 2026-11-08
 Status: in progress; the owner's decisions are in section 4 (2026-11-08). Phase 1 (boot modes, Advanced Options
 menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer commit `14286423`). Done since: A1,
 A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape),
-Safe Mode through Vintner Boot's variant and Last Known Good's registry part (2026-11-10). Open: A4, B5, B8's merge,
-C3, C5, the rest of C4, C6 and C7, D2, the rest of D3, D4, D5.  
+Safe Mode through Vintner Boot's variant, Last Known Good's registry part and C3 for X11 (2026-11-10). Open: A4,
+B5, B8's merge, C3 for Wayland, C5, the rest of C4, C6 and C7, D2, the rest of D3, D4, D5.  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
@@ -255,6 +255,12 @@ profile. Whether XP saves a resolution chosen in Safe Mode could not be confirme
 should not save one (check `desk.cpl`'s save path). E1's consent dialogs measure 260×178 and 260×215 dialog units,
 about 390×350 pixels at 96 dpi, so they fit 640×480. The E1 session runs its headless dialog test at 640×480 as
 work order WO-13 (queued 2026-11-08, after WO-11).
+
+**Done 2026-11-10 for X11** (`scripts/wex-greeter.sh`, `scripts/wine-explorer-session.sh`,
+`src/dlls/wexhost/wexhost.c`; `docs/SAFE_MODE.md` section 4). The greeter sets 640x480 in all three Safe Modes
+before the Welcome screen, and the session does too; nothing is saved. Display Properties' save path is
+`WexDisplaySet(..., persist)` in wexhost, which writes `~/.config/wineexplorer/display`; it no longer writes it in
+Safe Mode. Still open: the Wayland session, whose compositor (`wexcomp`) takes no `xrandr`.
 
 **C4. Logon in Safe Mode.** On the XP VM, all three Safe Modes showed the Welcome screen, with the built-in
 Administrator account added to the accounts; the classic logon dialog appeared only after Ctrl+Alt+Del was pressed
