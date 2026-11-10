@@ -651,3 +651,78 @@ already created; the test restores accounts.map before its checks can fail. Know
 fails after the record is created, the connection cannot retry BINDING (lab only). The Antigravity job
 stalled after its work and was cancelled; a leftover `wexgreeter` account from a killed run broke the
 normal suite until the fixture cleanup removed it.
+
+## WO-24 R8 3d-1/3d-2: ENDORSE_DIALOG and RECHECK operations (lab only; for Antigravity)
+
+Contract: docs/E1_S18E_R8_SPEC.md sections 2-4 (tuple layout and offsets, server endorsement, rechecks);
+design: docs/E1_S18E_R8_3E_DESIGN.md sections 9 and 10. Builds on WO-23 (`struct pipe_binding`, the
+op 1 path in `get_pipe_caller_binding`, wine/server/named_pipe.c) and 3a-3c (`wex_creator`,
+`wex_protected`, `wex_dialog_image`, `wex_pin_*`, `process_pin_matches`, wine/server/process.c/.h).
+Claude reviews the result before anything is committed. Not in this order: the ENDORSED message to the
+verifier (WO-25) and the verifier asking for rechecks.
+
+Files: wine/server/named_pipe.c, process.c/.h (one helper), sysrun.c/.h only if a helper is missing,
+scripts/wexelevate_probe.c, scripts/test_sysrun_server.sh. No protocol or ntdll change (the WO-23 reply
+VARARG and the extended `NtQueryWexPipeCallerBindingEx` structure carry everything). All new server code
+inside `#ifdef WEX_E1S6_TRANSPORT_TEST`.
+
+1. Helper `process_unstarted_suspended( struct process * )` in process.c: the created-suspended proof of
+   `process_e1s_profile_committable` (lines from `e1s_profile_dead` through the single suspended first
+   thread) without the profile list and lease checks. Do not change `process_e1s_profile_committable`.
+2. `struct pipe_binding` gains, at BINDING (op 1): a retained reference to the opener's primary token
+   and its token id and modified id. It also gains the endorsement: `int endorsed`, the retained D
+   process, D's primary token with its token id and modified id, D's pin pid, `dialog_id[16]` and the
+   sealed tuple (220 bytes). `clear_pipe_binding` releases all of it.
+3. ENDORSE_DIALOG (op 2). Request payload exactly 216 bytes: the 8-byte header (`E1R8`, version 1, op 2),
+   D's process handle as u32 (an `obj_handle_t` in the caller's table), then the 204-byte pre-endorsement
+   tuple. Reply data exactly 16 bytes: `dialog_id`. Run the existing writer checks first (shared
+   function). Deny with a distinct audit site name unless every check holds:
+   * caller is the verified broker (`sysrun_process_is_broker`), the current thread has no token
+     (`!current->token`), `sysrun_get_s6_generations` succeeds;
+   * this pipe end has a binding and it is not endorsed yet (one endorsement per binding);
+   * D: `get_process_from_handle( handle, PROCESS_QUERY_LIMITED_INFORMATION )`; `D->wex_creator ==
+     current->process`; D is a protected dialog (`wex_protected[0]` set); `D->wex_dialog_image`;
+     `process_unstarted_suspended( D )`; `token_service_account( D->token ) == SERVICE_ACCOUNT_SYSTEM`;
+     `process_pin_matches( D )`; `D->session_id == binding->caller_session`; D's desktop object (from
+     `D->desktop` via the desktop lookup the server already uses for a process's desktop handle) equals
+     `binding->desktop` (pointer equality);
+   * the tuple, read at the spec offsets: server_gen, broker_gen, map_gen, root_gen, policy_gen,
+     caller_session and desktop_route equal the binding record; `desktop_mode` is 1 or 2; deadline is
+     nonzero; the current generations still equal the record (`sysrun_get_s6_generations`,
+     `accounts_get_map_generation`, `sysrun_get_root_generation`, `sysrun_get_policy_generation`);
+     verifier_gen is not checked by the server (section 10);
+   * the opener is alive (`!is_terminating`, `running_threads > 0`), its primary token is still the
+     retained token, and its token id and modified id are unchanged.
+   Then assign `dialog_id` (16 random bytes, nonzero, different from the five binding IDs), retain D,
+   D's token and ids, the pin pid and the sealed tuple (pre-endorsement tuple + dialog_id), set
+   `endorsed`, and return `dialog_id`.
+4. RECHECK (op 3). Request payload exactly 24 bytes: header (op 3) and `dialog_id`. No reply data. Deny
+   unless: the caller checks of step 3 hold; the binding is endorsed and `dialog_id` matches; D is
+   alive, its token is still the retained token with unchanged ids, its session and desktop are
+   unchanged, its pin matches; the opener checks of step 3 hold; all five generations still equal the
+   record. RECHECK does not require D to be suspended (D runs after endorsement).
+5. Tests (lab tree as in WO-23, both ABIs). New probe mode `r8endorse <result file>` in the broker role
+   (installed as `wexelevate_test.exe` like `r8binding`): BINDING on its own pipe, then create
+   machine-root `C:\windows\system32\consent.exe` (64-bit; `syswow64` for the 32-bit probe) with
+   `CREATE_SUSPENDED` and an explicit handle list of two narrowed pipe ends (copy mode 1 of
+   `r8_dialog_test`, src/programs/wexelevate/main.c), build the 204-byte tuple from the BINDING reply
+   (any nonzero request_id, nonce, channel_id, digests, deadline, verifier_gen; desktop_mode 1), and
+   write one `name=PASS|FAIL` line per check:
+   * ENDORSE succeeds with a nonzero 16-byte dialog_id; a second ENDORSE on the same pipe is denied;
+   * RECHECK with that dialog_id succeeds; RECHECK with a changed dialog_id is denied;
+   * on a fresh pipe and fresh suspended consent.exe each: a tuple with one changed generation is denied
+     (one case per generation: server, root, broker, map, policy); a changed desktop_route is denied;
+     a changed caller_session is denied; desktop_mode 3 is denied; payload sizes 215 and 217 are denied;
+   * a resumed consent.exe (ResumeThread before ENDORSE) is denied; the probe's own image as D (not
+     consent.exe) is denied; ENDORSE without a prior BINDING is denied;
+   * after a successful ENDORSE, `touch` of sysrun.conf (the harness does it between two probe phases,
+     as WO-23 does) makes RECHECK deny; after TerminateProcess of D, RECHECK is denied.
+   Terminate every consent.exe the probe created before it exits. Harness: one `ok r8_endorse_<name>_<arch>`
+   per line, both ABIs, restoring any file it changes before a check can fail (WO-23 pattern).
+
+Check: the normal (main) build suite still passes 325 and contains no `r8_endorse` lines; the lab S6
+transport suite (`WINE_BUILD_DIR=<lab> bash scripts/test_e1s6_transport.sh`) passes with all the new
+lines; `bash scripts/test_broker_e1s18.sh` passes. Report both PASS counts, the new lines, and the diff
+summary. Long runs in the background, nothing else running in wexbuild, `bash
+unsloth-tmp/clean-wexbuild-fixture.sh` before and after each suite. When the check is done, write the
+report and end the job; do not wait or loop afterwards. No commits. Never use VM B.
