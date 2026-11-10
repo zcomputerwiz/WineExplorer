@@ -1673,6 +1673,249 @@ static void fdchurn_mode(int n)
     printf("fdchurn=PASS\n");
 }
 
+#ifdef WEXELEVATE_TEST_APPROVAL
+typedef struct _R8_PIPE_CALLER_BINDING
+{
+    ULONG Size;
+    ULONG Version;
+    HANDLE Process;
+    HANDLE Token;
+    HANDLE WriterProcess;
+    HANDLE WriterToken;
+    ULONG Pid;
+    LARGE_INTEGER StartTime;
+    LUID TokenId;
+    LUID ModifiedId;
+    LUID WriterTokenId;
+    LUID WriterModifiedId;
+    BOOL Impersonated;
+    BOOL TokenCurrent;
+    ULONG WriterFlags;
+} R8_PIPE_CALLER_BINDING;
+
+typedef struct _R8_PIPE_CALLER_BINDING_EXT
+{
+    R8_PIPE_CALLER_BINDING binding;
+    const void *input;
+    ULONG in_size;
+    void *output;
+    ULONG *out_size;
+} R8_PIPE_CALLER_BINDING_EXT;
+
+static void r8binding_mode(const char *result_file)
+{
+    DWORD (WINAPI *transport)(HANDLE, DWORD, void *, DWORD, UINT64 *) = NULL;
+    NTSTATUS (WINAPI *query)(HANDLE, void *) = NULL;
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    HMODULE wexhost = LoadLibraryA("wexhost.dll");
+    char name[128];
+    char message[16] = "R8REQ1";
+    char readback[16];
+    BYTE record[E1S6_OPEN_SIZE];
+    UINT64 channel = 0;
+    DWORD done;
+    FILE *f = NULL;
+    int ok = 1;
+
+    if (ntdll) query = (void *)GetProcAddress(ntdll, "NtQueryWexPipeCallerBindingEx");
+    if (wexhost) transport = (void *)GetProcAddress(wexhost, "WexE1s6Transport");
+    if (!query || !transport)
+    {
+        fprintf(stderr, "r8binding: missing exports (query=%p transport=%p)\n", (void *)query, (void *)transport);
+        return;
+    }
+
+    sprintf(name, "\\\\.\\pipe\\wex-r8binding-%lu", (unsigned long)GetCurrentProcessId());
+    HANDLE srv = CreateNamedPipeA(name, PIPE_ACCESS_DUPLEX,
+                                  PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                                  1, 4096, 4096, 5000, NULL);
+    if (srv == INVALID_HANDLE_VALUE) { fprintf(stderr, "CreateNamedPipe failed %lu\n", GetLastError()); return; }
+    HANDLE cli = CreateFileA(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (cli == INVALID_HANDLE_VALUE) { fprintf(stderr, "CreateFile failed %lu\n", GetLastError()); CloseHandle(srv); return; }
+    ConnectNamedPipe(srv, NULL);
+    if (!WriteFile(cli, message, sizeof(message), &done, NULL) || done != sizeof(message) ||
+        !ReadFile(srv, readback, sizeof(readback), &done, NULL) || done != sizeof(readback))
+    {
+        fprintf(stderr, "Pipe write/read failed\n");
+        CloseHandle(cli); CloseHandle(srv); return;
+    }
+
+    /* 1. Register with S6 if not already endorsed */
+    DWORD tr_err = transport(srv, E1S6_OPEN, record, sizeof(record), &channel);
+    if (tr_err != 0)
+    {
+        fprintf(stderr, "WexE1s6Transport E1S6_OPEN failed: %lu\n", tr_err);
+        CloseHandle(cli); CloseHandle(srv); return;
+    }
+
+    /* 2. Negative test: bad payload sizes and bad magic/version/op */
+    unsigned char bad_7[7] = { 'E', '1', 'R', '8', 1, 0, 1 };
+    unsigned char bad_9[9] = { 'E', '1', 'R', '8', 1, 0, 1, 0, 0 };
+    unsigned char bad_magic[8] = { 'X', '1', 'R', '8', 1, 0, 1, 0 };
+    unsigned char bad_ver[8] = { 'E', '1', 'R', '8', 2, 0, 1, 0 };
+    unsigned char bad_op[8] = { 'E', '1', 'R', '8', 1, 0, 2, 0 };
+    unsigned char out_buf[256];
+    ULONG out_len = sizeof(out_buf);
+
+    R8_PIPE_CALLER_BINDING_EXT ext;
+#define TRY_OP(in_ptr, in_len, expected_status, site) do { \
+    memset(&ext, 0, sizeof(ext)); \
+    ext.binding.Size = sizeof(ext); \
+    ext.input = (in_ptr); \
+    ext.in_size = (in_len); \
+    ext.output = out_buf; \
+    out_len = sizeof(out_buf); \
+    ext.out_size = &out_len; \
+    NTSTATUS st = query(srv, &ext); \
+    if (st != (expected_status)) { \
+        fprintf(stderr, "r8binding: " site " expected status %lx, got %lx\n", (unsigned long)(expected_status), (unsigned long)st); \
+        ok = 0; \
+    } \
+} while (0)
+
+    TRY_OP(bad_7, sizeof(bad_7), 0xc0000022 /* STATUS_ACCESS_DENIED */, "bad_7");
+    TRY_OP(bad_9, sizeof(bad_9), 0xc0000022, "bad_9");
+    TRY_OP(bad_magic, sizeof(bad_magic), 0xc0000022, "bad_magic");
+    TRY_OP(bad_ver, sizeof(bad_ver), 0xc0000022, "bad_ver");
+    TRY_OP(bad_op, sizeof(bad_op), 0xc0000022, "bad_op");
+
+    /* 3. Valid op 1 */
+    unsigned char op1_req[8] = { 'E', '1', 'R', '8', 1, 0, 1, 0 };
+    memset(out_buf, 0, sizeof(out_buf));
+    out_len = sizeof(out_buf);
+    memset(&ext, 0, sizeof(ext));
+    ext.binding.Size = sizeof(ext);
+    ext.input = op1_req;
+    ext.in_size = sizeof(op1_req);
+    ext.output = out_buf;
+    ext.out_size = &out_len;
+    NTSTATUS st = query(srv, &ext);
+    NTSTATUS op1_st = st;
+    ULONG op1_len = out_len;
+    if (st != 0 /* STATUS_SUCCESS */)
+    {
+        fprintf(stderr, "r8binding: op 1 failed: %lx\n", (unsigned long)st);
+        ok = 0;
+    }
+    if (out_len != 124)
+    {
+        fprintf(stderr, "r8binding: op 1 out_len %lu != 124\n", (unsigned long)out_len);
+        ok = 0;
+    }
+
+    /* Verify IDs: prefix_id, host_process_id, opener_id, writer_id, desktop_route (16 bytes each) */
+    unsigned char zero16[16] = {0};
+    const unsigned char *ids[5];
+    int i, j;
+    for (i = 0; i < 5; i++)
+    {
+        ids[i] = out_buf + i * 16;
+        if (!memcmp(ids[i], zero16, 16))
+        {
+            fprintf(stderr, "r8binding: ID %d is all-zero\n", i);
+            ok = 0;
+        }
+    }
+    for (i = 0; i < 5; i++)
+    {
+        for (j = i + 1; j < 5; j++)
+        {
+            if (!memcmp(ids[i], ids[j], 16))
+            {
+                fprintf(stderr, "r8binding: ID %d and %d are equal\n", i, j);
+                ok = 0;
+            }
+        }
+    }
+
+    /* Verify generations: server_gen, root_gen, broker_gen, map_gen, policy_gen (u64 each, starting at offset 80) */
+    UINT64 gens[5];
+    for (i = 0; i < 5; i++)
+    {
+        memcpy(&gens[i], out_buf + 80 + i * 8, 8);
+        if (!gens[i])
+        {
+            fprintf(stderr, "r8binding: gen %d is zero\n", i);
+            ok = 0;
+        }
+    }
+
+    /* Verify caller_session (u32, offset 120) */
+    DWORD session = 0;
+    memcpy(&session, out_buf + 120, 4);
+    DWORD my_session = 0;
+    ProcessIdToSessionId(GetCurrentProcessId(), &my_session);
+    if (session != my_session)
+    {
+        fprintf(stderr, "r8binding: session %lu != my_session %lu\n", (unsigned long)session, (unsigned long)my_session);
+        ok = 0;
+    }
+
+    /* 4. Second op 1 on the same pipe must be denied */
+    TRY_OP(op1_req, sizeof(op1_req), 0xc0000022 /* STATUS_ACCESS_DENIED */, "second_op1");
+
+#undef TRY_OP
+
+    if (ext.binding.Process) CloseHandle(ext.binding.Process);
+    if (ext.binding.Token) CloseHandle(ext.binding.Token);
+    if (ext.binding.WriterProcess) CloseHandle(ext.binding.WriterProcess);
+    if (ext.binding.WriterToken) CloseHandle(ext.binding.WriterToken);
+
+    if (channel && transport) transport(srv, E1S6_CLOSE, NULL, 0, &channel);
+    CloseHandle(cli);
+    CloseHandle(srv);
+
+    if (result_file && (f = fopen(result_file, "wb")))
+    {
+        fprintf(f, "op1=%s\n", (op1_st == 0 && op1_len == 124) ? "PASS" : "FAIL");
+        fprintf(f, "map_gen=%016llx\n", (unsigned long long)gens[3]);
+        fprintf(f, "policy_gen=%016llx\n", (unsigned long long)gens[4]);
+        fprintf(f, "r8binding=%s\n", ok ? "PASS" : "FAIL");
+        fclose(f);
+    }
+    printf("r8binding=%s\n", ok ? "PASS" : "FAIL");
+}
+
+static void r8binding_impostor_mode(void)
+{
+    NTSTATUS (WINAPI *query)(HANDLE, void *) = NULL;
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    char name[128];
+    char message[16] = "R8IMP";
+    char readback[16];
+    DWORD done;
+    unsigned char op1_req[8] = { 'E', '1', 'R', '8', 1, 0, 1, 0 };
+    unsigned char out_buf[256];
+    ULONG out_len = sizeof(out_buf);
+    R8_PIPE_CALLER_BINDING_EXT ext;
+
+    if (ntdll) query = (void *)GetProcAddress(ntdll, "NtQueryWexPipeCallerBindingEx");
+    if (!query) return;
+
+    sprintf(name, "\\\\.\\pipe\\wex-r8imp-%lu", (unsigned long)GetCurrentProcessId());
+    HANDLE srv = CreateNamedPipeA(name, PIPE_ACCESS_DUPLEX,
+                                  PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+                                  1, 4096, 4096, 5000, NULL);
+    if (srv == INVALID_HANDLE_VALUE) return;
+    HANDLE cli = CreateFileA(name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (cli == INVALID_HANDLE_VALUE) { CloseHandle(srv); return; }
+    ConnectNamedPipe(srv, NULL);
+    WriteFile(cli, message, sizeof(message), &done, NULL);
+    ReadFile(srv, readback, sizeof(readback), &done, NULL);
+
+    memset(&ext, 0, sizeof(ext));
+    ext.binding.Size = sizeof(ext);
+    ext.input = op1_req;
+    ext.in_size = sizeof(op1_req);
+    ext.output = out_buf;
+    ext.out_size = &out_len;
+    NTSTATUS st = query(srv, &ext);
+    CloseHandle(cli);
+    CloseHandle(srv);
+    check(st == 0xc0000022 /* STATUS_ACCESS_DENIED */, "unprivileged op 1 denied");
+}
+#endif /* WEXELEVATE_TEST_APPROVAL */
+
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 ? argv[1] : "";
@@ -1680,6 +1923,17 @@ int main(int argc, char **argv)
     if (!strcmp(mode, "child")) return child_mode(argc, argv);
     if (!strcmp(mode, "hold")) { Sleep(120000); return 0; }
 #ifdef WEXELEVATE_TEST_APPROVAL
+    if (!strcmp(mode, "r8binding") && argc > 2)
+    {
+        r8binding_mode(argv[2]);
+        return 0;
+    }
+    if (!strcmp(mode, "r8binding-impostor"))
+    {
+        r8binding_impostor_mode();
+        printf("r8binding-impostor=%s\n", failures ? "FAIL" : "PASS");
+        return failures ? 1 : 0;
+    }
     if (!strcmp(mode, "transport-impostor"))
     {
         transport_impostor();

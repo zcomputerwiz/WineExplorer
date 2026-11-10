@@ -642,3 +642,12 @@ Check: main and lab trees built, both suites run (report both PASS counts and ne
 transport suite (`WINE_BUILD_DIR=<lab> bash scripts/test_e1s6_transport.sh`, was 302 PASS) still
 passes, the broker test command passes. Long runs in the background, nothing else running in
 wexbuild, `bash unsloth-tmp/clean-wexbuild-fixture.sh` afterwards. No commits. Never use VM B.
+
+Result (2026-11-09, Antigravity; Claude reviewed and ran the final check): normal suite 325 PASS (no
+binding data); lab S6 transport suite passes with 20 R8 lines on both ABIs (`r8_binding_op1`,
+`r8_binding_map_gen_changed`, `r8_binding_policy_gen_changed`, `c4_e1s6_r8_impostor`); broker test and
+E1R8 codec cross-check (11 cases) pass. Review fixes: the S13 lease reuses a prefix ID that BINDING
+already created; the test restores accounts.map before its checks can fail. Known limit: if the reply
+fails after the record is created, the connection cannot retry BINDING (lab only). The Antigravity job
+stalled after its work and was cancelled; a leftover `wexgreeter` account from a killed run broke the
+normal suite until the fixture cleanup removed it.

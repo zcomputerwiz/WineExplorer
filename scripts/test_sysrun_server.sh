@@ -1230,6 +1230,73 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         wine_case=$(tail -n +"$((wine_line + 1))" "$ROOT/e1s6-wine.log")
         grep -q '^E1S6_DENY pipe site=authority$' <<<"$wine_case" ||
             fail "S6 pipe impostor/$arch: server authority denial missing"
+
+        wine_line=$(wc -l < "$ROOT/e1s6-wine.log")
+        bp "c4_e1s6_r8_impostor_$arch" "$ADM" "$arch" r8binding-impostor
+        wine_case=$(tail -n +"$((wine_line + 1))" "$ROOT/e1s6-wine.log")
+        grep -q '^E1S6_DENY pipe site=authority$' <<<"$wine_case" ||
+            fail "S6 pipe r8 impostor/$arch: server authority denial missing"
+
+        # WO-23: verified broker BINDING (op 1) test
+        el_down "$ADM"
+        cp -p "$SYS32/wexelevate_test.exe" "$ROOT/wexelevate_test.exe.r8bak"
+        install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_probe$arch.exe" "$SYS32/wexelevate_test.exe"
+        cat "$M/system.reg" > "$ROOT/system.reg.r8b"
+        reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+            '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8binding '"$(regpath "$EL/r8_bind1_${arch}.txt")"'"'
+        r8_log="/tmp/wex_r8_b1_${arch}.log"
+        rm -f "$r8_log" "$EL/r8_bind1_${arch}.txt"
+        WEX_EL_LOG="$r8_log" el_up "$ADM"
+        wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" start-service wexelevate 0 >/dev/null 2>&1 || true
+        for _ in $(seq 1 15); do [ -s "$EL/r8_bind1_${arch}.txt" ] && break; sleep 1; done
+        [ -s "$EL/r8_bind1_${arch}.txt" ] || fail "r8_binding_$arch: no result file 1"
+        tr -d '\r' < "$EL/r8_bind1_${arch}.txt" > "$EL/r8_bind1_${arch}.txt.tmp" && mv "$EL/r8_bind1_${arch}.txt.tmp" "$EL/r8_bind1_${arch}.txt"
+        grep -qx 'r8binding=PASS' "$EL/r8_bind1_${arch}.txt" || { cat "$EL/r8_bind1_${arch}.txt" >&2; fail "r8_binding_$arch: step 1 failed"; }
+        ok "r8_binding_op1_$arch"
+
+        map_gen1="$(grep '^map_gen=' "$EL/r8_bind1_${arch}.txt" | cut -d= -f2)"
+        pol_gen1="$(grep '^policy_gen=' "$EL/r8_bind1_${arch}.txt" | cut -d= -f2)"
+        [ -n "$map_gen1" ] && [ -n "$pol_gen1" ] || fail "r8_binding_$arch: missing generations in result 1"
+
+        # Bump generation in accounts.map
+        cp -p /etc/wineexplorer/accounts.map /tmp/accounts.map.r8bak
+        old_map_gen=$(awk 'NR==1 {print $3}' /etc/wineexplorer/accounts.map)
+        new_map_gen=$(( old_map_gen + 42 ))
+        sed -i "1s/ $old_map_gen / $new_map_gen /" /etc/wineexplorer/accounts.map
+        # Touch sysrun.conf
+        sleep 1
+        touch /etc/wineexplorer/sysrun.conf
+
+        el_down "$ADM"
+        cat "$ROOT/system.reg.r8b" > "$M/system.reg"
+        reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+            '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8binding '"$(regpath "$EL/r8_bind2_${arch}.txt")"'"'
+        rm -f "$EL/r8_bind2_${arch}.txt"
+        el_up "$ADM"
+        wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" start-service wexelevate 0 >/dev/null 2>&1 || true
+        for _ in $(seq 1 15); do [ -s "$EL/r8_bind2_${arch}.txt" ] && break; sleep 1; done
+        # Restore the map now
+        cp -p /tmp/accounts.map.r8bak /etc/wineexplorer/accounts.map
+        rm -f /tmp/accounts.map.r8bak
+        [ -s "$EL/r8_bind2_${arch}.txt" ] || fail "r8_binding_$arch: no result file 2"
+        tr -d '\r' < "$EL/r8_bind2_${arch}.txt" > "$EL/r8_bind2_${arch}.txt.tmp" && mv "$EL/r8_bind2_${arch}.txt.tmp" "$EL/r8_bind2_${arch}.txt"
+        grep -qx 'r8binding=PASS' "$EL/r8_bind2_${arch}.txt" || { cat "$EL/r8_bind2_${arch}.txt" >&2; fail "r8_binding_$arch: step 2 failed"; }
+
+        map_gen2="$(grep '^map_gen=' "$EL/r8_bind2_${arch}.txt" | cut -d= -f2)"
+        pol_gen2="$(grep '^policy_gen=' "$EL/r8_bind2_${arch}.txt" | cut -d= -f2)"
+
+        [ "$map_gen1" != "$map_gen2" ] || fail "r8_binding_$arch: map_gen did not change ($map_gen1 == $map_gen2)"
+        ok "r8_binding_map_gen_changed_$arch"
+
+        [ "$pol_gen1" != "$pol_gen2" ] || fail "r8_binding_$arch: policy_gen did not change ($pol_gen1 == $pol_gen2)"
+        ok "r8_binding_policy_gen_changed_$arch"
+
+        # Restore broker
+        el_down "$ADM"
+        cat "$ROOT/system.reg.r8b" > "$M/system.reg"
+        rm -f "$ROOT/system.reg.r8b"
+        mv "$ROOT/wexelevate_test.exe.r8bak" "$SYS32/wexelevate_test.exe"
+        el_up "$ADM"
     done
     native_line=$(wc -l < "$ROOT/e1s6-service.log")
     run_as "$ADM" /usr/bin/python3 -I "$E1S6_CHILD" --impostor >"$ROOT/e1s6-impostor.log" 2>&1 ||

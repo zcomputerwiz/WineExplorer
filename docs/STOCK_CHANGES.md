@@ -1,5 +1,26 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e R8 3e-2/3e-3: caller desktop and BINDING operation (lab only, 2026-11-09)
+
+Design: docs/E1_S18E_R8_3E_DESIGN.md sections 9 and 10. The only change outside
+`WEX_E1S6_TRANSPORT_TEST` is the protocol: `get_pipe_caller_binding` gains a reply
+`VARARG(binding,bytes)` (protocol version 980), always empty in shipping builds, and
+`NtQueryWexPipeCallerBindingEx` (dlls/ntdll/sec.c) accepts an extended structure carrying a request
+payload and a reply buffer (the base structure size keeps working as before). Lab builds only:
+
+* `server/named_pipe.c`: each queued message records the writing thread's desktop (retained, moved
+  with the writer into the consumed writer). The writer checks are factored into
+  `check_pipe_writer_binding`. An 8-byte payload `E1R8`, version 1, op 1 (BINDING) from the verified
+  broker with a current S6 registration, for an opener with a live pin and a writer with a desktop,
+  creates one binding record per connection on the server end (five random IDs, the retained opener,
+  writer and desktop, the server/root/broker/map/policy generations and the opener's session) and
+  returns it as 124 bytes. Released on disconnect and destroy. Denials are audited.
+* `server/sysrun.c`, `sysrun.h`: `sysrun_get_s6_generations`, and `sysrun_get_root_generation` /
+  `sysrun_get_policy_generation` (a random tag that changes when the stat tuple of the machine root,
+  respectively the protected sysrun.conf, changes); the S6 server generation becomes file-static.
+* `server/accounts.c`, `accounts.h`: `accounts_get_map_generation` reads the protected map's generation.
+* `server/registry.c`: `registry_get_prefix_id` creates the prefix ID on first use; the S13 lease reuses it.
+
 ## E1-S18e R8 3e-1: kernel pin for every process (lab only, 2026-11-09)
 
 Only with `WEX_E1S6_TRANSPORT_TEST` (lab builds; production objects unchanged): with the system role
