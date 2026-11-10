@@ -1302,6 +1302,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
             '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8endorse '"$(regpath "$EL/r8_end1_${arch}.txt")"'"'
         r8_log="/tmp/wex_r8_e1_${arch}.log"
         rm -f "$r8_log" "$EL/r8_end1_${arch}.txt" "$EL/r8_end1_${arch}.txt.ready" "$EL/r8_end1_${arch}.txt.done"
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
         WEX_EL_LOG="$r8_log" el_up "$ADM"
         wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" start-service wexelevate 0 >/dev/null 2>&1 &
         SP=$!
@@ -1330,6 +1331,20 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
             grep -qx "${check_name}=PASS" "$EL/r8_end1_${arch}.txt" || { cat "$EL/r8_end1_${arch}.txt" >&2; fail "r8_endorse_${check_name}_$arch failed"; }
             ok "r8_endorse_${check_name}_$arch"
         done
+
+        # WO-26 verifier checks
+        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")"
+        consent_unix_pid="$(grep 'wex-r8: dialog [0-9a-fA-F]* pin pid=' "$r8_log" | head -1 | sed -n 's/.*pin pid=\([0-9]*\).*/\1/p')"
+        [ -n "$consent_unix_pid" ] || fail "r8_endorsed_to_verifier_$arch: consent unix pid not found in server log"
+        endorsed_lines="$(grep -c '^E1R8_ENDORSED ok' <<<"$e1s6_new_log" || true)"
+        [ "$endorsed_lines" -eq 1 ] || fail "r8_endorsed_to_verifier_$arch: expected 1 ENDORSED line, got $endorsed_lines"
+        grep -q "^E1R8_ENDORSED ok .*pid=$consent_unix_pid\$" <<<"$e1s6_new_log" ||
+            fail "r8_endorsed_to_verifier_$arch: verifier log pid mismatch"
+        ok "r8_endorsed_to_verifier_$arch"
+
+        grep -qx 'closed_channel_denied=PASS' "$EL/r8_end1_${arch}.txt" ||
+            fail "r8_endorsed_needs_channel_$arch: endorse after closed channel not denied"
+        ok "r8_endorsed_needs_channel_$arch"
 
         # Restore broker
         el_down "$ADM"

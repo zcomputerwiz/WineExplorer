@@ -1,5 +1,15 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e R8: ENDORSED from the server to the verifier (lab only, 2026-11-10)
+
+Only with `WEX_E1S6_TRANSPORT_TEST`. `server/sysrun.c` keeps a duplicate of the broker's S6 control
+socket at each successful S6 endorsement (`e1s6_control_fd` on `struct process`, server/process.c/.h,
+closed when the process is destroyed). `server/named_pipe.c`: a successful ENDORSE_DIALOG (op 2) first
+sends ENDORSED (type 16, 244 bytes: R8 header, tuple tail with the new dialog_id, D's pin pid and uid) on
+that socket with explicit SCM_CREDENTIALS (server pid, euid, effective system gid under
+`sysrun_raise`) and D's pidfd (a duplicate of its kernel pin) as SCM_RIGHTS; a missing socket or a
+short send denies the endorsement and retains nothing (docs/E1_S18E_R8_SPEC.md section 6 amendment).
+
 ## E1-S18e R8 3d-1/3d-2: ENDORSE_DIALOG and RECHECK operations (lab only, 2026-11-10)
 
 Only with `WEX_E1S6_TRANSPORT_TEST`; no protocol change (the 3e-3 reply VARARG carries `dialog_id`).

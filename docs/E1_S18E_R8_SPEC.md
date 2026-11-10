@@ -160,14 +160,21 @@ socket to S, established and peer-checked at S6 endpoint establishment (docs/E1_
 W_SETUP is accepted only as the first message on W's supervisor control socket, a socketpair created
 by the supervisor whose other end only the supervisor holds, passed to W at spawn (transfer list,
 CLOEXEC) separately from the secret end. Each message is one `recvmsg` with `MSG_CMSG_CLOEXEC` and
-must have the exact total received message length 244 (76-byte header + 168-byte body), no `MSG_TRUNC` or `MSG_CTRUNC`, and exactly one control
-message: one SCM_RIGHTS carrying exactly one fd. No SCM_CREDENTIALS or SCM_PIDFD records are carried
-on these two transfers (the senders are authenticated by the endpoint); any other, duplicate or
-truncated ancillary data is refused. The received fd must be a pidfd whose `fdinfo` `Pid:` equals the
-body's pid and is not -1 (alive); the receiver also checks the process's real uid equals the body's
-uid while the pidfd is alive. V checks ENDORSED's tail against its own records; the supervisor builds
-W_SETUP only from V's validated ENDORSED record and checks the pidfd again before sending. Any failure
-cancels the attempt; every received fd that is rejected or surplus is closed at once.
+must have the exact total received message length 244 (76-byte header + 168-byte body), no `MSG_TRUNC` or `MSG_CTRUNC`.
+W_SETUP carries exactly one control message: one SCM_RIGHTS carrying exactly one fd; no SCM_CREDENTIALS
+or SCM_PIDFD records are carried on W_SETUP (the sender is authenticated by the endpoint).
+*Amendment (WO-26):* The S6 control socket is shared with the broker (it passes the handle), so the
+endpoint alone does not authenticate the server. ENDORSED therefore carries, like the S6 endorsement
+(wine/server/sysrun.c `sysrun_e1s6_endorse`), explicit SCM_CREDENTIALS with the server's pid, euid and
+the effective system gid (sent under `sysrun_raise`), the kernel's SCM_PIDFD of the sender (the
+verifier sets SO_PASSPIDFD), and exactly one SCM_RIGHTS fd (D's pidfd). The verifier checks the sender
+exactly as `endorsement()` does (tools/e1s6/e1s6-lab.py: uid, system gid, wineserver executable inode,
+the session's server pid and pin); any other, duplicate or truncated ancillary data is refused.
+The received fd must be a pidfd whose `fdinfo` `Pid:` equals the body's pid and is not -1 (alive);
+the receiver also checks the process's real uid equals the body's uid while the pidfd is alive.
+V checks ENDORSED's tail against its own records; the supervisor builds W_SETUP only from V's
+validated ENDORSED record and checks the pidfd again before sending. Any failure cancels the attempt;
+every received fd that is rejected or surplus is closed at once.
 
 ## 7. Attach, secret socket and readiness
 

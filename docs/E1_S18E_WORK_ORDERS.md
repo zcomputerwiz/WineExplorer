@@ -860,6 +860,12 @@ unsloth-tmp/clean-wexbuild-fixture.sh` before and after each suite. Never run `g
 restore`, `git stash` or any command that discards changes: other agents edit other files of this
 tree. Write the report and end the job when done. No commits. Never use VM B.
 
+Result (2026-11-10, Antigravity, about 70 minutes; Claude reviewed): normal suite 325; lab S6 transport
+suite 369 PASS with `r8_endorsed_to_verifier` and `r8_endorsed_needs_channel` on both ABIs and the 38
+`r8_endorse_*` lines; broker test passes. Claude's fix: D's pidfd is a duplicate of its kernel pin, not
+`pidfd_open` by pid (pid reuse); re-run of the lab suite after it: 369 PASS. The verifier does not yet
+compare ENDORSED's tail with records of its own (it has none before the attach step).
+
 ## WO-27 R8 end to end in Wine: a standard user's request reaches an endorsed, acknowledged dialog (lab; for Antigravity, after WO-26)
 
 Goal: the first in-Wine run of the standard-user chain as it exists: request, S6 OPEN, BINDING, the S1

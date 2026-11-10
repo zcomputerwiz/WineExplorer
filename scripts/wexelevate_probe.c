@@ -2490,6 +2490,28 @@ static void r8endorse_mode(const char *result_file)
     if (channel1 && transport) transport(srv1, E1S6_CLOSE, NULL, 0, &channel1);
     CloseHandle(cli1);
     CloseHandle(srv1);
+    Sleep(50);
+
+    /* 16. ENDORSE on fresh pipe after channel closed is denied */
+    int pass_closed_channel_denied = 0;
+    {
+        unsigned char b_tmp[124], tuple_tmp[204], dummy_id[16];
+        HANDLE cli = NULL;
+        HANDLE srv = setup_fresh_binding_pipe(query, &cli, b_tmp);
+        HANDLE d_proc = NULL, d_th = NULL, pr = NULL, pw = NULL;
+        DWORD d_pid = 0;
+
+        if (srv != INVALID_HANDLE_VALUE && spawn_test_dialog(consent_path, &d_proc, &d_th, &d_pid, &pr, &pw))
+        {
+            build_tuple_from_binding(b_tmp, tuple_tmp);
+            st = call_endorse_op2(query, srv, d_proc, tuple_tmp, dummy_id);
+            if (st == 0xc0000022) pass_closed_channel_denied = 1;
+
+            terminate_test_dialog(d_proc, d_th, pr, pw);
+            CloseHandle(cli);
+            CloseHandle(srv);
+        }
+    }
 
     int all_pass = pass_endorse_ok && pass_second_endorse_denied && pass_recheck_ok &&
                    pass_recheck_bad_dialog_id_denied && pass_gen_server_denied &&
@@ -2499,7 +2521,7 @@ static void r8endorse_mode(const char *result_file)
                    pass_payload_215_denied && pass_payload_217_denied &&
                    pass_resumed_d_denied && pass_probe_image_d_denied &&
                    pass_no_binding_denied && pass_touch_policy_denied &&
-                   pass_terminated_d_denied;
+                   pass_terminated_d_denied && pass_closed_channel_denied;
 
     if (result_file && (f = fopen(result_file, "wb")))
     {
@@ -2522,6 +2544,7 @@ static void r8endorse_mode(const char *result_file)
         fprintf(f, "no_binding_denied=%s\n", pass_no_binding_denied ? "PASS" : "FAIL");
         fprintf(f, "touch_policy_denied=%s\n", pass_touch_policy_denied ? "PASS" : "FAIL");
         fprintf(f, "terminated_d_denied=%s\n", pass_terminated_d_denied ? "PASS" : "FAIL");
+        fprintf(f, "closed_channel_denied=%s\n", pass_closed_channel_denied ? "PASS" : "FAIL");
         fprintf(f, "r8endorse=%s\n", all_pass ? "PASS" : "FAIL");
         fclose(f);
     }

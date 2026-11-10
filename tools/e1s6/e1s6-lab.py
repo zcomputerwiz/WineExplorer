@@ -149,6 +149,44 @@ def pass_identity(sock):
     sock.setsockopt(socket.SOL_SOCKET, PASSPIDFD, 1)
 
 
+def process_real_uid(pid, pin):
+    require(alive(pin), "process-real-uid-live")
+    with open("/proc/%d/status" % pid, encoding="ascii") as status:
+        uids = [int(line.split()[1]) for line in status if line.startswith("Uid:")]
+    require(len(uids) == 1 and alive(pin), "process-real-uid-parsed")
+    return uids[0]
+
+
+def receive_control_msg(sock):
+    fds, pins, identity, valid = [], [], None, True
+    try:
+        data, ancillary, flags, _ = sock.recvmsg(245, 512, socket.MSG_CMSG_CLOEXEC)
+        for level, kind, value in ancillary:
+            if level == socket.SOL_SOCKET and kind in (socket.SCM_RIGHTS, SCM_PIDFD):
+                values = array.array("i")
+                values.frombytes(value[:len(value) - len(value) % values.itemsize])
+                valid = valid and len(value) % values.itemsize == 0
+                if kind == socket.SCM_RIGHTS:
+                    fds.extend(values)
+                else:
+                    pins.extend(values)
+            elif level == socket.SOL_SOCKET and kind == socket.SCM_CREDENTIALS:
+                if identity is None and len(value) == 12:
+                    identity = struct.unpack("3i", value)
+                else:
+                    valid = False
+            else:
+                valid = False
+        require(bool(data), "receive-eof")
+        require(valid and not flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC), "receive-ancillary")
+        return data, identity, pins, fds
+    except Exception:
+        for fd in fds + pins:
+            if fd >= 0:
+                os.close(fd)
+        raise
+
+
 def receive(sock, size, rights_count=0, minimum=None):
     """Exactly one packet; kernel credentials and kernel-supplied sender pidfd.
 
@@ -269,6 +307,9 @@ def service(server_path, system_group, pam_paths=None):
             self.control = self.data = self.child = None
             self.remote, self.watch, self.cancelled = (), None, False
             self.reply_watch = self.server_proc = None
+            self.control_watch = None
+            self.endorsed_records = {}
+            self.pending_s6 = None
             self.pam = None
             self.evidence_conn = None
 
@@ -295,6 +336,8 @@ def service(server_path, system_group, pam_paths=None):
             # server_gen/broker_gen/session (R9); see the pam-start phase.
             self.watch = GLib.io_add_watch(self.data.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR,
                                             self.message)
+            self.control_watch = GLib.io_add_watch(self.control.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR,
+                                                   self.control_message)
 
         def release_reply(self):
             self.reply_watch = None
@@ -310,6 +353,32 @@ def service(server_path, system_group, pam_paths=None):
             if self.reply_watch is not None:
                 GLib.source_remove(self.reply_watch)
             self.release_reply()
+            if self.control_watch is not None:
+                GLib.source_remove(self.control_watch)
+                self.control_watch = None
+            if hasattr(self, "endorsed_records"):
+                for rec in self.endorsed_records.values():
+                    pfd = rec.get("pidfd")
+                    if pfd is not None and pfd >= 0:
+                        try:
+                            os.close(pfd)
+                        except OSError:
+                            pass
+                self.endorsed_records.clear()
+            if hasattr(self, "pending_s6") and self.pending_s6 is not None:
+                raw, cred, pin, fds = self.pending_s6
+                if pin is not None and pin >= 0:
+                    try:
+                        os.close(pin)
+                    except OSError:
+                        pass
+                for fd in fds:
+                    if fd >= 0:
+                        try:
+                            os.close(fd)
+                        except OSError:
+                            pass
+                self.pending_s6 = None
             if hasattr(self, "evidence_conn") and self.evidence_conn is not None:
                 self.evidence_conn.close()
                 self.evidence_conn = None
@@ -338,16 +407,100 @@ def service(server_path, system_group, pam_paths=None):
             if self.child_pin is not None:
                 require(alive(self.child_pin), "live-child-pin")
 
+        def receive_control_packet(self):
+            data, identity, pins, fds = receive_control_msg(self.control)
+            try:
+                if len(data) >= 8 and data[:4] == b"E1R8":
+                    version, msg_type = struct.unpack_from("<HH", data, 4)
+                    if msg_type == 16:
+                        require(len(data) == 244, "endorsed-size")
+                        require(len(fds) == 1, "endorsed-rights-count")
+                        d_pidfd = fds[0]
+                        require(identity is not None and len(identity) == 3, "endorsed-cred")
+                        require(len(pins) == 1 and alive(pins[0]), "endorsed-sender-pin-count")
+                        sender_pin = pins[0]
+
+                        require(identity[1] == self.uid, "endorsed-uid")
+                        require(identity[2] == system_gid, "endorsed-gid")
+                        if self.server_proc is None:
+                            self.server_proc = process_directory(sender_pin, identity[0])
+                        check_executable(self.server_proc, sender_pin, identity[0], server_stat)
+                        require(self.server_pin is not None and alive(self.server_pin), "endorsed-server-pin-live")
+                        require(identity[0] == self.server_pid, "endorsed-server-pid")
+                        require(child_pid_from_pin(sender_pin) == self.server_pid, "endorsed-sender-pid")
+
+                        magic, ver, mtype, length, request_id, attempt, reserved = struct.unpack_from("<4sHHIQII", data, 0)
+                        require(ver == 1, "endorsed-version")
+                        require(length == 244, "endorsed-length")
+                        require(reserved == 0, "endorsed-reserved")
+                        require(attempt in (1, 2, 3), "endorsed-attempt")
+
+                        body_pid = struct.unpack_from("<I", data, 236)[0]
+                        body_uid = struct.unpack_from("<I", data, 240)[0]
+                        require(alive(d_pidfd), "endorsed-dialog-alive")
+                        require(child_pid_from_pin(d_pidfd) == body_pid, "endorsed-dialog-pid")
+                        require(process_real_uid(body_pid, d_pidfd) == body_uid, "endorsed-dialog-uid")
+
+                        require((request_id, attempt) not in self.endorsed_records, "endorsed-duplicate")
+                        require(len(self.endorsed_records) < 8, "endorsed-capacity")
+
+                        fds.pop(0)
+                        self.endorsed_records[(request_id, attempt)] = {
+                            "tail": data[76:236],
+                            "pid": body_pid,
+                            "uid": body_uid,
+                            "pidfd": d_pidfd,
+                        }
+                        print("E1R8_ENDORSED ok request=%x pid=%d" % (request_id, body_pid), flush=True)
+                        return None
+                    else:
+                        require(False, "endorsed-unknown-r8-type")
+                else:
+                    require(len(data) == ENDORSE_SIZE, "endorsement-size")
+                    require(len(fds) == 0, "endorsement-rights")
+                    require(len(pins) == 1 and alive(pins[0]), "endorsement-pin")
+                    pin = pins.pop(0)
+                    return data, identity, pin, fds
+            finally:
+                for fd in fds + pins:
+                    if fd >= 0:
+                        os.close(fd)
+
+        def control_message(self, source, condition):
+            try:
+                self.live()
+                if condition & (GLib.IO_HUP | GLib.IO_ERR):
+                    self.cancel()
+                    return False
+                msg = self.receive_control_packet()
+                if msg is not None:
+                    require(self.pending_s6 is None, "duplicate-pending-s6")
+                    self.pending_s6 = msg
+                return True
+            except Exception as exc:
+                audit_exception(exc)
+                self.cancel()
+                return False
+
         def endorsement(self, operation, child_pid=0):
             self.live()
-            poll = select.poll()
-            poll.register(self.control.fileno(), select.POLLIN)
-            timeout = min(1000, max(0, (self.deadline - time.monotonic_ns()) // 1_000_000))
-            require(poll.poll(timeout) == [(self.control.fileno(), select.POLLIN)],
-                    "endorsement-control-ready")
-            # Readiness never extends the one absolute transaction deadline.
-            self.live()
-            raw, cred, pin, rights = receive(self.control, ENDORSE_SIZE)
+            if self.pending_s6 is not None:
+                msg = self.pending_s6
+                self.pending_s6 = None
+            else:
+                while True:
+                    poll = select.poll()
+                    poll.register(self.control.fileno(), select.POLLIN)
+                    timeout = min(1000, max(0, (self.deadline - time.monotonic_ns()) // 1_000_000))
+                    require(poll.poll(timeout) == [(self.control.fileno(), select.POLLIN)],
+                            "endorsement-control-ready")
+                    # Readiness never extends the one absolute transaction deadline.
+                    self.live()
+                    msg = self.receive_control_packet()
+                    if msg is None:
+                        continue
+                    break
+            raw, cred, pin, rights = msg
             try:
                 server_gen, broker_gen, broker_pid, session = struct.unpack_from("<QQII", raw)
                 require(server_gen and broker_gen and broker_pid == self.pid, "endorsement-broker")
