@@ -34,7 +34,8 @@
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
 # Before and after every boot it records checksums of every file and link under /etc and /var/lib/AccountsService
-# and of each account's .dmrc. A boot that changes any of them fails. Every boot also reports the guest's disk use:
+# and of each account's .dmrc. A boot that changes any of them fails. Every Safe Mode start must add driver lines
+# to ntbtlog.txt (work order C6). Every boot also reports the guest's disk use:
 # a warning from 80%, a failure from 95%. Before each phase the overlay's wex_boot_pending is cleared, so a phase
 # that failed does not leave the next one on the failure screen.
 #
@@ -250,9 +251,17 @@ snapshot() {   # snapshot FILE: the configuration record, and FILE.ntbtlog with 
         find etc var/lib/AccountsService -xdev -type l -printf '%p -> %l\n' | sort
     ) > "$1"
     local rc=$?
-    grep -c 'Loaded driver' "$MNT$NTBTLOG" > "$1.ntbtlog" 2>/dev/null || echo 0 > "$1.ntbtlog"
+    driver_lines "$MNT$NTBTLOG" > "$1.ntbtlog" 2>/dev/null || echo 0 > "$1.ntbtlog"
     detach
     return $rc
+}
+
+driver_lines() {   # driver_lines FILE: ntbtlog.txt's "Loaded driver" lines; UTF-16 with a BOM (C6), plain text before
+    if [ "$(od -An -N2 -tx1 "$1" 2>/dev/null | tr -d ' \n')" = fffe ]; then
+        iconv -f UTF-16 -t UTF-8 "$1" | grep -c 'Loaded driver'
+    else
+        grep -c 'Loaded driver' "$1"
+    fi
 }
 
 # ---- one boot per phase; fail() ends the phase (each phase runs in a subshell) ----
@@ -656,7 +665,7 @@ phase_bootlog() {
     desktop 600
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
     for _ in $(seq 1 12); do
-        after=$(gsh "grep -c 'Loaded driver' $NTBTLOG" | grep -x '[0-9]*' | tail -n 1)
+        after=$(gsh "iconv -f UTF-16 -t UTF-8 $NTBTLOG | grep -c 'Loaded driver'" | grep -x '[0-9]*' | tail -n 1)
         [ -n "$after" ] && [ "$after" -gt "$before" ] && break
         sleep 5
     done
@@ -1062,6 +1071,15 @@ for PHASE in "${PHASES[@]}"; do
                 grep -vE "  (var/lib/AccountsService/users/$USER_NAME|home/$USER_NAME/\.dmrc)\$" "$f" > "$f.compared"
             done
             compare=("${compare[0]}.compared" "${compare[1]}.compared") ;;
+    esac
+    case "$PHASE" in
+        safe|safenet|safecmd|nowine|waylandsafe|waylandcmd)   # XP logs every Safe Mode start (work order C6)
+            logged=$(( $(cat "$OUT/after-$PHASE.txt.ntbtlog") - $(cat "$OUT/before-$PHASE.txt.ntbtlog") ))
+            echo "  ntbtlog.txt: $logged new driver lines"
+            if [ "$rc" -eq 0 ] && [ "$logged" -le 0 ]; then
+                echo "FAIL ($PHASE): the Safe Mode start wrote no boot log"
+                rc=1
+            fi ;;
     esac
     if ! diff -u "${compare[@]}" > "$OUT/$PHASE-changes.diff"; then
         echo "FAIL ($PHASE): the boot changed files under /etc, /var/lib/AccountsService or a .dmrc:"

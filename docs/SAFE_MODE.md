@@ -169,7 +169,7 @@ drawn in dark gray (bold black); the Linux console does not render the dim attri
 | Safe Mode | `safe` |
 | Safe Mode with Networking | `safenet` |
 | Safe Mode with Command Prompt | `safecmd` |
-| Enable Boot Logging | Normal start; when it is complete, `wex-bootlog` appends the loaded drivers (kernel modules) and the services that failed to `C:\WINDOWS\ntbtlog.txt` in the machine root |
+| Enable Boot Logging | Normal start; when it is complete, `wex-bootlog` appends the loaded drivers (kernel modules) and the services that failed to `C:\WINDOWS\ntbtlog.txt` in the machine root. Every Safe Mode start writes the log too, as on XP: the boot-mode generator adds `wex-bootlog.service` to the Safe Mode target. The file has XP's format (work order C6): UTF-16LE with a byte order mark at its start, CRLF line ends, and for each start a header line, a space, the machine registry's `CSDVersion` string, then the date and time, with no empty line between starts. Today's machine registry keeps Wine's Windows 10 values, with no `CSDVersion` string, so the header reads ` 11 10 2026 09:40:51.253`; XP's reads ` Service Pack 311  8 2026 08:29:50.500`. A log written before this format is converted once |
 | Enable VGA Mode | Grayed: needs an X fallback without the forced `modesetting` driver (`docs/VINTNER_BOOT.md` section 6) |
 | Last Known Good Configuration | Grayed until Vintner offers `next-boot previous-good` |
 | Directory Services Restore Mode | Grayed: does not apply |
@@ -362,3 +362,8 @@ message box and the Safe Mode desktop under `wexcomp`; Safe Mode with Command Pr
 `wexcomp` with no wineserver. The first Wayland logon changed only the test account's AccountsService file and
 `.dmrc`, which LightDM writes for a newly chosen session; the second changed nothing. (The first run could not find
 the session list: OCR read its "(X11)" as "0¢11)", so the test now clicks the word "WineExplorer".)
+
+**The boot log in XP's format** (C6, 2026-11-10). All nine phases passed on SeaBIOS and on OVMF, on the A2 installs
+with this branch's files and Wine and the probes. Every Safe Mode start (`safe`, `safenet`, `safecmd`, `nowine`)
+added 98 to 104 driver lines to `ntbtlog.txt`, and Enable Boot Logging still added its own. The file on the OVMF
+disk afterwards was UTF-16LE with a byte order mark, CRLF line ends and seven header lines, one per logged start.

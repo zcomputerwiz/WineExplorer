@@ -11,6 +11,7 @@
 #   safe, safecmd    default.target = wex-safemode.target; Task Scheduler (timers), Prefetcher and networking masked
 #   safenet          default.target = wex-safenet.target; timers and Prefetcher masked
 #   normal           nothing
+# Every Safe Mode start also writes the boot log (wex-bootlog.service), as XP does.
 set -eu
 early=${2:?usage: wex-bootmode-generator NORMAL_DIR EARLY_DIR LATE_DIR}
 units=${WEX_BOOTMODE_UNIT_DIR:-/usr/lib/systemd/system}
@@ -32,6 +33,12 @@ mask()
     done
 }
 
+wants()   # wants TARGET UNIT
+{
+    mkdir -p "$early/$1.wants"
+    ln -sfn "$units/$2" "$early/$1.wants/$2"
+}
+
 # Counterparts of what Windows leaves out of SafeBoot\Minimal: Task Scheduler and the Prefetcher.
 not_in_safe_mode="timers.target wexprefetchd.socket wexprefetchd.service"
 # Networking, which "Safe Mode with Networking" keeps. NetworkManager is D-Bus activatable, so leaving it out of
@@ -47,10 +54,12 @@ case "$mode" in
     safe|safecmd)
         ln -sfn "$units/wex-safemode.target" "$early/default.target"
         mask $not_in_safe_mode $networking
+        wants wex-safemode.target wex-bootlog.service
         ;;
     safenet)
         ln -sfn "$units/wex-safenet.target" "$early/default.target"
         mask $not_in_safe_mode
+        wants wex-safenet.target wex-bootlog.service
         ;;
 esac
 exit 0

@@ -162,7 +162,7 @@ class TestGenerator(TempDirTest):
                    WEX_BOOTMODE_UNIT_DIR="/units", WEX_BOOTMODE_SYSTEM_UPDATE=str(update))
         subprocess.run(["sh", str(GENERATOR), str(self.tmp / "normal"), str(early), str(self.tmp / "late")],
                        env=env, check=True)
-        return {p.name: os.readlink(p) for p in early.iterdir()}
+        return {p.relative_to(early).as_posix(): os.readlink(p) for p in early.rglob("*") if p.is_symlink()}
 
     def test_normal_writes_nothing(self):
         self.assertEqual(self.generate("normal"), {})
@@ -178,6 +178,8 @@ class TestGenerator(TempDirTest):
             for unit in ("timers.target", "wexprefetchd.socket", "NetworkManager.service",
                          "dbus-org.freedesktop.NetworkManager.service"):
                 self.assertEqual(links.get(unit), "/dev/null", f"{mode}: {unit}")
+            # XP writes the boot log in every Safe Mode start (work order C6)
+            self.assertEqual(links.get("wex-safemode.target.wants/wex-bootlog.service"), "/units/wex-bootlog.service")
             shutil.rmtree(self.tmp / "early")
 
     def test_safe_mode_with_networking(self):
@@ -185,9 +187,71 @@ class TestGenerator(TempDirTest):
         self.assertEqual(links.pop("default.target"), "/units/wex-safenet.target")
         self.assertEqual(links.get("timers.target"), "/dev/null")
         self.assertNotIn("NetworkManager.service", links)
+        self.assertEqual(links.get("wex-safenet.target.wants/wex-bootlog.service"), "/units/wex-bootlog.service")
+
+    def test_menu_and_normal_start_log_nothing(self):
+        for mode in ("menu", "normal"):
+            self.assertFalse([k for k in self.generate(mode) if "wex-bootlog" in k], mode)
 
     def test_offline_update_comes_first(self):
         self.assertEqual(self.generate("safe", system_update=True), {})
+
+
+class TestBootLog(TempDirTest):
+    """wex-bootlog.sh writes ntbtlog.txt in XP's format (work order C6)."""
+
+    HEADER = re.compile(r"^ Service Pack 3[ 1][0-9] [ 123][0-9] \d{4} \d\d:\d\d:\d\d\.\d{3}$")
+
+    def run_bootlog(self):
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        (bin_dir / "modinfo").write_text('#!/bin/sh\n[ "$2" = virtio_net ] || exit 1\n'
+                                         'echo /lib/modules/test/virtio_net.ko.xz\n', encoding="ascii")
+        (bin_dir / "systemctl").write_text('#!/bin/sh\necho "broken.service loaded failed failed Broken"\n',
+                                           encoding="ascii")
+        for f in bin_dir.iterdir():
+            f.chmod(0o755)
+        modules = self.tmp / "modules"
+        modules.write_text("virtio_net 69632 0 - Live 0x0\nbuiltin_less 4096 1 - Live 0x0\n", encoding="ascii")
+        system_reg = self.tmp / "system.reg"
+        system_reg.write_text('WINE REGISTRY Version 2\n\n'
+                              '[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion] 1731234567\n'
+                              '"CSDVersion"="Service Pack 3"\n"CurrentVersion"="5.1"\n\n'
+                              '[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon] 1731234567\n'
+                              '"CSDVersion"="not this one"\n', encoding="ascii")
+        windir = self.tmp / "windows"
+        windir.mkdir(exist_ok=True)
+        env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "WEX_BOOTLOG_WINDIR": str(windir),
+               "WEX_BOOTLOG_SYSTEM_REG": str(system_reg), "WEX_BOOTLOG_MODULES": str(modules)}
+        subprocess.run(["sh", str(SCRIPTS / "wex-bootlog.sh")], env=env, check=True)
+        return windir / "ntbtlog.txt"
+
+    def lines(self, data):
+        self.assertTrue(data.startswith(b"\xff\xfe"), data[:8])
+        text = data[2:].decode("utf-16-le")
+        self.assertNotIn("\ufeff", text, "a byte order mark only at the start of the file")
+        self.assertTrue(text.endswith("\r\n"))
+        self.assertNotIn("\n", text.replace("\r\n", ""), "CRLF line ends only")
+        return text.split("\r\n")[:-1]
+
+    def test_two_starts_in_xp_format(self):
+        self.run_bootlog()
+        log = self.run_bootlog()
+        lines = self.lines(log.read_bytes())
+        start = ["Loaded driver /lib/modules/test/virtio_net.ko.xz", "Loaded driver builtin_less",
+                 "Did not start service broken.service"]
+        self.assertEqual(len(lines), 2 * (1 + len(start)), "no empty line between starts")
+        for first in (0, 1 + len(start)):
+            self.assertRegex(lines[first], self.HEADER)
+            self.assertEqual(lines[first + 1:first + 1 + len(start)], start)
+
+    def test_a_log_from_before_the_format_is_converted(self):
+        windir = self.tmp / "windows"
+        windir.mkdir()
+        (windir / "ntbtlog.txt").write_bytes(b"WineExplorer 6.12 boot log, 11 08 2026 10:00:00\r\nLoaded driver a\r\n\r\n")
+        lines = self.lines(self.run_bootlog().read_bytes())
+        self.assertEqual(lines[:3], ["WineExplorer 6.12 boot log, 11 08 2026 10:00:00", "Loaded driver a", ""])
+        self.assertRegex(lines[3], self.HEADER)
 
 
 class TestPamCheck(TempDirTest):

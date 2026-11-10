@@ -347,6 +347,14 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
 header line with no blank line before it, and the date follows the service pack name with no space between them.
 A Safe Mode start always writes the log, whether or not Enable Boot Logging was chosen.
 
+**Done 2026-11-10** (`scripts/wex-bootlog.sh`, `installer/systemd/wex-bootmode-generator`; `docs/SAFE_MODE.md`
+section 4). The header's service pack string is the machine registry's `CSDVersion` string. On today's image it
+is empty: the machine root's `HKLM\Software\Microsoft\Windows NT\CurrentVersion` still has Wine's Windows 10 values
+(`CurrentBuild` 19045, `CSDVersion` a DWORD 0). XP's lines are
+`Loaded driver` and `Did not load driver`; WineExplorer keeps its own `Did not start service` line for systemd
+units that failed, and has no counterpart for drivers held back in Safe Mode. The recovery console's shape (below)
+is still open.
+
 The A1 test can then also check the recovery console's shape: on XP, Safe Mode with Command Prompt shows a
 maximized 80-column console titled with the program name only, with no taskbar, desktop icons or Explorer.
 
