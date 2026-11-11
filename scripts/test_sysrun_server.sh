@@ -1591,6 +1591,48 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         { cat "$EL/r8_retry.txt" >&2; fail "r8_retry_after_wrong_password: the program is not the elevated administrator"; }
     ok r8_retry_after_wrong_password
 
+    # The real window, driven by the host keyboard (xdotool on Xvfb), no lab hook: a wrong password,
+    # then the right password in the fresh dialog (which shows the error). Screenshots go to $WEX_R8_SHOTS when set.
+    r8_shot() { [ -n "${WEX_R8_SHOTS:-}" ] || return 0; DISPLAY=":$DNUM" xwd -root -silent 2>/dev/null | convert xwd:- "$WEX_R8_SHOTS/$1.png" 2>/dev/null || true; }
+    r8_wait_log() {   # pattern count: waits up to 60 s for that many matching lines of the broker trace
+        local i
+        for i in $(seq 1 600); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            [ "$(grep -cE "$1" <<<"$wine_new_log")" -ge "$2" ] && return 0
+            sleep 0.1
+        done
+        return 1
+    }
+    el_down "$STD"
+    el_clean
+    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
+        '"EnableStandardUserElevation"=dword:00000001'
+    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+        '"Start"=dword:00000002' \
+        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+    el_up "$STD"
+    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+        "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r8_typed.txt")" - >"$ROOT/r8_typed.log" 2>&1 &
+    R8_TYPED=$!
+    r8_typed_fail() { grep -E 'r8: |E1S6_' <<<"$wine_new_log" | tail -30 >&2; r8_shot r8_typed_fail; kill "$R8_TYPED" 2>/dev/null || true; fail "r8_typed_by_keyboard: $1"; }
+    r8_wait_log 'r8: recheck ok' 1 || r8_typed_fail "the first dialog did not open"
+    sleep 3; r8_shot r8_typed_1_dialog
+    XD type --delay 40 "$ADM"; XD key Tab; XD type --delay 40 "not-$R8PW"; sleep 0.5; r8_shot r8_typed_2_filled; XD key Return
+    r8_wait_log 'r8: result refused' 1 || r8_typed_fail "the wrong password was not refused"
+    r8_wait_log 'r8: recheck ok' 2 || r8_typed_fail "no fresh dialog after the refusal"
+    sleep 3; r8_shot r8_typed_4_again
+    XD type --delay 40 "$ADM"; XD key Tab; XD type --delay 40 "$R8PW"; XD key Return
+    r8_wait_log 'r8: launched|r8: .* failed' 1 || r8_typed_fail "the second attempt did not finish"
+    wait "$R8_TYPED" 2>/dev/null || true
+    grep -q 'r8: launched' <<<"$wine_new_log" || r8_typed_fail "the typed password did not launch the program"
+    [ "$(el_fact "$EL/r8_typed.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r8_typed.txt" user)" = "S-1-5-21-$r8_a-$r8_b-$r8_c-$r8_rid" ] ||
+        { cat "$EL/r8_typed.txt" >&2; fail "r8_typed_by_keyboard: the program is not the elevated administrator"; }
+    sleep 1; r8_shot r8_typed_5_after
+    ok r8_typed_by_keyboard
+
     # Negative: the right account with a wrong password is refused three times and nothing starts
     el_down "$STD"
     el_clean

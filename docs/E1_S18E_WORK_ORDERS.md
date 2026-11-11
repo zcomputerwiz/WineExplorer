@@ -1210,3 +1210,23 @@ in one request and no launch.
 Open: the 120 s deadline covers all three attempts including about 4 s of padding each; nothing limits
 the number of requests (throttling belongs to the installed verifier); the nonce is the request's, only
 the channel id and dialog are new per attempt; a retry after Cancel or a transport failure is not offered.
+
+## WO-35 The real password window, driven by the keyboard (lab; Claude, 2026-11-11)
+
+Until now every R8 run typed the password through the lab hook, without a window. New case
+`r8_typed_by_keyboard`: no hook; xdotool on Xvfb (the host keyboard, as in the secure-desktop section)
+types the account and a wrong password, then the account and the right password into the fresh dialog;
+the program runs as the elevated administrator. `WEX_R8_SHOTS=dir` keeps screenshots of each step.
+
+The window path worked on the first run. The screenshots showed two defects, both fixed in `consent.c`:
+
+* The window named `setup.exe` (the default of an absent `/cmd`). It now shows the image from INIT, the
+  one the broker bound into the attempt; an INIT without a usable image ends the dialog.
+* The message box after a refusal was a black rectangle: a second window is not presented on the secure
+  desktop. There is no message box any more. The fresh dialog of a further attempt shows "The user name
+  or password is incorrect. Please try again."; an outcome that ends the request is shown in the dialog
+  itself for 2.5 s.
+
+Open: the account name is not carried into the fresh dialog (typed again); the INIT publisher and
+requester are still empty (the dialog checks the signature itself); Cancel and the close button in the
+window were not driven; the UI thread still blocks while the verifier answers.

@@ -334,6 +334,8 @@ done:
 }
 #endif
 
+static void describe_program(struct consent_data *data);
+
 static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
 {
     const WCHAR *p = cmd;
@@ -498,7 +500,12 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
             *dst++ = *p++;
     }
     *dst = 0;
+    describe_program(data);
+}
 
+/* The friendly name and the publisher line of data->exepath. */
+static void describe_program(struct consent_data *data)
+{
     /* Extract friendly program name */
     {
         DWORD ver_size, handle = 0;
@@ -908,6 +915,9 @@ static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
          * until READY). */
         EnableWindow(GetDlgItem(hwnd, IDC_UAC_ACCOUNT), data->r8_select_ok ? TRUE : FALSE);
         EnableWindow(GetDlgItem(hwnd, IDC_UAC_PASSWORD), data->r8_select_ok ? TRUE : FALSE);
+        /* A further attempt exists only after a refused password: say so in the fresh dialog. */
+        if (data->attempt > 1)
+            SetDlgItemTextW(hwnd, IDC_UAC_ERROR, L"The user name or password is incorrect. Please try again.");
 #endif
 
         SetFocus(GetDlgItem(hwnd, IDC_UAC_ACCOUNT));
@@ -999,13 +1009,18 @@ static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
                 SetCursor(old);
                 if (auth != R8_AUTH_OK)
                 {
-                    /* One attempt per dialog: after a refusal the broker opens a fresh dialog, up to
-                     * three attempts per request. */
-                    MessageBoxW(hwnd, auth == R8_AUTH_REFUSED
-                                ? (data->attempt < 3 ? L"The user name or password is incorrect. Please try again."
-                                   : L"The user name or password is incorrect. Nothing was started.")
-                                : L"The administrator's credentials could not be verified. Nothing was started.",
-                                L"User Account Control", MB_OK | MB_ICONERROR);
+                    /* One attempt per dialog: after a refusal the broker opens a fresh dialog (which
+                     * shows the error), up to three attempts per request. Only an outcome that ends the
+                     * request is shown here, for a moment, in the dialog itself: a second window is not
+                     * presented on the secure desktop. */
+                    if (auth != R8_AUTH_REFUSED || data->attempt >= 3)
+                    {
+                        SetDlgItemTextW(hwnd, IDC_UAC_ERROR, auth == R8_AUTH_REFUSED
+                                        ? L"The user name or password is incorrect. Nothing was started."
+                                        : L"The administrator's credentials could not be verified. Nothing was started.");
+                        UpdateWindow(hwnd);
+                        Sleep(2500);
+                    }
                     data->confirmed = FALSE;
                     EndDialog(hwnd, IDNO);
                     return TRUE;
@@ -1158,6 +1173,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
             memcpy(data.binding_digest, init.tuple.binding_digest, 32);
             memcpy(data.request_digest, init.tuple.request_digest, 32);
             memcpy(&data.r8_tuple, &init.tuple, sizeof(data.r8_tuple));
+            /* The program shown is the image the broker bound into this attempt (UTF-16LE, validated by
+             * the decoder), never a default or a command-line word. */
+            if (!init.image_len || (init.image_len & 1) || init.image_len / sizeof(WCHAR) >= MAX_PATH)
+                return ERROR_NOT_SUPPORTED;
+            memset(data.exepath, 0, sizeof(data.exepath));
+            memcpy(data.exepath, init.image, init.image_len);
+            lstrcpynW(data.cmdline, data.exepath, ARRAY_SIZE(data.cmdline));
+            describe_program(&data);
             if (init.verifier_owner_len >= sizeof(data.r8_owner)) return ERROR_NOT_SUPPORTED;
             memcpy(data.r8_owner, init.verifier_owner, init.verifier_owner_len);
             data.r8_owner[init.verifier_owner_len] = 0;
