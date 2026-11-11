@@ -1,10 +1,17 @@
 # Changes to stock Wine / third-party code
 
-## wineboot, win32u, services.exe, wine.inf, user32: Safe Mode (2026-11-09)
+## wineboot, win32u, services.exe, wine.inf, user32: Safe Mode (2026-11-09, 2026-11-11)
 
-Wine branch `claude/vintner-boot-integration`, commit `46f3a86e33d` on `cf1c29be` (local, not pushed;
-`docs/SAFE_MODE_WORKORDER.md` B1-B4, B6, B7). WineExplorer keeps the boot mode in the root-owned `/run/wineexplorer/bootmode` (`safe`, `safenet` or
+Wine branch `claude/vintner-boot-integration`, commits `46f3a86e33d` and `d4e95e24dee` on `cf1c29be` (local, not
+pushed; `docs/SAFE_MODE_WORKORDER.md` B1-B7). WineExplorer keeps the boot mode in the root-owned `/run/wineexplorer/bootmode` (`safe`, `safenet` or
 `safecmd`); without that file, as in a stock prefix, nothing changes.
+
+* `programs/wineboot/wineboot.c` (`d4e95e24dee`, B5, as measured on the XP VM): in Safe Mode `process_run_key`
+  runs only the RunOnce values whose name starts with `*`, leaving the others for the next normal start, and
+  `ProcessRunKeys` skips the Run keys. A RunOnce value whose name starts with `!` is deleted once its command has
+  ended (whatever its exit code, or if it did not start) instead of before it starts. That applies only to a key
+  that waits for each command, which is HKLM RunOnce. XP also leaves HKLM command lines of 260 characters or more
+  unrun in the key; that limit is not copied.
 
 * `programs/wineboot/wineboot.c`: `create_safeboot_option_key` reads the file through `\\?\unix\` on every
   `wineboot --init` and creates the volatile `HKLM\System\CurrentControlSet\Control\SafeBoot\Option` with

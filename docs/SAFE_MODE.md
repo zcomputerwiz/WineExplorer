@@ -311,8 +311,9 @@ Yes as the default; the desktop icons wait for the answer. Yes goes on; No logs 
 the place of XP's System Restore (owner decision 2). Safe Mode with Command Prompt starts no Explorer, so it shows
 neither.
 
-Still open: `RunOnce` values whose name starts with `*` (B5, after a native probe on the XP VM) and the classic
-logon dialog after Ctrl+Alt+Del twice (C4).
+`RunOnce` (B5, 2026-11-11, Wine branch commit `d4e95e24dee`): in Safe Mode wineboot runs only the values whose
+name starts with `*`, leaves the rest for the next normal start and skips the Run keys. A `!` value is deleted once
+its command has ended, as on XP. Still open: the classic logon dialog after Ctrl+Alt+Del twice (C4).
 
 ## 6. Tests
 

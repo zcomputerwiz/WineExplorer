@@ -7,7 +7,7 @@ menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer comm
 A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape),
 Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Since 2026-11-11 Vintner Boot is the
 only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. C5 is done
-(2026-11-11), and so are C6 with the recovery console's shape, C3 for Wayland, D2 and A4. Open: B5, B8's merge, the
+(2026-11-11), and so are C6 with the recovery console's shape, C3 for Wayland, D2, A4 and B5. Open: B8's merge, the
 rest of C4 and C7, D4, D5. D1's Safe Mode choice on a generation's last try waits for Vintner's
 `next-boot variant --generation`, asked on 2026-11-11 (`docs/VINTNER_BOOT.md`).  
 Branches:
@@ -211,6 +211,28 @@ the native probe on the XP VM.
   prefix today. Confirm the semantics with a native probe before changing them.
 - The `Run` keys and the Startup folder do not run in WineExplorer in any mode (wineboot runs with `--init`,
   `wineboot.c:1977-1982`). That is a separate gap and is not part of Safe Mode.
+
+**Done 2026-11-11** (Wine branch commit `d4e95e24dee`; `docs/STOCK_CHANGES.md`). The XP probe (2026-11-11) found:
+
+- In Safe Mode only the `*` values of HKLM and HKCU RunOnce ran and were deleted; all others stayed and ran at the
+  next normal start.
+- A plain or `*` value is deleted before its command runs.
+- An HKLM `!` value is deleted after its process exits, whatever the exit code. One whose program does not exist
+  is deleted too, after the error message, so it is not retried.
+- HKLM values run one at a time before the taskbar appears. HKCU values run afterwards, without waiting, so `!`
+  changes nothing visible there.
+- HKLM command lines of 260 characters or more are skipped and stay.
+
+wineboot now follows the first three for HKLM RunOnce, and skips the Run keys in Safe Mode. The 260-character limit
+is not copied. HKCU RunOnce is still not processed in any mode, a separate gap like Run. It was checked with the
+branch's WoW64 build in a throwaway prefix in wexbuild, with the boot mode faked:
+
+- In Safe Mode only the `*` values ran, in both registry views (a 32-bit `cmd.exe` too), and a Run value did not.
+- In the next normal start the rest ran and the key was empty.
+- A `!` value was still present while its command ran; a plain one was already gone.
+
+Not run in the VM. Whether a session's HKLM RunOnce deletions reach the machine root under the system role
+depends on the E1 design (see the `save_branch` note under C7), and was not checked.
 
 **B6. `PaintDesktop` in user32** (`dlls/user32/desktop.c:120-170`). When `SM_CLEANBOOT` is set, paint black and
 draw "Safe Mode" in the four corners plus the version line at the top centre, ported from ReactOS
@@ -511,6 +533,23 @@ read with `wex-bootmode --option`). In a normal start the greeter and both sessi
 Mode, and the session skips the saved display mode. Display Properties may save a new one, since this is not Safe
 Mode. The next normal start has its saved mode. The VM test's `vga` phase passed on both firmwares: 640x480 with a
 saved 1024x768 skipped, then 1024x768 again. `docs/SAFE_MODE.md` section 4.
+
+The XP probe the same day (Enable VGA Mode on the XP VM) agreed:
+- 640x480 at 32 bpp, with the normal adapter's driver still running.
+- An ordinary desktop, with no Safe Mode text and the normal theme and wallpaper.
+- A mode applied in Display Properties was kept by the next normal start, and the next VGA start was 640x480
+  again.
+
+Two differences remain, for the owner:
+- **On XP a VGA start counts as a successful start.** It updated Last Known Good, and a reset during it brought
+  the failure screen next time. Here no start through the menu counts (decision 3), so a VGA start saves no
+  control set.
+- About 20 seconds after logon XP shows a "Display Settings" balloon saying the resolution is low; WineExplorer
+  shows none.
+
+The probe also met XP's F8 menu in another form: it opened on Safe Mode, had no Return to OS Choices Menu, and
+Enter started without the operating system list. What decides that form is not known (`measurements.md` there,
+section 12). C5 follows the form measured on 2026-11-08.
 
 **D3. Last Known Good Configuration and Return to OS Choices Menu.** Done (2026-11-10). Both waited for Vintner's
 `next-boot previous-good` and `next-boot menu` (`docs/VINTNER_BOOT.md` V6), which Vintner Boot 4.4 added.
