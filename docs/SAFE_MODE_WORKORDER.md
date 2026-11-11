@@ -444,7 +444,10 @@ shows it in a normal start too. Check on the XP VM:
 
 `logonui.exe` already does the same: a value decides in every mode, and only without one does the Administrator
 rule apply. LightDM starts a new greeter, which reads the key again, at every log off and user switch. User Accounts
-follows XP once WineExplorer has it, and the classic dialog is C4's.
+follows XP once WineExplorer has it, and the classic dialog is C4's. The tiles came in AccountsService's order; they
+are now sorted by the name on the tile, ignoring case. XP's test names could not tell the tile name from the account
+name. The `accounts` phase passed on both firmwares with the branch's Wine and this logonui: Administrator, then
+wineuser.
 
 The work:
 

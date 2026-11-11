@@ -204,6 +204,15 @@ static BOOL user_hidden( HKEY list, const char *name, BOOL safe )
     return !safe && !lstrcmpiA( name, "administrator" );
 }
 
+/* by the name on the tile, ignoring case as XP does, then by account name */
+static int __cdecl compare_users( const void *a, const void *b )
+{
+    const struct user *x = a, *y = b;
+    int order = CompareStringW( LOCALE_USER_DEFAULT, NORM_IGNORECASE, x->display, -1, y->display, -1 ) - CSTR_EQUAL;
+
+    return order ? order : lstrcmpiA( x->name, y->name );
+}
+
 static void load_users( void )
 {
     char *buffer = NULL, *line, *next;
@@ -246,6 +255,9 @@ static void load_users( void )
     }
     if (list) RegCloseKey( list );
     free( buffer );
+    /* XP lists the tiles alphabetically (measured 2026-11-11, docs/SAFE_MODE_WORKORDER.md C7); AccountsService
+     * returns them in no set order */
+    qsort( users, user_count, sizeof(users[0]), compare_users );
 }
 
 /* ------------------------------------------------------------------ layout */
