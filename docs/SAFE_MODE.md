@@ -145,6 +145,25 @@ boots:
   leaves the state as it was, whatever happens (`docs/SAFE_MODE_WORKORDER.md`, decision 3). On the failure screen
   that value is 1, so that start counts as an ordinary one.
 
+**A start that did not finish (Vintner Boot).** Vintner Boot counts every ordinary start of a generation and
+marks it good at `boot-complete.target`. `vintner status --json` reports `booted.failed_attempts`: the earlier
+starts of this generation that did not get there. `wex-failure-check.service` runs on every ordinary Vintner start.
+It is skipped under GRUB and on starts through the menu or variant, with conditions on `vintner.bootstorage=` and
+`wexmode=`. It runs before `basic.target` and needs no terminal, so a start with nothing to report leaves the boot
+splash alone. When the count is above 0, outside Setup, it starts `wex-failure-screen.service`, which shows the
+failure screen on `tty1` (section 4).
+
+This start has been counted by the loader, so the choices differ from GRUB's:
+
+- **Start Normally (the countdown's choice):** this start goes on. Once the logon screen is up it counts, Vintner
+  marks it good, and the next start shows no screen.
+- **A Safe Mode:** recorded for one start in `/var/lib/wineexplorer/next-bootmode` (mode and generation, root
+  only). Then `vintner next-boot variant advanced` and a restart. The variant counts nothing, as a Safe Mode start
+  never does (decision 3). The menu sees the record there, removes it, and starts that mode at once with no menu.
+  The start that showed the screen did not finish, so the next ordinary start shows it again, as under GRUB.
+- **Last Known Good:** the previous good generation when this one never started successfully (as from the menu).
+  Otherwise the registry's control set goes back and this start goes on and counts, as XP's does.
+
 `wex-startup-check.service` (`scripts/wex-startup-check.sh`) clears the variable once the start is complete, which
 here means the logon screen is up:
 
@@ -316,6 +335,7 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `oschoices` | Return to OS Choices Menu. Under GRUB, the local OS list, then Enter: a normal start as in `startnormal`. With Vintner Boot (`WEX_TEST_LOADER=vintner`), a restart into the loader's menu with no key held, recognized by its Recovery Console entries, then Enter on the generation: a normal start |
 | `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending`; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480 |
 | `lastgood` | Last Known Good (work order D3). With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Items below Last Known Good move down one once it is offered, which `startnormal` and `failed` follow |
+| `vfailed` | Vintner Boot only. With LightDM held back as in `failed`: a reset once the serial console answers, before `boot-complete.target`. The next ordinary start shows the failure screen with its countdown. Up stops it, and Safe Mode with Command Prompt restarts into the variant, which shows no menu and comes up in that mode. The next ordinary start shows the screen again; left alone, it starts normally and counts. The start after that shows no screen |
 | `lastgoodgen` | Vintner Boot only, last in its list. The test appends a token to the Advanced Options variant on the stopped disk and adds a unit that runs `vintner publish` at the next start and powers off, so generation 2 is published. The variant is then put back. Generation 2 is started only through its variant, which counts nothing, so it never starts successfully. The registry is changed as in `lastgood`. Last Known Good from generation 2's menu then restarts with no menu into generation 1: a normal start whose recorded `vintner status --json` says `booted` generation 1, generation 2 not `GOOD`. The registry ends as in `lastgood` |
 | `failed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards), the serial console shows `wex_boot_pending=1` once Linux runs: GRUB recorded the start. Then the Reset button (QMP `system_reset`) and the failure screen with its countdown. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold, and GRUB's "Loading Linux" text was not readable on OVMF. Up stops the countdown and removes its line, and Safe Mode with Command Prompt starts at once; that start leaves `wex_boot_pending` at 1. The next start shows the screen again; left alone, the countdown starts normally, and that start counts and clears the variable |
 | `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, and a `wexcomp` process for the account. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |
@@ -442,3 +462,15 @@ both firmwares. On BIOS, eight passed before a host restart and `lastgoodgen` af
   firmwares, and `lastgood` on SeaBIOS.
 - None of the nine menu starts through the variant needed more than one Plymouth quit request. Before the retry,
   two in about 36 had needed more and shown a blank menu.
+
+**The failure screen with Vintner Boot (D1, 2026-11-10).** An ISO built with the same Vintner Boot packages and
+`wex-failure-check.service` installed with no input on SeaBIOS and OVMF. The Safe Mode test through Vintner Boot
+then passed all ten phases on both firmwares, `vfailed` included:
+
+- After a reset before the logon screen, the next ordinary start showed the screen with its countdown.
+- Safe Mode with Command Prompt restarted into the variant, which showed no menu and came up in that mode.
+- The start after showed the screen again; its countdown started normally, and that start counted. The start after
+  that showed none.
+
+With this branch's files on the GRUB installs, `failed`, `safe` and `normal` passed on both firmwares. The new unit
+is enabled there, but its condition skips it.

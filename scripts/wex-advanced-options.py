@@ -16,6 +16,12 @@ With wexfailed=1 as well (GRUB found that the last start did not finish), it sho
 successfully" screen instead: the three Safe Modes, Last Known Good and Start Normally, which a 30-second countdown
 chooses.
 
+With Vintner Boot an ordinary start shows the same screen: wex-failure-check.service runs `wex-advanced-options
+--failure-check`, which starts wex-failure-screen.service (`--failure-screen`) when `vintner status --json` reports
+failed starts of this generation. That start is counted, so Start Normally and Last Known Good go on with it.
+A Safe Mode choice restarts into the Advanced Options variant (`vintner next-boot variant advanced`), which counts
+nothing, and the menu there starts the recorded mode without showing itself.
+
 Installed as /usr/local/sbin/wex-advanced-options. The WEX_* variables let the tests use other paths.
 """
 
@@ -36,6 +42,10 @@ CMDLINE = os.environ.get("WEX_BOOTMODE_CMDLINE", "/proc/cmdline")
 LASTGOOD = os.environ.get("WEX_LASTGOOD_HELPER", "/usr/local/sbin/wex-lastgood")
 VINTNER = os.environ.get("WEX_VINTNER", "/usr/sbin/vintner")
 PLYMOUTH = os.environ.get("WEX_PLYMOUTH", "/usr/bin/plymouth")
+# The Safe Mode the failure screen chose for the next start, through the variant (failure_screen)
+PENDING = os.environ.get("WEX_BOOTMODE_PENDING", "/var/lib/wineexplorer/next-bootmode")
+VARIANT = "advanced"     # installer/vintner/advanced.conf
+SAFE_MODES = ("safe", "safenet", "safecmd")
 KDSETMODE, KD_TEXT = 0x4B3A, 0x00   # linux/kd.h
 OS_NAME = "WineExplorer"
 LASTGOOD_LABEL = "Last Known Good Configuration (your most recent settings that worked)"
@@ -183,6 +193,52 @@ def go_back_to_previous_good(run=subprocess.run):
         except (OSError, subprocess.CalledProcessError) as error:   # the older generation still starts
             print(f"wex-advanced-options: the registry's control set was not put back: {error}", file=sys.stderr)
     return True
+
+
+def failed_starts(status):
+    """How many earlier starts of this generation failed, when this is an ordinary Vintner Boot start of it, else 0
+    (`booted.failed_attempts`, which does not count this start). Above 0, XP's failure screen is due."""
+    booted = (status or {}).get("booted") or {}
+    count = booted.get("failed_attempts")
+    if booted.get("kind") != "generation" or not isinstance(count, int) or isinstance(count, bool):
+        return 0
+    return max(count, 0)
+
+
+def write_pending(mode, generation):
+    """Record MODE for the next start, the Advanced Options variant of GENERATION (root only, on disk: /run does not
+    survive the restart)."""
+    os.makedirs(os.path.dirname(PENDING), mode=0o755, exist_ok=True)
+    tmp = PENDING + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="ascii") as f:
+        f.write(f"{mode} {generation}\n")
+    os.replace(tmp, PENDING)
+
+
+def remove_pending():
+    try:
+        os.remove(PENDING)
+    except FileNotFoundError:
+        pass
+
+
+def take_pending(status):
+    """The Safe Mode that the failure screen chose for this start, or None. It applies only to the Advanced Options
+    variant of the generation that showed the screen; the record is removed once read, whatever it says, so it
+    never applies twice."""
+    try:
+        with open(PENDING, encoding="ascii", errors="replace") as f:
+            words = f.read().split()
+    except OSError:
+        return None
+    remove_pending()
+    booted = (status or {}).get("booted") or {}
+    if len(words) != 2 or words[0] not in SAFE_MODES or not words[1].isdigit():
+        return None
+    if (booted.get("kind"), booted.get("variant"), booted.get("generation")) != ("variant", VARIANT, int(words[1])):
+        return None
+    return words[0]
 
 
 def quit_plymouth(run=subprocess.run, sleep=time.sleep, console=None, tries=40):
@@ -448,12 +504,83 @@ def run_failure(stdscr, previous=None, clock=time.monotonic):
             return ("boot", item.mode, item.option)
 
 
-def main():
+def failure_check(run=subprocess.run):
+    """wex-failure-check.service, on an ordinary Vintner Boot start: start the failure screen and wait for it when
+    earlier starts of this generation failed. Setup's starts are left alone, as under GRUB they show no screen
+    either. Returns the exit code; a failed check lets the start go on."""
+    if os.path.exists(SETUP_STAGE):
+        return 0
+    count = failed_starts(vintner_status(run))
+    if count:
+        print(f"wex-advanced-options: {count} earlier start(s) of this generation failed", file=sys.stderr)
+        run(["systemctl", "start", "wex-failure-screen.service"], check=False)
+    return 0
+
+
+def finish_failure(status, mode, option, run=subprocess.run):
+    """What a choice on the failure screen does on an ordinary Vintner Boot start, which the loader counts:
+    - a Safe Mode: recorded for the next start, which is the Advanced Options variant of this generation (`vintner
+      next-boot variant`); a variant start counts nothing, as a Safe Mode start never does (owner decision);
+    - Last Known Good: the previous good generation, as from the menu, when this one never started successfully;
+      otherwise the registry's control set goes back and this start goes on, and counts, as on XP;
+    - Start Normally: this start goes on.
+    Returns True when the machine restarts."""
+    if mode in SAFE_MODES:
+        generation = ((status or {}).get("booted") or {}).get("generation")
+        try:
+            write_pending(mode, generation)
+            result = run([VINTNER, "next-boot", "variant", VARIANT], check=False, capture_output=True, text=True)
+        except OSError as error:
+            result = None
+            print(f"wex-advanced-options: {error}", file=sys.stderr)
+        if result is not None and result.returncode == 0:
+            reboot(run)
+            return True
+        remove_pending()
+        print(f"wex-advanced-options: cannot restart into {mode}; starting normally", file=sys.stderr)
+        return False
+    if option == "lastgood":
+        if previous_good(status) is not None and go_back_to_previous_good(run):
+            reboot(run)
+            return True
+        try:
+            run([LASTGOOD, "restore"], check=True)
+        except (OSError, subprocess.CalledProcessError) as error:
+            print(f"wex-advanced-options: the registry's control set was not put back: {error}", file=sys.stderr)
+    return False
+
+
+def failure_screen():
+    """wex-failure-screen.service: XP's "did not start successfully" screen on tty1 (failure_check)."""
+    status = None
+    try:
+        quit_plymouth()
+        status = vintner_status()
+        _, mode, option = curses.wrapper(run_failure, previous_good(status))
+    except Exception as error:  # never leave the machine stuck at the screen: this start goes on
+        print(f"wex-advanced-options: {error}; starting normally", file=sys.stderr)
+        return 0
+    finish_failure(status, mode, option)
+    return 0
+
+
+def main(argv=None):
+    args = sys.argv[1:] if argv is None else argv
+    if args == ["--failure-check"]:
+        return failure_check()
+    if args == ["--failure-screen"]:
+        return failure_screen()
     previous = None
     try:
         quit_plymouth()
-        previous = previous_good(vintner_status())
-        action, mode, option = curses.wrapper(run_failure if start_failed() else run_menu, previous)
+        status = vintner_status()
+        previous = previous_good(status)
+        pending = take_pending(status)
+        if pending:   # chosen on the failure screen before the restart: no menu
+            print(f"wex-advanced-options: {pending}, chosen on the failure screen", file=sys.stderr)
+            action, mode, option = "boot", pending, None
+        else:
+            action, mode, option = curses.wrapper(run_failure if start_failed() else run_menu, previous)
     except Exception as error:  # never leave the machine stuck at the menu: start normally
         print(f"wex-advanced-options: {error}; starting normally", file=sys.stderr)
         action, mode, option = "boot", "normal", None

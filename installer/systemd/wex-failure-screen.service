@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# XP's "did not start successfully" screen on tty1, started by wex-failure-check.service on an ordinary Vintner
+# Boot start whose generation failed to start before (docs/SAFE_MODE.md). It runs before basic.target; if it fails,
+# the start goes on normally.
+[Unit]
+Description=Startup Failure Screen
+DefaultDependencies=no
+Requires=sysinit.target
+After=sysinit.target systemd-vconsole-setup.service
+Before=basic.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+# plymouthd from the initramfs still holds the screen and reads tty1: the screen quits it first (quit_plymouth)
+ExecStart=/usr/local/sbin/wex-advanced-options --failure-screen
+Environment=TERM=linux
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes

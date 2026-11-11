@@ -18,6 +18,9 @@
 #                not count, so GRUB's wex_boot_pending is back at 0
 #   oschoices    Return to OS Choices Menu (work order D3): under GRUB the local OS list, with Vintner Boot a restart
 #                into the loader's own menu (vintner next-boot menu); Enter there starts normally
+#   vfailed      Vintner Boot only: a reset before the logon screen, then the next ordinary start shows "did not
+#                start successfully"; Safe Mode with Command Prompt restarts into the variant with no menu; the next
+#                start shows the screen again, its countdown starts normally and counts, and the start after shows none
 #   lastgoodgen  Vintner Boot only, last in its list: a generation 2 that never starts successfully (published from
 #                a changed variant), then Last Known Good from its Advanced Options variant restarts into generation 1
 #                (vintner next-boot previous-good) and puts the registry's control set back
@@ -106,7 +109,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|startnormal|oschoices|normal|lastgood|lastgoodgen|failed|accounts|waylandsafe|waylandcmd) ;;
+        safe|safenet|safecmd|nowine|bootlog|startnormal|oschoices|normal|lastgood|lastgoodgen|failed|vfailed|accounts|waylandsafe|waylandcmd) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -121,13 +124,15 @@ case "$FILES" in branch|installed|upgrade) ;; *) echo "Invalid WEX_SAFEMODE_FILE
 LOADER=${WEX_TEST_LOADER:-grub}
 case "$LOADER" in
     grub)
-        case " ${PHASES[*]} " in *" lastgoodgen "*) echo "The lastgoodgen phase is Vintner Boot's (WEX_TEST_LOADER=vintner)"; exit 2 ;; esac
+        case " ${PHASES[*]} " in
+            *" lastgoodgen "*|*" vfailed "*) echo "lastgoodgen and vfailed are Vintner Boot's phases (WEX_TEST_LOADER=vintner)"; exit 2 ;;
+        esac
         ;;
     vintner)
         [ "$FILES" = installed ] || { echo "WEX_TEST_LOADER=vintner needs WEX_SAFEMODE_FILES=installed"; exit 2; }
         if [ $# -eq 0 ]; then
             # lastgoodgen last: it leaves generation 2 on boot storage, which later starts would boot
-            PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal lastgoodgen)
+            PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal vfailed lastgoodgen)
         else
             case " ${PHASES[*]} " in *" failed "*) echo "The failed phase is GRUB's (WEX_TEST_LOADER=grub)"; exit 2 ;; esac
         fi
@@ -198,6 +203,8 @@ SAFE_MODE_FILES=(
     "644 installer/systemd/wex-bootlog.service lib/systemd/system/wex-bootlog.service"
     "644 installer/systemd/wex-startup-check.service lib/systemd/system/wex-startup-check.service"
     "644 installer/systemd/wex-bootmode-record.service lib/systemd/system/wex-bootmode-record.service"
+    "644 installer/systemd/wex-failure-check.service lib/systemd/system/wex-failure-check.service"
+    "644 installer/systemd/wex-failure-screen.service lib/systemd/system/wex-failure-screen.service"
     "644 installer/systemd/wexprefetchd.tmpfiles usr/lib/tmpfiles.d/wexprefetchd.conf"
     "644 installer/systemd/wexprefetchd.service lib/systemd/system/wexprefetchd.service"
     "755 installer/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_advanced etc/grub.d/11_wineexplorer_advanced"
@@ -987,6 +994,55 @@ phase_failed() {   # the main loop holds the logon screen back for this phase (d
     shutdown_vm
 }
 
+phase_vfailed() {   # Vintner Boot's "did not start successfully" (wex-failure-check.service, work order D1 with
+                    # Vintner); the main loop holds the logon screen back for this phase (delay_logon), as for failed
+    local try
+    # Reset once Linux runs, before the logon screen and so before boot-complete.target, where Vintner would count the
+    # start good: the loader has counted a try that never finished
+    start_vm
+    sleep 15
+    wait_serial 150 || fail "the serial console did not answer"
+    "${V[@]}" reset "$TEST" >/dev/null || fail "the Reset button did not work"
+    echo "  reset before the logon screen"
+    failure_screen
+    # Up stops the countdown and highlights Last Known Good, or, while nothing can be gone back to, skips it, grayed,
+    # to Safe Mode with Command Prompt. That choice restarts into the Advanced Options variant, which goes straight
+    # to Safe Mode with Command Prompt with no menu.
+    for try in 1 2 3; do
+        "${V[@]}" key "$TEST" up >/dev/null
+        sleep 1.5
+        [ -z "$(countdown)" ] && break
+        [ "$try" = 3 ] && fail "Up did not stop the countdown"
+    done
+    if [ "$(lkg)" = 1 ]; then
+        "${V[@]}" key "$TEST" up >/dev/null
+        sleep 1
+    fi
+    shot safecmd-highlighted
+    "${V[@]}" key "$TEST" ret >/dev/null
+    ! wait_text "Advanced Options Menu" 60 || fail "the variant showed the menu instead of starting the mode chosen"
+    VIA_MENU=1   # the variant's start
+    logon_screen
+    expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    # The start that showed the screen did not finish either, so the next ordinary start shows it again; left alone,
+    # its countdown starts normally, and that start counts
+    VIA_MENU=
+    start_vm
+    failure_screen
+    desktop 600
+    expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
+    expect_check
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    # ... so the start after it shows no screen (the logon screen is still 90 seconds late)
+    start_vm
+    ! wait_text "did not start successfully" 80 || fail "the failure screen came back after a start that counted"
+    desktop 600
+    shutdown_vm
+}
+
 shows() { wait_text "$1" 20; }          # a tile is on the screen (wait also tries the white-text threshold)
 hides() { ! wait_text "$1" 8; }         # ... and is not
 
@@ -1302,7 +1358,7 @@ for PHASE in "${PHASES[@]}"; do
     snapshot "$OUT/before-$PHASE.txt" || die "cannot record the configuration before $PHASE"
     clear_pending || die "cannot clear wex_boot_pending before $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine on || die "cannot hide /usr/local/bin/wine"; fi
-    if [ "$PHASE" = failed ]; then delay_logon on || die "cannot hold the logon screen back"; fi
+    case "$PHASE" in failed|vfailed) delay_logon on || die "cannot hold the logon screen back" ;; esac
     echo "=== $PHASE ($(date +%T))"
     ( "phase_$PHASE" ) 2>&1 | tee "$OUT/$PHASE.log"
     rc=${PIPESTATUS[0]}
@@ -1311,7 +1367,7 @@ for PHASE in "${PHASES[@]}"; do
     fi
     wait_off 60 || die "$TEST did not stop after $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine off || die "cannot put /usr/local/bin/wine back"; fi
-    if [ "$PHASE" = failed ]; then delay_logon off || die "cannot remove the logon delay"; fi
+    case "$PHASE" in failed|vfailed) delay_logon off || die "cannot remove the logon delay" ;; esac
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
     compare=("$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt")
     case "$PHASE" in

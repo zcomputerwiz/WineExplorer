@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# With Vintner Boot, on an ordinary start: when `vintner status --json` reports failed starts of this generation,
+# XP's "did not start successfully" screen (wex-failure-screen.service) before basic.target, so before the logon
+# screen. It needs no terminal itself, so a start with nothing to report leaves the boot splash alone. Under GRUB,
+# 11_wineexplorer_advanced boots the Advanced Options entry with wexfailed=1 instead; starts through the Advanced
+# Options menu or variant (wexmode=) never show it (docs/SAFE_MODE.md).
+[Unit]
+Description=Startup Failure Check
+DefaultDependencies=no
+Requires=sysinit.target
+After=sysinit.target
+Before=basic.target shutdown.target
+Conflicts=shutdown.target
+ConditionKernelCommandLine=vintner.bootstorage
+ConditionKernelCommandLine=!wexmode
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wex-advanced-options --failure-check
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=basic.target

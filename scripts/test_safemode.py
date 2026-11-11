@@ -577,6 +577,7 @@ class TestMenu(TempDirTest):
         self.menu.LASTGOOD = str(self.tmp / "no-lastgood")      # no copy saved: Last Known Good is grayed
         self.menu.CMDLINE = str(self.tmp / "cmdline")            # none: a GRUB start
         self.menu.VINTNER = str(self.tmp / "no-vintner")
+        self.menu.PENDING = str(self.tmp / "next-bootmode")
         self.menu.Screen = FakeScreen
         self.calls = []
 
@@ -738,6 +739,126 @@ class TestMenu(TempDirTest):
         self.assertEqual(self.menu.run_menu(FakeStdscr([*[down] * 4, enter, enter]), 2), ("boot", "normal", "lastgood"))
         # neither: grayed, so four Downs reach Debugging Mode
         self.assertEqual(self.run_keys(*[down] * 4, enter, enter), ("boot", "normal", "debug"))
+
+    # ---- "did not start successfully" with Vintner Boot (wex-failure-check.service, wex-failure-screen.service) ----
+
+    def failing(self, failed=1, kind="generation", generation=1, variant=""):
+        report = self.report(kind, generation, newest_good=1, previous_good=None)
+        report["booted"].update(failed_attempts=failed, variant=variant)
+        return report
+
+    def test_failed_starts(self):
+        failed = self.menu.failed_starts
+        self.assertEqual(failed(self.failing(2)), 2)
+        self.assertEqual(failed(self.failing(0)), 0)
+        self.assertEqual(failed(self.failing(None)), 0)                     # no counter (recovery B)
+        self.assertEqual(failed(self.failing(1, "variant", variant="advanced")), 0)   # through the menu
+        self.assertEqual(failed(self.failing(1, "recovery")), 0)
+        self.assertEqual(failed(None), 0)
+
+    def test_failure_check_starts_the_screen(self):
+        self.menu.PENDING = str(self.tmp / "pending")
+        calls = []
+        self.with_vintner(0, self.failing(1))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.menu.failure_check(run=self.recording_run(calls))
+        self.assertEqual(calls, [[self.menu.VINTNER, "status", "--json"],
+                                 ["systemctl", "start", "wex-failure-screen.service"]])
+        # nothing failed: no screen; while Setup runs: not even a question
+        calls.clear()
+        self.with_vintner(0, self.failing(0))
+        self.menu.failure_check(run=self.recording_run(calls))
+        self.assertEqual(calls, [[self.menu.VINTNER, "status", "--json"]])
+        calls.clear()
+        (self.tmp / "stage").write_text("oobe\n")
+        self.menu.failure_check(run=self.recording_run(calls))
+        self.assertEqual(calls, [])
+
+    def recording_run(self, calls, codes=None):
+        """A subprocess.run that records each command and runs `vintner status` for real (the fake prints the
+        report); CODES maps a command's first two words to its exit code (default 0)."""
+        def run(cmd, check=False, **kwargs):
+            calls.append(list(cmd))
+            if cmd[:2] == [self.menu.VINTNER, "status"]:
+                return subprocess.run(cmd, check=check, **kwargs)
+            code = (codes or {}).get(tuple(cmd[:2]), 0)
+            if check and code:
+                raise subprocess.CalledProcessError(code, cmd)
+            return subprocess.CompletedProcess(cmd, code, "", "")
+        return run
+
+    def test_failure_screen_safe_mode_restarts_into_the_variant(self):
+        self.menu.PENDING = str(self.tmp / "lib" / "next-bootmode")
+        calls = []
+        restarted = self.menu.finish_failure(self.failing(1, generation=3), "safecmd", None,
+                                             run=self.recording_run(calls))
+        self.assertTrue(restarted)
+        self.assertEqual(calls, [[self.menu.VINTNER, "next-boot", "variant", "advanced"], ["systemctl", "reboot"]])
+        self.assertEqual(Path(self.menu.PENDING).read_text(), "safecmd 3\n")
+        self.assertEqual(Path(self.menu.PENDING).stat().st_mode & 0o777, 0o600)
+
+    def test_failure_screen_safe_mode_when_vintner_refuses(self):
+        self.menu.PENDING = str(self.tmp / "next-bootmode")
+        calls = []
+        with contextlib.redirect_stderr(io.StringIO()):
+            restarted = self.menu.finish_failure(self.failing(1), "safe", None,
+                                                 run=self.recording_run(calls, {(self.menu.VINTNER, "next-boot"): 3}))
+        self.assertFalse(restarted)                                           # this start goes on normally
+        self.assertFalse(Path(self.menu.PENDING).exists())
+        self.assertNotIn(["systemctl", "reboot"], calls)
+
+    def test_failure_screen_last_known_good_and_start_normally(self):
+        calls = []
+        # this generation was GOOD before: the registry goes back, and this start goes on (and counts)
+        self.assertFalse(self.menu.finish_failure(self.failing(1), "normal", "lastgood", run=self.recording_run(calls)))
+        self.assertEqual(calls, [[self.menu.LASTGOOD, "restore"]])
+        # it never started successfully: the previous good generation, after a restart
+        calls.clear()
+        report = self.report(generation=3, newest_good=2, previous_good=2)
+        self.assertTrue(self.menu.finish_failure(report, "normal", "lastgood", run=self.recording_run(calls)))
+        self.assertEqual(calls[0], [self.menu.VINTNER, "next-boot", "previous-good"])
+        self.assertEqual(calls[-1], ["systemctl", "reboot"])
+        calls.clear()
+        self.assertFalse(self.menu.finish_failure(self.failing(1), "normal", None, run=self.recording_run(calls)))
+        self.assertEqual(calls, [])
+
+    def test_pending_safe_mode_applies_once_to_its_variant(self):
+        self.menu.PENDING = str(self.tmp / "next-bootmode")
+        variant = self.failing(1, "variant", generation=3, variant="advanced")
+        self.menu.write_pending("safenet", 3)
+        self.assertEqual(self.menu.take_pending(variant), "safenet")
+        self.assertIsNone(self.menu.take_pending(variant))                     # removed once read
+        for status in (self.failing(1, generation=3),                          # an ordinary start
+                       self.failing(1, "variant", generation=2, variant="advanced"),   # another generation
+                       None):                                                  # no report
+            self.menu.write_pending("safe", 3)
+            self.assertIsNone(self.menu.take_pending(status))
+            self.assertFalse(Path(self.menu.PENDING).exists())
+        Path(self.menu.PENDING).write_text("normal 3\n")                        # only a Safe Mode is recorded
+        self.assertIsNone(self.menu.take_pending(variant))
+
+    def test_failure_units(self):
+        check = (SYSTEMD / "wex-failure-check.service").read_text(encoding="utf-8").splitlines()
+        for line in ("ConditionKernelCommandLine=vintner.bootstorage", "ConditionKernelCommandLine=!wexmode",
+                     "ExecStart=/usr/local/sbin/wex-advanced-options --failure-check", "Before=basic.target shutdown.target",
+                     "WantedBy=basic.target"):
+            self.assertIn(line, check)
+        self.assertFalse(any(line.startswith(("StandardInput=", "TTYPath=")) for line in check),
+                         "the check must leave tty1 and the boot splash alone")
+        screen = (SYSTEMD / "wex-failure-screen.service").read_text(encoding="utf-8").splitlines()
+        for line in ("ExecStart=/usr/local/sbin/wex-advanced-options --failure-screen", "StandardInput=tty-force",
+                     "TTYPath=/dev/tty1", "Before=basic.target shutdown.target"):
+            self.assertIn(line, screen)
+        for unit in (check, screen):
+            self.assertLess(len(re.search(r"^Description=(.*)$", "\n".join(unit), re.M).group(1)), 30)
+
+    def test_main_dispatches_the_failure_modes(self):
+        seen = []
+        self.menu.failure_check = lambda: seen.append("check") or 0
+        self.menu.failure_screen = lambda: seen.append("screen") or 0
+        self.assertEqual(self.menu.main(["--failure-check"]), 0)
+        self.assertEqual(self.menu.main(["--failure-screen"]), 0)
+        self.assertEqual(seen, ["check", "screen"])
 
     def test_os_choices_when_vintner_cannot_set_the_menu(self):
         down, enter = curses.KEY_DOWN, 10
@@ -1265,9 +1386,11 @@ class TestPackage(TempDirTest):
         self.assertEqual(log.read_text().splitlines(), [
             "systemctl enable wex-startup-check.service",
             "systemctl enable wex-bootmode-record.service",
+            "systemctl enable wex-failure-check.service",
             "useradd --create-home --comment Administrator --shell /bin/bash --groups sudo administrator",
             "systemctl enable wex-startup-check.service",
-            "systemctl enable wex-bootmode-record.service"])
+            "systemctl enable wex-bootmode-record.service",
+            "systemctl enable wex-failure-check.service"])
         self.assertEqual((acc / "administrator").read_text(),
                          "[User]\nSession=wine-explorer\nXSession=wine-explorer\nSystemAccount=false\n")
         lightdm = (etc / "pam.d/lightdm").read_text()

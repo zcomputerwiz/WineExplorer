@@ -454,7 +454,12 @@ during the firmware, the disk check or logon. It offers the three Safe Modes, La
 - **Decision 3:** a start through F8 writes the previous value back. A Safe Mode chosen on the failure screen does
   not count either, so the screen comes back at the next start. Start Normally on it counts.
 - **Tests:** the VM test's `failed` phase passes on SeaBIOS and OVMF.
-- **With Vintner:** this becomes `vintner status --json` and the boot counters (`docs/VINTNER_BOOT.md` section 4.3).
+- **With Vintner (done 2026-11-10):**
+  - `vintner status --json` reports the failed starts of the booted generation.
+  - On an ordinary start with any, `wex-failure-check.service` starts `wex-failure-screen.service`.
+  - A Safe Mode choice restarts into the Advanced Options variant, which starts the recorded mode with no menu.
+  - Start Normally goes on with the counted start.
+  - `docs/SAFE_MODE.md` section 3 describes it; the VM test's `vfailed` phase checks it.
 - **Not measured on XP:** whether a Safe Mode chosen on the failure screen goes through the operating system list
   (here it starts at once), and whether XP shows the screen again after a Safe Mode start.
 

@@ -345,12 +345,14 @@ Left for Vintner:
 - Enable VGA Mode stays grayed until there is an X fallback that does not force `modesetting` (section 6). Then
   keep the GPU's KMS driver from loading for the boot (a `modprobe` blacklist under `/run`), or declare a second
   variant with `nomodeset`.
-- **"WineExplorer did not start successfully".** XP shows this screen after a failed start. When
-  `vintner status --json` reports failed attempts of the booted image, an ordinary boot shows the same choices
-  early, with a 30-second countdown that defaults to "Start WineExplorer Normally". A Safe Mode choice records the
-  mode for one boot and restarts into the Advanced Options variant (`vintner next-boot variant`), which goes
-  straight to that mode. The boot that showed the screen was counted, so finishing it in Safe Mode would mark the
-  image good.
+- Done (2026-11-10): **"WineExplorer did not start successfully".** XP shows this screen after a failed start.
+  - When `vintner status --json` reports failed attempts of the booted image, an ordinary boot shows the same
+    choices early (`wex-failure-check.service`, `wex-failure-screen.service`).
+  - A 30-second countdown defaults to "Start WineExplorer Normally".
+  - A Safe Mode choice records the mode for one boot in `/var/lib/wineexplorer/next-bootmode`. It then restarts into
+    the Advanced Options variant (`vintner next-boot variant advanced`), which goes straight to that mode.
+  - The boot that showed the screen was counted, so finishing it in Safe Mode would have marked the image good.
+  - `docs/SAFE_MODE.md` section 3 has the details.
 - F8 at start reaches the menu. On Vintner's static BIOS GRUB the same `--hotkey=f8` on the variant's entry gives
   F8 during the hidden timeout (WO-0010 item 4.8); systemd-boot on UEFI needs its own key handling.
 
