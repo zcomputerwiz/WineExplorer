@@ -33,6 +33,14 @@ At isolated Wine base `c3f59e05a37134aee529a7d636af3ba67a9efc5c`:
 * `dlls/kernelbase/kernelbase.spec` comments out both token identity exports.
   The unchanged Windows probes import these; loader compatibility must be
   established before trying to interpret their runtime results.
+* `dlls/kernelbase/version.c:PackageFullNameFromId` overwrites `*length` before
+  comparing available capacity, and substitutes a fixed publisher ID when only
+  a publisher is supplied. Neither behavior is acceptable input to the package
+  catalog: add native size/publisher observations and repair these paths before
+  relying on the helper. In particular, a small caller buffer must not be
+  overrun and an unknown publisher must not acquire a fabricated identity.
+  The NULL `resourceId` path also omits the empty-field separator; compare
+  NULL/empty/nonempty resource IDs with native Windows before changing it.
 * `include/winternl.h` declares `RtlQueryPackageIdentity(HANDLE,WCHAR*,SIZE_T*,
   WCHAR*,SIZE_T*,BOOLEAN*)`. The preparatory probe's empty disabled branch is
   not an implementation, and an invented information-class ABI is not allowed.
@@ -45,8 +53,10 @@ At isolated Wine base `c3f59e05a37134aee529a7d636af3ba67a9efc5c`:
   implementation requirement. Current upstream versions inspected at
   [main.c](https://raw.githubusercontent.com/wine-mirror/wine/master/dlls/windows.storage/main.c)
   and [classes.idl](https://raw.githubusercontent.com/wine-mirror/wine/master/dlls/windows.storage/classes.idl)
-  show the same gap; no upstream patch has been imported. Wine-Staging review
-  is still pending before implementing that slice.
+  show the same gap; no upstream patch has been imported. Targeted GitHub code
+  searches of `wine-staging/wine-staging` for `GetFolderFromPathAsync` and
+  `IStorageFolderStatics` returned no results; this is a scoped search, not
+  an exhaustive audit of all historical staging patches.
 * `server/process.c:create_process` duplicates the primary token. Package
   context must remain consistent through that path without changing elevation,
   groups, privilege, desktop or ACL decisions. Work is isolated from the active

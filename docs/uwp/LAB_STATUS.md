@@ -4,8 +4,8 @@ Copyright 2026 WineExplorer contributors
 -->
 # U1 Lab Status Report
 
-**Date**: 2026-11-11  
-**Status**: owned guest boot/SSH/storage verified; clean WoW64 baseline build running  
+**Date**: 2026-11-11
+**Status**: owned guest boot/SSH/storage verified; clean WoW64 baseline build running
 **Scope**: Codex setup; the earlier Antigravity recovery report is retained below.
 
 ## Current Codex-owned lab

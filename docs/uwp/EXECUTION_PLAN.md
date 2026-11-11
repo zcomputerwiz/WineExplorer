@@ -45,6 +45,37 @@ clean pinned, separate sources rather than the dirty shared Wine checkout.
 Both repairs are implementation and test work only, no Wine runtime, WSL or
 guest access. Codex reviews them while setting up the owned guest.
 
+## U1-R0B: package full-name construction
+
+Runtime implementation is authorized only in the clean managed Wine worktree
+`C:/Users/Owner/.codex/worktrees/uwp-runtime/wine`, base `c3f59e05`, branch
+`codex/uwp-runtime`. Antigravity may edit only
+`dlls/kernelbase/version.c`, `dlls/kernelbase/Makefile.in`, and
+`dlls/kernel32/tests/version.c`. Separately, it may add a native observation
+probe/driver/results under parent `tests/uwp/package-name/`. No other runtime
+files or protocol changes in this order; no shared Wine checkout, lab or builds.
+
+Measure native x64/x86 `PackageFullNameFromId` with valid self-owned synthetic
+names and exact publisher ID, NULL/empty/nonempty resource IDs, publisher-string
+derivation and buffer capacities 0/1/required-1/required/required+1, checking
+sentinels and required lengths. Use the installed MSVC/SDK, fresh ignored output,
+own executable only, 30s run bounds, no installation/policy/registry changes.
+
+Then fix the caller-capacity check (save input before updating output length),
+empty resource-field encoding and publisher derivation, based on observations.
+Reuse the existing Wine SymCrypt SHA-256 static library/import variables, not
+a new imported codebase or a new DLL dependency cycle. Hash UTF-16LE publisher
+bytes without the terminator, encode the first 64 hash bits as 13 Crockford
+base32 characters (last group zero-padded). This algorithm reproduces the
+existing native test's `publisher` -> `0mk95qz5wh294`; compare more synthetic
+publishers on Windows before relying on it. No fabricated placeholder identity.
+Preserve Wine LGPL notices and add focused upstream-shaped regression cases.
+
+Do not compile or run Wine/WSL/VM. Codex will apply and build the reviewed patch
+in the owned guest after the pinned baseline. No staging/commits/pushes or
+unrelated cleanups. If a reuse detail needs a new file or ABI change, stop that
+part and report it for the planning owner rather than broadening the order.
+
 ## Baseline inspected
 
 * WineExplorer `master`: `91464b0e66f9a3a4b291095dde517d99a37e3b05`.
@@ -212,6 +243,11 @@ original 540-second and recovery 180-second limits were caller-supplied.
 |---|---|---|
 | U1-M2R, Qwen | `178354c0-0578-44b5-8583-9e7a2ed9dfa9` | Running; output preservation and review corrections, no lab access. |
 | U1-M1R, Antigravity | `60be2d1d` | Running with no whole-job timeout; bounded runner and cleanup repair, no lab access. |
+| U1-M1R2, Antigravity | `3c838cbb` | Running; reviewer reproduced exit-1 wineserver wait falsely succeeding; fix final cleanup verdict and retention. |
+| U1-M1R3, Antigravity | `9b1281e0` | Running; late lock change/missing-prefix failure handling; parent reproduced original wait failure as fixed and reran the 129-case suite. |
+| U1-M2R2, Qwen | `bed91e26-6aa4-419a-8148-129b656d312d` | Accepted for test preparation: parent reran 15 preservation/refusal checks, validator/fault checks and verified executable/record hashes. Native Rtl remains NOT-RUN; no Wine acceptance. |
+| U1-R0B, Antigravity | `03ee4710` | Running in isolated Wine worktree; native package-name observations plus buffer/publisher/resource-field repair. |
+| U1-R4, Qwen | `b5ace3be-2cc2-4252-98a4-d44e339b5b35` | Running; real StorageFolder async slice and native observations, exact order in ORDER_STORAGE_FOLDER.md; guest build/test remains Codex-owned. |
 | U1-M1, Qwen | `91b59dea-bf75-4ceb-bf58-cdbb089d8343` | Done; 58/58 fake-loader checks, also rerun successfully by parent. Claude review and Linux/live cleanup verification pending. |
 | U1-M2, Qwen | `b1fba388-d0c1-4a37-b6eb-ef6f083e38e5` | Done; x64/x86 builds/runs exit 0; 18 Win32 observations and 2 explicit native-query NOT-RUN records. Parent rechecked hashes, clean validation and rejection of truncated/duplicate/altered evidence. Claude review pending. |
 | U1-L1, Antigravity | `9622abe3` | Failed: CLI print timeout after 9 minutes; no completion report or boot/SSH proof. |
@@ -227,6 +263,9 @@ Codex subsequently ran read-only `qemu-img check` (no structural errors) and
 accepted complete clone and will not be booted. A new self-contained clone is
 being created on Linux storage under `/var/tmp/wex-uwp-u1-images-20261111/`,
 with no shared backing file; conversion/check/comparison must all pass.
+Update: all three passed. The owned guest boot/SSH and dedicated build storage
+are verified, and the clean WoW64 baseline is active; see `LAB_STATUS.md` for
+current ownership, setup failures and state. The old partial disk remains unused.
 
 Runtime worktree: `C:/Users/Owner/.codex/worktrees/uwp-runtime/wine`, branch
 `codex/uwp-runtime`, clean base `c3f59e05a37134aee529a7d636af3ba67a9efc5c`.
