@@ -1,5 +1,23 @@
 # Changes to stock Wine / third-party code
 
+## U1-R0B: package full-name helper (isolated UWP branch, 2026-11-11)
+
+Wine commit `c7be1378` on `codex/uwp-runtime`, based on `c3f59e05`;
+not yet integrated into the shared elevation checkout or parent gitlink.
+`dlls/kernelbase/version.c`: retain caller capacity before returning required
+length, preserve the empty resource-ID field for NULL, and replace fabricated
+publisher IDs with UTF-16LE SHA-256 / first-64-bit Crockford encoding. The new
+SymCrypt fatal callback cannot return; it raises a fail-fast exception with the
+fatal code and termination fallback. `dlls/kernelbase/Makefile.in` reuses Wine's
+existing SymCrypt PE static library/include variables. Existing MIT SymCrypt
+notices are unchanged; no external runtime implementation was imported.
+`dlls/kernel32/tests/version.c` adds buffer/canary, resource separator, publisher
+and input regressions. Both-architecture clean candidate build passed; version
+tests passed 200 checks per architecture, zero failures, two skips. Codex also
+independently checked five native publisher mappings/lengths on each host ABI.
+The parent native observation validator is still under review and is not an
+accepted general acceptance harness. No packaged identity/activation claim.
+
 ## E1-S18e: a binding may be endorsed again for the next attempt (lab only, 2026-11-11)
 
 Only with `WEX_E1S6_TRANSPORT_TEST`. `server/named_pipe.c`, ENDORSE_DIALOG (op 2): an endorsed binding is

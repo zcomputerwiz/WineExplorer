@@ -5,7 +5,7 @@ Copyright 2026 WineExplorer contributors
 # U1 Lab Status Report
 
 **Date**: 2026-11-11
-**Status**: clean WoW64 build and x64/x86 smoke/unpackaged controls passed; isolated R0B candidate building
+**Status**: clean baseline and isolated R0B both-ABI build/version tests passed; guest running
 **Scope**: Codex setup; the earlier Antigravity recovery report is retained below.
 
 ## Current Codex-owned lab
@@ -74,7 +74,18 @@ This proves the scoped baseline controls, not package support or presentation.
 R0B candidate source is the same clean base plus only reviewed
 `kernelbase/version.c`, its `Makefile.in` and `kernel32/tests/version.c`.
 Its fresh build is `/home/debian/uwp-u1-20261111/build/candidates/r0b-1/`,
-also configured for both architectures; acceptance is still pending.
+also configured for both architectures. Build exit 0, Wine build complete;
+kernel32 version tests passed 200 checks per ABI, zero failures/two skips.
+`test-phase=PASSED`, `test-exit=0`, cleanup wait succeeded. Runtime committed
+as isolated Wine `c7be1378`; the parent native harness is still under review.
+
+During the Raven review the coordinator found the owned QEMU stopped; cause
+was not established. Both self-contained disks passed fresh read-only
+`qemu-img check --output=json` with zero errors before recovery. Preserved
+`serial-before-recovery-2.log` and previous process identity; restarted only
+this owned guest after headroom/port checks. Pinned-host-key readiness and
+data mount succeeded again; retained candidate build already reported BUILT/0.
+No shared guest or image was controlled, and no image lock was bypassed.
 
 ## Setup failures and recovery
 
@@ -89,7 +100,7 @@ also configured for both architectures; acceptance is still pending.
    unbooted owned QEMU was quit via its private QMP endpoint. Giving the real
    root disk explicit `bootindex=1` fixed the boot; SSH was reverified.
 
-Current state left behind: owned guest running, baseline retained, R0B candidate building;
+Current state left behind: owned guest running, baseline and tested R0B candidate retained;
 both original partial disk and setup diagnostics retained. Use the owned
 controller's `status`/`stop`, never A/B wrappers or global process kills.
 Headless boot/SSH is not graphics or UWP runtime proof.

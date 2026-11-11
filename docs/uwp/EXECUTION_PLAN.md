@@ -246,10 +246,11 @@ original 540-second and recovery 180-second limits were caller-supplied.
 | U1-M1R2, Antigravity | `3c838cbb` | Running; reviewer reproduced exit-1 wineserver wait falsely succeeding; fix final cleanup verdict and retention. |
 | U1-M1R3, Antigravity | `9b1281e0` | Accepted for lab use: parent reviewed final cleanup/ownership paths and reran 142/142 fake-loader checks; live Wine cleanup remains a required separate check. |
 | U1-M2R2, Qwen | `bed91e26-6aa4-419a-8148-129b656d312d` | Accepted for test preparation: parent reran 15 preservation/refusal checks, validator/fault checks and verified executable/record hashes. Native Rtl remains NOT-RUN; no Wine acceptance. |
-| U1-R0B, Antigravity | `03ee4710` | Delivered; Codex reviewed helper changes and rejected initial returning crypto-fatal callback. Corrected by `5c1dd234`; isolated both-ABI candidate build active, native driver correction pending. |
-| U1-R4, Qwen | `b5ace3be-2cc2-4252-98a4-d44e339b5b35` | Running; real StorageFolder async slice and native observations, exact order in ORDER_STORAGE_FOLDER.md; guest build/test remains Codex-owned. |
-| U1-R1a, Antigravity | `972eaffa` | Delivered, rejected in review: guest suite 57/58, plus reproduced hash/content split, namespace, directory-payload, unknown-type and duplicate declaration defects. Correction job `c11a6fac` running in the tools repository. |
-| U1-R0B native evidence repair, Antigravity | `d750b472` | Running; bounded driver, fresh safe outputs, initialized/accurate records, independent validator/fault tests and full metadata. Old flawed evidence retained. |
+| U1-R0B, Antigravity | `03ee4710` | Runtime accepted and committed as Wine `c7be1378`: corrected fatal path `5c1dd234`, clean both-ABI build and version tests (200 per ABI, zero failures, two skips). Native harness validation remains separate. |
+| U1-R4, Qwen | `b5ace3be-2cc2-4252-98a4-d44e339b5b35` | Delivered but rejected: wrong statics IID and raw-probe GUID/slot errors caused false host-broken conclusion. Corrected SDK diagnostic activates all three controls. Continuation `99375cea-1ab6-43c8-ab4a-c2afadedcab2` owns repairs; see REVIEW_STORAGE_FOLDER.md. |
+| U1-R1a, Antigravity | `972eaffa` | Initial 57/58; first repair `c11a6fac` hit Flash quota. Argon continuation `edc765f8` delivered with stale ERROR metadata; actual guest suite 71/72 exposes forged empty-deflate directory bypass. Argon `9a899488` owns actual decompression/CRC/size repair; no acceptance. |
+| U1-R0B native evidence repair, Antigravity | `d750b472` | Fresh 58 records captured; parent confirmed publisher mappings independently but reproduced validator false acceptance of empty success/wrong length. Argon continuation `e349b9d1` owns independent expected values and stronger fault checks. Old flawed records retained. |
+| U1-R2 native observations, Antigravity | `74cd8145` / `d365365a` | Flash failed before execution; Argon delivered new context-observations probes and claimed x64/x86 unpackaged records. Parent source/evidence review pending; packaged observations remain NOT-RUN. |
 | U1-M1, Qwen | `91b59dea-bf75-4ceb-bf58-cdbb089d8343` | Done; 58/58 fake-loader checks, also rerun successfully by parent. Claude review and Linux/live cleanup verification pending. |
 | U1-M2, Qwen | `b1fba388-d0c1-4a37-b6eb-ef6f083e38e5` | Done; x64/x86 builds/runs exit 0; 18 Win32 observations and 2 explicit native-query NOT-RUN records. Parent rechecked hashes, clean validation and rejection of truncated/duplicate/altered evidence. Claude review pending. |
 | U1-L1, Antigravity | `9622abe3` | Failed: CLI print timeout after 9 minutes; no completion report or boot/SSH proof. |
@@ -286,3 +287,15 @@ Retrieve these exact jobs rather than dispatching duplicates. A running job or
 successful delivery is not a completed or reviewed deliverable. These planning
 updates and subsequent delegated results stay uncommitted pending the existing
 review workflow; no unrelated elevation edits are included.
+
+Flash reported RESOURCE_EXHAUSTED / individual quota reached during `c11a6fac`
+(usage input 135236, output 48724, cache 437476) and rejected `74cd8145`
+before execution. Per owner authorization, subsequent assignments use
+`gemini-4-argon-high`; no remaining-quota percentage is exposed. Inspector
+continuation `edc765f8` returned completed prose but retained the old ERROR/quota
+fields, so its delivery was verified from files/tests rather than labeled
+unconditionally successful. No whole-job deadline is used.
+
+Raven reuse proposal reviewed in `REVIEW_RAVEN_REUSE.md`: bounded APPX comparison
+endorsed, no import or runtime replacement approved by that static review. Keep
+current Wine async machinery and parser boundary. Evaluation need not block U1.
