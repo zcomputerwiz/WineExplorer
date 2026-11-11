@@ -12,8 +12,8 @@ OnFailure=graphical.target
 
 [Service]
 Type=oneshot
-# plymouthd from the initramfs still reads tty1 (its quit units are masked): two readers would split the keys
-ExecStartPre=-/usr/bin/plymouth quit
+# plymouthd from the initramfs still holds the screen and reads tty1 (its quit units are masked): the menu quits
+# it first, asking until it is gone (quit_plymouth), since one `plymouth quit` here did not always take
 ExecStart=/usr/local/sbin/wex-advanced-options
 Environment=TERM=linux
 StandardInput=tty-force

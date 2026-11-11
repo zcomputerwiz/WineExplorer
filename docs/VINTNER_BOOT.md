@@ -336,11 +336,12 @@ Left for Vintner:
   and from the session package.
 - Done (2026-11-10, above): one Vintner variant, "Advanced Options", with the token `wexmode=menu`. A variant boot
   changes no boot count or state (owner decision): a good image stays good, a bad image stays bad.
-- Last Known Good Configuration: since 2026-11-10 it puts back the machine registry's control set from the last
-  start that counted, on either loader (`docs/SAFE_MODE.md` section 4). With Vintner it should also go back to the
-  previous good generation (`vintner next-boot previous-good`, then restart) when the booted one is newer. Return
-  to OS Choices Menu shows the local list (one entry) today; it can restart into the loader menu (`vintner
-  next-boot menu`) once that menu lists the recovery images.
+- Done (2026-11-10): Last Known Good Configuration puts back the machine registry's control set from the last
+  start that counted, on either loader (`docs/SAFE_MODE.md` section 4). With Vintner it also restarts into the
+  previous good generation (`vintner next-boot previous-good`) when `vintner status --json` says the booted
+  generation is newer than the newest `GOOD` one. Return to OS Choices Menu restarts into the loader's menu
+  (`vintner next-boot menu`), which lists the generations, the variant and the Recovery Console. Both were tested
+  on both firmwares (Vintner Boot `2ece4a9`).
 - Enable VGA Mode stays grayed until there is an X fallback that does not force `modesetting` (section 6). Then
   keep the GPU's KMS driver from loading for the boot (a `modprobe` blacklist under `/run`), or declare a second
   variant with `nomodeset`.

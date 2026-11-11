@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Tests for Safe Mode and the Advanced Options menu (docs/SAFE_MODE.md). Run on Linux: python3 scripts/test_safemode.py"""
 
+import contextlib
 import curses
 import importlib.util
+import io
+import json
 import os
 import re
 import shutil
@@ -577,12 +580,15 @@ class TestMenu(TempDirTest):
         self.menu.Screen = FakeScreen
         self.calls = []
 
-    def with_vintner(self, status):
-        """A Vintner Boot start, whose `vintner next-boot` exits with STATUS and logs its arguments."""
+    def with_vintner(self, status, report=None):
+        """A Vintner Boot start, whose `vintner` logs its arguments and exits with STATUS; `vintner status` prints
+        REPORT (a dict, as JSON)."""
         (self.tmp / "cmdline").write_text("BOOT_IMAGE=x root=UUID=1 vintner.bootstorage=PARTUUID=2 quiet\n",
                                           encoding="ascii")
+        (self.tmp / "status.json").write_text(json.dumps(report) if report is not None else "", encoding="ascii")
         helper = self.tmp / "fake-vintner"
-        helper.write_text(f'#!/bin/sh\necho "$@" >> "{self.tmp}/vintner.log"\nexit {status}\n', encoding="ascii")
+        helper.write_text(f'#!/bin/sh\necho "$@" >> "{self.tmp}/vintner.log"\n'
+                          f'[ "$1" = status ] && cat "{self.tmp}/status.json"\nexit {status}\n', encoding="ascii")
         helper.chmod(0o755)
         self.menu.VINTNER = str(helper)
 
@@ -638,6 +644,38 @@ class TestMenu(TempDirTest):
         self.assertEqual(self.run_keys(down, up, enter, enter), ("boot", "safe", None))
         self.assertEqual(self.vintner_log(), [])
 
+    def plymouth(self, answers):
+        """quit_plymouth against a fake run: `plymouth --ping` answers from ANSWERS (0 = still running)."""
+        calls, naps = [], []
+        answers = list(answers)
+
+        def run(cmd, check=False):
+            calls.append(cmd[1:] if cmd[0] == self.menu.PLYMOUTH else cmd)
+            code = answers.pop(0) if cmd[1:] == ["--ping"] else 0
+            return subprocess.CompletedProcess(cmd, code)
+
+        # not a virtual console: the mode switch is skipped; the menu's notes go to the journal, not the test output
+        with open(self.tmp / "console", "w") as console, contextlib.redirect_stderr(io.StringIO()):
+            self.menu.quit_plymouth(run=run, sleep=naps.append, console=console.fileno(), tries=5)
+        return calls, naps
+
+    def test_plymouth_is_asked_until_it_is_gone(self):
+        calls, naps = self.plymouth([0, 0, 1])
+        self.assertEqual(calls, [["--ping"], ["quit"], ["--ping"], ["quit"], ["--ping"]])
+        self.assertEqual(naps, [0.25, 0.25])
+        calls, naps = self.plymouth([1])          # not running: nothing to quit
+        self.assertEqual(calls, [["--ping"]])
+
+    def test_plymouth_that_does_not_quit_is_ended(self):
+        calls, naps = self.plymouth([0] * 5)
+        self.assertEqual(calls.count(["quit"]), 5)
+        self.assertEqual(calls[-1], ["pkill", "-TERM", "-x", "plymouthd"])
+
+    def test_no_plymouth_installed(self):
+        def run(cmd, check=False):
+            raise FileNotFoundError(cmd[0])
+        self.menu.quit_plymouth(run=run, sleep=lambda s: None, console=-1)   # neither raises
+
     def test_os_choices_with_vintner_restarts_into_its_menu(self):
         down, enter = curses.KEY_DOWN, 10
         self.with_vintner(0)
@@ -646,6 +684,60 @@ class TestMenu(TempDirTest):
         # the other items do not ask Vintner
         self.assertEqual(self.run_keys(enter, enter), ("boot", "safe", None))
         self.assertEqual(self.vintner_log(), ["next-boot menu"])
+
+    @staticmethod
+    def report(kind="generation", generation=3, newest_good=2, previous_good=2):
+        """A `vintner status --json` report (Vintner Boot's docs/status.md, format 1), cut to what the menu reads."""
+        return {"format": 1, "newest_good": newest_good, "previous_good": previous_good,
+                "booted": {"kind": kind, "generation": generation, "variant": "advanced" if kind == "variant" else "",
+                           "failed_attempts": 1, "is_newest_good": generation == newest_good}}
+
+    def test_previous_good_only_when_this_generation_never_started_well(self):
+        previous = self.menu.previous_good
+        self.assertEqual(previous(self.report()), 2)                          # generation 3 is not GOOD yet
+        self.assertEqual(previous(self.report("variant")), 2)                 # ... started through the variant
+        self.assertIsNone(previous(self.report(generation=2)))                # generation 2 is the newest GOOD one
+        self.assertIsNone(previous(self.report(generation=1)))                # an older one, after a fallback
+        self.assertIsNone(previous(self.report(newest_good=None, previous_good=None)))   # nothing GOOD
+        self.assertIsNone(previous(self.report("recovery")))
+        self.assertIsNone(previous(self.report("unknown")))
+        self.assertIsNone(previous(None))                                     # GRUB, or no report
+        self.assertIsNone(previous({"format": 1, "booted": None}))
+
+    def test_vintner_status(self):
+        self.assertIsNone(self.menu.vintner_status())                         # a GRUB start asks nothing
+        self.assertEqual(self.vintner_log(), [])
+        self.with_vintner(0, self.report())
+        self.assertEqual(self.menu.vintner_status()["previous_good"], 2)
+        self.assertEqual(self.vintner_log(), ["status --json"])
+        self.with_vintner(0, {"format": 2})                                   # a format this menu does not know
+        self.assertIsNone(self.menu.vintner_status())
+        self.with_vintner(3, None)                                            # not a vintner installation
+        self.assertIsNone(self.menu.vintner_status())
+
+    def test_last_known_good_goes_back_a_generation(self):
+        self.with_vintner(0)
+        self.with_lastgood()
+        restore = self.tmp / "restored"
+        self.menu.LASTGOOD = str(self.tmp / "fake-lastgood")
+        (self.tmp / "fake-lastgood").write_text(f'#!/bin/sh\n[ "$1" = restore ] && touch "{restore}"\nexit 0\n',
+                                                encoding="ascii")
+        self.assertTrue(self.menu.go_back_to_previous_good())
+        self.assertEqual(self.vintner_log(), ["next-boot previous-good"])
+        self.assertTrue(restore.exists())                                     # the registry goes back too
+
+    def test_last_known_good_when_vintner_refuses(self):
+        self.with_vintner(3)                                                  # no-previous-good
+        self.assertFalse(self.menu.go_back_to_previous_good())
+
+    def test_last_known_good_offered_for_the_previous_generation(self):
+        down, enter = curses.KEY_DOWN, 10
+        # no control set saved, but a previous good generation: offered, and chosen like any option
+        items = self.menu.menu_items(False, True)
+        self.assertTrue(items[6].selectable)
+        self.assertEqual(self.menu.run_menu(FakeStdscr([*[down] * 4, enter, enter]), 2), ("boot", "normal", "lastgood"))
+        # neither: grayed, so four Downs reach Debugging Mode
+        self.assertEqual(self.run_keys(*[down] * 4, enter, enter), ("boot", "normal", "debug"))
 
     def test_os_choices_when_vintner_cannot_set_the_menu(self):
         down, enter = curses.KEY_DOWN, 10

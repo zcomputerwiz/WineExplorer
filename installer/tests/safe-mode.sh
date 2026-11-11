@@ -18,6 +18,9 @@
 #                not count, so GRUB's wex_boot_pending is back at 0
 #   oschoices    Return to OS Choices Menu (work order D3): under GRUB the local OS list, with Vintner Boot a restart
 #                into the loader's own menu (vintner next-boot menu); Enter there starts normally
+#   lastgoodgen  Vintner Boot only, last in its list: a generation 2 that never starts successfully (published from
+#                a changed variant), then Last Known Good from its Advanced Options variant restarts into generation 1
+#                (vintner next-boot previous-good) and puts the registry's control set back
 #   normal      no F8: automatic logon, the boot-mode generator wrote nothing, and the start-up check cleared
 #                wex_boot_pending
 #   lastgood     Last Known Good Configuration (work order D3): with a control set saved by a start that counted (a
@@ -103,7 +106,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|startnormal|oschoices|normal|lastgood|failed|accounts|waylandsafe|waylandcmd) ;;
+        safe|safenet|safecmd|nowine|bootlog|startnormal|oschoices|normal|lastgood|lastgoodgen|failed|accounts|waylandsafe|waylandcmd) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -117,11 +120,14 @@ FILES=${WEX_SAFEMODE_FILES:-branch}
 case "$FILES" in branch|installed|upgrade) ;; *) echo "Invalid WEX_SAFEMODE_FILES: $FILES"; exit 2 ;; esac
 LOADER=${WEX_TEST_LOADER:-grub}
 case "$LOADER" in
-    grub) ;;
+    grub)
+        case " ${PHASES[*]} " in *" lastgoodgen "*) echo "The lastgoodgen phase is Vintner Boot's (WEX_TEST_LOADER=vintner)"; exit 2 ;; esac
+        ;;
     vintner)
         [ "$FILES" = installed ] || { echo "WEX_TEST_LOADER=vintner needs WEX_SAFEMODE_FILES=installed"; exit 2; }
         if [ $# -eq 0 ]; then
-            PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal)
+            # lastgoodgen last: it leaves generation 2 on boot storage, which later starts would boot
+            PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal lastgoodgen)
         else
             case " ${PHASES[*]} " in *" failed "*) echo "The failed phase is GRUB's (WEX_TEST_LOADER=grub)"; exit 2 ;; esac
         fi
@@ -755,6 +761,7 @@ phase_oschoices() {   # work order D3: Return to OS Choices Menu
         wait_text "Recovery Console" 180 || fail "no boot loader menu after Return to OS Choices Menu"
         shot loader-menu
         "${V[@]}" key "$TEST" ret >/dev/null   # the generation, highlighted first
+        VIA_MENU=   # this start is the generation's own, not the variant's
     else
         wait_text "operating system to start" 10 || fail "no OS list after Return to OS Choices Menu"
         shot oslist
@@ -857,6 +864,82 @@ phase_lastgood() {   # work order D3
     wait_off 60 || fail "the VM did not power off"
     out=$(lastgood_result) || fail "cannot read the machine registry on the disk"
     echo "  after Last Known Good: $out"
+    [ "$out" = "control=0 software=1 failed=1 saved=0" ] \
+        || fail "expected the control set back, the Software key kept and the change in the failed copy: $out"
+}
+
+phase_lastgoodgen() {   # work order D3 with Vintner Boot: from a generation that has not started successfully,
+                        # Last Known Good also restarts into the previous good one (vintner next-boot previous-good)
+    local out status
+    if [ "$(lkg)" != 1 ]; then
+        echo "  no control set saved yet: a normal start first"
+        start_vm
+        desktop 600
+        expect_check
+        shutdown_vm
+        wait_off 60 || fail "the VM did not power off"
+    fi
+    # Generation 2: a changed variant changes the publisher's inputs, and a unit publishes at the next start (generation
+    # 1's, which counts as usual) and powers off. Generation 2 is then started only through its variant, which counts
+    # nothing, so it never starts successfully. The publish waits for vintner-bless and tries again a few times: it
+    # mounts boot storage read-write, which fails while something else has it mounted read-only.
+    attach rw || fail "cannot mount the overlay"
+    cp -a "$MNT/etc/vintner/variants.d/advanced.conf" "$MNT/root/wex-test-advanced.conf"
+    sed -i 's/^tokens=.*/& wextest=1/' "$MNT/etc/vintner/variants.d/advanced.conf"
+    printf '%s\n' '#!/bin/sh' 'rc=1' 'for try in 1 2 3 4 5; do' \
+        '    vintner publish --kernel "$(uname -r)" >> /root/wex-test-publish.log 2>&1 && { rc=0; break; }' \
+        '    sleep 5' 'done' 'echo "publish=$rc" >> /root/wex-test-publish.log' 'systemctl --no-block poweroff' \
+        > "$MNT/root/wex-test-publish.sh"
+    printf '%s\n' '[Unit]' 'Description=Test: publish a generation' 'After=multi-user.target vintner-bless.service' \
+        '[Service]' 'Type=oneshot' 'ExecStart=/bin/sh /root/wex-test-publish.sh' '[Install]' 'WantedBy=multi-user.target' \
+        > "$MNT/etc/systemd/system/wex-test-publish.service"
+    ln -sf /etc/systemd/system/wex-test-publish.service "$MNT/etc/systemd/system/multi-user.target.wants/"
+    detach
+    start_vm
+    wait_off 900 || fail "the start that publishes generation 2 did not power off"
+    # Put the disk back as it was, then add a unit that records `vintner status --json` at every start from now on
+    attach rw || fail "cannot mount the overlay"
+    cp "$MNT/root/wex-test-publish.log" "$OUT/lastgoodgen-publish.log" 2>/dev/null
+    out=$(grep '^publish=' "$MNT/root/wex-test-publish.log" 2>/dev/null)
+    mv -f "$MNT/root/wex-test-advanced.conf" "$MNT/etc/vintner/variants.d/advanced.conf"
+    rm -f "$MNT/etc/systemd/system/multi-user.target.wants/wex-test-publish.service" \
+        "$MNT/etc/systemd/system/wex-test-publish.service" "$MNT/root/wex-test-publish.sh" "$MNT/root/wex-test-publish.log"
+    if [ "$out" = publish=0 ]; then
+        printf '%s\n' '[Unit]' 'Description=Test: record vintner status' 'After=multi-user.target vintner-bless.service' \
+            '[Service]' 'Type=oneshot' 'ExecStart=/bin/sh -c "vintner status --json > /root/wex-test-status.json"' \
+            '[Install]' 'WantedBy=multi-user.target' > "$MNT/etc/systemd/system/wex-test-status.service"
+        ln -sf /etc/systemd/system/wex-test-status.service "$MNT/etc/systemd/system/multi-user.target.wants/"
+    fi
+    detach
+    [ "$out" = publish=0 ] || fail "vintner publish failed (see $OUT/lastgoodgen-publish.log)"
+    lastgood_change || fail "cannot change the machine registry on the disk"
+    # The loader highlights generation 2, and its Advanced Options variant is one down. Last Known Good is offered
+    # (generation 1), and once chosen the machine restarts into generation 1 with no menu.
+    menu_choice 4 "Last Known Good"   # Safe Mode, the two other Safe Modes, Boot Logging, Last Known Good
+    VIA_MENU=   # the start that follows is generation 1's own
+    desktop 900
+    expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
+    expect_check
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    attach rw || fail "cannot mount the overlay"
+    cp "$MNT/root/wex-test-status.json" "$OUT/lastgoodgen-status.json" 2>/dev/null
+    rm -f "$MNT/etc/systemd/system/multi-user.target.wants/wex-test-status.service" \
+        "$MNT/etc/systemd/system/wex-test-status.service" "$MNT/root/wex-test-status.json"
+    detach
+    status=$(python3 -c 'import json, sys
+s = json.load(open(sys.argv[1]))
+b = s.get("booted") or {}
+states = {g["generation"]: g["state"] for g in s.get("generations", [])}
+print("booted=%s:%s newest_good=%s gen2=%s" % (b.get("kind"), b.get("generation"), s.get("newest_good"), states.get(2)))' \
+        "$OUT/lastgoodgen-status.json" 2>&1)
+    echo "  after Last Known Good: $status"
+    case "$status" in
+        "booted=generation:1 newest_good=1 gen2="*) [ "${status##*gen2=}" != GOOD ] || fail "generation 2 became GOOD: $status" ;;
+        *) fail "expected the start after Last Known Good to be generation 1's: $status" ;;
+    esac
+    out=$(lastgood_result) || fail "cannot read the machine registry on the disk"
+    echo "  registry: $out"
     [ "$out" = "control=0 software=1 failed=1 saved=0" ] \
         || fail "expected the control set back, the Software key kept and the change in the failed copy: $out"
 }

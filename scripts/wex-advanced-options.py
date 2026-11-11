@@ -7,6 +7,8 @@ wex-advanced-options.service runs it before basic.target, so no timer, socket or
 started yet. A choice writes the mode to /run/wineexplorer (gone at the next boot), reloads systemd, whose
 wex-bootmode-generator then reads it, and starts default.target. Nothing on disk changes, except with Last Known Good
 Configuration: wex-lastgood puts the machine registry's control set from the last successful start back first.
+With Vintner Boot, when this boot's generation has not started successfully yet (`vintner status --json`), Last
+Known Good also restarts into the previous good generation (`vintner next-boot previous-good`).
 Return to OS Choices Menu restarts into the boot loader's menu when Vintner Boot is the loader (`vintner next-boot
 menu`), and shows the local list (one entry) under GRUB.
 
@@ -18,6 +20,8 @@ Installed as /usr/local/sbin/wex-advanced-options. The WEX_* variables let the t
 """
 
 import curses
+import fcntl
+import json
 import math
 import os
 import subprocess
@@ -31,6 +35,8 @@ PANIC_SYSCTL = os.environ.get("WEX_PANIC_SYSCTL", "/proc/sys/kernel/panic")
 CMDLINE = os.environ.get("WEX_BOOTMODE_CMDLINE", "/proc/cmdline")
 LASTGOOD = os.environ.get("WEX_LASTGOOD_HELPER", "/usr/local/sbin/wex-lastgood")
 VINTNER = os.environ.get("WEX_VINTNER", "/usr/sbin/vintner")
+PLYMOUTH = os.environ.get("WEX_PLYMOUTH", "/usr/bin/plymouth")
+KDSETMODE, KD_TEXT = 0x4B3A, 0x00   # linux/kd.h
 OS_NAME = "WineExplorer"
 LASTGOOD_LABEL = "Last Known Good Configuration (your most recent settings that worked)"
 COUNTDOWN = 30      # seconds, as XP's failure screen (its boot.ini timeout)
@@ -131,6 +137,81 @@ def loader_menu(run=subprocess.run):
     except OSError:
         return False
     return result.returncode == 0
+
+
+def vintner_status(run=subprocess.run):
+    """Vintner Boot's report on the installation and this boot (`vintner status --json`, format 1, its
+    docs/status.md, WO-0010 4.5), or None under GRUB or when there is none."""
+    if not vintner_booted():
+        return None
+    try:
+        result = run([VINTNER, "status", "--json"], check=False, capture_output=True, text=True, timeout=30)
+        status = json.loads(result.stdout) if result.returncode == 0 else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    return status if isinstance(status, dict) and status.get("format") == 1 else None
+
+
+def previous_good(status):
+    """The generation that Last Known Good goes back to with Vintner Boot, or None. XP's last known good
+    configuration is the one of the last start that succeeded. When this boot's generation (or its variant) is newer
+    than the newest GOOD one, it has not started successfully yet, so going back means the previous good generation
+    as well as the registry. When it is GOOD, only the registry goes back."""
+    booted = (status or {}).get("booted") or {}
+    if booted.get("kind") not in ("generation", "variant"):
+        return None
+    generation, newest, previous = booted.get("generation"), status.get("newest_good"), status.get("previous_good")
+    if not all(isinstance(n, int) and not isinstance(n, bool) for n in (generation, newest, previous)):
+        return None
+    return previous if generation > newest else None
+
+
+def go_back_to_previous_good(run=subprocess.run):
+    """Last Known Good with Vintner Boot: the next start boots the previous good generation (`vintner next-boot
+    previous-good`), with the registry's control set from the last start that succeeded, if one was saved. True
+    once both are done; the caller restarts. False when Vintner refuses: then this boot continues with the registry
+    alone, as under GRUB."""
+    try:
+        result = run([VINTNER, "next-boot", "previous-good"], check=False, capture_output=True, text=True)
+    except OSError:
+        return False
+    if result.returncode != 0:
+        return False
+    if lastgood_saved(run):
+        try:
+            run([LASTGOOD, "restore"], check=True)
+        except (OSError, subprocess.CalledProcessError) as error:   # the older generation still starts
+            print(f"wex-advanced-options: the registry's control set was not put back: {error}", file=sys.stderr)
+    return True
+
+
+def quit_plymouth(run=subprocess.run, sleep=time.sleep, console=None, tries=40):
+    """End Plymouth's splash before the menu draws. plymouthd from the initramfs keeps the screen in graphics mode
+    and reads tty1 until it quits (its quit units are masked), so a menu drawn under it is not seen and its keys are
+    split. One `plymouth quit` did not take in 2 of about 36 Vintner Boot starts (2026-11-10): plymouthd still ran
+    three minutes later, and the menu showed nothing until a key was pressed. So ask until `plymouth --ping` says it
+    is gone, at most `tries` times a quarter second apart; then end it, and put the console in text mode."""
+    for asked in range(tries):
+        try:
+            if run([PLYMOUTH, "--ping"], check=False).returncode != 0:
+                if asked > 1:
+                    print(f"wex-advanced-options: plymouthd quit after {asked} requests", file=sys.stderr)
+                break
+            run([PLYMOUTH, "quit"], check=False)
+        except OSError:      # no Plymouth installed
+            break
+        sleep(0.25)
+    else:
+        print("wex-advanced-options: plymouthd did not quit; ending it", file=sys.stderr)
+        try:
+            run(["pkill", "-TERM", "-x", "plymouthd"], check=False)
+        except OSError:
+            pass
+        sleep(0.5)
+    try:
+        fcntl.ioctl(sys.stdin.fileno() if console is None else console, KDSETMODE, KD_TEXT)
+    except (OSError, ValueError, AttributeError):   # not a virtual console (tests, a serial line), or no stdin
+        pass
 
 
 def lastgood_saved(run=subprocess.run):
@@ -293,10 +374,11 @@ class Screen:
 ENTER_KEYS = (curses.KEY_ENTER, 10, 13)
 
 
-def run_menu(stdscr):
-    """Returns (action, mode, option): ("boot", mode, option) or ("reboot", None, None)."""
+def run_menu(stdscr, previous=None):
+    """Returns (action, mode, option): ("boot", mode, option) or ("reboot", None, None). previous: the generation
+    Last Known Good goes back to (previous_good), which offers it even without a saved control set."""
     screen = Screen(stdscr)
-    items = menu_items(os.path.exists(SETUP_STAGE), lastgood_saved())
+    items = menu_items(os.path.exists(SETUP_STAGE), previous is not None or lastgood_saved())
     index = first_selectable(items)
     chosen = None          # the Item chosen in the menu, shown at the bottom of the OS list
     in_menu = True
@@ -336,11 +418,12 @@ def run_menu(stdscr):
                 in_menu = True
 
 
-def run_failure(stdscr, clock=time.monotonic):
+def run_failure(stdscr, previous=None, clock=time.monotonic):
     """The failure screen. Returns ("boot", mode, option). Start Normally is highlighted and chosen when the
-    countdown ends; an arrow key stops the countdown and removes its line, as on XP. A choice starts at once."""
+    countdown ends; an arrow key stops the countdown and removes its line, as on XP. A choice starts at once.
+    previous: as for run_menu."""
     screen = Screen(stdscr)
-    items = failure_items(os.path.exists(SETUP_STAGE), lastgood_saved())
+    items = failure_items(os.path.exists(SETUP_STAGE), previous is not None or lastgood_saved())
     index = len(items) - 1
     deadline = clock() + COUNTDOWN
     counting = True
@@ -366,12 +449,19 @@ def run_failure(stdscr, clock=time.monotonic):
 
 
 def main():
+    previous = None
     try:
-        action, mode, option = curses.wrapper(run_failure if start_failed() else run_menu)
+        quit_plymouth()
+        previous = previous_good(vintner_status())
+        action, mode, option = curses.wrapper(run_failure if start_failed() else run_menu, previous)
     except Exception as error:  # never leave the machine stuck at the menu: start normally
         print(f"wex-advanced-options: {error}; starting normally", file=sys.stderr)
         action, mode, option = "boot", "normal", None
     if action == "reboot":
+        reboot()
+        return 0
+    # Last Known Good when this generation has not started successfully yet: restart into the previous good one
+    if option == "lastgood" and previous is not None and go_back_to_previous_good():
         reboot()
         return 0
     try:

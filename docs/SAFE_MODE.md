@@ -170,8 +170,13 @@ timer, socket or service of the normal boot has started yet. A choice writes the
 reloads systemd (the generator runs again and reads it) and starts `default.target`. If the menu fails, the
 unit's `OnFailure=` starts `graphical.target`.
 
-The service first runs `plymouth quit`. plymouthd from the initramfs keeps reading `tty1` (its quit units are
-masked), and with two readers the keys were split between them: F8 arrived as a lone ESC, and arrow keys were lost.
+The menu first ends Plymouth's splash. plymouthd from the initramfs keeps the screen in graphics mode and keeps
+reading `tty1` (its quit units are masked), and with two readers the keys were split between them: F8 arrived as a
+lone ESC, and arrow keys were lost. A single `plymouth quit` (the unit's `ExecStartPre=` until 2026-11-10) did not
+always take: in 2 of about 36 starts through Vintner Boot's variant, plymouthd still ran three minutes later and the
+menu showed nothing until a key was pressed (the journal's last Plymouth line came at the key press). The menu now
+asks again every quarter second until `plymouth --ping` says plymouthd is gone, ends it after 10 seconds, logs when
+it took more than one request, and puts the console in text mode before drawing.
 The menu also discards the keys pressed before it appears (the F8 presses that opened it). Unavailable items are
 drawn in dark gray (bold black); the Linux console does not render the dim attribute.
 
@@ -182,7 +187,7 @@ drawn in dark gray (bold black); the Linux console does not render the dim attri
 | Safe Mode with Command Prompt | `safecmd` |
 | Enable Boot Logging | Normal start; when it is complete, `wex-bootlog` appends the loaded drivers (kernel modules) and the services that failed to `C:\WINDOWS\ntbtlog.txt` in the machine root. Every Safe Mode start writes the log too, as on XP: the boot-mode generator adds `wex-bootlog.service` to the Safe Mode target. The file has XP's format (work order C6): UTF-16LE with a byte order mark at its start, CRLF line ends, and for each start a header line, a space, the version Wine reports in the machine registry, then the date and time, with no empty line between starts. With a service pack string (`CSDVersion`, as winecfg's XP setting writes) the header is XP's: ` Service Pack 311  8 2026 08:29:50.500`. Wine's default registry (Windows 10) has none, so the product name, version and build stand in its place, followed by a space: ` Windows 10 Pro Version 10.0 (Build 19045) 11 10 2026 09:40:51.253`. A log written before this format is converted once |
 | Enable VGA Mode | Grayed: needs an X fallback without the forced `modesetting` driver (`docs/VINTNER_BOOT.md` section 6) |
-| Last Known Good Configuration | Normal start with the machine registry's control set from the last start that counted (work order D3; below). Grayed until one start after Setup has counted |
+| Last Known Good Configuration | Normal start with the machine registry's control set from the last start that counted (work order D3; below). With Vintner Boot, from a generation that has not started successfully: a restart into the previous good generation as well. Grayed until one start after Setup has counted, or a previous good generation exists |
 | Directory Services Restore Mode | Grayed: does not apply |
 | Debugging Mode | Normal start with the service manager logging at debug level |
 | Disable automatic restart on system failure | Normal start with `kernel.panic=0` |
@@ -209,8 +214,14 @@ programs, user settings and files stay as they are. WineExplorer does the same w
   control set's keys, keeps every other key (`Software` included), and keeps the replaced keys as
   `failed-controlset.reg`. The new file is a copy of the old one (owner, mode and ACLs) renamed over it, so the
   prefixes' links to it stay valid. If the restore fails, the menu starts normally.
-- With Vintner Boot, the kernel side of the same idea is the previous good generation (`vintner next-boot
-  previous-good`, V6 in `docs/VINTNER_BOOT.md`), still to come; the registry part does not depend on it.
+- **The previous good generation (Vintner Boot).** With Vintner Boot the kernel and initramfs are part of the last
+  known good configuration too. Before drawing, the menu reads `vintner status --json` (Vintner Boot 4.5, its
+  `docs/status.md`). This boot's generation may be newer than the newest `GOOD` one, which means it has not
+  started successfully yet. Then Last Known Good is offered even without a saved control set. Choosing it runs
+  `vintner next-boot previous-good`, puts the control set back if one was saved, and restarts. The previous good
+  generation then starts normally, and that start counts. When this boot's generation is the newest good one, only
+  the registry goes back, as under GRUB. If Vintner refuses the request, this boot continues with the registry
+  alone.
 
 **The failure screen.** With `wexfailed=1` the menu shows the "did not start successfully" screen instead, laid out
 as XP's, with an explanation in our own words.
@@ -305,6 +316,7 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `oschoices` | Return to OS Choices Menu. Under GRUB, the local OS list, then Enter: a normal start as in `startnormal`. With Vintner Boot (`WEX_TEST_LOADER=vintner`), a restart into the loader's menu with no key held, recognized by its Recovery Console entries, then Enter on the generation: a normal start |
 | `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending`; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480 |
 | `lastgood` | Last Known Good (work order D3). With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Items below Last Known Good move down one once it is offered, which `startnormal` and `failed` follow |
+| `lastgoodgen` | Vintner Boot only, last in its list. The test appends a token to the Advanced Options variant on the stopped disk and adds a unit that runs `vintner publish` at the next start and powers off, so generation 2 is published. The variant is then put back. Generation 2 is started only through its variant, which counts nothing, so it never starts successfully. The registry is changed as in `lastgood`. Last Known Good from generation 2's menu then restarts with no menu into generation 1: a normal start whose recorded `vintner status --json` says `booted` generation 1, generation 2 not `GOOD`. The registry ends as in `lastgood` |
 | `failed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards), the serial console shows `wex_boot_pending=1` once Linux runs: GRUB recorded the start. Then the Reset button (QMP `system_reset`) and the failure screen with its countdown. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold, and GRUB's "Loading Linux" text was not readable on OVMF. Up stops the countdown and removes its line, and Safe Mode with Command Prompt starts at once; that start leaves `wex_boot_pending` at 1. The next start shows the screen again; left alone, the countdown starts normally, and that start counts and clears the variable |
 | `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, and a `wexcomp` process for the account. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |
 | `waylandcmd` | Only when named. Safe Mode with Command Prompt in the Wayland session: the recovery console, no wineserver, and `wexcomp` running |
@@ -413,3 +425,20 @@ version added a value to `System\ControlSet001\Control`: Wine writes no block fo
 reached the file. With a key added instead, `lastgood` passed on both firmwares: after the Last Known Good start
 the control set key was gone, the `Software` key was kept, and the key was in `failed-controlset.reg`. `startnormal`
 and `failed` passed with Last Known Good offered (one item more above Start Normally).
+
+**Vintner Boot's next-boot and status (D3, 2026-11-10).** An ISO built with `--vintner` and Vintner Boot's packages
+from `edbb723` (`vintner next-boot`, product name and `vintner status --json`; the same tree as main at `2ece4a9`)
+installed with no input on SeaBIOS and OVMF. The Safe Mode test through the variant then passed all nine phases on
+both firmwares. On BIOS, eight passed before a host restart and `lastgoodgen` after it.
+
+- `oschoices` restarted into the loader's own menu with no key held.
+- In `lastgoodgen`, Last Known Good from generation 2's variant restarted into generation 1. The status report that
+  start recorded says `booted` generation 1, `newest_good` 1 and generation 2 still `TRYING`. The registry ended as
+  in `lastgood`.
+- `lastgoodgen`'s first run failed because the test ran `vintner status` while `vintner publish` ran: status
+  mounts boot storage read-only on demand, and publish then got EBUSY for its read-write mount. The test now
+  publishes first, and Vintner Boot PR 86 retries such mounts for five seconds.
+- Under GRUB, with this branch's menu, `safe`, `safecmd`, `startnormal`, `oschoices` and `failed` passed on both
+  firmwares, and `lastgood` on SeaBIOS.
+- None of the nine menu starts through the variant needed more than one Plymouth quit request. Before the retry,
+  two in about 36 had needed more and shown a blank menu.
