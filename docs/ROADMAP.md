@@ -293,3 +293,22 @@ measure the installed configuration; lab installer diagnosis with the compile-ti
 fixture and never shipped; decide the trust architecture; filtered-administrator flow; standard-user credentials with an
 authenticated identity; secure presentation on X11 and Wayland; image integration). The shared system tier (session 0) is
 not a prerequisite. Lab status: the test broker works in the QEMU guest (`CHROME_INSTALLER_ANALYSIS.md` section 14).
+
+### E1 follow-ups (added 2026-11-11, not started)
+
+Both come after the standard-user password elevation leaves the lab (status: `docs/E1_S18E_REMEDIATION.md`). The ideas
+were confirmed by looking at how the Raven project handles installers (`docs/uwp/NOTE_RAVEN_REUSE.md` has the licence
+notes; concepts only, no code).
+
+* **Installer detection.** A program without a `requestedExecutionLevel` that looks like an installer is treated as
+  asking for elevation, as Windows does: by file name (setup, install, update, patch), by known installer formats
+  (Windows Installer, IExpress, WiX bundles) and by version resource. Without it only manifests and the `runas` verb
+  lead to the prompt, and an unmarked `setup.exe` runs limited and fails later. Needs: the rule set written from the
+  Windows behaviour, the policy value that turns it off (`EnableInstallerDetection`), cases for 32-bit and 64-bit
+  programs, and no detection for programs that state a level.
+* **Snapshot before an elevated installer.** Before a detected installer runs elevated, the machine side (machine
+  root and machine registry hives) is snapshotted so that a bad install can be undone; this gives System Restore a
+  real function in the shell (restore point list, restore, discard). Open design points: what exactly is in a
+  snapshot (machine root only, or the installing administrator's profile as well), the storage (reflink copy where
+  the filesystem has it, otherwise a hardlink tree or an archive), who may restore (an administrator, through the
+  same elevation), retention, and behaviour while other users' programs run from the machine root.
