@@ -953,12 +953,13 @@ def service(server_path, system_group, pam_paths=None):
                 tx = matches[0]
                 rec = tx.endorsed_records[key]
                 t = rec["tuple"]
-                require(rec["state"] == "WORKER_READY", "attach-state")
-                require((bytes(bytearray(nonce)), bytes(bytearray(channel_id)), bytes(bytearray(dialog_id)))
-                        == (bytes(t.nonce), bytes(t.channel_id), bytes(t.dialog_id)), "attach-tuple")
+                # Who is asking comes first: nobody but the endorsed dialog learns anything about the attempt.
                 require(int(daemon.GetConnectionUnixProcessID(sender)) == rec["pid"], "attach-sender-pid")
                 require(int(daemon.GetConnectionUnixUser(sender)) == rec["uid"], "attach-sender-uid")
                 require(child_pid_from_pin(rec["pidfd"]) == rec["pid"], "attach-pin")
+                require(rec["state"] == "WORKER_READY", "attach-state")
+                require((bytes(bytearray(nonce)), bytes(bytearray(channel_id)), bytes(bytearray(dialog_id)))
+                        == (bytes(t.nonce), bytes(t.channel_id), bytes(t.dialog_id)), "attach-tuple")
                 tx.live()
                 rec["state"] = "ATTACH_RESERVED"
                 print("E1R8_ATTACH ok request=%x" % key[0], flush=True)

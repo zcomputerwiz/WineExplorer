@@ -1078,3 +1078,31 @@ the code):
 Not done yet: review of the whole chain with the security-relevant negatives added once (attach by a foreign
 process, replayed Confirm, D or W death per state), the interactive check of the dialog in a VM, R4 rest, R5,
 R7, R14, then S19 and S20.
+
+## WO-30 Review of the WO-29 chain and its negative cases (Claude, 2026-11-10)
+
+Review of the whole WO-29 diff (dialog, wexhost, broker, verifier, worker). No blocking defect in the password
+path: the password travels only between the dialog and the worker, the worker checks the sender of every packet
+against the pinned dialog, the verifier burns the evidence before comparing the reference, and a dead dialog
+ends the attempt. The WO-29 stand-ins are unchanged and still decide whether this may leave the lab.
+
+Fixed by the review:
+
+* Verifier `DialogAttach`: the caller's identity (bus pid and uid, live pin) is checked before the attempt's
+  state and tuple, so a foreign caller learns nothing about the attempt.
+* wexhost: a refused `E1S6_DLG_ANSWER` is wiped whatever its size (it was wiped only above 512 bytes).
+* Broker: the retained evidence record is cleared at the start of every dialog step, so a record can never
+  outlive its attempt.
+
+Negative cases added to the lab suite (security-relevant only):
+
+* `r8_foreign_attach_denied`: another process of the same user calls `DialogAttach` with the live request id.
+  Refused at `attach-sender-pid`, nothing attached, the dialog keeps running.
+* `r8_dialog_killed_no_launch`: correct password, dialog killed while the worker holds its answer back. No
+  authenticated result, no redemption, no program.
+
+Result: lab S6 suite 380 PASS, normal suite 325 PASS, broker test and codec cross-check pass.
+
+Noted, not changed: the broker waits for the verifier inside the transport call and so does not itself see the
+dialog or the caller go away during the password check; the verifier's dialog pin ends the attempt instead
+(covered by the second case). The caller leaving during that window is not covered by a test.

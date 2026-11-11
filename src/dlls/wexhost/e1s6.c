@@ -742,7 +742,8 @@ NTSTATUS e1s6_transport( void *args )
             {
                 dlg_close();
                 params->err = ERROR_ACCESS_DENIED;
-                if (buffer && params->size > 512) explicit_bzero( buffer, params->size );
+                /* A refused answer of any size leaves no password behind. */
+                if (buffer && params->operation == E1S6_DLG_ANSWER) explicit_bzero( buffer, params->size );
             }
         }
         else if ((params->operation == E1S6_R8_RECV || params->operation == E1S6_R8_SEND) &&

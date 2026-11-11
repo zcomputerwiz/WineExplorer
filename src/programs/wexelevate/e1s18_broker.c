@@ -1840,6 +1840,10 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
             const char *step;
 
             err = ERROR_ACCESS_DENIED;
+            /* No record of an earlier attempt survives into this one. */
+            s_r8_evidence_set = FALSE;
+            e1s18_wipe( s_r8_evidence, sizeof(s_r8_evidence) );
+            e1s18_wipe( s_r8_evidence_ref, sizeof(s_r8_evidence_ref) );
 
             /* DELEGATED: the endorsed dialog attached and the worker acknowledged it. */
             step = "delegated";

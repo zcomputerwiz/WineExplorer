@@ -1562,6 +1562,96 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     [ ! -e "$EL/r8_e2e_res_decoy.txt" ] || fail "r8_select_unknown_account_is_decoy: a program started"
     ok r8_select_unknown_account_is_decoy
 
+    # Whole-chain review negatives (WO-30). $1: the password the lab dialog types ("" = it shows its window
+    # and waits). Starts the request in the background and waits until the dialog holds ATTACH_OK.
+    r8_neg_start() {
+        el_down "$STD"
+        el_clean
+        cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
+        reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
+            '"EnableStandardUserElevation"=dword:00000001'
+        reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+            '"Start"=dword:00000002' \
+            '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+        if [ -n "$1" ]; then
+            reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+                '"R8AutoSelect"="'"$ADM"'"' '"R8AutoPassword"="'"$1"'"'
+        else
+            reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' '"R8AutoSelect"="'"$ADM"'"'
+        fi
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r8_neg_res.txt")" - >/dev/null 2>&1 &
+        PROBE_PID=$!
+        for _ in $(seq 1 200); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -qE 'r8: attach_ok sent|r8: .* failed' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        grep -q 'r8: attach_ok sent' <<<"$wine_new_log" || { grep 'r8: ' <<<"$wine_new_log" >&2; fail "$2: the dialog did not get ATTACH_OK"; }
+        consent_unix_pid="$(grep 'wex-r8: dialog [0-9a-fA-F]* pin pid=' <<<"$wine_new_log" | head -1 | sed -n 's/.*pin pid=\([0-9]*\).*/\1/p')"
+        [ -n "$consent_unix_pid" ] && [ -d "/proc/$consent_unix_pid" ] || fail "$2: no live dialog process"
+    }
+    # Kills the dialog, waits for the broker to give up, and requires that nothing was issued or started.
+    r8_neg_end() {
+        kill -9 "$consent_unix_pid" 2>/dev/null || true
+        for _ in $(seq 1 300); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -qE 'r8: launched|r8: .* failed' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        wait "$PROBE_PID" 2>/dev/null || true
+        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+        grep -q 'r8: .* failed' <<<"$wine_new_log" || { grep 'r8: ' <<<"$wine_new_log" >&2; fail "$1: the broker did not end the request"; }
+        ! grep -qE 'r8: redeemed|r8: launched|E1R8_REDEEMED|authenticated=1' <<<"$wine_new_log$e1s6_new_log" ||
+            { grep 'r8: ' <<<"$wine_new_log" >&2; fail "$1: evidence or a launch without the dialog"; }
+        [ ! -e "$EL/r8_neg_res.txt" ] || fail "$1: a program started"
+    }
+
+    # Negative: another process of the same user asks the verifier for the dialog's password socket, with the
+    # live request's id. It is refused for who it is, nothing changes for the attempt, and the dialog stays.
+    r8_neg_start "" r8_foreign_attach_denied
+    r8_rid="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" | sed -n 's/^E1R8_ENDORSED ok request=\([0-9a-f]*\) .*/\1/p' | head -1)"
+    [ -n "$r8_rid" ] || fail "r8_foreign_attach_denied: no endorsed request id"
+    cat > "$ROOT/r8-foreign-attach.py" <<'EOF'
+import sys, dbus
+bus = dbus.SystemBus()
+obj = bus.get_object("org.wineexplorer.E1S6Lab", "/org/wineexplorer/E1S6Lab", introspect=False)
+try:
+    obj.DialogAttach(dbus.UInt64(int(sys.argv[1], 16)), dbus.UInt32(1), dbus.ByteArray(bytes(32)),
+                     dbus.ByteArray(bytes(16)), dbus.ByteArray(bytes(16)),
+                     dbus_interface="org.wineexplorer.E1S6Lab", signature="tuayayay")
+    print("ATTACHED")
+except dbus.exceptions.DBusException as exc:
+    print("DENIED" if exc.get_dbus_name() == "org.wineexplorer.E1S6Lab.Denied" else "ERROR " + exc.get_dbus_name())
+EOF
+    chmod 0644 "$ROOT/r8-foreign-attach.py"
+    r8_foreign="$(run_as "$STD" python3 "$ROOT/r8-foreign-attach.py" "$r8_rid" 2>/dev/null || true)"
+    [ "$r8_foreign" = DENIED ] || fail "r8_foreign_attach_denied: got '$r8_foreign'"
+    sleep 1
+    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")"
+    grep -q 'site=attach-sender-pid ' <<<"$e1s6_new_log" || { tail -8 <<<"$e1s6_new_log" >&2; fail "r8_foreign_attach_denied: not refused for the caller's identity"; }
+    ! grep -q 'E1R8_ATTACH ok' <<<"$e1s6_new_log" || fail "r8_foreign_attach_denied: the verifier attached someone"
+    [ -d "/proc/$consent_unix_pid" ] || fail "r8_foreign_attach_denied: the refused call ended the dialog"
+    r8_neg_end r8_foreign_attach_denied
+    rm -f "$ROOT/r8-foreign-attach.py"
+    ok r8_foreign_attach_denied
+
+    # Negative: the right password, but the dialog dies while the password is being checked: no evidence, no
+    # token, no program.
+    r8_neg_start "$R8PW" r8_dialog_killed_no_launch
+    for _ in $(seq 1 100); do
+        grep -q 'E1R8_DELEGATED' <<<"$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")" && break
+        sleep 0.1
+    done
+    grep -q 'E1R8_DELEGATED' <<<"$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")" ||
+        fail "r8_dialog_killed_no_launch: the password conversation did not start"
+    sleep 1.5   # the password is with the worker; its answer is held back until about 4 s
+    r8_neg_end r8_dialog_killed_no_launch
+    ok r8_dialog_killed_no_launch
+
     # Negative test: with verifier stopped, request is denied and no consent created
     e1s6_stop
     el_down "$STD"
