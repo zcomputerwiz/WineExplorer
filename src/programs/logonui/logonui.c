@@ -125,8 +125,9 @@ static HBITMAP bitmap( UINT id )
     return bitmaps[id - 100];
 }
 
-/* draws a picture at x, y (stretched to w x h when they are not 0): alpha when it has it, else magenta is clear */
-static void draw( HDC hdc, HBITMAP bmp, int x, int y, int w, int h )
+/* draws a picture at x, y (stretched to w x h when they are not 0): alpha when it has it, else magenta is clear;
+ * an opacity below 255 blends a picture without alpha over what is there */
+static void draw_blended( HDC hdc, HBITMAP bmp, int x, int y, int w, int h, BYTE opacity )
 {
     BITMAP bm;
     HDC mem;
@@ -139,12 +140,22 @@ static void draw( HDC hdc, HBITMAP bmp, int x, int y, int w, int h )
     old = SelectObject( mem, bmp );
     if (bm.bmBitsPixel == 32)
     {
-        BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+        BLENDFUNCTION blend = { AC_SRC_OVER, 0, opacity, AC_SRC_ALPHA };
+        GdiAlphaBlend( hdc, x, y, w, h, mem, 0, 0, bm.bmWidth, bm.bmHeight, blend );
+    }
+    else if (opacity < 255)
+    {
+        BLENDFUNCTION blend = { AC_SRC_OVER, 0, opacity, 0 };
         GdiAlphaBlend( hdc, x, y, w, h, mem, 0, 0, bm.bmWidth, bm.bmHeight, blend );
     }
     else GdiTransparentBlt( hdc, x, y, w, h, mem, 0, 0, bm.bmWidth, bm.bmHeight, KEY_COLOR );
     SelectObject( mem, old );
     DeleteDC( mem );
+}
+
+static void draw( HDC hdc, HBITMAP bmp, int x, int y, int w, int h )
+{
+    draw_blended( hdc, bmp, x, y, w, h, 255 );
 }
 
 /* the account picture (AccountsService IconFile, usually a PNG) scaled to 48 x 48 */
@@ -265,6 +276,11 @@ static void load_users( void )
 static int middle_top( void ) { return TOP_BAND + 2; }
 static int middle_bottom( int cy ) { return cy - BOTTOM_BAND; }
 
+/* Screens narrower than 800 pixels, such as Safe Mode's 640x480, get XP's compact layout, measured on the XP VM at
+ * 640x480 (2026-11-11): the logo and "To begin" above the list instead of beside it, the list from the left behind
+ * a shorter divider, no shine, and the hint further left. The offsets below are XP's at 640x480. */
+static BOOL compact( int cx ) { return cx < 800; }
+
 static void layout( void )
 {
     RECT rc;
@@ -276,9 +292,18 @@ static void layout( void )
     cy = rc.bottom;
     for (i = 0; i < user_count; i++)
         total += (i == selected && state == ASKING ? TILE_ASK_HEIGHT : TILE_HEIGHT) + (i ? TILE_GAP : 0);
-    x = cx / 2 + 25;
-    y = (middle_top() + middle_bottom( cy )) / 2 - total / 2;
-    if (y < middle_top() + 12) y = middle_top() + 12;
+    if (compact( cx ))
+    {
+        /* the first picture frame's white border at 165,244, then one tile every 80 rows */
+        x = cx / 2 - 165;
+        y = middle_top() + 155;
+    }
+    else
+    {
+        x = cx / 2 + 25;
+        y = (middle_top() + middle_bottom( cy )) / 2 - total / 2;
+        if (y < middle_top() + 12) y = middle_top() + 12;
+    }
     for (i = 0; i < user_count; i++)
     {
         int h = i == selected && state == ASKING ? TILE_ASK_HEIGHT : TILE_HEIGHT;
@@ -296,7 +321,11 @@ static void layout( void )
         MoveWindow( password_edit, ex + 6, ey + 5, 159, 16, FALSE );
     }
     SetRect( &turnoff_rect, 24, middle_bottom( cy ) + 22, 24 + 26 + 8 + 190, middle_bottom( cy ) + 22 + 26 );
-    if (session_list)
+    /* the session list (WineExplorer's own; XP has none): below "To begin", or in the compact layout's empty top
+     * left corner, clear of the logo and the list */
+    if (session_list && compact( cx ))
+        SetWindowPos( session_list, NULL, 16, middle_top() + 16, 250, 180, SWP_NOZORDER | SWP_NOACTIVATE );
+    else if (session_list)
         SetWindowPos( session_list, NULL, 24, middle_bottom( cy ) - 44, 250, 180, SWP_NOZORDER | SWP_NOACTIVATE );
 }
 
@@ -326,12 +355,17 @@ static void paint_frame( HDC hdc, int cx, int cy )
     SetRect( &rc, 0, middle_top(), cx, mb );
     FillRect( hdc, &rc, brush = CreateSolidBrush( PANEL_COLOR ) );
     DeleteObject( brush );
-    draw( hdc, bitmap( IDB_SHINE ), 0, middle_top(), 0, 0 );
-    if (GetObjectW( bitmap( IDB_DIVIDER ), sizeof(bm), &bm ))
+    if (compact( cx ))   /* no shine; a fainter divider left of the list, rows 209 to 382 of 480, 145,174,238 at most */
+        draw_blended( hdc, bitmap( IDB_DIVIDER ), cx / 2 - 192, middle_top() + 129, 1, mb - middle_top() - 130, 90 );
+    else
     {
-        int h = min( bm.bmHeight, mb - middle_top() - 20 );
-        dy = middle_top() + (mb - middle_top() - h) / 2;
-        draw( hdc, bitmap( IDB_DIVIDER ), cx / 2, dy, 1, h );
+        draw( hdc, bitmap( IDB_SHINE ), 0, middle_top(), 0, 0 );
+        if (GetObjectW( bitmap( IDB_DIVIDER ), sizeof(bm), &bm ))
+        {
+            int h = min( bm.bmHeight, mb - middle_top() - 20 );
+            dy = middle_top() + (mb - middle_top() - h) / 2;
+            draw( hdc, bitmap( IDB_DIVIDER ), cx / 2, dy, 1, h );
+        }
     }
 
     draw( hdc, bitmap( IDB_BOTTOMSTRIP ), 0, mb, cx, 3 );
@@ -382,9 +416,20 @@ static void paint( HDC hdc )
     SetBkMode( hdc, TRANSPARENT );
     SetTextColor( hdc, RGB(255, 255, 255) );
 
-    if (GetObjectW( bitmap( IDB_LOGO ), sizeof(bm), &bm ))
-        draw( hdc, bitmap( IDB_LOGO ), cx / 2 - 20 - bm.bmWidth, cy / 2 + 18 - bm.bmHeight, 0, 0 );
-    SetRect( &rc, 0, cy / 2 + 38, cx / 2 - 45, cy / 2 + 70 );
+    /* the logo, and "To begin" 25 pixels left of its right edge and 20 below it: beside the list, or in the compact
+     * layout above it, the logo's right edge at 490 and its bottom at 166 */
+    if (compact( cx ))
+    {
+        if (GetObjectW( bitmap( IDB_LOGO ), sizeof(bm), &bm ))
+            draw( hdc, bitmap( IDB_LOGO ), cx / 2 + 170 - bm.bmWidth, middle_top() + 86 - bm.bmHeight, 0, 0 );
+        SetRect( &rc, 0, middle_top() + 106, cx / 2 + 146, middle_top() + 138 );
+    }
+    else
+    {
+        if (GetObjectW( bitmap( IDB_LOGO ), sizeof(bm), &bm ))
+            draw( hdc, bitmap( IDB_LOGO ), cx / 2 - 20 - bm.bmWidth, cy / 2 + 18 - bm.bmHeight, 0, 0 );
+        SetRect( &rc, 0, cy / 2 + 38, cx / 2 - 45, cy / 2 + 70 );
+    }
     text_out( hdc, font_begin, text( IDS_BEGIN ), &rc, DT_RIGHT | DT_SINGLELINE );
 
     for (i = 0; i < user_count; i++) paint_tile( hdc, i );
@@ -392,7 +437,7 @@ static void paint( HDC hdc )
     draw( hdc, bitmap( hot == HOT_TURNOFF ? IDB_TURNOFF_HOT : IDB_TURNOFF ), turnoff_rect.left, turnoff_rect.top, 0, 0 );
     SetRect( &rc, turnoff_rect.left + 34, turnoff_rect.top, turnoff_rect.right + 40, turnoff_rect.bottom );
     text_out( hdc, font_turnoff, text( IDS_TURNOFF ), &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE );
-    SetRect( &rc, cx / 2 + 70, mb + 25, cx - 20, cy - 10 );
+    SetRect( &rc, compact( cx ) ? cx / 2 - 10 : cx / 2 + 70, mb + 25, cx - 20, cy - 10 );
     text_out( hdc, font_small, text( IDS_ACCOUNTS_HINT ), &rc, DT_LEFT );
 }
 

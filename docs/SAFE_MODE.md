@@ -135,6 +135,17 @@ The Wayland session's compositor takes no `xrandr`. In Safe Mode `wine-explorer-
 `claude/safe-mode-output-mode` of the labwc fork, 2026-11-11). An output without such a mode, or a normal start
 (no variable), gets the usual mode, and nothing is saved.
 
+At 640x480 the Welcome screen (`logonui.exe`) takes XP's compact layout, which XP uses at that size (measured on
+the XP VM, 2026-11-11). Any screen narrower than 800 pixels gets it:
+- The logo sits above the list, with its right edge at column 490 and its bottom at row 166, and "To begin" is 25
+  pixels left of the logo's edge and 20 below it.
+- The tiles start at the left, with the first picture frame's white border at 165,244 and one tile every 80 rows.
+- A fainter divider runs at column 128 from row 209 to 382. There is no shine.
+- The account hint starts at column 310 and fits on the screen; in the wide layout it was cut off at 640 pixels.
+- The session list, which XP does not have, moves to the empty top left of the panel.
+
+The tiles are in alphabetical order in every layout, as on XP.
+
 The Wayland session (`wine-explorer-wayland-session.sh`, "WineExplorer (Wayland)" in the Welcome screen's session
 list) reads the mode the same way (work order A3, 2026-11-10). In `safe` and `safenet` it starts its compositor,
 `wexcomp`, and Explorer with `WEXMODE` exported, skipping the same optional steps. In `safecmd` it starts no Wine:

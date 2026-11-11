@@ -299,6 +299,13 @@ Safe Mode. Still open: the Wayland session, whose compositor (`wexcomp`) takes n
 state. The recovery console there has no title bar either (a window rule in `scripts/wayland/rc.xml`), so its 36
 rows fit. Both Wayland Safe Mode phases measured 640x480 on both firmwares.
 
+The Welcome screen at 640x480 (2026-11-11): XP draws a compact layout there, with the logo and "To begin" above the
+list, the list from the left and a shorter, fainter divider (the XP capture `04-default-mode-640x480-welcome-screen`).
+`logonui.exe` used its wide layout and cut the account hint off at the right edge. It now draws the compact layout
+below 800 pixels, placed from that capture: picture frames, "To begin" and the hint within a few pixels, and the
+divider within 6 of XP's colour. The `accounts` phase passed with it on both firmwares, and `waylandsafe` chose the
+Wayland session from the session list in its new place.
+
 **C4. Logon in Safe Mode.** On the XP VM, all three Safe Modes showed the Welcome screen, with the built-in
 Administrator account added to the accounts; the classic logon dialog appeared only after Ctrl+Alt+Del was pressed
 twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (decision 1):
