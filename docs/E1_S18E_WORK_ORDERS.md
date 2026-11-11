@@ -1170,3 +1170,21 @@ Open: the helper runs synchronously in the verifier's main loop; a second elevat
 loaded by the server was not tried (R14); the seed in the lab is the test's own file, the projection of
 `/etc/skel/.wine/user.reg` is unchanged S12 work; the helper's result line is not bound to the attempt
 beyond its exit status.
+
+## WO-33 Review R14: a second elevation while the first program runs (lab; Claude, 2026-11-11)
+
+Before: the server refused every LOAD for an account whose hive was loaded, so a second elevated program
+could not start until the first had ended and the hive was unloaded.
+
+* Server (`wine/server/registry.c`, docs/STOCK_CHANGES.md): a LOAD for the exact account of a loaded,
+  committed hive joins it with its own lease. Live users were already counted per SID, so unload and the
+  idle reaper need no change beyond returning a failed joiner's lease.
+* Verifier: the provisioning helper reports busy (9) when the profile is locked by the server that has it
+  loaded; that is accepted, nothing was created, and the server's own LOAD decides.
+
+Case: `r8_second_elevation_while_first_runs` (the first elevated program holds; the second is launched as
+the elevated administrator; the server logs the joined lease; the first is released afterwards).
+
+Not covered: a joiner whose setup fails after LOAD (the lease return path is untested), three or more
+concurrent logons, a join while another setup is still uncommitted (refused, the caller would have to
+retry), the reaper unloading the hive after both programs have ended.

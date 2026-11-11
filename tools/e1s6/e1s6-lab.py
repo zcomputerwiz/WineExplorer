@@ -474,7 +474,9 @@ def service(server_path, system_group, pam_paths=None):
             line = done.stdout.decode("ascii", "replace").strip().splitlines()[-1:] or [""]
             print("E1R8_PROFILE request=%x rc=%d %s" % (rec["tuple"].request_id, done.returncode, line[0][:80]),
                   flush=True)
-            require(done.returncode == 0, "profile-provision")
+            # 9 (busy): the profile exists and is locked, normally because this server has it loaded for
+            # an earlier elevation. Nothing was created or changed; the server's own load decides.
+            require(done.returncode in (0, 9), "profile-provision")
 
         def worker_message(self, source, condition, key):
             """The R8 worker's control socket: W_ACK after the dialog attached, then its private result."""

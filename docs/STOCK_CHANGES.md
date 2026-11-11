@@ -1,5 +1,15 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18 review R14: a further logon joins the loaded profile (lab only, 2026-11-11)
+
+Only with the E1S13/E1S10/E1S6 lab defines. `server/registry.c`: `e1s_load_hive` no longer refuses a LOAD
+for an account whose hive is loaded with a committed lease; `e1s_join_hive` keeps the loaded bundle and
+gives the request its own lease (new lease id, state 1, committed once as before) after checking the exact
+account (key, map generation, uid, name), the storage generation, the user SID, the storage on disk and the
+token context again. A hive whose setup lease is still uncommitted, or that is loading, unloading or
+poisoned, is refused as before. `e1s_unload_hive` gives back only the lease of a joined logon whose setup
+failed (state 1 to 2), so the earlier users keep the hive and it can be reaped after them.
+
 ## E1-S18e: ENDORSED carries the prefix directory (lab only, 2026-11-11)
 
 Only with `WEX_E1S6_TRANSPORT_TEST`. `server/named_pipe.c`: the ENDORSED message to the verifier carries a

@@ -1521,6 +1521,46 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         ok "r8_e2e_elevated_$arch"
     done
 
+    # Review R14: a second elevation while the first elevated program still runs. The profile is
+    # loaded; the second logon takes its own lease on it instead of being refused.
+    el_down "$STD"
+    el_clean
+    rm -f "$EL/r8_two_a.txt" "$EL/r8_two_b.txt" "$EL/release.r14"
+    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+    el_up "$STD"
+    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+        "$(winpath /home/$STD/wexel/p64.exe)" 42 "$(winpath "$EL/r8_two_a.txt")" - "hold r14" \
+        >"$ROOT/r8_two_a.log" 2>&1 &
+    R8_TWO_A=$!
+    for _ in $(seq 1 450); do grep -q 'ready=1' "$EL/r8_two_a.txt" 2>/dev/null && break; sleep 0.1; done
+    grep -q 'ready=1' "$EL/r8_two_a.txt" 2>/dev/null ||
+        { tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" | grep -E 'r8: |E1S14|E1S6_' | tail -30 >&2; fail "r8_second_elevation_while_first_runs: the first program did not start"; }
+    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+        "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r8_two_b.txt")" - \
+        >"$ROOT/r8_two_b.log" 2>&1 &
+    R8_TWO_B=$!
+    for _ in $(seq 1 300); do
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        [ "$(grep -c 'r8: launched' <<<"$wine_new_log")" -ge 2 ] && break
+        [ "$(grep -cE 'r8: .* failed' <<<"$wine_new_log")" -ge 1 ] && break
+        sleep 0.1
+    done
+    wait "$R8_TWO_B" 2>/dev/null || true
+    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+    [ "$(grep -c 'r8: launched' <<<"$wine_new_log")" = 2 ] ||
+        { grep -E 'r8: |E1S14|E1S6_|err:' <<<"$wine_new_log" | tail -40 >&2; grep -E 'E1R8_PROFILE|DENY' <<<"$e1s6_new_log" >&2
+          touch "$EL/release.r14"; fail "r8_second_elevation_while_first_runs: the second program was not launched"; }
+    grep -q 'E1S14 join lease' <<<"$wine_new_log" || { touch "$EL/release.r14"; fail "r8_second_elevation_while_first_runs: no second lease on the loaded profile"; }
+    [ "$(el_fact "$EL/r8_two_b.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r8_two_b.txt" user)" = "S-1-5-21-$r8_a-$r8_b-$r8_c-$r8_rid" ] ||
+        { cat "$EL/r8_two_b.txt" >&2; touch "$EL/release.r14"; fail "r8_second_elevation_while_first_runs: the second program is not the elevated administrator"; }
+    grep -q 'ready=1' "$EL/r8_two_a.txt" || fail "r8_second_elevation_while_first_runs: the first program's report changed"
+    touch "$EL/release.r14"
+    wait "$R8_TWO_A" 2>/dev/null || true
+    rm -f "$EL/release.r14"
+    ok r8_second_elevation_while_first_runs
+
     # Negative: the right account with a wrong password is refused and nothing starts
     el_down "$STD"
     el_clean
