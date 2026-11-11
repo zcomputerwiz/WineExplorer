@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Tests for Safe Mode and the Advanced Options menu (docs/SAFE_MODE.md). Run on Linux: python3 scripts/test_safemode.py"""
 
+import configparser
 import contextlib
 import curses
 import importlib.util
@@ -1320,7 +1321,8 @@ class TestWaylandSession(TempDirTest):
 class TestGreeter(TempDirTest):
     """wex-greeter.sh: the Welcome screen in every mode; in Safe Mode the GTK greeter when Wine cannot start."""
 
-    def run_greeter(self, mode, wine_exists=True, cmd_status=0, explorer_status=0, home=None, xrandr=False, option=""):
+    def run_greeter(self, mode, wine_exists=True, cmd_status=0, explorer_status=0, home=None, xrandr=False, option="",
+                    extra_env=None):
         """home: run with HOME=home and no WINEPREFIX, as LightDM starts the greeter (the prefix is then ~/.wine).
         xrandr: a stand-in X server at 1280x800 whose output also offers 640x480. option: the menu's start option."""
         log = self.tmp / "calls.log"
@@ -1341,6 +1343,7 @@ class TestGreeter(TempDirTest):
             (bin_dir / "xrandr").chmod(0o755)
             path = f"{bin_dir}:{path}"
         wine = self.tmp / "wine"
+        wine.unlink(missing_ok=True)   # an earlier call in the same test may have made it
         if wine_exists:
             wine.write_text('#!/bin/sh\necho "wine $*" >> "$LOG"\necho "$WEXMODE $WINEPREFIX" > "$LOG.env"\n'
                             'case "$1" in\n'
@@ -1348,11 +1351,11 @@ class TestGreeter(TempDirTest):
                             encoding="ascii")
             wine.chmod(0o755)
         gtk = self.tmp / "gtk-greeter"
-        gtk.write_text('#!/bin/sh\necho gtk >> "$LOG"\n', encoding="ascii")
+        gtk.write_text('#!/bin/sh\necho gtk >> "$LOG"\necho "$XDG_DATA_DIRS" > "$LOG.xdg"\n', encoding="ascii")
         gtk.chmod(0o755)
         env = {"PATH": path, "LOG": str(log), "WINE": str(wine),
                "WEX_BOOTMODE_HELPER": self.fake_helper(mode, option=option), "WEX_GTK_GREETER": str(gtk),
-               "FAKE_CMD": str(cmd_status), "FAKE_EXPLORER": str(explorer_status)}
+               "FAKE_CMD": str(cmd_status), "FAKE_EXPLORER": str(explorer_status), **(extra_env or {})}
         if home is None:
             prefix = self.tmp / "prefix"
             prefix.mkdir(exist_ok=True)
@@ -1404,6 +1407,9 @@ class TestGreeter(TempDirTest):
             self.assertIn("wine explorer.exe /desktop=Logon,640x480 logonui.exe", calls, mode)
         calls = self.run_greeter("normal", xrandr=True)[1]
         self.assertEqual(calls, ["wine explorer.exe /desktop=Logon,1280x800 logonui.exe"])
+        # the GTK greeter, when Wine cannot start, at 640x480 too
+        self.assertEqual(self.run_greeter("safecmd", wine_exists=False, xrandr=True)[1],
+                         ["xrandr --output Virtual-1 --mode 640x480", "gtk"])
 
     def test_vga_mode_runs_at_640x480(self):
         """work order D2: Enable VGA Mode, a normal start, begins at 640x480 too; other start options do not"""
@@ -1427,6 +1433,52 @@ class TestGreeter(TempDirTest):
 
     def test_safe_mode_falls_back_when_wine_is_missing(self):
         self.assertEqual(self.run_greeter("safecmd", wine_exists=False)[1], ["gtk"])
+
+    def test_the_fallback_greeter_is_black(self):
+        """work order A4: the GTK greeter reads WineExplorer's drop-in after Debian's, so it is black. Its order
+        (lightdm-gtk-greeter 2.0.9, config_init): each XDG data directory in turn, its .conf.d files sorted, then the
+        configuration directories and /etc/lightdm; a later file overrides an earlier one."""
+        self.run_greeter("safecmd", wine_exists=False)
+        dirs = (self.tmp / "calls.log.xdg").read_text().strip().split(":")
+        self.assertEqual(dirs, ["/usr/local/share", "/usr/share", "/usr/share/wineexplorer/safe-greeter"])
+        root = self.tmp / "fs"
+        debian = root / "usr/share/lightdm/lightdm-gtk-greeter.conf.d"
+        debian.mkdir(parents=True)
+        (debian / "01_debian.conf").write_text("[greeter]\nbackground=/usr/share/images/desktop-base/login-background.svg\n"
+                                               "theme-name=Adwaita\n", encoding="ascii")
+        ours = root / "usr/share/wineexplorer/safe-greeter/lightdm/lightdm-gtk-greeter.conf.d"
+        ours.mkdir(parents=True)
+        shutil.copy(REPO_ROOT / "installer/lightdm/90-wineexplorer-safe-mode.conf", ours)
+        settings = {}
+        for directory in dirs:
+            conf_d = root / directory.lstrip("/") / "lightdm/lightdm-gtk-greeter.conf.d"
+            for path in sorted(conf_d.glob("*.conf")) if conf_d.is_dir() else []:
+                parser = configparser.ConfigParser(interpolation=None, comment_prefixes=("#",))
+                parser.read(path, encoding="utf-8")
+                settings.update(parser["greeter"])
+        self.assertEqual(settings["background"], "#000000")
+        self.assertEqual(settings["user-background"], "false")
+        self.assertEqual(settings["theme-name"], "Adwaita")                   # the rest stays Debian's
+        # an XDG_DATA_DIRS set by LightDM is kept, with the drop-in still last
+        self.run_greeter("safe", cmd_status=1, extra_env={"XDG_DATA_DIRS": "/opt/share:/usr/share"})
+        self.assertEqual((self.tmp / "calls.log.xdg").read_text().strip(),
+                         "/opt/share:/usr/share:/usr/share/wineexplorer/safe-greeter")
+
+    def test_screen_pixel(self):
+        """installer/tests/screen-pixel.py, which the VM test uses for the greeter's background (A4)."""
+        width, height = 640, 480
+        pixels = bytearray(width * height * 3)
+        pixels[((height - 5) * width + 4) * 3:((height - 5) * width + 4) * 3 + 3] = bytes((1, 2, 3))
+        ppm = self.tmp / "screen.ppm"
+        ppm.write_bytes(b"P6\n640 480\n255\n" + bytes(pixels))
+        helper = [sys.executable, str(VM_TEST.with_name("screen-pixel.py")), str(ppm)]
+        self.assertEqual(subprocess.run(helper + ["4", "-5"], capture_output=True, text=True, check=True).stdout,
+                         "1 2 3\n")
+        self.assertEqual(subprocess.run(helper + ["4", "475"], capture_output=True, text=True, check=True).stdout,
+                         "1 2 3\n")
+        self.assertEqual(subprocess.run(helper + ["0", "0"], capture_output=True, text=True, check=True).stdout,
+                         "0 0 0\n")
+        self.assertNotEqual(subprocess.run(helper + ["640", "0"], capture_output=True, text=True).returncode, 0)
 
     def test_safe_mode_falls_back_when_wine_does_not_start(self):
         self.assertEqual(self.run_greeter("safe", cmd_status=1)[1], ["wine cmd.exe /c exit 0", "gtk"])

@@ -157,6 +157,7 @@ SAFE_MODE_FILES=(
     "755 scripts/wine-explorer-session-common.sh usr/local/bin/wine-explorer-session-common.sh"
     "755 scripts/wine-explorer-wayland-session.sh usr/local/bin/wine-explorer-wayland-session.sh"
     "644 scripts/wayland/rc.xml etc/xdg/wineexplorer/wayland/rc.xml"
+    "644 installer/lightdm/90-wineexplorer-safe-mode.conf usr/share/wineexplorer/safe-greeter/lightdm/lightdm-gtk-greeter.conf.d/90-wineexplorer-safe-mode.conf"
     "755 scripts/wex-safemode-pam-check.sh usr/local/sbin/wex-safemode-pam-check.sh"
     "755 scripts/wex-advanced-options.py usr/local/sbin/wex-advanced-options"
     "755 scripts/wex-bootlog.sh usr/local/sbin/wex-bootlog"
@@ -414,6 +415,21 @@ logon_screen_gtk() {   # the GTK greeter, the last resort when Wine does not sta
     shot logon-gtk
 }
 
+expect_black_greeter() {   # work order A4: the GTK greeter is black, with no distribution art, on images that have
+                           # its drop-in; older images are reported, not failed. Its panel is at the top, so the
+                           # bottom left corner shows the background.
+    local rgb
+    if ! gsh 'test -f /usr/share/wineexplorer/safe-greeter/lightdm/lightdm-gtk-greeter.conf.d/90-wineexplorer-safe-mode.conf && echo a4=yes' \
+            | grep -q '^a4=yes'; then
+        echo "  (this image's GTK greeter keeps the distribution's background)"
+        return 0
+    fi
+    "${V[@]}" shot "$TEST" >/dev/null 2>&1 || fail "no screenshot"
+    rgb=$(python3 "$HERE/screen-pixel.py" "$STATE/screen.ppm" 4 -5) || fail "cannot read the screenshot"
+    echo "  greeter background: $rgb"
+    [ "$rgb" = "0 0 0" ] || fail "the GTK greeter's background is not black: $rgb"
+}
+
 logon_gtk() {   # the GTK greeter asks for the user name, then the password
     "${V[@]}" type "$TEST" "$USER_NAME"
     "${V[@]}" key "$TEST" ret >/dev/null
@@ -423,8 +439,16 @@ logon_gtk() {   # the GTK greeter asks for the user name, then the password
         "${V[@]}" key "$TEST" ret >/dev/null
     else
         # an account without a password is authenticated at once and the greeter waits for Log In; OCR does not
-        # always read that button, so fall back to its place on the 1280x800 screen
-        "${V[@]}" clicktext "$TEST" "Log In" >/dev/null 2>&1 || "${V[@]}" click "$TEST" 736 440 >/dev/null
+        # always read that button, so fall back to its place: the greeter's box is centred, and the button sits 96
+        # pixels right of and 40 below the screen's centre (736,440 at 1280x800, 416,280 at Safe Mode's 640x480)
+        if ! "${V[@]}" clicktext "$TEST" "Log In" >/dev/null 2>&1; then
+            local size w h
+            "${V[@]}" shot "$TEST" >/dev/null 2>&1
+            size=$(head -n 2 "$STATE/screen.ppm" | tail -n 1)
+            w=${size% *} h=${size#* }
+            case "$w$h" in ''|*[!0-9]*) w=1280 h=800 ;; esac
+            "${V[@]}" click "$TEST" $((w / 2 + 96)) $((h / 2 + 40)) >/dev/null
+        fi
     fi
 }
 
@@ -708,6 +732,8 @@ phase_nowine() {   # /usr/local/bin/wine is hidden for this boot (the main loop 
     menu_choice "$ROW_SAFECMD" "Safe Mode with Command Prompt"
     logon_screen_gtk
     expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
+    expect_black_greeter
+    expect_screen 640x480
     logon_gtk
     recovery_console
     shutdown_vm

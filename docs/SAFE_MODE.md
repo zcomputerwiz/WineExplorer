@@ -87,7 +87,13 @@ generator steps aside and the update runs first.
 (`docs/SAFE_MODE_WORKORDER.md` C4, decision 1). In Safe Mode it first checks that Wine starts in the logon prefix
 (`cmd.exe /c exit 0`, at most 120 seconds, and the prefix update at most 300). If Wine is missing, does not
 start, or the logon screen ends with an error, it starts the GTK greeter instead: that one needs no Wine, so Safe
-Mode with Command Prompt can still be reached with a broken Wine. A normal start is unchanged.
+Mode with Command Prompt can still be reached with a broken Wine. A normal start is unchanged. The GTK greeter is at
+640x480 as well, and black with no distribution art (work order A4, 2026-11-11). For it alone, `wex-greeter.sh`
+appends `/usr/share/wineexplorer/safe-greeter` to `XDG_DATA_DIRS`; that directory's
+`lightdm/lightdm-gtk-greeter.conf.d/90-wineexplorer-safe-mode.conf` (`installer/lightdm/`) sets `background=#000000`
+and `user-background=false`. lightdm-gtk-greeter 2.0.9 reads the data directories in order, then the configuration
+directories and `/etc/lightdm`, and a later file overrides an earlier one. So the last directory's keys replace
+Debian's `01_debian.conf`, and nothing under `/etc` changes.
 
 **The Administrator account and hidden accounts** (work order C4 and C7, decisions 7 and 8; 2026-11-09):
 - The package creates `administrator`, display name Administrator, locked and in the administrators' group.
@@ -310,7 +316,7 @@ logon dialog after Ctrl+Alt+Del twice (C4).
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (106 tests, Linux) covers:
+`scripts/test_safemode.py` (108 tests, Linux) covers:
 
 - the end of Plymouth: asking until it is gone, each request with a time limit, then ending a plymouthd that
   lingers or does not answer; and the unit without a terminal that does it before the menu's and the failure
@@ -334,6 +340,8 @@ logon dialog after Ctrl+Alt+Del twice (C4).
 - Enable VGA Mode: the start option and `wex-bootmode --option` (root-owned file only), and 640x480 in the greeter
   and both sessions with the saved display mode skipped;
 - that the greeter does not update a logon prefix that is already made;
+- the GTK fallback greeter: 640x480, its drop-in directory last in `XDG_DATA_DIRS`, and its keys winning over
+  Debian's in lightdm-gtk-greeter's reading order; and the VM test's pixel reader;
 - the Wayland session in each mode, with a stand-in compositor and Wine, and its 640x480 in each Safe Mode;
 - the boot log: two starts in XP's format, the header's version text from XP's and from Wine's default registry
   values and with no registry, and the conversion of a log from before the format;
@@ -364,7 +372,7 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `safe` | OS list shows "Safe Mode"; the Welcome screen instead of automatic logon, with the start-up check's pattern matching exactly one `logonui.exe` process; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; the message box, answered Yes, then the desktop; Explorer session with `WEXMODE=safe`; probes: `SM_CLEANBOOT` and `OptionValue` 1, no alternate shell, EventLog, PlugPlay and MountMgr running, NDIS and nsiproxy stopped, the spooler refused with 1084; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open; the screen at 640x480 on the Welcome screen and the desktop (C3; also checked in `safenet` and `safecmd`) |
 | `safenet` | The same with `wex-safenet.target`, NetworkManager active and `WEXMODE=safenet`; probes: 2, and NDIS and nsiproxy running |
 | `safecmd` | The Welcome screen; the recovery console after logging on, 80 columns by 30 rows or more (its terminal's size, read over the serial console; images whose console predates C6's shape are reported), and no wineserver; then the probes, started with `wine` from the serial console as from the recovery console (output to a file): 1, `UseAlternateShell` 1, the services as in `safe` |
-| `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, and logging on still starts the recovery console |
+| `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, black (its bottom left pixel) and at 640x480 on images that have its drop-in (A4), and logging on still starts the recovery console |
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
 | `vga` | Only when named. With a 1024x768 display profile saved for the test account: Enable VGA Mode is a normal start with automatic logon at 640x480, with the start option `vga` recorded and the profile skipped. The next normal start is at 1024x768 |
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" |
@@ -556,5 +564,10 @@ window rule it sits at the top left with no bar, like the X11 one, and the promp
 showed "Enable VGA Mode" on its blue mode line. The start was a normal one (graphical target, networking, timers)
 with the option `vga` recorded, at 640x480 although a 1024x768 profile was saved. The next normal start was at
 1024x768.
+
+**The fallback greeter (2026-11-11).** `nowine` with this checkout's files: the GTK greeter was black, with no
+Debian art, but at 1280x800, because `wex-greeter.sh` fell back before it switched to 640x480. It now switches
+first. Logging on then failed: the test's fallback click on Log In assumed 1280x800, and now it is placed from the
+screen's centre. With both, `nowine` passed on both firmwares: black, 640x480, and a 36x80 console.
 - Both consoles printed six `setlocale` warnings above the banner. The installed system sets `LANG=en_US.UTF-8`
   (Setup, through `locale1`), but that locale was never generated (`/usr/lib/locale` has only `C.utf8`).

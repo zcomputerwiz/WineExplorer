@@ -7,7 +7,7 @@ menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer comm
 A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape),
 Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Since 2026-11-11 Vintner Boot is the
 only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. C5 is done
-(2026-11-11), and so are C6 with the recovery console's shape, C3 for Wayland and D2. Open: A4, B5, B8's merge, the
+(2026-11-11), and so are C6 with the recovery console's shape, C3 for Wayland, D2 and A4. Open: B5, B8's merge, the
 rest of C4 and C7, D4, D5. D1's Safe Mode choice on a generation's last try waits for Vintner's
 `next-boot variant --generation`, asked on 2026-11-11 (`docs/VINTNER_BOOT.md`).  
 Branches:
@@ -117,6 +117,12 @@ to start, the session ends and the Welcome screen comes back, as before.
 first in `XDG_DATA_DIRS` before `wex-greeter.sh` starts the greeter. The drop-in is
 `lightdm/lightdm-gtk-greeter.conf.d/` with a black background and no Debian art, and nothing in `/etc` changes.
 First check the greeter's precedence for configuration directories. This step becomes moot when C4 lands.
+
+**Done 2026-11-11** for the GTK greeter that remains as the last resort after C4 (`installer/lightdm/`,
+`scripts/wex-greeter.sh`; `docs/SAFE_MODE.md` section 3). lightdm-gtk-greeter 2.0.9 lets a later file override an
+earlier one, and reads the first XDG data directory first. So the drop-in directory goes last in `XDG_DATA_DIRS`,
+not first. The fallback also switches to 640x480 before it starts, as the Welcome screen does. The VM test's `nowine`
+phase found it black and at 640x480 on both firmwares.
 
 ### Phase B: Windows programs see Safe Mode (Wine branch)
 

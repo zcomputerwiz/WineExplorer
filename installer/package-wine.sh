@@ -256,6 +256,8 @@ install -m644 "$ROOT_DIR/scripts/wine-explorer-wayland.desktop" "$STAGE_SESSION/
 install -m644 "$ROOT_DIR/scripts/wayland/"*.xml "$STAGE_SESSION/etc/xdg/wineexplorer/wayland/"
 install -m644 "$ROOT_DIR/scripts/wineexplorer-greeter.desktop" "$STAGE_SESSION/usr/share/xgreeters/"
 install -m644 "$SCRIPT_DIR/live-build/config/includes.chroot/etc/lightdm/lightdm.conf.d/50-wineexplorer.conf" "$STAGE_SESSION/etc/lightdm/lightdm.conf.d/"
+# Safe Mode's last-resort GTK greeter: black (work order A4); wex-greeter.sh adds the directory to XDG_DATA_DIRS
+install -D -m644 "$SCRIPT_DIR/lightdm/90-wineexplorer-safe-mode.conf" "$STAGE_SESSION/usr/share/wineexplorer/safe-greeter/lightdm/lightdm-gtk-greeter.conf.d/90-wineexplorer-safe-mode.conf"
 
 # Xorg modesetting configuration
 cp "$ROOT_DIR/scripts/20-wineexplorer-modesetting.conf" "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
