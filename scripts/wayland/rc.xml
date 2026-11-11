@@ -2,6 +2,14 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 <labwc_config>
   <core><decoration>server</decoration></core>
+  <!-- Safe Mode with Command Prompt's console (scripts/wex-safe-terminal.sh, xterm -name wex-recovery-console): no
+       title bar and at the top left, as in the X11 session, where no window manager runs. Its rows are counted from
+       the top of the screen, so a title bar would push the prompt off the bottom. -->
+  <windowRules>
+    <windowRule identifier="wex-recovery-console" serverDecoration="no">
+      <action name="MoveTo" x="0" y="0"/>
+    </windowRule>
+  </windowRules>
   <!-- Explorer owns shell shortcuts; an inert entry suppresses labwc defaults. -->
   <keyboard><keybind key="A-Tab"><action name="None"/></keybind></keyboard>
   <mouse>

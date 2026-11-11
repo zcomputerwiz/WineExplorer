@@ -110,7 +110,9 @@ Mode with Command Prompt can still be reached with a broken Wine. A normal start
   tall as the screen, light gray on black with an underline cursor and the scroll bar on the right, titled with the
   program's name (`bash`). With no window manager the size comes from the screen's (`xdpyinfo`) and a bitmap font's:
   misc-fixed 8x13, or 7x13 where 80 columns and the scroll bar do not fit, as at Safe Mode's 640x480 (36 rows);
-  25 rows when the screen's size is unknown. Its banner fits 80 columns;
+  25 rows when the screen's size is unknown. Its banner fits 80 columns. In the Wayland session `wexcomp` would add
+  a title bar and push the last rows off the screen, so a window rule for the console's name,
+  `wex-recovery-console` (`scripts/wayland/rc.xml`), leaves the bar out and puts it at the top left there too;
 - `safe`, `safenet`: starts Explorer with `WEXMODE` exported. It does what a logon needs (template
   personalisation, the prefix update after a Wine update) and skips what is optional: the saved display mode, the
   native runtime defaults, the theme copy and the Vulkan preparation.
@@ -122,7 +124,10 @@ an output without that mode keeps its own. Only the running X server changes: th
 its own mode, and the session restores the saved display profile only in a normal start. Display Properties can
 still change the mode in Safe Mode, for that session only: `WexDisplaySet` (wexhost) does not write the profile
 while Safe Mode runs (`SM_CLEANBOOT`, or `WEXMODE`). Whether XP keeps a mode chosen in Safe Mode is not measured.
-The Wayland session keeps the compositor's mode for now (`wexcomp` takes no `xrandr`).
+The Wayland session's compositor takes no `xrandr`. In Safe Mode `wine-explorer-wayland-session.sh` exports
+`WEX_OUTPUT_MODE=640x480`, and `wexcomp` starts each output in its own mode of that size nearest 60 Hz (branch
+`claude/safe-mode-output-mode` of the labwc fork, 2026-11-11). An output without such a mode, or a normal start
+(no variable), gets the usual mode, and nothing is saved.
 
 The Wayland session (`wine-explorer-wayland-session.sh`, "WineExplorer (Wayland)" in the Welcome screen's session
 list) reads the mode the same way (work order A3, 2026-11-10). In `safe` and `safenet` it starts its compositor,
@@ -300,8 +305,8 @@ Yes as the default; the desktop icons wait for the answer. Yes goes on; No logs 
 the place of XP's System Restore (owner decision 2). Safe Mode with Command Prompt starts no Explorer, so it shows
 neither.
 
-Still open: `RunOnce` values whose name starts with `*` (B5, after a native probe on the XP VM), 640x480 in the
-Wayland session (C3; X11 is done, section 4) and the classic logon dialog after Ctrl+Alt+Del twice (C4).
+Still open: `RunOnce` values whose name starts with `*` (B5, after a native probe on the XP VM) and the classic
+logon dialog after Ctrl+Alt+Del twice (C4).
 
 ## 6. Tests
 
@@ -327,7 +332,7 @@ Wayland session (C3; X11 is done, section 4) and the classic logon dialog after 
   users it hid, and the units it enables;
 - the boot mode record: written once, never for the menu, its unit, and `/run/wineexplorer` belonging to root;
 - that the greeter does not update a logon prefix that is already made;
-- the Wayland session in each mode, with a stand-in compositor and Wine;
+- the Wayland session in each mode, with a stand-in compositor and Wine, and its 640x480 in each Safe Mode;
 - the boot log: two starts in XP's format, the header's version text from XP's and from Wine's default registry
   values and with no registry, and the conversion of a log from before the format;
 - Last Known Good: which starts save the control set, that only the control set is saved and put back (with
@@ -537,5 +542,11 @@ of work order C6, from new overlays of those installs (`WEX_SAFEMODE_FILES=branc
   both firmwares from new overlays. The provisioning log had `bless=0`, the screen came after the one reset, and
   Safe Mode with Command Prompt restarted into that mode: `a24d9a4` refused `--generation` (exit 2) and took the
   plain request.
+
+**640x480 in the Wayland session (2026-11-11).** With this checkout's files and a `wexcomp` built from
+`claude/safe-mode-output-mode` (`f2b2dcb1`, unpacked over the overlay through `WEX_TEST_WINE`), on both firmwares:
+`safecmd`, `waylandsafe` and `waylandcmd` passed, each at 640x480. In the first run the Wayland console had
+`wexcomp`'s title bar (about 27 pixels), so its 36 rows ran about 19 pixels past the bottom of the screen. With the
+window rule it sits at the top left with no bar, like the X11 one, and the prompt stays on the screen.
 - Both consoles printed six `setlocale` warnings above the banner. The installed system sets `LANG=en_US.UTF-8`
   (Setup, through `locale1`), but that locale was never generated (`/usr/lib/locale` has only `C.utf8`).

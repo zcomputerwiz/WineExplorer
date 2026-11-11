@@ -114,6 +114,7 @@ An empty menu configuration file (`menu.xml`) containing `<openbox_menu/>` is re
 - `WEX_WAYLAND_NATIVE_WINDOWS=1`: Enables native Linux Wayland application hosting inside Win32 frames with dynamic scale message synchronization.
 - `WLR_RENDERER=gles2` / `WLR_RENDERER_ALLOW_SOFTWARE=1`: Forces the GLES2 renderer in headless/virtual environments using llvmpipe and Mesa surfaceless EGL.
 - `LABWC_WEX_SHELL_SOCKET`: Defines the socket name for privileged shell communications (default: `wex-shell-0`).
+- `WEX_OUTPUT_MODE=<width>x<height>`: Starts each output in its own mode of that size, nearest 60 Hz. The Wayland session sets `640x480` in Safe Mode (`docs/SAFE_MODE.md` section 4). It is ignored when the output has no such mode, and a mode a client requests later still applies.
 
 ---
 

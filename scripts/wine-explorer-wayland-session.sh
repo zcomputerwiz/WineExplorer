@@ -22,6 +22,12 @@ case "$WEXMODE" in
 esac
 export WEXMODE
 echo "WEXMODE=$WEXMODE"
+# Safe Mode runs at 640x480, as XP's basic display driver does (docs/SAFE_MODE_WORKORDER.md C3). wexcomp starts each
+# output at WEX_OUTPUT_MODE when the output offers it; nothing is saved, so the next normal start has its usual mode.
+if [ "$WEXMODE" != normal ]; then
+    export WEX_OUTPUT_MODE=640x480
+    echo "Safe Mode ($WEXMODE): 640x480"
+fi
 
 compositor_bin="${WEX_WEXCOMP_BIN:-/usr/local/bin/wexcomp}"
 compositor_config="${WEX_WAYLAND_CONFIG:-/etc/xdg/wineexplorer/wayland}"

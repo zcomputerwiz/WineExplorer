@@ -1236,7 +1236,8 @@ class TestWaylandSession(TempDirTest):
         log = self.tmp / "calls.log"
         log.unlink(missing_ok=True)
         compositor = self.tmp / "wexcomp"
-        compositor.write_text('#!/bin/sh\necho "wexcomp $* WEXMODE=$WEXMODE DISPLAY=${DISPLAY-unset}" >> "$LOG"\n'
+        compositor.write_text('#!/bin/sh\necho "wexcomp $* WEXMODE=$WEXMODE DISPLAY=${DISPLAY-unset}'
+                              ' WEX_OUTPUT_MODE=${WEX_OUTPUT_MODE-unset}" >> "$LOG"\n'
                               'exit "$FAKE_COMPOSITOR"\n', encoding="ascii")
         compositor.chmod(0o755)
         wine = self.tmp / "wine"
@@ -1257,14 +1258,18 @@ class TestWaylandSession(TempDirTest):
     def test_command_prompt_runs_the_recovery_console_in_the_compositor(self):
         status, calls = self.run_session("safecmd")
         self.assertEqual(status, 0)
-        self.assertEqual(calls, ["wexcomp -C /cfg -S /safe-terminal WEXMODE=safecmd DISPLAY=unset"])
+        self.assertEqual(calls, ["wexcomp -C /cfg -S /safe-terminal WEXMODE=safecmd DISPLAY=unset"
+                                 " WEX_OUTPUT_MODE=640x480"])
 
     def test_other_modes_start_the_desktop_compositor(self):
         # The stand-in compositor ends at once, so the session stops before Wine, as it does when wexcomp fails.
-        for mode, expected in (("safe", "safe"), ("safenet", "safenet"), ("normal", "normal"), ("bogus", "normal")):
+        # Every Safe Mode starts the compositor at 640x480 (work order C3); a normal start at the output's own mode.
+        for mode, expected, size in (("safe", "safe", "640x480"), ("safenet", "safenet", "640x480"),
+                                     ("normal", "normal", "unset"), ("bogus", "normal", "unset")):
             status, calls = self.run_session(mode, compositor_status=1)
             self.assertEqual(status, 1, mode)
-            self.assertEqual(calls, [f"wexcomp -C /cfg WEXMODE={expected} DISPLAY=unset"], mode)
+            self.assertEqual(calls, [f"wexcomp -C /cfg WEXMODE={expected} DISPLAY=unset WEX_OUTPUT_MODE={size}"],
+                             mode)
 
 
 class TestGreeter(TempDirTest):
@@ -1585,7 +1590,8 @@ class TestPackage(TempDirTest):
         for mode, src, dst in entries:
             self.assertTrue((REPO_ROOT / src).is_file(), f"{src} does not exist")
             src_name, dst_dir, dst_name = Path(src).name, str(Path(dst).parent), Path(dst).name
-            self.assertIn(src_name, package, f"the package does not install {src}")
+            globbed = f'{Path(src).parent.as_posix()}/"*{Path(src).suffix}'   # e.g. "$ROOT_DIR/scripts/wayland/"*.xml
+            self.assertTrue(src_name in package or globbed in package, f"the package does not install {src}")
             installed = (f'$STAGE_SESSION/{dst}"' in package
                          or (src_name == dst_name and f'$STAGE_SESSION/{dst_dir}/' in package))
             self.assertTrue(installed, f"the package does not install {src} as /{dst}")

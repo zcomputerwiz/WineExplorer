@@ -51,7 +51,9 @@ EOF
 # with the program's name only. No window manager runs here, so the size comes from the screen's and a bitmap font's
 # (xfonts-base, cells 13 pixels high): 8 pixels wide when 80 columns and the scroll bar fit, else 7 or 6. Safe Mode
 # runs at 640x480 (C3), where an 8-pixel font does not fit. Until 2026-11-11 it was 120x34 cells of an 11-point font
-# at +40+40, larger than 640x480: the prompt went off the screen once the output scrolled.
+# at +40+40, larger than 640x480: the prompt went off the screen once the output scrolled. In the Wayland session
+# wexcomp would add a title bar; a window rule for the name wex-recovery-console leaves it out
+# (scripts/wayland/rc.xml), so the rows fit there too.
 CELL_H=13
 CHROME=19   # two internal borders of 2 pixels, the scroll bar (14) and its border
 screen_w=0 screen_h=0
@@ -73,6 +75,7 @@ if [ "$screen_h" -gt 0 ]; then ROWS=$(( (screen_h - 4) / CELL_H )); fi
 while true; do
     # allowTitleOps: Debian's bashrc would retitle it "user@host: dir" at every prompt
     xterm \
+        -name wex-recovery-console \
         -title bash \
         -n bash \
         -xrm 'XTerm*allowTitleOps: false' \

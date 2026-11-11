@@ -153,6 +153,7 @@ SAFE_MODE_FILES=(
     "755 scripts/wine-explorer-session.sh usr/local/bin/wine-explorer-session.sh"
     "755 scripts/wine-explorer-session-common.sh usr/local/bin/wine-explorer-session-common.sh"
     "755 scripts/wine-explorer-wayland-session.sh usr/local/bin/wine-explorer-wayland-session.sh"
+    "644 scripts/wayland/rc.xml etc/xdg/wineexplorer/wayland/rc.xml"
     "755 scripts/wex-safemode-pam-check.sh usr/local/sbin/wex-safemode-pam-check.sh"
     "755 scripts/wex-advanced-options.py usr/local/sbin/wex-advanced-options"
     "755 scripts/wex-bootlog.sh usr/local/sbin/wex-bootlog"
@@ -660,6 +661,16 @@ wayland_session() {   # on the Welcome screen: choose "WineExplorer (Wayland)" i
     shot session
 }
 
+expect_wayland_screen() {   # Safe Mode's 640x480 in the Wayland session (work order C3): the session passes it to
+                            # wexcomp (WEX_OUTPUT_MODE); images without that are reported, not failed
+    if ! gsh 'grep -q WEX_OUTPUT_MODE /usr/local/bin/wine-explorer-wayland-session.sh && grep -q -a WEX_OUTPUT_MODE /usr/local/bin/wexcomp && echo c3w=yes' \
+            | grep -q '^c3w=yes'; then
+        echo "  (this image's Wayland session does not set 640x480 in Safe Mode)"
+        return 0
+    fi
+    expect_screen 640x480
+}
+
 expect_compositor() {   # the logged-on session runs under wexcomp, the Wayland session's compositor
     local out
     out=$(gsh 'echo compositors=$(pgrep -c -u '"$USER_NAME"' -x wexcomp)' | grep '^compositors=')
@@ -675,6 +686,7 @@ phase_waylandsafe() {   # work order A3
     safe_desktop 400
     expect_session_mode safe
     expect_compositor
+    expect_wayland_screen
     shutdown_vm
 }
 
@@ -685,6 +697,7 @@ phase_waylandcmd() {   # work order A3: the recovery console replaces the shell 
     logon
     recovery_console
     expect_compositor
+    expect_wayland_screen
     shutdown_vm
 }
 

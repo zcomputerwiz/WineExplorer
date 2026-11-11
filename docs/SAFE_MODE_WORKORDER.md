@@ -7,8 +7,8 @@ menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer comm
 A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape),
 Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Since 2026-11-11 Vintner Boot is the
 only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. C5 is done
-(2026-11-11), and so is C6 with the recovery console's shape. Open: A4, B5, B8's merge, C3 for Wayland, the rest of
-C4 and C7, D2, D4, D5. D1's Safe Mode choice on a generation's last try waits for Vintner's
+(2026-11-11), and so are C6 with the recovery console's shape and C3 for Wayland. Open: A4, B5, B8's merge, the
+rest of C4 and C7, D2, D4, D5. D1's Safe Mode choice on a generation's last try waits for Vintner's
 `next-boot variant --generation`, asked on 2026-11-11 (`docs/VINTNER_BOOT.md`).  
 Branches:
 
@@ -264,6 +264,12 @@ work order WO-13 (queued 2026-11-08, after WO-11).
 before the Welcome screen, and the session does too; nothing is saved. Display Properties' save path is
 `WexDisplaySet(..., persist)` in wexhost, which writes `~/.config/wineexplorer/display`; it no longer writes it in
 Safe Mode. Still open: the Wayland session, whose compositor (`wexcomp`) takes no `xrandr`.
+
+**Done 2026-11-11 for Wayland** (`scripts/wine-explorer-wayland-session.sh`, `wexcomp/src/output.c`;
+`docs/SAFE_MODE.md` section 4). In Safe Mode the session exports `WEX_OUTPUT_MODE=640x480`. `wexcomp` (branch
+`claude/safe-mode-output-mode` of the labwc fork) starts each output in its own mode of that size, with no saved
+state. The recovery console there has no title bar either (a window rule in `scripts/wayland/rc.xml`), so its 36
+rows fit. Both Wayland Safe Mode phases measured 640x480 on both firmwares.
 
 **C4. Logon in Safe Mode.** On the XP VM, all three Safe Modes showed the Welcome screen, with the built-in
 Administrator account added to the accounts; the classic logon dialog appeared only after Ctrl+Alt+Del was pressed
