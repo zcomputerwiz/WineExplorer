@@ -43,10 +43,11 @@ class TempDirTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def fake_helper(self, mode, status=0):
-        """A wex-bootmode stand-in that prints MODE."""
+    def fake_helper(self, mode, status=0, option=""):
+        """A wex-bootmode stand-in that prints MODE, and OPTION for --option."""
         helper = self.tmp / "fake-bootmode"
-        helper.write_text(f"#!/bin/sh\necho {mode}\nexit {status}\n", encoding="ascii")
+        helper.write_text(f'#!/bin/sh\nif [ "$1" = --option ]; then echo {option}; exit 0; fi\necho {mode}\nexit {status}\n',
+                          encoding="ascii")
         helper.chmod(0o755)
         return str(helper)
 
@@ -112,6 +113,29 @@ class TestBootMode(TempDirTest):
     def test_setup_stage_blocks_safe_mode_only(self):
         self.assertEqual(self.bootmode("wexmode=safe", stage=True), "normal")
         self.assertEqual(self.bootmode("wexmode=menu", stage=True), "menu")
+
+    def option(self, value=None, root_uid=None, link=False):
+        """wex-bootmode --option with /run/wineexplorer/bootoption holding VALUE (None: no file)."""
+        option_file = self.tmp / "bootoption"
+        option_file.unlink(missing_ok=True)
+        if value is not None:
+            target = self.tmp / "elsewhere" if link else option_file
+            target.write_text(value + "\n", encoding="ascii")
+            if link:
+                option_file.symlink_to(target)
+        env = dict(os.environ, WEX_BOOTMODE_OPTION_STATE=str(option_file), WEX_BOOTMODE_STATE=str(self.tmp / "none"),
+                   WEX_BOOTMODE_ROOT_UID=str(os.getuid() if root_uid is None else root_uid))
+        result = subprocess.run(["sh", str(BOOTMODE), "--option"], env=env, capture_output=True, text=True, check=True)
+        return result.stdout
+
+    def test_option(self):
+        """The menu's start option (Enable VGA Mode, work order D2), from a root-owned regular file only."""
+        self.assertEqual(self.option("vga"), "vga\n")
+        self.assertEqual(self.option("bootlog"), "bootlog\n")
+        self.assertEqual(self.option(), "")
+        self.assertEqual(self.option("bogus"), "")
+        self.assertEqual(self.option("vga", root_uid=os.getuid() + 1), "")
+        self.assertEqual(self.option("vga", link=True), "")
 
     def record(self, cmdline, existing=None):
         """wex-bootmode --record (wex-bootmode-record.service): the state file afterwards, or None."""
@@ -621,7 +645,10 @@ class TestMenu(TempDirTest):
             "Disable automatic restart on system failure", None,
             "Start WineExplorer Normally", "Reboot", "Return to OS Choices Menu"])
         grayed = [item.label for item in self.menu.menu_items(False) if item and not item.selectable]
-        self.assertEqual(len(grayed), 3)
+        self.assertEqual(grayed, ["Last Known Good Configuration (your most recent settings that worked)",
+                                  "Directory Services Restore Mode (Windows domain controllers only)"])
+        vga = self.menu.menu_items(False)[5]
+        self.assertEqual((vga.label, vga.action, vga.mode, vga.option), ("Enable VGA Mode", "boot", "normal", "vga"))
         grayed = [item.label for item in self.menu.menu_items(True) if item and not item.selectable]
         self.assertIn("Safe Mode with Command Prompt", grayed)
 
@@ -633,7 +660,8 @@ class TestMenu(TempDirTest):
         self.assertEqual(self.menu.move(items, 0, -1), 13)           # Safe Mode, Up: Return to OS Choices Menu
         self.assertEqual(self.menu.move(items, 13, 1), 0)            # and back
         self.assertEqual(self.menu.move(items, 2, 1), 4)             # over the blank line
-        self.assertEqual(self.menu.move(items, 4, 1), 8)             # over three grayed items
+        self.assertEqual(self.menu.move(items, 4, 1), 5)             # Enable VGA Mode
+        self.assertEqual(self.menu.move(items, 5, 1), 8)             # over two grayed items
         self.assertEqual(self.menu.move(items, 11, -1), 9)           # Start Normally, Up: Disable automatic restart
         pending = self.menu.menu_items(True)
         self.assertEqual(self.menu.first_selectable(pending), 4)
@@ -776,9 +804,11 @@ class TestMenu(TempDirTest):
         items = self.menu.menu_items(False, True)
         self.assertTrue(items[6].selectable)
         self.assertEqual(self.menu.run_menu(FakeStdscr([up, up, up, enter, enter]), 2), ("boot", "normal", "lastgood"))
-        # neither: grayed, so two Ups from Start Normally reach Debugging Mode, and a third Enable Boot Logging
+        # neither: grayed, so two Ups from Start Normally reach Debugging Mode, a third Enable VGA Mode and a fourth
+        # Enable Boot Logging
         self.assertEqual(self.run_keys(up, up, enter, enter), ("boot", "normal", "debug"))
-        self.assertEqual(self.run_keys(up, up, up, enter, enter), ("boot", "normal", "bootlog"))
+        self.assertEqual(self.run_keys(up, up, up, enter, enter), ("boot", "normal", "vga"))
+        self.assertEqual(self.run_keys(up, up, up, up, enter, enter), ("boot", "normal", "bootlog"))
 
     # ---- "did not start successfully" with Vintner Boot (wex-failure-check.service, wex-failure-screen.service) ----
 
@@ -1012,7 +1042,7 @@ class TestMenu(TempDirTest):
         self.assertIn(label, [i.label for i in self.menu.failure_items(False, True) if i and i.selectable])
         # the menu: Up from Start Normally, over Debugging Mode and Directory Services, then the OS list
         self.assertEqual(self.run_keys(up, up, up, enter, enter), ("boot", "normal", "lastgood"))
-        self.assertEqual(self.run_keys(*[down] * 7, enter, enter), ("boot", "normal", "lastgood"))   # round the end
+        self.assertEqual(self.run_keys(*[down] * 8, enter, enter), ("boot", "normal", "lastgood"))   # round the end
         # the failure screen: Up from Start Normally
         self.assertEqual(self.run_failure([up, enter], 0.25), ("boot", "normal", "lastgood"))
         self.assertEqual(self.run_failure([up, up, enter], 0.25), ("boot", "safecmd", None))
@@ -1078,7 +1108,7 @@ class TestMenu(TempDirTest):
         items = self.menu.menu_items(False, True)
         text = self.drawn("advanced_menu", items, None)
         labels = {"SAFE": "Safe Mode", "SAFENET": "Safe Mode with Networking", "SAFECMD": "Safe Mode with Command Prompt",
-                  "BOOTLOG": "Enable Boot Logging", "LASTGOOD": items[6].label,
+                  "BOOTLOG": "Enable Boot Logging", "VGA": "Enable VGA Mode", "LASTGOOD": items[6].label,
                   "NORMALLY": "Start WineExplorer Normally", "OSCHOICES": "Return to OS Choices Menu"}
         self.assertEqual(set(rows), set(labels))
         for name, label in labels.items():
@@ -1151,6 +1181,13 @@ class TestMenu(TempDirTest):
         self.calls.clear()
         self.menu.apply_choice("normal", "debug", run=self.fake_run)
         self.assertEqual(self.calls[0], ["systemd-analyze", "log-level", "debug"])
+        # Enable VGA Mode (D2): an ordinary start; the greeter and the sessions read the option
+        self.calls.clear()
+        self.menu.apply_choice("normal", "vga", run=self.fake_run)
+        self.assertEqual((self.tmp / "run" / "bootmode").read_text(), "normal\n")
+        self.assertEqual((self.tmp / "run" / "bootoption").read_text(), "vga\n")
+        self.assertEqual(self.calls, [["systemctl", "daemon-reload"],
+                                      ["systemctl", "--no-block", "start", "default.target"]])
         with self.assertRaises(ValueError):
             self.menu.apply_choice("bogus", run=self.fake_run)
 
@@ -1208,11 +1245,15 @@ class TestSessionAndGreeter(unittest.TestCase):
         branch = session.index("exec /usr/local/bin/wex-safe-terminal.sh")
         self.assertLess(branch, session.index(". \"$(dirname \"$0\")/wine-explorer-session-common.sh\""),
                         "the recovery console must start before anything touches the Wine prefix")
-        self.assertIn('[ "$WEXMODE" = normal ] && [ -z "$WIDTH" ] && [ -r "$DISPLAY_PROFILE" ]', session)
-        # C3: Safe Mode sets 640x480 before the desktop's size is read, and only in Safe Mode
-        safe_display = session.index('if [ "$WEXMODE" != normal ] && [ -z "$WIDTH" ]')
-        self.assertLess(session.index("safe_display() {"), safe_display)
-        self.assertLess(safe_display, session.index("RES=$(xrandr"))
+        # the saved display mode: only in a normal start without Enable VGA Mode (D2)
+        self.assertIn('[ "$WEXMODE" = normal ] && [ "$WEXOPTION" != vga ] && [ -z "$WIDTH" ] && [ -r "$DISPLAY_PROFILE" ]',
+                      session)
+        self.assertLess(session.index("WEXOPTION=$(/usr/local/bin/wex-bootmode --option"),
+                        session.index('[ "$WEXOPTION" != vga ] && [ -z "$WIDTH" ]'))
+        # C3, D2: Safe Mode and Enable VGA Mode set 640x480 before the desktop's size is read
+        low = session.index('if { [ "$WEXMODE" != normal ] || [ "$WEXOPTION" = vga ]; } && [ -z "$WIDTH" ]')
+        self.assertLess(session.index("low_resolution() {"), low)
+        self.assertLess(low, session.index("RES=$(xrandr"))
         self.assertIn("--mode 640x480", session)
         common = (SCRIPTS / "wine-explorer-session-common.sh").read_text(encoding="utf-8")
         skip = common.index("safe|safenet) return 0")
@@ -1232,7 +1273,7 @@ class TestSessionAndGreeter(unittest.TestCase):
 class TestWaylandSession(TempDirTest):
     """wine-explorer-wayland-session.sh with a stand-in compositor and Wine."""
 
-    def run_session(self, mode, compositor_status=0):
+    def run_session(self, mode, compositor_status=0, option=""):
         log = self.tmp / "calls.log"
         log.unlink(missing_ok=True)
         compositor = self.tmp / "wexcomp"
@@ -1248,7 +1289,7 @@ class TestWaylandSession(TempDirTest):
         env = {"PATH": os.environ["PATH"], "LOG": str(log), "HOME": str(self.tmp), "USER": "wineuser",
                "XDG_RUNTIME_DIR": str(runtime), "DISPLAY": ":9", "WINE": str(wine),
                "WEX_WEXCOMP_BIN": str(compositor), "WEX_WAYLAND_CONFIG": "/cfg",
-               "WEX_BOOTMODE_HELPER": self.fake_helper(mode), "WEX_SAFE_TERMINAL": "/safe-terminal",
+               "WEX_BOOTMODE_HELPER": self.fake_helper(mode, option=option), "WEX_SAFE_TERMINAL": "/safe-terminal",
                "FAKE_COMPOSITOR": str(compositor_status)}
         result = subprocess.run(["bash", str(SCRIPTS / "wine-explorer-wayland-session.sh")], env=env,
                                 capture_output=True, text=True, timeout=30)
@@ -1270,14 +1311,18 @@ class TestWaylandSession(TempDirTest):
             self.assertEqual(status, 1, mode)
             self.assertEqual(calls, [f"wexcomp -C /cfg WEXMODE={expected} DISPLAY=unset WEX_OUTPUT_MODE={size}"],
                              mode)
+        # Enable VGA Mode (D2): a normal start at 640x480
+        for option, size in (("vga", "640x480"), ("bootlog", "unset")):
+            status, calls = self.run_session("normal", compositor_status=1, option=option)
+            self.assertEqual(calls, [f"wexcomp -C /cfg WEXMODE=normal DISPLAY=unset WEX_OUTPUT_MODE={size}"], option)
 
 
 class TestGreeter(TempDirTest):
     """wex-greeter.sh: the Welcome screen in every mode; in Safe Mode the GTK greeter when Wine cannot start."""
 
-    def run_greeter(self, mode, wine_exists=True, cmd_status=0, explorer_status=0, home=None, xrandr=False):
+    def run_greeter(self, mode, wine_exists=True, cmd_status=0, explorer_status=0, home=None, xrandr=False, option=""):
         """home: run with HOME=home and no WINEPREFIX, as LightDM starts the greeter (the prefix is then ~/.wine).
-        xrandr: a stand-in X server at 1280x800 whose output also offers 640x480."""
+        xrandr: a stand-in X server at 1280x800 whose output also offers 640x480. option: the menu's start option."""
         log = self.tmp / "calls.log"
         log.unlink(missing_ok=True)
         path = os.environ["PATH"]
@@ -1306,7 +1351,7 @@ class TestGreeter(TempDirTest):
         gtk.write_text('#!/bin/sh\necho gtk >> "$LOG"\n', encoding="ascii")
         gtk.chmod(0o755)
         env = {"PATH": path, "LOG": str(log), "WINE": str(wine),
-               "WEX_BOOTMODE_HELPER": self.fake_helper(mode), "WEX_GTK_GREETER": str(gtk),
+               "WEX_BOOTMODE_HELPER": self.fake_helper(mode, option=option), "WEX_GTK_GREETER": str(gtk),
                "FAKE_CMD": str(cmd_status), "FAKE_EXPLORER": str(explorer_status)}
         if home is None:
             prefix = self.tmp / "prefix"
@@ -1358,6 +1403,15 @@ class TestGreeter(TempDirTest):
                              mode)
             self.assertIn("wine explorer.exe /desktop=Logon,640x480 logonui.exe", calls, mode)
         calls = self.run_greeter("normal", xrandr=True)[1]
+        self.assertEqual(calls, ["wine explorer.exe /desktop=Logon,1280x800 logonui.exe"])
+
+    def test_vga_mode_runs_at_640x480(self):
+        """work order D2: Enable VGA Mode, a normal start, begins at 640x480 too; other start options do not"""
+        calls = self.run_greeter("normal", xrandr=True, option="vga")[1]
+        self.assertEqual(calls, ["xrandr --output Virtual-1 --mode 640x480",
+                                 "wine explorer.exe /desktop=Logon,640x480 logonui.exe"])
+        self.assertEqual((self.tmp / "calls.log.env").read_text().split()[0], "normal")
+        calls = self.run_greeter("normal", xrandr=True, option="bootlog")[1]
         self.assertEqual(calls, ["wine explorer.exe /desktop=Logon,1280x800 logonui.exe"])
 
     def test_normal_start_shows_the_welcome_screen(self):

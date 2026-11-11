@@ -371,9 +371,10 @@ Left for Vintner:
   generation is newer than the newest `GOOD` one. Return to OS Choices Menu restarts into the loader's menu
   (`vintner next-boot menu`), which lists the generations, the variant and the Recovery Console. Both were tested
   on both firmwares (Vintner Boot `2ece4a9`).
-- Enable VGA Mode stays grayed until there is an X fallback that does not force `modesetting` (section 6). Then
-  keep the GPU's KMS driver from loading for the boot (a `modprobe` blacklist under `/run`), or declare a second
-  variant with `nomodeset`.
+- Done (2026-11-11), with no loader change: Enable VGA Mode is a normal start at 640x480 with the display driver it
+  has, as XP's is (`docs/SAFE_MODE.md` section 4; work order D2). A basic-driver start would need an X fallback
+  that does not force `modesetting` (section 6) and a second variant with `nomodeset`. That is not planned:
+  Safe Mode and the Recovery Console cover a broken graphics driver.
 - Done (2026-11-10): **"WineExplorer did not start successfully".** XP shows this screen after a failed start.
   - When `vintner status --json` reports failed attempts of the booted image, an ordinary boot shows the same
     choices early (`wex-failure-check.service`, `wex-failure-screen.service`).

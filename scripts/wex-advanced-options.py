@@ -60,7 +60,7 @@ FAILURE_TEXT = (
 )
 
 MODES = ("normal", "safe", "safenet", "safecmd")
-OPTIONS = ("bootlog", "debug", "norestart", "lastgood")
+OPTIONS = ("bootlog", "debug", "norestart", "lastgood", "vga")
 NO_LASTGOOD = "no start has succeeded since Setup"
 
 
@@ -89,7 +89,9 @@ def menu_items(setup_pending, lastgood=False):
         Item("Safe Mode with Command Prompt", "boot", mode="safecmd", unavailable=safe),
         None,
         Item("Enable Boot Logging", "boot", option="bootlog"),
-        Item("Enable VGA Mode", None, unavailable="needs an X fallback without the modesetting driver"),
+        # XP: the display driver it has, at low resolution; the greeter and the sessions read the option
+        # (wex-bootmode --option) and start at 640x480 without the saved display mode (work order D2)
+        Item("Enable VGA Mode", "boot", option="vga"),
         Item(LASTGOOD_LABEL, "boot", option="lastgood", unavailable=None if lastgood else NO_LASTGOOD),
         Item("Directory Services Restore Mode (Windows domain controllers only)", None,
              unavailable="does not apply"),

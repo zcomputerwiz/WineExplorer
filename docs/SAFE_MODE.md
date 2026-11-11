@@ -224,7 +224,7 @@ stay three and one rows above the bottom, where XP has them.
 | Safe Mode with Networking | `safenet` |
 | Safe Mode with Command Prompt | `safecmd` |
 | Enable Boot Logging | Normal start; when it is complete, `wex-bootlog` appends the loaded drivers (kernel modules) and the services that failed to `C:\WINDOWS\ntbtlog.txt` in the machine root. Every Safe Mode start writes the log too, as on XP: the boot-mode generator adds `wex-bootlog.service` to the Safe Mode target. The file has XP's format (work order C6): UTF-16LE with a byte order mark at its start, CRLF line ends, and for each start a header line, a space, the version Wine reports in the machine registry, then the date and time, with no empty line between starts. With a service pack string (`CSDVersion`, as winecfg's XP setting writes) the header is XP's: ` Service Pack 311  8 2026 08:29:50.500`. Wine's default registry (Windows 10) has none, so the product name, version and build stand in its place, followed by a space: ` Windows 10 Pro Version 10.0 (Build 19045) 11 10 2026 09:40:51.253`. A log written before this format is converted once |
-| Enable VGA Mode | Grayed: needs an X fallback without the forced `modesetting` driver (`docs/VINTNER_BOOT.md` section 6) |
+| Enable VGA Mode | Normal start at 640x480 with the display driver it has, as XP's (work order D2, 2026-11-11). The menu records the option in `/run/wineexplorer/bootoption` (`wex-bootmode --option` reads it), and the greeter and both sessions start at 640x480 as in Safe Mode (`xrandr`, or `WEX_OUTPUT_MODE` for `wexcomp`). The session skips the account's saved display mode, so a mode chosen in Display Properties then replaces it. The next normal start has its saved mode again. Not a basic driver: a broken graphics driver needs Safe Mode or the Recovery Console |
 | Last Known Good Configuration | Normal start with the machine registry's control set from the last start that counted (work order D3; below). With Vintner Boot, from a generation that has not started successfully: a restart into the previous good generation as well. Grayed until one start after Setup has counted, or a previous good generation exists |
 | Directory Services Restore Mode | Grayed: does not apply |
 | Debugging Mode | Normal start with the service manager logging at debug level |
@@ -310,7 +310,7 @@ logon dialog after Ctrl+Alt+Del twice (C4).
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (104 tests, Linux) covers:
+`scripts/test_safemode.py` (106 tests, Linux) covers:
 
 - the end of Plymouth: asking until it is gone, each request with a time limit, then ending a plymouthd that
   lingers or does not answer; and the unit without a terminal that does it before the menu's and the failure
@@ -331,6 +331,8 @@ logon dialog after Ctrl+Alt+Del twice (C4).
 - the postinst migration from the old implementation (run twice to show it is idempotent), including the standard
   users it hid, and the units it enables;
 - the boot mode record: written once, never for the menu, its unit, and `/run/wineexplorer` belonging to root;
+- Enable VGA Mode: the start option and `wex-bootmode --option` (root-owned file only), and 640x480 in the greeter
+  and both sessions with the saved display mode skipped;
 - that the greeter does not update a logon prefix that is already made;
 - the Wayland session in each mode, with a stand-in compositor and Wine, and its 640x480 in each Safe Mode;
 - the boot log: two starts in XP's format, the header's version text from XP's and from Wine's default registry
@@ -364,6 +366,7 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `safecmd` | The Welcome screen; the recovery console after logging on, 80 columns by 30 rows or more (its terminal's size, read over the serial console; images whose console predates C6's shape are reported), and no wineserver; then the probes, started with `wine` from the serial console as from the recovery console (output to a file): 1, `UseAlternateShell` 1, the services as in `safe` |
 | `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, and logging on still starts the recovery console |
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
+| `vga` | Only when named. With a 1024x768 display profile saved for the test account: Enable VGA Mode is a normal start with automatic logon at 640x480, with the start option `vga` recorded and the profile skipped. The next normal start is at 1024x768 |
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" |
 | `oschoices` | Return to OS Choices Menu: a restart into the loader's menu with no key held, recognized by its Recovery Console entries, then Enter on the generation: a normal start |
 | `normal` | No key: the same, the boot-mode generator wrote nothing, and the start-up check counted the start; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480 |
@@ -548,5 +551,10 @@ of work order C6, from new overlays of those installs (`WEX_SAFEMODE_FILES=branc
 `safecmd`, `waylandsafe` and `waylandcmd` passed, each at 640x480. In the first run the Wayland console had
 `wexcomp`'s title bar (about 27 pixels), so its 36 rows ran about 19 pixels past the bottom of the screen. With the
 window rule it sits at the top left with no bar, like the X11 one, and the prompt stays on the screen.
+
+**Enable VGA Mode (2026-11-11).** With this checkout's files, the `vga` phase passed on both firmwares. The OS list
+showed "Enable VGA Mode" on its blue mode line. The start was a normal one (graphical target, networking, timers)
+with the option `vga` recorded, at 640x480 although a 1024x768 profile was saved. The next normal start was at
+1024x768.
 - Both consoles printed six `setlocale` warnings above the banner. The installed system sets `LANG=en_US.UTF-8`
   (Setup, through `locale1`), but that locale was never generated (`/usr/lib/locale` has only `C.utf8`).

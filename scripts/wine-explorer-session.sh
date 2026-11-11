@@ -28,6 +28,10 @@ case "$WEXMODE" in
     *) WEXMODE=normal ;;
 esac
 export WEXMODE
+# Enable VGA Mode (the menu's start option, docs/SAFE_MODE_WORKORDER.md D2): a normal start at 640x480 with the display
+# driver it has, as XP's. It skips the saved display mode, so a mode chosen in Display Properties then replaces it.
+WEXOPTION=$(/usr/local/bin/wex-bootmode --option 2>/dev/null) || WEXOPTION=
+[ "$WEXOPTION" != vga ] || echo "Enable VGA Mode: 640x480, and the saved display mode is skipped"
 
 # winemenubuilder (started by wineboot) creates a window before our explorer exists, which starts Wine's default
 # desktop first; ours then fails to create "Default" and the session ends.  It only exports Linux menu entries.
@@ -41,19 +45,21 @@ xset s off -dpms 2>/dev/null || true
 # Restore the mode accepted in Display Properties. XRandR validates that the
 # current output still supports it; a replaced/disconnected monitor keeps its mode.
 # Safe Mode runs at 640x480 instead, as XP's basic display driver does (docs/SAFE_MODE_WORKORDER.md C3), and never
-# reads or writes the profile; wex-greeter.sh has set the mode already when the session keeps the greeter's X server.
-safe_display() {
+# reads or writes the profile; so does Enable VGA Mode (D2), which only skips reading it. wex-greeter.sh has set the
+# mode already when the session keeps the greeter's X server.
+low_resolution() {
     local output
     output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" && / primary / { print $1; exit }')
     [ -n "$output" ] || output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" { print $1; exit }')
     [ -n "$output" ] || return 0
-    xrandr --output "$output" --mode 640x480 2>/dev/null || echo "Safe Mode: $output offers no 640x480 mode"
+    xrandr --output "$output" --mode 640x480 2>/dev/null || echo "$output offers no 640x480 mode"
 }
-if [ "$WEXMODE" != normal ] && [ -z "$WIDTH" ] && command -v xrandr >/dev/null 2>&1; then
-    safe_display
+if { [ "$WEXMODE" != normal ] || [ "$WEXOPTION" = vga ]; } && [ -z "$WIDTH" ] && command -v xrandr >/dev/null 2>&1; then
+    low_resolution
 fi
 DISPLAY_PROFILE="${XDG_CONFIG_HOME:-$HOME/.config}/wineexplorer/display"
-if [ "$WEXMODE" = normal ] && [ -z "$WIDTH" ] && [ -r "$DISPLAY_PROFILE" ] && command -v xrandr >/dev/null 2>&1; then
+if [ "$WEXMODE" = normal ] && [ "$WEXOPTION" != vga ] && [ -z "$WIDTH" ] && [ -r "$DISPLAY_PROFILE" ] \
+        && command -v xrandr >/dev/null 2>&1; then
     read -r SAVED_WIDTH SAVED_HEIGHT SAVED_RATE SAVED_MODE < "$DISPLAY_PROFILE"
     if [[ "$SAVED_WIDTH $SAVED_HEIGHT $SAVED_RATE" =~ ^[0-9]+\ [0-9]+\ [0-9]+$ ]]; then
         OUTPUT=$(xrandr --current | awk '/ connected primary [0-9]+x[0-9]+/ {print $1; exit}')

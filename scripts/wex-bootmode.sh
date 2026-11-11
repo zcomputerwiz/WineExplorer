@@ -2,16 +2,31 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
 #
-# Prints this boot's WineExplorer mode: normal, menu, safe, safenet or safecmd (docs/SAFE_MODE.md).
+# Prints this boot's WineExplorer mode: normal, menu, safe, safenet or safecmd (docs/SAFE_MODE.md); with --option,
+# the menu's start option instead.
 # The mode lives only in /run, as Windows keeps it in a volatile registry key: the Advanced Options menu writes
 # /run/wineexplorer/bootmode, otherwise wexmode= on the kernel command line decides. Installed as
 # /usr/local/bin/wex-bootmode; the generator, the PAM check, the greeter and the session ask it.
 # The WEX_BOOTMODE_* variables let the tests point it at other files.
 state=${WEX_BOOTMODE_STATE:-/run/wineexplorer/bootmode}
+option_state=${WEX_BOOTMODE_OPTION_STATE:-/run/wineexplorer/bootoption}
 cmdline=${WEX_BOOTMODE_CMDLINE:-/proc/cmdline}
 setup_stage=${WEX_BOOTMODE_SETUP_STAGE:-/etc/wineexplorer/setup/stage}
 root_uid=${WEX_BOOTMODE_ROOT_UID:-0}
 set -f   # the command line is split into words below, never expanded as file names
+
+# --option: the start option chosen in the Advanced Options menu for this boot (bootlog, debug, norestart, lastgood
+# or vga; the menu writes /run/wineexplorer/bootoption), or nothing. Like the mode, only from a regular file root owns.
+if [ "${1:-}" = --option ]; then
+    option=
+    if [ -f "$option_state" ] && [ ! -L "$option_state" ] && [ "$(stat -c %u "$option_state" 2>/dev/null)" = "$root_uid" ]; then
+        read -r option < "$option_state" || true
+    fi
+    case "$option" in
+        bootlog|debug|norestart|lastgood|vga) echo "$option" ;;
+    esac
+    exit 0
+fi
 
 mode=
 # only a regular file that root owns: anyone else could otherwise choose the mode

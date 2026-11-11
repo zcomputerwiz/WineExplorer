@@ -22,11 +22,13 @@ case "$WEXMODE" in
 esac
 export WEXMODE
 echo "WEXMODE=$WEXMODE"
-# Safe Mode runs at 640x480, as XP's basic display driver does (docs/SAFE_MODE_WORKORDER.md C3). wexcomp starts each
-# output at WEX_OUTPUT_MODE when the output offers it; nothing is saved, so the next normal start has its usual mode.
-if [ "$WEXMODE" != normal ]; then
+# Safe Mode runs at 640x480, as XP's basic display driver does (docs/SAFE_MODE_WORKORDER.md C3), and so does Enable
+# VGA Mode, a normal start (D2). wexcomp starts each output at WEX_OUTPUT_MODE when the output offers it; nothing is
+# saved, so the next normal start has its usual mode.
+WEXOPTION=$("${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}" --option 2>/dev/null) || WEXOPTION=
+if [ "$WEXMODE" != normal ] || [ "$WEXOPTION" = vga ]; then
     export WEX_OUTPUT_MODE=640x480
-    echo "Safe Mode ($WEXMODE): 640x480"
+    echo "Mode $WEXMODE${WEXOPTION:+, option $WEXOPTION}: 640x480"
 fi
 
 compositor_bin="${WEX_WEXCOMP_BIN:-/usr/local/bin/wexcomp}"

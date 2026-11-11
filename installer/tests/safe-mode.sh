@@ -16,6 +16,9 @@
 #   nowine       Safe Mode with Command Prompt with Wine missing: the GTK greeter takes over, and logging on still
 #                starts the recovery console (the test hides /usr/local/bin/wine for this boot only)
 #   bootlog      Enable Boot Logging: a normal start with automatic logon, and ntbtlog.txt gains driver lines
+#   vga          Enable VGA Mode (work order D2), with a 1024x768 display profile saved for the test account: a
+#                normal start with automatic logon at 640x480, the profile skipped; the next normal start restores
+#                it. Only when named (images whose menu grays the item cannot run it).
 #   startnormal  Start WineExplorer Normally: a normal start with automatic logon, timers and networking, which the
 #                start-up check does not count
 #   oschoices    Return to OS Choices Menu (work order D3): a restart into the loader's own menu (vintner next-boot
@@ -97,7 +100,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|accounts|waylandsafe|waylandcmd) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|accounts|waylandsafe|waylandcmd) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -345,7 +348,7 @@ move_down() {   # move_down N: N items down; a key the screen does not show is p
 # The Advanced Options menu's rows (scripts/wex-advanced-options.py, laid out as XP's, work order C5). The menu opens
 # on Start Normally and wraps round, so pressing Down until the highlight bar is on a row gets there whatever presses
 # were lost (one was, on OVMF, 2026-11-11). The bar's row comes from a screenshot (highlight-row.py).
-ROW_SAFE=4 ROW_SAFENET=5 ROW_SAFECMD=6 ROW_BOOTLOG=8 ROW_LASTGOOD=10 ROW_NORMALLY=15 ROW_OSCHOICES=17
+ROW_SAFE=4 ROW_SAFENET=5 ROW_SAFECMD=6 ROW_BOOTLOG=8 ROW_VGA=9 ROW_LASTGOOD=10 ROW_NORMALLY=15 ROW_OSCHOICES=17
 
 highlight_row() { "${V[@]}" shot "$TEST" >/dev/null 2>&1 && python3 "$HERE/highlight-row.py" "$STATE/screen.ppm"; }
 
@@ -725,6 +728,48 @@ phase_bootlog() {
     [ -n "$after" ] && [ "$after" -gt "$before" ] || fail "ntbtlog.txt gained no driver lines"
     expect_session_mode normal
     shutdown_vm
+}
+
+display_profile() {   # display_profile set|remove: the test account's saved display mode, on the stopped disk
+    local entry home owner
+    attach rw || return 1
+    entry=$(awk -F: -v u="$USER_NAME" '$1 == u { print $3 ":" $4 " " $6; exit }' "$MNT/etc/passwd")
+    owner=${entry%% *}; home=${entry#* }
+    if [ -z "$entry" ] || [ ! -d "$MNT$home" ]; then detach; return 1; fi
+    if [ "$1" = set ]; then
+        # wexhost's format (src/dlls/wexhost/display.c): width, height, refresh in mHz, the X mode's name
+        install -d -o "${owner%:*}" -g "${owner#*:}" -m 700 "$MNT$home/.config" "$MNT$home/.config/wineexplorer" &&
+            printf '%s\n' '1024 768 60000 1024x768' > "$MNT$home/.config/wineexplorer/display" &&
+            chown "$owner" "$MNT$home/.config/wineexplorer/display" || { detach; return 1; }
+    else
+        rm -f "$MNT$home/.config/wineexplorer/display"
+    fi
+    detach
+}
+
+phase_vga() {   # work order D2: Enable VGA Mode, a normal start at 640x480 that skips the saved display mode
+    local out
+    display_profile set || fail "cannot save a display profile for $USER_NAME"
+    menu_choice "$ROW_VGA" "Enable VGA Mode"
+    desktop 600
+    expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
+    expect_session_mode normal
+    out=$(gsh 'echo option=$(cat /run/wineexplorer/bootoption 2>/dev/null || echo none)' | grep '^option=' | tail -n 1)
+    echo "  $out"
+    [ "$out" = option=vga ] || fail "expected the start option vga: ${out:-no answer}"
+    expect_screen 640x480
+    shot desktop-vga
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    # the next normal start has its saved mode back: VGA Mode's 640x480 is not kept
+    VIA_MENU=   # the generation's own start, not the variant's
+    start_vm
+    desktop 600
+    expect_screen 1024x768
+    shot desktop-next
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    display_profile remove || fail "cannot remove the display profile"
 }
 
 phase_startnormal() {

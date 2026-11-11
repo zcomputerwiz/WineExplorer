@@ -32,6 +32,8 @@ export WEXMODE
 case "$WEXMODE" in
     safe|safenet|safecmd) SAFE=1; LIMIT=(timeout 300) ;;
 esac
+# Enable VGA Mode (the menu's start option): a normal start at 640x480, as XP's (docs/SAFE_MODE_WORKORDER.md D2)
+WEXOPTION=$("${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}" --option 2>/dev/null) || WEXOPTION=
 gtk_greeter() {
     echo "=== Safe Mode: $1; starting the GTK greeter instead: $(date) ==="
     exec "${WEX_GTK_GREETER:-/usr/sbin/lightdm-gtk-greeter}"
@@ -47,17 +49,18 @@ if [ ! -e "$WINEPREFIX/user.reg" ] || { [ -n "$NTDLL" ] && { [ ! -e "$WINEPREFIX
     "${LIMIT[@]}" "$(dirname "$WINE")/wineserver" -w
 fi
 
-# Safe Mode runs at 640x480, as XP's basic display driver does (docs/SAFE_MODE_WORKORDER.md C3). Only this X server
-# changes: the next start's begins at its own mode, and the accounts' display profiles stay as they are. The session
-# script does the same (wine-explorer-session.sh), for a session that gets an X server of its own.
-safe_display() {
+# Safe Mode runs at 640x480, as XP's basic display driver does (docs/SAFE_MODE_WORKORDER.md C3), and so does Enable
+# VGA Mode (D2). Only this X server changes: the next start's begins at its own mode, and the accounts' display
+# profiles stay as they are. The session script does the same (wine-explorer-session.sh), for a session that gets an
+# X server of its own.
+low_resolution() {
     local output
     output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" && / primary / { print $1; exit }')
     [ -n "$output" ] || output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" { print $1; exit }')
     [ -n "$output" ] || return 0
-    xrandr --output "$output" --mode 640x480 2>/dev/null || echo "=== Safe Mode: $output offers no 640x480 mode ==="
+    xrandr --output "$output" --mode 640x480 2>/dev/null || echo "=== $output offers no 640x480 mode ==="
 }
-if [ -n "$SAFE" ]; then safe_display; fi
+if [ -n "$SAFE" ] || [ "$WEXOPTION" = vga ]; then low_resolution; fi
 
 RES=$(xrandr 2>/dev/null | sed -nE 's/.*current ([0-9]+) x ([0-9]+).*/\1x\2/p' | head -1)
 if [ -z "$SAFE" ]; then

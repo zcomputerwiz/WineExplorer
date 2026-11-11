@@ -7,8 +7,8 @@ menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer comm
 A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape),
 Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Since 2026-11-11 Vintner Boot is the
 only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. C5 is done
-(2026-11-11), and so are C6 with the recovery console's shape and C3 for Wayland. Open: A4, B5, B8's merge, the
-rest of C4 and C7, D2, D4, D5. D1's Safe Mode choice on a generation's last try waits for Vintner's
+(2026-11-11), and so are C6 with the recovery console's shape, C3 for Wayland and D2. Open: A4, B5, B8's merge, the
+rest of C4 and C7, D4, D5. D1's Safe Mode choice on a generation's last try waits for Vintner's
 `next-boot variant --generation`, asked on 2026-11-11 (`docs/VINTNER_BOOT.md`).  
 Branches:
 
@@ -498,6 +498,13 @@ are installed. The two ways, neither simple today:
 - (b) No restart: X on the current DRM device at 640x480. It is not a basic driver, so it does not help when the
   graphics driver is the problem. Once C3 sets a basic resolution for Safe Mode, (b) is a few lines on top of it.
 - Look at it again after C3.
+
+**Done 2026-11-11 as (b)**, which is what XP's item does: the display driver it has, at low resolution, so a
+display mode can be reset. The menu enables the item as the start option `vga` (`/run/wineexplorer/bootoption`,
+read with `wex-bootmode --option`). In a normal start the greeter and both sessions then start at 640x480 as in Safe
+Mode, and the session skips the saved display mode. Display Properties may save a new one, since this is not Safe
+Mode. The next normal start has its saved mode. The VM test's `vga` phase passed on both firmwares: 640x480 with a
+saved 1024x768 skipped, then 1024x768 again. `docs/SAFE_MODE.md` section 4.
 
 **D3. Last Known Good Configuration and Return to OS Choices Menu.** Done (2026-11-10). Both waited for Vintner's
 `next-boot previous-good` and `next-boot menu` (`docs/VINTNER_BOOT.md` V6), which Vintner Boot 4.4 added.
