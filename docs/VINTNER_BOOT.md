@@ -223,8 +223,8 @@ the installs ran in QEMU/KVM in WSL Debian.
   - on both, `vintner-bless.service`, `wex-startup-check.service` and `boot-complete.target` were active, Wine's
     32-bit and 64-bit Notepad opened on the desktop, and generation 1 stayed GOOD.
 
-Still open: F8 on a Vintner install (section 4.3; Safe Mode through Vintner's variant works since 2026-11-10), and
-the Plymouth decision (D2).
+Still open: F8 on a Vintner install (section 4.3: UEFI with Vintner Boot PR #87, BIOS keeps Shift; Safe Mode through
+Vintner's variant works since 2026-11-10), and the Plymouth decision (D2).
 Not tested: the interactive install (`install-interactive.sh`) on a Vintner ISO, an existing ESP that holds
 another system, and the "Setup cannot continue" screen (no run has failed the step).
 
@@ -353,8 +353,14 @@ Left for Vintner:
     the Advanced Options variant (`vintner next-boot variant advanced`), which goes straight to that mode.
   - The boot that showed the screen was counted, so finishing it in Safe Mode would have marked the image good.
   - `docs/SAFE_MODE.md` section 3 has the details.
-- F8 at start reaches the menu. On Vintner's static BIOS GRUB the same `--hotkey=f8` on the variant's entry gives
-  F8 during the hidden timeout (WO-0010 item 4.8); systemd-boot on UEFI needs its own key handling.
+- Keys at start (WO-0010 4.8, Vintner Boot PR #87, open on 2026-11-10):
+  - **UEFI:** F8 opens systemd-boot's menu, where the Advanced Options variant is one item below the generation.
+    Tested by the Vintner session on systemd-boot 257 under OVMF; real hardware is its WO 6.1.
+  - **BIOS:** Shift, held, stays the key. Vintner's GRUB cannot see F8 without a boot delay; F8 opens nothing.
+  - So under Vintner, F8 is two steps (the loader's menu, then the variant), not XP's one, and on BIOS it is Shift.
+  - WineExplorer shows no text that names the key at start, as XP shows none. Its one "press F8" line is in the
+    menu's own OS list, where F8 returns to the menu on either firmware. If such text is added (sysdm.cpl, help),
+    it says "hold Shift" or "press F8" by `booted_firmware` in `vintner status --json`.
 
 ### 4.4 Boot health check
 
