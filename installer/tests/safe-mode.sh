@@ -306,6 +306,7 @@ open_menu() {
             sleep 3
             shot menu
             VIA_MENU=1
+            [ "$(highlight_row)" = "$ROW_NORMALLY" ] || fail "the menu did not open on Start WineExplorer Normally"
             return 0
         fi
         [ "$try" = 2 ] && fail "no Vintner Boot menu with the Advanced Options variant"
@@ -329,10 +330,33 @@ move_down() {   # move_down N: N items down; a key the screen does not show is p
     done
 }
 
-menu_choice() {   # menu_choice DOWNS LABEL: choose an item, check the OS list shows LABEL, start
+# The Advanced Options menu's rows (scripts/wex-advanced-options.py, laid out as XP's, work order C5). The menu opens
+# on Start Normally and wraps round, so pressing Down until the highlight bar is on a row gets there whatever presses
+# were lost (one was, on OVMF, 2026-11-11). The bar's row comes from a screenshot (highlight-row.py).
+ROW_SAFE=4 ROW_SAFENET=5 ROW_SAFECMD=6 ROW_BOOTLOG=8 ROW_LASTGOOD=10 ROW_NORMALLY=15 ROW_OSCHOICES=17
+
+highlight_row() { "${V[@]}" shot "$TEST" >/dev/null 2>&1 && python3 "$HERE/highlight-row.py" "$STATE/screen.ppm"; }
+
+select_row() {   # select_row ROW: Down until the highlight bar is on ROW
+    local _ wait row before
+    row=$(highlight_row)
+    for _ in $(seq 1 16); do
+        [ "$row" = "$1" ] && return 0
+        before=$row
+        "${V[@]}" key "$TEST" down >/dev/null
+        for wait in 1 2 3 4; do   # until the bar moves; a press it does not show is made again
+            sleep 0.5
+            row=$(highlight_row)
+            [ "$row" != "$before" ] && break
+        done
+    done
+    fail "the highlight did not reach row $1 (last on row ${row:-none})"
+}
+
+menu_choice() {   # menu_choice ROW LABEL: choose the item on ROW, check the OS list shows LABEL, start
     local try before screen
     open_menu
-    move_down "$1"
+    select_row "$1"
     for try in 1 2 3; do
         before=$(screen_sum)
         "${V[@]}" key "$TEST" ret >/dev/null
@@ -557,7 +581,7 @@ expect_safeboot() {   # expect_safeboot 0|1|2|cmd: what Windows programs see, fr
 shutdown_vm() { "${V[@]}" shutdown "$TEST" --timeout 180 >/dev/null || fail "no clean shutdown"; }
 
 phase_safe() {
-    menu_choice 0 "Safe Mode"
+    menu_choice "$ROW_SAFE" "Safe Mode"
     logon_screen
     expect_state mode=safe default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
     expect_logonui_process
@@ -572,7 +596,7 @@ phase_safe() {
 }
 
 phase_safenet() {
-    menu_choice 1 "Safe Mode with Networking"
+    menu_choice "$ROW_SAFENET" "Safe Mode with Networking"
     logon_screen
     expect_state mode=safenet default=wex-safenet.target nm=active timers=0 cron=inactive prefetch!=active
     logon
@@ -584,7 +608,7 @@ phase_safenet() {
 }
 
 phase_safecmd() {
-    menu_choice 2 "Safe Mode with Command Prompt"
+    menu_choice "$ROW_SAFECMD" "Safe Mode with Command Prompt"
     logon_screen
     expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
     expect_screen 640x480
@@ -620,7 +644,7 @@ expect_compositor() {   # the logged-on session runs under wexcomp, the Wayland 
 }
 
 phase_waylandsafe() {   # work order A3
-    menu_choice 0 "Safe Mode"
+    menu_choice "$ROW_SAFE" "Safe Mode"
     logon_screen
     wayland_session
     logon
@@ -631,7 +655,7 @@ phase_waylandsafe() {   # work order A3
 }
 
 phase_waylandcmd() {   # work order A3: the recovery console replaces the shell inside the compositor
-    menu_choice 2 "Safe Mode with Command Prompt"
+    menu_choice "$ROW_SAFECMD" "Safe Mode with Command Prompt"
     logon_screen
     wayland_session
     logon
@@ -641,7 +665,7 @@ phase_waylandcmd() {   # work order A3: the recovery console replaces the shell 
 }
 
 phase_nowine() {   # /usr/local/bin/wine is hidden for this boot (the main loop does it)
-    menu_choice 2 "Safe Mode with Command Prompt"
+    menu_choice "$ROW_SAFECMD" "Safe Mode with Command Prompt"
     logon_screen_gtk
     expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
     logon_gtk
@@ -652,7 +676,7 @@ phase_nowine() {   # /usr/local/bin/wine is hidden for this boot (the main loop 
 phase_bootlog() {
     local before after='' _
     before=$(cat "$OUT/before-$PHASE.txt.ntbtlog")
-    menu_choice 3 "Enable Boot Logging"
+    menu_choice "$ROW_BOOTLOG" "Enable Boot Logging"
     desktop 600
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
     for _ in $(seq 1 12); do
@@ -667,10 +691,8 @@ phase_bootlog() {
 }
 
 phase_startnormal() {
-    open_menu
-    # Safe Mode, the two other Safe Modes, Boot Logging, Last Known Good once offered, Debugging, Disable restart,
-    # Start Normally
-    move_down $((6 + $(lkg)))
+    open_menu   # which opens on Start Normally
+    select_row "$ROW_NORMALLY"
     shot highlight
     "${V[@]}" key "$TEST" ret >/dev/null
     desktop 600
@@ -681,17 +703,8 @@ phase_startnormal() {
 }
 
 phase_oschoices() {   # work order D3: Return to OS Choices Menu
-    local _ before
     open_menu
-    # ... Start Normally, Reboot, Return to OS Choices Menu, the last item. The menu stays put at the end, so press
-    # Down more often than there are items (a lost press left Reboot highlighted once, on OVMF, 2026-11-11), then
-    # check that one more changes nothing.
-    for _ in $(seq 1 $((11 + $(lkg)))); do "${V[@]}" key "$TEST" down >/dev/null; sleep 0.3; done
-    sleep 1
-    before=$(screen_sum)
-    "${V[@]}" key "$TEST" down >/dev/null
-    sleep 1
-    [ "$(screen_sum)" = "$before" ] || fail "Down still moved the highlight: not at Return to OS Choices Menu"
+    select_row "$ROW_OSCHOICES"
     shot highlight
     "${V[@]}" key "$TEST" ret >/dev/null
     # vintner next-boot menu, then a restart: the loader's own menu shows for 30 seconds with no key held. Its
@@ -787,7 +800,7 @@ phase_lastgood() {   # work order D3
     [ "$(attach ro && grep -c "$LKG_CONTROL_KEY" "$MNT$MACHINE_REG"; detach)" = 1 ] \
         || fail "the test key is not in the machine registry's control set"
     # The generation has started successfully, so Last Known Good puts the control set back and this start goes on
-    menu_choice 4 "Last Known Good"   # Safe Mode, the two other Safe Modes, Boot Logging, Last Known Good
+    menu_choice "$ROW_LASTGOOD" "Last Known Good"
     desktop 600
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
     expect_check   # a start through the menu does not count, so it saves nothing either
@@ -848,7 +861,7 @@ phase_lastgoodgen() {   # work order D3 with Vintner Boot: from a generation tha
     lastgood_change || fail "cannot change the machine registry on the disk"
     # The loader highlights generation 2, and its Advanced Options variant is one down. Last Known Good is offered
     # (generation 1), and once chosen the machine restarts into generation 1 with no menu.
-    menu_choice 4 "Last Known Good"   # Safe Mode, the two other Safe Modes, Boot Logging, Last Known Good
+    menu_choice "$ROW_LASTGOOD" "Last Known Good"
     VIA_MENU=   # the start that follows is generation 1's own
     desktop 900
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
@@ -939,7 +952,7 @@ to_logon_screen() {   # from a normal start's desktop to the logon screen (fast 
 
 phase_accounts() {   # provisioning gave Administrator a test password and hid wexhidden ("Hidden Test")
     local out
-    menu_choice 0 "Safe Mode"
+    menu_choice "$ROW_SAFE" "Safe Mode"
     logon_screen
     shows Administrator || fail "no Administrator tile on the Safe Mode Welcome screen"
     hides "Hidden Test" || fail "the Safe Mode Welcome screen shows the account hidden by SpecialAccounts\\UserList"

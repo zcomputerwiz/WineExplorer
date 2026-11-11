@@ -11,8 +11,8 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 
@@ -625,26 +625,35 @@ class TestMenu(TempDirTest):
         grayed = [item.label for item in self.menu.menu_items(True) if item and not item.selectable]
         self.assertIn("Safe Mode with Command Prompt", grayed)
 
-    def test_navigation_skips_gaps_and_grayed_items(self):
+    def test_navigation_skips_gaps_and_grayed_items_and_wraps(self):
+        """As XP's lists (C5): Up on the first item goes to the last, Down on the last to the first."""
         items = self.menu.menu_items(False)
         self.assertEqual(self.menu.first_selectable(items), 0)
-        self.assertEqual(self.menu.move(items, 0, -1), 0)
+        self.assertEqual(self.menu.start_normally(items), 11)
+        self.assertEqual(self.menu.move(items, 0, -1), 13)           # Safe Mode, Up: Return to OS Choices Menu
+        self.assertEqual(self.menu.move(items, 13, 1), 0)            # and back
         self.assertEqual(self.menu.move(items, 2, 1), 4)             # over the blank line
         self.assertEqual(self.menu.move(items, 4, 1), 8)             # over three grayed items
-        self.assertEqual(self.menu.move(items, 13, 1), 13)
+        self.assertEqual(self.menu.move(items, 11, -1), 9)           # Start Normally, Up: Disable automatic restart
         pending = self.menu.menu_items(True)
         self.assertEqual(self.menu.first_selectable(pending), 4)
+        self.assertEqual(self.menu.move(pending, 13, 1), 4)          # the grayed Safe Modes are skipped too
+        lone = [self.menu.Item("Start", "start"), None, self.menu.Item("Grayed", None, unavailable="no")]
+        self.assertEqual(self.menu.move(lone, 0, 1), 0)              # nothing else to go to
 
     def test_choices(self):
+        """The menu opens on Start Normally, as XP's does."""
         enter, up, down, f8 = 10, curses.KEY_UP, curses.KEY_DOWN, curses.KEY_F8
-        self.assertEqual(self.run_keys(enter, enter), ("boot", "safe", None))
-        self.assertEqual(self.run_keys(down, down, enter, enter), ("boot", "safecmd", None))
-        self.assertEqual(self.run_keys(enter, f8, down, enter, enter), ("boot", "safenet", None))
-        self.assertEqual(self.run_keys(down, down, down, enter, enter), ("boot", "normal", "bootlog"))
-        self.assertEqual(self.run_keys(*[down] * 6, enter), ("boot", "normal", None))      # Start Normally
-        self.assertEqual(self.run_keys(*[down] * 7, enter), ("reboot", None, None))
-        self.assertEqual(self.run_keys(*[down] * 8, enter, enter), ("boot", "normal", None))  # OS Choices
-        self.assertEqual(self.run_keys(down, up, enter, enter), ("boot", "safe", None))
+        self.assertEqual(self.run_keys(enter), ("boot", "normal", None))                   # Start Normally
+        self.assertEqual(self.run_keys(down, enter), ("reboot", None, None))
+        self.assertEqual(self.run_keys(down, down, enter, enter), ("boot", "normal", None))  # OS Choices
+        self.assertEqual(self.run_keys(*[down] * 3, enter, enter), ("boot", "safe", None))   # wrapped round
+        self.assertEqual(self.run_keys(*[down] * 5, enter, enter), ("boot", "safecmd", None))
+        self.assertEqual(self.run_keys(*[down] * 6, enter, enter), ("boot", "normal", "bootlog"))
+        self.assertEqual(self.run_keys(up, enter, enter), ("boot", "normal", "norestart"))
+        self.assertEqual(self.run_keys(up, down, enter), ("boot", "normal", None))
+        # F8 in the OS list returns to the menu, on Start Normally again
+        self.assertEqual(self.run_keys(*[down] * 3, enter, f8, *[down] * 4, enter, enter), ("boot", "safenet", None))
         self.assertEqual(self.vintner_log(), [])
 
     def plymouth(self, answers):
@@ -682,10 +691,10 @@ class TestMenu(TempDirTest):
     def test_os_choices_with_vintner_restarts_into_its_menu(self):
         down, enter = curses.KEY_DOWN, 10
         self.with_vintner(0)
-        self.assertEqual(self.run_keys(*[down] * 8, enter), ("reboot", None, None))
+        self.assertEqual(self.run_keys(down, down, enter), ("reboot", None, None))
         self.assertEqual(self.vintner_log(), ["next-boot menu"])
         # the other items do not ask Vintner
-        self.assertEqual(self.run_keys(enter, enter), ("boot", "safe", None))
+        self.assertEqual(self.run_keys(*[down] * 3, enter, enter), ("boot", "safe", None))
         self.assertEqual(self.vintner_log(), ["next-boot menu"])
 
     @staticmethod
@@ -734,13 +743,14 @@ class TestMenu(TempDirTest):
         self.assertFalse(self.menu.go_back_to_previous_good())
 
     def test_last_known_good_offered_for_the_previous_generation(self):
-        down, enter = curses.KEY_DOWN, 10
+        up, enter = curses.KEY_UP, 10
         # no control set saved, but a previous good generation: offered, and chosen like any option
         items = self.menu.menu_items(False, True)
         self.assertTrue(items[6].selectable)
-        self.assertEqual(self.menu.run_menu(FakeStdscr([*[down] * 4, enter, enter]), 2), ("boot", "normal", "lastgood"))
-        # neither: grayed, so four Downs reach Debugging Mode
-        self.assertEqual(self.run_keys(*[down] * 4, enter, enter), ("boot", "normal", "debug"))
+        self.assertEqual(self.menu.run_menu(FakeStdscr([up, up, up, enter, enter]), 2), ("boot", "normal", "lastgood"))
+        # neither: grayed, so two Ups from Start Normally reach Debugging Mode, and a third Enable Boot Logging
+        self.assertEqual(self.run_keys(up, up, enter, enter), ("boot", "normal", "debug"))
+        self.assertEqual(self.run_keys(up, up, up, enter, enter), ("boot", "normal", "bootlog"))
 
     # ---- "did not start successfully" with Vintner Boot (wex-failure-check.service, wex-failure-screen.service) ----
 
@@ -865,7 +875,7 @@ class TestMenu(TempDirTest):
     def test_os_choices_when_vintner_cannot_set_the_menu(self):
         down, enter = curses.KEY_DOWN, 10
         self.with_vintner(1)
-        self.assertEqual(self.run_keys(*[down] * 8, enter, enter), ("boot", "normal", None))    # the local list
+        self.assertEqual(self.run_keys(down, down, enter, enter), ("boot", "normal", None))    # the local list
         self.assertEqual(self.vintner_log(), ["next-boot menu"])
 
     def test_failure_screen_items_follow_xp(self):
@@ -899,9 +909,11 @@ class TestMenu(TempDirTest):
         after = FakeScreen.shown[2:]
         self.assertTrue(after and all(seconds is None for _, seconds in after))
         self.assertEqual(after[-1][0], 2)
-        self.assertEqual(self.run_failure([curses.KEY_DOWN, enter], 0.25), ("boot", "normal", None))
+        # Down on Start Normally wraps to Safe Mode, as on XP
+        self.assertEqual(self.run_failure([curses.KEY_DOWN, enter], 0.25), ("boot", "safe", None))
         self.assertEqual(self.run_failure([enter], 0.25), ("boot", "normal", None))
         self.assertEqual(self.run_failure([up, up, up, enter], 0.25), ("boot", "safe", None))
+        self.assertEqual(self.run_failure([up, up, up, up, enter], 0.25), ("boot", "normal", None))   # wrapped round
 
     def test_last_known_good_once_a_copy_is_saved(self):
         enter, up, down = 10, curses.KEY_UP, curses.KEY_DOWN
@@ -912,8 +924,9 @@ class TestMenu(TempDirTest):
         self.assertTrue(self.menu.lastgood_saved())
         self.assertIn(label, [i.label for i in self.menu.menu_items(False, True) if i and i.selectable])
         self.assertIn(label, [i.label for i in self.menu.failure_items(False, True) if i and i.selectable])
-        # the menu: Safe Mode, ..., Enable Boot Logging, over VGA Mode to Last Known Good, then the OS list
-        self.assertEqual(self.run_keys(down, down, down, down, enter, enter), ("boot", "normal", "lastgood"))
+        # the menu: Up from Start Normally, over Debugging Mode and Directory Services, then the OS list
+        self.assertEqual(self.run_keys(up, up, up, enter, enter), ("boot", "normal", "lastgood"))
+        self.assertEqual(self.run_keys(*[down] * 7, enter, enter), ("boot", "normal", "lastgood"))   # round the end
         # the failure screen: Up from Start Normally
         self.assertEqual(self.run_failure([up, enter], 0.25), ("boot", "normal", "lastgood"))
         self.assertEqual(self.run_failure([up, up, enter], 0.25), ("boot", "safecmd", None))
@@ -931,11 +944,110 @@ class TestMenu(TempDirTest):
         self.assertNotIn("wexfailed", source)
         self.assertNotIn("grub", source.lower())
 
-    def test_failure_text_fits_the_console(self):
-        width = 80 - load_menu().Screen.LEFT - 1      # setUp replaced self.menu.Screen
-        lines = sum(len(textwrap.wrap(p, width)) + 1 for p in self.menu.FAILURE_TEXT)
-        # explanation, the seven list rows, a blank row, the footer and the countdown on a 25-row console
-        self.assertLessEqual(1 + lines + 7 + 1 + 2, 24)
+    def drawn(self, method, *args, rows=25, cols=80):
+        """What Screen.METHOD(*ARGS) writes, as {row: (column, text, attribute)}, on a ROWSxCOLS console."""
+        class Recorder:
+            def __init__(self):
+                self.text = {}
+
+            def getmaxyx(self):
+                return rows, cols
+
+            def erase(self):
+                self.text = {}
+
+            def refresh(self):
+                pass
+
+            def addstr(self, row, col, text, attr=curses.A_NORMAL):
+                assert row not in self.text, f"row {row} written twice"
+                self.text[row] = (col, text, attr)
+
+        screen = object.__new__(load_menu().Screen)       # setUp replaced self.menu.Screen; no curses needed
+        screen.scr, screen.blue, screen.gray = Recorder(), "blue", "gray"
+        getattr(screen, method)(*args)
+        return screen.scr.text
+
+    FOOTER = "Use the up and down arrow keys to move the highlight to your choice."
+
+    def test_menu_layout_follows_xp(self):
+        """Rows and columns as measured on XP (work order C5): headings from column 0, items from column 4, the
+        bar from column 0 to the label's end, the footer one empty row below the last item."""
+        items = self.menu.menu_items(False)
+        text = self.drawn("advanced_menu", items, self.menu.start_normally(items))
+        self.assertEqual(sorted(text), [1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 15, 16, 17, 19])
+        self.assertEqual(text[1], (0, "WineExplorer Advanced Options Menu", curses.A_NORMAL))
+        self.assertEqual(text[2], (0, "Please select an option:", curses.A_NORMAL))
+        self.assertEqual(text[4], (4, "Safe Mode", curses.A_NORMAL))
+        self.assertEqual(text[11], (4, "Directory Services Restore Mode (Windows domain controllers only)", "gray"))
+        self.assertEqual(text[15], (0, "    Start WineExplorer Normally", curses.A_REVERSE))
+        self.assertEqual(text[17], (4, "Return to OS Choices Menu", curses.A_NORMAL))
+        self.assertEqual(text[19], (0, self.FOOTER, curses.A_NORMAL))
+        self.assertEqual(self.drawn("advanced_menu", items, 0)[4], (0, "    Safe Mode", curses.A_REVERSE))
+
+    def test_vm_test_rows_match_the_menu(self):
+        """installer/tests/safe-mode.sh finds items by the highlight bar's row."""
+        rows = dict(re.findall(r"\bROW_([A-Z]+)=(\d+)", re.search(r"^ROW_SAFE=.*$", VM_TEST.read_text(encoding="utf-8"),
+                                                                  re.M).group(0)))
+        items = self.menu.menu_items(False, True)
+        text = self.drawn("advanced_menu", items, None)
+        labels = {"SAFE": "Safe Mode", "SAFENET": "Safe Mode with Networking", "SAFECMD": "Safe Mode with Command Prompt",
+                  "BOOTLOG": "Enable Boot Logging", "LASTGOOD": items[6].label,
+                  "NORMALLY": "Start WineExplorer Normally", "OSCHOICES": "Return to OS Choices Menu"}
+        self.assertEqual(set(rows), set(labels))
+        for name, label in labels.items():
+            self.assertEqual(text[int(rows[name])][1], label, name)
+
+    def test_highlight_row_finds_the_bar(self):
+        """installer/tests/highlight-row.py on a 1280x800 screendump with 8x16 cells."""
+        width, height = 1280, 800
+        pixels = bytearray(width * height * 3)
+
+        def fill(row, first_col, last_col, rgb):
+            for y in range(row * 16, row * 16 + 16):
+                for x in range(first_col * 8, last_col * 8 + 8):
+                    pixels[(y * width + x) * 3:(y * width + x) * 3 + 3] = bytes(rgb)
+
+        fill(11, 4, 40, (85, 85, 85))          # a grayed item: dark gray text, not at column 0
+        fill(1, 0, 3, (255, 255, 255))         # white is not the bar either
+        ppm = self.tmp / "screen.ppm"
+        helper = [sys.executable, str(VM_TEST.with_name("highlight-row.py")), str(ppm)]
+        ppm.write_bytes(b"P6\n# QEMU\n1280 800\n255\n" + bytes(pixels))
+        self.assertEqual(subprocess.run(helper, capture_output=True, text=True, check=True).stdout, "")
+        fill(15, 0, 30, (170, 170, 170))       # the bar on Start Normally
+        ppm.write_bytes(b"P6\n1280 800\n255\n" + bytes(pixels))
+        self.assertEqual(subprocess.run(helper, capture_output=True, text=True, check=True).stdout, "15\n")
+
+    def test_os_list_layout_follows_xp(self):
+        text = self.drawn("os_choices", "Safe Mode")
+        self.assertEqual(text, {
+            2: (0, "Please select the operating system to start:", curses.A_NORMAL),
+            5: (0, "    WineExplorer", curses.A_REVERSE),
+            7: (0, self.FOOTER, curses.A_NORMAL),
+            8: (0, "Press ENTER to choose.", curses.A_NORMAL),
+            21: (0, "For troubleshooting and advanced startup options for WineExplorer, press F8.", curses.A_NORMAL),
+            23: (0, "Safe Mode", "blue")})
+        self.assertNotIn(23, self.drawn("os_choices", None))     # Return to OS Choices Menu: no mode line
+
+    def test_failure_screen_layout_follows_xp(self):
+        """Text from row 1, column 0, broken as on XP's 80 columns even on a wider console; the list after an empty
+        row; the footer one empty row below it, and the countdown directly under the footer."""
+        items = self.menu.failure_items(False, True)
+        for rows, cols in ((25, 80), (50, 160)):
+            text = self.drawn("failure_screen", items, 6, 29, rows=rows, cols=cols)
+            normally = next(row for row, (_, line, _) in text.items() if line.endswith("Start WineExplorer Normally"))
+            self.assertEqual(text[normally], (0, "    Start WineExplorer Normally", curses.A_REVERSE))
+            self.assertEqual(text[normally - 6], (4, "Safe Mode", curses.A_NORMAL))
+            self.assertNotIn(normally - 7, text)
+            self.assertNotIn(normally + 1, text)
+            self.assertEqual(text[normally + 2], (0, self.FOOTER, curses.A_NORMAL))
+            self.assertEqual(text[normally + 3], (0, "Seconds until WineExplorer starts: 29", curses.A_NORMAL))
+            explanation = [line for row, (col, line, _) in text.items() if row < normally - 6]
+            self.assertEqual(min(text), 1)
+            self.assertTrue(all(len(line) <= 79 for line in explanation), explanation)
+            self.assertLessEqual(normally + 3, 23, "the countdown fits a 25-row console")
+        # an arrow key removes the countdown line
+        self.assertNotIn(normally + 3, self.drawn("failure_screen", items, 6, None))
 
     def test_apply_safe_mode(self):
         self.menu.apply_choice("safe", run=self.fake_run)

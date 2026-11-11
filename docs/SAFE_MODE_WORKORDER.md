@@ -6,8 +6,8 @@ Status: in progress; the owner's decisions are in section 4 (2026-11-08). Phase 
 menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer commit `14286423`). Done since: A1,
 A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape),
 Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Since 2026-11-11 Vintner Boot is the
-only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. Open: A4,
-B5, B8's merge, C3 for Wayland, C5, the rest of C4, C6 and C7, D2, D4, D5.  
+only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. C5 is done
+(2026-11-11). Open: A4, B5, B8's merge, C3 for Wayland, the rest of C4, C6 and C7, D2, D4, D5.  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
@@ -350,6 +350,12 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
 - In the OS list every line starts at column 0, and the chosen mode is bright blue on row 23, with no countdown.
 - The same changes apply to D1's failure screen, which uses the menu's layout today. On XP its text starts at
   column 0, and the countdown sits on the row directly under the footer.
+
+**Done 2026-11-11** (`scripts/wex-advanced-options.py`; `docs/SAFE_MODE.md` section 4), with the rows and columns
+measured on the XP VM: every item above except the graying, which stays. The OS list's title, bar and key lines are
+on XP's rows 2, 5, 7 and 8 as well. On a console larger than 80x25 the failure screen still breaks its text at 80
+columns. The VM test now finds items by the highlight bar's row in a screenshot (`installer/tests/highlight-row.py`)
+instead of counting key presses.
 
 **C6. `ntbtlog.txt`** (`scripts/wex-bootlog.sh`). XP writes it as UTF-16 with CRLF line ends. Each start appends a
 header line with no blank line before it, and the date follows the service pack name with no space between them.

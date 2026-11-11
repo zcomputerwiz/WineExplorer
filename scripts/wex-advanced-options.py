@@ -271,13 +271,19 @@ def first_selectable(items):
     return next(i for i, item in enumerate(items) if item is not None and item.selectable)
 
 
+def start_normally(items):
+    """Where both of XP's lists open: Start Normally."""
+    return next(i for i, item in enumerate(items) if item is not None and item.action == "start")
+
+
 def move(items, index, step):
-    """The next selectable line up (step -1) or down (step 1); stays put at either end, as NTLDR does."""
-    i = index + step
-    while 0 <= i < len(items):
+    """The next selectable line up (step -1) or down (step 1). As NTLDR's lists do, it wraps around at either end
+    (Up on the first line goes to the last); it skips blank and grayed lines."""
+    i = index
+    for _ in range(len(items)):
+        i = (i + step) % len(items)
         if items[i] is not None and items[i].selectable:
             return i
-        i += step
     return index
 
 
@@ -322,11 +328,13 @@ def reboot(run=subprocess.run):
 
 
 class Screen:
-    """Text mode drawing in the NTLDR style: light gray on black, the choice as a white bar."""
+    """Text mode drawing in the NTLDR style, laid out as XP's 80x25 screens (rows and columns measured on the XP
+    reference VM, work order C5): light gray on black, headings and text from column 0, list lines from column 4,
+    and the choice as a light gray bar from column 0 to the label's last letter."""
 
-    LEFT = 4        # headings
-    ITEM = 8        # menu lines
-    BAR = (7, 74)   # the highlight bar's first and last column
+    LEFT = 0        # headings and text
+    ITEM = 4        # list lines
+    TEXT_WIDTH = 80  # XP's text mode; a wider console keeps XP's line breaks
 
     def __init__(self, stdscr):
         self.scr = stdscr
@@ -358,50 +366,14 @@ class Screen:
             self.scr.addstr(row, col, text[:cols - 1 - col], attr)
 
     def bar(self, row, text):
-        width = self.BAR[1] - self.BAR[0] + 1
-        self.put(row, self.BAR[0], (" " + text).ljust(width), curses.A_REVERSE)
+        """The highlight: the indent and the label, nothing after it."""
+        self.put(row, 0, " " * self.ITEM + text, curses.A_REVERSE)
 
     def bottom(self):
         return self.scr.getmaxyx()[0] - 1
 
-    def advanced_menu(self, items, index):
-        self.scr.erase()
-        self.put(1, self.LEFT, "WineExplorer Advanced Options Menu")
-        self.put(2, self.LEFT, "Please select an option:")
-        for n, item in enumerate(items):
-            row = 4 + n
-            if item is None:
-                continue
-            if n == index:
-                self.bar(row, item.label)
-            else:
-                self.put(row, self.ITEM, item.label, curses.A_NORMAL if item.selectable else self.gray)
-        self.put(self.bottom() - 1, self.LEFT, "Use the up and down arrow keys to move the highlight to your choice.")
-        self.scr.refresh()
-
-    def os_choices(self, chosen_label):
-        self.scr.erase()
-        self.put(1, self.LEFT, "Please select the operating system to start:")
-        self.bar(4, OS_NAME)
-        bottom = self.bottom()
-        self.put(bottom - 6, self.LEFT, "Use the up and down arrow keys to move the highlight to your choice.")
-        self.put(bottom - 5, self.LEFT, "Press ENTER to choose.")
-        self.put(bottom - 3, self.LEFT,
-                 f"For troubleshooting and advanced startup options for {OS_NAME}, press F8.")
-        if chosen_label:
-            self.put(bottom - 1, self.LEFT, chosen_label, self.blue)
-        self.scr.refresh()
-
-    def failure_screen(self, items, index, seconds):
-        """The explanation, the choices, and the countdown line under the footer while it runs."""
-        self.scr.erase()
-        width = self.scr.getmaxyx()[1] - self.LEFT - 1
-        row = 1
-        for paragraph in FAILURE_TEXT:
-            for line in textwrap.wrap(paragraph, width):
-                self.put(row, self.LEFT, line)
-                row += 1
-            row += 1
+    def list_lines(self, row, items, index):
+        """ITEMS from ROW down, the one at INDEX highlighted; returns the footer's row, one empty row below."""
         for n, item in enumerate(items):
             if item is None:
                 continue
@@ -409,10 +381,46 @@ class Screen:
                 self.bar(row + n, item.label)
             else:
                 self.put(row + n, self.ITEM, item.label, curses.A_NORMAL if item.selectable else self.gray)
+        footer = row + len(items) + 1
+        self.put(footer, self.LEFT, "Use the up and down arrow keys to move the highlight to your choice.")
+        return footer
+
+    def advanced_menu(self, items, index):
+        """Title on row 1, the list from row 4 (the last item on row 17), the footer on row 19."""
+        self.scr.erase()
+        self.put(1, self.LEFT, "WineExplorer Advanced Options Menu")
+        self.put(2, self.LEFT, "Please select an option:")
+        self.list_lines(4, items, index)
+        self.scr.refresh()
+
+    def os_choices(self, chosen_label):
+        """Rows 2, 5, 7 and 8 from the top; the F8 line and the chosen mode on rows 21 and 23 of 25, from the bottom."""
+        self.scr.erase()
+        self.put(2, self.LEFT, "Please select the operating system to start:")
+        self.bar(5, OS_NAME)
+        self.put(7, self.LEFT, "Use the up and down arrow keys to move the highlight to your choice.")
+        self.put(8, self.LEFT, "Press ENTER to choose.")
         bottom = self.bottom()
-        self.put(bottom - 2, self.LEFT, "Use the up and down arrow keys to move the highlight to your choice.")
+        self.put(bottom - 3, self.LEFT,
+                 f"For troubleshooting and advanced startup options for {OS_NAME}, press F8.")
+        if chosen_label:
+            self.put(bottom - 1, self.LEFT, chosen_label, self.blue)
+        self.scr.refresh()
+
+    def failure_screen(self, items, index, seconds):
+        """The explanation from row 1, broken as on an 80-column screen; the choices after an empty row; the footer
+        one empty row below them, and the countdown on the row directly under it while it runs."""
+        self.scr.erase()
+        width = min(self.scr.getmaxyx()[1], self.TEXT_WIDTH) - self.LEFT - 1
+        row = 1
+        for paragraph in FAILURE_TEXT:
+            for line in textwrap.wrap(paragraph, width):
+                self.put(row, self.LEFT, line)
+                row += 1
+            row += 1
+        footer = self.list_lines(row, items, index)
         if seconds is not None:
-            self.put(bottom - 1, self.LEFT, f"Seconds until {OS_NAME} starts: {seconds}")
+            self.put(footer + 1, self.LEFT, f"Seconds until {OS_NAME} starts: {seconds}")
         self.scr.refresh()
 
 
@@ -424,8 +432,8 @@ def run_menu(stdscr, previous=None):
     Last Known Good goes back to (previous_good), which offers it even without a saved control set."""
     screen = Screen(stdscr)
     items = menu_items(os.path.exists(SETUP_STAGE), previous is not None or lastgood_saved())
-    index = first_selectable(items)
-    chosen = None          # the Item chosen in the menu, shown at the bottom of the OS list
+    index = start_normally(items)
+    chosen = None         # the Item chosen in the menu, shown at the bottom of the OS list
     in_menu = True
     flush = True
     while True:
@@ -458,8 +466,9 @@ def run_menu(stdscr, previous=None):
                 if chosen:
                     return ("boot", chosen.mode, chosen.option)
                 return ("boot", "normal", None)
-            if key == curses.KEY_F8:
+            if key == curses.KEY_F8:   # back to the menu, which opens on Start Normally again, as on XP
                 in_menu = True
+                index = start_normally(items)
 
 
 def run_failure(stdscr, previous=None, clock=time.monotonic):
@@ -468,7 +477,7 @@ def run_failure(stdscr, previous=None, clock=time.monotonic):
     previous: as for run_menu."""
     screen = Screen(stdscr)
     items = failure_items(os.path.exists(SETUP_STAGE), previous is not None or lastgood_saved())
-    index = len(items) - 1
+    index = start_normally(items)
     deadline = clock() + COUNTDOWN
     counting = True
     flush = True

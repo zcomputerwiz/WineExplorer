@@ -185,6 +185,15 @@ it took more than one request, and puts the console in text mode before drawing.
 The menu also discards the keys pressed before it appears (the F8 presses that opened it). Unavailable items are
 drawn in dark gray (bold black); the Linux console does not render the dim attribute.
 
+**Layout** (work order C5, 2026-11-11), as measured on XP's 80x25 screens: light gray on black; the title and the
+other headings from column 0 (rows 1 and 2), the items from column 4 (rows 4 to 17), and the footer one empty row
+below the last item (row 19). The highlight is a light gray bar with black text from column 0 to the label's last
+letter. The menu opens with Start WineExplorer Normally highlighted, also when F8 brings it back from the operating
+system list, and Up and Down wrap round: Up on Safe Mode goes to Return to OS Choices Menu. The only difference from
+XP is the grayed items, which XP does not have. On the Linux console, which is wider and taller than 80x25 on most
+screens, the rows and columns are the same counted from the top left; the operating system list's last two lines
+stay three and one rows above the bottom, where XP has them.
+
 | Item | Here |
 |---|---|
 | Safe Mode | `safe` |
@@ -233,12 +242,14 @@ laid out as XP's, with an explanation in our own words.
 
 - The list is the three Safe Modes, Last Known Good Configuration (grayed until a start has counted) and Start
   WineExplorer Normally, which is highlighted.
-- "Seconds until WineExplorer starts" counts down from 30 under the footer and then starts normally.
-- An arrow key stops the countdown and removes its line, as on XP.
+- "Seconds until WineExplorer starts" counts down from 30 on the row directly under the footer and then starts
+  normally.
+- An arrow key stops the countdown and removes its line, as on XP. Up and Down wrap round as in the menu: Down on
+  Start Normally goes to Safe Mode.
 - Enter on a Safe Mode starts it without the operating system list, through a restart into the variant (section 3).
   The XP captures did not cover that case.
-- The screen uses the menu's current layout (columns, highlight bar, footer row), so C5 of the work order will
-  change both screens together.
+- Layout as XP's (C5): the explanation from row 1, column 0, broken as on 80 columns even on a wider console, then
+  an empty row, the list from column 4 with the menu's bar, and the footer one empty row below the list.
 
 ## 5. Phase 2: Windows programs see Safe Mode
 
@@ -275,10 +286,12 @@ Wayland session (C3; X11 is done, section 4) and the classic logon dialog after 
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (94 tests, Linux) covers:
+`scripts/test_safemode.py` (98 tests, Linux) covers:
 
 - mode parsing, generator output and PAM decisions;
-- menu navigation and choices, and the logon screen choice;
+- menu navigation (opening on Start Normally, wrapping round) and choices, and the logon screen choice;
+- the layout of the menu, the operating system list and the failure screen, row by row against XP's, and the VM
+  test's row numbers and its highlight finder;
 - 640x480 in Safe Mode: the greeter switches the output in each Safe Mode and not in a normal start, and the
   session does so before it reads the desktop's size;
 - the failure screen: its items, the countdown, and arrow keys stopping it;
@@ -300,7 +313,9 @@ Wayland session (C3; X11 is done, section 4) and the classic logon dialog after 
 
 `installer/tests/safe-mode.sh` is the VM test (usage in `docs/TOOLING.md`). It boots a copy-on-write overlay of an
 installed test disk once per phase, opening Vintner Boot's menu (Shift held on BIOS, F8 on UEFI) and choosing the
-Advanced Options variant, and checks each start on the screen and over the serial console. By default it tests what
+Advanced Options variant, and checks each start on the screen and over the serial console. In the menu it presses
+Down until a screenshot shows the highlight bar on the item's row (`installer/tests/highlight-row.py`), and it
+checks that the menu opens on Start Normally. By default it tests what
 an ISO installed; with `WEX_SAFEMODE_FILES=branch` it first copies this checkout's Safe Mode files where the session
 package installs them and runs the package postinst's Safe Mode part in the guest. Before and after every boot it
 records the checksums of every file and link under `/etc` and `/var/lib/AccountsService` and of the accounts'
@@ -323,7 +338,7 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" |
 | `oschoices` | Return to OS Choices Menu: a restart into the loader's menu with no key held, recognized by its Recovery Console entries, then Enter on the generation: a normal start |
 | `normal` | No key: the same, the boot-mode generator wrote nothing, and the start-up check counted the start; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480 |
-| `lastgood` | Last Known Good (work order D3) from a generation that started successfully. With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, with no restart, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Items below Last Known Good move down one once it is offered, which `startnormal`, `oschoices` and `vfailed` follow |
+| `lastgood` | Last Known Good (work order D3) from a generation that started successfully. With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, with no restart, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Once Last Known Good is offered, Up from Start Normally on the failure screen reaches it before Safe Mode with Command Prompt, which `vfailed` follows |
 | `vfailed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards): the Reset button (QMP `system_reset`) once the serial console answers, before `boot-complete.target`. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold. The next ordinary start shows the failure screen with its countdown. Up stops it and removes its line, and Safe Mode with Command Prompt restarts into the variant, which shows no menu and comes up in that mode. The next ordinary start shows the screen again; left alone, it starts normally and counts. The start after that shows no screen |
 | `lastgoodgen` | Last in the default list. The test appends a token to the Advanced Options variant on the stopped disk and adds a unit that runs `vintner publish` at the next start and powers off, so generation 2 is published. The variant is then put back. Generation 2 is started only through its variant, which counts nothing, so it never starts successfully. The registry is changed as in `lastgood`. Last Known Good from generation 2's menu then restarts with no menu into generation 1: a normal start whose recorded `vintner status --json` says `booted` generation 1, generation 2 not `GOOD`. The registry ends as in `lastgood` |
 | `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, and a `wexcomp` process for the account. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |
