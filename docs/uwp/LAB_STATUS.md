@@ -5,7 +5,7 @@ Copyright 2026 WineExplorer contributors
 # U1 Lab Status Report
 
 **Date**: 2026-11-11
-**Status**: owned guest boot/SSH/storage verified; clean WoW64 baseline build running
+**Status**: clean WoW64 build and x64/x86 smoke/unpackaged controls passed; isolated R0B candidate building
 **Scope**: Codex setup; the earlier Antigravity recovery report is retained below.
 
 ## Current Codex-owned lab
@@ -23,7 +23,7 @@ Copyright 2026 WineExplorer contributors
 * Owner marker/control/run records:
   `/var/tmp/wex-uwp-u1-20261111`, owner `codex-uwp-u1-20261111`, mode 0700.
   `scripts/lab/uwp/owned-lab.py` verifies PID/start ticks/argv/disk before control.
-* KVM, four vCPUs, 8 GiB RAM; headless virtio VGA. SSH is loopback 2237 with
+* KVM, eight vCPUs, 16 GiB RAM; headless virtio VGA. SSH is loopback 2237 with
   a pinned ed25519 host key. QMP and serial log are private to this run.
   A, B, wexbuild and elevation fixtures were not accessed or changed.
 * Guest: Debian x86_64, kernel `6.12.115+deb13.1-amd64`, user `debian` with
@@ -40,9 +40,41 @@ Copyright 2026 WineExplorer contributors
 * Build source pin: `c3f59e05a37134aee529a7d636af3ba67a9efc5c`, exported from
   the clean `codex/uwp-runtime` worktree. Source archive SHA-256 matches Windows
   and guest: `034464ACB2B36118C2DC951389570F79F7134D95C44D5791ACC5D609556439F4`.
-* Build command: `configure --enable-archs=i386,x86_64`, then `make -j4`.
+* Build command: `configure --enable-archs=i386,x86_64`, initially `make -j4`.
+  After checking host headroom (16 visible CPUs, >55 GiB available memory),
+  only the owned make timeout/process group was interrupted, the guest was
+  powered down normally, and it restarted with eight vCPUs/16 GiB. The same
+  objects and source pin are retained, and compilation resumed with `make -j8`.
+  The data mount persisted across restart using its exclusively owned UUID.
   Commands/logs/phase/PID live under `/home/debian/uwp-u1-20261111/`.
-  Build completion, Wine runtime and UWP acceptance are not yet established.
+  Build completed with exit 0 and `Wine build complete.`. The baseline remains
+  intact while candidates use separate source/build directories on the data disk.
+  Configure reported no sound backend: this is the console/runtime baseline,
+  not a full distribution/media or presentation acceptance build.
+
+## Runtime baseline verification (2026-11-11)
+
+`baseline-phase=PASSED`, `baseline-exit=0`. Installed Xvfb/xauth only inside
+the owned guest and ran fresh owned prefixes with the exact baseline loader
+and matching wineserver. Both system32 AMD64 and syswow64 x86 cmd smoke
+markers/architecture checks passed. Both U1.0 unpackaged controls returned
+`0x80040154`, matched the native oracle and exited 0. The accepted runner's
+live cleanup and final summary report PASS. Packaged positive, missing-class
+and missing-DLL activation remain explicitly NOT-RUN.
+
+Evidence lives under `/home/debian/uwp-u1-20261111/`: `build.log`,
+`baseline/run.log`, `baseline/uwp-results/`, phase/exit/coordinator logs.
+Self-owned fixture archive from parent commit `ae21e619` has SHA-256
+`95bceb2844d2a36d4efd7f80be72372fdba667b1c10ca104f4969014edbf1f8f`.
+Built x64 ntdll SHA-256 is
+`e8528476545e2c8ca94bb38d9b8a6a8f30c68f4dd0d8bf4192aa702589b7cb2d`;
+x86 is `92ac53a0e7cfceafe0426c9d242c91e1703e047f7f773465b3a7823729496f89`.
+This proves the scoped baseline controls, not package support or presentation.
+
+R0B candidate source is the same clean base plus only reviewed
+`kernelbase/version.c`, its `Makefile.in` and `kernel32/tests/version.c`.
+Its fresh build is `/home/debian/uwp-u1-20261111/build/candidates/r0b-1/`,
+also configured for both architectures; acceptance is still pending.
 
 ## Setup failures and recovery
 
@@ -57,7 +89,7 @@ Copyright 2026 WineExplorer contributors
    unbooted owned QEMU was quit via its private QMP endpoint. Giving the real
    root disk explicit `bootindex=1` fixed the boot; SSH was reverified.
 
-Current state left behind: owned guest running and baseline build active;
+Current state left behind: owned guest running, baseline retained, R0B candidate building;
 both original partial disk and setup diagnostics retained. Use the owned
 controller's `status`/`stop`, never A/B wrappers or global process kills.
 Headless boot/SSH is not graphics or UWP runtime proof.

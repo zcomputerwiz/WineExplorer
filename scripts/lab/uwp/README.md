@@ -19,7 +19,7 @@ python3 /mnt/d/DeepThought/Projects/WineExplorer/scripts/lab/uwp/owned-lab.py re
 ```
 
 `start` requires completed disk check/comparison evidence and refuses an
-existing run record. The headless KVM guest uses 8 GiB, four vCPUs, the owned
+existing run record. The headless KVM guest uses 16 GiB, eight vCPUs, the owned
 disk, loopback SSH 2237 and its own QMP/serial/run files. The run directory is
 `/var/tmp/wex-uwp-u1-20261111`, mode 0700, with an owner marker and control lock.
 Control rechecks PID/start ticks/command line/disk before acting. `ready` pins

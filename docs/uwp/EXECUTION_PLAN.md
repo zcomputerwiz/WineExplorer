@@ -244,10 +244,12 @@ original 540-second and recovery 180-second limits were caller-supplied.
 | U1-M2R, Qwen | `178354c0-0578-44b5-8583-9e7a2ed9dfa9` | Running; output preservation and review corrections, no lab access. |
 | U1-M1R, Antigravity | `60be2d1d` | Running with no whole-job timeout; bounded runner and cleanup repair, no lab access. |
 | U1-M1R2, Antigravity | `3c838cbb` | Running; reviewer reproduced exit-1 wineserver wait falsely succeeding; fix final cleanup verdict and retention. |
-| U1-M1R3, Antigravity | `9b1281e0` | Running; late lock change/missing-prefix failure handling; parent reproduced original wait failure as fixed and reran the 129-case suite. |
+| U1-M1R3, Antigravity | `9b1281e0` | Accepted for lab use: parent reviewed final cleanup/ownership paths and reran 142/142 fake-loader checks; live Wine cleanup remains a required separate check. |
 | U1-M2R2, Qwen | `bed91e26-6aa4-419a-8148-129b656d312d` | Accepted for test preparation: parent reran 15 preservation/refusal checks, validator/fault checks and verified executable/record hashes. Native Rtl remains NOT-RUN; no Wine acceptance. |
-| U1-R0B, Antigravity | `03ee4710` | Running in isolated Wine worktree; native package-name observations plus buffer/publisher/resource-field repair. |
+| U1-R0B, Antigravity | `03ee4710` | Delivered; Codex reviewed helper changes and rejected initial returning crypto-fatal callback. Corrected by `5c1dd234`; isolated both-ABI candidate build active, native driver correction pending. |
 | U1-R4, Qwen | `b5ace3be-2cc2-4252-98a4-d44e339b5b35` | Running; real StorageFolder async slice and native observations, exact order in ORDER_STORAGE_FOLDER.md; guest build/test remains Codex-owned. |
+| U1-R1a, Antigravity | `972eaffa` | Delivered, rejected in review: guest suite 57/58, plus reproduced hash/content split, namespace, directory-payload, unknown-type and duplicate declaration defects. Correction job `c11a6fac` running in the tools repository. |
+| U1-R0B native evidence repair, Antigravity | `d750b472` | Running; bounded driver, fresh safe outputs, initialized/accurate records, independent validator/fault tests and full metadata. Old flawed evidence retained. |
 | U1-M1, Qwen | `91b59dea-bf75-4ceb-bf58-cdbb089d8343` | Done; 58/58 fake-loader checks, also rerun successfully by parent. Claude review and Linux/live cleanup verification pending. |
 | U1-M2, Qwen | `b1fba388-d0c1-4a37-b6eb-ef6f083e38e5` | Done; x64/x86 builds/runs exit 0; 18 Win32 observations and 2 explicit native-query NOT-RUN records. Parent rechecked hashes, clean validation and rejection of truncated/duplicate/altered evidence. Claude review pending. |
 | U1-L1, Antigravity | `9622abe3` | Failed: CLI print timeout after 9 minutes; no completion report or boot/SSH proof. |
@@ -264,7 +266,8 @@ accepted complete clone and will not be booted. A new self-contained clone is
 being created on Linux storage under `/var/tmp/wex-uwp-u1-images-20261111/`,
 with no shared backing file; conversion/check/comparison must all pass.
 Update: all three passed. The owned guest boot/SSH and dedicated build storage
-are verified, and the clean WoW64 baseline is active; see `LAB_STATUS.md` for
+are verified, and the clean WoW64 baseline build and x64/x86 smoke/unpackaged
+controls passed; see `LAB_STATUS.md` for
 current ownership, setup failures and state. The old partial disk remains unused.
 
 Runtime worktree: `C:/Users/Owner/.codex/worktrees/uwp-runtime/wine`, branch

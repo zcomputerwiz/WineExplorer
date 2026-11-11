@@ -84,7 +84,7 @@ def start(restart=False):
     with socket.socket() as probe:
         probe.bind(('127.0.0.1', PORT))
     command = ['qemu-system-x86_64', '-accel', 'kvm', '-machine', 'q35',
-               '-cpu', 'host', '-smp', '4', '-m', '8192', '-device', 'virtio-vga',
+               '-cpu', 'host', '-smp', '8', '-m', '16384', '-device', 'virtio-vga',
                '-display', 'none', '-drive', 'file=' + str(DISK) + ',format=qcow2,if=none,id=u1-root',
                '-device', 'virtio-blk-pci,drive=u1-root,bootindex=1',
                '-nic', 'user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:2237-:22',
