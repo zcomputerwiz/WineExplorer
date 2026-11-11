@@ -8,6 +8,7 @@ S7 may provision an explicit native worker; answers never pass through Python.
 No evidence redemption, token creation or target execution lives here.
 """
 import array
+import hashlib
 import json
 import os
 import select
@@ -265,6 +266,9 @@ def service(server_path, system_group, pam_paths=None):
     from gi.repository import GLib
 
     pam_exe = pam_audit = evidence_service = supervisor = None
+    # R8 attempt throttling, shared by every broker session of this service: the same limits as the S8
+    # evidence service (3 unsuccessful attempts per account and 6 per calling user in 120 s).
+    r8_accounts = r8_callers = None
     # Assigned before the evidence service captures them (R9).
     root_gen, verifier_gen = generation(), generation()
     if pam_paths is None:
@@ -289,6 +293,9 @@ def service(server_path, system_group, pam_paths=None):
         evidence_audit = evidence.Audit(os.dup(pam_audit))
         evidence_service = evidence.Service(root_gen, verifier_gen, evidence_audit,
                                             lambda c, b: not getattr(c.tx, "stale", False), lab=True)
+        r8_limits = evidence.Limits()
+        r8_accounts = evidence.Throttle(r8_limits.throttle_slots, r8_limits.account_failures, r8_limits.throttle_ns)
+        r8_callers = evidence.Throttle(r8_limits.throttle_slots, r8_limits.caller_failures, r8_limits.throttle_ns)
 
         # The storage generation now comes from the wineserver; the retired
         # STORAGE_QUERY operation is denied (see docs/E1_S18D_UNIX_SIDE.md).
@@ -507,6 +514,10 @@ def service(server_path, system_group, pam_paths=None):
                     now = time.monotonic_ns()
                     require(now < t.deadline, "worker-result-deadline")
                     self.provision_profile(rec, account_key, map_gen)
+                    # A success clears the account's count and gives the caller this attempt back.
+                    bucket, caller_until = rec.pop("throttle")
+                    r8_accounts.rows.pop(bucket, None)
+                    r8_callers.refund(self.uid, caller_until)
                     ref = random_bytes(16)
                     rec["evidence"] = evidence.EVIDENCE.pack(
                         3, 1, evidence.EVIDENCE_SIZE, 0x3ff, t.request_id, t.request_digest, t.binding_digest,
@@ -731,6 +742,17 @@ def service(server_path, system_group, pam_paths=None):
                             rec = self.endorsed_records[(rid, attempt)]
                             require(rec.get("state") == "ENDORSED", "start-state-not-endorsed")
                             start_msg = e1r8.decode_start(raw, rec["tuple"])
+
+                            # Charge the attempt before any worker exists, so a crash, a cancel or a killed
+                            # dialog counts too. An unknown name is counted under its own bucket, so it
+                            # behaves like a real account. Only a successful authentication gives it back.
+                            require(r8_accounts is not None and r8_callers is not None, "r8-throttle-missing")
+                            charge_now = time.monotonic_ns()
+                            bucket = (bytes(start_msg.account_key) if any(start_msg.account_key) else
+                                      b"name:" + hashlib.sha256(bytes(start_msg.account)).digest()[:16])
+                            require(r8_callers.reserve(self.uid, charge_now) is None, "r8-throttle-caller")
+                            require(r8_accounts.reserve(bucket, charge_now) is None, "r8-throttle-account")
+                            rec["throttle"] = (bucket, r8_callers.rows[self.uid][1])
 
                             sec_v, sec_w = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
                             for s in (sec_v, sec_w):

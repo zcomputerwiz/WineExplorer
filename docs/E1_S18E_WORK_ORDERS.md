@@ -1253,3 +1253,24 @@ Follow-up in the same change: two lab cases assumed the dialog is still alive af
 broker ends the request (no further attempt) when a refusal cannot be delivered to the dialog;
 `r8_no_receipt_no_token` no longer needs a live dialog. The dialog dying between a correct password and
 its result is now a window of milliseconds and is not covered by a deterministic case.
+
+## WO-37 Attempt throttling in the verifier (lab; Claude, 2026-11-11)
+
+Before: the R8 path of the verifier counted nothing across requests, so three attempts per request could be
+repeated without limit (one guess every 2 s). The S8 evidence service already had the counters
+(`tools/e1s6/evidence.py`, `Throttle`); the R8 path now uses the same class and limits.
+
+* `tools/e1s6/e1s6-lab.py`: at START, before a worker exists, the attempt is charged to the calling user
+  (6 in 120 s) and to the account (3 in 120 s); an unknown name is counted under a bucket of its own name,
+  so it behaves like a real account. A full bucket refuses START (`site=r8-throttle-account` or
+  `-caller`): no worker, no PAM call. A killed dialog, a cancel or a crash stay charged. A successful
+  authentication clears the account's count and gives the caller that attempt back.
+* The counters live in the verifier process and are shared by all broker sessions of that service.
+
+Case: `r8_throttled_after_three_refusals` (after the three refusals of `r8_wrong_password_refused`, the
+right password in a new request gets no worker, no result and no program). The suite restarts the verifier
+afterwards.
+
+Open: the person is not told why (the dialog closes and the request fails; a "try again later" message
+needs a refusal reason from the verifier through the broker to the dialog); the counters do not survive a
+restart of the verifier; PAM's own lockout (pam_faillock) is whatever the PAM service file configures.

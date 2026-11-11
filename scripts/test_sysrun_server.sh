@@ -1659,6 +1659,37 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     [ ! -e "$EL/r8_e2e_res_wrongpw.txt" ] || fail "r8_wrong_password_refused: a program started"
     ok r8_wrong_password_refused
 
+    # Throttle: after those three unsuccessful attempts the account is closed for two minutes, across
+    # requests: the RIGHT password in a new request gets no worker, no password check and no program.
+    el_down "$STD"
+    el_clean
+    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
+        '"EnableStandardUserElevation"=dword:00000001'
+    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+        '"Start"=dword:00000002' \
+        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+        '"R8AutoSelect"="'"$ADM"'"' \
+        '"R8AutoPassword"="'"$R8PW"'"'
+    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+    el_up "$STD"
+    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+        "$(winpath /home/$STD/wexel/p64.exe)" 5 "$(winpath "$EL/r8_throttled.txt")" - >/dev/null 2>&1 || true
+    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+    grep -q 'site=r8-throttle-account' <<<"$e1s6_new_log" ||
+        { grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2; fail "r8_throttled_after_three_refusals: the verifier did not throttle the account"; }
+    ! grep -qE 'E1R8_WORKER_READY|E1R8_RESULT|E1R8_REDEEMED|r8: launched' <<<"$wine_new_log$e1s6_new_log" ||
+        fail "r8_throttled_after_three_refusals: a worker, a result or a launch while throttled"
+    [ ! -e "$EL/r8_throttled.txt" ] || fail "r8_throttled_after_three_refusals: a program started"
+    ok r8_throttled_after_three_refusals
+    # a fresh verifier for the cases below: its counters are per service lifetime
+    el_down "$STD"
+    e1s6_stop
+    e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+
     # Negative test 2: unknown account name still yields WORKER_READY with a decoy (zero key) and no evidence
     el_down "$STD"
     el_clean
