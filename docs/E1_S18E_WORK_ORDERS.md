@@ -1106,3 +1106,36 @@ Result: lab S6 suite 380 PASS, normal suite 325 PASS, broker test and codec cros
 Noted, not changed: the broker waits for the verifier inside the transport call and so does not itself see the
 dialog or the caller go away during the password check; the verifier's dialog pin ends the attempt instead
 (covered by the second case). The caller leaving during that window is not covered by a test.
+
+## WO-31 R10: the verifier's receipt replaces the broker's self-install (lab; Claude, 2026-11-10)
+
+Removes WO-29 stand-in 1. Design: docs/E1_S18E_R10_DESIGN.md with the corrections of
+docs/E1_S18E_DESIGN_REVIEW.md items 2 and 3, in the simplest form that keeps their point: the server takes
+the consumed record from the verifier, never from broker bytes.
+
+* Verifier (`tools/e1s6/e1s6-lab.py`): at redemption, after burning the evidence and before answering the
+  broker, it sends RECEIPT (E1R8 type 30: header, evidence reference, the 220-byte record, canonical account
+  name) on the S6 control socket with its kernel credentials. Because it is sent first, it is already queued
+  at the server when the broker asks; no status query or acknowledgement is needed.
+* Server (`wine/server/named_pipe.c`, op 4): see docs/STOCK_CHANGES.md. Sender, framing, every evidence
+  field against the sealed tuple, time and generations are checked; the kind 4 input is built from the
+  sealed tuple and the receipt; the retained opener process and token are the caller. One attempt per
+  binding; a failure burns the context.
+* Broker (`e1s18_broker.c`): NEGOTIATE, then op 4 with the context handle, then ISSUE. The fixture install
+  is gone. The policy generation in its ISSUE input is the attempt's (it was a literal 1, which only the
+  fixture accepted).
+
+First run finding: the record's root generation is the verifier's own instance value and the server's is a
+path generation; they cannot be compared. The server keeps its own value (from the sealed tuple) in the
+kind 4 input and checks the verifier generation against the tuple instead.
+
+Negative case added: `r8_no_receipt_no_token` (the lab verifier withholds the receipt through
+`WEX_E1S6_LAB_NO_RECEIPT=1`; the broker has its evidence copy, the server refuses at `receipt-receive`,
+token issue fails, nothing starts).
+
+Result: lab S6 suite 381 PASS, normal suite 325 PASS, broker test and codec cross-check pass.
+
+Still open from the R10 design: a revocable transaction owner that outlives the evidence (the verifier
+retires the attempt at RELEASE before the token is issued; the installed record is validated by the
+verifier's live pin and unchanged map, root and policy generations only), NEGOTIATE before redemption, and
+the receipt's root generation having no server-side counterpart.

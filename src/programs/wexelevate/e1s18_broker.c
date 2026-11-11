@@ -2373,6 +2373,10 @@ static BOOL is_zero_key( const uint8_t key[16] )
 }
 #endif
 
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+static DWORD default_r8_receipt( struct request *req, HANDLE context );
+#endif
+
 static DWORD default_issue_token( struct request *req, const uint8_t account_key[16],
                                   const uint8_t evidence_ref[16], const uint8_t nonce[32],
                                   const uint8_t binding_digest[32], const uint8_t request_digest[32],
@@ -2447,45 +2451,28 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
     wex_token_put64( in + 156, 1 );                          /* broker_gen */
     wex_token_put64( in + 164, 1 );                          /* map_gen */
 #endif
+#ifdef WEXELEVATE_E1S18
+    wex_token_put64( in + 172, s_r8_context.policy_gen ? s_r8_context.policy_gen : 1 );   /* policy_gen */
+#else
     wex_token_put64( in + 172, 1 );                          /* policy_gen */
+#endif
     wex_token_put32( in + 180, req->caller_session );        /* session_id */
     wex_token_put32( in + 184, 0 );                          /* reserved */
     memcpy( in + 188, evidence_ref, 16 );                    /* envelope evidence_ref */
 
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
-    /* LAB STAND-IN for R10 (docs/E1_S18E_REMEDIATION.md): the server issues only for a consumed record
-     * that a trusted producer installed. The authenticated receipt from the verifier to the server is not
-     * built, so after the broker's own check of the redeemed evidence it installs the record itself through
-     * the lab-only fixture operation (servers built with WEX_E1S10_TOKEN_TEST). This must be replaced by the
-     * verifier's receipt before the chain can leave the lab: here the broker vouches for itself. */
+    /* R10: the server issues only for a consumed record that the verifier vouched for. The verifier sent
+     * its receipt to the server when it handed the evidence over (before its answer reached this process);
+     * this call only names the S10 context, and the server builds the record from that receipt and its own
+     * sealed tuple. Nothing the broker holds is installed. One attempt: a refusal burns the context. */
+    if (default_r8_receipt( req, context ))
     {
-        uint8_t fixture[268]; /* WEX_TOKEN_FIXTURE_SIZE: the input plus the zero-padded canonical name[64] */
-        HANDLE none = NULL;
-        size_t name_len = strlen( req->account_name );
-
-        if (!name_len || name_len > 63 || !req->caller)
-        {
-            if (context && ops && ops->close_handle) ops->close_handle( context );
-            e1s18_wipe( in, sizeof(in) );
-            return ERROR_ACCESS_DENIED;
-        }
-        memset( fixture, 0, sizeof(fixture) );
-        memcpy( fixture, in, sizeof(in) );
-        memcpy( fixture + sizeof(in), req->account_name, name_len );
-        size = 0;
-        status = exports->pNtCreateWexAccountToken( 0x80000001u /* WEX_TOKEN_TEST_INSTALL */, &context, req->caller,
-                                                    &caps, fixture, sizeof(fixture), &none, NULL, &size );
-        e1s18_wipe( fixture, sizeof(fixture) );
-        if (status != 0 || none)
-        {
-            r8_trace_err( "consumed record install", (unsigned long)status );
-            if (none && ops && ops->close_handle) ops->close_handle( none );
-            if (context && ops && ops->close_handle) ops->close_handle( context );
-            e1s18_wipe( in, sizeof(in) );
-            return ERROR_ACCESS_DENIED;
-        }
-        r8_trace_line( "r8: consumed record installed (lab)" );
+        r8_trace_err( "receipt install", ERROR_ACCESS_DENIED );
+        if (context && ops && ops->close_handle) ops->close_handle( context );
+        e1s18_wipe( in, sizeof(in) );
+        return ERROR_ACCESS_DENIED;
     }
+    r8_trace_line( "r8: receipt installed" );
 #endif
 
     /* Step 3c: ISSUE */
@@ -3312,6 +3299,33 @@ static DWORD default_r8_recheck( struct request *req, const unsigned char dialog
     return ERROR_NOT_SUPPORTED;
 #endif
 }
+
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+/* R10: E1R8 server op 4 on the request's pipe: install the verifier's receipt into this S10 context. */
+static DWORD default_r8_receipt( struct request *req, HANDLE context )
+{
+    e1s18_pfn_QueryWexPipeCallerBindingEx query;
+    e1s18_pipe_caller_binding_ext ext;
+    unsigned char payload[12];
+    NTSTATUS status;
+    if (!req || !req->pipe || !context) return ERROR_INVALID_PARAMETER;
+    query = e1s18_get_binding_query();
+    if (!query) return ERROR_NOT_SUPPORTED;
+    memset( payload, 0, sizeof(payload) );
+    memcpy( payload, "E1R8", 4 );
+    payload[4] = 1; payload[5] = 0; /* version 1 */
+    payload[6] = 4; payload[7] = 0; /* op 4 (INSTALL_RECEIPT) */
+    e1s6_put32( payload + 8, (unsigned int)(uintptr_t)context );
+    memset( &ext, 0, sizeof(ext) );
+    ext.binding.Size = sizeof(ext);
+    ext.input = payload;
+    ext.in_size = sizeof(payload);
+    status = query( req->pipe, &ext.binding );
+    if (status) return ERROR_ACCESS_DENIED;
+    e1s18_close_binding_handles( &ext.binding );
+    return ERROR_SUCCESS;
+}
+#endif
 
 static DWORD default_r8_close( struct request *req, UINT64 channel )
 {

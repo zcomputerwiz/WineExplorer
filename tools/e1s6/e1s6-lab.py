@@ -740,6 +740,20 @@ def service(server_path, system_group, pam_paths=None):
                                 state, rec["state"] = rec["state"], "REDEEMED"
                                 require(state == "RESULT_RETAINED" and record is not None and ref == raw[76:92]
                                         and time.monotonic_ns() < t.deadline, "redeem-evidence")
+                                # R10: the receipt goes to the server first, on the control socket it retained
+                                # at endorsement, with this process's kernel credentials. The server builds
+                                # the consumed record from it; the broker's copy below installs nothing.
+                                name = rec["account"]
+                                name = name if isinstance(name, bytes) else str(name).encode("ascii")
+                                receipt = (e1r8._put_header(30, 316 + len(name), t) + ref + record +
+                                           struct.pack("<I", len(name)) + name)
+                                # Lab negative only (this script is the lab verifier): withhold the receipt
+                                # to show that the broker's copy alone gets no token.
+                                require(os.environ.get("WEX_E1S6_LAB_NO_RECEIPT") == "1" or
+                                        self.control.sendmsg([receipt], [(
+                                    socket.SOL_SOCKET, socket.SCM_CREDENTIALS,
+                                    struct.pack("3i", os.getpid(), os.getuid(), os.getgid()))]) == len(receipt),
+                                    "receipt-send")
                                 self.data.send(e1r8._put_header(29, 296, t) + record)
                                 print("E1R8_REDEEMED request=%x" % rid, flush=True)
                             else:

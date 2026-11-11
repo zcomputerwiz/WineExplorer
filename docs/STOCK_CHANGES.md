@@ -1,5 +1,19 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e R10: the verifier's receipt installs the consumed record (lab only, 2026-11-10)
+
+Only with `WEX_E1S6_TRANSPORT_TEST` (and Linux); no protocol change. `server/named_pipe.c`:
+`get_pipe_caller_binding` op 4 (12-byte payload: `E1R8`, version 1, op 4, the broker's S10 context handle),
+once per binding, from the verified broker without a thread token. `install_verifier_receipt` reads one
+packet without blocking from the control socket retained at endorsement (`e1s6_control_fd`), requires
+SCM_CREDENTIALS of the root peer pinned on that socket, and accepts only RECEIPT (E1R8 type 30: R8 header,
+evidence reference, the 220-byte evidence record, canonical account name) whose every field matches the
+tuple sealed at ENDORSE_DIALOG and the binding's generations. It builds the kind 4 input from the sealed
+tuple and the receipt and calls the existing `token_install_e1s_consumed` with the retained opener process
+and token; the validator requires the verifier's pin alive and unchanged map, root and policy generations.
+Any failure burns the context. `server/token.c` is unchanged; `WEX_TOKEN_TEST_INSTALL` stays for the S10
+harness only.
+
 ## E1-S18e R8: BINDING host uid and the corrected dialog desktop rule (lab only, 2026-11-10)
 
 Only with `WEX_E1S6_TRANSPORT_TEST`. `server/named_pipe.c`: the BINDING reply grows to 132 bytes with the

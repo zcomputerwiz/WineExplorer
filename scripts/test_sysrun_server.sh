@@ -1495,7 +1495,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
 
         # R8 steps 5-8 and the launch: the first failing milestone is reported with the log
         for m in 'r8: delegated' 'r8: ready sent' 'r8: result sent' 'r8: confirm ok' 'r8: redeemed' 'r8: done sent' \
-                 'r8: consumed record installed' 'r8: launched'; do
+                 'wex-r8: receipt installed' 'r8: receipt installed' 'r8: launched'; do
             grep -q "$m" <<<"$wine_new_log" || { echo "$wine_new_log" | grep -E 'r8: |E1S6_|err:|fixme:wex' | tail -40 >&2
                 echo "$e1s6_new_log" | tail -20 >&2; fail "r8_e2e_elevated_$arch: '$m' missing"; }
         done
@@ -1651,6 +1651,26 @@ EOF
     sleep 1.5   # the password is with the worker; its answer is held back until about 4 s
     r8_neg_end r8_dialog_killed_no_launch
     ok r8_dialog_killed_no_launch
+
+    # Negative (R10): the verifier authenticates and hands the evidence to the broker but sends the server no
+    # receipt. The broker's copy alone gets no token: the server refuses and nothing starts.
+    e1s6_stop
+    WEX_E1S6_LAB_NO_RECEIPT=1 e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+    r8_neg_start "$R8PW" r8_no_receipt_no_token
+    for _ in $(seq 1 300); do
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        grep -qE 'r8: launched|r8: .* failed' <<<"$wine_new_log" && break
+        sleep 0.1
+    done
+    wait "$PROBE_PID" 2>/dev/null || true
+    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+    grep -q 'E1R8_REDEEMED' <<<"$e1s6_new_log" && grep -q 'r8: redeemed' <<<"$wine_new_log" ||
+        { grep 'r8: ' <<<"$wine_new_log" >&2; fail "r8_no_receipt_no_token: the broker did not get its evidence copy"; }
+    grep -q 'site=receipt-receive' <<<"$wine_new_log" || { grep -E 'r8: |receipt' <<<"$wine_new_log" >&2; fail "r8_no_receipt_no_token: the server did not refuse for the missing receipt"; }
+    grep -q 'r8: issue_token failed' <<<"$wine_new_log" || fail "r8_no_receipt_no_token: token issue did not fail"
+    ! grep -qE 'receipt installed|r8: launched' <<<"$wine_new_log" || fail "r8_no_receipt_no_token: a record was installed or a program launched"
+    [ ! -e "$EL/r8_neg_res.txt" ] || fail "r8_no_receipt_no_token: a program started"
+    ok r8_no_receipt_no_token
 
     # Negative test: with verifier stopped, request is denied and no consent created
     e1s6_stop
