@@ -30,6 +30,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(consent);
 #include "../wexelevate/cred_dialog.c"
 #ifdef WEXELEVATE_E1S18
 #include "../wexelevate/e1r8_codec.h"
+#include "e1s6_protocol.h"
 #endif
 
 #ifndef ARRAY_SIZE
@@ -77,6 +78,7 @@ struct consent_data
     struct e1r8_tuple r8_tuple;
     BOOL r8_select_ok;
     BOOL r8_attach_ok;
+    char r8_owner[256];        /* the verifier's unique bus name from INIT */
 #endif
 };
 
@@ -235,6 +237,100 @@ static BOOL r8_read_init(HANDLE in_pipe, uint8_t *buf, size_t buf_size, size_t *
     if (!r8_read_exact(in_pipe, buf + E1R8_HEADER_SIZE, total - E1R8_HEADER_SIZE)) return FALSE;
     *out_len = total;
     return TRUE;
+}
+
+/* One B->D frame whose total length is minimum..maximum (header first, then the rest). */
+static BOOL r8_read_frame(HANDLE in_pipe, uint8_t *buf, uint32_t minimum, uint32_t maximum, size_t *out_len)
+{
+    uint32_t total;
+
+    if (!r8_read_exact(in_pipe, buf, E1R8_HEADER_SIZE)) return FALSE;
+    total = e1r8_get_u32(buf + 8);
+    if (total < minimum || total > maximum) return FALSE;
+    if (!r8_read_exact(in_pipe, buf + E1R8_HEADER_SIZE, total - E1R8_HEADER_SIZE)) return FALSE;
+    *out_len = total;
+    return TRUE;
+}
+
+typedef DWORD (WINAPI *r8_pfn_transport)(HANDLE, DWORD, void *, DWORD, UINT64 *);
+
+#define R8_AUTH_OK       0   /* authenticated, confirmed, the broker said DONE completed */
+#define R8_AUTH_REFUSED  1   /* the verifier refused the account or the password */
+#define R8_AUTH_FAILED   2   /* anything else: nothing was approved */
+
+/* R8 steps 5-8 (docs/E1_S18E_R8_SPEC.md section 7), after ATTACH_OK: attach to the verifier on this
+ * process's own bus connection, acknowledge to the worker, wait for the broker's READY and the worker's
+ * prompt, send the password to the worker only, then take the broker's RESULT, confirm it and wait for DONE.
+ * The password never goes to the broker or onto a pipe. */
+static int r8_authenticate(struct consent_data *data, const WCHAR *password)
+{
+    HMODULE wexhost = GetModuleHandleW(L"wexhost.dll");
+    r8_pfn_transport transport;
+    uint8_t buf[512], tail[E1R8_TAIL_SIZE], frame[264];
+    uint8_t utf8[4096], *secret = NULL;
+    struct e1r8_result result;
+    struct e1r8_done done;
+    UINT64 channel = 0;
+    DWORD written = 0;
+    size_t len = 0;
+    int pw_len, ret = R8_AUTH_FAILED;
+
+    if (!wexhost) wexhost = LoadLibraryW(L"wexhost.dll");
+    transport = wexhost ? (r8_pfn_transport)(void *)GetProcAddress(wexhost, "WexE1s6Transport") : NULL;
+    if (!transport) return R8_AUTH_FAILED;
+
+    /* Strict conversion; an empty, over-long or invalid password is refused here, never truncated. */
+    pw_len = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, password, lstrlenW(password),
+                                 (char *)utf8, sizeof(utf8), NULL, NULL);
+    if (pw_len < 1) goto done;
+
+    memset(buf, 0, sizeof(buf));
+    lstrcpynA((char *)buf, data->r8_owner, 256);
+    e1r8_put_u64(buf + 256, data->r8_tuple.request_id);
+    e1r8_put_u32(buf + 264, data->r8_tuple.attempt);
+    memcpy(buf + 268, data->r8_tuple.nonce, 32);
+    memcpy(buf + 300, data->r8_tuple.channel_id, 16);
+    memcpy(buf + 316, data->r8_tuple.dialog_id, 16);
+    if (e1r8_encode_attach_ack(buf + 332, 76, &data->r8_tuple) ||
+        e1r8_encode_tuple_tail(tail, sizeof(tail), &data->r8_tuple)) goto done;
+    if (transport(NULL, E1S6_DLG_ATTACH, buf, sizeof(buf), &channel)) goto done;
+    /* The verifier's tuple must be this dialog's own. */
+    if (memcmp(buf, tail, sizeof(tail))) goto done;
+
+    if (!r8_read_exact(data->in_pipe, frame, 76) || e1r8_decode_ready(frame, 76, &data->r8_tuple)) goto done;
+
+    memset(buf, 0, sizeof(buf));
+    e1r8_put_u32(buf, 30000);
+    if (transport(NULL, E1S6_DLG_PROMPT, buf, sizeof(buf), &channel) ||
+        e1r8_decode_s7_prompt(buf, E1R8_S7_PROMPT_SIZE, &data->r8_tuple)) goto done;
+
+    if (!(secret = malloc(E1R8_S1_RECORD_SIZE + pw_len))) goto done;
+    if (e1r8_encode_secret_answer(secret, E1R8_S1_RECORD_SIZE + pw_len, &data->r8_tuple, 0, utf8, pw_len) ||
+        transport(NULL, E1S6_DLG_ANSWER, secret, E1R8_S1_RECORD_SIZE + pw_len, &channel)) goto done;
+
+    if (!r8_read_frame(data->in_pipe, buf, 116, 179, &len) ||
+        e1r8_decode_result(buf, len, &data->r8_tuple, &result)) goto done;
+    if (result.status == E1R8_RESULT_AUTHENTICATED)
+    {
+        /* The OK click that sent the password is the confirmation of this one request. */
+        if (e1r8_encode_answer(frame, sizeof(frame), &data->r8_tuple, result.challenge,
+                               E1R8_S1_ANSWER_CONFIRM, 2, 0, 0) ||
+            !WriteFile(data->out_pipe, frame, sizeof(frame), &written, NULL) || written != sizeof(frame)) goto done;
+        FlushFileBuffers(data->out_pipe);
+        ret = R8_AUTH_OK;
+    }
+    else ret = R8_AUTH_REFUSED;
+    if (!r8_read_exact(data->in_pipe, frame, 80) || e1r8_decode_done(frame, 80, &data->r8_tuple, &done) ||
+        (ret == R8_AUTH_OK && done.status != E1R8_DONE_COMPLETED))
+        ret = ret == R8_AUTH_REFUSED ? R8_AUTH_REFUSED : R8_AUTH_FAILED;
+done:
+    if (secret) { wex_secure_wipe(secret, E1R8_S1_RECORD_SIZE + pw_len); free(secret); }
+    wex_secure_wipe(utf8, sizeof(utf8));
+    wex_secure_wipe(buf, sizeof(buf));
+    wex_secure_wipe(frame, sizeof(frame));
+    channel = 0;
+    transport(NULL, E1S6_DLG_CLOSE, NULL, 0, &channel);
+    return ret;
 }
 #endif
 
@@ -800,9 +896,12 @@ static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
 #endif
 
 #ifdef WEXELEVATE_E1S18
-        /* WO-28: enable the account field only after SELECT_OK; keep the password field disabled */
+        /* WO-28: enable the account field only after SELECT_OK. The password is typed before OK (one
+         * click, as on Windows) and stays in this process until the worker's prompt has arrived from the
+         * pinned worker; it is sent to the worker only (spec deviation: the field is not held disabled
+         * until READY). */
         EnableWindow(GetDlgItem(hwnd, IDC_UAC_ACCOUNT), data->r8_select_ok ? TRUE : FALSE);
-        EnableWindow(GetDlgItem(hwnd, IDC_UAC_PASSWORD), FALSE);
+        EnableWindow(GetDlgItem(hwnd, IDC_UAC_PASSWORD), data->r8_select_ok ? TRUE : FALSE);
 #endif
 
         SetFocus(GetDlgItem(hwnd, IDC_UAC_ACCOUNT));
@@ -880,6 +979,32 @@ static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
                     return TRUE;
                 }
                 data->r8_attach_ok = TRUE;
+            }
+            {
+                /* The verifier checks the password; the dialog waits for its answer (a few seconds). */
+                HCURSOR old = SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_WAIT));
+                int auth;
+
+                EnableWindow(GetDlgItem(hwnd, IDYES), FALSE);
+                EnableWindow(GetDlgItem(hwnd, IDNO), FALSE);
+                auth = r8_authenticate(data, data->password);
+                wex_secure_wipe(data->password, sizeof(data->password));
+                SetDlgItemTextW(hwnd, IDC_UAC_PASSWORD, L"");
+                SetCursor(old);
+                if (auth != R8_AUTH_OK)
+                {
+                    /* One attempt per dialog: the broker has ended this request. */
+                    MessageBoxW(hwnd, auth == R8_AUTH_REFUSED
+                                ? L"The user name or password is incorrect. Nothing was started."
+                                : L"The administrator's credentials could not be verified. Nothing was started.",
+                                L"User Account Control", MB_OK | MB_ICONERROR);
+                    data->confirmed = FALSE;
+                    EndDialog(hwnd, IDNO);
+                    return TRUE;
+                }
+                data->confirmed = TRUE;
+                EndDialog(hwnd, IDYES);
+                return TRUE;
             }
 #endif
 
@@ -1025,6 +1150,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
             memcpy(data.request_digest, init.tuple.request_digest, 32);
             data.attempt = 1;
             memcpy(&data.r8_tuple, &init.tuple, sizeof(data.r8_tuple));
+            if (init.verifier_owner_len >= sizeof(data.r8_owner)) return ERROR_NOT_SUPPORTED;
+            memcpy(data.r8_owner, init.verifier_owner, init.verifier_owner_len);
+            data.r8_owner[init.verifier_owner_len] = 0;
 
             if (e1r8_encode_ack(ack_buf, sizeof(ack_buf), &init.tuple) != 0 ||
                 !WriteFile(data.out_pipe, ack_buf, sizeof(ack_buf), &written, NULL) ||
@@ -1055,13 +1183,17 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
             {
                 HKEY hkey;
                 char auto_acct[128] = {0};
+                WCHAR auto_pw[128] = {0};
                 if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "Software\\WineExplorer\\ElevationTest", 0, KEY_READ, &hkey) == ERROR_SUCCESS)
                 {
                     DWORD type = 0, sz = sizeof(auto_acct);
-                    if (RegQueryValueExA(hkey, "R8AutoSelect", NULL, &type, (BYTE *)auto_acct, &sz) == ERROR_SUCCESS && type == REG_SZ)
-                    {
-                        /* auto_acct contains selected account */
-                    }
+                    if (RegQueryValueExA(hkey, "R8AutoSelect", NULL, &type, (BYTE *)auto_acct, &sz) != ERROR_SUCCESS || type != REG_SZ)
+                        auto_acct[0] = 0;
+                    auto_acct[sizeof(auto_acct) - 1] = 0;
+                    /* Same lab hook: R8AutoPassword is typed for a throwaway fixture account. */
+                    sz = sizeof(auto_pw) - sizeof(WCHAR);
+                    if (RegQueryValueExW(hkey, L"R8AutoPassword", NULL, &type, (BYTE *)auto_pw, &sz) != ERROR_SUCCESS || type != REG_SZ)
+                        auto_pw[0] = 0;
                     RegCloseKey(hkey);
                 }
 
@@ -1090,6 +1222,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
                         return ERROR_NOT_SUPPORTED;
                     }
                     data.r8_attach_ok = TRUE;
+                    if (auto_pw[0])
+                    {
+                        /* Headless lab run: the whole conversation without a window. */
+                        int auth = r8_authenticate(&data, auto_pw);
+                        wex_secure_wipe(auto_pw, sizeof(auto_pw));
+                        return auth == R8_AUTH_OK ? ERROR_SUCCESS : auth == R8_AUTH_REFUSED ? ERROR_LOGON_FAILURE : ERROR_CANCELLED;
+                    }
                 }
             }
         }

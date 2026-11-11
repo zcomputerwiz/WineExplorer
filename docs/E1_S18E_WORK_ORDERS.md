@@ -997,3 +997,84 @@ accounts.map through the Z: drive (must become a server lookup before leaving th
 verifier sends WORKER_READY when W is spawned, without an acknowledgement that W accepted W_SETUP; D blocks its
 dialog thread while it waits for ATTACH_OK; an ENDORSED for a dialog that already died drops the whole S6
 session (`endorsed-dialog-alive`).
+
+## WO-29 R8 steps 5-8 and the launch in one push: password, result, confirm, token, profile, program (lab; Claude)
+
+Owner direction (2026-11-10): the product working end to end comes before harness work; build the rest of the
+password path in one push to a first elevated launch, then review and add negatives once on the whole chain.
+No per-step work orders, no additions to the fake-based broker test.
+
+Result (2026-11-10): **a standard user's request, with an administrator's account and password, starts the
+program under the administrator's token in Wine (lab build), for 64- and 32-bit callers.** The launched program
+reports elevation type 2 (full), integrity 12288 (high), Administrators enabled, Program Files writable and the
+administrator account's own SID as its user. Lab S6 transport suite 378 PASS (`r8_e2e_elevated_64/32`,
+`r8_wrong_password_refused`, `r8_select_unknown_account_is_decoy` now refused through the whole conversation,
+`r8_e2e_no_verifier_denied`); broker test and codec cross-check pass. The chain stays lab only and disabled.
+
+What was built:
+
+* **Dialog side** (`consent.c`, `src/dlls/wexhost/e1s6.c`; `E1S6_DLG_*` in `e1s6_protocol.h`): after ATTACH_OK
+  the dialog calls the verifier's `DialogAttach` on its own system-bus connection to the owner named in INIT,
+  takes the secret socket end and the worker's pidfd, compares the tuple tail, sends ATTACH_ACK, waits for the
+  broker's READY and the worker's 178-byte prompt (sender pid, uid and pidfd checked against the worker's pin),
+  sends the password as the S1 kind-2 record on that socket only, then takes RESULT, answers Confirm with the
+  challenge and waits for DONE. `PR_SET_DUMPABLE` 0 is set and checked before the attach. The operations ride
+  on the existing `WexE1s6Transport` export (no new export or Unix call table entry).
+* **Worker** (`tools/e1s7/pam-worker.c`, `--bootstrap`): after W_SETUP it takes the broker's START unchanged
+  (account and key), then ATTACH_ACK from the pinned dialog, W_ACK, PROMPT_RELEASE, the version 2 prompt and
+  the one answer, and continues on the existing normalized PAM path. The account's uid and map generation come
+  from the protected map itself; the selected key must be the account's current incarnation.
+* **Verifier** (`tools/e1s6/e1s6-lab.py`, `supervisor.py`): `DialogAttach` (caller must be the endorsed dialog:
+  same pid and uid on the bus, pin alive; a refused call changes nothing), W_ACK -> DELEGATED and
+  PROMPT_RELEASE, the worker's private result -> evidence record (kind 3) and RESULT, one redemption, RELEASE ->
+  RELEASED. From ENDORSED the session lives until the broker's attempt deadline instead of the 5 s setup bound.
+  The dialog's death ends its attempt until it is redeemed or refused.
+* **Broker** (`e1s18_broker.c`): DELEGATED, recheck, READY, the verifier's RESULT, the final-account check
+  (section 8), RESULT with a one-use challenge, Confirm, recheck, redemption, DONE, RELEASE; then the existing
+  stages with their real inputs: the evidence record's checks, token issue, storage query, profile load,
+  environment, suspended create, child check, lease, commit, resume. Stage tracing (`r8: <stage> failed <n>`,
+  `r8: launched`).
+* **Lab build** `scripts/lab/r8-lab-build.sh`: one lab tree with the S6, R8, S10 token and S13 profile switches
+  (the earlier R8 lab tree had no token or profile code, so nothing past the dialog could have run in it).
+
+Found on the way (each cost one run):
+
+* The launch-preparation stage was scaffolding in the real broker: fixed uid 1000, a made-up SID and profile
+  path, and a host-side routine that needs file descriptors a PE process does not have. On the live path the
+  environment is now the issued token's own block (`CreateEnvironmentBlock`), nothing from the caller.
+* The broker took the dialog's clean exit after DONE for a cancellation (the dialog can leave before the
+  writer thread returns); the pipe helper now lets the writer's own result decide.
+* The verifier must not fail a session for an ENDORSED whose deadline is out of range (a lab probe sends one):
+  it only does not extend the session.
+* After a WSL restart WSLg mounts `/tmp/.X11-unix` read-only and Xvfb cannot start: run the suite in a private
+  mount namespace with an owned directory bound over it (`unshare --mount --propagation private`).
+* A failed R8 case leaves the lab broker and consent in the build tree's normal file names; rebuild the lab
+  tree before the next run.
+
+**Lab stand-ins and deviations that must go before this leaves the lab** (none is hidden; each is marked in
+the code):
+
+1. **The broker installs its own consumed record** before token issue (`WEX_TOKEN_TEST_INSTALL`, lab servers
+   only). The server-side receipt from the verifier (R10) is not built, so today the broker vouches for itself.
+   This is the main open security item of the chain.
+2. **No product provisioning of the administrator's profile** in the requesting user's prefix: only the lab
+   tool (`tools/wex-profile` with its test switch) can create one; the test case runs it. A first elevation on
+   a real machine would stop at the storage query.
+3. **The verifier is the lab script** (`e1s6-lab.py`), with its lab bus name and policy file; no installed
+   service exists. The R8 path also bypasses `evidence.py`'s throttling and attempt accounting (the record is
+   built directly): repeated wrong passwords are limited only by PAM.
+4. Redemption uses two lab frames (types 28 and 29) with the record checked by the broker; DONE is written
+   before the launch commit; the working-directory containment rule of launch preparation is not applied on the
+   live path; the broker still reads `accounts.map` through the Z: drive.
+5. Dialog: the password field is enabled before READY (typed before the single OK click; it is sent only after
+   the worker's authenticated prompt); one attempt per dialog (a wrong password ends the request); the dialog
+   thread blocks during the check, which the worker pads to about 4 s for every outcome, success included; the
+   verifier does not watch the dialog's bus name (it watches the pin).
+6. The broker's waits on the verifier (DELEGATED, RESULT) block inside the transport call: caller death or
+   broker stop is noticed only when the verifier cancels or the deadline passes.
+7. `R8AutoPassword` (lab hook next to `R8AutoSelect`, compiled only with `WEXELEVATE_E1S18`) types a throwaway
+   fixture password for the headless run.
+
+Not done yet: review of the whole chain with the security-relevant negatives added once (attach by a foreign
+process, replayed Confirm, D or W death per state), the interactive check of the dialog in a VM, R4 rest, R5,
+R7, R14, then S19 and S20.

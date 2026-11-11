@@ -254,7 +254,27 @@ class LabTransaction:
         self.worker.close()
 
 
-def spawn_worker_bootstrap(executable_fd, audit_fd, secret_w, w_setup_bytes, d_pidfd):
+def r8_result(raw, request_id, attempt, nonce):
+    """The R8 worker's private S7 RESULT: (authenticated, key, uid, map generation).
+
+    The seed bytes are checked for presence and dropped; they never leave here.
+    """
+    if (len(raw) != RESULT_SIZE or raw[:16] != struct.pack("<8sHHI", MAGIC, 1, 5, RESULT_SIZE)
+            or struct.unpack_from("<QI", raw, 16) != (request_id, attempt) or any(raw[28:40])
+            or raw[40:72] != nonce):
+        raise ValueError("worker denied")
+    status = struct.unpack_from("<I", raw, 72)[0]
+    if status not in (0, 1) or (status and any(raw[76:])):
+        raise ValueError("worker denied")
+    if status:
+        return False, bytes(16), 0, 0
+    key, uid, generation = raw[76:92], *struct.unpack_from("<QQ", raw, 92)
+    if not any(key) or not 0 < uid < 0xffffffff or not generation or not any(raw[108:140]):
+        raise ValueError("worker denied")
+    return True, bytes(key), uid, generation
+
+
+def spawn_worker_bootstrap(executable_fd, audit_fd, secret_w, w_setup_bytes, d_pidfd, start_bytes):
     local, remote = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     proc = None
     w_pidfd = None
@@ -274,6 +294,9 @@ def spawn_worker_bootstrap(executable_fd, audit_fd, secret_w, w_setup_bytes, d_p
         sent = local.sendmsg([w_setup_bytes], ancillary)
         if sent != len(w_setup_bytes):
             raise ValueError("failed to send w_setup")
+        # The broker's START, unchanged: the selected account and its key.
+        if local.send(start_bytes) != len(start_bytes):
+            raise ValueError("failed to send start")
         return proc, local, w_pidfd, proc.pid
     except BaseException:
         if w_pidfd is not None:

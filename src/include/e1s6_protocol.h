@@ -31,6 +31,27 @@
 #define E1S6_OWNER_QUERY 11
 /* WO-28: send an R8 START (97..159 bytes) on the data socket; the buffer returns the 76-byte WORKER_READY. */
 #define E1S6_R8_START 12
+/* R8 steps 5-8 (lab). Broker side, on the open channel:
+ * RECV: the 512-byte buffer carries a timeout in milliseconds (u32) on input and one E1R8 frame from the
+ *       verifier on output (its length is the header's length field).
+ * SEND: the buffer is one E1R8 frame of exactly `size` bytes (76..512). */
+#define E1S6_R8_RECV 13
+#define E1S6_R8_SEND 14
+#define E1S6_R8_FRAME_MAX 512
+/* Dialog side (consent.exe, no S6 channel; pipe and channel are 0):
+ * ATTACH: 512-byte buffer. In: verifier owner (NUL-terminated) at 0, request_id u64 at 256, attempt u32 at
+ *         264, nonce at 268, channel_id at 300, dialog_id at 316, the 76-byte ATTACH_ACK frame at 332.
+ *         Out: the verifier's tuple tail (160) at 0, the worker's pid u32 at 160 and uid u32 at 164.
+ * PROMPT: 512-byte buffer. In: timeout in milliseconds (u32). Out: the worker's 178-byte prompt.
+ * ANSWER: the buffer is the secret S1 answer record (157..4252 bytes), sent to the worker and wiped.
+ * CLOSE:  closes the secret socket and the worker pin. */
+#define E1S6_DLG_ATTACH 20
+#define E1S6_DLG_PROMPT 21
+#define E1S6_DLG_ANSWER 22
+#define E1S6_DLG_CLOSE 23
+#define E1S6_DLG_BUFFER 512
+#define E1S6_DLG_ANSWER_MIN 157
+#define E1S6_DLG_ANSWER_MAX 4252
 
 static inline unsigned int e1s6_u32( const unsigned char *p )
 {

@@ -82,6 +82,7 @@ cleanup()
     set +e
     ! type e1s6_stop >/dev/null 2>&1 || e1s6_stop
     ! type standin_off >/dev/null 2>&1 || standin_off
+    rm -f /etc/pam.d/wex-r8-lab   # the R8 end-to-end case's own PAM service
     [ -z "$DUMPABLE_SAVED" ] || echo "$DUMPABLE_SAVED" > /proc/sys/fs/suid_dumpable
     [ -z "${LEASES_SAVED:-}" ] || echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
     kill_servers
@@ -1391,13 +1392,37 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
         '"Start"=dword:00000002' \
         '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+    # A throwaway password for the fixture's administrator (the account is deleted with the fixture) and the
+    # case's own PAM service; the lab dialog types the password through its R8AutoPassword hook.
+    R8PW="r8$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    echo "$ADM:$R8PW" | chpasswd
+    printf 'auth required pam_unix.so\naccount required pam_unix.so\n' > /etc/pam.d/wex-r8-lab
+    chown root:root /etc/pam.d/wex-r8-lab; chmod 0644 /etc/pam.d/wex-r8-lab
     reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
-        '"R8AutoSelect"="'"$ADM"'"'
+        '"R8AutoSelect"="'"$ADM"'"' \
+        '"R8AutoPassword"="'"$R8PW"'"'
+
+    # The administrator's managed profile in the standard user's prefix (S12 storage). Only the lab
+    # provisioner can create one today; the product has no first-use provisioning yet.
+    gcc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST -o "$ROOT/wex-profile-r8" "$SRC/tools/wex-profile/wex-profile.c"
+    printf '%s\n' 'WINE REGISTRY Version 2' '' \
+        '[Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced] 0' \
+        '"HideFileExt"=dword:00000000' > "$ROOT/r8-seed.reg"
+    chmod 0644 "$ROOT/r8-seed.reg"
+    el_down "$STD"
+    r8_gen=$(awk 'NR == 1 {print $3}' /etc/wineexplorer/accounts.map)
+    read -r r8_key r8_a r8_b r8_c r8_rid <<<"$(awk -v name="$ADM" '$1 == name && $4 == "active" {print $3, $6, $7, $8, $9}' /etc/wineexplorer/accounts.map)"
+    [[ "$r8_key" =~ ^[0-9a-f]{32}$ && -n "$r8_rid" && "$r8_gen" =~ ^[1-9][0-9]*$ ]] || fail "r8_e2e: no map identity for $ADM"
+    rm -rf "/home/$STD/.wine/drive_c/users/.e1s"
+    "$ROOT/wex-profile-r8" "/home/$STD/.wine" "$ROOT/r8-seed.reg" "$(id -u "$STD")" "$(id -g "$STD")" \
+        "$ADM" "$r8_key" "$r8_a" "$r8_b" "$r8_c" "$r8_rid" "$r8_gen" > "$ROOT/r8-profile.log" 2>&1 ||
+        { cat "$ROOT/r8-profile.log" >&2; fail "r8_e2e: profile provisioning"; }
 
     # the password worker and its supervisor, next to the verifier (removed again at the end of this case)
     install -o root -g root -m 0644 "$SRC/tools/e1s7/supervisor.py" "$LIBEXEC/"
     install -o root -g root -m 0600 /dev/null "$LIBEXEC/pam-audit.log"
-    cc -O2 -Wall -Wextra -Werror -DWEX_E1S7_LAB -o "$LIBEXEC/pam-worker" "$SRC/tools/e1s7/pam-worker.c" -lpam -lrt
+    cc -O2 -Wall -Wextra -Werror -DWEX_E1S7_LAB '-DWEX_E1S7_PAM_SERVICE="wex-r8-lab"' \
+        -o "$LIBEXEC/pam-worker" "$SRC/tools/e1s7/pam-worker.c" -lpam -lrt
     chown root:root "$LIBEXEC/pam-worker"; chmod 0755 "$LIBEXEC/pam-worker"
 
     # Restart verifier so it opens pam_exe and pam_audit
@@ -1435,12 +1460,14 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         el_up "$STD"
 
         wine_as "$STD" "$ROOT/probes/wexelevate_probe$arch.exe" runinteractive \
-            "$(winpath /home/$STD/wexel/p$arch.exe)" 1223 "$(winpath "$EL/r8_e2e_res_${arch}.txt")" - >/dev/null 2>&1 &
+            "$(winpath /home/$STD/wexel/p$arch.exe)" 0 "$(winpath "$EL/r8_e2e_res_${arch}.txt")" - \
+            >"$ROOT/r8_e2e_probe_$arch.log" 2>&1 &
         PROBE_PID=$!
 
-        for _ in $(seq 1 150); do
+        # the whole chain: dialog, password check (padded to about 4 s), token, profile, launch
+        for _ in $(seq 1 450); do
             wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-            grep -q 'r8: attach_ok sent' <<<"$wine_new_log" && break
+            grep -qE 'r8: launched|r8: .* failed' <<<"$wine_new_log" && break
             sleep 0.1
         done
 
@@ -1464,12 +1491,48 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         grep -q "^E1R8_ENDORSED ok .*pid=$consent_unix_pid\$" <<<"$e1s6_new_log" || fail "r8_e2e_attach_ok_$arch: E1R8_ENDORSED ok pid mismatch"
         grep -q "E1R8_WORKER_READY request=" <<<"$e1s6_new_log" || fail "r8_e2e_attach_ok_$arch: E1R8_WORKER_READY missing in verifier log"
         grep -q 'r8: account known' <<<"$wine_new_log" || fail "r8_e2e_attach_ok_$arch: the administrator account was not resolved (decoy key)"
-
-        pkill -f consent 2>/dev/null || true
-        wait "$PROBE_PID" 2>/dev/null || true
-
         ok "r8_e2e_attach_ok_$arch"
+
+        # R8 steps 5-8 and the launch: the first failing milestone is reported with the log
+        for m in 'r8: delegated' 'r8: ready sent' 'r8: result sent' 'r8: confirm ok' 'r8: redeemed' 'r8: done sent' \
+                 'r8: consumed record installed' 'r8: launched'; do
+            grep -q "$m" <<<"$wine_new_log" || { echo "$wine_new_log" | grep -E 'r8: |E1S6_|err:|fixme:wex' | tail -40 >&2
+                echo "$e1s6_new_log" | tail -20 >&2; fail "r8_e2e_elevated_$arch: '$m' missing"; }
+        done
+        grep -q 'E1R8_RESULT request=.* authenticated=1' <<<"$e1s6_new_log" || fail "r8_e2e_elevated_$arch: no authenticated result at the verifier"
+        wait "$PROBE_PID" 2>/dev/null || true
+        [ "$(el_fact "$EL/r8_e2e_res_${arch}.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r8_e2e_res_${arch}.txt" integrity)" = 12288 ] ||
+            { cat "$EL/r8_e2e_res_${arch}.txt" "$ROOT/r8_e2e_probe_$arch.log" >&2; fail "r8_e2e_elevated_$arch: the program did not run elevated"; }
+        [ "$(el_fact "$EL/r8_e2e_res_${arch}.txt" user)" = "S-1-5-21-$r8_a-$r8_b-$r8_c-$r8_rid" ] ||
+            { cat "$EL/r8_e2e_res_${arch}.txt" >&2; fail "r8_e2e_elevated_$arch: the program does not run as the administrator account"; }
+        ! pgrep -f 'system32.consent[.]exe' >/dev/null || fail "r8_e2e_elevated_$arch: the dialog is still running"
+        ok "r8_e2e_elevated_$arch"
     done
+
+    # Negative: the right account with a wrong password is refused and nothing starts
+    el_down "$STD"
+    el_clean
+    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
+        '"EnableStandardUserElevation"=dword:00000001'
+    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+        '"Start"=dword:00000002' \
+        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+        '"R8AutoSelect"="'"$ADM"'"' \
+        '"R8AutoPassword"="not-'"$R8PW"'"'
+    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+    el_up "$STD"
+    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+        "$(winpath /home/$STD/wexel/p64.exe)" 1326 "$(winpath "$EL/r8_e2e_res_wrongpw.txt")" - >/dev/null 2>&1 || true
+    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+    grep -q 'r8: result refused' <<<"$wine_new_log" || { echo "$wine_new_log" | grep 'r8: ' >&2; fail "r8_wrong_password_refused: no refusal"; }
+    grep -q 'E1R8_RESULT request=.* authenticated=0' <<<"$e1s6_new_log" || fail "r8_wrong_password_refused: the verifier did not refuse"
+    ! grep -qE 'r8: redeemed|r8: launched|E1R8_REDEEMED' <<<"$wine_new_log$e1s6_new_log" || fail "r8_wrong_password_refused: evidence or a launch after a refusal"
+    [ ! -e "$EL/r8_e2e_res_wrongpw.txt" ] || fail "r8_wrong_password_refused: a program started"
+    ok r8_wrong_password_refused
 
     # Negative test 2: unknown account name still yields WORKER_READY with a decoy (zero key) and no evidence
     el_down "$STD"
@@ -1481,25 +1544,22 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         '"Start"=dword:00000002' \
         '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
     reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
-        '"R8AutoSelect"="decoyuser"'
+        '"R8AutoSelect"="decoyuser"' \
+        '"R8AutoPassword"="'"$R8PW"'"'
     e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
     wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
     el_up "$STD"
+    # an unknown name gets the same conversation and the same refusal as a wrong password
     wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-        "$(winpath /home/$STD/wexel/p64.exe)" 1223 "$(winpath "$EL/r8_e2e_res_decoy.txt")" - >/dev/null 2>&1 &
-    PROBE_PID=$!
-    for _ in $(seq 1 150); do
-        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-        grep -q 'r8: attach_ok sent' <<<"$wine_new_log" && break
-        sleep 0.1
-    done
+        "$(winpath /home/$STD/wexel/p64.exe)" 1326 "$(winpath "$EL/r8_e2e_res_decoy.txt")" - >/dev/null 2>&1 || true
     wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
     e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
     grep -q 'r8: attach_ok sent' <<<"$wine_new_log" || fail "r8_select_unknown_account_is_decoy: attach_ok sent missing"
     grep -q 'E1R8_WORKER_READY' <<<"$e1s6_new_log" || fail "r8_select_unknown_account_is_decoy: E1R8_WORKER_READY missing"
     grep -q 'r8: account decoy' <<<"$wine_new_log" || fail "r8_select_unknown_account_is_decoy: the unknown account did not get the zero key"
-    pkill -f consent 2>/dev/null || true
-    wait "$PROBE_PID" 2>/dev/null || true
+    grep -q 'r8: result refused' <<<"$wine_new_log" || fail "r8_select_unknown_account_is_decoy: the decoy was not refused"
+    ! grep -qE 'r8: redeemed|r8: launched|E1R8_REDEEMED' <<<"$wine_new_log$e1s6_new_log" || fail "r8_select_unknown_account_is_decoy: evidence or a launch for a decoy"
+    [ ! -e "$EL/r8_e2e_res_decoy.txt" ] || fail "r8_select_unknown_account_is_decoy: a program started"
     ok r8_select_unknown_account_is_decoy
 
     # Negative test: with verifier stopped, request is denied and no consent created
@@ -1517,7 +1577,8 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     ok r8_e2e_no_verifier_denied
     # the later lab cases need the verifier again, without the worker this case installed (only its own files
     # are removed: the launcher and the verifier live in the same directory)
-    rm -f "$LIBEXEC/supervisor.py" "$LIBEXEC/pam-worker" "$LIBEXEC/pam-audit.log"
+    rm -f "$LIBEXEC/supervisor.py" "$LIBEXEC/pam-worker" "$LIBEXEC/pam-audit.log" /etc/pam.d/wex-r8-lab
+    passwd -l "$ADM" >/dev/null   # the throwaway password is gone with the case
     e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
 
     # Restore fixture state
@@ -1540,6 +1601,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     rm -rf "$ROOT/r8e2e-saved"
     # the standard user's interactive processes keep WinSta0 alive; later cases run without it
     pkill -u "$STD" 2>/dev/null || true
+    rm -rf "/home/$STD/.wine/drive_c/users/.e1s" "$ROOT/wex-profile-r8" "$ROOT/r8-seed.reg"
     sleep 2
     el_up "$ADM"
     }

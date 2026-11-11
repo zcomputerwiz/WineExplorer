@@ -1188,6 +1188,127 @@ static DWORD WINAPI r8_attach_worker_thread( void *param )
     return 0;
 }
 
+/* R8 steps 5-8 (lab): one pipe transfer to or from D in a worker, so the wait can also see D, the caller,
+ * broker stop and a lease break. A read takes one frame of minimum..maximum bytes. */
+struct r8_io_ctx
+{
+    HANDLE pipe;
+    BOOL write;
+    uint32_t minimum, maximum;
+    size_t len;
+    int ok;
+    uint8_t buf[512];
+};
+
+static DWORD WINAPI r8_io_thread( void *param )
+{
+    struct r8_io_ctx *io = param;
+    size_t off = 0, want = io->write ? io->len : E1R8_HEADER_SIZE;
+    DWORD got;
+
+    while (off < want)
+    {
+        if (io->write ? !WriteFile( io->pipe, io->buf + off, (DWORD)(want - off), &got, NULL )
+                      : !ReadFile( io->pipe, io->buf + off, (DWORD)(want - off), &got, NULL )) return 0;
+        if (!got) return 0;
+        off += got;
+        if (!io->write && off == E1R8_HEADER_SIZE && want == E1R8_HEADER_SIZE)
+        {
+            uint32_t total = e1r8_get_u32( io->buf + 8 );
+            if (total < io->minimum || total > io->maximum || total > sizeof(io->buf)) return 0;
+            want = total;
+        }
+    }
+    io->len = off;
+    io->ok = 1;
+    return 0;
+}
+
+/* Milliseconds left until the attempt's admission deadline (0 when it has passed or the clock fails). */
+static DWORD r8_remaining( const struct request *req )
+{
+    uint64_t now = e1s18_get_monotonic_time(), deadline = E1S18_DEADLINE( req );
+    if (!now || deadline <= now) return 0;
+    return (deadline - now) / 1000000 > 130000 ? 130000 : (DWORD)((deadline - now) / 1000000);
+}
+
+static DWORD r8_left( ULONGLONG start, DWORD timeout )
+{
+    ULONGLONG elapsed = GetTickCount64() - start;
+    return elapsed >= timeout ? 0 : (DWORD)(timeout - elapsed);
+}
+
+/* On failure D has been terminated when the worker had to be stopped; *stuck is set when the worker could
+ * not be joined (its context and the pipe handles are then kept, as in the INIT/ACK exchange). */
+static DWORD r8_pipe_transfer( struct request *req, HANDLE process, HANDLE pipe, BOOL write,
+                               uint8_t *data, size_t *len, uint32_t minimum, uint32_t maximum,
+                               ULONGLONG start, DWORD timeout, BOOL *stuck )
+{
+    struct r8_io_ctx *io;
+    HANDLE thread, handles[5];
+    DWORD ret;
+
+    if (write && *len > sizeof(io->buf)) return ERROR_INVALID_PARAMETER;
+    if (!(io = calloc( 1, sizeof(*io) ))) return ERROR_NOT_ENOUGH_MEMORY;
+    io->pipe = pipe; io->write = write; io->minimum = minimum; io->maximum = maximum;
+    if (write) { memcpy( io->buf, data, *len ); io->len = *len; }
+    if (!(thread = CreateThread( NULL, 0, r8_io_thread, io, 0, NULL ))) { free( io ); return ERROR_NOT_ENOUGH_MEMORY; }
+    handles[0] = thread; handles[1] = process; handles[2] = req->caller;
+    handles[3] = stop_event; handles[4] = req->lease_event;
+    ret = WaitForMultipleObjects( 5, handles, FALSE, r8_left( start, timeout ) );
+    /* D may leave the moment it has read its last frame (DONE), before the worker thread has returned: D's
+     * exit breaks the pipe, so the worker ends at once either way and its own result decides. */
+    if (ret == WAIT_OBJECT_0 + 1 && WaitForSingleObject( thread, 5000 ) == WAIT_OBJECT_0) ret = WAIT_OBJECT_0;
+    if (ret != WAIT_OBJECT_0 || !io->ok)
+    {
+        BOOL joined = ret == WAIT_OBJECT_0 || r8_stop_worker( thread, process );
+        if (joined) { CloseHandle( thread ); e1s18_wipe( io, sizeof(*io) ); free( io ); }
+        else *stuck = TRUE;
+        return ret == WAIT_TIMEOUT ? ERROR_TIMEOUT : ret == WAIT_OBJECT_0 + 4 ? ERROR_FILE_CORRUPT : ERROR_CANCELLED;
+    }
+    if (!write) { memcpy( data, io->buf, io->len ); *len = io->len; }
+    CloseHandle( thread );
+    e1s18_wipe( io, sizeof(*io) );
+    free( io );
+    return ERROR_SUCCESS;
+}
+
+/* One E1R8 frame to or from the verifier on the attempt's open S6 channel. */
+typedef DWORD (WINAPI *r8_pfn_transport)( HANDLE, DWORD, void *, DWORD, UINT64 * );
+
+static r8_pfn_transport r8_transport( void )
+{
+    HMODULE wexhost = GetModuleHandleW( L"wexhost.dll" );
+    if (!wexhost) wexhost = LoadLibraryW( L"wexhost.dll" );
+    return wexhost ? (r8_pfn_transport)(void *)GetProcAddress( wexhost, "WexE1s6Transport" ) : NULL;
+}
+
+static DWORD r8_v_send( struct request *req, uint8_t *frame, size_t len )
+{
+    r8_pfn_transport transport = r8_transport();
+    UINT64 channel = s_r8_channel;
+    if (!transport || !channel) return ERROR_NOT_SUPPORTED;
+    return transport( req->pipe, E1S6_R8_SEND, frame, (DWORD)len, &channel );
+}
+
+static DWORD r8_v_recv( struct request *req, uint8_t frame[E1S6_R8_FRAME_MAX], size_t *len, DWORD timeout )
+{
+    r8_pfn_transport transport = r8_transport();
+    UINT64 channel = s_r8_channel;
+    DWORD err;
+    if (!transport || !channel) return ERROR_NOT_SUPPORTED;
+    memset( frame, 0, E1S6_R8_FRAME_MAX );
+    e1r8_put_u32( frame, timeout > 130000 ? 130000 : timeout );
+    if ((err = transport( req->pipe, E1S6_R8_RECV, frame, E1S6_R8_FRAME_MAX, &channel ))) return err;
+    *len = e1r8_get_u32( frame + 8 );
+    return ERROR_SUCCESS;
+}
+
+/* The evidence record the verifier handed over at redemption inside the dialog step; consumed once by the
+ * Stage 2 check (default_redeem_evidence). */
+static uint8_t s_r8_evidence[220], s_r8_evidence_ref[16];
+static BOOL s_r8_evidence_set;
+
 static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id,
                                          const uint8_t nonce[32],
                                          const uint8_t binding_digest[32],
@@ -1204,13 +1325,11 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE }; /* non-inheritable by default */
     SIZE_T attr_size = 0;
     HANDLE inherit_handles[2];
-    DWORD ret, code, len;
+    DWORD ret, len;
     size_t cmd_size;
-    uint8_t answer_buf[WEX_S1_ANSWER_LENGTH];
     uint8_t init_buf[2067];
     uint8_t pre_tuple[E1R8_PRE_ENDORSEMENT_SIZE];
     uint8_t dialog_id[16];
-    DWORD read_bytes = 0;
     DWORD err = ERROR_SUCCESS;
     int i;
     WCHAR token_hex[33];
@@ -1704,85 +1823,148 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         free( ac );
 
         r8_trace_line( "r8: attach_ok sent" );
+
+        /* R8 steps 5-8 (docs/E1_S18E_R8_SPEC.md sections 7-9, lab). From here every failure ends D. The
+         * password never passes through this process: it goes from D to the worker on their own socket. */
+        {
+            uint8_t frame[E1S6_R8_FRAME_MAX], out[264], challenge[32], fresh_key[16], ref[16];
+            static const uint8_t zero32[32];
+            struct e1r8_result_v vres;
+            struct e1r8_answer ans;
+            size_t flen = 0;
+            /* These steps run on the attempt's admission deadline, not the click-consent timeout: the
+             * password check alone is padded to several seconds. */
+            ULONGLONG r8_start = GetTickCount64();
+            DWORD r8_timeout = r8_remaining( req );
+            BOOL stuck = FALSE, refused = FALSE;
+            const char *step;
+
+            err = ERROR_ACCESS_DENIED;
+
+            /* DELEGATED: the endorsed dialog attached and the worker acknowledged it. */
+            step = "delegated";
+            if (r8_v_recv( req, frame, &flen, r8_left( r8_start, r8_timeout ) ) ||
+                e1r8_decode_delegated( frame, flen, &tuple )) goto r8_fail;
+            r8_trace_line( "r8: delegated" );
+
+            /* READY after a server recheck of D. */
+            step = "ready";
+            if (!ops->r8_recheck || ops->r8_recheck( req, tuple.dialog_id )) goto r8_fail;
+            flen = 76;
+            if (e1r8_encode_ready( out, 76, &tuple )) goto r8_fail;
+            if ((err = r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck )))
+                goto r8_fail;
+            err = ERROR_ACCESS_DENIED;
+            r8_trace_line( "r8: ready sent" );
+
+            /* The verifier's RESULT after the worker's PAM conversation. */
+            step = "verifier result";
+            if (r8_v_recv( req, frame, &flen, r8_left( r8_start, r8_timeout ) ) ||
+                e1r8_decode_result_v( frame, flen, &tuple, &vres )) goto r8_fail;
+            if (vres.status != E1R8_RESULT_AUTHENTICATED)
+            {
+                r8_trace_line( "r8: result refused" );
+                refused = TRUE;
+                err = ERROR_LOGON_FAILURE;
+                step = "refused result";
+                flen = 116;
+                if (e1r8_encode_result( out, 116, &tuple, E1R8_RESULT_REFUSED, (const uint8_t *)"", 0, zero32 ) ||
+                    r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck ))
+                    goto r8_fail;
+                flen = 80;
+                if (e1r8_encode_done( out, 80, &tuple, E1R8_DONE_CANCELLED ) ||
+                    r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck ))
+                    goto r8_fail;
+                /* D tells the person and leaves by itself (bounded by the attempt deadline). */
+                WaitForSingleObject( pi.hProcess, r8_left( r8_start, r8_timeout ) );
+                goto r8_fail;
+            }
+            memcpy( ref, vres.evidence_ref, 16 );
+
+            /* Section 8: the authenticated account is the selected one, resolved again. */
+            step = "final account";
+            if (vres.account_len != sel_account_len || memcmp( vres.account, sel_account, sel_account_len ) ||
+                e1s18_is_all_zero( sel_key, 16 ) || memcmp( vres.account_key, sel_key, 16 )) goto r8_fail;
+            e1s18_resolve_account_s4( sel_account, fresh_key );
+            if (memcmp( fresh_key, sel_key, 16 )) goto r8_fail;
+            if (!ops->r8_recheck || ops->r8_recheck( req, tuple.dialog_id )) goto r8_fail;
+
+            /* RESULT with a one-use challenge, then D's Confirm for exactly that challenge. */
+            step = "result";
+            if (!e1s18_fill_random( challenge, 32 ) || e1s18_is_all_zero( challenge, 32 )) goto r8_fail;
+            flen = 116 + sel_account_len;
+            if (e1r8_encode_result( out, flen, &tuple, E1R8_RESULT_AUTHENTICATED,
+                                    (const uint8_t *)sel_account, (uint32_t)sel_account_len, challenge )) goto r8_fail;
+            if ((err = r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck )))
+                goto r8_fail;
+            r8_trace_line( "r8: result sent" );
+            step = "confirm";
+            flen = 0;
+            if ((err = r8_pipe_transfer( req, pi.hProcess, from_d_read, FALSE, out, &flen, 264, 264, r8_start, r8_timeout, &stuck )))
+                goto r8_fail;
+            err = ERROR_ACCESS_DENIED;
+            if (e1r8_decode_answer( out, flen, &tuple, E1S1_ALL_REQUIRED_CAPS, &ans )) goto r8_fail;
+            if (ans.answer_kind != E1R8_S1_ANSWER_CONFIRM) { err = ERROR_CANCELLED; goto r8_fail; }
+            if (memcmp( ans.challenge, challenge, 32 ) || e1s18_is_answer_replayed( request_id, nonce )) goto r8_fail;
+            e1s18_record_answer( request_id, nonce );
+            if (!ops->r8_recheck || ops->r8_recheck( req, tuple.dialog_id )) goto r8_fail;
+            r8_trace_line( "r8: confirm ok" );
+
+            /* Redemption (lab frames 28/29): the verifier hands over the evidence record once. */
+            step = "redeem";
+            if (e1r8_put_header( frame, sizeof(frame), 28, 92, &tuple )) goto r8_fail;
+            memcpy( frame + 76, ref, 16 );
+            if (r8_v_send( req, frame, 92 ) ||
+                r8_v_recv( req, frame, &flen, r8_left( r8_start, r8_timeout ) ) ||
+                flen != 296 || e1r8_get_header( frame, 296, 29, &tuple, NULL )) goto r8_fail;
+            memcpy( s_r8_evidence, frame + 76, sizeof(s_r8_evidence) );
+            memcpy( s_r8_evidence_ref, ref, 16 );
+            s_r8_evidence_set = TRUE;
+            r8_trace_line( "r8: redeemed" );
+
+            /* DONE: D leaves; then RELEASE retires the attempt at the verifier. (Lab order: DONE is written
+             * before the launch commit, so the secure desktop is free while the program starts.) */
+            step = "done";
+            flen = 80;
+            if (e1r8_encode_done( out, 80, &tuple, E1R8_DONE_COMPLETED ) ||
+                (err = r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck )))
+            {
+                DWORD code = 0;
+                char text[64];
+                GetExitCodeProcess( pi.hProcess, &code );
+                snprintf( text, sizeof(text), "r8: done: dialog exit code %lu", (unsigned long)code );
+                r8_trace_line( text );
+                if (!err) err = ERROR_ACCESS_DENIED;
+                s_r8_evidence_set = FALSE; e1s18_wipe( s_r8_evidence, sizeof(s_r8_evidence) ); goto r8_fail;
+            }
+            WaitForSingleObject( pi.hProcess, 10000 );
+            err = ERROR_SUCCESS;
+            r8_trace_line( "r8: done sent" );
+
+        r8_fail:
+            if (err && !refused) r8_trace_err( step, err );
+            /* RELEASE is best effort: closing the channel retires the attempt as well. */
+            if ((!err || refused) && !e1r8_encode_release( frame, 80, &tuple, err ? E1R8_RELEASE_CANCELLED
+                                                                                 : E1R8_RELEASE_COMPLETED ) &&
+                !r8_v_send( req, frame, 80 ) && !r8_v_recv( req, frame, &flen, 5000 ) &&
+                !e1r8_decode_released( frame, flen, &tuple ))
+                r8_trace_line( "r8: released" );
+            TerminateProcess( pi.hProcess, 1 );
+            WaitForSingleObject( pi.hProcess, 5000 );
+            CloseHandle( pi.hProcess );
+            if (!stuck)
+            {
+                CloseHandle( to_d_write );
+                CloseHandle( from_d_read );
+            }
+            if (secure) secure_leave();
+            e1s18_wipe( frame, sizeof(frame) );
+            e1s18_wipe( out, sizeof(out) );
+            e1s18_wipe( challenge, sizeof(challenge) );
+            return err;
+        }
     }
 #endif
-
-    /* After a valid ACK the dialog runs as before: wait for it to exit (or for
-     * the caller, stop or lease break) within what is left of the deadline. */
-    elapsed = GetTickCount64() - start;
-    handles[0] = pi.hProcess;
-    handles[1] = req->caller;
-    handles[2] = stop_event;
-    handles[3] = req->lease_event;
-    ret = WaitForMultipleObjects( 4, handles, FALSE, elapsed >= timeout ? 0 : (DWORD)(timeout - elapsed) );
-    if (ret != WAIT_OBJECT_0)
-    {
-        TerminateProcess( pi.hProcess, 1 );
-        WaitForSingleObject( pi.hProcess, 5000 );
-        CloseHandle( pi.hProcess );
-        CloseHandle( to_d_write );
-        CloseHandle( from_d_read );
-        if (secure) secure_leave();
-        return ret == WAIT_TIMEOUT ? ERROR_TIMEOUT : ret == WAIT_OBJECT_0 + 3 ? ERROR_FILE_CORRUPT : ERROR_CANCELLED;
-    }
-
-    code = ERROR_GEN_FAILURE;
-    GetExitCodeProcess( pi.hProcess, &code );
-    CloseHandle( pi.hProcess );
-    if (secure) secure_leave();
-
-    /* After a valid ACK the existing flow continues unchanged: D's S1
-     * Confirm/Cancel record arrives on from_d and is verified as today. */
-    memset( answer_buf, 0, sizeof(answer_buf) );
-    if (!ReadFile( from_d_read, answer_buf, sizeof(answer_buf), &read_bytes, NULL ) ||
-        read_bytes < WEX_S1_ANSWER_LENGTH)
-    {
-        CloseHandle( to_d_write );
-        CloseHandle( from_d_read );
-        return ERROR_CANCELLED; /* Helper exit never approves without explicit Confirm */
-    }
-    CloseHandle( to_d_write );
-    CloseHandle( from_d_read );
-
-    /* Validate answer record */
-    if (!wex_verify_answer_record( answer_buf, read_bytes,
-                                   request_id, 1, 0, 0,
-                                   WEX_ANSWER_KIND_CONFIRM,
-                                   nonce, binding_digest, request_digest, channel_token ))
-    {
-        const struct wex_s1_answer_record *rec = (const struct wex_s1_answer_record *)answer_buf;
-        if (rec->answer_kind == WEX_ANSWER_KIND_CANCEL) err = ERROR_CANCELLED;
-        else err = ERROR_ACCESS_DENIED;
-    }
-    else
-    {
-        if (e1s18_is_answer_replayed( request_id, nonce ))
-        {
-            err = ERROR_ACCESS_DENIED;
-        }
-        else
-        {
-            e1s18_record_answer( request_id, nonce );
-            if (out_account && account_max > 0)
-            {
-                if (!wex_valid_account_name( out_account ))
-                {
-                    err = ERROR_ACCESS_DENIED;
-                }
-                else
-                {
-                    err = ERROR_SUCCESS;
-                }
-            }
-            else
-            {
-                err = ERROR_SUCCESS;
-            }
-        }
-    }
-
-    wex_secure_wipe( answer_buf, sizeof(answer_buf) );
-    return err;
 }
 #endif
 
@@ -1866,59 +2048,17 @@ DWORD e1s18_transport_redeem_live( struct request *req,
         return ERROR_INVALID_PARAMETER;
 
 #if defined(_WIN32)
-    UINT64 channel = 0;
-    DWORD err = ERROR_SUCCESS;
-    unsigned char open_buf[E1S6_OPEN_SIZE];
-    unsigned char redeem_buf[E1S6_REDEEM_REQ_SIZE];
-    HMODULE wexhost = NULL;
-    typedef DWORD (WINAPI *pfn_WexE1s6Transport)( HANDLE, DWORD, void *, DWORD, UINT64 * );
-    pfn_WexE1s6Transport transport = NULL;
-
-    wexhost = GetModuleHandleW( L"wexhost.dll" );
-    if (!wexhost) wexhost = LoadLibraryW( L"wexhost.dll" );
-    if (wexhost) transport = (pfn_WexE1s6Transport)(void *)GetProcAddress( wexhost, "WexE1s6Transport" );
-    if (!transport) return ERROR_NOT_SUPPORTED;
-
-    memset( open_buf, 0, sizeof(open_buf) );
-    memset( redeem_buf, 0, sizeof(redeem_buf) );
-
-    /* Step 1: Open S6 transport channel */
-    err = transport( req->pipe, E1S6_OPEN, open_buf, sizeof(open_buf), &channel );
-    if (err != ERROR_SUCCESS || !channel)
-    {
-        e1s18_wipe( open_buf, sizeof(open_buf) );
-        return err ? err : ERROR_ACCESS_DENIED;
-    }
-
-    /* Step 2: S8 REDEEM operation (252 bytes req, 240 bytes resp) */
-    memcpy( redeem_buf, "E1S8CTL\0", 8 );
-    redeem_buf[8]  = 1; redeem_buf[9]  = 0; /* Version 1 */
-    redeem_buf[10] = 4; redeem_buf[11] = 0; /* Operation 4 (REDEEM) */
-    e1s6_put32( redeem_buf + 12, E1S6_REDEEM_REQ_SIZE );
-    memcpy( redeem_buf + 16, nonce, 16 ); /* evidence reference / seed */
-
-    err = transport( req->pipe, E1S6_REDEEM, redeem_buf, sizeof(redeem_buf), &channel );
-    if (err != ERROR_SUCCESS || e1s6_u32( redeem_buf ) != 0)
-    {
-        transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
-        e1s18_wipe( open_buf, sizeof(open_buf) );
-        e1s18_wipe( redeem_buf, sizeof(redeem_buf) );
-        return err ? err : ERROR_ACCESS_DENIED;
-    }
-
-    memcpy( out_evidence_ref, redeem_buf + 4, 16 );
-    if (*out_evidence_len > 220) *out_evidence_len = 220;
-    memcpy( out_evidence_buf, redeem_buf + 20, *out_evidence_len );
-
-    /* Step 3: Close transport channel. The S12 storage generation is no
-     * longer produced here; the broker asks the server for it via
-     * WEX_HKU_STORAGE_QUERY (op 12) after S10 issuance. */
-    transport( req->pipe, E1S6_CLOSE, NULL, 0, &channel );
-
-    /* Wipe sensitive buffers */
-    e1s18_wipe( open_buf, sizeof(open_buf) );
-    e1s18_wipe( redeem_buf, sizeof(redeem_buf) );
-
+    /* R8: the one redemption happened inside the dialog step, on the attempt's retained S6 channel
+     * (frames 28/29 in e1s18_spawn_consent_dialog); a second OPEN would replace the broker generation.
+     * Hand that record over exactly once. The S12 storage generation is not produced here; the broker
+     * asks the server for it via WEX_HKU_STORAGE_QUERY (op 12) after S10 issuance. */
+    if (!s_r8_evidence_set || *out_evidence_len < sizeof(s_r8_evidence)) return ERROR_ACCESS_DENIED;
+    s_r8_evidence_set = FALSE;
+    memcpy( out_evidence_buf, s_r8_evidence, sizeof(s_r8_evidence) );
+    *out_evidence_len = sizeof(s_r8_evidence);
+    memcpy( out_evidence_ref, s_r8_evidence_ref, 16 );
+    e1s18_wipe( s_r8_evidence, sizeof(s_r8_evidence) );
+    e1s18_wipe( s_r8_evidence_ref, sizeof(s_r8_evidence_ref) );
     return ERROR_SUCCESS;
 #else
     return ERROR_NOT_SUPPORTED;
@@ -2149,7 +2289,22 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
         return ERROR_ACCESS_DENIED;
     }
 
-    /* Verify host UID */
+    /* Verify host UID. On the live path the record's host uid is the selected administrator's (never the
+     * requester's), so it is only required to be set; the record must also carry the selected account's key
+     * and this attempt's server, broker and verifier generations. */
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    if (!(boundary && boundary->transport_redeem))
+    {
+        if (!ev->host_uid || memcmp( ev->account_key, req->account_key, 16 ) ||
+            ev->server_gen != s_r8_context.server_gen || ev->broker_gen != s_r8_context.broker_gen ||
+            ev->verifier_gen != s_r8_context.verifier_gen)
+        {
+            e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
+            return ERROR_ACCESS_DENIED;
+        }
+    }
+    else
+#endif
     if (ev->host_uid != expected_host_uid)
     {
         e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
@@ -2276,9 +2431,10 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
     wex_token_put32( in + 120, 1 );                          /* attempt: 1 */
 #ifdef WEXELEVATE_E1S18
     memcpy( in + 124, req->account_key, 16 );               /* account_key from Stage 2 */
-    wex_token_put64( in + 140, 1 );                          /* root_gen */
-    wex_token_put64( in + 148, 1 );                          /* server_gen */
-    wex_token_put64( in + 156, 1 );                          /* broker_gen */
+    /* The attempt's generations (R8 context, set by prepare); 1 only where a test left it unset. */
+    wex_token_put64( in + 140, s_r8_context.root_gen ? s_r8_context.root_gen : 1 );       /* root_gen */
+    wex_token_put64( in + 148, s_r8_context.server_gen ? s_r8_context.server_gen : 1 );   /* server_gen */
+    wex_token_put64( in + 156, s_r8_context.broker_gen ? s_r8_context.broker_gen : 1 );   /* broker_gen */
     wex_token_put64( in + 164, req->map_generation );        /* map_gen from Stage 2 */
 #else
     memcpy( in + 124, account_key, 16 );                     /* account_key */
@@ -2291,6 +2447,42 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
     wex_token_put32( in + 180, req->caller_session );        /* session_id */
     wex_token_put32( in + 184, 0 );                          /* reserved */
     memcpy( in + 188, evidence_ref, 16 );                    /* envelope evidence_ref */
+
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    /* LAB STAND-IN for R10 (docs/E1_S18E_REMEDIATION.md): the server issues only for a consumed record
+     * that a trusted producer installed. The authenticated receipt from the verifier to the server is not
+     * built, so after the broker's own check of the redeemed evidence it installs the record itself through
+     * the lab-only fixture operation (servers built with WEX_E1S10_TOKEN_TEST). This must be replaced by the
+     * verifier's receipt before the chain can leave the lab: here the broker vouches for itself. */
+    {
+        uint8_t fixture[268]; /* WEX_TOKEN_FIXTURE_SIZE: the input plus the zero-padded canonical name[64] */
+        HANDLE none = NULL;
+        size_t name_len = strlen( req->account_name );
+
+        if (!name_len || name_len > 63 || !req->caller)
+        {
+            if (context && ops && ops->close_handle) ops->close_handle( context );
+            e1s18_wipe( in, sizeof(in) );
+            return ERROR_ACCESS_DENIED;
+        }
+        memset( fixture, 0, sizeof(fixture) );
+        memcpy( fixture, in, sizeof(in) );
+        memcpy( fixture + sizeof(in), req->account_name, name_len );
+        size = 0;
+        status = exports->pNtCreateWexAccountToken( 0x80000001u /* WEX_TOKEN_TEST_INSTALL */, &context, req->caller,
+                                                    &caps, fixture, sizeof(fixture), &none, NULL, &size );
+        e1s18_wipe( fixture, sizeof(fixture) );
+        if (status != 0 || none)
+        {
+            r8_trace_err( "consumed record install", (unsigned long)status );
+            if (none && ops && ops->close_handle) ops->close_handle( none );
+            if (context && ops && ops->close_handle) ops->close_handle( context );
+            e1s18_wipe( in, sizeof(in) );
+            return ERROR_ACCESS_DENIED;
+        }
+        r8_trace_line( "r8: consumed record installed (lab)" );
+    }
+#endif
 
     /* Step 3c: ISSUE */
     size = sizeof(out);
@@ -2586,6 +2778,31 @@ static DWORD default_prep_launch( struct request *req, HANDLE token,
     {
         return ERROR_INVALID_PARAMETER;
     }
+
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    /* Live broker (lab): the environment is the issued token's own default block, built by userenv from the
+     * managed profile the server published at LOAD (S15); nothing of the caller's environment is used. The
+     * working directory stays the request's frozen, validated one. The descriptor-anchored preparation
+     * below is a host-side function (file descriptors, Unix paths) and cannot run inside this PE process:
+     * its working-directory containment rule is not applied on this path yet (R11 remainder). */
+    {
+        void *block = NULL;
+        const WCHAR *p;
+        size_t size;
+        char *copy;
+
+        if (!CreateEnvironmentBlock( &block, token, FALSE )) return GetLastError() ? GetLastError() : ERROR_ACCESS_DENIED;
+        for (p = block; *p; p += lstrlenW( p ) + 1) ;
+        size = (size_t)((const char *)(p + 1) - (const char *)block);
+        if (!(copy = malloc( size ))) { DestroyEnvironmentBlock( block ); return ERROR_NOT_ENOUGH_MEMORY; }
+        memcpy( copy, block, size );
+        DestroyEnvironmentBlock( block );
+        if (out_win_env) *out_win_env = copy; else free( copy );
+        if (out_win_env_sz) *out_win_env_sz = size;
+        (void)params; (void)result; (void)st; (void)cwd_buf; (void)tmp_fd;
+        return ERROR_SUCCESS;
+    }
+#endif
 
     memset( &params, 0, sizeof(params) );
     memset( &result, 0, sizeof(result) );
@@ -3341,6 +3558,7 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
     PROCESS_INFORMATION pi;
     DWORD err = ERROR_SUCCESS;
     BOOL child_unconfirmed = FALSE;
+    const char *stage = "admission";
 
     memset( &pi, 0, sizeof(pi) );
     memset( account_name, 0, sizeof(account_name) );
@@ -3402,58 +3620,71 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
     e1s18_compute_digests( req, nonce, binding_digest, request_digest, env_digest );
 
     /* Step 1: Serialized prompt queue and bound credential dialog (S17) */
+    stage = "prompt_dialog";
     err = ops->prompt_dialog( req, nonce, binding_digest, request_digest, account_name, sizeof(account_name) );
     if (err) goto fail;
 
     /* Step 2: Single-use evidence verification and redemption (S8/S7) */
+    stage = "redeem_evidence";
     err = ops->redeem_evidence( req, account_name, nonce, binding_digest, request_digest, account_key, evidence_ref );
     if (err) goto fail;
 
 #ifdef WEXELEVATE_E1S18
     /* Step 3: Server-issued account token (S10) */
+    stage = "issue_token";
     err = ops->issue_token( req, req->account_key, evidence_ref, nonce, binding_digest, request_digest, &issued_token );
     if (err) goto fail;
 
     /* Step 3b: S12 storage generation query (WEX_HKU_STORAGE_QUERY, op 12) */
+    stage = "query_storage";
     err = ops->query_storage( req, issued_token );
     if (err) goto fail;
 
     /* Step 4: Profile load & lease acquisition (S13/S14) */
+    stage = "load_profile";
     err = ops->load_profile( req, issued_token, req->account_key, &lease_id, &hkey );
     if (err) goto fail;
 #else
     /* Step 3: Server-issued account token (S10) */
+    stage = "issue_token";
     err = ops->issue_token( req, account_key, evidence_ref, nonce, binding_digest, request_digest, &issued_token );
     if (err) goto fail;
 
     /* Step 3b: S12 storage generation query (WEX_HKU_STORAGE_QUERY, op 12) */
+    stage = "query_storage";
     err = ops->query_storage( req, issued_token );
     if (err) goto fail;
 
     /* Step 4: Profile load & lease acquisition (S13/S14) */
+    stage = "load_profile";
     err = ops->load_profile( req, issued_token, account_key, &lease_id, &hkey );
     if (err) goto fail;
 #endif
 
     /* Step 5: Launch preparation (S15) */
+    stage = "prep_launch";
     err = ops->prep_launch( req, issued_token, &win_env, &win_env_sz, &unix_env, &unix_env_cnt, &cwd );
     if (err) goto fail;
 
     /* Step 6: Image re-verification before creation */
+    stage = "verify_image";
     err = ops->verify_image( req );
     if (err) goto fail;
 
     /* Step 7: Suspended child creation in caller's server and session */
+    stage = "create_process_suspended";
     err = ops->create_process_suspended( req, issued_token, win_env, win_env_sz, cwd, &pi );
     if (err) goto fail;
 
     /* Step 8: Verify installed child identity & session */
+    stage = "verify_child";
     err = ops->verify_child( req, issued_token, &pi );
     if (err) goto fail;
 
     /* Step 9: Arm image read lease on child PID */
     if (req->lease)
     {
+        stage = "arm_lease";
         err = ops->arm_lease( req->lease, pi.dwProcessId );
         if (err) goto fail;
 #if defined(_WIN32)
@@ -3482,21 +3713,29 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
     /* Step 10: Duplicate limited handle to caller */
     if (req->flags & WEXELEVATE_WANT_HANDLE)
     {
+        stage = "duplicate_handle";
         err = ops->duplicate_handle( req, pi.hProcess, &remote_handle );
         if (err) goto fail;
     }
 
     /* Step 11: Transfer profile lease to process tracking */
+    stage = "transfer_lease";
     err = ops->transfer_lease( req, lease_id, pi.hProcess, issued_token );
     if (err) goto fail;
 
     /* Step 12: Pre-resume binding checks */
+    stage = "check_pre_resume";
     err = ops->check_pre_resume( req );
     if (err) goto fail;
 
     /* Step 13: Guarded resume (broker resumes child once after all checks pass) */
+    stage = "resume_thread";
     err = ops->resume_thread( req, pi.hThread );
     if (err) goto fail;
+
+#ifdef WEXELEVATE_E1S18
+    r8_trace_line( "r8: launched" );
+#endif
 
     /* Commit */
     if (reply)
@@ -3533,6 +3772,11 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
 
 fail:
     /* Explicit cleanup / rollback at any failure stage */
+#ifdef WEXELEVATE_E1S18
+    r8_trace_err( stage, (unsigned long)err );
+#else
+    (void)stage;
+#endif
     if (remote_handle)
     {
         ops->close_remote_handle( req->caller, remote_handle );

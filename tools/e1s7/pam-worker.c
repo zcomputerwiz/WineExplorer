@@ -44,7 +44,7 @@ struct context
     int control, dialog, peer_pin, audit, peer_pid, peer_uid;
     uint64_t request, deadline;
     uint32_t attempt, round, index, style;
-    unsigned char nonce[32], io[S7_PACKET], key[16];
+    unsigned char nonce[32], io[4256], key[16]; /* S7_PACKET, or the largest R8 secret answer (4252) */
     unsigned char answer[S7_TEXT+1];
     size_t answer_len;
     uint64_t release_at;
@@ -326,6 +326,53 @@ static int fixed_prompt(void)
     ctx.release_at=now+S7_FAILURE_NS;
     return 1;
 }
+/* R8 steps 5-8 (docs/E1_S18E_R8_SPEC.md section 7): what W_SETUP fixed for this attempt. */
+static struct { unsigned char header[76], binding[32], digest[32], dialog[16]; } r8;
+
+static int r8_is(unsigned int type, ssize_t n)
+{
+    return n==76 && !memcmp(ctx.io,"E1R8",4) && ctx.io[4]==1 && !ctx.io[5] && ctx.io[6]==type && !ctx.io[7] &&
+           le32(ctx.io+8)==76 && !memcmp(ctx.io+12,r8.header+12,64);
+}
+/* The dialog's ATTACH_ACK on the secret socket (from the pinned dialog process), W_ACK to the supervisor,
+ * its PROMPT_RELEASE, then the one fixed prompt (S7 version 2, 178 bytes) and the one secret answer (an S1
+ * kind-2 record, answer kind 1). The answer is kept exactly like fixed_prompt() keeps it. */
+static int r8_prompt(void)
+{
+    uint64_t now;
+    uint32_t length;
+    ssize_t n;
+    ctx.reason=RES_PROTOCOL;
+    n=receive_packet(ctx.dialog,1);
+    if (!r8_is(23,n)) return 0;
+    memcpy(ctx.io,r8.header,76); ctx.io[6]=22; put32(ctx.io+8,76);
+    if (!send_packet(ctx.control,76)) return 0;
+    n=receive_packet(ctx.control,0);
+    if (!r8_is(24,n)) return 0;
+    memset(ctx.io,0,178);
+    memcpy(ctx.io,"E1S7PAM",7); ctx.io[8]=2; ctx.io[10]=S7_PROMPT; put32(ctx.io+12,178);
+    put64(ctx.io+16,ctx.request); put32(ctx.io+24,ctx.attempt); put32(ctx.io+28,1); put32(ctx.io+36,1);
+    memcpy(ctx.io+40,ctx.nonce,32); memcpy(ctx.io+72,r8.header+60,16);
+    memcpy(ctx.io+88,r8.binding,32); memcpy(ctx.io+120,r8.digest,32); memcpy(ctx.io+152,r8.dialog,16);
+    memcpy(ctx.io+168,"Password: ",10);
+    ctx.round=1;
+    if (!send_packet(ctx.dialog,178)) return 0;
+    n=receive_packet(ctx.dialog,1);
+    if (n<157 || n>4252 || ctx.io[0]!=2 || ctx.io[1] || ctx.io[2]!=1 || ctx.io[3] || le32(ctx.io+4)!=(uint32_t)n ||
+        (le64(ctx.io+8) & ~UINT64_C(0x3ff)) || le64(ctx.io+16)!=ctx.request || le32(ctx.io+24)!=ctx.attempt ||
+        le32(ctx.io+28)!=1 || le32(ctx.io+32) || le32(ctx.io+36)!=1 || memcmp(ctx.io+40,ctx.nonce,32) ||
+        memcmp(ctx.io+72,r8.binding,32) || memcmp(ctx.io+104,r8.digest,32) || memcmp(ctx.io+136,r8.header+60,16))
+    { explicit_bzero(ctx.io,sizeof(ctx.io)); return 0; }
+    length=le32(ctx.io+152);
+    if (!length || length>S7_TEXT || (size_t)n!=156+length || !text_valid(ctx.io+156,length))
+    { explicit_bzero(ctx.io,sizeof(ctx.io)); return 0; }
+    memcpy(ctx.answer,ctx.io+156,length); ctx.answer[length]=0; ctx.answer_len=length;
+    explicit_bzero(ctx.io,sizeof(ctx.io));
+    now=now_ns();
+    if (!now || now>=ctx.deadline || ctx.deadline-now<=S7_FAILURE_NS) return 0;
+    ctx.release_at=now+S7_FAILURE_NS;
+    return 1;
+}
 static int wait_release(void)
 {
     struct pollfd p[3]={{ctx.dialog,POLLIN,0},{ctx.control,POLLIN,0},{ctx.peer_pin,POLLIN,0}};
@@ -576,28 +623,27 @@ int main(int argc, char **argv)
         fclose(pf);
         if (d_uid != ctx.peer_uid) { close(ctx.peer_pin); return 1; }
 
-        while (live())
-        {
-            struct pollfd p[2] = { { ctx.control, POLLIN, 0 }, { ctx.peer_pin, POLLIN, 0 } };
-            int timeout_ms;
-            now = now_ns();
-            if (!now || now >= ctx.deadline) break;
-            timeout_ms = (int)((ctx.deadline - now + 999999) / 1000000);
-            if (timeout_ms > 1000) timeout_ms = 1000;
-            if (poll(p, 2, timeout_ms) <= 0) continue;
-            if (p[1].revents) break;
-            if (p[0].revents)
-            {
-                if (p[0].revents & (POLLERR | POLLHUP | POLLNVAL)) break;
-                break;
-            }
-        }
-        close(ctx.peer_pin);
-        close(ctx.control);
-        close(ctx.dialog);
-        close(ctx.audit);
-        return 0;
+        /* Keep what the later R8 frames, the prompt and the answer are checked against. */
+        memcpy(r8.header, ctx.io, 76);
+        memcpy(r8.binding, ctx.io + 76, 32);
+        memcpy(r8.digest, ctx.io + 108, 32);
+        memcpy(r8.dialog, ctx.io + 220, 16);
+        ctx.locked=!mlock(ctx.io,sizeof(ctx.io));
+        (void)mlock(ctx.answer,sizeof(ctx.answer));
+        /* The supervisor's second control message is the broker's START (type 17), unchanged: the selected
+         * account name and its key (zero key: decoy). No uid or generation: the map is read here. */
+        n=receive_packet(ctx.control,0); ctx.reason=RES_PROTOCOL;
+        if (n<97 || n>159 || memcmp(ctx.io,"E1R8",4) || ctx.io[4]!=1 || ctx.io[5] || ctx.io[6]!=17 || ctx.io[7] ||
+            le32(ctx.io+8)!=(uint32_t)n || memcmp(ctx.io+12,r8.header+12,64)) goto done;
+        name_len=le32(ctx.io+76);
+        if (!name_len || name_len>63 || (size_t)n!=96+name_len) goto done;
+        memcpy(name,ctx.io+80,name_len);
+        memcpy(ctx.key,ctx.io+80+name_len,16);
+        if (memchr(name,0,name_len) || !valid_name(name)) goto done;
+        decoy=!memcmp(ctx.key,(unsigned char[16]){0},16);
     }
+    else
+    {
     ctx.locked=!mlock(ctx.io,sizeof(ctx.io)); /* Best effort, audited as 0/1. */
     (void)mlock(ctx.answer,sizeof(ctx.answer));
     /* A missing initial request is bounded too. Parent supplies no secrets in argv. */
@@ -620,6 +666,7 @@ int main(int argc, char **argv)
     memcpy(name,ctx.io+120,name_len);
     if (memchr(name,0,name_len) || !valid_name(name)) goto done;
     if (decoy && (strcmp(name,"decoy") || !ctx.normalized)) goto done;
+    }
     explicit_bzero(ctx.io,sizeof(ctx.io));
     /* Absolute monotonic timer bounds NSS, module delay, authenticate, account
      * management and pam_end, including modules that never call conversation. */
@@ -635,7 +682,7 @@ int main(int argc, char **argv)
     timer.it_value.tv_sec=(time_t)(ctx.deadline/1000000000u);
     timer.it_value.tv_nsec=(long)(ctx.deadline%1000000000u);
     if (timer_settime(timer_id,TIMER_ABSTIME,&timer,NULL)) goto done;
-    if (ctx.normalized && !fixed_prompt()) goto done;
+    if (bootstrap ? !r8_prompt() : (ctx.normalized && !fixed_prompt())) goto done;
     if (ctx.release_at)
     {
         header(S7_RESULT,S7_RESULT_SIZE); put32(ctx.io+72,1);
@@ -649,6 +696,15 @@ int main(int argc, char **argv)
     }
     ctx.stage=1;
     if (decoy) { ctx.reason=RES_MAP; goto done; }
+    if (bootstrap)
+    {
+        /* R8: the account's uid and map generation come from the protected map itself; the key the broker
+         * selected must be the account's current incarnation. */
+        struct wex_account value;
+        ctx.map_status=lookup_account(name,0,WEX_ACCOUNT_MAP_V1,&value);
+        if (ctx.map_status || memcmp(value.incarnation,ctx.key,16)) { ctx.reason=RES_MAP; goto done; }
+        uid=value.uid; generation=value.generation;
+    }
     if (!same_account(name,ctx.key,uid,generation) || !quiet_dialog()) goto done;
     ctx.reason=RES_PAM; ctx.stage=2;
 #ifdef WEX_E1S7_TEST

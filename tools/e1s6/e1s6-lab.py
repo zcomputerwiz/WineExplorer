@@ -371,40 +371,12 @@ def service(server_path, system_group, pam_paths=None):
                 self.control_watch = None
             if hasattr(self, "endorsed_records"):
                 for rec in self.endorsed_records.values():
-                    pfd = rec.get("pidfd")
+                    self.drop_record(rec)
+                    pfd = rec.pop("pidfd", None)
                     if pfd is not None and pfd >= 0:
                         try:
                             os.close(pfd)
                         except OSError:
-                            pass
-                    wpfd = rec.get("worker_pidfd")
-                    if wpfd is not None and wpfd >= 0:
-                        try:
-                            os.close(wpfd)
-                        except OSError:
-                            pass
-                    wctrl = rec.get("worker_ctrl")
-                    if wctrl is not None:
-                        try:
-                            wctrl.close()
-                        except OSError:
-                            pass
-                    sec_v = rec.get("secret_v")
-                    if sec_v is not None:
-                        try:
-                            sec_v.close()
-                        except OSError:
-                            pass
-                    proc = rec.get("worker_proc")
-                    if proc is not None:
-                        try:
-                            import signal
-                            os.killpg(proc.pid, signal.SIGKILL)
-                        except (ProcessLookupError, OSError):
-                            pass
-                        try:
-                            proc.wait(timeout=0.5)
-                        except Exception:
                             pass
                 self.endorsed_records.clear()
             if hasattr(self, "pending_s6") and self.pending_s6 is not None:
@@ -438,6 +410,91 @@ def service(server_path, system_group, pam_paths=None):
                     os.close(fd)
             if pending.get(self.owner) is self:
                 del pending[self.owner]
+
+        def drop_record(self, rec):
+            """End one attempt's worker side: watch, secret end, control socket, worker and its pin.
+
+            The dialog's pidfd stays with the record until the transaction ends. The evidence record is
+            wiped: nothing can be redeemed afterwards.
+            """
+            watch = rec.pop("worker_watch", None)
+            if watch is not None:
+                GLib.source_remove(watch)
+            for name in ("secret_v", "worker_ctrl"):
+                sock = rec.pop(name, None)
+                if sock is not None:
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+            proc = rec.pop("worker_proc", None)
+            if proc is not None:
+                import signal
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
+                try:
+                    proc.wait(timeout=0.5)
+                except Exception:
+                    pass
+            wpfd = rec.pop("worker_pidfd", None)
+            if wpfd is not None and wpfd >= 0:
+                try:
+                    os.close(wpfd)
+                except OSError:
+                    pass
+            rec.pop("evidence", None)
+            rec.pop("evidence_ref", None)
+
+        def worker_message(self, source, condition, key):
+            """The R8 worker's control socket: W_ACK after the dialog attached, then its private result."""
+            rec = self.endorsed_records.get(key)
+            try:
+                require(rec is not None, "worker-record")
+                self.live()
+                t = rec["tuple"]
+                data = rec["worker_ctrl"].recv(supervisor.RESULT_SIZE + 1)
+                if rec["state"] == "ATTACH_RESERVED":
+                    e1r8.decode_w_ack(data, t)
+                    # The dialog holds the secret end now; this service never reads or watches it.
+                    rec.pop("secret_v").close()
+                    rec["state"] = "DELEGATED"
+                    self.data.send(e1r8.encode_delegated(t))
+                    rec["worker_ctrl"].send(e1r8.encode_prompt_release(t))
+                    rec["state"] = "PAM"
+                    print("E1R8_DELEGATED request=%x" % key[0], flush=True)
+                    return True
+                require(rec["state"] == "PAM", "worker-result-state")
+                rec["worker_watch"] = None
+                authenticated, account_key, uid, map_gen = supervisor.r8_result(data, key[0], key[1], t.nonce)
+                # A result alone is not enough: the worker must have ended by itself with the matching status.
+                require(rec["worker_proc"].wait(timeout=1) == (0 if authenticated else 1), "worker-exit")
+                if authenticated:
+                    # A decoy can never authenticate; the key is the one the broker selected.
+                    require(any(rec["account_key"]) and account_key == rec["account_key"], "worker-account")
+                    now = time.monotonic_ns()
+                    require(now < t.deadline, "worker-result-deadline")
+                    ref = random_bytes(16)
+                    rec["evidence"] = evidence.EVIDENCE.pack(
+                        3, 1, evidence.EVIDENCE_SIZE, 0x3ff, t.request_id, t.request_digest, t.binding_digest,
+                        t.nonce, t.attempt, account_key, uid, now, t.deadline, root_gen, self.server_gen,
+                        self.broker_gen, verifier_gen, map_gen, t.policy_gen, 1, 1)
+                    rec["evidence_ref"] = ref
+                    rec["state"] = "RESULT_RETAINED"
+                    self.data.send(e1r8.encode_result_v(t, 1, account_key, rec["account"], ref))
+                    print("E1R8_RESULT request=%x authenticated=1" % key[0], flush=True)
+                else:
+                    rec["state"] = "REFUSED"
+                    self.data.send(e1r8.encode_result_v(t, 2, bytes(16), b"", bytes(16)))
+                    print("E1R8_RESULT request=%x authenticated=0" % key[0], flush=True)
+                return False
+            except Exception as exc:
+                if rec is not None:
+                    rec["worker_watch"] = None
+                audit_exception(exc)
+                self.cancel()
+                return False
 
         def live(self):
             require(not self.cancelled and time.monotonic_ns() < self.deadline, "live-deadline")
@@ -512,6 +569,12 @@ def service(server_path, system_group, pam_paths=None):
                             "tuple": t,
                             "state": "ENDORSED",
                         }
+                        # From here the person at the dialog sets the pace: the transaction lives until the
+                        # broker's own attempt deadline (checked and bounded), not the 5 s setup bound.
+                        # A deadline outside that bound extends nothing (the setup bound stays).
+                        now = time.monotonic_ns()
+                        if now < t.deadline <= now + 300_000_000_000:
+                            self.deadline = t.deadline
                         print("E1R8_ENDORSED ok request=%x pid=%d" % (request_id, body_pid), flush=True)
                         return None
                     else:
@@ -636,9 +699,12 @@ def service(server_path, system_group, pam_paths=None):
                             require(pam_exe is not None and pam_audit is not None, "pam-worker-not-provisioned")
 
                             w_proc, w_ctrl, w_pidfd, w_pid = supervisor.spawn_worker_bootstrap(
-                                pam_exe, pam_audit, sec_w, w_setup, rec["pidfd"]
+                                pam_exe, pam_audit, sec_w, w_setup, rec["pidfd"], raw
                             )
                             sec_w.close()
+                            rec["worker_watch"] = GLib.io_add_watch(
+                                w_ctrl.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR,
+                                self.worker_message, (rid, attempt))
 
                             rec["state"] = "WORKER_READY"
                             rec["secret_v"] = sec_v
@@ -653,6 +719,35 @@ def service(server_path, system_group, pam_paths=None):
 
                             ready_pkt = e1r8.encode_worker_ready(rec["tuple"])
                             self.data.send(ready_pkt)
+                            return True
+                        finally:
+                            if pin is not None:
+                                os.close(pin)
+                            for fd in fds:
+                                os.close(fd)
+                    if mtype in (25, 28):  # RELEASE; REDEEM (lab frame: evidence_ref:16, answered by type 29)
+                        raw, cred, pin, fds = receive(self.data, length, 0, length)
+                        try:
+                            require((cred[0], cred[1]) == (self.pid, self.uid), "message-broker-identity")
+                            rid, attempt = struct.unpack_from("<QI", raw, 12)
+                            rec = self.endorsed_records.get((rid, attempt))
+                            require(rec is not None, "r8-message-without-endorsed")
+                            t = rec["tuple"]
+                            if mtype == 28:
+                                require(len(raw) == 92 and raw[:76] == e1r8._put_header(28, 92, t), "redeem-frame")
+                                # Burn before the comparison: one redemption, right or wrong.
+                                record, ref = rec.pop("evidence", None), rec.pop("evidence_ref", None)
+                                state, rec["state"] = rec["state"], "REDEEMED"
+                                require(state == "RESULT_RETAINED" and record is not None and ref == raw[76:92]
+                                        and time.monotonic_ns() < t.deadline, "redeem-evidence")
+                                self.data.send(e1r8._put_header(29, 296, t) + record)
+                                print("E1R8_REDEEMED request=%x" % rid, flush=True)
+                            else:
+                                e1r8.decode_release(raw, t)
+                                self.drop_record(rec)
+                                rec["state"] = "RETIRED"
+                                self.data.send(e1r8.encode_released(t))
+                                print("E1R8_RELEASED request=%x" % rid, flush=True)
                             return True
                         finally:
                             if pin is not None:
@@ -844,6 +939,35 @@ def service(server_path, system_group, pam_paths=None):
                     sock.close()
                 raise dbus.exceptions.DBusException("transport denied", name=BUS + ".Denied")
 
+        @dbus.service.method(BUS, in_signature="tuayayay", out_signature="hhuuay", sender_keyword="sender")
+        def DialogAttach(self, request_id, attempt, nonce, channel_id, dialog_id, sender=None):
+            """R8 section 7 step 2: the endorsed dialog collects the secret end and the worker's pin.
+
+            A refused call changes nothing in the attempt. The caller must be the very process the server
+            endorsed: same pid and uid on the bus as the pinned dialog, pin still alive.
+            """
+            try:
+                key = int(request_id), int(attempt)
+                matches = [tx for tx in pending.values() if key in tx.endorsed_records]
+                require(len(matches) == 1, "attach-unknown")
+                tx = matches[0]
+                rec = tx.endorsed_records[key]
+                t = rec["tuple"]
+                require(rec["state"] == "WORKER_READY", "attach-state")
+                require((bytes(bytearray(nonce)), bytes(bytearray(channel_id)), bytes(bytearray(dialog_id)))
+                        == (bytes(t.nonce), bytes(t.channel_id), bytes(t.dialog_id)), "attach-tuple")
+                require(int(daemon.GetConnectionUnixProcessID(sender)) == rec["pid"], "attach-sender-pid")
+                require(int(daemon.GetConnectionUnixUser(sender)) == rec["uid"], "attach-sender-uid")
+                require(child_pid_from_pin(rec["pidfd"]) == rec["pid"], "attach-pin")
+                tx.live()
+                rec["state"] = "ATTACH_RESERVED"
+                print("E1R8_ATTACH ok request=%x" % key[0], flush=True)
+                return (dbus.types.UnixFd(rec["secret_v"].fileno()), dbus.types.UnixFd(rec["worker_pidfd"]),
+                        dbus.UInt32(rec["worker_pid"]), dbus.UInt32(0), dbus.ByteArray(rec["tail"]))
+            except Exception as exc:
+                audit_exception(exc)
+                raise dbus.exceptions.DBusException("attach denied", name=BUS + ".Denied")
+
     def tick():
         prune_server_pins()
         if evidence_service is not None:
@@ -854,6 +978,12 @@ def service(server_path, system_group, pam_paths=None):
         for tx in list(pending.values()):
             try:
                 tx.live()
+                for rec in tx.endorsed_records.values():
+                    # The endorsed dialog's death ends its attempt (and with it the session).
+                    # After redemption or a refusal the dialog is expected to leave; the broker's RELEASE
+                    # retires the attempt.
+                    require(rec["state"] in ("REDEEMED", "REFUSED", "RETIRED") or alive(rec["pidfd"]),
+                            "live-dialog-pin")
                 if tx.pam is not None:
                     require(not tx.pam.worker.cancelled(tx.child))
             except Exception as exc:

@@ -284,9 +284,11 @@ static void cleanup(void)
     memset( broker_reg, 0, sizeof(broker_reg) );
 }
 
-static int receive_packet( unsigned char *buffer, unsigned int size )
+/* One verifier packet of minimum..maximum bytes within timeout milliseconds. */
+static int receive_frame( unsigned char *buffer, unsigned int minimum, unsigned int maximum, int timeout,
+                          unsigned int *got )
 {
-    struct iovec io = { buffer, size };
+    struct iovec io = { buffer, maximum };
     char ancillary[256];
     struct msghdr msg = { 0 };
     struct cmsghdr *cmsg;
@@ -295,7 +297,7 @@ static int receive_packet( unsigned char *buffer, unsigned int size )
     ssize_t n;
     /* Record sizes are bounded before receive. MSG_TRUNC reports excess bytes. */
     if (!live()) return 0;
-    if (!ready( data_fd, BUS_TIMEOUT, 0, "receive-ready" )) return 0;
+    if (!ready( data_fd, timeout, 0, "receive-ready" )) return 0;
     msg.msg_iov = &io; msg.msg_iovlen = 1;
     msg.msg_control = ancillary; msg.msg_controllen = sizeof(ancillary);
     n = recvmsg( data_fd, &msg, MSG_TRUNC | MSG_CMSG_CLOEXEC );
@@ -326,8 +328,162 @@ static int receive_packet( unsigned char *buffer, unsigned int size )
     }
     if (!valid) return 0;
     if (have_cred != 1 || have_pin != 1) return denied( "receive-missing-identity" );
-    if (n != size || (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))) return denied( "receive-size" );
+    if ((unsigned int)n < minimum || (unsigned int)n > maximum || (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))) return denied( "receive-size" );
+    if (got) *got = n;
     return live();
+}
+
+static int receive_packet( unsigned char *buffer, unsigned int size )
+{
+    return receive_frame( buffer, size, size, BUS_TIMEOUT, NULL );
+}
+
+/* R8 steps 5-8 (lab): the dialog's side of the secret socket. consent.exe attaches on its own bus
+ * connection to the verifier owner the broker named in INIT, receives the secret end and the worker's
+ * pidfd, and talks to the worker only on that socket. Nothing here uses the S6 channel state above. */
+static int dlg_secret = -1, dlg_worker_pin = -1;
+static unsigned int dlg_worker_pid, dlg_worker_uid;
+
+static void dlg_close(void)
+{
+    if (dlg_secret >= 0) { close( dlg_secret ); dlg_secret = -1; }
+    if (dlg_worker_pin >= 0) { close( dlg_worker_pin ); dlg_worker_pin = -1; }
+    dlg_worker_pid = dlg_worker_uid = 0;
+}
+
+static int pidfd_pid( int fd )
+{
+    char path[64], line[128];
+    FILE *f;
+    int pid = -1;
+    snprintf( path, sizeof(path), "/proc/self/fdinfo/%d", fd );
+    if (!(f = fopen( path, "re" ))) return -1;
+    while (fgets( line, sizeof(line), f )) if (sscanf( line, "Pid: %d", &pid ) == 1) break;
+    fclose( f );
+    return pid;
+}
+
+static int dlg_attach( unsigned char *buffer )
+{
+    DBusConnection *bus = NULL;
+    DBusMessage *msg = NULL, *reply = NULL;
+    DBusError error;
+    const char *dest = (const char *)buffer, *sender;
+    const unsigned char *nonce = buffer + 268, *channel = buffer + 300, *dialog = buffer + 316;
+    unsigned char ack[76], *tail;
+    dbus_uint64_t request = e1s6_u64( buffer + 256 );
+    dbus_uint32_t attempt = e1s6_u32( buffer + 264 ), pid = 0, uid = ~0u;
+    int secret = -1, pin = -1, count = 0, parsed, ok = 0, one = 1;
+
+    dlg_close();
+    memcpy( ack, buffer + 332, sizeof(ack) );
+    REQUIRE( !buffer[255] && dest[0] == ':' && strlen( dest ) >= 4, "dlg-owner" );
+    /* The password must not reach a core dump or a same-uid debugger of this process. */
+    REQUIRE_ERRNO( !prctl( PR_SET_DUMPABLE, 0 ) && !prctl( PR_GET_DUMPABLE ), "dlg-nondumpable" );
+    REQUIRE_OK( load_bus(), "dlg-load-bus" );
+    p_dbus_error_init( &error );
+    bus = p_dbus_bus_get_private( DBUS_BUS_SYSTEM, &error );
+    if (!bus) denied_bus( "dlg-connect-bus", &error );
+    p_dbus_error_free( &error );
+    if (!bus) goto done;
+    p_dbus_connection_set_exit_on_disconnect( bus, FALSE );
+    REQUIRE( (msg = p_dbus_message_new_method_call( dest, E1S6_PATH, E1S6_BUS, "DialogAttach" )), "dlg-message" );
+    REQUIRE( p_dbus_message_append_args( msg, DBUS_TYPE_UINT64, &request, DBUS_TYPE_UINT32, &attempt,
+             DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &nonce, 32, DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &channel, 16,
+             DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &dialog, 16, DBUS_TYPE_INVALID ), "dlg-arguments" );
+    p_dbus_error_init( &error );
+    reply = p_dbus_connection_send_with_reply_and_block( bus, msg, 5 * BUS_TIMEOUT, &error );
+    if (!reply) denied_bus( "dlg-bus-reply", &error );
+    p_dbus_error_free( &error );
+    if (!reply) goto done;
+    sender = p_dbus_message_get_sender( reply );
+    REQUIRE( sender && !strcmp( sender, dest ), "dlg-reply-owner" );
+    p_dbus_error_init( &error );
+    parsed = p_dbus_message_get_args( reply, &error, DBUS_TYPE_UNIX_FD, &secret, DBUS_TYPE_UNIX_FD, &pin,
+        DBUS_TYPE_UINT32, &pid, DBUS_TYPE_UINT32, &uid,
+        DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &tail, &count, DBUS_TYPE_INVALID );
+    if (!parsed) denied_bus( "dlg-reply-shape", &error );
+    p_dbus_error_free( &error );
+    if (!parsed) goto done;
+    REQUIRE( count == 160 && pid && !uid, "dlg-reply-values" );
+    REQUIRE( pidfd_pid( pin ) == (int)pid && ready( pin, 0, 1, "dlg-worker-pin-live" ), "dlg-worker-pin" );
+    REQUIRE_ERRNO( !fcntl( secret, F_SETFD, FD_CLOEXEC ) && !fcntl( pin, F_SETFD, FD_CLOEXEC ), "dlg-cloexec" );
+    REQUIRE_ERRNO( !setsockopt( secret, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one) ), "dlg-passcred" );
+    REQUIRE_ERRNO( !setsockopt( secret, SOL_SOCKET, SO_PASSPIDFD_LAB, &one, sizeof(one) ), "dlg-passpidfd" );
+    memset( buffer, 0, E1S6_DLG_BUFFER );
+    memcpy( buffer, tail, 160 );
+    e1s6_put32( buffer + 160, pid ); e1s6_put32( buffer + 164, uid );
+    if (!sent( send( secret, ack, sizeof(ack), MSG_NOSIGNAL ), sizeof(ack), "dlg-attach-ack" )) goto done;
+    dlg_secret = secret; secret = -1;
+    dlg_worker_pin = pin; pin = -1;
+    dlg_worker_pid = pid; dlg_worker_uid = uid;
+    ok = 1;
+done:
+    if (msg) p_dbus_message_unref( msg );
+    if (reply) p_dbus_message_unref( reply );
+    if (bus) { p_dbus_connection_close( bus ); p_dbus_connection_unref( bus ); }
+    if (secret >= 0) close( secret );
+    if (pin >= 0) close( pin );
+    return ok;
+}
+
+/* The worker's prompt: exactly one packet from the pinned worker process. */
+static int dlg_prompt( unsigned char *buffer )
+{
+    struct pollfd p[2] = { { dlg_secret, POLLIN, 0 }, { dlg_worker_pin, POLLIN, 0 } };
+    struct iovec io = { buffer, E1S6_DLG_BUFFER };
+    char ancillary[256];
+    struct msghdr msg = { 0 };
+    struct cmsghdr *cmsg;
+    struct ucred cred;
+    int timeout = e1s6_u32( buffer ), have_cred = 0, have_pin = 0, valid = 1, ret;
+    ssize_t n;
+
+    if (dlg_secret < 0 || dlg_worker_pin < 0) return denied( "dlg-prompt-state" );
+    if (timeout < 0 || timeout > 130000) return denied( "dlg-prompt-timeout" );
+    ret = poll( p, 2, timeout );
+    if (ret < 0) return denied_errno( "dlg-prompt-poll" );
+    if (ret != 1 || p[0].revents != POLLIN || p[1].revents)
+        return denied_error( "dlg-prompt-ready", "poll-state", ret ? STATUS_ACCESS_DENIED : STATUS_TIMEOUT, 0 );
+    msg.msg_iov = &io; msg.msg_iovlen = 1;
+    msg.msg_control = ancillary; msg.msg_controllen = sizeof(ancillary);
+    n = recvmsg( dlg_secret, &msg, MSG_TRUNC | MSG_CMSG_CLOEXEC );
+    if (n < 0) return denied_errno( "dlg-prompt-receive" );
+    for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg))
+    {
+        if (cmsg->cmsg_level != SOL_SOCKET) { valid = 0; continue; }
+        if (cmsg->cmsg_type == SCM_CREDENTIALS && cmsg->cmsg_len == CMSG_LEN(sizeof(cred)))
+        {
+            memcpy( &cred, CMSG_DATA(cmsg), sizeof(cred) );
+            if (have_cred++ || cred.pid != (pid_t)dlg_worker_pid || cred.uid != dlg_worker_uid) valid = 0;
+        }
+        else if (cmsg->cmsg_type == 4 || cmsg->cmsg_type == SCM_RIGHTS) /* SCM_PIDFD = 4 */
+        {
+            size_t count = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int), i;
+            int *fds = (int *)CMSG_DATA(cmsg);
+            if (cmsg->cmsg_type != 4 || count != 1 || have_pin++) valid = 0;
+            for (i = 0; i < count; i++)
+            {
+                if (fds[i] < 0) { valid = 0; continue; }
+                if (pidfd_pid( fds[i] ) != (int)dlg_worker_pid) valid = 0;
+                close( fds[i] );
+            }
+        }
+        else valid = 0;
+    }
+    if (!valid || have_cred != 1 || have_pin != 1) return denied( "dlg-prompt-identity" );
+    if (n != 178 || (msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC))) return denied( "dlg-prompt-size" );
+    if (pidfd_pid( dlg_worker_pin ) != (int)dlg_worker_pid) return denied( "dlg-prompt-pin" );
+    return 1;
+}
+
+static int dlg_answer( unsigned char *buffer, unsigned int size )
+{
+    int ok;
+    if (dlg_secret < 0) return denied( "dlg-answer-state" );
+    ok = sent( send( dlg_secret, buffer, size, MSG_NOSIGNAL ), size, "dlg-answer-send" );
+    explicit_bzero( buffer, size );
+    return ok;
 }
 
 static int endorse( unsigned int operation, pid_t child )
@@ -570,7 +726,46 @@ NTSTATUS e1s6_transport( void *args )
         failure_source = "check";
         failure_status = STATUS_ACCESS_DENIED;
         failure_errno = 0;
-        if (params->operation == E1S6_CLOSE && params->channel == active_id && active_id)
+        if (params->operation >= E1S6_DLG_ATTACH && params->operation <= E1S6_DLG_CLOSE)
+        {
+            /* The dialog's operations: no S6 channel, no broker pipe. */
+            if (params->pipe || params->channel) denied( "dlg-parameters" );
+            else if (params->operation == E1S6_DLG_CLOSE) { dlg_close(); ok = 1; }
+            else if (!buffer) denied( "dlg-buffer" );
+            else if (params->operation == E1S6_DLG_ATTACH && params->size == E1S6_DLG_BUFFER) ok = dlg_attach( buffer );
+            else if (params->operation == E1S6_DLG_PROMPT && params->size == E1S6_DLG_BUFFER) ok = dlg_prompt( buffer );
+            else if (params->operation == E1S6_DLG_ANSWER && params->size >= E1S6_DLG_ANSWER_MIN &&
+                     params->size <= E1S6_DLG_ANSWER_MAX) ok = dlg_answer( buffer, params->size );
+            else denied( "dlg-operation" );
+            if (ok) params->err = 0;
+            else
+            {
+                dlg_close();
+                params->err = ERROR_ACCESS_DENIED;
+                if (buffer && params->size > 512) explicit_bzero( buffer, params->size );
+            }
+        }
+        else if ((params->operation == E1S6_R8_RECV || params->operation == E1S6_R8_SEND) &&
+                 params->channel && params->channel == active_id && buffer &&
+                 params->pipe == (ULONG_PTR)bound_pipe && phase >= 1)
+        {
+            /* R8 steps 5-8: one E1R8 frame to or from the verifier on the open channel. */
+            if (params->operation == E1S6_R8_SEND && params->size >= 76 && params->size <= E1S6_R8_FRAME_MAX)
+                ok = sent( send( data_fd, buffer, params->size, MSG_NOSIGNAL ), params->size, "r8-send" );
+            else if (params->operation == E1S6_R8_RECV && params->size == E1S6_R8_FRAME_MAX)
+            {
+                unsigned int got = 0, timeout = e1s6_u32( buffer );
+                memset( buffer, 0, E1S6_R8_FRAME_MAX );
+                if (timeout > 130000) denied( "r8-recv-timeout" );
+                else if (!receive_frame( buffer, 76, E1S6_R8_FRAME_MAX, timeout, &got )) denied_again( "r8-recv" );
+                else if (memcmp( buffer, "E1R8", 4 ) || e1s6_u32( buffer + 8 ) != got) denied( "r8-recv-frame" );
+                else ok = 1;
+            }
+            else denied( "r8-frame-size" );
+            if (ok) params->err = 0;
+            else { cleanup(); params->channel = 0; params->err = ERROR_ACCESS_DENIED; }
+        }
+        else if (params->operation == E1S6_CLOSE && params->channel == active_id && active_id)
         { cleanup(); params->channel = 0; params->err = 0; }
         else if (params->operation == E1S6_OPEN && !params->channel && buffer && params->size == E1S6_OPEN_SIZE)
         {

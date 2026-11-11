@@ -123,6 +123,18 @@ Antigravity: user-reported operational guidance is `agy_run`, `mode: edit` for w
 * Guest disks fill: remove only confirmed superseded, owned prefixes after coordinating with their owner. VM B can auto-stop (`WEX_VMB_SECONDS`); check its configured lifetime against the test.
 * On the Windows host, execute only our own test executables. A compile, window-DC sample or screenshot alone does not establish presented-pixel correctness; validate visible screen pixels and fresh-prefix guest behavior when required.
 
+## Added 2026-11-10: R8 lab chain
+
+* Lab tree for the R8 standard-user chain: `bash scripts/lab/r8-lab-build.sh` (wexbuild, root; copies the main
+  WoW64 build to `/root/owned-r8` and rebuilds the server, wexhost, the profile DLLs, wexelevate and consent
+  with the lab switches). Then `WINE_BUILD_DIR=/root/owned-r8/build/wow64 bash scripts/test_e1s6_transport.sh`;
+  the R8 end-to-end case is the last of its section. A failed R8 case leaves the lab broker and consent under
+  the build tree's normal file names: rebuild the lab tree before the next run.
+* After a WSL restart WSLg mounts `/tmp/.X11-unix` read-only (`mount | grep X11`) and every suite that starts
+  Xvfb fails at once with no message. Run it in a private mount namespace with an owned directory bound over
+  it: `unshare --mount --propagation private sh -c 'mount --bind /var/tmp/wex-r8-x /tmp/.X11-unix && exec bash
+  scripts/test_e1s6_transport.sh'` (directory mode 1777). `chmod` on the WSLg mount has no effect.
+
 ## Added 2026-11-05: lessons that cost hours (do not rediscover)
 
 * A guest or distro without the system role gives services the user's filtered token: provisioning recipe and every failure

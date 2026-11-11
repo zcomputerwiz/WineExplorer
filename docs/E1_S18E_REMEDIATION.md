@@ -26,7 +26,8 @@ The standard-user chain stays disabled (`WEXELEVATE_E1S18`, lab define, off by d
 | R8 step 4: two explicit-list pipes, INIT/ACK | Done in code (WO-20; review fixed CancelSynchronousIo target, worker-join use-after-free, lost wait for the dialog after ACK, display-string stand-ins). Win32 pipe tests (partial INIT, blocked writer, broken pipe, cancellation, handle closure) still open: they need the spawn path driven under Wine | `e1s18_broker.c`, `consent.c` (lab only, under `WEXELEVATE_E1S18`) | native portable tests (test 56); both ABIs compile; shipping `consent.c` objects byte-identical; no Wine run |
 | R8 step 3a-3c: protected dialog, loader pin, dialog image | Done (Wine 94f8b2fe; tests WO-21) | `server/process.c`, `handle.c`, `request.c`, `sysrun.c`, `named_pipe.c`, `thread.c` | normal suite 325 PASS (open denied / control opens both ABIs, unnarrowed refused); trace lab build 329 PASS (pin pid equals the child's Unix pid both ABIs, consent.exe recognised, probe not) |
 | R8 step 3e (caller-binding authority) and 3d (endorsement request) | Open: design decided by Claude (docs/E1_S18E_R8_3E_DESIGN.md section 9), build by Antigravity/Qwen work orders | `docs/E1_S18E_R8_STEP3_PLAN.md` | |
-| R4 rest, R5, R7, R8 steps 5-10, R10 rest, R14 | Open (design) | | |
+| R8 steps 5-8 and a first elevated launch | Done in the lab (WO-29, 2026-11-10): password over the private socket, PAM result, Confirm, redemption, token, profile, program; with the lab stand-ins listed in the WO-29 result (chiefly: the broker installs its own consumed record, R10) | `consent.c`, wexhost `e1s6.c`, `e1s18_broker.c`, `tools/e1s6/e1s6-lab.py`, `tools/e1s7/` | lab S6 suite 378 PASS (`r8_e2e_elevated_64/32`, wrong password and unknown account refused) |
+| R4 rest, R5, R7, R8 steps 9-10 (lifecycle races, regression matrix), R10 rest, R14 | Open | | |
 
 ## What changed
 
