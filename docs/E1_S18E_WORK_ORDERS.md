@@ -1207,7 +1207,7 @@ Cases: `r8_retry_after_wrong_password` (wrong, then right: one refusal, one rede
 as the elevated administrator); `r8_wrong_password_refused` now requires exactly three refused attempts
 in one request and no launch.
 
-Open: the 120 s deadline covers all three attempts including about 4 s of padding each; nothing limits
+Open: the 120 s deadline covers all three attempts including the 2 s a refusal is held (WO-36); nothing limits
 the number of requests (throttling belongs to the installed verifier); the nonce is the request's, only
 the channel id and dialog are new per attempt; a retry after Cancel or a transport failure is not offered.
 
@@ -1230,3 +1230,26 @@ The window path worked on the first run. The screenshots showed two defects, bot
 Open: the account name is not carried into the fresh dialog (typed again); the INIT publisher and
 requester are still empty (the dialog checks the signature itself); Cancel and the close button in the
 window were not driven; the UI thread still blocks while the verifier answers.
+
+## WO-36 Password check timing: a success at once, a refusal after 2 s (Claude, 2026-11-11)
+
+Before: the worker held every ordinary outcome, a correct password included, until 4 s after the answer.
+Decision by the user: keep PAM's default failure delay and release a success immediately.
+
+* `tools/e1s7/protocol.h`: `S7_FAILURE_NS` is 2 s (PAM's default failure delay, without its random part).
+* `tools/e1s7/pam-worker.c`: a success is released at once (the queued-input check stays). When the
+  fixed release time is in use the worker sets `PAM_FAIL_DELAY` to a function that does not sleep, so
+  PAM's own randomized delay (up to 2.5 s) does not run past the release time; a wrong password, an
+  unknown account and a decoy are all released at exactly 2 s. Lockout accounting in the PAM stack is
+  untouched. The raw mode without a release time keeps PAM's own delay.
+* `tools/e1s7/test-client.py`: the three refusal classes within 1.9 to 2.25 s and 250 ms of each other;
+  a success under 1 s (measured 0.02 s).
+
+Open: the release time is also the time PAM gets for the whole check, so a PAM stack that needs more
+than 2 s (a slow directory service) is refused; the constant would have to grow for such a stack.
+
+Follow-up in the same change: two lab cases assumed the dialog is still alive after a correct password
+(the old 4 s hold). `r8_dialog_killed_no_launch` now kills the dialog while a refusal is held, and the
+broker ends the request (no further attempt) when a refusal cannot be delivered to the dialog;
+`r8_no_receipt_no_token` no longer needs a live dialog. The dialog dying between a correct password and
+its result is now a window of milliseconds and is not covered by a deterministic case.

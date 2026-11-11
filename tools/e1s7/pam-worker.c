@@ -373,6 +373,11 @@ static int r8_prompt(void)
     ctx.release_at=now+S7_FAILURE_NS;
     return 1;
 }
+/* PAM_FAIL_DELAY: PAM does not sleep by itself; every refusal is held until the fixed release time. */
+static void no_pam_delay(int status, unsigned int usec, void *appdata)
+{
+    (void)status; (void)usec; (void)appdata;
+}
 static int wait_release(void)
 {
     struct pollfd p[3]={{ctx.dialog,POLLIN,0},{ctx.control,POLLIN,0},{ctx.peer_pin,POLLIN,0}};
@@ -715,6 +720,14 @@ int main(int argc, char **argv)
     ctx.pam_status=pam_start(service,name,&conv,&pam);
 #endif
     if (ctx.pam_status!=PAM_SUCCESS) goto done;
+    if (ctx.release_at)
+    {
+        void (*delay)(int,unsigned int,void *)=no_pam_delay;
+        const void *item;
+        memcpy(&item,&delay,sizeof(item));
+        ctx.pam_status=pam_set_item(pam,PAM_FAIL_DELAY,item);
+        if (ctx.pam_status!=PAM_SUCCESS) goto done;
+    }
     ctx.stage=3; ctx.pam_status=pam_authenticate(pam,PAM_DISALLOW_NULL_AUTHTOK);
     if (ctx.pam_status!=PAM_SUCCESS || !quiet_dialog()) goto done;
     ctx.reason=RES_PAM; ctx.stage=4; ctx.pam_status=pam_acct_mgmt(pam,0);
@@ -748,10 +761,10 @@ done:
         restore_deadline(&unblock);
     }
     explicit_bzero(ctx.answer,sizeof(ctx.answer)); ctx.answer_len=0;
-    /* Preserve PAM's own delay/lockout accounting; pad all ordinary outcomes,
-     * including success, to the same post-answer release time. No sleep while
-     * holding the service lock. Cancellation/death/deadline always wins. */
-    if (ctx.release_at && !wait_release()) success=0;
+    /* PAM's lockout accounting is kept; its failure delay is replaced by ours: every refusal is
+     * held until the same post-answer release time, a success is released at once. No sleep
+     * while holding the service lock. Cancellation/death/deadline always wins. */
+    if (ctx.release_at && !(success ? quiet_dialog() : wait_release())) success=0;
     if (!audit_record(success)) { success=0; ctx.reason=RES_AUDIT; }
     if (!success) explicit_bzero(ctx.io,sizeof(ctx.io));
     ctx.round=ctx.index=ctx.style=0; header(S7_RESULT,S7_RESULT_SIZE);

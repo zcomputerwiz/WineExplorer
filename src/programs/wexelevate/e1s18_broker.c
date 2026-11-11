@@ -1835,7 +1835,7 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
             struct e1r8_answer ans;
             size_t flen = 0;
             /* These steps run on the attempt's admission deadline, not the click-consent timeout: the
-             * password check alone is padded to several seconds. */
+             * password check alone may take two seconds (the fixed release time of a refusal). */
             ULONGLONG r8_start = GetTickCount64();
             DWORD r8_timeout = r8_remaining( req );
             BOOL stuck = FALSE, refused = FALSE;
@@ -1874,13 +1874,15 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
                 err = ERROR_LOGON_FAILURE;
                 step = "refused result";
                 flen = 116;
+                /* A refusal that cannot be told to the dialog (it is gone) ends the request: only a
+                 * dialog that took the refusal leads to a further attempt. */
                 if (e1r8_encode_result( out, 116, &tuple, E1R8_RESULT_REFUSED, (const uint8_t *)"", 0, zero32 ) ||
                     r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck ))
-                    goto r8_fail;
+                { refused = FALSE; err = ERROR_CANCELLED; goto r8_fail; }
                 flen = 80;
                 if (e1r8_encode_done( out, 80, &tuple, E1R8_DONE_CANCELLED ) ||
                     r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck ))
-                    goto r8_fail;
+                { refused = FALSE; err = ERROR_CANCELLED; goto r8_fail; }
                 /* D tells the person and leaves by itself (bounded by the attempt deadline). */
                 WaitForSingleObject( pi.hProcess, r8_left( r8_start, r8_timeout ) );
                 goto r8_fail;

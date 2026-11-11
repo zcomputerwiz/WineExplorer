@@ -20,7 +20,10 @@
 #define S7_RESULT 5u
 /* Root-service-only decoy: same dialog/deadline, can only return failure. */
 #define S7_DECOY 6u
-#define S7_FAILURE_NS UINT64_C(4000000000)
+/* Every refusal is released this long after the answer arrived: PAM's default failure delay (2 s),
+ * without its random part, so a wrong password, an unknown account and a decoy look the same. It is
+ * also the time PAM gets for the check. A success is released at once. */
+#define S7_FAILURE_NS UINT64_C(2000000000)
 #define S7_RESULT_SIZE (S7_HEADER + 68u)
 
 #endif

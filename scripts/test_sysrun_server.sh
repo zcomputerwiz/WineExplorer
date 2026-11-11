@@ -1717,7 +1717,8 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         done
         grep -q 'r8: attach_ok sent' <<<"$wine_new_log" || { grep 'r8: ' <<<"$wine_new_log" >&2; fail "$2: the dialog did not get ATTACH_OK"; }
         consent_unix_pid="$(grep 'wex-r8: dialog [0-9a-fA-F]* pin pid=' <<<"$wine_new_log" | head -1 | sed -n 's/.*pin pid=\([0-9]*\).*/\1/p')"
-        [ -n "$consent_unix_pid" ] && [ -d "/proc/$consent_unix_pid" ] || fail "$2: no live dialog process"
+        # $3 = done-ok: the dialog may have finished already (a right password is answered at once)
+        [ "${3:-}" = done-ok ] || { [ -n "$consent_unix_pid" ] && [ -d "/proc/$consent_unix_pid" ]; } || fail "$2: no live dialog process"
     }
     # Kills the dialog, waits for the broker to give up, and requires that nothing was issued or started.
     r8_neg_end() {
@@ -1764,24 +1765,25 @@ EOF
     rm -f "$ROOT/r8-foreign-attach.py"
     ok r8_foreign_attach_denied
 
-    # Negative: the right password, but the dialog dies while the password is being checked: no evidence, no
-    # token, no program.
-    r8_neg_start "$R8PW" r8_dialog_killed_no_launch
+    # Negative: the dialog dies while the worker holds its answer (a refusal is held for 2 s; a success is
+    # released at once and leaves no such window): no evidence, no token, no program, and no further attempt.
+    r8_neg_start "not-$R8PW" r8_dialog_killed_no_launch
     for _ in $(seq 1 100); do
         grep -q 'E1R8_DELEGATED' <<<"$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")" && break
         sleep 0.1
     done
     grep -q 'E1R8_DELEGATED' <<<"$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")" ||
         fail "r8_dialog_killed_no_launch: the password conversation did not start"
-    sleep 1.5   # the password is with the worker; its answer is held back until about 4 s
+    sleep 0.5   # the password is with the worker; its answer is held back until 2 s after it arrived
     r8_neg_end r8_dialog_killed_no_launch
+    ! grep -q 'r8: further attempt' <<<"$wine_new_log" || fail "r8_dialog_killed_no_launch: a further attempt after the dialog died"
     ok r8_dialog_killed_no_launch
 
     # Negative (R10): the verifier authenticates and hands the evidence to the broker but sends the server no
     # receipt. The broker's copy alone gets no token: the server refuses and nothing starts.
     e1s6_stop
     WEX_E1S6_LAB_NO_RECEIPT=1 e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
-    r8_neg_start "$R8PW" r8_no_receipt_no_token
+    r8_neg_start "$R8PW" r8_no_receipt_no_token done-ok
     for _ in $(seq 1 300); do
         wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
         grep -qE 'r8: launched|r8: .* failed' <<<"$wine_new_log" && break

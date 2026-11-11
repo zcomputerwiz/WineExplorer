@@ -254,7 +254,10 @@ def main():
                 first_prompt_at - submitted_at if first_prompt_at is not None else None)
 
     try:
-        run("success", expected=0)
+        # A success is released at once; only refusals are held until the fixed release time.
+        _, elapsed, _ = run("success", expected=0)
+        require(elapsed is not None and elapsed < 1.0)
+        print("PASS success-released-at-once seconds=%.3f" % elapsed, flush=True)
         run("fresh-single-use-seed", expected=0)
         run("identity-only-nonadmin", user="eve", expected=0)
         run("wrong-password", action="wrong")
@@ -279,7 +282,7 @@ def main():
             classes.append(run("timing-ineligible-%d" % sample, user="eve", decoy=True))
         require(all(transcript == [(1, 0, 1, b"Password: ")] for transcript, _, _ in classes))
         times = [elapsed for _, elapsed, _ in classes]
-        require(all(elapsed is not None and 3.9 <= elapsed <= 4.25 for elapsed in times))
+        require(all(elapsed is not None and 1.9 <= elapsed <= 2.25 for elapsed in times))
         require(max(times) - min(times) <= 0.25)
         prompt_times = [elapsed for _, _, elapsed in classes]
         require(all(elapsed is not None for elapsed in prompt_times))
@@ -287,7 +290,7 @@ def main():
         print("PASS account-class-prompts-and-timing tolerance-ms=250", flush=True)
         for suffix in ("multi", "block"):
             transcript, elapsed, _ = run("fixed-policy-" + suffix, suffix=suffix, raw_mode=False)
-            require(transcript == [(1, 0, 1, b"Password: ")] and elapsed is not None and 3.9 <= elapsed <= 4.25)
+            require(transcript == [(1, 0, 1, b"Password: ")] and elapsed is not None and 1.9 <= elapsed <= 2.25)
         run("multi-round-and-message", suffix="multi", expected=0)
         run("too-many-rounds", suffix="rounds")
         run("oversize-prompt", suffix="prompt-size")

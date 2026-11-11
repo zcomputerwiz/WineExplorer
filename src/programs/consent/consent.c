@@ -997,7 +997,7 @@ static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
                 data->r8_attach_ok = TRUE;
             }
             {
-                /* The verifier checks the password; the dialog waits for its answer (a few seconds). */
+                /* The verifier checks the password; the dialog waits for its answer (a refusal takes 2 s). */
                 HCURSOR old = SetCursor(LoadCursorW(NULL, (const WCHAR *)IDC_WAIT));
                 int auth;
 
