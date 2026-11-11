@@ -1561,7 +1561,37 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     rm -f "$EL/release.r14"
     ok r8_second_elevation_while_first_runs
 
-    # Negative: the right account with a wrong password is refused and nothing starts
+    # A wrong password, then the right one: the request gets a fresh dialog (attempt 2) and the program starts
+    el_down "$STD"
+    el_clean
+    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
+        '"EnableStandardUserElevation"=dword:00000001'
+    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+        '"Start"=dword:00000002' \
+        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+        '"R8AutoSelect"="'"$ADM"'"' \
+        '"R8AutoPassword"="not-'"$R8PW"'"' \
+        '"R8AutoPassword2"="'"$R8PW"'"'
+    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+    el_up "$STD"
+    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+        "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r8_retry.txt")" - >"$ROOT/r8_retry.log" 2>&1 || true
+    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+    [ "$(grep -c 'r8: result refused' <<<"$wine_new_log")" = 1 ] && grep -q 'r8: further attempt' <<<"$wine_new_log" ||
+        { grep -E 'r8: |E1S6_' <<<"$wine_new_log" | tail -30 >&2; fail "r8_retry_after_wrong_password: no refusal followed by a further attempt"; }
+    grep -q 'r8: launched' <<<"$wine_new_log" ||
+        { grep -E 'r8: |E1S6_' <<<"$wine_new_log" | tail -30 >&2; grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -20 >&2
+          fail "r8_retry_after_wrong_password: the second attempt did not launch"; }
+    [ "$(grep -c 'E1R8_REDEEMED' <<<"$e1s6_new_log")" = 1 ] || fail "r8_retry_after_wrong_password: not exactly one redemption"
+    [ "$(el_fact "$EL/r8_retry.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r8_retry.txt" user)" = "S-1-5-21-$r8_a-$r8_b-$r8_c-$r8_rid" ] ||
+        { cat "$EL/r8_retry.txt" >&2; fail "r8_retry_after_wrong_password: the program is not the elevated administrator"; }
+    ok r8_retry_after_wrong_password
+
+    # Negative: the right account with a wrong password is refused three times and nothing starts
     el_down "$STD"
     el_clean
     cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
@@ -1580,7 +1610,8 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         "$(winpath /home/$STD/wexel/p64.exe)" 1326 "$(winpath "$EL/r8_e2e_res_wrongpw.txt")" - >/dev/null 2>&1 || true
     wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
     e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-    grep -q 'r8: result refused' <<<"$wine_new_log" || { echo "$wine_new_log" | grep 'r8: ' >&2; fail "r8_wrong_password_refused: no refusal"; }
+    [ "$(grep -c 'r8: result refused' <<<"$wine_new_log")" = 3 ] && [ "$(grep -c 'r8: prepare ok' <<<"$wine_new_log")" = 1 ] ||
+        { echo "$wine_new_log" | grep 'r8: ' >&2; fail "r8_wrong_password_refused: not exactly three refused attempts in one request"; }
     grep -q 'E1R8_RESULT request=.* authenticated=0' <<<"$e1s6_new_log" || fail "r8_wrong_password_refused: the verifier did not refuse"
     ! grep -qE 'r8: redeemed|r8: launched|E1R8_REDEEMED' <<<"$wine_new_log$e1s6_new_log" || fail "r8_wrong_password_refused: evidence or a launch after a refusal"
     [ ! -e "$EL/r8_e2e_res_wrongpw.txt" ] || fail "r8_wrong_password_refused: a program started"

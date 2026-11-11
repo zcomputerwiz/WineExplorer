@@ -578,6 +578,12 @@ def service(server_path, system_group, pam_paths=None):
 
                         require((request_id, attempt) not in self.endorsed_records, "endorsed-duplicate")
                         require(len(self.endorsed_records) < 8, "endorsed-capacity")
+                        # A further attempt: the next number, and every earlier one refused or retired.
+                        earlier = [(a, r["state"]) for (rid, a), r in self.endorsed_records.items()
+                                   if rid == request_id]
+                        require(attempt == len(earlier) + 1 and
+                                all(state in ("REFUSED", "RETIRED") for _, state in earlier),
+                                "endorsed-attempt-order")
 
                         fds.pop(0)
                         prefix_fd = fds.pop(0)

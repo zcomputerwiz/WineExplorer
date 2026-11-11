@@ -1308,8 +1308,9 @@ static DWORD r8_v_recv( struct request *req, uint8_t frame[E1S6_R8_FRAME_MAX], s
  * Stage 2 check (default_redeem_evidence). */
 static uint8_t s_r8_evidence[220], s_r8_evidence_ref[16];
 static BOOL s_r8_evidence_set;
+static uint32_t s_r8_attempt;  /* the attempt whose evidence was redeemed (1..3) */
 
-static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id,
+static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id, uint32_t attempt,
                                          const uint8_t nonce[32],
                                          const uint8_t binding_digest[32],
                                          const uint8_t request_digest[32],
@@ -1352,7 +1353,7 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
      * with ERROR_NOT_SUPPORTED before any pipe or process is created. The
      * pre-endorsement tuple carries no dialog_id (the server assigns it at
      * endorsement). */
-    if (e1s18_build_r8_tuple( req, request_id, 1, nonce, channel_token,
+    if (e1s18_build_r8_tuple( req, request_id, attempt, nonce, channel_token,
                               binding_digest, request_digest, secure, &tuple ))
         return ERROR_NOT_SUPPORTED;
 
@@ -1416,6 +1417,7 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     wsprintfW( cmd + lstrlenW( cmd ), L"/token %s ", token_hex );
     wsprintfW( cmd + lstrlenW( cmd ), L"/in %lu ", (DWORD)(ULONG_PTR)to_d_read );
     wsprintfW( cmd + lstrlenW( cmd ), L"/out %lu ", (DWORD)(ULONG_PTR)from_d_write );
+    wsprintfW( cmd + lstrlenW( cmd ), L"/attempt %lu ", (DWORD)attempt );
     if (secure) lstrcatW( cmd, L"/secure " );
 
     if (secure && secure_enter())
@@ -1924,6 +1926,7 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
             memcpy( s_r8_evidence, frame + 76, sizeof(s_r8_evidence) );
             memcpy( s_r8_evidence_ref, ref, 16 );
             s_r8_evidence_set = TRUE;
+            s_r8_attempt = attempt;
             r8_trace_line( "r8: redeemed" );
 
             /* DONE: D leaves; then RELEASE retires the attempt at the verifier. (Lab order: DONE is written
@@ -2175,8 +2178,18 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
     else
     {
-        err = e1s18_spawn_consent_dialog( req, req->id, nonce, binding_digest, request_digest,
-                                          channel_token, secure, out_account, account_max );
+        /* Spec section 1: attempts 1..3 per request, each with a fresh dialog and channel id; a
+         * refused password is the only outcome that leads to a further attempt, and the admission
+         * deadline is never extended. */
+        uint32_t attempt;
+        for (attempt = 1; ; attempt++)
+        {
+            err = e1s18_spawn_consent_dialog( req, req->id, attempt, nonce, binding_digest, request_digest,
+                                              channel_token, secure, out_account, account_max );
+            if (err != ERROR_LOGON_FAILURE || attempt >= 3 || r8_remaining( req ) < 10000) break;
+            if (!e1s18_fill_random( channel_token, 16 ) || e1s18_is_all_zero( channel_token, 16 )) break;
+            r8_trace_line( "r8: further attempt" );
+        }
     }
 #else
     else
@@ -2436,7 +2449,11 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
     memcpy( in + 24, request_digest, 32 );                   /* request_digest */
     memcpy( in + 56, binding_digest, 32 );                   /* binding_digest */
     memcpy( in + 88, nonce, 32 );                            /* nonce */
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    wex_token_put32( in + 120, s_r8_attempt ? s_r8_attempt : 1 ); /* the redeemed attempt */
+#else
     wex_token_put32( in + 120, 1 );                          /* attempt: 1 */
+#endif
 #ifdef WEXELEVATE_E1S18
     memcpy( in + 124, req->account_key, 16 );               /* account_key from Stage 2 */
     /* The attempt's generations (R8 context, set by prepare); 1 only where a test left it unset. */

@@ -1,5 +1,13 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e: a binding may be endorsed again for the next attempt (lab only, 2026-11-11)
+
+Only with `WEX_E1S6_TRANSPORT_TEST`. `server/named_pipe.c`, ENDORSE_DIALOG (op 2): an endorsed binding is
+no longer refused outright. A further endorsement is accepted when the previous dialog has no running
+thread, no receipt was installed, the request id and deadline equal the sealed ones and the attempt number
+is the sealed one plus 1 (at most 3). All other checks run as for the first endorsement; the binding then
+gets a new dialog id, the new dialog's process and token, and the new sealed tuple.
+
 ## E1-S18 review R14: a further logon joins the loaded profile (lab only, 2026-11-11)
 
 Only with the E1S13/E1S10/E1S6 lab defines. `server/registry.c`: `e1s_load_hive` no longer refuses a LOAD

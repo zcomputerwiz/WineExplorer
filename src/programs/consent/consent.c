@@ -399,6 +399,12 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
             }
         }
 #ifdef WEXELEVATE_E1S18
+        else if (!wcsnicmp(p, L"/attempt", 8))
+        {
+            p += 8;
+            while (*p == ' ' || *p == '\t') p++;
+            data->attempt = wcstoul(p, (WCHAR **)&p, 10);
+        }
         else if (!wcsnicmp(p, L"/in", 3))
         {
             p += 3;
@@ -993,9 +999,11 @@ static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
                 SetCursor(old);
                 if (auth != R8_AUTH_OK)
                 {
-                    /* One attempt per dialog: the broker has ended this request. */
+                    /* One attempt per dialog: after a refusal the broker opens a fresh dialog, up to
+                     * three attempts per request. */
                     MessageBoxW(hwnd, auth == R8_AUTH_REFUSED
-                                ? L"The user name or password is incorrect. Nothing was started."
+                                ? (data->attempt < 3 ? L"The user name or password is incorrect. Please try again."
+                                   : L"The user name or password is incorrect. Nothing was started.")
                                 : L"The administrator's credentials could not be verified. Nothing was started.",
                                 L"User Account Control", MB_OK | MB_ICONERROR);
                     data->confirmed = FALSE;
@@ -1138,7 +1146,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
             DWORD written = 0;
 
             if (!r8_read_init(data.in_pipe, init_buf, sizeof(init_buf), &init_len) ||
-                e1r8_decode_init_learn(init_buf, init_len, data.request_id, 1,
+                data.attempt < 1 || data.attempt > 3 ||
+                e1r8_decode_init_learn(init_buf, init_len, data.request_id, data.attempt,
                                        data.channel_token, &init) != 0)
             {
                 WARN("R8 INIT missing or malformed.\n");
@@ -1148,7 +1157,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
             memcpy(data.nonce, init.tuple.nonce, 32);
             memcpy(data.binding_digest, init.tuple.binding_digest, 32);
             memcpy(data.request_digest, init.tuple.request_digest, 32);
-            data.attempt = 1;
             memcpy(&data.r8_tuple, &init.tuple, sizeof(data.r8_tuple));
             if (init.verifier_owner_len >= sizeof(data.r8_owner)) return ERROR_NOT_SUPPORTED;
             memcpy(data.r8_owner, init.verifier_owner, init.verifier_owner_len);
@@ -1194,6 +1202,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
                     sz = sizeof(auto_pw) - sizeof(WCHAR);
                     if (RegQueryValueExW(hkey, L"R8AutoPassword", NULL, &type, (BYTE *)auto_pw, &sz) != ERROR_SUCCESS || type != REG_SZ)
                         auto_pw[0] = 0;
+                    /* A further attempt types R8AutoPassword2 when the test sets one. */
+                    if (data.attempt > 1)
+                    {
+                        WCHAR next_pw[128] = {0};
+                        sz = sizeof(next_pw) - sizeof(WCHAR);
+                        if (RegQueryValueExW(hkey, L"R8AutoPassword2", NULL, &type, (BYTE *)next_pw, &sz) == ERROR_SUCCESS && type == REG_SZ)
+                            memcpy(auto_pw, next_pw, sizeof(auto_pw));
+                    }
                     RegCloseKey(hkey);
                 }
 

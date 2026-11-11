@@ -1188,3 +1188,25 @@ the elevated administrator; the server logs the joined lease; the first is relea
 Not covered: a joiner whose setup fails after LOAD (the lease return path is untested), three or more
 concurrent logons, a join while another setup is still uncommitted (refused, the caller would have to
 retry), the reaper unloading the hive after both programs have ended.
+
+## WO-34 A wrong password leads to a further attempt (lab; Claude, 2026-11-11)
+
+Before: one refused password ended the request; the person had to start the program again. The spec
+(section 1) allows attempts 1..3 per request, each with a fresh dialog, on the one admission deadline.
+
+* Broker (`e1s18_broker.c`): after a refused RESULT (and only then) the dialog step starts again with the
+  next attempt number and a new channel id, up to three attempts and only while at least 10 s of the
+  deadline are left. The S10 input carries the attempt that was redeemed.
+* Server (`wine/server/named_pipe.c`, docs/STOCK_CHANGES.md): a binding may be endorsed again for the next
+  attempt once the previous dialog is gone.
+* Dialog (`consent.c`): `/attempt N` from the broker; after a refusal it says "Please try again" on
+  attempts 1 and 2. Lab hook `R8AutoPassword2` is typed on a further attempt.
+* Verifier: a further ENDORSED needs the next attempt number and every earlier attempt refused or retired.
+
+Cases: `r8_retry_after_wrong_password` (wrong, then right: one refusal, one redemption, the program runs
+as the elevated administrator); `r8_wrong_password_refused` now requires exactly three refused attempts
+in one request and no launch.
+
+Open: the 120 s deadline covers all three attempts including about 4 s of padding each; nothing limits
+the number of requests (throttling belongs to the installed verifier); the nonce is the request's, only
+the channel id and dialog are new per attempt; a retry after Cancel or a transport failure is not offered.
