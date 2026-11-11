@@ -2,16 +2,21 @@
 Copyright 2026 WineExplorer contributors -->
 # U1.0 Windows oracle fixture
 
-Static draft: **not built, packaged, installed, launched, or validated**. No
-HRESULT in `observations.txt` has been observed. This is a full-trust packaged
-desktop console probe, not a UWP lifecycle or AppContainer test.
+Status (2026-11-11): `BUILD_CHECK.md` records MSVC x64/x86 builds;
+`ORACLE_RESULTS.md` records the x64 packaged Windows oracle pass and observed
+negative HRESULTs. Windows x86 packaging/activation remains not run. The Wine
+x64/x86 unpackaged control passed historically; Wine packaged cases remain
+NOT-RUN. These runs were not repeated for this status update. This is a full-trust
+packaged desktop console probe, not a UWP lifecycle or AppContainer test.
 
 The host inventory records VS 2022 Build Tools 17.14 with v143 and SDK
 10.0.26100.0, including C++/WinRT headers, MakeAppx and SignTool. The scripts
 use those paths and the desktop CRT; the UWP workload and NuGet are not required
 by design. `build.ps1` prints its exact `vcvarsall` and `cl` commands, uses
 `/MT`, and builds x64 or x86. Export naming, link dependencies, manifest schema
-and actual compatibility with this toolchain remain unverified.
+and toolchain compatibility now have the historical build/oracle evidence named
+above; complete script cleanup and both-architecture runtime acceptance still
+require verification.
 
 ## Execution protocol
 
@@ -105,14 +110,20 @@ defined (MinGW ships no library that provides them; the MSVC build links
 ship the C++/WinRT headers; the async check is a positive-case check and is not
 reached by the no-package Wine cases.
 
-`run-wine.sh <wine build dir> <prefix>` runs only the cases that need no package
+`run-wine.sh <wine build dir> <new prefix> [new results dir]` runs only the cases that need no package
 installation on Wine — the unpackaged direct run, which also covers the identity
 queries of an unpackaged process and the missing-class activation failure — with
 that build's `wine` loader in the given prefix, after setting
 `HKCU\Software\WineExplorer\Shell\UwpCompatibility` to 1 in that prefix. It
-writes `actual-wine-<arch>.txt` per architecture, prints a comparison with the
+writes `actual-wine-<arch>.txt` per architecture in a fresh results directory, prints a comparison with the
 Windows oracle lines for the same cases (`expected.txt`, `ORACLE_RESULTS.md`
 HRESULTs), and marks every package-activation case `NOT-RUN (no package
 activation in Wine yet)`. It refuses to run if the prefix is the wexbuild test
 fixture or `/etc/wineexplorer` is involved, and it never starts or kills a
-wineserver it did not start.
+wineserver it did not start. The prefix must not already exist; the runner
+creates and locks it, removes it only after successful checks and bounded
+matching-server cleanup, and retains it on failure. The optional results
+directory must be fresh; the default is a new temporary directory. Raw output,
+exit statuses and a final cleanup/overall verdict are retained there. It never
+overwrites the tracked oracle results. See `RUNNER_CHECK.md` for the 142-case
+fake-loader regression evidence and the separate live-Wine verification gate.
