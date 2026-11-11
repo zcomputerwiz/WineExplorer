@@ -1,5 +1,11 @@
 # Changes to stock Wine / third-party code
 
+## DWM: name of the broker's change event (2026-11-11)
+
+`include/wine/dwm_protocol.h` (a project header in the Wine tree): one new define, `DWM_CHANGE_EVENT_NAME`, the
+per-desktop auto-reset event the DWM broker sets when its attribute or thumbnail revision changes. No Wine code
+uses it; the broker (`src/programs/dwm`) and the shell's bridge (`src/dlls/wexshell/dwm_bridge.c`) do.
+
 ## U1-R0B: package full-name helper (isolated UWP branch, 2026-11-11)
 
 Wine commit `c7be1378` on `codex/uwp-runtime`, based on `c3f59e05`;

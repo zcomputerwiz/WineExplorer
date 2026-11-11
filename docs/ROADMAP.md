@@ -312,3 +312,21 @@ notes; concepts only, no code).
   snapshot (machine root only, or the installing administrator's profile as well), the storage (reflink copy where
   the filesystem has it, otherwise a hardlink tree or an archive), who may restore (an administrator, through the
   same elevation), retention, and behaviour while other users' programs run from the machine root.
+
+## Future: DWM graphics follow-ups (added 2026-11-11, not started)
+
+Two ideas kept from comparing our compositor design with the Raven project's presentation code (concepts only; the
+comparison found no reason to rework the design in `DWM_ARCHITECTURE.md`). Both belong to existing DWM phases.
+
+* **Transparent DirectComposition without CPU composition (P7b, P14).** Today a transparent DComp target is composed
+  on the CPU every frame (X11, GL renderer) and is not done on Wayland. For the common simple scene, one swapchain
+  visual over the program's own GDI content (Chromium's shape), present the two as separate layers that the
+  compositor stacks, instead of reading the underlay back: on Wayland the swapchain is already its own surface
+  (`wex_render_surface_v1`), so the GDI content would become a second layer above or below it with per-pixel alpha;
+  on X11 the equivalent is the ARGB window surface over the GL client window. Open points: order and alpha when GDI
+  content is above the swapchain, rounded clips across layers, thumbnails and Peek sampling the combined result,
+  and falling back to the current CPU path for scenes that are not this simple.
+* **Stretching a stale-size swapchain during resize (Wayland).** While a window is resized, the last presented GPU
+  frame can be scaled over the new client area (`wp_viewport`) until the program presents at the new size, instead
+  of showing a gap or the old size. First step: measure what `wexcomp` shows today during an interactive resize of a
+  GPU-presenting window (this was not checked), then decide.

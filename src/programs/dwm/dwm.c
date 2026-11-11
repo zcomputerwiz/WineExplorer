@@ -75,6 +75,25 @@ struct log_entry { uint64_t revision; uint32_t hwnd; uint32_t attribute; uint32_
 
 static uint64_t revision = 1;
 static struct log_entry change_log[LOG_SIZE];
+
+/* The shell's bridge polls for changes (DWM_OP_POLL, DWM_OP_THUMB_LIST); this per-desktop event makes it
+ * poll at once instead of at its next interval. A hint only: nothing depends on it being delivered. */
+static HANDLE change_event;
+
+static void notify_change(void)
+{
+    if (!change_event)
+    {
+        WCHAR desk_name[MAX_PATH], name[MAX_PATH + 64];
+        HDESK desk = GetThreadDesktop( GetCurrentThreadId() );
+
+        if (!desk || !GetUserObjectInformationW( desk, UOI_NAME, desk_name, ARRAY_SIZE( desk_name ), NULL )) return;
+        lstrcpynW( name, DWM_CHANGE_EVENT_NAME, ARRAY_SIZE( name ) );
+        lstrcatW( name, desk_name );
+        if (!(change_event = CreateEventW( NULL, FALSE, FALSE, name ))) return;
+    }
+    SetEvent( change_event );
+}
 static unsigned int log_head;   /* index of the oldest entry */
 static unsigned int log_count;  /* number of valid entries, up to LOG_SIZE */
 
@@ -89,6 +108,7 @@ static void log_change( uint32_t hwnd, uint32_t attribute, uint32_t value )
     change_log[idx].value     = value;
     if (log_count == LOG_SIZE) log_head = (log_head + 1) % LOG_SIZE;
     else log_count++;
+    notify_change();
 }
 
 static struct attr_entry *find_attr( uint32_t hwnd, uint32_t attribute )
@@ -145,7 +165,11 @@ static void sweep_thumbs(void)
         thumbs[i].used = FALSE;
         dropped = TRUE;
     }
-    if (dropped) thumb_revision++;
+    if (dropped)
+    {
+        thumb_revision++;
+        notify_change();
+    }
 }
 
 static BOOL valid_attribute( uint32_t attribute )
@@ -313,6 +337,7 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         memcpy( tentry->thumb.dest_rect, set.dest, sizeof(set.dest) );
         memcpy( tentry->thumb.source, set.source, sizeof(set.source) );
         thumb_revision++;
+        notify_change();
         hdr->length  = 0;
         *reply_size  = sizeof(*hdr);
         return STATUS_SUCCESS;
@@ -328,6 +353,7 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         if (!(tentry = find_thumb( sender_pid, del.handle ))) return STATUS_NOT_FOUND;
         tentry->used = FALSE;
         thumb_revision++;
+        notify_change();
         hdr->length  = 0;
         *reply_size  = sizeof(*hdr);
         return STATUS_SUCCESS;
@@ -378,7 +404,7 @@ static void serve( HANDLE broker, HANDLE parent )
 
     for (;;)
     {
-        /* by elapsed time: the shell's bridge polls several times a second, so the broker is rarely idle */
+        /* by elapsed time: the shell's bridge polls regularly, so the broker is rarely idle */
         if (GetTickCount() - last_sweep >= 5000)
         {
             sweep_attrs();

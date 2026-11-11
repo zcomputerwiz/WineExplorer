@@ -35,10 +35,11 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(wexshell);
 
-#define DWM_BRIDGE_POLL_MS    250
+#define DWM_BRIDGE_POLL_MS    250    /* fallback: the broker's change event normally wakes the bridge at once */
+#define DWM_BRIDGE_RETRY_MS   50     /* while a window waits for its X window or wex handle */
 #define DWM_BRIDGE_IDLE_MS    1000   /* no broker */
 #define DWM_BRIDGE_PENDING    64
-#define DWM_BRIDGE_RETRIES    40     /* windows that have no X window yet */
+#define DWM_BRIDGE_RETRIES    200    /* retry passes (DWM_BRIDGE_RETRY_MS apart) for a window without an identity yet */
 
 #ifndef DWMWA_WINDOW_CORNER_PREFERENCE
 #define DWMWA_WINDOW_CORNER_PREFERENCE 33
@@ -255,6 +256,16 @@ static void retry_pending(void)
     }
 }
 
+/* whether a window is still waiting for its X window or wex handle */
+static BOOL pending_waiting(void)
+{
+    int i;
+
+    for (i = 0; i < DWM_BRIDGE_PENDING; i++)
+        if (pending[i].hwnd && pending[i].tries) return TRUE;
+    return FALSE;
+}
+
 static void apply_change( const struct dwm_change *change )
 {
     HWND hwnd = UlongToHandle( change->hwnd );
@@ -319,18 +330,39 @@ static DWORD WINAPI bridge_proc( void *arg )
     unsigned char buf[sizeof(struct dwm_poll_reply) + DWM_POLL_MAX_CHANGES * sizeof(struct dwm_change)];
     UINT64 revision = 0;
     DWORD cursor = 0;
-    DWORD wait = DWM_BRIDGE_POLL_MS;
+    DWORD wait = DWM_BRIDGE_POLL_MS, last_retry = GetTickCount();
+    HANDLE objs[2] = { bridge_stop, NULL };
+    DWORD count = 1;
 
     SetThreadDesktop( bridge_desktop );
     read_materials_gate();
-    while (WaitForSingleObject( bridge_stop, wait ) == WAIT_TIMEOUT)
+    {
+        /* the broker sets this when its state changes; without it the bridge polls at DWM_BRIDGE_POLL_MS */
+        WCHAR desk_name[MAX_PATH], name[MAX_PATH + 64];
+
+        if (GetUserObjectInformationW( bridge_desktop, UOI_NAME, desk_name, ARRAY_SIZE( desk_name ), NULL ))
+        {
+            lstrcpynW( name, DWM_CHANGE_EVENT_NAME, ARRAY_SIZE( name ) );
+            lstrcatW( name, desk_name );
+            if ((objs[1] = CreateEventW( NULL, FALSE, FALSE, name ))) count = 2;
+        }
+    }
+    for (;;)
     {
         const struct dwm_poll_reply *reply = (const struct dwm_poll_reply *)buf;
         const struct dwm_change *changes = (const struct dwm_change *)(buf + sizeof(*reply));
         DWORD len = sizeof(buf);
-        DWORD i;
+        DWORD i, r;
 
-        retry_pending();
+        r = WaitForMultipleObjects( count, objs, FALSE, wait );
+        if (r == WAIT_OBJECT_0 || r == WAIT_FAILED) break;
+
+        /* by elapsed time, so that a burst of change events does not use up a window's retries */
+        if (GetTickCount() - last_retry >= DWM_BRIDGE_RETRY_MS)
+        {
+            retry_pending();
+            last_retry = GetTickCount();
+        }
         if (WexDwmpPoll( revision, cursor, buf, &len ) || len < sizeof(*reply) ||
             reply->count > DWM_POLL_MAX_CHANGES ||
             len < sizeof(*reply) + reply->count * sizeof(*changes))
@@ -357,8 +389,11 @@ static DWORD WINAPI bridge_proc( void *arg )
         {
             revision = reply->revision;
             cursor = 0;
+            /* a window without an identity yet is retried soon, not at the next poll */
+            if (pending_waiting()) wait = DWM_BRIDGE_RETRY_MS;
         }
     }
+    if (objs[1]) CloseHandle( objs[1] );
     return 0;
 }
 
