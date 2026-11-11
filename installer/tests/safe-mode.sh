@@ -59,17 +59,19 @@
 # written. TEST_VM is replaced by a new overlay of it, which is kept for inspection; an existing TEST_VM disk that
 # is not an overlay of SOURCE_VM is refused.
 #   WEX_TEST_FIRMWARE=uefi        boot with OVMF (default bios, SeaBIOS): the firmware SOURCE_VM was installed with
-#   WEX_TEST_LOADER=vintner       SOURCE_VM starts through Vintner Boot (an ISO built with --vintner, so also
+#   WEX_TEST_LOADER               the loader SOURCE_VM starts through:
+#                   vintner       (default) Vintner Boot, as Setup installs it since 2026-11-10 (only with
 #                                 WEX_SAFEMODE_FILES=installed): the menu is reached through the Advanced Options
 #                                 variant (installer/vintner/advanced.conf) in Vintner's menu, Shift held on BIOS and
-#                                 Space held on UEFI, instead of F8; each start reports its variant on the serial
-#                                 console. GRUB's start-up record does not exist there, so the failed phase and the
-#                                 wex_boot_pending checks are left out. Default grub.
+#                                 F8 held on UEFI (Vintner Boot's docs/menu-key.md); each start reports its variant on
+#                                 the serial console. GRUB's start-up record does not exist there, so the failed phase
+#                                 and the wex_boot_pending checks are left out.
+#                   grub          GRUB, from an ISO built with --grub: F8 during GRUB's hidden timeout
 #   WEX_SAFEMODE_FILES            how the overlay gets this branch's Safe Mode; every mode then runs update-grub and
 #                                 sets up the test accounts in one provisioning boot:
-#                   branch        (default) copies this checkout's Safe Mode files onto the overlay where the package
-#                                 installs them, and runs the package postinst's Safe Mode part in the guest
-#                   installed     SOURCE_VM already has this branch's packages (an ISO install)
+#                   branch        (default with grub) copies this checkout's Safe Mode files onto the overlay where the
+#                                 package installs them, and runs the package postinst's Safe Mode part in the guest
+#                   installed     (default with vintner) SOURCE_VM already has this branch's packages (an ISO install)
 #                   upgrade       SOURCE_VM was installed from an ISO with the Safe Mode before docs/SAFE_MODE.md (built
 #                                 before commit 14286423). The provisioning boot starts that Safe Mode with Command
 #                                 Prompt (grubenv next_entry) and, while it runs, installs the packages in
@@ -119,9 +121,9 @@ case "$FIRMWARE" in
     uefi) START_ARGS=(--efi) ;;
     *) echo "Invalid firmware: $FIRMWARE"; exit 2 ;;
 esac
-FILES=${WEX_SAFEMODE_FILES:-branch}
+LOADER=${WEX_TEST_LOADER:-vintner}
+if [ "$LOADER" = vintner ]; then FILES=${WEX_SAFEMODE_FILES:-installed}; else FILES=${WEX_SAFEMODE_FILES:-branch}; fi
 case "$FILES" in branch|installed|upgrade) ;; *) echo "Invalid WEX_SAFEMODE_FILES: $FILES"; exit 2 ;; esac
-LOADER=${WEX_TEST_LOADER:-grub}
 case "$LOADER" in
     grub)
         case " ${PHASES[*]} " in
@@ -326,7 +328,7 @@ open_menu_vintner() {
         if [ "$FIRMWARE" = bios ]; then
             "${V[@]}" hold "$TEST" shift 6 --cont >/dev/null 2>&1
         else
-            "${V[@]}" hold "$TEST" spc 25 --cont >/dev/null 2>&1   # 15 seconds once missed systemd-boot
+            "${V[@]}" hold "$TEST" f8 25 --cont >/dev/null 2>&1   # 15 seconds once missed systemd-boot
         fi
         if wait_text "Advanced Options" 30; then
             shot loader

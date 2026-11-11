@@ -7,3 +7,7 @@
 	path = wexcomp
 	url = https://github.com/zcomputerwiz/labwc.git
 	branch = wexcomp
+[submodule "vintner"]
+	path = vintner
+	url = https://github.com/zcomputerwiz/vintner-boot.git
+	branch = main

@@ -6,7 +6,7 @@
 #
 #   install-unattended.sh ISO [VM_NAME]
 #   WEX_TEST_FIRMWARE=uefi install-unattended.sh ISO [VM_NAME]     (OVMF; default bios, SeaBIOS)
-#   WEX_TEST_LOADER=vintner install-unattended.sh ISO [VM_NAME]    (an ISO built with --vintner; default grub)
+#   WEX_TEST_LOADER=grub install-unattended.sh ISO [VM_NAME]       (an ISO built with --grub; default vintner)
 set -euo pipefail
 ISO=${1:?usage: install-unattended.sh ISO [VM_NAME]}
 VM=${2:-wex-unattended-codex}
@@ -17,7 +17,7 @@ case "$FIRMWARE" in
     uefi) START_ARGS=(--efi) ;;
     *) echo "Invalid firmware: $FIRMWARE"; exit 2 ;;
 esac
-LOADER=${WEX_TEST_LOADER:-grub}
+LOADER=${WEX_TEST_LOADER:-vintner}
 case "$LOADER" in grub|vintner) ;; *) echo "Invalid loader: $LOADER"; exit 2 ;; esac
 HERE=$(cd "$(dirname "$0")" && pwd)
 V=(python3 "$HERE/../../scripts/vmtest.py")

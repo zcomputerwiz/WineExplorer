@@ -37,7 +37,7 @@ The pipeline executes through the following stages:
 ### 1.2 System Installation (`textsetup`) & First-Boot OOBE
 
 - **Stage 1 (Text-Mode Setup)**:
-   The booted live installer launches `textsetup`, presenting an authentic blue-background text console. It handles disk partitioning, partition formatting (ext4 or NTFS), file staging from the live image to the target root, and GRUB bootloader installation (`grub-pc` for BIOS or `grub-efi-amd64` for UEFI).
+   The booted live installer launches `textsetup`, presenting an authentic blue-background text console. It handles disk partitioning, partition formatting (ext4 or NTFS), file staging from the live image to the target root, and the boot loader: Vintner Boot (systemd-boot on UEFI, a static GRUB on BIOS, and two recovery images; `docs/VINTNER_BOOT.md`), or GRUB on an ISO built with `--grub`.
 - **Stage 2 (Out-Of-Box Experience / First Boot)**:
    On first boot of the installed system, systemd launches the Out-Of-Box Experience (OOBE) wizard (`wex-gui-setup.sh`), which creates administrator and standard user accounts, configures the computer name and workgroup, initializes the Default User prefix template (`/etc/skel/.wine`), and configures LightDM as the display manager (`scripts/wex-greeter.sh`).
 

@@ -84,21 +84,23 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   - `installer/package-wine.sh` needs python3-pil and fetches third-party assets (icons, ReactOS sources, runtime
     payloads), so run it only with the owner's agreement to those downloads (given 2026-11-09).
   - The ISO is built there as well, as root, from the clone:
-    `WORK_DIR=/root/iso-build OUT_ISO=/root/out/NAME.iso bash installer/build-iso.sh --clean [--vintner=DIR]`.
+    `WORK_DIR=/root/iso-build OUT_ISO=/root/out/NAME.iso bash installer/build-iso.sh --clean [--vintner=DIR|--grub]`.
     It needs live-build, debootstrap, squashfs-tools, xorriso, mtools, msitools, zstd, unzip, the textsetup libraries
     (libncurses-dev, libfdisk-dev, libblkid-dev) and `apt-get build-dep labwc` for the compositor package. The
     `wexcomp` submodule is cloned from the Windows checkout's `wexcomp` at the branch's gitlink. On 2026-11-09
     packaging plus `lb build` took 11 minutes, giving a 2.4 GB ISO. Delete `/root/iso-build` afterwards: the
     distro's disk is on C:.
-  - Vintner Boot's packages for `--vintner` are built there too: a clone of `D:\Projects\vintner-boot` at its
-    `main` in `/root/vintner-boot`, then `ci/package/build-debs.sh /root/vintner-debs` (golang-go, debhelper,
-    grub-pc-bin, systemd-boot-efi, python3-pefile). It takes about a minute and downloads the recovery image's
-    packages.
+  - Vintner Boot, the default loader since 2026-11-10: without `--vintner=DIR` or `--grub`, `build-iso.sh` builds
+    its packages from the `vintner` submodule with `ci/package/build-debs.sh` (golang-go, debhelper, grub-pc-bin,
+    systemd-boot-efi, python3-pefile, git, dpkg-dev, fakeroot). The submodule, like `wexcomp`, is cloned from the
+    Windows checkout at the branch's gitlink, as a git checkout, because `build-debs.sh` archives its tree with git.
+    It takes about three minutes and downloads the recovery image's packages. `--vintner=DIR` reuses packages built
+    earlier, for example from a branch of `D:\Projects\vintner-boot`.
 * `installer/tests/safe-mode.sh` (Safe Mode VM test, `docs/SAFE_MODE.md` section 6): as root in WSL Debian, from a
   script file, `VMTEST_DIR=/var/tmp/vmtest-gpt WEX_TEST_FIRMWARE=bios|uefi bash installer/tests/safe-mode.sh SOURCE_VM TEST_VM [PHASE...]`.
   It replaces TEST_VM with a new qcow2 overlay of the installed disk SOURCE_VM, which is never written; an existing
   TEST_VM disk that is not an overlay of SOURCE_VM is refused. Every run starts with one provisioning boot
-  (`update-grub` and the test accounts). By default (`WEX_SAFEMODE_FILES=branch`) it also copies this checkout's
+  (`update-grub` and the test accounts). With GRUB, by default (`WEX_SAFEMODE_FILES=branch`), it also copies this checkout's
   Safe Mode files onto the overlay and runs the package postinst's Safe Mode part; `installed` is for a disk
   installed from an ISO with the package; `upgrade` (with `WEX_UPGRADE_DEBS`, a directory with the three packages)
   is for a disk installed from an ISO with the Safe Mode before `14286423`: the provisioning boot starts that old
@@ -106,12 +108,13 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   left (A2's upgrade test). `WEX_TEST_PROBES` (a directory with `safeboot-probe32.exe` and `safeboot-probe64.exe`,
   built from `installer/tests/safeboot-probe.c` with MinGW in wexbuild) adds what Windows programs see in Safe
   Mode (phase B); `WEX_TEST_SAFE_BOX=required` demands the message box after a Safe Mode logon (C2).
-  `WEX_TEST_LOADER=vintner` (with `installed`, on a disk installed from an ISO built with `--vintner`) reaches the
-  menu through Vintner Boot's Advanced Options variant instead of F8. Its BIOS GRUB checks Shift within 2 seconds of
-  power-on and QEMU takes no input while a VM is paused, so the VM starts with `vmtest.py start --paused` and
-  `vmtest.py hold VM KEY SECONDS --cont` runs it and holds the key in one QMP session: Shift for 6 seconds on BIOS,
-  Space for 25 on UEFI (systemd-boot). QEMU serves one QMP client at a time, so other `vmtest.py` calls wait for a
-  hold. It leaves out GRUB's `failed` phase and `wex_boot_pending` checks. Run it from a
+  `WEX_TEST_LOADER` is `vintner` by default (since 2026-11-10, with `installed` as the default files), for a disk
+  installed from a default ISO, and `grub` for one built with `--grub`. With Vintner the test reaches the menu
+  through Vintner Boot's Advanced Options variant. Its BIOS GRUB checks Shift within 2 seconds of power-on, and QEMU
+  takes no input while a VM is paused. So the VM starts with `vmtest.py start --paused`, and `vmtest.py hold VM KEY
+  SECONDS --cont` runs it and holds the key in one QMP session: Shift for 6 seconds on BIOS, F8 for 25 on UEFI
+  (systemd-boot). QEMU serves one QMP client at a time, so other `vmtest.py` calls wait for a hold. It leaves out
+  GRUB's `failed` phase and `wex_boot_pending` checks. Run it from a
   copy of `scripts/` and `installer/` when the checkout may change during the run: bash reads a script as it goes,
   and an edit made meanwhile breaks the running test (this happened on 2026-11-09). Then one boot per
   phase (`safe safenet safecmd nowine bootlog startnormal oschoices normal lastgood failed`; with

@@ -1304,6 +1304,24 @@ class TestPackage(TempDirTest):
         self.assertIn('"$SCRIPT_DIR/vintner/advanced.conf" "$STAGE_SESSION/etc/vintner/variants.d/advanced.conf"', script)
         self.assertIn('echo /etc/vintner/variants.d/advanced.conf >> "$STAGE_SESSION/DEBIAN/conffiles"', script)
 
+    def test_iso_installs_vintner_by_default(self):
+        """Since 2026-11-10 Setup installs Vintner Boot unless the ISO is built with --grub; its packages come from
+        the vintner submodule unless --vintner=DIR gives them (docs/VINTNER_BOOT.md section 4.2)."""
+        path = REPO_ROOT / "installer" / "build-iso.sh"
+        script = path.read_text(encoding="utf-8")
+        self.assertIn("\nLOADER=vintner\n", script)
+        self.assertIn('bash "$VINTNER_SRC/ci/package/build-debs.sh" "$VINTNER_DEBS"', script)
+        self.assertIn('VINTNER_SRC="$ROOT_DIR/vintner"', script)
+        modules = (REPO_ROOT / ".gitmodules").read_text(encoding="utf-8")
+        self.assertIn('[submodule "vintner"]', modules)
+        self.assertIn("url = https://github.com/zcomputerwiz/vintner-boot.git", modules)
+        conflict = subprocess.run(["bash", str(path), "--grub", "--vintner=/nonexistent"], capture_output=True, text=True)
+        self.assertEqual(conflict.returncode, 1)
+        self.assertIn("exclude each other", conflict.stdout)
+        for test in ("safe-mode.sh", "install-unattended.sh"):
+            self.assertIn("LOADER=${WEX_TEST_LOADER:-vintner}",
+                          (REPO_ROOT / "installer" / "tests" / test).read_text(encoding="utf-8"), test)
+
     def test_vintner_product_name(self):
         """The menu's name for Vintner Boot, in the format of Vintner's docs/product.md (4.9): key=value lines,
         # comments, no quoting, only the key name; printable, 1 to 64 bytes."""

@@ -2,9 +2,10 @@
 # Vintner Boot Integration Plan
 
 Date: 2026-11-07  
-Status: written as a plan on 2026-11-07. Sections 4.1, 4.2 (behind a build option), 4.4 and 4.5 are implemented
-since then, and 4.3 in part (Safe Mode through Vintner's variant); each section has its own status. GRUB is still
-the default loader.  
+Status: written as a plan on 2026-11-07. Since then sections 4.1, 4.2, 4.4 and 4.5 are implemented, and 4.3 in
+part: Safe Mode through Vintner's variant, the "did not start successfully" screen, Last Known Good and Return to OS
+Choices Menu. Each section has its own status. Since 2026-11-10 Vintner Boot is the default loader (owner
+decision). `build-iso.sh --grub` still builds the GRUB ISO, until the GRUB path is removed.  
 Sources read: WineExplorer `development` at `d718f379`; Vintner Boot (`D:\Projects\vintner-boot`, sibling
 repository) `local-test-env` at `cbc683b`, which is `main` plus two CI/docs commits. Line numbers refer to those
 commits.
@@ -177,12 +178,23 @@ Agreed with the Vintner Boot side (WO-0010 phase 1, 2026-11-07):
 - Delete `/etc/default/grub.d/wineexplorer.cfg` (both copies: the live-build include and the string written at
   `screens.c:1574-1585`) once GRUB is gone.
 
-Status (2026-11-09): implemented behind a build option, GRUB still the default (D1: Safe Mode needs Vintner's
-variants first).
-- `installer/build-iso.sh --vintner=DIR` puts `vintner-core` and `vintner-platform` from DIR on the ISO as files
-  under `/setup/vintner`, together with Setup's step `installer/textsetup/install-vintner.sh`. It also adds
-  `systemd-boot-efi`, `systemd-ukify` and `sbsigntool` (vintner-core's dependencies) to the live system. Neither
-  Vintner package is installed in the live system, and an ISO built without the option has nothing of Vintner.
+Status (2026-11-10): the default. Until then it was behind a build option (D1: Safe Mode needed Vintner's variants
+first); the owner made it the default once they and the rest of section 4.3 worked.
+- `installer/build-iso.sh` puts `vintner-core` and `vintner-platform` on the ISO as files under `/setup/vintner`,
+  together with Setup's step `installer/textsetup/install-vintner.sh`. It also adds `systemd-boot-efi`,
+  `systemd-ukify` and `sbsigntool` (vintner-core's dependencies) to the live system. Neither Vintner package is
+  installed in the live system.
+- The packages are built from the `vintner` submodule, Vintner Boot pinned at a commit of its `main`, with its
+  `ci/package/build-debs.sh`. `--vintner=DIR` takes packages built elsewhere. `--grub` builds an ISO with nothing
+  of Vintner, whose Setup installs GRUB.
+- Verified 2026-11-10/11 with the submodule at `ff4d851`. The pin then moved to `a24d9a4` (#87), whose packaged
+  files differ only by a comment in `loader.conf`.
+  - A default build compiled the packages from the submodule (13 minutes in all).
+  - Its ISO installed with no input on SeaBIOS and OVMF.
+  - The Safe Mode VM test, run with its new defaults (Vintner, installed files), passed all ten phases on both
+    firmwares. On OVMF it opened the loader's menu with F8 every time.
+  - A `--grub` build had nothing of Vintner. It installed GRUB, and `failed`, `safe` and `normal` passed on both
+    firmwares.
 - When `/setup/install-vintner.sh` exists, text-mode Setup runs it in place of the GRUB step. It runs after the
   live packages are purged, with the live system's `/dev`, `/proc`, `/sys` and `/run` bound into the target. The
   step follows Vintner Boot's `ci/install` row:
@@ -420,7 +432,7 @@ privileged WineExplorer D-Bus service that runs them; Vintner offers no D-Bus in
 - `docs/INSTALLER.md` describes GRUB and its F8 entry on the installed system (line 93).
 - `docs/ADMIN_GUIDE.md:40` names `grub-efi-amd64`, which is not installed.
 
-Update both when the switch lands.
+Updated 2026-11-10, when the switch landed.
 
 ## 5. Decisions
 
@@ -472,7 +484,8 @@ count or state. For the rest the owner set the goal of a Windows-familiar experi
 3. WineExplorer: section 4.2 bootloader step behind a build option, keeping GRUB as the default.
 4. Vintner: V1 (variants), V3 (names), V8 (recovery A re-arm).
 5. WineExplorer: section 4.3 Safe Mode port, section 4.4 health check, section 4.5 ISO menu.
-6. Vintner: V2, V6, V7 as needed; then make Vintner the default and remove the GRUB path.
+6. Vintner: V2, V6, V7 as needed; then make Vintner the default (done 2026-11-10) and remove the GRUB path (open:
+   `11_wineexplorer_advanced`, Setup's GRUB step and settings, `--grub`, and the GRUB phases of the VM test).
 
 Each WineExplorer step needs an installer VM run on BIOS and UEFI, including a 32-bit program check, before it is
 committed as working.

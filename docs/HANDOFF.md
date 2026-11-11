@@ -20,9 +20,10 @@ the earlier 11.20 pin.
 - **What is next:** `docs/SAFE_MODE_WORKORDER.md` has the plan, the owner decisions and the order.
   - Decision 7: a dedicated Administrator account.
   - Decision 8: hidden accounts from the registry.
-- **Bootloader:** the Vintner Boot side is `docs/VINTNER_BOOT.md`, worked on by a separate session. Since
-  2026-11-09 an ISO built with `build-iso.sh --vintner=DIR` installs Vintner Boot instead of GRUB, tested on both
-  firmwares (section 4.2). GRUB stays the default until Vintner's variants carry Safe Mode.
+- **Bootloader:** the Vintner Boot side is `docs/VINTNER_BOOT.md`, worked on by a separate session.
+  - Since 2026-11-10 Setup installs Vintner Boot by default (owner decision), tested on both firmwares (section 4.2).
+  - `build-iso.sh` builds its packages from the `vintner` submodule. `--grub` still builds a GRUB ISO, until the
+    GRUB path is removed.
 - **WSL:** the two sessions share WSL Debian. Agree before `wsl --terminate` or anything else that stops the other's
   VMs, and give chroot bind mounts `--make-rslave`. A leftover bind mount once stopped every new `wsl` command until
   WSL was restarted.

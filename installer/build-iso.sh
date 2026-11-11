@@ -11,8 +11,11 @@ WORK_DIR="${WORK_DIR:-/home/wineuser/iso-build}"
 
 UNATTENDED=false
 DO_CLEAN=false
-# --vintner=DIR: Setup installs Vintner Boot from the vintner-core and vintner-platform packages in DIR instead of
-# GRUB (docs/VINTNER_BOOT.md section 4.2). Without it nothing of Vintner is on the ISO.
+# The installed system's boot loader (docs/VINTNER_BOOT.md section 4.2). By default Setup installs Vintner Boot, from
+# packages built out of the vintner submodule at the commit this repository pins; --vintner=DIR takes vintner-core
+# and vintner-platform from DIR instead. --grub installs GRUB, the default until 2026-11-10, and puts nothing of
+# Vintner on the ISO.
+LOADER=vintner
 VINTNER_DEBS=
 
 for arg in "$@"; do
@@ -20,9 +23,14 @@ for arg in "$@"; do
         --unattended) UNATTENDED=true ;;
         --clean) DO_CLEAN=true ;;
         --vintner=*) VINTNER_DEBS=${arg#--vintner=} ;;
+        --grub) LOADER=grub ;;
         *) echo "Unknown option: $arg"; exit 1 ;;
     esac
 done
+if [ "$LOADER" = grub ] && [ -n "$VINTNER_DEBS" ]; then
+    echo "--grub and --vintner=DIR exclude each other"
+    exit 1
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root (or via sudo)."
@@ -41,17 +49,25 @@ echo "=== WineExplorer ISO Builder ==="
 echo "Source installer dir: $SCRIPT_DIR"
 echo "Working build dir:    $WORK_DIR"
 echo "Output ISO:           $OUT_ISO"
-echo "Options: unattended=$UNATTENDED, clean=$DO_CLEAN, vintner=${VINTNER_DEBS:-no}"
+echo "Options: unattended=$UNATTENDED, clean=$DO_CLEAN, loader=$LOADER${VINTNER_DEBS:+ (packages from $VINTNER_DEBS)}"
 
-VINTNER_CORE=
-VINTNER_PLATFORM=
-if [ -n "$VINTNER_DEBS" ]; then
-    for f in "$VINTNER_DEBS"/vintner-core_*_amd64.deb; do [ -f "$f" ] && VINTNER_CORE=$f; done
-    for f in "$VINTNER_DEBS"/vintner-platform_*_amd64.deb; do [ -f "$f" ] && VINTNER_PLATFORM=$f; done
-    if [ -z "$VINTNER_CORE" ] || [ -z "$VINTNER_PLATFORM" ]; then
-        echo "--vintner: no vintner-core or vintner-platform package in $VINTNER_DEBS"
+# Vintner Boot's packages are built from the submodule unless --vintner=DIR gave them: check that this can work
+# before the long steps
+VINTNER_SRC="$ROOT_DIR/vintner"
+if [ "$LOADER" = vintner ] && [ -z "$VINTNER_DEBS" ]; then
+    if [ ! -f "$VINTNER_SRC/ci/package/build-debs.sh" ]; then
+        echo "Vintner Boot: the vintner submodule is not checked out (git submodule update --init vintner)."
+        echo "Pass --vintner=DIR with vintner-core and vintner-platform packages, or --grub for GRUB."
         exit 1
     fi
+    for tool in git dpkg-buildpackage go; do
+        if ! command -v "$tool" >/dev/null; then
+            echo "Vintner Boot: building its packages needs $tool. Install its build dependencies"
+            echo "(vintner/debian/control: debhelper golang-go, plus git dpkg-dev fakeroot curl cpio kmod xz-utils"
+            echo "binutils grub-pc-bin systemd-boot-efi python3-pefile), or pass --vintner=DIR or --grub."
+            exit 1
+        fi
+    done
 fi
 
 # Clean if requested
@@ -68,6 +84,22 @@ fi
 # Prepare work directory on native ext4 filesystem
 mkdir -p "$WORK_DIR"
 mkdir -p "$WORK_DIR/config"
+
+if [ "$LOADER" = vintner ] && [ -z "$VINTNER_DEBS" ]; then
+    echo "=== Vintner Boot: building its packages from $(git -C "$VINTNER_SRC" log --oneline -1) ==="
+    VINTNER_DEBS="$WORK_DIR/vintner-debs"
+    bash "$VINTNER_SRC/ci/package/build-debs.sh" "$VINTNER_DEBS"
+fi
+VINTNER_CORE=
+VINTNER_PLATFORM=
+if [ -n "$VINTNER_DEBS" ]; then
+    for f in "$VINTNER_DEBS"/vintner-core_*_amd64.deb; do [ -f "$f" ] && VINTNER_CORE=$f; done
+    for f in "$VINTNER_DEBS"/vintner-platform_*_amd64.deb; do [ -f "$f" ] && VINTNER_PLATFORM=$f; done
+    if [ -z "$VINTNER_CORE" ] || [ -z "$VINTNER_PLATFORM" ]; then
+        echo "Vintner Boot: no vintner-core or vintner-platform package in $VINTNER_DEBS"
+        exit 1
+    fi
+fi
 
 echo "=== Copying live-build configuration to $WORK_DIR ==="
 cp -a "$SCRIPT_DIR/live-build/config"/* "$WORK_DIR/config/" 2>/dev/null || true
