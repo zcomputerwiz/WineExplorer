@@ -357,8 +357,8 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
     - The VM test's `accounts` phase checks it with this branch's Wine (`WEX_TEST_WINE`).
   - Still open:
     - E1's reserved RID 500 and `wex-is-admin`, queued for this step on the E1 side;
-    - the classic dialog accepting "Administrator";
-    - the XP checks listed under C7.
+    - the classic dialog accepting "Administrator".
+    - (The XP checks listed under C7 were done on 2026-11-11.)
   - One definition of "administrator". E1 decides it from `admin_group=` in `/etc/wineexplorer/sysrun.conf` (default
     `sudo`; strict rules: root-owned, not group- or world-writable, no symlink, at most one key, and a bad file
     means nobody is an administrator), through `getgrouplist` at logon. The Administrator account goes into that
@@ -426,6 +426,25 @@ shows it in a normal start too. Check on the XP VM:
 - whether the key also hides accounts in User Accounts (WineExplorer has no User Accounts yet; when it does, it
   follows XP);
 - whether the Welcome screen reads the key every time it appears.
+
+**Checked 2026-11-11** on the XP VM (the local captures' `measurements.md`, section 14):
+
+- With no values, the Welcome screen lists the accounts alphabetically and leaves Administrator out while other
+  administrators exist. A hidden tile closes up the list around the same centre.
+- A value of 0 hides an account at the next log off, with no restart. A value of 1, or no value, shows it again
+  the same way. So the Welcome screen reads the key each time it appears.
+- `Administrator` at 0 is hidden in Safe Mode too, and at 1 it shows in a normal start. Another account at 0 stays
+  hidden in Safe Mode.
+- User Accounts (`control userpasswords`) leaves a hidden account out as well. The advanced dialog
+  (`userpasswords2`) lists every account, hidden ones and Administrator included.
+- A hidden account can still log on through the classic dialog (Ctrl+Alt+Del twice). Once it is logged on it gets
+  no tile when Switch User shows the Welcome screen.
+- Not measured: Administrator as the only administrator, the meaning of XP's own `0x10000` values, a hidden account
+  logging on in Safe Mode, and the other two Safe Modes.
+
+`logonui.exe` already does the same: a value decides in every mode, and only without one does the Administrator
+rule apply. LightDM starts a new greeter, which reads the key again, at every log off and user switch. User Accounts
+follows XP once WineExplorer has it, and the classic dialog is C4's.
 
 The work:
 
