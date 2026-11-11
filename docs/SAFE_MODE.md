@@ -45,7 +45,7 @@ disk.
 **Where the mode comes from.** `wex-bootmode` prints `normal`, `menu`, `safe`, `safenet` or `safecmd`:
 
 1. `/run/wineexplorer/bootmode`, written by the Advanced Options menu (root-owned files only);
-2. else `wexmode=` on the kernel command line (the GRUB entry today, a Vintner variant later);
+2. else `wexmode=` on the kernel command line (Vintner Boot's Advanced Options variant passes `wexmode=menu`);
 3. else `normal`.
 
 The Safe Mode values become `normal` while a setup stage is pending (`/etc/wineexplorer/setup/stage`): setup has
@@ -54,7 +54,7 @@ to finish first.
 **The record** (work order B0, 2026-11-09). `wex-bootmode-record.service` runs `wex-bootmode --record` early in
 every boot, before `sysinit.target`. It writes the mode to `/run/wineexplorer/bootmode` unless the file exists; a
 boot through the menu records nothing, and the menu writes its own choice. Wine reads the mode from that file
-(section 5), so `wexmode=` on the command line, as a Vintner variant will pass it, reaches Windows programs too.
+(section 5), so `wexmode=` on the command line, as a Vintner variant passes it, reaches Windows programs too.
 `/run/wineexplorer` belongs to root: Wine cannot check who owns the file, so the prefetch service, which used to own
 the directory (`RuntimeDirectory=`), now only receives its socket there.
 
@@ -127,45 +127,35 @@ XWayland, and the session ends when the console does. Unlike X11, where nothing 
 `wexcomp` gives it a window frame. Choosing a session on the Welcome screen makes LightDM save it as the account's
 own; the Wayland session's own name does not change with the mode.
 
-**Boot menu entry (GRUB, until Vintner).** `/etc/grub.d/11_wineexplorer_advanced` adds "WineExplorer Advanced
-Options (F8)" with `wexmode=menu` and `--hotkey=f8`. During GRUB's hidden timeout a menu hotkey boots its entry
-directly (`grub-core/normal/menu.c`), so pressing F8 at start opens the menu as on XP. Its title does not start with
-"Advanced options for", because Debian's kernel submenu is "Advanced options for WineExplorer GNU/Linux" since the
-menu names WineExplorer (`docs/INSTALLER.md`). With Vintner this becomes the one variant with `wexmode=menu`, titled
-"Advanced Options" after the generation's title (`docs/VINTNER_BOOT.md` section 4.3).
+**Boot menu entry.** Every generation of Vintner Boot has a variant from `/etc/vintner/variants.d/advanced.conf`
+with `wexmode=menu`, titled "Advanced Options" after the generation's title (`docs/VINTNER_BOOT.md` section 4.3). It
+counts nothing (`docs/SAFE_MODE_WORKORDER.md`, decision 3). Vintner Boot's menu opens with F8 or any key on UEFI and
+while Shift is held on BIOS; the variant is the line below the generation. Setup installed GRUB until 2026-11-10,
+with an F8 hotkey entry (`11_wineexplorer_advanced`) and a grubenv record of unfinished starts; that path was removed
+on 2026-11-11.
 
-**A start that did not finish (GRUB, until Vintner).** XP shows "Windows did not start successfully" when the last
-start ended before it was complete. Here `11_wineexplorer_advanced` also adds code that GRUB runs before any entry
-boots:
+**A start that did not finish.** XP shows "Windows did not start successfully" when the last start ended before it
+was complete. Vintner Boot counts every ordinary start of a generation and marks it good at `boot-complete.target`.
+`vintner status --json` reports `booted.failed_attempts`: the earlier starts of this generation that did not get
+there. `wex-failure-check.service` runs on every ordinary Vintner start. It is skipped on starts through the variant
+and on a machine Vintner Boot did not start, with conditions on `vintner.bootstorage=` and `wexmode=`. It runs before
+`basic.target` and needs no terminal, so a start with nothing to report leaves the boot splash alone. When the count
+is above 0, outside Setup, it starts `wex-failure-screen.service`, which shows the failure screen on `tty1`
+(section 4).
 
-- It remembers the grubenv variable `wex_boot_pending` and sets it to 1 (`save_env`).
-- If it was already 1, it makes the Advanced Options entry the default for this start and passes `wexfailed=1`, so
-  the menu shows the failure screen (section 4). A one-time entry chosen with `grub-reboot` still wins.
-- The Advanced Options entry writes the remembered value back before it loads Linux. A start through F8 therefore
-  leaves the state as it was, whatever happens (`docs/SAFE_MODE_WORKORDER.md`, decision 3). On the failure screen
-  that value is 1, so that start counts as an ordinary one.
-
-**A start that did not finish (Vintner Boot).** Vintner Boot counts every ordinary start of a generation and
-marks it good at `boot-complete.target`. `vintner status --json` reports `booted.failed_attempts`: the earlier
-starts of this generation that did not get there. `wex-failure-check.service` runs on every ordinary Vintner start.
-It is skipped under GRUB and on starts through the menu or variant, with conditions on `vintner.bootstorage=` and
-`wexmode=`. It runs before `basic.target` and needs no terminal, so a start with nothing to report leaves the boot
-splash alone. When the count is above 0, outside Setup, it starts `wex-failure-screen.service`, which shows the
-failure screen on `tty1` (section 4).
-
-This start has been counted by the loader, so the choices differ from GRUB's:
+This start has been counted by the loader, so the choices work as follows:
 
 - **Start Normally (the countdown's choice):** this start goes on. Once the logon screen is up it counts, Vintner
   marks it good, and the next start shows no screen.
 - **A Safe Mode:** recorded for one start in `/var/lib/wineexplorer/next-bootmode` (mode and generation, root
   only). Then `vintner next-boot variant advanced` and a restart. The variant counts nothing, as a Safe Mode start
   never does (decision 3). The menu sees the record there, removes it, and starts that mode at once with no menu.
-  The start that showed the screen did not finish, so the next ordinary start shows it again, as under GRUB.
+  The start that showed the screen did not finish, so the next ordinary start shows it again.
 - **Last Known Good:** the previous good generation when this one never started successfully (as from the menu).
   Otherwise the registry's control set goes back and this start goes on and counts, as XP's does.
 
-`wex-startup-check.service` (`scripts/wex-startup-check.sh`) clears the variable once the start is complete, which
-here means the logon screen is up:
+`wex-startup-check.service` (`scripts/wex-startup-check.sh`) decides when the start is complete, which here means
+the logon screen is up:
 
 - `logonui.exe` or the GTK greeter runs for the `lightdm` account. The program itself must be running: Explorer's
   `/desktop=Logon,... logonui.exe` command line names it before the Welcome screen exists, and a Wine that fails at
@@ -173,14 +163,10 @@ here means the logon screen is up:
 - or there is a graphical session after an automatic logon (a console or serial logon does not count);
 - or, while Setup runs, `wex-setup.service` or `wex-oobe.service` is active.
 
-It waits up to 15 minutes, enough for a prefix update after a Wine update, and otherwise fails and leaves the
-variable set. Starts through the Advanced Options menu are not counted, except Start Normally on the failure screen.
-Safe Mode boots do not reach `multi-user.target`, so the check does not run in them.
-
-The unit is ordered before `boot-complete.target`, where Vintner Boot marks a start good (`docs/VINTNER_BOOT.md`
-section 4.4), so the same check serves both loaders. Debian's own `recordfail` is not used. When it is set, Debian's
-`grub.cfg` shows GRUB's menu for 30 seconds, and `grub-common.service` clears it as soon as `multi-user.target`
-starts, before the logon screen exists.
+It waits up to 15 minutes, enough for a prefix update after a Wine update, and otherwise fails. The unit is ordered
+before `boot-complete.target`, where Vintner Boot marks a start good (`docs/VINTNER_BOOT.md` section 4.4), so a
+failed check leaves the start uncounted. Starts through the Advanced Options variant are not counted. Safe Mode boots
+do not reach `multi-user.target`, so the check does not run in them.
 
 ## 4. The Advanced Options menu
 
@@ -212,7 +198,7 @@ drawn in dark gray (bold black); the Linux console does not render the dim attri
 | Disable automatic restart on system failure | Normal start with `kernel.panic=0` |
 | Start WineExplorer Normally | Normal start, straight away |
 | Reboot | Restart |
-| Return to OS Choices Menu | With Vintner Boot: a restart into the boot loader's own menu (`vintner next-boot menu`, 30 seconds), which lists the generations, the Advanced Options variant and the Recovery Console, as XP's boot.ini list does. Under GRUB, or when Vintner cannot set it: the operating system list (one entry), as XP shows it after F8 |
+| Return to OS Choices Menu | A restart into the boot loader's own menu (`vintner next-boot menu`, 30 seconds), which lists the generations, the Advanced Options variant and the Recovery Console, as XP's boot.ini list does. When Vintner cannot set it: the operating system list (one entry), as XP shows it after F8 |
 
 Safe Mode items are grayed while setup is pending. A mode choice goes to the operating system list with the mode
 at the bottom; ENTER starts it and F8 returns to the menu.
@@ -226,31 +212,31 @@ programs, user settings and files stay as they are. WineExplorer does the same w
 
 - **Save:** when the start-up check counts a start as successful (section 4), outside Setup, it runs
   `wex-lastgood save`, which copies the control set's keys to `/var/lib/wineexplorer/lastgood/controlset.reg`
-  (root only). Starts through the menu are not counted, so they save nothing (decision 3); Start Normally on the
-  failure screen counts, and saves.
+  (root only). Starts through the menu are not counted, so they save nothing (decision 3); a start that goes on
+  from the failure screen with Start Normally counts, and saves.
 - **Restore:** the menu item, and the same item on the failure screen, runs `wex-lastgood restore` before
   `default.target` starts, so before any Wine program reads the registry. It writes the saved keys in place of the
   control set's keys, keeps every other key (`Software` included), and keeps the replaced keys as
   `failed-controlset.reg`. The new file is a copy of the old one (owner, mode and ACLs) renamed over it, so the
   prefixes' links to it stay valid. If the restore fails, the menu starts normally.
-- **The previous good generation (Vintner Boot).** With Vintner Boot the kernel and initramfs are part of the last
-  known good configuration too. Before drawing, the menu reads `vintner status --json` (Vintner Boot 4.5, its
+- **The previous good generation.** With Vintner Boot the kernel and initramfs are part of the last known good
+  configuration too. Before drawing, the menu reads `vintner status --json` (Vintner Boot 4.5, its
   `docs/status.md`). This boot's generation may be newer than the newest `GOOD` one, which means it has not
   started successfully yet. Then Last Known Good is offered even without a saved control set. Choosing it runs
   `vintner next-boot previous-good`, puts the control set back if one was saved, and restarts. The previous good
   generation then starts normally, and that start counts. When this boot's generation is the newest good one, only
-  the registry goes back, as under GRUB. If Vintner refuses the request, this boot continues with the registry
-  alone.
+  the registry goes back and this boot goes on. If Vintner refuses the request, this boot continues with the
+  registry alone.
 
-**The failure screen.** With `wexfailed=1` the menu shows the "did not start successfully" screen instead, laid out
-as XP's, with an explanation in our own words.
+**The failure screen.** `wex-failure-screen.service` (section 3) shows the "did not start successfully" screen,
+laid out as XP's, with an explanation in our own words.
 
 - The list is the three Safe Modes, Last Known Good Configuration (grayed until a start has counted) and Start
   WineExplorer Normally, which is highlighted.
 - "Seconds until WineExplorer starts" counts down from 30 under the footer and then starts normally.
 - An arrow key stops the countdown and removes its line, as on XP.
-- Enter on a Safe Mode starts it at once, without the operating system list. The XP captures did not cover that
-  case.
+- Enter on a Safe Mode starts it without the operating system list, through a restart into the variant (section 3).
+  The XP captures did not cover that case.
 - The screen uses the menu's current layout (columns, highlight bar, footer row), so C5 of the work order will
   change both screens together.
 
@@ -289,7 +275,7 @@ Wayland session (C3; X11 is done, section 4) and the classic logon dialog after 
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (73 tests, Linux) covers:
+`scripts/test_safemode.py` (94 tests, Linux) covers:
 
 - mode parsing, generator output and PAM decisions;
 - menu navigation and choices, and the logon screen choice;
@@ -297,8 +283,9 @@ Wayland session (C3; X11 is done, section 4) and the classic logon dialog after 
   session does so before it reads the desktop's size;
 - the failure screen: its items, the countdown, and arrow keys stopping it;
 - the start-up check: which starts count, and what counts as the logon screen;
-- the GRUB code that `11_wineexplorer_advanced` generates (GRUB's own syntax check runs in `update-grub` in the VM
-  test);
+- the failure check and screen with Vintner Boot's status report, Last Known Good going back a generation, and the
+  Advanced Options variant's file;
+- that the GRUB path is gone (Setup, the live package list, the package and the tests);
 - the postinst migration from the old implementation (run twice to show it is idempotent), including the standard
   users it hid, and the units it enables;
 - the boot mode record: written once, never for the menu, its unit, and `/run/wineexplorer` belonging to root;
@@ -312,12 +299,14 @@ Wayland session (C3; X11 is done, section 4) and the classic logon dialog after 
 - that the VM test installs the Safe Mode files where the package does.
 
 `installer/tests/safe-mode.sh` is the VM test (usage in `docs/TOOLING.md`). It boots a copy-on-write overlay of an
-installed test disk once per phase, pressing F8 during GRUB's hidden timeout, and checks each start on the screen
-and over the serial console. By default it first copies this checkout's Safe Mode files where the session package
-installs them and runs the package postinst's Safe Mode part and `update-grub` in the guest; with
-`WEX_SAFEMODE_FILES=installed` it tests what an ISO installed, and with `upgrade` an upgrade from the Safe Mode
-before `14286423` (below). Before and after every boot it records the checksums of every file and link under `/etc`
-and `/var/lib/AccountsService` and of the accounts' `.dmrc`; a boot that changes one fails.
+installed test disk once per phase, opening Vintner Boot's menu (Shift held on BIOS, F8 on UEFI) and choosing the
+Advanced Options variant, and checks each start on the screen and over the serial console. By default it tests what
+an ISO installed; with `WEX_SAFEMODE_FILES=branch` it first copies this checkout's Safe Mode files where the session
+package installs them and runs the package postinst's Safe Mode part in the guest. Before and after every boot it
+records the checksums of every file and link under `/etc` and `/var/lib/AccountsService` and of the accounts'
+`.dmrc`; a boot that changes one fails. (Until 2026-11-11 it also tested GRUB installs, with a `failed` phase for
+GRUB's record of unfinished starts, and `WEX_SAFEMODE_FILES=upgrade`, an upgrade from the GRUB Safe Mode before
+`14286423`; the runs below record those.)
 
 With `WEX_TEST_PROBES` it also runs `installer/tests/safeboot-probe.c`, built as a 32-bit and a 64-bit program,
 in the logged-on session. Each prints `SM_CLEANBOOT`, the `Option` key's values, the state of EventLog, PlugPlay,
@@ -331,19 +320,17 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `safecmd` | The Welcome screen; the recovery console after logging on, and no wineserver; then the probes, started with `wine` from the serial console as from the recovery console (output to a file): 1, `UseAlternateShell` 1, the services as in `safe` |
 | `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, and logging on still starts the recovery console |
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
-| `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" and `wex_boot_pending` is back at 0 |
-| `oschoices` | Return to OS Choices Menu. Under GRUB, the local OS list, then Enter: a normal start as in `startnormal`. With Vintner Boot (`WEX_TEST_LOADER=vintner`), a restart into the loader's menu with no key held, recognized by its Recovery Console entries, then Enter on the generation: a normal start |
-| `normal` | No F8: the same, the boot-mode generator wrote nothing, and the start-up check cleared `wex_boot_pending`; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480 |
-| `lastgood` | Last Known Good (work order D3). With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Items below Last Known Good move down one once it is offered, which `startnormal` and `failed` follow |
-| `vfailed` | Vintner Boot only. With LightDM held back as in `failed`: a reset once the serial console answers, before `boot-complete.target`. The next ordinary start shows the failure screen with its countdown. Up stops it, and Safe Mode with Command Prompt restarts into the variant, which shows no menu and comes up in that mode. The next ordinary start shows the screen again; left alone, it starts normally and counts. The start after that shows no screen |
-| `lastgoodgen` | Vintner Boot only, last in its list. The test appends a token to the Advanced Options variant on the stopped disk and adds a unit that runs `vintner publish` at the next start and powers off, so generation 2 is published. The variant is then put back. Generation 2 is started only through its variant, which counts nothing, so it never starts successfully. The registry is changed as in `lastgood`. Last Known Good from generation 2's menu then restarts with no menu into generation 1: a normal start whose recorded `vintner status --json` says `booted` generation 1, generation 2 not `GOOD`. The registry ends as in `lastgood` |
-| `failed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards), the serial console shows `wex_boot_pending=1` once Linux runs: GRUB recorded the start. Then the Reset button (QMP `system_reset`) and the failure screen with its countdown. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold, and GRUB's "Loading Linux" text was not readable on OVMF. Up stops the countdown and removes its line, and Safe Mode with Command Prompt starts at once; that start leaves `wex_boot_pending` at 1. The next start shows the screen again; left alone, the countdown starts normally, and that start counts and clears the variable |
+| `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" |
+| `oschoices` | Return to OS Choices Menu: a restart into the loader's menu with no key held, recognized by its Recovery Console entries, then Enter on the generation: a normal start |
+| `normal` | No key: the same, the boot-mode generator wrote nothing, and the start-up check counted the start; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480 |
+| `lastgood` | Last Known Good (work order D3) from a generation that started successfully. With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, with no restart, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Items below Last Known Good move down one once it is offered, which `startnormal`, `oschoices` and `vfailed` follow |
+| `vfailed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards): the Reset button (QMP `system_reset`) once the serial console answers, before `boot-complete.target`. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold. The next ordinary start shows the failure screen with its countdown. Up stops it and removes its line, and Safe Mode with Command Prompt restarts into the variant, which shows no menu and comes up in that mode. The next ordinary start shows the screen again; left alone, it starts normally and counts. The start after that shows no screen |
+| `lastgoodgen` | Last in the default list. The test appends a token to the Advanced Options variant on the stopped disk and adds a unit that runs `vintner publish` at the next start and powers off, so generation 2 is published. The variant is then put back. Generation 2 is started only through its variant, which counts nothing, so it never starts successfully. The registry is changed as in `lastgood`. Last Known Good from generation 2's menu then restarts with no menu into generation 1: a normal start whose recorded `vintner status --json` says `booted` generation 1, generation 2 not `GOOD`. The registry ends as in `lastgood` |
 | `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, and a `wexcomp` process for the account. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |
 | `waylandcmd` | Only when named. Safe Mode with Command Prompt in the Wayland session: the recovery console, no wineserver, and `wexcomp` running |
 | `accounts` | Needs `WEX_TEST_WINE`, a tarball of this branch's Wine. Provisioning gives Administrator a random password and adds `wexhidden` ("Hidden Test") with a value of 0 in the logon prefix's `SpecialAccounts\UserList`. The Safe Mode Welcome screen then shows Administrator and the test user but not Hidden Test, and Administrator logs on, through the message box. In a normal start, the logon screen (after switching user) shows the test user only |
 
-Every phase starts with `wex_boot_pending` cleared on the overlay, so a phase that failed does not leave the next
-one on the failure screen. After a run that showed the Welcome screen, the test checks that the greeter's prefix
+After a run that showed the Welcome screen, the test checks that the greeter's prefix
 is `lightdm`'s `~/.wine` and that the old `~/.wine-logon` is gone (work order C7). That passed on SeaBIOS and OVMF
 on 2026-11-08, together with `safe`, `safecmd` and `nowine`.
 
@@ -474,3 +461,23 @@ then passed all ten phases on both firmwares, `vfailed` included:
 
 With this branch's files on the GRUB installs, `failed`, `safe` and `normal` passed on both firmwares. The new unit
 is enabled there, but its condition skips it.
+
+**Without the GRUB path (2026-11-11).** An ISO built after the GRUB path was removed (live system without a stock
+loader; Vintner Boot from the submodule at `a24d9a4`) installed with no input on SeaBIOS and OVMF. `vintner install`
+had no stock loader to purge and built the BIOS core image with `grub-common`'s `grub-mkimage`. With the test's new
+defaults:
+
+- `safe`, `safenet`, `safecmd`, `nowine`, `bootlog`, `startnormal`, `normal`, `lastgood` and `vfailed` passed on
+  both firmwares, `oschoices` on SeaBIOS. Wine's 32-bit and 64-bit Notepad opened in Safe Mode and after Last Known
+  Good, every Safe Mode start logged 104 to 106 driver lines, and no boot changed a recorded file.
+- `lastgoodgen` failed on both: `lastgood`, now before it in the list, had left its Software test key (Last Known
+  Good keeps it, as it should), so the count was 2. Each phase now adds a key of its own.
+- `oschoices` failed once on OVMF: one Down press of nine was lost, so Enter chose Reboot, which restarted to the
+  desktop. The test now presses Down past the end of the menu and checks that one more press changes nothing.
+- With those two changes, `oschoices`, `lastgood` and `lastgoodgen` passed on both firmwares from new overlays.
+- `WEX_SAFEMODE_FILES=branch` on SeaBIOS (`safe`, `startnormal`, `normal`): the provisioning boot ran this checkout's
+  postinst Safe Mode part, whose GRUB cleanup does nothing on a Vintner install, and all three passed.
+
+The session package's GRUB cleanup (`docs/VINTNER_BOOT.md` section 4.2) was tried on an overlay of a disk Setup
+installed with GRUB on 2026-11-10: one boot ran this checkout's postinst Safe Mode part, after which `grub.cfg` had
+no F8 entry and grubenv no `wex_boot_pending`, and the next two ordinary starts each reached the desktop.

@@ -1,22 +1,20 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
-"""The Advanced Options menu: XP's F8 menu, on tty1 when the boot has wexmode=menu (docs/SAFE_MODE.md).
+"""The Advanced Options menu: XP's F8 menu, on tty1 when the boot has wexmode=menu (docs/SAFE_MODE.md), which
+Vintner Boot's Advanced Options variant of each generation passes (installer/vintner/advanced.conf).
 
 wex-advanced-options.service runs it before basic.target, so no timer, socket or service of the normal boot has
 started yet. A choice writes the mode to /run/wineexplorer (gone at the next boot), reloads systemd, whose
 wex-bootmode-generator then reads it, and starts default.target. Nothing on disk changes, except with Last Known Good
 Configuration: wex-lastgood puts the machine registry's control set from the last successful start back first.
-With Vintner Boot, when this boot's generation has not started successfully yet (`vintner status --json`), Last
-Known Good also restarts into the previous good generation (`vintner next-boot previous-good`).
-Return to OS Choices Menu restarts into the boot loader's menu when Vintner Boot is the loader (`vintner next-boot
-menu`), and shows the local list (one entry) under GRUB.
+When this boot's generation has not started successfully yet (`vintner status --json`), Last Known Good also
+restarts into the previous good generation (`vintner next-boot previous-good`).
+Return to OS Choices Menu restarts into the boot loader's menu (`vintner next-boot menu`); when Vintner cannot set
+that, it shows the local list (one entry).
 
-With wexfailed=1 as well (GRUB found that the last start did not finish), it shows XP's "did not start
-successfully" screen instead: the three Safe Modes, Last Known Good and Start Normally, which a 30-second countdown
-chooses.
-
-With Vintner Boot an ordinary start shows the same screen: wex-failure-check.service runs `wex-advanced-options
+An ordinary start after failed ones shows XP's "did not start successfully" screen: the three Safe Modes, Last Known
+Good and Start Normally, which a 30-second countdown chooses. wex-failure-check.service runs `wex-advanced-options
 --failure-check`, which starts wex-failure-screen.service (`--failure-screen`) when `vintner status --json` reports
 failed starts of this generation. That start is counted, so Start Normally and Last Known Good go on with it.
 A Safe Mode choice restarts into the Advanced Options variant (`vintner next-boot variant advanced`), which counts
@@ -118,18 +116,9 @@ def failure_items(setup_pending, lastgood=False):
     ]
 
 
-def start_failed(path=None):
-    """True when GRUB found that the last start did not finish: wexfailed=1 on the command line."""
-    try:
-        with open(path or CMDLINE, encoding="ascii", errors="replace") as f:
-            return "wexfailed=1" in f.read().split()
-    except OSError:
-        return False
-
-
 def vintner_booted(path=None):
     """True when Vintner Boot started this system: its vintner.bootstorage= is on the command line and its tool is
-    installed. Under GRUB neither is."""
+    installed."""
     try:
         with open(path or CMDLINE, encoding="ascii", errors="replace") as f:
             tokens = f.read().split()
@@ -151,7 +140,7 @@ def loader_menu(run=subprocess.run):
 
 def vintner_status(run=subprocess.run):
     """Vintner Boot's report on the installation and this boot (`vintner status --json`, format 1, its
-    docs/status.md, WO-0010 4.5), or None under GRUB or when there is none."""
+    docs/status.md, WO-0010 4.5), or None when Vintner Boot did not start this system or gives none."""
     if not vintner_booted():
         return None
     try:
@@ -180,7 +169,7 @@ def go_back_to_previous_good(run=subprocess.run):
     """Last Known Good with Vintner Boot: the next start boots the previous good generation (`vintner next-boot
     previous-good`), with the registry's control set from the last start that succeeded, if one was saved. True
     once both are done; the caller restarts. False when Vintner refuses: then this boot continues with the registry
-    alone, as under GRUB."""
+    alone, as from a generation that started successfully."""
     try:
         result = run([VINTNER, "next-boot", "previous-good"], check=False, capture_output=True, text=True)
     except OSError:
@@ -459,8 +448,7 @@ def run_menu(stdscr, previous=None):
                     return ("boot", "normal", None)
                 if item.action == "reboot":
                     return ("reboot", None, None)
-                # With Vintner Boot the loader's own list, after a restart; under GRUB, or if Vintner cannot set
-                # it, the local list (one entry)
+                # The loader's own list, after a restart; if Vintner cannot set it, the local list (one entry)
                 if item.action == "choices" and vintner_booted() and loader_menu():
                     return ("reboot", None, None)
                 chosen = item if item.action == "boot" else None
@@ -506,8 +494,8 @@ def run_failure(stdscr, previous=None, clock=time.monotonic):
 
 def failure_check(run=subprocess.run):
     """wex-failure-check.service, on an ordinary Vintner Boot start: start the failure screen and wait for it when
-    earlier starts of this generation failed. Setup's starts are left alone, as under GRUB they show no screen
-    either. Returns the exit code; a failed check lets the start go on."""
+    earlier starts of this generation failed. Setup's starts are left alone: Setup runs again at the next start
+    anyway. Returns the exit code; a failed check lets the start go on."""
     if os.path.exists(SETUP_STAGE):
         return 0
     count = failed_starts(vintner_status(run))
@@ -580,7 +568,7 @@ def main(argv=None):
             print(f"wex-advanced-options: {pending}, chosen on the failure screen", file=sys.stderr)
             action, mode, option = "boot", pending, None
         else:
-            action, mode, option = curses.wrapper(run_failure if start_failed() else run_menu, previous)
+            action, mode, option = curses.wrapper(run_menu, previous)
     except Exception as error:  # never leave the machine stuck at the menu: start normally
         print(f"wex-advanced-options: {error}; starting normally", file=sys.stderr)
         action, mode, option = "boot", "normal", None

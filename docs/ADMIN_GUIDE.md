@@ -37,7 +37,7 @@ The pipeline executes through the following stages:
 ### 1.2 System Installation (`textsetup`) & First-Boot OOBE
 
 - **Stage 1 (Text-Mode Setup)**:
-   The booted live installer launches `textsetup`, presenting an authentic blue-background text console. It handles disk partitioning, partition formatting (ext4 or NTFS), file staging from the live image to the target root, and the boot loader: Vintner Boot (systemd-boot on UEFI, a static GRUB on BIOS, and two recovery images; `docs/VINTNER_BOOT.md`), or GRUB on an ISO built with `--grub`.
+   The booted live installer launches `textsetup`, presenting an authentic blue-background text console. It handles disk partitioning, partition formatting (ext4 or NTFS), file staging from the live image to the target root, and the boot loader: Vintner Boot (systemd-boot on UEFI, a static GRUB on BIOS, and two recovery images; `docs/VINTNER_BOOT.md`). Since 2026-11-11 there is no other loader.
 - **Stage 2 (Out-Of-Box Experience / First Boot)**:
    On first boot of the installed system, systemd launches the Out-Of-Box Experience (OOBE) wizard (`wex-gui-setup.sh`), which creates administrator and standard user accounts, configures the computer name and workgroup, initializes the Default User prefix template (`/etc/skel/.wine`), and configures LightDM as the display manager (`scripts/wex-greeter.sh`).
 
@@ -287,16 +287,18 @@ The repository includes specialized standalone diagnostic probes in `scripts/`:
 
 ### 6.5 Safe Mode and the Advanced Options Menu
 
-Press F8 at start (during GRUB's hidden one-second timeout) for the XP Advanced Options menu on the text console:
-Safe Mode, Safe Mode with Networking, Safe Mode with Command Prompt, Enable Boot Logging, Debugging Mode and
-Disable automatic restart on system failure work; items that need Vintner Boot or do not apply are grayed. A Safe
+At start, press F8 (UEFI) or hold Shift (BIOS) for the boot menu, and choose "WineExplorer (date): Advanced Options"
+for the XP Advanced Options menu on the text console: Safe Mode, Safe Mode with Networking, Safe Mode with Command
+Prompt, Enable Boot Logging, Last Known Good Configuration, Debugging Mode, Disable automatic restart on system
+failure and Return to OS Choices Menu work; items that do not apply here are grayed. A Safe
 Mode boot starts only what logging on needs, never logs on automatically and changes nothing on disk; the next
 start is normal again. Safe Mode logs on through the Welcome screen, as XP does; the plain Linux logon screen
 appears only when Wine cannot start. Safe Mode with Command Prompt opens a recovery console without Wine and
 admits only root and members of `sudo`. When a start ends before the logon screen appears (a power failure,
 the Reset button, a hang), the next start shows "WineExplorer did not start successfully". It offers the Safe
-Modes and starts normally after 30 seconds. `wex-startup-check.service` marks a start as complete once the logon
-screen is up; `grub-editenv /boot/grub/grubenv list` shows `wex_boot_pending=1` while a start is not yet complete. Enable Boot Logging appends to `C:\WINDOWS\ntbtlog.txt` in the machine root. `wex-bootmode` prints the
+Modes and Last Known Good, and starts normally after 30 seconds. `wex-startup-check.service` marks a start as
+complete once the logon screen is up, and Vintner Boot then counts it good; `vintner status` shows the failed
+starts of the running generation. Enable Boot Logging appends to `C:\WINDOWS\ntbtlog.txt` in the machine root. `wex-bootmode` prints the
 current mode. Design and tests: [SAFE_MODE.md](SAFE_MODE.md).
 
 ---

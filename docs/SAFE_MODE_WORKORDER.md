@@ -5,8 +5,9 @@ Date: 2026-11-08
 Status: in progress; the owner's decisions are in section 4 (2026-11-08). Phase 1 (boot modes, Advanced Options
 menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer commit `14286423`). Done since: A1,
 A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape),
-Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Open: A4, B5, B8's merge, C3 for
-Wayland, C5, the rest of C4, C6 and C7, D2, D4, D5.  
+Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Since 2026-11-11 Vintner Boot is the
+only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. Open: A4,
+B5, B8's merge, C3 for Wayland, C5, the rest of C4, C6 and C7, D2, D4, D5.  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
@@ -432,14 +433,16 @@ The work:
   of 0 is missing from the Welcome screen in a normal start. The Administrator tile is shown in Safe Mode only, and
   also in a normal start once `Administrator` is 1.
 
-### Phase D: start-up failure and recovery (GRUB now, Vintner later)
+### Phase D: start-up failure and recovery (first GRUB, Vintner Boot since 2026-11-10)
 
 **D1. "WineExplorer did not start successfully".** XP shows this screen after a start that did not finish, with
 a countdown to a normal start. On the XP VM it appeared only after a reset during the boot splash, not after one
 during the firmware, the disk check or logon. It offers the three Safe Modes, Last Known Good and Start Normally
 (the default) with a 30-second countdown, and any arrow key stops the countdown and removes its line.
 
-**Done (2026-11-08)**, with GRUB; `docs/SAFE_MODE.md` sections 3 and 4 describe it as built.
+**Done (2026-11-08)**, with GRUB; `docs/SAFE_MODE.md` sections 3 and 4 describe it as built. The GRUB parts below
+(the grubenv record, `wexfailed=1`, the `failed` phase) were removed on 2026-11-11; the Vintner part at the end is
+what remains.
 - **GRUB:** `11_wineexplorer_advanced` records every start as the grubenv variable `wex_boot_pending`. Debian's
   `recordfail` is not used: when it is set, Debian's `grub.cfg` shows GRUB's menu for 30 seconds, and
   `grub-common.service` clears it as soon as `multi-user.target` starts, before the logon screen exists. So no
@@ -467,9 +470,10 @@ during the firmware, the disk check or logon. It offers the three Safe Modes, La
 driver (`scripts/20-wineexplorer-modesetting.conf`), so with no DRM device it has no fallback. `fbdev` and `vesa`
 are installed. The two ways, neither simple today:
 
-- (a) Restart once into a GRUB entry with `nomodeset` and `set gfxpayload=keep` at a VESA mode, so that
-  `simpledrm` has a framebuffer and X's `modesetting` runs on it. The entry is chosen with `grub-reboot`, which
-  writes `grubenv`; on Vintner it becomes a second variant. It needs a new GRUB entry and tests on BIOS and UEFI.
+- (a) Restart once into a second Vintner Boot variant with `nomodeset` (on BIOS also a VESA mode kept for Linux),
+  so that `simpledrm` has a framebuffer and X's `modesetting` runs on it, chosen with `vintner next-boot variant`.
+  It needs tests on BIOS and UEFI. (Written for GRUB first: an entry with `set gfxpayload=keep`, chosen with
+  `grub-reboot`.)
 - (b) No restart: X on the current DRM device at 640x480. It is not a basic driver, so it does not help when the
   graphics driver is the problem. Once C3 sets a basic resolution for Safe Mode, (b) is a few lines on top of it.
 - Look at it again after C3.
@@ -482,14 +486,14 @@ The owner suggested keeping a copy of the registry, as XP does. XP's copy is the
 drivers and services, from the last start that succeeded; going back to it keeps programs, user settings and files.
 WineExplorer now saves the machine registry's control set (`System\ControlSet001`) whenever the start-up check
 counts a start, and the menu item, enabled once a copy exists, puts it back before any Wine program runs. This part
-needs no loader, so it works with GRUB today.
+needs no loader.
 
 **The rest of D3, done 2026-11-10** with Vintner Boot 4.4 (`vintner next-boot`) and 4.5 (`vintner status --json`):
 
 - Last Known Good from a generation that has not started successfully also restarts into the previous good
   generation.
 - Return to OS Choices Menu restarts into the loader's own menu.
-- Under GRUB both behave as before.
+- Under GRUB both behaved as before, until the GRUB path was removed (2026-11-11).
 - Tested on both firmwares (`docs/SAFE_MODE.md` section 6).
 
 **D4. Debugging Mode.** Today it raises the service manager's log level only. Consider sending kernel messages to

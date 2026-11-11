@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Text-mode Setup's start-up step with Vintner Boot (docs/VINTNER_BOOT.md section 4.2), on an ISO built with
-# build-iso.sh --vintner. textsetup runs it in the live system as root once the files are copied to TARGET and the
+# Text-mode Setup's start-up step with Vintner Boot (docs/VINTNER_BOOT.md section 4.2), which build-iso.sh puts on
+# the ISO with the packages. textsetup runs it in the live system as root once the files are copied to TARGET and the
 # live packages are purged from it, with the live system's /dev, /dev/pts, /proc, /sys and /run bound into TARGET.
 #
 #   install-vintner.sh TARGET DISK ROOT_PART BOOT_STORAGE_PART ESP_PART BIOS_BOOT_PART
@@ -85,9 +85,9 @@ cp "$platform" "$TARGET$WORK/vintner-platform.deb"
 echo "--- installing vintner-core"
 in_target dpkg -i "$WORK/vintner-core.deb"
 
-# 2. vintner-platform conflicts with grub-pc, so it cannot be installed yet: vintner install reads the payloads from
-#    the unpacked package, removes the stock loader, and the package is installed afterwards (as in Vintner Boot's
-#    ci/install row).
+# 2. vintner install reads the payloads from the unpacked vintner-platform, which is installed afterwards, once any
+#    stock loader it conflicts with is gone (as in Vintner Boot's ci/install row). Since 2026-11-11 the live system
+#    has none, only grub-common, whose grub-mkimage builds the BIOS core image.
 dpkg-deb -x "$TARGET$WORK/vintner-platform.deb" "$TARGET$WORK/platform"
 
 # 3. The kernel options of every generation (vintner install adds root=, ro and vintner.bootstorage=).
@@ -131,6 +131,3 @@ if in_target dpkg-query -W -f='${Status}\n' grub-pc 2>/dev/null | grep -q 'insta
 fi
 echo "--- installing vintner-platform"
 in_target dpkg -i "$WORK/vintner-platform.deb"
-
-# GRUB's settings for WineExplorer (live-build include) have nothing to configure now.
-rm -f "$TARGET/etc/default/grub.d/wineexplorer.cfg"

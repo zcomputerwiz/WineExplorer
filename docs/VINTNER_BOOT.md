@@ -5,7 +5,7 @@ Date: 2026-11-07
 Status: written as a plan on 2026-11-07. Since then sections 4.1, 4.2, 4.4 and 4.5 are implemented, and 4.3 in
 part: Safe Mode through Vintner's variant, the "did not start successfully" screen, Last Known Good and Return to OS
 Choices Menu. Each section has its own status. Since 2026-11-10 Vintner Boot is the default loader (owner
-decision). `build-iso.sh --grub` still builds the GRUB ISO, until the GRUB path is removed.  
+decision), and since 2026-11-11 the only one: the GRUB install path is removed (owner decision; section 4.2).  
 Sources read: WineExplorer `development` at `d718f379`; Vintner Boot (`D:\Projects\vintner-boot`, sibling
 repository) `local-test-env` at `cbc683b`, which is `main` plus two CI/docs commits. Line numbers refer to those
 commits.
@@ -185,8 +185,8 @@ first); the owner made it the default once they and the rest of section 4.3 work
   `systemd-ukify` and `sbsigntool` (vintner-core's dependencies) to the live system. Neither Vintner package is
   installed in the live system.
 - The packages are built from the `vintner` submodule, Vintner Boot pinned at a commit of its `main`, with its
-  `ci/package/build-debs.sh`. `--vintner=DIR` takes packages built elsewhere. `--grub` builds an ISO with nothing
-  of Vintner, whose Setup installs GRUB.
+  `ci/package/build-debs.sh`. `--vintner=DIR` takes packages built elsewhere. (`--grub`, an ISO with nothing of
+  Vintner whose Setup installed GRUB, existed until 2026-11-11.)
 - Verified 2026-11-10/11 with the submodule at `ff4d851`. The pin then moved to `a24d9a4` (#87), whose packaged
   files differ only by a comment in `loader.conf`.
   - A default build compiled the packages from the submodule (13 minutes in all).
@@ -195,8 +195,8 @@ first); the owner made it the default once they and the rest of section 4.3 work
     firmwares. On OVMF it opened the loader's menu with F8 every time.
   - A `--grub` build had nothing of Vintner. It installed GRUB, and `failed`, `safe` and `normal` passed on both
     firmwares.
-- When `/setup/install-vintner.sh` exists, text-mode Setup runs it in place of the GRUB step. It runs after the
-  live packages are purged, with the live system's `/dev`, `/proc`, `/sys` and `/run` bound into the target. The
+- Text-mode Setup runs `/setup/install-vintner.sh` as its start-up step; without it Setup cannot continue. It runs
+  after the live packages are purged, with the live system's `/dev`, `/proc`, `/sys` and `/run` bound into the target. The
   step follows Vintner Boot's `ci/install` row:
   1. install vintner-core in the target and unpack vintner-platform beside it;
   2. write `/etc/kernel/cmdline` (`quiet`) and run `update-initramfs -u -k all`;
@@ -204,7 +204,7 @@ first); the owner made it the default once they and the rest of section 4.3 work
   4. run `vintner install --disk D --firmware both --root-partuuid --boot-storage-partuuid --esp-partuuid
      --payload-dir ... --update-initramfs`. The root needs `--root-partuuid` because its type is the generic Linux
      one;
-  5. once `grub-pc` is gone, install vintner-platform and delete `/etc/default/grub.d/wineexplorer.cfg`.
+  5. check that `grub-pc` is not installed, then install vintner-platform.
   The log is `/var/log/vintner-install.log` on the new installation.
 - `--firmware both` is always used, because every disk Setup prepares has a BIOS boot partition and an ESP, so the
   disk starts on either firmware. When Setup itself started through BIOS there is no efivarfs. `vintner install`
@@ -214,12 +214,27 @@ first); the owner made it the default once they and the rest of section 4.3 work
 - The recovery images keep Vintner's own command line (it already has `console=ttyS0,115200`). Since 2026-11-10
   Setup passes `--recovery-title "WineExplorer Recovery Console"` (D6; Vintner Boot #82), so the menus show
   "WineExplorer Recovery Console" and "WineExplorer Recovery Console (backup)".
-- Test: `WEX_TEST_LOADER=vintner installer/tests/install-unattended.sh` checks the installed disk with
-  `installer/tests/check-vintner.py`:
+- Test: `installer/tests/install-unattended.sh` checks the installed disk with `installer/tests/check-vintner.py`:
   - vintner-core and vintner-platform are installed, and no stock loader is;
-  - Setup's step ended well and GRUB has no configuration;
+  - Setup's step ended well, GRUB has no configuration, and WineExplorer's former GRUB files are not installed;
   - the manifest holds generation 1, GOOD, for both firmwares, with the root and boot storage on its command line;
   - the ESP holds Vintner's loader, also as `\EFI\BOOT\BOOTX64.EFI`.
+
+Status (2026-11-11): the GRUB path is removed (owner decision). Setup has no GRUB step, writes no GRUB settings and
+falls back to no other loader. The live system, which Setup copies to the disk, has no stock loader any more: of
+GRUB it keeps only `grub-common`, whose `grub-mkimage` Vintner's `vintner install` runs to build the BIOS core image
+from its own modules (vintner-core does not declare that dependency). live-build brings the ISO's own GRUB in for
+its binary stage only. `11_wineexplorer_advanced`, `/etc/default/grub.d/wineexplorer.cfg`, `--grub`, the VM test's
+`WEX_TEST_LOADER`, its GRUB-only `failed` phase and its `upgrade` mode (an upgrade of a GRUB install from before
+`14286423`) are gone. A machine Setup installed with GRUB before 2026-11-11 keeps starting through GRUB. When it gets
+a newer session package, the postinst removes the F8 entry, makes `grub.cfg` again without it, and drops the entry's
+record of unfinished starts, which nothing would clear any more (every start would open the menu). Such a machine
+then has no Advanced Options menu; reinstalling from a current ISO brings Vintner Boot and Safe Mode.
+- Verified 2026-11-11: an ISO built this way installed with no input on SeaBIOS and OVMF (`vintner install` had no
+  stock loader to purge), and the Safe Mode VM test passed every phase on both firmwares after two test fixes
+  (`docs/SAFE_MODE.md` section 6). The GRUB cleanup was tried on an overlay of a GRUB install from 2026-11-10.
+- The VM test of that ISO ran with the session package from before the GRUB cleanup was added to its postinst; on a
+  Vintner install the cleanup does nothing, and the `branch` run executed it there.
 
 Verified 2026-11-09 with Vintner Boot `main` at `79a0f61` (#78). The ISO was built in wexbuild from this branch, and
 the installs ran in QEMU/KVM in WSL Debian.
@@ -325,8 +340,8 @@ The ordinary entry names Debian because WineExplorer leaves Debian's `/etc/os-re
 on 2026-11-10 that the menu names WineExplorer. `/etc/os-release` stays Debian's, because other programs read it.
 Instead, the product declares the name to Vintner, which uses it in place of `PRETTY_NAME` in both loaders:
 `WineExplorer (2026-11-10)` and `WineExplorer (2026-11-10): Advanced Options`. The Vintner session is asked for that
-setting (a conffile the product ships, like `variants.d`, or an install option). GRUB, the default until then, names
-WineExplorer through `GRUB_DISTRIBUTOR` (`docs/INSTALLER.md`).
+setting (a conffile the product ships, like `variants.d`, or an install option). GRUB, the default until then, named
+WineExplorer through `GRUB_DISTRIBUTOR` until its path was removed (2026-11-11).
 
 The Safe Mode VM test through the variant (`WEX_TEST_LOADER=vintner`) passed all seven phases on OVMF. On SeaBIOS
 one `safecmd` start showed a black 1280x800 console instead of the menu for three minutes (the variant was
@@ -337,15 +352,14 @@ runs unseen. One suspect: vintner-core puts its Plymouth theme into the initramf
 quits Plymouth itself (WineExplorer masks Plymouth's quit units, decision D2 open).
 
 With `WEX_TEST_LOADER=vintner`, the Safe Mode VM test chose the variant in those menus and passed all eight of its
-phases on both firmwares (`docs/SAFE_MODE.md` section 6). grub2-common stays installed on a Vintner install, and
-its `update-grub` writes a `/boot/grub/grub.cfg` that Vintner's GRUB never reads; the Vintner session lists
-diverting it for 4.x.
+phases on both firmwares (`docs/SAFE_MODE.md` section 6). grub2-common stayed installed on a Vintner install, and
+its `update-grub` wrote a `/boot/grub/grub.cfg` that Vintner's GRUB never reads; since 2026-11-11 the live system
+has no grub2-common, so a new install has no `update-grub`.
 
 Left for Vintner:
 
-- Remove the GRUB generator once Vintner variants exist: drop
-  `installer/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_advanced` from the live-build include
-  and from the session package.
+- Done (2026-11-11): the GRUB generator `11_wineexplorer_advanced` is gone from the live-build include and from the
+  session package, with the rest of the GRUB path (section 4.2).
 - Done (2026-11-10, above): one Vintner variant, "Advanced Options", with the token `wexmode=menu`. A variant boot
   changes no boot count or state (owner decision): a good image stays good, a bad image stays bad.
 - Done (2026-11-10): Last Known Good Configuration puts back the machine registry's control set from the last
@@ -395,10 +409,11 @@ Implemented for GRUB (2026-11-08, `docs/SAFE_MODE_WORKORDER.md` D1) as `wex-star
 `Before=`/`RequiredBy=boot-complete.target`, with the description "Start-up check".
 - It passes when the `logonui.exe` program itself (not Explorer's command line naming it) or the GTK greeter runs
   for `lightdm`, when a graphical user session exists
-  (automatic logon), or when a setup stage unit is active. It then clears GRUB's `wex_boot_pending`.
+  (automatic logon), or when a setup stage unit is active. Under GRUB it then cleared `wex_boot_pending`.
 - Starts through the Advanced Options entry and Safe Mode choices do not count, and the check returns at once for
   them.
-- With Vintner, the same unit gates the bless; only the GRUB variable goes away.
+- With Vintner, the same unit gates the bless. Since 2026-11-11 that is all it does besides saving the last known
+  good configuration: the GRUB variable is gone.
 
 ### 4.5 Live ISO menu
 
@@ -406,8 +421,8 @@ Implemented for GRUB (2026-11-08, `docs/SAFE_MODE_WORKORDER.md` D1) as `wex-star
 `configfile /boot/grub/grub.cfg` from the installed root. That file will not exist. Chain-load the disk's ESP
 loader instead, or remove the entry. The ISO's own boot (live-build GRUB) is unaffected.
 
-Status (2026-11-09): done. The entry still loads the installed `grub.cfg` when it exists (GRUB installs). Otherwise
-it chain-loads Vintner's loader: on UEFI `\EFI\vintner\systemd-bootx64.efi`, found on the disk's ESP, and on BIOS
+Status (2026-11-09): done. The entry loaded the installed `grub.cfg` when it existed (GRUB installs; that branch was
+removed on 2026-11-11). Otherwise it chain-loads Vintner's loader: on UEFI `\EFI\vintner\systemd-bootx64.efi`, found on the disk's ESP, and on BIOS
 the disk's own boot code (`chainloader +1` on the disk that holds the setup stage file). Both Vintner installs
 above went through it: the CD stayed in for GUI-mode setup.
 
@@ -484,8 +499,9 @@ count or state. For the rest the owner set the goal of a Windows-familiar experi
 3. WineExplorer: section 4.2 bootloader step behind a build option, keeping GRUB as the default.
 4. Vintner: V1 (variants), V3 (names), V8 (recovery A re-arm).
 5. WineExplorer: section 4.3 Safe Mode port, section 4.4 health check, section 4.5 ISO menu.
-6. Vintner: V2, V6, V7 as needed; then make Vintner the default (done 2026-11-10) and remove the GRUB path (open:
-   `11_wineexplorer_advanced`, Setup's GRUB step and settings, `--grub`, and the GRUB phases of the VM test).
+6. Vintner: V2, V6, V7 as needed; then make Vintner the default (done 2026-11-10) and remove the GRUB path (done
+   2026-11-11: `11_wineexplorer_advanced`, Setup's GRUB step and settings, `--grub`, and the GRUB phases of the VM
+   test).
 
 Each WineExplorer step needs an installer VM run on BIOS and UEFI, including a 32-bit program check, before it is
 committed as working.

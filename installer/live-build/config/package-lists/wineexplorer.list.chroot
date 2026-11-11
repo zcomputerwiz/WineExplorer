@@ -71,11 +71,9 @@ dosfstools
 fdisk
 mdadm
 nvme-cli
-grub-pc
-grub-pc-bin
-grub-efi-amd64-bin
+# Vintner Boot builds its BIOS core image with grub-mkimage, from its own modules (docs/VINTNER_BOOT.md). No stock
+# loader: live-build brings the ISO's own GRUB in for the binary stage only.
 grub-common
-grub2-common
 
 # Terminal & Text UI
 xterm

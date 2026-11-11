@@ -45,10 +45,9 @@
 #define GUID_BOOT_STORAGE "BC13C2FF-59E6-4262-A352-B275FD6F7172"
 #define GUID_LINUX        "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
 
-/* Setup's start-up step with Vintner Boot; build-iso.sh --vintner puts it and the packages on the ISO. */
+/* Setup's start-up step with Vintner Boot; build-iso.sh puts it and the packages on the ISO. */
 #define VINTNER_STEP "/setup/install-vintner.sh"
 
-static void install_grub(SetupState *state);
 static bool install_vintner(SetupState *state);
 static SetupStage screen_start_files_failed(SetupState *state);
 
@@ -1400,7 +1399,7 @@ SetupStage screen_format(SetupState *state)
 
     /* The ESP and boot storage get FAT32 when Setup created them, or when they hold no FAT file system yet, on BIOS
      * and UEFI machines alike. An existing ESP with a file system (for example one Windows uses) is never
-     * formatted. The BIOS boot partition stays raw: GRUB writes its core image there. */
+     * formatted. The BIOS boot partition stays raw: Vintner Boot writes its GRUB core image there. */
     if (state->wipe_bios_boot) wipe_signatures(state->bios_boot_part);
     format_fat_partition(state->efi_part, state->format_esp, NULL);
     format_fat_partition(state->boot_storage_part, state->format_boot_storage, "BOOTSTORAGE");
@@ -1902,7 +1901,7 @@ SetupStage screen_init(SetupState *state)
     unlink("/target/lib"); symlink("usr/lib", "/target/lib");
     unlink("/target/lib64"); symlink("usr/lib64", "/target/lib64");
 
-    /* Chroot mounts for live package purge and GRUB installation */
+    /* Chroot mounts for the live package purge and the start-up files */
     system("mount --bind /dev /target/dev 2>/dev/null || true");
     system("mount --bind /dev/pts /target/dev/pts 2>/dev/null || true");
     system("mount --bind /proc /target/proc 2>/dev/null || true");
@@ -1932,16 +1931,11 @@ SetupStage screen_init(SetupState *state)
         }
     }
 
-    /* 7. Start-up files: Vintner Boot on an ISO built with build-iso.sh --vintner (docs/VINTNER_BOOT.md section
-     * 4.2), otherwise GRUB. */
-    if (access(VINTNER_STEP, X_OK) == 0) {
-        ui_draw_status("Setup is installing the start-up files...");
-        if (!install_vintner(state)) {
-            system("umount /target/run /target/sys /target/proc /target/dev/pts /target/dev 2>/dev/null || true");
-            return screen_start_files_failed(state);
-        }
-    } else {
-        install_grub(state);
+    /* 7. Start-up files: Vintner Boot (docs/VINTNER_BOOT.md section 4.2) */
+    ui_draw_status("Setup is installing the start-up files...");
+    if (!install_vintner(state)) {
+        system("umount /target/run /target/sys /target/proc /target/dev/pts /target/dev 2>/dev/null || true");
+        return screen_start_files_failed(state);
     }
     system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl mask plymouth-quit-wait.service plymouth-start.service plymouth.service 2>/dev/null || true");
     if (has_serial_console) {
@@ -1954,72 +1948,11 @@ SetupStage screen_init(SetupState *state)
     return STAGE_REBOOT;
 }
 
-/* GRUB, the default loader: its settings, the core image on the disk and grub.cfg. */
-static void install_grub(SetupState *state)
-{
-    safe_mkdir_p("/target/boot/grub");
-    safe_mkdir_p("/target/etc/default/grub.d");
-    remove("/target/etc/default/grub.d/desktop-base.cfg");
-
-    {
-        FILE *f_grub = fopen("/target/etc/default/grub.d/wineexplorer.cfg", "w");
-        if (f_grub) {
-            fprintf(f_grub,
-                    "# Silent instant boot for single-OS WineExplorer installation (F8 for the Advanced Options menu)\n"
-                    "GRUB_TIMEOUT_STYLE=hidden\n"
-                    "GRUB_TIMEOUT=1\n"
-                    "GRUB_TERMINAL=console\n"
-                    "GRUB_THEME=\"\"\n"
-                    "GRUB_BACKGROUND=\"\"\n"
-                    "# The menu names WineExplorer, not Debian (Debian's 10_linux appends \" GNU/Linux\"). "
-                    "/etc/os-release stays Debian's.\n"
-                    "GRUB_DISTRIBUTOR=\"WineExplorer\"\n");
-            fclose(f_grub);
-        }
-        chmod("/target/etc/grub.d/11_wineexplorer_advanced", 0755);
-    }
-
-    FILE *f_map = fopen("/target/boot/grub/device.map", "w");
-    if (f_map) {
-        fprintf(f_map, "(hd0) %s\n", state->target_disk);
-        fclose(f_map);
-    }
-
-    /* Activate target partition and set type on MBR if BIOS. Setup prepares only GPT disks now: there GRUB puts its
-     * core image in the BIOS boot partition, and these MBR commands must not run. */
-    if (!state->is_uefi && !state->target_disk_is_gpt && state->target_part[0]) {
-        int part_num = 1;
-        char *p = state->target_part + strlen(state->target_part) - 1;
-        while (p > state->target_part && isdigit((unsigned char)*(p - 1))) p--;
-        if (isdigit((unsigned char)*p)) part_num = atoi(p);
-        char act_cmd[256];
-        snprintf(act_cmd, sizeof(act_cmd), "sfdisk -A %s %d >/dev/null 2>&1 || true", state->target_disk, part_num);
-        system(act_cmd);
-        char type_cmd[256];
-        snprintf(type_cmd, sizeof(type_cmd), "sfdisk --part-type %s %d 83 >/dev/null 2>&1 || true", state->target_disk, part_num);
-        system(type_cmd);
-    }
-
-    char grub_cmd[1024];
-    if (state->is_uefi) {
-        snprintf(grub_cmd, sizeof(grub_cmd),
-                 "/usr/sbin/grub-install --target=x86_64-efi --efi-directory=/target/boot/efi --boot-directory=/target/boot --recheck --removable %s >/target/var/log/grub-install.log 2>&1 || chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/sbin/grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --recheck --removable %s >>/target/var/log/grub-install.log 2>&1",
-                 state->target_disk, state->target_disk);
-    } else {
-        snprintf(grub_cmd, sizeof(grub_cmd),
-                 "/usr/sbin/grub-install --target=i386-pc --boot-directory=/target/boot --recheck --force %s >/target/var/log/grub-install.log 2>&1 || chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/sbin/grub-install --target=i386-pc --recheck --force %s >>/target/var/log/grub-install.log 2>&1",
-                 state->target_disk, state->target_disk);
-    }
-    system(grub_cmd);
-    system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/sbin/update-grub >>/target/var/log/grub-install.log 2>&1 || true");
-}
-
-/* Vintner Boot (install-vintner.sh, on the ISO only with build-iso.sh --vintner). True when the disk now starts
- * through it. */
+/* Vintner Boot (install-vintner.sh). True when the disk now starts through it. */
 static bool install_vintner(SetupState *state)
 {
     char cmd[1024];
-    if (!state->boot_storage_part[0]) return false;
+    if (access(VINTNER_STEP, X_OK) != 0 || !state->boot_storage_part[0]) return false;
     snprintf(cmd, sizeof(cmd), "%s /target '%s' '%s' '%s' '%s' '%s'", VINTNER_STEP, state->target_disk,
              state->target_part, state->boot_storage_part, state->efi_part, state->bios_boot_part);
     return system(cmd) == 0;

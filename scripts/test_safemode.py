@@ -19,7 +19,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / "scripts"
 SYSTEMD = REPO_ROOT / "installer" / "systemd"
-GRUB_ENTRY = REPO_ROOT / "installer" / "live-build" / "config" / "includes.chroot" / "etc" / "grub.d" / "11_wineexplorer_advanced"
+LIVE_ETC = REPO_ROOT / "installer" / "live-build" / "config" / "includes.chroot" / "etc"
 BOOTMODE = SCRIPTS / "wex-bootmode.sh"
 GENERATOR = SYSTEMD / "wex-bootmode-generator"
 PAM_CHECK = SCRIPTS / "wex-safemode-pam-check.sh"
@@ -53,8 +53,7 @@ class TempDirTest(unittest.TestCase):
 
 class TestSyntax(unittest.TestCase):
     def test_shell_scripts_parse(self):
-        for script in (BOOTMODE, GENERATOR, PAM_CHECK, STARTUP_CHECK, SCRIPTS / "wex-bootlog.sh", LASTGOOD,
-                       GRUB_ENTRY):
+        for script in (BOOTMODE, GENERATOR, PAM_CHECK, STARTUP_CHECK, SCRIPTS / "wex-bootlog.sh", LASTGOOD):
             result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         for script in (SCRIPTS / "wex-greeter.sh", SCRIPTS / "setup-greeter.sh", SCRIPTS / "wine-explorer-session.sh",
@@ -66,8 +65,10 @@ class TestSyntax(unittest.TestCase):
         compile(session_run.read_text(encoding="utf-8"), str(session_run), "exec")
 
     def test_old_implementation_is_gone(self):
+        # the Safe Mode before docs/SAFE_MODE.md, and the GRUB path (removed 2026-11-11: Vintner Boot is the loader)
         for old in (SCRIPTS / "wex-safemode-setup.sh", SYSTEMD / "wex-safemode.service",
-                    SCRIPTS / "wex-safe-terminal.desktop", GRUB_ENTRY.with_name("11_wineexplorer_safemode")):
+                    SCRIPTS / "wex-safe-terminal.desktop", LIVE_ETC / "grub.d" / "11_wineexplorer_safemode",
+                    LIVE_ETC / "grub.d" / "11_wineexplorer_advanced", LIVE_ETC / "default" / "grub.d"):
             self.assertFalse(old.exists(), f"{old} should be removed")
 
 
@@ -319,22 +320,22 @@ class TestPamCheck(TempDirTest):
 
 
 class TestStartupCheck(TempDirTest):
-    """wex-startup-check.sh: which starts count, and when a counted start clears GRUB's wex_boot_pending."""
+    """wex-startup-check.sh: which starts count. A failed check keeps boot-complete.target, where Vintner Boot counts
+    the start good, from being reached."""
 
     WELCOME = "lightdm|C:\\windows\\system32\\logonui.exe"
     GTK = "lightdm|/usr/sbin/lightdm-gtk-greeter"
+    VARIANT = "root=UUID=x ro quiet vintner.bootstorage=PARTUUID=y wexmode=menu vintner.variant=advanced"
 
     def check(self, cmdline="root=UUID=x ro quiet", mode="normal", processes=(), sessions="",
               session_class="", session_type="", active="", stage=False):
-        """processes: "user|command line" entries that the fake pgrep matches its -u and -f pattern against."""
+        """processes: "user|command line" entries that the fake pgrep matches its -u and -f pattern against.
+        Returns (exit status, counted, output)."""
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir(exist_ok=True)
-        log = self.tmp / "grub-editenv.log"
-        log.unlink(missing_ok=True)
         self.lastgood_log = self.tmp / "lastgood.log"
         self.lastgood_log.unlink(missing_ok=True)
         fakes = {
-            "grub-editenv": 'echo "$*" >> "$LOG"\n',
             "fake-lastgood": 'echo "$*" >> "$LASTGOOD_LOG"\n',
             "pgrep": 'user=\nwhile [ $# -gt 1 ]; do\n    case "$1" in -u) user=$2; shift 2 ;; *) shift ;; esac\ndone\n'
                      'printf "%s\\n" "$FAKE_PROCS" | while IFS="|" read -r u cmd; do\n'
@@ -349,22 +350,20 @@ class TestStartupCheck(TempDirTest):
             (bin_dir / name).chmod(0o755)
         cmdline_file = self.tmp / "cmdline"
         cmdline_file.write_text(cmdline + "\n", encoding="ascii")
-        grubenv = self.tmp / "grubenv"
-        grubenv.touch()
         stage_file = self.tmp / "stage"
         if stage:
             stage_file.touch()
         else:
             stage_file.unlink(missing_ok=True)
-        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "LOG": str(log), "WEX_BOOTMODE_CMDLINE": str(cmdline_file),
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "WEX_BOOTMODE_CMDLINE": str(cmdline_file),
                "WEX_BOOTMODE_HELPER": self.fake_helper(mode), "WEX_BOOTMODE_SETUP_STAGE": str(stage_file),
-               "WEX_GRUBENV": str(grubenv), "WEX_STARTUP_TIMEOUT": "0", "WEX_STARTUP_INTERVAL": "0",
+               "WEX_STARTUP_TIMEOUT": "0", "WEX_STARTUP_INTERVAL": "0",
                "FAKE_PROCS": "\n".join(processes), "FAKE_SESSIONS": sessions, "FAKE_CLASS": session_class, "FAKE_TYPE": session_type,
                "FAKE_ACTIVE": active, "WEX_LASTGOOD_HELPER": str(bin_dir / "fake-lastgood"),
                "LASTGOOD_LOG": str(self.lastgood_log)}
         result = subprocess.run(["sh", str(STARTUP_CHECK)], env=env, capture_output=True, text=True, timeout=30)
-        cleared = log.exists() and f"{grubenv} unset wex_boot_pending" in log.read_text()
-        return result.returncode, cleared, result.stdout
+        counted = result.returncode == 0 and "counts as successful" in result.stdout
+        return result.returncode, counted, result.stdout
 
     def test_the_logon_screen_counts(self):
         status, cleared, out = self.check(processes=[self.WELCOME])
@@ -408,18 +407,24 @@ class TestStartupCheck(TempDirTest):
         self.assertIn("counts as failed", out)
 
     def test_menu_starts_do_not_count(self):
-        for mode in ("normal", "safe", "safecmd"):
-            status, cleared, out = self.check(cmdline="ro quiet wexmode=menu", mode=mode, processes=[self.WELCOME])
-            self.assertEqual((status, cleared), (0, False), mode)
-            self.assertIn("not counted", out)
+        """The Advanced Options variant, whatever the menu chose, and also with Safe Mode chosen on the failure screen
+        before the restart into it."""
+        for mode in ("normal", "safe", "safenet", "safecmd"):
+            status, counted, out = self.check(cmdline=self.VARIANT, mode=mode, processes=[self.WELCOME])
+            self.assertEqual((status, counted), (0, False), mode)
+            self.assertIn(f"not counted: started through the Advanced Options menu ({mode})", out)
+        self.assertEqual(self.check(cmdline="ro quiet wexmode=menu", processes=[self.WELCOME])[:2], (0, False))
 
-    def test_start_normally_on_the_failure_screen_counts(self):
-        failed = "ro quiet wexmode=menu wexfailed=1"
-        self.assertEqual(self.check(cmdline=failed, mode="normal", processes=[self.WELCOME])[:2], (0, True))
-        for mode in ("safe", "safenet", "safecmd"):
-            status, cleared, out = self.check(cmdline=failed, mode=mode, processes=[self.WELCOME])
-            self.assertEqual((status, cleared), (0, False), mode)
-            self.assertIn("failure screen", out)
+    def test_an_ordinary_vintner_start_counts(self):
+        """A generation's own start, also when the failure screen showed and Start Normally went on with it."""
+        cmdline = "root=UUID=x ro quiet vintner.bootstorage=PARTUUID=y"
+        self.assertEqual(self.check(cmdline=cmdline, processes=[self.WELCOME])[:2], (0, True))
+
+    def test_the_failure_flag_is_gone(self):
+        """GRUB's wexfailed=1 and wex_boot_pending (removed 2026-11-11) mean nothing to the check."""
+        script = STARTUP_CHECK.read_text(encoding="utf-8")
+        for word in ("wexfailed", "wex_boot_pending", "grub"):
+            self.assertNotIn(word, script.lower())
 
     def saved_lastgood(self):
         return self.lastgood_log.exists() and self.lastgood_log.read_text() == "save\n"
@@ -427,16 +432,13 @@ class TestStartupCheck(TempDirTest):
     def test_a_counted_start_becomes_the_last_known_good(self):
         self.assertEqual(self.check(processes=[self.WELCOME])[0], 0)
         self.assertTrue(self.saved_lastgood())
-        failed = "ro quiet wexmode=menu wexfailed=1"
-        self.check(cmdline=failed, mode="normal", processes=[self.WELCOME])
-        self.assertTrue(self.saved_lastgood(), "Start Normally on the failure screen counts")
 
     def test_setup_menu_starts_and_failed_starts_are_not_saved(self):
         self.check(stage=True, active="wex-setup.service")
         self.assertFalse(self.saved_lastgood(), "Setup's starts")
-        self.check(cmdline="ro quiet wexmode=menu", mode="normal", processes=[self.WELCOME])
+        self.check(cmdline=self.VARIANT, mode="normal", processes=[self.WELCOME])
         self.assertFalse(self.saved_lastgood(), "a start through the menu")
-        self.check(cmdline="ro quiet wexmode=menu wexfailed=1", mode="safe", processes=[self.WELCOME])
+        self.check(cmdline=self.VARIANT, mode="safe", processes=[self.WELCOME])
         self.assertFalse(self.saved_lastgood(), "Safe Mode from the failure screen")
         self.check()
         self.assertFalse(self.saved_lastgood(), "a failed start")
@@ -575,7 +577,7 @@ class TestMenu(TempDirTest):
         self.menu.SETUP_STAGE = str(self.tmp / "stage")
         self.menu.PANIC_SYSCTL = str(self.tmp / "panic")
         self.menu.LASTGOOD = str(self.tmp / "no-lastgood")      # no copy saved: Last Known Good is grayed
-        self.menu.CMDLINE = str(self.tmp / "cmdline")            # none: a GRUB start
+        self.menu.CMDLINE = str(self.tmp / "cmdline")            # none: Vintner Boot did not start this system
         self.menu.VINTNER = str(self.tmp / "no-vintner")
         self.menu.PENDING = str(self.tmp / "next-bootmode")
         self.menu.Screen = FakeScreen
@@ -702,11 +704,11 @@ class TestMenu(TempDirTest):
         self.assertIsNone(previous(self.report(newest_good=None, previous_good=None)))   # nothing GOOD
         self.assertIsNone(previous(self.report("recovery")))
         self.assertIsNone(previous(self.report("unknown")))
-        self.assertIsNone(previous(None))                                     # GRUB, or no report
+        self.assertIsNone(previous(None))                                     # no report
         self.assertIsNone(previous({"format": 1, "booted": None}))
 
     def test_vintner_status(self):
-        self.assertIsNone(self.menu.vintner_status())                         # a GRUB start asks nothing
+        self.assertIsNone(self.menu.vintner_status())                         # not started by Vintner: nothing asked
         self.assertEqual(self.vintner_log(), [])
         self.with_vintner(0, self.report())
         self.assertEqual(self.menu.vintner_status()["previous_good"], 2)
@@ -922,13 +924,12 @@ class TestMenu(TempDirTest):
                                       ["systemctl", "--no-block", "start", "default.target"]])
         self.assertEqual((self.tmp / "run" / "bootmode").read_text(), "normal\n")
 
-    def test_failure_screen_needs_wexfailed(self):
-        cmdline = self.tmp / "cmdline"
-        cmdline.write_text("root=UUID=x ro quiet wexmode=menu wexfailed=1\n", encoding="ascii")
-        self.assertTrue(self.menu.start_failed(str(cmdline)))
-        cmdline.write_text("root=UUID=x ro quiet wexmode=menu \n", encoding="ascii")
-        self.assertFalse(self.menu.start_failed(str(cmdline)))
-        self.assertFalse(self.menu.start_failed(str(self.tmp / "missing")))
+    def test_the_menu_ignores_the_grub_failure_flag(self):
+        """GRUB's wexfailed=1 (removed 2026-11-11) no longer turns the menu into the failure screen."""
+        self.assertFalse(hasattr(self.menu, "start_failed"))
+        source = (SCRIPTS / "wex-advanced-options.py").read_text(encoding="utf-8")
+        self.assertNotIn("wexfailed", source)
+        self.assertNotIn("grub", source.lower())
 
     def test_failure_text_fits_the_console(self):
         width = 80 - load_menu().Screen.LEFT - 1      # setUp replaced self.menu.Screen
@@ -1131,7 +1132,7 @@ class TestGreeter(TempDirTest):
                          ["wine cmd.exe /c exit 0", "wine explorer.exe /desktop=Logon,1024x768 logonui.exe", "gtk"])
 
 
-class TestUnitsAndGrub(unittest.TestCase):
+class TestUnitsAndLoader(unittest.TestCase):
     def test_targets(self):
         menu = (SYSTEMD / "wex-advanced-options.target").read_text(encoding="utf-8")
         self.assertIn("Requires=sysinit.target", menu)
@@ -1147,19 +1148,26 @@ class TestUnitsAndGrub(unittest.TestCase):
         self.assertNotIn("NetworkManager", safe)
         self.assertIn("NetworkManager.service", (SYSTEMD / "wex-safenet.target").read_text(encoding="utf-8"))
 
-    def test_grub_entry(self):
-        entry = GRUB_ENTRY.read_text(encoding="utf-8")
-        self.assertIn("--hotkey=f8", entry)
-        self.assertIn("wexmode=menu", entry)
-        cfg = (GRUB_ENTRY.parent.parent / "default" / "grub.d" / "wineexplorer.cfg").read_text(encoding="utf-8")
-        self.assertIn("GRUB_TIMEOUT_STYLE=hidden", cfg)
-        self.assertIn("GRUB_TIMEOUT=1", cfg)
-        # the menu names WineExplorer (Debian's 10_linux makes it "WineExplorer GNU/Linux"), in both copies
-        self.assertIn('GRUB_DISTRIBUTOR="WineExplorer"', cfg.splitlines())
-        screens = (REPO_ROOT / "installer" / "textsetup" / "screens.c").read_text(encoding="utf-8")
-        self.assertIn(r'"GRUB_DISTRIBUTOR=\"WineExplorer\"\n"', screens)
-        self.assertIn("11_wineexplorer_advanced", screens)
-        self.assertNotIn("11_wineexplorer_safemode", screens)
+    def test_setup_installs_no_grub(self):
+        """Since 2026-11-11 Setup installs Vintner Boot only: no GRUB step, settings or F8 entry, no stock loader in
+        the live system, and the CD's "Continue Setup" entry starts the disk through Vintner Boot."""
+        installer = REPO_ROOT / "installer"
+        screens = (installer / "textsetup" / "screens.c").read_text(encoding="utf-8")
+        for word in ("install_grub", "grub-install", "update-grub", "GRUB_DISTRIBUTOR", "grub.d", "device.map"):
+            self.assertNotIn(word, screens)
+        self.assertIn("if (!install_vintner(state)) {", screens)
+        packages = (installer / "live-build" / "config" / "package-lists" / "wineexplorer.list.chroot").read_text(
+            encoding="utf-8").split()
+        self.assertIn("grub-common", packages)   # Vintner Boot's grub-mkimage, for the BIOS core image
+        for package in ("grub-pc", "grub-pc-bin", "grub-efi-amd64-bin", "grub2-common", "grub-efi-amd64"):
+            self.assertNotIn(package, packages)
+        iso_menu = (installer / "live-build" / "config" / "hooks" / "live" / "9000-grub-menu.binary").read_text(
+            encoding="utf-8")
+        self.assertNotIn("configfile /boot/grub/grub.cfg", iso_menu)
+        self.assertIn("chainloader ($wexesp)/EFI/vintner/systemd-bootx64.efi", iso_menu)
+        self.assertNotIn("desktop-base", (installer / "live-build" / "config" / "hooks" / "normal" /
+                                          "0500-enable-services.hook.chroot").read_text(encoding="utf-8"))
+        self.assertNotIn("wineexplorer.cfg", (installer / "textsetup" / "install-vintner.sh").read_text(encoding="utf-8"))
 
     def test_startup_check_unit(self):
         unit = (SYSTEMD / "wex-startup-check.service").read_text(encoding="utf-8")
@@ -1170,61 +1178,6 @@ class TestUnitsAndGrub(unittest.TestCase):
         self.assertLess(len(re.search(r"^Description=(.*)$", unit, re.M).group(1)), 30)
 
 
-# grub-mkconfig_lib's functions, as far as 11_wineexplorer_advanced uses them
-FAKE_GRUB_LIB = r"""
-grub_file_is_not_garbage() { test -f "$1"; }
-version_sort() { sort -V "$@"; }
-make_system_path_relative_to_its_root() { echo /boot; }
-grub_get_device_id() { echo testid; }
-prepare_grub_to_access_device() { echo "insmod ext2"; }
-grub_add_tab() { sed -e 's/^/\t/'; }
-grub_quote() { cat; }
-uses_abstraction() { return 1; }
-"""
-
-
-class TestGrubOutput(TempDirTest):
-    """What 11_wineexplorer_advanced adds to grub.cfg. GRUB's own syntax check runs in update-grub (the VM test)."""
-
-    def generate(self):
-        boot = self.tmp / "boot"
-        boot.mkdir()
-        (boot / "vmlinuz-6.12.1-amd64").write_text("kernel", encoding="ascii")
-        (boot / "initrd.img-6.12.1-amd64").write_text("initrd", encoding="ascii")
-        (self.tmp / "grub-mkconfig_lib").write_text(FAKE_GRUB_LIB, encoding="ascii")
-        source = GRUB_ENTRY.read_text(encoding="utf-8")
-        kernels = "/boot/vmlinuz-* /vmlinuz-* /boot/kernel-*"
-        self.assertIn(kernels, source)
-        script = self.tmp / "11_test"
-        script.write_text(source.replace(kernels, f"{boot}/vmlinuz-*"), encoding="utf-8")
-        env = {"PATH": os.environ["PATH"], "pkgdatadir": str(self.tmp), "GRUB_DEVICE": "/dev/vda4",
-               "GRUB_DEVICE_BOOT": "/dev/vda4", "GRUB_CMDLINE_LINUX": "", "GRUB_CMDLINE_LINUX_DEFAULT": "quiet"}
-        return subprocess.run(["sh", str(script)], env=env, capture_output=True, text=True, check=True).stdout
-
-    def test_records_every_start_and_boots_the_failure_screen(self):
-        cfg = self.generate()
-        entry = cfg.index("menuentry 'WineExplorer Advanced Options (F8)'")
-        head, body = cfg[:entry], cfg[entry:]
-        # before any entry boots: remember the last start, mark this one, and choose the failure screen if needed
-        self.assertIn('set wex_last_start="${wex_boot_pending}"', head)
-        self.assertLess(head.index("set wex_boot_pending=1"), head.index("save_env wex_boot_pending"))
-        self.assertIn('if [ -n "${have_grubenv}" ]; then', head)
-        self.assertIn("set wex_failed=wexfailed=1", head)
-        self.assertIn("set default='wex-advanced-testid'", head)
-        self.assertIn('if [ -z "${boot_once}" ]; then', head)
-        for name in ("wex_last_start", "wex_failed", "wex_env"):
-            self.assertIn(f"export {name}", head)
-        self.assertNotIn("recordfail", cfg)
-        # the entry: --id and hotkey as before, the previous value written back, wexfailed passed on
-        self.assertIn("--hotkey=f8 $menuentry_id_option 'wex-advanced-testid' {", body)
-        self.assertIn('if [ "${wex_last_start}" = 1 ]; then set wex_boot_pending=1; else set wex_boot_pending=0; fi',
-                      body)
-        self.assertLess(body.index("save_env wex_boot_pending"), body.index("\tlinux\t"))
-        linux = next(line for line in body.splitlines() if line.startswith("\tlinux\t"))
-        self.assertTrue(linux.endswith("quiet wexmode=menu ${wex_failed}"), linux)
-        self.assertEqual(cfg.count("{"), cfg.count("}"))
-
-
 class TestPackage(TempDirTest):
     def safe_mode_block(self):
         """The postinst's Safe Mode part, with its paths moved under the test directory."""
@@ -1232,17 +1185,53 @@ class TestPackage(TempDirTest):
         start = script.index("# Safe Mode (docs/SAFE_MODE.md). The earlier")
         end = script.index("systemctl daemon-reload || true", start)
         block = script[start:end]
-        for path in ("/etc/", "/run/", "/var/lib/"):
+        for path in ("/etc/", "/run/", "/var/lib/", "/boot/"):
             block = block.replace(path, f"{self.tmp}{path}")
         return block
+
+    def run_block(self, fakes):
+        """Run the postinst's Safe Mode part with stand-ins (name: shell body) first on PATH; LOG collects calls."""
+        bin_dir = self.tmp / "bin"
+        shutil.rmtree(bin_dir, ignore_errors=True)
+        bin_dir.mkdir()
+        for name, body in {"systemctl": "exit 0\n", "getent": "exit 1\n", "useradd": "exit 0\n", **fakes}.items():
+            (bin_dir / name).write_text("#!/bin/sh\n" + body, encoding="ascii")
+            (bin_dir / name).chmod(0o755)
+        log = self.tmp / "calls.log"
+        log.unlink(missing_ok=True)
+        env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", LOG=str(log))
+        subprocess.run(["sh", "-e", "-c", self.safe_mode_block()], check=True, env=env)
+        return log.read_text().splitlines() if log.exists() else []
+
+    def test_a_grub_install_loses_the_f8_entry(self):
+        """Upgrading a machine installed with GRUB before 2026-11-11: the F8 entry's script goes, grub.cfg is made
+        again without it, and its record of unfinished starts is dropped. A Vintner install is left alone."""
+        grub_tools = {"update-grub": 'echo update-grub >> "$LOG"\n', "grub-editenv": 'echo "grub-editenv $*" >> "$LOG"\n'}
+        self.assertEqual(self.run_block(grub_tools), [], "no grub.cfg or grubenv: nothing to do")
+        entry = self.tmp / "etc" / "grub.d" / "11_wineexplorer_advanced"
+        entry.parent.mkdir(parents=True)
+        entry.write_text("#!/bin/sh\n", encoding="ascii")
+        (self.tmp / "boot" / "grub").mkdir(parents=True)
+        (self.tmp / "boot" / "grub" / "grub.cfg").touch()
+        (self.tmp / "boot" / "grub" / "grubenv").touch()
+        self.assertEqual(self.run_block(grub_tools),
+                         ["update-grub", f"grub-editenv {self.tmp}/boot/grub/grubenv unset wex_boot_pending"])
+        self.assertFalse(entry.exists())
+        # a failing GRUB tool does not fail the postinst
+        self.assertEqual(self.run_block({"update-grub": 'echo update-grub >> "$LOG"; exit 1\n',
+                                         "grub-editenv": 'echo grub-editenv >> "$LOG"; exit 1\n'}),
+                         ["update-grub", "grub-editenv"])
 
     def test_installs_the_new_pieces(self):
         script = PACKAGE.read_text(encoding="utf-8")
         for piece in ("wex-bootmode.sh", "wex-advanced-options.py", "wex-bootlog.sh", "wex-bootmode-generator",
                       "system-generators", "wex-advanced-options.target", "wex-safemode.target",
-                      "wex-safenet.target", "wex-bootlog.service", "11_wineexplorer_advanced",
+                      "wex-safenet.target", "wex-bootlog.service",
                       "wex-startup-check.sh", "wex-startup-check.service", "wex-lastgood.sh"):
             self.assertIn(piece, script)
+        # GRUB's F8 entry is no longer packaged (removed 2026-11-11)
+        self.assertNotIn("$STAGE_SESSION/etc/grub.d", script)
+        self.assertNotIn("includes.chroot/etc/grub.d", script)
         self.assertIn("systemctl enable wex-startup-check.service", self.safe_mode_block(),
                       "the VM test runs only the postinst's Safe Mode part, so the unit is enabled there")
         self.assertIn('"$STAGE_SESSION/etc/ssh/sshd_config.d/wineexplorer.conf"', script)
@@ -1304,23 +1293,25 @@ class TestPackage(TempDirTest):
         self.assertIn('"$SCRIPT_DIR/vintner/advanced.conf" "$STAGE_SESSION/etc/vintner/variants.d/advanced.conf"', script)
         self.assertIn('echo /etc/vintner/variants.d/advanced.conf >> "$STAGE_SESSION/DEBIAN/conffiles"', script)
 
-    def test_iso_installs_vintner_by_default(self):
-        """Since 2026-11-10 Setup installs Vintner Boot unless the ISO is built with --grub; its packages come from
-        the vintner submodule unless --vintner=DIR gives them (docs/VINTNER_BOOT.md section 4.2)."""
+    def test_iso_installs_vintner(self):
+        """Setup installs Vintner Boot (since 2026-11-10; the GRUB path was removed on 2026-11-11). Its packages come
+        from the vintner submodule unless --vintner=DIR gives them (docs/VINTNER_BOOT.md section 4.2)."""
         path = REPO_ROOT / "installer" / "build-iso.sh"
         script = path.read_text(encoding="utf-8")
-        self.assertIn("\nLOADER=vintner\n", script)
+        self.assertNotIn("LOADER", script)
         self.assertIn('bash "$VINTNER_SRC/ci/package/build-debs.sh" "$VINTNER_DEBS"', script)
         self.assertIn('VINTNER_SRC="$ROOT_DIR/vintner"', script)
+        self.assertIn('install -m755 "$SCRIPT_DIR/textsetup/install-vintner.sh"', script)
         modules = (REPO_ROOT / ".gitmodules").read_text(encoding="utf-8")
         self.assertIn('[submodule "vintner"]', modules)
         self.assertIn("url = https://github.com/zcomputerwiz/vintner-boot.git", modules)
-        conflict = subprocess.run(["bash", str(path), "--grub", "--vintner=/nonexistent"], capture_output=True, text=True)
-        self.assertEqual(conflict.returncode, 1)
-        self.assertIn("exclude each other", conflict.stdout)
+        gone = subprocess.run(["bash", str(path), "--grub"], capture_output=True, text=True)
+        self.assertEqual(gone.returncode, 1)
+        self.assertIn("Unknown option: --grub", gone.stdout)
         for test in ("safe-mode.sh", "install-unattended.sh"):
-            self.assertIn("LOADER=${WEX_TEST_LOADER:-vintner}",
-                          (REPO_ROOT / "installer" / "tests" / test).read_text(encoding="utf-8"), test)
+            text = (REPO_ROOT / "installer" / "tests" / test).read_text(encoding="utf-8")
+            self.assertNotIn("WEX_TEST_LOADER", text, test)
+            self.assertNotIn("grub-editenv", text, test)
 
     def test_vintner_product_name(self):
         """The menu's name for Vintner Boot, in the format of Vintner's docs/product.md (4.9): key=value lines,
@@ -1358,8 +1349,9 @@ class TestPackage(TempDirTest):
                       "wex-safemode-pam-check.sh", "wex-greeter.sh", "wine-explorer-session.sh",
                       "wine-explorer-session-common.sh", "wex-safe-terminal.sh", "wex-advanced-options.target",
                       "wex-advanced-options.service", "wex-safemode.target", "wex-safenet.target",
-                      "wex-bootlog.service", "11_wineexplorer_advanced", "wex-startup-check.sh",
-                      "wex-startup-check.service", "wex-lastgood.sh"):
+                      "wex-bootlog.service", "wex-startup-check.sh",
+                      "wex-startup-check.service", "wex-lastgood.sh", "wex-failure-check.service",
+                      "wex-failure-screen.service"):
             self.assertIn(piece, sources, f"the VM test does not install {piece}")
 
     def test_postinst_migrates_and_is_idempotent(self):

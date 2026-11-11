@@ -90,14 +90,13 @@ The installer polish work completed the visual parity and integration items:
 - Date and Time settings use a shared XP time zone list (`wextimezone.h`) with full Unicode CLDR Windows<->IANA mapping, date and time pickers, and DST indicator.
 - Automatic Updates choice from OOBE is written to `/etc/wineexplorer/setup/automatic-updates` and applied to `/etc/apt/apt.conf.d/20auto-upgrades` via `unattended-upgrades`; `AutomaticUpdates=Yes/No` is supported in answer files.
 - Text setup partition and format screens use Windows XP wording (`C: Partition4 ... on Disk 0 at Id 0 on bus 0 ... [GPT]`) with disk bus adaptation, keeping Linux device paths in logs only; the reboot countdown bar is red/brown without percentage text.
-- Installed GRUB boots straight through (`GRUB_TIMEOUT_STYLE=hidden`, `GRUB_TIMEOUT=1`, `GRUB_TERMINAL=console`, Debian theme removed). F8 during that second boots the "WineExplorer Advanced Options (F8)" entry (`wexmode=menu`), which shows the XP Advanced Options menu ([SAFE_MODE.md](SAFE_MODE.md)).
-- The menu names WineExplorer, not Debian (owner decision, 2026-11-10): `GRUB_DISTRIBUTOR="WineExplorer"`, so Debian's `10_linux` titles the entry "WineExplorer GNU/Linux" and its kernel submenu "Advanced options for WineExplorer GNU/Linux". `/etc/os-release` stays Debian's, because other programs read it. The UEFI install is `--removable`, so the distributor does not rename an EFI directory. Vintner Boot's titles get the name from the product (VINTNER_BOOT.md section 4.1). Tested 2026-11-10 on overlays of the BIOS and UEFI GRUB installs (`installer/tests/safe-mode.sh` installs the settings and checks grub.cfg): the menu, shown with Shift held on BIOS, lists "WineExplorer GNU/Linux", "Advanced options for WineExplorer GNU/Linux" and "WineExplorer Advanced Options (F8)".
+- The installed system starts through Vintner Boot ([VINTNER_BOOT.md](VINTNER_BOOT.md); the default since
+  2026-11-10, and since 2026-11-11 the only loader, when the GRUB path was removed). Its menu is hidden and names
+  WineExplorer, not Debian (owner decision, 2026-11-10): "WineExplorer (date)", then "WineExplorer (date): Advanced
+  Options", which shows the XP Advanced Options menu ([SAFE_MODE.md](SAFE_MODE.md)), and the two Recovery Console
+  entries. To open it, press F8 on UEFI machines, or hold Shift on BIOS machines. `/etc/os-release` stays Debian's,
+  because other programs read it.
 - The desktop template properly displays the Recycle Bin icon on first logon.
-
-The two GRUB items above apply to an ISO built with `--grub`. Since 2026-11-10 (owner decision) Setup installs
-Vintner Boot by default; see [VINTNER_BOOT.md](VINTNER_BOOT.md). Its menu is hidden too, and names WineExplorer:
-"WineExplorer (date)", then "WineExplorer (date): Advanced Options" and the two Recovery Console entries. To open it,
-press F8 on UEFI machines, or hold Shift on BIOS machines.
 
 ---
 
@@ -123,7 +122,7 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
     new GPT label. An MBR disk that has partitions is refused with a message (delete them first), as Windows Setup
     refuses an MBR disk on UEFI. Setup gives the disk three system partitions, in this order, before the first
     partition the user creates or selects:
-    - BIOS boot, 2 MB, no file system: GRUB's core image on BIOS machines;
+    - BIOS boot, 2 MB, no file system: Vintner Boot's GRUB core image on BIOS machines;
     - EFI system, 512 MB, FAT32;
     - Boot storage (XBOOTLDR type `BC13C2FF-59E6-4262-A352-B275FD6F7172`), 2048 MB, FAT32 labelled `BOOTSTORAGE`,
       with GPT attribute 63 ("no-auto") so `systemd-gpt-auto-generator` never mounts it. It is never listed in
@@ -153,12 +152,10 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
   - Automatically purges live-boot artifacts (`live-boot`, `live-config`, `/etc/sudoers.d/live`, `/etc/sudoers.d/wineuser`, live `wineuser` home, `/setup`, `/etc/live`, `wex-textsetup.service`).
   - Creates a dedicated swap file (`/swapfile`) sized at 1.5× RAM (capped at 8 GB) with `/etc/fstab` entry.
   - Installs the start-up files: Vintner Boot (`installer/textsetup/install-vintner.sh`,
-    [VINTNER_BOOT.md](VINTNER_BOOT.md) section 4.2), the default since 2026-11-10. The disk then starts on BIOS and
-    UEFI alike. If this step fails, Setup stops with "Setup cannot continue" and names `/var/log/vintner-install.log`
-    on the new installation; it never falls back to GRUB.
-  - On an ISO built with `build-iso.sh --grub`, Setup installs GRUB instead, with a generated `device.map`:
-    `grub-install --target=i386-pc /dev/sdX` on BIOS machines (its core image goes into the BIOS boot partition),
-    `--target=x86_64-efi --removable` into the EFI system partition on UEFI machines.
+    [VINTNER_BOOT.md](VINTNER_BOOT.md) section 4.2). The disk then starts on BIOS and UEFI alike. If this step
+    fails, Setup stops with "Setup cannot continue" and names `/var/log/vintner-install.log` on the new
+    installation; there is no other loader to fall back to. (Until 2026-11-10 Setup installed GRUB, and an ISO built
+    with `--grub` still did until 2026-11-11.)
   - Sets `/etc/wineexplorer/setup/stage` to `gui` and triggers a 15-second red countdown bar before ejecting media and rebooting.
 
 ---
@@ -258,7 +255,8 @@ User1Admin = 1
     dpkg-dev, fakeroot, curl, cpio, kmod, xz-utils, binutils, grub-pc-bin, systemd-boot-efi and python3-pefile.
     The build downloads the recovery image's Debian packages.
   - `--vintner=DIR` takes packages already built in DIR instead.
-  - `--grub` puts nothing of Vintner on the ISO, and Setup installs GRUB, the default until 2026-11-10.
+  - The live system, which Setup copies to the disk, has no stock boot loader. Of GRUB it has only `grub-common`,
+    whose `grub-mkimage` Vintner Boot uses for the BIOS core image; the ISO's own GRUB comes from live-build.
 - Boots directly into Stage 1, partitions `TargetDisk`, formats, copies files, reboots into Stage 2 (applies hostname, timezone, locale), transitions to Stage 3 (provisions `wineuser` as administrator), configures LightDM autologin, cleans up temporary setup state, and launches into the WineExplorer desktop session without a single keystroke.
 
 ### Running Automated Install Tests in WSL2 (`wexbuild`)

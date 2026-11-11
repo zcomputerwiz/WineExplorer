@@ -212,7 +212,6 @@ mkdir -p "$STAGE_SESSION/etc/xdg/wineexplorer/wayland"
 mkdir -p "$STAGE_SESSION/usr/share/xgreeters"
 mkdir -p "$STAGE_SESSION/etc/lightdm/lightdm.conf.d"
 mkdir -p "$STAGE_SESSION/etc/X11/xorg.conf.d"
-mkdir -p "$STAGE_SESSION/etc/grub.d"
 mkdir -p "$STAGE_SESSION/lib/systemd/system"
 mkdir -p "$STAGE_SESSION/etc/polkit-1/rules.d"
 
@@ -262,10 +261,7 @@ install -m644 "$SCRIPT_DIR/live-build/config/includes.chroot/etc/lightdm/lightdm
 cp "$ROOT_DIR/scripts/20-wineexplorer-modesetting.conf" "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
 chmod 644 "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
 
-# GRUB entry for the Advanced Options menu (F8), and the same entry as a Vintner Boot variant; each loader ignores
-# the other's file
-cp "$SCRIPT_DIR/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_advanced" "$STAGE_SESSION/etc/grub.d/"
-chmod 755 "$STAGE_SESSION/etc/grub.d/"*
+# The Advanced Options menu (F8) as a Vintner Boot variant
 install -D -m644 "$SCRIPT_DIR/vintner/advanced.conf" "$STAGE_SESSION/etc/vintner/variants.d/advanced.conf"
 echo /etc/vintner/variants.d/advanced.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 # Vintner Boot's menu names WineExplorer; /etc/os-release stays Debian's
@@ -334,6 +330,14 @@ if [ -d /run/wex-safemode ]; then
     done
     rm -rf /run/wex-safemode
 fi
+# WineExplorer's GRUB path was removed on 2026-11-11 (docs/VINTNER_BOOT.md section 4.2). On a machine Setup installed
+# with GRUB before then, take the F8 entry out of grub.cfg, and drop the record of unfinished starts that the entry
+# kept (wex_boot_pending): nothing clears it now, so every start would open the menu. A Vintner install has neither.
+rm -f /etc/grub.d/11_wineexplorer_advanced
+if [ -e /boot/grub/grub.cfg ] && command -v update-grub >/dev/null 2>&1; then update-grub || true; fi
+if [ -e /boot/grub/grubenv ] && command -v grub-editenv >/dev/null 2>&1; then
+    grub-editenv /boot/grub/grubenv unset wex_boot_pending || true
+fi
 for f in /var/lib/AccountsService/users/*; do
     if [ -f "$f" ]; then
         sed -i -e 's/^Session=wex-safe-terminal$/Session=wine-explorer/' \
@@ -351,12 +355,12 @@ fi
 if [ -f /etc/pam.d/lightdm-autologin ]; then
     echo "account requisite pam_exec.so quiet /usr/local/sbin/wex-safemode-pam-check.sh autologin" >> /etc/pam.d/lightdm-autologin
 fi
-# The start-up check clears GRUB's wex_boot_pending once the logon screen is up ("did not start successfully").
+# The start-up check: a start counts once the logon screen is up (Vintner Boot's boot-complete.target waits for it).
 systemctl enable wex-startup-check.service || true
 # Every boot records its mode in /run/wineexplorer/bootmode, where Wine reads it (SafeBoot\Option, SM_CLEANBOOT).
 systemctl enable wex-bootmode-record.service || true
-# With Vintner Boot, an ordinary start after failed ones shows "did not start successfully" (a condition skips it
-# under GRUB, whose Advanced Options entry shows the screen instead).
+# An ordinary start after failed ones shows "did not start successfully" (a condition skips it on a machine that
+# Vintner Boot did not start).
 systemctl enable wex-failure-check.service || true
 # The built-in Administrator account (docs/SAFE_MODE_WORKORDER.md C4): created locked, in the administrators' group
 # (E1's admin_group= in sysrun.conf, default sudo). Setup gives it the Administrator password (wex-gui-setup.sh copies

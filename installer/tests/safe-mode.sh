@@ -3,8 +3,10 @@
 #
 # Safe Mode and the Advanced Options menu on an installed disk (docs/SAFE_MODE.md, docs/SAFE_MODE_WORKORDER.md A1).
 #
-# Boots a copy-on-write overlay of an installed test disk once per phase, pressing F8 during GRUB's hidden timeout,
-# and checks each start:
+# Boots a copy-on-write overlay of an installed test disk once per phase, reaching the menu through Vintner Boot's
+# Advanced Options variant (installer/vintner/advanced.conf) in Vintner's menu, which Shift held on BIOS and F8 held
+# on UEFI open (Vintner Boot's docs/menu-key.md); each start reports its variant on the serial console. Then it
+# checks each start:
 #   safe         Safe Mode: the OS list shows the mode, the Welcome screen instead of automatic logon, only the
 #                Safe Mode units run, the Explorer session has WEXMODE=safe, Wine's 32-bit and 64-bit Notepad open;
 #                the Welcome screen and the desktop at 640x480 (work order C3), as in every Safe Mode, and a normal
@@ -14,26 +16,23 @@
 #   nowine       Safe Mode with Command Prompt with Wine missing: the GTK greeter takes over, and logging on still
 #                starts the recovery console (the test hides /usr/local/bin/wine for this boot only)
 #   bootlog      Enable Boot Logging: a normal start with automatic logon, and ntbtlog.txt gains driver lines
-#   startnormal  Start WineExplorer Normally: a normal start with automatic logon, timers and networking; it does
-#                not count, so GRUB's wex_boot_pending is back at 0
-#   oschoices    Return to OS Choices Menu (work order D3): under GRUB the local OS list, with Vintner Boot a restart
-#                into the loader's own menu (vintner next-boot menu); Enter there starts normally
-#   vfailed      Vintner Boot only: a reset before the logon screen, then the next ordinary start shows "did not
-#                start successfully"; Safe Mode with Command Prompt restarts into the variant with no menu; the next
+#   startnormal  Start WineExplorer Normally: a normal start with automatic logon, timers and networking, which the
+#                start-up check does not count
+#   oschoices    Return to OS Choices Menu (work order D3): a restart into the loader's own menu (vintner next-boot
+#                menu); Enter there starts normally
+#   normal       no key: automatic logon, the boot-mode generator wrote nothing, and the start-up check counted it
+#   lastgood     Last Known Good Configuration (work order D3) from a generation that started successfully: with a
+#                control set saved by a start that counted (a normal start first if there is none), the test adds a
+#                key to the machine registry's control set and a Software key on the stopped disk; after the Last
+#                Known Good start (no restart) the first is gone, the second is still there, and the replaced control
+#                set is the failed copy
+#   vfailed      "did not start successfully": with the logon screen held back 90 seconds for this phase, a reset
+#                before the logon screen, then the next ordinary start shows the screen with its countdown; an arrow
+#                key stops it, and Safe Mode with Command Prompt restarts into the variant with no menu; the next
 #                start shows the screen again, its countdown starts normally and counts, and the start after shows none
-#   lastgoodgen  Vintner Boot only, last in its list: a generation 2 that never starts successfully (published from
-#                a changed variant), then Last Known Good from its Advanced Options variant restarts into generation 1
-#                (vintner next-boot previous-good) and puts the registry's control set back
-#   normal      no F8: automatic logon, the boot-mode generator wrote nothing, and the start-up check cleared
-#                wex_boot_pending
-#   lastgood     Last Known Good Configuration (work order D3): with a control set saved by a start that counted (a
-#                normal start first if there is none), the test adds a key to the machine registry's control set and
-#                a Software key on the stopped disk; after the Last Known Good start the first is gone, the second is
-#                still there, and the replaced control set is the failed copy
-#   failed       "did not start successfully": with the logon screen held back 90 seconds for this phase, the Reset
-#                button once Linux runs (GRUB has recorded the start), then the failure screen with its countdown;
-#                an arrow key stops it, and Safe Mode with Command Prompt from there does not count (the screen comes
-#                back at the next start); left alone, the countdown starts normally, which counts
+#   lastgoodgen  last in the list: a generation 2 that never starts successfully (published from a changed variant),
+#                then Last Known Good from its Advanced Options variant restarts into generation 1 (vintner next-boot
+#                previous-good) and puts the registry's control set back
 #   accounts     the Administrator account and hidden accounts (work order C4, C7; needs this branch's Wine, so
 #                WEX_TEST_WINE): the Safe Mode Welcome screen shows Administrator and not the test
 #                account hidden through SpecialAccounts\UserList, and Administrator logs on; then, in a normal start,
@@ -50,41 +49,26 @@
 # Before and after every boot it records checksums of every file and link under /etc and /var/lib/AccountsService
 # and of each account's .dmrc. A boot that changes any of them fails. Every Safe Mode start must add driver lines
 # to ntbtlog.txt (work order C6). Every boot also reports the guest's disk use:
-# a warning from 80%, a failure from 95%. Before each phase the overlay's wex_boot_pending is cleared, so a phase
-# that failed does not leave the next one on the failure screen.
+# a warning from 80%, a failure from 95%.
 #
-#   safe-mode.sh SOURCE_VM TEST_VM [PHASE...]          (default: all phases, in the order above)
+#   safe-mode.sh SOURCE_VM TEST_VM [PHASE...]          (default: safe to lastgoodgen, in the order above)
 #
 # SOURCE_VM is an installed test disk under $VMTEST_DIR, for example from install-unattended.sh, and is never
 # written. TEST_VM is replaced by a new overlay of it, which is kept for inspection; an existing TEST_VM disk that
 # is not an overlay of SOURCE_VM is refused.
 #   WEX_TEST_FIRMWARE=uefi        boot with OVMF (default bios, SeaBIOS): the firmware SOURCE_VM was installed with
-#   WEX_TEST_LOADER               the loader SOURCE_VM starts through:
-#                   vintner       (default) Vintner Boot, as Setup installs it since 2026-11-10 (only with
-#                                 WEX_SAFEMODE_FILES=installed): the menu is reached through the Advanced Options
-#                                 variant (installer/vintner/advanced.conf) in Vintner's menu, Shift held on BIOS and
-#                                 F8 held on UEFI (Vintner Boot's docs/menu-key.md); each start reports its variant on
-#                                 the serial console. GRUB's start-up record does not exist there, so the failed phase
-#                                 and the wex_boot_pending checks are left out.
-#                   grub          GRUB, from an ISO built with --grub: F8 during GRUB's hidden timeout
-#   WEX_SAFEMODE_FILES            how the overlay gets this branch's Safe Mode; every mode then runs update-grub and
-#                                 sets up the test accounts in one provisioning boot:
-#                   branch        (default with grub) copies this checkout's Safe Mode files onto the overlay where the
-#                                 package installs them, and runs the package postinst's Safe Mode part in the guest
-#                   installed     (default with vintner) SOURCE_VM already has this branch's packages (an ISO install)
-#                   upgrade       SOURCE_VM was installed from an ISO with the Safe Mode before docs/SAFE_MODE.md (built
-#                                 before commit 14286423). The provisioning boot starts that Safe Mode with Command
-#                                 Prompt (grubenv next_entry) and, while it runs, installs the packages in
-#                                 WEX_UPGRADE_DEBS with dpkg; then the test checks that nothing of the old Safe Mode
-#                                 is left (docs/SAFE_MODE_WORKORDER.md A2). It first adds the locked standard account
-#                                 wexstd ("Standard Test") with no AccountsService file, which the old Safe Mode hides.
-#   WEX_UPGRADE_DEBS              with upgrade: a directory with this branch's wineexplorer, wineexplorer-session and
-#                                 wexcomp packages (installer/package-wine.sh, installer/package-wexcomp.sh)
+#   WEX_SAFEMODE_FILES            how the overlay gets this branch's Safe Mode; either way one provisioning boot then
+#                                 sets up the test accounts:
+#                   installed     (default) SOURCE_VM already has this branch's packages (an ISO install)
+#                   branch        copies this checkout's Safe Mode files onto the overlay where the package installs
+#                                 them, and runs the package postinst's Safe Mode part in the guest. Files that Vintner
+#                                 Boot reads only when it publishes a generation (installer/vintner/) stay as
+#                                 installed.
 #   WEX_TEST_WINE                 with branch: a .tar.gz of this branch's Wine (make install prefix=/usr/local into
 #                                 a staging directory, packed from there), unpacked over / in the provisioning boot
 #                                 before the Safe Mode files are set up. It tests Wine-side changes (logonui.exe,
-#                                 wexhost) without packaging, which downloads third-party assets. With installed and
-#                                 upgrade the packages carry this branch's Wine.
+#                                 wexhost) without packaging, which downloads third-party assets. With installed the
+#                                 packages carry this branch's Wine.
 #   WEX_TEST_PROBES               a directory with safeboot-probe32.exe and safeboot-probe64.exe (installer/tests/
 #                                 safeboot-probe.c, built with MinGW). Then safe, safenet and normal also check what
 #                                 Windows programs see (work order B1-B3): SM_CLEANBOOT, SafeBoot\Option, which
@@ -104,14 +88,16 @@ SOURCE=${1:?$usage}
 TEST=${2:?$usage}
 shift 2
 PHASES=("$@")
-[ ${#PHASES[@]} -gt 0 ] || PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal lastgood failed)
+# lastgoodgen last: it leaves generation 2 on boot storage, which later starts would boot
+[ ${#PHASES[@]} -gt 0 ] \
+    || PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal lastgood vfailed lastgoodgen)
 for name in "$SOURCE" "$TEST"; do
     [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name: $name"; exit 2; }
 done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|startnormal|oschoices|normal|lastgood|lastgoodgen|failed|vfailed|accounts|waylandsafe|waylandcmd) ;;
+        safe|safenet|safecmd|nowine|bootlog|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|accounts|waylandsafe|waylandcmd) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -121,26 +107,8 @@ case "$FIRMWARE" in
     uefi) START_ARGS=(--efi) ;;
     *) echo "Invalid firmware: $FIRMWARE"; exit 2 ;;
 esac
-LOADER=${WEX_TEST_LOADER:-vintner}
-if [ "$LOADER" = vintner ]; then FILES=${WEX_SAFEMODE_FILES:-installed}; else FILES=${WEX_SAFEMODE_FILES:-branch}; fi
-case "$FILES" in branch|installed|upgrade) ;; *) echo "Invalid WEX_SAFEMODE_FILES: $FILES"; exit 2 ;; esac
-case "$LOADER" in
-    grub)
-        case " ${PHASES[*]} " in
-            *" lastgoodgen "*|*" vfailed "*) echo "lastgoodgen and vfailed are Vintner Boot's phases (WEX_TEST_LOADER=vintner)"; exit 2 ;;
-        esac
-        ;;
-    vintner)
-        [ "$FILES" = installed ] || { echo "WEX_TEST_LOADER=vintner needs WEX_SAFEMODE_FILES=installed"; exit 2; }
-        if [ $# -eq 0 ]; then
-            # lastgoodgen last: it leaves generation 2 on boot storage, which later starts would boot
-            PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal vfailed lastgoodgen)
-        else
-            case " ${PHASES[*]} " in *" failed "*) echo "The failed phase is GRUB's (WEX_TEST_LOADER=grub)"; exit 2 ;; esac
-        fi
-        ;;
-    *) echo "Invalid WEX_TEST_LOADER: $LOADER"; exit 2 ;;
-esac
+FILES=${WEX_SAFEMODE_FILES:-installed}
+case "$FILES" in branch|installed) ;; *) echo "Invalid WEX_SAFEMODE_FILES: $FILES"; exit 2 ;; esac
 WINE_TAR=${WEX_TEST_WINE:-}
 if [ -n "$WINE_TAR" ]; then
     [ "$FILES" = branch ] || { echo "WEX_TEST_WINE needs WEX_SAFEMODE_FILES=branch"; exit 2; }
@@ -152,13 +120,6 @@ PROBE_DIR=${WEX_TEST_PROBES:-}
 if [ -n "$PROBE_DIR" ]; then
     for bits in 32 64; do
         [ -f "$PROBE_DIR/safeboot-probe$bits.exe" ] || { echo "No $PROBE_DIR/safeboot-probe$bits.exe"; exit 2; }
-    done
-fi
-UPGRADE_DEBS=${WEX_UPGRADE_DEBS:-}
-if [ "$FILES" = upgrade ]; then
-    for pkg in wineexplorer_ wineexplorer-session_ wexcomp_; do
-        compgen -G "$UPGRADE_DEBS/$pkg*.deb" >/dev/null \
-            || { echo "WEX_UPGRADE_DEBS has no $pkg*.deb: ${UPGRADE_DEBS:-unset}"; exit 2; }
     done
 fi
 case " ${PHASES[*]} " in
@@ -209,11 +170,7 @@ SAFE_MODE_FILES=(
     "644 installer/systemd/wex-failure-screen.service lib/systemd/system/wex-failure-screen.service"
     "644 installer/systemd/wexprefetchd.tmpfiles usr/lib/tmpfiles.d/wexprefetchd.conf"
     "644 installer/systemd/wexprefetchd.service lib/systemd/system/wexprefetchd.service"
-    "755 installer/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_advanced etc/grub.d/11_wineexplorer_advanced"
 )
-# What the implementation before docs/SAFE_MODE.md installed; dpkg removes these when the package is upgraded.
-OLD_FILES=(etc/grub.d/11_wineexplorer_safemode usr/local/sbin/wex-safemode-setup.sh
-           lib/systemd/system/wex-safemode.service usr/share/xsessions/wex-safe-terminal.desktop)
 
 die() { echo "FAIL: $*"; exit 1; }
 running() { pgrep -f "file=$1," >/dev/null; }
@@ -316,7 +273,7 @@ shot() { "${V[@]}" shot "$TEST" "$OUT/$PHASE-$1.png" >/dev/null; }
 screen_sum() { "${V[@]}" shot "$TEST" >/dev/null 2>&1; md5sum < "$STATE/screen.ppm"; }
 wait_text() { "${V[@]}" wait "$TEST" "$1" --timeout "$2" >/dev/null; }
 
-open_menu_vintner() {
+open_menu() {
     # Vintner Boot's menu shows while Shift is held on BIOS (its GRUB's keystatus --shift, then no timeout) and after a
     # key press on UEFI (systemd-boot). Each generation's variants follow it, and the menu highlights the generation,
     # so the Advanced Options variant is one item down. Its start counts nothing (Vintner Boot's docs/variants.md).
@@ -356,29 +313,6 @@ open_menu_vintner() {
         echo "  (Vintner Boot's menu did not show; starting again)"
         "${V[@]}" stop "$TEST" >/dev/null 2>&1
         wait_off 60 || fail "the VM did not stop"
-    done
-}
-
-open_menu() {
-    # During GRUB's hidden timeout F8, the menu entry's hotkey, boots the Advanced Options entry. Keys sent while the
-    # firmware runs are buffered, so press it repeatedly from the start. Once in a while no press reaches GRUB and the
-    # machine starts normally; then stop it, clear the start-up state that start may have left, and try once more.
-    local _ try
-    if [ "$LOADER" = vintner ]; then open_menu_vintner; return; fi
-    for try in 1 2; do
-        start_vm
-        for _ in $(seq 1 40); do "${V[@]}" key "$TEST" f8 >/dev/null 2>&1; sleep 0.25; done
-        if wait_text "Advanced Options Menu" 180; then
-            sleep 3   # the menu discards the F8 presses that opened it
-            shot menu
-            return 0
-        fi
-        [ "$try" = 2 ] && fail "no Advanced Options menu after F8"
-        shot no-menu
-        echo "  (F8 was not taken; starting again)"
-        "${V[@]}" stop "$TEST" >/dev/null 2>&1
-        wait_off 60 || fail "the VM did not stop"
-        clear_pending || fail "cannot clear wex_boot_pending"
     done
 }
 
@@ -471,15 +405,13 @@ kv_check() {   # kv_check LINE key=value|key!=value...: prints the first expecta
 }
 
 expect_state() {   # expect_state key=value|key!=value...: the guest's mode and units, read on the serial console
-                   # (with Vintner Boot also the variant: the Advanced Options one after the menu, else none)
-    local line miss disk variant=()
+                   # (also the variant: the Advanced Options one after the menu, else none)
+    local line miss disk variant
     line=$(gsh "$STATE_CMD" | grep '^mode=' | tail -n 1)
     echo "  $line"
     [ -n "$line" ] || fail "no answer on the serial console"
-    if [ "$LOADER" = vintner ]; then
-        if [ -n "${VIA_MENU:-}" ]; then variant=(variant=advanced); else variant=(variant=none); fi
-    fi
-    miss=$(kv_check "$line" "$@" "${variant[@]}") || fail "expected $miss: $line"
+    if [ -n "${VIA_MENU:-}" ]; then variant=variant=advanced; else variant=variant=none; fi
+    miss=$(kv_check "$line" "$@" "$variant") || fail "expected $miss: $line"
     # a full test disk makes every later result unreliable (VMs have run out of space before)
     disk=${line##*disk=}
     disk=${disk%% *}
@@ -546,17 +478,9 @@ wait_serial() {   # wait_serial TIMEOUT: until the serial console answers; vmtes
     return 1
 }
 
-expect_pending() {   # expect_pending 0|1|unset: GRUB's wex_boot_pending (11_wineexplorer_advanced) in the guest
-    local out
-    [ "$LOADER" = grub ] || return 0   # Vintner Boot keeps its own counters (docs/VINTNER_BOOT.md 4.3)
-    out=$(gsh 'v=$(grub-editenv /boot/grub/grubenv list | sed -n "s/^wex_boot_pending=//p"); echo "pending=${v:-unset}"' \
-        | grep '^pending=' | tail -n 1)
-    echo "  wex_boot_$out"
-    [ "$out" = "pending=$1" ] || fail "expected wex_boot_pending=$1 in grubenv: ${out:-no answer}"
-}
-
 expect_check() {   # the start-up check (scripts/wex-startup-check.sh) finished without error this boot. Its verdict
-                   # is in the system journal, which the test user cannot read; expect_pending shows whether it counted.
+                   # is in the system journal, which the test user cannot read; whether Vintner Boot counted the
+                   # start shows at the next one (vfailed, lastgoodgen).
     local out
     out=$(gsh 'systemctl show -p ActiveState -p Result wex-startup-check.service | tr "\n" " "' | grep 'ActiveState=' | tail -n 1)
     echo "  start-up check: $out"
@@ -663,7 +587,6 @@ phase_safecmd() {
     menu_choice 2 "Safe Mode with Command Prompt"
     logon_screen
     expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
-    expect_pending 0
     expect_screen 640x480
     logon
     recovery_console
@@ -753,33 +676,33 @@ phase_startnormal() {
     desktop 600
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
     expect_check
-    expect_pending 0   # not counted: the Advanced Options entry wrote the previous value back
     expect_session_mode normal
     shutdown_vm
 }
 
 phase_oschoices() {   # work order D3: Return to OS Choices Menu
+    local _ before
     open_menu
-    # ... Start Normally, Reboot, Return to OS Choices Menu
-    move_down $((8 + $(lkg)))
+    # ... Start Normally, Reboot, Return to OS Choices Menu, the last item. The menu stays put at the end, so press
+    # Down more often than there are items (a lost press left Reboot highlighted once, on OVMF, 2026-11-11), then
+    # check that one more changes nothing.
+    for _ in $(seq 1 $((11 + $(lkg)))); do "${V[@]}" key "$TEST" down >/dev/null; sleep 0.3; done
+    sleep 1
+    before=$(screen_sum)
+    "${V[@]}" key "$TEST" down >/dev/null
+    sleep 1
+    [ "$(screen_sum)" = "$before" ] || fail "Down still moved the highlight: not at Return to OS Choices Menu"
     shot highlight
     "${V[@]}" key "$TEST" ret >/dev/null
-    if [ "$LOADER" = vintner ]; then
-        # vintner next-boot menu, then a restart: the loader's own menu shows for 30 seconds with no key held. Its
-        # recovery entries tell it from the Advanced Options menu, which also says "Advanced Options".
-        wait_text "Recovery Console" 180 || fail "no boot loader menu after Return to OS Choices Menu"
-        shot loader-menu
-        "${V[@]}" key "$TEST" ret >/dev/null   # the generation, highlighted first
-        VIA_MENU=   # this start is the generation's own, not the variant's
-    else
-        wait_text "operating system to start" 10 || fail "no OS list after Return to OS Choices Menu"
-        shot oslist
-        "${V[@]}" key "$TEST" ret >/dev/null
-    fi
+    # vintner next-boot menu, then a restart: the loader's own menu shows for 30 seconds with no key held. Its
+    # recovery entries tell it from the Advanced Options menu, which also says "Advanced Options".
+    wait_text "Recovery Console" 180 || fail "no boot loader menu after Return to OS Choices Menu"
+    shot loader-menu
+    "${V[@]}" key "$TEST" ret >/dev/null   # the generation, highlighted first
+    VIA_MENU=   # this start is the generation's own, not the variant's
     desktop 600
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
     expect_check
-    expect_pending 0   # not counted: the Advanced Options entry wrote the previous value back
     expect_session_mode normal
     shutdown_vm
 }
@@ -793,7 +716,6 @@ phase_normal() {
     out=$(gsh 'echo early=$(ls -A /run/systemd/generator.early 2>/dev/null | grep -c -E "^(default|timers)\.target$")' | grep '^early=')
     [ "$out" = early=0 ] || fail "the boot-mode generator wrote units in a normal start ($out)"
     expect_check
-    expect_pending unset   # counted: the check cleared it
     expect_session_mode normal
     # work order B0: a boot without the menu records its mode where Wine reads it (on images that have the unit)
     out=$(gsh 'echo record=$(cat /run/wineexplorer/bootmode 2>/dev/null || echo none) unit=$(systemctl is-enabled wex-bootmode-record.service 2>/dev/null || echo absent) dir=$(stat -c %U /run/wineexplorer 2>/dev/null)' \
@@ -809,9 +731,10 @@ phase_normal() {
 
 # The two changes lastgood_change makes: a key in the control set, as a driver's settings added after the saved
 # copy, and a Software key, as a program installed meanwhile. (Wine writes no block for a key without values, such as
-# System\ControlSet001\Control, so a value cannot be added to one reliably.) Patterns for grep.
+# System\ControlSet001\Control, so a value cannot be added to one reliably.) A pattern for grep, and the Software key
+# as Wine writes it, one per phase: Last Known Good keeps it, so lastgood's would still be there in lastgoodgen.
 LKG_CONTROL_KEY='^\[System\\\\ControlSet001\\\\Control\\\\WexLkgTest\]'
-LKG_SOFTWARE_KEY='^\[Software\\\\WexLkgSoftware\]'
+lkg_software_key() { printf '%s' "[Software\\\\WexLkgSoftware_$PHASE]"; }
 
 lastgood_change() {   # on the stopped disk, after the saved copy: the two keys above
     local reg=$MNT$MACHINE_REG rc
@@ -821,19 +744,20 @@ lastgood_change() {   # on the stopped disk, after the saved copy: the two keys 
         detach
         return 1
     fi
-    cp -a "$reg" "$reg.test-tmp" && awk '
+    # (the Software key through the environment: awk -v would turn its double backslash into one)
+    cp -a "$reg" "$reg.test-tmp" && LKG_SOFTWARE="$(lkg_software_key)" awk '
         { print }
         END {
             print ""
             print "[System\\\\ControlSet001\\\\Control\\\\WexLkgTest] 1794264452"
             print "\"Marker\"=\"changed\""
             print ""
-            print "[Software\\\\WexLkgSoftware] 1794264452"
+            print ENVIRON["LKG_SOFTWARE"] " 1794264452"
             print "\"Kept\"=\"yes\""
         }
     ' "$reg" > "$reg.test-tmp" && mv -f "$reg.test-tmp" "$reg"
     rc=$?
-    echo "  changed on the disk: control=$(grep -c "$LKG_CONTROL_KEY" "$reg") software=$(grep -c "$LKG_SOFTWARE_KEY" "$reg")"
+    echo "  changed on the disk: control=$(grep -c "$LKG_CONTROL_KEY" "$reg") software=$(grep -cF "$(lkg_software_key)" "$reg")"
     detach
     return $rc
 }
@@ -842,7 +766,7 @@ lastgood_result() {   # on the stopped disk: control=, software=, failed= and sa
     local reg=$MNT$MACHINE_REG out
     attach ro || return 1
     out="control=$(grep -c "$LKG_CONTROL_KEY" "$reg")"
-    out+=" software=$(grep -c "$LKG_SOFTWARE_KEY" "$reg")"
+    out+=" software=$(grep -cF "$(lkg_software_key)" "$reg")"
     out+=" failed=$(grep -c "$LKG_CONTROL_KEY" "$MNT$LASTGOOD_DIR/failed-controlset.reg" 2>/dev/null)"
     out+=" saved=$(grep -c "$LKG_CONTROL_KEY" "$MNT$LASTGOOD_DIR/controlset.reg" 2>/dev/null)"
     detach
@@ -862,11 +786,11 @@ phase_lastgood() {   # work order D3
     lastgood_change || fail "cannot change the machine registry on the disk"
     [ "$(attach ro && grep -c "$LKG_CONTROL_KEY" "$MNT$MACHINE_REG"; detach)" = 1 ] \
         || fail "the test key is not in the machine registry's control set"
+    # The generation has started successfully, so Last Known Good puts the control set back and this start goes on
     menu_choice 4 "Last Known Good"   # Safe Mode, the two other Safe Modes, Boot Logging, Last Known Good
     desktop 600
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
-    expect_check
-    expect_pending 0   # a start through the menu does not count, so it saves nothing either
+    expect_check   # a start through the menu does not count, so it saves nothing either
     expect_session_mode normal
     programs_32_64
     shutdown_vm
@@ -953,54 +877,12 @@ print("booted=%s:%s newest_good=%s gen2=%s" % (b.get("kind"), b.get("generation"
         || fail "expected the control set back, the Software key kept and the change in the failed copy: $out"
 }
 
-phase_failed() {   # the main loop holds the logon screen back for this phase (delay_logon)
-    local try
-    # Once the serial console answers, Linux runs and GRUB has recorded this start, and the logon screen is still
-    # held back: the Reset button now ends a start that did not finish, as the XP capture was made (a reset during
-    # the boot splash). An automatic logon follows Linux within seconds, too soon to reset reliably without the hold.
-    start_vm
-    sleep 15
-    wait_serial 150 || fail "the serial console did not answer"
-    expect_pending 1
-    "${V[@]}" reset "$TEST" >/dev/null || fail "the Reset button did not work"
-    echo "  reset before the logon screen"
-    failure_screen
-    # Up stops the countdown, removes its line and highlights Last Known Good, or, while no start has been saved
-    # (work order D3), skips it, grayed, to Safe Mode with Command Prompt, which starts at once
-    for try in 1 2 3; do
-        "${V[@]}" key "$TEST" up >/dev/null
-        sleep 1.5
-        [ -z "$(countdown)" ] && break
-        [ "$try" = 3 ] && fail "Up did not stop the countdown"
-    done
-    shot stopped
-    if [ "$(lkg)" = 1 ]; then
-        "${V[@]}" key "$TEST" up >/dev/null
-        sleep 1
-        shot safecmd-highlighted
-    fi
-    "${V[@]}" key "$TEST" ret >/dev/null
-    logon_screen
-    expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
-    expect_pending 1   # a Safe Mode start from the failure screen does not count
-    shutdown_vm
-    wait_off 60 || fail "the VM did not power off"
-    # so the next start shows the screen again; left alone, its countdown starts normally, and that start counts
-    start_vm
-    failure_screen
-    desktop 600
-    expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
-    expect_check
-    expect_pending unset   # Start Normally on the failure screen counts
-    expect_session_mode normal
-    shutdown_vm
-}
-
-phase_vfailed() {   # Vintner Boot's "did not start successfully" (wex-failure-check.service, work order D1 with
-                    # Vintner); the main loop holds the logon screen back for this phase (delay_logon), as for failed
+phase_vfailed() {   # "did not start successfully" (wex-failure-check.service, work order D1); the main loop holds
+                    # the logon screen back for this phase (delay_logon)
     local try
     # Reset once Linux runs, before the logon screen and so before boot-complete.target, where Vintner would count the
-    # start good: the loader has counted a try that never finished
+    # start good: the loader has counted a try that never finished, as the XP capture was made (a reset during the
+    # boot splash). An automatic logon follows Linux within seconds, too soon to reset reliably without the hold.
     start_vm
     sleep 15
     wait_serial 150 || fail "the serial console did not answer"
@@ -1113,20 +995,11 @@ if [ -n "$PROBE_DIR" ]; then
 fi
 ADMIN_PWFILE=$OUT/admin-password
 STEP=
-# The provisioning unit runs before the logon screen; with upgrade, inside the old Safe Mode, once it is set up
-ORDER='Before=display-manager.service'
 if [ "$FILES" = branch ]; then
     for entry in "${SAFE_MODE_FILES[@]}"; do
         read -r mode src dst <<< "$entry"
         install -D -m "$mode" "$REPO/$src" "$MNT/$dst" || die "cannot install $src"
     done
-    for old in "${OLD_FILES[@]}"; do rm -f "$MNT/$old"; done
-    if [ "$LOADER" = grub ]; then
-        # Setup's GRUB settings (the live root's copy; installer/textsetup/screens.c writes the same), which the
-        # provisioning boot's update-grub reads
-        install -D -m 644 "$REPO/installer/live-build/config/includes.chroot/etc/default/grub.d/wineexplorer.cfg" \
-            "$MNT/etc/default/grub.d/wineexplorer.cfg" || die "cannot install the GRUB settings"
-    fi
     {
         echo '#!/bin/sh'
         echo 'set -e'
@@ -1146,46 +1019,6 @@ if [ -d /var/lib/wineexplorer/machine/drive_c/windows/system32 ] && [ -x /usr/lo
 fi
 '"$STEP"
     fi
-elif [ "$FILES" = upgrade ]; then
-    [ -e "$MNT/etc/grub.d/11_wineexplorer_safemode" ] \
-        || die "$SOURCE has no Safe Mode from before docs/SAFE_MODE.md (/etc/grub.d/11_wineexplorer_safemode)"
-    old_entry=$(grep -o "^menuentry '[^']*Safe Mode with Command Prompt[^']*'" "$MNT/boot/grub/grub.cfg" | head -n 1 | cut -d"'" -f2)
-    [ -n "$old_entry" ] || die "the grub.cfg of $SOURCE has no Safe Mode with Command Prompt entry"
-    grub-editenv "$MNT/boot/grub/grubenv" set "next_entry=$old_entry" || die "cannot choose '$old_entry' for the next start"
-    AUTOLOGIN_CONFS=$(find "$MNT/etc/lightdm/lightdm.conf.d" -maxdepth 1 -name '*autologin*' | wc -l)
-    install -d -m 700 "$MNT/root/wex-test-debs" && cp -- "$UPGRADE_DEBS"/*.deb "$MNT/root/wex-test-debs/" \
-        || die "cannot copy the packages onto the overlay"
-    useradd --root "$MNT" --create-home --comment 'Standard Test' wexstd || die "cannot add the account wexstd"
-    cat > "$MNT/root/wex-test-upgrade.sh" <<'EOF'
-#!/bin/sh
-# installer/tests/safe-mode.sh, WEX_SAFEMODE_FILES=upgrade: runs while the old Safe Mode with Command Prompt is up
-state() {   # what the old Safe Mode changed: its LightDM drop-in and run-time state, PAM lines, the standard
-            # accounts it gave its session or hid, its unit, and the automatic logon drop-ins it moved away
-    sessions=0
-    hidden=0
-    for f in /var/lib/AccountsService/users/*; do
-        uid=$(id -u "${f##*/}" 2>/dev/null) || continue
-        [ "$uid" -ge 1000 ] && [ "$uid" -lt 60000 ] || continue
-        if grep -qEx 'X?Session=wex-safe-terminal' "$f"; then sessions=$((sessions + 1)); fi
-        if grep -qx 'SystemAccount=true' "$f"; then hidden=$((hidden + 1)); fi
-    done
-    echo "mode=$(grep -o 'wexmode=[a-z]*' /proc/cmdline | head -n 1 | cut -d= -f2)" \
-        "dropin=$(if [ -e /etc/lightdm/lightdm.conf.d/99-safemode.conf ]; then echo yes; else echo no; fi)" \
-        "run=$(if [ -e /run/wex-safemode ]; then echo yes; else echo no; fi)" \
-        "pam=$(cat /etc/pam.d/lightdm /etc/pam.d/lightdm-autologin | grep -c wex-safemode-pam-check)" \
-        "sessions=$sessions hidden=$hidden" \
-        "unit=$(ls /etc/systemd/system/*.wants/wex-safemode.service 2>/dev/null | wc -l)" \
-        "autologin=$(ls /etc/lightdm/lightdm.conf.d | grep -c autologin)"
-}
-echo "old: $(state)"
-dpkg -i /root/wex-test-debs/*.deb; echo "dpkg=$?"
-rm -rf /root/wex-test-debs
-echo "new: $(state)"
-# the logon screen is up; stop it before the test accounts and the logon prefix are set up
-systemctl stop display-manager.service; echo "logon-stopped=$?"
-EOF
-    STEP='sh /root/wex-test-upgrade.sh; rm -f /root/wex-test-upgrade.sh'
-    ORDER='After=wex-safemode.service display-manager.service'
 fi
 # a random password for the Administrator account (work order C4), for this overlay only
 head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16 > "$ADMIN_PWFILE"
@@ -1196,9 +1029,6 @@ install -m 600 "$ADMIN_PWFILE" "$MNT/root/wex-test-admin-password" || die "canno
     echo 'exec > /root/wex-test-provision.log 2>&1'
     echo "$STEP"
     cat <<'EOF'
-# only where GRUB is the loader (Debian's zz-update-grub asks the same); a Vintner install keeps grub2-common's
-# update-grub but has no grub.cfg
-if command -v update-grub >/dev/null && [ -e /boot/grub/grub.cfg ]; then update-grub; echo "update-grub=$?"; else echo "update-grub=none"; fi
 # test accounts (work order C4, C7): Administrator with the test password; wexhidden hidden by SpecialAccounts\UserList
 if getent passwd administrator >/dev/null; then
     printf 'administrator:%s\n' "$(cat /root/wex-test-admin-password)" | chpasswd; echo "adminpw=$?"
@@ -1238,7 +1068,7 @@ EOF
 } > "$MNT/root/wex-test-provision.sh"
 chmod 755 "$MNT/root/wex-test-provision.sh"
 printf '%s\n' '[Unit]' 'Description=Safe Mode test provisioning (installer/tests/safe-mode.sh)' 'After=local-fs.target' \
-    "$ORDER" '' '[Service]' 'Type=oneshot' 'ExecStart=/root/wex-test-provision.sh' \
+    'Before=display-manager.service' '' '[Service]' 'Type=oneshot' 'ExecStart=/root/wex-test-provision.sh' \
     > "$MNT/etc/systemd/system/wex-test-provision.service"
 mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
 ln -sf /etc/systemd/system/wex-test-provision.service \
@@ -1258,54 +1088,13 @@ if [ -n "$WINE_TAR" ] && grep -q '^machine=' "$OUT/provision.log"; then
     provisioned 'machine=0' "updating the machine root after the Wine tarball failed"
 fi
 if [ "$FILES" = branch ]; then provisioned 'postinst=0' "the postinst's Safe Mode part failed"; fi
-if [ "$FILES" = upgrade ]; then
-    # the old Safe Mode with Command Prompt was running, with everything it changes, when dpkg installed the packages
-    old=$(sed -n 's/^old: //p' "$OUT/provision.log" | tail -n 1)
-    new=$(sed -n 's/^new: //p' "$OUT/provision.log" | tail -n 1)
-    echo "  before the upgrade: $old"
-    echo "  after the upgrade:  $new"
-    # (the old unit is wanted by display-manager.service and multi-user.target)
-    miss=$(kv_check "$old" mode=safecmd dropin=yes run=yes pam!=0 hidden!=0 unit!=0 autologin=0) \
-        || { detach; die "the old Safe Mode with Command Prompt was not running as expected ($miss)"; }
-    provisioned 'dpkg=0' "dpkg did not install the packages"
-    miss=$(kv_check "$new" dropin=no run=no pam=2 sessions=0 hidden=0 unit=0 "autologin=$AUTOLOGIN_CONFS") \
-        || { detach; die "the postinst left part of the old Safe Mode ($miss)"; }
-    # and nothing came back when the old Safe Mode's unit stopped at power-off
-    for left in "${OLD_FILES[@]}" etc/lightdm/lightdm.conf.d/99-safemode.conf; do
-        [ ! -e "$MNT/$left" ] || { detach; die "the upgrade left /$left"; }
-    done
-    ! compgen -G "$MNT/etc/systemd/system/*.wants/wex-safemode.service" >/dev/null \
-        || { detach; die "wex-safemode.service is still enabled"; }
-    ! grep -q "^menuentry '[^']*Safe Mode with Command Prompt" "$MNT/boot/grub/grub.cfg" \
-        || { detach; die "grub.cfg still has the old Safe Mode with Command Prompt entry"; }
-    [ "$(grep -c wex-safemode-pam-check "$MNT/etc/pam.d/lightdm")" = 1 ] \
-        && grep -qx 'account requisite pam_exec.so quiet stdout /usr/local/sbin/wex-safemode-pam-check.sh' "$MNT/etc/pam.d/lightdm" \
-        || { detach; die "/etc/pam.d/lightdm does not have exactly the new boot mode check"; }
-    ! grep -qx 'SystemAccount=true' "$MNT/var/lib/AccountsService/users/wexstd" \
-        || { detach; die "the standard account wexstd is still hidden"; }
-    echo "  upgrade: nothing of the old Safe Mode is left"
-fi
-if [ "$LOADER" = grub ]; then
-    provisioned 'update-grub=0' "update-grub failed"
-else
-    provisioned 'update-grub=none' "a Vintner Boot install has a GRUB configuration"
-    [ -f "$MNT/etc/vintner/variants.d/advanced.conf" ] \
-        || { detach; die "no Advanced Options variant (/etc/vintner/variants.d/advanced.conf)"; }
-fi
+[ ! -e "$MNT/boot/grub/grub.cfg" ] || { detach; die "a Vintner Boot install has a GRUB configuration"; }
+[ -f "$MNT/etc/vintner/variants.d/advanced.conf" ] \
+    || { detach; die "no Advanced Options variant (/etc/vintner/variants.d/advanced.conf)"; }
 provisioned 'adminpw=0' "the Administrator account is missing or got no password"
 # the logon screen reads the logon prefix's own hive, or the machine hive once the system role serves it (C7)
 grep -qE '^userlist=/var/lib/(lightdm/[.]wine|wineexplorer/machine)/system[.]reg$' "$OUT/provision.log" \
     || { detach; die "neither the logon prefix's nor the machine's registry got the SpecialAccounts\\UserList value (see $OUT/provision.log)"; }
-if [ "$LOADER" = grub ]; then
-    grep -q 'wexmode=menu' "$MNT/boot/grub/grub.cfg" && grep -q -- '--hotkey=f8' "$MNT/boot/grub/grub.cfg" \
-        || { detach; die "grub.cfg has no Advanced Options entry with the F8 hotkey"; }
-    grep -q 'save_env wex_boot_pending' "$MNT/boot/grub/grub.cfg" \
-        || { detach; die "grub.cfg does not record unfinished starts (wex_boot_pending)"; }
-    grep -q "^menuentry 'WineExplorer GNU/Linux'" "$MNT/boot/grub/grub.cfg" \
-        && grep -q "^menuentry 'WineExplorer Advanced Options (F8)'" "$MNT/boot/grub/grub.cfg" \
-        && ! grep -q "^menuentry 'Debian" "$MNT/boot/grub/grub.cfg" \
-        || { detach; die "grub.cfg's entries do not name WineExplorer (GRUB_DISTRIBUTOR)"; }
-fi
 grep -q 'wex-safemode-pam-check.sh autologin' "$MNT/etc/pam.d/lightdm-autologin" \
     || { detach; die "/etc/pam.d/lightdm-autologin does not consult the boot mode"; }
 [ -L "$MNT/etc/systemd/system/multi-user.target.wants/wex-startup-check.service" ] \
@@ -1315,11 +1104,11 @@ detach
 # ---- the phases ----
 
 LOGON_DELAY=usr/lib/systemd/system/lightdm.service.d/wex-test-delay.conf
-delay_logon() {   # delay_logon on|off: LightDM starts 90 seconds late for the failed phase (outside the records)
+delay_logon() {   # delay_logon on|off: LightDM starts 90 seconds late for the vfailed phase (outside the records)
     attach rw || return 1
     if [ "$1" = on ]; then
         mkdir -p "$(dirname "$MNT/$LOGON_DELAY")" &&
-            printf '%s\n' '# installer/tests/safe-mode.sh, failed phase only' '[Service]' 'ExecStartPre=/bin/sleep 90' \
+            printf '%s\n' '# installer/tests/safe-mode.sh, vfailed phase only' '[Service]' 'ExecStartPre=/bin/sleep 90' \
                 > "$MNT/$LOGON_DELAY"
     else
         rm -f "$MNT/$LOGON_DELAY"
@@ -1341,26 +1130,12 @@ hide_wine() {   # hide_wine on|off: /usr/local/bin/wine away for the nowine phas
     return $rc
 }
 
-clear_pending() {   # every phase starts from a start that counted; say so when the last one did not
-    local value
-    [ "$LOADER" = grub ] || return 0
-    attach rw || return 1
-    value=$(grub-editenv "$MNT/boot/grub/grubenv" list | sed -n 's/^wex_boot_pending=//p')
-    if [ "$value" = 1 ]; then echo "  (the start before $PHASE did not count; wex_boot_pending cleared)"; fi
-    grub-editenv "$MNT/boot/grub/grubenv" unset wex_boot_pending
-    local rc=$?
-    detach
-    return $rc
-}
-
-command -v grub-editenv >/dev/null || die "grub-editenv is missing (package grub-common)"
 overall=0
 summary=()
 for PHASE in "${PHASES[@]}"; do
     snapshot "$OUT/before-$PHASE.txt" || die "cannot record the configuration before $PHASE"
-    clear_pending || die "cannot clear wex_boot_pending before $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine on || die "cannot hide /usr/local/bin/wine"; fi
-    case "$PHASE" in failed|vfailed) delay_logon on || die "cannot hold the logon screen back" ;; esac
+    if [ "$PHASE" = vfailed ]; then delay_logon on || die "cannot hold the logon screen back"; fi
     echo "=== $PHASE ($(date +%T))"
     ( "phase_$PHASE" ) 2>&1 | tee "$OUT/$PHASE.log"
     rc=${PIPESTATUS[0]}
@@ -1369,7 +1144,7 @@ for PHASE in "${PHASES[@]}"; do
     fi
     wait_off 60 || die "$TEST did not stop after $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine off || die "cannot put /usr/local/bin/wine back"; fi
-    case "$PHASE" in failed|vfailed) delay_logon off || die "cannot remove the logon delay" ;; esac
+    if [ "$PHASE" = vfailed ]; then delay_logon off || die "cannot remove the logon delay"; fi
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
     compare=("$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt")
     case "$PHASE" in
@@ -1399,7 +1174,7 @@ done
 # The Welcome screen ran (any Safe Mode phase): its prefix is now lightdm's ~/.wine, moved from ~/.wine-logon if
 # the image had one (docs/SAFE_MODE_WORKORDER.md C7)
 case " ${PHASES[*]} " in
-    *" safe "*|*" safenet "*|*" safecmd "*|*" failed "*|*" waylandsafe "*|*" waylandcmd "*)
+    *" safe "*|*" safenet "*|*" safecmd "*|*" vfailed "*|*" waylandsafe "*|*" waylandcmd "*)
         if attach ro; then
             # a made prefix has user.reg; under the system role its HKLM is the machine root's (no system.reg)
             if [ -f "$MNT/var/lib/lightdm/.wine/user.reg" ]; then

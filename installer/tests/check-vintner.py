@@ -9,7 +9,7 @@ from a stopped VM. The installed system must have started at least once to the l
 generation 1 was blessed.
 
 Checks: vintner-core and vintner-platform are installed and no stock loader package is; Setup's step ended well;
-GRUB has no configuration; the manifest (read with the installed static vintner binary) holds generation 1, GOOD,
+GRUB has no configuration, and WineExplorer's former GRUB files are not installed; the manifest (read with the installed static vintner binary) holds generation 1, GOOD,
 for both firmwares, with the root and boot storage on its command line; the ESP holds Vintner's loader, also as the
 removable path; when the system declares the Advanced Options variant, generation 1 has it on both firmwares; when
 it declares its product name, both firmwares' titles carry it. Prints a one-line summary.
@@ -120,8 +120,9 @@ def main():
         fail(f"Setup's Vintner step did not end well; see {log_path}")
     if os.path.exists(f"{root}/boot/grub/grub.cfg"):
         fail("GRUB has a configuration on a Vintner install")
-    if os.path.exists(f"{root}/etc/default/grub.d/wineexplorer.cfg"):
-        fail("WineExplorer's GRUB settings remain")
+    for left in ("etc/default/grub.d/wineexplorer.cfg", "etc/grub.d/11_wineexplorer_advanced"):   # removed 2026-11-11
+        if os.path.lexists(f"{root}/{left}"):
+            fail(f"WineExplorer's GRUB file /{left} is installed")
 
     shown = subprocess.run([f"{root}/usr/sbin/vintner", "manifest", "show", "--state-dir", f"{storage}/vintner/state"],
                            capture_output=True, text=True)
