@@ -81,6 +81,13 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     them an `rsync --checksum` over `/mnt/d` took 33 minutes (2026-11-09).
   - `make install prefix=/usr/local DESTDIR=...`, packed as a `.tar.gz`, feeds `safe-mode.sh` through
     `WEX_TEST_WINE`.
+  - The Safe Mode Wine branch (`claude/vintner-boot-integration`, `docs/SAFE_MODE_WORKORDER.md`) has its own tree,
+    `/root/WE-safemode`. It holds a copy of this repository with that branch's `wine` assembled into it, and its
+    WoW64 build is in `build/wow64`. To build a changed WineExplorer source there, copy the file into both
+    `src/...` and the assembled `wine/...`, then run `make`. Its latest install tarball (576 MB) is
+    `D:\WSL\wex-iso\wine-safemode-b5.tar.gz` (2026-11-11: B1-B7 and this repository's `logonui.c` at `7e6e0320`).
+    Commits on that branch reach the Windows checkout's `wine` repository through a bundle (`git bundle create`, then
+    `git fetch` from the bundle). Git for Windows cannot fetch from the `\\wsl.localhost` path.
   - `installer/package-wine.sh` needs python3-pil and fetches third-party assets (icons, ReactOS sources, runtime
     payloads), so run it only with the owner's agreement to those downloads (given 2026-11-09).
   - The ISO is built there as well, as root, from the clone:
