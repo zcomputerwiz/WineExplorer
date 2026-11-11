@@ -7,7 +7,9 @@ menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer comm
 A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape),
 Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Since 2026-11-11 Vintner Boot is the
 only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. C5 is done
-(2026-11-11). Open: A4, B5, B8's merge, C3 for Wayland, the rest of C4, C6 and C7, D2, D4, D5.  
+(2026-11-11), and so is C6 with the recovery console's shape. Open: A4, B5, B8's merge, C3 for Wayland, the rest of
+C4 and C7, D2, D4, D5. D1's Safe Mode choice on a generation's last try waits for Vintner's
+`next-boot variant --generation`, asked on 2026-11-11 (`docs/VINTNER_BOOT.md`).  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
@@ -368,10 +370,17 @@ name, version and build stand in its place: ` Windows 10 Pro Version 10.0 (Build
 against an installed disk's `system.reg`. XP's lines are
 `Loaded driver` and `Did not load driver`; WineExplorer keeps its own `Did not start service` line for systemd
 units that failed, and has no counterpart for drivers held back in Safe Mode. The recovery console's shape (below)
-is still open.
+was done on 2026-11-11.
 
 The A1 test can then also check the recovery console's shape: on XP, Safe Mode with Command Prompt shows a
 maximized 80-column console titled with the program name only, with no taskbar, desktop icons or Explorer.
+
+**The console's shape, done 2026-11-11** (`scripts/wex-safe-terminal.sh`; `docs/SAFE_MODE.md` section 3). It was an
+xterm of 120x34 cells in an 11-point font at +40+40, about 1060x580 pixels: since C3's 640x480 its banner was cut
+and the prompt left the screen once the output scrolled. Now it is at the top left, 80 columns wide and as tall as
+the screen, in a bitmap font that fits (7x13 at 640x480: 36 rows), light gray on black, the scroll bar on the right,
+titled `bash`. The VM test checks 80 columns and at least 30 rows. No window manager runs there, so the title shows
+only in the Wayland session, whose compositor frames the window.
 
 **C7. Hidden accounts on the Welcome screen** (decision 8). XP's Welcome screen leaves out every account that has a
 REG_DWORD value of 0 under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList`.

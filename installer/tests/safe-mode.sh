@@ -168,6 +168,7 @@ SAFE_MODE_FILES=(
     "644 installer/systemd/wex-bootmode-record.service lib/systemd/system/wex-bootmode-record.service"
     "644 installer/systemd/wex-failure-check.service lib/systemd/system/wex-failure-check.service"
     "644 installer/systemd/wex-failure-screen.service lib/systemd/system/wex-failure-screen.service"
+    "644 installer/systemd/wex-plymouth-quit.service lib/systemd/system/wex-plymouth-quit.service"
     "644 installer/systemd/wexprefetchd.tmpfiles usr/lib/tmpfiles.d/wexprefetchd.conf"
     "644 installer/systemd/wexprefetchd.service lib/systemd/system/wexprefetchd.service"
 )
@@ -260,9 +261,11 @@ fail() {
     echo "FAIL ($PHASE): $*"
     "${V[@]}" shot "$TEST" "$OUT/$PHASE-fail.png" >/dev/null 2>&1
     "${V[@]}" text "$TEST" 2>/dev/null | head -n 30
-    # The VM is then stopped, not shut down: Alt+SysRq+S first writes this boot's journal to the disk, where
-    # journalctl --directory can read it afterwards
+    # The VM is then stopped, not shut down: Alt+SysRq+W first logs the tasks that are blocked and where (a menu that
+    # never showed: plymouthd, 2026-11-11), and Alt+SysRq+S writes this boot's journal to the disk, where journalctl
+    # --directory can read it afterwards (the overlay allows every SysRq function, 90-wex-test-sysrq.conf)
     if running "$STATE/disk.qcow2"; then
+        "${V[@]}" key "$TEST" alt-sysrq-w >/dev/null 2>&1 && sleep 2
         "${V[@]}" key "$TEST" alt-sysrq-s >/dev/null 2>&1 && sleep 3
     fi
     exit 1
@@ -292,7 +295,15 @@ open_menu() {
             move_down 1
             shot loader-variant
             "${V[@]}" key "$TEST" ret >/dev/null
-            if ! wait_text "Advanced Options Menu" 180; then
+            # The menu shows within seconds. In a few starts the screen stayed black for about three minutes
+            # (2026-11-10/11), with nothing in the journal meanwhile: then log every task's state and kernel stack
+            # (SysRq T) while it lasts, and wait on.
+            if ! wait_text "Advanced Options Menu" 30; then
+                echo "  WARNING: no menu after 30 seconds; tasks logged (SysRq T, $(date +%T))"
+                shot slow-menu
+                "${V[@]}" key "$TEST" alt-sysrq-t >/dev/null 2>&1
+            fi
+            if ! wait_text "Advanced Options Menu" 150; then
                 # The menu redraws the lines a key changes: if Down shows them, it runs but its screen was not
                 # visible (seen once on BIOS, 2026-11-10)
                 shot no-menu
@@ -625,6 +636,19 @@ recovery_console() {   # after logging on in Safe Mode with Command Prompt: the 
     out=$(gsh 'echo wineservers=$(pgrep -c wineserver) xterms=$(pgrep -c xterm)' | grep '^wineservers=')
     echo "  $out"
     case "$out" in "wineservers=0 xterms="[1-9]*) ;; *) fail "expected the recovery console without Wine: $out" ;; esac
+    # XP's shape (work order C6): 80 columns and at least 30 rows (36 at 640x480). The size of the shell's terminal;
+    # images whose console predates the shape are reported, not failed.
+    out=$(gsh 'grep -q -- -rightbar /usr/local/bin/wex-safe-terminal.sh && echo shape=yes; for p in $(pgrep -u "$USER" -f "bash --rcfile"); do t=$(readlink /proc/$p/fd/0); case "$t" in /dev/pts/*) echo "console=$(stty -F "$t" size | tr " " x)"; break ;; esac; done' \
+        | grep -E '^(shape|console)=' | tr '\n' ' ')
+    echo "  $out"
+    case "$out" in
+        *"shape=yes"*)
+            case "$out" in
+                *"console="[3-9][0-9]x80" "*|*"console="[1-9][0-9][0-9]x80" "*) ;;
+                *) fail "the recovery console is not 80 columns by 30 rows or more: $out" ;;
+            esac ;;
+        *) echo "  (this image's recovery console predates its XP shape)" ;;
+    esac
 }
 
 wayland_session() {   # on the Welcome screen: choose "WineExplorer (Wayland)" in logonui.exe's session list
@@ -1002,6 +1026,9 @@ echo "=== $TEST: overlay of $SOURCE, $FIRMWARE, Safe Mode files: $FILES"
 
 attach rw || die "cannot mount the overlay"
 install -D -m 755 "$HERE/session-run.py" "$MNT$HELPER" || die "cannot install the test helper"
+# every SysRq function, so that fail() can log blocked tasks (Debian's default, 438, allows sync but no task dumps)
+printf '%s\n' '# installer/tests/safe-mode.sh' 'kernel.sysrq = 1' > "$MNT/etc/sysctl.d/90-wex-test-sysrq.conf" \
+    || die "cannot allow SysRq"
 if [ -n "$PROBE_DIR" ]; then
     install -m 755 "$PROBE_DIR/safeboot-probe32.exe" "$PROBE_DIR/safeboot-probe64.exe" "$MNT$PROBES/" \
         || die "cannot install the Safe Mode probes"
@@ -1075,6 +1102,9 @@ done
 rm -f /etc/systemd/system/multi-user.target.wants/wex-test-provision.service /etc/systemd/system/wex-test-provision.service
 # /usr changed (a Wine tarball): record that now, so no later boot changes /etc/.updated
 /usr/lib/systemd/systemd-update-done; echo "update-done=$?"
+# Vintner Boot counted this start as a try; powered off before boot-complete.target, it would stay a failed start and
+# bring the failure screen one start early (vfailed), on the generation's last try. Count it as the start it was.
+/usr/sbin/vintner bless; echo "bless=$?"
 sync
 systemctl --no-block poweroff
 EOF
@@ -1104,6 +1134,7 @@ if [ "$FILES" = branch ]; then provisioned 'postinst=0' "the postinst's Safe Mod
 [ ! -e "$MNT/boot/grub/grub.cfg" ] || { detach; die "a Vintner Boot install has a GRUB configuration"; }
 [ -f "$MNT/etc/vintner/variants.d/advanced.conf" ] \
     || { detach; die "no Advanced Options variant (/etc/vintner/variants.d/advanced.conf)"; }
+provisioned 'bless=0' "Vintner Boot did not count the provisioning start"
 provisioned 'adminpw=0' "the Administrator account is missing or got no password"
 # the logon screen reads the logon prefix's own hive, or the machine hive once the system role serves it (C7)
 grep -qE '^userlist=/var/lib/(lightdm/[.]wine|wineexplorer/machine)/system[.]reg$' "$OUT/provision.log" \

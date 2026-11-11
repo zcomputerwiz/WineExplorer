@@ -349,7 +349,10 @@ highlighted and chosen; the journal, cut off by the forced power-off, ends with 
 six passed, and a second run passed all seven. That is one start in 22 through the variant that day. The VM test now
 writes the journal to disk (Alt+SysRq+S) before stopping a failed VM, and presses Down to see whether the menu
 runs unseen. One suspect: vintner-core puts its Plymouth theme into the initramfs (`ShowDelay=0`), while the menu
-quits Plymouth itself (WineExplorer masks Plymouth's quit units, decision D2 open).
+quits Plymouth itself (WineExplorer masks Plymouth's quit units, decision D2 open). Found on 2026-11-11
+(`docs/SAFE_MODE.md` section 4): systemd's set-up of `tty1` for the menu's unit read the console's answer to a query,
+plymouthd (reading `tty1` too) took it, and the set-up waited for the next key. `wex-plymouth-quit.service`, with no
+terminal, now ends plymouthd first. Nothing in Vintner Boot needs to change for it.
 
 With `WEX_TEST_LOADER=vintner`, the Safe Mode VM test chose the variant in those menus and passed all eight of its
 phases on both firmwares (`docs/SAFE_MODE.md` section 6). grub2-common stayed installed on a Vintner install, and
@@ -379,6 +382,17 @@ Left for Vintner:
     the Advanced Options variant (`vintner next-boot variant advanced`), which goes straight to that mode.
   - The boot that showed the screen was counted, so finishing it in Safe Mode would have marked the image good.
   - `docs/SAFE_MODE.md` section 3 has the details.
+- Asked on 2026-11-11: **`vintner next-boot variant <id> --generation <n>`**. The plain request takes the variant
+  of "the generation that would boot next". On a generation's last try (two failed starts, then the one showing the
+  failure screen), that is an older generation or none, so Safe Mode from the failure screen could not restart. The
+  VM test met this on both firmwares with `a24d9a4` (`nothing-bootable`). A variant has no counter, so naming the
+  generation that showed the screen works on its last try too. WineExplorer already passes the flag. Against a
+  vintner without it, it falls back to the plain request and takes it back when it names another generation.
+  Vintner Boot PR #90 (`9a83ac1`, open on 2026-11-11) adds `vintner next-boot [--json] variant [--generation <n>]
+  <id>`, with flags before or after the operand. The generation must be in the manifest, and the variant's file on
+  boot storage (exit 3, `no-such-generation` or `no-such-variant`). The flag on another target is a usage error.
+  It was tested with no tries left on both firmwares' state (UEFI `+0-3`, BIOS empty `VINTNER_T_<n>`), not yet on
+  firmware. WineExplorer pins it once merged.
 - Keys at start (WO-0010 4.8, Vintner Boot PR #87, open on 2026-11-10):
   - **UEFI:** F8 opens systemd-boot's menu, where the Advanced Options variant is one item below the generation.
     Tested by the Vintner session on systemd-boot 257 under OVMF; real hardware is its WO 6.1.

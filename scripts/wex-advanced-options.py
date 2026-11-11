@@ -205,6 +205,33 @@ def write_pending(mode, generation):
     os.replace(tmp, PENDING)
 
 
+def restart_into_variant(generation, run=subprocess.run):
+    """Sets the next start to the Advanced Options variant of GENERATION, the generation that showed the failure
+    screen (`vintner next-boot variant --generation`). A variant has no try counter, so this works on the
+    generation's last try too. An older vintner without --generation (a usage error, exit 2) takes the generation that
+    would boot next, which on a last try is an older one or none; a request for another generation's variant is taken
+    back (`vintner next-boot clear`). Returns None once the request is set, else why it is not."""
+    command = [VINTNER, "next-boot", "--json", "variant", VARIANT]
+    known = isinstance(generation, int) and not isinstance(generation, bool)
+    result = run(command + (["--generation", str(generation)] if known else []),
+                 check=False, capture_output=True, text=True)
+    if known and result.returncode == 2:
+        result = run(command, check=False, capture_output=True, text=True)
+    try:
+        reply = json.loads(result.stdout or "{}")
+    except ValueError:
+        reply = {}
+    if not isinstance(reply, dict):
+        reply = {}
+    if result.returncode != 0 or reply.get("ok") is not True:
+        return str(reply.get("error") or (result.stderr or "").strip()
+                   or f"vintner next-boot ended with {result.returncode}")
+    if known and reply.get("generation") != generation:
+        run([VINTNER, "next-boot", "clear"], check=False, capture_output=True, text=True)
+        return f"vintner would start the variant of generation {reply.get('generation')}, not of {generation}"
+    return None
+
+
 def remove_pending():
     try:
         os.remove(PENDING)
@@ -230,29 +257,62 @@ def take_pending(status):
     return words[0]
 
 
-def quit_plymouth(run=subprocess.run, sleep=time.sleep, console=None, tries=40):
-    """End Plymouth's splash before the menu draws. plymouthd from the initramfs keeps the screen in graphics mode
-    and reads tty1 until it quits (its quit units are masked), so a menu drawn under it is not seen and its keys are
-    split. One `plymouth quit` did not take in 2 of about 36 Vintner Boot starts (2026-11-10): plymouthd still ran
-    three minutes later, and the menu showed nothing until a key was pressed. So ask until `plymouth --ping` says it
-    is gone, at most `tries` times a quarter second apart; then end it, and put the console in text mode."""
+PLYMOUTH_TIMEOUT = 2   # seconds for one `plymouth` request
+
+
+def plymouthd_running(run=subprocess.run):
+    try:
+        return run(["pgrep", "-x", "plymouthd"], check=False, capture_output=True).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def end_plymouth(run=subprocess.run, sleep=time.sleep, tries=40, grace=6):
+    """End Plymouth's splash. plymouthd from the initramfs keeps the screen in graphics mode and reads tty1 until it
+    quits (its quit units are masked), so a menu drawn under it is not seen and its keys are split.
+    wex-plymouth-quit.service runs this (`--quit-plymouth`) before the menu's and the failure screen's units take
+    tty1: systemd's set-up of tty1 for those units reads the console's answer to a query, and while plymouthd also
+    read tty1 it took that answer in about 1 start in 16, and the set-up waited, the screen black, until a key was
+    pressed (2026-11-10 and -11; a task dump showed the unit's process before exec in n_tty_read). That unit has no
+    terminal. The menu and the screen call it again, which then finds nothing to do.
+    - Ask until `plymouth --ping` says plymouthd is gone, at most `tries` times a quarter second apart.
+    - Each request gets PLYMOUTH_TIMEOUT seconds; one that runs out counts as no answer.
+    - Then wait for the process itself, `grace` quarter seconds; end it (TERM) if it is still there, and kill it
+      after as long again."""
     for asked in range(tries):
         try:
-            if run([PLYMOUTH, "--ping"], check=False).returncode != 0:
+            if run([PLYMOUTH, "--ping"], check=False, timeout=PLYMOUTH_TIMEOUT).returncode != 0:
                 if asked > 1:
                     print(f"wex-advanced-options: plymouthd quit after {asked} requests", file=sys.stderr)
                 break
-            run([PLYMOUTH, "quit"], check=False)
+            run([PLYMOUTH, "quit"], check=False, timeout=PLYMOUTH_TIMEOUT)
         except OSError:      # no Plymouth installed
+            break
+        except subprocess.TimeoutExpired as expired:
+            print(f"wex-advanced-options: {' '.join(expired.cmd[1:])} got no answer from plymouthd in "
+                  f"{PLYMOUTH_TIMEOUT} seconds", file=sys.stderr)
             break
         sleep(0.25)
     else:
-        print("wex-advanced-options: plymouthd did not quit; ending it", file=sys.stderr)
-        try:
-            run(["pkill", "-TERM", "-x", "plymouthd"], check=False)
-        except OSError:
-            pass
-        sleep(0.5)
+        print("wex-advanced-options: plymouthd did not quit", file=sys.stderr)
+    for signal in ("TERM", "KILL"):
+        for _ in range(grace):
+            if not plymouthd_running(run):
+                break
+            sleep(0.25)
+        else:
+            print(f"wex-advanced-options: plymouthd still runs; sending {signal}", file=sys.stderr)
+            try:
+                run(["pkill", f"-{signal}", "-x", "plymouthd"], check=False)
+            except OSError:
+                pass
+            continue
+        break
+
+
+def quit_plymouth(run=subprocess.run, sleep=time.sleep, console=None, tries=40, grace=6):
+    """Before the menu or the failure screen draws: Plymouth ended (end_plymouth), and the console in text mode."""
+    end_plymouth(run, sleep, tries, grace)
     try:
         fcntl.ioctl(sys.stdin.fileno() if console is None else console, KDSETMODE, KD_TEXT)
     except (OSError, ValueError, AttributeError):   # not a virtual console (tests, a serial line), or no stdin
@@ -516,8 +576,8 @@ def failure_check(run=subprocess.run):
 
 def finish_failure(status, mode, option, run=subprocess.run):
     """What a choice on the failure screen does on an ordinary Vintner Boot start, which the loader counts:
-    - a Safe Mode: recorded for the next start, which is the Advanced Options variant of this generation (`vintner
-      next-boot variant`); a variant start counts nothing, as a Safe Mode start never does (owner decision);
+    - a Safe Mode: recorded for the next start, which is the Advanced Options variant of this generation
+      (restart_into_variant); a variant start counts nothing, as a Safe Mode start never does (owner decision);
     - Last Known Good: the previous good generation, as from the menu, when this one never started successfully;
       otherwise the registry's control set goes back and this start goes on, and counts, as on XP;
     - Start Normally: this start goes on.
@@ -526,15 +586,14 @@ def finish_failure(status, mode, option, run=subprocess.run):
         generation = ((status or {}).get("booted") or {}).get("generation")
         try:
             write_pending(mode, generation)
-            result = run([VINTNER, "next-boot", "variant", VARIANT], check=False, capture_output=True, text=True)
+            why = restart_into_variant(generation, run)
         except OSError as error:
-            result = None
-            print(f"wex-advanced-options: {error}", file=sys.stderr)
-        if result is not None and result.returncode == 0:
+            why = str(error)
+        if why is None:
             reboot(run)
             return True
         remove_pending()
-        print(f"wex-advanced-options: cannot restart into {mode}; starting normally", file=sys.stderr)
+        print(f"wex-advanced-options: cannot restart into {mode} ({why}); starting normally", file=sys.stderr)
         return False
     if option == "lastgood":
         if previous_good(status) is not None and go_back_to_previous_good(run):
@@ -563,6 +622,9 @@ def failure_screen():
 
 def main(argv=None):
     args = sys.argv[1:] if argv is None else argv
+    if args == ["--quit-plymouth"]:   # wex-plymouth-quit.service
+        end_plymouth()
+        return 0
     if args == ["--failure-check"]:
         return failure_check()
     if args == ["--failure-screen"]:

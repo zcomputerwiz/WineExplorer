@@ -5,15 +5,16 @@
 Description=Advanced Options Menu
 DefaultDependencies=no
 Requires=sysinit.target
-After=sysinit.target systemd-vconsole-setup.service
+# plymouthd from the initramfs holds the screen and reads tty1 (its quit units are masked): it is ended before this
+# unit's set-up of tty1, which it could otherwise stall (wex-plymouth-quit.service)
+Wants=wex-plymouth-quit.service
+After=sysinit.target systemd-vconsole-setup.service wex-plymouth-quit.service
 Conflicts=shutdown.target
 Before=shutdown.target
 OnFailure=graphical.target
 
 [Service]
 Type=oneshot
-# plymouthd from the initramfs still holds the screen and reads tty1 (its quit units are masked): the menu quits
-# it first, asking until it is gone (quit_plymouth), since one `plymouth quit` here did not always take
 ExecStart=/usr/local/sbin/wex-advanced-options
 Environment=TERM=linux
 StandardInput=tty-force

@@ -274,7 +274,7 @@ cp "$SCRIPT_DIR/systemd/wex-setup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
 for unit in wex-advanced-options.target wex-advanced-options.service wex-safemode.target wex-safenet.target \
             wex-bootlog.service wex-startup-check.service wex-bootmode-record.service \
-            wex-failure-check.service wex-failure-screen.service; do
+            wex-failure-check.service wex-failure-screen.service wex-plymouth-quit.service; do
     cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
@@ -338,10 +338,12 @@ if [ -e /boot/grub/grub.cfg ] && command -v update-grub >/dev/null 2>&1; then up
 if [ -e /boot/grub/grubenv ] && command -v grub-editenv >/dev/null 2>&1; then
     grub-editenv /boot/grub/grubenv unset wex_boot_pending || true
 fi
+# Only files that still name the old session: sed -i renames a temporary file in that directory, and accounts-daemon,
+# when it runs meanwhile, removed one (2026-11-11), which failed the postinst. A file it rewrote meanwhile is left.
 for f in /var/lib/AccountsService/users/*; do
-    if [ -f "$f" ]; then
+    if [ -f "$f" ] && grep -q -E '^X?Session=wex-safe-terminal$' "$f"; then
         sed -i -e 's/^Session=wex-safe-terminal$/Session=wine-explorer/' \
-               -e 's/^XSession=wex-safe-terminal$/XSession=wine-explorer/' "$f"
+               -e 's/^XSession=wex-safe-terminal$/XSession=wine-explorer/' "$f" || true
     fi
 done
 # Two pam_exec lines, added once, consult the boot mode: no automatic logon in Safe Mode, and administrators only

@@ -6,13 +6,15 @@
 Description=Startup Failure Screen
 DefaultDependencies=no
 Requires=sysinit.target
-After=sysinit.target systemd-vconsole-setup.service
+# plymouthd from the initramfs holds the screen and reads tty1: it is ended before this unit's set-up of tty1, which
+# it could otherwise stall (wex-plymouth-quit.service)
+Wants=wex-plymouth-quit.service
+After=sysinit.target systemd-vconsole-setup.service wex-plymouth-quit.service
 Before=basic.target shutdown.target
 Conflicts=shutdown.target
 
 [Service]
 Type=oneshot
-# plymouthd from the initramfs still holds the screen and reads tty1: the screen quits it first (quit_plymouth)
 ExecStart=/usr/local/sbin/wex-advanced-options --failure-screen
 Environment=TERM=linux
 StandardInput=tty-force

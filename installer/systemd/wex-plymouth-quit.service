@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Ends Plymouth's splash before the Advanced Options menu or the failure screen takes tty1 (docs/SAFE_MODE.md).
+# systemd's set-up of tty1 for those units reads the console's answer to a query there. While plymouthd from the
+# initramfs also read tty1, it took that answer in about 1 start in 16, and the set-up waited, with a black screen,
+# until a key was pressed (2026-11-10 and -11). This unit has no terminal, so it cannot wait so; it asks plymouthd to
+# quit, and ends it if it does not (wex-advanced-options --quit-plymouth).
+[Unit]
+Description=End Boot Splash
+DefaultDependencies=no
+After=sysinit.target
+Before=wex-advanced-options.service wex-failure-screen.service shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wex-advanced-options --quit-plymouth
+StandardOutput=journal
+StandardError=journal

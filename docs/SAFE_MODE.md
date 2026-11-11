@@ -105,7 +105,12 @@ Mode with Command Prompt can still be reached with a broken Wine. A normal start
 **Session.** The session keeps its name (`wine-explorer`), so LightDM records no new session for the account.
 `wine-explorer-session.sh` reads the mode:
 
-- `safecmd`: starts the recovery console (`wex-safe-terminal.sh`, an xterm without Wine), XP's `AlternateShell`;
+- `safecmd`: starts the recovery console (`wex-safe-terminal.sh`, an xterm without Wine), XP's `AlternateShell`.
+  It has the shape of XP's `cmd.exe` there (work order C6, 2026-11-11): at the top left, 80 columns wide and as
+  tall as the screen, light gray on black with an underline cursor and the scroll bar on the right, titled with the
+  program's name (`bash`). With no window manager the size comes from the screen's (`xdpyinfo`) and a bitmap font's:
+  misc-fixed 8x13, or 7x13 where 80 columns and the scroll bar do not fit, as at Safe Mode's 640x480 (36 rows);
+  25 rows when the screen's size is unknown. Its banner fits 80 columns;
 - `safe`, `safenet`: starts Explorer with `WEXMODE` exported. It does what a logon needs (template
   personalisation, the prefix update after a Wine update) and skips what is optional: the saved display mode, the
   native runtime defaults, the theme copy and the Vulkan preparation.
@@ -148,9 +153,14 @@ This start has been counted by the loader, so the choices work as follows:
 - **Start Normally (the countdown's choice):** this start goes on. Once the logon screen is up it counts, Vintner
   marks it good, and the next start shows no screen.
 - **A Safe Mode:** recorded for one start in `/var/lib/wineexplorer/next-bootmode` (mode and generation, root
-  only). Then `vintner next-boot variant advanced` and a restart. The variant counts nothing, as a Safe Mode start
-  never does (decision 3). The menu sees the record there, removes it, and starts that mode at once with no menu.
-  The start that showed the screen did not finish, so the next ordinary start shows it again.
+  only). Then `vintner next-boot --json variant advanced --generation <n>` and a restart. The variant counts nothing,
+  as a Safe Mode start never does (decision 3). The menu sees the record there, removes it, and starts that mode at
+  once with no menu. The start that showed the screen did not finish, so the next ordinary start shows it again.
+  The generation is named because the screen is most likely on its last try (two failed starts before this one).
+  There, Vintner's plain `variant <id>` takes "the generation that would boot next", which is an older one or none
+  (`nothing-bootable`). A vintner without `--generation` (Vintner Boot `a24d9a4`, a usage error) gets the plain
+  request. If its reply names another generation, the request is taken back (`vintner next-boot clear`). In either
+  failure the journal gives vintner's reason, and this start goes on normally.
 - **Last Known Good:** the previous good generation when this one never started successfully (as from the menu).
   Otherwise the registry's control set goes back and this start goes on and counts, as XP's does.
 
@@ -175,13 +185,22 @@ timer, socket or service of the normal boot has started yet. A choice writes the
 reloads systemd (the generator runs again and reads it) and starts `default.target`. If the menu fails, the
 unit's `OnFailure=` starts `graphical.target`.
 
-The menu first ends Plymouth's splash. plymouthd from the initramfs keeps the screen in graphics mode and keeps
-reading `tty1` (its quit units are masked), and with two readers the keys were split between them: F8 arrived as a
-lone ESC, and arrow keys were lost. A single `plymouth quit` (the unit's `ExecStartPre=` until 2026-11-10) did not
-always take: in 2 of about 36 starts through Vintner Boot's variant, plymouthd still ran three minutes later and the
-menu showed nothing until a key was pressed (the journal's last Plymouth line came at the key press). The menu now
-asks again every quarter second until `plymouth --ping` says plymouthd is gone, ends it after 10 seconds, logs when
-it took more than one request, and puts the console in text mode before drawing.
+Plymouth's splash ends first. plymouthd from the initramfs keeps the screen in graphics mode and keeps reading
+`tty1` (its quit units are masked), and with two readers the keys were split between them: F8 arrived as a lone ESC,
+and arrow keys were lost. Worse, in about 1 menu start in 16 (2 of 36 on 2026-11-10, 5 of about 80 on 2026-11-11)
+the screen stayed black until a key was pressed, however long that took. A task dump (SysRq T) during one showed why:
+the menu's process did not exist yet. systemd's child for the unit, before it runs the program, was blocked reading
+`tty1`: systemd's set-up of the terminal for the unit (`StandardInput=tty-force`, `TTYReset=`) reads the console's
+answer to a query, and plymouthd, reading `tty1` as well, had taken it. The next key let the set-up go on; the menu
+then started, ended Plymouth and threw the key away (it discards keys pressed before it draws), and the journal
+showed plymouthd quitting minutes late. So `wex-plymouth-quit.service`, which has no terminal and runs before the
+menu's and the failure screen's units (`Wants=`, `After=`), ends plymouthd before anything sets up `tty1`
+(`wex-advanced-options --quit-plymouth`). It asks until `plymouth --ping` says plymouthd is gone (at most 10
+seconds), gives each request 2 seconds, then waits for the process: after 1.5 seconds it ends it (TERM), after 1.5
+more kills it, and logs either. The menu and the failure screen do the same before they draw, which then finds
+nothing to do, and put the console in text mode. (Until 2026-11-10 the unit's `ExecStartPre=` ran `plymouth quit`;
+it was set up on `tty1` the same way, so it stalled the same way.) The VM test logs every task (SysRq T) when a menu
+has not shown after 30 seconds.
 The menu also discards the keys pressed before it appears (the F8 presses that opened it). Unavailable items are
 drawn in dark gray (bold black); the Linux console does not render the dim attribute.
 
@@ -286,8 +305,12 @@ Wayland session (C3; X11 is done, section 4) and the classic logon dialog after 
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (98 tests, Linux) covers:
+`scripts/test_safemode.py` (104 tests, Linux) covers:
 
+- the end of Plymouth: asking until it is gone, each request with a time limit, then ending a plymouthd that
+  lingers or does not answer; and the unit without a terminal that does it before the menu's and the failure
+  screen's units set up `tty1`;
+- the recovery console's shape on screens of several sizes, and its banner within 80 columns;
 - mode parsing, generator output and PAM decisions;
 - menu navigation (opening on Start Normally, wrapping round) and choices, and the logon screen choice;
 - the layout of the menu, the operating system list and the failure screen, row by row against XP's, and the VM
@@ -296,8 +319,9 @@ Wayland session (C3; X11 is done, section 4) and the classic logon dialog after 
   session does so before it reads the desktop's size;
 - the failure screen: its items, the countdown, and arrow keys stopping it;
 - the start-up check: which starts count, and what counts as the logon screen;
-- the failure check and screen with Vintner Boot's status report, Last Known Good going back a generation, and the
-  Advanced Options variant's file;
+- the failure check and screen with Vintner Boot's status report; its Safe Mode choice naming its generation, with
+  a vintner that refuses and one without `--generation`; Last Known Good going back a generation; and the Advanced
+  Options variant's file;
 - that the GRUB path is gone (Setup, the live package list, the package and the tests);
 - the postinst migration from the old implementation (run twice to show it is idempotent), including the standard
   users it hid, and the units it enables;
@@ -332,7 +356,7 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 |---|---|
 | `safe` | OS list shows "Safe Mode"; the Welcome screen instead of automatic logon, with the start-up check's pattern matching exactly one `logonui.exe` process; `wex-safemode.target`; NetworkManager, cron, the Prefetcher and every timer inactive; the message box, answered Yes, then the desktop; Explorer session with `WEXMODE=safe`; probes: `SM_CLEANBOOT` and `OptionValue` 1, no alternate shell, EventLog, PlugPlay and MountMgr running, NDIS and nsiproxy stopped, the spooler refused with 1084; Wine's 32-bit (`syswow64`) and 64-bit (`system32`) Notepad open; the screen at 640x480 on the Welcome screen and the desktop (C3; also checked in `safenet` and `safecmd`) |
 | `safenet` | The same with `wex-safenet.target`, NetworkManager active and `WEXMODE=safenet`; probes: 2, and NDIS and nsiproxy running |
-| `safecmd` | The Welcome screen; the recovery console after logging on, and no wineserver; then the probes, started with `wine` from the serial console as from the recovery console (output to a file): 1, `UseAlternateShell` 1, the services as in `safe` |
+| `safecmd` | The Welcome screen; the recovery console after logging on, 80 columns by 30 rows or more (its terminal's size, read over the serial console; images whose console predates C6's shape are reported), and no wineserver; then the probes, started with `wine` from the serial console as from the recovery console (output to a file): 1, `UseAlternateShell` 1, the services as in `safe` |
 | `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, and logging on still starts the recovery console |
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" |
@@ -496,3 +520,22 @@ defaults:
 The session package's GRUB cleanup (`docs/VINTNER_BOOT.md` section 4.2) was tried on an overlay of a disk Setup
 installed with GRUB on 2026-11-10: one boot ran this checkout's postinst Safe Mode part, after which `grub.cfg` had
 no F8 entry and grubenv no `wex_boot_pending`, and the next two ordinary starts each reached the desktop.
+
+**The black menu and the recovery console's shape (2026-11-11).** With `wex-plymouth-quit.service` and the console
+of work order C6, from new overlays of those installs (`WEX_SAFEMODE_FILES=branch`), on both firmwares:
+
+- `startnormal` passed 30 times out of 30 on each firmware. No menu was late, against 5 of about 80 that morning.
+  In each overlay's journal, all 32 menu starts and both failure screens began after `wex-plymouth-quit.service`
+  had finished.
+- `safecmd` (X11, 640x480) and `waylandcmd` (1280x800) passed with a console of 36x80 and 61x80. Its title bar
+  reads "bash" in both sessions.
+- `vfailed` failed on both firmwares. The provisioning start, which powers off before `boot-complete.target`, had
+  left a failed try. So the screen came one start early, and the test's reset made the next start generation 1's
+  last try. There, `vintner next-boot variant advanced` refused (`nothing-bootable`), and the start went on
+  normally. The provisioning start now runs `vintner bless`. On a last try, the failure screen names its generation
+  (section 3), which needs a Vintner change (`docs/VINTNER_BOOT.md`). With both, `safecmd` then `vfailed` passed on
+  both firmwares from new overlays. The provisioning log had `bless=0`, the screen came after the one reset, and
+  Safe Mode with Command Prompt restarted into that mode: `a24d9a4` refused `--generation` (exit 2) and took the
+  plain request.
+- Both consoles printed six `setlocale` warnings above the banner. The installed system sets `LANG=en_US.UTF-8`
+  (Setup, through `locale1`), but that locale was never generated (`/usr/lib/locale` has only `C.utf8`).

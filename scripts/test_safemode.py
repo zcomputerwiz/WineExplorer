@@ -656,35 +656,63 @@ class TestMenu(TempDirTest):
         self.assertEqual(self.run_keys(*[down] * 3, enter, f8, *[down] * 4, enter, enter), ("boot", "safenet", None))
         self.assertEqual(self.vintner_log(), [])
 
-    def plymouth(self, answers):
-        """quit_plymouth against a fake run: `plymouth --ping` answers from ANSWERS (0 = still running)."""
-        calls, naps = [], []
-        answers = list(answers)
+    PGREP = ["pgrep", "-x", "plymouthd"]
 
-        def run(cmd, check=False):
+    def plymouth(self, answers, alive=()):
+        """quit_plymouth against a fake run: `plymouth --ping` answers from ANSWERS (0 = still running); `pgrep -x
+        plymouthd` from ALIVE (0 = the process is still there), then 1."""
+        calls, naps = [], []
+        answers, alive = list(answers), list(alive)
+
+        def run(cmd, check=False, **kwargs):
             calls.append(cmd[1:] if cmd[0] == self.menu.PLYMOUTH else cmd)
-            code = answers.pop(0) if cmd[1:] == ["--ping"] else 0
+            if cmd[0] == self.menu.PLYMOUTH:
+                self.assertEqual(kwargs.get("timeout"), self.menu.PLYMOUTH_TIMEOUT, "a request that can block")
+            if cmd[1:] == ["--ping"]:
+                code = answers.pop(0)
+                if code == "hang":
+                    raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+            elif cmd == self.PGREP:
+                code = alive.pop(0) if alive else 1
+            else:
+                code = 0
             return subprocess.CompletedProcess(cmd, code)
 
         # not a virtual console: the mode switch is skipped; the menu's notes go to the journal, not the test output
         with open(self.tmp / "console", "w") as console, contextlib.redirect_stderr(io.StringIO()):
-            self.menu.quit_plymouth(run=run, sleep=naps.append, console=console.fileno(), tries=5)
+            self.menu.quit_plymouth(run=run, sleep=naps.append, console=console.fileno(), tries=5, grace=3)
         return calls, naps
 
     def test_plymouth_is_asked_until_it_is_gone(self):
         calls, naps = self.plymouth([0, 0, 1])
-        self.assertEqual(calls, [["--ping"], ["quit"], ["--ping"], ["quit"], ["--ping"]])
+        self.assertEqual(calls, [["--ping"], ["quit"], ["--ping"], ["quit"], ["--ping"], self.PGREP])
         self.assertEqual(naps, [0.25, 0.25])
         calls, naps = self.plymouth([1])          # not running: nothing to quit
-        self.assertEqual(calls, [["--ping"]])
+        self.assertEqual(calls, [["--ping"], self.PGREP])
 
     def test_plymouth_that_does_not_quit_is_ended(self):
-        calls, naps = self.plymouth([0] * 5)
+        calls, naps = self.plymouth([0] * 5, alive=[0, 0, 0])
         self.assertEqual(calls.count(["quit"]), 5)
-        self.assertEqual(calls[-1], ["pkill", "-TERM", "-x", "plymouthd"])
+        self.assertEqual(calls[-2:], [["pkill", "-TERM", "-x", "plymouthd"], self.PGREP])   # gone after TERM
+
+    def test_plymouthd_that_lingers_after_quitting_is_ended(self):
+        """2026-11-11: plymouthd stopped answering at once, but held the screen for three minutes more."""
+        calls, naps = self.plymouth([0, 1], alive=[0, 0, 1])         # leaves within its grace
+        self.assertNotIn(["pkill", "-TERM", "-x", "plymouthd"], calls)
+        self.assertEqual(calls.count(self.PGREP), 3)
+        calls, naps = self.plymouth([0, 1], alive=[0] * 6)            # ignores TERM too
+        self.assertEqual([c for c in calls if c[0] == "pkill"],
+                         [["pkill", "-TERM", "-x", "plymouthd"], ["pkill", "-KILL", "-x", "plymouthd"]])
+        self.assertEqual(calls.count(self.PGREP), 6)
+
+    def test_plymouthd_that_does_not_answer_is_ended(self):
+        """2026-11-11: plymouthd answered nothing for three minutes, and the menu's first `--ping` waited all along."""
+        calls, naps = self.plymouth(["hang"], alive=[0, 0, 0, 1])
+        self.assertEqual(calls, [["--ping"], self.PGREP, self.PGREP, self.PGREP,
+                                 ["pkill", "-TERM", "-x", "plymouthd"], self.PGREP])
 
     def test_no_plymouth_installed(self):
-        def run(cmd, check=False):
+        def run(cmd, check=False, **kwargs):
             raise FileNotFoundError(cmd[0])
         self.menu.quit_plymouth(run=run, sleep=lambda s: None, console=-1)   # neither raises
 
@@ -786,17 +814,28 @@ class TestMenu(TempDirTest):
         self.menu.failure_check(run=self.recording_run(calls))
         self.assertEqual(calls, [])
 
-    def recording_run(self, calls, codes=None):
+    def recording_run(self, calls, codes=None, boots_next=1):
         """A subprocess.run that records each command and runs `vintner status` for real (the fake prints the
-        report); CODES maps a command's first two words to its exit code (default 0)."""
+        report); CODES maps a command's first two words to its exit code (default 0), and ("--generation",) to the
+        code of a command with that flag (2: an older vintner without it). `vintner next-boot --json variant` answers
+        as vintner does: the generation --generation names, else BOOTS_NEXT."""
         def run(cmd, check=False, **kwargs):
             calls.append(list(cmd))
             if cmd[:2] == [self.menu.VINTNER, "status"]:
                 return subprocess.run(cmd, check=check, **kwargs)
             code = (codes or {}).get(tuple(cmd[:2]), 0)
+            if "--generation" in cmd:
+                code = (codes or {}).get(("--generation",), code)
             if check and code:
                 raise subprocess.CalledProcessError(code, cmd)
-            return subprocess.CompletedProcess(cmd, code, "", "")
+            stdout = ""
+            if cmd[:4] == [self.menu.VINTNER, "next-boot", "--json", "variant"] and code in (0, 3):
+                generation = int(cmd[cmd.index("--generation") + 1]) if "--generation" in cmd else boots_next
+                stdout = json.dumps({"ok": True, "target": "variant", "firmware": "bios", "generation": generation,
+                                     "variant": cmd[4]} if code == 0 else
+                                    {"ok": False, "code": "nothing-bootable",
+                                     "error": "no ordinary generation has tries left"})
+            return subprocess.CompletedProcess(cmd, code, stdout, "")
         return run
 
     def test_failure_screen_safe_mode_restarts_into_the_variant(self):
@@ -805,19 +844,47 @@ class TestMenu(TempDirTest):
         restarted = self.menu.finish_failure(self.failing(1, generation=3), "safecmd", None,
                                              run=self.recording_run(calls))
         self.assertTrue(restarted)
-        self.assertEqual(calls, [[self.menu.VINTNER, "next-boot", "variant", "advanced"], ["systemctl", "reboot"]])
+        # the generation that showed the screen, named: on its last try it is not the one that would boot next
+        self.assertEqual(calls, [[self.menu.VINTNER, "next-boot", "--json", "variant", "advanced", "--generation", "3"],
+                                 ["systemctl", "reboot"]])
         self.assertEqual(Path(self.menu.PENDING).read_text(), "safecmd 3\n")
         self.assertEqual(Path(self.menu.PENDING).stat().st_mode & 0o777, 0o600)
 
     def test_failure_screen_safe_mode_when_vintner_refuses(self):
         self.menu.PENDING = str(self.tmp / "next-bootmode")
         calls = []
-        with contextlib.redirect_stderr(io.StringIO()):
-            restarted = self.menu.finish_failure(self.failing(1), "safe", None,
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            restarted = self.menu.finish_failure(self.failing(2), "safe", None,
                                                  run=self.recording_run(calls, {(self.menu.VINTNER, "next-boot"): 3}))
         self.assertFalse(restarted)                                           # this start goes on normally
         self.assertFalse(Path(self.menu.PENDING).exists())
         self.assertNotIn(["systemctl", "reboot"], calls)
+        self.assertIn("cannot restart into safe (no ordinary generation has tries left)", err.getvalue())
+
+    def test_failure_screen_safe_mode_with_an_older_vintner(self):
+        """A vintner without --generation (exit 2) takes the generation that would boot next: the same one restarts;
+        another one, or none, on this generation's last try, does not, and the request is taken back."""
+        older = {("--generation",): 2}
+        plain = [self.menu.VINTNER, "next-boot", "--json", "variant", "advanced"]
+        self.menu.PENDING = str(self.tmp / "next-bootmode")
+        calls = []
+        self.assertTrue(self.menu.finish_failure(self.failing(1, generation=3), "safenet", None,
+                                                 run=self.recording_run(calls, older, boots_next=3)))
+        self.assertEqual(calls, [plain + ["--generation", "3"], plain, ["systemctl", "reboot"]])
+        self.assertEqual(Path(self.menu.PENDING).read_text(), "safenet 3\n")
+        calls.clear()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertFalse(self.menu.finish_failure(self.failing(2, generation=3), "safecmd", None,
+                                                      run=self.recording_run(calls, older, boots_next=2)))
+        self.assertEqual(calls, [plain + ["--generation", "3"], plain, [self.menu.VINTNER, "next-boot", "clear"]])
+        self.assertFalse(Path(self.menu.PENDING).exists())
+        self.assertIn("the variant of generation 2, not of 3", err.getvalue())
+        # no generation in the report: whatever vintner takes
+        calls.clear()
+        self.assertTrue(self.menu.finish_failure(None, "safe", None, run=self.recording_run(calls)))
+        self.assertEqual(calls, [plain, ["systemctl", "reboot"]])
 
     def test_failure_screen_last_known_good_and_start_normally(self):
         calls = []
@@ -864,13 +931,32 @@ class TestMenu(TempDirTest):
         for unit in (check, screen):
             self.assertLess(len(re.search(r"^Description=(.*)$", "\n".join(unit), re.M).group(1)), 30)
 
+    def test_plymouth_ends_before_tty1_is_set_up(self):
+        """systemd's set-up of tty1 for the menu and the failure screen waited for a key while plymouthd read tty1
+        (2026-11-11): a unit without a terminal ends plymouthd before either."""
+        quit_unit = (SYSTEMD / "wex-plymouth-quit.service").read_text(encoding="utf-8").splitlines()
+        for line in ("ExecStart=/usr/local/sbin/wex-advanced-options --quit-plymouth", "DefaultDependencies=no",
+                     "Before=wex-advanced-options.service wex-failure-screen.service shutdown.target"):
+            self.assertIn(line, quit_unit)
+        self.assertFalse(any(line.startswith(("StandardInput=", "TTYPath=", "TTYReset=")) for line in quit_unit))
+        self.assertLess(len(re.search(r"^Description=(.*)$", "\n".join(quit_unit), re.M).group(1)), 30)
+        for name in ("wex-advanced-options.service", "wex-failure-screen.service"):
+            unit = (SYSTEMD / name).read_text(encoding="utf-8").splitlines()
+            self.assertIn("Wants=wex-plymouth-quit.service", unit, name)
+            after = next(line for line in unit if line.startswith("After="))
+            self.assertIn("wex-plymouth-quit.service", after.split(), name)
+            self.assertIn("TTYPath=/dev/tty1", unit, name)
+        self.assertIn("wex-plymouth-quit.service", PACKAGE.read_text(encoding="utf-8"))
+
     def test_main_dispatches_the_failure_modes(self):
         seen = []
         self.menu.failure_check = lambda: seen.append("check") or 0
         self.menu.failure_screen = lambda: seen.append("screen") or 0
+        self.menu.end_plymouth = lambda: seen.append("plymouth")
         self.assertEqual(self.menu.main(["--failure-check"]), 0)
         self.assertEqual(self.menu.main(["--failure-screen"]), 0)
-        self.assertEqual(seen, ["check", "screen"])
+        self.assertEqual(self.menu.main(["--quit-plymouth"]), 0)
+        self.assertEqual(seen, ["check", "screen", "plymouth"])
 
     def test_os_choices_when_vintner_cannot_set_the_menu(self):
         down, enter = curses.KEY_DOWN, 10
@@ -1067,6 +1153,53 @@ class TestMenu(TempDirTest):
         self.assertEqual(self.calls[0], ["systemd-analyze", "log-level", "debug"])
         with self.assertRaises(ValueError):
             self.menu.apply_choice("bogus", run=self.fake_run)
+
+
+class TestRecoveryConsole(TempDirTest):
+    """wex-safe-terminal.sh's console shape (work order C6): as XP's cmd.exe, at the top left, 80 columns, as tall as
+    the screen, with a bitmap font that fits 80 columns and the scroll bar across the screen."""
+
+    def xterm_args(self, dimensions):
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        fakes = {
+            "xdpyinfo": f'echo "  dimensions:    {dimensions} pixels (169x127 millimeters)"\n' if dimensions else "exit 1\n",
+            "xterm": 'printf "%s\\n" "$@" > "$LOG"\n',
+            "zenity": 'echo "Log Out"\n',
+            "xset": "exit 0\n", "xsetroot": "exit 0\n",
+        }
+        for name, body in fakes.items():
+            (bin_dir / name).write_text("#!/bin/sh\n" + body, encoding="ascii")
+            (bin_dir / name).chmod(0o755)
+        log = self.tmp / "xterm.log"
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "LOG": str(log), "TMPDIR": str(self.tmp), "HOME": str(self.tmp)}
+        subprocess.run(["bash", str(SCRIPTS / "wex-safe-terminal.sh")], env=env, check=True, timeout=30,
+                       capture_output=True)
+        args = log.read_text(encoding="ascii").splitlines()
+        return {args[i]: args[i + 1] for i in range(len(args) - 1) if args[i].startswith("-")}, args
+
+    def test_shape_follows_the_screen(self):
+        cases = (("640x480", "70", "80x36+0+0"),         # Safe Mode (C3): 80 columns of 8 pixels do not fit
+                 ("1280x800", "80", "80x61+0+0"),
+                 ("480x360", "60", "80x27+0+0"),
+                 (None, "80", "80x25+0+0"))              # no screen size: XP's 25 rows
+        for dimensions, width, geometry in cases:
+            opts, args = self.xterm_args(dimensions)
+            self.assertEqual(opts["-geometry"], geometry, dimensions)
+            self.assertTrue(opts["-fn"].endswith(f"-13-120-75-75-c-{width}-iso10646-1"), (dimensions, opts["-fn"]))
+            self.assertEqual(opts["-title"], "bash")
+            self.assertEqual(opts["-xrm"], "XTerm*allowTitleOps: false")    # the shell's prompt does not retitle it
+            self.assertEqual(opts["-fg"], "#c0c0c0")
+            self.assertIn("-rightbar", args)
+            self.assertEqual(args[-4:-2], ["bash", "--rcfile"])
+
+    def test_banner_fits_80_columns(self):
+        script = (SCRIPTS / "wex-safe-terminal.sh").read_text(encoding="utf-8")
+        banner = script[script.index("cat << 'EOF' > \"$BANNER_RC\""):]
+        banner = banner[:banner.index("\nEOF\n")]
+        lines = re.findall(r'^echo "(.*)"$', banner, re.M)
+        self.assertIn("  Administrative Recovery Commands:", lines)     # the VM test waits for it
+        self.assertTrue(all(len(line) <= 80 for line in lines), [line for line in lines if len(line) > 80])
 
 
 class TestSessionAndGreeter(unittest.TestCase):
@@ -1463,7 +1596,7 @@ class TestPackage(TempDirTest):
                       "wex-advanced-options.service", "wex-safemode.target", "wex-safenet.target",
                       "wex-bootlog.service", "wex-startup-check.sh",
                       "wex-startup-check.service", "wex-lastgood.sh", "wex-failure-check.service",
-                      "wex-failure-screen.service"):
+                      "wex-failure-screen.service", "wex-plymouth-quit.service"):
             self.assertIn(piece, sources, f"the VM test does not install {piece}")
 
     def test_postinst_migrates_and_is_idempotent(self):
