@@ -4,7 +4,9 @@ Copyright 2026 WineExplorer contributors
 -->
 # UWP / package compatibility (track U1)
 
-Status: planned, not started. Nothing here is implemented. Documents:
+Status (2026-11-11): fixture and unpackaged baseline work has started; packaged
+Wine identity/activation and UWP lifecycle remain unimplemented/unproven.
+See `EXECUTION_PLAN.md` for current evidence, sequencing and agent assignments. Documents:
 
 * `UWP_COMPATIBILITY_PLAN.md` - the proposed plan, kept as written. Where it conflicts with this file, this file wins.
   In particular every proposal in it to build, fork or bridge to a managed (Uno) backend is superseded (see Uno).
@@ -86,8 +88,9 @@ owner's.
 ## First backlog (all behind the gate)
 
 1. Codex, static: inventory (done, `INVENTORY.md`); refresh its parent SHA when changes land.
-2. Antigravity on the Windows host: the U1.0 fixture (x64 and i386, packaged, component DLL, async), with the oracle log
-   in `../WineExplorer-local`. Blocked on the Fixtures repo and the C++ UWP workload on the host.
+2. Antigravity: fixture sources exist in `tests/uwp/u1_0/`; MSVC x64/x86 builds and an x64 packaged Windows oracle
+   pass are recorded there. The full-trust fixture uses the desktop workload; a C++ UWP workload and a new repository
+   are not prerequisites. Windows x86 packaged activation and complete same-binary/hash evidence remain open.
 3. Qwen: gated conformance probe for package identity (process, token, external handle), `RoInitialize`, HSTRING,
    package-resolver activation and `RoActivateInstance`. Today all seven `GetCurrentPackage*` queries are
    `APPMODEL_ERROR_NO_PACKAGE` stubs and `RtlQueryPackageIdentity` takes a token and returns not found.

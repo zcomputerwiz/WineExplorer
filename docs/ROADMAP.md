@@ -276,7 +276,9 @@ against stock Wine is needed.
 
 ## Future: UWP / package compatibility, track U1 (2026-11-05)
 
-Planned, not started; priority is below the DWM, browser-installer and system-tier work. Target: unmodified packaged
+Fixture/oracle and unpackaged baseline work started; packaged Wine support remains pending. Priority is below the
+DWM, browser-installer and system-tier work; independent tooling and an owned UWP lab can proceed alongside them.
+Current evidence and dispatch: `docs/uwp/EXECUTION_PLAN.md`. Target: unmodified packaged
 native UWP apps, starting with a self-owned, gated, non-XAML C++/WinRT fixture (packaged identity, WinRT activation,
 async, clean exit), then CoreWindow, then a separate native XAML track (Uno is reference only), PRI/XBF,
 and only later the installed Calculator (private test, never committed). Everything is off by default behind one gate.

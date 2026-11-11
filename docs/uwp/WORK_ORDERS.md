@@ -4,6 +4,17 @@ Copyright 2026 WineExplorer contributors
 -->
 # UWP track U1: work orders (Qwen / Antigravity)
 
+Current owner instruction (2026-11-11): Codex plans, reviews and handles lab
+setup; Qwen and Antigravity implement until feature completion. This supersedes
+the historical Claude-only review assignment below. Current packages and
+ownership are in `EXECUTION_PLAN.md`; implementers leave commits to Codex review.
+
+2026-11-11 scheduling update: new U1-M1 (Qwen runner repair) and U1-L1
+(Antigravity isolated lab preparation) are specified in `EXECUTION_PLAN.md`.
+The no-VM rule below belongs to the historical WO-U1; L1 expressly permits
+only a separately owned guest after its safety preflight. No shared elevation
+VM/build fixture is authorized. Review ownership is updated above.
+
 Context: `docs/uwp/README.md` (decision, backlog), `tests/uwp/u1_0/` (the U1.0 fixture and its Windows 11 oracle
 results in `ORACLE_RESULTS.md`). Claude reviews every result before it is committed. Codex is not used for reviews
 for now.
