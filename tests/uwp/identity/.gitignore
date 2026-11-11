@@ -1,0 +1,8 @@
+# U1-M2 identity probe: generated build outputs, captured records, hashes and
+# validator fault-check copies. Everything under out/ is produced by
+# build-run.ps1 and fault-check.ps1 and is never committed.
+out/
+# Fresh per-run output directories (build-run.ps1 default) and sentinel-check
+# disposable work directories.
+out-*/
+sentinel-*/
