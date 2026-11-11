@@ -1139,3 +1139,34 @@ Still open from the R10 design: a revocable transaction owner that outlives the 
 retires the attempt at RELEASE before the token is issued; the installed record is validated by the
 verifier's live pin and unchanged map, root and policy generations only), NEGOTIATE before redemption, and
 the receipt's root generation having no server-side counterpart.
+
+## WO-32 First-use provisioning of the administrator's profile (lab; Claude, 2026-11-11)
+
+Removes the WO-29 stand-in "only the lab tool can create the administrator's profile". The test no longer
+prepares a profile; the first elevation creates it.
+
+* Helper (`tools/wex-profile/wex-profile-provision.c`, root-owned, installed next to the verifier; denies
+  in a normal build like the rest of S12): arguments are the account name, its key, the map generation, the
+  standard user's uid and the number of the prefix descriptor. It looks the account up again in the
+  protected accounts map (administrator, same key and generation, not the user itself; the SID comes from
+  there), takes the user's group from the password database, requires the descriptor to be a directory
+  owned by that user, opens the fixed root-protected seed edge by edge, then gives up root permanently and
+  calls `wex_profile_prepare`. An existing profile is validated and reused. The path helpers shared with
+  the lab driver moved to `tools/wex-profile/anchor.h`.
+* Server: ENDORSED carries the prefix directory as a second descriptor (docs/STOCK_CHANGES.md).
+* Verifier (`tools/e1s6/e1s6-lab.py`): pins the helper at startup; checks the received prefix (directory,
+  owned by the caller's uid) and keeps it with the attempt; after the worker reports success and before the
+  result goes to the broker it runs the helper (empty environment, only the two descriptors, 10 s bound)
+  and logs `E1R8_PROFILE`. A failure ends the attempt: without a profile nothing can be launched.
+
+First run finding: the seed path macro was named like the storage status `WEX_PROFILE_SEED` and broke the
+enum when defined on the command line; it is `WEX_PROFILE_SEED_PATH`.
+
+Cases: `r8_e2e_elevated_64` requires `reused=0`, `r8_e2e_elevated_32` `reused=1`;
+`r8_provision_refuses_bad_input` (wrong account key stops at `site=account`, a directory of another user
+at `site=prefix`, nothing is created).
+
+Open: the helper runs synchronously in the verifier's main loop; a second elevation while the profile is
+loaded by the server was not tried (R14); the seed in the lab is the test's own file, the projection of
+`/etc/skel/.wine/user.reg` is unchanged S12 work; the helper's result line is not bound to the attempt
+beyond its exit status.

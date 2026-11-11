@@ -1402,21 +1402,29 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         '"R8AutoSelect"="'"$ADM"'"' \
         '"R8AutoPassword"="'"$R8PW"'"'
 
-    # The administrator's managed profile in the standard user's prefix (S12 storage). Only the lab
-    # provisioner can create one today; the product has no first-use provisioning yet.
-    gcc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST -o "$ROOT/wex-profile-r8" "$SRC/tools/wex-profile/wex-profile.c"
+    # The administrator's managed profile in the standard user's prefix (S12 storage) does not exist:
+    # the verifier's helper creates it on the first successful authentication (WO-32) from this seed.
+    cc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST "-DWEX_PROFILE_SEED_PATH=\"$LIBEXEC/profile-seed.reg\"" \
+        -o "$LIBEXEC/wex-profile-provision" "$SRC/tools/wex-profile/wex-profile-provision.c"
+    chown root:root "$LIBEXEC/wex-profile-provision"; chmod 0755 "$LIBEXEC/wex-profile-provision"
     printf '%s\n' 'WINE REGISTRY Version 2' '' \
         '[Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced] 0' \
-        '"HideFileExt"=dword:00000000' > "$ROOT/r8-seed.reg"
-    chmod 0644 "$ROOT/r8-seed.reg"
+        '"HideFileExt"=dword:00000000' > "$LIBEXEC/profile-seed.reg"
+    chown root:root "$LIBEXEC/profile-seed.reg"; chmod 0644 "$LIBEXEC/profile-seed.reg"
     el_down "$STD"
     r8_gen=$(awk 'NR == 1 {print $3}' /etc/wineexplorer/accounts.map)
     read -r r8_key r8_a r8_b r8_c r8_rid <<<"$(awk -v name="$ADM" '$1 == name && $4 == "active" {print $3, $6, $7, $8, $9}' /etc/wineexplorer/accounts.map)"
     [[ "$r8_key" =~ ^[0-9a-f]{32}$ && -n "$r8_rid" && "$r8_gen" =~ ^[1-9][0-9]*$ ]] || fail "r8_e2e: no map identity for $ADM"
     rm -rf "/home/$STD/.wine/drive_c/users/.e1s"
-    "$ROOT/wex-profile-r8" "/home/$STD/.wine" "$ROOT/r8-seed.reg" "$(id -u "$STD")" "$(id -g "$STD")" \
-        "$ADM" "$r8_key" "$r8_a" "$r8_b" "$r8_c" "$r8_rid" "$r8_gen" > "$ROOT/r8-profile.log" 2>&1 ||
-        { cat "$ROOT/r8-profile.log" >&2; fail "r8_e2e: profile provisioning"; }
+    # The helper trusts none of its arguments: a wrong account key, or a prefix that is not the named
+    # user's, creates nothing.
+    r8_wrong_key="$(tr '0-9a-f' '1-9a-f0' <<<"$r8_key")"
+    r8_prov="$("$LIBEXEC/wex-profile-provision" "$ADM" "$r8_wrong_key" "$r8_gen" "$(id -u "$STD")" 9 9<"/home/$STD/.wine" || true)"
+    [[ "$r8_prov" == *"site=account"* ]] || fail "r8_provision_refuses_bad_input: wrong key: '$r8_prov'"
+    r8_prov="$("$LIBEXEC/wex-profile-provision" "$ADM" "$r8_key" "$r8_gen" "$(id -u "$STD")" 9 9<"/home/$ADM" || true)"
+    [[ "$r8_prov" == *"site=prefix"* ]] || fail "r8_provision_refuses_bad_input: foreign directory: '$r8_prov'"
+    [ ! -e "/home/$STD/.wine/drive_c/users/.e1s" ] || fail "r8_provision_refuses_bad_input: something was created"
+    ok r8_provision_refuses_bad_input
 
     # the password worker and its supervisor, next to the verifier (removed again at the end of this case)
     install -o root -g root -m 0644 "$SRC/tools/e1s7/supervisor.py" "$LIBEXEC/"
@@ -1500,6 +1508,10 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
                 echo "$e1s6_new_log" | tail -20 >&2; fail "r8_e2e_elevated_$arch: '$m' missing"; }
         done
         grep -q 'E1R8_RESULT request=.* authenticated=1' <<<"$e1s6_new_log" || fail "r8_e2e_elevated_$arch: no authenticated result at the verifier"
+        # first use creates the administrator's profile, the second elevation finds and keeps it
+        [ "$arch" = 64 ] && r8_reused=0 || r8_reused=1
+        grep -q "E1R8_PROFILE request=.* rc=0 status=0 reused=$r8_reused " <<<"$e1s6_new_log" ||
+            { grep E1R8_PROFILE <<<"$e1s6_new_log" >&2; fail "r8_e2e_elevated_$arch: profile provisioning (expected reused=$r8_reused)"; }
         wait "$PROBE_PID" 2>/dev/null || true
         [ "$(el_fact "$EL/r8_e2e_res_${arch}.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r8_e2e_res_${arch}.txt" integrity)" = 12288 ] ||
             { cat "$EL/r8_e2e_res_${arch}.txt" "$ROOT/r8_e2e_probe_$arch.log" >&2; fail "r8_e2e_elevated_$arch: the program did not run elevated"; }
@@ -1687,7 +1699,8 @@ EOF
     ok r8_e2e_no_verifier_denied
     # the later lab cases need the verifier again, without the worker this case installed (only its own files
     # are removed: the launcher and the verifier live in the same directory)
-    rm -f "$LIBEXEC/supervisor.py" "$LIBEXEC/pam-worker" "$LIBEXEC/pam-audit.log" /etc/pam.d/wex-r8-lab
+    rm -f "$LIBEXEC/supervisor.py" "$LIBEXEC/pam-worker" "$LIBEXEC/pam-audit.log" /etc/pam.d/wex-r8-lab \
+        "$LIBEXEC/wex-profile-provision" "$LIBEXEC/profile-seed.reg"
     passwd -l "$ADM" >/dev/null   # the throwaway password is gone with the case
     e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
 
@@ -1711,7 +1724,7 @@ EOF
     rm -rf "$ROOT/r8e2e-saved"
     # the standard user's interactive processes keep WinSta0 alive; later cases run without it
     pkill -u "$STD" 2>/dev/null || true
-    rm -rf "/home/$STD/.wine/drive_c/users/.e1s" "$ROOT/wex-profile-r8" "$ROOT/r8-seed.reg"
+    rm -rf "/home/$STD/.wine/drive_c/users/.e1s"
     sleep 2
     el_up "$ADM"
     }

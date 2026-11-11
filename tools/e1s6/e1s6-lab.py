@@ -14,6 +14,7 @@ import select
 import socket
 import stat
 import struct
+import subprocess
 import sys
 import time
 
@@ -292,6 +293,11 @@ def service(server_path, system_group, pam_paths=None):
         # The storage generation now comes from the wineserver; the retired
         # STORAGE_QUERY operation is denied (see docs/E1_S18D_UNIX_SIDE.md).
 
+    # The profile provisioning helper, pinned like the worker; without it no attempt can succeed.
+    provision_exe = None
+    if os.path.exists("/usr/local/libexec/wineexplorer/wex-profile-provision"):
+        provision_exe = protected("/usr/local/libexec/wineexplorer/wex-profile-provision")
+
     server_exe = protected(server_path)
     server_stat = os.fstat(server_exe)
     system_gid = grp.getgrnam(system_group).gr_gid
@@ -372,12 +378,13 @@ def service(server_path, system_group, pam_paths=None):
             if hasattr(self, "endorsed_records"):
                 for rec in self.endorsed_records.values():
                     self.drop_record(rec)
-                    pfd = rec.pop("pidfd", None)
-                    if pfd is not None and pfd >= 0:
-                        try:
-                            os.close(pfd)
-                        except OSError:
-                            pass
+                    for name in ("pidfd", "prefix"):
+                        pfd = rec.pop(name, None)
+                        if pfd is not None and pfd >= 0:
+                            try:
+                                os.close(pfd)
+                            except OSError:
+                                pass
                 self.endorsed_records.clear()
             if hasattr(self, "pending_s6") and self.pending_s6 is not None:
                 raw, cred, pin, fds = self.pending_s6
@@ -447,6 +454,28 @@ def service(server_path, system_group, pam_paths=None):
             rec.pop("evidence", None)
             rec.pop("evidence_ref", None)
 
+        def provision_profile(self, rec, account_key, map_gen):
+            """First use: create the authenticated administrator's profile in the caller's prefix.
+
+            The helper looks the account up again in the protected map, takes the prefix only as the
+            descriptor the endorsed server sent, and gives up root before it touches the prefix. An
+            existing profile is validated and left alone. Without a profile nothing can be launched,
+            so a failure ends the attempt.
+            """
+            require(provision_exe is not None, "profile-helper-not-provisioned")
+            name = rec["account"]
+            name = name.decode("ascii") if isinstance(name, bytes) else str(name)
+            prefix = rec["prefix"]
+            done = subprocess.run(
+                ["/proc/self/fd/%d" % provision_exe, name, account_key.hex(), str(map_gen),
+                 str(self.uid), str(prefix)],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                close_fds=True, pass_fds=(provision_exe, prefix), env={}, timeout=10)
+            line = done.stdout.decode("ascii", "replace").strip().splitlines()[-1:] or [""]
+            print("E1R8_PROFILE request=%x rc=%d %s" % (rec["tuple"].request_id, done.returncode, line[0][:80]),
+                  flush=True)
+            require(done.returncode == 0, "profile-provision")
+
         def worker_message(self, source, condition, key):
             """The R8 worker's control socket: W_ACK after the dialog attached, then its private result."""
             rec = self.endorsed_records.get(key)
@@ -475,6 +504,7 @@ def service(server_path, system_group, pam_paths=None):
                     require(any(rec["account_key"]) and account_key == rec["account_key"], "worker-account")
                     now = time.monotonic_ns()
                     require(now < t.deadline, "worker-result-deadline")
+                    self.provision_profile(rec, account_key, map_gen)
                     ref = random_bytes(16)
                     rec["evidence"] = evidence.EVIDENCE.pack(
                         3, 1, evidence.EVIDENCE_SIZE, 0x3ff, t.request_id, t.request_digest, t.binding_digest,
@@ -513,8 +543,12 @@ def service(server_path, system_group, pam_paths=None):
                     version, msg_type = struct.unpack_from("<HH", data, 4)
                     if msg_type == 16:
                         require(len(data) == 244, "endorsed-size")
-                        require(len(fds) == 1, "endorsed-rights-count")
+                        require(len(fds) == 2, "endorsed-rights-count")
                         d_pidfd = fds[0]
+                        # The server's own prefix directory: the only place a profile may be provisioned.
+                        prefix_stat = os.fstat(fds[1])
+                        require(stat.S_ISDIR(prefix_stat.st_mode) and prefix_stat.st_uid == self.uid,
+                                "endorsed-prefix")
                         require(identity is not None and len(identity) == 3, "endorsed-cred")
                         require(len(pins) == 1 and alive(pins[0]), "endorsed-sender-pin-count")
                         sender_pin = pins[0]
@@ -544,6 +578,7 @@ def service(server_path, system_group, pam_paths=None):
                         require(len(self.endorsed_records) < 8, "endorsed-capacity")
 
                         fds.pop(0)
+                        prefix_fd = fds.pop(0)
                         tail = e1r8.decode_tuple_tail(data[76:236])
                         t = e1r8.E1R8Tuple(request_id=request_id, attempt=attempt,
                                            nonce=data[28:60], channel_id=data[60:76])
@@ -566,6 +601,7 @@ def service(server_path, system_group, pam_paths=None):
                             "pid": body_pid,
                             "uid": body_uid,
                             "pidfd": d_pidfd,
+                            "prefix": prefix_fd,
                             "tuple": t,
                             "state": "ENDORSED",
                         }
@@ -1027,7 +1063,7 @@ def service(server_path, system_group, pam_paths=None):
             if fd is not None:
                 os.close(fd)
         os.close(server_exe)
-        for fd in (pam_exe, pam_audit):
+        for fd in (pam_exe, pam_audit, provision_exe):
             if fd is not None:
                 os.close(fd)
 

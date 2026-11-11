@@ -1,5 +1,12 @@
 # Changes to stock Wine / third-party code
 
+## E1-S18e: ENDORSED carries the prefix directory (lab only, 2026-11-11)
+
+Only with `WEX_E1S6_TRANSPORT_TEST`. `server/named_pipe.c`: the ENDORSED message to the verifier carries a
+second SCM_RIGHTS descriptor after the dialog's pidfd: the server's `config_dir_fd` (the kernel duplicates
+it). The verifier hands it to its profile provisioning helper, so the administrator's profile is created in
+this server's prefix without any path from the broker or the user.
+
 ## E1-S18e R10: the verifier's receipt installs the consumed record (lab only, 2026-11-10)
 
 Only with `WEX_E1S6_TRANSPORT_TEST` (and Linux); no protocol change. `server/named_pipe.c`:
