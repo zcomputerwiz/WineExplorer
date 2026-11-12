@@ -16,7 +16,13 @@ that, it shows the local list (one entry).
 An ordinary start after failed ones shows XP's "did not start successfully" screen: the three Safe Modes, Last Known
 Good and Start Normally, which a 30-second countdown chooses. wex-failure-check.service runs `wex-advanced-options
 --failure-check`, which starts wex-failure-screen.service (`--failure-screen`) when `vintner status --json` reports
-failed starts of this generation. That start is counted, so Start Normally and Last Known Good go on with it.
+failed starts of this generation, or a start through the menu did not finish. That start is counted, so Start
+Normally and Last Known Good go on with it.
+
+As on XP, a start through the menu counts unless it is a Safe Mode (measured on the XP VM for Enable VGA Mode,
+2026-11-11: it updated Last Known Good, and a reset during it brought the failure screen; a Safe Mode start did
+neither). Vintner Boot counts nothing for its variant, so the menu records such a start on disk (MENU_START), and the
+start-up check (wex-startup-check) removes the record once the logon screen is up and saves the control set.
 A Safe Mode choice restarts into the Advanced Options variant (`vintner next-boot variant advanced`), which counts
 nothing, and the menu there starts the recorded mode without showing itself.
 
@@ -42,6 +48,8 @@ VINTNER = os.environ.get("WEX_VINTNER", "/usr/sbin/vintner")
 PLYMOUTH = os.environ.get("WEX_PLYMOUTH", "/usr/bin/plymouth")
 # The Safe Mode the failure screen chose for the next start, through the variant (failure_screen)
 PENDING = os.environ.get("WEX_BOOTMODE_PENDING", "/var/lib/wineexplorer/next-bootmode")
+# A start through the menu that counts (any choice but a Safe Mode), until the start-up check sees it succeed
+MENU_START = os.environ.get("WEX_MENU_START", "/var/lib/wineexplorer/menu-start")
 VARIANT = "advanced"     # installer/vintner/advanced.conf
 SAFE_MODES = ("safe", "safenet", "safecmd")
 KDSETMODE, KD_TEXT = 0x4B3A, 0x00   # linux/kd.h
@@ -360,12 +368,29 @@ def write_state(name, value):
     os.replace(tmp, path)
 
 
+def write_menu_start(mode, option):
+    """Record a start through the menu that counts (MENU_START, on disk), so that the next ordinary start shows the
+    failure screen if this one never reaches the logon screen. Root only; a failure only loses that screen."""
+    try:
+        os.makedirs(os.path.dirname(MENU_START), mode=0o755, exist_ok=True)
+        tmp = MENU_START + ".tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            f.write(f"{mode} {option or '-'}\n")
+        os.replace(tmp, MENU_START)
+    except OSError as error:
+        print(f"wex-advanced-options: this start is not recorded: {error}", file=sys.stderr)
+
+
 def apply_choice(mode, option=None, run=subprocess.run):
-    """Continue this boot in MODE, with one OPTION of the menu."""
+    """Continue this boot in MODE, with one OPTION of the menu. Any start but a Safe Mode counts, as on XP
+    (write_menu_start)."""
     if mode not in MODES:
         raise ValueError(f"unknown mode {mode!r}")
     if option is not None and option not in OPTIONS:
         raise ValueError(f"unknown option {option!r}")
+    if mode not in SAFE_MODES:
+        write_menu_start(mode, option)
     write_state("bootmode", mode)
     if option:
         write_state("bootoption", option)
@@ -565,14 +590,19 @@ def run_failure(stdscr, previous=None, clock=time.monotonic):
 
 def failure_check(run=subprocess.run):
     """wex-failure-check.service, on an ordinary Vintner Boot start: start the failure screen and wait for it when
-    earlier starts of this generation failed. Setup's starts are left alone: Setup runs again at the next start
-    anyway. Returns the exit code; a failed check lets the start go on."""
+    earlier starts of this generation failed, or a start through the menu that counts did not reach the logon screen
+    (MENU_START is still there; a successful start removes it). Setup's starts are left alone: Setup runs again at
+    the next start anyway. Returns the exit code; a failed check lets the start go on."""
     if os.path.exists(SETUP_STAGE):
         return 0
     count = failed_starts(vintner_status(run))
     if count:
         print(f"wex-advanced-options: {count} earlier start(s) of this generation failed", file=sys.stderr)
-        run(["systemctl", "start", "wex-failure-screen.service"], check=False)
+    elif os.path.exists(MENU_START):
+        print("wex-advanced-options: a start through the Advanced Options menu did not finish", file=sys.stderr)
+    else:
+        return 0
+    run(["systemctl", "start", "wex-failure-screen.service"], check=False)
     return 0
 
 

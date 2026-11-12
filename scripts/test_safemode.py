@@ -354,9 +354,14 @@ class TestStartupCheck(TempDirTest):
     VARIANT = "root=UUID=x ro quiet vintner.bootstorage=PARTUUID=y wexmode=menu vintner.variant=advanced"
 
     def check(self, cmdline="root=UUID=x ro quiet", mode="normal", processes=(), sessions="",
-              session_class="", session_type="", active="", stage=False):
+              session_class="", session_type="", active="", stage=False, menu_start=False):
         """processes: "user|command line" entries that the fake pgrep matches its -u and -f pattern against.
-        Returns (exit status, counted, output)."""
+        menu_start: the menu's record of a start that counts is there. Returns (exit status, counted, output)."""
+        self.menu_start = self.tmp / "menu-start"
+        if menu_start:
+            self.menu_start.write_text(f"{mode} -\n", encoding="ascii")
+        else:
+            self.menu_start.unlink(missing_ok=True)
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir(exist_ok=True)
         self.lastgood_log = self.tmp / "lastgood.log"
@@ -386,7 +391,7 @@ class TestStartupCheck(TempDirTest):
                "WEX_STARTUP_TIMEOUT": "0", "WEX_STARTUP_INTERVAL": "0",
                "FAKE_PROCS": "\n".join(processes), "FAKE_SESSIONS": sessions, "FAKE_CLASS": session_class, "FAKE_TYPE": session_type,
                "FAKE_ACTIVE": active, "WEX_LASTGOOD_HELPER": str(bin_dir / "fake-lastgood"),
-               "LASTGOOD_LOG": str(self.lastgood_log)}
+               "LASTGOOD_LOG": str(self.lastgood_log), "WEX_MENU_START": str(self.menu_start)}
         result = subprocess.run(["sh", str(STARTUP_CHECK)], env=env, capture_output=True, text=True, timeout=30)
         counted = result.returncode == 0 and "counts as successful" in result.stdout
         return result.returncode, counted, result.stdout
@@ -432,14 +437,35 @@ class TestStartupCheck(TempDirTest):
         self.assertEqual((status, cleared), (1, False))
         self.assertIn("counts as failed", out)
 
-    def test_menu_starts_do_not_count(self):
-        """The Advanced Options variant, whatever the menu chose, and also with Safe Mode chosen on the failure screen
-        before the restart into it."""
-        for mode in ("normal", "safe", "safenet", "safecmd"):
+    def test_safe_mode_through_the_menu_does_not_count(self):
+        """The Advanced Options variant in a Safe Mode, also with Safe Mode chosen on the failure screen before the
+        restart into it: as on XP, neither success nor failure counts."""
+        for mode in ("safe", "safenet", "safecmd"):
             status, counted, out = self.check(cmdline=self.VARIANT, mode=mode, processes=[self.WELCOME])
             self.assertEqual((status, counted), (0, False), mode)
-            self.assertIn(f"not counted: started through the Advanced Options menu ({mode})", out)
-        self.assertEqual(self.check(cmdline="ro quiet wexmode=menu", processes=[self.WELCOME])[:2], (0, False))
+            self.assertIn(f"not counted: Safe Mode through the Advanced Options menu ({mode})", out)
+            self.assertEqual(self.check(cmdline=self.VARIANT, mode=mode)[:2], (0, False), f"{mode}, no logon screen")
+
+    def test_other_starts_through_the_menu_count(self):
+        """Any other choice of the menu (Enable VGA Mode, Start Normally, the other options) counts as on XP: the
+        logon screen makes it a successful start, and without one it fails."""
+        status, counted, out = self.check(cmdline=self.VARIANT, mode="normal", processes=[self.WELCOME])
+        self.assertEqual((status, counted), (0, True))
+        self.assertIn("started through the Advanced Options menu (normal): it counts, as on XP", out)
+        self.assertEqual(self.check(cmdline="ro quiet wexmode=menu", processes=[self.WELCOME])[:2], (0, True))
+        self.assertEqual(self.check(cmdline=self.VARIANT, mode="normal")[:2], (1, False))
+
+    def test_the_menus_record_goes_once_a_start_succeeds(self):
+        """The record of a start through the menu stays when that start fails (the next ordinary start shows the
+        failure screen) and goes with any successful start, through the menu or not."""
+        self.check(cmdline=self.VARIANT, mode="normal", menu_start=True)
+        self.assertTrue(self.menu_start.exists(), "a failed start keeps it")
+        self.check(cmdline=self.VARIANT, mode="normal", processes=[self.WELCOME], menu_start=True)
+        self.assertFalse(self.menu_start.exists(), "the start through the menu succeeded")
+        self.check(processes=[self.WELCOME], menu_start=True)
+        self.assertFalse(self.menu_start.exists(), "an ordinary start succeeded")
+        self.check(cmdline=self.VARIANT, mode="safe", processes=[self.WELCOME], menu_start=True)
+        self.assertTrue(self.menu_start.exists(), "a Safe Mode start counts nothing")
 
     def test_an_ordinary_vintner_start_counts(self):
         """A generation's own start, also when the failure screen showed and Start Normally went on with it."""
@@ -459,15 +485,16 @@ class TestStartupCheck(TempDirTest):
         self.assertEqual(self.check(processes=[self.WELCOME])[0], 0)
         self.assertTrue(self.saved_lastgood())
 
-    def test_setup_menu_starts_and_failed_starts_are_not_saved(self):
+    def test_setup_safe_mode_and_failed_starts_are_not_saved(self):
         self.check(stage=True, active="wex-setup.service")
         self.assertFalse(self.saved_lastgood(), "Setup's starts")
-        self.check(cmdline=self.VARIANT, mode="normal", processes=[self.WELCOME])
-        self.assertFalse(self.saved_lastgood(), "a start through the menu")
         self.check(cmdline=self.VARIANT, mode="safe", processes=[self.WELCOME])
-        self.assertFalse(self.saved_lastgood(), "Safe Mode from the failure screen")
+        self.assertFalse(self.saved_lastgood(), "Safe Mode (from the menu or the failure screen)")
         self.check()
         self.assertFalse(self.saved_lastgood(), "a failed start")
+        # Enable VGA Mode and the menu's other normal starts update the Last Known Good, as on XP
+        self.check(cmdline=self.VARIANT, mode="normal", processes=[self.WELCOME])
+        self.assertTrue(self.saved_lastgood(), "a start through the menu")
 
 
 class TestLastGood(TempDirTest):
@@ -606,6 +633,7 @@ class TestMenu(TempDirTest):
         self.menu.CMDLINE = str(self.tmp / "cmdline")            # none: Vintner Boot did not start this system
         self.menu.VINTNER = str(self.tmp / "no-vintner")
         self.menu.PENDING = str(self.tmp / "next-bootmode")
+        self.menu.MENU_START = str(self.tmp / "lib" / "menu-start")
         self.menu.Screen = FakeScreen
         self.calls = []
 
@@ -841,6 +869,16 @@ class TestMenu(TempDirTest):
         self.with_vintner(0, self.failing(0))
         self.menu.failure_check(run=self.recording_run(calls))
         self.assertEqual(calls, [[self.menu.VINTNER, "status", "--json"]])
+        # a start through the menu that counts did not finish (its record is still there): the screen too
+        calls.clear()
+        os.makedirs(os.path.dirname(self.menu.MENU_START))
+        with open(self.menu.MENU_START, "w", encoding="ascii") as f:
+            f.write("normal vga\n")
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.menu.failure_check(run=self.recording_run(calls))
+        self.assertEqual(calls, [[self.menu.VINTNER, "status", "--json"],
+                                 ["systemctl", "start", "wex-failure-screen.service"]])
+        self.assertIn("a start through the Advanced Options menu did not finish", err.getvalue())
         calls.clear()
         (self.tmp / "stage").write_text("oobe\n")
         self.menu.failure_check(run=self.recording_run(calls))
@@ -1173,6 +1211,27 @@ class TestMenu(TempDirTest):
         self.assertEqual(oct((self.tmp / "run" / "bootmode").stat().st_mode & 0o777), "0o644")
         self.assertEqual(self.calls, [["systemctl", "daemon-reload"],
                                       ["systemctl", "--no-block", "start", "default.target"]])
+        self.assertFalse(os.path.exists(self.menu.MENU_START), "a Safe Mode start counts nothing")
+
+    def test_apply_records_the_starts_that_count(self):
+        """Every start through the menu but a Safe Mode counts, as on XP: it is recorded on disk until the start-up
+        check sees it succeed. Without the record (a disk that cannot be written) the start still goes on."""
+        record = self.tmp / "lib" / "menu-start"
+        self.menu.apply_choice("normal", "vga", run=self.fake_run)
+        self.assertEqual(record.read_text(), "normal vga\n")
+        self.menu.apply_choice("normal", run=self.fake_run)
+        self.assertEqual(record.read_text(), "normal -\n")
+        record.unlink()
+        for mode in ("safe", "safenet", "safecmd"):
+            self.menu.apply_choice(mode, run=self.fake_run)
+            self.assertFalse(record.exists(), mode)
+        self.menu.MENU_START = str(self.tmp / "stage" / "x" / "menu-start")   # "stage" is not a directory
+        (self.tmp / "stage").write_text("")
+        self.calls.clear()
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.menu.apply_choice("normal", "vga", run=self.fake_run)
+        self.assertIn("this start is not recorded", err.getvalue())
+        self.assertEqual(self.calls[-1], ["systemctl", "--no-block", "start", "default.target"])
 
     def test_apply_options(self):
         self.menu.apply_choice("normal", "bootlog", run=self.fake_run)

@@ -570,10 +570,11 @@ The XP probe the same day (Enable VGA Mode on the XP VM) agreed:
 - A mode applied in Display Properties was kept by the next normal start, and the next VGA start was 640x480
   again.
 
-Two differences remain, for the owner:
+Two differences remained, for the owner:
 - **On XP a VGA start counts as a successful start.** It updated Last Known Good, and a reset during it brought
-  the failure screen next time. Here no start through the menu counts (decision 3), so a VGA start saves no
-  control set.
+  the failure screen next time. **Resolved 2026-11-12** (the owner: "do whatever the actual Windows behavior
+  is"): a start through the menu counts unless it is a Safe Mode (decision 3 as revised; `docs/SAFE_MODE.md`
+  section 3).
 - About 20 seconds after logon XP shows a "Display Settings" balloon saying the resolution is low; WineExplorer
   shows none.
 
@@ -614,6 +615,11 @@ options when needed" setting is D1's countdown, so add it when D1 lands.
    restore tool (Vintner rollback) when one exists.
 3. **Starts through the menu do not count:** no boot through the menu changes the start-up state, whatever mode
    it ends in, good or bad. That is the same rule as Vintner's uncounted variant, so both loaders behave alike.
+   **Revised 2026-11-12** by the owner ("do whatever the actual Windows behavior is"): as on XP, only Safe Mode
+   starts count for nothing. Every other start through the menu counts: it updates Last Known Good when it
+   succeeds, and an unfinished one brings the failure screen at the next start (the XP VM, 2026-11-11, for Enable
+   VGA Mode and Safe Mode). Vintner's variant still counts nothing; WineExplorer keeps its own record
+   (`/var/lib/wineexplorer/menu-start`).
 4. **Enable VGA Mode** (D2): stays grayed for now, unless an implementation turns out to be simple.
 5. **Where Wine reads the mode** (B1): the WineExplorer file `/run/wineexplorer/bootmode`; `wex-sysrun` and the
    other E1 code stay as they are.

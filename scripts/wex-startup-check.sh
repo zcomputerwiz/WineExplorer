@@ -10,13 +10,16 @@
 # start successfully". A successful start after Setup also becomes the last known good configuration (wex-lastgood
 # save), as XP updates its copy once a start succeeds.
 #
-# Starts through the Advanced Options menu (its variant, with wexmode=) do not count (docs/SAFE_MODE_WORKORDER.md,
-# decision 3), and Vintner Boot counts nothing for them either. The WEX_* variables let scripts/test_safemode.py use
-# other paths.
+# A start through the Advanced Options menu (its variant, with wexmode=) counts as on XP unless it is a Safe Mode
+# (docs/SAFE_MODE_WORKORDER.md, decision 3 as revised 2026-11-12). Vintner Boot counts nothing for the variant, so the
+# menu records such a start on disk (menu-start); a successful start of any kind removes the record, and an ordinary
+# start that finds it shows the failure screen (wex-advanced-options --failure-check). The WEX_* variables let
+# scripts/test_safemode.py use other paths.
 cmdline_file=${WEX_BOOTMODE_CMDLINE:-/proc/cmdline}
 bootmode=${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}
 stage=${WEX_BOOTMODE_SETUP_STAGE:-/etc/wineexplorer/setup/stage}
 lastgood=${WEX_LASTGOOD_HELPER:-/usr/local/sbin/wex-lastgood}
+menu_start=${WEX_MENU_START:-/var/lib/wineexplorer/menu-start}
 limit=${WEX_STARTUP_TIMEOUT:-900}
 interval=${WEX_STARTUP_INTERVAL:-2}
 
@@ -24,8 +27,13 @@ cmdline=" $(cat "$cmdline_file" 2>/dev/null) "
 case "$cmdline" in
     *" wexmode="*)
         mode=$("$bootmode" 2>/dev/null) || mode=normal
-        echo "not counted: started through the Advanced Options menu ($mode)"
-        exit 0
+        case "$mode" in
+            safe|safenet|safecmd)
+                echo "not counted: Safe Mode through the Advanced Options menu ($mode)"
+                exit 0
+                ;;
+        esac
+        echo "started through the Advanced Options menu ($mode): it counts, as on XP"
         ;;
 esac
 
@@ -70,6 +78,7 @@ until setup_screen || logon_screen || graphical_session; do
 done
 
 echo "$found is up after about $waited seconds: this start counts as successful"
+rm -f "$menu_start"
 # Setup's starts are not a configuration to go back to
 if [ ! -e "$stage" ]; then
     "$lastgood" save || echo "could not save the last known good configuration"
