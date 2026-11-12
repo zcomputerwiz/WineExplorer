@@ -1,13 +1,17 @@
 # Group Policy and Linux GPO sync (design note)
 
 Surveyed on 2026-11-11. Status: design only, nothing implemented. The Linux facts below were checked online on the
-same day (sources at the end); anything marked "unverified" was not.
+same day (sources at the end); anything marked "unverified" was not. Reviewed on 2026-11-11 against the tree and the
+elevation work (E1): the Wine and ReactOS statements were rechecked, the Samba statements were not; the machine
+registry, the policy trees and the security-template parts were corrected. Roadmap entry: "Future: Group Policy and
+domain join" in [ROADMAP.md](ROADMAP.md).
 
 ## Goal
 
 When the Linux host is joined to an Active Directory domain, the domain's Group Policy should reach the Wine prefix
-the shell runs in, so policy-aware Windows components see the same `Software\Policies` values they would on an XP
-machine. What does not apply to Wine is shown grayed out, never silently ignored.
+the shell runs in, so policy-aware Windows components see the same policy values they would on an XP machine: the
+four policy trees, `Software\Policies` and `Software\Microsoft\Windows\CurrentVersion\Policies`, each under `HKLM`
+and `HKCU`. What does not apply to Wine is shown grayed out, never silently ignored.
 
 ## Current state
 
@@ -24,6 +28,19 @@ machine. What does not apply to Wine is shown grayed out, never silently ignored
 - No `gpupdate`, `gpresult` or `gpedit`. `programs/secedit` is a 22-line stub.
 - `shell32/shpolicy.c` reads the `...\CurrentVersion\Policies\...` shell restrictions, so values written to the
   registry are honoured by the components that already read them.
+
+### This project (elevation track E1)
+
+- The machine registry is decided: `HKLM` is the machine root's hive (`machine_root` in the root-owned
+  `/etc/wineexplorer/sysrun.conf`), loaded and saved by the Wine server, and only clients with the system group may
+  write it (`tools/wex-sysrun`). A user's own programs, `wexhost` included, cannot write machine policy.
+- Policy already read from it: `HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System`
+  (`ConsentPromptBehaviorAdmin`, `PromptOnSecureDesktop`, read by `wexelevate`) and
+  `HKLM\Software\WineExplorer\Elevation` (`EnableStandardUserElevation`; `LockoutBadCount` and `LockoutDuration`,
+  the account lockout policy, read by the password verifier from the saved hive; `E1_S18E_WORK_ORDERS.md`, WO-38).
+- In a domain these arrive in the security template (`GptTmpl.inf` in the GPO's machine part), not in
+  `Registry.pol`: the lockout policy in `[System Access]` (`LockoutBadCount`, `LockoutDuration`,
+  `ResetLockoutCount`), the consent settings as security options in `[Registry Values]`.
 
 ### ReactOS (`references/reactos/dll/win32/userenv`)
 
@@ -93,10 +110,12 @@ model: it filters `**delvals.` entries itself and never reads `entry.type`, so a
 **Consequences for this project.**
 - A Wine-registry CSE is feasible and small, but it needs the user CSE flag and a user-state path that works as the
   logged-on user.
-- Writing `user.reg` or `system.reg` directly while a `wineserver` runs is not safe. The CSE should hand the values to
-  `wexhost` (D-Bus) which writes through the live server, or write only when no server runs and let `wexhost` merge.
-- Machine policy runs as root. Which prefix holds `HKLM` for the shell (one system prefix or one per user) decides where
-  it is written; this is a project decision, not a Samba one.
+- Writing `user.reg` or `system.reg` directly while a `wineserver` runs is not safe: the server holds the hive in
+  memory and overwrites the file when it saves. User policy can go to `wexhost` (D-Bus), which writes through the live
+  server of that user.
+- Machine policy runs as root and belongs in the machine root's hive (see "This project" above). `wexhost` cannot
+  write it. It needs a writer with the system group: a small helper started through `wex-sysrun` that writes through
+  a server, or a write to the saved hive only while no server has the machine root loaded.
 
 ## Design
 
@@ -106,16 +125,21 @@ model: it filters `**delvals.` entries itself and never reads `entry.type`, so a
    `DsRoleGetPrimaryDomainInformation` return a domain member role with the real names, using the `wexhost` data.
    Both are small stock-Wine changes; list them in [STOCK_CHANGES.md](STOCK_CHANGES.md).
 3. **Fetch and apply through Samba, not our own parser.** Write a small Wine-registry CSE using Samba's documented
-   extension API. It runs inside `samba-gpupdate`, reads the GPO's `Registry.pol` and writes
-   `HKLM\Software\Policies` (machine) and `HKCU\Software\Policies` (user) into the Wine prefix, honouring PReg
-   delete and `**del.` value markers. `wexhost` only schedules `samba-gpupdate` (and hands the SSSD case to
-   `oddjob-gpupdate`).
+   extension API. It runs inside `samba-gpupdate`, reads the GPO's `Registry.pol` and writes the values (the policy
+   trees named under "Goal") to the machine root's `HKLM` through the system-group writer and to the user's `HKCU`
+   through `wexhost`, honouring PReg delete and `**del.` value markers. `wexhost` only schedules `samba-gpupdate`
+   (and hands the SSSD case to `oddjob-gpupdate`).
+   The same CSE reads the machine security template (`GptTmpl.inf`) for the two parts that apply here: the account
+   lockout policy, written to the `LockoutBadCount` and `LockoutDuration` values the verifier reads, and the
+   security options in `[Registry Values]` that are consent settings.
 4. **Refresh signalling.** Port the ReactOS event and mutex code into Wine's `userenv` and export `RefreshPolicy`,
    `RefreshPolicyEx` and the wait calls. After the CSE finishes, `wexhost` sets the refresh-done events.
 5. **Applied GPO list.** `GetAppliedGPOListW` returns the list recorded by the CSE (name, GUID, link, version) instead
    of failing, so `gpresult`-style tools have data.
-6. **Not applicable to Wine.** Software installation, folder redirection, disk quotas, IPsec and Windows
-   security-settings templates are shown grayed out in any policy UI and reported "not applicable" in RSoP output.
+6. **Not applicable to Wine.** Software installation, folder redirection, disk quotas, IPsec and the rest of the
+   security settings (password and Kerberos policy belong to the host and the domain, user rights, audit, restricted
+   groups, services, file and registry permissions) are shown grayed out in any policy UI and reported "not
+   applicable" in RSoP output. Account lockout and the consent security options apply (step 3).
 7. **Later.** A `gpupdate` command that calls the refresh path, `gpresult` over the recorded list, and a local
    `gpedit.msc` that edits a local `Registry.pol`.
 
@@ -124,6 +148,11 @@ model: it filters `**delvals.` entries itself and never reads `entry.type`, so a
 - Per-user policy: `samba-gpupdate --target=User` works as root and drops to the user, but no automatic per-logon
   trigger is documented. Decide whether the wex logon flow (or a PAM hook) runs it, and check `winbindd` source for what
   `apply group policies` covers. The profile hive loading (`e1s_load_profile`) decides where the user hive is writable.
+- Who may write the policy trees. On Windows only administrators and SYSTEM can; `HKLM` is covered by the machine
+  root, but a user's own programs can write their own `HKCU\Software\Policies` in Wine today, so user policy is not
+  binding until those keys are protected.
+- Local policy without a domain: `secpol.msc`, `net accounts` and `NetUserModalsGet/Set` level 3 (a stub in Wine)
+  on top of the lockout values, independent of the domain work.
 - Winbind or SSSD as the supported join: the docs steer to Winbind for GPO. Decide before the installer offers a join.
 - SYSVOL access with the machine account's Kerberos ticket works in both; SSSD additionally needs the `net ads join -k`
   Samba machine account to stay in sync.

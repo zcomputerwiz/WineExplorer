@@ -313,6 +313,26 @@ notes; concepts only, no code).
   the filesystem has it, otherwise a hardlink tree or an archive), who may restore (an administrator, through the
   same elevation), retention, and behaviour while other users' programs run from the machine root.
 
+## Future: Group Policy and domain join (added 2026-11-11, not started)
+
+Design note: `docs/GROUP_POLICY.md`. When the host is joined to an Active Directory domain, the domain's policy
+reaches the Windows side: Samba's `samba-gpupdate` fetches the GPOs and a small extension of ours writes the registry
+policy; Windows programs are told about the join. Depends on the machine registry of the system tier (machine policy
+is written to the machine root with the system group) and feeds track E1 (consent settings and the account lockout
+policy can then come from the domain). Order:
+
+1. Join detection in `wexhost` and the two stock-Wine changes that report it (`NetGetJoinInformation`,
+   `DsRoleGetPrimaryDomainInformation`), tested against a Samba AD controller in the lab with a 32-bit program.
+2. The registry-policy extension: machine policy through a system-group writer, user policy through `wexhost`;
+   account lockout and consent settings from the security template.
+3. Refresh signalling and the applied-GPO list in `userenv` (ReactOS code for the events), then `gpupdate`,
+   `gpresult` and a local policy editor, with what does not apply to Wine grayed out.
+
+Independent of the domain: local policy tools over the existing values (`secpol.msc`, `net accounts`,
+`NetUserModalsGet/Set` level 3 for the lockout policy). Open decisions are listed in the note: Winbind or SSSD as the
+supported join, the per-logon trigger for user policy, protecting the user policy keys, and the licence of the
+extension (Samba's API is GPL-3.0-or-later).
+
 ## Future: DWM graphics follow-ups (added 2026-11-11, not started)
 
 Two ideas kept from comparing our compositor design with the Raven project's presentation code (concepts only; the
