@@ -2816,6 +2816,21 @@ read -r FAKEACC FAKEGOT < "$FAKE/got" || true   # no final newline
 [ "$FAKEGOT" = 0 ] || fail "T6.2: a server sent $FAKEGOT messages to a socket of another account"
 rm -rf "$FAKE"
 ok st_user_server_ignores_a_socket_of_another_account
+# T5.3: session 0's account runs programs on the machine root through session 0 (its own services.exe, in session
+# 0); T5.2: a standard user's 64-bit and 32-bit programs reach that service manager through \pipe\WexSession0\svcctl
+s0_wine() { (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+    WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" "$@" </dev/null 2>/dev/null); }
+s0_wine sc query PlugPlay >/dev/null || true
+pgrep -u "$S0U" -f 'services.exe' >/dev/null || fail "T5.3: session 0 runs no services.exe"
+[ "$(s0_wine "$ROOT/probes/tierprobe64.exe" whoami | tr -d '\r' | sed -n 's/^session=//p')" = 0 ] ||
+    fail "T5.3: session 0's programs are not in session 0"
+i686-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/tierprobe32.exe" "$SRC/scripts/system-tier-probe.c" -ladvapi32 -lntdll
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" rpcbind 'WexSession0\svcctl')"
+    grep -q '^bind=12 ' <<<"$OUT" || { echo "$OUT" >&2; fail "T5.2: a $b-bit program of $STD gets no bind_ack from session 0's svcctl"; }
+done
+kill_servers
+ok st_session0_runs_its_service_manager_and_sessions_reach_it
 # session 0 saves the hive as its own account; the users' servers accept it, and the write survives a restart
 s0_stop
 grep -q '^"fromadm"="elevated"' "$M/system.reg" || fail "session 0 did not save the elevated write"

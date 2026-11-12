@@ -167,6 +167,7 @@ check empty_messages_leak_no_fds "$([ "$FD_AFTER" -le $((FD_BEFORE + 8)) ] && ec
 
 # T5.2: a session's program reaches session 0's service manager through \pipe\WexSession0\svcctl (64- and 32-bit)
 s0 sc query PlugPlay >/dev/null 2>&1   # session 0's own services.exe runs
+check s0_programs_in_session_0 "$(s0 "$W/p64.exe" whoami | field session)" 0
 check pipe64_bridged "$(A "$W/p64.exe" rpcbind 'WexSession0\svcctl' | field pipe)" open
 check bind64_through_bridge "$(A "$W/p64.exe" rpcbind 'WexSession0\svcctl' | field bind | cut -d' ' -f1)" 12
 check bind32_through_bridge "$(A "$W/p32.exe" rpcbind 'WexSession0\svcctl' | field bind | cut -d' ' -f1)" 12

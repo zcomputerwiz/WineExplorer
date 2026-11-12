@@ -71,6 +71,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   link message on both sides), `server/async.c` and `file.h` (`create_data_iosb`), `server/session0.h`,
   `include/wine/wex_session0.h` (version 5, `PIPE`).
 
+- T5.3, programs of session 0: `dlls/ntdll/unix/server.c` (a prefix owned by root is used by another account only
+  through a running server; `start_server_checked` starts none for it), `server/session0.c` (session 0's own
+  programs are in session 0), `server/directory.c` (session 0's directories are not created twice).
+
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)
