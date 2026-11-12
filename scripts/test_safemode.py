@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import sys
 import tempfile
 import unittest
@@ -539,6 +540,26 @@ class TestLastGood(TempDirTest):
         self.assertIn("  18,19\n", saved, "continuation lines stay with their key")
         self.assertEqual(self.lastgood("status").returncode, 0)
         self.assertEqual(oct((self.state / "controlset.reg").stat().st_mode & 0o777), "0o600")
+
+    def test_waits_for_a_server_saving_the_registry(self):
+        """Wine's user servers save system.reg in place under an exclusive flock on the machine root's .reg.lock: the
+        copy and the restore wait for it, so a half-written file is never read or overwritten."""
+        self.write_reg()
+        lock = self.machine / ".reg.lock"
+        lock.touch()
+        for command in ("save", "restore"):
+            holder = subprocess.Popen(["flock", "-x", str(lock), "-c", "echo held; sleep 2"], stdout=subprocess.PIPE,
+                                      text=True)
+            self.assertEqual(holder.stdout.readline(), "held\n")
+            start = time.monotonic()
+            result = self.lastgood(command)
+            waited = time.monotonic() - start
+            holder.wait(timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertGreater(waited, 1.0, f"{command} did not wait for the lock")
+        # no lock file (no server has used the machine root): no wait
+        lock.unlink()
+        self.assertEqual(self.lastgood("save").returncode, 0)
 
     def test_restore_puts_the_control_set_back_and_keeps_the_rest(self):
         self.write_reg()

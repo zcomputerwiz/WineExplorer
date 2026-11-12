@@ -20,6 +20,21 @@ state=${WEX_LASTGOOD_DIR:-/var/lib/wineexplorer/lastgood}
 system_reg=$machine/system.reg
 saved=$state/controlset.reg
 failed=$state/failed-controlset.reg
+lock=$machine/.reg.lock
+
+# Wine's user servers save system.reg in place, not atomically, every 30 seconds, under an exclusive flock on the
+# machine root's .reg.lock (the system tier's session 0, once on, saves by renaming instead). The copy is taken under
+# a shared lock and the restore under an exclusive one, so neither a half-written file is copied nor a restore lost.
+# No lock file: no server has used the machine root yet.
+lock_registry() {   # lock_registry -s|-x
+    [ -e "$lock" ] || return 0
+    exec 9<"$lock" || return 0
+    flock "$1" -w 120 9 || echo "the machine registry stayed locked for 2 minutes; going on without the lock"
+}
+
+unlock_registry() {
+    exec 9<&-
+}
 
 # A key is its "[...]" line and every line up to the next one: Wine indents continuation lines, so only key lines
 # start with "[". WANT=1 prints the keys of the control set, WANT=0 everything else (the file's header included).
@@ -37,7 +52,9 @@ has_keys() {
 save() {
     [ -s "$system_reg" ] || { echo "no machine registry at $system_reg"; return 1; }
     mkdir -p "$state"
-    control_set 1 "$system_reg" > "$saved.tmp" || { rm -f "$saved.tmp"; return 1; }
+    lock_registry -s
+    control_set 1 "$system_reg" > "$saved.tmp" || { unlock_registry; rm -f "$saved.tmp"; return 1; }
+    unlock_registry
     if ! has_keys "$saved.tmp"; then
         rm -f "$saved.tmp"
         echo "the machine registry has no control set"
@@ -50,6 +67,14 @@ save() {
 restore() {
     has_keys "$saved" || { echo "there is no last known good configuration in $state"; return 1; }
     [ -s "$system_reg" ] || { echo "no machine registry at $system_reg"; return 1; }
+    lock_registry -x
+    replace_control_set
+    status=$?
+    unlock_registry
+    return "$status"
+}
+
+replace_control_set() {   # restore's work, under the lock
     control_set 1 "$system_reg" > "$failed.tmp" && mv -f "$failed.tmp" "$failed" || return 1
     new=$system_reg.lastgood-tmp
     # The copy keeps the owner, the mode and the ACLs; prefixes link to system.reg by name, so a rename keeps them.
