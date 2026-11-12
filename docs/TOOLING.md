@@ -87,7 +87,7 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     `src/...` and the assembled `wine/...`, then run `make`. Its latest install tarball (576 MB) is
     `D:\WSL\wex-iso\wine-safemode-b5.tar.gz`. As of 2026-11-12 it holds B1-B7, the buffered paint fix
     (`4a1d6d5a25e`), uxtheme's Safe Mode check (`cdda62d0ad7`), this repository's wexhost (shell keys, saved sessions)
-    and `logonui.c`, and wexcomp `034d722f` as
+    and `logonui.c`, and wexcomp `0d524d63` as
     `usr/local/bin/wexcomp`. Repacking keeps that binary (`tar -xzf` it from the old tarball into the stage first).
     Commits on that branch reach the Windows checkout's `wine` repository through a bundle (`git bundle create`, then
     `git fetch` from the bundle). Git for Windows cannot fetch from the `\\wsl.localhost` path.

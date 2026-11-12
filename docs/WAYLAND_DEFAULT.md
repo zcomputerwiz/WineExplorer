@@ -92,6 +92,22 @@ way.
   window rule ignoring its configure requests did not help, since the size taken at map is the narrow one. A
   general fix would snap client requests only to the hints in force once the client's own change has been read, or
   not snap them at all, as an X server without a window manager does.
+- **Logging off from Wayland could log the account straight back on** (found and fixed 2026-11-12). Once in eleven
+  log offs from the Wayland session on UEFI (the VM test's `waylandlogon`), the Welcome screen did not come: the
+  automatic logon's desktop came back. Log Off ends the session through logind (`TerminateSession`, wexhost), which
+  stops every process in it at once. The cause:
+  - wlroots writes the X display's lock file (`/tmp/.X0-lock`) with the compositor's pid and gives the display's
+    listening sockets to XWayland, and removes the lock as the compositor ends, without waiting for XWayland.
+  - LightDM, starting the greeter's X server, takes a display as free when its lock is gone or names a dead process.
+    When the compositor had ended before XWayland, LightDM chose `:0`, which XWayland still held. The X server could
+    not listen ("Cannot establish any listening sockets"), LightDM stopped the seat ("greeter display server failed
+    to start") and exited with 1, and systemd's restart of `lightdm.service` ran the automatic logon again. Without an
+    automatic logon the Welcome screen came back after the restart.
+
+  wexcomp now ends XWayland (`SIGTERM` and `SIGCONT`, at most a second) before the lock goes (`0d524d63`, branch
+  `claude/safe-mode-output-mode`). The VM test's `waylandxlock` phase makes the race certain: XWayland held stopped,
+  the compositor alone ended. With the earlier wexcomp that run gave the failure above (the X server's error and
+  LightDM's exit in its logs); with this one LightDM keeps running and shows the Welcome screen.
 - **The socket variable.** The session script exported `LABWC_WEX_SHELL_SOCKET`, which nothing reads. wexcomp reads
   `WEX_SHELL_SOCKET`. Both meant the default, `wex-shell-0`, so it worked. Fixed on 2026-11-11: the script sets
   `WEX_SHELL_SOCKET` and uses it.

@@ -1369,6 +1369,21 @@ class TestSessionAndGreeter(unittest.TestCase):
         # the message box: OCR reads its first line or its last
         self.assertIn('*"running in Safe Mode"*|*"click Yes. To log"*)', vm)
 
+    def test_vm_test_holds_xwayland_while_the_compositor_ends(self):
+        # 2026-11-12: wexcomp 0d524d63 ends XWayland before the X display's lock goes; waylandxlock makes the race
+        # certain (XWayland stopped, the compositor alone ended) and LightDM must not restart
+        vm = VM_TEST.read_text(encoding="utf-8")
+        self.assertIn("|waylandfallback|waylandxlock) ;;", vm)
+        self.assertIn("waylandlogon|waylandfallback|waylandxlock) saved_session restore", vm)
+        phase = vm[vm.index("phase_waylandxlock() {"):]
+        phase = phase[:phase.index("\n}\n")]
+        self.assertLess(phase.index("kill -STOP $x && kill -TERM $c"), phase.index("logon_screen"))
+        self.assertIn("NRestarts", phase)
+        self.assertIn('fail "LightDM restarted after the compositor ended', phase)
+        for line in phase.splitlines():   # commands sent over the serial console must be one line
+            if "gsh '" in line:
+                self.assertEqual(line.count("'") % 2, 0, line)
+
     def test_wayland_session_reads_the_mode_before_the_prefix(self):
         session = (SCRIPTS / "wine-explorer-wayland-session.sh").read_text(encoding="utf-8")
         prepare = session.index("\nwex_prepare_prefix")

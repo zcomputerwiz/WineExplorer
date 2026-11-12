@@ -62,7 +62,13 @@
 #   waylandfallback  with wexcomp replaced by one that exits at once (on the stopped disk, put back afterwards), the
 #                Wayland session ends and saves X11, so the Welcome screen's next logon is X11, and the account's saved
 #                session is wine-explorer. Only when named (WEX_TEST_WINE).
-#   shellkeys    with xterm (a Linux program) on the keyboard in the X11 session, Win+R opens Run and Ctrl+Esc the
+#   waylandxlock with XWayland held stopped (SIGSTOP), the Wayland session's compositor alone is ended: the session
+#                ends, and the Welcome screen shows, with LightDM never restarted. wexcomp ends XWayland before its
+#                X display's lock goes; before, LightDM took the display, still held by XWayland, as free for the
+#                greeter's X server, which could not listen, and LightDM exited, its restart logging the account on
+#                again (once in eleven log offs from Wayland on UEFI, 2026-11-12; wexcomp 0d524d63). Only when named
+#                (WEX_TEST_WINE).
+#   shellkeys   with xterm (a Linux program) on the keyboard in the X11 session, Win+R opens Run and Ctrl+Esc the
 #                Start menu (wexhost's shell keys), and Win+L locks: the Welcome screen, and logging on again returns
 #                to the session with xterm. waylandshellkeys: the same in the Wayland session (wexcomp v15 and this
 #                wexhost, from WEX_TEST_WINE), over zenity (native Wayland) and over xterm through XWayland, which
@@ -130,7 +136,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -990,6 +996,34 @@ phase_waylandlogon() {   # the Welcome screen's session list follows the account
     saved_session restore || fail "cannot put the saved session back"
 }
 
+phase_waylandxlock() {   # wexcomp ends XWayland before its X display's lock goes (2026-11-12): XWayland held stopped,
+                         # the compositor alone ended; the session then ends by itself (Wine loses its compositor),
+                         # and LightDM, whose greeter's X server must find a free display, shows the Welcome screen
+                         # without restarting. Only when named; needs WEX_TEST_WINE (this wexcomp).
+    local out restarts
+    saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
+    start_vm
+    desktop 600
+    expect_compositor
+    gsh "python3 $HELPER --user $USER_NAME --native xterm -title wexkeys >/dev/null; echo started" 30 | grep -q '^started' \
+        || fail "cannot start xterm in the session"
+    wait_text "WEX-PC" 60 || fail "xterm did not appear (XWayland)"
+    restarts=$(gsh 'echo restarts=$(systemctl show -p NRestarts --value lightdm.service)' | grep '^restarts=' | tail -n 1)
+    out=$(gsh 'x=$(pgrep -u "$USER" -x Xwayland); c=$(pgrep -u "$USER" -o -x wexcomp); l=$(ls /tmp/.X*-lock | tr -s "[:space:]" " "); [ -n "$x" ] && [ -n "$c" ] && kill -STOP $x && kill -TERM $c && echo "held=$x compositor=$c locks=$l"' 30 \
+        | grep '^held=' | tail -n 1)
+    echo "  $out"
+    [ -n "$out" ] || fail "cannot hold XWayland and end the compositor"
+    logon_screen
+    out=$(gsh 'echo restarts=$(systemctl show -p NRestarts --value lightdm.service) xwayland=$(pgrep -c -u "$USER" -x Xwayland)' \
+        | grep '^restarts=' | tail -n 1)
+    echo "  before: $restarts; after: $out"
+    [ "${out%% *}" = "$restarts" ] || fail "LightDM restarted after the compositor ended: $restarts, then $out"
+    gsh 'pkill -CONT -u "$USER" -x Xwayland; pkill -u "$USER" -x Xwayland; echo done' 30 >/dev/null
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    saved_session restore || fail "cannot put the saved session back"
+}
+
 phase_waylandfallback() {   # X11 is the fallback (2026-11-12): with wexcomp broken (the main loop replaces it), a
                             # Wayland account's session ends at once and saves X11, so the Welcome screen's next logon
                             # is X11. Only when named; needs WEX_TEST_WINE (this logonui and wexhost).
@@ -1694,7 +1728,7 @@ for PHASE in "${PHASES[@]}"; do
     case "$PHASE" in vfailed|vlasttry|vgafailed) delay_logon off || die "cannot remove the logon delay" ;; esac
     if [ "$PHASE" = waylandfallback ]; then break_compositor off || die "cannot put wexcomp back"; fi
     # a phase that saved the test account's session and failed before putting it back
-    case "$PHASE" in waylandauto|waylanddisplay|waylandshellkeys|waylandlogon|waylandfallback) saved_session restore || die "cannot put the saved session back" ;; esac
+    case "$PHASE" in waylandauto|waylanddisplay|waylandshellkeys|waylandlogon|waylandfallback|waylandxlock) saved_session restore || die "cannot put the saved session back" ;; esac
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
     compare=("$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt")
     case "$PHASE" in
