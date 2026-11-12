@@ -110,6 +110,21 @@ static void queue_event(struct native_window *window, DWORD type)
     pthread_cond_signal(&queue_cond);
     pthread_mutex_unlock(&queue_mutex);
 }
+/* an event that belongs to no window (the shell keys) */
+static void queue_raw(const WEX_WM_EVENT *event)
+{
+    struct queued_event *node;
+    pthread_mutex_lock(&queue_mutex);
+    if (!(node = malloc(sizeof(*node))))
+    { pthread_mutex_unlock(&queue_mutex); running = FALSE; stop_queue(); return; }
+    node->event = *event;
+    node->next = NULL;
+    if (queue_tail) queue_tail->next = node;
+    else queue_head = node;
+    queue_tail = node;
+    pthread_cond_signal(&queue_cond);
+    pthread_mutex_unlock(&queue_mutex);
+}
 static void publish(struct native_window *window)
 {
     if (window->dead || window->rejected || window->released ||
@@ -325,12 +340,47 @@ BOOL wayland_wm_composition(void)
     pthread_mutex_unlock(&wl_mutex);
     return ok;
 }
-static const struct wex_window_manager_v1_listener manager_listener = { environment, frame };
+/* The Wayland side of the shell keys (shellkeys.c has the combinations and the replay): the compositor takes them
+ * from native programs and sends them here (v15); hold_keyboard keeps every key coming until Alt+Tab ends. The reader
+ * thread dispatches with wl_mutex held, so requests go out from here directly. */
+static BOOL wayland_hold_keyboard(BOOL hold)
+{
+    if (hold) wex_window_manager_v1_hold_keyboard(manager);
+    else wex_window_manager_v1_release_keyboard(manager);
+    return TRUE;
+}
+static const struct shell_key_backend wayland_shell_keys = { queue_raw, wayland_hold_keyboard };
+static struct shell_replay replay;
+
+static void shell_key(void *data, struct wex_window_manager_v1 *obj,uint32_t keysym,uint32_t modifiers,uint32_t state)
+{
+    /* the keysym stands for the physical key: the compositor sends level 1, whatever the modifiers */
+    shell_key_event(&replay,&wayland_shell_keys,keysym,keysym,
+                    modifiers & (SHELL_MOD_SHIFT | SHELL_MOD_CTRL | SHELL_MOD_ALT),
+                    state == WL_KEYBOARD_KEY_STATE_RELEASED);
+}
+/* at start, before the reader thread runs (it flushes the request): give the compositor the shell's combinations */
+static void send_shell_keys(void)
+{
+    uint32_t records[64];
+    struct wl_array keys;
+    unsigned i;
+    if (wex_window_manager_v1_get_version(manager) < 15) return;
+    for (i = 0; i < shell_key_grab_count && i < 32; i++)
+    {
+        records[2 * i] = shell_key_grabs[i].keysym;
+        records[2 * i + 1] = shell_key_grabs[i].modifiers;
+    }
+    keys.data = records;
+    keys.size = keys.alloc = i * 2 * sizeof(uint32_t);
+    wex_window_manager_v1_set_shell_keys(manager,&keys);
+}
+static const struct wex_window_manager_v1_listener manager_listener = { environment, frame, shell_key };
 static void global(void *data, struct wl_registry *registry,uint32_t name,const char *interface,uint32_t version)
 {
     if (!strcmp(interface,"wex_window_manager_v1") && version >= 3)
     {
-        manager = wl_registry_bind(registry,name,&wex_window_manager_v1_interface,version < 14 ? version : 14);
+        manager = wl_registry_bind(registry,name,&wex_window_manager_v1_interface,version < 15 ? version : 15);
         wex_window_manager_v1_add_listener(manager,&manager_listener,NULL);
     }
     else if (!strcmp(interface,"zwlr_foreign_toplevel_manager_v1") && version >= 3)
@@ -430,6 +480,8 @@ static NTSTATUS wayland_start(void *args)
     wl_registry_add_listener(registry,&registry_listener,NULL);
     for (i=0;i<3;i++) if (wl_display_roundtrip(display) < 0 || !running) goto failed;
     if (!manager || !inventory || !native_socket[0]) goto failed;
+    memset(&replay,0,sizeof(replay));
+    send_shell_keys();
     if (pipe(wake_pipe)) { wake_pipe[0] = wake_pipe[1] = -1; params->err = ERROR_NOT_ENOUGH_MEMORY; goto failed; }
     if (pthread_create(&reader,NULL,read_events,NULL)) { params->err = ERROR_NOT_ENOUGH_MEMORY; goto failed; }
     reader_started = TRUE;

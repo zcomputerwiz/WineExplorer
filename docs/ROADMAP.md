@@ -289,6 +289,23 @@ async, clean exit), then CoreWindow, then a separate native XAML track (Uno is r
 and only later the installed Calculator (private test, never committed). Everything is off by default behind one gate.
 Plan, review, repository split and first backlog: `docs/uwp/` (start with `docs/uwp/README.md`).
 
+## Track: Safe Mode and start-up recovery (2026-11-08)
+
+The XP Advanced Options menu and Safe Mode work through Vintner Boot, the only boot loader since 2026-11-11 (its menu
+opens with F8 on UEFI and Shift on BIOS; the menu is its Advanced Options entry): Safe Mode, with Networking and with
+Command Prompt, Enable Boot Logging, Last Known Good, Debugging Mode, Disable automatic restart and Return to OS
+Choices Menu; what does not apply is grayed. Safe Mode logs on through the Welcome screen. The VM test `installer/tests/safe-mode.sh` passes on SeaBIOS and OVMF.
+Design: `docs/SAFE_MODE.md`. Remaining work, owner decisions and order: `docs/SAFE_MODE_WORKORDER.md`:
+- the full ISO install test (A2);
+- Windows programs seeing Safe Mode, on the Wine branch (B);
+- the Safe Mode desktop, 640x480, the classic logon dialog, and XP's menu layout and boot log (C);
+- the Administrator account and the registry's hidden accounts (C4, C7; optional);
+- the start-up failure screen, "WineExplorer did not start successfully" (D1). Done 2026-11-08 for GRUB, and since
+  2026-11-10 with Vintner Boot's boot counters.
+
+Last Known Good puts back the machine registry's control set from the last start that counted, and goes back to the
+previous good kernel when the running one never started successfully (D3, 2026-11-10; `docs/VINTNER_BOOT.md`). XP reference captures are kept only in the local-only repository (`docs/ASSETS.md`).
+
 ## Track E1: production elevation and installer authorization (2026-11-05)
 
 New open track, scheduled immediately before and alongside "Future: stock browser installers": machine-wide installers

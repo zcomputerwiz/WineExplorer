@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# Generates the system locale (LANG in /etc/default/locale) when glibc lacks it: Setup sets it through localed, which
+# generates nothing (scripts/wex-locale-gen.sh). Before the logon screen and OOBE, so that the first session has it.
+[Unit]
+Description=Generate the system locale
+After=local-fs.target
+Before=display-manager.service wex-oobe.service wex-setup.service systemd-user-sessions.service
+ConditionPathExists=/usr/sbin/locale-gen
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wex-locale-gen
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target

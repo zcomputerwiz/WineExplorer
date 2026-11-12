@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The start-up check (docs/SAFE_MODE.md, scripts/wex-startup-check.sh): once the logon screen is up, this start
+# counts as successful and the next one does not show "WineExplorer did not start successfully". Vintner Boot marks
+# a start good at boot-complete.target (docs/VINTNER_BOOT.md section 4.4), so the check also gates that target.
+# Safe Mode boots do not reach multi-user.target and do not count.
+[Unit]
+Description=Start-up check
+After=systemd-user-sessions.service
+Before=boot-complete.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/wex-startup-check
+TimeoutStartSec=20min
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=boot-complete.target

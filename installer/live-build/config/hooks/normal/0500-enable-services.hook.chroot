@@ -46,6 +46,3 @@ chmod 440 /etc/sudoers.d/* 2>/dev/null || true
 
 # Mask plymouth waiting services so they do not block headless or non-graphical boot
 systemctl mask plymouth-quit-wait.service plymouth-start.service plymouth.service 2>/dev/null || true
-
-# Remove Debian desktop-base GRUB theme from installed system configuration
-rm -f /etc/default/grub.d/desktop-base.cfg 2>/dev/null || true

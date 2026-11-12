@@ -46,9 +46,11 @@ def main():
                         help="public XWayland display in the controlled Wayland test session")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
-    if os.geteuid():
-        raise SystemExit("Run through the test VM's root serial console.")
     account = pwd.getpwnam(args.user)
+    # Root may start programs in any account's session; an account without root (installed test disks have no root
+    # serial login) only in its own.
+    if os.geteuid() not in (0, account.pw_uid):
+        raise SystemExit("Run through the test VM's root serial console, or as the desktop user.")
     shell_pid, raw_environment = desktop_session(account)
     environment = {os.fsdecode(key): os.fsdecode(value)
                    for key, value in raw_environment.items()}
@@ -63,7 +65,7 @@ def main():
         args.user_file.write_text(account.pw_name + "\n")
     if args.report:
         print(f"Desktop user: {account.pw_name}; Explorer PID: {shell_pid}")
-        for key in ("DISPLAY", "WAYLAND_DISPLAY", "WINEPREFIX"):
+        for key in ("DISPLAY", "WAYLAND_DISPLAY", "WINEPREFIX", "WEXMODE"):
             print(f"{key}={environment.get(key, '')}")
     if args.command:
         wine = environment.get("WINELOADER", "/usr/local/bin/wine")
@@ -78,11 +80,13 @@ def main():
         else:
             command = [wine, *args.command]
         log_path = args.log_file or Path(f"/tmp/wex-program-check-{account.pw_name}.log")
+        identity = {}
+        if os.geteuid() == 0:
+            identity = dict(user=account.pw_uid, group=account.pw_gid,
+                            extra_groups=os.getgrouplist(account.pw_name, account.pw_gid))
         with log_path.open("ab") as log:
             process = subprocess.Popen(
-                command, env=environment, cwd=account.pw_dir,
-                user=account.pw_uid, group=account.pw_gid,
-                extra_groups=os.getgrouplist(account.pw_name, account.pw_gid),
+                command, env=environment, cwd=account.pw_dir, **identity,
                 stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                 start_new_session=True)
         print(f"Started {'native' if args.native else 'Wine'} PID {process.pid}; log: {log_path}")

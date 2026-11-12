@@ -92,6 +92,18 @@ if [ -x /usr/local/bin/wex-setup-machine.sh ]; then
     /usr/local/bin/wex-setup-machine.sh || echo "Machine root setup failed"
 fi
 
+# The built-in Administrator account (docs/SAFE_MODE_WORKORDER.md C4; the package creates it locked) gets the
+# Administrator password that setup.exe gave root, as a copy of root's hash. With no password both stay locked:
+# an empty password would let every local user su to it.
+if getent passwd administrator >/dev/null 2>&1; then
+    root_hash=$(getent shadow root | cut -d: -f2)
+    case "$root_hash" in
+        ''|'*'|'!'*) echo "No Administrator password: the Administrator account stays locked" ;;
+        *) printf 'administrator:%s\n' "$root_hash" | chpasswd -e && echo "Administrator account: password set" ;;
+    esac
+    unset root_hash
+fi
+
 chown root:adm /var/log/wineexplorer-setup.log 2>/dev/null || true
 chmod 640 /var/log/wineexplorer-setup.log 2>/dev/null || true
 

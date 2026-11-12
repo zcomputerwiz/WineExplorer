@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Records this boot's WineExplorer mode in /run/wineexplorer/bootmode early in every boot (docs/SAFE_MODE.md,
+# docs/SAFE_MODE_WORKORDER.md B0). Wine reads the mode there. The Advanced Options menu writes its own choice; a
+# normal boot and a boot with wexmode= on the command line (a Vintner variant, an edited loader entry) have only this.
+[Unit]
+Description=Record the boot mode
+DefaultDependencies=no
+After=systemd-tmpfiles-setup.service
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+ConditionPathExists=!/run/wineexplorer/bootmode
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/wex-bootmode --record
+
+[Install]
+WantedBy=sysinit.target

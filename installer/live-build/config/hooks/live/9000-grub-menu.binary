@@ -29,12 +29,23 @@ insmod all_video
 insmod part_msdos
 insmod part_gpt
 insmod ext2
+insmod fat
+insmod chain
+insmod regexp
 if search --no-floppy --file --set=wexdisk /etc/wineexplorer/setup/stage; then
     set default=0
     set timeout=5
     menuentry "Continue Setup from the hard disk" --hotkey=c {
-        set root=$wexdisk
-        configfile /boot/grub/grub.cfg
+        if [ "${grub_platform}" = "efi" ]; then
+            # Vintner Boot (docs/VINTNER_BOOT.md section 4.5): its loader on the disk's EFI system partition.
+            search --no-floppy --file --set=wexesp /EFI/vintner/systemd-bootx64.efi
+            chainloader ($wexesp)/EFI/vintner/systemd-bootx64.efi
+        else
+            # Vintner Boot on BIOS: the disk's own boot code.
+            regexp --set=1:wexhd '^(hd[0-9]+)' "$wexdisk"
+            set root=$wexhd
+            chainloader +1
+        fi
     }
 fi
 

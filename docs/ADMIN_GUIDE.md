@@ -37,7 +37,7 @@ The pipeline executes through the following stages:
 ### 1.2 System Installation (`textsetup`) & First-Boot OOBE
 
 - **Stage 1 (Text-Mode Setup)**:
-   The booted live installer launches `textsetup`, presenting an authentic blue-background text console. It handles disk partitioning, partition formatting (ext4 or NTFS), file staging from the live image to the target root, and GRUB bootloader installation (`grub-pc` for BIOS or `grub-efi-amd64` for UEFI).
+   The booted live installer launches `textsetup`, presenting an authentic blue-background text console. It handles disk partitioning, partition formatting (ext4 or NTFS), file staging from the live image to the target root, and the boot loader: Vintner Boot (systemd-boot on UEFI, a static GRUB on BIOS, and two recovery images; `docs/VINTNER_BOOT.md`). Since 2026-11-11 there is no other loader.
 - **Stage 2 (Out-Of-Box Experience / First Boot)**:
    On first boot of the installed system, systemd launches the Out-Of-Box Experience (OOBE) wizard (`wex-gui-setup.sh`), which creates administrator and standard user accounts, configures the computer name and workgroup, initializes the Default User prefix template (`/etc/skel/.wine`), and configures LightDM as the display manager (`scripts/wex-greeter.sh`).
 
@@ -81,9 +81,9 @@ WineExplorer supports three distinct session models configured via display manag
   Display Manager -> wexcomp (Wayland Compositor) -> explorer.exe /shell (winewayland.drv)
   ```
 - **Architecture**:
-  - `wexcomp`: A dedicated standalone Wayland compositor based on labwc and wlroots 0.18, extended with custom protocol extensions (`wex_window_manager_v1` and `wex_window_v1` v14).
+  - `wexcomp`: A dedicated standalone Wayland compositor based on labwc and wlroots 0.18, extended with custom protocol extensions (`wex_window_manager_v1` v14, `wex_window_v1` v12; Wine's own copy of the XML is older, v11, and its driver binds at most 11).
   - **Dual-Socket Security Architecture**:
-    - `LABWC_WEX_SHELL_SOCKET` (`wex-shell-0`): Private privileged socket. Only privileged shell components (Wine Explorer and `wexhost`) connect here to access window management, layer-shell placement, thumbnail creation, and corner/effect controls.
+    - `WEX_SHELL_SOCKET` (`wex-shell-0`): Private privileged socket. Only privileged shell components (Wine Explorer and `wexhost`) connect here to access window management, thumbnail creation, and corner/effect controls (`wex_window_manager_v1`). The standard privileged-looking protocols (layer-shell, ext-session-lock, wlr-output-management and the like) are restricted only for sandboxed clients, so an ordinary client on `wayland-0` can bind them too (2026-11-11).
     - Standard Socket (`wayland-0`): Unprivileged application socket. Applications connecting here cannot access `wex_window_manager_v1` (attempts return `WL_DISPLAY_ERROR_INVALID_OBJECT`).
   - Win32 Graphics Driver: `winewayland.drv` selected via registry key `HKCU\Software\Wine\Drivers` (`Graphics="wayland"`).
 
@@ -113,7 +113,9 @@ An empty menu configuration file (`menu.xml`) containing `<openbox_menu/>` is re
 - `WEX_BLUR=1`: Enables hardware-accelerated SceneFX 0.3 backdrop blur, Acrylic, and Mica effects when `wexcomp` is built with `-Dscenefx=enabled`. If unset or on unaccelerated software renderers, `wexcomp` falls back to solid/translucent tint rectangles.
 - `WEX_WAYLAND_NATIVE_WINDOWS=1`: Enables native Linux Wayland application hosting inside Win32 frames with dynamic scale message synchronization.
 - `WLR_RENDERER=gles2` / `WLR_RENDERER_ALLOW_SOFTWARE=1`: Forces the GLES2 renderer in headless/virtual environments using llvmpipe and Mesa surfaceless EGL.
-- `LABWC_WEX_SHELL_SOCKET`: Defines the socket name for privileged shell communications (default: `wex-shell-0`).
+- `WEX_SHELL_SOCKET`: Defines the socket name for privileged shell communications (default: `wex-shell-0`). Until 2026-11-11 this guide and the session script named it `LABWC_WEX_SHELL_SOCKET`, which wexcomp never read; it worked only because both used the default.
+- `WEX_OUTPUT_MODE=<width>x<height>`: Starts each output in its own mode of that size, nearest 60 Hz. The Wayland session sets `640x480` in Safe Mode and Enable VGA Mode (`docs/SAFE_MODE.md` section 4). In a normal start it sets the size saved in Display Properties (`~/.config/wineexplorer/display`). It is ignored when the output has no such mode, and a mode a client requests later still applies.
+- Display Properties in the Wayland session changes the compositor's real output through wlr-output-management (wexhost, `src/dlls/wexhost/wloutput.c`, 2026-11-11). Before that, its XRandR path reached only XWayland, or failed with no `DISPLAY`. As on X11, only a single enabled output is changed.
 
 ---
 
@@ -277,13 +279,29 @@ The repository includes specialized standalone diagnostic probes in `scripts/`:
    - *Fix*: Inspect `WINEDEBUG=+dwmapi,+explorer` logs to diagnose the crash cause. Reset the broker by toggling `HKCU\Software\WineExplorer\Shell\DwmService` off and on.
 5. **Wayland Privileged Protocol Rejection (`WL_DISPLAY_ERROR_INVALID_OBJECT`)**:
    - *Cause*: An unprivileged client attempting to bind `wex_window_manager_v1` on `wayland-0`.
-   - *Fix*: Privileged shell operations must connect exclusively via `LABWC_WEX_SHELL_SOCKET` (`wex-shell-0`).
+   - *Fix*: Privileged shell operations must connect exclusively via `WEX_SHELL_SOCKET` (`wex-shell-0`).
 6. **SceneFX Backdrop Blur Fallback to Flat Tint**:
    - *Cause*: Running without `WEX_BLUR=1`, or running on unaccelerated Pixman software renderers without GLES2/EGL.
    - *Fix*: Ensure `WEX_BLUR=1` is exported and Mesa surfaceless EGL patch `0001-fx_renderer-surfaceless-egl.patch` is present.
 7. **Permission Denied on Multi-User Application Installation**:
    - *Cause*: Standard users attempting to write to `/var/lib/wineexplorer/machine`.
    - *Fix*: Run installers as a user belonging to the `sudo` group, or execute administrative installations using `pkexec` / elevation leases.
+
+### 6.5 Safe Mode and the Advanced Options Menu
+
+At start, press F8 (UEFI) or hold Shift (BIOS) for the boot menu, and choose "WineExplorer (date): Advanced Options"
+for the XP Advanced Options menu on the text console: Safe Mode, Safe Mode with Networking, Safe Mode with Command
+Prompt, Enable Boot Logging, Last Known Good Configuration, Debugging Mode, Disable automatic restart on system
+failure and Return to OS Choices Menu work; items that do not apply here are grayed. A Safe
+Mode boot starts only what logging on needs, never logs on automatically and changes nothing on disk; the next
+start is normal again. Safe Mode logs on through the Welcome screen, as XP does; the plain Linux logon screen
+appears only when Wine cannot start. Safe Mode with Command Prompt opens a recovery console without Wine and
+admits only root and members of `sudo`. When a start ends before the logon screen appears (a power failure,
+the Reset button, a hang), the next start shows "WineExplorer did not start successfully". It offers the Safe
+Modes and Last Known Good, and starts normally after 30 seconds. `wex-startup-check.service` marks a start as
+complete once the logon screen is up, and Vintner Boot then counts it good; `vintner status` shows the failed
+starts of the running generation. Enable Boot Logging appends to `C:\WINDOWS\ntbtlog.txt` in the machine root. `wex-bootmode` prints the
+current mode. Design and tests: [SAFE_MODE.md](SAFE_MODE.md).
 
 ---
 
@@ -429,7 +447,7 @@ The repository provides comprehensive test suites in `installer/tests/` and `scr
 - `test_oobe_capture_audit.py`: Audits screenshots taken during OOBE execution for visual regressions.
 - `test_oobe_review.py` / `test_oobe_review_layout.py`: Tests OOBE user interface layout and DPI scaling.
 - `test_runtime_repairs.py`: Verifies runtime error detection and automatic repair mechanisms.
-- `test_safemode.py`: Validates Safe Mode boot option and minimal service initialization.
+- `test_safemode.py`: Safe Mode and the Advanced Options menu: boot mode parsing, generator output, PAM decisions, menu navigation and the package's migration from the old Safe Mode (run on Linux).
 - `test_sysrun_server.sh`: Tests sysrun system-level service daemon operation.
 - `test_webview2_analysis.py`: Performs static and dynamic analysis of WebView2 runtime initialization logs.
 - `test_wex_sysrun.sh`: Tests sysrun elevation lease API and privilege granting.

@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Keeps a Safe Mode start from changing the account's session choice, X11 or Wayland (docs/SAFE_MODE.md). Before
+# LightDM starts, in Safe Mode only, it records each account's saved session in /run/wineexplorer/session-choice; the
+# Safe Mode session puts it back after LightDM has saved its own (wex-session-choice --restore). The mode is known
+# by then: the Advanced Options menu has written it, or wex-bootmode-record.service has.
+[Unit]
+Description=Keep the session choice through Safe Mode
+After=local-fs.target wex-bootmode-record.service wex-advanced-options.service
+Before=display-manager.service lightdm.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/wex-session-choice --snapshot
+
+[Install]
+WantedBy=lightdm.service

@@ -44,8 +44,10 @@ mode IDs before changing a mode. The UI merges equal dimensions and chooses the 
 On Apply, the host mode changes first. The applet pumps messages while Wine updates its virtual display and the
 shell resizes and redraws. Once the desktop and taskbar agree on the new dimensions, a separate confirmation dialog
 starts its 15-second deadline. No, Escape, closing the dialog, timeout, or readiness failure restores the previous
-host and Wine modes. Yes persists the Wine mode and an XDG per-user display profile. The session launcher restores
-the accepted host mode before creating Wine's desktop; XRandR validates it against the current monitor.
+host and Wine modes. Yes persists the Wine mode and an XDG per-user display profile, except in Safe Mode, which runs
+at 640x480 and keeps a mode chosen there for the session only (`docs/SAFE_MODE.md`, work order C3). The session
+launcher restores the accepted host mode before creating Wine's desktop in a normal start; XRandR validates it
+against the current monitor.
 
 Wine's virtual desktop originally caps its synthetic mode list at the host's starting size. Querying the host allows
 larger supported modes to be selected. Explorer now forwards `WM_DISPLAYCHANGE` through Wine's original desktop

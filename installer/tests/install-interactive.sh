@@ -39,6 +39,9 @@ $V wait "$VM" "Unpartitioned space" --timeout 30 || fail "blank disk not listed"
 step partitions; $V key "$VM" c
 $V wait "$VM" "create a new partition" --timeout 20 || fail "no create screen"
 $V key "$VM" backspace backspace backspace backspace backspace backspace; $V type "$VM" "$PARTITION_MB"; $V key "$VM" ret
+# The first partition on a blank disk brings the system partitions with it, after a notice (as Windows does).
+$V wait "$VM" "partitions for system files" --timeout 20 || fail "no system partitions notice"
+step system-partitions; $V key "$VM" ret
 $V wait "$VM" "$PARTITION_MB MB" --timeout 20 || fail "partition not created"
 step created; $V key "$VM" ret
 $V wait "$VM" "must now be formatted" --timeout 20 || fail "no format screen"
@@ -128,11 +131,14 @@ qemu-nbd --read-only --connect "$NBD" "$STATE/disk.qcow2" || fail "cannot attach
 CONNECTED=true
 udevadm settle
 for attempt in $(seq 1 30); do
-    [ -b "${NBD}p1" ] && break
+    [ -b "${NBD}p4" ] && break
     sleep 1
 done
+# GPT with BIOS boot, EFI system, boot storage and the root (docs/VINTNER_BOOT.md section 4.1).
+ROOTDEV=$(python3 "$HERE/check-disk-layout.py" "$NBD") || fail "installed partition layout is wrong"
 mkdir -p "$STEPS/check-root"
-mount -o ro,noload "${NBD}p1" "$STEPS/check-root" || fail "cannot mount installed root"
+mount -o ro,noload "$ROOTDEV" "$STEPS/check-root" || fail "cannot mount installed root"
 MOUNTED=true
+python3 "$HERE/check-disk-layout.py" "$NBD" "$STEPS/check-root" >/dev/null || fail "installed fstab is wrong"
 python3 "$HERE/check-interactive-accounts.py" "$STEPS/check-root" "$PWFILE" "$SESSION" || fail "installed account checks failed"
 echo "PASS (Bob desktop $ELAPSED s after logon); screenshots in $STEPS; VM stopped"

@@ -212,7 +212,6 @@ mkdir -p "$STAGE_SESSION/etc/xdg/wineexplorer/wayland"
 mkdir -p "$STAGE_SESSION/usr/share/xgreeters"
 mkdir -p "$STAGE_SESSION/etc/lightdm/lightdm.conf.d"
 mkdir -p "$STAGE_SESSION/etc/X11/xorg.conf.d"
-mkdir -p "$STAGE_SESSION/etc/grub.d"
 mkdir -p "$STAGE_SESSION/lib/systemd/system"
 mkdir -p "$STAGE_SESSION/etc/polkit-1/rules.d"
 
@@ -222,9 +221,18 @@ cp "$ROOT_DIR/scripts/wine-explorer-session-common.sh" "$STAGE_SESSION/usr/local
 cp "$ROOT_DIR/scripts/personalize-prefix.sh" "$STAGE_SESSION/usr/local/bin/wex-personalize-prefix"
 chmod 755 "$STAGE_SESSION/usr/local/bin/wex-personalize-prefix"
 cp "$ROOT_DIR/scripts/wine-explorer-wayland-session.sh" "$STAGE_SESSION/usr/local/bin/"
+# Safe Mode and the Advanced Options menu (docs/SAFE_MODE.md)
 cp "$ROOT_DIR/scripts/wex-safe-terminal.sh" "$STAGE_SESSION/usr/local/bin/wex-safe-terminal.sh"
-cp "$ROOT_DIR/scripts/wex-safemode-setup.sh" "$STAGE_SESSION/usr/local/sbin/wex-safemode-setup.sh"
+cp "$ROOT_DIR/scripts/wex-bootmode.sh" "$STAGE_SESSION/usr/local/bin/wex-bootmode"
+install -m755 "$ROOT_DIR/scripts/wex-session-choice.sh" "$STAGE_SESSION/usr/local/bin/wex-session-choice"
 cp "$ROOT_DIR/scripts/wex-safemode-pam-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-safemode-pam-check.sh"
+cp "$ROOT_DIR/scripts/wex-advanced-options.py" "$STAGE_SESSION/usr/local/sbin/wex-advanced-options"
+cp "$ROOT_DIR/scripts/wex-bootlog.sh" "$STAGE_SESSION/usr/local/sbin/wex-bootlog"
+cp "$ROOT_DIR/scripts/wex-startup-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-startup-check"
+cp "$ROOT_DIR/scripts/wex-lastgood.sh" "$STAGE_SESSION/usr/local/sbin/wex-lastgood"
+# The system locale is generated where Setup sets it (localed generates nothing)
+cp "$ROOT_DIR/scripts/wex-locale-gen.sh" "$STAGE_SESSION/usr/local/sbin/wex-locale-gen"
+install -D -m755 "$SCRIPT_DIR/systemd/wex-bootmode-generator" "$STAGE_SESSION/usr/lib/systemd/system-generators/wex-bootmode-generator"
 cp "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$STAGE_SESSION/usr/local/bin/wex-gui-setup.sh"
 cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
 cp "$ROOT_DIR/scripts/wex-greeter.sh" "$STAGE_SESSION/usr/local/bin/wex-greeter.sh"
@@ -249,26 +257,35 @@ chmod 755 "$STAGE_SESSION/usr/local/sbin/"*
 
 # Desktop session definition
 cp "$ROOT_DIR/scripts/wine-explorer.desktop" "$STAGE_SESSION/usr/share/xsessions/wine-explorer.desktop"
-cp "$ROOT_DIR/scripts/wex-safe-terminal.desktop" "$STAGE_SESSION/usr/share/xsessions/wex-safe-terminal.desktop"
 chmod 644 "$STAGE_SESSION/usr/share/xsessions/"*.desktop
 install -m644 "$ROOT_DIR/scripts/wine-explorer-wayland.desktop" "$STAGE_SESSION/usr/share/wayland-sessions/"
 install -m644 "$ROOT_DIR/scripts/wayland/"*.xml "$STAGE_SESSION/etc/xdg/wineexplorer/wayland/"
 install -m644 "$ROOT_DIR/scripts/wineexplorer-greeter.desktop" "$STAGE_SESSION/usr/share/xgreeters/"
 install -m644 "$SCRIPT_DIR/live-build/config/includes.chroot/etc/lightdm/lightdm.conf.d/50-wineexplorer.conf" "$STAGE_SESSION/etc/lightdm/lightdm.conf.d/"
+# Safe Mode's last-resort GTK greeter: black (work order A4); wex-greeter.sh adds the directory to XDG_DATA_DIRS
+install -D -m644 "$SCRIPT_DIR/lightdm/90-wineexplorer-safe-mode.conf" "$STAGE_SESSION/usr/share/wineexplorer/safe-greeter/lightdm/lightdm-gtk-greeter.conf.d/90-wineexplorer-safe-mode.conf"
 
 # Xorg modesetting configuration
 cp "$ROOT_DIR/scripts/20-wineexplorer-modesetting.conf" "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
 chmod 644 "$STAGE_SESSION/etc/X11/xorg.conf.d/20-wineexplorer-modesetting.conf"
 
-# GRUB Safe Mode boot entry
-cp "$SCRIPT_DIR/live-build/config/includes.chroot/etc/grub.d/11_wineexplorer_safemode" "$STAGE_SESSION/etc/grub.d/"
-chmod 755 "$STAGE_SESSION/etc/grub.d/"*
+# The Advanced Options menu (F8) as a Vintner Boot variant
+install -D -m644 "$SCRIPT_DIR/vintner/advanced.conf" "$STAGE_SESSION/etc/vintner/variants.d/advanced.conf"
+echo /etc/vintner/variants.d/advanced.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
+# Vintner Boot's menu names WineExplorer; /etc/os-release stays Debian's
+install -D -m644 "$SCRIPT_DIR/vintner/product.conf" "$STAGE_SESSION/etc/vintner/product.conf"
+echo /etc/vintner/product.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 
 # Setup systemd units and polkit rule
 cp "$SCRIPT_DIR/systemd/wex-textsetup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-setup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
-cp "$SCRIPT_DIR/systemd/wex-safemode.service" "$STAGE_SESSION/lib/systemd/system/"
+for unit in wex-advanced-options.target wex-advanced-options.service wex-safemode.target wex-safenet.target \
+            wex-bootlog.service wex-startup-check.service wex-bootmode-record.service \
+            wex-failure-check.service wex-failure-screen.service wex-plymouth-quit.service wex-session-choice.service \
+            wex-locale-gen.service; do
+    cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
+done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
 # system tier session 0 (docs/SYSTEM_TIER_WORK_ORDERS.md); enabled only by setup-machine-root.sh with WEX_SESSION0=1
 cp "$SCRIPT_DIR/systemd/wex-session0.service" "$STAGE_SESSION/lib/systemd/system/"
@@ -289,8 +306,11 @@ echo /etc/wineexplorer/prefetch.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 install -d "$STAGE_SESSION/etc/systemd" "$STAGE_SESSION/usr/lib/sysctl.d"
 install -m644 "$SCRIPT_DIR/systemd/zram-generator.conf" "$STAGE_SESSION/etc/systemd/zram-generator.conf"
 echo /etc/systemd/zram-generator.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
+# no network logon for root or the Administrator account if an SSH server is ever installed (SAFE_MODE_WORKORDER C4)
+install -D -m644 "$SCRIPT_DIR/ssh/sshd-wineexplorer.conf" "$STAGE_SESSION/etc/ssh/sshd_config.d/wineexplorer.conf"
+echo /etc/ssh/sshd_config.d/wineexplorer.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 install -m644 "$SCRIPT_DIR/systemd/99-wineexplorer-memory.conf" "$STAGE_SESSION/usr/lib/sysctl.d/99-wineexplorer-memory.conf"
-chmod 644 "$STAGE_SESSION/lib/systemd/system/"*.service
+chmod 644 "$STAGE_SESSION/lib/systemd/system/"*.service "$STAGE_SESSION/lib/systemd/system/"*.target
 cp "$SCRIPT_DIR/systemd/49-wexsetup.rules" "$STAGE_SESSION/etc/polkit-1/rules.d/"
 chmod 644 "$STAGE_SESSION/etc/polkit-1/rules.d/49-wexsetup.rules"
 
@@ -300,8 +320,92 @@ cat > "$STAGE_SESSION/DEBIAN/postinst" <<'EOF'
 set -e
 systemd-sysusers wexprefetchd.conf || true
 systemd-tmpfiles --create wexprefetchd.conf || true
+
+# Safe Mode (docs/SAFE_MODE.md). The earlier implementation (wex-safemode-setup.sh) edited LightDM, PAM and
+# AccountsService files at every boot; remove what it may have left behind.
+rm -f /etc/systemd/system/*.wants/wex-safemode.service /etc/lightdm/lightdm.conf.d/99-safemode.conf
+if [ -d /run/wex-safemode ]; then
+    for f in /run/wex-safemode/*.conf.bak; do
+        if [ -f "$f" ]; then mv -f "$f" "/etc/lightdm/lightdm.conf.d/$(basename "$f" .bak)"; fi
+    done
+    for f in /run/wex-safemode/orig-*; do
+        if [ -f "$f" ]; then cp -f "$f" "/var/lib/AccountsService/users/${f##*/orig-}"; fi
+    done
+    # It also wrote a file for every account that had none, hiding standard users (SystemAccount=true).
+    for f in /var/lib/AccountsService/users/*; do
+        u=${f##*/}
+        if [ -f "$f" ] && [ ! -e "/run/wex-safemode/orig-$u" ] && [ "$u" != nobody ]; then
+            uid=$(id -u "$u" 2>/dev/null || echo 0)
+            if [ "$uid" -ge 1000 ]; then sed -i 's/^SystemAccount=true$/SystemAccount=false/' "$f"; fi
+        fi
+    done
+    rm -rf /run/wex-safemode
+fi
+# WineExplorer's GRUB path was removed on 2026-11-11 (docs/VINTNER_BOOT.md section 4.2). On a machine Setup installed
+# with GRUB before then, take the F8 entry out of grub.cfg, and drop the record of unfinished starts that the entry
+# kept (wex_boot_pending): nothing clears it now, so every start would open the menu. A Vintner install has neither.
+rm -f /etc/grub.d/11_wineexplorer_advanced
+if [ -e /boot/grub/grub.cfg ] && command -v update-grub >/dev/null 2>&1; then update-grub || true; fi
+if [ -e /boot/grub/grubenv ] && command -v grub-editenv >/dev/null 2>&1; then
+    grub-editenv /boot/grub/grubenv unset wex_boot_pending || true
+fi
+# Only files that still name the old session: sed -i renames a temporary file in that directory, and accounts-daemon,
+# when it runs meanwhile, removed one (2026-11-11), which failed the postinst. A file it rewrote meanwhile is left.
+for f in /var/lib/AccountsService/users/*; do
+    if [ -f "$f" ] && grep -q -E '^X?Session=wex-safe-terminal$' "$f"; then
+        sed -i -e 's/^Session=wex-safe-terminal$/Session=wine-explorer/' \
+               -e 's/^XSession=wex-safe-terminal$/XSession=wine-explorer/' "$f" || true
+    fi
+done
+# Two pam_exec lines, added once, consult the boot mode: no automatic logon in Safe Mode, and administrators only
+# in Safe Mode with Command Prompt. The account phase knows the user name even for a typed-in logon.
+for pam in /etc/pam.d/lightdm /etc/pam.d/lightdm-autologin; do
+    if [ -f "$pam" ]; then sed -i '/wex-safemode-pam-check\.sh/d' "$pam"; fi
+done
+if [ -f /etc/pam.d/lightdm ]; then
+    echo "account requisite pam_exec.so quiet stdout /usr/local/sbin/wex-safemode-pam-check.sh" >> /etc/pam.d/lightdm
+fi
+if [ -f /etc/pam.d/lightdm-autologin ]; then
+    echo "account requisite pam_exec.so quiet /usr/local/sbin/wex-safemode-pam-check.sh autologin" >> /etc/pam.d/lightdm-autologin
+fi
+# The start-up check: a start counts once the logon screen is up (Vintner Boot's boot-complete.target waits for it).
+systemctl enable wex-startup-check.service || true
+# Every boot records its mode in /run/wineexplorer/bootmode, where Wine reads it (SafeBoot\Option, SM_CLEANBOOT).
+systemctl enable wex-bootmode-record.service || true
+# An ordinary start after failed ones shows "did not start successfully" (a condition skips it on a machine that
+# Vintner Boot did not start).
+systemctl enable wex-failure-check.service || true
+# A Safe Mode logon does not change the account's X11 or Wayland choice (a snapshot before LightDM starts).
+systemctl enable wex-session-choice.service || true
+# The built-in Administrator account (docs/SAFE_MODE_WORKORDER.md C4): created locked, in the administrators' group
+# (E1's admin_group= in sysrun.conf, default sudo). Setup gives it the Administrator password (wex-gui-setup.sh copies
+# root's); until then it cannot log on, and the Welcome screen leaves it out. The AccountsService file makes it a
+# cached account, which the Welcome screen lists (in Safe Mode only, or as SpecialAccounts\UserList says).
+if ! getent passwd administrator >/dev/null 2>&1; then
+    admin_group=sudo
+    if [ -f /etc/wineexplorer/sysrun.conf ] && [ ! -L /etc/wineexplorer/sysrun.conf ]; then
+        admin_group=$(sed -n 's/^admin_group=//p' /etc/wineexplorer/sysrun.conf | head -n 1)
+        admin_group=${admin_group:-sudo}
+    fi
+    if getent group "$admin_group" >/dev/null 2>&1; then
+        useradd --create-home --comment Administrator --shell /bin/bash --groups "$admin_group" administrator || true
+    else
+        useradd --create-home --comment Administrator --shell /bin/bash administrator || true
+    fi
+fi
+if getent passwd administrator >/dev/null 2>&1 && [ ! -e /var/lib/AccountsService/users/administrator ]; then
+    mkdir -p /var/lib/AccountsService/users
+    printf '[User]\nSession=wine-explorer\nXSession=wine-explorer\nSystemAccount=false\n' \
+        > /var/lib/AccountsService/users/administrator
+fi
+
 systemctl daemon-reload || true
-systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service wex-safemode.service || true
+# The system locale (wex-locale-gen): en_US.UTF-8, Setup's default, is generated here, so the image is built with it,
+# and so is the machine's own when it differs. The unit generates a locale chosen in Setup at the next start.
+/usr/local/sbin/wex-locale-gen en_US.UTF-8 || true
+/usr/local/sbin/wex-locale-gen || true
+systemctl enable wex-locale-gen.service || true
+systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service || true
 systemctl enable wexprefetchd.socket || true
 systemctl start wexprefetchd.socket || true
 systemctl enable wexksmtuned.service || true
@@ -321,7 +425,7 @@ Priority: optional
 Architecture: all
 Maintainer: WineExplorer Team <wineexplorer@local>
 Recommends: systemd-zram-generator
-Depends: wineexplorer, wexcomp, acl, lightdm, lightdm-gtk-greeter, accountsservice, xterm, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base, python3, vulkan-tools, winetricks, cabextract, zenity, pkexec, xvfb, xauth
+Depends: wineexplorer, wexcomp, acl, locales, lightdm, lightdm-gtk-greeter, accountsservice, xterm, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base, python3, vulkan-tools, winetricks, cabextract, zenity, pkexec, xvfb, xauth
 Replaces: wineexplorer (<< 11.19-wineexplorer2)
 Description: WineExplorer session scripts and desktop configuration
  Session scripts, Xorg configurations, LightDM greeter and systemd setup units

@@ -13,6 +13,33 @@ real `EmptyWorkingSet` (`bed5c5ea`); Edge and Chromium both run on it. See
 [PREFETCH_SERVICE.md](PREFETCH_SERVICE.md) for the planned image-cache and prefetch service. The paragraph below describes
 the earlier 11.20 pin.
 
+**Update (2026-11-08): Safe Mode and Vintner Boot.**
+- **Branches:** the work is on `claude/vintner-boot-integration` in WineExplorer and in Wine. The Wine branch exists
+  only locally so far, and nothing from 2026-11-08 is pushed.
+- **Safe Mode:** the menu, the modes, the Welcome screen logon and the VM test are done. See `docs/SAFE_MODE.md`.
+- **What is next:** `docs/SAFE_MODE_WORKORDER.md` has the plan, the owner decisions and the order.
+  - Decision 7: a dedicated Administrator account.
+  - Decision 8: hidden accounts from the registry.
+- **Bootloader:** the Vintner Boot side is `docs/VINTNER_BOOT.md`, worked on by a separate session.
+  - Since 2026-11-10 Setup installs Vintner Boot (owner decision), tested on both firmwares (section 4.2). Since
+    2026-11-11 it is the only loader: the GRUB install path, `--grub` and the VM test's GRUB phases are removed.
+  - `build-iso.sh` builds its packages from the `vintner` submodule.
+- **WSL:** the two sessions share WSL Debian. Agree before `wsl --terminate` or anything else that stops the other's
+  VMs, and give chroot bind mounts `--make-rslave`. A leftover bind mount once stopped every new `wsl` command until
+  WSL was restarted.
+- **Test disks:**
+  - The Safe Mode test needs only the current installs (`/var/tmp/vmtest-gpt/wex-nogrub-bios`, `-uefi`, from the
+    ISO of 2026-11-11) and the test's own overlays, which it replaces on every run.
+  - Delete superseded disks and prefixes as you go: the VMs have run out of disk space before.
+- **XP captures:** they stay in the local-only repository `../WineExplorer-local`, which has no remote and is never
+  pushed.
+- **Machines (2026-11-09):** the E1 elevation work runs on another machine, which has its own `wexbuild`.
+  This machine has:
+  - WSL `Debian`, for VM tests, shared with the Vintner session and compacted to 25 GB on 2026-11-09;
+  - WSL `wexbuild`, for Wine builds, the ISO and Vintner Boot's packages (`docs/TOOLING.md`);
+  - WSL `vbtest`, the Vintner session's own test distro (it uses `/dev/nbd8` and up);
+  - VirtualBox `WineExplorer-VM` (off) and `Windows XP Pro`.
+
 Use `development` in both `zcomputerwiz/WineExplorer` and `zcomputerwiz/wine` for
 ongoing integration. WineExplorer combines the completed OOBE/recovery work,
 Chromium token/broker reconciliation through r37, and the subsequent Chromium

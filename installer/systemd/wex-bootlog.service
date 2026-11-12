@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# "Enable Boot Logging" in the Advanced Options menu (docs/SAFE_MODE.md): once the start is complete, append
+# this boot's drivers and failed services to C:\WINDOWS\ntbtlog.txt, as XP does. Started by the menu, and in every
+# Safe Mode start by the boot-mode generator, as XP logs every Safe Mode start.
+[Unit]
+Description=Boot log (ntbtlog.txt)
+After=graphical.target multi-user.target wex-safemode.target wex-safenet.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wex-bootlog

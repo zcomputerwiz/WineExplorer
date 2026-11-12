@@ -38,6 +38,39 @@
 #define MAX_DISKS 8
 #define MAX_PARTS 32
 
+/* GPT partition types. Every disk Setup prepares is GPT with the system partitions Vintner Boot needs, on BIOS and
+ * UEFI machines alike (docs/VINTNER_BOOT.md section 4.1): BIOS boot, EFI system and boot storage (XBOOTLDR). */
+#define GUID_BIOS_BOOT    "21686148-6449-6E6F-744E-656564454649"
+#define GUID_ESP          "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+#define GUID_BOOT_STORAGE "BC13C2FF-59E6-4262-A352-B275FD6F7172"
+#define GUID_LINUX        "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
+
+/* Setup's start-up step with Vintner Boot; build-iso.sh puts it and the packages on the ISO. */
+#define VINTNER_STEP "/setup/install-vintner.sh"
+
+static bool install_vintner(SetupState *state);
+static SetupStage screen_start_files_failed(SetupState *state);
+
+#define ROOT_MIN_MB 8      /* smallest new partition, as on the Create partition screen */
+
+/* GPT attribute bit 63 (no-auto): systemd-gpt-auto-generator never mounts the partition. Boot storage carries it,
+ * because Vintner Boot mounts boot storage itself, by PARTUUID, only when it needs it. */
+#define GPT_ATTR_NO_AUTO (1ULL << 63)
+
+static const struct {
+    SystemPartKind kind;
+    const char *guid;
+    const char *gpt_name;  /* GPT partition name */
+    const char *display;   /* name in the partition list */
+    uint64_t size_mb;
+    uint64_t gpt_attrs;    /* GPT attribute bits set when Setup creates the partition */
+} system_parts[] = {
+    { SYS_BIOS_BOOT,    GUID_BIOS_BOOT,    "BIOS boot partition",  "BIOS boot",    2,    0 },
+    { SYS_ESP,          GUID_ESP,          "EFI system partition", "EFI System",   512,  0 },
+    { SYS_BOOT_STORAGE, GUID_BOOT_STORAGE, "Boot storage",         "Boot storage", 2048, GPT_ATTR_NO_AUTO },
+};
+#define NUM_SYSTEM_PARTS (sizeof(system_parts) / sizeof(system_parts[0]))
+
 static void safe_mkdir_p(const char *path)
 {
     char tmp[512];
@@ -189,6 +222,28 @@ static void format_partition_device(char *out, size_t outlen, const char *disk_d
     snprintf(out, outlen, "%s%zu", disk_dev, partno);
 }
 
+/* True when the kernel has this partition at this place, that is it is on disk and not only in Setup's unwritten
+ * table. Otherwise the device node can still show the file system of a deleted partition that started there. */
+static bool partition_on_disk(const char *dev, uint64_t start, uint64_t nsec, uint64_t sector_size)
+{
+    const char *name = strrchr(dev, '/');
+    name = name ? name + 1 : dev;
+    unsigned long long k_start = 0, k_size = 0;
+    char path[128];
+    snprintf(path, sizeof(path), "/sys/class/block/%s/start", name);
+    FILE *f = fopen(path, "r");
+    if (!f) return false;
+    int ok = fscanf(f, "%llu", &k_start);
+    fclose(f);
+    snprintf(path, sizeof(path), "/sys/class/block/%s/size", name);
+    f = fopen(path, "r");
+    if (!f) return false;
+    ok += fscanf(f, "%llu", &k_size);
+    fclose(f);
+    uint64_t per = sector_size / 512;   /* sysfs counts 512-byte sectors */
+    return ok == 2 && k_start == start * per && k_size == nsec * per;
+}
+
 static int scan_partitions(DiskDevice *disk, int disk_idx, PartitionEntry *entries, int max_entries)
 {
     if (!disk || !disk->cxt) return 0;
@@ -197,10 +252,18 @@ static int scan_partitions(DiskDevice *disk, int disk_idx, PartitionEntry *entri
     struct fdisk_table *tb = NULL;
 
     /* A blank disk has no partition table, so libfdisk reports no free space and the disk would not be listed.
-     * Give it one in memory (as the auto-partition path does); it is only written when a partition is created. */
+     * Give it a GPT one in memory; it is only written when a partition is created. An MBR disk whose partitions
+     * were all deleted is prepared the same way, so deleting every partition is how a user frees an MBR disk. */
     if (!fdisk_has_label(disk->cxt)) {
-        bool uefi = access("/sys/firmware/efi", F_OK) == 0;
-        if (fdisk_create_disklabel(disk->cxt, uefi ? "gpt" : "dos") == 0) disk->is_gpt = uefi;
+        if (fdisk_create_disklabel(disk->cxt, "gpt") == 0) disk->is_gpt = true;
+    } else if (!fdisk_is_label(disk->cxt, GPT)) {
+        struct fdisk_table *used = NULL;
+        size_t nused = 0;
+        if (fdisk_get_partitions(disk->cxt, &used) == 0 && used) {
+            nused = fdisk_table_get_nents(used);
+            fdisk_unref_table(used);
+        }
+        if (nused == 0 && fdisk_create_disklabel(disk->cxt, "gpt") == 0) disk->is_gpt = true;
     }
     fdisk_get_partitions(disk->cxt, &tb);
 
@@ -221,8 +284,9 @@ static int scan_partitions(DiskDevice *disk, int disk_idx, PartitionEntry *entri
 
             format_partition_device(pe->device, sizeof(pe->device), disk->device, pe->partno);
 
-            /* Probe filesystem */
-            blkid_probe pr = blkid_new_probe_from_filename(pe->device);
+            /* Probe filesystem: only a partition that is on disk has one; a new one shows New (Raw) */
+            blkid_probe pr = partition_on_disk(pe->device, pe->start_sector, pe->num_sectors, disk->sector_size)
+                                 ? blkid_new_probe_from_filename(pe->device) : NULL;
             if (pr) {
                 blkid_do_probe(pr);
                 const char *val = NULL;
@@ -239,9 +303,17 @@ static int scan_partitions(DiskDevice *disk, int disk_idx, PartitionEntry *entri
                 snprintf(pe->fstype, sizeof(pe->fstype), "Unformatted");
             }
 
-            if (strcmp(pe->fstype, "vfat") == 0 && (strcasestr(pe->label, "EFI") || pe->partno == 1)) {
-                pe->is_esp = true;
+            /* System partitions are known by their partition type, never by a label or position. */
+            struct fdisk_parttype *pt = fdisk_partition_get_type(pa);
+            if (pt && disk->is_gpt) {
+                const char *guid = fdisk_parttype_get_string(pt);
+                for (size_t k = 0; guid && k < NUM_SYSTEM_PARTS; ++k) {
+                    if (strcasecmp(guid, system_parts[k].guid) == 0) pe->sys_kind = system_parts[k].kind;
+                }
+            } else if (pt && fdisk_parttype_get_code(pt) == 0xEF) {
+                pe->sys_kind = SYS_ESP;
             }
+            pe->is_esp = (pe->sys_kind == SYS_ESP);
         }
         fdisk_unref_table(tb);
     }
@@ -405,7 +477,9 @@ SetupStage screen_license(SetupState *state)
     }
 }
 
-static int add_partition_to_disk(DiskDevice *disk, uint64_t start_sec, uint64_t num_sec, size_t *out_pno)
+/* Adds a partition in memory. gpt_type and gpt_name may be NULL: a Linux file system partition with no name. */
+static int add_partition_to_disk(DiskDevice *disk, uint64_t start_sec, uint64_t num_sec,
+                                 const char *gpt_type, const char *gpt_name, size_t *out_pno)
 {
     if (!disk || !disk->cxt) return -1;
 
@@ -413,6 +487,7 @@ static int add_partition_to_disk(DiskDevice *disk, uint64_t start_sec, uint64_t 
     fdisk_partition_set_start(npa, start_sec);
     fdisk_partition_set_size(npa, num_sec);
     fdisk_partition_size_explicit(npa, 1);
+    if (disk->is_gpt && gpt_name) fdisk_partition_set_name(npa, gpt_name);
 
     /* Find first free partition slot */
     size_t slot = 0;
@@ -429,7 +504,7 @@ static int add_partition_to_disk(DiskDevice *disk, uint64_t start_sec, uint64_t 
 
     struct fdisk_parttype *t = fdisk_new_parttype();
     if (disk->is_gpt) {
-        fdisk_parttype_set_typestr(t, "0FC63DAF-8483-4772-8E79-3D69D8477DE4");
+        fdisk_parttype_set_typestr(t, gpt_type ? gpt_type : GUID_LINUX);
     } else {
         fdisk_parttype_set_code(t, 0x83);
         fdisk_parttype_set_typestr(t, "83");
@@ -446,7 +521,210 @@ static int add_partition_to_disk(DiskDevice *disk, uint64_t start_sec, uint64_t 
     return rc;
 }
 
-static bool screen_create_partition(DiskDevice *disk, PartitionEntry *free_pe, uint64_t *out_size_mb)
+static uint64_t mb_to_sectors(const DiskDevice *disk, uint64_t mb)
+{
+    return mb * 1024ULL * 1024ULL / disk->sector_size;
+}
+
+/* Partitions start on a 1 MB boundary, as fdisk and Windows place them. */
+static uint64_t align_mb(const DiskDevice *disk, uint64_t sector)
+{
+    uint64_t a = mb_to_sectors(disk, 1);
+    return a ? (sector + a - 1) / a * a : sector;
+}
+
+/* Whole megabytes usable in a free region once its start is aligned. */
+static uint64_t region_usable_mb(const DiskDevice *disk, const PartitionEntry *region)
+{
+    uint64_t start = align_mb(disk, region->start_sector);
+    uint64_t end = region->start_sector + region->num_sectors;
+    if (end <= start) return 0;
+    return (end - start) * disk->sector_size / (1024ULL * 1024ULL);
+}
+
+static bool disk_has_system_part(const PartitionEntry *entries, int n, SystemPartKind kind)
+{
+    for (int i = 0; i < n; ++i) {
+        if (!entries[i].is_free_space && entries[i].sys_kind == kind) return true;
+    }
+    return false;
+}
+
+/* Size of the system partitions this disk still lacks. */
+static uint64_t missing_system_mb(const PartitionEntry *entries, int n)
+{
+    uint64_t mb = 0;
+    for (size_t k = 0; k < NUM_SYSTEM_PARTS; ++k) {
+        if (!disk_has_system_part(entries, n, system_parts[k].kind)) mb += system_parts[k].size_mb;
+    }
+    return mb;
+}
+
+/* Creates, in memory, every system partition the disk lacks, one after another from *start, and moves *start past
+ * them. The caller has checked that they fit before end (exclusive). */
+static int create_missing_system_partitions(DiskDevice *disk, const PartitionEntry *entries, int n,
+                                            uint64_t *start, uint64_t end)
+{
+    for (size_t k = 0; k < NUM_SYSTEM_PARTS; ++k) {
+        if (disk_has_system_part(entries, n, system_parts[k].kind)) continue;
+        uint64_t s = align_mb(disk, *start);
+        uint64_t len = mb_to_sectors(disk, system_parts[k].size_mb);
+        if (s + len > end) return -1;
+        size_t pno = 0;
+        if (add_partition_to_disk(disk, s, len, system_parts[k].guid, system_parts[k].gpt_name, &pno) != 0) return -1;
+        if (system_parts[k].gpt_attrs && fdisk_gpt_set_partition_attrs(disk->cxt, pno, system_parts[k].gpt_attrs) != 0)
+            return -1;
+        *start = s + len;
+    }
+    return 0;
+}
+
+static const PartitionEntry *largest_free_region(const PartitionEntry *entries, int n)
+{
+    const PartitionEntry *best = NULL;
+    for (int i = 0; i < n; ++i) {
+        if (entries[i].is_free_space && (!best || entries[i].num_sectors > best->num_sectors)) best = &entries[i];
+    }
+    return best;
+}
+
+static const char *system_part_display(SystemPartKind kind)
+{
+    for (size_t k = 0; k < NUM_SYSTEM_PARTS; ++k) {
+        if (system_parts[k].kind == kind) return system_parts[k].display;
+    }
+    return "System";
+}
+
+/* Drive letters as XP shows them: C: for the first partition on the disk that is not a system partition. */
+static char partition_letter(const PartitionEntry *entries, int n, int idx)
+{
+    if (entries[idx].is_free_space || entries[idx].sys_kind != SYS_NONE) return 0;
+    char letter = 'C';
+    for (int i = 0; i < idx && i < n; ++i) {
+        if (!entries[i].is_free_space && entries[i].sys_kind == SYS_NONE) letter++;
+    }
+    return letter > 'Z' ? 'Z' : letter;
+}
+
+/* Records the target partition's number, size and letter, and the disk's system partitions, from a fresh scan. */
+static void record_target_layout(SetupState *state, const PartitionEntry *entries, int n)
+{
+    state->efi_part[0] = '\0';
+    state->boot_storage_part[0] = '\0';
+    state->bios_boot_part[0] = '\0';
+    state->target_letter = 'C';
+    for (int i = 0; i < n; ++i) {
+        const PartitionEntry *pe = &entries[i];
+        if (pe->is_free_space) continue;
+        if (pe->sys_kind == SYS_ESP && !state->efi_part[0])
+            snprintf(state->efi_part, sizeof(state->efi_part), "%s", pe->device);
+        else if (pe->sys_kind == SYS_BOOT_STORAGE && !state->boot_storage_part[0])
+            snprintf(state->boot_storage_part, sizeof(state->boot_storage_part), "%s", pe->device);
+        else if (pe->sys_kind == SYS_BIOS_BOOT && !state->bios_boot_part[0])
+            snprintf(state->bios_boot_part, sizeof(state->bios_boot_part), "%s", pe->device);
+        else if (strcmp(pe->device, state->target_part) == 0) {
+            state->target_partno = pe->partno;
+            state->target_size_mb = pe->size_mb;
+            char letter = partition_letter(entries, n, i);
+            if (letter) state->target_letter = letter;
+        }
+    }
+}
+
+/* A message screen with a list of lines; ENTER or ESC returns. */
+static void screen_setup_message(const char *const *lines, int nlines)
+{
+    ui_clear_screen();
+    ui_draw_header("Debian GNU/Linux with WineExplorer Setup");
+    int base_y = (LINES > 25) ? (LINES - 25) / 3 + 3 : 5;
+    int margin_x = (COLS > 80) ? (COLS - 80) / 4 + 6 : 6;
+    attron(COLOR_PAIR(PAIR_NORMAL));
+    for (int i = 0; i < nlines; ++i) mvprintw(base_y + i, margin_x, "%s", lines[i]);
+    attroff(COLOR_PAIR(PAIR_NORMAL));
+    ui_draw_status("ENTER=Continue");
+    while (1) {
+        int ch = ui_getch();
+        if (ch == 10 || ch == 13 || ch == KEY_ENTER || ch == 27) return;
+    }
+}
+
+static void screen_mbr_disk(void)
+{
+    static const char *const lines[] = {
+        "Setup cannot install Debian GNU/Linux with WineExplorer on this disk,",
+        "because the disk uses the MBR partition style. WineExplorer needs a disk",
+        "with the GPT partition style.",
+        "",
+        "To use this disk, delete all of its partitions. Setup then prepares the",
+        "disk with the GPT partition style.",
+        "",
+        "CAUTION: Deleting a partition deletes all data on it.",
+        "",
+        "Press ENTER to return to the list of partitions.",
+    };
+    screen_setup_message(lines, sizeof(lines) / sizeof(lines[0]));
+}
+
+static void screen_system_partition_selected(void)
+{
+    static const char *const lines[] = {
+        "The selected partition holds system files that this computer needs",
+        "to start. Setup cannot install Debian GNU/Linux with WineExplorer on it.",
+        "",
+        "Select another partition or unpartitioned space.",
+        "",
+        "Press ENTER to return to the list of partitions.",
+    };
+    screen_setup_message(lines, sizeof(lines) / sizeof(lines[0]));
+}
+
+static void screen_no_room_for_system(uint64_t need_mb)
+{
+    char need[96];
+    snprintf(need, sizeof(need), "unpartitioned space on this disk. They need %lu MB.", (unsigned long)need_mb);
+    const char *const lines[] = {
+        "Setup cannot create the partitions for system files that this computer",
+        "needs to start Debian GNU/Linux with WineExplorer: there is not enough",
+        need,
+        "",
+        "To make room, delete a partition, or select another disk.",
+        "",
+        "Press ENTER to return to the list of partitions.",
+    };
+    screen_setup_message(lines, sizeof(lines) / sizeof(lines[0]));
+}
+
+/* Windows tells the user before it adds its system partitions to a disk; so does Setup. */
+static bool screen_system_partitions_notice(const PartitionEntry *entries, int n)
+{
+    ui_clear_screen();
+    ui_draw_header("Debian GNU/Linux with WineExplorer Setup");
+    int base_y = (LINES > 25) ? (LINES - 25) / 3 + 3 : 5;
+    int margin_x = (COLS > 80) ? (COLS - 80) / 4 + 6 : 6;
+
+    attron(COLOR_PAIR(PAIR_NORMAL));
+    mvprintw(base_y, margin_x, "To make sure that all features of WineExplorer work correctly, Setup");
+    mvprintw(base_y + 1, margin_x, "will also create these partitions for system files on this disk:");
+    int row = base_y + 3;
+    for (size_t k = 0; k < NUM_SYSTEM_PARTS; ++k) {
+        if (disk_has_system_part(entries, n, system_parts[k].kind)) continue;
+        mvprintw(row++, margin_x + 4, "%-24s %5lu MB", system_parts[k].gpt_name, (unsigned long)system_parts[k].size_mb);
+    }
+    mvprintw(row + 1, margin_x + 2, "- To continue, press ENTER.");
+    mvprintw(row + 2, margin_x + 2, "- To return to the previous screen without changing the disk, press ESC.");
+    attroff(COLOR_PAIR(PAIR_NORMAL));
+    ui_draw_status("ENTER=Continue  ESC=Cancel");
+
+    while (1) {
+        int ch = ui_getch();
+        if (ch == 10 || ch == 13 || ch == KEY_ENTER) return true;
+        if (ch == 27) return false;
+    }
+}
+
+/* max_mb is the free space left once any missing system partitions are taken out of it. */
+static bool screen_create_partition(DiskDevice *disk, uint64_t max_mb, uint64_t *out_size_mb)
 {
     ui_clear_screen();
     ui_draw_header("Debian GNU/Linux with WineExplorer Setup");
@@ -461,8 +739,7 @@ static bool screen_create_partition(DiskDevice *disk, PartitionEntry *free_pe, u
     mvprintw(base_y + 4, margin_x + 2, "- To return to the previous screen without creating the partition,");
     mvprintw(base_y + 5, margin_x + 4, "press ESC.");
 
-    uint64_t min_mb = 8;
-    uint64_t max_mb = free_pe->size_mb;
+    uint64_t min_mb = ROOT_MIN_MB;
     mvprintw(base_y + 8, margin_x, "The minimum size for the new partition is %lu megabytes (MB).", (unsigned long)min_mb);
     mvprintw(base_y + 9, margin_x, "The maximum size for the new partition is %lu megabytes (MB).", (unsigned long)max_mb);
 
@@ -644,49 +921,37 @@ SetupStage screen_partition(SetupState *state)
             }
         }
 
-        /* Auto-partition */
-        fdisk_create_disklabel(disk->cxt, state->is_uefi ? "gpt" : "dos");
-        disk->is_gpt = state->is_uefi;
+        /* Auto-partition: a new GPT table on BIOS and UEFI machines alike, the system partitions first (BIOS boot,
+         * EFI system, boot storage) and the root in the rest of the disk. */
+        fdisk_create_disklabel(disk->cxt, "gpt");
+        disk->is_gpt = true;
 
-        uint64_t first_lba = fdisk_get_first_lba(disk->cxt);
-        uint64_t last_lba = fdisk_get_last_lba(disk->cxt);
-        uint64_t total_sec = (last_lba >= first_lba) ? (last_lba - first_lba + 1) : disk->nsectors;
-
-        if (state->is_uefi) {
-            /* Create 512 MB ESP */
-            uint64_t esp_sec = (512ULL * 1024ULL * 1024ULL) / disk->sector_size;
-            size_t pno_esp = 0;
-            add_partition_to_disk(disk, first_lba, esp_sec, &pno_esp);
-
-            struct fdisk_partition *pa_esp = NULL;
-            if (fdisk_get_partition(disk->cxt, pno_esp, &pa_esp) == 0 && pa_esp) {
-                struct fdisk_parttype *t_esp = fdisk_new_parttype();
-                fdisk_parttype_set_typestr(t_esp, "C12A7328-F81F-11D2-BA4B-00A0C93EC93B");
-                fdisk_partition_set_type(pa_esp, t_esp);
-                fdisk_set_partition(disk->cxt, pno_esp, pa_esp);
-                fdisk_unref_partition(pa_esp);
-            }
-
-            /* Create root partition filling rest of disk */
-            uint64_t root_start = first_lba + esp_sec;
-            uint64_t root_sec = (total_sec > esp_sec) ? (total_sec - esp_sec) : total_sec;
-            size_t pno_root = 1;
-            add_partition_to_disk(disk, root_start, root_sec, &pno_root);
-
-            format_partition_device(state->efi_part, sizeof(state->efi_part), disk->device, pno_esp + 1);
-            format_partition_device(state->target_part, sizeof(state->target_part), disk->device, pno_root + 1);
-        } else {
-            size_t pno_root = 0;
-            add_partition_to_disk(disk, first_lba, total_sec, &pno_root);
-            fdisk_toggle_partition_flag(disk->cxt, pno_root, DOS_FLAG_ACTIVE);
-
-            format_partition_device(state->target_part, sizeof(state->target_part), disk->device, pno_root + 1);
-            state->efi_part[0] = '\0';
+        uint64_t start = fdisk_get_first_lba(disk->cxt);
+        uint64_t end = fdisk_get_last_lba(disk->cxt) + 1;
+        size_t pno_root = 0;
+        if (create_missing_system_partitions(disk, NULL, 0, &start, end) != 0 ||
+            align_mb(disk, start) >= end ||
+            add_partition_to_disk(disk, align_mb(disk, start), end - align_mb(disk, start), NULL, NULL, &pno_root) != 0) {
+            close_all_disks(disks, num_disks);
+            static const char *const lines[] = {
+                "Setup cannot partition the target disk: it is too small for the",
+                "system partitions and Debian GNU/Linux with WineExplorer.",
+                "No disk has been changed.",
+                "",
+                "Press ENTER to quit Setup.",
+            };
+            screen_setup_message(lines, sizeof(lines) / sizeof(lines[0]));
+            return STAGE_QUIT;
         }
+        format_partition_device(state->target_part, sizeof(state->target_part), disk->device, pno_root + 1);
+        snprintf(state->target_fstype, sizeof(state->target_fstype), "Unformatted");
+        num_entries[target_d] = scan_partitions(disk, target_d, entries[target_d], MAX_PARTS);
+        record_target_layout(state, entries[target_d], num_entries[target_d]);
+        state->format_esp = true;
+        state->format_boot_storage = true;
+        state->wipe_bios_boot = true;
 
         state->target_disk_idx = target_d;
-        state->target_partno = state->is_uefi ? 2 : 1;
-        state->target_size_mb = (total_sec * disk->sector_size) / (1024ULL * 1024ULL);
         state->target_disk_size_mb = disk->size_mb;
         snprintf(state->target_disk_bus, sizeof(state->target_disk_bus), "%s", disk->bus);
         state->target_disk_is_gpt = disk->is_gpt;
@@ -769,16 +1034,17 @@ SetupStage screen_partition(SetupState *state)
                 mvprintw(cur_row++, margin_x + 4, "   Unpartitioned space                        %5lu MB        ",
                          (unsigned long)pe->size_mb);
             } else {
-                char drive_letter = 'C' + (pe->partno > 0 ? (pe->partno - 1) : 0);
-                if (drive_letter > 'Z') drive_letter = 'Z';
                 const char *fs_display = pe->fstype;
                 if (!fs_display[0] || strcmp(fs_display, "Unformatted") == 0) fs_display = "New (Raw)";
 
+                /* System partitions get no drive letter, as XP shows a partition it does not mount. */
                 char desc[80];
-                if (pe->is_esp) {
-                    snprintf(desc, sizeof(desc), "%c: Partition%zu (EFI System) [%s]", drive_letter, pe->partno, fs_display);
+                if (pe->sys_kind != SYS_NONE) {
+                    snprintf(desc, sizeof(desc), "   Partition%zu (%s) [%s]", pe->partno,
+                             system_part_display(pe->sys_kind), fs_display);
                 } else {
-                    snprintf(desc, sizeof(desc), "%c: Partition%zu [%s]", drive_letter, pe->partno, fs_display);
+                    snprintf(desc, sizeof(desc), "%c: Partition%zu [%s]",
+                             partition_letter(entries[d], num_entries[d], e), pe->partno, fs_display);
                 }
                 mvprintw(cur_row++, margin_x + 4, "%-44s %5lu MB (%5lu MB free)",
                          desc, (unsigned long)pe->size_mb, (unsigned long)pe->size_mb);
@@ -807,22 +1073,46 @@ SetupStage screen_partition(SetupState *state)
                 int e = items[selected_idx].entry_idx;
                 PartitionEntry *pe = &entries[d][e];
                 if (pe->is_free_space) {
+                    if (!disks[d].is_gpt) {
+                        screen_mbr_disk();
+                        continue;
+                    }
+                    /* The first partition on a disk without system partitions makes room for them first, at the
+                     * start of the free space, as Windows does. */
+                    uint64_t sys_mb = missing_system_mb(entries[d], num_entries[d]);
+                    uint64_t usable_mb = region_usable_mb(&disks[d], pe);
+                    if (usable_mb < sys_mb + ROOT_MIN_MB) {
+                        screen_no_room_for_system(sys_mb);
+                        continue;
+                    }
                     uint64_t new_mb = 0;
-                    if (screen_create_partition(&disks[d], pe, &new_mb)) {
-                        uint64_t num_sec = (new_mb * 1024ULL * 1024ULL) / disks[d].sector_size;
+                    if (screen_create_partition(&disks[d], usable_mb - sys_mb, &new_mb) &&
+                        (sys_mb == 0 || screen_system_partitions_notice(entries[d], num_entries[d]))) {
+                        uint64_t start = pe->start_sector;
+                        uint64_t end = pe->start_sector + pe->num_sectors;
                         size_t new_pno = 0;
-                        if (add_partition_to_disk(&disks[d], pe->start_sector, num_sec, &new_pno) == 0) {
-                            /* Re-scan */
-                            num_entries[d] = scan_partitions(&disks[d], d, entries[d], MAX_PARTS);
-                            total_items = 0;
-                            for (int td = 0; td < num_disks; ++td) {
-                                for (int te = 0; te < num_entries[td]; ++te) {
-                                    items[total_items].disk_idx = td;
-                                    items[total_items].entry_idx = te;
-                                    total_items++;
-                                }
+                        bool created = false;
+                        if (create_missing_system_partitions(&disks[d], entries[d], num_entries[d], &start, end) == 0) {
+                            start = align_mb(&disks[d], start);
+                            uint64_t num_sec = mb_to_sectors(&disks[d], new_mb);
+                            if (start + num_sec > end) num_sec = end - start;
+                            created = (add_partition_to_disk(&disks[d], start, num_sec, NULL, NULL, &new_pno) == 0);
+                        }
+                        /* Re-scan */
+                        num_entries[d] = scan_partitions(&disks[d], d, entries[d], MAX_PARTS);
+                        total_items = 0;
+                        for (int td = 0; td < num_disks; ++td) {
+                            for (int te = 0; te < num_entries[td]; ++te) {
+                                items[total_items].disk_idx = td;
+                                items[total_items].entry_idx = te;
+                                /* The new partition is selected, as in Windows Setup, so ENTER installs on it. */
+                                if (created && td == d && !entries[td][te].is_free_space &&
+                                    entries[td][te].partno == new_pno + 1)
+                                    selected_idx = total_items;
+                                total_items++;
                             }
                         }
+                        if (selected_idx >= total_items && total_items > 0) selected_idx = total_items - 1;
                     }
                 }
             }
@@ -854,46 +1144,79 @@ SetupStage screen_partition(SetupState *state)
             if (total_items > 0) {
                 int d = items[selected_idx].disk_idx;
                 int e = items[selected_idx].entry_idx;
-                PartitionEntry *pe = &entries[d][e];
+                const PartitionEntry *pe = &entries[d][e];
                 DiskDevice *disk = &disks[d];
-                snprintf(state->target_disk, sizeof(state->target_disk), "%s", disk->device);
 
-                if (pe->is_free_space) {
-                    /* Fill free space */
-                    size_t new_pno = 0;
-                    if (add_partition_to_disk(disk, pe->start_sector, pe->num_sectors, &new_pno) != 0) {
+                if (!disk->is_gpt) {
+                    screen_mbr_disk();
+                    continue;
+                }
+                if (!pe->is_free_space && pe->sys_kind != SYS_NONE) {
+                    screen_system_partition_selected();
+                    continue;
+                }
+
+                /* Missing system partitions go at the start of the chosen free space, or, when an existing
+                 * partition is chosen, into the largest free space on the disk. */
+                uint64_t sys_mb = missing_system_mb(entries[d], num_entries[d]);
+                const PartitionEntry *region = pe->is_free_space ? pe : largest_free_region(entries[d], num_entries[d]);
+                if (sys_mb > 0) {
+                    uint64_t need_mb = sys_mb + (pe->is_free_space ? ROOT_MIN_MB : 0);
+                    if (!region || region_usable_mb(disk, region) < need_mb) {
+                        screen_no_room_for_system(sys_mb);
                         continue;
                     }
+                    if (!screen_system_partitions_notice(entries[d], num_entries[d])) continue;
+                }
 
-                    format_partition_device(state->target_part, sizeof(state->target_part), disk->device, new_pno + 1);
-                    snprintf(state->target_fstype, sizeof(state->target_fstype), "Unformatted");
-                } else {
+                /* Copy what is needed from the entries: creating partitions and re-scanning replaces them. */
+                bool target_is_free = pe->is_free_space;
+                uint64_t start = region ? region->start_sector : 0;
+                uint64_t end = region ? region->start_sector + region->num_sectors : 0;
+                if (!target_is_free) {
                     snprintf(state->target_part, sizeof(state->target_part), "%s", pe->device);
                     snprintf(state->target_fstype, sizeof(state->target_fstype), "%s", pe->fstype);
                 }
-                snprintf(state->target_disk, sizeof(state->target_disk), "%s", disk->device);
 
-                /* Find ESP on disk if UEFI */
-                state->efi_part[0] = '\0';
-                if (state->is_uefi) {
-                    for (int i = 0; i < num_entries[d]; ++i) {
-                        if (entries[d][i].is_esp) {
-                            snprintf(state->efi_part, sizeof(state->efi_part), "%s", entries[d][i].device);
-                            break;
-                        }
+                bool made_bios_boot = !disk_has_system_part(entries[d], num_entries[d], SYS_BIOS_BOOT);
+                bool made_esp = !disk_has_system_part(entries[d], num_entries[d], SYS_ESP);
+                bool made_boot_storage = !disk_has_system_part(entries[d], num_entries[d], SYS_BOOT_STORAGE);
+                bool ok = (sys_mb == 0 ||
+                           create_missing_system_partitions(disk, entries[d], num_entries[d], &start, end) == 0);
+                if (ok && target_is_free) {
+                    size_t new_pno = 0;
+                    start = align_mb(disk, start);
+                    ok = (start < end && add_partition_to_disk(disk, start, end - start, NULL, NULL, &new_pno) == 0);
+                    if (ok) {
+                        format_partition_device(state->target_part, sizeof(state->target_part), disk->device, new_pno + 1);
+                        snprintf(state->target_fstype, sizeof(state->target_fstype), "Unformatted");
                     }
                 }
+                num_entries[d] = scan_partitions(disk, d, entries[d], MAX_PARTS);
+                if (!ok) {
+                    /* Nothing is written yet; show the disk as libfdisk now has it. */
+                    screen_no_room_for_system(sys_mb);
+                    total_items = 0;
+                    for (int td = 0; td < num_disks; ++td) {
+                        for (int te = 0; te < num_entries[td]; ++te) {
+                            items[total_items].disk_idx = td;
+                            items[total_items].entry_idx = te;
+                            total_items++;
+                        }
+                    }
+                    if (selected_idx >= total_items && total_items > 0) selected_idx = total_items - 1;
+                    continue;
+                }
 
+                snprintf(state->target_disk, sizeof(state->target_disk), "%s", disk->device);
+                record_target_layout(state, entries[d], num_entries[d]);
+                state->format_esp = made_esp;
+                state->format_boot_storage = made_boot_storage;
+                state->wipe_bios_boot = made_bios_boot;
                 state->target_disk_idx = d;
                 state->target_disk_size_mb = disk->size_mb;
                 snprintf(state->target_disk_bus, sizeof(state->target_disk_bus), "%s", disk->bus);
                 state->target_disk_is_gpt = disk->is_gpt;
-                if (pe->is_free_space) {
-                    state->target_size_mb = (pe->num_sectors * disk->sector_size) / (1024ULL * 1024ULL);
-                } else {
-                    state->target_partno = pe->partno;
-                    state->target_size_mb = pe->size_mb;
-                }
 
                 /* Commit partition table upon exiting partition screen */
                 fdisk_write_disklabel(disk->cxt);
@@ -911,6 +1234,50 @@ SetupStage screen_partition(SetupState *state)
     }
 }
 
+static void wait_for_device(const char *dev)
+{
+    for (int retry = 0; dev[0] && retry < 10; ++retry) {
+        if (access(dev, F_OK) == 0) return;
+        usleep(500000);
+        system("udevadm settle >/dev/null 2>&1 || true");
+    }
+}
+
+/* Removes old file system and RAID signatures, so that a new partition placed over old data shows nothing that was
+ * there before (blkid would otherwise still find, for example, the ext4 of a deleted partition that started there). */
+static void wipe_signatures(const char *dev)
+{
+    if (!dev[0]) return;
+    wait_for_device(dev);
+    char cmd[160];
+    snprintf(cmd, sizeof(cmd), "wipefs -a -q %s >/dev/null 2>&1", dev);
+    system(cmd);
+}
+
+/* FAT32 on a system partition: always when force is set (Setup created it), else only if it has no FAT yet. */
+static void format_fat_partition(const char *dev, bool force, const char *label)
+{
+    if (!dev[0]) return;
+    wait_for_device(dev);
+    bool has_vfat = false;
+    blkid_probe pr = blkid_new_probe_from_filename(dev);
+    if (pr) {
+        blkid_do_probe(pr);
+        const char *val = NULL;
+        if (blkid_probe_lookup_value(pr, "TYPE", &val, NULL) == 0 && val) has_vfat = (strcmp(val, "vfat") == 0);
+        blkid_free_probe(pr);
+    }
+    if (has_vfat && !force) return;
+    wipe_signatures(dev);
+    char cmd[256];
+    if (label) snprintf(cmd, sizeof(cmd), "mkfs.vfat -F32 -n %s %s >/dev/null 2>&1", label, dev);
+    else snprintf(cmd, sizeof(cmd), "mkfs.vfat -F32 %s >/dev/null 2>&1", dev);
+    if (system(cmd) != 0) {
+        sleep(1);
+        system(cmd);
+    }
+}
+
 SetupStage screen_format(SetupState *state)
 {
     ui_clear_screen();
@@ -919,8 +1286,7 @@ SetupStage screen_format(SetupState *state)
     int base_y = (LINES > 25) ? (LINES - 25) / 3 + 3 : 4;
     int margin_x = (COLS > 80) ? (COLS - 80) / 4 + 6 : 6;
 
-    char drive_letter = 'C' + (state->target_partno > 0 ? (state->target_partno - 1) : 0);
-    if (drive_letter > 'Z') drive_letter = 'Z';
+    char drive_letter = state->target_letter ? state->target_letter : 'C';
 
     const char *fs_display = state->target_fstype[0] ? state->target_fstype : "New (Raw)";
     if (strcmp(fs_display, "Unformatted") == 0) fs_display = "New (Raw)";
@@ -1031,24 +1397,12 @@ SetupStage screen_format(SetupState *state)
     }
     /* choice == 2: Leave intact, do NOT format */
 
-    /* Format ESP if newly created */
-    if (state->is_uefi && state->efi_part[0]) {
-        blkid_probe pr = blkid_new_probe_from_filename(state->efi_part);
-        bool has_vfat = false;
-        if (pr) {
-            blkid_do_probe(pr);
-            const char *val = NULL;
-            if (blkid_probe_lookup_value(pr, "TYPE", &val, NULL) == 0 && val) {
-                has_vfat = (strcmp(val, "vfat") == 0);
-            }
-            blkid_free_probe(pr);
-        }
-        if (!has_vfat) {
-            char fmt_efi[256];
-            snprintf(fmt_efi, sizeof(fmt_efi), "mkfs.vfat -F32 %s >/dev/null 2>&1", state->efi_part);
-            system(fmt_efi);
-        }
-    }
+    /* The ESP and boot storage get FAT32 when Setup created them, or when they hold no FAT file system yet, on BIOS
+     * and UEFI machines alike. An existing ESP with a file system (for example one Windows uses) is never
+     * formatted. The BIOS boot partition stays raw: Vintner Boot writes its GRUB core image there. */
+    if (state->wipe_bios_boot) wipe_signatures(state->bios_boot_part);
+    format_fat_partition(state->efi_part, state->format_esp, NULL);
+    format_fat_partition(state->boot_storage_part, state->format_boot_storage, "BOOTSTORAGE");
 
     for (int p = 50; p <= 100; p += 10) {
         ui_draw_centered_progressbar(p, PAIR_PROGRESS);
@@ -1547,7 +1901,7 @@ SetupStage screen_init(SetupState *state)
     unlink("/target/lib"); symlink("usr/lib", "/target/lib");
     unlink("/target/lib64"); symlink("usr/lib64", "/target/lib64");
 
-    /* Chroot mounts for live package purge and GRUB installation */
+    /* Chroot mounts for the live package purge and the start-up files */
     system("mount --bind /dev /target/dev 2>/dev/null || true");
     system("mount --bind /dev/pts /target/dev/pts 2>/dev/null || true");
     system("mount --bind /proc /target/proc 2>/dev/null || true");
@@ -1559,11 +1913,6 @@ SetupStage screen_init(SetupState *state)
     system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/sbin/groupdel wineuser 2>/dev/null || true");
     system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/sh -c 'dpkg --purge live-boot live-config live-config-systemd live-tools live-boot-doc live-config-doc live-boot-initramfs-tools 2>/dev/null || true'");
 
-    /* 7. Install GRUB */
-    safe_mkdir_p("/target/boot/grub");
-    safe_mkdir_p("/target/etc/default/grub.d");
-    remove("/target/etc/default/grub.d/desktop-base.cfg");
-
     /* The install tests (scripts/vmtest.py) mark their QEMU machines with an fw_cfg entry; only then does the
      * installed system get a serial login, which they use to run programs.  Real machines never have it. */
     int has_serial_console = 0;
@@ -1571,20 +1920,6 @@ SetupStage screen_init(SetupState *state)
     if (access("/sys/firmware/qemu_fw_cfg/by_name/opt/org.wineexplorer/serial-login/raw", R_OK) == 0)
         has_serial_console = 1;
 
-    {
-        FILE *f_grub = fopen("/target/etc/default/grub.d/wineexplorer.cfg", "w");
-        if (f_grub) {
-            fprintf(f_grub,
-                    "# Silent instant boot for single-OS WineExplorer installation (hold Shift / Esc for Safe Mode menu)\n"
-                    "GRUB_TIMEOUT_STYLE=hidden\n"
-                    "GRUB_TIMEOUT=1\n"
-                    "GRUB_TERMINAL=console\n"
-                    "GRUB_THEME=\"\"\n"
-                    "GRUB_BACKGROUND=\"\"\n");
-            fclose(f_grub);
-        }
-        chmod("/target/etc/grub.d/11_wineexplorer_safemode", 0755);
-    }
     if (!state->target_disk[0]) {
         if (state->target_part[0]) {
             snprintf(state->target_disk, sizeof(state->target_disk), "%s", state->target_part);
@@ -1596,38 +1931,12 @@ SetupStage screen_init(SetupState *state)
         }
     }
 
-    FILE *f_map = fopen("/target/boot/grub/device.map", "w");
-    if (f_map) {
-        fprintf(f_map, "(hd0) %s\n", state->target_disk);
-        fclose(f_map);
+    /* 7. Start-up files: Vintner Boot (docs/VINTNER_BOOT.md section 4.2) */
+    ui_draw_status("Setup is installing the start-up files...");
+    if (!install_vintner(state)) {
+        system("umount /target/run /target/sys /target/proc /target/dev/pts /target/dev 2>/dev/null || true");
+        return screen_start_files_failed(state);
     }
-
-    /* Activate target partition and set type on MBR if BIOS */
-    if (!state->is_uefi && state->target_part[0]) {
-        int part_num = 1;
-        char *p = state->target_part + strlen(state->target_part) - 1;
-        while (p > state->target_part && isdigit((unsigned char)*(p - 1))) p--;
-        if (isdigit((unsigned char)*p)) part_num = atoi(p);
-        char act_cmd[256];
-        snprintf(act_cmd, sizeof(act_cmd), "sfdisk -A %s %d >/dev/null 2>&1 || true", state->target_disk, part_num);
-        system(act_cmd);
-        char type_cmd[256];
-        snprintf(type_cmd, sizeof(type_cmd), "sfdisk --part-type %s %d 83 >/dev/null 2>&1 || true", state->target_disk, part_num);
-        system(type_cmd);
-    }
-
-    char grub_cmd[1024];
-    if (state->is_uefi) {
-        snprintf(grub_cmd, sizeof(grub_cmd),
-                 "/usr/sbin/grub-install --target=x86_64-efi --efi-directory=/target/boot/efi --boot-directory=/target/boot --recheck --removable %s >/target/var/log/grub-install.log 2>&1 || chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/sbin/grub-install --target=x86_64-efi --efi-directory=/boot/efi --boot-directory=/boot --recheck --removable %s >>/target/var/log/grub-install.log 2>&1",
-                 state->target_disk, state->target_disk);
-    } else {
-        snprintf(grub_cmd, sizeof(grub_cmd),
-                 "/usr/sbin/grub-install --target=i386-pc --boot-directory=/target/boot --recheck --force %s >/target/var/log/grub-install.log 2>&1 || chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/sbin/grub-install --target=i386-pc --recheck --force %s >>/target/var/log/grub-install.log 2>&1",
-                 state->target_disk, state->target_disk);
-    }
-    system(grub_cmd);
-    system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/sbin/update-grub >>/target/var/log/grub-install.log 2>&1 || true");
     system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl mask plymouth-quit-wait.service plymouth-start.service plymouth.service 2>/dev/null || true");
     if (has_serial_console) {
         system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl enable serial-getty@ttyS0.service 2>/dev/null || true");
@@ -1637,6 +1946,35 @@ SetupStage screen_init(SetupState *state)
 
     sleep(1);
     return STAGE_REBOOT;
+}
+
+/* Vintner Boot (install-vintner.sh). True when the disk now starts through it. */
+static bool install_vintner(SetupState *state)
+{
+    char cmd[1024];
+    if (access(VINTNER_STEP, X_OK) != 0 || !state->boot_storage_part[0]) return false;
+    snprintf(cmd, sizeof(cmd), "%s /target '%s' '%s' '%s' '%s' '%s'", VINTNER_STEP, state->target_disk,
+             state->target_part, state->boot_storage_part, state->efi_part, state->bios_boot_part);
+    return system(cmd) == 0;
+}
+
+/* The start-up files could not be installed (decision D5 in docs/VINTNER_BOOT.md): no fallback to another loader;
+ * running Setup again starts over. */
+static SetupStage screen_start_files_failed(SetupState *state)
+{
+    ui_clear_screen();
+    ui_draw_header("Debian GNU/Linux with WineExplorer Setup");
+    attron(COLOR_PAIR(PAIR_NORMAL));
+    mvprintw(6, 6, "Setup could not install the start-up files on %s.", state->target_disk);
+    mvprintw(8, 6, "Your computer cannot start from this disk. The details are in");
+    mvprintw(9, 6, "/var/log/vintner-install.log on the partition Setup installed to.");
+    mvprintw(11, 6, "Setup cannot continue. Press F3 to quit.");
+    attroff(COLOR_PAIR(PAIR_NORMAL));
+    ui_draw_status("F3=Quit");
+    while (1) {
+        int ch = ui_getch();
+        if (ch == KEY_F(3) || ch == 'q' || ch == 'Q') return STAGE_QUIT;
+    }
 }
 
 SetupStage screen_reboot(SetupState *state)

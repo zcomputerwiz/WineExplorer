@@ -141,7 +141,7 @@ static unsigned int client_count;
 static Window active_window;
 static Window drag_window;   /* moved or sized for its program (_NET_WM_MOVERESIZE) */
 static Cursor drag_cursor;
-static KeyCode super_keys[2], escape_key, tab_key, f4_key;
+static KeyCode grab_codes[16];   /* the keycodes of shell_key_grabs (shellkeys.c), 0 where there is none */
 static pthread_t loop_thread;
 static int wake_pipe[2] = { -1, -1 };
 static BOOL running;
@@ -347,18 +347,22 @@ static void grab_input( Window window, BOOL grab )
     /* click to activate: the click is replayed to the program afterwards (wm_loop) */
     pXGrabButton( display, AnyButton, AnyModifier, window, False, ButtonPressMask, GrabModeSync, GrabModeAsync,
                   None, None );
-    /* the shell keys: the program has the keyboard, so Wine never sees them; key_event replays them into Wine */
-    for (i = 0; i < 2; i++)
-        if (super_keys[i]) pXGrabKey( display, super_keys[i], AnyModifier, window, True, GrabModeAsync, GrabModeAsync );
-    for (i = 0; i < ARRAYSIZE(locks); i++)
+    /* the shell keys (shellkeys.c): the program has the keyboard, so Wine never sees them; key_event replays them
+     * into Wine. A passive grab holds the keyboard while its key is down, so every key of the combination comes here. */
+    for (i = 0; i < shell_key_grab_count && i < ARRAYSIZE(grab_codes); i++)
     {
-        if (escape_key) pXGrabKey( display, escape_key, x_control_mask | locks[i], window, True, GrabModeAsync, GrabModeAsync );
-        if (tab_key)
+        unsigned int j, mods = shell_key_grabs[i].modifiers;
+
+        if (!grab_codes[i]) continue;
+        if (mods == SHELL_MOD_ANY)
         {
-            pXGrabKey( display, tab_key, Mod1Mask | locks[i], window, True, GrabModeAsync, GrabModeAsync );
-            pXGrabKey( display, tab_key, Mod1Mask | ShiftMask | locks[i], window, True, GrabModeAsync, GrabModeAsync );
+            pXGrabKey( display, grab_codes[i], AnyModifier, window, True, GrabModeAsync, GrabModeAsync );
+            continue;
         }
-        if (f4_key) pXGrabKey( display, f4_key, Mod1Mask | locks[i], window, True, GrabModeAsync, GrabModeAsync );
+        mods = (mods & SHELL_MOD_SHIFT ? ShiftMask : 0) | (mods & SHELL_MOD_CTRL ? x_control_mask : 0) |
+               (mods & SHELL_MOD_ALT ? Mod1Mask : 0);
+        for (j = 0; j < ARRAYSIZE(locks); j++)
+            pXGrabKey( display, grab_codes[i], mods | locks[j], window, True, GrabModeAsync, GrabModeAsync );
     }
 }
 
@@ -659,103 +663,36 @@ static void property_notify( XPropertyEvent *property )
     }
 }
 
-static WORD vk_from_keysym( KeySym sym )
+/* The X11 side of the shell keys (shellkeys.c has the combinations and the replay): our passive grabs bring the
+ * keys here; Alt+Tab holds the keyboard with an active grab until Alt is released. */
+static BOOL x11_hold_keyboard( BOOL hold )
 {
-    if (sym >= XK_a && sym <= XK_z) return 'A' + sym - XK_a;
-    if (sym >= XK_0 && sym <= XK_9) return '0' + sym - XK_0;
-    if (sym >= XK_F1 && sym <= XK_F24) return VK_F1 + sym - XK_F1;
-    switch (sym)
+    if (!hold)
     {
-    case XK_Super_L: return VK_LWIN;
-    case XK_Super_R: return VK_RWIN;
-    case XK_Alt_L: case XK_Meta_L: return VK_LMENU;
-    case XK_Alt_R: case XK_Meta_R: case XK_ISO_Level3_Shift: return VK_RMENU;
-    case XK_Control_L: return VK_LCONTROL;
-    case XK_Control_R: return VK_RCONTROL;
-    case XK_Shift_L: return VK_LSHIFT;
-    case XK_Shift_R: return VK_RSHIFT;
-    case XK_Tab: case XK_ISO_Left_Tab: return VK_TAB;
-    case XK_Escape: return VK_ESCAPE;
-    case XK_Return: case XK_KP_Enter: return VK_RETURN;
-    case XK_space: return VK_SPACE;
-    case XK_Left: return VK_LEFT;
-    case XK_Right: return VK_RIGHT;
-    case XK_Up: return VK_UP;
-    case XK_Down: return VK_DOWN;
-    case XK_Home: return VK_HOME;
-    case XK_End: return VK_END;
-    case XK_Pause: case XK_Break: return VK_PAUSE;
-    case XK_Delete: return VK_DELETE;
+        pXUngrabKeyboard( display, CurrentTime );
+        return TRUE;
     }
-    return 0;
+    return pXGrabKeyboard( display, root, False, GrabModeAsync, GrabModeAsync, CurrentTime ) == GrabSuccess;
 }
 
-static void push_key( WORD vk, BOOL up )
-{
-    WEX_WM_EVENT event;
-    TRACE( "replay %02x %s\n", vk, up ? "up" : "down" );
-    memset( &event, 0, sizeof(event) );
-    event.type = WEX_WM_KEY;
-    event.value = vk;
-    if (up) event.flags = WEX_WM_KEY_UP;
-    push_event( &event );
-}
-
-/* The shell keys reach Wine as if a Win32 window had had the keyboard, so Explorer's keyboard hook, its hotkeys and
- * DefWindowProc (Alt+F4) handle them as they do for Windows programs.  A grab of ours starts a replay: the modifiers
- * already held are pressed in Wine first, every key until the combination ends follows, and the replay ends with
- * the key that started it (Windows key, Ctrl+Esc, Alt+F4) or with Alt (Alt+Tab, during which we hold the keyboard). */
-static struct
-{
-    BOOL  active;
-    BOOL  alt_tab;
-    KeyCode key;        /* the key that started it */
-    Window window;      /* the window that had the keyboard */
-    WORD  held[3];      /* modifiers we pressed in Wine */
-    unsigned int held_count;
-} replay;
-
-static void end_replay(void)
-{
-    while (replay.held_count) push_key( replay.held[--replay.held_count], TRUE );
-    if (replay.alt_tab) pXUngrabKeyboard( display, CurrentTime );
-    memset( &replay, 0, sizeof(replay) );
-}
+static const struct shell_key_backend x11_shell_keys = { push_event, x11_hold_keyboard };
+static struct shell_replay replay;
+static Window replay_window;   /* the window that had the keyboard */
 
 /* Alt+F4 closes the window before its F4 comes up: end the replay with the window, or it would never end */
 static void end_replay_for( Window window )
 {
-    if (replay.active && !replay.alt_tab && replay.window == window) end_replay();
+    if (replay.active && !replay.alt_tab && replay_window == window) shell_key_end( &replay, &x11_shell_keys );
 }
 
 static void key_event( XKeyEvent *key )
 {
-    WORD vk = vk_from_keysym( pXLookupKeysym( key, 0 ) );
     BOOL up = key->type == KeyRelease;
 
-    if (!replay.active)
-    {
-        if (up) return;
-        TRACE( "replay of keycode %u, state %#x\n", key->keycode, key->state );
-        replay.active = TRUE;
-        replay.key = key->keycode;
-        replay.window = key->window;
-        if (key->state & x_control_mask) push_key( replay.held[replay.held_count++] = VK_LCONTROL, FALSE );
-        if (key->state & Mod1Mask) push_key( replay.held[replay.held_count++] = VK_LMENU, FALSE );
-        if (key->state & ShiftMask) push_key( replay.held[replay.held_count++] = VK_LSHIFT, FALSE );
-        /* Alt+Tab lasts until Alt is released: keep the keyboard until then */
-        if (key->keycode == tab_key && (key->state & Mod1Mask))
-            replay.alt_tab = pXGrabKeyboard( display, root, False, GrabModeAsync, GrabModeAsync, CurrentTime ) == GrabSuccess;
-    }
-    if (vk)
-    {
-        /* modifiers we pressed for the replay and that are released now need no second release */
-        unsigned int i;
-        for (i = 0; up && i < replay.held_count; i++)
-            if (replay.held[i] == vk) { replay.held[i] = replay.held[--replay.held_count]; break; }
-        push_key( vk, up );
-    }
-    if (up && (replay.alt_tab ? vk == VK_LMENU || vk == VK_RMENU : key->keycode == replay.key)) end_replay();
+    if (!replay.active && !up) replay_window = key->window;
+    shell_key_event( &replay, &x11_shell_keys, pXLookupKeysym( key, 0 ), key->keycode,
+                     (key->state & ShiftMask ? SHELL_MOD_SHIFT : 0) | (key->state & x_control_mask ? SHELL_MOD_CTRL : 0) |
+                     (key->state & Mod1Mask ? SHELL_MOD_ALT : 0), up );
 }
 
 static void handle_event( XEvent *event )
@@ -932,11 +869,11 @@ NTSTATUS x11_wm_start( void *args )
         return STATUS_SUCCESS;
     }
     pXInternAtoms( display, (char **)atom_names, ATOM_COUNT, False, atoms );
-    super_keys[0] = pXKeysymToKeycode( display, XK_Super_L );
-    super_keys[1] = pXKeysymToKeycode( display, XK_Super_R );
-    escape_key = pXKeysymToKeycode( display, XK_Escape );
-    tab_key = pXKeysymToKeycode( display, XK_Tab );
-    f4_key = pXKeysymToKeycode( display, XK_F4 );
+    {
+        unsigned int i;
+        for (i = 0; i < ARRAYSIZE(grab_codes); i++)
+            grab_codes[i] = i < shell_key_grab_count ? pXKeysymToKeycode( display, shell_key_grabs[i].keysym ) : 0;
+    }
     set_supported();
     scan();
     pXSync( display, False );

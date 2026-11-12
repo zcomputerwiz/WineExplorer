@@ -74,6 +74,35 @@ struct display_get_params { WEX_DISPLAY display; DWORD err; };
 struct display_set_params { WEX_DISPLAY_MODE mode; BOOL persist; DWORD err; };
 extern NTSTATUS display_get(void *args);
 extern NTSTATUS display_set(void *args);
+/* shellkeys.c: the shell's key combinations while a Linux program has the keyboard, for both window manager
+ * backends. SHELL_MOD_* are the X11 and wlroots modifier masks (and wex_window_manager_v1's shell_key_modifiers). */
+#define SHELL_MOD_SHIFT 0x01
+#define SHELL_MOD_CTRL  0x04
+#define SHELL_MOD_ALT   0x08
+#define SHELL_MOD_ANY   0xffffffffu   /* the key with any modifiers */
+struct shell_key_grab { unsigned int keysym, modifiers; };
+extern const struct shell_key_grab shell_key_grabs[];
+extern const unsigned int shell_key_grab_count;
+struct shell_key_backend
+{
+    void (*push)(const WEX_WM_EVENT *event);   /* queue an event for the shell */
+    BOOL (*hold)(BOOL hold);                   /* keep (or stop keeping) every key until the replay ends */
+};
+struct shell_replay
+{
+    BOOL active, alt_tab;
+    unsigned int key;     /* the key that started it */
+    WORD held[3];         /* modifiers pressed in Wine */
+    unsigned int held_count;
+};
+extern WORD shell_key_vk(unsigned int keysym);
+extern void shell_key_event(struct shell_replay *replay, const struct shell_key_backend *backend, unsigned int keysym,
+                            unsigned int key, unsigned int modifiers, BOOL up);
+extern void shell_key_end(struct shell_replay *replay, const struct shell_key_backend *backend);
+
+/* wloutput.c: TRUE in a Wayland session whose compositor manages outputs (*err is then the answer) */
+extern BOOL wl_outputs_get(WEX_DISPLAY *display, DWORD *err);
+extern BOOL wl_outputs_set(const WEX_DISPLAY_MODE *mode, DWORD *err);
 
 struct apps_list_params { ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
 struct apps_launch_params { char id[WEX_APP_ID_MAX]; DWORD err; };

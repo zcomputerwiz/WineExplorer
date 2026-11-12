@@ -449,6 +449,49 @@ Project changes:
 * `scripts/e1s13_hku_checks.h` and `scripts/test_e1s10_token.sh`: Extended with assertions that
   effective Alice token sees her profile path and variables, while peer sees Bob's.
 
+## wineboot, win32u, services.exe, wine.inf, user32: Safe Mode (2026-11-09, 2026-11-11)
+
+Merged into Wine `development` as `572d4b74` (2026-11-12). `d1119bee` then drops the `todo_wine` on
+`BufferedPaintClear(buffer, NULL)` in `dlls/uxtheme/tests/system.c`, which the buffered paint fix made pass.
+
+Wine branch `claude/vintner-boot-integration`, commits `46f3a86e33d` and `d4e95e24dee` on `cf1c29be` (pushed to the
+fork on 2026-11-12; WineExplorer's gitlink moves at the merge, `docs/SAFE_MODE_WORKORDER.md` B1-B8). The branch also carries `4a1d6d5a25e`, the buffered paint fix (the
+uxtheme section of 2026-11-03 below), and `cdda62d0ad7`, uxtheme's Safe Mode check (below). WineExplorer keeps the boot mode in the root-owned `/run/wineexplorer/bootmode` (`safe`, `safenet` or
+`safecmd`); without that file, as in a stock prefix, nothing changes.
+
+* `programs/wineboot/wineboot.c` (`d4e95e24dee`, B5, as measured on the XP VM): in Safe Mode `process_run_key`
+  runs only the RunOnce values whose name starts with `*`, leaving the others for the next normal start, and
+  `ProcessRunKeys` skips the Run keys. A RunOnce value whose name starts with `!` is deleted once its command has
+  ended (whatever its exit code, or if it did not start) instead of before it starts. That applies only to a key
+  that waits for each command, which is HKLM RunOnce. XP also leaves HKLM command lines of 260 characters or more
+  unrun in the key; that limit is not copied.
+
+* `programs/wineboot/wineboot.c`: `create_safeboot_option_key` reads the file through `\\?\unix\` on every
+  `wineboot --init` and creates the volatile `HKLM\System\CurrentControlSet\Control\SafeBoot\Option` with
+  `OptionValue` (1 or 2) and, with Command Prompt, `UseAlternateShell` 1, as the Windows kernel does. In a normal
+  start it deletes a stray `Option` key. The `SafeBoot` parent is created non-volatile, so `wine.inf` can still
+  add its lists below it. WineExplorer-specific (the path); not for upstream in this form.
+* `dlls/win32u/sysparams.c`: `GetSystemMetrics(SM_CLEANBOOT)` returns `OptionValue` (0 without the key) instead
+  of a constant 0; a value once found is kept for the process.
+* `programs/services/services.c`, `rpc.c`, `services.h`: in Safe Mode only services that `SafeBoot\Minimal` (or
+  `SafeBoot\Network` with Networking) names, by service name or load order group, are started automatically, and
+  `StartService` refuses the others with `ERROR_NOT_SAFEBOOT_SERVICE` (1084), as on Windows. Without a list (a
+  prefix older than the lists) nothing is held back. The check is not in `service_start`, which also starts the
+  internal `Winedevice` hosts that run the drivers.
+* `loader/wine.inf.in`: the `[SafeBoot]` section, added to `BaseInstall`. `Minimal`: EventLog, MountMgr, PlugPlay,
+  RpcSs, winebus, wineusb, Winmgmt and E1's `wexelevate`; `Network` adds LanmanServer, NDIS, nsiproxy and
+  TermService. `SafeBoot\AlternateShell` is `cmd.exe`. NDIS and nsiproxy share MountMgr's "System Bus Extender"
+  group, so no group is listed.
+* `dlls/user32/desktop.c`: `PaintDesktop` paints the Safe Mode desktop when `SM_CLEANBOOT` is set (black, "Safe
+  Mode" in the corners of the work area, the Wine version centred on the top row, in the caption font smoothed in
+  gray), for desktops that WineExplorer's shell does not paint. Written from the XP measurements, not ported.
+* `dlls/uxtheme/system.c` (`cdda62d0ad7`, 2026-11-12): `UXTHEME_LoadTheme` loads no visual style when `SM_CLEANBOOT` is set, so
+  windows are drawn classic in Safe Mode, in the account's colours, as on XP, whose Themes service no SafeBoot list
+  names. The account's theme stays in the registry, untouched, for the next normal start. Before, Safe Mode showed
+  whatever style the account had (Open Luna after a normal logon, Wine's own Light style before one).
+* Tests: `dlls/user32/tests/sysparams.c` (`SM_CLEANBOOT` equals `OptionValue`, or 0 without the key) and
+  `programs/services/tests/service.c` (in Safe Mode, starting the spooler fails with 1084; the service tests,
+  whose services are not listed, then stop).
 
 ## E1-S14 disabled managed hive leases and persistence (2026-11-07; static only)
 
@@ -2835,6 +2878,19 @@ Wine `dlls/uxtheme/{draw.c,buffer.c,uxthemedll.h,tests/glass.c,tests/Makefile.in
 - DwmIsCompositionEnabled reports the real gate state; DwmGetWindowAttribute round-trips FLIP3D_POLICY
   and EXCLUDED_FROM_PEEK; DwmGetColorizationParameters returns the theme colours.
 - New test `uxtheme/tests/glass.c`.
+- **Fixed 2026-11-11** (Wine branch `claude/vintner-boot-integration`, `4a1d6d5a25e`, with the Safe Mode commits). The clipping this change added to `BeginBufferedPaint` left every buffered paint into a window DC empty
+  (black), so the taskbar, its task band and the Quick Launch toolbar were black and showed no task buttons:
+  - `ExtSelectClipRgn(RGN_AND)` ran before the buffer bitmap was selected. A new memory DC is 1x1, and the clip
+    region that `RGN_AND` starts from is the DC's device rectangle, so the buffer was clipped to one pixel. The
+    bitmap is now selected first.
+  - The system region (`GetRandomRgn(SYSRGN)`, used when the target has no clip region) is in screen coordinates,
+    and the offset into the buffer had the wrong sign. The region is now moved by `GetDCOrgEx`, then from the
+    target's device coordinates to the buffer's.
+  - New test `test_buffered_paint_window` in `uxtheme/tests/system.c`: a window away from the screen's origin, part
+    of it filled through a buffer, the pixels read back. It failed before the fix and passes in the VM (64-bit and
+    32-bit). The suite's one failure is older: `system.c:1053`, a `todo_wine` that this change's `BufferedPaintClear`
+    now passes. In the VM the taskbar is painted again in both sessions, with buttons for Notepad and for an xterm
+    through XWayland.
 
 ## dcomp: IDCompositionSurfaceFactory and IDCompositionSurface BeginDraw/EndDraw (2026-11-04)
 

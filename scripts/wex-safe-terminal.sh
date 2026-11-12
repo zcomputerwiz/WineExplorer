@@ -34,36 +34,63 @@ echo "  Host: $(uname -n) | Kernel: $(uname -r) | User: $USER"
 echo "================================================================================"
 echo ""
 echo "  Administrative Recovery Commands:"
-echo "    wex-setup-machine.sh --update    Rebuild/update WineExplorer machine root"
-echo "    sudo apt-get --fix-broken install Repair broken/interrupted package dependencies"
-echo "    sudo dpkg --configure -a         Configure any unconfigured deb packages"
-echo "    sudo journalctl -xb              Inspect boot logs and system errors"
-echo "    lsblk -f                         Display storage drives and filesystems"
-echo "    sudo reboot                      Reboot into normal mode"
-echo "    exit                             Close terminal and return to login screen"
+echo "    wex-setup-machine.sh --update      Update the WineExplorer machine root"
+echo "    sudo apt-get --fix-broken install  Repair interrupted package installs"
+echo "    sudo dpkg --configure -a           Configure unconfigured packages"
+echo "    sudo journalctl -xb                Read this start's system log"
+echo "    lsblk -f                           List drives and file systems"
+echo "    sudo reboot                        Restart the computer"
+echo "    exit                               Close this console"
 echo ""
 echo "================================================================================"
 echo ""
 EOF
 
-# Find available monospace font
-FONT="DejaVu Sans Mono"
-if ! fc-list : family | grep -qi "DejaVu Sans Mono"; then
-    FONT="monospace"
-fi
+# The console's shape, as XP shows cmd.exe in Safe Mode with Command Prompt (docs/SAFE_MODE_WORKORDER.md C6): at
+# the top left, 80 columns wide and as tall as the screen, light gray on black, the scroll bar on the right, titled
+# with the program's name only. No window manager runs here, so the size comes from the screen's and a bitmap font's
+# (xfonts-base, cells 13 pixels high): 8 pixels wide when 80 columns and the scroll bar fit, else 7 or 6. Safe Mode
+# runs at 640x480 (C3), where an 8-pixel font does not fit. Until 2026-11-11 it was 120x34 cells of an 11-point font
+# at +40+40, larger than 640x480: the prompt went off the screen once the output scrolled. In the Wayland session
+# wexcomp would add a title bar; a window rule for the name wex-recovery-console leaves it out
+# (scripts/wayland/rc.xml), so the rows fit there too.
+# The scroll bar has no border line (scrollBarBorder 0). In a UTF-8 locale xterm first sized its window without that
+# pixel and then asked for one more; wexcomp snapped the request to the size hints it had (base 18), so under Wayland
+# the console stayed 578 pixels wide, 79 columns (2026-11-12). Without the border both sizes are the same.
+CELL_H=13
+CHROME=18   # two internal borders of 2 pixels and the scroll bar (14)
+screen_w=0 screen_h=0
+read -r screen_w screen_h <<< "$(xdpyinfo 2>/dev/null | sed -n 's/^ *dimensions: *\([0-9]*\)x\([0-9]*\) pixels.*/\1 \2/p' | head -n 1)"
+case "$screen_w$screen_h" in ''|*[!0-9]*) screen_w=0 screen_h=0 ;; esac
+CELL_W=8
+for w in 8 7 6; do
+    CELL_W=$w
+    [ "$screen_w" -eq 0 ] || [ $((80 * w + CHROME)) -le "$screen_w" ] && break
+done
+case "$CELL_W" in
+    6) FONT=-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso10646-1 ;;
+    *) FONT=-misc-fixed-medium-r-normal--13-120-75-75-c-${CELL_W}0-iso10646-1 ;;
+esac
+ROWS=25
+if [ "$screen_h" -gt 0 ]; then ROWS=$(( (screen_h - 4) / CELL_H )); fi
 
 # Run xterm in an interactive loop so an accidental exit does not abruptly end the session
 while true; do
+    # allowTitleOps: Debian's bashrc would retitle it "user@host: dir" at every prompt
     xterm \
-        -title "Command Prompt (Safe Mode) - $USER" \
+        -name wex-recovery-console \
+        -title bash \
+        -n bash \
+        -xrm 'XTerm*allowTitleOps: false' \
+        -xrm 'XTerm*vt100.scrollBarBorder: 0' \
         -bg black \
-        -fg white \
-        -cr white \
-        -bd gray30 \
-        -fa "$FONT" \
-        -fs 11 \
-        -geometry 120x34+40+40 \
-        -sb -sl 5000 \
+        -fg '#c0c0c0' \
+        -cr '#c0c0c0' \
+        -uc \
+        -bw 0 \
+        -fn "$FONT" \
+        -geometry "80x${ROWS}+0+0" \
+        -sb -rightbar -sl 5000 \
         -e bash --rcfile "$BANNER_RC" -i
 
     STATUS=$?

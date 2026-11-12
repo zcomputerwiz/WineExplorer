@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The boot target of wexmode=menu (docs/SAFE_MODE.md): the system up to sysinit.target and the Advanced Options
+# menu on tty1, nothing else. The menu then starts default.target in the mode chosen.
+[Unit]
+Description=WineExplorer Advanced Options
+Requires=sysinit.target
+After=sysinit.target
+Wants=wex-advanced-options.service
+AllowIsolate=yes

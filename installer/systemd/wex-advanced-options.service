@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# The Advanced Options menu (XP's F8 menu) on tty1, before basic.target: no timer, socket or service of the
+# normal boot has started yet (docs/SAFE_MODE.md). If the menu fails, the normal boot continues.
+[Unit]
+Description=Advanced Options Menu
+DefaultDependencies=no
+Requires=sysinit.target
+# plymouthd from the initramfs holds the screen and reads tty1 (its quit units are masked): it is ended before this
+# unit's set-up of tty1, which it could otherwise stall (wex-plymouth-quit.service)
+Wants=wex-plymouth-quit.service
+After=sysinit.target systemd-vconsole-setup.service wex-plymouth-quit.service
+Conflicts=shutdown.target
+Before=shutdown.target
+# Last Known Good writes the machine registry: before the system tier's session-0 server loads it (E1, T1), which
+# would otherwise save its old copy over the restored one
+Before=wex-session0.service
+OnFailure=graphical.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/wex-advanced-options
+Environment=TERM=linux
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes

@@ -40,6 +40,7 @@
 #include <winnls.h>
 #include <wingdi.h>
 #include <winuser.h>
+#include <winreg.h>
 #include <commctrl.h>
 #include <objbase.h>
 #include <gdiplus.h>
@@ -70,6 +71,7 @@ enum hot { HOT_NONE, HOT_TILE, HOT_GO, HOT_HELP, HOT_TURNOFF };
 struct user
 {
     char name[64];
+    char session[64];    /* the session LightDM saved for the account (AccountsService's XSession), may be empty */
     WCHAR display[128];
     BOOL logged_on;
     HBITMAP picture;     /* 48 x 48, NULL: the default picture */
@@ -81,6 +83,7 @@ static HWND main_window, password_edit, balloon, session_list;
 static struct user users[MAX_USERS];
 static unsigned int user_count;
 static int selected = -1, hot_user = -1;
+static BOOL session_chosen;   /* the session list was changed by hand: it no longer follows the account clicked */
 static enum hot hot;
 static enum state state;
 static char pending_user[64];
@@ -124,8 +127,9 @@ static HBITMAP bitmap( UINT id )
     return bitmaps[id - 100];
 }
 
-/* draws a picture at x, y (stretched to w x h when they are not 0): alpha when it has it, else magenta is clear */
-static void draw( HDC hdc, HBITMAP bmp, int x, int y, int w, int h )
+/* draws a picture at x, y (stretched to w x h when they are not 0): alpha when it has it, else magenta is clear;
+ * an opacity below 255 blends a picture without alpha over what is there */
+static void draw_blended( HDC hdc, HBITMAP bmp, int x, int y, int w, int h, BYTE opacity )
 {
     BITMAP bm;
     HDC mem;
@@ -138,12 +142,22 @@ static void draw( HDC hdc, HBITMAP bmp, int x, int y, int w, int h )
     old = SelectObject( mem, bmp );
     if (bm.bmBitsPixel == 32)
     {
-        BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+        BLENDFUNCTION blend = { AC_SRC_OVER, 0, opacity, AC_SRC_ALPHA };
+        GdiAlphaBlend( hdc, x, y, w, h, mem, 0, 0, bm.bmWidth, bm.bmHeight, blend );
+    }
+    else if (opacity < 255)
+    {
+        BLENDFUNCTION blend = { AC_SRC_OVER, 0, opacity, 0 };
         GdiAlphaBlend( hdc, x, y, w, h, mem, 0, 0, bm.bmWidth, bm.bmHeight, blend );
     }
     else GdiTransparentBlt( hdc, x, y, w, h, mem, 0, 0, bm.bmWidth, bm.bmHeight, KEY_COLOR );
     SelectObject( mem, old );
     DeleteDC( mem );
+}
+
+static void draw( HDC hdc, HBITMAP bmp, int x, int y, int w, int h )
+{
+    draw_blended( hdc, bmp, x, y, w, h, 255 );
 }
 
 /* the account picture (AccountsService IconFile, usually a PNG) scaled to 48 x 48 */
@@ -174,10 +188,50 @@ static HBITMAP load_picture( const char *unix_path )
 
 /* ------------------------------------------------------------------ accounts */
 
+/* The accounts XP's Welcome screen leaves out: a REG_DWORD value of 0 named after the account (1 shows it) */
+static const WCHAR special_accounts[] =
+    L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\SpecialAccounts\\UserList";
+
+/* Safe Mode: SM_CLEANBOOT once Wine reports it (docs/SAFE_MODE_WORKORDER.md B2); until then wex-greeter.sh passes
+ * the mode in WEXMODE, as the session scripts do for Explorer */
+static BOOL safe_mode( void )
+{
+    WCHAR mode[16];
+
+    if (GetSystemMetrics( SM_CLEANBOOT )) return TRUE;
+    if (!GetEnvironmentVariableW( L"WEXMODE", mode, ARRAY_SIZE(mode) )) return FALSE;
+    return !lstrcmpiW( mode, L"safe" ) || !lstrcmpiW( mode, L"safenet" ) || !lstrcmpiW( mode, L"safecmd" );
+}
+
+/* A value in SpecialAccounts\UserList decides. Without one, the built-in Administrator (the account named
+ * administrator, docs/SAFE_MODE_WORKORDER.md C4) shows only in Safe Mode, as on XP Professional. */
+static BOOL user_hidden( HKEY list, const char *name, BOOL safe )
+{
+    WCHAR wname[64];
+    DWORD value = 1, size = sizeof(value), type;
+
+    if (list && MultiByteToWideChar( CP_UTF8, 0, name, -1, wname, ARRAY_SIZE(wname) ) &&
+        !RegQueryValueExW( list, wname, NULL, &type, (BYTE *)&value, &size ) && type == REG_DWORD &&
+        size == sizeof(value))
+        return value == 0;
+    return !safe && !lstrcmpiA( name, "administrator" );
+}
+
+/* by the name on the tile, ignoring case as XP does, then by account name */
+static int __cdecl compare_users( const void *a, const void *b )
+{
+    const struct user *x = a, *y = b;
+    int order = CompareStringW( LOCALE_USER_DEFAULT, NORM_IGNORECASE, x->display, -1, y->display, -1 ) - CSTR_EQUAL;
+
+    return order ? order : lstrcmpiA( x->name, y->name );
+}
+
 static void load_users( void )
 {
     char *buffer = NULL, *line, *next;
     DWORD needed = 0, size = 4096;
+    HKEY list = NULL;
+    BOOL safe = safe_mode();
 
     user_count = 0;
     for (;;)
@@ -190,29 +244,45 @@ static void load_users( void )
         if (err) { WARN( "no account list: %lu\n", err ); free( buffer ); return; }
         break;
     }
+    if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, special_accounts, 0, KEY_READ, &list )) list = NULL;
     for (line = buffer; *line && user_count < MAX_USERS; line = next)
     {
-        char *field[4] = { line }, *p = line;
+        char *field[5] = { line }, *p = line;
         struct user *u = &users[user_count];
         int n = 1;
 
         if ((next = strchr( line, '\n' ))) *next++ = 0;
         else next = line + strlen( line );
-        while (n < 4 && (p = strchr( p, '\t' ))) { *p++ = 0; field[n++] = p; }
+        while (n < 5 && (p = strchr( p, '\t' ))) { *p++ = 0; field[n++] = p; }
         if (n < 3) continue;
+        if (user_hidden( list, field[0], safe ))
+        {
+            TRACE( "%s is hidden (SpecialAccounts\\UserList or the Administrator rule)\n", debugstr_a(field[0]) );
+            continue;
+        }
         lstrcpynA( u->name, field[0], sizeof(u->name) );
         MultiByteToWideChar( CP_UTF8, 0, *field[1] ? field[1] : field[0], -1, u->display, ARRAY_SIZE(u->display) );
         u->logged_on = n > 3 && field[3][0] == '1';
+        lstrcpynA( u->session, n > 4 ? field[4] : "", sizeof(u->session) );
         u->picture = load_picture( field[2] );
         user_count++;
     }
+    if (list) RegCloseKey( list );
     free( buffer );
+    /* XP lists the tiles alphabetically (measured 2026-11-11, docs/SAFE_MODE_WORKORDER.md C7); AccountsService
+     * returns them in no set order */
+    qsort( users, user_count, sizeof(users[0]), compare_users );
 }
 
 /* ------------------------------------------------------------------ layout */
 
 static int middle_top( void ) { return TOP_BAND + 2; }
 static int middle_bottom( int cy ) { return cy - BOTTOM_BAND; }
+
+/* Screens narrower than 800 pixels, such as Safe Mode's 640x480, get XP's compact layout, measured on the XP VM at
+ * 640x480 (2026-11-11): the logo and "To begin" above the list instead of beside it, the list from the left behind
+ * a shorter divider, no shine, and the hint further left. The offsets below are XP's at 640x480. */
+static BOOL compact( int cx ) { return cx < 800; }
 
 static void layout( void )
 {
@@ -225,9 +295,18 @@ static void layout( void )
     cy = rc.bottom;
     for (i = 0; i < user_count; i++)
         total += (i == selected && state == ASKING ? TILE_ASK_HEIGHT : TILE_HEIGHT) + (i ? TILE_GAP : 0);
-    x = cx / 2 + 25;
-    y = (middle_top() + middle_bottom( cy )) / 2 - total / 2;
-    if (y < middle_top() + 12) y = middle_top() + 12;
+    if (compact( cx ))
+    {
+        /* the first picture frame's white border at 165,244, then one tile every 80 rows */
+        x = cx / 2 - 165;
+        y = middle_top() + 155;
+    }
+    else
+    {
+        x = cx / 2 + 25;
+        y = (middle_top() + middle_bottom( cy )) / 2 - total / 2;
+        if (y < middle_top() + 12) y = middle_top() + 12;
+    }
     for (i = 0; i < user_count; i++)
     {
         int h = i == selected && state == ASKING ? TILE_ASK_HEIGHT : TILE_HEIGHT;
@@ -245,7 +324,11 @@ static void layout( void )
         MoveWindow( password_edit, ex + 6, ey + 5, 159, 16, FALSE );
     }
     SetRect( &turnoff_rect, 24, middle_bottom( cy ) + 22, 24 + 26 + 8 + 190, middle_bottom( cy ) + 22 + 26 );
-    if (session_list)
+    /* the session list (WineExplorer's own; XP has none): below "To begin", or in the compact layout's empty top
+     * left corner, clear of the logo and the list */
+    if (session_list && compact( cx ))
+        SetWindowPos( session_list, NULL, 16, middle_top() + 16, 250, 180, SWP_NOZORDER | SWP_NOACTIVATE );
+    else if (session_list)
         SetWindowPos( session_list, NULL, 24, middle_bottom( cy ) - 44, 250, 180, SWP_NOZORDER | SWP_NOACTIVATE );
 }
 
@@ -275,12 +358,17 @@ static void paint_frame( HDC hdc, int cx, int cy )
     SetRect( &rc, 0, middle_top(), cx, mb );
     FillRect( hdc, &rc, brush = CreateSolidBrush( PANEL_COLOR ) );
     DeleteObject( brush );
-    draw( hdc, bitmap( IDB_SHINE ), 0, middle_top(), 0, 0 );
-    if (GetObjectW( bitmap( IDB_DIVIDER ), sizeof(bm), &bm ))
+    if (compact( cx ))   /* no shine; a fainter divider left of the list, rows 209 to 382 of 480, 145,174,238 at most */
+        draw_blended( hdc, bitmap( IDB_DIVIDER ), cx / 2 - 192, middle_top() + 129, 1, mb - middle_top() - 130, 90 );
+    else
     {
-        int h = min( bm.bmHeight, mb - middle_top() - 20 );
-        dy = middle_top() + (mb - middle_top() - h) / 2;
-        draw( hdc, bitmap( IDB_DIVIDER ), cx / 2, dy, 1, h );
+        draw( hdc, bitmap( IDB_SHINE ), 0, middle_top(), 0, 0 );
+        if (GetObjectW( bitmap( IDB_DIVIDER ), sizeof(bm), &bm ))
+        {
+            int h = min( bm.bmHeight, mb - middle_top() - 20 );
+            dy = middle_top() + (mb - middle_top() - h) / 2;
+            draw( hdc, bitmap( IDB_DIVIDER ), cx / 2, dy, 1, h );
+        }
     }
 
     draw( hdc, bitmap( IDB_BOTTOMSTRIP ), 0, mb, cx, 3 );
@@ -331,9 +419,20 @@ static void paint( HDC hdc )
     SetBkMode( hdc, TRANSPARENT );
     SetTextColor( hdc, RGB(255, 255, 255) );
 
-    if (GetObjectW( bitmap( IDB_LOGO ), sizeof(bm), &bm ))
-        draw( hdc, bitmap( IDB_LOGO ), cx / 2 - 20 - bm.bmWidth, cy / 2 + 18 - bm.bmHeight, 0, 0 );
-    SetRect( &rc, 0, cy / 2 + 38, cx / 2 - 45, cy / 2 + 70 );
+    /* the logo, and "To begin" 25 pixels left of its right edge and 20 below it: beside the list, or in the compact
+     * layout above it, the logo's right edge at 490 and its bottom at 166 */
+    if (compact( cx ))
+    {
+        if (GetObjectW( bitmap( IDB_LOGO ), sizeof(bm), &bm ))
+            draw( hdc, bitmap( IDB_LOGO ), cx / 2 + 170 - bm.bmWidth, middle_top() + 86 - bm.bmHeight, 0, 0 );
+        SetRect( &rc, 0, middle_top() + 106, cx / 2 + 146, middle_top() + 138 );
+    }
+    else
+    {
+        if (GetObjectW( bitmap( IDB_LOGO ), sizeof(bm), &bm ))
+            draw( hdc, bitmap( IDB_LOGO ), cx / 2 - 20 - bm.bmWidth, cy / 2 + 18 - bm.bmHeight, 0, 0 );
+        SetRect( &rc, 0, cy / 2 + 38, cx / 2 - 45, cy / 2 + 70 );
+    }
     text_out( hdc, font_begin, text( IDS_BEGIN ), &rc, DT_RIGHT | DT_SINGLELINE );
 
     for (i = 0; i < user_count; i++) paint_tile( hdc, i );
@@ -341,7 +440,7 @@ static void paint( HDC hdc )
     draw( hdc, bitmap( hot == HOT_TURNOFF ? IDB_TURNOFF_HOT : IDB_TURNOFF ), turnoff_rect.left, turnoff_rect.top, 0, 0 );
     SetRect( &rc, turnoff_rect.left + 34, turnoff_rect.top, turnoff_rect.right + 40, turnoff_rect.bottom );
     text_out( hdc, font_turnoff, text( IDS_TURNOFF ), &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE );
-    SetRect( &rc, cx / 2 + 70, mb + 25, cx - 20, cy - 10 );
+    SetRect( &rc, compact( cx ) ? cx / 2 - 10 : cx / 2 + 70, mb + 25, cx - 20, cy - 10 );
     text_out( hdc, font_small, text( IDS_ACCOUNTS_HINT ), &rc, DT_LEFT );
 }
 
@@ -388,6 +487,16 @@ static void set_state( enum state s )
     repaint();
 }
 
+/* The session list follows the account clicked: its own saved session, as LightDM's greeters do. Without this a
+ * logon took whatever the list showed (X11 at first), and LightDM then saved that as the account's choice. An account
+ * with none saved gets the first entry, LightDM's user-session (X11). A session chosen by hand, before or after the
+ * click, is kept: the list is changed first and the name clicked second, as on XP's Welcome screen. */
+static void show_session( int i )
+{
+    if (session_list && !session_chosen)
+        SendMessageW( session_list, CB_SETCURSEL, !strcmp( users[i].session, "wine-explorer-wayland" ) ? 1 : 0, 0 );
+}
+
 /* starts LightDM's authentication of user i; PAM asks for the password (or does not, for an account without one) */
 static void begin_logon( int i )
 {
@@ -396,6 +505,7 @@ static void begin_logon( int i )
     if (state != IDLE) WexGreeterCancel();
     hide_balloon();
     selected = i;
+    show_session( i );
     SetWindowTextW( password_edit, L"" );
     lstrcpynA( pending_user, users[i].name, sizeof(pending_user) );
     set_state( CHECKING );
@@ -580,6 +690,9 @@ static LRESULT CALLBACK main_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         SendMessageW( balloon, TTM_SETMAXTIPWIDTH, 0, 300 );
         return 0;
     }
+    case WM_COMMAND:
+        if ((HWND)lparam == session_list && session_list && HIWORD( wparam ) == CBN_SELCHANGE) session_chosen = TRUE;
+        break;
     case WM_GREETER_EVENT:
         handle_event( (char *)lparam );
         free( (char *)lparam );

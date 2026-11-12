@@ -69,6 +69,76 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
 * `scripts/theme-gallery-probe.c`: from repo root, `x86_64-w64-mingw32-gcc -municode -mwindows -o theme-gallery-probe.exe scripts/theme-gallery-probe.c -luxtheme -lcomctl32 -lgdi32 -luser32 -ladvapi32`. Run `theme-gallery-probe.exe STYLE LOG`, where STYLE is a `.msstyles` path or `-` to keep the current style and LOG is optional. It applies a style, opens two control galleries for 40 seconds and overwrites the specified log. Inspect source for temporary manifest behavior before use.
 * `scripts/sync-files.py`: `python3 scripts/sync-files.py BASE [--deleted] [--full]` prints selected project and stock paths; `--deleted` selects deletions, `--full` includes tracked `src` files. Requires initialized Wine submodule; does not itself copy. `python3 scripts/sync-archive.py PATH_LIST > archive.tar` streams listed repo files as tar, normalizing known text extensions to LF and preserving tracked Git modes. `python3 scripts/sync-overlay.py SOURCE PATH_LIST > overlay.tar` streams mapped private overlays. `python3 scripts/sync-delete.py DEST_ROOT < PATH_LIST` unlinks listed files/symlinks inside that root: destructive, validate the list and destination first. Runtime depends on selected files.
 * `scripts/add-license.py`: `python3 scripts/add-license.py --dry-run` reports eligible files; omit `--dry-run` to rewrite eligible project-authored C/H/RC files lacking a license notice. It consults the Wine `wine-11.19` tag, skips named upstream/ReactOS paths and preserves detected line endings. Runtime depends on tree size.
+* `wexbuild` WSL distro on the owner's Windows machine (since 2026-11-09). It is Debian 13 at `C:\WSL\wexbuild`,
+  separate from the shared `Debian` distro, with Wine's build dependencies and both MinGW cross compilers.
+  - Its `/root/WineExplorer` is a clone of this repository with its own `wine` clone at the branch's gitlink, so
+    the Windows checkout's `wine` tree is never assembled into.
+  - `scripts/assemble.sh` was run there. The build is `build/wow64` (`--enable-archs=i386,x86_64`); a full build
+    takes about 21 minutes on 16 threads.
+  - To test uncommitted changes, copy the working tree in without `.git`, `wine`, `build` or `wexcomp`. Touch
+    the files that differ from the clone's commit, because a sync can carry older times, then run `make`.
+    Also leave out the ignored `references/` and `archives/` (9 GB, 290,000 files, nothing a build reads): with
+    them an `rsync --checksum` over `/mnt/d` took 33 minutes (2026-11-09).
+  - `make install prefix=/usr/local DESTDIR=...`, packed as a `.tar.gz`, feeds `safe-mode.sh` through
+    `WEX_TEST_WINE`.
+  - The Safe Mode Wine branch (`claude/vintner-boot-integration`, `docs/SAFE_MODE_WORKORDER.md`) has its own tree,
+    `/root/WE-safemode`. It holds a copy of this repository with that branch's `wine` assembled into it, and its
+    WoW64 build is in `build/wow64`. To build a changed WineExplorer source there, copy the file into both
+    `src/...` and the assembled `wine/...`, then run `make`. Its latest install tarball (576 MB) is
+    `D:\WSL\wex-iso\wine-safemode-b5.tar.gz`. As of 2026-11-12 it holds B1-B7, the buffered paint fix
+    (`4a1d6d5a25e`), uxtheme's Safe Mode check (`cdda62d0ad7`), this repository's wexhost (shell keys, saved sessions)
+    and `logonui.c`, and wexcomp `0d524d63` as
+    `usr/local/bin/wexcomp`. Repacking keeps that binary (`tar -xzf` it from the old tarball into the stage first).
+    Commits on that branch reach the Windows checkout's `wine` repository through a bundle (`git bundle create`, then
+    `git fetch` from the bundle). Git for Windows cannot fetch from the `\\wsl.localhost` path.
+  - `installer/package-wine.sh` needs python3-pil and fetches third-party assets (icons, ReactOS sources, runtime
+    payloads), so run it only with the owner's agreement to those downloads (given 2026-11-09).
+  - The ISO is built there as well, as root, from the clone:
+    `WORK_DIR=/root/iso-build OUT_ISO=/root/out/NAME.iso bash installer/build-iso.sh --clean [--vintner=DIR]`.
+    It needs live-build, debootstrap, squashfs-tools, xorriso, mtools, msitools, zstd, unzip, the textsetup libraries
+    (libncurses-dev, libfdisk-dev, libblkid-dev) and `apt-get build-dep labwc` for the compositor package. The
+    `wexcomp` submodule is cloned from the Windows checkout's `wexcomp` at the branch's gitlink. On 2026-11-09
+    packaging plus `lb build` took 11 minutes, giving a 2.4 GB ISO. Delete `/root/iso-build` afterwards: the
+    distro's disk is on C:.
+  - Vintner Boot, the only loader since 2026-11-11 (`--grub` is gone): without `--vintner=DIR`, `build-iso.sh` builds
+    its packages from the `vintner` submodule with `ci/package/build-debs.sh` (golang-go, debhelper, grub-pc-bin,
+    systemd-boot-efi, python3-pefile, git, dpkg-dev, fakeroot). The submodule, like `wexcomp`, is cloned from the
+    Windows checkout at the branch's gitlink, as a git checkout, because `build-debs.sh` archives its tree with git.
+    It takes about three minutes and downloads the recovery image's packages. `--vintner=DIR` reuses packages built
+    earlier, for example from a branch of `D:\Projects\vintner-boot`.
+* `installer/tests/safe-mode.sh` (Safe Mode VM test, `docs/SAFE_MODE.md` section 6): as root in WSL Debian, from a
+  script file, `VMTEST_DIR=/var/tmp/vmtest-gpt WEX_TEST_FIRMWARE=bios|uefi bash installer/tests/safe-mode.sh SOURCE_VM TEST_VM [PHASE...]`.
+  It replaces TEST_VM with a new qcow2 overlay of the installed disk SOURCE_VM, which is never written; an existing
+  TEST_VM disk that is not an overlay of SOURCE_VM is refused. Every run starts with one provisioning boot (the test
+  accounts). By default (`WEX_SAFEMODE_FILES=installed`) it tests what an ISO installed; `branch` also copies this
+  checkout's Safe Mode files onto the overlay and runs the package postinst's Safe Mode part (files Vintner Boot reads
+  only when it publishes, `installer/vintner/`, stay as installed). `WEX_TEST_PROBES` (a directory with
+  `safeboot-probe32.exe` and `safeboot-probe64.exe`, built from `installer/tests/safeboot-probe.c` with MinGW in
+  wexbuild) adds what Windows programs see in Safe Mode (phase B); `WEX_TEST_SAFE_BOX=required` demands the message
+  box after a Safe Mode logon (C2). The test reaches the menu through Vintner Boot's Advanced Options variant. Its
+  BIOS GRUB checks Shift within 2 seconds of power-on, and QEMU takes no input while a VM is paused. So the VM starts
+  with `vmtest.py start --paused`, and `vmtest.py hold VM KEY SECONDS --cont` runs it and holds the key in one QMP
+  session: Shift for 6 seconds on BIOS, F8 for 25 on UEFI (systemd-boot). QEMU serves one QMP client at a time, so
+  other `vmtest.py` calls wait for a hold. (Until 2026-11-11 it also took GRUB installs, `WEX_TEST_LOADER=grub`, with
+  a `failed` phase, and `WEX_SAFEMODE_FILES=upgrade` for a GRUB install from before `14286423`.) Run it from a
+  copy of `scripts/` and `installer/` when the checkout may change during the run: bash reads a script as it goes,
+  and an edit made meanwhile breaks the running test (this happened on 2026-11-09). Then one boot per
+  phase (`safe safenet safecmd nowine bootlog startnormal oschoices normal lastgood vfailed lastgoodgen`, plus
+  `accounts` with `WEX_TEST_WINE`, a
+  tarball of this branch's Wine unpacked over `/` first and the machine root updated, as the Wine package's
+  postinst does, and `waylandsafe` and `waylandcmd`, the Wayland session, only when named), each checked on the
+  screen (OCR) and over the
+  serial console as `WEX_TEST_USER` (default `wineuser`, empty password unless `WEX_TEST_PASSWORD_FILE`; on the
+  Welcome screen the first tile unless `WEX_TEST_TILE` names one). `nowine` hides `/usr/local/bin/wine` on the
+  overlay for its boot and puts it back. `vfailed` holds LightDM back 90 seconds with a drop-in it removes
+  afterwards, presses the VM's Reset button (`vmtest.py reset`) once the serial console answers, and boots three
+  times more. `lastgoodgen` publishes a generation 2 on the overlay, so it runs last. Each boot reports the guest's disk use (a warning from 80%, a failure from
+  95%). The overlay is replaced on every run, so runs do not pile up; delete superseded test disks of your own once a
+  newer base exists. A boot that
+  changes a file under `/etc` or `/var/lib/AccountsService`, or a `.dmrc`, fails. It mounts the overlay through the
+  first free NBD device, so run one at a time. Needs QEMU/KVM, qemu-nbd, Tesseract and ImageMagick; the VM ends
+  stopped; evidence in `$VMTEST_DIR/TEST_VM/safe-mode/`. All six phases took about 13 minutes per firmware
+  (2026-11-08).
 * `scripts/vmtest.py` provides `start`, `stop`, `shutdown`, `shot`, `key`, `type`, `click`, `doubleclick`, `drag`, `clicktext`, `wait` and `sh` subcommands. It controls real VMs and disks; inspect its current source for exact arguments, disk locations, shutdown semantics and dependencies before use. `scripts/open_assets.py`, setup scripts, remaining `test_*`, `check-*`, `sysrun_*`, `wayland-pointer-move.c`, `reg-acl-probe.c` and other tools have not yet been individually verified in this catalog.
 
 ### wexbuild `/root`: snapshot reference

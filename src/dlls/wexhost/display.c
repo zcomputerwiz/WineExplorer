@@ -1,5 +1,5 @@
 /*
- * Host display modes: XRandR on X11 and compositor-advertised Xwayland outputs.
+ * Host display modes: the compositor's outputs in a Wayland session (wloutput.c), XRandR on X11.
  * There is no display-management D-Bus service common to all these sessions.
  *
  * Copyright 2026 WineExplorer Desktop Environment Project
@@ -44,6 +44,44 @@
 #include <windef.h>
 #include <winbase.h>
 #include "wexhost_unix.h"
+
+/* The mode accepted in Display Properties, which the next normal session restores: "width height refresh(mHz)
+ * name" in ~/.config/wineexplorer/display (wine-explorer-session.sh with xrandr, the Wayland session through
+ * WEX_OUTPUT_MODE) */
+static DWORD persist_mode(const WEX_DISPLAY_MODE *mode,const char *name,int name_len)
+{
+    char dir[4096],path[4096],temp[4096]; const char *root=getenv("XDG_CONFIG_HOME"),*home=getenv("HOME"); FILE *file;
+    if(root && root[0]=='/') snprintf(dir,sizeof(dir),"%s",root);
+    else if(home) snprintf(dir,sizeof(dir),"%s/.config",home);
+    else return ERROR_NOT_SUPPORTED;
+    if(mkdir(dir,0700) && errno!=EEXIST) return ERROR_ACCESS_DENIED;
+    if(strlen(dir)+32>=sizeof(dir)) return ERROR_FILENAME_EXCED_RANGE;
+    strcat(dir,"/wineexplorer");
+    if(mkdir(dir,0700) && errno!=EEXIST) return ERROR_ACCESS_DENIED;
+    snprintf(path,sizeof(path),"%s/display",dir); snprintf(temp,sizeof(temp),"%s/display.tmp.%ld",dir,(long)getpid());
+    if(!(file=fopen(temp,"w"))) return ERROR_ACCESS_DENIED;
+    fprintf(file,"%u %u %u %.*s\n",(unsigned)mode->width,(unsigned)mode->height,(unsigned)mode->refresh,name_len,name);
+    if(fclose(file) || rename(temp,path)) { unlink(temp); return ERROR_WRITE_FAULT; }
+    return ERROR_SUCCESS;
+}
+
+/* A Wayland session: the compositor's own output, when it manages outputs (wexcomp does) */
+static BOOL wayland_get(struct display_get_params *params)
+{
+    return wl_outputs_get(&params->display,&params->err);
+}
+
+static BOOL wayland_set(struct display_set_params *params)
+{
+    char name[32];
+    if(!wl_outputs_set(&params->mode,&params->err)) return FALSE;
+    if(!params->err && params->persist)
+    {
+        snprintf(name,sizeof(name),"%ux%u",(unsigned)params->mode.width,(unsigned)params->mode.height);
+        params->err=persist_mode(&params->mode,name,strlen(name));
+    }
+    return TRUE;
+}
 
 #if defined(SONAME_LIBX11) && defined(SONAME_LIBXRANDR)
 #define X11_FUNCS \
@@ -156,26 +194,10 @@ static DWORD query(DISPLAY_CONTEXT *ctx,WEX_DISPLAY *display)
     return display->count && display->current.refresh ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
 }
 
-static DWORD persist_mode(const WEX_DISPLAY_MODE *mode,const XRRModeInfo *native)
-{
-    char dir[4096],path[4096],temp[4096]; const char *root=getenv("XDG_CONFIG_HOME"),*home=getenv("HOME"); FILE *file;
-    if(root && root[0]=='/') snprintf(dir,sizeof(dir),"%s",root);
-    else if(home) snprintf(dir,sizeof(dir),"%s/.config",home);
-    else return ERROR_NOT_SUPPORTED;
-    if(mkdir(dir,0700) && errno!=EEXIST) return ERROR_ACCESS_DENIED;
-    if(strlen(dir)+32>=sizeof(dir)) return ERROR_FILENAME_EXCED_RANGE;
-    strcat(dir,"/wineexplorer");
-    if(mkdir(dir,0700) && errno!=EEXIST) return ERROR_ACCESS_DENIED;
-    snprintf(path,sizeof(path),"%s/display",dir); snprintf(temp,sizeof(temp),"%s/display.tmp.%ld",dir,(long)getpid());
-    if(!(file=fopen(temp,"w"))) return ERROR_ACCESS_DENIED;
-    fprintf(file,"%u %u %u %.*s\n",mode->width,mode->height,mode->refresh,native->nameLength,native->name);
-    if(fclose(file) || rename(temp,path)) { unlink(temp); return ERROR_WRITE_FAULT; }
-    return ERROR_SUCCESS;
-}
-
 NTSTATUS display_get(void *args)
 {
     struct display_get_params *params=args; DISPLAY_CONTEXT ctx;
+    if(wayland_get(params)) return STATUS_SUCCESS;
     params->err=query(&ctx,&params->display); release(&ctx);
     return STATUS_SUCCESS;
 }
@@ -185,6 +207,7 @@ NTSTATUS display_set(void *args)
     struct display_set_params *params=args;
     WEX_DISPLAY display; DISPLAY_CONTEXT ctx; XRRModeInfo *mode=NULL;
     int i,j,width,height,mm_width,mm_height,min_width,min_height,max_width,max_height,status;
+    if(wayland_set(params)) return STATUS_SUCCESS;
     params->err=query(&ctx,&display);
     if(params->err) goto done;
     /* Resolve a currently advertised native mode, not an index from an old list. */
@@ -228,7 +251,7 @@ NTSTATUS display_set(void *args)
             if(actual) pXRRFreeCrtcInfo(actual);
         }
     }
-    if(!params->err && params->persist) params->err=persist_mode(&params->mode,mode);
+    if(!params->err && params->persist) params->err=persist_mode(&params->mode,mode->name,mode->nameLength);
 done:
     release(&ctx);
     return STATUS_SUCCESS;
@@ -236,12 +259,12 @@ done:
 #else
 NTSTATUS display_get(void *args)
 {
-    ((struct display_get_params *)args)->err=ERROR_NOT_SUPPORTED;
+    if(!wayland_get(args)) ((struct display_get_params *)args)->err=ERROR_NOT_SUPPORTED;
     return STATUS_SUCCESS;
 }
 NTSTATUS display_set(void *args)
 {
-    ((struct display_set_params *)args)->err=ERROR_NOT_SUPPORTED;
+    if(!wayland_set(args)) ((struct display_set_params *)args)->err=ERROR_NOT_SUPPORTED;
     return STATUS_SUCCESS;
 }
 #endif

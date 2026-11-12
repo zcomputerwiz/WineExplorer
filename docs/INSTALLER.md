@@ -89,8 +89,13 @@ The installer polish work completed the visual parity and integration items:
 - GUI setup uses Wizard97 headers, classic styling without themes, sequential billboard step indicator advancement, and an initially empty Owner Name field.
 - Date and Time settings use a shared XP time zone list (`wextimezone.h`) with full Unicode CLDR Windows<->IANA mapping, date and time pickers, and DST indicator.
 - Automatic Updates choice from OOBE is written to `/etc/wineexplorer/setup/automatic-updates` and applied to `/etc/apt/apt.conf.d/20auto-upgrades` via `unattended-upgrades`; `AutomaticUpdates=Yes/No` is supported in answer files.
-- Text setup partition and format screens use Windows XP wording (`C: Partition1 ... on Disk 0 at Id 0 on bus 0 ... [MBR]`) with disk bus adaptation, keeping Linux device paths in logs only; the reboot countdown bar is red/brown without percentage text.
-- Installed GRUB boots straight through (`GRUB_TIMEOUT_STYLE=hidden`, `GRUB_TIMEOUT=0`, `GRUB_TERMINAL=console`, Debian theme removed).
+- Text setup partition and format screens use Windows XP wording (`C: Partition4 ... on Disk 0 at Id 0 on bus 0 ... [GPT]`) with disk bus adaptation, keeping Linux device paths in logs only; the reboot countdown bar is red/brown without percentage text.
+- The installed system starts through Vintner Boot ([VINTNER_BOOT.md](VINTNER_BOOT.md); the default since
+  2026-11-10, and since 2026-11-11 the only loader, when the GRUB path was removed). Its menu is hidden and names
+  WineExplorer, not Debian (owner decision, 2026-11-10): "WineExplorer (date)", then "WineExplorer (date): Advanced
+  Options", which shows the XP Advanced Options menu ([SAFE_MODE.md](SAFE_MODE.md)), and the two Recovery Console
+  entries. To open it, press F8 on UEFI machines, or hold Shift on BIOS machines. `/etc/os-release` stays Debian's,
+  because other programs read it.
 - The desktop template properly displays the Recycle Bin icon on first logon.
 
 ---
@@ -112,6 +117,27 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
     - **C**: Displays "Create partition" screen with minimum and maximum size prompts, creating the partition in the selected free region.
     - **D**: Displays XP partition deletion confirmation screen requiring **L** to confirm deletion.
     - **ENTER**: Selects an existing partition or creates a partition filling the free space.
+  - **Partition layout** (the layout Vintner Boot needs, [VINTNER_BOOT.md](VINTNER_BOOT.md) section 4.1): every disk
+    Setup prepares is GPT, on BIOS and UEFI machines alike. A blank disk, or an MBR disk with no partitions, gets a
+    new GPT label. An MBR disk that has partitions is refused with a message (delete them first), as Windows Setup
+    refuses an MBR disk on UEFI. Setup gives the disk three system partitions, in this order, before the first
+    partition the user creates or selects:
+    - BIOS boot, 2 MB, no file system: Vintner Boot's GRUB core image on BIOS machines;
+    - EFI system, 512 MB, FAT32;
+    - Boot storage (XBOOTLDR type `BC13C2FF-59E6-4262-A352-B275FD6F7172`), 2048 MB, FAT32 labelled `BOOTSTORAGE`,
+      with GPT attribute 63 ("no-auto") so `systemd-gpt-auto-generator` never mounts it. It is never listed in
+      `/etc/fstab`: Vintner Boot mounts it by PARTUUID when it needs it.
+
+    A system partition the disk already has (found by its GPT type, for example the EFI system partition of an
+    installed Windows) is reused and never formatted unless it has no FAT file system. A notice lists the
+    partitions Setup will add before anything is created; ESC goes back. System partitions are listed without a
+    drive letter (`Partition2 (EFI System) [vfat]`) and cannot be selected as the install target; C: is the first
+    partition that is not a system partition. Partitions start on 1 MB boundaries. A partition Setup has only
+    planned (not yet written) shows `[New (Raw)]`, never the file system of a deleted partition that started at the
+    same place, and Setup clears old file system signatures (`wipefs`) from the system partitions it creates
+    before formatting them; the BIOS boot partition gets no file system.
+  - Unattended mode always writes a new GPT label on the target disk: the three system partitions and the root in
+    the rest of the disk.
 - **Filesystem Formatting**:
   - "Format the partition using the ext4 file system (Quick)"
   - "Format the partition using the ext4 file system"
@@ -125,7 +151,11 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
 - **Target Sanitization & Swap**:
   - Automatically purges live-boot artifacts (`live-boot`, `live-config`, `/etc/sudoers.d/live`, `/etc/sudoers.d/wineuser`, live `wineuser` home, `/setup`, `/etc/live`, `wex-textsetup.service`).
   - Creates a dedicated swap file (`/swapfile`) sized at 1.5× RAM (capped at 8 GB) with `/etc/fstab` entry.
-  - Installs GRUB MBR (`grub-install --target=i386-pc /dev/sdX`) with generated `device.map`.
+  - Installs the start-up files: Vintner Boot (`installer/textsetup/install-vintner.sh`,
+    [VINTNER_BOOT.md](VINTNER_BOOT.md) section 4.2). The disk then starts on BIOS and UEFI alike. If this step
+    fails, Setup stops with "Setup cannot continue" and names `/var/log/vintner-install.log` on the new
+    installation; there is no other loader to fall back to. (Until 2026-11-10 Setup installed GRUB, and an ISO built
+    with `--grub` still did until 2026-11-11.)
   - Sets `/etc/wineexplorer/setup/stage` to `gui` and triggers a 15-second red countdown bar before ejecting media and rebooting.
 
 ---
@@ -137,7 +167,7 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
 - **Interactive Wizard Pages**:
   1. *Regional and Language Options*: Locale selection, keyboard layout.
   2. *Personalize Your Software*: Registered Owner, Organization.
-  3. *Computer Name and Administrator Password*: Hostname validation (alphanumeric and dashes, max 15 chars), root password input and verification.
+  3. *Computer Name and Administrator Password*: Hostname validation (alphanumeric and dashes, max 15 chars), root password input and verification. Since 2026-11-09 (`docs/SAFE_MODE_WORKORDER.md` C4), the same password also goes to the `administrator` account, XP's built-in Administrator. The package creates that account locked, and `wex-gui-setup.sh` copies root's hash to it. Root keeps getting the password as before, and a blank password leaves both locked.
   4. *Date and Time Settings*: Time zone combo, NTP synchronization checkbox.
   5. *Networking Settings*: Typical (DHCP) vs Custom settings.
   6. *Workgroup or Computer Domain*: Workgroup name (`WORKGROUP`).
@@ -146,7 +176,10 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
   - Uses system D-Bus with non-interactive polkit authorization (`interactive = FALSE`):
     - Hostname: `org.freedesktop.hostname1.SetStaticHostname` (`WexHostnameSet`).
     - Timezone: `org.freedesktop.timedate1.SetTimezone` (`WexTimedateSetTimezone`).
-    - Locale: `org.freedesktop.locale1.SetLocale` (`WexLocaleSet`).
+    - Locale: `org.freedesktop.locale1.SetLocale` (`WexLocaleSet`). localed only writes `/etc/default/locale`; it
+      generates nothing. The image is built with `en_US.UTF-8` (the package's postinst runs `wex-locale-gen`).
+      Any other locale chosen here is generated by `wex-locale-gen.service` at the next start, before OOBE and the
+      logon screen (`scripts/wex-locale-gen.sh`, since 2026-11-11).
     - Root Password: SHA-512 crypt hash passed to AccountsService User0.
   - Polkit authorization is guarded by `/etc/polkit-1/rules.d/49-wexsetup.rules` requiring presence of `/etc/wineexplorer/setup/stage`.
 - **User Template Prefix**: Builds clean `/etc/skel/.wine` template prefix via `wineboot -u`, ensuring instant first logon for created users.
@@ -165,10 +198,11 @@ The installation medium is a bootable hybrid ISO image produced using Debian's `
 - **User Provisioning**:
   - Accounts created via AccountsService `CreateUser` (`WexUserCreate`).
   - First user is provisioned with `AccountType=1` (administrator, automatically assigned to `sudo` group).
+  - The user name fields refuse Administrator, in any case, because the package makes that account (since 2026-11-09, `docs/SAFE_MODE_WORKORDER.md` C4).
   - Copies template prefix from `/etc/skel/.wine` to `/home/<user>/.wine` with proper user ownership.
 - **Display Manager & Autologin**:
   - If exactly one user was created and that user has no password: `WexUserSetSession` asks AccountsService to enable automatic login. In Debian 13 this writes LightDM's main configuration (the legacy `[SeatDefaults]` section).
-  - If multiple users or passwords exist: displays the Wine `logonui.exe` Welcome screen, running as the unprivileged `lightdm` account with its own `/var/lib/lightdm/.wine-logon` prefix. GTK greeter remains installed for recovery.
+  - If multiple users or passwords exist: displays the Wine `logonui.exe` Welcome screen, running as the unprivileged `lightdm` account with its own prefix, `/var/lib/lightdm/.wine` (until 2026-11-08 `.wine-logon`, which the greeter moves on its next start). GTK greeter remains installed for recovery.
 - **Cleanup**:
   - Terminates running Wine instances and user processes.
   - Deletes temporary user `wexsetup` (`userdel -r -f wexsetup`).
@@ -215,6 +249,17 @@ User1Admin = 1
 ```
 
 - Build with `--unattended --clean`: `sudo ./installer/build-iso.sh --unattended --clean` (sets GRUB default entry to `Install (unattended)`).
+- The ISO carries Vintner Boot's `vintner-core` and `vintner-platform` packages as files under `/setup/vintner`,
+  together with Setup's step, and their dependencies (`systemd-boot-efi`, `systemd-ukify`, `sbsigntool`) are in the
+  live system.
+  - By default `build-iso.sh` builds the packages from the `vintner` submodule (Vintner Boot, pinned like `wine`
+    and `wexcomp`; `git submodule update --init vintner`). It uses that project's `ci/package/build-debs.sh`, which
+    needs Debian 13 and the build dependencies in `vintner/debian/control`: debhelper and golang-go, plus git,
+    dpkg-dev, fakeroot, curl, cpio, kmod, xz-utils, binutils, grub-pc-bin, systemd-boot-efi and python3-pefile.
+    The build downloads the recovery image's Debian packages.
+  - `--vintner=DIR` takes packages already built in DIR instead.
+  - The live system, which Setup copies to the disk, has no stock boot loader. Of GRUB it has only `grub-common`,
+    whose `grub-mkimage` Vintner Boot uses for the BIOS core image; the ISO's own GRUB comes from live-build.
 - Boots directly into Stage 1, partitions `TargetDisk`, formats, copies files, reboots into Stage 2 (applies hostname, timezone, locale), transitions to Stage 3 (provisions `wineuser` as administrator), configures LightDM autologin, cleans up temporary setup state, and launches into the WineExplorer desktop session without a single keystroke.
 
 ### Running Automated Install Tests in WSL2 (`wexbuild`)
