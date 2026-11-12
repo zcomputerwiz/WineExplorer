@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer system tier (session 0) service.
+# Runs an always-on wineserver for the shared machine root as the unprivileged
+# wexsys system account, serving the machine registry (HKLM and HKU\.DEFAULT)
+# to all user sessions over /run/wineexplorer/session0.
+
+[Unit]
+Description=WineExplorer system tier (session 0)
+Documentation=https://github.com/zcomputerwiz/WineExplorer/blob/master/docs/SYSTEM_TIER_DESIGN.md
+Before=display-manager.service
+
+[Service]
+Type=simple
+User=wexsys
+Group=wexsys
+UMask=0022
+Environment=WINEPREFIX=/var/lib/wineexplorer/machine
+ExecStart=/usr/local/bin/wineserver --session0 -f
+Restart=always
+RestartSec=1
+NoNewPrivileges=yes
+RuntimeDirectory=wineexplorer
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target

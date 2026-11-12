@@ -270,6 +270,8 @@ cp "$SCRIPT_DIR/systemd/wex-setup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-safemode.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
+# system tier session 0 (docs/SYSTEM_TIER_WORK_ORDERS.md); enabled only by setup-machine-root.sh with WEX_SESSION0=1
+cp "$SCRIPT_DIR/systemd/wex-session0.service" "$STAGE_SESSION/lib/systemd/system/"
 # the session and everything it starts become candidates for kernel samepage merging (wexksmtuned decides when it runs)
 install -D -m644 "$SCRIPT_DIR/systemd/wex-ksm.conf" "$STAGE_SESSION/lib/systemd/system/lightdm.service.d/wex-ksm.conf"
 

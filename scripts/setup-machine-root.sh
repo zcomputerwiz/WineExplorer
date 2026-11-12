@@ -27,6 +27,11 @@ die()
 ACCOUNTS_AUTOSYNC=${WEX_ACCOUNTS_AUTOSYNC:-1}
 case "$ACCOUNTS_AUTOSYNC" in 0|1) ;; *) die 'WEX_ACCOUNTS_AUTOSYNC must be 0 or 1' ;; esac
 
+# System tier (session 0): dedicated wineserver for the machine registry.
+# Opt-in during T1; default off. WEX_SESSION0=1 enables.
+SESSION0_ENABLE=${WEX_SESSION0:-0}
+case "$SESSION0_ENABLE" in 0|1) ;; *) die 'WEX_SESSION0 must be 0 or 1' ;; esac
+
 case "$ACTION" in
     apply|update|--update) ACTION=apply ;;  # the package postinst passes --update
     rollback|--rollback) ;;
@@ -397,7 +402,7 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
         # WEX_BUILTIN_ADMINISTRATOR=NAME names the account that wex-accounts maps with the reserved RID 500.
         ADMIN_GROUP="${WEX_ADMIN_GROUP:-sudo}"
         BUILTIN_ADMIN="${WEX_BUILTIN_ADMINISTRATOR:-}"
-        if [ -f "$SYSRUN_CONF" ] && [ ! -L "$SYSRUN_CONF" ] && { [ -z "${WEX_ADMIN_GROUP:-}" ] || [ -z "$BUILTIN_ADMIN" ]; }; then
+        if [ -f "$SYSRUN_CONF" ] && [ ! -L "$SYSRUN_CONF" ] && { [ -z "${WEX_ADMIN_GROUP:-}" ] || [ -z "$BUILTIN_ADMIN" ] || [ -z "${WEX_SESSION0:-}" ]; }; then
             [ "$(stat -c '%u' -- "$SYSRUN_CONF")" = 0 ] || die "sysrun config is not root-owned"
             [ $(( 0$(stat -c '%a' -- "$SYSRUN_CONF") & 022 )) -eq 0 ] || die "sysrun config is writable by others"
             seen_admin=0 seen_builtin=0
@@ -405,12 +410,17 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
                 case "$config_line" in
                     admin_group=*) [ -n "${WEX_ADMIN_GROUP:-}" ] || [ "$seen_admin" = 1 ] || ADMIN_GROUP="${config_line#admin_group=}"; seen_admin=1 ;;
                     builtin_administrator=*) [ -n "${WEX_BUILTIN_ADMINISTRATOR:-}" ] || [ "$seen_builtin" = 1 ] || BUILTIN_ADMIN="${config_line#builtin_administrator=}"; seen_builtin=1 ;;
+                    session0_socket=*) [ -n "${WEX_SESSION0:-}" ] || SESSION0_ENABLE=1 ;;
                 esac
             done < "$SYSRUN_CONF"
         fi
         # A coarse check here; wex-accounts and the server apply the exact account-name grammar.
         case "$BUILTIN_ADMIN" in *[!A-Za-z0-9_.\$-]*|-*) die "invalid built-in Administrator account name: $BUILTIN_ADMIN" ;; esac
         install -m 2755 -o root -g "$MACHINE_GROUP" -- "$SYSRUN_TMP/wex-sysrun" "$SYSRUN_DIR/wex-sysrun"
+        if [ "$SESSION0_ENABLE" = "1" ] && ! getent passwd wexsys >/dev/null 2>&1; then
+            echo "Creating system account wexsys..."
+            useradd --system --gid "$MACHINE_GROUP" --no-create-home --home-dir "$MACHINE_ROOT" --shell /usr/sbin/nologin wexsys
+        fi
         cat > "$SYSRUN_TMP/sysrun.conf" <<EOF
 # Written by setup-machine-root.sh. Read by wex-sysrun; it refuses a file that is not root-owned or that
 # group or others can write.
@@ -422,6 +432,12 @@ machine_root=$MACHINE_ROOT
 admin_group=$ADMIN_GROUP
 EOF
         [ -z "$BUILTIN_ADMIN" ] || printf 'builtin_administrator=%s\n' "$BUILTIN_ADMIN" >> "$SYSRUN_TMP/sysrun.conf"
+        if [ "$SESSION0_ENABLE" = "1" ]; then
+            cat >> "$SYSRUN_TMP/sysrun.conf" <<EOF
+session0_socket=/run/wineexplorer/session0
+session0_user=wexsys
+EOF
+        fi
         install -m 0644 -o root -g root -- "$SYSRUN_TMP/sysrun.conf" "$SYSRUN_CONF"
     fi
     rm -rf -- "$SYSRUN_TMP"
@@ -511,6 +527,17 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
         fi
         systemctl daemon-reload
         systemctl enable --now wex-accounts.path wex-accounts.timer
+    fi
+    if [ "$SESSION0_ENABLE" = 1 ] && [ "$SYSRUN_DIR" = /usr/local/libexec/wineexplorer ] && [ "$SYSRUN_CONF" = /etc/wineexplorer/sysrun.conf ]; then
+        SESSION0_UNITS="$(dirname -- "$(readlink -f -- "$0")")/../installer/systemd"
+        if [ -f "$SESSION0_UNITS/wex-session0.service" ]; then
+            install -d -m 0755 /lib/systemd/system
+            install -m 0644 -o root -g root "$SESSION0_UNITS/wex-session0.service" /lib/systemd/system/
+            if [ -d /run/systemd/system ]; then
+                systemctl daemon-reload
+                systemctl enable --now wex-session0.service
+            fi
+        fi
     fi
 fi
 

@@ -173,6 +173,8 @@ static void read_config(struct config *c)
         else if (!strcmp(line, "wineserver")) set_value(c->wineserver, sizeof(c->wineserver), eq, line);
         else if (!strcmp(line, "machine_root")) set_value(c->machine_root, sizeof(c->machine_root), eq, line);
         else if (!strcmp(line, "admin_group") || !strcmp(line, "builtin_administrator")) continue;
+        /* read by the Wine server: the system tier's session 0 (docs/SYSTEM_TIER_DESIGN.md) */
+        else if (!strcmp(line, "session0_socket") || !strcmp(line, "session0_user")) continue;
         else refuse("unknown config key", line);
     }
     if (!c->loader[0] || !c->ntdll[0] || !c->wineserver[0] || !c->machine_root[0])

@@ -1,12 +1,42 @@
 # Changes to stock Wine / third-party code
 
-## ntdll: machine-registry calls to a second server (system tier ST-04 prototype, 2026-11-11)
+## System tier: session 0 holds the machine registry (T1, 2026-11-11)
 
-Development switch, inactive unless the environment variable `WEX_REGISTRY_SERVER` is set
-(`docs/SYSTEM_TIER_WORK_ORDERS.md`, ST-04). `dlls/ntdll/unix/server.c`: `regsrv_connect`, `regsrv_call` and the
-handle tag helpers; `NtClose` sends a tagged key handle to that server. `dlls/ntdll/unix/registry.c`: create, open,
-delete, enumerate, query, set, delete value and flush choose the server by name or handle.
-`dlls/ntdll/unix/unix_private.h`: the prototypes. To be replaced by the T1 implementation.
+Inactive unless configured: a server is session 0 only with `--session0`, and a user's server uses session 0 only
+when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server the launcher did not start,
+`WEX_SESSION0_SOCKET` is set). Design and tests: `docs/SYSTEM_TIER_DESIGN.md`, `docs/SYSTEM_TIER_WORK_ORDERS.md`.
+
+- `include/wine/wex_session0.h` (new, listed in `include/Makefile.in`): the link message between a user's server
+  and session 0, and the per-session keys that stay in each session's server.
+- `server/session0.c` and `session0.h` (new, in `server/Makefile.in`): `--session0` listener, trust check of the
+  connecting server, registry-only clients, the request `get_registry_channel` and the list of requests a
+  registry-only client may make.
+- `server/protocol.def`: request `get_registry_channel`; the generated `include/wine/server_protocol.h`,
+  `server/request_handlers.h` and `server/request_trace.h`.
+- `server/token.c`, `security.h`: `token_describe` and `token_create_described` (a token sent to session 0).
+- `server/process.c`, `process.h`: `create_process` flag for a registry-only client, which gets the described
+  token; field `wex_registry_client`.
+- `server/thread.c`: `init_first_thread` of a registry-only client keeps no Unix pid, affinity or debug level.
+- `server/request.c`: a registry-only client's requests outside the allowed list fail with access denied.
+- `server/main.c`: option `--session0`; `session0_init` after the master socket.
+- `server/registry.c`: a server whose programs use session 0 never saves the machine and `.Default` hives.
+- `dlls/ntdll/unix/server.c`: the channel to session 0 (`regsrv_*`): obtained from the process's server, a
+  table of session 0 key handles that survives a new channel, reopen by path, lost-channel retry; `NtClose` and
+  `NtDuplicateObject` (within the process) for those handles. `unix_private.h`: the interface.
+- `dlls/ntdll/unix/registry.c`: create and open choose session 0 by the absolute path (machine trees except the
+  per-session keys); every other key call, rename included, follows the handle; notification on a session 0
+  key is not routed yet. `file.c` (`NtQueryObject`) and `security.c` (`NtQuerySecurityObject`,
+  `NtSetSecurityObject`) follow the handle too.
+
+- Change notification on a session 0 key: `protocol.def` field `relay_cookie` of `set_registry_notification` and
+  requests `set_registry_relay`, `relay_registry_notification` (handlers and the relay object in `session0.c`);
+  `registry.c` keeps a registry-only client's cookies in its notification and reports them through
+  `session0_relay_notify`; `process.c` releases a process's relay; `ntdll` registers the relay when it sets up a
+  channel and routes `NtNotifyChangeMultipleKeys` on a session 0 key through it.
+- `server/request.c`: with `--session0` the server accepts a root-owned prefix (the machine root stays root's);
+  `registry.c`: a user's server accepts machine hives owned by the `session0_user` account.
+
+This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)
 
