@@ -54,7 +54,8 @@
 #   shellkeys    with xterm (a Linux program) on the keyboard in the X11 session, Win+R opens Run and Ctrl+Esc the
 #                Start menu (wexhost's shell keys), and Win+L locks: the Welcome screen, and logging on again returns
 #                to the session with xterm. waylandshellkeys: the same in the Wayland session (wexcomp v15 and this
-#                wexhost, from WEX_TEST_WINE). Only when named.
+#                wexhost, from WEX_TEST_WINE), over zenity (native Wayland) and over xterm through XWayland, which
+#                must also stay open. Only when named.
 #   waylanddisplay  Display Properties' calls (WexDisplayGet/Set, the display probe) in that Wayland session change
 #                the compositor's real output from 1280x800 to 1024x768, which the 32-bit program sees too; the next
 #                Wayland session starts at the mode saved. Only when named (WEX_TEST_WINE and the display probes).
@@ -812,11 +813,11 @@ phase_waylanddisplay() {   # Display Properties in the Wayland session: wexhost 
     saved_session restore || fail "cannot put the saved session back"
 }
 
-shell_keys_check() {   # shell_keys_check x11|wayland: with a Linux program on the keyboard, the shell's keys still
-                       # reach Explorer (wexhost's shellkeys.c, through x11wm.c's grabs or the compositor's, v15):
-                       # Win+R opens Run, Ctrl+Esc the Start menu. The program shows "WEX-PC": xterm's prompt on X11;
-                       # in the Wayland session zenity, a native Wayland program that Explorer does not host (X
-                       # programs under XWayland close at once there, 2026-11-11, a separate fault)
+shell_keys_check() {   # shell_keys_check x11|wayland|xwayland: with a Linux program on the keyboard, the shell's keys
+                       # still reach Explorer (wexhost's shellkeys.c, through x11wm.c's grabs or the compositor's,
+                       # v15): Win+R opens Run, Ctrl+Esc the Start menu. The program shows "WEX-PC": xterm's prompt
+                       # on X11 and, in the Wayland session, through XWayland (xwayland); zenity, a native Wayland
+                       # program that Explorer does not host (wayland)
     local program="xterm -title wexkeys"
     [ "$1" = wayland ] && program="zenity --info --title wexkeys --text WEX-PC"
     gsh "python3 $HELPER --user $USER_NAME --native $program >/dev/null; echo started" 30 | grep -q '^started' \
@@ -824,6 +825,13 @@ shell_keys_check() {   # shell_keys_check x11|wayland: with a Linux program on t
     if ! wait_text "WEX-PC" 60; then
         gsh "tail -n 20 /tmp/wex-program-check-$USER_NAME.log" 30 | sed 's/^/  | /'
         fail "the Linux program did not appear"
+    fi
+    if [ "$1" = xwayland ]; then
+        # xterm takes any WM_PROTOCOLS message for WM_DELETE_WINDOW. The compositor's _NET_WM_PING to each new X
+        # window (labwc before upstream's d20d5675) made it hang up its shell within a second of appearing.
+        sleep 10
+        gsh "pgrep -c -x xterm" 30 | grep -q '^[1-9]' || { shot xterm-gone; fail "xterm under XWayland closed by itself"; }
+        echo "  xwayland: xterm still open after 10 seconds"
     fi
     sleep 3
     shot program
@@ -869,13 +877,16 @@ phase_shellkeys() {   # the shell's keys over a Linux program in the X11 session
     shutdown_vm
 }
 
-phase_waylandshellkeys() {   # the same in the Wayland session (wexcomp v15 and this wexhost: WEX_TEST_WINE).
-                             # Only when named.
+phase_waylandshellkeys() {   # the same in the Wayland session (wexcomp v15 and this wexhost: WEX_TEST_WINE), over
+                             # zenity and over xterm through XWayland. Only when named.
     saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
     start_vm
     desktop 600
     expect_compositor
     shell_keys_check wayland
+    gsh "pkill -x zenity; echo closed" 30 | grep -q '^closed' || fail "cannot close zenity"
+    sleep 2
+    shell_keys_check xwayland
     lock_check
     expect_compositor
     shutdown_vm

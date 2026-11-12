@@ -70,14 +70,20 @@ way.
   `wex_window_manager_v1` is limited to the private socket. Most wlroots compositors do the same, but WineExplorer's
   design says privileged operations go through the private socket. Restricting these needs a decision on what may
   still use them (wexhost's output management connects from Explorer's process through the private socket).
-- **X programs under XWayland close at once in the Wayland session** (found 2026-11-11, open). An xterm started in the
-  session, even straight from a shell with `DISPLAY=:0`, exits with status 0 within seconds. wexcomp then logs
-  BadWindow errors for its reconfiguration of the window, which is already gone. This happens with the image's own
-  wexcomp and Wine as well, so the shell-key work did not cause it. XWayland itself answers (`xdpyinfo`), and native
-  Wayland programs (zenity) stay open. The recovery console's xterm, which wexcomp starts before Explorer, also
-  stays. The L2 acceptance (2026-10-17) had xterm working, so this is a regression. Native-window adoption is a
-  suspect: Explorer's host frame closes its window on `WM_CLOSE`. It needs tracing with Wine's debug channels in the
-  VM.
+- **xterm under XWayland closed by itself in the Wayland session** (found and fixed 2026-11-11). An xterm started in
+  the session exited with status 0 within a second of appearing, while other X programs (`xev`) stayed open. An
+  strace in the VM showed xterm itself sending SIGHUP to its shell. The cause:
+  - wexcomp sent `_NET_WM_PING` to every new X window (`handle_new_surface` in `src/xwayland.c`, inherited from
+    labwc). wlroots 0.18 sends it without checking the window's `WM_PROTOCOLS`, and xterm lists only
+    `WM_DELETE_WINDOW` there.
+  - xterm binds every `WM_PROTOCOLS` client message to its `DeleteWindow()` action, without looking at which protocol
+    it is (xterm 398, `charproc.c` and `main.c`), and so hung up its shell.
+  - The ping arrives while xterm starts. When xterm handled it before forking its shell, the hangup had nothing to
+    signal, which is why earlier Wayland sessions could run xterm (`docs/WAYLAND_SESSION.md`).
+
+  Upstream labwc removed the ping on 2025-12-01 (`d20d5675`, "don't send _NET_WM_PING to new windows"): nothing
+  handled its timeout. wexcomp's branch now carries that commit (`034d722f`). The VM test's `waylandshellkeys` phase
+  checks that xterm is still open after 10 seconds and takes the shell keys and Win+L.
 - **The socket variable.** The session script exported `LABWC_WEX_SHELL_SOCKET`, which nothing reads. wexcomp reads
   `WEX_SHELL_SOCKET`. Both meant the default, `wex-shell-0`, so it worked. Fixed on 2026-11-11: the script sets
   `WEX_SHELL_SOCKET` and uses it.
@@ -95,8 +101,8 @@ way.
 2. Decide the greeter. Recommended: keep the X greeter, which already starts both sessions, and test Switch User
    and Log Off from a Wayland session through it.
 3. Done on 2026-11-11: the shell's keys reach Explorer from any native window, hosted or not (shared
-   `shellkeys.c`, `wex_window_manager_v1` v15). Applications' own global shortcuts (a GlobalShortcuts portal) are
-   not covered.
+   `shellkeys.c`, `wex_window_manager_v1` v15), including X programs through XWayland. Applications' own global
+   shortcuts (a GlobalShortcuts portal) are not covered.
 4. Done on 2026-11-11: the lock stays on LightDM's `Seat.Lock`, tested from Wayland. The Welcome screen at the lock
    still preselects X11 in its session list; logging on to the account that is already on returns to its own
    session, so this matters only for the default switch (item 8).
