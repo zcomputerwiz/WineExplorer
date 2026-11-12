@@ -433,11 +433,19 @@ itself has had no third pass). Work orders: its section 9.
 
 | WO | State |
 |---|---|
-| R9-1 codecs (Qwen) | running |
-| R9-2 verifier (Antigravity) | after R9-1 (both edit `tools/e1s6/e1r8.py`) |
-| R9-3 session 0 and server | partly done: `wexelevate.r9` on the bridge list for peers with a session link; the bridged client's session id (`GetNamedPipeClientSessionId`); session ids go back only to their recorded account (`session0.owners`). Open: session 0's S6 endorsement of B0 (today's needs E1's launcher-started system role) |
-| R9-4 B0 and A in `wexelevate` | not started |
+| R9-1 codecs (Qwen) | done: types 40..51, GRANT 32, GRANTED 33 in `e1r8_codec.h` and `e1r8.py`; 158 C and 120 Python vectors, 19 golden lines; verified natively, under ASan/UBSan, with both MinGW compilers and by the Python cross-check; reviewed against the spec |
+| R9-2 verifier (Antigravity) | running: `WEX_E1S6_LAB_R9=1`, session 0 as endorser, channel kinds, the attempt's A channel, GRANT and the REDEEM gate, `tools/e1s6/test-r9-verifier.py` |
+| R9-3 session 0 and server | done except its end-to-end use: `wexelevate.r9` on the bridge list for peers with a session link; the bridged client's session id (`GetNamedPipeClientSessionId`); session ids go back only to their recorded account (`session0.owners`); session 0 recognises its broker image and endorses it for S6 (`server/sysrun.c`, lab block; built, used first by R9-4c) |
+| R9-4 B0 and A in `wexelevate` | started: see the parts below |
 | R9-5 lab cases, R9-6 review | not started |
+
+R9-4 in parts (the R8 path stays as it is for `R9` off, so the lab's R8 cases keep running):
+
+| Part | Content |
+|---|---|
+| 4a | Extract the dialog's creation from `e1s18_spawn_consent_dialog` (the two pipes, `consent.exe` created suspended, the endorsement, the resume) into one helper that the R8 path and the agent both use; no change in behaviour (the lab suite's R8 cases are the check) |
+| 4b | The agent: its own S6 channel, REQUEST, the dialog for B0's tuple (4a), ENDORSED_LOCAL, the relay of frames both ways, RECHECK through the existing recheck operation, NEXT_ATTEMPT (`RETRYING`), LAUNCH with today's redeem, issue and launch, LAUNCHED, END |
+| 4c | B0: `wexelevate` in session 0 takes the broker role (its session id is 0; it is a per-session service, so session 0 runs its own). It serves `\pipe\wexelevate.r9` (SYSTEM only), checks the client (LocalSystem, the session id from the pipe), applies the policy and the attempt count, registers its S6 channel through session 0's endorsement, and drives R8's steps through TO_D/FROM_D, START .. RESULT, GRANT, LAUNCH, RELEASE |
 
 R9-3 test (T1): a session's program writes to `\pipe\WexSession0\wexelevate.r9`; the server in session 0 reads the
 client's session id and it is that session's. Not tested at run time: a reclaim by another account (the T1 sessions
