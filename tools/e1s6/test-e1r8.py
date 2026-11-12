@@ -572,6 +572,367 @@ class E1R8Tests(unittest.TestCase):
         self.assertEqual(w.tuple, t)
         self.deny(e.decode_w_setup_learn, data[:-1], t.request_id, 1, t.channel_id)
 
+    def test_r9_round_trips(self):
+        t = golden_tuple()
+        t2 = golden_tuple()
+        t2.attempt = 2
+        key = bytes(range(0xa0, 0xb0))
+        ev = bytes(range(0xb0, 0xc0))
+        chan = bytes(range(0x50, 0x60))
+
+        # Type 32: GRANT (108).
+        data = e.encode_grant(t, key, ev)
+        self.assertEqual(len(data), 108)
+        g = e.decode_grant(data, t)
+        self.assertEqual(g.account_key, key)
+        self.assertEqual(g.evidence_ref, ev)
+
+        # Type 33: GRANTED (76).
+        data = e.encode_granted(t)
+        self.assertEqual(len(data), 76)
+        self.assertIsNone(e.decode_granted(data, t))
+
+        # Type 40: REQUEST (200..1760).
+        # Minimum: empty display strings.
+        data = e.encode_request(t, 1, chan, t.binding_digest, t.request_digest,
+                                t.server_gen, t.desktop_route, 1, b"", b"", b"")
+        self.assertEqual(len(data), 200)
+        r = e.decode_request(data, t)
+        self.assertEqual(r.kind, 1)
+        self.assertEqual(r.secure_desktop, 1)
+        self.assertEqual(r.channel_id, chan)
+        self.assertEqual(r.requester, b"")
+        self.assertEqual(r.image, b"")
+        self.assertEqual(r.publisher, b"")
+        # Maximum: 520-byte display strings.
+        req = b"a\x00" * 260
+        img = b"b\x00" * 260
+        pub = b"c\x00" * 260
+        data = e.encode_request(t, 2, chan, t.binding_digest, t.request_digest,
+                                t.server_gen, t.desktop_route, 0, req, img, pub)
+        self.assertEqual(len(data), 1760)
+        r = e.decode_request(data, t)
+        self.assertEqual(r.kind, 2)
+        self.assertEqual(r.secure_desktop, 0)
+        self.assertEqual(len(r.requester), 520)
+        self.assertEqual(len(r.image), 520)
+        self.assertEqual(len(r.publisher), 520)
+
+        # Type 41: DECISION (84 deny, 284 prompt).
+        data = e.encode_decision(t, 2, 1)
+        self.assertEqual(len(data), 84)
+        d = e.decode_decision(data, t)
+        self.assertEqual(d.status, 2)
+        self.assertEqual(d.reason, 1)
+        data = e.encode_decision(t, 1, 0)
+        self.assertEqual(len(data), 284)
+        d = e.decode_decision(data, t)
+        self.assertEqual(d.status, 1)
+        self.assertEqual(d.tuple, t)
+
+        # Type 42: ENDORSED_LOCAL (96).
+        data = e.encode_endorsed_local(t, t.dialog_id, 1)
+        self.assertEqual(len(data), 96)
+        el = e.decode_endorsed_local(data, t)
+        self.assertEqual(el.status, 1)
+        self.assertEqual(el.dialog_id, t.dialog_id)
+
+        # Type 43: TO_D (152..2143).
+        # Minimum: embedded SELECT_OK (76).
+        emb = e.encode_select_ok(t)
+        data = e.encode_to_d(t, emb)
+        self.assertEqual(len(data), 152)
+        td = e.decode_to_d(data, t)
+        self.assertEqual(td.type, e.TYPE_SELECT_OK)
+        self.assertEqual(td.frame_len, 76)
+        # Maximum: embedded INIT max (2067).
+        vo = b":" + b"1" * 252 + b"." + b"1"
+        req = b"a\x00" * 260
+        img = b"b\x00" * 260
+        pub = b"c\x00" * 260
+        emb = e.encode_init(t, vo, req, img, pub)
+        self.assertEqual(len(emb), 2067)
+        data = e.encode_to_d(t, emb)
+        self.assertEqual(len(data), 2143)
+        td = e.decode_to_d(data, t)
+        self.assertEqual(td.type, e.TYPE_INIT)
+        self.assertEqual(td.frame_len, 2067)
+
+        # Type 44: FROM_D (157..340).
+        # Minimum: embedded SELECT "a" (81).
+        emb = e.encode_select(t, b"a")
+        data = e.encode_from_d(t, emb)
+        self.assertEqual(len(data), 157)
+        fd = e.decode_from_d(data, t)
+        self.assertEqual(fd.type, e.TYPE_SELECT)
+        self.assertEqual(fd.frame_len, 81)
+        # Maximum: embedded ANSWER (264).
+        emb = e.encode_answer(t, t.binding_digest, 2, 2, 0, 0x3ff)
+        data = e.encode_from_d(t, emb)
+        self.assertEqual(len(data), 340)
+        fd = e.decode_from_d(data, t)
+        self.assertEqual(fd.type, e.TYPE_ANSWER)
+        self.assertEqual(fd.frame_len, 264)
+
+        # Type 45: RECHECK (80).
+        data = e.encode_recheck(t, 1)
+        self.assertEqual(len(data), 80)
+        rc = e.decode_recheck(data, t)
+        self.assertEqual(rc.step, 1)
+
+        # Type 46: RECHECKED (84).
+        data = e.encode_rechecked(t, 1, 1)
+        self.assertEqual(len(data), 84)
+        rc = e.decode_rechecked(data, t)
+        self.assertEqual(rc.step, 1)
+        self.assertEqual(rc.status, 1)
+
+        # Type 47: LAUNCH (97..159).
+        data = e.encode_launch(t, b"a", ev)
+        self.assertEqual(len(data), 97)
+        l = e.decode_launch(data, t)
+        self.assertEqual(l.account, b"a")
+        self.assertEqual(l.evidence_ref, ev)
+        data = e.encode_launch(t, acct63(), ev)
+        self.assertEqual(len(data), 159)
+        l = e.decode_launch(data, t)
+        self.assertEqual(len(l.account), 63)
+
+        # Type 48: LAUNCHED (84).
+        data = e.encode_launched(t, 1, 0)
+        self.assertEqual(len(data), 84)
+        l = e.decode_launched(data, t)
+        self.assertEqual(l.status, 1)
+        self.assertEqual(l.win32, 0)
+
+        # Type 49: CANCEL_R9 (80).
+        data = e.encode_cancel_r9(t, 1)
+        self.assertEqual(len(data), 80)
+        c = e.decode_cancel_r9(data, t)
+        self.assertEqual(c.reason, 1)
+
+        # Type 50: END (80).
+        data = e.encode_end(t, 1)
+        self.assertEqual(len(data), 80)
+        en = e.decode_end(data, t)
+        self.assertEqual(en.outcome, 1)
+
+        # Type 51: NEXT_ATTEMPT (280, attempt 2).
+        data = e.encode_next_attempt(t2)
+        self.assertEqual(len(data), 280)
+        na = e.decode_next_attempt(data, t2)
+        self.assertEqual(na.tuple, t2)
+
+    def test_r9_errors(self):
+        t = golden_tuple()
+        t2 = golden_tuple()
+        t2.attempt = 2
+        key = bytes(range(0xa0, 0xb0))
+        ev = bytes(range(0xb0, 0xc0))
+        zero16 = bytes(16)
+        chan = bytes(range(0x50, 0x60))
+
+        # --- One byte short and one byte long ---
+        data = e.encode_grant(t, key, ev)
+        self.deny(e.decode_grant, data[:-1], t)
+        self.deny(e.decode_grant, data + b"\x00", t)
+        data = e.encode_request(t, 1, chan, t.binding_digest, t.request_digest,
+                                t.server_gen, t.desktop_route, 1, b"", b"", b"")
+        self.deny(e.decode_request, data[:-1], t)
+        self.deny(e.decode_request, data + b"\x00", t)
+        data = e.encode_decision(t, 2, 1)
+        self.deny(e.decode_decision, data[:-1], t)
+        self.deny(e.decode_decision, data + b"\x00", t)
+        emb = e.encode_select_ok(t)
+        data = e.encode_to_d(t, emb)
+        self.deny(e.decode_to_d, data[:-1], t)
+        self.deny(e.decode_to_d, data + b"\x00", t)
+        emb = e.encode_select(t, b"a")
+        data = e.encode_from_d(t, emb)
+        self.deny(e.decode_from_d, data[:-1], t)
+        self.deny(e.decode_from_d, data + b"\x00", t)
+        data = e.encode_launch(t, b"a", ev)
+        self.deny(e.decode_launch, data[:-1], t)
+        self.deny(e.decode_launch, data + b"\x00", t)
+        data = e.encode_next_attempt(t2)
+        self.deny(e.decode_next_attempt, data[:-1], t2)
+        self.deny(e.decode_next_attempt, data + b"\x00", t2)
+
+        # --- Wrong type and nonzero reserved ---
+        data = bytearray(e.encode_recheck(t, 1))
+        struct.pack_into("<H", data, 6, e.TYPE_RECHECKED)  # wrong type
+        self.deny(e.decode_recheck, bytes(data), t)
+        struct.pack_into("<H", data, 6, e.TYPE_RECHECK)
+        data[24] = 1  # nonzero reserved
+        self.deny(e.decode_recheck, bytes(data), t)
+        data[24] = 0
+
+        # --- Unknown enum values (0 and max+1) ---
+        data = bytearray(e.encode_request(t, 1, chan, t.binding_digest,
+                                          t.request_digest, t.server_gen,
+                                          t.desktop_route, 1, b"", b"", b""))
+        data[76] = 0  # kind 0
+        self.deny(e.decode_request, bytes(data), t)
+        data[76] = 3  # kind 3 (max+1)
+        self.deny(e.decode_request, bytes(data), t)
+        data[76] = 1
+        data[184] = 2  # secure_desktop 2 (max+1)
+        self.deny(e.decode_request, bytes(data), t)
+        data[184] = 1
+
+        data = bytearray(e.encode_decision(t, 2, 1))
+        data[76] = 0  # status 0
+        self.deny(e.decode_decision, bytes(data), t)
+        data[76] = 3  # status 3 (max+1)
+        self.deny(e.decode_decision, bytes(data), t)
+        data[76] = 2
+        data[80] = 0  # reason 0
+        self.deny(e.decode_decision, bytes(data), t)
+        data[80] = 4  # reason 4 (max+1)
+        self.deny(e.decode_decision, bytes(data), t)
+        data[80] = 1
+
+        data = bytearray(e.encode_endorsed_local(t, t.dialog_id, 1))
+        data[92] = 0  # status 0
+        self.deny(e.decode_endorsed_local, bytes(data), t)
+        data[92] = 3  # status 3 (max+1)
+        self.deny(e.decode_endorsed_local, bytes(data), t)
+        data[92] = 1
+
+        data = bytearray(e.encode_recheck(t, 1))
+        data[76] = 0  # step 0
+        self.deny(e.decode_recheck, bytes(data), t)
+        data[76] = 5  # step 5 (max+1)
+        self.deny(e.decode_recheck, bytes(data), t)
+        data[76] = 1
+
+        data = bytearray(e.encode_rechecked(t, 1, 1))
+        data[76] = 0  # step 0
+        self.deny(e.decode_rechecked, bytes(data), t)
+        data[76] = 5  # step 5 (max+1)
+        self.deny(e.decode_rechecked, bytes(data), t)
+        data[76] = 1
+        data[80] = 0  # status 0
+        self.deny(e.decode_rechecked, bytes(data), t)
+        data[80] = 3  # status 3 (max+1)
+        self.deny(e.decode_rechecked, bytes(data), t)
+        data[80] = 1
+
+        data = bytearray(e.encode_launched(t, 1, 0))
+        data[76] = 0  # status 0
+        self.deny(e.decode_launched, bytes(data), t)
+        data[76] = 4  # status 4 (max+1)
+        self.deny(e.decode_launched, bytes(data), t)
+        data[76] = 1
+
+        data = bytearray(e.encode_cancel_r9(t, 1))
+        data[76] = 0  # reason 0
+        self.deny(e.decode_cancel_r9, bytes(data), t)
+        data[76] = 7  # reason 7 (max+1)
+        self.deny(e.decode_cancel_r9, bytes(data), t)
+        data[76] = 1
+
+        data = bytearray(e.encode_end(t, 1))
+        data[76] = 0  # outcome 0
+        self.deny(e.decode_end, bytes(data), t)
+        data[76] = 4  # outcome 4 (max+1)
+        self.deny(e.decode_end, bytes(data), t)
+        data[76] = 1
+
+        # --- Invalid strings ---
+        # REQUEST: display string with odd length.
+        self.deny(e.encode_request, t, 1, chan, t.binding_digest, t.request_digest,
+                  t.server_gen, t.desktop_route, 1, b"a", b"", b"")
+        # REQUEST: display string overlength (522).
+        big = b"a\x00" * 261
+        self.deny(e.encode_request, t, 1, chan, t.binding_digest, t.request_digest,
+                  t.server_gen, t.desktop_route, 1, big, b"", b"")
+        # REQUEST: display string with NUL.
+        self.deny(e.encode_request, t, 1, chan, t.binding_digest, t.request_digest,
+                  t.server_gen, t.desktop_route, 1, b"\x00\x00\x00\x00", b"", b"")
+        # REQUEST: display string with control character.
+        self.deny(e.encode_request, t, 1, chan, t.binding_digest, t.request_digest,
+                  t.server_gen, t.desktop_route, 1, b"\x01\x00", b"", b"")
+        # REQUEST: display string with unpaired surrogate.
+        self.deny(e.encode_request, t, 1, chan, t.binding_digest, t.request_digest,
+                  t.server_gen, t.desktop_route, 1, b"\x00\xd8", b"", b"")
+        # LAUNCH: non-ASCII account name.
+        self.deny(e.encode_launch, t, b"a\x80b", ev)
+        # LAUNCH: 64-byte account (overlength).
+        self.deny(e.encode_launch, t,
+                  b"a" + b"123456789012345678901234567890123456789012345678901234567890123", ev)
+
+        # --- TO_D / FROM_D embedded frame errors ---
+        # TO_D: embedded frame of a wrong type (ACK is not a B->D type).
+        emb = e.encode_ack(t)
+        self.deny(e.encode_to_d, t, emb)
+        # TO_D: embedded length disagrees.
+        emb = bytearray(e.encode_select_ok(t))
+        struct.pack_into("<I", emb, 8, 77)
+        self.deny(e.encode_to_d, t, bytes(emb))
+        # TO_D: embedded frame below its type's bounds (INIT 255).
+        emb = bytearray(e.encode_init(t, b":1.1", b"", b"", b""))
+        struct.pack_into("<I", emb, 8, 255)
+        self.deny(e.encode_to_d, t, bytes(emb[:255]))
+        # TO_D: embedded frame above its type's bounds (INIT 2068).
+        vo = b":" + b"1" * 252 + b"." + b"1"
+        req = b"a\x00" * 260
+        img = b"b\x00" * 260
+        pub = b"c\x00" * 260
+        emb = bytearray(e.encode_init(t, vo, req, img, pub))
+        struct.pack_into("<I", emb, 8, 2068)
+        emb.append(0)
+        self.deny(e.encode_to_d, t, bytes(emb))
+        # FROM_D: embedded frame of a wrong type (INIT is not a D->B type).
+        emb = e.encode_init(t, b":1.1", b"", b"", b"")
+        self.deny(e.encode_from_d, t, emb)
+        # FROM_D: embedded length disagrees.
+        emb = bytearray(e.encode_select(t, b"a"))
+        struct.pack_into("<I", emb, 8, 82)
+        self.deny(e.encode_from_d, t, bytes(emb))
+        # FROM_D: embedded frame below its type's bounds (SELECT 80).
+        emb = bytearray(e.encode_select(t, b"a"))
+        struct.pack_into("<I", emb, 8, 80)
+        self.deny(e.encode_from_d, t, bytes(emb[:80]))
+        # FROM_D: embedded frame above its type's bounds (SELECT 144).
+        emb = bytearray(e.encode_select(t, b"a"))
+        struct.pack_into("<I", emb, 8, 144)
+        emb.extend(bytes(144 - 81))
+        self.deny(e.encode_from_d, t, bytes(emb))
+        # TO_D decode: embedded frame of a wrong type.
+        emb = e.encode_select_ok(t)
+        data = bytearray(e.encode_to_d(t, emb))
+        struct.pack_into("<H", data, 76 + 6, e.TYPE_ACK)
+        self.deny(e.decode_to_d, bytes(data), t)
+        # TO_D decode: embedded length disagrees.
+        emb = e.encode_select_ok(t)
+        data = bytearray(e.encode_to_d(t, emb))
+        struct.pack_into("<I", data, 76 + 8, 77)
+        self.deny(e.decode_to_d, bytes(data), t)
+
+        # --- DECISION / NEXT_ATTEMPT header ids differ from the tuple's ---
+        data = bytearray(e.encode_decision(t, 1, 0))
+        data[28] = 0xff  # header nonce differs from the tuple's
+        self.deny(e.decode_decision, bytes(data), t)
+        data[28] = 0x10
+        data = bytearray(e.encode_next_attempt(t2))
+        data[28] = 0xff  # header nonce differs from the tuple's
+        self.deny(e.decode_next_attempt, bytes(data), t2)
+        data[28] = 0x10
+
+        # --- NEXT_ATTEMPT with attempt 1 ---
+        self.deny(e.encode_next_attempt, t)
+
+        # --- GRANT with a zero key or zero reference ---
+        self.deny(e.encode_grant, t, zero16, ev)
+        self.deny(e.encode_grant, t, key, zero16)
+        data = bytearray(e.encode_grant(t, key, ev))
+        data[76:92] = zero16  # zero the account_key
+        self.deny(e.decode_grant, bytes(data), t)
+        data[76:92] = key
+        data[92:108] = zero16  # zero the evidence_ref
+        self.deny(e.decode_grant, bytes(data), t)
+
     def test_golden(self):
         golden_path = os.environ.get("E1R8_GOLDEN")
         if not golden_path:
@@ -583,6 +944,13 @@ class E1R8Tests(unittest.TestCase):
         pw = "pässword".encode("utf-8")
         req = "Caller".encode("utf-16-le")
         img = "x.exe".encode("utf-16-le")
+        chan = bytes(range(0x50, 0x60))
+        t2 = golden_tuple()
+        t2.attempt = 2
+        disp_req = b"a\x00" * 260
+        disp_img = b"b\x00" * 260
+        disp_pub = b"c\x00" * 260
+        vo_max = b":" + b"1" * 252 + b"." + b"1"
 
         def check_init(data):
             in_ = e.decode_init(data, t)
@@ -646,6 +1014,76 @@ class E1R8Tests(unittest.TestCase):
             self.assertEqual(a.message_index, 0)
             self.assertEqual(a.payload, pw)
 
+        def check_grant(data):
+            g = e.decode_grant(data, t)
+            self.assertEqual(g.account_key, key)
+            self.assertEqual(g.evidence_ref, ev)
+
+        def check_request_min(data):
+            r = e.decode_request(data, t)
+            self.assertEqual(r.kind, 1)
+            self.assertEqual(r.secure_desktop, 1)
+            self.assertEqual(r.channel_id, chan)
+            self.assertEqual(r.requester, b"")
+            self.assertEqual(r.image, b"")
+            self.assertEqual(r.publisher, b"")
+
+        def check_request_max(data):
+            r = e.decode_request(data, t)
+            self.assertEqual(r.kind, 2)
+            self.assertEqual(r.secure_desktop, 0)
+            self.assertEqual(len(r.requester), 520)
+            self.assertEqual(len(r.image), 520)
+            self.assertEqual(len(r.publisher), 520)
+
+        def check_decision_deny(data):
+            d = e.decode_decision(data, t)
+            self.assertEqual(d.status, 2)
+            self.assertEqual(d.reason, 1)
+
+        def check_decision_prompt(data):
+            d = e.decode_decision(data, t)
+            self.assertEqual(d.status, 1)
+            self.assertEqual(d.tuple, t)
+
+        def check_endorsed_local(data):
+            el = e.decode_endorsed_local(data, t)
+            self.assertEqual(el.status, 1)
+            self.assertEqual(el.dialog_id, t.dialog_id)
+
+        def check_to_d_min(data):
+            td = e.decode_to_d(data, t)
+            self.assertEqual(td.type, e.TYPE_SELECT_OK)
+            self.assertEqual(td.frame_len, 76)
+
+        def check_to_d_max(data):
+            td = e.decode_to_d(data, t)
+            self.assertEqual(td.type, e.TYPE_INIT)
+            self.assertEqual(td.frame_len, 2067)
+
+        def check_from_d_min(data):
+            fd = e.decode_from_d(data, t)
+            self.assertEqual(fd.type, e.TYPE_SELECT)
+            self.assertEqual(fd.frame_len, 81)
+
+        def check_from_d_max(data):
+            fd = e.decode_from_d(data, t)
+            self.assertEqual(fd.type, e.TYPE_ANSWER)
+            self.assertEqual(fd.frame_len, 264)
+
+        def check_launch_min(data):
+            l = e.decode_launch(data, t)
+            self.assertEqual(l.account, b"a")
+            self.assertEqual(l.evidence_ref, ev)
+
+        def check_launch_max(data):
+            l = e.decode_launch(data, t)
+            self.assertEqual(len(l.account), 63)
+
+        def check_next_attempt(data):
+            na = e.decode_next_attempt(data, t2)
+            self.assertEqual(na.tuple, t2)
+
         cases = [
             ("1", lambda: e.encode_init(t, b":1.42", req, img, b""), check_init),
             ("2", lambda: e.encode_ack(t), check_ack),
@@ -670,6 +1108,42 @@ class E1R8Tests(unittest.TestCase):
             ("27", lambda: e.encode_w_setup(t, 4242, 0), check_w_setup),
             ("s7", lambda: e.encode_s7_prompt(t), lambda d: e.decode_s7_prompt(d, t)),
             ("secret", lambda: e.encode_secret_answer(t, 0x3ff, pw), check_secret),
+            ("32", lambda: e.encode_grant(t, key, ev), check_grant),
+            ("33", lambda: e.encode_granted(t), lambda d: e.decode_granted(d, t)),
+            ("40", lambda: e.encode_request(t, 1, chan, t.binding_digest,
+                                            t.request_digest, t.server_gen,
+                                            t.desktop_route, 1, b"", b"", b""),
+             check_request_min),
+            ("40", lambda: e.encode_request(t, 2, chan, t.binding_digest,
+                                            t.request_digest, t.server_gen,
+                                            t.desktop_route, 0, disp_req, disp_img,
+                                            disp_pub), check_request_max),
+            ("41", lambda: e.encode_decision(t, 2, 1), check_decision_deny),
+            ("41", lambda: e.encode_decision(t, 1, 0), check_decision_prompt),
+            ("42", lambda: e.encode_endorsed_local(t, t.dialog_id, 1),
+             check_endorsed_local),
+            ("43", lambda: e.encode_to_d(t, e.encode_select_ok(t)), check_to_d_min),
+            ("43", lambda: e.encode_to_d(t, e.encode_init(t, vo_max, disp_req,
+                                                          disp_img, disp_pub)),
+             check_to_d_max),
+            ("44", lambda: e.encode_from_d(t, e.encode_select(t, b"a")),
+             check_from_d_min),
+            ("44", lambda: e.encode_from_d(t, e.encode_answer(t, t.binding_digest,
+                                                              2, 2, 0, 0x3ff)),
+             check_from_d_max),
+            ("45", lambda: e.encode_recheck(t, 1),
+             lambda d: self.assertEqual(e.decode_recheck(d, t).step, 1)),
+            ("46", lambda: e.encode_rechecked(t, 1, 1),
+             lambda d: self.assertEqual(e.decode_rechecked(d, t).step, 1)),
+            ("47", lambda: e.encode_launch(t, b"a", ev), check_launch_min),
+            ("47", lambda: e.encode_launch(t, acct63(), ev), check_launch_max),
+            ("48", lambda: e.encode_launched(t, 1, 0),
+             lambda d: self.assertEqual(e.decode_launched(d, t).status, 1)),
+            ("49", lambda: e.encode_cancel_r9(t, 1),
+             lambda d: self.assertEqual(e.decode_cancel_r9(d, t).reason, 1)),
+            ("50", lambda: e.encode_end(t, 1),
+             lambda d: self.assertEqual(e.decode_end(d, t).outcome, 1)),
+            ("51", lambda: e.encode_next_attempt(t2), check_next_attempt),
         ]
 
         with open(golden_path, "r") as f:

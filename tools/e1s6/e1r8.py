@@ -53,6 +53,21 @@ TYPE_PROMPT_RELEASE = 24
 TYPE_RELEASE = 25
 TYPE_RELEASED = 26
 TYPE_W_SETUP = 27
+# R9 (docs/E1_S18E_R9_SPEC.md): the grant held by V, and the A<->B0 channel.
+TYPE_GRANT = 32
+TYPE_GRANTED = 33
+TYPE_REQUEST = 40
+TYPE_DECISION = 41
+TYPE_ENDORSED_LOCAL = 42
+TYPE_TO_D = 43
+TYPE_FROM_D = 44
+TYPE_RECHECK = 45
+TYPE_RECHECKED = 46
+TYPE_LAUNCH = 47
+TYPE_LAUNCHED = 48
+TYPE_CANCEL_R9 = 49
+TYPE_END = 50
+TYPE_NEXT_ATTEMPT = 51
 
 #
 # Enum values, per spec sections 5 and 6.
@@ -66,6 +81,34 @@ DONE_CANCELLED = 2
 CANCEL_REASON = 1
 RELEASE_COMPLETED = 1
 RELEASE_CANCELLED = 2
+# R9 enum values, per docs/E1_S18E_R9_SPEC.md section 4.
+REQUEST_KIND_RUNAS = 1
+REQUEST_KIND_MANIFEST = 2
+DECISION_PROMPT = 1
+DECISION_DENY = 2
+DECISION_REASON_POLICY = 1
+DECISION_REASON_ATTEMPTS = 2
+DECISION_REASON_BUSY = 3
+ENDORSED_LOCAL_ENDORSED = 1
+ENDORSED_LOCAL_REFUSED = 2
+RECHECK_STEP_ATTACH = 1
+RECHECK_STEP_READY = 2
+RECHECK_STEP_RESULT = 3
+RECHECK_STEP_CONFIRM = 4
+RECHECKED_OK = 1
+RECHECKED_REFUSED = 2
+LAUNCHED_COMMITTED = 1
+LAUNCHED_FAILED_BEFORE = 2
+LAUNCHED_FAILED_AFTER = 3
+CANCEL_R9_USER = 1
+CANCEL_R9_D_GONE = 2
+CANCEL_R9_DEADLINE = 3
+CANCEL_R9_PEER_GONE = 4
+CANCEL_R9_PROTOCOL = 5
+CANCEL_R9_RECHECK = 6
+END_COMPLETED = 1
+END_CANCELLED = 2
+END_DENIED = 3
 
 #
 # S1 answer kinds (kind-2 record), per docs/E1_S1_CONTRACTS.md record 2.
@@ -192,6 +235,95 @@ class WSetup:
     tuple: E1R8Tuple
     pid: int
     uid: int
+
+
+#
+# R9 message body dataclasses (docs/E1_S18E_R9_SPEC.md section 4).
+#
+
+@dataclass
+class Request:
+    kind: int
+    channel_id: bytes
+    binding_digest: bytes
+    request_digest: bytes
+    server_gen: int
+    desktop_route: bytes
+    secure_desktop: int
+    requester: bytes
+    image: bytes
+    publisher: bytes
+
+
+@dataclass
+class Decision:
+    status: int
+    tuple: E1R8Tuple
+    reason: int
+
+
+@dataclass
+class EndorsedLocal:
+    dialog_id: bytes
+    status: int
+
+
+@dataclass
+class ToD:
+    type: int
+    frame: bytes
+    frame_len: int
+
+
+@dataclass
+class FromD:
+    type: int
+    frame: bytes
+    frame_len: int
+
+
+@dataclass
+class Recheck:
+    step: int
+
+
+@dataclass
+class Rechecked:
+    step: int
+    status: int
+
+
+@dataclass
+class Launch:
+    account: bytes
+    evidence_ref: bytes
+
+
+@dataclass
+class Launched:
+    status: int
+    win32: int
+
+
+@dataclass
+class CancelR9:
+    reason: int
+
+
+@dataclass
+class End:
+    outcome: int
+
+
+@dataclass
+class NextAttempt:
+    tuple: E1R8Tuple
+
+
+@dataclass
+class Grant:
+    account_key: bytes
+    evidence_ref: bytes
 
 
 #
@@ -1050,6 +1182,494 @@ def decode_w_setup(data, expected):
     check_tuple_tail(data, 76, expected)
     pid, uid = struct.unpack_from("<II", data, 236)
     return WSetup(tuple=expected, pid=pid, uid=uid)
+
+
+#
+# R9 helpers (docs/E1_S18E_R9_SPEC.md).
+#
+
+def _is_zero16(p):
+    """True when a 16-byte field is all zero."""
+    return all(b == 0 for b in p)
+
+
+def check_pre_endorsement(data, off, expected):
+    """Verify a pre-endorsement tuple at data[off:] against the expected
+    sealed tuple (dialog_id is not part of the pre-endorsement tuple)."""
+    t = decode_pre_endorsement_tuple(data[off:off + PRE_ENDORSEMENT_SIZE])
+    if t.request_id != expected.request_id:
+        raise E1R8Error("pre-endorsement request_id")
+    if t.attempt != expected.attempt:
+        raise E1R8Error("pre-endorsement attempt")
+    if t.nonce != expected.nonce:
+        raise E1R8Error("pre-endorsement nonce")
+    if t.channel_id != expected.channel_id:
+        raise E1R8Error("pre-endorsement channel_id")
+    if t.binding_digest != expected.binding_digest:
+        raise E1R8Error("pre-endorsement binding_digest")
+    if t.request_digest != expected.request_digest:
+        raise E1R8Error("pre-endorsement request_digest")
+    if t.deadline != expected.deadline:
+        raise E1R8Error("pre-endorsement deadline")
+    if t.root_gen != expected.root_gen:
+        raise E1R8Error("pre-endorsement root_gen")
+    if t.server_gen != expected.server_gen:
+        raise E1R8Error("pre-endorsement server_gen")
+    if t.broker_gen != expected.broker_gen:
+        raise E1R8Error("pre-endorsement broker_gen")
+    if t.verifier_gen != expected.verifier_gen:
+        raise E1R8Error("pre-endorsement verifier_gen")
+    if t.map_gen != expected.map_gen:
+        raise E1R8Error("pre-endorsement map_gen")
+    if t.policy_gen != expected.policy_gen:
+        raise E1R8Error("pre-endorsement policy_gen")
+    if t.caller_session != expected.caller_session:
+        raise E1R8Error("pre-endorsement caller_session")
+    if t.desktop_route != expected.desktop_route:
+        raise E1R8Error("pre-endorsement desktop_route")
+    if t.desktop_mode != expected.desktop_mode:
+        raise E1R8Error("pre-endorsement desktop_mode")
+
+
+def valid_to_d_frame(type, length):
+    """The embedded frame of a TO_D (type 43): one of the R8 B->D types,
+    within that type's R8 length bounds."""
+    if type == TYPE_INIT:
+        return 256 <= length <= 2067
+    if type in (TYPE_SELECT_OK, TYPE_ATTACH_OK, TYPE_READY):
+        return length == HEADER_SIZE
+    if type == TYPE_RESULT:
+        return 116 <= length <= 179
+    if type == TYPE_DONE:
+        return length == 80
+    return False
+
+
+def valid_from_d_frame(type, length):
+    """The embedded frame of a FROM_D (type 44): one of the R8 D->B types,
+    within that type's R8 length bounds."""
+    if type == TYPE_ACK:
+        return length == 156
+    if type == TYPE_SELECT:
+        return 81 <= length <= 143
+    if type == TYPE_ANSWER:
+        return length == 264
+    return False
+
+
+def check_embedded(frame, frame_len, valid):
+    """Check the embedded frame's header (magic, version, type, length,
+    reserved) and its type/length bounds. Only the header is checked, not
+    the embedded body. Returns the embedded type."""
+    if frame_len < HEADER_SIZE:
+        raise E1R8Error("short: embedded header")
+    if frame[0:4] != b"E1R8":
+        raise E1R8Error("embedded magic")
+    version, mtype, length = struct.unpack_from("<HHI", frame, 4)
+    if version != 1:
+        raise E1R8Error("embedded version")
+    if length != frame_len:
+        raise E1R8Error("embedded length")
+    reserved = struct.unpack_from("<I", frame, 24)[0]
+    if reserved != 0:
+        raise E1R8Error("embedded reserved")
+    if not valid(mtype, length):
+        raise E1R8Error("embedded type")
+    return mtype
+
+
+#
+# Type 32: GRANT (B0->V on B0's channel). Body: account_key:16,
+# evidence_ref:16, both nonzero. Total 108.
+#
+
+def encode_grant(t, account_key, evidence_ref):
+    if _is_zero16(account_key) or _is_zero16(evidence_ref):
+        raise E1R8Error("grant zero key/evidence")
+    return _put_header(TYPE_GRANT, 108, t) + account_key + evidence_ref
+
+
+def decode_grant(data, expected):
+    if len(data) != 108:
+        raise E1R8Error("grant length")
+    _get_header(data, TYPE_GRANT, expected)
+    account_key = data[76:92]
+    evidence_ref = data[92:108]
+    if _is_zero16(account_key) or _is_zero16(evidence_ref):
+        raise E1R8Error("grant zero key/evidence")
+    return Grant(account_key=account_key, evidence_ref=evidence_ref)
+
+
+#
+# Type 33: GRANTED (V->B0). Body: none. Total 76.
+#
+
+def encode_granted(t):
+    return _put_header(TYPE_GRANTED, HEADER_SIZE, t)
+
+
+def decode_granted(data, expected):
+    if len(data) != HEADER_SIZE:
+        raise E1R8Error("granted length")
+    _get_header(data, TYPE_GRANTED, expected)
+    return None
+
+
+#
+# Type 40: REQUEST (A->B0). Body: kind:u32 (1 runas, 2 manifest),
+# channel_id:16, binding_digest:32, request_digest:32, server_gen:u64,
+# desktop_route:16, secure_desktop:u32 (0 or 1), requester:str,
+# image:str, publisher:str (display strings). Total 200..1760. The
+# header's attempt is 0 and its nonce and channel_id are zero.
+#
+
+def encode_request(t, kind, channel_id, binding_digest, request_digest,
+                   server_gen, desktop_route, secure_desktop,
+                   requester, image, publisher):
+    if kind not in (REQUEST_KIND_RUNAS, REQUEST_KIND_MANIFEST):
+        raise E1R8Error("request kind enum")
+    if secure_desktop not in (0, 1):
+        raise E1R8Error("request secure_desktop enum")
+    if not valid_display_string(requester):
+        raise E1R8Error("request requester")
+    if not valid_display_string(image):
+        raise E1R8Error("request image")
+    if not valid_display_string(publisher):
+        raise E1R8Error("request publisher")
+    total = HEADER_SIZE + 4 + 16 + 32 + 32 + 8 + 16 + 4 + \
+        (4 + len(requester)) + (4 + len(image)) + (4 + len(publisher))
+    # The header's attempt is 0 and its nonce and channel_id are zero.
+    h = E1R8Tuple(request_id=t.request_id, attempt=0, nonce=bytes(32),
+                  channel_id=bytes(16))
+    body = struct.pack("<I", kind) + channel_id + binding_digest + \
+        request_digest + struct.pack("<Q", server_gen) + desktop_route + \
+        struct.pack("<I", secure_desktop) + _put_string(requester) + \
+        _put_string(image) + _put_string(publisher)
+    return _put_header(TYPE_REQUEST, total, h) + body
+
+
+def decode_request(data, expected):
+    if not (200 <= len(data) <= 1760):
+        raise E1R8Error("request length")
+    # The header's attempt is 0 and its nonce and channel_id are zero.
+    h = E1R8Tuple(request_id=expected.request_id, attempt=0, nonce=bytes(32),
+                  channel_id=bytes(16))
+    _get_header(data, TYPE_REQUEST, h)
+    off = HEADER_SIZE
+    kind = struct.unpack_from("<I", data, off)[0]
+    off += 4
+    if kind not in (REQUEST_KIND_RUNAS, REQUEST_KIND_MANIFEST):
+        raise E1R8Error("request kind enum")
+    channel_id = data[off:off + 16]
+    off += 16
+    binding_digest = data[off:off + 32]
+    off += 32
+    request_digest = data[off:off + 32]
+    off += 32
+    server_gen = struct.unpack_from("<Q", data, off)[0]
+    off += 8
+    desktop_route = data[off:off + 16]
+    off += 16
+    secure_desktop = struct.unpack_from("<I", data, off)[0]
+    off += 4
+    if secure_desktop not in (0, 1):
+        raise E1R8Error("request secure_desktop enum")
+    requester, off = _get_string(data, off)
+    if not valid_display_string(requester):
+        raise E1R8Error("request requester")
+    image, off = _get_string(data, off)
+    if not valid_display_string(image):
+        raise E1R8Error("request image")
+    publisher, off = _get_string(data, off)
+    if not valid_display_string(publisher):
+        raise E1R8Error("request publisher")
+    if off != len(data):
+        raise E1R8Error("request trailing")
+    return Request(kind=kind, channel_id=channel_id,
+                   binding_digest=binding_digest,
+                   request_digest=request_digest, server_gen=server_gen,
+                   desktop_route=desktop_route, secure_desktop=secure_desktop,
+                   requester=requester, image=image, publisher=publisher)
+
+
+#
+# Type 41: DECISION (B0->A). Body: status:u32 (1 prompt, 2 deny), then
+# for 1 the pre-endorsement tuple (204), for 2 reason:u32 (1 policy, 2
+# attempts, 3 busy). Total 284 prompt, 84 deny. For prompt the header's
+# request_id, attempt, nonce and channel_id equal the tuple's; for deny
+# the header's attempt is 0 and its nonce and channel_id are zero.
+#
+
+def encode_decision(t, status, reason):
+    if status == DECISION_PROMPT:
+        body = struct.pack("<I", status) + encode_pre_endorsement_tuple(t)
+        return _put_header(TYPE_DECISION, 284, t) + body
+    elif status == DECISION_DENY:
+        if reason not in (DECISION_REASON_POLICY, DECISION_REASON_ATTEMPTS,
+                          DECISION_REASON_BUSY):
+            raise E1R8Error("decision reason enum")
+        h = E1R8Tuple(request_id=t.request_id, attempt=0, nonce=bytes(32),
+                      channel_id=bytes(16))
+        body = struct.pack("<II", status, reason)
+        return _put_header(TYPE_DECISION, 84, h) + body
+    raise E1R8Error("decision status enum")
+
+
+def decode_decision(data, expected):
+    if not (84 <= len(data) <= 284):
+        raise E1R8Error("decision length")
+    status = struct.unpack_from("<I", data, 76)[0]
+    if status == DECISION_PROMPT:
+        if len(data) != 284:
+            raise E1R8Error("decision length")
+        _get_header(data, TYPE_DECISION, expected)
+        check_pre_endorsement(data, 80, expected)
+        return Decision(status=status, tuple=expected, reason=0)
+    elif status == DECISION_DENY:
+        if len(data) != 84:
+            raise E1R8Error("decision length")
+        h = E1R8Tuple(request_id=expected.request_id, attempt=0,
+                      nonce=bytes(32), channel_id=bytes(16))
+        _get_header(data, TYPE_DECISION, h)
+        reason = struct.unpack_from("<I", data, 80)[0]
+        if reason not in (DECISION_REASON_POLICY, DECISION_REASON_ATTEMPTS,
+                          DECISION_REASON_BUSY):
+            raise E1R8Error("decision reason enum")
+        return Decision(status=status, tuple=E1R8Tuple(), reason=reason)
+    raise E1R8Error("decision status enum")
+
+
+#
+# Type 42: ENDORSED_LOCAL (A->B0). Body: dialog_id:16, status:u32
+# (1 endorsed, 2 refused). Total 96.
+#
+
+def encode_endorsed_local(t, dialog_id, status):
+    if status not in (ENDORSED_LOCAL_ENDORSED, ENDORSED_LOCAL_REFUSED):
+        raise E1R8Error("endorsed_local status enum")
+    return _put_header(TYPE_ENDORSED_LOCAL, 96, t) + dialog_id + \
+        struct.pack("<I", status)
+
+
+def decode_endorsed_local(data, expected):
+    if len(data) != 96:
+        raise E1R8Error("endorsed_local length")
+    _get_header(data, TYPE_ENDORSED_LOCAL, expected)
+    dialog_id = data[76:92]
+    status = struct.unpack_from("<I", data, 92)[0]
+    if status not in (ENDORSED_LOCAL_ENDORSED, ENDORSED_LOCAL_REFUSED):
+        raise E1R8Error("endorsed_local status enum")
+    return EndorsedLocal(dialog_id=dialog_id, status=status)
+
+
+#
+# Type 43: TO_D (B0->A). Body: one complete R8 B->D frame (types 1, 3,
+# 9, 5, 6, 8). Only the embedded header is checked, not the embedded
+# body. Total 152..2143.
+#
+
+def encode_to_d(t, frame):
+    frame_len = len(frame)
+    mtype = check_embedded(frame, frame_len, valid_to_d_frame)
+    total = HEADER_SIZE + frame_len
+    return _put_header(TYPE_TO_D, total, t) + frame
+
+
+def decode_to_d(data, expected):
+    if not (152 <= len(data) <= 2143):
+        raise E1R8Error("to_d length")
+    _get_header(data, TYPE_TO_D, expected)
+    frame = data[HEADER_SIZE:]
+    frame_len = len(frame)
+    mtype = check_embedded(frame, frame_len, valid_to_d_frame)
+    return ToD(type=mtype, frame=frame, frame_len=frame_len)
+
+
+#
+# Type 44: FROM_D (A->B0). Body: one complete R8 D->B frame (types 2,
+# 4, 7) as read from D. Only the embedded header is checked, not the
+# embedded body. Total 157..340.
+#
+
+def encode_from_d(t, frame):
+    frame_len = len(frame)
+    mtype = check_embedded(frame, frame_len, valid_from_d_frame)
+    total = HEADER_SIZE + frame_len
+    return _put_header(TYPE_FROM_D, total, t) + frame
+
+
+def decode_from_d(data, expected):
+    if not (157 <= len(data) <= 340):
+        raise E1R8Error("from_d length")
+    _get_header(data, TYPE_FROM_D, expected)
+    frame = data[HEADER_SIZE:]
+    frame_len = len(frame)
+    mtype = check_embedded(frame, frame_len, valid_from_d_frame)
+    return FromD(type=mtype, frame=frame, frame_len=frame_len)
+
+
+#
+# Type 45: RECHECK (B0->A). Body: step:u32 (1 attach, 2 ready, 3 result,
+# 4 confirm). Total 80.
+#
+
+def encode_recheck(t, step):
+    if not (RECHECK_STEP_ATTACH <= step <= RECHECK_STEP_CONFIRM):
+        raise E1R8Error("recheck step enum")
+    return _put_header(TYPE_RECHECK, 80, t) + struct.pack("<I", step)
+
+
+def decode_recheck(data, expected):
+    if len(data) != 80:
+        raise E1R8Error("recheck length")
+    _get_header(data, TYPE_RECHECK, expected)
+    step = struct.unpack_from("<I", data, 76)[0]
+    if not (RECHECK_STEP_ATTACH <= step <= RECHECK_STEP_CONFIRM):
+        raise E1R8Error("recheck step enum")
+    return Recheck(step=step)
+
+
+#
+# Type 46: RECHECKED (A->B0). Body: step:u32 (1..4), status:u32
+# (1 ok, 2 refused). Total 84.
+#
+
+def encode_rechecked(t, step, status):
+    if not (RECHECK_STEP_ATTACH <= step <= RECHECK_STEP_CONFIRM):
+        raise E1R8Error("rechecked step enum")
+    if status not in (RECHECKED_OK, RECHECKED_REFUSED):
+        raise E1R8Error("rechecked status enum")
+    return _put_header(TYPE_RECHECKED, 84, t) + struct.pack("<II", step, status)
+
+
+def decode_rechecked(data, expected):
+    if len(data) != 84:
+        raise E1R8Error("rechecked length")
+    _get_header(data, TYPE_RECHECKED, expected)
+    step, status = struct.unpack_from("<II", data, 76)
+    if not (RECHECK_STEP_ATTACH <= step <= RECHECK_STEP_CONFIRM):
+        raise E1R8Error("rechecked step enum")
+    if status not in (RECHECKED_OK, RECHECKED_REFUSED):
+        raise E1R8Error("rechecked status enum")
+    return Rechecked(step=step, status=status)
+
+
+#
+# Type 47: LAUNCH (B0->A). Body: account:str (canonical), evidence_ref:16.
+# Total 97..159.
+#
+
+def encode_launch(t, account, evidence_ref):
+    if not valid_account_name(account):
+        raise E1R8Error("launch account")
+    total = HEADER_SIZE + (4 + len(account)) + 16
+    return _put_header(TYPE_LAUNCH, total, t) + _put_string(account) + \
+        evidence_ref
+
+
+def decode_launch(data, expected):
+    if not (97 <= len(data) <= 159):
+        raise E1R8Error("launch length")
+    _get_header(data, TYPE_LAUNCH, expected)
+    account, off = _get_string(data, 76)
+    if not valid_account_name(account):
+        raise E1R8Error("launch account")
+    if off + 16 > len(data):
+        raise E1R8Error("short: evidence_ref")
+    evidence_ref = data[off:off + 16]
+    off += 16
+    if off != len(data):
+        raise E1R8Error("launch trailing")
+    return Launch(account=account, evidence_ref=evidence_ref)
+
+
+#
+# Type 48: LAUNCHED (A->B0). Body: status:u32 (1 committed, 2 failed
+# before commit, 3 failed after commit), win32:u32. Total 84.
+#
+
+def encode_launched(t, status, win32):
+    if status not in (LAUNCHED_COMMITTED, LAUNCHED_FAILED_BEFORE,
+                      LAUNCHED_FAILED_AFTER):
+        raise E1R8Error("launched status enum")
+    return _put_header(TYPE_LAUNCHED, 84, t) + struct.pack("<II", status, win32)
+
+
+def decode_launched(data, expected):
+    if len(data) != 84:
+        raise E1R8Error("launched length")
+    _get_header(data, TYPE_LAUNCHED, expected)
+    status, win32 = struct.unpack_from("<II", data, 76)
+    if status not in (LAUNCHED_COMMITTED, LAUNCHED_FAILED_BEFORE,
+                      LAUNCHED_FAILED_AFTER):
+        raise E1R8Error("launched status enum")
+    return Launched(status=status, win32=win32)
+
+
+#
+# Type 49: CANCEL (A<->B0). Body: reason:u32 (1 user, 2 D gone, 3
+# deadline, 4 peer gone, 5 protocol, 6 recheck). Total 80. Distinct from
+# R8's type 21 CANCEL.
+#
+
+def encode_cancel_r9(t, reason):
+    if not (CANCEL_R9_USER <= reason <= CANCEL_R9_RECHECK):
+        raise E1R8Error("cancel_r9 reason enum")
+    return _put_header(TYPE_CANCEL_R9, 80, t) + struct.pack("<I", reason)
+
+
+def decode_cancel_r9(data, expected):
+    if len(data) != 80:
+        raise E1R8Error("cancel_r9 length")
+    _get_header(data, TYPE_CANCEL_R9, expected)
+    reason = struct.unpack_from("<I", data, 76)[0]
+    if not (CANCEL_R9_USER <= reason <= CANCEL_R9_RECHECK):
+        raise E1R8Error("cancel_r9 reason enum")
+    return CancelR9(reason=reason)
+
+
+#
+# Type 50: END (B0->A). Body: outcome:u32 (1 completed, 2 cancelled,
+# 3 denied). Total 80.
+#
+
+def encode_end(t, outcome):
+    if outcome not in (END_COMPLETED, END_CANCELLED, END_DENIED):
+        raise E1R8Error("end outcome enum")
+    return _put_header(TYPE_END, 80, t) + struct.pack("<I", outcome)
+
+
+def decode_end(data, expected):
+    if len(data) != 80:
+        raise E1R8Error("end length")
+    _get_header(data, TYPE_END, expected)
+    outcome = struct.unpack_from("<I", data, 76)[0]
+    if outcome not in (END_COMPLETED, END_CANCELLED, END_DENIED):
+        raise E1R8Error("end outcome enum")
+    return End(outcome=outcome)
+
+
+#
+# Type 51: NEXT_ATTEMPT (B0->A). Body: the next attempt's
+# pre-endorsement tuple (204). Total 280. The header's request_id,
+# attempt, nonce and channel_id equal the tuple's; the attempt is 2 or 3.
+#
+
+def encode_next_attempt(t):
+    if t.attempt not in (2, 3):
+        raise E1R8Error("next_attempt attempt enum")
+    return _put_header(TYPE_NEXT_ATTEMPT, 280, t) + \
+        encode_pre_endorsement_tuple(t)
+
+
+def decode_next_attempt(data, expected):
+    if len(data) != 280:
+        raise E1R8Error("next_attempt length")
+    _get_header(data, TYPE_NEXT_ATTEMPT, expected)
+    if expected.attempt not in (2, 3):
+        raise E1R8Error("next_attempt attempt enum")
+    check_pre_endorsement(data, 76, expected)
+    return NextAttempt(tuple=expected)
 
 
 #
