@@ -70,3 +70,15 @@ The runtime candidate itself built successfully for i386/x86_64 from the clean
 base plus the three R0B files. Wine kernel32 version tests passed 200 checks
 per architecture, zero failures and two skips; matching-server cleanup passed.
 This establishes those scoped runtime regressions, not full package support.
+
+## Final evidence review
+
+The corrected independent validator rejected the 11 recorded fault variants
+and accepted the clean capture; the 14 output-preservation sentinel checks
+passed. The final capture `out-20261111-154654-33504` records full Windows build
+26300.9974, SDK 10.0.26100.0, MSVC 19.44.35228 and linker 14.44.35228.0.
+Codex reran the validator on its x64/x86 files: all 58 records passed; the
+record hashes match the earlier independently checked capture. Tool banner
+reads are bounded and fail the driver if the actual version cannot be obtained.
+This accepts the package-name observation harness for the scoped unpackaged
+helper tests; it does not establish packaged activation or any other UWP gate.
