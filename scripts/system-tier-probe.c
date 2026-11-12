@@ -28,7 +28,7 @@
  *   probe notify KEY MS           waits up to MS ms for a change below KEY; prints notify=changed or notify=timeout
  *   probe setdacl KEY SDDL        sets the key's DACL from an SDDL string; prints setdacl=<error code>
  *   probe getdacl KEY             prints dacl=<the key's DACL as SDDL>
- *   probe whoami                  prints user=<the token user's SID>
+ *   probe whoami                  prints user=<the token user's SID> and session=<the process's session id>
  * Build: x86_64-w64-mingw32-gcc / i686-w64-mingw32-gcc -municode -o probe.exe system-tier-probe.c -ladvapi32 -lntdll */
 
 #include <windows.h>
@@ -69,6 +69,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
         }
         printf( "user=%ls\n", str );
         LocalFree( str );
+        if (ProcessIdToSessionId( GetCurrentProcessId(), &size )) printf( "session=%lu\n", size );
         return 0;
     }
     if (argc < 3) return 2;

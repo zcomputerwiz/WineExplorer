@@ -104,6 +104,9 @@ check a_reads_own_hkcu "$(A reg query 'HKCU\Software\WexTier' /v user | value us
 # handles: duplicate, object name, security descriptor (64-bit and 32-bit)
 check dup64 "$(A "$W/p64.exe" dup 'Software\WexTier' where | field dup)" session0
 check dup32 "$(A "$W/p32.exe" dup 'Software\WexTier' where | field dup)" session0-32bit-view
+# T6.1: session 0 gives each logon (each user's server) a session id of its own
+SA="$(A "$W/p64.exe" whoami | field session)"; SB="$(B "$W/p64.exe" whoami | field session)"
+check sessions_differ "$([ -n "$SA" ] && [ -n "$SB" ] && [ "$SA" != "$SB" ] && [ "$SA" -ge 1 ] && [ "$SB" -ge 1 ] && echo yes)" yes
 check name64 "$(A "$W/p64.exe" name 'Software\WexTier' | field name)" '\REGISTRY\Machine\Software\WexTier'
 check sd_present "$(A "$W/p64.exe" name 'Software\WexTier' | field sd | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 

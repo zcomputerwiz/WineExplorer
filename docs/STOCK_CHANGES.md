@@ -56,6 +56,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   states `KEY_WOW64_32KEY` or `KEY_WOW64_64KEY`), `server/registry.c` (a registry-only client's view flag is
   kept), `server/session0.c` and `include/wine/wex_session0.h` (link version 2 carries the program's machine).
 
+- T6.1, a session id per logon: `server/process.h`, `process.c` (`default_session_id` is a variable),
+  `server/session0.c` (`SESSION_ID` message on both sides), `include/wine/wex_session0.h` (the message, the reply's
+  `value`, the save message padded to the reply's size).
+
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)

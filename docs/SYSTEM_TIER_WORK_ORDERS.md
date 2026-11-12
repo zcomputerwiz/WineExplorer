@@ -359,6 +359,16 @@ Test (sysrun suite, session 0 section, standard user, 32-bit and 64-bit `reg.exe
 `VirtualStore`; a 64-bit write and a write under an excluded key are refused; a 32-bit query of a machine key with
 a virtualized value shows both. Normal suite 335, broker test, T1 test pass.
 
+## T6.1: a session id per logon (2026-11-12)
+
+Every server gave its logon session id 1 (`default_session_id`, a constant). A server that uses session 0 now asks
+session 0 at its start (message `SESSION_ID`, before the object directories and the first token exist); session 0
+gives each trusted server the next id (1, 2, ...; it is 0 itself). Without an answer within 2 s the server keeps 1.
+`default_session_id` is now a variable; only Wine's own `win32u` tests hard-code session 1.
+
+Test: the T1 test (development mode) checks that the programs of sessions A and B report different session ids,
+both at least 1 (probe `whoami` prints `session=`). T1 test, lab suite 398, normal suite 335, broker test pass.
+
 ## T1 close-out and the plan for T2b to T6 (2026-11-12)
 
 T1 is done except the run on an installed machine (ISO build with `WEX_SESSION0=1`, VM test), which waits for
