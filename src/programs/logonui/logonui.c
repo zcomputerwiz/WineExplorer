@@ -83,6 +83,7 @@ static HWND main_window, password_edit, balloon, session_list;
 static struct user users[MAX_USERS];
 static unsigned int user_count;
 static int selected = -1, hot_user = -1;
+static BOOL session_chosen;   /* the session list was changed by hand: it no longer follows the account clicked */
 static enum hot hot;
 static enum state state;
 static char pending_user[64];
@@ -488,11 +489,11 @@ static void set_state( enum state s )
 
 /* The session list follows the account clicked: its own saved session, as LightDM's greeters do. Without this a
  * logon took whatever the list showed (X11 at first), and LightDM then saved that as the account's choice. An account
- * with none saved gets the first entry, LightDM's user-session (X11). The list can still be changed before the
- * password goes. */
+ * with none saved gets the first entry, LightDM's user-session (X11). A session chosen by hand, before or after the
+ * click, is kept: the list is changed first and the name clicked second, as on XP's Welcome screen. */
 static void show_session( int i )
 {
-    if (session_list)
+    if (session_list && !session_chosen)
         SendMessageW( session_list, CB_SETCURSEL, !strcmp( users[i].session, "wine-explorer-wayland" ) ? 1 : 0, 0 );
 }
 
@@ -689,6 +690,9 @@ static LRESULT CALLBACK main_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         SendMessageW( balloon, TTM_SETMAXTIPWIDTH, 0, 300 );
         return 0;
     }
+    case WM_COMMAND:
+        if ((HWND)lparam == session_list && session_list && HIWORD( wparam ) == CBN_SELCHANGE) session_chosen = TRUE;
+        break;
     case WM_GREETER_EVENT:
         handle_event( (char *)lparam );
         free( (char *)lparam );
