@@ -85,7 +85,9 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     `/root/WE-safemode`. It holds a copy of this repository with that branch's `wine` assembled into it, and its
     WoW64 build is in `build/wow64`. To build a changed WineExplorer source there, copy the file into both
     `src/...` and the assembled `wine/...`, then run `make`. Its latest install tarball (576 MB) is
-    `D:\WSL\wex-iso\wine-safemode-b5.tar.gz` (2026-11-11: B1-B7 and this repository's `logonui.c` at `7e6e0320`).
+    `D:\WSL\wex-iso\wine-safemode-b5.tar.gz`. As of 2026-11-11 it holds B1-B7, the buffered paint fix
+    (`4a1d6d5a25e`), this repository's wexhost (shell keys) and `logonui.c`, and wexcomp `034d722f` as
+    `usr/local/bin/wexcomp`. Repacking keeps that binary (`tar -xzf` it from the old tarball into the stage first).
     Commits on that branch reach the Windows checkout's `wine` repository through a bundle (`git bundle create`, then
     `git fetch` from the bundle). Git for Windows cannot fetch from the `\\wsl.localhost` path.
   - `installer/package-wine.sh` needs python3-pil and fetches third-party assets (icons, ReactOS sources, runtime
