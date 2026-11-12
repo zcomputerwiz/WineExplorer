@@ -81,9 +81,9 @@ WineExplorer supports three distinct session models configured via display manag
   Display Manager -> wexcomp (Wayland Compositor) -> explorer.exe /shell (winewayland.drv)
   ```
 - **Architecture**:
-  - `wexcomp`: A dedicated standalone Wayland compositor based on labwc and wlroots 0.18, extended with custom protocol extensions (`wex_window_manager_v1` and `wex_window_v1` v14).
+  - `wexcomp`: A dedicated standalone Wayland compositor based on labwc and wlroots 0.18, extended with custom protocol extensions (`wex_window_manager_v1` v14, `wex_window_v1` v12; Wine's own copy of the XML is older, v11, and its driver binds at most 11).
   - **Dual-Socket Security Architecture**:
-    - `LABWC_WEX_SHELL_SOCKET` (`wex-shell-0`): Private privileged socket. Only privileged shell components (Wine Explorer and `wexhost`) connect here to access window management, layer-shell placement, thumbnail creation, and corner/effect controls.
+    - `WEX_SHELL_SOCKET` (`wex-shell-0`): Private privileged socket. Only privileged shell components (Wine Explorer and `wexhost`) connect here to access window management, thumbnail creation, and corner/effect controls (`wex_window_manager_v1`). The standard privileged-looking protocols (layer-shell, ext-session-lock, wlr-output-management and the like) are restricted only for sandboxed clients, so an ordinary client on `wayland-0` can bind them too (2026-11-11).
     - Standard Socket (`wayland-0`): Unprivileged application socket. Applications connecting here cannot access `wex_window_manager_v1` (attempts return `WL_DISPLAY_ERROR_INVALID_OBJECT`).
   - Win32 Graphics Driver: `winewayland.drv` selected via registry key `HKCU\Software\Wine\Drivers` (`Graphics="wayland"`).
 
@@ -113,8 +113,9 @@ An empty menu configuration file (`menu.xml`) containing `<openbox_menu/>` is re
 - `WEX_BLUR=1`: Enables hardware-accelerated SceneFX 0.3 backdrop blur, Acrylic, and Mica effects when `wexcomp` is built with `-Dscenefx=enabled`. If unset or on unaccelerated software renderers, `wexcomp` falls back to solid/translucent tint rectangles.
 - `WEX_WAYLAND_NATIVE_WINDOWS=1`: Enables native Linux Wayland application hosting inside Win32 frames with dynamic scale message synchronization.
 - `WLR_RENDERER=gles2` / `WLR_RENDERER_ALLOW_SOFTWARE=1`: Forces the GLES2 renderer in headless/virtual environments using llvmpipe and Mesa surfaceless EGL.
-- `LABWC_WEX_SHELL_SOCKET`: Defines the socket name for privileged shell communications (default: `wex-shell-0`).
-- `WEX_OUTPUT_MODE=<width>x<height>`: Starts each output in its own mode of that size, nearest 60 Hz. The Wayland session sets `640x480` in Safe Mode (`docs/SAFE_MODE.md` section 4). It is ignored when the output has no such mode, and a mode a client requests later still applies.
+- `WEX_SHELL_SOCKET`: Defines the socket name for privileged shell communications (default: `wex-shell-0`). Until 2026-11-11 this guide and the session script named it `LABWC_WEX_SHELL_SOCKET`, which wexcomp never read; it worked only because both used the default.
+- `WEX_OUTPUT_MODE=<width>x<height>`: Starts each output in its own mode of that size, nearest 60 Hz. The Wayland session sets `640x480` in Safe Mode and Enable VGA Mode (`docs/SAFE_MODE.md` section 4). In a normal start it sets the size saved in Display Properties (`~/.config/wineexplorer/display`). It is ignored when the output has no such mode, and a mode a client requests later still applies.
+- Display Properties in the Wayland session changes the compositor's real output through wlr-output-management (wexhost, `src/dlls/wexhost/wloutput.c`, 2026-11-11). Before that, its XRandR path reached only XWayland, or failed with no `DISPLAY`. As on X11, only a single enabled output is changed.
 
 ---
 
@@ -278,7 +279,7 @@ The repository includes specialized standalone diagnostic probes in `scripts/`:
    - *Fix*: Inspect `WINEDEBUG=+dwmapi,+explorer` logs to diagnose the crash cause. Reset the broker by toggling `HKCU\Software\WineExplorer\Shell\DwmService` off and on.
 5. **Wayland Privileged Protocol Rejection (`WL_DISPLAY_ERROR_INVALID_OBJECT`)**:
    - *Cause*: An unprivileged client attempting to bind `wex_window_manager_v1` on `wayland-0`.
-   - *Fix*: Privileged shell operations must connect exclusively via `LABWC_WEX_SHELL_SOCKET` (`wex-shell-0`).
+   - *Fix*: Privileged shell operations must connect exclusively via `WEX_SHELL_SOCKET` (`wex-shell-0`).
 6. **SceneFX Backdrop Blur Fallback to Flat Tint**:
    - *Cause*: Running without `WEX_BLUR=1`, or running on unaccelerated Pixman software renderers without GLES2/EGL.
    - *Fix*: Ensure `WEX_BLUR=1` is exported and Mesa surfaceless EGL patch `0001-fx_renderer-surfaceless-egl.patch` is present.

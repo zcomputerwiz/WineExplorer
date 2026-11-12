@@ -19,6 +19,11 @@ echo "USER=$USER DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY"
 # account; the mode only decides what starts. With Command Prompt the recovery console replaces the shell, as
 # Windows starts its AlternateShell; it needs no Wine.
 WEXMODE=$(/usr/local/bin/wex-bootmode 2>/dev/null) || WEXMODE=normal
+# A Safe Mode logon leaves the account's session choice (X11 or Wayland) as it was: LightDM has just saved this
+# session as the choice, and the snapshot taken before LightDM started goes back (wex-session-choice)
+case "$WEXMODE" in
+    safe|safenet|safecmd) "${WEX_SESSION_CHOICE:-/usr/local/bin/wex-session-choice}" --restore || true ;;
+esac
 case "$WEXMODE" in
     safecmd)
         echo "Safe Mode with Command Prompt: starting the recovery console"

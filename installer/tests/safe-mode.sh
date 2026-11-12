@@ -48,9 +48,16 @@
 #                desktop, WEXMODE=safe, and the session runs under wexcomp. Only when named.
 #   waylandcmd   Safe Mode with Command Prompt in the Wayland session: the recovery console runs in wexcomp (through
 #                XWayland), with no wineserver. Only when named.
-#                Choosing a session makes LightDM save it as the account's own, so these two phases leave the test
-#                account's AccountsService file and .dmrc out of the record; so does nowine, whose GTK greeter logs
-#                on with X11 and replaces a Wayland session saved by an earlier phase.
+#   waylandauto  a normal start's automatic logon with Wayland saved as the test account's session (on the stopped
+#                disk, put back afterwards) runs the Wayland session: LightDM has no autologin-session forcing X11.
+#                Only when named.
+#   waylanddisplay  Display Properties' calls (WexDisplayGet/Set, the display probe) in that Wayland session change
+#                the compositor's real output from 1280x800 to 1024x768, which the 32-bit program sees too; the next
+#                Wayland session starts at the mode saved. Only when named (WEX_TEST_WINE and the display probes).
+#                Choosing a session makes LightDM save it as the account's own, and the Safe Mode session puts the
+#                saved one back (wex-session-choice); so these two phases and nowine (the GTK greeter logs on with
+#                X11) leave the checksums of the test account's AccountsService file and .dmrc out of the record.
+#                The saved session values themselves are compared in every phase.
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -81,6 +88,8 @@
 #                                 safeboot-probe.c, built with MinGW). Then safe, safenet and normal also check what
 #                                 Windows programs see (work order B1-B3): SM_CLEANBOOT, SafeBoot\Option, which
 #                                 services run, and that an unlisted service is refused. Needs a Wine with phase B.
+#                                 waylanddisplay needs display-probe32.exe and display-probe64.exe there too
+#                                 (installer/tests/display-probe.c).
 #   WEX_TEST_SAFE_BOX=required    a Safe Mode logon must show the message box (work order C2); by default (optional)
 #                                 the box is answered when it appears, for images whose Explorer has none
 #   WEX_TEST_USER                 the account that logs on (default wineuser); it also logs on on the serial console
@@ -105,7 +114,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -156,12 +165,15 @@ NBD=
 # scripts/test_safemode.py checks that this list matches the package). Mode, source, destination.
 SAFE_MODE_FILES=(
     "755 scripts/wex-bootmode.sh usr/local/bin/wex-bootmode"
+    "755 scripts/wex-session-choice.sh usr/local/bin/wex-session-choice"
+    "644 installer/systemd/wex-session-choice.service lib/systemd/system/wex-session-choice.service"
     "755 scripts/wex-safe-terminal.sh usr/local/bin/wex-safe-terminal.sh"
     "755 scripts/wex-greeter.sh usr/local/bin/wex-greeter.sh"
     "755 scripts/wine-explorer-session.sh usr/local/bin/wine-explorer-session.sh"
     "755 scripts/wine-explorer-session-common.sh usr/local/bin/wine-explorer-session-common.sh"
     "755 scripts/wine-explorer-wayland-session.sh usr/local/bin/wine-explorer-wayland-session.sh"
     "644 scripts/wayland/rc.xml etc/xdg/wineexplorer/wayland/rc.xml"
+    "644 installer/live-build/config/includes.chroot/etc/lightdm/lightdm.conf.d/50-wineexplorer.conf etc/lightdm/lightdm.conf.d/50-wineexplorer.conf"
     "644 installer/lightdm/90-wineexplorer-safe-mode.conf usr/share/wineexplorer/safe-greeter/lightdm/lightdm-gtk-greeter.conf.d/90-wineexplorer-safe-mode.conf"
     "755 scripts/wex-safemode-pam-check.sh usr/local/sbin/wex-safemode-pam-check.sh"
     "755 scripts/wex-advanced-options.py usr/local/sbin/wex-advanced-options"
@@ -243,6 +255,15 @@ snapshot() {   # snapshot FILE: the configuration record, and FILE.ntbtlog with 
         find etc var/lib/AccountsService home -xdev \( -path 'home/*/*' -a ! -name .dmrc \) -prune -o -type f -print0 \
             | sort -z | xargs -0 -r sha256sum
         find etc var/lib/AccountsService -xdev -type l -printf '%p -> %l\n' | sort
+        # each account's saved session, X11 or Wayland, which no Safe Mode logon may change: compared in every
+        # phase, also where the files' checksums are left out (on images that keep it, wex-session-choice)
+        if [ -x usr/local/bin/wex-session-choice ]; then
+            for f in var/lib/AccountsService/users/*; do
+                [ -f "$f" ] || continue
+                printf 'session-choice %s xsession=%s dmrc=%s\n' "${f##*/}" "$(sed -n 's/^XSession=//p' "$f" | head -n 1)" \
+                    "$(sed -n 's/^Session=//p' "home/${f##*/}/.dmrc" 2>/dev/null | head -n 1)"
+            done
+        fi
     ) > "$1"
     local rc=$?
     driver_lines "$MNT$NTBTLOG" > "$1.ntbtlog" 2>/dev/null || echo 0 > "$1.ntbtlog"
@@ -710,6 +731,82 @@ expect_compositor() {   # the logged-on session runs under wexcomp, the Wayland 
     case "$out" in "compositors="[1-9]*) ;; *) fail "the Wayland session's compositor is not running: $out" ;; esac
 }
 
+saved_session() {   # saved_session SESSION|restore: the test account's saved session on the stopped disk
+                    # (AccountsService's XSession and ~/.dmrc), the earlier files kept in /root to put back (in its
+                    # own directory, AccountsService would take a copy for an account)
+    local acc dmrc keep
+    attach rw || return 1
+    acc=$MNT/var/lib/AccountsService/users/$USER_NAME
+    dmrc=$MNT/home/$USER_NAME/.dmrc
+    keep=$MNT/root/wex-test-saved-session
+    if [ "$1" = restore ]; then
+        [ -f "$keep/accounts" ] && cp -a "$keep/accounts" "$acc"
+        if [ -f "$keep/dmrc" ]; then cp -a "$keep/dmrc" "$dmrc"; else rm -f "$dmrc"; fi
+        rm -rf "$keep"
+    else
+        [ -f "$acc" ] || { detach; return 1; }
+        rm -rf "$keep" && mkdir -p "$keep" && cp -a "$acc" "$keep/accounts" || { detach; return 1; }
+        [ ! -f "$dmrc" ] || cp -a "$dmrc" "$keep/dmrc"
+        if grep -q '^XSession=' "$acc"; then sed -i "s/^XSession=.*/XSession=$1/" "$acc"; else echo "XSession=$1" >> "$acc"; fi
+        [ ! -f "$dmrc" ] || sed -i "s/^Session=.*/Session=$1/" "$dmrc"
+    fi
+    detach
+}
+
+phase_waylandauto() {   # an automatic logon uses the account's saved session (no autologin-session): Wayland,
+                        # saved on the stopped disk and put back afterwards. Only when named.
+    saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
+    start_vm
+    desktop 600
+    expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
+    expect_compositor
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    saved_session restore || fail "cannot put the saved session back"
+}
+
+display_probe() {   # display_probe BITS [set W H [persist]]: Display Properties' view (WexDisplayGet/Set) from the
+                    # logged-on session, one line "bits=... err=... current=WxH@mHz ..."
+    local bits=$1 log=/tmp/wex-display$1.log
+    shift
+    gsh "rm -f $log; python3 $HELPER --user $USER_NAME --wait --log-file $log $PROBES/display-probe$bits.exe $* >/dev/null; grep '^bits=' $log" 120 \
+        | grep '^bits=' | tail -n 1
+}
+
+phase_waylanddisplay() {   # Display Properties in the Wayland session: wexhost changes the compositor's real output
+                           # mode (wlr-output-management), the 32-bit and the 64-bit program see it, and the next
+                           # Wayland session restores the mode saved. Only when named; needs WEX_TEST_WINE and the
+                           # display probes in WEX_TEST_PROBES.
+    local out
+    [ -f "$PROBE_DIR/display-probe64.exe" ] || fail "no display probe in WEX_TEST_PROBES"
+    saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
+    start_vm
+    desktop 600
+    expect_compositor
+    expect_screen 1280x800
+    out=$(display_probe 64)
+    echo "  $out"
+    case "$out" in *" err=0 "*"current=1280x800@"*"1024x768"*) ;; *) fail "the 64-bit probe did not see the output's modes: $out" ;; esac
+    out=$(display_probe 64 set 1024 768 persist)
+    echo "  $out"
+    case "$out" in *" set=0 err=0 "*"current=1024x768@"*) ;; *) fail "the output did not change to 1024x768: $out" ;; esac
+    expect_screen 1024x768
+    out=$(display_probe 32)
+    echo "  $out"
+    case "$out" in *" err=0 "*"current=1024x768@"*) ;; *) fail "the 32-bit probe did not see 1024x768: $out" ;; esac
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    # the next Wayland session starts the output at the mode saved
+    start_vm
+    desktop 600
+    expect_compositor
+    expect_screen 1024x768
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    display_profile remove || fail "cannot remove the display profile"
+    saved_session restore || fail "cannot put the saved session back"
+}
+
 phase_waylandsafe() {   # work order A3
     menu_choice "$ROW_SAFE" "Safe Mode"
     logon_screen
@@ -1167,6 +1264,11 @@ printf '%s\n' '# installer/tests/safe-mode.sh' 'kernel.sysrq = 1' > "$MNT/etc/sy
 if [ -n "$PROBE_DIR" ]; then
     install -m 755 "$PROBE_DIR/safeboot-probe32.exe" "$PROBE_DIR/safeboot-probe64.exe" "$MNT$PROBES/" \
         || die "cannot install the Safe Mode probes"
+    for bits in 32 64; do   # the display probe (waylanddisplay), when the directory has it
+        if [ -f "$PROBE_DIR/display-probe$bits.exe" ]; then
+            install -m 755 "$PROBE_DIR/display-probe$bits.exe" "$MNT$PROBES/" || die "cannot install the display probe"
+        fi
+    done
 fi
 ADMIN_PWFILE=$OUT/admin-password
 STEP=
@@ -1327,8 +1429,9 @@ for PHASE in "${PHASES[@]}"; do
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
     compare=("$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt")
     case "$PHASE" in
-        wayland*|nowine)   # LightDM saves the session chosen on the Welcome screen as the account's own; the GTK
-                           # greeter (nowine) logs on with its default, X11, which replaces a Wayland one saved before
+        wayland*|nowine)   # LightDM saves the session of each logon, and the Safe Mode session puts the account's
+                           # choice back (wex-session-choice): the two files are rewritten, so their checksums are
+                           # left out, while the saved values (the record's session-choice lines) are compared
             for f in "${compare[@]}"; do
                 grep -vE "  (var/lib/AccountsService/users/$USER_NAME|home/$USER_NAME/\.dmrc)\$" "$f" > "$f.compared"
             done

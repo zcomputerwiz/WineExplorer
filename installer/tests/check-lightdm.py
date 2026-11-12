@@ -28,6 +28,8 @@ for filename in files:
 assert seat.get("greeter-session") == "wineexplorer-greeter", "custom greeter not selected"
 assert seat.get("user-session") == "wine-explorer", "wrong desktop session"
 assert seat.get("autologin-user", "") == autologin, "wrong automatic logon setting"
+# an automatic logon uses the account's own saved session (X11 or Wayland); autologin-session would override it
+assert "autologin-session" not in seat, "autologin-session overrides the account's saved session"
 assert seat.get("allow-guest") == "false", "guest logon enabled"
 manager = root / "etc/systemd/system/display-manager.service"
 assert manager.is_symlink() and Path(manager.readlink()).name == "lightdm.service", "wrong display manager"

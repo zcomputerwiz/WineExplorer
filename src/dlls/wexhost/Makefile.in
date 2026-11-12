@@ -21,6 +21,8 @@ SOURCES = \
 	waylandhost.c \
 	wex-window-v1.xml \
 	wlr-foreign-toplevel-management-unstable-v1.xml \
+	wloutput.c \
+	wlr-output-management-unstable-v1.xml \
 	xdg-shell.xml \
 	wm.c \
 	wexhost.c \

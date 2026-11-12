@@ -93,9 +93,24 @@ appends `/usr/share/wineexplorer/safe-greeter` to `XDG_DATA_DIRS`; that director
 `lightdm/lightdm-gtk-greeter.conf.d/90-wineexplorer-safe-mode.conf` (`installer/lightdm/`) sets `background=#000000`
 and `user-background=false`. lightdm-gtk-greeter 2.0.9 reads the data directories in order, then the configuration
 directories and `/etc/lightdm`, and a later file overrides an earlier one. So the last directory's keys replace
-Debian's `01_debian.conf`, and nothing under `/etc` changes. The GTK greeter lists no accounts, so it logs on with
-its default session, X11. LightDM then saves that as the account's session, so an account that used the Wayland
-session gets X11 at its next normal logon, until it chooses Wayland again.
+Debian's `01_debian.conf`, and nothing under `/etc` changes.
+
+**The session choice survives Safe Mode** (2026-11-11). LightDM saves the session of every logon through a greeter
+as the account's choice: AccountsService's `XSession`, and `~/.dmrc` (LightDM 1.32, `seat.c`,
+`greeter_start_session_cb`). There is no setting to stop that. A Safe Mode logon could therefore change an account's
+X11 or Wayland choice for good: through the Welcome screen's session list, or through the GTK greeter, which logs on
+with its default, X11. `wex-session-choice` (`scripts/wex-session-choice.sh`) undoes it:
+
+- **Snapshot:** `wex-session-choice.service` runs before LightDM. In Safe Mode only, it records each account's
+  saved session in `/run/wineexplorer/session-choice/<account>`, root-owned and readable. An account with none gets
+  LightDM's `user-session`. The record also notes whether `~/.dmrc` exists.
+- **Restore:** a Safe Mode session, X11 or Wayland, starts with `wex-session-choice --restore` as the account. If
+  LightDM saved another session, the recorded one goes back through AccountsService (`SetXSession` over D-Bus) and
+  `~/.dmrc`. A `~/.dmrc` that LightDM created at this logon is removed.
+
+An automatic logon uses the account's own saved session. Until 2026-11-11 `50-wineexplorer.conf` had
+`autologin-session=wine-explorer`, which started X11 at every automatic logon, even for an account that had chosen
+Wayland.
 
 **The Administrator account and hidden accounts** (work order C4 and C7, decisions 7 and 8; 2026-11-09):
 - The package creates `administrator`, display name Administrator, locked and in the administrators' group.
@@ -330,7 +345,7 @@ its command has ended, as on XP. Still open: the classic logon dialog after Ctrl
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (108 tests, Linux) covers:
+`scripts/test_safemode.py` (113 tests, Linux) covers:
 
 - the end of Plymouth: asking until it is gone, each request with a time limit, then ending a plymouthd that
   lingers or does not answer; and the unit without a terminal that does it before the menu's and the failure
@@ -356,6 +371,11 @@ its command has ended, as on XP. Still open: the classic logon dialog after Ctrl
 - that the greeter does not update a logon prefix that is already made;
 - the GTK fallback greeter: 640x480, its drop-in directory last in `XDG_DATA_DIRS`, and its keys winning over
   Debian's in lightdm-gtk-greeter's reading order; and the VM test's pixel reader;
+- the session choice through Safe Mode (`wex-session-choice`): the snapshot in Safe Mode only, with LightDM's
+  default for an account that has none; the restore through AccountsService and `~/.dmrc`, only from root's record,
+  and the removal of a `~/.dmrc` made at the logon; and both session scripts calling it first in Safe Mode only;
+- a normal Wayland session restoring the display mode saved in Display Properties, and Safe Mode or Enable VGA Mode
+  keeping 640x480;
 - the Wayland session in each mode, with a stand-in compositor and Wine, and its 640x480 in each Safe Mode;
 - the boot log: two starts in XP's format, the header's version text from XP's and from Wine's default registry
   values and with no registry, and the conversion of a log from before the format;
@@ -394,6 +414,8 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `normal` | No key: the same, the boot-mode generator wrote nothing, and the start-up check counted the start; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480 |
 | `lastgood` | Last Known Good (work order D3) from a generation that started successfully. With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, with no restart, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Once Last Known Good is offered, Up from Start Normally on the failure screen reaches it before Safe Mode with Command Prompt, which `vfailed` follows |
 | `vfailed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards): the Reset button (QMP `system_reset`) once the serial console answers, before `boot-complete.target`. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold. The next ordinary start shows the failure screen with its countdown. Up stops it and removes its line, and Safe Mode with Command Prompt restarts into the variant, which shows no menu and comes up in that mode. The next ordinary start shows the screen again; left alone, it starts normally and counts. The start after that shows no screen |
+| `waylandauto` | Only when named. With Wayland saved as the test account's session (on the stopped disk, put back afterwards), a normal start's automatic logon runs the Wayland session (`wexcomp`) |
+| `waylanddisplay` | Only when named; needs `WEX_TEST_WINE` and the display probes (`installer/tests/display-probe.c`) in `WEX_TEST_PROBES`. In that Wayland session, the 64-bit probe lists the compositor's real output and modes through wexhost (`WexDisplayGet`, as Display Properties) and sets 1024x768 with the profile saved (`WexDisplaySet`). The screen changes, the 32-bit probe sees it, and the next Wayland session starts at 1024x768 |
 | `vlasttry` | Only when named, and last: it leaves the generation with no tries. With LightDM held back as for `vfailed`, it resets once before the logon screen and once on the next start's failure screen. The third start is the generation's last try. Its failure screen's Safe Mode with Command Prompt must still restart into the variant in that mode (`vintner next-boot variant --generation`). Read from the stopped disk's journal, that screen's start logged 2 earlier failures and no refusal. An image whose Vintner Boot lacks the flag is reported, not failed |
 | `lastgoodgen` | Last in the default list. The test appends a token to the Advanced Options variant on the stopped disk and adds a unit that runs `vintner publish` at the next start and powers off, so generation 2 is published. The variant is then put back. Generation 2 is started only through its variant, which counts nothing, so it never starts successfully. The registry is changed as in `lastgood`. Last Known Good from generation 2's menu then restarts with no menu into generation 1: a normal start whose recorded `vintner status --json` says `booted` generation 1, generation 2 not `GOOD`. The registry ends as in `lastgood` |
 | `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, and a `wexcomp` process for the account. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |
@@ -603,5 +625,18 @@ files and `logonui.exe`. It installed with no input on SeaBIOS and OVMF. With th
   - the serial console's account cannot read the system journal, so the check now reads it on the stopped disk.
   Safe Mode had started correctly in both runs. With both fixes, `vlasttry` passed on both firmwares (2 earlier
   failures, no refusal, then the variant in Safe Mode with Command Prompt).
+
+**The session choice and Display Properties on Wayland (2026-11-11).** With this checkout's files on the `wex-vgen`
+installs, on both firmwares:
+
+- `waylandsafe`, `waylandcmd` and `nowine` passed. The record now compares each account's saved session (`XSession`
+  and `~/.dmrc`'s `Session`), and it stayed X11 through Safe Mode logons with Wayland and with the GTK greeter. The
+  first run left a `~/.dmrc` that LightDM had created; the restore now removes it.
+- `waylandauto` passed: with Wayland saved, the automatic logon ran wexcomp. The first run's failure was in the test,
+  which kept its backup copy in AccountsService's directory and could not put the session back.
+- `waylanddisplay` passed with the Safe Mode Wine branch built with the new wexhost. The probes saw the output
+  `Virtual-1` with 15 modes at 1280x800, set 1024x768 (the screen changed), the 32-bit probe saw it, and the next
+  Wayland session started at 1024x768.
+- Not covered: Display Properties' own wait and keep-or-revert dialogs on Wayland, and the shell resizing live.
 - Both consoles printed six `setlocale` warnings above the banner. The installed system sets `LANG=en_US.UTF-8`
   (Setup, through `locale1`), but that locale was never generated (`/usr/lib/locale` has only `C.utf8`).

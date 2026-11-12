@@ -224,6 +224,7 @@ cp "$ROOT_DIR/scripts/wine-explorer-wayland-session.sh" "$STAGE_SESSION/usr/loca
 # Safe Mode and the Advanced Options menu (docs/SAFE_MODE.md)
 cp "$ROOT_DIR/scripts/wex-safe-terminal.sh" "$STAGE_SESSION/usr/local/bin/wex-safe-terminal.sh"
 cp "$ROOT_DIR/scripts/wex-bootmode.sh" "$STAGE_SESSION/usr/local/bin/wex-bootmode"
+install -m755 "$ROOT_DIR/scripts/wex-session-choice.sh" "$STAGE_SESSION/usr/local/bin/wex-session-choice"
 cp "$ROOT_DIR/scripts/wex-safemode-pam-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-safemode-pam-check.sh"
 cp "$ROOT_DIR/scripts/wex-advanced-options.py" "$STAGE_SESSION/usr/local/sbin/wex-advanced-options"
 cp "$ROOT_DIR/scripts/wex-bootlog.sh" "$STAGE_SESSION/usr/local/sbin/wex-bootlog"
@@ -276,7 +277,7 @@ cp "$SCRIPT_DIR/systemd/wex-setup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
 for unit in wex-advanced-options.target wex-advanced-options.service wex-safemode.target wex-safenet.target \
             wex-bootlog.service wex-startup-check.service wex-bootmode-record.service \
-            wex-failure-check.service wex-failure-screen.service wex-plymouth-quit.service; do
+            wex-failure-check.service wex-failure-screen.service wex-plymouth-quit.service wex-session-choice.service; do
     cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
@@ -366,6 +367,8 @@ systemctl enable wex-bootmode-record.service || true
 # An ordinary start after failed ones shows "did not start successfully" (a condition skips it on a machine that
 # Vintner Boot did not start).
 systemctl enable wex-failure-check.service || true
+# A Safe Mode logon does not change the account's X11 or Wayland choice (a snapshot before LightDM starts).
+systemctl enable wex-session-choice.service || true
 # The built-in Administrator account (docs/SAFE_MODE_WORKORDER.md C4): created locked, in the administrators' group
 # (E1's admin_group= in sysrun.conf, default sudo). Setup gives it the Administrator password (wex-gui-setup.sh copies
 # root's); until then it cannot log on, and the Welcome screen leaves it out. The AccountsService file makes it a

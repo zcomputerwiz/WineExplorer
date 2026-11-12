@@ -55,7 +55,8 @@ class TempDirTest(unittest.TestCase):
 
 class TestSyntax(unittest.TestCase):
     def test_shell_scripts_parse(self):
-        for script in (BOOTMODE, GENERATOR, PAM_CHECK, STARTUP_CHECK, SCRIPTS / "wex-bootlog.sh", LASTGOOD):
+        for script in (BOOTMODE, GENERATOR, PAM_CHECK, STARTUP_CHECK, SCRIPTS / "wex-bootlog.sh", LASTGOOD,
+                       SCRIPTS / "wex-session-choice.sh"):
             result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         for script in (SCRIPTS / "wex-greeter.sh", SCRIPTS / "setup-greeter.sh", SCRIPTS / "wine-explorer-session.sh",
@@ -1287,8 +1288,11 @@ class TestWaylandSession(TempDirTest):
         wine.chmod(0o755)
         runtime = self.tmp / "run"
         runtime.mkdir(exist_ok=True)
+        choice = self.tmp / "session-choice"
+        choice.write_text('#!/bin/sh\necho "choice $*" >> "$LOG"\n', encoding="ascii")
+        choice.chmod(0o755)
         env = {"PATH": os.environ["PATH"], "LOG": str(log), "HOME": str(self.tmp), "USER": "wineuser",
-               "XDG_RUNTIME_DIR": str(runtime), "DISPLAY": ":9", "WINE": str(wine),
+               "XDG_RUNTIME_DIR": str(runtime), "DISPLAY": ":9", "WINE": str(wine), "WEX_SESSION_CHOICE": str(choice),
                "WEX_WEXCOMP_BIN": str(compositor), "WEX_WAYLAND_CONFIG": "/cfg",
                "WEX_BOOTMODE_HELPER": self.fake_helper(mode, option=option), "WEX_SAFE_TERMINAL": "/safe-terminal",
                "FAKE_COMPOSITOR": str(compositor_status)}
@@ -1300,22 +1304,120 @@ class TestWaylandSession(TempDirTest):
     def test_command_prompt_runs_the_recovery_console_in_the_compositor(self):
         status, calls = self.run_session("safecmd")
         self.assertEqual(status, 0)
-        self.assertEqual(calls, ["wexcomp -C /cfg -S /safe-terminal WEXMODE=safecmd DISPLAY=unset"
+        self.assertEqual(calls, ["choice --restore",   # the session choice before anything else
+                                 "wexcomp -C /cfg -S /safe-terminal WEXMODE=safecmd DISPLAY=unset"
                                  " WEX_OUTPUT_MODE=640x480"])
 
     def test_other_modes_start_the_desktop_compositor(self):
         # The stand-in compositor ends at once, so the session stops before Wine, as it does when wexcomp fails.
         # Every Safe Mode starts the compositor at 640x480 (work order C3); a normal start at the output's own mode.
+        # A Safe Mode session puts the account's session choice back first; a normal one leaves it.
         for mode, expected, size in (("safe", "safe", "640x480"), ("safenet", "safenet", "640x480"),
                                      ("normal", "normal", "unset"), ("bogus", "normal", "unset")):
             status, calls = self.run_session(mode, compositor_status=1)
             self.assertEqual(status, 1, mode)
-            self.assertEqual(calls, [f"wexcomp -C /cfg WEXMODE={expected} DISPLAY=unset WEX_OUTPUT_MODE={size}"],
-                             mode)
+            self.assertEqual(calls, (["choice --restore"] if expected != "normal" else []) +
+                             [f"wexcomp -C /cfg WEXMODE={expected} DISPLAY=unset WEX_OUTPUT_MODE={size}"], mode)
         # Enable VGA Mode (D2): a normal start at 640x480
         for option, size in (("vga", "640x480"), ("bootlog", "unset")):
             status, calls = self.run_session("normal", compositor_status=1, option=option)
             self.assertEqual(calls, [f"wexcomp -C /cfg WEXMODE=normal DISPLAY=unset WEX_OUTPUT_MODE={size}"], option)
+
+    def test_a_normal_start_restores_the_saved_display_mode(self):
+        """Display Properties' profile (wexhost): a normal Wayland session starts the output at that size; Safe Mode
+        and Enable VGA Mode keep 640x480, and a malformed profile is ignored."""
+        profile = self.tmp / ".config" / "wineexplorer" / "display"
+        profile.parent.mkdir(parents=True)
+        profile.write_text("1024 768 60004 1024x768\n")
+        for mode, option, size in (("normal", "", "1024x768"), ("safe", "", "640x480"), ("normal", "vga", "640x480")):
+            calls = self.run_session(mode, compositor_status=1, option=option)[1]
+            self.assertIn(f"WEX_OUTPUT_MODE={size}", calls[-1], (mode, option))
+        profile.write_text("1024 x768 60004\n")
+        self.assertIn("WEX_OUTPUT_MODE=unset", self.run_session("normal", compositor_status=1)[1][-1])
+
+
+class TestSessionChoice(TempDirTest):
+    """wex-session-choice.sh: a Safe Mode logon leaves the account's X11 or Wayland choice as it was."""
+
+    SCRIPT = SCRIPTS / "wex-session-choice.sh"
+
+    def setUp(self):
+        super().setUp()
+        self.users = self.tmp / "users"
+        self.users.mkdir()
+        (self.users / "wineuser").write_text("[User]\nXSession=wine-explorer-wayland\nSystemAccount=false\n")
+        (self.users / "administrator").write_text("[User]\nSystemAccount=false\n")   # never chose one
+        (self.users / "bad name").write_text("[User]\nXSession=x\n")                  # not a valid account name
+        conf = self.tmp / "lightdm" / "lightdm.conf.d"
+        conf.mkdir(parents=True)
+        (conf / "50-wineexplorer.conf").write_text("[Seat:*]\nuser-session=wine-explorer\n")
+        self.run_dir = self.tmp / "run" / "session-choice"
+        self.home = self.tmp / "homes" / "wineuser"
+        self.home.mkdir(parents=True)
+
+    def choice(self, arg, mode="safe", current="wine-explorer", record_uid=None):
+        """Runs the script with a stand-in busctl: AccountsService reports CURRENT as the saved session and logs
+        SetXSession calls."""
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        (bin_dir / "busctl").write_text(
+            '#!/bin/sh\n'
+            'case "$*" in\n'
+            '    *FindUserByName*) echo \'o "/org/freedesktop/Accounts/User1001"\' ;;\n'
+            '    *get-property*XSession*) echo "s \\"$FAKE_CURRENT\\"" ;;\n'
+            '    *SetXSession*) echo "SetXSession $8" >> "$LOG" ;;\n'
+            'esac\n', encoding="ascii")
+        (bin_dir / "busctl").chmod(0o755)
+        log = self.tmp / "busctl.log"
+        log.unlink(missing_ok=True)
+        env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "LOG": str(log), "FAKE_CURRENT": current,
+               "USER": "wineuser", "HOME": str(self.home),
+               "WEX_SESSION_CHOICE_USERS": str(self.users), "WEX_SESSION_CHOICE_RUN": str(self.run_dir),
+               "WEX_SESSION_CHOICE_HOMES": str(self.tmp / "homes"),
+               "WEX_SESSION_CHOICE_LIGHTDM": str(self.tmp / "lightdm"), "WEX_BOOTMODE_HELPER": self.fake_helper(mode),
+               "WEX_SESSION_CHOICE_ROOT_UID": str(os.getuid() if record_uid is None else record_uid)}
+        result = subprocess.run(["sh", str(self.SCRIPT), arg], env=env, capture_output=True, text=True, timeout=30)
+        return result, log.read_text().splitlines() if log.exists() else []
+
+    def test_snapshot_in_safe_mode_only(self):
+        self.choice("--snapshot", mode="normal")
+        self.assertFalse(self.run_dir.exists())
+        (self.home / ".dmrc").write_text("[Desktop]\nSession=wine-explorer-wayland\n")
+        self.assertEqual(self.choice("--snapshot")[0].returncode, 0)
+        self.assertEqual((self.run_dir / "wineuser").read_text(), "wine-explorer-wayland\ndmrc=present\n")
+        self.assertEqual((self.run_dir / "administrator").read_text(),
+                         "wine-explorer\ndmrc=absent\n")                               # LightDM's default, no .dmrc
+        self.assertFalse((self.run_dir / "bad name").exists())
+        self.assertEqual(oct((self.run_dir / "wineuser").stat().st_mode & 0o777), "0o644")
+
+    def test_restore_puts_the_choice_back(self):
+        dmrc = self.home / ".dmrc"
+        dmrc.write_text("[Desktop]\nSession=wine-explorer-wayland\n")
+        self.choice("--snapshot")
+        # this Safe Mode logon went through the X11 session (LightDM saved it); the account had chosen Wayland
+        dmrc.write_text("[Desktop]\nSession=wine-explorer\n")
+        result, calls = self.choice("--restore", current="wine-explorer")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(calls, ["SetXSession wine-explorer-wayland"])
+        self.assertEqual(dmrc.read_text(), "[Desktop]\nSession=wine-explorer-wayland\n")
+        # the same session: nothing to put back
+        self.assertEqual(self.choice("--restore", current="wine-explorer-wayland")[1], [])
+
+    def test_restore_removes_a_dmrc_made_at_the_logon(self):
+        """No ~/.dmrc before Safe Mode: LightDM writes one at the logon, and it goes again."""
+        self.choice("--snapshot")
+        dmrc = self.home / ".dmrc"
+        dmrc.write_text("[Desktop]\nSession=wine-explorer\n")
+        self.choice("--restore", current="wine-explorer")
+        self.assertFalse(dmrc.exists())
+
+    def test_restore_needs_safe_mode_and_root_s_record(self):
+        self.choice("--snapshot")
+        self.assertEqual(self.choice("--restore", mode="normal")[1], [])
+        self.assertEqual(self.choice("--restore", record_uid=os.getuid() + 1)[1], [])   # not root's
+        (self.run_dir / "wineuser").write_text("wine-explorer/../x\n")
+        self.assertEqual(self.choice("--restore")[1], [])                                # not a session name
+        self.assertEqual(self.choice("--bogus")[0].returncode, 2)
 
 
 class TestGreeter(TempDirTest):
@@ -1708,7 +1810,8 @@ class TestPackage(TempDirTest):
                       "wex-advanced-options.service", "wex-safemode.target", "wex-safenet.target",
                       "wex-bootlog.service", "wex-startup-check.sh",
                       "wex-startup-check.service", "wex-lastgood.sh", "wex-failure-check.service",
-                      "wex-failure-screen.service", "wex-plymouth-quit.service"):
+                      "wex-failure-screen.service", "wex-plymouth-quit.service", "wex-session-choice.sh",
+                      "wex-session-choice.service"):
             self.assertIn(piece, sources, f"the VM test does not install {piece}")
 
     def test_postinst_migrates_and_is_idempotent(self):
@@ -1754,10 +1857,12 @@ class TestPackage(TempDirTest):
             "systemctl enable wex-startup-check.service",
             "systemctl enable wex-bootmode-record.service",
             "systemctl enable wex-failure-check.service",
+            "systemctl enable wex-session-choice.service",
             "useradd --create-home --comment Administrator --shell /bin/bash --groups sudo administrator",
             "systemctl enable wex-startup-check.service",
             "systemctl enable wex-bootmode-record.service",
-            "systemctl enable wex-failure-check.service"])
+            "systemctl enable wex-failure-check.service",
+            "systemctl enable wex-session-choice.service"])
         self.assertEqual((acc / "administrator").read_text(),
                          "[User]\nSession=wine-explorer\nXSession=wine-explorer\nSystemAccount=false\n")
         lightdm = (etc / "pam.d/lightdm").read_text()

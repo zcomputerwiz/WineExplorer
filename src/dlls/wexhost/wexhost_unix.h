@@ -74,6 +74,9 @@ struct display_get_params { WEX_DISPLAY display; DWORD err; };
 struct display_set_params { WEX_DISPLAY_MODE mode; BOOL persist; DWORD err; };
 extern NTSTATUS display_get(void *args);
 extern NTSTATUS display_set(void *args);
+/* wloutput.c: TRUE in a Wayland session whose compositor manages outputs (*err is then the answer) */
+extern BOOL wl_outputs_get(WEX_DISPLAY *display, DWORD *err);
+extern BOOL wl_outputs_set(const WEX_DISPLAY_MODE *mode, DWORD *err);
 
 struct apps_list_params { ULONG64 buffer; DWORD size; DWORD needed; DWORD err; };
 struct apps_launch_params { char id[WEX_APP_ID_MAX]; DWORD err; };
