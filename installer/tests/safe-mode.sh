@@ -18,12 +18,18 @@
 #   bootlog      Enable Boot Logging: a normal start with automatic logon, and ntbtlog.txt gains driver lines
 #   vga          Enable VGA Mode (work order D2), with a 1024x768 display profile saved for the test account: a
 #                normal start with automatic logon at 640x480, the profile skipped; the next normal start restores
-#                it. Only when named (images whose menu grays the item cannot run it).
+#                it. It counts as on XP: the menu's record goes and the last known good configuration is saved.
+#                Only when named (images whose menu grays the item cannot run it).
+#   vgafailed    the same start reset before the logon screen (held back 90 seconds): it was recorded, the next
+#                ordinary start shows the failure screen, and that start, left to its countdown, counts and removes the
+#                record. Only when named.
 #   startnormal  Start WineExplorer Normally: a normal start with automatic logon, timers and networking, which the
-#                start-up check does not count
+#                start-up check counts (since 2026-11-12, as XP counts every start but Safe Mode)
 #   oschoices    Return to OS Choices Menu (work order D3): a restart into the loader's own menu (vintner next-boot
 #                menu); Enter there starts normally
-#   normal       no key: automatic logon, the boot-mode generator wrote nothing, and the start-up check counted it
+#   normal       no key: automatic logon, the boot-mode generator wrote nothing, and the start-up check counted it;
+#                the system locale is generated, the account has the default theme (Open Luna), and the taskbar is
+#                painted with Notepad open (taskbar-check.py)
 #   lastgood     Last Known Good Configuration (work order D3) from a generation that started successfully: with a
 #                control set saved by a start that counted (a normal start first if there is none), the test adds a
 #                key to the machine registry's control set and a Software key on the stopped disk; after the Last
@@ -51,6 +57,11 @@
 #   waylandauto  a normal start's automatic logon with Wayland saved as the test account's session (on the stopped
 #                disk, put back afterwards) runs the Wayland session: LightDM has no autologin-session forcing X11.
 #                Only when named.
+#   waylandlogon the same account logs off and on again on the Welcome screen, without touching its session list: the
+#                list follows the account, so it gets Wayland again. Only when named (WEX_TEST_WINE: this logonui).
+#   waylandfallback  with wexcomp replaced by one that exits at once (on the stopped disk, put back afterwards), the
+#                Wayland session ends and saves X11, so the Welcome screen's next logon is X11, and the account's saved
+#                session is wine-explorer. Only when named (WEX_TEST_WINE).
 #   shellkeys    with xterm (a Linux program) on the keyboard in the X11 session, Win+R opens Run and Ctrl+Esc the
 #                Start menu (wexhost's shell keys), and Win+L locks: the Welcome screen, and logging on again returns
 #                to the session with xterm. waylandshellkeys: the same in the Wayland session (wexcomp v15 and this
@@ -119,7 +130,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -917,6 +928,85 @@ phase_waylandcmd() {   # work order A3: the recovery console replaces the shell 
     shutdown_vm
 }
 
+menu_record() {   # whether the Advanced Options menu's record of a start that counts is there (record=yes|no)
+    gsh 'if [ -e /var/lib/wineexplorer/menu-start ]; then echo record=yes; else echo record=no; fi' \
+        | grep '^record=' | tail -n 1
+}
+
+menu_starts_count() {   # whether this image's menu counts its starts as XP does (2026-11-12)
+    gsh 'grep -q menu-start /usr/local/sbin/wex-advanced-options && echo counts=yes' | grep -q '^counts=yes'
+}
+
+phase_vgafailed() {   # a start through the menu counts as on XP (2026-11-12): Enable VGA Mode reset before the logon
+                      # screen brings the failure screen at the next start, which, left to its countdown, counts and
+                      # removes the menu's record. The main loop holds the logon screen back (delay_logon).
+                      # Only when named.
+    local out
+    menu_choice "$ROW_VGA" "Enable VGA Mode"
+    sleep 15
+    wait_serial 150 || fail "the serial console did not answer"
+    menu_starts_count || { echo "  (this image's menu counts no start)"; shutdown_vm; return 0; }
+    out=$(menu_record)
+    echo "  during the VGA start: $out"
+    [ "$out" = record=yes ] || fail "the VGA start through the menu was not recorded"
+    "${V[@]}" reset "$TEST" >/dev/null || fail "the Reset button did not work"
+    echo "  reset before the logon screen"
+    VIA_MENU=   # the next start is the generation's own
+    failure_screen
+    desktop 600   # the countdown chooses Start Normally
+    expect_check
+    out=$(menu_record)
+    echo "  after the next start: $out"
+    [ "$out" = record=no ] || fail "the menu's record stayed after a successful start"
+    shutdown_vm
+}
+
+end_display_session() {   # log the test account off: logind lets an account end its own session; the automatic logon
+                          # does not come back, so LightDM shows the Welcome screen
+    gsh 'loginctl terminate-session "$(loginctl show-user "$USER" -p Display --value)"; echo ended' 30 \
+        | grep -q '^ended' || fail "cannot end the desktop session"
+}
+
+phase_waylandlogon() {   # the Welcome screen's session list follows the account clicked (logonui, 2026-11-12): an
+                         # account whose saved session is Wayland, logging on there without touching the list, gets
+                         # Wayland. Only when named; needs WEX_TEST_WINE (this logonui and wexhost).
+    saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
+    start_vm
+    desktop 600
+    expect_compositor
+    end_display_session
+    logon_screen
+    logon
+    desktop 600
+    expect_compositor
+    echo "  Welcome screen: the Wayland account logged on to Wayland without a choice in the list"
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    saved_session restore || fail "cannot put the saved session back"
+}
+
+phase_waylandfallback() {   # X11 is the fallback (2026-11-12): with wexcomp broken (the main loop replaces it), a
+                            # Wayland account's session ends at once and saves X11, so the Welcome screen's next logon
+                            # is X11. Only when named; needs WEX_TEST_WINE (this logonui and wexhost).
+    local out
+    saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
+    start_vm
+    logon_screen   # the automatic logon's session ended at once
+    logon
+    desktop 600
+    out=$(gsh 'echo compositors=$(pgrep -c -u "$USER" -x wexcomp) xservers=$(pgrep -c -x Xorg)' | grep '^compositors=' | tail -n 1)
+    echo "  $out"
+    case "$out" in "compositors=0 xservers="[1-9]*) ;; *) fail "expected the X11 session after the fallback: $out" ;; esac
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    attach ro || fail "cannot mount the disk"
+    out=$(sed -n 's/^XSession=//p' "$MNT/var/lib/AccountsService/users/$USER_NAME")
+    detach
+    echo "  saved session after the fallback: ${out:-none}"
+    [ "$out" = wine-explorer ] || fail "the fallback did not save the X11 session: ${out:-none}"
+    saved_session restore || fail "cannot put the saved session back"
+}
+
 phase_nowine() {   # /usr/local/bin/wine is hidden for this boot (the main loop does it)
     menu_choice "$ROW_SAFECMD" "Safe Mode with Command Prompt"
     logon_screen_gtk
@@ -962,8 +1052,18 @@ display_profile() {   # display_profile set|remove: the test account's saved dis
     detach
 }
 
-phase_vga() {   # work order D2: Enable VGA Mode, a normal start at 640x480 that skips the saved display mode
-    local out
+lastgood_time() {   # the saved control set's modification time on the stopped disk, 0 without one
+    local t
+    attach ro || return 1
+    t=$(stat -c %Y "$MNT$LASTGOOD_DIR/controlset.reg" 2>/dev/null) || t=0
+    detach
+    echo "$t"
+}
+
+phase_vga() {   # work order D2: Enable VGA Mode, a normal start at 640x480 that skips the saved display mode. As on XP it
+                # counts (2026-11-12): it saves the last known good configuration, and the menu's record goes.
+    local out before after counts=
+    before=$(lastgood_time) || fail "cannot read the disk"
     display_profile set || fail "cannot save a display profile for $USER_NAME"
     menu_choice "$ROW_VGA" "Enable VGA Mode"
     desktop 600
@@ -974,8 +1074,22 @@ phase_vga() {   # work order D2: Enable VGA Mode, a normal start at 640x480 that
     [ "$out" = option=vga ] || fail "expected the start option vga: ${out:-no answer}"
     expect_screen 640x480
     shot desktop-vga
+    if menu_starts_count; then
+        counts=1
+        expect_check
+        out=$(menu_record)
+        echo "  $out"
+        [ "$out" = record=no ] || fail "the menu's record stayed after the VGA start succeeded"
+    else
+        echo "  (this image's menu counts no start)"
+    fi
     shutdown_vm
     wait_off 60 || fail "the VM did not power off"
+    if [ -n "$counts" ]; then
+        after=$(lastgood_time) || fail "cannot read the disk"
+        [ "$after" -gt "$before" ] || fail "the VGA start did not save the last known good configuration ($before, $after)"
+        echo "  the VGA start saved the last known good configuration"
+    fi
     # the next normal start has its saved mode back: VGA Mode's 640x480 is not kept
     VIA_MENU=   # the generation's own start, not the variant's
     start_vm
@@ -1036,7 +1150,51 @@ phase_normal() {
         *) fail "the boot mode record: ${out:-no answer}" ;;
     esac
     expect_safeboot 0
+    expect_locale
+    expect_theme
+    expect_taskbar
     shutdown_vm
+}
+
+expect_theme() {   # the default theme (2026-11-12): an account that never chose one has Open Luna after its first
+                   # normal logon, which also gives the XP Start menu. An image whose session predates it is reported.
+    local out
+    out=$(gsh 'echo theme: default=$(grep -c Luna.theme /usr/local/bin/wine-explorer-session-common.sh) current=$(grep -c "^.CurrentTheme.=.*Luna.theme" ~/.wine/user.reg) style=$(grep -c "^.DllName.=.*Luna.msstyles" ~/.wine/user.reg)' \
+        | grep '^theme:' | tail -n 1)
+    echo "  $out"
+    case "$out" in
+        *"default=0 "*) echo "  (this image has no default theme)" ;;
+        *" current=0 "*|*" style=0") fail "the account does not have the default theme, Open Luna: $out" ;;
+        *" current="[1-9]*" style="[1-9]*) shot luna ;;
+        *) fail "the theme could not be read: ${out:-no answer}" ;;
+    esac
+}
+
+expect_locale() {   # the system locale is generated (the locales package and wex-locale-gen): `locale` names no
+                    # locale it cannot set. An image without wex-locale-gen is reported, not failed.
+    local out
+    out=$(gsh 'echo locale: $(grep "^LANG=" /etc/default/locale 2>/dev/null || echo no-LANG) cannot=$(locale 2>&1 >/dev/null | grep -c Cannot) unit=$(systemctl is-enabled wex-locale-gen.service 2>/dev/null || echo absent)' \
+        | grep '^locale:' | tail -n 1)
+    echo "  $out"
+    case "$out" in
+        *" cannot=0 "*) ;;
+        *unit=absent) echo "  (this image has no wex-locale-gen: the locale is not checked)" ;;
+        *) fail "the system locale is not generated (${out:-no answer})" ;;
+    esac
+}
+
+expect_taskbar() {   # the taskbar is painted and lists Notepad. It stayed black, with no buttons, while
+                     # BeginBufferedPaint clipped every buffer away (until Wine 4a1d6d5a25e; taskbar-check.py)
+    local out
+    gsh "python3 $HELPER --user $USER_NAME notepad.exe >/dev/null; echo started" 30 | grep -q '^started' \
+        || fail "cannot start Notepad"
+    wait_text "Notepad" 60 || { shot no-notepad; fail "Notepad did not appear"; }
+    sleep 3
+    "${V[@]}" shot "$TEST" >/dev/null 2>&1
+    shot taskbar
+    out=$(python3 "$HERE/taskbar-check.py" "$STATE/screen.ppm") || fail "the taskbar is not painted ($out)"
+    echo "  $out"
+    gsh "pkill -x notepad.exe; echo closed" 30 >/dev/null
 }
 
 # The two changes lastgood_change makes: a key in the control set, as a driver's settings added after the saved
@@ -1486,6 +1644,21 @@ delay_logon() {   # delay_logon on|off: LightDM starts 90 seconds late for the v
     return $rc
 }
 
+break_compositor() {   # break_compositor on|off: a wexcomp that exits at once, for the waylandfallback phase, and the
+                       # real one back (outside the records)
+    local bin=$MNT/usr/local/bin/wexcomp rc
+    attach rw || return 1
+    if [ "$1" = on ]; then
+        mv "$bin" "$bin.wex-test-real" && printf '%s\n' '#!/bin/sh' 'echo "wexcomp replaced by installer/tests/safe-mode.sh" >&2' 'exit 1' > "$bin" \
+            && chmod 755 "$bin"
+    else
+        [ ! -e "$bin.wex-test-real" ] || mv -f "$bin.wex-test-real" "$bin"
+    fi
+    rc=$?
+    detach
+    return $rc
+}
+
 hide_wine() {   # hide_wine on|off: /usr/local/bin/wine away for the nowine phase, and back (outside the records)
     attach rw || return 1
     if [ "$1" = on ]; then
@@ -1503,7 +1676,8 @@ summary=()
 for PHASE in "${PHASES[@]}"; do
     snapshot "$OUT/before-$PHASE.txt" || die "cannot record the configuration before $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine on || die "cannot hide /usr/local/bin/wine"; fi
-    case "$PHASE" in vfailed|vlasttry) delay_logon on || die "cannot hold the logon screen back" ;; esac
+    case "$PHASE" in vfailed|vlasttry|vgafailed) delay_logon on || die "cannot hold the logon screen back" ;; esac
+    if [ "$PHASE" = waylandfallback ]; then break_compositor on || die "cannot replace wexcomp"; fi
     echo "=== $PHASE ($(date +%T))"
     ( "phase_$PHASE" ) 2>&1 | tee "$OUT/$PHASE.log"
     rc=${PIPESTATUS[0]}
@@ -1512,9 +1686,10 @@ for PHASE in "${PHASES[@]}"; do
     fi
     wait_off 60 || die "$TEST did not stop after $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine off || die "cannot put /usr/local/bin/wine back"; fi
-    case "$PHASE" in vfailed|vlasttry) delay_logon off || die "cannot remove the logon delay" ;; esac
+    case "$PHASE" in vfailed|vlasttry|vgafailed) delay_logon off || die "cannot remove the logon delay" ;; esac
+    if [ "$PHASE" = waylandfallback ]; then break_compositor off || die "cannot put wexcomp back"; fi
     # a phase that saved the test account's session and failed before putting it back
-    case "$PHASE" in waylandauto|waylanddisplay|waylandshellkeys) saved_session restore || die "cannot put the saved session back" ;; esac
+    case "$PHASE" in waylandauto|waylanddisplay|waylandshellkeys|waylandlogon|waylandfallback) saved_session restore || die "cannot put the saved session back" ;; esac
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
     compare=("$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt")
     case "$PHASE" in

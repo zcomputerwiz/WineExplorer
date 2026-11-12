@@ -172,8 +172,9 @@ XWayland, and the session ends when the console does. Unlike X11, where nothing 
 own; the Wayland session's own name does not change with the mode.
 
 **Boot menu entry.** Every generation of Vintner Boot has a variant from `/etc/vintner/variants.d/advanced.conf`
-with `wexmode=menu`, titled "Advanced Options" after the generation's title (`docs/VINTNER_BOOT.md` section 4.3). It
-counts nothing (`docs/SAFE_MODE_WORKORDER.md`, decision 3). Vintner Boot's menu opens with F8 or any key on UEFI and
+with `wexmode=menu`, titled "Advanced Options" after the generation's title (`docs/VINTNER_BOOT.md` section 4.3).
+Vintner Boot counts nothing for it; WineExplorer counts a start through it unless it is a Safe Mode, as XP does
+(`docs/SAFE_MODE_WORKORDER.md`, decision 3 as revised on 2026-11-12, and below). Vintner Boot's menu opens with F8 or any key on UEFI and
 while Shift is held on BIOS; the variant is the line below the generation. Setup installed GRUB until 2026-11-10,
 with an F8 hotkey entry (`11_wineexplorer_advanced`) and a grubenv record of unfinished starts; that path was removed
 on 2026-11-11.
@@ -184,8 +185,17 @@ was complete. Vintner Boot counts every ordinary start of a generation and marks
 there. `wex-failure-check.service` runs on every ordinary Vintner start. It is skipped on starts through the variant
 and on a machine Vintner Boot did not start, with conditions on `vintner.bootstorage=` and `wexmode=`. It runs before
 `basic.target` and needs no terminal, so a start with nothing to report leaves the boot splash alone. When the count
-is above 0, outside Setup, it starts `wex-failure-screen.service`, which shows the failure screen on `tty1`
-(section 4).
+is above 0, or a start through the menu that counts did not finish (below), outside Setup, it starts
+`wex-failure-screen.service`, which shows the failure screen on `tty1` (section 4).
+
+**Starts through the menu** (since 2026-11-12). On XP a Safe Mode start counts for nothing, while Enable VGA Mode
+counts as a normal start does: on the XP VM (2026-11-11) a successful one updated Last Known Good, and a reset during
+one brought the failure screen at the next start. Only Safe Mode is exempt on Windows, so every other choice of the
+menu (Start Normally, Enable VGA Mode, Enable Boot Logging, Debugging Mode, Disable automatic restart, Last Known Good
+when it goes on in this start) counts the same way; VGA is the one measured. Vintner Boot counts nothing for its
+variant, so the menu records such a start in `/var/lib/wineexplorer/menu-start` before it goes on. The start-up check
+(below) counts it, removes the record once the logon screen is up, and saves the control set. If the start never gets
+there, the record stays, and the next ordinary start shows the failure screen, until a start succeeds.
 
 This start has been counted by the loader, so the choices work as follows:
 
@@ -214,8 +224,9 @@ the logon screen is up:
 
 It waits up to 15 minutes, enough for a prefix update after a Wine update, and otherwise fails. The unit is ordered
 before `boot-complete.target`, where Vintner Boot marks a start good (`docs/VINTNER_BOOT.md` section 4.4), so a
-failed check leaves the start uncounted. Starts through the Advanced Options variant are not counted. Safe Mode boots
-do not reach `multi-user.target`, so the check does not run in them.
+failed check leaves the start uncounted. In the Advanced Options variant it counts the start unless the mode is a
+Safe Mode, in which case it reports "not counted"; Safe Mode boots also do not reach `multi-user.target`, so the check
+does not run in most of them. Any successful start removes the menu's record.
 
 ## 4. The Advanced Options menu
 
@@ -279,8 +290,9 @@ programs, user settings and files stay as they are. WineExplorer does the same w
 
 - **Save:** when the start-up check counts a start as successful (section 4), outside Setup, it runs
   `wex-lastgood save`, which copies the control set's keys to `/var/lib/wineexplorer/lastgood/controlset.reg`
-  (root only). Starts through the menu are not counted, so they save nothing (decision 3); a start that goes on
-  from the failure screen with Start Normally counts, and saves.
+  (root only). A start through the menu counts and saves unless it is a Safe Mode (decision 3, revised
+  2026-11-12: XP's Enable VGA Mode updated Last Known Good, Safe Mode did not); a start that goes on from the
+  failure screen with Start Normally counts, and saves.
 - **Restore:** the menu item, and the same item on the failure screen, runs `wex-lastgood restore` before
   `default.target` starts, so before any Wine program reads the registry. It writes the saved keys in place of the
   control set's keys, keeps every other key (`Software` included), and keeps the replaced keys as
@@ -408,20 +420,23 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `safecmd` | The Welcome screen; the recovery console after logging on, 80 columns by 30 rows or more (its terminal's size, read over the serial console; images whose console predates C6's shape are reported), and no wineserver; then the probes, started with `wine` from the serial console as from the recovery console (output to a file): 1, `UseAlternateShell` 1, the services as in `safe` |
 | `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, black (its bottom left pixel) and at 640x480 on images that have its drop-in (A4), and logging on still starts the recovery console |
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
-| `vga` | Only when named. With a 1024x768 display profile saved for the test account: Enable VGA Mode is a normal start with automatic logon at 640x480, with the start option `vga` recorded and the profile skipped. The next normal start is at 1024x768 |
-| `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check reports "not counted" |
+| `vga` | Only when named. With a 1024x768 display profile saved for the test account: Enable VGA Mode is a normal start with automatic logon at 640x480, with the start option `vga` recorded and the profile skipped. It counts, as on XP (2026-11-12): the start-up check finishes, the menu's record `/var/lib/wineexplorer/menu-start` is gone, and the saved control set is newer (read on the stopped disk). The next normal start is at 1024x768 |
+| `vgafailed` | Only when named. With LightDM held back 90 seconds, as for `vfailed`: Enable VGA Mode is recorded, then the Reset button before the logon screen. The next ordinary start shows the failure screen, though Vintner Boot counted no try for the variant; left to its countdown, that start counts and removes the record |
+| `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check counts it (until 2026-11-12 it reported "not counted") |
 | `oschoices` | Return to OS Choices Menu: a restart into the loader's menu with no key held, recognized by its Recovery Console entries, then Enter on the generation: a normal start |
-| `normal` | No key: the same, the boot-mode generator wrote nothing, and the start-up check counted the start; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480 |
+| `normal` | No key: the same, the boot-mode generator wrote nothing, and the start-up check counted the start; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480. Also (2026-11-12) three checks outside Safe Mode: `locale` names no locale it cannot set (`wex-locale-gen`; an image without it is reported); the account has the default theme, Open Luna (`CurrentTheme` and the style in its `user.reg`; an image whose session predates it is reported); and with Notepad open the taskbar between the Start button and the notification area is under 90% black (`installer/tests/taskbar-check.py` on the screenshot; it was all black until Wine `4a1d6d5a25e`) |
 | `lastgood` | Last Known Good (work order D3) from a generation that started successfully. With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, with no restart, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Once Last Known Good is offered, Up from Start Normally on the failure screen reaches it before Safe Mode with Command Prompt, which `vfailed` follows |
 | `vfailed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards): the Reset button (QMP `system_reset`) once the serial console answers, before `boot-complete.target`. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold. The next ordinary start shows the failure screen with its countdown. Up stops it and removes its line, and Safe Mode with Command Prompt restarts into the variant, which shows no menu and comes up in that mode. The next ordinary start shows the screen again; left alone, it starts normally and counts. The start after that shows no screen |
 | `shellkeys` | Only when named. In the X11 session, with xterm on the keyboard: Win+R opens Run and Ctrl+Esc the Start menu (wexhost's shell keys, `shellkeys.c`). Then Win+L shows the Welcome screen, and logging on again returns to the session with xterm still there |
 | `waylandshellkeys` | Only when named; needs `WEX_TEST_WINE` (wexcomp v15 and this wexhost). The same in the Wayland session, first with zenity (a native Wayland program that Explorer does not host) on the keyboard, then with xterm through XWayland, which must still be open 10 seconds after it appears (until wexcomp `034d722f`, the compositor's `_NET_WM_PING` made it hang up, `docs/WAYLAND_DEFAULT.md`). Win+L is checked over xterm |
 | `waylandauto` | Only when named. With Wayland saved as the test account's session (on the stopped disk, put back afterwards), a normal start's automatic logon runs the Wayland session (`wexcomp`) |
+| `waylandlogon` | Only when named; needs `WEX_TEST_WINE` (this logonui and wexhost). The same account logs off (`loginctl terminate-session`) and on again on the Welcome screen without touching the session list: the list follows the account's saved session, so it gets Wayland again |
+| `waylandfallback` | Only when named; needs `WEX_TEST_WINE`. With `wexcomp` replaced by one that exits at once (on the stopped disk, put back afterwards), the Wayland account's automatic logon ends at the Welcome screen; logging on there starts X11 (no `wexcomp`, an X server), and the account's saved session on the stopped disk is `wine-explorer` |
 | `waylanddisplay` | Only when named; needs `WEX_TEST_WINE` and the display probes (`installer/tests/display-probe.c`) in `WEX_TEST_PROBES`. In that Wayland session, the 64-bit probe lists the compositor's real output and modes through wexhost (`WexDisplayGet`, as Display Properties) and sets 1024x768 with the profile saved (`WexDisplaySet`). The screen changes, the 32-bit probe sees it, and the next Wayland session starts at 1024x768 |
 | `vlasttry` | Only when named, and last: it leaves the generation with no tries. With LightDM held back as for `vfailed`, it resets once before the logon screen and once on the next start's failure screen. The third start is the generation's last try. Its failure screen's Safe Mode with Command Prompt must still restart into the variant in that mode (`vintner next-boot variant --generation`). Read from the stopped disk's journal, that screen's start logged 2 earlier failures and no refusal. An image whose Vintner Boot lacks the flag is reported, not failed |
 | `lastgoodgen` | Last in the default list. The test appends a token to the Advanced Options variant on the stopped disk and adds a unit that runs `vintner publish` at the next start and powers off, so generation 2 is published. The variant is then put back. Generation 2 is started only through its variant, which counts nothing, so it never starts successfully. The registry is changed as in `lastgood`. Last Known Good from generation 2's menu then restarts with no menu into generation 1: a normal start whose recorded `vintner status --json` says `booted` generation 1, generation 2 not `GOOD`. The registry ends as in `lastgood` |
 | `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, and a `wexcomp` process for the account. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |
-| `waylandcmd` | Only when named. Safe Mode with Command Prompt in the Wayland session: the recovery console, no wineserver, and `wexcomp` running |
+| `waylandcmd` | Only when named. Safe Mode with Command Prompt in the Wayland session: the recovery console, no wineserver, and `wexcomp` running. Its 80 columns came out as 79 under XWayland on 2026-11-12: xterm sized the window without the scroll bar's 1-pixel border and laid the text out with it. The console now has no scroll bar border (`XTerm*scrollbar.borderWidth: 0`) |
 | `accounts` | Needs `WEX_TEST_WINE`, a tarball of this branch's Wine. Provisioning gives Administrator a random password and adds `wexhidden` ("Hidden Test") with a value of 0 in the logon prefix's `SpecialAccounts\UserList`. The Safe Mode Welcome screen then shows Administrator and the test user but not Hidden Test, and Administrator logs on, through the message box. In a normal start, the logon screen (after switching user) shows the test user only |
 
 After a run that showed the Welcome screen, the test checks that the greeter's prefix
