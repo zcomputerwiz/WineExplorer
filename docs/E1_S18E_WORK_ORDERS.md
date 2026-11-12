@@ -1274,3 +1274,34 @@ afterwards.
 Open: the person is not told why (the dialog closes and the request fails; a "try again later" message
 needs a refusal reason from the verifier through the broker to the dialog); the counters do not survive a
 restart of the verifier; PAM's own lockout (pam_faillock) is whatever the PAM service file configures.
+
+## WO-38 No lockout by default (lab; Claude, 2026-11-11)
+
+Parity: on Windows XP / Server 2003 the "Account lockout threshold" policy defaults to 0 (an account is
+never locked out), and a credential prompt has no limit of its own. WO-37's limits were therefore stricter
+than the system we match, and they let a standard user lock an administrator out of elevation.
+
+* `tools/e1s6/e1s6-lab.py`: the WO-37 counters exist only with a lockout policy. Default: nothing is
+  counted across requests; the fixed 2 s refusal (WO-36) is the only brake.
+* The policy is in the machine registry, in the key of the other elevation policy:
+  `HKLM\Software\WineExplorer\Elevation`, DWORD `LockoutBadCount` (0..999 unsuccessful attempts per
+  account; 0 or absent: never locked out) and `LockoutDuration` (minutes, default 30; 0 is taken as the
+  longest, 99999). Windows keeps this policy in the account database (set with Local Security Policy,
+  `net accounts` or `NetUserModalsSet` level 3), not in a registry policy value; the value names are those
+  of its security templates.
+* The verifier (`lockout_policy`) reads the saved machine hive itself: `machine_root` from the root-owned
+  `/etc/wineexplorer/sysrun.conf`, then `system.reg` there (no symlink, regular file), parsed again only
+  when the file changed. Nothing comes from the broker or the request. A changed policy takes effect at
+  the next attempt and starts the counts anew; a hive that cannot be read keeps the last policy.
+* The per-caller limit of WO-37 is gone (Windows has none).
+* Unchanged: three attempts per request on the one 120 s deadline (R8 spec).
+
+Cases: `r8_no_lockout_by_default` (after the three refusals of `r8_wrong_password_refused` the right
+password in a new request starts the elevated program); `r8_throttled_after_three_refusals` (with
+`LockoutBadCount`=3 in the registry); `r8_lockout_policy_removed` (the value removed: the same account is
+open at once).
+
+Open: the window runs from the first unsuccessful attempt and is also the lockout time
+(`ResetLockoutCount` is not a separate setting); a change made in a running session reaches the verifier
+when the Wine server saves the hive; no `net accounts` / `NetUserModalsGet/Set` level 3 on top of the
+values yet; no way to unlock one account by hand.

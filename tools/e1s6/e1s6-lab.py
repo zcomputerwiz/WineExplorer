@@ -11,6 +11,7 @@ import array
 import hashlib
 import json
 import os
+import re
 import select
 import socket
 import stat
@@ -79,6 +80,57 @@ def random_bytes(size):
 
 def generation():
     return int.from_bytes(random_bytes(8), "little")
+
+
+LOCKOUT_KEY = rb"[software\\wineexplorer\\elevation]"
+LOCKOUT_VALUE = re.compile(rb'"(LockoutBadCount|LockoutDuration)"=dword:([0-9a-fA-F]{8})', re.IGNORECASE)
+
+
+def lockout_policy(cache):
+    """Account lockout policy from the machine registry: (threshold, window in ns); (0, 0) is no lockout.
+
+    Read from the machine root's saved hive (machine_root in the root-owned sysrun.conf), which only the
+    system group can change: HKLM\\Software\\WineExplorer\\Elevation (the key of the other elevation
+    policy), DWORD LockoutBadCount (0..999, 0 or absent: never locked out) and LockoutDuration (minutes,
+    default 30, 0: the longest, 99999). Windows keeps this policy in the account database, not in a
+    registry policy value; the names are those of its security templates. A hive that cannot be read keeps
+    the last policy read.
+    """
+    try:
+        root = None
+        with open("/etc/wineexplorer/sysrun.conf", "rb") as conf:
+            for line in conf.read(65536).splitlines():
+                if line.startswith(b"machine_root="):
+                    root = os.fsdecode(line[len(b"machine_root="):])
+        if not root:
+            return cache["policy"]
+        fd = os.open(os.path.join(root, "system.reg"), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        with os.fdopen(fd, "rb") as hive:
+            st = os.fstat(hive.fileno())
+            stamp = (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_size)
+            if stamp == cache["stamp"]:
+                return cache["policy"]
+            if not stat.S_ISREG(st.st_mode) or st.st_size > 256 * 1024 * 1024:
+                return cache["policy"]
+            values, inside = {}, False
+            for raw in hive:
+                line = raw.rstrip(b"\r\n")
+                if line.startswith(b"["):
+                    inside = line.lower().startswith(LOCKOUT_KEY)
+                elif inside:
+                    match = LOCKOUT_VALUE.fullmatch(line)
+                    if match:
+                        values[match.group(1).lower()] = int(match.group(2), 16)
+        threshold = values.get(b"lockoutbadcount", 0)
+        minutes = values.get(b"lockoutduration", 30)
+        if threshold > 999:
+            threshold = 999
+        if minutes == 0 or minutes > 99999:
+            minutes = 99999
+        cache["stamp"] = stamp
+        return (threshold, minutes * 60_000_000_000) if threshold else (0, 0)
+    except OSError:
+        return cache["policy"]
 
 
 def alive(fd):
@@ -266,9 +318,18 @@ def service(server_path, system_group, pam_paths=None):
     from gi.repository import GLib
 
     pam_exe = pam_audit = evidence_service = supervisor = None
-    # R8 attempt throttling, shared by every broker session of this service: the same limits as the S8
-    # evidence service (3 unsuccessful attempts per account and 6 per calling user in 120 s).
-    r8_accounts = r8_callers = None
+    # R8 account lockout, shared by every broker session of this service. Off by default, like the
+    # "Account lockout threshold" policy of Windows XP / Server 2003 (0: never locked out); the fixed 2 s
+    # refusal is then the only brake. The policy is read from the machine registry (see lockout_policy).
+    r8_lock = {"stamp": None, "policy": (0, 0), "accounts": None}
+
+    def r8_lockout_accounts():
+        policy = lockout_policy(r8_lock)
+        if policy != r8_lock["policy"] or (policy[0] and r8_lock["accounts"] is None):
+            r8_lock["policy"] = policy
+            r8_lock["accounts"] = evidence.Throttle(256, policy[0], policy[1]) if policy[0] else None
+            print("E1R8_LOCKOUT threshold=%d minutes=%d" % (policy[0], policy[1] // 60_000_000_000), flush=True)
+        return r8_lock["accounts"]
     # Assigned before the evidence service captures them (R9).
     root_gen, verifier_gen = generation(), generation()
     if pam_paths is None:
@@ -293,9 +354,6 @@ def service(server_path, system_group, pam_paths=None):
         evidence_audit = evidence.Audit(os.dup(pam_audit))
         evidence_service = evidence.Service(root_gen, verifier_gen, evidence_audit,
                                             lambda c, b: not getattr(c.tx, "stale", False), lab=True)
-        r8_limits = evidence.Limits()
-        r8_accounts = evidence.Throttle(r8_limits.throttle_slots, r8_limits.account_failures, r8_limits.throttle_ns)
-        r8_callers = evidence.Throttle(r8_limits.throttle_slots, r8_limits.caller_failures, r8_limits.throttle_ns)
 
         # The storage generation now comes from the wineserver; the retired
         # STORAGE_QUERY operation is denied (see docs/E1_S18D_UNIX_SIDE.md).
@@ -515,9 +573,9 @@ def service(server_path, system_group, pam_paths=None):
                     require(now < t.deadline, "worker-result-deadline")
                     self.provision_profile(rec, account_key, map_gen)
                     # A success clears the account's count and gives the caller this attempt back.
-                    bucket, caller_until = rec.pop("throttle")
-                    r8_accounts.rows.pop(bucket, None)
-                    r8_callers.refund(self.uid, caller_until)
+                    if "throttle" in rec:
+                        accounts, bucket = rec.pop("throttle")
+                        accounts.rows.pop(bucket, None)
                     ref = random_bytes(16)
                     rec["evidence"] = evidence.EVIDENCE.pack(
                         3, 1, evidence.EVIDENCE_SIZE, 0x3ff, t.request_id, t.request_digest, t.binding_digest,
@@ -743,16 +801,16 @@ def service(server_path, system_group, pam_paths=None):
                             require(rec.get("state") == "ENDORSED", "start-state-not-endorsed")
                             start_msg = e1r8.decode_start(raw, rec["tuple"])
 
-                            # Charge the attempt before any worker exists, so a crash, a cancel or a killed
-                            # dialog counts too. An unknown name is counted under its own bucket, so it
-                            # behaves like a real account. Only a successful authentication gives it back.
-                            require(r8_accounts is not None and r8_callers is not None, "r8-throttle-missing")
-                            charge_now = time.monotonic_ns()
-                            bucket = (bytes(start_msg.account_key) if any(start_msg.account_key) else
-                                      b"name:" + hashlib.sha256(bytes(start_msg.account)).digest()[:16])
-                            require(r8_callers.reserve(self.uid, charge_now) is None, "r8-throttle-caller")
-                            require(r8_accounts.reserve(bucket, charge_now) is None, "r8-throttle-account")
-                            rec["throttle"] = (bucket, r8_callers.rows[self.uid][1])
+                            # With a lockout threshold: charge the attempt before any worker exists, so a
+                            # crash, a cancel or a killed dialog counts too. An unknown name is counted under
+                            # its own bucket, so it behaves like a real account. A successful
+                            # authentication clears the account's count.
+                            accounts = r8_lockout_accounts()
+                            if accounts is not None:
+                                bucket = (bytes(start_msg.account_key) if any(start_msg.account_key) else
+                                          b"name:" + hashlib.sha256(bytes(start_msg.account)).digest()[:16])
+                                require(accounts.reserve(bucket, time.monotonic_ns()) is None, "r8-throttle-account")
+                                rec["throttle"] = (accounts, bucket)
 
                             sec_v, sec_w = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
                             for s in (sec_v, sec_w):

@@ -1659,36 +1659,60 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     [ ! -e "$EL/r8_e2e_res_wrongpw.txt" ] || fail "r8_wrong_password_refused: a program started"
     ok r8_wrong_password_refused
 
-    # Throttle: after those three unsuccessful attempts the account is closed for two minutes, across
-    # requests: the RIGHT password in a new request gets no worker, no password check and no program.
-    el_down "$STD"
-    el_clean
-    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
-    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
-        '"EnableStandardUserElevation"=dword:00000001'
-    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
-        '"Start"=dword:00000002' \
-        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
-    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
-        '"R8AutoSelect"="'"$ADM"'"' \
-        '"R8AutoPassword"="'"$R8PW"'"'
-    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
-    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
-    el_up "$STD"
-    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-        "$(winpath /home/$STD/wexel/p64.exe)" 5 "$(winpath "$EL/r8_throttled.txt")" - >/dev/null 2>&1 || true
-    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+    # one request as $STD with the lab hook typing the given password; sets wine_new_log and e1s6_new_log
+    r8_pw_request()  # password, result file name, [lockout threshold]
+    {
+        el_down "$STD"
+        el_clean
+        cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
+        reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
+            '"EnableStandardUserElevation"=dword:00000001' \
+            ${3:+"\"LockoutBadCount\"=dword:0000000$3"}
+        reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+            '"Start"=dword:00000002' \
+            '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+        reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+            '"R8AutoSelect"="'"$ADM"'"' \
+            '"R8AutoPassword"="'"$1"'"'
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/$2")" - >/dev/null 2>&1 || true
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+    }
+
+    # No lockout by default (the Windows XP / Server 2003 default, lockout threshold 0): after those three
+    # refusals the right password in a new request starts the program.
+    r8_pw_request "$R8PW" r8_nolockout.txt
+    grep -q 'r8: launched' <<<"$wine_new_log" && ! grep -q 'r8-throttle' <<<"$e1s6_new_log" ||
+        { grep -E 'r8: ' <<<"$wine_new_log" | tail -20 >&2; grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2
+          fail "r8_no_lockout_by_default: the right password after three refusals did not launch"; }
+    [ "$(el_fact "$EL/r8_nolockout.txt" elevation)" = 2 ] || fail "r8_no_lockout_by_default: the program is not elevated"
+    ok r8_no_lockout_by_default
+
+    # With the lockout policy in the machine registry (LockoutBadCount=3): three refusals close the account,
+    # across requests: the RIGHT password in a new request gets no worker, no password check and no program.
+    r8_pw_request "not-$R8PW" r8_throttled_wrong.txt 3
+    grep -q 'E1R8_LOCKOUT threshold=3 minutes=30' <<<"$e1s6_new_log" ||
+        { grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2; fail "r8_throttled_after_three_refusals: the verifier did not read the policy"; }
+    [ "$(grep -c 'r8: result refused' <<<"$wine_new_log")" = 3 ] ||
+        { grep 'r8: ' <<<"$wine_new_log" >&2; fail "r8_throttled_after_three_refusals: not three refusals first"; }
+    r8_pw_request "$R8PW" r8_throttled.txt 3
     grep -q 'site=r8-throttle-account' <<<"$e1s6_new_log" ||
         { grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2; fail "r8_throttled_after_three_refusals: the verifier did not throttle the account"; }
     ! grep -qE 'E1R8_WORKER_READY|E1R8_RESULT|E1R8_REDEEMED|r8: launched' <<<"$wine_new_log$e1s6_new_log" ||
         fail "r8_throttled_after_three_refusals: a worker, a result or a launch while throttled"
     [ ! -e "$EL/r8_throttled.txt" ] || fail "r8_throttled_after_three_refusals: a program started"
     ok r8_throttled_after_three_refusals
-    # a fresh verifier for the cases below: its counters are per service lifetime
-    el_down "$STD"
-    e1s6_stop
-    e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+
+    # The policy removed again: the verifier follows the registry at once, the account is open
+    r8_pw_request "$R8PW" r8_lockout_off.txt
+    grep -q 'E1R8_LOCKOUT threshold=0' <<<"$e1s6_new_log" && grep -q 'r8: launched' <<<"$wine_new_log" ||
+        { grep -E 'r8: ' <<<"$wine_new_log" | tail -20 >&2; grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2
+          fail "r8_lockout_policy_removed: the right password did not launch after the policy was removed"; }
+    ok r8_lockout_policy_removed
 
     # Negative test 2: unknown account name still yields WORKER_READY with a decoy (zero key) and no evidence
     el_down "$STD"
