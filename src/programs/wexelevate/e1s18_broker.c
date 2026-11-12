@@ -1310,52 +1310,39 @@ static uint8_t s_r8_evidence[220], s_r8_evidence_ref[16];
 static BOOL s_r8_evidence_set;
 static uint32_t s_r8_attempt;  /* the attempt whose evidence was redeemed (1..3) */
 
-static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id, uint32_t attempt,
-                                         const uint8_t nonce[32],
-                                         const uint8_t binding_digest[32],
-                                         const uint8_t request_digest[32],
-                                         const uint8_t channel_token[16],
-                                         BOOL secure, char *out_account, size_t account_max )
+/* R9-4a: the dialog D of one attempt: the process (created suspended, endorsed by the server for the tuple) and
+ * the broker's ends of its two pipes. The R8 broker and the R9 agent both create it here. */
+struct r8_dialog
+{
+    HANDLE  process;
+    HANDLE  thread;       /* still suspended: the caller resumes it and closes this */
+    HANDLE  to_d_write;
+    HANDLE  from_d_read;
+    uint8_t dialog_id[16];
+};
+
+/* Create D suspended on the desktop the tuple's mode asks for, with exactly its two pipe ends inherited, and
+ * have the server endorse it; the dialog id goes into the tuple and the R8 context. On failure nothing is left
+ * (D terminated, handles closed, the secure desktop left). */
+static DWORD r8_dialog_create( struct request *req, struct e1r8_tuple *tuple, uint64_t request_id,
+                               uint32_t attempt, const uint8_t channel_token[16], BOOL secure,
+                               struct r8_dialog *dlg )
 {
     STARTUPINFOEXW si = { { sizeof(si) } };
     PROCESS_INFORMATION pi;
     WCHAR dir[MAX_PATH], *cmd;
-    HANDLE handles[5];
     HANDLE to_d_read = INVALID_HANDLE_VALUE, to_d_write = INVALID_HANDLE_VALUE;
     HANDLE from_d_read = INVALID_HANDLE_VALUE, from_d_write = INVALID_HANDLE_VALUE;
     SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE }; /* non-inheritable by default */
     SIZE_T attr_size = 0;
     HANDLE inherit_handles[2];
-    DWORD ret, len;
+    DWORD len;
     size_t cmd_size;
-    uint8_t init_buf[2067];
     uint8_t pre_tuple[E1R8_PRE_ENDORSEMENT_SIZE];
     uint8_t dialog_id[16];
-    DWORD err = ERROR_SUCCESS;
     int i;
     WCHAR token_hex[33];
-    struct e1r8_tuple tuple;
-    size_t init_len;
-    HANDLE worker_thread = NULL;
-    struct r8_worker_ctx *wc;
-    ULONGLONG start, elapsed;
-    DWORD timeout;
     const struct e1s18_ops *ops = e1s18_get_ops();
-
-    /* WO-25 / WO-27: reuse open channel and context if already prepared, or prepare now. */
-    if (!s_r8_channel)
-    {
-        if ((err = e1s18_r8_prepare( req )))
-            return err;
-    }
-
-    /* WO-20: the R8 context must be complete; a zero required input denies
-     * with ERROR_NOT_SUPPORTED before any pipe or process is created. The
-     * pre-endorsement tuple carries no dialog_id (the server assigns it at
-     * endorsement). */
-    if (e1s18_build_r8_tuple( req, request_id, attempt, nonce, channel_token,
-                              binding_digest, request_digest, secure, &tuple ))
-        return ERROR_NOT_SUPPORTED;
 
     /* Two anonymous pipes, non-inheritable handles: to_d (B writes, D reads)
      * and from_d (D writes, B reads). */
@@ -1492,7 +1479,7 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
      * suspended dialog. On success the server returns the dialog_id, which is
      * put into the tuple and the context; INIT is then encoded from the sealed
      * tuple and D is resumed. A failed endorse terminates D and denies. */
-    if (e1r8_encode_pre_endorsement_tuple( pre_tuple, sizeof(pre_tuple), &tuple ))
+    if (e1r8_encode_pre_endorsement_tuple( pre_tuple, sizeof(pre_tuple), tuple ))
     {
         TerminateProcess( pi.hProcess, 1 );
         WaitForSingleObject( pi.hProcess, 5000 );
@@ -1521,8 +1508,61 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
 #ifdef WEXELEVATE_E1S18
     r8_trace_line( "r8: endorse ok" );
 #endif
-    memcpy( tuple.dialog_id, dialog_id, 16 );
+    memcpy( tuple->dialog_id, dialog_id, 16 );
     memcpy( s_r8_context.dialog_id, dialog_id, 16 );
+    dlg->process = pi.hProcess;
+    dlg->thread = pi.hThread;
+    dlg->to_d_write = to_d_write;
+    dlg->from_d_read = from_d_read;
+    memcpy( dlg->dialog_id, dialog_id, 16 );
+    return ERROR_SUCCESS;
+}
+
+static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id, uint32_t attempt,
+                                         const uint8_t nonce[32],
+                                         const uint8_t binding_digest[32],
+                                         const uint8_t request_digest[32],
+                                         const uint8_t channel_token[16],
+                                         BOOL secure, char *out_account, size_t account_max )
+{
+    PROCESS_INFORMATION pi;
+    struct r8_dialog dlg = { NULL, NULL, NULL, NULL, { 0 } };
+    HANDLE handles[5];
+    HANDLE to_d_write = INVALID_HANDLE_VALUE, from_d_read = INVALID_HANDLE_VALUE;
+    DWORD ret;
+    uint8_t init_buf[2067];
+    DWORD err = ERROR_SUCCESS;
+    struct e1r8_tuple tuple;
+    size_t init_len;
+    HANDLE worker_thread = NULL;
+    struct r8_worker_ctx *wc;
+    ULONGLONG start, elapsed;
+    DWORD timeout;
+    const struct e1s18_ops *ops = e1s18_get_ops();
+
+    /* WO-25 / WO-27: reuse open channel and context if already prepared, or prepare now. */
+    if (!s_r8_channel)
+    {
+        if ((err = e1s18_r8_prepare( req )))
+            return err;
+    }
+
+    /* WO-20: the R8 context must be complete; a zero required input denies
+     * with ERROR_NOT_SUPPORTED before any pipe or process is created. The
+     * pre-endorsement tuple carries no dialog_id (the server assigns it at
+     * endorsement). */
+    if (e1s18_build_r8_tuple( req, request_id, attempt, nonce, channel_token,
+                              binding_digest, request_digest, secure, &tuple ))
+        return ERROR_NOT_SUPPORTED;
+
+    /* R9-4a: the pipes, the suspended dialog and its endorsement (r8_dialog_create); the tuple is sealed with
+     * the dialog id on return. */
+    if ((err = r8_dialog_create( req, &tuple, request_id, attempt, channel_token, secure, &dlg )))
+        return err;
+    pi.hProcess = dlg.process;
+    pi.hThread = dlg.thread;
+    to_d_write = dlg.to_d_write;
+    from_d_read = dlg.from_d_read;
     /* Encode the INIT from the sealed tuple; an invalid display string or an
      * undersized buffer terminates D and denies. */
     init_len = e1s18_encode_r8_init( req, &tuple, init_buf, sizeof(init_buf) );
