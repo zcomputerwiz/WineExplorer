@@ -65,6 +65,12 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   configured account and group, `connect_session0`), `include/wine/wex_session0.h` (version 4, the order and its
   answer, `ORDER_PING`).
 
+- T5.2, pipes of session 0: `server/named_pipe.c` (a name under `WexSession0\` opens a bridge to session 0; the
+  bridge pipe end; session 0's `pipe_bridge_accept`; `FSCTL_PIPE_IMPERSONATE` uses a bridged client's token; a
+  `WexSession0\` pipe cannot be created; `FSCTL_PIPE_WAIT` on one returns at once), `server/session0.c` (the `PIPE`
+  link message on both sides), `server/async.c` and `file.h` (`create_data_iosb`), `server/session0.h`,
+  `include/wine/wex_session0.h` (version 5, `PIPE`).
+
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)

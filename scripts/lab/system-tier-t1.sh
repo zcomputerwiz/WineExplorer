@@ -151,7 +151,7 @@ for i in range(240):
     c = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     c.connect(sys.argv[1])
     if i >= 200:   # a session link first: SESSION_ID, its answer and the PING order
-        c.send(struct.pack('<5I', 0x30535857, 4, 0, 4, 0))
+        c.send(struct.pack('<5I', 0x30535857, 5, 0, 4, 0))   # protocol version 5
         c.settimeout(2); c.recv(64); c.recv(64)
     c.sendmsg([b''], anc)
     c.settimeout(2)
@@ -164,6 +164,14 @@ PY
 sleep 1
 FD_AFTER="$(ls "/proc/$S0PID/fd" | wc -l)"
 check empty_messages_leak_no_fds "$([ "$FD_AFTER" -le $((FD_BEFORE + 8)) ] && echo yes || echo "no: $FD_BEFORE -> $FD_AFTER")" yes
+
+# T5.2: a session's program reaches session 0's service manager through \pipe\WexSession0\svcctl (64- and 32-bit)
+s0 sc query PlugPlay >/dev/null 2>&1   # session 0's own services.exe runs
+check pipe64_bridged "$(A "$W/p64.exe" rpcbind 'WexSession0\svcctl' | field pipe)" open
+check bind64_through_bridge "$(A "$W/p64.exe" rpcbind 'WexSession0\svcctl' | field bind | cut -d' ' -f1)" 12
+check bind32_through_bridge "$(A "$W/p32.exe" rpcbind 'WexSession0\svcctl' | field bind | cut -d' ' -f1)" 12
+check bridge_refuses_unlisted_pipe "$(A "$W/p64.exe" rpcbind 'WexSession0\lsarpc' | field pipe)" error5
+check session_cannot_serve_session0_pipe "$(A "$W/p64.exe" pipecreate 'WexSession0\svcctl' | field create)" error5
 check s0_has_held_subkey "$(s0 reg query "$K\\Held" >/dev/null 2>&1; echo $?)" 0
 check s0_saved_key_dacl "$(grep -a -c '^#sd=' "$W/s0/system.reg" | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 check dacl_survives_restart "$(A "$W/p64.exe" getdacl 'Software\WexTier\Perm' | field dacl)" "$PERM_BEFORE"

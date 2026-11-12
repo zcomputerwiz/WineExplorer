@@ -373,6 +373,26 @@ gives each trusted server the next id (1, 2, ...; it is 0 itself). Without an an
 Test: the T1 test (development mode) checks that the programs of sessions A and B report different session ids,
 both at least 1 (probe `whoami` prints `session=`). T1 test, lab suite 398, normal suite 335, broker test pass.
 
+## T5: services in session 0 — plan as built (2026-11-12)
+
+The design ([SYSTEM_TIER_T5_SERVICES.md](SYSTEM_TIER_T5_SERVICES.md)) put a byte relay in a front program that
+reaches session 0 through a "pipe" client kind of the registry channel. That would need asynchronous named-pipe
+I/O over the channel, which the registry channel does not have. Changed: **the server bridges the pipe**, and the
+front is the session's own `services.exe`.
+
+| Step | Content | State |
+|---|---|---|
+| T5.2 | Pipe bridge in the server: a program of a session opens `\pipe\WexSession0\<name>`; its server sends session 0 a `PIPE` link message (the opener's token description, the name, one end of a stream socket); session 0 connects a bridge end as the client of a listening instance of `\pipe\<name>`, with the described token as the client token, so `ImpersonateNamedPipeClient` there gives the real caller. Messages cross the socket as length and data (boundaries kept). Session 0 allows `svcctl` only, checks the pipe's descriptor against the described token, and keeps at most 256 bridges per account; a session cannot create a `WexSession0\` pipe | done |
+| T5.3 | Session 0 runs its own `services.exe` in production: programs of session 0's account on the root-owned machine root (`ntdll` prefix rule, checked through the server, not the environment); session 0's back does not start drivers or the services that belong to a session | next |
+| T5.4 | Forwarding in the session's `services.exe`: services of the session (drivers, `PlugPlay`, `RpcSs`, the E1 broker until T6) stay; for every other service the `svcctl` calls go to session 0 through `\pipe\WexSession0\svcctl`, bound while impersonating the caller, so session 0 checks the caller's token. Enumerations merge both. Client stubs generated with a prefix (`--prefix-client`) next to the server stubs | after T5.3 |
+| T5.5 | Tests: two sessions see one state; a service started from one session runs for the other; a standard user cannot stop it; Safe Mode filter in session 0 | with T5.4 |
+
+T5.2 tests (T1 test, development mode): a session's 64-bit and 32-bit programs open `\pipe\WexSession0\svcctl`
+and get a DCE/RPC `bind_ack` from session 0's service manager; `WexSession0\lsarpc` is refused (not listed); a
+session cannot create `WexSession0\svcctl`. Found while testing: completing a writer inside the bridge's flush
+reselected the queue and flushed again from inside the loop (a message freed twice); the flush now runs with
+`ignore_reselect`, as Wine's own read path does.
+
 ## T6.2: the session link, on which session 0 sends orders (2026-11-12)
 
 The connection on which a user's server asks for its session id (T6.1) now stays open as the session link. Session

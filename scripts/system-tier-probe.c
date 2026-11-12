@@ -29,6 +29,10 @@
  *   probe setdacl KEY SDDL        sets the key's DACL from an SDDL string; prints setdacl=<error code>
  *   probe getdacl KEY             prints dacl=<the key's DACL as SDDL>
  *   probe whoami                  prints user=<the token user's SID> and session=<the process's session id>
+ *   probe rpcbind PIPE            opens \\.\pipe\PIPE in message mode, sends a DCE/RPC bind for the service control
+ *                                 manager's interface and prints pipe=open (or pipe=error<n>) and bind=<the answer's
+ *                                 packet type: 12 bind_ack, 13 bind_nak>
+ *   probe pipecreate PIPE         tries to create \\.\pipe\PIPE; prints create=ok or create=error<n>
  * Build: x86_64-w64-mingw32-gcc / i686-w64-mingw32-gcc -municode -o probe.exe system-tier-probe.c -ladvapi32 -lntdll */
 
 #include <windows.h>
@@ -70,6 +74,57 @@ int __cdecl wmain( int argc, WCHAR **argv )
         printf( "user=%ls\n", str );
         LocalFree( str );
         if (ProcessIdToSessionId( GetCurrentProcessId(), &size )) printf( "session=%lu\n", size );
+        return 0;
+    }
+    if (argc == 3 && !lstrcmpW( argv[1], L"rpcbind" ))
+    {
+        static const GUID svcctl = { 0x367abb81, 0x9844, 0x35f1, { 0xad, 0x32, 0x98, 0xf0, 0x38, 0x00, 0x10, 0x03 } };
+        static const GUID ndr = { 0x8a885d04, 0x1ceb, 0x11c9, { 0x9f, 0xe8, 0x08, 0x00, 0x2b, 0x10, 0x48, 0x60 } };
+        unsigned char bind[72] = { 5, 0, 11, 3, 0x10, 0, 0, 0, 72, 0, 0, 0, 1, 0, 0, 0,
+                                   0xb8, 0x10, 0xb8, 0x10, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0 };
+        unsigned char answer[1024];
+        WCHAR path[MAX_PATH];
+        DWORD mode = PIPE_READMODE_MESSAGE, done;
+        HANDLE pipe;
+
+        memcpy( bind + 32, &svcctl, 16 );
+        bind[48] = 2;                       /* interface version 2.0 */
+        memcpy( bind + 52, &ndr, 16 );
+        bind[68] = 2;                       /* NDR version 2 */
+        lstrcpyW( path, L"\\\\.\\pipe\\" );
+        lstrcpynW( path + 9, argv[2], MAX_PATH - 9 );
+        pipe = CreateFileW( path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
+        if (pipe == INVALID_HANDLE_VALUE)
+        {
+            printf( "pipe=error%lu\n", GetLastError() );
+            return 1;
+        }
+        printf( "pipe=open\n" );
+        if (!SetNamedPipeHandleState( pipe, &mode, NULL, NULL )) printf( "mode=error%lu\n", GetLastError() );
+        if (!WriteFile( pipe, bind, sizeof(bind), &done, NULL ) || done != sizeof(bind))
+            printf( "bind=writeerror%lu\n", GetLastError() );
+        else if (!ReadFile( pipe, answer, sizeof(answer), &done, NULL ) || done < 16)
+            printf( "bind=readerror%lu\n", GetLastError() );
+        else
+            printf( "bind=%u size=%lu\n", answer[2], done );
+        CloseHandle( pipe );
+        return 0;
+    }
+    if (argc == 3 && !lstrcmpW( argv[1], L"pipecreate" ))
+    {
+        WCHAR path[MAX_PATH];
+        HANDLE pipe;
+
+        lstrcpyW( path, L"\\\\.\\pipe\\" );
+        lstrcpynW( path + 9, argv[2], MAX_PATH - 9 );
+        pipe = CreateNamedPipeW( path, PIPE_ACCESS_DUPLEX, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE, 1, 4096, 4096,
+                                 0, NULL );
+        if (pipe == INVALID_HANDLE_VALUE) printf( "create=error%lu\n", GetLastError() );
+        else
+        {
+            printf( "create=ok\n" );
+            CloseHandle( pipe );
+        }
         return 0;
     }
     if (argc < 3) return 2;
