@@ -2,7 +2,7 @@
 <!-- Copyright 2026 WineExplorer contributors -->
 # System tier (session 0): design
 
-Date: 2026-11-11. Status: design for decision, nothing implemented. Roadmap: "Future: system tier (session 0)" in
+Date: 2026-11-11. Status: design for decision, nothing implemented; revised the same day after research into how Windows and other systems do it (option D replaces the first recommendation). Roadmap: "Future: system tier (session 0)" in
 [ROADMAP.md](ROADMAP.md). Code facts below were read from the tree on this date (file and line where given); effort
 figures are estimates, not measurements.
 
@@ -33,167 +33,188 @@ sessions are fully separate", with the system role tied to peer credentials and 
 | Policy readers outside Wine | The password verifier parses the saved `system.reg` (WO-38), so a change counts only after a save | `tools/e1s6/e1s6-lab.py` |
 | Known gap (T5) | A user can kill their server and start their own; it then controls that session only | `ELEVATION_SYSTEM_ROLE_WORKORDER.md` 29-30 |
 
+## How Windows does it, and what follows for us
+
+Researched 2026-11-11 from public documentation and published research (sources at the end). Each row ends in the
+change it makes to this design.
+
+| Windows | Consequence here |
+|---|---|
+| The registry is part of the kernel. Every process calls it directly; there is no service in between. The access check is made once, when a key is opened, against the caller's token; the handle then carries the granted access. | Programs talk to session 0 directly, not through their user's server (option D below). Access is checked at open and stored with the handle. |
+| One namespace holds every hive: the machine hives and each logged-on user's hive (`HKEY_USERS\<SID>` and `<SID>_Classes`), loaded at logon and unloaded at logoff. Services and administrators can reach a user's hive there. | Session 0 should in the end host the user hives too, loaded at logon. That removes the split "machine keys there, user keys here" and lets a service or an elevated administrator reach the right user's hive. |
+| The check uses the token: user, groups, integrity level, restricted tokens. | A Unix uid and group cannot express a sandboxed or low-integrity process (Chromium's renderer). The user's launcher-started server attests the token to session 0 when it sets up a process's registry connection; an unattested connection is a standard user by its Unix identity. |
+| A limited program's write to `HKLM\Software` is not always refused. Since Vista, for a 32-bit interactive program it is redirected to a per-user virtual store (`HKEY_USERS\<SID>_Classes\VirtualStore\Machine\Software`), and reads merge it back. Not virtualized: services, keys an administrator could not write either, and by default `Software\Classes`, `Software\Microsoft\Windows` and `Software\Microsoft\Windows NT`; flags per key (`reg flags`). XP simply refuses. | The third answer to "what happens to a limited write": refuse, except for that class of programs, whose writes go to the user's virtual store and persist. It replaces today's "succeeds in memory and is lost". |
+| Hives are binary files with a write-ahead log. A lazy flush runs about 5 s after a write; on a crash the log is replayed. Key permissions are stored in the hive. | Session 0 saves through a change journal plus periodic checkpoint, not by rewriting the whole text file every 30 s, and stores key permissions. |
+| `HKEY_CLASSES_ROOT` is merged from the machine and the user classes in user mode, not in the kernel. | No change: Wine already merges in `kernelbase`. |
+| Since Windows 10 1607, layered keys and differencing hives stack a per-container hive over a base hive. A published audit of the registry found 39 issues (44 CVEs), with layering and transactions among the main sources of complexity. | Overlays are the right model for per-session keys, the virtual store and per-package registries (track U1), but not built as a general mechanism now. Session 0's registry surface stays small: no transactions, a registry-only client can send nothing else, the request parser is fuzzed. |
+
+Comparable designs elsewhere:
+
+| System | Pattern | Use here |
+|---|---|---|
+| GNOME dconf | Readers map the database file and read it without any IPC or system call; one service makes all writes; change notices go over the bus; the client keeps its pending writes locally so that it reads back its own change at once | A later optimisation: session 0 publishes the world-readable trees as a read-only shared mapping, reads cost no round trip and survive a restart of session 0. Needs a mappable binary format and cannot check access per key, so protected trees stay on the socket |
+| Android system properties | One writer (init), a shared memory area mapped read-only into every process, writes over a socket with a permission check, a serial counter that readers watch for changes | Same pattern; confirms single writer plus shared read-only data as the standard shape for a machine-wide settings store |
+| ReactOS | The registry is in the kernel as on Windows. Its hive library (`sdk/lib/cmlib`, GPL-2.0-or-later, about 8800 lines) implements the binary hive format with security cells and log recovery and is also built as a host library for the `mkhive` tool. Its change notification is a stub | A candidate storage engine for session 0 later (real binary hives, mappable, with permissions and logs). Not a first step: Wine's `registry.c` keeps its own in-memory tree |
+
 ## Options
 
 ### A. One server for every user
 
-All users' processes connect to one machine-wide `wineserver`.
+All users' processes connect to one machine-wide `wineserver`. The server does with its own Unix identity what the
+Windows kernel does with the caller's: it opens files for clients (`server/fd.c`), signals and reads client
+processes, shares memory with them. With clients of several Unix users each such path is a confused deputy.
+Window stations, the object namespace and session ids have no per-session scoping. One crash takes down every
+desktop. Estimate: months across most of `server/`. Rejected.
 
-This is the closest picture to Windows and the wrong shape for Wine. The server is single-threaded and does the
-work that the Windows kernel does with the caller's identity, but with its own Unix identity: it opens files for
-clients (`server/fd.c`), signals and reads client processes, and maps shared memory with them. With clients of
-several Unix users, every such path becomes a confused deputy and needs a per-request identity switch or a
-redesign (file opens moved to the client, signalling across uids, `/proc` access). Window stations, the object
-namespace and session ids have no per-session scoping today. One crash or hang takes down every user's desktop.
-Estimate: months, touching most of `server/`, with no path upstream. Not recommended.
+### B. Registry forwarded by each user's server
 
-### B. Machine registry service, full proxy
+Each user's server forwards its machine-registry requests to a machine daemon (option (c) of `PREFIX_SPLIT.md`,
+lines 859-879). Every read becomes a second hop through a single-threaded server, which blocks the session or
+forces an asynchronous `registry.c`. Rejected.
 
-A machine daemon holds `HKLM`; each user's server forwards its registry requests for the machine trees to it
-(option (c) of `PREFIX_SPLIT.md`, lines 859-879: about 17 requests, 1500 to 2500 lines).
+### C. Replicated `HKLM`
 
-One image and no merge races, but every `HKLM` read becomes a round trip, and the user's server either blocks on
-it (head-of-line blocking for the whole session) or `registry.c` is rewritten to be asynchronous.
+Each user's server keeps its copy and a machine server orders the writes and pushes changes (the first version of
+this note). Works, keeps `registry.c` synchronous, but keeps a copy per session, a replication protocol, and trust
+in the user's server for every write. Superseded by D.
 
-### C. Machine server with replicated `HKLM` (recommended)
+### D. Session 0 hosts the registry; programs connect to it directly (recommended)
 
-A second, always-running Wine server instance, the machine server, is the only writer of the machine hives and the
-home of session 0. Each user's server keeps what it has today, an in-memory copy of `HKLM`, and becomes a replica:
+Session 0 is an always-running machine server that holds the only copy of the registry. Each program has its own
+connection to it for registry calls. In Wine every registry call is already one round trip from the program to a
+server, so this costs the same as today; only the destination changes. There is no local copy, nothing to
+replicate or merge, one writer of the files, and a change is visible to everyone at once. This is also the shape
+Windows has, with session 0 in the place of the kernel.
 
-- **Reads** stay local and unchanged.
-- **Writes** to the machine trees are not applied locally first. The user's server sends the change (key, value,
-  deletion, security descriptor) to the machine server together with the writer's identity; the machine server
-  checks it, applies it, persists it and sends the committed change to every connected user server, the writer's
-  included, which apply it to their copies and fire their registry notifications.
-- **A change made anywhere** therefore reaches every session within milliseconds, without a logon.
-
-This reuses the code we have: the dirty-key and tombstone replay of merge-on-save already turns a set of changes
-into operations on another copy. `registry.c` stays synchronous. The machine server is a normal `wineserver` built
-from the same tree, so the registry, token and object code are not duplicated in a separate daemon.
-
-Why not only "save at once and signal the others" (the live-refresh step): it keeps several writers of one file,
-keeps the hive group-writable by every user's server, and leaves services and account data where they are. It can
-still be the first increment of C (see T1).
-
-## Design (option C)
+## Design (option D)
 
 ### Identity and start
 
-- A dedicated Unix account and group for the machine server (working name `wexsys`, the existing group; the account
-  is new). It is not root. The machine root's hives and the service data are owned by this account, which removes
-  the in-place save shortcut: saves become temporary file, `fsync`, rename.
-- Started at boot by a systemd unit, before the display manager; restarted on failure. Its prefix is the machine
-  root. It listens on a socket in `/run/wineexplorer/` that user servers connect to.
-- Elevated programs keep today's model: the user's uid with the system group as effective group, in the user's
-  session, for writing `Program Files`. Only registry writes change path.
+- A dedicated Unix account for the machine server (the `wexsys` group exists; the account is new), not root. It
+  owns the machine hives and later the service data. Saves become atomic.
+- Started at boot by a systemd unit, before the display manager, restarted on failure. Its prefix is the machine
+  root. It listens on a socket in `/run/wineexplorer/`.
+- Elevated programs keep today's model for files: the user's uid with the system group, in the user's session.
 
-### Trust between a user's server and the machine server
+### The registry connection
 
-The machine server cannot see the Windows token of a writer; it sees a Unix peer. Rule:
+- A registry-only client: a connection that can send the registry requests (about 20) and nothing else. It is not
+  a Wine process in session 0: no threads, handles to other objects, windows or signals.
+- **Attested set-up.** When a process starts, its user's server asks session 0 for a registry channel for it and
+  states the process's token (user, groups, integrity, restrictions). Session 0 believes this only from a peer
+  that passes the launcher test (`ntdll/unix/sysrun.c` 163-193: the user's uids, saved gid the system group, not
+  dumpable). The channel's descriptor is handed to the process. A process that connects by itself, or through a
+  server the user started by hand, is a standard user by its Unix identity: it reads what Users may read and
+  writes nothing in the machine trees. A token that changes (impersonation) gets a new attestation.
+- **Handles.** A key handle from session 0 is not an entry in the user's server's handle table. `ntdll` keeps
+  the mapping and handles the cases that cross servers: duplication, inheritance by a child process, and
+  `NtNotifyChangeKey` with an event that lives in the user's server (a helper thread sets it).
+- **Reconnect.** If session 0 restarts, `ntdll` reconnects and reopens keys by path; until then registry calls
+  fail and programs cannot start. Session 0 has no user code and no windows; systemd restarts it.
 
-- It reads the peer's credentials at accept (`SO_PEERCRED`) and applies the test that `sysrun_server_ok`
-  (`ntdll/unix/sysrun.c` 163-193) applies today: all uids are the user's, saved gid is the system group, not
-  dumpable. Such a peer is a launcher-started server that the user cannot replace or trace, and its statement
-  "this write comes from a token with these groups and this integrity" is believed. The machine server then runs
-  the normal key access check with that identity.
-- Any other peer (a server the user started by hand, T5) is a read-only replica: it receives changes and every
-  write is refused. This closes the registry half of T5.
-- The user's uid is always the peer's, never a field in the message.
+### Registry content
 
-### Registry
+- **First: the machine trees** (`HKLM`, `HKU\.DEFAULT`). `ntdll` routes by tree; `HKCU` stays in the user's
+  server for now.
+- **Then: the user hives**, loaded into session 0 at logon. The user's server opens its hive file and hands the
+  descriptor over, so session 0 needs no access to home directories. With that the routing by tree goes away,
+  and E1's separate profile-hive load becomes an ordinary load in session 0.
+- **Per-session keys** (display, devices, volatile session state; `is_per_session_key`, `registry.c` 383-472) are
+  kept per session id inside session 0, as a small overlay, not shared.
+- **Tier-only trees:** `HKLM\SAM` and `HKLM\SECURITY`, readable by SYSTEM only. The account lockout policy and
+  later the accounts move there; `NetUserModals`, `net accounts`, Group Policy (`GROUP_POLICY.md`) and the
+  password verifier use them. The verifier asks session 0 instead of parsing a saved file.
+- **Limited writes:** refused with access denied, except the virtual store case above. Keys that Wine or the
+  shell itself must write from a limited session are per-session keys or get an explicit grant, listed in T0.
+- **Persistence:** key permissions stored; an append-only change journal with a checkpoint every few seconds,
+  on Wine's text format first. The binary hive library is evaluated later together with the shared mapping.
+- **The user's server** reads a few machine keys itself; it gets them over its own channel at start.
 
-- **Replicated trees:** `HKLM` and `HKU\.DEFAULT`, minus the per-session keys (`is_per_session_key`, `registry.c`
-  383-472: display, PnP, volatile session state) and minus tier-only trees (below). `HKCU` stays in the user's
-  server.
-- **Initial state:** at connect the user's server receives a snapshot (or loads the saved file and then the
-  changes since its sequence number).
-- **Writes:** synchronous request to the machine server with a short timeout. `HKLM` writes are privileged and
-  comparatively rare; the cost per write is one local round trip. To be measured in T0 with an installer run
-  before it is fixed.
-- **Refused writes fail** with access denied, as on Windows, instead of staying in memory. Keys that Wine or the
-  shell must write from a limited session are either per-session keys or get an explicit grant; T0 lists them
-  from a traced session.
-- **Key security descriptors** are stored by the machine server (a `#sd` line in its hive file, or a side file)
-  and replicated, so permissions survive a restart.
-- **Tier-only trees:** `HKLM\SAM` and `HKLM\SECURITY` exist in the machine server only and are not replicated
-  to user servers (reads go through an API of the tier). The account lockout policy and later the local accounts
-  database move there; `NetUserModals` and `net accounts` then call the tier, and the password verifier asks
-  the tier instead of parsing the saved file.
-- **Machine server down:** user sessions keep running with their last copy, `HKLM` writes fail, the user's
-  server reconnects and resynchronises. Nothing is written to the hive file by anyone else.
+### Services and the broker
 
-### Services (session 0)
-
-Decided per service, as the roadmap says:
-
-| Stays in the user's session | Moves to the machine server |
-|---|---|
-| `rpcss` (COM activation and the running object table serve the user's processes) | The service database and service control manager state |
-| `winedevice`, `plugplay`, `mountmgr` (drivers and devices act on the user's processes and drives) | Services that are machine-wide by nature: the elevation broker, Windows Installer, updater services installed by programs |
-| Anything that shows a window | A Linux daemon reached through `wexhost` (D-Bus) where that serves better (time, network, power) |
-
-- The service control pipe (`\pipe\svcctl`) and a short list of service endpoints are relayed from the user's
-  server to the machine server, with the caller's identity attested as for registry writes.
-- A session-0 service that must start a program in a user's session (the broker launching an elevated program,
-  an installer service running a custom action as the user) asks that user's server through the launcher; this
-  is the hardest part and is its own phase.
-- Session ids: the machine server is session 0; it gives each logon a session id, which the user's server uses
-  instead of the constant 1.
-
-### What does not change
-
-Per-user servers, windows, graphics, the DWM broker, `HKCU`, profiles, file access by Unix uid, and the E1 R8
-protocol. The verifier stays a Unix root service; it gains a better source for policy.
+- `services.exe` is split into a front (the control endpoint programs talk to, in the user's session) and a back
+  (service database, starting service processes). First in place, then the back moves to session 0. The front
+  forwards and attests the caller.
+- Stay in the session: `rpcss`, `winedevice`, `plugplay`, `mountmgr`, anything with a window. Move: services
+  that are only started, stopped and queried first; then, with a pipe proxy in the front, the installer and
+  updater services. A service that passes handles, shares memory or shows windows stays.
+- The elevation broker's decision and policy move to session 0. The consent dialog and the launch stay in the
+  user's session as a thin piece acting on an order from session 0. This reworks the lab protocol (R8), which
+  assumes the broker in the user's server.
+- Session 0 gives each logon a session id.
 
 ## Phases
 
-| Phase | Content | Depends on | Estimate |
-|---|---|---|---|
-| T0 | Measurements and lists: `HKLM` writes per session kind (boot, shell, an installer), which come from limited tokens, write latency budget, the per-session key list, the services inventory with the tier decided per service | none | days |
-| T1 | Live change feed without a new process: the saving server signals the others, which reload changed keys and fire notifications. Optional stepping stone; gives the visible benefit early and exercises the replica-apply code | none | about a week |
-| T2 | Machine server: account, unit, socket, peer check, snapshot and change feed (read-only replicas). Hives still saved by user servers | T0 | 1 to 2 weeks |
-| T3 | Writes through the machine server; it becomes the only writer; atomic saves; refused writes fail; persisted key permissions | T2 | 2 to 3 weeks |
-| T4 | Tier-only trees: account policy and accounts; `NetUserModals`, `net accounts`, the verifier and Group Policy (`GROUP_POLICY.md`) write and read there | T3 | 1 to 2 weeks |
-| T5 | Session-0 services: service database in the tier, pipe relay, the broker and installer service moved; launching into a user session | T3 | weeks, own design |
-| T6 | Session ids per logon; removal of the per-session `services.exe` | T5 | 1 week |
+| Phase | Content | Estimate |
+|---|---|---|
+| T0 | Spike and measurements: registry calls per program start and the share for machine trees; registry reads made by the server itself; how often key handles are duplicated or inherited and keys watched; the limited-write list from a traced session; a prototype of open, query and close against a second server | about a week |
+| T1 | Session 0 exists: account, unit, socket, registry-only client, attested channel; it owns the machine hives; `ntdll` routes the machine trees to it; user servers no longer load or save them. A switch keeps the old mode during development | 3 to 4 weeks |
+| T2 | Stored key permissions, journal and checkpoint, refused writes, virtual store | 2 weeks |
+| T3 | Tier-only trees; account policy, `net accounts`, the verifier and Group Policy on them | 1 to 2 weeks |
+| T4 | User hives hosted in session 0 at logon; routing by tree removed | 2 weeks |
+| T5 | `services.exe` front and back; the back and the first services in session 0; pipe proxy; installer and updater services | weeks, own design |
+| T6 | Broker decision in session 0 with the session-side piece; session ids per logon | weeks, own design |
+| Later | Read-only shared mapping for world-readable trees; binary hives with the ReactOS library | to be measured |
+
+The services split in place (first half of T5) does not depend on T1 and can run alongside.
 
 ## Tests (each phase adds its own)
 
 - Two users logged on at once. An elevated installer in Alice's session registers a COM class and an uninstall
-  entry; a program in Bob's session waiting in `RegNotifyChangeKeyValue` is woken and reads them, without a
-  logon. A 32-bit and a 64-bit reader.
-- A limited program's `HKLM` write fails with access denied in both sessions and never reaches the file.
-- A server started by hand (no launcher) reads `HKLM` and cannot write it.
-- The machine server is killed during an installer: no torn hive, sessions keep running, writes fail, and after
-  the restart the sessions resynchronise.
-- Policy: `net accounts /lockoutthreshold:3` in an elevated prompt takes effect for the verifier at once.
-- The existing suites (sysrun server, lab S6, installer acceptance) pass unchanged in T2 and with listed
-  changes from T3.
+  entry; a program in Bob's session waiting in `RegNotifyChangeKeyValue` is woken and reads them at once. A
+  32-bit and a 64-bit reader.
+- A limited program's write to `HKLM\System` fails with access denied. A 32-bit interactive program's write to
+  `HKLM\Software\Vendor` succeeds, is visible to that user only, persists, and is not in the machine hive.
+- A sandboxed (restricted, low-integrity) process is refused what its token forbids, with the same Unix uid as
+  its parent.
+- A server started by hand, and a process that connects by itself, read `HKLM` and cannot write it.
+- Session 0 is killed during an installer: no torn hive, the journal is replayed, programs reconnect.
+- `net accounts /lockoutthreshold:3` in an elevated prompt takes effect for the verifier at once.
+- The existing suites pass with the switch off, and with listed changes with it on.
 
 ## Stock Wine changes expected
 
-`server/registry.c` (replica apply, write forwarding, descriptor persistence), `server/request.c` and a new
-`server/` file for the tier connection, `server/sysrun.c` (peer test shared with ntdll), `server/protocol.def`
-only if the tier link reuses request structures, `programs/services` and `programs/wineboot` (T5),
-`dlls/netapi32` (T4). Each listed in `STOCK_CHANGES.md` when made. None is a candidate for upstream.
+`dlls/ntdll/unix` (registry calls routed to the registry channel, handle mapping, reconnect), `server/registry.c`
+(registry-only client, check at open by attested token, per-session overlay, permissions, journal),
+`server/request.c` and a new server file for the session 0 socket, `server/sysrun.c` (peer test), `programs/services`
+and `programs/wineboot` (T5), `dlls/netapi32` (T3). Each listed in `STOCK_CHANGES.md` when made. None is a
+candidate for upstream.
 
 ## Risks
 
-- The machine server is a single point for `HKLM` writes and later for services. Mitigation: sessions run on
-  their copy when it is away; systemd restarts it; it has no windows and no user code.
-- A synchronous write round trip in a single-threaded server: bounded by the timeout; measured in T0.
-- Replication order: one writer (the machine server) gives a total order; a user's server never applies its own
-  write before the commit comes back.
-- Programs that expect a limited `HKLM` write to succeed silently. Windows refuses those too; the list from T0
-  shows what Wine and the shell themselves rely on.
-- Services split across two servers cannot share handles or windows with user processes. The table above keeps
-  such services in the session.
+- Session 0 is a hard dependency: without it programs cannot read the registry. Mitigation: no user code in it,
+  restart by systemd, reconnect in `ntdll`; later the shared mapping keeps reads alive.
+- One single-threaded server answers every user's registry calls. T0 measures the load; the shared mapping is
+  the relief if needed.
+- Handles from two servers in one process: the cases are few (duplicate, inherit, notify) but each must be
+  right; T0 counts how often they occur.
+- The registry service is an attack surface for every local user. Keep it small (see the audit lesson above).
+- Reworking R8 for a broker in session 0 touches finished, tested lab work; it comes last.
 
 ## Decisions needed
 
-1. **Shape:** option C (machine server with replicated `HKLM`), as recommended, or B (full proxy), or A.
-2. **Identity:** a dedicated `wexsys` account for the machine server (recommended) or root.
-3. **Limited `HKLM` writes:** refused as on Windows from T3 (recommended), or kept in memory as today.
-4. **T1 first:** take the live change feed as an early step (recommended: yes, it is small and its code is reused),
-   or go straight to T2.
-5. **Session-0 services:** the per-service table above as the starting list.
+1. **Shape:** option D, session 0 hosts the registry and programs connect directly.
+2. **Identity:** a dedicated `wexsys` account for session 0 (recommended) or root.
+3. **Limited machine writes:** refused, with the virtual store for 32-bit interactive programs (recommended); or
+   plain refusal as on XP; or kept in memory as today.
+4. **User hives in session 0** as the target (recommended, as on Windows), machine trees first.
+5. **Token attestation** by the user's launcher-started server (recommended), or Unix identity only.
+6. **Order:** T0 now; then T1 with the services split alongside.
+
+## Sources
+
+- Registry virtualization: https://learn.microsoft.com/en-us/previous-versions/dotnet/articles/bb530198(v=msdn.10)
+  and https://learn.microsoft.com/en-us/archive/blogs/patricka/tales-of-application-compatibility-weirdness-demystifying-uac-virtualization
+- Inside the Registry: https://learn.microsoft.com/zh-cn/previous-versions//cc750583(v=technet.10)
+- The Windows Registry Adventure (hives, the hive format, the kernel side, layered keys):
+  https://projectzero.google/2024/04/the-windows-registry-adventure-1.html ,
+  https://projectzero.google/2024/10/the-windows-registry-adventure-4-hives.html ,
+  https://projectzero.google/2024/12/the-windows-registry-adventure-5-regf.html
+- Registry files of a user profile: https://winreg-kb.readthedocs.io/en/latest/sources/windows-registry/Files.html
+- dconf: https://man.archlinux.org/man/dconf.7 and https://github.com/gnome/dconf
+- Android system properties: https://android.googlesource.com/platform/bionic/+/189394b/libc/bionic/system_properties.cpp
+- ReactOS hive library: `references/reactos/sdk/lib/cmlib` (local reference tree)
+
+Not verified: whether a manifest with a requested execution level switches virtualization off (commonly stated,
+not found in the sources read); the lazy flush interval on current Windows versions; the details of layered keys
+beyond the summary above.
