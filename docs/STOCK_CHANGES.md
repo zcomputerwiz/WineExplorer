@@ -3121,3 +3121,9 @@ starts nothing; 14 server-refusal cases pass per architecture (`context-negative
 kernel32 version (541, two skips) pass on both architectures; `rpcrt4_test server` has only the two known
 `server.c:1269` failures of `d668329f`. Not done: an installer, `RtlQueryPackageIdentity`, package dependencies, a
 server-side gate, x86 packaged activation on Windows.
+
+Later on 2026-11-12: the branch was merged with development `1b30806c` (`531b8427`, pushed to origin). A clean
+both-architecture build of that tree, verified file by file against the commit, passed the packaged fixture run
+(all checks, both architectures), windows.storage and kernel32 version, with the same two known `rpcrt4` failures.
+`src/programs/wexappx` (project code, no stock change) installs, lists and removes packages; its 59-check
+end-to-end test (`tests/uwp/u1_0/test-wexappx.sh`) passed on that build.

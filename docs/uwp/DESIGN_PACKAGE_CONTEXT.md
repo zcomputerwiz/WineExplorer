@@ -87,8 +87,12 @@ An application that is not in the catalog gives `E_APPLICATION_NOT_REGISTERED`.
 * The gate is not enforced by the server: a program that calls `NtSetInformationToken(TokenWinePackage)` directly gets
   a pending context for a catalogued application without the gate. It still cannot run anything but that
   application's executable with it, and identity grants nothing.
-* No installer. `tests/uwp/u1_0/register-wine.py` lays out the self-owned fixture for development: no signature, no
-  dependency resolution, no archive parsing. The staging contract of the tools repository is still open.
+* The installer is a development installer. `src/programs/wexappx` (`wexappx install --development PACKAGE`,
+  `uninstall`, `list`) reads an `.appx`/`.msix` archive with bounds (member count, sizes, expansion ratio, names,
+  duplicates, checksum), stages beside the destination, publishes the directory and then the record, and removes
+  the record first on uninstall. It verifies **no signature** (hence the required `--development`), refuses a
+  package that declares a package dependency, and handles no bundle, 64-bit archive or non-ASCII name. It is behind
+  the gate. `tests/uwp/u1_0/test-wexappx.sh` covers it; `register-wine.py` remains as the loose-file variant.
 * `RtlQueryPackageIdentity`, `GetCurrentPackageInfo`, `GetPackagePathByFullName`, package dependencies, `TokenSecurityAttributes`
   (`WIN://SYSAPPID`) are not implemented. `GetPackageFullName` on a handle with only the limited query right fails
   while elevation is enforced, because the token cannot be opened.
