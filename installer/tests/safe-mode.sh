@@ -882,12 +882,14 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
         | grep -q '^started' || fail "cannot start control.exe"
     wait_text "Environment Variables" 60 || { shot no-advanced; fail "System Properties did not open on its Advanced tab"; }
     "${V[@]}" key "$TEST" alt-i >/dev/null
-    wait_text "System startup" 30 || { shot no-startrec; fail "the Startup and Recovery dialog did not open"; }
+    wait_text "Default operating system" 30 || { shot no-startrec; fail "the Startup and Recovery dialog did not open"; }
     sleep 2
     shot dialog
+    # the group boxes' frame lines cut their titles for OCR ("tem startup"), so check what is inside them
     out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
+    case "$out" in *"recovery options when needed"*) ;; *) fail "the dialog has no recovery options box" ;; esac
     case "$out" in *"Automatically restart"*) ;; *) fail "the dialog has no Automatically restart" ;; esac
-    case "$out" in *"System failure"*) ;; *) fail "the dialog has no System failure group" ;; esac
+    case "$out" in *"Write debugging information"*) ;; *) fail "the dialog has no System failure group" ;; esac
     echo "  dialog: System startup, System failure, Automatically restart"
     "${V[@]}" key "$TEST" esc >/dev/null
     sleep 1
