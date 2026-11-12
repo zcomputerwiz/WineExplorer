@@ -463,7 +463,8 @@ privileged WineExplorer D-Bus service that runs them; Vintner offers no D-Bus in
 
 Status (2026-11-12): done, as Safe Mode work order D5 (`docs/SAFE_MODE_WORKORDER.md`). The service is
 `org.wineexplorer.Boot1` (`scripts/wex-boot1.py`, polkit `org.wineexplorer.boot1.set-startup`, `auth_admin_keep`).
-The menu timeout uses `vintner menu-timeout` (WO-0010 4.7, Vintner `601ad75`) and Edit uses `vintner cmdline set`.
+The menu timeout uses `vintner menu-timeout` (WO-0010 4.7, Vintner `601ad75`; `d3fe892` reads it while the ESP is
+mounted read-write elsewhere, as `/efi` or `/boot/efi`) and Edit uses `vintner cmdline set`.
 "System failure" has only "Automatically restart" (`kernel.panic`); there are no crash dumps (no kdump).
 
 ### 4.7 Documentation

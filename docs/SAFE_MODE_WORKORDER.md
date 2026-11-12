@@ -610,7 +610,9 @@ Properties > Advanced > Startup and Recovery opens XP's dialog (after ReactOS's 
 
 - "Time to display list of operating systems" is Vintner Boot's menu timeout (`vintner menu-timeout`, Vintner
   `601ad75`). Unchecked is 0 and shows 0 grayed, as XP writes `timeout=0`; the menu is hidden, and a key held at
-  start opens it. Checking it again fills in 30.
+  start opens it. Checking it again fills in 30. Vintner `d3fe892` is needed: before it, reading the timeout failed
+  with EBUSY whenever the ESP was mounted read-write (`/boot/efi` from fstab on UEFI installs, systemd-gpt-auto's
+  `/efi` on BIOS ones), and the box was grayed as if there were no boot loader.
 - "Time to display recovery options when needed" is D1's failure screen and its countdown (`recovery_menu=` and
   `recovery_timeout=` in `/etc/wineexplorer/boot.conf`). Unchecked, a failed start shows no failure screen and starts
   normally; the seconds are kept, grayed.
