@@ -1307,7 +1307,10 @@ class TestRecoveryConsole(TempDirTest):
             self.assertEqual(opts["-geometry"], geometry, dimensions)
             self.assertTrue(opts["-fn"].endswith(f"-13-120-75-75-c-{width}-iso10646-1"), (dimensions, opts["-fn"]))
             self.assertEqual(opts["-title"], "bash")
-            self.assertEqual(opts["-xrm"], "XTerm*allowTitleOps: false")    # the shell's prompt does not retitle it
+            resources = [args[i + 1] for i in range(len(args) - 1) if args[i] == "-xrm"]
+            self.assertIn("XTerm*allowTitleOps: false", resources)    # the shell's prompt does not retitle it
+            # no scroll bar border: xterm sized the window without it and laid out the text with it (79 columns)
+            self.assertIn("XTerm*scrollbar.borderWidth: 0", resources)
             self.assertEqual(opts["-fg"], "#c0c0c0")
             self.assertIn("-rightbar", args)
             self.assertEqual(args[-4:-2], ["bash", "--rcfile"])

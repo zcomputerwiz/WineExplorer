@@ -54,8 +54,10 @@ EOF
 # at +40+40, larger than 640x480: the prompt went off the screen once the output scrolled. In the Wayland session
 # wexcomp would add a title bar; a window rule for the name wex-recovery-console leaves it out
 # (scripts/wayland/rc.xml), so the rows fit there too.
+# The scroll bar has no border of its own (scrollbar.borderWidth 0): xterm sized the window without it but laid out
+# the text with it, so under XWayland, where no X resources are merged, 80 columns came out as 79 (2026-11-12).
 CELL_H=13
-CHROME=19   # two internal borders of 2 pixels, the scroll bar (14) and its border
+CHROME=18   # two internal borders of 2 pixels and the scroll bar (14)
 screen_w=0 screen_h=0
 read -r screen_w screen_h <<< "$(xdpyinfo 2>/dev/null | sed -n 's/^ *dimensions: *\([0-9]*\)x\([0-9]*\) pixels.*/\1 \2/p' | head -n 1)"
 case "$screen_w$screen_h" in ''|*[!0-9]*) screen_w=0 screen_h=0 ;; esac
@@ -79,6 +81,7 @@ while true; do
         -title bash \
         -n bash \
         -xrm 'XTerm*allowTitleOps: false' \
+        -xrm 'XTerm*scrollbar.borderWidth: 0' \
         -bg black \
         -fg '#c0c0c0' \
         -cr '#c0c0c0' \
