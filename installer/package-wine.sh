@@ -230,6 +230,8 @@ cp "$ROOT_DIR/scripts/wex-advanced-options.py" "$STAGE_SESSION/usr/local/sbin/we
 cp "$ROOT_DIR/scripts/wex-bootlog.sh" "$STAGE_SESSION/usr/local/sbin/wex-bootlog"
 cp "$ROOT_DIR/scripts/wex-startup-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-startup-check"
 cp "$ROOT_DIR/scripts/wex-lastgood.sh" "$STAGE_SESSION/usr/local/sbin/wex-lastgood"
+# The system locale is generated where Setup sets it (localed generates nothing)
+cp "$ROOT_DIR/scripts/wex-locale-gen.sh" "$STAGE_SESSION/usr/local/sbin/wex-locale-gen"
 install -D -m755 "$SCRIPT_DIR/systemd/wex-bootmode-generator" "$STAGE_SESSION/usr/lib/systemd/system-generators/wex-bootmode-generator"
 cp "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$STAGE_SESSION/usr/local/bin/wex-gui-setup.sh"
 cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
@@ -277,7 +279,8 @@ cp "$SCRIPT_DIR/systemd/wex-setup.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
 for unit in wex-advanced-options.target wex-advanced-options.service wex-safemode.target wex-safenet.target \
             wex-bootlog.service wex-startup-check.service wex-bootmode-record.service \
-            wex-failure-check.service wex-failure-screen.service wex-plymouth-quit.service wex-session-choice.service; do
+            wex-failure-check.service wex-failure-screen.service wex-plymouth-quit.service wex-session-choice.service \
+            wex-locale-gen.service; do
     cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
@@ -392,6 +395,11 @@ if getent passwd administrator >/dev/null 2>&1 && [ ! -e /var/lib/AccountsServic
 fi
 
 systemctl daemon-reload || true
+# The system locale (wex-locale-gen): en_US.UTF-8, Setup's default, is generated here, so the image is built with it,
+# and so is the machine's own when it differs. The unit generates a locale chosen in Setup at the next start.
+/usr/local/sbin/wex-locale-gen en_US.UTF-8 || true
+/usr/local/sbin/wex-locale-gen || true
+systemctl enable wex-locale-gen.service || true
 systemctl enable wex-textsetup.service wex-setup.service wex-oobe.service || true
 systemctl enable wexprefetchd.socket || true
 systemctl start wexprefetchd.socket || true
@@ -412,7 +420,7 @@ Priority: optional
 Architecture: all
 Maintainer: WineExplorer Team <wineexplorer@local>
 Recommends: systemd-zram-generator
-Depends: wineexplorer, wexcomp, acl, lightdm, lightdm-gtk-greeter, accountsservice, xterm, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base, python3, vulkan-tools, winetricks, cabextract, zenity, pkexec, xvfb, xauth
+Depends: wineexplorer, wexcomp, acl, locales, lightdm, lightdm-gtk-greeter, accountsservice, xterm, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base, python3, vulkan-tools, winetricks, cabextract, zenity, pkexec, xvfb, xauth
 Replaces: wineexplorer (<< 11.19-wineexplorer2)
 Description: WineExplorer session scripts and desktop configuration
  Session scripts, Xorg configurations, LightDM greeter and systemd setup units

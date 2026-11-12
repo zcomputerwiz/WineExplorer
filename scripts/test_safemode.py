@@ -1336,6 +1336,83 @@ class TestWaylandSession(TempDirTest):
         self.assertIn("WEX_OUTPUT_MODE=unset", self.run_session("normal", compositor_status=1)[1][-1])
 
 
+class TestLocaleGen(TempDirTest):
+    """wex-locale-gen.sh: the system locale that Setup set through localed is generated when glibc lacks it."""
+
+    SCRIPT = SCRIPTS / "wex-locale-gen.sh"
+    SUPPORTED = ("en_US.UTF-8 UTF-8\nen_US ISO-8859-1\nde_DE.UTF-8 UTF-8\n"
+                 "sr_RS.UTF-8@latin UTF-8\nC.UTF-8 UTF-8\n")
+    LOCALE_GEN = "# This file lists locales that you wish to have built.\n# de_DE.UTF-8 UTF-8\n#  en_US.UTF-8 UTF-8\n"
+
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "SUPPORTED").write_text(self.SUPPORTED, encoding="ascii")
+        self.gen = self.tmp / "locale.gen"
+        self.gen.write_text(self.LOCALE_GEN, encoding="ascii")
+        self.default = self.tmp / "default-locale"
+
+    def run_script(self, *args, have=("C", "C.utf8", "POSIX")):
+        """Runs the script with stand-ins: `locale -a` lists HAVE, locale-gen logs its calls."""
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        (self.tmp / "have").write_text("".join(f"{name}\n" for name in have), encoding="ascii")
+        (bin_dir / "locale").write_text('#!/bin/sh\n[ "$1" = -a ] && cat "$HAVE"\n', encoding="ascii")
+        (bin_dir / "locale-gen").write_text('#!/bin/sh\necho locale-gen >> "$LOG"\n', encoding="ascii")
+        for name in ("locale", "locale-gen"):
+            (bin_dir / name).chmod(0o755)
+        log = self.tmp / "calls.log"
+        log.unlink(missing_ok=True)
+        env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "LOG": str(log), "HAVE": str(self.tmp / "have"),
+               "WEX_LOCALE_DEFAULT": str(self.default), "WEX_LOCALE_CONF": str(self.tmp / "locale.conf"),
+               "WEX_LOCALE_GEN": str(self.gen), "WEX_LOCALE_SUPPORTED": str(self.tmp / "SUPPORTED")}
+        result = subprocess.run(["sh", str(self.SCRIPT), *args], env=env, capture_output=True, text=True,
+                                timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result, log.read_text().splitlines() if log.exists() else []
+
+    def test_generates_a_missing_locale_from_its_commented_line(self):
+        _, calls = self.run_script("en_US.UTF-8")
+        self.assertEqual(calls, ["locale-gen"])
+        self.assertEqual(self.gen.read_text(), "# This file lists locales that you wish to have built.\n"
+                                               "# de_DE.UTF-8 UTF-8\nen_US.UTF-8 UTF-8\n")
+
+    def test_adds_a_locale_that_locale_gen_does_not_list(self):
+        self.gen.write_text("# nothing here\n", encoding="ascii")
+        _, calls = self.run_script("de_DE.UTF-8")
+        self.assertEqual(calls, ["locale-gen"])
+        self.assertEqual(self.gen.read_text(), "# nothing here\nde_DE.UTF-8 UTF-8\n")
+
+    def test_reads_lang_from_the_system_setting(self):
+        """localed on Debian writes /etc/default/locale, possibly quoted."""
+        self.default.write_text('LANG="de_DE.UTF-8"\n', encoding="ascii")
+        _, calls = self.run_script()
+        self.assertEqual(calls, ["locale-gen"])
+        self.assertIn("\nde_DE.UTF-8 UTF-8\n", self.gen.read_text())
+
+    def test_nothing_to_do(self):
+        for args, have in ((("en_US.UTF-8",), ("C.utf8", "en_US.utf8")),                 # generated already
+                           (("sr_RS.UTF-8@latin",), ("sr_RS.utf8@latin",)),               # with a modifier
+                           (("C.UTF-8",), ("C.utf8",)),                                   # built into glibc
+                           ((), ("C.utf8",))):                                            # no system locale
+            _, calls = self.run_script(*args, have=have)
+            self.assertEqual(calls, [], args)
+        self.assertEqual(self.gen.read_text(), self.LOCALE_GEN)
+
+    def test_a_locale_glibc_does_not_know_is_left_alone(self):
+        result, calls = self.run_script("xx_YY.UTF-8")
+        self.assertEqual(calls, [])
+        self.assertIn("cannot generate xx_YY.UTF-8", result.stderr)
+        self.assertEqual(self.gen.read_text(), self.LOCALE_GEN)
+
+    def test_the_package_installs_and_runs_it(self):
+        package = PACKAGE.read_text(encoding="utf-8")
+        self.assertIn('"$ROOT_DIR/scripts/wex-locale-gen.sh" "$STAGE_SESSION/usr/local/sbin/wex-locale-gen"', package)
+        self.assertIn("wex-locale-gen.service", package)
+        self.assertIn("/usr/local/sbin/wex-locale-gen en_US.UTF-8 || true", package)
+        self.assertIn("systemctl enable wex-locale-gen.service", package)
+        self.assertRegex(package, r"Depends: [^\n]*\blocales\b")
+
+
 class TestSessionChoice(TempDirTest):
     """wex-session-choice.sh: a Safe Mode logon leaves the account's X11 or Wayland choice as it was."""
 

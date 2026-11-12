@@ -25,6 +25,8 @@ wireless-regdb
 rfkill
 ethtool
 systemd-timesyncd
+# glibc's locales and locale-gen: Setup's locale is generated (wex-locale-gen); without it only C.UTF-8 exists
+locales
 unattended-upgrades
 sudo
 eject

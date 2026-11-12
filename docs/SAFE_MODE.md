@@ -641,4 +641,7 @@ installs, on both firmwares:
   Wayland session started at 1024x768.
 - Not covered: Display Properties' own wait and keep-or-revert dialogs on Wayland, and the shell resizing live.
 - Both consoles printed six `setlocale` warnings above the banner. The installed system sets `LANG=en_US.UTF-8`
-  (Setup, through `locale1`), but that locale was never generated (`/usr/lib/locale` has only `C.utf8`).
+  (Setup, through `locale1`), but that locale was never generated (`/usr/lib/locale` has only `C.utf8`). Fixed on
+  2026-11-11: the `locales` package and `wex-locale-gen` (`docs/INSTALLER.md`). Checked in the VM with the fix
+  installed as the package does it: `en_US.UTF-8` present and no warning in xterm; a locale set as localed does
+  (`en_GB.UTF-8`) generated at the next start.
