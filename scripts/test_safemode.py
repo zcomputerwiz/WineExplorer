@@ -655,6 +655,7 @@ class TestMenu(TempDirTest):
         self.menu.VINTNER = str(self.tmp / "no-vintner")
         self.menu.PENDING = str(self.tmp / "next-bootmode")
         self.menu.MENU_START = str(self.tmp / "lib" / "menu-start")
+        self.menu.BOOT_CONF = str(self.tmp / "boot.conf")        # none: the failure screen counts down from 30
         self.menu.Screen = FakeScreen
         self.calls = []
 
@@ -1079,6 +1080,24 @@ class TestMenu(TempDirTest):
         self.assertEqual(seconds, sorted(seconds, reverse=True))
         self.assertTrue(all(index == 6 for index, _ in FakeScreen.shown), "Start Normally is highlighted")
 
+    def test_failure_screen_countdown_follows_startup_and_recovery(self):
+        # "Time to display recovery options when needed" (sysdm.cpl, wex-boot1): recovery_timeout= in boot.conf
+        conf = self.tmp / "boot.conf"
+        conf.write_text("# written by wex-boot1\nrecovery_timeout=7\n", encoding="utf-8")
+        self.assertEqual(self.menu.failure_countdown(), 7)
+        self.assertEqual(self.run_failure([], 0.25), ("boot", "normal", None))
+        self.assertEqual(FakeScreen.shown[0][1], 7)
+        # 0: no countdown; the screen waits for a choice
+        conf.write_text("recovery_timeout=0\n", encoding="utf-8")
+        self.assertEqual(self.run_failure([*[-1] * 400, curses.KEY_DOWN, 10], 0.25), ("boot", "safe", None))
+        self.assertTrue(all(seconds is None for _, seconds in FakeScreen.shown))
+        # a value that is not a number, or none: 30; a large one is cut to the dialog's 999
+        for text, seconds in (("recovery_timeout=soon\n", 30), ("other=1\n", 30), ("recovery_timeout=5000\n", 999)):
+            conf.write_text(text, encoding="utf-8")
+            self.assertEqual(self.menu.failure_countdown(), seconds, text)
+        conf.unlink()
+        self.assertEqual(self.menu.failure_countdown(), 30)
+
     def test_failure_screen_arrow_stops_the_countdown(self):
         enter, up = 10, curses.KEY_UP
         # Up skips the grayed Last Known Good; the countdown line goes; waiting then chooses nothing
@@ -1373,7 +1392,7 @@ class TestSessionAndGreeter(unittest.TestCase):
         # 2026-11-12: wexcomp 0d524d63 ends XWayland before the X display's lock goes; waylandxlock makes the race
         # certain (XWayland stopped, the compositor alone ended) and LightDM must not restart
         vm = VM_TEST.read_text(encoding="utf-8")
-        self.assertIn("|waylandfallback|waylandxlock) ;;", vm)
+        self.assertRegex(vm, r"\|waylandfallback\|waylandxlock[|)][^\n]*\) ;;")
         self.assertIn("waylandlogon|waylandfallback|waylandxlock) saved_session restore", vm)
         phase = vm[vm.index("phase_waylandxlock() {"):]
         phase = phase[:phase.index("\n}\n")]
@@ -1383,6 +1402,30 @@ class TestSessionAndGreeter(unittest.TestCase):
         for line in phase.splitlines():   # commands sent over the serial console must be one line
             if "gsh '" in line:
                 self.assertEqual(line.count("'") % 2, 0, line)
+
+    def test_vm_test_checks_startup_and_recovery(self):
+        # work order D5: the dialog opens, the service refuses a change without a password, root's change reaches
+        # the next start, and everything goes back (/etc byte for byte, on the stopped disk)
+        vm = VM_TEST.read_text(encoding="utf-8")
+        self.assertIn("|waylandxlock|startrec) ;;", vm)
+        self.assertIn("#   startrec ", vm)
+        phase = vm[vm.index("phase_startrec() {"):]
+        phase = phase[:phase.index("\n}\n")]
+        for needle in ("control.exe sysdm.cpl,,3", "alt-i", "Apply uubb 5 7 true false 2>&1", "NotAuthorized",
+                       "as_root 'id -u'", "wextest.d5=1", 'wait_text "Advanced Options" 60',
+                       "Apply uubb 0 30 false false", "rm -f \"$MNT/etc/wineexplorer/boot.conf\"",
+                       'cp -p "$OUT/startrec-cmdline" "$MNT/etc/kernel/cmdline"'):
+            self.assertIn(needle, phase)
+        # the refusal comes before root's change, and the restore before the stopped disk is cleaned
+        self.assertLess(phase.index("NotAuthorized"), phase.index("as_root 'id -u'"))
+        self.assertLess(phase.index("Apply uubb 0 30 false false"), phase.index("attach rw"))
+        for line in phase.splitlines():   # commands sent over the serial console must be one line
+            if "gsh '" in line:
+                self.assertEqual(line.count("'") % 2, 0, line)
+        # the dialog's accelerator for Settings under Startup and Recovery is Alt+I
+        rc = (REPO_ROOT / "src" / "dlls" / "sysdm.cpl" / "sysdm.rc").read_text(encoding="utf-8")
+        self.assertIn('"Sett&ings...", IDC_ADV_STARTUP_BTN', rc)
+        self.assertIn('"Environment Variables"', rc)
 
     def test_wayland_session_reads_the_mode_before_the_prefix(self):
         session = (SCRIPTS / "wine-explorer-wayland-session.sh").read_text(encoding="utf-8")
@@ -2109,6 +2152,155 @@ class TestPackage(TempDirTest):
         self.assertEqual((acc / "dave").read_text(), hidden.replace("=true", "=false"))
         self.assertEqual((acc / "erin").read_text(), "[User]\nSession=wine-explorer\n")
         self.assertEqual((acc / "svc").read_text(), hidden)
+
+
+def load_boot1():
+    spec = importlib.util.spec_from_file_location("wex_boot1", SCRIPTS / "wex-boot1.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestBoot1(TempDirTest):
+    """org.wineexplorer.Boot1 (scripts/wex-boot1.py): Startup and Recovery's settings, Safe Mode work order D5."""
+
+    def setUp(self):
+        super().setUp()
+        self.boot = load_boot1()
+        self.boot.BOOT_CONF = str(self.tmp / "etc" / "boot.conf")
+        self.boot.PANIC_CONF = str(self.tmp / "sysctl.d" / "90-wineexplorer-recovery.conf")
+        self.boot.PANIC_SYSCTL = str(self.tmp / "panic")
+        self.boot.PRODUCT_CONF = str(self.tmp / "product.conf")
+        self.boot.VINTNER = str(self.tmp / "no-vintner")
+        (self.tmp / "panic").write_text("0\n", encoding="ascii")
+
+    def with_vintner(self, menu=0, options=("quiet",), code=0, reply=None):
+        """A `vintner` that logs its arguments; menu-timeout and cmdline show answer from MENU and OPTIONS, a set
+        answers REPLY (JSON) and exits with CODE."""
+        helper = self.tmp / "fake-vintner"
+        show = json.dumps({"ok": True, "file": "/etc/kernel/cmdline", "exists": True, "options": list(options),
+                           "running": "x"})
+        timeout = json.dumps({"ok": True, "firmware": "both", "timeout": menu, "uefi": menu, "bios": menu})
+        answer = json.dumps(reply if reply is not None else {"ok": True, "published": True, "generation": 4})
+        helper.write_text("#!/bin/sh\n"
+                          f'echo "$@" >> "{self.tmp}/vintner.log"\n'
+                          f'if [ "$1 $3" = "menu-timeout " ]; then echo \'{timeout}\'; exit 0; fi\n'
+                          f'if [ "$1 $3" = "cmdline show" ]; then echo \'{show}\'; exit 0; fi\n'
+                          f"echo '{answer}'\nexit {code}\n", encoding="ascii")
+        helper.chmod(0o755)
+        self.boot.VINTNER = str(helper)
+
+    def vintner_log(self):
+        path = self.tmp / "vintner.log"
+        return path.read_text(encoding="ascii").splitlines() if path.exists() else []
+
+    def test_defaults_without_vintner_or_files(self):
+        values = self.boot.settings()
+        self.assertEqual(values, {"OperatingSystem": "WineExplorer", "HasLoader": False, "MenuTimeout": 0,
+                                  "RecoveryTimeout": 30, "AutoRestart": False, "HasOptions": False, "Options": ""})
+
+    def test_settings_from_vintner_and_the_files(self):
+        self.with_vintner(menu=5, options=("quiet", "splash"))
+        (self.tmp / "product.conf").write_text("# product\nname=WineExplorer Test\n", encoding="utf-8")
+        (self.tmp / "panic").write_text("10\n", encoding="ascii")
+        values = self.boot.settings()
+        self.assertEqual(values["OperatingSystem"], "WineExplorer Test")
+        self.assertEqual((values["HasLoader"], values["MenuTimeout"]), (True, 5))
+        self.assertEqual((values["HasOptions"], values["Options"]), (True, "quiet splash"))
+        self.assertTrue(values["AutoRestart"])
+        self.assertEqual(self.vintner_log(), ["menu-timeout --json", "cmdline --json show"])
+
+    def test_apply_changes_only_what_differs(self):
+        self.with_vintner(menu=0)
+        self.boot.apply(0, 30, False)
+        self.assertEqual(self.vintner_log(), ["menu-timeout --json"])
+        self.assertFalse(Path(self.boot.BOOT_CONF).exists())
+        self.assertFalse(Path(self.boot.PANIC_CONF).exists())
+        self.boot.apply(30, 7, True)
+        self.assertEqual(self.vintner_log()[-2:], ["menu-timeout --json", "menu-timeout --json 30"])
+        self.assertEqual(self.boot.recovery_timeout(), 7)
+        self.assertIn("recovery_timeout=7\n", Path(self.boot.BOOT_CONF).read_text(encoding="utf-8"))
+        self.assertIn("kernel.panic = 10\n", Path(self.boot.PANIC_CONF).read_text(encoding="utf-8"))
+        self.assertEqual((self.tmp / "panic").read_text(encoding="ascii"), "10\n")    # the running kernel too
+        self.assertTrue(self.boot.auto_restart())
+        self.boot.apply(30, 7, False)
+        self.assertIn("kernel.panic = 0\n", Path(self.boot.PANIC_CONF).read_text(encoding="utf-8"))
+        self.assertFalse(self.boot.auto_restart())
+
+    def test_the_saved_panic_setting_wins_over_this_start(self):
+        # "Disable automatic restart on system failure" (F8) sets kernel.panic=0 for one start only
+        Path(self.boot.PANIC_CONF).parent.mkdir(parents=True)
+        Path(self.boot.PANIC_CONF).write_text("kernel.panic = 10\n", encoding="utf-8")
+        self.assertTrue(self.boot.auto_restart())
+
+    def test_boot_conf_keeps_its_other_lines(self):
+        conf = Path(self.boot.BOOT_CONF)
+        conf.parent.mkdir(parents=True)
+        conf.write_text("# mine\nother=1\nrecovery_timeout=30\n", encoding="utf-8")
+        self.boot.set_recovery_timeout(0)
+        self.assertEqual(conf.read_text(encoding="utf-8"), "# mine\nother=1\nrecovery_timeout=0\n")
+        self.assertEqual(self.boot.recovery_timeout(), 0)
+        self.assertEqual(oct(conf.stat().st_mode & 0o777), "0o644")
+
+    def test_timeouts_out_of_range_are_refused(self):
+        self.with_vintner()
+        for bad in (-1, 1000, True):
+            with self.assertRaises(self.boot.Refused):
+                self.boot.apply(bad, 30, False)
+            with self.assertRaises(self.boot.Refused):
+                self.boot.apply(0, bad, False)
+        self.assertEqual(self.vintner_log(), [])
+
+    def test_menu_timeout_failure_is_reported(self):
+        self.with_vintner(menu=0, code=1, reply={"ok": False, "code": "failed", "error": "no ESP"})
+        with self.assertRaises(self.boot.Failed) as caught:
+            self.boot.apply(5, 30, False)
+        self.assertIn("no ESP", str(caught.exception))
+
+    def test_options_as_etc_kernel_cmdline_reads_them(self):
+        text = "# WineExplorer startup options\n\nquiet  splash\n# a comment\nnomodeset\n"
+        self.assertEqual(self.boot.parse_options(text), ["quiet", "splash", "nomodeset"])
+        for bad in ("--clear", "-x", "quiet --file=/etc/shadow", "café"):
+            with self.assertRaises(self.boot.Refused, msg=bad):
+                self.boot.parse_options(bad)
+
+    def test_set_options_publishes_through_vintner(self):
+        self.with_vintner()
+        self.assertEqual(self.boot.set_options("# options\nquiet nomodeset\n"), (True, 4))
+        self.assertEqual(self.vintner_log(), ["cmdline --json set quiet nomodeset"])
+        self.assertEqual(self.boot.set_options("# nothing\n"), (True, 4))
+        self.assertEqual(self.vintner_log()[-1], "cmdline --json set --clear")
+        self.with_vintner(code=3, reply={"ok": False, "code": "refused", "error": "root= belongs to vintner"})
+        with self.assertRaises(self.boot.Refused):
+            self.boot.set_options("root=/dev/sda1")
+        self.with_vintner(code=1, reply={"ok": False, "code": "failed", "error": "publish failed"})
+        with self.assertRaises(self.boot.Failed):
+            self.boot.set_options("quiet")
+
+    def test_get_prints_json(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(self.boot.main(["--get"]), 0)
+        self.assertEqual(json.loads(out.getvalue())["RecoveryTimeout"], 30)
+        self.assertEqual(self.boot.main(["--bad"]), 2)
+
+    def test_service_files_name_one_bus_name_and_the_admin_rule(self):
+        installer = REPO_ROOT / "installer"
+        unit = (installer / "systemd" / "wex-boot1.service").read_text(encoding="utf-8")
+        activation = (installer / "dbus" / "org.wineexplorer.Boot1.service").read_text(encoding="utf-8")
+        policy = (installer / "dbus" / "org.wineexplorer.Boot1.conf").read_text(encoding="utf-8")
+        action = (installer / "polkit" / "org.wineexplorer.boot1.policy").read_text(encoding="utf-8")
+        self.assertIn("BusName=org.wineexplorer.Boot1", unit)
+        self.assertIn("ExecStart=/usr/local/sbin/wex-boot1", unit)
+        self.assertIn("SystemdService=wex-boot1.service", activation)
+        self.assertIn('<allow own="org.wineexplorer.Boot1"/>', policy)
+        self.assertIn(f'<action id="{self.boot.ACTION}">', action)
+        # the same rule as hostname1 and timedate1: no second notion of administrator
+        self.assertEqual(re.findall(r"<allow_\w+>(\w+)</allow_\w+>", action), ["auth_admin_keep"] * 3)
+        package = PACKAGE.read_text(encoding="utf-8")
+        for needle in ("scripts/wex-boot1.py", "org.wineexplorer.Boot1.conf", "org.wineexplorer.Boot1.service",
+                       "org.wineexplorer.boot1.policy", "wex-boot1.service"):
+            self.assertIn(needle, package)
 
 
 if __name__ == "__main__":

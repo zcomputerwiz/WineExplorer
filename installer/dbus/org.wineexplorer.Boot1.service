@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# D-Bus activation of Startup and Recovery's settings service (installer/systemd/wex-boot1.service)
+[D-BUS Service]
+Name=org.wineexplorer.Boot1
+Exec=/bin/false
+User=root
+SystemdService=wex-boot1.service

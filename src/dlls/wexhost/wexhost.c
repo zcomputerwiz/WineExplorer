@@ -373,6 +373,56 @@ DWORD WINAPI WexHostnameSet( HWND owner, const char *name, BOOL pretty )
     return params.err;
 }
 
+DWORD WINAPI WexBootGet( WEX_BOOT *info )
+{
+    struct boot_get_params *params;
+    DWORD err;
+
+    if (!unix_ready || !info) return ERROR_NOT_SUPPORTED;
+    if (!(params = calloc( 1, sizeof(*params) ))) return ERROR_NOT_ENOUGH_MEMORY;
+    WEXHOST_CALL( boot_get, params );
+    if (!(err = params->err)) *info = params->info;
+    free( params );
+    return err;
+}
+
+DWORD WINAPI WexBootSet( HWND owner, DWORD menu_timeout, DWORD recovery_timeout, BOOL auto_restart,
+                         char *message, DWORD message_size )
+{
+    struct boot_set_params params;
+
+    if (message && message_size) message[0] = 0;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (menu_timeout > WEX_BOOT_TIMEOUT_MAX || recovery_timeout > WEX_BOOT_TIMEOUT_MAX) return ERROR_INVALID_PARAMETER;
+    memset( &params, 0, sizeof(params) );
+    params.menu_timeout = menu_timeout;
+    params.recovery_timeout = recovery_timeout;
+    params.auto_restart = auto_restart;
+    run_pumped( owner, unix_boot_set, &params );
+    if (message && message_size) lstrcpynA( message, params.message, message_size );
+    return params.err;
+}
+
+DWORD WINAPI WexBootSetOptions( HWND owner, const char *text, DWORD *generation, char *message, DWORD message_size )
+{
+    struct boot_set_options_params *params;
+    DWORD err;
+
+    if (generation) *generation = 0;
+    if (message && message_size) message[0] = 0;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (!text) return ERROR_INVALID_PARAMETER;
+    if (strlen( text ) >= WEX_BOOT_OPTIONS_MAX) return ERROR_FILENAME_EXCED_RANGE;
+    if (!(params = calloc( 1, sizeof(*params) ))) return ERROR_NOT_ENOUGH_MEMORY;
+    lstrcpynA( params->text, text, sizeof(params->text) );
+    run_pumped( owner, unix_boot_set_options, params );
+    if (generation) *generation = params->generation;
+    if (message && message_size) lstrcpynA( message, params->message, message_size );
+    err = params->err;
+    free( params );
+    return err;
+}
+
 DWORD WINAPI WexUserGet( WEX_USER *info )
 {
     struct user_get_params params;

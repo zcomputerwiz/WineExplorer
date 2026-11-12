@@ -80,6 +80,15 @@
 #                saved one back (wex-session-choice); so these two phases and nowine (the GTK greeter logs on with
 #                X11) leave the checksums of the test account's AccountsService file and .dmrc out of the record.
 #                The saved session values themselves are compared in every phase.
+#   startrec    Startup and Recovery (sysdm.cpl, work order D5): `control sysdm.cpl,,3` opens System Properties on
+#                its Advanced tab and Settings opens the dialog; org.wineexplorer.Boot1 tells anyone the settings and
+#                refuses a change without a password; as root (sudo, the test user is an administrator) it sets a
+#                5-second boot menu, a 7-second failure countdown, a restart after a kernel panic and a kernel
+#                option. The next start shows Vintner Boot's menu without a key and boots with the option. Then
+#                everything goes back, /etc byte for byte (on the stopped disk), and one more start shows no menu.
+#                Only when named, and last: a failure part-way can leave the boot menu's timeout on the boot
+#                storage, which the stopped disk's root does not hold. Needs this branch's image (wex-boot1, Vintner
+#                Boot with menu-timeout).
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -136,7 +145,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -199,6 +208,11 @@ SAFE_MODE_FILES=(
     "644 installer/lightdm/90-wineexplorer-safe-mode.conf usr/share/wineexplorer/safe-greeter/lightdm/lightdm-gtk-greeter.conf.d/90-wineexplorer-safe-mode.conf"
     "755 scripts/wex-safemode-pam-check.sh usr/local/sbin/wex-safemode-pam-check.sh"
     "755 scripts/wex-advanced-options.py usr/local/sbin/wex-advanced-options"
+    "755 scripts/wex-boot1.py usr/local/sbin/wex-boot1"
+    "644 installer/systemd/wex-boot1.service lib/systemd/system/wex-boot1.service"
+    "644 installer/dbus/org.wineexplorer.Boot1.conf usr/share/dbus-1/system.d/org.wineexplorer.Boot1.conf"
+    "644 installer/dbus/org.wineexplorer.Boot1.service usr/share/dbus-1/system-services/org.wineexplorer.Boot1.service"
+    "644 installer/polkit/org.wineexplorer.boot1.policy usr/share/polkit-1/actions/org.wineexplorer.boot1.policy"
     "755 scripts/wex-bootlog.sh usr/local/sbin/wex-bootlog"
     "755 scripts/wex-startup-check.sh usr/local/sbin/wex-startup-check"
     "755 scripts/wex-lastgood.sh usr/local/sbin/wex-lastgood"
@@ -832,6 +846,99 @@ phase_waylanddisplay() {   # Display Properties in the Wayland session: wexhost 
     wait_off 60 || fail "the VM did not power off"
     display_profile remove || fail "cannot remove the display profile"
     saved_session restore || fail "cannot put the saved session back"
+}
+
+BOOT1="org.wineexplorer.Boot1 /org/wineexplorer/Boot1"
+
+as_root() {   # as_root COMMAND [TIMEOUT]: COMMAND as root in the VM, through sudo with the test user's password
+    gsh "printf '%s\\n' '$(cat "$PWFILE")' | sudo -S -p '' $1" "${2:-120}"
+}
+
+boot1_settings() {   # Startup and Recovery's settings through org.wineexplorer.Boot1, as the test user (no password):
+                     # one line "settings Key=Value ...", sorted, a space in a value written as +
+    gsh "busctl --system --json=short call $BOOT1 org.freedesktop.DBus.Properties GetAll s org.wineexplorer.Boot1 | python3 -c 'import json, sys; d = json.load(sys.stdin)[\"data\"][0]; print(\"settings\", *(k + \"=\" + str(v[\"data\"]).replace(\" \", \"+\") for k, v in sorted(d.items())))'" 90 \
+        | grep '^settings ' | tail -n 1
+}
+
+expect_settings() {   # expect_settings Key=Value...: what boot1_settings reports
+    local out kv
+    out=$(boot1_settings)
+    echo "  $out"
+    for kv in "$@"; do
+        case " $out " in *" $kv "*) ;; *) fail "Startup and Recovery's settings do not have $kv: ${out:-no answer}" ;; esac
+    done
+}
+
+phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the header
+    local out options saved=
+    attach ro || fail "cannot mount the overlay"
+    if [ -f "$MNT/etc/kernel/cmdline" ]; then cp -p "$MNT/etc/kernel/cmdline" "$OUT/startrec-cmdline"; saved=1; fi
+    [ -x "$MNT/usr/local/sbin/wex-boot1" ] || { detach; fail "this image has no wex-boot1 (Startup and Recovery)"; }
+    detach
+    start_vm
+    desktop 600
+    # the dialog: System Properties on its Advanced tab, then Settings under Startup and Recovery (Sett&ings)
+    gsh "python3 $HELPER --user $USER_NAME C:/windows/system32/control.exe sysdm.cpl,,3 >/dev/null; echo started" 30 \
+        | grep -q '^started' || fail "cannot start control.exe"
+    wait_text "Environment Variables" 60 || { shot no-advanced; fail "System Properties did not open on its Advanced tab"; }
+    "${V[@]}" key "$TEST" alt-i >/dev/null
+    wait_text "System startup" 30 || { shot no-startrec; fail "the Startup and Recovery dialog did not open"; }
+    sleep 2
+    shot dialog
+    out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
+    case "$out" in *"Automatically restart"*) ;; *) fail "the dialog has no Automatically restart" ;; esac
+    case "$out" in *"System failure"*) ;; *) fail "the dialog has no System failure group" ;; esac
+    echo "  dialog: System startup, System failure, Automatically restart"
+    "${V[@]}" key "$TEST" esc >/dev/null
+    sleep 1
+    "${V[@]}" key "$TEST" esc >/dev/null
+    # anyone reads the settings; a change without a password is refused (polkit, auth_admin_keep)
+    expect_settings HasLoader=True HasOptions=True MenuTimeout=0 RecoveryTimeout=30 AutoRestart=False \
+        OperatingSystem=WineExplorer
+    options=$(boot1_settings | sed -n 's/.* Options=\([^ ]*\).*/\1/p' | tr '+' ' ')
+    out=$(gsh "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply uubb 5 7 true false 2>&1; echo rc=\$?" | tr '\n' ' ')
+    echo "  without a password: $out"
+    case "$out" in *NotAuthorized*rc=[1-9]*|*"not authorized"*rc=[1-9]*) ;; *) fail "a change without a password was not refused: $out" ;; esac
+    # as root: a 5-second menu, a 7-second countdown, a restart after a panic, and a kernel option
+    as_root 'id -u' | grep -qx 0 || fail "sudo does not work for $USER_NAME"
+    as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply uubb 5 7 true false" >/dev/null
+    out=$(as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 SetOptions sb '$options wextest.d5=1' false" 600 \
+        | grep '^bu ' | tail -n 1)
+    echo "  options published: $out"
+    case "$out" in "bu true "[1-9]*) ;; *) fail "the kernel option was not published: ${out:-no answer}" ;; esac
+    expect_settings MenuTimeout=5 RecoveryTimeout=7 AutoRestart=True
+    out=$(gsh 'echo files: $(grep -h ^recovery_timeout= /etc/wineexplorer/boot.conf) panic=$(cat /proc/sys/kernel/panic)' \
+        | grep '^files:' | tail -n 1)
+    echo "  $out"
+    [ "$out" = "files: recovery_timeout=7 panic=10" ] || fail "boot.conf or kernel.panic not as set: $out"
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    # the next start: the loader's menu without a key, then the default after five seconds, with the option
+    start_vm
+    wait_text "Advanced Options" 60 || { shot no-menu; fail "Vintner Boot's menu did not show by itself"; }
+    shot menu-timeout
+    echo "  the boot menu showed without a key"
+    desktop 600
+    gsh 'cat /proc/cmdline' | grep -q 'wextest.d5=1' || fail "the new generation does not have the kernel option"
+    echo "  /proc/cmdline has wextest.d5=1"
+    # back as it was
+    as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply uubb 0 30 false false" >/dev/null
+    out=$(as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 SetOptions sb '$options' false" 600 \
+        | grep '^bu ' | tail -n 1)
+    case "$out" in "bu true "[1-9]*) ;; *) fail "the options were not put back: ${out:-no answer}" ;; esac
+    expect_settings MenuTimeout=0 RecoveryTimeout=30 AutoRestart=False
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    attach rw || fail "cannot mount the overlay"
+    rm -f "$MNT/etc/wineexplorer/boot.conf" "$MNT/etc/sysctl.d/90-wineexplorer-recovery.conf"
+    if [ -n "$saved" ]; then cp -p "$OUT/startrec-cmdline" "$MNT/etc/kernel/cmdline"; else rm -f "$MNT/etc/kernel/cmdline"; fi
+    detach
+    # the restored generation starts without the menu, and counts
+    start_vm
+    ! wait_text "Advanced Options" 25 || { shot menu-left; fail "the boot menu still shows after the timeout went back to 0"; }
+    desktop 600
+    gsh 'cat /proc/cmdline' | grep -q 'wextest.d5=1' && fail "the kernel option is still there"
+    shutdown_vm
 }
 
 shell_keys_check() {   # shell_keys_check x11|wayland|xwayland: with a Linux program on the keyboard, the shell's keys

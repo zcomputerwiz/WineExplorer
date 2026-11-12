@@ -35,5 +35,6 @@ INT_PTR CALLBACK advanced_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 
 void show_performance_dialog(HWND parent);
 void show_envvars_dialog(HWND parent);
+void show_startrec_dialog(HWND parent);
 
 #endif /* __WINE_SYSDM_H */

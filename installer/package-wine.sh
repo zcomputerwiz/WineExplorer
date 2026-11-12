@@ -227,6 +227,11 @@ cp "$ROOT_DIR/scripts/wex-bootmode.sh" "$STAGE_SESSION/usr/local/bin/wex-bootmod
 install -m755 "$ROOT_DIR/scripts/wex-session-choice.sh" "$STAGE_SESSION/usr/local/bin/wex-session-choice"
 cp "$ROOT_DIR/scripts/wex-safemode-pam-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-safemode-pam-check.sh"
 cp "$ROOT_DIR/scripts/wex-advanced-options.py" "$STAGE_SESSION/usr/local/sbin/wex-advanced-options"
+# Startup and Recovery's settings (sysdm.cpl; Safe Mode work order D5): a D-Bus activated root service, polkit-checked
+cp "$ROOT_DIR/scripts/wex-boot1.py" "$STAGE_SESSION/usr/local/sbin/wex-boot1"
+install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.Boot1.conf" "$STAGE_SESSION/usr/share/dbus-1/system.d/org.wineexplorer.Boot1.conf"
+install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.Boot1.service" "$STAGE_SESSION/usr/share/dbus-1/system-services/org.wineexplorer.Boot1.service"
+install -D -m644 "$SCRIPT_DIR/polkit/org.wineexplorer.boot1.policy" "$STAGE_SESSION/usr/share/polkit-1/actions/org.wineexplorer.boot1.policy"
 cp "$ROOT_DIR/scripts/wex-bootlog.sh" "$STAGE_SESSION/usr/local/sbin/wex-bootlog"
 cp "$ROOT_DIR/scripts/wex-startup-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-startup-check"
 cp "$ROOT_DIR/scripts/wex-lastgood.sh" "$STAGE_SESSION/usr/local/sbin/wex-lastgood"
@@ -283,7 +288,7 @@ cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
 for unit in wex-advanced-options.target wex-advanced-options.service wex-safemode.target wex-safenet.target \
             wex-bootlog.service wex-startup-check.service wex-bootmode-record.service \
             wex-failure-check.service wex-failure-screen.service wex-plymouth-quit.service wex-session-choice.service \
-            wex-locale-gen.service; do
+            wex-locale-gen.service wex-boot1.service; do
     cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
@@ -425,7 +430,7 @@ Priority: optional
 Architecture: all
 Maintainer: WineExplorer Team <wineexplorer@local>
 Recommends: systemd-zram-generator
-Depends: wineexplorer, wexcomp, acl, locales, lightdm, lightdm-gtk-greeter, accountsservice, xterm, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base, python3, vulkan-tools, winetricks, cabextract, zenity, pkexec, xvfb, xauth
+Depends: wineexplorer, wexcomp, acl, locales, lightdm, lightdm-gtk-greeter, accountsservice, xterm, xorg, xserver-xorg-video-all, xserver-xorg-input-all, x11-xserver-utils, x11-utils, xdotool, libfdisk1, libblkid1, ncurses-bin, desktop-base, python3, python3-dbus, python3-gi, vulkan-tools, winetricks, cabextract, zenity, pkexec, xvfb, xauth
 Replaces: wineexplorer (<< 11.19-wineexplorer2)
 Description: WineExplorer session scripts and desktop configuration
  Session scripts, Xorg configurations, LightDM greeter and systemd setup units

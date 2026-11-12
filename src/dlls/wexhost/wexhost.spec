@@ -79,3 +79,6 @@
 
 @ stdcall WexWmApplyThumbnails(ptr long)
 @ stdcall WexWmPeekWindow(long long)
+@ stdcall WexBootGet(ptr)
+@ stdcall WexBootSet(long long long long ptr long)
+@ stdcall WexBootSetOptions(long str ptr ptr long)
