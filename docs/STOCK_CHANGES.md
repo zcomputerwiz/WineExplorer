@@ -81,6 +81,13 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   session), `server/token.c` (`create_service_token` in session 0 for a SYSTEM caller), `server/process.c` (session
   0's own programs run as LocalSystem).
 
+- E1 R9, first server parts (`docs/E1_S18E_R9_SPEC.md` section 3): `server/named_pipe.c` (a pipe end keeps its
+  client's session id, `ClientSessionId` connection attribute; the bridge list gains `wexelevate.r9`, allowed only
+  for a peer with a session link; a bridged client's session is its server's), `server/session0.c` (the peer's
+  session for a bridge; a session id is given back only to the account recorded in `session0.owners`),
+  `dlls/kernel32/sync.c` (`GetNamedPipeClientSessionId` asks the server; it was a stub returning the caller's own
+  session).
+
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)

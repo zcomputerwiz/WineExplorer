@@ -198,6 +198,17 @@ check deleted_from_a_in_session0 "$(s0 sc query WexT5Probe | state)" ""
 check a_lists_session0_service "$(A "$W/p64.exe" enumsvc wuauserv | field count)" 1
 check a_lists_own_plugplay_once "$(A "$W/p64.exe" enumsvc PlugPlay | field count)" 1
 check a32_lists_session0_service "$(A "$W/p32.exe" enumsvc wuauserv | field count)" 1
+
+# R9 (E1 broker in session 0): \pipe\WexSession0\wexelevate.r9 reaches session 0's wexelevate.r9 from a session with
+# a session link, and the server there reads the session id of the client's session
+SA_NOW="$(A "$W/p64.exe" whoami | field session)"
+rm -f "$W/serve.out"
+(s0 "$W/p64.exe" pipeserve wexelevate.r9 >"$W/serve.out" &)
+for i in $(seq 1 60); do grep -q '^listening' "$W/serve.out" 2>/dev/null && break; sleep 0.5; done
+check r9_pipe_from_session "$(A "$W/p64.exe" pipesay 'WexSession0\wexelevate.r9' hello | field say)" ok
+for i in $(seq 1 40); do grep -q '^message=' "$W/serve.out" 2>/dev/null && break; sleep 0.5; done
+check r9_client_session_is_the_session "$(field clientsession < "$W/serve.out")" "$SA_NOW"
+check r9_message_crossed "$(field message < "$W/serve.out")" hello
 check s0_has_held_subkey "$(s0 reg query "$K\\Held" >/dev/null 2>&1; echo $?)" 0
 check s0_saved_key_dacl "$(grep -a -c '^#sd=' "$W/s0/system.reg" | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 check dacl_survives_restart "$(A "$W/p64.exe" getdacl 'Software\WexTier\Perm' | field dacl)" "$PERM_BEFORE"

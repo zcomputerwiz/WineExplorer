@@ -425,6 +425,24 @@ session cannot create `WexSession0\svcctl`. Found while testing: completing a wr
 reselected the queue and flushed again from inside the loop (a message freed twice); the flush now runs with
 `ignore_reselect`, as Wine's own read path does.
 
+## T6.3/T6.4: E1 R9, the broker in session 0 (started 2026-11-12)
+
+Decision: the full split (option A of `E1_S18E_R9_DESIGN.md`), towards fast user switching. Spec:
+`E1_S18E_R9_SPEC.md` v3, after two Codex reviews (their findings and the answers are its sections 10 and 11; v3
+itself has had no third pass). Work orders: its section 9.
+
+| WO | State |
+|---|---|
+| R9-1 codecs (Qwen) | running |
+| R9-2 verifier (Antigravity) | after R9-1 (both edit `tools/e1s6/e1r8.py`) |
+| R9-3 session 0 and server | partly done: `wexelevate.r9` on the bridge list for peers with a session link; the bridged client's session id (`GetNamedPipeClientSessionId`); session ids go back only to their recorded account (`session0.owners`). Open: session 0's S6 endorsement of B0 (today's needs E1's launcher-started system role) |
+| R9-4 B0 and A in `wexelevate` | not started |
+| R9-5 lab cases, R9-6 review | not started |
+
+R9-3 test (T1): a session's program writes to `\pipe\WexSession0\wexelevate.r9`; the server in session 0 reads the
+client's session id and it is that session's. Not tested at run time: a reclaim by another account (the T1 sessions
+are one account), the owners file across a restart with a foreign claimant.
+
 ## T6.2: the session link, on which session 0 sends orders (2026-11-12)
 
 The connection on which a user's server asks for its session id (T6.1) now stays open as the session link. Session

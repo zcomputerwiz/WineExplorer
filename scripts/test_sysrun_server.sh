@@ -2871,7 +2871,7 @@ s0_stop
 cat "$ROOT/sysrun.conf.pre-s0" > "$CONF"
 while read -r mode file; do chown root "$file"; chmod "$mode" "$file"; done <<<"$S0_MODES"
 for f in "$M"/*.reg; do [ "$(stat -c %U "$f")" != "$S0U" ] || rm -f "$f"; done   # files only session 0 made
-rm -f "$M/session0.ids"
+rm -f "$M/session0.ids" "$M/session0.owners"
 kill_servers
 fi
 

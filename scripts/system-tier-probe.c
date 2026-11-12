@@ -37,6 +37,9 @@
  *                                 and total=<entries>
  *   probe svcstate NAME           opens the service for status only; prints state=<dwCurrentState> or state=error<n>
  *   probe svcstop NAME            opens the service for SERVICE_STOP and stops it; prints stop=0 or stop=error<n>
+ *   probe pipeserve PIPE          serves \\.\pipe\PIPE for one client (message mode, 30 s at most); prints
+ *                                 clientsession=<GetNamedPipeClientSessionId> and message=<what the client wrote>
+ *   probe pipesay PIPE TEXT       opens \\.\pipe\PIPE and writes TEXT; prints say=ok or say=error<n>
  * Build: x86_64-w64-mingw32-gcc / i686-w64-mingw32-gcc -municode -o probe.exe system-tier-probe.c -ladvapi32 -lntdll */
 
 #include <windows.h>
@@ -161,6 +164,67 @@ int __cdecl wmain( int argc, WCHAR **argv )
         else printf( "state=error%lu\n", GetLastError() );
         CloseServiceHandle( service );
         CloseServiceHandle( manager );
+        return 0;
+    }
+    if (argc == 3 && !lstrcmpW( argv[1], L"pipeserve" ))
+    {
+        WCHAR path[MAX_PATH];
+        char text[256];
+        OVERLAPPED ov = { 0 };
+        ULONG session = ~0u;
+        DWORD done = 0;
+        HANDLE pipe;
+
+        lstrcpyW( path, L"\\\\.\\pipe\\" );
+        lstrcpynW( path + 9, argv[2], MAX_PATH - 9 );
+        pipe = CreateNamedPipeW( path, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                                 PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE, 1, 4096, 4096, 0, NULL );
+        if (pipe == INVALID_HANDLE_VALUE)
+        {
+            printf( "serve=error%lu\n", GetLastError() );
+            return 1;
+        }
+        printf( "listening\n" );
+        fflush( stdout );
+        ov.hEvent = CreateEventW( NULL, TRUE, FALSE, NULL );
+        if (!ConnectNamedPipe( pipe, &ov ) && GetLastError() == ERROR_IO_PENDING &&
+            WaitForSingleObject( ov.hEvent, 30000 ))
+        {
+            printf( "serve=timeout\n" );
+            return 1;
+        }
+        if (!GetNamedPipeClientSessionId( pipe, &session )) printf( "clientsession=error%lu\n", GetLastError() );
+        else printf( "clientsession=%lu\n", session );
+        ResetEvent( ov.hEvent );
+        if (!ReadFile( pipe, text, sizeof(text) - 1, NULL, &ov ) && GetLastError() == ERROR_IO_PENDING)
+            WaitForSingleObject( ov.hEvent, 10000 );
+        GetOverlappedResult( pipe, &ov, &done, FALSE );
+        text[done < sizeof(text) ? done : sizeof(text) - 1] = 0;
+        printf( "message=%s\n", text );
+        CloseHandle( pipe );
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"pipesay" ))
+    {
+        WCHAR path[MAX_PATH];
+        char text[256];
+        DWORD mode = PIPE_READMODE_MESSAGE, done;
+        HANDLE pipe;
+        int len = WideCharToMultiByte( CP_UTF8, 0, argv[3], -1, text, sizeof(text), NULL, NULL );
+
+        lstrcpyW( path, L"\\\\.\\pipe\\" );
+        lstrcpynW( path + 9, argv[2], MAX_PATH - 9 );
+        pipe = CreateFileW( path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
+        if (pipe == INVALID_HANDLE_VALUE)
+        {
+            printf( "say=error%lu\n", GetLastError() );
+            return 1;
+        }
+        SetNamedPipeHandleState( pipe, &mode, NULL, NULL );
+        if (len > 1 && WriteFile( pipe, text, len - 1, &done, NULL )) printf( "say=ok\n" );
+        else printf( "say=error%lu\n", GetLastError() );
+        Sleep( 500 );
+        CloseHandle( pipe );
         return 0;
     }
     if (argc == 3 && !lstrcmpW( argv[1], L"pipecreate" ))
