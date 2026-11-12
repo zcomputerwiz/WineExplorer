@@ -1,5 +1,19 @@
 # Changes to stock Wine / third-party code
 
+## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)
+
+- `dlls/netapi32/netapi32.c`: `NetUserModalsGet` level 3 (was a FIXME returning `NERR_InternalError`) and a new
+  `NetUserModalsSet` (was a `stub` in the spec; level 3 only, other levels still unimplemented) read and write
+  `HKLM\Software\WineExplorer\Elevation`: `LockoutBadCount`, `LockoutDuration` and `ResetLockoutCount` (minutes;
+  the API uses seconds, `TIMEQ_FOREVER` is a duration of 0). The key is opened in the 64-bit view, so 32-bit and
+  64-bit programs share one policy. Defaults: threshold 0, 30 minutes. Invalid values (threshold over 999, a window
+  longer than the duration) return `ERROR_INVALID_PARAMETER`. `netapi32.spec`, `include/lmaccess.h`: the export and
+  the prototype.
+- `programs/net/net.c`: `net accounts` shows the three lockout lines and sets them with `/lockoutthreshold:N`
+  (`NEVER` or 0: no lockout), `/lockoutduration:minutes` and `/lockoutwindow:minutes`. The rest of the Windows
+  `net accounts` output (password ages, force logoff, role) is not there. Exit code 2 on an error, as on Windows.
+- Test: `scripts/netmodals-lockout-probe.c` (32-bit and 64-bit).
+
 ## DWM: name of the broker's change event (2026-11-11)
 
 `include/wine/dwm_protocol.h` (a project header in the Wine tree): one new define, `DWM_CHANGE_EVENT_NAME`, the
@@ -2907,3 +2921,17 @@ calls it (PKT_PRIVACY, IMPERSONATE) on its update-service proxy and treats a fai
 DirectComposition surface interfaces), so `winedxgi.h` pulled the D3D10/D3D11 headers in after `initguid.h`, `d3d12_main.o`
 defined their IIDs itself and `d3d12.dll` failed to link against `libdxguid` (multiple definition of `IID_ID3D10*`). A fresh
 full build (the ISO build) hit it; incremental dev builds had not rebuilt d3d12.
+
+## U1-R0A: unpackaged identity ABI and token exports (isolated UWP branch)
+
+Wine commit `800dc315` on `codex/uwp-runtime` adds the token identity exports,
+validates explicit process and token handles using existing server query paths,
+and retains no-package/no-application behavior for unpackaged callers. Changes
+are in `dlls/kernelbase/version.c`, `dlls/kernelbase/kernelbase.spec`,
+`include/appmodel.h`, and `dlls/kernel32/tests/version.c`; there are no server
+or protocol changes. The isolated candidate built for x64 and x86; version tests
+reported 541 checks per architecture, zero failures and two skips. The unchanged
+MSVC identity probes matched recorded native unpackaged results on both ABIs;
+owned wineserver cleanup returned kill=0, wait=0. This incremental candidate
+and the unpackaged probes do not prove packaged context, `RtlQueryPackageIdentity`,
+or a clean combined production build. It is not integrated into the parent gitlink.

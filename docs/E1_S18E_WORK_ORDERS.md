@@ -1318,6 +1318,20 @@ Case: `r8_throttled_after_three_refusals` now also requires `r8: locked sent` an
 Not verified: the text on screen (no screenshot run of this path). Difference from Windows: there the
 prompt stays open for another name; here the request ends.
 
+## WO-40 The lockout policy set the Windows way (Claude, 2026-11-11)
+
+`net accounts` and `NetUserModalsGet/Set` level 3 read and write the WO-38 values (stock Wine changes, listed in
+`STOCK_CHANGES.md`). `ResetLockoutCount` is stored and reported; the verifier does not use it yet (below).
+The key is opened in the 64-bit registry view: the first test run showed a 32-bit program writing a separate
+copy under `Wow6432Node` that the verifier would never see.
+
+Test (plain prefix, main build, `scripts/netmodals-lockout-probe.c` as a 32-bit and a 64-bit program): defaults,
+`net accounts` output and switches, each program reading what the other or `net` wrote, refused values, exit
+codes, and the saved `system.reg` carrying the section the verifier parses.
+
+Not tested: setting it in the installed system, where only the system group may write the machine hive (an
+elevated administrator's `net accounts` against the machine root), and the verifier picking that change up.
+
 Open (WO-38): the window runs from the first unsuccessful attempt and is also the lockout time
 (`ResetLockoutCount` is not a separate setting); a change made in a running session reaches the verifier
 when the Wine server saves the hive; no `net accounts` / `NetUserModalsGet/Set` level 3 on top of the
