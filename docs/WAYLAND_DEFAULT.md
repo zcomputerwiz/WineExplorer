@@ -84,6 +84,14 @@ way.
   Upstream labwc removed the ping on 2025-12-01 (`d20d5675`, "don't send _NET_WM_PING to new windows"): nothing
   handled its timeout. wexcomp's branch now carries that commit (`034d722f`). The VM test's `waylandshellkeys` phase
   checks that xterm is still open after 10 seconds and takes the shell keys and Win+L.
+- **X terminals one column short in a UTF-8 locale** (found 2026-11-12, open except for the recovery console). In
+  UTF-8 mode xterm asks for its size again after mapping, while the size hints it set first still give a base one
+  pixel smaller (without the scroll bar's border). wexcomp, as labwc, snaps a client's configure request to the size
+  hints (`view_adjust_size` in `handle_request_configure`), so an 80-column xterm becomes 79. The recovery console
+  avoids it with no scroll bar border (`XTerm*vt100.scrollBarBorder: 0`), so its first size is its final one; a
+  window rule ignoring its configure requests did not help, since the size taken at map is the narrow one. A
+  general fix would snap client requests only to the hints in force once the client's own change has been read, or
+  not snap them at all, as an X server without a window manager does.
 - **The socket variable.** The session script exported `LABWC_WEX_SHELL_SOCKET`, which nothing reads. wexcomp reads
   `WEX_SHELL_SOCKET`. Both meant the default, `wex-shell-0`, so it worked. Fixed on 2026-11-11: the script sets
   `WEX_SHELL_SOCKET` and uses it.
