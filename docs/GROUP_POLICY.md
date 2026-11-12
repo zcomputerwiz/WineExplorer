@@ -117,6 +117,29 @@ model: it filters `**delvals.` entries itself and never reads `entry.type`, so a
   write it. It needs a writer with the system group: a small helper started through `wex-sysrun` that writes through
   a server, or a write to the saved hive only while no server has the machine root loaded.
 
+## What the system tier changes (2026-11-12)
+
+This note was written before session 0 ([SYSTEM_TIER_DESIGN.md](SYSTEM_TIER_DESIGN.md),
+[SYSTEM_TIER_WORK_ORDERS.md](SYSTEM_TIER_WORK_ORDERS.md)). Where the two differ, this section holds.
+
+| Topic | Before | With session 0 |
+|---|---|---|
+| Who writes machine policy | a system-group helper through `wex-sysrun`, or the saved hive while no server has it loaded | a program of session 0: session 0 holds `HKLM` for every session and its programs run as LocalSystem (T5.3, T5.4). The Samba extension hands the values to a small session 0 writer; later that writer is a service there, as the Group Policy Client service is on Windows. Writing the saved hive directly is never safe now: session 0 always has it loaded |
+| When sessions see a change | at their next start | at once: every session reads `HKLM` from session 0 (T1) |
+| User policy (`HKCU`) | through `wexhost` in the user's session | the user's hive is held by session 0 while the user is logged on (T4a), so the same session 0 writer can write `\Registry\User\<SID>\Software\Policies`; a user who is not logged on gets it at logon |
+| Making user policy binding (open question below) | not possible: a user's programs write their own `HKCU` | possible: session 0 serves the user's hive and can refuse writes below the two policy trees to tokens that are not SYSTEM or administrators. It needs a path rule in session 0, because Wine gives a new key no inherited descriptor (the reason T3 is postponed) |
+| Refresh signalling | `wexhost` sets the refresh events | the events live in each session's server; session 0 tells the sessions over the session link (T6.2), with a new order "policy refreshed" |
+| The elevation settings | read by `wexelevate` in the session | with E1 R9 ([E1_S18E_R9_SPEC.md](E1_S18E_R9_SPEC.md)) the broker in session 0 reads `ConsentPromptBehaviorAdmin`, `ConsentPromptBehaviorUser`, `PromptOnSecureDesktop`, `EnableStandardUserElevation` and the lockout policy from session 0's registry at each request, so a policy write there applies to the next request of every session |
+
+**Order of work.** Nothing of Group Policy belongs inside R9: R9 moves the reader of the elevation policy to
+session 0, and Group Policy later adds a writer beside it, with no change to R9. After R9:
+
+1. the session 0 policy writer and the path rule for the user policy trees (system tier, no domain needed; also
+   gives local policy a place: `secpol.msc`, `net accounts`);
+2. join detection and the two stock-Wine changes ("First work order" below; needs the Samba AD controller in the
+   lab);
+3. the Samba extension, refresh signalling over the session link, the applied-GPO list.
+
 ## Design
 
 1. **Join detection (`wexhost`).** Detect the join from `net ads info` or SSSD/realmd state and publish domain name,
