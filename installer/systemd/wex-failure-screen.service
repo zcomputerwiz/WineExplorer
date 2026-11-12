@@ -11,6 +11,8 @@ Requires=sysinit.target
 Wants=wex-plymouth-quit.service
 After=sysinit.target systemd-vconsole-setup.service wex-plymouth-quit.service
 Before=basic.target shutdown.target
+# Last Known Good writes the machine registry: before the system tier's session-0 server loads it (E1, T1)
+Before=wex-session0.service
 Conflicts=shutdown.target
 
 [Service]
