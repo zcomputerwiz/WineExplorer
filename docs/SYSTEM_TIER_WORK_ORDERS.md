@@ -393,6 +393,19 @@ administrator answer (`st_user_servers_answer_session0_on_their_link`) and that 
 served by another account (a standard user's fake) connects but sends nothing and answers no order
 (`st_user_server_ignores_a_socket_of_another_account`).
 
+**Review (Codex, 2026-11-12), all fixed:**
+
+| Finding | Fix |
+|---|---|
+| high: an empty message on a link (`recvmsg` returns 0) can carry descriptors, which were not closed: a trusted server could exhaust session 0's descriptors | descriptors are taken and closed for every message, empty ones included, on both sides (session 0's links, the user server's hive link) |
+| high: after a restart of session 0, running servers had no link and their ids were given again | session ids are unique across restarts: session 0 keeps the next id in `session0.ids` in its directory (reserved in blocks of 64). A server whose link closes links again (after 2 s, then doubling to a minute) and asks for its own id, which it gets when that id was given out before and no link holds it |
+| medium: a refused registration (the per-account cap, no session 0) left the server with session id 1 | a launcher-started server that gets no id from session 0 does not start; a development server keeps 1 |
+| medium: the first answer was the only one accepted on a link | session 0 waits for one answer per order sent (the serial of the outstanding order); a send that fails leaves nothing outstanding. Timeouts for orders come with the orders that need them (T6.3) |
+
+Tests added: the T1 test checks that A's server, kept by a program across session 0's restart, links again, that
+`session0.ids` is kept, and that 240 empty messages with descriptors (on new links and on session links) leave
+session 0's descriptor count unchanged.
+
 ## Security review of T1 to T6.1 (2026-11-12, Codex)
 
 An adversarial review of the session 0 code (Wine `ab5aa99c` to `543fa08d`) found five problems; all are fixed

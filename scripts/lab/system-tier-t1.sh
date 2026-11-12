@@ -136,6 +136,34 @@ for i in $(seq 1 100); do grep -q '^sub=' "$W/hold.out" 2>/dev/null && break; sl
 check hold_first "$(field first < "$W/hold.out")" session0
 check hold_second_after_restart "$(field second < "$W/hold.out")" session0-restarted
 check hold_create_subkey "$(field sub < "$W/hold.out")" 0
+# T6.2: A's server (kept by the holding program) linked to the new session 0 again under its own session id
+for i in $(seq 1 30); do grep -aq ' linked again$' "$W/s0.log" && break; sleep 0.5; done
+check a_linked_again "$(grep -a -c '^session0: session [0-9]* (server pid [0-9]*, uid 0) linked again$' "$W/s0.log" | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
+check s0_keeps_next_id "$([ -s "$W/s0/session0.ids" ] && echo yes)" yes
+# empty messages that carry descriptors do not leak them in session 0: 200 on new links, 40 on session links
+S0PID="$(pgrep -f -- 'wineserver --session0' | head -1)"
+FD_BEFORE="$(ls "/proc/$S0PID/fd" | wc -l)"
+python3 -I - "$SOCK" <<'PY'
+import array, socket, struct, sys
+fds = array.array('i', [sys.stdin.fileno()] * 4)
+anc = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, fds.tobytes())]
+for i in range(240):
+    c = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    c.connect(sys.argv[1])
+    if i >= 200:   # a session link first: SESSION_ID, its answer and the PING order
+        c.send(struct.pack('<5I', 0x30535857, 4, 0, 4, 0))
+        c.settimeout(2); c.recv(64); c.recv(64)
+    c.sendmsg([b''], anc)
+    c.settimeout(2)
+    try:
+        c.recv(64)
+    except OSError:
+        pass
+    c.close()
+PY
+sleep 1
+FD_AFTER="$(ls "/proc/$S0PID/fd" | wc -l)"
+check empty_messages_leak_no_fds "$([ "$FD_AFTER" -le $((FD_BEFORE + 8)) ] && echo yes || echo "no: $FD_BEFORE -> $FD_AFTER")" yes
 check s0_has_held_subkey "$(s0 reg query "$K\\Held" >/dev/null 2>&1; echo $?)" 0
 check s0_saved_key_dacl "$(grep -a -c '^#sd=' "$W/s0/system.reg" | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 check dacl_survives_restart "$(A "$W/p64.exe" getdacl 'Software\WexTier\Perm' | field dacl)" "$PERM_BEFORE"
