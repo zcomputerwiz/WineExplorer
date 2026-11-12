@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 <!-- Copyright 2026 WineExplorer contributors -->
-# E1-S18e R9: broker in session 0, agent in the session (spec v2, for review; system tier T6.3)
+# E1-S18e R9: broker in session 0, agent in the session (spec v3; system tier T6.3)
 
 Decision (2026-11-12): option A of [E1_S18E_R9_DESIGN.md](E1_S18E_R9_DESIGN.md), towards fast user switching.
 R9 changes only what this document names; everything else is R8 ([E1_S18E_R8_SPEC.md](E1_S18E_R8_SPEC.md), frozen
@@ -45,9 +45,12 @@ and sends V nothing but REDEEM (and RELEASE of its own channel). B0 never touche
   session link, T6.2; a peer without a current session link is refused for `wexelevate.r9`). B0 reads it with
   `GetNamedPipeClientSessionId`; it becomes `caller_session`. B0 refuses a client whose impersonation token is
   not LocalSystem.
-* **Session ids are not reclaimed across accounts.** S0 keeps, for every session id it gave out in its run, the
-  uid of the server it gave it to; a server that asks for an id again after its link closed (T6.2) gets it only
-  if its uid is that uid. After S0 restarts, the first reclaim records the uid. (Change to `session0.c`.)
+* **Session ids are not reclaimed across accounts.** S0 keeps, for every session id it gives out, the uid of the
+  server it gave it to, and appends `id uid` to `session0.owners` in its directory before it answers (written
+  with `O_APPEND`, read at start; at most the last 65536 entries are kept). A server that asks for an id again
+  after its link closed (T6.2) gets it only if its uid is the recorded one. An id with no record (the file was
+  lost) is not given back: that server keeps no session link, and R9 refuses its requests (section 3, no link).
+  (Change to `session0.c`.)
 * **Framing.** Each pipe message is one R8 frame: the 76-byte common header (R8 section 4) and a body; R8's
   encoding rules apply. New types 40..51.
 * **Limits.** One request in flight per session, at most 8 sessions with one; a ninth is DECISION deny (reason 3).
@@ -90,23 +93,29 @@ Rules:
 * **RECHECK.** A asks S to recheck D (R8 section 3) at each step B0 names and returns the result; B0 sends
   ATTACH_OK, READY, RESULT and the Confirm acceptance only after a RECHECKED ok of the matching step, where R8's B
   asks S. (A is trusted for this, section 1.)
-* **Retry.** After V's RESULT 2 (refused) B0 sends RESULT 2 to D through TO_D, then DONE 2, then either
-  NEXT_ATTEMPT (attempt + 1, at most 3, same deadline, fresh nonce; V's attempt was released first, R8 section 9)
-  or END 2. On NEXT_ATTEMPT A waits for D's exit (bounded; else terminates it), closes its pipes and creates the
-  next D for the new tuple (state `SPAWNING`).
-* **LAUNCH.** B0 sends LAUNCH only after it accepted Confirm (R8 section 8 checks) and V acknowledged the grant
-  (section 6). A then sends REDEEM to V on its own channel (R10), V sends RECEIPT to S on that channel's control
-  socket (R10, unchanged), A asks S to issue and launches, and reports LAUNCHED. B0 then sends DONE through TO_D,
-  RELEASE to V and END to A, where R8's B would.
+* **Retry.** After V's RESULT 2 (refused) B0 sends RESULT 2 to D through TO_D and releases V's attempt (R8
+  section 9). For a further attempt (attempt + 1, at most 3, same deadline, fresh nonce) B0 sends NEXT_ATTEMPT
+  first and only then DONE 2 through TO_D: on NEXT_ATTEMPT A enters `RETRYING`, in which D's exit is expected;
+  it writes the DONE, waits for D's exit (2 s, else terminates it), closes D's pipes and creates the next D for
+  the new tuple (`SPAWNING`). Without a further attempt B0 sends DONE 2 and then END 2.
+* **LAUNCH.** The decision to elevate is B0's GRANT to V (section 6), sent after B0 accepted Confirm (R8 section
+  8 checks). B0 then tells A with LAUNCH. A sends REDEEM to V on its own channel (R10), V sends RECEIPT to S on that
+  channel's control socket (R10, unchanged), A asks S to issue and launches, and reports LAUNCHED. B0 then sends
+  DONE through TO_D, RELEASE to V and END to A, where R8's B would. A may redeem as soon as V granted, before
+  LAUNCH arrives; that changes nothing, since the grant is the decision.
 * **Order.** An unexpected type in a state is CANCEL 5. A cancels at the tuple's deadline.
 
 ## 5. A's states
 
 `IDLE` → (S6 channel registered, REQUEST sent) `REQUESTED` → (DECISION 1) `SPAWNING` → (D created suspended,
-endorsed, resumed; ENDORSED_LOCAL sent) `RELAYING` → (NEXT_ATTEMPT) `SPAWNING`, or (LAUNCH) `LAUNCHING` →
+endorsed, resumed; ENDORSED_LOCAL sent) `RELAYING` → (NEXT_ATTEMPT) `RETRYING` → (D gone) `SPAWNING`, or
+(LAUNCH) `LAUNCHING` →
 (LAUNCHED sent) `ENDING` → (END) `IDLE`. DECISION 2 → `IDLE` after END. A cancels (terminates D, closes its pipes,
 sends CANCEL, releases its S6 channel) on D's death outside a retry, a broken pipe to D or B0, the deadline, a
-failed recheck, the caller's death. After LAUNCHED 1 A follows R8's post-commit rules. Cancellation wins.
+failed recheck, the caller's death. Cancellation wins up to V's `GRANTED` (section 6). V's redemption is the
+point of no return: after it the request is committed in R8's sense, a cancellation no longer withdraws it, and
+what can still stop the token are S's checks at issue (the receipt's time and generations, R10) and the launch's
+own failure (R8's post-commit rules).
 
 ## 6. The grant, held by V
 
@@ -120,12 +129,15 @@ failed recheck, the caller's death. After LAUNCHED 1 A follows R8's post-commit 
   V requires: A's channel exists, is endorsed by a session's server, and is alive; ENDORSED for the attempt comes
   from that server (its pin, R8 section 6 WO-26), so a dialog endorsed by another server is refused; DialogAttach
   as R8. B0's channel loss cancels all its attempts; A's channel loss cancels the attempt.
-* **GRANT** (new, type 31, B0→V on B0's channel): header of the attempt, `account_key:16`, `evidence_ref:16`;
-  total 108. V accepts it once per attempt, only in `RESULT_RETAINED`, only if `account_key` and `evidence_ref` are
-  the attempt's RESULT 1 values; it answers GRANTED (type 32, 76 bytes) and moves to `GRANTED`.
+* **GRANT** (new, type 32, B0→V on B0's channel): header of the attempt, `account_key:16`, `evidence_ref:16`;
+  total 108. It is B0's decision to elevate. V accepts it once per attempt, only in `RESULT_RETAINED`, only if
+  `account_key` and `evidence_ref` are the attempt's RESULT 1 values; it answers GRANTED (type 33, 76 bytes) and
+  moves to `GRANTED`.
 * **REDEEM** (R10) is accepted only on the attempt's A channel and only in `GRANTED`; it is single use. A CANCEL
   from B0, B0's channel loss, the deadline or a generation change in `GRANTED` moves V to `CANCELLED` atomically
-  with respect to REDEEM (V's attempt lock); a REDEEM after that is refused and no RECEIPT is sent.
+  with respect to REDEEM (V's attempt lock); a REDEEM after that is refused and no RECEIPT is sent. REDEEM is the
+  point of no return (section 5): a CANCEL in `REDEEMED` changes nothing but the outcome V records, and RELEASE
+  follows as in R8.
 * **RECEIPT, ENDORSED, DialogAttach, W_SETUP, the secret socket, RESULT**: unchanged.
 
 V's states (R8 section 9) become: `ENDORSED` → `STARTED` → `WORKER_READY` → `ATTACH_RESERVED` → `DELEGATED` →
@@ -134,7 +146,8 @@ V's states (R8 section 9) become: `ENDORSED` → `STARTED` → `WORKER_READY` �
 ## 7. What a subverted A can do
 
 Drop, delay or cancel; misreport a recheck or the display strings (it is trusted for them, section 1); forge D's
-Confirm (it sees RESULT's challenge). It cannot redeem: V needs B0's GRANT, which B0 sends only after V's RESULT 1
+Confirm (it sees RESULT's challenge); once V granted, redeem and launch without waiting for LAUNCH (the grant is
+the decision). It cannot redeem before that: V needs B0's GRANT, which B0 sends only after V's RESULT 1
 (the password) and B0's own Confirm, policy and attempt checks. It cannot change the account (the grant names
 the account key) or move an attempt to another session's server (V's binding, section 6).
 
@@ -148,7 +161,9 @@ the account key) or move an attempt to another session's server (V's binding, se
 * S0: a bridged `wexelevate.r9` client's session id; a bridge without a session link refused; a session id
   reclaimed by another uid refused.
 * Chain: the lab suite's R8 cases with B0 and A; a refused password then a second attempt (NEXT_ATTEMPT); A
-  killed in each state; B0 killed in each state; a frame altered by a test agent (B0 cancels); LAUNCH withheld (no
+  killed in each state; B0 killed in each state; a frame altered by a test agent (B0 cancels); D exiting after
+  DONE before NEXT_ATTEMPT is handled (retry still works); a foreign uid reclaiming a disconnected session's id
+  first (refused; the owner's reclaim works); a REDEEM before LAUNCH after GRANT (allowed); GRANT withheld (no
   token although Confirm and RESULT are valid); two sessions with a request each (one B0, two A; attempts counted
   per account across both).
 
@@ -174,3 +189,16 @@ the account key) or move an attempt to another session's server (V's binding, se
 | high: V lost the session server's pin | the attempt is bound to A's channel, whose endorsing server's pin V already keeps; no pid crosses |
 | high: reclaimed session ids not bound to their server | a reclaim needs the same uid (section 3) |
 | medium: no retry flow | NEXT_ATTEMPT and the `RELAYING` → `SPAWNING` transition |
+
+## 11. Review of v2 (Codex, 2026-11-12)
+
+The verifier-held grant and the receipt on A's channel were confirmed as fixes for v1's placement and routing
+findings. v3:
+
+| v2 finding | v3 |
+|---|---|
+| high: a cancellation after redemption could not withdraw the receipt | the point of no return is stated: cancellation wins up to `GRANTED`; REDEEM commits (section 5), as R8's commit; S's existing issue checks still apply |
+| high: A could redeem between GRANT and LAUNCH | GRANT is the decision to elevate; LAUNCH only tells A; the claim that withholding LAUNCH stops the token is gone, the test withholds GRANT |
+| high: session id owners lost when session 0 restarts | owners persist in `session0.owners`; an id without a record is not given back |
+| medium: a retry could fail when D exited after DONE before NEXT_ATTEMPT arrived | NEXT_ATTEMPT is sent before DONE; A's `RETRYING` state expects D's exit |
+| GRANT used type 31, already LOCKED (WO-39) | GRANT 32, GRANTED 33 |
