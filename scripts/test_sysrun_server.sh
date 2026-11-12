@@ -2710,6 +2710,51 @@ el_down "$STD"
 sleep 6   # session 0's lazy flush
 ! grep -q '^"v"="store"\|^"mine"="user"' "$M/system.reg" || fail "T2b: a virtualized write is in the machine hive"
 ok st_virtual_store_for_32_bit_programs_of_a_standard_user
+# A link in the user's own user.reg does not carry session 0's load of the hive into the machine registry: the
+# link names an existing machine key, and a later section names a key beneath the link.
+UREG="/home/$STD/.wine/user.reg"
+cp -p "$UREG" "$ROOT/user.reg.keep"
+LINKHEX="$(printf '%s' '\Registry\Machine\Software\WexTier' | iconv -t UTF-16LE | od -An -tx1 | tr -s ' \n' ',' | sed 's/^,//; s/,$//')"
+{ printf '\n[Software\\\\WexEscape] 1700000000\n#link\n"SymbolicLinkValue"=hex(6):%s\n' "$LINKHEX"
+  printf '\n[Software\\\\WexEscape\\\\Planted] 1700000000\n"planted"="by-user-reg"\n'; } >> "$UREG"
+wine_as "$STD" reg query 'HKCU\Software' >/dev/null 2>&1 || true   # session 0 loads the hive
+as_wine "$ADM" reg query 'HKLM\Software\WexTier\Planted' >/dev/null 2>&1 &&
+    fail "a link in user.reg let session 0's load write under HKLM"
+el_down "$STD"; el_down "$ADM"
+sleep 6   # session 0's lazy flush
+! grep -q 'by-user-reg' "$M/system.reg" || fail "the planted value reached the machine hive"
+cp -p "$ROOT/user.reg.keep" "$UREG"
+ok st_links_in_user_reg_do_not_reach_the_machine_registry
+# connections that are not trusted are closed at once: a user cannot hold session 0's descriptors
+S0PID="$(pgrep -u "$S0U" -x wineserver | head -1)"
+runuser -u "$STD" -- python3 -I - "$S0RUN/session0" <<'PY' &
+import socket, sys, time
+held = []
+for i in range(300):
+    c = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    c.connect(sys.argv[1])
+    held.append(c)
+time.sleep(8)
+PY
+HOLDER=$!
+sleep 3
+FDS="$(ls "/proc/$S0PID/fd" | wc -l)"
+[ "$FDS" -lt 100 ] || fail "session 0 holds $FDS descriptors while a user holds 300 idle connections"
+[ "$(s0q "$ADM" fromadm)" = elevated ] || fail "session 0 does not serve while a user holds idle connections"
+wait "$HOLDER" || fail "the idle connections could not be made"
+el_down "$ADM"
+ok st_idle_connections_do_not_hold_session0
+# a save that the user's server cannot write is sent again: nothing is lost
+el_up "$STD"
+install -d -o "$STD" "/home/$STD/.wine/user.reg.wex-session0"   # the temporary file cannot be made
+as_wine "$STD" reg add 'HKCU\Software\WexAck' /v v /d acked /f >/dev/null || fail "HKCU write for the save test"
+sleep 7
+! grep -q '"v"="acked"' "$UREG" || fail "a failed save wrote user.reg"
+rmdir "/home/$STD/.wine/user.reg.wex-session0"
+sleep 7
+grep -q '^"v"="acked"' "$UREG" || fail "session 0 did not send the hive again after a failed save"
+el_down "$STD"
+ok st_a_failed_save_of_the_user_hive_is_sent_again
 # a server that the user starts without the launcher reads the same configuration, and session 0 refuses it
 prefix_server_env "$STD" -p 30 >/dev/null 2>&1 &
 sleep 2

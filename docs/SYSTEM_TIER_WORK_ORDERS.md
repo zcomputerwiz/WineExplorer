@@ -373,6 +373,28 @@ gives each trusted server the next id (1, 2, ...; it is 0 itself). Without an an
 Test: the T1 test (development mode) checks that the programs of sessions A and B report different session ids,
 both at least 1 (probe `whoami` prints `session=`). T1 test, lab suite 398, normal suite 335, broker test pass.
 
+## Security review of T1 to T6.1 (2026-11-12, Codex)
+
+An adversarial review of the session 0 code (Wine `ab5aa99c` to `543fa08d`) found five problems; all are fixed
+(protocol version 3):
+
+| Finding | Fix |
+|---|---|
+| critical: a `#link` key in the user's own `user.reg`, followed by a section beneath it, made session 0's load (which has no access checks) write into machine keys or another user's hive | while session 0 loads a user's hive, no registry link is followed (`load_nofollow` in `key_lookup_name`): a section beneath a link fails to load |
+| high: any local user could hold session 0's descriptors with idle connections | a peer that is not trusted gets `STATUS_ACCESS_DENIED` and is closed at once; trusted links waiting for their message are limited to 64 and dropped after 5 s. The trust check takes a pidfd of the peer (`SO_PEERPIDFD`, Linux 6.5 and later) before it reads `/proc/<pid>/status` and checks afterwards that the process is still alive, so a recycled pid is not believed |
+| high: a FIFO (or any file that blocks) as `user.reg` could stop session 0's event loop | the user's server sends a copy of `user.reg` in a memory file sealed against writes and size changes (at most 64 MiB); session 0 accepts nothing else. A `user.reg` that is not a regular file, or is too large, stays with the user's server for its life |
+| high: a save was marked done when it was sent, not when the user's server had written it, so a failed write lost the changes | the user's server answers each save with `HIVE_SAVED` (written or not); a failed write makes the hive dirty again, and the next period sends it again. The user's server logs a failed write |
+| high: a registry-only client sending raw requests could grow session 0's notification cookies without a limit | at most 4096 pending notifications per client, the same limit as the program's relay in its own server |
+
+Also: a hive link that ends in any way now unloads its hive (before, a link that ended without a readable end of
+file left the hive registered with a freed agent).
+
+Tests (sysrun suite, session 0 section): `st_links_in_user_reg_do_not_reach_the_machine_registry`,
+`st_idle_connections_do_not_hold_session0` (300 idle connections of a standard user; session 0 keeps fewer than
+100 descriptors and still serves), `st_a_failed_save_of_the_user_hive_is_sent_again` (the temporary file cannot be
+made until the test removes the obstacle). The FIFO case is not run: the user's own server would block on its own
+start-up read of the FIFO first, which harms only that user; the sealed-copy check is what protects session 0.
+
 ## T1 close-out and the plan for T2b to T6 (2026-11-12)
 
 T1 is done except the run on an installed machine (ISO build with `WEX_SESSION0=1`, VM test), which waits for
