@@ -434,9 +434,9 @@ itself has had no third pass). Work orders: its section 9.
 | WO | State |
 |---|---|
 | R9-1 codecs (Qwen) | done: types 40..51, GRANT 32, GRANTED 33 in `e1r8_codec.h` and `e1r8.py`; 158 C and 120 Python vectors, 19 golden lines; verified natively, under ASan/UBSan, with both MinGW compilers and by the Python cross-check; reviewed against the spec |
-| R9-2 verifier (Antigravity) | running: `WEX_E1S6_LAB_R9=1`, session 0 as endorser, channel kinds, the attempt's A channel, GRANT and the REDEEM gate, `tools/e1s6/test-r9-verifier.py` |
-| R9-3 session 0 and server | done except its end-to-end use: `wexelevate.r9` on the bridge list for peers with a session link; the bridged client's session id (`GetNamedPipeClientSessionId`); session ids go back only to their recorded account (`session0.owners`); session 0 recognises its broker image and endorses it for S6 (`server/sysrun.c`, lab block; built, used first by R9-4c) |
-| R9-4 B0 and A in `wexelevate` | started: see the parts below |
+| R9-2 verifier (Antigravity) | done: `WEX_E1S6_LAB_R9=1` and `WEX_E1S6_LAB_S0_USER`, session 0 as endorser, B0 and A channels, GRANT/GRANTED, REDEEM only after a grant on the attempt's A channel, 18 unit tests (`tools/e1s6/test-r9-verifier.py`); with R9 off the lab suite is unchanged (405). Reviewed by Claude, with two changes (the dialog may leave in `GRANTED`; START finds the attempt through the record on the agent's channel). The R9 path inside the running verifier is first exercised by the chain (R9-5) |
+| R9-3 session 0 and server | done except its end-to-end use: `wexelevate.r9` on the bridge list for peers with a session link; the bridged client's session id (`GetNamedPipeClientSessionId`); session ids go back only to their recorded account (`session0.owners`); session 0 recognises its broker image and has its own entry for the S6 endorsement (`server/sysrun.c`, `named_pipe.c`, lab block; built, used first by R9-4c) |
+| R9-4 B0 and A in `wexelevate` | 4a done (`r8_dialog_create`; broker test and lab suite unchanged); 4b (the agent) with Antigravity; 4c (B0) Claude |
 | R9-5 lab cases, R9-6 review | not started |
 
 R9-4 in parts (the R8 path stays as it is for `R9` off, so the lab's R8 cases keep running):
