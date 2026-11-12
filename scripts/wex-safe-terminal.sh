@@ -56,7 +56,8 @@ EOF
 # (scripts/wayland/rc.xml), so the rows fit there too.
 # The scroll bar has no border line (scrollBarBorder 0). In a UTF-8 locale xterm first sized its window without that
 # pixel and then asked for one more; wexcomp snapped the request to the size hints it had (base 18), so under Wayland
-# the console stayed 578 pixels wide, 79 columns (2026-11-12). Without the border both sizes are the same.
+# the console stayed 578 pixels wide, 79 columns (2026-11-12). Without the border both sizes are the same. wexcomp
+# 1f8e5d3a no longer snaps a client's own size request, so the border would now fit as well.
 CELL_H=13
 CHROME=18   # two internal borders of 2 pixels and the scroll bar (14)
 screen_w=0 screen_h=0

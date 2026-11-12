@@ -30,7 +30,7 @@ what was done towards it on 2026-11-11.
 |---|---|
 | Shell hotkeys (Win+L, Win+R, Alt+Tab) | Was partly done: focus moved to the Wine frame on Super or Alt+Tab only for a hosted native window; an unhosted one got nothing, and Ctrl+Esc and Alt+F4 never reached Explorer. **2026-11-11:** shared in wexhost, with an X11 and a Wayland adapter (above). No GlobalShortcuts portal for applications' own shortcuts yet. |
 | Session lock | Win+L calls LightDM's `Seat.Lock` in both sessions, which shows the Welcome screen (above). **2026-11-11:** works from a Wayland session with a native program on the keyboard; logging on again returns to the same compositor (VM test `waylandshellkeys`, both firmwares). wexcomp's ext-session-lock is not used. Wine's `LockWorkStation` is a stub. |
-| Greeter | An X greeter before both sessions. No Wayland greeter. |
+| Greeter | An X greeter before both sessions. No Wayland greeter. **Decided 2026-11-12 (owner):** the X greeter stays; Log Off, Win+L and the Welcome screen's session list are tested from Wayland through it (`waylandlogon`, `waylandxlock`, `waylandshellkeys`). |
 | Output management (Display Properties) | **Done 2026-11-11** for one output: wexhost uses wlr-output-management, which wexcomp implements (`src/dlls/wexhost/wloutput.c`). Before, it used only XRandR, which in the Wayland session had no `DISPLAY` and failed. The next Wayland session restores the saved mode. More than one output is still refused, as on X11. Display Properties' own dialogs on Wayland are not yet tested. |
 | Multi-monitor and scale | Partly. Scale changes are handled per window for hosted native windows, and the taskbar's reserved edge is per output. The v14 frame clock and the frame-scheduling fallback use only the first output, and the Mica blur is one node over the whole layout. |
 | Automatic adoption of native windows | The session already turns it on: the script exports `WEX_WAYLAND_NATIVE_WINDOWS=1`. Without it, Explorer reports "not managing Linux windows" (the AUTO backend is not attached). |
@@ -60,16 +60,34 @@ way.
 - **Session lock:** Win+L already takes one path in both sessions. Explorer asks the display manager to lock the
   seat (LightDM's `Seat.Lock` over D-Bus, through the session's `XDG_SEAT_PATH`), which shows the Welcome screen, as
   XP does with fast user switching. Nothing in it is specific to X11. On Wayland, Win+L only had to reach Explorer
-  from a native window, which the shell keys do. ext-session-lock is therefore not needed. Because any client can
-  bind it today, it belongs with the protocols to restrict (below).
+  from a native window, which the shell keys do. ext-session-lock is therefore not needed. Since 2026-11-12 only the
+  private socket's clients can bind it (below).
 
 ## Found on the way
 
-- **Privileged protocols are open to every client.** wexcomp restricts layer-shell, ext-session-lock and
-  wlr-output-management only for sandboxed clients, so any ordinary client on `wayland-0` can bind them. Only
-  `wex_window_manager_v1` is limited to the private socket. Most wlroots compositors do the same, but WineExplorer's
-  design says privileged operations go through the private socket. Restricting these needs a decision on what may
-  still use them (wexhost's output management connects from Explorer's process through the private socket).
+- **Privileged protocols were open to every client** (found 2026-11-11, fixed 2026-11-12 after the owner's decision
+  to keep them for the private socket). wexcomp restricted layer-shell, ext-session-lock and wlr-output-management
+  only for sandboxed clients, so any ordinary client on `wayland-0` could bind them; only `wex_window_manager_v1` was
+  limited to the private socket. WineExplorer's design says privileged operations go through the private socket.
+  - Since wexcomp `1f8e5d3a` (`protocol_is_shell_only` in `src/server.c`), the protocols that make a client part of
+    the shell are offered only on the private socket `wex-shell-0`: layer-shell (panels, desktop layers),
+    ext-session-lock, wlr-output-management, wlr-output-power, wlr-gamma-control, wlr-foreign-toplevel-management
+    and both workspace protocols.
+  - Explorer and every Windows program it starts use that socket (`WAYLAND_DISPLAY=wex-shell-0`). Native programs
+    get `wayland-0` (`src/dlls/wexhost/apps.c`) and no longer see these protocols, and neither do XWayland and
+    sandboxed clients.
+  - Nothing in the image used them on `wayland-0`. wexhost's output management (`wloutput.c`) and window list
+    (`waylandwm.c`) connect from Explorer through the private socket. Wine's clipboard uses wlr-data-control, which
+    stays open.
+  - Also open: screen capture (grim, screen sharing through a portal), the read-only window list, idle state, the
+    clipboard, input methods and virtual input. XP lets any program read the screen and the windows. Input methods
+    and clipboard managers are native programs.
+  - The test tools that set the output mode now use the private socket: `wlr-randr` in `check-wayland-polish.py`,
+    `check-wayland-dwm.sh` and wexcomp's own test runners.
+  - The private socket is the user's own, like `wayland-0` (mode 0700 runtime directory): a native program of the
+    same account could still connect to it on purpose. A sandbox that is given only `wayland-0` cannot.
+  - wexcomp's suite checks both sockets (`stack-client --scenario check-sockets`). wexcomp also now compares the whole
+    socket name when it decides whether a client is on the private socket, not a part of the path.
 - **xterm under XWayland closed by itself in the Wayland session** (found and fixed 2026-11-11). An xterm started in
   the session exited with status 0 within a second of appearing, while other X programs (`xev`) stayed open. An
   strace in the VM showed xterm itself sending SIGHUP to its shell. The cause:
@@ -84,14 +102,16 @@ way.
   Upstream labwc removed the ping on 2025-12-01 (`d20d5675`, "don't send _NET_WM_PING to new windows"): nothing
   handled its timeout. wexcomp's branch now carries that commit (`034d722f`). The VM test's `waylandshellkeys` phase
   checks that xterm is still open after 10 seconds and takes the shell keys and Win+L.
-- **X terminals one column short in a UTF-8 locale** (found 2026-11-12, open except for the recovery console). In
-  UTF-8 mode xterm asks for its size again after mapping, while the size hints it set first still give a base one
-  pixel smaller (without the scroll bar's border). wexcomp, as labwc, snaps a client's configure request to the size
-  hints (`view_adjust_size` in `handle_request_configure`), so an 80-column xterm becomes 79. The recovery console
-  avoids it with no scroll bar border (`XTerm*vt100.scrollBarBorder: 0`), so its first size is its final one; a
-  window rule ignoring its configure requests did not help, since the size taken at map is the narrow one. A
-  general fix would snap client requests only to the hints in force once the client's own change has been read, or
-  not snap them at all, as an X server without a window manager does.
+- **X terminals one column short in a UTF-8 locale** (found and fixed 2026-11-12). In UTF-8 mode xterm with a scroll
+  bar and a bitmap font asks for its size again after mapping, while the size hints it set first still give a base
+  one pixel smaller (without the scroll bar's border). wexcomp, as labwc, snapped a client's configure request to the
+  size hints (`view_adjust_size` in `handle_request_configure`), so an 80-column xterm became 79. Since wexcomp
+  `1f8e5d3a`, a size an X client asks for itself is taken as an X server without a window manager takes it
+  (`view_adjust_requested_size`: only the minimum applies); interactive resizes still snap to the increments.
+  - Headless check (wexbuild), the recovery console's xterm options at 640x480: 79 columns in C.UTF-8 before, 80
+    after; 80 in C either way. wexcomp's suite now checks it (`tests/wex/run.sh`, needs xterm and xfonts-base).
+  - The recovery console keeps its scroll bar without a border (`XTerm*vt100.scrollBarBorder: 0`, added before the
+    fix); with the fix it is no longer needed for the width.
 - **Logging off from Wayland could log the account straight back on** (found and fixed 2026-11-12). Once in eleven
   log offs from the Wayland session on UEFI (the VM test's `waylandlogon`), the Welcome screen did not come: the
   automatic logon's desktop came back. Log Off ends the session through logind (`TerminateSession`, wexhost), which
@@ -122,14 +142,14 @@ way.
 
 1. Done on 2026-11-11: the account's choice is kept through Safe Mode and used by automatic logon; Display
    Properties changes the real output on Wayland.
-2. Decide the greeter. Recommended: keep the X greeter, which already starts both sessions, and test Switch User
-   and Log Off from a Wayland session through it.
+2. Decided 2026-11-12 (owner): keep the X greeter, which already starts both sessions. Log Off, Win+L and the
+   Welcome screen's logon into Wayland are tested through it.
 3. Done on 2026-11-11: the shell's keys reach Explorer from any native window, hosted or not (shared
    `shellkeys.c`, `wex_window_manager_v1` v15), including X programs through XWayland. Applications' own global
    shortcuts (a GlobalShortcuts portal) are not covered.
 4. Done on 2026-11-11: the lock stays on LightDM's `Seat.Lock`, tested from Wayland. Since 2026-11-12 the Welcome
    screen's session list follows the account clicked (below), so it no longer shows X11 for a Wayland account.
-5. Restrict the privileged protocols to the private socket (decision above).
+5. Done on 2026-11-12: the shell-only protocols are offered on the private socket only (wexcomp `1f8e5d3a`, above).
 6. The 150% scaling items, multi-output frame clock and Mica, CS_DROPSHADOW.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
