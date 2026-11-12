@@ -2,8 +2,8 @@
 
 ## wineboot, win32u, services.exe, wine.inf, user32: Safe Mode (2026-11-09, 2026-11-11)
 
-Wine branch `claude/vintner-boot-integration`, commits `46f3a86e33d` and `d4e95e24dee` on `cf1c29be` (local, not
-pushed; `docs/SAFE_MODE_WORKORDER.md` B1-B7). The branch also carries `4a1d6d5a25e`, the buffered paint fix (the
+Wine branch `claude/vintner-boot-integration`, commits `46f3a86e33d` and `d4e95e24dee` on `cf1c29be` (pushed to the
+fork on 2026-11-12; WineExplorer's gitlink moves at the merge, `docs/SAFE_MODE_WORKORDER.md` B1-B8). The branch also carries `4a1d6d5a25e`, the buffered paint fix (the
 uxtheme section of 2026-11-03 below). WineExplorer keeps the boot mode in the root-owned `/run/wineexplorer/bootmode` (`safe`, `safenet` or
 `safecmd`); without that file, as in a stock prefix, nothing changes.
 
@@ -2419,8 +2419,7 @@ Wine `dlls/uxtheme/{draw.c,buffer.c,uxthemedll.h,tests/glass.c,tests/Makefile.in
 - DwmIsCompositionEnabled reports the real gate state; DwmGetWindowAttribute round-trips FLIP3D_POLICY
   and EXCLUDED_FROM_PEEK; DwmGetColorizationParameters returns the theme colours.
 - New test `uxtheme/tests/glass.c`.
-- **Fixed 2026-11-11** (Wine branch `claude/vintner-boot-integration`, `4a1d6d5a25e`, local, as the Safe Mode
-  commits). The clipping this change added to `BeginBufferedPaint` left every buffered paint into a window DC empty
+- **Fixed 2026-11-11** (Wine branch `claude/vintner-boot-integration`, `4a1d6d5a25e`, with the Safe Mode commits). The clipping this change added to `BeginBufferedPaint` left every buffered paint into a window DC empty
   (black), so the taskbar, its task band and the Quick Launch toolbar were black and showed no task buttons:
   - `ExtSelectClipRgn(RGN_AND)` ran before the buffer bitmap was selected. A new memory DC is 1x1, and the clip
     region that `RGN_AND` starts from is the DC's device rectangle, so the buffer was clipped to one pixel. The

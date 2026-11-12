@@ -14,7 +14,8 @@ Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
 - Wine: `claude/vintner-boot-integration`, created at `cf1c29be` ("E1-S14"), the Wine commit WineExplorer pins.
-  It is local and not pushed. Work on it in a separate `git worktree`. The submodule checkout (detached at
+  Pushed to the fork on 2026-11-12 (`4a1d6d5a25e`), at the owner's request, as its own branch: `development` and
+  the gitlink stay as they are until B8's merge. Work on it in a separate `git worktree`. The submodule checkout (detached at
   `38820218`) stays as it is, and the token branches (`gemini/token-security*`) and the E1 code are not touched.
 
 ## 1. What phase 1 left open
