@@ -75,6 +75,12 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   through a running server; `start_server_checked` starts none for it), `server/session0.c` (session 0's own
   programs are in session 0), `server/directory.c` (session 0's directories are not created twice).
 
+- T5.4, services of session 0: `programs/services/forward.c`, `forward.h`, `svcctl_s0.idl` (new; client stubs with
+  the prefix `s0_`, `EXTRAIDLFLAGS` in `Makefile.in`), `rpc.c` (remote handles, routing, merged enumerations),
+  `services.c` and `services.h` (`is_session_service`, forward mode, no autostart of session 0's services in a
+  session), `server/token.c` (`create_service_token` in session 0 for a SYSTEM caller), `server/process.c` (session
+  0's own programs run as LocalSystem).
+
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)

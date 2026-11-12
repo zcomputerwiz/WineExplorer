@@ -384,8 +384,26 @@ front is the session's own `services.exe`.
 |---|---|---|
 | T5.2 | Pipe bridge in the server: a program of a session opens `\pipe\WexSession0\<name>`; its server sends session 0 a `PIPE` link message (the opener's token description, the name, one end of a stream socket); session 0 connects a bridge end as the client of a listening instance of `\pipe\<name>`, with the described token as the client token, so `ImpersonateNamedPipeClient` there gives the real caller. Messages cross the socket as length and data (boundaries kept). Session 0 allows `svcctl` only, checks the pipe's descriptor against the described token, and keeps at most 256 bridges per account; a session cannot create a `WexSession0\` pipe | done |
 | T5.3 | Session 0 runs its own `services.exe` in production: a program of session 0's account may use the root-owned machine root, but only through a server already running for it (`ntdll` starts none for a prefix of root; a server accepts one only as session 0). Session 0's own programs are in session 0 (`default_session_id` 0; the server then creates the session 0 directories once). Every server, session 0 included, runs its own drivers and per-session services (PlugPlay, RpcSs, ...); machine-wide services run in session 0 only because the sessions forward them (T5.4) | done |
-| T5.4 | Forwarding in the session's `services.exe`: services of the session (drivers, `PlugPlay`, `RpcSs`, the E1 broker until T6) stay; for every other service the `svcctl` calls go to session 0 through `\pipe\WexSession0\svcctl`, bound while impersonating the caller, so session 0 checks the caller's token. Enumerations merge both. Client stubs generated with a prefix (`--prefix-client`) next to the server stubs | after T5.3 |
-| T5.5 | Tests: two sessions see one state; a service started from one session runs for the other; a standard user cannot stop it; Safe Mode filter in session 0 | with T5.4 |
+| T5.4 | Forwarding in the session's `services.exe` (`programs/services/forward.c`, `svcctl_s0.idl` with `--prefix-client=s0_`). A session's own services stay: drivers and their `Winedevice` hosts, and Wine's services that act for the session or its user (`is_session_service`: BITS, EventLog, FontCache, LanmanServer, MSIServer, PlugPlay, RpcSs, SamSs, scardsvr, Schedule, Spooler, StiSvc, TermService, Winmgmt, E1's `wexelevate`). For every other service (in practice those that programs install) `OpenService`, `CreateService`, the name lookups and the calls on its handle (delete, configuration, status, start, control, security) go to session 0 through `\pipe\WexSession0\svcctl`; the connection is made while impersonating the caller, one association per manager handle, so session 0 checks the caller's own token. Enumerations list the session's own and session 0's others. The session does not start session 0's services. Forward mode is chosen at start: a session (id not 0) whose server reaches session 0's service manager | done |
+| T5.5 | Tests: T1 test (sessions A and B, development mode): `wuauserv` started from A runs in session 0 and not in A, B sees it running, A stops it; a service created from A is in session 0 and B sees it, A deletes it; A keeps its own PlugPlay; enumerations from 64-bit and 32-bit programs list session 0's service once and the session's PlugPlay once. Sysrun suite: the service runs as session 0's account and not in the user's session; a standard user sees it running and cannot stop it (access denied by session 0) | done; the Safe Mode filter in session 0 waits for an ISO run |
+
+Found while building T5.4:
+
+* session 0's `services.exe` could not start any service: the server made service-account tokens only for E1's
+  launcher-started system role. In session 0 a process whose token is SYSTEM's may (only session 0's account runs
+  programs there; registry-only clients cannot make the request).
+* session 0's own programs had the filtered administrator token of a user's first process, so with access checks
+  on session 0's `sc` could not open its own service manager. They now run as LocalSystem (S-1-5-18, session 0), as
+  services and the system's tools do in Windows' session 0. Tests: T1 and the sysrun suite check it.
+* Wine's `sc` opens the service manager with all access, which a standard user is not given in any session; the
+  sysrun checks of a standard user use the probe (`svcstate`, `svcstop`), which ask only for what they need.
+* the driver hosts (`Winedevice1`, ...) are Win32 services that `services.exe` adds for drivers; forwarded, their
+  `SetServiceStatus` failed and a session's start stalled. They belong to the session.
+
+Open: `NotifyServiceStatusChange` on a service of session 0 returns `ERROR_CALL_NOT_IMPLEMENTED` (notifications are
+not relayed); `QueryServiceStatus`, `ControlServiceExW` and `EnumDependentServicesW` stay local, as they are not
+implemented in Wine's service manager either; the services that stay in sessions for now (MSIServer, Schedule, BITS)
+move when they can act for users of other sessions.
 
 T5.2 tests (T1 test, development mode): a session's 64-bit and 32-bit programs open `\pipe\WexSession0\svcctl`
 and get a DCE/RPC `bind_ack` from session 0's service manager; `WexSession0\lsarpc` is refused (not listed); a

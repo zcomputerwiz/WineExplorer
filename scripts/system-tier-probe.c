@@ -33,6 +33,10 @@
  *                                 manager's interface and prints pipe=open (or pipe=error<n>) and bind=<the answer's
  *                                 packet type: 12 bind_ack, 13 bind_nak>
  *   probe pipecreate PIPE         tries to create \\.\pipe\PIPE; prints create=ok or create=error<n>
+ *   probe enumsvc NAME            lists the Win32 services (EnumServicesStatusExW); prints count=<entries named NAME>
+ *                                 and total=<entries>
+ *   probe svcstate NAME           opens the service for status only; prints state=<dwCurrentState> or state=error<n>
+ *   probe svcstop NAME            opens the service for SERVICE_STOP and stops it; prints stop=0 or stop=error<n>
  * Build: x86_64-w64-mingw32-gcc / i686-w64-mingw32-gcc -municode -o probe.exe system-tier-probe.c -ladvapi32 -lntdll */
 
 #include <windows.h>
@@ -108,6 +112,55 @@ int __cdecl wmain( int argc, WCHAR **argv )
         else
             printf( "bind=%u size=%lu\n", answer[2], done );
         CloseHandle( pipe );
+        return 0;
+    }
+    if (argc == 3 && !lstrcmpW( argv[1], L"enumsvc" ))
+    {
+        SC_HANDLE manager = OpenSCManagerW( NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE );
+        ENUM_SERVICE_STATUS_PROCESSW *services;
+        DWORD needed = 0, count = 0, i, named = 0;
+        BYTE *buffer;
+
+        if (!manager)
+        {
+            printf( "enum=error%lu\n", GetLastError() );
+            return 1;
+        }
+        EnumServicesStatusExW( manager, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_STATE_ALL, NULL, 0, &needed,
+                               &count, NULL, NULL );
+        buffer = HeapAlloc( GetProcessHeap(), 0, needed + 1 );
+        if (!EnumServicesStatusExW( manager, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_STATE_ALL, buffer,
+                                    needed + 1, &needed, &count, NULL, NULL ))
+        {
+            printf( "enum=error%lu\n", GetLastError() );
+            return 1;
+        }
+        services = (ENUM_SERVICE_STATUS_PROCESSW *)buffer;
+        for (i = 0; i < count; i++) if (!lstrcmpiW( services[i].lpServiceName, argv[2] )) named++;
+        printf( "count=%lu\ntotal=%lu\n", named, count );
+        CloseServiceHandle( manager );
+        return 0;
+    }
+    if (argc == 3 && (!lstrcmpW( argv[1], L"svcstate" ) || !lstrcmpW( argv[1], L"svcstop" )))
+    {
+        BOOL stop = !lstrcmpW( argv[1], L"svcstop" );
+        SC_HANDLE manager = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT ), service;
+        SERVICE_STATUS status;
+
+        if (!manager || !(service = OpenServiceW( manager, argv[2], stop ? SERVICE_STOP : SERVICE_QUERY_STATUS )))
+        {
+            printf( "%s=error%lu\n", stop ? "stop" : "state", GetLastError() );
+            return 1;
+        }
+        if (stop)
+        {
+            if (ControlService( service, SERVICE_CONTROL_STOP, &status )) printf( "stop=0\n" );
+            else printf( "stop=error%lu\n", GetLastError() );
+        }
+        else if (QueryServiceStatus( service, &status )) printf( "state=%lu\n", status.dwCurrentState );
+        else printf( "state=error%lu\n", GetLastError() );
+        CloseServiceHandle( service );
+        CloseServiceHandle( manager );
         return 0;
     }
     if (argc == 3 && !lstrcmpW( argv[1], L"pipecreate" ))

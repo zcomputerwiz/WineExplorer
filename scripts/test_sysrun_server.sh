@@ -2824,6 +2824,8 @@ s0_wine sc query PlugPlay >/dev/null || true
 pgrep -u "$S0U" -f 'services.exe' >/dev/null || fail "T5.3: session 0 runs no services.exe"
 [ "$(s0_wine "$ROOT/probes/tierprobe64.exe" whoami | tr -d '\r' | sed -n 's/^session=//p')" = 0 ] ||
     fail "T5.3: session 0's programs are not in session 0"
+[ "$(s0_wine "$ROOT/probes/tierprobe64.exe" whoami | tr -d '\r' | sed -n 's/^user=//p')" = S-1-5-18 ] ||
+    fail "T5.4: session 0's programs do not run as LocalSystem"
 i686-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/tierprobe32.exe" "$SRC/scripts/system-tier-probe.c" -ladvapi32 -lntdll
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" rpcbind 'WexSession0\svcctl')"
@@ -2831,6 +2833,30 @@ for b in 64 32; do
 done
 kill_servers
 ok st_session0_runs_its_service_manager_and_sessions_reach_it
+# T5.4: a service that is not a session's own runs once, in session 0, as its account; a standard user's session sees
+# its state through its own services.exe, and cannot stop it (session 0 checks the user's own token)
+s0_wine sc start wuauserv >/dev/null || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wuauserv >/dev/null && break; sleep 0.5; done
+if ! pgrep -u "$S0U" -f wuauserv >/dev/null; then
+    (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=err+all,+service \
+        timeout 60 "$BUILD/wine" sc start wuauserv </dev/null 2>&1 | grep -v 'trace:service:load_service_config' | tail -25) >&2 || true
+    s0_wine "$ROOT/probes/tierprobe64.exe" whoami >&2 || true
+    tail -15 "$ROOT/session0.log" >&2 || true
+    fail "T5.4: wuauserv does not run in session 0"
+fi
+for b in 64 32; do
+    STATE="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" svcstate wuauserv | sed -n 's/^state=//p')" || true
+    [ "$STATE" = 4 ] || fail "T5.4: $STD's $b-bit program sees wuauserv as [$STATE], not running"
+done
+STOP="$(as_wine "$STD" "$ROOT/probes/tierprobe64.exe" svcstop wuauserv | sed -n 's/^stop=//p')" || true
+[ "$STOP" = error5 ] || fail "T5.4: $STD's attempt to stop session 0's wuauserv gave [$STOP], not access denied"
+[ "$(as_wine "$STD" "$ROOT/probes/tierprobe64.exe" svcstate PlugPlay | sed -n 's/^state=//p')" = 4 ] ||
+    fail "T5.4: $STD's session does not keep its own PlugPlay"
+pgrep -u "$S0U" -f wuauserv >/dev/null || fail "T5.4: a standard user stopped session 0's wuauserv"
+! pgrep -u "$STD" -f wuauserv >/dev/null || fail "T5.4: wuauserv also runs in $STD's session"
+s0_wine sc stop wuauserv >/dev/null || true
+kill_servers
+ok st_services_run_once_in_session0_and_users_cannot_stop_them
 # session 0 saves the hive as its own account; the users' servers accept it, and the write survives a restart
 s0_stop
 grep -q '^"fromadm"="elevated"' "$M/system.reg" || fail "session 0 did not save the elevated write"
