@@ -71,6 +71,7 @@ enum hot { HOT_NONE, HOT_TILE, HOT_GO, HOT_HELP, HOT_TURNOFF };
 struct user
 {
     char name[64];
+    char session[64];    /* the session LightDM saved for the account (AccountsService's XSession), may be empty */
     WCHAR display[128];
     BOOL logged_on;
     HBITMAP picture;     /* 48 x 48, NULL: the default picture */
@@ -245,13 +246,13 @@ static void load_users( void )
     if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, special_accounts, 0, KEY_READ, &list )) list = NULL;
     for (line = buffer; *line && user_count < MAX_USERS; line = next)
     {
-        char *field[4] = { line }, *p = line;
+        char *field[5] = { line }, *p = line;
         struct user *u = &users[user_count];
         int n = 1;
 
         if ((next = strchr( line, '\n' ))) *next++ = 0;
         else next = line + strlen( line );
-        while (n < 4 && (p = strchr( p, '\t' ))) { *p++ = 0; field[n++] = p; }
+        while (n < 5 && (p = strchr( p, '\t' ))) { *p++ = 0; field[n++] = p; }
         if (n < 3) continue;
         if (user_hidden( list, field[0], safe ))
         {
@@ -261,6 +262,7 @@ static void load_users( void )
         lstrcpynA( u->name, field[0], sizeof(u->name) );
         MultiByteToWideChar( CP_UTF8, 0, *field[1] ? field[1] : field[0], -1, u->display, ARRAY_SIZE(u->display) );
         u->logged_on = n > 3 && field[3][0] == '1';
+        lstrcpynA( u->session, n > 4 ? field[4] : "", sizeof(u->session) );
         u->picture = load_picture( field[2] );
         user_count++;
     }
@@ -484,6 +486,16 @@ static void set_state( enum state s )
     repaint();
 }
 
+/* The session list follows the account clicked: its own saved session, as LightDM's greeters do. Without this a
+ * logon took whatever the list showed (X11 at first), and LightDM then saved that as the account's choice. An account
+ * with none saved gets the first entry, LightDM's user-session (X11). The list can still be changed before the
+ * password goes. */
+static void show_session( int i )
+{
+    if (session_list)
+        SendMessageW( session_list, CB_SETCURSEL, !strcmp( users[i].session, "wine-explorer-wayland" ) ? 1 : 0, 0 );
+}
+
 /* starts LightDM's authentication of user i; PAM asks for the password (or does not, for an account without one) */
 static void begin_logon( int i )
 {
@@ -492,6 +504,7 @@ static void begin_logon( int i )
     if (state != IDLE) WexGreeterCancel();
     hide_balloon();
     selected = i;
+    show_session( i );
     SetWindowTextW( password_edit, L"" );
     lstrcpynA( pending_user, users[i].name, sizeof(pending_user) );
     set_state( CHECKING );
