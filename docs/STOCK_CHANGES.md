@@ -3081,3 +3081,43 @@ MSVC identity probes matched recorded native unpackaged results on both ABIs;
 owned wineserver cleanup returned kill=0, wait=0. This incremental candidate
 and the unpackaged probes do not prove packaged context, `RtlQueryPackageIdentity`,
 or a clean combined production build. It is not integrated into the parent gitlink.
+
+## U1-R2/R3: package context, activation by AUMID, package resolver (isolated UWP branch, 2026-11-12)
+
+Wine commit `060a1b29` on `codex/uwp-runtime` (then merged with development `4e3eada5` as `17e95a4f`); not in the
+shared checkout or the parent gitlink. Design: `docs/uwp/DESIGN_PACKAGE_CONTEXT.md`. Stock-Wine files changed:
+
+- `server/uwp_context.c`, `server/uwp_context.h` (ours, replacing the inert storage block; `uwp_context_test.c`
+  removed), `server/Makefile.in`: the package catalog of the prefix (`appx-catalog/PackageFullName.wexappx`) and the
+  immutable context built from a record.
+- `server/protocol.def` (and the generated `request_handlers.h`, `request_trace.h`, `include/wine/server_protocol.h`):
+  `set_token_package`, `get_token_package`.
+- `server/token.c`, `server/security.h`: `package` and `package_pending` in `struct token`, copied by
+  `token_duplicate`, released in `token_destroy`; the two handlers; `token_package_pending`,
+  `token_package_check_image`.
+- `server/process.c`, `server/process.h`: `is_process_token`; `set_process_info` refuses a token whose context is
+  pending; `init_process_done` refuses a process whose context is pending.
+- `server/mapping.c` (`map_image_view`): the first executable image of a process with a pending context must be the
+  executable of the catalog record (device and inode), else `STATUS_ACCESS_DENIED`.
+- `include/winternl.h`: Wine-private `TokenWinePackage` (1000) and `WINE_TOKEN_PACKAGE_INFORMATION`.
+  `dlls/ntdll/unix/security.c`: the class in `NtQueryInformationToken` and `NtSetInformationToken`.
+  `dlls/wow64/security.c`: passed through.
+- `dlls/kernelbase/version.c`: `GetCurrentPackageFullName`, `GetCurrentPackageFamilyName`, `GetCurrentPackagePath`,
+  `GetCurrentPackageId`, `GetCurrentPackageInfo` (not implemented for a packaged process, no longer "no package"),
+  `GetCurrentApplicationUserModelId`, `GetPackageFullName`, `GetPackageFamilyName`, `GetPackageFullNameFromToken`,
+  `GetPackageFamilyNameFromToken` read the context of the token. Unpackaged results are unchanged.
+- `dlls/combase/roapi.c` (`RoGetActivationFactory`): a class declared by the package of the process is loaded from
+  that package's module only (`LOAD_WITH_ALTERED_SEARCH_PATH`); every other class and every process without a
+  context takes the unchanged lookup.
+- `dlls/twinapi.appcore`: new `activation_manager.c`, `activation_manager.rgs`, `twinapi.appcore.rc`; `Makefile.in`,
+  `main.c` (`DllGetClassObject`), `private.h`. `CLSID_ApplicationActivationManager` with a `DllSurrogate` AppID, so a
+  local-server request reaches `dllhost.exe`; the object marshals itself to an in-process manager.
+
+No change to `new_process`, `create_process`, elevation, groups, privileges, integrity or ACL checks. Verified in the
+owned U1 guest (candidate `u1r2-1`, fresh prefix per architecture, `tests/uwp/u1_0/run-wine-packaged.sh`): the
+unchanged MSVC-built fixture, activated by AUMID through `launcher.exe`, passes all ten checks of `expected.txt` on
+x64 and x86 with the three HRESULTs of the Windows 11 run; the gate (absent, wrong value, wrong type) refuses and
+starts nothing; 14 server-refusal cases pass per architecture (`context-negatives.c`). windows.storage (599) and
+kernel32 version (541, two skips) pass on both architectures; `rpcrt4_test server` has only the two known
+`server.c:1269` failures of `d668329f`. Not done: an installer, `RtlQueryPackageIdentity`, package dependencies, a
+server-side gate, x86 packaged activation on Windows.
