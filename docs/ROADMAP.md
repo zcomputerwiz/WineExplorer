@@ -248,6 +248,11 @@ cross-user `wineserver` work, so the two are one project. Decide per service whe
 better served by a Linux daemon through `wexhost` (D-Bus). References: ReactOS `base/system/services`,
 `ntoskrnl/config` (design only), `dll/win32/userenv` (profiles).
 
+Design for decision (2026-11-11): `docs/SYSTEM_TIER_DESIGN.md`. It recommends a second, always-running machine server
+that is the only writer of `HKLM` and the home of session 0, with each user's server holding a live replica (reads
+local, writes checked and committed by the machine server and pushed to every session), in phases T0 to T6; five
+decisions are open there.
+
 - Unified tokens, program elevation and Chromium functional compatibility:
   `TOKEN_SECURITY_WORKORDER.md` (Gemini), with sources/licenses in
   `TOKEN_SECURITY_REFERENCES.md`. Functionality first; hostile-code containment is
