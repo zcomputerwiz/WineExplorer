@@ -2675,6 +2675,20 @@ el_down "$ADM"
 [ -z "$(s0q "$STD" std)" ] && [ -z "$(s0q "$STD" admlimited)" ] || fail "a refused write is in session 0"
 ok st_standard_user_sees_the_elevated_write_without_a_restart
 el_down "$STD"
+# T4a: session 0 holds the user's own hive and sends it back to the user's server, which writes user.reg
+wine_as "$STD" reg add 'HKCU\Software\WexT4' /v v /d std-hkcu /f >/dev/null 2>&1 || fail "T4a: a standard user's HKCU write"
+[ "$(as_wine "$STD" reg query 'HKCU\Software\WexT4' /v v | awk '$1 == "v" { print $NF }')" = std-hkcu ] ||
+    fail "T4a: the HKCU value does not read back"
+[ "$(wine_as "$STD" "$ROOT/probes/tierprobe64.exe" whoami 2>/dev/null | tr -d '\r' | sed -n 's/^user=//p')" != S-1-5-21-0-0-0-1000 ] ||
+    fail "T4a: the standard user has the fixed SID"
+! grep -q '"v"="std-hkcu"' "/home/$STD/.wine/user.reg" 2>/dev/null || fail "T4a: the user's server wrote its own copy"
+el_down "$STD"   # the server's exit: session 0 sends the last changes and drops the hive
+grep -q '^"v"="std-hkcu"' "/home/$STD/.wine/user.reg" || fail "T4a: user.reg does not have the value session 0 held"
+[ "$(stat -c %U "/home/$STD/.wine/user.reg")" = "$STD" ] || fail "T4a: user.reg is not the user's own file"
+[ "$(as_wine "$STD" reg query 'HKCU\Software\WexT4' /v v | awk '$1 == "v" { print $NF }')" = std-hkcu ] ||
+    fail "T4a: the value is not there in the next session"
+el_down "$STD"
+ok st_user_hive_held_by_session0_and_written_to_user_reg
 # a server that the user starts without the launcher reads the same configuration, and session 0 refuses it
 prefix_server_env "$STD" -p 30 >/dev/null 2>&1 &
 sleep 2

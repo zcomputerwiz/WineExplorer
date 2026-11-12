@@ -298,6 +298,31 @@ Test: the sysrun suite's session 0 section runs `wex-accounts sync`, then checks
 the standard user's and the administrator's tokens carry their own mapped SIDs and differ; the elevated write
 through the broker still works (normal suite 333, broker test, T1 test).
 
+## T4a: the user's own hive in session 0 (2026-11-12)
+
+* **Load.** At the first channel request of a program whose token user is the server's user, the user's server
+  opens its `user.reg` (or none for a new prefix) and sends it to session 0 with the token description on a
+  link that stays open (message `USER_HIVE`). Session 0 loads it under `\Registry\User\<SID>`, creates
+  `<SID>_Classes` as a link to its `Software\Classes`, and gives the hive's keys a default descriptor for that
+  SID (full access for it, SYSTEM and Administrators). A second load of the same SID (another server of the same
+  user) is refused; that server keeps its own copy.
+* **Save.** Session 0 cannot write in the user's home, so it sends the hive (a memory file) back over the link
+  whenever it changed (every 5 s), and the user's server writes `user.reg` through a temporary file and a rename.
+  The user's server no longer saves its own copy. At its exit it sends `HIVE_UNLOAD`; session 0 sends the last
+  changes and drops the hive. If the server dies, session 0 drops the hive without a last save.
+* **Routing.** The channel reply says that session 0 holds the user hive; `ntdll` then sends
+  `\Registry\User\<own SID>` and `<own SID>_Classes` there (the process token's user), and every other user path
+  (another user's SID, E1 managed profiles) stays local.
+* **Session 0's own HKCU** is SYSTEM's (`S-1-5-18`), never a user's, so no user's hive can collide with it.
+
+Test (sysrun suite, session 0 section): a standard user's `HKCU` write reads back, is not in the user's own
+`user.reg` while the session runs (session 0 holds it), is in `user.reg` (the user's own file) after the user's
+server exits, and is read again in the next session. Normal suite 334, broker test, T1 test pass.
+
+Open: E1 managed profiles (T4b); other users' hives are not visible in `HKEY_USERS` of a session (Windows shows
+every loaded hive, subject to its descriptor); a server that dies loses up to 5 s of its user's changes; the
+user's server still loads its own copy at start (unused once session 0 holds the hive).
+
 ## T1 close-out and the plan for T2b to T6 (2026-11-12)
 
 T1 is done except the run on an installed machine (ISO build with `WEX_SESSION0=1`, VM test), which waits for

@@ -42,6 +42,13 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   `registry.c` (HKCU path, user key descriptor, the managed-profile self check), `main.c`: with session 0 a
   server's user SID comes from the E1 accounts map instead of Wine's fixed S-1-5-21-0-0-0-1000.
 
+- T4a: `include/wine/wex_session0.h` (message types `USER_HIVE`, `HIVE_SAVE`, `HIVE_UNLOAD`), `server/session0.c`
+  (the hive link on both sides, `user.reg` written by the user's server), `server/registry.c`
+  (`session0_load_user_hive`, `session0_unload_user_hive`, saves sent to the agent, the hive's default descriptor,
+  the user server's own copy not saved, `flush_registry` ends the link first), `server/protocol.def` (reply
+  field `user_hive` of `get_registry_channel`), `server/token.c` (session 0's own user is SYSTEM),
+  `dlls/ntdll/unix/server.c` (routing of the process user's hive).
+
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)
