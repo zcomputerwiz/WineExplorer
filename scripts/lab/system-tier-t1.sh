@@ -102,6 +102,12 @@ check dup32 "$(A "$W/p32.exe" dup 'Software\WexTier' where | field dup)" session
 check name64 "$(A "$W/p64.exe" name 'Software\WexTier' | field name)" '\REGISTRY\Machine\Software\WexTier'
 check sd_present "$(A "$W/p64.exe" name 'Software\WexTier' | field sd | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 
+# a key's own permissions are kept by session 0 across a restart (T2a); set here, checked after the restart below
+A reg add "$K\\Perm" /f >/dev/null
+DACL='D:(A;;KA;;;BA)(A;;KR;;;WD)'
+check setdacl "$(A "$W/p64.exe" setdacl 'Software\WexTier\Perm' "$DACL" | field setdacl)" 0
+PERM_BEFORE="$(A "$W/p64.exe" getdacl 'Software\WexTier\Perm' | field dacl)"
+
 # a program keeps its key handle while session 0 restarts: the key is reopened on the new channel
 rm -f "$W/marker"
 (WINEPREFIX=$W/a timeout 120 ./wine "$W/p64.exe" hold 'Software\WexTier' where 'Z:\root\st-t1\marker' >"$W/hold.out" 2>/dev/null &)
@@ -116,6 +122,9 @@ check hold_first "$(field first < "$W/hold.out")" session0
 check hold_second_after_restart "$(field second < "$W/hold.out")" session0-restarted
 check hold_create_subkey "$(field sub < "$W/hold.out")" 0
 check s0_has_held_subkey "$(s0 reg query "$K\\Held" >/dev/null 2>&1; echo $?)" 0
+check s0_saved_key_dacl "$(grep -a -c '^#sd=' "$W/s0/system.reg" | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
+check dacl_survives_restart "$(A "$W/p64.exe" getdacl 'Software\WexTier\Perm' | field dacl)" "$PERM_BEFORE"
+check dacl_is_the_set_one "$(echo "$PERM_BEFORE" | grep -c 'KR;;;WD')" 1
 
 # a server that does not use session 0 keeps its own machine registry
 unset WEX_SESSION0_SOCKET

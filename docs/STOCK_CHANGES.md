@@ -35,6 +35,7 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   channel and routes `NtNotifyChangeMultipleKeys` on a session 0 key through it.
 - `server/request.c`: with `--session0` the server accepts a root-owned prefix (the machine root stays root's);
   `registry.c`: a user's server accepts machine hives owned by the `session0_user` account.
+- `server/registry.c` (T2a): session 0 saves a key's own security descriptor as an `#sd=` line (hex); every server loads such a line.
 
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 

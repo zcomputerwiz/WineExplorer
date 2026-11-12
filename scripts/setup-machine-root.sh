@@ -401,7 +401,9 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
         # Preserve the existing protected administrator-group and built-in Administrator choices on update.
         # WEX_BUILTIN_ADMINISTRATOR=NAME names the account that wex-accounts maps with the reserved RID 500.
         ADMIN_GROUP="${WEX_ADMIN_GROUP:-sudo}"
-        BUILTIN_ADMIN="${WEX_BUILTIN_ADMINISTRATOR:-}"
+        # Default: the package's account "administrator" (Safe Mode C4); WEX_BUILTIN_ADMINISTRATOR= (empty) names none.
+        # A name that is not a local account maps nothing (docs/E1_S4_ACCOUNTS_MAP.md).
+        BUILTIN_ADMIN="${WEX_BUILTIN_ADMINISTRATOR-administrator}"
         if [ -f "$SYSRUN_CONF" ] && [ ! -L "$SYSRUN_CONF" ] && { [ -z "${WEX_ADMIN_GROUP:-}" ] || [ -z "$BUILTIN_ADMIN" ] || [ -z "${WEX_SESSION0:-}" ]; }; then
             [ "$(stat -c '%u' -- "$SYSRUN_CONF")" = 0 ] || die "sysrun config is not root-owned"
             [ $(( 0$(stat -c '%a' -- "$SYSRUN_CONF") & 022 )) -eq 0 ] || die "sysrun config is writable by others"
@@ -434,7 +436,7 @@ EOF
         [ -z "$BUILTIN_ADMIN" ] || printf 'builtin_administrator=%s\n' "$BUILTIN_ADMIN" >> "$SYSRUN_TMP/sysrun.conf"
         if [ "$SESSION0_ENABLE" = "1" ]; then
             cat >> "$SYSRUN_TMP/sysrun.conf" <<EOF
-session0_socket=/run/wineexplorer/session0
+session0_socket=/run/wineexplorer-session0/session0
 session0_user=wexsys
 EOF
         fi

@@ -4,7 +4,8 @@
 # WineExplorer system tier (session 0) service.
 # Runs an always-on wineserver for the shared machine root as the unprivileged
 # wexsys system account, serving the machine registry (HKLM and HKU\.DEFAULT)
-# to all user sessions over /run/wineexplorer/session0.
+# to all user sessions over /run/wineexplorer-session0/session0. Its own runtime directory: /run/wineexplorer
+# holds root's boot-mode records and must stay root's.
 
 [Unit]
 Description=WineExplorer system tier (session 0)
@@ -21,7 +22,7 @@ ExecStart=/usr/local/bin/wineserver --session0 -f
 Restart=always
 RestartSec=1
 NoNewPrivileges=yes
-RuntimeDirectory=wineexplorer
+RuntimeDirectory=wineexplorer-session0
 RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
 

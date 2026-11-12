@@ -35,6 +35,8 @@ CAR=wexcar   # a second administrator, made by the callers section (step 7)
 SYS=wexgreeter   # an unmapped system account, made by the symlinked-hives section (3b)
 SYS_HOME=/var/lib/$SYS
 SYS_CREATED=0
+S0U=wexs0c2   # the system tier's session 0 account, made by its section
+S0_CREATED=0
 CONF=/etc/wineexplorer/sysrun.conf
 LIBEXEC=/usr/local/libexec/wineexplorer
 SYSRUN="$LIBEXEC/wex-sysrun"
@@ -100,6 +102,10 @@ cleanup()
     done
     if [ "$SYS_CREATED" = 1 ]; then
         userdel -r "$SYS" 2>/dev/null
+    fi
+    if [ "$S0_CREATED" = 1 ]; then   # the system tier's session 0 account
+        pkill -9 -u "$S0U" 2>/dev/null; sleep 1
+        userdel "$S0U" 2>/dev/null
     fi
     groupdel "$GRP" 2>/dev/null
     rm -rf "$ROOT" /etc/wineexplorer "$LIBEXEC"
@@ -2606,6 +2612,82 @@ as_wine "$STD" reg add "$UNI\\BobApp" /v DisplayName /d "Bob" /f >/dev/null || t
 el_down "$STD"
 ! grep -q 'BobApp' "$M/system.reg" || fail "S3: a standard user wrote HKLM"
 ok c7_s3_standard_user_sees_the_registrations_and_cannot_write_hklm
+
+# System tier T1 (docs/SYSTEM_TIER_WORK_ORDERS.md): session 0 holds the machine registry. It runs as an account
+# of its own; the users' launcher-started servers send their programs' machine-registry calls there.
+if [ "${WEX_SKIP_SESSION0:-0}" != 1 ]; then
+echo "--- system tier: session 0"
+S0RUN="$ROOT/run"
+id "$S0U" >/dev/null 2>&1 && fail "user $S0U exists"
+useradd --system -g "$GRP" -M -d "$M" -s /usr/sbin/nologin "$S0U"; S0_CREATED=1
+install -d -m 0755 -o "$S0U" -g "$GRP" "$S0RUN"
+cp "$CONF" "$ROOT/sysrun.conf.pre-s0"
+printf 'session0_socket=%s\nsession0_user=%s\n' "$S0RUN/session0" "$S0U" >> "$CONF"
+kill_servers
+S0_MODES="$(stat -c '%a %n' "$M"/*.reg)"   # session 0 saves its own files; restored at the end
+set_val 'Software\\WexTier' FromSession0 1
+s0_start()
+{
+    (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin \
+        "$BUILD/server/wineserver" --session0 -f >>"$ROOT/session0.log" 2>&1 &)
+    local i; for i in $(seq 1 50); do [ -S "$S0RUN/session0" ] && return 0; sleep 0.1; done
+    cat "$ROOT/session0.log" >&2; fail "session 0 did not start"
+}
+s0_stop()
+{
+    pkill -u "$S0U" -x wineserver 2>/dev/null || true   # SIGTERM: session 0 saves the hives and exits
+    local i; for i in $(seq 1 100); do pgrep -u "$S0U" -x wineserver >/dev/null || return 0; sleep 0.1; done
+    fail "session 0 did not stop"
+}
+s0q() { as_wine "$1" reg query 'HKLM\Software\WexTier' /v "$2" | awk -v n="$2" '$1 == n { print $NF }'; }
+s0_start
+[ "$(stat -c '%U %a' "$S0RUN/session0")" = "$S0U 666" ] || fail "session 0 socket: $(stat -c '%U %a' "$S0RUN/session0")"
+ok st_session0_runs_as_its_own_account
+# the hive file now differs from session 0's copy: a value read from session 0 is 1, from a snapshot 2
+set_val 'Software\\WexTier' FromSession0 2
+[ "$(s0q "$STD" FromSession0)" = 0x1 ] || fail "a standard user's program did not read HKLM from session 0: [$(s0q "$STD" FromSession0)]"
+ok st_standard_user_reads_hklm_from_session0
+for arch in 64 32; do
+    [ "$(wine_as "$STD" "$ROOT/probes/probe$arch.exe" hklm-read "$WINM" 2>&1 | grep -c '^hklm-read=PASS')" = 1 ] ||
+        fail "the $arch-bit probe did not read HKLM through session 0"
+done
+ok st_32_and_64_bit_programs_read_hklm_through_session0
+wine_as "$STD" reg add 'HKLM\Software\WexTier' /v std /d 1 /f >/dev/null 2>&1 && fail "session 0 let a standard user write HKLM"
+wine_as "$ADM" reg add 'HKLM\Software\WexTier' /v admlimited /d 1 /f >/dev/null 2>&1 &&
+    fail "session 0 let an administrator's limited (not elevated) program write HKLM"
+ok st_limited_tokens_cannot_write_hklm_in_session0
+el_down "$STD"; el_down "$ADM"
+el_up "$ADM"
+el_cmd st_elevated_administrator_writes_hklm_in_session0 "$ADM" 'reg add "HKLM\Software\WexTier" /v fromadm /d elevated /f'
+el_down "$ADM"
+[ "$(s0q "$STD" fromadm)" = elevated ] || fail "a standard user does not see the elevated write at once: [$(s0q "$STD" fromadm)]"
+[ -z "$(s0q "$STD" std)" ] && [ -z "$(s0q "$STD" admlimited)" ] || fail "a refused write is in session 0"
+ok st_standard_user_sees_the_elevated_write_without_a_restart
+el_down "$STD"
+# a server that the user starts without the launcher reads the same configuration, and session 0 refuses it
+prefix_server_env "$STD" -p 30 >/dev/null 2>&1 &
+sleep 2
+[ -n "$(server_pid "$STD")" ] || fail "no server started by $STD without the launcher"
+wine_as "$STD" reg query 'HKLM\Software\WexTier' /v FromSession0 >/dev/null 2>&1 &&
+    fail "session 0 served a server started without the launcher"
+prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
+ok st_server_started_without_the_launcher_is_refused_by_session0
+# session 0 saves the hive as its own account; the users' servers accept it, and the write survives a restart
+s0_stop
+grep -q '^"fromadm"="elevated"' "$M/system.reg" || fail "session 0 did not save the elevated write"
+! grep -q '^"std"=\|^"admlimited"=' "$M/system.reg" || fail "a refused write reached the machine hive"
+[ "$(stat -c %U "$M/system.reg")" = "$S0U" ] || fail "system.reg is not saved by session 0: $(stat -c %U "$M/system.reg")"
+s0_start
+[ "$(s0q "$STD" fromadm)" = elevated ] || fail "the write did not survive a restart of session 0"
+el_down "$STD"
+ok st_session0_saves_the_hive_and_user_servers_accept_it
+# back to the machine without session 0
+s0_stop
+cat "$ROOT/sysrun.conf.pre-s0" > "$CONF"
+while read -r mode file; do chown root "$file"; chmod "$mode" "$file"; done <<<"$S0_MODES"
+for f in "$M"/*.reg; do [ "$(stat -c %U "$f")" != "$S0U" ] || rm -f "$f"; done   # files only session 0 made
+kill_servers
+fi
 
 # WO-27 R8 end to end (lab only), last in the section; see r8_e2e_case
 if [ "${WEX_E1S6_LAB:-0}" = 1 ] && [ "${WEX_SKIP_R8_E2E:-0}" != 1 ]; then r8_e2e_case; fi

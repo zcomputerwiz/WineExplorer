@@ -25,7 +25,7 @@ implementation"). Its six recommendations are therefore taken as decided; any of
 |---|---|---|
 | T0 spike and measurements | ST-01 registry calls per program start; ST-02 the server's own registry use; ST-03 key handles that cross servers; ST-04 prototype of registry calls against a second server; ST-05 limited-write list from a traced limited session | ST-01 to ST-04 done, ST-05 open |
 | T1 session 0 owns the machine trees | ST-10 account, unit, socket, peer test; ST-11 registry-only client in the server; ST-12 attested channel set-up by the user's server; ST-13 `ntdll` routing and handle mapping; ST-14 user servers stop loading and saving machine hives; ST-15 reconnect; ST-16 two-user tests | ST-11, ST-12, ST-13, ST-15 and development ST-10/ST-16 done; production ST-10, notification, ST-14 rest open |
-| T2 | permissions stored, journal and checkpoint, refused writes, virtual store | |
+| T2 | permissions stored, journal and checkpoint, refused writes, virtual store | permissions stored (T2a) and refused writes done; journal, virtual store open |
 | T3 | tier-only trees; account policy, `net accounts`, verifier, Group Policy | |
 | T4 | user hives in session 0 | |
 | T5 | `services.exe` front and back (the in-place split can start during T1), session-0 services, pipe proxy | |
@@ -150,8 +150,11 @@ How it works now:
   token whose requests outside 18 registry and handle requests fail with access denied, and which has no Unix
   pid (session 0 never signals it) and cannot change session 0's debug level.
 * **Trust** (session 0's side, per connection): production accepts a server whose uids are all the peer's, whose
-  saved group is the system group and whose real group is not, and whose executable is the configured
-  `wineserver`; development (`WEX_SESSION0_DEV=1` in session 0's environment) accepts only its own uid. A
+  saved group is the system group and whose real group is not, and whose process name is `wineserver` (only
+  the setgid launcher gives a non-member that saved group, and it starts only the configured server and the
+  machine root's wineboot, both non-dumpable; the executable itself cannot be checked, since `/proc/<pid>/exe`
+  of a non-dumpable process of another uid is not readable, which the first production run showed);
+  development (`WEX_SESSION0_DEV=1` in session 0's environment) accepts only its own uid. A
   launcher-started user server reads the socket from the configuration only, never from its environment.
 * **Routing** (`ntdll`): create and open of an absolute path under `\Registry\Machine` or `\Registry\User\.Default`
   go to session 0, except the per-session keys of `wine/wex_session0.h` (the 20 the merge-on-save work already
@@ -184,7 +187,7 @@ Test: `scripts/lab/system-tier-t1.sh` (development mode, all as root except the 
 
 ### Session 0 service
 
-Production packaging for ST-10 (written by Antigravity, reviewed) provides the `installer/systemd/wex-session0.service` unit and setup automation in `scripts/setup-machine-root.sh`. The service runs `wineserver --session0 -f` as the unprivileged system account `wexsys` (primary group `wexsys`, shell `/usr/sbin/nologin`, home `/var/lib/wineexplorer/machine`) with `WINEPREFIX` set to the machine root. It starts before `display-manager.service` and ensures `/run/wineexplorer` exists mode 0755 owned by `wexsys`. Production setup is opt-in via `WEX_SESSION0=1`, which creates the `wexsys` account if missing, installs and enables the systemd service, and records `session0_socket=/run/wineexplorer/session0` and `session0_user=wexsys` in `/etc/wineexplorer/sysrun.conf`. With `WEX_SESSION0` unset, setup preserves existing behavior and configuration byte for byte. The launcher
+Production packaging for ST-10 (written by Antigravity, reviewed) provides the `installer/systemd/wex-session0.service` unit and setup automation in `scripts/setup-machine-root.sh`. The service runs `wineserver --session0 -f` as the unprivileged system account `wexsys` (primary group `wexsys`, shell `/usr/sbin/nologin`, home `/var/lib/wineexplorer/machine`) with `WINEPREFIX` set to the machine root. It starts before `display-manager.service` and gets its own runtime directory `/run/wineexplorer-session0` (mode 0755, owned by `wexsys`); `/run/wineexplorer` stays root's, since the boot-mode records of Safe Mode live there and are trusted only in a root-owned directory. Production setup is opt-in via `WEX_SESSION0=1`, which creates the `wexsys` account if missing, installs and enables the systemd service, and records `session0_socket=/run/wineexplorer-session0/session0` and `session0_user=wexsys` in `/etc/wineexplorer/sysrun.conf`. With `WEX_SESSION0` unset, setup preserves existing behavior and configuration byte for byte. The launcher
 (`tools/wex-sysrun`) accepts the two new configuration keys, and `installer/package-wine.sh` stages the unit.
 The machine root stays root's (the launcher trusts only root-owned paths): session 0 writes it through the
 system group, the server accepts a root-owned prefix with `--session0`, and a user's server accepts machine
@@ -198,12 +201,38 @@ wait pipe when the key changes; the read end of that pipe is the program's relay
 (`set_registry_relay`, sent when the channel is set up), which sets the event. When the channel is lost, the
 relay sets every pending event: a spurious change report rather than a lost one.
 
+### Production test with the launcher (2026-11-12)
+
+`scripts/test_sysrun_server.sh`, section "system tier: session 0" (skipped with `WEX_SKIP_SESSION0=1`): the
+suite's fixture (machine root, setgid launcher, administrator `wexadm` in sudo, standard user `wexstd`, elevation
+through the test broker), with session 0 started as a throwaway account of the system group and
+`session0_socket`/`session0_user` added to the configuration. 7 checks pass, normal suite 332 in all:
+
+* session 0 runs as its own account; its socket is mode 0666;
+* a standard user's program reads `HKLM` from session 0 (a value that differs from the hive file the user's
+  server loaded), with the 32-bit and the 64-bit probe;
+* a standard user's write and an administrator's limited (not elevated) write to `HKLM` are refused;
+* an administrator's elevated `reg add` (through the broker) is accepted, and the standard user reads it at once;
+  the refused writes are absent;
+* a server the user starts without the launcher (it reads the same configuration) is refused by session 0, and
+  its programs' machine-registry calls fail;
+* session 0 saves the hive as its account; the users' servers accept that file, and the write is there after a
+  restart of session 0.
+
+The first run of this section found the trust bug above (session 0 refused every launcher-started server).
+
+### T2a: key permissions are stored (2026-11-12)
+
+Written by Qwen, reviewed. Session 0 saves a key's own security descriptor as an `#sd=` line (hex) in its hive;
+every server loads such a line (malformed lines are reported and ignored); keys whose only change is their
+descriptor are saved too. `scripts/lab/system-tier-t1.sh` adds three checks (37 in all): a DACL set from a user
+session reaches session 0's `system.reg` and is the same after a restart of session 0. Open: the merge-on-save
+path of user servers does not carry descriptors (not used with session 0).
+
 Open in T1:
 
-* **ST-10 production test:** the unit and setup exist but have not run on a machine yet; with the sysrun
-  fixture: session 0 as the `wexsys` account,
-  and the production trust test with a launcher-started server (the sysrun fixture); with it, the checks that a
-  standard user's machine write is refused by session 0 and an elevated administrator's is accepted.
+* **ST-10 on an installed machine:** the unit and `setup-machine-root.sh` with `WEX_SESSION0=1` have not run on
+  an installed system yet (ISO build and VM test).
 * **ST-14** rest: the user server's snapshot could be dropped once the two start-up values come from session 0.
 * **ST-05:** which machine writes a limited session makes at start-up, now that session 0 decides them. The tool
   is ready: `scripts/lab/registry-trace-stats.py --writes` lists them by key, classified per-session or
@@ -215,3 +244,38 @@ Open in T1:
   differently); `NtLoadKey`, `NtSaveKey`, `NtUnloadKey` and handle inheritance by a child process do not work
   with session 0 keys; a session 0 that does not answer within 2 s is treated as absent, and while it is absent
   machine-registry calls fail (no fallback to the snapshot).
+
+## ST-17 Load measurement script
+
+Measurement script `scripts/lab/system-tier-perf.sh` benchmarks the system tier under concurrent two-user load. Run as root in the wexbuild WSL environment (`BUILD=/root/WE-prefetch/build/wow64 bash scripts/lab/system-tier-perf.sh [N]`, default N=40 via `PERF_N`). It measures wall-clock times with session 0 disabled versus enabled across two workloads running in two user sessions simultaneously: `wine cmd /c exit` (half sequential, then half in parallel per session) and sequential `wine reg query "HKLM\Software\Microsoft\Windows NT\CurrentVersion"`, reporting `perf <name> off_ms=<n> on_ms=<n> ratio=<ratio>` and session 0 versus user servers CPU consumption in milliseconds (`perf session0_cpu_ms=<n> user_servers_cpu_ms=<n>`).
+
+Script written by Antigravity, reviewed.
+
+Results (2026-11-12, wexbuild, main build, N=40, development mode, two sessions at the same time):
+
+| Workload | Without session 0 | With session 0 | Ratio |
+|---|---|---|---|
+| `cmd /c exit`, 20 sequential starts per session | 1678 ms | 1563 ms | 0.93 |
+| `cmd /c exit`, 20 parallel starts per session | 454 ms | 449 ms | 0.99 |
+| `reg query` of one `HKLM` key, 40 sequential | 2696 ms | 2583 ms | 0.96 |
+
+CPU during the session 0 run: session 0 540 ms, the two users' servers 1390 ms together. So at this load session
+0 adds no measurable time; it carries about a quarter of the servers' work, as ST-01 predicted. A single run on
+an idle machine: the differences are within noise. Not measured: many sessions, a heavy installer.
+
+### T2c: lazy flush (2026-11-12)
+
+Session 0 saves changed hives every 5 s (unchanged hives are not written), as the lazy flush of Windows does,
+instead of the 30 s of other servers. Its saves are atomic (temporary file, then rename: its prefix is the
+machine root, so it takes the stock save path). A journal is still open.
+
+### Requests from the Safe Mode work (2026-11-12, Integration session)
+
+* Session 0 has its own runtime directory, `/run/wineexplorer-session0`; `/run/wineexplorer` stays root's (the
+  boot-mode records live there).
+* `System\{ControlSet001,CurrentControlSet}\Control\SafeBoot\Option` is a per-session key: each session's
+  wineboot writes it from the boot mode, and `SM_CLEANBOOT` reads it in the session.
+* `wex-lastgood` takes `flock -s` on `<machine root>/.reg.lock` while it copies the control set.
+* T5: the Safe Mode service filter (auto-start of `SafeBoot\Minimal`/`Network` services only, `StartService`
+  refusing others with 1084) stays in the half of `services.exe` that moves to session 0.
+* `setup-machine-root.sh` writes `builtin_administrator=administrator` by default (Safe Mode C4).

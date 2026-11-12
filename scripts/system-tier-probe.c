@@ -26,10 +26,13 @@
  *   probe dup KEY VALUE           reads VALUE through a duplicate of the key handle; prints dup=
  *   probe name KEY                prints name= (NtQueryObject) and sd= (size of the key's security descriptor)
  *   probe notify KEY MS           waits up to MS ms for a change below KEY; prints notify=changed or notify=timeout
+ *   probe setdacl KEY SDDL        sets the key's DACL from an SDDL string; prints setdacl=<error code>
+ *   probe getdacl KEY             prints dacl=<the key's DACL as SDDL>
  * Build: x86_64-w64-mingw32-gcc / i686-w64-mingw32-gcc -municode -o probe.exe system-tier-probe.c -ladvapi32 -lntdll */
 
 #include <windows.h>
 #include <winternl.h>
+#include <sddl.h>
 #include <stdio.h>
 
 static void print_value( const char *label, HKEY key, const WCHAR *name )
@@ -89,6 +92,33 @@ int __cdecl wmain( int argc, WCHAR **argv )
         else printf( "name=%.*ls\n", (int)(info->Name.Length / sizeof(WCHAR)), info->Name.Buffer );
         ret = RegGetKeySecurity( key, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, NULL, &size );
         printf( "sd=%lu ret=%ld\n", size, ret );
+    }
+    else if (!lstrcmpW( argv[1], L"setdacl" ) && argc == 4)
+    {
+        PSECURITY_DESCRIPTOR sd;
+        if (!ConvertStringSecurityDescriptorToSecurityDescriptorW( argv[3], SDDL_REVISION_1, &sd, NULL ))
+            printf( "setdacl=error%lu\n", GetLastError() );
+        else
+        {
+            printf( "setdacl=%ld\n", RegSetKeySecurity( key, DACL_SECURITY_INFORMATION, sd ));
+            LocalFree( sd );
+        }
+    }
+    else if (!lstrcmpW( argv[1], L"getdacl" ))
+    {
+        char buffer[4096];
+        DWORD size = sizeof(buffer);
+        WCHAR *sddl;
+        ret = RegGetKeySecurity( key, DACL_SECURITY_INFORMATION, buffer, &size );
+        if (ret) printf( "dacl=error%ld\n", ret );
+        else if (!ConvertSecurityDescriptorToStringSecurityDescriptorW( buffer, SDDL_REVISION_1, DACL_SECURITY_INFORMATION,
+                                                                       &sddl, NULL ))
+            printf( "dacl=error%lu\n", GetLastError() );
+        else
+        {
+            printf( "dacl=%ls\n", sddl );
+            LocalFree( sddl );
+        }
     }
     else if (!lstrcmpW( argv[1], L"notify" ) && argc == 4)
     {

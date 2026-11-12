@@ -86,7 +86,9 @@ name grammar; a duplicate or invalid line makes the configuration invalid for sy
 and lookup) names the native account that every sync, including the automatic
 path/timer unit, maps with the reserved RID 500, the well-known built-in
 Administrator SID `S-1-5-21-<machine>-500`. Setup writes it from
-`WEX_BUILTIN_ADMINISTRATOR` and preserves an existing line on update; `wex-sysrun`
+`WEX_BUILTIN_ADMINISTRATOR`, by default `administrator` (the account the package creates for Safe Mode C4;
+`WEX_BUILTIN_ADMINISTRATOR=` with an empty value writes none; 2026-11-12), and preserves an existing line on
+update; `wex-sysrun`
 ignores the key. Rules:
 
 * RID 500 is assigned once. While no record (active or tombstone) holds RID 500 and

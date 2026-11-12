@@ -93,7 +93,7 @@ Windows has, with session 0 in the place of the kernel.
 - A dedicated Unix account for the machine server (the `wexsys` group exists; the account is new), not root. It
   owns the machine hives and later the service data. Saves become atomic.
 - Started at boot by a systemd unit, before the display manager, restarted on failure. Its prefix is the machine
-  root. It listens on a socket in `/run/wineexplorer/`.
+  root. It listens on a socket in `/run/wineexplorer-session0/` (its own directory: `/run/wineexplorer` is root's).
 - Elevated programs keep today's model for files: the user's uid with the system group, in the user's session.
 
 ### The registry connection
