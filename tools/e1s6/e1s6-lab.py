@@ -309,6 +309,187 @@ def broker_deadline(tx, now, expiry):
     tx.deadline = expiry
 
 
+#
+# R9 Verifier definitions and pure decision functions (WO R9-2)
+#
+
+CHANNEL_KIND_A = "A"
+CHANNEL_KIND_B0 = "B0"
+
+
+def r9_resolve_s0_user(user_name=None):
+    """Resolve session 0 user name to unix UID. Startup error if missing or unresolvable."""
+    if user_name is None:
+        user_name = os.environ.get("WEX_E1S6_LAB_S0_USER")
+    if not user_name:
+        audit("r9-s0-user-missing", sys._getframe(1))
+        raise ValueError("WEX_E1S6_LAB_S0_USER required when R9 enabled")
+    import pwd
+    try:
+        return pwd.getpwnam(user_name).pw_uid
+    except KeyError:
+        if user_name.isdigit():
+            return int(user_name)
+        audit("r9-s0-user-unknown", sys._getframe(1))
+        raise ValueError("unknown session 0 user: %s" % user_name)
+
+
+def r9_classify_channel(r9_enabled, s0_uid, client_uid, cred_uid, cred_gid, system_gid):
+    """Classify channel kind based on endorsement credentials."""
+    if cred_gid != system_gid:
+        audit("endorsement-gid", sys._getframe(1))
+        raise ValueError("transport denied")
+    if r9_enabled:
+        if cred_uid == s0_uid:
+            return CHANNEL_KIND_B0
+        elif cred_uid == client_uid:
+            return CHANNEL_KIND_A
+        else:
+            audit("endorsement-uid", sys._getframe(1))
+            raise ValueError("transport denied")
+    else:
+        if cred_uid != client_uid:
+            audit("endorsement-uid", sys._getframe(1))
+            raise ValueError("transport denied")
+        return CHANNEL_KIND_A
+
+
+def r9_gate_message(r9_enabled, channel_kind, mtype):
+    """Check message gating per channel kind. Returns True if accepted, False if refused."""
+    if not r9_enabled:
+        return mtype in (17, 25, 28)
+    if channel_kind == CHANNEL_KIND_B0:
+        return mtype in (17, 21, 25, 32)
+    elif channel_kind == CHANNEL_KIND_A:
+        return mtype in (28,)
+    return False
+
+
+def r9_handle_start(rec, channel_kind, channel_id, a_channel_exists, a_channel_kind,
+                    a_channel_endorsed, a_channel_id, r9_enabled=True):
+    """Validate START attempt binding. Returns (ok, new_state, error_reason)."""
+    if r9_enabled:
+        if channel_kind != CHANNEL_KIND_B0:
+            audit("start-wrong-channel-kind", sys._getframe(1))
+            return False, rec.get("state") if rec else None, "start-wrong-channel-kind"
+        if not a_channel_exists:
+            audit("start-a-channel-missing", sys._getframe(1))
+            return False, rec.get("state") if rec else None, "start-a-channel-missing"
+        if a_channel_kind != CHANNEL_KIND_A:
+            audit("start-not-a-channel", sys._getframe(1))
+            return False, rec.get("state") if rec else None, "start-not-a-channel"
+        if not a_channel_endorsed:
+            audit("start-a-channel-unendorsed", sys._getframe(1))
+            return False, rec.get("state") if rec else None, "start-a-channel-unendorsed"
+        if channel_id != a_channel_id:
+            audit("start-channel-id-mismatch", sys._getframe(1))
+            return False, rec.get("state") if rec else None, "start-channel-id-mismatch"
+    if rec is None:
+        audit("start-without-endorsed", sys._getframe(1))
+        return False, None, "start-without-endorsed"
+    if rec.get("state") != "ENDORSED":
+        audit("start-state-not-endorsed", sys._getframe(1))
+        return False, rec.get("state"), "start-state-not-endorsed"
+    return True, "STARTED", None
+
+
+def r9_handle_grant(rec, channel_kind, grant_msg, r9_enabled=True):
+    """Process a GRANT message (type 32). Returns (ok, new_state, reply_bytes, error_reason)."""
+    if not r9_enabled:
+        audit("grant-r9-disabled", sys._getframe(1))
+        return False, rec.get("state") if rec else None, None, "grant-r9-disabled-unknown-type"
+    if channel_kind != CHANNEL_KIND_B0:
+        audit("grant-wrong-channel-kind", sys._getframe(1))
+        return False, rec.get("state") if rec else None, None, "grant-wrong-channel-kind"
+    if rec is None:
+        audit("grant-without-attempt", sys._getframe(1))
+        return False, None, None, "grant-without-attempt"
+    curr_state = rec.get("state")
+    if curr_state != "RESULT_RETAINED":
+        audit("grant-state-not-result-retained", sys._getframe(1))
+        return False, curr_state, None, "grant-state-not-result-retained"
+    if grant_msg.account_key != rec.get("account_key"):
+        audit("grant-account-key-mismatch", sys._getframe(1))
+        return False, curr_state, None, "grant-account-key-mismatch"
+    if grant_msg.evidence_ref != rec.get("evidence_ref"):
+        audit("grant-evidence-ref-mismatch", sys._getframe(1))
+        return False, curr_state, None, "grant-evidence-ref-mismatch"
+
+    rec["state"] = "GRANTED"
+    t = rec["tuple"]
+    reply = e1r8.encode_granted(t)
+    return True, "GRANTED", reply, None
+
+
+def r9_handle_redeem(rec, channel_kind, redeem_ref, now, control_sock=None, r9_enabled=True):
+    """Process a REDEEM message (type 28). Returns (ok, new_state, reply_bytes, error_reason)."""
+    if rec is None:
+        audit("redeem-without-attempt", sys._getframe(1))
+        return False, None, None, "redeem-without-attempt"
+
+    expected_state = "GRANTED" if r9_enabled else "RESULT_RETAINED"
+    if r9_enabled and channel_kind != CHANNEL_KIND_A:
+        audit("redeem-wrong-channel-kind", sys._getframe(1))
+        return False, rec.get("state"), None, "redeem-wrong-channel-kind"
+
+    # Burn before comparison: one redemption, right or wrong
+    record = rec.pop("evidence", None)
+    ref = rec.pop("evidence_ref", None)
+    state = rec.get("state")
+    rec["state"] = "REDEEMED"
+
+    t = rec["tuple"]
+    if state != expected_state:
+        audit("redeem-evidence-state", sys._getframe(1))
+        return False, "REDEEMED", None, "redeem-state-invalid"
+    if record is None or ref is None:
+        audit("redeem-evidence-missing", sys._getframe(1))
+        return False, "REDEEMED", None, "redeem-no-evidence"
+    if ref != redeem_ref:
+        audit("redeem-evidence-ref", sys._getframe(1))
+        return False, "REDEEMED", None, "redeem-ref-mismatch"
+    if now >= t.deadline:
+        audit("redeem-evidence-deadline", sys._getframe(1))
+        return False, "REDEEMED", None, "redeem-deadline-expired"
+
+    name = rec["account"]
+    name = name if isinstance(name, bytes) else str(name).encode("ascii")
+    receipt = (e1r8._put_header(30, 316 + len(name), t) + ref + record +
+               struct.pack("<I", len(name)) + name)
+    reply_29 = e1r8._put_header(29, 296, t) + record
+
+    if control_sock is not None and os.environ.get("WEX_E1S6_LAB_NO_RECEIPT") != "1":
+        control_sock.sendmsg([receipt], [(
+            socket.SOL_SOCKET, socket.SCM_CREDENTIALS,
+            struct.pack("3i", os.getpid(), os.getuid(), os.getgid()))])
+
+    return True, "REDEEMED", reply_29, None
+
+
+def r9_handle_cancel(rec, channel_kind, cancel_msg, r9_enabled=True):
+    """Process a CANCEL message (type 21). Returns (ok, new_state, error_reason)."""
+    if r9_enabled and channel_kind != CHANNEL_KIND_B0:
+        audit("cancel-wrong-channel-kind", sys._getframe(1))
+        return False, rec.get("state") if rec else None, "cancel-wrong-channel-kind"
+    if rec is None:
+        audit("cancel-without-attempt", sys._getframe(1))
+        return False, None, "cancel-without-attempt"
+
+    curr_state = rec.get("state")
+    reason = cancel_msg.reason if hasattr(cancel_msg, "reason") else int(cancel_msg)
+
+    if curr_state == "REDEEMED":
+        rec["cancelled"] = True
+        rec["cancel_reason"] = reason
+        return True, "REDEEMED", None
+    else:
+        rec["state"] = "CANCELLED"
+        rec["cancel_reason"] = reason
+        rec.pop("evidence", None)
+        rec.pop("evidence_ref", None)
+        return True, "CANCELLED", None
+
+
 def service(server_path, system_group, pam_paths=None):
     require(os.getuid() == 0 and os.geteuid() == 0)
     import grp
@@ -316,6 +497,11 @@ def service(server_path, system_group, pam_paths=None):
     import dbus.service
     import dbus.mainloop.glib
     from gi.repository import GLib
+
+    r9_enabled = os.environ.get("WEX_E1S6_LAB_R9") == "1"
+    s0_uid = None
+    if r9_enabled:
+        s0_uid = r9_resolve_s0_user(os.environ.get("WEX_E1S6_LAB_S0_USER"))
 
     pam_exe = pam_audit = evidence_service = supervisor = None
     # R8 account lockout, shared by every broker session of this service. Off by default, like the
@@ -387,6 +573,7 @@ def service(server_path, system_group, pam_paths=None):
     class Transaction:
         def __init__(self, owner, pin):
             self.owner, self.pin = owner, pin
+            self.kind = CHANNEL_KIND_A
             self.broker_pin = self.server_pin = self.child_pin = None
             self.control = self.data = self.child = None
             self.remote, self.watch, self.cancelled = (), None, False
@@ -441,8 +628,22 @@ def service(server_path, system_group, pam_paths=None):
                 GLib.source_remove(self.control_watch)
                 self.control_watch = None
             if hasattr(self, "endorsed_records"):
-                for rec in self.endorsed_records.values():
-                    self.drop_record(rec)
+                for rec in list(self.endorsed_records.values()):
+                    if r9_enabled:
+                        if rec.get("state") not in ("REDEEMED", "RETIRED"):
+                            rec["state"] = "CANCELLED"
+                            rec.pop("evidence", None)
+                            rec.pop("evidence_ref", None)
+                        if self.kind == CHANNEL_KIND_A:
+                            b0 = rec.get("b0_channel")
+                            if b0 is not None:
+                                b0.drop_record(rec)
+                            else:
+                                self.drop_record(rec)
+                        else:
+                            self.drop_record(rec)
+                    else:
+                        self.drop_record(rec)
                     for name in ("pidfd", "prefix"):
                         pfd = rec.pop(name, None)
                         if pfd is not None and pfd >= 0:
@@ -531,9 +732,10 @@ def service(server_path, system_group, pam_paths=None):
             name = rec["account"]
             name = name.decode("ascii") if isinstance(name, bytes) else str(name)
             prefix = rec["prefix"]
+            caller_uid = rec["a_channel"].uid if (r9_enabled and "a_channel" in rec) else self.uid
             done = subprocess.run(
                 ["/proc/self/fd/%d" % provision_exe, name, account_key.hex(), str(map_gen),
-                 str(self.uid), str(prefix)],
+                 str(caller_uid), str(prefix)],
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 close_fds=True, pass_fds=(provision_exe, prefix), env={}, timeout=10)
             line = done.stdout.decode("ascii", "replace").strip().splitlines()[-1:] or [""]
@@ -613,6 +815,8 @@ def service(server_path, system_group, pam_paths=None):
                 if len(data) >= 8 and data[:4] == b"E1R8":
                     version, msg_type = struct.unpack_from("<HH", data, 4)
                     if msg_type == 16:
+                        if r9_enabled:
+                            require(self.kind == CHANNEL_KIND_A, "endorsed-wrong-channel-kind")
                         require(len(data) == 244, "endorsed-size")
                         require(len(fds) == 2, "endorsed-rights-count")
                         d_pidfd = fds[0]
@@ -681,6 +885,7 @@ def service(server_path, system_group, pam_paths=None):
                             "prefix": prefix_fd,
                             "tuple": t,
                             "state": "ENDORSED",
+                            "a_channel": self,
                         }
                         # From here the person at the dialog sets the pace: the transaction lives until the
                         # broker's own attempt deadline (checked and bounded), not the 5 s setup bound.
@@ -744,8 +949,7 @@ def service(server_path, system_group, pam_paths=None):
                 require(raw[24:72] == self.challenge[24:72], "endorsement-challenge")
                 require(struct.unpack_from("<QIIQ", raw, 72) == (self.sequence, operation, child_pid, 0),
                         "endorsement-operation-sequence")
-                require(cred[1] == self.uid, "endorsement-uid")
-                require(cred[2] == system_gid, "endorsement-gid")
+                self.kind = r9_classify_channel(r9_enabled, s0_uid, self.uid, cred[1], cred[2], system_gid)
                 # A wexsys process alone is insufficient: only the protected
                 # installed wineserver inode, held from root-controlled startup.
                 if self.server_proc is None:
@@ -795,10 +999,31 @@ def service(server_path, system_group, pam_paths=None):
                         raw, cred, pin, fds = receive(self.data, length, 0, length)
                         try:
                             require((cred[0], cred[1]) == (self.pid, self.uid), "message-broker-identity")
-                            rid, attempt = struct.unpack_from("<QI", raw, 12)
-                            require((rid, attempt) in self.endorsed_records, "start-without-endorsed")
-                            rec = self.endorsed_records[(rid, attempt)]
-                            require(rec.get("state") == "ENDORSED", "start-state-not-endorsed")
+                            if r9_enabled:
+                                require(self.kind == CHANNEL_KIND_B0, "start-wrong-channel-kind")
+                                # Spec section 6 (and 12): the attempt's record was made by the server's ENDORSED
+                                # on the agent's channel. Exactly one live A channel holds it; START's header must
+                                # equal its sealed tuple (decode_start below), and that channel is of the session
+                                # the tuple names. The header's channel id is the attempt's random token.
+                                rid, attempt = struct.unpack_from("<QI", raw, 12)
+                                holders = [tx for tx in pending.values()
+                                           if not tx.cancelled and getattr(tx, "kind", None) == CHANNEL_KIND_A
+                                           and (rid, attempt) in tx.endorsed_records]
+                                require(len(holders) == 1, "start-a-channel-missing")
+                                a_tx = holders[0]
+                                require(a_tx.server_pin is not None and alive(a_tx.server_pin),
+                                        "start-a-channel-unendorsed")
+                                rec = a_tx.endorsed_records[(rid, attempt)]
+                                require(rec.get("state") == "ENDORSED", "start-state-not-endorsed")
+                                require(rec["tuple"].caller_session == a_tx.session, "start-session")
+                                rec["a_channel"] = a_tx
+                                rec["b0_channel"] = self
+                                self.endorsed_records[(rid, attempt)] = rec
+                            else:
+                                rid, attempt = struct.unpack_from("<QI", raw, 12)
+                                require((rid, attempt) in self.endorsed_records, "start-without-endorsed")
+                                rec = self.endorsed_records[(rid, attempt)]
+                                require(rec.get("state") == "ENDORSED", "start-state-not-endorsed")
                             start_msg = e1r8.decode_start(raw, rec["tuple"])
 
                             # With a lockout threshold: charge the attempt before any worker exists, so a
@@ -855,44 +1080,110 @@ def service(server_path, system_group, pam_paths=None):
                                 os.close(pin)
                             for fd in fds:
                                 os.close(fd)
+                    if r9_enabled and mtype == 32:  # GRANT
+                        raw, cred, pin, fds = receive(self.data, length, 0, length)
+                        try:
+                            require((cred[0], cred[1]) == (self.pid, self.uid), "message-broker-identity")
+                            require(self.kind == CHANNEL_KIND_B0, "grant-wrong-channel-kind")
+                            rid, attempt = struct.unpack_from("<QI", raw, 12)
+                            rec = self.endorsed_records.get((rid, attempt))
+                            require(rec is not None, "grant-without-attempt")
+                            t = rec["tuple"]
+                            grant_msg = e1r8.decode_grant(raw, t)
+                            ok, new_state, reply, err = r9_handle_grant(rec, self.kind, grant_msg, r9_enabled=True)
+                            require(ok, err or "grant-denied")
+                            self.data.send(reply)
+                            print("E1R8_GRANTED request=%x" % rid, flush=True)
+                            return True
+                        finally:
+                            if pin is not None:
+                                os.close(pin)
+                            for fd in fds:
+                                os.close(fd)
+                    if r9_enabled and mtype == 21:  # CANCEL
+                        raw, cred, pin, fds = receive(self.data, length, 0, length)
+                        try:
+                            require((cred[0], cred[1]) == (self.pid, self.uid), "message-broker-identity")
+                            require(self.kind == CHANNEL_KIND_B0, "cancel-wrong-channel-kind")
+                            rid, attempt = struct.unpack_from("<QI", raw, 12)
+                            rec = self.endorsed_records.get((rid, attempt))
+                            require(rec is not None, "cancel-unknown-attempt")
+                            t = rec["tuple"]
+                            cancel_msg = e1r8.decode_cancel(raw, t)
+                            ok, new_state, err = r9_handle_cancel(rec, self.kind, cancel_msg, r9_enabled=True)
+                            require(ok, err or "cancel-denied")
+                            if new_state == "CANCELLED":
+                                self.drop_record(rec)
+                            return True
+                        finally:
+                            if pin is not None:
+                                os.close(pin)
+                            for fd in fds:
+                                os.close(fd)
                     if mtype in (25, 28):  # RELEASE; REDEEM (lab frame: evidence_ref:16, answered by type 29)
                         raw, cred, pin, fds = receive(self.data, length, 0, length)
                         try:
                             require((cred[0], cred[1]) == (self.pid, self.uid), "message-broker-identity")
                             rid, attempt = struct.unpack_from("<QI", raw, 12)
-                            rec = self.endorsed_records.get((rid, attempt))
-                            require(rec is not None, "r8-message-without-endorsed")
-                            t = rec["tuple"]
-                            if mtype == 28:
-                                require(len(raw) == 92 and raw[:76] == e1r8._put_header(28, 92, t), "redeem-frame")
-                                # Burn before the comparison: one redemption, right or wrong.
-                                record, ref = rec.pop("evidence", None), rec.pop("evidence_ref", None)
-                                state, rec["state"] = rec["state"], "REDEEMED"
-                                require(state == "RESULT_RETAINED" and record is not None and ref == raw[76:92]
-                                        and time.monotonic_ns() < t.deadline, "redeem-evidence")
-                                # R10: the receipt goes to the server first, on the control socket it retained
-                                # at endorsement, with this process's kernel credentials. The server builds
-                                # the consumed record from it; the broker's copy below installs nothing.
-                                name = rec["account"]
-                                name = name if isinstance(name, bytes) else str(name).encode("ascii")
-                                receipt = (e1r8._put_header(30, 316 + len(name), t) + ref + record +
-                                           struct.pack("<I", len(name)) + name)
-                                # Lab negative only (this script is the lab verifier): withhold the receipt
-                                # to show that the broker's copy alone gets no token.
-                                require(os.environ.get("WEX_E1S6_LAB_NO_RECEIPT") == "1" or
-                                        self.control.sendmsg([receipt], [(
-                                    socket.SOL_SOCKET, socket.SCM_CREDENTIALS,
-                                    struct.pack("3i", os.getpid(), os.getuid(), os.getgid()))]) == len(receipt),
-                                    "receipt-send")
-                                self.data.send(e1r8._put_header(29, 296, t) + record)
-                                print("E1R8_REDEEMED request=%x" % rid, flush=True)
+                            if r9_enabled:
+                                if mtype == 25:
+                                    require(self.kind == CHANNEL_KIND_B0, "release-wrong-channel-kind")
+                                    rec = self.endorsed_records.get((rid, attempt))
+                                    require(rec is not None, "r8-message-without-endorsed")
+                                    t = rec["tuple"]
+                                    e1r8.decode_release(raw, t)
+                                    self.drop_record(rec)
+                                    rec["state"] = "RETIRED"
+                                    self.data.send(e1r8.encode_released(t))
+                                    print("E1R8_RELEASED request=%x" % rid, flush=True)
+                                    return True
+                                elif mtype == 28:
+                                    require(self.kind == CHANNEL_KIND_A, "redeem-wrong-channel-kind")
+                                    rec = self.endorsed_records.get((rid, attempt))
+                                    require(rec is not None, "r8-message-without-endorsed")
+                                    t = rec["tuple"]
+                                    require(len(raw) == 92 and raw[:76] == e1r8._put_header(28, 92, t), "redeem-frame")
+                                    now = time.monotonic_ns()
+                                    ok, new_state, reply_29, err = r9_handle_redeem(
+                                        rec, self.kind, raw[76:92], now, control_sock=self.control, r9_enabled=True)
+                                    require(ok, err or "redeem-denied")
+                                    self.data.send(reply_29)
+                                    print("E1R8_REDEEMED request=%x" % rid, flush=True)
+                                    return True
                             else:
-                                e1r8.decode_release(raw, t)
-                                self.drop_record(rec)
-                                rec["state"] = "RETIRED"
-                                self.data.send(e1r8.encode_released(t))
-                                print("E1R8_RELEASED request=%x" % rid, flush=True)
-                            return True
+                                rec = self.endorsed_records.get((rid, attempt))
+                                require(rec is not None, "r8-message-without-endorsed")
+                                t = rec["tuple"]
+                                if mtype == 28:
+                                    require(len(raw) == 92 and raw[:76] == e1r8._put_header(28, 92, t), "redeem-frame")
+                                    # Burn before the comparison: one redemption, right or wrong.
+                                    record, ref = rec.pop("evidence", None), rec.pop("evidence_ref", None)
+                                    state, rec["state"] = rec["state"], "REDEEMED"
+                                    require(state == "RESULT_RETAINED" and record is not None and ref == raw[76:92]
+                                            and time.monotonic_ns() < t.deadline, "redeem-evidence")
+                                    # R10: the receipt goes to the server first, on the control socket it retained
+                                    # at endorsement, with this process's kernel credentials. The server builds
+                                    # the consumed record from it; the broker's copy below installs nothing.
+                                    name = rec["account"]
+                                    name = name if isinstance(name, bytes) else str(name).encode("ascii")
+                                    receipt = (e1r8._put_header(30, 316 + len(name), t) + ref + record +
+                                               struct.pack("<I", len(name)) + name)
+                                    # Lab negative only (this script is the lab verifier): withhold the receipt
+                                    # to show that the broker's copy alone gets no token.
+                                    require(os.environ.get("WEX_E1S6_LAB_NO_RECEIPT") == "1" or
+                                            self.control.sendmsg([receipt], [(
+                                        socket.SOL_SOCKET, socket.SCM_CREDENTIALS,
+                                        struct.pack("3i", os.getpid(), os.getuid(), os.getgid()))]) == len(receipt),
+                                        "receipt-send")
+                                    self.data.send(e1r8._put_header(29, 296, t) + record)
+                                    print("E1R8_REDEEMED request=%x" % rid, flush=True)
+                                else:
+                                    e1r8.decode_release(raw, t)
+                                    self.drop_record(rec)
+                                    rec["state"] = "RETIRED"
+                                    self.data.send(e1r8.encode_released(t))
+                                    print("E1R8_RELEASED request=%x" % rid, flush=True)
+                                return True
                         finally:
                             if pin is not None:
                                 os.close(pin)
@@ -1092,7 +1383,8 @@ def service(server_path, system_group, pam_paths=None):
             """
             try:
                 key = int(request_id), int(attempt)
-                matches = [tx for tx in pending.values() if key in tx.endorsed_records]
+                matches = [tx for tx in pending.values() if key in tx.endorsed_records
+                           and (getattr(tx, "kind", CHANNEL_KIND_A) == CHANNEL_KIND_B0 if r9_enabled else True)]
                 require(len(matches) == 1, "attach-unknown")
                 tx = matches[0]
                 rec = tx.endorsed_records[key]
@@ -1123,12 +1415,35 @@ def service(server_path, system_group, pam_paths=None):
         for tx in list(pending.values()):
             try:
                 tx.live()
-                for rec in tx.endorsed_records.values():
+                for rec in list(tx.endorsed_records.values()):
+                    if r9_enabled and rec.get("state") == "GRANTED":
+                        now = time.monotonic_ns()
+                        t = rec.get("tuple")
+                        if t and now >= t.deadline:
+                            rec["state"] = "CANCELLED"
+                            rec["cancel_reason"] = e1r8.CANCEL_R9_DEADLINE
+                            rec.pop("evidence", None)
+                            rec.pop("evidence_ref", None)
+                            tx.drop_record(rec)
+                        a_tx = rec.get("a_channel")
+                        if a_tx and (a_tx.cancelled or not alive(a_tx.pin)):
+                            rec["state"] = "CANCELLED"
+                            rec.pop("evidence", None)
+                            rec.pop("evidence_ref", None)
+                            tx.drop_record(rec)
+                        b0_tx = rec.get("b0_channel")
+                        if b0_tx and (b0_tx.cancelled or not alive(b0_tx.pin)):
+                            rec["state"] = "CANCELLED"
+                            rec.pop("evidence", None)
+                            rec.pop("evidence_ref", None)
+                            tx.drop_record(rec)
                     # The endorsed dialog's death ends its attempt (and with it the session).
                     # After redemption or a refusal the dialog is expected to leave; the broker's RELEASE
                     # retires the attempt.
-                    require(rec["state"] in ("REDEEMED", "REFUSED", "RETIRED") or alive(rec["pidfd"]),
-                            "live-dialog-pin")
+                    # R9: after the grant the dialog has done its part (B0 sends it DONE before LAUNCH), so it
+                    # may leave in GRANTED too; without R9 that state does not occur.
+                    require(rec["state"] in ("GRANTED", "REDEEMED", "REFUSED", "RETIRED", "CANCELLED") or
+                            alive(rec["pidfd"]), "live-dialog-pin")
                 if tx.pam is not None:
                     require(not tx.pam.worker.cancelled(tx.child))
             except Exception as exc:

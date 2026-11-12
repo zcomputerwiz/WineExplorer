@@ -1731,10 +1731,9 @@ static inline int e1r8_encode_request( uint8_t *buf, size_t len, const struct e1
             (4 + req_len) + (4 + img_len) + (4 + pub_len);
     if (len != total) return E1R8_ERR_LONG;
 
-    /* The header's attempt is 0 and its nonce and channel_id are zero. */
+    /* The header's attempt is 0 and its channel_id is zero; the nonce is the request's. */
     h = *t;
     h.attempt = 0;
-    memset( h.nonce, 0, 32 );
     memset( h.channel_id, 0, 16 );
     err = e1r8_put_header( buf, len, E1R8_TYPE_REQUEST, total, &h );
     if (err) return err;
@@ -1763,10 +1762,9 @@ static inline int e1r8_decode_request( const uint8_t *buf, size_t len,
     int err;
 
     if (len < 200 || len > 1760) return E1R8_ERR_LONG;
-    /* The header's attempt is 0 and its nonce and channel_id are zero. */
+    /* The header's attempt is 0 and its channel_id is zero; the nonce is the request's. */
     h = *expected;
     h.attempt = 0;
-    memset( h.nonce, 0, 32 );
     memset( h.channel_id, 0, 16 );
     err = e1r8_get_header( buf, len, E1R8_TYPE_REQUEST, &h, NULL );
     if (err) return err;
@@ -1832,7 +1830,6 @@ static inline int e1r8_encode_decision( uint8_t *buf, size_t len, const struct e
         if (len != 84) return E1R8_ERR_LONG;
         h = *t;
         h.attempt = 0;
-        memset( h.nonce, 0, 32 );
         memset( h.channel_id, 0, 16 );
         err = e1r8_put_header( buf, len, E1R8_TYPE_DECISION, 84, &h );
         if (err) return err;
@@ -1869,7 +1866,6 @@ static inline int e1r8_decode_decision( const uint8_t *buf, size_t len,
         if (len != 84) return E1R8_ERR_LONG;
         h = *expected;
         h.attempt = 0;
-        memset( h.nonce, 0, 32 );
         memset( h.channel_id, 0, 16 );
         err = e1r8_get_header( buf, len, E1R8_TYPE_DECISION, &h, NULL );
         if (err) return err;

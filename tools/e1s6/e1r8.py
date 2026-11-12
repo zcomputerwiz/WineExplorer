@@ -1338,8 +1338,8 @@ def encode_request(t, kind, channel_id, binding_digest, request_digest,
         raise E1R8Error("request publisher")
     total = HEADER_SIZE + 4 + 16 + 32 + 32 + 8 + 16 + 4 + \
         (4 + len(requester)) + (4 + len(image)) + (4 + len(publisher))
-    # The header's attempt is 0 and its nonce and channel_id are zero.
-    h = E1R8Tuple(request_id=t.request_id, attempt=0, nonce=bytes(32),
+    # The header's attempt is 0 and its channel_id is zero; the nonce is the request's.
+    h = E1R8Tuple(request_id=t.request_id, attempt=0, nonce=t.nonce,
                   channel_id=bytes(16))
     body = struct.pack("<I", kind) + channel_id + binding_digest + \
         request_digest + struct.pack("<Q", server_gen) + desktop_route + \
@@ -1351,8 +1351,8 @@ def encode_request(t, kind, channel_id, binding_digest, request_digest,
 def decode_request(data, expected):
     if not (200 <= len(data) <= 1760):
         raise E1R8Error("request length")
-    # The header's attempt is 0 and its nonce and channel_id are zero.
-    h = E1R8Tuple(request_id=expected.request_id, attempt=0, nonce=bytes(32),
+    # The header's attempt is 0 and its channel_id is zero; the nonce is the request's.
+    h = E1R8Tuple(request_id=expected.request_id, attempt=0, nonce=expected.nonce,
                   channel_id=bytes(16))
     _get_header(data, TYPE_REQUEST, h)
     off = HEADER_SIZE
@@ -1408,7 +1408,7 @@ def encode_decision(t, status, reason):
         if reason not in (DECISION_REASON_POLICY, DECISION_REASON_ATTEMPTS,
                           DECISION_REASON_BUSY):
             raise E1R8Error("decision reason enum")
-        h = E1R8Tuple(request_id=t.request_id, attempt=0, nonce=bytes(32),
+        h = E1R8Tuple(request_id=t.request_id, attempt=0, nonce=t.nonce,
                       channel_id=bytes(16))
         body = struct.pack("<II", status, reason)
         return _put_header(TYPE_DECISION, 84, h) + body
@@ -1429,7 +1429,7 @@ def decode_decision(data, expected):
         if len(data) != 84:
             raise E1R8Error("decision length")
         h = E1R8Tuple(request_id=expected.request_id, attempt=0,
-                      nonce=bytes(32), channel_id=bytes(16))
+                      nonce=expected.nonce, channel_id=bytes(16))
         _get_header(data, TYPE_DECISION, h)
         reason = struct.unpack_from("<I", data, 80)[0]
         if reason not in (DECISION_REASON_POLICY, DECISION_REASON_ATTEMPTS,

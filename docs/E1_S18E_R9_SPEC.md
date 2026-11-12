@@ -58,12 +58,14 @@ and sends V nothing but REDEEM (and RELEASE of its own channel). B0 never touche
 ## 4. Messages A ↔ B0 (types 40..51)
 
 Header: `request_id` is A's request id (nonzero, never reused by A); `attempt` 0 on REQUEST and on DECISION deny,
-otherwise the attempt (1..3); `nonce` and `channel_id` zero on REQUEST and DECISION deny, otherwise the attempt's
-(`channel_id` is A's S6 channel, section 6).
+otherwise the attempt (1..3). `nonce` is the request's nonce on every message: A makes it (as R8's B does, before
+the dialog step, because the later stages use it) and B0 puts it into every attempt's tuple. `channel_id` is zero
+on REQUEST and DECISION deny, otherwise the attempt's channel id: 16 random bytes B0 makes for each attempt, as
+R8's B does (it is not an S6 channel).
 
 | Type | Name | Dir | Body after the header | Total |
 | --- | --- | --- | --- | --- |
-| 40 | REQUEST | A→B0 | `kind:u32` (1 runas, 2 manifest), `channel_id:16` (A's S6 channel), `binding_digest:32`, `request_digest:32`, `server_gen:u64`, `desktop_route:16`, `secure_desktop:u32` (1 available, 0 not), `requester:str`, `image:str`, `publisher:str` (display strings, R8 section 4) | 200 .. 1760 |
+| 40 | REQUEST | A→B0 | `kind:u32` (1 runas, 2 manifest), `reserved:16` (zero), `binding_digest:32`, `request_digest:32`, `server_gen:u64`, `desktop_route:16`, `secure_desktop:u32` (1 available, 0 not), `requester:str`, `image:str`, `publisher:str` (display strings, R8 section 4) | 200 .. 1760 |
 | 41 | DECISION | B0→A | `status:u32` (1 prompt, 2 deny), then for 1: the pre-endorsement tuple (204); for 2: `reason:u32` (1 policy, 2 attempts, 3 busy) | 84 deny, 284 prompt |
 | 42 | ENDORSED_LOCAL | A→B0 | `dialog_id:16`, `status:u32` (1 endorsed, 2 refused) | 96 |
 | 43 | TO_D | B0→A | one complete R8 B→D frame (types 1, 3, 9, 5, 6, 8) | 152 .. 2143 |
@@ -80,8 +82,8 @@ Rules:
 
 * **REQUEST.** A registers its S6 channel with V through S before it sends REQUEST (as R8's B registers; V
   learns S's pin there) and fills the rest from S and the program's request, as R8's B does. B0 copies
-  `channel_id`, the digests, `server_gen` and `desktop_route` into the tuple; S checks them at endorsement
-  (R8 section 3) and V binds the attempt to the channel (section 6). `caller_session` comes from S0 (section 3).
+  the nonce, the digests, `server_gen` and `desktop_route` into the tuple; S checks them at endorsement
+  (R8 section 3) and V binds the attempt to A's channel through S's ENDORSED (section 6). `caller_session` comes from S0 (section 3).
   `secure_desktop` 0 makes B0 use `desktop_mode` 2 only where policy allows the insecure desktop, else deny.
 * **DECISION 1 / NEXT_ATTEMPT.** B0 applies the policy (`ConsentPromptBehaviorAdmin`, `ConsentPromptBehaviorUser`,
   `PromptOnSecureDesktop`, `EnableStandardUserElevation`, the lockout policy; session 0's registry) and the
@@ -99,10 +101,14 @@ Rules:
   it writes the DONE, waits for D's exit (2 s, else terminates it), closes D's pipes and creates the next D for
   the new tuple (`SPAWNING`). Without a further attempt B0 sends DONE 2 and then END 2.
 * **LAUNCH.** The decision to elevate is B0's GRANT to V (section 6), sent after B0 accepted Confirm (R8 section
-  8 checks). B0 then tells A with LAUNCH. A sends REDEEM to V on its own channel (R10), V sends RECEIPT to S on that
-  channel's control socket (R10, unchanged), A asks S to issue and launches, and reports LAUNCHED. B0 then sends
-  DONE through TO_D, RELEASE to V and END to A, where R8's B would. A may redeem as soon as V granted, before
-  LAUNCH arrives; that changes nothing, since the grant is the decision.
+  8 checks). After GRANTED, B0 sends DONE 1 through TO_D (D leaves, so the secure desktop is free while the
+  program starts, as R8's B writes DONE before the launch) and then LAUNCH. A sends REDEEM to V on its own channel
+  (R10; V answers with the evidence record there, as R8), V sends RECEIPT to S on that channel's control socket
+  (R10, unchanged), A asks S to issue and launches, and reports LAUNCHED. B0 then sends RELEASE to V and END to A.
+  A may redeem as soon as V granted, before LAUNCH arrives; that changes nothing, since the grant is the decision.
+  After a TO_D whose embedded frame is DONE, D's exit is expected and is not a cancellation.
+* **Reading from D.** D's pipe is a byte pipe: A reads the 76-byte header, takes the frame's length from it
+  (within R8's bounds for the type, else CANCEL 5) and reads the rest, then sends the whole frame as FROM_D.
 * **Order.** An unexpected type in a state is CANCEL 5. A cancels at the tuple's deadline.
 
 ## 5. A's states
@@ -120,15 +126,22 @@ own failure (R8's post-commit rules).
 ## 6. The grant, held by V
 
 * **B0's channel.** B0 registers its S6 channel through S0: S0 endorses B0 as a session's server endorses the
-  broker today (`sysrun_e1s6_endorse`: SCM_CREDENTIALS with S0's pid, euid and the system gid; SCM_PIDFD). V
+  broker today (`sysrun_e1s6_endorse`: SCM_CREDENTIALS with S0's pid, euid and the system gid; SCM_PIDFD). In a
+  session every S6 operation is a sub-operation of the broker's request pipe and needs a caller of the same
+  server bound to it; B0 has none (its requests come over the bridge), so in session 0 the same request reaches
+  only the endorsement, and the R8 server operations (endorse D, recheck, receipt) do not exist there. V
   accepts S0 as an endorser (a wineserver of the configured `session0_user` with the system group, same
   executable inode check) and calls a channel endorsed by S0 a **B0 channel**. With `r9=1` in V's configuration,
   V accepts START, CANCEL, RELEASE and GRANT only on a B0 channel, and REDEEM only on a channel endorsed by a
   session's server.
-* **Binding.** START (on B0's channel) names the attempt; the attempt's `channel_id` (header) is A's channel.
-  V requires: A's channel exists, is endorsed by a session's server, and is alive; ENDORSED for the attempt comes
-  from that server (its pin, R8 section 6 WO-26), so a dialog endorsed by another server is refused; DialogAttach
-  as R8. B0's channel loss cancels all its attempts; A's channel loss cancels the attempt.
+* **Binding.** S sends ENDORSED for an attempt on the control socket of the channel of the broker process that
+  asked for the endorsement: in R9 that is A's channel, and V accepts ENDORSED only on an A channel (the sender
+  check of R8 section 6, WO-26, is that channel's server). The attempt's record therefore belongs to A's channel
+  from its creation. START (on B0's channel) names the attempt by `request_id` and `attempt`: V requires exactly
+  one live A channel with such a record in state `ENDORSED`, START's header to equal that record's sealed tuple
+  (nonce, channel id; so a record another session made up for the same ids does not match B0's tuple), and the
+  record's A channel to be of the session the tuple names (`caller_session`). DialogAttach as R8. B0's channel
+  loss cancels all its attempts; A's channel loss cancels its attempt.
 * **GRANT** (new, type 32, B0→V on B0's channel): header of the attempt, `account_key:16`, `evidence_ref:16`;
   total 108. It is B0's decision to elevate. V accepts it once per attempt, only in `RESULT_RETAINED`, only if
   `account_key` and `evidence_ref` are the attempt's RESULT 1 values; it answers GRANTED (type 33, 76 bytes) and
@@ -202,3 +215,15 @@ findings. v3:
 | high: session id owners lost when session 0 restarts | owners persist in `session0.owners`; an id without a record is not given back |
 | medium: a retry could fail when D exited after DONE before NEXT_ATTEMPT arrived | NEXT_ATTEMPT is sent before DONE; A's `RETRYING` state expects D's exit |
 | GRANT used type 31, already LOCKED (WO-39) | GRANT 32, GRANTED 33 |
+
+## 12. Corrections from the code (2026-11-12, while building R9-2 to R9-4)
+
+* The attempt's `channel_id` is a random token per attempt (R8's `channel_token`), not an S6 channel, and the
+  broker does not hold the verifier's channel id. Sections 4 and 6 are corrected: REQUEST's 16 bytes after `kind`
+  are reserved; V finds the attempt through the record S's ENDORSED made on A's channel.
+* The request's nonce is made by A before the dialog step (the later stages use it), so REQUEST carries it in its
+  header and B0 uses it in every attempt's tuple, as R8's B uses one nonce for all attempts of a request.
+* DONE is sent before LAUNCH (R8's order: the secure desktop is free while the program starts), so D may leave
+  while V is in `GRANTED`.
+* In a session every S6 operation is a sub-operation of the broker's request pipe; session 0 has its own entry
+  for the endorsement only (section 6).
