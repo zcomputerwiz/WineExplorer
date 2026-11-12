@@ -37,6 +37,11 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   `registry.c`: a user's server accepts machine hives owned by the `session0_user` account.
 - `server/registry.c` (T2a): session 0 saves a key's own security descriptor as an `#sd=` line (hex); every server loads such a line.
 
+- T4-0: `server/accounts.c`, `accounts.h` (`accounts_own_sid`), `token.c`, `security.h`
+  (`security_init_server_user`, `security_server_user_sid`; `security_unix_uid_to_sid` returns it),
+  `registry.c` (HKCU path, user key descriptor, the managed-profile self check), `main.c`: with session 0 a
+  server's user SID comes from the E1 accounts map instead of Wine's fixed S-1-5-21-0-0-0-1000.
+
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)

@@ -279,3 +279,47 @@ machine root, so it takes the stock save path). A journal is still open.
 * T5: the Safe Mode service filter (auto-start of `SafeBoot\Minimal`/`Network` services only, `StartService`
   refusing others with 1084) stays in the half of `services.exe` that moves to session 0.
 * `setup-machine-root.sh` writes `builtin_administrator=administrator` by default (Safe Mode C4).
+
+## T4-0: each user's own SID with session 0 (2026-11-12)
+
+Found while planning T4: Wine gives every user's logon token the same SID, S-1-5-21-0-0-0-1000. With one
+registry for all sessions that is wrong twice: two users' hives would have the same path under `\Registry\User`,
+and session 0's access checks cannot tell users apart (a key whose descriptor names that SID, for example through
+CREATOR OWNER, is open to every user).
+
+Change (server): a server whose programs use session 0 takes its user's SID from the E1 accounts map
+(`accounts_own_sid`, the active record of its uid; the account bound to the legacy SID keeps
+S-1-5-21-0-0-0-1000), at start, before the registry is loaded. It is the token user of the logon token, the SID of
+files owned by the user (`security_unix_uid_to_sid`), the name of `HKEY_CURRENT_USER` and the SID the user's key
+default descriptor grants. A server without session 0, or a user missing from the map, keeps Wine's fixed SID.
+No migration of `user.reg` is needed: its keys are stored relative to the hive root.
+
+Test: the sysrun suite's session 0 section runs `wex-accounts sync`, then checks with the probe's `whoami` mode that
+the standard user's and the administrator's tokens carry their own mapped SIDs and differ; the elevated write
+through the broker still works (normal suite 333, broker test, T1 test).
+
+## T1 close-out and the plan for T2b to T6 (2026-11-12)
+
+T1 is done except the run on an installed machine (ISO build with `WEX_SESSION0=1`, VM test), which waits for
+the merge of the Safe Mode and Vintner Boot branches. Decisions taken while closing it:
+
+* **ST-14 (drop the user server's snapshot of the machine hives): not done, on purpose.** The per-session keys
+  start from the snapshot's content (drive and port mappings, computer name state, display and device keys
+  between boot steps), and the server's own start-up reads use it. It costs memory only; it is never saved
+  and never served for any other key. Revisit with T4, when the user server holds nothing else either.
+* **ST-05 (machine writes of a limited session): no separate work.** With session 0 a limited session's machine
+  writes are refused exactly as the access checks under elevation enforcement already refuse them in its own
+  server (the sysrun suite's enforced cases pass unchanged); `registry-trace-stats.py --writes` lists them when
+  a regression needs it.
+
+Plan:
+
+| Item | Content | Who |
+|---|---|---|
+| T2b | Virtual store: a qualifying 32-bit limited program's refused writes under `HKLM\Software` go to its own `VirtualStore`, merged back on reads, in `ntdll` (session 0 unchanged). Needed before session 0 can be on by default | Codex (from 2026-11-12 02:00), Claude reviews and tests |
+| T2d | A journal for session 0's hives (today: atomic saves every 5 s) | later, low priority |
+| T3 | `HKLM\SAM` and `HKLM\SECURITY` readable by SYSTEM only in session 0; account policy there | after T4, small |
+| T4a | The user's own hive in session 0: at the first program of a session, the user's server sends session 0 its `user.reg` (descriptor) and the token; session 0 loads it under `\Registry\User\<SID>` (and `_Classes`) and sends the hive back to that server to save, since session 0's account cannot write in the user's home; at logoff it unloads it after a last save. `ntdll` routes `\Registry\User` to session 0. HKCU of SYSTEM and service accounts in session 0 | Claude |
+| T4b | E1's managed profile hives (`NtLoadWexProfileEx`, leases, the root-owned profile storage) move from the user's server to session 0, so an elevated administrator's profile is one hive for every session | Claude, with Codex review of the trust changes |
+| T5 | `services.exe` front and back, the back in session 0 (Safe Mode filter in the back); pipe proxy; installer and updater services. Waits for the Safe Mode merge (it changes `programs/services`) | own design first |
+| T6 | Broker decision in session 0, session ids per logon | own design |

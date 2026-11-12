@@ -28,6 +28,7 @@
  *   probe notify KEY MS           waits up to MS ms for a change below KEY; prints notify=changed or notify=timeout
  *   probe setdacl KEY SDDL        sets the key's DACL from an SDDL string; prints setdacl=<error code>
  *   probe getdacl KEY             prints dacl=<the key's DACL as SDDL>
+ *   probe whoami                  prints user=<the token user's SID>
  * Build: x86_64-w64-mingw32-gcc / i686-w64-mingw32-gcc -municode -o probe.exe system-tier-probe.c -ladvapi32 -lntdll */
 
 #include <windows.h>
@@ -51,6 +52,25 @@ int __cdecl wmain( int argc, WCHAR **argv )
     HKEY key, sub;
     LSTATUS ret;
 
+    if (argc == 2 && !lstrcmpW( argv[1], L"whoami" ))
+    {
+        char buffer[256];
+        TOKEN_USER *user = (TOKEN_USER *)buffer;
+        HANDLE token;
+        DWORD size;
+        WCHAR *str;
+
+        if (!OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token ) ||
+            !GetTokenInformation( token, TokenUser, buffer, sizeof(buffer), &size ) ||
+            !ConvertSidToStringSidW( user->User.Sid, &str ))
+        {
+            printf( "user=error%lu\n", GetLastError() );
+            return 1;
+        }
+        printf( "user=%ls\n", str );
+        LocalFree( str );
+        return 0;
+    }
     if (argc < 3) return 2;
     if ((ret = RegOpenKeyExW( HKEY_LOCAL_MACHINE, argv[2], 0, KEY_ALL_ACCESS & ~WRITE_DAC & ~WRITE_OWNER, &key )) &&
         (ret = RegOpenKeyExW( HKEY_LOCAL_MACHINE, argv[2], 0, KEY_READ | KEY_NOTIFY, &key )))

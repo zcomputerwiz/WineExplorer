@@ -2643,6 +2643,17 @@ s0q() { as_wine "$1" reg query 'HKLM\Software\WexTier' /v "$2" | awk -v n="$2" '
 s0_start
 [ "$(stat -c '%U %a' "$S0RUN/session0")" = "$S0U 666" ] || fail "session 0 socket: $(stat -c '%U %a' "$S0RUN/session0")"
 ok st_session0_runs_as_its_own_account
+# T4-0: with session 0 each user's logon token has the user's own SID from the accounts map
+"$LIBEXEC/wex-accounts" --directory /etc/wineexplorer sync >/dev/null || fail "accounts sync"
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/tierprobe64.exe" "$SRC/scripts/system-tier-probe.c" -ladvapi32 -lntdll
+for u in "$STD" "$ADM"; do
+    want="S-1-5-21-$(awk -v n="$u" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
+    got="$(wine_as "$u" "$ROOT/probes/tierprobe64.exe" whoami 2>/dev/null | tr -d '\r' | sed -n 's/^user=//p')"
+    [ "$want" != "S-1-5-21-" ] && [ "$got" = "$want" ] || fail "T4-0: $u's token user is [$got], the map says [$want]"
+done
+[ "$(wine_as "$STD" "$ROOT/probes/tierprobe64.exe" whoami 2>/dev/null)" != "$(wine_as "$ADM" "$ROOT/probes/tierprobe64.exe" whoami 2>/dev/null)" ] ||
+    fail "T4-0: two users have the same SID"
+ok st_each_user_has_the_mapped_sid_with_session0
 # the hive file now differs from session 0's copy: a value read from session 0 is 1, from a snapshot 2
 set_val 'Software\\WexTier' FromSession0 2
 [ "$(s0q "$STD" FromSession0)" = 0x1 ] || fail "a standard user's program did not read HKLM from session 0: [$(s0q "$STD" FromSession0)]"
