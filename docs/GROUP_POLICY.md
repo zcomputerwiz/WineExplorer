@@ -183,7 +183,13 @@ session 0, and Group Policy later adds a writer beside it, with no change to R9.
   project's rule is that GPL-3.0 code makes the module containing it GPL-3.0, so keep the CSE a separate file and make
   that licence decision explicitly.
 - Test setup: a Samba AD domain controller in the QEMU lab (see [TOOLING.md](TOOLING.md)) with one GPO that sets a
-  registry value, a 32-bit program reading it, and a join/unjoin round trip.
+  registry value, a 32-bit program reading it, and a join/unjoin round trip. Any distribution with current Samba
+  packages serves as the controller; a Debian guest fits the lab's tooling. Needed: a network the controller and
+  the WineExplorer guest share (a QEMU socket or bridge network; user-mode networking with forwarded ports is not
+  enough), the client's DNS pointing at the controller, clocks within Kerberos' 5 minutes, and a realm name that
+  is not under `.local`. Test policies are made on the controller with `samba-tool gpo`; whether it writes the
+  security template (`GptTmpl.inf`) is unverified, else the file is put into SYSVOL by hand. A Windows Server
+  controller (lab only) is the later check against policies authored with Windows' own tools.
 
 ## First work order
 
