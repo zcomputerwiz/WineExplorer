@@ -49,6 +49,13 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   field `user_hive` of `get_registry_channel`), `server/token.c` (session 0's own user is SYSTEM),
   `dlls/ntdll/unix/server.c` (routing of the process user's hive).
 
+- T2b, the virtual store: `dlls/ntdll/unix/registry.c` (`regvirt_*`; `NtOpenKeyEx` split into `open_key` with a
+  virtualize switch), `server.c` (`NtClose`, `NtDuplicateObject`), `file.c` (`NtQueryObject`), `security.c`,
+  `unix_private.h`.
+- 32-bit view through session 0: `dlls/ntdll/unix/registry.c` (`regsrv_view`: every create and open sent to session 0
+  states `KEY_WOW64_32KEY` or `KEY_WOW64_64KEY`), `server/registry.c` (a registry-only client's view flag is
+  kept), `server/session0.c` and `include/wine/wex_session0.h` (link version 2 carries the program's machine).
+
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)

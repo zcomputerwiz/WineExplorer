@@ -2626,6 +2626,8 @@ printf 'session0_socket=%s\nsession0_user=%s\n' "$S0RUN/session0" "$S0U" >> "$CO
 kill_servers
 S0_MODES="$(stat -c '%a %n' "$M"/*.reg)"   # session 0 saves its own files; restored at the end
 set_val 'Software\\WexTier' FromSession0 1
+reg_append "$M/system.reg" 'Software\\Wow6432Node\\WexVirtMerge' '"real"="machine"'   # for the T2b merged view
+reg_append "$M/system.reg" 'Software\\Wow6432Node\\WexProbe' '"FromMachine"="machine"'  # what a 32-bit program's view sees
 s0_start()
 {
     (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin \
@@ -2689,6 +2691,25 @@ grep -q '^"v"="std-hkcu"' "/home/$STD/.wine/user.reg" || fail "T4a: user.reg doe
     fail "T4a: the value is not there in the next session"
 el_down "$STD"
 ok st_user_hive_held_by_session0_and_written_to_user_reg
+# T2b: the virtual store. A 32-bit program of a standard user writes under HKLM\Software: the write goes to the
+# user's VirtualStore and is read back merged; 64-bit programs and the excluded keys are not virtualized.
+R32='C:\windows\syswow64\reg.exe'
+v32() { as_wine "$STD" "$R32" "$@"; }
+val() { awk -v n="$1" '$1 == n { print $NF }'; }
+v32 add 'HKLM\Software\WexVirt' /v v /d store /f >/dev/null || fail "T2b: a 32-bit program's virtualized write failed"
+[ "$(v32 query 'HKLM\Software\WexVirt' /v v | val v)" = store ] || fail "T2b: the 32-bit program does not read its write"
+[ -z "$(as_wine "$STD" reg query 'HKLM\Software\Wow6432Node\WexVirt' /v v | val v)" ] || fail "T2b: the write reached the machine key"
+[ "$(as_wine "$STD" reg query 'HKCU\Software\Classes\VirtualStore\Machine\Software\Wow6432Node\WexVirt' /v v | val v)" = store ] ||
+    fail "T2b: the value is not in the user's VirtualStore"
+as_wine "$STD" reg add 'HKLM\Software\WexVirt64' /v v /d x /f >/dev/null 2>&1 && fail "T2b: a 64-bit program was virtualized"
+v32 add 'HKLM\Software\Microsoft\Windows\WexVirtX' /v v /d x /f >/dev/null 2>&1 && fail "T2b: an excluded key was virtualized"
+v32 add 'HKLM\Software\WexVirtMerge' /v mine /d user /f >/dev/null || fail "T2b: write under an existing machine key"
+OUT="$(v32 query 'HKLM\Software\WexVirtMerge')"
+[ "$(val real <<<"$OUT")" = machine ] && [ "$(val mine <<<"$OUT")" = user ] || { echo "$OUT" >&2; fail "T2b: no merged view"; }
+el_down "$STD"
+sleep 6   # session 0's lazy flush
+! grep -q '^"v"="store"\|^"mine"="user"' "$M/system.reg" || fail "T2b: a virtualized write is in the machine hive"
+ok st_virtual_store_for_32_bit_programs_of_a_standard_user
 # a server that the user starts without the launcher reads the same configuration, and session 0 refuses it
 prefix_server_env "$STD" -p 30 >/dev/null 2>&1 &
 sleep 2

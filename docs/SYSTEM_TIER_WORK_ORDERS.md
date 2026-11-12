@@ -25,7 +25,7 @@ implementation"). Its six recommendations are therefore taken as decided; any of
 |---|---|---|
 | T0 spike and measurements | ST-01 registry calls per program start; ST-02 the server's own registry use; ST-03 key handles that cross servers; ST-04 prototype of registry calls against a second server; ST-05 limited-write list from a traced limited session | ST-01 to ST-04 done, ST-05 open |
 | T1 session 0 owns the machine trees | ST-10 account, unit, socket, peer test; ST-11 registry-only client in the server; ST-12 attested channel set-up by the user's server; ST-13 `ntdll` routing and handle mapping; ST-14 user servers stop loading and saving machine hives; ST-15 reconnect; ST-16 two-user tests | ST-11, ST-12, ST-13, ST-15 and development ST-10/ST-16 done; production ST-10, notification, ST-14 rest open |
-| T2 | permissions stored, journal and checkpoint, refused writes, virtual store | permissions stored (T2a) and refused writes done; journal, virtual store open |
+| T2 | permissions stored, journal and checkpoint, refused writes, virtual store | permissions stored (T2a), refused writes, lazy flush (T2c) and the virtual store (T2b) done; journal open |
 | T3 | tier-only trees; account policy, `net accounts`, verifier, Group Policy | |
 | T4 | user hives in session 0 | |
 | T5 | `services.exe` front and back (the in-place split can start during T1), session-0 services, pipe proxy | |
@@ -322,6 +322,42 @@ server exits, and is read again in the next session. Normal suite 334, broker te
 Open: E1 managed profiles (T4b); other users' hives are not visible in `HKEY_USERS` of a session (Windows shows
 every loaded hive, subject to its descriptor); a server that dies loses up to 5 s of its user's changes; the
 user's server still loads its own copy at start (unused once session 0 holds the hive).
+
+## T2b: the virtual store (2026-11-12)
+
+Codex was given the brief and returned without an implementation (it asked one question about routing, then
+listed open points); Claude implemented it.
+
+* **Who.** A 32-bit (WoW64) program whose token is not elevated (`TokenElevationType` not Full) and is not SYSTEM,
+  LocalService or NetworkService. A manifest's `requestedExecutionLevel` is not known to `ntdll` and is treated
+  as not stated.
+* **Where.** Keys under `HKLM\Software` (with or without `Wow6432Node`) except `Classes`, `Microsoft\Windows` and
+  `Microsoft\Windows NT`, opened through session 0.
+* **Store.** `HKCU\Software\Classes\VirtualStore\Machine\Software\Wow6432Node\<rest>` (the user's classes, as
+  Windows keeps it in `UsrClass.dat`; the `Wow6432Node` level as Windows shows it for 32-bit programs). It is
+  reached with ordinary calls, so it is in session 0 when T4a holds the user's hive.
+* **Behaviour.** A create, or an open for writing, that session 0 refuses returns a virtual key: a handle of the
+  real key (read only, when it exists) and of the store key (created at the first write, with its missing
+  parents). An open of a key whose store exists returns a virtual key too, also for reading, and an open of a key
+  that exists only in the store finds it. Values and subkeys: writes and deletes go to the store; reads take the
+  store first; enumerations and `NtQueryKey` counts are merged, the store's entries first. Object, security and
+  notification calls use the real key (the store when there is none). A virtual key cannot be duplicated or
+  renamed.
+* Code: `dlls/ntdll/unix/registry.c` (`regvirt_*`), hooks in `server.c` (`NtClose`, `NtDuplicateObject`),
+  `file.c` (`NtQueryObject`), `security.c`.
+
+**Found on the way: 32-bit programs saw the 64-bit machine registry through session 0.** The server decides a
+request's view from the calling process (`is_wow64_process`), and session 0's registry-only client is a 64-bit
+process; the channel is set up before the program's server knows it is 32-bit, so passing the machine at set-up
+did not help. Fixed by stating the view in every request: `ntdll` adds `KEY_WOW64_32KEY` (WoW64) or
+`KEY_WOW64_64KEY` when the caller chose none, and session 0 keeps that flag for registry-only clients. The T1 test
+had read only with `/reg:64` and missed it; it now checks a 32-bit program's own view, and three expectations that
+relied on the wrong view were corrected.
+
+Test (sysrun suite, session 0 section, standard user, 32-bit and 64-bit `reg.exe`): a 32-bit write under
+`HKLM\Software` succeeds, reads back, is not in the machine key or the machine hive, and is in the user's
+`VirtualStore`; a 64-bit write and a write under an excluded key are refused; a 32-bit query of a machine key with
+a virtualized value shows both. Normal suite 335, broker test, T1 test pass.
 
 ## T1 close-out and the plan for T2b to T6 (2026-11-12)
 

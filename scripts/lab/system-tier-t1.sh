@@ -65,6 +65,9 @@ sleep 3
 
 check a_reads_session0_64 "$(A reg query "$K" /v where | value where)" session0
 check a_reads_session0_32 "$(A "$R32" query "$K" /v where /reg:64 | value where)" session0
+# a 32-bit program's own view: HKLM\Software is session 0's Wow6432Node, as in the program's own server
+s0 reg add 'HKLM\Software\Wow6432Node\WexTier' /v where /d session0-32bit-view /f >/dev/null
+check a_32bit_view_from_session0 "$(A "$R32" query "$K" /v where | value where)" session0-32bit-view
 A reg add "$K" /v froma /d written-in-a /f >/dev/null; check a_write_exit $? 0
 check b_sees_a_write_at_once "$(B reg query "$K" /v froma | value froma)" written-in-a
 check s0_has_a_write "$(s0 reg query "$K" /v froma | value froma)" written-in-a
@@ -79,7 +82,9 @@ notify_case() {  # name, probe, wait ms, change (yes/no)
     rm -f "$W/notify.out"
     (WINEPREFIX=$W/b timeout 60 ./wine "$W/$2" notify 'Software\WexTier' "$3" >"$W/notify.out" 2>/dev/null &)
     for i in $(seq 1 100); do grep -q '^armed' "$W/notify.out" 2>/dev/null && break; sleep 0.2; done
-    [ "$4" = yes ] && A reg add "$K" /v notify$1 /d x /f >/dev/null
+    # the change goes to the key the probe's view sees: a 32-bit probe watches HKLM\Software\Wow6432Node\WexTier
+    if [ "$4" = yes ] && [ "$1" = 32 ]; then A reg add 'HKLM\Software\Wow6432Node\WexTier' /v notify$1 /d x /f >/dev/null
+    elif [ "$4" = yes ]; then A reg add "$K" /v notify$1 /d x /f >/dev/null; fi
     for i in $(seq 1 100); do grep -q '^notify=' "$W/notify.out" 2>/dev/null && break; sleep 0.2; done
     field notify < "$W/notify.out"
 }
@@ -98,7 +103,7 @@ check a_reads_own_hkcu "$(A reg query 'HKCU\Software\WexTier' /v user | value us
 
 # handles: duplicate, object name, security descriptor (64-bit and 32-bit)
 check dup64 "$(A "$W/p64.exe" dup 'Software\WexTier' where | field dup)" session0
-check dup32 "$(A "$W/p32.exe" dup 'Software\WexTier' where | field dup)" session0
+check dup32 "$(A "$W/p32.exe" dup 'Software\WexTier' where | field dup)" session0-32bit-view
 check name64 "$(A "$W/p64.exe" name 'Software\WexTier' | field name)" '\REGISTRY\Machine\Software\WexTier'
 check sd_present "$(A "$W/p64.exe" name 'Software\WexTier' | field sd | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 
