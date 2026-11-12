@@ -350,3 +350,10 @@ comparison found no reason to rework the design in `DWM_ARCHITECTURE.md`). Both 
   frame can be scaled over the new client area (`wp_viewport`) until the program presents at the new size, instead
   of showing a gap or the old size. First step: measure what `wexcomp` shows today during an interactive resize of a
   GPU-presenting window (this was not checked), then decide.
+
+## Future: Wayland as the default session (added 2026-11-11, not started)
+
+X11 stays the installed default; the opt-in `wexcomp` session has passed L1/L2 on VMs (WAYLAND_PLAN.md,
+WAYLAND_L2.md). Conditions to revisit the default: L4 (global hotkeys, Win+L session lock, output management and
+multi-monitor, greeter decision), the `CS_DROPSHADOW` gap, restored live scaling at 150%, safe AUTO adoption of
+Wayland-native windows, and a passing run on physical hardware (Intel/AMD/Nvidia), not only VMs.

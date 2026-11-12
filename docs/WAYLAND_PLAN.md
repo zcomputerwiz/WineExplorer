@@ -1,8 +1,12 @@
 # Wayland: plan and research
 
-Status (2026-10-12): research only; L0 spike done, results in `docs/WAYLAND_L0.md`. The shipping stack stays **LightDM → Xorg → Wine virtual desktop → Explorer**
-(X11 window manager, D1/D2 compositor). This document records what a Wayland session would take, so the work can
-start when it is worth it (Xorg is still maintained in Debian 13; GNOME/Ubuntu and KDE now default to Wayland).
+Status (2026-11-11): L0 and L1 are done (`docs/WAYLAND_L0.md`, `docs/WAYLAND_L1.md`) and L2 is accepted on fresh VM
+installs (`docs/WAYLAND_L2.md`, `docs/WAYLAND_SESSION.md`). An opt-in Wayland session (`wexcomp`) exists. The default
+and production stack stays **LightDM → Xorg → Wine virtual desktop → Explorer** (X11 window manager, D1/D2
+compositor). **Wayland is not the default** because L4 is open (hotkeys, session lock, Wayland greeter, output
+management/multi-monitor), `CS_DROPSHADOW` is a known gap, restored live scaling at 150% is open, AUTO adoption of
+Wayland-native windows is disabled, and no physical-hardware run exists (VMs and headless only). Revisit when those
+close. The sections below are the original design and research; the phase table has current status.
 
 ## Wine's Wayland driver today (`dlls/winewayland.drv`, Wine 11.19, ~8.1k lines)
 
@@ -87,9 +91,9 @@ On all of them Wine apps run through XWayland by default; the Wayland driver is 
 |---|---|---|
 | **L0 spike** | Measure the gaps (work order below) | days |
 | L1 | Compositor skeleton (tinywl/labwc) + layer-shell roles in Wine's driver + `wex-window-v1` + the Wine driver commit for it | Completed 2026-10-14; opt-in session, acceptance in WAYLAND_L1.md |
-| L2 | Linux apps: foreign toplevels, Explorer frames, XWayland | weeks |
-| L3 | D1/D2 effects and capture in the compositor | 1–2 weeks |
-| L4 | Hotkeys, session lock, Wayland greeter (LightDM), output management, multi-monitor | weeks |
+| L2 | Linux apps: foreign toplevels, Explorer frames, XWayland | Accepted 2026-10-17 on VMs (WAYLAND_L2.md); polish items open |
+| L3 | D1/D2 effects and capture in the compositor | Partly: blur/shadows/corners in wexcomp (WAYLAND_BLUR.md); `CS_DROPSHADOW` open |
+| L4 | Hotkeys, session lock, Wayland greeter (LightDM), output management, multi-monitor | Not started (greeter may stay X11) |
 
 ## L0 work order (spike; no product code)
 

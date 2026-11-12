@@ -4,7 +4,7 @@
 
 WineExplorer DE runs as an X11 session from a display manager such as GDM. Customized Wine remains the desktop runtime; Explorer owns the X11 root as the window manager and hosts native Linux and separate Wine/Proton windows in Win32 frames. Proton keeps its normal application runtime and prefixes. It does not replace the shell's Wine. See [LINUX_WINDOWS.md](LINUX_WINDOWS.md) for the implemented bridge and its limits.
 
-The current stack is GDM → Xorg → Wine desktop/Explorer, with Linux and Proton clients connecting to the same X server. Gamescope is optional per application; nesting the entire shell under Gamescope would isolate it from the session's external windows. Native Wayland window management is future work.
+The current stack is GDM → Xorg → Wine desktop/Explorer, with Linux and Proton clients connecting to the same X server. Gamescope is optional per application; nesting the entire shell under Gamescope would isolate it from the session's external windows. An opt-in Wayland session (`wexcomp`, our labwc/wlroots compositor, with Explorer as the privileged shell over `wex_window_manager_v1`) exists and has passed L1/L2 acceptance on fresh VM installs; X11 remains the installed default and production target. Open Wayland work (hotkeys, session lock, greeter, output management, physical-hardware runs) is in [WAYLAND_PLAN.md](WAYLAND_PLAN.md); the session is described in [ADMIN_GUIDE.md](ADMIN_GUIDE.md) §2.2. The diagram below shows the X11 stack.
 
 ```
 +-----------------------------------------------------------------------------------+
