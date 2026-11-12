@@ -56,6 +56,9 @@
 #define E1R8_TYPE_RELEASE           25
 #define E1R8_TYPE_RELEASED          26
 #define E1R8_TYPE_W_SETUP           27
+/* Lab frame, header only: the verifier's answer to START, passed on to the dialog in place of ATTACH_OK,
+ * when the account lockout policy has closed the account. No worker exists and the request ends. */
+#define E1R8_TYPE_LOCKED            31
 
 /*
  * Enum values, per spec sections 5 and 6.

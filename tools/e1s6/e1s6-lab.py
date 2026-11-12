@@ -809,7 +809,13 @@ def service(server_path, system_group, pam_paths=None):
                             if accounts is not None:
                                 bucket = (bytes(start_msg.account_key) if any(start_msg.account_key) else
                                           b"name:" + hashlib.sha256(bytes(start_msg.account)).digest()[:16])
-                                require(accounts.reserve(bucket, time.monotonic_ns()) is None, "r8-throttle-account")
+                                if accounts.reserve(bucket, time.monotonic_ns()) is not None:
+                                    # Locked out: no worker, no PAM call. The broker is told (lab frame 31,
+                                    # header only) so that the dialog can say so; the attempt is over.
+                                    rec["state"] = "REFUSED"
+                                    print("E1R8_LOCKED request=%x" % rid, flush=True)
+                                    self.data.send(e1r8._put_header(31, 76, rec["tuple"]))
+                                    return True
                                 rec["throttle"] = (accounts, bucket)
 
                             sec_v, sec_w = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)

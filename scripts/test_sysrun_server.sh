@@ -1700,8 +1700,11 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     [ "$(grep -c 'r8: result refused' <<<"$wine_new_log")" = 3 ] ||
         { grep 'r8: ' <<<"$wine_new_log" >&2; fail "r8_throttled_after_three_refusals: not three refusals first"; }
     r8_pw_request "$R8PW" r8_throttled.txt 3
-    grep -q 'site=r8-throttle-account' <<<"$e1s6_new_log" ||
+    grep -q 'E1R8_LOCKED' <<<"$e1s6_new_log" ||
         { grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2; fail "r8_throttled_after_three_refusals: the verifier did not throttle the account"; }
+    # the broker passes the lockout on to the dialog (which shows the system's message) and ends the request
+    grep -q 'r8: locked sent' <<<"$wine_new_log" && ! grep -q 'r8: further attempt' <<<"$wine_new_log" ||
+        { grep 'r8: ' <<<"$wine_new_log" | tail -20 >&2; fail "r8_throttled_after_three_refusals: the dialog was not told about the lockout"; }
     ! grep -qE 'E1R8_WORKER_READY|E1R8_RESULT|E1R8_REDEEMED|r8: launched' <<<"$wine_new_log$e1s6_new_log" ||
         fail "r8_throttled_after_three_refusals: a worker, a result or a launch while throttled"
     [ ! -e "$EL/r8_throttled.txt" ] || fail "r8_throttled_after_three_refusals: a program started"

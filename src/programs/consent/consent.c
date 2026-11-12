@@ -989,8 +989,24 @@ static INT_PTR CALLBACK credentials_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam,
                 }
                 FlushFileBuffers(data->out_pipe);
 
-                if (!r8_read_exact(data->in_pipe, attach_ok_buf, 76) ||
-                    e1r8_decode_attach_ok(attach_ok_buf, 76, &data->r8_tuple) != 0)
+                if (!r8_read_exact(data->in_pipe, attach_ok_buf, 76)) return TRUE;
+                if (!e1r8_get_header(attach_ok_buf, 76, E1R8_TYPE_LOCKED, &data->r8_tuple, NULL))
+                {
+                    /* The account lockout policy closed the account: no password check took place. The
+                     * text is the system's message for ERROR_ACCOUNT_LOCKED_OUT; the request ends. */
+                    wex_secure_wipe(data->password, sizeof(data->password));
+                    SetDlgItemTextW(hwnd, IDC_UAC_PASSWORD, L"");
+                    EnableWindow(GetDlgItem(hwnd, IDYES), FALSE);
+                    EnableWindow(GetDlgItem(hwnd, IDNO), FALSE);
+                    SetDlgItemTextW(hwnd, IDC_UAC_ERROR,
+                                    L"The referenced account is currently locked out and may not be logged on to.");
+                    UpdateWindow(hwnd);
+                    Sleep(2500);
+                    data->confirmed = FALSE;
+                    EndDialog(hwnd, IDNO);
+                    return TRUE;
+                }
+                if (e1r8_decode_attach_ok(attach_ok_buf, 76, &data->r8_tuple) != 0)
                 {
                     return TRUE;
                 }
@@ -1254,8 +1270,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
                     }
                     FlushFileBuffers(data.out_pipe);
 
-                    if (!r8_read_exact(data.in_pipe, attach_ok_buf, 76) ||
-                        e1r8_decode_attach_ok(attach_ok_buf, 76, &data.r8_tuple) != 0)
+                    if (!r8_read_exact(data.in_pipe, attach_ok_buf, 76)) return ERROR_NOT_SUPPORTED;
+                    /* headless: a locked account ends the request without a window */
+                    if (!e1r8_get_header(attach_ok_buf, 76, E1R8_TYPE_LOCKED, &data.r8_tuple, NULL))
+                        return ERROR_ACCOUNT_LOCKED_OUT;
+                    if (e1r8_decode_attach_ok(attach_ok_buf, 76, &data.r8_tuple) != 0)
                     {
                         WARN("R8 ATTACH_OK missing or malformed.\n");
                         return ERROR_NOT_SUPPORTED;

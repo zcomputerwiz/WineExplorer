@@ -1654,6 +1654,7 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         uint8_t start_pkt[159];
         size_t start_pkt_len = 0;
         uint8_t ready_pkt[76];
+        BOOL locked = FALSE;
         struct r8_attach_worker_ctx *ac;
         HANDLE attach_thread;
 
@@ -1750,8 +1751,11 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
 
         /* 4. Wait for WORKER_READY from verifier */
         if (!ops->r8_start ||
-            ops->r8_start( req, s_r8_channel, start_pkt, (size_t)start_pkt_len, ready_pkt ) != ERROR_SUCCESS ||
-            e1r8_decode_worker_ready( ready_pkt, sizeof(ready_pkt), &tuple ) != 0)
+            ops->r8_start( req, s_r8_channel, start_pkt, (size_t)start_pkt_len, ready_pkt ) != ERROR_SUCCESS)
+            memset( ready_pkt, 0, sizeof(ready_pkt) );
+        /* The lockout policy closed the account: no worker. D is told in place of ATTACH_OK below. */
+        locked = !e1r8_get_header( ready_pkt, sizeof(ready_pkt), E1R8_TYPE_LOCKED, &tuple, NULL );
+        if (!locked && e1r8_decode_worker_ready( ready_pkt, sizeof(ready_pkt), &tuple ) != 0)
         {
             r8_trace_err( "worker ready", (DWORD)ERROR_ACCESS_DENIED );
             TerminateProcess( pi.hProcess, 1 );
@@ -1762,7 +1766,7 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
             if (secure) secure_leave();
             return ERROR_ACCESS_DENIED;
         }
-        r8_trace_line( "r8: worker ready" );
+        r8_trace_line( locked ? "r8: account locked" : "r8: worker ready" );
 
         /* 5. Send ATTACH_OK (76 bytes) to D */
         ac = malloc( sizeof(*ac) );
@@ -1778,7 +1782,8 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         }
         memset( ac, 0, sizeof(*ac) );
         ac->to_d_write = to_d_write;
-        e1r8_encode_attach_ok( ac->attach_buf, sizeof(ac->attach_buf), &tuple );
+        if (locked) e1r8_put_header( ac->attach_buf, sizeof(ac->attach_buf), E1R8_TYPE_LOCKED, 76, &tuple );
+        else e1r8_encode_attach_ok( ac->attach_buf, sizeof(ac->attach_buf), &tuple );
         if (!(attach_thread = CreateThread( NULL, 0, r8_attach_worker_thread, ac, 0, NULL )))
         {
             free( ac );
@@ -1798,6 +1803,9 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         handles[3] = stop_event;
         handles[4] = req->lease_event;
         ret = WaitForMultipleObjects( 5, handles, FALSE, elapsed >= timeout ? 0 : (DWORD)(timeout - elapsed) );
+        /* A dialog that took the lockout frame may be gone before the writer thread has ended. */
+        if (locked && ret == WAIT_OBJECT_0 + 1 && WaitForSingleObject( attach_thread, 2000 ) == WAIT_OBJECT_0)
+            ret = WAIT_OBJECT_0;
 
         if (ret != WAIT_OBJECT_0 || !ac->write_ok)
         {
@@ -1823,6 +1831,20 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         }
         CloseHandle( attach_thread );
         free( ac );
+
+        if (locked)
+        {
+            /* D tells the person and leaves by itself; the request ends, there is no further attempt. */
+            r8_trace_line( "r8: locked sent" );
+            WaitForSingleObject( pi.hProcess, 10000 );
+            TerminateProcess( pi.hProcess, 1 );
+            WaitForSingleObject( pi.hProcess, 5000 );
+            CloseHandle( pi.hProcess );
+            CloseHandle( to_d_write );
+            CloseHandle( from_d_read );
+            if (secure) secure_leave();
+            return ERROR_ACCOUNT_LOCKED_OUT;
+        }
 
         r8_trace_line( "r8: attach_ok sent" );
 

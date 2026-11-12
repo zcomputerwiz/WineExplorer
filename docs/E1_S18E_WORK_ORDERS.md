@@ -1301,7 +1301,24 @@ password in a new request starts the elevated program); `r8_throttled_after_thre
 `LockoutBadCount`=3 in the registry); `r8_lockout_policy_removed` (the value removed: the same account is
 open at once).
 
-Open: the window runs from the first unsuccessful attempt and is also the lockout time
+## WO-39 A locked account is said so in the dialog (lab; Claude, 2026-11-11)
+
+Parity: the Windows credential prompt shows the logon error text; for a locked account that is the system
+message of `ERROR_ACCOUNT_LOCKED_OUT`. Before, the dialog closed without a word.
+
+* Lab frame 31 (`E1R8_TYPE_LOCKED`, header only). The verifier answers START with it when the lockout
+  policy has closed the account (`E1R8_LOCKED` in its log): no worker, no PAM call, attempt state REFUSED.
+* `e1s18_broker.c`: the frame in place of WORKER_READY is passed to the dialog in place of ATTACH_OK
+  (`r8: account locked`, `r8: locked sent`); the broker waits for the dialog to leave and ends the request
+  with `ERROR_ACCOUNT_LOCKED_OUT`. No further attempt.
+* `consent.c`: shows "The referenced account is currently locked out and may not be logged on to." in the
+  dialog for 2.5 s and leaves. An unknown name that reached the threshold gets the same text.
+
+Case: `r8_throttled_after_three_refusals` now also requires `r8: locked sent` and no further attempt.
+Not verified: the text on screen (no screenshot run of this path). Difference from Windows: there the
+prompt stays open for another name; here the request ends.
+
+Open (WO-38): the window runs from the first unsuccessful attempt and is also the lockout time
 (`ResetLockoutCount` is not a separate setting); a change made in a running session reaches the verifier
 when the Wine server saves the hive; no `net accounts` / `NetUserModalsGet/Set` level 3 on top of the
 values yet; no way to unlock one account by hand.
