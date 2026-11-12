@@ -4,7 +4,7 @@
 
 Wine branch `claude/vintner-boot-integration`, commits `46f3a86e33d` and `d4e95e24dee` on `cf1c29be` (pushed to the
 fork on 2026-11-12; WineExplorer's gitlink moves at the merge, `docs/SAFE_MODE_WORKORDER.md` B1-B8). The branch also carries `4a1d6d5a25e`, the buffered paint fix (the
-uxtheme section of 2026-11-03 below). WineExplorer keeps the boot mode in the root-owned `/run/wineexplorer/bootmode` (`safe`, `safenet` or
+uxtheme section of 2026-11-03 below), and `cdda62d0ad7`, uxtheme's Safe Mode check (below). WineExplorer keeps the boot mode in the root-owned `/run/wineexplorer/bootmode` (`safe`, `safenet` or
 `safecmd`); without that file, as in a stock prefix, nothing changes.
 
 * `programs/wineboot/wineboot.c` (`d4e95e24dee`, B5, as measured on the XP VM): in Safe Mode `process_run_key`
@@ -33,6 +33,10 @@ uxtheme section of 2026-11-03 below). WineExplorer keeps the boot mode in the ro
 * `dlls/user32/desktop.c`: `PaintDesktop` paints the Safe Mode desktop when `SM_CLEANBOOT` is set (black, "Safe
   Mode" in the corners of the work area, the Wine version centred on the top row, in the caption font smoothed in
   gray), for desktops that WineExplorer's shell does not paint. Written from the XP measurements, not ported.
+* `dlls/uxtheme/system.c` (`cdda62d0ad7`, 2026-11-12): `UXTHEME_LoadTheme` loads no visual style when `SM_CLEANBOOT` is set, so
+  windows are drawn classic in Safe Mode, in the account's colours, as on XP, whose Themes service no SafeBoot list
+  names. The account's theme stays in the registry, untouched, for the next normal start. Before, Safe Mode showed
+  whatever style the account had (Open Luna after a normal logon, Wine's own Light style before one).
 * Tests: `dlls/user32/tests/sysparams.c` (`SM_CLEANBOOT` equals `OptionValue`, or 0 without the key) and
   `programs/services/tests/service.c` (in Safe Mode, starting the spooler fails with 1084; the service tests,
   whose services are not listed, then stop).

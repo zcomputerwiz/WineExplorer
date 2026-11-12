@@ -557,9 +557,12 @@ safe_desktop() {   # safe_desktop TIMEOUT: after a Safe Mode logon the message b
                    # (Yes, the default), then the desktop. WEX_TEST_SAFE_BOX=required fails when there is no box.
     local end=$((SECONDS + $1)) screen seen=
     while [ "$SECONDS" -lt "$end" ]; do
-        screen=$("${V[@]}" text "$TEST" 2>/dev/null | tr '\n' ' ')
+        # The box is drawn classic (no visual style in Safe Mode): Tesseract's own threshold reads none of its text
+        # beside the blue caption, the explicit one (--white) reads it whole
+        screen=$({ "${V[@]}" text "$TEST"; "${V[@]}" text "$TEST" --white; } 2>/dev/null | tr '\n' ' ')
         case "$screen" in
-            *"running in Safe Mode"*) seen=1; shot box; "${V[@]}" key "$TEST" ret >/dev/null; break ;;   # OCR reads the first line whole
+            # OCR reads the first line whole, or else the last ("To keep working in Safe Mode, click Yes. To log off")
+            *"running in Safe Mode"*|*"click Yes. To log"*) seen=1; shot box; "${V[@]}" key "$TEST" ret >/dev/null; break ;;
             *"Recycle Bin"*) break ;;
         esac
         sleep 3
@@ -639,9 +642,10 @@ expect_safeboot() {   # expect_safeboot 0|1|2|cmd: what Windows programs see, fr
     [ -n "$PROBE_DIR" ] || return 0
     case "$1" in
         0) want=(cleanboot=0 option=none shell=none MountMgr=running spooler=untried) ;;
-        1) want=(cleanboot=1 option=1 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped spooler=1084) ;;
-        2) want=(cleanboot=2 option=2 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=running nsiproxy=running spooler=1084) ;;
-        cmd) want=(cleanboot=1 option=1 shell=1 EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped spooler=1084) ;;
+        # themed=0: no visual style in Safe Mode, whatever the account chose (2026-11-12)
+        1) want=(cleanboot=1 option=1 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped spooler=1084 themed=0) ;;
+        2) want=(cleanboot=2 option=2 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=running nsiproxy=running spooler=1084 themed=0) ;;
+        cmd) want=(cleanboot=1 option=1 shell=1 EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped spooler=1084 themed=0) ;;
     esac
     for bits in 32 64; do
         if [ "$1" = cmd ]; then
@@ -914,6 +918,7 @@ phase_waylandsafe() {   # work order A3
     expect_session_mode safe
     expect_compositor
     expect_wayland_screen
+    expect_safeboot 1
     shutdown_vm
 }
 

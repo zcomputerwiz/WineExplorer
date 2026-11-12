@@ -1351,6 +1351,24 @@ class TestSessionAndGreeter(unittest.TestCase):
         self.assertLess(common.index('cp -rf "$theme_dir"'), theme)
         self.assertIn("""if ! grep -qs '^"CurrentTheme"=' "$WINEPREFIX/user.reg" \\""", common)
 
+    def test_vm_test_checks_safe_mode_has_no_visual_style(self):
+        # 2026-11-12: XP loads no visual style in Safe Mode (its Themes service is in no SafeBoot list); uxtheme does
+        # the same, and the probe reports IsThemeActive
+        probe = (REPO_ROOT / "installer" / "tests" / "safeboot-probe.c").read_text(encoding="utf-8")
+        self.assertIn('GetProcAddress(uxtheme, "IsThemeActive")', probe)
+        self.assertLess(probe.index("print_themed();"), probe.rindex('printf("\\n")'))
+        vm = VM_TEST.read_text(encoding="utf-8")
+        for mode in ("1)", "2)", "cmd)"):
+            line = next(l for l in vm.splitlines() if l.strip().startswith(mode + " want=(cleanboot="))
+            self.assertIn(" themed=0)", line, mode)
+        line = next(l for l in vm.splitlines() if l.strip().startswith("0) want=(cleanboot=0"))
+        self.assertNotIn("themed=", line)   # a normal start keeps the account's choice, checked by expect_theme
+        waylandsafe = vm[vm.index("phase_waylandsafe() {"):]
+        waylandsafe = waylandsafe[:waylandsafe.index("\n}\n")]
+        self.assertIn("expect_safeboot 1", waylandsafe)
+        # the message box: OCR reads its first line or its last
+        self.assertIn('*"running in Safe Mode"*|*"click Yes. To log"*)', vm)
+
     def test_wayland_session_reads_the_mode_before_the_prefix(self):
         session = (SCRIPTS / "wine-explorer-wayland-session.sh").read_text(encoding="utf-8")
         prepare = session.index("\nwex_prepare_prefix")

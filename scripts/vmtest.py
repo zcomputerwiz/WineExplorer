@@ -289,8 +289,10 @@ def main():
     s = sub.add_parser("start"); s.add_argument("name"); s.add_argument("--iso"); s.add_argument("--efi", action="store_true")
     s.add_argument("--disk-gb", type=int, default=20); s.add_argument("--mem", type=int, default=4096)
     s.add_argument("--paused", action="store_true")
-    for op in ("stop", "reset", "eject", "text", "cont"):
+    for op in ("stop", "reset", "eject", "cont"):
         sub.add_parser(op).add_argument("name")
+    s = sub.add_parser("text"); s.add_argument("name")
+    s.add_argument("--white", action="store_true", help="the explicit threshold pass (white or light-on-dark text)")
     s = sub.add_parser("shutdown"); s.add_argument("name"); s.add_argument("--timeout", type=float, default=120)
     s = sub.add_parser("shot"); s.add_argument("name"); s.add_argument("file", nargs="?")
     s = sub.add_parser("key"); s.add_argument("name"); s.add_argument("keys", nargs="+")
@@ -348,7 +350,7 @@ def main():
             time.sleep(2)
         sys.exit(f"text not found: {a.text!r}")
     elif a.op == "text":
-        print(ocr(a.name))
+        print(ocr(a.name, white_text=a.white))
     elif a.op == "wait":
         end = time.time() + a.timeout
         want = a.text.lower()

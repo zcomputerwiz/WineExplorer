@@ -3,13 +3,16 @@
  * Copyright 2026 WineExplorer contributors
  *
  * Safe Mode as Windows programs see it (docs/SAFE_MODE_WORKORDER.md B1-B3, B7), for installer/tests/safe-mode.sh:
- * GetSystemMetrics(SM_CLEANBOOT), the volatile SafeBoot\Option key, which of Wine's automatic services run, and
- * whether the SCM refuses to start a service that no SafeBoot list names. Prints one line:
+ * GetSystemMetrics(SM_CLEANBOOT), the volatile SafeBoot\Option key, which of Wine's automatic services run,
+ * whether the SCM refuses to start a service that no SafeBoot list names, and whether a visual style is loaded.
+ * Prints one line:
  *
  *   bits=64 cleanboot=1 option=1 shell=0 EventLog=running PlugPlay=running NDIS=stopped nsiproxy=stopped spooler=1084
+ *   themed=0
  *
  * option and shell are "none" when the key or value is absent; spooler is the error of StartService for the print
- * spooler, tried only in Safe Mode (it is in neither list), and "untried" otherwise.
+ * spooler, tried only in Safe Mode (it is in neither list), and "untried" otherwise. themed is uxtheme's
+ * IsThemeActive: in Safe Mode no visual style is loaded, as on Windows, whose Themes service no SafeBoot list names.
  *
  *   i686-w64-mingw32-gcc -O2 -o safeboot-probe32.exe safeboot-probe.c
  *   x86_64-w64-mingw32-gcc -O2 -o safeboot-probe64.exe safeboot-probe.c
@@ -46,6 +49,18 @@ static void print_service(SC_HANDLE scm, const char *name)
     printf(" %s=%s", name, state);
 }
 
+static void print_themed(void)
+{
+    BOOL (WINAPI *is_theme_active)(void);
+    HMODULE uxtheme = LoadLibraryA("uxtheme.dll");
+
+    is_theme_active = uxtheme ? (void *)GetProcAddress(uxtheme, "IsThemeActive") : NULL;
+    if (is_theme_active)
+        printf(" themed=%d", is_theme_active() ? 1 : 0);
+    else
+        printf(" themed=none");
+}
+
 int main(void)
 {
     DWORD option, size = sizeof(option);
@@ -74,6 +89,7 @@ int main(void)
         CloseServiceHandle(service);
     }
     CloseServiceHandle(scm);
+    print_themed();
     printf("\n");
     fflush(stdout);
     return 0;
