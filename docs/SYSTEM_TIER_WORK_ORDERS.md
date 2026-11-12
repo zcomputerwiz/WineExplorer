@@ -23,13 +23,13 @@ implementation"). Its six recommendations are therefore taken as decided; any of
 
 | Phase | Work orders | State |
 |---|---|---|
-| T0 spike and measurements | ST-01 registry calls per program start; ST-02 the server's own registry use; ST-03 key handles that cross servers; ST-04 prototype of registry calls against a second server; ST-05 limited-write list from a traced limited session | ST-01 to ST-04 done, ST-05 open |
-| T1 session 0 owns the machine trees | ST-10 account, unit, socket, peer test; ST-11 registry-only client in the server; ST-12 attested channel set-up by the user's server; ST-13 `ntdll` routing and handle mapping; ST-14 user servers stop loading and saving machine hives; ST-15 reconnect; ST-16 two-user tests | ST-11, ST-12, ST-13, ST-15 and development ST-10/ST-16 done; production ST-10, notification, ST-14 rest open |
+| T0 spike and measurements | ST-01 registry calls per program start; ST-02 the server's own registry use; ST-03 key handles that cross servers; ST-04 prototype of registry calls against a second server; ST-05 limited-write list from a traced limited session | done (ST-05 decided: no separate work, see "T1 close-out") |
+| T1 session 0 owns the machine trees | ST-10 account, unit, socket, peer test; ST-11 registry-only client in the server; ST-12 attested channel set-up by the user's server; ST-13 `ntdll` routing and handle mapping; ST-14 user servers stop loading and saving machine hives; ST-15 reconnect; ST-16 two-user tests | done and tested with the launcher (sysrun suite) and in development mode, notification included; ST-14 rest decided against; open: a run on an installed machine (ISO, VM) |
 | T2 | permissions stored, journal and checkpoint, refused writes, virtual store | permissions stored (T2a), refused writes, lazy flush (T2c) and the virtual store (T2b) done; journal open |
-| T3 | tier-only trees; account policy, `net accounts`, verifier, Group Policy | |
-| T4 | user hives in session 0 | |
-| T5 | `services.exe` front and back (the in-place split can start during T1), session-0 services, pipe proxy | |
-| T6 | broker decision in session 0, session ids | |
+| T3 | tier-only trees; account policy, `net accounts`, verifier, Group Policy | postponed (see the plan below) |
+| T4 | user hives in session 0 | T4-0 (a SID per user) and T4a (the user's own hive) done; T4b (E1 managed profiles) postponed until E1 leaves the lab |
+| T5 | `services.exe` front and back (the in-place split can start during T1), session-0 services, pipe proxy | designed (`SYSTEM_TIER_T5_SERVICES.md`); waits for the Safe Mode merge |
+| T6 | broker decision in session 0, session ids | T6.1 (session ids) done; the rest designed (`SYSTEM_TIER_T6_BROKER.md`) |
 
 Rules for every work order: a switch keeps today's mode until T1 is accepted; every step is tested with a 32-bit
 and a 64-bit program; the existing suites (sysrun server, lab S6, broker) pass with the switch off.
@@ -262,6 +262,10 @@ Results (2026-11-12, wexbuild, main build, N=40, development mode, two sessions 
 CPU during the session 0 run: session 0 540 ms, the two users' servers 1390 ms together. So at this load session
 0 adds no measurable time; it carries about a quarter of the servers' work, as ST-01 predicted. A single run on
 an idle machine: the differences are within noise. Not measured: many sessions, a heavy installer.
+
+Second run (2026-11-12, after T4a, T2b and T6.1: session 0 also holds a user's hive; in development mode both
+sessions run as root with one SID, so only the first session's hive is in session 0): ratios 0.96, 0.93 and 0.97;
+session 0 650 ms CPU, the users' servers 1190 ms. Still no measurable cost.
 
 ### T2c: lazy flush (2026-11-12)
 
