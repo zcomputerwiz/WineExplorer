@@ -93,7 +93,9 @@ appends `/usr/share/wineexplorer/safe-greeter` to `XDG_DATA_DIRS`; that director
 `lightdm/lightdm-gtk-greeter.conf.d/90-wineexplorer-safe-mode.conf` (`installer/lightdm/`) sets `background=#000000`
 and `user-background=false`. lightdm-gtk-greeter 2.0.9 reads the data directories in order, then the configuration
 directories and `/etc/lightdm`, and a later file overrides an earlier one. So the last directory's keys replace
-Debian's `01_debian.conf`, and nothing under `/etc` changes.
+Debian's `01_debian.conf`, and nothing under `/etc` changes. The GTK greeter lists no accounts, so it logs on with
+its default session, X11. LightDM then saves that as the account's session, so an account that used the Wayland
+session gets X11 at its next normal logon, until it chooses Wayland again.
 
 **The Administrator account and hidden accounts** (work order C4 and C7, decisions 7 and 8; 2026-11-09):
 - The package creates `administrator`, display name Administrator, locked and in the administrators' group.
@@ -392,6 +394,7 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `normal` | No key: the same, the boot-mode generator wrote nothing, and the start-up check counted the start; the record says `normal` in a root-owned `/run/wineexplorer`; probes: 0, no `Option` key, all five services running; the screen not at 640x480 |
 | `lastgood` | Last Known Good (work order D3) from a generation that started successfully. With a control set saved by a start that counted (a normal start first if there is none), the test adds a key under the machine registry's `System\ControlSet001\Control` and a `Software` key on the stopped disk (Wine writes no block for a key without values, such as `Control` itself, so the test adds a key rather than a value). Last Known Good from the menu is then a normal start with automatic logon, with no restart, not counted, and Wine's 32-bit and 64-bit Notepad open. On the disk afterwards the control set key is gone, the `Software` key is still there, and the control set key is in `failed-controlset.reg` but not in the saved copy. Once Last Known Good is offered, Up from Start Normally on the failure screen reaches it before Safe Mode with Command Prompt, which `vfailed` follows |
 | `vfailed` | With LightDM held back 90 seconds for this phase (a drop-in under `/usr/lib`, removed afterwards): the Reset button (QMP `system_reset`) once the serial console answers, before `boot-complete.target`. An automatic logon follows Linux within seconds, too soon to reset reliably without the hold. The next ordinary start shows the failure screen with its countdown. Up stops it and removes its line, and Safe Mode with Command Prompt restarts into the variant, which shows no menu and comes up in that mode. The next ordinary start shows the screen again; left alone, it starts normally and counts. The start after that shows no screen |
+| `vlasttry` | Only when named, and last: it leaves the generation with no tries. With LightDM held back as for `vfailed`, it resets once before the logon screen and once on the next start's failure screen. The third start is the generation's last try. Its failure screen's Safe Mode with Command Prompt must still restart into the variant in that mode (`vintner next-boot variant --generation`). Read from the stopped disk's journal, that screen's start logged 2 earlier failures and no refusal. An image whose Vintner Boot lacks the flag is reported, not failed |
 | `lastgoodgen` | Last in the default list. The test appends a token to the Advanced Options variant on the stopped disk and adds a unit that runs `vintner publish` at the next start and powers off, so generation 2 is published. The variant is then put back. Generation 2 is started only through its variant, which counts nothing, so it never starts successfully. The registry is changed as in `lastgood`. Last Known Good from generation 2's menu then restarts with no menu into generation 1: a normal start whose recorded `vintner status --json` says `booted` generation 1, generation 2 not `GOOD`. The registry ends as in `lastgood` |
 | `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, and a `wexcomp` process for the account. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |
 | `waylandcmd` | Only when named. Safe Mode with Command Prompt in the Wayland session: the recovery console, no wineserver, and `wexcomp` running |
@@ -581,5 +584,24 @@ with the option `vga` recorded, at 640x480 although a 1024x768 profile was saved
 Debian art, but at 1280x800, because `wex-greeter.sh` fell back before it switched to 640x480. It now switches
 first. Logging on then failed: the test's fallback click on Log In assumed 1280x800, and now it is placed from the
 screen's centre. With both, `nowine` passed on both firmwares: black, 640x480, and a 36x80 console.
+
+**Vintner Boot `f3193a55` and today's work from an ISO (2026-11-11).** The `wex-vgen` ISO has Vintner Boot
+`f3193a55` (`next-boot variant --generation`), wexcomp `f2b2dcb1` (`WEX_OUTPUT_MODE`), and this checkout's Safe Mode
+files and `logonui.exe`. It installed with no input on SeaBIOS and OVMF. With the installed files:
+
+- All eleven default phases passed on SeaBIOS.
+- On OVMF all passed but `vfailed`. Its first start reached the desktop with the serial getty running, but no
+  serial login came within 150 seconds. Re-run on a new overlay, it passed. It looks like a one-off on the test
+  harness's serial link.
+- `waylandsafe`, `waylandcmd` and `vga` passed on both firmwares: 640x480 in the Wayland session from the ISO's own
+  wexcomp, a 36x80 console, and Enable VGA Mode at 640x480 then 1024x768.
+- `nowine` failed on both, only because it ran after the Wayland phases. The GTK greeter's X11 logon replaced the
+  saved Wayland session in `.dmrc` and AccountsService, which the test compares. It now leaves those two files out
+  for `nowine` as for the Wayland phases, and passed after `waylandcmd` on both firmwares.
+- `vlasttry` first failed in the test itself:
+  - the screendump still showed the old failure screen just after the reset, so the test now waits for it to go;
+  - the serial console's account cannot read the system journal, so the check now reads it on the stopped disk.
+  Safe Mode had started correctly in both runs. With both fixes, `vlasttry` passed on both firmwares (2 earlier
+  failures, no refusal, then the variant in Safe Mode with Command Prompt).
 - Both consoles printed six `setlocale` warnings above the banner. The installed system sets `LANG=en_US.UTF-8`
   (Setup, through `locale1`), but that locale was never generated (`/usr/lib/locale` has only `C.utf8`).

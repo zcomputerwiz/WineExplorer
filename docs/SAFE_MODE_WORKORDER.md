@@ -8,8 +8,8 @@ A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but t
 Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Since 2026-11-11 Vintner Boot is the
 only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. C5 is done
 (2026-11-11), and so are C6 with the recovery console's shape, C3 for Wayland, D2, A4 and B5. Open: B8's merge, the
-rest of C4 and C7, D4, D5. D1's Safe Mode choice on a generation's last try waits for Vintner's
-`next-boot variant --generation`, asked on 2026-11-11 (`docs/VINTNER_BOOT.md`).  
+rest of C4 and C7, D4, D5. D1's Safe Mode choice on a generation's last try works since Vintner Boot `f3193a55`
+(`next-boot variant --generation`, pinned 2026-11-11; `docs/VINTNER_BOOT.md`).  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.

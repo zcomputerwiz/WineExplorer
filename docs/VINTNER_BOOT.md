@@ -393,7 +393,11 @@ Left for Vintner:
   <id>`, with flags before or after the operand. The generation must be in the manifest, and the variant's file on
   boot storage (exit 3, `no-such-generation` or `no-such-variant`). The flag on another target is a usage error.
   It was tested with no tries left on both firmwares' state (UEFI `+0-3`, BIOS empty `VINTNER_T_<n>`), not yet on
-  firmware. WineExplorer pins it once merged.
+  firmware. Merged and pinned on 2026-11-11 (Vintner Boot `f3193a55`, which also brings #88's `/etc/kernel/cmdline`
+  and `vintner cmdline`; WineExplorer's file holds `quiet`, which the new rules accept). An ISO built with it
+  (`wex-vgen`) installed with no input on both firmwares. The VM test's new `vlasttry` phase then passed on both: two
+  starts reset before finishing, and on the third, the generation's last try, Safe Mode with Command Prompt on the
+  failure screen restarted into the Advanced Options variant in that mode.
 - Keys at start (WO-0010 4.8, Vintner Boot PR #87, open on 2026-11-10):
   - **UEFI:** F8 opens systemd-boot's menu, where the Advanced Options variant is one item below the generation.
     Tested by the Vintner session on systemd-boot 257 under OVMF; real hardware is its WO 6.1.

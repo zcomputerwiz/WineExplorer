@@ -33,6 +33,10 @@
 #                before the logon screen, then the next ordinary start shows the screen with its countdown; an arrow
 #                key stops it, and Safe Mode with Command Prompt restarts into the variant with no menu; the next
 #                start shows the screen again, its countdown starts normally and counts, and the start after shows none
+#   vlasttry     D1 on a generation's last try (Vintner Boot's next-boot variant --generation): two starts reset
+#                before finishing, then Safe Mode with Command Prompt on the third start's failure screen restarts into
+#                that generation's variant. It leaves the generation without tries: only when named, and last. An
+#                image whose Vintner Boot lacks the flag is reported, not failed.
 #   lastgoodgen  last in the list: a generation 2 that never starts successfully (published from a changed variant),
 #                then Last Known Good from its Advanced Options variant restarts into generation 1 (vintner next-boot
 #                previous-good) and puts the registry's control set back
@@ -45,7 +49,8 @@
 #   waylandcmd   Safe Mode with Command Prompt in the Wayland session: the recovery console runs in wexcomp (through
 #                XWayland), with no wineserver. Only when named.
 #                Choosing a session makes LightDM save it as the account's own, so these two phases leave the test
-#                account's AccountsService file and .dmrc out of the record.
+#                account's AccountsService file and .dmrc out of the record; so does nowine, whose GTK greeter logs
+#                on with X11 and replaces a Wayland session saved by an earlier phase.
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -100,7 +105,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|accounts|waylandsafe|waylandcmd) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -998,21 +1003,11 @@ print("booted=%s:%s newest_good=%s gen2=%s" % (b.get("kind"), b.get("generation"
         || fail "expected the control set back, the Software key kept and the change in the failed copy: $out"
 }
 
-phase_vfailed() {   # "did not start successfully" (wex-failure-check.service, work order D1); the main loop holds
-                    # the logon screen back for this phase (delay_logon)
+safecmd_from_failure_screen() {   # on the failure screen: choose Safe Mode with Command Prompt, which restarts into
+                                  # the Advanced Options variant; that start goes straight to the mode, with no menu
     local try
-    # Reset once Linux runs, before the logon screen and so before boot-complete.target, where Vintner would count the
-    # start good: the loader has counted a try that never finished, as the XP capture was made (a reset during the
-    # boot splash). An automatic logon follows Linux within seconds, too soon to reset reliably without the hold.
-    start_vm
-    sleep 15
-    wait_serial 150 || fail "the serial console did not answer"
-    "${V[@]}" reset "$TEST" >/dev/null || fail "the Reset button did not work"
-    echo "  reset before the logon screen"
-    failure_screen
     # Up stops the countdown and highlights Last Known Good, or, while nothing can be gone back to, skips it, grayed,
-    # to Safe Mode with Command Prompt. That choice restarts into the Advanced Options variant, which goes straight
-    # to Safe Mode with Command Prompt with no menu.
+    # to Safe Mode with Command Prompt
     for try in 1 2 3; do
         "${V[@]}" key "$TEST" up >/dev/null
         sleep 1.5
@@ -1029,6 +1024,62 @@ phase_vfailed() {   # "did not start successfully" (wex-failure-check.service, w
     VIA_MENU=1   # the variant's start
     logon_screen
     expect_state mode=safecmd default=wex-safemode.target nm=inactive timers=0 cron=inactive prefetch!=active
+}
+
+phase_vlasttry() {   # work order D1 on a generation's last try: two starts that never finish (reset before the logon
+                     # screen, then on the failure screen), so the third is the generation's last; Safe Mode with
+                     # Command Prompt on its failure screen still restarts into this generation's variant (vintner
+                     # next-boot variant --generation). The main loop holds the logon screen back, as for vfailed.
+                     # The generation is left with no tries: only when named, and last.
+    local out
+    start_vm
+    sleep 15
+    wait_serial 150 || fail "the serial console did not answer"
+    # a Vintner Boot without --generation takes the flag for a usage error (2); with it, these paths fail later (1)
+    out=$(gsh '/usr/sbin/vintner next-boot variant advanced --generation 1 --boot-storage /nonexistent --state-dir /nonexistent >/dev/null 2>&1; echo "generation-flag=$?"' \
+        | grep '^generation-flag=' | tail -n 1)
+    if [ "$out" = generation-flag=2 ]; then
+        echo "  (this image's Vintner Boot has no next-boot variant --generation)"
+        shutdown_vm
+        return 0
+    fi
+    "${V[@]}" reset "$TEST" >/dev/null || fail "the Reset button did not work"
+    echo "  reset before the logon screen"
+    failure_screen
+    "${V[@]}" reset "$TEST" >/dev/null || fail "the Reset button did not work"
+    echo "  reset on the failure screen"
+    # the screendump shows the old screen for a moment after the reset: wait until it is gone
+    for _ in $(seq 1 30); do
+        "${V[@]}" wait "$TEST" "did not start successfully" --timeout 1 >/dev/null 2>&1 || break
+        sleep 1
+    done
+    failure_screen
+    safecmd_from_failure_screen
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    # the start before this one showed the screen with two failed starts before it, and restarted as chosen (read on
+    # the stopped disk: the serial console's account cannot read the system journal)
+    attach ro || fail "cannot mount the overlay"
+    out=$(journalctl --directory="$MNT/var/log/journal" -b -1 -o cat 2>/dev/null \
+        | awk '/earlier start\(s\) of this generation failed/ { n = $2 } /cannot restart into/ { r++ }
+               END { printf "screen=%s refused=%d\n", n, r }')
+    detach
+    echo "  last try: $out"
+    [ "$out" = "screen=2 refused=0" ] || fail "expected the last try's failure screen (2 earlier failures) to restart: $out"
+}
+
+phase_vfailed() {   # "did not start successfully" (wex-failure-check.service, work order D1); the main loop holds
+                    # the logon screen back for this phase (delay_logon)
+    # Reset once Linux runs, before the logon screen and so before boot-complete.target, where Vintner would count the
+    # start good: the loader has counted a try that never finished, as the XP capture was made (a reset during the
+    # boot splash). An automatic logon follows Linux within seconds, too soon to reset reliably without the hold.
+    start_vm
+    sleep 15
+    wait_serial 150 || fail "the serial console did not answer"
+    "${V[@]}" reset "$TEST" >/dev/null || fail "the Reset button did not work"
+    echo "  reset before the logon screen"
+    failure_screen
+    safecmd_from_failure_screen
     shutdown_vm
     wait_off 60 || fail "the VM did not power off"
     # The start that showed the screen did not finish either, so the next ordinary start shows it again; left alone,
@@ -1263,7 +1314,7 @@ summary=()
 for PHASE in "${PHASES[@]}"; do
     snapshot "$OUT/before-$PHASE.txt" || die "cannot record the configuration before $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine on || die "cannot hide /usr/local/bin/wine"; fi
-    if [ "$PHASE" = vfailed ]; then delay_logon on || die "cannot hold the logon screen back"; fi
+    case "$PHASE" in vfailed|vlasttry) delay_logon on || die "cannot hold the logon screen back" ;; esac
     echo "=== $PHASE ($(date +%T))"
     ( "phase_$PHASE" ) 2>&1 | tee "$OUT/$PHASE.log"
     rc=${PIPESTATUS[0]}
@@ -1272,11 +1323,12 @@ for PHASE in "${PHASES[@]}"; do
     fi
     wait_off 60 || die "$TEST did not stop after $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine off || die "cannot put /usr/local/bin/wine back"; fi
-    if [ "$PHASE" = vfailed ]; then delay_logon off || die "cannot remove the logon delay"; fi
+    case "$PHASE" in vfailed|vlasttry) delay_logon off || die "cannot remove the logon delay" ;; esac
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
     compare=("$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt")
     case "$PHASE" in
-        wayland*)   # LightDM saves the session chosen on the Welcome screen as the account's own
+        wayland*|nowine)   # LightDM saves the session chosen on the Welcome screen as the account's own; the GTK
+                           # greeter (nowine) logs on with its default, X11, which replaces a Wayland one saved before
             for f in "${compare[@]}"; do
                 grep -vE "  (var/lib/AccountsService/users/$USER_NAME|home/$USER_NAME/\.dmrc)\$" "$f" > "$f.compared"
             done
@@ -1302,7 +1354,7 @@ done
 # The Welcome screen ran (any Safe Mode phase): its prefix is now lightdm's ~/.wine, moved from ~/.wine-logon if
 # the image had one (docs/SAFE_MODE_WORKORDER.md C7)
 case " ${PHASES[*]} " in
-    *" safe "*|*" safenet "*|*" safecmd "*|*" vfailed "*|*" waylandsafe "*|*" waylandcmd "*)
+    *" safe "*|*" safenet "*|*" safecmd "*|*" vfailed "*|*" vlasttry "*|*" waylandsafe "*|*" waylandcmd "*)
         if attach ro; then
             # a made prefix has user.reg; under the system role its HKLM is the machine root's (no system.reg)
             if [ -f "$MNT/var/lib/lightdm/.wine/user.reg" ]; then
