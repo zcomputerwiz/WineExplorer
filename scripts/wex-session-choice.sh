@@ -12,6 +12,10 @@
 #   --restore   as the account, at the start of a Safe Mode session (the session scripts): when LightDM has saved
 #               another session, the one from the snapshot goes back, through AccountsService (D-Bus) and ~/.dmrc; a
 #               ~/.dmrc that LightDM created at this logon is removed
+#   --fallback SESSION
+#               as the account, from the Wayland session when its compositor cannot start (docs/WAYLAND_DEFAULT.md):
+#               SESSION, the X11 session, becomes the account's saved session, so its next logon starts that one.
+#               Not in Safe Mode, whose logons never change the choice.
 # The WEX_SESSION_CHOICE_* and WEX_BOOTMODE_HELPER variables let scripts/test_safemode.py point it elsewhere.
 users_dir=${WEX_SESSION_CHOICE_USERS:-/var/lib/AccountsService/users}
 run_dir=${WEX_SESSION_CHOICE_RUN:-/run/wineexplorer/session-choice}
@@ -80,8 +84,24 @@ case "${1:-}" in
         sed "s/^Session=.*/Session=$saved/" "$dmrc" > "$dmrc.tmp" && mv -f "$dmrc.tmp" "$dmrc"
     fi
     ;;
+--fallback)
+    session=${2:-}
+    valid "$session" || { echo "usage: wex-session-choice --fallback SESSION" >&2; exit 2; }
+    safe_mode && exit 0
+    user=${USER:-$(id -un)}
+    valid "$user" || exit 0
+    path=$(busctl --system call $accounts /org/freedesktop/Accounts $accounts FindUserByName s "$user" 2>/dev/null \
+        | sed -n 's/^o "\(.*\)"$/\1/p')
+    if [ -n "$path" ] && busctl --system call $accounts "$path" $accounts.User SetXSession s "$session"; then
+        echo "the next logon of $user starts $session"
+    fi
+    dmrc=${HOME:-/nonexistent}/.dmrc
+    if [ -f "$dmrc" ] && [ ! -L "$dmrc" ] && grep -q '^Session=' "$dmrc" && ! grep -qx "Session=$session" "$dmrc"; then
+        sed "s/^Session=.*/Session=$session/" "$dmrc" > "$dmrc.tmp" && mv -f "$dmrc.tmp" "$dmrc"
+    fi
+    ;;
 *)
-    echo "usage: wex-session-choice --snapshot|--restore" >&2
+    echo "usage: wex-session-choice --snapshot|--restore|--fallback SESSION" >&2
     exit 2
     ;;
 esac

@@ -103,15 +103,19 @@ way.
 3. Done on 2026-11-11: the shell's keys reach Explorer from any native window, hosted or not (shared
    `shellkeys.c`, `wex_window_manager_v1` v15), including X programs through XWayland. Applications' own global
    shortcuts (a GlobalShortcuts portal) are not covered.
-4. Done on 2026-11-11: the lock stays on LightDM's `Seat.Lock`, tested from Wayland. The Welcome screen at the lock
-   still preselects X11 in its session list; logging on to the account that is already on returns to its own
-   session, so this matters only for the default switch (item 8).
+4. Done on 2026-11-11: the lock stays on LightDM's `Seat.Lock`, tested from Wayland. Since 2026-11-12 the Welcome
+   screen's session list follows the account clicked (below), so it no longer shows X11 for a Wayland account.
 5. Restrict the privileged protocols to the private socket (decision above).
 6. The 150% scaling items, multi-output frame clock and Mica, CS_DROPSHADOW.
 7. Physical Intel, AMD and Nvidia runs.
 8. Then flip the default:
    - `user-session=wine-explorer-wayland`, and OOBE saves Wayland;
-   - logonui preselects the account's own session;
+   - logonui preselects the account's own session. **Done 2026-11-12:** `WexUsersList` gives each account's saved
+     session (AccountsService's `XSession`), and clicking a tile sets the list to it, as LightDM's own greeters do.
+     Before, the list showed X11 for everyone, so a Wayland account logging on from the Welcome screen got X11, and
+     LightDM saved X11 as its choice. An account with none saved gets the first entry, X11, until the default flips.
    - Safe Mode keeps X11 as its default.
-   - X11 fallback when wexcomp cannot start: the Wayland session saves X11 as the account's choice and ends, so the
-     next logon is X11. This is not built yet.
+   - X11 fallback when wexcomp cannot start. **Done 2026-11-12:** when the compositor exits or never opens the shell's
+     socket, the Wayland session runs `wex-session-choice --fallback wine-explorer` (as the account: AccountsService
+     and `~/.dmrc`) and ends, so the next logon is X11. In Safe Mode the fallback saves nothing, as Safe Mode logons
+     never change the choice.

@@ -73,14 +73,22 @@ cleanup()
     fi
 }
 trap cleanup EXIT
+# X11 is the fallback: when the compositor cannot start, the account's next logon starts the X11 session (outside Safe
+# Mode, wex-session-choice --fallback), and this one ends back at the logon screen.
+compositor_failed() {
+    echo "wexcomp did not start"
+    cat "$state/compositor.log"
+    "${WEX_SESSION_CHOICE:-/usr/local/bin/wex-session-choice}" --fallback wine-explorer || true
+    exit 1
+}
 "$compositor_bin" -C "$compositor_config" > "$state/compositor.log" 2>&1 &
 compositor=$!
 for ((i=0;i<100;i++)); do
     test ! -S "$XDG_RUNTIME_DIR/$shell_socket" || break
-    kill -0 "$compositor" || { cat "$state/compositor.log"; exit 1; }
+    kill -0 "$compositor" 2>/dev/null || compositor_failed
     sleep .1
 done
-test -S "$XDG_RUNTIME_DIR/$shell_socket"
+test -S "$XDG_RUNTIME_DIR/$shell_socket" || compositor_failed
 export WAYLAND_DISPLAY=$shell_socket
 export WINELOADER="$WINE" WINESERVER="$server_bin"
 wex_prepare_prefix

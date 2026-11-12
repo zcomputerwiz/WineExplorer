@@ -1340,6 +1340,7 @@ class TestWaylandSession(TempDirTest):
         compositor = self.tmp / "wexcomp"
         compositor.write_text('#!/bin/sh\necho "wexcomp $* WEXMODE=$WEXMODE DISPLAY=${DISPLAY-unset}'
                               ' WEX_OUTPUT_MODE=${WEX_OUTPUT_MODE-unset}" >> "$LOG"\n'
+                              '[ "$FAKE_COMPOSITOR" = sleep ] && exec sleep 30\n'
                               'exit "$FAKE_COMPOSITOR"\n', encoding="ascii")
         compositor.chmod(0o755)
         wine = self.tmp / "wine"
@@ -1367,8 +1368,11 @@ class TestWaylandSession(TempDirTest):
                                  "wexcomp -C /cfg -S /safe-terminal WEXMODE=safecmd DISPLAY=unset"
                                  " WEX_OUTPUT_MODE=640x480"])
 
+    FALLBACK = "choice --fallback wine-explorer"
+
     def test_other_modes_start_the_desktop_compositor(self):
-        # The stand-in compositor ends at once, so the session stops before Wine, as it does when wexcomp fails.
+        # The stand-in compositor ends at once, so the session stops before Wine, as it does when wexcomp fails, and
+        # asks for X11 at the next logon (wex-session-choice --fallback, which itself does nothing in Safe Mode).
         # Every Safe Mode starts the compositor at 640x480 (work order C3); a normal start at the output's own mode.
         # A Safe Mode session puts the account's session choice back first; a normal one leaves it.
         for mode, expected, size in (("safe", "safe", "640x480"), ("safenet", "safenet", "640x480"),
@@ -1376,11 +1380,19 @@ class TestWaylandSession(TempDirTest):
             status, calls = self.run_session(mode, compositor_status=1)
             self.assertEqual(status, 1, mode)
             self.assertEqual(calls, (["choice --restore"] if expected != "normal" else []) +
-                             [f"wexcomp -C /cfg WEXMODE={expected} DISPLAY=unset WEX_OUTPUT_MODE={size}"], mode)
+                             [f"wexcomp -C /cfg WEXMODE={expected} DISPLAY=unset WEX_OUTPUT_MODE={size}",
+                              self.FALLBACK], mode)
         # Enable VGA Mode (D2): a normal start at 640x480
         for option, size in (("vga", "640x480"), ("bootlog", "unset")):
             status, calls = self.run_session("normal", compositor_status=1, option=option)
-            self.assertEqual(calls, [f"wexcomp -C /cfg WEXMODE=normal DISPLAY=unset WEX_OUTPUT_MODE={size}"], option)
+            self.assertEqual(calls, [f"wexcomp -C /cfg WEXMODE=normal DISPLAY=unset WEX_OUTPUT_MODE={size}",
+                                     self.FALLBACK], option)
+
+    def test_a_compositor_that_never_opens_its_socket_falls_back_too(self):
+        """A compositor that keeps running without the shell's socket: after the wait, the same fallback."""
+        status, calls = self.run_session("normal", compositor_status="sleep")
+        self.assertEqual(status, 1)
+        self.assertEqual(calls[-1], self.FALLBACK)
 
     def test_a_normal_start_restores_the_saved_display_mode(self):
         """Display Properties' profile (wexhost): a normal Wayland session starts the output at that size; Safe Mode
@@ -1388,11 +1400,13 @@ class TestWaylandSession(TempDirTest):
         profile = self.tmp / ".config" / "wineexplorer" / "display"
         profile.parent.mkdir(parents=True)
         profile.write_text("1024 768 60004 1024x768\n")
+        def compositor(calls):
+            return next(call for call in calls if call.startswith("wexcomp "))
         for mode, option, size in (("normal", "", "1024x768"), ("safe", "", "640x480"), ("normal", "vga", "640x480")):
             calls = self.run_session(mode, compositor_status=1, option=option)[1]
-            self.assertIn(f"WEX_OUTPUT_MODE={size}", calls[-1], (mode, option))
+            self.assertIn(f"WEX_OUTPUT_MODE={size}", compositor(calls), (mode, option))
         profile.write_text("1024 x768 60004\n")
-        self.assertIn("WEX_OUTPUT_MODE=unset", self.run_session("normal", compositor_status=1)[1][-1])
+        self.assertIn("WEX_OUTPUT_MODE=unset", compositor(self.run_session("normal", compositor_status=1)[1]))
 
 
 class TestLocaleGen(TempDirTest):
@@ -1491,7 +1505,7 @@ class TestSessionChoice(TempDirTest):
         self.home = self.tmp / "homes" / "wineuser"
         self.home.mkdir(parents=True)
 
-    def choice(self, arg, mode="safe", current="wine-explorer", record_uid=None):
+    def choice(self, arg, mode="safe", current="wine-explorer", record_uid=None, extra=()):
         """Runs the script with a stand-in busctl: AccountsService reports CURRENT as the saved session and logs
         SetXSession calls."""
         bin_dir = self.tmp / "bin"
@@ -1512,8 +1526,25 @@ class TestSessionChoice(TempDirTest):
                "WEX_SESSION_CHOICE_HOMES": str(self.tmp / "homes"),
                "WEX_SESSION_CHOICE_LIGHTDM": str(self.tmp / "lightdm"), "WEX_BOOTMODE_HELPER": self.fake_helper(mode),
                "WEX_SESSION_CHOICE_ROOT_UID": str(os.getuid() if record_uid is None else record_uid)}
-        result = subprocess.run(["sh", str(self.SCRIPT), arg], env=env, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(["sh", str(self.SCRIPT), arg, *extra], env=env, capture_output=True, text=True,
+                                timeout=30)
         return result, log.read_text().splitlines() if log.exists() else []
+
+    def test_fallback_saves_the_x11_session(self):
+        """The Wayland session's compositor did not start: the account's next logon is X11, in AccountsService and
+        in ~/.dmrc. Safe Mode logons change nothing; the session name must be one."""
+        dmrc = self.home / ".dmrc"
+        dmrc.write_text("[Desktop]\nSession=wine-explorer-wayland\n")
+        result, calls = self.choice("--fallback", mode="normal", extra=("wine-explorer",))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(calls, ["SetXSession wine-explorer"])
+        self.assertIn("the next logon of wineuser starts wine-explorer", result.stdout)
+        self.assertEqual(dmrc.read_text(), "[Desktop]\nSession=wine-explorer\n")
+        dmrc.write_text("[Desktop]\nSession=wine-explorer-wayland\n")
+        self.assertEqual(self.choice("--fallback", mode="safe", extra=("wine-explorer",))[1], [])
+        self.assertEqual(dmrc.read_text(), "[Desktop]\nSession=wine-explorer-wayland\n")
+        self.assertEqual(self.choice("--fallback", mode="normal")[0].returncode, 2)
+        self.assertEqual(self.choice("--fallback", mode="normal", extra=("x/../y",))[0].returncode, 2)
 
     def test_snapshot_in_safe_mode_only(self):
         self.choice("--snapshot", mode="normal")
