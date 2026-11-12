@@ -227,3 +227,12 @@ findings. v3:
   while V is in `GRANTED`.
 * In a session every S6 operation is a sub-operation of the broker's request pipe; session 0 has its own entry
   for the endorsement only (section 6).
+* **Open, to do with R9-4c: REQUEST needs more fields.** S checks the tuple's generations at the endorsement
+  against the values of the broker process that asks, which is A (`tuple-root-gen`, `-server-gen`, `-broker-gen`,
+  `-map-gen`, `-policy-gen`, and the verifier's), and A checks the tuple's deadline against its admission
+  deadline. B0 can know neither. REQUEST's body becomes: `kind:u32`, `deadline:u64` (A's admission deadline, host
+  `CLOCK_MONOTONIC` ns), `binding_digest:32`, `request_digest:32`, `root_gen`, `server_gen`, `broker_gen`,
+  `verifier_gen`, `map_gen`, `policy_gen` (6 × u64), `desktop_route:16`, `secure_desktop:u32`, the three strings;
+  total 232 .. 1792. B0 copies the generations into the tuple unchanged (S and V check them), and uses a deadline
+  no later than A's. B0's own S6 registration gives it its channel to V and the verifier owner for INIT; its own
+  generations are not part of any tuple. The codecs and the agent's REQUEST follow once R9-4b is in.
