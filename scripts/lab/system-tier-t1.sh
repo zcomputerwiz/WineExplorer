@@ -107,6 +107,13 @@ check dup32 "$(A "$W/p32.exe" dup 'Software\WexTier' where | field dup)" session
 # T6.1: session 0 gives each logon (each user's server) a session id of its own
 SA="$(A "$W/p64.exe" whoami | field session)"; SB="$(B "$W/p64.exe" whoami | field session)"
 check sessions_differ "$([ -n "$SA" ] && [ -n "$SB" ] && [ "$SA" != "$SB" ] && [ "$SA" -ge 1 ] && [ "$SB" -ge 1 ] && echo yes)" yes
+# T6.2: each session's server keeps its link and answers session 0's order with its own session id
+for s in "$SA" "$SB"; do
+    check "session_${s}_answers_orders" "$(grep -a -c "^session0: session $s (.*) answers on its link: session id $s\$" "$W/s0.log")" 1
+done
+# and session 0 drops a session's link when its server ends
+WINEPREFIX=$W/b ./server/wineserver -k; sleep 1
+check s0_sees_session_end "$(grep -a -c "^session0: session $SB (server pid [0-9]*) ended\$" "$W/s0.log")" 1
 check name64 "$(A "$W/p64.exe" name 'Software\WexTier' | field name)" '\REGISTRY\Machine\Software\WexTier'
 check sd_present "$(A "$W/p64.exe" name 'Software\WexTier' | field sd | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 

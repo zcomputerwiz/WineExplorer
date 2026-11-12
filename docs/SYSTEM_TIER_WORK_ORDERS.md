@@ -373,6 +373,26 @@ gives each trusted server the next id (1, 2, ...; it is 0 itself). Without an an
 Test: the T1 test (development mode) checks that the programs of sessions A and B report different session ids,
 both at least 1 (probe `whoami` prints `session=`). T1 test, lab suite 398, normal suite 335, broker test pass.
 
+## T6.2: the session link, on which session 0 sends orders (2026-11-12)
+
+The connection on which a user's server asks for its session id (T6.1) now stays open as the session link. Session
+0 keeps one per session (at most 32 per account) and sends orders on it (`wex_session0_order`); the server answers
+each (`wex_session0_order_reply`, `STATUS_NOT_SUPPORTED` for an order it does not know). The only order so far is
+`PING` (answered with the server's session id), sent once when the link opens; session 0 logs the answer and the
+end of each session. T6.3 adds the elevation orders. Protocol version 4.
+
+Trust in this direction: a user's server checks every link to session 0 before it sends anything on it or takes
+anything from it (session id, hive saves, orders): `SO_PEERCRED` of the socket must be the configured
+`session0_user` and, when configured, the system group (`group=`). A launcher-started server whose configuration
+names no session 0 account or no group does not use session 0. In development (no `session0_user`, a server the
+launcher did not start) the peer must be the server's own uid, as session 0's own development trust.
+
+Tests: the T1 test checks that the servers of sessions A and B answer the order with their own session ids and that
+session 0 sees B's end; the sysrun suite checks that launcher-started servers of a standard user and an
+administrator answer (`st_user_servers_answer_session0_on_their_link`) and that a server whose configured socket is
+served by another account (a standard user's fake) connects but sends nothing and answers no order
+(`st_user_server_ignores_a_socket_of_another_account`).
+
 ## Security review of T1 to T6.1 (2026-11-12, Codex)
 
 An adversarial review of the session 0 code (Wine `ab5aa99c` to `543fa08d`) found five problems; all are fixed

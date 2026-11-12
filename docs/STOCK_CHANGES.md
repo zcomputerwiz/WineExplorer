@@ -60,6 +60,11 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   `server/session0.c` (`SESSION_ID` message on both sides), `include/wine/wex_session0.h` (the message, the reply's
   `value`, the save message padded to the reply's size).
 
+- T6.2, the session link: `server/session0.c` (the `SESSION_ID` connection stays open; session 0 keeps a list of
+  session links and sends orders; a user's server checks `SO_PEERCRED` of every link to session 0 against the
+  configured account and group, `connect_session0`), `include/wine/wex_session0.h` (version 4, the order and its
+  answer, `ORDER_PING`).
+
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)

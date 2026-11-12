@@ -2763,6 +2763,59 @@ wine_as "$STD" reg query 'HKLM\Software\WexTier' /v FromSession0 >/dev/null 2>&1
     fail "session 0 served a server started without the launcher"
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
 ok st_server_started_without_the_launcher_is_refused_by_session0
+# T6.2: each launcher-started server keeps a session link and answers session 0's orders on it
+for u in "$STD" "$ADM"; do
+    grep -aq "^session0: session [0-9]* (server pid [0-9]*, uid $(id -u "$u")) answers on its link: session id [0-9]*\$" "$ROOT/session0.log" ||
+        { tail -20 "$ROOT/session0.log" >&2; fail "T6.2: no server of $u answered session 0 on its link"; }
+done
+ok st_user_servers_answer_session0_on_their_link
+# T6.2: a user's server uses the socket only when session 0's account serves it. Here the standard user serves the
+# configured path; the administrator's server connects, sees the account, and sends it nothing: no token
+# description, no hive, no answer to its order.
+kill_servers
+FAKE="$ROOT/run-fake"
+install -d -m 0755 -o "$STD" "$FAKE"
+runuser -u "$STD" -- python3 -I - "$FAKE/session0" "$FAKE/got" <<'PY' &
+import os, socket, struct, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+s.bind(sys.argv[1]); os.chmod(sys.argv[1], 0o666); s.listen(16); s.settimeout(1)
+accepted = got = 0
+open(sys.argv[2], 'w').write('0 0')
+stop = os.path.join(os.path.dirname(sys.argv[1]), 'stop')
+try:
+    for tick in range(120):   # ends at the stop file (killing runuser would end the suite's shell too)
+        if os.path.exists(stop):
+            break
+        try:
+            c, _ = s.accept()
+        except socket.timeout:
+            continue
+        accepted += 1
+        c.settimeout(2)
+        try:
+            c.send(struct.pack('<IIII', 0x30535857, 1, 1, 0))      # order PING, before anything else
+            if c.recv(70000): got += 1                             # a link message or an answer reached the fake
+            c.send(struct.pack('<III', 0x30535857, 0, 77))         # SESSION_ID: 77
+            if c.recv(64): got += 1
+        except OSError:
+            pass
+        c.close()
+        open(sys.argv[2], 'w').write('%d %d' % (accepted, got))
+except OSError:
+    pass
+PY
+FAKEPID=$!
+for i in $(seq 1 50); do [ -S "$FAKE/session0" ] && break; sleep 0.1; done
+sed -i "s|^session0_socket=.*|session0_socket=$FAKE/session0|" "$CONF"
+run_as "$ADM" timeout 60 "$BUILD/wine" "$ROOT/probes/tierprobe64.exe" whoami >/dev/null 2>&1 || true  # may not start
+kill_servers
+sed -i "s|^session0_socket=.*|session0_socket=$S0RUN/session0|" "$CONF"
+touch "$FAKE/stop"; wait "$FAKEPID" 2>/dev/null || true
+read -r FAKEACC FAKEGOT < "$FAKE/got" || true   # no final newline
+[ "$FAKEACC" -ge 1 ] || fail "T6.2: the server did not try the configured socket"
+[ "$FAKEGOT" = 0 ] || fail "T6.2: a server sent $FAKEGOT messages to a socket of another account"
+rm -rf "$FAKE"
+ok st_user_server_ignores_a_socket_of_another_account
 # session 0 saves the hive as its own account; the users' servers accept it, and the write survives a restart
 s0_stop
 grep -q '^"fromadm"="elevated"' "$M/system.reg" || fail "session 0 did not save the elevated write"
