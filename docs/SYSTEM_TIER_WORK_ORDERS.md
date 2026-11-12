@@ -23,7 +23,7 @@ implementation"). Its six recommendations are therefore taken as decided; any of
 
 | Phase | Work orders | State |
 |---|---|---|
-| T0 spike and measurements | ST-01 registry calls per program start; ST-02 the server's own registry use; ST-03 key handles that cross servers; ST-04 prototype of registry calls against a second server; ST-05 limited-write list from a traced limited session | ST-01 to ST-03 done, ST-04 next |
+| T0 spike and measurements | ST-01 registry calls per program start; ST-02 the server's own registry use; ST-03 key handles that cross servers; ST-04 prototype of registry calls against a second server; ST-05 limited-write list from a traced limited session | ST-01 to ST-04 done, ST-05 open |
 | T1 session 0 owns the machine trees | ST-10 account, unit, socket, peer test; ST-11 registry-only client in the server; ST-12 attested channel set-up by the user's server; ST-13 `ntdll` routing and handle mapping; ST-14 user servers stop loading and saving machine hives; ST-15 reconnect; ST-16 two-user tests | after T0 |
 | T2 | permissions stored, journal and checkpoint, refused writes, virtual store | |
 | T3 | tier-only trees; account policy, `net accounts`, verifier, Group Policy | |
@@ -94,8 +94,41 @@ The cases that need special handling when key handles come from another server a
 still have to work (an installer or a service may use them); the prototype handles notification first, since
 the shell uses it.
 
-## ST-04 Prototype of registry calls against a second server
+## ST-04 Prototype of registry calls against a second server (2026-11-11)
 
-Next. Scope: a second server instance that accepts a registry-only connection; `ntdll` sends open, query, enumerate
-and close for `\Registry\Machine` to it behind a development switch; a 32-bit and a 64-bit program read a
-machine value that exists only in the second server.
+A spike to show the shape works, behind a development switch; not the product path.
+
+* Switch: the environment variable `WEX_REGISTRY_SERVER` holds the socket path of a second Wine server. Unset,
+  nothing changes.
+* `dlls/ntdll/unix/server.c`: on the first machine-registry call the process makes the ordinary client handshake
+  with that server on a connection of its own (`regsrv_connect`) and then sends registry requests there
+  (`regsrv_call`, one connection per process under a mutex). Key handles from it carry a tag bit (0x40000000), so
+  later calls and `NtClose` go to the right server.
+* `dlls/ntdll/unix/registry.c`: `NtCreateKey` and `NtOpenKeyEx` choose the server by name (an absolute name under
+  `\Registry\Machine`) or by the parent handle; delete, enumerate, query, set, delete value and flush follow
+  the handle.
+* The second server is unchanged: it sees an ordinary client.
+
+Test (`scripts/lab/system-tier-st04.sh`, written for the wexbuild main build tree; two plain prefixes on the main build, one standing in for session 0; 64-bit `reg.exe`
+and the 32-bit `reg.exe` with `/reg:64`), 16 checks pass:
+
+* switch off: both programs read the session's own value;
+* switch on: both read the value that exists only in the second server; values written and a subkey created
+  from the session arrive there and are enumerated; a value is deleted; a child process started by `cmd` reads
+  from the second server too;
+* separation: `HKCU` written with the switch on stays in the session and is absent in the second server; the
+  session's own `HKLM` copy is untouched by the writes.
+* Cost: 20 runs of `reg.exe` take 1145 ms with the switch off and 1126 ms on, so no measurable difference.
+* With the switch off the normal suite (325 checks) and the broker test pass on the same build.
+
+What the spike leaves out, each a T1 work order: the second server treats the program as a full process (it has
+its Unix pid and would signal it; ST-11 makes it a registry-only client); no token attestation (ST-12); change
+notification, rename, save, load and security calls on a tagged handle are not routed; duplicating or inheriting
+a tagged handle does not work (ST-13); a lost connection ends the thread (ST-15); the session's server still
+loads and saves its own machine hive (ST-14); a name relative to a handle on `\Registry` itself is not routed.
+
+First findings for T1:
+
+* The 32-bit registry view needs no extra work: redirection happens before the request and travels with it.
+* A second server that is not persistent exits a few seconds after its last client, and every registry call
+  then fails. Session 0 must be a service, and `ntdll` needs the reconnect before anything is switched over.

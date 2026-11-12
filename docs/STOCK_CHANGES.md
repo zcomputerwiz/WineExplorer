@@ -1,5 +1,13 @@
 # Changes to stock Wine / third-party code
 
+## ntdll: machine-registry calls to a second server (system tier ST-04 prototype, 2026-11-11)
+
+Development switch, inactive unless the environment variable `WEX_REGISTRY_SERVER` is set
+(`docs/SYSTEM_TIER_WORK_ORDERS.md`, ST-04). `dlls/ntdll/unix/server.c`: `regsrv_connect`, `regsrv_call` and the
+handle tag helpers; `NtClose` sends a tagged key handle to that server. `dlls/ntdll/unix/registry.c`: create, open,
+delete, enumerate, query, set, delete value and flush choose the server by name or handle.
+`dlls/ntdll/unix/unix_private.h`: the prototypes. To be replaced by the T1 implementation.
+
 ## netapi32 and net.exe: account lockout policy (E1-S18e WO-40, 2026-11-11)
 
 - `dlls/netapi32/netapi32.c`: `NetUserModalsGet` level 3 (was a FIXME returning `NERR_InternalError`) and a new
