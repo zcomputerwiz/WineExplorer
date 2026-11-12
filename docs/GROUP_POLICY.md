@@ -54,6 +54,50 @@ machine. What does not apply to Wine is shown grayed out, never silently ignored
 - Prior art for Wine consuming `Registry.pol`: none found. A 2007 Samba slide deck lists "Wine as registry consumer?"
   as an open question.
 
+## samba-gpupdate and Winbind in detail
+
+Read from the Samba master sources (`python/samba/gp/gpclass.py`, `source4/scripting/bin/samba-gpupdate`,
+`gp_gnome_settings_ext.py`) and the Samba docs on 2026-11-11. Master may differ from a packaged release.
+
+**Fetching.** `samba-gpupdate` always builds its credentials from the machine account (secrets.tdb, via
+`Credentials.guess` and `set_machine_account`), even for user policy. It finds a DC with `Net.finddc`, reads the
+account and `gPLink` data over LDAP (`SamDB`), orders GPOs Local, Site, Domain, OU (forced links last, block-inheritance
+honoured), checks read access, and mirrors each GPO directory from the `sysvol` share into a local cache over SMB with
+signing required. Applying is skipped for a GPO whose `GPT.INI` version equals the stored one unless `--force`. The code
+shows nothing specific to Winbind or SSSD; both just need a working machine account and Kerberos.
+
+**Targets.** `--target Computer` (default) runs as root. `--target User -U name` builds the user as `DOMAIN\name` and
+runs each extension through `drop_privileges`, which switches the effective uid and gid to that user and requires root.
+User state is kept per user in the same TDB. The user CSE set is small: user scripts, user crontab (Centrify) and drive
+maps. The machine set is large (security, scripts, sudoers, `smb.conf`, motd/issue, firewalld, certificates, Firefox,
+Chromium, GNOME dconf and others).
+
+**Refresh.** Two automatic paths, both about every 90 to 120 minutes:
+- Winbind: `apply group policies = yes` (default no) makes `winbindd` run `gpo update command` (default
+  `samba-gpupdate`). The `smb.conf` manual says this applies machine policy; the group policy book says it covers user
+  policy too with `--force --target=User -U <user>`. The sources conflict; a 2021 talk by the same author says the work
+  focused on machine policy. Treat user policy as manual or self-scheduled until the `winbindd` source says otherwise.
+  The first run must be done by hand.
+- SSSD: `oddjob-gpupdate` runs it on the interval. It needs a minimal `smb.conf` (`security = ADS`,
+  `kerberos method = secrets and keytab`), `net ads join -k`, and `ad_update_samba_machine_account_password = true`.
+  The book says neither the Samba nor the SSSD team supports this pairing and recommends Winbind when in doubt.
+
+**Writing a CSE.** Subclass `gp_pol_ext` (parses `Registry.pol` through `ndr_unpack(preg.file, ...)`; entries have
+`keyname`, `valuename`, `type`, `data`) and `gp_file_applier` or `gp_applier` (hash-checked apply, per-GPO attribute
+cache, `unapply`, `clean`). Implement `__str__`, `process_group_policy(deleted_gpo_list, changed_gpo_list)` (unapply
+deleted GPOs, apply changed ones, then `clean`) and optionally `rsop(gpo)`. Register with `register_gp_extension()` or,
+since Samba 4.18, `samba-tool gpo cse register|list|unregister`, with `machine` and `user` flags. The GNOME CSE is the
+model: it filters `**delvals.` entries itself and never reads `entry.type`, so a registry CSE must handle `**del.`,
+`**delvals.`, `**DeleteValues` and `**DeleteKeys` and value types itself.
+
+**Consequences for this project.**
+- A Wine-registry CSE is feasible and small, but it needs the user CSE flag and a user-state path that works as the
+  logged-on user.
+- Writing `user.reg` or `system.reg` directly while a `wineserver` runs is not safe. The CSE should hand the values to
+  `wexhost` (D-Bus) which writes through the live server, or write only when no server runs and let `wexhost` merge.
+- Machine policy runs as root. Which prefix holds `HKLM` for the shell (one system prefix or one per user) decides where
+  it is written; this is a project decision, not a Samba one.
+
 ## Design
 
 1. **Join detection (`wexhost`).** Detect the join from `net ads info` or SSSD/realmd state and publish domain name,
@@ -77,11 +121,12 @@ machine. What does not apply to Wine is shown grayed out, never silently ignored
 
 ## Open questions
 
-- Per-user policy: whether `samba-gpupdate` runs a user pass for each logon, and in which account, is unverified. Check
-  the 4.24 source before designing the `HKCU` half. The wex logon flow and profile hive loading (`e1s_load_profile`)
-  decide where the user hive is writable.
-- Which GPO scopes SSSD-only hosts can fetch without Winbind (Samba's GPO code reads SYSVOL over SMB with the machine
-  account's Kerberos ticket).
+- Per-user policy: `samba-gpupdate --target=User` works as root and drops to the user, but no automatic per-logon
+  trigger is documented. Decide whether the wex logon flow (or a PAM hook) runs it, and check `winbindd` source for what
+  `apply group policies` covers. The profile hive loading (`e1s_load_profile`) decides where the user hive is writable.
+- Winbind or SSSD as the supported join: the docs steer to Winbind for GPO. Decide before the installer offers a join.
+- SYSVOL access with the machine account's Kerberos ticket works in both; SSSD additionally needs the `net ads join -k`
+  Samba machine account to stay in sync.
 - Whether the CSE belongs in this repository or upstream Samba. The Samba API is Python and GPL-3.0-or-later; this
   project's rule is that GPL-3.0 code makes the module containing it GPL-3.0, so keep the CSE a separate file and make
   that licence decision explicitly.
@@ -95,6 +140,12 @@ lab and a 32-bit program that calls `NetGetJoinInformation`. No policy applicati
 
 ## Sources
 
+- Samba sources: https://github.com/samba-team/samba/blob/master/python/samba/gp/gpclass.py and
+  https://github.com/samba-team/samba/blob/master/source4/scripting/bin/samba-gpupdate
+- GNOME CSE (model for a `Registry.pol` CSE):
+  https://github.com/samba-team/samba/blob/master/python/samba/gp/gp_gnome_settings_ext.py
+- Automatic policy refresh (Winbind, oddjob-gpupdate): https://dmulder.github.io/group-policy-book/policy-refresh.html
+- smb.conf manual (`apply group policies`): https://www.samba.org/samba/docs/current/man-html/smb.conf.5.html
 - Samba wiki, Group Policy: https://wiki.samba.org/index.php/Group_Policy
 - samba-gpupdate man page: https://manpages.ubuntu.com/manpages/jammy/man8/samba-gpupdate.8.html
 - Samba GPO management overview: https://deepwiki.com/samba-team/samba/5.3-group-policy-object-management
