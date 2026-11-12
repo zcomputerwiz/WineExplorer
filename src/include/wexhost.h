@@ -100,7 +100,8 @@ typedef struct
     char  os_name[64];          /* the boot menu's entry */
     BOOL  has_loader;           /* Vintner Boot answers: the menu timeout can be set */
     DWORD menu_timeout;         /* seconds the boot menu shows; 0: hidden (a key held at start opens it) */
-    DWORD recovery_timeout;     /* seconds the "did not start successfully" screen counts down; 0: no countdown */
+    BOOL  recovery_enabled;     /* a failed start shows the "did not start successfully" screen (off: starts normally) */
+    DWORD recovery_timeout;     /* seconds that screen counts down; kept while it is turned off, as on XP */
     BOOL  auto_restart;         /* restart after a system failure (kernel.panic) */
     BOOL  has_options;          /* the kernel command line's options can be read and changed */
     char  options[2048];        /* the options (/etc/kernel/cmdline), separated by spaces */
@@ -109,8 +110,8 @@ typedef struct
 DWORD WINAPI WexBootGet( WEX_BOOT *info );
 /* Changes what differs; polkit asks for an administrator's password. message (may be NULL) gets the reason of a
  * failure. */
-DWORD WINAPI WexBootSet( HWND owner, DWORD menu_timeout, DWORD recovery_timeout, BOOL auto_restart,
-                         char *message, DWORD message_size );
+DWORD WINAPI WexBootSet( HWND owner, DWORD menu_timeout, BOOL recovery_enabled, DWORD recovery_timeout,
+                         BOOL auto_restart, char *message, DWORD message_size );
 /* The kernel command line's options as text (lines starting with # are comments), published as a new generation
  * (vintner cmdline set), which falls back by itself if it does not start. */
 DWORD WINAPI WexBootSetOptions( HWND owner, const char *text, DWORD *generation, char *message, DWORD message_size );

@@ -386,8 +386,8 @@ DWORD WINAPI WexBootGet( WEX_BOOT *info )
     return err;
 }
 
-DWORD WINAPI WexBootSet( HWND owner, DWORD menu_timeout, DWORD recovery_timeout, BOOL auto_restart,
-                         char *message, DWORD message_size )
+DWORD WINAPI WexBootSet( HWND owner, DWORD menu_timeout, BOOL recovery_enabled, DWORD recovery_timeout,
+                         BOOL auto_restart, char *message, DWORD message_size )
 {
     struct boot_set_params params;
 
@@ -396,6 +396,7 @@ DWORD WINAPI WexBootSet( HWND owner, DWORD menu_timeout, DWORD recovery_timeout,
     if (menu_timeout > WEX_BOOT_TIMEOUT_MAX || recovery_timeout > WEX_BOOT_TIMEOUT_MAX) return ERROR_INVALID_PARAMETER;
     memset( &params, 0, sizeof(params) );
     params.menu_timeout = menu_timeout;
+    params.recovery_enabled = recovery_enabled;
     params.recovery_timeout = recovery_timeout;
     params.auto_restart = auto_restart;
     run_pumped( owner, unix_boot_set, &params );

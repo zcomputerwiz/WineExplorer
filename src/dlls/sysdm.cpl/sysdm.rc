@@ -162,12 +162,12 @@ BEGIN
     EDITTEXT        IDC_STRRECLISTEDIT, 185, 54, 30, 12, ES_NUMBER
     CONTROL         "", IDC_STRRECLISTUPDWN, "msctls_updown32", UDS_WRAP | UDS_SETBUDDYINT | UDS_ALIGNRIGHT |
                     UDS_AUTOBUDDY | UDS_ARROWKEYS | UDS_NOTHOUSANDS | WS_CHILD | WS_VISIBLE, 0, 0, 8, 13
-    LTEXT           "sec.", -1, 223, 56, 18, 8
+    LTEXT           "seconds", IDC_STRRECLISTSEC, 218, 56, 26, 8
     AUTOCHECKBOX    "Time to &display recovery options when needed:", IDC_STRRECREC, 14, 70, 170, 8
     EDITTEXT        IDC_STRRECRECEDIT, 185, 68, 30, 12, ES_NUMBER
     CONTROL         "", IDC_STRRECRECUPDWN, "msctls_updown32", UDS_WRAP | UDS_SETBUDDYINT | UDS_ALIGNRIGHT |
                     UDS_AUTOBUDDY | UDS_ARROWKEYS | UDS_NOTHOUSANDS | WS_CHILD | WS_VISIBLE, 0, 0, 8, 13
-    LTEXT           "sec.", -1, 223, 70, 18, 8
+    LTEXT           "seconds", IDC_STRRECRECSEC, 218, 70, 26, 8
     LTEXT           "To edit the startup options file manually, click Edit.", -1, 14, 89, 187, 8
     PUSHBUTTON      "&Edit", IDC_STRRECEDIT, 188, 87, 50, 14
     GROUPBOX        "System failure", -1, 7, 111, 238, 140
@@ -176,7 +176,7 @@ BEGIN
     AUTOCHECKBOX    "Automatically &restart", IDC_STRRECRESTART, 14, 152, 145, 10
     GROUPBOX        "Write debugging information", -1, 12, 167, 227, 76
     COMBOBOX        IDC_STRRECDEBUGCOMBO, 17, 182, 151, 49, CBS_DROPDOWNLIST | WS_TABSTOP
-    LTEXT           "Dump &file:", -1, 17, 202, 150, 8
+    LTEXT           "Dump &file:", IDC_STRRECDUMPLABEL, 17, 202, 150, 8
     EDITTEXT        IDC_STRRECDUMPFILE, 17, 210, 153, 12, ES_AUTOHSCROLL
     AUTOCHECKBOX    "&Overwrite any existing file", IDC_STRRECOVERWRITE, 17, 228, 125, 10
     DEFPUSHBUTTON   "OK", IDOK, 141, 258, 50, 15

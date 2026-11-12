@@ -7,9 +7,10 @@ menu, logon, session) is done and tested (`docs/SAFE_MODE.md`, WineExplorer comm
 A2, B0-B4, B6, B7, C1, C2, D1 and parts of C4 and C7 (2026-11-09), A3, C6 (but the recovery console's shape),
 Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Since 2026-11-11 Vintner Boot is the
 only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. C5 is done
-(2026-11-11), and so are C6 with the recovery console's shape, C3 for Wayland, D2, A4 and B5. Open: B8's merge, the
-rest of C4 and C7, D4, D5. D1's Safe Mode choice on a generation's last try works since Vintner Boot `f3193a55`
-(`next-boot variant --generation`, pinned 2026-11-11; `docs/VINTNER_BOOT.md`).  
+(2026-11-11), and so are C6 with the recovery console's shape, C3 for Wayland, D2, A4 and B5. B8's merge is done
+(2026-11-12: Wine `development` and WineExplorer `master` at `995a2712`). D5 is done (2026-11-12, Startup and
+Recovery). Open: the rest of C4 and C7, D4. D1's Safe Mode choice on a generation's last try works since Vintner Boot
+`f3193a55` (`next-boot variant --generation`, pinned 2026-11-11; `docs/VINTNER_BOOT.md`).  
 Branches:
 
 - WineExplorer: `claude/vintner-boot-integration`.
@@ -603,8 +604,42 @@ needs no loader.
 **D4. Debugging Mode.** Today it raises the service manager's log level only. Consider sending kernel messages to
 the first serial port as well, which is closer to XP's kernel debugger on COM1. Low priority.
 
-**D5. Startup and Recovery in sysdm.cpl** (`docs/VINTNER_BOOT.md` section 4.6). The "Time to display recovery
-options when needed" setting is D1's countdown, so add it when D1 lands.
+**D5. Startup and Recovery in sysdm.cpl** (`docs/VINTNER_BOOT.md` section 4.6). Done 2026-11-12. System
+Properties > Advanced > Startup and Recovery opens XP's dialog (after ReactOS's `IDD_STARTUPRECOVERY`,
+`src/dlls/sysdm.cpl/startrec.c`):
+
+- "Time to display list of operating systems" is Vintner Boot's menu timeout (`vintner menu-timeout`, Vintner
+  `601ad75`). Unchecked is 0 and shows 0 grayed, as XP writes `timeout=0`; the menu is hidden, and a key held at
+  start opens it. Checking it again fills in 30.
+- "Time to display recovery options when needed" is D1's failure screen and its countdown (`recovery_menu=` and
+  `recovery_timeout=` in `/etc/wineexplorer/boot.conf`). Unchecked, a failed start shows no failure screen and starts
+  normally; the seconds are kept, grayed.
+- Edit opens the kernel command line's options (`/etc/kernel/cmdline`) in Notepad, as XP opens `boot.ini`. Saved and
+  changed, they are published as a new generation, which falls back by itself if it does not start.
+- "Automatically restart" is `kernel.panic` (10 seconds).
+- What does not apply is grayed: the system log (the journal keeps the kernel's messages anyway), administrative
+  alerts, memory dumps (no kdump), and the one boot entry.
+
+The settings are root's. sysdm.cpl reaches them through wexhost (`WexBootGet`, `WexBootSet`, `WexBootSetOptions`)
+and the D-Bus activated root service `org.wineexplorer.Boot1` (`scripts/wex-boot1.py`). Reading needs nothing.
+Changing needs polkit's `org.wineexplorer.boot1.set-startup`, `auth_admin_keep`, the rule hostname1 and timedate1
+use, so whoever may change the computer name may change these; wexhost's polkit agent asks for the password. The
+service knows nothing of Wine or session 0 (agreed with the system tier session, 2026-11-12). Tests:
+`scripts/test_safemode.py` (`TestBoot1`, the failure screen's countdown) and the VM test's `startrec` phase.
+
+Measured on the XP VM on 2026-11-12 (`../WineExplorer-local/notes/xp/startup-recovery/measurements.md`):
+- The list's timeout is boot.ini's `timeout=`.
+- The recovery options are bytes 8 (on) and 9 (seconds) of `bootstat.dat`, not boot.ini or the registry.
+- Set to 7, XP's failure screen counted down from 7.
+- Unchecked, a reset during start-up brought no failure screen at all.
+- "Automatically restart" is CrashControl's `AutoReboot`.
+- The dialog follows XP:
+  - "seconds" after each field;
+  - the entry shown as the boot line (quoted name, then the options);
+  - (none) with "Dump file:" and `%SystemRoot%\MEMORY.DMP` grayed;
+  - the recovery "seconds" label grayed when the dialog opens with the box unchecked.
+- Not matched yet: XP's defaults. XP checks the event log, the alert, Automatically restart and a small dump;
+  here the list is 0 (Vintner's hidden menu) and nothing restarts after a panic until it is checked.
 
 ## 4. Owner decisions (2026-11-08)
 

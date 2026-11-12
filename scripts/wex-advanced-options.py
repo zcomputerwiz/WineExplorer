@@ -55,9 +55,10 @@ SAFE_MODES = ("safe", "safenet", "safecmd")
 KDSETMODE, KD_TEXT = 0x4B3A, 0x00   # linux/kd.h
 OS_NAME = "WineExplorer"
 LASTGOOD_LABEL = "Last Known Good Configuration (your most recent settings that worked)"
-COUNTDOWN = 30      # seconds, as XP's failure screen (its boot.ini timeout), unless boot.conf says otherwise
-# Startup and Recovery's "Time to display recovery options when needed" (sysdm.cpl, through wex-boot1): the failure
-# screen's countdown; 0 shows the screen without one.
+COUNTDOWN = 30      # seconds, as XP's failure screen, unless boot.conf says otherwise
+# Startup and Recovery's "Time to display recovery options when needed" (sysdm.cpl, through wex-boot1): whether a
+# failed start shows the failure screen (recovery_menu=; off, the start goes on, as on XP) and its countdown
+# (recovery_timeout=). XP keeps them in bootstat.dat (bytes 8 and 9, measured 2026-11-12).
 BOOT_CONF = os.environ.get("WEX_BOOT_CONF", "/etc/wineexplorer/boot.conf")
 COUNTDOWN_MAX = 999
 
@@ -562,33 +563,48 @@ def run_menu(stdscr, previous=None):
                 index = start_normally(items)
 
 
-def failure_countdown(path=None):
-    """The failure screen's countdown in seconds: recovery_timeout= in boot.conf (wex-boot1 writes it), COUNTDOWN when
-    the file or the value is missing or not a number; 0 means no countdown."""
+def boot_conf(key, path=None):
+    """A value from boot.conf (wex-boot1 writes it), or None."""
     try:
         with open(path or BOOT_CONF, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line.startswith("#") or "=" not in line:
                     continue
-                key, value = line.split("=", 1)
-                if key.strip() == "recovery_timeout":
-                    return min(max(int(value.strip()), 0), COUNTDOWN_MAX)
-    except (OSError, ValueError):
+                name, value = line.split("=", 1)
+                if name.strip() == key:
+                    return value.strip()
+    except OSError:
         pass
-    return COUNTDOWN
+    return None
+
+
+def failure_countdown(path=None):
+    """The failure screen's countdown in seconds: recovery_timeout= in boot.conf, COUNTDOWN when the file or the
+    value is missing or not a number."""
+    try:
+        return min(max(int(boot_conf("recovery_timeout", path)), 0), COUNTDOWN_MAX)
+    except (TypeError, ValueError):
+        return COUNTDOWN
+
+
+def recovery_enabled(path=None):
+    """Whether a failed start shows the failure screen: recovery_menu= in boot.conf, on unless it says 0."""
+    return boot_conf("recovery_menu", path) != "0"
 
 
 def run_failure(stdscr, previous=None, clock=time.monotonic, countdown=None):
     """The failure screen. Returns ("boot", mode, option). Start Normally is highlighted and chosen when the
     countdown ends; an arrow key stops the countdown and removes its line, as on XP. A choice starts at once.
-    Without a countdown (0) the screen waits for a choice. previous: as for run_menu."""
+    A countdown of 0 starts normally at once. previous: as for run_menu."""
     screen = Screen(stdscr)
     items = failure_items(os.path.exists(SETUP_STAGE), previous is not None or lastgood_saved())
     index = start_normally(items)
     seconds_left = failure_countdown() if countdown is None else countdown
+    if seconds_left <= 0:
+        return ("boot", "normal", None)
     deadline = clock() + seconds_left
-    counting = seconds_left > 0
+    counting = True
     flush = True
     stdscr.timeout(250)
     while True:
@@ -623,6 +639,11 @@ def failure_check(run=subprocess.run):
     elif os.path.exists(MENU_START):
         print("wex-advanced-options: a start through the Advanced Options menu did not finish", file=sys.stderr)
     else:
+        return 0
+    # Startup and Recovery's "Time to display recovery options when needed" unchecked (or 0): as on XP, no screen
+    if not recovery_enabled() or failure_countdown() == 0:
+        print("wex-advanced-options: recovery options are turned off (Startup and Recovery); starting normally",
+              file=sys.stderr)
         return 0
     run(["systemctl", "start", "wex-failure-screen.service"], check=False)
     return 0

@@ -566,6 +566,7 @@ static NTSTATUS boot_get( void *args )
         { "OperatingSystem", DBUS_TYPE_STRING, params->info.os_name, sizeof(params->info.os_name) },
         { "HasLoader", DBUS_TYPE_BOOLEAN, &params->info.has_loader, sizeof(params->info.has_loader) },
         { "MenuTimeout", DBUS_TYPE_UINT32, &menu, sizeof(menu) },
+        { "RecoveryEnabled", DBUS_TYPE_BOOLEAN, &params->info.recovery_enabled, sizeof(params->info.recovery_enabled) },
         { "RecoveryTimeout", DBUS_TYPE_UINT32, &recovery, sizeof(recovery) },
         { "AutoRestart", DBUS_TYPE_BOOLEAN, &params->info.auto_restart, sizeof(params->info.auto_restart) },
         { "HasOptions", DBUS_TYPE_BOOLEAN, &params->info.has_options, sizeof(params->info.has_options) },
@@ -605,12 +606,12 @@ static NTSTATUS boot_set( void *args )
     struct boot_set_params *params = args;
     DBusMessage *msg;
     dbus_uint32_t menu = params->menu_timeout, recovery = params->recovery_timeout;
-    dbus_bool_t restart = params->auto_restart != 0, interactive = TRUE;
+    dbus_bool_t recovery_on = params->recovery_enabled != 0, restart = params->auto_restart != 0, interactive = TRUE;
 
     msg = load_dbus() ? p_dbus_message_new_method_call( BOOT_DEST, BOOT_PATH, BOOT_IFACE, "Apply" ) : NULL;
-    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_UINT32, &menu, DBUS_TYPE_UINT32, &recovery,
-                                         DBUS_TYPE_BOOLEAN, &restart, DBUS_TYPE_BOOLEAN, &interactive,
-                                         DBUS_TYPE_INVALID );
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_UINT32, &menu, DBUS_TYPE_BOOLEAN, &recovery_on,
+                                         DBUS_TYPE_UINT32, &recovery, DBUS_TYPE_BOOLEAN, &restart,
+                                         DBUS_TYPE_BOOLEAN, &interactive, DBUS_TYPE_INVALID );
     params->err = call_boot( msg, NULL, params->message, sizeof(params->message) );
     if (msg) p_dbus_message_unref( msg );
     return STATUS_SUCCESS;

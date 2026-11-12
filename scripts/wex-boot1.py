@@ -7,9 +7,10 @@ order D5, docs/VINTNER_BOOT.md section 4.6), on the system bus, as root.
 XP keeps them in boot.ini and the registry. Here they belong to root:
 - MenuTimeout: "Time to display list of operating systems", Vintner Boot's menu timeout (`vintner menu-timeout`).
   0 hides the menu; a key held at start still opens it.
-- RecoveryTimeout: "Time to display recovery options when needed", the countdown of the "did not start successfully"
-  screen (wex-advanced-options), recovery_timeout= in /etc/wineexplorer/boot.conf. 0 shows the screen without a
-  countdown.
+- RecoveryEnabled, RecoveryTimeout: "Time to display recovery options when needed", the "did not start successfully"
+  screen (wex-advanced-options) and its countdown: recovery_menu= and recovery_timeout= in
+  /etc/wineexplorer/boot.conf. As on XP (measured 2026-11-12, where they are bytes 8 and 9 of bootstat.dat), turned
+  off means no failure screen at all after a failed start, and the seconds are kept for when it is turned on again.
 - AutoRestart: "Automatically restart" after a system failure, kernel.panic
   (/etc/sysctl.d/90-wineexplorer-recovery.conf, and the running kernel's value).
 - Options: the kernel command line's options, /etc/kernel/cmdline (`vintner cmdline`), which the dialog's Edit opens
@@ -126,15 +127,23 @@ def recovery_timeout(path=None):
         return RECOVERY_DEFAULT
 
 
+def recovery_enabled(path=None):
+    """Whether a failed start shows the failure screen: recovery_menu= in boot.conf, on unless it says 0."""
+    return read_conf(path or BOOT_CONF).get("recovery_menu", "1") != "0"
+
+
 BOOT_CONF_HEADER = """\
 # WineExplorer's startup settings (System Properties > Advanced > Startup and Recovery). Written by wex-boot1.
-# recovery_timeout: seconds the "did not start successfully" screen counts down before it starts normally;
-# 0 shows the screen without a countdown.
+# recovery_menu: 1 shows the "did not start successfully" screen after a failed start, 0 starts normally instead.
+# recovery_timeout: seconds that screen counts down before it starts normally.
 """
 
 
-def set_recovery_timeout(seconds, path=None):
-    set_conf_value(path or BOOT_CONF, "recovery_timeout", str(check_timeout(seconds)), BOOT_CONF_HEADER)
+def set_recovery(enabled, seconds, path=None):
+    path = path or BOOT_CONF
+    check_timeout(seconds)
+    set_conf_value(path, "recovery_menu", "1" if enabled else "0", BOOT_CONF_HEADER)
+    set_conf_value(path, "recovery_timeout", str(seconds), BOOT_CONF_HEADER)
 
 
 def panic_value(path=None, live=None):
@@ -262,6 +271,7 @@ def settings(run=None):
         "OperatingSystem": product_name(),
         "HasLoader": has_loader,
         "MenuTimeout": menu,
+        "RecoveryEnabled": recovery_enabled(),
         "RecoveryTimeout": recovery_timeout(),
         "AutoRestart": auto_restart(),
         "HasOptions": has_options,
@@ -269,15 +279,15 @@ def settings(run=None):
     }
 
 
-def apply(menu, recovery, restart, run=None):
+def apply(menu, recovery_on, recovery, restart, run=None):
     """Startup and Recovery's OK: what differs from the current settings."""
     check_timeout(menu)
     check_timeout(recovery)
     has_loader, current = menu_timeout(run)
     if has_loader and menu != current:
         set_menu_timeout(menu, run)
-    if recovery != recovery_timeout():
-        set_recovery_timeout(recovery)
+    if bool(recovery_on) != recovery_enabled() or recovery != recovery_timeout():
+        set_recovery(bool(recovery_on), recovery)
     if bool(restart) != auto_restart():
         set_auto_restart(bool(restart))
 
@@ -335,9 +345,9 @@ def serve():
                                          dbus_interface="org.freedesktop.PolicyKit1.Authority", timeout=24 * 3600,
                                          reply_handler=done, error_handler=failed)
 
-        @dbus.service.method(INTERFACE, in_signature="uubb", out_signature="", sender_keyword="sender",
+        @dbus.service.method(INTERFACE, in_signature="ububb", out_signature="", sender_keyword="sender",
                              async_callbacks=("ok", "fail"))
-        def Apply(self, menu, recovery, restart, interactive, sender=None, ok=None, fail=None):
+        def Apply(self, menu, recovery_on, recovery, restart, interactive, sender=None, ok=None, fail=None):
             try:
                 check_timeout(int(menu))
                 check_timeout(int(recovery))
@@ -345,7 +355,7 @@ def serve():
                 fail(as_dbus(exc))
                 return
             self.authorized(sender, interactive,
-                            lambda: (apply(int(menu), int(recovery), bool(restart)), ok()), fail)
+                            lambda: (apply(int(menu), bool(recovery_on), int(recovery), bool(restart)), ok()), fail)
 
         @dbus.service.method(INTERFACE, in_signature="sb", out_signature="bu", sender_keyword="sender",
                              async_callbacks=("ok", "fail"))
@@ -371,6 +381,7 @@ def serve():
                 "OperatingSystem": dbus.String(values["OperatingSystem"]),
                 "HasLoader": dbus.Boolean(values["HasLoader"]),
                 "MenuTimeout": dbus.UInt32(values["MenuTimeout"]),
+                "RecoveryEnabled": dbus.Boolean(values["RecoveryEnabled"]),
                 "RecoveryTimeout": dbus.UInt32(values["RecoveryTimeout"]),
                 "AutoRestart": dbus.Boolean(values["AutoRestart"]),
                 "HasOptions": dbus.Boolean(values["HasOptions"]),

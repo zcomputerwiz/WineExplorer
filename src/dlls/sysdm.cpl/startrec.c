@@ -47,37 +47,45 @@ struct startrec
 
 static const WCHAR title[] = L"Startup and Recovery";
 
-/* A checked box enables its seconds; an unchecked one means 0 (no list; a failure screen without a countdown). */
-static void set_timeout(HWND hwnd, int check, int edit, int updown, DWORD seconds, BOOL enabled)
+/* A box, its seconds (an edit with an up-down) and whether they can be changed at all. As on XP (measured
+ * 2026-11-12): an unchecked box grays its seconds; the list's shows 0, the recovery options keep theirs. */
+static void set_timeout(HWND hwnd, int check, int edit, int updown, BOOL on, DWORD seconds, BOOL enabled)
 {
-    CheckDlgButton(hwnd, check, seconds ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(hwnd, check, on ? BST_CHECKED : BST_UNCHECKED);
     SendDlgItemMessageW(hwnd, updown, UDM_SETRANGE32, 0, WEX_BOOT_TIMEOUT_MAX);
-    SendDlgItemMessageW(hwnd, updown, UDM_SETPOS32, 0, seconds ? seconds : DEFAULT_TIMEOUT);
+    SendDlgItemMessageW(hwnd, updown, UDM_SETPOS32, 0, seconds);
     EnableWindow(GetDlgItem(hwnd, check), enabled);
-    EnableWindow(GetDlgItem(hwnd, edit), enabled && seconds);
-    EnableWindow(GetDlgItem(hwnd, updown), enabled && seconds);
+    EnableWindow(GetDlgItem(hwnd, edit), enabled && on);
+    EnableWindow(GetDlgItem(hwnd, updown), enabled && on);
 }
 
-static void toggle_timeout(HWND hwnd, int check, int edit, int updown)
+static DWORD read_seconds(HWND hwnd, int edit)
 {
-    BOOL on = IsDlgButtonChecked(hwnd, check) == BST_CHECKED;
     BOOL ok;
     UINT seconds = GetDlgItemInt(hwnd, edit, &ok, FALSE);
 
-    if (on && (!ok || !seconds)) SendDlgItemMessageW(hwnd, updown, UDM_SETPOS32, 0, DEFAULT_TIMEOUT);
-    EnableWindow(GetDlgItem(hwnd, edit), on);
-    EnableWindow(GetDlgItem(hwnd, updown), on);
-}
-
-static DWORD read_timeout(HWND hwnd, int check, int edit)
-{
-    BOOL ok;
-    UINT seconds;
-
-    if (IsDlgButtonChecked(hwnd, check) != BST_CHECKED) return 0;
-    seconds = GetDlgItemInt(hwnd, edit, &ok, FALSE);
     if (!ok) return DEFAULT_TIMEOUT;
     return seconds > WEX_BOOT_TIMEOUT_MAX ? WEX_BOOT_TIMEOUT_MAX : seconds;
+}
+
+/* The list's box: unchecked puts 0 in the grayed field, checking it again fills in 30, as XP. */
+static void toggle_list(HWND hwnd)
+{
+    BOOL on = IsDlgButtonChecked(hwnd, IDC_STRECLIST) == BST_CHECKED;
+
+    SendDlgItemMessageW(hwnd, IDC_STRRECLISTUPDWN, UDM_SETPOS32, 0, on ? DEFAULT_TIMEOUT : 0);
+    EnableWindow(GetDlgItem(hwnd, IDC_STRRECLISTEDIT), on);
+    EnableWindow(GetDlgItem(hwnd, IDC_STRRECLISTUPDWN), on);
+}
+
+/* The recovery options' box keeps its seconds either way; its "seconds" label keeps the state it opened with, as
+ * XP's does until the dialog is opened again. */
+static void toggle_recovery(HWND hwnd)
+{
+    BOOL on = IsDlgButtonChecked(hwnd, IDC_STRRECREC) == BST_CHECKED;
+
+    EnableWindow(GetDlgItem(hwnd, IDC_STRRECRECEDIT), on);
+    EnableWindow(GetDlgItem(hwnd, IDC_STRRECRECUPDWN), on);
 }
 
 static void show_error(HWND hwnd, DWORD err, const char *message)
@@ -97,9 +105,23 @@ static void show_error(HWND hwnd, DWORD err, const char *message)
     MessageBoxW(hwnd, text, title, MB_OK | MB_ICONERROR);
 }
 
+/* The default operating system as XP shows boot.ini's line: the quoted name, then the options. */
+static void show_entry(HWND hwnd, const struct startrec *data)
+{
+    char line[sizeof(data->boot.os_name) + sizeof(data->boot.options) + 4];
+    WCHAR wline[ARRAY_SIZE(line)];
+
+    snprintf(line, sizeof(line), "\"%s\"%s%s", data->boot.os_name, data->boot.options[0] ? " " : "",
+             data->boot.options);
+    MultiByteToWideChar(CP_UTF8, 0, line, -1, wline, ARRAY_SIZE(wline));
+    SendDlgItemMessageW(hwnd, IDC_STRECOSCOMBO, CB_RESETCONTENT, 0, 0);
+    SendDlgItemMessageW(hwnd, IDC_STRECOSCOMBO, CB_ADDSTRING, 0, (LPARAM)wline);
+    SendDlgItemMessageW(hwnd, IDC_STRECOSCOMBO, CB_SETCURSEL, 0, 0);
+}
+
 static void load(HWND hwnd, struct startrec *data)
 {
-    WCHAR name[64], text[64];
+    WCHAR text[64];
     int i;
 
     data->have_boot = !WexBootGet(&data->boot);
@@ -107,23 +129,22 @@ static void load(HWND hwnd, struct startrec *data)
     {
         memset(&data->boot, 0, sizeof(data->boot));
         lstrcpyA(data->boot.os_name, "WineExplorer");
+        data->boot.recovery_enabled = TRUE;
         data->boot.recovery_timeout = DEFAULT_TIMEOUT;
     }
 
-    /* the one entry of the boot menu: Vintner Boot boots its newest good generation */
-    MultiByteToWideChar(CP_UTF8, 0, data->boot.os_name, -1, name, ARRAY_SIZE(name));
-    SendDlgItemMessageW(hwnd, IDC_STRECOSCOMBO, CB_ADDSTRING, 0, (LPARAM)name);
-    SendDlgItemMessageW(hwnd, IDC_STRECOSCOMBO, CB_SETCURSEL, 0, 0);
-    EnableWindow(GetDlgItem(hwnd, IDC_STRECOSCOMBO), FALSE);
+    /* the boot menu's one entry: Vintner Boot boots its newest good generation */
+    show_entry(hwnd, data);
 
-    set_timeout(hwnd, IDC_STRECLIST, IDC_STRRECLISTEDIT, IDC_STRRECLISTUPDWN, data->boot.menu_timeout,
-                data->have_boot && data->boot.has_loader);
-    set_timeout(hwnd, IDC_STRRECREC, IDC_STRRECRECEDIT, IDC_STRRECRECUPDWN, data->boot.recovery_timeout,
-                data->have_boot);
+    set_timeout(hwnd, IDC_STRECLIST, IDC_STRRECLISTEDIT, IDC_STRRECLISTUPDWN, data->boot.menu_timeout != 0,
+                data->boot.menu_timeout, data->have_boot && data->boot.has_loader);
+    set_timeout(hwnd, IDC_STRRECREC, IDC_STRRECRECEDIT, IDC_STRRECRECUPDWN, data->boot.recovery_enabled,
+                data->boot.recovery_timeout, data->have_boot);
+    EnableWindow(GetDlgItem(hwnd, IDC_STRRECRECSEC), data->boot.recovery_enabled);
     EnableWindow(GetDlgItem(hwnd, IDC_STRRECEDIT), data->have_boot && data->boot.has_options);
 
-    /* System failure: the journal keeps the kernel's messages anyway; there are no alerts and no memory dumps
-     * (no kdump), so those stay as they are and grayed. Automatically restart is kernel.panic. */
+    /* System failure: the journal keeps the kernel's messages anyway, there are no alerts, and no memory dumps (no
+     * kdump), so those are grayed: (none), as XP shows it. Automatically restart is kernel.panic. */
     CheckDlgButton(hwnd, IDC_STRRECWRITEEVENT, BST_CHECKED);
     EnableWindow(GetDlgItem(hwnd, IDC_STRRECWRITEEVENT), FALSE);
     EnableWindow(GetDlgItem(hwnd, IDC_STRRECSENDALERT), FALSE);
@@ -134,25 +155,31 @@ static void load(HWND hwnd, struct startrec *data)
             SendDlgItemMessageW(hwnd, IDC_STRRECDEBUGCOMBO, CB_ADDSTRING, 0, (LPARAM)text);
     SendDlgItemMessageW(hwnd, IDC_STRRECDEBUGCOMBO, CB_SETCURSEL, 0, 0);
     EnableWindow(GetDlgItem(hwnd, IDC_STRRECDEBUGCOMBO), FALSE);
+    SetDlgItemTextW(hwnd, IDC_STRRECDUMPFILE, L"%SystemRoot%\\MEMORY.DMP");
+    EnableWindow(GetDlgItem(hwnd, IDC_STRRECDUMPLABEL), FALSE);
     EnableWindow(GetDlgItem(hwnd, IDC_STRRECDUMPFILE), FALSE);
+    CheckDlgButton(hwnd, IDC_STRRECOVERWRITE, BST_CHECKED);
     EnableWindow(GetDlgItem(hwnd, IDC_STRRECOVERWRITE), FALSE);
 }
 
 static BOOL save(HWND hwnd, struct startrec *data)
 {
     DWORD menu, recovery, err;
-    BOOL restart;
+    BOOL recovery_on, restart;
     char message[512];
 
     if (!data->have_boot) return TRUE;
-    menu = data->boot.has_loader ? read_timeout(hwnd, IDC_STRECLIST, IDC_STRRECLISTEDIT) : data->boot.menu_timeout;
-    recovery = read_timeout(hwnd, IDC_STRRECREC, IDC_STRRECRECEDIT);
+    menu = data->boot.menu_timeout;
+    if (data->boot.has_loader)
+        menu = IsDlgButtonChecked(hwnd, IDC_STRECLIST) == BST_CHECKED ? read_seconds(hwnd, IDC_STRRECLISTEDIT) : 0;
+    recovery_on = IsDlgButtonChecked(hwnd, IDC_STRRECREC) == BST_CHECKED;
+    recovery = read_seconds(hwnd, IDC_STRRECRECEDIT);
     restart = IsDlgButtonChecked(hwnd, IDC_STRRECRESTART) == BST_CHECKED;
-    if (menu == data->boot.menu_timeout && recovery == data->boot.recovery_timeout &&
-        restart == !!data->boot.auto_restart)
+    if (menu == data->boot.menu_timeout && recovery_on == !!data->boot.recovery_enabled &&
+        recovery == data->boot.recovery_timeout && restart == !!data->boot.auto_restart)
         return TRUE;   /* nothing changed: no password to ask for */
 
-    err = WexBootSet(hwnd, menu, recovery, restart, message, sizeof(message));
+    err = WexBootSet(hwnd, menu, recovery_on, recovery, restart, message, sizeof(message));
     if (err == ERROR_CANCELLED) return FALSE;   /* the password dialog was cancelled: stay open */
     if (err)
     {
@@ -160,6 +187,7 @@ static BOOL save(HWND hwnd, struct startrec *data)
         return FALSE;
     }
     data->boot.menu_timeout = menu;
+    data->boot.recovery_enabled = recovery_on;
     data->boot.recovery_timeout = recovery;
     data->boot.auto_restart = restart;
     return TRUE;
@@ -272,7 +300,11 @@ static void edit_options(HWND hwnd, struct startrec *data)
     {
         err = WexBootSetOptions(hwnd, text, &generation, message, sizeof(message));
         if (err && err != ERROR_CANCELLED) show_error(hwnd, err, message);
-        else if (!err) lstrcpynA(data->boot.options, after, sizeof(data->boot.options));
+        else if (!err)
+        {
+            lstrcpynA(data->boot.options, after, sizeof(data->boot.options));
+            show_entry(hwnd, data);
+        }
     }
     free(text);
 }
@@ -293,10 +325,10 @@ static INT_PTR CALLBACK startrec_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         switch (LOWORD(wparam))
         {
         case IDC_STRECLIST:
-            toggle_timeout(hwnd, IDC_STRECLIST, IDC_STRRECLISTEDIT, IDC_STRRECLISTUPDWN);
+            toggle_list(hwnd);
             return TRUE;
         case IDC_STRRECREC:
-            toggle_timeout(hwnd, IDC_STRRECREC, IDC_STRRECRECEDIT, IDC_STRRECRECUPDWN);
+            toggle_recovery(hwnd);
             return TRUE;
         case IDC_STRRECEDIT:
             edit_options(hwnd, data);

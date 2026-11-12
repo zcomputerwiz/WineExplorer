@@ -64,7 +64,8 @@ struct battery_get_params { WEX_BATTERY info; DWORD err; };
 struct hostname_get_params { WEX_HOSTNAME info; DWORD err; };
 struct hostname_set_params { char name[128]; BOOL pretty; DWORD err; };
 struct boot_get_params { WEX_BOOT info; DWORD err; };
-struct boot_set_params { DWORD menu_timeout; DWORD recovery_timeout; BOOL auto_restart; char message[512]; DWORD err; };
+struct boot_set_params { DWORD menu_timeout; BOOL recovery_enabled; DWORD recovery_timeout; BOOL auto_restart;
+                         char message[512]; DWORD err; };
 struct boot_set_options_params { char text[WEX_BOOT_OPTIONS_MAX]; DWORD generation; char message[512]; DWORD err; };
 struct user_get_params { WEX_USER info; DWORD err; };
 

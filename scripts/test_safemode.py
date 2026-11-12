@@ -878,6 +878,26 @@ class TestMenu(TempDirTest):
         self.assertEqual(failed(self.failing(1, "recovery")), 0)
         self.assertEqual(failed(None), 0)
 
+    def test_failure_check_respects_recovery_options_turned_off(self):
+        # XP (measured 2026-11-12): "Time to display recovery options when needed" unchecked, a failed start shows no
+        # failure screen at all and starts normally
+        calls = []
+        self.with_vintner(0, self.failing(1))
+        (self.tmp / "boot.conf").write_text("recovery_menu=0\nrecovery_timeout=7\n", encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(self.menu.failure_check(run=self.recording_run(calls)), 0)
+        self.assertEqual(calls, [[self.menu.VINTNER, "status", "--json"]])
+        self.assertIn("recovery options are turned off", err.getvalue())
+        # turned on again, the kept seconds apply
+        (self.tmp / "boot.conf").write_text("recovery_menu=1\nrecovery_timeout=7\n", encoding="utf-8")
+        calls.clear()
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.menu.failure_check(run=self.recording_run(calls))
+        self.assertEqual(calls[-1], ["systemctl", "start", "wex-failure-screen.service"])
+        self.assertTrue(self.menu.recovery_enabled())
+        self.assertEqual(self.menu.failure_countdown(), 7)
+
     def test_failure_check_starts_the_screen(self):
         self.menu.PENDING = str(self.tmp / "pending")
         calls = []
@@ -1087,10 +1107,10 @@ class TestMenu(TempDirTest):
         self.assertEqual(self.menu.failure_countdown(), 7)
         self.assertEqual(self.run_failure([], 0.25), ("boot", "normal", None))
         self.assertEqual(FakeScreen.shown[0][1], 7)
-        # 0: no countdown; the screen waits for a choice
+        # 0 seconds: Start Normally at once (failure_check does not even start the screen)
         conf.write_text("recovery_timeout=0\n", encoding="utf-8")
-        self.assertEqual(self.run_failure([*[-1] * 400, curses.KEY_DOWN, 10], 0.25), ("boot", "safe", None))
-        self.assertTrue(all(seconds is None for _, seconds in FakeScreen.shown))
+        self.assertEqual(self.run_failure([curses.KEY_DOWN, 10], 0.25), ("boot", "normal", None))
+        self.assertEqual(FakeScreen.shown, [])
         # a value that is not a number, or none: 30; a large one is cut to the dialog's 999
         for text, seconds in (("recovery_timeout=soon\n", 30), ("other=1\n", 30), ("recovery_timeout=5000\n", 999)):
             conf.write_text(text, encoding="utf-8")
@@ -1411,14 +1431,14 @@ class TestSessionAndGreeter(unittest.TestCase):
         self.assertIn("#   startrec ", vm)
         phase = vm[vm.index("phase_startrec() {"):]
         phase = phase[:phase.index("\n}\n")]
-        for needle in ("control.exe sysdm.cpl,,3", "alt-i", "Apply uubb 5 7 true false 2>&1", "NotAuthorized",
+        for needle in ("control.exe sysdm.cpl,,3", "alt-i", "Apply ububb 5 true 7 true false 2>&1", "NotAuthorized",
                        "as_root 'id -u'", "wextest.d5=1", 'wait_text "Advanced Options" 60',
-                       "Apply uubb 0 30 false false", "rm -f \"$MNT/etc/wineexplorer/boot.conf\"",
+                       "Apply ububb 0 true 30 false false", "rm -f \"$MNT/etc/wineexplorer/boot.conf\"",
                        'cp -p "$OUT/startrec-cmdline" "$MNT/etc/kernel/cmdline"'):
             self.assertIn(needle, phase)
         # the refusal comes before root's change, and the restore before the stopped disk is cleaned
         self.assertLess(phase.index("NotAuthorized"), phase.index("as_root 'id -u'"))
-        self.assertLess(phase.index("Apply uubb 0 30 false false"), phase.index("attach rw"))
+        self.assertLess(phase.index("Apply ububb 0 true 30 false false"), phase.index("attach rw"))
         for line in phase.splitlines():   # commands sent over the serial console must be one line
             if "gsh '" in line:
                 self.assertEqual(line.count("'") % 2, 0, line)
@@ -2197,7 +2217,8 @@ class TestBoot1(TempDirTest):
     def test_defaults_without_vintner_or_files(self):
         values = self.boot.settings()
         self.assertEqual(values, {"OperatingSystem": "WineExplorer", "HasLoader": False, "MenuTimeout": 0,
-                                  "RecoveryTimeout": 30, "AutoRestart": False, "HasOptions": False, "Options": ""})
+                                  "RecoveryEnabled": True, "RecoveryTimeout": 30, "AutoRestart": False,
+                                  "HasOptions": False, "Options": ""})
 
     def test_settings_from_vintner_and_the_files(self):
         self.with_vintner(menu=5, options=("quiet", "splash"))
@@ -2212,20 +2233,25 @@ class TestBoot1(TempDirTest):
 
     def test_apply_changes_only_what_differs(self):
         self.with_vintner(menu=0)
-        self.boot.apply(0, 30, False)
+        self.boot.apply(0, True, 30, False)
         self.assertEqual(self.vintner_log(), ["menu-timeout --json"])
         self.assertFalse(Path(self.boot.BOOT_CONF).exists())
         self.assertFalse(Path(self.boot.PANIC_CONF).exists())
-        self.boot.apply(30, 7, True)
+        self.boot.apply(30, True, 7, True)
         self.assertEqual(self.vintner_log()[-2:], ["menu-timeout --json", "menu-timeout --json 30"])
         self.assertEqual(self.boot.recovery_timeout(), 7)
         self.assertIn("recovery_timeout=7\n", Path(self.boot.BOOT_CONF).read_text(encoding="utf-8"))
         self.assertIn("kernel.panic = 10\n", Path(self.boot.PANIC_CONF).read_text(encoding="utf-8"))
         self.assertEqual((self.tmp / "panic").read_text(encoding="ascii"), "10\n")    # the running kernel too
         self.assertTrue(self.boot.auto_restart())
-        self.boot.apply(30, 7, False)
+        self.boot.apply(30, True, 7, False)
         self.assertIn("kernel.panic = 0\n", Path(self.boot.PANIC_CONF).read_text(encoding="utf-8"))
         self.assertFalse(self.boot.auto_restart())
+        # recovery options turned off keep their seconds, as XP keeps bootstat.dat's byte 9
+        self.boot.apply(30, False, 7, False)
+        self.assertFalse(self.boot.recovery_enabled())
+        self.assertEqual(self.boot.recovery_timeout(), 7)
+        self.assertIn("recovery_menu=0\n", Path(self.boot.BOOT_CONF).read_text(encoding="utf-8"))
 
     def test_the_saved_panic_setting_wins_over_this_start(self):
         # "Disable automatic restart on system failure" (F8) sets kernel.panic=0 for one start only
@@ -2237,8 +2263,8 @@ class TestBoot1(TempDirTest):
         conf = Path(self.boot.BOOT_CONF)
         conf.parent.mkdir(parents=True)
         conf.write_text("# mine\nother=1\nrecovery_timeout=30\n", encoding="utf-8")
-        self.boot.set_recovery_timeout(0)
-        self.assertEqual(conf.read_text(encoding="utf-8"), "# mine\nother=1\nrecovery_timeout=0\n")
+        self.boot.set_recovery(True, 0)
+        self.assertEqual(conf.read_text(encoding="utf-8"), "# mine\nother=1\nrecovery_timeout=0\nrecovery_menu=1\n")
         self.assertEqual(self.boot.recovery_timeout(), 0)
         self.assertEqual(oct(conf.stat().st_mode & 0o777), "0o644")
 
@@ -2246,15 +2272,15 @@ class TestBoot1(TempDirTest):
         self.with_vintner()
         for bad in (-1, 1000, True):
             with self.assertRaises(self.boot.Refused):
-                self.boot.apply(bad, 30, False)
+                self.boot.apply(bad, True, 30, False)
             with self.assertRaises(self.boot.Refused):
-                self.boot.apply(0, bad, False)
+                self.boot.apply(0, True, bad, False)
         self.assertEqual(self.vintner_log(), [])
 
     def test_menu_timeout_failure_is_reported(self):
         self.with_vintner(menu=0, code=1, reply={"ok": False, "code": "failed", "error": "no ESP"})
         with self.assertRaises(self.boot.Failed) as caught:
-            self.boot.apply(5, 30, False)
+            self.boot.apply(5, True, 30, False)
         self.assertIn("no ESP", str(caught.exception))
 
     def test_options_as_etc_kernel_cmdline_reads_them(self):

@@ -893,15 +893,15 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     sleep 1
     "${V[@]}" key "$TEST" esc >/dev/null
     # anyone reads the settings; a change without a password is refused (polkit, auth_admin_keep)
-    expect_settings HasLoader=True HasOptions=True MenuTimeout=0 RecoveryTimeout=30 AutoRestart=False \
+    expect_settings HasLoader=True HasOptions=True MenuTimeout=0 RecoveryEnabled=True RecoveryTimeout=30 AutoRestart=False \
         OperatingSystem=WineExplorer
     options=$(boot1_settings | sed -n 's/.* Options=\([^ ]*\).*/\1/p' | tr '+' ' ')
-    out=$(gsh "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply uubb 5 7 true false 2>&1; echo rc=\$?" | tr '\n' ' ')
+    out=$(gsh "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 5 true 7 true false 2>&1; echo rc=\$?" | tr '\n' ' ')
     echo "  without a password: $out"
     case "$out" in *NotAuthorized*rc=[1-9]*|*"not authorized"*rc=[1-9]*) ;; *) fail "a change without a password was not refused: $out" ;; esac
     # as root: a 5-second menu, a 7-second countdown, a restart after a panic, and a kernel option
     as_root 'id -u' | grep -qx 0 || fail "sudo does not work for $USER_NAME"
-    as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply uubb 5 7 true false" >/dev/null
+    as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 5 true 7 true false" >/dev/null
     out=$(as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 SetOptions sb '$options wextest.d5=1' false" 600 \
         | grep '^bu ' | tail -n 1)
     echo "  options published: $out"
@@ -922,11 +922,11 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     gsh 'cat /proc/cmdline' | grep -q 'wextest.d5=1' || fail "the new generation does not have the kernel option"
     echo "  /proc/cmdline has wextest.d5=1"
     # back as it was
-    as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply uubb 0 30 false false" >/dev/null
+    as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 0 true 30 false false" >/dev/null
     out=$(as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 SetOptions sb '$options' false" 600 \
         | grep '^bu ' | tail -n 1)
     case "$out" in "bu true "[1-9]*) ;; *) fail "the options were not put back: ${out:-no answer}" ;; esac
-    expect_settings MenuTimeout=0 RecoveryTimeout=30 AutoRestart=False
+    expect_settings MenuTimeout=0 RecoveryEnabled=True RecoveryTimeout=30 AutoRestart=False
     shutdown_vm
     wait_off 60 || fail "the VM did not power off"
     attach rw || fail "cannot mount the overlay"
