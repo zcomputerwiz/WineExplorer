@@ -51,6 +51,10 @@
 #   waylandauto  a normal start's automatic logon with Wayland saved as the test account's session (on the stopped
 #                disk, put back afterwards) runs the Wayland session: LightDM has no autologin-session forcing X11.
 #                Only when named.
+#   shellkeys    with xterm (a Linux program) on the keyboard in the X11 session, Win+R opens Run and Ctrl+Esc the
+#                Start menu (wexhost's shell keys), and Win+L locks: the Welcome screen, and logging on again returns
+#                to the session with xterm. waylandshellkeys: the same in the Wayland session (wexcomp v15 and this
+#                wexhost, from WEX_TEST_WINE). Only when named.
 #   waylanddisplay  Display Properties' calls (WexDisplayGet/Set, the display probe) in that Wayland session change
 #                the compositor's real output from 1280x800 to 1024x768, which the 32-bit program sees too; the next
 #                Wayland session starts at the mode saved. Only when named (WEX_TEST_WINE and the display probes).
@@ -114,7 +118,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -740,6 +744,7 @@ saved_session() {   # saved_session SESSION|restore: the test account's saved se
     dmrc=$MNT/home/$USER_NAME/.dmrc
     keep=$MNT/root/wex-test-saved-session
     if [ "$1" = restore ]; then
+        [ -d "$keep" ] || { detach; return 0; }   # nothing saved, or put back already
         [ -f "$keep/accounts" ] && cp -a "$keep/accounts" "$acc"
         if [ -f "$keep/dmrc" ]; then cp -a "$keep/dmrc" "$dmrc"; else rm -f "$dmrc"; fi
         rm -rf "$keep"
@@ -804,6 +809,77 @@ phase_waylanddisplay() {   # Display Properties in the Wayland session: wexhost 
     shutdown_vm
     wait_off 60 || fail "the VM did not power off"
     display_profile remove || fail "cannot remove the display profile"
+    saved_session restore || fail "cannot put the saved session back"
+}
+
+shell_keys_check() {   # shell_keys_check x11|wayland: with a Linux program on the keyboard, the shell's keys still
+                       # reach Explorer (wexhost's shellkeys.c, through x11wm.c's grabs or the compositor's, v15):
+                       # Win+R opens Run, Ctrl+Esc the Start menu. The program shows "WEX-PC": xterm's prompt on X11;
+                       # in the Wayland session zenity, a native Wayland program that Explorer does not host (X
+                       # programs under XWayland close at once there, 2026-11-11, a separate fault)
+    local program="xterm -title wexkeys"
+    [ "$1" = wayland ] && program="zenity --info --title wexkeys --text WEX-PC"
+    gsh "python3 $HELPER --user $USER_NAME --native $program >/dev/null; echo started" 30 | grep -q '^started' \
+        || fail "cannot start the Linux program in the session"
+    if ! wait_text "WEX-PC" 60; then
+        gsh "tail -n 20 /tmp/wex-program-check-$USER_NAME.log" 30 | sed 's/^/  | /'
+        fail "the Linux program did not appear"
+    fi
+    sleep 3
+    shot program
+    "${V[@]}" key "$TEST" meta_l-r >/dev/null
+    wait_text "Type the name" 20 || { shot no-run; fail "Win+R with the Linux program on the keyboard did not open Run"; }
+    shot run
+    "${V[@]}" key "$TEST" esc >/dev/null
+    sleep 2
+    "${V[@]}" key "$TEST" ctrl-esc >/dev/null
+    # "Control Panel": OCR misses the white "Log Off" on the Start menu's blue bar
+    wait_text "Control Panel" 20 || { shot no-start; fail "Ctrl+Esc with the Linux program on the keyboard did not open the Start menu"; }
+    shot start-menu
+    "${V[@]}" key "$TEST" esc >/dev/null
+    sleep 1
+    echo "  shell keys: Win+R opened Run, Ctrl+Esc the Start menu, with ${program%% *} on the keyboard"
+}
+
+lock_check() {   # Win+L with the Linux program on the keyboard locks as on XP with fast user switching: the display
+                 # manager's Welcome screen (LightDM Seat.Lock, the same in both sessions); logging on again returns
+                 # to the same session, the program still there
+    "${V[@]}" clicktext "$TEST" "WEX-PC" --timeout 10 >/dev/null 2>&1 || true   # the program has the keyboard
+    sleep 1
+    "${V[@]}" key "$TEST" meta_l-l >/dev/null
+    logon_screen
+    shot locked
+    logon
+    # the click left the pointer on "WEX-PC" (zenity's I-beam hides a letter from OCR), so the title counts as well
+    local t=0 back=
+    while [ "$t" -lt 120 ]; do
+        if wait_text "WEX-PC" 10 || wait_text "wexkeys" 5; then back=1; break; fi
+        t=$((t + 15))
+    done
+    [ -n "$back" ] || { shot no-return; fail "logging on again did not return to the session with the program"; }
+    shot unlocked
+    echo "  lock: Win+L showed the Welcome screen, and logging on returned to the session"
+}
+
+phase_shellkeys() {   # the shell's keys over a Linux program in the X11 session, and Win+L. Only when named.
+    start_vm
+    desktop 600
+    shell_keys_check x11
+    lock_check
+    shutdown_vm
+}
+
+phase_waylandshellkeys() {   # the same in the Wayland session (wexcomp v15 and this wexhost: WEX_TEST_WINE).
+                             # Only when named.
+    saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
+    start_vm
+    desktop 600
+    expect_compositor
+    shell_keys_check wayland
+    lock_check
+    expect_compositor
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
     saved_session restore || fail "cannot put the saved session back"
 }
 
@@ -1426,6 +1502,8 @@ for PHASE in "${PHASES[@]}"; do
     wait_off 60 || die "$TEST did not stop after $PHASE"
     if [ "$PHASE" = nowine ]; then hide_wine off || die "cannot put /usr/local/bin/wine back"; fi
     case "$PHASE" in vfailed|vlasttry) delay_logon off || die "cannot remove the logon delay" ;; esac
+    # a phase that saved the test account's session and failed before putting it back
+    case "$PHASE" in waylandauto|waylanddisplay|waylandshellkeys) saved_session restore || die "cannot put the saved session back" ;; esac
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
     compare=("$OUT/before-$PHASE.txt" "$OUT/after-$PHASE.txt")
     case "$PHASE" in

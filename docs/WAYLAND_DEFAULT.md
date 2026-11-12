@@ -14,9 +14,12 @@ what was done towards it on 2026-11-11.
 - **The Wayland session:** `wine-explorer-wayland.desktop` in `/usr/share/wayland-sessions`, with the script
   `scripts/wine-explorer-wayland-session.sh`. The compositor is `wexcomp`, a labwc fork built against wlroots 0.18
   (`>=0.18.1, <0.19.0`, `wexcomp/meson.build`).
-- **Protocol versions:** `wex_window_manager_v1` is v14, `wex_window_v1` v12, `wex_foreign_window_v1` v10.
-  wexhost binds the manager at up to v14. Wine's `winewayland.drv` carries an older copy of the XML (v11) and binds
-  at most v11.
+- **Protocol versions:** `wex_window_manager_v1` is v15 (v14 until the shell keys, 2026-11-11), `wex_window_v1` v12,
+  `wex_foreign_window_v1` v10. wexhost binds the manager at up to v15. Wine's `winewayland.drv` carries an older copy
+  of the XML (v11) and binds at most v11.
+- **Phases in the docs:** L0 done, L1 done 2026-10-14, L2 accepted 2026-10-17. `docs/WAYLAND_PLAN.md` still calls L3
+  (effects) not started, but the code has blur, shadows and corners in wexcomp, so L3 is partly done. L4 has not
+  started. `docs/ROADMAP.md` has no entry for Wayland as the default session.
 - **Only the GDM-free path exists.** GDM appears only in wexhost's switch-user fallback and in
   `scripts/setup-default-session.sh`, which disables it. The greeter is always an X greeter
   (`wineexplorer-greeter` in `/usr/share/xgreeters`, `scripts/wex-greeter.sh`).
@@ -25,14 +28,40 @@ what was done towards it on 2026-11-11.
 
 | Item | Code says |
 |---|---|
-| Shell hotkeys (Win+L, Win+R, Alt+Tab) | Partly. wexcomp binds no keys (`scripts/wayland/rc.xml` turns labwc's defaults off). It moves focus to the Wine frame on Super or Alt+Tab only when the focused native window is hosted in one, and there Explorer's `RegisterHotKey` and keyboard hook see the key. A native window that is not hosted gets nothing: the private protocol has no key event, and `winewayland.drv` has no `RegisterHotKey`. No GlobalShortcuts portal. |
-| Session lock | Partly. wexcomp implements ext-session-lock-v1, but nothing in WineExplorer uses it. Win+L calls LightDM's `Seat.Lock`, which switches to the X greeter. Wine's `LockWorkStation` is a stub. |
+| Shell hotkeys (Win+L, Win+R, Alt+Tab) | Was partly done: focus moved to the Wine frame on Super or Alt+Tab only for a hosted native window; an unhosted one got nothing, and Ctrl+Esc and Alt+F4 never reached Explorer. **2026-11-11:** shared in wexhost, with an X11 and a Wayland adapter (above). No GlobalShortcuts portal for applications' own shortcuts yet. |
+| Session lock | Win+L calls LightDM's `Seat.Lock` in both sessions, which shows the Welcome screen (above). **2026-11-11:** works from a Wayland session with a native program on the keyboard; logging on again returns to the same compositor (VM test `waylandshellkeys`, both firmwares). wexcomp's ext-session-lock is not used. Wine's `LockWorkStation` is a stub. |
 | Greeter | An X greeter before both sessions. No Wayland greeter. |
 | Output management (Display Properties) | **Done 2026-11-11** for one output: wexhost uses wlr-output-management, which wexcomp implements (`src/dlls/wexhost/wloutput.c`). Before, it used only XRandR, which in the Wayland session had no `DISPLAY` and failed. The next Wayland session restores the saved mode. More than one output is still refused, as on X11. Display Properties' own dialogs on Wayland are not yet tested. |
 | Multi-monitor and scale | Partly. Scale changes are handled per window for hosted native windows, and the taskbar's reserved edge is per output. The v14 frame clock and the frame-scheduling fallback use only the first output, and the Mica blur is one node over the whole layout. |
 | Automatic adoption of native windows | The session already turns it on: the script exports `WEX_WAYLAND_NATIVE_WINDOWS=1`. Without it, Explorer reports "not managing Linux windows" (the AUTO backend is not attached). |
 | CS_DROPSHADOW (D3) | Absent on Wayland. It exists only for X11 (`winex11.drv` and Explorer's DWM hook, which never starts on Wayland). wexcomp's shadow comes from the DWM frame attribute, not from the class style. |
 | Physical hardware | Not run (VMs and headless only). |
+
+## Shared design, thin adapters
+
+Where X11 and Wayland differ only in how something reaches the session, the design is shared and each session has
+a thin adapter. The window manager interface in wexhost (`wm.c` with `x11wm.c` and `waylandwm.c`) already works this
+way.
+
+- **Shell hotkeys** (2026-11-11):
+  - **Shared:** `src/dlls/wexhost/shellkeys.c` holds the shell's combinations (the Windows key with anything,
+    Ctrl+Esc, Alt+Tab, Alt+Shift+Tab, Alt+F4) and the replay. The replay presses the held modifiers in Wine and
+    forwards every key until the combination ends; Alt+Tab holds the keyboard until Alt is released. Each key
+    becomes a `WEX_WM_KEY` event, which Explorer replays into Wine with `SendInput` as before. Its keyboard hook, its
+    hotkeys (Win+R, Win+E, Win+L) and DefWindowProc (Alt+F4) then handle it as for Windows programs.
+  - **X11 adapter:** `x11wm.c` builds its passive key grabs from that table, and passes its XKeyEvents to the
+    replay. Holding the keyboard is `XGrabKeyboard`.
+  - **Wayland adapter:** `waylandwm.c` gives wexcomp the same table (`wex_window_manager_v1` v15, `set_shell_keys`).
+    The compositor then behaves as an X11 passive grab. While a client that is not on the private socket has the
+    keyboard, and the seat is not locked, a listed combination goes to Explorer as `shell_key` events, and so does
+    every key until that key is released. `hold_keyboard` and `release_keyboard` extend this through Alt+Tab. Wine's
+    own windows keep their keys. A compositor whose shell sets no table keeps the older behaviour: on Super or
+    Alt+Tab, focus moves from a hosted native window to its Wine frame.
+- **Session lock:** Win+L already takes one path in both sessions. Explorer asks the display manager to lock the
+  seat (LightDM's `Seat.Lock` over D-Bus, through the session's `XDG_SEAT_PATH`), which shows the Welcome screen, as
+  XP does with fast user switching. Nothing in it is specific to X11. On Wayland, Win+L only had to reach Explorer
+  from a native window, which the shell keys do. ext-session-lock is therefore not needed. Because any client can
+  bind it today, it belongs with the protocols to restrict (below).
 
 ## Found on the way
 
@@ -41,6 +70,14 @@ what was done towards it on 2026-11-11.
   `wex_window_manager_v1` is limited to the private socket. Most wlroots compositors do the same, but WineExplorer's
   design says privileged operations go through the private socket. Restricting these needs a decision on what may
   still use them (wexhost's output management connects from Explorer's process through the private socket).
+- **X programs under XWayland close at once in the Wayland session** (found 2026-11-11, open). An xterm started in the
+  session, even straight from a shell with `DISPLAY=:0`, exits with status 0 within seconds. wexcomp then logs
+  BadWindow errors for its reconfiguration of the window, which is already gone. This happens with the image's own
+  wexcomp and Wine as well, so the shell-key work did not cause it. XWayland itself answers (`xdpyinfo`), and native
+  Wayland programs (zenity) stay open. The recovery console's xterm, which wexcomp starts before Explorer, also
+  stays. The L2 acceptance (2026-10-17) had xterm working, so this is a regression. Native-window adoption is a
+  suspect: Explorer's host frame closes its window on `WM_CLOSE`. It needs tracing with Wine's debug channels in the
+  VM.
 - **The socket variable.** The session script exported `LABWC_WEX_SHELL_SOCKET`, which nothing reads. wexcomp reads
   `WEX_SHELL_SOCKET`. Both meant the default, `wex-shell-0`, so it worked. Fixed on 2026-11-11: the script sets
   `WEX_SHELL_SOCKET` and uses it.
@@ -57,9 +94,12 @@ what was done towards it on 2026-11-11.
    Properties changes the real output on Wayland.
 2. Decide the greeter. Recommended: keep the X greeter, which already starts both sessions, and test Switch User
    and Log Off from a Wayland session through it.
-3. Hotkeys for windows not hosted in a Wine frame. This needs a key event, or a compositor-side binding that
-   forwards to Explorer over the private protocol.
-4. Lock: logonui on ext-session-lock, or keep LightDM's `Seat.Lock` and test it from Wayland.
+3. Done on 2026-11-11: the shell's keys reach Explorer from any native window, hosted or not (shared
+   `shellkeys.c`, `wex_window_manager_v1` v15). Applications' own global shortcuts (a GlobalShortcuts portal) are
+   not covered.
+4. Done on 2026-11-11: the lock stays on LightDM's `Seat.Lock`, tested from Wayland. The Welcome screen at the lock
+   still preselects X11 in its session list; logging on to the account that is already on returns to its own
+   session, so this matters only for the default switch (item 8).
 5. Restrict the privileged protocols to the private socket (decision above).
 6. The 150% scaling items, multi-output frame clock and Mica, CS_DROPSHADOW.
 7. Physical Intel, AMD and Nvidia runs.
