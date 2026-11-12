@@ -400,6 +400,20 @@ Found while building T5.4:
 * the driver hosts (`Winedevice1`, ...) are Win32 services that `services.exe` adds for drivers; forwarded, their
   `SetServiceStatus` failed and a session's start stalled. They belong to the session.
 
+**Review of T5 (Codex, 2026-11-12)**, verdict "needs attention"; fixed:
+
+| Finding | Fix |
+|---|---|
+| critical: session 0 took the pipe client's token as the user's server described it, so a malicious server could claim another user | every token a session's server describes (registry channel, user hive, pipe) must be bound to that server's peer: its user is the account map's SID of the peer's uid, or a service account of the session's system role (SYSTEM, LocalService, NetworkService); another user is refused with `STATUS_ACCESS_DENIED`. What the description says beyond the user (groups, privileges, elevation) still rests on the launcher-started server, as the registry channel has since T1: a launcher-started server that is subverted can claim its own session's system role. Development mode binds nothing |
+| high: session 0's manager handle was opened by whichever caller needed it first, then used for every caller | it is opened with the session's manager handle, as its opener: whoever uses the handle has the opener's access, as handles do on Windows |
+| high: a bridge that closed with written data still queued dropped it | the bridge drains: what its peer wrote before it closed, and was told was written, is sent before the socket closes (at most 10 s without progress) |
+| high: forward mode was chosen from one open of session 0's pipe, so a session started while session 0 was busy ran session 0's services itself for its life | forward mode follows the configuration: any answer but "not found" (a server that does not use session 0) means the session forwards; calls fail until session 0 answers |
+| medium: an enumeration without session 0's part was returned as complete | the error is returned (only a group that session 0 does not have is no error) |
+
+Not tested at run time: a forged description (it needs a modified server), a handle shared by two identities, a
+bridge closed under back-pressure. A session cannot start without session 0 once it is configured (its machine
+registry is there), so "session 0 busy at the session's start" has no end-to-end test either.
+
 Open: `NotifyServiceStatusChange` on a service of session 0 returns `ERROR_CALL_NOT_IMPLEMENTED` (notifications are
 not relayed); `QueryServiceStatus`, `ControlServiceExW` and `EnumDependentServicesW` stay local, as they are not
 implemented in Wine's service manager either; the services that stay in sessions for now (MSIServer, Schedule, BITS)
