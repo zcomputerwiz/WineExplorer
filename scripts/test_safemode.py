@@ -1321,6 +1321,11 @@ class TestSessionAndGreeter(unittest.TestCase):
         self.assertLess(common.index("wineboot.exe -u"), skip)
         self.assertLess(skip, common.index("--apply-user-defaults"))
         self.assertLess(skip, common.index("vulkan prepare"))
+        # the default theme, Open Luna (2026-11-12): not in Safe Mode, after the theme files are in the prefix, once
+        theme = common.index("'/theme=C:\\windows\\Resources\\Themes\\Luna.theme'")
+        self.assertLess(skip, theme)
+        self.assertLess(common.index('cp -rf "$theme_dir"'), theme)
+        self.assertIn("""if ! grep -qs '^"CurrentTheme"=' "$WINEPREFIX/user.reg" \\""", common)
 
     def test_wayland_session_reads_the_mode_before_the_prefix(self):
         session = (SCRIPTS / "wine-explorer-wayland-session.sh").read_text(encoding="utf-8")

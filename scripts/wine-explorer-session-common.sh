@@ -82,6 +82,20 @@ wex_prepare_prefix()
             [ -e "$THEME_PREFIX_DIR/$tname" ] || cp -rf "$theme_dir" "$THEME_PREFIX_DIR/$tname" 2>/dev/null || true
         done
     fi
+
+    # The default theme, as XP's: Open Luna, which also gives the XP Start menu (the shell takes the Start menu's
+    # style from the account's theme, and an account without one gets the Classic Start menu). Applied once, at the
+    # first normal logon of an account that never chose a theme (no CurrentTheme in its registry); Display
+    # Properties' choice is kept from then on. Wine's own default (its aero.msstyles) is never shown.
+    if ! grep -qs '^"CurrentTheme"=' "$WINEPREFIX/user.reg" \
+            && [ -f "$WINEPREFIX/drive_c/windows/Resources/Themes/Luna.theme" ] \
+            && [ -f "$WINEPREFIX/drive_c/windows/Resources/Themes/Luna/Luna.msstyles" ]; then
+        echo "Applying the default theme (Open Luna)..."
+        "$WINE" explorer.exe '/theme=C:\windows\Resources\Themes\Luna.theme' \
+            || echo "warning: the default theme was not applied (exit $?)" >&2
+        "$(dirname "$WINE")/wineserver" -k
+        sleep 1
+    fi
     if [ -x /usr/local/bin/wex-graphics ] && [ -d "$WINEPREFIX/.wex-graphics" ]; then
         local graphics_overrides
         if graphics_overrides=$(/usr/local/bin/wex-graphics vulkan prepare); then
