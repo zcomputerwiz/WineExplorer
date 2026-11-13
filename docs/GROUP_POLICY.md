@@ -269,6 +269,11 @@ is unrestricted and session 0 takes the write. Until installed systems enforce e
 applied and re-applied, but not binding between refreshes. This is a decision about the elevation default, not
 about Group Policy.
 
+On an image with enforced elevation (`WEX_ELEVATION=1`; [SYSTEM_TIER_WORK_ORDERS.md](SYSTEM_TIER_WORK_ORDERS.md),
+"Enforced elevation on an installed machine") the same test passes and its note reads "refused": the installed
+administrator's own programs are limited there, and session 0 refuses the write. Policy is binding with
+enforcement, with no change to Group Policy.
+
 Not covered: user policy from the domain (the accounts map has local users only; logging on to WineExplorer as a
 domain user does not exist yet), the lockout policy from the security template, SSSD joins.
 
