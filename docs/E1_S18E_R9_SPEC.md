@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 <!-- Copyright 2026 WineExplorer contributors -->
-# E1-S18e R9: broker in session 0, agent in the session (spec v3; system tier T6.3)
+# E1-S18e R9: broker in session 0, agent in the session (spec v4; system tier T6.3)
 
 Decision (2026-11-12): option A of [E1_S18E_R9_DESIGN.md](E1_S18E_R9_DESIGN.md), towards fast user switching.
 R9 changes only what this document names; everything else is R8 ([E1_S18E_R8_SPEC.md](E1_S18E_R8_SPEC.md), frozen
@@ -8,6 +8,7 @@ v5) with R10 as built (WO-31). The chain stays lab only and disabled in normal b
 
 v2 adopts the review of v1 (Codex, 2026-11-12; section 10): the session's server no longer holds session 0's
 authorization; the verifier does, as a live single-use grant from B0, and the receipt keeps R10's route.
+v4 (2026-11-13) folds the corrections of sections 12 and 13 into sections 3 to 9.
 
 ## 1. Threat model
 
@@ -16,8 +17,9 @@ and nothing in R9 can restrain a subverted S), the session's system role (R8's b
 does), V and W (root, outside Wine), session 0's server S0 and its LocalSystem services. R9 adds no protection
 against a subverted S or a subverted system role of a session; R8 had none either.
 
-What R9 adds: the policy decision, the attempt count across sessions and the grant to redeem are made in
-session 0 (B0) and enforced by V; one broker serves every session (fast user switching). A subverted A can
+What R9 adds: the policy decision, the per-request attempt count and the grant to redeem are made in
+session 0 (B0) and enforced by V; the count per account across sessions is V's lockout policy; one broker
+serves every session (fast user switching). A subverted A can
 still deny service, and as the session's system role it could draw on the secure desktop; it cannot obtain a
 token without V's RESULT for the password of an eligible account and B0's grant for that attempt (section 6).
 
@@ -53,22 +55,24 @@ and sends V nothing but REDEEM (and RELEASE of its own channel). B0 never touche
   (Change to `session0.c`.)
 * **Framing.** Each pipe message is one R8 frame: the 76-byte common header (R8 section 4) and a body; R8's
   encoding rules apply. New types 40..51.
-* **Limits.** One request in flight per session, at most 8 sessions with one; a ninth is DECISION deny (reason 3).
+* **Limits.** This version serves one request at a time; a second session's request gets DECISION deny
+  (reason 3, busy). The intended limit, not built, is one request in flight per session, at most 8 sessions
+  with one; a ninth is DECISION deny (reason 3).
 
 ## 4. Messages A ↔ B0 (types 40..51)
 
-Header: `request_id` is A's request id (nonzero, never reused by A); `attempt` 0 on REQUEST and on DECISION deny,
-otherwise the attempt (1..3). `nonce` is the request's nonce on every message: A makes it (as R8's B does, before
-the dialog step, because the later stages use it) and B0 puts it into every attempt's tuple. `channel_id` is zero
-on REQUEST and DECISION deny, otherwise the attempt's channel id: 16 random bytes B0 makes for each attempt, as
-R8's B does (it is not an S6 channel).
+Header: `request_id` is A's request id (nonzero, never reused by A); `attempt` 0 on REQUEST, on DECISION deny
+and on the END after it, otherwise the attempt (1..3). `nonce` is the request's nonce on every message: A makes
+it (as R8's B does, before the dialog step, because the later stages use it) and B0 puts it into every attempt's
+tuple. `channel_id` is zero on REQUEST, on DECISION deny and on the END after it, otherwise the attempt's
+channel id: 16 random bytes B0 makes for each attempt, as R8's B does (it is not an S6 channel).
 
 | Type | Name | Dir | Body after the header | Total |
 | --- | --- | --- | --- | --- |
 | 40 | REQUEST | A→B0 | `kind:u32` (1 runas, 2 manifest), `deadline:u64`, `binding_digest:32`, `request_digest:32`, `root_gen:u64`, `server_gen:u64`, `broker_gen:u64`, `verifier_gen:u64`, `map_gen:u64`, `policy_gen:u64`, `desktop_route:16`, `secure_desktop:u32` (1 available, 0 not), `requester:str`, `image:str`, `publisher:str` (display strings, R8 section 4) | 232 .. 1792 |
 | 41 | DECISION | B0→A | `status:u32` (1 prompt, 2 deny), then for 1: the pre-endorsement tuple (204); for 2: `reason:u32` (1 policy, 2 attempts, 3 busy) | 84 deny, 284 prompt |
 | 42 | ENDORSED_LOCAL | A→B0 | `dialog_id:16`, `status:u32` (1 endorsed, 2 refused) | 96 |
-| 43 | TO_D | B0→A | one complete R8 B→D frame (types 1, 3, 9, 5, 6, 8) | 152 .. 2143 |
+| 43 | TO_D | B0→A | one complete R8 B→D frame (types 1, 3, 9, 5, 6, 8, 31) | 152 .. 2143 |
 | 44 | FROM_D | A→B0 | one complete R8 D→B frame (types 2, 4, 7) as read from D | 157 .. 340 |
 | 45 | RECHECK | B0→A | `step:u32` (1 attach, 2 ready, 3 result, 4 confirm) | 80 |
 | 46 | RECHECKED | A→B0 | `step:u32`, `status:u32` (1 ok, 2 refused) | 84 |
@@ -82,13 +86,14 @@ Rules:
 
 * **REQUEST.** A registers its S6 channel with V through S before it sends REQUEST (as R8's B registers; V
   learns S's pin there) and fills the rest from S and the program's request, as R8's B does. B0 copies
-  the nonce, the digests, `server_gen` and `desktop_route` into the tuple; S checks them at endorsement
-  (R8 section 3) and V binds the attempt to A's channel through S's ENDORSED (section 6). `caller_session` comes from S0 (section 3).
-  `secure_desktop` 0 makes B0 use `desktop_mode` 2 only where policy allows the insecure desktop, else deny.
+  the nonce, both digests, the deadline (no later than A's), all six generations and the desktop route into
+  the tuple; S checks them at endorsement (R8 section 3) and V binds the attempt to A's channel through S's
+  ENDORSED (section 6). `caller_session` comes from S0 (section 3). `secure_desktop` 0 is DECISION deny
+  (policy) in this version.
 * **DECISION 1 / NEXT_ATTEMPT.** B0 applies the policy (`ConsentPromptBehaviorAdmin`, `ConsentPromptBehaviorUser`,
   `PromptOnSecureDesktop`, `EnableStandardUserElevation`, the lockout policy; session 0's registry) and the
-  attempt count (B0's, per request and per account, across sessions). A elevation without a prompt is not part
-  of R9.
+  attempt count (B0's, per request, at most 3; the count per account across sessions is V's lockout policy).
+  A elevation without a prompt is not part of R9.
 * **Relay.** A writes each TO_D's embedded frame to D unchanged and in order, and sends each frame read from D
   as FROM_D unchanged. A checks only that the embedded frame's header length equals the embedded bytes and lies
   within R8's bounds for its type; otherwise CANCEL 5. B0 applies every R8 check to the embedded frames.
@@ -96,10 +101,12 @@ Rules:
   ATTACH_OK, READY, RESULT and the Confirm acceptance only after a RECHECKED ok of the matching step, where R8's B
   asks S. (A is trusted for this, section 1.)
 * **Retry.** After V's RESULT 2 (refused) B0 sends RESULT 2 to D through TO_D and releases V's attempt (R8
-  section 9). For a further attempt (attempt + 1, at most 3, same deadline, fresh nonce) B0 sends NEXT_ATTEMPT
-  first and only then DONE 2 through TO_D: on NEXT_ATTEMPT A enters `RETRYING`, in which D's exit is expected;
-  it writes the DONE, waits for D's exit (2 s, else terminates it), closes D's pipes and creates the next D for
-  the new tuple (`SPAWNING`). Without a further attempt B0 sends DONE 2 and then END 2.
+  section 9). For a further attempt (attempt + 1, at most 3, same deadline, the request's nonce and a fresh
+  channel id) B0 sends NEXT_ATTEMPT first and only then DONE 2 through TO_D, the DONE still under the old
+  attempt's header: on NEXT_ATTEMPT A enters `RETRYING`, in which D's exit is expected; it writes the DONE,
+  waits for the dialog to leave by itself (bounded by the request's deadline), closes D's pipes and creates
+  the next D for the new tuple (`SPAWNING`). Without a further attempt B0 sends DONE 2 and then END 2, and A
+  returns the logon failure.
 * **LAUNCH.** The decision to elevate is B0's GRANT to V (section 6), sent after B0 accepted Confirm (R8 section
   8 checks). After GRANTED, B0 sends DONE 1 through TO_D (D leaves, so the secure desktop is free while the
   program starts, as R8's B writes DONE before the launch) and then LAUNCH. A sends REDEEM to V on its own channel
@@ -116,24 +123,26 @@ Rules:
 `IDLE` → (S6 channel registered, REQUEST sent) `REQUESTED` → (DECISION 1) `SPAWNING` → (D created suspended,
 endorsed, resumed; ENDORSED_LOCAL sent) `RELAYING` → (NEXT_ATTEMPT) `RETRYING` → (D gone) `SPAWNING`, or
 (LAUNCH) `LAUNCHING` →
-(LAUNCHED sent) `ENDING` → (END) `IDLE`. DECISION 2 → `IDLE` after END. A cancels (terminates D, closes its pipes,
-sends CANCEL, releases its S6 channel) on D's death outside a retry, a broken pipe to D or B0, the deadline, a
-failed recheck, the caller's death. Cancellation wins up to V's `GRANTED` (section 6). V's redemption is the
-point of no return: after it the request is committed in R8's sense, a cancellation no longer withdraws it, and
-what can still stop the token are S's checks at issue (the receipt's time and generations, R10) and the launch's
-own failure (R8's post-commit rules).
+(LAUNCHED sent) `ENDING` → (END) `IDLE`. DECISION 2 → `IDLE` after END. The lockout notice (a TO_D, R8 type 31,
+header only) expects D's exit, as DONE does; B0 ends with END 3 and A returns the locked-out error. After the
+last refused attempt, B0 sends DONE 2 and END 2 and A returns the logon failure. A cancels (terminates D, closes
+its pipes, sends CANCEL, releases its S6 channel) on D's death outside a retry, a broken pipe to D or B0, the
+deadline, a failed recheck, the caller's death. Cancellation wins up to V's `GRANTED` (section 6). V's redemption
+is the point of no return: after it the request is committed in R8's sense, a cancellation no longer withdraws it,
+and what can still stop the token are S's checks at issue (the receipt's time and generations, R10) and the
+launch's own failure (R8's post-commit rules).
 
 ## 6. The grant, held by V
 
-* **B0's channel.** B0 registers its S6 channel through S0: S0 endorses B0 as a session's server endorses the
-  broker today (`sysrun_e1s6_endorse`: SCM_CREDENTIALS with S0's pid, euid and the system gid; SCM_PIDFD). In a
-  session every S6 operation is a sub-operation of the broker's request pipe and needs a caller of the same
-  server bound to it; B0 has none (its requests come over the bridge), so in session 0 the same request reaches
-  only the endorsement, and the R8 server operations (endorse D, recheck, receipt) do not exist there. V
-  accepts S0 as an endorser (a wineserver of the configured `session0_user` with the system group, same
-  executable inode check) and calls a channel endorsed by S0 a **B0 channel**. With `r9=1` in V's configuration,
-  V accepts START, CANCEL, RELEASE and GRANT only on a B0 channel, and REDEEM only on a channel endorsed by a
-  session's server.
+* **B0's channel.** B0 opens its S6 channel per request and registers it through S0: S0 endorses B0 as a
+  session's server endorses the broker today (`sysrun_e1s6_endorse`: SCM_CREDENTIALS with S0's pid, euid and the
+  system gid; SCM_PIDFD). In a session every S6 operation is a sub-operation of the broker's request pipe and
+  needs a caller of the same server bound to it; B0 has none (its requests come over the bridge), so in session
+  0 the same request reaches only the endorsement, and the R8 server operations (endorse D, recheck, receipt)
+  do not exist there. V accepts S0 as an endorser (a wineserver of the configured `session0_user` with the
+  system group, same executable inode check) and calls a channel endorsed by S0 a **B0 channel**. With `r9=1`
+  in V's configuration, V accepts START, CANCEL, RELEASE and GRANT only on a B0 channel, and REDEEM only on a
+  channel endorsed by a session's server.
 * **Binding.** S sends ENDORSED for an attempt on the control socket of the channel of the broker process that
   asked for the endorsement: in R9 that is A's channel, and V accepts ENDORSED only on an A channel (the sender
   check of R8 section 6, WO-26, is that channel's server). The attempt's record therefore belongs to A's channel
@@ -141,11 +150,13 @@ own failure (R8's post-commit rules).
   one live A channel with such a record in state `ENDORSED`, START's header to equal that record's sealed tuple
   (nonce, channel id; so a record another session made up for the same ids does not match B0's tuple), and the
   record's A channel to be of the session the tuple names (`caller_session`). DialogAttach as R8. B0's channel
-  loss cancels all its attempts; A's channel loss cancels its attempt.
+  loss cancels all its attempts; when A's channel ends (A cancelled, or died), V drops the attempt and sends
+  B0 an R8 CANCEL (type 21) for it, and B0 then ends the request.
 * **GRANT** (new, type 32, B0→V on B0's channel): header of the attempt, `account_key:16`, `evidence_ref:16`;
   total 108. It is B0's decision to elevate. V accepts it once per attempt, only in `RESULT_RETAINED`, only if
   `account_key` and `evidence_ref` are the attempt's RESULT 1 values; it answers GRANTED (type 33, 76 bytes) and
-  moves to `GRANTED`.
+  moves to `GRANTED`. The evidence record V makes for an attempt names the generations of the agent's channel
+  (its server and broker), not session 0's; the session's server checks it at issue.
 * **REDEEM** (R10) is accepted only on the attempt's A channel and only in `GRANTED`; it is single use. A CANCEL
   from B0, B0's channel loss, the deadline or a generation change in `GRANTED` moves V to `CANCELLED` atomically
   with respect to REDEEM (V's attempt lock); a REDEEM after that is refused and no RECEIPT is sent. REDEEM is the
@@ -165,6 +176,9 @@ the decision). It cannot redeem before that: V needs B0's GRANT, which B0 sends 
 the account key) or move an attempt to another session's server (V's binding, section 6).
 
 ## 8. Tests (lab)
+
+As of 2026-11-13, built: the codecs, the verifier's unit tests, the S0 pipe and session id test, and one chain
+case (`r9_e2e_elevated_through_session0`); the other chain cases are not built.
 
 * Codecs: types 40..51, GRANT and GRANTED, at minimum and maximum lengths, one byte short and long, wrong type,
   reserved, unknown enum values, strings.
@@ -190,6 +204,9 @@ the account key) or move an attempt to another session's server (V's binding, se
 | R9-4 | `wexelevate`: B0 and A roles of one image, the relay, NEXT_ATTEMPT | Claude, Antigravity for the A-side relay loop |
 | R9-5 | Lab suite cases (section 8) | Antigravity |
 | R9-6 | Codex review of R9-3/R9-4 before the chain's cases count | Codex |
+
+As of 2026-11-13: R9-1 to R9-4 done; R9-5 one case so far; R9-6 done, with one finding fixed (B0's unbounded
+flush).
 
 ## 10. Review of v1 (Codex, 2026-11-12)
 
