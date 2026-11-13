@@ -43,6 +43,25 @@ a throwaway certificate trusted by the owner in TrustedPeople for the run (to be
   with `wexappx` and activating it), windows.ui (12, 82), twinapi (73), windows.storage (599) and kernel32 version
   (541) pass on both architectures; `rpcrt4_test server` has only its two known failures.
 
+## U1.1b presentation and input probe (Windows, started)
+
+Application `ViewPresent` (mode `present`), run by `run-present.ps1` (it takes a screenshot at READY and moves and
+types only into a window it has checked; it needs an unlocked desktop that nobody uses for about 40 seconds).
+
+2026-11-12, x64, unlocked desktop (output in `..\WineExplorer-local`, not copied):
+
+* `window.Activate()` **does** show the window when the desktop is unlocked: `Visible=1` after about 80 ms, then
+  `WindowActivated` (CodeActivated) and `InputEnabled=1` at about 140 ms. No `SizeChanged`. `Bounds` stay 1200x900 and
+  the window opens in a cascading position (the origin moved between runs). The earlier "Activate raises nothing, the
+  window stays invisible" measurements (the `window_stays_invisible_after_activate` and `activate_raises_no_window_events`
+  checks) were made with a locked desktop and have to be reread: **with the desktop locked** `Visible` stays 0 and
+  `Suspending` is raised after about 5 s (confirmed again by this probe's first run).
+* `D3D11CreateDevice` and `IDXGIFactory2::CreateSwapChainForCoreWindow` succeed: 1200x900, B8G8R8A8 (87), 2 buffers,
+  flip-sequential, `DXGI_SCALING_NONE`; five `Present(1, 0)` calls return `S_OK` at about 110 ms intervals.
+* Not measured yet: pointer, keyboard and character events. The frame opens behind the foreground window (the
+  activation is not allowed to take the foreground), the injected click did not reach it, so the runner refuses to
+  inject. Next: bring the frame to the front (or have the owner click its taskbar button) before injecting.
+
 ## Not asserted (observed, varies or races on Windows)
 
 `PreviousExecutionState` (0 and 3 seen), anything after `CoreApplication.Exit` or after `Run` returns (the process may

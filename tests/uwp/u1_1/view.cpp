@@ -50,6 +50,10 @@
 #include <winrt/Windows.ApplicationModel.Core.h>
 #include <winrt/Windows.ApplicationModel.Activation.h>
 #include <winrt/Windows.UI.Core.h>
+#include <winrt/Windows.Devices.Input.h>
+#include <winrt/Windows.UI.Input.h>
+#include <d3d11.h>
+#include <dxgi1_2.h>
 
 using namespace winrt;
 using namespace Windows::ApplicationModel::Activation;
@@ -120,6 +124,13 @@ static std::string join(std::vector<std::string> const &list)
     return all;
 }
 
+static std::string hex(HRESULT hr)
+{
+    char text[16];
+    std::snprintf(text, sizeof(text), "0x%08lX", (unsigned long)hr);
+    return text;
+}
+
 static void pump(CoreDispatcher const &dispatcher, DWORD milliseconds)
 {
     DWORD start = GetTickCount();
@@ -128,6 +139,78 @@ static void pump(CoreDispatcher const &dispatcher, DWORD milliseconds)
         dispatcher.ProcessEvents(CoreProcessEventsOption::ProcessAllIfPresent);
         Sleep(10);
     } while (GetTickCount() - start < milliseconds);
+}
+
+/* present mode: a swap chain for the CoreWindow, a few presented frames, then the window events and the input a
+ * runner on the host injects (run-present.ps1 waits for the READY line) are recorded; nothing here is asserted yet,
+ * the output is the measurement */
+static void run_present(CoreWindow const &window)
+{
+    CoreDispatcher dispatcher = window.Dispatcher();
+    auto bounds = window.Bounds();
+    info("before: visible=%d bounds=%.0fx%.0f at %.0f,%.0f", (int)window.Visible(), bounds.Width, bounds.Height,
+         bounds.X, bounds.Y);
+    window.Activate();
+    pump(dispatcher, 500);
+    info("after Activate and 500 ms: visible=%d", (int)window.Visible());
+
+    com_ptr<ID3D11Device> device;
+    com_ptr<ID3D11DeviceContext> context;
+    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                   nullptr, 0, D3D11_SDK_VERSION, device.put(), nullptr, context.put());
+    if (FAILED(hr)) hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                           nullptr, 0, D3D11_SDK_VERSION, device.put(), nullptr, context.put());
+    put("HRESULT D3D11CreateDevice " + hex(hr));
+    if (FAILED(hr)) return;
+    auto dxgi = device.as<IDXGIDevice>();
+    com_ptr<IDXGIAdapter> adapter;
+    com_ptr<IDXGIFactory2> factory;
+    check_hresult(dxgi->GetAdapter(adapter.put()));
+    check_hresult(adapter->GetParent(IID_PPV_ARGS(factory.put())));
+
+    DXGI_SWAP_CHAIN_DESC1 desc = {};
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    desc.BufferCount = 2;
+    desc.Scaling = DXGI_SCALING_NONE;
+    desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    com_ptr<IDXGISwapChain1> chain;
+    hr = factory->CreateSwapChainForCoreWindow(device.get(), static_cast<IUnknown *>(get_abi(window)), &desc, nullptr,
+                                               chain.put());
+    put("HRESULT CreateSwapChainForCoreWindow " + hex(hr));
+    if (FAILED(hr)) return;
+    DXGI_SWAP_CHAIN_DESC1 got = {};
+    chain->GetDesc1(&got);
+    info("swap chain: %ux%u format %u buffers %u", got.Width, got.Height, (unsigned)got.Format, got.BufferCount);
+    info("after create: visible=%d", (int)window.Visible());
+
+    for (int frame = 0; frame < 5; ++frame)
+    {
+        com_ptr<ID3D11Texture2D> back;
+        com_ptr<ID3D11RenderTargetView> view;
+        check_hresult(chain->GetBuffer(0, IID_PPV_ARGS(back.put())));
+        check_hresult(device->CreateRenderTargetView(back.get(), nullptr, view.put()));
+        float color[4] = { 0.1f * frame, 0.3f, 0.6f, 1.f };
+        context->ClearRenderTargetView(view.get(), color);
+        hr = chain->Present(1, 0);
+        char text[64];
+        std::snprintf(text, sizeof(text), "Present %d %s", frame, hex(hr).c_str());
+        record(text);
+        pump(dispatcher, 100);
+    }
+    info("after presenting: visible=%d", (int)window.Visible());
+    pump(dispatcher, 3000);   /* the window is still opening on screen */
+    auto now = window.Bounds();
+    info("bounds now %.0fx%.0f at %.0f,%.0f", now.Width, now.Height, now.X, now.Y);
+    auto position = window.PointerPosition();
+    info("pointer position %.0f,%.0f", position.X, position.Y);
+    put("READY");
+    /* input injected by the host arrives here */
+    pump(dispatcher, 12000);
+    info("end: visible=%d", (int)window.Visible());
+    CoreApplication::Exit();
+    dispatcher.ProcessEvents(CoreProcessEventsOption::ProcessUntilQuit);
 }
 
 static void run_checks(CoreWindow const &window)
@@ -339,6 +422,47 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
             record("SizeChanged");
             info("SizeChanged: %.0fx%.0f", args.Size().Width, args.Size().Height);
         });
+        if (mode == "present")
+        {
+            auto pointer = [](char const *name) {
+                return [name](CoreWindow const &, PointerEventArgs const &args) {
+                    auto point = args.CurrentPoint();
+                    char text[160];
+                    std::snprintf(text, sizeof(text), "%s id=%u pos=%.0f,%.0f device=%d left=%d wheel=%d mods=%u", name,
+                                  point.PointerId(), point.Position().X, point.Position().Y,
+                                  (int)point.PointerDevice().PointerDeviceType(), (int)point.Properties().IsLeftButtonPressed(),
+                                  point.Properties().MouseWheelDelta(), (unsigned)args.KeyModifiers());
+                    record(text);
+                };
+            };
+            window.PointerEntered(pointer("PointerEntered"));
+            window.PointerExited(pointer("PointerExited"));
+            window.PointerMoved(pointer("PointerMoved"));
+            window.PointerPressed(pointer("PointerPressed"));
+            window.PointerReleased(pointer("PointerReleased"));
+            window.PointerWheelChanged(pointer("PointerWheelChanged"));
+            window.PointerCaptureLost(pointer("PointerCaptureLost"));
+            auto key = [](char const *name) {
+                return [name](CoreWindow const &, KeyEventArgs const &args) {
+                    auto status = args.KeyStatus();
+                    char text[160];
+                    std::snprintf(text, sizeof(text), "%s vk=%d scan=%u extended=%d repeat=%u down=%d released=%d", name,
+                                  (int)args.VirtualKey(), status.ScanCode, (int)status.IsExtendedKey, status.RepeatCount,
+                                  (int)status.WasKeyDown, (int)status.IsKeyReleased);
+                    record(text);
+                };
+            };
+            window.KeyDown(key("KeyDown"));
+            window.KeyUp(key("KeyUp"));
+            window.CharacterReceived([](CoreWindow const &, CharacterReceivedEventArgs const &args) {
+                char text[64];
+                std::snprintf(text, sizeof(text), "CharacterReceived code=%u", args.KeyCode());
+                record(text);
+            });
+            window.InputEnabled([](CoreWindow const &, InputEnabledEventArgs const &args) {
+                record(args.InputEnabled() ? "InputEnabled=1" : "InputEnabled=0");
+            });
+        }
     }
 
     void Load(hstring const &entry_point)
@@ -366,11 +490,15 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
         }
         check("view_current_is_main_view", CoreApplication::GetCurrentView() == CoreApplication::MainView());
         std::thread([] {
-            Sleep(8000);
-            put("TRACE WATCHDOG: the process was still running 8 s after Run");
+            Sleep(mode == "present" ? 40000 : 8000);
+            put("TRACE WATCHDOG: the process was still running after Run");
             ExitProcess(3);
         }).detach();
-        try { run_checks(CoreWindow::GetForCurrentThread()); }
+        try
+        {
+            if (mode == "present") run_present(CoreWindow::GetForCurrentThread());
+            else run_checks(CoreWindow::GetForCurrentThread());
+        }
         catch (hresult_error const &e)
         {
             char text[64];
@@ -395,13 +523,6 @@ static std::wstring query_full_name()
     return buffer.data();
 }
 
-static std::string hex(HRESULT hr)
-{
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08lX", (unsigned long)hr);
-    return text;
-}
-
 int wmain(int argc, wchar_t **argv)
 {
     std::wstring out;
@@ -420,7 +541,7 @@ int wmain(int argc, wchar_t **argv)
         std::wstring id = aumid.data();
         application_id = id.substr(id.find(L'!') + 1);
         mode = application_id == L"ViewSta" ? "sta" : application_id == L"ViewReturn" ? "return" :
-               application_id == L"View" ? "positive" : "";
+               application_id == L"ViewPresent" ? "present" : application_id == L"View" ? "positive" : "";
         wchar_t dir[MAX_PATH];
         if (mode.empty() || !GetEnvironmentVariableW(L"LOCALAPPDATA", dir, ARRAYSIZE(dir))) return 2;
         out = std::wstring(dir) + L"\\view-" + std::wstring(mode.begin(), mode.end()) + L".txt";

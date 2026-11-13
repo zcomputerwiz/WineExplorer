@@ -17,5 +17,8 @@
     <Application Id="ViewReturn" Executable="view.exe" EntryPoint="view.App">
       <uap:VisualElements DisplayName="WineExplorer U1.1 View (Return)" Description="View lifecycle probe, returns from Run" BackgroundColor="transparent" Square150x150Logo="logo.png" Square44x44Logo="small.png" />
     </Application>
+    <Application Id="ViewPresent" Executable="view.exe" EntryPoint="view.App">
+      <uap:VisualElements DisplayName="WineExplorer U1.1 View (Present)" Description="View presentation and input probe" BackgroundColor="transparent" Square150x150Logo="logo.png" Square44x44Logo="small.png" />
+    </Application>
   </Applications>
 </Package>
