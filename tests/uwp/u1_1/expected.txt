@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# The checks of view.exe positive, in order: what the documented CoreApplication / IFrameworkView /
+# CoreDispatcher contracts promise. INFO lines are observations and are not compared.
+PASS package_identity
+PASS view_is_main
+PASS view_is_not_hosted
+PASS set_window_is_window_of_thread
+PASS view_current_is_main_view
+PASS dispatcher_access_on_view_thread
+PASS dispatcher_no_access_from_other_thread
+PASS no_window_on_other_thread
+PASS activation_events_are_queued
+PASS launch_activation_raised_by_processing
+PASS window_activated_raised_by_processing
+PASS window_visible_raised_by_processing
+PASS window_visible_after_activate
+PASS dispatch_priority_order
+PASS process_one_if_present_does_not_wait
+PASS process_one_if_present_runs_one
+PASS process_all_if_present_runs_the_rest
+PASS run_async_from_other_thread_runs_on_view_thread
+PASS run_async_action_completes
+PASS run_async_completed_handler_on_view_thread
+PASS process_one_and_all_pending_waits_for_an_event
+PASS canceled_action_does_not_run
+PASS closed_raised_before_process_until_quit_returns
+PASS window_not_visible_after_close
+PASS run_returned_success
+PASS lifecycle_each_callback_once
+PASS lifecycle_order
+PASS uninitialize_after_run_returned
+PASS callbacks_on_one_thread
+PASS launch_activation_once
+PASS launch_activation_kind
+PASS launch_arguments_are_the_activation_arguments
+PASS window_closed_once
+PASS closed_after_window_activated
+PASS no_window_after_run

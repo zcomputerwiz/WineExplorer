@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# view.exe unpackaged: CoreApplication.Run in a process without a package fails and calls nothing.
+# The HRESULT is not asserted: it has not been measured on Windows (see README.md).
+PASS no_package_identity
+PASS run_unpackaged_fails
+PASS run_unpackaged_calls_nothing

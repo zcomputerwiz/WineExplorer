@@ -3127,3 +3127,21 @@ both-architecture build of that tree, verified file by file against the commit, 
 (all checks, both architectures), windows.storage and kernel32 version, with the same two known `rpcrt4` failures.
 `src/programs/wexappx` (project code, no stock change) installs, lists and removes packages; its 59-check
 end-to-end test (`tests/uwp/u1_0/test-wexappx.sh`) passed on that build.
+
+## U1.1: view lifecycle of CoreApplication.Run (isolated UWP branch, 2026-11-12)
+
+Wine branch `codex/uwp-runtime`. Design and assumptions: `docs/uwp/DESIGN_LIFECYCLE.md`. Stock-Wine files changed:
+
+- `dlls/windows.ui`: new `dispatcher.c` (CoreDispatcher, IAsyncAction of RunAsync, event handler lists), new
+  `window.c` (the CoreWindow of a view, its event arguments, private exports `WineUICreateCoreWindow` and
+  `WineUIDetachCoreWindow` in `windows.ui.spec`); `corewindow.c` (`GetForCurrentThread` finds the window of a view
+  thread instead of returning NULL); `private.h`, `Makefile.in`.
+- `dlls/twinapi.appcore`: `core_application.c` (ICoreApplication, ICoreApplicationExit, ICoreImmersiveApplication
+  with a working `Run`; the factory methods are unchanged), new `core_view.c` (CoreApplicationView,
+  LaunchActivatedEventArgs, handler lists); `private.h`; `Makefile.in` (`kernelbase` import).
+- `include/windows.applicationmodel.activation.idl`: `ILaunchActivatedEventArgs` (IID as in the Windows SDK).
+
+Verified in the owned U1 guest on candidate `u11-1`, fresh prefix per architecture: the MSVC-built view probe passes
+35 checks on x64 and x86 and the unpackaged control fails as designed; windows.ui (12, 82) and twinapi (73),
+windows.storage (599), kernel32 version (541), the U1.0 packaged fixture and the 59-check install test pass on both
+architectures; `rpcrt4_test server` has only its two known failures. Not measured on Windows.

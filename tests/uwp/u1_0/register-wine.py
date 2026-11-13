@@ -10,7 +10,7 @@ staged package directory out in the profile of the prefix's user
 server reads (appx-catalog/PackageFullName.wexappx in the prefix, see
 wine/server/uwp_context.h).
 
-  register-wine.py stage CASE ARCH BUILD_DIR STAGE_DIR [--name N --publisher P --version V]
+  register-wine.py stage CASE ARCH BUILD_DIR STAGE_DIR [--name N --publisher P --version V --manifest FILE]
   register-wine.py register PREFIX STAGE_DIR      prints full name, family name, package directory (tabs)
   register-wine.py unregister PREFIX FULL_NAME
 """
@@ -96,13 +96,20 @@ def read_manifest(stage):
 
 
 def cmd_stage(args):
-    if args.case not in ('positive', 'missing_class', 'missing_dll'):
+    if args.case not in ('positive', 'missing_class', 'missing_dll', 'lifecycle'):
         fail('unknown case')
     os.mkdir(args.stage)
-    shutil.copyfile(os.path.join(args.build, 'probe.exe'), os.path.join(args.stage, 'probe.exe'))
-    if args.case != 'missing_dll':
-        shutil.copyfile(os.path.join(args.build, 'component.dll'), os.path.join(args.stage, 'component.dll'))
-    with open(os.path.join(HERE, 'AppxManifest.xml'), encoding='utf-8') as f:
+    manifest_path = os.path.join(HERE, 'AppxManifest.xml')
+    if args.case == 'lifecycle':   # the U1.1 view probe: one executable, no in-process server
+        shutil.copyfile(os.path.join(args.build, 'view.exe'), os.path.join(args.stage, 'view.exe'))
+        if not args.manifest:
+            fail('--manifest is required for the lifecycle case')
+        manifest_path = args.manifest
+    else:
+        shutil.copyfile(os.path.join(args.build, 'probe.exe'), os.path.join(args.stage, 'probe.exe'))
+        if args.case != 'missing_dll':
+            shutil.copyfile(os.path.join(args.build, 'component.dll'), os.path.join(args.stage, 'component.dll'))
+    with open(manifest_path, encoding='utf-8') as f:
         manifest = f.read()
     values = {'@NAME@': args.name, '@PUBLISHER@': args.publisher, '@VERSION@': args.version, '@ARCH@': args.arch,
               '@SERVER@': '' if args.case == 'missing_class' else SERVER}
@@ -176,6 +183,7 @@ p.add_argument('stage')
 p.add_argument('--name', default='WineExplorer.U1Oracle.Probe')
 p.add_argument('--publisher', default='CN=WineExplorer U1 Oracle')
 p.add_argument('--version', default='1.0.0.0')
+p.add_argument('--manifest')
 p.set_defaults(func=cmd_stage)
 p = sub.add_parser('register')
 p.add_argument('prefix')
