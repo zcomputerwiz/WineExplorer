@@ -80,15 +80,26 @@
 #                saved one back (wex-session-choice); so these two phases and nowine (the GTK greeter logs on with
 #                X11) leave the checksums of the test account's AccountsService file and .dmrc out of the record.
 #                The saved session values themselves are compared in every phase.
-#   startrec    Startup and Recovery (sysdm.cpl, work order D5): `control sysdm.cpl,,3` opens System Properties on
-#                its Advanced tab and Settings opens the dialog; org.wineexplorer.Boot1 tells anyone the settings and
-#                refuses a change without a password; as root (sudo, the test user is an administrator) it sets a
-#                5-second boot menu, a 7-second failure countdown, a restart after a kernel panic and a kernel
-#                option. The next start shows Vintner Boot's menu without a key and boots with the option. Then
-#                everything goes back, /etc byte for byte (on the stopped disk), and one more start shows no menu.
+#   startrec    Startup and Recovery (sysdm.cpl, work order D5): Automatically restart is on by default
+#                (kernel.panic 10). `control sysdm.cpl,,3` opens System Properties on its Advanced tab and Settings
+#                opens the dialog; a change there asks for an administrator's password (wexhost's polkit agent):
+#                cancelled, the dialog stays open with no message; the Administrator's password saves it.
+#                org.wineexplorer.Boot1 tells anyone the settings and refuses a change without a password; as root
+#                (sudo, the test user is an administrator) it sets a 5-second boot menu, a 7-second failure countdown,
+#                Automatically restart off and a kernel option; a kernel panic then waits (the power is cut). The
+#                next start shows Vintner Boot's menu without a key and boots with the option. Then everything goes
+#                back, /etc byte for byte (on the stopped disk), and one more start shows no menu, where a kernel panic
+#                (SysRq c) and a crash of systemd (SIGSEGV to PID 1) each restart the computer.
 #                Only when named, and last: a failure part-way can leave the boot menu's timeout on the boot
 #                storage, which the stopped disk's root does not hold. Needs this branch's image (wex-boot1, Vintner
 #                Boot with menu-timeout).
+#   classic     the classic "Log On to Windows" dialog (msgina.dll, work order C4): in Safe Mode, Ctrl+Alt+Delete
+#                twice on the Welcome screen shows it on black with "Safe Mode" in the corners, and the Administrator
+#                logs on through it; in a normal start the first press changes nothing, the dialog fills in the last
+#                user (Administrator), Options shows Shut Down..., Cancel goes back to the Welcome screen, a wrong
+#                password, root and a password typed for an account without one get XP's "Logon Message", and the
+#                hidden account logs on by its name typed in another case. Only when named (needs this branch's
+#                msgina.dll and logonui.exe).
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -145,7 +156,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -213,6 +224,8 @@ SAFE_MODE_FILES=(
     "644 installer/dbus/org.wineexplorer.Boot1.conf usr/share/dbus-1/system.d/org.wineexplorer.Boot1.conf"
     "644 installer/dbus/org.wineexplorer.Boot1.service usr/share/dbus-1/system-services/org.wineexplorer.Boot1.service"
     "644 installer/polkit/org.wineexplorer.boot1.policy usr/share/polkit-1/actions/org.wineexplorer.boot1.policy"
+    "644 installer/systemd/90-wineexplorer-recovery.conf usr/lib/sysctl.d/90-wineexplorer-recovery.conf"
+    "644 installer/systemd/system-recovery.conf usr/lib/systemd/system.conf.d/90-wineexplorer-recovery.conf"
     "755 scripts/wex-bootlog.sh usr/local/sbin/wex-bootlog"
     "755 scripts/wex-startup-check.sh usr/local/sbin/wex-startup-check"
     "755 scripts/wex-lastgood.sh usr/local/sbin/wex-lastgood"
@@ -860,6 +873,20 @@ boot1_settings() {   # Startup and Recovery's settings through org.wineexplorer.
         | grep '^settings ' | tail -n 1
 }
 
+boot_id() {   # this start's boot ID, over the serial console (empty while the machine is down or starting)
+    gsh 'cat /proc/sys/kernel/random/boot_id' 20 2>/dev/null | grep -E '^[0-9a-f-]{36}$' | tail -n 1
+}
+
+restarted() {   # restarted OLD_BOOT_ID SECONDS: a start with another boot ID answers on the serial console in time
+    local end=$((SECONDS + $2)) id
+    while [ "$SECONDS" -lt "$end" ]; do
+        id=$(boot_id)
+        [ -n "$id" ] && [ "$id" != "$1" ] && return 0
+        sleep 5
+    done
+    return 1
+}
+
 expect_settings() {   # expect_settings Key=Value...: what boot1_settings reports
     local out kv
     out=$(boot1_settings)
@@ -870,13 +897,22 @@ expect_settings() {   # expect_settings Key=Value...: what boot1_settings report
 }
 
 phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the header
-    local out options saved=
+    local out options saved= crashdir= id
     attach ro || fail "cannot mount the overlay"
     if [ -f "$MNT/etc/kernel/cmdline" ]; then cp -p "$MNT/etc/kernel/cmdline" "$OUT/startrec-cmdline"; saved=1; fi
+    [ -d "$MNT/etc/systemd/system.conf.d" ] && crashdir=1
     [ -x "$MNT/usr/local/sbin/wex-boot1" ] || { detach; fail "this image has no wex-boot1 (Startup and Recovery)"; }
+    [ -f "$MNT/usr/lib/sysctl.d/90-wineexplorer-recovery.conf" ] \
+        || { detach; fail "this image has no default for Automatically restart"; }
     detach
     start_vm
     desktop 600
+    # the defaults: Automatically restart on, as on XP (the package's sysctl.d and system.conf.d files)
+    expect_settings HasLoader=True HasOptions=True MenuTimeout=0 RecoveryEnabled=True RecoveryTimeout=30 AutoRestart=True \
+        OperatingSystem=WineExplorer
+    out=$(gsh 'echo panic=$(cat /proc/sys/kernel/panic)' | grep '^panic=' | tail -n 1)
+    [ "$out" = "panic=10" ] || fail "kernel.panic is not 10 by default: ${out:-no answer}"
+    options=$(boot1_settings | sed -n 's/.* Options=\([^ ]*\).*/\1/p' | tr '+' ' ')
     # the dialog: System Properties on its Advanced tab, then Settings under Startup and Recovery (Sett&ings)
     gsh "python3 $HELPER --user $USER_NAME C:/windows/system32/control.exe sysdm.cpl,,3 >/dev/null; echo started" 30 \
         | grep -q '^started' || fail "cannot start control.exe"
@@ -891,29 +927,55 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     case "$out" in *"Automatically restart"*) ;; *) fail "the dialog has no Automatically restart" ;; esac
     case "$out" in *"Write debugging information"*) ;; *) fail "the dialog has no System failure group" ;; esac
     echo "  dialog: System startup, System failure, Automatically restart"
+    # OK with a change asks for an administrator's password (wexhost's polkit agent). Cancelled, the dialog stays
+    # open with no message (Boot1's Cancelled); the Administrator's password then saves the change.
+    "${V[@]}" key "$TEST" alt-t >/dev/null   # Time to display list of operating systems: on, 30 seconds
+    "${V[@]}" key "$TEST" ret >/dev/null
+    wait_text "type an administrator password" 60 || { shot no-password; fail "OK did not ask for an administrator's password"; }
+    shot password
     "${V[@]}" key "$TEST" esc >/dev/null
-    sleep 1
-    "${V[@]}" key "$TEST" esc >/dev/null
+    sleep 3
+    out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
+    case "$out" in *"Default operating system"*) ;; *) shot cancelled; fail "cancelling the password closed Startup and Recovery" ;; esac
+    case "$out" in *"not authorized"*|*"denied"*|*"could not"*) shot cancelled; fail "cancelling the password showed an error: $out" ;; esac
+    echo "  password cancelled: the dialog stays open, with no message"
+    "${V[@]}" key "$TEST" ret >/dev/null
+    wait_text "type an administrator password" 60 || { shot no-password-2; fail "the second OK did not ask for a password"; }
+    "${V[@]}" key "$TEST" shift-tab >/dev/null   # the account list: the Administrator account
+    "${V[@]}" type "$TEST" a
+    "${V[@]}" key "$TEST" tab >/dev/null
+    "${V[@]}" type "$TEST" "$(cat "$ADMIN_PWFILE")"
+    "${V[@]}" key "$TEST" ret >/dev/null
+    sleep 5
+    out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
+    case "$out" in *"Default operating system"*) shot still-open; fail "Startup and Recovery stayed open after the password" ;; esac
+    expect_settings MenuTimeout=30 AutoRestart=True
+    echo "  the Administrator's password saved a 30-second menu"
+    "${V[@]}" key "$TEST" esc >/dev/null   # System Properties
     # anyone reads the settings; a change without a password is refused (polkit, auth_admin_keep)
-    expect_settings HasLoader=True HasOptions=True MenuTimeout=0 RecoveryEnabled=True RecoveryTimeout=30 AutoRestart=False \
-        OperatingSystem=WineExplorer
-    options=$(boot1_settings | sed -n 's/.* Options=\([^ ]*\).*/\1/p' | tr '+' ' ')
-    out=$(gsh "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 5 true 7 true false 2>&1; echo rc=\$?" | tr '\n' ' ')
+    out=$(gsh "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 5 true 7 false false 2>&1; echo rc=\$?" | tr '\n' ' ')
     echo "  without a password: $out"
     case "$out" in *NotAuthorized*rc=[1-9]*|*"not authorized"*rc=[1-9]*) ;; *) fail "a change without a password was not refused: $out" ;; esac
-    # as root: a 5-second menu, a 7-second countdown, a restart after a panic, and a kernel option
+    # as root: a 5-second menu, a 7-second countdown, Automatically restart off, and a kernel option
     as_root 'id -u' | grep -qx 0 || fail "sudo does not work for $USER_NAME"
-    as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 5 true 7 true false" >/dev/null
+    as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 5 true 7 false false" >/dev/null
     out=$(as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 SetOptions sb '$options wextest.d5=1' false" 600 \
         | grep '^bu ' | tail -n 1)
     echo "  options published: $out"
     case "$out" in "bu true "[1-9]*) ;; *) fail "the kernel option was not published: ${out:-no answer}" ;; esac
-    expect_settings MenuTimeout=5 RecoveryTimeout=7 AutoRestart=True
-    out=$(gsh 'echo files: $(grep -h ^recovery_timeout= /etc/wineexplorer/boot.conf) panic=$(cat /proc/sys/kernel/panic)' \
+    expect_settings MenuTimeout=5 RecoveryTimeout=7 AutoRestart=False
+    out=$(gsh 'echo files: $(grep -h ^recovery_timeout= /etc/wineexplorer/boot.conf) panic=$(cat /proc/sys/kernel/panic) $(grep -h ^CrashAction= /etc/systemd/system.conf.d/90-wineexplorer-recovery.conf)' \
         | grep '^files:' | tail -n 1)
     echo "  $out"
-    [ "$out" = "files: recovery_timeout=7 panic=10" ] || fail "boot.conf or kernel.panic not as set: $out"
-    shutdown_vm
+    [ "$out" = "files: recovery_timeout=7 panic=0 CrashAction=freeze" ] || fail "boot.conf, kernel.panic or CrashAction not as set: $out"
+    # Automatically restart off: a kernel panic waits (no new start in 75 seconds); then the power is cut
+    id=$(boot_id)
+    [ -n "$id" ] || fail "no boot ID"
+    as_root "sh -c 'echo c > /proc/sysrq-trigger'" 10 >/dev/null 2>&1
+    restarted "$id" 75 && { shot panic-restarted; fail "a kernel panic restarted the computer with Automatically restart off"; }
+    shot panic-waits
+    echo "  Automatically restart off: a kernel panic waited"
+    "${V[@]}" stop "$TEST" >/dev/null 2>&1
     wait_off 60 || fail "the VM did not power off"
     # the next start: the loader's menu without a key, then the default after five seconds, with the option
     start_vm
@@ -924,15 +986,17 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     gsh 'cat /proc/cmdline' | grep -q 'wextest.d5=1' || fail "the new generation does not have the kernel option"
     echo "  /proc/cmdline has wextest.d5=1"
     # back as it was
-    as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 0 true 30 false false" >/dev/null
+    as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 0 true 30 true false" >/dev/null
     out=$(as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 SetOptions sb '$options' false" 600 \
         | grep '^bu ' | tail -n 1)
     case "$out" in "bu true "[1-9]*) ;; *) fail "the options were not put back: ${out:-no answer}" ;; esac
-    expect_settings MenuTimeout=0 RecoveryEnabled=True RecoveryTimeout=30 AutoRestart=False
+    expect_settings MenuTimeout=0 RecoveryEnabled=True RecoveryTimeout=30 AutoRestart=True
     shutdown_vm
     wait_off 60 || fail "the VM did not power off"
     attach rw || fail "cannot mount the overlay"
-    rm -f "$MNT/etc/wineexplorer/boot.conf" "$MNT/etc/sysctl.d/90-wineexplorer-recovery.conf"
+    rm -f "$MNT/etc/wineexplorer/boot.conf" "$MNT/etc/sysctl.d/90-wineexplorer-recovery.conf" \
+        "$MNT/etc/systemd/system.conf.d/90-wineexplorer-recovery.conf"
+    [ -n "$crashdir" ] || rmdir "$MNT/etc/systemd/system.conf.d" 2>/dev/null
     if [ -n "$saved" ]; then cp -p "$OUT/startrec-cmdline" "$MNT/etc/kernel/cmdline"; else rm -f "$MNT/etc/kernel/cmdline"; fi
     detach
     # the restored generation starts without the menu, and counts
@@ -940,6 +1004,18 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     ! wait_text "Advanced Options" 25 || { shot menu-left; fail "the boot menu still shows after the timeout went back to 0"; }
     desktop 600
     gsh 'cat /proc/cmdline' | grep -q 'wextest.d5=1' && fail "the kernel option is still there"
+    # with the package's defaults (Automatically restart on), Linux's two system failures restart the computer
+    expect_settings AutoRestart=True
+    id=$(boot_id)
+    as_root "sh -c 'echo c > /proc/sysrq-trigger'" 10 >/dev/null 2>&1
+    restarted "$id" 600 || { shot panic-no-restart; fail "a kernel panic did not restart the computer"; }
+    desktop 600
+    echo "  a kernel panic restarted the computer"
+    id=$(boot_id)
+    as_root 'kill -SEGV 1' 10 >/dev/null 2>&1
+    restarted "$id" 600 || { shot crash-no-restart; fail "a crash of systemd did not restart the computer"; }
+    desktop 600
+    echo "  a crash of systemd (PID 1) restarted the computer"
     shutdown_vm
 }
 
@@ -1624,6 +1700,86 @@ phase_accounts() {   # provisioning gave Administrator a test password and hid w
     hides "Hidden Test" || fail "the logon screen of a normal start shows the hidden account"
     shot tiles-normal
     echo "  normal start's logon screen: $USER_NAME shown, Administrator and Hidden Test not"
+    shutdown_vm
+}
+
+to_classic() {   # Ctrl+Alt+Delete twice on the Welcome screen: the classic "Log On to Windows" dialog (msgina.dll)
+    "${V[@]}" key "$TEST" ctrl-alt-delete >/dev/null
+    sleep 2
+    "${V[@]}" key "$TEST" ctrl-alt-delete >/dev/null
+    wait_text "Log On to Windows" 30 || { shot no-classic; fail "Ctrl+Alt+Delete twice did not show the classic logon dialog"; }
+}
+
+classic_logon() {   # classic_logon NAME PASSWORD: Alt+U and Alt+P select each box's text, which is typed over
+    "${V[@]}" key "$TEST" alt-u >/dev/null
+    "${V[@]}" type "$TEST" "$1"
+    "${V[@]}" key "$TEST" alt-p delete >/dev/null
+    [ -z "$2" ] || "${V[@]}" type "$TEST" "$2"
+    "${V[@]}" key "$TEST" ret >/dev/null
+}
+
+logon_refused() {   # logon_refused WHAT: XP's "Logon Message", closed with Enter; the dialog stays
+    wait_text "could not log you on" 60 || { shot not-refused; fail "no Logon Message for $1"; }
+    shot "refused-${1// /-}"
+    "${V[@]}" key "$TEST" ret >/dev/null
+    wait_text "Log On to Windows" 15 || fail "the classic dialog closed after the Logon Message for $1"
+}
+
+classic_sessions() {   # the accounts with a session
+    gsh 'loginctl list-sessions --no-legend | awk "{ print \$3 }" | sort -u | tr "\n" " "' | tail -n 1
+}
+
+phase_classic() {   # the classic "Log On to Windows" dialog (work order C4): see the header
+    local out
+    # Safe Mode: the second Ctrl+Alt+Delete shows the dialog on black, "Safe Mode" in the corners
+    menu_choice "$ROW_SAFE" "Safe Mode"
+    logon_screen
+    "${V[@]}" key "$TEST" ctrl-alt-delete >/dev/null
+    sleep 3
+    wait_text "To begin" 10 || { shot first-press; fail "the first Ctrl+Alt+Delete left the Welcome screen"; }
+    wait_text "Log On to Windows" 3 && { shot first-press; fail "the first Ctrl+Alt+Delete showed the classic dialog"; }
+    "${V[@]}" key "$TEST" ctrl-alt-delete >/dev/null
+    wait_text "Log On to Windows" 30 || { shot no-classic; fail "the second Ctrl+Alt+Delete did not show the classic dialog"; }
+    wait_text "Safe Mode" 10 || { shot classic-safe; fail "no \"Safe Mode\" in the corners behind the classic dialog"; }
+    shot classic-safe
+    echo "  Safe Mode: the first Ctrl+Alt+Delete changes nothing, the second shows the dialog with Safe Mode around it"
+    classic_logon Administrator "$(cat "$ADMIN_PWFILE")"
+    safe_desktop 400
+    out=$(classic_sessions)
+    echo "  sessions: $out"
+    grep -qw administrator <<< "$out" || fail "Administrator did not log on through the classic dialog"
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    # a normal start logs the test account on; its logon screen (fast user switching) then
+    start_vm
+    desktop 600
+    to_logon_screen
+    to_classic
+    shot classic
+    out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
+    case "$out" in *"User name"*) ;; *) fail "the classic dialog has no User name box" ;; esac
+    case "$out" in *Administrator*) ;; *) fail "the classic dialog does not fill in the last user, Administrator: $out" ;; esac
+    echo "  normal start: the dialog fills in Administrator"
+    "${V[@]}" key "$TEST" alt-o >/dev/null
+    wait_text "Shut Down" 10 || { shot no-options; fail "Options did not show Shut Down..."; }
+    shot options
+    "${V[@]}" key "$TEST" esc >/dev/null
+    wait_text "To begin" 30 || { shot no-cancel; fail "Cancel did not go back to the Welcome screen"; }
+    echo "  Options shows Shut Down...; Cancel goes back to the Welcome screen"
+    to_classic
+    classic_logon Administrator not-the-password
+    logon_refused "a wrong password"
+    classic_logon root ""
+    logon_refused "root"
+    classic_logon WexHidden x
+    logon_refused "a password for an account without one"
+    echo "  Logon Message: a wrong password, root, a password typed for an account without one"
+    classic_logon WexHidden ""
+    desktop 600
+    out=$(classic_sessions)
+    echo "  sessions: $out"
+    grep -qw wexhidden <<< "$out" || fail "the hidden account did not log on as WexHidden"
+    echo "  the hidden account logged on, its name typed as WexHidden"
     shutdown_vm
 }
 

@@ -4,4 +4,4 @@ MODULE = msgina.dll
 IMPORTLIB = msgina
 IMPORTS = themeui wexres user32 gdi32
 DELAYIMPORTS = wexhost msimg32 uxtheme
-SOURCES = power_mgmt.c power.rc
+SOURCES = logon.c logon.rc power_mgmt.c power.rc

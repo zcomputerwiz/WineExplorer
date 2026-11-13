@@ -1,0 +1,63 @@
+/*
+ * The classic "Log On to Windows" dialog - resources
+ *
+ * The layout is XP's, measured on the XP VM (2026-11-08, docs/SAFE_MODE_WORKORDER.md C4) and converted to dialog units
+ * of 8-point Tahoma (6 x 13): a 411 x 210 client area, a 93-pixel banner, edit boxes of 243 x 20 at 84,114 and 84,140,
+ * buttons of 75 x 23 on row 176 ending 10 pixels inside the frame. The template follows ReactOS's IDD_LOGON
+ * (dll/win32/msgina/lang/en-US.rc, ReactOS Team, GPL-2.0-or-later) and its messages.
+ *
+ * Copyright 2026 WineExplorer contributors
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
+
+#include "windef.h"
+#include "winuser.h"
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+/* collapsed: OK, Cancel, Options >>; Options shows Shut Down... and moves OK and Cancel left (logon.c). A workgroup
+ * machine has no "Log on to" box, and the dialog does not grow. */
+IDD_LOGON DIALOGEX 0, 0, 274, 129
+STYLE DS_MODALFRAME | DS_SETFOREGROUND | WS_POPUP | WS_CAPTION
+CAPTION "Log On to Windows"
+FONT 8, "Tahoma"
+BEGIN
+    CONTROL         "", IDC_LOGON_BANNER, "Static", SS_OWNERDRAW, 0, 0, 274, 57
+    LTEXT           "&User name:", -1, 6, 72, 48, 8
+    EDITTEXT        IDC_LOGON_USER, 56, 70, 162, 12, ES_AUTOHSCROLL
+    LTEXT           "&Password:", -1, 6, 88, 48, 8
+    EDITTEXT        IDC_LOGON_PASSWORD, 56, 86, 162, 12, ES_AUTOHSCROLL | ES_PASSWORD
+    DEFPUSHBUTTON   "OK", IDOK, 109, 108, 50, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 163, 108, 50, 14
+    PUSHBUTTON      "&Shut Down...", IDC_LOGON_SHUTDOWN, 163, 108, 50, 14, NOT WS_VISIBLE
+    PUSHBUTTON      "&Options >>", IDC_LOGON_OPTIONS, 217, 108, 50, 14
+END
+
+STRINGTABLE
+{
+    IDS_LOGON_TITLE "Logon Message"
+    IDS_LOGON_FAILED "The system could not log you on. Make sure your User name and domain are correct, then type your password again. Letters in passwords must be typed using the correct case."
+    IDS_LOGON_SESSION "Windows could not start your session."
+    IDS_LOGON_OPTIONS "&Options >>"
+    IDS_LOGON_FEWER "&Options <<"
+    IDS_LOGON_PRODUCT "WineExplorer"
+    IDS_LOGON_COPYRIGHT "WineExplorer contributors"
+}

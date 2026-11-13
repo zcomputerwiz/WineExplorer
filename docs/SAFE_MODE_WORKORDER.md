@@ -9,7 +9,8 @@ Safe Mode through Vintner Boot's variant, C3 for X11 and D3 (2026-11-10). Since 
 only loader: the GRUB parts below (the F8 entry, its start record, the VM test's GRUB phases) are removed. C5 is done
 (2026-11-11), and so are C6 with the recovery console's shape, C3 for Wayland, D2, A4 and B5. B8's merge is done
 (2026-11-12: Wine `development` and WineExplorer `master` at `995a2712`). D5 is done (2026-11-12, Startup and
-Recovery). Open: the rest of C4 and C7, D4. D1's Safe Mode choice on a generation's last try works since Vintner Boot
+Recovery), and so is C4's classic logon dialog, which also ends C7 (2026-11-12). Open: E1's RID 500 and
+`wex-is-admin` for the Administrator account (C4, queued on the E1 side), D4. D1's Safe Mode choice on a generation's last try works since Vintner Boot
 `f3193a55` (`next-boot variant --generation`, pinned 2026-11-11; `docs/VINTNER_BOOT.md`).  
 Branches:
 
@@ -364,10 +365,8 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
     - `wex-gui-setup.sh` copies root's password hash to it after Setup. So Setup's page and `wexhost` need no new
       password call.
     - The VM test's `accounts` phase checks it with this branch's Wine (`WEX_TEST_WINE`).
-  - Still open:
-    - E1's reserved RID 500 and `wex-is-admin`, queued for this step on the E1 side;
-    - the classic dialog accepting "Administrator".
-    - (The XP checks listed under C7 were done on 2026-11-11.)
+  - Still open: E1's reserved RID 500 and `wex-is-admin`, queued for this step on the E1 side. (The classic dialog
+    accepts "Administrator" since 2026-11-12, below; the XP checks listed under C7 were done on 2026-11-11.)
   - One definition of "administrator". E1 decides it from `admin_group=` in `/etc/wineexplorer/sysrun.conf` (default
     `sudo`; strict rules: root-owned, not group- or world-writable, no symlink, at most one key, and a bad file
     means nobody is an administrator), through `getgrouplist` at logon. The Administrator account goes into that
@@ -383,6 +382,33 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
 - The classic dialog (Ctrl+Alt+Del twice) goes into `src/dlls/msgina`, which has only the Turn Off and Log Off
   dialogs today. On a workgroup machine its Options button only adds Shut Down.
 - Any banner must be WineExplorer's own art (no Windows logo, `CLAUDE.md`).
+
+**The classic dialog, done 2026-11-12** (`src/dlls/msgina/logon.c` and `logon.rc`, `src/programs/logonui/logonui.c`,
+`src/include/wexlogon.h`; `docs/SAFE_MODE.md` section 3):
+
+- On the Welcome screen the first Ctrl+Alt+Delete changes nothing and the second shows "Log On to Windows" on a black
+  screen, with "Safe Mode" in the corners and the version line in Safe Mode, as XP's logon desktop. X has no secure
+  attention sequence, so logonui.exe sees the keys as an ordinary key press.
+- The dialog has XP's measured layout: a 411 x 210 client area, a 93-pixel banner, the boxes and buttons where XP has
+  them; it stands where XP's does (top at 95 on an 800 x 600 screen, horizontally centred). OK, Cancel and
+  Options >>; Options shows Shut Down... and moves OK and Cancel left, with no "Log on to" box. The template and the
+  messages follow ReactOS's msgina. The banner is drawn: the Welcome screen's blues, Wine's logo (the interim logo,
+  as on the Welcome screen), "WineExplorer" and a copyright line.
+- msgina.dll owns the dialog, as on XP; logonui.exe does the logon through LightDM (`logon_show_dialog`, and the
+  result posted back as `WM_WEX_LOGON_RESULT`), so PAM still checks every password.
+- The name is typed: any case ("Administrator" logs the account `administrator` on), `.\name` and `COMPUTER\name`.
+  Only accounts AccountsService lists qualify, hidden ones included (C7); root, system accounts and locked accounts
+  get the same "Logon Message" as a wrong password ("The system could not log you on..."), as does a password typed
+  for an account that has none (XP refuses that too; an empty password logs such an account on).
+- The User name box is filled with the last user to log on, tile or dialog, with the focus on Password, as XP fills
+  in Winlogon's `DefaultUserName`. The greeter runs as `lightdm`, a standard account whose HKLM is the machine's under
+  the system role, so it keeps the value in the same key of its own HKCU; an administrator's value in HKLM is read
+  when it has none. The name kept is the tile's when it is the account's name in another case (Administrator).
+- Cancel (and Esc) goes back to the Welcome screen; XP's Cancel was not measured. Shut Down... opens msgina's Turn
+  Off dialog, where XP has its classic Shut Down Windows dialog.
+- Not measured, and done as described: the dialog in Safe Mode with Command Prompt (the same corners), a password
+  that must be changed (PAM asking a second time fails the logon), Caps Lock's balloon (none).
+- VM test: the `classic` phase (`installer/tests/safe-mode.sh`).
 
 **C5. Menu and OS list layout.** Differences between XP's F8 menu and `wex-advanced-options` (constants in
 `Screen`, `scripts/wex-advanced-options.py`):
@@ -618,7 +644,17 @@ Properties > Advanced > Startup and Recovery opens XP's dialog (after ReactOS's 
   normally; the seconds are kept, grayed.
 - Edit opens the kernel command line's options (`/etc/kernel/cmdline`) in Notepad, as XP opens `boot.ini`. Saved and
   changed, they are published as a new generation, which falls back by itself if it does not start.
-- "Automatically restart" is `kernel.panic` (10 seconds).
+- "Automatically restart" covers Linux's two system failures: a kernel panic (`kernel.panic`) and a crash of systemd
+  itself (`CrashAction=`). Checked, both restart after 10 seconds; unchecked, a panic waits and systemd freezes. It is
+  on by default, as XP's `AutoReboot` (2026-11-12): the package ships `kernel.panic = 10` in
+  `/usr/lib/sysctl.d/90-wineexplorer-recovery.conf` and `CrashAction=reboot` in
+  `/usr/lib/systemd/system.conf.d/90-wineexplorer-recovery.conf` (Debian's own are 0 and freeze); the service writes
+  files of the same names in `/etc`, which replace them. A change applies at once: the running kernel's value, and
+  `systemctl daemon-reload`, which rereads `system.conf.d`. Probed on the VM (systemd 257): after a daemon-reload with
+  `CrashAction=reboot`, `kill -SEGV 1` restarted the computer, and with `kernel.panic` 10 SysRq's crash did; the
+  `startrec` phase checks both, and that a panic waits with the box unchecked. Not wired: kernel oopses that do not
+  panic (`kernel.panic_on_oops` would make them hang when the box is unchecked). What XP shows at the next start
+  after a crash was not measured; here the start is ordinary (the failure screen follows failed starts only).
 - What does not apply is grayed: the system log (the journal keeps the kernel's messages anyway), administrative
   alerts, memory dumps (no kdump), and the one boot entry.
 
@@ -640,8 +676,12 @@ Measured on the XP VM on 2026-11-12 (`../WineExplorer-local/notes/xp/startup-rec
   - the entry shown as the boot line (quoted name, then the options);
   - (none) with "Dump file:" and `%SystemRoot%\MEMORY.DMP` grayed;
   - the recovery "seconds" label grayed when the dialog opens with the box unchecked.
-- Not matched yet: XP's defaults. XP checks the event log, the alert, Automatically restart and a small dump;
-  here the list is 0 (Vintner's hidden menu) and nothing restarts after a panic until it is checked.
+- XP's defaults: the event log, the alert, Automatically restart and a small dump checked. Here Automatically restart
+  is on as well (since 2026-11-12); the log stays checked and grayed, the alert and the dump do not apply, and the
+  list stays at 0 (Vintner's hidden menu, which a key held at start opens).
+- A password dialog dismissed with No or Esc leaves the dialog open with no message, as a cancelled credentials
+  prompt should: polkit reports `polkit.dismissed`, the service answers `Cancelled`, and sysdm.cpl takes
+  `ERROR_CANCELLED` as a cancel (2026-11-12; before, it said "not authorized").
 
 ## 4. Owner decisions (2026-11-08)
 

@@ -11,6 +11,10 @@
  * password log on directly, as on XP).  A wrong password shows XP's balloon.  The frame pictures are ReactOS's
  * (NT5design), the rest come from scripts/open_assets.py.
  *
+ * Ctrl+Alt+Delete pressed twice switches to the classic "Log On to Windows" dialog (msgina.dll, wexlogon.h) on a
+ * black screen, where any account's name can be typed, hidden ones and the built-in Administrator included.  It
+ * fills in the last user, Winlogon's DefaultUserName, which every logon here records (in the greeter's HKCU).
+ *
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -34,6 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
 #include <windef.h>
 #include <winbase.h>
@@ -46,6 +51,7 @@
 #include <gdiplus.h>
 
 #include "wexhost.h"
+#include "wexlogon.h"
 #include "wexpower.h"
 #include "resource.h"
 #include "wine/debug.h"
@@ -92,6 +98,14 @@ static HFONT font_begin, font_name, font_small, font_small_bold, font_turnoff, f
 static HBITMAP bitmaps[128];
 static ULONG_PTR gdiplus_token;
 static RECT go_rect, help_rect, turnoff_rect;
+
+/* the classic "Log On to Windows" dialog (msgina.dll), after Ctrl+Alt+Delete twice */
+static BOOL classic;                       /* the Welcome screen has made way for it: a black screen */
+static unsigned int sas_presses;
+static HWND classic_dialog;                /* while a logon typed in it runs */
+static char classic_secret[512];
+static BOOL classic_typed, classic_answered;   /* a password was typed; it went to PAM */
+static WCHAR classic_name[WEX_LOGON_NAME_MAX];  /* the account's name as Winlogon remembers it */
 
 static const WCHAR *text( UINT id )
 {
@@ -274,6 +288,94 @@ static void load_users( void )
     qsort( users, user_count, sizeof(users[0]), compare_users );
 }
 
+/* The name Winlogon remembers for an account: the name on its tile when that is the account's name in other case
+ * (the built-in Administrator, account administrator), else the account's name */
+static void windows_name( const char *name, const WCHAR *display, WCHAR *out, int len )
+{
+    WCHAR wname[64];
+
+    MultiByteToWideChar( CP_UTF8, 0, name, -1, wname, ARRAY_SIZE(wname) );
+    lstrcpynW( out, display && !lstrcmpiW( display, wname ) ? display : wname, len );
+}
+
+/* The account a name typed in the classic dialog means, as XP's LogonUser: any case, and ".\name" or
+ * "COMPUTER\name" for the local computer. Only the accounts AccountsService lists qualify, hidden ones included:
+ * not root, system accounts or locked accounts. */
+static BOOL resolve_account( const WCHAR *typed, char *name, int name_len, WCHAR *remembered, int remembered_len )
+{
+    WCHAR computer[MAX_COMPUTERNAME_LENGTH + 1], want[WEX_LOGON_NAME_MAX];
+    DWORD size = ARRAY_SIZE(computer), needed = 0, buf_size = 4096;
+    const WCHAR *slash = wcschr( typed, '\\' );
+    char *buffer = NULL, *line, *next;
+    BOOL found = FALSE;
+
+    if (slash)
+    {
+        if (!GetComputerNameW( computer, &size )) computer[0] = 0;
+        if (!(slash - typed == 1 && typed[0] == '.') &&
+            !(slash - typed == lstrlenW( computer ) && !wcsnicmp( typed, computer, slash - typed )))
+            return FALSE;
+        typed = slash + 1;
+    }
+    lstrcpynW( want, typed, ARRAY_SIZE(want) );
+    if (!want[0] || wcschr( want, '@' ) || wcschr( want, '\\' )) return FALSE;
+    for (;;)
+    {
+        DWORD err;
+        free( buffer );
+        if (!(buffer = malloc( buf_size ))) return FALSE;
+        err = WexUsersList( buffer, buf_size, &needed );
+        if (err == ERROR_MORE_DATA && needed > buf_size) { buf_size = needed; continue; }
+        if (err) { free( buffer ); return FALSE; }
+        break;
+    }
+    for (line = buffer; *line && !found; line = next)
+    {
+        char *tab, *real = NULL;
+        WCHAR wname[64], display[128];
+
+        if ((next = strchr( line, '\n' ))) *next++ = 0;
+        else next = line + strlen( line );
+        if (!(tab = strchr( line, '\t' ))) continue;
+        *tab = 0;
+        real = tab + 1;
+        if ((tab = strchr( real, '\t' ))) *tab = 0;
+        if (!MultiByteToWideChar( CP_UTF8, 0, line, -1, wname, ARRAY_SIZE(wname) ) || lstrcmpiW( wname, want )) continue;
+        MultiByteToWideChar( CP_UTF8, 0, *real ? real : line, -1, display, ARRAY_SIZE(display) );
+        lstrcpynA( name, line, name_len );
+        windows_name( line, display, remembered, remembered_len );
+        found = TRUE;
+    }
+    free( buffer );
+    return found;
+}
+
+/* XP's classic dialog fills in the last user: Winlogon's DefaultUserName in HKLM, which Winlogon (SYSTEM) updates at
+ * every logon. The greeter runs as the lightdm account, a standard user whose HKLM is the machine's under the system
+ * role, so it keeps the value in the same key of its own HKCU (the logon prefix's user.reg). A value an administrator
+ * puts in HKLM is used when the greeter has none. */
+static const WCHAR winlogon_key[] = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
+
+static void load_default_user( WCHAR *buf, DWORD len )
+{
+    DWORD size = len * sizeof(WCHAR);
+
+    if (!RegGetValueW( HKEY_CURRENT_USER, winlogon_key, L"DefaultUserName", RRF_RT_REG_SZ, NULL, buf, &size )) return;
+    size = len * sizeof(WCHAR);
+    if (RegGetValueW( HKEY_LOCAL_MACHINE, winlogon_key, L"DefaultUserName", RRF_RT_REG_SZ, NULL, buf, &size ))
+        buf[0] = 0;
+}
+
+static void save_default_user( const WCHAR *name )
+{
+    HKEY key;
+
+    if (!name[0] || RegCreateKeyExW( HKEY_CURRENT_USER, winlogon_key, 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL ))
+        return;
+    RegSetValueExW( key, L"DefaultUserName", 0, REG_SZ, (const BYTE *)name, (lstrlenW( name ) + 1) * sizeof(WCHAR) );
+    RegCloseKey( key );
+}
+
 /* ------------------------------------------------------------------ layout */
 
 static int middle_top( void ) { return TOP_BAND + 2; }
@@ -404,6 +506,45 @@ static void paint_tile( HDC hdc, unsigned int i )
     }
 }
 
+/* Behind the classic dialog XP shows black; in Safe Mode with "Safe Mode" in the four corners and the version line at
+ * the top, as on the Safe Mode desktop (wexshell's desktop_view.c, measured 2026-11-08), with no taskbar, so in the
+ * corners of the screen. Not measured in Safe Mode with Command Prompt; drawn there too. */
+static void paint_classic( HDC hdc, int cx, int cy )
+{
+    static const WCHAR corner[] = L"Safe Mode";
+    const char *(CDECL *wine_version)(void) = (void *)GetProcAddress( GetModuleHandleW( L"ntdll.dll" ), "wine_get_version" );
+    NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+    RECT rc = { 0, 0, cx, cy };
+    WCHAR version[96] = L"WineExplorer", wine[48];
+    HFONT font = NULL;
+    int len = lstrlenW( corner ), saved;
+
+    FillRect( hdc, &rc, GetStockObject( BLACK_BRUSH ) );
+    if (!safe_mode()) return;
+    saved = SaveDC( hdc );
+    if (SystemParametersInfoW( SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0 ))
+    {
+        ncm.lfCaptionFont.lfQuality = ANTIALIASED_QUALITY;
+        if ((font = CreateFontIndirectW( &ncm.lfCaptionFont ))) SelectObject( hdc, font );
+    }
+    SetBkMode( hdc, TRANSPARENT );
+    SetTextColor( hdc, RGB(255, 255, 255) );
+    SetTextAlign( hdc, TA_LEFT | TA_TOP );
+    TextOutW( hdc, 0, 0, corner, len );
+    SetTextAlign( hdc, TA_RIGHT | TA_TOP );
+    TextOutW( hdc, cx, 0, corner, len );
+    SetTextAlign( hdc, TA_LEFT | TA_BOTTOM );
+    TextOutW( hdc, 0, cy, corner, len );
+    SetTextAlign( hdc, TA_RIGHT | TA_BOTTOM );
+    TextOutW( hdc, cx, cy, corner, len );
+    if (wine_version && MultiByteToWideChar( CP_ACP, 0, wine_version(), -1, wine, ARRAY_SIZE(wine) ))
+        swprintf( version, ARRAY_SIZE(version), L"WineExplorer (Wine %s)", wine );
+    SetTextAlign( hdc, TA_CENTER | TA_TOP );
+    TextOutW( hdc, cx / 2, 0, version, lstrlenW( version ) );
+    RestoreDC( hdc, saved );
+    if (font) DeleteObject( font );
+}
+
 static void paint( HDC hdc )
 {
     RECT rc, client;
@@ -414,6 +555,11 @@ static void paint( HDC hdc )
     GetClientRect( main_window, &client );
     cx = client.right;
     cy = client.bottom;
+    if (classic)
+    {
+        paint_classic( hdc, cx, cy );
+        return;
+    }
     mb = middle_bottom( cy );
     paint_frame( hdc, cx, cy );
     SetBkMode( hdc, TRANSPARENT );
@@ -540,6 +686,51 @@ static void send_password( void )
     SecureZeroMemory( secret, sizeof(secret) );
 }
 
+/* ------------------------------------------------------------------ the classic dialog's logon */
+
+/* tells the dialog how its logon ended: 0, the session is starting; else the error it shows */
+static void classic_finish( DWORD result )
+{
+    HWND dialog = classic_dialog;
+
+    SecureZeroMemory( classic_secret, sizeof(classic_secret) );
+    if (result) classic_dialog = NULL;
+    if (dialog) PostMessageW( dialog, WM_WEX_LOGON_RESULT, result, 0 );
+}
+
+/* the dialog's OK: LightDM authenticates the account typed, and PAM gets the password typed when it asks */
+static DWORD CALLBACK classic_logon( void *context, HWND dialog, const WCHAR *typed, const WCHAR *password )
+{
+    DWORD sequence;
+
+    if (classic_dialog) WexGreeterCancel();
+    classic_dialog = NULL;
+    if (!resolve_account( typed, pending_user, sizeof(pending_user), classic_name, ARRAY_SIZE(classic_name) ))
+    {
+        TRACE( "no account %s\n", debugstr_w( typed ) );
+        return ERROR_LOGON_FAILURE;
+    }
+    WideCharToMultiByte( CP_UTF8, 0, password, -1, classic_secret, sizeof(classic_secret), NULL, NULL );
+    classic_typed = password[0] != 0;
+    classic_answered = FALSE;
+    classic_dialog = dialog;
+    if (WexGreeterAuthenticate( pending_user, &sequence ))
+    {
+        WARN( "authenticate failed\n" );
+        classic_dialog = NULL;
+        SecureZeroMemory( classic_secret, sizeof(classic_secret) );
+        return ERROR_LOGON_FAILURE;
+    }
+    return 0;
+}
+
+/* the session the logon starts: the list's choice when it was made by hand, else the account's own */
+static const char *chosen_session( BOOL typed )
+{
+    if (!session_list || (typed && !session_chosen)) return NULL;
+    return SendMessageW( session_list, CB_GETCURSEL, 0, 0 ) == 1 ? "wine-explorer-wayland" : "wine-explorer";
+}
+
 /* one event from LightDM (see dlls/wexhost/greeter.c for the format) */
 static void handle_event( char *msg )
 {
@@ -555,7 +746,19 @@ static void handle_event( char *msg )
             char *next = strchr( line, '\n' );
             unsigned int style = atoi( line );
             if (next) *next++ = 0;
-            if (style == 1)                        /* secret: show the password box */
+            if (style == 1 && classic_dialog)      /* secret: the password typed in the classic dialog */
+            {
+                if (classic_answered)              /* PAM asks again (an expired password): not handled here */
+                {
+                    WexGreeterCancel();
+                    classic_finish( ERROR_LOGON_FAILURE );
+                    return;
+                }
+                classic_answered = TRUE;
+                WexGreeterRespond( classic_secret );
+                SecureZeroMemory( classic_secret, sizeof(classic_secret) );
+            }
+            else if (style == 1)                   /* secret: show the password box */
             {
                 EnableWindow( password_edit, TRUE );
                 set_state( ASKING );
@@ -565,13 +768,30 @@ static void handle_event( char *msg )
         }
         return;
     }
+    if (sscanf( msg, "end %u %u", &seq, &result ) == 2 && classic_dialog)
+    {
+        /* a password typed for an account that has none fails, as on XP: PAM did not ask for it */
+        if (result == 0 && (classic_answered || !classic_typed))
+        {
+            save_default_user( classic_name );
+            WexGreeterStartSession( chosen_session( TRUE ) );
+            return;
+        }
+        if (result == 0) WexGreeterCancel();
+        classic_finish( ERROR_LOGON_FAILURE );
+        return;
+    }
     if (sscanf( msg, "end %u %u", &seq, &result ) == 2)
     {
         if (result == 0)
         {
-            WexGreeterStartSession( session_list ?
-                (SendMessageW( session_list, CB_GETCURSEL, 0, 0 ) == 1 ?
-                 "wine-explorer-wayland" : "wine-explorer") : NULL );
+            if (selected >= 0)
+            {
+                WCHAR remembered[WEX_LOGON_NAME_MAX];
+                windows_name( users[selected].name, users[selected].display, remembered, ARRAY_SIZE(remembered) );
+                save_default_user( remembered );
+            }
+            WexGreeterStartSession( chosen_session( FALSE ) );
             return;
         }
         /* wrong password: XP keeps the tile open and shows its balloon; LightDM needs a new authentication */
@@ -583,6 +803,12 @@ static void handle_event( char *msg )
             set_state( ASKING );
             show_balloon();
         }
+        return;
+    }
+    if (sscanf( msg, "session %u", &result ) == 1 && classic_dialog)
+    {
+        classic_finish( result ? ERROR_GEN_FAILURE : 0 );   /* the dialog says "could not start your session" */
+        if (!result) PostQuitMessage( 0 );
         return;
     }
     if (sscanf( msg, "session %u", &result ) == 1)
@@ -621,6 +847,51 @@ static void turn_off( HWND owner )
         (WEX_POWER_SHOW_DIALOG)GetProcAddress(module, "power_mgmt_show_shutdown_dialog") : NULL;
     if (show) show(owner);
     if (module) FreeLibrary(module);
+}
+
+/* Ctrl+Alt+Delete reaches the Welcome screen as an ordinary key: X has no secure attention sequence, and the
+ * kernel's own Ctrl+Alt+Delete only acts on a text console */
+static BOOL is_ctrl_alt_del( const MSG *msg )
+{
+    return (msg->message == WM_KEYDOWN || msg->message == WM_SYSKEYDOWN) && msg->wParam == VK_DELETE &&
+           !(msg->lParam & (1 << 30)) && (GetKeyState( VK_CONTROL ) & 0x8000) && (GetKeyState( VK_MENU ) & 0x8000);
+}
+
+/* XP switches from the Welcome screen to the classic "Log On to Windows" dialog on the second Ctrl+Alt+Delete; the
+ * first changes nothing (measured 2026-11-08 and 2026-11-11, docs/SAFE_MODE_WORKORDER.md C4). The screen behind it
+ * is black. Cancel goes back to the Welcome screen. */
+static void show_classic( void )
+{
+    HMODULE module = LoadLibraryW( L"msgina.dll" );
+    WEX_LOGON_SHOW_DIALOG show = module ? (WEX_LOGON_SHOW_DIALOG)GetProcAddress( module, "logon_show_dialog" ) : NULL;
+    WEX_LOGON_DIALOG params = { sizeof(params) };
+    INT_PTR ret;
+
+    sas_presses = 0;
+    if (!show)
+    {
+        WARN( "no classic logon dialog in msgina.dll\n" );
+        if (module) FreeLibrary( module );
+        return;
+    }
+    cancel_logon();
+    classic = TRUE;
+    if (session_list) ShowWindow( session_list, SW_HIDE );
+    InvalidateRect( main_window, NULL, FALSE );
+    UpdateWindow( main_window );
+    load_default_user( params.user, ARRAY_SIZE(params.user) );
+    params.logon = classic_logon;
+    ret = show( main_window, &params );
+    if (classic_dialog) WexGreeterCancel();
+    classic_dialog = NULL;
+    SecureZeroMemory( classic_secret, sizeof(classic_secret) );
+    if (ret == IDOK) return;   /* the session is starting: the screen stays black until LightDM takes over */
+    classic = FALSE;
+    if (session_list) ShowWindow( session_list, SW_SHOW );
+    repaint();
+    SetForegroundWindow( main_window );
+    SetFocus( main_window );
+    FreeLibrary( module );
 }
 
 /* ------------------------------------------------------------------ window */
@@ -812,6 +1083,11 @@ int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show )
 
     while (GetMessageW( &msg, NULL, 0, 0 ))
     {
+        if (is_ctrl_alt_del( &msg ))
+        {
+            if (!classic && ++sas_presses >= 2) show_classic();
+            continue;
+        }
         TranslateMessage( &msg );
         DispatchMessageW( &msg );
     }

@@ -650,6 +650,7 @@ class TestMenu(TempDirTest):
         self.menu.STATE_DIR = str(self.tmp / "run")
         self.menu.SETUP_STAGE = str(self.tmp / "stage")
         self.menu.PANIC_SYSCTL = str(self.tmp / "panic")
+        self.menu.CRASH_RUNTIME = str(self.tmp / "run-system.conf.d" / "99-wineexplorer-norestart.conf")
         self.menu.LASTGOOD = str(self.tmp / "no-lastgood")      # no copy saved: Last Known Good is grayed
         self.menu.CMDLINE = str(self.tmp / "cmdline")            # none: Vintner Boot did not start this system
         self.menu.VINTNER = str(self.tmp / "no-vintner")
@@ -1299,6 +1300,11 @@ class TestMenu(TempDirTest):
         self.assertEqual((self.tmp / "run" / "bootoption").read_text(), "bootlog\n")
         self.menu.apply_choice("normal", "norestart", run=self.fake_run)
         self.assertEqual((self.tmp / "panic").read_text(), "0\n")
+        # systemd's own crash as well, for this start: a /run drop-in after Startup and Recovery's 90- file, read by
+        # the reload that follows
+        self.assertTrue(Path(self.menu.CRASH_RUNTIME).name > "90-wineexplorer-recovery.conf")
+        self.assertIn("[Manager]\nCrashAction=freeze\n", Path(self.menu.CRASH_RUNTIME).read_text(encoding="ascii"))
+        self.assertIn(["systemctl", "daemon-reload"], self.calls)
         self.calls.clear()
         self.menu.apply_choice("normal", "debug", run=self.fake_run)
         self.assertEqual(self.calls[0], ["systemd-analyze", "log-level", "debug"])
@@ -1427,18 +1433,27 @@ class TestSessionAndGreeter(unittest.TestCase):
         # work order D5: the dialog opens, the service refuses a change without a password, root's change reaches
         # the next start, and everything goes back (/etc byte for byte, on the stopped disk)
         vm = VM_TEST.read_text(encoding="utf-8")
-        self.assertIn("|waylandxlock|startrec) ;;", vm)
+        self.assertIn("|waylandxlock|startrec|classic) ;;", vm)
         self.assertIn("#   startrec ", vm)
         phase = vm[vm.index("phase_startrec() {"):]
         phase = phase[:phase.index("\n}\n")]
-        for needle in ("control.exe sysdm.cpl,,3", "alt-i", "Apply ububb 5 true 7 true false 2>&1", "NotAuthorized",
+        for needle in ("control.exe sysdm.cpl,,3", "alt-i", "Apply ububb 5 true 7 false false 2>&1", "NotAuthorized",
                        "as_root 'id -u'", "wextest.d5=1", 'wait_text "Advanced Options" 60',
-                       "Apply ububb 0 true 30 false false", "rm -f \"$MNT/etc/wineexplorer/boot.conf\"",
-                       'cp -p "$OUT/startrec-cmdline" "$MNT/etc/kernel/cmdline"'):
+                       "Apply ububb 0 true 30 true false", "rm -f \"$MNT/etc/wineexplorer/boot.conf\"",
+                       'cp -p "$OUT/startrec-cmdline" "$MNT/etc/kernel/cmdline"',
+                       # the GUI path: wexhost's polkit agent, cancelled and then answered with Administrator's password
+                       'wait_text "type an administrator password" 60', '"$(cat "$ADMIN_PWFILE")"',
+                       "expect_settings MenuTimeout=30",
+                       # Automatically restart: on by default, off waits, on restarts after a panic and a systemd crash
+                       "AutoRestart=True \\\n        OperatingSystem=WineExplorer", "panic=0 CrashAction=freeze",
+                       "echo c > /proc/sysrq-trigger", "kill -SEGV 1", "90-wineexplorer-recovery.conf"):
             self.assertIn(needle, phase)
         # the refusal comes before root's change, and the restore before the stopped disk is cleaned
         self.assertLess(phase.index("NotAuthorized"), phase.index("as_root 'id -u'"))
-        self.assertLess(phase.index("Apply ububb 0 true 30 false false"), phase.index("attach rw"))
+        self.assertLess(phase.index("Apply ububb 0 true 30 true false"), phase.index("attach rw"))
+        # the panic that must wait comes with Automatically restart off; the restarts after the defaults are back
+        self.assertLess(phase.index("restarted \"$id\" 75 &&"), phase.index("Apply ububb 0 true 30 true false"))
+        self.assertLess(phase.index("attach rw"), phase.index("kill -SEGV 1"))
         for line in phase.splitlines():   # commands sent over the serial console must be one line
             if "gsh '" in line:
                 self.assertEqual(line.count("'") % 2, 0, line)
@@ -1446,6 +1461,38 @@ class TestSessionAndGreeter(unittest.TestCase):
         rc = (REPO_ROOT / "src" / "dlls" / "sysdm.cpl" / "sysdm.rc").read_text(encoding="utf-8")
         self.assertIn('"Sett&ings...", IDC_ADV_STARTUP_BTN', rc)
         self.assertIn('"Environment Variables"', rc)
+
+    def test_classic_logon_dialog(self):
+        # work order C4: Ctrl+Alt+Delete twice on the Welcome screen shows msgina's "Log On to Windows" (XP, measured)
+        msgina = REPO_ROOT / "src" / "dlls" / "msgina"
+        self.assertIn("@ cdecl logon_show_dialog(ptr ptr)", (msgina / "msgina.spec").read_text(encoding="utf-8"))
+        self.assertIn("logon.c logon.rc", (msgina / "Makefile.in").read_text(encoding="utf-8"))
+        rc = (msgina / "logon.rc").read_text(encoding="utf-8")
+        # XP's 411 x 210 client area and its button row, in dialog units of 8-point Tahoma
+        self.assertIn("IDD_LOGON DIALOGEX 0, 0, 274, 129", rc)
+        self.assertIn('CAPTION "Log On to Windows"', rc)
+        self.assertIn('"&Shut Down...", IDC_LOGON_SHUTDOWN, 163, 108, 50, 14, NOT WS_VISIBLE', rc)
+        self.assertIn("The system could not log you on.", rc)
+        logonui = (REPO_ROOT / "src" / "programs" / "logonui" / "logonui.c").read_text(encoding="utf-8")
+        # the first press changes nothing; the second shows the dialog
+        self.assertIn("if (!classic && ++sas_presses >= 2) show_classic();", logonui)
+        self.assertIn('GetProcAddress( module, "logon_show_dialog" )', logonui)
+        # names in any case, only accounts AccountsService lists (not root), and no domains
+        self.assertIn("lstrcmpiW( wname, want )", logonui)
+        self.assertIn("wcschr( want, '@' )", logonui)
+        # a password typed for an account without one fails, as on XP
+        self.assertIn("result == 0 && (classic_answered || !classic_typed)", logonui)
+        # the last user, kept where the lightdm account may write it
+        self.assertIn("RegCreateKeyExW( HKEY_CURRENT_USER, winlogon_key", logonui)
+        vm = VM_TEST.read_text(encoding="utf-8")
+        self.assertIn("#   classic ", vm)
+        phase = vm[vm.index("phase_classic() {"):]
+        phase = phase[:phase.index("\n}\n")]
+        for needle in ('wait_text "Log On to Windows" 3 &&', 'wait_text "Safe Mode" 10',
+                       'classic_logon Administrator "$(cat "$ADMIN_PWFILE")"', "*Administrator*",
+                       'wait_text "Shut Down" 10', 'logon_refused "root"', 'classic_logon WexHidden ""',
+                       "grep -qw wexhidden"):
+            self.assertIn(needle, phase)
 
     def test_wayland_session_reads_the_mode_before_the_prefix(self):
         session = (SCRIPTS / "wine-explorer-wayland-session.sh").read_text(encoding="utf-8")
@@ -2189,10 +2236,25 @@ class TestBoot1(TempDirTest):
         self.boot = load_boot1()
         self.boot.BOOT_CONF = str(self.tmp / "etc" / "boot.conf")
         self.boot.PANIC_CONF = str(self.tmp / "sysctl.d" / "90-wineexplorer-recovery.conf")
+        self.boot.PANIC_DEFAULT = str(self.tmp / "usr-sysctl.d" / "90-wineexplorer-recovery.conf")
+        self.boot.CRASH_CONF = str(self.tmp / "system.conf.d" / "90-wineexplorer-recovery.conf")
         self.boot.PANIC_SYSCTL = str(self.tmp / "panic")
         self.boot.PRODUCT_CONF = str(self.tmp / "product.conf")
         self.boot.VINTNER = str(self.tmp / "no-vintner")
         (self.tmp / "panic").write_text("0\n", encoding="ascii")
+        self.with_systemctl()
+
+    def with_systemctl(self, code=0):
+        """A `systemctl` that logs its arguments and exits with CODE."""
+        helper = self.tmp / "fake-systemctl"
+        helper.write_text(f'#!/bin/sh\necho "$@" >> "{self.tmp}/systemctl.log"\necho failed >&2\nexit {code}\n',
+                          encoding="ascii")
+        helper.chmod(0o755)
+        self.boot.SYSTEMCTL = str(helper)
+
+    def systemctl_log(self):
+        path = self.tmp / "systemctl.log"
+        return path.read_text(encoding="ascii").splitlines() if path.exists() else []
 
     def with_vintner(self, menu=0, options=("quiet",), code=0, reply=None):
         """A `vintner` that logs its arguments; menu-timeout and cmdline show answer from MENU and OPTIONS, a set
@@ -2243,15 +2305,58 @@ class TestBoot1(TempDirTest):
         self.assertIn("recovery_timeout=7\n", Path(self.boot.BOOT_CONF).read_text(encoding="utf-8"))
         self.assertIn("kernel.panic = 10\n", Path(self.boot.PANIC_CONF).read_text(encoding="utf-8"))
         self.assertEqual((self.tmp / "panic").read_text(encoding="ascii"), "10\n")    # the running kernel too
+        # and a crash of systemd itself, which rereads system.conf.d at once
+        self.assertIn("[Manager]\nCrashAction=reboot\n", Path(self.boot.CRASH_CONF).read_text(encoding="utf-8"))
+        self.assertEqual(self.systemctl_log(), ["daemon-reload"])
         self.assertTrue(self.boot.auto_restart())
         self.boot.apply(30, True, 7, False)
         self.assertIn("kernel.panic = 0\n", Path(self.boot.PANIC_CONF).read_text(encoding="utf-8"))
+        self.assertIn("CrashAction=freeze\n", Path(self.boot.CRASH_CONF).read_text(encoding="utf-8"))
+        self.assertEqual(self.systemctl_log(), ["daemon-reload"] * 2)
         self.assertFalse(self.boot.auto_restart())
         # recovery options turned off keep their seconds, as XP keeps bootstat.dat's byte 9
         self.boot.apply(30, False, 7, False)
         self.assertFalse(self.boot.recovery_enabled())
         self.assertEqual(self.boot.recovery_timeout(), 7)
         self.assertIn("recovery_menu=0\n", Path(self.boot.BOOT_CONF).read_text(encoding="utf-8"))
+
+    def test_automatic_restart_is_on_by_default_as_on_xp(self):
+        # the package's /usr/lib/sysctl.d file (XP: CrashControl AutoReboot 1); /etc's file of the same name replaces it
+        default = Path(self.boot.PANIC_DEFAULT)
+        default.parent.mkdir(parents=True)
+        default.write_text((REPO_ROOT / "installer" / "systemd" / "90-wineexplorer-recovery.conf")
+                           .read_text(encoding="utf-8"), encoding="utf-8")
+        self.assertEqual(self.boot.panic_value(), 10)
+        self.assertTrue(self.boot.settings()["AutoRestart"])
+        Path(self.boot.PANIC_CONF).parent.mkdir(parents=True)
+        Path(self.boot.PANIC_CONF).write_text("kernel.panic = 0\n", encoding="utf-8")
+        self.assertFalse(self.boot.auto_restart())
+        crash = (REPO_ROOT / "installer" / "systemd" / "system-recovery.conf").read_text(encoding="utf-8")
+        self.assertIn("[Manager]\nCrashAction=reboot\n", crash)
+        package = PACKAGE.read_text(encoding="utf-8")
+        self.assertIn('"$SCRIPT_DIR/systemd/90-wineexplorer-recovery.conf" '
+                      '"$STAGE_SESSION/usr/lib/sysctl.d/90-wineexplorer-recovery.conf"', package)
+        self.assertIn('"$SCRIPT_DIR/systemd/system-recovery.conf" '
+                      '"$STAGE_SESSION/usr/lib/systemd/system.conf.d/90-wineexplorer-recovery.conf"', package)
+
+    def test_a_failed_reload_is_reported(self):
+        self.with_systemctl(code=1)
+        with self.assertRaises(self.boot.Failed) as caught:
+            self.boot.set_auto_restart(True)
+        self.assertIn("crash action", str(caught.exception))
+        self.assertIn("CrashAction=reboot", Path(self.boot.CRASH_CONF).read_text(encoding="utf-8"))
+
+    def test_a_dismissed_password_dialog_is_cancelled_not_refused(self):
+        # polkit's CheckAuthorization result: (authorized, challenge, details); the agent's Cancel sets polkit.dismissed
+        self.assertEqual(self.boot.refusal((False, False, {"polkit.dismissed": "true"})), "Cancelled")
+        self.assertEqual(self.boot.refusal((False, False, {})), "NotAuthorized")
+        self.assertEqual(self.boot.refusal((False, True, {"polkit.retains_authorization_after_challenge": "1"})),
+                         "NotAuthorized")
+        # wexhost maps Boot1's Cancelled to ERROR_CANCELLED, which keeps Startup and Recovery open without a message
+        unixlib = (REPO_ROOT / "src" / "dlls" / "wexhost" / "unixlib.c").read_text(encoding="utf-8")
+        self.assertIn('"org.wineexplorer.Boot1.Error.Cancelled" )) return ERROR_CANCELLED', unixlib)
+        startrec = (REPO_ROOT / "src" / "dlls" / "sysdm.cpl" / "startrec.c").read_text(encoding="utf-8")
+        self.assertIn("if (err == ERROR_CANCELLED) return FALSE;", startrec)
 
     def test_the_saved_panic_setting_wins_over_this_start(self):
         # "Disable automatic restart on system failure" (F8) sets kernel.panic=0 for one start only
