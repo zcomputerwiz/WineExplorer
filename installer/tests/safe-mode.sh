@@ -81,7 +81,7 @@
 #                X11) leave the checksums of the test account's AccountsService file and .dmrc out of the record.
 #                The saved session values themselves are compared in every phase.
 #   startrec    Startup and Recovery (sysdm.cpl, work order D5): Automatically restart is on by default
-#                (kernel.panic 10). `control sysdm.cpl,,3` opens System Properties on its Advanced tab and Settings
+#                (kernel.panic 10). Win+Pause and Ctrl+Tab open System Properties on its Advanced tab, and Settings
 #                opens the dialog; a change there asks for an administrator's password (wexhost's polkit agent):
 #                cancelled, the dialog stays open with no message; the Administrator's password saves it.
 #                org.wineexplorer.Boot1 tells anyone the settings and refuses a change without a password; as root
@@ -100,6 +100,12 @@
 #                password, root and a password typed for an account without one get XP's "Logon Message", and the
 #                hidden account logs on by its name typed in another case. Only when named (needs this branch's
 #                msgina.dll and logonui.exe).
+#   rundialog   Run (Win+R) runs what XP's runs (Wine's shell32: RunFileDlg and the default verb): `control
+#                sysdm.cpl,,3` (a program and its parameters), `sysdm.cpl` (a .cpl file: cplfile's one verb),
+#                `notepad %USERPROFILE%\...` (environment strings), WordPad by its quoted path and by its path with
+#                spaces unquoted, each with a file; a document whose path has spaces still opens as one name; a
+#                program that does not exist gets the error, and Run stays open. Only when named (WEX_TEST_WINE:
+#                this branch's shell32.dll).
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -156,7 +162,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -1822,6 +1828,61 @@ phase_classic() {   # the classic "Log On to Windows" dialog (work order C4): se
     echo "  sessions: $out"
     grep -qw wexhidden <<< "$out" || fail "the hidden account did not log on as WexHidden"
     echo "  the hidden account logged on, its name typed as WexHidden"
+    shutdown_vm
+}
+
+run_command() {   # run_command TEXT WINDOW_TEXT SHOT: Win+R, TEXT and Enter, then WINDOW_TEXT on the screen
+    "${V[@]}" key "$TEST" meta_l-r >/dev/null
+    wait_text "Type the name" 20 || { shot "no-run-$3"; fail "Win+R did not open Run (before $1)"; }
+    "${V[@]}" type "$TEST" "$1"
+    "${V[@]}" key "$TEST" ret >/dev/null
+    wait_text "$2" 60 || { shot "no-$3"; fail "Run did not run $1"; }
+    shot "$3"
+    echo "  Run: $1"
+}
+
+phase_rundialog() {   # Run (Win+R) runs what XP's runs: see the header
+    local wordpad='C:\Program Files\Windows NT\Accessories\wordpad.exe'
+    start_vm
+    desktop 600
+    gsh 'cd "$HOME/.wine/drive_c/users/$USER" && printf "Run test\r\n" > runtest.txt && printf "Run test 2\r\n" > runtest2.txt && mkdir -p "Run Test" && printf "Run test 3\r\n" > "Run Test/read me.txt" && echo made' \
+        | grep -q '^made' || fail "cannot make the test files"
+    # a program and its parameters, which Wine's Run took as one file name
+    run_command 'control sysdm.cpl,,3' "Environment Variables" sysdm-advanced
+    "${V[@]}" key "$TEST" esc >/dev/null
+    sleep 2
+    # a Control Panel file: cplfile has one verb, cplopen, and no default
+    run_command 'sysdm.cpl' "Computer Name" sysdm
+    "${V[@]}" key "$TEST" esc >/dev/null
+    sleep 2
+    run_command 'notepad %USERPROFILE%\runtest.txt' "runtest.txt - Notepad" notepad
+    "${V[@]}" key "$TEST" alt-f4 >/dev/null
+    sleep 2
+    # WordPad's title is Wine's ("runtest.txt - Wine Wordpad"), so the file's name is what counts; each has its own
+    run_command "\"$wordpad\" %USERPROFILE%\\runtest.txt" "runtest.txt -" wordpad-quoted
+    "${V[@]}" key "$TEST" alt-f4 >/dev/null
+    sleep 2
+    run_command "$wordpad %USERPROFILE%\\runtest2.txt" "runtest2.txt -" wordpad-spaces
+    "${V[@]}" key "$TEST" alt-f4 >/dev/null
+    sleep 2
+    # the whole line is still one name first: a document whose path has spaces opens (a folder would too, but
+    # ShellExecute of a folder still reports "DDE failure." once it is open: shell32's DDE server takes only Progman's
+    # commands, not the folder class's ViewFolder; a fault of its own, as before this change)
+    run_command '%USERPROFILE%\Run Test\read me.txt' "read me.txt -" spaces
+    "${V[@]}" key "$TEST" alt-f4 >/dev/null
+    sleep 2
+    # nothing by that name: the error, and Run stays open with the line
+    "${V[@]}" key "$TEST" meta_l-r >/dev/null
+    wait_text "Type the name" 20 || fail "Win+R did not open Run (before the missing program)"
+    "${V[@]}" type "$TEST" "wexnosuchprogram /x"
+    "${V[@]}" key "$TEST" ret >/dev/null
+    wait_text "not found" 30 || { shot no-error; fail "Run did not report a program that does not exist"; }
+    shot error
+    "${V[@]}" key "$TEST" ret >/dev/null
+    wait_text "Type the name" 15 || { shot run-closed; fail "Run closed after the error"; }
+    "${V[@]}" key "$TEST" esc >/dev/null
+    echo "  Run: a missing program gets the error, and Run stays open"
+    gsh 'cd "$HOME/.wine/drive_c/users/$USER" && rm -rf runtest.txt runtest2.txt "Run Test"' >/dev/null
     shutdown_vm
 }
 

@@ -1433,7 +1433,7 @@ class TestSessionAndGreeter(unittest.TestCase):
         # work order D5: the dialog opens, the service refuses a change without a password, root's change reaches
         # the next start, and everything goes back (/etc byte for byte, on the stopped disk)
         vm = VM_TEST.read_text(encoding="utf-8")
-        self.assertIn("|waylandxlock|startrec|classic) ;;", vm)
+        self.assertIn("|waylandxlock|startrec|classic|rundialog) ;;", vm)
         self.assertIn("#   startrec ", vm)
         phase = vm[vm.index("phase_startrec() {"):]
         phase = phase[:phase.index("\n}\n")]
@@ -1506,6 +1506,26 @@ class TestSessionAndGreeter(unittest.TestCase):
                        # Luna's caption on the themed logon desktop (wex-greeter.sh), sampled right of the title
                        "$(((w - 417) / 2 + 300)) $(((h - 411) / 2 + 14))", "caption is not Luna's blue"):
             self.assertIn(needle, phase)
+
+    def test_vm_test_checks_the_run_dialog(self):
+        # 2026-11-12: Wine's Run took "control sysdm.cpl,,3" as one file name and found no verb for sysdm.cpl alone;
+        # XP runs both. The phase types XP's cases into Run (Win+R) and waits for each window.
+        vm = VM_TEST.read_text(encoding="utf-8")
+        self.assertIn("|startrec|classic|rundialog) ;;", vm)
+        self.assertIn("#   rundialog ", vm)
+        phase = vm[vm.index("phase_rundialog() {"):]
+        phase = phase[:phase.index("\n}\n")]
+        for needle in ("run_command 'control sysdm.cpl,,3' \"Environment Variables\"",
+                       "run_command 'sysdm.cpl' \"Computer Name\"",
+                       "run_command 'notepad %USERPROFILE%\\runtest.txt'",
+                       "run_command \"\\\"$wordpad\\\" %USERPROFILE%\\\\runtest.txt\"",
+                       "run_command \"$wordpad %USERPROFILE%\\\\runtest2.txt\" \"runtest2.txt -\"",
+                       "run_command '%USERPROFILE%\\Run Test\\read me.txt' \"read me.txt -\"",
+                       'wait_text "not found" 30', 'fail "Run closed after the error"'):
+            self.assertIn(needle, phase)
+        for line in phase.splitlines():   # commands sent over the serial console must be one line
+            if "gsh '" in line:
+                self.assertEqual(line.count("'") % 2, 0, line)
 
     def test_vm_test_menu_retry_starts_from_the_same_disk(self):
         # 2026-11-12, OVMF: a start that missed the menu reached the desktop, the start-up check saved the changed
