@@ -547,6 +547,8 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
             [ ! -f /lib/systemd/system/wex-session0-services.service ] ||
                 systemctl enable --now wex-session0-services.service ||
                 echo "WARNING: session 0's services did not start (wex-session0-services.service)" >&2
+            # domain Group Policy (docs/GROUP_POLICY.md): the refresh does nothing on a machine that is not joined
+            [ ! -f /lib/systemd/system/wex-gpupdate.timer ] || systemctl enable --now wex-gpupdate.timer || true
         fi
     fi
 fi

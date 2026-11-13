@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: domain Group Policy for Windows programs, at start and then every 90 minutes with up to 30
+# minutes added at random, the background refresh interval of Windows. Enabled together with session 0
+# (setup-machine-root.sh with WEX_SESSION0=1).
+
+[Unit]
+Description=WineExplorer domain Group Policy refresh (timer)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=90min
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

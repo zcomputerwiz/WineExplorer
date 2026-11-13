@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: domain Group Policy for Windows programs (docs/GROUP_POLICY.md, step 4). Samba fetches the
+# policy objects of the domain this machine is joined to; session 0's writer (wexpolicy) applies their registry
+# policy. On a machine that is not joined, or has no Samba, the script says so and ends.
+
+[Unit]
+Description=WineExplorer domain Group Policy refresh
+Documentation=https://github.com/zcomputerwiz/WineExplorer/blob/master/docs/GROUP_POLICY.md
+Requires=wex-session0-services.service
+After=wex-session0-services.service winbind.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/wex-gpupdate.sh
+TimeoutStartSec=300

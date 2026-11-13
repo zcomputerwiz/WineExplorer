@@ -290,6 +290,9 @@ done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
 # system tier session 0 (docs/SYSTEM_TIER_WORK_ORDERS.md); enabled only by setup-machine-root.sh with WEX_SESSION0=1
 cp "$SCRIPT_DIR/systemd/wex-session0.service" "$SCRIPT_DIR/systemd/wex-session0-services.service" "$STAGE_SESSION/lib/systemd/system/"
+# domain Group Policy for Windows programs (docs/GROUP_POLICY.md); the timer is enabled with session 0
+cp "$SCRIPT_DIR/systemd/wex-gpupdate.service" "$SCRIPT_DIR/systemd/wex-gpupdate.timer" "$STAGE_SESSION/lib/systemd/system/"
+install -m 0755 "$SCRIPT_DIR/scripts/wex-gpupdate.sh" "$STAGE_SESSION/usr/local/bin/wex-gpupdate.sh"
 # Opt-in for a test image: WEX_SESSION0=1 at packaging time leaves a marker, and the installed system's setup
 # (wex-gui-setup.sh) then runs the machine root setup with WEX_SESSION0=1. Without it nothing changes.
 if [ "${WEX_SESSION0:-0}" = 1 ]; then

@@ -255,6 +255,27 @@ notification, which already reaches every session through session 0. No server c
 - User: the marker key `HKCU\Software\Policies\WineExplorer\Policy Applied`, value `Serial` (inside the protected
   tree, so the user cannot fake a refresh).
 
+## Step 4: domain policy, from Samba to the writer (2026-11-13, half tested)
+
+`installer/scripts/wex-gpupdate.sh`, run as root by `wex-gpupdate.timer` (at start, then every 90 minutes plus
+up to 30 at random) on a machine joined with Samba:
+
+1. `samba-gpupdate --force` refreshes Samba's cache of the domain's policy objects.
+2. `net ads gpo list` names the objects that apply to the computer, and to each user of the accounts map whom
+   Winbind knows as a domain user, in Samba's order.
+3. The objects' `Registry.pol` files go to `wexpolicy apply /machine` and `wexpolicy apply /user:SID` in session
+   0; a target without any file gets `wexpolicy clear`.
+
+This differs from design step 3 below (an extension inside `samba-gpupdate`): a shell script on Samba's command
+line tools has no licence question (an extension is a Python file under Samba's GPL-3.0-or-later) and needs no
+registration in Samba. The price: it depends on the text `net ads gpo list` prints, and it reads the security
+template (`GptTmpl.inf`, the lockout policy) not at all yet.
+
+Tested in the lab domain: steps 1 and 2 on the joined member (`--print`: the machine file of the test object for
+the computer, the user file for a domain user, nothing for a local account). Not tested: step 3 and the timer,
+which need an installed WineExplorer machine joined to the lab domain; the order of several objects (applied in
+the order Samba lists them, later wins; unverified against Windows); SSSD joins (the script needs Winbind).
+
 ## Design
 
 1. **Join detection (`wexhost`).** Detect the join from `net ads info` or SSSD/realmd state and publish domain name,
