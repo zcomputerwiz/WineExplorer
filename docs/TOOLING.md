@@ -106,6 +106,13 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     Windows checkout at the branch's gitlink, as a git checkout, because `build-debs.sh` archives its tree with git.
     It takes about three minutes and downloads the recovery image's packages. `--vintner=DIR` reuses packages built
     earlier, for example from a branch of `D:\Projects\vintner-boot`.
+* `installer/tests/ad/dc-create.sh` and `client-create.sh` (the lab Active Directory domain for Group Policy tests;
+  `docs/GROUP_POLICY.md`, "The lab domain"): as root in the Debian WSL distribution, `bash installer/tests/ad/dc-create.sh`
+  (first run about 5 minutes: a Samba controller for `AD.WEXLAB.EXAMPLE` from a Debian cloud image), then
+  `bash installer/tests/ad/client-create.sh` (a member guest that joins and checks `wex-domain-state.sh`; prints
+  `PASS: join detection`). Each takes `stop` and `ssh CMD`. Disks, key and the throwaway Administrator password are
+  in `/var/tmp/wex-ad-lab` (about 2 GB); SSH ports 2241 and 2242 on 127.0.0.1. Passed on 2026-11-13. The guests stay
+  running until stopped.
 * `installer/tests/session0.sh` (system tier, session 0 on an installed machine; `docs/SYSTEM_TIER_WORK_ORDERS.md`): as
   root, `VMTEST_DIR=DIR bash installer/tests/session0.sh SOURCE_VM [TEST_VM]`. SOURCE_VM is a disk installed by
   `install-unattended.sh` from an ISO packaged with `WEX_SESSION0=1` (the variable must be set for `build-iso.sh`

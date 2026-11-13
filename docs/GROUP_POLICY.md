@@ -224,8 +224,17 @@ program asks a host service at each call.
   or a reboot.
 
 Tested: the two functions from 64-bit and 32-bit programs of a standard user, with and without the key
-(`scripts/test_sysrun_server.sh`). Not tested: the detection script against a real join (needs the Samba AD
-controller in the lab, "Open questions"), and the forest name of a child domain (the DNS name is given).
+(`scripts/test_sysrun_server.sh`); the detection script against a real join made with `net ads join` in the
+lab domain (below): nothing before the join, `WEXLAB ad.wexlab.example` after it. Not tested: a join made with
+`realm join` (SSSD), the script's write into session 0 on an installed machine, and the forest name of a child
+domain (the DNS name is given).
+
+**The lab domain** (`installer/tests/ad/`, in the Debian WSL distribution, `/var/tmp/wex-ad-lab`):
+`dc-create.sh` makes and starts a Samba AD controller for `AD.WEXLAB.EXAMPLE` (flat name `WEXLAB`) from a Debian
+12 cloud image; `client-create.sh` makes a member guest, joins it and checks the detection. The guests share a
+QEMU multicast socket network, 10.71.0.0/24, controller 10.71.0.10; the scripts' headers have the details. One
+trap, handled in `dc-provision.sh`: Samba must serve the lab card only, or it registers QEMU's user-mode address
+(the same in every guest) for the controller's name and a member that looks the controller up reaches itself.
 
 ## Step 3: refresh signalling (2026-11-13, implemented)
 
