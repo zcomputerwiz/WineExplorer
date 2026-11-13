@@ -72,6 +72,24 @@ for arch in x64 x86; do
         fi
         grep -E '^(INFO|TRACE)' "$out/$mode.txt" | tr -d '\r' | sed "s/^/$arch $mode /" >> "$results/observations.txt" || true
     done
+    # application data: the package's folders and settings; two runs in one installation (the second sees the first)
+    for run in 1 2; do
+        mode=appdata; file="$appdata/view-$mode.txt"; rm -f "$file"
+        status=0
+        wine_run "$out/$mode-$run.log" "$u10/$arch/launcher.exe" "$family!ViewAppdata" "$mode" unused "$full" || status=$?
+        for i in $(seq 1 30); do grep -q '^Uninitialize' "$file" 2>/dev/null && break; sleep 1; done
+        if [ ! -f "$file" ]; then note "$arch FAIL $mode run $run (no output, launcher exit $status)"; overall=1; continue; fi
+        cp "$file" "$out/$mode-$run.txt"
+        checks "$out/$mode-$run.txt" > "$out/$mode-$run-checks.txt" || true
+        expected "$u11/expected-$mode-$run.txt" > "$out/expected-$mode-$run.txt"
+        if diff -u "$out/expected-$mode-$run.txt" "$out/$mode-$run-checks.txt" > "$out/$mode-$run.diff"; then
+            note "$arch PASS $mode run $run (all $(wc -l < "$out/expected-$mode-$run.txt") checks)"
+        else
+            note "$arch FAIL $mode run $run"; head -30 "$out/$mode-$run.diff" >> "$results/summary.txt"; overall=1
+        fi
+        grep -E '^INFO' "$out/$mode-$run.txt" | tr -d '' | sed "s/^/$arch $mode-$run /" >> "$results/observations.txt" || true
+    done
+
     # presentation and input: the probe presents frames to its CoreWindow and records what arrives while inject.exe
     # moves the mouse, clicks, turns the wheel and types (needs the display: PRESENT=1, run under xvfb-run)
     if [ -n "${PRESENT:-}" ]; then

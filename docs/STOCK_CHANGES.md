@@ -3204,3 +3204,11 @@ Later on 2026-11-13 (U1.3, package dependencies, measured on Windows 11, `tests/
 activation_manager.c` (the started process gets the folders of its direct dependencies in front of `PATH`),
 `server/uwp_context.c` (the record accepts a `framework` line). WineExplorer: `src/programs/wexappx` resolves
 `PackageDependency` against the installed packages and records `framework` and `dependency` lines.
+
+Later on 2026-11-13 (U1.4, application data, measured on Windows 11, `tests/uwp/u1_1` application `ViewAppdata`):
+`dlls/windows.storage.applicationdata` (`applicationdata.c` rewritten, new `propertyset.c`, `classes.idl`, `main.c`,
+`private.h`, `Makefile.in`, test `tests/data.c`): `ApplicationData.Current` for the package of the process
+(`%LOCALAPPDATA%\Packages\<family>\LocalState`, `TempState`, `RoamingState`, `LocalCache`, created on first use;
+`ERROR 0x80073D54` for an unpackaged process), `LocalSettings` and `RoamingSettings` (typed values, containers, composite
+values, kept in `HKCU\Software\WineExplorer\Packages\<family>`), `ClearAsync`, `ClearAllAsync`, `Version`, `DataChanged`.
+Not done: `StorageFile`/`FileIO` of the folders (other APIs), `MapChanged` events, `GetPublisherCacheFolder`.

@@ -7,7 +7,7 @@
 # (present.txt); nothing is compared yet. The machine's mouse is moved and clicked and keys are typed: do not use the
 # machine during the run (about 25 seconds).
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$WorkDirectory, [Parameter(Mandatory)][string]$ResultsDirectory, [ValidateSet('present','suspend','pkgapi')][string]$Mode = 'present', [switch]$Manual, [switch]$Execute)
+param([Parameter(Mandatory)][string]$WorkDirectory, [Parameter(Mandatory)][string]$ResultsDirectory, [ValidateSet('present','suspend','pkgapi','appdata')][string]$Mode = 'present', [switch]$Manual, [switch]$Execute)
 $ErrorActionPreference = 'Stop'
 $work = [IO.Path]::GetFullPath($WorkDirectory)
 $results = [IO.Path]::GetFullPath($ResultsDirectory)

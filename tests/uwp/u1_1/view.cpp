@@ -53,6 +53,8 @@
 #include <winrt/Windows.ApplicationModel.Core.h>
 #include <winrt/Windows.ApplicationModel.Activation.h>
 #include <winrt/Windows.UI.Core.h>
+#include <winrt/Windows.Storage.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Devices.Input.h>
 #include <winrt/Windows.UI.Input.h>
 #include <d3d11.h>
@@ -282,10 +284,10 @@ static void pkgapi_checks()
         LONG r = GetPackageApplicationIds(reference, &length, nullptr, &count);
         std::vector<BYTE> buffer(length ? length : 1);
         if (r == ERROR_INSUFFICIENT_BUFFER) r = GetPackageApplicationIds(reference, &length, buffer.data(), &count);
-        bool ids_ok = r == ERROR_SUCCESS && count == 6;
+        bool ids_ok = r == ERROR_SUCCESS && count == 7;
         std::vector<std::wstring> seen;
         for (UINT32 i = 0; ids_ok && i < count; ++i) seen.push_back(reinterpret_cast<PCWSTR *>(buffer.data())[i]);
-        for (wchar_t const *app : { L"View", L"ViewSta", L"ViewReturn", L"ViewPresent", L"ViewSuspend", L"ViewPkgapi" })
+        for (wchar_t const *app : { L"View", L"ViewSta", L"ViewReturn", L"ViewPresent", L"ViewSuspend", L"ViewPkgapi", L"ViewAppdata" })
             if (std::find(seen.begin(), seen.end(), family + L"!" + app) == seen.end()) ids_ok = false;
         check("application_ids_are_all_applications_of_the_package", ids_ok);
         length = 0; count = 0;
@@ -360,6 +362,110 @@ static void pkgapi_checks()
     r = GetPackagesByPackageFamily(L"Nope.Package_0123456789abc", &packages, nullptr, &buffer_len, nullptr);
     check("packages_of_an_uninstalled_family_is_empty", r == ERROR_SUCCESS && packages == 0 && buffer_len == 0);
     check("packages_of_garbage_family_is_invalid", GetPackagesByPackageFamily(L"garbage", &packages, nullptr, &buffer_len, nullptr) == ERROR_INVALID_PARAMETER);
+}
+
+/* appdata mode: Windows.Storage.ApplicationData of this package (unattended; run twice in one installation: the second
+ * run sees what the first one stored). The checks are from what Windows 11 did (tests/uwp/u1_1/README.md). */
+static std::wstring env_value(wchar_t const *name)
+{
+    wchar_t buffer[MAX_PATH * 2] = {};
+    GetEnvironmentVariableW(name, buffer, ARRAYSIZE(buffer));
+    return buffer;
+}
+
+static bool exists_path(std::wstring const &path)
+{
+    return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+static void run_appdata()
+{
+    using namespace Windows::Storage;
+    using namespace Windows::Foundation;
+    auto family = query([](UINT32 *n, PWSTR p) { return GetCurrentPackageFamilyName(n, p); });
+    auto data = ApplicationData::Current();
+    std::wstring local_path(data.LocalFolder().Path()), temp_path(data.TemporaryFolder().Path()),
+                 roaming_path(data.RoamingFolder().Path()), cache_path(data.LocalCacheFolder().Path());
+    info("LocalFolder %s", to_string(hstring(local_path)).c_str());
+    info("TemporaryFolder %s", to_string(hstring(temp_path)).c_str());
+    info("RoamingFolder %s", to_string(hstring(roaming_path)).c_str());
+    info("LocalCacheFolder %s", to_string(hstring(cache_path)).c_str());
+    info("Version %u, RoamingStorageQuota %llu", data.Version(), (unsigned long long)data.RoamingStorageQuota());
+
+    /* the folders are in the package's own directory, named by the family; they exist */
+    auto suffix = [&](wchar_t const *leaf) { return std::wstring(L"\\Packages\\") + family + L"\\" + leaf; };
+    auto ends_with = [](std::wstring const &s, std::wstring const &e) {
+        return s.size() >= e.size() && _wcsicmp(s.c_str() + s.size() - e.size(), e.c_str()) == 0; };
+    check("local_folder_is_LocalState_of_the_family", ends_with(local_path, suffix(L"LocalState")));
+    check("temporary_folder_is_TempState_of_the_family", ends_with(temp_path, suffix(L"TempState")));
+    check("roaming_folder_is_RoamingState_of_the_family", ends_with(roaming_path, suffix(L"RoamingState")));
+    check("local_cache_folder_is_LocalCache_of_the_family", ends_with(cache_path, suffix(L"LocalCache")));
+    check("the_folders_exist", exists_path(local_path) && exists_path(temp_path) && exists_path(roaming_path) && exists_path(cache_path));
+    check("local_folder_name", data.LocalFolder().Name() == L"LocalState");
+    check("current_is_a_singleton", ApplicationData::Current() == data);
+    check("shared_local_folder_not_available", [&] { try { return data.SharedLocalFolder() == nullptr; } catch (hresult_error const &) { return true; } }());
+
+    /* a file written through the folder is there for Win32 too, and survives into the second run */
+    int runs = 0;
+    {
+        auto counter = local_path + L"\\runs.txt";
+        FILE *f = _wfopen(counter.c_str(), L"r");
+        if (f) { std::fscanf(f, "%d", &runs); std::fclose(f); }
+        f = _wfopen(counter.c_str(), L"w");
+        if (f) { std::fprintf(f, "%d", runs + 1); std::fclose(f); }
+    }
+    info("this is run %d", runs + 1);
+    {
+        /* files are made with Win32 here: StorageFile and FileIO are other APIs (not covered by this mode) */
+        auto hello = local_path + L"\\hello.txt";
+        FILE *f = _wfopen(hello.c_str(), L"w");
+        if (f) { std::fputs("hello from the package", f); std::fclose(f); }
+        check("file_created_in_local_folder_is_visible_to_win32", exists_path(hello));
+    }
+
+    /* settings: typed values, containers, persistence */
+    auto settings = data.LocalSettings();
+    check("settings_locality_is_local", settings.Locality() == ApplicationDataLocality::Local);
+    check("roaming_settings_locality_is_roaming", data.RoamingSettings().Locality() == ApplicationDataLocality::Roaming);
+    auto values = settings.Values();
+    if (runs == 0)
+    {
+        values.Insert(L"int", Windows::Foundation::PropertyValue::CreateInt32(-7));
+        values.Insert(L"text", Windows::Foundation::PropertyValue::CreateString(L"value"));
+        values.Insert(L"flag", Windows::Foundation::PropertyValue::CreateBoolean(true));
+        values.Insert(L"real", Windows::Foundation::PropertyValue::CreateDouble(2.5));
+        auto container = settings.CreateContainer(L"Sub", ApplicationDataCreateDisposition::Always);
+        container.Values().Insert(L"inner", Windows::Foundation::PropertyValue::CreateString(L"nested"));
+        Windows::Storage::ApplicationDataCompositeValue composite;
+        composite.Insert(L"a", Windows::Foundation::PropertyValue::CreateInt32(1));
+        composite.Insert(L"b", Windows::Foundation::PropertyValue::CreateString(L"two"));
+        values.Insert(L"composite", composite);
+    }
+    check("settings_int", unbox_value_or<int32_t>(values.Lookup(L"int"), 0) == -7);
+    check("settings_string", unbox_value_or<hstring>(values.Lookup(L"text"), L"") == L"value");
+    check("settings_bool", unbox_value_or<bool>(values.Lookup(L"flag"), false));
+    check("settings_double", unbox_value_or<double>(values.Lookup(L"real"), 0.0) == 2.5);
+    check("settings_size_is_five", values.Size() == 5);
+    check("settings_container_exists", settings.Containers().HasKey(L"Sub") &&
+          unbox_value_or<hstring>(settings.Containers().Lookup(L"Sub").Values().Lookup(L"inner"), L"") == L"nested");
+    auto composite = values.Lookup(L"composite").try_as<ApplicationDataCompositeValue>();
+    check("settings_composite", composite && unbox_value_or<int32_t>(composite.Lookup(L"a"), 0) == 1 &&
+          unbox_value_or<hstring>(composite.Lookup(L"b"), L"") == L"two");
+    check("settings_missing_key_is_not_found", !values.HasKey(L"nothing") && values.TryLookup(L"nothing") == nullptr);
+    check("settings_persist_between_runs", runs == 0 || values.HasKey(L"int"));
+    check("roaming_settings_are_separate", !data.RoamingSettings().Values().HasKey(L"int"));
+    check("local_cache_folder_is_separate", exists_path(cache_path) && !exists_path(cache_path + L"\\hello.txt"));
+    check("data_changed_can_be_signalled", [&] { try { data.SignalDataChanged(); return true; } catch (hresult_error const &) { return false; } }());
+
+    /* ClearAsync(Local) removes the local files and settings of the package */
+    if (runs >= 1)
+    {
+        data.ClearAsync(ApplicationDataLocality::Local).get();
+        check("clear_removes_local_files", !exists_path(local_path + L"\\hello.txt") && exists_path(local_path));
+        check("clear_removes_local_settings", data.LocalSettings().Values().Size() == 0);
+    }
+    put("READY");
+    put("Uninitialize");
 }
 
 static void run_pkgapi()
@@ -978,7 +1084,7 @@ int wmain(int argc, wchar_t **argv)
         std::wstring id = aumid.data();
         application_id = id.substr(id.find(L'!') + 1);
         mode = application_id == L"ViewSta" ? "sta" : application_id == L"ViewReturn" ? "return" :
-               application_id == L"ViewPkgapi" ? "pkgapi" : application_id == L"ViewPresent" ? "present" : application_id == L"ViewSuspend" ? "suspend" : application_id == L"View" ? "positive" : "";
+               application_id == L"ViewAppdata" ? "appdata" : application_id == L"ViewPkgapi" ? "pkgapi" : application_id == L"ViewPresent" ? "present" : application_id == L"ViewSuspend" ? "suspend" : application_id == L"View" ? "positive" : "";
         wchar_t dir[MAX_PATH];
         if (mode.empty() || !GetEnvironmentVariableW(L"LOCALAPPDATA", dir, ARRAYSIZE(dir))) return 2;
         out = std::wstring(dir) + L"\\view-" + std::wstring(mode.begin(), mode.end()) + L".txt";
@@ -1004,10 +1110,11 @@ int wmain(int argc, wchar_t **argv)
         return failures ? 1 : 0;
     }
 
-    if (mode == "pkgapi")
+    if (mode == "pkgapi" || mode == "appdata")
     {
         check("package_identity", !package_full_name.empty());
-        run_pkgapi();
+        try { if (mode == "pkgapi") run_pkgapi(); else run_appdata(); }
+        catch (hresult_error const &e) { info("threw 0x%08X", (unsigned)e.code()); check("no_exception", false); put("READY"); put("Uninitialize"); }
         return 0;
     }
     check("package_identity", !package_full_name.empty());
