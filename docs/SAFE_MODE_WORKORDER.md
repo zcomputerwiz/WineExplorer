@@ -408,7 +408,12 @@ twice, on the black Safe Mode desktop. So Safe Mode uses the Welcome screen (dec
   Off dialog, where XP has its classic Shut Down Windows dialog.
 - Not measured, and done as described: the dialog in Safe Mode with Command Prompt (the same corners), a password
   that must be changed (PAM asking a second time fails the logon), Caps Lock's balloon (none).
-- VM test: the `classic` phase (`installer/tests/safe-mode.sh`).
+- XP themes its logon desktop: in a normal start the dialog has Luna's caption (its measured 241-pixel height is the
+  210-pixel client area with Luna's caption and frame; the classic caption would make it 234). The logon prefix had
+  no theme (its `C:\windows` is its own, without the machine root's themes), so the Wine fork's aero.msstyles drew a
+  white caption and flat buttons; `scripts/wex-greeter.sh` now copies Luna in and applies it, once, as the session does
+  for an account. Safe Mode draws classic in any case (uxtheme with `SM_CLEANBOOT`).
+- VM test: the `classic` phase (`installer/tests/safe-mode.sh`), which also samples the caption's colour.
 
 **C5. Menu and OS list layout.** Differences between XP's F8 menu and `wex-advanced-options` (constants in
 `Screen`, `scripts/wex-advanced-options.py`):
@@ -655,6 +660,11 @@ Properties > Advanced > Startup and Recovery opens XP's dialog (after ReactOS's 
   `startrec` phase checks both, and that a panic waits with the box unchecked. Not wired: kernel oopses that do not
   panic (`kernel.panic_on_oops` would make them hang when the box is unchecked). What XP shows at the next start
   after a crash was not measured; here the start is ordinary (the failure screen follows failed starts only).
+  Unchecked, the kernel waits, but a hardware watchdog the firmware left running still restarts the computer: the
+  kernel feeds such a watchdog until it panics. OVMF leaves the q35 chipset's TCO counting (30 seconds; `wdctl` shows
+  the time left), so on the UEFI test VM a panic restarted it 45 to 60 seconds later; with the watchdog stopped (a
+  magic close) it waited (2026-11-12). That is the platform's choice, as with a server whose firmware enables its
+  watchdog, so the box leaves it alone; the `startrec` phase stops it before the panic that must wait.
 - What does not apply is grayed: the system log (the journal keeps the kernel's messages anyway), administrative
   alerts, memory dumps (no kdump), and the one boot entry.
 

@@ -1437,7 +1437,13 @@ class TestSessionAndGreeter(unittest.TestCase):
         self.assertIn("#   startrec ", vm)
         phase = vm[vm.index("phase_startrec() {"):]
         phase = phase[:phase.index("\n}\n")]
-        for needle in ("control.exe sysdm.cpl,,3", "alt-i", "Apply ububb 5 true 7 false false 2>&1", "NotAuthorized",
+        # opened by the shell (Win+Pause): polkit asks the agent of the caller's logind session, and the serial
+        # console's has none
+        self.assertNotIn("$HELPER", phase)
+        self.assertLess(phase.index("meta_l-pause"), phase.index("ctrl-tab ctrl-tab ctrl-tab"))
+        systray = (REPO_ROOT / "src" / "dlls" / "wexshell" / "systray.c").read_text(encoding="utf-8")
+        self.assertIn("{ IDHK_SYS_PROPERTIES, MOD_WIN, VK_PAUSE }", systray)
+        for needle in ("alt-i", "Apply ububb 5 true 7 false false 2>&1", "NotAuthorized",
                        "as_root 'id -u'", "wextest.d5=1", 'wait_text "Advanced Options" 60',
                        "Apply ububb 0 true 30 true false", "rm -f \"$MNT/etc/wineexplorer/boot.conf\"",
                        'cp -p "$OUT/startrec-cmdline" "$MNT/etc/kernel/cmdline"',
@@ -1453,6 +1459,11 @@ class TestSessionAndGreeter(unittest.TestCase):
         self.assertLess(phase.index("Apply ububb 0 true 30 true false"), phase.index("attach rw"))
         # the panic that must wait comes with Automatically restart off; the restarts after the defaults are back
         self.assertLess(phase.index("restarted \"$id\" 75 &&"), phase.index("Apply ububb 0 true 30 true false"))
+        # the prompt (Explorer's window) is clicked before each key meant for it
+        self.assertEqual(phase.count("    prompt_focus\n"), 2)
+        self.assertLess(phase.index("prompt_focus"), phase.index('"${V[@]}" key "$TEST" esc'))
+        # a hardware watchdog the firmware left running (OVMF's TCO) is stopped before it: its restart is not ours
+        self.assertLess(phase.index("printf V > \\$w"), phase.index("echo c > /proc/sysrq-trigger"))
         self.assertLess(phase.index("attach rw"), phase.index("kill -SEGV 1"))
         for line in phase.splitlines():   # commands sent over the serial console must be one line
             if "gsh '" in line:
@@ -1489,10 +1500,26 @@ class TestSessionAndGreeter(unittest.TestCase):
         phase = vm[vm.index("phase_classic() {"):]
         phase = phase[:phase.index("\n}\n")]
         for needle in ('wait_text "Log On to Windows" 3 &&', 'wait_text "Safe Mode" 10',
-                       'classic_logon Administrator "$(cat "$ADMIN_PWFILE")"', "*Administrator*",
-                       'wait_text "Shut Down" 10', 'logon_refused "root"', 'classic_logon WexHidden ""',
-                       "grep -qw wexhidden"):
+                       'classic_logon Administrator "$(cat "$ADMIN_PWFILE")"', 'wait_text "Administrator" 10',
+                       'wait_text "User name" 10', 'wait_text "Shut Down" 10', 'logon_refused "root"',
+                       'classic_logon WexHidden ""', "grep -qw wexhidden",
+                       # Luna's caption on the themed logon desktop (wex-greeter.sh), sampled right of the title
+                       "$(((w - 417) / 2 + 300)) $(((h - 411) / 2 + 14))", "caption is not Luna's blue"):
             self.assertIn(needle, phase)
+
+    def test_vm_test_menu_retry_starts_from_the_same_disk(self):
+        # 2026-11-12, OVMF: a start that missed the menu reached the desktop, the start-up check saved the changed
+        # control set as Last Known Good, and lastgood's second try "restored" the change
+        vm = VM_TEST.read_text(encoding="utf-8")
+        menu = vm[vm.index("open_menu() {"):]
+        menu = menu[:menu.index("\n}\n")]
+        snapshot = menu.index('qemu-img snapshot -c menu-try "$STATE/disk.qcow2"')
+        self.assertLess(menu.index('qemu-img snapshot -d menu-try'), snapshot)
+        self.assertLess(snapshot, menu.index("for try in 1 2; do"))
+        retry = menu.index("starting again from the disk as it was")
+        self.assertLess(retry, menu.index('wait_off 60 || fail "the VM did not stop"'))
+        self.assertLess(menu.index('wait_off 60 || fail "the VM did not stop"'),
+                        menu.index('qemu-img snapshot -a menu-try "$STATE/disk.qcow2"'))
 
     def test_wayland_session_reads_the_mode_before_the_prefix(self):
         session = (SCRIPTS / "wine-explorer-wayland-session.sh").read_text(encoding="utf-8")
@@ -1800,7 +1827,8 @@ class TestGreeter(TempDirTest):
         if home is None:
             prefix = self.tmp / "prefix"
             prefix.mkdir(exist_ok=True)
-            (prefix / "user.reg").write_text("", encoding="ascii")   # a made prefix: no update
+            if not (prefix / "user.reg").exists():
+                (prefix / "user.reg").write_text("", encoding="ascii")   # a made prefix: no update
             env["WINEPREFIX"] = str(prefix)
         else:
             env["HOME"] = str(home)
@@ -1874,6 +1902,54 @@ class TestGreeter(TempDirTest):
 
     def test_safe_mode_falls_back_when_wine_is_missing(self):
         self.assertEqual(self.run_greeter("safecmd", wine_exists=False)[1], ["gtk"])
+
+    def test_the_logon_prefix_gets_the_default_theme_once(self):
+        """XP themes its logon desktop: the classic dialog has Luna's caption. Open Luna is applied to the logon prefix
+        once, in a normal start, as the session gives it to an account; Safe Mode draws classic in any case."""
+        prefix = self.tmp / "prefix"
+        themes = prefix / "drive_c" / "windows" / "Resources" / "Themes"
+        (themes / "Luna").mkdir(parents=True)
+        (themes / "Luna.theme").write_text("", encoding="ascii")
+        (themes / "Luna" / "Luna.msstyles").write_text("", encoding="ascii")
+        server = self.tmp / "wineserver"
+        server.write_text('#!/bin/sh\necho "wineserver $*" >> "$LOG"\n', encoding="ascii")
+        server.chmod(0o755)
+        apply = "wine explorer.exe /theme=C:\\windows\\Resources\\Themes\\Luna.theme"
+        logon = "wine explorer.exe /desktop=Logon,1024x768 logonui.exe"
+        self.assertEqual(self.run_greeter("normal")[1], [apply, "wineserver -w", logon])
+        for mode in ("safe", "safecmd"):
+            self.assertNotIn(apply, self.run_greeter(mode)[1], mode)
+        # the account chose a theme (or it was applied): never again
+        (prefix / "user.reg").write_text('[Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\ThemeManager]\n'
+                                         '"CurrentTheme"="C:\\\\windows\\\\Resources\\\\Themes\\\\Luna.theme"\n',
+                                         encoding="ascii")
+        self.assertEqual(self.run_greeter("normal")[1], [logon])
+
+    def test_the_logon_prefix_gets_luna_copied_in(self):
+        """The logon prefix's C:\\windows is its own, without the themes the machine root has (seen on the VM,
+        2026-11-12): Luna is copied in from the package's theme directory, as the session script does."""
+        data = self.tmp / "themes"
+        (data / "Luna").mkdir(parents=True)
+        (data / "Luna.theme").write_text("theme", encoding="ascii")
+        (data / "Luna" / "Luna.msstyles").write_text("style", encoding="ascii")
+        (data / "Aero").mkdir()
+        windows = self.tmp / "prefix" / "drive_c" / "windows"
+        windows.mkdir(parents=True)
+        server = self.tmp / "wineserver"
+        server.write_text('#!/bin/sh\necho "wineserver $*" >> "$LOG"\n', encoding="ascii")
+        server.chmod(0o755)
+        calls = self.run_greeter("normal", extra_env={"WEX_THEME_DATA_DIR": str(data)})[1]
+        self.assertEqual(calls[0], "wine explorer.exe /theme=C:\\windows\\Resources\\Themes\\Luna.theme")
+        themes = windows / "Resources" / "Themes"
+        self.assertEqual((themes / "Luna" / "Luna.msstyles").read_text(), "style")
+        self.assertEqual((themes / "Luna.theme").read_text(), "theme")
+        self.assertFalse((themes / "Luna" / "Luna").exists())
+        self.assertFalse((themes / "Aero").exists())   # only what the logon screen uses
+        # Safe Mode copies nothing either
+        for path in sorted(themes.rglob("*"), reverse=True):
+            path.unlink() if path.is_file() else path.rmdir()
+        self.run_greeter("safe", extra_env={"WEX_THEME_DATA_DIR": str(data)})
+        self.assertFalse((themes / "Luna.theme").exists())
 
     def test_the_fallback_greeter_is_black(self):
         """work order A4: the GTK greeter reads WineExplorer's drop-in after Debian's, so it is black. Its order

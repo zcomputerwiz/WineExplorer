@@ -362,7 +362,12 @@ open_menu() {
     # so the Advanced Options variant is one item down. Its start counts nothing (Vintner Boot's docs/variants.md).
     # GRUB checks Shift within 2 seconds of power-on, so the VM starts paused and the key is held from its first
     # instruction (vmtest hold --cont); systemd-boot comes later on OVMF.
+    # A start that misses the menu goes on to the desktop, where the start-up check counts it, and so saves the
+    # control set as Last Known Good (2026-11-12, OVMF: lastgood then "restored" the change it had to undo). The disk
+    # is snapshotted first and put back before the second try. One snapshot at a time, replaced at the next menu.
     local try
+    qemu-img snapshot -d menu-try "$STATE/disk.qcow2" >/dev/null 2>&1
+    qemu-img snapshot -c menu-try "$STATE/disk.qcow2" || fail "cannot snapshot the overlay before the menu"
     for try in 1 2; do
         "${V[@]}" start "$TEST" "${START_ARGS[@]}" --paused >/dev/null || fail "QEMU did not start"
         if [ "$FIRMWARE" = bios ]; then
@@ -402,9 +407,10 @@ open_menu() {
         fi
         [ "$try" = 2 ] && fail "no Vintner Boot menu with the Advanced Options variant"
         shot no-loader-menu
-        echo "  (Vintner Boot's menu did not show; starting again)"
+        echo "  (Vintner Boot's menu did not show; starting again from the disk as it was)"
         "${V[@]}" stop "$TEST" >/dev/null 2>&1
         wait_off 60 || fail "the VM did not stop"
+        qemu-img snapshot -a menu-try "$STATE/disk.qcow2" || fail "cannot put the overlay back after the missed menu"
     done
 }
 
@@ -896,6 +902,13 @@ expect_settings() {   # expect_settings Key=Value...: what boot1_settings report
     done
 }
 
+prompt_focus() {   # the password prompt is Explorer's window (wexhost's polkit agent), shown while System Properties
+                   # has the keyboard: once (UEFI, 2026-11-12) the keys meant for it went to Startup and Recovery.
+                   # A click on its text gives it the keyboard; the focus stays in its password box.
+    "${V[@]}" clicktext "$TEST" "type an administrator" >/dev/null 2>&1 || true   # OCR reads "password,"
+    sleep 1
+}
+
 phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the header
     local out options saved= crashdir= id
     attach ro || fail "cannot mount the overlay"
@@ -913,10 +926,17 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     out=$(gsh 'echo panic=$(cat /proc/sys/kernel/panic)' | grep '^panic=' | tail -n 1)
     [ "$out" = "panic=10" ] || fail "kernel.panic is not 10 by default: ${out:-no answer}"
     options=$(boot1_settings | sed -n 's/.* Options=\([^ ]*\).*/\1/p' | tr '+' ' ')
-    # the dialog: System Properties on its Advanced tab, then Settings under Startup and Recovery (Sett&ings)
-    gsh "python3 $HELPER --user $USER_NAME C:/windows/system32/control.exe sysdm.cpl,,3 >/dev/null; echo started" 30 \
-        | grep -q '^started' || fail "cannot start control.exe"
-    wait_text "Environment Variables" 60 || { shot no-advanced; fail "System Properties did not open on its Advanced tab"; }
+    # the dialog: System Properties on its Advanced tab, then Settings under Startup and Recovery (Sett&ings).
+    # Started by the shell, as a user would: polkit asks the agent of the caller's logind session, and a program the
+    # serial console starts (session-run.py) belongs to the console's session, which has none. Win+Pause (Explorer's
+    # hot key, as on XP) opens System Properties on General; Ctrl+Tab goes on to Computer Name, Hardware and Advanced.
+    # (Wine's Run does not do it: it takes what is typed as one file name, so "control sysdm.cpl,,3" is not found,
+    # and it has no verb for a .cpl file; XP's does both.)
+    "${V[@]}" key "$TEST" meta_l-pause >/dev/null
+    wait_text "Computer Name" 60 || { shot no-sysdm; fail "Win+Pause did not open System Properties"; }
+    sleep 2
+    "${V[@]}" key "$TEST" ctrl-tab ctrl-tab ctrl-tab >/dev/null
+    wait_text "Environment Variables" 30 || { shot no-advanced; fail "Ctrl+Tab did not reach System Properties' Advanced tab"; }
     "${V[@]}" key "$TEST" alt-i >/dev/null
     wait_text "Default operating system" 30 || { shot no-startrec; fail "the Startup and Recovery dialog did not open"; }
     sleep 2
@@ -933,6 +953,7 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     "${V[@]}" key "$TEST" ret >/dev/null
     wait_text "type an administrator password" 60 || { shot no-password; fail "OK did not ask for an administrator's password"; }
     shot password
+    prompt_focus
     "${V[@]}" key "$TEST" esc >/dev/null
     sleep 3
     out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
@@ -941,13 +962,17 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     echo "  password cancelled: the dialog stays open, with no message"
     "${V[@]}" key "$TEST" ret >/dev/null
     wait_text "type an administrator password" 60 || { shot no-password-2; fail "the second OK did not ask for a password"; }
+    prompt_focus
     "${V[@]}" key "$TEST" shift-tab >/dev/null   # the account list: the Administrator account
     "${V[@]}" type "$TEST" a
     "${V[@]}" key "$TEST" tab >/dev/null
     "${V[@]}" type "$TEST" "$(cat "$ADMIN_PWFILE")"
     "${V[@]}" key "$TEST" ret >/dev/null
-    sleep 5
-    out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
+    for _ in 1 2 3 4 5 6; do   # PAM, then the change; both close
+        sleep 5
+        out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
+        case "$out" in *"Default operating system"*) ;; *) break ;; esac
+    done
     case "$out" in *"Default operating system"*) shot still-open; fail "Startup and Recovery stayed open after the password" ;; esac
     expect_settings MenuTimeout=30 AutoRestart=True
     echo "  the Administrator's password saved a 30-second menu"
@@ -968,7 +993,12 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
         | grep '^files:' | tail -n 1)
     echo "  $out"
     [ "$out" = "files: recovery_timeout=7 panic=0 CrashAction=freeze" ] || fail "boot.conf, kernel.panic or CrashAction not as set: $out"
-    # Automatically restart off: a kernel panic waits (no new start in 75 seconds); then the power is cut
+    # Automatically restart off: a kernel panic waits (no new start in 75 seconds); then the power is cut.
+    # The firmware may leave a hardware watchdog running, which the kernel feeds until it panics: OVMF leaves the q35
+    # chipset's TCO counting, and it restarted the computer 45 to 60 seconds after a panic whatever kernel.panic said
+    # (2026-11-12; with the watchdog stopped the panic waited). That restart is the platform's, so it is stopped first
+    # (a magic close: "V", then close).
+    as_root "sh -c 'for w in /dev/watchdog[0-9]*; do [ -c \$w ] && printf V > \$w; done; true'" >/dev/null 2>&1
     id=$(boot_id)
     [ -n "$id" ] || fail "no boot ID"
     as_root "sh -c 'echo c > /proc/sysrq-trigger'" 10 >/dev/null 2>&1
@@ -1756,10 +1786,22 @@ phase_classic() {   # the classic "Log On to Windows" dialog (work order C4): se
     to_logon_screen
     to_classic
     shot classic
-    out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
-    case "$out" in *"User name"*) ;; *) fail "the classic dialog has no User name box" ;; esac
-    case "$out" in *Administrator*) ;; *) fail "the classic dialog does not fill in the last user, Administrator: $out" ;; esac
+    # wait_text also reads with a threshold: the plain pass loses the small labels on 1280 x 800
+    wait_text "User name" 10 || fail "the classic dialog has no User name box"
+    wait_text "Administrator" 10 || fail "the classic dialog does not fill in the last user, Administrator"
     echo "  normal start: the dialog fills in Administrator"
+    # Luna's blue caption, as XP's themed logon desktop has (wex-greeter.sh), not Wine's white Light one: the dialog
+    # (417 x 241) is centred across, its top where a 411-pixel template would be centred (msgina's logon.c)
+    local size w h rgb r g b
+    "${V[@]}" shot "$TEST" >/dev/null 2>&1 || fail "no screenshot"
+    size=$(head -n 2 "$STATE/screen.ppm" | tail -n 1)
+    w=${size% *} h=${size#* }
+    case "$w$h" in ''|*[!0-9]*) fail "cannot read the screen's size: $size" ;; esac
+    rgb=$(python3 "$HERE/screen-pixel.py" "$STATE/screen.ppm" $(((w - 417) / 2 + 300)) $(((h - 411) / 2 + 14))) \
+        || fail "cannot read the screenshot"
+    read -r r g b <<< "$rgb"
+    echo "  caption: $rgb"
+    [ "$b" -ge 150 ] && [ "$r" -le 120 ] || { shot unthemed; fail "the classic dialog's caption is not Luna's blue: $rgb"; }
     "${V[@]}" key "$TEST" alt-o >/dev/null
     wait_text "Shut Down" 10 || { shot no-options; fail "Options did not show Shut Down..."; }
     shot options
