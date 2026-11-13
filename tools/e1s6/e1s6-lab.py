@@ -982,6 +982,13 @@ def service(server_path, system_group, pam_paths=None):
                     self.server_gen, self.broker_gen, self.session = server_gen, broker_gen, session
                     self.server_pin, pin = pin, None
                     self.host, self.channel = random_bytes(16), random_bytes(16)
+                    if r9_enabled and self.kind == CHANNEL_KIND_B0:
+                        # Session 0's broker opens its channel when it takes a request, before the dialog
+                        # exists; its START follows only after the person chose an account. The 5 s setup
+                        # bound would end the channel while the person reads the dialog, so a B0 channel
+                        # gets the longest request lifetime the brokers use (130 s) until START names the
+                        # attempt's own deadline.
+                        self.deadline = max(self.deadline, time.monotonic_ns() + 130_000_000_000)
                     gens = root_gen, server_gen, broker_gen, verifier_gen
                     self.reg = registration(1, random_bytes(16), gens, self.host, self.channel, session)
                 else:
@@ -1029,6 +1036,13 @@ def service(server_path, system_group, pam_paths=None):
                                 rec["a_channel"] = a_tx
                                 rec["b0_channel"] = self
                                 self.endorsed_records[(rid, attempt)] = rec
+                                # The attempt now runs at the person's pace on this channel too: it lives
+                                # until the attempt's deadline (checked and bounded, as for ENDORSED on the
+                                # agent's channel). Found by the R9 lab cases: three refused passwords take
+                                # longer than the setup bound.
+                                now = time.monotonic_ns()
+                                if now < rec["tuple"].deadline <= now + 300_000_000_000:
+                                    self.deadline = max(self.deadline, rec["tuple"].deadline)
                             else:
                                 rid, attempt = struct.unpack_from("<QI", raw, 12)
                                 require((rid, attempt) in self.endorsed_records, "start-without-endorsed")

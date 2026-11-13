@@ -40,6 +40,7 @@
  *   probe pipeserve PIPE          serves \\.\pipe\PIPE for one client (message mode, 30 s at most); prints
  *                                 clientsession=<GetNamedPipeClientSessionId> and message=<what the client wrote>
  *   probe pipesay PIPE TEXT       opens \\.\pipe\PIPE and writes TEXT; prints say=ok or say=error<n>
+ *   probe pipehold PIPE SECONDS   opens \\.\pipe\PIPE for read/write, holds for SECONDS; prints hold=ok or hold=error<n>
  * Build: x86_64-w64-mingw32-gcc / i686-w64-mingw32-gcc -municode -o probe.exe system-tier-probe.c -ladvapi32 -lntdll */
 
 #include <windows.h>
@@ -201,6 +202,26 @@ int __cdecl wmain( int argc, WCHAR **argv )
         GetOverlappedResult( pipe, &ov, &done, FALSE );
         text[done < sizeof(text) ? done : sizeof(text) - 1] = 0;
         printf( "message=%s\n", text );
+        CloseHandle( pipe );
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"pipehold" ))
+    {
+        WCHAR path[MAX_PATH];
+        HANDLE pipe;
+        int seconds = _wtoi( argv[3] );
+
+        lstrcpyW( path, L"\\\\.\\pipe\\" );
+        lstrcpynW( path + 9, argv[2], MAX_PATH - 9 );
+        pipe = CreateFileW( path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
+        if (pipe == INVALID_HANDLE_VALUE)
+        {
+            printf( "hold=error%lu\n", GetLastError() );
+            return 1;
+        }
+        printf( "hold=ok\n" );
+        fflush( stdout );
+        if (seconds > 0) Sleep( seconds * 1000 );
         CloseHandle( pipe );
         return 0;
     }

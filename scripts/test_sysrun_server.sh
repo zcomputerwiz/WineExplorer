@@ -1879,38 +1879,277 @@ EOF
         done
         grep -q 'r9b: serving' <<<"$wine_new_log" ||
             { tail -30 <<<"$wine_new_log" >&2; tail -10 "$ROOT/session0.log" >&2; fail "r9_e2e: the broker does not serve in session 0"; }
+        r9_sid="S-1-5-21-$(awk -v n="$ADM" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
+
+        # 1. r9_e2e_elevated_32: parameterise the existing case over 64 and 32
+        for arch in 64 32; do
+            el_down "$STD"
+            el_clean
+            rm -f "$EL/r9_e2e_res_${arch}.txt"
+            e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+            wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+            el_up "$STD"
+            wine_as "$STD" "$ROOT/probes/wexelevate_probe$arch.exe" runinteractive \
+                "$(winpath /home/$STD/wexel/p$arch.exe)" 0 "$(winpath "$EL/r9_e2e_res_${arch}.txt")" - \
+                >"$ROOT/r9_e2e_probe_$arch.log" 2>&1 &
+            PROBE_PID=$!
+            for _ in $(seq 1 600); do
+                wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+                grep -qE 'r8: launched|r8: .* failed|r9b: end |r9a: .* failed' <<<"$wine_new_log" && break
+                sleep 0.1
+            done
+            sleep 1
+            wait "$PROBE_PID" 2>/dev/null || true
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+            for m in 'r9a: request sent' 'r9b: request' 'r9b: decision prompt' 'r9b: endorsed' 'r9b: ack ok' \
+                     'r9b: account known' 'r9b: worker ready' 'r9b: ready sent' 'r9b: result sent' 'r9b: confirm ok' \
+                     'r9b: granted' 'r9b: launch sent' 'r9a: redeemed' 'r8: launched' 'r9b: launched' 'r9b: end completed'; do
+                grep -q "$m" <<<"$wine_new_log" || { grep -E 'r8: |r9a: |r9b: |E1S6_|err:|fixme:wex' <<<"$wine_new_log" | tail -60 >&2
+                    tail -25 <<<"$e1s6_new_log" >&2; tail -10 "$ROOT/session0.log" >&2; fail "r9_e2e_elevated_$arch: '$m' missing"; }
+            done
+            for m in 'E1R8_GRANTED request=' 'E1R8_REDEEMED request=' 'E1R8_RELEASED request='; do
+                grep -q "$m" <<<"$e1s6_new_log" || { tail -25 <<<"$e1s6_new_log" >&2; fail "r9_e2e_elevated_$arch: the verifier has no '$m'"; }
+            done
+            [ "$(el_fact "$EL/r9_e2e_res_${arch}.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r9_e2e_res_${arch}.txt" integrity)" = 12288 ] ||
+                { cat "$EL/r9_e2e_res_${arch}.txt" "$ROOT/r9_e2e_probe_$arch.log" >&2; fail "r9_e2e_elevated_$arch: the program did not run elevated"; }
+            [ "$(el_fact "$EL/r9_e2e_res_${arch}.txt" user)" = "$r9_sid" ] ||
+                { cat "$EL/r9_e2e_res_${arch}.txt" >&2; echo "expected $r9_sid" >&2
+                  fail "r9_e2e_elevated_$arch: the program does not run as the administrator account"; }
+            ! pgrep -f 'system32.consent[.]exe' >/dev/null || fail "r9_e2e_elevated_$arch: the dialog is still running"
+            [ "$arch" = 64 ] && ok r9_e2e_elevated_through_session0 || ok r9_e2e_elevated_32
+        done
+
+        # 2. r9_retry_after_wrong_password: first password wrong, second right
+        s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "not-$R8PW" /f
+        s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword2 /d "$R8PW" /f
+        el_down "$STD"
+        el_clean
+        rm -f "$EL/r9_retry.txt"
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
         el_up "$STD"
         wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r9_e2e_res.txt")" - \
-            >"$ROOT/r9_e2e_probe.log" 2>&1 &
+            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r9_retry.txt")" - \
+            >"$ROOT/r9_retry.log" 2>&1 &
         PROBE_PID=$!
         for _ in $(seq 1 600); do
             wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-            grep -qE 'r8: launched|r8: .* failed|r9b: end |r9a: .* failed' <<<"$wine_new_log" && break
+            grep -qE 'r8: launched|r8: .* failed|r9b: end ' <<<"$wine_new_log" && break
             sleep 0.1
         done
-        sleep 1
         wait "$PROBE_PID" 2>/dev/null || true
         wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
         e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-        for m in 'r9a: request sent' 'r9b: request' 'r9b: decision prompt' 'r9b: endorsed' 'r9b: ack ok' \
-                 'r9b: account known' 'r9b: worker ready' 'r9b: ready sent' 'r9b: result sent' 'r9b: confirm ok' \
-                 'r9b: granted' 'r9b: launch sent' 'r9a: redeemed' 'r8: launched' 'r9b: launched' 'r9b: end completed'; do
-            grep -q "$m" <<<"$wine_new_log" || { grep -E 'r8: |r9a: |r9b: |E1S6_|err:|fixme:wex' <<<"$wine_new_log" | tail -60 >&2
-                tail -25 <<<"$e1s6_new_log" >&2; tail -10 "$ROOT/session0.log" >&2; fail "r9_e2e_elevated: '$m' missing"; }
+        [ "$(grep -c 'r9b: result refused' <<<"$wine_new_log")" = 1 ] && grep -q 'r9b: further attempt' <<<"$wine_new_log" ||
+            { grep -E 'r8: |r9a: |r9b: |E1S6_' <<<"$wine_new_log" | tail -30 >&2; fail "r9_retry_after_wrong_password: no refusal followed by further attempt"; }
+        grep -q 'r9a: next attempt' <<<"$wine_new_log" || fail "r9_retry_after_wrong_password: 'r9a: next attempt' missing"
+        [ "$(grep -c 'r9b: endorsed' <<<"$wine_new_log")" = 2 ] || fail "r9_retry_after_wrong_password: second 'r9b: endorsed' missing"
+        for m in 'r9b: granted' 'r9b: launch sent' 'r9a: redeemed' 'r8: launched' 'r9b: launched' 'r9b: end completed'; do
+            grep -q "$m" <<<"$wine_new_log" || { grep -E 'r8: |r9a: |r9b: |E1S6_' <<<"$wine_new_log" | tail -30 >&2; fail "r9_retry_after_wrong_password: '$m' missing"; }
         done
-        for m in 'E1R8_GRANTED request=' 'E1R8_REDEEMED request=' 'E1R8_RELEASED request='; do
-            grep -q "$m" <<<"$e1s6_new_log" || { tail -25 <<<"$e1s6_new_log" >&2; fail "r9_e2e_elevated: the verifier has no '$m'"; }
+        grep -q 'E1R8_RESULT request=.* authenticated=0' <<<"$e1s6_new_log" || fail "r9_retry_after_wrong_password: no unauthenticated result in verifier log"
+        grep -q 'E1R8_RESULT request=.* authenticated=1' <<<"$e1s6_new_log" || fail "r9_retry_after_wrong_password: no authenticated result in verifier log"
+        [ "$(grep -c 'E1R8_REDEEMED' <<<"$e1s6_new_log")" = 1 ] || fail "r9_retry_after_wrong_password: not exactly one redemption"
+        [ "$(el_fact "$EL/r9_retry.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r9_retry.txt" user)" = "$r9_sid" ] ||
+            { cat "$EL/r9_retry.txt" >&2; fail "r9_retry_after_wrong_password: program is not the elevated administrator"; }
+        ! pgrep -f 'system32.consent[.]exe' >/dev/null || fail "r9_retry_after_wrong_password: dialog is still running"
+        ok r9_retry_after_wrong_password
+
+        # 3. r9_wrong_password_refused: three wrong passwords refused
+        s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "not-$R8PW" /f
+        s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword2 /f >/dev/null 2>&1 || true
+        el_down "$STD"
+        el_clean
+        rm -f "$EL/r9_wrongpw.txt"
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 1326 "$(winpath "$EL/r9_wrongpw.txt")" - \
+            >"$ROOT/r9_wrongpw.log" 2>&1 &
+        PROBE_PID=$!
+        for _ in $(seq 1 600); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -q 'r9b: end cancelled' <<<"$wine_new_log" && break
+            sleep 0.1
         done
-        [ "$(el_fact "$EL/r9_e2e_res.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r9_e2e_res.txt" integrity)" = 12288 ] ||
-            { cat "$EL/r9_e2e_res.txt" "$ROOT/r9_e2e_probe.log" >&2; fail "r9_e2e_elevated: the program did not run elevated"; }
-        # (r8_rid was reused for a request id by an earlier case: read the administrator's SID again)
-        r9_sid="S-1-5-21-$(awk -v n="$ADM" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
-        [ "$(el_fact "$EL/r9_e2e_res.txt" user)" = "$r9_sid" ] ||
-            { cat "$EL/r9_e2e_res.txt" >&2; echo "expected $r9_sid" >&2
-              fail "r9_e2e_elevated: the program does not run as the administrator account"; }
-        ! pgrep -f 'system32.consent[.]exe' >/dev/null || fail "r9_e2e_elevated: the dialog is still running"
-        ok r9_e2e_elevated_through_session0
+        wait "$PROBE_PID" 2>/dev/null || true
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+        [ "$(grep -c 'r9b: result refused' <<<"$wine_new_log")" = 3 ] ||
+            { grep -E 'r9b: ' <<<"$wine_new_log" >&2; fail "r9_wrong_password_refused: not exactly three refused attempts"; }
+        grep -q 'r9b: end cancelled' <<<"$wine_new_log" || fail "r9_wrong_password_refused: 'r9b: end cancelled' missing"
+        ! grep -qE 'r9a: redeemed|r8: launched|E1R8_GRANTED|E1R8_REDEEMED' <<<"$wine_new_log$e1s6_new_log" ||
+            fail "r9_wrong_password_refused: evidence, redeem or launch occurred"
+        [ ! -e "$EL/r9_wrongpw.txt" ] || fail "r9_wrong_password_refused: program output file exists"
+        ! pgrep -f 'system32.consent[.]exe' >/dev/null || fail "r9_wrong_password_refused: dialog is still running"
+        ok r9_wrong_password_refused
+
+        # 4. r9_dialog_killed_no_launch: kill dialog while worker holds password
+        s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "not-$R8PW" /f
+        s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword2 /f >/dev/null 2>&1 || true
+        el_down "$STD"
+        el_clean
+        rm -f "$EL/r9_dialog_killed_res.txt"
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r9_dialog_killed_res.txt")" - \
+            >"$ROOT/r9_dialog_killed.log" 2>&1 &
+        PROBE_PID=$!
+        for _ in $(seq 1 100); do
+            grep -q 'E1R8_DELEGATED' <<<"$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")" && break
+            sleep 0.1
+        done
+        grep -q 'E1R8_DELEGATED' <<<"$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")" ||
+            fail "r9_dialog_killed_no_launch: password conversation did not start"
+        sleep 0.5
+        consent_unix_pid="$(el_proc "$STD" consent)"
+        [ -n "$consent_unix_pid" ] && [ -d "/proc/$consent_unix_pid" ] ||
+            consent_unix_pid="$(sed -n 's/.*E1R8_ENDORSED ok request=.* pid=\([0-9]*\).*/\1/p' <<<"$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")" | tail -1)"
+        [ -n "$consent_unix_pid" ] && [ -d "/proc/$consent_unix_pid" ] || fail "r9_dialog_killed_no_launch: no live dialog process"
+        kill -9 "$consent_unix_pid" 2>/dev/null || true
+        for _ in $(seq 1 300); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -q 'r9b: end cancelled' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        wait "$PROBE_PID" 2>/dev/null || true
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+        grep -qE 'r9b: .* failed' <<<"$wine_new_log" || fail "r9_dialog_killed_no_launch: broker did not report failure"
+        grep -q 'r9b: end cancelled' <<<"$wine_new_log" || fail "r9_dialog_killed_no_launch: broker did not end cancelled"
+        ! grep -qE 'r9a: redeemed|r8: launched|E1R8_GRANTED|E1R8_REDEEMED' <<<"$wine_new_log$e1s6_new_log" ||
+            fail "r9_dialog_killed_no_launch: evidence, redeem or launch occurred"
+        [ ! -e "$EL/r9_dialog_killed_res.txt" ] || fail "r9_dialog_killed_no_launch: program started"
+        # B0 must not stay busy: recovery normal elevation succeeds
+        s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "$R8PW" /f
+        el_down "$STD"
+        el_clean
+        rm -f "$EL/r9_dialog_killed_norm.txt"
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r9_dialog_killed_norm.txt")" - \
+            >"$ROOT/r9_dialog_killed_norm.log" 2>&1 &
+        PROBE_PID=$!
+        for _ in $(seq 1 600); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -qE 'r8: launched|r8: .* failed|r9b: end ' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        wait "$PROBE_PID" 2>/dev/null || true
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        grep -q 'r8: launched' <<<"$wine_new_log" && grep -q 'r9b: end completed' <<<"$wine_new_log" ||
+            fail "r9_dialog_killed_no_launch: recovery elevation failed"
+        [ "$(el_fact "$EL/r9_dialog_killed_norm.txt" elevation)" = 2 ] ||
+            fail "r9_dialog_killed_no_launch: recovery program was not elevated"
+        ok r9_dialog_killed_no_launch
+
+        # 5. r9_broker_gone_denies: stop session 0 broker, request denied
+        s0_wine sc stop wexelevate >/dev/null || true
+        for _ in $(seq 1 50); do pgrep -u "$S0U" -f 'wexelevate\.exe' >/dev/null || break; sleep 0.1; done
+        ! pgrep -u "$S0U" -f 'wexelevate\.exe' >/dev/null || fail "r9_broker_gone_denies: broker did not stop"
+        el_down "$STD"
+        el_clean
+        rm -f "$EL/r9_broker_gone.txt"
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 5 "$(winpath "$EL/r9_broker_gone.txt")" - \
+            >"$ROOT/r9_broker_gone.log" 2>&1 || true
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        grep -q 'r9a open failed' <<<"$wine_new_log" || fail "r9_broker_gone_denies: 'r9a open failed' missing"
+        ! pgrep -f 'system32.consent[.]exe' >/dev/null || fail "r9_broker_gone_denies: consent dialog was created"
+        [ ! -e "$EL/r9_broker_gone.txt" ] || fail "r9_broker_gone_denies: program ran"
+        # Start service again afterwards
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+            WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" sc start wexelevate \
+            </dev/null >>"$ROOT/e1s6-wine.log" 2>&1) || true
+        for _ in $(seq 1 300); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -q 'r9b: serving' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        grep -q 'r9b: serving' <<<"$wine_new_log" || fail "r9_broker_gone_denies: broker did not resume serving"
+        ok r9_broker_gone_denies
+
+        # 6. r9_agent_killed_frees_broker: kill agent, broker freed
+        s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /f >/dev/null 2>&1 || true
+        s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword2 /f >/dev/null 2>&1 || true
+        s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoSelect /d "$ADM" /f >/dev/null 2>&1 || true
+        el_down "$STD"
+        el_clean
+        rm -f "$EL/r9_agent_killed.txt"
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r9_agent_killed.txt")" - \
+            >"$ROOT/r9_agent_killed_probe.log" 2>&1 &
+        PROBE_PID=$!
+        for _ in $(seq 1 300); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -qE 'r9b: worker ready|r9b: .* failed' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        # without a password to type the dialog waits here: the worker exists and B0 waits for the verifier
+        grep -q 'r9b: worker ready' <<<"$wine_new_log" ||
+            { grep -E 'r8: |r9a: |r9b: |E1S6_' <<<"$wine_new_log" | tail -30 >&2; fail "r9_agent_killed_frees_broker: the attempt did not reach the worker"; }
+        agent_pid="$(el_proc "$STD" wexelevate)"
+        [ -n "$agent_pid" ] || agent_pid="$(pgrep -u "$STD" -f 'wexelevate' | head -1)"
+        [ -n "$agent_pid" ] || fail "r9_agent_killed_frees_broker: agent process not found"
+        kill -9 "$agent_pid"
+        for _ in $(seq 1 600); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -q 'r9b: end' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        wait "$PROBE_PID" 2>/dev/null || true
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        grep -qE 'r9b: .* failed' <<<"$wine_new_log" || fail "r9_agent_killed_frees_broker: broker did not report failure"
+        grep -q 'r9b: end' <<<"$wine_new_log" || fail "r9_agent_killed_frees_broker: broker did not end"
+        pkill -u "$STD" -f 'system32.consent[.]exe' 2>/dev/null || true
+        # B0 must not stay busy: recovery normal elevation succeeds
+        s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "$R8PW" /f
+        el_down "$STD"
+        el_clean
+        rm -f "$EL/r9_agent_killed_norm.txt"
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r9_agent_killed_norm.txt")" - \
+            >"$ROOT/r9_agent_killed_norm.log" 2>&1 &
+        PROBE_PID=$!
+        for _ in $(seq 1 600); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -qE 'r8: launched|r8: .* failed|r9b: end ' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        wait "$PROBE_PID" 2>/dev/null || true
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        grep -q 'r8: launched' <<<"$wine_new_log" && grep -q 'r9b: end completed' <<<"$wine_new_log" ||
+            fail "r9_agent_killed_frees_broker: recovery elevation failed"
+        [ "$(el_fact "$EL/r9_agent_killed_norm.txt" elevation)" = 2 ] ||
+            fail "r9_agent_killed_frees_broker: recovery program was not elevated"
+        ok r9_agent_killed_frees_broker
+
+        # 7. r9_idle_clients_do_not_hold_broker: refusal for non-system caller
+        s0_log_before=$(wc -l < "$ROOT/session0.log")
+        hold_out="$(wine_as "$STD" "$ROOT/probes/tierprobe64.exe" pipehold 'WexSession0\wexelevate.r9' 1 2>&1 | tr -d '\r' || true)"
+        [ "$hold_out" = "hold=error5" ] || fail "r9_idle_clients_do_not_hold_broker: standard user pipehold got '$hold_out', expected hold=error5"
+        grep -q 'session0: pipe open refused' <<<"$(tail -n +"$((s0_log_before + 1))" "$ROOT/session0.log")" ||
+            fail "r9_idle_clients_do_not_hold_broker: 'session0: pipe open refused' missing from session0.log"
+        ok r9_idle_clients_do_not_hold_broker
+
+        s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword2 /f >/dev/null 2>&1 || true
+        s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "$R8PW" /f >/dev/null 2>&1 || true
+
         el_down "$STD"
         pkill -u "$STD" 2>/dev/null || true
         s0_stop
@@ -2846,14 +3085,19 @@ sleep 7
 grep -q '^"v"="acked"' "$UREG" || fail "session 0 did not send the hive again after a failed save"
 el_down "$STD"
 ok st_a_failed_save_of_the_user_hive_is_sent_again
-# a server that the user starts without the launcher reads the same configuration, and session 0 refuses it
+# a server that the user starts without the launcher reads the same configuration but is no client of session 0
+# (session 0 serves launcher-started servers only): it answers from its prefix's own files, as before session 0
+# existed, and session 0 never sees it. (Session 0 has saved the hive by now, so the value itself does not tell.)
+S0_LINES="$(wc -l < "$ROOT/session0.log")"
 prefix_server_env "$STD" -p 30 >/dev/null 2>&1 &
 sleep 2
 [ -n "$(server_pid "$STD")" ] || fail "no server started by $STD without the launcher"
-wine_as "$STD" reg query 'HKLM\Software\WexTier' /v FromSession0 >/dev/null 2>&1 &&
-    fail "session 0 served a server started without the launcher"
+OUT="$(wine_as "$STD" reg query 'HKLM\Software\WexTier' /v FromSession0 2>/dev/null | awk '$1 == "FromSession0" { print $NF }')"
+[ -n "$OUT" ] || fail "a server started without the launcher cannot read the machine registry of its own files"
+! tail -n +"$((S0_LINES + 1))" "$ROOT/session0.log" | grep -q "uid $(id -u "$STD")" ||
+    fail "session 0 registered a server started without the launcher"
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
-ok st_server_started_without_the_launcher_is_refused_by_session0
+ok st_server_started_without_the_launcher_does_not_use_session0
 # T6.2: each launcher-started server keeps a session link and answers session 0's orders on it
 for u in "$STD" "$ADM"; do
     grep -aq "^session0: session [0-9]* (server pid [0-9]*, uid $(id -u "$u")) answers on its link: session id [0-9]*\$" "$ROOT/session0.log" ||
