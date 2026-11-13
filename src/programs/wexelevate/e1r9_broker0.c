@@ -546,7 +546,14 @@ static DWORD WINAPI r9b_client_thread( void *param )
 
     r9b_request( pipe, busy );
     if (!busy) InterlockedExchange( &r9b_busy, 0 );
-    FlushFileBuffers( pipe );
+    /* The agent reads END and closes: wait for that, bounded and ended by a service stop, so the last message is
+     * not cut off by the disconnect. Never FlushFileBuffers here: a client that does not read would hold this
+     * worker, and with it one of the broker's few connections, for good (review, 2026-11-13). */
+    {
+        uint8_t last[E1R8_HEADER_SIZE];
+        DWORD done = 0;
+        pipe_io( pipe, last, sizeof(last), FALSE, 2000, &done );
+    }
     DisconnectNamedPipe( pipe );
     CloseHandle( pipe );
     InterlockedDecrement( &r9b_threads );
