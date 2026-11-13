@@ -41,6 +41,34 @@ public static class U1Input {
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(int x, int y);
     [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);
+    public static System.Collections.Generic.List<string> Dump() {
+        var list = new System.Collections.Generic.List<string>();
+        EnumWindows((h, l) => {
+            if (!IsWindowVisible(h)) return true;
+            var c = new System.Text.StringBuilder(256); GetClassName(h, c, 256);
+            var t = new System.Text.StringBuilder(256); GetWindowText(h, t, 256);
+            RECT r; GetWindowRect(h, out r);
+            if (r.Right - r.Left > 800) list.Add(c + " [" + t + "] " + r.Left + "," + r.Top + " " + r.Right + "," + r.Bottom);
+            return true;
+        }, IntPtr.Zero);
+        return list;
+    }
+    /* the visible application frame whose left edge is near x and whose client is as wide as the probe's bounds */
+    public static IntPtr FindFrame(int x, int width) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((h, l) => {
+            if (!IsWindowVisible(h)) return true;
+            var c = new System.Text.StringBuilder(256);
+            GetClassName(h, c, 256);
+            if (c.ToString() != "ApplicationFrameWindow") return true;
+            RECT r; GetWindowRect(h, out r);
+            if (Math.Abs(r.Left - x) <= 20 && Math.Abs((r.Right - r.Left) - width) <= 40) { found = h; return false; }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
     /* the visible CoreWindow of the process with this image name (the probe's own window) */
     public static IntPtr FindCoreWindow(string process) {
         IntPtr found = IntPtr.Zero;
@@ -58,6 +86,13 @@ public static class U1Input {
     public static void Key(ushort vk, bool up, bool extended) {
         var i = new INPUT[1]; i[0].type = 1; i[0].u.ki.wVk = vk;
         i[0].u.ki.dwFlags = (up ? 2u : 0u) | (extended ? 1u : 0u);
+        SendInput(1, i, Marshal.SizeOf(typeof(INPUT)));
+    }
+    /* an absolute move through SendInput (SetCursorPos does not produce pointer input for the application) */
+    public static void MoveTo(int x, int y, int screenWidth, int screenHeight) {
+        var i = new INPUT[1]; i[0].type = 0;
+        i[0].u.mi.dx = (int)((x * 65535L) / (screenWidth - 1)); i[0].u.mi.dy = (int)((y * 65535L) / (screenHeight - 1));
+        i[0].u.mi.dwFlags = 0x8001;
         SendInput(1, i, Marshal.SizeOf(typeof(INPUT)));
     }
     public static void Mouse(uint flags, uint data) {
@@ -95,34 +130,31 @@ try {
         $graphics.CopyFromScreen($screen.Left, $screen.Top, 0, 0, $bitmap.Size)
         $bitmap.Save((Join-Path $results 'screen-at-ready.png'))
         $graphics.Dispose(); $bitmap.Dispose()
-        # find the probe's window; a click on it brings it to the front. Never type into some other program: inject
-        # only when the probe's window is what is under the click point and then in front.
-        # the window has no title; the probe reports where it is (Bounds), and what is at the centre of that must be
-        # an application frame window of that rectangle
+        # The composed window cannot be found with window enumeration or UI Automation, so the probe's own log is the
+        # guard: the pointer is moved onto the bounds the probe reported, and only when the probe logged PointerEntered
+        # for it is it clicked (a click brings the window to the front); only when it logged PointerPressed is anything
+        # typed. Nothing is typed into another program.
         $line = Select-String -LiteralPath $file -Pattern '^INFO bounds now (\d+)x(\d+) at (-?\d+),(-?\d+)' | Select-Object -Last 1
         if (-not $line) { Write-Host 'present: no bounds reported, no input injected'; $ready = $false }
         else {
             $g = $line.Matches[0].Groups
             $cx = [int]$g[3].Value + [int]([int]$g[1].Value / 2); $cy = [int]$g[4].Value + [int]([int]$g[2].Value / 2)
-            $hwnd = [U1Input]::GetAncestor([U1Input]::WindowFromPoint($cx, $cy), 2)
-            $class = New-Object System.Text.StringBuilder 256
-            [void][U1Input]::GetClassName($hwnd, $class, 256)
-            "centre $cx,$cy window class '$($class.ToString())'" | Set-Content -LiteralPath (Join-Path $results 'injected.txt')
-            if ($class.ToString() -ne 'ApplicationFrameWindow') { Write-Host "present: '$($class.ToString())' is at the probe's centre, no input injected"; $ready = $false }
+            "centre $cx,$cy" | Set-Content -LiteralPath (Join-Path $results 'injected.txt')
         }
     }
+    function Seen([string]$pattern) { [bool](Select-String -LiteralPath $file -Pattern $pattern -Quiet) }
     if ($ready) {
-        [void][U1Input]::SetCursorPos($cx, $cy); Start-Sleep -Milliseconds 300
-        [U1Input]::Mouse(0x0002, 0); Start-Sleep -Milliseconds 100; [U1Input]::Mouse(0x0004, 0); Start-Sleep -Milliseconds 800   # activating click
-        $front = [U1Input]::GetForegroundWindow()
-        $class = New-Object System.Text.StringBuilder 256
-        [void][U1Input]::GetClassName($front, $class, 256)
-        if ($class.ToString() -ne 'ApplicationFrameWindow' -or $front -ne $hwnd) { Write-Host "present: foreground is '$($class.ToString())' after the click, no input injected"; $ready = $false }
+        $sw = $screen.Width; $sh = $screen.Height
+        [U1Input]::MoveTo($cx - 30, $cy - 20, $sw, $sh); Start-Sleep -Milliseconds 300
+        [U1Input]::MoveTo($cx, $cy, $sw, $sh); Start-Sleep -Milliseconds 600
+        if (-not (Seen 'PointerEntered')) { Write-Host 'present: the probe did not see the pointer, no click or keys'; $ready = $false }
     }
     if ($ready) {
-        [void][U1Input]::SetCursorPos($cx, $cy); Start-Sleep -Milliseconds 300
-        [void][U1Input]::SetCursorPos($cx + 40, $cy + 20); Start-Sleep -Milliseconds 300
-        [U1Input]::Mouse(0x0002, 0); Start-Sleep -Milliseconds 150; [U1Input]::Mouse(0x0004, 0); Start-Sleep -Milliseconds 300     # left down, up
+        [U1Input]::MoveTo($cx + 40, $cy + 20, $sw, $sh); Start-Sleep -Milliseconds 300
+        [U1Input]::Mouse(0x0002, 0); Start-Sleep -Milliseconds 150; [U1Input]::Mouse(0x0004, 0); Start-Sleep -Milliseconds 600     # left down, up
+        if (-not (Seen 'PointerPressed')) { Write-Host 'present: the probe saw no click, no keys'; $ready = $false }
+    }
+    if ($ready) {
         [U1Input]::Mouse(0x0008, 0); Start-Sleep -Milliseconds 150; [U1Input]::Mouse(0x0010, 0); Start-Sleep -Milliseconds 300     # right down, up
         [U1Input]::Mouse(0x0800, 120); Start-Sleep -Milliseconds 300                                                              # wheel up
         Tap 0x41                                                                                                                 # a
