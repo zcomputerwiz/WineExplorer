@@ -48,6 +48,34 @@
 #include <wchar.h>
 #include <zlib.h>
 
+/*
+ * The package family functions are looked up at run time and their flags are defined here: a Wine without them
+ * (before the package information APIs, WineExplorer UWP U1.2) still builds and installs packages that have no
+ * dependencies; a package that has one is then refused with a message.
+ */
+#ifndef PACKAGE_FILTER_HEAD
+#define PACKAGE_FILTER_HEAD        0x00000010
+#endif
+#ifndef PACKAGE_INFORMATION_BASIC
+#define PACKAGE_INFORMATION_BASIC  0x00000000
+#endif
+
+typedef LONG (WINAPI *PackageFamilyNameFromId_t)( const PACKAGE_ID *, UINT32 *, WCHAR * );
+typedef LONG (WINAPI *FindPackagesByPackageFamily_t)( const WCHAR *, UINT32, UINT32 *, WCHAR **, UINT32 *, WCHAR *, UINT32 * );
+
+static PackageFamilyNameFromId_t pPackageFamilyNameFromId;
+static FindPackagesByPackageFamily_t pFindPackagesByPackageFamily;
+
+static BOOL load_package_family_functions(void)
+{
+    HMODULE module = GetModuleHandleW( L"kernelbase.dll" );
+
+    if (!module) return FALSE;
+    pPackageFamilyNameFromId = (PackageFamilyNameFromId_t)GetProcAddress( module, "PackageFamilyNameFromId" );
+    pFindPackagesByPackageFamily = (FindPackagesByPackageFamily_t)GetProcAddress( module, "FindPackagesByPackageFamily" );
+    return pPackageFamilyNameFromId && pFindPackagesByPackageFamily;
+}
+
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #endif
@@ -588,15 +616,16 @@ static BOOL resolve_dependency( const struct manifest *manifest, const struct de
     if (minimum == ~(unsigned __int64)0) return FALSE;
     id.name = (WCHAR *)dep->name;
     id.publisher = (WCHAR *)dep->publisher;
-    if (PackageFamilyNameFromId( &id, &len, family )) return FALSE;
+    if (!load_package_family_functions()) return FALSE;
+    if (pPackageFamilyNameFromId( &id, &len, family )) return FALSE;
     arch = !wcscmp( manifest->arch, L"x64" ) ? PROCESSOR_ARCHITECTURE_AMD64 :
            !wcscmp( manifest->arch, L"x86" ) ? PROCESSOR_ARCHITECTURE_INTEL : PROCESSOR_ARCHITECTURE_NEUTRAL;
 
-    FindPackagesByPackageFamily( family, PACKAGE_FILTER_HEAD | PACKAGE_INFORMATION_BASIC, &count, NULL, &chars, NULL, NULL );
+    pFindPackagesByPackageFamily( family, PACKAGE_FILTER_HEAD | PACKAGE_INFORMATION_BASIC, &count, NULL, &chars, NULL, NULL );
     if (!count) return FALSE;
     names = calloc( count, sizeof(*names) );
     text = malloc( chars * sizeof(WCHAR) );
-    if (names && text && !FindPackagesByPackageFamily( family, PACKAGE_FILTER_HEAD | PACKAGE_INFORMATION_BASIC, &count,
+    if (names && text && !pFindPackagesByPackageFamily( family, PACKAGE_FILTER_HEAD | PACKAGE_INFORMATION_BASIC, &count,
                                                        names, &chars, text, NULL ))
     {
         for (i = 0; i < count; i++)
