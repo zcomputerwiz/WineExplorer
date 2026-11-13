@@ -3493,6 +3493,21 @@ OUT="$(as_wine "$STD" wexpolicy clear /machine || true)"   # the writer's own ex
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: $STD ran the writer"; }
 kill_servers
 ok st_machine_policy_and_clear_and_only_the_system_writes
+# Group Policy step 2: the domain join that session 0's registry states is what Windows programs are told
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" join)"
+    grep -q '^join=2 name=Workgroup' <<<"$OUT" && grep -q '^role=0 ' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a $b-bit program on a machine that is not joined"; }
+done
+s0_wine reg add 'HKLM\Software\WineExplorer\Domain' /v FlatName /d WEXLAB /f >/dev/null || fail "join: writing the join state"
+s0_wine reg add 'HKLM\Software\WineExplorer\Domain' /v Name /d wexlab.example.com /f >/dev/null || fail "join: writing the join state"
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" join)"
+    grep -q '^join=3 name=WEXLAB error=0' <<<"$OUT" && grep -q '^role=1 flat=WEXLAB dns=wexlab.example.com' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "join: a $b-bit program is not told the domain"; }
+done
+s0_wine reg delete 'HKLM\Software\WineExplorer\Domain' /f >/dev/null || true
+kill_servers
+ok st_programs_are_told_the_domain_join_from_session0
 # session 0 saves the hive as its own account; the users' servers accept it, and the write survives a restart
 s0_stop
 grep -q '^"fromadm"="elevated"' "$M/system.reg" || fail "session 0 did not save the elevated write"

@@ -24,6 +24,9 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   keys of the two policy trees have a descriptor by path (the user reads; SYSTEM and Administrators write); the
   trees are emptied and their roots created when the hive is loaded; `rename_key` refuses the keys above a tree to
   a caller who may not write the tree. `loader/wine.inf.in`: the service `gpsvc` (`wexpolicy.exe`, automatic).
+- `dlls/wkscli/wkscli.c` (`NetGetJoinInformation`), `dlls/dsrole/dsrole.c` (`DsRoleGetPrimaryDomainInformation`):
+  with `HKLM\Software\WineExplorer\Domain` (`FlatName`, `Name`) the machine is reported as a member of that domain;
+  without the key, stock behaviour. `wkscli` imports `advapi32` for it.
 - `dlls/ntdll/unix/server.c`: the channel to session 0 (`regsrv_*`): obtained from the process's server, a
   table of session 0 key handles that survives a new channel, reopen by path, lost-channel retry; `NtClose` and
   `NtDuplicateObject` (within the process) for those handles. `unix_private.h`: the interface.

@@ -235,6 +235,7 @@ cp "$ROOT_DIR/scripts/wex-locale-gen.sh" "$STAGE_SESSION/usr/local/sbin/wex-loca
 install -D -m755 "$SCRIPT_DIR/systemd/wex-bootmode-generator" "$STAGE_SESSION/usr/lib/systemd/system-generators/wex-bootmode-generator"
 cp "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$STAGE_SESSION/usr/local/bin/wex-gui-setup.sh"
 cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
+install -m 0755 "$SCRIPT_DIR/scripts/wex-domain-state.sh" "$STAGE_SESSION/usr/local/bin/wex-domain-state.sh"
 cp "$ROOT_DIR/scripts/wex-greeter.sh" "$STAGE_SESSION/usr/local/bin/wex-greeter.sh"
 cp "$ROOT_DIR/scripts/setup-machine-root.sh" "$STAGE_SESSION/usr/local/bin/wex-setup-machine.sh"
 cp "$ROOT_DIR/scripts/migrate-prefix-split.sh" "$STAGE_SESSION/usr/local/bin/wex-migrate-prefix.sh"

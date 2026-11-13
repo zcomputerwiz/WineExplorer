@@ -30,6 +30,8 @@ Environment=WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
 # the server's socket appears a moment after its unit is started
 ExecStartPre=/bin/sh -c 'i=0; while [ ! -S /run/wineexplorer-session0/session0 ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; [ -S /run/wineexplorer-session0/session0 ]'
 ExecStart=/usr/local/bin/wine wineboot.exe --init
+# the host's domain join, for Windows programs (docs/GROUP_POLICY.md, step 2); a failure does not fail the unit
+ExecStartPost=-/usr/local/bin/wex-domain-state.sh
 TimeoutStartSec=180
 # wineboot returns; services.exe and its services stay while the unit is active (RemainAfterExit). When the
 # unit stops, which it does before the server stops or restarts, systemd ends them (the default kill mode):

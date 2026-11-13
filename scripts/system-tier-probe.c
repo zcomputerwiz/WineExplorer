@@ -29,6 +29,8 @@
  *   probe setdacl KEY SDDL        sets the key's DACL from an SDDL string; prints setdacl=<error code>
  *   probe getdacl KEY             prints dacl=<the key's DACL as SDDL>
  *   probe whoami                  prints user=<the token user's SID> and session=<the process's session id>
+ *   probe join                    prints join=<NetGetJoinInformation's type> name=<name> and role=<the machine role
+ *                                 of DsRoleGetPrimaryDomainInformation> flat=<name> dns=<name>
  *   probe rpcbind PIPE            opens \\.\pipe\PIPE in message mode, sends a DCE/RPC bind for the service control
  *                                 manager's interface and prints pipe=open (or pipe=error<n>) and bind=<the answer's
  *                                 packet type: 12 bind_ack, 13 bind_nak>
@@ -82,6 +84,28 @@ int __cdecl wmain( int argc, WCHAR **argv )
         printf( "user=%ls\n", str );
         LocalFree( str );
         if (ProcessIdToSessionId( GetCurrentProcessId(), &size )) printf( "session=%lu\n", size );
+        return 0;
+    }
+    if (argc == 2 && !lstrcmpW( argv[1], L"join" ))
+    {
+        /* DSROLE_PRIMARY_DOMAIN_INFO_BASIC, written out: the probe builds without the header */
+        struct basic { int role; ULONG flags; WCHAR *flat, *dns, *forest; GUID guid; } *basic = NULL;
+        DWORD (WINAPI *get_join)( const WCHAR *, WCHAR **, int * );
+        DWORD (WINAPI *get_role)( const WCHAR *, int, BYTE ** );
+        HMODULE netapi = LoadLibraryW( L"netapi32.dll" ), dsrole = LoadLibraryW( L"dsrole.dll" );
+        WCHAR *name = NULL;
+        int type = -1;
+        DWORD err;
+
+        get_join = netapi ? (void *)GetProcAddress( netapi, "NetGetJoinInformation" ) : NULL;
+        get_role = dsrole ? (void *)GetProcAddress( dsrole, "DsRoleGetPrimaryDomainInformation" ) : NULL;
+        if (!get_join || !get_role) { printf( "join=noentry\n" ); return 1; }
+        err = get_join( NULL, &name, &type );
+        printf( "join=%d name=%ls error=%lu\n", type, name ? name : L"", err );
+        err = get_role( NULL, 1, (BYTE **)&basic );
+        if (err || !basic) printf( "role=error%lu\n", err );
+        else printf( "role=%d flat=%ls dns=%ls\n", basic->role, basic->flat ? basic->flat : L"",
+                     basic->dns ? basic->dns : L"" );
         return 0;
     }
     if (argc == 3 && !lstrcmpW( argv[1], L"rpcbind" ))

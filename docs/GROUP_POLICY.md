@@ -206,6 +206,27 @@ neither in the registry nor in the hive file; machine policy, `clear`, `list`; t
 user. Reviewed by Qwen (read-only), which found the link case above independently. Not tested: the link case
 itself, the rename rule, the service on an installed machine. Next: join detection (step 2).
 
+## Step 2: the domain join, told to Windows programs (2026-11-13)
+
+This differs from design steps 1 and 2 below (detection in `wexhost`, published over D-Bus): with session 0 the
+machine registry is one place that every session reads at once, so the join state is two registry values and no
+program asks a host service at each call.
+
+- `installer/scripts/wex-domain-state.sh` runs after session 0's Windows has started (an `ExecStartPost` of
+  `wex-session0-services.service`), as session 0's account. It detects the join without network or root rights:
+  `realm list` (realmd; SSSD or Winbind), else Samba's `security = ads` with a realm and a machine keytab. It
+  writes `HKLM\Software\WineExplorer\Domain` (`FlatName`, `Name`), or removes the key on a host that is not joined.
+  The flat name is Samba's `workgroup` when configured, else the first label of the DNS name.
+- `NetGetJoinInformation` (`wkscli`) returns `NetSetupDomainName` and the flat name; `DsRoleGetPrimaryDomainInformation`
+  (`dsrole`) returns a member workstation with the flat, DNS and forest names. Without the key both behave as
+  stock Wine. Listed in [STOCK_CHANGES.md](STOCK_CHANGES.md).
+- The state is read at session 0's start; a join or leave shows after `systemctl restart wex-session0-services`
+  or a reboot.
+
+Tested: the two functions from 64-bit and 32-bit programs of a standard user, with and without the key
+(`scripts/test_sysrun_server.sh`). Not tested: the detection script against a real join (needs the Samba AD
+controller in the lab, "Open questions"), and the forest name of a child domain (the DNS name is given).
+
 ## Design
 
 1. **Join detection (`wexhost`).** Detect the join from `net ads info` or SSSD/realmd state and publish domain name,
