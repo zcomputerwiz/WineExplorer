@@ -166,6 +166,11 @@ n_user=$(pgrep -u "$INSTALLED_USER" -f 'wuauserv' 2>/dev/null | wc -l)
 wine_cmd "$INSTALLED_USER" "wine net stop wuauserv" >/dev/null
 if [ "$n_sys" -ge 1 ] && [ "$n_user" -eq 0 ]; then
     ok service_forwarded
+elif [ -f /usr/local/share/wineexplorer/elevation.enable ] && [ "$n_sys" -eq 0 ] && [ "$n_user" -eq 0 ]; then
+    # an image with enforced elevation: the user's token is limited, and session 0 refuses it the start, as
+    # Windows refuses a standard user; the service runs nowhere
+    ok service_forwarded
+    echo "note service_start_by_the_user: refused (elevation is enforced)"
 else
     notok service_forwarded "wuauserv as wexsys: $n_sys, as $INSTALLED_USER: $n_user"
 fi

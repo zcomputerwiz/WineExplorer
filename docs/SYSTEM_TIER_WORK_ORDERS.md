@@ -609,6 +609,34 @@ there, in this order:
 4. a person driving the dialog at human pace;
 5. then the default.
 
+**Status (2026-11-13): steps 1 and 2 done for an administrator.**
+
+- The switch: `WEX_ELEVATION=1` for `package-wine.sh` and `build-iso.sh` leaves
+  `/usr/local/share/wineexplorer/elevation.enable`; setup then names the consent helper in the machine hive
+  (`HKLM\Software\Wine\Elevation`, `Helper`), which is what the servers and ntdll take as "enforced".
+- An image with `WEX_SESSION0=1 WEX_ELEVATION=1` installs without input and reaches the desktop.
+- `installer/tests/elevation.sh` passes on it (6 checks): the installed administrator's own programs are
+  limited (a write to `HKLM` is refused); a "runas" request shows the User Account Control dialog on the dimmed
+  desktop; Cancel leaves no write; Continue runs the command elevated and the write is there. The broker and
+  the dialog are the normal build's, found and answered on the screen.
+- `installer/tests/session0.sh` passes on it (16 checks); a service start from the user's session is refused
+  there, as Windows refuses a standard user, and is reported as a note.
+
+What the first run did not need: any change to the product besides the switch.
+
+Open:
+
+- **A standard user cannot elevate at all.** Password elevation (R8, R9) exists in lab form only: the only
+  verifier is `tools/e1s6/e1s6-lab.py`, written never to be installed; the R8/R9 code of the broker, the dialog,
+  the server and `wexhost` is compiled only with lab flags (`scripts/lab/r8-lab-build.sh`); the password worker
+  (`tools/e1s7/pam-worker.c`) is a lab build; the password has only ever been typed by a test hook. A production
+  verifier (bus name, D-Bus policy, unit, account), a worker with a real PAM service, and the code without the
+  test flags are a piece of work of their own.
+- Step 3 has only seen an idle desktop: the Control Panel, installing a program, a second user's first logon
+  and the rest of the shell under limited tokens are not exercised.
+- The secure desktop is presented on X11 only (`ELEVATION_SECURE_DESKTOP_WORKORDER.md`).
+- Setting the switch on a machine that already runs session 0 (an update) is not done: setup only says so.
+
 Why now: Group Policy is applied on an installed machine ([GROUP_POLICY.md](GROUP_POLICY.md), "End to end"), but
 a standard user can overwrite a policy value between refreshes while tokens are unrestricted. The protections of
 the policy trees take effect with enforcement, with no further change.

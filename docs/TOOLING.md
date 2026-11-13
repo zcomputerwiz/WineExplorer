@@ -121,6 +121,13 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   15 minutes (the guest installs Samba); passed on 2026-11-13 with `/root/vmtest-s0/wex-s0`. It uses
   `VMTEST_QEMU_EXTRA`, which `scripts/vmtest.py start` appends to QEMU's arguments. Pitfall found: the installed
   system's network service takes a hand-set address off the second card unless told not to manage it.
+* `installer/tests/elevation.sh` (enforced elevation on an installed machine; `docs/SYSTEM_TIER_WORK_ORDERS.md`,
+  "Enforced elevation on an installed machine"): as root, `VMTEST_DIR=DIR bash installer/tests/elevation.sh SOURCE_VM
+  [TEST_VM]`. SOURCE_VM is a disk installed from an ISO packaged with `WEX_SESSION0=1 WEX_ELEVATION=1` (both for
+  `package-wine.sh` and for `build-iso.sh`). It builds `scripts/wexelevate_probe.c` with MinGW, copies it into an
+  overlay, and answers the real consent dialog on the screen (Enter for Cancel, a click on "Continue"). About 8
+  minutes; passed on 2026-11-13 in wexbuild (`/root/vmtest-el/wex-el`, ISO `/root/out/wex-el.iso`). Pitfall: the
+  screen reading does not find "Cancel" under the default button's focus mark.
 * `installer/tests/session0.sh` (system tier, session 0 on an installed machine; `docs/SYSTEM_TIER_WORK_ORDERS.md`): as
   root, `VMTEST_DIR=DIR bash installer/tests/session0.sh SOURCE_VM [TEST_VM]`. SOURCE_VM is a disk installed by
   `install-unattended.sh` from an ISO packaged with `WEX_SESSION0=1` (the variable must be set for `build-iso.sh`
