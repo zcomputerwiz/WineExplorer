@@ -465,7 +465,8 @@ Status (2026-11-12): done, as Safe Mode work order D5 (`docs/SAFE_MODE_WORKORDER
 `org.wineexplorer.Boot1` (`scripts/wex-boot1.py`, polkit `org.wineexplorer.boot1.set-startup`, `auth_admin_keep`).
 The menu timeout uses `vintner menu-timeout` (WO-0010 4.7, Vintner `601ad75`; `d3fe892` reads it while the ESP is
 mounted read-write elsewhere, as `/efi` or `/boot/efi`) and Edit uses `vintner cmdline set`.
-"System failure" has only "Automatically restart" (`kernel.panic`); there are no crash dumps (no kdump).
+"System failure" has only "Automatically restart", on by default as on XP: a kernel panic (`kernel.panic`) and a crash
+of systemd (`CrashAction=`) restart after 10 seconds; there are no crash dumps (no kdump).
 
 ### 4.7 Documentation
 

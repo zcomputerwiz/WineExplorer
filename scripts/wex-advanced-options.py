@@ -42,6 +42,9 @@ import time
 STATE_DIR = os.environ.get("WEX_BOOTMODE_STATE_DIR", "/run/wineexplorer")
 SETUP_STAGE = os.environ.get("WEX_BOOTMODE_SETUP_STAGE", "/etc/wineexplorer/setup/stage")
 PANIC_SYSCTL = os.environ.get("WEX_PANIC_SYSCTL", "/proc/sys/kernel/panic")
+# "Disable automatic restart on system failure" for systemd's own crash too: a drop-in in /run (this start only) that
+# sorts after Startup and Recovery's 90-wineexplorer-recovery.conf in /usr/lib or /etc, so its CrashAction wins
+CRASH_RUNTIME = os.environ.get("WEX_CRASH_RUNTIME", "/run/systemd/system.conf.d/99-wineexplorer-norestart.conf")
 CMDLINE = os.environ.get("WEX_BOOTMODE_CMDLINE", "/proc/cmdline")
 LASTGOOD = os.environ.get("WEX_LASTGOOD_HELPER", "/usr/local/sbin/wex-lastgood")
 VINTNER = os.environ.get("WEX_VINTNER", "/usr/sbin/vintner")
@@ -399,9 +402,13 @@ def apply_choice(mode, option=None, run=subprocess.run):
     write_state("bootmode", mode)
     if option:
         write_state("bootoption", option)
-    if option == "norestart":
+    if option == "norestart":   # a kernel panic waits, and a crash of systemd freezes (the reload below reads it)
         with open(PANIC_SYSCTL, "w", encoding="ascii") as f:
             f.write("0\n")
+        os.makedirs(os.path.dirname(CRASH_RUNTIME), exist_ok=True)
+        with open(CRASH_RUNTIME, "w", encoding="ascii") as f:
+            f.write("# wex-advanced-options: Disable automatic restart on system failure, this start only\n"
+                    "[Manager]\nCrashAction=freeze\n")
     if option == "debug":
         run(["systemd-analyze", "log-level", "debug"], check=False)
     if option == "lastgood":

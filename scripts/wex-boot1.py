@@ -11,8 +11,10 @@ XP keeps them in boot.ini and the registry. Here they belong to root:
   screen (wex-advanced-options) and its countdown: recovery_menu= and recovery_timeout= in
   /etc/wineexplorer/boot.conf. As on XP (measured 2026-11-12, where they are bytes 8 and 9 of bootstat.dat), turned
   off means no failure screen at all after a failed start, and the seconds are kept for when it is turned on again.
-- AutoRestart: "Automatically restart" after a system failure, kernel.panic
-  (/etc/sysctl.d/90-wineexplorer-recovery.conf, and the running kernel's value).
+- AutoRestart: "Automatically restart" after a system failure, on by default as on XP. Linux has two: a kernel panic
+  (kernel.panic, /etc/sysctl.d/90-wineexplorer-recovery.conf over the package's /usr/lib/sysctl.d one, and the running
+  kernel's value) and a crash of systemd itself (CrashAction=, /etc/systemd/system.conf.d/90-wineexplorer-recovery.conf
+  over the package's /usr/lib one). Both restart after 10 seconds when it is on, and wait when it is off.
 - Options: the kernel command line's options, /etc/kernel/cmdline (`vintner cmdline`), which the dialog's Edit opens
   in Notepad, as XP opens boot.ini. A change publishes a new generation, which falls back by itself if it does not
   start.
@@ -40,6 +42,9 @@ VINTNER = os.environ.get("WEX_VINTNER", "/usr/sbin/vintner")
 BOOT_CONF = os.environ.get("WEX_BOOT_CONF", "/etc/wineexplorer/boot.conf")
 PANIC_CONF = os.environ.get("WEX_PANIC_CONF", "/etc/sysctl.d/90-wineexplorer-recovery.conf")
 PANIC_SYSCTL = os.environ.get("WEX_PANIC_SYSCTL", "/proc/sys/kernel/panic")
+PANIC_DEFAULT = os.environ.get("WEX_PANIC_DEFAULT", "/usr/lib/sysctl.d/90-wineexplorer-recovery.conf")
+CRASH_CONF = os.environ.get("WEX_CRASH_CONF", "/etc/systemd/system.conf.d/90-wineexplorer-recovery.conf")
+SYSTEMCTL = os.environ.get("WEX_SYSTEMCTL", "systemctl")
 PRODUCT_CONF = os.environ.get("WEX_PRODUCT_CONF", "/etc/vintner/product.conf")
 RECOVERY_DEFAULT = 30    # seconds, as XP
 TIMEOUT_MAX = 999        # the dialog's range, as XP's
@@ -146,19 +151,16 @@ def set_recovery(enabled, seconds, path=None):
     set_conf_value(path, "recovery_timeout", str(seconds), BOOT_CONF_HEADER)
 
 
-def panic_value(path=None, live=None):
-    """kernel.panic as the next start sets it: our sysctl.d file, else the running kernel's value."""
-    try:
-        with open(path or PANIC_CONF, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                if key.strip() == "kernel.panic":
-                    return int(value.strip())
-    except (OSError, ValueError):
-        pass
+def panic_value(path=None, live=None, default=None):
+    """kernel.panic as the next start sets it: our file in /etc/sysctl.d, which replaces the package's one of the same
+    name in /usr/lib/sysctl.d (on, as XP's default); without either, or without the key, the running kernel's value."""
+    for name in (path or PANIC_CONF, default or PANIC_DEFAULT):
+        if os.path.exists(name):
+            value = read_conf(name).get("kernel.panic")
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                break
     try:
         with open(live or PANIC_SYSCTL, encoding="ascii") as f:
             return int(f.read().strip())
@@ -166,24 +168,42 @@ def panic_value(path=None, live=None):
         return 0
 
 
-def auto_restart(path=None, live=None):
-    return panic_value(path, live) != 0
+def auto_restart(path=None, live=None, default=None):
+    return panic_value(path, live, default) != 0
 
 
 PANIC_HEADER = """\
-# Startup and Recovery's "Automatically restart" (System Properties > Advanced). Written by wex-boot1.
-# kernel.panic: seconds from a kernel panic to the restart; 0 waits.
+# Startup and Recovery's "Automatically restart" (System Properties > Advanced). Written by wex-boot1; it replaces
+# /usr/lib/sysctl.d/90-wineexplorer-recovery.conf. kernel.panic: seconds from a kernel panic to the restart; 0 waits.
+"""
+
+CRASH_HEADER = """\
+# Startup and Recovery's "Automatically restart" (System Properties > Advanced). Written by wex-boot1; it replaces
+# /usr/lib/systemd/system.conf.d/90-wineexplorer-recovery.conf. CrashAction: what systemd (PID 1) does when it
+# crashes, reboot (after 10 seconds) or freeze.
 """
 
 
-def set_auto_restart(enable, path=None, live=None):
+def set_auto_restart(enable, path=None, live=None, crash=None, run=None):
+    """Both of Linux's system failures: a kernel panic (kernel.panic) and a crash of systemd itself (CrashAction=).
+    Applied at once, as XP's setting is: the running kernel's value, and systemd rereads system.conf.d when it
+    reloads."""
+    run = run or subprocess.run
     seconds = PANIC_RESTART if enable else 0
     write_file(path or PANIC_CONF, PANIC_HEADER + f"kernel.panic = {seconds}\n")
-    try:   # the running kernel too, as XP's setting applies at once
+    write_file(crash or CRASH_CONF, CRASH_HEADER + "[Manager]\n" + f"CrashAction={'reboot' if enable else 'freeze'}\n")
+    try:
         with open(live or PANIC_SYSCTL, "w", encoding="ascii") as f:
             f.write(f"{seconds}\n")
     except OSError as error:
         raise Failed(f"kernel.panic was saved for the next start but not set now: {error}") from error
+    try:
+        done = run([SYSTEMCTL, "daemon-reload"], capture_output=True, text=True, timeout=120, check=False)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Failed(f"systemd's crash action was saved for the next start but not set now: {error}") from error
+    if done.returncode != 0:
+        raise Failed("systemd's crash action was saved for the next start but not set now: "
+                     + ((done.stderr or "").strip() or f"systemctl daemon-reload ended with {done.returncode}"))
 
 
 def run_vintner(args, run=None, timeout=VINTNER_SECONDS):
@@ -289,7 +309,15 @@ def apply(menu, recovery_on, recovery, restart, run=None):
     if bool(recovery_on) != recovery_enabled() or recovery != recovery_timeout():
         set_recovery(bool(recovery_on), recovery)
     if bool(restart) != auto_restart():
-        set_auto_restart(bool(restart))
+        set_auto_restart(bool(restart), run=run)
+
+
+def refusal(result):
+    """The D-Bus error for a CheckAuthorization result (authorized, challenge, details) that is not authorized:
+    Cancelled when the password dialog was dismissed (polkit.dismissed), so that Startup and Recovery stays open
+    without an error message; otherwise NotAuthorized."""
+    details = result[2] if len(result) > 2 else {}
+    return "Cancelled" if str(details.get("polkit.dismissed", "")) == "true" else "NotAuthorized"
 
 
 def serve():
@@ -324,7 +352,7 @@ def serve():
                 state["busy"] -= 1
                 state["last"] = time.monotonic()
                 if not result[0]:
-                    fail(error("NotAuthorized", "not authorized to change the startup settings"))
+                    fail(error(refusal(result), "not authorized to change the startup settings"))
                     return
                 try:
                     then()

@@ -315,6 +315,10 @@ echo /etc/systemd/zram-generator.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 install -D -m644 "$SCRIPT_DIR/ssh/sshd-wineexplorer.conf" "$STAGE_SESSION/etc/ssh/sshd_config.d/wineexplorer.conf"
 echo /etc/ssh/sshd_config.d/wineexplorer.conf >> "$STAGE_SESSION/DEBIAN/conffiles"
 install -m644 "$SCRIPT_DIR/systemd/99-wineexplorer-memory.conf" "$STAGE_SESSION/usr/lib/sysctl.d/99-wineexplorer-memory.conf"
+# Startup and Recovery's "Automatically restart", on by default as on XP: a kernel panic and a crash of systemd itself
+# restart after 10 seconds. wex-boot1 writes the /etc files of the same names when the box is changed.
+install -m644 "$SCRIPT_DIR/systemd/90-wineexplorer-recovery.conf" "$STAGE_SESSION/usr/lib/sysctl.d/90-wineexplorer-recovery.conf"
+install -D -m644 "$SCRIPT_DIR/systemd/system-recovery.conf" "$STAGE_SESSION/usr/lib/systemd/system.conf.d/90-wineexplorer-recovery.conf"
 chmod 644 "$STAGE_SESSION/lib/systemd/system/"*.service "$STAGE_SESSION/lib/systemd/system/"*.target
 cp "$SCRIPT_DIR/systemd/49-wexsetup.rules" "$STAGE_SESSION/etc/polkit-1/rules.d/"
 chmod 644 "$STAGE_SESSION/etc/polkit-1/rules.d/49-wexsetup.rules"
