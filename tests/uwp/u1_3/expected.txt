@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# The checks of depapp.exe when its framework package is installed (Windows 11 build 26300, 2026-11-13).
+PASS direct_dependencies_are_the_framework
+PASS framework_library_is_in_the_framework_package
+PASS framework_library_loads_by_name
+PASS framework_library_works
+PASS framework_package_name
+PASS head_and_direct_are_two_packages
+PASS package_full_name_is_the_activated_one
+PASS package_identity

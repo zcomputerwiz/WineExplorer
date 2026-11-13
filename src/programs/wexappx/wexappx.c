@@ -75,8 +75,20 @@ struct item   /* an application or an activatable class of the manifest */
     WCHAR entry[257];   /* the EntryPoint of an application, if it has one */
 };
 
+#define MAX_DEPENDENCIES 16
+
+struct dependency   /* a PackageDependency of the manifest */
+{
+    WCHAR name[PACKAGE_NAME_MAX_LENGTH + 1];
+    WCHAR min_version[64];
+    WCHAR publisher[PACKAGE_PUBLISHER_MAX_LENGTH + 1];
+};
+
 struct manifest
 {
+    struct dependency *deps;       /* MAX_DEPENDENCIES, allocated when the manifest has any */
+    unsigned int dep_count;
+    BOOL         framework;        /* Properties/Framework: a package other packages depend on */
     WCHAR        name[PACKAGE_NAME_MAX_LENGTH + 1];
     WCHAR        publisher[PACKAGE_PUBLISHER_MAX_LENGTH + 1];
     WCHAR        resource[PACKAGE_RESOURCEID_MAX_LENGTH + 1];
@@ -386,7 +398,7 @@ static int parse_manifest( const BYTE *data, DWORD size, struct manifest *manife
     IStream *stream = NULL;
     XmlNodeType type;
     WCHAR server_path[MAX_REL_PATH + 1] = L"", category[128], value[256];
-    BOOL in_server = FALSE, in_path = FALSE, have_identity = FALSE;
+    BOOL in_server = FALSE, in_path = FALSE, have_identity = FALSE, in_framework = FALSE;
     unsigned int first_class = 0, i;
     const WCHAR *name, *text;
     HGLOBAL global;
@@ -432,12 +444,34 @@ static int parse_manifest( const BYTE *data, DWORD size, struct manifest *manife
                 get_attribute( reader, L"ResourceId", manifest->resource, ARRAY_SIZE(manifest->resource) );
                 have_identity = TRUE;
             }
-            else if (!wcscmp( name, L"PackageDependency" ) || !wcscmp( name, L"MainPackageDependency" ))
+            else if (!wcscmp( name, L"MainPackageDependency" ))
             {
                 get_attribute( reader, L"Name", value, ARRAY_SIZE(value) );
-                fail( L"the package depends on the package %s; package dependencies are not supported", value );
+                fail( L"the package is an add-on of the package %s; that is not supported", value );
                 goto done;
             }
+            else if (!wcscmp( name, L"PackageDependency" ))
+            {
+                struct dependency *dep;
+
+                if (!manifest->deps) manifest->deps = calloc( MAX_DEPENDENCIES, sizeof(*manifest->deps) );
+                if (!manifest->deps || manifest->dep_count >= MAX_DEPENDENCIES)
+                {
+                    fail( L"the manifest has too many package dependencies" );
+                    goto done;
+                }
+                dep = &manifest->deps[manifest->dep_count];
+                if (!get_attribute( reader, L"Name", dep->name, ARRAY_SIZE(dep->name) ) ||
+                    !get_attribute( reader, L"Publisher", dep->publisher, ARRAY_SIZE(dep->publisher) ))
+                {
+                    fail( L"unsupported package dependency in the manifest" );
+                    goto done;
+                }
+                if (!get_attribute( reader, L"MinVersion", dep->min_version, ARRAY_SIZE(dep->min_version) ))
+                    wcscpy( dep->min_version, L"0.0.0.0" );
+                manifest->dep_count++;
+            }
+            else if (!wcscmp( name, L"Framework" )) in_framework = !empty;
             else if (!wcscmp( name, L"Application" ))
             {
                 struct item *app = add_item( &manifest->apps, &manifest->app_count );
@@ -475,6 +509,13 @@ static int parse_manifest( const BYTE *data, DWORD size, struct manifest *manife
                 }
             }
         }
+        else if (type == XmlNodeType_Text && in_framework)
+        {
+            UINT len;
+
+            if (FAILED(IXmlReader_GetValue( reader, &text, &len )) || len > 8) text = L"";
+            manifest->framework = !wcscmp( text, L"true" ) || !wcscmp( text, L"1" );
+        }
         else if (type == XmlNodeType_Text && in_path)
         {
             UINT len;
@@ -490,6 +531,7 @@ static int parse_manifest( const BYTE *data, DWORD size, struct manifest *manife
         {
             if (FAILED(IXmlReader_GetLocalName( reader, &name, NULL ))) break;
             if (!wcscmp( name, L"Path" )) in_path = FALSE;
+            else if (!wcscmp( name, L"Framework" )) in_framework = FALSE;
             else if (!wcscmp( name, L"Extension" )) category[0] = 0;
             else if (in_server && !wcscmp( name, L"InProcessServer" ))
             {
@@ -505,13 +547,81 @@ static int parse_manifest( const BYTE *data, DWORD size, struct manifest *manife
     }
     if (hr != S_FALSE) fail( L"the manifest is not well-formed (%#lx)", hr );
     else if (!have_identity) fail( L"the manifest has no package identity" );
-    else if (!manifest->app_count) fail( L"the manifest declares no application" );
+    else if (!manifest->app_count && !manifest->framework) fail( L"the manifest declares no application" );
+    else if (manifest->framework && manifest->dep_count) fail( L"a framework package with dependencies is not supported" );
     else ret = 0;
 
 done:
     if (reader) IXmlReader_Release( reader );
     IStream_Release( stream );
     return ret;
+}
+
+/* "a.b.c.d" as the 64-bit number of PACKAGE_VERSION; ~0 when it is not a version */
+static unsigned __int64 version_number( const WCHAR *text )
+{
+    unsigned __int64 value = 0;
+    int part;
+
+    for (part = 0; part < 4; part++)
+    {
+        WCHAR *end;
+        unsigned long number = wcstoul( text, &end, 10 );
+
+        if (end == text || number > 0xffff || (part < 3 && *end != '.') || (part == 3 && *end)) return ~(unsigned __int64)0;
+        value = (value << 16) | number;
+        text = end + 1;
+    }
+    return value;
+}
+
+/* The installed package a dependency names: the same name and publisher, the architecture of the dependent package
+ * (or neutral), a version that is not below the minimum, the highest such version. */
+static BOOL resolve_dependency( const struct manifest *manifest, const struct dependency *dep, WCHAR *best, unsigned int size )
+{
+    PACKAGE_ID id = {0};
+    WCHAR family[PACKAGE_FAMILY_NAME_MAX_LENGTH + 1], *text = NULL, **names = NULL;
+    UINT32 len = ARRAY_SIZE(family), count = 0, chars = 0, i, arch;
+    unsigned __int64 minimum = version_number( dep->min_version ), best_version = 0;
+    BOOL found = FALSE;
+
+    if (minimum == ~(unsigned __int64)0) return FALSE;
+    id.name = (WCHAR *)dep->name;
+    id.publisher = (WCHAR *)dep->publisher;
+    if (PackageFamilyNameFromId( &id, &len, family )) return FALSE;
+    arch = !wcscmp( manifest->arch, L"x64" ) ? PROCESSOR_ARCHITECTURE_AMD64 :
+           !wcscmp( manifest->arch, L"x86" ) ? PROCESSOR_ARCHITECTURE_INTEL : PROCESSOR_ARCHITECTURE_NEUTRAL;
+
+    FindPackagesByPackageFamily( family, PACKAGE_FILTER_HEAD | PACKAGE_INFORMATION_BASIC, &count, NULL, &chars, NULL, NULL );
+    if (!count) return FALSE;
+    names = calloc( count, sizeof(*names) );
+    text = malloc( chars * sizeof(WCHAR) );
+    if (names && text && !FindPackagesByPackageFamily( family, PACKAGE_FILTER_HEAD | PACKAGE_INFORMATION_BASIC, &count,
+                                                       names, &chars, text, NULL ))
+    {
+        for (i = 0; i < count; i++)
+        {
+            BYTE buffer[sizeof(PACKAGE_ID) + sizeof(WCHAR) * (PACKAGE_FULL_NAME_MAX_LENGTH + 32)];
+            UINT32 buffer_len = sizeof(buffer);
+            PACKAGE_ID *candidate = (PACKAGE_ID *)buffer;
+
+            if (PackageIdFromFullName( names[i], PACKAGE_INFORMATION_BASIC, &buffer_len, buffer )) continue;
+            if (candidate->processorArchitecture != arch && candidate->processorArchitecture != PROCESSOR_ARCHITECTURE_NEUTRAL &&
+                arch != PROCESSOR_ARCHITECTURE_NEUTRAL)
+                continue;
+            if (candidate->version.Version < minimum) continue;
+            if (!found || candidate->version.Version > best_version)
+            {
+                if (wcslen( names[i] ) >= size) continue;
+                wcscpy( best, names[i] );
+                best_version = candidate->version.Version;
+                found = TRUE;
+            }
+        }
+    }
+    free( names );
+    free( text );
+    return found;
 }
 
 /* the package full name of the manifest's identity; the publisher id is derived by kernelbase */
@@ -652,6 +762,7 @@ static int install( const WCHAR *package )
     BYTE *data;
     DWORD written;
     unsigned int i;
+    WCHAR resolved[MAX_DEPENDENCIES][PACKAGE_FULL_NAME_MAX_LENGTH + 1];
     int ret = 1;
 
     memset( &manifest, 0, sizeof(manifest) );
@@ -676,6 +787,11 @@ static int install( const WCHAR *package )
     if (parse_manifest( data, entry->size, &manifest )) return 1;
     free( data );
     if (get_full_name( &manifest, full_name )) return 1;
+    /* every dependency has to be installed (a framework package is installed before the packages that need it) */
+    for (i = 0; i < manifest.dep_count; i++)
+        if (!resolve_dependency( &manifest, &manifest.deps[i], resolved[i], ARRAY_SIZE(resolved[i]) ))
+            return fail( L"the package depends on %s (version %s or later), which is not installed", manifest.deps[i].name,
+                         manifest.deps[i].min_version );
 
     if (!get_store_dir( store, ARRAY_SIZE(store) )) return fail( L"no per-user package directory on drive C:" );
     if (!get_catalog_dir( catalog, ARRAY_SIZE(catalog) )) return fail( L"the prefix directory is not known" );
@@ -694,6 +810,9 @@ static int install( const WCHAR *package )
     /* the publisher, for the package APIs (kernelbase): only when it is plain printable text */
     for (i = 0; manifest.publisher[i] >= 0x20 && manifest.publisher[i] <= 0x7e; i++) ;
     if (!manifest.publisher[i] && i && !append_record( record, L"publisher\t%s\n", manifest.publisher )) goto too_long;
+    if (manifest.framework && !append_record( record, L"framework\t1\n" )) goto too_long;
+    for (i = 0; i < manifest.dep_count; i++)
+        if (!append_record( record, L"dependency\t%s\n", resolved[i] )) goto too_long;
     for (i = 0; i < manifest.app_count; i++)
     {
         if (!(entry = find_entry( manifest.apps[i].path )))

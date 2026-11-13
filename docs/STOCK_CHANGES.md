@@ -3199,3 +3199,8 @@ record accepts `publisher` and `dependency` lines), `dlls/windows.ui/window.c` (
 window invisible and the application running). WineExplorer: `src/programs/wexappx` and `tests/uwp/u1_0/register-wine.py`
 write the publisher into the catalog record. The same unchanged probe passes 39 package API checks on Windows (x64) and
 on Wine (x64, x86).
+
+Later on 2026-11-13 (U1.3, package dependencies, measured on Windows 11, `tests/uwp/u1_3`): `dlls/twinapi.appcore/
+activation_manager.c` (the started process gets the folders of its direct dependencies in front of `PATH`),
+`server/uwp_context.c` (the record accepts a `framework` line). WineExplorer: `src/programs/wexappx` resolves
+`PackageDependency` against the installed packages and records `framework` and `dependency` lines.

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later; Copyright 2026 WineExplorer contributors -->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+  <Identity Name="@FWNAME@" Publisher="@PUBLISHER@" Version="@FWVERSION@" ProcessorArchitecture="@ARCH@" />
+  <Properties><Framework>true</Framework><DisplayName>WineExplorer U1.3 Framework</DisplayName><PublisherDisplayName>WineExplorer</PublisherDisplayName><Logo>logo.png</Logo></Properties>
+  <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
+  <Resources><Resource Language="en-us" /></Resources>
+</Package>
