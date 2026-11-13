@@ -872,7 +872,6 @@ static int test_r9_round_trips( void )
     uint8_t buf[8192];
     uint8_t emb[8192];
     uint8_t key[16], ev[16];
-    uint8_t chan[16];
     int i;
 
     fill_golden_tuple( &t );
@@ -880,7 +879,6 @@ static int test_r9_round_trips( void )
     t2.attempt = 2;
     fill_range( key, 16, 0xa0 );
     fill_range( ev, 16, 0xb0 );
-    fill_range( chan, 16, 0x50 );
 
     /* Type 32: GRANT (108). */
     {
@@ -895,17 +893,23 @@ static int test_r9_round_trips( void )
     CHECK( e1r8_encode_granted( buf, 76, &t ) == E1R8_OK, "GRANTED encode" );
     CHECK( e1r8_decode_granted( buf, 76, &t ) == E1R8_OK, "GRANTED decode" );
 
-    /* Type 40: REQUEST (200..1760). */
+    /* Type 40: REQUEST (232..1792). */
     {
         struct e1r8_request r;
         /* Minimum: empty display strings. */
-        CHECK( e1r8_encode_request( buf, 200, &t, 1, chan, t.binding_digest, t.request_digest,
-                                    t.server_gen, t.desktop_route, 1,
+        CHECK( e1r8_encode_request( buf, 232, &t, 1, 1,
                                     NULL, 0, NULL, 0, NULL, 0 ) == E1R8_OK,
                "REQUEST min encode" );
-        CHECK( e1r8_decode_request( buf, 200, &t, &r ) == E1R8_OK, "REQUEST min decode" );
+        CHECK( e1r8_decode_request( buf, 232, &t, &r ) == E1R8_OK, "REQUEST min decode" );
         CHECK( r.kind == 1 && r.secure_desktop == 1, "REQUEST min fields" );
-        CHECK( memcmp( r.channel_id, chan, 16 ) == 0, "REQUEST min channel" );
+        CHECK( r.deadline == t.deadline, "REQUEST min deadline" );
+        CHECK( memcmp( r.binding_digest, t.binding_digest, 32 ) == 0, "REQUEST min binding" );
+        CHECK( memcmp( r.request_digest, t.request_digest, 32 ) == 0, "REQUEST min request" );
+        CHECK( r.root_gen == t.root_gen && r.server_gen == t.server_gen &&
+               r.broker_gen == t.broker_gen && r.verifier_gen == t.verifier_gen &&
+               r.map_gen == t.map_gen && r.policy_gen == t.policy_gen,
+               "REQUEST min gens" );
+        CHECK( memcmp( r.desktop_route, t.desktop_route, 16 ) == 0, "REQUEST min route" );
         CHECK( r.requester_len == 0 && r.image_len == 0 && r.publisher_len == 0,
                "REQUEST min empty display" );
         /* Maximum: 520-byte display strings. */
@@ -914,11 +918,10 @@ static int test_r9_round_trips( void )
             for (i = 0; i < 520; i += 2) { req[i] = 'a'; req[i+1] = 0; }
             for (i = 0; i < 520; i += 2) { img[i] = 'b'; img[i+1] = 0; }
             for (i = 0; i < 520; i += 2) { pub[i] = 'c'; pub[i+1] = 0; }
-            CHECK( e1r8_encode_request( buf, 1760, &t, 2, chan, t.binding_digest, t.request_digest,
-                                        t.server_gen, t.desktop_route, 0,
+            CHECK( e1r8_encode_request( buf, 1792, &t, 2, 0,
                                         req, 520, img, 520, pub, 520 ) == E1R8_OK,
                    "REQUEST max encode" );
-            CHECK( e1r8_decode_request( buf, 1760, &t, &r ) == E1R8_OK, "REQUEST max decode" );
+            CHECK( e1r8_decode_request( buf, 1792, &t, &r ) == E1R8_OK, "REQUEST max decode" );
             CHECK( r.kind == 2 && r.secure_desktop == 0, "REQUEST max fields" );
             CHECK( r.requester_len == 520 && r.image_len == 520 && r.publisher_len == 520,
                    "REQUEST max display len" );
@@ -1066,7 +1069,6 @@ static int test_r9_errors( void )
     uint8_t buf[8192];
     uint8_t emb[8192];
     uint8_t key[16], ev[16], zero16[16];
-    uint8_t chan[16];
     int i;
 
     fill_golden_tuple( &t );
@@ -1075,7 +1077,6 @@ static int test_r9_errors( void )
     fill_range( key, 16, 0xa0 );
     fill_range( ev, 16, 0xb0 );
     memset( zero16, 0, 16 );
-    fill_range( chan, 16, 0x50 );
 
     /* --- One byte short and one byte long --- */
     CHECK( e1r8_encode_grant( buf, 108, &t, key, ev ) == E1R8_OK, "GRANT encode" );
@@ -1085,14 +1086,13 @@ static int test_r9_errors( void )
         buf[108] = 0;
         CHECK( e1r8_decode_grant( buf, 109, &t, &g ) != E1R8_OK, "GRANT one long" );
     }
-    CHECK( e1r8_encode_request( buf, 200, &t, 1, chan, t.binding_digest, t.request_digest,
-                                t.server_gen, t.desktop_route, 1, NULL, 0, NULL, 0, NULL, 0 ) == E1R8_OK,
+    CHECK( e1r8_encode_request( buf, 232, &t, 1, 1, NULL, 0, NULL, 0, NULL, 0 ) == E1R8_OK,
            "REQUEST encode" );
     {
         struct e1r8_request r;
-        CHECK( e1r8_decode_request( buf, 199, &t, &r ) != E1R8_OK, "REQUEST one short" );
-        buf[200] = 0;
-        CHECK( e1r8_decode_request( buf, 201, &t, &r ) != E1R8_OK, "REQUEST one long" );
+        CHECK( e1r8_decode_request( buf, 231, &t, &r ) != E1R8_OK, "REQUEST one short" );
+        buf[232] = 0;
+        CHECK( e1r8_decode_request( buf, 233, &t, &r ) != E1R8_OK, "REQUEST one long" );
     }
     CHECK( e1r8_encode_decision( buf, 84, &t, 2, 1 ) == E1R8_OK, "DECISION deny encode" );
     {
@@ -1145,19 +1145,18 @@ static int test_r9_errors( void )
     }
 
     /* --- Unknown enum values (0 and max+1) --- */
-    CHECK( e1r8_encode_request( buf, 200, &t, 1, chan, t.binding_digest, t.request_digest,
-                                t.server_gen, t.desktop_route, 1, NULL, 0, NULL, 0, NULL, 0 ) == E1R8_OK,
+    CHECK( e1r8_encode_request( buf, 232, &t, 1, 1, NULL, 0, NULL, 0, NULL, 0 ) == E1R8_OK,
            "REQUEST encode" );
     {
         struct e1r8_request r;
         buf[76] = 0; /* kind 0 */
-        CHECK( e1r8_decode_request( buf, 200, &t, &r ) == E1R8_ERR_ENUM, "REQUEST kind 0" );
+        CHECK( e1r8_decode_request( buf, 232, &t, &r ) == E1R8_ERR_ENUM, "REQUEST kind 0" );
         buf[76] = 3; /* kind 3 (max+1) */
-        CHECK( e1r8_decode_request( buf, 200, &t, &r ) == E1R8_ERR_ENUM, "REQUEST kind 3" );
+        CHECK( e1r8_decode_request( buf, 232, &t, &r ) == E1R8_ERR_ENUM, "REQUEST kind 3" );
         buf[76] = 1;
-        buf[184] = 2; /* secure_desktop 2 (max+1) */
-        CHECK( e1r8_decode_request( buf, 200, &t, &r ) == E1R8_ERR_ENUM, "REQUEST secure_desktop 2" );
-        buf[184] = 1;
+        buf[216] = 2; /* secure_desktop 2 (max+1) */
+        CHECK( e1r8_decode_request( buf, 232, &t, &r ) == E1R8_ERR_ENUM, "REQUEST secure_desktop 2" );
+        buf[216] = 1;
     }
     CHECK( e1r8_encode_decision( buf, 84, &t, 2, 1 ) == E1R8_OK, "DECISION deny encode" );
     {
@@ -1235,16 +1234,14 @@ static int test_r9_errors( void )
 
     /* --- Invalid strings --- */
     /* REQUEST: display string with odd length. */
-    CHECK( e1r8_encode_request( buf, 201, &t, 1, chan, t.binding_digest, t.request_digest,
-                                t.server_gen, t.desktop_route, 1,
+    CHECK( e1r8_encode_request( buf, 233, &t, 1, 1,
                                 (const uint8_t *)"a", 1, NULL, 0, NULL, 0 ) == E1R8_ERR_STRING,
            "REQUEST display odd length" );
     /* REQUEST: display string overlength (522). */
     {
         uint8_t big[522];
         for (i = 0; i < 522; i += 2) { big[i] = 'a'; big[i+1] = 0; }
-        CHECK( e1r8_encode_request( buf, 200 + 522, &t, 1, chan, t.binding_digest, t.request_digest,
-                                    t.server_gen, t.desktop_route, 1,
+        CHECK( e1r8_encode_request( buf, 232 + 522, &t, 1, 1,
                                     big, 522, NULL, 0, NULL, 0 ) == E1R8_ERR_STRING,
                "REQUEST display overlength" );
     }
@@ -1252,8 +1249,7 @@ static int test_r9_errors( void )
     {
         uint16_t nul[4];
         nul[0] = 0; nul[1] = 0; nul[2] = 'b'; nul[3] = 0;
-        CHECK( e1r8_encode_request( buf, 204, &t, 1, chan, t.binding_digest, t.request_digest,
-                                    t.server_gen, t.desktop_route, 1,
+        CHECK( e1r8_encode_request( buf, 236, &t, 1, 1,
                                     (const uint8_t *)nul, 4, NULL, 0, NULL, 0 ) == E1R8_ERR_STRING,
                "REQUEST display NUL" );
     }
@@ -1261,8 +1257,7 @@ static int test_r9_errors( void )
     {
         uint16_t ctrl[2];
         ctrl[0] = 0x01; ctrl[1] = 0;
-        CHECK( e1r8_encode_request( buf, 202, &t, 1, chan, t.binding_digest, t.request_digest,
-                                    t.server_gen, t.desktop_route, 1,
+        CHECK( e1r8_encode_request( buf, 234, &t, 1, 1,
                                     (const uint8_t *)ctrl, 2, NULL, 0, NULL, 0 ) == E1R8_ERR_STRING,
                "REQUEST display control" );
     }
@@ -1270,8 +1265,7 @@ static int test_r9_errors( void )
     {
         uint16_t surr[2];
         surr[0] = 0xd800; surr[1] = 0;
-        CHECK( e1r8_encode_request( buf, 202, &t, 1, chan, t.binding_digest, t.request_digest,
-                                    t.server_gen, t.desktop_route, 1,
+        CHECK( e1r8_encode_request( buf, 234, &t, 1, 1,
                                     (const uint8_t *)surr, 2, NULL, 0, NULL, 0 ) == E1R8_ERR_STRING,
                "REQUEST display unpaired surrogate" );
     }
@@ -1415,7 +1409,6 @@ static int golden_output( void )
     uint16_t req_utf16[300], img_utf16[300];
     size_t req_len, img_len;
     uint8_t key[16], ev[16], chal[32];
-    uint8_t chan[16];
     const uint8_t pw[] = { 0x70, 0xc3, 0xa4, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64 };
     int err, i;
 
@@ -1427,7 +1420,6 @@ static int golden_output( void )
     fill_range( key, 16, 0xa0 );
     fill_range( ev, 16, 0xb0 );
     fill_range( chal, 32, 0xc0 );
-    fill_range( chan, 16, 0x50 );
 
     /* Type 1: INIT */
     {
@@ -1539,9 +1531,8 @@ static int golden_output( void )
     printf( "33 " ); print_hex( buf, 76 );
 
     /* Type 40: REQUEST (min, empty display strings) */
-    if (e1r8_encode_request( buf, 200, &t, 1, chan, t.binding_digest, t.request_digest,
-                             t.server_gen, t.desktop_route, 1, NULL, 0, NULL, 0, NULL, 0 )) return 1;
-    printf( "40 " ); print_hex( buf, 200 );
+    if (e1r8_encode_request( buf, 232, &t, 1, 1, NULL, 0, NULL, 0, NULL, 0 )) return 1;
+    printf( "40 " ); print_hex( buf, 232 );
 
     /* Type 40: REQUEST (max, 520-byte display strings) */
     {
@@ -1549,10 +1540,9 @@ static int golden_output( void )
         for (i = 0; i < 520; i += 2) { req[i] = 'a'; req[i+1] = 0; }
         for (i = 0; i < 520; i += 2) { img[i] = 'b'; img[i+1] = 0; }
         for (i = 0; i < 520; i += 2) { pub[i] = 'c'; pub[i+1] = 0; }
-        if (e1r8_encode_request( buf, 1760, &t, 2, chan, t.binding_digest, t.request_digest,
-                                 t.server_gen, t.desktop_route, 0,
+        if (e1r8_encode_request( buf, 1792, &t, 2, 0,
                                  req, 520, img, 520, pub, 520 )) return 1;
-        printf( "40 " ); print_hex( buf, 1760 );
+        printf( "40 " ); print_hex( buf, 1792 );
     }
 
     /* Type 41: DECISION (deny) */

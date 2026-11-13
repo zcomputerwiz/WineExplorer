@@ -296,10 +296,15 @@ struct e1r8_w_setup
 struct e1r8_request
 {
     uint32_t kind;
-    uint8_t channel_id[16];
+    uint64_t deadline;
     uint8_t binding_digest[32];
     uint8_t request_digest[32];
+    uint64_t root_gen;
     uint64_t server_gen;
+    uint64_t broker_gen;
+    uint64_t verifier_gen;
+    uint64_t map_gen;
+    uint64_t policy_gen;
     uint8_t desktop_route[16];
     uint32_t secure_desktop;
     const uint8_t *requester;
@@ -1611,6 +1616,8 @@ static inline int e1r8_valid_to_d_frame( uint16_t type, uint32_t len )
     if (type == E1R8_TYPE_READY) return (len == E1R8_HEADER_SIZE);
     if (type == E1R8_TYPE_RESULT) return (len >= 116 && len <= 179);
     if (type == E1R8_TYPE_DONE) return (len == 80);
+    /* The lockout notice (WO-39), sent in place of ATTACH_OK: header only. */
+    if (type == E1R8_TYPE_LOCKED) return (len == E1R8_HEADER_SIZE);
     return 0;
 }
 
@@ -1700,17 +1707,15 @@ static inline int e1r8_decode_granted( const uint8_t *buf, size_t len,
 
 /*
  * Type 40: REQUEST (A->B0). Body: kind:u32 (1 runas, 2 manifest),
- * channel_id:16, binding_digest:32, request_digest:32, server_gen:u64,
- * desktop_route:16, secure_desktop:u32 (0 or 1), requester:str,
- * image:str, publisher:str (display strings). Total 200..1760. The
- * header's attempt is 0 and its nonce and channel_id are zero.
+ * deadline:u64, binding_digest:32, request_digest:32, root_gen:u64,
+ * server_gen:u64, broker_gen:u64, verifier_gen:u64, map_gen:u64,
+ * policy_gen:u64, desktop_route:16, secure_desktop:u32 (0 or 1),
+ * requester:str, image:str, publisher:str (display strings). Total
+ * 232..1792. The header's attempt is 0 and its channel_id is zero; the
+ * nonce is the request's.
  */
 static inline int e1r8_encode_request( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
-                                uint32_t kind, const uint8_t channel_id[16],
-                                const uint8_t binding_digest[32],
-                                const uint8_t request_digest[32],
-                                uint64_t server_gen, const uint8_t desktop_route[16],
-                                uint32_t secure_desktop,
+                                uint32_t kind, uint32_t secure_desktop,
                                 const uint8_t *requester, uint32_t req_len,
                                 const uint8_t *image, uint32_t img_len,
                                 const uint8_t *publisher, uint32_t pub_len )
@@ -1727,7 +1732,7 @@ static inline int e1r8_encode_request( uint8_t *buf, size_t len, const struct e1
     if (!e1r8_valid_display_string( image, img_len )) return E1R8_ERR_STRING;
     if (!e1r8_valid_display_string( publisher, pub_len )) return E1R8_ERR_STRING;
 
-    total = E1R8_HEADER_SIZE + 4 + 16 + 32 + 32 + 8 + 16 + 4 +
+    total = E1R8_HEADER_SIZE + 4 + 8 + 32 + 32 + 6 * 8 + 16 + 4 +
             (4 + req_len) + (4 + img_len) + (4 + pub_len);
     if (len != total) return E1R8_ERR_LONG;
 
@@ -1739,11 +1744,16 @@ static inline int e1r8_encode_request( uint8_t *buf, size_t len, const struct e1
     if (err) return err;
     off = E1R8_HEADER_SIZE;
     e1r8_put_u32( buf + off, kind ); off += 4;
-    memcpy( buf + off, channel_id, 16 ); off += 16;
-    memcpy( buf + off, binding_digest, 32 ); off += 32;
-    memcpy( buf + off, request_digest, 32 ); off += 32;
-    e1r8_put_u64( buf + off, server_gen ); off += 8;
-    memcpy( buf + off, desktop_route, 16 ); off += 16;
+    e1r8_put_u64( buf + off, t->deadline ); off += 8;
+    memcpy( buf + off, t->binding_digest, 32 ); off += 32;
+    memcpy( buf + off, t->request_digest, 32 ); off += 32;
+    e1r8_put_u64( buf + off, t->root_gen ); off += 8;
+    e1r8_put_u64( buf + off, t->server_gen ); off += 8;
+    e1r8_put_u64( buf + off, t->broker_gen ); off += 8;
+    e1r8_put_u64( buf + off, t->verifier_gen ); off += 8;
+    e1r8_put_u64( buf + off, t->map_gen ); off += 8;
+    e1r8_put_u64( buf + off, t->policy_gen ); off += 8;
+    memcpy( buf + off, t->desktop_route, 16 ); off += 16;
     e1r8_put_u32( buf + off, secure_desktop ); off += 4;
     e1r8_put_string( buf + off, requester, req_len ); off += 4 + req_len;
     e1r8_put_string( buf + off, image, img_len ); off += 4 + img_len;
@@ -1761,7 +1771,7 @@ static inline int e1r8_decode_request( const uint8_t *buf, size_t len,
     uint32_t slen;
     int err;
 
-    if (len < 200 || len > 1760) return E1R8_ERR_LONG;
+    if (len < 232 || len > 1792) return E1R8_ERR_LONG;
     /* The header's attempt is 0 and its channel_id is zero; the nonce is the request's. */
     h = *expected;
     h.attempt = 0;
@@ -1772,10 +1782,15 @@ static inline int e1r8_decode_request( const uint8_t *buf, size_t len,
     out->kind = e1r8_get_u32( buf + off ); off += 4;
     if (out->kind != E1R8_REQUEST_KIND_RUNAS && out->kind != E1R8_REQUEST_KIND_MANIFEST)
         return E1R8_ERR_ENUM;
-    memcpy( out->channel_id, buf + off, 16 ); off += 16;
+    out->deadline = e1r8_get_u64( buf + off ); off += 8;
     memcpy( out->binding_digest, buf + off, 32 ); off += 32;
     memcpy( out->request_digest, buf + off, 32 ); off += 32;
+    out->root_gen = e1r8_get_u64( buf + off ); off += 8;
     out->server_gen = e1r8_get_u64( buf + off ); off += 8;
+    out->broker_gen = e1r8_get_u64( buf + off ); off += 8;
+    out->verifier_gen = e1r8_get_u64( buf + off ); off += 8;
+    out->map_gen = e1r8_get_u64( buf + off ); off += 8;
+    out->policy_gen = e1r8_get_u64( buf + off ); off += 8;
     memcpy( out->desktop_route, buf + off, 16 ); off += 16;
     out->secure_desktop = e1r8_get_u32( buf + off ); off += 4;
     if (out->secure_desktop != 0 && out->secure_desktop != 1) return E1R8_ERR_ENUM;

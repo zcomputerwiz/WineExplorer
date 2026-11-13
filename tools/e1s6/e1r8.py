@@ -244,10 +244,15 @@ class WSetup:
 @dataclass
 class Request:
     kind: int
-    channel_id: bytes
+    deadline: int
     binding_digest: bytes
     request_digest: bytes
+    root_gen: int
     server_gen: int
+    broker_gen: int
+    verifier_gen: int
+    map_gen: int
+    policy_gen: int
     desktop_route: bytes
     secure_desktop: int
     requester: bytes
@@ -1242,6 +1247,8 @@ def valid_to_d_frame(type, length):
         return 116 <= length <= 179
     if type == TYPE_DONE:
         return length == 80
+    if type == 31:  # LOCKED: the lockout notice (WO-39), sent in place of ATTACH_OK; header only
+        return length == HEADER_SIZE
     return False
 
 
@@ -1317,15 +1324,15 @@ def decode_granted(data, expected):
 
 #
 # Type 40: REQUEST (A->B0). Body: kind:u32 (1 runas, 2 manifest),
-# channel_id:16, binding_digest:32, request_digest:32, server_gen:u64,
-# desktop_route:16, secure_desktop:u32 (0 or 1), requester:str,
-# image:str, publisher:str (display strings). Total 200..1760. The
-# header's attempt is 0 and its nonce and channel_id are zero.
+# deadline:u64, binding_digest:32, request_digest:32, root_gen:u64,
+# server_gen:u64, broker_gen:u64, verifier_gen:u64, map_gen:u64,
+# policy_gen:u64, desktop_route:16, secure_desktop:u32 (0 or 1),
+# requester:str, image:str, publisher:str (display strings). Total
+# 232..1792. The header's attempt is 0 and its channel_id is zero; the
+# nonce is the request's.
 #
 
-def encode_request(t, kind, channel_id, binding_digest, request_digest,
-                   server_gen, desktop_route, secure_desktop,
-                   requester, image, publisher):
+def encode_request(t, kind, secure_desktop, requester, image, publisher):
     if kind not in (REQUEST_KIND_RUNAS, REQUEST_KIND_MANIFEST):
         raise E1R8Error("request kind enum")
     if secure_desktop not in (0, 1):
@@ -1336,20 +1343,22 @@ def encode_request(t, kind, channel_id, binding_digest, request_digest,
         raise E1R8Error("request image")
     if not valid_display_string(publisher):
         raise E1R8Error("request publisher")
-    total = HEADER_SIZE + 4 + 16 + 32 + 32 + 8 + 16 + 4 + \
+    total = HEADER_SIZE + 4 + 8 + 32 + 32 + 6 * 8 + 16 + 4 + \
         (4 + len(requester)) + (4 + len(image)) + (4 + len(publisher))
     # The header's attempt is 0 and its channel_id is zero; the nonce is the request's.
     h = E1R8Tuple(request_id=t.request_id, attempt=0, nonce=t.nonce,
                   channel_id=bytes(16))
-    body = struct.pack("<I", kind) + channel_id + binding_digest + \
-        request_digest + struct.pack("<Q", server_gen) + desktop_route + \
-        struct.pack("<I", secure_desktop) + _put_string(requester) + \
-        _put_string(image) + _put_string(publisher)
+    body = struct.pack("<I", kind) + struct.pack("<Q", t.deadline) + \
+        t.binding_digest + t.request_digest + \
+        struct.pack("<6Q", t.root_gen, t.server_gen, t.broker_gen,
+                    t.verifier_gen, t.map_gen, t.policy_gen) + \
+        t.desktop_route + struct.pack("<I", secure_desktop) + \
+        _put_string(requester) + _put_string(image) + _put_string(publisher)
     return _put_header(TYPE_REQUEST, total, h) + body
 
 
 def decode_request(data, expected):
-    if not (200 <= len(data) <= 1760):
+    if not (232 <= len(data) <= 1792):
         raise E1R8Error("request length")
     # The header's attempt is 0 and its channel_id is zero; the nonce is the request's.
     h = E1R8Tuple(request_id=expected.request_id, attempt=0, nonce=expected.nonce,
@@ -1360,14 +1369,15 @@ def decode_request(data, expected):
     off += 4
     if kind not in (REQUEST_KIND_RUNAS, REQUEST_KIND_MANIFEST):
         raise E1R8Error("request kind enum")
-    channel_id = data[off:off + 16]
-    off += 16
+    deadline = struct.unpack_from("<Q", data, off)[0]
+    off += 8
     binding_digest = data[off:off + 32]
     off += 32
     request_digest = data[off:off + 32]
     off += 32
-    server_gen = struct.unpack_from("<Q", data, off)[0]
-    off += 8
+    root_gen, server_gen, broker_gen, verifier_gen, map_gen, policy_gen = \
+        struct.unpack_from("<6Q", data, off)
+    off += 48
     desktop_route = data[off:off + 16]
     off += 16
     secure_desktop = struct.unpack_from("<I", data, off)[0]
@@ -1385,10 +1395,13 @@ def decode_request(data, expected):
         raise E1R8Error("request publisher")
     if off != len(data):
         raise E1R8Error("request trailing")
-    return Request(kind=kind, channel_id=channel_id,
+    return Request(kind=kind, deadline=deadline,
                    binding_digest=binding_digest,
-                   request_digest=request_digest, server_gen=server_gen,
-                   desktop_route=desktop_route, secure_desktop=secure_desktop,
+                   request_digest=request_digest, root_gen=root_gen,
+                   server_gen=server_gen, broker_gen=broker_gen,
+                   verifier_gen=verifier_gen, map_gen=map_gen,
+                   policy_gen=policy_gen, desktop_route=desktop_route,
+                   secure_desktop=secure_desktop,
                    requester=requester, image=image, publisher=publisher)
 
 

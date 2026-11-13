@@ -638,6 +638,13 @@ def service(server_path, system_group, pam_paths=None):
                             b0 = rec.get("b0_channel")
                             if b0 is not None:
                                 b0.drop_record(rec)
+                                # The broker in session 0 may be waiting for this attempt's next frame: tell it
+                                # the attempt is over (R8 CANCEL, type 21), or it would wait until the deadline.
+                                if not b0.cancelled and rec.get("state") == "CANCELLED":
+                                    try:
+                                        b0.data.send(e1r8.encode_cancel(rec["tuple"], 1))
+                                    except OSError:
+                                        pass
                             else:
                                 self.drop_record(rec)
                         else:
@@ -779,10 +786,13 @@ def service(server_path, system_group, pam_paths=None):
                         accounts, bucket = rec.pop("throttle")
                         accounts.rows.pop(bucket, None)
                     ref = random_bytes(16)
+                    # R9: the record is redeemed on the agent's channel and checked by the session's server, so
+                    # it names that channel's server and broker generations, not session 0's (this channel's).
+                    gen_tx = rec["a_channel"] if (r9_enabled and "a_channel" in rec) else self
                     rec["evidence"] = evidence.EVIDENCE.pack(
                         3, 1, evidence.EVIDENCE_SIZE, 0x3ff, t.request_id, t.request_digest, t.binding_digest,
-                        t.nonce, t.attempt, account_key, uid, now, t.deadline, root_gen, self.server_gen,
-                        self.broker_gen, verifier_gen, map_gen, t.policy_gen, 1, 1)
+                        t.nonce, t.attempt, account_key, uid, now, t.deadline, root_gen, gen_tx.server_gen,
+                        gen_tx.broker_gen, verifier_gen, map_gen, t.policy_gen, 1, 1)
                     rec["evidence_ref"] = ref
                     rec["state"] = "RESULT_RETAINED"
                     self.data.send(e1r8.encode_result_v(t, 1, account_key, rec["account"], ref))

@@ -70,6 +70,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   `WexSession0\` pipe cannot be created; `FSCTL_PIPE_WAIT` on one returns at once), `server/session0.c` (the `PIPE`
   link message on both sides), `server/async.c` and `file.h` (`create_data_iosb`), `server/session0.h`,
   `include/wine/wex_session0.h` (version 5, `PIPE`).
+  E1 R9 (2026-11-13): the named pipe type's generic mapping is the file mapping, as on Windows (`named_pipe_type`;
+  it was the standard rights only, so `GA` for SYSTEM in a pipe's descriptor did not grant the read and write rights
+  session 0 checks a bridged client for; a local open never checked the pipe's descriptor against these rights);
+  session 0 says on stderr why it refuses a bridged open (no session link, the descriptor, the described token).
 
 - T5.3, programs of session 0: `dlls/ntdll/unix/server.c` (a prefix owned by root is used by another account only
   through a running server; `start_server_checked` starts none for it), `server/session0.c` (session 0's own

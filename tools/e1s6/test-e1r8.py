@@ -578,7 +578,6 @@ class E1R8Tests(unittest.TestCase):
         t2.attempt = 2
         key = bytes(range(0xa0, 0xb0))
         ev = bytes(range(0xb0, 0xc0))
-        chan = bytes(range(0x50, 0x60))
 
         # Type 32: GRANT (108).
         data = e.encode_grant(t, key, ev)
@@ -592,15 +591,21 @@ class E1R8Tests(unittest.TestCase):
         self.assertEqual(len(data), 76)
         self.assertIsNone(e.decode_granted(data, t))
 
-        # Type 40: REQUEST (200..1760).
+        # Type 40: REQUEST (232..1792).
         # Minimum: empty display strings.
-        data = e.encode_request(t, 1, chan, t.binding_digest, t.request_digest,
-                                t.server_gen, t.desktop_route, 1, b"", b"", b"")
-        self.assertEqual(len(data), 200)
+        data = e.encode_request(t, 1, 1, b"", b"", b"")
+        self.assertEqual(len(data), 232)
         r = e.decode_request(data, t)
         self.assertEqual(r.kind, 1)
         self.assertEqual(r.secure_desktop, 1)
-        self.assertEqual(r.channel_id, chan)
+        self.assertEqual(r.deadline, t.deadline)
+        self.assertEqual(r.binding_digest, t.binding_digest)
+        self.assertEqual(r.request_digest, t.request_digest)
+        self.assertEqual((r.root_gen, r.server_gen, r.broker_gen,
+                          r.verifier_gen, r.map_gen, r.policy_gen),
+                         (t.root_gen, t.server_gen, t.broker_gen,
+                          t.verifier_gen, t.map_gen, t.policy_gen))
+        self.assertEqual(r.desktop_route, t.desktop_route)
         self.assertEqual(r.requester, b"")
         self.assertEqual(r.image, b"")
         self.assertEqual(r.publisher, b"")
@@ -608,9 +613,8 @@ class E1R8Tests(unittest.TestCase):
         req = b"a\x00" * 260
         img = b"b\x00" * 260
         pub = b"c\x00" * 260
-        data = e.encode_request(t, 2, chan, t.binding_digest, t.request_digest,
-                                t.server_gen, t.desktop_route, 0, req, img, pub)
-        self.assertEqual(len(data), 1760)
+        data = e.encode_request(t, 2, 0, req, img, pub)
+        self.assertEqual(len(data), 1792)
         r = e.decode_request(data, t)
         self.assertEqual(r.kind, 2)
         self.assertEqual(r.secure_desktop, 0)
@@ -730,14 +734,12 @@ class E1R8Tests(unittest.TestCase):
         key = bytes(range(0xa0, 0xb0))
         ev = bytes(range(0xb0, 0xc0))
         zero16 = bytes(16)
-        chan = bytes(range(0x50, 0x60))
 
         # --- One byte short and one byte long ---
         data = e.encode_grant(t, key, ev)
         self.deny(e.decode_grant, data[:-1], t)
         self.deny(e.decode_grant, data + b"\x00", t)
-        data = e.encode_request(t, 1, chan, t.binding_digest, t.request_digest,
-                                t.server_gen, t.desktop_route, 1, b"", b"", b"")
+        data = e.encode_request(t, 1, 1, b"", b"", b"")
         self.deny(e.decode_request, data[:-1], t)
         self.deny(e.decode_request, data + b"\x00", t)
         data = e.encode_decision(t, 2, 1)
@@ -768,17 +770,15 @@ class E1R8Tests(unittest.TestCase):
         data[24] = 0
 
         # --- Unknown enum values (0 and max+1) ---
-        data = bytearray(e.encode_request(t, 1, chan, t.binding_digest,
-                                          t.request_digest, t.server_gen,
-                                          t.desktop_route, 1, b"", b"", b""))
+        data = bytearray(e.encode_request(t, 1, 1, b"", b"", b""))
         data[76] = 0  # kind 0
         self.deny(e.decode_request, bytes(data), t)
         data[76] = 3  # kind 3 (max+1)
         self.deny(e.decode_request, bytes(data), t)
         data[76] = 1
-        data[184] = 2  # secure_desktop 2 (max+1)
+        data[216] = 2  # secure_desktop 2 (max+1)
         self.deny(e.decode_request, bytes(data), t)
-        data[184] = 1
+        data[216] = 1
 
         data = bytearray(e.encode_decision(t, 2, 1))
         data[76] = 0  # status 0
@@ -841,21 +841,16 @@ class E1R8Tests(unittest.TestCase):
 
         # --- Invalid strings ---
         # REQUEST: display string with odd length.
-        self.deny(e.encode_request, t, 1, chan, t.binding_digest, t.request_digest,
-                  t.server_gen, t.desktop_route, 1, b"a", b"", b"")
+        self.deny(e.encode_request, t, 1, 1, b"a", b"", b"")
         # REQUEST: display string overlength (522).
         big = b"a\x00" * 261
-        self.deny(e.encode_request, t, 1, chan, t.binding_digest, t.request_digest,
-                  t.server_gen, t.desktop_route, 1, big, b"", b"")
+        self.deny(e.encode_request, t, 1, 1, big, b"", b"")
         # REQUEST: display string with NUL.
-        self.deny(e.encode_request, t, 1, chan, t.binding_digest, t.request_digest,
-                  t.server_gen, t.desktop_route, 1, b"\x00\x00\x00\x00", b"", b"")
+        self.deny(e.encode_request, t, 1, 1, b"\x00\x00\x00\x00", b"", b"")
         # REQUEST: display string with control character.
-        self.deny(e.encode_request, t, 1, chan, t.binding_digest, t.request_digest,
-                  t.server_gen, t.desktop_route, 1, b"\x01\x00", b"", b"")
+        self.deny(e.encode_request, t, 1, 1, b"\x01\x00", b"", b"")
         # REQUEST: display string with unpaired surrogate.
-        self.deny(e.encode_request, t, 1, chan, t.binding_digest, t.request_digest,
-                  t.server_gen, t.desktop_route, 1, b"\x00\xd8", b"", b"")
+        self.deny(e.encode_request, t, 1, 1, b"\x00\xd8", b"", b"")
         # LAUNCH: non-ASCII account name.
         self.deny(e.encode_launch, t, b"a\x80b", ev)
         # LAUNCH: 64-byte account (overlength).
@@ -944,7 +939,6 @@ class E1R8Tests(unittest.TestCase):
         pw = "pässword".encode("utf-8")
         req = "Caller".encode("utf-16-le")
         img = "x.exe".encode("utf-16-le")
-        chan = bytes(range(0x50, 0x60))
         t2 = golden_tuple()
         t2.attempt = 2
         disp_req = b"a\x00" * 260
@@ -1023,7 +1017,14 @@ class E1R8Tests(unittest.TestCase):
             r = e.decode_request(data, t)
             self.assertEqual(r.kind, 1)
             self.assertEqual(r.secure_desktop, 1)
-            self.assertEqual(r.channel_id, chan)
+            self.assertEqual(r.deadline, t.deadline)
+            self.assertEqual(r.binding_digest, t.binding_digest)
+            self.assertEqual(r.request_digest, t.request_digest)
+            self.assertEqual((r.root_gen, r.server_gen, r.broker_gen,
+                              r.verifier_gen, r.map_gen, r.policy_gen),
+                             (t.root_gen, t.server_gen, t.broker_gen,
+                              t.verifier_gen, t.map_gen, t.policy_gen))
+            self.assertEqual(r.desktop_route, t.desktop_route)
             self.assertEqual(r.requester, b"")
             self.assertEqual(r.image, b"")
             self.assertEqual(r.publisher, b"")
@@ -1110,13 +1111,9 @@ class E1R8Tests(unittest.TestCase):
             ("secret", lambda: e.encode_secret_answer(t, 0x3ff, pw), check_secret),
             ("32", lambda: e.encode_grant(t, key, ev), check_grant),
             ("33", lambda: e.encode_granted(t), lambda d: e.decode_granted(d, t)),
-            ("40", lambda: e.encode_request(t, 1, chan, t.binding_digest,
-                                            t.request_digest, t.server_gen,
-                                            t.desktop_route, 1, b"", b"", b""),
+            ("40", lambda: e.encode_request(t, 1, 1, b"", b"", b""),
              check_request_min),
-            ("40", lambda: e.encode_request(t, 2, chan, t.binding_digest,
-                                            t.request_digest, t.server_gen,
-                                            t.desktop_route, 0, disp_req, disp_img,
+            ("40", lambda: e.encode_request(t, 2, 0, disp_req, disp_img,
                                             disp_pub), check_request_max),
             ("41", lambda: e.encode_decision(t, 2, 1), check_decision_deny),
             ("41", lambda: e.encode_decision(t, 1, 0), check_decision_prompt),

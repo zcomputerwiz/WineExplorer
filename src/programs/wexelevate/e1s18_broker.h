@@ -475,6 +475,13 @@ DWORD e1s18_transport_redeem_live( struct request *req,
                                    uint8_t *out_evidence_buf,
                                    size_t *out_evidence_len,
                                    uint8_t out_evidence_ref[16] );
+DWORD e1r9_agent_dialog( struct request *req,
+                         const uint8_t nonce[32],
+                         const uint8_t binding_digest[32],
+                         const uint8_t request_digest[32],
+                         char *out_account,
+                         size_t account_max );
+void e1r9_agent_report( struct request *req, DWORD status, DWORD win32 );
 #endif
 
 #ifdef __cplusplus

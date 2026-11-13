@@ -82,6 +82,9 @@ cleanup()
 {
     local rc=$?
     set +e
+    # Only the suite's own shell cleans up: a forked copy of it (a background function, a command substitution)
+    # that ends early must never remove the fixture under the running suite. It says so and leaves.
+    if [ "$BASHPID" != "$$" ]; then echo "cleanup skipped in subshell $BASHPID (rc=$rc, $BASH_COMMAND)" >&2; exit "$rc"; fi
     ! type e1s6_stop >/dev/null 2>&1 || e1s6_stop
     ! type standin_off >/dev/null 2>&1 || standin_off
     rm -f /etc/pam.d/wex-r8-lab   # the R8 end-to-end case's own PAM service
@@ -1843,6 +1846,81 @@ EOF
     ! grep -q 'r8: further attempt' <<<"$wine_new_log" || fail "r8_dialog_killed_no_launch: a further attempt after the dialog died"
     ok r8_dialog_killed_no_launch
 
+    # E1 R9 (docs/E1_S18E_R9_SPEC.md, lab): the same elevation with the broker in session 0 (B0) and the agent in
+    # the user's session (A). Session 0 runs for this case only; the verifier is told its account and holds the
+    # grant. WEX_SKIP_R9_E2E=1 skips it.
+    r9_e2e_block() {
+        local m
+        el_down "$STD"
+        el_clean
+        e1s6_stop
+        cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
+        reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
+            '"EnableStandardUserElevation"=dword:00000001' '"R9"=dword:00000001'
+        reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+            '"Start"=dword:00000002' \
+            '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
+        reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
+            '"R8AutoSelect"="'"$ADM"'"' '"R8AutoPassword"="'"$R8PW"'"'
+        s0_conf_on
+        export WEX_E1S6_LAB_R9=1 WEX_E1S6_LAB_S0_USER="$S0U"
+        e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+        s0_start
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        # session 0 starts its services; wexelevate there is the broker. Its trace goes to the case's log.
+        (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+            WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" sc query wexelevate \
+            </dev/null >>"$ROOT/e1s6-wine.log" 2>&1) || true
+        for _ in $(seq 1 300); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -q 'r9b: serving' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        grep -q 'r9b: serving' <<<"$wine_new_log" ||
+            { tail -30 <<<"$wine_new_log" >&2; tail -10 "$ROOT/session0.log" >&2; fail "r9_e2e: the broker does not serve in session 0"; }
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r9_e2e_res.txt")" - \
+            >"$ROOT/r9_e2e_probe.log" 2>&1 &
+        PROBE_PID=$!
+        for _ in $(seq 1 600); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -qE 'r8: launched|r8: .* failed|r9b: end |r9a: .* failed' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        sleep 1
+        wait "$PROBE_PID" 2>/dev/null || true
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+        for m in 'r9a: request sent' 'r9b: request' 'r9b: decision prompt' 'r9b: endorsed' 'r9b: ack ok' \
+                 'r9b: account known' 'r9b: worker ready' 'r9b: ready sent' 'r9b: result sent' 'r9b: confirm ok' \
+                 'r9b: granted' 'r9b: launch sent' 'r9a: redeemed' 'r8: launched' 'r9b: launched' 'r9b: end completed'; do
+            grep -q "$m" <<<"$wine_new_log" || { grep -E 'r8: |r9a: |r9b: |E1S6_|err:|fixme:wex' <<<"$wine_new_log" | tail -60 >&2
+                tail -25 <<<"$e1s6_new_log" >&2; tail -10 "$ROOT/session0.log" >&2; fail "r9_e2e_elevated: '$m' missing"; }
+        done
+        for m in 'E1R8_GRANTED request=' 'E1R8_REDEEMED request=' 'E1R8_RELEASED request='; do
+            grep -q "$m" <<<"$e1s6_new_log" || { tail -25 <<<"$e1s6_new_log" >&2; fail "r9_e2e_elevated: the verifier has no '$m'"; }
+        done
+        [ "$(el_fact "$EL/r9_e2e_res.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r9_e2e_res.txt" integrity)" = 12288 ] ||
+            { cat "$EL/r9_e2e_res.txt" "$ROOT/r9_e2e_probe.log" >&2; fail "r9_e2e_elevated: the program did not run elevated"; }
+        # (r8_rid was reused for a request id by an earlier case: read the administrator's SID again)
+        r9_sid="S-1-5-21-$(awk -v n="$ADM" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
+        [ "$(el_fact "$EL/r9_e2e_res.txt" user)" = "$r9_sid" ] ||
+            { cat "$EL/r9_e2e_res.txt" >&2; echo "expected $r9_sid" >&2
+              fail "r9_e2e_elevated: the program does not run as the administrator account"; }
+        ! pgrep -f 'system32.consent[.]exe' >/dev/null || fail "r9_e2e_elevated: the dialog is still running"
+        ok r9_e2e_elevated_through_session0
+        el_down "$STD"
+        pkill -u "$STD" 2>/dev/null || true
+        s0_stop
+        e1s6_stop
+        unset WEX_E1S6_LAB_R9 WEX_E1S6_LAB_S0_USER
+        s0_conf_off
+        e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+    }
+    if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && [ "${WEX_SKIP_R9_E2E:-0}" != 1 ]; then r9_e2e_block; fi
+
     # Negative (R10): the verifier authenticates and hands the evidence to the broker but sends the server no
     # receipt. The broker's copy alone gets no token: the server refuses and nothing starts.
     e1s6_stop
@@ -2621,10 +2699,23 @@ S0RUN="$ROOT/run"
 id "$S0U" >/dev/null 2>&1 && fail "user $S0U exists"
 useradd --system -g "$GRP" -M -d "$M" -s /usr/sbin/nologin "$S0U"; S0_CREATED=1
 install -d -m 0755 -o "$S0U" -g "$GRP" "$S0RUN"
-cp "$CONF" "$ROOT/sysrun.conf.pre-s0"
-printf 'session0_socket=%s\nsession0_user=%s\n' "$S0RUN/session0" "$S0U" >> "$CONF"
-kill_servers
-S0_MODES="$(stat -c '%a %n' "$M"/*.reg)"   # session 0 saves its own files; restored at the end
+s0_conf_on()   # the machine with session 0: its two lines in the launcher's configuration
+{
+    cp "$CONF" "$ROOT/sysrun.conf.pre-s0"
+    printf 'session0_socket=%s\nsession0_user=%s\n' "$S0RUN/session0" "$S0U" >> "$CONF"
+    kill_servers
+    S0_MODES="$(stat -c '%a %n' "$M"/*.reg)"   # session 0 saves its own files; restored by s0_conf_off
+}
+s0_conf_off()   # back to the machine without session 0 (session 0 is stopped)
+{
+    local mode file f
+    cat "$ROOT/sysrun.conf.pre-s0" > "$CONF"
+    while read -r mode file; do chown root "$file"; chmod "$mode" "$file"; done <<<"$S0_MODES"
+    for f in "$M"/*.reg; do [ "$(stat -c %U "$f")" != "$S0U" ] || rm -f "$f"; done   # files only session 0 made
+    rm -f "$M/session0.ids" "$M/session0.owners"
+    kill_servers
+}
+s0_conf_on
 set_val 'Software\\WexTier' FromSession0 1
 reg_append "$M/system.reg" 'Software\\Wow6432Node\\WexVirtMerge' '"real"="machine"'   # for the T2b merged view
 reg_append "$M/system.reg" 'Software\\Wow6432Node\\WexProbe' '"FromMachine"="machine"'  # what a 32-bit program's view sees
@@ -2868,11 +2959,7 @@ el_down "$STD"
 ok st_session0_saves_the_hive_and_user_servers_accept_it
 # back to the machine without session 0
 s0_stop
-cat "$ROOT/sysrun.conf.pre-s0" > "$CONF"
-while read -r mode file; do chown root "$file"; chmod "$mode" "$file"; done <<<"$S0_MODES"
-for f in "$M"/*.reg; do [ "$(stat -c %U "$f")" != "$S0U" ] || rm -f "$f"; done   # files only session 0 made
-rm -f "$M/session0.ids" "$M/session0.owners"
-kill_servers
+s0_conf_off
 fi
 
 # WO-27 R8 end to end (lab only), last in the section; see r8_e2e_case

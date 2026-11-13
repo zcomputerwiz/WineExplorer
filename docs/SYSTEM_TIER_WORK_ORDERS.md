@@ -436,8 +436,16 @@ itself has had no third pass). Work orders: its section 9.
 | R9-1 codecs (Qwen) | done: types 40..51, GRANT 32, GRANTED 33 in `e1r8_codec.h` and `e1r8.py`; 158 C and 120 Python vectors, 19 golden lines; verified natively, under ASan/UBSan, with both MinGW compilers and by the Python cross-check; reviewed against the spec |
 | R9-2 verifier (Antigravity) | done: `WEX_E1S6_LAB_R9=1` and `WEX_E1S6_LAB_S0_USER`, session 0 as endorser, B0 and A channels, GRANT/GRANTED, REDEEM only after a grant on the attempt's A channel, 18 unit tests (`tools/e1s6/test-r9-verifier.py`); with R9 off the lab suite is unchanged (405). Reviewed by Claude, with two changes (the dialog may leave in `GRANTED`; START finds the attempt through the record on the agent's channel). The R9 path inside the running verifier is first exercised by the chain (R9-5) |
 | R9-3 session 0 and server | done except its end-to-end use: `wexelevate.r9` on the bridge list for peers with a session link; the bridged client's session id (`GetNamedPipeClientSessionId`); session ids go back only to their recorded account (`session0.owners`); session 0 recognises its broker image and has its own entry for the S6 endorsement (`server/sysrun.c`, `named_pipe.c`, lab block; built, used first by R9-4c) |
-| R9-4 B0 and A in `wexelevate` | 4a done (`r8_dialog_create`; broker test and lab suite unchanged); 4b (the agent) with Antigravity; 4c (B0) Claude |
-| R9-5 lab cases, R9-6 review | not started |
+| R9-1b REQUEST (Qwen) | done: the agent's deadline and six generations in REQUEST (232 .. 1792), C and Python, tests and golden lines; the lockout notice (type 31) is a TO_D frame |
+| R9-4 B0 and A in `wexelevate` | done (2026-11-13): 4a `r8_dialog_create`; 4b the agent (`e1r9_agent_dialog`, `e1r9_agent_report`, switch `HKLM\Software\WineExplorer\Elevation` `R9`=1; Antigravity, reviewed and changed by Claude: a refused dialog leaves by itself, the lockout notice, no spinning on an ended dialog, no double close, logon failure after the last refusal); 4c B0 (`e1r9_broker0.c`: the service's role in session 0; Claude) |
+| R9-5 lab cases | one case: `r9_e2e_elevated_through_session0` (session 0 with B0, the verifier with `r9=1`, a standard user's request, the program runs elevated as the administrator; the grant, the redemption on the agent's channel and the release are in the verifier's log). Lab suite 406 (79 R8 cases, R9 off, unchanged in behaviour), normal suite 342, T1 `FAILS=0`. Not yet as cases: a refused password with a second attempt, the lockout notice, cancellation in each state, A or B0 killed, two sessions at once, a 32-bit caller |
+| R9-6 review | not done |
+
+Found by the first end-to-end run: the server's named pipe type mapped a generic right to the standard rights only,
+so B0's SYSTEM-only pipe refused the agent (fixed, `docs/STOCK_CHANGES.md`); the verifier's evidence named session
+0's generations instead of the agent's; the verifier did not tell B0 when the agent's channel ended; and the suite's
+cleanup could run in a forked copy of its shell (the verifier's launcher subshell) and remove the fixture under the
+running suite (now refused there).
 
 R9-4 in parts (the R8 path stays as it is for `R9` off, so the lab's R8 cases keep running):
 

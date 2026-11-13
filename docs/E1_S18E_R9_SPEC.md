@@ -65,7 +65,7 @@ R8's B does (it is not an S6 channel).
 
 | Type | Name | Dir | Body after the header | Total |
 | --- | --- | --- | --- | --- |
-| 40 | REQUEST | A→B0 | `kind:u32` (1 runas, 2 manifest), `reserved:16` (zero), `binding_digest:32`, `request_digest:32`, `server_gen:u64`, `desktop_route:16`, `secure_desktop:u32` (1 available, 0 not), `requester:str`, `image:str`, `publisher:str` (display strings, R8 section 4) | 200 .. 1760 |
+| 40 | REQUEST | A→B0 | `kind:u32` (1 runas, 2 manifest), `deadline:u64`, `binding_digest:32`, `request_digest:32`, `root_gen:u64`, `server_gen:u64`, `broker_gen:u64`, `verifier_gen:u64`, `map_gen:u64`, `policy_gen:u64`, `desktop_route:16`, `secure_desktop:u32` (1 available, 0 not), `requester:str`, `image:str`, `publisher:str` (display strings, R8 section 4) | 232 .. 1792 |
 | 41 | DECISION | B0→A | `status:u32` (1 prompt, 2 deny), then for 1: the pre-endorsement tuple (204); for 2: `reason:u32` (1 policy, 2 attempts, 3 busy) | 84 deny, 284 prompt |
 | 42 | ENDORSED_LOCAL | A→B0 | `dialog_id:16`, `status:u32` (1 endorsed, 2 refused) | 96 |
 | 43 | TO_D | B0→A | one complete R8 B→D frame (types 1, 3, 9, 5, 6, 8) | 152 .. 2143 |
@@ -235,4 +235,25 @@ findings. v3:
   `verifier_gen`, `map_gen`, `policy_gen` (6 × u64), `desktop_route:16`, `secure_desktop:u32`, the three strings;
   total 232 .. 1792. B0 copies the generations into the tuple unchanged (S and V check them), and uses a deadline
   no later than A's. B0's own S6 registration gives it its channel to V and the verifier owner for INIT; its own
-  generations are not part of any tuple. The codecs and the agent's REQUEST follow once R9-4b is in.
+  generations are not part of any tuple. Done (2026-11-13): codecs, the agent's REQUEST, section 4's table.
+
+## 13. As built (2026-11-13, R9-4b/4c and the first end-to-end run)
+
+* **Headers.** DECISION deny and the END after it carry the request's id and nonce with attempt 0 and a zero
+  channel id. In a retry, the TO_D with the old dialog's DONE still has the old attempt's header; NEXT_ATTEMPT and
+  everything after it have the new one. A learns each attempt's tuple from DECISION 1 / NEXT_ATTEMPT (it cannot
+  know the channel id before) and checks every field it knows against its own values.
+* **The lockout notice** (R8 type 31, WO-39) is a TO_D frame as well (header only). After it, as after DONE, the
+  dialog's exit is expected; B0 ends with END 3 and A returns the locked-out error.
+* **A refused password.** The dialog gets RESULT 2 and DONE 2 and leaves by itself, as with R8's broker; A waits
+  for it (bounded by the request's deadline) before it stops anything. After the last attempt B0 sends END 2 and A
+  returns the logon failure.
+* **Evidence.** The record V makes for an attempt names the generations of the agent's channel (its server and
+  broker), not session 0's: the session's server checks it at issue.
+* **Cancellation reaches B0 through V.** While B0 waits for V it does not read A's pipe. When A's channel ends
+  (A cancelled, or died), V drops the attempt and sends B0 an R8 CANCEL (type 21) for it; B0 then ends the request.
+* **Limits of this version.** B0 serves one request at a time (a second session's request gets DECISION deny,
+  busy); the attempt count is per request (3), the count per account across sessions is V's lockout policy; no
+  prompt on an insecure desktop (`secure_desktop` 0 is DECISION deny, policy); B0 opens its S6 channel per request.
+* **The pipe's descriptor.** `D:P(A;;GA;;;SY)`. The server's named pipe type needed the file access mapping for
+  the generic right to cover a client's read and write (`docs/STOCK_CHANGES.md`).
