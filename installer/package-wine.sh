@@ -299,6 +299,12 @@ if [ "${WEX_SESSION0:-0}" = 1 ]; then
     install -d -m 0755 "$STAGE_SESSION/usr/local/share/wineexplorer"
     echo 1 > "$STAGE_SESSION/usr/local/share/wineexplorer/session0.enable"
 fi
+# The same for enforced elevation: WEX_ELEVATION=1 at packaging time, a marker, and setup then names the consent
+# helper in the machine hive (docs/SYSTEM_TIER_WORK_ORDERS.md, "Enforced elevation on an installed machine").
+if [ "${WEX_ELEVATION:-0}" = 1 ]; then
+    install -d -m 0755 "$STAGE_SESSION/usr/local/share/wineexplorer"
+    echo 1 > "$STAGE_SESSION/usr/local/share/wineexplorer/elevation.enable"
+fi
 # the session and everything it starts become candidates for kernel samepage merging (wexksmtuned decides when it runs)
 install -D -m644 "$SCRIPT_DIR/systemd/wex-ksm.conf" "$STAGE_SESSION/lib/systemd/system/lightdm.service.d/wex-ksm.conf"
 

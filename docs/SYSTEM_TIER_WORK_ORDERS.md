@@ -595,3 +595,20 @@ Not done on the installed machine: fast user switching with two desktops, a refu
 Mode with session 0, E1 R9 (lab only), the stray-line fixes seen on a terminal after the fix.
 `build-iso.sh` needs Go and the other Vintner Boot build dependencies in the build distro (installed in wexbuild
 on 2026-11-13).
+
+## Enforced elevation on an installed machine (opened 2026-11-13)
+
+Decision of the user (2026-11-13): installed systems are to enforce elevation by default eventually. The way
+there, in this order:
+
+1. an opt-in image with enforcement on (as session 0 was introduced: a switch at packaging time, nothing changes
+   without it);
+2. one real elevation on it, by the product's own parts (no lab verifier, no test hook that types the password);
+3. whatever breaks in a real desktop session once tokens are limited (the shell, setup and first run write
+   machine state in places the lab suite does not reach);
+4. a person driving the dialog at human pace;
+5. then the default.
+
+Why now: Group Policy is applied on an installed machine ([GROUP_POLICY.md](GROUP_POLICY.md), "End to end"), but
+a standard user can overwrite a policy value between refreshes while tokens are unrestricted. The protections of
+the policy trees take effect with enforcement, with no further change.

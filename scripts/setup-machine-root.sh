@@ -32,6 +32,12 @@ case "$ACCOUNTS_AUTOSYNC" in 0|1) ;; *) die 'WEX_ACCOUNTS_AUTOSYNC must be 0 or 
 SESSION0_ENABLE=${WEX_SESSION0:-0}
 case "$SESSION0_ENABLE" in 0|1) ;; *) die 'WEX_SESSION0 must be 0 or 1' ;; esac
 
+# Enforced elevation (docs/SYSTEM_TIER_WORK_ORDERS.md, "Enforced elevation on an installed machine"): opt-in,
+# default off. WEX_ELEVATION=1 names the consent helper in the machine hive; with it the servers give limited
+# tokens and refuse a limited token's writes to machine state.
+ELEVATION_ENABLE=${WEX_ELEVATION:-0}
+case "$ELEVATION_ENABLE" in 0|1) ;; *) die 'WEX_ELEVATION must be 0 or 1' ;; esac
+
 case "$ACTION" in
     apply|update|--update) ACTION=apply ;;  # the package postinst passes --update
     rollback|--rollback) ;;
@@ -355,6 +361,20 @@ find "$MACHINE_ROOT/drive_c" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exe
 if [ -f "$MACHINE_ROOT/system.reg" ]; then
     chmod 664 "$MACHINE_ROOT/system.reg"
     sed -i 's/\\\\users\\\\root\\\\Favorites/\\\\users\\\\Public\\\\Favorites/g' "$MACHINE_ROOT/system.reg"
+    # Enforced elevation: the helper's name in the machine hive is the switch (the servers and ntdll read
+    # HKLM\Software\Wine\Elevation, value Helper). The hive file is written only while no server has it: at
+    # the first setup none runs yet; later, session 0 holds it and the value is set through session 0 instead.
+    if [ "$ELEVATION_ENABLE" = 1 ] && ! grep -q '^\[Software\\\\Wine\\\\Elevation\]' "$MACHINE_ROOT/system.reg"; then
+        if pgrep -f 'wineserver --session0' >/dev/null 2>&1; then
+            echo "NOTE: session 0 is running; set HKLM\\Software\\Wine\\Elevation\\Helper through it to enforce elevation" >&2
+        else
+            cat >> "$MACHINE_ROOT/system.reg" <<'ELEVATION_EOF'
+
+[Software\\Wine\\Elevation]
+"Helper"="C:\\windows\\system32\\consent.exe"
+ELEVATION_EOF
+        fi
+    fi
 fi
 if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
     chmod 664 "$MACHINE_ROOT/userdef.reg"
