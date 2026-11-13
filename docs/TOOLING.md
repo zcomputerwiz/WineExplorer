@@ -118,6 +118,37 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     - WSLg mounts `/tmp/.X11-unix` read-only without the sticky bit, so XWayland, and with it the compositor, cannot
       start. `run.sh` remounts it; do the same for a compositor started by hand.
     - Keep `tests/wex/output` in the copy: `check-handles.py` writes there.
+* `installer/tests/ad/dc-create.sh` and `client-create.sh` (the lab Active Directory domain for Group Policy tests;
+  `docs/GROUP_POLICY.md`, "The lab domain"): as root in the Debian WSL distribution, `bash installer/tests/ad/dc-create.sh`
+  (first run about 5 minutes: a Samba controller for `AD.WEXLAB.EXAMPLE` from a Debian cloud image), then
+  `bash installer/tests/ad/client-create.sh` (a member guest that joins and checks `wex-domain-state.sh`; prints
+  `PASS: join detection`). Each takes `stop` and `ssh CMD`. Disks, key and the throwaway Administrator password are
+  in `/var/tmp/wex-ad-lab` (about 2 GB); SSH ports 2241 and 2242 on 127.0.0.1. Passed on 2026-11-13. The guests stay
+  running until stopped. `gpo-create.sh [N]` makes or changes the test policy object.
+* `installer/tests/ad/machine.sh` (Group Policy end to end on an installed machine): as root where the installed
+  disk is, `VMTEST_DIR=DIR bash installer/tests/ad/machine.sh SOURCE_VM [TEST_VM]`, with the controller running.
+  SOURCE_VM is a session 0 disk as for `session0.sh`, from an image that has `wex-gpupdate.sh`. It needs the lab
+  password file `/var/tmp/wex-ad-lab/admin_password.txt` in the distribution it runs in (the controller is in
+  Debian, the installed disks are in wexbuild; QEMU's multicast network does cross the two distributions). About
+  15 minutes (the guest installs Samba); passed on 2026-11-13 with `/root/vmtest-s0/wex-s0`. It uses
+  `VMTEST_QEMU_EXTRA`, which `scripts/vmtest.py start` appends to QEMU's arguments. Pitfall found: the installed
+  system's network service takes a hand-set address off the second card unless told not to manage it.
+* `installer/tests/elevation.sh` (enforced elevation on an installed machine; `docs/SYSTEM_TIER_WORK_ORDERS.md`,
+  "Enforced elevation on an installed machine"): as root, `VMTEST_DIR=DIR bash installer/tests/elevation.sh SOURCE_VM
+  [TEST_VM]`. SOURCE_VM is a disk installed from an ISO packaged with `WEX_SESSION0=1 WEX_ELEVATION=1` (both for
+  `package-wine.sh` and for `build-iso.sh`). It builds `scripts/wexelevate_probe.c` with MinGW, copies it into an
+  overlay, and answers the real consent dialog on the screen (Enter for Cancel, a click on "Continue"). About 8
+  minutes; passed on 2026-11-13 in wexbuild (`/root/vmtest-el/wex-el`, ISO `/root/out/wex-el.iso`). Pitfall: the
+  screen reading does not find "Cancel" under the default button's focus mark.
+* `installer/tests/session0.sh` (system tier, session 0 on an installed machine; `docs/SYSTEM_TIER_WORK_ORDERS.md`): as
+  root, `VMTEST_DIR=DIR bash installer/tests/session0.sh SOURCE_VM [TEST_VM]`. SOURCE_VM is a disk installed by
+  `install-unattended.sh` from an ISO packaged with `WEX_SESSION0=1` (the variable must be set for `build-iso.sh`
+  too: it packages again); it is never written. The test runs in an overlay, gives its root a throwaway password
+  offline, sends `session0-guest.sh` in over the serial console and decides from its 16 `ok`/`not ok` lines (units,
+  the user's session, registry through session 0, a second user, a forwarded service, a restart of session 0).
+  About 4 minutes; passed on 2026-11-13 in wexbuild (`/root/vmtest-s0/wex-s0`, ISO from `/root/WE-s0`). It takes the
+  first free NBD device, so run one VM test at a time. `build-iso.sh` needs Go and the other Vintner Boot build
+  dependencies in the build distro (in wexbuild since that day).
 * `installer/tests/safe-mode.sh` (Safe Mode VM test, `docs/SAFE_MODE.md` section 6): as root in WSL Debian, from a
   script file, `VMTEST_DIR=/var/tmp/vmtest-gpt WEX_TEST_FIRMWARE=bios|uefi bash installer/tests/safe-mode.sh SOURCE_VM TEST_VM [PHASE...]`.
   It replaces TEST_VM with a new qcow2 overlay of the installed disk SOURCE_VM, which is never written; an existing

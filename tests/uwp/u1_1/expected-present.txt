@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# The checks of view.exe application ViewPresent (mode present): the lifecycle checks as Windows 11 produced them, and
+# the presentation and input checks, which hold for the run that was typed by hand on Windows 11 (2026-11-12) and for
+# a Wine run with inject.exe.
+PASS activate_raises_visible_activated_inputenabled_in_order
+PASS back_buffer_holds_the_cleared_colour
+PASS callbacks_not_on_the_calling_thread
+PASS exiting_raised_before_the_window_closes
+PASS exiting_raised_on_the_calling_thread
+PASS key_a
+PASS key_enter
+PASS key_f5_without_character
+PASS key_left_is_extended_without_character
+PASS key_shift_b
+PASS launch_activation_before_run
+PASS launch_activation_kind
+PASS launch_arguments_are_the_activation_arguments
+PASS launch_has_a_splash_screen
+PASS launch_tile_id_is_the_application_id
+PASS left_button_press_and_release
+PASS lifecycle_each_callback_once
+PASS lifecycle_order
+PASS load_gets_the_manifest_entry_point
+PASS no_size_changed_without_resizing
+PASS package_identity
+PASS pointer_entered_before_first_move
+PASS pointer_is_a_mouse_with_id_1
+PASS right_button_press
+PASS set_window_is_window_of_thread
+PASS view_current_is_main_view
+PASS view_is_main
+PASS view_is_not_hosted
+PASS wheel_notch_is_120

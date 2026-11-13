@@ -240,6 +240,7 @@ cp "$ROOT_DIR/scripts/wex-locale-gen.sh" "$STAGE_SESSION/usr/local/sbin/wex-loca
 install -D -m755 "$SCRIPT_DIR/systemd/wex-bootmode-generator" "$STAGE_SESSION/usr/lib/systemd/system-generators/wex-bootmode-generator"
 cp "$SCRIPT_DIR/scripts/wex-gui-setup.sh" "$STAGE_SESSION/usr/local/bin/wex-gui-setup.sh"
 cp "$SCRIPT_DIR/scripts/wex-oobe.sh" "$STAGE_SESSION/usr/local/bin/wex-oobe.sh"
+install -m 0755 "$SCRIPT_DIR/scripts/wex-domain-state.sh" "$STAGE_SESSION/usr/local/bin/wex-domain-state.sh"
 cp "$ROOT_DIR/scripts/wex-greeter.sh" "$STAGE_SESSION/usr/local/bin/wex-greeter.sh"
 cp "$ROOT_DIR/scripts/setup-machine-root.sh" "$STAGE_SESSION/usr/local/bin/wex-setup-machine.sh"
 cp "$ROOT_DIR/scripts/migrate-prefix-split.sh" "$STAGE_SESSION/usr/local/bin/wex-migrate-prefix.sh"
@@ -293,7 +294,22 @@ for unit in wex-advanced-options.target wex-advanced-options.service wex-safemod
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
 # system tier session 0 (docs/SYSTEM_TIER_WORK_ORDERS.md); enabled only by setup-machine-root.sh with WEX_SESSION0=1
-cp "$SCRIPT_DIR/systemd/wex-session0.service" "$STAGE_SESSION/lib/systemd/system/"
+cp "$SCRIPT_DIR/systemd/wex-session0.service" "$SCRIPT_DIR/systemd/wex-session0-services.service" "$STAGE_SESSION/lib/systemd/system/"
+# domain Group Policy for Windows programs (docs/GROUP_POLICY.md); the timer is enabled with session 0
+cp "$SCRIPT_DIR/systemd/wex-gpupdate.service" "$SCRIPT_DIR/systemd/wex-gpupdate.timer" "$STAGE_SESSION/lib/systemd/system/"
+install -m 0755 "$SCRIPT_DIR/scripts/wex-gpupdate.sh" "$STAGE_SESSION/usr/local/bin/wex-gpupdate.sh"
+# Opt-in for a test image: WEX_SESSION0=1 at packaging time leaves a marker, and the installed system's setup
+# (wex-gui-setup.sh) then runs the machine root setup with WEX_SESSION0=1. Without it nothing changes.
+if [ "${WEX_SESSION0:-0}" = 1 ]; then
+    install -d -m 0755 "$STAGE_SESSION/usr/local/share/wineexplorer"
+    echo 1 > "$STAGE_SESSION/usr/local/share/wineexplorer/session0.enable"
+fi
+# The same for enforced elevation: WEX_ELEVATION=1 at packaging time, a marker, and setup then names the consent
+# helper in the machine hive (docs/SYSTEM_TIER_WORK_ORDERS.md, "Enforced elevation on an installed machine").
+if [ "${WEX_ELEVATION:-0}" = 1 ]; then
+    install -d -m 0755 "$STAGE_SESSION/usr/local/share/wineexplorer"
+    echo 1 > "$STAGE_SESSION/usr/local/share/wineexplorer/elevation.enable"
+fi
 # the session and everything it starts become candidates for kernel samepage merging (wexksmtuned decides when it runs)
 install -D -m644 "$SCRIPT_DIR/systemd/wex-ksm.conf" "$STAGE_SESSION/lib/systemd/system/lightdm.service.d/wex-ksm.conf"
 

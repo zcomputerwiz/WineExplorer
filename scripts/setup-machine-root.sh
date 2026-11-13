@@ -32,6 +32,12 @@ case "$ACCOUNTS_AUTOSYNC" in 0|1) ;; *) die 'WEX_ACCOUNTS_AUTOSYNC must be 0 or 
 SESSION0_ENABLE=${WEX_SESSION0:-0}
 case "$SESSION0_ENABLE" in 0|1) ;; *) die 'WEX_SESSION0 must be 0 or 1' ;; esac
 
+# Enforced elevation (docs/SYSTEM_TIER_WORK_ORDERS.md, "Enforced elevation on an installed machine"): opt-in,
+# default off. WEX_ELEVATION=1 names the consent helper in the machine hive; with it the servers give limited
+# tokens and refuse a limited token's writes to machine state.
+ELEVATION_ENABLE=${WEX_ELEVATION:-0}
+case "$ELEVATION_ENABLE" in 0|1) ;; *) die 'WEX_ELEVATION must be 0 or 1' ;; esac
+
 case "$ACTION" in
     apply|update|--update) ACTION=apply ;;  # the package postinst passes --update
     rollback|--rollback) ;;
@@ -352,9 +358,42 @@ chmod 2775 "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
 find "$MACHINE_ROOT/drive_c" -type d -exec chmod 2775 {} +
 find "$MACHINE_ROOT/drive_c" -type f -exec chmod 664 {} +
 find "$MACHINE_ROOT/drive_c" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 775 {} +
+# The shared document folders (Shared Documents, Music, Video and Pictures of Windows XP) are every user's to
+# write, and a user's files there are that user's to delete: world-writable with the sticky bit, like /tmp.
+# C:\users\Public itself and the common desktop and favourites stay machine state, as on XP, where only
+# administrators change what every user sees. The folders' XP names are set here, because a user's shell
+# cannot be relied on to write them at first logon (they are shell32 strings; the shell looks for the same
+# value and leaves an existing one alone).
+if [ -d "$MACHINE_ROOT/drive_c/users/Public" ]; then
+    for shared in "Documents:21785" "Music:29059" "Videos:29060" "Pictures:29061"; do
+        shared_dir="$MACHINE_ROOT/drive_c/users/Public/${shared%%:*}"
+        [ -d "$shared_dir" ] || continue
+        chmod 1777 "$shared_dir"
+        if [ ! -e "$shared_dir/desktop.ini" ]; then
+            printf '%s\r\n' '[.ShellClassInfo]' "LocalizedResourceName=@%SystemRoot%\\system32\\shell32.dll,-${shared##*:}" \
+                > "$shared_dir/desktop.ini"
+            chown "root:$MACHINE_GROUP" "$shared_dir/desktop.ini"
+            chmod 664 "$shared_dir/desktop.ini"
+        fi
+    done
+fi
 if [ -f "$MACHINE_ROOT/system.reg" ]; then
     chmod 664 "$MACHINE_ROOT/system.reg"
     sed -i 's/\\\\users\\\\root\\\\Favorites/\\\\users\\\\Public\\\\Favorites/g' "$MACHINE_ROOT/system.reg"
+    # Enforced elevation: the helper's name in the machine hive is the switch (the servers and ntdll read
+    # HKLM\Software\Wine\Elevation, value Helper). The hive file is written only while no server has it: at
+    # the first setup none runs yet; later, session 0 holds it and the value is set through session 0 instead.
+    if [ "$ELEVATION_ENABLE" = 1 ] && ! grep -q '^\[Software\\\\Wine\\\\Elevation\]' "$MACHINE_ROOT/system.reg"; then
+        if pgrep -f 'wineserver --session0' >/dev/null 2>&1; then
+            echo "NOTE: session 0 is running; set HKLM\\Software\\Wine\\Elevation\\Helper through it to enforce elevation" >&2
+        else
+            cat >> "$MACHINE_ROOT/system.reg" <<'ELEVATION_EOF'
+
+[Software\\Wine\\Elevation]
+"Helper"="C:\\windows\\system32\\consent.exe"
+ELEVATION_EOF
+        fi
+    fi
 fi
 if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
     chmod 664 "$MACHINE_ROOT/userdef.reg"
@@ -531,14 +570,24 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
         systemctl enable --now wex-accounts.path wex-accounts.timer
     fi
     if [ "$SESSION0_ENABLE" = 1 ] && [ "$SYSRUN_DIR" = /usr/local/libexec/wineexplorer ] && [ "$SYSRUN_CONF" = /etc/wineexplorer/sysrun.conf ]; then
+        # From a source checkout the units are installed from it; on an installed system the package has put
+        # them in /lib/systemd/system already (this script is /usr/local/bin/wex-setup-machine.sh there).
         SESSION0_UNITS="$(dirname -- "$(readlink -f -- "$0")")/../installer/systemd"
         if [ -f "$SESSION0_UNITS/wex-session0.service" ]; then
             install -d -m 0755 /lib/systemd/system
             install -m 0644 -o root -g root "$SESSION0_UNITS/wex-session0.service" /lib/systemd/system/
-            if [ -d /run/systemd/system ]; then
-                systemctl daemon-reload
-                systemctl enable --now wex-session0.service
-            fi
+            [ ! -f "$SESSION0_UNITS/wex-session0-services.service" ] ||
+                install -m 0644 -o root -g root "$SESSION0_UNITS/wex-session0-services.service" /lib/systemd/system/
+        fi
+        if [ -f /lib/systemd/system/wex-session0.service ] && [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+            systemctl enable --now wex-session0.service
+            # session 0's own services.exe (T5.3): the sessions forward the machine-wide services to it
+            [ ! -f /lib/systemd/system/wex-session0-services.service ] ||
+                systemctl enable --now wex-session0-services.service ||
+                echo "WARNING: session 0's services did not start (wex-session0-services.service)" >&2
+            # domain Group Policy (docs/GROUP_POLICY.md): the refresh does nothing on a machine that is not joined
+            [ ! -f /lib/systemd/system/wex-gpupdate.timer ] || systemctl enable --now wex-gpupdate.timer || true
         fi
     fi
 fi

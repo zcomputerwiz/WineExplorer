@@ -24,7 +24,7 @@ Set VMTEST_DIR to a persistent directory if /tmp is a RAM filesystem.
 The serial console needs a getty on ttyS0 in the guest (systemctl enable serial-getty@ttyS0).  Machines started here
 carry the fw_cfg entry opt/org.wineexplorer/serial-login, on which textsetup enables that getty when installing.
 """
-import argparse, json, os, re, secrets, socket, subprocess, sys, time
+import argparse, json, os, re, secrets, shlex, socket, subprocess, sys, time
 
 ROOT = os.environ.get("VMTEST_DIR", "/tmp/vmtest")
 
@@ -90,6 +90,8 @@ def start(a):
            "-device", "ide-cd,drive=cd,bus=ide.1,id=cdrom", "-boot", "order=dc" if a.iso else "order=c"]
     if a.efi:
         cmd += ["-bios", "/usr/share/ovmf/OVMF.fd"]
+    # more QEMU arguments for one test, for example a second network card (installer/tests/ad/machine.sh)
+    cmd += shlex.split(os.environ.get("VMTEST_QEMU_EXTRA", ""))
     if a.paused:   # the CPU waits for "cont": input that must already be there when the firmware or loader runs
         cmd += ["-S"]
     log = open(os.path.join(d, "qemu.log"), "w")

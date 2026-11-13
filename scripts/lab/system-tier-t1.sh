@@ -167,11 +167,48 @@ check empty_messages_leak_no_fds "$([ "$FD_AFTER" -le $((FD_BEFORE + 8)) ] && ec
 
 # T5.2: a session's program reaches session 0's service manager through \pipe\WexSession0\svcctl (64- and 32-bit)
 s0 sc query PlugPlay >/dev/null 2>&1   # session 0's own services.exe runs
+check s0_programs_in_session_0 "$(s0 "$W/p64.exe" whoami | field session)" 0
+check s0_programs_run_as_localsystem "$(s0 "$W/p64.exe" whoami | field user)" S-1-5-18
 check pipe64_bridged "$(A "$W/p64.exe" rpcbind 'WexSession0\svcctl' | field pipe)" open
 check bind64_through_bridge "$(A "$W/p64.exe" rpcbind 'WexSession0\svcctl' | field bind | cut -d' ' -f1)" 12
 check bind32_through_bridge "$(A "$W/p32.exe" rpcbind 'WexSession0\svcctl' | field bind | cut -d' ' -f1)" 12
 check bridge_refuses_unlisted_pipe "$(A "$W/p64.exe" rpcbind 'WexSession0\lsarpc' | field pipe)" error5
 check session_cannot_serve_session0_pipe "$(A "$W/p64.exe" pipecreate 'WexSession0\svcctl' | field create)" error5
+
+# T5.4: the sessions' service managers forward the services that are not a session's own (here wuauserv) to session
+# 0's, and keep their own (PlugPlay). Their servers start now, with session 0's service manager up.
+state() { tr -d '\r' | awk '/STATE/ { print $3; exit }'; }
+WINEPREFIX=$W/a ./server/wineserver -k 2>/dev/null; WINEPREFIX=$W/b ./server/wineserver -k 2>/dev/null; sleep 1
+s0 sc stop wuauserv >/dev/null 2>&1; sleep 1
+check s0_wuauserv_stopped "$(s0 sc query wuauserv | state)" 1
+A sc start wuauserv >/dev/null 2>&1
+for i in $(seq 1 20); do [ "$(s0 sc query wuauserv | state)" = 4 ] && break; sleep 0.5; done
+check started_from_a_runs_in_session0 "$(s0 sc query wuauserv | state)" 4
+check b_sees_session0_state "$(B sc query wuauserv | state)" 4
+check a_service_process_not_in_a "$(A tasklist 2>/dev/null | grep -ci wuauserv)" 0
+A sc stop wuauserv >/dev/null 2>&1
+for i in $(seq 1 20); do [ "$(s0 sc query wuauserv | state)" = 1 ] && break; sleep 0.5; done
+check stopped_from_a_in_session0 "$(s0 sc query wuauserv | state)" 1
+check a_keeps_own_plugplay "$(A sc query PlugPlay | state)" 4
+A sc create WexT5Probe binPath= 'C:\windows\system32\wuauserv.exe' >/dev/null 2>&1
+check created_from_a_in_session0 "$(s0 sc query WexT5Probe | state)" 1
+check b_sees_service_created_by_a "$(B sc query WexT5Probe | state)" 1
+A sc delete WexT5Probe >/dev/null 2>&1
+check deleted_from_a_in_session0 "$(s0 sc query WexT5Probe | state)" ""
+check a_lists_session0_service "$(A "$W/p64.exe" enumsvc wuauserv | field count)" 1
+check a_lists_own_plugplay_once "$(A "$W/p64.exe" enumsvc PlugPlay | field count)" 1
+check a32_lists_session0_service "$(A "$W/p32.exe" enumsvc wuauserv | field count)" 1
+
+# R9 (E1 broker in session 0): \pipe\WexSession0\wexelevate.r9 reaches session 0's wexelevate.r9 from a session with
+# a session link, and the server there reads the session id of the client's session
+SA_NOW="$(A "$W/p64.exe" whoami | field session)"
+rm -f "$W/serve.out"
+(s0 "$W/p64.exe" pipeserve wexelevate.r9 >"$W/serve.out" &)
+for i in $(seq 1 60); do grep -q '^listening' "$W/serve.out" 2>/dev/null && break; sleep 0.5; done
+check r9_pipe_from_session "$(A "$W/p64.exe" pipesay 'WexSession0\wexelevate.r9' hello | field say)" ok
+for i in $(seq 1 40); do grep -q '^message=' "$W/serve.out" 2>/dev/null && break; sleep 0.5; done
+check r9_client_session_is_the_session "$(field clientsession < "$W/serve.out")" "$SA_NOW"
+check r9_message_crossed "$(field message < "$W/serve.out")" hello
 check s0_has_held_subkey "$(s0 reg query "$K\\Held" >/dev/null 2>&1; echo $?)" 0
 check s0_saved_key_dacl "$(grep -a -c '^#sd=' "$W/s0/system.reg" | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 check dacl_survives_restart "$(A "$W/p64.exe" getdacl 'Software\WexTier\Perm' | field dacl)" "$PERM_BEFORE"

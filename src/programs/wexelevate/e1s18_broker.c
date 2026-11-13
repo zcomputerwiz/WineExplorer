@@ -718,6 +718,10 @@ int e1s18_verify_r8_ack( const uint8_t *buf, size_t len,
 static BOOL s_r8_skip_prepare = FALSE;
 /* WO-25: the S6 channel of the attempt in flight (single in flight, WO-15). */
 static UINT64 s_r8_channel;
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+static HANDLE s_r9_pipe = INVALID_HANDLE_VALUE;
+static struct e1r8_tuple s_r9_tuple;
+#endif
 
 void e1s18_set_r8_skip_prepare( BOOL skip )
 {
@@ -922,6 +926,14 @@ void e1s18_r8_release( struct request *req )
     UINT64 channel = s_r8_channel;
     s_r8_channel = 0;
     if (channel && ops && ops->r8_close) ops->r8_close( req, channel ); /* best-effort */
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    if (s_r9_pipe != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle( s_r9_pipe );
+        s_r9_pipe = INVALID_HANDLE_VALUE;
+        memset( &s_r9_tuple, 0, sizeof(s_r9_tuple) );
+    }
+#endif
 }
 
 /* WO-14 test hook: SHA-256 of tag||data, exposing the broker's digest for
@@ -1197,7 +1209,7 @@ struct r8_io_ctx
     uint32_t minimum, maximum;
     size_t len;
     int ok;
-    uint8_t buf[512];
+    uint8_t buf[2148];
 };
 
 static DWORD WINAPI r8_io_thread( void *param )
@@ -1310,52 +1322,39 @@ static uint8_t s_r8_evidence[220], s_r8_evidence_ref[16];
 static BOOL s_r8_evidence_set;
 static uint32_t s_r8_attempt;  /* the attempt whose evidence was redeemed (1..3) */
 
-static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id, uint32_t attempt,
-                                         const uint8_t nonce[32],
-                                         const uint8_t binding_digest[32],
-                                         const uint8_t request_digest[32],
-                                         const uint8_t channel_token[16],
-                                         BOOL secure, char *out_account, size_t account_max )
+/* R9-4a: the dialog D of one attempt: the process (created suspended, endorsed by the server for the tuple) and
+ * the broker's ends of its two pipes. The R8 broker and the R9 agent both create it here. */
+struct r8_dialog
+{
+    HANDLE  process;
+    HANDLE  thread;       /* still suspended: the caller resumes it and closes this */
+    HANDLE  to_d_write;
+    HANDLE  from_d_read;
+    uint8_t dialog_id[16];
+};
+
+/* Create D suspended on the desktop the tuple's mode asks for, with exactly its two pipe ends inherited, and
+ * have the server endorse it; the dialog id goes into the tuple and the R8 context. On failure nothing is left
+ * (D terminated, handles closed, the secure desktop left). */
+static DWORD r8_dialog_create( struct request *req, struct e1r8_tuple *tuple, uint64_t request_id,
+                               uint32_t attempt, const uint8_t channel_token[16], BOOL secure,
+                               struct r8_dialog *dlg )
 {
     STARTUPINFOEXW si = { { sizeof(si) } };
     PROCESS_INFORMATION pi;
     WCHAR dir[MAX_PATH], *cmd;
-    HANDLE handles[5];
     HANDLE to_d_read = INVALID_HANDLE_VALUE, to_d_write = INVALID_HANDLE_VALUE;
     HANDLE from_d_read = INVALID_HANDLE_VALUE, from_d_write = INVALID_HANDLE_VALUE;
     SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE }; /* non-inheritable by default */
     SIZE_T attr_size = 0;
     HANDLE inherit_handles[2];
-    DWORD ret, len;
+    DWORD len;
     size_t cmd_size;
-    uint8_t init_buf[2067];
     uint8_t pre_tuple[E1R8_PRE_ENDORSEMENT_SIZE];
     uint8_t dialog_id[16];
-    DWORD err = ERROR_SUCCESS;
     int i;
     WCHAR token_hex[33];
-    struct e1r8_tuple tuple;
-    size_t init_len;
-    HANDLE worker_thread = NULL;
-    struct r8_worker_ctx *wc;
-    ULONGLONG start, elapsed;
-    DWORD timeout;
     const struct e1s18_ops *ops = e1s18_get_ops();
-
-    /* WO-25 / WO-27: reuse open channel and context if already prepared, or prepare now. */
-    if (!s_r8_channel)
-    {
-        if ((err = e1s18_r8_prepare( req )))
-            return err;
-    }
-
-    /* WO-20: the R8 context must be complete; a zero required input denies
-     * with ERROR_NOT_SUPPORTED before any pipe or process is created. The
-     * pre-endorsement tuple carries no dialog_id (the server assigns it at
-     * endorsement). */
-    if (e1s18_build_r8_tuple( req, request_id, attempt, nonce, channel_token,
-                              binding_digest, request_digest, secure, &tuple ))
-        return ERROR_NOT_SUPPORTED;
 
     /* Two anonymous pipes, non-inheritable handles: to_d (B writes, D reads)
      * and from_d (D writes, B reads). */
@@ -1492,7 +1491,7 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
      * suspended dialog. On success the server returns the dialog_id, which is
      * put into the tuple and the context; INIT is then encoded from the sealed
      * tuple and D is resumed. A failed endorse terminates D and denies. */
-    if (e1r8_encode_pre_endorsement_tuple( pre_tuple, sizeof(pre_tuple), &tuple ))
+    if (e1r8_encode_pre_endorsement_tuple( pre_tuple, sizeof(pre_tuple), tuple ))
     {
         TerminateProcess( pi.hProcess, 1 );
         WaitForSingleObject( pi.hProcess, 5000 );
@@ -1521,8 +1520,61 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
 #ifdef WEXELEVATE_E1S18
     r8_trace_line( "r8: endorse ok" );
 #endif
-    memcpy( tuple.dialog_id, dialog_id, 16 );
+    memcpy( tuple->dialog_id, dialog_id, 16 );
     memcpy( s_r8_context.dialog_id, dialog_id, 16 );
+    dlg->process = pi.hProcess;
+    dlg->thread = pi.hThread;
+    dlg->to_d_write = to_d_write;
+    dlg->from_d_read = from_d_read;
+    memcpy( dlg->dialog_id, dialog_id, 16 );
+    return ERROR_SUCCESS;
+}
+
+static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id, uint32_t attempt,
+                                         const uint8_t nonce[32],
+                                         const uint8_t binding_digest[32],
+                                         const uint8_t request_digest[32],
+                                         const uint8_t channel_token[16],
+                                         BOOL secure, char *out_account, size_t account_max )
+{
+    PROCESS_INFORMATION pi;
+    struct r8_dialog dlg = { NULL, NULL, NULL, NULL, { 0 } };
+    HANDLE handles[5];
+    HANDLE to_d_write = INVALID_HANDLE_VALUE, from_d_read = INVALID_HANDLE_VALUE;
+    DWORD ret;
+    uint8_t init_buf[2067];
+    DWORD err = ERROR_SUCCESS;
+    struct e1r8_tuple tuple;
+    size_t init_len;
+    HANDLE worker_thread = NULL;
+    struct r8_worker_ctx *wc;
+    ULONGLONG start, elapsed;
+    DWORD timeout;
+    const struct e1s18_ops *ops = e1s18_get_ops();
+
+    /* WO-25 / WO-27: reuse open channel and context if already prepared, or prepare now. */
+    if (!s_r8_channel)
+    {
+        if ((err = e1s18_r8_prepare( req )))
+            return err;
+    }
+
+    /* WO-20: the R8 context must be complete; a zero required input denies
+     * with ERROR_NOT_SUPPORTED before any pipe or process is created. The
+     * pre-endorsement tuple carries no dialog_id (the server assigns it at
+     * endorsement). */
+    if (e1s18_build_r8_tuple( req, request_id, attempt, nonce, channel_token,
+                              binding_digest, request_digest, secure, &tuple ))
+        return ERROR_NOT_SUPPORTED;
+
+    /* R9-4a: the pipes, the suspended dialog and its endorsement (r8_dialog_create); the tuple is sealed with
+     * the dialog id on return. */
+    if ((err = r8_dialog_create( req, &tuple, request_id, attempt, channel_token, secure, &dlg )))
+        return err;
+    pi.hProcess = dlg.process;
+    pi.hThread = dlg.thread;
+    to_d_write = dlg.to_d_write;
+    from_d_read = dlg.from_d_read;
     /* Encode the INIT from the sealed tuple; an invalid display string or an
      * undersized buffer terminates D and denies. */
     init_len = e1s18_encode_r8_init( req, &tuple, init_buf, sizeof(init_buf) );
@@ -2097,6 +2149,867 @@ DWORD e1s18_transport_redeem_live( struct request *req,
 }
 #endif
 
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+
+#define R9A_FRAME_MAX   2400
+
+static BOOL e1r9_is_enabled( void )
+{
+    HKEY key;
+    DWORD val = 0, sz = sizeof(val), type = 0;
+    if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, L"Software\\WineExplorer\\Elevation", 0, KEY_READ, &key ) == ERROR_SUCCESS)
+    {
+        if (RegQueryValueExW( key, L"R9", NULL, &type, (BYTE *)&val, &sz ) == ERROR_SUCCESS && type == REG_DWORD)
+        {
+            RegCloseKey( key );
+            return val == 1;
+        }
+        RegCloseKey( key );
+    }
+    return FALSE;
+}
+
+static void r9_send_cancel( HANDLE pipe, const struct e1r8_tuple *t, uint32_t reason )
+{
+    uint8_t buf[80];
+    DWORD done = 0;
+    if (pipe == INVALID_HANDLE_VALUE) return;
+    if (!e1r8_encode_cancel_r9( buf, 80, t, reason ))
+        pipe_io( pipe, buf, 80, TRUE, 2000, &done );
+}
+
+struct r9_d_frame_ctx
+{
+    HANDLE pipe;
+    uint8_t buf[340];
+    uint32_t len;
+    uint16_t type;
+    int ok;
+};
+
+static DWORD WINAPI r9_d_reader_thread( void *param )
+{
+    struct r9_d_frame_ctx *ctx = param;
+    size_t off = 0;
+    DWORD got;
+    uint32_t total;
+    uint16_t type;
+    BOOL valid = FALSE;
+
+    while (off < 76)
+    {
+        if (!ReadFile( ctx->pipe, ctx->buf + off, (DWORD)(76 - off), &got, NULL ) || !got)
+        {
+            ctx->ok = -2;
+            return 0;
+        }
+        off += got;
+    }
+
+    total = e1r8_get_u32( ctx->buf + 8 );
+    type = e1r8_get_u16( ctx->buf + 6 );
+
+    if (type == E1R8_TYPE_ACK && total == 156) valid = TRUE;
+    else if (type == E1R8_TYPE_SELECT && total >= 81 && total <= 143) valid = TRUE;
+    else if (type == E1R8_TYPE_ANSWER && total == 264) valid = TRUE;
+
+    if (!valid || total > sizeof(ctx->buf))
+    {
+        ctx->ok = -1;
+        return 0;
+    }
+
+    while (off < (size_t)total)
+    {
+        if (!ReadFile( ctx->pipe, ctx->buf + off, (DWORD)(total - off), &got, NULL ) || !got)
+        {
+            ctx->ok = -2;
+            return 0;
+        }
+        off += got;
+    }
+
+    ctx->len = total;
+    ctx->type = type;
+    ctx->ok = 1;
+    return 0;
+}
+
+DWORD e1r9_agent_dialog( struct request *req,
+                         const uint8_t nonce[32],
+                         const uint8_t binding_digest[32],
+                         const uint8_t request_digest[32],
+                         char *out_account,
+                         size_t account_max )
+{
+    HANDLE hpipe = INVALID_HANDLE_VALUE;
+    HANDLE b0_event = NULL;
+    HANDLE d_thread = NULL;
+    struct r9_d_frame_ctx *d_ctx = NULL;
+    OVERLAPPED ov_b0;
+    struct e1r8_tuple mine, tuple;
+    struct r8_dialog dlg;
+    uint8_t req_buf[1792];
+    uint8_t b0_buf[R9A_FRAME_MAX];
+    uint32_t img_len = 0;
+    size_t req_total = 0;
+    DWORD mode, done = 0, err = ERROR_ACCESS_DENIED;
+    BOOL b0_pending = FALSE;
+    BOOL done_relayed = FALSE;   /* the dialog has its last frame (DONE or the lockout notice): it leaves by itself */
+    BOOL locked = FALSE;         /* that last frame was the lockout notice */
+    BOOL stuck = FALSE;
+    BOOL secure = TRUE;
+    uint32_t cancel_reason = 0;
+    const struct e1s18_ops *ops = e1s18_get_ops();
+
+    if (!req || !nonce || !binding_digest || !request_digest || !out_account || account_max == 0)
+        return ERROR_INVALID_PARAMETER;
+
+    /* Step 1: e1s18_r8_prepare(req) if no channel is open */
+    if (!s_r8_channel)
+    {
+        if ((err = e1s18_r8_prepare( req )))
+            return err;
+    }
+    if (!e1s18_r8_context_complete( &s_r8_context ))
+        return ERROR_NOT_SUPPORTED;
+
+    /* Step 2: Open pipe to B0 */
+    hpipe = CreateFileW( L"\\\\.\\pipe\\WexSession0\\wexelevate.r9",
+                         GENERIC_READ | GENERIC_WRITE,
+                         0,
+                         NULL,
+                         OPEN_EXISTING,
+                         FILE_FLAG_OVERLAPPED,
+                         NULL );
+    if (hpipe == INVALID_HANDLE_VALUE)
+    {
+        r8_trace_err( "r9a open", GetLastError() );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    mode = PIPE_READMODE_MESSAGE;
+    if (!SetNamedPipeHandleState( hpipe, &mode, NULL, NULL ))
+    {
+        r8_trace_err( "r9a pipe mode", GetLastError() );
+        CloseHandle( hpipe );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    if (!(b0_event = CreateEventW( NULL, TRUE, FALSE, NULL )))
+    {
+        CloseHandle( hpipe );
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+
+    /* Fill "mine" tuple */
+    memset( &mine, 0, sizeof(mine) );
+    mine.request_id = req->id;
+    mine.attempt = 0;
+    memcpy( mine.nonce, nonce, 32 );
+    memcpy( mine.binding_digest, binding_digest, 32 );
+    memcpy( mine.request_digest, request_digest, 32 );
+    mine.deadline = E1S18_DEADLINE( req );
+    mine.root_gen = s_r8_context.root_gen;
+    mine.server_gen = s_r8_context.server_gen;
+    mine.broker_gen = s_r8_context.broker_gen;
+    mine.verifier_gen = s_r8_context.verifier_gen;
+    mine.map_gen = s_r8_context.map_gen;
+    mine.policy_gen = s_r8_context.policy_gen;
+    mine.caller_session = s_r8_context.caller_session;
+    memcpy( mine.desktop_route, s_r8_context.desktop_route, 16 );
+    mine.desktop_mode = E1R8_DESKTOP_MODE_SECURE;
+
+    if (!req->image || !req->image[0] || e1s18_display_string_len( req->image, &img_len ))
+    {
+        CloseHandle( b0_event );
+        CloseHandle( hpipe );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    req_total = 232 + img_len;
+    if (req_total > sizeof(req_buf) ||
+        e1r8_encode_request( req_buf, req_total, &mine, E1R8_REQUEST_KIND_RUNAS, 1,
+                             NULL, 0, (const uint8_t *)req->image, img_len, NULL, 0 ))
+    {
+        r8_trace_err( "r9a encode request", ERROR_INVALID_DATA );
+        CloseHandle( b0_event );
+        CloseHandle( hpipe );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    if ((err = pipe_io( hpipe, req_buf, (DWORD)req_total, TRUE, 10000, &done )))
+    {
+        r8_trace_err( "r9a request", err );
+        CloseHandle( b0_event );
+        CloseHandle( hpipe );
+        return ERROR_ACCESS_DENIED;
+    }
+    r8_trace_line( "r9a: request sent" );
+
+    /* Step 3: Read DECISION */
+    if ((err = pipe_io( hpipe, b0_buf, sizeof(b0_buf), FALSE, 10000, &done )) || done < 84)
+    {
+        r8_trace_err( "r9a decision", err );
+        CloseHandle( b0_event );
+        CloseHandle( hpipe );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    {
+        uint32_t status = e1r8_get_u32( b0_buf + 76 );
+        if (status == E1R8_DECISION_DENY)
+        {
+            uint32_t reason = e1r8_get_u32( b0_buf + 80 );
+            DWORD mapped_err = ERROR_ACCESS_DENIED;
+            if (reason == 1) mapped_err = ERROR_ACCESS_DENIED;
+            else if (reason == 2) mapped_err = ERROR_ACCOUNT_LOCKED_OUT;
+            else if (reason == 3) mapped_err = ERROR_BUSY;
+
+            /* Expect END */
+            if (!pipe_io( hpipe, b0_buf, sizeof(b0_buf), FALSE, 5000, &done ))
+            {
+                struct e1r8_end em;
+                if (!e1r8_decode_end( b0_buf, done, &mine, &em ))
+                    r8_trace_line( "r9a: end" );
+            }
+            CloseHandle( b0_event );
+            CloseHandle( hpipe );
+            return mapped_err;
+        }
+        else if (status == E1R8_DECISION_PROMPT)
+        {
+            r8_trace_line( "r9a: decision prompt" );
+            if (done != 284 || memcmp( b0_buf, "E1R8", 4 ) != 0 ||
+                e1r8_get_u16( b0_buf + 4 ) != 1 || e1r8_get_u16( b0_buf + 6 ) != E1R8_TYPE_DECISION)
+            {
+                r9_send_cancel( hpipe, &mine, E1R8_CANCEL_R9_PROTOCOL );
+                CloseHandle( b0_event );
+                CloseHandle( hpipe );
+                return ERROR_ACCESS_DENIED;
+            }
+            if (e1r8_decode_pre_endorsement_tuple( b0_buf + 80, E1R8_PRE_ENDORSEMENT_SIZE, &tuple ))
+            {
+                r9_send_cancel( hpipe, &mine, E1R8_CANCEL_R9_PROTOCOL );
+                CloseHandle( b0_event );
+                CloseHandle( hpipe );
+                return ERROR_ACCESS_DENIED;
+            }
+            if (tuple.request_id != mine.request_id ||
+                memcmp( tuple.nonce, mine.nonce, 32 ) != 0 ||
+                memcmp( tuple.binding_digest, mine.binding_digest, 32 ) != 0 ||
+                memcmp( tuple.request_digest, mine.request_digest, 32 ) != 0 ||
+                tuple.root_gen != mine.root_gen ||
+                tuple.server_gen != mine.server_gen ||
+                tuple.broker_gen != mine.broker_gen ||
+                tuple.verifier_gen != mine.verifier_gen ||
+                tuple.map_gen != mine.map_gen ||
+                tuple.policy_gen != mine.policy_gen ||
+                memcmp( tuple.desktop_route, mine.desktop_route, 16 ) != 0 ||
+                tuple.caller_session != mine.caller_session ||
+                tuple.attempt != 1 ||
+                tuple.deadline > E1S18_DEADLINE( req ) ||
+                (tuple.desktop_mode != E1R8_DESKTOP_MODE_SECURE && tuple.desktop_mode != E1R8_DESKTOP_MODE_INSECURE) ||
+                e1r8_is_zero16( tuple.channel_id ))
+            {
+                r9_send_cancel( hpipe, &tuple, E1R8_CANCEL_R9_PROTOCOL );
+                CloseHandle( b0_event );
+                CloseHandle( hpipe );
+                return ERROR_ACCESS_DENIED;
+            }
+        }
+        else
+        {
+            r9_send_cancel( hpipe, &mine, E1R8_CANCEL_R9_PROTOCOL );
+            CloseHandle( b0_event );
+            CloseHandle( hpipe );
+            return ERROR_ACCESS_DENIED;
+        }
+    }
+
+attempt_step4:
+    /* Step 4: Create dialog D */
+    secure = (tuple.desktop_mode == E1R8_DESKTOP_MODE_SECURE);
+    memset( &dlg, 0, sizeof(dlg) );
+    done_relayed = FALSE;
+    b0_pending = FALSE;
+    cancel_reason = 0;
+
+    err = r8_dialog_create( req, &tuple, req->id, tuple.attempt, tuple.channel_id, secure, &dlg );
+    if (err)
+    {
+        uint8_t el_buf[96];
+        uint8_t zero_dlg[16] = { 0 };
+        if (!e1r8_encode_endorsed_local( el_buf, 96, &tuple, zero_dlg, E1R8_ENDORSED_LOCAL_REFUSED ))
+            pipe_io( hpipe, el_buf, 96, TRUE, 5000, &done );
+        CloseHandle( b0_event );
+        CloseHandle( hpipe );
+        return ERROR_ACCESS_DENIED;
+    }
+
+    if (ResumeThread( dlg.thread ) == (DWORD)-1)
+    {
+        uint8_t el_buf[96];
+        uint8_t zero_dlg[16] = { 0 };
+        TerminateProcess( dlg.process, 1 );
+        WaitForSingleObject( dlg.process, 5000 );
+        CloseHandle( dlg.process );
+        CloseHandle( dlg.thread );
+        CloseHandle( dlg.to_d_write );
+        CloseHandle( dlg.from_d_read );
+        if (secure) secure_leave();
+        if (!e1r8_encode_endorsed_local( el_buf, 96, &tuple, zero_dlg, E1R8_ENDORSED_LOCAL_REFUSED ))
+            pipe_io( hpipe, el_buf, 96, TRUE, 5000, &done );
+        CloseHandle( b0_event );
+        CloseHandle( hpipe );
+        return ERROR_ACCESS_DENIED;
+    }
+    CloseHandle( dlg.thread );
+    dlg.thread = NULL;
+
+    {
+        uint8_t el_buf[96];
+        if (e1r8_encode_endorsed_local( el_buf, 96, &tuple, dlg.dialog_id, E1R8_ENDORSED_LOCAL_ENDORSED ) ||
+            pipe_io( hpipe, el_buf, 96, TRUE, 5000, &done ))
+        {
+            TerminateProcess( dlg.process, 1 );
+            WaitForSingleObject( dlg.process, 5000 );
+            CloseHandle( dlg.process );
+            CloseHandle( dlg.to_d_write );
+            CloseHandle( dlg.from_d_read );
+            if (secure) secure_leave();
+            CloseHandle( b0_event );
+            CloseHandle( hpipe );
+            return ERROR_ACCESS_DENIED;
+        }
+    }
+    memcpy( tuple.dialog_id, dlg.dialog_id, 16 );
+    r8_trace_line( "r9a: endorsed" );
+
+    /* Step 5: Relay loop */
+    for (;;)
+    {
+        DWORD wait_ms, wr, wait_count = 0;
+        HANDLE wait_handles[6];
+        DWORD idx_b0, idx_d = (DWORD)-1, idx_proc, idx_caller, idx_stop, idx_lease;
+
+        if (!b0_pending)
+        {
+            memset( &ov_b0, 0, sizeof(ov_b0) );
+            ov_b0.hEvent = b0_event;
+            ResetEvent( b0_event );
+            if (ReadFile( hpipe, b0_buf, sizeof(b0_buf), &done, &ov_b0 ))
+            {
+                b0_pending = TRUE;
+            }
+            else
+            {
+                DWORD le = GetLastError();
+                if (le == ERROR_IO_PENDING)
+                {
+                    b0_pending = TRUE;
+                }
+                else
+                {
+                    err = ERROR_CANCELLED;
+                    cancel_reason = E1R8_CANCEL_R9_PEER_GONE;
+                    goto relay_fail;
+                }
+            }
+        }
+
+        if (!d_thread && !done_relayed)
+        {
+            d_ctx = calloc( 1, sizeof(*d_ctx) );
+            if (!d_ctx)
+            {
+                err = ERROR_NOT_ENOUGH_MEMORY;
+                cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                goto relay_fail;
+            }
+            d_ctx->pipe = dlg.from_d_read;
+            d_thread = CreateThread( NULL, 0, r9_d_reader_thread, d_ctx, 0, NULL );
+            if (!d_thread)
+            {
+                free( d_ctx );
+                d_ctx = NULL;
+                err = ERROR_NOT_ENOUGH_MEMORY;
+                cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                goto relay_fail;
+            }
+        }
+
+        idx_b0 = wait_count;
+        wait_handles[wait_count++] = b0_event;
+
+        if (d_thread)
+        {
+            idx_d = wait_count;
+            wait_handles[wait_count++] = d_thread;
+        }
+
+        /* After DONE (or the lockout notice) the dialog leaves by itself: its exit is expected and must not
+         * wake this wait again and again while the broker's next message is on its way. */
+        idx_proc = (DWORD)-1;
+        if (!done_relayed)
+        {
+            idx_proc = wait_count;
+            wait_handles[wait_count++] = dlg.process;
+        }
+
+        idx_caller = wait_count;
+        wait_handles[wait_count++] = req->caller;
+
+        idx_stop = wait_count;
+        wait_handles[wait_count++] = stop_event;
+
+        idx_lease = wait_count;
+        wait_handles[wait_count++] = req->lease_event;
+
+        wait_ms = r8_remaining( req );
+        if (!wait_ms)
+        {
+            err = ERROR_TIMEOUT;
+            cancel_reason = E1R8_CANCEL_R9_DEADLINE;
+            goto relay_fail;
+        }
+
+        wr = WaitForMultipleObjects( wait_count, wait_handles, FALSE, wait_ms );
+        if (wr == WAIT_TIMEOUT)
+        {
+            err = ERROR_TIMEOUT;
+            cancel_reason = E1R8_CANCEL_R9_DEADLINE;
+            goto relay_fail;
+        }
+
+        if (wr == WAIT_OBJECT_0 + idx_b0)
+        {
+            DWORD b0_got = 0;
+            if (!GetOverlappedResult( hpipe, &ov_b0, &b0_got, FALSE ))
+            {
+                b0_pending = FALSE;
+                err = ERROR_CANCELLED;
+                cancel_reason = E1R8_CANCEL_R9_PEER_GONE;
+                goto relay_fail;
+            }
+            b0_pending = FALSE;
+
+            if (b0_got < E1R8_HEADER_SIZE)
+            {
+                err = ERROR_ACCESS_DENIED;
+                cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                goto relay_fail;
+            }
+
+            {
+                uint16_t msg_type = e1r8_get_u16( b0_buf + 6 );
+                if (msg_type == E1R8_TYPE_CANCEL_R9)
+                {
+                    err = ERROR_CANCELLED;
+                    cancel_reason = 0;
+                    goto relay_fail;
+                }
+                else if (msg_type == E1R8_TYPE_END)
+                {
+                    struct e1r8_end em;
+                    r8_trace_line( "r9a: end" );
+                    if (!e1r8_decode_end( b0_buf, b0_got, &tuple, &em ) && em.outcome == E1R8_END_DENIED)
+                        err = ERROR_ACCESS_DENIED;
+                    else if (done_relayed && !locked)
+                        err = ERROR_LOGON_FAILURE;   /* DONE then END: the last attempt's password was refused */
+                    else
+                        err = ERROR_CANCELLED;
+                    cancel_reason = 0;
+                    goto relay_fail;
+                }
+                else if (msg_type == E1R8_TYPE_TO_D)
+                {
+                    struct e1r8_to_d td;
+                    size_t flen;
+                    char tr[64];
+
+                    if (e1r8_decode_to_d( b0_buf, b0_got, &tuple, &td ))
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                        cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                        goto relay_fail;
+                    }
+                    snprintf( tr, sizeof(tr), "r9a: to_d %u", (unsigned int)td.type );
+                    r8_trace_line( tr );
+
+                    if (td.type == E1R8_TYPE_DONE || td.type == E1R8_TYPE_LOCKED)
+                        done_relayed = TRUE;
+                    if (td.type == E1R8_TYPE_LOCKED) locked = TRUE;
+
+                    flen = td.frame_len;
+                    err = r8_pipe_transfer( req, dlg.process, dlg.to_d_write, TRUE,
+                                            (uint8_t *)td.frame, &flen, 0, 0,
+                                            GetTickCount64(), r8_remaining( req ), &stuck );
+                    if (err)
+                    {
+                        cancel_reason = E1R8_CANCEL_R9_D_GONE;
+                        goto relay_fail;
+                    }
+                    continue;
+                }
+                else if (msg_type == E1R8_TYPE_RECHECK)
+                {
+                    struct e1r8_recheck rc;
+                    char tr[64];
+                    int rc_ok;
+                    uint32_t rc_stat;
+                    uint8_t rc_buf[84];
+
+                    if (e1r8_decode_recheck( b0_buf, b0_got, &tuple, &rc ))
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                        cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                        goto relay_fail;
+                    }
+                    snprintf( tr, sizeof(tr), "r9a: recheck %u", (unsigned int)rc.step );
+                    r8_trace_line( tr );
+
+                    rc_ok = (ops->r8_recheck && ops->r8_recheck( req, tuple.dialog_id ) == 0);
+                    rc_stat = rc_ok ? E1R8_RECHECKED_OK : E1R8_RECHECKED_REFUSED;
+                    if (!e1r8_encode_rechecked( rc_buf, 84, &tuple, rc.step, rc_stat ))
+                        pipe_io( hpipe, rc_buf, 84, TRUE, 5000, &done );
+
+                    if (!rc_ok)
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                        cancel_reason = E1R8_CANCEL_R9_RECHECK;
+                        goto relay_fail;
+                    }
+                    continue;
+                }
+                else if (msg_type == E1R8_TYPE_NEXT_ATTEMPT)
+                {
+                    struct e1r8_tuple next_t;
+                    size_t flen;
+                    struct e1r8_to_d td;
+
+                    r8_trace_line( "r9a: next attempt" );
+                    if (b0_got != 280 ||
+                        e1r8_decode_pre_endorsement_tuple( b0_buf + 76, E1R8_PRE_ENDORSEMENT_SIZE, &next_t ))
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                        cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                        goto relay_fail;
+                    }
+                    if (next_t.attempt != tuple.attempt + 1 || next_t.attempt > 3 ||
+                        next_t.request_id != mine.request_id ||
+                        memcmp( next_t.nonce, mine.nonce, 32 ) != 0 ||
+                        memcmp( next_t.binding_digest, mine.binding_digest, 32 ) != 0 ||
+                        memcmp( next_t.request_digest, mine.request_digest, 32 ) != 0 ||
+                        next_t.root_gen != mine.root_gen ||
+                        next_t.server_gen != mine.server_gen ||
+                        next_t.broker_gen != mine.broker_gen ||
+                        next_t.verifier_gen != mine.verifier_gen ||
+                        next_t.map_gen != mine.map_gen ||
+                        next_t.policy_gen != mine.policy_gen ||
+                        memcmp( next_t.desktop_route, mine.desktop_route, 16 ) != 0 ||
+                        next_t.caller_session != mine.caller_session ||
+                        next_t.deadline > E1S18_DEADLINE( req ) ||
+                        (next_t.desktop_mode != E1R8_DESKTOP_MODE_SECURE && next_t.desktop_mode != E1R8_DESKTOP_MODE_INSECURE) ||
+                        e1r8_is_zero16( next_t.channel_id ))
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                        cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                        goto relay_fail;
+                    }
+
+                    /* Retry state: the old dialog's DONE comes next, still under the old attempt's header. The
+                     * dialog has the refusal: it tells the person and leaves by itself, as with the R8 broker
+                     * (bounded by the request's deadline); only then is anything of it stopped. */
+                    if (pipe_io( hpipe, b0_buf, sizeof(b0_buf), FALSE, 5000, &b0_got ) ||
+                        e1r8_decode_to_d( b0_buf, b0_got, &tuple, &td ) || td.type != E1R8_TYPE_DONE)
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                        cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                        goto relay_fail;
+                    }
+                    r8_trace_line( "r9a: to_d 8" );
+                    flen = td.frame_len;
+                    if (!r8_pipe_transfer( req, dlg.process, dlg.to_d_write, TRUE,
+                                           (uint8_t *)td.frame, &flen, 0, 0,
+                                           GetTickCount64(), 5000, &stuck ))
+                        WaitForSingleObject( dlg.process, r8_remaining( req ) );
+                    if (stuck)
+                    {
+                        err = ERROR_CANCELLED;
+                        cancel_reason = E1R8_CANCEL_R9_D_GONE;
+                        goto relay_fail;
+                    }
+                    TerminateProcess( dlg.process, 1 );
+                    WaitForSingleObject( dlg.process, 5000 );
+                    if (d_thread)
+                    {
+                        /* the dialog is gone, so its pipe is broken and the reader ends */
+                        if (!r8_stop_worker( d_thread, dlg.process ))
+                        {
+                            d_thread = NULL;   /* kept with its context and the pipe handles */
+                            d_ctx = NULL;
+                            stuck = TRUE;
+                            err = ERROR_CANCELLED;
+                            cancel_reason = E1R8_CANCEL_R9_D_GONE;
+                            goto relay_fail;
+                        }
+                        CloseHandle( d_thread );
+                        d_thread = NULL;
+                        free( d_ctx );
+                        d_ctx = NULL;
+                    }
+                    CloseHandle( dlg.process );
+                    CloseHandle( dlg.to_d_write );
+                    CloseHandle( dlg.from_d_read );
+                    if (secure) secure_leave();
+
+                    tuple = next_t;
+                    goto attempt_step4;
+                }
+                else if (msg_type == E1R8_TYPE_LAUNCH)
+                {
+                    struct e1r8_launch lnch;
+                    uint8_t r_frame[E1S6_R8_FRAME_MAX];
+                    size_t r_flen = 0;
+                    char acct[64];
+                    size_t alen;
+
+                    if (e1r8_decode_launch( b0_buf, b0_got, &tuple, &lnch ))
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                        cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                        goto relay_fail;
+                    }
+                    r8_trace_line( "r9a: launch" );
+
+                    /* Redemption on A's own S6 channel */
+                    if (e1r8_put_header( r_frame, sizeof(r_frame), 28, 92, &tuple ))
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                        cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                        goto relay_fail;
+                    }
+                    memcpy( r_frame + 76, lnch.evidence_ref, 16 );
+                    if (r8_v_send( req, r_frame, 92 ) ||
+                        r8_v_recv( req, r_frame, &r_flen, r8_remaining( req ) ) ||
+                        r_flen != 296 || e1r8_get_header( r_frame, 296, 29, &tuple, NULL ))
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                        cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                        goto relay_fail;
+                    }
+
+                    memcpy( s_r8_evidence, r_frame + 76, sizeof(s_r8_evidence) );
+                    memcpy( s_r8_evidence_ref, lnch.evidence_ref, 16 );
+                    s_r8_evidence_set = TRUE;
+                    s_r8_attempt = tuple.attempt;
+                    r8_trace_line( "r9a: redeemed" );
+
+                    alen = lnch.account_len < sizeof(acct) - 1 ? lnch.account_len : sizeof(acct) - 1;
+                    memcpy( acct, lnch.account, alen );
+                    acct[alen] = '\0';
+                    lstrcpynA( req->account_name, acct, sizeof(req->account_name) );
+                    if (out_account && account_max)
+                        lstrcpynA( out_account, acct, (int)account_max );
+
+                    e1s18_resolve_account_s4( acct, req->account_key );
+                    if (e1s18_is_all_zero( req->account_key, 16 ))
+                    {
+                        err = ERROR_ACCESS_DENIED;
+                        cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                        goto relay_fail;
+                    }
+
+                    /* Clean up D: it had DONE and leaves by itself first (as with the R8 broker) */
+                    if (done_relayed)
+                        WaitForSingleObject( dlg.process, 10000 );
+                    TerminateProcess( dlg.process, 1 );
+                    WaitForSingleObject( dlg.process, 5000 );
+                    if (d_thread)
+                    {
+                        if (r8_stop_worker( d_thread, dlg.process ))
+                        {
+                            CloseHandle( d_thread );
+                            free( d_ctx );
+                        }
+                        else stuck = TRUE;   /* the reader keeps its context and the pipe handles */
+                        d_thread = NULL;
+                        d_ctx = NULL;
+                    }
+                    CloseHandle( dlg.process );
+                    if (!stuck)
+                    {
+                        CloseHandle( dlg.to_d_write );
+                        CloseHandle( dlg.from_d_read );
+                    }
+                    if (secure) secure_leave();
+
+                    CloseHandle( b0_event );
+                    s_r9_pipe = hpipe;
+                    s_r9_tuple = tuple;
+                    return ERROR_SUCCESS;
+                }
+                else
+                {
+                    err = ERROR_ACCESS_DENIED;
+                    cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                    goto relay_fail;
+                }
+            }
+        }
+        else if (d_thread && wr == WAIT_OBJECT_0 + idx_d)
+        {
+            if (d_ctx->ok == 1)
+            {
+                uint8_t fd_buf[R9A_FRAME_MAX];
+                size_t fd_len = E1R8_HEADER_SIZE + d_ctx->len;
+                char tr[64];
+
+                if (e1r8_encode_from_d( fd_buf, fd_len, &tuple, d_ctx->buf, d_ctx->len ) ||
+                    pipe_io( hpipe, fd_buf, (DWORD)fd_len, TRUE, 5000, &done ))
+                {
+                    err = ERROR_ACCESS_DENIED;
+                    cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                    goto relay_fail;
+                }
+                snprintf( tr, sizeof(tr), "r9a: from_d %u", (unsigned int)d_ctx->type );
+                r8_trace_line( tr );
+
+                CloseHandle( d_thread );
+                d_thread = NULL;
+                free( d_ctx );
+                d_ctx = NULL;
+                continue;
+            }
+            else if (d_ctx->ok == -1)
+            {
+                err = ERROR_ACCESS_DENIED;
+                cancel_reason = E1R8_CANCEL_R9_PROTOCOL;
+                goto relay_fail;
+            }
+            else
+            {
+                CloseHandle( d_thread );
+                d_thread = NULL;
+                free( d_ctx );
+                d_ctx = NULL;
+
+                if (done_relayed)
+                    continue;
+
+                err = ERROR_CANCELLED;
+                cancel_reason = E1R8_CANCEL_R9_D_GONE;
+                goto relay_fail;
+            }
+        }
+        else if (idx_proc != (DWORD)-1 && wr == WAIT_OBJECT_0 + idx_proc)
+        {
+            err = ERROR_CANCELLED;
+            cancel_reason = E1R8_CANCEL_R9_D_GONE;
+            goto relay_fail;
+        }
+        else if (wr == WAIT_OBJECT_0 + idx_caller || wr == WAIT_OBJECT_0 + idx_stop)
+        {
+            err = ERROR_CANCELLED;
+            cancel_reason = E1R8_CANCEL_R9_PEER_GONE;
+            goto relay_fail;
+        }
+        else if (wr == WAIT_OBJECT_0 + idx_lease)
+        {
+            err = ERROR_FILE_CORRUPT;
+            cancel_reason = E1R8_CANCEL_R9_PEER_GONE;
+            goto relay_fail;
+        }
+    }
+
+relay_fail:
+    if (b0_pending)
+    {
+        CancelIo( hpipe );
+        GetOverlappedResult( hpipe, &ov_b0, &done, TRUE );
+    }
+    if (cancel_reason != 0)
+        r9_send_cancel( hpipe, &tuple, cancel_reason );
+
+    /* A dialog that has its last frame (the refusal with DONE, or the lockout notice) tells the person and leaves
+     * by itself; the request is over either way, so this only delays the cleanup, never a decision. */
+    if (done_relayed && !stuck &&
+        WaitForSingleObject( stop_event, 0 ) == WAIT_TIMEOUT)
+        WaitForSingleObject( dlg.process, locked ? 10000 : r8_remaining( req ) );
+    TerminateProcess( dlg.process, 1 );
+    WaitForSingleObject( dlg.process, 5000 );
+    if (d_thread)
+    {
+        if (r8_stop_worker( d_thread, dlg.process ))
+        {
+            CloseHandle( d_thread );
+            free( d_ctx );
+        }
+        else stuck = TRUE;   /* the reader keeps its context and the pipe handles */
+    }
+    CloseHandle( dlg.process );
+    if (!stuck)
+    {
+        CloseHandle( dlg.to_d_write );
+        CloseHandle( dlg.from_d_read );
+    }
+    if (secure) secure_leave();
+    CloseHandle( b0_event );
+    CloseHandle( hpipe );
+    if (locked) err = ERROR_ACCOUNT_LOCKED_OUT;
+    return err;
+}
+
+void e1r9_agent_report( struct request *req, DWORD status, DWORD win32 )
+{
+    HANDLE pipe = s_r9_pipe;
+    struct e1r8_tuple tuple = s_r9_tuple;
+    uint8_t buf[R9A_FRAME_MAX];
+    struct e1r8_end end_msg;
+    DWORD done = 0;
+
+    (void)req;
+    if (pipe == INVALID_HANDLE_VALUE) return;
+    s_r9_pipe = INVALID_HANDLE_VALUE;
+    memset( &s_r9_tuple, 0, sizeof(s_r9_tuple) );
+
+    if (!e1r8_encode_launched( buf, 84, &tuple, status, win32 ))
+    {
+        if (!pipe_io( pipe, buf, 84, TRUE, 5000, &done ))
+        {
+            r8_trace_line( "r9a: launched" );
+            if (!pipe_io( pipe, buf, sizeof(buf), FALSE, 5000, &done ))
+            {
+                if (!e1r8_decode_end( buf, done, &tuple, &end_msg ))
+                    r8_trace_line( "r9a: end" );
+            }
+        }
+    }
+    CloseHandle( pipe );
+}
+
+#else
+
+DWORD e1r9_agent_dialog( struct request *req,
+                         const uint8_t nonce[32],
+                         const uint8_t binding_digest[32],
+                         const uint8_t request_digest[32],
+                         char *out_account,
+                         size_t account_max )
+{
+    (void)req; (void)nonce; (void)binding_digest; (void)request_digest;
+    (void)out_account; (void)account_max;
+    return ERROR_NOT_SUPPORTED;
+}
+
+void e1r9_agent_report( struct request *req, DWORD status, DWORD win32 )
+{
+    (void)req; (void)status; (void)win32;
+}
+
+#endif
+
 static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32],
                                     const uint8_t binding_digest[32], const uint8_t request_digest[32],
                                     char *out_account, size_t account_max )
@@ -2202,17 +3115,24 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
     else
     {
-        /* Spec section 1: attempts 1..3 per request, each with a fresh dialog and channel id; a
-         * refused password is the only outcome that leads to a further attempt, and the admission
-         * deadline is never extended. */
-        uint32_t attempt;
-        for (attempt = 1; ; attempt++)
+        if (e1r9_is_enabled())
         {
-            err = e1s18_spawn_consent_dialog( req, req->id, attempt, nonce, binding_digest, request_digest,
-                                              channel_token, secure, out_account, account_max );
-            if (err != ERROR_LOGON_FAILURE || attempt >= 3 || r8_remaining( req ) < 10000) break;
-            if (!e1s18_fill_random( channel_token, 16 ) || e1s18_is_all_zero( channel_token, 16 )) break;
-            r8_trace_line( "r8: further attempt" );
+            err = e1r9_agent_dialog( req, nonce, binding_digest, request_digest, out_account, account_max );
+        }
+        else
+        {
+            /* Spec section 1: attempts 1..3 per request, each with a fresh dialog and channel id; a
+             * refused password is the only outcome that leads to a further attempt, and the admission
+             * deadline is never extended. */
+            uint32_t attempt;
+            for (attempt = 1; ; attempt++)
+            {
+                err = e1s18_spawn_consent_dialog( req, req->id, attempt, nonce, binding_digest, request_digest,
+                                                  channel_token, secure, out_account, account_max );
+                if (err != ERROR_LOGON_FAILURE || attempt >= 3 || r8_remaining( req ) < 10000) break;
+                if (!e1s18_fill_random( channel_token, 16 ) || e1s18_is_all_zero( channel_token, 16 )) break;
+                r8_trace_line( "r8: further attempt" );
+            }
         }
     }
 #else
@@ -3617,6 +4537,9 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
     PROCESS_INFORMATION pi;
     DWORD err = ERROR_SUCCESS;
     BOOL child_unconfirmed = FALSE;
+#ifdef WEXELEVATE_E1S18
+    BOOL committed = FALSE;
+#endif
     const char *stage = "admission";
 
     memset( &pi, 0, sizeof(pi) );
@@ -3793,7 +4716,9 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
     if (err) goto fail;
 
 #ifdef WEXELEVATE_E1S18
+    committed = TRUE;
     r8_trace_line( "r8: launched" );
+    e1r9_agent_report( req, E1R8_LAUNCHED_COMMITTED, ERROR_SUCCESS );
 #endif
 
     /* Commit */
@@ -3833,6 +4758,7 @@ fail:
     /* Explicit cleanup / rollback at any failure stage */
 #ifdef WEXELEVATE_E1S18
     r8_trace_err( stage, (unsigned long)err );
+    e1r9_agent_report( req, committed ? E1R8_LAUNCHED_FAILED_AFTER : E1R8_LAUNCHED_FAILED_BEFORE, err );
 #else
     (void)stage;
 #endif

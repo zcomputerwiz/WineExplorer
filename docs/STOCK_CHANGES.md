@@ -20,6 +20,22 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `server/request.c`: a registry-only client's requests outside the allowed list fail with access denied.
 - `server/main.c`: option `--session0`; `session0_init` after the master socket.
 - `server/registry.c`: a server whose programs use session 0 never saves the machine and `.Default` hives.
+- `server/registry.c` (Group Policy, [GROUP_POLICY.md](GROUP_POLICY.md)): in a user's hive held by session 0 the
+  keys of the two policy trees have a descriptor by path (the user reads; SYSTEM and Administrators write); the
+  trees are emptied and their roots created when the hive is loaded; `rename_key` refuses the keys above a tree to
+  a caller who may not write the tree. `loader/wine.inf.in`: the service `gpsvc` (`wexpolicy.exe`, automatic).
+- `server/registry.c`: a "Volatile Environment" key found in a user's hive file is dropped when the hive is loaded
+  (at server start and by session 0). Once in a file, for example a copy of a template prefix, it was an
+  ordinary key and stayed for ever with the template account's name and paths.
+- `dlls/userenv/gpolicy.c` (new, ported from ReactOS, GPL-2.0-or-later, so `userenv.dll` is GPL here and this
+  file cannot go to Wine as it is): `RegisterGPNotification`, `UnregisterGPNotification`, `RefreshPolicy`,
+  `RefreshPolicyEx`, the critical policy sections, the two foreground waits, and a `DllMain`. Added to the port:
+  the notification thread watches the policy writer's serial numbers in the registry. The four stubs left
+  `userenv_main.c`; `userenv.spec` and `include/userenv.h` have the new exports. `loader/wine.inf.in` creates
+  `HKLM\...\CurrentVersion\Group Policy`.
+- `dlls/wkscli/wkscli.c` (`NetGetJoinInformation`), `dlls/dsrole/dsrole.c` (`DsRoleGetPrimaryDomainInformation`):
+  with `HKLM\Software\WineExplorer\Domain` (`FlatName`, `Name`) the machine is reported as a member of that domain;
+  without the key, stock behaviour. `wkscli` imports `advapi32` for it.
 - `dlls/ntdll/unix/server.c`: the channel to session 0 (`regsrv_*`): obtained from the process's server, a
   table of session 0 key handles that survives a new channel, reopen by path, lost-channel retry; `NtClose` and
   `NtDuplicateObject` (within the process) for those handles. `unix_private.h`: the interface.
@@ -70,6 +86,32 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   `WexSession0\` pipe cannot be created; `FSCTL_PIPE_WAIT` on one returns at once), `server/session0.c` (the `PIPE`
   link message on both sides), `server/async.c` and `file.h` (`create_data_iosb`), `server/session0.h`,
   `include/wine/wex_session0.h` (version 5, `PIPE`).
+  E1 R9 (2026-11-13): the named pipe type's generic mapping is the file mapping, as on Windows (`named_pipe_type`;
+  it was the standard rights only, so `GA` for SYSTEM in a pipe's descriptor did not grant the read and write rights
+  session 0 checks a bridged client for; a local open never checked the pipe's descriptor against these rights);
+  session 0 says on stderr why it refuses a bridged open (no session link, the descriptor, the described token).
+  Installed machine (2026-11-13): `dlls/ntdll/unix/file.c`, `FSCTL_PIPE_IMPERSONATE` traces instead of printing
+  stock Wine's FIXME "impersonating self" (the server impersonates the pipe's client here; a session's
+  `services.exe` printed the line on the user's terminal for every forwarded call); `server/session0.c`, a server
+  that the launcher did not start does not use a configured session 0, and a user's server releases its session
+  link at exit (the leak check printed the object on the terminal).
+
+- T5.3, programs of session 0: `dlls/ntdll/unix/server.c` (a prefix owned by root is used by another account only
+  through a running server; `start_server_checked` starts none for it), `server/session0.c` (session 0's own
+  programs are in session 0), `server/directory.c` (session 0's directories are not created twice).
+
+- T5.4, services of session 0: `programs/services/forward.c`, `forward.h`, `svcctl_s0.idl` (new; client stubs with
+  the prefix `s0_`, `EXTRAIDLFLAGS` in `Makefile.in`), `rpc.c` (remote handles, routing, merged enumerations),
+  `services.c` and `services.h` (`is_session_service`, forward mode, no autostart of session 0's services in a
+  session), `server/token.c` (`create_service_token` in session 0 for a SYSTEM caller), `server/process.c` (session
+  0's own programs run as LocalSystem).
+
+- E1 R9, first server parts (`docs/E1_S18E_R9_SPEC.md` section 3): `server/named_pipe.c` (a pipe end keeps its
+  client's session id, `ClientSessionId` connection attribute; the bridge list gains `wexelevate.r9`, allowed only
+  for a peer with a session link; a bridged client's session is its server's), `server/session0.c` (the peer's
+  session for a bridge; a session id is given back only to the account recorded in `session0.owners`),
+  `dlls/kernel32/sync.c` (`GetNamedPipeClientSessionId` asks the server; it was a stub returning the caller's own
+  session).
 
 This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
 
@@ -3066,3 +3108,112 @@ MSVC identity probes matched recorded native unpackaged results on both ABIs;
 owned wineserver cleanup returned kill=0, wait=0. This incremental candidate
 and the unpackaged probes do not prove packaged context, `RtlQueryPackageIdentity`,
 or a clean combined production build. It is not integrated into the parent gitlink.
+
+## U1-R2/R3: package context, activation by AUMID, package resolver (isolated UWP branch, 2026-11-12)
+
+Wine commit `060a1b29` on `codex/uwp-runtime` (then merged with development `4e3eada5` as `17e95a4f`); not in the
+shared checkout or the parent gitlink. Design: `docs/uwp/DESIGN_PACKAGE_CONTEXT.md`. Stock-Wine files changed:
+
+- `server/uwp_context.c`, `server/uwp_context.h` (ours, replacing the inert storage block; `uwp_context_test.c`
+  removed), `server/Makefile.in`: the package catalog of the prefix (`appx-catalog/PackageFullName.wexappx`) and the
+  immutable context built from a record.
+- `server/protocol.def` (and the generated `request_handlers.h`, `request_trace.h`, `include/wine/server_protocol.h`):
+  `set_token_package`, `get_token_package`.
+- `server/token.c`, `server/security.h`: `package` and `package_pending` in `struct token`, copied by
+  `token_duplicate`, released in `token_destroy`; the two handlers; `token_package_pending`,
+  `token_package_check_image`.
+- `server/process.c`, `server/process.h`: `is_process_token`; `set_process_info` refuses a token whose context is
+  pending; `init_process_done` refuses a process whose context is pending.
+- `server/mapping.c` (`map_image_view`): the first executable image of a process with a pending context must be the
+  executable of the catalog record (device and inode), else `STATUS_ACCESS_DENIED`.
+- `include/winternl.h`: Wine-private `TokenWinePackage` (1000) and `WINE_TOKEN_PACKAGE_INFORMATION`.
+  `dlls/ntdll/unix/security.c`: the class in `NtQueryInformationToken` and `NtSetInformationToken`.
+  `dlls/wow64/security.c`: passed through.
+- `dlls/kernelbase/version.c`: `GetCurrentPackageFullName`, `GetCurrentPackageFamilyName`, `GetCurrentPackagePath`,
+  `GetCurrentPackageId`, `GetCurrentPackageInfo` (not implemented for a packaged process, no longer "no package"),
+  `GetCurrentApplicationUserModelId`, `GetPackageFullName`, `GetPackageFamilyName`, `GetPackageFullNameFromToken`,
+  `GetPackageFamilyNameFromToken` read the context of the token. Unpackaged results are unchanged.
+- `dlls/combase/roapi.c` (`RoGetActivationFactory`): a class declared by the package of the process is loaded from
+  that package's module only (`LOAD_WITH_ALTERED_SEARCH_PATH`); every other class and every process without a
+  context takes the unchanged lookup.
+- `dlls/twinapi.appcore`: new `activation_manager.c`, `activation_manager.rgs`, `twinapi.appcore.rc`; `Makefile.in`,
+  `main.c` (`DllGetClassObject`), `private.h`. `CLSID_ApplicationActivationManager` with a `DllSurrogate` AppID, so a
+  local-server request reaches `dllhost.exe`; the object marshals itself to an in-process manager.
+
+No change to `new_process`, `create_process`, elevation, groups, privileges, integrity or ACL checks. Verified in the
+owned U1 guest (candidate `u1r2-1`, fresh prefix per architecture, `tests/uwp/u1_0/run-wine-packaged.sh`): the
+unchanged MSVC-built fixture, activated by AUMID through `launcher.exe`, passes all ten checks of `expected.txt` on
+x64 and x86 with the three HRESULTs of the Windows 11 run; the gate (absent, wrong value, wrong type) refuses and
+starts nothing; 14 server-refusal cases pass per architecture (`context-negatives.c`). windows.storage (599) and
+kernel32 version (541, two skips) pass on both architectures; `rpcrt4_test server` has only the two known
+`server.c:1269` failures of `d668329f`. Not done: an installer, `RtlQueryPackageIdentity`, package dependencies, a
+server-side gate, x86 packaged activation on Windows.
+
+Later on 2026-11-12: the branch was merged with development `1b30806c` (`531b8427`, pushed to origin). A clean
+both-architecture build of that tree, verified file by file against the commit, passed the packaged fixture run
+(all checks, both architectures), windows.storage and kernel32 version, with the same two known `rpcrt4` failures.
+`src/programs/wexappx` (project code, no stock change) installs, lists and removes packages; its 59-check
+end-to-end test (`tests/uwp/u1_0/test-wexappx.sh`) passed on that build.
+
+## U1.1: view lifecycle of CoreApplication.Run (isolated UWP branch, 2026-11-12)
+
+Wine branch `codex/uwp-runtime`. Design and assumptions: `docs/uwp/DESIGN_LIFECYCLE.md`. Stock-Wine files changed:
+
+- `dlls/windows.ui`: new `dispatcher.c` (CoreDispatcher, IAsyncAction of RunAsync, event handler lists), new
+  `window.c` (the CoreWindow of a view, its event arguments, private exports `WineUICreateCoreWindow` and
+  `WineUIDetachCoreWindow` in `windows.ui.spec`); `corewindow.c` (`GetForCurrentThread` finds the window of a view
+  thread instead of returning NULL); `private.h`, `Makefile.in`.
+- `dlls/twinapi.appcore`: `core_application.c` (ICoreApplication, ICoreApplicationExit, ICoreImmersiveApplication
+  with a working `Run`; the factory methods are unchanged), new `core_view.c` (CoreApplicationView,
+  LaunchActivatedEventArgs, handler lists); `private.h`; `Makefile.in` (`kernelbase` import).
+- `include/windows.applicationmodel.activation.idl`: `ILaunchActivatedEventArgs` (IID as in the Windows SDK).
+
+Verified in the owned U1 guest on candidate `u11-1`, fresh prefix per architecture: the MSVC-built view probe passes
+35 checks on x64 and x86 and the unpackaged control fails as designed; windows.ui (12, 82) and twinapi (73),
+windows.storage (599), kernel32 version (541), the U1.0 packaged fixture and the 59-check install test pass on both
+architectures; `rpcrt4_test server` has only its two known failures. Not measured on Windows.
+
+Later on 2026-11-12 (U1.1, measured on Windows 11): the lifecycle was aligned with a native UWP probe run on Windows
+(`tests/uwp/u1_1`, `docs/uwp/DESIGN_LIFECYCLE.md`). Additional stock-Wine changes: `server/uwp_context.c`,
+`uwp_context.h`, `token.c`, `protocol.def` (the `get_token_package` reply carries the entry point),
+`include/winternl.h` and `dlls/ntdll/unix/security.c` (`WINE_TOKEN_PACKAGE_INFORMATION.entry_point_len`),
+`dlls/combase/roapi.c` (class table offset); `dlls/windows.ui` (`dispatcher.c`, `window.c`, new private export
+`WineUIExitCoreWindow`); `dlls/twinapi.appcore` (`core_application.c`: the view on its own thread, `Exit`;
+`core_view.c`: inline launch activation, `SplashScreen`). Behaviour: see the design note. The same unchanged MSVC-built
+UWP probe passes on Windows 11 (x64, x86) and on Wine (x64, x86).
+
+Later on 2026-11-13 (U1.1b, presentation and input, measured on Windows 11): `dlls/windows.ui/window.c` creates the
+native window behind a CoreWindow (class `Windows.UI.Core.CoreWindow`, created on the view thread by `Activate` or by
+`ICoreWindowInterop::WindowHandle`) and raises Visible/Activated/InputEnabled, activation changes, `SizeChanged`, key,
+character and pointer events from its messages; new `dlls/windows.ui/pointer.c` (PointerEventArgs, PointerPoint,
+PointerPointProperties, PointerDevice for a mouse); new `include/windows.ui.core.corewindow.interop.idl`
+(`ICoreWindowInterop`) with its entry in `include/Makefile.in`; `dlls/dxgi/factory.c`
+(`CreateSwapChainForCoreWindow` gets the window handle through `ICoreWindowInterop` and creates the swap chain for it,
+it was `E_NOTIMPL`). Tests: `tests/uwp/u1_1` (`ViewPresent`, `inject.c`, `expected-present.txt`), run under Xvfb;
+the swap chain needs a Wine with OpenGL or Vulkan; it passes on the guest build made with those headers.
+
+Later on 2026-11-13 (U1.2, package information, measured on Windows 11 with `tests/uwp/u1_1` application `ViewPkgapi`):
+`dlls/kernelbase/version.c` (new: `GetCurrentPackageInfo`, `OpenPackageInfoByFullName` and `...ForUser`, `GetPackageInfo`,
+`ClosePackageInfo`, `GetPackageApplicationIds`, `GetPackagePathByFullName`, `GetStagedPackagePathByFullName`,
+`GetPackagesByPackageFamily`, `FindPackagesByPackageFamily`, `PackageFamilyNameFromId`,
+`PackageNameAndPublisherIdFromFamilyName`, `ParseApplicationUserModelId`, `GetApplicationUserModelId`; they read the
+catalog records of the prefix as information, the identity of a process still comes from its token), `kernelbase.spec`,
+`dlls/kernel32/kernel32.spec` (forwarders), `include/appmodel.h` (`PACKAGE_INFO`, `PACKAGE_INFO_REFERENCE`, the
+`PACKAGE_FILTER_*` flags, the MSVC x86 alignment of `PACKAGE_VERSION`, prototypes), `server/uwp_context.c` (the catalog
+record accepts `publisher` and `dependency` lines), `dlls/windows.ui/window.c` (`Activate` without a display leaves the
+window invisible and the application running). WineExplorer: `src/programs/wexappx` and `tests/uwp/u1_0/register-wine.py`
+write the publisher into the catalog record. The same unchanged probe passes 39 package API checks on Windows (x64) and
+on Wine (x64, x86).
+
+Later on 2026-11-13 (U1.3, package dependencies, measured on Windows 11, `tests/uwp/u1_3`): `dlls/twinapi.appcore/
+activation_manager.c` (the started process gets the folders of its direct dependencies in front of `PATH`),
+`server/uwp_context.c` (the record accepts a `framework` line). WineExplorer: `src/programs/wexappx` resolves
+`PackageDependency` against the installed packages and records `framework` and `dependency` lines.
+
+Later on 2026-11-13 (U1.4, application data, measured on Windows 11, `tests/uwp/u1_1` application `ViewAppdata`):
+`dlls/windows.storage.applicationdata` (`applicationdata.c` rewritten, new `propertyset.c`, `classes.idl`, `main.c`,
+`private.h`, `Makefile.in`, test `tests/data.c`): `ApplicationData.Current` for the package of the process
+(`%LOCALAPPDATA%\Packages\<family>\LocalState`, `TempState`, `RoamingState`, `LocalCache`, created on first use;
+`ERROR 0x80073D54` for an unpackaged process), `LocalSettings` and `RoamingSettings` (typed values, containers, composite
+values, kept in `HKCU\Software\WineExplorer\Packages\<family>`), `ClearAsync`, `ClearAllAsync`, `Version`, `DataChanged`.
+Not done: `StorageFile`/`FileIO` of the folders (other APIs), `MapChanged` events, `GetPublisherCacheFolder`.

@@ -214,8 +214,10 @@ through the test broker), with session 0 started as a throwaway account of the s
 * a standard user's write and an administrator's limited (not elevated) write to `HKLM` are refused;
 * an administrator's elevated `reg add` (through the broker) is accepted, and the standard user reads it at once;
   the refused writes are absent;
-* a server the user starts without the launcher (it reads the same configuration) is refused by session 0, and
-  its programs' machine-registry calls fail;
+* a server the user starts without the launcher (it reads the same configuration) is no client of session 0:
+  it answers from its prefix's own files and session 0 does not register it (changed 2026-11-13; until then it
+  asked session 0, was refused, and its programs' machine-registry calls failed, which broke the installed
+  system's setup, see "Session 0 on an installed machine");
 * session 0 saves the hive as its account; the users' servers accept that file, and the write is there after a
   restart of session 0.
 
@@ -383,15 +385,81 @@ front is the session's own `services.exe`.
 | Step | Content | State |
 |---|---|---|
 | T5.2 | Pipe bridge in the server: a program of a session opens `\pipe\WexSession0\<name>`; its server sends session 0 a `PIPE` link message (the opener's token description, the name, one end of a stream socket); session 0 connects a bridge end as the client of a listening instance of `\pipe\<name>`, with the described token as the client token, so `ImpersonateNamedPipeClient` there gives the real caller. Messages cross the socket as length and data (boundaries kept). Session 0 allows `svcctl` only, checks the pipe's descriptor against the described token, and keeps at most 256 bridges per account; a session cannot create a `WexSession0\` pipe | done |
-| T5.3 | Session 0 runs its own `services.exe` in production: programs of session 0's account on the root-owned machine root (`ntdll` prefix rule, checked through the server, not the environment); session 0's back does not start drivers or the services that belong to a session | next |
-| T5.4 | Forwarding in the session's `services.exe`: services of the session (drivers, `PlugPlay`, `RpcSs`, the E1 broker until T6) stay; for every other service the `svcctl` calls go to session 0 through `\pipe\WexSession0\svcctl`, bound while impersonating the caller, so session 0 checks the caller's token. Enumerations merge both. Client stubs generated with a prefix (`--prefix-client`) next to the server stubs | after T5.3 |
-| T5.5 | Tests: two sessions see one state; a service started from one session runs for the other; a standard user cannot stop it; Safe Mode filter in session 0 | with T5.4 |
+| T5.3 | Session 0 runs its own `services.exe` in production: a program of session 0's account may use the root-owned machine root, but only through a server already running for it (`ntdll` starts none for a prefix of root; a server accepts one only as session 0). Session 0's own programs are in session 0 (`default_session_id` 0; the server then creates the session 0 directories once). Every server, session 0 included, runs its own drivers and per-session services (PlugPlay, RpcSs, ...); machine-wide services run in session 0 only because the sessions forward them (T5.4) | done |
+| T5.4 | Forwarding in the session's `services.exe` (`programs/services/forward.c`, `svcctl_s0.idl` with `--prefix-client=s0_`). A session's own services stay: drivers and their `Winedevice` hosts, and Wine's services that act for the session or its user (`is_session_service`: BITS, EventLog, FontCache, LanmanServer, MSIServer, PlugPlay, RpcSs, SamSs, scardsvr, Schedule, Spooler, StiSvc, TermService, Winmgmt, E1's `wexelevate`). For every other service (in practice those that programs install) `OpenService`, `CreateService`, the name lookups and the calls on its handle (delete, configuration, status, start, control, security) go to session 0 through `\pipe\WexSession0\svcctl`; the connection is made while impersonating the caller, one association per manager handle, so session 0 checks the caller's own token. Enumerations list the session's own and session 0's others. The session does not start session 0's services. Forward mode is chosen at start: a session (id not 0) whose server reaches session 0's service manager | done |
+| T5.5 | Tests: T1 test (sessions A and B, development mode): `wuauserv` started from A runs in session 0 and not in A, B sees it running, A stops it; a service created from A is in session 0 and B sees it, A deletes it; A keeps its own PlugPlay; enumerations from 64-bit and 32-bit programs list session 0's service once and the session's PlugPlay once. Sysrun suite: the service runs as session 0's account and not in the user's session; a standard user sees it running and cannot stop it (access denied by session 0) | done; the Safe Mode filter in session 0 waits for an ISO run |
+
+Found while building T5.4:
+
+* session 0's `services.exe` could not start any service: the server made service-account tokens only for E1's
+  launcher-started system role. In session 0 a process whose token is SYSTEM's may (only session 0's account runs
+  programs there; registry-only clients cannot make the request).
+* session 0's own programs had the filtered administrator token of a user's first process, so with access checks
+  on session 0's `sc` could not open its own service manager. They now run as LocalSystem (S-1-5-18, session 0), as
+  services and the system's tools do in Windows' session 0. Tests: T1 and the sysrun suite check it.
+* Wine's `sc` opens the service manager with all access, which a standard user is not given in any session; the
+  sysrun checks of a standard user use the probe (`svcstate`, `svcstop`), which ask only for what they need.
+* the driver hosts (`Winedevice1`, ...) are Win32 services that `services.exe` adds for drivers; forwarded, their
+  `SetServiceStatus` failed and a session's start stalled. They belong to the session.
+
+**Review of T5 (Codex, 2026-11-12)**, verdict "needs attention"; fixed:
+
+| Finding | Fix |
+|---|---|
+| critical: session 0 took the pipe client's token as the user's server described it, so a malicious server could claim another user | every token a session's server describes (registry channel, user hive, pipe) must be bound to that server's peer: its user is the account map's SID of the peer's uid, or a service account of the session's system role (SYSTEM, LocalService, NetworkService); another user is refused with `STATUS_ACCESS_DENIED`. What the description says beyond the user (groups, privileges, elevation) still rests on the launcher-started server, as the registry channel has since T1: a launcher-started server that is subverted can claim its own session's system role. Development mode binds nothing |
+| high: session 0's manager handle was opened by whichever caller needed it first, then used for every caller | it is opened with the session's manager handle, as its opener: whoever uses the handle has the opener's access, as handles do on Windows |
+| high: a bridge that closed with written data still queued dropped it | the bridge drains: what its peer wrote before it closed, and was told was written, is sent before the socket closes (at most 10 s without progress) |
+| high: forward mode was chosen from one open of session 0's pipe, so a session started while session 0 was busy ran session 0's services itself for its life | forward mode follows the configuration: any answer but "not found" (a server that does not use session 0) means the session forwards; calls fail until session 0 answers |
+| medium: an enumeration without session 0's part was returned as complete | the error is returned (only a group that session 0 does not have is no error) |
+
+Not tested at run time: a forged description (it needs a modified server), a handle shared by two identities, a
+bridge closed under back-pressure. A session cannot start without session 0 once it is configured (its machine
+registry is there), so "session 0 busy at the session's start" has no end-to-end test either.
+
+Open: `NotifyServiceStatusChange` on a service of session 0 returns `ERROR_CALL_NOT_IMPLEMENTED` (notifications are
+not relayed); `QueryServiceStatus`, `ControlServiceExW` and `EnumDependentServicesW` stay local, as they are not
+implemented in Wine's service manager either; the services that stay in sessions for now (MSIServer, Schedule, BITS)
+move when they can act for users of other sessions.
 
 T5.2 tests (T1 test, development mode): a session's 64-bit and 32-bit programs open `\pipe\WexSession0\svcctl`
 and get a DCE/RPC `bind_ack` from session 0's service manager; `WexSession0\lsarpc` is refused (not listed); a
 session cannot create `WexSession0\svcctl`. Found while testing: completing a writer inside the bridge's flush
 reselected the queue and flushed again from inside the loop (a message freed twice); the flush now runs with
 `ignore_reselect`, as Wine's own read path does.
+
+## T6.3/T6.4: E1 R9, the broker in session 0 (started 2026-11-12)
+
+Decision: the full split (option A of `E1_S18E_R9_DESIGN.md`), towards fast user switching. Spec:
+`E1_S18E_R9_SPEC.md` v3, after two Codex reviews (their findings and the answers are its sections 10 and 11; v3
+itself has had no third pass). Work orders: its section 9.
+
+| WO | State |
+|---|---|
+| R9-1 codecs (Qwen) | done: types 40..51, GRANT 32, GRANTED 33 in `e1r8_codec.h` and `e1r8.py`; 158 C and 120 Python vectors, 19 golden lines; verified natively, under ASan/UBSan, with both MinGW compilers and by the Python cross-check; reviewed against the spec |
+| R9-2 verifier (Antigravity) | done: `WEX_E1S6_LAB_R9=1` and `WEX_E1S6_LAB_S0_USER`, session 0 as endorser, B0 and A channels, GRANT/GRANTED, REDEEM only after a grant on the attempt's A channel, 18 unit tests (`tools/e1s6/test-r9-verifier.py`); with R9 off the lab suite is unchanged (405). Reviewed by Claude, with two changes (the dialog may leave in `GRANTED`; START finds the attempt through the record on the agent's channel). The R9 path inside the running verifier is first exercised by the chain (R9-5) |
+| R9-3 session 0 and server | done except its end-to-end use: `wexelevate.r9` on the bridge list for peers with a session link; the bridged client's session id (`GetNamedPipeClientSessionId`); session ids go back only to their recorded account (`session0.owners`); session 0 recognises its broker image and has its own entry for the S6 endorsement (`server/sysrun.c`, `named_pipe.c`, lab block; built, used first by R9-4c) |
+| R9-1b REQUEST (Qwen) | done: the agent's deadline and six generations in REQUEST (232 .. 1792), C and Python, tests and golden lines; the lockout notice (type 31) is a TO_D frame |
+| R9-4 B0 and A in `wexelevate` | done (2026-11-13): 4a `r8_dialog_create`; 4b the agent (`e1r9_agent_dialog`, `e1r9_agent_report`, switch `HKLM\Software\WineExplorer\Elevation` `R9`=1; Antigravity, reviewed and changed by Claude: a refused dialog leaves by itself, the lockout notice, no spinning on an ended dialog, no double close, logon failure after the last refusal); 4c B0 (`e1r9_broker0.c`: the service's role in session 0; Claude) |
+| R9-5 lab cases (Antigravity, finished by Claude) | eight cases, all passing (2026-11-13): the elevation from a 64-bit and a 32-bit caller; a wrong password then the right one (NEXT_ATTEMPT); three wrong passwords (logon failure, no grant, no token); the dialog killed while the password is checked; the broker's service stopped (denied, no dialog); the agent killed mid-request (the verifier tells B0, B0 is free for the next request); a standard user's open of the broker's pipe refused by session 0. Lab suite 413 (79 R8 cases, R9 off, unchanged in behaviour), normal suite 342, T1 `FAILS=0`. Found by the cases and fixed: the verifier kept a B0 channel on its 5 s setup bound, so three refusals, or a person choosing an account, outlived it (a B0 channel now has 130 s from its endorsement and the attempt's deadline from START). Added later the same day, eleven cases, lab suite 416: the lockout notice (three refusals close the account, the notice reaches the dialog, the right password then gets no worker), B0 killed mid-request (denied; the next request works after the service starts again), a second request while one is open (refused as busy). Found by them and fixed: a hive save by session 0 during a request changed the machine root's times, which counted in the root generation, so the request was denied (`current-path-generations`); the generation now covers owner, group, mode and identity of the root and its fixed parts, not times or size. Not as cases, until fast user switching makes them real: two sessions at once, SYSTEM clients that hold B0's connections without reading |
+| R9-6 review | Codex, 2026-11-13, on B0, the agent and the verifier changes: one finding (high), fixed: B0 flushed its pipe without a bound before disconnecting, so clients that never read could hold all its workers; it now waits at most 2 s for the agent to close. Lab suite 406 again. A case that holds B0's connections open is not written |
+
+Found by the first end-to-end run: the server's named pipe type mapped a generic right to the standard rights only,
+so B0's SYSTEM-only pipe refused the agent (fixed, `docs/STOCK_CHANGES.md`); the verifier's evidence named session
+0's generations instead of the agent's; the verifier did not tell B0 when the agent's channel ended; and the suite's
+cleanup could run in a forked copy of its shell (the verifier's launcher subshell) and remove the fixture under the
+running suite (now refused there).
+
+R9-4 in parts (the R8 path stays as it is for `R9` off, so the lab's R8 cases keep running):
+
+| Part | Content |
+|---|---|
+| 4a | Extract the dialog's creation from `e1s18_spawn_consent_dialog` (the two pipes, `consent.exe` created suspended, the endorsement, the resume) into one helper that the R8 path and the agent both use; no change in behaviour (the lab suite's R8 cases are the check) |
+| 4b | The agent: its own S6 channel, REQUEST, the dialog for B0's tuple (4a), ENDORSED_LOCAL, the relay of frames both ways, RECHECK through the existing recheck operation, NEXT_ATTEMPT (`RETRYING`), LAUNCH with today's redeem, issue and launch, LAUNCHED, END |
+| 4c | B0: `wexelevate` in session 0 takes the broker role (its session id is 0; it is a per-session service, so session 0 runs its own). It serves `\pipe\wexelevate.r9` (SYSTEM only), checks the client (LocalSystem, the session id from the pipe), applies the policy and the attempt count, registers its S6 channel through session 0's endorsement, and drives R8's steps through TO_D/FROM_D, START .. RESULT, GRANT, LAUNCH, RELEASE |
+
+R9-3 test (T1): a session's program writes to `\pipe\WexSession0\wexelevate.r9`; the server in session 0 reads the
+client's session id and it is that session's. Not tested at run time: a reclaim by another account (the T1 sessions
+are one account), the owners file across a restart with a foreign claimant.
 
 ## T6.2: the session link, on which session 0 sends orders (2026-11-12)
 
@@ -473,3 +541,102 @@ Plan:
 | T4b (postponed: the E1 managed-profile code is lab-only until E1 leaves the lab) | E1's managed profile hives (`NtLoadWexProfileEx`, leases, the root-owned profile storage) move from the user's server to session 0, so an elevated administrator's profile is one hive for every session | Claude, with Codex review of the trust changes |
 | T5 | `services.exe` front and back, the back in session 0 (Safe Mode filter in the back); pipe relay with the caller's token; installer and updater services. Waits for the Safe Mode merge (it changes `programs/services`) | design: `SYSTEM_TIER_T5_SERVICES.md` |
 | T6 | Broker decision in session 0, session ids per logon | design: `SYSTEM_TIER_T6_BROKER.md` |
+
+## Session 0 on an installed machine (2026-11-13)
+
+First run outside the lab fixture: an ISO packaged with `WEX_SESSION0=1` (fresh clone, unattended), installed by
+`installer/tests/install-unattended.sh` in an own VM, then checked on the running system's serial console.
+
+What was missing and is added:
+
+* **Session 0's own programs.** `wex-session0.service` is the server only. `wex-session0-services.service` (new)
+  runs `wineboot --init` as `wexsys` after it and before the display manager; `services.exe` and its services stay
+  (T5.3/T5.4: the sessions forward machine-wide services there, and their calls fail until it runs).
+* **Enabling on an installed system.** `setup-machine-root.sh` enabled the unit only when it found the unit file
+  next to itself (a source checkout). It now enables the packaged units as well.
+* **Opt-in image.** `WEX_SESSION0=1` for `package-wine.sh` and `build-iso.sh` (the ISO step packages again, so it
+  needs the variable too) leaves `/usr/local/share/wineexplorer/session0.enable`; `wex-gui-setup.sh` then runs
+  the machine setup with `WEX_SESSION0=1`. Without it nothing changes; session 0 stays off by default.
+* **A server that the launcher did not start does not use a configured session 0.** Found by the install: the
+  out-of-box setup runs Wine as the temporary setup account on the skeleton prefix, which the launcher does not
+  serve (it serves `~/.wine` only). That server read the configuration, was refused by session 0, and its machine
+  registry failed: its `services.exe` ended and the setup program left, so no account was made and the display
+  manager never started. Such a server is now a server of its own, with its prefix's files, as before session 0
+  existed (`session0_init`). Session 0 still serves launcher-started servers only. The same holds for any prefix
+  a user runs with their own `WINEPREFIX`. The suite's check of this case changes with it: the query is answered
+  from the prefix's file, not refused, and session 0 does not see the server.
+
+Result (third ISO): the zero-input install passes; after the reboot both units are active before the display
+manager; the user's session gets its id from session 0 (65 after a restart: ids are reserved in blocks of 64); a
+program of the user reads `HKLM` through session 0; an `HKCU` write is in `user.reg` within the save interval; an
+administrator's `HKLM` write is in the machine hive, saved by `wexsys` (the installed system does not enforce
+elevation by default, so the installing user's token is not limited); the session keeps its own PlugPlay, RpcSs
+and EventLog; no failed units; both units stop cleanly.
+
+More checks on the running installed system (same day, fourth ISO):
+
+* a second, standard user's first Wine program builds its prefix, gets its own session id and reads `HKLM`; both
+  users' servers are linked to session 0 at once;
+* `net start wuauserv` from a user's session runs the service in session 0 and not in the session, `net stop`
+  stops it;
+* `systemctl restart wex-session0`: the services unit stops first and systemd ends session 0's programs with it,
+  the server restarts, the unit starts them again (one set), both sessions link again under their own ids, and
+  registry reads and writes work afterwards. Found there: session 0's programs do not end by themselves when
+  their server goes, so with a kill mode that left them alone the restarted server got a second set next to the
+  orphans (the unit now uses the default kill mode);
+* found and fixed: a user's server printed its leaked session link on the user's terminal at exit; a session's
+  `services.exe` printed stock Wine's "impersonating self" FIXME for every forwarded call.
+
+A standard user's write to `HKLM\Software` is accepted on the installed system: elevation is not enforced there by
+default (no consent helper is configured), so every user's token is unrestricted, as in stock Wine. Session 0
+enforces what the tokens say; the refusals the lab shows need enforcement switched on in the product.
+
+Not done on the installed machine: fast user switching with two desktops, a refused write under enforcement, Safe
+Mode with session 0, E1 R9 (lab only), the stray-line fixes seen on a terminal after the fix.
+`build-iso.sh` needs Go and the other Vintner Boot build dependencies in the build distro (installed in wexbuild
+on 2026-11-13).
+
+## Enforced elevation on an installed machine (opened 2026-11-13)
+
+Decision of the user (2026-11-13): installed systems are to enforce elevation by default eventually. The way
+there, in this order:
+
+1. an opt-in image with enforcement on (as session 0 was introduced: a switch at packaging time, nothing changes
+   without it);
+2. one real elevation on it, by the product's own parts (no lab verifier, no test hook that types the password);
+3. whatever breaks in a real desktop session once tokens are limited (the shell, setup and first run write
+   machine state in places the lab suite does not reach);
+4. a person driving the dialog at human pace;
+5. then the default.
+
+**Status (2026-11-13): steps 1 and 2 done for an administrator.**
+
+- The switch: `WEX_ELEVATION=1` for `package-wine.sh` and `build-iso.sh` leaves
+  `/usr/local/share/wineexplorer/elevation.enable`; setup then names the consent helper in the machine hive
+  (`HKLM\Software\Wine\Elevation`, `Helper`), which is what the servers and ntdll take as "enforced".
+- An image with `WEX_SESSION0=1 WEX_ELEVATION=1` installs without input and reaches the desktop.
+- `installer/tests/elevation.sh` passes on it (6 checks): the installed administrator's own programs are
+  limited (a write to `HKLM` is refused); a "runas" request shows the User Account Control dialog on the dimmed
+  desktop; Cancel leaves no write; Continue runs the command elevated and the write is there. The broker and
+  the dialog are the normal build's, found and answered on the screen.
+- `installer/tests/session0.sh` passes on it (16 checks); a service start from the user's session is refused
+  there, as Windows refuses a standard user, and is reported as a note.
+
+What the first run did not need: any change to the product besides the switch.
+
+Open:
+
+- **A standard user cannot elevate at all.** Password elevation (R8, R9) exists in lab form only: the only
+  verifier is `tools/e1s6/e1s6-lab.py`, written never to be installed; the R8/R9 code of the broker, the dialog,
+  the server and `wexhost` is compiled only with lab flags (`scripts/lab/r8-lab-build.sh`); the password worker
+  (`tools/e1s7/pam-worker.c`) is a lab build; the password has only ever been typed by a test hook. A production
+  verifier (bus name, D-Bus policy, unit, account), a worker with a real PAM service, and the code without the
+  test flags are a piece of work of their own.
+- Step 3 has only seen an idle desktop: the Control Panel, installing a program, a second user's first logon
+  and the rest of the shell under limited tokens are not exercised.
+- The secure desktop is presented on X11 only (`ELEVATION_SECURE_DESKTOP_WORKORDER.md`).
+- Setting the switch on a machine that already runs session 0 (an update) is not done: setup only says so.
+
+Why now: Group Policy is applied on an installed machine ([GROUP_POLICY.md](GROUP_POLICY.md), "End to end"), but
+a standard user can overwrite a policy value between refreshes while tokens are unrestricted. The protections of
+the policy trees take effect with enforcement, with no further change.

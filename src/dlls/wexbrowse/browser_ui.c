@@ -247,7 +247,19 @@ static void new_folder(explorer_info *info)
     if (!SHGetPathFromIDListW(info->pidl, dir)) return;   /* only real folders can hold a new folder */
     swprintf(path, MAX_PATH, L"%s\\New Folder", dir);
     while (PathFileExistsW(path)) swprintf(path, MAX_PATH, L"%s\\New Folder (%d)", dir, ++n);
-    if (!CreateDirectoryW(path, NULL)) return;
+    if (!CreateDirectoryW(path, NULL))
+    {
+        /* say why, as XP does: with enforced elevation the user's own programs cannot write Program Files
+         * or the Windows directory, and a menu command that does nothing looks broken */
+        WCHAR reason[256], text[MAX_PATH + 320];
+        DWORD err = GetLastError();
+
+        if (!FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, err, 0,
+                            reason, ARRAY_SIZE(reason), NULL)) reason[0] = 0;
+        swprintf(text, ARRAY_SIZE(text), L"Unable to create the folder '%s'\n\n%s", PathFindFileNameW(path), reason);
+        MessageBoxW(info->main_window, text, L"Unable to Create Folder", MB_OK | MB_ICONERROR);
+        return;
+    }
 
     SHChangeNotify(SHCNE_MKDIR, SHCNF_PATHW, path, NULL);
     if ((sv = current_view(info)))

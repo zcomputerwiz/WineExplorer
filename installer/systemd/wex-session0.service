@@ -20,6 +20,8 @@ UMask=0022
 Environment=WINEPREFIX=/var/lib/wineexplorer/machine
 ExecStart=/usr/local/bin/wineserver --session0 -f
 Restart=always
+# the server leaves with status 1 when it is told to stop
+SuccessExitStatus=1
 RestartSec=1
 NoNewPrivileges=yes
 RuntimeDirectory=wineexplorer-session0

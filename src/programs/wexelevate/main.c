@@ -66,6 +66,9 @@
 
 #ifdef WEXELEVATE_E1S18
 #include "e1s18_broker.h"
+/* E1 R9 (lab): the broker role in session 0 (e1r9_broker0.c, included at the end). */
+static BOOL e1r9_is_session0(void);
+static void e1r9_broker0_serve(void);
 #endif
 
 #define MAX_REQUESTS      32   /* pending at once */
@@ -2113,6 +2116,11 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
 #ifdef WEXELEVATE_TEST_APPROVAL
     r8_dialog_test();
 #endif
+#ifdef WEXELEVATE_E1S18
+    /* E1 R9 (lab): in session 0 this image is the broker B0; in a session it serves programs (and is the agent). */
+    if (e1r9_is_session0()) e1r9_broker0_serve();
+    else
+#endif
     serve();
     if (secure_desktop) return_input();   /* whatever happened: the input goes back */
     report( SERVICE_STOPPED, 0 );
@@ -2129,4 +2137,5 @@ int wmain( int argc, WCHAR **argv )
 
 #ifdef WEXELEVATE_E1S18
 #include "e1s18_broker.c"
+#include "e1r9_broker0.c"
 #endif

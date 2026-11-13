@@ -59,6 +59,21 @@
 /* Lab frame, header only: the verifier's answer to START, passed on to the dialog in place of ATTACH_OK,
  * when the account lockout policy has closed the account. No worker exists and the request ends. */
 #define E1R8_TYPE_LOCKED            31
+/* R9 (docs/E1_S18E_R9_SPEC.md): the grant held by V, and the A<->B0 channel. */
+#define E1R8_TYPE_GRANT             32
+#define E1R8_TYPE_GRANTED           33
+#define E1R8_TYPE_REQUEST           40
+#define E1R8_TYPE_DECISION          41
+#define E1R8_TYPE_ENDORSED_LOCAL    42
+#define E1R8_TYPE_TO_D              43
+#define E1R8_TYPE_FROM_D            44
+#define E1R8_TYPE_RECHECK           45
+#define E1R8_TYPE_RECHECKED         46
+#define E1R8_TYPE_LAUNCH            47
+#define E1R8_TYPE_LAUNCHED          48
+#define E1R8_TYPE_CANCEL_R9         49
+#define E1R8_TYPE_END               50
+#define E1R8_TYPE_NEXT_ATTEMPT      51
 
 /*
  * Enum values, per spec sections 5 and 6.
@@ -72,6 +87,34 @@
 #define E1R8_CANCEL_REASON          1
 #define E1R8_RELEASE_COMPLETED      1
 #define E1R8_RELEASE_CANCELLED      2
+/* R9 enum values, per docs/E1_S18E_R9_SPEC.md section 4. */
+#define E1R8_REQUEST_KIND_RUNAS     1
+#define E1R8_REQUEST_KIND_MANIFEST  2
+#define E1R8_DECISION_PROMPT        1
+#define E1R8_DECISION_DENY          2
+#define E1R8_DECISION_REASON_POLICY     1
+#define E1R8_DECISION_REASON_ATTEMPTS   2
+#define E1R8_DECISION_REASON_BUSY       3
+#define E1R8_ENDORSED_LOCAL_ENDORSED  1
+#define E1R8_ENDORSED_LOCAL_REFUSED   2
+#define E1R8_RECHECK_STEP_ATTACH      1
+#define E1R8_RECHECK_STEP_READY       2
+#define E1R8_RECHECK_STEP_RESULT      3
+#define E1R8_RECHECK_STEP_CONFIRM     4
+#define E1R8_RECHECKED_OK             1
+#define E1R8_RECHECKED_REFUSED        2
+#define E1R8_LAUNCHED_COMMITTED       1
+#define E1R8_LAUNCHED_FAILED_BEFORE   2
+#define E1R8_LAUNCHED_FAILED_AFTER    3
+#define E1R8_CANCEL_R9_USER           1
+#define E1R8_CANCEL_R9_D_GONE         2
+#define E1R8_CANCEL_R9_DEADLINE       3
+#define E1R8_CANCEL_R9_PEER_GONE      4
+#define E1R8_CANCEL_R9_PROTOCOL       5
+#define E1R8_CANCEL_R9_RECHECK        6
+#define E1R8_END_COMPLETED            1
+#define E1R8_END_CANCELLED            2
+#define E1R8_END_DENIED               3
 
 /*
  * S1 answer kinds (kind-2 record), per docs/E1_S1_CONTRACTS.md record 2.
@@ -243,6 +286,105 @@ struct e1r8_w_setup
     struct e1r8_tuple tuple;
     uint32_t pid;
     uint32_t uid;
+};
+
+/*
+ * R9 message body output structures (docs/E1_S18E_R9_SPEC.md section 4).
+ * String fields point into the decoded buffer; the caller must not free
+ * them.
+ */
+struct e1r8_request
+{
+    uint32_t kind;
+    uint64_t deadline;
+    uint8_t binding_digest[32];
+    uint8_t request_digest[32];
+    uint64_t root_gen;
+    uint64_t server_gen;
+    uint64_t broker_gen;
+    uint64_t verifier_gen;
+    uint64_t map_gen;
+    uint64_t policy_gen;
+    uint8_t desktop_route[16];
+    uint32_t secure_desktop;
+    const uint8_t *requester;
+    uint32_t requester_len;
+    const uint8_t *image;
+    uint32_t image_len;
+    const uint8_t *publisher;
+    uint32_t publisher_len;
+};
+
+struct e1r8_decision
+{
+    uint32_t status;
+    struct e1r8_tuple tuple;  /* prompt only */
+    uint32_t reason;          /* deny only */
+};
+
+struct e1r8_endorsed_local
+{
+    uint8_t dialog_id[16];
+    uint32_t status;
+};
+
+struct e1r8_to_d
+{
+    uint16_t type;
+    const uint8_t *frame;
+    uint32_t frame_len;
+};
+
+struct e1r8_from_d
+{
+    uint16_t type;
+    const uint8_t *frame;
+    uint32_t frame_len;
+};
+
+struct e1r8_recheck
+{
+    uint32_t step;
+};
+
+struct e1r8_rechecked
+{
+    uint32_t step;
+    uint32_t status;
+};
+
+struct e1r8_launch
+{
+    const uint8_t *account;
+    uint32_t account_len;
+    uint8_t evidence_ref[16];
+};
+
+struct e1r8_launched
+{
+    uint32_t status;
+    uint32_t win32;
+};
+
+struct e1r8_cancel_r9
+{
+    uint32_t reason;
+};
+
+struct e1r8_end
+{
+    uint32_t outcome;
+};
+
+struct e1r8_next_attempt
+{
+    struct e1r8_tuple tuple;
+};
+
+struct e1r8_grant
+{
+    uint8_t account_key[16];
+    uint8_t evidence_ref[16];
 };
 
 /*
@@ -1417,6 +1559,688 @@ static inline int e1r8_decode_w_setup( const uint8_t *buf, size_t len,
     out->tuple = *expected;
     out->pid = e1r8_get_u32( buf + 236 );
     out->uid = e1r8_get_u32( buf + 240 );
+    return 0;
+}
+
+/*
+ * R9 helpers (docs/E1_S18E_R9_SPEC.md).
+ */
+
+/* True when a 16-byte field is all zero. */
+static inline int e1r8_is_zero16( const uint8_t *p )
+{
+    int i;
+    for (i = 0; i < 16; ++i)
+        if (p[i] != 0) return 0;
+    return 1;
+}
+
+/*
+ * Verify a pre-endorsement tuple against the expected sealed tuple
+ * (dialog_id is not part of the pre-endorsement tuple).
+ */
+static inline int e1r8_check_pre_endorsement( const uint8_t *buf, size_t len,
+                                      const struct e1r8_tuple *expected )
+{
+    struct e1r8_tuple t;
+    int err = e1r8_decode_pre_endorsement_tuple( buf, len, &t );
+    if (err) return err;
+    if (t.request_id != expected->request_id) return E1R8_ERR_TUPLE;
+    if (t.attempt != expected->attempt) return E1R8_ERR_TUPLE;
+    if (memcmp( t.nonce, expected->nonce, 32 ) != 0) return E1R8_ERR_TUPLE;
+    if (memcmp( t.channel_id, expected->channel_id, 16 ) != 0) return E1R8_ERR_TUPLE;
+    if (memcmp( t.binding_digest, expected->binding_digest, 32 ) != 0) return E1R8_ERR_TUPLE;
+    if (memcmp( t.request_digest, expected->request_digest, 32 ) != 0) return E1R8_ERR_TUPLE;
+    if (t.deadline != expected->deadline) return E1R8_ERR_TUPLE;
+    if (t.root_gen != expected->root_gen) return E1R8_ERR_TUPLE;
+    if (t.server_gen != expected->server_gen) return E1R8_ERR_TUPLE;
+    if (t.broker_gen != expected->broker_gen) return E1R8_ERR_TUPLE;
+    if (t.verifier_gen != expected->verifier_gen) return E1R8_ERR_TUPLE;
+    if (t.map_gen != expected->map_gen) return E1R8_ERR_TUPLE;
+    if (t.policy_gen != expected->policy_gen) return E1R8_ERR_TUPLE;
+    if (t.caller_session != expected->caller_session) return E1R8_ERR_TUPLE;
+    if (memcmp( t.desktop_route, expected->desktop_route, 16 ) != 0) return E1R8_ERR_TUPLE;
+    if (t.desktop_mode != expected->desktop_mode) return E1R8_ERR_TUPLE;
+    return 0;
+}
+
+/*
+ * The embedded frame of a TO_D (type 43): one of the R8 B->D types, within
+ * that type's R8 length bounds.
+ */
+static inline int e1r8_valid_to_d_frame( uint16_t type, uint32_t len )
+{
+    if (type == E1R8_TYPE_INIT) return (len >= 256 && len <= 2067);
+    if (type == E1R8_TYPE_SELECT_OK) return (len == E1R8_HEADER_SIZE);
+    if (type == E1R8_TYPE_ATTACH_OK) return (len == E1R8_HEADER_SIZE);
+    if (type == E1R8_TYPE_READY) return (len == E1R8_HEADER_SIZE);
+    if (type == E1R8_TYPE_RESULT) return (len >= 116 && len <= 179);
+    if (type == E1R8_TYPE_DONE) return (len == 80);
+    /* The lockout notice (WO-39), sent in place of ATTACH_OK: header only. */
+    if (type == E1R8_TYPE_LOCKED) return (len == E1R8_HEADER_SIZE);
+    return 0;
+}
+
+/*
+ * The embedded frame of a FROM_D (type 44): one of the R8 D->B types,
+ * within that type's R8 length bounds.
+ */
+static inline int e1r8_valid_from_d_frame( uint16_t type, uint32_t len )
+{
+    if (type == E1R8_TYPE_ACK) return (len == 156);
+    if (type == E1R8_TYPE_SELECT) return (len >= 81 && len <= 143);
+    if (type == E1R8_TYPE_ANSWER) return (len == 264);
+    return 0;
+}
+
+/*
+ * Check the embedded frame's header (magic, version, type, length,
+ * reserved) and its type/length bounds. Only the header is checked, not
+ * the embedded body.
+ */
+static inline int e1r8_check_embedded( const uint8_t *frame, uint32_t frame_len,
+                                  uint16_t *out_type, int (*valid)( uint16_t, uint32_t ) )
+{
+    uint16_t type;
+    uint32_t len;
+    if (frame_len < E1R8_HEADER_SIZE) return E1R8_ERR_SHORT;
+    if (memcmp( frame, "E1R8", 4 ) != 0) return E1R8_ERR_MAGIC;
+    if (e1r8_get_u16( frame + 4 ) != 1) return E1R8_ERR_VERSION;
+    type = e1r8_get_u16( frame + 6 );
+    len = e1r8_get_u32( frame + 8 );
+    if (len != frame_len) return E1R8_ERR_LENGTH;
+    if (e1r8_get_u32( frame + 24 ) != 0) return E1R8_ERR_RESERVED;
+    if (!valid( type, len )) return E1R8_ERR_TYPE;
+    *out_type = type;
+    return 0;
+}
+
+/*
+ * Type 32: GRANT (B0->V on B0's channel). Body: account_key:16,
+ * evidence_ref:16, both nonzero. Total 108.
+ */
+static inline int e1r8_encode_grant( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                              const uint8_t account_key[16],
+                              const uint8_t evidence_ref[16] )
+{
+    int err;
+    if (e1r8_is_zero16( account_key ) || e1r8_is_zero16( evidence_ref ))
+        return E1R8_ERR_ID;
+    if (len != 108) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_GRANT, 108, t );
+    if (err) return err;
+    memcpy( buf + 76, account_key, 16 );
+    memcpy( buf + 92, evidence_ref, 16 );
+    return 0;
+}
+
+static inline int e1r8_decode_grant( const uint8_t *buf, size_t len,
+                              const struct e1r8_tuple *expected,
+                              struct e1r8_grant *out )
+{
+    int err;
+    if (len != 108) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_GRANT, expected, NULL );
+    if (err) return err;
+    memcpy( out->account_key, buf + 76, 16 );
+    memcpy( out->evidence_ref, buf + 92, 16 );
+    if (e1r8_is_zero16( out->account_key ) || e1r8_is_zero16( out->evidence_ref ))
+        return E1R8_ERR_ID;
+    return 0;
+}
+
+/*
+ * Type 33: GRANTED (V->B0). Body: none. Total 76.
+ */
+static inline int e1r8_encode_granted( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+{
+    if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
+    return e1r8_put_header( buf, len, E1R8_TYPE_GRANTED, E1R8_HEADER_SIZE, t );
+}
+
+static inline int e1r8_decode_granted( const uint8_t *buf, size_t len,
+                                const struct e1r8_tuple *expected )
+{
+    if (len != E1R8_HEADER_SIZE) return E1R8_ERR_LONG;
+    return e1r8_get_header( buf, len, E1R8_TYPE_GRANTED, expected, NULL );
+}
+
+/*
+ * Type 40: REQUEST (A->B0). Body: kind:u32 (1 runas, 2 manifest),
+ * deadline:u64, binding_digest:32, request_digest:32, root_gen:u64,
+ * server_gen:u64, broker_gen:u64, verifier_gen:u64, map_gen:u64,
+ * policy_gen:u64, desktop_route:16, secure_desktop:u32 (0 or 1),
+ * requester:str, image:str, publisher:str (display strings). Total
+ * 232..1792. The header's attempt is 0 and its channel_id is zero; the
+ * nonce is the request's.
+ */
+static inline int e1r8_encode_request( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                                uint32_t kind, uint32_t secure_desktop,
+                                const uint8_t *requester, uint32_t req_len,
+                                const uint8_t *image, uint32_t img_len,
+                                const uint8_t *publisher, uint32_t pub_len )
+{
+    struct e1r8_tuple h;
+    uint32_t total;
+    size_t off;
+    int err;
+
+    if (kind != E1R8_REQUEST_KIND_RUNAS && kind != E1R8_REQUEST_KIND_MANIFEST)
+        return E1R8_ERR_ENUM;
+    if (secure_desktop != 0 && secure_desktop != 1) return E1R8_ERR_ENUM;
+    if (!e1r8_valid_display_string( requester, req_len )) return E1R8_ERR_STRING;
+    if (!e1r8_valid_display_string( image, img_len )) return E1R8_ERR_STRING;
+    if (!e1r8_valid_display_string( publisher, pub_len )) return E1R8_ERR_STRING;
+
+    total = E1R8_HEADER_SIZE + 4 + 8 + 32 + 32 + 6 * 8 + 16 + 4 +
+            (4 + req_len) + (4 + img_len) + (4 + pub_len);
+    if (len != total) return E1R8_ERR_LONG;
+
+    /* The header's attempt is 0 and its channel_id is zero; the nonce is the request's. */
+    h = *t;
+    h.attempt = 0;
+    memset( h.channel_id, 0, 16 );
+    err = e1r8_put_header( buf, len, E1R8_TYPE_REQUEST, total, &h );
+    if (err) return err;
+    off = E1R8_HEADER_SIZE;
+    e1r8_put_u32( buf + off, kind ); off += 4;
+    e1r8_put_u64( buf + off, t->deadline ); off += 8;
+    memcpy( buf + off, t->binding_digest, 32 ); off += 32;
+    memcpy( buf + off, t->request_digest, 32 ); off += 32;
+    e1r8_put_u64( buf + off, t->root_gen ); off += 8;
+    e1r8_put_u64( buf + off, t->server_gen ); off += 8;
+    e1r8_put_u64( buf + off, t->broker_gen ); off += 8;
+    e1r8_put_u64( buf + off, t->verifier_gen ); off += 8;
+    e1r8_put_u64( buf + off, t->map_gen ); off += 8;
+    e1r8_put_u64( buf + off, t->policy_gen ); off += 8;
+    memcpy( buf + off, t->desktop_route, 16 ); off += 16;
+    e1r8_put_u32( buf + off, secure_desktop ); off += 4;
+    e1r8_put_string( buf + off, requester, req_len ); off += 4 + req_len;
+    e1r8_put_string( buf + off, image, img_len ); off += 4 + img_len;
+    e1r8_put_string( buf + off, publisher, pub_len ); off += 4 + pub_len;
+    return 0;
+}
+
+static inline int e1r8_decode_request( const uint8_t *buf, size_t len,
+                                const struct e1r8_tuple *expected,
+                                struct e1r8_request *out )
+{
+    struct e1r8_tuple h;
+    size_t off;
+    const uint8_t *s;
+    uint32_t slen;
+    int err;
+
+    if (len < 232 || len > 1792) return E1R8_ERR_LONG;
+    /* The header's attempt is 0 and its channel_id is zero; the nonce is the request's. */
+    h = *expected;
+    h.attempt = 0;
+    memset( h.channel_id, 0, 16 );
+    err = e1r8_get_header( buf, len, E1R8_TYPE_REQUEST, &h, NULL );
+    if (err) return err;
+    off = E1R8_HEADER_SIZE;
+    out->kind = e1r8_get_u32( buf + off ); off += 4;
+    if (out->kind != E1R8_REQUEST_KIND_RUNAS && out->kind != E1R8_REQUEST_KIND_MANIFEST)
+        return E1R8_ERR_ENUM;
+    out->deadline = e1r8_get_u64( buf + off ); off += 8;
+    memcpy( out->binding_digest, buf + off, 32 ); off += 32;
+    memcpy( out->request_digest, buf + off, 32 ); off += 32;
+    out->root_gen = e1r8_get_u64( buf + off ); off += 8;
+    out->server_gen = e1r8_get_u64( buf + off ); off += 8;
+    out->broker_gen = e1r8_get_u64( buf + off ); off += 8;
+    out->verifier_gen = e1r8_get_u64( buf + off ); off += 8;
+    out->map_gen = e1r8_get_u64( buf + off ); off += 8;
+    out->policy_gen = e1r8_get_u64( buf + off ); off += 8;
+    memcpy( out->desktop_route, buf + off, 16 ); off += 16;
+    out->secure_desktop = e1r8_get_u32( buf + off ); off += 4;
+    if (out->secure_desktop != 0 && out->secure_desktop != 1) return E1R8_ERR_ENUM;
+    err = e1r8_get_string( buf, len, &off, &s, &slen );
+    if (err) return err;
+    if (!e1r8_valid_display_string( s, slen )) return E1R8_ERR_STRING;
+    out->requester = s;
+    out->requester_len = slen;
+    err = e1r8_get_string( buf, len, &off, &s, &slen );
+    if (err) return err;
+    if (!e1r8_valid_display_string( s, slen )) return E1R8_ERR_STRING;
+    out->image = s;
+    out->image_len = slen;
+    err = e1r8_get_string( buf, len, &off, &s, &slen );
+    if (err) return err;
+    if (!e1r8_valid_display_string( s, slen )) return E1R8_ERR_STRING;
+    out->publisher = s;
+    out->publisher_len = slen;
+    if (off != len) return E1R8_ERR_LONG;
+    return 0;
+}
+
+/*
+ * Type 41: DECISION (B0->A). Body: status:u32 (1 prompt, 2 deny), then
+ * for 1 the pre-endorsement tuple (204), for 2 reason:u32 (1 policy, 2
+ * attempts, 3 busy). Total 284 prompt, 84 deny. For prompt the header's
+ * request_id, attempt, nonce and channel_id equal the tuple's; for deny
+ * the header's attempt is 0 and its nonce and channel_id are zero.
+ */
+static inline int e1r8_encode_decision( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                                 uint32_t status, uint32_t reason )
+{
+    struct e1r8_tuple h;
+    int err;
+
+    if (status == E1R8_DECISION_PROMPT)
+    {
+        if (len != 284) return E1R8_ERR_LONG;
+        err = e1r8_put_header( buf, len, E1R8_TYPE_DECISION, 284, t );
+        if (err) return err;
+        e1r8_put_u32( buf + 76, status );
+        err = e1r8_encode_pre_endorsement_tuple( buf + 80, E1R8_PRE_ENDORSEMENT_SIZE, t );
+        if (err) return err;
+        return 0;
+    }
+    else if (status == E1R8_DECISION_DENY)
+    {
+        if (reason != E1R8_DECISION_REASON_POLICY &&
+            reason != E1R8_DECISION_REASON_ATTEMPTS &&
+            reason != E1R8_DECISION_REASON_BUSY)
+            return E1R8_ERR_ENUM;
+        if (len != 84) return E1R8_ERR_LONG;
+        h = *t;
+        h.attempt = 0;
+        memset( h.channel_id, 0, 16 );
+        err = e1r8_put_header( buf, len, E1R8_TYPE_DECISION, 84, &h );
+        if (err) return err;
+        e1r8_put_u32( buf + 76, status );
+        e1r8_put_u32( buf + 80, reason );
+        return 0;
+    }
+    return E1R8_ERR_ENUM;
+}
+
+static inline int e1r8_decode_decision( const uint8_t *buf, size_t len,
+                                 const struct e1r8_tuple *expected,
+                                 struct e1r8_decision *out )
+{
+    struct e1r8_tuple h;
+    uint32_t status;
+    int err;
+
+    if (len < 84 || len > 284) return E1R8_ERR_LONG;
+    status = e1r8_get_u32( buf + 76 );
+    if (status == E1R8_DECISION_PROMPT)
+    {
+        if (len != 284) return E1R8_ERR_LONG;
+        err = e1r8_get_header( buf, len, E1R8_TYPE_DECISION, expected, NULL );
+        if (err) return err;
+        err = e1r8_check_pre_endorsement( buf + 80, E1R8_PRE_ENDORSEMENT_SIZE, expected );
+        if (err) return err;
+        out->status = status;
+        out->tuple = *expected;
+        return 0;
+    }
+    else if (status == E1R8_DECISION_DENY)
+    {
+        if (len != 84) return E1R8_ERR_LONG;
+        h = *expected;
+        h.attempt = 0;
+        memset( h.channel_id, 0, 16 );
+        err = e1r8_get_header( buf, len, E1R8_TYPE_DECISION, &h, NULL );
+        if (err) return err;
+        out->status = status;
+        out->reason = e1r8_get_u32( buf + 80 );
+        if (out->reason != E1R8_DECISION_REASON_POLICY &&
+            out->reason != E1R8_DECISION_REASON_ATTEMPTS &&
+            out->reason != E1R8_DECISION_REASON_BUSY)
+            return E1R8_ERR_ENUM;
+        return 0;
+    }
+    return E1R8_ERR_ENUM;
+}
+
+/*
+ * Type 42: ENDORSED_LOCAL (A->B0). Body: dialog_id:16, status:u32
+ * (1 endorsed, 2 refused). Total 96.
+ */
+static inline int e1r8_encode_endorsed_local( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                                      const uint8_t dialog_id[16], uint32_t status )
+{
+    int err;
+    if (status != E1R8_ENDORSED_LOCAL_ENDORSED && status != E1R8_ENDORSED_LOCAL_REFUSED)
+        return E1R8_ERR_ENUM;
+    if (len != 96) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_ENDORSED_LOCAL, 96, t );
+    if (err) return err;
+    memcpy( buf + 76, dialog_id, 16 );
+    e1r8_put_u32( buf + 92, status );
+    return 0;
+}
+
+static inline int e1r8_decode_endorsed_local( const uint8_t *buf, size_t len,
+                                      const struct e1r8_tuple *expected,
+                                      struct e1r8_endorsed_local *out )
+{
+    int err;
+    if (len != 96) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_ENDORSED_LOCAL, expected, NULL );
+    if (err) return err;
+    memcpy( out->dialog_id, buf + 76, 16 );
+    out->status = e1r8_get_u32( buf + 92 );
+    if (out->status != E1R8_ENDORSED_LOCAL_ENDORSED && out->status != E1R8_ENDORSED_LOCAL_REFUSED)
+        return E1R8_ERR_ENUM;
+    return 0;
+}
+
+/*
+ * Type 43: TO_D (B0->A). Body: one complete R8 B->D frame (types 1, 3,
+ * 9, 5, 6, 8). Only the embedded header is checked, not the embedded
+ * body. Total 152..2143.
+ */
+static inline int e1r8_encode_to_d( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                             const uint8_t *frame, uint32_t frame_len )
+{
+    uint16_t type;
+    int err;
+    err = e1r8_check_embedded( frame, frame_len, &type, e1r8_valid_to_d_frame );
+    if (err) return err;
+    if (len != (size_t)E1R8_HEADER_SIZE + frame_len) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_TO_D, E1R8_HEADER_SIZE + frame_len, t );
+    if (err) return err;
+    memcpy( buf + E1R8_HEADER_SIZE, frame, frame_len );
+    return 0;
+}
+
+static inline int e1r8_decode_to_d( const uint8_t *buf, size_t len,
+                             const struct e1r8_tuple *expected,
+                             struct e1r8_to_d *out )
+{
+    int err;
+    if (len < 152 || len > 2143) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_TO_D, expected, NULL );
+    if (err) return err;
+    err = e1r8_check_embedded( buf + E1R8_HEADER_SIZE, (uint32_t)(len - E1R8_HEADER_SIZE),
+                               &out->type, e1r8_valid_to_d_frame );
+    if (err) return err;
+    out->frame = buf + E1R8_HEADER_SIZE;
+    out->frame_len = (uint32_t)(len - E1R8_HEADER_SIZE);
+    return 0;
+}
+
+/*
+ * Type 44: FROM_D (A->B0). Body: one complete R8 D->B frame (types 2,
+ * 4, 7) as read from D. Only the embedded header is checked, not the
+ * embedded body. Total 157..340.
+ */
+static inline int e1r8_encode_from_d( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                               const uint8_t *frame, uint32_t frame_len )
+{
+    uint16_t type;
+    int err;
+    err = e1r8_check_embedded( frame, frame_len, &type, e1r8_valid_from_d_frame );
+    if (err) return err;
+    if (len != (size_t)E1R8_HEADER_SIZE + frame_len) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_FROM_D, E1R8_HEADER_SIZE + frame_len, t );
+    if (err) return err;
+    memcpy( buf + E1R8_HEADER_SIZE, frame, frame_len );
+    return 0;
+}
+
+static inline int e1r8_decode_from_d( const uint8_t *buf, size_t len,
+                               const struct e1r8_tuple *expected,
+                               struct e1r8_from_d *out )
+{
+    int err;
+    if (len < 157 || len > 340) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_FROM_D, expected, NULL );
+    if (err) return err;
+    err = e1r8_check_embedded( buf + E1R8_HEADER_SIZE, (uint32_t)(len - E1R8_HEADER_SIZE),
+                               &out->type, e1r8_valid_from_d_frame );
+    if (err) return err;
+    out->frame = buf + E1R8_HEADER_SIZE;
+    out->frame_len = (uint32_t)(len - E1R8_HEADER_SIZE);
+    return 0;
+}
+
+/*
+ * Type 45: RECHECK (B0->A). Body: step:u32 (1 attach, 2 ready, 3 result,
+ * 4 confirm). Total 80.
+ */
+static inline int e1r8_encode_recheck( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                               uint32_t step )
+{
+    int err;
+    if (step < E1R8_RECHECK_STEP_ATTACH || step > E1R8_RECHECK_STEP_CONFIRM)
+        return E1R8_ERR_ENUM;
+    if (len != 80) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_RECHECK, 80, t );
+    if (err) return err;
+    e1r8_put_u32( buf + 76, step );
+    return 0;
+}
+
+static inline int e1r8_decode_recheck( const uint8_t *buf, size_t len,
+                               const struct e1r8_tuple *expected,
+                               struct e1r8_recheck *out )
+{
+    int err;
+    if (len != 80) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_RECHECK, expected, NULL );
+    if (err) return err;
+    out->step = e1r8_get_u32( buf + 76 );
+    if (out->step < E1R8_RECHECK_STEP_ATTACH || out->step > E1R8_RECHECK_STEP_CONFIRM)
+        return E1R8_ERR_ENUM;
+    return 0;
+}
+
+/*
+ * Type 46: RECHECKED (A->B0). Body: step:u32 (1..4), status:u32
+ * (1 ok, 2 refused). Total 84.
+ */
+static inline int e1r8_encode_rechecked( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                                 uint32_t step, uint32_t status )
+{
+    int err;
+    if (step < E1R8_RECHECK_STEP_ATTACH || step > E1R8_RECHECK_STEP_CONFIRM)
+        return E1R8_ERR_ENUM;
+    if (status != E1R8_RECHECKED_OK && status != E1R8_RECHECKED_REFUSED)
+        return E1R8_ERR_ENUM;
+    if (len != 84) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_RECHECKED, 84, t );
+    if (err) return err;
+    e1r8_put_u32( buf + 76, step );
+    e1r8_put_u32( buf + 80, status );
+    return 0;
+}
+
+static inline int e1r8_decode_rechecked( const uint8_t *buf, size_t len,
+                                 const struct e1r8_tuple *expected,
+                                 struct e1r8_rechecked *out )
+{
+    int err;
+    if (len != 84) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_RECHECKED, expected, NULL );
+    if (err) return err;
+    out->step = e1r8_get_u32( buf + 76 );
+    out->status = e1r8_get_u32( buf + 80 );
+    if (out->step < E1R8_RECHECK_STEP_ATTACH || out->step > E1R8_RECHECK_STEP_CONFIRM)
+        return E1R8_ERR_ENUM;
+    if (out->status != E1R8_RECHECKED_OK && out->status != E1R8_RECHECKED_REFUSED)
+        return E1R8_ERR_ENUM;
+    return 0;
+}
+
+/*
+ * Type 47: LAUNCH (B0->A). Body: account:str (canonical), evidence_ref:16.
+ * Total 97..159.
+ */
+static inline int e1r8_encode_launch( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                               const uint8_t *account, uint32_t acct_len,
+                               const uint8_t evidence_ref[16] )
+{
+    uint32_t total;
+    int err;
+    if (!e1r8_valid_account_name( account, acct_len )) return E1R8_ERR_STRING;
+    total = E1R8_HEADER_SIZE + (4 + acct_len) + 16;
+    if (len != total) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_LAUNCH, total, t );
+    if (err) return err;
+    e1r8_put_string( buf + 76, account, acct_len );
+    memcpy( buf + 76 + 4 + acct_len, evidence_ref, 16 );
+    return 0;
+}
+
+static inline int e1r8_decode_launch( const uint8_t *buf, size_t len,
+                               const struct e1r8_tuple *expected,
+                               struct e1r8_launch *out )
+{
+    size_t off = 76;
+    const uint8_t *s;
+    uint32_t slen;
+    int err;
+    if (len < 97 || len > 159) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_LAUNCH, expected, NULL );
+    if (err) return err;
+    err = e1r8_get_string( buf, len, &off, &s, &slen );
+    if (err) return err;
+    if (!e1r8_valid_account_name( s, slen )) return E1R8_ERR_STRING;
+    out->account = s;
+    out->account_len = slen;
+    if (off + 16 > len) return E1R8_ERR_SHORT;
+    memcpy( out->evidence_ref, buf + off, 16 );
+    off += 16;
+    if (off != len) return E1R8_ERR_LONG;
+    return 0;
+}
+
+/*
+ * Type 48: LAUNCHED (A->B0). Body: status:u32 (1 committed, 2 failed
+ * before commit, 3 failed after commit), win32:u32. Total 84.
+ */
+static inline int e1r8_encode_launched( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                                uint32_t status, uint32_t win32 )
+{
+    int err;
+    if (status != E1R8_LAUNCHED_COMMITTED &&
+        status != E1R8_LAUNCHED_FAILED_BEFORE &&
+        status != E1R8_LAUNCHED_FAILED_AFTER)
+        return E1R8_ERR_ENUM;
+    if (len != 84) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_LAUNCHED, 84, t );
+    if (err) return err;
+    e1r8_put_u32( buf + 76, status );
+    e1r8_put_u32( buf + 80, win32 );
+    return 0;
+}
+
+static inline int e1r8_decode_launched( const uint8_t *buf, size_t len,
+                                const struct e1r8_tuple *expected,
+                                struct e1r8_launched *out )
+{
+    int err;
+    if (len != 84) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_LAUNCHED, expected, NULL );
+    if (err) return err;
+    out->status = e1r8_get_u32( buf + 76 );
+    out->win32 = e1r8_get_u32( buf + 80 );
+    if (out->status != E1R8_LAUNCHED_COMMITTED &&
+        out->status != E1R8_LAUNCHED_FAILED_BEFORE &&
+        out->status != E1R8_LAUNCHED_FAILED_AFTER)
+        return E1R8_ERR_ENUM;
+    return 0;
+}
+
+/*
+ * Type 49: CANCEL (A<->B0). Body: reason:u32 (1 user, 2 D gone, 3
+ * deadline, 4 peer gone, 5 protocol, 6 recheck). Total 80. Distinct from
+ * R8's type 21 CANCEL.
+ */
+static inline int e1r8_encode_cancel_r9( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                                 uint32_t reason )
+{
+    int err;
+    if (reason < E1R8_CANCEL_R9_USER || reason > E1R8_CANCEL_R9_RECHECK)
+        return E1R8_ERR_ENUM;
+    if (len != 80) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_CANCEL_R9, 80, t );
+    if (err) return err;
+    e1r8_put_u32( buf + 76, reason );
+    return 0;
+}
+
+static inline int e1r8_decode_cancel_r9( const uint8_t *buf, size_t len,
+                                 const struct e1r8_tuple *expected,
+                                 struct e1r8_cancel_r9 *out )
+{
+    int err;
+    if (len != 80) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_CANCEL_R9, expected, NULL );
+    if (err) return err;
+    out->reason = e1r8_get_u32( buf + 76 );
+    if (out->reason < E1R8_CANCEL_R9_USER || out->reason > E1R8_CANCEL_R9_RECHECK)
+        return E1R8_ERR_ENUM;
+    return 0;
+}
+
+/*
+ * Type 50: END (B0->A). Body: outcome:u32 (1 completed, 2 cancelled,
+ * 3 denied). Total 80.
+ */
+static inline int e1r8_encode_end( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                             uint32_t outcome )
+{
+    int err;
+    if (outcome != E1R8_END_COMPLETED && outcome != E1R8_END_CANCELLED &&
+        outcome != E1R8_END_DENIED)
+        return E1R8_ERR_ENUM;
+    if (len != 80) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_END, 80, t );
+    if (err) return err;
+    e1r8_put_u32( buf + 76, outcome );
+    return 0;
+}
+
+static inline int e1r8_decode_end( const uint8_t *buf, size_t len,
+                             const struct e1r8_tuple *expected,
+                             struct e1r8_end *out )
+{
+    int err;
+    if (len != 80) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_END, expected, NULL );
+    if (err) return err;
+    out->outcome = e1r8_get_u32( buf + 76 );
+    if (out->outcome != E1R8_END_COMPLETED && out->outcome != E1R8_END_CANCELLED &&
+        out->outcome != E1R8_END_DENIED)
+        return E1R8_ERR_ENUM;
+    return 0;
+}
+
+/*
+ * Type 51: NEXT_ATTEMPT (B0->A). Body: the next attempt's
+ * pre-endorsement tuple (204). Total 280. The header's request_id,
+ * attempt, nonce and channel_id equal the tuple's; the attempt is 2 or 3.
+ */
+static inline int e1r8_encode_next_attempt( uint8_t *buf, size_t len, const struct e1r8_tuple *t )
+{
+    int err;
+    if (t->attempt != 2 && t->attempt != 3) return E1R8_ERR_ENUM;
+    if (len != 280) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_NEXT_ATTEMPT, 280, t );
+    if (err) return err;
+    err = e1r8_encode_pre_endorsement_tuple( buf + 76, E1R8_PRE_ENDORSEMENT_SIZE, t );
+    if (err) return err;
+    return 0;
+}
+
+static inline int e1r8_decode_next_attempt( const uint8_t *buf, size_t len,
+                                     const struct e1r8_tuple *expected,
+                                     struct e1r8_next_attempt *out )
+{
+    struct e1r8_header h;
+    int err;
+    if (len != 280) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_NEXT_ATTEMPT, expected, &h );
+    if (err) return err;
+    if (h.attempt != 2 && h.attempt != 3) return E1R8_ERR_ENUM;
+    err = e1r8_check_pre_endorsement( buf + 76, E1R8_PRE_ENDORSEMENT_SIZE, expected );
+    if (err) return err;
+    out->tuple = *expected;
     return 0;
 }
 

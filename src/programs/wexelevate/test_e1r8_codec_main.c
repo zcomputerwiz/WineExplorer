@@ -863,19 +863,558 @@ static int test_utf8_errors( void )
 }
 
 /*
+ * R9 (docs/E1_S18E_R9_SPEC.md) round trips at minimum and maximum length
+ * for every new message type.
+ */
+static int test_r9_round_trips( void )
+{
+    struct e1r8_tuple t, t2;
+    uint8_t buf[8192];
+    uint8_t emb[8192];
+    uint8_t key[16], ev[16];
+    int i;
+
+    fill_golden_tuple( &t );
+    t2 = t;
+    t2.attempt = 2;
+    fill_range( key, 16, 0xa0 );
+    fill_range( ev, 16, 0xb0 );
+
+    /* Type 32: GRANT (108). */
+    {
+        struct e1r8_grant g;
+        CHECK( e1r8_encode_grant( buf, 108, &t, key, ev ) == E1R8_OK, "GRANT encode" );
+        CHECK( e1r8_decode_grant( buf, 108, &t, &g ) == E1R8_OK, "GRANT decode" );
+        CHECK( memcmp( g.account_key, key, 16 ) == 0 && memcmp( g.evidence_ref, ev, 16 ) == 0,
+               "GRANT fields" );
+    }
+
+    /* Type 33: GRANTED (76). */
+    CHECK( e1r8_encode_granted( buf, 76, &t ) == E1R8_OK, "GRANTED encode" );
+    CHECK( e1r8_decode_granted( buf, 76, &t ) == E1R8_OK, "GRANTED decode" );
+
+    /* Type 40: REQUEST (232..1792). */
+    {
+        struct e1r8_request r;
+        /* Minimum: empty display strings. */
+        CHECK( e1r8_encode_request( buf, 232, &t, 1, 1,
+                                    NULL, 0, NULL, 0, NULL, 0 ) == E1R8_OK,
+               "REQUEST min encode" );
+        CHECK( e1r8_decode_request( buf, 232, &t, &r ) == E1R8_OK, "REQUEST min decode" );
+        CHECK( r.kind == 1 && r.secure_desktop == 1, "REQUEST min fields" );
+        CHECK( r.deadline == t.deadline, "REQUEST min deadline" );
+        CHECK( memcmp( r.binding_digest, t.binding_digest, 32 ) == 0, "REQUEST min binding" );
+        CHECK( memcmp( r.request_digest, t.request_digest, 32 ) == 0, "REQUEST min request" );
+        CHECK( r.root_gen == t.root_gen && r.server_gen == t.server_gen &&
+               r.broker_gen == t.broker_gen && r.verifier_gen == t.verifier_gen &&
+               r.map_gen == t.map_gen && r.policy_gen == t.policy_gen,
+               "REQUEST min gens" );
+        CHECK( memcmp( r.desktop_route, t.desktop_route, 16 ) == 0, "REQUEST min route" );
+        CHECK( r.requester_len == 0 && r.image_len == 0 && r.publisher_len == 0,
+               "REQUEST min empty display" );
+        /* Maximum: 520-byte display strings. */
+        {
+            uint8_t req[520], img[520], pub[520];
+            for (i = 0; i < 520; i += 2) { req[i] = 'a'; req[i+1] = 0; }
+            for (i = 0; i < 520; i += 2) { img[i] = 'b'; img[i+1] = 0; }
+            for (i = 0; i < 520; i += 2) { pub[i] = 'c'; pub[i+1] = 0; }
+            CHECK( e1r8_encode_request( buf, 1792, &t, 2, 0,
+                                        req, 520, img, 520, pub, 520 ) == E1R8_OK,
+                   "REQUEST max encode" );
+            CHECK( e1r8_decode_request( buf, 1792, &t, &r ) == E1R8_OK, "REQUEST max decode" );
+            CHECK( r.kind == 2 && r.secure_desktop == 0, "REQUEST max fields" );
+            CHECK( r.requester_len == 520 && r.image_len == 520 && r.publisher_len == 520,
+                   "REQUEST max display len" );
+        }
+    }
+
+    /* Type 41: DECISION (84 deny, 284 prompt). */
+    {
+        struct e1r8_decision d;
+        CHECK( e1r8_encode_decision( buf, 84, &t, 2, 1 ) == E1R8_OK, "DECISION deny encode" );
+        CHECK( e1r8_decode_decision( buf, 84, &t, &d ) == E1R8_OK, "DECISION deny decode" );
+        CHECK( d.status == 2 && d.reason == 1, "DECISION deny fields" );
+        CHECK( e1r8_encode_decision( buf, 284, &t, 1, 0 ) == E1R8_OK, "DECISION prompt encode" );
+        CHECK( e1r8_decode_decision( buf, 284, &t, &d ) == E1R8_OK, "DECISION prompt decode" );
+        CHECK( d.status == 1, "DECISION prompt status" );
+        CHECK( memcmp( &d.tuple, &t, sizeof(t) ) == 0, "DECISION prompt tuple" );
+    }
+
+    /* Type 42: ENDORSED_LOCAL (96). */
+    {
+        struct e1r8_endorsed_local e;
+        CHECK( e1r8_encode_endorsed_local( buf, 96, &t, t.dialog_id, 1 ) == E1R8_OK,
+               "ENDORSED_LOCAL encode" );
+        CHECK( e1r8_decode_endorsed_local( buf, 96, &t, &e ) == E1R8_OK,
+               "ENDORSED_LOCAL decode" );
+        CHECK( e.status == 1 && memcmp( e.dialog_id, t.dialog_id, 16 ) == 0,
+               "ENDORSED_LOCAL fields" );
+    }
+
+    /* Type 43: TO_D (152..2143). */
+    {
+        struct e1r8_to_d td;
+        /* Minimum: embedded SELECT_OK (76). */
+        CHECK( e1r8_encode_select_ok( emb, 76, &t ) == E1R8_OK, "TO_D emb SELECT_OK" );
+        CHECK( e1r8_encode_to_d( buf, 152, &t, emb, 76 ) == E1R8_OK, "TO_D min encode" );
+        CHECK( e1r8_decode_to_d( buf, 152, &t, &td ) == E1R8_OK, "TO_D min decode" );
+        CHECK( td.type == E1R8_TYPE_SELECT_OK && td.frame_len == 76, "TO_D min fields" );
+        /* Maximum: embedded INIT max (2067). */
+        {
+            uint8_t vo[255], req[520], img[520], pub[520];
+            vo[0] = ':';
+            for (i = 1; i < 253; ++i) vo[i] = '1';
+            vo[253] = '.'; vo[254] = '1';
+            for (i = 0; i < 520; i += 2) { req[i] = 'a'; req[i+1] = 0; }
+            for (i = 0; i < 520; i += 2) { img[i] = 'b'; img[i+1] = 0; }
+            for (i = 0; i < 520; i += 2) { pub[i] = 'c'; pub[i+1] = 0; }
+            CHECK( e1r8_encode_init( emb, 2067, &t, vo, 255, req, 520, img, 520, pub, 520 ) == E1R8_OK,
+                   "TO_D emb INIT" );
+            CHECK( e1r8_encode_to_d( buf, 2143, &t, emb, 2067 ) == E1R8_OK, "TO_D max encode" );
+            CHECK( e1r8_decode_to_d( buf, 2143, &t, &td ) == E1R8_OK, "TO_D max decode" );
+            CHECK( td.type == E1R8_TYPE_INIT && td.frame_len == 2067, "TO_D max fields" );
+        }
+    }
+
+    /* Type 44: FROM_D (157..340). */
+    {
+        struct e1r8_from_d fd;
+        /* Minimum: embedded SELECT "a" (81). */
+        CHECK( e1r8_encode_select( emb, 81, &t, (const uint8_t *)"a", 1 ) == E1R8_OK,
+               "FROM_D emb SELECT" );
+        CHECK( e1r8_encode_from_d( buf, 157, &t, emb, 81 ) == E1R8_OK, "FROM_D min encode" );
+        CHECK( e1r8_decode_from_d( buf, 157, &t, &fd ) == E1R8_OK, "FROM_D min decode" );
+        CHECK( fd.type == E1R8_TYPE_SELECT && fd.frame_len == 81, "FROM_D min fields" );
+        /* Maximum: embedded ANSWER (264). */
+        CHECK( e1r8_encode_answer( emb, 264, &t, t.binding_digest, 2, 2, 0, 0x3ff ) == E1R8_OK,
+               "FROM_D emb ANSWER" );
+        CHECK( e1r8_encode_from_d( buf, 340, &t, emb, 264 ) == E1R8_OK, "FROM_D max encode" );
+        CHECK( e1r8_decode_from_d( buf, 340, &t, &fd ) == E1R8_OK, "FROM_D max decode" );
+        CHECK( fd.type == E1R8_TYPE_ANSWER && fd.frame_len == 264, "FROM_D max fields" );
+    }
+
+    /* Type 45: RECHECK (80). */
+    {
+        struct e1r8_recheck rc;
+        CHECK( e1r8_encode_recheck( buf, 80, &t, 1 ) == E1R8_OK, "RECHECK encode" );
+        CHECK( e1r8_decode_recheck( buf, 80, &t, &rc ) == E1R8_OK, "RECHECK decode" );
+        CHECK( rc.step == 1, "RECHECK step" );
+    }
+
+    /* Type 46: RECHECKED (84). */
+    {
+        struct e1r8_rechecked rc;
+        CHECK( e1r8_encode_rechecked( buf, 84, &t, 1, 1 ) == E1R8_OK, "RECHECKED encode" );
+        CHECK( e1r8_decode_rechecked( buf, 84, &t, &rc ) == E1R8_OK, "RECHECKED decode" );
+        CHECK( rc.step == 1 && rc.status == 1, "RECHECKED fields" );
+    }
+
+    /* Type 47: LAUNCH (97..159). */
+    {
+        struct e1r8_launch l;
+        CHECK( e1r8_encode_launch( buf, 97, &t, (const uint8_t *)"a", 1, ev ) == E1R8_OK,
+               "LAUNCH min encode" );
+        CHECK( e1r8_decode_launch( buf, 97, &t, &l ) == E1R8_OK, "LAUNCH min decode" );
+        CHECK( l.account_len == 1 && memcmp( l.evidence_ref, ev, 16 ) == 0, "LAUNCH min fields" );
+        CHECK( e1r8_encode_launch( buf, 159, &t,
+                                   (const uint8_t *)"a12345678901234567890123456789012345678901234567890123456789012", 63, ev ) == E1R8_OK,
+               "LAUNCH max encode" );
+        CHECK( e1r8_decode_launch( buf, 159, &t, &l ) == E1R8_OK, "LAUNCH max decode" );
+        CHECK( l.account_len == 63, "LAUNCH max account" );
+    }
+
+    /* Type 48: LAUNCHED (84). */
+    {
+        struct e1r8_launched l;
+        CHECK( e1r8_encode_launched( buf, 84, &t, 1, 0 ) == E1R8_OK, "LAUNCHED encode" );
+        CHECK( e1r8_decode_launched( buf, 84, &t, &l ) == E1R8_OK, "LAUNCHED decode" );
+        CHECK( l.status == 1 && l.win32 == 0, "LAUNCHED fields" );
+    }
+
+    /* Type 49: CANCEL_R9 (80). */
+    {
+        struct e1r8_cancel_r9 c;
+        CHECK( e1r8_encode_cancel_r9( buf, 80, &t, 1 ) == E1R8_OK, "CANCEL_R9 encode" );
+        CHECK( e1r8_decode_cancel_r9( buf, 80, &t, &c ) == E1R8_OK, "CANCEL_R9 decode" );
+        CHECK( c.reason == 1, "CANCEL_R9 reason" );
+    }
+
+    /* Type 50: END (80). */
+    {
+        struct e1r8_end en;
+        CHECK( e1r8_encode_end( buf, 80, &t, 1 ) == E1R8_OK, "END encode" );
+        CHECK( e1r8_decode_end( buf, 80, &t, &en ) == E1R8_OK, "END decode" );
+        CHECK( en.outcome == 1, "END outcome" );
+    }
+
+    /* Type 51: NEXT_ATTEMPT (280, attempt 2). */
+    {
+        struct e1r8_next_attempt na;
+        CHECK( e1r8_encode_next_attempt( buf, 280, &t2 ) == E1R8_OK, "NEXT_ATTEMPT encode" );
+        CHECK( e1r8_decode_next_attempt( buf, 280, &t2, &na ) == E1R8_OK, "NEXT_ATTEMPT decode" );
+        CHECK( memcmp( &na.tuple, &t2, sizeof(t2) ) == 0, "NEXT_ATTEMPT tuple" );
+    }
+
+    return 0;
+}
+
+/*
+ * R9 error vectors: one byte short and long, wrong type, nonzero reserved,
+ * unknown enum values, invalid strings, embedded frame errors, and the
+ * DECISION/NEXT_ATTEMPT/GRANT id and zero-field checks.
+ */
+static int test_r9_errors( void )
+{
+    struct e1r8_tuple t, t2;
+    uint8_t buf[8192];
+    uint8_t emb[8192];
+    uint8_t key[16], ev[16], zero16[16];
+    int i;
+
+    fill_golden_tuple( &t );
+    t2 = t;
+    t2.attempt = 2;
+    fill_range( key, 16, 0xa0 );
+    fill_range( ev, 16, 0xb0 );
+    memset( zero16, 0, 16 );
+
+    /* --- One byte short and one byte long --- */
+    CHECK( e1r8_encode_grant( buf, 108, &t, key, ev ) == E1R8_OK, "GRANT encode" );
+    {
+        struct e1r8_grant g;
+        CHECK( e1r8_decode_grant( buf, 107, &t, &g ) != E1R8_OK, "GRANT one short" );
+        buf[108] = 0;
+        CHECK( e1r8_decode_grant( buf, 109, &t, &g ) != E1R8_OK, "GRANT one long" );
+    }
+    CHECK( e1r8_encode_request( buf, 232, &t, 1, 1, NULL, 0, NULL, 0, NULL, 0 ) == E1R8_OK,
+           "REQUEST encode" );
+    {
+        struct e1r8_request r;
+        CHECK( e1r8_decode_request( buf, 231, &t, &r ) != E1R8_OK, "REQUEST one short" );
+        buf[232] = 0;
+        CHECK( e1r8_decode_request( buf, 233, &t, &r ) != E1R8_OK, "REQUEST one long" );
+    }
+    CHECK( e1r8_encode_decision( buf, 84, &t, 2, 1 ) == E1R8_OK, "DECISION deny encode" );
+    {
+        struct e1r8_decision d;
+        CHECK( e1r8_decode_decision( buf, 83, &t, &d ) != E1R8_OK, "DECISION deny one short" );
+        buf[84] = 0;
+        CHECK( e1r8_decode_decision( buf, 85, &t, &d ) != E1R8_OK, "DECISION deny one long" );
+    }
+    CHECK( e1r8_encode_select_ok( emb, 76, &t ) == E1R8_OK, "TO_D emb" );
+    CHECK( e1r8_encode_to_d( buf, 152, &t, emb, 76 ) == E1R8_OK, "TO_D encode" );
+    {
+        struct e1r8_to_d td;
+        CHECK( e1r8_decode_to_d( buf, 151, &t, &td ) != E1R8_OK, "TO_D one short" );
+        buf[152] = 0;
+        CHECK( e1r8_decode_to_d( buf, 153, &t, &td ) != E1R8_OK, "TO_D one long" );
+    }
+    CHECK( e1r8_encode_select( emb, 81, &t, (const uint8_t *)"a", 1 ) == E1R8_OK, "FROM_D emb" );
+    CHECK( e1r8_encode_from_d( buf, 157, &t, emb, 81 ) == E1R8_OK, "FROM_D encode" );
+    {
+        struct e1r8_from_d fd;
+        CHECK( e1r8_decode_from_d( buf, 156, &t, &fd ) != E1R8_OK, "FROM_D one short" );
+        buf[157] = 0;
+        CHECK( e1r8_decode_from_d( buf, 158, &t, &fd ) != E1R8_OK, "FROM_D one long" );
+    }
+    CHECK( e1r8_encode_launch( buf, 97, &t, (const uint8_t *)"a", 1, ev ) == E1R8_OK, "LAUNCH encode" );
+    {
+        struct e1r8_launch l;
+        CHECK( e1r8_decode_launch( buf, 96, &t, &l ) != E1R8_OK, "LAUNCH one short" );
+        buf[97] = 0;
+        CHECK( e1r8_decode_launch( buf, 98, &t, &l ) != E1R8_OK, "LAUNCH one long" );
+    }
+    CHECK( e1r8_encode_next_attempt( buf, 280, &t2 ) == E1R8_OK, "NEXT_ATTEMPT encode" );
+    {
+        struct e1r8_next_attempt na;
+        CHECK( e1r8_decode_next_attempt( buf, 279, &t2, &na ) != E1R8_OK, "NEXT_ATTEMPT one short" );
+        buf[280] = 0;
+        CHECK( e1r8_decode_next_attempt( buf, 281, &t2, &na ) != E1R8_OK, "NEXT_ATTEMPT one long" );
+    }
+
+    /* --- Wrong type and nonzero reserved --- */
+    CHECK( e1r8_encode_recheck( buf, 80, &t, 1 ) == E1R8_OK, "RECHECK encode" );
+    {
+        struct e1r8_recheck rc;
+        e1r8_put_u16( buf + 6, 46 ); /* wrong type */
+        CHECK( e1r8_decode_recheck( buf, 80, &t, &rc ) == E1R8_ERR_TYPE, "RECHECK wrong type" );
+        e1r8_put_u16( buf + 6, E1R8_TYPE_RECHECK );
+        buf[24] = 1; /* nonzero reserved */
+        CHECK( e1r8_decode_recheck( buf, 80, &t, &rc ) == E1R8_ERR_RESERVED, "RECHECK nonzero reserved" );
+        buf[24] = 0;
+    }
+
+    /* --- Unknown enum values (0 and max+1) --- */
+    CHECK( e1r8_encode_request( buf, 232, &t, 1, 1, NULL, 0, NULL, 0, NULL, 0 ) == E1R8_OK,
+           "REQUEST encode" );
+    {
+        struct e1r8_request r;
+        buf[76] = 0; /* kind 0 */
+        CHECK( e1r8_decode_request( buf, 232, &t, &r ) == E1R8_ERR_ENUM, "REQUEST kind 0" );
+        buf[76] = 3; /* kind 3 (max+1) */
+        CHECK( e1r8_decode_request( buf, 232, &t, &r ) == E1R8_ERR_ENUM, "REQUEST kind 3" );
+        buf[76] = 1;
+        buf[216] = 2; /* secure_desktop 2 (max+1) */
+        CHECK( e1r8_decode_request( buf, 232, &t, &r ) == E1R8_ERR_ENUM, "REQUEST secure_desktop 2" );
+        buf[216] = 1;
+    }
+    CHECK( e1r8_encode_decision( buf, 84, &t, 2, 1 ) == E1R8_OK, "DECISION deny encode" );
+    {
+        struct e1r8_decision d;
+        buf[76] = 0; /* status 0 */
+        CHECK( e1r8_decode_decision( buf, 84, &t, &d ) == E1R8_ERR_ENUM, "DECISION status 0" );
+        buf[76] = 3; /* status 3 (max+1) */
+        CHECK( e1r8_decode_decision( buf, 84, &t, &d ) == E1R8_ERR_ENUM, "DECISION status 3" );
+        buf[76] = 2;
+        buf[80] = 0; /* reason 0 */
+        CHECK( e1r8_decode_decision( buf, 84, &t, &d ) == E1R8_ERR_ENUM, "DECISION reason 0" );
+        buf[80] = 4; /* reason 4 (max+1) */
+        CHECK( e1r8_decode_decision( buf, 84, &t, &d ) == E1R8_ERR_ENUM, "DECISION reason 4" );
+        buf[80] = 1;
+    }
+    CHECK( e1r8_encode_endorsed_local( buf, 96, &t, t.dialog_id, 1 ) == E1R8_OK, "ENDORSED_LOCAL encode" );
+    {
+        struct e1r8_endorsed_local e;
+        buf[92] = 0; /* status 0 */
+        CHECK( e1r8_decode_endorsed_local( buf, 96, &t, &e ) == E1R8_ERR_ENUM, "ENDORSED_LOCAL status 0" );
+        buf[92] = 3; /* status 3 (max+1) */
+        CHECK( e1r8_decode_endorsed_local( buf, 96, &t, &e ) == E1R8_ERR_ENUM, "ENDORSED_LOCAL status 3" );
+        buf[92] = 1;
+    }
+    CHECK( e1r8_encode_recheck( buf, 80, &t, 1 ) == E1R8_OK, "RECHECK encode" );
+    {
+        struct e1r8_recheck rc;
+        buf[76] = 0; /* step 0 */
+        CHECK( e1r8_decode_recheck( buf, 80, &t, &rc ) == E1R8_ERR_ENUM, "RECHECK step 0" );
+        buf[76] = 5; /* step 5 (max+1) */
+        CHECK( e1r8_decode_recheck( buf, 80, &t, &rc ) == E1R8_ERR_ENUM, "RECHECK step 5" );
+        buf[76] = 1;
+    }
+    CHECK( e1r8_encode_rechecked( buf, 84, &t, 1, 1 ) == E1R8_OK, "RECHECKED encode" );
+    {
+        struct e1r8_rechecked rc;
+        buf[76] = 0; /* step 0 */
+        CHECK( e1r8_decode_rechecked( buf, 84, &t, &rc ) == E1R8_ERR_ENUM, "RECHECKED step 0" );
+        buf[76] = 5; /* step 5 (max+1) */
+        CHECK( e1r8_decode_rechecked( buf, 84, &t, &rc ) == E1R8_ERR_ENUM, "RECHECKED step 5" );
+        buf[76] = 1;
+        buf[80] = 0; /* status 0 */
+        CHECK( e1r8_decode_rechecked( buf, 84, &t, &rc ) == E1R8_ERR_ENUM, "RECHECKED status 0" );
+        buf[80] = 3; /* status 3 (max+1) */
+        CHECK( e1r8_decode_rechecked( buf, 84, &t, &rc ) == E1R8_ERR_ENUM, "RECHECKED status 3" );
+        buf[80] = 1;
+    }
+    CHECK( e1r8_encode_launched( buf, 84, &t, 1, 0 ) == E1R8_OK, "LAUNCHED encode" );
+    {
+        struct e1r8_launched l;
+        buf[76] = 0; /* status 0 */
+        CHECK( e1r8_decode_launched( buf, 84, &t, &l ) == E1R8_ERR_ENUM, "LAUNCHED status 0" );
+        buf[76] = 4; /* status 4 (max+1) */
+        CHECK( e1r8_decode_launched( buf, 84, &t, &l ) == E1R8_ERR_ENUM, "LAUNCHED status 4" );
+        buf[76] = 1;
+    }
+    CHECK( e1r8_encode_cancel_r9( buf, 80, &t, 1 ) == E1R8_OK, "CANCEL_R9 encode" );
+    {
+        struct e1r8_cancel_r9 c;
+        buf[76] = 0; /* reason 0 */
+        CHECK( e1r8_decode_cancel_r9( buf, 80, &t, &c ) == E1R8_ERR_ENUM, "CANCEL_R9 reason 0" );
+        buf[76] = 7; /* reason 7 (max+1) */
+        CHECK( e1r8_decode_cancel_r9( buf, 80, &t, &c ) == E1R8_ERR_ENUM, "CANCEL_R9 reason 7" );
+        buf[76] = 1;
+    }
+    CHECK( e1r8_encode_end( buf, 80, &t, 1 ) == E1R8_OK, "END encode" );
+    {
+        struct e1r8_end en;
+        buf[76] = 0; /* outcome 0 */
+        CHECK( e1r8_decode_end( buf, 80, &t, &en ) == E1R8_ERR_ENUM, "END outcome 0" );
+        buf[76] = 4; /* outcome 4 (max+1) */
+        CHECK( e1r8_decode_end( buf, 80, &t, &en ) == E1R8_ERR_ENUM, "END outcome 4" );
+        buf[76] = 1;
+    }
+
+    /* --- Invalid strings --- */
+    /* REQUEST: display string with odd length. */
+    CHECK( e1r8_encode_request( buf, 233, &t, 1, 1,
+                                (const uint8_t *)"a", 1, NULL, 0, NULL, 0 ) == E1R8_ERR_STRING,
+           "REQUEST display odd length" );
+    /* REQUEST: display string overlength (522). */
+    {
+        uint8_t big[522];
+        for (i = 0; i < 522; i += 2) { big[i] = 'a'; big[i+1] = 0; }
+        CHECK( e1r8_encode_request( buf, 232 + 522, &t, 1, 1,
+                                    big, 522, NULL, 0, NULL, 0 ) == E1R8_ERR_STRING,
+               "REQUEST display overlength" );
+    }
+    /* REQUEST: display string with NUL. */
+    {
+        uint16_t nul[4];
+        nul[0] = 0; nul[1] = 0; nul[2] = 'b'; nul[3] = 0;
+        CHECK( e1r8_encode_request( buf, 236, &t, 1, 1,
+                                    (const uint8_t *)nul, 4, NULL, 0, NULL, 0 ) == E1R8_ERR_STRING,
+               "REQUEST display NUL" );
+    }
+    /* REQUEST: display string with control character. */
+    {
+        uint16_t ctrl[2];
+        ctrl[0] = 0x01; ctrl[1] = 0;
+        CHECK( e1r8_encode_request( buf, 234, &t, 1, 1,
+                                    (const uint8_t *)ctrl, 2, NULL, 0, NULL, 0 ) == E1R8_ERR_STRING,
+               "REQUEST display control" );
+    }
+    /* REQUEST: display string with unpaired surrogate. */
+    {
+        uint16_t surr[2];
+        surr[0] = 0xd800; surr[1] = 0;
+        CHECK( e1r8_encode_request( buf, 234, &t, 1, 1,
+                                    (const uint8_t *)surr, 2, NULL, 0, NULL, 0 ) == E1R8_ERR_STRING,
+               "REQUEST display unpaired surrogate" );
+    }
+    /* LAUNCH: non-ASCII account name. */
+    {
+        uint8_t bad[] = { 'a', 0x80, 'b' };
+        CHECK( e1r8_encode_launch( buf, 99, &t, bad, 3, ev ) == E1R8_ERR_STRING,
+               "LAUNCH non-ASCII account" );
+    }
+    /* LAUNCH: 64-byte account (overlength). */
+    CHECK( e1r8_encode_launch( buf, 160, &t,
+                               (const uint8_t *)"a123456789012345678901234567890123456789012345678901234567890123", 64, ev )
+           == E1R8_ERR_STRING, "LAUNCH overlength account" );
+
+    /* --- TO_D / FROM_D embedded frame errors --- */
+    /* TO_D: embedded frame of a wrong type (ACK is not a B->D type). */
+    CHECK( e1r8_encode_ack( emb, 156, &t ) == E1R8_OK, "TO_D emb ACK" );
+    CHECK( e1r8_encode_to_d( buf, 76 + 156, &t, emb, 156 ) == E1R8_ERR_TYPE,
+           "TO_D embedded wrong type" );
+    /* TO_D: embedded length disagrees. */
+    CHECK( e1r8_encode_select_ok( emb, 76, &t ) == E1R8_OK, "TO_D emb SELECT_OK" );
+    e1r8_put_u32( emb + 8, 77 );
+    CHECK( e1r8_encode_to_d( buf, 76 + 76, &t, emb, 76 ) == E1R8_ERR_LENGTH,
+           "TO_D embedded length disagrees" );
+    /* TO_D: embedded frame below its type's bounds (INIT 255). */
+    {
+        uint8_t vo[4] = { ':', '1', '.', '1' };
+        CHECK( e1r8_encode_init( emb, 256, &t, vo, 4, NULL, 0, NULL, 0, NULL, 0 ) == E1R8_OK,
+               "TO_D emb INIT" );
+        e1r8_put_u32( emb + 8, 255 );
+        CHECK( e1r8_encode_to_d( buf, 76 + 255, &t, emb, 255 ) == E1R8_ERR_TYPE,
+               "TO_D embedded below bounds" );
+    }
+    /* TO_D: embedded frame above its type's bounds (INIT 2068). */
+    {
+        uint8_t vo[255], req[520], img[520], pub[520];
+        vo[0] = ':';
+        for (i = 1; i < 253; ++i) vo[i] = '1';
+        vo[253] = '.'; vo[254] = '1';
+        for (i = 0; i < 520; i += 2) { req[i] = 'a'; req[i+1] = 0; }
+        for (i = 0; i < 520; i += 2) { img[i] = 'b'; img[i+1] = 0; }
+        for (i = 0; i < 520; i += 2) { pub[i] = 'c'; pub[i+1] = 0; }
+        CHECK( e1r8_encode_init( emb, 2067, &t, vo, 255, req, 520, img, 520, pub, 520 ) == E1R8_OK,
+               "TO_D emb INIT max" );
+        e1r8_put_u32( emb + 8, 2068 );
+        CHECK( e1r8_encode_to_d( buf, 76 + 2068, &t, emb, 2068 ) == E1R8_ERR_TYPE,
+               "TO_D embedded above bounds" );
+    }
+    /* FROM_D: embedded frame of a wrong type (INIT is not a D->B type). */
+    {
+        uint8_t vo[4] = { ':', '1', '.', '1' };
+        CHECK( e1r8_encode_init( emb, 256, &t, vo, 4, NULL, 0, NULL, 0, NULL, 0 ) == E1R8_OK,
+               "FROM_D emb INIT" );
+        CHECK( e1r8_encode_from_d( buf, 76 + 256, &t, emb, 256 ) == E1R8_ERR_TYPE,
+               "FROM_D embedded wrong type" );
+    }
+    /* FROM_D: embedded length disagrees. */
+    CHECK( e1r8_encode_select( emb, 81, &t, (const uint8_t *)"a", 1 ) == E1R8_OK, "FROM_D emb SELECT" );
+    e1r8_put_u32( emb + 8, 82 );
+    CHECK( e1r8_encode_from_d( buf, 76 + 81, &t, emb, 81 ) == E1R8_ERR_LENGTH,
+           "FROM_D embedded length disagrees" );
+    /* FROM_D: embedded frame below its type's bounds (SELECT 80). */
+    CHECK( e1r8_encode_select( emb, 81, &t, (const uint8_t *)"a", 1 ) == E1R8_OK, "FROM_D emb SELECT" );
+    e1r8_put_u32( emb + 8, 80 );
+    CHECK( e1r8_encode_from_d( buf, 76 + 80, &t, emb, 80 ) == E1R8_ERR_TYPE,
+           "FROM_D embedded below bounds" );
+    /* FROM_D: embedded frame above its type's bounds (SELECT 144). */
+    CHECK( e1r8_encode_select( emb, 81, &t, (const uint8_t *)"a", 1 ) == E1R8_OK, "FROM_D emb SELECT" );
+    e1r8_put_u32( emb + 8, 144 );
+    CHECK( e1r8_encode_from_d( buf, 76 + 144, &t, emb, 144 ) == E1R8_ERR_TYPE,
+           "FROM_D embedded above bounds" );
+    /* TO_D decode: embedded frame of a wrong type. */
+    {
+        struct e1r8_to_d td;
+        CHECK( e1r8_encode_select_ok( emb, 76, &t ) == E1R8_OK, "TO_D emb" );
+        CHECK( e1r8_encode_to_d( buf, 152, &t, emb, 76 ) == E1R8_OK, "TO_D encode" );
+        e1r8_put_u16( buf + 76 + 6, E1R8_TYPE_ACK );
+        CHECK( e1r8_decode_to_d( buf, 152, &t, &td ) == E1R8_ERR_TYPE,
+               "TO_D decode embedded wrong type" );
+    }
+    /* TO_D decode: embedded length disagrees. */
+    {
+        struct e1r8_to_d td;
+        CHECK( e1r8_encode_select_ok( emb, 76, &t ) == E1R8_OK, "TO_D emb" );
+        CHECK( e1r8_encode_to_d( buf, 152, &t, emb, 76 ) == E1R8_OK, "TO_D encode" );
+        e1r8_put_u32( buf + 76 + 8, 77 );
+        CHECK( e1r8_decode_to_d( buf, 152, &t, &td ) == E1R8_ERR_LENGTH,
+               "TO_D decode embedded length disagrees" );
+    }
+
+    /* --- DECISION / NEXT_ATTEMPT header ids differ from the tuple's --- */
+    CHECK( e1r8_encode_decision( buf, 284, &t, 1, 0 ) == E1R8_OK, "DECISION prompt encode" );
+    {
+        struct e1r8_decision d;
+        buf[28] = 0xff; /* header nonce differs from the tuple's */
+        CHECK( e1r8_decode_decision( buf, 284, &t, &d ) == E1R8_ERR_ID,
+               "DECISION prompt header nonce differs" );
+        buf[28] = 0x10;
+    }
+    CHECK( e1r8_encode_next_attempt( buf, 280, &t2 ) == E1R8_OK, "NEXT_ATTEMPT encode" );
+    {
+        struct e1r8_next_attempt na;
+        buf[28] = 0xff; /* header nonce differs from the tuple's */
+        CHECK( e1r8_decode_next_attempt( buf, 280, &t2, &na ) == E1R8_ERR_ID,
+               "NEXT_ATTEMPT header nonce differs" );
+        buf[28] = 0x10;
+    }
+
+    /* --- NEXT_ATTEMPT with attempt 1 --- */
+    CHECK( e1r8_encode_next_attempt( buf, 280, &t ) == E1R8_ERR_ENUM,
+           "NEXT_ATTEMPT attempt 1 refused" );
+
+    /* --- GRANT with a zero key or zero reference --- */
+    CHECK( e1r8_encode_grant( buf, 108, &t, zero16, ev ) == E1R8_ERR_ID,
+           "GRANT zero key refused" );
+    CHECK( e1r8_encode_grant( buf, 108, &t, key, zero16 ) == E1R8_ERR_ID,
+           "GRANT zero reference refused" );
+    {
+        struct e1r8_grant g;
+        CHECK( e1r8_encode_grant( buf, 108, &t, key, ev ) == E1R8_OK, "GRANT encode" );
+        memset( buf + 76, 0, 16 ); /* zero the account_key */
+        CHECK( e1r8_decode_grant( buf, 108, &t, &g ) == E1R8_ERR_ID,
+               "GRANT decode zero key refused" );
+        memcpy( buf + 76, key, 16 );
+        memset( buf + 92, 0, 16 ); /* zero the evidence_ref */
+        CHECK( e1r8_decode_grant( buf, 108, &t, &g ) == E1R8_ERR_ID,
+               "GRANT decode zero reference refused" );
+    }
+
+    return 0;
+}
+
+/*
  * Golden output: one line per message type, "<type> <hex>".
  */
 static int golden_output( void )
 {
-    struct e1r8_tuple t;
+    struct e1r8_tuple t, t2;
     uint8_t buf[8192];
+    uint8_t emb[8192];
     uint16_t req_utf16[300], img_utf16[300];
     size_t req_len, img_len;
     uint8_t key[16], ev[16], chal[32];
     const uint8_t pw[] = { 0x70, 0xc3, 0xa4, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64 };
-    int err;
+    int err, i;
 
     fill_golden_tuple( &t );
+    t2 = t;
+    t2.attempt = 2;
     req_len = to_utf16le( "Caller", req_utf16 );
     img_len = to_utf16le( "x.exe", img_utf16 );
     fill_range( key, 16, 0xa0 );
@@ -983,6 +1522,103 @@ static int golden_output( void )
     if (e1r8_encode_secret_answer( buf, 156 + 9, &t, 0x3ff, pw, 9 )) return 1;
     printf( "secret " ); print_hex( buf, 156 + 9 );
 
+    /* Type 32: GRANT */
+    if (e1r8_encode_grant( buf, 108, &t, key, ev )) return 1;
+    printf( "32 " ); print_hex( buf, 108 );
+
+    /* Type 33: GRANTED */
+    if (e1r8_encode_granted( buf, 76, &t )) return 1;
+    printf( "33 " ); print_hex( buf, 76 );
+
+    /* Type 40: REQUEST (min, empty display strings) */
+    if (e1r8_encode_request( buf, 232, &t, 1, 1, NULL, 0, NULL, 0, NULL, 0 )) return 1;
+    printf( "40 " ); print_hex( buf, 232 );
+
+    /* Type 40: REQUEST (max, 520-byte display strings) */
+    {
+        uint8_t req[520], img[520], pub[520];
+        for (i = 0; i < 520; i += 2) { req[i] = 'a'; req[i+1] = 0; }
+        for (i = 0; i < 520; i += 2) { img[i] = 'b'; img[i+1] = 0; }
+        for (i = 0; i < 520; i += 2) { pub[i] = 'c'; pub[i+1] = 0; }
+        if (e1r8_encode_request( buf, 1792, &t, 2, 0,
+                                 req, 520, img, 520, pub, 520 )) return 1;
+        printf( "40 " ); print_hex( buf, 1792 );
+    }
+
+    /* Type 41: DECISION (deny) */
+    if (e1r8_encode_decision( buf, 84, &t, 2, 1 )) return 1;
+    printf( "41 " ); print_hex( buf, 84 );
+
+    /* Type 41: DECISION (prompt) */
+    if (e1r8_encode_decision( buf, 284, &t, 1, 0 )) return 1;
+    printf( "41 " ); print_hex( buf, 284 );
+
+    /* Type 42: ENDORSED_LOCAL */
+    if (e1r8_encode_endorsed_local( buf, 96, &t, t.dialog_id, 1 )) return 1;
+    printf( "42 " ); print_hex( buf, 96 );
+
+    /* Type 43: TO_D (min, embedded SELECT_OK) */
+    if (e1r8_encode_select_ok( emb, 76, &t )) return 1;
+    if (e1r8_encode_to_d( buf, 152, &t, emb, 76 )) return 1;
+    printf( "43 " ); print_hex( buf, 152 );
+
+    /* Type 43: TO_D (max, embedded INIT max) */
+    {
+        uint8_t vo[255], req[520], img[520], pub[520];
+        vo[0] = ':';
+        for (i = 1; i < 253; ++i) vo[i] = '1';
+        vo[253] = '.'; vo[254] = '1';
+        for (i = 0; i < 520; i += 2) { req[i] = 'a'; req[i+1] = 0; }
+        for (i = 0; i < 520; i += 2) { img[i] = 'b'; img[i+1] = 0; }
+        for (i = 0; i < 520; i += 2) { pub[i] = 'c'; pub[i+1] = 0; }
+        if (e1r8_encode_init( emb, 2067, &t, vo, 255, req, 520, img, 520, pub, 520 )) return 1;
+        if (e1r8_encode_to_d( buf, 2143, &t, emb, 2067 )) return 1;
+        printf( "43 " ); print_hex( buf, 2143 );
+    }
+
+    /* Type 44: FROM_D (min, embedded SELECT "a") */
+    if (e1r8_encode_select( emb, 81, &t, (const uint8_t *)"a", 1 )) return 1;
+    if (e1r8_encode_from_d( buf, 157, &t, emb, 81 )) return 1;
+    printf( "44 " ); print_hex( buf, 157 );
+
+    /* Type 44: FROM_D (max, embedded ANSWER) */
+    if (e1r8_encode_answer( emb, 264, &t, t.binding_digest, 2, 2, 0, 0x3ff )) return 1;
+    if (e1r8_encode_from_d( buf, 340, &t, emb, 264 )) return 1;
+    printf( "44 " ); print_hex( buf, 340 );
+
+    /* Type 45: RECHECK */
+    if (e1r8_encode_recheck( buf, 80, &t, 1 )) return 1;
+    printf( "45 " ); print_hex( buf, 80 );
+
+    /* Type 46: RECHECKED */
+    if (e1r8_encode_rechecked( buf, 84, &t, 1, 1 )) return 1;
+    printf( "46 " ); print_hex( buf, 84 );
+
+    /* Type 47: LAUNCH (min) */
+    if (e1r8_encode_launch( buf, 97, &t, (const uint8_t *)"a", 1, ev )) return 1;
+    printf( "47 " ); print_hex( buf, 97 );
+
+    /* Type 47: LAUNCH (max) */
+    if (e1r8_encode_launch( buf, 159, &t,
+                            (const uint8_t *)"a12345678901234567890123456789012345678901234567890123456789012", 63, ev )) return 1;
+    printf( "47 " ); print_hex( buf, 159 );
+
+    /* Type 48: LAUNCHED */
+    if (e1r8_encode_launched( buf, 84, &t, 1, 0 )) return 1;
+    printf( "48 " ); print_hex( buf, 84 );
+
+    /* Type 49: CANCEL_R9 */
+    if (e1r8_encode_cancel_r9( buf, 80, &t, 1 )) return 1;
+    printf( "49 " ); print_hex( buf, 80 );
+
+    /* Type 50: END */
+    if (e1r8_encode_end( buf, 80, &t, 1 )) return 1;
+    printf( "50 " ); print_hex( buf, 80 );
+
+    /* Type 51: NEXT_ATTEMPT (attempt 2) */
+    if (e1r8_encode_next_attempt( buf, 280, &t2 )) return 1;
+    printf( "51 " ); print_hex( buf, 280 );
+
     (void)err;
     return 0;
 }
@@ -1074,6 +1710,12 @@ int main( int argc, char **argv )
 
     printf( "10. Tuple learned from INIT and W_SETUP; huge string length...\n" );
     if (test_learn_and_huge_length()) return 1;
+
+    printf( "11. R9 round trips at min and max length...\n" );
+    if (test_r9_round_trips()) return 1;
+
+    printf( "12. R9 length, header, enum, string, embedded and id errors...\n" );
+    if (test_r9_errors()) return 1;
 
     if (g_failed == 0)
     {

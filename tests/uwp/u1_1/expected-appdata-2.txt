@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# The checks of view.exe application ViewAppdata, run 2 of 2 in one installation (Windows 11 build 26300, 2026-11-13).
+PASS clear_removes_local_files
+PASS clear_removes_local_settings
+PASS current_is_a_singleton
+PASS data_changed_can_be_signalled
+PASS file_created_in_local_folder_is_visible_to_win32
+PASS local_cache_folder_is_LocalCache_of_the_family
+PASS local_cache_folder_is_separate
+PASS local_folder_is_LocalState_of_the_family
+PASS local_folder_name
+PASS package_identity
+PASS roaming_folder_is_RoamingState_of_the_family
+PASS roaming_settings_are_separate
+PASS roaming_settings_locality_is_roaming
+PASS settings_bool
+PASS settings_composite
+PASS settings_container_exists
+PASS settings_double
+PASS settings_int
+PASS settings_locality_is_local
+PASS settings_missing_key_is_not_found
+PASS settings_persist_between_runs
+PASS settings_size_is_five
+PASS settings_string
+PASS shared_local_folder_not_available
+PASS temporary_folder_is_TempState_of_the_family
+PASS the_folders_exist

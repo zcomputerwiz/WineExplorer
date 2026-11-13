@@ -1,6 +1,6 @@
 # Group Policy and Linux GPO sync (design note)
 
-Surveyed on 2026-11-11. Status: design only, nothing implemented. The Linux facts below were checked online on the
+Surveyed on 2026-11-11. Status: step 1 (the session 0 policy writer) is implemented, the rest is design. The Linux facts below were checked online on the
 same day (sources at the end); anything marked "unverified" was not. Reviewed on 2026-11-11 against the tree and the
 elevation work (E1): the Wine and ReactOS statements were rechecked, the Samba statements were not; the machine
 registry, the policy trees and the security-template parts were corrected. Roadmap entry: "Future: Group Policy and
@@ -117,6 +117,187 @@ model: it filters `**delvals.` entries itself and never reads `entry.type`, so a
   write it. It needs a writer with the system group: a small helper started through `wex-sysrun` that writes through
   a server, or a write to the saved hive only while no server has the machine root loaded.
 
+## What the system tier changes (2026-11-12)
+
+This note was written before session 0 ([SYSTEM_TIER_DESIGN.md](SYSTEM_TIER_DESIGN.md),
+[SYSTEM_TIER_WORK_ORDERS.md](SYSTEM_TIER_WORK_ORDERS.md)). Where the two differ, this section holds.
+
+| Topic | Before | With session 0 |
+|---|---|---|
+| Who writes machine policy | a system-group helper through `wex-sysrun`, or the saved hive while no server has it loaded | a program of session 0: session 0 holds `HKLM` for every session and its programs run as LocalSystem (T5.3, T5.4). The Samba extension hands the values to a small session 0 writer; later that writer is a service there, as the Group Policy Client service is on Windows. Writing the saved hive directly is never safe now: session 0 always has it loaded |
+| When sessions see a change | at their next start | at once: every session reads `HKLM` from session 0 (T1) |
+| User policy (`HKCU`) | through `wexhost` in the user's session | the user's hive is held by session 0 while the user is logged on (T4a), so the same session 0 writer can write `\Registry\User\<SID>\Software\Policies`; a user who is not logged on gets it at logon |
+| Making user policy binding (open question below) | not possible: a user's programs write their own `HKCU` | possible: session 0 serves the user's hive and can refuse writes below the two policy trees to tokens that are not SYSTEM or administrators. It needs a path rule in session 0, because Wine gives a new key no inherited descriptor (the reason T3 is postponed) |
+| Refresh signalling | `wexhost` sets the refresh events | the events live in each session's server; session 0 tells the sessions over the session link (T6.2), with a new order "policy refreshed" |
+| The elevation settings | read by `wexelevate` in the session | with E1 R9 ([E1_S18E_R9_SPEC.md](E1_S18E_R9_SPEC.md)) the broker in session 0 reads `ConsentPromptBehaviorAdmin`, `ConsentPromptBehaviorUser`, `PromptOnSecureDesktop`, `EnableStandardUserElevation` and the lockout policy from session 0's registry at each request, so a policy write there applies to the next request of every session |
+
+**Order of work.** Nothing of Group Policy belongs inside R9: R9 moves the reader of the elevation policy to
+session 0, and Group Policy later adds a writer beside it, with no change to R9. After R9:
+
+1. the session 0 policy writer and the path rule for the user policy trees (system tier, no domain needed; also
+   gives local policy a place: `secpol.msc`, `net accounts`);
+2. join detection and the two stock-Wine changes ("First work order" below; needs the Samba AD controller in the
+   lab);
+3. the Samba extension, refresh signalling over the session link, the applied-GPO list.
+
+## Step 1: the session 0 policy writer (2026-11-13, implemented)
+
+**The writer, `wexpolicy`** (`src/programs/wexpolicy`). A console program of session 0, run as LocalSystem:
+
+```
+wexpolicy apply /machine FILE [FILE...]     HKEY_LOCAL_MACHINE
+wexpolicy apply /user:SID FILE [FILE...]    HKEY_USERS\SID, or kept for the user's next logon
+wexpolicy clear /machine | /user:SID        remove what the last apply wrote
+wexpolicy list  /machine | /user:SID        print what the last apply wrote
+```
+
+- It reads `Registry.pol` (PReg) itself, with a small parser of its own (`preg.h`). This differs from step 3 of
+  the design below ("through Samba, not our own parser"): fetching and choosing the GPOs stays Samba's work, but the
+  values are written by a program of session 0, which cannot run Samba's Python. The Samba extension only copies
+  the files and starts the writer. The same writer serves local policy, where there is no Samba at all.
+- The files are applied in the order given; a later file wins. PReg deletions and the `**del.`, `**delvals.`,
+  `**DeleteValues`, `**DeleteKeys` and `**soft.` markers are honoured; `**SecureKey` is ignored (the path rule
+  below protects the keys).
+- Only keys in the two policy trees are written (`Software\Policies`,
+  `Software\Microsoft\Windows\CurrentVersion\Policies`); other entries are counted and skipped.
+- Every file is read and checked completely before anything changes.
+- What an apply wrote is kept in `%SystemRoot%\system32\GroupPolicy\Archive\Machine.pol` or `User-<SID>.pol`, in
+  session 0's root. The next apply first removes exactly those values, so a value that left the policy leaves the
+  registry, and values that were never policy (the local security options under `...\Policies\System`) stay.
+- The caller must be LocalSystem; anyone else is refused before a file is read.
+
+**Making user policy binding.** Session 0 serves each logged-on user's hive. Three rules in its registry code, all
+effective only while elevation is enforced (without it every token is unrestricted):
+
+1. *Path rule.* A key at or below one of the two policy trees of a user's hive has the policy descriptor (the user
+   reads; SYSTEM and Administrators have full control) instead of the hive's default (the user has full control).
+   A path rule, because Wine gives a new key no inherited descriptor.
+2. *The two tree roots always exist.* Session 0 creates them when it loads a hive. A create below them then meets
+   a parent with the policy descriptor, and the roots cannot be deleted by the user, so the keys above them cannot
+   be deleted either (a key with subkeys is not deleted).
+3. *No rename around the trees.* The keys above the roots (`Software`, `Software\Microsoft`, `...\Windows`,
+   `...\CurrentVersion`) are not renamed by a token the policy descriptor refuses. Otherwise the user could move
+   them away, build a tree of their own and move it into place. Renaming another key to one of those names needs
+   no rule: the names are always taken.
+
+**The service, `gpsvc`.** The hive file is the user's own file, so the user can change the policy trees in it
+while logged off. Therefore:
+
+- Session 0 empties the two policy trees when it loads a user's hive (rule 2 then creates the roots again). A
+  key on the way to a tree that the file made a registry link is removed with all below it and made again as a
+  plain key; otherwise the readers of the policy would be led to a place the user writes.
+- `wexpolicy` started without arguments by the service manager is the service `gpsvc` ("Group Policy Client"), an
+  automatic service that only works as LocalSystem. It looks at `HKEY_USERS` every two seconds, and at once on a
+  change notification. An account's hive without the marker key gets the values of its archive
+  (`User-<SID>.pol`, which holds the values with their data) and the marker.
+- The marker is the volatile key `Software\Policies\WineExplorer\Policy Applied`. It is in the policy tree, so the
+  user cannot make it, and it goes away with the hive.
+- `wexpolicy apply /user:SID` for a user who is not logged on changes the archive only; the service writes it at
+  the next logon.
+
+Between the hive's arrival and the service's write (up to two seconds) the user's programs see no user policy.
+Windows has the same kind of window when policy is applied asynchronously at logon.
+
+Machine policy needs none of this: `HKLM` is session 0's own and is saved in its root.
+
+**Status (2026-11-13).** Implemented and passing in `scripts/test_sysrun_server.sh` (normal suite 345, lab suite
+419): a user's policy applied while logged off appears at logon for a 32-bit program, and the user can change it
+neither in the registry nor in the hive file; machine policy, `clear`, `list`; the writer refused to a standard
+user. Reviewed by Qwen (read-only), which found the link case above independently. Not tested: the link case
+itself, the rename rule, the service on an installed machine. Next: join detection (step 2).
+
+## Step 2: the domain join, told to Windows programs (2026-11-13)
+
+This differs from design steps 1 and 2 below (detection in `wexhost`, published over D-Bus): with session 0 the
+machine registry is one place that every session reads at once, so the join state is two registry values and no
+program asks a host service at each call.
+
+- `installer/scripts/wex-domain-state.sh` runs after session 0's Windows has started (an `ExecStartPost` of
+  `wex-session0-services.service`), as session 0's account. It detects the join without network or root rights:
+  `realm list` (realmd; SSSD or Winbind), else Samba's `security = ads` with a realm and a machine keytab. It
+  writes `HKLM\Software\WineExplorer\Domain` (`FlatName`, `Name`), or removes the key on a host that is not joined.
+  The flat name is Samba's `workgroup` when configured, else the first label of the DNS name.
+- `NetGetJoinInformation` (`wkscli`) returns `NetSetupDomainName` and the flat name; `DsRoleGetPrimaryDomainInformation`
+  (`dsrole`) returns a member workstation with the flat, DNS and forest names. Without the key both behave as
+  stock Wine. Listed in [STOCK_CHANGES.md](STOCK_CHANGES.md).
+- The state is read at session 0's start; a join or leave shows after `systemctl restart wex-session0-services`
+  or a reboot.
+
+Tested: the two functions from 64-bit and 32-bit programs of a standard user, with and without the key
+(`scripts/test_sysrun_server.sh`); the detection script against a real join made with `net ads join` in the
+lab domain (below): nothing before the join, `WEXLAB ad.wexlab.example` after it. Not tested: a join made with
+`realm join` (SSSD), the script's write into session 0 on an installed machine, and the forest name of a child
+domain (the DNS name is given).
+
+**The lab domain** (`installer/tests/ad/`, in the Debian WSL distribution, `/var/tmp/wex-ad-lab`):
+`dc-create.sh` makes and starts a Samba AD controller for `AD.WEXLAB.EXAMPLE` (flat name `WEXLAB`) from a Debian
+12 cloud image; `client-create.sh` makes a member guest, joins it and checks the detection. The guests share a
+QEMU multicast socket network, 10.71.0.0/24, controller 10.71.0.10; the scripts' headers have the details. One
+trap, handled in `dc-provision.sh`: Samba must serve the lab card only, or it registers QEMU's user-mode address
+(the same in every guest) for the controller's name and a member that looks the controller up reaches itself.
+
+## Step 3: refresh signalling (2026-11-13, implemented)
+
+Tested in `scripts/test_sysrun_server.sh`: a 32-bit program of a standard user registers for the machine and for
+the user notification and is signalled when session 0 applies policy. Ported by Qwen, reviewed and extended by
+Claude. Not tested: `RefreshPolicy` (nothing listens to its events yet: there is no periodic refresh), the
+critical sections, the foreground waits (their events are never created here, so the waits return FALSE).
+
+`userenv` gets the ReactOS implementation of `RegisterGPNotification`, `UnregisterGPNotification`,
+`RefreshPolicy`, `RefreshPolicyEx`, the critical policy sections and the two foreground waits (`gpolicy.c`).
+
+The named events it uses live in each session's own server, so session 0 cannot set them. This differs from the
+table above ("a new order over the session link"): instead the writer leaves a serial number in the registry after
+every apply, clear and logon restore, and `userenv`'s notification thread watches it with a registry change
+notification, which already reaches every session through session 0. No server change is needed.
+
+- Machine: `HKLM\Software\Microsoft\Windows\CurrentVersion\Group Policy\WineExplorer Applied`, value `Serial`.
+- User: the marker key `HKCU\Software\Policies\WineExplorer\Policy Applied`, value `Serial` (inside the protected
+  tree, so the user cannot fake a refresh).
+
+## End to end on an installed machine (2026-11-13)
+
+`installer/tests/ad/machine.sh SOURCE_VM` boots an overlay of an installed session 0 disk on the lab network; the
+guest installs Samba, joins the lab domain, and checks. Passed on an ISO of 159d820e (10 checks): not joined
+before; joined; after a restart of session 0's services a user's program reads the domain's two names; after
+`wex-gpupdate.service` it reads the test object's value from `HKLM\Software\Policies\WexLab`; the timer is
+enabled; the policy service runs once in session 0; no unit failed.
+
+One finding, reported by the test as a note: the installed user could overwrite that machine policy value, and
+the next refresh put it back. An installed system does not enforce elevation by default, so every user's token
+is unrestricted and session 0 takes the write. Until installed systems enforce elevation, domain policy is
+applied and re-applied, but not binding between refreshes. This is a decision about the elevation default, not
+about Group Policy.
+
+On an image with enforced elevation (`WEX_ELEVATION=1`; [SYSTEM_TIER_WORK_ORDERS.md](SYSTEM_TIER_WORK_ORDERS.md),
+"Enforced elevation on an installed machine") the same test passes and its note reads "refused": the installed
+administrator's own programs are limited there, and session 0 refuses the write. Policy is binding with
+enforcement, with no change to Group Policy.
+
+Not covered: user policy from the domain (the accounts map has local users only; logging on to WineExplorer as a
+domain user does not exist yet), the lockout policy from the security template, SSSD joins.
+
+## Step 4: domain policy, from Samba to the writer (2026-11-13)
+
+`installer/scripts/wex-gpupdate.sh`, run as root by `wex-gpupdate.timer` (at start, then every 90 minutes plus
+up to 30 at random) on a machine joined with Samba:
+
+1. `samba-gpupdate --force` refreshes Samba's cache of the domain's policy objects.
+2. `net ads gpo list` names the objects that apply to the computer, and to each user of the accounts map whom
+   Winbind knows as a domain user, in Samba's order.
+3. The objects' `Registry.pol` files go to `wexpolicy apply /machine` and `wexpolicy apply /user:SID` in session
+   0; a target without any file gets `wexpolicy clear`.
+
+This differs from design step 3 below (an extension inside `samba-gpupdate`): a shell script on Samba's command
+line tools has no licence question (an extension is a Python file under Samba's GPL-3.0-or-later) and needs no
+registration in Samba. The price: it depends on the text `net ads gpo list` prints, and it reads the security
+template (`GptTmpl.inf`, the lockout policy) not at all yet.
+
+Tested in the lab domain: steps 1 and 2 on the joined member (`--print`: the machine file of the test object for
+the computer, the user file for a domain user, nothing for a local account); step 3 for the computer and the
+timer on an installed machine ("End to end" above). Not tested: step 3 for a user; the order of several objects (applied in
+the order Samba lists them, later wins; unverified against Windows); SSSD joins (the script needs Winbind).
+
 ## Design
 
 1. **Join detection (`wexhost`).** Detect the join from `net ads info` or SSSD/realmd state and publish domain name,
@@ -160,7 +341,13 @@ model: it filters `**delvals.` entries itself and never reads `entry.type`, so a
   project's rule is that GPL-3.0 code makes the module containing it GPL-3.0, so keep the CSE a separate file and make
   that licence decision explicitly.
 - Test setup: a Samba AD domain controller in the QEMU lab (see [TOOLING.md](TOOLING.md)) with one GPO that sets a
-  registry value, a 32-bit program reading it, and a join/unjoin round trip.
+  registry value, a 32-bit program reading it, and a join/unjoin round trip. Any distribution with current Samba
+  packages serves as the controller; a Debian guest fits the lab's tooling. Needed: a network the controller and
+  the WineExplorer guest share (a QEMU socket or bridge network; user-mode networking with forwarded ports is not
+  enough), the client's DNS pointing at the controller, clocks within Kerberos' 5 minutes, and a realm name that
+  is not under `.local`. Test policies are made on the controller with `samba-tool gpo`; whether it writes the
+  security template (`GptTmpl.inf`) is unverified, else the file is put into SYSVOL by hand. A Windows Server
+  controller (lab only) is the later check against policies authored with Windows' own tools.
 
 ## First work order
 

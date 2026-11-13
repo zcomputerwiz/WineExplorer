@@ -29,10 +29,22 @@
  *   probe setdacl KEY SDDL        sets the key's DACL from an SDDL string; prints setdacl=<error code>
  *   probe getdacl KEY             prints dacl=<the key's DACL as SDDL>
  *   probe whoami                  prints user=<the token user's SID> and session=<the process's session id>
+ *   probe join                    prints join=<NetGetJoinInformation's type> name=<name> and role=<the machine role
+ *                                 of DsRoleGetPrimaryDomainInformation> flat=<name> dns=<name>
+ *   probe gpnotify machine|user MS  registers for the policy notification (RegisterGPNotification), prints
+ *                                 gp=ready, waits up to MS ms and prints gp=signalled or gp=timeout
  *   probe rpcbind PIPE            opens \\.\pipe\PIPE in message mode, sends a DCE/RPC bind for the service control
  *                                 manager's interface and prints pipe=open (or pipe=error<n>) and bind=<the answer's
  *                                 packet type: 12 bind_ack, 13 bind_nak>
  *   probe pipecreate PIPE         tries to create \\.\pipe\PIPE; prints create=ok or create=error<n>
+ *   probe enumsvc NAME            lists the Win32 services (EnumServicesStatusExW); prints count=<entries named NAME>
+ *                                 and total=<entries>
+ *   probe svcstate NAME           opens the service for status only; prints state=<dwCurrentState> or state=error<n>
+ *   probe svcstop NAME            opens the service for SERVICE_STOP and stops it; prints stop=0 or stop=error<n>
+ *   probe pipeserve PIPE          serves \\.\pipe\PIPE for one client (message mode, 30 s at most); prints
+ *                                 clientsession=<GetNamedPipeClientSessionId> and message=<what the client wrote>
+ *   probe pipesay PIPE TEXT       opens \\.\pipe\PIPE and writes TEXT; prints say=ok or say=error<n>
+ *   probe pipehold PIPE SECONDS   opens \\.\pipe\PIPE for read/write, holds for SECONDS; prints hold=ok or hold=error<n>
  * Build: x86_64-w64-mingw32-gcc / i686-w64-mingw32-gcc -municode -o probe.exe system-tier-probe.c -ladvapi32 -lntdll */
 
 #include <windows.h>
@@ -76,6 +88,48 @@ int __cdecl wmain( int argc, WCHAR **argv )
         if (ProcessIdToSessionId( GetCurrentProcessId(), &size )) printf( "session=%lu\n", size );
         return 0;
     }
+    if (argc == 2 && !lstrcmpW( argv[1], L"join" ))
+    {
+        /* DSROLE_PRIMARY_DOMAIN_INFO_BASIC, written out: the probe builds without the header */
+        struct basic { int role; ULONG flags; WCHAR *flat, *dns, *forest; GUID guid; } *basic = NULL;
+        DWORD (WINAPI *get_join)( const WCHAR *, WCHAR **, int * );
+        DWORD (WINAPI *get_role)( const WCHAR *, int, BYTE ** );
+        HMODULE netapi = LoadLibraryW( L"netapi32.dll" ), dsrole = LoadLibraryW( L"dsrole.dll" );
+        WCHAR *name = NULL;
+        int type = -1;
+        DWORD err;
+
+        get_join = netapi ? (void *)GetProcAddress( netapi, "NetGetJoinInformation" ) : NULL;
+        get_role = dsrole ? (void *)GetProcAddress( dsrole, "DsRoleGetPrimaryDomainInformation" ) : NULL;
+        if (!get_join || !get_role) { printf( "join=noentry\n" ); return 1; }
+        err = get_join( NULL, &name, &type );
+        printf( "join=%d name=%ls error=%lu\n", type, name ? name : L"", err );
+        err = get_role( NULL, 1, (BYTE **)&basic );
+        if (err || !basic) printf( "role=error%lu\n", err );
+        else printf( "role=%d flat=%ls dns=%ls\n", basic->role, basic->flat ? basic->flat : L"",
+                     basic->dns ? basic->dns : L"" );
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"gpnotify" ))
+    {
+        BOOL (WINAPI *reg_notify)( HANDLE, BOOL );
+        HMODULE userenv = LoadLibraryW( L"userenv.dll" );
+        HANDLE event = CreateEventW( NULL, FALSE, FALSE, NULL );
+        DWORD wait;
+
+        reg_notify = userenv ? (void *)GetProcAddress( userenv, "RegisterGPNotification" ) : NULL;
+        if (!reg_notify || !reg_notify( event, !lstrcmpW( argv[2], L"machine" ) ))
+        {
+            printf( "gp=error%lu\n", GetLastError() );
+            return 1;
+        }
+        Sleep( 1000 );  /* the notification thread has its watches by now */
+        printf( "gp=ready\n" );
+        fflush( stdout );
+        wait = WaitForSingleObject( event, wcstoul( argv[3], NULL, 10 ) );
+        printf( wait == WAIT_OBJECT_0 ? "gp=signalled\n" : "gp=timeout\n" );
+        return 0;
+    }
     if (argc == 3 && !lstrcmpW( argv[1], L"rpcbind" ))
     {
         static const GUID svcctl = { 0x367abb81, 0x9844, 0x35f1, { 0xad, 0x32, 0x98, 0xf0, 0x38, 0x00, 0x10, 0x03 } };
@@ -107,6 +161,136 @@ int __cdecl wmain( int argc, WCHAR **argv )
             printf( "bind=readerror%lu\n", GetLastError() );
         else
             printf( "bind=%u size=%lu\n", answer[2], done );
+        CloseHandle( pipe );
+        return 0;
+    }
+    if (argc == 3 && !lstrcmpW( argv[1], L"enumsvc" ))
+    {
+        SC_HANDLE manager = OpenSCManagerW( NULL, NULL, SC_MANAGER_ENUMERATE_SERVICE );
+        ENUM_SERVICE_STATUS_PROCESSW *services;
+        DWORD needed = 0, count = 0, i, named = 0;
+        BYTE *buffer;
+
+        if (!manager)
+        {
+            printf( "enum=error%lu\n", GetLastError() );
+            return 1;
+        }
+        EnumServicesStatusExW( manager, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_STATE_ALL, NULL, 0, &needed,
+                               &count, NULL, NULL );
+        buffer = HeapAlloc( GetProcessHeap(), 0, needed + 1 );
+        if (!EnumServicesStatusExW( manager, SC_ENUM_PROCESS_INFO, SERVICE_WIN32, SERVICE_STATE_ALL, buffer,
+                                    needed + 1, &needed, &count, NULL, NULL ))
+        {
+            printf( "enum=error%lu\n", GetLastError() );
+            return 1;
+        }
+        services = (ENUM_SERVICE_STATUS_PROCESSW *)buffer;
+        for (i = 0; i < count; i++) if (!lstrcmpiW( services[i].lpServiceName, argv[2] )) named++;
+        printf( "count=%lu\ntotal=%lu\n", named, count );
+        CloseServiceHandle( manager );
+        return 0;
+    }
+    if (argc == 3 && (!lstrcmpW( argv[1], L"svcstate" ) || !lstrcmpW( argv[1], L"svcstop" )))
+    {
+        BOOL stop = !lstrcmpW( argv[1], L"svcstop" );
+        SC_HANDLE manager = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT ), service;
+        SERVICE_STATUS status;
+
+        if (!manager || !(service = OpenServiceW( manager, argv[2], stop ? SERVICE_STOP : SERVICE_QUERY_STATUS )))
+        {
+            printf( "%s=error%lu\n", stop ? "stop" : "state", GetLastError() );
+            return 1;
+        }
+        if (stop)
+        {
+            if (ControlService( service, SERVICE_CONTROL_STOP, &status )) printf( "stop=0\n" );
+            else printf( "stop=error%lu\n", GetLastError() );
+        }
+        else if (QueryServiceStatus( service, &status )) printf( "state=%lu\n", status.dwCurrentState );
+        else printf( "state=error%lu\n", GetLastError() );
+        CloseServiceHandle( service );
+        CloseServiceHandle( manager );
+        return 0;
+    }
+    if (argc == 3 && !lstrcmpW( argv[1], L"pipeserve" ))
+    {
+        WCHAR path[MAX_PATH];
+        char text[256];
+        OVERLAPPED ov = { 0 };
+        ULONG session = ~0u;
+        DWORD done = 0;
+        HANDLE pipe;
+
+        lstrcpyW( path, L"\\\\.\\pipe\\" );
+        lstrcpynW( path + 9, argv[2], MAX_PATH - 9 );
+        pipe = CreateNamedPipeW( path, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                                 PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE, 1, 4096, 4096, 0, NULL );
+        if (pipe == INVALID_HANDLE_VALUE)
+        {
+            printf( "serve=error%lu\n", GetLastError() );
+            return 1;
+        }
+        printf( "listening\n" );
+        fflush( stdout );
+        ov.hEvent = CreateEventW( NULL, TRUE, FALSE, NULL );
+        if (!ConnectNamedPipe( pipe, &ov ) && GetLastError() == ERROR_IO_PENDING &&
+            WaitForSingleObject( ov.hEvent, 30000 ))
+        {
+            printf( "serve=timeout\n" );
+            return 1;
+        }
+        if (!GetNamedPipeClientSessionId( pipe, &session )) printf( "clientsession=error%lu\n", GetLastError() );
+        else printf( "clientsession=%lu\n", session );
+        ResetEvent( ov.hEvent );
+        if (!ReadFile( pipe, text, sizeof(text) - 1, NULL, &ov ) && GetLastError() == ERROR_IO_PENDING)
+            WaitForSingleObject( ov.hEvent, 10000 );
+        GetOverlappedResult( pipe, &ov, &done, FALSE );
+        text[done < sizeof(text) ? done : sizeof(text) - 1] = 0;
+        printf( "message=%s\n", text );
+        CloseHandle( pipe );
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"pipehold" ))
+    {
+        WCHAR path[MAX_PATH];
+        HANDLE pipe;
+        int seconds = _wtoi( argv[3] );
+
+        lstrcpyW( path, L"\\\\.\\pipe\\" );
+        lstrcpynW( path + 9, argv[2], MAX_PATH - 9 );
+        pipe = CreateFileW( path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
+        if (pipe == INVALID_HANDLE_VALUE)
+        {
+            printf( "hold=error%lu\n", GetLastError() );
+            return 1;
+        }
+        printf( "hold=ok\n" );
+        fflush( stdout );
+        if (seconds > 0) Sleep( seconds * 1000 );
+        CloseHandle( pipe );
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"pipesay" ))
+    {
+        WCHAR path[MAX_PATH];
+        char text[256];
+        DWORD mode = PIPE_READMODE_MESSAGE, done;
+        HANDLE pipe;
+        int len = WideCharToMultiByte( CP_UTF8, 0, argv[3], -1, text, sizeof(text), NULL, NULL );
+
+        lstrcpyW( path, L"\\\\.\\pipe\\" );
+        lstrcpynW( path + 9, argv[2], MAX_PATH - 9 );
+        pipe = CreateFileW( path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
+        if (pipe == INVALID_HANDLE_VALUE)
+        {
+            printf( "say=error%lu\n", GetLastError() );
+            return 1;
+        }
+        SetNamedPipeHandleState( pipe, &mode, NULL, NULL );
+        if (len > 1 && WriteFile( pipe, text, len - 1, &done, NULL )) printf( "say=ok\n" );
+        else printf( "say=error%lu\n", GetLastError() );
+        Sleep( 500 );
         CloseHandle( pipe );
         return 0;
     }
