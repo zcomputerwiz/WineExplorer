@@ -19,8 +19,6 @@ PASS window_invisible_before_activate
 PASS dispatcher_no_access_from_other_thread
 PASS no_window_on_other_thread
 PASS process_events_refused_on_other_thread
-PASS window_stays_invisible_after_activate
-PASS activate_raises_no_window_events
 PASS close_is_refused
 PASS window_not_closed_by_close
 PASS dispatch_priority_order

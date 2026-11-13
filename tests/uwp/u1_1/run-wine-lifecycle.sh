@@ -72,6 +72,40 @@ for arch in x64 x86; do
         fi
         grep -E '^(INFO|TRACE)' "$out/$mode.txt" | tr -d '\r' | sed "s/^/$arch $mode /" >> "$results/observations.txt" || true
     done
+    # presentation and input: the probe presents frames to its CoreWindow and records what arrives while inject.exe
+    # moves the mouse, clicks, turns the wheel and types (needs the display: PRESENT=1, run under xvfb-run)
+    if [ -n "${PRESENT:-}" ]; then
+        mode=present; file="$appdata/view-$mode.txt"; rm -f "$file"
+        gcc=x86_64-w64-mingw32-gcc; [ "$arch" = x86 ] && gcc=i686-w64-mingw32-gcc
+        "$gcc" -O2 -Wall -o "$out/inject.exe" "$u11/inject.c"
+        wine_run "$out/inject.log" "$out/inject.exe" &
+        injector=$!
+        status=0
+        wine_run "$out/$mode.log" "$u10/$arch/launcher.exe" "$family!ViewPresent" "$mode" unused "$full" || status=$?
+        for i in $(seq 1 90); do
+            grep -q -E 'Closed|WATCHDOG' "$file" 2>/dev/null && break
+            sleep 1
+        done
+        wait "$injector" || true
+        if [ ! -f "$file" ]; then note "$arch FAIL $mode (no output, launcher exit $status)"; overall=1
+        else
+            cp "$file" "$out/$mode.txt"
+            checks "$out/$mode.txt" > "$out/$mode-checks.txt" || true
+            expected "$u11/expected-$mode.txt" > "$out/expected-$mode.txt"
+            # a Wine without OpenGL or Vulkan has no 3D device: the swap chain and pixel check are then skipped
+            if ! grep -q 'HRESULT D3D11CreateDevice 0x00000000' "$out/$mode.txt"; then
+                grep -v back_buffer_holds_the_cleared_colour "$out/expected-$mode.txt" > "$out/expected.tmp"
+                mv "$out/expected.tmp" "$out/expected-$mode.txt"
+                note "$arch note: no 3D device, the swap chain is not tested"
+            fi
+            if diff -u "$out/expected-$mode.txt" "$out/$mode-checks.txt" > "$out/$mode.diff"; then
+                note "$arch PASS $mode (all $(wc -l < "$out/expected-$mode.txt") checks)"
+            else
+                note "$arch FAIL $mode"; head -30 "$out/$mode.diff" >> "$results/summary.txt"; overall=1
+            fi
+            grep -E '^(INFO|TRACE|HRESULT)' "$out/$mode.txt" | tr -d '\r' | sed "s/^/$arch $mode /" >> "$results/observations.txt" || true
+        fi
+    fi
     python3 "$register" unregister "$WINEPREFIX" "$full"
 
     killed=0; waited=0

@@ -39,6 +39,7 @@
 #include <windows.h>
 #include <appmodel.h>
 #include <cstdarg>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
@@ -141,27 +142,73 @@ static void pump(CoreDispatcher const &dispatcher, DWORD milliseconds)
     } while (GetTickCount() - start < milliseconds);
 }
 
+/* the index of the first recorded event that starts with prefix, at or after start; -1 when none */
+static int find_event(std::string const &prefix, int start = 0)
+{
+    for (size_t i = start < 0 ? 0 : start; i < events.size(); ++i)
+        if (events[i].compare(0, prefix.size(), prefix) == 0) return (int)i;
+    return -1;
+}
+
+/* a key press as Windows 11 raised it (tests/uwp/u1_1/README.md): KeyDown, then for a character key
+ * CharacterReceived, then KeyUp; the checks are on the recorded events, so they hold for a run that was typed by hand
+ * and for one with injected input */
+static void check_key(char const *name, int vk, int scan, int extended, int character)
+{
+    char down[96], up[96], chr[48];
+    std::snprintf(down, sizeof(down), "KeyDown vk=%d scan=%d extended=%d repeat=1 down=0 released=0", vk, scan, extended);
+    std::snprintf(up, sizeof(up), "KeyUp vk=%d scan=%d extended=%d repeat=1 down=1 released=1", vk, scan, extended);
+    std::snprintf(chr, sizeof(chr), "CharacterReceived code=%d", character);
+    std::lock_guard<std::mutex> guard(lock);
+    int d = find_event(down), c = character ? find_event(chr, d) : -1, u = find_event(up, d);
+    bool ok = d >= 0 && u > d && (character ? (c > d && c < u) : true);
+    if (!character && d >= 0 && u > d)
+        for (size_t i = d; i < (size_t)u; ++i)
+            if (events[i].compare(0, 17, "CharacterReceived") == 0) ok = false;   /* no character for a function key */
+    check(name, ok);
+}
+
+static void present_checks()
+{
+    {
+        std::lock_guard<std::mutex> guard(lock);
+        int visible = find_event("Visible=1"), activated = find_event("WindowActivated"), input = find_event("InputEnabled=1");
+        check("activate_raises_visible_activated_inputenabled_in_order",
+              visible >= 0 && activated > visible && input > activated);
+        check("no_size_changed_without_resizing", find_event("SizeChanged") < 0);
+        int entered = find_event("PointerEntered");
+        check("pointer_entered_before_first_move", entered >= 0 && entered < find_event("PointerMoved"));
+        int pressed = find_event("PointerPressed id=1");
+        int left = -1;
+        for (size_t i = 0; i < events.size(); ++i)
+            if (events[i].compare(0, 14, "PointerPressed") == 0 && events[i].find("left=1") != std::string::npos) { left = (int)i; break; }
+        int released = left < 0 ? -1 : find_event("PointerReleased", left);
+        check("left_button_press_and_release", left >= 0 && released > left && events[released].find("left=0") != std::string::npos);
+        check("pointer_is_a_mouse_with_id_1", pressed >= 0 && events[pressed].find("device=2") != std::string::npos);
+        bool right = false;
+        for (auto const &e : events)
+            if (e.compare(0, 14, "PointerPressed") == 0 && e.find("left=0") != std::string::npos) right = true;
+        check("right_button_press", right);
+        bool wheel = false;
+        for (auto const &e : events)
+            if (e.compare(0, 19, "PointerWheelChanged") == 0 && (e.find("wheel=120") != std::string::npos || e.find("wheel=-120") != std::string::npos)) wheel = true;
+        check("wheel_notch_is_120", wheel);
+    }
+    check_key("key_a", 65, 30, 0, 97);
+    check_key("key_shift_b", 66, 48, 0, 66);
+    check_key("key_enter", 13, 28, 0, 13);
+    check_key("key_left_is_extended_without_character", 37, 75, 1, 0);
+    check_key("key_f5_without_character", 116, 63, 0, 0);
+}
+
 /* present mode: a swap chain for the CoreWindow, a few presented frames, then the window events and the input a
  * runner on the host injects (run-present.ps1 waits for the READY line) are recorded; nothing here is asserted yet,
  * the output is the measurement */
-static void run_present(CoreWindow const &window)
+/* the 3D part of the present mode: a swap chain for the CoreWindow, five presented frames, a pixel read back */
+static void present_frames(CoreWindow const &window, CoreDispatcher const &dispatcher, com_ptr<ID3D11Device> const &device,
+                           com_ptr<ID3D11DeviceContext> const &context)
 {
-    CoreDispatcher dispatcher = window.Dispatcher();
-    auto bounds = window.Bounds();
-    info("before: visible=%d bounds=%.0fx%.0f at %.0f,%.0f", (int)window.Visible(), bounds.Width, bounds.Height,
-         bounds.X, bounds.Y);
-    window.Activate();
-    pump(dispatcher, 500);
-    info("after Activate and 500 ms: visible=%d", (int)window.Visible());
-
-    com_ptr<ID3D11Device> device;
-    com_ptr<ID3D11DeviceContext> context;
-    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                                   nullptr, 0, D3D11_SDK_VERSION, device.put(), nullptr, context.put());
-    if (FAILED(hr)) hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                                           nullptr, 0, D3D11_SDK_VERSION, device.put(), nullptr, context.put());
-    put("HRESULT D3D11CreateDevice " + hex(hr));
-    if (FAILED(hr)) return;
+    HRESULT hr;
     auto dxgi = device.as<IDXGIDevice>();
     com_ptr<IDXGIAdapter> adapter;
     com_ptr<IDXGIFactory2> factory;
@@ -185,6 +232,7 @@ static void run_present(CoreWindow const &window)
     info("swap chain: %ux%u format %u buffers %u", got.Width, got.Height, (unsigned)got.Format, got.BufferCount);
     info("after create: visible=%d", (int)window.Visible());
 
+    bool pixels_ok = true;
     for (int frame = 0; frame < 5; ++frame)
     {
         com_ptr<ID3D11Texture2D> back;
@@ -193,12 +241,55 @@ static void run_present(CoreWindow const &window)
         check_hresult(device->CreateRenderTargetView(back.get(), nullptr, view.put()));
         float color[4] = { 0.1f * frame, 0.3f, 0.6f, 1.f };
         context->ClearRenderTargetView(view.get(), color);
+
+        /* screenshots do not capture a composed swap chain: read a pixel back before presenting */
+        D3D11_TEXTURE2D_DESC td;
+        back->GetDesc(&td);
+        td.Usage = D3D11_USAGE_STAGING; td.BindFlags = 0; td.CPUAccessFlags = D3D11_CPU_ACCESS_READ; td.MiscFlags = 0;
+        com_ptr<ID3D11Texture2D> staging;
+        if (SUCCEEDED(device->CreateTexture2D(&td, nullptr, staging.put())))
+        {
+            context->CopyResource(staging.get(), back.get());
+            D3D11_MAPPED_SUBRESOURCE map;
+            if (SUCCEEDED(context->Map(staging.get(), 0, D3D11_MAP_READ, 0, &map)))
+            {
+                auto pixel = static_cast<unsigned char const *>(map.pData);   /* B G R A */
+                int want_r = (int)(color[0] * 255.f + 0.5f);
+                if (std::abs(pixel[0] - 153) > 2 || std::abs(pixel[1] - 77) > 2 || std::abs(pixel[2] - want_r) > 2) pixels_ok = false;
+                if (frame == 4) info("pixel after the last clear: B=%d G=%d R=%d A=%d", pixel[0], pixel[1], pixel[2], pixel[3]);
+                context->Unmap(staging.get(), 0);
+            }
+            else pixels_ok = false;
+        }
+        else pixels_ok = false;
         hr = chain->Present(1, 0);
         char text[64];
         std::snprintf(text, sizeof(text), "Present %d %s", frame, hex(hr).c_str());
         record(text);
         pump(dispatcher, 100);
     }
+    check("back_buffer_holds_the_cleared_colour", pixels_ok);
+}
+
+static void run_present(CoreWindow const &window)
+{
+    CoreDispatcher dispatcher = window.Dispatcher();
+    auto bounds = window.Bounds();
+    info("before: visible=%d bounds=%.0fx%.0f at %.0f,%.0f", (int)window.Visible(), bounds.Width, bounds.Height,
+         bounds.X, bounds.Y);
+    window.Activate();
+    pump(dispatcher, 500);
+    info("after Activate and 500 ms: visible=%d", (int)window.Visible());
+
+    com_ptr<ID3D11Device> device;
+    com_ptr<ID3D11DeviceContext> context;
+    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                   nullptr, 0, D3D11_SDK_VERSION, device.put(), nullptr, context.put());
+    if (FAILED(hr)) hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                           nullptr, 0, D3D11_SDK_VERSION, device.put(), nullptr, context.put());
+    put("HRESULT D3D11CreateDevice " + hex(hr));
+    if (SUCCEEDED(hr)) present_frames(window, dispatcher, device, context);
+    else info("no 3D device: the swap chain and the pixel check are skipped");
     info("after presenting: visible=%d", (int)window.Visible());
     pump(dispatcher, 3000);   /* the window is still opening on screen */
     auto now = window.Bounds();
@@ -209,6 +300,7 @@ static void run_present(CoreWindow const &window)
     /* input injected by the host, or typed and clicked by hand (run-present.ps1 -Manual), arrives here */
     pump(dispatcher, 30000);
     info("end: visible=%d", (int)window.Visible());
+    present_checks();
     CoreApplication::Exit();
     dispatcher.ProcessEvents(CoreProcessEventsOption::ProcessUntilQuit);
 }
@@ -236,14 +328,16 @@ static void run_checks(CoreWindow const &window)
     check("no_window_on_other_thread", other_window_is_null);
     check("process_events_refused_on_other_thread", (uint32_t)other_hr == 0x8001010E);
 
-    /* Activate: without a presented frame the window stays invisible and raises nothing */
+    /* Activate: on an unlocked desktop it shows the window (Visible=1, WindowActivated, InputEnabled, no
+     * SizeChanged); with the desktop locked the window stays invisible and nothing is raised. What happens
+     * depends on the desktop, so it is observed here and asserted in the present mode only. */
     window.Activate();
     pump(dispatcher, 1000);
-    check("window_stays_invisible_after_activate", !window.Visible());
+    info("after Activate and 1 s: visible=%d", (int)window.Visible());
     {
         std::lock_guard<std::mutex> guard(lock);
-        check("activate_raises_no_window_events", count(events, "Visible=1") == 0 && count(events, "WindowActivated") == 0 &&
-              count(events, "SizeChanged") == 0);
+        info("window events after Activate: Visible=1 x%d, WindowActivated x%d, SizeChanged x%d", count(events, "Visible=1"),
+             count(events, "WindowActivated"), count(events, "SizeChanged"));
     }
 
     /* the application cannot close the window of its view */

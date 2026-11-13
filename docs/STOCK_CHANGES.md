@@ -3158,3 +3158,13 @@ Later on 2026-11-12 (U1.1, measured on Windows 11): the lifecycle was aligned wi
 `WineUIExitCoreWindow`); `dlls/twinapi.appcore` (`core_application.c`: the view on its own thread, `Exit`;
 `core_view.c`: inline launch activation, `SplashScreen`). Behaviour: see the design note. The same unchanged MSVC-built
 UWP probe passes on Windows 11 (x64, x86) and on Wine (x64, x86).
+
+Later on 2026-11-13 (U1.1b, presentation and input, measured on Windows 11): `dlls/windows.ui/window.c` creates the
+native window behind a CoreWindow (class `Windows.UI.Core.CoreWindow`, created on the view thread by `Activate` or by
+`ICoreWindowInterop::WindowHandle`) and raises Visible/Activated/InputEnabled, activation changes, `SizeChanged`, key,
+character and pointer events from its messages; new `dlls/windows.ui/pointer.c` (PointerEventArgs, PointerPoint,
+PointerPointProperties, PointerDevice for a mouse); new `include/windows.ui.core.corewindow.interop.idl`
+(`ICoreWindowInterop`) with its entry in `include/Makefile.in`; `dlls/dxgi/factory.c`
+(`CreateSwapChainForCoreWindow` gets the window handle through `ICoreWindowInterop` and creates the swap chain for it,
+it was `E_NOTIMPL`). Tests: `tests/uwp/u1_1` (`ViewPresent`, `inject.c`, `expected-present.txt`), run under Xvfb;
+the swap chain itself needs a Wine with OpenGL or Vulkan (the guest build has none, so it is not yet exercised there).

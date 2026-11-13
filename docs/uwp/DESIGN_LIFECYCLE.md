@@ -60,9 +60,19 @@ One per window, bound to the window's thread.
 
 ## CoreWindow (`windows.ui/window.c`)
 
-* **`Activate` raises nothing and the window stays invisible** without a presented frame, however long events are
-  processed (`Visible` false, no `Activated`, `VisibilityChanged` or `SizeChanged`). Presentation (U1.1b) will raise
-  them.
+* **`Activate` shows the window** (measured with an unlocked desktop; with the desktop locked the window stays
+  invisible, nothing is raised and the application is suspended after about five seconds): `VisibilityChanged(true)`,
+  `Activated` (CodeActivated) and `InputEnabled(true)` follow in that order while events are processed, about 80 and
+  140 ms after the call; no `SizeChanged`. `Bounds` is the client area, 1200x900 for the default window. The native
+  window is created on the view thread by `Activate` or by `ICoreWindowInterop::WindowHandle`.
+* **Activation changes**: a click on an inactive window raises `Activated(PointerActivated)` before `PointerPressed`,
+  losing the foreground `Activated(Deactivated)`, getting it back without a click `Activated(CodeActivated)`.
+* **Mouse** (pointer id 1, device type Mouse, positions in client DIPs): `PointerEntered` and the first `PointerMoved`
+  together, `PointerExited` on leaving; left and right buttons give `PointerPressed`/`PointerReleased` pairs
+  (`IsLeftButtonPressed` true while the left button is down); wheel notches +-120 in `PointerWheelChanged`.
+* **Keyboard**: `KeyDown`, then for a character key `CharacterReceived`, then `KeyUp`; auto-repeat is one `KeyDown`
+  per repeat with `WasKeyDown` true and `RepeatCount` 1; `IsExtendedKey` for the arrow keys; no character for
+  function and arrow keys. Details: `tests/uwp/u1_1/README.md`.
 * **`Close` is refused**: it throws `E_ILLEGAL_METHOD_CALL`. `CoreApplication.Exit` closes the window (private export
   `WineUIExitCoreWindow`).
 * All other events can be subscribed to and are not raised. `Bounds` is the screen size on Wine (1200x900 at 0,33 on
@@ -70,8 +80,9 @@ One per window, bound to the window's thread.
 
 ## Not implemented
 
-* Presentation and input: no native window, no pointer, keyboard or character events, no `ICoreWindowInterop`, and
-  so no DXGI target (`CreateSwapChainForCoreWindow` is still `E_NOTIMPL`): U1.1b.
+* Presentation and input beyond the above: touch and pen, pointer capture, `GetIntermediatePoints`, DPI scaling,
+  resizing and the frame title; `CreateSwapChainForCoreWindow` is implemented through `ICoreWindowInterop` but is not
+  yet exercised on a Wine with OpenGL or Vulkan.
 * Suspend and resume: on Windows an application whose window is not visible gets `Suspending` after about five
   seconds, and a call that waits for events then stalls. `Suspending` and `Resuming` can be subscribed to and are
   never raised (U1.1c). Background activation, `EnablePrelaunch`, restart.
