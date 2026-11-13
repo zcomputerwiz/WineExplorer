@@ -81,8 +81,8 @@ One per window, bound to the window's thread.
 ## Not implemented
 
 * Presentation and input beyond the above: touch and pen, pointer capture, `GetIntermediatePoints`, DPI scaling,
-  resizing and the frame title; `CreateSwapChainForCoreWindow` is implemented through `ICoreWindowInterop` but is not
-  yet exercised on a Wine with OpenGL or Vulkan.
+  resizing and the frame title; `CreateSwapChainForCoreWindow` is implemented through `ICoreWindowInterop` and passes
+  on a Wine with OpenGL (U1.1b test, `tests/uwp/u1_1`).
 * Suspend and resume: on Windows an application whose window is not visible gets `Suspending` after about five
   seconds, and a call that waits for events then stalls. `Suspending` and `Resuming` can be subscribed to and are
   never raised (U1.1c). Background activation, `EnablePrelaunch`, restart.

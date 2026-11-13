@@ -3172,4 +3172,4 @@ PointerPointProperties, PointerDevice for a mouse); new `include/windows.ui.core
 (`ICoreWindowInterop`) with its entry in `include/Makefile.in`; `dlls/dxgi/factory.c`
 (`CreateSwapChainForCoreWindow` gets the window handle through `ICoreWindowInterop` and creates the swap chain for it,
 it was `E_NOTIMPL`). Tests: `tests/uwp/u1_1` (`ViewPresent`, `inject.c`, `expected-present.txt`), run under Xvfb;
-the swap chain itself needs a Wine with OpenGL or Vulkan (the guest build has none, so it is not yet exercised there).
+the swap chain needs a Wine with OpenGL or Vulkan; it passes on the guest build made with those headers.

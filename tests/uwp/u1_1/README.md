@@ -87,3 +87,12 @@ types only into a window it has checked; it needs an unlocked desktop that nobod
 `PreviousExecutionState` (0 and 3 seen), anything after `CoreApplication.Exit` or after `Run` returns (the process may
 end at any point), whether `ProcessOneAndAllPending` waits with nothing queued, the exit code of the ended process,
 `Bounds` (1200x900 at 0,33 on Windows). Not done: presentation and input, suspend and resume (U1.1b, U1.1c).
+
+## U1.1b on Wine
+
+2026-11-13, candidate `u11-2` of `codex/uwp-runtime` (70b6c0e3 plus merges of Wine `development`), owned U1 guest, Xvfb,
+mesa llvmpipe (Wine built with OpenGL, EGL and Vulkan headers), fresh prefix per architecture: the lifecycle modes
+(32, 30, 3 checks), the unpackaged control and `ViewPresent` (29 checks: window events, key and pointer events with
+`inject.exe`, `CreateSwapChainForCoreWindow`, five presented frames, pixel read back B=153 G=76 R=102 after the last
+clear) pass on x64 and x86 with the unchanged `view.exe` bits. Without a 3D device the swap chain and pixel checks
+are skipped (28 checks). `run-wine-lifecycle.sh` runs it with `PRESENT=1` under `xvfb-run`.
