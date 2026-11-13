@@ -1,6 +1,6 @@
 # Group Policy and Linux GPO sync (design note)
 
-Surveyed on 2026-11-11. Status: design only, nothing implemented. The Linux facts below were checked online on the
+Surveyed on 2026-11-11. Status: step 1 (the session 0 policy writer) is in progress, the rest is design. The Linux facts below were checked online on the
 same day (sources at the end); anything marked "unverified" was not. Reviewed on 2026-11-11 against the tree and the
 elevation work (E1): the Wine and ReactOS statements were rechecked, the Samba statements were not; the machine
 registry, the policy trees and the security-template parts were corrected. Roadmap entry: "Future: Group Policy and
@@ -139,6 +139,64 @@ session 0, and Group Policy later adds a writer beside it, with no change to R9.
 2. join detection and the two stock-Wine changes ("First work order" below; needs the Samba AD controller in the
    lab);
 3. the Samba extension, refresh signalling over the session link, the applied-GPO list.
+
+## Step 1: the session 0 policy writer (2026-11-13, in progress)
+
+**The writer, `wexpolicy`** (`src/programs/wexpolicy`). A console program of session 0, run as LocalSystem:
+
+```
+wexpolicy apply /machine FILE [FILE...]     HKEY_LOCAL_MACHINE
+wexpolicy apply /user:SID FILE [FILE...]    HKEY_USERS\SID, or kept for the user's next logon
+wexpolicy clear /machine | /user:SID        remove what the last apply wrote
+wexpolicy list  /machine | /user:SID        print what the last apply wrote
+```
+
+- It reads `Registry.pol` (PReg) itself, with a small parser of its own (`preg.h`). This differs from step 3 of
+  the design below ("through Samba, not our own parser"): fetching and choosing the GPOs stays Samba's work, but the
+  values are written by a program of session 0, which cannot run Samba's Python. The Samba extension only copies
+  the files and starts the writer. The same writer serves local policy, where there is no Samba at all.
+- The files are applied in the order given; a later file wins. PReg deletions and the `**del.`, `**delvals.`,
+  `**DeleteValues`, `**DeleteKeys` and `**soft.` markers are honoured; `**SecureKey` is ignored (the path rule
+  below protects the keys).
+- Only keys in the two policy trees are written (`Software\Policies`,
+  `Software\Microsoft\Windows\CurrentVersion\Policies`); other entries are counted and skipped.
+- Every file is read and checked completely before anything changes.
+- What an apply wrote is kept in `%SystemRoot%\system32\GroupPolicy\Archive\Machine.pol` or `User-<SID>.pol`, in
+  session 0's root. The next apply first removes exactly those values, so a value that left the policy leaves the
+  registry, and values that were never policy (the local security options under `...\Policies\System`) stay.
+- The caller must be LocalSystem; anyone else is refused before a file is read.
+
+**Making user policy binding.** Session 0 serves each logged-on user's hive. Three rules in its registry code, all
+effective only while elevation is enforced (without it every token is unrestricted):
+
+1. *Path rule.* A key at or below one of the two policy trees of a user's hive has the policy descriptor (the user
+   reads; SYSTEM and Administrators have full control) instead of the hive's default (the user has full control).
+   A path rule, because Wine gives a new key no inherited descriptor.
+2. *The two tree roots always exist.* Session 0 creates them when it loads a hive. A create below them then meets
+   a parent with the policy descriptor, and the roots cannot be deleted by the user, so the keys above them cannot
+   be deleted either (a key with subkeys is not deleted).
+3. *No rename around the trees.* The keys above the roots (`Software`, `Software\Microsoft`, `...\Windows`,
+   `...\CurrentVersion`) are not renamed by a token the policy descriptor refuses. Otherwise the user could move
+   them away, build a tree of their own and move it into place. Renaming another key to one of those names needs
+   no rule: the names are always taken.
+
+**The service, `gpsvc`.** The hive file is the user's own file, so the user can change the policy trees in it
+while logged off. Therefore:
+
+- Session 0 empties the two policy trees when it loads a user's hive (rule 2 then creates the roots again).
+- `wexpolicy` started without arguments by the service manager is the service `gpsvc` ("Group Policy Client"), an
+  automatic service that only works as LocalSystem. It looks at `HKEY_USERS` every two seconds, and at once on a
+  change notification. An account's hive without the marker key gets the values of its archive
+  (`User-<SID>.pol`, which holds the values with their data) and the marker.
+- The marker is the volatile key `Software\Policies\WineExplorer\Policy Applied`. It is in the policy tree, so the
+  user cannot make it, and it goes away with the hive.
+- `wexpolicy apply /user:SID` for a user who is not logged on changes the archive only; the service writes it at
+  the next logon.
+
+Between the hive's arrival and the service's write (up to two seconds) the user's programs see no user policy.
+Windows has the same kind of window when policy is applied asynchronously at logon.
+
+Machine policy needs none of this: `HKLM` is session 0's own and is saved in its root.
 
 ## Design
 

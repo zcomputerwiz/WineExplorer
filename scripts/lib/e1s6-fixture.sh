@@ -18,7 +18,13 @@ e1s6_reload()
 e1s6_stop()
 {
     if [ -n "$E1S6_PID" ]; then
+        # Bounded: a stop that follows a start closely can reach the short-lived shell that launches the service
+        # instead of the service, and an unbounded wait then held the whole suite (2026-11-13). Ask, look for up
+        # to 5 s, then insist; only a process that is gone is waited for.
+        local i
         kill "$E1S6_PID" 2>/dev/null || true
+        for i in {1..50}; do kill -0 "$E1S6_PID" 2>/dev/null || break; sleep .1; kill "$E1S6_PID" 2>/dev/null || true; done
+        kill -9 "$E1S6_PID" 2>/dev/null || true
         wait "$E1S6_PID" 2>/dev/null || true
         E1S6_PID=
     fi
