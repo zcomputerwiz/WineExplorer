@@ -70,6 +70,7 @@ struct item
 
 #define SERVICE_NAME  L"gpsvc"
 #define MARKER_KEY    L"Software\\Policies\\WineExplorer\\Policy Applied"
+#define MACHINE_SERIAL_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\WineExplorer Applied"
 
 static struct item *items;
 static size_t item_count, item_room;
@@ -525,6 +526,22 @@ static DWORD parse_target( const WCHAR *arg, const WCHAR **sid, HKEY *root )
     return ERROR_SUCCESS;
 }
 
+/* Tell the programs that wait for policy (userenv's RegisterGPNotification) that it has changed: they watch a
+ * serial number in the registry, which reaches every session through session 0. The user's is in the marker key,
+ * inside the protected tree; the machine's is beside the Group Policy state of Windows. */
+static void bump_serial( HKEY root, BOOL user )
+{
+    DWORD serial = 0, size = sizeof(serial);
+    HKEY key;
+
+    if (RegCreateKeyExW( root, user ? MARKER_KEY : MACHINE_SERIAL_KEY, 0, NULL, REG_OPTION_VOLATILE,
+                         KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, NULL )) return;
+    if (RegQueryValueExW( key, L"Serial", NULL, NULL, (BYTE *)&serial, &size )) serial = 0;
+    serial++;
+    RegSetValueExW( key, L"Serial", 0, REG_DWORD, (const BYTE *)&serial, sizeof(serial) );
+    RegCloseKey( key );
+}
+
 static void set_service_state( DWORD state )
 {
     SERVICE_STATUS status;
@@ -574,7 +591,10 @@ static void restore_users(void)
         {
             RegCloseKey( marker );
             if (created == REG_CREATED_NEW_KEY && !archive_file( name, archive_path, ARRAY_SIZE(archive_path) ))
+            {
                 restore_archive( root, archive_path );
+                bump_serial( root, TRUE );
+            }
         }
         RegCloseKey( root );
     }
@@ -595,6 +615,13 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
         return;
     }
     set_service_state( SERVICE_RUNNING );
+    /* the key that programs watch for the machine's serial number exists from now on (a machine root older
+     * than this service has none) */
+    {
+        HKEY key;
+        if (!RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy", 0, NULL,
+                              0, KEY_READ | KEY_WOW64_64KEY, NULL, &key, NULL )) RegCloseKey( key );
+    }
     for (;;)
     {
         /* the notification hurries the next look; the look every two seconds does not depend on it */
@@ -685,6 +712,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
         DWORD archive_err = write_archive( archive_path );
         if (!err) err = archive_err;
     }
+    if (root) bump_serial( root, sid != NULL );
     say( "wexpolicy: set=%u deleted=%u skipped=%u status=%lu%s\n", count_set, count_deleted, count_skipped, err,
          root ? "" : " (the user is not logged on: kept for the next logon)" );
 

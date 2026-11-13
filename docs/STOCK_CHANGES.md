@@ -24,6 +24,12 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   keys of the two policy trees have a descriptor by path (the user reads; SYSTEM and Administrators write); the
   trees are emptied and their roots created when the hive is loaded; `rename_key` refuses the keys above a tree to
   a caller who may not write the tree. `loader/wine.inf.in`: the service `gpsvc` (`wexpolicy.exe`, automatic).
+- `dlls/userenv/gpolicy.c` (new, ported from ReactOS, GPL-2.0-or-later, so `userenv.dll` is GPL here and this
+  file cannot go to Wine as it is): `RegisterGPNotification`, `UnregisterGPNotification`, `RefreshPolicy`,
+  `RefreshPolicyEx`, the critical policy sections, the two foreground waits, and a `DllMain`. Added to the port:
+  the notification thread watches the policy writer's serial numbers in the registry. The four stubs left
+  `userenv_main.c`; `userenv.spec` and `include/userenv.h` have the new exports. `loader/wine.inf.in` creates
+  `HKLM\...\CurrentVersion\Group Policy`.
 - `dlls/wkscli/wkscli.c` (`NetGetJoinInformation`), `dlls/dsrole/dsrole.c` (`DsRoleGetPrimaryDomainInformation`):
   with `HKLM\Software\WineExplorer\Domain` (`FlatName`, `Name`) the machine is reported as a member of that domain;
   without the key, stock behaviour. `wkscli` imports `advapi32` for it.

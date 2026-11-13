@@ -227,6 +227,25 @@ Tested: the two functions from 64-bit and 32-bit programs of a standard user, wi
 (`scripts/test_sysrun_server.sh`). Not tested: the detection script against a real join (needs the Samba AD
 controller in the lab, "Open questions"), and the forest name of a child domain (the DNS name is given).
 
+## Step 3: refresh signalling (2026-11-13, implemented)
+
+Tested in `scripts/test_sysrun_server.sh`: a 32-bit program of a standard user registers for the machine and for
+the user notification and is signalled when session 0 applies policy. Ported by Qwen, reviewed and extended by
+Claude. Not tested: `RefreshPolicy` (nothing listens to its events yet: there is no periodic refresh), the
+critical sections, the foreground waits (their events are never created here, so the waits return FALSE).
+
+`userenv` gets the ReactOS implementation of `RegisterGPNotification`, `UnregisterGPNotification`,
+`RefreshPolicy`, `RefreshPolicyEx`, the critical policy sections and the two foreground waits (`gpolicy.c`).
+
+The named events it uses live in each session's own server, so session 0 cannot set them. This differs from the
+table above ("a new order over the session link"): instead the writer leaves a serial number in the registry after
+every apply, clear and logon restore, and `userenv`'s notification thread watches it with a registry change
+notification, which already reaches every session through session 0. No server change is needed.
+
+- Machine: `HKLM\Software\Microsoft\Windows\CurrentVersion\Group Policy\WineExplorer Applied`, value `Serial`.
+- User: the marker key `HKCU\Software\Policies\WineExplorer\Policy Applied`, value `Serial` (inside the protected
+  tree, so the user cannot fake a refresh).
+
 ## Design
 
 1. **Join detection (`wexhost`).** Detect the join from `net ads info` or SSSD/realmd state and publish domain name,

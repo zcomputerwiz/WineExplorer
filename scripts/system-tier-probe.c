@@ -31,6 +31,8 @@
  *   probe whoami                  prints user=<the token user's SID> and session=<the process's session id>
  *   probe join                    prints join=<NetGetJoinInformation's type> name=<name> and role=<the machine role
  *                                 of DsRoleGetPrimaryDomainInformation> flat=<name> dns=<name>
+ *   probe gpnotify machine|user MS  registers for the policy notification (RegisterGPNotification), prints
+ *                                 gp=ready, waits up to MS ms and prints gp=signalled or gp=timeout
  *   probe rpcbind PIPE            opens \\.\pipe\PIPE in message mode, sends a DCE/RPC bind for the service control
  *                                 manager's interface and prints pipe=open (or pipe=error<n>) and bind=<the answer's
  *                                 packet type: 12 bind_ack, 13 bind_nak>
@@ -106,6 +108,26 @@ int __cdecl wmain( int argc, WCHAR **argv )
         if (err || !basic) printf( "role=error%lu\n", err );
         else printf( "role=%d flat=%ls dns=%ls\n", basic->role, basic->flat ? basic->flat : L"",
                      basic->dns ? basic->dns : L"" );
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"gpnotify" ))
+    {
+        BOOL (WINAPI *reg_notify)( HANDLE, BOOL );
+        HMODULE userenv = LoadLibraryW( L"userenv.dll" );
+        HANDLE event = CreateEventW( NULL, FALSE, FALSE, NULL );
+        DWORD wait;
+
+        reg_notify = userenv ? (void *)GetProcAddress( userenv, "RegisterGPNotification" ) : NULL;
+        if (!reg_notify || !reg_notify( event, !lstrcmpW( argv[2], L"machine" ) ))
+        {
+            printf( "gp=error%lu\n", GetLastError() );
+            return 1;
+        }
+        Sleep( 1000 );  /* the notification thread has its watches by now */
+        printf( "gp=ready\n" );
+        fflush( stdout );
+        wait = WaitForSingleObject( event, wcstoul( argv[3], NULL, 10 ) );
+        printf( wait == WAIT_OBJECT_0 ? "gp=signalled\n" : "gp=timeout\n" );
         return 0;
     }
     if (argc == 3 && !lstrcmpW( argv[1], L"rpcbind" ))

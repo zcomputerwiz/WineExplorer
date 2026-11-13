@@ -3485,6 +3485,19 @@ OUT="$(s0_wine wexpolicy apply /machine "$(winpath "$POL/machine.pol")" | tr -d 
 grep -q 'set=1 deleted=0 skipped=0 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: apply /machine"; }
 [ "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" = 0x5 ] || fail "policy: $STD does not read the machine policy"
 s0_wine wexpolicy list /machine | tr -d '\r' | grep -qx 'Software\\Policies\\WexPol\\Machine' || fail "policy: list /machine"
+# step 3: a program that registered for the policy notification is told when session 0 has written policy
+for kind in machine user; do
+    rm -f "$POL/gp-$kind.out"
+    # not as_wine: its tr would hold the first line back until the program ends
+    (wine_as "$STD" "$ROOT/probes/tierprobe32.exe" gpnotify "$kind" 30000 > "$POL/gp-$kind.out" 2>/dev/null || true) &
+    GP_PID=$!
+    for i in $(seq 1 40); do grep -q '^gp=ready' "$POL/gp-$kind.out" 2>/dev/null && break; sleep 0.5; done
+    grep -q '^gp=ready' "$POL/gp-$kind.out" || { cat "$POL/gp-$kind.out" >&2; fail "policy: the $kind notification was not registered"; }
+    if [ "$kind" = machine ]; then s0_wine wexpolicy apply /machine "$(winpath "$POL/machine.pol")" >/dev/null || fail "policy: second apply /machine"
+    else s0_wine wexpolicy apply "/user:$STD_SID" "$(winpath "$POL/user.pol")" >/dev/null || fail "policy: apply for the logged-on user"; fi
+    wait "$GP_PID" || true
+    grep -q '^gp=signalled' "$POL/gp-$kind.out" || { cat "$POL/gp-$kind.out" >&2; fail "policy: a program was not told of the new $kind policy"; }
+done
 s0_wine wexpolicy clear /machine >/dev/null || fail "policy: clear /machine"
 [ -z "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" ] || fail "policy: clear left the machine value"
 s0_wine wexpolicy clear "/user:$STD_SID" >/dev/null || fail "policy: clear for the logged-on user"
