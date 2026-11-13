@@ -65,7 +65,8 @@ mkdir -p "$OUT"
 qemu-img create -q -f qcow2 -b "$SRC_DISK" -F qcow2 "$STATE/disk.qcow2" || fail "cannot create the overlay"
 head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 16 > "$PWFILE"
 chmod 600 "$PWFILE"
-x86_64-w64-mingw32-gcc -O2 -Wall -DWEXELEVATE_TEST_APPROVAL -I"$REPO/src/include" -o "$STATE/elprobe.exe" \
+# the probe as a caller only: without its test flag it has no code for the broker's test hooks
+x86_64-w64-mingw32-gcc -O2 -Wall -I"$REPO/src/include" -o "$STATE/elprobe.exe" \
     "$REPO/scripts/wexelevate_probe.c" -ladvapi32 -lshell32 -lmsi || fail "the probe does not build"
 
 echo "=== $TEST: enforced elevation on an overlay of $SOURCE"

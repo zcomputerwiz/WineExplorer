@@ -358,6 +358,25 @@ chmod 2775 "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
 find "$MACHINE_ROOT/drive_c" -type d -exec chmod 2775 {} +
 find "$MACHINE_ROOT/drive_c" -type f -exec chmod 664 {} +
 find "$MACHINE_ROOT/drive_c" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 775 {} +
+# The shared document folders (Shared Documents, Music, Video and Pictures of Windows XP) are every user's to
+# write, and a user's files there are that user's to delete: world-writable with the sticky bit, like /tmp.
+# C:\users\Public itself and the common desktop and favourites stay machine state, as on XP, where only
+# administrators change what every user sees. The folders' XP names are set here, because a user's shell
+# cannot be relied on to write them at first logon (they are shell32 strings; the shell looks for the same
+# value and leaves an existing one alone).
+if [ -d "$MACHINE_ROOT/drive_c/users/Public" ]; then
+    for shared in "Documents:21785" "Music:29059" "Videos:29060" "Pictures:29061"; do
+        shared_dir="$MACHINE_ROOT/drive_c/users/Public/${shared%%:*}"
+        [ -d "$shared_dir" ] || continue
+        chmod 1777 "$shared_dir"
+        if [ ! -e "$shared_dir/desktop.ini" ]; then
+            printf '%s\r\n' '[.ShellClassInfo]' "LocalizedResourceName=@%SystemRoot%\\system32\\shell32.dll,-${shared##*:}" \
+                > "$shared_dir/desktop.ini"
+            chown "root:$MACHINE_GROUP" "$shared_dir/desktop.ini"
+            chmod 664 "$shared_dir/desktop.ini"
+        fi
+    done
+fi
 if [ -f "$MACHINE_ROOT/system.reg" ]; then
     chmod 664 "$MACHINE_ROOT/system.reg"
     sed -i 's/\\\\users\\\\root\\\\Favorites/\\\\users\\\\Public\\\\Favorites/g' "$MACHINE_ROOT/system.reg"
