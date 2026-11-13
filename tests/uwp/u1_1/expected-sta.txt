@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# The checks of view.exe mode sta, as observed on Windows 11 (build 26300, x64, 2026-11-12). They are compared with the
+# PASS and FAIL lines of the output in sorted order. INFO and TRACE lines are observations and are not compared.
+# CoreApplication.Run from a single-threaded apartment fails with RPC_E_WRONG_THREAD and calls nothing.
+PASS package_identity
+PASS run_in_sta_fails
+PASS run_in_sta_calls_nothing

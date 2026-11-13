@@ -3145,3 +3145,12 @@ Verified in the owned U1 guest on candidate `u11-1`, fresh prefix per architectu
 35 checks on x64 and x86 and the unpackaged control fails as designed; windows.ui (12, 82) and twinapi (73),
 windows.storage (599), kernel32 version (541), the U1.0 packaged fixture and the 59-check install test pass on both
 architectures; `rpcrt4_test server` has only its two known failures. Not measured on Windows.
+
+Later on 2026-11-12 (U1.1, measured on Windows 11): the lifecycle was aligned with a native UWP probe run on Windows
+(`tests/uwp/u1_1`, `docs/uwp/DESIGN_LIFECYCLE.md`). Additional stock-Wine changes: `server/uwp_context.c`,
+`uwp_context.h`, `token.c`, `protocol.def` (the `get_token_package` reply carries the entry point),
+`include/winternl.h` and `dlls/ntdll/unix/security.c` (`WINE_TOKEN_PACKAGE_INFORMATION.entry_point_len`),
+`dlls/combase/roapi.c` (class table offset); `dlls/windows.ui` (`dispatcher.c`, `window.c`, new private export
+`WineUIExitCoreWindow`); `dlls/twinapi.appcore` (`core_application.c`: the view on its own thread, `Exit`;
+`core_view.c`: inline launch activation, `SplashScreen`). Behaviour: see the design note. The same unchanged MSVC-built
+UWP probe passes on Windows 11 (x64, x86) and on Wine (x64, x86).

@@ -72,6 +72,7 @@ struct item   /* an application or an activatable class of the manifest */
 {
     WCHAR id[256];
     WCHAR path[MAX_REL_PATH + 1];
+    WCHAR entry[257];   /* the EntryPoint of an application, if it has one */
 };
 
 struct manifest
@@ -138,6 +139,21 @@ static BOOL valid_relative_path( const WCHAR *path )
         }
         else if (ch < 0x20 || ch > 0x7e || ch == '/' || ch == ':' || ch == '"' || ch == '<' || ch == '>' ||
                  ch == '|' || ch == '?' || ch == '*')
+            return FALSE;
+    }
+    return TRUE;
+}
+
+/* the EntryPoint of an application: a class name, or the full-trust marker */
+static BOOL valid_entry_point( const WCHAR *entry )
+{
+    size_t i, len = wcslen( entry );
+
+    if (!len || len > 256) return FALSE;
+    for (i = 0; i < len; i++)
+    {
+        WCHAR ch = entry[i];
+        if (!((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch == '.' || ch == '_'))
             return FALSE;
     }
     return TRUE;
@@ -429,7 +445,8 @@ static int parse_manifest( const BYTE *data, DWORD size, struct manifest *manife
                 if (!app || !get_attribute( reader, L"Id", app->id, ARRAY_SIZE(app->id) ) ||
                     !valid_id( app->id, FALSE ) ||
                     !get_attribute( reader, L"Executable", app->path, ARRAY_SIZE(app->path) ) ||
-                    !valid_relative_path( app->path ))
+                    !valid_relative_path( app->path ) ||
+                    (get_attribute( reader, L"EntryPoint", app->entry, ARRAY_SIZE(app->entry) ) && !valid_entry_point( app->entry )))
                 {
                     fail( L"unsupported application declaration in the manifest" );
                     goto done;
@@ -681,7 +698,11 @@ static int install( const WCHAR *package )
             fail( L"the executable %s of application %s is not in the package", manifest.apps[i].path, manifest.apps[i].id );
             goto done;
         }
-        if (!append_record( record, L"app\t%s\t%s\n", manifest.apps[i].id, entry->name )) goto too_long;
+        if (manifest.apps[i].entry[0])
+        {
+            if (!append_record( record, L"app\t%s\t%s\t%s\n", manifest.apps[i].id, entry->name, manifest.apps[i].entry )) goto too_long;
+        }
+        else if (!append_record( record, L"app\t%s\t%s\n", manifest.apps[i].id, entry->name )) goto too_long;
     }
     for (i = 0; i < manifest.class_count; i++)
     {

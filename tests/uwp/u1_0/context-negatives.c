@@ -44,7 +44,7 @@ NTSTATUS NTAPI NtQueryInformationToken( HANDLE, int, void *, ULONG, ULONG * );
 
 struct package_info
 {
-    ULONG full_name_len, family_name_len, app_id_len, root_len, executable_len, classes_len;
+    ULONG full_name_len, family_name_len, app_id_len, root_len, executable_len, entry_point_len, classes_len;
     WCHAR data[2048];
 };
 

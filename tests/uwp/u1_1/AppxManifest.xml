@@ -2,16 +2,20 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later; Copyright 2026 WineExplorer contributors -->
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-         IgnorableNamespaces="uap rescap">
+         IgnorableNamespaces="uap">
   <Identity Name="@NAME@" Publisher="@PUBLISHER@" Version="@VERSION@" ProcessorArchitecture="@ARCH@" />
   <Properties><DisplayName>WineExplorer U1.1 View</DisplayName><PublisherDisplayName>WineExplorer</PublisherDisplayName><Logo>logo.png</Logo></Properties>
-  <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
+  <Dependencies><TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" /></Dependencies>
   <Resources><Resource Language="en-us" /></Resources>
   <Applications>
-    <Application Id="View" Executable="view.exe" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="View" Executable="view.exe" EntryPoint="view.App">
       <uap:VisualElements DisplayName="WineExplorer U1.1 View" Description="View lifecycle probe" BackgroundColor="transparent" Square150x150Logo="logo.png" Square44x44Logo="small.png" />
     </Application>
+    <Application Id="ViewSta" Executable="view.exe" EntryPoint="view.App">
+      <uap:VisualElements DisplayName="WineExplorer U1.1 View (STA)" Description="View lifecycle probe, single-threaded apartment" BackgroundColor="transparent" Square150x150Logo="logo.png" Square44x44Logo="small.png" />
+    </Application>
+    <Application Id="ViewReturn" Executable="view.exe" EntryPoint="view.App">
+      <uap:VisualElements DisplayName="WineExplorer U1.1 View (Return)" Description="View lifecycle probe, returns from Run" BackgroundColor="transparent" Square150x150Logo="logo.png" Square44x44Logo="small.png" />
+    </Application>
   </Applications>
-  <Capabilities><rescap:Capability Name="runFullTrust" /></Capabilities>
 </Package>

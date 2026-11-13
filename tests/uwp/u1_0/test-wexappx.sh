@@ -90,6 +90,34 @@ for arch in x64 x86; do
   grep -v unpackaged "$fixture/observations.txt" | diff -u - "$run/$arch-hresults.txt" > "$run/$arch-diff-hr.txt"; check $? "$arch installed fixture: HRESULTs match Windows"
 done
 
+# the U1.1 UWP view probe, when its directory is given (WEX_U11_DIR: AppxManifest.xml, expected-positive.txt and
+# x64/ x86/ with view.exe): a real archive, installed by wexappx, activated, uninstalled. The manifest's EntryPoint
+# has to reach Load through the catalog record.
+if [ -n "${WEX_U11_DIR:-}" ]; then
+  u11=$(readlink -f "$WEX_U11_DIR")
+  for arch in x64 x86; do
+    stage="$run/pkg/u11-$arch"
+    python3 "$fixture/register-wine.py" stage lifecycle "$arch" "$u11/$arch" "$stage" --name WineExplorer.U1View --manifest "$u11/AppxManifest.xml"
+    (cd "$stage" && python3 -c 'import sys,zipfile,os
+z=zipfile.ZipFile(sys.argv[1],"w",zipfile.ZIP_DEFLATED)
+for base,dirs,files in os.walk("."):
+    for f in sorted(files):
+        p=os.path.relpath(os.path.join(base,f),".")
+        z.write(p,p.replace(os.sep,"/"))
+z.close()' "$run/pkg/u11-$arch.appx")
+    w "$run/u11-$arch-install.log" wexappx install --development "Z:$run/pkg/u11-$arch.appx"; rc=$?
+    full=$(tr -d '\r' < "$run/u11-$arch-install.log" | sed -n 's/^Installed //p')
+    family=$(tr -d '\r' < "$run/u11-$arch-install.log" | sed -n 's/^Application: \(.*\)!View$/\1/p')
+    if [ "$rc" != 0 ] || [ -z "$full" ] || [ -z "$family" ]; then note "FAIL $arch u11 install (exit $rc)"; overall=1; continue; fi
+    out="$store/../../view-positive.txt"
+    rm -f "$out"
+    w "$run/u11-$arch-launch.log" "$fixture/$arch/launcher.exe" "$family!View" positive unused "$full"
+    tr -d '\r' < "$out" 2> /dev/null | grep -E '^(PASS|FAIL) ' | LC_ALL=C sort > "$run/u11-$arch-checks.txt"
+    grep -v -e '^#' -e '^$' "$u11/expected-positive.txt" | LC_ALL=C sort | diff -u - "$run/u11-$arch-checks.txt" > "$run/u11-$arch.diff"; check $? "$arch u11 view installed by wexappx: all checks, EntryPoint reaches Load"
+    w "$run/u11-$arch-uninstall.log" wexappx uninstall "$full"; [ $? = 0 ] && [ "$(leftovers)" = 0 ]; check $? "$arch u11 uninstall leaves nothing"
+  done
+fi
+
 # malformed archives: refused, nothing left behind
 bad="$run/bad"; mkdir "$bad"
 python3 - "$run/pkg/x64-positive" "$bad" <<'EOF'

@@ -77,7 +77,10 @@ def read_manifest(stage):
     for app in root.findall('f:Applications/f:Application', NS):
         if not ID_RE.match(app.get('Id')):
             fail('unsupported application id')
-        apps.append((app.get('Id'), relative_path(app.get('Executable'))))
+        entry = app.get('EntryPoint') or ''
+        if entry and not re.match(r'^[A-Za-z0-9._]{1,256}$', entry):
+            fail('unsupported entry point')
+        apps.append((app.get('Id'), relative_path(app.get('Executable')), entry))
     classes = []
     for ext in root.findall('f:Extensions/f:Extension', NS):
         if ext.get('Category') != 'windows.activatableClass.inProcessServer':
@@ -128,7 +131,7 @@ def cmd_register(args):
     os.makedirs(os.path.join(args.prefix, CATALOG), exist_ok=True)
     if os.path.lexists(target) or os.path.lexists(record):
         fail('%s is already registered' % full)
-    for _, exe in apps:
+    for _, exe, _ in apps:
         if not os.path.isfile(os.path.join(args.stage, *exe.split('\\'))):
             fail('the executable %s is not in the package' % exe)
     # Stage next to the destination, then publish the directory and, last, the record.
@@ -153,7 +156,7 @@ def cmd_register(args):
     root = dos_catalog + '\\' + full
     text = 'WEXAPPX 1\n'
     text += 'root\t%s\n' % root
-    text += ''.join('app\t%s\t%s\n' % app for app in apps)
+    text += ''.join(('app\t%s\t%s\t%s\n' % app) if app[2] else ('app\t%s\t%s\n' % app[:2]) for app in apps)
     text += ''.join('class\t%s\t%s\n' % cls for cls in classes)
     temp = record + '.tmp-%d' % os.getpid()
     with open(temp, 'xb') as f:

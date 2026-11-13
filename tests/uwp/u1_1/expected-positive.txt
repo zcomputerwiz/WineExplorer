@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# The checks of view.exe mode positive, as observed on Windows 11 (build 26300, x64, 2026-11-12). They are compared with the
+# PASS and FAIL lines of the output in sorted order. INFO and TRACE lines are observations and are not compared.
+PASS package_identity
+PASS callbacks_not_on_the_calling_thread
+PASS view_is_main
+PASS view_is_not_hosted
+PASS set_window_is_window_of_thread
+PASS load_gets_the_manifest_entry_point
+PASS launch_activation_kind
+PASS launch_arguments_are_the_activation_arguments
+PASS launch_tile_id_is_the_application_id
+PASS launch_has_a_splash_screen
+PASS launch_activation_before_run
+PASS view_current_is_main_view
+PASS dispatcher_access_on_view_thread
+PASS window_invisible_before_activate
+PASS dispatcher_no_access_from_other_thread
+PASS no_window_on_other_thread
+PASS process_events_refused_on_other_thread
+PASS window_stays_invisible_after_activate
+PASS activate_raises_no_window_events
+PASS close_is_refused
+PASS window_not_closed_by_close
+PASS dispatch_priority_order
+PASS process_one_if_present_does_not_wait
+PASS process_one_if_present_runs_the_pending_items
+PASS process_all_if_present_after_that_runs_nothing
+PASS run_async_from_other_thread_runs_on_view_thread
+PASS run_async_action_completes
+PASS run_async_completed_handler_on_view_thread
+PASS items_queued_by_a_running_item_run_by_priority
+PASS canceled_action_does_not_run
+PASS exiting_raised_on_the_calling_thread
+PASS lifecycle_order
+PASS lifecycle_each_callback_once
+PASS exiting_raised_before_the_window_closes
