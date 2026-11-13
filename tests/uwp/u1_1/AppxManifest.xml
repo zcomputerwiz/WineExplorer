@@ -29,5 +29,8 @@
     <Application Id="ViewAppdata" Executable="view.exe" EntryPoint="view.App">
       <uap:VisualElements DisplayName="WineExplorer U1.1 View (Application data)" Description="Application data probe" BackgroundColor="transparent" Square150x150Logo="logo.png" Square44x44Logo="small.png" />
     </Application>
+    <Application Id="ViewStorage" Executable="view.exe" EntryPoint="view.App">
+      <uap:VisualElements DisplayName="WineExplorer U1.1 View (Storage)" Description="Storage folder and file probe" BackgroundColor="transparent" Square150x150Logo="logo.png" Square44x44Logo="small.png" />
+    </Application>
   </Applications>
 </Package>

@@ -54,6 +54,8 @@
 #include <winrt/Windows.ApplicationModel.Activation.h>
 #include <winrt/Windows.UI.Core.h>
 #include <winrt/Windows.Storage.h>
+#include <winrt/Windows.Storage.Streams.h>
+#include <winrt/Windows.Storage.FileProperties.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Devices.Input.h>
 #include <winrt/Windows.UI.Input.h>
@@ -464,6 +466,197 @@ static void run_appdata()
         check("clear_removes_local_files", !exists_path(local_path + L"\\hello.txt") && exists_path(local_path));
         check("clear_removes_local_settings", data.LocalSettings().Values().Size() == 0);
     }
+    put("READY");
+    put("Uninitialize");
+}
+
+/* storage mode: StorageFolder, StorageFile and FileIO in the LocalState folder of this package (unattended). The checks
+ * are from what Windows 11 did (tests/uwp/u1_1/README.md). */
+static std::vector<BYTE> read_file_bytes(std::wstring const &path)
+{
+    std::vector<BYTE> bytes;
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return bytes;
+    DWORD size = GetFileSize(file, nullptr), got = 0;
+    bytes.resize(size);
+    if (size) ReadFile(file, bytes.data(), size, &got, nullptr);
+    CloseHandle(file);
+    bytes.resize(got);
+    return bytes;
+}
+
+template <typename F> static int32_t hresult_of(F call)
+{
+    try { call(); return 0; }
+    catch (hresult_error const &e) { return e.code(); }
+}
+
+static void run_storage()
+{
+    using namespace Windows::Storage;
+    using namespace Windows::Storage::Streams;
+    using namespace Windows::Foundation;
+    auto data = ApplicationData::Current();
+    data.ClearAsync(ApplicationDataLocality::Local).get();
+    StorageFolder root = data.LocalFolder();
+    std::wstring root_path(root.Path());
+
+    /* creating, collisions, names */
+    StorageFile a = root.CreateFileAsync(L"a.txt").get();
+    check("create_file_returns_the_file", a.Name() == L"a.txt" && std::wstring(a.Path()) == root_path + L"\\a.txt");
+    check("create_file_exists_on_disk", GetFileAttributesW((root_path + L"\\a.txt").c_str()) != INVALID_FILE_ATTRIBUTES);
+    info("DisplayName: %s", to_string(a.DisplayName()).c_str());
+    check("file_type", a.FileType() == L".txt");
+    check("file_content_type_text", a.ContentType() == L"text/plain");
+    check("file_is_a_file", a.IsOfType(StorageItemTypes::File) && !a.IsOfType(StorageItemTypes::Folder) && a.IsAvailable());
+    check("file_attributes_normal", (a.Attributes() & FileAttributes::Directory) != FileAttributes::Directory);
+    check("file_date_created_is_set", a.DateCreated().time_since_epoch().count() > 0);
+    check("create_file_default_is_fail_if_exists", hresult_of([&] { root.CreateFileAsync(L"a.txt").get(); }) == (int32_t)0x800700B7);
+    check("create_file_fail_if_exists", hresult_of([&] { root.CreateFileAsync(L"a.txt", CreationCollisionOption::FailIfExists).get(); }) == (int32_t)0x800700B7);
+    auto unique = root.CreateFileAsync(L"a.txt", CreationCollisionOption::GenerateUniqueName).get();
+    info("unique name: %s", to_string(unique.Name()).c_str());
+    check("create_file_generate_unique_name", unique.Name() == L"a (2).txt");
+    auto open_if = root.CreateFileAsync(L"a.txt", CreationCollisionOption::OpenIfExists).get();
+    check("create_file_open_if_exists", open_if.Name() == L"a.txt");
+    auto replaced = root.CreateFileAsync(L"a.txt", CreationCollisionOption::ReplaceExisting).get();
+    check("create_file_replace_existing", replaced.Name() == L"a.txt");
+    /* a name with a backslash is a relative path: the folders in between are created */
+    check("create_file_with_a_relative_path_creates_the_folders", hresult_of([&] { root.CreateFileAsync(L"bad\\name.txt").get(); }) == 0 &&
+          GetFileAttributesW((root_path + L"\\bad\\name.txt").c_str()) != INVALID_FILE_ATTRIBUTES);
+    root.GetFolderAsync(L"bad").get().DeleteAsync().get();
+    check("create_file_empty_name_is_invalid", hresult_of([&] { root.CreateFileAsync(L"").get(); }) != 0);
+
+    /* getting */
+    auto got = root.GetFileAsync(L"a.txt").get();
+    check("get_file", got.Name() == L"a.txt");
+    info("GetFileAsync(missing) = 0x%08X", (unsigned)hresult_of([&] { root.GetFileAsync(L"missing.txt").get(); }));
+    check("get_file_missing_is_file_not_found", hresult_of([&] { root.GetFileAsync(L"missing.txt").get(); }) == (int32_t)0x80070002);
+    check("storage_file_from_path", StorageFile::GetFileFromPathAsync(root_path + L"\\a.txt").get().Name() == L"a.txt");
+    info("GetFileFromPathAsync(relative) = 0x%08X", (unsigned)hresult_of([&] { StorageFile::GetFileFromPathAsync(L"a.txt").get(); }));
+    check("storage_file_from_missing_path", hresult_of([&] { StorageFile::GetFileFromPathAsync(root_path + L"\\missing.txt").get(); }) == (int32_t)0x80070002);
+
+    /* folders */
+    StorageFolder sub = root.CreateFolderAsync(L"sub").get();
+    check("create_folder", sub.Name() == L"sub" && std::wstring(sub.Path()) == root_path + L"\\sub" && sub.IsOfType(StorageItemTypes::Folder));
+    check("create_folder_default_is_fail_if_exists", hresult_of([&] { root.CreateFolderAsync(L"sub").get(); }) == (int32_t)0x800700B7);
+    check("create_folder_open_if_exists", root.CreateFolderAsync(L"sub", CreationCollisionOption::OpenIfExists).get().Name() == L"sub");
+    check("get_folder", root.GetFolderAsync(L"sub").get().Name() == L"sub");
+    check("get_folder_missing_is_file_not_found", hresult_of([&] { root.GetFolderAsync(L"nothing").get(); }) == (int32_t)0x80070002);
+    auto inner = sub.CreateFileAsync(L"inner.dat").get();
+    check("get_item_returns_file_or_folder", root.GetItemAsync(L"sub").get().IsOfType(StorageItemTypes::Folder) &&
+          root.GetItemAsync(L"a.txt").get().IsOfType(StorageItemTypes::File));
+    check("try_get_item_missing_is_null", root.TryGetItemAsync(L"nothing").get() == nullptr);
+
+    /* listing */
+    auto files = root.GetFilesAsync().get();
+    std::vector<std::wstring> names;
+    for (auto const &f : files) names.push_back(std::wstring(f.Name()));
+    info("files: %zu", names.size());
+    for (auto const &n : names) info("  file %s", to_string(hstring(n)).c_str());
+    check("get_files_lists_the_files_only", names.size() == 2);
+    auto folders = root.GetFoldersAsync().get();
+    check("get_folders_lists_the_folders_only", folders.Size() == 1 && folders.GetAt(0).Name() == L"sub");
+    auto items = root.GetItemsAsync().get();
+    check("get_items_lists_both", items.Size() == 3);
+    check("files_are_sorted_by_name", names.size() == 2 && names[0] == L"a (2).txt" && names[1] == L"a.txt");
+
+    /* FileIO: text */
+    std::wstring accented = std::wstring(L"hello ") + wchar_t(0xE9) + wchar_t(0x4E16);
+    FileIO::WriteTextAsync(a, accented).get();
+    auto bytes = read_file_bytes(root_path + L"\\a.txt");
+    std::string hex;
+    for (auto b : bytes) { char t[4]; std::snprintf(t, sizeof(t), "%02X", b); hex += t; }
+    info("WriteTextAsync default bytes: %s", hex.c_str());
+    check("write_text_default_is_utf8_without_bom", bytes.size() >= 3 && bytes[0] == 'h' && bytes[6] == 0xC3 && bytes[7] == 0xA9 && bytes.size() == 11);
+    check("read_text_round_trip", FileIO::ReadTextAsync(a).get() == hstring(accented));
+    FileIO::WriteTextAsync(a, L"AB", UnicodeEncoding::Utf16LE).get();
+    bytes = read_file_bytes(root_path + L"\\a.txt");
+    hex.clear();
+    for (auto b : bytes) { char t[4]; std::snprintf(t, sizeof(t), "%02X", b); hex += t; }
+    info("WriteTextAsync Utf16LE bytes: %s", hex.c_str());
+    check("write_text_utf16le_has_a_bom", bytes.size() == 6 && bytes[0] == 0xFF && bytes[1] == 0xFE && bytes[2] == 'A' && bytes[3] == 0);
+    check("read_text_utf16le", FileIO::ReadTextAsync(a, UnicodeEncoding::Utf16LE).get() == L"AB");
+    FileIO::WriteTextAsync(a, L"line1").get();
+    FileIO::AppendTextAsync(a, L"+more").get();
+    check("append_text", FileIO::ReadTextAsync(a).get() == L"line1+more");
+    {
+        auto lines = single_threaded_vector<hstring>({ L"one", L"two", L"three" });
+        FileIO::WriteLinesAsync(a, lines).get();
+        bytes = read_file_bytes(root_path + L"\\a.txt");
+        hex.clear();
+        for (auto b : bytes) { char t[4]; std::snprintf(t, sizeof(t), "%02X", b); hex += t; }
+        info("WriteLinesAsync bytes: %s", hex.c_str());
+        check("write_lines_uses_crlf", std::string(bytes.begin(), bytes.end()) == "one\r\ntwo\r\nthree\r\n");
+        auto read = FileIO::ReadLinesAsync(a).get();
+        check("read_lines", read.Size() == 3 && read.GetAt(0) == L"one" && read.GetAt(2) == L"three");
+        FileIO::AppendLinesAsync(a, single_threaded_vector<hstring>({ L"four" })).get();
+        check("append_lines", FileIO::ReadLinesAsync(a).get().Size() == 4);
+    }
+    check("read_text_of_an_empty_file", FileIO::ReadTextAsync(inner).get() == L"");
+    /* a UTF-8 file with a BOM is read without it */
+    {
+        BYTE with_bom[] = { 0xEF, 0xBB, 0xBF, 'h', 'i' };
+        auto path = root_path + L"\\bom.txt";
+        HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+        DWORD w; WriteFile(h, with_bom, sizeof(with_bom), &w, nullptr); CloseHandle(h);
+        auto bom = StorageFile::GetFileFromPathAsync(path).get();
+        check("read_text_strips_a_utf8_bom", FileIO::ReadTextAsync(bom).get() == L"hi");
+        BYTE utf16[] = { 0xFF, 0xFE, 'o', 0, 'k', 0 };
+        h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+        WriteFile(h, utf16, sizeof(utf16), &w, nullptr); CloseHandle(h);
+        check("read_text_detects_a_utf16_bom", FileIO::ReadTextAsync(bom).get() == L"ok");
+    }
+
+    /* FileIO: bytes and buffers */
+    {
+        std::vector<uint8_t> raw{ 1, 2, 3, 250, 0, 7 };
+        FileIO::WriteBytesAsync(a, raw).get();
+        bytes = read_file_bytes(root_path + L"\\a.txt");
+        check("write_bytes", bytes == std::vector<BYTE>(raw.begin(), raw.end()));
+        auto buffer = FileIO::ReadBufferAsync(a).get();
+        check("read_buffer_length", buffer.Length() == 6);
+        auto reader = DataReader::FromBuffer(buffer);
+        check("read_buffer_content", reader.ReadByte() == 1 && reader.ReadByte() == 2);
+    }
+
+    /* PathIO */
+    root.CreateFileAsync(L"p.txt").get();
+    PathIO::WriteTextAsync(root_path + L"\\p.txt", L"by path").get();
+    check("path_io_round_trip", PathIO::ReadTextAsync(root_path + L"\\p.txt").get() == L"by path");
+
+    /* properties, rename, copy, move, delete */
+    auto props = a.GetBasicPropertiesAsync().get();
+    check("basic_properties_size", props.Size() == 6);
+    a.RenameAsync(L"renamed.txt").get();
+    check("rename", a.Name() == L"renamed.txt" && GetFileAttributesW((root_path + L"\\renamed.txt").c_str()) != INVALID_FILE_ATTRIBUTES &&
+          GetFileAttributesW((root_path + L"\\a.txt").c_str()) == INVALID_FILE_ATTRIBUTES);
+    check("rename_collision_fails_by_default", hresult_of([&] { a.RenameAsync(L"p.txt").get(); }) == (int32_t)0x800700B7);
+    auto copy = a.CopyAsync(sub).get();
+    check("copy_to_folder", copy.Name() == L"renamed.txt" && std::wstring(copy.Path()) == root_path + L"\\sub\\renamed.txt");
+    check("copy_collision_fails_by_default", hresult_of([&] { a.CopyAsync(sub).get(); }) == (int32_t)0x800700B7);
+    auto copy2 = a.CopyAsync(sub, L"copied.txt").get();
+    check("copy_with_a_new_name", copy2.Name() == L"copied.txt");
+    a.MoveAsync(sub, L"moved.txt").get();
+    check("move_updates_the_file", a.Name() == L"moved.txt" && std::wstring(a.Path()) == root_path + L"\\sub\\moved.txt" &&
+          GetFileAttributesW((root_path + L"\\renamed.txt").c_str()) == INVALID_FILE_ATTRIBUTES);
+    copy.DeleteAsync().get();
+    check("delete_file", GetFileAttributesW((root_path + L"\\sub\\renamed.txt").c_str()) == INVALID_FILE_ATTRIBUTES);
+    check("delete_again_is_file_not_found", hresult_of([&] { copy.DeleteAsync().get(); }) == (int32_t)0x80070002);
+    sub.DeleteAsync().get();
+    check("delete_folder_with_content", GetFileAttributesW((root_path + L"\\sub").c_str()) == INVALID_FILE_ATTRIBUTES);
+    check("unique_file_still_there", GetFileAttributesW((root_path + L"\\a (2).txt").c_str()) != INVALID_FILE_ATTRIBUTES);
+    check("storage_file_is_not_a_folder_path", hresult_of([&] { StorageFile::GetFileFromPathAsync(root_path).get(); }) != 0);
+
+    /* application URIs */
+    {
+        auto uri = Uri(L"ms-appdata:///local/p.txt");
+        auto by_uri = StorageFile::GetFileFromApplicationUriAsync(uri).get();
+        check("get_file_from_ms_appdata_uri", by_uri.Name() == L"p.txt" && std::wstring(by_uri.Path()) == root_path + L"\\p.txt");
+        auto missing = Uri(L"ms-appx:///view.exe");
+        auto exe = StorageFile::GetFileFromApplicationUriAsync(missing).get();
+        check("get_file_from_ms_appx_uri", exe.Name() == L"view.exe");
+    }
+    data.ClearAsync(ApplicationDataLocality::Local).get();
     put("READY");
     put("Uninitialize");
 }
@@ -1084,7 +1277,7 @@ int wmain(int argc, wchar_t **argv)
         std::wstring id = aumid.data();
         application_id = id.substr(id.find(L'!') + 1);
         mode = application_id == L"ViewSta" ? "sta" : application_id == L"ViewReturn" ? "return" :
-               application_id == L"ViewAppdata" ? "appdata" : application_id == L"ViewPkgapi" ? "pkgapi" : application_id == L"ViewPresent" ? "present" : application_id == L"ViewSuspend" ? "suspend" : application_id == L"View" ? "positive" : "";
+               application_id == L"ViewStorage" ? "storage" : application_id == L"ViewAppdata" ? "appdata" : application_id == L"ViewPkgapi" ? "pkgapi" : application_id == L"ViewPresent" ? "present" : application_id == L"ViewSuspend" ? "suspend" : application_id == L"View" ? "positive" : "";
         wchar_t dir[MAX_PATH];
         if (mode.empty() || !GetEnvironmentVariableW(L"LOCALAPPDATA", dir, ARRAYSIZE(dir))) return 2;
         out = std::wstring(dir) + L"\\view-" + std::wstring(mode.begin(), mode.end()) + L".txt";
@@ -1110,10 +1303,10 @@ int wmain(int argc, wchar_t **argv)
         return failures ? 1 : 0;
     }
 
-    if (mode == "pkgapi" || mode == "appdata")
+    if (mode == "pkgapi" || mode == "appdata" || mode == "storage")
     {
         check("package_identity", !package_full_name.empty());
-        try { if (mode == "pkgapi") run_pkgapi(); else run_appdata(); }
+        try { if (mode == "pkgapi") run_pkgapi(); else if (mode == "storage") run_storage(); else run_appdata(); }
         catch (hresult_error const &e) { info("threw 0x%08X", (unsigned)e.code()); check("no_exception", false); put("READY"); put("Uninitialize"); }
         return 0;
     }

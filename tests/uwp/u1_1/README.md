@@ -96,3 +96,29 @@ mesa llvmpipe (Wine built with OpenGL, EGL and Vulkan headers), fresh prefix per
 `inject.exe`, `CreateSwapChainForCoreWindow`, five presented frames, pixel read back B=153 G=76 R=102 after the last
 clear) pass on x64 and x86 with the unchanged `view.exe` bits. Without a 3D device the swap chain and pixel checks
 are skipped (28 checks). `run-wine-lifecycle.sh` runs it with `PRESENT=1` under `xvfb-run`.
+
+## StorageFolder, StorageFile and FileIO on Windows (U1.5, measured; Wine not done)
+
+2026-11-13, application `ViewStorage` (run with `run-mode.ps1 -Mode storage`): 59 checks pass on Windows 11 (list in
+`expected-storage.txt`, raw output in `..\WineExplorer-local`). What Windows does, beyond the obvious:
+
+* `CreateFileAsync`: default option is `FailIfExists` (`0x800700B7` when present); `GenerateUniqueName` makes `a (2).txt`
+  (the first copy is numbered 2); `OpenIfExists` and `ReplaceExisting` return the file; an empty name is an error; **a name
+  with a backslash is a relative path and the folders in between are created**.
+* `GetFileAsync`/`GetFolderAsync`/`GetFileFromPathAsync` of something missing: `0x80070002`; a relative path to
+  `GetFileFromPathAsync`: `0x80070057`; a folder path given to it fails; `TryGetItemAsync` of a missing name returns null.
+* `GetFilesAsync` and `GetFoldersAsync` list only files or folders, sorted by name; `GetItemsAsync` lists both.
+* `DisplayName` of `a.txt` is `a.txt`; `ContentType` of `.txt` is `text/plain`.
+* `FileIO.WriteTextAsync` writes UTF-8 **without** a BOM by default; `UnicodeEncoding.Utf16LE` writes the BOM (`FFFE`);
+  `WriteLinesAsync` ends every line with CRLF; `ReadTextAsync` strips a UTF-8 BOM and detects a UTF-16 BOM; an empty
+  file reads as an empty string; `PathIO` on a missing file fails (`0x80070002`), it does not create it.
+* `RenameAsync` onto an existing name fails (`0x800700B7`); `CopyAsync(folder)` keeps the name and fails on a collision;
+  `CopyAsync(folder, name)` and `MoveAsync(folder, name)` work and `MoveAsync` updates the object's `Name` and `Path`;
+  `DeleteAsync` of a deleted file is `0x80070002`; deleting a folder removes its content.
+* `GetFileFromApplicationUriAsync` takes `ms-appdata:///local/...` and `ms-appx:///...` (the package folder).
+
+Wine has none of this yet except `GetFolderFromPathAsync` (`StorageFolder` has stubs for the rest). Plan: (1) the
+interfaces missing from `windows.storage.idl` (`IFileIOStatics` 887411eb-7f54-4732-a5f0-5e43e3b8c2f5, `IPathIOStatics`
+0f2f3758-8ec7-4381-922b-8f6c07d288f3, from the SDK headers), typed async operations and an `IAsyncAction`, (2) the
+folder operations and `StorageFile`, (3) `FileIO`/`PathIO`, `Buffer`, (4) file-backed streams (`OpenAsync`) and
+`DataReader`/`DataWriter`.
