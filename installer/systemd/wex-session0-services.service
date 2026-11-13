@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer system tier: session 0's own programs (docs/SYSTEM_TIER_WORK_ORDERS.md, T5.3).
+# wex-session0.service is the server only. This unit starts Windows in it: wineboot brings the machine root up to
+# date and starts session 0's services.exe, which runs the machine-wide services that the users' sessions forward
+# to it (T5.4). A session's service calls for those services fail until this has run, so it is ordered before the
+# display manager. The programs stay after wineboot has returned; they end with the server.
+
+[Unit]
+Description=WineExplorer system tier (session 0 services)
+Documentation=https://github.com/zcomputerwiz/WineExplorer/blob/master/docs/SYSTEM_TIER_WORK_ORDERS.md
+Requires=wex-session0.service
+After=wex-session0.service
+# stopped with the server, and started again with it when the server is restarted
+BindsTo=wex-session0.service
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=wexsys
+Group=wexsys
+UMask=0022
+WorkingDirectory=/
+Environment=WINEPREFIX=/var/lib/wineexplorer/machine
+Environment=HOME=/var/lib/wineexplorer/machine
+Environment=WINEDEBUG=-all
+Environment=WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d
+# the server's socket appears a moment after its unit is started
+ExecStartPre=/bin/sh -c 'i=0; while [ ! -S /run/wineexplorer-session0/session0 ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; [ -S /run/wineexplorer-session0/session0 ]'
+ExecStart=/usr/local/bin/wine wineboot.exe --init
+TimeoutStartSec=180
+# wineboot returns; services.exe and its services are meant to stay
+KillMode=none
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=wex-session0.service

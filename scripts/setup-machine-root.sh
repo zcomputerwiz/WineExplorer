@@ -531,14 +531,22 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
         systemctl enable --now wex-accounts.path wex-accounts.timer
     fi
     if [ "$SESSION0_ENABLE" = 1 ] && [ "$SYSRUN_DIR" = /usr/local/libexec/wineexplorer ] && [ "$SYSRUN_CONF" = /etc/wineexplorer/sysrun.conf ]; then
+        # From a source checkout the units are installed from it; on an installed system the package has put
+        # them in /lib/systemd/system already (this script is /usr/local/bin/wex-setup-machine.sh there).
         SESSION0_UNITS="$(dirname -- "$(readlink -f -- "$0")")/../installer/systemd"
         if [ -f "$SESSION0_UNITS/wex-session0.service" ]; then
             install -d -m 0755 /lib/systemd/system
             install -m 0644 -o root -g root "$SESSION0_UNITS/wex-session0.service" /lib/systemd/system/
-            if [ -d /run/systemd/system ]; then
-                systemctl daemon-reload
-                systemctl enable --now wex-session0.service
-            fi
+            [ ! -f "$SESSION0_UNITS/wex-session0-services.service" ] ||
+                install -m 0644 -o root -g root "$SESSION0_UNITS/wex-session0-services.service" /lib/systemd/system/
+        fi
+        if [ -f /lib/systemd/system/wex-session0.service ] && [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+            systemctl enable --now wex-session0.service
+            # session 0's own services.exe (T5.3): the sessions forward the machine-wide services to it
+            [ ! -f /lib/systemd/system/wex-session0-services.service ] ||
+                systemctl enable --now wex-session0-services.service ||
+                echo "WARNING: session 0's services did not start (wex-session0-services.service)" >&2
         fi
     fi
 fi

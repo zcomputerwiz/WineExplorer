@@ -89,7 +89,12 @@ find /etc/skel/.wine -name "*.tmp" -delete 2>/dev/null || true
 
 # Split prefix into shared machine root (/var/lib/wineexplorer/machine) and per-user symlinks
 if [ -x /usr/local/bin/wex-setup-machine.sh ]; then
-    /usr/local/bin/wex-setup-machine.sh || echo "Machine root setup failed"
+    # an image packaged with WEX_SESSION0=1 turns the system tier's session 0 on (docs/SYSTEM_TIER_WORK_ORDERS.md)
+    if [ -f /usr/local/share/wineexplorer/session0.enable ]; then
+        WEX_SESSION0=1 /usr/local/bin/wex-setup-machine.sh || echo "Machine root setup failed"
+    else
+        /usr/local/bin/wex-setup-machine.sh || echo "Machine root setup failed"
+    fi
 fi
 
 # The built-in Administrator account (docs/SAFE_MODE_WORKORDER.md C4; the package creates it locked) gets the
