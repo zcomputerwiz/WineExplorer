@@ -106,6 +106,15 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     Windows checkout at the branch's gitlink, as a git checkout, because `build-debs.sh` archives its tree with git.
     It takes about three minutes and downloads the recovery image's packages. `--vintner=DIR` reuses packages built
     earlier, for example from a branch of `D:\Projects\vintner-boot`.
+* `installer/tests/session0.sh` (system tier, session 0 on an installed machine; `docs/SYSTEM_TIER_WORK_ORDERS.md`): as
+  root, `VMTEST_DIR=DIR bash installer/tests/session0.sh SOURCE_VM [TEST_VM]`. SOURCE_VM is a disk installed by
+  `install-unattended.sh` from an ISO packaged with `WEX_SESSION0=1` (the variable must be set for `build-iso.sh`
+  too: it packages again); it is never written. The test runs in an overlay, gives its root a throwaway password
+  offline, sends `session0-guest.sh` in over the serial console and decides from its 16 `ok`/`not ok` lines (units,
+  the user's session, registry through session 0, a second user, a forwarded service, a restart of session 0).
+  About 4 minutes; passed on 2026-11-13 in wexbuild (`/root/vmtest-s0/wex-s0`, ISO from `/root/WE-s0`). It takes the
+  first free NBD device, so run one VM test at a time. `build-iso.sh` needs Go and the other Vintner Boot build
+  dependencies in the build distro (in wexbuild since that day).
 * `installer/tests/safe-mode.sh` (Safe Mode VM test, `docs/SAFE_MODE.md` section 6): as root in WSL Debian, from a
   script file, `VMTEST_DIR=/var/tmp/vmtest-gpt WEX_TEST_FIRMWARE=bios|uefi bash installer/tests/safe-mode.sh SOURCE_VM TEST_VM [PHASE...]`.
   It replaces TEST_VM with a new qcow2 overlay of the installed disk SOURCE_VM, which is never written; an existing
