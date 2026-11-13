@@ -78,8 +78,9 @@ types only into a window it has checked; it needs an unlocked desktop that nobod
   has `WasKeyDown` true and `IsKeyReleased` true.
   No `SizeChanged` and no `VisibilityChanged(false)` at any time (the window was never resized or covered completely).
   The full output is in `..\WineExplorer-local\uwp-u11b-present-windows.txt` *(not copied here)*.
-* The presented swap chain content showed white on screen, not the colours cleared to (it is an unlit flip-model
-  surface seen at a screenshot made right after READY; not investigated, not asserted).
+* The presented swap chain content shows white in `screen-at-ready.png` (GDI `CopyFromScreen` does not capture the
+  composed flip-model surface). The owner watched the window: the five frames cycled quickly and ended on purple,
+  which is the last clear colour (0.4, 0.3, 0.6). The swap chain works; screenshots cannot verify what is drawn.
 
 ## Not asserted (observed, varies or races on Windows)
 
