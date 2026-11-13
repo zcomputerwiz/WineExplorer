@@ -255,7 +255,24 @@ notification, which already reaches every session through session 0. No server c
 - User: the marker key `HKCU\Software\Policies\WineExplorer\Policy Applied`, value `Serial` (inside the protected
   tree, so the user cannot fake a refresh).
 
-## Step 4: domain policy, from Samba to the writer (2026-11-13, half tested)
+## End to end on an installed machine (2026-11-13)
+
+`installer/tests/ad/machine.sh SOURCE_VM` boots an overlay of an installed session 0 disk on the lab network; the
+guest installs Samba, joins the lab domain, and checks. Passed on an ISO of 159d820e (10 checks): not joined
+before; joined; after a restart of session 0's services a user's program reads the domain's two names; after
+`wex-gpupdate.service` it reads the test object's value from `HKLM\Software\Policies\WexLab`; the timer is
+enabled; the policy service runs once in session 0; no unit failed.
+
+One finding, reported by the test as a note: the installed user could overwrite that machine policy value, and
+the next refresh put it back. An installed system does not enforce elevation by default, so every user's token
+is unrestricted and session 0 takes the write. Until installed systems enforce elevation, domain policy is
+applied and re-applied, but not binding between refreshes. This is a decision about the elevation default, not
+about Group Policy.
+
+Not covered: user policy from the domain (the accounts map has local users only; logging on to WineExplorer as a
+domain user does not exist yet), the lockout policy from the security template, SSSD joins.
+
+## Step 4: domain policy, from Samba to the writer (2026-11-13)
 
 `installer/scripts/wex-gpupdate.sh`, run as root by `wex-gpupdate.timer` (at start, then every 90 minutes plus
 up to 30 at random) on a machine joined with Samba:
@@ -272,8 +289,8 @@ registration in Samba. The price: it depends on the text `net ads gpo list` prin
 template (`GptTmpl.inf`, the lockout policy) not at all yet.
 
 Tested in the lab domain: steps 1 and 2 on the joined member (`--print`: the machine file of the test object for
-the computer, the user file for a domain user, nothing for a local account). Not tested: step 3 and the timer,
-which need an installed WineExplorer machine joined to the lab domain; the order of several objects (applied in
+the computer, the user file for a domain user, nothing for a local account); step 3 for the computer and the
+timer on an installed machine ("End to end" above). Not tested: step 3 for a user; the order of several objects (applied in
 the order Samba lists them, later wins; unverified against Windows); SSSD joins (the script needs Winbind).
 
 ## Design

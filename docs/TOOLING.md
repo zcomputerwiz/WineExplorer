@@ -112,7 +112,15 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   `bash installer/tests/ad/client-create.sh` (a member guest that joins and checks `wex-domain-state.sh`; prints
   `PASS: join detection`). Each takes `stop` and `ssh CMD`. Disks, key and the throwaway Administrator password are
   in `/var/tmp/wex-ad-lab` (about 2 GB); SSH ports 2241 and 2242 on 127.0.0.1. Passed on 2026-11-13. The guests stay
-  running until stopped.
+  running until stopped. `gpo-create.sh [N]` makes or changes the test policy object.
+* `installer/tests/ad/machine.sh` (Group Policy end to end on an installed machine): as root where the installed
+  disk is, `VMTEST_DIR=DIR bash installer/tests/ad/machine.sh SOURCE_VM [TEST_VM]`, with the controller running.
+  SOURCE_VM is a session 0 disk as for `session0.sh`, from an image that has `wex-gpupdate.sh`. It needs the lab
+  password file `/var/tmp/wex-ad-lab/admin_password.txt` in the distribution it runs in (the controller is in
+  Debian, the installed disks are in wexbuild; QEMU's multicast network does cross the two distributions). About
+  15 minutes (the guest installs Samba); passed on 2026-11-13 with `/root/vmtest-s0/wex-s0`. It uses
+  `VMTEST_QEMU_EXTRA`, which `scripts/vmtest.py start` appends to QEMU's arguments. Pitfall found: the installed
+  system's network service takes a hand-set address off the second card unless told not to manage it.
 * `installer/tests/session0.sh` (system tier, session 0 on an installed machine; `docs/SYSTEM_TIER_WORK_ORDERS.md`): as
   root, `VMTEST_DIR=DIR bash installer/tests/session0.sh SOURCE_VM [TEST_VM]`. SOURCE_VM is a disk installed by
   `install-unattended.sh` from an ISO packaged with `WEX_SESSION0=1` (the variable must be set for `build-iso.sh`
