@@ -20,6 +20,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `server/request.c`: a registry-only client's requests outside the allowed list fail with access denied.
 - `server/main.c`: option `--session0`; `session0_init` after the master socket.
 - `server/registry.c`: a server whose programs use session 0 never saves the machine and `.Default` hives.
+- `server/registry.c` (Group Policy, [GROUP_POLICY.md](GROUP_POLICY.md)): in a user's hive held by session 0 the
+  keys of the two policy trees have a descriptor by path (the user reads; SYSTEM and Administrators write); the
+  trees are emptied and their roots created when the hive is loaded; `rename_key` refuses the keys above a tree to
+  a caller who may not write the tree. `loader/wine.inf.in`: the service `gpsvc` (`wexpolicy.exe`, automatic).
 - `dlls/ntdll/unix/server.c`: the channel to session 0 (`regsrv_*`): obtained from the process's server, a
   table of session 0 key handles that survives a new channel, reopen by path, lost-channel retry; `NtClose` and
   `NtDuplicateObject` (within the process) for those handles. `unix_private.h`: the interface.

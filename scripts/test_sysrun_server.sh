@@ -3450,6 +3450,49 @@ pgrep -u "$S0U" -f wuauserv >/dev/null || fail "T5.4: a standard user stopped se
 s0_wine sc stop wuauserv >/dev/null || true
 kill_servers
 ok st_services_run_once_in_session0_and_users_cannot_stop_them
+# Group Policy step 1 (docs/GROUP_POLICY.md): session 0's writer applies registry policy; a user's policy is kept
+# for the logon, is written into the hive by the service, and the user can change it neither in the registry nor
+# in the hive file.
+POL="$ROOT/policy"; mkdir -p "$POL"; chmod 755 "$POL"
+python3 -I "$SRC/scripts/lab/make-preg.py" "$POL/user.pol" 'Software\Policies\WexPol' Limit 7 'Software\WexNotPolicy' x 1
+python3 -I "$SRC/scripts/lab/make-preg.py" "$POL/machine.pol" 'Software\Policies\WexPol' Machine 5
+STD_SID="S-1-5-21-$(awk -v n="$STD" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
+pol_user() { local i v=; for i in $(seq 1 20); do v="$(v32 query 'HKCU\Software\Policies\WexPol' /v Limit | val Limit)"; [ "$v" = "$1" ] && break; sleep 0.5; done; echo "$v"; }
+s0_wine sc start gpsvc >/dev/null || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+pgrep -u "$S0U" -f wexpolicy >/dev/null || fail "policy: the service gpsvc does not run in session 0"
+OUT="$(s0_wine wexpolicy apply "/user:$STD_SID" "$(winpath "$POL/user.pol")" | tr -d '\r')" || true
+grep -q 'set=1 deleted=0 skipped=1 status=0 (the user is not logged on' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: apply for a user who is not logged on"; }
+[ "$(pol_user 0x7)" = 0x7 ] || fail "policy: a 32-bit program of $STD does not read the user policy after logon: [$(pol_user 0x7)]"
+[ -z "$(as_wine "$STD" reg query 'HKCU\Software\WexNotPolicy' /v x | val x)" ] || fail "policy: an entry outside the policy trees was written"
+as_wine "$STD" reg add 'HKCU\Software\Policies\WexPol' /v Limit /t REG_DWORD /d 9 /f >/dev/null && fail "policy: $STD changed a policy value"
+as_wine "$STD" reg add 'HKCU\Software\Policies\WexOwn' /v x /d 1 /f >/dev/null && fail "policy: $STD made a key in the policy tree"
+as_wine "$STD" reg add 'HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer' /v NoRun /t REG_DWORD /d 1 /f >/dev/null &&
+    fail "policy: $STD wrote the second policy tree"
+as_wine "$STD" reg add 'HKCU\Software\WexPolOther' /v x /d 1 /f >/dev/null || fail "policy: $STD cannot write the rest of HKCU any more"
+[ "$(pol_user 0x7)" = 0x7 ] || fail "policy: the value changed after the refused writes"
+ok st_user_policy_is_applied_at_logon_and_the_user_cannot_change_it
+# the hive file is the user's: what it says in the policy trees is dropped at the next logon
+kill_servers
+for i in $(seq 1 20); do grep -q '^"Limit"=dword:00000007' "/home/$STD/.wine/user.reg" && break; sleep 0.5; done
+grep -q '^"Limit"=dword:00000007' "/home/$STD/.wine/user.reg" || fail "policy: the policy value is not in the saved hive"
+run_as "$STD" sed -i 's/^"Limit"=dword:00000007/"Limit"=dword:00000009/' "/home/$STD/.wine/user.reg"
+grep -q '^"Limit"=dword:00000009' "/home/$STD/.wine/user.reg" || fail "policy: the hive file was not changed for the test"
+[ "$(pol_user 0x7)" = 0x7 ] || fail "policy: a value changed in the hive file became policy: [$(pol_user 0x7)]"
+ok st_user_policy_changed_in_the_hive_file_is_replaced_at_logon
+# machine policy, the logged-on user, clear; only the system writes policy
+OUT="$(s0_wine wexpolicy apply /machine "$(winpath "$POL/machine.pol")" | tr -d '\r')" || true
+grep -q 'set=1 deleted=0 skipped=0 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: apply /machine"; }
+[ "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" = 0x5 ] || fail "policy: $STD does not read the machine policy"
+s0_wine wexpolicy list /machine | tr -d '\r' | grep -qx 'Software\\Policies\\WexPol\\Machine' || fail "policy: list /machine"
+s0_wine wexpolicy clear /machine >/dev/null || fail "policy: clear /machine"
+[ -z "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" ] || fail "policy: clear left the machine value"
+s0_wine wexpolicy clear "/user:$STD_SID" >/dev/null || fail "policy: clear for the logged-on user"
+[ -z "$(as_wine "$STD" reg query 'HKCU\Software\Policies\WexPol' /v Limit | val Limit)" ] || fail "policy: clear left the user's value"
+OUT="$(as_wine "$STD" wexpolicy clear /machine || true)"   # the writer's own exit status is 5
+grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: $STD ran the writer"; }
+kill_servers
+ok st_machine_policy_and_clear_and_only_the_system_writes
 # session 0 saves the hive as its own account; the users' servers accept it, and the write survives a restart
 s0_stop
 grep -q '^"fromadm"="elevated"' "$M/system.reg" || fail "session 0 did not save the elevated write"

@@ -1,6 +1,6 @@
 # Group Policy and Linux GPO sync (design note)
 
-Surveyed on 2026-11-11. Status: step 1 (the session 0 policy writer) is in progress, the rest is design. The Linux facts below were checked online on the
+Surveyed on 2026-11-11. Status: step 1 (the session 0 policy writer) is implemented, the rest is design. The Linux facts below were checked online on the
 same day (sources at the end); anything marked "unverified" was not. Reviewed on 2026-11-11 against the tree and the
 elevation work (E1): the Wine and ReactOS statements were rechecked, the Samba statements were not; the machine
 registry, the policy trees and the security-template parts were corrected. Roadmap entry: "Future: Group Policy and
@@ -140,7 +140,7 @@ session 0, and Group Policy later adds a writer beside it, with no change to R9.
    lab);
 3. the Samba extension, refresh signalling over the session link, the applied-GPO list.
 
-## Step 1: the session 0 policy writer (2026-11-13, in progress)
+## Step 1: the session 0 policy writer (2026-11-13, implemented)
 
 **The writer, `wexpolicy`** (`src/programs/wexpolicy`). A console program of session 0, run as LocalSystem:
 
@@ -183,7 +183,9 @@ effective only while elevation is enforced (without it every token is unrestrict
 **The service, `gpsvc`.** The hive file is the user's own file, so the user can change the policy trees in it
 while logged off. Therefore:
 
-- Session 0 empties the two policy trees when it loads a user's hive (rule 2 then creates the roots again).
+- Session 0 empties the two policy trees when it loads a user's hive (rule 2 then creates the roots again). A
+  key on the way to a tree that the file made a registry link is removed with all below it and made again as a
+  plain key; otherwise the readers of the policy would be led to a place the user writes.
 - `wexpolicy` started without arguments by the service manager is the service `gpsvc` ("Group Policy Client"), an
   automatic service that only works as LocalSystem. It looks at `HKEY_USERS` every two seconds, and at once on a
   change notification. An account's hive without the marker key gets the values of its archive
@@ -197,6 +199,12 @@ Between the hive's arrival and the service's write (up to two seconds) the user'
 Windows has the same kind of window when policy is applied asynchronously at logon.
 
 Machine policy needs none of this: `HKLM` is session 0's own and is saved in its root.
+
+**Status (2026-11-13).** Implemented and passing in `scripts/test_sysrun_server.sh` (normal suite 345, lab suite
+419): a user's policy applied while logged off appears at logon for a 32-bit program, and the user can change it
+neither in the registry nor in the hive file; machine policy, `clear`, `list`; the writer refused to a standard
+user. Reviewed by Qwen (read-only), which found the link case above independently. Not tested: the link case
+itself, the rename rule, the service on an installed machine. Next: join detection (step 2).
 
 ## Design
 
