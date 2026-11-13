@@ -104,8 +104,8 @@
 #                sysdm.cpl,,3` (a program and its parameters), `sysdm.cpl` (a .cpl file: cplfile's one verb),
 #                `notepad %USERPROFILE%\...` (environment strings), WordPad by its quoted path and by its path with
 #                spaces unquoted, each with a file; a document whose path has spaces still opens as one name; a
-#                program that does not exist gets the error, and Run stays open. Only when named (WEX_TEST_WINE:
-#                this branch's shell32.dll).
+#                program that does not exist gets the error, and Run stays open. Only when named (Wine 68ab2d5dab3
+#                or later; an older image needs that shell32.dll from WEX_TEST_WINE).
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -936,8 +936,8 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     # Started by the shell, as a user would: polkit asks the agent of the caller's logind session, and a program the
     # serial console starts (session-run.py) belongs to the console's session, which has none. Win+Pause (Explorer's
     # hot key, as on XP) opens System Properties on General; Ctrl+Tab goes on to Computer Name, Hardware and Advanced.
-    # (Wine's Run does not do it: it takes what is typed as one file name, so "control sysdm.cpl,,3" is not found,
-    # and it has no verb for a .cpl file; XP's does both.)
+    # (Wine's Run before 68ab2d5dab3 could not: it took what is typed as one file name, so "control sysdm.cpl,,3" was
+    # not found, and it had no verb for a .cpl file. Win+Pause also works on older images.)
     "${V[@]}" key "$TEST" meta_l-pause >/dev/null
     wait_text "Computer Name" 60 || { shot no-sysdm; fail "Win+Pause did not open System Properties"; }
     sleep 2
