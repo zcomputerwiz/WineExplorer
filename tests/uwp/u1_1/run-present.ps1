@@ -7,7 +7,7 @@
 # (present.txt); nothing is compared yet. The machine's mouse is moved and clicked and keys are typed: do not use the
 # machine during the run (about 25 seconds).
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$WorkDirectory, [Parameter(Mandatory)][string]$ResultsDirectory, [switch]$Manual, [switch]$Execute)
+param([Parameter(Mandatory)][string]$WorkDirectory, [Parameter(Mandatory)][string]$ResultsDirectory, [ValidateSet('present','suspend','pkgapi')][string]$Mode = 'present', [switch]$Manual, [switch]$Execute)
 $ErrorActionPreference = 'Stop'
 $work = [IO.Path]::GetFullPath($WorkDirectory)
 $results = [IO.Path]::GetFullPath($ResultsDirectory)
@@ -112,9 +112,9 @@ try {
     if ($matches.Count -ne 1) { throw 'Cannot identify the installed package uniquely.' }
     $installed = $matches[0]
     $folder = Join-Path $env:LOCALAPPDATA "Packages\$($installed.PackageFamilyName)\AC"
-    $file = Join-Path $folder 'view-present.txt'
+    $file = Join-Path $folder "view-$Mode.txt"
     if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file }
-    & $launcher ($installed.PackageFamilyName + '!ViewPresent') present 'unused' $installed.PackageFullName 2>&1 | ForEach-Object { Write-Host $_ }
+    try { & $launcher ($installed.PackageFamilyName + '!View' + (Get-Culture).TextInfo.ToTitleCase($Mode)) $Mode 'unused' $installed.PackageFullName 2>&1 | ForEach-Object { Write-Host $_ } } catch { Write-Host "launcher: $($_.Exception.Message)" }
     $deadline = (Get-Date).AddSeconds(20)
     $ready = $false
     while ((Get-Date) -lt $deadline) {
@@ -167,10 +167,10 @@ try {
         "mouse: move, left click, right click, wheel up; keys: a, Shift+b, Enter, Left, F5" | Add-Content -LiteralPath (Join-Path $results 'injected.txt')
     }
     # the probe ends 12 s after READY
-    $end = (Get-Date).AddSeconds(45)
+    $end = (Get-Date).AddSeconds(100)
     while ((Get-Date) -lt $end -and -not (Select-String -LiteralPath $file -Pattern 'Run returning|WATCHDOG|Uninitialize' -Quiet)) { Start-Sleep -Milliseconds 500 }
     Start-Sleep -Seconds 2
-    if (Test-Path -LiteralPath $file) { Copy-Item -LiteralPath $file -Destination (Join-Path $results 'present.txt') } else { Write-Host "present: no output in $folder" }
+    if (Test-Path -LiteralPath $file) { Copy-Item -LiteralPath $file -Destination (Join-Path $results "$Mode.txt") } else { Write-Host "present: no output in $folder" }
 } finally {
     if ($installed) { Remove-AppxPackage -Package $installed.PackageFullName -ErrorAction Stop }
 }

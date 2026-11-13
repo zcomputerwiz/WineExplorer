@@ -49,6 +49,9 @@ def fail(message):
     sys.exit('register-wine.py: ' + message)
 
 
+PUBLISHER = ['']   # the publisher of the manifest read last, for the record
+
+
 def publisher_id(publisher):
     """First 64 bits of SHA-256 over the UTF-16LE publisher, as 13 base32 characters."""
     digest = hashlib.sha256(publisher.encode('utf-16-le')).digest()[:8]
@@ -73,6 +76,7 @@ def read_manifest(stage):
     if resource:
         fail('resource packages are not supported')
     pubid = publisher_id(identity.get('Publisher'))
+    PUBLISHER[0] = identity.get('Publisher')
     apps = []
     for app in root.findall('f:Applications/f:Application', NS):
         if not ID_RE.match(app.get('Id')):
@@ -156,6 +160,8 @@ def cmd_register(args):
     root = dos_catalog + '\\' + full
     text = 'WEXAPPX 1\n'
     text += 'root\t%s\n' % root
+    if PUBLISHER[0] and all(0x20 <= ord(c) <= 0x7e for c in PUBLISHER[0]):
+        text += 'publisher\t%s\n' % PUBLISHER[0]
     text += ''.join(('app\t%s\t%s\t%s\n' % app) if app[2] else ('app\t%s\t%s\n' % app[:2]) for app in apps)
     text += ''.join('class\t%s\t%s\n' % cls for cls in classes)
     temp = record + '.tmp-%d' % os.getpid()

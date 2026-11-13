@@ -3186,3 +3186,16 @@ PointerPointProperties, PointerDevice for a mouse); new `include/windows.ui.core
 (`CreateSwapChainForCoreWindow` gets the window handle through `ICoreWindowInterop` and creates the swap chain for it,
 it was `E_NOTIMPL`). Tests: `tests/uwp/u1_1` (`ViewPresent`, `inject.c`, `expected-present.txt`), run under Xvfb;
 the swap chain needs a Wine with OpenGL or Vulkan; it passes on the guest build made with those headers.
+
+Later on 2026-11-13 (U1.2, package information, measured on Windows 11 with `tests/uwp/u1_1` application `ViewPkgapi`):
+`dlls/kernelbase/version.c` (new: `GetCurrentPackageInfo`, `OpenPackageInfoByFullName` and `...ForUser`, `GetPackageInfo`,
+`ClosePackageInfo`, `GetPackageApplicationIds`, `GetPackagePathByFullName`, `GetStagedPackagePathByFullName`,
+`GetPackagesByPackageFamily`, `FindPackagesByPackageFamily`, `PackageFamilyNameFromId`,
+`PackageNameAndPublisherIdFromFamilyName`, `ParseApplicationUserModelId`, `GetApplicationUserModelId`; they read the
+catalog records of the prefix as information, the identity of a process still comes from its token), `kernelbase.spec`,
+`dlls/kernel32/kernel32.spec` (forwarders), `include/appmodel.h` (`PACKAGE_INFO`, `PACKAGE_INFO_REFERENCE`, the
+`PACKAGE_FILTER_*` flags, the MSVC x86 alignment of `PACKAGE_VERSION`, prototypes), `server/uwp_context.c` (the catalog
+record accepts `publisher` and `dependency` lines), `dlls/windows.ui/window.c` (`Activate` without a display leaves the
+window invisible and the application running). WineExplorer: `src/programs/wexappx` and `tests/uwp/u1_0/register-wine.py`
+write the publisher into the catalog record. The same unchanged probe passes 39 package API checks on Windows (x64) and
+on Wine (x64, x86).

@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# The checks of view.exe application ViewPkgapi (mode pkgapi), as Windows 11 (build 26300, x64, 2026-11-13) passed them.
+PASS application_ids_are_all_applications_of_the_package
+PASS application_user_model_id_of_the_process
+PASS close_package_info
+PASS family_name_from_id
+PASS family_name_from_null_id_is_invalid
+PASS family_split_garbage_is_invalid
+PASS family_split_of_an_uninstalled_family
+PASS find_packages_by_package_family
+PASS full_name_from_id_round_trip
+PASS name_and_publisher_id_from_family_name
+PASS open_garbage_is_invalid
+PASS open_null_is_invalid
+PASS open_package_info
+PASS open_unknown_package_is_not_found
+PASS package_id_from_full_name
+PASS package_id_from_garbage_is_invalid
+PASS package_identity
+PASS package_info_by_reference_size_query
+PASS package_info_direct_alone_is_empty_success
+PASS package_info_flags
+PASS package_info_head
+PASS package_info_head_and_direct
+PASS package_info_id
+PASS package_info_names
+PASS package_info_null_length_is_invalid
+PASS package_info_publisher_is_the_manifest_publisher
+PASS package_info_size_query_is_insufficient_buffer
+PASS package_info_size_query_without_count
+PASS package_info_unfiltered_is_the_head
+PASS package_info_unknown_flags_are_ignored
+PASS package_name_length_without_buffer_is_invalid
+PASS package_name_null_length
+PASS package_path_by_full_name
+PASS package_path_of_unknown_is_not_found
+PASS packages_by_package_family
+PASS packages_of_an_uninstalled_family_is_empty
+PASS packages_of_garbage_family_is_invalid
+PASS parse_application_user_model_id
+PASS parse_aumid_garbage_is_invalid

@@ -38,6 +38,8 @@
 
 #include <windows.h>
 #include <appmodel.h>
+#include <algorithm>
+#include <chrono>
 #include <cstdarg>
 #include <cstdlib>
 #include <cstdio>
@@ -68,6 +70,7 @@ static std::vector<std::string> order;      /* the dispatcher batch, in order */
 static DWORD main_thread, view_thread, start_tick;
 static std::wstring package_full_name, application_id;
 static std::string mode;
+static bool presenting() { return mode == "present" || mode == "suspend"; }
 
 static void put(std::string const &line)
 {
@@ -201,9 +204,339 @@ static void present_checks()
     check_key("key_f5_without_character", 116, 63, 0, 0);
 }
 
-/* present mode: a swap chain for the CoreWindow, a few presented frames, then the window events and the input a
- * runner on the host injects (run-present.ps1 waits for the READY line) are recorded; nothing here is asserted yet,
- * the output is the measurement */
+template <typename F> static std::wstring query(F call)
+{
+    UINT32 size = 0;
+    if (call(&size, nullptr) != ERROR_INSUFFICIENT_BUFFER || !size) return {};
+    std::vector<wchar_t> buffer(size);
+    if (call(&size, buffer.data()) != ERROR_SUCCESS) return {};
+    return buffer.data();
+}
+
+/* pkgapi mode: what the package APIs return for this process, recorded as INFO lines (no window, no Run; unattended) */
+static std::string wide_to_utf8(wchar_t const *text)
+{
+    return text ? to_string(hstring(text)) : std::string("(null)");
+}
+
+/* pkgapi mode: the checks, from what Windows 11 returned (INFO lines of run_pkgapi, tests/uwp/u1_1/README.md) */
+static std::vector<BYTE> package_info_bytes(UINT32 flags, UINT32 &count, LONG &rc_size, LONG &rc)
+{
+    UINT32 length = 0;
+    count = 99;
+    rc_size = GetCurrentPackageInfo(flags, &length, nullptr, &count);
+    std::vector<BYTE> buffer(length ? length : 1);
+    UINT32 got = length;
+    rc = rc_size == ERROR_INSUFFICIENT_BUFFER ? GetCurrentPackageInfo(flags, &got, buffer.data(), &count) : rc_size;
+    buffer.resize(got);
+    return buffer;
+}
+
+static void pkgapi_checks()
+{
+    auto full = query([](UINT32 *n, PWSTR p) { return GetCurrentPackageFullName(n, p); });
+    auto family = query([](UINT32 *n, PWSTR p) { return GetCurrentPackageFamilyName(n, p); });
+    auto path = query([](UINT32 *n, PWSTR p) { return GetCurrentPackagePath(n, p); });
+    UINT32 count = 0;
+    LONG rc_size = 0, rc = 0;
+
+    /* GetCurrentPackageInfo: no filter is the head of the graph; DIRECT alone is the (empty) dependencies */
+    auto none = package_info_bytes(0, count, rc_size, rc);
+    check("package_info_size_query_is_insufficient_buffer", rc_size == ERROR_INSUFFICIENT_BUFFER);
+    check("package_info_unfiltered_is_the_head", rc == ERROR_SUCCESS && count == 1);
+    if (rc == ERROR_SUCCESS && count == 1)
+    {
+        auto *info = reinterpret_cast<PACKAGE_INFO *>(none.data());
+        check("package_info_names", full == info->packageFullName && family == info->packageFamilyName && path == info->path);
+        auto const &id = info->packageId;
+        check("package_info_id", std::wstring(id.name) == L"WineExplorer.U1View" && id.processorArchitecture != 0xffff &&
+              id.version.Major == 1 && id.version.Minor == 0 && id.version.Build == 0 && id.version.Revision == 0 &&
+              std::wstring(id.publisherId).size() == 13 && family.find(id.publisherId) != std::wstring::npos &&
+              id.resourceId == nullptr);
+        check("package_info_publisher_is_the_manifest_publisher", id.publisher && std::wstring(id.publisher) == L"CN=WineExplorer U1 Oracle");
+        check("package_info_flags", info->flags == 0x10);
+    }
+    UINT32 head_count = 0, direct_count = 0, both_count = 0;
+    LONG rc_a = 0, rc_b = 0;
+    auto head = package_info_bytes(PACKAGE_FILTER_HEAD, head_count, rc_a, rc_b);
+    check("package_info_head", rc_b == ERROR_SUCCESS && head_count == 1 && head.size() == none.size());
+    auto direct = package_info_bytes(PACKAGE_FILTER_DIRECT, direct_count, rc_a, rc_b);
+    check("package_info_direct_alone_is_empty_success", rc_a == ERROR_SUCCESS && direct_count == 0 && direct.size() <= 1);
+    package_info_bytes(PACKAGE_FILTER_HEAD | PACKAGE_FILTER_DIRECT, both_count, rc_a, rc_b);
+    check("package_info_head_and_direct", rc_b == ERROR_SUCCESS && both_count == 1);
+    package_info_bytes(0x80000000, count, rc_a, rc_b);
+    check("package_info_unknown_flags_are_ignored", rc_a == ERROR_INSUFFICIENT_BUFFER);
+    UINT32 length = 0;
+    check("package_info_null_length_is_invalid", GetCurrentPackageInfo(PACKAGE_FILTER_HEAD, nullptr, nullptr, &count) == ERROR_INVALID_PARAMETER);
+    check("package_info_size_query_without_count", GetCurrentPackageInfo(PACKAGE_FILTER_HEAD, &length, nullptr, nullptr) == ERROR_INSUFFICIENT_BUFFER);
+    check("package_name_null_length", GetCurrentPackageFullName(nullptr, nullptr) == ERROR_INVALID_PARAMETER);
+    length = 1;
+    check("package_name_length_without_buffer_is_invalid", GetCurrentPackageFullName(&length, nullptr) == ERROR_INVALID_PARAMETER);
+
+    /* through a package info reference */
+    PACKAGE_INFO_REFERENCE reference = nullptr;
+    check("open_package_info", OpenPackageInfoByFullName(full.c_str(), 0, &reference) == ERROR_SUCCESS && reference);
+    if (reference)
+    {
+        length = 0; count = 0;
+        LONG r = GetPackageApplicationIds(reference, &length, nullptr, &count);
+        std::vector<BYTE> buffer(length ? length : 1);
+        if (r == ERROR_INSUFFICIENT_BUFFER) r = GetPackageApplicationIds(reference, &length, buffer.data(), &count);
+        bool ids_ok = r == ERROR_SUCCESS && count == 6;
+        std::vector<std::wstring> seen;
+        for (UINT32 i = 0; ids_ok && i < count; ++i) seen.push_back(reinterpret_cast<PCWSTR *>(buffer.data())[i]);
+        for (wchar_t const *app : { L"View", L"ViewSta", L"ViewReturn", L"ViewPresent", L"ViewSuspend", L"ViewPkgapi" })
+            if (std::find(seen.begin(), seen.end(), family + L"!" + app) == seen.end()) ids_ok = false;
+        check("application_ids_are_all_applications_of_the_package", ids_ok);
+        length = 0; count = 0;
+        check("package_info_by_reference_size_query", GetPackageInfo(reference, PACKAGE_FILTER_HEAD, &length, nullptr, &count) == ERROR_INSUFFICIENT_BUFFER && count == 1);
+        check("close_package_info", ClosePackageInfo(reference) == ERROR_SUCCESS);
+    }
+    wchar_t const *unknown_full = L"Nope.Package_1.0.0.0_x64__0123456789abc";
+    check("open_unknown_package_is_not_found", OpenPackageInfoByFullName(unknown_full, 0, &reference) == ERROR_NOT_FOUND);
+    check("open_garbage_is_invalid", OpenPackageInfoByFullName(L"garbage", 0, &reference) == ERROR_INVALID_PARAMETER);
+    check("open_null_is_invalid", OpenPackageInfoByFullName(nullptr, 0, &reference) == ERROR_INVALID_PARAMETER);
+
+    /* identity conversions */
+    length = 0;
+    PackageIdFromFullName(full.c_str(), PACKAGE_INFORMATION_BASIC, &length, nullptr);
+    std::vector<BYTE> id_buffer(length ? length : 1);
+    LONG r = PackageIdFromFullName(full.c_str(), PACKAGE_INFORMATION_BASIC, &length, id_buffer.data());
+    check("package_id_from_full_name", r == ERROR_SUCCESS);
+    if (r == ERROR_SUCCESS)
+    {
+        auto *id = reinterpret_cast<PACKAGE_ID *>(id_buffer.data());
+        auto name_from_id = query([&](UINT32 *n, PWSTR p) { return PackageFullNameFromId(id, n, p); });
+        auto family_from_id = query([&](UINT32 *n, PWSTR p) { return PackageFamilyNameFromId(id, n, p); });
+        check("full_name_from_id_round_trip", name_from_id == full);
+        check("family_name_from_id", family_from_id == family);
+        UINT32 name_len = 0, pub_len = 0;
+        r = PackageNameAndPublisherIdFromFamilyName(family.c_str(), &name_len, nullptr, &pub_len, nullptr);
+        std::vector<wchar_t> pname(name_len ? name_len : 1), ppub(pub_len ? pub_len : 1);
+        bool split_ok = r == ERROR_INSUFFICIENT_BUFFER &&
+            PackageNameAndPublisherIdFromFamilyName(family.c_str(), &name_len, pname.data(), &pub_len, ppub.data()) == ERROR_SUCCESS &&
+            std::wstring(pname.data()) == L"WineExplorer.U1View" && std::wstring(ppub.data()) == id->publisherId;
+        check("name_and_publisher_id_from_family_name", split_ok);
+    }
+    length = 0;
+    check("package_id_from_garbage_is_invalid", PackageIdFromFullName(L"garbage", 0, &length, nullptr) == ERROR_INVALID_PARAMETER);
+    UINT32 n = 0;
+    check("family_name_from_null_id_is_invalid", PackageFamilyNameFromId(nullptr, &n, nullptr) == ERROR_INVALID_PARAMETER);
+    check("parse_aumid_garbage_is_invalid", ParseApplicationUserModelId(L"garbage", &n, nullptr, &n, nullptr) == ERROR_INVALID_PARAMETER);
+    check("family_split_garbage_is_invalid", PackageNameAndPublisherIdFromFamilyName(L"garbage", &n, nullptr, &n, nullptr) == ERROR_INVALID_PARAMETER);
+    UINT32 pn = 0, pp = 0;
+    check("family_split_of_an_uninstalled_family", PackageNameAndPublisherIdFromFamilyName(L"Nope.Package_0123456789abc", &pn, nullptr, &pp, nullptr) == ERROR_INSUFFICIENT_BUFFER);
+
+    /* the user model id */
+    auto aumid = query([](UINT32 *k, PWSTR p) { return GetCurrentApplicationUserModelId(k, p); });
+    UINT32 fl = 0, al = 0;
+    r = ParseApplicationUserModelId(aumid.c_str(), &fl, nullptr, &al, nullptr);
+    std::vector<wchar_t> pf(fl ? fl : 1), pa(al ? al : 1);
+    bool parse_ok = r == ERROR_INSUFFICIENT_BUFFER &&
+        ParseApplicationUserModelId(aumid.c_str(), &fl, pf.data(), &al, pa.data()) == ERROR_SUCCESS &&
+        std::wstring(pf.data()) == family && std::wstring(pa.data()) == L"ViewPkgapi";
+    check("parse_application_user_model_id", parse_ok);
+    auto aumid_of_process = query([](UINT32 *k, PWSTR p) { return GetApplicationUserModelId(GetCurrentProcess(), k, p); });
+    check("application_user_model_id_of_the_process", aumid_of_process == aumid);
+
+    /* paths and families */
+    auto by_name = query([&](UINT32 *k, PWSTR p) { return GetPackagePathByFullName(full.c_str(), k, p); });
+    auto staged = query([&](UINT32 *k, PWSTR p) { return GetStagedPackagePathByFullName(full.c_str(), k, p); });
+    check("package_path_by_full_name", by_name == path && staged == path);
+    length = 0;
+    check("package_path_of_unknown_is_not_found", GetPackagePathByFullName(unknown_full, &length, nullptr) == ERROR_NOT_FOUND);
+    UINT32 packages = 0, buffer_len = 0;
+    r = GetPackagesByPackageFamily(family.c_str(), &packages, nullptr, &buffer_len, nullptr);
+    std::vector<PWSTR> names(packages ? packages : 1);
+    std::vector<wchar_t> text(buffer_len ? buffer_len : 1);
+    bool family_ok = r == ERROR_INSUFFICIENT_BUFFER && packages == 1 &&
+        GetPackagesByPackageFamily(family.c_str(), &packages, names.data(), &buffer_len, text.data()) == ERROR_SUCCESS &&
+        packages == 1 && std::wstring(names[0]) == full;
+    check("packages_by_package_family", family_ok);
+    packages = 0; buffer_len = 0;
+    r = FindPackagesByPackageFamily(family.c_str(), PACKAGE_FILTER_HEAD | PACKAGE_INFORMATION_BASIC, &packages, nullptr, &buffer_len, nullptr, nullptr);
+    check("find_packages_by_package_family", r == ERROR_INSUFFICIENT_BUFFER && packages == 1);
+    packages = 0; buffer_len = 0;
+    r = GetPackagesByPackageFamily(L"Nope.Package_0123456789abc", &packages, nullptr, &buffer_len, nullptr);
+    check("packages_of_an_uninstalled_family_is_empty", r == ERROR_SUCCESS && packages == 0 && buffer_len == 0);
+    check("packages_of_garbage_family_is_invalid", GetPackagesByPackageFamily(L"garbage", &packages, nullptr, &buffer_len, nullptr) == ERROR_INVALID_PARAMETER);
+}
+
+static void run_pkgapi()
+{
+    auto show = [](char const *name, LONG rc) { info("%s -> %ld", name, (long)rc); };
+
+    UINT32 count = 0, length = 0;
+    struct { UINT32 flags; char const *name; } variants[] = {
+        { 0, "none" }, { PACKAGE_FILTER_HEAD, "HEAD" }, { PACKAGE_FILTER_DIRECT, "DIRECT" },
+        { PACKAGE_FILTER_HEAD | PACKAGE_FILTER_DIRECT, "HEAD|DIRECT" }, { PACKAGE_FILTER_HEAD | PACKAGE_INFORMATION_FULL, "HEAD|FULL" },
+        { PACKAGE_FILTER_HEAD | PACKAGE_FILTER_DIRECT | PACKAGE_FILTER_RESOURCE | PACKAGE_FILTER_BUNDLE, "all filters" } };
+    for (auto const &v : variants)
+    {
+        length = 0; count = 99;
+        LONG rc = GetCurrentPackageInfo(v.flags, &length, nullptr, &count);
+        info("GetCurrentPackageInfo(%s) size query -> %ld, length %u, count %u", v.name, (long)rc, length, count);
+        if (rc != ERROR_INSUFFICIENT_BUFFER) continue;
+        std::vector<BYTE> buffer(length);
+        UINT32 got = length;
+        rc = GetCurrentPackageInfo(v.flags, &got, buffer.data(), &count);
+        info("GetCurrentPackageInfo(%s) -> %ld, length %u, count %u", v.name, (long)rc, got, count);
+        if (rc != ERROR_SUCCESS) continue;
+        auto *infos = reinterpret_cast<PACKAGE_INFO *>(buffer.data());
+        for (UINT32 i = 0; i < count; ++i)
+        {
+            info("  [%u] flags %#x path %s", i, infos[i].flags, wide_to_utf8(infos[i].path).c_str());
+            info("  [%u] full %s family %s", i, wide_to_utf8(infos[i].packageFullName).c_str(), wide_to_utf8(infos[i].packageFamilyName).c_str());
+            auto const &id = infos[i].packageId;
+            info("  [%u] id name %s publisher %s publisherId %s arch %u version %u.%u.%u.%u resource %s", i, wide_to_utf8(id.name).c_str(),
+                 wide_to_utf8(id.publisher).c_str(), wide_to_utf8(id.publisherId).c_str(), id.processorArchitecture, id.version.Major,
+                 id.version.Minor, id.version.Build, id.version.Revision, wide_to_utf8(id.resourceId).c_str());
+        }
+    }
+
+    /* the same through the package info reference */
+    auto full = query([](UINT32 *n, PWSTR p) { return GetCurrentPackageFullName(n, p); });
+    PACKAGE_INFO_REFERENCE reference = nullptr;
+    LONG rc = OpenPackageInfoByFullName(full.c_str(), 0, &reference);
+    show("OpenPackageInfoByFullName", rc);
+    if (rc == ERROR_SUCCESS)
+    {
+        length = 0; count = 99;
+        rc = GetPackageInfo(reference, PACKAGE_FILTER_HEAD, &length, nullptr, &count);
+        info("GetPackageInfo(HEAD) size query -> %ld, length %u, count %u", (long)rc, length, count);
+        length = 0; count = 99;
+        rc = GetPackageApplicationIds(reference, &length, nullptr, &count);
+        info("GetPackageApplicationIds size query -> %ld, length %u, count %u", (long)rc, length, count);
+        if (rc == ERROR_INSUFFICIENT_BUFFER)
+        {
+            std::vector<BYTE> buffer(length);
+            rc = GetPackageApplicationIds(reference, &length, buffer.data(), &count);
+            info("GetPackageApplicationIds -> %ld, count %u", (long)rc, count);
+            auto *ids = reinterpret_cast<PCWSTR *>(buffer.data());
+            for (UINT32 i = 0; rc == ERROR_SUCCESS && i < count; ++i) info("  application id %s", wide_to_utf8(ids[i]).c_str());
+        }
+        show("ClosePackageInfo", ClosePackageInfo(reference));
+    }
+
+    /* identity conversions */
+    length = 0;
+    rc = PackageIdFromFullName(full.c_str(), PACKAGE_INFORMATION_BASIC, &length, nullptr);
+    info("PackageIdFromFullName(basic) size query -> %ld, length %u", (long)rc, length);
+    std::vector<BYTE> id_buffer(length);
+    rc = PackageIdFromFullName(full.c_str(), PACKAGE_INFORMATION_BASIC, &length, id_buffer.data());
+    info("PackageIdFromFullName(basic) -> %ld", (long)rc);
+    if (rc == ERROR_SUCCESS)
+    {
+        auto *id = reinterpret_cast<PACKAGE_ID *>(id_buffer.data());
+        UINT32 n = 0;
+        rc = PackageFullNameFromId(id, &n, nullptr);
+        info("PackageFullNameFromId size query -> %ld, length %u", (long)rc, n);
+        std::vector<wchar_t> text(n ? n : 1);
+        rc = PackageFullNameFromId(id, &n, text.data());
+        info("PackageFullNameFromId -> %ld, %s", (long)rc, wide_to_utf8(text.data()).c_str());
+        n = 0;
+        rc = PackageFamilyNameFromId(id, &n, nullptr);
+        info("PackageFamilyNameFromId size query -> %ld, length %u", (long)rc, n);
+        std::vector<wchar_t> family(n ? n : 1);
+        rc = PackageFamilyNameFromId(id, &n, family.data());
+        info("PackageFamilyNameFromId -> %ld, %s", (long)rc, wide_to_utf8(family.data()).c_str());
+        UINT32 name_len = 0, publisher_len = 0;
+        rc = PackageNameAndPublisherIdFromFamilyName(family.data(), &name_len, nullptr, &publisher_len, nullptr);
+        info("PackageNameAndPublisherIdFromFamilyName size query -> %ld, %u, %u", (long)rc, name_len, publisher_len);
+        std::vector<wchar_t> pname(name_len ? name_len : 1), ppub(publisher_len ? publisher_len : 1);
+        rc = PackageNameAndPublisherIdFromFamilyName(family.data(), &name_len, pname.data(), &publisher_len, ppub.data());
+        info("PackageNameAndPublisherIdFromFamilyName -> %ld, %s / %s", (long)rc, wide_to_utf8(pname.data()).c_str(), wide_to_utf8(ppub.data()).c_str());
+
+        UINT32 packages = 0, buffer_len = 0;
+        rc = GetPackagesByPackageFamily(family.data(), &packages, nullptr, &buffer_len, nullptr);
+        info("GetPackagesByPackageFamily size query -> %ld, packages %u, buffer %u", (long)rc, packages, buffer_len);
+        packages = 0; buffer_len = 0;
+        rc = FindPackagesByPackageFamily(family.data(), PACKAGE_FILTER_HEAD | PACKAGE_INFORMATION_BASIC, &packages, nullptr, &buffer_len, nullptr, nullptr);
+        info("FindPackagesByPackageFamily size query -> %ld, packages %u, buffer %u", (long)rc, packages, buffer_len);
+    }
+
+    /* paths */
+    length = 0;
+    rc = GetPackagePathByFullName(full.c_str(), &length, nullptr);
+    info("GetPackagePathByFullName size query -> %ld, length %u", (long)rc, length);
+    if (rc == ERROR_INSUFFICIENT_BUFFER)
+    {
+        std::vector<wchar_t> path(length);
+        rc = GetPackagePathByFullName(full.c_str(), &length, path.data());
+        info("GetPackagePathByFullName -> %ld, %s", (long)rc, wide_to_utf8(path.data()).c_str());
+    }
+    length = 0;
+    rc = GetStagedPackagePathByFullName(full.c_str(), &length, nullptr);
+    info("GetStagedPackagePathByFullName size query -> %ld, length %u", (long)rc, length);
+    length = 0;
+    rc = GetCurrentApplicationUserModelId(&length, nullptr);
+    info("GetCurrentApplicationUserModelId size query -> %ld, length %u", (long)rc, length);
+    if (rc == ERROR_INSUFFICIENT_BUFFER)
+    {
+        std::vector<wchar_t> aumid(length);
+        rc = GetCurrentApplicationUserModelId(&length, aumid.data());
+        info("GetCurrentApplicationUserModelId -> %ld, %s", (long)rc, wide_to_utf8(aumid.data()).c_str());
+        UINT32 f = 0, a = 0;
+        rc = ParseApplicationUserModelId(aumid.data(), &f, nullptr, &a, nullptr);
+        info("ParseApplicationUserModelId size query -> %ld, %u, %u", (long)rc, f, a);
+    }
+    length = 0;
+    rc = GetApplicationUserModelId(GetCurrentProcess(), &length, nullptr);
+    info("GetApplicationUserModelId(process) size query -> %ld, length %u", (long)rc, length);
+    length = 0;
+    rc = GetPackageFamilyNameFromToken(nullptr, &length, nullptr);
+    info("GetPackageFamilyNameFromToken(null) -> %ld", (long)rc);
+    length = 0;
+    rc = GetPackageFullName(nullptr, &length, nullptr);
+    info("GetPackageFullName(null) -> %ld", (long)rc);
+    length = 0;
+    rc = GetCurrentPackageFullName(nullptr, nullptr);
+    info("GetCurrentPackageFullName(null,null) -> %ld", (long)rc);
+    /* names that are not installed, and invalid arguments */
+    {
+        wchar_t const *unknown_full = L"Nope.Package_1.0.0.0_x64__0123456789abc";
+        wchar_t const *unknown_family = L"Nope.Package_0123456789abc";
+        PACKAGE_INFO_REFERENCE ref = nullptr;
+        info("OpenPackageInfoByFullName(unknown) -> %ld", (long)OpenPackageInfoByFullName(unknown_full, 0, &ref));
+        info("OpenPackageInfoByFullName(garbage) -> %ld", (long)OpenPackageInfoByFullName(L"garbage", 0, &ref));
+        info("OpenPackageInfoByFullName(null) -> %ld", (long)OpenPackageInfoByFullName(nullptr, 0, &ref));
+        length = 0;
+        info("GetPackagePathByFullName(unknown) -> %ld", (long)GetPackagePathByFullName(unknown_full, &length, nullptr));
+        info("  length %u", length);
+        length = 0;
+        info("GetStagedPackagePathByFullName(unknown) -> %ld", (long)GetStagedPackagePathByFullName(unknown_full, &length, nullptr));
+        UINT32 packages = 7, buffer_len = 7;
+        LONG r2 = GetPackagesByPackageFamily(unknown_family, &packages, nullptr, &buffer_len, nullptr);
+        info("GetPackagesByPackageFamily(unknown) -> %ld, packages %u, buffer %u", (long)r2, packages, buffer_len);
+        packages = 7; buffer_len = 7;
+        r2 = FindPackagesByPackageFamily(unknown_family, PACKAGE_FILTER_HEAD, &packages, nullptr, &buffer_len, nullptr, nullptr);
+        info("FindPackagesByPackageFamily(unknown) -> %ld, packages %u, buffer %u", (long)r2, packages, buffer_len);
+        packages = 7; buffer_len = 7;
+        r2 = GetPackagesByPackageFamily(L"garbage", &packages, nullptr, &buffer_len, nullptr);
+        info("GetPackagesByPackageFamily(garbage) -> %ld", (long)r2);
+        length = 0; count = 7;
+        info("GetCurrentPackageInfo(bad flags) -> %ld", (long)GetCurrentPackageInfo(0x80000000, &length, nullptr, &count));
+        length = 0;
+        info("GetCurrentPackageInfo(null count) -> %ld", (long)GetCurrentPackageInfo(PACKAGE_FILTER_HEAD, &length, nullptr, nullptr));
+        info("GetCurrentPackageInfo(null length) -> %ld", (long)GetCurrentPackageInfo(PACKAGE_FILTER_HEAD, nullptr, nullptr, &count));
+        length = 4; BYTE tiny[4];
+        info("GetCurrentPackageInfo(small buffer) -> %ld, length %u", (long)GetCurrentPackageInfo(PACKAGE_FILTER_HEAD, &length, tiny, &count), length);
+        length = 1;
+        info("GetCurrentPackageFullName(length 1, null buffer) -> %ld, length %u", (long)GetCurrentPackageFullName(&length, nullptr), length);
+        UINT32 id_len = 0;
+        info("PackageIdFromFullName(garbage) -> %ld", (long)PackageIdFromFullName(L"garbage", 0, &id_len, nullptr));
+        UINT32 n = 0;
+        info("PackageFamilyNameFromId(null) -> %ld", (long)PackageFamilyNameFromId(nullptr, &n, nullptr));
+        info("ParseApplicationUserModelId(garbage) -> %ld", (long)ParseApplicationUserModelId(L"garbage", &n, nullptr, &n, nullptr));
+        info("PackageNameAndPublisherIdFromFamilyName(garbage) -> %ld", (long)PackageNameAndPublisherIdFromFamilyName(L"garbage", &n, nullptr, &n, nullptr));
+        UINT32 pn = 0, pp = 0;
+        info("PackageNameAndPublisherIdFromFamilyName(unknown) -> %ld", (long)PackageNameAndPublisherIdFromFamilyName(unknown_family, &pn, nullptr, &pp, nullptr));
+    }
+    pkgapi_checks();
+    put("READY");
+    put("Uninitialize");
+}
+
 /* the 3D part of the present mode: a swap chain for the CoreWindow, five presented frames, a pixel read back */
 static void present_frames(CoreWindow const &window, CoreDispatcher const &dispatcher, com_ptr<ID3D11Device> const &device,
                            com_ptr<ID3D11DeviceContext> const &context)
@@ -298,9 +631,9 @@ static void run_present(CoreWindow const &window)
     info("pointer position %.0f,%.0f", position.X, position.Y);
     put("READY");
     /* input injected by the host, or typed and clicked by hand (run-present.ps1 -Manual), arrives here */
-    pump(dispatcher, 30000);
+    pump(dispatcher, mode == "suspend" ? 60000 : 30000);
     info("end: visible=%d", (int)window.Visible());
-    present_checks();
+    if (mode == "present") present_checks();
     CoreApplication::Exit();
     dispatcher.ProcessEvents(CoreProcessEventsOption::ProcessUntilQuit);
 }
@@ -492,7 +825,17 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
             check("exiting_raised_on_the_calling_thread", GetCurrentThreadId() == main_thread);
             check("exiting_raised_before_the_window_closes", position(events, "Closed") < 0);
         });
-        CoreApplication::Suspending([](IInspectable const &, Windows::ApplicationModel::SuspendingEventArgs const &) { record("Suspending"); });
+        CoreApplication::Suspending([](IInspectable const &, Windows::ApplicationModel::SuspendingEventArgs const &args) {
+            if (!presenting()) { record("Suspending"); return; }
+            /* present mode: what the suspension carries (measured by hand: minimize the window, wait, restore it) */
+            auto operation = args.SuspendingOperation();
+            auto left = std::chrono::duration_cast<std::chrono::milliseconds>(operation.Deadline() - winrt::clock::now()).count();
+            char text[96];
+            std::snprintf(text, sizeof(text), "Suspending deadline_in=%lld ms", (long long)left);
+            record(text);
+            auto deferral = operation.GetDeferral();   /* the application is not suspended until this completes */
+            std::thread([deferral] { Sleep(1500); record("Suspending deferral completing"); deferral.Complete(); }).detach();
+        });
         CoreApplication::Resuming([](IInspectable const &, IInspectable const &) { record("Resuming"); });
         check("view_is_main", view.IsMain());
         check("view_is_not_hosted", !view.IsHosted());
@@ -516,7 +859,7 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
             record("SizeChanged");
             info("SizeChanged: %.0fx%.0f", args.Size().Width, args.Size().Height);
         });
-        if (mode == "present")
+        if (presenting())
         {
             auto pointer = [](char const *name) {
                 return [name](CoreWindow const &, PointerEventArgs const &args) {
@@ -584,13 +927,13 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
         }
         check("view_current_is_main_view", CoreApplication::GetCurrentView() == CoreApplication::MainView());
         std::thread([] {
-            Sleep(mode == "present" ? 70000 : 8000);
+            Sleep(presenting() ? 100000 : 8000);
             put("TRACE WATCHDOG: the process was still running after Run");
             ExitProcess(3);
         }).detach();
         try
         {
-            if (mode == "present") run_present(CoreWindow::GetForCurrentThread());
+            if (presenting()) run_present(CoreWindow::GetForCurrentThread());
             else run_checks(CoreWindow::GetForCurrentThread());
         }
         catch (hresult_error const &e)
@@ -635,7 +978,7 @@ int wmain(int argc, wchar_t **argv)
         std::wstring id = aumid.data();
         application_id = id.substr(id.find(L'!') + 1);
         mode = application_id == L"ViewSta" ? "sta" : application_id == L"ViewReturn" ? "return" :
-               application_id == L"ViewPresent" ? "present" : application_id == L"View" ? "positive" : "";
+               application_id == L"ViewPkgapi" ? "pkgapi" : application_id == L"ViewPresent" ? "present" : application_id == L"ViewSuspend" ? "suspend" : application_id == L"View" ? "positive" : "";
         wchar_t dir[MAX_PATH];
         if (mode.empty() || !GetEnvironmentVariableW(L"LOCALAPPDATA", dir, ARRAYSIZE(dir))) return 2;
         out = std::wstring(dir) + L"\\view-" + std::wstring(mode.begin(), mode.end()) + L".txt";
@@ -661,6 +1004,12 @@ int wmain(int argc, wchar_t **argv)
         return failures ? 1 : 0;
     }
 
+    if (mode == "pkgapi")
+    {
+        check("package_identity", !package_full_name.empty());
+        run_pkgapi();
+        return 0;
+    }
     check("package_identity", !package_full_name.empty());
     info("package full name: %s", to_string(hstring(package_full_name)).c_str());
     HRESULT hr = S_OK;

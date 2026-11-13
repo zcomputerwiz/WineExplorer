@@ -691,6 +691,9 @@ static int install( const WCHAR *package )
     /* the record, with the names as they are in the archive */
     if (!(record = calloc( MAX_RECORD_CHARS, sizeof(WCHAR) ))) return fail( L"out of memory" );
     if (!append_record( record, L"WEXAPPX 1\nroot\t%s\n", target )) goto too_long;
+    /* the publisher, for the package APIs (kernelbase): only when it is plain printable text */
+    for (i = 0; manifest.publisher[i] >= 0x20 && manifest.publisher[i] <= 0x7e; i++) ;
+    if (!manifest.publisher[i] && i && !append_record( record, L"publisher\t%s\n", manifest.publisher )) goto too_long;
     for (i = 0; i < manifest.app_count; i++)
     {
         if (!(entry = find_entry( manifest.apps[i].path )))

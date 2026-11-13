@@ -55,7 +55,7 @@ for arch in x64 x86; do
     python3 "$register" stage lifecycle "$arch" "$u11/$arch" "$out/stage" --name WineExplorer.U1View --manifest "$u11/AppxManifest.xml"
     names=$(python3 "$register" register "$WINEPREFIX" "$out/stage")
     IFS=$'\t' read -r full family root <<< "$names"
-    for spec in View:positive ViewReturn:return ViewSta:sta; do
+    for spec in View:positive ViewReturn:return ViewSta:sta ViewPkgapi:pkgapi; do
         app=${spec%%:*}; mode=${spec#*:}
         file="$appdata/view-$mode.txt"
         rm -f "$file"
