@@ -7,7 +7,7 @@
 # (present.txt); nothing is compared yet. The machine's mouse is moved and clicked and keys are typed: do not use the
 # machine during the run (about 25 seconds).
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$WorkDirectory, [Parameter(Mandatory)][string]$ResultsDirectory, [switch]$Execute)
+param([Parameter(Mandatory)][string]$WorkDirectory, [Parameter(Mandatory)][string]$ResultsDirectory, [switch]$Manual, [switch]$Execute)
 $ErrorActionPreference = 'Stop'
 $work = [IO.Path]::GetFullPath($WorkDirectory)
 $results = [IO.Path]::GetFullPath($ResultsDirectory)
@@ -134,8 +134,10 @@ try {
         # guard: the pointer is moved onto the bounds the probe reported, and only when the probe logged PointerEntered
         # for it is it clicked (a click brings the window to the front); only when it logged PointerPressed is anything
         # typed. Nothing is typed into another program.
+        if ($Manual) { 'manual: the owner clicks into the window and types' | Set-Content -LiteralPath (Join-Path $results 'injected.txt'); $ready = $false }
         $line = Select-String -LiteralPath $file -Pattern '^INFO bounds now (\d+)x(\d+) at (-?\d+),(-?\d+)' | Select-Object -Last 1
-        if (-not $line) { Write-Host 'present: no bounds reported, no input injected'; $ready = $false }
+        if ($Manual) { }
+        elseif (-not $line) { Write-Host 'present: no bounds reported, no input injected'; $ready = $false }
         else {
             $g = $line.Matches[0].Groups
             $cx = [int]$g[3].Value + [int]([int]$g[1].Value / 2); $cy = [int]$g[4].Value + [int]([int]$g[2].Value / 2)
@@ -165,7 +167,7 @@ try {
         "mouse: move, left click, right click, wheel up; keys: a, Shift+b, Enter, Left, F5" | Add-Content -LiteralPath (Join-Path $results 'injected.txt')
     }
     # the probe ends 12 s after READY
-    $end = (Get-Date).AddSeconds(25)
+    $end = (Get-Date).AddSeconds(45)
     while ((Get-Date) -lt $end -and -not (Select-String -LiteralPath $file -Pattern 'Run returning|WATCHDOG|Uninitialize' -Quiet)) { Start-Sleep -Milliseconds 500 }
     Start-Sleep -Seconds 2
     if (Test-Path -LiteralPath $file) { Copy-Item -LiteralPath $file -Destination (Join-Path $results 'present.txt') } else { Write-Host "present: no output in $folder" }

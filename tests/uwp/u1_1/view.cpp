@@ -206,8 +206,8 @@ static void run_present(CoreWindow const &window)
     auto position = window.PointerPosition();
     info("pointer position %.0f,%.0f", position.X, position.Y);
     put("READY");
-    /* input injected by the host arrives here */
-    pump(dispatcher, 12000);
+    /* input injected by the host, or typed and clicked by hand (run-present.ps1 -Manual), arrives here */
+    pump(dispatcher, 30000);
     info("end: visible=%d", (int)window.Visible());
     CoreApplication::Exit();
     dispatcher.ProcessEvents(CoreProcessEventsOption::ProcessUntilQuit);
@@ -490,7 +490,7 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
         }
         check("view_current_is_main_view", CoreApplication::GetCurrentView() == CoreApplication::MainView());
         std::thread([] {
-            Sleep(mode == "present" ? 40000 : 8000);
+            Sleep(mode == "present" ? 70000 : 8000);
             put("TRACE WATCHDOG: the process was still running after Run");
             ExitProcess(3);
         }).detach();

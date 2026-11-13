@@ -58,9 +58,28 @@ types only into a window it has checked; it needs an unlocked desktop that nobod
   `Suspending` is raised after about 5 s (confirmed again by this probe's first run).
 * `D3D11CreateDevice` and `IDXGIFactory2::CreateSwapChainForCoreWindow` succeed: 1200x900, B8G8R8A8 (87), 2 buffers,
   flip-sequential, `DXGI_SCALING_NONE`; five `Present(1, 0)` calls return `S_OK` at about 110 ms intervals.
-* Not measured yet: pointer, keyboard and character events. The frame opens behind the foreground window (the
-  activation is not allowed to take the foreground), the injected click did not reach it, so the runner refuses to
-  inject. Next: bring the frame to the front (or have the owner click its taskbar button) before injecting.
+* **Input** (the owner clicked and typed by hand into the window, `run-present.ps1 -Manual`; this tool's shell
+  cannot inject input, and the frame opens behind the foreground window). Mouse (`PointerDeviceType` Mouse, pointer id
+  1 throughout):
+  * `PointerEntered` and the first `PointerMoved` are raised together (same millisecond) when the pointer enters the
+    window; `PointerExited` when it leaves. Positions are in the window's client coordinates, DIPs, origin at the
+    client's top-left (title bar not included); they can touch 0 at the edges. Moves arrive about every 16 ms.
+  * Left button: `PointerPressed` (`IsLeftButtonPressed` true), `PointerReleased` (false). Right button: its own
+    `PointerPressed`/`PointerReleased` pair (left flag false). `KeyModifiers` 0 with no key held.
+  * `PointerWheelChanged`: `MouseWheelDelta` +-120 per notch (negative for the first direction scrolled), position
+    unchanged.
+  * A click on an inactive window raises `WindowActivated` with state `PointerActivated` before `PointerPressed`;
+    losing the foreground raises `WindowDeactivated`; getting it back without a click raises `WindowActivated`
+    (`CodeActivated`). Input events only arrive while the window has the pointer or the focus.
+  Keyboard: `KeyDown` then, for a character key, `CharacterReceived` (same millisecond), then `KeyUp`.
+  `a`: vk 65 scan 30, char 97; `Shift`: vk 16 scan 42 (no char, repeats while held with `WasKeyDown` true and
+  `RepeatCount` 1 per event); `Shift+b`: vk 66 scan 48, char 66 (`B`); `Enter`: vk 13 scan 28, char 13; `Left`: vk 37 scan
+  75, `IsExtendedKey` true, no char; `F5`: vk 116 scan 63, no char. First `KeyDown` has `WasKeyDown` false, `KeyUp`
+  has `WasKeyDown` true and `IsKeyReleased` true.
+  No `SizeChanged` and no `VisibilityChanged(false)` at any time (the window was never resized or covered completely).
+  The full output is in `..\WineExplorer-local\uwp-u11b-present-windows.txt` *(not copied here)*.
+* The presented swap chain content showed white on screen, not the colours cleared to (it is an unlit flip-model
+  surface seen at a screenshot made right after READY; not investigated, not asserted).
 
 ## Not asserted (observed, varies or races on Windows)
 
