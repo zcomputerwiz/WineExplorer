@@ -64,6 +64,15 @@ def make_attempt(request_id=0x12345678, attempt=1, state="RESULT_RETAINED",
     }
 
 
+class _FakeChannel:
+    """A stand-in for a Transaction channel: only the attributes the pure r9_* functions read."""
+
+    def __init__(self, server_gen=0, broker_gen=0, cancelled=False):
+        self.server_gen = server_gen
+        self.broker_gen = broker_gen
+        self.cancelled = cancelled
+
+
 class TestR9Verifier(unittest.TestCase):
 
     def test_config_s0_user_resolution(self):
@@ -372,6 +381,107 @@ class TestR9Verifier(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(state, "REDEEMED")
         self.assertIsNotNone(reply)
+
+    def test_evidence_generations_r9_off(self):
+        """15. Evidence generations with R9 off: the channel's own generations."""
+        self.assertEqual(lab.r9_evidence_generations(False, {}, 102, 103), (102, 103))
+
+    def test_evidence_generations_r9_on_without_agent_channel(self):
+        """16. Evidence generations with R9 on but no agent channel: the channel's own generations."""
+        self.assertEqual(lab.r9_evidence_generations(True, {}, 102, 103), (102, 103))
+
+    def test_evidence_generations_r9_on_with_agent_channel(self):
+        """17. Evidence generations with R9 on and an agent channel: the agent's generations."""
+        agent = _FakeChannel(server_gen=202, broker_gen=203)
+        self.assertEqual(lab.r9_evidence_generations(True, {"a_channel": agent}, 102, 103), (202, 203))
+
+    def test_cancel_notice_r9_off(self):
+        """18. Cancel notice with R9 off: no notice even for a live B0 and a CANCELLED record."""
+        rec = {"b0_channel": _FakeChannel(), "state": "CANCELLED"}
+        self.assertIsNone(lab.r9_cancel_notice(False, lab.CHANNEL_KIND_A, rec))
+
+    def test_cancel_notice_kind_a_live_b0_cancelled(self):
+        """19. Cancel notice: kind A, live B0, CANCELLED record -> the B0 channel is returned."""
+        b0 = _FakeChannel()
+        rec = {"b0_channel": b0, "state": "CANCELLED"}
+        self.assertIs(lab.r9_cancel_notice(True, lab.CHANNEL_KIND_A, rec), b0)
+
+    def test_cancel_notice_kind_b0(self):
+        """20. Cancel notice on a B0 channel: no notice (only agent channels notify)."""
+        rec = {"b0_channel": _FakeChannel(), "state": "CANCELLED"}
+        self.assertIsNone(lab.r9_cancel_notice(True, lab.CHANNEL_KIND_B0, rec))
+
+    def test_cancel_notice_b0_already_cancelled(self):
+        """21. Cancel notice with an already-cancelled B0 channel: no notice."""
+        rec = {"b0_channel": _FakeChannel(cancelled=True), "state": "CANCELLED"}
+        self.assertIsNone(lab.r9_cancel_notice(True, lab.CHANNEL_KIND_A, rec))
+
+    def test_cancel_notice_state_not_cancelled(self):
+        """22. Cancel notice with a REDEEMED record: no notice (the attempt already finished)."""
+        rec = {"b0_channel": _FakeChannel(), "state": "REDEEMED"}
+        self.assertIsNone(lab.r9_cancel_notice(True, lab.CHANNEL_KIND_A, rec))
+
+    def test_cancel_notice_missing_b0_channel(self):
+        """23. Cancel notice with no b0_channel in the record: no notice."""
+        rec = {"state": "CANCELLED"}
+        self.assertIsNone(lab.r9_cancel_notice(True, lab.CHANNEL_KIND_A, rec))
+
+    def test_b0_setup_deadline_r9_on_b0(self):
+        """24. B0 setup deadline with R9 on: extended to now + 130 s."""
+        now = 1_000_000_000_000
+        current = now + 5_000_000_000
+        self.assertEqual(lab.r9_b0_setup_deadline(True, lab.CHANNEL_KIND_B0, current, now),
+                         now + 130_000_000_000)
+
+    def test_b0_setup_deadline_r9_off(self):
+        """25. B0 setup deadline with R9 off: unchanged."""
+        now = 1_000_000_000_000
+        current = now + 5_000_000_000
+        self.assertEqual(lab.r9_b0_setup_deadline(False, lab.CHANNEL_KIND_B0, current, now), current)
+
+    def test_b0_setup_deadline_kind_a(self):
+        """26. B0 setup deadline on an A channel: unchanged."""
+        now = 1_000_000_000_000
+        current = now + 5_000_000_000
+        self.assertEqual(lab.r9_b0_setup_deadline(True, lab.CHANNEL_KIND_A, current, now), current)
+
+    def test_b0_setup_deadline_never_shortened(self):
+        """27. B0 setup deadline already later than now + 130 s: never shortened."""
+        now = 1_000_000_000_000
+        later = now + 200_000_000_000
+        self.assertEqual(lab.r9_b0_setup_deadline(True, lab.CHANNEL_KIND_B0, later, now), later)
+
+    def test_start_deadline_tuple_in_past(self):
+        """28. Start deadline with the tuple's deadline in the past: unchanged."""
+        now = 1_000_000_000_000
+        current = now + 5_000_000_000
+        self.assertEqual(lab.r9_start_deadline(current, now - 1, now), current)
+
+    def test_start_deadline_exactly_300s(self):
+        """29. Start deadline with the tuple's deadline exactly at now + 300 s: extended to it."""
+        now = 1_000_000_000_000
+        current = now + 5_000_000_000
+        self.assertEqual(lab.r9_start_deadline(current, now + 300_000_000_000, now),
+                         now + 300_000_000_000)
+
+    def test_start_deadline_one_ns_past_300s(self):
+        """30. Start deadline with the tuple's deadline one nanosecond past now + 300 s: unchanged."""
+        now = 1_000_000_000_000
+        current = now + 5_000_000_000
+        self.assertEqual(lab.r9_start_deadline(current, now + 300_000_000_000 + 1, now), current)
+
+    def test_start_deadline_never_shortened(self):
+        """31. Start deadline already later than the tuple's: never shortened."""
+        now = 1_000_000_000_000
+        later = now + 400_000_000_000
+        self.assertEqual(lab.r9_start_deadline(later, now + 100_000_000_000, now), later)
+
+    def test_start_deadline_within_300s(self):
+        """32. Start deadline with the tuple's deadline in the future within 300 s: extended to it."""
+        now = 1_000_000_000_000
+        current = now + 5_000_000_000
+        self.assertEqual(lab.r9_start_deadline(current, now + 100_000_000_000, now),
+                         now + 100_000_000_000)
 
 
 if __name__ == "__main__":

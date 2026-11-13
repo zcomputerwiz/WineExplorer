@@ -490,6 +490,60 @@ def r9_handle_cancel(rec, channel_kind, cancel_msg, r9_enabled=True):
         return True, "CANCELLED", None
 
 
+def r9_evidence_generations(r9_enabled, rec, own_server_gen, own_broker_gen):
+    """The (server_gen, broker_gen) the evidence record names.
+
+    R9: the record is redeemed on the agent's channel and checked by the session's server, so it names
+    that channel's generations, not session 0's (this channel's).
+    """
+    if r9_enabled and "a_channel" in rec:
+        gen_tx = rec["a_channel"]
+        return gen_tx.server_gen, gen_tx.broker_gen
+    return own_server_gen, own_broker_gen
+
+
+def r9_cancel_notice(r9_enabled, channel_kind, rec):
+    """The B0 channel to tell that an attempt on this channel is over, or None.
+
+    When an agent's (kind A) channel ends, the broker in session 0 may still be waiting for this attempt's
+    next frame: it is told the attempt is over (R8 CANCEL, type 21), or it would wait until the deadline.
+    Only a live, not-yet-cancelled B0 channel is told, and only for a CANCELLED record.
+    """
+    if not r9_enabled or channel_kind != CHANNEL_KIND_A:
+        return None
+    b0 = rec.get("b0_channel")
+    if b0 is None or b0.cancelled:
+        return None
+    if rec.get("state") != "CANCELLED":
+        return None
+    return b0
+
+
+def r9_b0_setup_deadline(r9_enabled, channel_kind, current_deadline, now):
+    """The B0 channel's deadline after endorsement.
+
+    Session 0's broker opens its channel when it takes a request, before the dialog exists; its START
+    follows only after the person chose an account. The 5 s setup bound would end the channel while the
+    person reads the dialog, so a B0 channel gets the longest request lifetime the brokers use (130 s)
+    until START names the attempt's own deadline.
+    """
+    if r9_enabled and channel_kind == CHANNEL_KIND_B0:
+        return max(current_deadline, now + 130_000_000_000)
+    return current_deadline
+
+
+def r9_start_deadline(current_deadline, tuple_deadline, now):
+    """The B0 channel's deadline after START names the attempt.
+
+    The attempt now runs at the person's pace on this channel too: it lives until the attempt's deadline
+    (checked and bounded, as for ENDORSED on the agent's channel). Found by the R9 lab cases: three
+    refused passwords take longer than the setup bound.
+    """
+    if now < tuple_deadline <= now + 300_000_000_000:
+        return max(current_deadline, tuple_deadline)
+    return current_deadline
+
+
 def service(server_path, system_group, pam_paths=None):
     require(os.getuid() == 0 and os.geteuid() == 0)
     import grp
@@ -638,9 +692,8 @@ def service(server_path, system_group, pam_paths=None):
                             b0 = rec.get("b0_channel")
                             if b0 is not None:
                                 b0.drop_record(rec)
-                                # The broker in session 0 may be waiting for this attempt's next frame: tell it
-                                # the attempt is over (R8 CANCEL, type 21), or it would wait until the deadline.
-                                if not b0.cancelled and rec.get("state") == "CANCELLED":
+                                # Tell the session 0 broker the attempt is over, or it waits until the deadline.
+                                if r9_cancel_notice(r9_enabled, self.kind, rec) is not None:
                                     try:
                                         b0.data.send(e1r8.encode_cancel(rec["tuple"], 1))
                                     except OSError:
@@ -786,13 +839,12 @@ def service(server_path, system_group, pam_paths=None):
                         accounts, bucket = rec.pop("throttle")
                         accounts.rows.pop(bucket, None)
                     ref = random_bytes(16)
-                    # R9: the record is redeemed on the agent's channel and checked by the session's server, so
-                    # it names that channel's server and broker generations, not session 0's (this channel's).
-                    gen_tx = rec["a_channel"] if (r9_enabled and "a_channel" in rec) else self
+                    # R9: the evidence record names the agent channel's generations, not session 0's.
+                    server_gen, broker_gen = r9_evidence_generations(r9_enabled, rec, self.server_gen, self.broker_gen)
                     rec["evidence"] = evidence.EVIDENCE.pack(
                         3, 1, evidence.EVIDENCE_SIZE, 0x3ff, t.request_id, t.request_digest, t.binding_digest,
-                        t.nonce, t.attempt, account_key, uid, now, t.deadline, root_gen, gen_tx.server_gen,
-                        gen_tx.broker_gen, verifier_gen, map_gen, t.policy_gen, 1, 1)
+                        t.nonce, t.attempt, account_key, uid, now, t.deadline, root_gen, server_gen,
+                        broker_gen, verifier_gen, map_gen, t.policy_gen, 1, 1)
                     rec["evidence_ref"] = ref
                     rec["state"] = "RESULT_RETAINED"
                     self.data.send(e1r8.encode_result_v(t, 1, account_key, rec["account"], ref))
@@ -983,12 +1035,7 @@ def service(server_path, system_group, pam_paths=None):
                     self.server_pin, pin = pin, None
                     self.host, self.channel = random_bytes(16), random_bytes(16)
                     if r9_enabled and self.kind == CHANNEL_KIND_B0:
-                        # Session 0's broker opens its channel when it takes a request, before the dialog
-                        # exists; its START follows only after the person chose an account. The 5 s setup
-                        # bound would end the channel while the person reads the dialog, so a B0 channel
-                        # gets the longest request lifetime the brokers use (130 s) until START names the
-                        # attempt's own deadline.
-                        self.deadline = max(self.deadline, time.monotonic_ns() + 130_000_000_000)
+                        self.deadline = r9_b0_setup_deadline(r9_enabled, self.kind, self.deadline, time.monotonic_ns())
                     gens = root_gen, server_gen, broker_gen, verifier_gen
                     self.reg = registration(1, random_bytes(16), gens, self.host, self.channel, session)
                 else:
@@ -1036,13 +1083,9 @@ def service(server_path, system_group, pam_paths=None):
                                 rec["a_channel"] = a_tx
                                 rec["b0_channel"] = self
                                 self.endorsed_records[(rid, attempt)] = rec
-                                # The attempt now runs at the person's pace on this channel too: it lives
-                                # until the attempt's deadline (checked and bounded, as for ENDORSED on the
-                                # agent's channel). Found by the R9 lab cases: three refused passwords take
-                                # longer than the setup bound.
+                                # The attempt now runs at the person's pace on this channel too.
                                 now = time.monotonic_ns()
-                                if now < rec["tuple"].deadline <= now + 300_000_000_000:
-                                    self.deadline = max(self.deadline, rec["tuple"].deadline)
+                                self.deadline = r9_start_deadline(self.deadline, rec["tuple"].deadline, now)
                             else:
                                 rid, attempt = struct.unpack_from("<QI", raw, 12)
                                 require((rid, attempt) in self.endorsed_records, "start-without-endorsed")

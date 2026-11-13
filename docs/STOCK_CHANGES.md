@@ -74,6 +74,11 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   it was the standard rights only, so `GA` for SYSTEM in a pipe's descriptor did not grant the read and write rights
   session 0 checks a bridged client for; a local open never checked the pipe's descriptor against these rights);
   session 0 says on stderr why it refuses a bridged open (no session link, the descriptor, the described token).
+  Installed machine (2026-11-13): `dlls/ntdll/unix/file.c`, `FSCTL_PIPE_IMPERSONATE` traces instead of printing
+  stock Wine's FIXME "impersonating self" (the server impersonates the pipe's client here; a session's
+  `services.exe` printed the line on the user's terminal for every forwarded call); `server/session0.c`, a server
+  that the launcher did not start does not use a configured session 0, and a user's server releases its session
+  link at exit (the leak check printed the object on the terminal).
 
 - T5.3, programs of session 0: `dlls/ntdll/unix/server.c` (a prefix owned by root is used by another account only
   through a running server; `start_server_checked` starts none for it), `server/session0.c` (session 0's own

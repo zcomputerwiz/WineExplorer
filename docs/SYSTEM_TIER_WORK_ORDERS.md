@@ -573,7 +573,25 @@ administrator's `HKLM` write is in the machine hive, saved by `wexsys` (the inst
 elevation by default, so the installing user's token is not limited); the session keeps its own PlugPlay, RpcSs
 and EventLog; no failed units; both units stop cleanly.
 
-Not done on the installed machine: a second user and fast user switching, a standard user's refused write, a
-forwarded service, a restart of session 0 under a running session, Safe Mode with session 0, E1 R9 (lab only).
+More checks on the running installed system (same day, fourth ISO):
+
+* a second, standard user's first Wine program builds its prefix, gets its own session id and reads `HKLM`; both
+  users' servers are linked to session 0 at once;
+* `net start wuauserv` from a user's session runs the service in session 0 and not in the session, `net stop`
+  stops it;
+* `systemctl restart wex-session0`: the services unit stops first and systemd ends session 0's programs with it,
+  the server restarts, the unit starts them again (one set), both sessions link again under their own ids, and
+  registry reads and writes work afterwards. Found there: session 0's programs do not end by themselves when
+  their server goes, so with a kill mode that left them alone the restarted server got a second set next to the
+  orphans (the unit now uses the default kill mode);
+* found and fixed: a user's server printed its leaked session link on the user's terminal at exit; a session's
+  `services.exe` printed stock Wine's "impersonating self" FIXME for every forwarded call.
+
+A standard user's write to `HKLM\Software` is accepted on the installed system: elevation is not enforced there by
+default (no consent helper is configured), so every user's token is unrestricted, as in stock Wine. Session 0
+enforces what the tokens say; the refusals the lab shows need enforcement switched on in the product.
+
+Not done on the installed machine: fast user switching with two desktops, a refused write under enforcement, Safe
+Mode with session 0, E1 R9 (lab only), the stray-line fixes seen on a terminal after the fix.
 `build-iso.sh` needs Go and the other Vintner Boot build dependencies in the build distro (installed in wexbuild
 on 2026-11-13).
