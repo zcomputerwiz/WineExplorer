@@ -103,8 +103,9 @@
 #   rundialog   Run (Win+R) runs what XP's runs (Wine's shell32: RunFileDlg and the default verb): `control
 #                sysdm.cpl,,3` (a program and its parameters), `sysdm.cpl` (a .cpl file: cplfile's one verb),
 #                `notepad %USERPROFILE%\...` (environment strings), WordPad by its quoted path and by its path with
-#                spaces unquoted, each with a file; a document whose path has spaces still opens as one name; a
-#                program that does not exist gets the error, and Run stays open. Only when named (Wine 68ab2d5dab3
+#                spaces unquoted, each with a file; a document and a folder whose paths have spaces still open as one
+#                name, the folder with no "DDE failure." (shlexec.c); a program that does not exist gets the error,
+#                and Run stays open. Only when named (Wine 1d6c6a65acf
 #                or later; an older image needs that shell32.dll from WEX_TEST_WINE).
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
@@ -1865,10 +1866,16 @@ phase_rundialog() {   # Run (Win+R) runs what XP's runs: see the header
     run_command "$wordpad %USERPROFILE%\\runtest2.txt" "runtest2.txt -" wordpad-spaces
     "${V[@]}" key "$TEST" alt-f4 >/dev/null
     sleep 2
-    # the whole line is still one name first: a document whose path has spaces opens (a folder would too, but
-    # ShellExecute of a folder still reports "DDE failure." once it is open: shell32's DDE server takes only Progman's
-    # commands, not the folder class's ViewFolder; a fault of its own, as before this change)
+    # the whole line is still one name first: a document whose path has spaces opens
     run_command '%USERPROFILE%\Run Test\read me.txt' "read me.txt -" spaces
+    "${V[@]}" key "$TEST" alt-f4 >/dev/null
+    sleep 2
+    # and a folder whose name has spaces, with no "DDE failure.": the folder class's DDE conversation is not taken by
+    # shell32's DDE server, so ShellExecute starts its command (explorer.exe "%1"), which opens the folder; that
+    # counts as done (Wine 1d6c6a65acf; before, it reported the failure once the folder was open)
+    run_command 'C:\Program Files\Common Files' "Common Files" folder
+    ! wait_text "DDE failure" 10 || { shot folder-dde; fail "opening a folder reported a DDE failure"; }
+    ! wait_text "Type the name" 3 || { shot folder-run; fail "Run stayed open after opening a folder"; }
     "${V[@]}" key "$TEST" alt-f4 >/dev/null
     sleep 2
     # nothing by that name: the error, and Run stays open with the line

@@ -1521,6 +1521,9 @@ class TestSessionAndGreeter(unittest.TestCase):
                        "run_command \"\\\"$wordpad\\\" %USERPROFILE%\\\\runtest.txt\"",
                        "run_command \"$wordpad %USERPROFILE%\\\\runtest2.txt\" \"runtest2.txt -\"",
                        "run_command '%USERPROFILE%\\Run Test\\read me.txt' \"read me.txt -\"",
+                       # a folder: no "DDE failure." once explorer.exe "%1" has opened it (shlexec.c)
+                       "run_command 'C:\\Program Files\\Common Files' \"Common Files\" folder",
+                       '! wait_text "DDE failure" 10 ||',
                        'wait_text "not found" 30', 'fail "Run closed after the error"'):
             self.assertIn(needle, phase)
         for line in phase.splitlines():   # commands sent over the serial console must be one line
