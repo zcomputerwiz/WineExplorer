@@ -1,24 +1,25 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Vintner Boot Integration: Where to Resume
 
-Date: 2026-11-13. Branch: `claude/vintner-boot-integration`. Plans: `VINTNER_BOOT.md`, `SAFE_MODE_WORKORDER.md`;
+Date: 2026-11-14. Branch: `claude/vintner-boot-integration`. Plans: `VINTNER_BOOT.md`, `SAFE_MODE_WORKORDER.md`;
 test reference: `SAFE_MODE.md`. Read `TOOLING.md` first.
 
 ## 1. State
 
-- `claude/vintner-boot-integration` and master were equal at `ef0f1e54` (pushed 2026-11-13). Master has since
-  gained UWP commits (`dc2b79b1`: docs and `tests/uwp` only); merge master into the branch before the next proposal.
-- Gitlinks at `ef0f1e54`: wine `3ea5d0cb83b`, wexcomp `1f8e5d3a`, vintner `d3fe892`.
-- Wine: `3ea5d0cb83b` is the fork's branch `claude/run-dialog` (pushed) = `2ebf65d5` merged with the shell32 commits
-  `042fc59aab4`, `68ab2d5dab3` (Run dialog) and `1d6c6a65acf` (a folder's "DDE failure"). It is not in `development`
-  yet: session 0 holds a merge of it (`5ec3c009`, fork branch `claude/system-tier-wine`).
+- The branch is master `3ab37342` merged in, with wine pinned at `development` `5ec3c009` (2026-11-14), handed to
+  session 0 to merge to master. Master itself pins wine `3ea5d0cb83b` until session 0 merges.
+- Gitlinks: wine `5ec3c009`, wexcomp `1f8e5d3a`, vintner `d3fe892`.
+- Wine: `5ec3c009` = UWP U1.5 (`9484da1a`) + `0e5f4da1` (LookupAccountSid and the caller's mapped SID) + the fork's
+  `claude/run-dialog` (`3ea5d0cb83b`: the shell32 commits `042fc59aab4`, `68ab2d5dab3` for the Run dialog and
+  `1d6c6a65acf` for a folder's "DDE failure"). Development has since moved to `fe9776eb` (UWP headers and
+  resources); session 0 moves to it after.
 - Nothing is uncommitted here except ` M wine`: the `wine` working tree is the E1 checkout and is not this work's.
   Never `git add wine`; a gitlink change goes through `git update-index --cacheinfo 160000,<sha>,wine`.
 
 ## 2. Done and tested
 
-On the ISO `wex-mg` (built from `258d5355`, the first merge with master; the later commits change only docs,
-`tests/uwp` and the test script), BIOS and UEFI, all passing:
+On the ISO `wex-pn` (2026-11-14, master `120e3896` with wine `5ec3c009`; the branch adds only its own docs and test
+script to that), BIOS and UEFI, all passing; the same chain passed on `wex-mg` (wine `3ea5d0cb83b`) on 2026-11-13:
 
 | Stage | Phases |
 |---|---|
@@ -30,23 +31,17 @@ On the ISO `wex-mg` (built from `258d5355`, the first merge with master; the lat
 | Wayland | `waylanddisplay`, `waylandsafe`, `waylandcmd` |
 | Startup and Recovery (D5) | `startrec` |
 
-`startrec` failed once on UEFI (the prompt called the typed password incorrect: a lost key), passed unchanged on a
-second run, and passed on both firmwares with the retry of `ef0f1e54`. `scripts/test_safemode.py`: 149.
+Flaky, not failing: on UEFI the menu key (F8 held 25 seconds) sometimes misses Vintner Boot's menu. `open_menu`
+retries once; on `wex-pn` `oschoices` missed both tries and passed when run again. Five single misses in earlier
+logs. `startrec` once lost a key of the password (UEFI); it now retypes once. `scripts/test_safemode.py`: 149.
 
 ## 3. Running or half done
 
-Started 2026-11-14, for session 0's proposal to move master's wine gitlink to `development` `5ec3c009`: an ISO
-`wex-pn` of the local, unpushed test commit `b11876e4` (branch `claude/test-wine-5ec3c009`, worktree
-`D:\Projects\WE-pin`: master `120e3896` with wine `5ec3c009`), then the whole chain of section 2. Logs:
-`D:\WSL\wex-iso\iso-pn.log` (ends with `ISO DONE`) and `D:\WSL\wex-iso\pn-chain.log` (ends with `overall=0` when
-everything passed). If it was interrupted, run it again: `wexbuild-iso-master.sh b11876e4 wex-pn` in wexbuild, then
-`wsl-pn-chain.sh` in Debian (both in `session-scripts`). The result goes to session 0; afterwards remove the
-worktree and the test branch.
+Nothing. No VM and no build is running.
 
 ## 4. Next steps, in order
 
-1. When the `wex-pn` chain (section 3) passes: merge master into the branch, pin wine `5ec3c009` on it, push, and
-   send session 0 the commit and the results so it can merge to master.
+1. Wait for session 0 to merge the branch to master (it waits for the UWP session's agreement).
 2. Pin Vintner Boot `6f30413` or later on the branch, with the install and defaults stages, and hand it over the
    same way. Since `d3fe892`: docs, a CI script fix, and `vintner-platform` Recommends `grub-common` (Vintner #96;
    an apt install with recommends also brings `os-prober`). The vintner binary is unchanged. Setup installs the
@@ -65,11 +60,12 @@ None.
 
 ## 6. What is left on the machines
 
-- WSL Debian (VM tests): `/var/tmp/vmtest-gpt/wex-mg-bios` and `-uefi` (the installed disks, about 9 GB each; keep
-  as the base) and the overlays `wex-g{t,a,c,r,w,s}-{bios,uefi}` (evidence in each `safe-mode/`; may be deleted).
-  Logs: `/var/tmp/wex-iso/safemode-wex-g?-*.log`, `run-wex-mg-*.log`. Probes: `/mnt/d/WSL/wex-iso/probes`.
-- `D:\WSL\wex-iso\wex-mg.iso`: the tested ISO. `wex-c5` (disks and ISO) is deleted.
-- WSL wexbuild (builds): `/root/WineExplorer` is the ISO clone, its `wine` at `3ea5d0cb83b` (detached; `configure`
+- WSL Debian (VM tests): `/var/tmp/vmtest-gpt/wex-pn-bios` and `-uefi` (the installed disks, about 9 GB each; keep
+  as the base) and the overlays `wex-p{t,a,c,r,w,s}-{bios,uefi}` (evidence in each `safe-mode/`; may be deleted).
+  Logs: `/var/tmp/wex-iso/safemode-wex-p?-*.log`, `run-wex-pn-*.log`; `D:\WSL\wex-iso\pn-chain.log`. Probes:
+  `/mnt/d/WSL/wex-iso/probes`.
+- `D:\WSL\wex-iso\wex-pn.iso`: the tested ISO. `wex-mg` and `wex-c5` (disks and ISOs) are deleted.
+- WSL wexbuild (builds): `/root/WineExplorer` is the ISO clone, its `wine` at `5ec3c009` (detached; `configure`
   and friends modified by the build, not to be committed). `/root/WE-safemode`, `/root/wine-stage` and
   `/root/wine-vbi.bundle` are older and may be deleted after a look.
 - The session's wrapper scripts are copied to `D:\WSL\wex-iso\session-scripts` (not in the repository; each has
