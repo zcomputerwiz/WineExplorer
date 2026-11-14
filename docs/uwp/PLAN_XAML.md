@@ -304,6 +304,19 @@ proxy is no longer used. The probe, suspend and resume included, gives the same 
 directory, write `ComponentPath`, and register `XamlShim.exe --classes FILE` (only `Windows.UI.Xaml.*`) to
 `windows.ui.xaml.dll`.
 
+**Setup component (2026-11-14):** the owner chose a GitHub release of the fork as the download source:
+`zcomputerwiz/uno-uwp` release `wex-xamlshim-v0.1.1` (pre-release; 0.1.0 is superseded, its zip had `\` entry names).
+Assets: `xamlshim-0.1.1-win-x64.zip` (self-contained, no debug symbols, `classes.txt`, `LICENSE.txt`, `NOTICE.txt`
+with the licences of all 62 bundled packages plus ICU's and Uno's), `TERMS.txt` (Apache-2.0 then the notices). In
+`scripts/wex-components.py` a new component `uwp-xaml` with execution policy `uwp-xaml-extract-register-v1`: terms as a
+pinned UTF-8 text document; the pinned zip downloaded into the root cache; every member checked (under `XamlShim/`, no
+`..`, no links, size limits, the required files, a valid `Windows.UI.Xaml.*` class list) and unpacked into the machine
+root's `Program Files\WineExplorer\Xaml\x64` by rename; one `reg import` writes `ComponentPath` and the classes into
+the machine hive; a receipt lists every file with size and digest and every class; `is_installed` checks the receipt,
+the files and the hive (read as text, no Wine); `--uninstall uwp-xaml` removes exactly those. Tests:
+`scripts/test_component_uwp_xaml.py` (9, synthetic); with the real zip and Wine in the lab, the install steps leave a
+hive that the check accepts and the probe runs from that installation (suspend and resume included).
+
 Open points that step 2b (Wine side) settles: whether CoreCLR starts cleanly inside the UWP process that Wine's
 launcher made (package identity, `ms-appx` paths); the cost of starting the runtime (time to first frame);
 and, for the Calculator, a .NET Native application, whether its runtime (`mrt100_app`) and CoreCLR live together in

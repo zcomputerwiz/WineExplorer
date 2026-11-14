@@ -58,6 +58,7 @@ COMPONENTS = {
     'xact': 'XACT audio libraries (optional)',
     'physx': 'NVIDIA PhysX (optional)',
     'webview2': 'Microsoft Edge WebView2 Runtime (optional)',
+    'uwp-xaml': 'UWP XAML support, Uno Platform (optional)',
 }
 
 COMPONENTS_METADATA = {
@@ -234,6 +235,32 @@ COMPONENTS_METADATA = {
         'client_guid': '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
         'recipe_files': [],
     },
+    'uwp-xaml': {
+        'title': 'UWP XAML support (Uno Platform)',
+        'publisher': 'WineExplorer contributors and the Uno Platform',
+        'description': "Lets UWP applications that use XAML (Windows.UI.Xaml) show their user interface: Wine's "
+                       'windows.ui.xaml.dll serves these classes from this component, built on the Uno Platform '
+                       'and the .NET runtime. No winetricks and no installer program run: the archive is verified, '
+                       'unpacked and registered.',
+        'size': '~56 MiB download, ~135 MiB installed (x64)',
+        'reboot': False,
+        'disabled': False,
+        'disabled_reason': '',
+        # Apache-2.0 (XamlShim, Uno) followed by every bundled third-party licence (.NET, SkiaSharp, HarfBuzz, ICU)
+        'terms_url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.1.1/TERMS.txt',
+        'terms_sha256': 'f4c55eeda9d98600d8c6ac29c0e47fe9c9eae88ae766419573dcfdf391211a42',
+        'terms_text_sha256': 'f4c55eeda9d98600d8c6ac29c0e47fe9c9eae88ae766419573dcfdf391211a42',
+        'release': '0.1.1',
+        'execution_policy': 'uwp-xaml-extract-register-v1',
+        'payloads': [
+            {'name': 'xamlshim-0.1.1-win-x64.zip', 'architecture': 'x64', 'size': 58813887,
+             'sha256': '0cc58dac032571e4fa24ea42967da1fc5d09028bda5953eadf01b958f8a93323',
+             'url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.1.1/xamlshim-0.1.1-win-x64.zip'},
+        ],
+        'recipe_files': [
+            ('xamlshim-0.1.1-win-x64.zip', '0cc58dac032571e4fa24ea42967da1fc5d09028bda5953eadf01b958f8a93323'),
+        ],
+    },
 }
 
 TERMS = Path('/etc/wineexplorer/component-licenses')
@@ -275,6 +302,8 @@ def validate_winetricks_integrity(path=None):
 
 
 def validate_recipe_files(verb, path=None):
+    if COMPONENTS_METADATA.get(verb, {}).get('execution_policy') == UWP_XAML_POLICY:
+        return   # no winetricks recipe: the pinned payload is checked when it is downloaded and before it is used
     if verb == 'vcrun2022':
         approved_runtime_recipe(path)
         return
@@ -1171,6 +1200,9 @@ def fetch_vendor_terms(verb, directory=None):
         text = extract_webview2_terms(data)
     elif terms_url.endswith('.docx'):
         text = extract_docx_terms(data)
+    elif terms_url.endswith('.txt') and meta.get('execution_policy') == UWP_XAML_POLICY:
+        # a plain UTF-8 licence and notice document; its bytes are pinned above, its text below
+        text = data.decode('utf-8', errors='strict')
     else:
         raise ValueError('Unreviewed vendor document format')
     if hashlib.sha256(text.encode()).hexdigest() != meta['terms_text_sha256']:
@@ -1953,6 +1985,14 @@ def is_installed(verb, accepted_digest=None, machine=None):
             if json_file.stat().st_size > 1024 * 1024:
                 return False
             data = json.loads(json_file.read_text(encoding='utf-8'))
+            if COMPONENTS_METADATA[verb].get('execution_policy') == UWP_XAML_POLICY:
+                if (data.get('verb') != verb or data.get('execution_policy') != UWP_XAML_POLICY or
+                        data.get('component_identity') != component_identity(verb) or
+                        data.get('payload_sha256') != uwp_xaml_payload(verb)['sha256'] or
+                        (accepted_digest is not None and data.get('terms_sha256') != accepted_digest)):
+                    return False
+                verify_uwp_xaml(machine, data)
+                return True
             if (data.get('verb') == verb and
                 data.get('winetricks_sha256') == APPROVED_WINETRICKS_SHA256 and
                 data.get('winetricks_version') == APPROVED_WINETRICKS_VERSION and
@@ -2113,8 +2153,350 @@ def ensure_installer_regedit(machine, libraries=Path('/usr/local/lib/wine')):
             temporary.unlink(missing_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# UWP XAML support (execution policy uwp-xaml-extract-register-v1). Nothing third-party runs: the pinned archive is
+# downloaded and verified, its members are checked and unpacked into the machine root's Program Files (published by
+# rename), and one reg import names the directory to Wine's windows.ui.xaml.dll (HKLM\Software\Wine\Xaml
+# ComponentPath) and registers the component's Windows.UI.Xaml classes to that library. The receipt lists every
+# installed file with its digest and every registered class; uninstall removes exactly those.
+# ---------------------------------------------------------------------------
+UWP_XAML_POLICY = 'uwp-xaml-extract-register-v1'
+UWP_XAML_ROOT = 'drive_c/Program Files/WineExplorer/Xaml'
+UWP_XAML_WINDOWS_ROOT = 'C:\\Program Files\\WineExplorer\\Xaml'
+UWP_XAML_DLL = 'C:\\windows\\system32\\windows.ui.xaml.dll'
+UWP_XAML_CLASS = re.compile(r'^Windows\.UI\.Xaml(\.[A-Za-z_][A-Za-z0-9_]*)+$')
+UWP_XAML_MEMBER = re.compile(r'^[A-Za-z0-9._+-]+(/[A-Za-z0-9._+-]+)*$')
+UWP_XAML_REQUIRED = ('XamlShim.exe', 'XamlShim.dll', 'hostfxr.dll', 'classes.txt', 'LICENSE.txt', 'NOTICE.txt')
+UWP_XAML_REDIRECTS = ('https://github.com/zcomputerwiz/uno-uwp/releases/download/',
+                      'https://release-assets.githubusercontent.com/')
+UWP_XAML_MAX_MEMBERS = 2000
+UWP_XAML_MAX_BYTES = 512 * 1024 * 1024
+UWP_XAML_MAX_CLASSES = 5000
+UWP_XAML_OWNER = 0   # owner of the directories it publishes into (tests run unprivileged)
+
+
+def uwp_xaml_payload(verb):
+    payloads = COMPONENTS_METADATA[verb]['payloads']
+    if len(payloads) != 1 or payloads[0]['architecture'] != 'x64':
+        raise ValueError('UWP XAML: exactly one x64 payload is supported')
+    return payloads[0]
+
+
+def cache_uwp_xaml_payload(verb, cache):
+    """The pinned archive in the root-owned cache; downloaded only after the terms were accepted."""
+    payload = uwp_xaml_payload(verb)
+    destination = cache / verb
+    if destination.is_symlink():
+        raise ValueError('Refusing symlinked UWP XAML cache')
+    destination.mkdir(mode=0o700, exist_ok=True)
+    if destination.stat().st_uid != 0 or destination.stat().st_mode & 0o022:
+        raise ValueError('UWP XAML cache must be root-owned and private')
+    target = destination / payload['name']
+    if target.exists() or target.is_symlink():
+        if (target.is_symlink() or not target.is_file() or target.stat().st_uid != 0 or
+                target.stat().st_mode & 0o022):
+            raise ValueError('Untrusted cached UWP XAML payload')
+        if target.stat().st_size == payload['size'] and hashlib.sha256(target.read_bytes()).hexdigest() == payload['sha256']:
+            return target
+        raise ValueError('Corrupt UWP XAML cache; nothing installed')
+    temporary = None
+    try:
+        with urllib.request.urlopen(payload['url'], timeout=20) as response:
+            if not response.url.startswith(UWP_XAML_REDIRECTS):
+                raise ValueError('Unexpected UWP XAML download redirect')
+            with tempfile.NamedTemporaryFile(dir=destination, prefix='.download-', delete=False) as out:
+                temporary = Path(out.name)
+                total, digest = 0, hashlib.sha256()
+                deadline = time.monotonic() + 600
+                while True:
+                    chunk = response.read(65536)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > payload['size'] or time.monotonic() > deadline:
+                        raise ValueError('UWP XAML download exceeded approved size/deadline')
+                    digest.update(chunk)
+                    out.write(chunk)
+                out.flush()
+                os.fsync(out.fileno())
+        if total != payload['size'] or digest.hexdigest() != payload['sha256']:
+            raise ValueError('UWP XAML payload hash/size mismatch; nothing installed')
+        os.replace(temporary, target)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return target
+
+
+def _uwp_xaml_real_directory(path, create):
+    """A root-owned directory that is no symlink and not writable by others (made 0755 when create is set)."""
+    if path.is_symlink():
+        raise ValueError(f'Refusing symlinked directory: {path}')
+    if create and not path.exists():
+        path.mkdir(mode=0o755)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o022:
+        raise ValueError(f'Untrusted directory: {path}')
+
+
+def uwp_xaml_unpack(archive, machine, arch):
+    """Check every member and unpack into <root>/<arch> by rename. Returns ({member: [size, sha256]}, [classes])."""
+    program_files = machine / 'drive_c/Program Files'
+    _uwp_xaml_real_directory(program_files, False)
+    root = machine / UWP_XAML_ROOT
+    _uwp_xaml_real_directory(root.parent, True)
+    _uwp_xaml_real_directory(root, True)
+    staging = root / ('.staging-' + uuid.uuid4().hex)
+    staging.mkdir(mode=0o755)
+    files = {}
+    try:
+        with zipfile.ZipFile(archive) as package:
+            members = package.infolist()
+            if len(members) > UWP_XAML_MAX_MEMBERS or sum(m.file_size for m in members) > UWP_XAML_MAX_BYTES:
+                raise ValueError('UWP XAML archive exceeds its member limits')
+            for member in members:
+                name = member.filename
+                if not name.startswith('XamlShim/'):
+                    raise ValueError('UWP XAML archive member outside XamlShim/: ' + name)
+                relative = name[len('XamlShim/'):]
+                if member.is_dir() or not relative:
+                    continue
+                if (not UWP_XAML_MEMBER.match(relative) or any(part in ('.', '..') for part in relative.split('/')) or
+                        (member.external_attr >> 16) & 0o170000 == 0o120000):
+                    raise ValueError('Unsafe UWP XAML archive member: ' + name)
+                target = staging / relative
+                target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+                digest = hashlib.sha256()
+                size = 0
+                with package.open(member) as source, open(target, 'xb') as out:
+                    while chunk := source.read(1 << 20):
+                        size += len(chunk)
+                        if size > member.file_size:
+                            raise ValueError('UWP XAML archive member larger than declared: ' + name)
+                        digest.update(chunk)
+                        out.write(chunk)
+                    out.flush()
+                    os.fsync(out.fileno())
+                target.chmod(0o644)
+                files[relative] = [size, digest.hexdigest()]
+        for required in UWP_XAML_REQUIRED:
+            if required not in files:
+                raise ValueError('UWP XAML archive lacks ' + required)
+        classes = (staging / 'classes.txt').read_text(encoding='utf-8').split()
+        if not classes or len(classes) > UWP_XAML_MAX_CLASSES or any(not UWP_XAML_CLASS.match(c) for c in classes):
+            raise ValueError('UWP XAML archive has an invalid class list')
+        final = root / arch
+        old = None
+        if final.exists() or final.is_symlink():
+            if final.is_symlink():
+                raise ValueError('Refusing symlinked UWP XAML directory')
+            old = root / ('.old-' + uuid.uuid4().hex)
+            os.replace(final, old)
+        os.replace(staging, final)
+        staging = None
+        if old is not None:
+            shutil.rmtree(old)
+        return files, classes
+    finally:
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
+
+
+def uwp_xaml_registry_text(arch, classes):
+    lines = ['Windows Registry Editor Version 5.00', '',
+             '[HKEY_LOCAL_MACHINE\\Software\\Wine\\Xaml]',
+             '"ComponentPath"="' + (UWP_XAML_WINDOWS_ROOT + '\\' + arch).replace('\\', '\\\\') + '"', '']
+    for name in classes:
+        lines += ['[HKEY_LOCAL_MACHINE\\Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\' + name + ']',
+                  '"DllPath"="' + UWP_XAML_DLL.replace('\\', '\\\\') + '"',
+                  '"ActivationType"=dword:00000000',
+                  '"Threading"=dword:00000000', '']
+    return '\r\n'.join(lines) + '\r\n'
+
+
+def read_machine_hive(machine):
+    """Wine's system.reg as {key: [value lines]}, keys as written there (backslashes doubled), read without Wine."""
+    hive = machine / 'system.reg'
+    if hive.is_symlink() or not hive.is_file():
+        return {}
+    keys, current = {}, None
+    for line in hive.read_text(encoding='utf-8', errors='replace').splitlines():
+        if line.startswith('['):
+            end = line.find(']')
+            current = keys.setdefault(line[1:end], []) if end > 0 else None
+        elif current is not None and line.startswith('"'):
+            current.append(line)
+    return keys
+
+
+def uwp_xaml_hive_has(machine, arch, classes):
+    """The machine hive holds ComponentPath and every class registered to windows.ui.xaml.dll."""
+    keys = read_machine_hive(machine)
+    double = lambda s: s.replace('\\', '\\\\')
+    if '"ComponentPath"="' + double(UWP_XAML_WINDOWS_ROOT + '\\' + arch) + '"' not in keys.get(double('Software\\Wine\\Xaml'), []):
+        return False
+    dll = '"DllPath"="' + double(UWP_XAML_DLL) + '"'
+    return all(dll in keys.get(double('Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\' + name), [])
+               for name in classes)
+
+
+def verify_uwp_xaml(machine, data, full=False):
+    """Files of the receipt present with their sizes (digests too when full) and the hive entries present."""
+    arch = data.get('payload_architecture')
+    files, classes = data.get('files'), data.get('classes')
+    if arch != 'x64' or not isinstance(files, dict) or not isinstance(classes, list):
+        raise ValueError('Malformed UWP XAML receipt')
+    root = machine / UWP_XAML_ROOT / arch
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError('UWP XAML directory missing')
+    for relative, (size, digest) in files.items():
+        target = root / relative
+        if target.is_symlink() or not target.is_file() or target.stat().st_size != size:
+            raise ValueError('UWP XAML file missing or changed: ' + relative)
+        if (full or relative in ('XamlShim.dll', 'classes.txt')) and hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+            raise ValueError('UWP XAML file changed: ' + relative)
+    if not uwp_xaml_hive_has(machine, arch, classes):
+        raise ValueError('UWP XAML registration missing')
+
+
+def _uwp_xaml_environment():
+    return {
+        'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/root', 'USER': 'root',
+        'LOGNAME': 'root', 'LANG': 'C.UTF-8', 'WINEPREFIX': str(MACHINE),
+        'WINE': '/usr/local/bin/wine', 'WINESERVER': '/usr/local/bin/wineserver',
+        'WINEDLLOVERRIDES': 'winemenubuilder.exe=d', 'WINEDEBUG': '-all',
+    }
+
+
+@contextmanager
+def _machine_maintenance(environment):
+    """The components lock, no pending recovery or interrupted OOBE operation, and an idle machine prefix."""
+    if MACHINE.is_symlink() or MACHINE.stat().st_uid != 0:
+        raise ValueError('Machine prefix must be a root-owned real directory')
+    lock_path = MACHINE.parent / '.components.lock'
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if OPERATION_STATE.exists() or OPERATION_STATE.is_symlink():
+            checked_operation_directory()
+            if any(record['status'] == 'UNKNOWN' for record in read_operation_journal().values()):
+                raise ValueError('Interrupted OOBE installation requires administrator reconciliation before install later')
+        recovery_marker = MACHINE.parent / 'component-recovery-required'
+        if recovery_marker.exists() or recovery_marker.is_symlink():
+            raise ValueError('Machine prefix requires administrator recovery before another installation')
+        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=2, check=True)
+        yield
+        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
+
+
+def _uwp_xaml_receipt_dir():
+    receipt = MACHINE.parent / 'component-receipts'
+    receipt.mkdir(mode=0o755, exist_ok=True)
+    if receipt.is_symlink() or receipt.stat().st_uid != 0 or receipt.stat().st_mode & 0o022:
+        raise ValueError('Untrusted component receipt directory')
+    receipt.chmod(0o755)
+    return receipt
+
+
+def install_uwp_xaml(verb, accepted_digest):
+    meta = COMPONENTS_METADATA[verb]
+    _, current = license_text(verb)
+    if current != accepted_digest:
+        raise ValueError('Terms changed; review and accept the current text')
+    environment = _uwp_xaml_environment()
+    with _machine_maintenance(environment):
+        if is_installed(verb, accepted_digest, machine=MACHINE):
+            return
+        if CACHE.is_symlink():
+            raise ValueError('Refusing symlinked component cache')
+        CACHE.mkdir(mode=0o700, exist_ok=True)
+        if CACHE.stat().st_uid != 0 or CACHE.stat().st_mode & 0o022:
+            raise ValueError('Component cache must be root-owned and not writable by others')
+        payload = uwp_xaml_payload(verb)
+        archive = cache_uwp_xaml_payload(verb, CACHE)
+        files, classes = uwp_xaml_unpack(archive, MACHINE, payload['architecture'])
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='', dir=CACHE, prefix='.uwp-xaml-',
+                                         suffix='.reg', delete=False) as out:
+            registry = Path(out.name)
+            out.write(uwp_xaml_registry_text(payload['architecture'], classes))
+        try:
+            reg('/usr/local/bin/wine', environment, 'import', str(registry), check=True)
+        finally:
+            registry.unlink(missing_ok=True)
+        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
+        data = {
+            'verb': verb,
+            'title': meta.get('title', verb),
+            'sha256': current,
+            'terms_sha256': current,
+            'execution_policy': UWP_XAML_POLICY,
+            'component_identity': component_identity(verb),
+            'payload_sha256': payload['sha256'],
+            'payload_architecture': payload['architecture'],
+            'files': files,
+            'classes': classes,
+            'installed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        }
+        verify_uwp_xaml(MACHINE, data, full=True)
+        receipt = _uwp_xaml_receipt_dir()
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=receipt, prefix='.' + verb, delete=False) as out:
+            temporary_receipt = Path(out.name)
+            os.fchmod(out.fileno(), 0o644)
+            json.dump(data, out, indent=2)
+            out.write('\n')
+            out.flush()
+            os.fsync(out.fileno())
+        try:
+            os.replace(temporary_receipt, receipt / (verb + '.json'))
+        finally:
+            temporary_receipt.unlink(missing_ok=True)
+        (receipt / (verb + '.sha256')).write_text(current + '\n', encoding='ascii')
+
+
+def uninstall(verb):
+    """Remove exactly what the receipt lists: the registered classes, ComponentPath, the directory, the receipt."""
+    validate_verb(verb)
+    if COMPONENTS_METADATA[verb].get('execution_policy') != UWP_XAML_POLICY:
+        raise ValueError(f'{verb} cannot be uninstalled by this tool')
+    if os.getuid() != 0:
+        raise ValueError('The installer backend requires authenticated elevation')
+    environment = _uwp_xaml_environment()
+    with _machine_maintenance(environment):
+        receipt = MACHINE.parent / 'component-receipts' / (verb + '.json')
+        if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_uid != 0:
+            raise ValueError(f'{verb} is not installed')
+        data = json.loads(receipt.read_text(encoding='utf-8'))
+        arch, classes = data.get('payload_architecture'), data.get('classes')
+        if arch != 'x64' or not isinstance(classes, list) or any(not UWP_XAML_CLASS.match(c) for c in classes):
+            raise ValueError('Malformed UWP XAML receipt')
+        wine = '/usr/local/bin/wine'
+        for name in classes:
+            reg(wine, environment, 'delete', 'HKLM\\Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\' + name, '/f')
+        reg(wine, environment, 'delete', 'HKLM\\Software\\Wine\\Xaml', '/v', 'ComponentPath', '/f')
+        query = reg(wine, environment, 'query', 'HKLM\\Software\\Wine\\Xaml')
+        if query.returncode == 0 and 'REG_' not in query.stdout.decode('utf-8', 'replace'):
+            reg(wine, environment, 'delete', 'HKLM\\Software\\Wine\\Xaml', '/f')
+        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
+        directory = MACHINE / UWP_XAML_ROOT / arch
+        if directory.is_symlink():
+            raise ValueError('Refusing symlinked UWP XAML directory')
+        if directory.is_dir():
+            trash = directory.parent / ('.removed-' + uuid.uuid4().hex)
+            os.replace(directory, trash)
+            shutil.rmtree(trash)
+        receipt.unlink()
+        (receipt.parent / (verb + '.sha256')).unlink(missing_ok=True)
+
+
 def install(verb, accepted_digest):
     validate_verb(verb)
+    if COMPONENTS_METADATA.get(verb, {}).get('execution_policy') == UWP_XAML_POLICY:
+        if COMPONENTS_METADATA[verb].get('disabled'):
+            raise ValueError(f'{verb} is disabled: {COMPONENTS_METADATA[verb].get("disabled_reason")}')
+        if os.getuid() != 0:
+            raise ValueError('The installer backend requires authenticated elevation')
+        return install_uwp_xaml(verb, accepted_digest)
     meta = COMPONENTS_METADATA.get(verb, {})
     if meta.get('disabled'):
         raise ValueError(f'{verb} is disabled: {meta.get("disabled_reason")}')
@@ -3000,6 +3382,7 @@ def main():
     parser.add_argument('--install', nargs=2, metavar=('VERB', 'ACCEPTED_SHA256'), help=argparse.SUPPRESS)
     parser.add_argument('--prepare-terms', metavar='VERB', help=argparse.SUPPRESS)
     parser.add_argument('--review-download', metavar='VERB', help=argparse.SUPPRESS)
+    parser.add_argument('--uninstall', metavar='VERB', help='Remove a component that supports it (uwp-xaml), as root')
     parser.add_argument('--oobe-coordinator', action='store_true', help='Run OOBE setup coordinator daemon')
     parser.add_argument('--apply-user-defaults', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--reconcile-operation', metavar='OP_ID', help='Reconcile an inspected interrupted install while coordinator is stopped')
@@ -3009,7 +3392,8 @@ def main():
     parser.add_argument('verbs', nargs='*')
     args = parser.parse_args()
     privileged_actions = sum(bool(value) for value in (args.install, args.prepare_terms, args.review_download,
-                             args.oobe_coordinator, args.apply_user_defaults, args.reconcile_operation))
+                             args.oobe_coordinator, args.apply_user_defaults, args.reconcile_operation,
+                             args.uninstall))
     if privileged_actions > 1 or (privileged_actions and (args.action or args.verbs)):
         parser.error('Choose exactly one backend action, without unrelated positional arguments')
     if args.reconcile_operation:
@@ -3036,6 +3420,8 @@ def main():
                         trace=lambda method, url, size: print('REVIEW', method, url, size, file=sys.stderr, flush=True))
     elif args.install:
         install(*args.install)
+    elif args.uninstall:
+        uninstall(args.uninstall)
     elif args.action == 'list':
         for verb, meta in COMPONENTS_METADATA.items():
             status = f" (disabled: {meta['disabled_reason']})" if meta.get('disabled') else ''
