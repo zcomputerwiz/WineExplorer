@@ -7,6 +7,17 @@ Go Button 76x32 at 24,63
 navigate to second page
 second page constructed
 second page loaded, frame back stack 1, note 129
+navigate to controls page
+controls page constructed, list 5, lines 30
+Layout Grid 1200x900 at 0,0
+Box Border 200x35 at 12,12
+BoxText TextBlock 69x19 at 20,20
+Input TextBox 968x35 at 220,12, text Edit me
+Check CheckBox 120x32 at 12,64, checked yes
+Picture Image 50x50 at 220,55
+List ListView 200x775 at 12,113, items 5
+Scroll ScrollViewer 968x775 at 220,113, extent 775, viewport 775
+Scroll after ChangeView, offset 0
 suspending, sender is the application no, deadline in 4 s
 resuming, sender is the application no
 main page destroyed by now: no

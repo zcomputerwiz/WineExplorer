@@ -2,12 +2,13 @@
 // Copyright 2026 WineExplorer contributors
 #include "pch.h"
 #include "SecondPage.xaml.h"
+#include "ControlsPage.xaml.h"
 
 using namespace XamlProbe;
 using namespace Windows::Foundation;
 using namespace Windows::UI::Xaml;
 
-/* the page navigated to from MainPage: reports, then reports whether MainPage was released, and exits */
+/* the page navigated to from MainPage: reports, then navigates to ControlsPage */
 SecondPage::SecondPage()
 {
     InitializeComponent();
@@ -17,7 +18,7 @@ SecondPage::SecondPage()
         Log(L"second page loaded, frame back stack " + Frame->BackStackDepth.ToString() + L", note " + Note->ActualWidth.ToString());
         timer = ref new DispatcherTimer();
         TimeSpan span;
-        span.Duration = 200000000;   /* 20 s: room for a suspend and resume run */
+        span.Duration = 10000000;
         timer->Interval = span;
         timer->Tick += ref new EventHandler<Platform::Object^>(this, &SecondPage::Finish);
         timer->Start();
@@ -27,7 +28,7 @@ SecondPage::SecondPage()
 void SecondPage::Finish(Platform::Object^, Platform::Object^)
 {
     timer->Stop();
-    Log(L"main page destroyed by now: " + (MainPageDestroyed ? L"yes" : L"no"));
-    Log(L"exit");
-    Application::Current->Exit();
+    timer = nullptr;
+    Log(L"navigate to controls page");
+    Frame->Navigate(Interop::TypeName(ControlsPage::typeid), nullptr);
 }

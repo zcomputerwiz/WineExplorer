@@ -327,6 +327,16 @@ register them as default styles in the fork. The second page's `TextBlock` with 
 (Windows 80.35): Uno gives the desired size, margin included, before the first arrange (fork, layout). Applications
 built with WinUI 2 (the Calculator) bring their own styles in their framework package, which the XBF loader reads.
 
+**Common controls (2026-11-14, uno-uwp after 52bf7255):** the probe's `ControlsPage` (Grid with fixed, auto and star
+rows and columns, Border with a corner radius, TextBox, CheckBox, Image, ListView filled through `Items`, ScrollViewer
+around a StackPanel filled through `Children`, `ChangeView`) gives on Wine the layout Windows gives (every rectangle
+equal; the border's text 69x19 against 68.17x18.62, whole pixels in Uno). What it took: 11 more generated classes;
+`IVector<T>`/`IIterable<T>`/`IObservableVector<T>` written by hand over Uno's lists (IIDs from the pinterface
+signatures; `GetView`, `First` and `VectorChanged` still to do); boxing through Wine's `PropertyValue`; default
+construction and composition for every class (the Uno class of the same name); and default bodies for every property
+accessor (948 generated), which read or write the Uno object's property of the same name, converted by ABI kind
+(string, bool, number, enum, object). Structs (Thickness, Color, ...) and events are still per member.
+
 Open points that step 2b (Wine side) settles: whether CoreCLR starts cleanly inside the UWP process that Wine's
 launcher made (package identity, `ms-appx` paths); the cost of starting the runtime (time to first frame);
 and, for the Calculator, a .NET Native application, whether its runtime (`mrt100_app`) and CoreCLR live together in

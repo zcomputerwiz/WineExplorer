@@ -51,11 +51,13 @@ XAML experiment step 2b: the smallest compiled XAML application (C++/CX, Windows
     <ClInclude Include="App.xaml.h"><DependentUpon>App.xaml</DependentUpon></ClInclude>
     <ClInclude Include="MainPage.xaml.h"><DependentUpon>MainPage.xaml</DependentUpon></ClInclude>
     <ClInclude Include="SecondPage.xaml.h"><DependentUpon>SecondPage.xaml</DependentUpon></ClInclude>
+    <ClInclude Include="ControlsPage.xaml.h"><DependentUpon>ControlsPage.xaml</DependentUpon></ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml"><SubType>Designer</SubType></ApplicationDefinition>
     <Page Include="MainPage.xaml"><SubType>Designer</SubType></Page>
     <Page Include="SecondPage.xaml"><SubType>Designer</SubType></Page>
+    <Page Include="ControlsPage.xaml"><SubType>Designer</SubType></Page>
   </ItemGroup>
   <ItemGroup>
     <AppxManifest Include="Package.appxmanifest"><SubType>Designer</SubType></AppxManifest>
@@ -65,6 +67,7 @@ XAML experiment step 2b: the smallest compiled XAML application (C++/CX, Windows
     <ClCompile Include="App.xaml.cpp"><DependentUpon>App.xaml</DependentUpon></ClCompile>
     <ClCompile Include="MainPage.xaml.cpp"><DependentUpon>MainPage.xaml</DependentUpon></ClCompile>
     <ClCompile Include="SecondPage.xaml.cpp"><DependentUpon>SecondPage.xaml</DependentUpon></ClCompile>
+    <ClCompile Include="ControlsPage.xaml.cpp"><DependentUpon>ControlsPage.xaml</DependentUpon></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Image Include="Assets\Logo.png" />
