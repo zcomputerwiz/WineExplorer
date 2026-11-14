@@ -2128,6 +2128,11 @@ class TestUnitsAndLoader(unittest.TestCase):
         packages = (installer / "live-build" / "config" / "package-lists" / "wineexplorer.list.chroot").read_text(
             encoding="utf-8").split()
         self.assertIn("grub-common", packages)   # Vintner Boot's grub-mkimage, for the BIOS core image
+        # B12: the computer's own name resolves after Setup or a rename (hostname1 leaves /etc/hosts alone); the
+        # install test checks it on the installed disk
+        self.assertIn("libnss-myhostname", packages)
+        self.assertIn("grep -qE '^hosts:.*\\bmyhostname\\b' \"$ROOT/etc/nsswitch.conf\"",
+                      (installer / "tests" / "install-unattended.sh").read_text(encoding="utf-8"))
         for package in ("grub-pc", "grub-pc-bin", "grub-efi-amd64-bin", "grub2-common", "grub-efi-amd64"):
             self.assertNotIn(package, packages)
         iso_menu = (installer / "live-build" / "config" / "hooks" / "live" / "9000-grub-menu.binary").read_text(

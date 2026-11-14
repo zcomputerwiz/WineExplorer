@@ -25,6 +25,9 @@ wireless-regdb
 rfkill
 ethtool
 systemd-timesyncd
+# The computer's own name always resolves (nsswitch "myhostname"): Setup and System Properties > Computer Name set it
+# through hostname1, which leaves /etc/hosts alone, so it still named the live image's "debian" (B12, 2026-11-14)
+libnss-myhostname
 # glibc's locales and locale-gen: Setup's locale is generated (wex-locale-gen); without it only C.UTF-8 exists
 locales
 unattended-upgrades

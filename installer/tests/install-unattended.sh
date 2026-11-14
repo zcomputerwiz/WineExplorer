@@ -75,6 +75,9 @@ python3 "$HERE/check-vintner.py" "$ROOT" "$STATE/check-bootstorage" "$STATE/chec
 cp "$ROOT/var/log/vintner-install.log" "$STATE/" 2>/dev/null || true
 python3 "$HERE/check-lightdm.py" "$ROOT" wineuser || fail "installed display manager checks failed"
 grep -qx 'WEX-PC' "$ROOT/etc/hostname" || fail "hostname was not applied"
+# B12: the name resolves (/etc/hosts still names the live image; libnss-myhostname answers for the current name)
+grep -qE '^hosts:.*\bmyhostname\b' "$ROOT/etc/nsswitch.conf" || fail "the computer's own name does not resolve (no myhostname in nsswitch.conf)"
+ls "$ROOT"/usr/lib/x86_64-linux-gnu/libnss_myhostname.so.2 >/dev/null 2>&1 || fail "libnss-myhostname is not installed"
 grep -q '^wineuser:' "$ROOT/etc/passwd" || fail "installed user missing"
 ! grep -q '^wexsetup:' "$ROOT/etc/passwd" || fail "temporary setup account remains"
 [ ! -e "$ROOT/etc/wineexplorer/setup" ] || fail "setup state remains"
