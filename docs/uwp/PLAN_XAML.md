@@ -184,5 +184,10 @@ earlier U1 suites, `docs/STOCK_CHANGES.md` updated, push and merge coordinated w
   not shipped: a "UWP application frameworks" component downloads the pinned framework packages, shows their terms,
   verifies the hashes and registers them with `wexappx`. The UWP support in Wine itself is built in; the component only
   supplies the Microsoft frameworks. This keeps decision (2): no .NET runtime is added to Wine for XAML.
+* **Owner (2026-11-14, revises decision 2):** Uno is allowed as the XAML engine: `zcomputerwiz/uno-uwp` may be modified
+  in any way needed, and a shim of ours makes applications built against `Windows.UI.Xaml` (not against Uno) work. Uno
+  (Apache-2.0) and the .NET runtime it needs are never pre-packaged: setup shows their terms and downloads and installs
+  them as components. Next step: a time-boxed experiment (Uno Skia Win32 on Wine; a C++/WinRT XAML app shown through
+  a small shim over Uno hosted in-process) decides between this route and option A.
 * **Open:** the C++ UWP build tools (XAML compiler) are not installed on the Windows host; until they are, the oracle apps
   build their UI in code or load XAML text at run time (`XamlReader.Load`).
