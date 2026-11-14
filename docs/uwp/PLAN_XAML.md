@@ -196,4 +196,7 @@ earlier U1 suites, `docs/STOCK_CHANGES.md` updated, push and merge coordinated w
   Win32 host, self-contained .NET 10) runs on Wine x64 with two Wine fixes (window class lookup, `winlangdb` and
   `GetUserLanguages`) and lays out as on Windows. x86 fails on Windows and Wine alike: Uno ships no 32-bit ICU
   (component work). Next: step 2, a C++/WinRT XAML application through a small shim over Uno in its process.
+* **Step 2a done (2026-11-14):** a native C program hosts CoreCLR with hostfxr, calls an `[UnmanagedCallersOnly]`
+  Uno entry point and shows runtime XAML text; the layout is the same on Windows and on Wine x64, with no further Wine
+  change. Next: step 2b, a compiled C++/WinRT XAML application through a `windows.ui.xaml` shim.
 * **Done:** the C++ UWP build tools (XAML compiler) are installed on the Windows host (2026-11-14, by the owner).

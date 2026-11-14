@@ -42,5 +42,28 @@ What Wine needed (commit 1052fab3, `docs/STOCK_CHANGES.md`):
 * `winlangdb.dll` (`EnsureLanguageProfileExists`) did not exist, and `bcp47langs.GetUserLanguages` returned success
   without a string.
 
+## Step 2a: Uno hosted inside a native process (2026-11-14)
+
+A UWP application is a native process; a `Windows.UI.Xaml` shim backed by Uno has to start CoreCLR inside it. Test:
+`xamlhost.c`, a plain C program, loads `hostfxr.dll` from the published UnoSpike directory, initialises it for
+`UnoSpike.dll` (`hostfxr_initialize_for_dotnet_command_line`), gets the `[UnmanagedCallersOnly]` method
+`UnoSpike.Shim.Start` (`Shim.cs`) through `hdt_get_function_pointer`, and passes it XAML text. The method starts the
+Uno Win32 host; `App.OnLaunched` (one added `if (Shim.Xaml != null) { Shim.Show(MainWindow); MainWindow.Activate();
+return; }`) builds the window content with `XamlReader.Load`, logs the layout and exits. Build: `build-xamlhost.cmd`
+after `dotnet publish` (x64); Wine run: `run-wine-xamlhost.sh` (under `xvfb-run`), which also runs `UnoSpike.exe`.
+
+| | Windows 11 | Wine x64 (1052fab3) |
+|---|---|---|
+| hostfxr init, delegate, function | 0, 0, 0 | 0, 0, 0 |
+| page (window content) | 1008x601 | 1016x606 |
+| `TextBlock` Title | 224x28 at 24,24 | 224x28 at 24,24 |
+| `Button` Go | 84x33 at 24,64 | 84x33 at 24,64 |
+| end | shim returns 0, host exits 0 | shim returns 0, host exits 0 |
+
+Wine needed no further change. The page size differs by the window frame, as in step 1. So CoreCLR plus Uno run
+inside a native process on Wine, and runtime XAML text (not XBF) loads. Next (step 2b): a compiled C++/WinRT XAML
+application, which reaches `Windows.UI.Xaml` through WinRT activation (`Application.Start`, composable classes) and
+loads XBF from its resources.pri, through a `windows.ui.xaml` shim that forwards to this entry point.
+
 Still reported by Uno on Wine, not blocking: the registry keys `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`
 and `Control Panel\Accessibility\HighContrast` and the text scale factor are missing (light theme and defaults are used).
