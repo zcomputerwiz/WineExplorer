@@ -37,7 +37,12 @@ logs. `startrec` once lost a key of the password (UEFI); it now retypes once. `s
 
 ## 3. Running or half done
 
-Nothing. No VM and no build is running.
+Started 2026-11-14: Vintner Boot `6f30413` pinned (`bd73433e`) and session 0's master candidate `152d6095` merged
+on top (`289c2080`); ISO `wex-vb` of `289c2080`, then install, Safe Mode defaults and `startrec` on both firmwares.
+Logs: `D:\WSL\wex-iso\iso-vb.log` (ends with `ISO DONE`), `D:\WSL\wex-iso\vb-chain.log` (ends with `overall=0`
+when everything passed). To run it again: `wexbuild-iso-master.sh 289c2080 wex-vb` in wexbuild, then
+`wsl-vb-chain.sh` in Debian (both in `D:\WSL\wex-iso\session-scripts`). On a pass, send session 0 the commit to
+merge to master.
 
 ## 4. Next steps, in order
 
