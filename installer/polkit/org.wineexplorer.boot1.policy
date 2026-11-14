@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- Copyright 2026 WineExplorer contributors -->
+<!-- Startup and Recovery (scripts/wex-boot1.py): the same rule as hostname1's and timedate1's changes
+     (auth_admin_keep), so whoever may change the computer name or the clock may change the startup settings. -->
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>WineExplorer</vendor>
+  <action id="org.wineexplorer.boot1.set-startup">
+    <description>Change the startup and recovery settings</description>
+    <message>Authentication is required to change how the computer starts and what it does after a system failure.</message>
+    <defaults>
+      <allow_any>auth_admin_keep</allow_any>
+      <allow_inactive>auth_admin_keep</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

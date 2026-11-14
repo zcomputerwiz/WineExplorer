@@ -41,6 +41,13 @@
 #define IDD_PERFORMANCE     1005
 #define IDD_ENVVARS         1006
 #define IDD_COMPNAME_CHANGE 1007
+#define IDD_STARTREC        1008
+
+/* Startup and Recovery strings */
+#define IDS_STARTREC_NO_DUMP     11
+#define IDS_STARTREC_SMALL_DUMP  12
+#define IDS_STARTREC_KERNEL_DUMP 13
+#define IDS_STARTREC_FULL_DUMP   14
 
 /* General Page Controls */
 #define IDC_GEN_OS_LABEL       2001
@@ -86,5 +93,24 @@
 #define IDC_ENV_SYS_NEW        2506
 #define IDC_ENV_SYS_EDIT       2507
 #define IDC_ENV_SYS_DEL        2508
+
+/* Startup and Recovery Controls (after ReactOS's sysdm IDD_STARTUPRECOVERY) */
+#define IDC_STRECOSCOMBO       2601
+#define IDC_STRECLIST          2602
+#define IDC_STRRECLISTEDIT     2603
+#define IDC_STRRECLISTUPDWN    2604
+#define IDC_STRRECREC          2605
+#define IDC_STRRECRECEDIT      2606
+#define IDC_STRRECRECUPDWN     2607
+#define IDC_STRRECEDIT         2608
+#define IDC_STRRECWRITEEVENT   2609
+#define IDC_STRRECSENDALERT    2610
+#define IDC_STRRECRESTART      2611
+#define IDC_STRRECDEBUGCOMBO   2612
+#define IDC_STRRECDUMPFILE     2613
+#define IDC_STRRECOVERWRITE    2614
+#define IDC_STRRECLISTSEC      2615
+#define IDC_STRRECRECSEC       2616
+#define IDC_STRRECDUMPLABEL    2617
 
 #endif /* __WINE_SYSDM_RESOURCE_H */

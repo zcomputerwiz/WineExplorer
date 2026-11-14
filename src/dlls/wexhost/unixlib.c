@@ -122,6 +122,10 @@ static DWORD map_error( DBusError *err )
     if (p_dbus_error_has_name( err, DBUS_ERROR_ACCESS_DENIED ) ||
         p_dbus_error_has_name( err, "org.freedesktop.PolicyKit1.Error.NotAuthorized" )) return ERROR_ACCESS_DENIED;
     if (p_dbus_error_has_name( err, "org.freedesktop.PolicyKit1.Error.Cancelled" )) return ERROR_CANCELLED;
+    /* org.wineexplorer.Boot1 (scripts/wex-boot1.py) */
+    if (p_dbus_error_has_name( err, "org.wineexplorer.Boot1.Error.NotAuthorized" )) return ERROR_ACCESS_DENIED;
+    if (p_dbus_error_has_name( err, "org.wineexplorer.Boot1.Error.Cancelled" )) return ERROR_CANCELLED;
+    if (p_dbus_error_has_name( err, "org.wineexplorer.Boot1.Error.InvalidArgs" )) return ERROR_INVALID_PARAMETER;
     if (p_dbus_error_has_name( err, DBUS_ERROR_SERVICE_UNKNOWN ) || p_dbus_error_has_name( err, DBUS_ERROR_NAME_HAS_NO_OWNER ) ||
         p_dbus_error_has_name( err, DBUS_ERROR_NO_SERVER ) || p_dbus_error_has_name( err, DBUS_ERROR_DISCONNECTED ) ||
         p_dbus_error_has_name( err, DBUS_ERROR_FILE_NOT_FOUND ) || p_dbus_error_has_name( err, DBUS_ERROR_UNKNOWN_METHOD ))
@@ -545,6 +549,101 @@ static NTSTATUS hostname_set( void *args )
     if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &name, DBUS_TYPE_BOOLEAN, &interactive, DBUS_TYPE_INVALID );
     params->err = call_system( msg, NULL );
     if (msg) p_dbus_message_unref( msg );
+    return STATUS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ Startup and Recovery: org.wineexplorer.Boot1 */
+
+#define BOOT_DEST  "org.wineexplorer.Boot1"
+#define BOOT_PATH  "/org/wineexplorer/Boot1"
+#define BOOT_IFACE "org.wineexplorer.Boot1"
+
+static NTSTATUS boot_get( void *args )
+{
+    struct boot_get_params *params = args;
+    dbus_uint32_t menu = 0, recovery = 0;
+    struct prop props[] = {
+        { "OperatingSystem", DBUS_TYPE_STRING, params->info.os_name, sizeof(params->info.os_name) },
+        { "HasLoader", DBUS_TYPE_BOOLEAN, &params->info.has_loader, sizeof(params->info.has_loader) },
+        { "MenuTimeout", DBUS_TYPE_UINT32, &menu, sizeof(menu) },
+        { "RecoveryEnabled", DBUS_TYPE_BOOLEAN, &params->info.recovery_enabled, sizeof(params->info.recovery_enabled) },
+        { "RecoveryTimeout", DBUS_TYPE_UINT32, &recovery, sizeof(recovery) },
+        { "AutoRestart", DBUS_TYPE_BOOLEAN, &params->info.auto_restart, sizeof(params->info.auto_restart) },
+        { "HasOptions", DBUS_TYPE_BOOLEAN, &params->info.has_options, sizeof(params->info.has_options) },
+        { "Options", DBUS_TYPE_STRING, params->info.options, sizeof(params->info.options) } };
+
+    memset( &params->info, 0, sizeof(params->info) );
+    params->err = get_properties( BOOT_DEST, BOOT_PATH, BOOT_IFACE, props, ARRAYSIZE(props) );
+    params->info.menu_timeout = menu;
+    params->info.recovery_timeout = recovery;
+    return STATUS_SUCCESS;
+}
+
+/* A call that may wait on polkit, keeping the service's message for the dialog. */
+static DWORD call_boot( DBusMessage *msg, DBusMessage **reply_out, char *message, size_t size )
+{
+    DBusConnection *bus = get_system_bus();
+    DBusMessage *reply;
+    DBusError err;
+    DWORD ret = ERROR_SUCCESS;
+
+    if (size) message[0] = 0;
+    if (!bus || !msg) return ERROR_NOT_SUPPORTED;
+    p_dbus_error_init( &err );
+    reply = p_dbus_connection_send_with_reply_and_block( bus, msg, DBUS_TIMEOUT_INFINITE, &err );
+    if (!reply)
+    {
+        ret = map_error( &err );
+        if (size && err.message) snprintf( message, size, "%s", err.message );
+        p_dbus_error_free( &err );
+    }
+    if (reply_out) *reply_out = reply; else if (reply) p_dbus_message_unref( reply );
+    return ret;
+}
+
+static NTSTATUS boot_set( void *args )
+{
+    struct boot_set_params *params = args;
+    DBusMessage *msg;
+    dbus_uint32_t menu = params->menu_timeout, recovery = params->recovery_timeout;
+    dbus_bool_t recovery_on = params->recovery_enabled != 0, restart = params->auto_restart != 0, interactive = TRUE;
+
+    msg = load_dbus() ? p_dbus_message_new_method_call( BOOT_DEST, BOOT_PATH, BOOT_IFACE, "Apply" ) : NULL;
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_UINT32, &menu, DBUS_TYPE_BOOLEAN, &recovery_on,
+                                         DBUS_TYPE_UINT32, &recovery, DBUS_TYPE_BOOLEAN, &restart,
+                                         DBUS_TYPE_BOOLEAN, &interactive, DBUS_TYPE_INVALID );
+    params->err = call_boot( msg, NULL, params->message, sizeof(params->message) );
+    if (msg) p_dbus_message_unref( msg );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS boot_set_options( void *args )
+{
+    struct boot_set_options_params *params = args;
+    DBusMessage *msg, *reply = NULL;
+    const char *text = params->text;
+    dbus_bool_t interactive = TRUE, published = FALSE;
+    dbus_uint32_t generation = 0;
+
+    params->text[sizeof(params->text) - 1] = 0;
+    params->generation = 0;
+    msg = load_dbus() ? p_dbus_message_new_method_call( BOOT_DEST, BOOT_PATH, BOOT_IFACE, "SetOptions" ) : NULL;
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &text, DBUS_TYPE_BOOLEAN, &interactive,
+                                         DBUS_TYPE_INVALID );
+    params->err = call_boot( msg, &reply, params->message, sizeof(params->message) );
+    if (msg) p_dbus_message_unref( msg );
+    if (reply)
+    {
+        DBusMessageIter it;
+        if (p_dbus_message_iter_init( reply, &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_BOOLEAN)
+        {
+            p_dbus_message_iter_get_basic( &it, &published );
+            if (p_dbus_message_iter_next( &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_UINT32)
+                p_dbus_message_iter_get_basic( &it, &generation );
+        }
+        if (published) params->generation = generation;
+        p_dbus_message_unref( reply );
+    }
     return STATUS_SUCCESS;
 }
 
@@ -1645,6 +1744,9 @@ STUB( power_do, struct power_do_params )
 STUB( battery_get, struct battery_get_params )
 STUB( hostname_get, struct hostname_get_params )
 STUB( hostname_set, struct hostname_set_params )
+STUB( boot_get, struct boot_get_params )
+STUB( boot_set, struct boot_set_params )
+STUB( boot_set_options, struct boot_set_options_params )
 STUB( user_get, struct user_get_params )
 STUB( net_get_status, struct net_get_status_params )
 STUB( net_scan_wifi, struct net_scan_wifi_params )
@@ -2597,6 +2699,9 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     wm_clock_wait,
     e1s6_transport,
     monotonic_ns,
+    boot_get,
+    boot_set,
+    boot_set_options,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -2695,6 +2800,9 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     wm_clock_wait,
     e1s6_transport,
     monotonic_ns,
+    boot_get,
+    boot_set,
+    boot_set_options,
 };
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
 #endif

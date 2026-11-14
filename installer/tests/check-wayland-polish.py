@@ -48,6 +48,11 @@ def native(*args, wait=False):
         [*flags, "env", "LANG=C.UTF-8", *args]))
 
 
+def randr(*args, wait=True):
+    # output management is offered on the shell's private socket only (wexcomp, protocol_is_shell_only)
+    return native("WAYLAND_DISPLAY=wex-shell-0", "wlr-randr", *args, wait=wait)
+
+
 def readback(action="zorder"):
     return command("rm -f /tmp/wex-polish-state.log; python3 /tmp/wex-session-run.py "
                    "--wait --log-file /tmp/wex-polish-state.log "
@@ -132,7 +137,7 @@ def check_frames():
             "qterminal qt6-wayland xterm wlr-randr </dev/null", 180)
     command("pkill -u bobsmith -x volumeicon || true")
     for scale in (1, 1.5):
-        native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
+        randr("--output", "Virtual-1", "--scale", str(scale), wait=True)
         time.sleep(1)
         for app, title, args in (
             ("foot", "Polish-foot", ["foot", "--title=Polish-foot"]),
@@ -157,7 +162,7 @@ def check_frames():
         frame_check("Preferences", f"volumeicon-{int(scale*100)}", scale)
         command("pkill -u bobsmith -x volumeicon")
         time.sleep(.3)
-    native("wlr-randr", "--output", "Virtual-1", "--scale", "1", wait=True)
+    randr("--output", "Virtual-1", "--scale", "1", wait=True)
     print("PASS real-program frame matrix at 100% and 150%", flush=True)
 
 
@@ -178,7 +183,7 @@ def check_qt_dialog():
         print("QT_LABELS " + repr(words), flush=True)
         return words[0].lower() == "yes" and words[1].lower() == "no"
 
-    native("wlr-randr", "--output", "Virtual-1", "--scale", "1.5", wait=True)
+    randr("--output", "Virtual-1", "--scale", "1.5", wait=True)
     native("foot", "--title=Polish-switch-target")
     settled("Polish-switch-target")
     native("env", "QT_QPA_PLATFORM=wayland", "qterminal", "--workdir", "/home/bobsmith")
@@ -214,7 +219,7 @@ def check_qt_dialog():
     command("for i in $(seq 1 30); do pgrep -u bobsmith -x qterminal >/dev/null || break; sleep .1; done; ! pgrep -u bobsmith -x qterminal")
     vm.shot(name, str(steps / "qt-dialog-closed.png"))
     command("pkill -u bobsmith -x foot")
-    native("wlr-randr", "--output", "Virtual-1", "--scale", "1", wait=True)
+    randr("--output", "Virtual-1", "--scale", "1", wait=True)
     print("PASS QTerminal Exit dialog taskbar switch at 150%", flush=True)
 
 
@@ -248,7 +253,7 @@ def check_live_scale():
         vm.shot(name, str(steps / "scale-failed.png"))
         raise RuntimeError(f"Foot lost hosting/maximize/focus at scale {scale}")
 
-    native("wlr-randr", "--output", "Virtual-1", "--scale", "1", wait=True)
+    randr("--output", "Virtual-1", "--scale", "1", wait=True)
     native("foot", "--title=Polish-live-scale")
     _, frame, _, _ = settled("Polish-live-scale")
     vm.click(name, frame[0] + 100, frame[1] + 15, count=2)
@@ -257,7 +262,7 @@ def check_live_scale():
     state_start = False
     for index, scale in enumerate((1, 1.5, 1)):
         if scale != 1 or state_start:
-            native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
+            randr("--output", "Virtual-1", "--scale", str(scale), wait=True)
             time.sleep(3)
         entry = state(scale, True)
         assert entry[1] == (-4, -4, width + 4, height - 26), entry
@@ -278,7 +283,7 @@ def check_live_scale():
     time.sleep(3)
     restored = None
     for index, scale in enumerate((1, 1.5, 1)):
-        native("wlr-randr", "--output", "Virtual-1", "--scale", str(scale), wait=True)
+        randr("--output", "Virtual-1", "--scale", str(scale), wait=True)
         time.sleep(3)
         entry = state(scale, False)
         assert 0 <= entry[1][0] < entry[1][2] <= width and 0 <= entry[1][1] < entry[1][3] <= height - 30, entry

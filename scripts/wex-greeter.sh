@@ -68,6 +68,27 @@ fi
 
 RES=$(xrandr 2>/dev/null | sed -nE 's/.*current ([0-9]+) x ([0-9]+).*/\1x\2/p' | head -1)
 if [ -z "$SAFE" ]; then
+    # XP themes its logon desktop: the classic Log On to Windows dialog and its message boxes have the Luna caption.
+    # So the logon prefix gets the default theme, Open Luna, once, as the session script gives it to an account
+    # (wine-explorer-session-common.sh); Safe Mode draws classic in any case (uxtheme with SM_CLEANBOOT). The logon
+    # prefix's C:\windows is its own, without the themes (the machine root has them): Luna is copied in first, as the
+    # session script copies the themes into such a prefix.
+    THEME_DATA_DIR="${WEX_THEME_DATA_DIR:-/usr/local/share/wineexplorer/themes}"
+    THEMES="$WINEPREFIX/drive_c/windows/Resources/Themes"
+    if ! grep -qs '^"CurrentTheme"=' "$WINEPREFIX/user.reg"; then
+        if [ ! -L "$WINEPREFIX/drive_c/windows" ] && [ -w "$WINEPREFIX/drive_c/windows" ] \
+                && [ -f "$THEME_DATA_DIR/Luna.theme" ] && [ -f "$THEME_DATA_DIR/Luna/Luna.msstyles" ]; then
+            mkdir -p "$THEMES"
+            [ -e "$THEMES/Luna.theme" ] || install -m644 "$THEME_DATA_DIR/Luna.theme" "$THEMES/Luna.theme"
+            [ -e "$THEMES/Luna" ] || cp -r "$THEME_DATA_DIR/Luna" "$THEMES/Luna"
+        fi
+        if [ -f "$THEMES/Luna.theme" ] && [ -f "$THEMES/Luna/Luna.msstyles" ]; then
+            echo "=== applying the default theme (Open Luna) to the logon prefix ==="
+            "$WINE" explorer.exe '/theme=C:\windows\Resources\Themes\Luna.theme' \
+                || echo "=== the default theme was not applied (exit $?) ==="
+            timeout 60 "$(dirname "$WINE")/wineserver" -w
+        fi
+    fi
     exec "$WINE" explorer.exe "/desktop=Logon,${RES:-1024x768}" logonui.exe
 fi
 

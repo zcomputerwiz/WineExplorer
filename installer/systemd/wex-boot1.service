@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# org.wineexplorer.Boot1: Startup and Recovery's settings (scripts/wex-boot1.py). Started by D-Bus activation
+# (org.wineexplorer.Boot1.service in dbus-1/system-services); it ends by itself after a minute without calls.
+[Unit]
+Description=WineExplorer startup and recovery settings
+
+[Service]
+Type=dbus
+BusName=org.wineexplorer.Boot1
+ExecStart=/usr/local/sbin/wex-boot1

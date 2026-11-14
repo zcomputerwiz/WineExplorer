@@ -39,7 +39,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
-static HINSTANCE msgina_instance;
+HINSTANCE msgina_instance;   /* also logon.c's */
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
 {

@@ -23,7 +23,7 @@ $COMP -C $R/cfg > $R/comp.log 2>&1 &
 CPID=$!
 for i in $(seq 1 60); do [ -S $R/wex-shell-0 ] && [ -S $R/wayland-0 ] && break; sleep 0.2; done
 [ -S $R/wex-shell-0 ] || { echo "compositor sockets missing"; cat $R/comp.log | head; kill $CPID; exit 1; }
-WAYLAND_DISPLAY=wayland-0 wlr-randr --output HEADLESS-1 --custom-mode 1280x800 >/dev/null 2>&1 || true
+WAYLAND_DISPLAY=wex-shell-0 wlr-randr --output HEADLESS-1 --custom-mode 1280x800 >/dev/null 2>&1 || true
 export WAYLAND_DISPLAY=wex-shell-0 WEX_WAYLAND_NATIVE_WINDOWS=1
 export WINEPREFIX=/root/dwm-pfx9 WINEDLLOVERRIDES="mscoree,mshtml=" WINEDEBUG=${WINEDEBUG:-err+all,trace+wexshell,trace+wexhost}
 L=/root/p5-wine.log; rm -f $L

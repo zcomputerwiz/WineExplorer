@@ -63,6 +63,10 @@ struct power_do_params { DWORD action; DWORD err; };
 struct battery_get_params { WEX_BATTERY info; DWORD err; };
 struct hostname_get_params { WEX_HOSTNAME info; DWORD err; };
 struct hostname_set_params { char name[128]; BOOL pretty; DWORD err; };
+struct boot_get_params { WEX_BOOT info; DWORD err; };
+struct boot_set_params { DWORD menu_timeout; BOOL recovery_enabled; DWORD recovery_timeout; BOOL auto_restart;
+                         char message[512]; DWORD err; };
+struct boot_set_options_params { char text[WEX_BOOT_OPTIONS_MAX]; DWORD generation; char message[512]; DWORD err; };
 struct user_get_params { WEX_USER info; DWORD err; };
 
 struct net_get_status_params { WEX_NET_STATUS status; DWORD err; };
@@ -411,6 +415,9 @@ enum wexhost_funcs
     unix_wm_clock_wait,
     unix_e1s6_transport,
     unix_monotonic_ns,
+    unix_boot_get,
+    unix_boot_set,
+    unix_boot_set_options,
     unix_funcs_count
 };
 

@@ -130,15 +130,15 @@ x86 (`run-wine-lifecycle.sh` runs application `ViewStorage` after the applicatio
   `windows.media.speech` (copied to `dlls/windows.storage/vector.c`). Upstream Wine (checked 2026-11-13) has no
   `StorageFile`, `FileIO` or `DataReader`.
 
-Not done: file streams (`StorageFile.OpenAsync`, `OpenReadAsync`, `OpenTransactedWriteAsync`, so also
-`DataReader.LoadAsync` from a stream), thumbnails, `Properties`, `GetParentAsync`, queries
+Not done: thumbnails, `Properties`, `GetParentAsync`, queries
 (`CreateFileQuery`), streamed files, `KnownFolders`, pickers. The operations finish on the calling thread (the
 returned asynchronous object is already completed); the recycle bin is not used by `DeleteAsync`.
 
-### File streams (measured on Windows, Wine not done)
+### File streams (measured on Windows, pass on Wine)
 
 The same application then measures the streams of a file: 28 more checks (87 in `expected-storage.txt`), which pass
-on Windows 11 in two runs. Wine at commit ee46bbaf passes the first 59 and has no file streams yet. What Windows does:
+on Windows 11 in two runs and on Wine x64 and x86 (commit 9484da1a: `dlls/windows.storage/filestream.c`, the write
+methods of `DataWriter` and `DataReader.LoadAsync` in `dlls/wintypes`). What Windows does:
 
 * `OpenAsync(ReadWrite)`: `CanRead` and `CanWrite`; a second `ReadWrite` stream of the same file is a sharing violation
   (`0x80070020`); `Read` streams and `FileIO` reads work beside it. `OpenAsync(Read)`: `CanWrite` is false,

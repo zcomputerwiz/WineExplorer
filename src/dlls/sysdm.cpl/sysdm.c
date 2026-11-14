@@ -27,11 +27,11 @@
 
 HINSTANCE g_hInstance = NULL;
 
-static void show_system_properties(HWND hwndParent)
+static void show_system_properties(HWND hwndParent, UINT start_page)
 {
     INITCOMMONCONTROLSEX init = {
         .dwSize = sizeof(INITCOMMONCONTROLSEX),
-        .dwICC = ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES
+        .dwICC = ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES | ICC_UPDOWN_CLASS
     };
     PROPSHEETPAGEW pages[4];
     PROPSHEETHEADERW psh;
@@ -89,6 +89,7 @@ static void show_system_properties(HWND hwndParent)
     psh.hInstance = g_hInstance;
     psh.pszCaption = MAKEINTRESOURCEW(IDS_CPL_TITLE);
     psh.nPages = ARRAY_SIZE(pages);
+    psh.nStartPage = start_page < ARRAY_SIZE(pages) ? start_page : 0;
     psh.ppsp = pages;
 
     PropertySheetW(&psh);
@@ -133,8 +134,20 @@ LONG CALLBACK CPlApplet(HWND hwnd, UINT uMsg, LPARAM lParam1, LPARAM lParam2)
     }
 
     case CPL_DBLCLK:
-        show_system_properties(hwnd);
+        show_system_properties(hwnd, 0);
         return 0;
+
+    case CPL_STARTWPARMSW:
+    {
+        /* "control sysdm.cpl,,3" opens the Advanced tab, as on XP: the parameters are the page's number */
+        const WCHAR *params = (const WCHAR *)lParam2;
+        UINT page = 0;
+
+        if (params) while (*params == ' ' || *params == ',') params++;
+        if (params && *params >= '0' && *params <= '9') page = wcstoul(params, NULL, 10);
+        show_system_properties(hwnd, page);
+        return TRUE;
+    }
 
     case CPL_STOP:
     case CPL_EXIT:

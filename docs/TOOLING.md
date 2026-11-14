@@ -89,6 +89,8 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     (`4a1d6d5a25e`), uxtheme's Safe Mode check (`cdda62d0ad7`), this repository's wexhost (shell keys, saved sessions)
     and `logonui.c`, and wexcomp `0d524d63` as
     `usr/local/bin/wexcomp`. Repacking keeps that binary (`tar -xzf` it from the old tarball into the stage first).
+    A tarball that holds only `usr/local/bin/wexcomp` also works with `WEX_TEST_WINE`, over an installed image whose
+    Wine is current (`D:\WSL\wex-iso\wexcomp-pp.tar.gz`, wexcomp `1f8e5d3a`, over the `wex-master` disks).
     Commits on that branch reach the Windows checkout's `wine` repository through a bundle (`git bundle create`, then
     `git fetch` from the bundle). Git for Windows cannot fetch from the `\\wsl.localhost` path.
   - `installer/package-wine.sh` needs python3-pil and fetches third-party assets (icons, ReactOS sources, runtime
@@ -106,6 +108,16 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     Windows checkout at the branch's gitlink, as a git checkout, because `build-debs.sh` archives its tree with git.
     It takes about three minutes and downloads the recovery image's packages. `--vintner=DIR` reuses packages built
     earlier, for example from a branch of `D:\Projects\vintner-boot`.
+  - wexcomp's own suite (`wexcomp/tests/wex/run.sh`, headless, about a minute) runs there as root:
+    `WEX_CHECK_COMP_BUILD=BUILD_DIR bash tests/wex/run.sh`. It needs xterm, xwayland, grim, wlr-randr, xfonts-base and
+    x11-utils (installed 2026-11-12), and python3-pil. Build with
+    `meson setup DIR SRC --prefix=/usr/local -Dxwayland=enabled -Dman-pages=disabled -Dtest=disabled`.
+    - A copy of the Windows working tree has CRLF line ends (`core.autocrlf`). Strip the `\r` from the copy's
+      scripts and sources before running, or build from a commit (a worktree of the wexbuild clone fetched from
+      the Windows checkout).
+    - WSLg mounts `/tmp/.X11-unix` read-only without the sticky bit, so XWayland, and with it the compositor, cannot
+      start. `run.sh` remounts it; do the same for a compositor started by hand.
+    - Keep `tests/wex/output` in the copy: `check-handles.py` writes there.
 * `installer/tests/ad/dc-create.sh` and `client-create.sh` (the lab Active Directory domain for Group Policy tests;
   `docs/GROUP_POLICY.md`, "The lab domain"): as root in the Debian WSL distribution, `bash installer/tests/ad/dc-create.sh`
   (first run about 5 minutes: a Samba controller for `AD.WEXLAB.EXAMPLE` from a Debian cloud image), then

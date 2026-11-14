@@ -10,5 +10,6 @@ SOURCES = \
 	general.c \
 	hardware.c \
 	performance.c \
+	startrec.c \
 	sysdm.c \
 	sysdm.rc

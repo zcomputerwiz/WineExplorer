@@ -280,7 +280,7 @@ stay three and one rows above the bottom, where XP has them.
 | Last Known Good Configuration | Normal start with the machine registry's control set from the last start that counted (work order D3; below). With Vintner Boot, from a generation that has not started successfully: a restart into the previous good generation as well. Grayed until one start after Setup has counted, or a previous good generation exists |
 | Directory Services Restore Mode | Grayed: does not apply |
 | Debugging Mode | Normal start with the service manager logging at debug level |
-| Disable automatic restart on system failure | Normal start with `kernel.panic=0` |
+| Disable automatic restart on system failure | Normal start with `kernel.panic=0`, and systemd's `CrashAction=freeze` (a drop-in in `/run/systemd/system.conf.d` that sorts after Startup and Recovery's), for this start only |
 | Start WineExplorer Normally | Normal start, straight away |
 | Reboot | Restart |
 | Return to OS Choices Menu | A restart into the boot loader's own menu (`vintner next-boot menu`, 30 seconds), which lists the generations, the Advanced Options variant and the Recovery Console, as XP's boot.ini list does. When Vintner cannot set it: the operating system list (one entry), as XP shows it after F8 |
@@ -320,7 +320,11 @@ laid out as XP's, with an explanation in our own words.
 - The list is the three Safe Modes, Last Known Good Configuration (grayed until a start has counted) and Start
   WineExplorer Normally, which is highlighted.
 - "Seconds until WineExplorer starts" counts down from 30 on the row directly under the footer and then starts
-  normally.
+  normally. The 30 is Startup and Recovery's "Time to display recovery options when needed" (System Properties,
+  Advanced; work order D5): `recovery_timeout=` in `/etc/wineexplorer/boot.conf`, which `wex-boot1` writes. With the
+  box unchecked (`recovery_menu=0`) a failed start shows no failure screen and starts normally, as on XP, where the
+  two are bytes 8 and 9 of `bootstat.dat` (measured 2026-11-12, `../WineExplorer-local/notes/xp/startup-recovery/`).
+  XP's countdown also follows the setting: set to 7, it counted down from 7.
 - An arrow key stops the countdown and removes its line, as on XP. Up and Down wrap round as in the menu: Down on
   Start Normally goes to Safe Mode.
 - Enter on a Safe Mode starts it without the operating system list, through a restart into the variant (section 3).
@@ -360,11 +364,23 @@ neither.
 
 `RunOnce` (B5, 2026-11-11, Wine branch commit `d4e95e24dee`): in Safe Mode wineboot runs only the values whose
 name starts with `*`, leaves the rest for the next normal start and skips the Run keys. A `!` value is deleted once
-its command has ended, as on XP. Still open: the classic logon dialog after Ctrl+Alt+Del twice (C4).
+its command has ended, as on XP.
+
+**The classic logon dialog** (C4, 2026-11-12; `src/dlls/msgina/logon.c`, `src/programs/logonui/logonui.c`). On the
+Welcome screen, in any start, the first Ctrl+Alt+Delete changes nothing and the second shows XP's "Log On to Windows"
+dialog on a black screen; in Safe Mode "Safe Mode" stands in the four corners and the version line at the top, as on
+the Safe Mode desktop. The dialog has XP's measured size and place, WineExplorer's own banner, the last user's name
+filled in and the focus on Password; Options >> adds Shut Down..., Cancel goes back to the Welcome screen. The name
+is typed in any case, so the Administrator logs on in a normal start and a hidden account in any start; root, system
+and locked accounts, a wrong password and a password typed for an account without one get XP's "Logon Message".
+msgina.dll shows the dialog and logonui.exe does the logon through LightDM, so PAM checks the password as for a tile
+(`docs/SAFE_MODE_WORKORDER.md` C4). As XP's logon desktop, the logon screen has the default theme in a normal start
+(Open Luna, given to the logon prefix once by `wex-greeter.sh`), so the dialog has Luna's caption; Safe Mode draws it
+classic.
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (113 tests, Linux) covers:
+`scripts/test_safemode.py` (148 tests, Linux) covers:
 
 - the end of Plymouth: asking until it is gone, each request with a time limit, then ending a plymouthd that
   lingers or does not answer; and the unit without a terminal that does it before the menu's and the failure
@@ -440,11 +456,14 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `waylandlogon` | Only when named; needs `WEX_TEST_WINE` (this logonui and wexhost). The same account logs off (`loginctl terminate-session`) and on again on the Welcome screen without touching the session list: the list follows the account's saved session, so it gets Wayland again |
 | `waylandxlock` | Only when named; needs `WEX_TEST_WINE` (wexcomp `0d524d63`). In the Wayland account's session, with xterm started (so XWayland runs), XWayland is held stopped (`SIGSTOP`) and the compositor alone gets `SIGTERM`: the session ends, the Welcome screen shows, and `lightdm.service`'s restart count is unchanged. With an older wexcomp, LightDM's greeter X server takes the display XWayland still holds, cannot listen, and LightDM exits; its restart logs the account on again (`docs/WAYLAND_DEFAULT.md`) |
 | `waylandfallback` | Only when named; needs `WEX_TEST_WINE`. With `wexcomp` replaced by one that exits at once (on the stopped disk, put back afterwards), the Wayland account's automatic logon ends at the Welcome screen; logging on there starts X11 (no `wexcomp`, an X server), and the account's saved session on the stopped disk is `wine-explorer` |
+| `startrec` | Only when named, and last (a failure part-way can leave the boot menu's timeout on the boot storage); needs an image with `wex-boot1`. Startup and Recovery (work order D5): the defaults (menu 0, countdown 30, Automatically restart on, `kernel.panic` 10). Win+Pause (Explorer's hot key) opens System Properties, and Ctrl+Tab three times its Advanced tab (a program the serial console starts belongs to the console's logind session, which has no polkit agent, so polkit would refuse at once; Wine's Run before `68ab2d5dab3` could do neither `control sysdm.cpl,,3`, taking it as one file name, nor `sysdm.cpl`, for which it found no verb; the `rundialog` phase covers the fix), Alt+I its dialog (OCR: the recovery options box, Automatically restart, Write debugging information). Alt+T and OK ask for an administrator's password (wexhost's polkit agent; the prompt, Explorer's window, is clicked before keys are typed into it, since once on UEFI they went to Startup and Recovery instead): Esc leaves the dialog open with no message, and the Administrator's password saves a 30-second menu (typed once more if the prompt calls it incorrect: once on UEFI a key of the 16 was lost). As the test user, `org.wineexplorer.Boot1` refuses `Apply` without a password. As root (sudo) it sets a 5-second menu, a 7-second countdown, Automatically restart off (`kernel.panic` 0, `CrashAction=freeze`) and the kernel option `wextest.d5=1` (a published generation); a kernel panic (SysRq c) then brings no new start in 75 seconds (a hardware watchdog the firmware left running, OVMF's TCO, is stopped first: it restarts the computer whatever `kernel.panic` says), and the power is cut. The next start shows Vintner Boot's menu without a key and boots with the option. Then everything goes back through the service, `/etc` is restored byte for byte on the stopped disk, and one more start shows no menu; there, with the package's defaults, a kernel panic and `kill -SEGV 1` (a crash of systemd) each bring a new start (a new boot ID on the serial console) |
+| `classic` | Only when named; needs this branch's msgina.dll and logonui.exe. In Safe Mode the first Ctrl+Alt+Delete leaves the Welcome screen as it is and the second shows "Log On to Windows" with "Safe Mode" in the corners; Administrator logs on through it. In a normal start (the logon screen through fast user switching) the dialog fills in Administrator and has Luna's blue caption (one pixel right of the title), Alt+O shows Shut Down..., Esc goes back to the Welcome screen; a wrong password, `root` and a password typed for `wexhidden` (which has none) each get the "Logon Message"; `WexHidden` with no password logs the hidden account on |
+| `rundialog` | Only when named; needs Wine `1d6c6a65acf` or later (pinned since 2026-11-13, as the merge `3ea5d0cb83b` with master's Wine `2ebf65d5`; an older image takes that shell32.dll from `WEX_TEST_WINE`). In a normal start, Run (Win+R) runs what XP's runs, each checked by its window: `control sysdm.cpl,,3` (a program and its parameters: System Properties on Advanced), `sysdm.cpl` (a `.cpl` file: cplfile's one verb), `notepad %USERPROFILE%\runtest.txt` (environment strings), WordPad by its quoted path and by its unquoted path with spaces, each with a file of its own (WordPad's title is Wine's, "Wine Wordpad", so the file's name is what is checked); `%USERPROFILE%\Run Test\read me.txt` and `C:\Program Files\Common Files` (a document and a folder whose paths have spaces still open as one name; the folder with no "DDE failure." and Run closed: shell32's DDE server does not take the folder class's conversation, so ShellExecute starts `explorer.exe "%1"`, which opens it, and that counts as done since Wine `1d6c6a65acf`); a program that does not exist gets the error, and Run stays open |
 | `waylanddisplay` | Only when named; needs `WEX_TEST_WINE` and the display probes (`installer/tests/display-probe.c`) in `WEX_TEST_PROBES`. In that Wayland session, the 64-bit probe lists the compositor's real output and modes through wexhost (`WexDisplayGet`, as Display Properties) and sets 1024x768 with the profile saved (`WexDisplaySet`). The screen changes, the 32-bit probe sees it, and the next Wayland session starts at 1024x768 |
 | `vlasttry` | Only when named, and last: it leaves the generation with no tries. With LightDM held back as for `vfailed`, it resets once before the logon screen and once on the next start's failure screen. The third start is the generation's last try. Its failure screen's Safe Mode with Command Prompt must still restart into the variant in that mode (`vintner next-boot variant --generation`). Read from the stopped disk's journal, that screen's start logged 2 earlier failures and no refusal. An image whose Vintner Boot lacks the flag is reported, not failed |
 | `lastgoodgen` | Last in the default list. The test appends a token to the Advanced Options variant on the stopped disk and adds a unit that runs `vintner publish` at the next start and powers off, so generation 2 is published. The variant is then put back. Generation 2 is started only through its variant, which counts nothing, so it never starts successfully. The registry is changed as in `lastgood`. Last Known Good from generation 2's menu then restarts with no menu into generation 1: a normal start whose recorded `vintner status --json` says `booted` generation 1, generation 2 not `GOOD`. The registry ends as in `lastgood` |
 | `waylandsafe` | Only when named. Safe Mode with "WineExplorer (Wayland)" chosen in the Welcome screen's session list: the message box, the desktop, `WEXMODE=safe`, a `wexcomp` process for the account, and with `WEX_TEST_PROBES` the probes as in `safe`. The test account's AccountsService file and `.dmrc` are left out of the record, because LightDM saves the chosen session there |
-| `waylandcmd` | Only when named. Safe Mode with Command Prompt in the Wayland session: the recovery console, no wineserver, and `wexcomp` running. Its 80 columns came out as 79 on 2026-11-12, once the image had a UTF-8 locale (`wex-locale-gen`): in UTF-8 mode xterm asks for its size again after mapping (579 pixels), while its size hints still give the base without the scroll bar's border (18), and wexcomp snapped the request to those hints (578). Under Xorg no window manager runs there, so nothing snapped. The console's scroll bar now has no border line (`XTerm*vt100.scrollBarBorder: 0`), so xterm's first size is already its final one (578 pixels, 80 columns); checked in `safecmd` and `waylandcmd` on both firmwares |
+| `waylandcmd` | Only when named. Safe Mode with Command Prompt in the Wayland session: the recovery console, no wineserver, and `wexcomp` running. Its 80 columns came out as 79 on 2026-11-12, once the image had a UTF-8 locale (`wex-locale-gen`): in UTF-8 mode xterm asks for its size again after mapping (579 pixels), while its size hints still give the base without the scroll bar's border (18), and wexcomp snapped the request to those hints (578). Under Xorg no window manager runs there, so nothing snapped. The console's scroll bar now has no border line (`XTerm*vt100.scrollBarBorder: 0`), so xterm's first size is already its final one (578 pixels, 80 columns); checked in `safecmd` and `waylandcmd` on both firmwares. Since wexcomp `1f8e5d3a` a client's own size request is no longer snapped at all, so the border would fit as well (`docs/WAYLAND_DEFAULT.md`) |
 | `accounts` | Needs `WEX_TEST_WINE`, a tarball of this branch's Wine. Provisioning gives Administrator a random password and adds `wexhidden` ("Hidden Test") with a value of 0 in the logon prefix's `SpecialAccounts\UserList`. The Safe Mode Welcome screen then shows Administrator and the test user but not Hidden Test, and Administrator logs on, through the message box. In a normal start, the logon screen (after switching user) shows the test user only |
 
 After a run that showed the Welcome screen, the test checks that the greeter's prefix
@@ -527,6 +546,9 @@ the probes. Every start through the variant carried `vintner.variant=advanced` a
 - The first try at that hung: after QEMU's error, `vmtest.py` left its QMP connection open, and QEMU serves one
   client at a time, so the next call waited for good. QMP calls now always close their connection.
 - On UEFI, Space held for 15 seconds once missed systemd-boot (one retry, in `accounts`); it is now held for 25.
+  25 seconds missed it once too (2026-11-12, `lastgood`): that start went on to the desktop, where the start-up check
+  saved the changed control set as Last Known Good, so the retry "restored" the change. The disk is now snapshotted
+  before the menu (`qemu-img snapshot`, on the stopped overlay) and put back before the second try.
 - `check-vintner.py` looked for the variant's UKI on the ESP; Vintner keeps UKIs on boot storage.
 - The provisioning boot ran `update-grub`, which grub2-common keeps on a Vintner install, and it wrote a
   `grub.cfg`. It now runs only where `/boot/grub/grub.cfg` exists.
