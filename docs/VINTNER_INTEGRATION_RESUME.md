@@ -36,7 +36,13 @@ second run, and passed on both firmwares with the retry of `ef0f1e54`. `scripts/
 
 ## 3. Running or half done
 
-Nothing. No VM and no build is running.
+Started 2026-11-14, for session 0's proposal to move master's wine gitlink to `development` `5ec3c009`: an ISO
+`wex-pn` of the local, unpushed test commit `b11876e4` (branch `claude/test-wine-5ec3c009`, worktree
+`D:\Projects\WE-pin`: master `120e3896` with wine `5ec3c009`), then the whole chain of section 2. Logs:
+`D:\WSL\wex-iso\iso-pn.log` (ends with `ISO DONE`) and `D:\WSL\wex-iso\pn-chain.log` (ends with `overall=0` when
+everything passed). If it was interrupted, run it again: `wexbuild-iso-master.sh b11876e4 wex-pn` in wexbuild, then
+`wsl-pn-chain.sh` in Debian (both in `session-scripts`). The result goes to session 0; afterwards remove the
+worktree and the test branch.
 
 ## 4. Next steps, in order
 
