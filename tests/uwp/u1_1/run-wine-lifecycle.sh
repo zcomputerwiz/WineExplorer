@@ -52,7 +52,7 @@ for arch in x64 x86; do
     fi
 
     # the packaged applications
-    python3 "$register" stage lifecycle "$arch" "$u11/$arch" "$out/stage" --name WineExplorer.U1View --manifest "$u11/AppxManifest.xml"
+    python3 "$register" stage lifecycle "$arch" "$u11/$arch" "$out/stage" --name WineExplorer.U1View --manifest "$u11/AppxManifest.xml" --payload "$u11/payload"
     names=$(python3 "$register" register "$WINEPREFIX" "$out/stage")
     IFS=$'\t' read -r full family root <<< "$names"
     for spec in View:positive ViewReturn:return ViewSta:sta ViewPkgapi:pkgapi; do
@@ -94,6 +94,25 @@ for arch in x64 x86; do
     mode=storage; file="$appdata/view-$mode.txt"; rm -f "$file"
     status=0
     wine_run "$out/$mode.log" "$u10/$arch/launcher.exe" "$family!ViewStorage" "$mode" unused "$full" || status=$?
+    for i in $(seq 1 30); do grep -q '^Uninitialize' "$file" 2>/dev/null && break; sleep 1; done
+    if [ ! -f "$file" ]; then
+        note "$arch FAIL $mode (no output, launcher exit $status)"; overall=1
+    else
+        cp "$file" "$out/$mode.txt"
+        checks "$out/$mode.txt" > "$out/$mode-checks.txt" || true
+        expected "$u11/expected-$mode.txt" > "$out/expected-$mode.txt"
+        if diff -u "$out/expected-$mode.txt" "$out/$mode-checks.txt" > "$out/$mode.diff"; then
+            note "$arch PASS $mode (all $(wc -l < "$out/expected-$mode.txt") checks)"
+        else
+            note "$arch FAIL $mode"; head -40 "$out/$mode.diff" >> "$results/summary.txt"; overall=1
+        fi
+        grep -E '^INFO' "$out/$mode.txt" | tr -d '\r' | sed "s/^/$arch $mode /" >> "$results/observations.txt" || true
+    fi
+
+    # package resources: ResourceLoader and ResourceManager over the resources.pri of the package
+    mode=resources; file="$appdata/view-$mode.txt"; rm -f "$file"
+    status=0
+    wine_run "$out/$mode.log" "$u10/$arch/launcher.exe" "$family!ViewResources" "$mode" unused "$full" || status=$?
     for i in $(seq 1 30); do grep -q '^Uninitialize' "$file" 2>/dev/null && break; sleep 1; done
     if [ ! -f "$file" ]; then
         note "$arch FAIL $mode (no output, launcher exit $status)"; overall=1

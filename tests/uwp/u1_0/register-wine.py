@@ -112,6 +112,13 @@ def cmd_stage(args):
         if not args.manifest:
             fail('--manifest is required for the lifecycle case')
         manifest_path = args.manifest
+        if args.payload:   # files beside the executable: resources.pri and the images it indexes
+            for base, dirs, files in os.walk(args.payload):
+                rel = os.path.relpath(base, args.payload)
+                for d in dirs:
+                    os.mkdir(os.path.join(args.stage, rel, d))
+                for name in files:
+                    shutil.copyfile(os.path.join(base, name), os.path.join(args.stage, rel, name))
     else:
         shutil.copyfile(os.path.join(args.build, 'probe.exe'), os.path.join(args.stage, 'probe.exe'))
         if args.case != 'missing_dll':
@@ -193,6 +200,7 @@ p.add_argument('--name', default='WineExplorer.U1Oracle.Probe')
 p.add_argument('--publisher', default='CN=WineExplorer U1 Oracle')
 p.add_argument('--version', default='1.0.0.0')
 p.add_argument('--manifest')
+p.add_argument('--payload')
 p.set_defaults(func=cmd_stage)
 p = sub.add_parser('register')
 p.add_argument('prefix')

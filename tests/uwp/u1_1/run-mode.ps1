@@ -5,7 +5,7 @@
 # remove the package. The certificate must already be trusted (not done here). The window is not needed.
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$WorkDirectory, [Parameter(Mandatory)][string]$ResultsDirectory,
-      [Parameter(Mandatory)][ValidateSet('pkgapi','appdata','storage')][string]$Mode, [int]$Runs = 1, [switch]$Execute)
+      [Parameter(Mandatory)][ValidateSet('pkgapi','appdata','storage','resources')][string]$Mode, [int]$Runs = 1, [switch]$Execute)
 $ErrorActionPreference = 'Stop'
 $work = [IO.Path]::GetFullPath($WorkDirectory)
 $results = [IO.Path]::GetFullPath($ResultsDirectory)
