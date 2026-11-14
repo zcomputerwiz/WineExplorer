@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-2.0-or-later
 Copyright 2026 WineExplorer contributors
 -->
-# Plan: Windows.UI.Xaml for UWP applications (not started)
+# Plan: Windows.UI.Xaml for UWP applications (started 2026-11-14: X0)
 
 Written 2026-11-13 on the owner's instruction: **use Uno and WinUI 2 as implementation guidance, write the plan, do not
 start**. Nothing in this plan is built yet. It extends `UWP_COMPATIBILITY_PLAN.md` (the "XAML and conditional private
@@ -172,6 +172,7 @@ earlier U1 suites, `docs/STOCK_CHANGES.md` updated, push and merge coordinated w
   and are a separate decision.
 * **Toolchain on the Windows host:** compiling XAML apps needs the VS "UWP development" workload; X0 starts by checking
   it (the oracle apps of U1.1 needed only the C++ build tools).
-* **Open questions for the owner:** (1) is the Calculator still the first target, and may the Store package be used on
-  the Windows host as an oracle? (2) is a .NET dependency acceptable if A stalls (option B)? (3) does a XAML-capable
-  Wine need to ship before the Office and Copilot items, or after?
+* **Decided by the owner (2026-11-14):** (1) the Calculator is the first target, and the installed Store Calculator may
+  be run on the Windows host as a read-only oracle (observed only; none of its files enter the repository); (2) native
+  only (option A): no .NET dependency; if A stalls, report and decide again (option B is not pre-approved); (3) XAML
+  starts now; the Copilot and Office items run in a separate session of the owner's.
