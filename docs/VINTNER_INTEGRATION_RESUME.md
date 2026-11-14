@@ -13,8 +13,7 @@ test reference: `SAFE_MODE.md`. Read `TOOLING.md` first.
   `042fc59aab4`, `68ab2d5dab3` (Run dialog) and `1d6c6a65acf` (a folder's "DDE failure"). It is not in `development`
   yet: session 0 holds a merge of it (`5ec3c009`, fork branch `claude/system-tier-wine`).
 - Nothing is uncommitted here except ` M wine`: the `wine` working tree is the E1 checkout and is not this work's.
-  Never `git add wine`; a gitlink change needs the owner's word and goes through
-  `git update-index --cacheinfo 160000,<sha>,wine`.
+  Never `git add wine`; a gitlink change goes through `git update-index --cacheinfo 160000,<sha>,wine`.
 
 ## 2. Done and tested
 
@@ -46,20 +45,20 @@ worktree and the test branch.
 
 ## 4. Next steps, in order
 
-1. Merge master into the branch (expect `docs/STOCK_CHANGES.md` to auto-merge).
-2. When session 0 proposes moving master's wine gitlink to a `development` commit (it will send the commit and its
-   results), run the chain of section 6 on an ISO of that commit, both firmwares (about 1.5 hours), and report.
-3. Pin Vintner Boot `96186d6` or later (docs and a CI script fix since `d3fe892`) as an ordinary update, with the
-   install and defaults stages.
-4. Continue `SAFE_MODE_WORKORDER.md` (the open items after C4 and D5).
+1. When the `wex-pn` chain (section 3) passes: merge master into the branch, pin wine `5ec3c009` on it, push, and
+   send session 0 the commit and the results so it can merge to master.
+2. Pin Vintner Boot `96186d6` or later (docs and a CI script fix since `d3fe892`) on the branch, with the install
+   and defaults stages, and hand it over the same way.
+3. Continue `SAFE_MODE_WORKORDER.md` (the open items after C4 and D5).
 
-Master pushes are agreed with the session 0 and UWP sessions first (the commit and what was tested), when they move
-the wine gitlink or touch `scripts/`, `installer/`, `docs/TOOLING.md` or `docs/STOCK_CHANGES.md`.
+How merges work (owner, 2026-11-14): I move pins on my own branch as needed; the session 0 session merges into
+master (and other branches) and moves the pins there. I send it the commit, the pins and what was tested, and say
+what touches `scripts/`, `installer/`, `docs/TOOLING.md` or `docs/STOCK_CHANGES.md`. Session 0 runs on another
+machine; the Vintner session shares this one (WSL Debian), so tell it before VM runs.
 
 ## 5. Open decisions for the owner
 
-- Who moves master's wine gitlink to `development` once it contains `3ea5d0cb83b`, and whether the Safe Mode chain
-  must pass on that commit first (offered; not started).
+None.
 
 ## 6. What is left on the machines
 
