@@ -131,6 +131,9 @@ run_job() {   # run_job STAGE FW
         [ -f "$f" ] && cp "$f" "$OUT/$name-$fw-$(basename "$f")"
     done
     echo "$rc $(( ($(date +%s) - t0) / 60 ))" > "$OUT/$name-$fw.rc"
+    # WSL keeps the page cache (the job's disk reads) from Windows until it is dropped; clean pages only
+    sync
+    echo 1 > /proc/sys/vm/drop_caches
 }
 
 log "stages on $FWS, $LANES at once: ${STAGES[*]}"

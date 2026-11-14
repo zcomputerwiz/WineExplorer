@@ -294,7 +294,11 @@ From a commit to a tested ISO, without the session wrappers used before (`D:\WSL
 Notes:
 
 * Each VM has 4 GB and 2 CPUs. WSL has 15 GB on the test machine, so `-j 3` is the most that fits; the CPUs are
-  not the limit. The Vintner Boot session shares the machine and runs its own VMs in the `vbtest` distro: tell it
+  not the limit. WSL does not give its page cache back to Windows: on 2026-11-14 the WSL VM held 15.6 GB of the
+  machine's 31.7 GB, 8.6 GB of it cache, and Windows had 1.2 GB free. So `vmtest.py` opens the disk with
+  `cache=none` (`VMTEST_HOST_CACHE=1` for a file system without O_DIRECT) and gives each VM a virtio balloon with
+  free page reporting, and `run-chain.sh` drops the clean cache after each job. By hand:
+  `sync; echo 1 > /proc/sys/vm/drop_caches` as root in any WSL distro (they share one kernel). The Vintner Boot session shares the machine and runs its own VMs in the `vbtest` distro: tell it
   before a long run.
 * Tests running at once take NBD devices under a lock (`installer/tests/nbd-connect.sh`, `/run/lock/
   wex-test-nbd.lock`), from `nbd0`-`nbd7` (`WEX_NBD_FIRST`, `WEX_NBD_LAST`).

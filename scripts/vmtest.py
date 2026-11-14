@@ -79,15 +79,22 @@ def start(a):
     for sock in ("qmp.sock", "serial.sock"):
         if os.path.exists(os.path.join(d, sock)):
             os.remove(os.path.join(d, sock))
+    # Memory: the test machine's WSL VM (15 GB) runs several of these at once (installer/tests/run-chain.sh), and WSL
+    # does not give its page cache back to Windows. cache=none keeps the disk image out of the host's page cache (the
+    # guest caches it anyway); the balloon's free page reporting hands the pages a guest frees back to the host.
+    # VMTEST_HOST_CACHE=1 restores QEMU's default cache mode, for a disk on a file system without O_DIRECT.
+    drive_cache = "" if os.environ.get("VMTEST_HOST_CACHE") == "1" else ",cache=none"
     cmd = ["qemu-system-x86_64", "-enable-kvm", "-cpu", "host", "-smp", "2", "-m", str(a.mem), "-machine", "q35",
-           "-drive", f"file={disk},if=virtio", "-vga", "std", "-display", "none",
+           "-drive", f"file={disk},if=virtio{drive_cache}", "-vga", "std", "-display", "none",
            "-nic", "user,model=virtio-net-pci", "-device", "qemu-xhci", "-device", "usb-tablet",
            "-qmp", f"unix:{d}/qmp.sock,server,nowait",
            "-serial", f"unix:{d}/serial.sock,server,nowait",
            # textsetup gives the installed system a serial login only on machines with this mark
            "-fw_cfg", "name=opt/org.wineexplorer/serial-login,string=1",
            "-drive", "if=none,id=cd,media=cdrom" + (f",file={a.iso}" if a.iso else ""),
-           "-device", "ide-cd,drive=cd,bus=ide.1,id=cdrom", "-boot", "order=dc" if a.iso else "order=c"]
+           "-device", "ide-cd,drive=cd,bus=ide.1,id=cdrom", "-boot", "order=dc" if a.iso else "order=c",
+           # last, so the devices before it keep the PCI addresses the installed disks were set up with
+           "-device", "virtio-balloon-pci,free-page-reporting=on"]
     if a.efi:
         cmd += ["-bios", "/usr/share/ovmf/OVMF.fd"]
     # more QEMU arguments for one test, for example a second network card (installer/tests/ad/machine.sh)
