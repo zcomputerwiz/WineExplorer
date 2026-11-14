@@ -1,0 +1,43 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# windows.ui and twinapi.appcore conformance tests on both architectures in a fresh prefix.
+# usage: guest-regress-ui.sh CANDIDATE RUN_NAME
+set -euo pipefail
+root=/home/debian/uwp-u1-20261111
+candidate="$root/build/candidates/$1"
+run="$candidate/$2"
+build="$candidate/build"
+test "$(cat "$root/owner")" = codex-uwp-u1-20261111
+test "$(cat "$candidate/phase")" = BUILT
+mkdir -- "$run"
+timeout --kill-after=15s 1800s make -C "$build" -j6 dlls/windows.ui/tests/all dlls/twinapi.appcore/tests/all > "$run/build.log" 2>&1
+export WINEPREFIX="$run/prefix" WINESERVER="$build/server/wineserver"
+export WINEDEBUG=-all WINEDLLOVERRIDES=mscoree,mshtml= WINETEST_INTERACTIVE=0 WINETEST_COLOR=0
+mkdir -- "$WINEPREFIX"
+cleanup() {
+  result=$?; trap - EXIT; set +e
+  timeout --kill-after=5s 30s "$WINESERVER" -k > /dev/null 2>&1; killed=$?
+  timeout --kill-after=5s 30s "$WINESERVER" -w > /dev/null 2>&1; waited=$?
+  printf 'kill=%s wait=%s\n' "$killed" "$waited" > "$run/cleanup"
+  printf '%s\n' "$result" > "$run/exit"
+  exit "$result"
+}
+trap cleanup EXIT
+cd "$run"
+timeout --kill-after=10s 180s "$build/wine" wineboot -i > boot.log 2>&1
+overall=0
+for architecture in x86_64 i386; do
+  for spec in windows.ui:corewindow windows.ui:uisettings twinapi.appcore:twinapi; do
+    module=${spec%%:*}; test_name=${spec#*:}
+    exe="$build/dlls/$module/tests/$architecture-windows/${module}_test.exe"
+    [ -f "$exe" ] || continue
+    set +e
+    timeout --kill-after=10s 300s "$build/wine" "$exe" "$test_name" > "$architecture-$module-$test_name.log" 2>&1
+    status=$?
+    set -e
+    printf '%s %s:%s exit=%s %s\n' "$architecture" "$module" "$test_name" "$status" "$(tail -n 1 "$architecture-$module-$test_name.log" | tr -d '\r')" >> summary
+    if (( status != 0 )); then overall=1; fi
+  done
+done
+exit "$overall"
