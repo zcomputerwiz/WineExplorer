@@ -292,6 +292,24 @@ def serial(name, user, pwfile, command, timeout):
     send("stty echo")
     return int(m.group(1)) if m else 124
 
+def listen(name, seconds):
+    """What the guest writes to its first serial port during SECONDS, sending nothing (Debugging Mode's output)."""
+    s = socket.socket(socket.AF_UNIX)
+    s.connect(os.path.join(state(name), "serial.sock"))
+    s.settimeout(0.3)
+    buf = b""
+    end = time.time() + seconds
+    while time.time() < end:
+        try:
+            data = s.recv(65536)
+        except socket.timeout:
+            continue
+        if not data:
+            break
+        buf += data
+    s.close()
+    return buf.decode(errors="replace").replace("\r", "")
+
 def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="op", required=True)
@@ -320,6 +338,7 @@ def main():
     s = sub.add_parser("wait"); s.add_argument("name"); s.add_argument("text"); s.add_argument("--timeout", type=float, default=120)
     s = sub.add_parser("sh"); s.add_argument("name"); s.add_argument("user"); s.add_argument("pwfile"); s.add_argument("command")
     s.add_argument("--timeout", type=float, default=60)
+    s = sub.add_parser("listen"); s.add_argument("name"); s.add_argument("seconds", type=float)
     a = p.parse_args()
 
     if a.op == "start":
@@ -371,6 +390,8 @@ def main():
         sys.exit(f"timeout waiting for {a.text!r}")
     elif a.op == "sh":
         sys.exit(serial(a.name, a.user, a.pwfile, a.command, a.timeout))
+    elif a.op == "listen":
+        print(listen(a.name, a.seconds), end="")
 
 if __name__ == "__main__":
     main()

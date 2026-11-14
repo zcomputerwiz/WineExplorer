@@ -684,6 +684,9 @@ class TestMenu(TempDirTest):
         self.menu.SETUP_STAGE = str(self.tmp / "stage")
         self.menu.PANIC_SYSCTL = str(self.tmp / "panic")
         self.menu.CRASH_RUNTIME = str(self.tmp / "run-system.conf.d" / "99-wineexplorer-norestart.conf")
+        self.menu_defaults = {"DEBUG_JOURNALD": self.menu.DEBUG_JOURNALD, "DEBUG_SERIAL": self.menu.DEBUG_SERIAL}
+        self.menu.DEBUG_JOURNALD = str(self.tmp / "run-journald.conf.d" / "90-wineexplorer-debug.conf")
+        self.menu.DEBUG_SERIAL = str(self.tmp / "no-ttyS0")    # none, unless a test makes it
         self.menu.LASTGOOD = str(self.tmp / "no-lastgood")      # no copy saved: Last Known Good is grayed
         self.menu.CMDLINE = str(self.tmp / "cmdline")            # none: Vintner Boot did not start this system
         self.menu.VINTNER = str(self.tmp / "no-vintner")
@@ -1243,6 +1246,7 @@ class TestMenu(TempDirTest):
         text = self.drawn("advanced_menu", items, None)
         labels = {"SAFE": "Safe Mode", "SAFENET": "Safe Mode with Networking", "SAFECMD": "Safe Mode with Command Prompt",
                   "BOOTLOG": "Enable Boot Logging", "VGA": "Enable VGA Mode", "LASTGOOD": items[6].label,
+                  "DEBUG": "Debugging Mode",
                   "NORMALLY": "Start WineExplorer Normally", "OSCHOICES": "Return to OS Choices Menu"}
         self.assertEqual(set(rows), set(labels))
         for name, label in labels.items():
@@ -1339,8 +1343,27 @@ class TestMenu(TempDirTest):
         self.assertIn("[Manager]\nCrashAction=freeze\n", Path(self.menu.CRASH_RUNTIME).read_text(encoding="ascii"))
         self.assertIn(["systemctl", "daemon-reload"], self.calls)
         self.calls.clear()
+        # Debugging Mode (D4): the debug log level, and the journal on the first serial port for this start
+        serial = self.tmp / "ttyS0"
+        serial.write_text("")
+        self.menu.DEBUG_SERIAL = str(serial)
+        self.menu.DEBUG_JOURNALD = str(self.tmp / "run-journald.conf.d" / "90-wineexplorer-debug.conf")
         self.menu.apply_choice("normal", "debug", run=self.fake_run)
         self.assertEqual(self.calls[0], ["systemd-analyze", "log-level", "debug"])
+        self.assertEqual(Path(self.menu.DEBUG_JOURNALD).read_text(encoding="ascii").split("\n")[1:],
+                         ["[Journal]", "ForwardToConsole=yes", f"TTYPath={serial}", "MaxLevelConsole=debug", ""])
+        self.assertEqual(self.calls[1], ["systemctl", "restart", "systemd-journald.service"])
+        self.assertEqual(self.calls[-1], ["systemctl", "--no-block", "start", "default.target"])
+        # with no serial port: the log level only
+        self.calls.clear()
+        Path(self.menu.DEBUG_JOURNALD).unlink()
+        serial.unlink()
+        self.menu.apply_choice("normal", "debug", run=self.fake_run)
+        self.assertFalse(Path(self.menu.DEBUG_JOURNALD).exists())
+        self.assertNotIn(["systemctl", "restart", "systemd-journald.service"], self.calls)
+        # the default paths: a /run drop-in (this start only) and COM1
+        self.assertEqual(self.menu_defaults["DEBUG_JOURNALD"], "/run/systemd/journald.conf.d/90-wineexplorer-debug.conf")
+        self.assertEqual(self.menu_defaults["DEBUG_SERIAL"], "/dev/ttyS0")
         # Enable VGA Mode (D2): an ordinary start; the greeter and the sessions read the option
         self.calls.clear()
         self.menu.apply_choice("normal", "vga", run=self.fake_run)
@@ -1466,7 +1489,7 @@ class TestSessionAndGreeter(unittest.TestCase):
         # work order D5: the dialog opens, the service refuses a change without a password, root's change reaches
         # the next start, and everything goes back (/etc byte for byte, on the stopped disk)
         vm = VM_TEST.read_text(encoding="utf-8")
-        self.assertIn("|waylandxlock|startrec|classic|rundialog) ;;", vm)
+        self.assertIn("|waylandxlock|startrec|classic|rundialog|", vm)
         self.assertIn("#   startrec ", vm)
         phase = vm[vm.index("phase_startrec() {"):]
         phase = phase[:phase.index("\n}\n")]
@@ -1543,11 +1566,25 @@ class TestSessionAndGreeter(unittest.TestCase):
                        "$(((w - 417) / 2 + 300)) $(((h - 411) / 2 + 14))", "caption is not Luna's blue"):
             self.assertIn(needle, phase)
 
+    def test_vm_test_checks_debugging_mode(self):
+        # work order D4: the journal on the first serial port, read without logging on (it takes the port over);
+        # the next start sends nothing there and the serial logon works
+        vm = VM_TEST.read_text(encoding="utf-8")
+        self.assertIn("|rundialog|debugmode) ;;", vm)
+        self.assertIn("#   debugmode ", vm)
+        phase = vm[vm.index("phase_debugmode() {"):]
+        phase = phase[:phase.index("\n}\n")]
+        for needle in ('menu_choice "$ROW_DEBUG" "Debugging Mode"', '"${V[@]}" listen "$TEST" 20',
+                       "/run/systemd/journald.conf.d/90-wineexplorer-debug.conf"):
+            self.assertIn(needle, phase)
+        self.assertLess(phase.index("listen"), phase.index("gsh"))   # no serial logon while the journal has the port
+        self.assertIn('elif a.op == "listen":', (SCRIPTS / "vmtest.py").read_text(encoding="utf-8"))
+
     def test_vm_test_checks_the_run_dialog(self):
         # 2026-11-12: Wine's Run took "control sysdm.cpl,,3" as one file name and found no verb for sysdm.cpl alone;
         # XP runs both. The phase types XP's cases into Run (Win+R) and waits for each window.
         vm = VM_TEST.read_text(encoding="utf-8")
-        self.assertIn("|startrec|classic|rundialog) ;;", vm)
+        self.assertIn("|startrec|classic|rundialog|", vm)
         self.assertIn("#   rundialog ", vm)
         phase = vm[vm.index("phase_rundialog() {"):]
         phase = phase[:phase.index("\n}\n")]

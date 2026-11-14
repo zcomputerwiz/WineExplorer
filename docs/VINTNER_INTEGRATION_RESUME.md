@@ -49,8 +49,10 @@ time. With Wine unchanged, `build-test-iso.sh` spends only the ISO's 11 minutes.
 
 ## 4. Next steps, in order
 
-1. Send session 0 the harness merge (the branch head) for master once it is pushed.
-2. Continue `SAFE_MODE_WORKORDER.md` (the open items after C4 and D5).
+1. The harness is on master (`3a08b9b7`). D4 (Debugging Mode on the serial port) is on the branch, tested with the
+   `debugmode` phase on both firmwares, handed to session 0 for master.
+2. `SAFE_MODE_WORKORDER.md` has one item left, C4's RID 500 and `wex-is-admin` for the Administrator account, which
+   is E1's (not this branch's). Ask the owner what comes next.
 
 How merges work (owner, 2026-11-14): I move pins on my own branch as needed; the session 0 session merges into
 master (and other branches) and moves the pins there. I send it the commit, the pins and what was tested, and say
