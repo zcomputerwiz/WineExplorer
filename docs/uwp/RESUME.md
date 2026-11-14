@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-2.0-or-later
 Copyright 2026 WineExplorer contributors
 -->
-# UWP track: where to resume (written 2026-11-13)
+# UWP track: where to resume (written 2026-11-13, updated 2026-11-14)
 
 Read this first when the UWP work is picked up again. The status table is in `README.md` of this folder; the measured
 behaviour is in `tests/uwp/u1_1/README.md` and `tests/uwp/u1_3/README.md`.
@@ -11,8 +11,8 @@ behaviour is in `tests/uwp/u1_1/README.md` and `tests/uwp/u1_3/README.md`.
 
 | What | Where | Commit |
 |---|---|---|
-| Wine code | repository `zcomputerwiz/wine`, branch `codex/uwp-runtime`; worktree `C:/Users/Owner/.codex/worktrees/uwp-runtime/wine` | b779616e |
-| Wine integration branch | `development` (has all UWP code; lacks only the `UWP_HANDOFF.md` text of b779616e) | 9484da1a |
+| Wine code | repository `zcomputerwiz/wine`, branch `codex/uwp-runtime`; worktree `C:/Users/Owner/.codex/worktrees/uwp-runtime/wine` | a146951f |
+| Wine integration branch | `development` (has all UWP code; lacks only the `UWP_HANDOFF.md` text of b779616e) | 5ec3c009 |
 | Probes, runners, docs | this repository, `master`: `tests/uwp`, `docs/uwp`, `docs/STOCK_CHANGES.md` | this commit |
 | Lab helper scripts | `tests/uwp/lab-helpers` (copies of the session's scratch scripts) | this commit |
 
@@ -67,16 +67,16 @@ session), which is under the stream commit on `development`. Different DLLs, but
   **2026-11-14 19:35**. After that `package.ps1` makes a new one, and the owner has to import its public
   `oracle.cer` into `Cert:\LocalMachine\TrustedPeople` once from an elevated PowerShell. The old ones stay installed
   until the owner asks to remove them.
-* **Shared checkout.** `D:\DeepThought\Projects\WineExplorer` local `master` is not lined up with `origin/master`: it
-  has 94b36e7e, 7e7a02a2 (system tier session, now on `claude/system-tier-elevation`), 916e2c69 and a95f3581 (the
-  same content as 54ebeea6 and dc2b79b1 on origin), and is behind origin. Its working tree also has uncommitted files
-  of other sessions. I did not reset it. To line it up, check with the other sessions first; UWP commits were made
-  from a temporary worktree of `origin/master` instead (`git worktree add --detach <dir> origin/master`).
+* **Shared checkout.** `D:\DeepThought\Projects\WineExplorer` local `master` was lined up with `origin/master` on
+  2026-11-14 (`git reset --keep`; the old head was a95f3581, the system tier commit 7e7a02a2 is on
+  `claude/system-tier-elevation`). Its working tree still has uncommitted files that are not from the UWP track
+  (four files under `docs/uwp` from the earlier Codex work, the `wine` and `wexcomp` submodule checkouts, untracked
+  scratch files): leave them.
 * **Coordination.** Announce every push to Wine `development` to the other sessions. Before a push to WineExplorer
   `master` that moves the `wine` gitlink or touches `scripts/`, `installer/`, `docs/TOOLING.md` or
-  `docs/STOCK_CHANGES.md`, send them the commit and agree who pushes. The system tier session holds a local merge of
-  `development` with `claude/run-dialog` on its backup branch `claude/system-tier-wine`; `development` itself is at
-  9484da1a.
+  `docs/STOCK_CHANGES.md`, send them the commit and agree who pushes. `development` moved to 5ec3c009 on 2026-11-14 (the system tier session merged
+  `claude/run-dialog`, `shell32` only, on top of the UWP work); `codex/uwp-runtime` has that merged (a146951f, not
+  built on the guest yet). The gitlink of `master` still pins 3ea5d0cb; the system tier session will propose moving it.
 
 ## The owned guest
 
