@@ -151,6 +151,19 @@ class UwpXamlTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 c.fetch_vendor_terms('uwp-xaml', self.root / 'terms3')
 
+    def test_rollback_removes_unpacked_files_and_keeps_going(self):
+        self.unpack(archive(self.root / 'a.zip'))
+        calls = []
+
+        def failing_reg(wine, environment, *args, **kwargs):
+            calls.append(args)
+            raise OSError('wine is not available here')
+
+        with patch.object(c, 'reg', failing_reg):
+            c.uwp_xaml_rollback(self.machine, 'x64', CLASSES, {})   # registry cleanup fails, directory still goes
+        self.assertTrue(calls and calls[0][0] == 'delete')
+        self.assertEqual(list((self.machine / c.UWP_XAML_ROOT).iterdir()), [])
+
     def test_no_winetricks_recipe(self):
         c.validate_recipe_files('uwp-xaml', self.root / 'no-winetricks')
         self.assertEqual(c.uwp_xaml_payload('uwp-xaml')['architecture'], 'x64')

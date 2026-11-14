@@ -2171,6 +2171,40 @@ def verify_uwp_xaml(machine, data, full=False):
         raise ValueError('UWP XAML registration missing')
 
 
+def uwp_xaml_unregister(environment, classes):
+    """Delete the class keys and ComponentPath (and the Xaml key when nothing else is in it); missing keys are fine."""
+    wine = '/usr/local/bin/wine'
+    for name in classes:
+        reg(wine, environment, 'delete', 'HKLM\\Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\' + name, '/f')
+    reg(wine, environment, 'delete', 'HKLM\\Software\\Wine\\Xaml', '/v', 'ComponentPath', '/f')
+    query = reg(wine, environment, 'query', 'HKLM\\Software\\Wine\\Xaml')
+    if query.returncode == 0 and 'REG_' not in query.stdout.decode('utf-8', 'replace'):
+        reg(wine, environment, 'delete', 'HKLM\\Software\\Wine\\Xaml', '/f')
+    subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
+
+
+def uwp_xaml_remove_directory(machine, arch):
+    directory = machine / UWP_XAML_ROOT / arch
+    if directory.is_symlink():
+        raise ValueError('Refusing symlinked UWP XAML directory')
+    if directory.is_dir():
+        trash = directory.parent / ('.removed-' + uuid.uuid4().hex)
+        os.replace(directory, trash)
+        shutil.rmtree(trash)
+
+
+def uwp_xaml_rollback(machine, arch, classes, environment):
+    """After a failed registration or verification: best effort, never masking the original error."""
+    try:
+        uwp_xaml_unregister(environment, classes)
+    except Exception as error:
+        print(f'UWP XAML rollback: registry cleanup failed: {error}', file=sys.stderr)
+    try:
+        uwp_xaml_remove_directory(machine, arch)
+    except Exception as error:
+        print(f'UWP XAML rollback: directory removal failed: {error}', file=sys.stderr)
+
+
 def _uwp_xaml_environment():
     return {
         'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/root', 'USER': 'root',
@@ -2227,15 +2261,6 @@ def install_uwp_xaml(verb, accepted_digest):
         payload = uwp_xaml_payload(verb)
         archive = cache_uwp_xaml_payload(verb, CACHE)
         files, classes = uwp_xaml_unpack(archive, MACHINE, payload['architecture'])
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='', dir=CACHE, prefix='.uwp-xaml-',
-                                         suffix='.reg', delete=False) as out:
-            registry = Path(out.name)
-            out.write(uwp_xaml_registry_text(payload['architecture'], classes))
-        try:
-            reg('/usr/local/bin/wine', environment, 'import', str(registry), check=True)
-        finally:
-            registry.unlink(missing_ok=True)
-        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
         data = {
             'verb': verb,
             'title': meta.get('title', verb),
@@ -2249,7 +2274,21 @@ def install_uwp_xaml(verb, accepted_digest):
             'classes': classes,
             'installed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         }
-        verify_uwp_xaml(MACHINE, data, full=True)
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', newline='', dir=CACHE, prefix='.uwp-xaml-',
+                                             suffix='.reg', delete=False) as out:
+                registry = Path(out.name)
+                out.write(uwp_xaml_registry_text(payload['architecture'], classes))
+            try:
+                reg('/usr/local/bin/wine', environment, 'import', str(registry), check=True)
+            finally:
+                registry.unlink(missing_ok=True)
+            subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
+            verify_uwp_xaml(MACHINE, data, full=True)
+        except BaseException:
+            # no receipt will name these files: take back what this attempt added before reporting the failure
+            uwp_xaml_rollback(MACHINE, payload['architecture'], classes, environment)
+            raise
         receipt = _uwp_xaml_receipt_dir()
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=receipt, prefix='.' + verb, delete=False) as out:
             temporary_receipt = Path(out.name)
@@ -2281,21 +2320,8 @@ def uninstall(verb):
         arch, classes = data.get('payload_architecture'), data.get('classes')
         if arch != 'x64' or not isinstance(classes, list) or any(not UWP_XAML_CLASS.match(c) for c in classes):
             raise ValueError('Malformed UWP XAML receipt')
-        wine = '/usr/local/bin/wine'
-        for name in classes:
-            reg(wine, environment, 'delete', 'HKLM\\Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\' + name, '/f')
-        reg(wine, environment, 'delete', 'HKLM\\Software\\Wine\\Xaml', '/v', 'ComponentPath', '/f')
-        query = reg(wine, environment, 'query', 'HKLM\\Software\\Wine\\Xaml')
-        if query.returncode == 0 and 'REG_' not in query.stdout.decode('utf-8', 'replace'):
-            reg(wine, environment, 'delete', 'HKLM\\Software\\Wine\\Xaml', '/f')
-        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
-        directory = MACHINE / UWP_XAML_ROOT / arch
-        if directory.is_symlink():
-            raise ValueError('Refusing symlinked UWP XAML directory')
-        if directory.is_dir():
-            trash = directory.parent / ('.removed-' + uuid.uuid4().hex)
-            os.replace(directory, trash)
-            shutil.rmtree(trash)
+        uwp_xaml_unregister(environment, classes)
+        uwp_xaml_remove_directory(MACHINE, arch)
         receipt.unlink()
         (receipt.parent / (verb + '.sha256')).unlink(missing_ok=True)
 
