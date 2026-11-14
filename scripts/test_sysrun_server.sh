@@ -66,7 +66,9 @@ fail()
     fi
     exit 1
 }
-ok() { echo "$1=PASS"; PASS=$((PASS + 1)); }
+# each check prints the seconds since the previous one, so the slow parts of the suite show in its log
+OK_LAST=$SECONDS
+ok() { echo "$1=PASS +$((SECONDS - OK_LAST))s"; OK_LAST=$SECONDS; PASS=$((PASS + 1)); }
 
 kill_servers()
 {

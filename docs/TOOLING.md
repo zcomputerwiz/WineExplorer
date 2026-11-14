@@ -248,6 +248,36 @@ Antigravity: user-reported operational guidance is `agy_run`, `mode: edit` for w
   it: `unshare --mount --propagation private sh -c 'mount --bind /var/tmp/wex-r8-x /tmp/.X11-unix && exec bash
   scripts/test_e1s6_transport.sh'` (directory mode 1777). `chmod` on the WSLg mount has no effect.
 
+## Added 2026-11-14: wex-run (system tier build and suites in one command)
+
+`scripts/lab/wex-run.sh MODE` does the whole chain above for the worktree it lives in (wexbuild, root):
+`wsl.exe -d wexbuild -u root -- bash /mnt/d/DeepThought/Projects/<worktree>/scripts/lab/wex-run.sh MODE`.
+Run it from PowerShell, not Git Bash (Git Bash rewrites the `/mnt/d/...` path). One run at a time in wexbuild; it
+answers `BUSY` when a suite or build is running.
+
+| Mode | Does | When | Minutes (2026-11-14) |
+|---|---|---|---|
+| `labsuite` | lab suite only | lab scripts, verifier, worker or the suite script changed | about 16 |
+| `lab` | sync, build, lab build, lab suite | only code behind the lab build flags changed | about 20 |
+| `normal` | sync, build, normal suite, broker test | product code, lab suite not needed | about 20 |
+| `full` | sync, build, T1, normal suite, broker test, lab build, lab suite | product code changed | about 37 |
+| `clean` | removes a suite fixture a killed run left behind | | |
+
+- The suites run from a copy of `scripts`, `tools`, `src`, `installer` in `/root/wex-snap/<worktree>`; editing the
+  worktree during a run is safe (an edit under a running suite corrupts it: bash reads a script as it goes).
+- The sync checks out the worktree's Wine commit in `/root/WE-prefetch/wine`, copies its changed and new files and
+  `src/` over, runs `assemble.py`, autoconf, `config.status` and `make_requests` there. It reads a git worktree's
+  Windows `gitdir:` path through `/mnt/d` (plain `git -C` fails on worktrees inside WSL).
+- Most of the time is the suites, not the builds. The lab suite is the normal suite again on the lab build plus 74
+  lab checks, so `full` runs the normal checks twice. First `full` run with it (2026-11-14): sync 3, build 0, T1 1,
+  normal 18, broker 0, lab build 1, lab 16 minutes, 39 in all.
+- Each check prints the seconds since the previous one (`name=PASS +12s`). Measured 2026-11-14: the normal suite is
+  1,042 s over 347 checks with no hot spot (the slowest is 37 s, the top 15 a third of the time); in the lab suite
+  about 257 s are the lab-only checks and the rest repeats the normal checks. A lab-only mode would save about 11
+  minutes per `full` run but needs the suite's setup separated from its checks first.
+- What exists only on the build machine and how to recreate it: `/root/WE-prefetch` is a WoW64 build (see "Repository"
+  and the snapshot reference above); `/root/owned-r8` is made by `r8-lab-build.sh`; `/root/wex-snap` is temporary.
+
 ## Added 2026-11-05: lessons that cost hours (do not rediscover)
 
 * A guest or distro without the system role gives services the user's filtered token: provisioning recipe and every failure
