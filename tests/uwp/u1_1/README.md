@@ -97,7 +97,7 @@ mesa llvmpipe (Wine built with OpenGL, EGL and Vulkan headers), fresh prefix per
 clear) pass on x64 and x86 with the unchanged `view.exe` bits. Without a 3D device the swap chain and pixel checks
 are skipped (28 checks). `run-wine-lifecycle.sh` runs it with `PRESENT=1` under `xvfb-run`.
 
-## StorageFolder, StorageFile and FileIO on Windows (U1.5, measured; Wine not done)
+## StorageFolder, StorageFile and FileIO (U1.5, measured on Windows, passes on Wine)
 
 2026-11-13, application `ViewStorage` (run with `run-mode.ps1 -Mode storage`): 59 checks pass on Windows 11 (list in
 `expected-storage.txt`, raw output in `..\WineExplorer-local`). What Windows does, beyond the obvious:
@@ -117,8 +117,44 @@ are skipped (28 checks). `run-wine-lifecycle.sh` runs it with `PRESENT=1` under 
   `DeleteAsync` of a deleted file is `0x80070002`; deleting a folder removes its content.
 * `GetFileFromApplicationUriAsync` takes `ms-appdata:///local/...` and `ms-appx:///...` (the package folder).
 
-Wine has none of this yet except `GetFolderFromPathAsync` (`StorageFolder` has stubs for the rest). Plan: (1) the
-interfaces missing from `windows.storage.idl` (`IFileIOStatics` 887411eb-7f54-4732-a5f0-5e43e3b8c2f5, `IPathIOStatics`
-0f2f3758-8ec7-4381-922b-8f6c07d288f3, from the SDK headers), typed async operations and an `IAsyncAction`, (2) the
-folder operations and `StorageFile`, (3) `FileIO`/`PathIO`, `Buffer`, (4) file-backed streams (`OpenAsync`) and
-`DataReader`/`DataWriter`.
+Wine, 2026-11-13, candidate `u11-2` of `codex/uwp-runtime`: the same `view.exe` bits pass all 59 checks on x64 and
+x86 (`run-wine-lifecycle.sh` runs application `ViewStorage` after the application data runs). What is in Wine now:
+
+* `dlls/windows.storage/folder.c`: one object for a file or a folder (a path). `StorageFolder`: create, get, try-get,
+  list, rename, delete (with content), basic properties. `StorageFile`: type, content type, copy, move, replace,
+  rename, delete, basic properties, display name. Statics: `GetFolderFromPathAsync`, `GetFileFromPathAsync`,
+  `GetFileFromApplicationUriAsync` (`ms-appdata:///local|roaming|temp/...`, `ms-appx:///...`).
+* `dlls/windows.storage/fileio.c`: `FileIO` and `PathIO` (text, lines, buffer, bytes; the three encodings).
+* `dlls/wintypes/datareader.c`: `DataReader.FromBuffer` and the read methods.
+* Reused from Wine: the asynchronous-operation framework of `windows.storage`, `Buffer` of `wintypes`, the vectors of
+  `windows.media.speech` (copied to `dlls/windows.storage/vector.c`). Upstream Wine (checked 2026-11-13) has no
+  `StorageFile`, `FileIO` or `DataReader`.
+
+Not done: file streams (`StorageFile.OpenAsync`, `OpenReadAsync`, `OpenTransactedWriteAsync`, so also
+`DataReader.LoadAsync` from a stream), thumbnails, `Properties`, `GetParentAsync`, queries
+(`CreateFileQuery`), streamed files, `KnownFolders`, pickers. The operations finish on the calling thread (the
+returned asynchronous object is already completed); the recycle bin is not used by `DeleteAsync`.
+
+### File streams (measured on Windows, Wine not done)
+
+The same application then measures the streams of a file: 28 more checks (87 in `expected-storage.txt`), which pass
+on Windows 11 in two runs. Wine at commit ee46bbaf passes the first 59 and has no file streams yet. What Windows does:
+
+* `OpenAsync(ReadWrite)`: `CanRead` and `CanWrite`; a second `ReadWrite` stream of the same file is a sharing violation
+  (`0x80070020`); `Read` streams and `FileIO` reads work beside it. `OpenAsync(Read)`: `CanWrite` is false,
+  `WriteAsync` gives `0x80070005`, setting `Size` returns success and changes nothing; a `ReadWrite` stream and `FileIO`
+  writes work beside it. A deleted file gives `0x80070002`.
+* `DataWriter.StoreAsync` on the stream returns the byte count and the bytes are on disk at once; `FlushAsync` gives
+  true. `DataReader.LoadAsync(100)` with 8 bytes left returns 8.
+* `Size(4)` truncates and leaves `Position` where it was (8). `GetOutputStreamAt` and `GetInputStreamAt` have their own
+  position and leave the stream's alone. `CloneStream` starts at 0 and can write. A read past the end gives an empty
+  buffer; a count over the buffer's capacity is `0x80070057`.
+* After `Close`, `Size` gives `0x80000013`; a second `Close` is fine.
+* `OpenReadAsync` gives a read stream with the content type of the file (`text/plain` for `.txt`, empty for `.bin`);
+  `OpenSequentialReadAsync` gives an input stream.
+* `OpenTransactedWriteAsync`: the stream starts with the content of the file at position 0; the file changes at
+  `CommitAsync` (writing `new` over `12xy` gives `newy`).
+
+The check `application_ids_are_all_applications_of_the_package` of `ViewPkgapi` counts the applications of the
+manifest: it was 7 and is 8 since `ViewStorage` was added (a probe correction, measured again on Windows: 39 and 59
+checks pass).

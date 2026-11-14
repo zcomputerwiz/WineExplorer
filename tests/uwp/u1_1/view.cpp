@@ -286,10 +286,10 @@ static void pkgapi_checks()
         LONG r = GetPackageApplicationIds(reference, &length, nullptr, &count);
         std::vector<BYTE> buffer(length ? length : 1);
         if (r == ERROR_INSUFFICIENT_BUFFER) r = GetPackageApplicationIds(reference, &length, buffer.data(), &count);
-        bool ids_ok = r == ERROR_SUCCESS && count == 7;
+        bool ids_ok = r == ERROR_SUCCESS && count == 8;
         std::vector<std::wstring> seen;
         for (UINT32 i = 0; ids_ok && i < count; ++i) seen.push_back(reinterpret_cast<PCWSTR *>(buffer.data())[i]);
-        for (wchar_t const *app : { L"View", L"ViewSta", L"ViewReturn", L"ViewPresent", L"ViewSuspend", L"ViewPkgapi", L"ViewAppdata" })
+        for (wchar_t const *app : { L"View", L"ViewSta", L"ViewReturn", L"ViewPresent", L"ViewSuspend", L"ViewPkgapi", L"ViewAppdata", L"ViewStorage" })
             if (std::find(seen.begin(), seen.end(), family + L"!" + app) == seen.end()) ids_ok = false;
         check("application_ids_are_all_applications_of_the_package", ids_ok);
         length = 0; count = 0;
@@ -656,6 +656,145 @@ static void run_storage()
         auto exe = StorageFile::GetFileFromApplicationUriAsync(missing).get();
         check("get_file_from_ms_appx_uri", exe.Name() == L"view.exe");
     }
+
+    /* streams of a file */
+    try
+    {
+        auto show = [&](char const *what, int32_t hr) { info("%s: 0x%08X", what, (unsigned)hr); return hr; };
+        StorageFile s = root.CreateFileAsync(L"s.bin", CreationCollisionOption::ReplaceExisting).get();
+        std::wstring s_path = root_path + L"\\s.bin";
+        IRandomAccessStream stream = s.OpenAsync(FileAccessMode::ReadWrite).get();
+        check("stream_of_a_new_file_is_empty", stream.Size() == 0 && stream.Position() == 0 && stream.CanRead() && stream.CanWrite());
+        {
+            DataWriter writer(stream);
+            writer.WriteBytes(std::vector<uint8_t>{ 1, 2, 3, 4, 5 });
+            writer.WriteString(L"hey");
+            check("data_writer_unstored_length", writer.UnstoredBufferLength() == 8);
+            uint32_t stored = writer.StoreAsync().get();
+            check("data_writer_store_async", stored == 8);
+            check("data_writer_flush_async", writer.FlushAsync().get());
+            writer.DetachStream();
+        }
+        info("after the store: size %llu position %llu on disk %zu", (unsigned long long)stream.Size(),
+             (unsigned long long)stream.Position(), read_file_bytes(s_path).size());
+        check("stream_size_and_position_after_write", stream.Size() == 8 && stream.Position() == 8 && read_file_bytes(s_path).size() == 8);
+        stream.Seek(0);
+        {
+            DataReader reader(stream);
+            uint32_t loaded = reader.LoadAsync(100).get();
+            check("data_reader_load_async", loaded == 8 && reader.UnconsumedBufferLength() == 8);
+            std::vector<uint8_t> five(5);
+            reader.ReadBytes(five);
+            check("data_reader_bytes_and_string", five[0] == 1 && five[4] == 5 && reader.ReadString(3) == L"hey");
+            reader.DetachStream();
+        }
+        info("after the load: position %llu", (unsigned long long)stream.Position());
+        stream.Size(4);
+        info("after Size(4): size %llu position %llu", (unsigned long long)stream.Size(), (unsigned long long)stream.Position());
+        check("stream_set_size_truncates_and_keeps_the_position", stream.Size() == 4 && stream.Position() == 8);
+        show("GetOutputStreamAt(2) write", hresult_of([&] {
+            auto out = stream.GetOutputStreamAt(2);
+            Buffer b(2);
+            b.Length(2);
+            b.data()[0] = 'x'; b.data()[1] = 'y';
+            uint32_t n = out.WriteAsync(b).get();
+            bool flushed = out.FlushAsync().get();
+            info("GetOutputStreamAt write: %u bytes, flush %d, stream size %llu position %llu", n, (int)flushed,
+                 (unsigned long long)stream.Size(), (unsigned long long)stream.Position());
+            check("output_stream_at_writes_and_keeps_the_position", n == 2 && flushed && stream.Size() == 4 && stream.Position() == 8);
+        }));
+        show("GetInputStreamAt(1) read", hresult_of([&] {
+            auto in = stream.GetInputStreamAt(1);
+            Buffer b(16);
+            auto got = in.ReadAsync(b, 16, InputStreamOptions::None).get();
+            info("GetInputStreamAt read: %u bytes, stream position %llu", got.Length(), (unsigned long long)stream.Position());
+            check("input_stream_at_reads_from_the_position", got.Length() == 3 && got.data()[0] == 2 && got.data()[1] == 'x' && got.data()[2] == 'y' && stream.Position() == 8);
+        }));
+        show("CloneStream", hresult_of([&] {
+            auto clone = stream.CloneStream();
+            check("clone_starts_at_the_beginning", clone.Size() == 4 && clone.Position() == 0 && clone.CanWrite());
+            clone.Close();
+        }));
+        check("second_read_write_stream_is_a_sharing_violation",
+              show("OpenAsync(ReadWrite) while a ReadWrite stream is open", hresult_of([&] { s.OpenAsync(FileAccessMode::ReadWrite).get(); })) == (int32_t)0x80070020);
+        check("read_stream_while_a_read_write_stream_is_open",
+              show("OpenAsync(Read) while a ReadWrite stream is open", hresult_of([&] { s.OpenAsync(FileAccessMode::Read).get().Close(); })) == 0);
+        check("file_io_reads_while_a_read_write_stream_is_open",
+              show("ReadBufferAsync while a ReadWrite stream is open", hresult_of([&] { FileIO::ReadBufferAsync(s).get(); })) == 0);
+        show("ReadAsync past the end", hresult_of([&] {
+            stream.Seek(100);
+            Buffer b(4);
+            auto got = stream.ReadAsync(b, 4, InputStreamOptions::None).get();
+            check("read_past_the_end_is_empty", got.Length() == 0);
+        }));
+        check("read_count_over_the_capacity_is_invalid", show("ReadAsync with a count over the capacity",
+              hresult_of([&] { Buffer b(2); stream.Seek(0); stream.ReadAsync(b, 4, InputStreamOptions::None).get(); })) == (int32_t)0x80070057);
+        stream.Close();
+        check("closed_stream_fails", show("Size of a closed stream", hresult_of([&] { (void)stream.Size(); })) == (int32_t)0x80000013);
+        check("close_twice_is_fine", show("Close of a closed stream", hresult_of([&] { stream.Close(); })) == 0);
+        {
+            auto on_disk = read_file_bytes(s_path);
+            check("stream_content_on_disk", on_disk == std::vector<BYTE>({ 1, 2, 'x', 'y' }));
+        }
+
+        IRandomAccessStream ro = s.OpenAsync(FileAccessMode::Read).get();
+        check("read_stream", ro.CanRead() && !ro.CanWrite() && ro.Size() == 4 && ro.Position() == 0);
+        check("read_stream_cannot_be_written", show("WriteAsync on a Read stream", hresult_of([&] {
+            Buffer b(1);
+            b.Length(1);
+            ro.WriteAsync(b).get(); })) == (int32_t)0x80070005);
+        show("Size(2) on a Read stream", hresult_of([&] { ro.Size(2); }));
+        info("after Size(2) on a Read stream: size %llu on disk %zu", (unsigned long long)ro.Size(), read_file_bytes(s_path).size());
+        check("two_read_streams", show("OpenAsync(Read) while a Read stream is open", hresult_of([&] { s.OpenAsync(FileAccessMode::Read).get().Close(); })) == 0);
+        check("read_write_stream_while_a_read_stream_is_open",
+              show("OpenAsync(ReadWrite) while a Read stream is open", hresult_of([&] { s.OpenAsync(FileAccessMode::ReadWrite).get().Close(); })) == 0);
+        check("file_io_writes_while_a_read_stream_is_open",
+              show("WriteBytesAsync while a Read stream is open", hresult_of([&] { FileIO::WriteBytesAsync(s, std::vector<uint8_t>{ 1, 2, 'x', 'y' }).get(); })) == 0);
+        info("content type of s.bin: '%s'", to_string(s.ContentType()).c_str());
+        ro.Close();
+
+        show("OpenReadAsync", hresult_of([&] {
+            auto typed = s.OpenReadAsync().get();
+            info("OpenReadAsync: content type '%s' size %llu can write %d", to_string(typed.ContentType()).c_str(),
+                 (unsigned long long)typed.Size(), (int)typed.CanWrite());
+            check("open_read_async", typed.Size() == 4 && typed.CanRead() && !typed.CanWrite());
+            typed.Close();
+        }));
+        show("OpenSequentialReadAsync", hresult_of([&] {
+            auto sequential = s.OpenSequentialReadAsync().get();
+            Buffer b(16);
+            auto got = sequential.ReadAsync(b, 16, InputStreamOptions::None).get();
+            check("open_sequential_read_async", got.Length() == 4 && got.data()[3] == 'y');
+            sequential.Close();
+        }));
+        show("OpenTransactedWriteAsync", hresult_of([&] {
+            auto transaction = s.OpenTransactedWriteAsync().get();
+            auto ts = transaction.Stream();
+            info("transaction stream: size %llu position %llu", (unsigned long long)ts.Size(), (unsigned long long)ts.Position());
+            DataWriter writer(ts);
+            writer.WriteString(L"new");
+            writer.StoreAsync().get();
+            writer.DetachStream();
+            info("before the commit: on disk %zu bytes, stream size %llu", read_file_bytes(s_path).size(), (unsigned long long)ts.Size());
+            transaction.CommitAsync().get();
+            transaction.Close();
+            auto on_disk = read_file_bytes(s_path);
+            std::string text(on_disk.begin(), on_disk.end());
+            check("transacted_write_starts_from_the_content_and_commits", text == "newy");
+        }));
+        show("OpenReadAsync of a text file", hresult_of([&] {
+            auto text_file = root.GetFileAsync(L"p.txt").get();
+            auto typed = text_file.OpenReadAsync().get();
+            info("OpenReadAsync of p.txt: content type '%s'", to_string(typed.ContentType()).c_str());
+            typed.Close();
+        }));
+        check("stream_of_a_deleted_file_is_file_not_found", show("OpenAsync of a deleted file", hresult_of([&] {
+            auto gone = root.CreateFileAsync(L"gone.bin").get();
+            DeleteFileW((root_path + L"\\gone.bin").c_str());
+            gone.OpenAsync(FileAccessMode::Read).get();
+        })) == (int32_t)0x80070002);
+    }
+    catch (hresult_error const &e) { info("streams: exception 0x%08X", (unsigned)e.code()); check("streams_no_exception", false); }
     data.ClearAsync(ApplicationDataLocality::Local).get();
     put("READY");
     put("Uninitialize");

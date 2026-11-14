@@ -28,7 +28,7 @@ overall=0
 note() { printf '%s\n' "$*" | tee -a "$results/summary.txt"; }
 wine_run() { local log=$1; shift; timeout --kill-after=10s 180s "$build/wine" "$@" > "$log" 2>&1; }
 checks() { tr -d '\r' < "$1" | grep -E '^(PASS|FAIL) ' | LC_ALL=C sort; }
-expected() { grep -v -e '^#' -e '^$' "$1" | LC_ALL=C sort; }
+expected() { tr -d '\r' < "$1" | grep -v -e '^#' -e '^$' | LC_ALL=C sort; }
 
 for arch in x64 x86; do
     out="$results/$arch"
@@ -89,6 +89,25 @@ for arch in x64 x86; do
         fi
         grep -E '^INFO' "$out/$mode-$run.txt" | tr -d '' | sed "s/^/$arch $mode-$run /" >> "$results/observations.txt" || true
     done
+
+    # storage: StorageFolder, StorageFile, FileIO and PathIO in the LocalState folder of the package
+    mode=storage; file="$appdata/view-$mode.txt"; rm -f "$file"
+    status=0
+    wine_run "$out/$mode.log" "$u10/$arch/launcher.exe" "$family!ViewStorage" "$mode" unused "$full" || status=$?
+    for i in $(seq 1 30); do grep -q '^Uninitialize' "$file" 2>/dev/null && break; sleep 1; done
+    if [ ! -f "$file" ]; then
+        note "$arch FAIL $mode (no output, launcher exit $status)"; overall=1
+    else
+        cp "$file" "$out/$mode.txt"
+        checks "$out/$mode.txt" > "$out/$mode-checks.txt" || true
+        expected "$u11/expected-$mode.txt" > "$out/expected-$mode.txt"
+        if diff -u "$out/expected-$mode.txt" "$out/$mode-checks.txt" > "$out/$mode.diff"; then
+            note "$arch PASS $mode (all $(wc -l < "$out/expected-$mode.txt") checks)"
+        else
+            note "$arch FAIL $mode"; head -40 "$out/$mode.diff" >> "$results/summary.txt"; overall=1
+        fi
+        grep -E '^INFO' "$out/$mode.txt" | tr -d '\r' | sed "s/^/$arch $mode /" >> "$results/observations.txt" || true
+    fi
 
     # presentation and input: the probe presents frames to its CoreWindow and records what arrives while inject.exe
     # moves the mouse, clicks, turns the wheel and types (needs the display: PRESENT=1, run under xvfb-run)
