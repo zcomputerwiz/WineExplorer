@@ -976,7 +976,12 @@ def service(server_path, system_group, pam_paths=None):
                 if condition & (GLib.IO_HUP | GLib.IO_ERR):
                     self.cancel()
                     return False
-                msg = self.receive_control_packet()
+                try:
+                    msg = self.receive_control_packet()
+                except BlockingIOError:
+                    # the endorsement path polls and reads this socket itself; a readiness already queued
+                    # for this watch then finds nothing: not an error, keep watching
+                    return True
                 if msg is not None:
                     require(self.pending_s6 is None, "duplicate-pending-s6")
                     self.pending_s6 = msg
