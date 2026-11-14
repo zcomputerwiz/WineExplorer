@@ -917,7 +917,7 @@ prompt_focus() {   # the password prompt is Explorer's window (wexhost's polkit 
 }
 
 phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the header
-    local out options saved= crashdir= id
+    local out options saved= crashdir= id try
     attach ro || fail "cannot mount the overlay"
     if [ -f "$MNT/etc/kernel/cmdline" ]; then cp -p "$MNT/etc/kernel/cmdline" "$OUT/startrec-cmdline"; saved=1; fi
     [ -d "$MNT/etc/systemd/system.conf.d" ] && crashdir=1
@@ -973,12 +973,20 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     "${V[@]}" key "$TEST" shift-tab >/dev/null   # the account list: the Administrator account
     "${V[@]}" type "$TEST" a
     "${V[@]}" key "$TEST" tab >/dev/null
-    "${V[@]}" type "$TEST" "$(cat "$ADMIN_PWFILE")"
-    "${V[@]}" key "$TEST" ret >/dev/null
-    for _ in 1 2 3 4 5 6; do   # PAM, then the change; both close
-        sleep 5
-        out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
-        case "$out" in *"Default operating system"*) ;; *) break ;; esac
+    for try in 1 2; do   # once (UEFI, 2026-11-13) a key of the 16 was lost and the prompt said the password is
+                         # incorrect, keeping the account and emptying its password box: typed once more
+        "${V[@]}" type "$TEST" "$(cat "$ADMIN_PWFILE")"
+        "${V[@]}" key "$TEST" ret >/dev/null
+        for _ in 1 2 3 4 5 6; do   # PAM, then the change; both close
+            sleep 5
+            out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
+            case "$out" in *"Default operating system"*) ;; *) break 2 ;; esac
+            case "$try$out" in 1*"password is incorrect"*) break ;; esac
+        done
+        case "$try$out" in 1*"password is incorrect"*) ;; *) break ;; esac
+        echo "  (the prompt took the typed password as incorrect; typing it once more)"
+        shot password-retyped
+        prompt_focus
     done
     case "$out" in *"Default operating system"*) shot still-open; fail "Startup and Recovery stayed open after the password" ;; esac
     expect_settings MenuTimeout=30 AutoRestart=True

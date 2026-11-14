@@ -1460,8 +1460,11 @@ class TestSessionAndGreeter(unittest.TestCase):
         # the panic that must wait comes with Automatically restart off; the restarts after the defaults are back
         self.assertLess(phase.index("restarted \"$id\" 75 &&"), phase.index("Apply ububb 0 true 30 true false"))
         # the prompt (Explorer's window) is clicked before each key meant for it
-        self.assertEqual(phase.count("    prompt_focus\n"), 2)
+        self.assertEqual(phase.count("    prompt_focus\n"), 3)
         self.assertLess(phase.index("prompt_focus"), phase.index('"${V[@]}" key "$TEST" esc'))
+        # a password the prompt calls incorrect (a lost key) is typed once more, and only once
+        self.assertIn("for try in 1 2; do", phase)
+        self.assertIn('case "$try$out" in 1*"password is incorrect"*) ;; *) break ;; esac', phase)
         # a hardware watchdog the firmware left running (OVMF's TCO) is stopped before it: its restart is not ours
         self.assertLess(phase.index("printf V > \\$w"), phase.index("echo c > /proc/sysrq-trigger"))
         self.assertLess(phase.index("attach rw"), phase.index("kill -SEGV 1"))
