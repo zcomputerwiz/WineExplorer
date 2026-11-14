@@ -17,7 +17,8 @@ if (-not $Execute) { return }
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 Push-Location $out
 try {
-    $line = 'call "' + $vs + '" ' + $Architecture + ' 10.0.26100.0 && ' + $command
+    # plm.exe: the suspend and resume helper of run-present.ps1 (a host tool, not in the package)
+    $line = 'call "' + $vs + '" ' + $Architecture + ' 10.0.26100.0 && ' + $command + ' && cl /nologo /EHsc /MT "' + $PSScriptRoot + '\plm.cpp" /link /OUT:plm.exe ole32.lib'
     & cmd.exe /d /c $line
     if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
 } finally { Pop-Location }

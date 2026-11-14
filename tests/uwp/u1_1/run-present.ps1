@@ -121,6 +121,7 @@ try {
         if ((Test-Path -LiteralPath $file) -and (Select-String -LiteralPath $file -Pattern '^READY' -Quiet)) { $ready = $true; break }
         Start-Sleep -Milliseconds 200
     }
+    "$(Get-Date -Format HH:mm:ss.fff) READY seen: $ready" | Add-Content -LiteralPath (Join-Path $results 'plm.txt')
     if (-not $ready) { Write-Host 'present: no READY line' }
     else {
         Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -135,6 +136,8 @@ try {
         # for it is it clicked (a click brings the window to the front); only when it logged PointerPressed is anything
         # typed. Nothing is typed into another program.
         if ($Manual) { 'manual: the owner clicks into the window and types' | Set-Content -LiteralPath (Join-Path $results 'injected.txt'); $ready = $false }
+        # the suspend mode never moves the mouse or types: input would go to whatever window has the focus
+        if ($Mode -eq 'suspend') { 'suspend: no input injected' | Set-Content -LiteralPath (Join-Path $results 'injected.txt'); $ready = $false }
         $line = Select-String -LiteralPath $file -Pattern '^INFO bounds now (\d+)x(\d+) at (-?\d+),(-?\d+)' | Select-Object -Last 1
         if ($Manual) { }
         elseif (-not $line) { Write-Host 'present: no bounds reported, no input injected'; $ready = $false }
@@ -166,8 +169,25 @@ try {
         Tap 0x74                                                                                                                 # F5
         "mouse: move, left click, right click, wheel up; keys: a, Shift+b, Enter, Left, F5" | Add-Content -LiteralPath (Join-Path $results 'injected.txt')
     }
-    # the probe ends 12 s after READY
-    $end = (Get-Date).AddSeconds(100)
+    # suspend mode without -Manual: the process lifetime manager suspends and resumes the package (plm.exe, built by
+    # build.ps1 next to view.exe); with -Manual the owner minimizes the window, waits, and restores it
+    if ($Mode -eq 'suspend' -and -not $Manual -and (Test-Path -LiteralPath $file)) {
+        $plm = Join-Path $PSScriptRoot "build\$($state.Architecture)\plm.exe"
+        Start-Sleep -Seconds 2
+        "$(Get-Date -Format HH:mm:ss.fff) debug" | Add-Content -LiteralPath (Join-Path $results 'plm.txt')
+        & $plm debug $installed.PackageFullName 2>&1 | Add-Content -LiteralPath (Join-Path $results 'plm.txt')
+        & $plm state $installed.PackageFullName 2>&1 | Add-Content -LiteralPath (Join-Path $results 'plm.txt')
+        "$(Get-Date -Format HH:mm:ss.fff) suspend" | Add-Content -LiteralPath (Join-Path $results 'plm.txt')
+        & $plm suspend $installed.PackageFullName 2>&1 | Add-Content -LiteralPath (Join-Path $results 'plm.txt')
+        Start-Sleep -Seconds 8
+        & $plm state $installed.PackageFullName 2>&1 | Add-Content -LiteralPath (Join-Path $results 'plm.txt')
+        "$(Get-Date -Format HH:mm:ss.fff) resume" | Add-Content -LiteralPath (Join-Path $results 'plm.txt')
+        & $plm resume $installed.PackageFullName 2>&1 | Add-Content -LiteralPath (Join-Path $results 'plm.txt')
+        Start-Sleep -Seconds 2
+        & $plm state $installed.PackageFullName 2>&1 | Add-Content -LiteralPath (Join-Path $results 'plm.txt')
+    }
+    # the probe ends 12 s after READY (in suspend mode: 3 s after Resuming, at most 4 minutes after READY)
+    $end = (Get-Date).AddSeconds($(if ($Mode -eq 'suspend') { 270 } else { 100 }))
     while ((Get-Date) -lt $end -and -not (Select-String -LiteralPath $file -Pattern 'Run returning|WATCHDOG|Uninitialize' -Quiet)) { Start-Sleep -Milliseconds 500 }
     Start-Sleep -Seconds 2
     if (Test-Path -LiteralPath $file) { Copy-Item -LiteralPath $file -Destination (Join-Path $results "$Mode.txt") } else { Write-Host "present: no output in $folder" }
