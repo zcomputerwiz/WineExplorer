@@ -3513,6 +3513,39 @@ OUT="$(as_wine "$STD" wexpolicy clear /machine || true)"   # the writer's own ex
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: $STD ran the writer"; }
 kill_servers
 ok st_machine_policy_and_clear_and_only_the_system_writes
+# Group Policy step 5: the security template (GptTmpl.inf, UTF-16LE): the lockout policy goes where net accounts
+# and the verifier keep it, security options in the policy trees are written, the rest is not applicable; a
+# damaged template changes nothing
+gpttmpl() { { printf '\xff\xfe'; printf '%s\r\n' "$@" | iconv -f UTF-8 -t UTF-16LE; } > "$POL/$TNAME"; }
+TNAME=sec.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
+    'MinimumPasswordLength = 8' 'LockoutBadCount = 5' 'LockoutDuration = -1' 'ResetLockoutCount = 15' '[Registry Values]' \
+    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3' \
+    'MACHINE\Software\Policies\WexPol\Banner=1,"Hello there"' \
+    'MACHINE\System\CurrentControlSet\Control\Lsa\WexNotPolicy=4,1' '[Privilege Rights]' 'SeDenyNetworkLogonRight = *S-1-5-32-546'
+TNAME=bad.inf gpttmpl '[System Access]' 'LockoutBadCount = 2'
+OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/bad.inf")" | tr -d '\r')" || true
+grep -q 'status=[1-9]\|error' <<<"$OUT" || { echo "$OUT" >&2; fail "security: a template without a signature was taken"; }
+OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/sec.inf")" | tr -d '\r')" || true
+grep -q 'security set=5 not-applicable=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "security: apply"; }
+E='HKLM\Software\WineExplorer\Elevation'
+[ "$(as_wine "$STD" reg query "$E" /v LockoutBadCount | val LockoutBadCount)" = 0x5 ] || fail "security: LockoutBadCount"
+[ "$(as_wine "$STD" reg query "$E" /v LockoutDuration | val LockoutDuration)" = 0x1869f ] || fail "security: LockoutDuration -1 is not the longest"
+[ "$(as_wine "$STD" reg query "$E" /v ResetLockoutCount | val ResetLockoutCount)" = 0xf ] || fail "security: ResetLockoutCount"
+[ "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v WexSecOption | val WexSecOption)" = 0x3 ] ||
+    fail "security: a security option in the policy tree"
+as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Banner | tr -d '\r' | grep -q 'Hello there' || fail "security: a string option"
+[ -z "$(as_wine "$STD" reg query 'HKLM\System\CurrentControlSet\Control\Lsa' /v WexNotPolicy | val WexNotPolicy)" ] ||
+    fail "security: an option outside the policy trees was written"
+as_wine "$STD" net accounts | tr -d '\r' | grep -Eq '[[:space:]]5[[:space:]]*$' || fail "security: net accounts does not show the threshold"
+OUT="$(as_wine "$STD" wexpolicy security /machine "$(winpath "$POL/sec.inf")" || true)"
+grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "security: $STD ran the writer"; }
+s0_wine reg delete "$E" /v LockoutBadCount /f >/dev/null 2>&1 || true
+s0_wine reg delete "$E" /v LockoutDuration /f >/dev/null 2>&1 || true
+s0_wine reg delete "$E" /v ResetLockoutCount /f >/dev/null 2>&1 || true
+s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v WexSecOption /f >/dev/null 2>&1 || true
+s0_wine reg delete 'HKLM\Software\Policies\WexPol' /f >/dev/null 2>&1 || true
+kill_servers
+ok st_security_template_lockout_policy_and_options
 # Group Policy step 2: the domain join that session 0's registry states is what Windows programs are told
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" join)"

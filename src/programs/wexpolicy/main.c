@@ -26,6 +26,7 @@
  *   wexpolicy apply /user:SID FILE [FILE...]    HKEY_USERS\SID, or kept for the user's next logon
  *   wexpolicy clear /machine | /user:SID        remove what the last apply wrote
  *   wexpolicy list  /machine | /user:SID        print what the last apply wrote
+ *   wexpolicy security /machine TEMPLATE...     security templates (GptTmpl.inf, sectmpl.c)
  *   wexpolicy                                   started by the service manager: the service "gpsvc"
  *
  * The files are applied in the order given (a later file wins), as the Group Policy client applies the GPOs in
@@ -50,8 +51,7 @@
 #include <sddl.h>
 
 #include "preg.h"
-
-#define MAX_FILES      64
+#include "wexpolicy.h"
 #define MAX_FILE_SIZE  (32 * 1024 * 1024)
 
 struct file
@@ -78,7 +78,7 @@ static unsigned int count_set, count_deleted, count_skipped;
 static SERVICE_STATUS_HANDLE service_handle;
 static HANDLE stop_event;
 
-static void say( const char *format, ... )
+void say( const char *format, ... )
 {
     va_list args;
     va_start( args, format );
@@ -529,7 +529,7 @@ static DWORD parse_target( const WCHAR *arg, const WCHAR **sid, HKEY *root )
 /* Tell the programs that wait for policy (userenv's RegisterGPNotification) that it has changed: they watch a
  * serial number in the registry, which reaches every session through session 0. The user's is in the marker key,
  * inside the protected tree; the machine's is beside the Group Policy state of Windows. */
-static void bump_serial( HKEY root, BOOL user )
+void bump_serial( HKEY root, BOOL user )
 {
     DWORD serial = 0, size = sizeof(serial);
     HKEY key;
@@ -648,8 +648,24 @@ int __cdecl wmain( int argc, WCHAR **argv )
     {
         say( "usage: wexpolicy apply /machine|/user:SID FILE [FILE...]\n"
              "       wexpolicy clear /machine|/user:SID\n"
-             "       wexpolicy list  /machine|/user:SID\n" );
+             "       wexpolicy list  /machine|/user:SID\n"
+             "       wexpolicy security /machine TEMPLATE [TEMPLATE...]\n" );
         return ERROR_INVALID_PARAMETER;
+    }
+    /* security templates (GptTmpl.inf) are machine policy only */
+    if (!_wcsicmp( argv[1], L"security" ))
+    {
+        if (_wcsicmp( argv[2], L"/machine" ) || count < 1 || count > MAX_FILES)
+        {
+            say( "wexpolicy: wrong arguments\n" );
+            return ERROR_INVALID_PARAMETER;
+        }
+        if (!is_local_system())
+        {
+            say( "wexpolicy: only the system writes policy\n" );
+            return ERROR_ACCESS_DENIED;
+        }
+        return apply_security_templates( count, argv + 3 );
     }
     apply = !_wcsicmp( argv[1], L"apply" );
     clear = !_wcsicmp( argv[1], L"clear" );

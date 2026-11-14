@@ -39,7 +39,8 @@ REALM=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'a-z' 'A-Z')
 CACHE=$(testparm -s --parameter-name='cache directory' 2>/dev/null)/gpo_cache/$REALM/POLICIES
 samba-gpupdate --force >/dev/null 2>&1 || echo "wex-gpupdate: samba-gpupdate failed; the cache may be old" >&2
 
-# the Registry.pol files of the objects that apply to an account, in order; $2 is MACHINE or USER
+# the files of the objects that apply to an account, in order; $2 is MACHINE or USER, $3 the file's path below
+# it (Registry.pol, or the security template)
 pol_files()
 {
     local guid file
@@ -47,7 +48,7 @@ pol_files()
     net ads gpo list "$1" -P 2>&1 | sed -n 's/^name:[[:space:]]*\({[0-9A-Fa-f-]*}\)[[:space:]]*$/\1/p' |
     while read -r guid; do
         guid=$(printf '%s' "$guid" | tr 'a-f' 'A-F')
-        file=$(find "$CACHE/$guid/$2" -maxdepth 1 -iname registry.pol 2>/dev/null | head -n 1)
+        file=$(find "$CACHE/$guid/$2" -ipath "$CACHE/$guid/$2/${3:-registry.pol}" -type f 2>/dev/null | head -n 1)
         [ -n "$file" ] && [ -s "$file" ] && echo "$file"
     done
 }
@@ -75,13 +76,24 @@ apply()
 
 HOST=$(hostname -s | tr 'a-z' 'A-Z')
 mapfile -t MACHINE_FILES < <(pol_files "$HOST\$" MACHINE)
+# the security templates: the account lockout policy and the security options (wexpolicy's sectmpl.c)
+mapfile -t TEMPLATES < <(pol_files "$HOST\$" MACHINE 'microsoft/windows nt/secedit/gpttmpl.inf')
 
 if [ "$PRINT" = 1 ]; then
     for f in "${MACHINE_FILES[@]}"; do echo "machine $f"; done
+    for f in "${TEMPLATES[@]}"; do echo "security $f"; done
 else
     rm -rf "$STAGE"
     install -d -m 0755 "$STAGE"
     apply /machine machine "${MACHINE_FILES[@]}"
+    # security settings stay when an object no longer sets them, as on Windows: no template, nothing to do
+    if [ "${#TEMPLATES[@]}" -gt 0 ]; then
+        args=(); n=0
+        for f in "${TEMPLATES[@]}"; do
+            n=$((n + 1)); install -m 0644 "$f" "$STAGE/security-$n.inf"; args+=("Z:${STAGE//\//\\}\\security-$n.inf")
+        done
+        s0_wexpolicy security /machine "${args[@]}"
+    fi
 fi
 
 # the users of the accounts map: name in column 1, "active" in column 4, the SID's last four parts in 6 to 9
