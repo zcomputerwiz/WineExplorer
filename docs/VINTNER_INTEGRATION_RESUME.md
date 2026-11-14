@@ -47,8 +47,11 @@ worktree and the test branch.
 
 1. When the `wex-pn` chain (section 3) passes: merge master into the branch, pin wine `5ec3c009` on it, push, and
    send session 0 the commit and the results so it can merge to master.
-2. Pin Vintner Boot `96186d6` or later (docs and a CI script fix since `d3fe892`) on the branch, with the install
-   and defaults stages, and hand it over the same way.
+2. Pin Vintner Boot `6f30413` or later on the branch, with the install and defaults stages, and hand it over the
+   same way. Since `d3fe892`: docs, a CI script fix, and `vintner-platform` Recommends `grub-common` (Vintner #96;
+   an apt install with recommends also brings `os-prober`). The vintner binary is unchanged. Setup installs the
+   package with `dpkg -i` (`installer/textsetup/install-vintner.sh`), which ignores Recommends, and the image already
+   has `grub-common`, so the install should not change; the install stage's `check-vintner.py` confirms it.
 3. Continue `SAFE_MODE_WORKORDER.md` (the open items after C4 and D5).
 
 How merges work (owner, 2026-11-14): I move pins on my own branch as needed; the session 0 session merges into
