@@ -131,8 +131,8 @@ report's description of decrypted cache contents is left out on purpose (out of 
   `login_hint`, `resource` (v1 only), `scope`, `correlation_id`, `msal_request_type`.
 - `WebTokenResponse`: `Token` (the access token); `Properties` `wamcompat_id_token`, `wamcompat_client_info` (base64
   JSON with `uid`, `utid`), `wamcompat_scopes`, `wamcompat_user_displayable_id`, `wamcompat_account_id`.
-- `WebTokenRequestStatus`: Success 0, UserCancel 1, AccountSwitch 2, ProviderError 3,
-  AccountProviderNotAvailable 4. MSAL falls back to the browser on `REGDB_E_CLASSNOTREG` (class missing) and on a
+- `WebTokenRequestStatus` (checked against the SDK; the research's values were wrong): Success 0, UserCancel 1,
+  AccountSwitch 2, UserInteractionRequired 3, AccountProviderNotAvailable 4, ProviderError 5. MSAL falls back to the browser on `REGDB_E_CLASSNOTREG` (class missing) and on a
   provider that is not available; provider error codes it interprets are in the `0xCAA2xxxx`-`0xCAA9xxxx` range
   (authority discovery, network, TLS, interaction required, cancel).
 
@@ -152,4 +152,7 @@ MIT code keeps its notice when reused.
 ## To check (first pass claims marked doubtful by Claude)
 
 - Settled by the second pass: the provider IDs (above), the TokenBroker registration (checked), the licences.
-- Still open: the interop interfaces' IIDs (take them from the Windows SDK headers when implementing).
+- Checked against the Windows SDK 10.0.26100 headers (2026-11-14): the interop IIDs were WRONG in the second pass
+  (`IWebAuthenticationCoreManagerInterop` is `F4B8E804-811E-4436-B69C-44CB67B72084`; `IAccountsSettingsPaneInterop`
+  is `D3EE12AD-3865-4362-9746-B75A682DF0E6` with the order GetForWindow, ShowManageAccounts, ShowAddAccount), and so
+  were the `WebTokenRequestStatus` values. Use [WAM_PLAN.md](WAM_PLAN.md)'s verified table, not the values above.
