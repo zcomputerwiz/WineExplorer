@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+SPDX-License-Identifier: GPL-2.0-or-later
+Copyright 2026 WineExplorer contributors
+-->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         IgnorableNamespaces="uap">
+  <Identity Name="WineExplorer.XamlProbe" Publisher="CN=WineExplorer U1 Oracle" Version="1.0.1.0" />
+  <Properties>
+    <DisplayName>XamlProbe</DisplayName>
+    <PublisherDisplayName>WineExplorer</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="x-generate" />
+  </Resources>
+  <Applications>
+    <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="XamlProbe.App">
+      <uap:VisualElements DisplayName="XamlProbe" Square150x150Logo="Assets\Logo.png" Square44x44Logo="Assets\SmallLogo.png"
+                          Description="WineExplorer XAML probe" BackgroundColor="transparent" />
+    </Application>
+  </Applications>
+</Package>

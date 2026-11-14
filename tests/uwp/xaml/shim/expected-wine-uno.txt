@@ -1,0 +1,11 @@
+app constructed
+launched
+page constructed
+page loaded 1016x606
+Title TextBlock 248x28 at 24,24
+Go Button 84x33 at 24,64
+navigate to second page
+second page constructed
+second page loaded, frame back stack 1, note 132
+main page destroyed by now: no
+exit

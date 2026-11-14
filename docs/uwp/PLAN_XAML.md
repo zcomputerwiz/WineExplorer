@@ -192,5 +192,89 @@ earlier U1 suites, `docs/STOCK_CHANGES.md` updated, push and merge coordinated w
 * **Owner (2026-11-14), where the work goes:** change Wine where the change belongs to Windows itself (WinRT runtime,
   activation, CoreWindow, DirectX, text, storage and the like: everything that is not XAML); do the XAML work in the
   Uno-UWP component where that is the better place (controls, layout, templates, the XAML object model, XBF loading).
-* **Open:** the C++ UWP build tools (XAML compiler) are not installed on the Windows host; until they are, the oracle apps
-  build their UI in code or load XAML text at run time (`XamlReader.Load`).
+* **Experiment step 1 done (2026-11-14, `tests/uwp/xaml/uno-spike`):** an unchanged Uno desktop application (Skia,
+  Win32 host, self-contained .NET 10) runs on Wine x64 with two Wine fixes (window class lookup, `winlangdb` and
+  `GetUserLanguages`) and lays out as on Windows. x86 fails on Windows and Wine alike: Uno ships no 32-bit ICU
+  (component work). Next: step 2, a C++/WinRT XAML application through a small shim over Uno in its process.
+* **Step 2a done (2026-11-14):** a native C program hosts CoreCLR with hostfxr, calls an `[UnmanagedCallersOnly]`
+  Uno entry point and shows runtime XAML text; the layout is the same on Windows and on Wine x64, with no further Wine
+  change. Next: step 2b, a compiled C++/WinRT XAML application through a `windows.ui.xaml` shim.
+* **Done:** the C++ UWP build tools (XAML compiler) are installed on the Windows host (2026-11-14, by the owner).
+* **Step 2b, Windows side done (2026-11-14, `tests/uwp/xaml/cx-probe`):** the smallest compiled XAML application
+  (C++/CX, `App.xaml` and `MainPage.xaml`, a `TextBlock` and a `Button`) built with the XAML compiler, signed with the
+  U1 oracle certificate, run on Windows 11: page 1200x900, Title `TextBlock` 237.949x26.6016 at 24,24, Go `Button`
+  76x32 at 24,63 (`expected-windows.txt`). Uno laid out the same elements as 224x28 and 84x33 (its fonts and its
+  WinUI 3 Fluent styles), so the component has to bring the UWP default styles and metrics, not Uno's.
+
+### 2b: what the compiled application asks of `Windows.UI.Xaml`, and the shim it implies
+
+What the probe uses (class names in the binary, generated code in `Generated Files`):
+
+* `Application`: statics `Start(callback)` (the generated `main`) and `LoadComponent(component, uri, location)`
+  (`InitializeComponent` of each page, `ms-appx:///MainPage.xaml`); composable factory (`App` derives from it and
+  overrides `OnLaunched`); the outer object is also the app's `IXamlMetadataProvider` (generated `XamlTypeInfo`).
+* `Window` (`Current`, `Content`, `Activate`), `Controls.Frame` (`Navigate(TypeName)`: the type comes back through the
+  app's metadata provider, `IXamlType.ActivateInstance`), `Controls.Page` (composable), `DispatcherTimer`,
+  `IComponentConnector.Connect` on the page for `x:Name` fields and `Click` handlers.
+* The pages' XAML is compiled to `MainPage.xbf` and `App.xbf` and embedded in `resources.pri` (2248 bytes for both;
+  no `.xbf` file is in the package): the loader reads them as embedded data candidates of `Files/MainPage.xbf`
+  through the PRI reader (U1.6 reads strings and file paths; embedded data is to be added).
+* On Wine without a XAML implementation (2026-11-14, Wine 1052fab3, VCLibs DLLs beside the probe for the lab run): the
+  probe starts and its `main` stops at the first activation, `RoGetActivationFactory` of
+  `Windows.UI.Xaml.Application` (no library registered), then fails fast (0xc0000602). Wine's `windows.ui.xaml.dll`
+  has only `ColorHelper`.
+
+Split of the work (owner's rule: Wine for Windows itself, the component for XAML):
+
+| Piece | Where | What |
+|---|---|---|
+| Activation | Wine: `windows.ui.xaml.dll` (exists) | Its `DllGetActivationFactory` loads the XAML component when one is installed: host CoreCLR through `hostfxr` (step 2a) once per process and hand the class name to the component's activation entry. Without the component it stays as it is. |
+| ABI wrappers | Component (C#, generated) | One native-callable wrapper per `Windows.UI.Xaml` runtime class and interface, generated from the public metadata (`Windows.winmd`) and forwarding to the Uno object (`Microsoft.UI.Xaml` in the fork); `IInspectable`, composable aggregation with the app's outer object, overrides called back through the outer. Prior art: C#/WinRT (`ComWrappers`, authoring of WinRT components in C#, MIT) |
+| XBF2 loader | Component | Reads the node stream into the Uno object tree under the component object, with connection IDs passed to `IComponentConnector.Connect`; format reference XbfTools (description only) |
+| Type resolution | Component | Types from the app's `IXamlMetadataProvider` (`Frame.Navigate`, custom types in XBF) next to Uno's own |
+| UWP look | Component | UWP `generic.xaml` styles and metrics (WinUI 2 is MIT and has the 2.x styles), fonts through Wine's |
+
+**Prior art checked (2026-11-14) and what is reused:**
+
+* XBF: **XbfKit** (MIT, NuGet, separate schemas for `Windows.UI.Xaml` and `Microsoft.UI.Xaml`, reads XBF 2.1 and
+  decompiles to XAML) is used as a library; the WinUI 3 sources (MIT) have Microsoft's own readers
+  (`dxaml/xcp/core/Parser`, and the standalone C# reader `dxaml/xcp/tools/XbfParser/WidgetSpinner`) as the reference
+  for a direct node-stream loader later.
+* WinUI 3 (`microsoft/microsoft-ui-xaml`, MIT, public and buildable since 2026): the framework itself is not usable on
+  Wine (it needs the closed "lifted" composition, input and content binaries of the Windows App SDK, ~80 GB MSVC
+  build); its `generic.xaml` and theme resources (close to UWP's) are the source for the UWP default styles, adapted
+  back to `Windows.UI.Xaml`. WinUI 2 is on its `winui2/main` branch.
+* C#/WinRT (MIT): cannot export `[exclusiveto]` interfaces or act as the inner of a composable class, so the wrappers
+  are generated by our own WinmdGen from `Windows.winmd`; C#/WinRT's marshaling helpers are the reference.
+* PRI from managed code: PriTools (Apache-2.0) if the component reads `resources.pri` itself.
+
+**Step 2b on Wine done (2026-11-14, `tests/uwp/xaml/shim`):** the unmodified probe runs on Wine x64 with its
+`Windows.UI.Xaml` classes served by Uno in its process: `Application.Start`, the application's `App` and `MainPage` as
+outer objects over the shim's `Application` and `Page`, `LoadComponent` of the compiled page (XbfKit, Uno
+`XamlReader`, the application's `Connect`), `Frame.Navigate` through the application's metadata provider, `Loaded`,
+`DispatcherTimer`, `Exit`. Layout: `TextBlock` 248x28 and `Button` 84x33 at the same positions as on Windows (237.9x26.6
+and 76x32 there): fonts and styles differ, as expected. CoreCLR starts in 0.2 to 0.4 s. **This answers the
+experiment's question for the Uno route: it works.** Generated so far: 147 interfaces, 910 methods for 19 classes.
+
+**Licensing, decided by the owner (2026-11-14): permissive, in the fork.** The managed component (WinmdGen, XamlShim)
+links Uno, so it is Apache-2.0 like Uno and lives in github.com/zcomputerwiz/uno-uwp, branch `wex/xamlshim`, folder
+`wex/` (own `Directory.Build.props` and `.editorconfig` so the repository's build and analyzer settings do not apply;
+it builds against the released Uno.Sdk until Uno itself needs changes). Keeping it GPL here would have made the
+combination GPL-3.0. The native proxy (to become part of Wine's `windows.ui.xaml.dll`) only loads the component
+through `hostfxr` and stays in WineExplorer and Wine under their licences; the test applications and lab scripts stay
+here.
+
+**After 2b (2026-11-14):** compiled pages come from `resources.pri` (PriFormat from PriTools, Apache-2.0, in the fork:
+666 bytes of embedded XBF for `MainPage`); the probe gained `SecondPage` and navigates to it. Lifetimes measured on
+Windows: after navigating away, `MainPage` (whose `Loaded` lambda and `Click` handler capture `this`) is not destroyed;
+C++/CX handlers that capture `this` form a cycle with the XAML objects that nothing collects in a C++ application. The
+shim's simple rule (it holds every outer object) gives the same observable result for such pages; releasing pages
+without cycles, and cycle collection for managed applications (reference tracking, `IReferenceTracker`; .NET's
+`ComWrappers` tracker support and WinUI's MIT sources as prior art), is deferred until an application needs it. Wine
+matches the Windows sequence (back stack depth 1, `MainPage` alive); the second page's `TextBlock` measures 132 wide
+against Windows' 80.35 (fonts and styles item).
+
+Open points that step 2b (Wine side) settles: whether CoreCLR starts cleanly inside the UWP process that Wine's
+launcher made (package identity, `ms-appx` paths); the cost of starting the runtime (time to first frame);
+and, for the Calculator, a .NET Native application, whether its runtime (`mrt100_app`) and CoreCLR live together in
+one process. Next: the activation hand-off and the wrappers for the probe's eight classes, then the XBF loader.
