@@ -22,6 +22,27 @@ App::App()
 {
     Log(L"app constructed");
     InitializeComponent();
+    Suspending += ref new SuspendingEventHandler(this, &App::OnSuspending);
+    Resuming += ref new Windows::Foundation::EventHandler<Platform::Object^>(this, &App::OnResuming);
+}
+
+/* the suspend runs (plm.exe on Windows, a minimized CoreWindow on Wine): sender, deadline, deferral */
+void App::OnSuspending(Platform::Object^ sender, Windows::ApplicationModel::SuspendingEventArgs^ e)
+{
+    auto deferral = e->SuspendingOperation->GetDeferral();
+    /* DateTime.UniversalTime counts 100 ns since 1601, like FILETIME (Windows.Globalization.Calendar is not used:
+     * Wine does not have it yet) */
+    FILETIME now;
+    GetSystemTimeAsFileTime(&now);
+    auto left = e->SuspendingOperation->Deadline.UniversalTime - (((long long)now.dwHighDateTime << 32) | now.dwLowDateTime);
+    Log(L"suspending, sender is the application " + (sender == Application::Current ? L"yes" : L"no") +
+        L", deadline in " + (left / 10000000).ToString() + L" s");
+    deferral->Complete();
+}
+
+void App::OnResuming(Platform::Object^ sender, Platform::Object^)
+{
+    Log(L"resuming, sender is the application " + (sender == Application::Current ? L"yes" : L"no"));
 }
 
 void App::OnLaunched(Windows::ApplicationModel::Activation::LaunchActivatedEventArgs^ e)

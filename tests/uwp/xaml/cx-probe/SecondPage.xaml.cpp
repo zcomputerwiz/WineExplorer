@@ -17,7 +17,7 @@ SecondPage::SecondPage()
         Log(L"second page loaded, frame back stack " + Frame->BackStackDepth.ToString() + L", note " + Note->ActualWidth.ToString());
         timer = ref new DispatcherTimer();
         TimeSpan span;
-        span.Duration = 30000000;
+        span.Duration = 200000000;   /* 20 s: room for a suspend and resume run */
         timer->Interval = span;
         timer->Tick += ref new EventHandler<Platform::Object^>(this, &SecondPage::Finish);
         timer->Start();

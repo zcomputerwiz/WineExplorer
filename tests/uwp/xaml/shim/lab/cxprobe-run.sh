@@ -7,7 +7,8 @@ root=/home/debian/uwp-u1-20261111
 build=$root/build/candidates/u11-2/build
 fx=$root/claude/fixture
 run=$root/build/candidates/u11-2/cx-$1
-rm -rf "$run"; mkdir -p "$run"; cd "$run"
+rm -rf "$root"/build/candidates/u11-2/cx-*   # each run leaves a 2 GB prefix: keep only the newest run
+mkdir -p "$run"; cd "$run"
 tar -xf $root/claude/cxprobe.tar
 export WINEPREFIX="$run/prefix" WINESERVER="$build/server/wineserver" WINEDEBUG=-all
 WINEDLLOVERRIDES=mscoree,mshtml= "$build/wine" wineboot -i > boot.log 2>&1; "$build/server/wineserver" -w
@@ -21,6 +22,11 @@ names=$(python3 "$fx/register-wine.py" register "$WINEPREFIX" cxprobe/stage)
 IFS=$'\t' read -r full family pkgroot <<< "$names"
 echo "registered $full" > summary
 export WINEDEBUG="${2:-err+all,fixme-all}" XAMLSHIM_TRACE=1
+if [ "${SUSPEND:-0}" = 1 ]; then
+  # suspend.exe (tests/uwp/u1_1) minimizes the CoreWindow 7 s after it appears and restores it 8 s later
+  x86_64-w64-mingw32-gcc -O2 -o suspend.exe cxprobe/suspend.c > suspend-build.log 2>&1
+  ( timeout 90s "$build/wine" suspend.exe > suspend.log 2>&1 & )
+fi
 timeout --kill-after=10s 120s "$build/wine" "$fx/x64/launcher.exe" "$family!App" probe unused "$full" > launch.log 2>&1
 echo "launcher exit $?" >> summary
 start=$(date +%s)
