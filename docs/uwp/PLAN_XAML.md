@@ -256,11 +256,13 @@ outer objects over the shim's `Application` and `Page`, `LoadComponent` of the c
 and 76x32 there): fonts and styles differ, as expected. CoreCLR starts in 0.2 to 0.4 s. **This answers the
 experiment's question for the Uno route: it works.** Generated so far: 147 interfaces, 910 methods for 19 classes.
 
-**Licensing, to decide (owner):** XamlShim is our code (GPL-2.0-or-later headers) linked with Uno (Apache-2.0) in one
-process and one assembly set; GPL-2.0 and Apache-2.0 are incompatible, so the combination is GPL-3.0 (allowed by
-"or later", but CLAUDE.md asks for a deliberate decision), unless the shim is released under a permissive licence
-(MIT or Apache-2.0) and lives in the `uno-uwp` fork as part of the downloaded component. The native proxy (to become
-part of Wine's `windows.ui.xaml.dll`) only loads the component through `hostfxr` and stays LGPL.
+**Licensing, decided by the owner (2026-11-14): permissive, in the fork.** The managed component (WinmdGen, XamlShim)
+links Uno, so it is Apache-2.0 like Uno and lives in github.com/zcomputerwiz/uno-uwp, branch `wex/xamlshim`, folder
+`wex/` (own `Directory.Build.props` and `.editorconfig` so the repository's build and analyzer settings do not apply;
+it builds against the released Uno.Sdk until Uno itself needs changes). Keeping it GPL here would have made the
+combination GPL-3.0. The native proxy (to become part of Wine's `windows.ui.xaml.dll`) only loads the component
+through `hostfxr` and stays in WineExplorer and Wine under their licences; the test applications and lab scripts stay
+here.
 
 Open points that step 2b (Wine side) settles: whether CoreCLR starts cleanly inside the UWP process that Wine's
 launcher made (package identity, `ms-appx` paths); the cost of starting the runtime (time to first frame);

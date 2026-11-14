@@ -6,7 +6,7 @@ $env:PATH = "$env:LOCALAPPDATA\Microsoft\dotnet;$env:PATH"
 $pad = Split-Path -Parent $MyInvocation.MyCommand.Path
 $out = Join-Path $pad 'cxprobe\xamlshim'
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
-Push-Location 'D:\DeepThought\Projects\WineExplorer-uwp\tests\uwp\xaml\shim\XamlShim'
+Push-Location 'D:\DeepThought\Projects\uno-uwp\wex\XamlShim'   # checkout of zcomputerwiz/uno-uwp, branch wex/xamlshim
 dotnet publish -c Release -f net10.0-desktop -r win-x64 --self-contained -o $out -v q -nologo *> (Join-Path $pad 'shim-publish.log')
 $rc = $LASTEXITCODE
 Pop-Location
