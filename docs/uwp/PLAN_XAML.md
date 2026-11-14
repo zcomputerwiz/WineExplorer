@@ -335,7 +335,14 @@ equal; the border's text 69x19 against 68.17x18.62, whole pixels in Uno). What i
 signatures; `GetView`, `First` and `VectorChanged` still to do); boxing through Wine's `PropertyValue`; default
 construction and composition for every class (the Uno class of the same name); and default bodies for every property
 accessor (948 generated), which read or write the Uno object's property of the same name, converted by ABI kind
-(string, bool, number, enum, object). Structs (Thickness, Color, ...) and events are still per member.
+(string, bool, number, enum, object). Then (uno-uwp after 76eac33b): struct properties (47 accessors) through a
+converter between the generated ABI structs and Uno's structs of the same shape (members by name; a matching
+constructor where Uno's struct is read-only); events (225 accessors) through the Uno event of the same name, the
+application's handler invoked with sender and arguments as their shims; a shim for any Uno object by its type name
+(event arguments included); and `IInspectable` as a block of its own: on Windows an element's `IInspectable` (an event's
+sender, `OriginalSource`) is not the pointer of its default interface, and C++/CX compares those pointers directly
+(the probe's "sender is the check box: no" on both now). The probe's `TextChanged`, `Unchecked`, `Padding` and
+`CornerRadius` give the Windows results.
 
 Open points that step 2b (Wine side) settles: whether CoreCLR starts cleanly inside the UWP process that Wine's
 launcher made (package identity, `ms-appx` paths); the cost of starting the runtime (time to first frame);

@@ -56,9 +56,30 @@ void ControlsPage::Step(Platform::Object^, Platform::Object^)
         Log(L"Scroll ScrollViewer " + Place(Scroll, this) + L", extent " + Scroll->ExtentHeight.ToString() +
             L", viewport " + Scroll->ViewportHeight.ToString());
         Scroll->ChangeView(nullptr, 100.0, nullptr, true);
+        /* struct properties, events */
+        {
+            auto pad = Box->Padding;
+            auto corner = Box->CornerRadius;
+            Log(L"Box padding " + pad.Left.ToString() + L"," + pad.Top.ToString() + L"," + pad.Right.ToString() + L"," +
+                pad.Bottom.ToString() + L", corner " + corner.TopLeft.ToString());
+            Thickness wider = { 10, 6, 10, 6 };
+            Box->Padding = wider;
+            Input->TextChanged += ref new TextChangedEventHandler([this](Platform::Object^ sender, TextChangedEventArgs^)
+            {
+                Log(L"TextChanged, sender is the text box " + (sender == Input ? L"yes" : L"no") + L", text " + Input->Text);
+            });
+            Check->Unchecked += ref new RoutedEventHandler([this](Platform::Object^ sender, RoutedEventArgs^ e)
+            {
+                Log(L"Unchecked, sender is the check box " + (sender == Check ? L"yes" : L"no") +
+                    L", source is the check box " + (e->OriginalSource == Check ? L"yes" : L"no"));
+            });
+            Input->Text = L"Changed";
+            Check->IsChecked = false;
+        }
         break;
     case 1:
         Log(L"Scroll after ChangeView, offset " + Scroll->VerticalOffset.ToString());
+        Log(L"Box after padding " + Place(Box, this) + L", text at " + Place(BoxText, this));
     {
         TimeSpan span;
         span.Duration = 200000000;   /* 20 s: room for a suspend and resume run */
