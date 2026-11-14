@@ -317,6 +317,16 @@ the files and the hive (read as text, no Wine); `--uninstall uwp-xaml` removes e
 `scripts/test_component_uwp_xaml.py` (9, synthetic); with the real zip and Wine in the lab, the install steps leave a
 hive that the check accepts and the probe runs from that installation (suspend and resume included).
 
+**UWP look (2026-11-14, uno-uwp 697805c2):** the component uses the UWP system styles, which WinUI 3 still carries as
+the framework's own `generic.xaml` (MIT; `ButtonPadding` 8,4,8,5, border 2: the Windows button), merged after Uno's
+Fluent resources, and Selawik (Microsoft, OFL-1.1), the open metric-compatible stand-in for Segoe UI, as the default
+font. Probe on Wine: button 76x32 at 24,63 (Windows: the same), title 239x27 (Windows 237.949x26.6016; Uno rounds to
+pixels), page 1200x900. Open: the default style for `ContentPresenter` (Left/Top) is left out: merged into the
+application resources these default styles act as implicit styles and reach Uno's own window chrome; the fix is to
+register them as default styles in the fork. The second page's `TextBlock` with a 24 margin reports 129 at `Loaded`
+(Windows 80.35): Uno gives the desired size, margin included, before the first arrange (fork, layout). Applications
+built with WinUI 2 (the Calculator) bring their own styles in their framework package, which the XBF loader reads.
+
 Open points that step 2b (Wine side) settles: whether CoreCLR starts cleanly inside the UWP process that Wine's
 launcher made (package identity, `ms-appx` paths); the cost of starting the runtime (time to first frame);
 and, for the Calculator, a .NET Native application, whether its runtime (`mrt100_app`) and CoreCLR live together in
