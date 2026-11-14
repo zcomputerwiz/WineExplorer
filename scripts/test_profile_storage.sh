@@ -21,7 +21,7 @@ trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 chmod 0755 "$FIXTURE"
 cc -O2 -Wall -Wextra -Werror -o "$FIXTURE/production" "$REPO/tools/wex-profile/wex-profile.c"
-cc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST \
+cc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST -DWEX_E1_TEST_HOOKS \
     -o "$FIXTURE/lab" "$REPO/tools/wex-profile/wex-profile.c"
 BOB_UID=62001
 BOB_GID=62001

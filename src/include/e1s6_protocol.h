@@ -18,11 +18,13 @@
 #define E1S6_CHILD_START 2
 #define E1S6_EXCHANGE 3
 #define E1S6_CLOSE 4
+#ifdef WEX_E1_TEST_HOOKS
 /* Fault injections exist only inside WEX_E1S6_TRANSPORT_TEST Unix builds. */
 #define E1S6_TEST_KILL_CHILD 5
 #define E1S6_TEST_WRONG_OWNER 6
 #define E1S6_TEST_DISCONNECT 7
 #define E1S6_TEST_CHILD_IMPOSTOR 8
+#endif
 /* E1-S18d operations */
 #define E1S6_REDEEM 9
 /* Retired, never reuse. The storage generation now comes from the wineserver. */
