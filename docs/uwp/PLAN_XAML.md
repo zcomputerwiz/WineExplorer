@@ -274,6 +274,16 @@ without cycles, and cycle collection for managed applications (reference trackin
 matches the Windows sequence (back stack depth 1, `MainPage` alive); the second page's `TextBlock` measures 132 wide
 against Windows' 80.35 (fonts and styles item).
 
+**Start-up through CoreApplication (2026-11-14):** `Application.Start` now does what Windows' XAML does: it runs
+`CoreApplication.Run` with the shim's own view source (uno-uwp `wex/XamlShim/CoreStart.cs`). Wine (U1.1) makes the
+view's STA thread and its CoreWindow, calls `Initialize` (the shim subscribes `CoreApplicationView.Activated`; the
+handler's IID `cf193a96-eb13-5e3b-8bdf-87b6efae8339` is computed from its pinterface signature and equals the SDK's),
+`SetWindow`, `Load`, raises the launch activation (kind Launch) and calls `Run`, in which the Uno host runs. The
+application's `OnLaunched` gets Wine's real launch arguments. Uno's window (class `UnoPlatformRegularWindow`, made
+hidden when the `Window` is created) becomes a child of the CoreWindow before it is shown, so the first layout is at the
+CoreWindow's size: the page is 1200x900, as on Windows (the lab's virtual screen must be large enough: at 1280x800
+Wine fits the window to 1200x778). Without a CoreApplication (`Run` refused) the old path is kept.
+
 Open points that step 2b (Wine side) settles: whether CoreCLR starts cleanly inside the UWP process that Wine's
 launcher made (package identity, `ms-appx` paths); the cost of starting the runtime (time to first frame);
 and, for the Calculator, a .NET Native application, whether its runtime (`mrt100_app`) and CoreCLR live together in
