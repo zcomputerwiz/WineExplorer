@@ -11,7 +11,9 @@ navigates to `SecondPage` (after dropping its timer), which reports the back sta
 capture `this`, a reference cycle through the XAML objects that a C++ application has no collector for. (Output lines
 "clicked" appear only if someone presses the button during the run.) Design notes and results: `docs/uwp/PLAN_XAML.md` (2b).
 
-Windows oracle run (the U1 oracle certificate, publisher `CN=WineExplorer U1 Oracle`, must be trusted already):
+Windows oracle run (the U1 oracle certificate, publisher `CN=WineExplorer U1 Oracle`, must be trusted already; since
+2026-11-14 the 10-year one, thumbprint `E0F4CA62442CBDFD948AD938739BEE8B2932C233`, in the owner's `CurrentUser\My`
+and trusted in `LocalMachine\TrustedPeople`):
 
     .\build.ps1 -Thumbprint <oracle certificate>      (VS 2022 Build Tools with the UWP workload)
     Add-AppxPackage build\package\XamlProbe_1.0.0.0_x64_Test\XamlProbe_1.0.0.0_x64.msix
