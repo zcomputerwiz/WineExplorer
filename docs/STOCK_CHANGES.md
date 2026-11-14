@@ -24,6 +24,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   keys of the two policy trees have a descriptor by path (the user reads; SYSTEM and Administrators write); the
   trees are emptied and their roots created when the hive is loaded; `rename_key` refuses the keys above a tree to
   a caller who may not write the tree. `loader/wine.inf.in`: the service `gpsvc` (`wexpolicy.exe`, automatic).
+- `dlls/advapi32/security.c` (`LookupAccountSidW`): the SID of the process token's user resolves to
+  `WINEUSERNAME` on this computer. With session 0 each account has a mapped SID that the stock table (RID 1000
+  of the fixed computer SID) does not know; `GetUserName` failed, `USERNAME` was empty and every profile was
+  `C:\users`. Other accounts' mapped SIDs are not resolved yet.
 - `server/registry.c`: a "Volatile Environment" key found in a user's hive file is dropped when the hive is loaded
   (at server start and by session 0). Once in a file, for example a copy of a template prefix, it was an
   ordinary key and stayed for ever with the template account's name and paths.
