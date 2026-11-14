@@ -288,8 +288,11 @@ Wine fits the window to 1200x778). Without a CoreApplication (`Run` refused) the
 (handler IIDs computed from their signatures, equal to the SDK's: `338579bf-1a35-5cc4-a622-a6f384fd892c`,
 `c50898f6-c536-5f47-8583-8b2c2438a13b`), with sender and arguments as received. Wine's CoreWindow raises its events
 (visibility, hence the lifecycle) from its dispatcher's `ProcessEvents`, which Windows' XAML uses as its message loop;
-Uno runs its own loop, so the shim lets the dispatcher deliver pending events every 50 ms (driving Uno's loop from
-`ProcessEvents` instead is a later refinement). Measured with the probe: Windows (`plm.exe` suspend and resume) and Wine
+Uno's host runs a `GetMessage` loop of its own, but its dispatcher only posts messages to a window of its own, which
+any loop serves; so once the application has launched, a Uno action enters `ProcessEvents(ProcessUntilQuit)` and from
+then on Wine's dispatcher loop runs the thread (Uno's messages included) and wakes for the CoreWindow's events, as on
+Windows; `Application.Exit` posts `WM_QUIT` to end it, then Uno's loop returns (first a 50 ms polling timer was used;
+replaced the same day). Measured with the probe: Windows (`plm.exe` suspend and resume) and Wine
 (the CoreWindow minimized and restored) both log "suspending, sender is the application no, deadline in 4 s" and
 "resuming, sender is the application no". Found on the way: Wine has no `Windows.Globalization.Calendar`
 (`REGDB_E_CLASSNOTREG`); the Calculator's date calculation needs it (Wine side, to do).
