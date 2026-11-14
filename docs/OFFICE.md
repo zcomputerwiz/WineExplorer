@@ -42,8 +42,14 @@ and no circumvention in it.
 
 | # | Symptom | Cause | State |
 |---|---|---|---|
-| 1 | Setup ends at once, `InvalidCDKey`, return code 30030 | Setup loads `system32\pidgenx.dll` and calls `PidGenX2` to identify its embedded volume key. Wine had no `pidgenx.dll`. | Fixed: `src/dlls/pidgenx`. Output equals the original's for the medium's key except the random and time fields. |
-| 2 | `ProPlusWW.msi` fails with 1603 after the 23 language packages installed | Custom action `CAInstallLicenses` calls `sppc.dll.SLInstallLicense`, a stub (63 of 67 exports of Wine's `sppc.dll` are stubs). | Open. |
+| 1 | Setup ends at once, `InvalidCDKey`, return code 30030 | Setup loads `system32\pidgenx.dll` and calls `PidGenX2` to identify its embedded volume key. Wine had no `pidgenx.dll`. | Fixed: `src/dlls/pidgenx`. Output equals the original's for the medium's key except the random and time fields. Checked with a 32-bit build of the DLL in a test prefix on the clone's older Wine: setup passes the key and installs packages. Not yet checked in a full build of this branch. |
+| 2 | `ProPlusWW.msi` fails with 1603 after the 23 language packages installed | Custom action `CAInstallLicenses` calls `sppc.dll.SLInstallLicense`, a stub (63 of 67 exports of Wine's `sppc.dll` are stubs). | Open. Needs a license store in `sppc.dll` (a project module replacing the stock stub through `src/stock-replacements.txt`), and a decision on what licensing status it reports: nothing here may fake an activation. |
+
+Open questions for blocker 2:
+
+* Which `SL*` functions setup and the programs call, in order.
+* The first-run state of a volume install on Windows is a grace period until the organization's KMS host
+  activates it. KMS and online activation are not implemented in Wine.
 
 Notes:
 
