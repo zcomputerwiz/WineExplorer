@@ -1223,10 +1223,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
             }
             data.r8_select_ok = TRUE;
 
-            /* Lab test hook, compiled only with WEXELEVATE_E1S18: if
+#ifdef WEX_E1_TEST_HOOKS
+            /* Test hook, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md, "Test hooks
+             * that must never ship"; set by scripts/lab/r8-lab-build.sh only): if
              * HKLM\Software\WineExplorer\ElevationTest\R8AutoSelect names an account,
              * D sends SELECT with it without input (the headless harness cannot type);
-             * never in a shipping build. */
+             * never in a shipping build, with or without WEXELEVATE_E1S18. */
             {
                 HKEY hkey;
                 char auto_acct[128] = {0};
@@ -1289,6 +1291,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, WCHAR *cmdline, int show)
                     }
                 }
             }
+#endif /* WEX_E1_TEST_HOOKS */
         }
 
         /* The S1 Confirm/Cancel record goes to /out. */

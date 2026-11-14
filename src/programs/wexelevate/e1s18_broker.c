@@ -246,6 +246,9 @@ static struct e1s18_export_table s_default_export_table = {
 
 static const struct e1s18_export_table *s_active_export_table = &s_default_export_table;
 
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md, "Test hooks
+ * that must never ship"): injects fakes at the NTDLL export boundary for unit tests. */
 void e1s18_set_export_table( const struct e1s18_export_table *table )
 {
     s_active_export_table = table ? table : &s_default_export_table;
@@ -255,6 +258,7 @@ void e1s18_reset_export_table( void )
 {
     s_active_export_table = &s_default_export_table;
 }
+#endif /* WEX_E1_TEST_HOOKS */
 
 const struct e1s18_export_table *e1s18_get_export_table( void )
 {
@@ -328,6 +332,9 @@ static BOOL default_is_policy_enabled( void )
 static struct e1s18_boundary_table s_default_boundary_table = { NULL, NULL };
 static const struct e1s18_boundary_table *s_active_boundary_table = &s_default_boundary_table;
 
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md, "Test hooks
+ * that must never ship"): injects fakes at the dialog/transport boundary for unit tests. */
 void e1s18_set_boundary_table( const struct e1s18_boundary_table *table )
 {
     s_active_boundary_table = table ? table : &s_default_boundary_table;
@@ -337,6 +344,7 @@ void e1s18_reset_boundary_table( void )
 {
     s_active_boundary_table = &s_default_boundary_table;
 }
+#endif /* WEX_E1_TEST_HOOKS */
 
 const struct e1s18_boundary_table *e1s18_get_boundary_table( void )
 {
@@ -353,8 +361,12 @@ const struct e1s18_boundary_table *e1s18_get_boundary_table( void )
  * which the callers already treat as a denial. The test clock hooks stay
  * first so existing tests stay deterministic.
  */
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook state, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): a deterministic clock for unit tests. */
 static uint64_t s_test_clock_now = 0;
 static BOOL s_test_clock_fail = FALSE;
+#endif /* WEX_E1_TEST_HOOKS */
 
 /* The admission deadline lives in the lab-only part of struct request; outside lab builds the
  * standard-user path is denied by the policy gate before any deadline is used. */
@@ -364,6 +376,9 @@ static BOOL s_test_clock_fail = FALSE;
 #define E1S18_DEADLINE(req) ((uint64_t)0)
 #endif
 
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): sets the deterministic clock for unit tests. */
 void e1s18_set_test_clock( uint64_t now )
 {
     s_test_clock_now = now;
@@ -373,11 +388,16 @@ void e1s18_set_test_clock_fail( BOOL fail )
 {
     s_test_clock_fail = fail;
 }
+#endif /* WEX_E1_TEST_HOOKS */
 
 static uint64_t e1s18_get_monotonic_time( void )
 {
+#ifdef WEX_E1_TEST_HOOKS
+    /* Test hook, compiled only with WEX_E1_TEST_HOOKS: the deterministic clock
+     * takes precedence so existing tests stay deterministic. */
     if (s_test_clock_fail) return 0;
     if (s_test_clock_now) return s_test_clock_now;
+#endif /* WEX_E1_TEST_HOOKS */
 #if defined(_WIN32)
     /* PE build: the verifier host's CLOCK_MONOTONIC via wexhost, loaded once. */
     typedef DWORD (WINAPI *pfn_WexMonotonicNs)( UINT64 * );
@@ -412,6 +432,9 @@ static uint64_t e1s18_get_monotonic_time( void )
  * tests stay deterministic; e1s18_set_test_random_fail() forces the RNG to fail
  * so the fail-closed denial path can be exercised.
  */
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook state, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): deterministic RNG bytes / forced failure. */
 static uint8_t s_test_random[256];
 static size_t s_test_random_len = 0;
 static size_t s_test_random_pos = 0;
@@ -435,10 +458,14 @@ void e1s18_set_test_random_fail( BOOL fail )
 {
     s_test_random_fail = fail;
 }
+#endif /* WEX_E1_TEST_HOOKS */
 
 static BOOL e1s18_fill_random( uint8_t *buf, size_t len )
 {
+#ifdef WEX_E1_TEST_HOOKS
     size_t i;
+    /* Test hook, compiled only with WEX_E1_TEST_HOOKS: deterministic bytes or a
+     * forced failure so existing tests stay deterministic / fail-closed. */
     if (s_test_random_fail)
         return FALSE;
     if (s_test_random_len)
@@ -447,6 +474,7 @@ static BOOL e1s18_fill_random( uint8_t *buf, size_t len )
             buf[i] = s_test_random[(s_test_random_pos++) % s_test_random_len];
         return TRUE;
     }
+#endif /* WEX_E1_TEST_HOOKS */
 #if defined(_WIN32)
     return BCryptGenRandom( NULL, buf, (ULONG)len, BCRYPT_USE_SYSTEM_PREFERRED_RNG ) == 0;
 #else
@@ -474,10 +502,14 @@ void e1s18_set_s1_context( const struct e1s18_s1_context *ctx )
     else memset( &s_s1_context, 0, sizeof(s_s1_context) );
 }
 
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): resets the S1 context between unit tests. */
 void e1s18_reset_s1_context( void )
 {
     memset( &s_s1_context, 0, sizeof(s_s1_context) );
 }
+#endif /* WEX_E1_TEST_HOOKS */
 
 /* Every required S1 input must be nonzero; any zero input means the endorsed
  * identities/generations are not yet established, so the request denies. */
@@ -503,6 +535,9 @@ static BOOL e1s18_s1_context_complete( const struct e1s18_s1_context *c )
  */
 static struct e1s18_r8_context s_r8_context;
 
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): presets the R8 context for unit tests. */
 void e1s18_set_r8_context( const struct e1s18_r8_context *ctx )
 {
     if (ctx) s_r8_context = *ctx;
@@ -513,6 +548,7 @@ void e1s18_reset_r8_context( void )
 {
     memset( &s_r8_context, 0, sizeof(s_r8_context) );
 }
+#endif /* WEX_E1_TEST_HOOKS */
 
 /* Every required R8 input must be nonzero/valid; any zero input means the
  * sealed-tuple inputs are not yet established, so the request denies.
@@ -537,12 +573,16 @@ static BOOL e1s18_r8_context_complete( const struct e1s18_r8_context *c )
  * (wine/server/accounts.c lookup_account, with its protected-directory and
  * ownership checks); the final account is resolved again there (spec section 8).
  */
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook state, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): a test override for the accounts map path. */
 static const char *s_r8_test_accounts_map = NULL;
 
 void e1s18_set_test_accounts_map( const char *path )
 {
     s_r8_test_accounts_map = path;
 }
+#endif /* WEX_E1_TEST_HOOKS */
 
 int e1s18_resolve_account_s4( const char *name, uint8_t key[16] )
 {
@@ -554,8 +594,12 @@ int e1s18_resolve_account_s4( const char *name, uint8_t key[16] )
     if (!name || !*name || !e1r8_valid_account_name( (const uint8_t *)name, strlen( name ) ))
         return 0;
 
+#ifdef WEX_E1_TEST_HOOKS
+    /* Test hook, compiled only with WEX_E1_TEST_HOOKS: a test override for the
+     * accounts map path. */
     if (s_r8_test_accounts_map)
         f = fopen( s_r8_test_accounts_map, "r" );
+#endif /* WEX_E1_TEST_HOOKS */
     if (!f)
         f = fopen( "Z:\\etc\\wineexplorer\\accounts.map", "r" );
     if (!f)
@@ -714,8 +758,11 @@ int e1s18_verify_r8_ack( const uint8_t *buf, size_t len,
 }
 
 /* WO-25: test flag: a preset complete context skips prepare only when this is
- * set; no production path skips it. */
+ * set; no production path skips it. Compiled only with WEX_E1_TEST_HOOKS
+ * (docs/E1_PRODUCTION_PLAN.md, "Test hooks that must never ship"). */
+#ifdef WEX_E1_TEST_HOOKS
 static BOOL s_r8_skip_prepare = FALSE;
+#endif /* WEX_E1_TEST_HOOKS */
 /* WO-25: the S6 channel of the attempt in flight (single in flight, WO-15). */
 static UINT64 s_r8_channel;
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
@@ -723,10 +770,14 @@ static HANDLE s_r9_pipe = INVALID_HANDLE_VALUE;
 static struct e1r8_tuple s_r9_tuple;
 #endif
 
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): sets the skip-prepare flag for unit tests. */
 void e1s18_set_r8_skip_prepare( BOOL skip )
 {
     s_r8_skip_prepare = skip;
 }
+#endif /* WEX_E1_TEST_HOOKS */
 
 #ifdef _WIN32
 typedef int (__cdecl *e1s18_pfn_wine_dbg_output)( const char * );
@@ -810,9 +861,11 @@ DWORD e1s18_r8_prepare( struct request *req )
 
     if (!req || !ops) return ERROR_INVALID_PARAMETER;
 
+#ifdef WEX_E1_TEST_HOOKS
     /* A preset complete context skips prepare only when the test flag says so. */
     if (s_r8_skip_prepare && e1s18_r8_context_complete( &s_r8_context ))
         return ERROR_SUCCESS;
+#endif /* WEX_E1_TEST_HOOKS */
 
     memset( reg, 0, sizeof(reg) );
     memset( binding, 0, sizeof(binding) );
@@ -937,7 +990,9 @@ void e1s18_r8_release( struct request *req )
 }
 
 /* WO-14 test hook: SHA-256 of tag||data, exposing the broker's digest for
- * golden-vector testing. */
+ * golden-vector testing. Compiled only with WEX_E1_TEST_HOOKS
+ * (docs/E1_PRODUCTION_PLAN.md, "Test hooks that must never ship"). */
+#ifdef WEX_E1_TEST_HOOKS
 void e1s18_test_sha256( const char *tag, size_t tag_len, const uint8_t *data, size_t data_len, uint8_t out[32] )
 {
     struct sha256_ctx ctx;
@@ -946,6 +1001,7 @@ void e1s18_test_sha256( const char *tag, size_t tag_len, const uint8_t *data, si
     sha256_update( &ctx, data, data_len );
     sha256_final( &ctx, out );
 }
+#endif /* WEX_E1_TEST_HOOKS */
 #endif
 
 /*

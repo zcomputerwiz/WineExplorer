@@ -55,7 +55,9 @@ echo "lab profile DLLs ok"
 echo "=== 5. lab wexelevate and consent ==="
 rm -f programs/wexelevate/*-windows/main.o programs/wexelevate/*-windows/wexelevate.exe
 rm -f programs/consent/*-windows/consent.o programs/consent/*-windows/consent.exe
-make -j16 x86_64_CFLAGS="-g -O2 -DWEXELEVATE_E1S18" i386_CFLAGS="-g -O2 -DWEXELEVATE_E1S18" \
+# WEX_E1_TEST_HOOKS: the hooks that must never ship even when WEXELEVATE_E1S18 does (the dialog's
+# ElevationTest values that type the password); docs/E1_PRODUCTION_PLAN.md
+make -j16 x86_64_CFLAGS="-g -O2 -DWEXELEVATE_E1S18 -DWEX_E1_TEST_HOOKS" i386_CFLAGS="-g -O2 -DWEXELEVATE_E1S18 -DWEX_E1_TEST_HOOKS" \
     programs/wexelevate/all programs/consent/all >> "$LOG" 2>&1
 # Keep the E1S18 variants under their own names (only the R8 end-to-end case installs them) and rebuild the
 # normal broker and consent, which every other lab case expects.

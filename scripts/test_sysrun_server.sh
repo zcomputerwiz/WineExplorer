@@ -3244,6 +3244,13 @@ done
 [ "$(wine_as "$STD" "$ROOT/probes/tierprobe64.exe" whoami 2>/dev/null)" != "$(wine_as "$ADM" "$ROOT/probes/tierprobe64.exe" whoami 2>/dev/null)" ] ||
     fail "T4-0: two users have the same SID"
 ok st_each_user_has_the_mapped_sid_with_session0
+# the mapped SID still has the user's name: without it GetUserName fails, USERNAME is empty and the profile
+# path loses its last part (found on an installed machine: every user's profile was C:\users)
+for u in "$STD" "$ADM"; do
+    OUT="$(wine_as "$u" cmd.exe /c 'echo name=%USERNAME% profile=%USERPROFILE%' 2>/dev/null | tr -d '\r' | tail -n 1)"
+    [ "$OUT" = "name=$u profile=C:\\users\\$u" ] || fail "T4-0: $u's name and profile with session 0: [$OUT]"
+done
+ok st_users_keep_their_name_and_profile_path_with_session0
 # the hive file now differs from session 0's copy: a value read from session 0 is 1, from a snapshot 2
 set_val 'Software\\WexTier' FromSession0 2
 [ "$(s0q "$STD" FromSession0)" = 0x1 ] || fail "a standard user's program did not read HKLM from session 0: [$(s0q "$STD" FromSession0)]"

@@ -125,8 +125,12 @@ struct e1s18_export_table
     e1s18_pfn_NtLoadWexProfileEx     pNtLoadWexProfileEx;
 };
 
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hooks, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): inject fakes at the NTDLL export boundary. */
 void e1s18_set_export_table( const struct e1s18_export_table *table );
 void e1s18_reset_export_table( void );
+#endif /* WEX_E1_TEST_HOOKS */
 const struct e1s18_export_table *e1s18_get_export_table( void );
 
 /* S19 rollback tracking for busy profile unloads */
@@ -220,8 +224,12 @@ struct e1s18_r8_context
     char verifier_owner[256];
 };
 
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hooks, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): preset the R8 context for unit tests. */
 void e1s18_set_r8_context( const struct e1s18_r8_context *ctx );
 void e1s18_reset_r8_context( void );
+#endif /* WEX_E1_TEST_HOOKS */
 
 /* WO-20: portable R8 INIT/ACK helpers (lab branch). The tuple is built from
  * the request, the in-flight attempt and the R8 context; the INIT is encoded
@@ -257,7 +265,11 @@ int e1s18_verify_r8_ack( const uint8_t *buf, size_t len,
 DWORD e1s18_r8_prepare( struct request *req );
 /* Closes the S6 channel a successful prepare kept open for the attempt. */
 void e1s18_r8_release( struct request *req );
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): set the skip-prepare flag for unit tests. */
 void e1s18_set_r8_skip_prepare( BOOL skip );
+#endif /* WEX_E1_TEST_HOOKS */
 
 #ifndef E1S6_R8_START
 #define E1S6_R8_START 12
@@ -265,7 +277,11 @@ void e1s18_set_r8_skip_prepare( BOOL skip );
 
 /* WO-28: S4 account resolution helper for R8 (and test hook) */
 int e1s18_resolve_account_s4( const char *name, uint8_t key[16] );
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): override the accounts map path. */
 void e1s18_set_test_accounts_map( const char *path );
+#endif /* WEX_E1_TEST_HOOKS */
 #endif
 
 /*
@@ -300,8 +316,12 @@ struct e1s18_boundary_table
     e1s18_transport_fn transport_redeem;
 };
 
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hooks, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): inject fakes at the dialog/transport boundary. */
 void e1s18_set_boundary_table( const struct e1s18_boundary_table *table );
 void e1s18_reset_boundary_table( void );
+#endif /* WEX_E1_TEST_HOOKS */
 const struct e1s18_boundary_table *e1s18_get_boundary_table( void );
 
 /* Test state reset helpers */
@@ -310,6 +330,9 @@ void e1s18_reset_burned_evidence( void );
 BOOL e1s18_is_evidence_burned( const uint8_t ref[16] );
 void e1s18_reset_prompt_queue( void );
 struct wex_prompt_queue *e1s18_get_prompt_queue( void );
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hooks, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): deterministic clock and RNG for unit tests. */
 void e1s18_set_test_clock( uint64_t now );
 /* WO-16: force the monotonic clock to fail (return 0) so the fail-closed
  * denial path can be exercised. Pass FALSE to restore the real clock. */
@@ -319,13 +342,22 @@ void e1s18_set_test_clock_fail( BOOL fail );
  * RNG to fail so the fail-closed denial path can be exercised. */
 void e1s18_set_test_random( const uint8_t *bytes, size_t len );
 void e1s18_set_test_random_fail( BOOL fail );
+#endif /* WEX_E1_TEST_HOOKS */
 /* WO-14: test hooks for the S1 endorsed-identity context. The context is
  * zero in production (the request denies); tests set it here. */
 void e1s18_set_s1_context( const struct e1s18_s1_context *ctx );
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook, compiled only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md,
+ * "Test hooks that must never ship"): reset the S1 context between unit tests. */
 void e1s18_reset_s1_context( void );
+#endif /* WEX_E1_TEST_HOOKS */
 #ifdef WEXELEVATE_E1S18
-/* WO-14 test hook: SHA-256 of tag||data, for golden-vector testing. */
+/* WO-14 test hook: SHA-256 of tag||data, for golden-vector testing. Compiled
+ * only with WEX_E1_TEST_HOOKS (docs/E1_PRODUCTION_PLAN.md, "Test hooks that
+ * must never ship"). */
+#ifdef WEX_E1_TEST_HOOKS
 void e1s18_test_sha256( const char *tag, size_t tag_len, const uint8_t *data, size_t data_len, uint8_t out[32] );
+#endif /* WEX_E1_TEST_HOOKS */
 #endif
 
 /*

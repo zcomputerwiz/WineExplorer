@@ -38,6 +38,7 @@ cc -O2 -Wall -Wextra -Werror -lpthread \
 cc -O2 -Wall -Wextra -Werror -lpthread \
     -DWEXELEVATE_E1S18 \
     -DWEX_E1S15_LAUNCH_PREP_TEST \
+    -DWEX_E1_TEST_HOOKS \
     -I"$REPO/src/include" \
     -I"$REPO/src/programs/wexelevate" \
     -o "$FIXTURE/lab" \
@@ -63,7 +64,7 @@ echo "==> Testing lab binary (all stages, matrix, single resume, ordering)"
 # 5b. Same tests under AddressSanitizer/UBSan (queue races, record overruns, leaks)
 echo "==> Testing lab binary under ASan/UBSan"
 cc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer \
-    -Wall -Wextra -Werror -DWEXELEVATE_E1S18 -DWEX_E1S15_LAUNCH_PREP_TEST \
+    -Wall -Wextra -Werror -DWEXELEVATE_E1S18 -DWEX_E1S15_LAUNCH_PREP_TEST -DWEX_E1_TEST_HOOKS \
     -I"$REPO/src/include" -I"$REPO/src/programs/wexelevate" -o "$FIXTURE/lab-asan" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
@@ -74,7 +75,7 @@ cc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit
 # 6. Cross-compile real broker with lab define for both x86_64 and i686 ABIs (WoW64)
 echo "==> Cross-compiling real broker with lab define for x86_64 and i686 MinGW (-Wall -Werror)"
 x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
-    -DWEXELEVATE_TEST_APPROVAL -DWEXELEVATE_E1S18 \
+    -DWEXELEVATE_TEST_APPROVAL -DWEXELEVATE_E1S18 -DWEX_E1_TEST_HOOKS \
     -I"$REPO/src/include" \
     -o "$FIXTURE/wexelevate_lab64.exe" \
     "$REPO/src/programs/wexelevate/main.c" \
@@ -83,7 +84,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -ladvapi32 -luserenv -lbcrypt
 
 i686-w64-mingw32-gcc -O2 -Wall -Werror -municode \
-    -DWEXELEVATE_TEST_APPROVAL -DWEXELEVATE_E1S18 \
+    -DWEXELEVATE_TEST_APPROVAL -DWEXELEVATE_E1S18 -DWEX_E1_TEST_HOOKS \
     -I"$REPO/src/include" \
     -o "$FIXTURE/wexelevate_lab32.exe" \
     "$REPO/src/programs/wexelevate/main.c" \
