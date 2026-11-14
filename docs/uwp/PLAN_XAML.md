@@ -192,5 +192,8 @@ earlier U1 suites, `docs/STOCK_CHANGES.md` updated, push and merge coordinated w
 * **Owner (2026-11-14), where the work goes:** change Wine where the change belongs to Windows itself (WinRT runtime,
   activation, CoreWindow, DirectX, text, storage and the like: everything that is not XAML); do the XAML work in the
   Uno-UWP component where that is the better place (controls, layout, templates, the XAML object model, XBF loading).
-* **Open:** the C++ UWP build tools (XAML compiler) are not installed on the Windows host; until they are, the oracle apps
-  build their UI in code or load XAML text at run time (`XamlReader.Load`).
+* **Experiment step 1 done (2026-11-14, `tests/uwp/xaml/uno-spike`):** an unchanged Uno desktop application (Skia,
+  Win32 host, self-contained .NET 10) runs on Wine x64 with two Wine fixes (window class lookup, `winlangdb` and
+  `GetUserLanguages`) and lays out as on Windows. x86 fails on Windows and Wine alike: Uno ships no 32-bit ICU
+  (component work). Next: step 2, a C++/WinRT XAML application through a small shim over Uno in its process.
+* **Done:** the C++ UWP build tools (XAML compiler) are installed on the Windows host (2026-11-14, by the owner).

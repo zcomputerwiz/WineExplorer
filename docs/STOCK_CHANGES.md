@@ -3253,3 +3253,10 @@ other PRI files (resource packs, framework packages), `CreateMatchingContext`, `
 LeavingBackground, driven by the visibility of the main window; nothing after Exiting), `core_application.c`
 (`ICoreApplication2`, the events go through `lifecycle.c`, the main window is watched before the application gets it),
 `private.h`, `Makefile.in`. Not done: freezing a suspended process, `BackgroundActivated`, prelaunch.
+
+2026-11-14 (XAML experiment step 1, an Uno application, `tests/uwp/xaml/uno-spike`): `dlls/win32u/class.c` and
+`server/class.c` (`find_class`: a small instance value that is not a module handle finds the one local class of that
+name, as Windows does; .NET passes a process handle), test in `dlls/user32/tests/class.c`; `dlls/bcp47langs/main.c`
+(`GetUserLanguages` returns the user's preferred UI languages; `Makefile.in` imports `combase`; the test loses two
+`todo_wine`); new `dlls/winlangdb` (`EnsureLanguageProfileExists`), `configure.ac`, `configure` (two lines by hand:
+upstream's script comes from autoconf 2.73).
