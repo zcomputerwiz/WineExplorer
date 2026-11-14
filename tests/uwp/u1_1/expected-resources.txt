@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# The checks of view.exe application ViewResources (Windows 11 build 26300, 2026-11-14, x64 and x86).
+PASS all_resource_maps_is_the_package
+PASS context_falls_back_to_the_default_language
+PASS context_language
+PASS context_language_list
+PASS context_language_matches_neutral_and_regions
+PASS context_languages_property
+PASS context_scale
+PASS context_scale_rounds_up
+PASS context_unknown_language_gives_the_default
+PASS default_context_is_not_changed
+PASS default_context_qualifiers
+PASS file_candidate_as_storage_file
+PASS file_candidates_and_qualifiers
+PASS file_resource_is_a_path_in_the_package
+PASS file_resource_name_has_no_qualifier
+PASS loader_constructors
+PASS loader_dots_of_the_resw_are_slashes
+PASS loader_empty_name_is_invalid
+PASS loader_get_string
+PASS loader_is_case_insensitive
+PASS loader_missing_is_empty
+PASS loader_names_are_relative_to_its_map
+PASS loader_non_ascii
+PASS loader_of_a_missing_map_fails
+PASS loader_of_another_map
+PASS loader_string_for_reference
+PASS loader_string_for_uri
+PASS main_map_get_value
+PASS main_map_has_strings
+PASS main_map_holds_strings_and_files
+PASS main_map_missing_is_null
+PASS main_map_name_forms
+PASS main_map_uri
+PASS named_resource_resolve
+PASS named_resource_resolve_all
+PASS named_resource_uri
+PASS new_context_has_the_defaults
+PASS package_identity
+PASS string_candidates_and_qualifiers
+PASS subtree
+PASS subtree_of_nothing_is_null
+PASS unknown_qualifier_can_be_set
+PASS view_independent_context_is_shared

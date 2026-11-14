@@ -56,6 +56,8 @@
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/Windows.Storage.FileProperties.h>
+#include <winrt/Windows.ApplicationModel.Resources.h>
+#include <winrt/Windows.ApplicationModel.Resources.Core.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Devices.Input.h>
 #include <winrt/Windows.UI.Input.h>
@@ -286,10 +288,10 @@ static void pkgapi_checks()
         LONG r = GetPackageApplicationIds(reference, &length, nullptr, &count);
         std::vector<BYTE> buffer(length ? length : 1);
         if (r == ERROR_INSUFFICIENT_BUFFER) r = GetPackageApplicationIds(reference, &length, buffer.data(), &count);
-        bool ids_ok = r == ERROR_SUCCESS && count == 8;
+        bool ids_ok = r == ERROR_SUCCESS && count == 9;
         std::vector<std::wstring> seen;
         for (UINT32 i = 0; ids_ok && i < count; ++i) seen.push_back(reinterpret_cast<PCWSTR *>(buffer.data())[i]);
-        for (wchar_t const *app : { L"View", L"ViewSta", L"ViewReturn", L"ViewPresent", L"ViewSuspend", L"ViewPkgapi", L"ViewAppdata", L"ViewStorage" })
+        for (wchar_t const *app : { L"View", L"ViewSta", L"ViewReturn", L"ViewPresent", L"ViewSuspend", L"ViewPkgapi", L"ViewAppdata", L"ViewStorage", L"ViewResources" })
             if (std::find(seen.begin(), seen.end(), family + L"!" + app) == seen.end()) ids_ok = false;
         check("application_ids_are_all_applications_of_the_package", ids_ok);
         length = 0; count = 0;
@@ -796,6 +798,160 @@ static void run_storage()
     }
     catch (hresult_error const &e) { info("streams: exception 0x%08X", (unsigned)e.code()); check("streams_no_exception", false); }
     data.ClearAsync(ApplicationDataLocality::Local).get();
+    put("READY");
+    put("Uninitialize");
+}
+
+/* resources mode: package resources (MRT) through resources.pri: ResourceLoader, ResourceManager, ResourceContext,
+ * candidates and qualifiers. The strings are in tests/uwp/u1_1/resources, the images are made by package.ps1. The
+ * checks are from what Windows 11 did (tests/uwp/u1_1/README.md). */
+static void run_resources()
+{
+    using namespace Windows::ApplicationModel::Resources;
+    using namespace Windows::ApplicationModel::Resources::Core;
+    using namespace Windows::Foundation;
+    auto text = [](hstring const &s) { return to_string(s); };
+    auto value = [](ResourceCandidate const &c) { return c ? c.ValueAsString() : hstring(L"(null)"); };
+    auto attempt = [&](char const *what, auto call) -> std::string {
+        try { std::string v = text(call()); info("%s = '%s'", what, v.c_str()); return v; }
+        catch (hresult_error const &e) { info("%s threw 0x%08X", what, (unsigned)e.code()); return "!" + hex(e.code()); }
+    };
+    std::string name = text(Windows::ApplicationModel::Package::Current().Id().Name());
+    std::string root = text(Windows::ApplicationModel::Package::Current().InstalledLocation().Path());
+    auto with = [&](wchar_t const *qualifier, wchar_t const *v, wchar_t const *resource) {
+        ResourceContext c = ResourceContext::GetForViewIndependentUse();
+        c.QualifierValues().Insert(qualifier, v);
+        auto r = text(value(ResourceManager::Current().MainResourceMap().GetValue(resource, c)));
+        info("GetValue(%s, %s=%s) = '%s'", to_string(hstring(resource)).c_str(), to_string(hstring(qualifier)).c_str(), to_string(hstring(v)).c_str(), r.c_str());
+        return r;
+    };
+
+    /* ResourceLoader: names are relative to its map (Resources by default), a leading slash makes them absolute;
+     * MakePri turns the dots of a .resw name into slashes; missing names give an empty string */
+    ResourceLoader loader = ResourceLoader::GetForViewIndependentUse();
+    check("loader_get_string", attempt("GetString(Greeting)", [&] { return loader.GetString(L"Greeting"); }) == "Hello");
+    check("loader_dots_of_the_resw_are_slashes",
+          attempt("GetString(Button.Content)", [&] { return loader.GetString(L"Button.Content"); }) == "" &&
+          attempt("GetString(Button/Content)", [&] { return loader.GetString(L"Button/Content"); }) == "Press me");
+    check("loader_non_ascii", loader.GetString(L"Accented") == hstring(std::wstring(L"caf") + wchar_t(0xE9) + L" " + wchar_t(0x4E16)));
+    check("loader_missing_is_empty", attempt("GetString(Missing)", [&] { return loader.GetString(L"Missing"); }) == "");
+    check("loader_names_are_relative_to_its_map",
+          attempt("GetString(Resources/Greeting)", [&] { return loader.GetString(L"Resources/Greeting"); }) == "" &&
+          attempt("GetString(/Resources/Greeting)", [&] { return loader.GetString(L"/Resources/Greeting"); }) == "Hello");
+    check("loader_empty_name_is_invalid", attempt("GetString(empty)", [&] { return loader.GetString(L""); }) == "!0x80070057");
+    check("loader_is_case_insensitive", attempt("GetString(greeting)", [&] { return loader.GetString(L"greeting"); }) == "Hello");
+    check("loader_of_another_map",
+          attempt("Other: GetString(Title)", [&] { return ResourceLoader::GetForViewIndependentUse(L"Other").GetString(L"Title"); }) == "Other title" &&
+          attempt("Other: GetString(Greeting)", [&] { return ResourceLoader::GetForViewIndependentUse(L"Other").GetString(L"Greeting"); }) == "" &&
+          attempt("Resources: GetString(Greeting)", [&] { return ResourceLoader::GetForViewIndependentUse(L"Resources").GetString(L"Greeting"); }) == "Hello");
+    check("loader_of_a_missing_map_fails",
+          attempt("Nope: GetString(Title)", [&] { return ResourceLoader::GetForViewIndependentUse(L"Nope").GetString(L"Title"); }) == "!0x80073B1F");
+    check("loader_string_for_uri",
+          attempt("GetStringForUri(ms-resource:///Resources/Greeting)", [&] { return loader.GetStringForUri(Uri(L"ms-resource:///Resources/Greeting")); }) == "Hello" &&
+          attempt("GetStringForUri(ms-resource:Greeting)", [&] { return loader.GetStringForUri(Uri(L"ms-resource:Greeting")); }) == "Hello" &&
+          attempt("GetStringForUri(ms-resource:///Other/Title)", [&] { return loader.GetStringForUri(Uri(L"ms-resource:///Other/Title")); }) == "Other title" &&
+          attempt("GetStringForUri(ms-resource://name/Resources/Greeting)", [&] {
+              return loader.GetStringForUri(Uri(hstring(L"ms-resource://") + Windows::ApplicationModel::Package::Current().Id().Name() + L"/Resources/Greeting")); }) == "Hello");
+    check("loader_string_for_reference",
+          attempt("GetStringForReference(ms-resource:///Resources/Greeting)", [&] { return ResourceLoader::GetStringForReference(Uri(L"ms-resource:///Resources/Greeting")); }) == "Hello");
+    check("loader_constructors",
+          attempt("ResourceLoader().GetString(Greeting)", [&] { return ResourceLoader().GetString(L"Greeting"); }) == "Hello" &&
+          attempt("ResourceLoader(Other).GetString(Title)", [&] { return ResourceLoader(L"Other").GetString(L"Title"); }) == "Other title");
+
+    /* ResourceManager and the main map: the strings and every file of the package */
+    ResourceManager manager = ResourceManager::Current();
+    ResourceMap map = manager.MainResourceMap();
+    info("MainResourceMap.Size = %u", map.Size());
+    for (auto const &pair : map) info("  key '%s' uri '%s' candidates %u", text(pair.Key()).c_str(),
+                                      text(pair.Value().Uri().AbsoluteUri()).c_str(), pair.Value().Candidates().Size());
+    check("main_map_uri", map.Uri().AbsoluteUri() == to_hstring("ms-resource://" + name + "/"));
+    check("main_map_holds_strings_and_files", map.Size() == 10 && map.HasKey(L"Files/view.exe") && map.HasKey(L"Files/Assets/pic.png"));
+    check("all_resource_maps_is_the_package", manager.AllResourceMaps().Size() == 1 && manager.AllResourceMaps().HasKey(to_hstring(name)));
+    check("main_map_has_strings", map.HasKey(L"Resources/Greeting") && map.HasKey(L"Other/Title") && !map.HasKey(L"Resources/Missing"));
+    check("main_map_get_value", attempt("GetValue(Resources/Greeting)", [&] { return value(map.GetValue(L"Resources/Greeting")); }) == "Hello");
+    check("main_map_name_forms",
+          attempt("GetValue(/Resources/Greeting)", [&] { return value(map.GetValue(L"/Resources/Greeting")); }) == "Hello" &&
+          attempt("GetValue(ms-resource:///Resources/Greeting)", [&] { return value(map.GetValue(L"ms-resource:///Resources/Greeting")); }) == "Hello");
+    check("main_map_missing_is_null",
+          attempt("GetValue(Greeting)", [&] { return value(map.GetValue(L"Greeting")); }) == "(null)" &&
+          attempt("GetValue(Resources/Missing)", [&] { return value(map.GetValue(L"Resources/Missing")); }) == "(null)");
+    check("subtree",
+          attempt("GetSubtree(Resources).GetValue(Greeting)", [&] { return value(map.GetSubtree(L"Resources").GetValue(L"Greeting")); }) == "Hello" &&
+          attempt("GetSubtree(Resources).Uri", [&] { return map.GetSubtree(L"Resources").Uri().AbsoluteUri(); }) == "ms-resource://" + name + "/Resources/");
+    check("subtree_of_nothing_is_null", !map.GetSubtree(L"Nope"));
+    check("file_resource_is_a_path_in_the_package",
+          attempt("GetValue(Files/Assets/pic.png)", [&] { return value(map.GetValue(L"Files/Assets/pic.png")); }) == root + "\\Assets\\pic.scale-100.png" &&
+          map.GetValue(L"Files/Assets/pic.png").Kind() == ResourceCandidateKind::File &&
+          attempt("GetValue(Files/logo.png)", [&] { return value(map.GetValue(L"Files/logo.png")); }) == root + "\\logo.png");
+    check("file_resource_name_has_no_qualifier",
+          attempt("GetValue(Files/Assets/pic.scale-200.png)", [&] { return value(map.GetValue(L"Files/Assets/pic.scale-200.png")); }) == "(null)");
+
+    /* the default context */
+    ResourceContext context = ResourceContext::GetForViewIndependentUse();
+    for (auto const &pair : context.QualifierValues()) info("default qualifier %s = '%s'", text(pair.Key()).c_str(), text(pair.Value()).c_str());
+    {
+        std::string langs;
+        for (auto const &l : context.Languages()) langs += text(l) + " ";
+        info("default context languages: %s", langs.c_str());
+    }
+    check("default_context_qualifiers", context.QualifierValues().Size() == 12 && context.QualifierValues().HasKey(L"Language") &&
+          context.QualifierValues().HasKey(L"Scale") && context.QualifierValues().HasKey(L"DeviceFamily") &&
+          context.QualifierValues().Lookup(L"Contrast") == L"standard");
+
+    /* candidates */
+    NamedResource greeting = map.Lookup(L"Resources/Greeting");
+    std::string seen;
+    for (auto const &c : greeting.Candidates())
+    {
+        std::string qualifiers;
+        for (auto const &q : c.Qualifiers())
+            qualifiers += text(q.QualifierName()) + "=" + text(q.QualifierValue()) + (q.IsDefault() ? " default" : "") + "; ";
+        info("  candidate '%s' kind %d default %d: %s", text(c.ValueAsString()).c_str(), (int)c.Kind(), (int)c.IsDefault(), qualifiers.c_str());
+        seen += text(c.ValueAsString()) + "|" + qualifiers;
+    }
+    check("string_candidates_and_qualifiers", greeting.Candidates().Size() == 2 &&
+          seen == "Hello|Language=en-US default; Hallo|Language=de-DE; ");
+    check("named_resource_resolve", greeting.Resolve().ValueAsString() == L"Hello" && greeting.Resolve().Kind() == ResourceCandidateKind::String);
+    check("named_resource_resolve_all", greeting.ResolveAll().Size() == 2);
+    check("named_resource_uri", greeting.Uri().AbsoluteUri() == to_hstring("ms-resource://" + name + "/Resources/Greeting"));
+    {
+        NamedResource pic = map.Lookup(L"Files/Assets/pic.png");
+        std::string files;
+        for (auto const &c : pic.Candidates())
+        {
+            for (auto const &q : c.Qualifiers()) files += text(q.QualifierName()) + "=" + text(q.QualifierValue()) + " ";
+            files += text(c.ValueAsString()).substr(root.size()) + "; ";
+        }
+        info("pic candidates: %s", files.c_str());
+        check("file_candidates_and_qualifiers", files == "Scale=100 \\Assets\\pic.scale-100.png; Scale=200 \\Assets\\pic.scale-200.png; ");
+        check("file_candidate_as_storage_file", attempt("pic GetValueAsFileAsync", [&] { return pic.Resolve().GetValueAsFileAsync().get().Path(); }) ==
+              root + "\\Assets\\pic.scale-100.png");
+    }
+
+    /* contexts: the language picks a candidate (a neutral or other region of the same language matches), the scale
+     * picks the next bigger image, else the biggest */
+    check("context_language", with(L"Language", L"de-DE", L"Resources/Greeting") == "Hallo");
+    check("context_falls_back_to_the_default_language", with(L"Language", L"de-DE", L"Resources/Farewell") == "Goodbye");
+    check("context_language_matches_neutral_and_regions", with(L"Language", L"de", L"Resources/Greeting") == "Hallo" &&
+          with(L"Language", L"de-AT", L"Resources/Greeting") == "Hallo");
+    check("context_language_list", with(L"Language", L"fr-FR;de-DE", L"Resources/Greeting") == "Hallo");
+    check("context_unknown_language_gives_the_default", with(L"Language", L"ja-JP", L"Resources/Greeting") == "Hello");
+    check("context_scale", with(L"Scale", L"200", L"Files/Assets/pic.png") == root + "\\Assets\\pic.scale-200.png" &&
+          with(L"Scale", L"100", L"Files/Assets/pic.png") == root + "\\Assets\\pic.scale-100.png");
+    check("context_scale_rounds_up", with(L"Scale", L"150", L"Files/Assets/pic.png") == root + "\\Assets\\pic.scale-200.png" &&
+          with(L"Scale", L"400", L"Files/Assets/pic.png") == root + "\\Assets\\pic.scale-200.png");
+    check("default_context_is_not_changed", attempt("GetValue(Resources/Greeting) default context",
+          [&] { return value(map.GetValue(L"Resources/Greeting")); }) == "Hello");
+    check("context_languages_property", attempt("Languages=de-DE then GetValue", [&] {
+        ResourceContext c = ResourceContext::GetForViewIndependentUse();
+        c.Languages(single_threaded_vector<hstring>({ L"de-DE" }).GetView());
+        return value(map.GetValue(L"Resources/Greeting", c)); }) == "Hallo");
+    check("unknown_qualifier_can_be_set", attempt("Insert(Bogus)", [&] {
+        ResourceContext c = ResourceContext::GetForViewIndependentUse(); c.QualifierValues().Insert(L"Bogus", L"x"); return hstring(L"ok"); }) == "ok");
+    check("new_context_has_the_defaults", attempt("ResourceContext() Greeting", [&] { ResourceContext c; return value(map.GetValue(L"Resources/Greeting", c)); }) == "Hello");
+    /* every GetForViewIndependentUse is the same context: the loader sees the language set above */
+    check("view_independent_context_is_shared", attempt("loader after the context changes", [&] {
+        return ResourceLoader::GetForViewIndependentUse().GetString(L"Greeting"); }) == "Hallo");
     put("READY");
     put("Uninitialize");
 }
@@ -1416,7 +1572,7 @@ int wmain(int argc, wchar_t **argv)
         std::wstring id = aumid.data();
         application_id = id.substr(id.find(L'!') + 1);
         mode = application_id == L"ViewSta" ? "sta" : application_id == L"ViewReturn" ? "return" :
-               application_id == L"ViewStorage" ? "storage" : application_id == L"ViewAppdata" ? "appdata" : application_id == L"ViewPkgapi" ? "pkgapi" : application_id == L"ViewPresent" ? "present" : application_id == L"ViewSuspend" ? "suspend" : application_id == L"View" ? "positive" : "";
+               application_id == L"ViewStorage" ? "storage" : application_id == L"ViewResources" ? "resources" : application_id == L"ViewAppdata" ? "appdata" : application_id == L"ViewPkgapi" ? "pkgapi" : application_id == L"ViewPresent" ? "present" : application_id == L"ViewSuspend" ? "suspend" : application_id == L"View" ? "positive" : "";
         wchar_t dir[MAX_PATH];
         if (mode.empty() || !GetEnvironmentVariableW(L"LOCALAPPDATA", dir, ARRAYSIZE(dir))) return 2;
         out = std::wstring(dir) + L"\\view-" + std::wstring(mode.begin(), mode.end()) + L".txt";
@@ -1442,10 +1598,10 @@ int wmain(int argc, wchar_t **argv)
         return failures ? 1 : 0;
     }
 
-    if (mode == "pkgapi" || mode == "appdata" || mode == "storage")
+    if (mode == "pkgapi" || mode == "appdata" || mode == "storage" || mode == "resources")
     {
         check("package_identity", !package_full_name.empty());
-        try { if (mode == "pkgapi") run_pkgapi(); else if (mode == "storage") run_storage(); else run_appdata(); }
+        try { if (mode == "pkgapi") run_pkgapi(); else if (mode == "storage") run_storage(); else if (mode == "resources") run_resources(); else run_appdata(); }
         catch (hresult_error const &e) { info("threw 0x%08X", (unsigned)e.code()); check("no_exception", false); put("READY"); put("Uninitialize"); }
         return 0;
     }

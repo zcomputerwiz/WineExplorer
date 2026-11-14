@@ -24,6 +24,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   keys of the two policy trees have a descriptor by path (the user reads; SYSTEM and Administrators write); the
   trees are emptied and their roots created when the hive is loaded; `rename_key` refuses the keys above a tree to
   a caller who may not write the tree. `loader/wine.inf.in`: the service `gpsvc` (`wexpolicy.exe`, automatic).
+- `dlls/advapi32/security.c` (`LookupAccountSidW`): the SID of the process token's user resolves to
+  `WINEUSERNAME` on this computer. With session 0 each account has a mapped SID that the stock table (RID 1000
+  of the fixed computer SID) does not know; `GetUserName` failed, `USERNAME` was empty and every profile was
+  `C:\users`. Other accounts' mapped SIDs are not resolved yet.
 - `server/registry.c`: a "Volatile Environment" key found in a user's hive file is dropped when the hive is loaded
   (at server start and by session 0). Once in a file, for example a copy of a template prefix, it was an
   ordinary key and stayed for ever with the template account's name and paths.
@@ -3233,3 +3237,17 @@ a handle of its directory open (a kept handle delays the removal of the director
 `dlls/windows.storage/filestream.c` (`StorageFile.OpenAsync`, `OpenReadAsync`, `OpenSequentialReadAsync`,
 `OpenTransactedWriteAsync`), `dlls/wintypes/storage.c` (the write methods, encoding, byte order and `FlushAsync` of
 `DataWriter`), `dlls/wintypes/datareader.c` (`LoadAsync`). Not done: thumbnails, queries, `KnownFolders`.
+
+2026-11-14 (U1.6, package resources, measured on Windows 11, `tests/uwp/u1_1` application `ViewResources`):
+`dlls/windows.applicationmodel`: new `pri.c` (a reader of `resources.pri`: hierarchical schema, decision info, resource
+map and data item sections; candidates chosen by qualifier priority, match and fallback score), new `resources.c`
+(`ResourceLoader`, `ResourceManager`, `ResourceMap`, `NamedResource`, `ResourceCandidate`, `ResourceQualifier`,
+`ResourceContext` with its qualifier map), new `map.c` and `vector.c` (copies of `dlls/wintypes/map.c` and
+`dlls/windows.media.speech/vector.c`), `package.c` (`Package.Id`: a `PackageId` from `GetCurrentPackageId`),
+`classes.idl`, `main.c`, `private.h`, `Makefile.in` (imports `advapi32`). New `include/windows.applicationmodel.resources.idl`
+and `include/windows.applicationmodel.resources.core.idl`, `include/Makefile.in`. `include/appmodel.h` declares
+`GetCurrentPackageId`. `include/windows.storage.idl` now defines `IStorageFileStatics` and gives `StorageFile` its
+statics (before, the class was not registered, and only C++/WinRT's fallback of loading `Windows.Storage.dll` by name
+found it); `dlls/windows.storage/storage_private.idl` loses that interface. Not done: `LoadPriFiles`, resources in
+other PRI files (resource packs, framework packages), `CreateMatchingContext`, `MapChanged` events of the qualifiers,
+`GetValueAsStreamAsync`, embedded data.

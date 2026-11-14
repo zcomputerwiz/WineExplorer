@@ -4,10 +4,10 @@ Copyright 2026 WineExplorer contributors
 -->
 # UWP / package compatibility (track U1)
 
-## Status (2026-11-13)
+## Status (2026-11-14)
 
 Each item was measured on Windows 11 with a self-owned probe, and the same binaries pass on Wine x64 and x86 in the
-owned U1 guest. Wine code is on `codex/uwp-runtime`, merged to Wine `development` (9484da1a). Evidence and findings:
+owned U1 guest. Wine code is on `codex/uwp-runtime`, merged to Wine `development` (fe9776eb, 2026-11-14). Evidence and findings:
 `tests/uwp/u1_0`, `tests/uwp/u1_1/README.md`, `tests/uwp/u1_3/README.md`; Wine changes: `docs/STOCK_CHANGES.md`.
 
 | Item | State | Checks |
@@ -21,7 +21,7 @@ owned U1 guest. Wine code is on `codex/uwp-runtime`, merged to Wine `development
 | U1.4 `ApplicationData` (folders, settings, composite values) | done | 24, 26 |
 | U1.5 `StorageFolder`, `StorageFile`, `FileIO`, `PathIO`, file streams, `DataReader`, `DataWriter` | done | 87 |
 | Package installer (`wexappx`) | done, without a signature check | 63, 59 |
-| MRT/PRI resources (`ResourceLoader`, `ms-resource:`) | not started | |
+| U1.6 package resources (`resources.pri`, `ResourceLoader`, `ResourceManager`, `ResourceContext`, `ms-resource:`) | done | 43 |
 | Installer signature check, server-side compatibility gate | not started | |
 | `Windows.UI.Xaml` (U2) | plan only: `PLAN_XAML.md`, waits for the owner's decision | |
 
