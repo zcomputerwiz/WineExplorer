@@ -14,6 +14,7 @@ who reported it, where it shows, what is known, the state.
 | B7 | Copilot (Edge family, 156.0.4314.58) installs (msiexec 0, EdgeUpdate service runs) but the browser process stops itself within about 3 s: breakpoint exception 0x80000003 at msedge.dll+0x458ee9c (IMMEDIATE_CRASH/CHECK, message stripped), same with `--disable-gpu` and `--no-sandbox`; no window, no log | Integration session, 2026-11-14 (master 3a08b9b7, Wine 5ec3c009) | for the Edge/Chromium track (`EDGE_INSTALLER_ANALYSIS.md`, G4 headful readiness): probably the same early-start failure, not proven |
 | B10 | Edge 156.0.4314.58 (enterprise MSI) on the stock image (master 3a08b9b7): install works (msiexec 0, EdgeUpdate service), headless rendering works in a user prefix, but the windowed browser dies before any window: ACCESS_VIOLATION reading 0xb0 at msedge.dll+0x2f431fa, same with `--no-sandbox --disable-gpu`. Just before: `app_bound_encryption_provider_win.cc:124` "Unable to encrypt key (0x80040155)" (REGDB_E_IIDNOTREG from the elevation service's COM call, an RPC fault packet), class `{aa509086-5ca9-4c25-8f95-589d3c07b48a}` not registered (local server), `WSALookupServiceBegin` failed with 8, WinRT EducationSettings and PenDevice without a library. Edge worked windowed on 2026-11-01 on the lab build (own labwc, VirGL) | Integration session, 2026-11-14 | for the Edge/Chromium track. The system tier part: 0x80040155 is an interface not registered for marshalling, i.e. the Edge elevation service's interface (a COM local server in a service) has no proxy/stub or type library registration that the caller sees; with session 0, services and the caller are in different servers, so check where the per-machine install registered it |
 | B11 | `scripts/wex-components.py` maintains the machine root by running Wine as root on it (its own wineserver, `wineserver -w` for idleness), and has no notion of session 0. On an image with session 0, session 0's wineserver (another uid) also holds the machine hive: two servers load and save `system.reg`, so a component's registry changes (vcrun2022, d3dcompiler, the coming uwp-xaml) can be lost when session 0 saves, or session 0's changes lost when root's server saves | system tier session (review of the XAML component), 2026-11-14 | to do (system tier). Decided by the owner: the registry writes go THROUGH session 0 (rule in `SYSTEM_TIER_WORK_ORDERS.md`, "every write to the machine registry goes through session 0"), not by stopping session 0. Not a blocker while session 0 is opt-in; required before session 0 is on by default |
+| B12 | The installed system's own host name does not resolve: setup (and sysdm.cpl's Computer Name tab) set it through wexhost `WexHostnameSet` (hostname1 `SetStaticHostname`) and `/etc/hostname`, but `/etc/hosts` keeps the live image's `127.0.0.1 localhost debian`, so `hostname -f` fails and sudo warns "unable to resolve host WEX-PC". Not the cause of B10 (tested) | Integration session, 2026-11-14 | Fix that also covers later renames: add `libnss-myhostname` to `installer/live-build/config/package-lists/wineexplorer.list.chroot` (its postinst adds `myhostname` to the hosts line of nsswitch.conf). Integration session does the installer part on its branch |
 | B8 | `msiexec /qb` shows no progress window (`fixme:msi:internal_ui_handler internal UI not implemented for message 0x0b000000 (UI level = 3)`); XP shows a basic progress dialog | Integration session, 2026-11-14 | to do in `dlls/msi` (basic UI) |
 | B9 | `RoGetActivationFactory` finds no library for `Windows.System.Profile.PlatformDiagnosticsAndUsageDataSettings`, `Windows.System.UserProfile.AssignedAccessSettings`, `Windows.Internal.System.Profile.RegionPolicyEvaluator`, `Windows.System.Diagnostics.Telemetry.PlatformTelemetryClient` (noise, not blocking) | Integration session, 2026-11-14 | not blocking; the UWP session leaves it until after its XAML start-up work (small: statics returning defaults); whoever finds it blocks Copilot takes it |
 | B4 | A per-machine MSI run by an administrator from the desktop fails silently (exit 1627, empty `/l*v` log, no message) | Integration session, 2026-11-14 | analysed; owner chose the consent prompt for administrators; see below |
@@ -53,9 +54,42 @@ Looked into 2026-11-14 (the COM part only; the windowed crash itself is the Edge
   renderers, WebGL, no crash): B10 is in an Edge-only path.
 - The class `{aa509086-5ca9-4c25-8f95-589d3c07b48a}` Edge looks up (and stock Chromium does not) is
   `CLSID_VirtualDesktopManager` (`IVirtualDesktopManager` `{a5cd92ff-29be-454c-8d04-d82879fb3f1b}`, checked on this
-  host: in-process in `twinapi.dll`). Wine had neither the class nor the interface. If Edge does not check that
-  creation, a null read at +0xb0 fits. Done 2026-11-14 (branch `claude/wine-reuse`, not built yet): the class in
-  `shell32` for one desktop, with a test; Edge to be retried with it.
+  host: in-process in `twinapi.dll`). Wine had neither the class nor the interface. Written 2026-11-14 (branch
+  `claude/wine-reuse`): the class in `shell32` for one desktop, with a test.
+- Baseline in a plain prefix (wexbuild, Xvfb, no WineExplorer shell, Wine of the reuse branch WITHOUT the class,
+  `unsloth-tmp/edge-prefix-test.sh` in the systier worktree): the MSI installs (0) and the WINDOWED browser starts:
+  main window "about:blank - Profile 1 - Microsoft Edge" 1050x980, a "DComp Swapchain" window, 8 processes alive
+  at 45 s, the `{aa509086-...}` lookup failing exactly as on the image. So the missing VirtualDesktopManager is NOT
+  what kills Edge, and the crash needs something of the WineExplorer desktop session: the shell, wexhost and its DWM
+  broker, the project's own `dcomp` (Edge composes through DirectComposition; `IDCompositionDevice3`'s effect
+  creators are E_NOTIMPL stubs), or the machine-root prefix.
+- Split on the image (Integration session, master 2162596c, Wine 1052fab3, Xorg on QEMU std VGA): the crash is
+  identical with `--disable-direct-composition`, with `Composition=0`, and from a fresh plain prefix in the same
+  session. So neither the WineExplorer prefix, the shell, DWM composition nor DirectComposition is the cause.
+- Wine 1052fab3 itself in wexbuild under Xvfb (master 2162596c, clone verified): Edge starts windowed (8
+  processes). So the Wine commit is ruled out too. Left: the display (Xorg + Mesa on the VM's VGA vs Xvfb), the CPU
+  model QEMU gives the guest, the packaged Wine vs a build tree, and memory. Asked of the Integration session: the
+  guest's CPU flags and `-cpu host`, and Edge under Xvfb inside the guest.
+- Memory and disk ruled out (Integration session, one VM alone): at 4 GB the guest had 2.8-3.3 GB available during
+  the start, no swap, 6.3 GB free on root, no OOM in the kernel log; restarted with 8 GB (6.8 GB available) the crash
+  is identical. The CPU is already `-enable-kvm -cpu host` (vmtest.py). Edge under Xvfb inside the guest is running.
+- Display and CPU ruled out (Integration session): Edge under Xvfb inside the guest crashes the same way; hiding
+  AVX-512 and changing the CPU count (smp 8) change nothing. The crash follows the QEMU guest, not the display.
+- The packaged Wine ruled out: Wine extracted from the installer image (`/root/out/wex-el.iso`, wine-11.19-1027-
+  g2ebf65d5, `/usr/local` of the squashfs) starts Edge windowed in wexbuild under Xvfb (main window, 8 processes).
+- WSL (wexbuild) has no `/sys/class/dmi/id`, so Wine's SMBIOS tables there hold empty strings, while the guest has
+  QEMU's values. QEMU q35-like DMI (sys_vendor `QEMU`, product `Standard PC (Q35 + ICH9, 2009)`, SeaBIOS
+  1.16.3, 04/01/2014, chassis type 1, empty board and serials) overlaid on `/sys/class` in a private mount namespace
+  (`unsloth-tmp/edge-fake-dmi.sh`): Edge still starts windowed (8 processes). Approximate DMI is not the cause;
+  asked of the Integration session for the guest's exact `/sys/class/dmi/id` values and an Edge start in the guest
+  with `/sys/class/dmi` hidden, which settles DMI either way.
+- DMI ruled out (Integration session, master 2162596c): the guest's DMI is SeaBIOS 1.16.3-debian-1.16.3-2,
+  04/01/2014, QEMU "Standard PC (Q35 + ICH9, 2009)" pc-q35-10.0, chassis type 1; with `/sys/class/dmi` hidden (a
+  tmpfs over it in a private mount namespace, back to the user with `setpriv`) Edge crashes the same way. A host name
+  that resolves (B12) does not stop it either.
+- Left: other differences between the guest and WSL (a real kernel with its own devices: PCI, network, audio,
+  input, `/proc/cpuinfo` and `/sys` layout), or naming the crashing function with Microsoft's public symbols for
+  `msedge.dll` (a download from Microsoft's symbol server, needs the owner's OK).
 
 ## B5: the Windows version programs see
 
