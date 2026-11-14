@@ -261,6 +261,7 @@ answers `BUSY` when a suite or build is running.
 | `lab` | sync, build, lab build, lab suite | only code behind the lab build flags changed | about 20 |
 | `normal` | sync, build, normal suite, broker test | product code, lab suite not needed | about 20 |
 | `full` | sync, build, T1, normal suite, broker test, lab build, lab suite | product code changed | about 37 |
+| `build` | sync and build only | code the suites do not cover; run its own tests after (e.g. Wine's conformance tests) | about 4 |
 | `clean` | removes a suite fixture a killed run left behind | | |
 
 - The suites run from a copy of `scripts`, `tools`, `src`, `installer` in `/root/wex-snap/<worktree>`; editing the

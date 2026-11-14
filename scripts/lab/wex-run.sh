@@ -12,6 +12,7 @@
 #   lab       sync, builds, lab suite        (only code behind the lab build flags changed)
 #   normal    sync, build, normal suite, broker test
 #   full      sync, builds, T1, normal suite, broker test, lab suite (product code changed)
+#   build     sync and build only (code the suites do not cover; run that code's own tests after it)
 #   clean     remove a suite fixture left behind by a killed run, nothing else
 #
 # The suites run from a copy of the worktree's scripts, tools, src and installer in /root/wex-snap/<worktree>, so the
@@ -23,7 +24,10 @@
 # Only for wexbuild or a throwaway machine: the suites create and remove /etc/wineexplorer,
 # /usr/local/libexec/wineexplorer, /var/lib/wexsys-c2 and the users wexadm, wexstd, wexcar, wexgreeter.
 set -u
-MODE=${1:?labsuite|lab|normal|full|clean}
+# The whole script is one function, called at the end: bash reads it completely before running, so editing this
+# file during a run cannot change the run.
+main() {
+MODE=${1:?labsuite|lab|normal|full|build|clean}
 D=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 TREE=$(basename "$D")
 SNAP=/root/wex-snap/$TREE
@@ -52,7 +56,7 @@ clean_fixture()
 }
 
 case $MODE in
-    labsuite|lab|normal|full) ;;
+    labsuite|lab|normal|full|build) ;;
     clean) clean_fixture; echo "fixture removed"; exit 0 ;;
     *) echo "unknown mode $MODE"; exit 2 ;;
 esac
@@ -130,6 +134,10 @@ if [ "$MODE" != labsuite ]; then
     make -C "$MAIN" -j16 > /tmp/wex-run-make.log 2>&1 && stage build ok ||
         { stage build FAILED; grep -m5 'error:' /tmp/wex-run-make.log; exit 1; }
 fi
+if [ "$MODE" = build ]; then
+    echo "ALL PASS build $TREE ($(( (SECONDS - T0 + 30) / 60 )) min)"
+    exit 0
+fi
 if [ "$MODE" = full ]; then
     ( cd "$SNAP" && BUILD=$MAIN bash scripts/lab/system-tier-t1.sh ) > /tmp/wex-run-t1.log 2>&1
     grep -q '^FAILS=0' /tmp/wex-run-t1.log && stage t1 ok || stage t1 FAILED
@@ -150,3 +158,6 @@ if [ "$MODE" != normal ]; then
 fi
 echo "ALL $([ $RC = 0 ] && echo PASS || echo FAILED) $MODE $TREE ($(( (SECONDS - T0 + 30) / 60 )) min)"
 exit $RC
+}
+main "$@"
+exit $?
