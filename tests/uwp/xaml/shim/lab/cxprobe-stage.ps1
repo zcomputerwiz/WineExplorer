@@ -14,6 +14,5 @@ foreach ($f in 'AppxSignature.p7x','AppxBlockMap.xml','[Content_Types].xml') { R
 $vc = Join-Path $out 'vclibs'
 [IO.Compression.ZipFile]::ExtractToDirectory("$pkg\Dependencies\x64\Microsoft.VCLibs.x64.14.00.appx", $vc)
 Get-ChildItem $vc -Filter *.dll | Copy-Item -Destination $stage
-# the compiled pages beside the executable: XamlShim reads <name>.xbf there until it reads them from resources.pri
-Copy-Item 'D:\DeepThought\Projects\WineExplorer-uwp\tests\uwp\xaml\cx-probe\build\x64\*.xbf' $stage
+# the compiled pages stay where the XAML compiler put them: embedded in resources.pri (no loose .xbf files)
 Get-ChildItem $stage -Recurse | ForEach-Object { $_.FullName.Substring($stage.Length) }
