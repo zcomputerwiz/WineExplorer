@@ -198,6 +198,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 export VMTEST_DIR=${VMTEST_DIR:-/tmp/vmtest}
 V=(python3 "$REPO/scripts/vmtest.py")
+. "$HERE/nbd-connect.sh"
 SRC_DISK=$VMTEST_DIR/$SOURCE/disk.qcow2
 STATE=$VMTEST_DIR/$TEST
 OUT=$STATE/safe-mode
@@ -263,18 +264,8 @@ wait_off() {
 }
 
 attach() {   # attach ro|rw: connect the overlay and mount its root file system on $MNT
-    local entry part rootdev='' _
-    modprobe nbd max_part=16 || return 1
-    NBD=
-    for entry in /sys/block/nbd*; do
-        if [ ! -e "$entry/pid" ]; then NBD=/dev/${entry##*/}; break; fi
-    done
-    [ -n "$NBD" ] || { echo "no unused NBD device"; return 1; }
-    if [ "$1" = ro ]; then
-        qemu-nbd --read-only --connect "$NBD" "$STATE/disk.qcow2" || { NBD=; return 1; }
-    else
-        qemu-nbd --connect "$NBD" "$STATE/disk.qcow2" || { NBD=; return 1; }
-    fi
+    local part rootdev='' _
+    nbd_connect "$1" "$STATE/disk.qcow2" || return 1   # nbd-connect.sh: safe with other tests running
     udevadm settle 2>/dev/null || true
     for _ in $(seq 1 30); do
         for part in "$NBD"p*; do

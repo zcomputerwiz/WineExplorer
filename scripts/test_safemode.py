@@ -68,6 +68,39 @@ class TestSyntax(unittest.TestCase):
         session_run = VM_TEST.with_name("session-run.py")
         compile(session_run.read_text(encoding="utf-8"), str(session_run), "exec")
 
+    def test_chain_harness(self):
+        # installer/tests/run-chain.sh runs stages and firmwares side by side; build-test-iso.sh skips an unchanged
+        # Wine; both tests that connect a disk take the NBD device under one lock (nbd-connect.sh)
+        tests = VM_TEST.parent
+        for script in ("run-chain.sh", "build-test-iso.sh", "nbd-connect.sh", "install-unattended.sh"):
+            result = subprocess.run(["bash", "-n", str(tests / script)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+        helper = (tests / "nbd-connect.sh").read_text(encoding="utf-8")
+        self.assertLess(helper.index('flock -w 300 "$lock"'), helper.index("qemu-nbd --read-only --connect"))
+        self.assertLess(helper.index("qemu-nbd --connect"), helper.index('flock -u "$lock"'))
+        for script in ("safe-mode.sh", "install-unattended.sh"):
+            text = (tests / script).read_text(encoding="utf-8")
+            self.assertIn('. "$HERE/nbd-connect.sh"', text, script)
+            self.assertNotIn("for entry in /sys/block/nbd", text, script)
+            self.assertNotIn("qemu-nbd --read-only --connect", text, script)
+        chain = (tests / "run-chain.sh").read_text(encoding="utf-8")
+        phases = set(re.findall(r"^phase_([a-z0-9]+)\(\)", VM_TEST.read_text(encoding="utf-8"), re.M))
+        for stage in ("accounts", "classic", "rundialog", "startrec", "waylanddisplay", "waylandsafe", "waylandcmd"):
+            self.assertIn(stage, phases)
+            self.assertIn(stage, chain)
+        self.assertIn("STAGES=(defaults startrec wayland classic accounts rundialog)", chain)
+        self.assertIn('bash "$SRC/installer/tests/safe-mode.sh"', chain)   # the copy, not the checkout
+        # and the runner itself runs from the copy (an edit of the checkout's copy broke a run once)
+        self.assertLess(chain.index("tar -C \"$CHECKOUT\""),
+                        chain.index('WEX_CHAIN_COPY=$SRC exec bash "$SRC/installer/tests/run-chain.sh"'))
+        self.assertLess(chain.index('WEX_CHAIN_COPY=$SRC exec bash'), chain.index("total=$(awk"))
+        self.assertIn('while [ "$(jobs -rp | wc -l)" -ge "$LANES" ]; do wait -n; done', chain)
+        iso = (tests / "build-test-iso.sh").read_text(encoding="utf-8")
+        self.assertIn('INPUTS="$WREV $(rev_of src) $(rev_of scripts/assemble.py) $(rev_of scripts/assemble.sh)"', iso)
+        self.assertLess(iso.index('rm -f "$STAMP"'), iso.index("make -j"))
+        self.assertLess(iso.index("make -j"), iso.index('echo "$INPUTS" > "$STAMP"'))
+        self.assertTrue(iso.rstrip().endswith('echo "ISO DONE"'))
+
     def test_old_implementation_is_gone(self):
         # the Safe Mode before docs/SAFE_MODE.md, and the GRUB path (removed 2026-11-11: Vintner Boot is the loader)
         for old in (SCRIPTS / "wex-safemode-setup.sh", SYSTEMD / "wex-safemode.service",
