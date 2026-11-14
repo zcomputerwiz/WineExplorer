@@ -42,8 +42,7 @@ session), which is under the stream commit on `development`. Different DLLs, but
 ## Next steps, in order
 
 1. **Done 2026-11-14:** package resources (U1.6), 43 checks on Windows and Wine (`ViewResources`).
-2. **Suspend and resume** (U1.1c). The probe `ViewSuspend` is built. It needs a person at the Windows machine:
-   `run-present.ps1 -Mode suspend -Manual`, then minimize the window, wait about 12 s, restore it, wait about 8 s.
+2. **Done 2026-11-14:** suspend and resume (U1.1c), 25 checks on Windows and Wine (`ViewSuspend`, `plm.exe`).
 3. Installer signature check (so that Store-signed packages install), server-side compatibility gate.
 4. Smaller gaps: thumbnails, file queries, `KnownFolders`, pickers, `GetParentAsync`, `MapChanged` events of the
    settings, `GetPublisherCacheFolder`.

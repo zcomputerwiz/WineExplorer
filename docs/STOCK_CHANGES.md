@@ -3247,3 +3247,9 @@ statics (before, the class was not registered, and only C++/WinRT's fallback of 
 found it); `dlls/windows.storage/storage_private.idl` loses that interface. Not done: `LoadPriFiles`, resources in
 other PRI files (resource packs, framework packages), `CreateMatchingContext`, `MapChanged` events of the qualifiers,
 `GetValueAsStreamAsync`, embedded data.
+
+2026-11-14 (U1.1c, suspend and resume, measured on Windows 11, `tests/uwp/u1_1` application `ViewSuspend`):
+`dlls/twinapi.appcore`: new `lifecycle.c` (Suspending with a deadline and a deferral, Resuming, EnteredBackground,
+LeavingBackground, driven by the visibility of the main window; nothing after Exiting), `core_application.c`
+(`ICoreApplication2`, the events go through `lifecycle.c`, the main window is watched before the application gets it),
+`private.h`, `Makefile.in`. Not done: freezing a suspended process, `BackgroundActivated`, prelaunch.

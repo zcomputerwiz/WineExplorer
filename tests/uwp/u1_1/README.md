@@ -200,3 +200,25 @@ Prior art used for the Wine side: the PRI layout described in "Package Resource 
 against the files MakePri made with a Python reader before the C code was written; the map and vector code of Wine
 (`dlls/wintypes/map.c`, `dlls/windows.media.speech/vector.c`). Microsoft's MRT Core (WindowsAppSDK, MIT) is the
 reference implementation; not used.
+
+## Suspend and resume (U1.1c, measured on Windows, passes on Wine)
+
+2026-11-14, application `ViewSuspend`, `run-present.ps1 -Mode suspend`: `plm.exe` (built by `build.ps1`, a host tool)
+puts the package in debug mode and asks the process lifetime manager to suspend it and, 8 s later, to resume it
+(`IPackageDebugSettings`). 25 checks pass on Windows 11, x64 and x86 (`expected-suspend.txt`). The runner never sends
+input in this mode: an earlier version typed its test keys into the window that had the focus.
+
+What Windows does:
+
+* At launch, `LeavingBackground` comes after `Run` and before the window becomes visible.
+* Suspended by the lifetime manager: `Suspending` once, on the view thread, with a deadline about 5 s away; the deferral
+  can be completed from another thread; `Resuming` on the view thread. The window stays visible and no background
+  event is raised.
+* Minimized by hand (two runs with the owner): `WindowDeactivated`, `Visible=0` and `EnteredBackground` (either order),
+  then `Suspending` at once; restored: `Resuming`, `LeavingBackground`, `Visible=1`, `WindowActivated`.
+
+Wine (`dlls/twinapi.appcore/lifecycle.c`): there is no process lifetime manager; the visibility of the main window
+drives the events (hidden: `EnteredBackground`, then `Suspending` from the dispatcher; shown again: `Resuming`,
+`LeavingBackground`). The process is not frozen. Once `Exiting` is raised the closing window no longer counts.
+`ICoreApplication2` (`EnteredBackground`, `LeavingBackground`, `EnablePrelaunch`) is new. The Wine runner minimizes and
+restores the window with `suspend.c` (no keys or clicks). The same bits pass the 25 checks on x64 and x86.
