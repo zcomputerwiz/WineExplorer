@@ -1,31 +1,26 @@
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 # Vintner Boot Integration: Where to Resume
 
-Date: 2026-11-14. Branch: `claude/vintner-boot-integration`. Plans: `VINTNER_BOOT.md`, `SAFE_MODE_WORKORDER.md`;
-test reference: `SAFE_MODE.md`. Read `TOOLING.md` first.
+Date: 2026-11-14 (evening). Branch: `claude/vintner-boot-integration`. Plans: `VINTNER_BOOT.md`,
+`SAFE_MODE_WORKORDER.md`; test reference: `SAFE_MODE.md`. Read `TOOLING.md` first.
 
 ## 1. State
 
-- Master and `development` are `1a1f393f` (2026-11-14): this branch's work up to `ef0dc06f` is in them, with wine
-  `5ec3c009` (Wine `development`, which contains the Run dialog and DDE commits), wexcomp `1f8e5d3a` and vintner
-  `6f30413`.
-- On the branch since then, waiting for session 0 to merge to master: the test harness (`df456f23`, merge of
-  `claude/harness-speed`): `installer/tests/run-chain.sh`, `build-test-iso.sh`, `nbd-connect.sh`, and the memory
-  settings in `scripts/vmtest.py`. Docs: `TOOLING.md` (its own section at the end) and `SAFE_MODE.md`.
+- The branch equals master and `development` at `2162596c` (2026-11-14), plus this note: wine `1052fab3`, wexcomp
+  `1f8e5d3a`, vintner `6f30413`. Everything of this branch is on master: the Run dialog and DDE fixes (via Wine
+  `development`), D5 Startup and Recovery, C4's classic logon, D4 Debugging Mode, the test harness
+  (`installer/tests/run-chain.sh`, `build-test-iso.sh`, `nbd-connect.sh`) and `scripts/vmtest.py`'s memory settings.
 - Nothing is uncommitted here except ` M wine` and ` M vintner`: those working trees are not this work's (the
   `wine` one is the E1 checkout). Never `git add` them; a gitlink change goes through
   `git update-index --cacheinfo 160000,<sha>,PATH`.
 
 ## 2. Done and tested
 
-On the ISO `wex-vb` (2026-11-14, `289c2080`: master `152d6095` with vintner `6f30413`), BIOS and UEFI, all passing
-(install, defaults and `startrec` with the old wrappers; then every stage again with `run-chain.sh -j 3` on its
-installed disks). The same chain passed on `wex-pn` (wine `5ec3c009`, vintner `d3fe892`) and on `wex-mg` (wine
-`3ea5d0cb83b`, 2026-11-13):
+On the ISO `wex-mm` (2026-11-14, `2162596c`: Wine `1052fab3`), BIOS and UEFI, all passing, with
+`run-chain.sh -j 2 --iso` (53 minutes, the install included): install, then
 
 | Stage | Phases |
 |---|---|
-| install | zero-input install and installed-disk checks |
 | defaults | safe, safenet, safecmd, nowine, bootlog, startnormal, oschoices, normal, lastgood, vfailed, lastgoodgen, with the probes |
 | accounts | `accounts` |
 | classic logon dialog (C4) | `classic` (caption 5 66 202, Luna) |
@@ -33,31 +28,42 @@ installed disks). The same chain passed on `wex-pn` (wine `5ec3c009`, vintner `d
 | Wayland | `waylanddisplay`, `waylandsafe`, `waylandcmd` |
 | Startup and Recovery (D5) | `startrec` |
 
-Flaky, not failing: on UEFI the menu key (F8 held 25 seconds) sometimes misses Vintner Boot's menu. `open_menu`
-retries once; on `wex-pn` `oschoices` missed both tries and passed when run again. Five single misses in earlier
-logs. `startrec` once lost a key of the password (UEFI); it now retypes once. `scripts/test_safemode.py`: 150.
+`debugmode` (D4) passed on both firmwares on `wex-vb` (`0738040c`'s files). Earlier passes: `wex-vb` (vintner
+`6f30413`), `wex-pn` (wine `5ec3c009`), `wex-mg` (wine `3ea5d0cb83b`).
 
-`run-chain.sh` on `wex-vb`, three jobs at a time: defaults 21 and 25 min (BIOS, UEFI), startrec 8 and 8, wayland 4
-and 5, classic 3 and 3, accounts 3 and 3, rundialog 2 and 2; all stages in about 35 minutes, against 79 one job at a
-time. With Wine unchanged, `build-test-iso.sh` spends only the ISO's 11 minutes.
+Flaky, not failing: on UEFI the menu key (F8 held 25 seconds) sometimes misses Vintner Boot's menu; `open_menu`
+retries once, and a stage that still misses passes when run again (`run-chain.sh --fws uefi NAME defaults`).
+`scripts/test_safemode.py`: 151.
+
+Owner-requested application tests on throwaway overlays (nothing kept, nothing in the repository; findings in
+session 0's `docs/KNOWN_BUGS.md`): the Zune theme MSI (B4 per-machine installs, B5 Windows version, B6 `.theme`
+association; the theme itself applies and looks right), Copilot (installs; B7 crash at start), Edge 156.0.4314.58
+(installs; headless renders; windowed start crashes, B10), Chromium 1736300 (installs per user and runs windowed
+with the sandbox and WebGL: the baseline).
 
 ## 3. Running or half done
 
-- The WSL restart for `%USERPROFILE%\.wslconfig` (`autoMemoryReclaim=dropcache`, written 2026-11-14 with the owner's
-  OK): after the Vintner session says its Secure Boot row in `vbtest` is finished, terminate Debian, vbtest and
-  wexbuild one by one (never `wsl --shutdown`), check the setting, and tell the Vintner session WSL is back.
+Nothing. No VM and no build is running. (The WSL restart for `.wslconfig`'s `autoMemoryReclaim=dropcache` was done
+on 2026-11-14.)
 
 ## 4. Next steps, in order
 
-1. The harness is on master (`3a08b9b7`). D4 (Debugging Mode on the serial port) is on the branch, tested with the
-   `debugmode` phase on both firmwares, handed to session 0 for master.
-2. `SAFE_MODE_WORKORDER.md` has one item left, C4's RID 500 and `wex-is-admin` for the Administrator account, which
-   is E1's (not this branch's). Ask the owner what comes next.
+1. When session 0 sends the Wine commit with its IVirtualDesktopManager (B10 lead), retry the windowed Edge start:
+   the Edge MSI is `D:\Projects\ChromiumLab\installers\edge-156.0.4314.58\` (SHA-256 `784051EB...F2FB`), on a
+   throwaway overlay with wineuser in `wexsys` (B4's workaround, never in an image).
+2. When session 0's B6 (`.theme` association, desk.cpl `/Action:OpenTheme`) lands, retry the Zune installer's last
+   step (`D:\Projects\apps\ZuneDesktopTheme.msi`; it needs B4's workaround and Windows XP SP2 for msiexec, B5).
+3. Pin Vintner Boot `87d2f60` or later (Secure Boot tier B: `vintner-platform` carries `shimx64.efi` and
+   `mmx64.efi`, and `vintner-core` refuses a payload without them; build both from one commit) with the full chain.
+4. Run the chain for each Wine pin session 0 proposes (next: Wine `51c29e50`, the UWP XAML loader).
+5. `SAFE_MODE_WORKORDER.md` has one item left, C4's RID 500 and `wex-is-admin`, which is E1's. Ask the owner what
+   comes next.
 
 How merges work (owner, 2026-11-14): I move pins on my own branch as needed; the session 0 session merges into
 master (and other branches) and moves the pins there. I send it the commit, the pins and what was tested, and say
 what touches `scripts/`, `installer/`, `docs/TOOLING.md` or `docs/STOCK_CHANGES.md`. Session 0 runs on another
-machine; the Vintner session shares this one (WSL Debian), so tell it before VM runs.
+machine; the Vintner session shares this one (WSL Debian), so tell it before VM runs. Bugs found along the way go
+to session 0, which records them in `docs/KNOWN_BUGS.md` (owner, 2026-11-14).
 
 ## 5. Open decisions for the owner
 
@@ -65,15 +71,15 @@ None.
 
 ## 6. What is left on the machines
 
-- WSL Debian (VM tests): `/var/tmp/vmtest-gpt/wex-vb-bios` and `-uefi` (the installed disks, about 9 GB each; keep
-  as the base) and some `wex-vb-STAGE-FW` overlays (may be deleted). Results: `/var/tmp/wex-chain/wex-vb/`. Probes:
-  `/mnt/d/WSL/wex-iso/probes`.
-- `D:\WSL\wex-iso\wex-vb.iso`: the tested ISO. `wex-pn`, `wex-mg` and `wex-c5` (disks and ISOs) are deleted.
-- WSL wexbuild (builds): `/root/WineExplorer` is the ISO clone, its `wine` at `5ec3c009` with a current build
-  (`build/wow64/.wex-test-iso-stamp` is written by `build-test-iso.sh` from its first run on). `/root/WE-safemode`,
-  `/root/wine-stage` and `/root/wine-vbi.bundle` are older and may be deleted after a look.
-- How to test a commit now: `installer/tests/build-test-iso.sh REV NAME` in wexbuild, then
+- WSL Debian (VM tests): `/var/tmp/vmtest-gpt/wex-mm-bios` and `-uefi` (the installed disks of `2162596c`, about
+  9 GB each; keep as the base). Results: `/var/tmp/wex-chain/wex-mm/`. Probes: `/mnt/d/WSL/wex-iso/probes`.
+  `msitools` is installed (reading MSIs).
+- `D:\WSL\wex-iso\wex-mm.iso`: the tested ISO. Older ISOs and disks are deleted.
+- WSL wexbuild (builds): `/root/WineExplorer` is the ISO clone, its `wine` at `1052fab3` with a current build and
+  `build/wow64/.wex-test-iso-stamp`. `/root/WE-safemode`, `/root/wine-stage` and `/root/wine-vbi.bundle` are older
+  and may be deleted after a look.
+- How to test a commit: `installer/tests/build-test-iso.sh REV NAME` in wexbuild, then
   `installer/tests/run-chain.sh --iso /mnt/d/WSL/wex-iso/NAME.iso NAME` in Debian (`docs/TOOLING.md`, the section
-  added 2026-11-14). The old wrappers in `D:\WSL\wex-iso\session-scripts` are kept only for `wexbuild-wine-merge.sh`
-  (a Wine merge in a worktree of the ISO clone, brought here with a bundle).
-- Use `wsl --terminate NAME`, never `wsl --shutdown` (other sessions use the same WSL).
+  added 2026-11-14). The old wrappers in `D:\WSL\wex-iso\session-scripts` are kept only for `wexbuild-wine-merge.sh`.
+- `%USERPROFILE%\.wslconfig` has `autoMemoryReclaim=dropcache`. Use `wsl --terminate NAME`, never `wsl --shutdown`
+  (other sessions, and another Windows account's Claude session, use the same WSL).
