@@ -37,7 +37,7 @@ int main( int argc, char **argv )
         name = argv[i];
     }
     if (!name) { fprintf( stderr, "usage: wex-is-admin USER\n" ); return 2; }
-    if (!valid_name( name )) return 1;
+    if (!accounts_valid_name( name )) return 1;
     if ((dir = protected_directory( account_directory, &status )) == -1) return 1;
     status = read_policy( dir, &policy );
     close( dir );
