@@ -3217,3 +3217,17 @@ Later on 2026-11-13 (U1.4, application data, measured on Windows 11, `tests/uwp/
 `ERROR 0x80073D54` for an unpackaged process), `LocalSettings` and `RoamingSettings` (typed values, containers, composite
 values, kept in `HKCU\Software\WineExplorer\Packages\<family>`), `ClearAsync`, `ClearAllAsync`, `Version`, `DataChanged`.
 Not done: `StorageFile`/`FileIO` of the folders (other APIs), `MapChanged` events, `GetPublisherCacheFolder`.
+
+Later on 2026-11-13 (U1.5, storage files, measured on Windows 11, `tests/uwp/u1_1` application `ViewStorage`):
+`dlls/windows.storage`: `folder.c` rewritten (one object for a file or a folder: `StorageFolder` create, get, list,
+rename, delete; `StorageFile` copy, move, replace, rename, delete, type, content type; `BasicProperties`;
+`GetFileFromPathAsync`, `GetFileFromApplicationUriAsync` for `ms-appdata:` and `ms-appx:`), new `fileio.c` (`FileIO`,
+`PathIO`), new `vector.c` (a copy of `dlls/windows.media.speech/vector.c`), new `storage_private.idl`
+(`IStorageFileStatics`, `IStorageFolder2`, `IStorageItemProperties`, `IStorageFilePropertiesWithAvailability`), `async.c`
+(typed operations, a string result, `IAsyncAction`), `classes.idl`, `main.c`, `private.h`, `Makefile.in` (imports
+`advapi32`). `dlls/wintypes`: new `datareader.c` (`DataReader.FromBuffer`), `classes.idl`, `main.c`, `private.h`,
+`Makefile.in`. `include/windows.storage.idl` (`IFileIOStatics`, `IPathIOStatics`, `FileIO`, `PathIO`, iterables of
+`StorageFile` and `StorageFolder`, vectors of strings), `include/windows.storage.streams.idl` (`IDataReader`,
+`IDataReaderFactory`, `IDataReaderStatics`, `DataReader`, `DataReaderLoadOperation`). A folder object no longer keeps
+a handle of its directory open (a kept handle delays the removal of the directory in Wine). Not done: file streams
+(`OpenAsync`), `DataReader.LoadAsync`, thumbnails, queries, `KnownFolders`.
