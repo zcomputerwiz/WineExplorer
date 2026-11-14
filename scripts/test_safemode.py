@@ -90,6 +90,10 @@ class TestSyntax(unittest.TestCase):
             self.assertIn(stage, chain)
         self.assertIn("STAGES=(defaults startrec wayland classic accounts rundialog)", chain)
         self.assertIn('bash "$SRC/installer/tests/safe-mode.sh"', chain)   # the copy, not the checkout
+        # and the runner itself runs from the copy (an edit of the checkout's copy broke a run once)
+        self.assertLess(chain.index("tar -C \"$CHECKOUT\""),
+                        chain.index('WEX_CHAIN_COPY=$SRC exec bash "$SRC/installer/tests/run-chain.sh"'))
+        self.assertLess(chain.index('WEX_CHAIN_COPY=$SRC exec bash'), chain.index("total=$(awk"))
         self.assertIn('while [ "$(jobs -rp | wc -l)" -ge "$LANES" ]; do wait -n; done', chain)
         iso = (tests / "build-test-iso.sh").read_text(encoding="utf-8")
         self.assertIn('INPUTS="$WREV $(rev_of src) $(rev_of scripts/assemble.py) $(rev_of scripts/assemble.sh)"', iso)

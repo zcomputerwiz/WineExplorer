@@ -67,12 +67,19 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 CHECKOUT=$(cd "$HERE/../.." && pwd)
 OUT=/var/tmp/wex-chain/$NAME
 SRC=$OUT/src
-mkdir -p "$OUT" "$VMTEST_DIR"
-rm -f "$OUT"/*.log "$OUT"/*.png "$OUT"/*.rc "$OUT/summary.txt"
-rm -rf "$SRC" && mkdir -p "$SRC"
-tar -C "$CHECKOUT" --exclude='*.vdi' --exclude='*.iso' --exclude=installer/live-build/config/packages.chroot \
-    --exclude=installer/test-evidence --exclude=__pycache__ -cf - scripts installer | tar -C "$SRC" -xf - || exit 1
-[ -f "$SRC/installer/tests/safe-mode.sh" ] || { echo "no copy of the tests"; exit 1; }
+if [ "${WEX_CHAIN_COPY:-}" != "$SRC" ]; then
+    # Copy the checkout's tests, then run this script from the copy: bash reads a script as it runs, so an edit of
+    # the checkout's run-chain.sh during a run broke it at its end (2026-11-14, the last jobs lost with it).
+    mkdir -p "$OUT" "$VMTEST_DIR"
+    rm -f "$OUT"/*.log "$OUT"/*.png "$OUT"/*.rc "$OUT/summary.txt"
+    rm -rf "$SRC" && mkdir -p "$SRC"
+    tar -C "$CHECKOUT" --exclude='*.vdi' --exclude='*.iso' --exclude=installer/live-build/config/packages.chroot \
+        --exclude=installer/test-evidence --exclude=__pycache__ -cf - scripts installer | tar -C "$SRC" -xf - || exit 1
+    [ -f "$SRC/installer/tests/safe-mode.sh" ] || { echo "no copy of the tests"; exit 1; }
+    ARGS=(-j "$LANES" --fws "$FWS")
+    [ -n "$ISO" ] && ARGS+=(--iso "$ISO")
+    WEX_CHAIN_COPY=$SRC exec bash "$SRC/installer/tests/run-chain.sh" "${ARGS[@]}" "$NAME" "${STAGES[@]}"
+fi
 
 total=$(awk '/^MemTotal:/ { print int($2 / 1048576) }' /proc/meminfo)
 if [ $((LANES * 4 + 2)) -gt "$total" ]; then
