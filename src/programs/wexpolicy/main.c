@@ -27,6 +27,7 @@
  *   wexpolicy clear /machine | /user:SID        remove what the last apply wrote
  *   wexpolicy list  /machine | /user:SID        print what the last apply wrote
  *   wexpolicy security /machine TEMPLATE...     security templates (GptTmpl.inf, sectmpl.c)
+ *   wexpolicy record /machine|/user:SID LIST    the list of applied objects (gpolist.c)
  *   wexpolicy                                   started by the service manager: the service "gpsvc"
  *
  * The files are applied in the order given (a later file wins), as the Group Policy client applies the GPOs in
@@ -649,7 +650,8 @@ int __cdecl wmain( int argc, WCHAR **argv )
         say( "usage: wexpolicy apply /machine|/user:SID FILE [FILE...]\n"
              "       wexpolicy clear /machine|/user:SID\n"
              "       wexpolicy list  /machine|/user:SID\n"
-             "       wexpolicy security /machine TEMPLATE [TEMPLATE...]\n" );
+             "       wexpolicy security /machine TEMPLATE [TEMPLATE...]\n"
+             "       wexpolicy record /machine|/user:SID LIST\n" );
         return ERROR_INVALID_PARAMETER;
     }
     /* security templates (GptTmpl.inf) are machine policy only */
@@ -666,6 +668,27 @@ int __cdecl wmain( int argc, WCHAR **argv )
             return ERROR_ACCESS_DENIED;
         }
         return apply_security_templates( count, argv + 3 );
+    }
+    /* the list of applied objects (gpolist.c) */
+    if (!_wcsicmp( argv[1], L"record" ))
+    {
+        if (count != 1)
+        {
+            say( "wexpolicy: wrong arguments\n" );
+            return ERROR_INVALID_PARAMETER;
+        }
+        if (!is_local_system())
+        {
+            say( "wexpolicy: only the system writes policy\n" );
+            return ERROR_ACCESS_DENIED;
+        }
+        if ((err = parse_target( argv[2], &sid, &root )))
+        {
+            say( "wexpolicy: %ls: error %lu\n", argv[2], err );
+            return err;
+        }
+        if (root && root != HKEY_LOCAL_MACHINE) RegCloseKey( root );
+        return record_gpo_list( sid, argv[3] );
     }
     apply = !_wcsicmp( argv[1], L"apply" );
     clear = !_wcsicmp( argv[1], L"clear" );

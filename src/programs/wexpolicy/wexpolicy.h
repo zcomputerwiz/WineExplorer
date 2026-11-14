@@ -28,4 +28,7 @@ void bump_serial( HKEY root, BOOL user );
 /* sectmpl.c */
 DWORD apply_security_templates( int count, WCHAR **paths );
 
+/* gpolist.c */
+DWORD record_gpo_list( const WCHAR *sid, const WCHAR *path );
+
 #endif /* WEXPOLICY_H */

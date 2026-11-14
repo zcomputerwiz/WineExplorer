@@ -3546,6 +3546,43 @@ s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Syst
 s0_wine reg delete 'HKLM\Software\Policies\WexPol' /f >/dev/null 2>&1 || true
 kill_servers
 ok st_security_template_lockout_policy_and_options
+# Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
+# extension, for the machine and for the user
+REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'
+T=$'\t'
+printf '%s\n' "{31B2F340-016D-11D2-945F-00C04FB984F9}${T}65539${T}3${T}0${T}Default Domain Policy${T}\\\\ad\\sysvol\\p1${T}LDAP://CN={31B2F340-016D-11D2-945F-00C04FB984F9},CN=Policies${T}LDAP://DC=ad${T}[$SECEXT{803E14A0-B4FB-11D0-A0D0-00A0C90F574B}]" \
+    "{6AC1786C-016F-11D2-945F-00C04FB984F9}${T}2${T}4${T}0${T}Wex Test${T}\\\\ad\\sysvol\\p2${T}LDAP://CN={6AC1786C-016F-11D2-945F-00C04FB984F9},CN=Policies${T}LDAP://OU=Wex,DC=ad${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
+    > "$POL/machine.list"
+printf '%s\n' "{6AC1786C-016F-11D2-945F-00C04FB984F9}${T}131072${T}4${T}0${T}Wex Test${T}\\\\ad\\sysvol\\p2${T}LDAP://x${T}LDAP://OU=Wex,DC=ad${T}[$REGEXT{D0FE4F7B-E0FE-4D0B-9BD9-0AB29C4E7A5E}]" > "$POL/user.list"
+printf 'not-a-guid\t1\t3\t0\tx\tx\tx\tx\tx\n' > "$POL/bad.list"
+: > "$POL/empty.list"
+OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/machine.list")" | tr -d '\r')" || true
+grep -q 'recorded=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record /machine"; }
+OUT="$(s0_wine wexpolicy record "/user:$STD_SID" "$(winpath "$POL/user.list")" | tr -d '\r')" || true
+grep -q 'recorded=1 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record for the user"; }
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine "$REGEXT" | tr -d '\r')"
+    grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 1 ] &&
+        grep -qx 'gpo={6AC1786C-016F-11D2-945F-00C04FB984F9} version=2 link=4 name=Wex Test som=LDAP://OU=Wex,DC=ad' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "gpolist: a $b-bit program's machine list for the registry extension"; }
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine "$SECEXT" | tr -d '\r')"
+    grep -q '^gpo={31B2F340-016D-11D2-945F-00C04FB984F9} version=65539 link=3 name=Default Domain Policy' <<<"$OUT" &&
+        [ "$(grep -c '^gpo=' <<<"$OUT")" = 1 ] || { echo "$OUT" >&2; fail "gpolist: a $b-bit program's machine list for the security extension"; }
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist user "$REGEXT" | tr -d '\r')"
+    grep -q '^gpo={6AC1786C-016F-11D2-945F-00C04FB984F9} version=131072 ' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "gpolist: a $b-bit program's user list"; }
+done
+OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/bad.list")" | tr -d '\r')" || true
+grep -q 'error 11' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: a damaged list was taken"; }
+[ "$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" | grep -c '^gpo=')" = 1 ] || fail "gpolist: a damaged list changed the list"
+OUT="$(as_wine "$STD" wexpolicy record /machine "$(winpath "$POL/empty.list")" || true)"
+grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: $STD ran the writer"; }
+s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty list"
+s0_wine wexpolicy record "/user:$STD_SID" "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty user list"
+OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" | tr -d '\r')"
+[ "$OUT" = gpolist=0 ] || { echo "$OUT" >&2; fail "gpolist: the empty list"; }
+kill_servers
+ok st_applied_gpo_list_per_extension_for_machine_and_user
 # Group Policy step 2: the domain join that session 0's registry states is what Windows programs are told
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" join)"

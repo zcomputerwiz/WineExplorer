@@ -4,5 +4,6 @@ IMPORTS   = setupapi advapi32
 EXTRADLLFLAGS = -mconsole -municode
 
 SOURCES = \
+	gpolist.c \
 	main.c \
 	sectmpl.c
