@@ -274,3 +274,32 @@ Antigravity: user-reported operational guidance is `agy_run`, `mode: edit` for w
 * Write C, Python and shell helpers with the Write tool, never `python -c` or heredocs with backslashes: `
 ` became a real
   newline three times in one session (always `grep` the edited line or build before trusting it).
+
+## Added 2026-11-14: the Safe Mode chain in two commands (test ISO, then stages side by side)
+
+From a commit to a tested ISO, without the session wrappers used before (`D:\WSL\wex-iso\session-scripts`):
+
+1. In wexbuild, as root: `bash /mnt/d/Projects/WineExplorer/installer/tests/build-test-iso.sh REV NAME` builds
+   `/mnt/d/WSL/wex-iso/NAME.iso` from commit `REV` of the checkout (any branch; the working tree and its `wine`
+   checkout are not used). It needs the build clone `/root/WineExplorer` with `build/wow64` configured. Wine is
+   rebuilt only when `REV`'s wine gitlink or the assembled sources (`src/`, `scripts/assemble.*`) differ from the
+   last build's (about 17 minutes saved; `WEX_FORCE_WINE_BUILD=1` to rebuild anyway). The last line is `ISO DONE`.
+2. In WSL Debian, as root: `bash /mnt/d/Projects/WineExplorer/installer/tests/run-chain.sh --iso
+   /mnt/d/WSL/wex-iso/NAME.iso NAME` installs `NAME-bios` and `NAME-uefi` at once, then runs the stages
+   (`defaults startrec wayland classic accounts rundialog`, or the ones named) on both firmwares, three jobs at a
+   time (`-j`). Without `--iso` it reuses the installed disks. `WEX_TEST_PROBES=/mnt/d/WSL/wex-iso/probes` adds
+   the 32- and 64-bit probes to `defaults`. Results in `/var/tmp/wex-chain/NAME/summary.txt`, one log per job, the
+   failure screenshots beside them.
+
+Notes:
+
+* Each VM has 4 GB and 2 CPUs. WSL has 15 GB on the test machine, so `-j 3` is the most that fits; the CPUs are
+  not the limit. The Vintner Boot session shares the machine and runs its own VMs in the `vbtest` distro: tell it
+  before a long run.
+* Tests running at once take NBD devices under a lock (`installer/tests/nbd-connect.sh`, `/run/lock/
+  wex-test-nbd.lock`), from `nbd0`-`nbd7` (`WEX_NBD_FIRST`, `WEX_NBD_LAST`).
+* Times on 2026-11-13/14 with one job at a time: Wine 17 min, ISO 12 min, install 8 min, the stages 79 min (the
+  defaults 41 of them, `vfailed` alone 8.5 min per firmware). Side by side the stages take about as long as the
+  defaults on one firmware.
+* On OVMF the held F8 sometimes misses systemd-boot's menu (the test tries twice); a stage that fails that way
+  passes when run again on its own: `run-chain.sh --fws uefi NAME defaults`.

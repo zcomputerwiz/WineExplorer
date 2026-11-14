@@ -380,7 +380,7 @@ classic.
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (148 tests, Linux) covers:
+`scripts/test_safemode.py` (150 tests, Linux) covers:
 
 - the end of Plymouth: asking until it is gone, each request with a time limit, then ending a plymouthd that
   lingers or does not answer; and the unit without a terminal that does it before the menu's and the failure
@@ -417,7 +417,17 @@ classic.
 - Last Known Good: which starts save the control set, that only the control set is saved and put back (with
   continuation lines, and not a key that merely starts with the same name), that the rest of the registry and the
   file's mode are kept, a restore with no copy, and the item in the menu and on the failure screen;
-- that the VM test installs the Safe Mode files where the package does.
+- that the VM test installs the Safe Mode files where the package does;
+- the chain harness: `run-chain.sh`'s stages are phases of the VM test and it runs the test from its copy of the
+  checkout, at most `-j` jobs at once; both tests that connect a disk take the NBD device under one lock
+  (`nbd-connect.sh`); and `build-test-iso.sh` rebuilds Wine only when Wine or the assembled sources changed.
+
+The whole chain (install, then every stage below on both firmwares) runs with one command:
+`installer/tests/run-chain.sh --iso FILE.iso NAME` in WSL Debian as root, after an ISO of a commit from
+`installer/tests/build-test-iso.sh REV NAME` in wexbuild (usage in `docs/TOOLING.md`). Its stages are `defaults`
+(the phases run when none is named), `accounts`, `classic`, `rundialog`, `wayland` (`waylanddisplay`,
+`waylandsafe`, `waylandcmd`) and `startrec`, each on its own overlay of the installed disk, so they run side by side
+(three VMs at once by default).
 
 `installer/tests/safe-mode.sh` is the VM test (usage in `docs/TOOLING.md`). It boots a copy-on-write overlay of an
 installed test disk once per phase, opening Vintner Boot's menu (Shift held on BIOS, F8 on UEFI) and choosing the
