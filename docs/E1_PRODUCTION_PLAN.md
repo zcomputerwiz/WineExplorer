@@ -103,3 +103,23 @@ Each step leaves the normal build and the lab suite passing, and nothing is enab
    on the gate, then the default.
 
 Steps 1 and 2 need no decision. Step 3 needs decisions 1 to 3; step 4 needs decision 4.
+
+## Progress
+
+**Step 1, first part (2026-11-13).** The flag is `WEX_E1_TEST_HOOKS`; `scripts/lab/r8-lab-build.sh` and
+`scripts/test_broker_e1s18.sh` set it, nothing else does. Behind it now:
+
+- `consent.c`: the `ElevationTest` values that select the account and type the password.
+- `e1s18_broker.c` and `.h` (Qwen): the setters for the fake export and boundary tables, the test clock, the
+  test random numbers, the R8 context, the test accounts map, the skip-prepare switch, `e1s18_test_sha256`, and
+  the places where product functions read that state (they fall through to the real clock, the real random
+  numbers, the accounts map file and a real prepare).
+
+Left for later, each with its reason: `e1s18_set_s1_context` and `e1s18_set_ops` / `e1s18_reset_ops` (called by
+test code that is also built without any flag, so they need that test restructured first); the fixed uid and
+`/tmp` scaffolding near 3770 (dead on Windows after an early return; to be removed, not wrapped);
+`e1r9_broker0.c` has no hooks. Not started: the hooks in `wine/server` (`sysrun.c`, `token.c`), in
+`src/dlls/wexhost/e1s6.c`, in `wex_profile_storage.c`, and the verifier script.
+
+Tested: normal suite 347, lab suite 421, the broker's native test (with and without sanitizers) and its MinGW
+builds, T1.

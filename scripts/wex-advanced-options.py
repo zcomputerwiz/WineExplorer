@@ -45,6 +45,11 @@ PANIC_SYSCTL = os.environ.get("WEX_PANIC_SYSCTL", "/proc/sys/kernel/panic")
 # "Disable automatic restart on system failure" for systemd's own crash too: a drop-in in /run (this start only) that
 # sorts after Startup and Recovery's 90-wineexplorer-recovery.conf in /usr/lib or /etc, so its CrashAction wins
 CRASH_RUNTIME = os.environ.get("WEX_CRASH_RUNTIME", "/run/systemd/system.conf.d/99-wineexplorer-norestart.conf")
+# Debugging Mode (work order D4): XP starts its kernel debugger on a serial port. Here the journal (the kernel's
+# messages and every service's, at debug level) goes to the first serial port for this start: a /run drop-in for
+# journald, which is restarted to read it. A machine without that port gets the debug log level only.
+DEBUG_JOURNALD = os.environ.get("WEX_DEBUG_JOURNALD", "/run/systemd/journald.conf.d/90-wineexplorer-debug.conf")
+DEBUG_SERIAL = os.environ.get("WEX_DEBUG_SERIAL", "/dev/ttyS0")
 CMDLINE = os.environ.get("WEX_BOOTMODE_CMDLINE", "/proc/cmdline")
 LASTGOOD = os.environ.get("WEX_LASTGOOD_HELPER", "/usr/local/sbin/wex-lastgood")
 VINTNER = os.environ.get("WEX_VINTNER", "/usr/sbin/vintner")
@@ -411,6 +416,16 @@ def apply_choice(mode, option=None, run=subprocess.run):
                     "[Manager]\nCrashAction=freeze\n")
     if option == "debug":
         run(["systemd-analyze", "log-level", "debug"], check=False)
+        if os.path.exists(DEBUG_SERIAL):
+            try:
+                os.makedirs(os.path.dirname(DEBUG_JOURNALD), exist_ok=True)
+                with open(DEBUG_JOURNALD, "w", encoding="ascii") as f:
+                    f.write("# wex-advanced-options: Debugging Mode, this start only\n"
+                            f"[Journal]\nForwardToConsole=yes\nTTYPath={DEBUG_SERIAL}\nMaxLevelConsole=debug\n")
+            except OSError as error:   # the start goes on with the debug log level
+                print(f"wex-advanced-options: no debug output on {DEBUG_SERIAL}: {error}", file=sys.stderr)
+            else:
+                run(["systemctl", "restart", "systemd-journald.service"], check=False)
     if option == "lastgood":
         # before any Wine program reads the machine registry; a failure starts normally (main)
         run([LASTGOOD, "restore"], check=True)
