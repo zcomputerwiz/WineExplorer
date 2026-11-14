@@ -189,5 +189,8 @@ earlier U1 suites, `docs/STOCK_CHANGES.md` updated, push and merge coordinated w
   (Apache-2.0) and the .NET runtime it needs are never pre-packaged: setup shows their terms and downloads and installs
   them as components. Next step: a time-boxed experiment (Uno Skia Win32 on Wine; a C++/WinRT XAML app shown through
   a small shim over Uno hosted in-process) decides between this route and option A.
+* **Owner (2026-11-14), where the work goes:** change Wine where the change belongs to Windows itself (WinRT runtime,
+  activation, CoreWindow, DirectX, text, storage and the like: everything that is not XAML); do the XAML work in the
+  Uno-UWP component where that is the better place (controls, layout, templates, the XAML object model, XBF loading).
 * **Open:** the C++ UWP build tools (XAML compiler) are not installed on the Windows host; until they are, the oracle apps
   build their UI in code or load XAML text at run time (`XamlReader.Load`).
