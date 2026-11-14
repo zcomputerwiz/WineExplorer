@@ -1,0 +1,26 @@
+<!--
+SPDX-License-Identifier: GPL-2.0-or-later
+Copyright 2026 WineExplorer contributors
+XAML experiment step 2b: the managed side of the Windows.UI.Xaml shim over Uno (Skia, Win32 host). Published
+self-contained; the native proxy (xamlshim.dll) starts it with hostfxr and calls Activation.GetActivationFactory.
+-->
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-desktop</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <UnoSingleProject>true</UnoSingleProject>
+    <ApplicationTitle>XamlShim</ApplicationTitle>
+    <ApplicationId>org.wineexplorer.xamlshim</ApplicationId>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationPublisher>WineExplorer</ApplicationPublisher>
+    <UnoFeatures>Skia;</UnoFeatures>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);CS1591;CS8981;NETSDK1201;PRI257</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="XbfKit" Version="0.4.0" />
+  </ItemGroup>
+</Project>
