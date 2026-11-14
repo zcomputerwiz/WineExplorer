@@ -158,3 +158,45 @@ methods of `DataWriter` and `DataReader.LoadAsync` in `dlls/wintypes`). What Win
 The check `application_ids_are_all_applications_of_the_package` of `ViewPkgapi` counts the applications of the
 manifest: it was 7 and is 8 since `ViewStorage` was added (a probe correction, measured again on Windows: 39 and 59
 checks pass).
+
+## Package resources (U1.6, measured on Windows, passes on Wine)
+
+2026-11-14, application `ViewResources` (run with `run-mode.ps1 -Mode resources`): 43 checks pass on Windows 11, x64
+twice and x86 (list in `expected-resources.txt`). The package has a `resources.pri` that `package.ps1` builds with
+MakePri from `resources/Strings` (en-US and de-DE `.resw` files) and two images (`Assets/pic.scale-100.png`,
+`Assets/pic.scale-200.png`); the `packaging` element of the MakePri configuration is removed so that every language
+and scale stays in one file (with it, MakePri splits them into resource-pack files that a single package never loads).
+`build/payload` keeps `resources.pri` and the images for the Wine runs (`register-wine.py stage --payload`).
+
+What Windows does:
+
+* `ResourceLoader` names are relative to its map (`Resources` by default): `GetString(L"Resources/Greeting")` is empty,
+  `GetString(L"/Resources/Greeting")` is the string. Lookups ignore case. A missing name gives an empty string; an empty
+  name is `0x80070057`; a loader for a map that is not there fails with `0x80073B1F`.
+* MakePri turns the dots of a `.resw` name into slashes: `Button.Content` is found as `Button/Content`.
+* `GetStringForUri` and `GetStringForReference` take `ms-resource:///Resources/Greeting`, `ms-resource:Greeting` (relative
+  to the map) and `ms-resource://<package name>/Resources/Greeting`.
+* The main map holds the strings and every file of the package (`Files/...`, 10 entries here), its URI is
+  `ms-resource://<package name>/`, `AllResourceMaps` has one map named after the package. `GetValue` of a missing name
+  returns a null candidate (no error); `GetSubtree` of a missing scope returns null.
+* A file candidate's value is the full path in the package folder; `Files/Assets/pic.png` is found without the scale in the
+  name; `GetValueAsFileAsync` gives that file.
+* Candidates are listed best first for the default context; a string candidate's qualifier `Language=en-US` is the
+  default (the default language of the PRI).
+* Contexts: `Language=de-DE` picks `Hallo`, a resource without a German string falls back to the default language;
+  `de` and `de-AT` match `de-DE`; `fr-FR;de-DE` is a list; `ja-JP` gives the default. `Scale=200` picks the 200 image,
+  150 also picks 200 (the next bigger one), 400 picks 200 (the biggest). An unknown qualifier can be set.
+* The default context has 12 qualifiers (`Language`, `Contrast=standard`, `Scale` empty, `HomeRegion`, `TargetSize`,
+  `LayoutDirection`, `Theme`, `AlternateForm`, `DXFeatureLevel`, `Configuration`, `DeviceFamily=Desktop`, `Custom`).
+* `ResourceContext.GetForViewIndependentUse()` is one object for the process: a qualifier set through it changes what
+  every `ResourceLoader` returns. `ResourceManager.DefaultContext` and `new ResourceContext()` are separate.
+
+Wine, 2026-11-14 (commit fe9776eb of `codex/uwp-runtime`, merged to Wine `development`): the same bits pass all 43
+checks on x64 and x86, with and without a display. The code is in `dlls/windows.applicationmodel` (`pri.c`,
+`resources.c`); `Package.Id` was a stub before and is now implemented (the probe reads the package name through it).
+
+Prior art used for the Wine side: the PRI layout described in "Package Resource Index File Format" of PriTools
+(https://github.com/chausner/PriTools, Apache-2.0, a description written from analysis of files; no code taken), checked
+against the files MakePri made with a Python reader before the C code was written; the map and vector code of Wine
+(`dlls/wintypes/map.c`, `dlls/windows.media.speech/vector.c`). Microsoft's MRT Core (WindowsAppSDK, MIT) is the
+reference implementation; not used.

@@ -11,8 +11,9 @@ behaviour is in `tests/uwp/u1_1/README.md` and `tests/uwp/u1_3/README.md`.
 
 | What | Where | Commit |
 |---|---|---|
-| Wine code | repository `zcomputerwiz/wine`, branch `codex/uwp-runtime`; worktree `C:/Users/Owner/.codex/worktrees/uwp-runtime/wine` | a146951f |
-| Wine integration branch | `development` (has all UWP code; lacks only the `UWP_HANDOFF.md` text of b779616e) | 5ec3c009 |
+| Wine code | repository `zcomputerwiz/wine`, branch `codex/uwp-runtime`; worktree `C:/Users/Owner/.codex/worktrees/uwp-runtime/wine` | fe9776eb |
+| Wine integration branch | `development` (all UWP code) | fe9776eb |
+| WineExplorer UWP branch | `claude/uwp`, worktree `D:/DeepThought/Projects/WineExplorer-uwp` (probes and docs since 2026-11-14; `master` gets it by an agreed merge) | this commit |
 | Probes, runners, docs | this repository, `master`: `tests/uwp`, `docs/uwp`, `docs/STOCK_CHANGES.md` | this commit |
 | Lab helper scripts | `tests/uwp/lab-helpers` (copies of the session's scratch scripts) | this commit |
 
@@ -40,10 +41,7 @@ session), which is under the stream commit on `development`. Different DLLs, but
 
 ## Next steps, in order
 
-1. **MRT/PRI resources** (`ResourceLoader`, `ResourceManager`, `ms-resource:`, `resources.pri` reader). Not started.
-   Method as before: add a probe mode to `view.cpp` (package needs a `resources.pri`: build it with `makepri` from
-   the SDK), measure on Windows, write the expected list, then implement in Wine. Look for prior art first (upstream
-   Wine, `dlls/windows.applicationmodel*`, ReactOS has none).
+1. **Done 2026-11-14:** package resources (U1.6), 43 checks on Windows and Wine (`ViewResources`).
 2. **Suspend and resume** (U1.1c). The probe `ViewSuspend` is built. It needs a person at the Windows machine:
    `run-present.ps1 -Mode suspend -Manual`, then minimize the window, wait about 12 s, restore it, wait about 8 s.
 3. Installer signature check (so that Store-signed packages install), server-side compatibility gate.
