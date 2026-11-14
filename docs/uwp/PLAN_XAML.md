@@ -2,7 +2,7 @@
 SPDX-License-Identifier: GPL-2.0-or-later
 Copyright 2026 WineExplorer contributors
 -->
-# Plan: Windows.UI.Xaml for UWP applications (not started)
+# Plan: Windows.UI.Xaml for UWP applications (started 2026-11-14: X0)
 
 Written 2026-11-13 on the owner's instruction: **use Uno and WinUI 2 as implementation guidance, write the plan, do not
 start**. Nothing in this plan is built yet. It extends `UWP_COMPATIBILITY_PLAN.md` (the "XAML and conditional private
@@ -172,6 +172,25 @@ earlier U1 suites, `docs/STOCK_CHANGES.md` updated, push and merge coordinated w
   and are a separate decision.
 * **Toolchain on the Windows host:** compiling XAML apps needs the VS "UWP development" workload; X0 starts by checking
   it (the oracle apps of U1.1 needed only the C++ build tools).
-* **Open questions for the owner:** (1) is the Calculator still the first target, and may the Store package be used on
-  the Windows host as an oracle? (2) is a .NET dependency acceptable if A stalls (option B)? (3) does a XAML-capable
-  Wine need to ship before the Office and Copilot items, or after?
+* **Decided by the owner (2026-11-14):** (1) the Calculator is the first target, and the installed Store Calculator may
+  be run on the Windows host as a read-only oracle (observed only; none of its files enter the repository); (2) native
+  only (option A): no .NET dependency; if A stalls, report and decide again (option B is not pre-approved); (3) XAML
+  starts now; the Copilot and Office items run in a separate session of the owner's.
+* **Found 2026-11-14:** the current Calculator (11.2607) has a C# UI compiled with .NET Native and depends on the framework
+  packages `Microsoft.NET.Native.Framework.2.2`, `Microsoft.NET.Native.Runtime.2.2`, `Microsoft.UI.Xaml.2.8`,
+  `Microsoft.VCLibs.140.00(.UWPDesktop)`, and on WebView2. .NET Native is machine code and needs no .NET runtime in Wine;
+  its runtime DLLs come in those framework packages. **Owner (2026-11-14):** these Microsoft redistributables are
+  installed through the existing setup components workflow (`scripts/wex-components.py`, Windows Components in setup),
+  not shipped: a "UWP application frameworks" component downloads the pinned framework packages, shows their terms,
+  verifies the hashes and registers them with `wexappx`. The UWP support in Wine itself is built in; the component only
+  supplies the Microsoft frameworks. This keeps decision (2): no .NET runtime is added to Wine for XAML.
+* **Owner (2026-11-14, revises decision 2):** Uno is allowed as the XAML engine: `zcomputerwiz/uno-uwp` may be modified
+  in any way needed, and a shim of ours makes applications built against `Windows.UI.Xaml` (not against Uno) work. Uno
+  (Apache-2.0) and the .NET runtime it needs are never pre-packaged: setup shows their terms and downloads and installs
+  them as components. Next step: a time-boxed experiment (Uno Skia Win32 on Wine; a C++/WinRT XAML app shown through
+  a small shim over Uno hosted in-process) decides between this route and option A.
+* **Owner (2026-11-14), where the work goes:** change Wine where the change belongs to Windows itself (WinRT runtime,
+  activation, CoreWindow, DirectX, text, storage and the like: everything that is not XAML); do the XAML work in the
+  Uno-UWP component where that is the better place (controls, layout, templates, the XAML object model, XBF loading).
+* **Open:** the C++ UWP build tools (XAML compiler) are not installed on the Windows host; until they are, the oracle apps
+  build their UI in code or load XAML text at run time (`XamlReader.Load`).

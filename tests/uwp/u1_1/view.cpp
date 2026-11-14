@@ -74,6 +74,9 @@ static std::mutex lock;
 static std::vector<std::string> events;     /* the lifecycle events, in order */
 static std::vector<std::string> order;      /* the dispatcher batch, in order */
 static DWORD main_thread, view_thread, start_tick;
+/* suspend mode: where and how the lifetime events arrived */
+static DWORD suspending_thread, resuming_thread;
+static long long suspending_deadline = -1;
 static std::wstring package_full_name, application_id;
 static std::string mode;
 static bool presenting() { return mode == "present" || mode == "suspend"; }
@@ -1198,6 +1201,27 @@ static void present_frames(CoreWindow const &window, CoreDispatcher const &dispa
     check("back_buffer_holds_the_cleared_colour", pixels_ok);
 }
 
+/* what Windows 11 did when the process lifetime manager suspended and resumed the view (plm.exe, or the window
+ * minimized and restored by hand): tests/uwp/u1_1/README.md */
+static void suspend_checks()
+{
+    std::lock_guard<std::mutex> guard(lock);
+    int suspending = ::position(events, "Suspending"), resuming = ::position(events, "Resuming");
+    int deferral = ::position(events, "Suspending deferral completing");
+    check("suspending_raised_once", count(events, "Suspending") == 1);
+    check("suspending_on_the_view_thread", suspending_thread == view_thread);
+    check("suspending_deadline_is_about_5_s", suspending_deadline > 4000 && suspending_deadline <= 5000);
+    check("suspending_deferral_completes_from_another_thread", deferral > suspending);
+    check("resuming_after_the_suspension", resuming > deferral && deferral > 0);
+    check("resuming_on_the_view_thread", resuming_thread == view_thread);
+    int leaving = ::position(events, "LeavingBackground"), run = ::position(events, "Run"), visible = ::position(events, "Visible=1");
+    check("leaving_background_at_launch_before_visible", leaving > run && leaving < visible);
+    /* a hidden window enters the background before the suspension; a shown one leaves it after the resume */
+    int entered = ::position(events, "EnteredBackground");
+    check("entered_background_only_before_the_suspension", entered < 0 || entered < suspending);
+    info("events: %s", join(events).c_str());
+}
+
 static void run_present(CoreWindow const &window)
 {
     CoreDispatcher dispatcher = window.Dispatcher();
@@ -1225,9 +1249,22 @@ static void run_present(CoreWindow const &window)
     info("pointer position %.0f,%.0f", position.X, position.Y);
     put("READY");
     /* input injected by the host, or typed and clicked by hand (run-present.ps1 -Manual), arrives here */
-    pump(dispatcher, mode == "suspend" ? 60000 : 30000);
+    if (mode == "suspend")
+    {
+        /* suspended by the process lifetime manager (minimized by hand, or plm.exe suspend), then resumed: wait for the
+         * Resuming event and 3 s more, 4 minutes at most */
+        DWORD start = GetTickCount(), resumed = 0;
+        while (GetTickCount() - start < 240000 && (!resumed || GetTickCount() - resumed < 3000))
+        {
+            pump(dispatcher, 100);
+            std::lock_guard<std::mutex> guard(lock);
+            if (!resumed && ::position(events, "Resuming") >= 0) resumed = GetTickCount();
+        }
+    }
+    else pump(dispatcher, 30000);
     info("end: visible=%d", (int)window.Visible());
     if (mode == "present") present_checks();
+    if (mode == "suspend") suspend_checks();
     CoreApplication::Exit();
     dispatcher.ProcessEvents(CoreProcessEventsOption::ProcessUntilQuit);
 }
@@ -1426,11 +1463,20 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
             auto left = std::chrono::duration_cast<std::chrono::milliseconds>(operation.Deadline() - winrt::clock::now()).count();
             char text[96];
             std::snprintf(text, sizeof(text), "Suspending deadline_in=%lld ms", (long long)left);
+            suspending_thread = GetCurrentThreadId();
+            suspending_deadline = left;
             record(text);
+            record("Suspending");
             auto deferral = operation.GetDeferral();   /* the application is not suspended until this completes */
             std::thread([deferral] { Sleep(1500); record("Suspending deferral completing"); deferral.Complete(); }).detach();
         });
-        CoreApplication::Resuming([](IInspectable const &, IInspectable const &) { record("Resuming"); });
+        CoreApplication::Resuming([](IInspectable const &, IInspectable const &) { resuming_thread = GetCurrentThreadId(); record("Resuming"); });
+        CoreApplication::EnteredBackground([](IInspectable const &, Windows::ApplicationModel::EnteredBackgroundEventArgs const &) {
+            record("EnteredBackground");
+        });
+        CoreApplication::LeavingBackground([](IInspectable const &, Windows::ApplicationModel::LeavingBackgroundEventArgs const &) {
+            record("LeavingBackground");
+        });
         check("view_is_main", view.IsMain());
         check("view_is_not_hosted", !view.IsHosted());
     }

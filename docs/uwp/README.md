@@ -15,7 +15,7 @@ owned U1 guest. Wine code is on `codex/uwp-runtime`, merged to Wine `development
 | U1.0 package identity, activation of a packaged component | done | fixture, 14 context negatives |
 | U1.1 view lifecycle (`CoreApplication.Run`, `CoreWindow`, `CoreDispatcher`) | done | 32, 30, 3 |
 | U1.1b presentation and input (`CreateSwapChainForCoreWindow`, key and pointer events) | done | 29 |
-| U1.1c suspend and resume | probe built, not measured (needs a person at the Windows machine) | |
+| U1.1c suspend and resume (`Suspending`, `Resuming`, `EnteredBackground`, `LeavingBackground`) | done | 25 |
 | U1.2 package information (`GetCurrentPackageInfo` and related) | done | 39 |
 | U1.3 package dependencies (framework packages on the DLL search path) | done | `tests/uwp/u1_3` |
 | U1.4 `ApplicationData` (folders, settings, composite values) | done | 24, 26 |

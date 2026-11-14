@@ -129,15 +129,18 @@ for arch in x64 x86; do
     fi
 
     # presentation and input: the probe presents frames to its CoreWindow and records what arrives while inject.exe
-    # moves the mouse, clicks, turns the wheel and types (needs the display: PRESENT=1, run under xvfb-run)
-    if [ -n "${PRESENT:-}" ]; then
-        mode=present; file="$appdata/view-$mode.txt"; rm -f "$file"
+    # moves the mouse, clicks, turns the wheel and types; suspend: suspend.exe minimizes the window and restores it
+    # (needs the display: PRESENT=1, run under xvfb-run)
+    for spec in present:inject:ViewPresent suspend:suspend:ViewSuspend; do
+        [ -n "${PRESENT:-}" ] || break
+        mode=${spec%%:*}; helper=${spec#*:}; helper=${helper%%:*}; app=${spec##*:}
+        file="$appdata/view-$mode.txt"; rm -f "$file"
         gcc=x86_64-w64-mingw32-gcc; [ "$arch" = x86 ] && gcc=i686-w64-mingw32-gcc
-        "$gcc" -O2 -Wall -o "$out/inject.exe" "$u11/inject.c"
-        wine_run "$out/inject.log" "$out/inject.exe" &
+        "$gcc" -O2 -Wall -o "$out/$helper.exe" "$u11/$helper.c"
+        wine_run "$out/$helper.log" "$out/$helper.exe" &
         injector=$!
         status=0
-        wine_run "$out/$mode.log" "$u10/$arch/launcher.exe" "$family!ViewPresent" "$mode" unused "$full" || status=$?
+        wine_run "$out/$mode.log" "$u10/$arch/launcher.exe" "$family!$app" "$mode" unused "$full" || status=$?
         for i in $(seq 1 90); do
             grep -q -E 'Closed|WATCHDOG' "$file" 2>/dev/null && break
             sleep 1
@@ -161,7 +164,7 @@ for arch in x64 x86; do
             fi
             grep -E '^(INFO|TRACE|HRESULT)' "$out/$mode.txt" | tr -d '\r' | sed "s/^/$arch $mode /" >> "$results/observations.txt" || true
         fi
-    fi
+    done
     python3 "$register" unregister "$WINEPREFIX" "$full"
 
     killed=0; waited=0
