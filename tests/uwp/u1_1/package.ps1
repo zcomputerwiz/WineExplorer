@@ -49,6 +49,31 @@ try {
         $manifest = $manifest.Replace($entry.Key, [Security.SecurityElement]::Escape($entry.Value))
     }
     [IO.File]::WriteAllText((Join-Path $stage 'AppxManifest.xml'), $manifest, (New-Object Text.UTF8Encoding $false))
+    # package resources (ViewResources): the strings of resources\Strings and two scaled images, indexed by MakePri into
+    # resources.pri; resources.pri and the images are also left in build\payload for the Wine runs
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'resources\Strings') -Destination $stage -Recurse
+    New-Item -ItemType Directory -Path (Join-Path $stage 'Assets') | Out-Null
+    foreach ($image in @(@('pic.scale-100.png',10),@('pic.scale-200.png',20))) {
+        $bitmap = New-Object System.Drawing.Bitmap ([int]$image[1]),([int]$image[1])
+        try { $bitmap.Save((Join-Path $stage "Assets\$($image[0])"), [System.Drawing.Imaging.ImageFormat]::Png) } finally { $bitmap.Dispose() }
+    }
+    $priconfig = Join-Path $work 'priconfig.xml'
+    & "$tools\makepri.exe" createconfig /cf $priconfig /dq en-US /pv 10.0.0 /o | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'MakePri createconfig failed' }
+    # one resources.pri with every language and scale (no resource packs: this is a single package)
+    [xml]$config = Get-Content -LiteralPath $priconfig -Raw
+    $packaging = $config.resources.SelectSingleNode('packaging')
+    if ($packaging) { [void]$config.resources.RemoveChild($packaging) }
+    $config.Save($priconfig)
+    & "$tools\makepri.exe" new /pr $stage /cf $priconfig /mn (Join-Path $stage 'AppxManifest.xml') /of (Join-Path $stage 'resources.pri') /o | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'MakePri new failed' }
+    & "$tools\makepri.exe" dump /if (Join-Path $stage 'resources.pri') /of (Join-Path $work 'resources-dump.xml') /dt detailed /o | Out-Null
+    Remove-Item -LiteralPath (Join-Path $stage 'Strings') -Recurse
+    $payload = Join-Path $PSScriptRoot 'build\payload'
+    if (Test-Path -LiteralPath $payload) { Remove-Item -LiteralPath $payload -Recurse }
+    New-Item -ItemType Directory -Path $payload | Out-Null
+    Copy-Item -LiteralPath (Join-Path $stage 'resources.pri') -Destination $payload
+    Copy-Item -LiteralPath (Join-Path $stage 'Assets') -Destination $payload -Recurse
     $package = Join-Path $work 'view.appx'
     & "$tools\makeappx.exe" pack /d $stage /p $package /o
     if ($LASTEXITCODE -ne 0) { throw 'MakeAppx failed' }
