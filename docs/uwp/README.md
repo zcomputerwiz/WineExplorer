@@ -4,9 +4,32 @@ Copyright 2026 WineExplorer contributors
 -->
 # UWP / package compatibility (track U1)
 
-Status (2026-11-11): fixture and unpackaged baseline work has started; packaged
-Wine identity/activation and UWP lifecycle remain unimplemented/unproven.
-See `EXECUTION_PLAN.md` for current evidence, sequencing and agent assignments. Documents:
+## Status (2026-11-13)
+
+Each item was measured on Windows 11 with a self-owned probe, and the same binaries pass on Wine x64 and x86 in the
+owned U1 guest. Wine code is on `codex/uwp-runtime`, merged to Wine `development` (9484da1a). Evidence and findings:
+`tests/uwp/u1_0`, `tests/uwp/u1_1/README.md`, `tests/uwp/u1_3/README.md`; Wine changes: `docs/STOCK_CHANGES.md`.
+
+| Item | State | Checks |
+|---|---|---|
+| U1.0 package identity, activation of a packaged component | done | fixture, 14 context negatives |
+| U1.1 view lifecycle (`CoreApplication.Run`, `CoreWindow`, `CoreDispatcher`) | done | 32, 30, 3 |
+| U1.1b presentation and input (`CreateSwapChainForCoreWindow`, key and pointer events) | done | 29 |
+| U1.1c suspend and resume | probe built, not measured (needs a person at the Windows machine) | |
+| U1.2 package information (`GetCurrentPackageInfo` and related) | done | 39 |
+| U1.3 package dependencies (framework packages on the DLL search path) | done | `tests/uwp/u1_3` |
+| U1.4 `ApplicationData` (folders, settings, composite values) | done | 24, 26 |
+| U1.5 `StorageFolder`, `StorageFile`, `FileIO`, `PathIO`, file streams, `DataReader`, `DataWriter` | done | 87 |
+| Package installer (`wexappx`) | done, without a signature check | 63, 59 |
+| MRT/PRI resources (`ResourceLoader`, `ms-resource:`) | not started | |
+| Installer signature check, server-side compatibility gate | not started | |
+| `Windows.UI.Xaml` (U2) | plan only: `PLAN_XAML.md`, waits for the owner's decision | |
+
+Not done inside the finished items: thumbnails, file queries, `KnownFolders`, pickers, `GetParentAsync`,
+`MapChanged` events of the settings, `GetPublisherCacheFolder`. Storage operations finish on the calling thread.
+
+The sections below are the decisions of 2026-11-05 and the plan as it was written then; where they say something is
+unimplemented, the table above is newer. See `EXECUTION_PLAN.md` for the earlier evidence and sequencing. Documents:
 
 * `UWP_COMPATIBILITY_PLAN.md` - the proposed plan, kept as written. Where it conflicts with this file, this file wins.
   In particular every proposal in it to build, fork or bridge to a managed (Uno) backend is superseded (see Uno).

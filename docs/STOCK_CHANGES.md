@@ -3229,5 +3229,7 @@ rename, delete; `StorageFile` copy, move, replace, rename, delete, type, content
 `Makefile.in`. `include/windows.storage.idl` (`IFileIOStatics`, `IPathIOStatics`, `FileIO`, `PathIO`, iterables of
 `StorageFile` and `StorageFolder`, vectors of strings), `include/windows.storage.streams.idl` (`IDataReader`,
 `IDataReaderFactory`, `IDataReaderStatics`, `DataReader`, `DataReaderLoadOperation`). A folder object no longer keeps
-a handle of its directory open (a kept handle delays the removal of the directory in Wine). Not done: file streams
-(`OpenAsync`), `DataReader.LoadAsync`, thumbnails, queries, `KnownFolders`.
+a handle of its directory open (a kept handle delays the removal of the directory in Wine). Then file streams: new
+`dlls/windows.storage/filestream.c` (`StorageFile.OpenAsync`, `OpenReadAsync`, `OpenSequentialReadAsync`,
+`OpenTransactedWriteAsync`), `dlls/wintypes/storage.c` (the write methods, encoding, byte order and `FlushAsync` of
+`DataWriter`), `dlls/wintypes/datareader.c` (`LoadAsync`). Not done: thumbnails, queries, `KnownFolders`.

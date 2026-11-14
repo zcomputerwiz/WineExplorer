@@ -28,8 +28,9 @@ what XAML needs).
   else of `Windows.UI.Xaml` exists.
 * Done and measured on Windows 11: `CoreApplication.Run` view lifecycle, `CoreWindow`/`CoreDispatcher`, pointer, key and
   character events, `ICoreWindowInterop` and `CreateSwapChainForCoreWindow` (Direct3D 11), package identity and
-  information, framework dependencies on the DLL search path, `ApplicationData`.
-* Missing for XAML beyond XAML itself: `StorageFile`/`FileIO` (in progress), MRT/PRI resource loading
+  information, framework dependencies on the DLL search path, `ApplicationData`, `StorageFolder`, `StorageFile`,
+  `FileIO`, `PathIO` and file streams (U1.5, 2026-11-13).
+* Missing for XAML beyond XAML itself: MRT/PRI resource loading
   (`ResourceManager`, `ResourceLoader`, `ms-resource:`/`ms-appx:` URIs), XBF2 loading, `Windows.UI.Composition`
   (XAML renders through it), text services (`Windows.UI.Text.Core`), `Windows.UI.ViewManagement` completeness,
   accessibility (UI Automation) providers.
@@ -140,7 +141,7 @@ earlier U1 suites, `docs/STOCK_CHANGES.md` updated, push and merge coordinated w
 
 ## 8. Dependencies on other work (to schedule before or inside the phases)
 
-* **Before X0/X1:** `StorageFile` and `FileIO` (in progress), MRT/PRI (`ms-appx:`, `ms-resource:`, qualifiers) and the
+* **Before X0/X1:** MRT/PRI (`ms-appx:`, `ms-resource:`, qualifiers) and the
   `resources.pri` reader, installer signature check (to run Store-signed packages), server-side compatibility gate.
 * **Before X3:** Direct2D/DirectWrite and WIC conformance for what rendering uses (measure first; Wine already has
   them, the gaps are found by the oracle pages), DPI and rasterization scale from `CoreWindow`.
