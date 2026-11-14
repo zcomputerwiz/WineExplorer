@@ -284,6 +284,16 @@ hidden when the `Window` is created) becomes a child of the CoreWindow before it
 CoreWindow's size: the page is 1200x900, as on Windows (the lab's virtual screen must be large enough: at 1280x800
 Wine fits the window to 1200x778). Without a CoreApplication (`Run` refused) the old path is kept.
 
+**Suspend and resume (2026-11-14):** `Application.Suspending` and `Resuming` are raised from `CoreApplication`'s events
+(handler IIDs computed from their signatures, equal to the SDK's: `338579bf-1a35-5cc4-a622-a6f384fd892c`,
+`c50898f6-c536-5f47-8583-8b2c2438a13b`), with sender and arguments as received. Wine's CoreWindow raises its events
+(visibility, hence the lifecycle) from its dispatcher's `ProcessEvents`, which Windows' XAML uses as its message loop;
+Uno runs its own loop, so the shim lets the dispatcher deliver pending events every 50 ms (driving Uno's loop from
+`ProcessEvents` instead is a later refinement). Measured with the probe: Windows (`plm.exe` suspend and resume) and Wine
+(the CoreWindow minimized and restored) both log "suspending, sender is the application no, deadline in 4 s" and
+"resuming, sender is the application no". Found on the way: Wine has no `Windows.Globalization.Calendar`
+(`REGDB_E_CLASSNOTREG`); the Calculator's date calculation needs it (Wine side, to do).
+
 Open points that step 2b (Wine side) settles: whether CoreCLR starts cleanly inside the UWP process that Wine's
 launcher made (package identity, `ms-appx` paths); the cost of starting the runtime (time to first frame);
 and, for the Calculator, a .NET Native application, whether its runtime (`mrt100_app`) and CoreCLR live together in
