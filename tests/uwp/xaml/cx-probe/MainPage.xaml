@@ -1,0 +1,12 @@
+<!--
+SPDX-License-Identifier: GPL-2.0-or-later
+Copyright 2026 WineExplorer contributors
+-->
+<Page x:Class="XamlProbe.MainPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel x:Name="Root" Padding="24" Spacing="12">
+        <TextBlock x:Name="Title" Text="Hello from compiled XAML" FontSize="20" />
+        <Button x:Name="Go" Content="Press me" Click="OnGo" />
+    </StackPanel>
+</Page>

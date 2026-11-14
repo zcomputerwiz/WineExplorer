@@ -1,0 +1,7 @@
+app constructed
+launched
+page constructed
+page loaded 1200x900
+Title TextBlock 237.949x26.6016 at 24,24
+Go Button 76x32 at 24,63
+exit
