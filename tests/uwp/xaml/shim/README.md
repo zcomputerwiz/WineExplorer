@@ -15,6 +15,11 @@ first written here as GPL and moved there in the same session). WineExplorer kee
 GPL, to become part of Wine's `windows.ui.xaml.dll`), the test applications and the lab scripts. Setup downloads the
 component after showing its terms; it is never shipped with WineExplorer.
 
+**Since 2026-11-14 (Wine 51c29e50)** Wine's own `windows.ui.xaml.dll` does what `xamlproxy.c` did (kept here as the
+experiment's record): classes it does not implement go to the component named by `HKLM\Software\Wine\Xaml`
+`ComponentPath`; `lab/make-xaml-reg.ps1` writes that value and registers the component's classes
+(`XamlShim.exe --classes FILE`) to `windows.ui.xaml.dll`, as the setup will.
+
 | Piece | What |
 |---|---|
 | `xamlproxy.c` | Native `DllGetActivationFactory`. Starts CoreCLR once per process with `hostfxr` (self-contained XamlShim, `host_path` set to the component's own apphost so the application root is the component directory) and forwards the class name to `XamlShim.Activation.GetActivationFactory`. Named `xamlproxy.dll` because file names are case-insensitive and `XamlShim.dll` is the managed assembly. Later: folded into Wine's `windows.ui.xaml.dll` as the fallback for classes it does not implement. |

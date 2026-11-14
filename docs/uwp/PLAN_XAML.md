@@ -297,6 +297,13 @@ replaced the same day). Measured with the probe: Windows (`plm.exe` suspend and 
 "resuming, sender is the application no". Found on the way: Wine has no `Windows.Globalization.Calendar`
 (`REGDB_E_CLASSNOTREG`); the Calculator's date calculation needs it (Wine side, to do).
 
+**In Wine (2026-11-14, Wine 51c29e50, on `development`):** `windows.ui.xaml.dll` serves the classes it does not
+implement from the installed component (`HKLM\Software\Wine\Xaml` `ComponentPath`; `docs/STOCK_CHANGES.md`); the lab
+proxy is no longer used. The probe, suspend and resume included, gives the same output through it; Wine's
+`windows.ui.xaml` and `combase` tests pass on x64 and x86 without a component. Setup step: install the component's
+directory, write `ComponentPath`, and register `XamlShim.exe --classes FILE` (only `Windows.UI.Xaml.*`) to
+`windows.ui.xaml.dll`.
+
 Open points that step 2b (Wine side) settles: whether CoreCLR starts cleanly inside the UWP process that Wine's
 launcher made (package identity, `ms-appx` paths); the cost of starting the runtime (time to first frame);
 and, for the Calculator, a .NET Native application, whether its runtime (`mrt100_app`) and CoreCLR live together in

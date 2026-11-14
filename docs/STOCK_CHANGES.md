@@ -3260,3 +3260,10 @@ name, as Windows does; .NET passes a process handle), test in `dlls/user32/tests
 (`GetUserLanguages` returns the user's preferred UI languages; `Makefile.in` imports `combase`; the test loses two
 `todo_wine`); new `dlls/winlangdb` (`EnsureLanguageProfileExists`), `configure.ac`, `configure` (two lines by hand:
 upstream's script comes from autoconf 2.73).
+
+2026-11-14 (UWP XAML, Wine 51c29e50): `dlls/windows.ui.xaml/component.c` (new), `main.c`, `private.h`, `Makefile.in`
+(imports `advapi32`): `DllGetActivationFactory` serves the classes it does not implement from an installed XAML
+component. `HKLM\Software\Wine\Xaml` value `ComponentPath` names the directory of a self-contained .NET component
+(XamlShim, built from the owner's Uno fork `zcomputerwiz/uno-uwp`, branch `wex/xamlshim`); the first such class
+starts the runtime in the process through `hostfxr`, and every class goes to the component's activation entry. Without
+a component the library behaves as before (its tests and combase's pass on x64 and x86).
