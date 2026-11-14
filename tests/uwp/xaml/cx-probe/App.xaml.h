@@ -6,6 +6,7 @@
 namespace XamlProbe
 {
     void Log(Platform::String^ line);
+    extern bool MainPageDestroyed;      /* set by MainPage's destructor */
 
     ref class App sealed
     {

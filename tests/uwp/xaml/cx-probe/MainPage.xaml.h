@@ -9,6 +9,7 @@ namespace XamlProbe
     {
     public:
         MainPage();
+        virtual ~MainPage();
     private:
         void OnGo(Platform::Object^ sender, Windows::UI::Xaml::RoutedEventArgs^ e);
         void Report(Platform::Object^ sender, Platform::Object^ e);

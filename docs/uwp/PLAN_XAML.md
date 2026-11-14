@@ -264,6 +264,16 @@ combination GPL-3.0. The native proxy (to become part of Wine's `windows.ui.xaml
 through `hostfxr` and stays in WineExplorer and Wine under their licences; the test applications and lab scripts stay
 here.
 
+**After 2b (2026-11-14):** compiled pages come from `resources.pri` (PriFormat from PriTools, Apache-2.0, in the fork:
+666 bytes of embedded XBF for `MainPage`); the probe gained `SecondPage` and navigates to it. Lifetimes measured on
+Windows: after navigating away, `MainPage` (whose `Loaded` lambda and `Click` handler capture `this`) is not destroyed;
+C++/CX handlers that capture `this` form a cycle with the XAML objects that nothing collects in a C++ application. The
+shim's simple rule (it holds every outer object) gives the same observable result for such pages; releasing pages
+without cycles, and cycle collection for managed applications (reference tracking, `IReferenceTracker`; .NET's
+`ComWrappers` tracker support and WinUI's MIT sources as prior art), is deferred until an application needs it. Wine
+matches the Windows sequence (back stack depth 1, `MainPage` alive); the second page's `TextBlock` measures 132 wide
+against Windows' 80.35 (fonts and styles item).
+
 Open points that step 2b (Wine side) settles: whether CoreCLR starts cleanly inside the UWP process that Wine's
 launcher made (package identity, `ms-appx` paths); the cost of starting the runtime (time to first frame);
 and, for the Calculator, a .NET Native application, whether its runtime (`mrt100_app`) and CoreCLR live together in

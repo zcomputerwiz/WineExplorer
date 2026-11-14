@@ -2,6 +2,7 @@
 // Copyright 2026 WineExplorer contributors
 #include "pch.h"
 #include "MainPage.xaml.h"
+#include "SecondPage.xaml.h"
 
 using namespace XamlProbe;
 using namespace Windows::Foundation;
@@ -39,10 +40,19 @@ void MainPage::Report(Platform::Object^, Platform::Object^)
         Log(L"Go Button " + Box(Go, this));
         return;
     }
-    if (ticks < 4) return;
+    /* second tick: drop the timer (its handler holds this page) and navigate away; SecondPage reports and exits */
     timer->Stop();
-    Log(L"exit");
-    Application::Current->Exit();
+    timer = nullptr;
+    Log(L"navigate to second page");
+    Frame->Navigate(Interop::TypeName(SecondPage::typeid), nullptr);
+}
+
+bool XamlProbe::MainPageDestroyed = false;
+
+MainPage::~MainPage()
+{
+    MainPageDestroyed = true;
+    Log(L"main page destroyed");
 }
 
 void MainPage::OnGo(Platform::Object^, RoutedEventArgs^)
