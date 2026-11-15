@@ -43,9 +43,28 @@ be signed); then everything is removed.
 dependencies at their `WindowsApps` paths and loads `Microsoft.UI.Xaml.dll`, `vcruntime140_app.dll` and `mfc140u.dll`
 from their frameworks. `mrt100_app.dll` and `SharedLibrary.dll` (.NET Native) do not initialise, two FAIL lines:
 
-1. `mrt100_app.dll` delay-loads `GetManagedRuntimeService` from `mrt100.dll`, a Windows system DLL (System32,
-   one export) that Wine does not have. Its contract is not documented anywhere public; a stub that fails makes the
-   runtime refuse to start (error 1114). Next: observe the function black-box from a test program on Windows, then a
-   Wine `mrt100.dll`.
-2. With the DLL missing, Wine's `LdrResolveDelayLoadedAPI` passes the failure hook `LOWORD` of the name's RVA as the
-   imported name, and the hook crashes (error 998). General Wine bug, given to Session 0 with a patch.
+1. `mrt100_app.dll` delay-loads `GetManagedRuntimeService(REFGUID, void **)` from `mrt100.dll`, a Windows system DLL
+   that Wine does not have. Microsoft's .NET Native documentation calls it optional (performance only); the runtime
+   passes `ResolveDelayLoadedAPI` its own failure hook and, as system hook, a thunk to `kernelbase!DelayLoadFailureHook`,
+   and falls back to built-in code when the delay load fails the Windows way.
+2. Wine failed that three ways, each checked on Windows 11 (x64 and x86) with our own tests: the failure hook got
+   `LOWORD` of the name's RVA instead of the name; a dll hook returning NULL ended the resolution instead of asking the
+   system hook (kernel32 `test_ResolveDelayLoadedAPI` addition); and `DelayLoadFailureHook` raised `EXCEPTION_WINE_STUB`
+   where Windows raises `ERROR_DELAY_LOAD_FAILED` (0x505, non-continuable, parameters the DLL and function names; a
+   probe of ours calling it under `__try`). General Wine bugs, Session 0's B14.
+
+With the three fixes in the lab build (uncommitted here; B14 lands them on Wine `development`), all 10 checks pass: the
+.NET Native runtime initialises from its framework packages with no `mrt100.dll`.
+
+## Prior art (2026-11-14)
+
+* `designgears/wine-uwp` (no licence; says some findings came from disassembly): its findings name the same delay-load
+  gap and list the Calculator's next Wine gaps (`RtlQueryPackageClaims`, `CheckTokenMembershipEx`, the
+  `GetCurrentPackage*` family, `AppPolicyGetWindowingModel`, token security attributes `WIN://SYSAPPID`,
+  `GetCurrentPackageInfo2`, `CoGetSystemSecurityPermissions`). Used only as claims to verify with our own Windows
+  tests; none of its code or disassembly-derived detail is used. One claim was wrong in detail: the exception's first
+  parameter is the DLL name, not a `DelayLoadInfo`.
+* `xodus` forks (bartman081523): claim the Calculator running on patched Proton with a native XAML; the Xodus
+  maintainers objected to AI-generated and reverse-engineered code there. Not used.
+* `ZhymabekRoman/wine-ultimate`: Wine Staging patches for WinUI 3, Windows App SDK, DirectComposition and WebView2;
+  not reviewed yet.
