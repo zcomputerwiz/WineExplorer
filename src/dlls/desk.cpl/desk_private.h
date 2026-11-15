@@ -32,6 +32,8 @@
 #include "preview.h"
 
 extern INT_PTR CALLBACK theme_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+/* "/Action:OpenTheme /file:X": the Themes page opens with X selected and changed, ready to apply */
+extern void theme_page_open_file(const WCHAR *file);
 extern INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 extern INT_PTR CALLBACK appearance_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 extern INT_PTR CALLBACK settings_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);

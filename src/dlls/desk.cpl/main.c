@@ -21,6 +21,8 @@
 
 #include <commctrl.h>
 #include <cpl.h>
+#include <shellapi.h>
+#include <shlwapi.h>
 #include "ole2.h"
 
 #include "wine/debug.h"
@@ -493,7 +495,7 @@ static int CALLBACK property_sheet_callback( HWND hwnd, UINT msg, LPARAM lparam 
     return 0;
 }
 
-static void create_property_sheets( HWND parent )
+static void create_property_sheets( HWND parent, UINT start_page )
 {
     INITCOMMONCONTROLSEX init =
     {
@@ -541,6 +543,7 @@ static void create_property_sheets( HWND parent )
         .hInstance = module,
         .pszCaption = MAKEINTRESOURCEW( IDS_CPL_NAME ),
         .nPages = ARRAY_SIZE(pages),
+        .nStartPage = start_page < ARRAY_SIZE(pages) ? start_page : 0,
         .ppsp = pages,
         .pfnCallback = property_sheet_callback,
     };
@@ -567,6 +570,42 @@ static void create_property_sheets( HWND parent )
     if (activated) DeactivateActCtx( 0, cookie );
     ReleaseActCtx( context );
     OleUninitialize();
+}
+
+/* "desk.cpl desk,@Themes /Action:OpenTheme /file:X" (the .theme open command) and "@<tab>": the parameters as
+ * ReactOS's desk.cpl reads them. TRUE when handled, FALSE to let the caller open the sheet as usual. */
+static BOOL start_with_params( HWND hwnd, const WCHAR *params )
+{
+    static const struct { const WCHAR *name; UINT page; } tabs[] =
+    {
+        { L"Themes", 0 }, { L"Desktop", 1 }, { L"Background", 1 }, { L"Appearance", 2 }, { L"Settings", 3 },
+    };
+    const WCHAR *action = NULL, *file = NULL;
+    UINT page = 0, i;
+    BOOL known = FALSE;
+    WCHAR **argv;
+    int argc, n;
+
+    if (!params || !*params || !(argv = CommandLineToArgvW( params, &argc ))) return FALSE;
+    for (n = 0; n < argc; n++)
+    {
+        if (argv[n][0] == '@')
+        {
+            for (i = 0; i < ARRAY_SIZE(tabs); i++)
+                if (!StrCmpIW( argv[n] + 1, tabs[i].name )) { page = tabs[i].page; known = TRUE; }
+        }
+        else if (!StrCmpNIW( argv[n], L"/Action:", 8 )) action = argv[n] + 8;
+        else if (!StrCmpNIW( argv[n], L"/file:", 6 )) file = argv[n] + 6;
+    }
+    if (action && !StrCmpIW( action, L"OpenTheme" ) && file && *file)
+    {
+        theme_page_open_file( file );
+        page = 0;
+        known = TRUE;
+    }
+    if (known) create_property_sheets( hwnd, page );
+    LocalFree( argv );
+    return known;
 }
 
 static void register_window_class(void)
@@ -614,8 +653,11 @@ LONG CALLBACK CPlApplet( HWND hwnd, UINT command, LPARAM param1, LPARAM param2 )
     }
 
     case CPL_DBLCLK:
-        create_property_sheets( hwnd );
+        create_property_sheets( hwnd, 0 );
         break;
+
+    case CPL_STARTWPARMSW:
+        return start_with_params( hwnd, (const WCHAR *)param2 );
 
     case CPL_STOP:
         unregister_window_class();

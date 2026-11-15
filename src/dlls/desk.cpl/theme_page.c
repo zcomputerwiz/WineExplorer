@@ -34,6 +34,12 @@ static WCHAR themes[MAX_THEMES][MAX_PATH];
 static int count;
 static WCHAR selected[MAX_PATH];
 static BOOL dirty;
+static WCHAR open_file[MAX_PATH];   /* a .theme file given on the command line (double-click on a .theme) */
+
+void theme_page_open_file(const WCHAR *file)
+{
+    lstrcpynW(open_file, file, MAX_PATH);
+}
 
 static void update_preview(HWND hwnd)
 {
@@ -72,6 +78,17 @@ static void refresh_list(HWND hwnd)
             if(!wcsicmp(base_theme, base_sel)) choice=i;
         }
     }
+    /* a theme file from elsewhere (opened by its file) is added to the list, as XP does */
+    if(choice<0 && open_file[0] && !wcsicmp(selected,open_file) && count<MAX_THEMES &&
+       GetFileAttributesW(open_file)!=INVALID_FILE_ATTRIBUTES)
+    {
+        lstrcpyW(themes[count],open_file);
+        lstrcpyW(title,PathFindFileNameW(open_file)); PathRemoveExtensionW(title);
+        GetPrivateProfileStringW(L"Theme",L"DisplayName",L"",text,MAX_PATH,open_file);
+        if(text[0] && text[0]!='@') lstrcpyW(title,text);
+        SendMessageW(combo,CB_ADDSTRING,0,(LPARAM)title);
+        choice=count++;
+    }
     SendMessageW(combo,CB_SETCURSEL,choice,0);
     EnableWindow(combo,count>0);
     update_preview(hwnd);
@@ -84,6 +101,14 @@ INT_PTR CALLBACK theme_page_proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
     case WM_INITDIALOG:
     {
         DWORD size=sizeof(selected); selected[0]=0;
+        if(open_file[0])
+        {
+            /* opened with a theme file: that theme selected and pending, applied by OK or Apply */
+            lstrcpyW(selected,open_file);
+            dirty=TRUE; refresh_list(hwnd);
+            SendMessageW(GetParent(hwnd),PSM_CHANGED,(WPARAM)hwnd,0);
+            return TRUE;
+        }
         RegGetValueW(HKEY_CURRENT_USER,L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes",L"CurrentTheme",RRF_RT_REG_SZ,NULL,selected,&size);
         dirty=FALSE; refresh_list(hwnd); return TRUE;
     }
