@@ -37,6 +37,20 @@ stage_license_documents()
     install -m644 "$ROOT_DIR/wine/COPYING.LIB" "$doc_dir/COPYING.LIB"
 }
 
+# WEX_STAGE_DIR=DIR (installer/tests/quick-stage.sh): leave the staged trees in DIR/wine and DIR/session, without their
+# DEBIAN control files, instead of building the .deb files.
+pack_deb()   # pack_deb STAGE TAG DEB
+{
+    if [ -n "${WEX_STAGE_DIR:-}" ]; then
+        mkdir -p "$WEX_STAGE_DIR/$2"
+        rsync -a --delete --exclude=/DEBIAN "$1/" "$WEX_STAGE_DIR/$2/"
+        echo "Staged $2 in $WEX_STAGE_DIR/$2"
+    else
+        dpkg-deb --build --root-owner-group "$1" "$3"
+        echo "Built $3"
+    fi
+}
+
 PACKAGE_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/wexpkg.XXXXXXXX")
 trap 'rm -rf -- "$PACKAGE_STAGE"' EXIT
 STAGE_WINE="$PACKAGE_STAGE/wine"
@@ -199,8 +213,7 @@ Description: Wine customized and configured with Windows XP / Server 2003 shell
 EOF
 
 stage_license_documents "$STAGE_WINE" wineexplorer
-dpkg-deb --build --root-owner-group "$STAGE_WINE" "$OUT_DIR/wineexplorer_11.19-wineexplorer1_amd64.deb"
-echo "Built $OUT_DIR/wineexplorer_11.19-wineexplorer1_amd64.deb"
+pack_deb "$STAGE_WINE" wine "$OUT_DIR/wineexplorer_11.19-wineexplorer1_amd64.deb"
 
 echo "=== 2. Packaging wineexplorer-session ==="
 mkdir -p "$STAGE_SESSION/DEBIAN"
@@ -459,8 +472,7 @@ Description: WineExplorer session scripts and desktop configuration
 EOF
 
 stage_license_documents "$STAGE_SESSION" wineexplorer-session
-dpkg-deb --build --root-owner-group "$STAGE_SESSION" "$OUT_DIR/wineexplorer-session_1.0-1_all.deb"
-echo "Built $OUT_DIR/wineexplorer-session_1.0-1_all.deb"
+pack_deb "$STAGE_SESSION" session "$OUT_DIR/wineexplorer-session_1.0-1_all.deb"
 
 # Clean up staging
 rm -rf "$STAGE_WINE" "$STAGE_SESSION"

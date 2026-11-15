@@ -86,6 +86,11 @@ for sub in wexcomp:$CREV vintner:$VREV; do
     echo "$name at $("${G[@]}" -C "$DST/$name" log --oneline -1)"
 done
 
+if [ "${WEX_STAGE_ONLY:-0}" = 1 ]; then    # quick-stage.sh: the sources are in place and Wine is built; stop here
+    echo "STAGE READY"
+    exit 0
+fi
+
 echo "=== $(date +%T) build-iso.sh --clean"
 mkdir -p /root/out "$OUTDIR"
 start=$(date +%s)
