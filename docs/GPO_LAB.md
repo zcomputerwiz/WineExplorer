@@ -97,13 +97,16 @@ installed-machine disks and ISOs are not there either; an image is the next thin
   "Default Domain Policy"), and `wex-gpupdate.sh` applies them in that order, so the Default Domain Policy is
   applied last. Whether Windows applies links of one container in the same order is unverified; with the
   Windows Server controller out of reach, the next check is Microsoft's documentation of link order.
-- `machine` with the new checks: not run yet. It needs an ISO from `claude/group-policy`, which needs the
-  wexbuild runner (shared with the other sessions) for a build, `package-wine.sh` with `WEX_SESSION0=1`,
-  `build-iso.sh` and an unattended install.
+- `machine` passed on 2026-11-15 with all 14 checks, on a disk installed on wexgpo from an ISO of
+  `claude/group-policy` e1c34ecb (`scripts/lab/wexgpo-iso.sh`: build, package with `WEX_SESSION0=1`, ISO,
+  unattended install; about an hour): the join, the domain's registry policy, the OU's object after the
+  domain's, the security template, gpresult, a user's gpupdate through gpsvc and `wex-gpupdate.path`.
+  Two lab findings on the way: a search for the OU before the join finds nothing, and an account left from an
+  earlier run keeps its container at a join, so the guest moves its account into the OU with `samba-tool
+  computer move` after the join and reads its real place back.
 
 ## Next
 
-- An ISO of `claude/group-policy` and a `machine` run with all checks.
 - A domain user logging on to WineExplorer (the accounts map has local users only), then user policy from the
   domain end to end with `wexuser1`.
 - If the waits on the shared runner grow, a copy of wexbuild for this lab (the owner allowed it on 2026-11-14),

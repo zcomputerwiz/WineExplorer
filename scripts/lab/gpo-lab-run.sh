@@ -17,5 +17,6 @@ mkdir -p "$C/installer/tests" "$C/scripts"
 cp -a "$D/installer/tests/ad" "$C/installer/tests/ad"
 cp -a "$D/installer/scripts" "$C/installer/scripts"
 cp -a "$D/scripts/lab" "$C/scripts/lab"
+cp -a "$D/scripts/vmtest.py" "$C/scripts/vmtest.py"   # machine.sh drives the installed VM with it
 find "$C" -type f \( -name '*.sh' -o -name '*.py' \) -exec sed -i 's/\r$//' {} +
 exec bash "$C/installer/tests/ad/gpo-lab.sh" "$@"

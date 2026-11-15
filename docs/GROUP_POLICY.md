@@ -380,10 +380,18 @@ gpupdate waits for and reports the refresh, `/wait:0`, usage, a user cannot say 
 `st_applied_gpo_list_per_extension_for_machine_and_user`. Not tested: the path unit and the whole loop on an
 installed machine of the lab domain (`installer/tests/ad/machine.sh` can take it next).
 
+**End to end (2026-11-15).** On an installed machine of the GPO VM lab ([GPO_LAB.md](GPO_LAB.md)), joined into
+the lab's OU: the OU's object applied after the domain's, the domain's security template (lockout values and a
+security option), gpresult listing the objects in order, and the installed user's gpupdate running a refresh
+through gpsvc and `wex-gpupdate.path`; 14 checks of `installer/tests/ad/machine.sh` passed. Normal suite 350 on
+the lab's build machine.
+
 ## Next
 
-- `installer/tests/ad/machine.sh`: gpupdate as an installed user, the security template made with
-  `samba-tool gpo manage security set`, the applied list of the lab domain in gpresult.
+- User policy from the domain end to end: a domain user logging on to WineExplorer (the accounts map has local
+  users only).
+- The order of several links on one container: Samba lists them newest first and they are applied in that
+  order; unverified against Windows.
 - The Windows Server evaluation controller: Microsoft's Evaluation Center requires a registration form with
   personal details for the ISO, so per the owner's condition the lab stays on Samba AD.
 
