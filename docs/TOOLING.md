@@ -278,6 +278,14 @@ answers `BUSY` when a suite or build is running.
   minutes per `full` run but needs the suite's setup separated from its checks first.
 - What exists only on the build machine and how to recreate it: `/root/WE-prefetch` is a WoW64 build (see "Repository"
   and the snapshot reference above); `/root/owned-r8` is made by `r8-lab-build.sh`; `/root/wex-snap` is temporary.
+- Wine Mono and Gecko must be in `/usr/share/wine/mono` and `/usr/share/wine/gecko` on a build machine (2026-11-15):
+  a build-tree Wine looks in its own prefix's `share/wine` (`/root/WE-prefetch/build/wow64/install/share`) and in
+  `/usr/share/wine`; only the ISO's Wine (prefix `/usr/local`) looks in `/usr/local/share/wine`. Copy
+  `wine-mono-11.3.0-x86.msi` and `wine-gecko-2.47.4-x86{,_64}.msi` from `/var/cache/wineexplorer/downloads` (or
+  `scripts/lab/wexgpo-wine-addons.sh`); `control.exe appwiz.cpl install_mono` then takes 7 s. Without them the system-group
+  `wineboot --init` (the launcher's environment cannot carry `WINEDLLOVERRIDES=mscoree=`, by design) opens Mono's
+  download dialog and the normal suite's `c2_wineboot_init_with_system_group_writes_machine_root` takes 300 s, the
+  end of `start_wineboot`'s wait, instead of seconds. A check that suddenly takes 300 s means a dialog nobody sees.
 
 ## Added 2026-11-05: lessons that cost hours (do not rediscover)
 
