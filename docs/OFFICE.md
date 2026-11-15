@@ -43,13 +43,36 @@ and no circumvention in it.
 | # | Symptom | Cause | State |
 |---|---|---|---|
 | 1 | Setup ends at once, `InvalidCDKey`, return code 30030 | Setup loads `system32\pidgenx.dll` and calls `PidGenX2` to identify its embedded volume key. Wine had no `pidgenx.dll`. | Fixed: `src/dlls/pidgenx`. Output equals the original's for the medium's key except the random and time fields. Checked with a 32-bit build of the DLL in a test prefix on the clone's older Wine: setup passes the key and installs packages. Not yet checked in a full build of this branch. |
-| 2 | `ProPlusWW.msi` fails with 1603 after the 23 language packages installed | Custom action `CAInstallLicenses` calls `sppc.dll.SLInstallLicense`, a stub (63 of 67 exports of Wine's `sppc.dll` are stubs). | Open. Needs a license store in `sppc.dll` (a project module replacing the stock stub through `src/stock-replacements.txt`), and a decision on what licensing status it reports: nothing here may fake an activation. |
+| 2 | `ProPlusWW.msi` fails with 1603 after the 23 language packages installed | Custom action `CAInstallLicenses` calls `sppc.dll.SLInstallLicense`, a stub (63 of 67 exports of Wine's `sppc.dll` were stubs). | Fixed: `src/dlls/sppc`, a local license store that replaces the stock stub (`src/stock-replacements.txt`). Setup ends with return code 0; `WINWORD.EXE` and `EXCEL.EXE` are installed. |
+| 3 | Word draws its start screen, then "Microsoft Office cannot verify the license for this product", and exits | Windows 10 mode. Word gives the licensing service a challenge (`SLSetAuthenticationData`, 288 bytes), consumes its right and reads the policy `*` and `SLGetAuthenticationResult`. Only the licensing service of Windows can make that answer; the store returns `E_NOTIMPL`. | Open. Not to be faked. Under test: Windows 7 mode, where Office 2016 installs and uses its own licensing service. |
 
-Open questions for blocker 2:
+The license store (`src/dlls/sppc/sppc.c`):
 
-* Which `SL*` functions setup and the programs call, in order.
-* The first-run state of a volume install on Windows is a grace period until the organization's KMS host
-  activates it. KMS and online activation are not implemented in Wine.
+* License files are kept as installed in `WINDOWS\spp\wine\{file id}.xrm-ms` (the id is made from the file's
+  SHA-256), product keys and grace start times in `HKLM\Software\Wine\Licensing` (64-bit view).
+* Values and id lists are read out of the stored files (`tm:infoStr`, `sl:policyInt`, `sl:policyStr`).
+* A key is identified with `pidgenx.dll` and the key configuration among the installed licenses; the product is the
+  activation id of the key's group.
+* State: no key, not licensed (`SL_E_PKEY_NOT_INSTALLED`); from the product's first key on a grace period of 30
+  days (`SL_I_OOB_GRACE_PERIOD`); after it, notification (`SL_E_GRACE_TIME_EXPIRED`). The start time stays when a
+  key is removed. Nothing activates a product: that needs the licensing service to reach a KMS host or Microsoft.
+* Error codes and the supported id-list queries follow Windows 11 (`scripts/lab/office/sppc-probe.c`, read-only,
+  run on the host on 2026-11-14): an unknown product, license or application gives `SL_E_VALUE_NOT_FOUND`, an
+  unknown key `0xc004f016`, an empty id list `SL_E_VALUE_NOT_FOUND` with the caller's variables untouched, a
+  policy without a consumed right `SL_E_RIGHT_NOT_GRANTED`.
+* What setup calls, in order: `SLInstallLicense` (7 issuance and key configuration files, then per product the
+  `PL`, `OOB`, `PPDLIC`, `PHN` files), after each `SLGetSLIDList` (file to licenses) and `SLGetLicenseInformation`
+  (`LicenseType`, `productSkuId`); `SLGetProductSkuInformation` (`BuildVersion`); `SLInstallProofOfPurchase`
+  (`msft:rm/algorithm/pkey/2009`); `SLConsumeRight` (application `0ff1ce15-a989-479d-af46-f275c6370663`);
+  `SLPersistApplicationPolicies`.
+* Word calls `SLLoadApplicationPolicies`, `SLGetPolicyInformation` (`office-30CAC893-3CA4-494C-A5E9-A99141352216`,
+  not in the licenses), then the challenge of blocker 3.
+* A builtin DLL copied into a prefix is not what Wine loads when its own library directory has a module of that
+  name: test builds go into `/usr/local/lib/wine/i386-windows`.
+
+The guest runs this branch's Wine (`wine-11.21`, built in `~/build/wow64`, installed to `/usr/local`) since
+2026-11-14 23:24 guest time; blockers 1 and 2 were first passed with 32-bit builds of the two DLLs in the clone's
+older Wine.
 
 Notes:
 

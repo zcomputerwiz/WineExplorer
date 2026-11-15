@@ -3257,3 +3257,8 @@ other PRI files (resource packs, framework packages), `CreateMatchingContext`, `
 LeavingBackground, driven by the visibility of the main window; nothing after Exiting), `core_application.c`
 (`ICoreApplication2`, the events go through `lifecycle.c`, the main window is watched before the application gets it),
 `private.h`, `Makefile.in`. Not done: freezing a suspended process, `BackgroundActivated`, prelaunch.
+
+2026-11-14 (Office, `docs/OFFICE.md`): `dlls/sppc` is replaced by the project module `src/dlls/sppc`
+(`src/stock-replacements.txt`): a local license store in place of the stub. The stock module's `--prefer-native`
+is gone with it. New project module `src/dlls/pidgenx` (no stock module of that name). No file of the Wine tree
+is edited.
