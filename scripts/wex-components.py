@@ -59,6 +59,7 @@ COMPONENTS = {
     'physx': 'NVIDIA PhysX (optional)',
     'webview2': 'Microsoft Edge WebView2 Runtime (optional)',
     'uwp-xaml': 'UWP XAML support, Uno Platform (optional)',
+    'uwp-frameworks': 'UWP application frameworks, Microsoft (optional)',
 }
 
 COMPONENTS_METADATA = {
@@ -261,6 +262,70 @@ COMPONENTS_METADATA = {
             ('xamlshim-0.2.0-win-x64.zip', 'ff0e05c707bbaf6164af448983e8066c6287821b67675124f33d28ba729646df'),
         ],
     },
+    # Microsoft's framework packages that UWP applications declare as dependencies (the Windows Calculator 11.2607
+    # needs these five), taken from Microsoft's own versioned downloads: nuget.org packages of Microsoft and Visual
+    # Studio's payload catalog. Each container and each package in it is pinned by size and SHA-256.
+    'uwp-frameworks': {
+        'title': 'UWP application frameworks (Microsoft)',
+        'publisher': 'Microsoft Corporation',
+        'description': 'Framework packages that UWP applications depend on: Windows UI Library 2.8, the .NET Native '
+                       'framework and runtime 2.2, and the Visual C++ runtime libraries for UWP and for desktop '
+                       'bridge applications. They are verified, unpacked and registered for every user; no '
+                       'installer program runs.',
+        'size': '~238 MiB download, ~45 MiB installed (x64)',
+        'reboot': False,
+        'disabled': True,
+        'disabled_reason': 'The licence terms to show for these packages are not decided yet',
+        'terms_url': '',
+        'terms_sha256': '',
+        'terms_text_sha256': '',
+        'release': 'calculator-11.2607',
+        'execution_policy': 'uwp-frameworks-extract-register-v1',
+        'publisher_name': 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US',
+        'containers': [
+            {'name': 'microsoft.ui.xaml.2.8.7.nupkg', 'format': 'zip', 'size': 20314649,
+             'sha256': '79207b10fe243eb1a8dcdc29beceba2f472f145ed31f147f7ae3f43b0659c9f7',
+             'url': 'https://api.nuget.org/v3-flatcontainer/microsoft.ui.xaml/2.8.7/microsoft.ui.xaml.2.8.7.nupkg',
+             'packages': [
+                 {'member': 'tools/AppX/x64/Release/Microsoft.UI.Xaml.2.8.appx', 'size': 4932225,
+                  'sha256': '1421dba0b7f1da87e6ad52e17c25d38bcd2159bd7f91c85034cfa837238abaaa',
+                  'name': 'Microsoft.UI.Xaml.2.8', 'version': '8.2501.31001.0', 'architecture': 'x64'}]},
+            {'name': 'runtime.win10-x64.microsoft.net.native.sharedlibrary.2.2.8-rel-29512-01.nupkg', 'format': 'zip',
+             'size': 96883491, 'sha256': 'ea5bab0c694f2c2c3afeb678d498024fcf6fcb4516ffbec2b2f4c78c4e926bfe',
+             'url': 'https://api.nuget.org/v3-flatcontainer/runtime.win10-x64.microsoft.net.native.sharedlibrary/'
+                    '2.2.8-rel-29512-01/runtime.win10-x64.microsoft.net.native.sharedlibrary.2.2.8-rel-29512-01.nupkg',
+             'packages': [
+                 {'member': 'tools/SharedLibrary/ret/Native/Microsoft.NET.Native.Framework.2.2.appx', 'size': 5204216,
+                  'sha256': 'c195047f4af9c3ff3d92c40e55a901cf7cfa08a679b8ca2543bb104bab2f7ff1',
+                  'name': 'Microsoft.NET.Native.Framework.2.2', 'version': '2.2.29512.0', 'architecture': 'x64'}]},
+            {'name': 'runtime.win10-x64.microsoft.net.native.compiler.2.2.12-rel-33220-00.nupkg', 'format': 'zip',
+             'size': 56533936, 'sha256': 'f80ccb5cd10159a4251f399c1940b7d67ad3c081117e923aa51249b11813ae98',
+             'url': 'https://api.nuget.org/v3-flatcontainer/runtime.win10-x64.microsoft.net.native.compiler/'
+                    '2.2.12-rel-33220-00/runtime.win10-x64.microsoft.net.native.compiler.2.2.12-rel-33220-00.nupkg',
+             'packages': [
+                 {'member': 'tools/Runtime/x64/Microsoft.NET.Native.Runtime.2.2.appx', 'size': 244530,
+                  'sha256': '27fae660d8c609e020703bb463b6601e62811dc75db19975bcb7d68d959b527d',
+                  'name': 'Microsoft.NET.Native.Runtime.2.2', 'version': '2.2.28604.0', 'architecture': 'x64'}]},
+            # Visual Studio 2022 17.14, Microsoft.VisualCpp.CRT.Appx.Msi (14.44.35208), cab1.cab
+            {'name': 'vc-crt-appx-14.44.35208-cab1.cab', 'format': 'cab', 'size': 9117314,
+             'sha256': 'dd4dbe036d235dd902ef41f2cb3ec7ce7ab1ebf93e6cc26fb6d7283301188e5a',
+             'url': 'https://download.visualstudio.microsoft.com/download/pr/d2fa077f-a814-4fb2-b903-1fca7658d17e/'
+                    'dd4dbe036d235dd902ef41f2cb3ec7ce7ab1ebf93e6cc26fb6d7283301188e5a/cab1.cab',
+             'packages': [
+                 {'member': 'Microsoft.VCLibs.x64.14.00.appx', 'size': 896581,
+                  'sha256': '9c17b521f9d690a1f504da5108ed6eec5669eb3a8fd1331eef43e40d84e74283',
+                  'name': 'Microsoft.VCLibs.140.00', 'version': '14.0.33519.0', 'architecture': 'x64'}]},
+            # Visual Studio 2022 17.14, Microsoft.VisualCpp.CRT.Appx.Desktop.140.Msi (14.44.35208), cab1.cab
+            {'name': 'vc-crt-appx-desktop-140-14.44.35208-cab1.cab', 'format': 'cab', 'size': 67599114,
+             'sha256': '2a18edcb42dfb466650bea57b02ac25bffb4dcb5aa1d72cce2ff0cdc50d72139',
+             'url': 'https://download.visualstudio.microsoft.com/download/pr/d2fa077f-a814-4fb2-b903-1fca7658d17e/'
+                    '2a18edcb42dfb466650bea57b02ac25bffb4dcb5aa1d72cce2ff0cdc50d72139/cab1.cab',
+             'packages': [
+                 {'member': 'Microsoft.VCLibs.x64.14.00.Desktop.appx', 'size': 6757465,
+                  'sha256': '077a3d1a5d0622bd3004dca85f5e192d6e98ec79b83d4aa06766759ea6c09c3d',
+                  'name': 'Microsoft.VCLibs.140.00.UWPDesktop', 'version': '14.0.33728.0', 'architecture': 'x64'}]},
+        ],
+    },
 }
 
 TERMS = Path('/etc/wineexplorer/component-licenses')
@@ -302,7 +367,7 @@ def validate_winetricks_integrity(path=None):
 
 
 def validate_recipe_files(verb, path=None):
-    if COMPONENTS_METADATA.get(verb, {}).get('execution_policy') == UWP_XAML_POLICY:
+    if COMPONENTS_METADATA.get(verb, {}).get('execution_policy') in (UWP_XAML_POLICY, UWP_FRAMEWORKS_POLICY):
         return   # no winetricks recipe: the pinned payload is checked when it is downloaded and before it is used
     if verb == 'vcrun2022':
         approved_runtime_recipe(path)
@@ -1993,6 +2058,14 @@ def is_installed(verb, accepted_digest=None, machine=None):
                     return False
                 verify_uwp_xaml(machine, data)
                 return True
+            if COMPONENTS_METADATA[verb].get('execution_policy') == UWP_FRAMEWORKS_POLICY:
+                if (data.get('verb') != verb or data.get('execution_policy') != UWP_FRAMEWORKS_POLICY or
+                        data.get('component_identity') != component_identity(verb) or
+                        data.get('pins') != [package['sha256'] for _, package in uwp_frameworks_packages(verb)] or
+                        (accepted_digest is not None and data.get('terms_sha256') != accepted_digest)):
+                    return False
+                verify_uwp_frameworks(machine, data)
+                return True
             if (data.get('verb') == verb and
                 data.get('winetricks_sha256') == APPROVED_WINETRICKS_SHA256 and
                 data.get('winetricks_version') == APPROVED_WINETRICKS_VERSION and
@@ -2184,26 +2257,33 @@ def uwp_xaml_payload(verb):
 
 def cache_uwp_xaml_payload(verb, cache):
     """The pinned archive in the root-owned cache; downloaded only after the terms were accepted."""
-    payload = uwp_xaml_payload(verb)
+    return cache_pinned_download(verb, uwp_xaml_payload(verb), cache, UWP_XAML_REDIRECTS, 'UWP XAML')
+
+
+def cache_pinned_download(verb, payload, cache, redirects, label):
+    """PAYLOAD ({name, url, size, sha256}) in the root-owned cache directory of VERB, downloaded over https from the
+    approved hosts REDIRECTS when it is not there yet, and checked against its size and hash either way."""
     destination = cache / verb
     if destination.is_symlink():
-        raise ValueError('Refusing symlinked UWP XAML cache')
+        raise ValueError(f'Refusing symlinked {label} cache')
     destination.mkdir(mode=0o700, exist_ok=True)
     if destination.stat().st_uid != 0 or destination.stat().st_mode & 0o022:
-        raise ValueError('UWP XAML cache must be root-owned and private')
+        raise ValueError(f'{label} cache must be root-owned and private')
     target = destination / payload['name']
     if target.exists() or target.is_symlink():
         if (target.is_symlink() or not target.is_file() or target.stat().st_uid != 0 or
                 target.stat().st_mode & 0o022):
-            raise ValueError('Untrusted cached UWP XAML payload')
-        if target.stat().st_size == payload['size'] and hashlib.sha256(target.read_bytes()).hexdigest() == payload['sha256']:
+            raise ValueError(f'Untrusted cached {label} payload')
+        if target.stat().st_size == payload['size'] and file_sha256(target) == payload['sha256']:
             return target
-        raise ValueError('Corrupt UWP XAML cache; nothing installed')
+        raise ValueError(f'Corrupt {label} cache; nothing installed')
+    if not payload['url'].startswith(redirects):
+        raise ValueError(f'Unapproved {label} download location')
     temporary = None
     try:
         with urllib.request.urlopen(payload['url'], timeout=20) as response:
-            if not response.url.startswith(UWP_XAML_REDIRECTS):
-                raise ValueError('Unexpected UWP XAML download redirect')
+            if not response.url.startswith(redirects):
+                raise ValueError(f'Unexpected {label} download redirect')
             with tempfile.NamedTemporaryFile(dir=destination, prefix='.download-', delete=False) as out:
                 temporary = Path(out.name)
                 total, digest = 0, hashlib.sha256()
@@ -2214,19 +2294,28 @@ def cache_uwp_xaml_payload(verb, cache):
                         break
                     total += len(chunk)
                     if total > payload['size'] or time.monotonic() > deadline:
-                        raise ValueError('UWP XAML download exceeded approved size/deadline')
+                        raise ValueError(f'{label} download exceeded approved size/deadline')
                     digest.update(chunk)
                     out.write(chunk)
                 out.flush()
                 os.fsync(out.fileno())
         if total != payload['size'] or digest.hexdigest() != payload['sha256']:
-            raise ValueError('UWP XAML payload hash/size mismatch; nothing installed')
+            raise ValueError(f'{label} payload hash/size mismatch; nothing installed')
+        os.chmod(temporary, 0o600)
         os.replace(temporary, target)
         temporary = None
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
     return target
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as source:
+        while chunk := source.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _uwp_xaml_real_directory(path, create, admin_gid=None):
@@ -2549,14 +2638,369 @@ def install_uwp_xaml(verb, accepted_digest):
         (receipt / (verb + '.sha256')).write_text(current + '\n', encoding='ascii')
 
 
+# ---------------------------------------------------------------------------
+# UWP application frameworks (uwp-frameworks-extract-register-v1): Microsoft's framework packages (.appx) taken out of
+# pinned containers (nuget.org packages, Visual Studio payload cabinets), unpacked for every user into
+# C:\Program Files\WindowsApps\<PackageFullName> and published by a record in the machine's package catalog,
+# C:\ProgramData\WineExplorer\appx-catalog (Wine kernelbase resolves the dependencies of a user's packages there; a
+# record there counts only as a framework). No package code runs and Wine is not started.
+# ---------------------------------------------------------------------------
+UWP_FRAMEWORKS_POLICY = 'uwp-frameworks-extract-register-v1'
+FRAMEWORK_STORE = 'drive_c/Program Files/WindowsApps'
+FRAMEWORK_WINDOWS_STORE = 'C:\\Program Files\\WindowsApps'
+FRAMEWORK_CATALOG = 'drive_c/ProgramData/WineExplorer/appx-catalog'
+FRAMEWORK_REDIRECTS = ('https://api.nuget.org/v3-flatcontainer/',
+                       'https://download.visualstudio.microsoft.com/download/pr/')
+FRAMEWORK_MAX_MEMBERS = 10000
+FRAMEWORK_MAX_BYTES = 256 * 1024 * 1024
+FRAMEWORK_NAME = re.compile(r'^[A-Za-z0-9.-]{3,50}$')
+FRAMEWORK_VERSION = re.compile(r'^\d{1,5}\.\d{1,5}\.\d{1,5}\.\d{1,5}$')
+FRAMEWORK_ARCHITECTURES = ('x64', 'x86', 'arm64', 'neutral')
+FRAMEWORK_BAD_CHARACTERS = re.compile(r'[\x00-\x1f<>:"|?*\\]')
+PUBLISHER_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
+
+
+def appx_publisher_id(publisher):
+    """The 13-character publisher ID of a package family: the first 64 bits of the SHA-256 of the UTF-16LE
+    publisher, padded with one zero bit to 65 bits, in Crockford's base32 (lower case)."""
+    bits = int.from_bytes(hashlib.sha256(publisher.encode('utf-16-le')).digest()[:8], 'big') << 1
+    return ''.join(PUBLISHER_ID_ALPHABET[(bits >> (5 * (12 - i))) & 31] for i in range(13))
+
+
+def appx_full_name(name, version, architecture, publisher):
+    return f'{name}_{version}_{architecture}__{appx_publisher_id(publisher)}'
+
+
+def appx_identity(appx):
+    """(name, version, architecture, publisher, is_framework) from the AppxManifest.xml of the package bytes."""
+    with zipfile.ZipFile(io.BytesIO(appx)) as package:
+        info = package.getinfo('AppxManifest.xml')
+        if info.file_size > 1024 * 1024:
+            raise ValueError('Oversized package manifest')
+        root = ET.fromstring(package.read(info))
+    identity = framework = None
+    for element in root.iter():
+        tag = element.tag.rsplit('}', 1)[-1]
+        if tag == 'Identity' and identity is None:
+            identity = element.attrib
+        elif tag == 'Framework' and element.text is not None:
+            framework = element.text.strip().lower() == 'true'
+    if identity is None:
+        raise ValueError('Package manifest without an identity')
+    return (identity.get('Name', ''), identity.get('Version', ''), identity.get('ProcessorArchitecture', 'neutral'),
+            identity.get('Publisher', ''), bool(framework))
+
+
+def appx_member_path(raw):
+    """The relative path of a package member: '/' separated, percent-encoded where the packaging rules require it
+    (an encoded separator is not a separator); None when it is not a safe relative path."""
+    parts = []
+    for part in raw.split('/'):
+        if re.search(r'%(?![0-9A-Fa-f]{2})', part):
+            return None
+        try:
+            decoded = urllib.parse.unquote(part, encoding='utf-8', errors='strict')
+        except UnicodeDecodeError:
+            return None
+        if (not decoded or decoded in ('.', '..') or '/' in decoded or FRAMEWORK_BAD_CHARACTERS.search(decoded) or
+                decoded.endswith(('.', ' '))):
+            return None
+        parts.append(decoded)
+    return '/'.join(parts)
+
+
+def uwp_frameworks_packages(verb):
+    """[(container, package)] of the component, every pin checked for shape."""
+    meta = COMPONENTS_METADATA[verb]
+    result = []
+    for container in meta['containers']:
+        if container['format'] not in ('zip', 'cab') or not container['url'].startswith(FRAMEWORK_REDIRECTS):
+            raise ValueError('Unapproved framework container')
+        for package in container['packages']:
+            if (not FRAMEWORK_NAME.match(package['name']) or not FRAMEWORK_VERSION.match(package['version']) or
+                    package['architecture'] not in FRAMEWORK_ARCHITECTURES):
+                raise ValueError('Malformed framework pin')
+            result.append((container, package))
+    return result
+
+
+def uwp_frameworks_extract(container_path, container, package, workdir):
+    """The bytes of one pinned package out of its verified container."""
+    if container['format'] == 'zip':
+        with zipfile.ZipFile(container_path) as archive:
+            info = archive.getinfo(package['member'])
+            if info.file_size != package['size']:
+                raise ValueError('Framework package of unexpected size: ' + package['member'])
+            data = archive.read(info)
+    else:
+        target = workdir / ('cab-' + uuid.uuid4().hex)
+        target.mkdir(mode=0o700)
+        try:
+            subprocess.run(['cabextract', '-q', '-F', package['member'], '-d', str(target), str(container_path)],
+                           env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'}, stdin=subprocess.DEVNULL,
+                           capture_output=True, timeout=300, check=True)
+            produced = [p for p in target.rglob('*')]
+            member = target / package['member']
+            if produced != [member] or member.is_symlink() or not member.is_file():
+                raise ValueError('Unexpected cabinet extraction result: ' + package['member'])
+            if member.stat().st_size != package['size']:
+                raise ValueError('Framework package of unexpected size: ' + package['member'])
+            data = member.read_bytes()
+        finally:
+            shutil.rmtree(target, ignore_errors=True)
+    if len(data) != package['size'] or hashlib.sha256(data).hexdigest() != package['sha256']:
+        raise ValueError('Framework package hash mismatch: ' + package['member'])
+    return data
+
+
+def uwp_frameworks_check_identity(data, package, publisher):
+    name, version, architecture, declared_publisher, framework = appx_identity(data)
+    if (name, version, architecture, declared_publisher) != (package['name'], package['version'],
+                                                             package['architecture'], publisher):
+        raise ValueError(f'Framework package identity differs from its pin: {name} {version} {architecture}')
+    if not framework:
+        raise ValueError(f'{name} is not a framework package')
+    return appx_full_name(name, version, architecture, publisher)
+
+
+def uwp_frameworks_record(full_name, publisher):
+    """The catalog record (UTF-16LE, no byte order mark), as wexappx writes it, for a framework."""
+    text = (f'WEXAPPX 1\nroot\t{FRAMEWORK_WINDOWS_STORE}\\{full_name}\npublisher\t{publisher}\nframework\t1\n')
+    if any(ord(ch) < 0x20 and ch not in '\t\n' or ord(ch) > 0x7e for ch in text):
+        raise ValueError('Framework record is not plain ASCII')
+    return text.encode('utf-16-le')
+
+
+def uwp_frameworks_unpack(data, machine, full_name, gid):
+    """Unpack one package into the machine's WindowsApps by rename. Returns {member: [size, sha256]}."""
+    _uwp_xaml_real_directory(machine / 'drive_c/Program Files', False, gid)
+    store = machine / FRAMEWORK_STORE
+    _uwp_xaml_real_directory(store, True, gid)
+    staging = store / ('.staging-' + uuid.uuid4().hex)
+    staging.mkdir(mode=0o755)
+    files, seen = {}, set()
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as package:
+            members = package.infolist()
+            if len(members) > FRAMEWORK_MAX_MEMBERS or sum(m.file_size for m in members) > FRAMEWORK_MAX_BYTES:
+                raise ValueError('Framework package exceeds its member limits')
+            for member in members:
+                if member.is_dir():
+                    continue
+                relative = appx_member_path(member.filename)
+                if relative is None or (member.external_attr >> 16) & 0o170000 == 0o120000:
+                    raise ValueError('Unsafe framework package member: ' + member.filename)
+                if relative.lower() in seen:
+                    raise ValueError('Duplicate framework package member: ' + member.filename)
+                seen.add(relative.lower())
+                target = staging / relative
+                target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+                digest, size = hashlib.sha256(), 0
+                with package.open(member) as source, open(target, 'xb') as out:
+                    while chunk := source.read(1 << 20):
+                        size += len(chunk)
+                        if size > member.file_size:
+                            raise ValueError('Framework package member larger than declared: ' + member.filename)
+                        digest.update(chunk)
+                        out.write(chunk)
+                target.chmod(0o644)
+                files[relative] = [size, digest.hexdigest()]
+        if 'AppxManifest.xml' not in files:
+            raise ValueError('Framework package without a manifest')
+        final = store / full_name
+        old = None
+        if final.exists() or final.is_symlink():
+            if final.is_symlink():
+                raise ValueError('Refusing symlinked framework directory')
+            old = store / ('.old-' + uuid.uuid4().hex)
+            os.replace(final, old)
+        os.replace(staging, final)
+        staging = None
+        if old is not None:
+            shutil.rmtree(old)
+        return files
+    finally:
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
+
+
+def uwp_frameworks_catalog(machine, gid):
+    catalog = machine / FRAMEWORK_CATALOG
+    _uwp_xaml_real_directory(machine / 'drive_c/ProgramData', False, gid)
+    _uwp_xaml_real_directory(catalog.parent, True, gid)
+    _uwp_xaml_real_directory(catalog, True, gid)
+    return catalog
+
+
+def uwp_frameworks_publish_record(machine, gid, full_name, publisher):
+    catalog = uwp_frameworks_catalog(machine, gid)
+    with tempfile.NamedTemporaryFile(dir=catalog, prefix='.record-', delete=False) as out:
+        temporary = Path(out.name)
+        out.write(uwp_frameworks_record(full_name, publisher))
+        out.flush()
+        os.fsync(out.fileno())
+    try:
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, catalog / (full_name + '.wexappx'))
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def verify_uwp_frameworks(machine, data, full=False):
+    """Every package of the receipt: its record as written, its files with their sizes (digests too when full)."""
+    packages, publisher = data.get('packages'), data.get('publisher')
+    if not isinstance(packages, dict) or not packages or not isinstance(publisher, str):
+        raise ValueError('Malformed UWP frameworks receipt')
+    for full_name, files in packages.items():
+        if not re.match(r'^[A-Za-z0-9.-]+_[0-9.]+_[a-z0-9]+__[0-9a-z]{13}$', full_name) or not isinstance(files, dict):
+            raise ValueError('Malformed UWP frameworks receipt')
+        record = machine / FRAMEWORK_CATALOG / (full_name + '.wexappx')
+        if record.is_symlink() or not record.is_file() or record.read_bytes() != uwp_frameworks_record(full_name, publisher):
+            raise ValueError('Framework registration missing or changed: ' + full_name)
+        root = machine / FRAMEWORK_STORE / full_name
+        if root.is_symlink() or not root.is_dir():
+            raise ValueError('Framework directory missing: ' + full_name)
+        for relative, (size, digest) in files.items():
+            target = root / relative
+            if target.is_symlink() or not target.is_file() or target.stat().st_size != size:
+                raise ValueError(f'Framework file missing or changed: {full_name}/{relative}')
+            if (full or relative == 'AppxManifest.xml') and file_sha256(target) != digest:
+                raise ValueError(f'Framework file changed: {full_name}/{relative}')
+
+
+def uwp_frameworks_remove(machine, full_names):
+    """Records first (the packages stop being visible), then their directories; missing ones are fine."""
+    for full_name in full_names:
+        (machine / FRAMEWORK_CATALOG / (full_name + '.wexappx')).unlink(missing_ok=True)
+    store = machine / FRAMEWORK_STORE
+    for full_name in full_names:
+        directory = store / full_name
+        if directory.is_symlink():
+            raise ValueError('Refusing symlinked framework directory')
+        if directory.is_dir():
+            trash = store / ('.removed-' + uuid.uuid4().hex)
+            os.replace(directory, trash)
+            shutil.rmtree(trash)
+
+
+def uwp_frameworks_previous(receipt_dir, verb):
+    """The packages an earlier installation's receipt lists."""
+    receipt = receipt_dir / (verb + '.json')
+    if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_uid != UWP_XAML_OWNER:
+        return []
+    try:
+        packages = json.loads(receipt.read_text(encoding='utf-8')).get('packages')
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not isinstance(packages, dict):
+        return []
+    return [name for name in packages if isinstance(name, str) and re.match(r'^[A-Za-z0-9._-]+$', name)]
+
+
+def install_uwp_frameworks(verb, accepted_digest):
+    _, current = license_text(verb)
+    if current != accepted_digest:
+        raise ValueError('Terms changed; review and accept the current text')
+    environment = _uwp_xaml_environment()
+    with _machine_maintenance(environment):
+        if is_installed(verb, accepted_digest, machine=MACHINE):
+            return
+        if CACHE.is_symlink():
+            raise ValueError('Refusing symlinked component cache')
+        CACHE.mkdir(mode=0o700, exist_ok=True)
+        if CACHE.stat().st_uid != 0 or CACHE.stat().st_mode & 0o022:
+            raise ValueError('Component cache must be root-owned and not writable by others')
+        install_uwp_frameworks_into(verb, MACHINE, CACHE, current)
+
+
+def install_uwp_frameworks_into(verb, machine, cache, terms_digest):
+    """Download (or reuse), check and publish every package, then the receipt; on failure nothing of this attempt
+    stays and no receipt claims an earlier one."""
+    meta = COMPONENTS_METADATA[verb]
+    publisher = meta['publisher_name']
+    gid = machine_admin_gid(machine)
+    receipt_dir = machine.parent / 'component-receipts'
+    previous = uwp_frameworks_previous(receipt_dir, verb)
+    pins = uwp_frameworks_packages(verb)
+    # everything is downloaded and checked before anything is published
+    containers, contents = {}, []
+    work = cache / verb / ('.work-' + uuid.uuid4().hex)
+    try:
+        for container, package in pins:
+            if container['name'] not in containers:
+                containers[container['name']] = cache_pinned_download(verb, container, cache, FRAMEWORK_REDIRECTS,
+                                                                      'UWP frameworks')
+            if not work.exists():
+                work.mkdir(mode=0o700)
+            data = uwp_frameworks_extract(containers[container['name']], container, package, work)
+            contents.append((uwp_frameworks_check_identity(data, package, publisher), data))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    published = []
+    data_receipt = {
+        'verb': verb,
+        'title': meta.get('title', verb),
+        'sha256': terms_digest,
+        'terms_sha256': terms_digest,
+        'execution_policy': UWP_FRAMEWORKS_POLICY,
+        'component_identity': component_identity(verb),
+        'publisher': publisher,
+        'pins': [package['sha256'] for _, package in pins],
+        'packages': {},
+        'installed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+    }
+    try:
+        for full_name, data in contents:
+            published.append(full_name)
+            data_receipt['packages'][full_name] = uwp_frameworks_unpack(data, machine, full_name, gid)
+            uwp_frameworks_publish_record(machine, gid, full_name, publisher)
+        verify_uwp_frameworks(machine, data_receipt, full=True)
+    except BaseException:
+        try:
+            uwp_frameworks_remove(machine, sorted(set(published) | set(previous)))
+        except Exception as error:
+            print(f'UWP frameworks rollback: removal failed: {error}', file=sys.stderr)
+        try:
+            uwp_xaml_drop_receipt(receipt_dir, verb)
+        except OSError as error:
+            print(f'UWP frameworks rollback: receipt removal failed: {error}', file=sys.stderr)
+        raise
+    # versions an earlier installation published and this one does not
+    stale = [name for name in previous if name not in data_receipt['packages']]
+    if stale:
+        try:
+            uwp_frameworks_remove(machine, stale)
+        except Exception as error:
+            print(f'UWP frameworks upgrade: removing {len(stale)} packages failed: {error}', file=sys.stderr)
+    receipt_dir.mkdir(mode=0o755, exist_ok=True)
+    if receipt_dir.is_symlink() or receipt_dir.stat().st_uid != UWP_XAML_OWNER or receipt_dir.stat().st_mode & 0o022:
+        raise ValueError('Untrusted component receipt directory')
+    atomic_json(receipt_dir / (verb + '.json'), data_receipt, mode=0o644)
+    (receipt_dir / (verb + '.sha256')).write_text(terms_digest + '\n', encoding='ascii')
+
+
+def uninstall_uwp_frameworks(verb, machine):
+    receipt = machine.parent / 'component-receipts' / (verb + '.json')
+    if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_uid != UWP_XAML_OWNER:
+        raise ValueError(f'{verb} is not installed')
+    uwp_frameworks_remove(machine, uwp_frameworks_previous(receipt.parent, verb))
+    receipt.unlink()
+    (receipt.parent / (verb + '.sha256')).unlink(missing_ok=True)
+
+
 def uninstall(verb):
     """Remove exactly what the receipt lists: the registered classes, ComponentPath, the directory, the receipt."""
     validate_verb(verb)
-    if COMPONENTS_METADATA[verb].get('execution_policy') != UWP_XAML_POLICY:
+    policy = COMPONENTS_METADATA[verb].get('execution_policy')
+    if policy not in (UWP_XAML_POLICY, UWP_FRAMEWORKS_POLICY):
         raise ValueError(f'{verb} cannot be uninstalled by this tool')
     if os.getuid() != 0:
         raise ValueError('The installer backend requires authenticated elevation')
     environment = _uwp_xaml_environment()
+    if policy == UWP_FRAMEWORKS_POLICY:
+        with _machine_maintenance(environment):
+            uninstall_uwp_frameworks(verb, MACHINE)
+        return
     with _machine_maintenance(environment):
         receipt = MACHINE.parent / 'component-receipts' / (verb + '.json')
         if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_uid != 0:
@@ -2573,11 +3017,13 @@ def uninstall(verb):
 
 def install(verb, accepted_digest):
     validate_verb(verb)
-    if COMPONENTS_METADATA.get(verb, {}).get('execution_policy') == UWP_XAML_POLICY:
+    if COMPONENTS_METADATA.get(verb, {}).get('execution_policy') in (UWP_XAML_POLICY, UWP_FRAMEWORKS_POLICY):
         if COMPONENTS_METADATA[verb].get('disabled'):
             raise ValueError(f'{verb} is disabled: {COMPONENTS_METADATA[verb].get("disabled_reason")}')
         if os.getuid() != 0:
             raise ValueError('The installer backend requires authenticated elevation')
+        if COMPONENTS_METADATA[verb]['execution_policy'] == UWP_FRAMEWORKS_POLICY:
+            return install_uwp_frameworks(verb, accepted_digest)
         return install_uwp_xaml(verb, accepted_digest)
     meta = COMPONENTS_METADATA.get(verb, {})
     if meta.get('disabled'):
