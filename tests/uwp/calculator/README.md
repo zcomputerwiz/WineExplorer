@@ -39,6 +39,18 @@ together. XamlShim 0.2.0 serves about 30. The Calculator's include: `DependencyO
 `UserControl`, `ContentPresenter`, `KeyboardAccelerator`, `FocusManager`, `VisualTreeHelper`, `ThemeShadow`,
 `ElementCompositionPreview`. WinUI 2 itself is native code over the system XAML and Composition, the hardest part.
 
-Next: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
+### Later the same day (uno-uwp 475245e3, lab build of XamlShim)
+
+Dependency properties from native code work (the probe's checks match Windows): `CalcViewModel.dll` loads and registers
+its properties (`LocalizationService.FontType`/`FontSize` attached, `NarratorNotifier.Announcement`), the application's
+initialisation completes (`Application.HighContrastAdjustment`, which Uno lacks, is stored on the shim). `OnLaunched`
+then fails in the application's own code: "Unable to cast object of type
+`Windows.ApplicationModel.Activation.LaunchActivatedEventArgs`". The open-source Calculator (`microsoft/calculator`, MIT)
+reads `args.User.NonRoamableId` (`IActivatedEventArgsWithUser`, `Windows.System.User`), `args.PrelaunchActivated`
+(`IPrelaunchActivatedEventArgs`), `Arguments`, `Kind`, `SplashScreen`, then `ApplicationView` and the jump list. Wine's
+launch arguments (`twinapi.appcore`) implement `IActivatedEventArgs` and `ILaunchActivatedEventArgs` only, and Wine has
+no `Windows.System.User`. Next: measure those interfaces on Windows with the probe, then implement them in Wine.
+
+Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
 the Calculator shows. Prior art and the Wine gaps others listed for the Calculator: `tests/uwp/frameworks/README.md`.

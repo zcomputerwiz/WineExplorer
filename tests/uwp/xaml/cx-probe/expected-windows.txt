@@ -17,6 +17,14 @@ Check CheckBox 120x32 at 12,64, checked yes
 Picture Image 50x50 at 220,55
 List ListView 200x775 at 12,113, items 5
 Scroll ScrollViewer 968x775 at 220,113, extent 775, viewport 775
+dp default 1.5, local unset, metadata default 1.5
+dp set 3.25, changes 1: 1.5 -> 3.25, property is Level, sender is a Gauge
+dp same value again, changes 1
+dp registered callback, property is Level yes, value 1.5
+dp cleared 1.5, changes 2: 3.25 -> 1.5, property is Level, sender is a Gauge
+dp after unregister 7, changes 3
+attached default none
+attached set checked, other element none
 Box padding 6,6,6,6, corner 4
 Unchecked, sender is the check box no, source is the check box no
 TextChanged, sender is the text box no, text Changed

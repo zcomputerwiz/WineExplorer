@@ -2,6 +2,7 @@
 // Copyright 2026 WineExplorer contributors
 #include "pch.h"
 #include "ControlsPage.xaml.h"
+#include "DependencyProbe.h"
 
 using namespace XamlProbe;
 using namespace Windows::Foundation;
@@ -56,6 +57,7 @@ void ControlsPage::Step(Platform::Object^, Platform::Object^)
         Log(L"Scroll ScrollViewer " + Place(Scroll, this) + L", extent " + Scroll->ExtentHeight.ToString() +
             L", viewport " + Scroll->ViewportHeight.ToString());
         Scroll->ChangeView(nullptr, 100.0, nullptr, true);
+        RunDependencyProbe(Check);
         /* struct properties, events */
         {
             auto pad = Box->Padding;
