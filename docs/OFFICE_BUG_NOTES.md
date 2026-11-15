@@ -6,10 +6,26 @@ Written 2026-11-15 for an agent who takes one of them without the rest of the hi
 wrong, how to see it, what is known and what is not. The history, the lab and the other findings are in
 [OFFICE.md](OFFICE.md); the lab scripts are in `scripts/lab/office/`.
 
-**Checked first:** neither repository has a known-bugs document. `docs/` of this repository has no file of that kind
-(the nearest are the open-question sections of `SYSTEM_TIER_T5_SERVICES.md` and `GUEST_SYSROLE.md`), and the Wine
-fork has none. None of the entries below is recorded elsewhere. OB-1 touches what `SYSTEM_TIER_T5_SERVICES.md`
-leaves open (its relay carries `svcctl` only).
+**Checked first:** the known-bugs document is `docs/KNOWN_BUGS.md` on the branch `claude/wine-reuse` (not on
+master or on this branch; the Wine fork has none). Its rule: the system tier session owns the list, other sessions
+report there, it fixes or routes each entry. At its state of 2026-11-14 (`c1b5a8f9`) it lists B1 to B13; none of
+the entries below is recorded in it. Overlaps: **B4** (per-machine MSI, the way through session 0 or the
+elevation broker: the lab here runs setup in session 0 as the workaround, OB-1 and OB-5 are what is found there),
+**B5** (Windows version: Office 2016's MSI needs Windows 7, so OB-3 and B5's open question "how an `.msi` gets a
+version" are the same need), **B10** ("a session 0 image would add the cross-server question": that is OB-1),
+**B11** (machine root maintained without a notion of session 0). The T5 design note
+`SYSTEM_TIER_T5_SERVICES.md` leaves open what OB-1 is (its relay carries `svcctl` only).
+
+**To put in `KNOWN_BUGS.md`** (rows for its table, numbered after B13; the entries below are the detail):
+
+| # | Bug | Reported | State |
+|---|---|---|---|
+| B14 | A service in session 0 cannot be reached through its own RPC endpoint (`\pipe\lrpc\...`, `ncacn_np`) by a program in a user's session: pipe namespaces are per server, the T5 relay carries `svcctl` only (`SLOpen` of Office's licensing client fails with `0x80070078`, `c0000034` on the pipe open) | Office session, 2026-11-15 | to do; detail OB-1 in `OFFICE_BUG_NOTES.md` |
+| B15 | `MsiSourceListEnumSourcesW` returns 1605 for a package that is installed; `setup.exe /uninstall` of Office 2016 stops at once | Office session, 2026-11-15 | to reproduce and fix in `dlls/msi`; OB-2 |
+| B16 | Session 0's account cannot save its own `HKCU` (`machine/user.reg` is `root:wexsys` 0644): a setting such as the Windows version is lost at every restart of the unit | Office session, 2026-11-15 | to decide (permissions or another hive); OB-3. Related: B5 |
+| B17 | An installer cannot overwrite a font that the machine root links to an open font (`EACCES` through the link, setup 1603) | Office session, 2026-11-15 | fixed on the fork branch `claude/office-wine` (`53e7017`, `server/fd.c`), tested directly; design question in OB-4 |
+| B18 | Office 2016's licensing service refuses to register its plugin during setup in session 0 (`0xc004f025`, rolls back with 1603) | Office session, 2026-11-15 | cause unknown; OB-5 |
+| B19 | Word 2016's "First things first" dialog: Accept does nothing and starts `DW20.EXE` | Office session, 2026-11-15 | cause unknown; OB-6 |
 
 Environment of all entries: the lab VM `WineExplorer-Office` (a clone of `WineExplorer-VM`), Debian 13, this
 branch's Wine (`wine-11.21`, WoW64) with the system tier on (`WEX_SESSION0=1 scripts/setup-machine-root.sh`:
@@ -147,6 +163,13 @@ the need for the check.
 - The caller's token (`scripts/lab/office/token-probe.c`, run as the system account in session 0): user
   `S-1-5-18`, elevated, member of Administrators, integrity System. So the process token is right.
 - `ActivePlugins` of the service is not found (no plugin registered), consistent with the failure.
+
+**How to see the service's side.** The service runs under session 0's `services.exe`, so its Wine output is not in
+the log of the setup run (a trace of `+token,+security,+service` on the run shows only the installer's side: the
+service is started, then the fault comes back). To trace the service itself put `WINEDEBUG` into the machine-wide
+Environment (`GUEST_SYSROLE.md` step 9, `scripts/lab/guest-sysrole/guest-env-debug.py`) and restart session 0; the
+output goes to the journal of `wex-session0-services.service`. Keep the channels few (`+relay` of a whole run
+wrote 6 GB).
 
 **Not known (hypotheses, none tested).**
 1. The service checks the RPC caller's token through impersonation over `ncalrpc` (`RpcImpersonateClient`, which
