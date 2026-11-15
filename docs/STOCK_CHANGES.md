@@ -3421,3 +3421,10 @@ reads its theme setting this way.
 (`IsWellFormed`: BCP-47 syntax; `CurrentInputMethodLanguageTag`: the keyboard layout's language), `Makefile.in`
 (imports `user32`), `tests/globalization.c` (well-formed and malformed tags; passes on Windows 11 x64 and x86 and on
 Wine).
+
+2026-11-15 (UWP, Wine 9b95bce0): `dlls/windows.globalization`: new `number_formatter.c`
+(`Windows.Globalization.NumberFormatting.DecimalFormatter`: formatting, parsing and options as measured on Windows 11,
+140 values identical on Windows and Wine), `classes.idl`, `main.c`, `private.h` and `calendar.c` (`languages_from_iterable`
+shared), `Makefile.in`, `tests/globalization.c` (passes on Windows 11 x64 and x86 and on Wine); new
+`include/windows.globalization.numberformatting.idl` (DecimalFormatter's interfaces). The Store Calculator formats its
+display with it.
