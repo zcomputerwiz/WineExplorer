@@ -37,6 +37,12 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   the notification thread watches the policy writer's serial numbers in the registry. The four stubs left
   `userenv_main.c`; `userenv.spec` and `include/userenv.h` have the new exports. `loader/wine.inf.in` creates
   `HKLM\...\CurrentVersion\Group Policy`.
+- `dlls/userenv/userenv_main.c` (Group Policy step 6): `GetAppliedGPOListW` (was a FIXME returning access denied),
+  new `GetAppliedGPOListA`, `FreeGPOListA/W`. The list is read from
+  `HKLM\...\CurrentVersion\Group Policy\State\<Machine|SID>\GPO-List\<n>`, which session 0's policy writer
+  records; an object is returned for the extensions its `Extensions` value names. A remote machine name gives
+  `ERROR_NOT_SUPPORTED`. `userenv.spec` and `include/userenv.h`: the exports, the prototypes and the `GPO_FLAG_*`
+  and `GPO_LIST_FLAG_*` constants.
 - `dlls/wkscli/wkscli.c` (`NetGetJoinInformation`), `dlls/dsrole/dsrole.c` (`DsRoleGetPrimaryDomainInformation`):
   with `HKLM\Software\WineExplorer\Domain` (`FlatName`, `Name`) the machine is reported as a member of that domain;
   without the key, stock behaviour. `wkscli` imports `advapi32` for it.
