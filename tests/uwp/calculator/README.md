@@ -111,6 +111,18 @@ leaves out setters of properties Uno lacks (`RichEditBox.ContentLinkForegroundCo
 own dependency properties for style setters (`IXamlType.RunInitializer` first). Still open: the KeyNotFoundException
 at the end of `OnLaunched`, the two failing `Loaded` handlers, `Settings`, and nothing drawn yet.
 
+### 2026-11-15, night (Wine development f1347be7, uno-uwp 90eb538e82)
+
+`OnLaunched` completes and the window is shown (320x500, the minimum size the application sets; the CoreWindow
+frame holds Uno's window). The KeyNotFoundException was Wine's settings `Lookup` of a missing key (E_BOUNDS where
+Windows gives null; Wine a2356079). XamlShim now connects a page's root and its x:Bind binding connector
+(`IComponentConnector2`), loads a page's own `<Page.Resources>`, forwards the application's converters and commands,
+and serves statics' property getters (`Popup.IsOpenProperty`). The visual tree has the main page, the TitleBar and
+Uno's NavigationView template. Next: `NavigationView.MenuItemsSource` is the application's own observable vector of
+categories, which needs a .NET list over the native `IVector` (with `VectorChanged`) and item templates whose x:Bind
+bindings reach native items; the content area (the Standard calculator) is navigated to from there. Then `Settings`
+(toolkit `SettingsExpander` content and icons).
+
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
 the Calculator shows. Prior art and the Wine gaps others listed for the Calculator: `tests/uwp/frameworks/README.md`.
