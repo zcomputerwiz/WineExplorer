@@ -81,6 +81,27 @@ It cannot, if the inference holds, produce the answer to Office's authentication
    Office 2021 and 2024 check the service's identity and that no open service can pass the check; applications
    that do not check work.
 
+## Path 2 measured, first run (2026-11-15, lab VM, local copy never committed)
+
+Files used: the host's `sppsvc.exe`, `sppc.dll`, `sppcext.dll`, `sppwinob.dll`, `sppobjs.dll`, `slc.dll`,
+`sppcomapi.dll` and the two DLLs they import that Wine lacks, `pkeyhelper.dll` and `CLIPC.dll` (imports read from
+the PE import tables only). No store, token or license of the host was copied.
+
+* Imports: everything else the files import exists in Wine (Windows API sets included). `pkeyhelper.dll` imports
+  `bcrypt` only, `CLIPC.dll` imports `ntdll` and `rpcrt4` only.
+* `sppsvc.exe` loads and runs under Wine with the two DLLs (started by hand it exits as any service does outside the
+  service manager).
+* Registered as a session 0 service (`scripts/lab/office/spp-service-test.bat`, NetworkService) it enters
+  START_PENDING and then **stops on `RPCRT4.dll.RpcServerInterfaceGroupCreateW`, which Wine does not implement**
+  (an unimplemented-function abort; also seen: `NtQuerySystemInformation` class 0xb9 is a stub).
+* `RpcServerInterfaceGroupCreate`, `...Activate`, `...Deactivate`, `...Close`, `...InqBindings` are public, documented
+  rpcrt4 functions. Implementing them is ordinary Wine work from Microsoft's documentation and the next step.
+* Not yet known: what the service does after that (store creation, plugin loading, hardware id, its RPC endpoint and
+  whether the native `sppc.dll` can reach it from another session; OB-1 applies), and whether Windows-only
+  components (the `spsys` driver was merged into the service from Windows 8 on) block it.
+
+Verdict so far for path 2: **no hard blocker found yet**; the first one is a missing public RPC function.
+
 ## Next steps
 
 1. Look for public protocol documentation that states the authentication scheme (Microsoft Open Specifications,
