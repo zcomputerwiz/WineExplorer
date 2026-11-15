@@ -118,6 +118,10 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     - WSLg mounts `/tmp/.X11-unix` read-only without the sticky bit, so XWayland, and with it the compositor, cannot
       start. `run.sh` remounts it; do the same for a compositor started by hand.
     - Keep `tests/wex/output` in the copy: `check-handles.py` writes there.
+* `installer/tests/ad/gpo-lab.sh` (the GPO VM lab, [GPO_LAB.md](GPO_LAB.md)): one entry point for the lab domain
+  below: `up`, `fixtures` (an OU, a domain user, a domain-linked and an OU-linked test object with a security
+  template), `check`, `member`, `machine`, `status`, `down`. On this host run it through
+  `scripts/lab/gpo-lab-run.sh` (an LF copy of the scripts); the command line is in GPO_LAB.md.
 * `installer/tests/ad/dc-create.sh` and `client-create.sh` (the lab Active Directory domain for Group Policy tests;
   `docs/GROUP_POLICY.md`, "The lab domain"): as root in the Debian WSL distribution, `bash installer/tests/ad/dc-create.sh`
   (first run about 5 minutes: a Samba controller for `AD.WEXLAB.EXAMPLE` from a Debian cloud image), then
