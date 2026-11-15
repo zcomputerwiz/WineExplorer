@@ -1,0 +1,7 @@
+MODULE    = gpresult.exe
+IMPORTS   = userenv dsrole advapi32
+
+EXTRADLLFLAGS = -mconsole -municode
+
+SOURCES = \
+	main.c

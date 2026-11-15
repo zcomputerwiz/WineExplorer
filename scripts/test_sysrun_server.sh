@@ -3562,6 +3562,14 @@ OUT="$(s0_wine wexpolicy record "/user:$STD_SID" "$(winpath "$POL/user.list")" |
 grep -q 'recorded=1 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record for the user"; }
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine "$REGEXT" | tr -d '\r')"
+    [ "$b" = 32 ] && {
+        # gpresult reads the same list: both objects for the machine, in order, the user's for the user
+        OUT2="$(as_wine "$STD" gpresult /v | tr -d '\r')"
+        grep -A3 '^    Applied Group Policy Objects' <<<"$OUT2" | grep -q '^        Default Domain Policy$' &&
+            [ "$(grep -c '^        Wex Test$' <<<"$OUT2")" = 2 ] && grep -q 'Applied for: Security' <<<"$OUT2" &&
+            grep -q '^COMPUTER SETTINGS$' <<<"$OUT2" && grep -q '^USER SETTINGS$' <<<"$OUT2" ||
+            { echo "$OUT2" >&2; fail "gpolist: gpresult"; }
+    }
     grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 1 ] &&
         grep -qx 'gpo={6AC1786C-016F-11D2-945F-00C04FB984F9} version=2 link=4 name=Wex Test som=LDAP://OU=Wex,DC=ad' <<<"$OUT" ||
         { echo "$OUT" >&2; fail "gpolist: a $b-bit program's machine list for the registry extension"; }
