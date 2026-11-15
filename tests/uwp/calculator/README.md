@@ -51,6 +51,18 @@ reads `args.User.NonRoamableId` (`IActivatedEventArgsWithUser`, `Windows.System.
 launch arguments (`twinapi.appcore`) implement `IActivatedEventArgs` and `ILaunchActivatedEventArgs` only, and Wine has
 no `Windows.System.User`. Next: measure those interfaces on Windows with the probe, then implement them in Wine.
 
+### 2026-11-15 (Wine e863e73a, uno-uwp SizeHelper)
+
+The launch arguments now have the interfaces Windows gives them (with the user, prelaunch, view, view switcher,
+tile info), `Windows.System.User` exists, `ApplicationView.GetForCurrentView` gives a real view (`SetPreferredMinSize`,
+`TryResizeView`, the launch preferences), `SizeHelper` is served; the probe's 21 launch lines are the same on Wine as on
+Windows 11. The Calculator passes those calls and stops at `Application.Resources` (null): its `App.xaml` resources
+(WinUI 2's `XamlControlsResources`, theme dictionaries, its own converters and controls) were never loaded. Its
+`App()` calls `InitializeComponent()`, but no `LoadComponent` reaches XamlShim; how the compiled `App.xaml` reaches the
+XAML layer is the next thing to find. Loading it needs the application's own (native) types inside Uno's XAML reader.
+Also asked for and missing: `Windows.System.User` statics, `Windows.Foundation.Diagnostics.AsyncCausalityTracer`,
+`Windows.System.MemoryManager`.
+
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
 the Calculator shows. Prior art and the Wine gaps others listed for the Calculator: `tests/uwp/frameworks/README.md`.

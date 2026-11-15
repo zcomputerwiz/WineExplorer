@@ -48,6 +48,7 @@ void App::OnResuming(Platform::Object^ sender, Platform::Object^)
 void App::OnLaunched(Windows::ApplicationModel::Activation::LaunchActivatedEventArgs^ e)
 {
     Log(L"launched");
+    RunLaunchProbe(e);
     auto frame = ref new Controls::Frame();
     Window::Current->Content = frame;
     frame->Navigate(Interop::TypeName(MainPage::typeid), e->Arguments);

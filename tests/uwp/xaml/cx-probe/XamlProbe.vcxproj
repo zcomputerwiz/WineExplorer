@@ -70,6 +70,7 @@ XAML experiment step 2b: the smallest compiled XAML application (C++/CX, Windows
     <ClCompile Include="SecondPage.xaml.cpp"><DependentUpon>SecondPage.xaml</DependentUpon></ClCompile>
     <ClCompile Include="ControlsPage.xaml.cpp"><DependentUpon>ControlsPage.xaml</DependentUpon></ClCompile>
     <ClCompile Include="DependencyProbe.cpp" />
+    <ClCompile Include="LaunchProbe.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="Assets\Logo.png" />

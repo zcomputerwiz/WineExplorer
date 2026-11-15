@@ -1,5 +1,26 @@
 app constructed
 launched
+launch interfaces: activated yes, launch yes, launch2 yes, with user yes, prelaunch yes, view activated yes, view switcher yes
+launch kind 0
+launch tile id 'App'
+launch prelaunch no
+launch tile info null
+launch user set
+launch user type 0, authentication 1
+launch user id length 44 digits upper lower other
+launch user id stable yes
+launch view id 0, current view's different
+launch view switcher null
+launch splash set
+launch application view set
+launch application view same yes
+launch view title '', full screen no
+launch launch mode 0
+launch launch size 0x0
+launch size helper 320x500
+launch min size ok
+launch try resize yes
+launch mode set, now 0
 page constructed
 page loaded 1200x900
 Title TextBlock 239x27 at 24,24

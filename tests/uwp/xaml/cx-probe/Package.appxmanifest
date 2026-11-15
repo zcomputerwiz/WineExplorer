@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
 SPDX-License-Identifier: GPL-2.0-or-later
 Copyright 2026 WineExplorer contributors
@@ -6,7 +6,7 @@ Copyright 2026 WineExplorer contributors
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          IgnorableNamespaces="uap">
-  <Identity Name="WineExplorer.XamlProbe" Publisher="CN=WineExplorer U1 Oracle" Version="1.0.7.0" />
+  <Identity Name="WineExplorer.XamlProbe" Publisher="CN=WineExplorer U1 Oracle" Version="1.0.10.0" />
   <Properties>
     <DisplayName>XamlProbe</DisplayName>
     <PublisherDisplayName>WineExplorer</PublisherDisplayName>
