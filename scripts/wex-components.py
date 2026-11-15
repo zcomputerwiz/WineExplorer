@@ -274,11 +274,26 @@ COMPONENTS_METADATA = {
                        'installer program runs.',
         'size': '~238 MiB download, ~45 MiB installed (x64)',
         'reboot': False,
-        'disabled': True,
-        'disabled_reason': 'The licence terms to show for these packages are not decided yet',
+        'disabled': False,
+        'disabled_reason': '',
+        # Microsoft's licence terms for each kind of package, as Microsoft publishes them: the WinUI licence inside
+        # the WinUI 2.8.7 package (read by range requests), the .NET Native (UWP) licence on Microsoft's GitHub, and
+        # the Visual C++ runtime licence (the document vcrun2022 shows too; VCLibs is that runtime for UWP).
         'terms_url': '',
-        'terms_sha256': '',
-        'terms_text_sha256': '',
+        'terms_documents': [
+            {'title': 'Microsoft Windows UI Library (Microsoft.UI.Xaml 2.8)', 'format': 'zip-member',
+             'url': 'https://api.nuget.org/v3-flatcontainer/microsoft.ui.xaml/2.8.7/microsoft.ui.xaml.2.8.7.nupkg',
+             'size': 20314649, 'member': 'license.txt',
+             'sha256': '394500b97c5f2f7cbb18fd9aa3a9bcc4e11f48b6423aa1e48f3e9c1bbe4a9fea'},
+            {'title': '.NET Native for UWP (Microsoft.NET.Native.Framework and Runtime 2.2)', 'format': 'txt',
+             'url': 'https://raw.githubusercontent.com/Microsoft/dotnet/master/releases/UWP/LICENSE.TXT',
+             'sha256': 'ac3997606b407ffb3843dab93b62cc20976841932159cb062684b840dd2c2a5e'},
+            {'title': 'Microsoft Visual C++ runtime (Microsoft.VCLibs.140.00 and .UWPDesktop)', 'format': 'docx',
+             'url': 'https://visualstudio.microsoft.com/wp-content/uploads/2021/09/Visual-C-Runtime-2015-2022-License-1.docx',
+             'sha256': 'f1e3d56ceb2ad68aae0711b910375009e651ac5530fa0760f0dea6e81e54fae1'},
+        ],
+        'terms_sha256': '9dab9215fb4673cf9c785c379ea74c33cb7ae66927ecee21281e541425072bfb',     # the document set
+        'terms_text_sha256': '0a57dd992785db77dbd9b6924ebd8294859d25cc6890bb1397da9615e4dedd3c',
         'release': 'calculator-11.2607',
         'execution_policy': 'uwp-frameworks-extract-register-v1',
         'publisher_name': 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US',
@@ -1222,6 +1237,80 @@ class StaleTermsError(ValueError):
     """Trusted cached document no longer matches the reviewed package policy."""
 
 
+TERMS_DOCUMENT_HOSTS = ('https://visualstudio.microsoft.com/', 'https://raw.githubusercontent.com/Microsoft/',
+                        'https://raw.githubusercontent.com/microsoft/', 'https://api.nuget.org/v3-flatcontainer/',
+                        'https://github.com/zcomputerwiz/uno-uwp/releases/download/',
+                        'https://release-assets.githubusercontent.com/')
+
+
+def terms_documents_identity(documents):
+    """The pinned identity of a set of terms documents: the hash of their titles, locations and byte hashes."""
+    return hashlib.sha256(json.dumps([[d['title'], d['url'], d.get('member', ''), d['format'], d['sha256']]
+                                      for d in documents], separators=(',', ':')).encode()).hexdigest()
+
+
+def _terms_download(url, headers=None):
+    req = urllib.request.Request(url, headers=dict({'User-Agent': 'Wget/1.21.3 (linux-gnu)'}, **(headers or {})))
+    with urllib.request.urlopen(req, timeout=10) as response:
+        if not response.url.startswith('https://'):
+            raise ValueError('Insecure vendor document redirect')
+        return response.read(MAX_TERMS_BYTES + 1), getattr(response, 'headers', None)
+
+
+class _RangeReader(io.RawIOBase):
+    """A remote file read with HTTP range requests (a licence inside a large package without downloading it)."""
+    def __init__(self, url, size):
+        self.url, self.size, self.pos, self.requests = url, size, 0, 0
+    def readable(self): return True
+    def seekable(self): return True
+    def tell(self): return self.pos
+    def seek(self, offset, whence=0):
+        self.pos = offset if whence == 0 else self.pos + offset if whence == 1 else self.size + offset
+        return self.pos
+    def readinto(self, buffer):
+        if self.pos >= self.size or not len(buffer):
+            return 0
+        self.requests += 1
+        if self.requests > 64:
+            raise ValueError('Too many range requests for a terms document')
+        end = min(self.pos + len(buffer), self.size) - 1
+        data, headers = _terms_download(self.url, {'Range': f'bytes={self.pos}-{end}'})
+        if len(data) != end - self.pos + 1:
+            raise ValueError('Range request not honoured for a terms document')
+        buffer[:len(data)] = data
+        self.pos += len(data)
+        return len(data)
+
+
+def terms_document_text(verb, document, approved_hosts=None):
+    """The text of one pinned terms document: {url, sha256, format: txt | docx | zip-member [, member, size]}."""
+    url = document['url']
+    if approved_hosts is not None and not url.startswith(approved_hosts):
+        raise ValueError('Unapproved vendor document location')
+    try:
+        if document['format'] == 'zip-member':
+            # a licence file inside a pinned package: only its central directory and the member are read
+            with zipfile.ZipFile(io.BufferedReader(_RangeReader(url, document['size']), 1 << 16)) as package:
+                info = package.getinfo(document['member'])
+                if info.file_size > MAX_TERMS_BYTES:
+                    raise ValueError('Oversized vendor document')
+                data = package.read(info)
+        else:
+            data, _ = _terms_download(url)
+    except urllib.error.URLError as err:
+        raise ConnectionError(f'Failed to retrieve vendor terms for {verb} from {url}: {err.reason}')
+    if len(data) > MAX_TERMS_BYTES or hashlib.sha256(data).hexdigest() != document['sha256']:
+        raise ValueError('Vendor document changed or exceeded its size limit; review required')
+    if document['format'] == 'webview2-json':
+        return extract_webview2_terms(data)
+    if document['format'] == 'docx':
+        return extract_docx_terms(data)
+    if document['format'] in ('txt', 'zip-member'):
+        # a plain UTF-8 licence document; its bytes are pinned above, the text of the whole set by the caller
+        return data.decode('utf-8-sig', errors='strict')
+    raise ValueError('Unreviewed vendor document format')
+
+
 def fetch_vendor_terms(verb, directory=None):
     """Acquire authentic vendor terms over network and cache under directory."""
     directory = directory or TERMS
@@ -1243,33 +1332,26 @@ def fetch_vendor_terms(verb, directory=None):
             # Insecure ownership/paths still fail above, never taking this path.
             pass
 
-    terms_url = meta.get('terms_url')
-    if not terms_url:
-        raise FileNotFoundError(f'Authentic vendor terms for {verb} must be provisioned in {directory}/{verb}.txt')
-    if not terms_url.startswith('https://') or not meta.get('terms_sha256') or not meta.get('terms_text_sha256'):
-        raise ValueError('No reviewed document and extraction identity for ' + verb)
-
-    headers = {'User-Agent': 'Wget/1.21.3 (linux-gnu)'}
-    req = urllib.request.Request(terms_url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=10) as response:
-            if not response.url.startswith('https://'):
-                raise ValueError('Insecure vendor document redirect')
-            data = response.read(MAX_TERMS_BYTES + 1)
-    except urllib.error.URLError as err:
-        raise ConnectionError(f'Failed to retrieve vendor terms for {verb} from {terms_url}: {err.reason}')
-
-    if len(data) > MAX_TERMS_BYTES or hashlib.sha256(data).hexdigest() != meta['terms_sha256']:
-        raise ValueError('Vendor document changed or exceeded its size limit; review required')
-    if meta.get('terms_format') == 'webview2-json':
-        text = extract_webview2_terms(data)
-    elif terms_url.endswith('.docx'):
-        text = extract_docx_terms(data)
-    elif terms_url.endswith('.txt') and meta.get('execution_policy') == UWP_XAML_POLICY:
-        # a plain UTF-8 licence and notice document; its bytes are pinned above, its text below
-        text = data.decode('utf-8', errors='strict')
+    if meta.get('terms_documents'):
+        # several vendor documents, each pinned by its bytes, shown one after the other under their titles
+        if not meta.get('terms_sha256') or meta['terms_sha256'] != terms_documents_identity(meta['terms_documents']):
+            raise ValueError('No reviewed document set for ' + verb)
+        text = '\n\n'.join(f'{document["title"]}\n{"=" * len(document["title"])}\n\n'
+                           f'{terms_document_text(verb, document, TERMS_DOCUMENT_HOSTS).strip()}'
+                           for document in meta['terms_documents']) + '\n'
     else:
-        raise ValueError('Unreviewed vendor document format')
+        terms_url = meta.get('terms_url')
+        if not terms_url:
+            raise FileNotFoundError(f'Authentic vendor terms for {verb} must be provisioned in {directory}/{verb}.txt')
+        if not terms_url.startswith('https://') or not meta.get('terms_sha256') or not meta.get('terms_text_sha256'):
+            raise ValueError('No reviewed document and extraction identity for ' + verb)
+        text = terms_document_text(verb, {'url': terms_url, 'sha256': meta['terms_sha256'],
+                                          'format': 'webview2-json' if meta.get('terms_format') == 'webview2-json' else
+                                          'docx' if terms_url.endswith('.docx') else
+                                          'txt' if terms_url.endswith('.txt') and
+                                          meta.get('execution_policy') == UWP_XAML_POLICY else 'unreviewed'})
+    if not meta.get('terms_text_sha256'):
+        raise ValueError('No reviewed extraction identity for ' + verb)
     if hashlib.sha256(text.encode()).hexdigest() != meta['terms_text_sha256']:
         raise ValueError('Terms extraction changed; full document review required')
 

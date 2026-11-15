@@ -23,7 +23,12 @@ the five that the Windows Calculator 11.2607 declares (`Microsoft.UI.Xaml.2.8` 8
   verification, upgrade (versions no longer pinned are removed), rollback (a failure leaves nothing and no receipt) and
   uninstall as for `uwp-xaml`. Tests: `scripts/test_component_uwp_frameworks.py` (synthetic packages, a zip and a
   cabinet container, run as root).
-* **Disabled** until the owner decides which licence documents setup shows for these packages.
+* **Terms** (owner, 2026-11-14): setup shows three Microsoft licence documents, one after the other under their
+  titles, each pinned by its bytes (`terms_documents`) and the whole text by its hash: the Windows UI Library licence
+  (`license.txt` inside the pinned WinUI 2.8.7 package, read with HTTP range requests, about 70 KiB of the 20 MiB), the
+  .NET Native for UWP licence (`releases/UWP/LICENSE.TXT` of Microsoft's `dotnet` repository), and the Visual C++
+  runtime licence (Microsoft's `Visual-C-Runtime-2015-2022-License` document, also shown by `vcrun2022`; VCLibs is that
+  runtime for UWP). The Visual Studio licence page was not usable: it loads its text with JavaScript.
 
 ## Lab test
 

@@ -210,14 +210,87 @@ class FrameworkTests(unittest.TestCase):
         self.assertFalse((self.root / 'component-receipts' / 'uwp-frameworks.json').exists())
 
     def test_published_metadata(self):
+        meta = c.COMPONENTS_METADATA['uwp-frameworks']
         pins = c.uwp_frameworks_packages('uwp-frameworks')
         self.assertEqual([p['name'] for _, p in pins],
                          ['Microsoft.UI.Xaml.2.8', 'Microsoft.NET.Native.Framework.2.2', 'Microsoft.NET.Native.Runtime.2.2',
                           'Microsoft.VCLibs.140.00', 'Microsoft.VCLibs.140.00.UWPDesktop'])
-        self.assertTrue(c.COMPONENTS_METADATA['uwp-frameworks']['disabled'])   # until the terms are decided
+        self.assertFalse(meta['disabled'])
+        self.assertEqual(c.terms_documents_identity(meta['terms_documents']), meta['terms_sha256'])
+        self.assertEqual(len(meta['terms_documents']), 3)
         c.validate_recipe_files('uwp-frameworks', self.root / 'no-winetricks')
-        with self.assertRaises(ValueError):
-            c.install('uwp-frameworks', 'digest')
+        with patch.object(c, 'TERMS', self.root / 'terms'):
+            with self.assertRaises(ValueError):                  # no accepted terms, nothing downloaded
+                c.install('uwp-frameworks', 'digest')
+        self.assertFalse((self.cache / 'uwp-frameworks').exists())
+
+    def serve(self, documents):
+        """_terms_download over a dict url -> bytes, honouring Range like the real servers."""
+        requests = []
+
+        def download(url, headers=None):
+            data = documents[url]
+            requests.append((url, (headers or {}).get('Range')))
+            if headers and 'Range' in headers:
+                start, end = map(int, headers['Range'][len('bytes='):].split('-'))
+                return data[start:end + 1], {}
+            return data, {}
+        return patch.object(c, '_terms_download', download), requests
+
+    def terms_fixture(self):
+        winui = 'MICROSOFT SOFTWARE LICENSE TERMS\nWINDOWS UI LIBRARY\n' + 'w' * 600
+        package = io.BytesIO()
+        with zipfile.ZipFile(package, 'w', zipfile.ZIP_DEFLATED) as z:
+            z.writestr('lib/big.bin', os.urandom(300000))           # most of the package is never read
+            z.writestr('license.txt', winui)
+        native = '﻿MICROSOFT SOFTWARE LICENSE TERMS\n.NET NATIVE\n' + 'n' * 600
+        nupkg = 'https://api.nuget.org/v3-flatcontainer/x/1/x.nupkg'
+        txt = 'https://raw.githubusercontent.com/Microsoft/dotnet/master/releases/UWP/LICENSE.TXT'
+        files = {nupkg: package.getvalue(), txt: native.encode('utf-8')}
+        documents = [
+            {'title': 'WinUI', 'format': 'zip-member', 'url': nupkg, 'size': len(files[nupkg]), 'member': 'license.txt',
+             'sha256': hashlib.sha256(winui.encode()).hexdigest()},
+            {'title': 'Native', 'format': 'txt', 'url': txt, 'sha256': hashlib.sha256(files[txt]).hexdigest()}]
+        text = ('WinUI\n=====\n\n' + winui + '\n\nNative\n======\n\n' + native[1:] + '\n')
+        meta = self.metadata['uwp-frameworks']
+        meta.update(terms_documents=documents, terms_sha256=c.terms_documents_identity(documents),
+                    terms_text_sha256=hashlib.sha256(text.encode()).hexdigest())
+        return files, documents, text
+
+    def test_terms_documents_are_shown_in_order(self):
+        files, documents, text = self.terms_fixture()
+        served, requests = self.serve(files)
+        with served, patch.object(c.os, 'getuid', lambda: 1000):     # not root: nothing is cached
+            got, digest = c.fetch_vendor_terms('uwp-frameworks', self.root / 'terms')
+        self.assertEqual(got, text)
+        self.assertEqual(digest, hashlib.sha256((c.component_identity('uwp-frameworks') + '\n' + text).encode()).hexdigest())
+        ranged = [r for u, r in requests if u == documents[0]['url']]
+        self.assertTrue(ranged and all(ranged))                        # the package only through range requests
+        read = sum(int(r.split('-')[1]) - int(r[len('bytes='):].split('-')[0]) + 1 for r in ranged)
+        self.assertLess(read, len(files[documents[0]['url']]) // 2)
+
+    def test_terms_documents_refused_when_changed(self):
+        meta = self.metadata['uwp-frameworks']
+
+        def other_host(files, documents):
+            documents[1]['url'] = 'https://example.invalid/LICENSE.TXT'
+            files[documents[1]['url']] = b'x'
+            meta['terms_sha256'] = c.terms_documents_identity(documents)
+
+        cases = {
+            'document bytes': lambda files, documents: files.update({documents[1]['url']: files[documents[1]['url']] + b' '}),
+            'set identity': lambda files, documents: meta.update(terms_sha256='0' * 64),
+            'text identity': lambda files, documents: meta.update(terms_text_sha256='0' * 64),
+            'host': other_host,
+        }
+        for label, change in cases.items():
+            with self.subTest(case=label):
+                files, documents, _ = self.terms_fixture()
+                change(files, documents)
+                served, _ = self.serve(files)
+                with served, patch.object(c.os, 'getuid', lambda: 1000):
+                    with self.assertRaises(ValueError):
+                        c.fetch_vendor_terms('uwp-frameworks', self.root / ('terms-' + label.replace(' ', '-')))
 
 
 if __name__ == '__main__':
