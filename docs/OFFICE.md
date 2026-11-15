@@ -46,6 +46,17 @@ and no circumvention in it.
 | 2 | `ProPlusWW.msi` fails with 1603 after the 23 language packages installed | Custom action `CAInstallLicenses` calls `sppc.dll.SLInstallLicense`, a stub (63 of 67 exports of Wine's `sppc.dll` were stubs). | Fixed: `src/dlls/sppc`, a local license store that replaces the stock stub (`src/stock-replacements.txt`). Setup ends with return code 0; `WINWORD.EXE` and `EXCEL.EXE` are installed. |
 | 3 | Word draws its start screen, then "Microsoft Office cannot verify the license for this product", and exits | Windows 10 mode. Word gives the licensing service a challenge (`SLSetAuthenticationData`, 288 bytes), consumes its right and reads the policy `*` and `SLGetAuthenticationResult`. Only the licensing service of Windows can make that answer; the store returns `E_NOTIMPL`. | Open. Not to be faked. Under test: Windows 7 mode, where Office 2016 installs and uses its own licensing service. |
 
+| 4 | Windows 7 mode, this branch's Wine: `Office64WW.msi` fails with 1627 at `StartServices` | In Windows 7 mode setup installs Office's own licensing service (`osppsvc`, `Common Files\Microsoft Shared\OfficeSoftwareProtectionPlatform`, account `NT AUTHORITY\NetworkService`, 64-bit). It starts, reports running, then logs `0x80070005` and stops with exit code 5, without a failing file, registry or RPC call before it. The lab prefix is a plain user prefix: there the server gives services the user's token. Service-account tokens (SYSTEM, LocalService, NetworkService) exist only with the system role or session 0 (`docs/SYSTEM_TIER_WORK_ORDERS.md`), which the lab VM does not have. | Open. Next: the same on a machine with the system tier (`WEX_SESSION0=1`). Not proven that the token is the cause. |
+
+Blocker 4 can be repeated in seconds: `scripts/lab/office/grab-ospp.sh` copies the service's files and registry keys
+while setup runs (setup removes them when the service does not start), `start-ospp.sh` puts them back and starts
+the service alone. Pitfalls met: `+relay` for a whole setup run wrote 6 GB (a `RelayFromInclude` value did not
+limit it); a script that takes a line number from `grep` must stop when there is none (`sed -n "p"` prints
+the whole log).
+
+Checked 2026-11-14 for newer fixes: `origin/master` is 15 commits ahead of this branch's base (UWP XAML, test
+harness, Debugging Mode, `wine` pinned to `1052fab3`); none touches services, the system role or tokens.
+
 The license store (`src/dlls/sppc/sppc.c`):
 
 * License files are kept as installed in `WINDOWS\spp\wine\{file id}.xrm-ms` (the id is made from the file's
