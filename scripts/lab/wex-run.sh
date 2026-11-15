@@ -12,6 +12,8 @@
 #   lab       sync, builds, lab suite        (only code behind the lab build flags changed)
 #   normal    sync, build, normal suite, broker test
 #   full      sync, builds, T1, normal suite, broker test, lab suite (product code changed)
+#   labt1     sync, builds, T1, lab suite: the half of "full" that "normal" leaves; with "normal" on a second
+#             machine at the same time it is a full run in about half the time (scripts/lab/wex-run-split.sh)
 #   build     sync and build only (code the suites do not cover; run that code's own tests after it)
 #   clean     remove a suite fixture left behind by a killed run, nothing else
 #
@@ -27,7 +29,7 @@ set -u
 # The whole script is one function, called at the end: bash reads it completely before running, so editing this
 # file during a run cannot change the run.
 main() {
-MODE=${1:?labsuite|lab|normal|full|build|clean}
+MODE=${1:?labsuite|lab|normal|full|labt1|build|clean}
 D=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 TREE=$(basename "$D")
 SNAP=/root/wex-snap/$TREE
@@ -58,7 +60,7 @@ clean_fixture()
 }
 
 case $MODE in
-    labsuite|lab|normal|full|build) ;;
+    labsuite|lab|normal|full|labt1|build) ;;
     clean) clean_fixture; echo "fixture removed"; exit 0 ;;
     *) echo "unknown mode $MODE"; exit 2 ;;
 esac
@@ -143,7 +145,7 @@ if [ "$MODE" = build ]; then
     echo "ALL PASS build $TREE ($(( (SECONDS - T0 + 30) / 60 )) min)"
     exit 0
 fi
-if [ "$MODE" = full ]; then
+if [ "$MODE" = full ] || [ "$MODE" = labt1 ]; then
     ( cd "$SNAP" && BUILD=$MAIN bash scripts/lab/system-tier-t1.sh ) > $LOGS/t1.log 2>&1
     grep -q '^FAILS=0' $LOGS/t1.log && stage t1 ok || stage t1 FAILED
 fi
@@ -153,7 +155,7 @@ if [ "$MODE" = normal ] || [ "$MODE" = full ]; then
     ( cd "$SNAP" && bash scripts/test_broker_e1s18.sh ) > $LOGS/broker.log 2>&1 && stage broker ok ||
         { stage broker FAILED; tail -3 $LOGS/broker.log; }
 fi
-if [ "$MODE" = lab ] || [ "$MODE" = full ]; then
+if [ "$MODE" = lab ] || [ "$MODE" = full ] || [ "$MODE" = labt1 ]; then
     ( cd "$SNAP" && R8_LAB_LOG=$LOGS/lab-build.log bash scripts/lab/r8-lab-build.sh ) > $LOGS/lab-build.out 2>&1 &&
         stage lab-build ok || { stage lab-build FAILED; tail -3 $LOGS/lab-build.out; exit 1; }
 fi
