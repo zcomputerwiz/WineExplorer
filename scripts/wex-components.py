@@ -2229,24 +2229,36 @@ def cache_uwp_xaml_payload(verb, cache):
     return target
 
 
-def _uwp_xaml_real_directory(path, create):
-    """A root-owned directory that is no symlink and not writable by others (made 0755 when create is set)."""
+def _uwp_xaml_real_directory(path, create, admin_gid=None):
+    """A root-owned directory that is no symlink and that nobody else can write (made 0755 when create is set).
+    Group write is accepted only for ADMIN_GID, the machine root's own group: setup-machine-root.sh gives every
+    directory of the machine root mode 2775 for its administrators, who may change these files anyway."""
     if path.is_symlink():
         raise ValueError(f'Refusing symlinked directory: {path}')
     if create and not path.exists():
         path.mkdir(mode=0o755)
     info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o022:
+    group_ok = not info.st_mode & 0o020 or (admin_gid is not None and info.st_gid == admin_gid)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o002 or not group_ok:
         raise ValueError(f'Untrusted directory: {path}')
+
+
+def machine_admin_gid(machine):
+    """The group of the machine root (its administrators), when the machine root is a root-owned real directory."""
+    info = machine.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o002:
+        raise ValueError(f'Untrusted machine root: {machine}')
+    return info.st_gid
 
 
 def uwp_xaml_unpack(archive, machine, arch):
     """Check every member and unpack into <root>/<arch> by rename. Returns ({member: [size, sha256]}, [classes])."""
+    gid = machine_admin_gid(machine)
     program_files = machine / 'drive_c/Program Files'
-    _uwp_xaml_real_directory(program_files, False)
+    _uwp_xaml_real_directory(program_files, False, gid)
     root = machine / UWP_XAML_ROOT
-    _uwp_xaml_real_directory(root.parent, True)
-    _uwp_xaml_real_directory(root, True)
+    _uwp_xaml_real_directory(root.parent, True, gid)
+    _uwp_xaml_real_directory(root, True, gid)
     staging = root / ('.staging-' + uuid.uuid4().hex)
     staging.mkdir(mode=0o755)
     files = {}

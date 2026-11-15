@@ -70,6 +70,24 @@ class UwpXamlTests(unittest.TestCase):
         self.assertFalse((target / 'stale.txt').exists())
         self.assertEqual(sorted(p.name for p in target.parent.iterdir()), ['x64'])
 
+    def test_machine_root_modes(self):
+        # setup-machine-root.sh: every directory 2775, group the machine's administrators
+        program_files = self.machine / 'drive_c/Program Files'
+        for path in (self.machine, self.machine / 'drive_c', program_files):
+            os.chmod(path, 0o2775)
+        self.unpack(archive(self.root / 'a.zip'))
+        os.chmod(self.machine / c.UWP_XAML_ROOT / 'x64', 0o2775)
+        self.unpack(archive(self.root / 'b.zip'))                     # a reinstall after the script ran again
+        os.chmod(program_files, 0o2777)                               # writable by everybody: refused
+        with self.assertRaises(ValueError):
+            self.unpack(archive(self.root / 'c.zip'))
+        os.chmod(program_files, 0o2775)
+        with patch.object(c.Path, 'lstat', lambda p: os.stat_result(
+                (stat.S_IFDIR | 0o2775, 0, 0, 0, os.getuid(), os.getgid() + 1, 0, 0, 0, 0))
+                if p == program_files else os.lstat(p)):
+            with self.assertRaises(ValueError):                      # group-writable for another group: refused
+                self.unpack(archive(self.root / 'd.zip'))
+
     def test_rejects_unsafe_members(self):
         for name in ('../evil', 'XamlShim/../evil', 'XamlShim/a/../../evil', 'other/file', 'XamlShim/a\\b',
                      'XamlShim/c:x', '/abs'):
