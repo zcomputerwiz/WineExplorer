@@ -1,5 +1,5 @@
 MODULE    = gpresult.exe
-IMPORTS   = userenv dsrole advapi32
+IMPORTS   = userenv netapi32 advapi32
 
 EXTRADLLFLAGS = -mconsole -municode
 
