@@ -102,6 +102,36 @@ the PE import tables only). No store, token or license of the host was copied.
 
 Verdict so far for path 2: **no hard blocker found yet**; the first one is a missing public RPC function.
 
+### Second run (same day): three Wine gaps fixed, the service now stops on an access denied
+
+Done on the Wine fork branch `claude/office-wine` (this branch's `wine` gitlink points at it):
+
+1. `rpcrt4`: `RpcServerInterfaceGroupCreateA/W`, `Activate`, `Deactivate`, `Close`, `InqBindings`, from the
+   documentation, with a test (`dlls/rpcrt4/tests/server.c`; the `np_basic` failures of that test file are the
+   known B2). With it the service registers its endpoint `SPPCTransportEndpoint-00001` (`ncalrpc`).
+2. `ntdll` and `wow64`: the `ThreadIoPriority` class of `NtQueryInformationThread` / `NtSetInformationThread`.
+   The service sets it at start and stopped when it failed. The semantics were measured on Windows 11
+   (`scripts/lab/office/thread-io-priority-probe.c`): query needs a length of 4 and returns 2; the setter
+   accepts 0 to 2, `STATUS_PRIVILEGE_NOT_HELD` for 3, `STATUS_INVALID_PARAMETER` above. Tests in
+   `dlls/ntdll/tests/info.c`, both architectures.
+3. Registry: the service needs `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform` to
+   exist with its default values (`scripts/lab/office/spp-registry.bat`; names and plain defaults read from the
+   host: `InactivityShutdownDelay` 30, `KeepRunningThresholdMins` 15, `VLActivationInterval` 120,
+   `VLRenewalInterval` 10080, `SkipRearm`, `NoExpirationUX`, `UserOperations`, `IgnoreContainerOrigin` 0). A fresh
+   machine root lacks them; the place for them is `wine.inf`.
+
+After these the service starts, reads those values and then stops itself with **E_ACCESSDENIED (0x80070005, exit
+code 5)**, with the same result when it runs from `C:\windows\system32`. The trace channels used so far (file,
+registry, security, token, service, process) show no failing operation before the report: the denial is raised
+by something they do not log (a call made through the service's own RPC or a kernel-style request such as the
+store driver that Windows 8 and later merged into the service). Next: a `+relay` trace limited to the service's
+own module, or `+ntdll` for the `NtDeviceIoControlFile`/`NtQuerySystemInformation` class 0xb9 calls it makes
+just before.
+
+Side finding while checking: after a restart of session 0 the system account's `HKCU\Software\Wine\Version`
+**was kept** in this run (Windows 7 mode set earlier was still set), so OB-3 in OFFICE_BUG_NOTES.md is not as
+general as written; what is certain is that `machine/user.reg` is `root:wexsys` 0644. To be re-checked.
+
 ## Next steps
 
 1. Look for public protocol documentation that states the authentication scheme (Microsoft Open Specifications,
