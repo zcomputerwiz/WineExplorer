@@ -3416,3 +3416,8 @@ new `include/windows.applicationmodel.useractivities.idl` (the request path and 
 gives null with `S_OK`, not `E_BOUNDS`, for settings containers and composite values, as on Windows 11 (XAML probe);
 `tests/data.c` checks it on a composite value (passes on Windows 11 x64 and x86 and on Wine). The Store Calculator
 reads its theme setting this way.
+
+2026-11-15 (UWP, Wine 19df3184): `dlls/windows.globalization/main.c`: `ILanguageStatics` on the Language factory
+(`IsWellFormed`: BCP-47 syntax; `CurrentInputMethodLanguageTag`: the keyboard layout's language), `Makefile.in`
+(imports `user32`), `tests/globalization.c` (well-formed and malformed tags; passes on Windows 11 x64 and x86 and on
+Wine).
