@@ -9,7 +9,9 @@ dir=$(realpath "$1") name=$2 out=$(realpath "$3")
 shift 3
 build=${BUILD:-$HOME/build/wow64} src=${SRC:-$HOME/src/wine}
 cd "$build"
-i686-w64-mingw32-gcc -c -o "$out/$name.o" "$dir/main.c" -I"$dir" -Iinclude -I"$src/include" \
+source=$dir/$name.c
+[ -f "$source" ] || source=$dir/main.c
+i686-w64-mingw32-gcc -c -o "$out/$name.o" "$source" -I"$dir" -D_SLC_ -Iinclude -I"$src/include" \
     -I"$src/include/msvcrt" -D_UCRT -D__WINESRC__ -D__WINE_PE_BUILD -Wall -fno-strict-aliasing \
     -Wdeclaration-after-statement -Wstrict-prototypes -fno-omit-frame-pointer \
     -mpreferred-stack-boundary=2 -mlong-double-64 -msse2 -gdwarf-4 -g -O2
