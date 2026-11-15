@@ -366,3 +366,27 @@ Notes:
   defaults on one firmware.
 * On OVMF the held F8 sometimes misses systemd-boot's menu (the test tries twice); a stage that fails that way
   passes when run again on its own: `run-chain.sh --fws uefi NAME defaults`.
+
+## Added 2026-11-15: quicker builds and a quick path that copies only what changed
+
+Measured on the test machine (WSL wexbuild, 16 CPUs; the numbers are minutes):
+
+* Full test ISO (`build-test-iso.sh`): the image step (`build-iso.sh --clean`) was about 13, now about 8 with two
+  options that `build-test-iso.sh` sets: `WEX_LB_CACHE=/root/lb-cache` (live-build's bootstrap and package cache
+  lives outside the work directory, so `--clean` does not download the ~900 Debian packages again; the first build
+  fills it) and `WEX_FAST_SQUASH=1` (lz4 instead of xz for the root file system; zstd does not work: the WSL
+  kernel cannot mount a zstd squashfs, which the layout hook does). `WEX_BUILD_TIMES=1` time-stamps every line of
+  the live-build log (`/root/iso-build-NAME.log` in wexbuild) to see which stage is slow; installing the packages
+  into the image is the largest part, then the Wine and Vintner packaging before it. Releases keep xz: leave
+  `WEX_FAST_SQUASH` unset in `build-iso.sh` itself.
+* Quick path (`installer/tests/quick-run.sh REV NAME BASE [--start]`, in WSL Debian as root): no ISO and no
+  install. `quick-stage.sh` (run in wexbuild by it) builds Wine incrementally (`build-test-iso.sh` with
+  `WEX_STAGE_ONLY=1`: the Wine build is skipped when the commit is the one built last) and stages what the image
+  would install (`package-wine.sh` with `WEX_STAGE_DIR` leaves its trees instead of .deb files; the compositor
+  is unpacked from its package). `quick-run.sh` makes an overlay of an installed disk (`BASE`, e.g. `b10-bios`;
+  `NAME-bios`/`NAME-uefi` from `run-chain.sh`'s install), compares SHA-256 of the staged files with it, and
+  streams only the differing ones from wexbuild into the overlay (tar through `wsl.exe`). 2 minutes from a commit
+  to a VM ready to start, with Wine already built (about 120 files differ between two nearby Wine commits).
+  Not done: package maintainer scripts (enabling units, rewriting configuration), files the new version dropped,
+  and packages other than Wine, the session and the compositor (Vintner Boot, Debian's): when the packaging or a
+  unit changes, build an ISO. Do not run it while a `build-test-iso.sh` of another commit uses the wexbuild clone.
