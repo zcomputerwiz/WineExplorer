@@ -209,6 +209,26 @@ check r9_pipe_from_session "$(A "$W/p64.exe" pipesay 'WexSession0\wexelevate.r9'
 for i in $(seq 1 40); do grep -q '^message=' "$W/serve.out" 2>/dev/null && break; sleep 0.5; done
 check r9_client_session_is_the_session "$(field clientsession < "$W/serve.out")" "$SA_NOW"
 check r9_message_crossed "$(field message < "$W/serve.out")" hello
+
+# B17: a service's ncalrpc endpoint (\pipe\lrpc\NAME) in session 0 is reached from a session that has no such pipe;
+# a name made from a process id is not (it means another process there), and a session's own endpoint comes first
+serve_s0() { rm -f "$W/$2"; (s0 "$W/p64.exe" pipeserve "$1" >"$W/$2" &)
+             for i in $(seq 1 60); do grep -q '^listening' "$W/$2" 2>/dev/null && break; sleep 0.5; done; }
+serve_s0 'lrpc\WexT1Endpoint' lrpc.out
+check lrpc_endpoint_from_session "$(A "$W/p64.exe" pipesay 'lrpc\WexT1Endpoint' hello | field say)" ok
+for i in $(seq 1 40); do grep -q '^message=' "$W/lrpc.out" 2>/dev/null && break; sleep 0.5; done
+check lrpc_message_crossed "$(field message < "$W/lrpc.out")" hello
+serve_s0 'lrpc\LRPC00000abc.00000001' lrpcpid.out
+check lrpc_pid_name_not_bridged "$(A "$W/p64.exe" pipesay 'lrpc\LRPC00000abc.00000001' hello | field say)" error2
+s0 "$W/p64.exe" pipesay 'lrpc\LRPC00000abc.00000001' bye >/dev/null 2>&1   # let session 0's server end
+check lrpc_session_creates_own_endpoint "$(A "$W/p64.exe" pipecreate 'lrpc\WexT1Local' | field create)" ok
+serve_s0 'lrpc\WexT1Own' own-s0.out
+rm -f "$W/own-a.out"; (A "$W/p64.exe" pipeserve 'lrpc\WexT1Own' >"$W/own-a.out" &)
+for i in $(seq 1 60); do grep -q '^listening' "$W/own-a.out" 2>/dev/null && break; sleep 0.5; done
+check lrpc_own_endpoint_first "$(A "$W/p64.exe" pipesay 'lrpc\WexT1Own' mine | field say)" ok
+for i in $(seq 1 40); do grep -q '^message=' "$W/own-a.out" 2>/dev/null && break; sleep 0.5; done
+check lrpc_own_endpoint_got_it "$(field message < "$W/own-a.out")" mine
+s0 "$W/p64.exe" pipesay 'lrpc\WexT1Own' bye >/dev/null 2>&1
 check s0_has_held_subkey "$(s0 reg query "$K\\Held" >/dev/null 2>&1; echo $?)" 0
 check s0_saved_key_dacl "$(grep -a -c '^#sd=' "$W/s0/system.reg" | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 check dacl_survives_restart "$(A "$W/p64.exe" getdacl 'Software\WexTier\Perm' | field dacl)" "$PERM_BEFORE"
