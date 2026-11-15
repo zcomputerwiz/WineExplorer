@@ -57,6 +57,22 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `dlls/shcore/main.c` (`IsOS`), `Makefile.in` (delay import of netapi32): `OS_DOMAINMEMBER` answers from
   `NetGetJoinInformation` (a domain join) instead of always TRUE. Chromium reads it as "the device is managed":
   Edge then skipped its modal first-run dialog (B10). Test in `dlls/shcore/tests/shcore.c`.
+- `dlls/dwrite/font.c` (`fontcollection_add_replacements`): the system collection also takes family mappings from
+  `HKLM\Software\Wine\Fonts\Replacements`, after the user's `HKCU` ones (a name already mapped or installed stays).
+  The image writes its font aliases there as well as in `FontSubstitutes`, which only GDI reads; DirectWrite
+  programs (Edge, Chromium, Copilot) asked for "Segoe UI" and found nothing (B16). Windows' DirectWrite does not
+  read `FontSubstitutes`, so it is left alone. Wine-only test in `dlls/dwrite/tests/font.c`
+  (`test_system_fontcollection_replacements`; the tests now import advapi32).
+- `dlls/msi/action.c` (`publish_product_properties`): `Assignment` is 1 for a per-machine install, as on
+  Windows (it was always 0). Office 2016's setup reads `AssignmentType` and asked for the source list of a
+  per-machine product in the per-user context, which gave 1605 and stopped its uninstall (B18). Wine's own test
+  (`dlls/msi/tests/action.c`) expected 1 already (a todo).
+- `server/named_pipe.c` (`pipe_bridge_lookup`, `pipe_bridge_allowed`, `is_lrpc_pipe_name`): a user's server that
+  has no pipe `lrpc\NAME` (an ncalrpc endpoint of rpcrt4) opens session 0's through the T5.2 bridge, as the
+  caller; session 0 checks the pipe's descriptor as for `svcctl`. Not bridged: every session's own rpcss endpoints
+  (`epmapper`, `irpcss`, `irot`) and names made from a process id or OXID (`LRPC<pid>.<n>`, `\pipe\OLE_<oxid>`),
+  since process ids are per server. A service in session 0 can so offer its RPC interface to users' programs, as
+  on Windows (B17, Office's licensing service). Test in `scripts/lab/system-tier-t1.sh` (`lrpc_*`).
 - `dlls/win32u/defwnd.c` (`sys_command`, `SC_MAXIMIZE`): an already maximized window is left alone, as on Windows;
   a hidden window created with `WS_MAXIMIZE` was shown and activated, and Edge's activation handler then ran on a
   half-built browser and crashed (B10). Test `test_SC_MAXIMIZE_maximized` in `dlls/user32/tests/win.c`.
