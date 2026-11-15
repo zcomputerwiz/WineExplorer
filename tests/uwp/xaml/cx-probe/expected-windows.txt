@@ -36,6 +36,8 @@ launch activity manager set
 launch activity manager same yes
 launch activity requested handler added and removed
 launch activity manager off the view thread failed -2147023728
+launch settings lookup of a missing key null
+launch composite value lookup of a missing key null
 page constructed
 page loaded 1200x900
 Title TextBlock 237.949x26.6016 at 24,24

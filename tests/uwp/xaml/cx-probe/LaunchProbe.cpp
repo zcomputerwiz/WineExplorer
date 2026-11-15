@@ -80,6 +80,19 @@ void XamlProbe::RunLaunchProbe(LaunchActivatedEventArgs^ e)
     catch (Exception^ x) { Log(L"launch mode set " + Hr(x)); }
     RunTitleBarProbe();
     RunUserActivityProbe();
+    /* LocalSettings.Values.Lookup of a key never set (the Calculator reads its theme setting this way) */
+    try
+    {
+        auto v = Windows::Storage::ApplicationData::Current->LocalSettings->Values->Lookup(L"XamlProbeNeverSet");
+        Log(L"launch settings lookup of a missing key " + (v ? L"set" : L"null"));
+    }
+    catch (Exception^ x) { Log(L"launch settings lookup of a missing key " + Hr(x)); }
+    try
+    {
+        auto v = (ref new Windows::Storage::ApplicationDataCompositeValue())->Lookup(L"XamlProbeNeverSet");
+        Log(L"launch composite value lookup of a missing key " + (v ? L"set" : L"null"));
+    }
+    catch (Exception^ x) { Log(L"launch composite value lookup of a missing key " + Hr(x)); }
 }
 
 /* UserActivityRequestManager (the Calculator listens for UserActivityRequested on its main page) */
