@@ -69,6 +69,14 @@ fail()
 # each check prints the seconds since the previous one, so the slow parts of the suite show in its log
 OK_LAST=$SECONDS
 ok() { echo "$1=PASS +$((SECONDS - OK_LAST))s"; OK_LAST=$SECONDS; PASS=$((PASS + 1)); }
+# WEX_SUITE_ONLY=NAME[,NAME...]: a quicker run while working on one area (docs/TOOLING.md, "wex-run"). Three groups of
+# checks that nothing later needs can be left out: c2 (sections 1 to 6, the launcher and machine root, about six
+# minutes, five of them one full wineboot update), sd (the secure desktop, about a minute and a half) and c7 (the
+# callers of the broker, about a minute and a half). Listing one of them keeps it; everything else (the fixture,
+# C3, the broker, consent, session 0 with Group Policy, the own prefix) always runs, setup included. Unset: all.
+# The full suite runs before every merge.
+want() { [ -z "${WEX_SUITE_ONLY:-}" ] || [[ ",$WEX_SUITE_ONLY," == *",$1,"* ]]; }
+[ -z "${WEX_SUITE_ONLY:-}" ] || echo "NOTE: WEX_SUITE_ONLY=$WEX_SUITE_ONLY: c2, sd and c7 run only when listed"
 
 kill_servers()
 {
@@ -184,7 +192,7 @@ expect_pass()   # name user arch mode
     ok "$name"
 }
 
-if [ "${WEX_C3_ONLY:-0}" != 1 ]; then   # WEX_C3_ONLY=1 runs only the system role checks (sections 7 and 8)
+if [ "${WEX_C3_ONLY:-0}" != 1 ] && want c2; then   # WEX_C3_ONLY=1 runs only the system role checks (sections 7 and 8)
 # ---- 1. the server starts through the launcher ----------------------------------------------------------------
 echo "--- launcher-started server"
 hold_start   # the first wine start of the user starts the server through the launcher
@@ -2753,6 +2761,7 @@ sd_done()      # name: the request ended with the expected code, the window is g
     x11_free || fail "$1: the display is still grabbed"
 }
 
+if want sd; then   # the checks of the secure desktop (WEX_SUITE_ONLY); the installs after them always run
 set_policy 2 1 || fail "the policy value was not set"
 set_val "$POLSEC" PromptOnSecureDesktop none
 el_up "$ADM"
@@ -2864,6 +2873,7 @@ sd_done "PromptOnSecureDesktop 0"
 ok sd_prompt_on_secure_desktop_0_stays_on_default
 el_down "$ADM"
 set_val "$POLSEC" PromptOnSecureDesktop none
+fi   # want sd
 
 # -- the test broker: a Winlogon that existed first (1), or one that reads back wider than SYSTEM only (2), is refused (21)
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexelevate_test.exe"
@@ -2872,6 +2882,7 @@ install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent
 reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe"'
 BROKER_ORIG=1
 set_policy 2 1 || fail "the policy value was not set"
+if want sd; then
 for t in 1 2; do
     set_val 'Software\\WineExplorer\\ElevationTest' SecureDesktopTest "$t"
     el_up "$ADM"
@@ -2881,6 +2892,7 @@ for t in 1 2; do
     el_down "$ADM"
 done
 set_val 'Software\\WineExplorer\\ElevationTest' SecureDesktopTest none
+fi   # want sd
 # ---- 11. callers use the broker (plan step 7): docs/ELEVATION_CALLERS_WORKORDER.md ---------------------------------
 # shell32 (runas, requireAdministrator, highestAvailable) and msi (a per-machine install by a limited administrator)
 # hand the launch to the broker through wexhost.dll, with the helper set. Consent is driven through the test hook of
@@ -2929,6 +2941,7 @@ cp_case()   # name user probe-arch verb image expect action(approve|cancel|none)
 }
 
 # -- the shipping broker with a policy that selects no prompt (0): 21 for ShellExecuteEx, nothing runs
+if want c7; then   # checks of the callers (WEX_SUITE_ONLY)
 el_restore_broker
 set_policy 0 1 || fail "policy 0"
 el_up "$ADM"
@@ -2936,6 +2949,7 @@ cp_case c7_policy_without_prompt_is_error_not_ready "$ADM" 64 runas "/home/$ADM/
 [ ! -e "$EL/out.cp" ] || fail "a program ran with the no-prompt policy"
 el_down "$ADM"
 set_policy none 0 || fail "policy none"
+fi   # want c7
 if [ -z "$BROKER_ORIG" ]; then
     install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexelevate_test.exe"
     install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
@@ -2954,6 +2968,7 @@ cp_create()   # name user image expected-error: CreateProcess alone (E3, no Shel
     [ -z "$(ls "$EL"/consent.*.shown 2>/dev/null)" ] || fail "$name: CreateProcess asked for consent"
     ok "$name"
 }
+if want c7; then   # checks of the callers (WEX_SUITE_ONLY)
 el_up "$ADM"
 # -- a filtered administrator: elevates after Approve, 32 and 64 bit callers and targets
 for pa in 64 32; do
@@ -2994,6 +3009,7 @@ cp_case c7_standard_user_highest_available_runs_limited "$STD" 64 - "/home/$STD/
 cp_create c7_create_process_require_administrator_740_for_a_standard_user "$STD" admin64 740
 cp_create c7_create_process_highest_available_runs_for_a_standard_user "$STD" highest64 0
 el_down "$STD"
+fi   # want c7
 
 # -- real, freely licensed installers that require administrator rights (WEX_INSTALLER_DIR: 7z-x64.exe, 7z-x86.exe,
 # npp-x64.exe, npp-x86.exe; downloaded by hand, never committed). They install into the machine root's Program Files
@@ -3026,6 +3042,7 @@ fi
 
 # -- a per-machine MSI by a limited administrator is relaunched once through the broker (one consent) and its deferred
 # custom action runs with the full token; a per-user MSI does not elevate
+if want c7; then   # checks of the callers (WEX_SUITE_ONLY)
 if command -v wixl >/dev/null && command -v msibuild >/dev/null; then
 echo "--- msi"
 MS="$ROOT/msi"; install -d -m 755 "$MS"
@@ -3095,6 +3112,7 @@ el_down "$ADM"
 else
 echo "NOTE: wixl or msibuild missing, the MSI checks were not run"
 fi
+fi   # want c7
 
 # -- the S2, S3 and S4 assertions that waited for the broker, as far as this fixture can run them: an administrator's own
 # (limited) session cannot write the machine root, so the install runs elevated through the broker after Approve
@@ -3129,6 +3147,7 @@ as_wine()   # user args: a Wine program of a user's own (limited) session, outpu
     wine_as "$u" "$@" 2>/dev/null | tr -d '\r'
 }
 
+if want c7; then   # checks of the callers (WEX_SUITE_ONLY)
 # S4 Case 5: the administrator's own session installs a shared tool; a standard user runs it and cannot write
 el_up "$ADM"
 as_wine "$ADM" cmd.exe /c 'mkdir "C:\Program Files\SharedToolDenied"' >/dev/null || true
@@ -3190,6 +3209,7 @@ as_wine "$STD" reg add "$UNI\\BobApp" /v DisplayName /d "Bob" /f >/dev/null || t
 el_down "$STD"
 ! grep -q 'BobApp' "$M/system.reg" || fail "S3: a standard user wrote HKLM"
 ok c7_s3_standard_user_sees_the_registrations_and_cannot_write_hklm
+fi   # want c7
 
 # System tier T1 (docs/SYSTEM_TIER_WORK_ORDERS.md): session 0 holds the machine registry. It runs as an account
 # of its own; the users' launcher-started servers send their programs' machine-registry calls there.

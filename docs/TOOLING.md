@@ -265,6 +265,7 @@ answers `BUSY` when a suite or build is running.
 | `lab` | sync, build, lab build, lab suite | only code behind the lab build flags changed | about 20 |
 | `normal` | sync, build, normal suite, broker test | product code, lab suite not needed | about 20 |
 | `full` | sync, build, T1, normal suite, broker test, lab build, lab suite | product code changed | about 37 |
+| `labt1` | sync, build, T1, lab build, lab suite | the half of `full` that `normal` leaves (`wex-run-split.sh`) | about 20 |
 | `build` | sync and build only | code the suites do not cover; run its own tests after (e.g. Wine's conformance tests) | about 4 |
 | `clean` | removes a suite fixture a killed run left behind | | |
 
@@ -282,6 +283,26 @@ answers `BUSY` when a suite or build is running.
   minutes per `full` run but needs the suite's setup separated from its checks first.
 - What exists only on the build machine and how to recreate it: `/root/WE-prefetch` is a WoW64 build (see "Repository"
   and the snapshot reference above); `/root/owned-r8` is made by `r8-lab-build.sh`; `/root/wex-snap` is temporary.
+- Logs are in `/var/tmp/wex-run/` (since 2026-11-15; `/tmp` is a tmpfs on the Debian 13 build machines, emptied when
+  WSL stops the idle distribution).
+
+### Quicker runs (2026-11-15)
+
+- **Two build machines.** `wexgpo` and `wexgpo2` are WSL distributions of their own (`docs/GPO_LAB.md`, "The build
+  machine"), so sessions do not queue on wexbuild; the commands above work there with `-d wexgpo` and `--exec`.
+- **A full run on two machines at once:** `scripts/lab/wex-run-split.sh [A [B]]` (defaults `wexgpo`, `wexgpo2`) runs
+  `normal` on A and the new mode `labt1` (sync, build, T1, lab build, lab suite) on B at the same time and prints
+  one ALL PASS or FAILED line; about half of a `full` run on one machine.
+- **Part of the normal suite while working on one area:** `WEX_SUITE_ONLY=NAME[,NAME...]` (for example
+  `wsl.exe -d wexgpo -u root --exec env WEX_SUITE_ONLY=st bash .../wex-run.sh normal`) leaves out three groups of
+  checks that nothing later needs, unless listed: `c2` (sections 1 to 6, the launcher and the machine root),
+  `sd` (the secure desktop) and `c7` (the callers of the broker). The fixture, C3, the broker, consent, session 0
+  with Group Policy and the own prefix always run, with all setup. The full suite runs before every merge.
+- Measured on wexgpo, 2026-11-15 (normal suite 1,142 s): c2 341 s, of which one check,
+  `c2_wineboot_init_with_system_group_writes_machine_root`, takes 301 s, the launcher's 5-minute wait for the
+  system-group `wineboot --init` (`dlls/ntdll/unix/env.c`) running out (reported to the system tier session; on
+  2026-11-14 no check took more than 37 s); C3 62 s; broker 95 s; consent 52 s; secure desktop 85 s; callers 87 s;
+  session 0 and Group Policy 340 s; own prefix 38 s.
 
 ## Added 2026-11-05: lessons that cost hours (do not rediscover)
 
