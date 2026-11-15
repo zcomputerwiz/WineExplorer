@@ -123,6 +123,15 @@ categories, which needs a .NET list over the native `IVector` (with `VectorChang
 bindings reach native items; the content area (the Standard calculator) is navigated to from there. Then `Settings`
 (toolkit `SettingsExpander` content and icons).
 
+Later (Wine development 19df3184, uno-uwp 50bbf05770): the application's collections are .NET lists for Uno
+(`IBindableVector`/`IVector<Object>`, VectorChanged relayed), root element attributes are applied (`TitleBar`
+`Height="32"`), and Wine has `Language.IsWellFormed`/`CurrentInputMethodLanguageTag` (19df3184). The main page's
+bindings complete and the Calculator creates its first view, which stops at
+`Windows.Globalization.NumberFormatting.DecimalFormatter` (not in Wine; no prior art upstream) and
+`Windows.UI.Xaml.Controls.DataTemplateSelector` (not yet served by XamlShim). Also seen: the application asks 74 times
+for WinUI 2's `Microsoft.UI.Xaml.XamlTypeInfo.XamlControlsXamlMetaDataProvider`; one Loaded handler still throws
+NotImplementedException.
+
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
 the Calculator shows. Prior art and the Wine gaps others listed for the Calculator: `tests/uwp/frameworks/README.md`.
