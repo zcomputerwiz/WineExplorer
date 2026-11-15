@@ -1,5 +1,7 @@
 app constructed
+app resources after InitializeComponent: failed -2147418113
 launched
+app resources at launch: size 2, ProbeWidth 320, ProbeBrush set
 launch interfaces: activated yes, launch yes, launch2 yes, with user yes, prelaunch yes, view activated yes, view switcher yes
 launch kind 0
 launch tile id 'App'

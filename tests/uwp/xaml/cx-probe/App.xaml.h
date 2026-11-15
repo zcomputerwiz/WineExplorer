@@ -6,6 +6,7 @@
 namespace XamlProbe
 {
     void Log(Platform::String^ line);
+    Platform::String^ ResourcesSummary();
     void RunLaunchProbe(Windows::ApplicationModel::Activation::LaunchActivatedEventArgs^ e);
     extern bool MainPageDestroyed;      /* set by MainPage's destructor */
 
