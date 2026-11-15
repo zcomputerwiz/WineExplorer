@@ -21,9 +21,10 @@ L=/root/gpo-iso
 step() { echo "=== $1 $(date +%H:%M)"; }
 
 step deps
-if ! grep -q '^Types:.*deb-src' /etc/apt/sources.list.d/debian.sources; then
-    sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources
-fi
+# the WSL image names its list 0000debian.sources
+for f in /etc/apt/sources.list.d/*.sources; do
+    sed -i 's/^Types: deb$/Types: deb deb-src/' "$f"
+done
 export DEBIAN_FRONTEND=noninteractive
 { apt-get update -q && apt-get build-dep -y -q labwc &&
   apt-get install -y -q live-build debootstrap squashfs-tools xorriso mtools msitools zstd unzip golang-go \
