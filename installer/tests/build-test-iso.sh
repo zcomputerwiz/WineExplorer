@@ -90,7 +90,8 @@ echo "=== $(date +%T) build-iso.sh --clean"
 mkdir -p /root/out "$OUTDIR"
 start=$(date +%s)
 cd "$DST" || exit 1
-WORK_DIR=/root/iso-build OUT_ISO=/root/out/$NAME.iso bash installer/build-iso.sh --clean > "/root/iso-build-$NAME.log" 2>&1 \
+WEX_LB_CACHE=/root/lb-cache WEX_FAST_SQUASH=${WEX_FAST_SQUASH:-1} WEX_BUILD_TIMES=1 \
+    WORK_DIR=/root/iso-build OUT_ISO=/root/out/$NAME.iso bash installer/build-iso.sh --clean > "/root/iso-build-$NAME.log" 2>&1 \
     || { tail -n 60 "/root/iso-build-$NAME.log"; echo "ISO BUILD FAILED"; exit 1; }
 echo "built in $(( ($(date +%s) - start) / 60 )) min"
 cp -f "/root/out/$NAME.iso" "$OUTDIR/$NAME.iso" || exit 1

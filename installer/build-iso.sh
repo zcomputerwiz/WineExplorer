@@ -78,6 +78,13 @@ fi
 mkdir -p "$WORK_DIR"
 mkdir -p "$WORK_DIR/config"
 
+# Test builds (installer/tests/build-test-iso.sh): WEX_LB_CACHE=DIR keeps live-build's bootstrap and package cache
+# outside the work directory, so --clean does not download the ~900 packages again.
+if [ -n "${WEX_LB_CACHE:-}" ]; then
+    mkdir -p "$WEX_LB_CACHE"
+    ln -sfn "$WEX_LB_CACHE" "$WORK_DIR/cache"
+fi
+
 if [ -z "$VINTNER_DEBS" ]; then
     echo "=== Vintner Boot: building its packages from $(git -C "$VINTNER_SRC" log --oneline -1) ==="
     VINTNER_DEBS="$WORK_DIR/vintner-debs"
@@ -142,7 +149,14 @@ fi
 # 4. Configure live-build
 cd "$WORK_DIR"
 echo "=== Step 2: Configuring live-build ==="
+# WEX_FAST_SQUASH=1: zstd instead of the default xz for the root file system image (test ISOs only; several
+# times faster to build, a little larger).
+LB_EXTRA=()
+if [ "${WEX_FAST_SQUASH:-0}" = 1 ]; then
+    LB_EXTRA+=(--chroot-squashfs-compression-type zstd --chroot-squashfs-compression-level 3)
+fi
 lb config \
+    "${LB_EXTRA[@]}" \
     --mode debian \
     --distribution trixie \
     --architectures amd64 \
@@ -168,7 +182,13 @@ fi
 # 5. Build ISO
 echo "=== Step 3: Running lb build ==="
 lb clean --binary 2>/dev/null || true
-lb build
+if [ "${WEX_BUILD_TIMES:-0}" = 1 ]; then
+    # time stamps on every line, to see which stage is slow
+    set -o pipefail
+    lb build 2>&1 | awk '{ print strftime("%T"), $0; fflush() }'
+else
+    lb build
+fi
 
 ISO_BUILT=$(ls -t live-image-amd64.hybrid.iso live-image-amd64.iso 2>/dev/null | head -1 || true)
 if [ -n "$ISO_BUILT" ] && [ -f "$ISO_BUILT" ]; then
