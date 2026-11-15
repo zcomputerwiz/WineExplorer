@@ -74,8 +74,12 @@ int main( int argc, char **argv )
     if (!number( argv[11], UINT64_MAX, &a.generation )) goto done;
     if (argc == 13)
     {
+#ifdef WEX_E1_TEST_HOOKS
         if (!number( argv[12], 5, &v )) goto done;
         test_stop_step = v;
+#else
+        goto done;
+#endif
     }
     if ((s = wex_profile_layout( &a, &candidate ))) goto done;
     if ((s = open_absolute( argv[1], uid, 0, &prefix )) ||

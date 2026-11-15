@@ -779,7 +779,19 @@ void e1s18_set_r8_skip_prepare( BOOL skip )
 }
 #endif /* WEX_E1_TEST_HOOKS */
 
-#ifdef _WIN32
+/* The r8_trace lines on stderr are for the lab suite only (docs/E1_PRODUCTION_PLAN.md, "Test hooks that must never
+ * ship"): without WEX_E1_TEST_HOOKS they print nothing. A product log belongs to the audit record (decision 3). */
+#ifndef WEX_E1_TEST_HOOKS
+static void r8_trace_line( const char *msg )
+{
+    (void)msg;
+}
+
+static void r8_trace_err( const char *step, unsigned long err )
+{
+    (void)step; (void)err;
+}
+#elif defined(_WIN32)
 typedef int (__cdecl *e1s18_pfn_wine_dbg_output)( const char * );
 
 static void r8_trace_line( const char *msg )

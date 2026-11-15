@@ -336,7 +336,7 @@ class Grant:
 #
 
 def valid_account_name(s):
-    """ASCII, 1..63 bytes, S4 grammar (valid_name, wine/server/accounts.c)."""
+    """ASCII, 1..63 bytes, S4 grammar (accounts_valid_name, wine/server/accounts.c)."""
     n = len(s)
     if n < 1 or n > 63:
         return False

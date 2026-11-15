@@ -15,7 +15,7 @@ LABROOT=${2:-/root/owned-r8}
 LAB=$LABROOT/build/wow64
 LOG=${R8_LAB_LOG:-/tmp/r8-lab-build.log}
 WINE_SRC=$(dirname "$(dirname "$MAIN")")/wine
-SERVER_FLAGS='-DWEX_E1S6_TRANSPORT_TEST -DWEX_R8_SERVER_TEST -DWEX_E1S10_TOKEN_TEST -DWEX_E1S13_HKU_TEST'
+SERVER_FLAGS='-DWEX_E1S6_TRANSPORT_TEST -DWEX_R8_SERVER_TEST -DWEX_E1S10_TOKEN_TEST -DWEX_E1S13_HKU_TEST -DWEX_E1_TEST_HOOKS'
 SERVER_OBJECTS=(server/named_pipe.o server/sysrun.o server/accounts.o server/registry.o server/process.o
                 server/request.o server/handle.o server/token.o server/thread.o server/e1s_profile.o
                 server/wex_profile_storage.o server/file.o server/fd.o)
@@ -34,7 +34,7 @@ echo "lab wineserver ok"
 
 echo "=== 3. lab wexhost (S6 transport) ==="
 rm -f dlls/wexhost/e1s6.o
-make -j1 CFLAGS="-g -O2 -DWEX_E1S6_TRANSPORT_TEST" dlls/wexhost/e1s6.o >> "$LOG" 2>&1
+make -j1 CFLAGS="-g -O2 -DWEX_E1S6_TRANSPORT_TEST -DWEX_E1_TEST_HOOKS" dlls/wexhost/e1s6.o >> "$LOG" 2>&1
 make -j16 dlls/wexhost/wexhost.so >> "$LOG" 2>&1
 echo "lab wexhost ok"
 
@@ -47,7 +47,7 @@ for arch in x86_64 i386; do
                    "dlls/userenv/$arch-windows/userenv.dll" "dlls/shell32/$arch-windows/shell32.dll")
 done
 rm -f "${PROFILE_OBJECTS[@]}"
-make -j1 x86_64_CFLAGS='-g -O2 -DWEX_E1S13_HKU_TEST' i386_CFLAGS='-g -O2 -DWEX_E1S13_HKU_TEST' \
+make -j1 x86_64_CFLAGS='-g -O2 -DWEX_E1S13_HKU_TEST -DWEX_E1_TEST_HOOKS' i386_CFLAGS='-g -O2 -DWEX_E1S13_HKU_TEST -DWEX_E1_TEST_HOOKS' \
     "${PROFILE_OBJECTS[@]}" >> "$LOG" 2>&1
 make -j16 "${PROFILE_DLLS[@]}" >> "$LOG" 2>&1
 echo "lab profile DLLs ok"

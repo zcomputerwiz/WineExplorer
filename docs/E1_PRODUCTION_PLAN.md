@@ -118,8 +118,39 @@ Steps 1 and 2 need no decision. Step 3 needs decisions 1 to 3; step 4 needs deci
 Left for later, each with its reason: `e1s18_set_s1_context` and `e1s18_set_ops` / `e1s18_reset_ops` (called by
 test code that is also built without any flag, so they need that test restructured first); the fixed uid and
 `/tmp` scaffolding near 3770 (dead on Windows after an early return; to be removed, not wrapped);
-`e1r9_broker0.c` has no hooks. Not started: the hooks in `wine/server` (`sysrun.c`, `token.c`), in
-`src/dlls/wexhost/e1s6.c`, in `wex_profile_storage.c`, and the verifier script.
+`e1r9_broker0.c` has no hooks.
 
 Tested: normal suite 347, lab suite 421, the broker's native test (with and without sanitizers) and its MinGW
 builds, T1.
+
+**Step 1, second part (2026-11-14, Qwen from a written list).** Behind `WEX_E1_TEST_HOOKS` now:
+
+- `wine/server/sysrun.c`: `wexelevate_test.exe` as a broker image (both places), the unpinned lab broker in
+  `sysrun_process_is_broker`, and the `E1S6_DENY` lines on stderr (through `E1S6_AUDIT`).
+- `wine/server/token.c`: `e1s_install_fixture` and the `WEX_TOKEN_TEST_INSTALL` operation (refused without it).
+- `wine/server/wex_profile_storage.c` and `tools/wex-profile/wex-profile.c`: the `checkpoint` stops and the
+  argument that selects them (refused without it).
+- `src/dlls/wexhost/e1s6.c` and `src/include/e1s6_protocol.h`: the four `E1S6_TEST_*` fault injections.
+- The lab build scripts (`r8-lab-build.sh`, `test_e1s10_token.sh`, `test_profile_storage.sh`, the lab part of
+  `test_sysrun_server.sh`) define it next to the lab flags.
+
+Tested: normal suite 347, lab suite 421, broker test, T1; the lab-flagged objects compile without the hooks
+with no new warnings. The `E1S6_DENY` lines in `named_pipe.c` all go through one macro,
+`E1S6_BINDING_AUDIT`, now behind the flag too. Not done: the lab bus name in `e1s6_protocol.h` (step 2 replaces
+it), the verifier script, and growing the suite's marker check.
+
+**Inventory for step 2 (2026-11-14, Qwen, read-only; line numbers of that day).** 27 files have 242 conditions
+on the lab flags. Findings that change the plan:
+
+- `WEX_E1S6_TRANSPORT_TEST`, `WEX_E1S10_TOKEN_TEST`, `WEX_E1S13_HKU_TEST`, `WEX_E1S12_PROFILE_TEST` and
+  `WEXELEVATE_E1S18` guard mostly product code (transport, token issue, profile paths in the server and in
+  ntdll, kernelbase, userenv, shell32, the broker and dialog): a product flag can turn them on together.
+- `WEX_R8_SERVER_TEST` (stderr traces, 7 places) and `WEX_E1S14_CRASH_TEST` (crash injection) are test only and
+  stay test flags.
+- Done the same day: the broker's `r8_trace_line` / `r8_trace_err` (about 60 calls) print nothing without
+  `WEX_E1_TEST_HOOKS` (full run passed). A product log belongs to the audit record (decision 3). Still to look at:
+  `e1s18_broker.h:354`.
+- `WEX_E1S15_LAUNCH_PREP_TEST` is inverted: the real launch preparation (`launch_prep.c:91`) is built only with
+  the flag, a shipping build gets a stub. Step 2 has to turn that round.
+- Unclear, to read by hand: `process.h:124` (`e1s6_control_fd`, commented "lab only" but used by the transport)
+  and `wexelevate_request.h:97` (request fields commented "Lab-only").

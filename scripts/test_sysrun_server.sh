@@ -66,7 +66,9 @@ fail()
     fi
     exit 1
 }
-ok() { echo "$1=PASS"; PASS=$((PASS + 1)); }
+# each check prints the seconds since the previous one, so the slow parts of the suite show in its log
+OK_LAST=$SECONDS
+ok() { echo "$1=PASS +$((SECONDS - OK_LAST))s"; OK_LAST=$SECONDS; PASS=$((PASS + 1)); }
 
 kill_servers()
 {
@@ -120,7 +122,8 @@ trap cleanup EXIT
 # ---- fixture -------------------------------------------------------------------------------------------------
 install -d -m 0755 "$ROOT" "$ROOT/bin" "$ROOT/probes"
 [ "$REUSE" = 1 ] || groupadd --system "$GRP"
-coproc XV { Xvfb -displayfd 1 -screen 0 1024x768x24 -nolisten tcp 2>/dev/null; }
+# exec: XV_PID must be Xvfb itself (cleanup kills it); without it the coproc's subshell died and Xvfb stayed behind
+coproc XV { exec Xvfb -displayfd 1 -screen 0 1024x768x24 -nolisten tcp 2>/dev/null; }
 read -r -u "${XV[0]}" DNUM
 [ -n "$DNUM" ] || fail "Xvfb did not start"
 
@@ -759,7 +762,7 @@ EOF
 has_str() { python3 -I "$ROOT/has_str.py" "$1" "$2"; }   # the string as ASCII or UTF-16
 x86_64-w64-mingw32-gcc -O2 -Wall -municode -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_ship.exe" \
     "$SRC/src/programs/wexelevate/main.c" -ladvapi32 -luserenv -lbcrypt
-x86_64-w64-mingw32-gcc -O2 -Wall -municode -DWEXELEVATE_TEST_APPROVAL -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_test.exe" \
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -DWEXELEVATE_TEST_APPROVAL -DWEX_E1_TEST_HOOKS -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_test.exe" \
     "$SRC/src/programs/wexelevate/main.c" -ladvapi32 -luserenv -lbcrypt
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/wexelevate_stub.exe" "$SRC/scripts/wexelevate_stub.c"
 for arch in 64 32; do
@@ -1413,7 +1416,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
 
     # The administrator's managed profile in the standard user's prefix (S12 storage) does not exist:
     # the verifier's helper creates it on the first successful authentication (WO-32) from this seed.
-    cc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST "-DWEX_PROFILE_SEED_PATH=\"$LIBEXEC/profile-seed.reg\"" \
+    cc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST -DWEX_E1_TEST_HOOKS "-DWEX_PROFILE_SEED_PATH=\"$LIBEXEC/profile-seed.reg\"" \
         -o "$LIBEXEC/wex-profile-provision" "$SRC/tools/wex-profile/wex-profile-provision.c"
     chown root:root "$LIBEXEC/wex-profile-provision"; chmod 0755 "$LIBEXEC/wex-profile-provision"
     printf '%s\n' 'WINE REGISTRY Version 2' '' \
@@ -3513,6 +3516,109 @@ OUT="$(as_wine "$STD" wexpolicy clear /machine || true)"   # the writer's own ex
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: $STD ran the writer"; }
 kill_servers
 ok st_machine_policy_and_clear_and_only_the_system_writes
+# Group Policy step 5: the security template (GptTmpl.inf, UTF-16LE): the lockout policy goes where net accounts
+# and the verifier keep it, security options in the policy trees are written, the rest is not applicable; a
+# damaged template changes nothing
+gpttmpl() { { printf '\xff\xfe'; printf '%s\r\n' "$@" | iconv -f UTF-8 -t UTF-16LE; } > "$POL/$TNAME"; }
+TNAME=sec.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
+    'MinimumPasswordLength = 8' 'LockoutBadCount = 5' 'LockoutDuration = -1' 'ResetLockoutCount = 15' '[Registry Values]' \
+    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3' \
+    'MACHINE\Software\Policies\WexPol\Banner=1,"Hello there"' \
+    'MACHINE\System\CurrentControlSet\Control\Lsa\WexNotPolicy=4,1' '[Privilege Rights]' 'SeDenyNetworkLogonRight = *S-1-5-32-546'
+TNAME=bad.inf gpttmpl '[System Access]' 'LockoutBadCount = 2'
+OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/bad.inf")" | tr -d '\r')" || true
+grep -q 'status=[1-9]\|error' <<<"$OUT" || { echo "$OUT" >&2; fail "security: a template without a signature was taken"; }
+OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/sec.inf")" | tr -d '\r')" || true
+grep -q 'security set=5 not-applicable=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "security: apply"; }
+E='HKLM\Software\WineExplorer\Elevation'
+[ "$(as_wine "$STD" reg query "$E" /v LockoutBadCount | val LockoutBadCount)" = 0x5 ] || fail "security: LockoutBadCount"
+[ "$(as_wine "$STD" reg query "$E" /v LockoutDuration | val LockoutDuration)" = 0x1869f ] || fail "security: LockoutDuration -1 is not the longest"
+[ "$(as_wine "$STD" reg query "$E" /v ResetLockoutCount | val ResetLockoutCount)" = 0xf ] || fail "security: ResetLockoutCount"
+[ "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v WexSecOption | val WexSecOption)" = 0x3 ] ||
+    fail "security: a security option in the policy tree"
+as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Banner | tr -d '\r' | grep -q 'Hello there' || fail "security: a string option"
+[ -z "$(as_wine "$STD" reg query 'HKLM\System\CurrentControlSet\Control\Lsa' /v WexNotPolicy | val WexNotPolicy)" ] ||
+    fail "security: an option outside the policy trees was written"
+as_wine "$STD" net accounts | tr -d '\r' | grep -Eq '[[:space:]]5[[:space:]]*$' || fail "security: net accounts does not show the threshold"
+OUT="$(as_wine "$STD" wexpolicy security /machine "$(winpath "$POL/sec.inf")" || true)"
+grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "security: $STD ran the writer"; }
+s0_wine reg delete "$E" /v LockoutBadCount /f >/dev/null 2>&1 || true
+s0_wine reg delete "$E" /v LockoutDuration /f >/dev/null 2>&1 || true
+s0_wine reg delete "$E" /v ResetLockoutCount /f >/dev/null 2>&1 || true
+s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v WexSecOption /f >/dev/null 2>&1 || true
+s0_wine reg delete 'HKLM\Software\Policies\WexPol' /f >/dev/null 2>&1 || true
+kill_servers
+ok st_security_template_lockout_policy_and_options
+# Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
+# extension, for the machine and for the user
+REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'
+T=$'\t'
+printf '%s\n' "{31B2F340-016D-11D2-945F-00C04FB984F9}${T}65539${T}3${T}0${T}Default Domain Policy${T}\\\\ad\\sysvol\\p1${T}LDAP://CN={31B2F340-016D-11D2-945F-00C04FB984F9},CN=Policies${T}LDAP://DC=ad${T}[$SECEXT{803E14A0-B4FB-11D0-A0D0-00A0C90F574B}]" \
+    "{6AC1786C-016F-11D2-945F-00C04FB984F9}${T}2${T}4${T}0${T}Wex Test${T}\\\\ad\\sysvol\\p2${T}LDAP://CN={6AC1786C-016F-11D2-945F-00C04FB984F9},CN=Policies${T}LDAP://OU=Wex,DC=ad${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
+    > "$POL/machine.list"
+printf '%s\n' "{6AC1786C-016F-11D2-945F-00C04FB984F9}${T}131072${T}4${T}0${T}Wex Test${T}\\\\ad\\sysvol\\p2${T}LDAP://x${T}LDAP://OU=Wex,DC=ad${T}[$REGEXT{D0FE4F7B-E0FE-4D0B-9BD9-0AB29C4E7A5E}]" > "$POL/user.list"
+printf 'not-a-guid\t1\t3\t0\tx\tx\tx\tx\tx\n' > "$POL/bad.list"
+: > "$POL/empty.list"
+OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/machine.list")" | tr -d '\r')" || true
+grep -q 'recorded=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record /machine"; }
+OUT="$(s0_wine wexpolicy record "/user:$STD_SID" "$(winpath "$POL/user.list")" | tr -d '\r')" || true
+grep -q 'recorded=1 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record for the user"; }
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine "$REGEXT" | tr -d '\r')"
+    [ "$b" = 32 ] && {
+        # gpresult reads the same list: both objects for the machine, in order, the user's for the user
+        OUT2="$(as_wine "$STD" gpresult /v | tr -d '\r')"
+        grep -A3 '^    Applied Group Policy Objects' <<<"$OUT2" | grep -q '^        Default Domain Policy$' &&
+            [ "$(grep -c '^        Wex Test$' <<<"$OUT2")" = 2 ] && grep -q 'Applied for: Security' <<<"$OUT2" &&
+            grep -q '^COMPUTER SETTINGS$' <<<"$OUT2" && grep -q '^USER SETTINGS$' <<<"$OUT2" ||
+            { echo "$OUT2" >&2; fail "gpolist: gpresult"; }
+    }
+    grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 1 ] &&
+        grep -qx 'gpo={6AC1786C-016F-11D2-945F-00C04FB984F9} version=2 link=4 name=Wex Test som=LDAP://OU=Wex,DC=ad' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "gpolist: a $b-bit program's machine list for the registry extension"; }
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine "$SECEXT" | tr -d '\r')"
+    grep -q '^gpo={31B2F340-016D-11D2-945F-00C04FB984F9} version=65539 link=3 name=Default Domain Policy' <<<"$OUT" &&
+        [ "$(grep -c '^gpo=' <<<"$OUT")" = 1 ] || { echo "$OUT" >&2; fail "gpolist: a $b-bit program's machine list for the security extension"; }
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist user "$REGEXT" | tr -d '\r')"
+    grep -q '^gpo={6AC1786C-016F-11D2-945F-00C04FB984F9} version=131072 ' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "gpolist: a $b-bit program's user list"; }
+done
+OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/bad.list")" | tr -d '\r')" || true
+grep -q 'error 11' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: a damaged list was taken"; }
+[ "$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" | grep -c '^gpo=')" = 1 ] || fail "gpolist: a damaged list changed the list"
+OUT="$(as_wine "$STD" wexpolicy record /machine "$(winpath "$POL/empty.list")" || true)"
+grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: $STD ran the writer"; }
+s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty list"
+s0_wine wexpolicy record "/user:$STD_SID" "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty user list"
+OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" | tr -d '\r')"
+[ "$OUT" = gpolist=0 ] || { echo "$OUT" >&2; fail "gpolist: the empty list"; }
+kill_servers
+ok st_applied_gpo_list_per_extension_for_machine_and_user
+# gpupdate: a standard user's gpupdate asks session 0's gpsvc, which leaves the request for root's
+# wex-gpupdate.path in session 0's root; gpupdate waits until the refresh run says it is done (wexpolicy refreshed)
+REQ="$M/drive_c/windows/system32/GroupPolicy/Refresh"
+rm -f "$REQ"
+s0_wine sc start gpsvc >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+rm -f "$POL/gpupdate.out"
+(wine_as "$STD" gpupdate /target:computer /wait:60 > "$POL/gpupdate.out" 2>/dev/null || true) &
+GP_PID=$!
+for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
+[ -s "$REQ" ] || { cat "$POL/gpupdate.out" >&2; fail "gpupdate: gpsvc did not leave the request"; }
+sleep 1
+grep -q 'Computer Policy Refresh has completed' "$POL/gpupdate.out" && fail "gpupdate: did not wait for the refresh"
+s0_wine wexpolicy refreshed >/dev/null || fail "gpupdate: wexpolicy refreshed"
+wait "$GP_PID" || true
+tr -d '\r' < "$POL/gpupdate.out" | grep -qx 'Computer Policy Refresh has completed.' &&
+    ! grep -q 'User Policy' "$POL/gpupdate.out" || { cat "$POL/gpupdate.out" >&2; fail "gpupdate: the computer refresh"; }
+OUT="$(as_wine "$STD" gpupdate /wait:0 | tr -d '\r')" || true
+grep -q '^Refreshing Policy' <<<"$OUT" && ! grep -q 'Failed' <<<"$OUT" || { echo "$OUT" >&2; fail "gpupdate /wait:0"; }
+OUT="$(as_wine "$STD" gpupdate /bogus | tr -d '\r')" || true
+grep -q '^GPUPDATE \[/Target' <<<"$OUT" || { echo "$OUT" >&2; fail "gpupdate: usage"; }
+OUT="$(as_wine "$STD" wexpolicy refreshed || true)"
+grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "gpupdate: $STD said a refresh was done"; }
+kill_servers
+ok st_gpupdate_asks_session0_and_waits_for_the_refresh
 # Group Policy step 2: the domain join that session 0's registry states is what Windows programs are told
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" join)"

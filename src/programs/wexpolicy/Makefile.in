@@ -1,7 +1,9 @@
 MODULE    = wexpolicy.exe
-IMPORTS   = advapi32
+IMPORTS   = setupapi advapi32
 
 EXTRADLLFLAGS = -mconsole -municode
 
 SOURCES = \
-	main.c
+	gpolist.c \
+	main.c \
+	sectmpl.c

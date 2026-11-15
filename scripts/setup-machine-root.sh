@@ -588,6 +588,16 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
                 echo "WARNING: session 0's services did not start (wex-session0-services.service)" >&2
             # domain Group Policy (docs/GROUP_POLICY.md): the refresh does nothing on a machine that is not joined
             [ ! -f /lib/systemd/system/wex-gpupdate.timer ] || systemctl enable --now wex-gpupdate.timer || true
+            # gpupdate's requests (gpsvc writes them in session 0's root; the unit names the default root)
+            if [ -f /lib/systemd/system/wex-gpupdate.path ]; then
+                if [ "$MACHINE_ROOT" != /var/lib/wineexplorer/machine ]; then
+                    install -d -m 0755 /etc/systemd/system/wex-gpupdate.path.d
+                    printf '[Path]\nPathChanged=\nPathChanged=%s/drive_c/windows/system32/GroupPolicy/Refresh\n' \
+                        "$MACHINE_ROOT" > /etc/systemd/system/wex-gpupdate.path.d/machine-root.conf
+                    systemctl daemon-reload
+                fi
+                systemctl enable --now wex-gpupdate.path || true
+            fi
         fi
     fi
 fi

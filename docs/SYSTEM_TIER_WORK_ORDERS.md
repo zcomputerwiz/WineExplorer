@@ -133,6 +133,14 @@ First findings for T1:
 * A second server that is not persistent exits a few seconds after its last client, and every registry call
   then fails. Session 0 must be a service, and `ntdll` needs the reconnect before anything is switched over.
 
+**Rule (owner, 2026-11-14): on a machine with session 0, every write to the machine registry goes through session
+0.** Not only programs in user sessions: root maintenance too (`scripts/wex-components.py`, setup and upgrade
+scripts, anything that today starts its own wineserver on the machine root). Session 0's server is the only one that
+holds and saves `system.reg`; a second server on the machine root (another uid, its own copy of the hive) loses one
+side's changes on save. Known violation: `wex-components.py`'s maintenance (`docs/KNOWN_BUGS.md` B11), to be changed
+to write through session 0. Tools check whether session 0 is configured (`session0_socket=` in `sysrun.conf`) and,
+if so, never load the machine hive themselves.
+
 ## T1 first increment: ST-11, ST-12, ST-13, ST-15 and the development form of ST-10 (2026-11-11)
 
 Stock Wine changes: "System tier: session 0 holds the machine registry" in `STOCK_CHANGES.md`.

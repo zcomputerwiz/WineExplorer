@@ -26,6 +26,9 @@
  *   wexpolicy apply /user:SID FILE [FILE...]    HKEY_USERS\SID, or kept for the user's next logon
  *   wexpolicy clear /machine | /user:SID        remove what the last apply wrote
  *   wexpolicy list  /machine | /user:SID        print what the last apply wrote
+ *   wexpolicy security /machine TEMPLATE...     security templates (GptTmpl.inf, sectmpl.c)
+ *   wexpolicy record /machine|/user:SID LIST    the list of applied objects (gpolist.c)
+ *   wexpolicy refreshed                         a refresh is done (gpupdate waits for it)
  *   wexpolicy                                   started by the service manager: the service "gpsvc"
  *
  * The files are applied in the order given (a later file wins), as the Group Policy client applies the GPOs in
@@ -50,8 +53,7 @@
 #include <sddl.h>
 
 #include "preg.h"
-
-#define MAX_FILES      64
+#include "wexpolicy.h"
 #define MAX_FILE_SIZE  (32 * 1024 * 1024)
 
 struct file
@@ -70,7 +72,6 @@ struct item
 
 #define SERVICE_NAME  L"gpsvc"
 #define MARKER_KEY    L"Software\\Policies\\WineExplorer\\Policy Applied"
-#define MACHINE_SERIAL_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\WineExplorer Applied"
 
 static struct item *items;
 static size_t item_count, item_room;
@@ -78,7 +79,7 @@ static unsigned int count_set, count_deleted, count_skipped;
 static SERVICE_STATUS_HANDLE service_handle;
 static HANDLE stop_event;
 
-static void say( const char *format, ... )
+void say( const char *format, ... )
 {
     va_list args;
     va_start( args, format );
@@ -529,7 +530,7 @@ static DWORD parse_target( const WCHAR *arg, const WCHAR **sid, HKEY *root )
 /* Tell the programs that wait for policy (userenv's RegisterGPNotification) that it has changed: they watch a
  * serial number in the registry, which reaches every session through session 0. The user's is in the marker key,
  * inside the protected tree; the machine's is beside the Group Policy state of Windows. */
-static void bump_serial( HKEY root, BOOL user )
+void bump_serial( HKEY root, BOOL user )
 {
     DWORD serial = 0, size = sizeof(serial);
     HKEY key;
@@ -540,6 +541,29 @@ static void bump_serial( HKEY root, BOOL user )
     serial++;
     RegSetValueExW( key, L"Serial", 0, REG_DWORD, (const BYTE *)&serial, sizeof(serial) );
     RegCloseKey( key );
+}
+
+/* gpupdate asked for a refresh: the request file in session 0's root, which root's wex-gpupdate.path watches and
+ * turns into a run of wex-gpupdate.service. The file holds the time of the last request; the program that
+ * asked waits for the Refreshed number that the run leaves at its end. */
+static DWORD request_refresh(void)
+{
+    WCHAR path[MAX_PATH];
+    char text[32];
+    UINT len = GetSystemDirectoryW( path, ARRAY_SIZE(path) );
+    DWORD done, err = ERROR_SUCCESS;
+    HANDLE file;
+
+    if (!len || len > ARRAY_SIZE(path) - 32) return ERROR_BUFFER_OVERFLOW;
+    wcscat( path, L"\\GroupPolicy" );
+    if (!CreateDirectoryW( path, NULL ) && GetLastError() != ERROR_ALREADY_EXISTS) return GetLastError();
+    wcscat( path, L"\\Refresh" );
+    file = CreateFileW( path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+    if (file == INVALID_HANDLE_VALUE) return GetLastError();
+    len = snprintf( text, sizeof(text), "%lu\n", GetTickCount() );
+    if (!WriteFile( file, text, len, &done, NULL )) err = GetLastError();
+    CloseHandle( file );
+    return err;
 }
 
 static void set_service_state( DWORD state )
@@ -564,6 +588,9 @@ static DWORD WINAPI service_handler( DWORD control, DWORD type, void *data, void
         return NO_ERROR;
     case SERVICE_CONTROL_INTERROGATE:
         return NO_ERROR;
+    case GPSVC_CONTROL_REFRESH:
+        /* gpupdate: any authenticated user may send it (the service manager's default descriptor) */
+        return request_refresh();
     default:
         return ERROR_CALL_NOT_IMPLEMENTED;
     }
@@ -644,12 +671,69 @@ int __cdecl wmain( int argc, WCHAR **argv )
     BOOL apply, clear, list;
 
     if (argc == 1 && StartServiceCtrlDispatcherW( service_table )) return 0;
+    /* wex-gpupdate.sh at the end of every run: the programs that asked for it (gpupdate) are done waiting */
+    if (argc == 2 && !_wcsicmp( argv[1], L"refreshed" ))
+    {
+        DWORD serial = 0, size = sizeof(serial);
+        HKEY key;
+
+        if (!is_local_system())
+        {
+            say( "wexpolicy: only the system writes policy\n" );
+            return ERROR_ACCESS_DENIED;
+        }
+        if ((err = RegCreateKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, NULL, REG_OPTION_VOLATILE,
+                                    KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, NULL ))) return err;
+        if (RegQueryValueExW( key, L"Refreshed", NULL, NULL, (BYTE *)&serial, &size )) serial = 0;
+        serial++;
+        err = RegSetValueExW( key, L"Refreshed", 0, REG_DWORD, (const BYTE *)&serial, sizeof(serial) );
+        RegCloseKey( key );
+        return err;
+    }
     if (argc < 3)
     {
         say( "usage: wexpolicy apply /machine|/user:SID FILE [FILE...]\n"
              "       wexpolicy clear /machine|/user:SID\n"
-             "       wexpolicy list  /machine|/user:SID\n" );
+             "       wexpolicy list  /machine|/user:SID\n"
+             "       wexpolicy security /machine TEMPLATE [TEMPLATE...]\n"
+             "       wexpolicy record /machine|/user:SID LIST\n" );
         return ERROR_INVALID_PARAMETER;
+    }
+    /* security templates (GptTmpl.inf) are machine policy only */
+    if (!_wcsicmp( argv[1], L"security" ))
+    {
+        if (_wcsicmp( argv[2], L"/machine" ) || count < 1 || count > MAX_FILES)
+        {
+            say( "wexpolicy: wrong arguments\n" );
+            return ERROR_INVALID_PARAMETER;
+        }
+        if (!is_local_system())
+        {
+            say( "wexpolicy: only the system writes policy\n" );
+            return ERROR_ACCESS_DENIED;
+        }
+        return apply_security_templates( count, argv + 3 );
+    }
+    /* the list of applied objects (gpolist.c) */
+    if (!_wcsicmp( argv[1], L"record" ))
+    {
+        if (count != 1)
+        {
+            say( "wexpolicy: wrong arguments\n" );
+            return ERROR_INVALID_PARAMETER;
+        }
+        if (!is_local_system())
+        {
+            say( "wexpolicy: only the system writes policy\n" );
+            return ERROR_ACCESS_DENIED;
+        }
+        if ((err = parse_target( argv[2], &sid, &root )))
+        {
+            say( "wexpolicy: %ls: error %lu\n", argv[2], err );
+            return err;
+        }
+        if (root && root != HKEY_LOCAL_MACHINE) RegCloseKey( root );
+        return record_gpo_list( sid, argv[3] );
     }
     apply = !_wcsicmp( argv[1], L"apply" );
     clear = !_wcsicmp( argv[1], L"clear" );

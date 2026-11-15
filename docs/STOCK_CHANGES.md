@@ -31,12 +31,64 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `server/registry.c`: a "Volatile Environment" key found in a user's hive file is dropped when the hive is loaded
   (at server start and by session 0). Once in a file, for example a copy of a template prefix, it was an
   ordinary key and stayed for ever with the template account's name and paths.
+- `loader/wine.inf.in` (`[CurrentVersion]`): the current user gets Windows' defaults for
+  `Themes\Personalize` (`AppsUseLightTheme` 1, `SystemUsesLightTheme` 1, `EnableTransparency` 1,
+  `ColorPrevalence` 0) and `Control Panel\Accessibility\HighContrast` (`Flags` "126", empty scheme), without
+  overwriting existing values. Uno and WinUI programs read them and fell back to their own defaults. A missing
+  `TextScaleFactor` is Windows' own default (100 %) and stays missing. Also `dlls/dcomp/device.c` and some server
+  files were consolidated without a change of behaviour ([WINE_REUSE_REVIEW.md](WINE_REUSE_REVIEW.md)).
+- `dlls/msi/package.c` (`MSI_OpenPackageW`): when the package cannot be copied to `%WINDIR%\Installer` (a
+  per-machine package without the right to write the machine root), a line goes to the `/l` log and, unless the UI
+  level is none, Windows' "could not be opened" message is shown; before, the install failed with 1627 and an empty
+  log ([KNOWN_BUGS.md](KNOWN_BUGS.md) B4, part 1). The return code is unchanged.
+- `dlls/shell32/control.c` (`Control_DoLaunch`): when more than one argument follows the applet token, the rest of
+  the command line goes to the applet whole as the `CPL_STARTWPARMS` parameters and the applet is chosen by that
+  token (`@n` or a name), as on Windows and in ReactOS's `control.c`; before, only the last argument arrived. The
+  one-argument forms (`foo.cpl,@1`, `foo.cpl,,3`, `foo.cpl Name`) parse as before. `loader/wine.inf.in`: `.theme`
+  files open Display Properties' Themes tab with the theme selected (`themefile`, XP's command); `desk.cpl` reads
+  `@<tab>`, `/Action:OpenTheme` and `/file:` ([KNOWN_BUGS.md](KNOWN_BUGS.md) B6).
+- `include/shobjidl.idl`, `dlls/shell32` (`shfldr_desktop.c`, `shellole.c`, `shell32_classes.idl`): the
+  `VirtualDesktopManager` class (`{aa509086-...}`, Windows has it in `twinapi.dll`) with `IVirtualDesktopManager`
+  for one desktop (every window on it). Edge asks for it at start (bug B10); Wine had neither the interface nor the
+  class. Test in `dlls/shell32/tests/shellole.c`.
+- `dlls/apphelp/apphelp.c` (`SdbGetPermLayerKeys`, `SdbSetPermLayerKeys`) and `dlls/ntdll/version.c`
+  (`version_init`): Windows' per-program compatibility layers (`AppCompatFlags\Layers`) are read and written, and a
+  program with an OS layer (`WINXPSP3`, ...) sees that Windows version when `AppDefaults` names none (B5).
+- `dlls/shcore/main.c` (`IsOS`), `Makefile.in` (delay import of netapi32): `OS_DOMAINMEMBER` answers from
+  `NetGetJoinInformation` (a domain join) instead of always TRUE. Chromium reads it as "the device is managed":
+  Edge then skipped its modal first-run dialog (B10). Test in `dlls/shcore/tests/shcore.c`.
+- `dlls/win32u/defwnd.c` (`sys_command`, `SC_MAXIMIZE`): an already maximized window is left alone, as on Windows;
+  a hidden window created with `WS_MAXIMIZE` was shown and activated, and Edge's activation handler then ran on a
+  half-built browser and crashed (B10). Test `test_SC_MAXIMIZE_maximized` in `dlls/user32/tests/win.c`.
+- `dlls/ntdll/loader.c` (`LdrResolveDelayLoadedAPI`): when a delay-loaded DLL or function is missing, the module's
+  failure hook gets the import's name (it got the low word of the name's RVA), the Win32 error, and the system
+  routine runs when that hook returns NULL, as on Windows (B14). Test in `dlls/ntdll/tests/rtl.c`, and in
+  `dlls/kernel32/tests/loader.c` (by the UWP session). `dlls/kernelbase/loader.c` (`DelayLoadFailureHook`): raises
+  `ERROR_DELAY_LOAD_FAILED` (0x505) with the same two parameters, as Windows does (checked there with an MSVC probe
+  by the UWP session), instead of Wine's stub exception; .NET Native's delay-load filters catch 0x505 and take
+  their built-in fallback, so `mrt100.dll` is not needed.
+- `dlls/kernelbase/locale.c`, `kernelbase.spec`, `kernel32.spec`: `SystemTimeToTzSpecificLocalTimeEx` and
+  `TzSpecificLocalTimeToSystemTimeEx` (stubs before): the dynamic zone's rules for the time's year, then the
+  existing conversion (B13). Test in `dlls/kernel32/tests/time.c`.
+- `dlls/windows.security.authentication.web.core` (new), `include/windows.security.authentication.web.core.idl`,
+  `include/webauthenticationcoremanagerinterop.idl` (new), `include/windows.security.credentials.idl`
+  (`WebAccount`, `WebAccountProvider`): Web Account Manager step 1 ([WAM_PLAN.md](WAM_PLAN.md)).
+  `WebAuthenticationCoreManager` with its statics, statics 4 and the window interop; `WebTokenRequest` (with its
+  properties map), `WebTokenRequestResult`, `WebTokenResponse`, `WebProviderError`. No account provider exists yet:
+  token requests complete with `AccountProviderNotAvailable`, provider and account lookups with none, so MSAL-based
+  programs fall back to the browser sign-in. `async.c` is Wine's `windows.media.speech` one. Test in `tests/`.
 - `dlls/userenv/gpolicy.c` (new, ported from ReactOS, GPL-2.0-or-later, so `userenv.dll` is GPL here and this
   file cannot go to Wine as it is): `RegisterGPNotification`, `UnregisterGPNotification`, `RefreshPolicy`,
   `RefreshPolicyEx`, the critical policy sections, the two foreground waits, and a `DllMain`. Added to the port:
   the notification thread watches the policy writer's serial numbers in the registry. The four stubs left
   `userenv_main.c`; `userenv.spec` and `include/userenv.h` have the new exports. `loader/wine.inf.in` creates
   `HKLM\...\CurrentVersion\Group Policy`.
+- `dlls/userenv/userenv_main.c` (Group Policy step 6): `GetAppliedGPOListW` (was a FIXME returning access denied),
+  new `GetAppliedGPOListA`, `FreeGPOListA/W`. The list is read per extension from
+  `HKLM\...\CurrentVersion\Group Policy\History\{extension}\<n>` (machine) or `...\Group Policy\<SID>\History\...`
+  (user; Windows reads the user's own hive), which session 0's policy writer records. No list: success and an
+  empty list. A remote machine name gives `ERROR_NOT_SUPPORTED`. `userenv.spec` and `include/userenv.h`: the exports, the prototypes and the `GPO_FLAG_*`
+  and `GPO_LIST_FLAG_*` constants.
 - `dlls/wkscli/wkscli.c` (`NetGetJoinInformation`), `dlls/dsrole/dsrole.c` (`DsRoleGetPrimaryDomainInformation`):
   with `HKLM\Software\WineExplorer\Domain` (`FlatName`, `Name`) the machine is reported as a member of that domain;
   without the key, stock behaviour. `wkscli` imports `advapi32` for it.

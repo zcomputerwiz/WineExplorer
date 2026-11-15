@@ -644,7 +644,7 @@ int main(int argc, char **argv)
         if (!name_len || name_len>63 || (size_t)n!=96+name_len) goto done;
         memcpy(name,ctx.io+80,name_len);
         memcpy(ctx.key,ctx.io+80+name_len,16);
-        if (memchr(name,0,name_len) || !valid_name(name)) goto done;
+        if (memchr(name,0,name_len) || !accounts_valid_name(name)) goto done;
         decoy=!memcmp(ctx.key,(unsigned char[16]){0},16);
     }
     else
@@ -669,7 +669,7 @@ int main(int argc, char **argv)
                  (!uid || !memcmp(ctx.key,(unsigned char[16]){0},16)))) goto done;
     ctx.deadline=le64(ctx.io+104);
     memcpy(name,ctx.io+120,name_len);
-    if (memchr(name,0,name_len) || !valid_name(name)) goto done;
+    if (memchr(name,0,name_len) || !accounts_valid_name(name)) goto done;
     if (decoy && (strcmp(name,"decoy") || !ctx.normalized)) goto done;
     }
     explicit_bzero(ctx.io,sizeof(ctx.io));

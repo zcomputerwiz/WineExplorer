@@ -33,6 +33,8 @@
  *                                 of DsRoleGetPrimaryDomainInformation> flat=<name> dns=<name>
  *   probe gpnotify machine|user MS  registers for the policy notification (RegisterGPNotification), prints
  *                                 gp=ready, waits up to MS ms and prints gp=signalled or gp=timeout
+ *   probe gpolist machine|user {EXT}  the applied objects for the extension (GetAppliedGPOListW; user: the
+ *                                 caller's SID); prints gpolist=<error> and one gpo= line per object
  *   probe rpcbind PIPE            opens \\.\pipe\PIPE in message mode, sends a DCE/RPC bind for the service control
  *                                 manager's interface and prints pipe=open (or pipe=error<n>) and bind=<the answer's
  *                                 packet type: 12 bind_ack, 13 bind_nak>
@@ -128,6 +130,41 @@ int __cdecl wmain( int argc, WCHAR **argv )
         fflush( stdout );
         wait = WaitForSingleObject( event, wcstoul( argv[3], NULL, 10 ) );
         printf( wait == WAIT_OBJECT_0 ? "gp=signalled\n" : "gp=timeout\n" );
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"gpolist" ))
+    {
+        /* GROUP_POLICY_OBJECTW, written out: the probe builds without the header */
+        struct gpo { DWORD options, version; WCHAR *ds, *fs, *display, name[50]; int link; LPARAM lparam;
+                     struct gpo *next, *prev; WCHAR *extensions; LPARAM lparam2; WCHAR *som; } *list = NULL, *g;
+        DWORD (WINAPI *get_list)( DWORD, const WCHAR *, PSID, GUID *, struct gpo ** );
+        BOOL (WINAPI *free_list)( struct gpo * );
+        HMODULE userenv = LoadLibraryW( L"userenv.dll" );
+        char buffer[256];
+        TOKEN_USER *user = (TOKEN_USER *)buffer;
+        HANDLE token;
+        DWORD size, err;
+        GUID ext;
+
+        get_list = userenv ? (void *)GetProcAddress( userenv, "GetAppliedGPOListW" ) : NULL;
+        free_list = userenv ? (void *)GetProcAddress( userenv, "FreeGPOListW" ) : NULL;
+        unsigned int b[8], i;
+
+        if (!get_list || !free_list ||
+            swscanf( argv[3], L"{%8lx-%4hx-%4hx-%2x%2x-%2x%2x%2x%2x%2x%2x}", &ext.Data1, &ext.Data2, &ext.Data3,
+                     &b[0], &b[1], &b[2], &b[3], &b[4], &b[5], &b[6], &b[7] ) != 11)
+        {
+            printf( "gpolist=noentry\n" );
+            return 1;
+        }
+        for (i = 0; i < 8; i++) ext.Data4[i] = b[i];
+        OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token );
+        GetTokenInformation( token, TokenUser, buffer, sizeof(buffer), &size );
+        err = get_list( lstrcmpW( argv[2], L"machine" ) ? 0 : 1, NULL, user->User.Sid, &ext, &list );
+        printf( "gpolist=%lu\n", err );
+        for (g = list; g; g = g->next)
+            printf( "gpo=%ls version=%lu link=%d name=%ls som=%ls\n", g->name, g->version, g->link, g->display, g->som );
+        free_list( list );
         return 0;
     }
     if (argc == 3 && !lstrcmpW( argv[1], L"rpcbind" ))

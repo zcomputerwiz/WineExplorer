@@ -90,7 +90,22 @@ rm -f /etc/resolv.conf
 printf 'search ad.wexlab.example\nnameserver %s\n' "$DC" > /etc/resolv.conf
 grep -q dc1.ad.wexlab.example /etc/hosts || echo "$DC dc1.ad.wexlab.example dc1" >> /etc/hosts
 grep -q "$ADDR" /etc/hosts || echo "$ADDR $(hostname -s).ad.wexlab.example $(hostname -s)" >> /etc/hosts
-join=$(net ads join -S dc1.ad.wexlab.example -U "Administrator%$(cat /root/adminpw)" 2>&1)
+# into the lab's OU when the controller has it (gpo-lab.sh fixtures): the OU's object then applies after the
+# domain's (docs/GPO_LAB.md)
+# (a search before the join finds nothing: the join is tried into the OU, and plainly when the OU is not there)
+OU_ARG=createcomputer=WexMachines
+join=$(net ads join $OU_ARG -S dc1.ad.wexlab.example -U "Administrator%$(cat /root/adminpw)" 2>&1) || {
+    OU_ARG=
+    join="$join | $(net ads join -S dc1.ad.wexlab.example -U "Administrator%$(cat /root/adminpw)" 2>&1)"
+}
+# an account left from an earlier run keeps its place at a join: move it into the OU (when there is one), and
+# take the account's real place from the directory
+LDAP_ARGS=(-H ldap://dc1.ad.wexlab.example -U "Administrator%$(cat /root/adminpw)")
+samba-tool computer move "$(hostname -s)" 'OU=WexMachines,DC=ad,DC=wexlab,DC=example' "${LDAP_ARGS[@]}" >/dev/null 2>&1 || true
+ACCOUNT_DN=$(samba-tool computer show "$(hostname -s)" "${LDAP_ARGS[@]}" --attributes=distinguishedName 2>/dev/null |
+    sed -n 's/^distinguishedName: //p')
+case "$ACCOUNT_DN" in *OU=WexMachines,*) OU_ARG=in-ou ;; *) OU_ARG= ;; esac
+echo "note join_container: ${ACCOUNT_DN:-unknown}"
 systemctl restart winbind 2>/dev/null
 if net ads testjoin >/dev/null 2>&1; then ok joined
 else
@@ -125,6 +140,34 @@ if wine_cmd "$INSTALLED_USER" "wine reg add \"$HKLM_POLICY\" /v Limit /t REG_DWO
 else echo "note user_write_to_machine_policy: refused"; fi
 if [ "$(systemctl is-enabled wex-gpupdate.timer 2>/dev/null)" = enabled ] && [ "$(systemctl is-active wex-gpupdate.timer)" = active ]; then ok timer_enabled
 else notok timer_enabled "$(systemctl is-enabled wex-gpupdate.timer 2>&1) $(systemctl is-active wex-gpupdate.timer 2>&1)"; fi
+
+# 5b. The GPO lab's fixtures (gpo-lab.sh fixtures) and an image with Group Policy steps 5 to 7 (it has
+# wex-gpupdate.path): the order of the two objects, the security template, gpresult and a user's gpupdate.
+if [ -n "$OU_ARG" ] && [ -f /lib/systemd/system/wex-gpupdate.path ]; then
+    systemctl start wex-gpupdate.service 2>/dev/null
+    l=$(value "$HKLM_POLICY" Limit); d=$(value "$HKLM_POLICY" DomainOnly); o=$(value "$HKLM_POLICY" OuOnly)
+    if [ "$l" = 0x9 ] && [ "$d" = 0x1 ] && [ "$o" = 0x1 ]; then ok gpo_order_ou_after_domain
+    else notok gpo_order_ou_after_domain "Limit [$l] DomainOnly [$d] OuOnly [$o]"; fi
+    lb=$(value 'HKLM\Software\WineExplorer\Elevation' LockoutBadCount)
+    ld=$(value 'HKLM\Software\WineExplorer\Elevation' LockoutDuration)
+    so=$(value 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' WexLabOption)
+    if [ "$lb" = 0x7 ] && [ "$ld" = 0x1e ] && [ "$so" = 0x3 ]; then ok security_template_applied
+    else notok security_template_applied "LockoutBadCount [$lb] LockoutDuration [$ld] WexLabOption [$so]"; fi
+    gr=$(wine_cmd "$INSTALLED_USER" "wine gpresult /scope computer" | tr -d '\r')
+    # the domain's objects (the Default Domain Policy among them) come before the OU's
+    at_dom=$(grep -n '^        WexLab Domain$' <<<"$gr" | head -1 | cut -d: -f1)
+    at_ou=$(grep -n '^        WexLab OU$' <<<"$gr" | head -1 | cut -d: -f1)
+    if [ -n "$at_dom" ] && [ -n "$at_ou" ] && [ "$at_dom" -lt "$at_ou" ]; then
+        ok gpresult_lists_objects_in_order
+    else notok gpresult_lists_objects_in_order "$(grep -A4 'Applied Group Policy Objects' <<<"$gr")"; fi
+    runs=$(journalctl --no-pager -b 0 -u wex-gpupdate.service 2>/dev/null | grep -c 'Finished\|Deactivated' || true)
+    gu=$(wine_cmd "$INSTALLED_USER" "wine gpupdate /target:computer /wait:80" | tr -d '\r')
+    runs2=$(journalctl --no-pager -b 0 -u wex-gpupdate.service 2>/dev/null | grep -c 'Finished\|Deactivated' || true)
+    if grep -qx 'Computer Policy Refresh has completed.' <<<"$gu" && [ "$runs2" -gt "$runs" ]; then ok user_gpupdate_runs_a_refresh
+    else notok user_gpupdate_runs_a_refresh "output [$gu] service runs $runs -> $runs2; path unit $(systemctl is-active wex-gpupdate.path 2>&1)"; fi
+else
+    echo "note gpo_lab_checks: skipped (fixtures [${OU_ARG:-none}], wex-gpupdate.path $( [ -f /lib/systemd/system/wex-gpupdate.path ] && echo present || echo absent))"
+fi
 
 # 6. the policy service runs once in session 0, and nothing failed
 n=$(pgrep -u wexsys -f 'wexpolicy' 2>/dev/null | wc -l)

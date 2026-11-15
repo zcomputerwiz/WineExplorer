@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+MODULE = acppage.dll
+IMPORTS = uuid shell32 shlwapi comctl32 user32 advapi32 ole32
+SOURCES = \
+    acppage.c \
+    acppage.rc
