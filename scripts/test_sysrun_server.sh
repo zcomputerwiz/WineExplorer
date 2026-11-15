@@ -3583,6 +3583,31 @@ OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" |
 [ "$OUT" = gpolist=0 ] || { echo "$OUT" >&2; fail "gpolist: the empty list"; }
 kill_servers
 ok st_applied_gpo_list_per_extension_for_machine_and_user
+# gpupdate: a standard user's gpupdate asks session 0's gpsvc, which leaves the request for root's
+# wex-gpupdate.path in session 0's root; gpupdate waits until the refresh run says it is done (wexpolicy refreshed)
+REQ="$M/drive_c/windows/system32/GroupPolicy/Refresh"
+rm -f "$REQ"
+s0_wine sc start gpsvc >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+rm -f "$POL/gpupdate.out"
+(wine_as "$STD" gpupdate /target:computer /wait:60 > "$POL/gpupdate.out" 2>/dev/null || true) &
+GP_PID=$!
+for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
+[ -s "$REQ" ] || { cat "$POL/gpupdate.out" >&2; fail "gpupdate: gpsvc did not leave the request"; }
+sleep 1
+grep -q 'Computer Policy Refresh has completed' "$POL/gpupdate.out" && fail "gpupdate: did not wait for the refresh"
+s0_wine wexpolicy refreshed >/dev/null || fail "gpupdate: wexpolicy refreshed"
+wait "$GP_PID" || true
+tr -d '\r' < "$POL/gpupdate.out" | grep -qx 'Computer Policy Refresh has completed.' &&
+    ! grep -q 'User Policy' "$POL/gpupdate.out" || { cat "$POL/gpupdate.out" >&2; fail "gpupdate: the computer refresh"; }
+OUT="$(as_wine "$STD" gpupdate /wait:0 | tr -d '\r')" || true
+grep -q '^Refreshing Policy' <<<"$OUT" && ! grep -q 'Failed' <<<"$OUT" || { echo "$OUT" >&2; fail "gpupdate /wait:0"; }
+OUT="$(as_wine "$STD" gpupdate /bogus | tr -d '\r')" || true
+grep -q '^GPUPDATE \[/Target' <<<"$OUT" || { echo "$OUT" >&2; fail "gpupdate: usage"; }
+OUT="$(as_wine "$STD" wexpolicy refreshed || true)"
+grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "gpupdate: $STD said a refresh was done"; }
+kill_servers
+ok st_gpupdate_asks_session0_and_waits_for_the_refresh
 # Group Policy step 2: the domain join that session 0's registry states is what Windows programs are told
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" join)"

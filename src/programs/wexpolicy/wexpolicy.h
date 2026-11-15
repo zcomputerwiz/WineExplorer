@@ -22,6 +22,12 @@
 
 #define MAX_FILES      64
 
+/* the service's control for a refresh, sent by gpupdate (a user-defined control, 128 to 255) */
+#define GPSVC_CONTROL_REFRESH  128
+
+/* HKLM: the serial numbers of the writer; Refreshed counts the finished refreshes (wexpolicy refreshed) */
+#define MACHINE_SERIAL_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\WineExplorer Applied"
+
 void say( const char *format, ... );
 void bump_serial( HKEY root, BOOL user );
 

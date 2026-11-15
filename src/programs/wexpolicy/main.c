@@ -28,6 +28,7 @@
  *   wexpolicy list  /machine | /user:SID        print what the last apply wrote
  *   wexpolicy security /machine TEMPLATE...     security templates (GptTmpl.inf, sectmpl.c)
  *   wexpolicy record /machine|/user:SID LIST    the list of applied objects (gpolist.c)
+ *   wexpolicy refreshed                         a refresh is done (gpupdate waits for it)
  *   wexpolicy                                   started by the service manager: the service "gpsvc"
  *
  * The files are applied in the order given (a later file wins), as the Group Policy client applies the GPOs in
@@ -71,7 +72,6 @@ struct item
 
 #define SERVICE_NAME  L"gpsvc"
 #define MARKER_KEY    L"Software\\Policies\\WineExplorer\\Policy Applied"
-#define MACHINE_SERIAL_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\WineExplorer Applied"
 
 static struct item *items;
 static size_t item_count, item_room;
@@ -543,6 +543,29 @@ void bump_serial( HKEY root, BOOL user )
     RegCloseKey( key );
 }
 
+/* gpupdate asked for a refresh: the request file in session 0's root, which root's wex-gpupdate.path watches and
+ * turns into a run of wex-gpupdate.service. The file holds the time of the last request; the program that
+ * asked waits for the Refreshed number that the run leaves at its end. */
+static DWORD request_refresh(void)
+{
+    WCHAR path[MAX_PATH];
+    char text[32];
+    UINT len = GetSystemDirectoryW( path, ARRAY_SIZE(path) );
+    DWORD done, err = ERROR_SUCCESS;
+    HANDLE file;
+
+    if (!len || len > ARRAY_SIZE(path) - 32) return ERROR_BUFFER_OVERFLOW;
+    wcscat( path, L"\\GroupPolicy" );
+    if (!CreateDirectoryW( path, NULL ) && GetLastError() != ERROR_ALREADY_EXISTS) return GetLastError();
+    wcscat( path, L"\\Refresh" );
+    file = CreateFileW( path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+    if (file == INVALID_HANDLE_VALUE) return GetLastError();
+    len = snprintf( text, sizeof(text), "%lu\n", GetTickCount() );
+    if (!WriteFile( file, text, len, &done, NULL )) err = GetLastError();
+    CloseHandle( file );
+    return err;
+}
+
 static void set_service_state( DWORD state )
 {
     SERVICE_STATUS status;
@@ -565,6 +588,9 @@ static DWORD WINAPI service_handler( DWORD control, DWORD type, void *data, void
         return NO_ERROR;
     case SERVICE_CONTROL_INTERROGATE:
         return NO_ERROR;
+    case GPSVC_CONTROL_REFRESH:
+        /* gpupdate: any authenticated user may send it (the service manager's default descriptor) */
+        return request_refresh();
     default:
         return ERROR_CALL_NOT_IMPLEMENTED;
     }
@@ -645,6 +671,25 @@ int __cdecl wmain( int argc, WCHAR **argv )
     BOOL apply, clear, list;
 
     if (argc == 1 && StartServiceCtrlDispatcherW( service_table )) return 0;
+    /* wex-gpupdate.sh at the end of every run: the programs that asked for it (gpupdate) are done waiting */
+    if (argc == 2 && !_wcsicmp( argv[1], L"refreshed" ))
+    {
+        DWORD serial = 0, size = sizeof(serial);
+        HKEY key;
+
+        if (!is_local_system())
+        {
+            say( "wexpolicy: only the system writes policy\n" );
+            return ERROR_ACCESS_DENIED;
+        }
+        if ((err = RegCreateKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, NULL, REG_OPTION_VOLATILE,
+                                    KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, NULL ))) return err;
+        if (RegQueryValueExW( key, L"Refreshed", NULL, NULL, (BYTE *)&serial, &size )) serial = 0;
+        serial++;
+        err = RegSetValueExW( key, L"Refreshed", 0, REG_DWORD, (const BYTE *)&serial, sizeof(serial) );
+        RegCloseKey( key );
+        return err;
+    }
     if (argc < 3)
     {
         say( "usage: wexpolicy apply /machine|/user:SID FILE [FILE...]\n"

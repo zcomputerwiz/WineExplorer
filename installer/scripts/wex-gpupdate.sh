@@ -16,8 +16,13 @@
 #      of the accounts map; a user who is not logged on gets the policy at the next logon).
 #   An account with no Registry.pol at all gets "wexpolicy clear".
 #
+#   Also: the security templates (wexpolicy security), the list of applied objects (wexpolicy record), and at the
+#   end of every run "wexpolicy refreshed" for gpupdate. Started by wex-gpupdate.timer, and by wex-gpupdate.path
+#   when a user's gpupdate asked session 0's gpsvc for a refresh.
+#
 #   wex-gpupdate.sh           do it
-#   wex-gpupdate.sh --print   steps 1 and 2 only: print "machine FILE" and "user NAME FILE" lines, write nothing
+#   wex-gpupdate.sh --print   steps 1 and 2 only: print the objects ("object ...") and the files ("machine FILE",
+#                             "security FILE", "user NAME FILE"), write nothing
 #
 # This is a shell script on Samba's command line tools on purpose: an extension inside samba-gpupdate would be
 # a Python file under Samba's licence (GPL-3.0-or-later).
@@ -31,6 +36,22 @@ S0_USER=${WEX_SESSION0_USER:-wexsys}
 WINE=${WINE:-/usr/local/bin/wine}
 MAP=${WEX_ACCOUNTS_MAP:-/etc/wineexplorer/accounts.map}
 STAGE=/run/wineexplorer-policy
+LISTS=
+
+s0_wexpolicy()
+{
+    (cd / && runuser -u "$S0_USER" -- env -i WINEPREFIX="$MACHINE_ROOT" HOME="$MACHINE_ROOT" PATH=/usr/bin:/bin \
+        WINEDEBUG=-all "$WINE" wexpolicy "$@" </dev/null 2>/dev/null) | tr -d '\r'
+}
+
+# Every run ends by telling session 0 it is done, also on a machine that is not joined: a gpupdate that asked for
+# it waits for that (gpupdate.exe, wexpolicy refreshed).
+finish()
+{
+    [ -z "$LISTS" ] || rm -rf "$LISTS"
+    [ "$PRINT" = 1 ] || s0_wexpolicy refreshed >/dev/null || true
+}
+trap finish EXIT
 
 command -v net >/dev/null 2>&1 && command -v samba-gpupdate >/dev/null 2>&1 || { echo "wex-gpupdate: Samba's tools are not installed"; exit 0; }
 REALM=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'a-z' 'A-Z')
@@ -89,12 +110,6 @@ record()
     s0_wexpolicy record "$1" "Z:${copy//\//\\}"
 }
 
-s0_wexpolicy()
-{
-    (cd / && runuser -u "$S0_USER" -- env -i WINEPREFIX="$MACHINE_ROOT" HOME="$MACHINE_ROOT" PATH=/usr/bin:/bin \
-        WINEDEBUG=-all "$WINE" wexpolicy "$@" </dev/null 2>/dev/null) | tr -d '\r'
-}
-
 # apply the files of one target: "/machine" or "/user:SID"
 apply()
 {
@@ -112,7 +127,6 @@ apply()
 
 HOST=$(hostname -s | tr 'a-z' 'A-Z')
 LISTS=$(mktemp -d)
-trap 'rm -rf "$LISTS"' EXIT
 gpo_list "$HOST\$" MACHINE > "$LISTS/machine.list"
 mapfile -t MACHINE_FILES < <(pol_files "$LISTS/machine.list" MACHINE)
 # the security templates: the account lockout policy and the security options (wexpolicy's sectmpl.c)

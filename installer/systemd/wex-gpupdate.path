@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: gpupdate (docs/GROUP_POLICY.md). A user's gpupdate asks session 0's Group Policy service (gpsvc)
+# for a refresh; the service writes this file in session 0's root, and the refresh runs as root. systemd's start
+# limits of the service and of this unit bound how often users can make it run. Enabled with session 0
+# (setup-machine-root.sh with WEX_SESSION0=1), like the timer.
+
+[Unit]
+Description=WineExplorer Group Policy refresh asked for by gpupdate
+
+[Path]
+PathChanged=/var/lib/wineexplorer/machine/drive_c/windows/system32/GroupPolicy/Refresh
+Unit=wex-gpupdate.service
+
+[Install]
+WantedBy=paths.target
