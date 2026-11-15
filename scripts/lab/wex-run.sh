@@ -19,7 +19,7 @@
 # worktree may be edited during a run (bash reads a script as it goes; an edit under a running suite corrupts it).
 # Sources go into the build trees by the sync at the start: /root/WE-prefetch (wine clone, src overlay, WoW64 build
 # in build/wow64) and, for the lab, /root/owned-r8 (scripts/lab/r8-lab-build.sh).
-# Output: one line per stage with its result and minutes; logs in /tmp/wex-run-*.log.
+# Output: one line per stage with its result and minutes; logs in /var/tmp/wex-run/*.log (not /tmp: a tmpfs there is emptied when WSL stops the idle distribution).
 #
 # Only for wexbuild or a throwaway machine: the suites create and remove /etc/wineexplorer,
 # /usr/local/libexec/wineexplorer, /var/lib/wexsys-c2 and the users wexadm, wexstd, wexcar, wexgreeter.
@@ -35,6 +35,8 @@ P=/root/WE-prefetch
 CL=$P/wine
 MAIN=$P/build/wow64
 LAB=/root/owned-r8/build/wow64
+LOGS=/var/tmp/wex-run
+mkdir -p "$LOGS"
 
 clean_fixture()
 {
@@ -133,31 +135,31 @@ suite()  # build dir, script, log
 passed() { grep -o '[0-9]* checks passed' "$1" | tail -1; }
 
 if [ "$MODE" != labsuite ]; then
-    sync_tree > /tmp/wex-run-sync.log 2>&1 && stage sync ok || { stage sync FAILED; tail -5 /tmp/wex-run-sync.log; exit 1; }
-    make -C "$MAIN" -j16 > /tmp/wex-run-make.log 2>&1 && stage build ok ||
-        { stage build FAILED; grep -m5 'error:' /tmp/wex-run-make.log; exit 1; }
+    sync_tree > $LOGS/sync.log 2>&1 && stage sync ok || { stage sync FAILED; tail -5 $LOGS/sync.log; exit 1; }
+    make -C "$MAIN" -j16 > $LOGS/make.log 2>&1 && stage build ok ||
+        { stage build FAILED; grep -m5 'error:' $LOGS/make.log; exit 1; }
 fi
 if [ "$MODE" = build ]; then
     echo "ALL PASS build $TREE ($(( (SECONDS - T0 + 30) / 60 )) min)"
     exit 0
 fi
 if [ "$MODE" = full ]; then
-    ( cd "$SNAP" && BUILD=$MAIN bash scripts/lab/system-tier-t1.sh ) > /tmp/wex-run-t1.log 2>&1
-    grep -q '^FAILS=0' /tmp/wex-run-t1.log && stage t1 ok || stage t1 FAILED
+    ( cd "$SNAP" && BUILD=$MAIN bash scripts/lab/system-tier-t1.sh ) > $LOGS/t1.log 2>&1
+    grep -q '^FAILS=0' $LOGS/t1.log && stage t1 ok || stage t1 FAILED
 fi
 if [ "$MODE" = normal ] || [ "$MODE" = full ]; then
-    suite "$MAIN" scripts/test_sysrun_server.sh /tmp/wex-run-normal.log && stage "normal: $(passed /tmp/wex-run-normal.log)" ok ||
-        { stage normal FAILED; grep -m3 '^FAIL' /tmp/wex-run-normal.log; }
-    ( cd "$SNAP" && bash scripts/test_broker_e1s18.sh ) > /tmp/wex-run-broker.log 2>&1 && stage broker ok ||
-        { stage broker FAILED; tail -3 /tmp/wex-run-broker.log; }
+    suite "$MAIN" scripts/test_sysrun_server.sh $LOGS/normal.log && stage "normal: $(passed $LOGS/normal.log)" ok ||
+        { stage normal FAILED; grep -m3 '^FAIL' $LOGS/normal.log; }
+    ( cd "$SNAP" && bash scripts/test_broker_e1s18.sh ) > $LOGS/broker.log 2>&1 && stage broker ok ||
+        { stage broker FAILED; tail -3 $LOGS/broker.log; }
 fi
 if [ "$MODE" = lab ] || [ "$MODE" = full ]; then
-    ( cd "$SNAP" && R8_LAB_LOG=/tmp/wex-run-lab-build.log bash scripts/lab/r8-lab-build.sh ) > /tmp/wex-run-lab-build.out 2>&1 &&
-        stage lab-build ok || { stage lab-build FAILED; tail -3 /tmp/wex-run-lab-build.out; exit 1; }
+    ( cd "$SNAP" && R8_LAB_LOG=$LOGS/lab-build.log bash scripts/lab/r8-lab-build.sh ) > $LOGS/lab-build.out 2>&1 &&
+        stage lab-build ok || { stage lab-build FAILED; tail -3 $LOGS/lab-build.out; exit 1; }
 fi
 if [ "$MODE" != normal ]; then
-    suite "$LAB" scripts/test_e1s6_transport.sh /tmp/wex-run-lab.log && stage "lab: $(passed /tmp/wex-run-lab.log)" ok ||
-        { stage lab FAILED; grep -m3 '^FAIL' /tmp/wex-run-lab.log; }
+    suite "$LAB" scripts/test_e1s6_transport.sh $LOGS/lab.log && stage "lab: $(passed $LOGS/lab.log)" ok ||
+        { stage lab FAILED; grep -m3 '^FAIL' $LOGS/lab.log; }
 fi
 echo "ALL $([ $RC = 0 ] && echo PASS || echo FAILED) $MODE $TREE ($(( (SECONDS - T0 + 30) / 60 )) min)"
 exit $RC

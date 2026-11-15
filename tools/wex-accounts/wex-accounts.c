@@ -30,13 +30,15 @@ static int random_bytes( void *data, size_t size )
     return 1;
 }
 
-static int new_record( struct account_map *map, const struct account_native *u, int legacy, int builtin )
+/* fixed_rid: a domain record's RID, which takes no counter RID; 0 for a local record */
+static int new_record( struct account_map *map, const struct account_native *u, int legacy, int builtin,
+                       uint32_t fixed_rid )
 {
     static const char hex[] = "0123456789abcdef";
     struct account_record *r;
     unsigned char raw[16];
     unsigned int i, j, attempt;
-    if (map->count == ACCOUNT_LIMIT || (!legacy && map->next_rid > U32_MAX_VALUE)) return 0;
+    if (map->count == ACCOUNT_LIMIT || (!legacy && !fixed_rid && map->next_rid > U32_MAX_VALUE)) return 0;
     r = &map->records[map->count];
     memset( r, 0, sizeof(*r) );
     for (attempt = 0; attempt < 8; attempt++)
@@ -52,8 +54,9 @@ static int new_record( struct account_map *map, const struct account_native *u, 
     r->uid = u->uid;
     r->active = 1;
     r->legacy = legacy;
-    for (i = 0; i < 3; i++) r->sid[i] = legacy ? 0 : map->machine[i];
-    r->rid = legacy ? 1000 : builtin ? BUILTIN_ADMIN_RID : map->next_rid++;
+    r->domain = fixed_rid != 0;
+    for (i = 0; i < 3; i++) r->sid[i] = legacy ? 0 : r->domain ? map->domain[i] : map->machine[i];
+    r->rid = fixed_rid ? fixed_rid : legacy ? 1000 : builtin ? BUILTIN_ADMIN_RID : map->next_rid++;
     map->count++;
     return 1;
 }
@@ -62,22 +65,16 @@ static int new_record( struct account_map *map, const struct account_native *u, 
 static int new_domain_record( struct account_map *map, const char *name, uid_t uid, uint32_t rid )
 {
     struct account_native u;
-    unsigned int i;
 
     memset( &u, 0, sizeof(u) );
     strcpy( u.name, name );
     u.uid = uid;
-    if (!new_record( map, &u, 0, 0 )) return 0;
-    /* new_record took a counter RID it does not need */
-    map->next_rid--;
-    map->records[map->count - 1].domain = 1;
-    for (i = 0; i < 3; i++) map->records[map->count - 1].sid[i] = map->domain[i];
-    map->records[map->count - 1].rid = rid;
-    return 1;
+    return new_record( map, &u, 0, 0, rid );
 }
 
-/* Winbind, asked by running wbinfo from a fixed path with a clean environment (no shell); its standard output,
- * at most size - 1 bytes, in out. The exit status, or -1 when it cannot run or takes more than 15 seconds. */
+/* Winbind, asked by running wbinfo from a fixed path with a clean environment (no shell); its standard output
+ * and error, at most size - 1 bytes, in out (on success the error stream is empty). The exit status, or -1 when it
+ * cannot run or takes more than 15 seconds. */
 #ifdef WEX_ACCOUNTS_TEST
 static const char *wbinfo_path = "/usr/bin/wbinfo";
 #else
@@ -99,7 +96,8 @@ static int run_wbinfo( char *out, size_t size, const char *arg1, const char *arg
     {
         int null = open( "/dev/null", O_RDWR );
         dup2( pipefd[1], 1 );
-        if (null != -1) { dup2( null, 0 ); dup2( null, 2 ); }
+        dup2( pipefd[1], 2 );
+        if (null != -1) dup2( null, 0 );
         alarm( 15 );
         execve( wbinfo_path, argv, envp );
         _exit( 127 );
@@ -162,13 +160,24 @@ static int winbind_domain( char flat[16], uint32_t sid[3] )
     return 0;
 }
 
-/* a user of the domain: its SID; 0 when Winbind does not know it as a user */
-static int winbind_user_sid( const char *name, uint32_t sid[3], uint32_t *rid )
+/* What Winbind says of a name. Only a definitive answer may retire an account (tombstones are permanent):
+ * WB_USER    a user, with its SID
+ * WB_NONE    no such account, or not a user: Samba (4.17, checked in the GPO lab) says "failed to call
+ *            wbcLookupName: WBC_ERR_DOMAIN_NOT_FOUND" with status 1 for a name the reachable controller does not
+ *            have, and gives the type of other accounts (SID_DOM_GROUP...)
+ * WB_ERROR   anything else: Winbind or the controller unavailable (WBC_ERR_WINBIND_NOT_AVAILABLE), a timeout,
+ *            output that does not parse */
+enum winbind_answer { WB_USER, WB_NONE, WB_ERROR };
+
+static enum winbind_answer winbind_user_sid( const char *name, uint32_t sid[3], uint32_t *rid )
 {
     char out[4096];
+    int status = run_wbinfo( out, sizeof(out), "--name-to-sid", name );
 
-    if (run_wbinfo( out, sizeof(out), "--name-to-sid", name )) return 0;
-    return parse_sid( out, sid, rid ) && strstr( out, " SID_USER " );
+    if (status == 1 && strstr( out, "failed to call wbcLookupName: WBC_ERR_DOMAIN_NOT_FOUND" ) &&
+        !strstr( out, "WBC_ERR_WINBIND_NOT_AVAILABLE" )) return WB_NONE;
+    if (status || !parse_sid( out, sid, rid )) return WB_ERROR;
+    return strstr( out, " SID_USER " ) ? WB_USER : WB_NONE;
 }
 
 /* Domain records that the domain no longer has become tombstones, but only when the controller answers: a user
@@ -198,9 +207,19 @@ static int check_domain_records( struct account_map *map )
         struct account_native u;
 
         if (!r->domain || !r->active) continue;
-        if (!winbind_user_sid( r->name, sid, &rid ) || memcmp( sid, r->sid, sizeof(sid) ) || rid != r->rid ||
-            (native_passwd( r->name, 0, &u ) && u.uid != r->uid))
-        { r->active = 0; changed = 1; }
+        /* a definitive answer only: no such user, or another SID, RID or (NSS answering) UID; an error keeps the
+         * record for the next sync */
+        switch (winbind_user_sid( r->name, sid, &rid ))
+        {
+        case WB_ERROR: continue;
+        case WB_NONE: break;
+        case WB_USER:
+            if (!memcmp( sid, r->sid, sizeof(sid) ) && rid == r->rid &&
+                !(native_passwd( r->name, 0, &u ) && u.uid != r->uid)) continue;
+            break;
+        }
+        r->active = 0;
+        changed = 1;
     }
     return changed;
 }
@@ -335,17 +354,24 @@ static enum wex_account_status admit_domain_user( struct account_map *map, const
     /* a user of the domain this machine is joined to */
     if (!winbind_domain( flat, domain )) return WEX_ACCOUNT_NSS_ERROR;
     if (strlen( flat ) != len || strncasecmp( u.name, flat, len )) return WEX_ACCOUNT_UNSUPPORTED;
-    if (!winbind_user_sid( u.name, sid, &rid )) return WEX_ACCOUNT_UNKNOWN;
+    switch (winbind_user_sid( u.name, sid, &rid ))
+    {
+    case WB_USER: break;
+    case WB_NONE: return WEX_ACCOUNT_UNKNOWN;
+    case WB_ERROR: return WEX_ACCOUNT_NSS_ERROR;
+    }
     if (memcmp( sid, domain, sizeof(sid) ) || rid < 500) return WEX_ACCOUNT_UNSUPPORTED;
     /* the name as the map keeps it: the domain's flat name, then the user's part as NSS gives it */
     memcpy( u.name, flat, len );
 
-    /* the map's domain: set at the first domain logon; another domain retires the old domain's records */
-    if (map->version == 1 || memcmp( map->domain, domain, sizeof(domain) ) || strcmp( map->domain_name, flat ))
+    /* The map's domain is set at the first domain logon. A logon never changes it: Winbind giving another
+     * domain at one logon refuses that logon, and only sync, with the controller answering, moves the map to a
+     * new domain and retires the old one's records (review of WO 1, change 2). */
+    if (map->version == 2 && (memcmp( map->domain, domain, sizeof(domain) ) || strcmp( map->domain_name, flat )))
+        return WEX_ACCOUNT_NSS_ERROR;
+    if (map->version == 1)
     {
         if (!memcmp( domain, map->machine, sizeof(domain) )) return WEX_ACCOUNT_MAP_INVALID;
-        for (i = 0; i < map->count; i++)
-            if (map->records[i].domain && map->records[i].active) map->records[i].active = 0;
         map->version = 2;
         memcpy( map->domain, domain, sizeof(domain) );
         strcpy( map->domain_name, flat );
@@ -372,6 +398,45 @@ static enum wex_account_status admit_domain_user( struct account_map *map, const
     return WEX_ACCOUNT_OK;
 }
 
+/* wex-accounts restore NAME (review of WO 1, change 3): a domain account wrongly retired comes back. The newest
+ * tombstone of that name is made active again, with its key: the same SID is the same account, and the key is
+ * what its managed profile is stored under, so a new key would part the account from its own profile. Only when
+ * Winbind confirms the same SID and RID now (a positive answer; an error refuses), NSS gives the same UID both
+ * ways, the record is of the map's domain, and no active record and no local account has the name or the UID. */
+static enum wex_account_status restore_domain_user( struct account_map *map, const struct account_native *users,
+                                                    unsigned int count, const char *name, int *changed )
+{
+    struct account_record *r = NULL;
+    struct account_native u;
+    uint32_t sid[3], rid;
+    unsigned int i;
+
+    if (!valid_domain_account( name, NULL ) || map->version != 2) return WEX_ACCOUNT_UNKNOWN;
+    for (i = 0; i < map->count; i++)
+    {
+        if (map->records[i].active && !strcmp( map->records[i].name, name )) return WEX_ACCOUNT_NSS_MISMATCH;
+        if (!map->records[i].active && map->records[i].domain && !strcmp( map->records[i].name, name ))
+            r = &map->records[i];
+    }
+    if (!r) return WEX_ACCOUNT_UNKNOWN;
+    if (memcmp( r->sid, map->domain, sizeof(r->sid) )) return WEX_ACCOUNT_UNSUPPORTED;
+    for (i = 0; i < map->count; i++)
+        if (map->records[i].active && map->records[i].uid == r->uid) return WEX_ACCOUNT_NSS_MISMATCH;
+    for (i = 0; i < count; i++) if (users[i].uid == r->uid) return WEX_ACCOUNT_NSS_MISMATCH;
+    if (!native_passwd( name, 0, &u ) || !native_match( &u ) || u.uid != r->uid) return WEX_ACCOUNT_NSS_MISMATCH;
+    if (!u.supported) return WEX_ACCOUNT_UNSUPPORTED;
+    switch (winbind_user_sid( name, sid, &rid ))
+    {
+    case WB_USER: break;
+    case WB_NONE: return WEX_ACCOUNT_UNKNOWN;
+    case WB_ERROR: return WEX_ACCOUNT_NSS_ERROR;
+    }
+    if (memcmp( sid, r->sid, sizeof(sid) ) || rid != r->rid) return WEX_ACCOUNT_SID_COLLISION;
+    r->active = 1;
+    *changed = 1;
+    return WEX_ACCOUNT_OK;
+}
+
 int main( int argc, char **argv )
 {
     struct account_map *map = NULL;
@@ -381,7 +446,7 @@ int main( int argc, char **argv )
     struct stat st;
     char *buf = NULL;
     const char *command = NULL, *legacy = NULL, *retire = NULL, *rename_old = NULL, *rename_new = NULL;
-    const char *admit_user = NULL;
+    const char *admit_user = NULL, *restore_name = NULL;
     unsigned int count, i, j;
     int dir = -1, lock = -1, initialize = 0, fresh = 0, changed = 0, ok = 0;
     size_t length;
@@ -434,6 +499,8 @@ int main( int argc, char **argv )
         else if (!command && !strcmp( argv[i], "sync" )) command = "sync";
         /* the user comes only from PAM_USER (condition 2 of docs/DOMAIN_LOGON.md), never from an argument */
         else if (!command && !strcmp( argv[i], "admit" )) command = "admit";
+        else if (!command && !strcmp( argv[i], "restore" ) && i + 1 < (unsigned int)argc)
+        { command = "restore"; restore_name = argv[++i]; }
         else if (!command && !strcmp( argv[i], "retire" ) && i + 1 < (unsigned int)argc)
         { command = "retire"; retire = argv[++i]; }
         else if (!command && !strcmp( argv[i], "rename" ) && i + 2 < (unsigned int)argc)
@@ -501,6 +568,11 @@ recovered:
         if ((status = admit_domain_user( map, users, count, admit_user, &changed ))) goto done;
         goto save;
     }
+    if (restore_name)
+    {
+        if ((status = restore_domain_user( map, users, count, restore_name, &changed ))) goto done;
+        goto save;
+    }
     status = WEX_ACCOUNT_MAP_INVALID;
     if (legacy)
     {
@@ -509,7 +581,7 @@ recovered:
         if (!fresh && (i == map->count || strcmp( map->records[i].name, legacy ))) goto done;
         for (j = 0; j < count; j++) if (!strcmp( users[j].name, legacy ) && users[j].supported) break;
         if (j == count) goto done;
-        if (fresh && !new_record( map, &users[j], 1, 0 )) goto done;
+        if (fresh && !new_record( map, &users[j], 1, 0, 0 )) goto done;
     }
     if (retire)
     {
@@ -579,7 +651,7 @@ recovered:
                 if (map->records[i].active && map->records[i].uid == users[j].uid && !strcmp( map->records[i].name, users[j].name )) break;
             if (i == map->count)
             {
-                if (!new_record( map, &users[j], 0, &users[j] == builtin )) goto done;
+                if (!new_record( map, &users[j], 0, &users[j] == builtin, 0 )) goto done;
                 changed = 1;
             }
         }
@@ -595,7 +667,7 @@ save:
     if (!mark_initialized( dir )) goto done;
     ok = 1;
 done:
-    if (!ok) fprintf( stderr, "wex-accounts: FAIL status=%u (sync [--initialize] [--legacy-user NAME], retire NAME, rename OLD NEW, admit)\n", (unsigned int)status );
+    if (!ok) fprintf( stderr, "wex-accounts: FAIL status=%u (sync [--initialize] [--legacy-user NAME], retire NAME, rename OLD NEW, admit, restore NAME)\n", (unsigned int)status );
     else printf( "wex-accounts: OK generation=%llu changed=%d\n", map ? (unsigned long long)map->generation : 0ULL, changed );
     free( buf );
     free( users );

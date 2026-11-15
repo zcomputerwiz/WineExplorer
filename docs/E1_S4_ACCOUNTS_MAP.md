@@ -77,10 +77,22 @@ under the map lock, the record is added (the map becomes version 2 at the first 
 nothing; a different identity under the name or UID, or a SID a tombstone holds, refuses. Every refusal leaves
 the map unchanged and fails the logon.
 
-**Sync and domain records:** `sync` leaves domain records to Winbind: only when the controller answers
-(`wbinfo --ping-dc`) does a user the domain no longer has (or whose SID or UID changed) become a tombstone; a
+A logon never changes the map's domain: when Winbind gives another joined domain than a version 2 map has, the
+logon is refused (status 9) and nothing changes; only `sync` moves the map to a new domain.
+
+**Sync and domain records:** `sync` leaves domain records to Winbind, and tombstones are permanent, so only a
+definitive answer retires one: the controller answers (`wbinfo --ping-dc`) and then the lookup says there is no
+such user (status 1 with `WBC_ERR_DOMAIN_NOT_FOUND`, Samba 4.17's words, checked against the lab controller) or
+gives another SID, RID, type or (NSS answering) UID. Winbind or the controller unavailable
+(`WBC_ERR_WINBIND_NOT_AVAILABLE`), a lookup over 15 seconds, or output that does not parse keeps the record. A
 different joined domain tombstones all of the old domain's active records and the header follows the new one. A
 local account always wins a UID: a domain record with the UID of a local account becomes a tombstone.
+
+**Restore:** `wex-accounts restore DOMAIN\user` (root, under the lock) makes the newest tombstone of that domain
+account active again, with its incarnation key: the same SID is the same account, and its managed profile is
+stored under that key. Only when the record is of the map's domain, no active record and no local account has the
+name or the UID, NSS gives the same UID both ways with a shell that can log on, and Winbind confirms the same SID
+and RID now (an error refuses). Logon itself never re-admits a tombstoned SID.
 
 Lab options (`WEX_ACCOUNTS_TEST` only): `--test-wbinfo PATH` (a fake Winbind) and `--test-winbind-passwd FILE`
 (users NSS knows but `/etc/passwd` does not). Tested in `scripts/test_accounts_map.sh` ("domain accounts"): the

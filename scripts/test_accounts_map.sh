@@ -381,7 +381,12 @@ case "\$1" in
 --own-domain) [ -s "\$W/own-domain" ] && cat "\$W/own-domain" ;;
 -D) [ "\$2" = "\$(cat "\$W/own-domain")" ] || exit 1
     printf 'Name              : %s\nAlt_Name          : ad.wexlab.example\nSID               : %s\n' "\$2" "\$(cat "\$W/domain-sid")" ;;
---name-to-sid) N="\$2" awk '\$1 == ENVIRON["N"] { \$1 = ""; sub(/^ /, ""); print; f = 1 } END { exit !f }' "\$W/users" ;;
+--name-to-sid)
+    # Samba's own words (4.17, from the GPO lab): Winbind or the controller unavailable, or no such name
+    [ ! -e "\$W/hang" ] || sleep 30
+    if [ -e "\$W/transient" ]; then echo 'failed to call wbcLookupName: WBC_ERR_WINBIND_NOT_AVAILABLE' >&2; exit 1; fi
+    N="\$2" awk '\$1 == ENVIRON["N"] { \$1 = ""; sub(/^ /, ""); print; f = 1 } END { exit !f }' "\$W/users" && exit 0
+    printf 'failed to call wbcLookupName: WBC_ERR_DOMAIN_NOT_FOUND\nCould not lookup name %s\n' "\$2" >&2; exit 1 ;;
 --ping-dc) [ -e "\$W/ping" ] ;;
 *) exit 1 ;;
 esac
@@ -455,8 +460,16 @@ sed -i '/wexuser2/d' "$WB/users"
 rm "$WB/ping"
 d2_sync
 grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: a record was retired while the controller was away'
-# the controller back: the dropped user becomes a tombstone, the other stays
-touch "$WB/ping"
+# the controller answers but a lookup fails (unavailable, or hangs past the 15 s limit): no tombstone, ever,
+# from an answer that is not definitive (review of WO 1, change 1)
+touch "$WB/ping" "$WB/transient"
+d2_sync
+grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: a transient Winbind error retired a record'
+rm "$WB/transient"; touch "$WB/hang"
+d2_sync
+grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: a Winbind timeout retired a record'
+rm "$WB/hang"
+# the controller back and answering: the dropped user becomes a tombstone, the other stays
 d2_sync
 grep -q '^WEXLAB\\wexuser2 .* tombstone domain ' "$D2MAP" || fail 'd2: a user the domain dropped stayed active'
 grep -q '^WEXLAB\\wexuser1 .* active domain ' "$D2MAP" || fail 'd2: a user the domain has was retired'
@@ -464,6 +477,40 @@ d2_lookup 2 'WEXLAB\wexuser2'
 # the same SID is not given twice, not even to the account coming back
 echo 'WEXLAB\wexuser2 S-1-5-21-111-222-333-1105 SID_USER (1)' >> "$WB/users"
 admit_refused 'WEXLAB\wexuser2' 'SID of a tombstone' 4
+# restore (review of WO 1, change 3): root brings a wrongly retired account back, with its key, only when Winbind
+# confirms the same SID and NSS the same UID
+restore() { "${D2TOOL[@]}" restore "$1" > "$FIXTURE/restore.log" 2>&1; }
+restore_refused()
+{
+    cp -p "$D2MAP" "$FIXTURE/d2.before"
+    if restore "$1"; then fail "restore $1 accepted ($2)"; fi
+    grep -q "FAIL status=$3 " "$FIXTURE/restore.log" || { cat "$FIXTURE/restore.log"; fail "restore $1: not status $3 ($2)"; }
+    cmp -s "$D2MAP" "$FIXTURE/d2.before" || fail "refused restore of $1 changed the map ($2)"
+}
+KEY2="$(awk '$1 == "WEXLAB\\wexuser2" { print $3 }' "$D2MAP")"
+touch "$WB/transient"
+restore_refused 'WEXLAB\wexuser2' 'Winbind not answering' 9
+rm "$WB/transient"
+sed -i 's/^WEXLAB\\wexuser2 S-1-5-21-111-222-333-1105 /WEXLAB\\wexuser2 S-1-5-21-111-222-333-1199 /' "$WB/users"
+restore_refused 'WEXLAB\wexuser2' 'another RID now' 4
+sed -i 's/^WEXLAB\\wexuser2 S-1-5-21-111-222-333-1199 /WEXLAB\\wexuser2 S-1-5-21-111-222-333-1105 /' "$WB/users"
+sed -i 's/^WEXLAB\\wexuser2:x:21105:/WEXLAB\\wexuser2:x:21199:/' "$FIXTURE/d2.winbind"
+restore_refused 'WEXLAB\wexuser2' 'another UID now' 3
+sed -i 's/^WEXLAB\\wexuser2:x:21199:/WEXLAB\\wexuser2:x:21105:/' "$FIXTURE/d2.winbind"
+restore_refused 'WEXLAB\nosuchuser' 'no tombstone' 1
+restore_refused 'WEXLAB\wexuser1' 'already active' 3
+restore 'WEXLAB\wexuser2' || { cat "$FIXTURE/restore.log"; fail 'd2: restore'; }
+grep -q "^WEXLAB\\\\wexuser2 21105 $KEY2 active domain 21 111 222 333 1105\$" "$D2MAP" || { cat "$D2MAP"; fail 'd2: restored record (same key, active)'; }
+d2_lookup 0 'WEXLAB\wexuser2'
+[ "$(grep -c '^WEXLAB\\wexuser2 ' "$D2MAP")" = 1 ] || fail 'd2: restore added a record'
+# a logon with Winbind giving another joined domain refuses and changes nothing; only sync, with the controller
+# answering, moves the map to another domain (review of WO 1, change 2)
+printf 'NEWDOM\\nu:x:23000:20513::/home/NEWDOM/nu:/bin/bash\n' >> "$FIXTURE/d2.winbind"
+echo 'NEWDOM\nu S-1-5-21-444-555-666-1200 SID_USER (1)' >> "$WB/users"
+echo NEWDOM > "$WB/own-domain"; echo 'S-1-5-21-444-555-666' > "$WB/domain-sid"
+admit_refused 'NEWDOM\nu' 'Winbind gives another domain than the map at a logon' 9
+grep -q ' active domain ' "$D2MAP" || fail 'd2: a refused admit retired the domain records'
+echo WEXLAB > "$WB/own-domain"; echo 'S-1-5-21-111-222-333' > "$WB/domain-sid"
 # a local account that takes a domain account's UID wins it
 printf 'late:x:21104:2001::/home/late:/bin/sh\n' >> "$FIXTURE/d2.passwd"
 d2_sync
