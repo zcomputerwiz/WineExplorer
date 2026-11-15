@@ -52,6 +52,9 @@ void XamlProbe::RunLaunchProbe(LaunchActivatedEventArgs^ e)
     PROBE(L"view id", e->CurrentlyShownApplicationViewId.ToString() + L", current view's " +
           (e->CurrentlyShownApplicationViewId == ApplicationView::GetForCurrentView()->Id ? L"same" : L"different"));
     PROBE(L"view switcher", e->ViewSwitcher ? L"set" : L"null");
+    PROBE(L"view id for window", (ApplicationView::GetApplicationViewIdForWindow(Windows::UI::Core::CoreWindow::GetForCurrentThread()) ==
+                                  ApplicationView::GetForCurrentView()->Id) ? L"current view's" : L"different");
+    /* (a null window ends the process on Windows: not probed) */
     PROBE(L"splash", e->SplashScreen ? L"set" : L"null");
 
     PROBE(L"application view", ApplicationView::GetForCurrentView() ? L"set" : L"null");

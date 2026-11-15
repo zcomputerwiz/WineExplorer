@@ -13,6 +13,7 @@ launch user id length 44 digits upper lower other
 launch user id stable yes
 launch view id 0, current view's different
 launch view switcher null
+launch view id for window current view's
 launch splash set
 launch application view set
 launch application view same yes
