@@ -87,6 +87,15 @@ Looked into 2026-11-14 (the COM part only; the windowed crash itself is the Edge
   04/01/2014, QEMU "Standard PC (Q35 + ICH9, 2009)" pc-q35-10.0, chassis type 1; with `/sys/class/dmi` hidden (a
   tmpfs over it in a private mount namespace, back to the user with `setpriv`) Edge crashes the same way. A host name
   that resolves (B12) does not stop it either.
+- Named with Microsoft's public symbols (owner's OK, 2026-11-14; `msedge.dll.pdb`
+  `03775A411C2857584C4C44205044422E1`, 686 MB, kept outside the repository, resolved with Windows' dbghelp):
+  `msedge.dll+0x2f431fa` is `ExtensionKeybindingRegistryViews::OnHostActivationChanged+0xc`, a member read
+  through a null pointer when the browser window's activation changes: Edge's extension shortcut registry gets an
+  activation before it is set up (or after teardown). Not reproduced in WSL with X focus forced onto every Edge
+  window as it maps, nor with a session-like locale and input method environment (`en_US.UTF-8`,
+  `XMODIFIERS=@im=ibus`). The dump every working WSL run leaves is Crashpad's "dump without crash" (code
+  `0x517a7ed`), not a crash. Asked of the Integration session: the session's environment, locale, keyboard layout,
+  input method and window manager, and a guest crash dump to walk with the symbols.
 - Left: other differences between the guest and WSL (a real kernel with its own devices: PCI, network, audio,
   input, `/proc/cpuinfo` and `/sys` layout), or naming the crashing function with Microsoft's public symbols for
   `msedge.dll` (a download from Microsoft's symbol server, needs the owner's OK).
