@@ -75,6 +75,19 @@ XAML reader. Reading `Resources["AppMinWindowWidth"]` failed on Wine's `Property
 Uno's XAML reader stops at the application's own control `{using:CalculatorApp}TitleBar`. Next: native application
 types (their `IXamlMetadataProvider`) inside Uno's XAML reader, then the theme dictionaries.
 
+### 2026-11-15, later (Wine development aaa610f4, uno-uwp 42a7a44426)
+
+The application's own controls and markup extensions now work inside Uno's XAML reader (stand-in .NET types the
+application's controls compose over; members forwarded to its `IXamlMember`). `TitleBar` is constructed, loads its
+XAML and connects its elements, after Wine gained the view title bars (f140b080) and `Windows.UI.Colors` (aaa610f4)
+and XamlShim `Window.SetTitleBar`. `ResourceString` extensions get their names. Open:
+- WinUI 2: `MainPage` fails at `Connect 16 NavView` (E_NOINTERFACE): the application expects WinUI 2's native
+  `Microsoft.UI.Xaml.Controls.NavigationView` (from the `Microsoft.UI.Xaml.2.8` framework); XamlShim gives Uno's.
+- Community Toolkit `SettingsExpander`: its content property (`Items`, a collection) and members whose values are
+  framework objects (`HeaderIcon` = `FontIcon`) are not forwarded yet; default styles from the toolkit's
+  `Themes/Generic.xaml` are not applied.
+- `App.xaml` theme dictionaries and styles that Uno's reader rejects.
+
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
 the Calculator shows. Prior art and the Wine gaps others listed for the Calculator: `tests/uwp/frameworks/README.md`.
