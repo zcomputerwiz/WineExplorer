@@ -39,6 +39,10 @@ MAIN=$P/build/wow64
 LAB=/root/owned-r8/build/wow64
 LOGS=/var/tmp/wex-run
 mkdir -p "$LOGS"
+# a run with WEX_SUITE_ONLY leaves groups of the normal suite out: its summary says so, so that it is never read as a
+# full pass (the full suite runs before every merge)
+PARTIAL=
+[ -z "${WEX_SUITE_ONLY:-}" ] || PARTIAL=" PARTIAL (WEX_SUITE_ONLY=$WEX_SUITE_ONLY, not a merge check)"
 
 clean_fixture()
 {
@@ -150,7 +154,7 @@ if [ "$MODE" = full ] || [ "$MODE" = labt1 ]; then
     grep -q '^FAILS=0' $LOGS/t1.log && stage t1 ok || stage t1 FAILED
 fi
 if [ "$MODE" = normal ] || [ "$MODE" = full ]; then
-    suite "$MAIN" scripts/test_sysrun_server.sh $LOGS/normal.log && stage "normal: $(passed $LOGS/normal.log)" ok ||
+    suite "$MAIN" scripts/test_sysrun_server.sh $LOGS/normal.log && stage "normal: $(passed $LOGS/normal.log)$PARTIAL" ok ||
         { stage normal FAILED; grep -m3 '^FAIL' $LOGS/normal.log; }
     ( cd "$SNAP" && bash scripts/test_broker_e1s18.sh ) > $LOGS/broker.log 2>&1 && stage broker ok ||
         { stage broker FAILED; tail -3 $LOGS/broker.log; }
@@ -163,7 +167,7 @@ if [ "$MODE" != normal ]; then
     suite "$LAB" scripts/test_e1s6_transport.sh $LOGS/lab.log && stage "lab: $(passed $LOGS/lab.log)" ok ||
         { stage lab FAILED; grep -m3 '^FAIL' $LOGS/lab.log; }
 fi
-echo "ALL $([ $RC = 0 ] && echo PASS || echo FAILED) $MODE $TREE ($(( (SECONDS - T0 + 30) / 60 )) min)"
+echo "ALL $([ $RC = 0 ] && echo PASS || echo FAILED) $MODE $TREE ($(( (SECONDS - T0 + 30) / 60 )) min)$PARTIAL"
 exit $RC
 }
 main "$@"

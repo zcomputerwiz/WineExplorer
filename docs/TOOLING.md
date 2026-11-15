@@ -297,7 +297,10 @@ answers `BUSY` when a suite or build is running.
   `wsl.exe -d wexgpo -u root --exec env WEX_SUITE_ONLY=st bash .../wex-run.sh normal`) leaves out three groups of
   checks that nothing later needs, unless listed: `c2` (sections 1 to 6, the launcher and the machine root),
   `sd` (the secure desktop) and `c7` (the callers of the broker). The fixture, C3, the broker, consent, session 0
-  with Group Policy and the own prefix always run, with all setup. The full suite runs before every merge.
+  with Group Policy and the own prefix always run, with all setup. Such a run prints PARTIAL in its stage line and
+  its last line.
+- **Rule: the full suite runs before every merge** (`full`, or `wex-run-split.sh`, without `WEX_SUITE_ONLY`). A
+  partial run is for working on one area only.
 - Measured on wexgpo, 2026-11-15 (normal suite 1,142 s): c2 341 s, of which one check,
   `c2_wineboot_init_with_system_group_writes_machine_root`, takes 301 s, the launcher's 5-minute wait for the
   system-group `wineboot --init` (`dlls/ntdll/unix/env.c`) running out (reported to the system tier session; on
