@@ -112,7 +112,36 @@ service restores the user's policy into it at logon with no change (it matches e
 `template shell = /bin/bash` and `template homedir = /home/%U`, `winbind offline logon = yes`, and `pam_winbind`
 with `cached_login` and `krb5_auth`, and `pam_mkhomedir`. The lab's `machine-guest.sh` does the same.
 
-## Work orders (proposed; to agree with the system tier session)
+## Agreed with the system tier session (2026-11-15)
+
+The design is agreed, with these conditions, which take precedence over the text above where they differ:
+
+1. **Names are `DOMAIN\user` in the map** (`winbind use default domain = no`), never plain: a plain domain name
+   could collide with a local account and an ordering mistake would hand one identity to the other. The plain
+   name is only for display and the profile folder.
+2. **Admission takes the user only from `PAM_USER`** in the root `pam_exec` step, never from an argument or
+   variable the user's session can influence. It refuses a name that maps to a local record, a UID below 1000 or
+   in the local range, and a SID whose domain part is not the header's domain SID; all under the map lock.
+   Failure is fail-closed: no logon, never a logon with a local or fallback identity.
+3. **Domain Admins goes through the same elevation model as local administrators**: the logon token is limited
+   (Administrators deny-only) and elevation goes through the broker and consent. WO 2's tests check that a domain
+   administrator never gets a full token at logon.
+4. **Groups are recorded only by the root step at authentication** (Winbind or the PAC, as root), in a root-owned
+   place the server reads, never from anything the user's processes write. Offline, the last recorded set is
+   used; groups are never added then.
+5. **Version 2 parsing fails closed** as version 1 does: an unknown record kind, a domain record without a header
+   domain SID, or a domain SID in a local record make the map invalid. Version 1 maps keep working unchanged.
+   Fuzz-style suite cases cover these (the parser runs in the server). (Whole-map rejection, as in version 1, is
+   proposed to the system tier session; its first wording asked for per-record rejection.)
+6. **Tombstones**: never while the controller is unreachable; joining a different domain tombstones the old
+   domain's records.
+7. **The local computer SID scheme is unchanged** (`ADVAPI_GetComputerSid`, `S-1-5-21-0-0-0`); domain SIDs come
+   only from the map's header.
+
+Ownership: the Group Policy session writes WO 1 to 4; the system tier session reviews WO 1 and WO 2 (the map
+parser and the token are the system tier's security core) before they merge.
+
+## Work orders
 
 1. Format version 2 of the map and the parser (`accounts.c`), with the tool's `admit` and the `sync` rules for
    domain records; suite cases with a fake Winbind (`WEX_ACCOUNTS_TEST` already fakes passwd and group).
