@@ -68,6 +68,26 @@ and a disk installed from an ISO packaged with `WEX_SESSION0=1`. Its guest joins
 
 On an image without steps 5 to 7 (no `wex-gpupdate.path`) these are skipped with a note.
 
+## The build machine
+
+`wexgpo` is a WSL distribution of its own (made 2026-11-14 with the owner's agreement), so that Group Policy work
+does not wait for the shared wexbuild. It is a fresh Debian 13 (`wsl --install Debian --name wexgpo --location
+D:\DeepThought\WSL\wexgpo --no-launch`), not a copy of wexbuild (196 GB, mostly VM disks), set up by:
+
+1. `scripts/lab/wexgpo-provision.sh LIST`: wexbuild's `apt-mark showmanual` (LIST) with i386 added, systemd on,
+   root by default, `/root` at 755 and a user with UID 1000 (two differences from a fresh install that the
+   first runs found: the suites run the build in `/root` as their test users, and the broker's unit test stands
+   in UID 1000 for the caller); then `wsl --terminate wexgpo`. Everything installed except `winetricks`
+   (contrib).
+2. `scripts/lab/wexgpo-setup-tree.sh BRANCH WINE_BRANCH`: `/root/WE-prefetch` as `wex-run.sh` expects it (shallow
+   clones from GitHub, the overlay assembled, a WoW64 configure, a first build; about 30 minutes).
+
+Then `scripts/lab/wex-run.sh` runs there as on wexbuild:
+`wsl.exe -d wexgpo -u root --exec bash /mnt/d/DeepThought/Projects/<worktree>/scripts/lab/wex-run.sh normal`.
+First result (2026-11-14, `claude/group-policy` 33731fd3 and later): normal suite 350 checks and the broker
+test passed, as on wexbuild. The lab build (`lab`, `full`) needs `/root/owned-r8` (`scripts/lab/r8-lab-build.sh`), not set up yet. The
+installed-machine disks and ISOs are not there either; an image is the next thing to make there.
+
 ## State (2026-11-14)
 
 - The controller and the fixtures: made and checked (`check`) on 2026-11-14.
