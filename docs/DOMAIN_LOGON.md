@@ -1,9 +1,9 @@
 # Domain users logging on to WineExplorer (design note)
 
 Written 2026-11-15 by the Group Policy session. Status: design; nothing implemented. The repository facts were
-read from the code (`wine/server/accounts.c`, `token.c`, `docs/E1_S4_ACCOUNTS_MAP.md`); the Windows and Winbind
-facts in the next two sections are from memory and still to be checked against the research that is running
-(Antigravity), with sources added then. Why: Group Policy reaches the
+read from the code (`wine/server/accounts.c`, `token.c`, `docs/E1_S4_ACCOUNTS_MAP.md`) and cross-checked with
+a survey by Antigravity, whose code claims used below were checked by hand; the Windows and Winbind facts carry
+their sources (end of the note). Why: Group Policy reaches the
 machine ([GROUP_POLICY.md](GROUP_POLICY.md)), but user policy from the domain cannot reach a user, because only
 local users can be WineExplorer accounts. This note says what has to change for a user of the domain the host is
 joined to (Samba, Winbind) to log on, with the Windows identity XP gives a domain user. It touches the accounts
@@ -48,9 +48,17 @@ On a host joined with Winbind (`security = ads`, `nsswitch.conf` with `winbind` 
 4. **The names.** `advapi32` resolves the caller's own mapped SID to `WINEUSERNAME` on this computer
    (`LookupAccountSidW`, `docs/STOCK_CHANGES.md`); a domain account needs the domain's flat name as its domain,
    and `GetUserNameEx(NameSamCompatible)` needs `DOMAIN\user`.
-5. **The groups.** The token gets the account's SID and the groups the server computes for a local account;
-   Domain Users and the account's domain groups are not there, nor the local Users membership through Domain
-   Users.
+5. **The groups.** The token gets the account's SID and the groups the server computes for a local account; its
+   owner and primary group is a fixed `domain_users_sid`, `S-1-5-21-0-0-0-513` (`token.c`), not the domain's
+   Domain Users; the account's domain groups are not there, nor Domain Admins in the local Administrators.
+5b. **Names in advapi32 beyond the caller.** `LookupAccountNameW` resolves only names on this computer and
+   `ADVAPI_GetComputerSid` is the fixed `S-1-5-21-0-0-0` (`dlls/advapi32/security.c`).
+5c. **The greeter.** `logonui` shows a tile for each user AccountsService has cached (`ListCachedUsers`,
+   `src/dlls/wexhost/unixlib.c`); a domain user who never logged on has no tile, so the first logon needs the
+   classic dialog (`msgina`, a typed name) and it has to accept a domain user.
+5d. **Name checks.** `accounts_valid_name`, `valid_account_name` (`wex_profile_storage.c`) and
+   `scripts/personalize-prefix.sh` take plain names only (no `\` or `@`); with `winbind use default domain =
+   yes` a domain user's name is plain, so this matters only for `DOMAIN\user` names.
 6. **Administrators.** `administrator_member` asks NSS whether the user is in `admin_group`; with Winbind, a
    domain group such as `domain admins` can be that group, so this part works once the account has a record.
 7. **The profile folder** is named after the account; a domain user with the name of a local account needs the
@@ -84,7 +92,9 @@ that Winbind no longer knows becomes a tombstone only when the controller says s
 unreachable (offline logon).
 
 **C. The token.** For a domain record the server builds the user SID from the header's domain SID and the RID,
-and adds Domain Users and the domain groups Winbind gives for the user (`wbinfo --user-domgroups` or the
+makes the domain's Domain Users (RID 513) the primary group and owner in place of the fixed one, puts the local
+Administrators group in the token for Domain Admins (RID 512) as joining does on Windows, and adds the domain
+groups Winbind gives for the user (`wbinfo --user-domgroups` or the
 `getgrouplist` GIDs mapped back with `--gid-to-sid`), and the local Users group. Asking Winbind from the server is
 a new dependency; the alternative is for `admit` to record the groups in the map at logon (they are then as old as
 the logon, as on Windows, where a token's groups are fixed at logon too). This note prefers recording them at
@@ -108,7 +118,8 @@ with `cached_login` and `krb5_auth`, and `pam_mkhomedir`. The lab's `machine-gue
    domain records; suite cases with a fake Winbind (`WEX_ACCOUNTS_TEST` already fakes passwd and group).
 2. The token for a domain record (user SID, Domain Users, recorded domain groups, Users) and the names
    (`LookupAccountSidW`, `GetUserNameExW`); 32-bit and 64-bit probes.
-3. The logon: the `pam_exec` line, the profile folder rule, `USERDOMAIN`.
+3. The logon: the `pam_exec` line, the classic dialog taking a domain user who has no tile yet, the profile
+   folder rule, `USERDOMAIN`.
 4. The lab: `machine-guest.sh` logs `wexuser1` on through the greeter (the host side of a logon, as the E1 tests
    do), checks the token's SID, `DOMAIN\user`, the profile, and the user policy of "WexLab Domain"
    (`HKCU\Software\Policies\WexLab UserLimit = 3`), and `gpresult /scope user`.
@@ -121,3 +132,22 @@ with `cached_login` and `krb5_auth`, and `pam_mkhomedir`. The lab's `machine-gue
 - SSSD-joined hosts: the same design with `sss` in place of Winbind for the SID lookups; Group Policy needs
   Winbind today ([GROUP_POLICY.md](GROUP_POLICY.md)), so Winbind first.
 - Several domains (trusts): one joined domain only in this design.
+- Unverified: whether AccountsService lists Winbind users before their first graphical logon; where `pam_winbind`
+  puts the Kerberos ticket cache for a LightDM session (`KRB5CCNAME`).
+
+## Sources
+
+- Samba: [Winbind](https://wiki.samba.org/index.php/Winbind),
+  [pam_winbind(8)](https://www.samba.org/samba/docs/current/man-html/pam_winbind.8.html),
+  [pam_winbind.conf(5)](https://www.samba.org/samba/docs/current/man-html/pam_winbind.conf.5.html),
+  [idmap_rid(8)](https://www.samba.org/samba/docs/current/man-html/idmap_rid.8.html),
+  [wbinfo(1)](https://www.samba.org/samba/docs/current/man-html/wbinfo.1.html),
+  [PAM offline authentication](https://wiki.samba.org/index.php/PAM_Offline_Authentication).
+- Microsoft: [Security identifiers](https://learn.microsoft.com/en-us/windows/win32/secauthz/security-identifiers),
+  [Well-known SIDs](https://learn.microsoft.com/en-us/windows/win32/secauthz/well-known-sids),
+  [HKEY_USERS](https://learn.microsoft.com/en-us/windows/win32/sysinfo/hkey-users),
+  [Cached domain logon information](https://learn.microsoft.com/en-us/troubleshoot/windows-server/user-profiles-and-logon/cached-domain-logon-information),
+  [GetUserNameExW](https://learn.microsoft.com/en-us/windows/win32/api/secext/nf-secext-getusernameexw),
+  [NetGetJoinInformation](https://learn.microsoft.com/en-us/windows/win32/api/lmjoin/nf-lmjoin-netgetjoininformation).
+  The `user.DOMAIN` profile folder rule is from Microsoft's troubleshooting articles on profile folder names (the
+  exact page not re-checked).
