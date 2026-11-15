@@ -242,23 +242,23 @@ COMPONENTS_METADATA = {
                        'windows.ui.xaml.dll serves these classes from this component, built on the Uno Platform '
                        'and the .NET runtime. No winetricks and no installer program run: the archive is verified, '
                        'unpacked and registered.',
-        'size': '~56 MiB download, ~135 MiB installed (x64)',
+        'size': '~57 MiB download, ~138 MiB installed (x64)',
         'reboot': False,
         'disabled': False,
         'disabled_reason': '',
         # Apache-2.0 (XamlShim, Uno) followed by every bundled third-party licence (.NET, SkiaSharp, HarfBuzz, ICU)
-        'terms_url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.1.1/TERMS.txt',
-        'terms_sha256': 'f4c55eeda9d98600d8c6ac29c0e47fe9c9eae88ae766419573dcfdf391211a42',
-        'terms_text_sha256': 'f4c55eeda9d98600d8c6ac29c0e47fe9c9eae88ae766419573dcfdf391211a42',
-        'release': '0.1.1',
+        'terms_url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.2.0/TERMS.txt',
+        'terms_sha256': 'c20cb99d0d6783cf1bc971aa96b5aeb9c0b591ff741c5fde29361935aa8e3df2',
+        'terms_text_sha256': 'c20cb99d0d6783cf1bc971aa96b5aeb9c0b591ff741c5fde29361935aa8e3df2',
+        'release': '0.2.0',
         'execution_policy': 'uwp-xaml-extract-register-v1',
         'payloads': [
-            {'name': 'xamlshim-0.1.1-win-x64.zip', 'architecture': 'x64', 'size': 58813887,
-             'sha256': '0cc58dac032571e4fa24ea42967da1fc5d09028bda5953eadf01b958f8a93323',
-             'url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.1.1/xamlshim-0.1.1-win-x64.zip'},
+            {'name': 'xamlshim-0.2.0-win-x64.zip', 'architecture': 'x64', 'size': 59544427,
+             'sha256': 'ff0e05c707bbaf6164af448983e8066c6287821b67675124f33d28ba729646df',
+             'url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.2.0/xamlshim-0.2.0-win-x64.zip'},
         ],
         'recipe_files': [
-            ('xamlshim-0.1.1-win-x64.zip', '0cc58dac032571e4fa24ea42967da1fc5d09028bda5953eadf01b958f8a93323'),
+            ('xamlshim-0.2.0-win-x64.zip', 'ff0e05c707bbaf6164af448983e8066c6287821b67675124f33d28ba729646df'),
         ],
     },
 }
