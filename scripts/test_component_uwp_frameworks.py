@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import struct
 import tempfile
 import unittest
@@ -71,6 +72,7 @@ class FrameworkTests(unittest.TestCase):
         self.cache.mkdir(mode=0o700)
         self.metadata = copy.deepcopy(c.COMPONENTS_METADATA)
         patch.object(c, 'COMPONENTS_METADATA', self.metadata).start()
+        patch.object(c, 'machine_group_gid', lambda: self.machine.stat().st_gid).start()
         self.addCleanup(patch.stopall)
 
     def container(self, name, fmt, packages):
@@ -133,6 +135,13 @@ class FrameworkTests(unittest.TestCase):
         self.assertEqual(record, 'WEXAPPX 1\nroot\tC:\\Program Files\\WindowsApps\\' + full +
                          '\npublisher\t' + MS + '\nframework\t1\n')
         c.verify_uwp_frameworks(self.machine, data, full=True)
+        # the machine root's layout: directories 2775, files 664, .exe and .dll 775
+        for directory in (self.machine / c.FRAMEWORK_STORE, root, root / 'lib', self.machine / c.FRAMEWORK_CATALOG,
+                          (self.machine / c.FRAMEWORK_CATALOG).parent):
+            self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o2775, directory)
+        self.assertEqual(stat.S_IMODE((root / 'AppxManifest.xml').stat().st_mode), 0o664)
+        self.assertEqual(stat.S_IMODE((root / 'lib/fw one.dll').stat().st_mode), 0o775)
+        self.assertEqual(stat.S_IMODE((self.machine / c.FRAMEWORK_CATALOG / (full + '.wexappx')).stat().st_mode), 0o664)
         self.assertEqual(sorted(p.name for p in (self.machine / c.FRAMEWORK_STORE).iterdir()),
                          sorted(data['packages']))              # no staging or work directories left
         self.assertEqual(sorted(p.name for p in (self.cache / 'uwp-frameworks').iterdir()), ['a.nupkg', 'b.cab'])
@@ -155,6 +164,13 @@ class FrameworkTests(unittest.TestCase):
                 store = self.machine / c.FRAMEWORK_STORE
                 self.assertEqual(list(store.iterdir()) if store.exists() else [], [])
                 self.assertFalse((self.root / 'component-receipts' / 'uwp-frameworks.json').exists())
+
+    def test_machine_root_of_another_group_is_refused(self):
+        self.set_containers(self.container('a.nupkg', 'zip', [('x.appx', appx('A.Fw', '1.0.0.0'), {})]))
+        with patch.object(c, 'machine_group_gid', lambda: self.machine.stat().st_gid + 1):
+            with self.assertRaises(ValueError):
+                self.install()
+        self.assertFalse((self.machine / c.FRAMEWORK_STORE).exists())
 
     def test_corrupt_cache_is_refused(self):
         self.set_containers(self.container('a.nupkg', 'zip', [('x.appx', appx('A.Fw', '1.0.0.0'), {})]))

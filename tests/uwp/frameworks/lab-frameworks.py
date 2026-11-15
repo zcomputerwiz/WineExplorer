@@ -20,6 +20,7 @@ spec = importlib.util.spec_from_file_location('components', components)
 c = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(c)
 c.UWP_XAML_OWNER = os.getuid()
+c.machine_group_gid = lambda: prefix.stat().st_gid    # the lab prefix's group stands in for the machine group
 
 
 def lab_download(verb, payload, cache, redirects, label):

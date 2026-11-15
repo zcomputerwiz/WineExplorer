@@ -21,6 +21,7 @@ c = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(c)
 
 CLASSES = ['Windows.UI.Xaml.Application', 'Windows.UI.Xaml.Controls.Page']
+REAL_MACHINE_GROUP_GID = c.machine_group_gid
 
 
 def archive(path, members=None, classes=CLASSES, symlink=None):
@@ -48,6 +49,10 @@ class UwpXamlTests(unittest.TestCase):
         (self.machine / 'drive_c/Program Files').mkdir(parents=True)
         os.chmod(self.machine / 'drive_c/Program Files', 0o755)
         patcher = patch.object(c, 'UWP_XAML_OWNER', os.getuid())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # the configured machine group is the test machine's own group
+        patcher = patch.object(c, 'machine_group_gid', lambda: self.machine.stat().st_gid)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -87,6 +92,26 @@ class UwpXamlTests(unittest.TestCase):
                 if p == program_files else os.lstat(p)):
             with self.assertRaises(ValueError):                      # group-writable for another group: refused
                 self.unpack(archive(self.root / 'd.zip'))
+
+    def test_machine_root_of_another_group_is_refused(self):
+        # root:users or root:sudo (not migrated, or made by hand): group write there would mean desktop users may write
+        with patch.object(c, 'machine_group_gid', lambda: self.machine.stat().st_gid + 1):
+            with self.assertRaises(ValueError):
+                self.unpack(archive(self.root / 'a.zip'))
+        self.assertFalse((self.machine / c.UWP_XAML_ROOT).exists())
+        with patch.dict(os.environ, {'WEX_MACHINE_GROUP': 'no-such-group-for-wex-tests'}):
+            with self.assertRaises(ValueError):
+                REAL_MACHINE_GROUP_GID()                              # a configured group that does not exist
+
+    def test_new_entries_follow_the_machine_layout(self):
+        self.unpack(archive(self.root / 'a.zip', {
+            'XamlShim/XamlShim.exe': b'exe', 'XamlShim/XamlShim.dll': b'dll', 'XamlShim/hostfxr.dll': b'fxr',
+            'XamlShim/LICENSE.txt': b'Apache', 'XamlShim/NOTICE.txt': b'notices', 'XamlShim/Assets/a.png': b'png'}))
+        root = self.machine / c.UWP_XAML_ROOT / 'x64'
+        for directory in (root.parent.parent, root.parent, root, root / 'Assets'):
+            self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o2775, directory)
+        self.assertEqual(stat.S_IMODE((root / 'Assets/a.png').stat().st_mode), 0o664)
+        self.assertEqual(stat.S_IMODE((root / 'XamlShim.dll').stat().st_mode), 0o775)
 
     def test_rejects_unsafe_members(self):
         for name in ('../evil', 'XamlShim/../evil', 'XamlShim/a/../../evil', 'other/file', 'XamlShim/a\\b',

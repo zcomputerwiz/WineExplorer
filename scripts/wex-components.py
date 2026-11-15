@@ -2318,14 +2318,48 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+# The machine root's layout (setup-machine-root.sh): root:<machine group> (wexsys, or WEX_MACHINE_GROUP), directories
+# 2775 with a default ACL g:<group>:rwX, files 664 (775 for .exe and .dll). No desktop user is in that group; machine
+# writes go through session 0 / wex-sysrun. What the components add there follows the same layout.
+MACHINE_DIR_MODE = 0o2775
+
+
+def machine_group_gid():
+    """The gid of the configured machine group; ValueError when it does not exist."""
+    name = os.environ.get('WEX_MACHINE_GROUP', 'wexsys')
+    try:
+        return grp.getgrnam(name).gr_gid
+    except KeyError:
+        raise ValueError(f'Machine group {name} does not exist') from None
+
+
+def machine_file_mode(path):
+    return 0o775 if path.suffix.lower() in ('.exe', '.dll') else 0o664
+
+
+def machine_mkdir(path):
+    """A new directory of the machine root, 2775 whatever the umask (its group is inherited from the setgid parent)."""
+    path.mkdir(mode=MACHINE_DIR_MODE)
+    path.chmod(MACHINE_DIR_MODE)
+
+
+def machine_makedirs(path, top):
+    """Create PATH and its missing parents below the existing directory TOP, each as machine_mkdir does."""
+    missing = []
+    while path != top and not path.exists():
+        missing.append(path)
+        path = path.parent
+    for directory in reversed(missing):
+        machine_mkdir(directory)
+
+
 def _uwp_xaml_real_directory(path, create, admin_gid=None):
-    """A root-owned directory that is no symlink and that nobody else can write (made 0755 when create is set).
-    Group write is accepted only for ADMIN_GID, the machine root's own group: setup-machine-root.sh gives every
-    directory of the machine root mode 2775 for its administrators, who may change these files anyway."""
+    """A root-owned directory that is no symlink and that nobody else can write (made 2775 when create is set).
+    Group write is accepted only for ADMIN_GID, the configured machine group (see machine_admin_gid)."""
     if path.is_symlink():
         raise ValueError(f'Refusing symlinked directory: {path}')
     if create and not path.exists():
-        path.mkdir(mode=0o755)
+        machine_mkdir(path)
     info = path.lstat()
     group_ok = not info.st_mode & 0o020 or (admin_gid is not None and info.st_gid == admin_gid)
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o002 or not group_ok:
@@ -2333,11 +2367,16 @@ def _uwp_xaml_real_directory(path, create, admin_gid=None):
 
 
 def machine_admin_gid(machine):
-    """The group of the machine root (its administrators), when the machine root is a root-owned real directory."""
+    """The machine group, when the machine root is a root-owned real directory of that group that others cannot
+    write. A machine root of another group (root:users, root:sudo: not migrated, or made by hand) is refused: group
+    write there would mean that desktop users may write."""
     info = machine.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o002:
         raise ValueError(f'Untrusted machine root: {machine}')
-    return info.st_gid
+    expected = machine_group_gid()
+    if info.st_gid != expected:
+        raise ValueError(f'Machine root {machine} does not belong to the machine group')
+    return expected
 
 
 def uwp_xaml_unpack(archive, machine, arch):
@@ -2349,7 +2388,7 @@ def uwp_xaml_unpack(archive, machine, arch):
     _uwp_xaml_real_directory(root.parent, True, gid)
     _uwp_xaml_real_directory(root, True, gid)
     staging = root / ('.staging-' + uuid.uuid4().hex)
-    staging.mkdir(mode=0o755)
+    machine_mkdir(staging)
     files = {}
     try:
         with zipfile.ZipFile(archive) as package:
@@ -2367,7 +2406,7 @@ def uwp_xaml_unpack(archive, machine, arch):
                         (member.external_attr >> 16) & 0o170000 == 0o120000):
                     raise ValueError('Unsafe UWP XAML archive member: ' + name)
                 target = staging / relative
-                target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+                machine_makedirs(target.parent, staging)
                 digest = hashlib.sha256()
                 size = 0
                 with package.open(member) as source, open(target, 'xb') as out:
@@ -2379,7 +2418,7 @@ def uwp_xaml_unpack(archive, machine, arch):
                         out.write(chunk)
                     out.flush()
                     os.fsync(out.fileno())
-                target.chmod(0o644)
+                target.chmod(machine_file_mode(target))
                 files[relative] = [size, digest.hexdigest()]
         for required in UWP_XAML_REQUIRED:
             if required not in files:
@@ -2777,7 +2816,7 @@ def uwp_frameworks_unpack(data, machine, full_name, gid):
     store = machine / FRAMEWORK_STORE
     _uwp_xaml_real_directory(store, True, gid)
     staging = store / ('.staging-' + uuid.uuid4().hex)
-    staging.mkdir(mode=0o755)
+    machine_mkdir(staging)
     files, seen = {}, set()
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as package:
@@ -2794,7 +2833,7 @@ def uwp_frameworks_unpack(data, machine, full_name, gid):
                     raise ValueError('Duplicate framework package member: ' + member.filename)
                 seen.add(relative.lower())
                 target = staging / relative
-                target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+                machine_makedirs(target.parent, staging)
                 digest, size = hashlib.sha256(), 0
                 with package.open(member) as source, open(target, 'xb') as out:
                     while chunk := source.read(1 << 20):
@@ -2803,7 +2842,7 @@ def uwp_frameworks_unpack(data, machine, full_name, gid):
                             raise ValueError('Framework package member larger than declared: ' + member.filename)
                         digest.update(chunk)
                         out.write(chunk)
-                target.chmod(0o644)
+                target.chmod(machine_file_mode(target))
                 files[relative] = [size, digest.hexdigest()]
         if 'AppxManifest.xml' not in files:
             raise ValueError('Framework package without a manifest')
@@ -2840,7 +2879,7 @@ def uwp_frameworks_publish_record(machine, gid, full_name, publisher):
         out.flush()
         os.fsync(out.fileno())
     try:
-        os.chmod(temporary, 0o644)
+        os.chmod(temporary, 0o664)
         os.replace(temporary, catalog / (full_name + '.wexappx'))
     finally:
         temporary.unlink(missing_ok=True)
