@@ -49,6 +49,44 @@ fresh; this map generation is **not** an implemented S1 `policy_gen` or a
 membership cache. Later registration/policy work must bind and recheck policy
 snapshots too.
 
+## Format, version 2: domain accounts (2026-11-15)
+
+For users of the Active Directory domain the host is joined to ([DOMAIN_LOGON.md](DOMAIN_LOGON.md), WO 1, with
+the conditions agreed with the system tier session):
+
+```text
+WEXACCOUNTS 2 <generation> <next_rid> <machine_a> <machine_b> <machine_c> <domain_a> <domain_b> <domain_c> <DOMAIN>
+<name> <uid> <incarnation_hex> <active|tombstone> <local|domain> 21 <a> <b> <c> <rid>
+```
+
+- A `local` record follows every rule of version 1. A `domain` record is named `DOMAIN\user` (Winbind's name with
+  `winbind use default domain = no`; 63 characters at most, the flat name 15), has a UID of 1000 or more and the
+  domain RID as it is (500 or more, no counter); while active its SID and name prefix are the header's domain, as
+  a tombstone they may be a domain the machine left.
+- The header's domain is never the machine's. Every SID once, tombstones included, across both kinds.
+- Anything else (an unknown kind, a version 2 header without its domain, a domain SID in a local record, version
+  1 records in a version 2 map) makes the whole map invalid, as in version 1.
+- A map stays version 1 until the first domain user is admitted; version 1 maps are read and written as before.
+
+**Admission:** `wex-accounts admit` (root, from a `pam_exec` line in the session or account stack) takes the user
+only from `PAM_USER` (no argument) and `PAM_TYPE` must be `open_session` or `account`. A plain name is a local
+account and changes nothing. A `DOMAIN\user` name must resolve through NSS both ways, with a shell that can log
+on, a UID of 1000 or more that no local account or record has; Winbind (`/usr/bin/wbinfo`, run directly with a
+clean environment) must give the joined domain and the user's SID as a user (`SID_USER`) of that domain. Then,
+under the map lock, the record is added (the map becomes version 2 at the first one). A known identity changes
+nothing; a different identity under the name or UID, or a SID a tombstone holds, refuses. Every refusal leaves
+the map unchanged and fails the logon.
+
+**Sync and domain records:** `sync` leaves domain records to Winbind: only when the controller answers
+(`wbinfo --ping-dc`) does a user the domain no longer has (or whose SID or UID changed) become a tombstone; a
+different joined domain tombstones all of the old domain's active records and the header follows the new one. A
+local account always wins a UID: a domain record with the UID of a local account becomes a tombstone.
+
+Lab options (`WEX_ACCOUNTS_TEST` only): `--test-wbinfo PATH` (a fake Winbind) and `--test-winbind-passwd FILE`
+(users NSS knows but `/etc/passwd` does not). Tested in `scripts/test_accounts_map.sh` ("domain accounts"): the
+admission and its ten refusals by status, sync with the controller away and back, a UID taken by a local account,
+a change of domain, and the parser with eleven kinds of damage plus 300 random single-field ones.
+
 ## Maintenance and lifecycle
 
 ```sh

@@ -131,8 +131,8 @@ The design is agreed, with these conditions, which take precedence over the text
    used; groups are never added then.
 5. **Version 2 parsing fails closed** as version 1 does: an unknown record kind, a domain record without a header
    domain SID, or a domain SID in a local record make the map invalid. Version 1 maps keep working unchanged.
-   Fuzz-style suite cases cover these (the parser runs in the server). (Whole-map rejection, as in version 1, is
-   proposed to the system tier session; its first wording asked for per-record rejection.)
+   Fuzz-style suite cases cover these (the parser runs in the server). Whole-map rejection, as in version 1, was
+   confirmed by the system tier session: skipping records could silently drop or re-pick identities.
 6. **Tombstones**: never while the controller is unreachable; joining a different domain tombstones the old
    domain's records.
 7. **The local computer SID scheme is unchanged** (`ADVAPI_GetComputerSid`, `S-1-5-21-0-0-0`); domain SIDs come
