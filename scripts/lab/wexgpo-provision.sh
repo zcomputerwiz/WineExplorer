@@ -26,4 +26,10 @@ if ! apt-get install -y -q "${PKGS[@]}" perl samba-common-bin > /root/provision-
     done
 fi
 git config --global --add safe.directory '*'
+# Wine Mono and Gecko where the /usr/local build finds them; without them a machine-root wineboot --init waits 5
+# minutes on the Mono download dialog (found by the system tier session, 2026-11-15)
+REPO=$(cd "$(dirname "$LIST")/../.." 2>/dev/null && pwd)
+[ -f "${WEX_REPO:-$REPO}/installer/runtime-assets.json" ] &&
+    bash <(sed 's/\r$//' "$(dirname "${BASH_SOURCE[0]}")/wexgpo-wine-addons.sh") "${WEX_REPO:-$REPO}" ||
+    echo "run scripts/lab/wexgpo-wine-addons.sh REPO yourself (Wine Mono and Gecko)"
 echo "PROVISION-DONE $(dpkg -l | grep -c '^ii') packages"
