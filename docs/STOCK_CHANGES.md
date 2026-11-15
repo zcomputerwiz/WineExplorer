@@ -3411,3 +3411,8 @@ id on Windows 11 and Wine).
 as on Windows 11; `UserActivityRequested` accepted, never raised), `classes.idl`, `main.c`, `private.h`, `Makefile.in`;
 new `include/windows.applicationmodel.useractivities.idl` (the request path and the `UserActivity` types it names) and
 `include/windows.ui.shell.idl` (`IAdaptiveCard`). XAML probe lines identical on Windows 11 and Wine.
+
+2026-11-15 (UWP, Wine a2356079): `dlls/windows.storage.applicationdata/propertyset.c`: `Lookup` of a key never set
+gives null with `S_OK`, not `E_BOUNDS`, for settings containers and composite values, as on Windows 11 (XAML probe);
+`tests/data.c` checks it on a composite value (passes on Windows 11 x64 and x86 and on Wine). The Store Calculator
+reads its theme setting this way.
