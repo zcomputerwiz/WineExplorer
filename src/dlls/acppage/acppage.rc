@@ -1,0 +1,46 @@
+/*
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2026 WineExplorer contributors
+ * Based on ReactOS acppage, Copyright 2015-2019 Mark Jansen
+ */
+#include "windef.h"
+#include "winuser.h"
+#include "commctrl.h"
+#include "resource.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+IDD_ACPPAGESHEET DIALOGEX 0, 0, 224, 208
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Compatibility"
+FONT 8, "MS Shell Dlg", 0, 0, 0x0
+BEGIN
+    LTEXT "If you have problems with this program and it worked correctly on an earlier version of Windows, select the compatibility mode that matches that earlier version.", IDC_EXPLANATION, 7, 7, 210, 31
+    GROUPBOX "Compatibility mode", IDC_COMPATGROUP, 7, 41, 210, 49
+    CHECKBOX "Run this program in compatibility mode for:", IDC_CHKRUNCOMPATIBILITY, 18, 57, 188, 10, BS_AUTOCHECKBOX | WS_TABSTOP
+    COMBOBOX IDC_COMPATIBILITYMODE, 18, 70, 188, 85, CBS_HASSTRINGS | CBS_DROPDOWNLIST | WS_TABSTOP | WS_DISABLED
+    GROUPBOX "Display settings", -1, 7, 99, 210, 61, BS_GROUPBOX
+    CHECKBOX "Run in 256 colors", IDC_CHKRUNIN256COLORS, 18, 114, 188, 10, BS_AUTOCHECKBOX | WS_TABSTOP
+    CHECKBOX "Run in 640x480 screen resolution", IDC_CHKRUNIN640480RES, 18, 129, 188, 10, BS_AUTOCHECKBOX | WS_TABSTOP
+    CHECKBOX "Disable visual themes", IDC_CHKDISABLEVISUALTHEMES, 18, 144, 188, 10, BS_AUTOCHECKBOX | WS_TABSTOP
+    GROUPBOX "Privilege level", -1, 7, 169, 210, 30, BS_GROUPBOX
+    CHECKBOX "Run this program as an administrator", IDC_CHKRUNASADMIN, 18, 184, 188, 10, BS_AUTOCHECKBOX | WS_TABSTOP
+END
+
+STRINGTABLE
+BEGIN
+    IDS_COMPAT_TITLE "Compatibility"
+    IDS_OS_FIRST+0 "Windows 95"
+    IDS_OS_FIRST+1 "Windows 98 / Windows Me"
+    IDS_OS_FIRST+2 "Windows NT 4.0 (Service Pack 5)"
+    IDS_OS_FIRST+3 "Windows 2000"
+    IDS_OS_FIRST+4 "Windows XP (Service Pack 2)"
+    IDS_OS_FIRST+5 "Windows XP (Service Pack 3)"
+    IDS_OS_FIRST+6 "Windows Vista"
+    IDS_OS_FIRST+7 "Windows Vista (Service Pack 2)"
+    IDS_OS_FIRST+8 "Windows 7"
+    IDS_OS_FIRST+9 "Windows 8"
+END
+
+/* @makedep: acppage.rgs */
+IDR_ACPPAGE WINE_REGISTRY acppage.rgs

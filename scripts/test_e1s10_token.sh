@@ -116,18 +116,18 @@ x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -municode -mwindows \
 x86_64-w64-mingw32-gcc -O2 -Wall scripts/sysrun_roles_probe.c -ladvapi32 -o "$OWNED_OUT/roles64.exe"
 gcc -O2 -Wall -Wextra tools/wex-accounts/wex-accounts.c -o "$OWNED_OUT/wex-accounts"
 if [ "$S13_HARNESS" = 1 ]; then
-    gcc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST tools/wex-profile/wex-profile.c -o "$OWNED_OUT/wex-profile-s13"
+    gcc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST -DWEX_E1_TEST_HOOKS tools/wex-profile/wex-profile.c -o "$OWNED_OUT/wex-profile-s13"
 fi
 chmod 0755 "$OWNED_OUT"/*.exe "$OWNED_OUT/wex-accounts"
 ok probes_both_abis
 
 # Follow S6's documented lab recipe, then S10 step 2. Force the exact objects:
 # a flag change alone does not cause make to rebuild an existing object.
-LAB_TOKEN_FLAGS='-DWEX_E1S10_TOKEN_TEST -DWEX_E1S6_TRANSPORT_TEST'
+LAB_TOKEN_FLAGS='-DWEX_E1S10_TOKEN_TEST -DWEX_E1S6_TRANSPORT_TEST -DWEX_E1_TEST_HOOKS'
 LAB_TOKEN_OBJECTS=(server/token.o server/registry.o server/process.o server/thread.o server/e1s_profile.o server/wex_profile_storage.o server/file.o server/fd.o) # always rebuilt: an earlier S13 run leaves S13-defined objects behind
 LAB_PROFILE_OBJECTS=() LAB_PROFILE_DLLS=()
 if [ "$S13_HARNESS" = 1 ]; then
-    LAB_TOKEN_FLAGS+=' -DWEX_E1S13_HKU_TEST -DWEX_E1S14_CRASH_TEST'
+    LAB_TOKEN_FLAGS+=' -DWEX_E1S13_HKU_TEST -DWEX_E1S14_CRASH_TEST -DWEX_E1_TEST_HOOKS'
     : # server objects already listed above
     for arch in x86_64 i386; do
         LAB_PROFILE_OBJECTS+=("dlls/ntdll/$arch-windows/reg.o" "dlls/kernelbase/$arch-windows/registry.o" "dlls/userenv/$arch-windows/userenv_main.o" "dlls/shell32/$arch-windows/shellpath.o")
@@ -141,7 +141,7 @@ if [ "$S13_HARNESS" = 1 ]; then
     # PE objects use architecture-specific CFLAGS, independently of the server.
     # Force both ABIs so old ungated/default objects cannot silently survive.
     make -C "$LAB_BUILD" -j1 V=1 \
-        x86_64_CFLAGS='-g -O2 -DWEX_E1S13_HKU_TEST' i386_CFLAGS='-g -O2 -DWEX_E1S13_HKU_TEST' \
+        x86_64_CFLAGS='-g -O2 -DWEX_E1S13_HKU_TEST -DWEX_E1_TEST_HOOKS' i386_CFLAGS='-g -O2 -DWEX_E1S13_HKU_TEST -DWEX_E1_TEST_HOOKS' \
         "${LAB_PROFILE_OBJECTS[@]}" >"$OWNED_OUT/build-profile-client.log" 2>&1 || fail 'S13 client objects build'
     for object in "${LAB_PROFILE_OBJECTS[@]}"; do
         grep -F -- "$object" "$OWNED_OUT/build-profile-client.log" >/dev/null || fail "missing S13 client compile: $object"
@@ -149,7 +149,7 @@ if [ "$S13_HARNESS" = 1 ]; then
     tr '\n' ' ' <"$OWNED_OUT/build-profile-client.log" |
         grep -F -- -DWEX_E1S13_HKU_TEST >/dev/null || fail 'missing S13 client compiler flag'
 fi
-make -C "$LAB_BUILD" -j1 V=1 CFLAGS="-g -O2 -DWEX_E1S6_TRANSPORT_TEST" \
+make -C "$LAB_BUILD" -j1 V=1 CFLAGS="-g -O2 -DWEX_E1S6_TRANSPORT_TEST -DWEX_E1_TEST_HOOKS" \
     server/sysrun.o server/named_pipe.o dlls/wexhost/e1s6.o >"$OWNED_OUT/build-s6.log" 2>&1 || fail 'lab S6 objects build'
 make -C "$LAB_BUILD" -j1 V=1 server/wineserver dlls/wexhost/wexhost.so "${LAB_PROFILE_DLLS[@]}" \
     >"$OWNED_OUT/build-link.log" 2>&1 || fail 'lab relink'

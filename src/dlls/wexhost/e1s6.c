@@ -779,8 +779,14 @@ NTSTATUS e1s6_transport( void *args )
         else if (params->channel && params->channel == active_id && buffer &&
                  params->pipe == (ULONG_PTR)bound_pipe && params->size == E1S6_REG_SIZE + E1S6_ANSWER_SIZE)
         {
+#ifdef WEX_E1_TEST_HOOKS
             if (params->operation == E1S6_CHILD_START || params->operation == E1S6_TEST_CHILD_IMPOSTOR)
                 ok = start_child( buffer, params->operation == E1S6_TEST_CHILD_IMPOSTOR );
+#else
+            if (params->operation == E1S6_CHILD_START)
+                ok = start_child( buffer, 0 );
+#endif
+#ifdef WEX_E1_TEST_HOOKS
             else if (params->operation == E1S6_TEST_KILL_CHILD && child_pid > 0)
             {
                 pid_t ret;
@@ -798,12 +804,16 @@ NTSTATUS e1s6_transport( void *args )
                     }
                 }
             }
+#endif
+#ifdef WEX_E1_TEST_HOOKS
             else if (params->operation == E1S6_TEST_WRONG_OWNER)
             {
                 const char *unique = p_dbus_bus_get_unique_name( connection );
                 if (unique && strlen(unique) < sizeof(owner)) { strcpy( owner, unique ); ok = 1; }
                 else denied( "inject-owner-name" );
             }
+#endif
+#ifdef WEX_E1_TEST_HOOKS
             else if (params->operation == E1S6_TEST_DISCONNECT && child_pid > 0)
             {
                 unsigned int i;
@@ -840,6 +850,7 @@ NTSTATUS e1s6_transport( void *args )
                 if (i == 100) denied_error( "disconnect-child-timeout", "timeout", STATUS_TIMEOUT, 0 );
                 cleanup(); params->channel = 0;
             }
+#endif
             else if (params->operation == E1S6_EXCHANGE && (phase == 2 || phase == 3))
             {
                 unsigned char expected[E1S6_ANSWER_SIZE];

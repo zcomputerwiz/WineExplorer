@@ -16,9 +16,7 @@
  */
 #include "profile.c"
 #define WEX_ACCOUNTS_STANDALONE
-#define valid_name account_valid_name   /* both sources have a static of this name */
 #include "../../wine/server/accounts.c"
-#undef valid_name
 
 #ifdef WEX_E1S12_PROFILE_TEST
 #include <sys/prctl.h>
@@ -79,7 +77,7 @@ int main( int argc, char **argv )
     site = "root";
     if (geteuid() || getuid()) { s = WEX_PROFILE_OWNER; goto done; }
     site = "arguments";
-    if (!account_valid_name( argv[1] ) || !key_bytes( argv[2], key ) ||
+    if (!accounts_valid_name( argv[1] ) || !key_bytes( argv[2], key ) ||
         !decimal( argv[3], UINT64_MAX, &generation ) || !generation ||
         !decimal( argv[4], UINT32_MAX - 1, &uid ) || !uid ||
         !decimal( argv[5], 1023, &fd ) || fd < 3) goto done;

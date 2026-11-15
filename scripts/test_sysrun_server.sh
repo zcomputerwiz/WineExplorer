@@ -66,7 +66,9 @@ fail()
     fi
     exit 1
 }
-ok() { echo "$1=PASS"; PASS=$((PASS + 1)); }
+# each check prints the seconds since the previous one, so the slow parts of the suite show in its log
+OK_LAST=$SECONDS
+ok() { echo "$1=PASS +$((SECONDS - OK_LAST))s"; OK_LAST=$SECONDS; PASS=$((PASS + 1)); }
 
 kill_servers()
 {
@@ -120,7 +122,8 @@ trap cleanup EXIT
 # ---- fixture -------------------------------------------------------------------------------------------------
 install -d -m 0755 "$ROOT" "$ROOT/bin" "$ROOT/probes"
 [ "$REUSE" = 1 ] || groupadd --system "$GRP"
-coproc XV { Xvfb -displayfd 1 -screen 0 1024x768x24 -nolisten tcp 2>/dev/null; }
+# exec: XV_PID must be Xvfb itself (cleanup kills it); without it the coproc's subshell died and Xvfb stayed behind
+coproc XV { exec Xvfb -displayfd 1 -screen 0 1024x768x24 -nolisten tcp 2>/dev/null; }
 read -r -u "${XV[0]}" DNUM
 [ -n "$DNUM" ] || fail "Xvfb did not start"
 
@@ -759,7 +762,7 @@ EOF
 has_str() { python3 -I "$ROOT/has_str.py" "$1" "$2"; }   # the string as ASCII or UTF-16
 x86_64-w64-mingw32-gcc -O2 -Wall -municode -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_ship.exe" \
     "$SRC/src/programs/wexelevate/main.c" -ladvapi32 -luserenv -lbcrypt
-x86_64-w64-mingw32-gcc -O2 -Wall -municode -DWEXELEVATE_TEST_APPROVAL -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_test.exe" \
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -DWEXELEVATE_TEST_APPROVAL -DWEX_E1_TEST_HOOKS -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_test.exe" \
     "$SRC/src/programs/wexelevate/main.c" -ladvapi32 -luserenv -lbcrypt
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/wexelevate_stub.exe" "$SRC/scripts/wexelevate_stub.c"
 for arch in 64 32; do
@@ -1413,7 +1416,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
 
     # The administrator's managed profile in the standard user's prefix (S12 storage) does not exist:
     # the verifier's helper creates it on the first successful authentication (WO-32) from this seed.
-    cc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST "-DWEX_PROFILE_SEED_PATH=\"$LIBEXEC/profile-seed.reg\"" \
+    cc -O2 -Wall -Wextra -Werror -DWEX_E1S12_PROFILE_TEST -DWEX_E1_TEST_HOOKS "-DWEX_PROFILE_SEED_PATH=\"$LIBEXEC/profile-seed.reg\"" \
         -o "$LIBEXEC/wex-profile-provision" "$SRC/tools/wex-profile/wex-profile-provision.c"
     chown root:root "$LIBEXEC/wex-profile-provision"; chmod 0755 "$LIBEXEC/wex-profile-provision"
     printf '%s\n' 'WINE REGISTRY Version 2' '' \

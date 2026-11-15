@@ -94,12 +94,15 @@ sync_tree()
     files=$(cd "$D/wine" && { "${WGIT[@]}" diff --name-only; "${WGIT[@]}" ls-files --others --exclude-standard; } | sort -u)
     for f in $files; do
         [ -f "$D/wine/$f" ] || continue
-        mkdir -p "$CL/$(dirname "$f")" && cp -p "$D/wine/$f" "$CL/$f" || return 1
+        # copy without keeping the worktree's time stamp: an object built from another tree's newer copy of the
+        # file would otherwise look up to date to make (bit us when two worktrees took turns on the runner)
+        cmp -s "$D/wine/$f" "$CL/$f" && continue
+        mkdir -p "$CL/$(dirname "$f")" && cp "$D/wine/$f" "$CL/$f" || return 1
     done
     echo "changed wine files: $(echo "$files" | grep -c .)"
     ( cd "$D/src" && find . -type f ! -path '*__pycache__*' ! -name '*.pyc' -print0 ) |
         while IFS= read -r -d '' f; do
-            cmp -s "$D/src/$f" "$P/src/$f" || { mkdir -p "$(dirname "$P/src/$f")"; cp -p "$D/src/$f" "$P/src/$f"; }
+            cmp -s "$D/src/$f" "$P/src/$f" || { mkdir -p "$(dirname "$P/src/$f")"; cp "$D/src/$f" "$P/src/$f"; }
         done
     # regenerate: assemble the wex modules into the wine tree, autoconf, configure
     ( cd "$P" && python3 scripts/assemble.py --wine-root wine ) && ( cd "$CL" && autoconf -f ) &&
