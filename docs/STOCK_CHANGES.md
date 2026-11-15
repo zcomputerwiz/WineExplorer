@@ -3332,3 +3332,37 @@ name, as Windows does; .NET passes a process handle), test in `dlls/user32/tests
 (`GetUserLanguages` returns the user's preferred UI languages; `Makefile.in` imports `combase`; the test loses two
 `todo_wine`); new `dlls/winlangdb` (`EnsureLanguageProfileExists`), `configure.ac`, `configure` (two lines by hand:
 upstream's script comes from autoconf 2.73).
+
+2026-11-14 (UWP XAML, Wine 51c29e50): `dlls/windows.ui.xaml/component.c` (new), `main.c`, `private.h`, `Makefile.in`
+(imports `advapi32`): `DllGetActivationFactory` serves the classes it does not implement from an installed XAML
+component. `HKLM\Software\Wine\Xaml` value `ComponentPath` names the directory of a self-contained .NET component
+(XamlShim, built from the owner's Uno fork `zcomputerwiz/uno-uwp`, branch `wex/xamlshim`); the first such class
+starts the runtime in the process through `hostfxr`, and every class goes to the component's activation entry. Without
+a component the library behaves as before (its tests and combase's pass on x64 and x86).
+
+2026-11-14 (UWP, Wine d64c1e10): `dlls/windows.globalization/calendar.c` (new), `main.c` (Calendar in
+`DllGetActivationFactory`; `hstring_vector_create` no longer static), `private.h`, `classes.idl`, `Makefile.in` (imports
+`advapi32`): `Windows.Globalization.Calendar` with both factories and `ITimeZoneOnCalendar`; Gregorian years 1 to 9999
+in UTC, the local zone or a zone named by its IANA id; other calendar systems accepted by name, computed as Gregorian
+(FIXME). `tests/globalization.c` `test_Calendar`, values measured on Windows 11 (x64 and x86 pass); Wine x64 and x86
+pass with 10 `todo_wine` (Wine's locale data, Japanese era).
+
+2026-11-14 (UWP, Wine eba27020): `dlls/kernelbase/version.c`: package records are read from the user's catalog, then
+from the machine's framework catalog `%ProgramData%\WineExplorer\appx-catalog` (a machine record counts only when it
+declares a framework; no application is published through it); family enumeration lists both. Written by the
+`uwp-frameworks` setup component (`tests/uwp/frameworks`); U1.3 still passes on x64 and x86.
+
+2026-11-15 (UWP, Wine e863e73a): `dlls/twinapi.appcore`: `core_view.c` (launch arguments also implement
+`ILaunchActivatedEventArgs2`, `IActivatedEventArgsWithUser`, `IPrelaunchActivatedEventArgs`,
+`IApplicationViewActivatedEventArgs`, `IViewSwitcherProvider`), new `user.c` (`Windows.System.User` of the process
+user), `application_view.c` (`GetForCurrentView` gives the view thread's `ApplicationView`; `IApplicationViewStatics3`),
+`private.h`, `Makefile.in` (imports `bcrypt`, `user32`); IDL: `windows.applicationmodel.activation.idl` (the five
+interfaces), `windows.ui.viewmanagement.idl` (`ActivationViewSwitcher`), `windows.ui.notifications.idl`
+(`TileActivatedInfo` and `ILaunchActivatedEventArgs2`, which need the notification types). Values from Windows 11
+(`tests/uwp/xaml/cx-probe`, LaunchProbe.cpp); the tests of the four modules using these headers pass on x64 and x86.
+
+2026-11-15 (UWP, Wine 22af9251): `dlls/wintypes/main.c`: `IPropertyValue` `GetRuntimeClassName` gives
+`Windows.Foundation.IReference`1<T>` (`IReferenceArray`1<T>` for arrays) and `GetTrustLevel` gives `BaseTrust`
+(both were stubs, upstream too). .NET Native reads the class name to unbox a value received as Object: without it the
+Store Calculator failed reading its application resources. `tests/wintypes.c` checks every scalar and array type;
+passes on Windows 11 x64 and x86 and on Wine x64 and x86.
