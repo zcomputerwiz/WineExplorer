@@ -8,15 +8,15 @@
 #   deps     the ISO's build dependencies (live-build's packages are there from wexgpo-provision.sh; labwc's
 #            build dependencies need the source lists)
 #   clone    /root/WE-iso, BRANCH with its submodules, from GitHub (the branch must be pushed)
-#   package  WEX_SESSION0=1 package-wine.sh with the build in /root/WE-prefetch/build/wow64, which wex-run.sh made
-#            from the same commits (checked: the two wine commits must match)
+#   build    assemble, configure and build the clone (package-wine.sh takes only a build of its own checkout)
+#   package  WEX_SESSION0=1 package-wine.sh with that build
 #   iso      WEX_SESSION0=1 build-iso.sh --clean --unattended -> /root/out/wex-gpo.iso
 #   install  install-unattended.sh -> /root/vmtest-gpo/wex-gpo (the VM ends stopped)
 # package-wine.sh fetches third-party assets (agreed by the owner on 2026-11-09). About 1.5 hours.
 set -uo pipefail
 BRANCH=${1:?branch}
 R=/root/WE-iso
-B=/root/WE-prefetch/build/wow64
+B=/root/WE-iso/build/wow64
 L=/root/gpo-iso
 step() { echo "=== $1 $(date +%H:%M)"; }
 
@@ -36,8 +36,15 @@ rm -rf "$R"
 git clone -q --recurse-submodules -b "$BRANCH" https://github.com/zcomputerwiz/WineExplorer.git "$R" > $L-clone.log 2>&1 ||
     { echo "CLONE FAILED"; tail -5 $L-clone.log; exit 1; }
 git -C "$R" log --oneline -1
-W1=$(git -C "$R/wine" rev-parse HEAD); W2=$(git -C /root/WE-prefetch/wine rev-parse HEAD)
-[ "$W1" = "$W2" ] || { echo "the build in $B is of wine $W2, the branch pins $W1: run wex-run.sh build first"; exit 1; }
+
+# package-wine.sh takes only a build of the clone's own wine (it refuses another checkout's)
+step build
+cd "$R" || exit 1
+timeout 900 bash scripts/assemble.sh > $L-assemble.log 2>&1 || { echo "ASSEMBLE FAILED"; tail -5 $L-assemble.log; exit 1; }
+mkdir -p "$B" && cd "$B" || exit 1
+timeout 1800 ../../wine/configure --enable-archs=i386,x86_64 --prefix="$B/install" > $L-configure.log 2>&1 ||
+    { echo "CONFIGURE FAILED"; tail -5 $L-configure.log; exit 1; }
+timeout 5400 make -j16 > $L-make.log 2>&1 || { echo "MAKE FAILED"; grep -m8 'error:' $L-make.log; exit 1; }
 
 step package
 cd "$R" || exit 1
