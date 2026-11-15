@@ -303,9 +303,12 @@ answers `BUSY` when a suite or build is running.
   partial run is for working on one area only.
 - Measured on wexgpo, 2026-11-15 (normal suite 1,142 s): c2 341 s, of which one check,
   `c2_wineboot_init_with_system_group_writes_machine_root`, takes 301 s, the launcher's 5-minute wait for the
-  system-group `wineboot --init` (`dlls/ntdll/unix/env.c`) running out (reported to the system tier session; on
-  2026-11-14 no check took more than 37 s); C3 62 s; broker 95 s; consent 52 s; secure desktop 85 s; callers 87 s;
-  session 0 and Group Policy 340 s; own prefix 38 s.
+  system-group `wineboot --init` (`dlls/ntdll/unix/env.c`) running out; C3 62 s; broker 95 s; consent 52 s; secure
+  desktop 85 s; callers 87 s; session 0 and Group Policy 340 s; own prefix 38 s. Cause, found by the system tier
+  session: the build machines had no Wine Mono where the build tree's Wine looks (`/usr/share/wine`; only the
+  ISO's Wine, in `/usr/local`, looks in `/usr/local/share/wine`), so the machine root's `wineboot` sat on the Mono
+  download dialog. With the packages there (`scripts/lab/wexgpo-wine-addons.sh`) the check takes 11 s and the
+  normal suite 13 minutes on wexbuild.
 
 ## Added 2026-11-05: lessons that cost hours (do not rediscover)
 
