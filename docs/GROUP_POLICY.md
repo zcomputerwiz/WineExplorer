@@ -1,6 +1,6 @@
 # Group Policy and Linux GPO sync (design note)
 
-Surveyed on 2026-11-11. Status: step 1 (the session 0 policy writer) is implemented, the rest is design. The Linux facts below were checked online on the
+Surveyed on 2026-11-11. Status: steps 1 to 6 are implemented (see each step), gpupdate and gpresult are next. The Linux facts below were checked online on the
 same day (sources at the end); anything marked "unverified" was not. Reviewed on 2026-11-11 against the tree and the
 elevation work (E1): the Wine and ReactOS statements were rechecked, the Samba statements were not; the machine
 registry, the policy trees and the security-template parts were corrected. Roadmap entry: "Future: Group Policy and
@@ -297,6 +297,67 @@ Tested in the lab domain: steps 1 and 2 on the joined member (`--print`: the mac
 the computer, the user file for a domain user, nothing for a local account); step 3 for the computer and the
 timer on an installed machine ("End to end" above). Not tested: step 3 for a user; the order of several objects (applied in
 the order Samba lists them, later wins; unverified against Windows); SSSD joins (the script needs Winbind).
+
+## Step 5: the security template (2026-11-14)
+
+`wexpolicy security /machine TEMPLATE...` (`src/programs/wexpolicy/sectmpl.c`) applies the GPOs' security
+templates, `Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf` (UTF-16LE INF, `signature="$CHICAGO$"`, read with
+setupapi), in the order given; a later one wins. `wex-gpupdate.sh` passes the templates of the objects that apply
+to the computer.
+
+- `[System Access]`: `LockoutBadCount` (0 to 999), `LockoutDuration` and `ResetLockoutCount` (minutes; -1, "until
+  an administrator unlocks", and 0 become the longest, 99999) go to `HKLM\Software\WineExplorer\Elevation`, where
+  `net accounts`, `NetUserModalsGet/Set` level 3 and the elevation verifier keep the lockout policy. Password and
+  Kerberos policy and the rest of the section belong to the host and the domain: counted as not applicable.
+- `[Registry Values]` (`MACHINE\path\name=type,data`; types 1, 2, 4 and 7): written when the key is in one of the
+  two policy trees, which holds the consent settings (`...\CurrentVersion\Policies\System`). Other keys, and the
+  binary type, are counted as not applicable.
+- Every other section (privilege rights, audit, restricted groups, services, file and registry permissions) is
+  not read.
+- Security settings stay when no GPO sets them any more, as on Windows ("tattooing"); nothing is undone.
+- A template with a fault (no `[Version]` signature, a value out of range) changes nothing.
+
+Which objects count. On Windows the lockout policy of domain accounts comes only from GPOs linked at the domain;
+an OU-linked GPO's lockout policy applies to the local accounts of the computers in the OU (MS-GPSB; Microsoft
+Learn, "Account policies"). The policy here protects the local accounts of the accounts map, so every object that
+applies to the computer counts, in order.
+
+Tested in `scripts/test_sysrun_server.sh` (`st_security_template_lockout_policy_and_options`): the three values,
+`net accounts` showing the threshold, an option in the tree written and one outside not, a template without a
+signature refused, a standard user refused. Not tested: a template made by `samba-tool gpo manage security set`
+(Samba 4.14 and later) in the lab domain.
+
+## Step 6: the applied GPO list (2026-11-14)
+
+`wexpolicy record /machine|/user:SID LIST` (`gpolist.c`) records which objects were applied, and Wine's `userenv`
+answers `GetAppliedGPOListA/W` from it (`FreeGPOListA/W` added; stock change). As on Windows the list is kept per
+client-side extension, in application order: `HKLM\Software\Microsoft\Windows\CurrentVersion\Group Policy\History\{extension}\<n>`
+for the machine, with the values `GPOName`, `DisplayName`, `FileSysPath`, `DSPath`, `Link`, `Extensions`,
+`Version`, `GPOLink`, `Options`, `lParam`. A user's list is in `...\Group Policy\<SID>\History\...` in the machine
+registry, which only session 0 writes and which is there before the user logs on; Windows reads it from the user's
+hive. An object is listed for every extension that starts a group of its extension list
+(`[{extension}{tool}...]`). No list: success and an empty list, as on Windows.
+
+`wex-gpupdate.sh` builds LIST from `net ads gpo list` (Samba's `dump_gpo`, printed on the error stream: `name:`,
+`displayname:`, `version:`, `filesyspath:`, `dspath:`, `options:`, `link:`, `link_type:`, `machine_extensions:`,
+`user_extensions:`; read from the Samba source). Samba's `GP_LINK_*` numbers are the `GPO_LINK` values; the two
+directory paths get the `LDAP://` prefix Windows gives them.
+
+Tested: the parser against a dump in that layout; the suite case `st_applied_gpo_list_per_extension_for_machine_and_user`
+(64-bit and 32-bit programs, machine and user, per extension, a damaged list refused, the empty list). Not tested:
+`net ads gpo list` of the lab domain through the whole script.
+
+## Next
+
+- `gpupdate`: a user's program cannot start root's `wex-gpupdate.service`. Plan: `gpupdate.exe` asks session 0's
+  `gpsvc`, which leaves a request in the machine root that a systemd path unit turns into a run of
+  `wex-gpupdate.service` (rate-limited by systemd); `gpupdate` waits for the serial numbers of step 3. Messages as
+  XP's (believed to be "Refreshing Policy..." and "User Policy Refresh has completed."; unverified: the research
+  found only the Vista and later wording, "Updating policy..." and "... update has completed successfully.").
+- `gpresult` over the History tree and the join state, in XP's layout (`RSOP data for ...`, `COMPUTER SETTINGS`,
+  `Applied Group Policy Objects`).
+- The Windows Server evaluation controller: Microsoft's Evaluation Center requires a registration form with
+  personal details for the ISO, so per the owner's condition the lab stays on Samba AD.
 
 ## Design
 
