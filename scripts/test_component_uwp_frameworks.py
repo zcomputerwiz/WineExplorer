@@ -228,7 +228,7 @@ class FrameworkTests(unittest.TestCase):
         """_terms_download over a dict url -> bytes, honouring Range like the real servers."""
         requests = []
 
-        def download(url, headers=None):
+        def download(url, headers=None, approved_hosts=None):
             data = documents[url]
             requests.append((url, (headers or {}).get('Range')))
             if headers and 'Range' in headers:
@@ -268,6 +268,29 @@ class FrameworkTests(unittest.TestCase):
         self.assertTrue(ranged and all(ranged))                        # the package only through range requests
         read = sum(int(r.split('-')[1]) - int(r[len('bytes='):].split('-')[0]) + 1 for r in ranged)
         self.assertLess(read, len(files[documents[0]['url']]) // 2)
+
+    def test_terms_redirect_to_another_host_is_refused(self):
+        files, documents, _ = self.terms_fixture()
+
+        class Response(io.BytesIO):
+            def __init__(self, data, url):
+                super().__init__(data)
+                self.url, self.headers = url, {}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def urlopen(req, timeout=None):
+            # an approved host that bounces the request elsewhere (same bytes, so only the location can refuse it)
+            return Response(files[req.full_url], 'https://example.invalid/LICENSE.TXT')
+
+        for document in documents:
+            with self.subTest(format=document['format']):
+                with patch.object(c.urllib.request, 'urlopen', urlopen):
+                    with self.assertRaisesRegex(ValueError, 'unapproved location'):
+                        c.terms_document_text('uwp-frameworks', document, c.TERMS_DOCUMENT_HOSTS)
+        with patch.object(c.urllib.request, 'urlopen',
+                          lambda req, timeout=None: Response(files[req.full_url], req.full_url)):
+            c.terms_document_text('uwp-frameworks', documents[1], c.TERMS_DOCUMENT_HOSTS)   # no redirect: fine
 
     def test_terms_documents_refused_when_changed(self):
         meta = self.metadata['uwp-frameworks']

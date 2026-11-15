@@ -1249,18 +1249,21 @@ def terms_documents_identity(documents):
                                       for d in documents], separators=(',', ':')).encode()).hexdigest()
 
 
-def _terms_download(url, headers=None):
+def _terms_download(url, headers=None, approved_hosts=None):
+    """The document at URL; with APPROVED_HOSTS the final location after redirects must be one of them too."""
     req = urllib.request.Request(url, headers=dict({'User-Agent': 'Wget/1.21.3 (linux-gnu)'}, **(headers or {})))
     with urllib.request.urlopen(req, timeout=10) as response:
         if not response.url.startswith('https://'):
             raise ValueError('Insecure vendor document redirect')
+        if approved_hosts is not None and not response.url.startswith(approved_hosts):
+            raise ValueError('Vendor document redirected to an unapproved location')
         return response.read(MAX_TERMS_BYTES + 1), getattr(response, 'headers', None)
 
 
 class _RangeReader(io.RawIOBase):
     """A remote file read with HTTP range requests (a licence inside a large package without downloading it)."""
-    def __init__(self, url, size):
-        self.url, self.size, self.pos, self.requests = url, size, 0, 0
+    def __init__(self, url, size, approved_hosts=None):
+        self.url, self.size, self.pos, self.requests, self.approved_hosts = url, size, 0, 0, approved_hosts
     def readable(self): return True
     def seekable(self): return True
     def tell(self): return self.pos
@@ -1274,7 +1277,7 @@ class _RangeReader(io.RawIOBase):
         if self.requests > 64:
             raise ValueError('Too many range requests for a terms document')
         end = min(self.pos + len(buffer), self.size) - 1
-        data, headers = _terms_download(self.url, {'Range': f'bytes={self.pos}-{end}'})
+        data, headers = _terms_download(self.url, {'Range': f'bytes={self.pos}-{end}'}, self.approved_hosts)
         if len(data) != end - self.pos + 1:
             raise ValueError('Range request not honoured for a terms document')
         buffer[:len(data)] = data
@@ -1290,13 +1293,13 @@ def terms_document_text(verb, document, approved_hosts=None):
     try:
         if document['format'] == 'zip-member':
             # a licence file inside a pinned package: only its central directory and the member are read
-            with zipfile.ZipFile(io.BufferedReader(_RangeReader(url, document['size']), 1 << 16)) as package:
+            with zipfile.ZipFile(io.BufferedReader(_RangeReader(url, document['size'], approved_hosts), 1 << 16)) as package:
                 info = package.getinfo(document['member'])
                 if info.file_size > MAX_TERMS_BYTES:
                     raise ValueError('Oversized vendor document')
                 data = package.read(info)
         else:
-            data, _ = _terms_download(url)
+            data, _ = _terms_download(url, approved_hosts=approved_hosts)
     except urllib.error.URLError as err:
         raise ConnectionError(f'Failed to retrieve vendor terms for {verb} from {url}: {err.reason}')
     if len(data) > MAX_TERMS_BYTES or hashlib.sha256(data).hexdigest() != document['sha256']:
