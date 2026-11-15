@@ -63,6 +63,18 @@ XAML layer is the next thing to find. Loading it needs the application's own (na
 Also asked for and missing: `Windows.System.User` statics, `Windows.Foundation.Diagnostics.AsyncCausalityTracer`,
 `Windows.System.MemoryManager`.
 
+### 2026-11-15 (Wine 709dd2f2 on codex/uwp-runtime, uno-uwp a36195de35)
+
+As on Windows (probe: Resources fail with E_UNEXPECTED in `App()`, hold `App.xaml`'s resources at `OnLaunched`), the
+framework itself loads `App.xbf` from `resources.pri` into `Application.Resources` between construction and
+`OnLaunched`; XamlShim now does so. Of the Calculator's: the merged `XamlControlsResources` and 55 plain entries load;
+its three theme dictionaries ("Implicit content is not supported on ApplicationTheme") and button styles fail in Uno's
+XAML reader. Reading `Resources["AppMinWindowWidth"]` failed on Wine's `PropertyValue.GetRuntimeClassName` stub (Wine
+22af9251 fixes it); `Windows.Globalization.Fonts.LanguageFontGroup` was missing (Wine 709dd2f2 adds it);
+`Window.Dispatcher` was null (XamlShim a36195de35). The Calculator now navigates to `MainPage` and loads its XBF;
+Uno's XAML reader stops at the application's own control `{using:CalculatorApp}TitleBar`. Next: native application
+types (their `IXamlMetadataProvider`) inside Uno's XAML reader, then the theme dictionaries.
+
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
 the Calculator shows. Prior art and the Wine gaps others listed for the Calculator: `tests/uwp/frameworks/README.md`.
