@@ -198,6 +198,8 @@ echo "b3_path_validation_and_safety=PASS"
 # group sudo, default ACL g:sudo:rwX, files owned by a desktop administrator, wrong hive modes.
 mkdir -p "$FIX2/drive_c/windows/system32" "$FIX2/drive_c/Program Files/OldApp" "$FIX2/dosdevices"
 echo hive > "$FIX2/system.reg"; echo hive > "$FIX2/userdef.reg"
+# session 0's own HKCU, read-only as the old setups left it (B19: the system account's settings were never saved)
+echo hive > "$FIX2/user.reg"; chown root:sudo "$FIX2/user.reg"; chmod 644 "$FIX2/user.reg"
 ln -s /usr/bin/true "$FIX2/drive_c/windows/system32/link.dll"
 echo app > "$FIX2/drive_c/Program Files/OldApp/app.exe"
 chown -R "$DESKTOP_USER:sudo" "$FIX2/drive_c/Program Files"
@@ -225,6 +227,11 @@ case "$ACLS" in *sudo*) fail "migration left g:sudo ACL entries" ;; esac
 case "$ACLS" in *"default:group:$GROUP2:rwx"*) ;; *) fail "default ACL for $GROUP2 missing" ;; esac
 [ "$(stat -c '%a' "$FIX2/system.reg")" = "664" ] && [ "$(stat -c '%a' "$FIX2/userdef.reg")" = "664" ] ||
     fail "hive modes are not 664"
+[ "$(stat -c '%a' "$FIX2/user.reg")" = "664" ] || fail "session 0's user.reg is not 664 (its account cannot save it)"
+case "$(getfacl -p "$FIX2/user.reg" 2>/dev/null)" in *"group:$GROUP2:rw-"*) ;; *) fail "user.reg has no g:$GROUP2:rw ACL" ;; esac
+OUT="$(runuser -u "$DESKTOP_USER" -- bash -c 'echo x >> "$1"' _ "$FIX2/user.reg" 2>&1 || true)"
+case "$OUT" in *"Permission denied"*) ;; *) fail "after migration the desktop administrator can write user.reg: $OUT" ;; esac
+echo "b3_session0_hkcu_writable_by_system_group=PASS"
 [ "$(stat -c '%a' "$FIX2/drive_c/Program Files/OldApp/app.exe")" = "775" ] || fail "app.exe mode is not 775"
 OUT="$(write_as "$DESKTOP_USER" "$FIX2/drive_c/Program Files/desktop_write.txt" || true)"
 case "$OUT" in *"Permission denied"*) ;; *) fail "after migration the desktop administrator can still write: $OUT" ;; esac
