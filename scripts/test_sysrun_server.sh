@@ -122,7 +122,8 @@ trap cleanup EXIT
 # ---- fixture -------------------------------------------------------------------------------------------------
 install -d -m 0755 "$ROOT" "$ROOT/bin" "$ROOT/probes"
 [ "$REUSE" = 1 ] || groupadd --system "$GRP"
-coproc XV { Xvfb -displayfd 1 -screen 0 1024x768x24 -nolisten tcp 2>/dev/null; }
+# exec: XV_PID must be Xvfb itself (cleanup kills it); without it the coproc's subshell died and Xvfb stayed behind
+coproc XV { exec Xvfb -displayfd 1 -screen 0 1024x768x24 -nolisten tcp 2>/dev/null; }
 read -r -u "${XV[0]}" DNUM
 [ -n "$DNUM" ] || fail "Xvfb did not start"
 
