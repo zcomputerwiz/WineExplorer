@@ -3,7 +3,10 @@
  * Copyright 2026 WineExplorer contributors
  *
  * Read-only probe of sppc.dll: what the licensing client returns for ids that are not installed.
- * Run it on Windows and on Wine and compare.  It installs and changes nothing.
+ * Run it on Windows and on Wine and compare.  It installs and changes nothing, unless "junk" is the
+ * second argument: then it also offers the service a license file that is not one (a write request the
+ * service must refuse), to see whether the caller is let through to that point.  First argument: the
+ * client DLL (default sppc.dll; Office 2016 in Windows 7 mode has its own, OSPPC.DLL).
  *
  *   i686-w64-mingw32-gcc -municode -o sppc-probe.exe sppc-probe.c     (or x86_64-w64-mingw32-gcc)
  */
@@ -19,11 +22,11 @@ static FARPROC get( HMODULE module, const char *name )
     return proc;
 }
 
-int wmain( void )
+int wmain( int argc, WCHAR **argv )
 {
     /* made-up ids */
     static const GUID nothing = { 0x5eedf00d, 0x1234, 0x4321, { 1, 2, 3, 4, 5, 6, 7, 8 } };
-    HMODULE module = LoadLibraryW( L"sppc.dll" );
+    HMODULE module = LoadLibraryW( argc > 1 ? argv[1] : L"sppc.dll" );
     HRESULT (WINAPI *open)( HSLC * ) = (void *)get( module, "SLOpen" );
     HRESULT (WINAPI *close)( HSLC ) = (void *)get( module, "SLClose" );
     HRESULT (WINAPI *info)( HSLC, const GUID *, const WCHAR *, DWORD *, UINT *, BYTE ** );
@@ -98,6 +101,14 @@ int wmain( void )
         count = 0xdead; ids = (GUID *)0xdead;
         hr = keys( handle, &nothing, &count, &ids );
         printf( "SLGetInstalledProductKeyIds(unknown product): 0x%08lx count %u ids %p\n", hr, count, ids );
+    }
+    if (argc > 2 && !wcscmp( argv[2], L"junk" ))
+    {
+        HRESULT (WINAPI *install)( HSLC, UINT, const BYTE *, GUID * ) = (void *)get( module, "SLInstallLicense" );
+        static const BYTE junk[] = "<not-a-license/>";
+        GUID id;
+
+        if (install) printf( "SLInstallLicense(junk): 0x%08lx\n", install( handle, sizeof(junk) - 1, junk, &id ) );
     }
     printf( "SLClose: 0x%08lx\n", close( handle ) );
     return 0;

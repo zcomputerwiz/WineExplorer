@@ -71,6 +71,41 @@ Session 0 runs, 2026-11-15 (`run-session0.sh`, `run-user.sh`):
   Whether a program in a user's session reaches a session 0 service's own RPC endpoint is not tested yet; Office's
   licensing client needs that.
 
+* **Windows 7 mode, setup as the system account, fresh machine root, font links in place, patched server**
+  (`VersionNT = 601` in the log): `Office64WW.msi` installs Office's licensing service, the service starts and
+  answers setup's calls; then `CAInstallPlugin.x64: Failed to register plugin. HResult: 0xc004f025` (the caller
+  needs elevated rights) and setup rolls back with 1603. This is blocker 6. The run ended before `ProPlusWW.msi`,
+  so the server change for the font links (blocker 5) is still not tested by a setup run.
+* **The service called directly** (`sppc-probe.c` with `OSPPC.DLL` as its first argument, the service's files
+  put back with `start-ospp-session0.sh`):
+  * as the system account: the service starts on demand; every read call answers with the codes Windows 11 gives
+    for unknown ids; `SLGetServiceInformation(Version)` is `15.0.169.500`; a write request with a file that is
+    no license is refused for its content (`0xc004f01f`), not for the caller. `ActivePlugins` is not found: no
+    plugin is registered.
+  * as the standard user: `SLOpen` fails with `0x80070078`. A program in a user's session does not reach the
+    service in session 0. This is blocker 7.
+* `token-probe.c`: session 0's account is `S-1-5-18`, owner and enabled group `S-1-5-32-544`, elevated, integrity
+  `S-1-16-16384`. So blocker 6 is not the caller's token as such. Not looked at: what the service (account
+  NetworkService) may write. Setup grants that account rights on the service's registry key and data directory
+  through the installer's permission tables; `DDSet_Error: allowDeleteAccessRegistryKey: GetNamedSecurityInfo ...
+  failed with 2` in the log shows one such step failing, and Wine's `msi` does not apply `LockPermissions`. With
+  registry access checks on in session 0 that would refuse the service. Unproven.
+* **Uninstall** (`config-2016-uninstall.xml`): `setup.exe /uninstall ProPlus` ends with 1605, `Failed
+  MsiSourceListEnumSourcesW` for `Office64WW`. A gap in Wine's `msi`; not looked at. To start over in the lab,
+  move the machine root away and run `setup-machine-root.sh` again (the Windows 10 mode install is kept in the
+  guest as `/var/lib/wineexplorer/machine.office-w10`).
+
+Open, in the order they stop Office 2016 in Windows 7 mode on a machine with the system tier:
+
+| # | What | State |
+|---|---|---|
+| 6 | The licensing service refuses to register its plugin (`0xc004f025`) | Cause unproven, see above |
+| 7 | A user's program cannot open the licensing service in session 0 (`SLOpen` `0x80070078`) | Service control is forwarded (T5.4); the service's own RPC endpoint is not reachable from another session's server |
+| 5 | Office overwrites font names that are links to open fonts | Server change written, not yet tested by a setup run, not in the Wine fork |
+| - | The system account's Windows version is lost when session 0 restarts | `machine/user.reg` is not writable for it |
+| - | Word's "First things first": Accept starts `DW20.EXE` and does nothing | Not looked at |
+| - | Uninstall fails with 1605 | Not looked at |
+
 Blocker 4 can be repeated in seconds: `scripts/lab/office/grab-ospp.sh` copies the service's files and registry keys
 while setup runs (setup removes them when the service does not start), `start-ospp.sh` puts them back and starts
 the service alone. Pitfalls met: `+relay` for a whole setup run wrote 6 GB (a `RelayFromInclude` value did not
