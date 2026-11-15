@@ -344,7 +344,7 @@ echo "Applying permissions and default ACLs to machine root (root:$MACHINE_GROUP
 if command -v setfacl >/dev/null 2>&1; then
     setfacl -b "$MACHINE_ROOT"
     setfacl -R -b "$MACHINE_ROOT/drive_c"
-    for f in system.reg userdef.reg; do
+    for f in system.reg userdef.reg user.reg; do
         if [ -f "$MACHINE_ROOT/$f" ]; then setfacl -b "$MACHINE_ROOT/$f"; fi
     done
 fi
@@ -398,6 +398,12 @@ fi
 if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
     chmod 664 "$MACHINE_ROOT/userdef.reg"
 fi
+# user.reg is session 0's own HKCU (the system account's settings, such as its Windows version): session 0 runs as
+# the system group and saves it like the machine hives. Read-only, the server dropped every change at the next
+# save (B19).
+if [ -f "$MACHINE_ROOT/user.reg" ]; then
+    chmod 664 "$MACHINE_ROOT/user.reg"
+fi
 if command -v setfacl >/dev/null 2>&1; then
     setfacl -m "g:$MACHINE_GROUP:rwX" "$MACHINE_ROOT"
     setfacl -d -m "u::rwX,g::rwX,g:$MACHINE_GROUP:rwX,o::r-x" "$MACHINE_ROOT"
@@ -408,6 +414,9 @@ if command -v setfacl >/dev/null 2>&1; then
     fi
     if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
         setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/userdef.reg"
+    fi
+    if [ -f "$MACHINE_ROOT/user.reg" ]; then
+        setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/user.reg"
     fi
 fi
 # Nothing may remain that a desktop user owns (an owner can always write), and nothing may have another group.
