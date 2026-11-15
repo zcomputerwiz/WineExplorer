@@ -19,6 +19,7 @@ case "$FIRMWARE" in
 esac
 HERE=$(cd "$(dirname "$0")" && pwd)
 V=(python3 "$HERE/../../scripts/vmtest.py")
+. "$HERE/nbd-connect.sh"
 STATE=${VMTEST_DIR:-/tmp/vmtest}/$VM
 NBD=
 CONNECTED=false
@@ -48,12 +49,7 @@ rm -rf "$STATE"
 "${V[@]}" shutdown "$VM"
 
 # Verify the installed disk, not merely a live desktop bearing the same label.
-modprobe nbd max_part=16
-for entry in /sys/block/nbd*; do
-    if [ ! -e "$entry/pid" ]; then NBD=/dev/${entry##*/}; break; fi
-done
-[ -n "$NBD" ] || fail "no unused NBD device"
-qemu-nbd --read-only --connect "$NBD" "$STATE/disk.qcow2"
+nbd_connect ro "$STATE/disk.qcow2" || fail "cannot connect the installed disk"   # nbd-connect.sh
 CONNECTED=true
 udevadm settle
 for attempt in $(seq 1 30); do

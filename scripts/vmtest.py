@@ -79,15 +79,22 @@ def start(a):
     for sock in ("qmp.sock", "serial.sock"):
         if os.path.exists(os.path.join(d, sock)):
             os.remove(os.path.join(d, sock))
+    # Memory: the test machine's WSL VM (15 GB) runs several of these at once (installer/tests/run-chain.sh), and WSL
+    # does not give its page cache back to Windows. cache=none keeps the disk image out of the host's page cache (the
+    # guest caches it anyway); the balloon's free page reporting hands the pages a guest frees back to the host.
+    # VMTEST_HOST_CACHE=1 restores QEMU's default cache mode, for a disk on a file system without O_DIRECT.
+    drive_cache = "" if os.environ.get("VMTEST_HOST_CACHE") == "1" else ",cache=none"
     cmd = ["qemu-system-x86_64", "-enable-kvm", "-cpu", "host", "-smp", "2", "-m", str(a.mem), "-machine", "q35",
-           "-drive", f"file={disk},if=virtio", "-vga", "std", "-display", "none",
+           "-drive", f"file={disk},if=virtio{drive_cache}", "-vga", "std", "-display", "none",
            "-nic", "user,model=virtio-net-pci", "-device", "qemu-xhci", "-device", "usb-tablet",
            "-qmp", f"unix:{d}/qmp.sock,server,nowait",
            "-serial", f"unix:{d}/serial.sock,server,nowait",
            # textsetup gives the installed system a serial login only on machines with this mark
            "-fw_cfg", "name=opt/org.wineexplorer/serial-login,string=1",
            "-drive", "if=none,id=cd,media=cdrom" + (f",file={a.iso}" if a.iso else ""),
-           "-device", "ide-cd,drive=cd,bus=ide.1,id=cdrom", "-boot", "order=dc" if a.iso else "order=c"]
+           "-device", "ide-cd,drive=cd,bus=ide.1,id=cdrom", "-boot", "order=dc" if a.iso else "order=c",
+           # last, so the devices before it keep the PCI addresses the installed disks were set up with
+           "-device", "virtio-balloon-pci,free-page-reporting=on"]
     if a.efi:
         cmd += ["-bios", "/usr/share/ovmf/OVMF.fd"]
     # more QEMU arguments for one test, for example a second network card (installer/tests/ad/machine.sh)
@@ -285,6 +292,24 @@ def serial(name, user, pwfile, command, timeout):
     send("stty echo")
     return int(m.group(1)) if m else 124
 
+def listen(name, seconds):
+    """What the guest writes to its first serial port during SECONDS, sending nothing (Debugging Mode's output)."""
+    s = socket.socket(socket.AF_UNIX)
+    s.connect(os.path.join(state(name), "serial.sock"))
+    s.settimeout(0.3)
+    buf = b""
+    end = time.time() + seconds
+    while time.time() < end:
+        try:
+            data = s.recv(65536)
+        except socket.timeout:
+            continue
+        if not data:
+            break
+        buf += data
+    s.close()
+    return buf.decode(errors="replace").replace("\r", "")
+
 def main():
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="op", required=True)
@@ -313,6 +338,7 @@ def main():
     s = sub.add_parser("wait"); s.add_argument("name"); s.add_argument("text"); s.add_argument("--timeout", type=float, default=120)
     s = sub.add_parser("sh"); s.add_argument("name"); s.add_argument("user"); s.add_argument("pwfile"); s.add_argument("command")
     s.add_argument("--timeout", type=float, default=60)
+    s = sub.add_parser("listen"); s.add_argument("name"); s.add_argument("seconds", type=float)
     a = p.parse_args()
 
     if a.op == "start":
@@ -364,6 +390,8 @@ def main():
         sys.exit(f"timeout waiting for {a.text!r}")
     elif a.op == "sh":
         sys.exit(serial(a.name, a.user, a.pwfile, a.command, a.timeout))
+    elif a.op == "listen":
+        print(listen(a.name, a.seconds), end="")
 
 if __name__ == "__main__":
     main()

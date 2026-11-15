@@ -1,0 +1,47 @@
+Windows Registry Editor Version 5.00
+
+; SPDX-License-Identifier: GPL-2.0-or-later
+; Copyright 2026 WineExplorer contributors
+; lab: registers the XAML probe classes to the activation proxy in C:\xamlshim
+[HKEY_LOCAL_MACHINE\Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.UI.Xaml.Application]
+"DllPath"="C:\\xamlshim\\xamlproxy.dll"
+"ActivationType"=dword:00000000
+"Threading"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.UI.Xaml.Window]
+"DllPath"="C:\\xamlshim\\xamlproxy.dll"
+"ActivationType"=dword:00000000
+"Threading"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.UI.Xaml.Controls.Frame]
+"DllPath"="C:\\xamlshim\\xamlproxy.dll"
+"ActivationType"=dword:00000000
+"Threading"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.UI.Xaml.Controls.Page]
+"DllPath"="C:\\xamlshim\\xamlproxy.dll"
+"ActivationType"=dword:00000000
+"Threading"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.UI.Xaml.DispatcherTimer]
+"DllPath"="C:\\xamlshim\\xamlproxy.dll"
+"ActivationType"=dword:00000000
+"Threading"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.UI.Xaml.Controls.StackPanel]
+"DllPath"="C:\\xamlshim\\xamlproxy.dll"
+"ActivationType"=dword:00000000
+"Threading"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.UI.Xaml.Controls.TextBlock]
+"DllPath"="C:\\xamlshim\\xamlproxy.dll"
+"ActivationType"=dword:00000000
+"Threading"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.UI.Xaml.Controls.Button]
+"DllPath"="C:\\xamlshim\\xamlproxy.dll"
+"ActivationType"=dword:00000000
+"Threading"=dword:00000000
+
+[HKEY_LOCAL_MACHINE\Software\WineExplorer\XamlComponent]
+"Path"="C:\\xamlshim"

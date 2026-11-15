@@ -1,0 +1,9 @@
+<!--
+SPDX-License-Identifier: GPL-2.0-or-later
+Copyright 2026 WineExplorer contributors
+-->
+<Page x:Class="XamlProbe.SecondPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <TextBlock x:Name="Note" Text="Second page" Margin="24" />
+</Page>

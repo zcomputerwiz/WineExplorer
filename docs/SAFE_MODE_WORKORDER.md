@@ -10,7 +10,7 @@ only loader: the GRUB parts below (the F8 entry, its start record, the VM test's
 (2026-11-11), and so are C6 with the recovery console's shape, C3 for Wayland, D2, A4 and B5. B8's merge is done
 (2026-11-12: Wine `development` and WineExplorer `master` at `995a2712`). D5 is done (2026-11-12, Startup and
 Recovery), and so is C4's classic logon dialog, which also ends C7 (2026-11-12). Open: E1's RID 500 and
-`wex-is-admin` for the Administrator account (C4, queued on the E1 side), D4. D1's Safe Mode choice on a generation's last try works since Vintner Boot
+`wex-is-admin` for the Administrator account (C4, queued on the E1 side). D4 is done (2026-11-14). D1's Safe Mode choice on a generation's last try works since Vintner Boot
 `f3193a55` (`next-boot variant --generation`, pinned 2026-11-11; `docs/VINTNER_BOOT.md`).  
 Branches:
 
@@ -632,8 +632,13 @@ needs no loader.
 - Under GRUB both behaved as before, until the GRUB path was removed (2026-11-11).
 - Tested on both firmwares (`docs/SAFE_MODE.md` section 6).
 
-**D4. Debugging Mode.** Today it raises the service manager's log level only. Consider sending kernel messages to
-the first serial port as well, which is closer to XP's kernel debugger on COM1. Low priority.
+**D4. Debugging Mode.** Done 2026-11-14. XP starts its kernel debugger on a serial port; here, for that start,
+the service manager logs at debug level and the journal (the kernel's messages and every service's, at debug level)
+goes to the first serial port (`/dev/ttyS0`): a drop-in in `/run/systemd/journald.conf.d` (`ForwardToConsole=`,
+`TTYPath=`, `MaxLevelConsole=debug`), and journald restarted to read it. The next start has neither. While it lasts,
+the port carries the messages, so a serial logon on it is not usable, as XP's debug port is the debugger's. A
+machine without the port gets the debug log level only. XP's port and speed were not measured. Lines at debug level
+carry journald's colour codes (grey). The `debugmode` VM phase reads the port without logging on.
 
 **D5. Startup and Recovery in sysdm.cpl** (`docs/VINTNER_BOOT.md` section 4.6). Done 2026-11-12. System
 Properties > Advanced > Startup and Recovery opens XP's dialog (after ReactOS's `IDD_STARTUPRECOVERY`,

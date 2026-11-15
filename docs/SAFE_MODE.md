@@ -279,7 +279,7 @@ stay three and one rows above the bottom, where XP has them.
 | Enable VGA Mode | Normal start at 640x480 with the display driver it has, as XP's (work order D2, 2026-11-11). The menu records the option in `/run/wineexplorer/bootoption` (`wex-bootmode --option` reads it), and the greeter and both sessions start at 640x480 as in Safe Mode (`xrandr`, or `WEX_OUTPUT_MODE` for `wexcomp`). The session skips the account's saved display mode, so a mode chosen in Display Properties then replaces it. The next normal start has its saved mode again. Not a basic driver: a broken graphics driver needs Safe Mode or the Recovery Console |
 | Last Known Good Configuration | Normal start with the machine registry's control set from the last start that counted (work order D3; below). With Vintner Boot, from a generation that has not started successfully: a restart into the previous good generation as well. Grayed until one start after Setup has counted, or a previous good generation exists |
 | Directory Services Restore Mode | Grayed: does not apply |
-| Debugging Mode | Normal start with the service manager logging at debug level |
+| Debugging Mode | Normal start with the service manager logging at debug level and the journal (kernel and services, debug level) on the first serial port, this start only (work order D4) |
 | Disable automatic restart on system failure | Normal start with `kernel.panic=0`, and systemd's `CrashAction=freeze` (a drop-in in `/run/systemd/system.conf.d` that sorts after Startup and Recovery's), for this start only |
 | Start WineExplorer Normally | Normal start, straight away |
 | Reboot | Restart |
@@ -380,7 +380,7 @@ classic.
 
 ## 6. Tests
 
-`scripts/test_safemode.py` (148 tests, Linux) covers:
+`scripts/test_safemode.py` (151 tests, Linux) covers:
 
 - the end of Plymouth: asking until it is gone, each request with a time limit, then ending a plymouthd that
   lingers or does not answer; and the unit without a terminal that does it before the menu's and the failure
@@ -417,7 +417,17 @@ classic.
 - Last Known Good: which starts save the control set, that only the control set is saved and put back (with
   continuation lines, and not a key that merely starts with the same name), that the rest of the registry and the
   file's mode are kept, a restore with no copy, and the item in the menu and on the failure screen;
-- that the VM test installs the Safe Mode files where the package does.
+- that the VM test installs the Safe Mode files where the package does;
+- the chain harness: `run-chain.sh`'s stages are phases of the VM test and it runs the test from its copy of the
+  checkout, at most `-j` jobs at once; both tests that connect a disk take the NBD device under one lock
+  (`nbd-connect.sh`); and `build-test-iso.sh` rebuilds Wine only when Wine or the assembled sources changed.
+
+The whole chain (install, then every stage below on both firmwares) runs with one command:
+`installer/tests/run-chain.sh --iso FILE.iso NAME` in WSL Debian as root, after an ISO of a commit from
+`installer/tests/build-test-iso.sh REV NAME` in wexbuild (usage in `docs/TOOLING.md`). Its stages are `defaults`
+(the phases run when none is named), `accounts`, `classic`, `rundialog`, `wayland` (`waylanddisplay`,
+`waylandsafe`, `waylandcmd`) and `startrec`, each on its own overlay of the installed disk, so they run side by side
+(three VMs at once by default).
 
 `installer/tests/safe-mode.sh` is the VM test (usage in `docs/TOOLING.md`). It boots a copy-on-write overlay of an
 installed test disk once per phase, opening Vintner Boot's menu (Shift held on BIOS, F8 on UEFI) and choosing the
@@ -443,6 +453,7 @@ MountMgr, NDIS and nsiproxy, and, in Safe Mode, the error from starting the spoo
 | `safecmd` | The Welcome screen; the recovery console after logging on, 80 columns by 30 rows or more (its terminal's size, read over the serial console; images whose console predates C6's shape are reported), and no wineserver; then the probes, started with `wine` from the serial console as from the recovery console (output to a file): 1, `UseAlternateShell` 1, the services as in `safe` |
 | `nowine` | Safe Mode with Command Prompt with `/usr/local/bin/wine` hidden for the boot: the GTK greeter takes over, black (its bottom left pixel) and at 640x480 on images that have its drop-in (A4), and logging on still starts the recovery console |
 | `bootlog` | Normal start with automatic logon; `ntbtlog.txt` gains driver lines |
+| `debugmode` | Only when named. Debugging Mode: a normal start with automatic logon, and at least 5 journal lines on the first serial port in 20 seconds, read without logging on (`vmtest.py listen`); the next ordinary start has no journal drop-in and its serial logon works |
 | `vga` | Only when named. With a 1024x768 display profile saved for the test account: Enable VGA Mode is a normal start with automatic logon at 640x480, with the start option `vga` recorded and the profile skipped. It counts, as on XP (2026-11-12): the start-up check finishes, the menu's record `/var/lib/wineexplorer/menu-start` is gone, and the saved control set is newer (read on the stopped disk). The next normal start is at 1024x768 |
 | `vgafailed` | Only when named. With LightDM held back 90 seconds, as for `vfailed`: Enable VGA Mode is recorded, then the Reset button before the logon screen. The next ordinary start shows the failure screen, though Vintner Boot counted no try for the variant; left to its countdown, that start counts and removes the record |
 | `startnormal` | Start WineExplorer Normally: automatic logon; timers, cron and NetworkManager active; the start-up check counts it (until 2026-11-12 it reported "not counted") |

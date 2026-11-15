@@ -16,6 +16,9 @@
 #   nowine       Safe Mode with Command Prompt with Wine missing: the GTK greeter takes over, and logging on still
 #                starts the recovery console (the test hides /usr/local/bin/wine for this boot only)
 #   bootlog      Enable Boot Logging: a normal start with automatic logon, and ntbtlog.txt gains driver lines
+#   debugmode    Debugging Mode (work order D4), only when named: a normal start with automatic logon, and the
+#                journal at debug level on the first serial port (read without logging on, since the messages take
+#                the port over); the next normal start sends none there and its serial logon works again
 #   vga          Enable VGA Mode (work order D2), with a 1024x768 display profile saved for the test account: a
 #                normal start with automatic logon at 640x480, the profile skipped; the next normal start restores
 #                it. It counts as on XP: the menu's record goes and the last known good configuration is saved.
@@ -163,7 +166,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|debugmode) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -198,6 +201,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 export VMTEST_DIR=${VMTEST_DIR:-/tmp/vmtest}
 V=(python3 "$REPO/scripts/vmtest.py")
+. "$HERE/nbd-connect.sh"
 SRC_DISK=$VMTEST_DIR/$SOURCE/disk.qcow2
 STATE=$VMTEST_DIR/$TEST
 OUT=$STATE/safe-mode
@@ -263,18 +267,8 @@ wait_off() {
 }
 
 attach() {   # attach ro|rw: connect the overlay and mount its root file system on $MNT
-    local entry part rootdev='' _
-    modprobe nbd max_part=16 || return 1
-    NBD=
-    for entry in /sys/block/nbd*; do
-        if [ ! -e "$entry/pid" ]; then NBD=/dev/${entry##*/}; break; fi
-    done
-    [ -n "$NBD" ] || { echo "no unused NBD device"; return 1; }
-    if [ "$1" = ro ]; then
-        qemu-nbd --read-only --connect "$NBD" "$STATE/disk.qcow2" || { NBD=; return 1; }
-    else
-        qemu-nbd --connect "$NBD" "$STATE/disk.qcow2" || { NBD=; return 1; }
-    fi
+    local part rootdev='' _
+    nbd_connect "$1" "$STATE/disk.qcow2" || return 1   # nbd-connect.sh: safe with other tests running
     udevadm settle 2>/dev/null || true
     for _ in $(seq 1 30); do
         for part in "$NBD"p*; do
@@ -437,7 +431,7 @@ move_down() {   # move_down N: N items down; a key the screen does not show is p
 # The Advanced Options menu's rows (scripts/wex-advanced-options.py, laid out as XP's, work order C5). The menu opens
 # on Start Normally and wraps round, so pressing Down until the highlight bar is on a row gets there whatever presses
 # were lost (one was, on OVMF, 2026-11-11). The bar's row comes from a screenshot (highlight-row.py).
-ROW_SAFE=4 ROW_SAFENET=5 ROW_SAFECMD=6 ROW_BOOTLOG=8 ROW_VGA=9 ROW_LASTGOOD=10 ROW_NORMALLY=15 ROW_OSCHOICES=17
+ROW_SAFE=4 ROW_SAFENET=5 ROW_SAFECMD=6 ROW_BOOTLOG=8 ROW_VGA=9 ROW_LASTGOOD=10 ROW_DEBUG=12 ROW_NORMALLY=15 ROW_OSCHOICES=17
 
 highlight_row() { "${V[@]}" shot "$TEST" >/dev/null 2>&1 && python3 "$HERE/highlight-row.py" "$STATE/screen.ppm"; }
 
@@ -1301,6 +1295,25 @@ phase_bootlog() {
     echo "  ntbtlog.txt driver lines: $before before, ${after:-none} after"
     [ -n "$after" ] && [ "$after" -gt "$before" ] || fail "ntbtlog.txt gained no driver lines"
     expect_session_mode normal
+    shutdown_vm
+}
+
+phase_debugmode() {   # work order D4: see the header
+    local out lines
+    menu_choice "$ROW_DEBUG" "Debugging Mode"
+    desktop 600
+    out=$("${V[@]}" listen "$TEST" 20)
+    printf '%s\n' "$out" > "$OUT/$PHASE-serial.txt"
+    # journald's forwarded lines: "[timestamp] unit[pid]: message", among them systemd's own at debug level
+    lines=$(grep -c -E '^\[ *[0-9]' <<< "$out")
+    echo "  serial port: $lines journal lines in 20 seconds"
+    [ "$lines" -ge 5 ] || { shot quiet; fail "Debugging Mode sent no journal to the serial port ($lines lines)"; }
+    shutdown_vm
+    start_vm   # the next ordinary start: the /run drop-in is gone with the start
+    desktop 600
+    out=$(gsh 'test -e /run/systemd/journald.conf.d/90-wineexplorer-debug.conf && echo present || echo absent')
+    case "$out" in *absent*) ;; *) fail "the next start still sends the journal to the serial port: $out" ;; esac
+    echo "  next start: no debug output on the serial port, and its logon works"
     shutdown_vm
 }
 
