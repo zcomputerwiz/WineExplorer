@@ -184,8 +184,8 @@ earlier U1 suites, `docs/STOCK_CHANGES.md` updated, push and merge coordinated w
   not shipped: a "UWP application frameworks" component downloads the pinned framework packages, shows their terms,
   verifies the hashes and registers them with `wexappx`. The UWP support in Wine itself is built in; the component only
   supplies the Microsoft frameworks. This keeps decision (2): no .NET runtime is added to Wine for XAML.
-  **Built (2026-11-14, `tests/uwp/frameworks`):** component `uwp-frameworks` (disabled until the licence documents are
-  chosen) installs the five from nuget.org and Visual Studio's payload catalog into `C:\Program Files\WindowsApps` and
+  **Built (2026-11-14, `tests/uwp/frameworks`):** component `uwp-frameworks` (enabled 2026-11-14 with three Microsoft
+  licence documents chosen by the owner) installs the five from nuget.org and Visual Studio's payload catalog into `C:\Program Files\WindowsApps` and
   the machine catalog, which Wine kernelbase (eba27020) reads; a package depending on them installs and resolves them on
   Wine. Open: .NET Native's `mrt100_app.dll` needs the Windows system DLL `mrt100.dll` (`GetManagedRuntimeService`,
   undocumented), and Wine's delay-load failure path passes a wrong name (Session 0).
