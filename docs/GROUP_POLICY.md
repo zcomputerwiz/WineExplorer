@@ -1,6 +1,6 @@
 # Group Policy and Linux GPO sync (design note)
 
-Surveyed on 2026-11-11. Status: steps 1 to 6 are implemented (see each step), gpupdate and gpresult are next. The Linux facts below were checked online on the
+Surveyed on 2026-11-11. Status: steps 1 to 7 are implemented (see each step); "Next" lists what is left. The Linux facts below were checked online on the
 same day (sources at the end); anything marked "unverified" was not. Reviewed on 2026-11-11 against the tree and the
 elevation work (E1): the Wine and ReactOS statements were rechecked, the Samba statements were not; the machine
 registry, the policy trees and the security-template parts were corrected. Roadmap entry: "Future: Group Policy and
@@ -347,15 +347,43 @@ Tested: the parser against a dump in that layout; the suite case `st_applied_gpo
 (64-bit and 32-bit programs, machine and user, per extension, a damaged list refused, the empty list). Not tested:
 `net ads gpo list` of the lab domain through the whole script.
 
+## Step 7: gpupdate and gpresult (2026-11-14)
+
+**gpupdate** (`src/programs/gpupdate`; XP's switches `/target:{computer|user}`, `/force`, `/wait:N`, `/logoff`,
+`/boot`, `/sync`). A user's program cannot start root's `wex-gpupdate.service`, so:
+
+1. `gpupdate` sends session 0's Group Policy service (`gpsvc`, `wexpolicy`) the user-defined control 128. The
+   service manager's default descriptor lets every authenticated user send user-defined controls (as on
+   Windows), and the session's service manager forwards the call to session 0's.
+2. `gpsvc` writes `C:\windows\system32\GroupPolicy\Refresh` in session 0's root.
+3. Root's `wex-gpupdate.path` (enabled with session 0 by `setup-machine-root.sh`, which adds a drop-in when the
+   machine root is not the default) starts `wex-gpupdate.service`. systemd's start limits bound how often users
+   can make it run.
+4. Every run of `wex-gpupdate.sh` ends with `wexpolicy refreshed`, also on a machine that is not joined, which
+   raises `Refreshed` under `HKLM\...\Group Policy\WineExplorer Applied`. `gpupdate` waits for it (600 seconds by
+   default) and prints "Computer Policy Refresh has completed." and "User Policy Refresh has completed." (XP's
+   wording as remembered, unverified; the research found only the Vista and later wording).
+
+One run refreshes the machine and every user, and always with `--force`: `/target` only chooses the lines
+printed, `/force` changes nothing. Nothing here needs a restart or a logoff.
+
+**gpresult** (`src/programs/gpresult`; `/SCOPE`, `/USER`, `/V`, `/Z`; `/S` is refused). XP's layout: the header
+`RSOP data for DOMAIN\user on COMPUTER : Logging Mode`, the OS and domain lines (from
+`DsRoleGetPrimaryDomainInformation` and `ProductName`), then `COMPUTER SETTINGS` and `USER SETTINGS` with
+`Applied Group Policy Objects`: the objects of every known extension (registry, security, scripts) from
+`GetAppliedGPOList`, merged in application order. `/V` adds each object's GUID and its extensions. Not shown:
+the computer's and user's directory names, the controller (Samba does not record it; the domain is shown), the
+filtered-out objects, security groups and the settings themselves.
+
+Tested in the suite: `st_gpupdate_asks_session0_and_waits_for_the_refresh` (the request reaches session 0's root,
+gpupdate waits for and reports the refresh, `/wait:0`, usage, a user cannot say a refresh is done); gpresult in
+`st_applied_gpo_list_per_extension_for_machine_and_user`. Not tested: the path unit and the whole loop on an
+installed machine of the lab domain (`installer/tests/ad/machine.sh` can take it next).
+
 ## Next
 
-- `gpupdate`: a user's program cannot start root's `wex-gpupdate.service`. Plan: `gpupdate.exe` asks session 0's
-  `gpsvc`, which leaves a request in the machine root that a systemd path unit turns into a run of
-  `wex-gpupdate.service` (rate-limited by systemd); `gpupdate` waits for the serial numbers of step 3. Messages as
-  XP's (believed to be "Refreshing Policy..." and "User Policy Refresh has completed."; unverified: the research
-  found only the Vista and later wording, "Updating policy..." and "... update has completed successfully.").
-- `gpresult` over the History tree and the join state, in XP's layout (`RSOP data for ...`, `COMPUTER SETTINGS`,
-  `Applied Group Policy Objects`).
+- `installer/tests/ad/machine.sh`: gpupdate as an installed user, the security template made with
+  `samba-tool gpo manage security set`, the applied list of the lab domain in gpresult.
 - The Windows Server evaluation controller: Microsoft's Evaluation Center requires a registration form with
   personal details for the ISO, so per the owner's condition the lab stays on Samba AD.
 
