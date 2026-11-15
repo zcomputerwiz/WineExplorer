@@ -15,6 +15,7 @@ C=/root/wex-gpo-lab-src/$(basename "$D")
 rm -rf "$C"
 mkdir -p "$C/installer/tests" "$C/scripts"
 cp -a "$D/installer/tests/ad" "$C/installer/tests/ad"
+cp -a "$D/installer/scripts" "$C/installer/scripts"
 cp -a "$D/scripts/lab" "$C/scripts/lab"
 find "$C" -type f \( -name '*.sh' -o -name '*.py' \) -exec sed -i 's/\r$//' {} +
 exec bash "$C/installer/tests/ad/gpo-lab.sh" "$@"

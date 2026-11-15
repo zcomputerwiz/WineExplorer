@@ -52,6 +52,7 @@ wsl.exe -d Debian -u root --exec bash -c 'T=/mnt/d/DeepThought/Projects/<worktre
 | `fixtures` | make or update the OU, the user and the two objects |
 | `check` | print the links, extension names, versions, SYSVOL files and the template as Samba reads it |
 | `member` | the plain Debian member: joins and checks the join detection |
+| `parse` | on the member: `wex-gpupdate.sh`'s reading of the real `net ads gpo list` (`parse-guest.sh`), for the machine and for `wexuser1` |
 | `machine SOURCE_VM [TEST_VM]` | Group Policy end to end on an installed machine (`machine.sh`), in the distribution with the disk |
 | `status`, `down`, `ssh CMD` | which guests run and what the domain holds; stop them; a command on the controller |
 
@@ -70,6 +71,12 @@ On an image without steps 5 to 7 (no `wex-gpupdate.path`) these are skipped with
 ## State (2026-11-14)
 
 - The controller and the fixtures: made and checked (`check`) on 2026-11-14.
+- `parse` passed on 2026-11-14 against Samba 4.17 (Debian 12). What the real output showed: Samba lists its own
+  "Local Policy" first (not a GUID, no paths; its `link_type` 5 has no name, so the next label follows on the same
+  line), which the parser skips; the domain's objects follow newest link first ("WexLab Domain", "WexLab",
+  "Default Domain Policy"), and `wex-gpupdate.sh` applies them in that order, so the Default Domain Policy is
+  applied last. Whether Windows applies links of one container in the same order is unverified; with the
+  Windows Server controller out of reach, the next check is Microsoft's documentation of link order.
 - `machine` with the new checks: not run yet. It needs an ISO from `claude/group-policy`, which needs the
   wexbuild runner (shared with the other sessions) for a build, `package-wine.sh` with `WEX_SESSION0=1`,
   `build-iso.sh` and an unattended install.

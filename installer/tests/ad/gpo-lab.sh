@@ -7,6 +7,7 @@
 #   gpo-lab.sh fixtures           make or update the OU, the domain user and the two test objects on the controller
 #   gpo-lab.sh check              show what the fixtures made (links, extension names, files, the template)
 #   gpo-lab.sh member             a plain Debian member that joins and checks the join detection (client-create.sh)
+#   gpo-lab.sh parse              on the member: wex-gpupdate.sh's reading of the real "net ads gpo list"
 #   gpo-lab.sh machine SOURCE_VM [TEST_VM]
 #                                 Group Policy end to end on an installed WineExplorer machine (machine.sh; run
 #                                 where the installed disks are, with VMTEST_DIR)
@@ -59,6 +60,11 @@ check)
     dc 'bash /root/fixtures-check.sh' ;;
 member)
     bash "$HERE/client-create.sh" ;;
+parse)
+    # wex-gpupdate.sh's reading of "net ads gpo list" against the real thing, on the member (running, joined)
+    lab_scp_member() { scp -q -i "$LAB/lab_key" -P 2242 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "$@"; }
+    lab_scp_member "$REPO/installer/scripts/wex-gpupdate.sh" "$HERE/parse-guest.sh" root@127.0.0.1:/root/
+    bash "$HERE/client-create.sh" ssh 'bash /root/parse-guest.sh' ;;
 machine)
     shift
     bash "$HERE/machine.sh" "$@" ;;
