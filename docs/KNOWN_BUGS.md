@@ -15,6 +15,7 @@ who reported it, where it shows, what is known, the state.
 | B10 | Edge 156.0.4314.58 (enterprise MSI) on the stock image (master 3a08b9b7): install works (msiexec 0, EdgeUpdate service), headless rendering works in a user prefix, but the windowed browser dies before any window: ACCESS_VIOLATION reading 0xb0 at msedge.dll+0x2f431fa, same with `--no-sandbox --disable-gpu`. Just before: `app_bound_encryption_provider_win.cc:124` "Unable to encrypt key (0x80040155)" (REGDB_E_IIDNOTREG from the elevation service's COM call, an RPC fault packet), class `{aa509086-5ca9-4c25-8f95-589d3c07b48a}` not registered (local server), `WSALookupServiceBegin` failed with 8, WinRT EducationSettings and PenDevice without a library. Edge worked windowed on 2026-11-01 on the lab build (own labwc, VirGL) | Integration session, 2026-11-14 | for the Edge/Chromium track. The system tier part: 0x80040155 is an interface not registered for marshalling, i.e. the Edge elevation service's interface (a COM local server in a service) has no proxy/stub or type library registration that the caller sees; with session 0, services and the caller are in different servers, so check where the per-machine install registered it |
 | B11 | `scripts/wex-components.py` maintains the machine root by running Wine as root on it (its own wineserver, `wineserver -w` for idleness), and has no notion of session 0. On an image with session 0, session 0's wineserver (another uid) also holds the machine hive: two servers load and save `system.reg`, so a component's registry changes (vcrun2022, d3dcompiler, the coming uwp-xaml) can be lost when session 0 saves, or session 0's changes lost when root's server saves | system tier session (review of the XAML component), 2026-11-14 | to do (system tier). Decided by the owner: the registry writes go THROUGH session 0 (rule in `SYSTEM_TIER_WORK_ORDERS.md`, "every write to the machine registry goes through session 0"), not by stopping session 0. Not a blocker while session 0 is opt-in; required before session 0 is on by default |
 | B12 | The installed system's own host name does not resolve: setup (and sysdm.cpl's Computer Name tab) set it through wexhost `WexHostnameSet` (hostname1 `SetStaticHostname`) and `/etc/hostname`, but `/etc/hosts` keeps the live image's `127.0.0.1 localhost debian`, so `hostname -f` fails and sudo warns "unable to resolve host WEX-PC". Not the cause of B10 (tested) | Integration session, 2026-11-14 | Fix that also covers later renames: add `libnss-myhostname` to `installer/live-build/config/package-lists/wineexplorer.list.chroot` (its postinst adds `myhostname` to the hosts line of nsswitch.conf). **Fixed** on `claude/vintner-boot-integration` 7fe233da (Integration session, 2026-11-14): the package, plus checks in `installer/tests/install-unattended.sh` and `scripts/test_safemode.py`; zero-input install and accounts pass on BIOS and UEFI. Lands on `master` with the next merge |
+| B13 | `SystemTimeToTzSpecificLocalTimeEx` and `TzSpecificLocalTimeToSystemTimeEx` are stubs in kernelbase (and absent from kernel32), so callers with a `DYNAMIC_TIME_ZONE_INFORMATION` fall back to the non-Ex functions | UWP session (windows.globalization Calendar), 2026-11-14 | Written on `claude/wine-reuse`: the year's rules from `GetTimeZoneInformationForYear`, then the existing conversion; a zone without a key name (or with dynamic daylight time disabled) keeps its own rules. Test in `kernel32/tests/time.c` |
 | B8 | `msiexec /qb` shows no progress window (`fixme:msi:internal_ui_handler internal UI not implemented for message 0x0b000000 (UI level = 3)`); XP shows a basic progress dialog | Integration session, 2026-11-14 | to do in `dlls/msi` (basic UI) |
 | B9 | `RoGetActivationFactory` finds no library for `Windows.System.Profile.PlatformDiagnosticsAndUsageDataSettings`, `Windows.System.UserProfile.AssignedAccessSettings`, `Windows.Internal.System.Profile.RegionPolicyEvaluator`, `Windows.System.Diagnostics.Telemetry.PlatformTelemetryClient` (noise, not blocking) | Integration session, 2026-11-14 | not blocking; the UWP session leaves it until after its XAML start-up work (small: statics returning defaults); whoever finds it blocks Copilot takes it |
 | B4 | A per-machine MSI run by an administrator from the desktop fails silently (exit 1627, empty `/l*v` log, no message) | Integration session, 2026-11-14 | analysed; owner chose the consent prompt for administrators; see below |
@@ -96,6 +97,32 @@ Looked into 2026-11-14 (the COM part only; the windowed crash itself is the Edge
   `XMODIFIERS=@im=ibus`). The dump every working WSL run leaves is Crashpad's "dump without crash" (code
   `0x517a7ed`), not a crash. Asked of the Integration session: the session's environment, locale, keyboard layout,
   input method and window manager, and a guest crash dump to walk with the symbols.
+- Environment ruled out (Integration session, 7fe233da): fresh wineservers with `env -i` and anything from a minimal
+  set to the full session set (D-Bus, XDG, desktop names, `WEXMODE`) all crash; en_US.UTF-8, us/pc105, no input
+  method. The guest's Crashpad dump holds no memory (empty stack descriptor and memory list), only the context:
+  `rdx=1`/`rbx=1` (activation = true), `rax=rcx=0` (the null member). The guest loads the same extra modules as
+  working WSL runs (oneauth, Kerberos, MSV1_0, jsproxy, windows.ui, msctf). In WSL, Wine's virtual desktop
+  (`explorer /desktop`) starts Edge too. Next: a frame list from `WINEDEBUG=+seh,+unwind` in the guest, symbolized
+  here, and `--disable-extensions` as a possible workaround (asked of the Integration session).
+- **Cause found (2026-11-14): Edge's first-run experience.** Integration session: `--no-first-run`, or Edge's
+  policy `HKLM\Software\Policies\Microsoft\Edge\HideFirstRunExperience=1` (REG_DWORD), makes Edge start in the
+  guest; every WSL test had passed `--no-first-run`. Without it, WSL crashes identically
+  (`unsloth-tmp/edge-prefix-test.sh` with `EDGE_FRE=1`).
+- Full stack (an injected vectored handler walking the faulting context, `unsloth-tmp/b10trace/`, symbolized):
+  `Browser::Browser` → `BrowserWindow::CreateBrowserWindow` → `BrowserWidget::InitBrowserWidget` →
+  `views::Widget::Init` → `SendMessageW(WM_SYSCOMMAND, SC_MAXIMIZE)` (the first-run window starts maximized) →
+  `HWNDMessageHandler::OnSysCommand` → `DefWindowProcW` → the hidden window is shown and activated →
+  `WM_ACTIVATE` → `HWNDMessageHandler::PostProcessActivateMessage` → `BrowserView::OnWidgetActivationChanged` →
+  `ExtensionKeybindingRegistryViews::OnHostActivationChanged` on a registry the unfinished `Browser` has not made.
+- Wine's part is not the activation: a probe (`b10trace/scmax.c`) shows Windows 11 and Wine both show, activate
+  and focus a hidden window synchronously on `DefWindowProc(WM_SYSCOMMAND, SC_MAXIMIZE)` (Wine adds one extra
+  `WM_SIZE`). The difference is earlier: a WinEvent probe (`b10trace/evtprobe.c`) on Windows (Edge 157, fresh
+  profile) shows Edge first creating and showing a full-screen modal first-run popup (style `0x86000000`) that
+  takes the foreground, then the main frame maximized but hidden and disabled under it; under Wine the popup is
+  never created, the main frame is shown and activated at once, and Edge's own code activates a half-built
+  browser. Not the cause: the Windows version Wine reports (win11 crashes too), the screen size (2560x1440
+  crashes too). Open: why Edge skips its modal first-run dialog under Wine.
+- Workaround: the `HideFirstRunExperience` policy (side effect: Edge shows "managed by your organization").
 - Left: other differences between the guest and WSL (a real kernel with its own devices: PCI, network, audio,
   input, `/proc/cpuinfo` and `/sys` layout), or naming the crashing function with Microsoft's public symbols for
   `msedge.dll` (a download from Microsoft's symbol server, needs the owner's OK).
