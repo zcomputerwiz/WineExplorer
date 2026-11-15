@@ -125,6 +125,9 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   `registry.c`: a user's server accepts machine hives owned by the `session0_user` account.
 - `server/registry.c` (T2a): session 0 saves a key's own security descriptor as an `#sd=` line (hex); every server loads such a line.
 
+- Domain logon WO 1 (`docs/DOMAIN_LOGON.md`): `server/accounts.c` reads accounts map version 2 (the joined domain
+  in the header, `local`/`domain` records; `docs/E1_S4_ACCOUNTS_MAP.md`); lookups and `accounts_own_sid` take a
+  record's SID from the record, so a domain account's SID is the domain's.
 - T4-0: `server/accounts.c`, `accounts.h` (`accounts_own_sid`), `token.c`, `security.h`
   (`security_init_server_user`, `security_server_user_sid`; `security_unix_uid_to_sid` returns it),
   `registry.c` (HKCU path, user key descriptor, the managed-profile self check), `main.c`: with session 0 a

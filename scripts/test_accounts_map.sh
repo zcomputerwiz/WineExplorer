@@ -343,4 +343,235 @@ chmod 0644 "$B5/sysrun.conf"
 expect_admin 0 "${ISA[@]}" alice
 # The production build has no fixture options: they are just extra arguments.
 expect_admin 2 "$FIXTURE/is-admin" --directory "$B5" alice
+
+# ---- Domain accounts, map version 2 (docs/DOMAIN_LOGON.md, WO 1) ----
+# A fake Winbind: wbinfo answers from files in $WB (own-domain, domain SID, users, ping); NSS knows the domain
+# users from a second passwd file that /etc/passwd (the local enumeration) does not have.
+D2="$FIXTURE/d2"; WB="$FIXTURE/wb"
+mkdir -m 0755 "$D2" "$WB"
+printf 'group=wexsys\nadmin_group=sudo\n' > "$D2/sysrun.conf"; chmod 0644 "$D2/sysrun.conf"
+printf 'wexsys:x:19999:\nsudo:x:2000:\nusers:x:2001:\n' > "$FIXTURE/d2.group"
+printf 'bob:x:1001:2001::/home/bob:/bin/sh\nalice:x:1002:2001::/home/alice:/bin/sh\n' > "$FIXTURE/d2.passwd"
+cat > "$FIXTURE/d2.winbind" <<'EOF'
+WEXLAB\wexuser1:x:21104:20513::/home/WEXLAB/wexuser1:/bin/bash
+WEXLAB\wexuser2:x:21105:20513::/home/WEXLAB/wexuser2:/bin/bash
+WEXLAB\nologin:x:21106:20513::/home/WEXLAB/nologin:/bin/false
+WEXLAB\lowuid:x:900:20513::/home/WEXLAB/lowuid:/bin/bash
+WEXLAB\clash:x:1002:20513::/home/WEXLAB/clash:/bin/bash
+WEXLAB\group1:x:21107:20513::/home/WEXLAB/group1:/bin/bash
+WEXLAB\foreign:x:21108:20513::/home/WEXLAB/foreign:/bin/bash
+OTHER\x:x:22000:20513::/home/OTHER/x:/bin/bash
+EOF
+echo WEXLAB > "$WB/own-domain"
+echo 'S-1-5-21-111-222-333' > "$WB/domain-sid"
+cat > "$WB/users" <<'EOF'
+WEXLAB\wexuser1 S-1-5-21-111-222-333-1104 SID_USER (1)
+WEXLAB\wexuser2 S-1-5-21-111-222-333-1105 SID_USER (1)
+WEXLAB\nologin S-1-5-21-111-222-333-1106 SID_USER (1)
+WEXLAB\lowuid S-1-5-21-111-222-333-1107 SID_USER (1)
+WEXLAB\clash S-1-5-21-111-222-333-1108 SID_USER (1)
+WEXLAB\group1 S-1-5-21-111-222-333-1109 SID_DOM_GROUP (2)
+WEXLAB\foreign S-1-5-21-9-9-9-1110 SID_USER (1)
+EOF
+touch "$WB/ping"
+cat > "$FIXTURE/wbinfo" <<EOF
+#!/bin/sh
+W="$WB"
+case "\$1" in
+--own-domain) [ -s "\$W/own-domain" ] && cat "\$W/own-domain" ;;
+-D) [ "\$2" = "\$(cat "\$W/own-domain")" ] || exit 1
+    printf 'Name              : %s\nAlt_Name          : ad.wexlab.example\nSID               : %s\n' "\$2" "\$(cat "\$W/domain-sid")" ;;
+--name-to-sid)
+    # Samba's own words (4.17, from the GPO lab): Winbind or the controller unavailable, or no such name
+    [ ! -e "\$W/hang" ] || sleep 30
+    if [ -e "\$W/transient" ]; then echo 'failed to call wbcLookupName: WBC_ERR_WINBIND_NOT_AVAILABLE' >&2; exit 1; fi
+    N="\$2" awk '\$1 == ENVIRON["N"] { \$1 = ""; sub(/^ /, ""); print; f = 1 } END { exit !f }' "\$W/users" && exit 0
+    printf 'failed to call wbcLookupName: WBC_ERR_DOMAIN_NOT_FOUND\nCould not lookup name %s\n' "\$2" >&2; exit 1 ;;
+--ping-dc) [ -e "\$W/ping" ] ;;
+*) exit 1 ;;
+esac
+EOF
+chmod 0755 "$FIXTURE/wbinfo"
+D2TOOL=("$FIXTURE/lab" --directory "$D2" --test-passwd "$FIXTURE/d2.passwd" --test-group "$FIXTURE/d2.group"
+        --test-winbind-passwd "$FIXTURE/d2.winbind" --test-wbinfo "$FIXTURE/wbinfo")
+D2MAP="$D2/accounts.map"
+admit() { env -i PAM_TYPE="${PAM_TYPE_OVERRIDE:-open_session}" PAM_USER="$1" "${D2TOOL[@]}" admit > "$FIXTURE/admit.log" 2>&1; }
+admit_ok() { admit "$1" || { cat "$FIXTURE/admit.log"; fail "admit $1"; }; }
+# a refusal with the status expected (so that a case is refused for its own reason), the map unchanged
+admit_refused()
+{
+    cp -p "$D2MAP" "$FIXTURE/d2.before"
+    if admit "$1"; then fail "admit $1 accepted ($2)"; fi
+    [ -z "${3:-}" ] || grep -q "FAIL status=$3 " "$FIXTURE/admit.log" || { cat "$FIXTURE/admit.log"; fail "admit $1: not status $3 ($2)"; }
+    cmp -s "$D2MAP" "$FIXTURE/d2.before" || fail "refused admit of $1 changed the map ($2)"
+}
+d2_lookup()
+{
+    local wanted="$1" query="$2" status=0
+    "${D2TOOL[@]}" lookup "$query" > "$FIXTURE/d2.lookup" || status=$?
+    [ "$status" -eq "$wanted" ] || { cat "$FIXTURE/d2.lookup"; fail "d2 lookup $query expected $wanted got $status"; }
+}
+d2_sync() { "${D2TOOL[@]}" sync "$@" > "$FIXTURE/d2.sync" 2>&1 || { cat "$FIXTURE/d2.sync"; fail "d2 sync $*"; }; }
+d2_gen() { awk 'NR == 1 {print $3}' "$D2MAP"; }
+
+d2_sync --initialize --legacy-user bob
+head -c 13 "$D2MAP" | grep -qx 'WEXACCOUNTS 1' || fail 'd2: a fresh map is not version 1'
+# admit takes nothing from its arguments and needs PAM's session or account step
+if env -i PAM_TYPE=open_session "${D2TOOL[@]}" admit 'WEXLAB\wexuser1' > /dev/null 2>&1; then fail 'admit took a name argument'; fi
+if env -i PAM_USER='WEXLAB\wexuser1' "${D2TOOL[@]}" admit > /dev/null 2>&1; then fail 'admit without PAM_TYPE'; fi
+PAM_TYPE_OVERRIDE=auth admit_refused 'WEXLAB\wexuser1' 'auth step'
+# a local user is sync's business: nothing changes
+cp -p "$D2MAP" "$FIXTURE/d2.v1"
+admit_ok bob
+cmp -s "$D2MAP" "$FIXTURE/d2.v1" || fail 'admit of a local user changed the map'
+# the first domain user: the map becomes version 2 with the domain in its header
+admit_ok 'WEXLAB\wexuser1'
+head -1 "$D2MAP" | grep -q '^WEXACCOUNTS 2 .* 111 222 333 WEXLAB$' || { head -1 "$D2MAP"; fail 'd2: version 2 header'; }
+grep -q '^WEXLAB\\wexuser1 21104 [0-9a-f]\{32\} active domain 21 111 222 333 1104$' "$D2MAP" || { cat "$D2MAP"; fail 'd2: domain record'; }
+grep -q '^bob 1001 [0-9a-f]\{32\} active local 21 0 0 0 1000$' "$D2MAP" || fail 'd2: the legacy record in version 2'
+d2_lookup 0 'WEXLAB\wexuser1'
+grep -q 'name=WEXLAB\\wexuser1 uid=21104 .*sid=S-1-5-21-111-222-333-1104$' "$FIXTURE/d2.lookup" || { cat "$FIXTURE/d2.lookup"; fail 'd2: domain SID'; }
+d2_lookup 0 '#21104'
+d2_lookup 0 alice
+grep -q 'sid=S-1-5-21-111-222-333-' "$FIXTURE/d2.lookup" && fail 'd2: a local account got the domain SID'
+G="$(d2_gen)"
+admit_ok 'WEXLAB\wexuser1'
+[ "$(d2_gen)" = "$G" ] || fail 'd2: a second admit changed the map'
+# sync keeps the domain record (not in /etc/passwd) and changes nothing
+d2_sync
+[ "$(d2_gen)" = "$G" ] || { cat "$D2MAP"; fail 'd2: sync changed a map with a domain record'; }
+# refusals: each leaves the map as it was (fail closed)
+# statuses: 1 unknown, 3 NSS mismatch, 4 SID collision, 9 NSS error, 10 unsupported
+admit_refused 'WEXLAB\nologin' 'shell that cannot log on' 10
+admit_refused 'WEXLAB\lowuid' 'UID below 1000' 10
+# (NSS finds the local account for that UID, so the round trip already disagrees)
+admit_refused 'WEXLAB\clash' 'UID of a local account' 3
+admit_refused 'WEXLAB\group1' 'a group, not a user' 1
+admit_refused 'WEXLAB\foreign' 'SID of another domain' 10
+admit_refused 'OTHER\x' 'a domain the machine is not joined to' 10
+admit_refused 'WEXLAB\nosuch' 'unknown to NSS' 3
+admit_refused 'WEXLAB\a\b' 'malformed name' 3
+mv "$WB/own-domain" "$WB/own-domain.off"
+admit_refused 'WEXLAB\wexuser2' 'Winbind not answering' 9
+mv "$WB/own-domain.off" "$WB/own-domain"
+admit_ok 'WEXLAB\wexuser2'
+# the controller away: sync keeps every domain record, also one the domain has dropped
+sed -i '/wexuser2/d' "$WB/users"
+rm "$WB/ping"
+d2_sync
+grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: a record was retired while the controller was away'
+# the controller answers but a lookup fails (unavailable, or hangs past the 15 s limit): no tombstone, ever,
+# from an answer that is not definitive (review of WO 1, change 1)
+touch "$WB/ping" "$WB/transient"
+d2_sync
+grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: a transient Winbind error retired a record'
+rm "$WB/transient"; touch "$WB/hang"
+d2_sync
+grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: a Winbind timeout retired a record'
+rm "$WB/hang"
+# the controller back and answering: the dropped user becomes a tombstone, the other stays
+d2_sync
+grep -q '^WEXLAB\\wexuser2 .* tombstone domain ' "$D2MAP" || fail 'd2: a user the domain dropped stayed active'
+grep -q '^WEXLAB\\wexuser1 .* active domain ' "$D2MAP" || fail 'd2: a user the domain has was retired'
+d2_lookup 2 'WEXLAB\wexuser2'
+# the same SID is not given twice, not even to the account coming back
+echo 'WEXLAB\wexuser2 S-1-5-21-111-222-333-1105 SID_USER (1)' >> "$WB/users"
+admit_refused 'WEXLAB\wexuser2' 'SID of a tombstone' 4
+# restore (review of WO 1, change 3): root brings a wrongly retired account back, with its key, only when Winbind
+# confirms the same SID and NSS the same UID
+restore() { "${D2TOOL[@]}" restore "$1" > "$FIXTURE/restore.log" 2>&1; }
+restore_refused()
+{
+    cp -p "$D2MAP" "$FIXTURE/d2.before"
+    if restore "$1"; then fail "restore $1 accepted ($2)"; fi
+    grep -q "FAIL status=$3 " "$FIXTURE/restore.log" || { cat "$FIXTURE/restore.log"; fail "restore $1: not status $3 ($2)"; }
+    cmp -s "$D2MAP" "$FIXTURE/d2.before" || fail "refused restore of $1 changed the map ($2)"
+}
+KEY2="$(awk '$1 == "WEXLAB\\wexuser2" { print $3 }' "$D2MAP")"
+touch "$WB/transient"
+restore_refused 'WEXLAB\wexuser2' 'Winbind not answering' 9
+rm "$WB/transient"
+sed -i 's/^WEXLAB\\wexuser2 S-1-5-21-111-222-333-1105 /WEXLAB\\wexuser2 S-1-5-21-111-222-333-1199 /' "$WB/users"
+restore_refused 'WEXLAB\wexuser2' 'another RID now' 4
+sed -i 's/^WEXLAB\\wexuser2 S-1-5-21-111-222-333-1199 /WEXLAB\\wexuser2 S-1-5-21-111-222-333-1105 /' "$WB/users"
+sed -i 's/^WEXLAB\\wexuser2:x:21105:/WEXLAB\\wexuser2:x:21199:/' "$FIXTURE/d2.winbind"
+restore_refused 'WEXLAB\wexuser2' 'another UID now' 3
+sed -i 's/^WEXLAB\\wexuser2:x:21199:/WEXLAB\\wexuser2:x:21105:/' "$FIXTURE/d2.winbind"
+restore_refused 'WEXLAB\nosuchuser' 'no tombstone' 1
+restore_refused 'WEXLAB\wexuser1' 'already active' 3
+restore 'WEXLAB\wexuser2' || { cat "$FIXTURE/restore.log"; fail 'd2: restore'; }
+grep -q "^WEXLAB\\\\wexuser2 21105 $KEY2 active domain 21 111 222 333 1105\$" "$D2MAP" || { cat "$D2MAP"; fail 'd2: restored record (same key, active)'; }
+d2_lookup 0 'WEXLAB\wexuser2'
+[ "$(grep -c '^WEXLAB\\wexuser2 ' "$D2MAP")" = 1 ] || fail 'd2: restore added a record'
+# a logon with Winbind giving another joined domain refuses and changes nothing; only sync, with the controller
+# answering, moves the map to another domain (review of WO 1, change 2)
+printf 'NEWDOM\\nu:x:23000:20513::/home/NEWDOM/nu:/bin/bash\n' >> "$FIXTURE/d2.winbind"
+echo 'NEWDOM\nu S-1-5-21-444-555-666-1200 SID_USER (1)' >> "$WB/users"
+echo NEWDOM > "$WB/own-domain"; echo 'S-1-5-21-444-555-666' > "$WB/domain-sid"
+admit_refused 'NEWDOM\nu' 'Winbind gives another domain than the map at a logon' 9
+grep -q ' active domain ' "$D2MAP" || fail 'd2: a refused admit retired the domain records'
+echo WEXLAB > "$WB/own-domain"; echo 'S-1-5-21-111-222-333' > "$WB/domain-sid"
+# a local account that takes a domain account's UID wins it
+printf 'late:x:21104:2001::/home/late:/bin/sh\n' >> "$FIXTURE/d2.passwd"
+d2_sync
+grep -q '^WEXLAB\\wexuser1 .* tombstone domain ' "$D2MAP" || fail 'd2: a domain record kept a UID a local account has'
+sed -i '/^late:/d' "$FIXTURE/d2.passwd"
+d2_sync
+# a further user, active, for what follows; the map as it is now is the good one of the parser cases
+printf 'WEXLAB\\wexuser3:x:21111:20513::/home/WEXLAB/wexuser3:/bin/bash\n' >> "$FIXTURE/d2.winbind"
+echo 'WEXLAB\wexuser3 S-1-5-21-111-222-333-1111 SID_USER (1)' >> "$WB/users"
+admit_ok 'WEXLAB\wexuser3'
+d2_lookup 0 'WEXLAB\wexuser3'
+cp -p "$D2MAP" "$FIXTURE/d2.good"
+# another domain: the old domain's records become tombstones and the header follows
+echo NEWDOM > "$WB/own-domain"
+echo 'S-1-5-21-444-555-666' > "$WB/domain-sid"
+d2_sync
+head -1 "$D2MAP" | grep -q ' 444 555 666 NEWDOM$' || { head -1 "$D2MAP"; fail 'd2: header after a new domain'; }
+! grep -q ' active domain ' "$D2MAP" || fail 'd2: an old domain record stayed active'
+d2_lookup 2 'WEXLAB\wexuser3'
+d2_lookup 0 alice
+echo WEXLAB > "$WB/own-domain"; echo 'S-1-5-21-111-222-333' > "$WB/domain-sid"
+
+# The version 2 parser fails closed (condition 5): each damage makes every lookup fail; fuzz-style.
+cp -p "$FIXTURE/d2.good" "$D2MAP"
+d2_lookup 0 alice
+mutate()   # awk program applied to the good map; then alice must be refused with the status given
+{
+    local wanted="$1" program="$2"
+    awk "$program" "$FIXTURE/d2.good" > "$D2MAP"
+    d2_lookup "$wanted" alice
+    cp -p "$FIXTURE/d2.good" "$D2MAP"
+}
+mutate 7 'NR > 1 && $5 == "domain" { $5 = "remote" } { print }'                       # unknown kind
+mutate 7 'NR == 1 { NF = 10 } { print }'                                               # no domain name
+mutate 7 'NR == 1 { $8 = $5; $9 = $6; $10 = $7 } { print }'                            # domain = machine
+mutate 7 'NR > 1 && $1 == "alice" { $7 = 111; $8 = 222; $9 = 333 } { print }'          # local with a domain SID
+mutate 7 'NR > 1 && $5 == "domain" { $7 = 0; $8 = 0; $9 = 0 } { print }'                # domain record, zero SID
+mutate 7 'NR > 1 && $5 == "domain" { $2 = 900 } { print }'                             # domain UID below 1000
+mutate 7 'NR > 1 && $5 == "domain" { sub(/^WEXLAB\\/, "", $1) } { print }'              # domain name without domain
+mutate 7 'NR > 1 && $5 == "domain" { $4 = "active"; sub(/^WEXLAB/, "OTHER", $1) } { print }'   # active, other domain
+mutate 7 'NR > 1 { NF = 9 } { print }'                                                 # version 1 records in version 2
+mutate 7 'NR == 1 { $2 = 3 } { print }'                                                 # unknown version
+mutate 4 'NR > 1 && $5 == "domain" { r = $10 } { print } END { print "WEXLAB\\dup 23000 " sprintf("%032x", 7) " tombstone domain 21 111 222 333 " r }'
+# random single-field damage: never a crash, never a success with a changed map
+for n in $(seq 1 300); do
+    awk -v seed="$n" 'BEGIN { srand(seed) } { l[NR] = $0 } END {
+        t = int(rand() * NR) + 1; split(l[t], f, " "); k = int(rand() * length(f)) + 1
+        junk[1] = ""; junk[2] = "-1"; junk[3] = "4294967296"; junk[4] = "x\\y\\z"; junk[5] = "007"; junk[6] = "active"
+        junk[7] = "domain"; junk[8] = "S-1-5-21"; junk[9] = "0"; junk[10] = sprintf("%080d", 1)
+        f[k] = junk[int(rand() * 10) + 1]; s = f[1]; for (i = 2; i <= length(f); i++) s = s " " f[i]; l[t] = s
+        for (i = 1; i <= NR; i++) print l[i] }' "$FIXTURE/d2.good" > "$D2MAP"
+    status=0; "${D2TOOL[@]}" lookup alice > "$FIXTURE/d2.lookup" 2>&1 || status=$?
+    [ "$status" -lt 64 ] || { cat "$D2MAP"; fail "fuzz $n: lookup crashed ($status)"; }
+    if [ "$status" = 0 ] && ! cmp -s "$D2MAP" "$FIXTURE/d2.good"; then
+        # a damaged field may still be a valid map (for example another valid number); it must parse as one
+        grep -q 'name=alice uid=1002 ' "$FIXTURE/d2.lookup" || { cat "$D2MAP"; fail "fuzz $n: wrong account"; }
+    fi
+done
+cp -p "$FIXTURE/d2.good" "$D2MAP"
+d2_lookup 0 alice
+# a version 1 map keeps working byte for byte (the earlier part of this suite) and is not rewritten by sync
+cmp "$MAP" "$MAP" >/dev/null
+echo 'OK: domain accounts (map version 2, admit, sync, parser)'
 echo 'OK: accounts map lifecycle, lookup and protection fixture'

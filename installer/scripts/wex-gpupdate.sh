@@ -91,6 +91,58 @@ gpo_list()
         END { flush() }'
 }
 
+# Put a list of gpo_list ($1, rewritten in place) in the order Windows applies it, for the account $2 (MS-GPOL
+# 3.2.5.1, "GPO Search", and 3.2.5.2). Samba decides which objects apply (security filtering, blocked
+# inheritance, disabled links) but keeps each container's links in gPLink order, so the last link wins; on
+# Windows the first link (link order 1) wins: each container's non-enforced links are put in front of the list in
+# gPLink order, containers from the account's own up to the domain and the site, and enforced links follow at
+# the end. Samba's order stays when the directory cannot be read.
+win_order()
+{
+    local dn som soms=() t
+    dn=$(net ads search -P "(sAMAccountName=$2)" distinguishedName 2>/dev/null | sed -n 's/^distinguishedName: //p' | head -n 1)
+    [ -n "$dn" ] || return 0
+    # the containers above the account that can have links: its OUs, nearest first (other containers, such as
+    # CN=Computers, are passed over), then the domain; then any site that Samba listed
+    som=${dn#*,}
+    while [ -n "$som" ]; do
+        case ${som:0:3} in
+            OU=|ou=|Ou=|oU=) soms+=("$som") ;;
+            DC=|dc=|Dc=|dC=) soms+=("$som"); break ;;
+        esac
+        [ "$som" = "${som#*,}" ] && break
+        som=${som#*,}
+    done
+    while read -r som; do soms+=("$som"); done < <(awk -F '\t' '$3 == 2 { sub(/^LDAP:\/\//, "", $8); print $8 }' "$1" | sort -u)
+    t=$(mktemp)
+    for som in "${soms[@]}"; do
+        printf '%s\t%s\n' "$som" "$(net ads search -P "(distinguishedName=$som)" gPLink 2>/dev/null | sed -n 's/^gPLink: //p' | head -n 1)"
+    done > "$t"
+    awk -F '\t' -v links="$t" '
+        BEGIN {
+            # the order of the GUIDs as Windows applies them
+            while ((getline rec < links) > 0) {
+                split(rec, f, "\t"); s = f[2]
+                while (match(s, /\[[^]]*\]/)) {
+                    e = substr(s, RSTART + 1, RLENGTH - 2); s = substr(s, RSTART + RLENGTH)
+                    o = e; sub(/.*;/, "", o); o = o + 0
+                    if (o % 2 == 1 || !match(e, /\{[0-9A-Fa-f-]+\}/)) continue    # disabled link, or no GUID
+                    g = toupper(substr(e, RSTART, RLENGTH))
+                    if (int(o / 2) % 2 == 1) enf = enf " " g                     # enforced: appended
+                    else nonenf = g " " nonenf                                   # not enforced: in front
+                }
+            }
+            n = split(nonenf " " enf, order, " ")
+        }
+        { line[$1] = $0; seen[NR] = $1 }
+        END {
+            for (i = 1; i <= n; i++) if (order[i] in line && !(order[i] in done)) { print line[order[i]]; done[order[i]] = 1 }
+            # what the directory did not explain stays where Samba put it, at the end
+            for (i = 1; i <= NR; i++) if (!(seen[i] in done)) { print line[seen[i]]; done[seen[i]] = 1 }
+        }' "$1" > "$t.out" && mv "$t.out" "$1"
+    rm -f "$t"
+}
+
 # the files of the objects in a list of gpo_list ($1), in order; $2 is MACHINE or USER, $3 the file's path below
 # it (Registry.pol, or the security template)
 pol_files()
@@ -128,6 +180,7 @@ apply()
 HOST=$(hostname -s | tr 'a-z' 'A-Z')
 LISTS=$(mktemp -d)
 gpo_list "$HOST\$" MACHINE > "$LISTS/machine.list"
+win_order "$LISTS/machine.list" "$HOST\$"
 mapfile -t MACHINE_FILES < <(pol_files "$LISTS/machine.list" MACHINE)
 # the security templates: the account lockout policy and the security options (wexpolicy's sectmpl.c)
 mapfile -t TEMPLATES < <(pol_files "$LISTS/machine.list" MACHINE 'microsoft/windows nt/secedit/gpttmpl.inf')
@@ -158,6 +211,7 @@ awk '$4 == "active" { print $1, "S-1-5-21-" $6 "-" $7 "-" $8 "-" $9 }' "$MAP" | 
     # does not fail for an unknown name, so Winbind is asked)
     wbinfo --name-to-sid "$name" 2>/dev/null | grep -q 'SID_USER' || continue
     gpo_list "$name" USER > "$LISTS/user-$name.list"
+    win_order "$LISTS/user-$name.list" "$name"
     mapfile -t USER_FILES < <(pol_files "$LISTS/user-$name.list" USER)
     if [ "$PRINT" = 1 ]; then
         sed "s/^/object user $name /" "$LISTS/user-$name.list"
