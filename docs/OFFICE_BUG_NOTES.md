@@ -164,6 +164,20 @@ the need for the check.
   `S-1-5-18`, elevated, member of Administrators, integrity System. So the process token is right.
 - `ActivePlugins` of the service is not found (no plugin registered), consistent with the failure.
 
+**Found 2026-11-15 (service-side trace, see below): hypothesis 1 holds in this form.** In the service's thread that
+handles the plugin call, `RpcImpersonateClient` succeeds (`rpcrt4_conn_np_impersonate_client`), then
+`CheckTokenMembership(NULL, S-1-5-32-544)` runs on the thread's token, and that token has **7 groups and no
+Administrators** (Everyone, Users, `S-1-5-6`, `S-1-2-1`, Authenticated Users, `S-1-5-15`, `S-1-2-0`), so the
+service raises `0xc004f025` ("requires administrator"). The system account's own token has the 8th group
+`S-1-5-32-544` (attributes 0xe). A plain pipe test in one process as the system account
+(`scripts/lab/office/pipe-impersonation-probe.c`) sees all 8 groups through `ImpersonateNamedPipeClient` and
+`CheckTokenMembership` returns 1, so pipe impersonation as such works. The caller in the real setup is therefore
+a process whose token has no Administrators group: the custom action process that the installer service starts
+(`msiexec -Embedding`). What token the MSI service gives it, and why it is not the elevated system token, is the
+open question. Test started and not finished: `service-token-test.bat` runs `token-probe.exe` as a service as
+LocalSystem and as NetworkService to see the token a service process gets (its first run hung and printed
+nothing).
+
 **How to see the service's side.** The service runs under session 0's `services.exe`, so its Wine output is not in
 the log of the setup run (a trace of `+token,+security,+service` on the run shows only the installer's side: the
 service is started, then the fault comes back). To trace the service itself put `WINEDEBUG` into the machine-wide
