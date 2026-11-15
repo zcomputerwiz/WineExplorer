@@ -32,6 +32,10 @@ launch title bar restored: extend no, visible no, height 0, insets 0 0
 launch view title bar set
 launch view title bar button background null
 launch view title bar button background now 0
+launch activity manager set
+launch activity manager same yes
+launch activity requested handler added and removed
+launch activity manager off the view thread failed -2147023728
 page constructed
 page loaded 1200x900
 Title TextBlock 239x27 at 24,24

@@ -79,6 +79,37 @@ void XamlProbe::RunLaunchProbe(LaunchActivatedEventArgs^ e)
     }
     catch (Exception^ x) { Log(L"launch mode set " + Hr(x)); }
     RunTitleBarProbe();
+    RunUserActivityProbe();
+}
+
+/* UserActivityRequestManager (the Calculator listens for UserActivityRequested on its main page) */
+void XamlProbe::RunUserActivityProbe()
+{
+    using namespace Windows::ApplicationModel::UserActivities;
+    UserActivityRequestManager^ m = nullptr;
+    try { m = UserActivityRequestManager::GetForCurrentView(); Log(L"launch activity manager " + (m ? L"set" : L"null")); }
+    catch (Exception^ x) { Log(L"launch activity manager " + Hr(x)); }
+    if (m)
+    {
+        PROBE(L"activity manager same", YesNo(m == UserActivityRequestManager::GetForCurrentView()));
+        try
+        {
+            auto token = m->UserActivityRequested += ref new TypedEventHandler<UserActivityRequestManager^, UserActivityRequestedEventArgs^>(
+                [](UserActivityRequestManager^, UserActivityRequestedEventArgs^) { Log(L"user activity requested"); });
+            m->UserActivityRequested -= token;
+            Log(L"launch activity requested handler added and removed");
+        }
+        catch (Exception^ x) { Log(L"launch activity requested handler " + Hr(x)); }
+    }
+    /* off the view's thread */
+    String^ off = nullptr;
+    std::thread worker([&off]()
+    {
+        try { off = UserActivityRequestManager::GetForCurrentView() ? L"set" : L"null"; }
+        catch (Exception^ x) { off = Hr(x); }
+    });
+    worker.join();
+    Log(L"launch activity manager off the view thread " + off);
 }
 
 /* the title bar: CoreApplicationView.TitleBar (the Calculator extends its view into it and lays its own title bar out

@@ -3,4 +3,5 @@
 #pragma once
 #include <collection.h>
 #include <stdio.h>
+#include <thread>
 #include "App.xaml.h"

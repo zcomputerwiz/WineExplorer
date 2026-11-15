@@ -9,6 +9,7 @@ namespace XamlProbe
     Platform::String^ ResourcesSummary();
     void RunLaunchProbe(Windows::ApplicationModel::Activation::LaunchActivatedEventArgs^ e);
     void RunTitleBarProbe();
+    void RunUserActivityProbe();
     extern bool MainPageDestroyed;      /* set by MainPage's destructor */
 
     ref class App sealed
