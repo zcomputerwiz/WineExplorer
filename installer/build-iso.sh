@@ -149,11 +149,11 @@ fi
 # 4. Configure live-build
 cd "$WORK_DIR"
 echo "=== Step 2: Configuring live-build ==="
-# WEX_FAST_SQUASH=1: zstd instead of the default xz for the root file system image (test ISOs only; several
+# WEX_FAST_SQUASH=1: lz4 instead of the default xz (the build host kernel must mount it: zstd squashfs fails in the WSL kernel) for the root file system image (test ISOs only; several
 # times faster to build, a little larger).
 LB_EXTRA=()
 if [ "${WEX_FAST_SQUASH:-0}" = 1 ]; then
-    LB_EXTRA+=(--chroot-squashfs-compression-type zstd --chroot-squashfs-compression-level 3)
+    LB_EXTRA+=(--chroot-squashfs-compression-type lz4)
 fi
 lb config \
     "${LB_EXTRA[@]}" \
