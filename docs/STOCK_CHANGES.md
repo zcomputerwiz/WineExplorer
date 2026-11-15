@@ -3401,3 +3401,13 @@ the same on Wine. The Store Calculator's `TitleBar` control reads both.
 2026-11-15 (UWP, Wine aaa610f4): `dlls/windows.ui.xaml`: new `colors.c` (`Windows.UI.Colors`, the 141 named colours;
 null pointer gives `E_INVALIDARG` as on Windows), `main.c`, `private.h`, `classes.idl`, `Makefile.in`, `tests/xaml.c`
 (every colour; passes on Windows 11 x64 and x86 and on Wine x64 and x86).
+
+2026-11-15 (UWP, Wine 2337013f): `dlls/twinapi.appcore/application_view.c`: `IApplicationViewInteropStatics`
+(`GetApplicationViewIdForWindow`: the id of the ApplicationView of the window's thread; XAML probe: the current view's
+id on Windows 11 and Wine).
+
+2026-11-15 (UWP, Wine 0a4975cf): `dlls/twinapi.appcore`: new `user_activities.c`
+(`UserActivityRequestManager.GetForCurrentView`: one manager per view thread, `ERROR_NOT_FOUND` off a view's thread,
+as on Windows 11; `UserActivityRequested` accepted, never raised), `classes.idl`, `main.c`, `private.h`, `Makefile.in`;
+new `include/windows.applicationmodel.useractivities.idl` (the request path and the `UserActivity` types it names) and
+`include/windows.ui.shell.idl` (`IAdaptiveCard`). XAML probe lines identical on Windows 11 and Wine.
