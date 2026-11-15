@@ -75,4 +75,55 @@ void XamlProbe::RunLaunchProbe(LaunchActivatedEventArgs^ e)
         Log(L"launch mode set, now " + ((int)ApplicationView::PreferredLaunchWindowingMode).ToString());
     }
     catch (Exception^ x) { Log(L"launch mode set " + Hr(x)); }
+    RunTitleBarProbe();
+}
+
+/* the title bar: CoreApplicationView.TitleBar (the Calculator extends its view into it and lays its own title bar out
+ * from Height and the insets) and ApplicationView.TitleBar (whose button colours it sets) */
+static String^ Metrics(Windows::ApplicationModel::Core::CoreApplicationViewTitleBar^ t)
+{
+    return L"extend " + YesNo(t->ExtendViewIntoTitleBar) + L", visible " + YesNo(t->IsVisible) + L", height " +
+           t->Height.ToString() + L", insets " + t->SystemOverlayLeftInset.ToString() + L" " +
+           t->SystemOverlayRightInset.ToString();
+}
+
+void XamlProbe::RunTitleBarProbe()
+{
+    using namespace Windows::ApplicationModel::Core;
+    CoreApplicationViewTitleBar^ t = nullptr;
+    try { t = CoreApplication::GetCurrentView()->TitleBar; Log(L"title bar " + (t ? L"set" : L"null")); }
+    catch (Exception^ x) { Log(L"title bar " + Hr(x)); }
+    if (t)
+    {
+        PROBE(L"title bar same", YesNo(t == CoreApplication::GetCurrentView()->TitleBar));
+        PROBE(L"title bar at launch", Metrics(t));
+        try
+        {
+            static bool logged;
+            t->LayoutMetricsChanged += ref new TypedEventHandler<CoreApplicationViewTitleBar^, Object^>(
+                [](CoreApplicationViewTitleBar^ sender, Object^ args)
+                {
+                    if (logged) return;
+                    logged = true;
+                    Log(L"title bar metrics changed: " + Metrics(sender) + L", args " + (args ? L"set" : L"null"));
+                });
+            t->ExtendViewIntoTitleBar = true;
+            Log(L"launch title bar extended: " + Metrics(t));
+            /* back to the standard title bar: an extended view's content also covers the title bar (32 more pixels of
+             * height on Windows), which the page lines below must not depend on */
+            t->ExtendViewIntoTitleBar = false;
+            Log(L"launch title bar restored: " + Metrics(t));
+        }
+        catch (Exception^ x) { Log(L"launch title bar extend " + Hr(x)); }
+    }
+    try
+    {
+        auto bar = ApplicationView::GetForCurrentView()->TitleBar;
+        Log(L"launch view title bar " + (bar ? L"set" : L"null"));
+        PROBE(L"view title bar button background", bar->ButtonBackgroundColor ? L"set" : L"null");
+        bar->ButtonBackgroundColor = Windows::UI::Colors::Transparent;
+        bar->ButtonForegroundColor = Windows::UI::Colors::Black;
+        PROBE(L"view title bar button background now", bar->ButtonBackgroundColor ? bar->ButtonBackgroundColor->Value.A.ToString() : L"null");
+    }
+    catch (Exception^ x) { Log(L"launch view title bar " + Hr(x)); }
 }

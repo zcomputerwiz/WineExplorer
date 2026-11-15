@@ -23,6 +23,14 @@ launch size helper 320x500
 launch min size ok
 launch try resize yes
 launch mode set, now 0
+title bar set
+launch title bar same yes
+launch title bar at launch extend no, visible no, height 0, insets 0 0
+launch title bar extended: extend yes, visible no, height 0, insets 0 0
+launch title bar restored: extend no, visible no, height 0, insets 0 0
+launch view title bar set
+launch view title bar button background null
+launch view title bar button background now 0
 page constructed
 page loaded 1200x900
 Title TextBlock 237.949x26.6016 at 24,24
