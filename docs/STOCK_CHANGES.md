@@ -3366,3 +3366,15 @@ interfaces), `windows.ui.viewmanagement.idl` (`ActivationViewSwitcher`), `window
 (both were stubs, upstream too). .NET Native reads the class name to unbox a value received as Object: without it the
 Store Calculator failed reading its application resources. `tests/wintypes.c` checks every scalar and array type;
 passes on Windows 11 x64 and x86 and on Wine x64 and x86.
+
+2026-11-15 (UWP, Wine f50b362a): `dlls/windows.globalization`: new `font_group.c`
+(`Windows.Globalization.Fonts.LanguageFontGroup`: the recommended fonts of a language by script, as 64-bit Windows 11
+gives them; unknown tags fail with `ERROR_NOT_FOUND`; no default constructor), `classes.idl`, `main.c`, `private.h`,
+`Makefile.in`; new `include/windows.globalization.fonts.idl`, and `FontWeight`, `FontStretch`, `FontStyle` in
+`include/windows.ui.text.idl`. The Store Calculator creates a group at launch. Windows' 32-bit side gives older font
+choices than its 64-bit side, so `tests/globalization.c` checks what both agree on; passes on Windows 11 x64 and x86
+and on Wine x64 and x86.
+
+2026-11-15 (UWP, Wine 1fab56f6): `dlls/windows.globalization/calendar.c`: a calendar's time zone offset uses
+`SystemTimeToTzSpecificLocalTimeEx` (B13, Wine c20ad9b7) instead of the non-Ex function, keeping the dynamic time
+zone's yearly rules; the globalization tests pass unchanged on x64 and x86.
