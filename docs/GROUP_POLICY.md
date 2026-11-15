@@ -386,12 +386,31 @@ security option), gpresult listing the objects in order, and the installed user'
 through gpsvc and `wex-gpupdate.path`; 14 checks of `installer/tests/ad/machine.sh` passed. Normal suite 350 on
 the lab's build machine.
 
+## The order of several links on one container (2026-11-15)
+
+Windows and Samba read a container's `gPLink` in opposite directions.
+
+- Windows (MS-GPOL v20240423, 2.2.2 and 3.2.5.1, "GPO Search"; 3.2.5.2, "GPO Processing Order"): the position
+  in `gPLink` is the link order, and a smaller link order has the higher precedence. The client walks the
+  containers from the account's own up to the domain (and the site), puts each container's non-enforced links,
+  first to last, in front of the list, and appends the enforced ones after all of them; the list is applied in
+  order. So within one container the first `gPLink` entry (link order 1) is applied last and wins. A new link
+  without a position is written at the end of `gPLink` (3.3.5, "GPO Link Creation"), with the lowest precedence.
+- Samba (`libgpo/gpo_ldap.c`, `add_gplink_to_gpo_list`; `python/samba/gp/gpclass.py`, `get_gpo_list`): keeps
+  each container's links in `gPLink` order, so the last entry is applied last and wins. `samba-tool gpo setlink`
+  writes a new link at the front of `gPLink`, which a Windows client takes as link order 1.
+
+`wex-gpupdate.sh` keeps Samba's choice of objects (security filtering, blocked inheritance, disabled links) and
+puts them in Windows' order (`win_order`): it reads the account's DN and the `gPLink` of each OU above it and of
+the domain (`net ads search` with the machine account) and orders as MS-GPOL does; objects the directory does not
+explain keep Samba's place at the end, and Samba's order stays whole when the directory cannot be read. In the
+lab domain the three objects linked at the domain were applied "WexLab Domain", "WexLab", "Default Domain
+Policy" before and the other way round now; `gpo-lab.sh parse` checks it on the member.
+
 ## Next
 
 - User policy from the domain end to end: a domain user logging on to WineExplorer (the accounts map has local
   users only).
-- The order of several links on one container: Samba lists them newest first and they are applied in that
-  order; unverified against Windows.
 - The Windows Server evaluation controller: Microsoft's Evaluation Center requires a registration form with
   personal details for the ISO, so per the owner's condition the lab stays on Samba AD.
 

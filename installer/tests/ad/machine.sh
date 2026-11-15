@@ -91,6 +91,12 @@ mount "$rootdev" "$MNT" || fail "cannot mount the overlay"
 printf 'root:%s\n' "$(cat "$PWFILE")" | chroot "$MNT" chpasswd || fail "cannot set the root password"
 install -m 0600 "$LAB/admin_password.txt" "$MNT/root/adminpw"
 install -m 0700 "$HERE/machine-guest.sh" "$MNT/root/ad-guest.sh"
+# WEX_LAB_TREE_GPUPDATE=1: this tree's wex-gpupdate.sh in place of the image's (a script change tested without a
+# new image; docs/GPO_LAB.md)
+if [ "${WEX_LAB_TREE_GPUPDATE:-0}" = 1 ]; then
+    install -m 0755 "$REPO/installer/scripts/wex-gpupdate.sh" "$MNT/usr/local/bin/wex-gpupdate.sh"
+    echo "using this tree's wex-gpupdate.sh"
+fi
 detach
 
 "${V[@]}" start "$TEST" >/dev/null || fail "QEMU did not start"

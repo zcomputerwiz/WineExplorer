@@ -67,6 +67,8 @@ and a disk installed from an ISO packaged with `WEX_SESSION0=1`. Its guest joins
   `wex-gpupdate.path` and reports the refresh (step 7).
 
 On an image without steps 5 to 7 (no `wex-gpupdate.path`) these are skipped with a note.
+`WEX_LAB_TREE_GPUPDATE=1` puts this tree's `wex-gpupdate.sh` into the overlay in place of the image's, so a
+change to the script is tested without a new image.
 
 ## The build machine
 
@@ -94,9 +96,9 @@ installed-machine disks and ISOs are not there either; an image is the next thin
 - `parse` passed on 2026-11-14 against Samba 4.17 (Debian 12). What the real output showed: Samba lists its own
   "Local Policy" first (not a GUID, no paths; its `link_type` 5 has no name, so the next label follows on the same
   line), which the parser skips; the domain's objects follow newest link first ("WexLab Domain", "WexLab",
-  "Default Domain Policy"), and `wex-gpupdate.sh` applies them in that order, so the Default Domain Policy is
-  applied last. Whether Windows applies links of one container in the same order is unverified; with the
-  Windows Server controller out of reach, the next check is Microsoft's documentation of link order.
+  "Default Domain Policy"). Windows applies one container's links the other way round (MS-GPOL; GROUP_POLICY.md,
+  "The order of several links on one container"); since 2026-11-15 `wex-gpupdate.sh` orders them as Windows
+  does, and `parse` checks that "WexLab Domain" (link order 1) comes last.
 - `machine` passed on 2026-11-15 with all 14 checks, on a disk installed on wexgpo from an ISO of
   `claude/group-policy` e1c34ecb (`scripts/lab/wexgpo-iso.sh`: build, package with `WEX_SESSION0=1`, ISO,
   unattended install; about an hour): the join, the domain's registry policy, the OU's object after the
