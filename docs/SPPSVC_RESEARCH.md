@@ -68,79 +68,20 @@ An open `sppsvc` can:
   organization's own genuine host or keys);
 - leave Windows components that do not enforce the authentication step working.
 
-It cannot, if the inference holds, produce the answer to Office's authentication challenge. Three honest ways on:
+It cannot, if the inference holds, produce the answer to Office's authentication challenge. Honest ways on:
 
-1. **Office 2016 in Windows 7 mode** with Office's own `osppsvc`, Microsoft's code running under Wine. Under way
-   here (OFFICE_BUG_NOTES.md OB-1, OB-5). Does not reach Office 2021 and 2024.
-2. **Microsoft's own `sppsvc` under Wine**, taken from a Windows installation the user has, as a downloaded
-   component that never enters the repository (as the owner decided for the Calculator frameworks). Wine would have
-   to provide what it needs: the service account, its store, the registry keys `HKLM\SYSTEM\WPA` and
-   `SoftwareProtectionPlatform`, the hardware and TPM identifiers it reads. Feasibility is unknown and is the
-   next thing to measure.
-3. **An open service plus a published statement of what Office will not accept:** the project documents that
+1. **Office 2016 in Windows 7 mode** with Office's own `osppsvc`, Microsoft's code running under Wine
+   (OFFICE_BUG_NOTES.md OB-1, OB-5). Does not reach Office 2021 and 2024.
+2. **An open service plus a published statement of what Office will not accept:** the project documents that
    Office 2021 and 2024 check the service's identity and that no open service can pass the check; applications
    that do not check work.
 
-## Path 2 measured, first run (2026-11-15, lab VM, local copy never committed)
+## Status: work stopped (owner decision, 2026-11-15)
 
-Files used: the host's `sppsvc.exe`, `sppc.dll`, `sppcext.dll`, `sppwinob.dll`, `sppobjs.dll`, `slc.dll`,
-`sppcomapi.dll` and the two DLLs they import that Wine lacks, `pkeyhelper.dll` and `CLIPC.dll` (imports read from
-the PE import tables only). No store, token or license of the host was copied.
-
-* Imports: everything else the files import exists in Wine (Windows API sets included). `pkeyhelper.dll` imports
-  `bcrypt` only, `CLIPC.dll` imports `ntdll` and `rpcrt4` only.
-* `sppsvc.exe` loads and runs under Wine with the two DLLs (started by hand it exits as any service does outside the
-  service manager).
-* Registered as a session 0 service (`scripts/lab/office/spp-service-test.bat`, NetworkService) it enters
-  START_PENDING and then **stops on `RPCRT4.dll.RpcServerInterfaceGroupCreateW`, which Wine does not implement**
-  (an unimplemented-function abort; also seen: `NtQuerySystemInformation` class 0xb9 is a stub).
-* `RpcServerInterfaceGroupCreate`, `...Activate`, `...Deactivate`, `...Close`, `...InqBindings` are public, documented
-  rpcrt4 functions. Implementing them is ordinary Wine work from Microsoft's documentation and the next step.
-* Not yet known: what the service does after that (store creation, plugin loading, hardware id, its RPC endpoint and
-  whether the native `sppc.dll` can reach it from another session; OB-1 applies), and whether Windows-only
-  components (the `spsys` driver was merged into the service from Windows 8 on) block it.
-
-Verdict so far for path 2: **no hard blocker found yet**; the first one is a missing public RPC function.
-
-### Second run (same day): three Wine gaps fixed, the service now stops on an access denied
-
-Done on the Wine fork branch `claude/office-wine` (this branch's `wine` gitlink points at it):
-
-1. `rpcrt4`: `RpcServerInterfaceGroupCreateA/W`, `Activate`, `Deactivate`, `Close`, `InqBindings`, from the
-   documentation, with a test (`dlls/rpcrt4/tests/server.c`; the `np_basic` failures of that test file are the
-   known B2). With it the service registers its endpoint `SPPCTransportEndpoint-00001` (`ncalrpc`).
-2. `ntdll` and `wow64`: the `ThreadIoPriority` class of `NtQueryInformationThread` / `NtSetInformationThread`.
-   The service sets it at start and stopped when it failed. The semantics were measured on Windows 11
-   (`scripts/lab/office/thread-io-priority-probe.c`): query needs a length of 4 and returns 2; the setter
-   accepts 0 to 2, `STATUS_PRIVILEGE_NOT_HELD` for 3, `STATUS_INVALID_PARAMETER` above. Tests in
-   `dlls/ntdll/tests/info.c`, both architectures.
-3. Registry: the service needs `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform` to
-   exist with its default values (`scripts/lab/office/spp-registry.bat`; names and plain defaults read from the
-   host: `InactivityShutdownDelay` 30, `KeepRunningThresholdMins` 15, `VLActivationInterval` 120,
-   `VLRenewalInterval` 10080, `SkipRearm`, `NoExpirationUX`, `UserOperations`, `IgnoreContainerOrigin` 0). A fresh
-   machine root lacks them; the place for them is `wine.inf`.
-
-After these the service starts, reads those values and then stops itself with **E_ACCESSDENIED (0x80070005, exit
-code 5)**, with the same result when it runs from `C:\windows\system32`. The trace channels used so far (file,
-registry, security, token, service, process) show no failing operation before the report: the denial is raised
-by something they do not log (a call made through the service's own RPC or a kernel-style request such as the
-store driver that Windows 8 and later merged into the service). Next: a `+relay` trace limited to the service's
-own module, or `+ntdll` for the `NtDeviceIoControlFile`/`NtQuerySystemInformation` class 0xb9 calls it makes
-just before.
-
-Side finding while checking: after a restart of session 0 the system account's `HKCU\Software\Wine\Version`
-**was kept** in this run (Windows 7 mode set earlier was still set), so OB-3 in OFFICE_BUG_NOTES.md is not as
-general as written; what is certain is that `machine/user.reg` is `root:wexsys` 0644. To be re-checked.
-
-## Next steps
-
-1. Look for public protocol documentation that states the authentication scheme (Microsoft Open Specifications,
-   Windows Protocols, papers). If it is documented and uses published keys, the inference is wrong and path 3
-   disappears. Searches so far found none.
-2. Measure path 2 on the lab VM with a copy of the host's `sppsvc` and plugins used locally (never committed):
-   does it start under Wine, what does it ask of the system.
-3. Write the specification of the parts an open service does provide (the `SL*` behaviours already recorded, the
-   store, grace, KMS client), as the base of an implementation whatever the answer on authentication is.
+The licensing-service work is stopped. What stays: the in-process license store (`src/dlls/sppc`), key
+identification (`src/dlls/pidgenx`), the black-box probes, this note and [SPPSVC_SPEC.md](SPPSVC_SPEC.md). The
+generic Wine fixes made on the way (`rpcrt4` interface groups, the thread I/O priority class) stay on the Wine
+working branch. Nothing here is a plan to pass or imitate Office's authentication check.
 
 ## Evidence
 

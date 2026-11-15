@@ -7,6 +7,8 @@ probes, `scripts/lab/office/sppc-probe.c`) and from what Office's setup and appl
 (Wine traces of our own runs). Nothing here comes from disassembly or from third-party reverse-engineering
 material. See [SPPSVC_RESEARCH.md](SPPSVC_RESEARCH.md) for the limits (the authentication step).
 
+Work on this specification is stopped (SPPSVC_RESEARCH.md, status).
+
 Status of each item: **done** (in `src/dlls/sppc`, the in-process store), **to do**, **out of scope**.
 
 ## 1. Interface (client API `slpublic.h`)
