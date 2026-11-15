@@ -3378,3 +3378,14 @@ and on Wine x64 and x86.
 2026-11-15 (UWP, Wine 1fab56f6): `dlls/windows.globalization/calendar.c`: a calendar's time zone offset uses
 `SystemTimeToTzSpecificLocalTimeEx` (B13, Wine c20ad9b7) instead of the non-Ex function, keeping the dynamic time
 zone's yearly rules; the globalization tests pass unchanged on x64 and x86.
+
+2026-11-15 (UWP, Wine f140b080): `dlls/twinapi.appcore`: new `title_bar.c` (`CoreApplicationViewTitleBar`: the
+view is never extended into the title bar, so the metrics are those Windows 11 gives before the window shows, height
+0, no insets, not visible, no `LayoutMetricsChanged`; `ApplicationViewTitleBar` keeps the colours set), `core_view.c`
+(`ICoreApplicationView3`: `TitleBar`, `IsComponent`, `HostedViewClosing`), `application_view.c` (`TitleBar` instead
+of `E_NOTIMPL`), `private.h`, `Makefile.in`. Values from the XAML probe on Windows 11; the probe's title bar lines are
+the same on Wine. The Store Calculator's `TitleBar` control reads both.
+
+2026-11-15 (UWP, Wine aaa610f4): `dlls/windows.ui.xaml`: new `colors.c` (`Windows.UI.Colors`, the 141 named colours;
+null pointer gives `E_INVALIDARG` as on Windows), `main.c`, `private.h`, `classes.idl`, `Makefile.in`, `tests/xaml.c`
+(every colour; passes on Windows 11 x64 and x86 and on Wine x64 and x86).
