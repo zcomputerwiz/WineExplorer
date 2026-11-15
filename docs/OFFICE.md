@@ -50,6 +50,27 @@ and no circumvention in it.
 
 | 5 | Setup as the system account in session 0, Windows 7 mode (`scripts/lab/office/run-session0.sh`): `Office64WW.msi` now installs and the licensing service starts; `ProPlusWW.msi` fails with 1603 at `InstallFiles`, "Failed to extract cabinet ProPsWW2.CAB" | `CreateFileW` of `C:\windows\Fonts\SEGOEUISL.TTF` is refused (`c0000022`): the system account cannot create a file in the machine root's `windows\Fonts`. Cause: `setup-machine-root.sh` links open fonts into `windows\Fonts` under Windows names (`segoeui*.ttf` to Selawik, `calibri*`, `cambria*`; `src/resources/fonts/font-links.txt`), 13 links to root-owned files. Office ships the real fonts and overwrites those names; the open goes through the link and the target cannot be written. | Fix written, under test: in `server/fd.c` an overwrite (`O_CREAT` and `O_TRUNC` with write access) that fails with `EACCES` on a symbolic link removes the link and creates the file, as Windows replaces an existing file. It is a change to stock Wine, not yet committed to the fork: `scripts/lab/office/server-replace-link-patch.py` applies it to a tree. |
 
+Session 0 runs, 2026-11-15 (`run-session0.sh`, `run-user.sh`):
+
+* **The system account's Windows version is not kept.** `HKCU\Software\Wine\Version` set for session 0's account
+  holds until session 0 restarts: `machine/user.reg` is `root:wexsys` mode 644, so the account cannot save its
+  own hive. Set the version after the last restart and check it with `cmd /c ver` before every setup run. The
+  first two session 0 setup runs were believed to be in Windows 7 mode and were in Windows 10 mode
+  (`VersionNT = 603` in the setup log); what follows is corrected for that.
+* **Windows 10 mode, setup as the system account, the font links set aside: return code 0.** The license store
+  (`sppc`) took licenses and key in session 0; `WINWORD.EXE` and `EXCEL.EXE` are in the machine root. Office's own
+  licensing service is not installed in this mode, so blocker 4's fix is not yet shown by a real setup run.
+* **Word as a standard user** (`officeuser`, a new account, prefix from `/etc/skel/.wine` and
+  `scripts/personalize-prefix.sh`): runs, full start screen with online templates.
+  * "First things first": Accept does nothing and starts `DW20.EXE` each time; cause not looked at. The per-user
+    value `HKCU\Software\Microsoft\Office\16.0\Common\General\ShownFirstRunOptin` = 1 skips the dialog.
+  * With the user in Windows 7 mode and the install made in Windows 10 mode, Word is "Unlicensed Product" and asks
+    for a product key; with the published KMS client key entered it waits on a progress bar. That is the mismatch
+    (no `osppsvc` exists), not a finding about services.
+* A service's control calls are forwarded from a user's session to session 0 (`SYSTEM_TIER_WORK_ORDERS.md`, T5.4).
+  Whether a program in a user's session reaches a session 0 service's own RPC endpoint is not tested yet; Office's
+  licensing client needs that.
+
 Blocker 4 can be repeated in seconds: `scripts/lab/office/grab-ospp.sh` copies the service's files and registry keys
 while setup runs (setup removes them when the service does not start), `start-ospp.sh` puts them back and starts
 the service alone. Pitfalls met: `+relay` for a whole setup run wrote 6 GB (a `RelayFromInclude` value did not

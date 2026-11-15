@@ -1,0 +1,6 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- Unattended removal of Office 2016 (MSI) in the lab.  setup.exe /uninstall ProPlus /config THIS -->
+<Configuration Product="ProPlus">
+  <Display Level="none" CompletionNotice="no" SuppressModal="yes" AcceptEula="yes" />
+  <Setting Id="SETUP_REBOOT" Value="Never" />
+</Configuration>
