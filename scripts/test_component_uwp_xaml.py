@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
 """UWP XAML component (uwp-xaml-extract-register-v1): synthetic archives and hives; no download, root or Wine needed."""
+import contextlib
 import copy
 import hashlib
 import importlib.util
@@ -10,6 +11,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -163,6 +165,63 @@ class UwpXamlTests(unittest.TestCase):
             c.uwp_xaml_rollback(self.machine, 'x64', CLASSES, {})   # registry cleanup fails, directory still goes
         self.assertTrue(calls and calls[0][0] == 'delete')
         self.assertEqual(list((self.machine / c.UWP_XAML_ROOT).iterdir()), [])
+
+    def test_previous_classes_from_receipt(self):
+        receipts = self.root / 'receipts'
+        receipts.mkdir()
+        self.assertEqual(c.uwp_xaml_previous_classes(receipts, 'uwp-xaml'), [])
+        (receipts / 'uwp-xaml.json').write_text('{"classes": ["Windows.UI.Xaml.Old"]}')
+        self.assertEqual(c.uwp_xaml_previous_classes(receipts, 'uwp-xaml'), ['Windows.UI.Xaml.Old'])
+        for bad in ('{"classes": ["Windows.UI.Xaml.A;rm"]}', '{"classes": "x"}', 'not json', '[1]'):
+            with self.subTest(receipt=bad):
+                (receipts / 'uwp-xaml.json').write_text(bad)
+                self.assertEqual(c.uwp_xaml_previous_classes(receipts, 'uwp-xaml'), [])
+
+    def run_install(self, previous, verify_error=None):
+        """install_uwp_xaml over an earlier receipt listing PREVIOUS, with Wine, the download and the lock stubbed."""
+        receipts = self.machine.parent / 'component-receipts'
+        receipts.mkdir(exist_ok=True)
+        (receipts / 'uwp-xaml.json').write_text('{"classes": ' + str(previous).replace("'", '"') + '}')
+        (receipts / 'uwp-xaml.sha256').write_text('old\n')
+        calls = []
+
+        def verify(*args, **kwargs):
+            if verify_error:
+                raise verify_error
+
+        payload = archive(self.root / 'new.zip')
+        with patch.object(c, 'MACHINE', self.machine), patch.object(c, 'CACHE', self.root / 'cache'), \
+                patch.object(c, '_machine_maintenance', lambda environment: contextlib.nullcontext()), \
+                patch.object(c, 'license_text', lambda verb: ('terms', 'digest')), \
+                patch.object(c, 'is_installed', lambda *a, **k: False), \
+                patch.object(c, 'uwp_xaml_payload', lambda verb: {'architecture': 'x64', 'sha256': 'p'}), \
+                patch.object(c, 'cache_uwp_xaml_payload', lambda verb, cache: payload), \
+                patch.object(c, 'reg', lambda wine, environment, *args, **kwargs:
+                             calls.append(args) or types.SimpleNamespace(returncode=1, stdout=b'')), \
+                patch.object(c.subprocess, 'run', lambda *a, **k: None), \
+                patch.object(c, 'verify_uwp_xaml', verify):
+            if verify_error:
+                with self.assertRaises(type(verify_error)):
+                    c.install_uwp_xaml('uwp-xaml', 'digest')
+            else:
+                c.install_uwp_xaml('uwp-xaml', 'digest')
+        deleted = [a[1].rsplit('\\', 1)[1] for a in calls if a[0] == 'delete' and 'ActivatableClassId' in a[1]]
+        return receipts, deleted
+
+    @unittest.skipUnless(os.getuid() == 0, 'the cache and receipt checks want root-owned directories')
+    def test_upgrade_unregisters_dropped_classes(self):
+        receipts, deleted = self.run_install(CLASSES + ['Windows.UI.Xaml.Controls.Old'])
+        self.assertEqual(deleted, ['Windows.UI.Xaml.Controls.Old'])
+        self.assertEqual(c.uwp_xaml_previous_classes(receipts, 'uwp-xaml'), CLASSES)
+        self.assertEqual((receipts / 'uwp-xaml.sha256').read_text(), 'digest\n')
+
+    @unittest.skipUnless(os.getuid() == 0, 'the cache and receipt checks want root-owned directories')
+    def test_failed_upgrade_leaves_nothing_installed(self):
+        receipts, deleted = self.run_install(['Windows.UI.Xaml.Controls.Old'], verify_error=ValueError('broken'))
+        self.assertEqual(sorted(deleted), sorted(CLASSES + ['Windows.UI.Xaml.Controls.Old']))
+        self.assertFalse((receipts / 'uwp-xaml.json').exists())
+        self.assertFalse((receipts / 'uwp-xaml.sha256').exists())
+        self.assertFalse((self.machine / c.UWP_XAML_ROOT / 'x64').exists())
 
     def test_no_winetricks_recipe(self):
         c.validate_recipe_files('uwp-xaml', self.root / 'no-winetricks')

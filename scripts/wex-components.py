@@ -2372,6 +2372,35 @@ def uwp_xaml_unregister(environment, classes):
     subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
 
 
+def uwp_xaml_previous_classes(receipt_dir, verb):
+    """The classes an earlier installation's receipt lists (an upgrade drops the ones the new version lacks)."""
+    receipt = receipt_dir / (verb + '.json')
+    if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_uid != UWP_XAML_OWNER:
+        return []
+    try:
+        classes = json.loads(receipt.read_text(encoding='utf-8')).get('classes')
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not isinstance(classes, list) or any(not isinstance(c, str) or not UWP_XAML_CLASS.match(c) for c in classes):
+        return []
+    return classes
+
+
+def uwp_xaml_unregister_classes(environment, classes):
+    """Delete only these class keys (ComponentPath stays); missing keys are fine."""
+    for name in classes:
+        reg('/usr/local/bin/wine', environment, 'delete',
+            'HKLM\\Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\' + name, '/f')
+
+
+def uwp_xaml_drop_receipt(receipt_dir, verb):
+    """After a failed upgrade rolled the machine back to nothing, no receipt may claim the earlier version."""
+    for name in (verb + '.json', verb + '.sha256'):
+        path = receipt_dir / name
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+
+
 def uwp_xaml_remove_directory(machine, arch):
     directory = machine / UWP_XAML_ROOT / arch
     if directory.is_symlink():
@@ -2449,6 +2478,8 @@ def install_uwp_xaml(verb, accepted_digest):
             raise ValueError('Component cache must be root-owned and not writable by others')
         payload = uwp_xaml_payload(verb)
         archive = cache_uwp_xaml_payload(verb, CACHE)
+        receipt_dir = MACHINE.parent / 'component-receipts'
+        previous = uwp_xaml_previous_classes(receipt_dir, verb)
         files, classes = uwp_xaml_unpack(archive, MACHINE, payload['architecture'])
         data = {
             'verb': verb,
@@ -2475,9 +2506,22 @@ def install_uwp_xaml(verb, accepted_digest):
             subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
             verify_uwp_xaml(MACHINE, data, full=True)
         except BaseException:
-            # no receipt will name these files: take back what this attempt added before reporting the failure
-            uwp_xaml_rollback(MACHINE, payload['architecture'], classes, environment)
+            # no receipt will name these files: take back what this attempt added before reporting the failure; the
+            # unpack already replaced an earlier version, so its classes and receipt go too
+            uwp_xaml_rollback(MACHINE, payload['architecture'], sorted(set(classes) | set(previous)), environment)
+            try:
+                uwp_xaml_drop_receipt(receipt_dir, verb)
+            except OSError as error:
+                print(f'UWP XAML rollback: receipt removal failed: {error}', file=sys.stderr)
             raise
+        # an upgrade: classes the earlier version served and this one does not must not stay registered to it
+        stale = [name for name in previous if name not in classes]
+        if stale:
+            try:
+                uwp_xaml_unregister_classes(environment, stale)
+                subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
+            except Exception as error:
+                print(f'UWP XAML upgrade: removing {len(stale)} classes failed: {error}', file=sys.stderr)
         receipt = _uwp_xaml_receipt_dir()
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=receipt, prefix='.' + verb, delete=False) as out:
             temporary_receipt = Path(out.name)
