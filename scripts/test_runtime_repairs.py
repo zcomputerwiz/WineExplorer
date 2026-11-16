@@ -510,6 +510,7 @@ class PackagingTests(unittest.TestCase):
                 stub.write_text('#!/bin/sh\nprintf "%s|%s|%s\\n" "$0" "$WINEPREFIX" "$*" >> "$CALL_LOG"\n')
                 stub.chmod(0o755)
             env = dict(os.environ, MACHINE_ROOT=str(machine), WEX_FONT_RES_DIR=str(resources),
+                       WEX_PREFETCH_DIR=str(root / 'prefetch'),
                        WINE_BIN=str(root / 'wine'), WINESERVER_BIN=str(root / 'server'),
                        CALL_LOG=str(log))
             for skip in ('0', '1'):
@@ -523,10 +524,16 @@ class PackagingTests(unittest.TestCase):
                     if skip == '1':
                         self.assertFalse(log.exists())
                     else:
-                        self.assertEqual(log.read_text().splitlines(), [
+                        calls = log.read_text().splitlines()
+                        # the font mappings, then the prefetcher value (a temporary .reg file), each followed by a wait
+                        self.assertEqual(len(calls), 4, calls)
+                        self.assertEqual(calls[:2], [
                             f'{root / "wine"}|{machine}|regedit.exe /S {resources / "font-substitutes.reg"}',
                             f'{root / "server"}|{machine}|-w',
                         ])
+                        self.assertTrue(calls[2].startswith(f'{root / "wine"}|{machine}|regedit.exe /S '), calls[2])
+                        self.assertEqual(calls[3], f'{root / "server"}|{machine}|-w')
+                        self.assertTrue((machine / 'drive_c/windows/Prefetch').is_symlink())
 
     def test_font_fallback_does_not_count_as_exact_family(self):
         mappings = '"Segoe UI Symbol"="Noto Sans Symbols2"\n"Arial"="Liberation Sans"\n'
