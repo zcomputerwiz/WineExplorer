@@ -27,6 +27,11 @@ Two ways to run the Store Calculator (lab copy only) on the guest's Wine build w
   `calc-quick.sh` copies the base prefix, unpacks those files over the installed component (registering the classes
   again when `classes.txt` changed, `quick-reg.py`), launches, and stops once the shim log has been quiet for `QUIET`
   seconds after OnLaunched (at most `MAX`). It prints the shim's failures and Wine's errors and stubs.
+  What the window shows: the X screenshot (`quick.png`) is black inside the window frame, as the screen does not show
+  Uno's window surface; the shim reads the window's pixels back through GDI 5 s after placing it, and `iterate.sh`
+  fetches them as `calc-window.png` in the scratchpad. `XAMLSHIM_RENDER=software|opengl|vulkan` forces Uno's
+  rendering backend. Wine classes newer than the base prefix need `REGCLASSES="wintypes.dll=Class,Class other.dll=..."`
+  (the DLL name with `.dll`).
   `iterate.sh --prep XAMLSHIM_ZIP` makes the base prefix (`calc-prep.sh`, about 5 minutes) from a release zip; make it
   again after a new release or a Wine change that registers classes, or pass `WINEBOOT_UPDATE=1` for a run.
   Wine modules rebuilt with `modbuild.sh` take effect in both, as the prefixes run on the build tree.

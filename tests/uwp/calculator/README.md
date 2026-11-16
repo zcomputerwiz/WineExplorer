@@ -132,6 +132,20 @@ bindings complete and the Calculator creates its first view, which stops at
 for WinUI 2's `Microsoft.UI.Xaml.XamlTypeInfo.XamlControlsXamlMetaDataProvider`; one Loaded handler still throws
 NotImplementedException.
 
+### 2026-11-16 (Wine development 0845ed03, uno-uwp 19d5ccc234 and later)
+
+The view model is made: Wine has `IApplicationView4` (the application asks `IsViewModeSupported(CompactOverlay)`
+when it sets its mode, before it makes the view model), and XamlShim serves `PropertyChangedEventArgs` (the C++/CX
+view model makes one for every property it changes). With `SizeChangedEventArgs`, `Style` and twelve more classes
+generated (the shim now logs each framework class served by its base class's shim), `OnLaunched`, `OnNavigatedTo`
+and every event handler return S_OK.
+
+It draws. The X screenshot of the screen is black inside the window frame (the screen does not show Uno's window
+surface), but the window's pixels read back through GDI (`XamlShim` writes `xamlshim-window.bmp` 5 s after the
+window is placed, with `XAMLSHIM_TRACE=1`; the quick loop fetches it as `calc-window.png`) show the title "Calculator",
+the navigation button, "Standard", the keep-on-top and history buttons and the accent-coloured "=" button. The
+display and the other buttons of the number pad are not drawn yet: next.
+
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
 the Calculator shows. Prior art and the Wine gaps others listed for the Calculator: `tests/uwp/frameworks/README.md`.

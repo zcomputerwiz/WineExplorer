@@ -1,6 +1,4 @@
 #!/bin/bash
-# SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright 2026 WineExplorer contributors
 # lab: a quick Calculator run on a copy of the base prefix (calc-prep.sh): the XamlShim files in claude/quick.tar
 # replace the base's (and its classes are registered again when classes.txt changed), the Calculator is launched as
 # from the Start menu (no arguments), and the run ends once the shim log has been quiet for QUIET seconds (at least MIN,
@@ -50,8 +48,12 @@ while [ $elapsed -lt $MAX ]; do
   if [ "$size" = "$last" ]; then still=$(( still + 2 )); else still=0; last=$size; fi
   [ $elapsed -ge $MIN ] && [ $still -ge $QUIET ] && { echo "quiet for $still s"; break; }
 done
+# the X screen does not show Uno's window surface (black): the shim reads the window's pixels back through GDI 5 s
+# after it is placed (xamlshim-window.bmp, with XAMLSHIM_TRACE=1); the X screenshot stays for the frame
 [ -n "$DISPLAY" ] && xwd -root -silent -display "$DISPLAY" | convert xwd:- quick.png 2>/dev/null
 "$build/server/wineserver" -k
+bmp=$(find "$WINEPREFIX/drive_c/users" -name xamlshim-window.bmp 2>/dev/null | head -1)
+rm -f window.png; [ -n "$bmp" ] && convert "$bmp" window.png 2>/dev/null
 t3=$(date +%s)
 [ -n "$shimlog" ] && tr -d '\r' < "$shimlog" > shim.txt
 echo "timing: copy $((t1 - t0)) s, swap $((t2 - t1)) s, run $((t3 - t2)) s, total $((t3 - t0)) s"
@@ -60,4 +62,6 @@ grep -h "probe \|OnLaunched\|OnNavigatedTo\|event handler returned\|not implemen
 echo "--- wine"
 grep -a "err:\|stub!\|semi-stub" launch.log | sed 's/^[0-9a-f]*://; s/0x[0-9a-f]*\|[0-9A-F]\{16\}/X/g' | sort | uniq -c | sort -rn | cut -c1-200 | head -15
 ls -la quick.png 2>/dev/null | awk '{print "screenshot " $5 " bytes"}'
+grep -h "draw check: CoreWindow" shim.txt 2>/dev/null | cut -c1-300
+ls -la window.png 2>/dev/null | awk '{print "window readback " $5 " bytes (window.png)"}'
 echo quick-done
