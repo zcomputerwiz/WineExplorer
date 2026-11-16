@@ -3538,6 +3538,34 @@ OUT="$(as_wine "$STD" wexpolicy clear /machine || true)"   # the writer's own ex
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: $STD ran the writer"; }
 kill_servers
 ok st_machine_policy_and_clear_and_only_the_system_writes
+# Local policy without a domain (docs/GROUP_POLICY.md, "Local policy"): the Registry.pol files of the local object in
+# session 0's root apply to the computer and to every person when wex-gpupdate.sh runs (this machine is not joined),
+# the applied list names "Local Group Policy", and removing the files takes the values away again
+LGP="$M/drive_c/windows/system32/GroupPolicy"
+install -d -m 0755 "$LGP/Machine" "$LGP/User"
+cp "$POL/machine.pol" "$LGP/Machine/Registry.pol"; cp "$POL/user.pol" "$LGP/User/Registry.pol"
+local_gpupdate() { WEX_MACHINE_ROOT="$M" WINE="$BUILD/wine" WEX_SESSION0_USER="$S0U" bash "$SRC/installer/scripts/wex-gpupdate.sh" 2>&1; }
+OUT="$(local_gpupdate)" || { echo "$OUT" >&2; fail "local policy: wex-gpupdate.sh failed"; }
+grep -q 'local policy only' <<<"$OUT" || { echo "$OUT" >&2; fail "local policy: the run did not say it is local only (is this machine joined?)"; }
+[ "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" = 0x5 ] ||
+    fail "local policy: the computer's local policy is not in HKLM"
+[ "$(pol_user 0x7)" = 0x7 ] || fail "local policy: the person's local policy is not in HKCU: [$(pol_user 0x7)]"
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine '{35378EAC-683F-11D2-A89A-00C04FBBCFA2}' | tr -d '\r')"
+    grep -qx 'gpolist=0' <<<"$OUT" && grep -q '^gpo=LocalGPO .* name=Local Group Policy' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "local policy: a $b-bit program does not see the local object in the applied list"; }
+done
+as_wine "$STD" gpresult /v | tr -d '\r' | grep -q '^        Local Group Policy$' || fail "local policy: gpresult does not list the local object"
+rm -f "$LGP/Machine/Registry.pol" "$LGP/User/Registry.pol"
+OUT="$(local_gpupdate)" || { echo "$OUT" >&2; fail "local policy: wex-gpupdate.sh failed after the files were removed"; }
+[ -z "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" ] ||
+    fail "local policy: the computer's value stayed after the file was removed"
+[ -z "$(as_wine "$STD" reg query 'HKCU\Software\Policies\WexPol' /v Limit | val Limit)" ] ||
+    fail "local policy: the person's value stayed after the file was removed"
+[ "$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine '{35378EAC-683F-11D2-A89A-00C04FBBCFA2}' | tr -d '\r')" = gpolist=0 ] ||
+    fail "local policy: the applied list kept the local object"
+kill_servers
+ok st_local_policy_without_a_domain_applies_and_is_undone
 # Group Policy step 5: the security template (GptTmpl.inf, UTF-16LE): the lockout policy goes where net accounts
 # and the verifier keep it, security options in the policy trees are written, the rest is not applicable; a
 # damaged template changes nothing
@@ -3610,6 +3638,21 @@ grep -q 'error 11' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: a damaged list
 [ "$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" | grep -c '^gpo=')" = 1 ] || fail "gpolist: a damaged list changed the list"
 OUT="$(as_wine "$STD" wexpolicy record /machine "$(winpath "$POL/empty.list")" || true)"
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: $STD ran the writer"; }
+# local policy (docs/GROUP_POLICY.md, "Local policy"): the local object has no GUID, its name is LocalGPO
+printf '%s\n' "LocalGPO${T}0${T}0${T}0${T}Local Group Policy${T}C:\\windows\\system32\\GroupPolicy\\Machine${T}${T}Local${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
+    "{6AC1786C-016F-11D2-945F-00C04FB984F9}${T}2${T}4${T}0${T}Wex Test${T}\\\\ad\\sysvol\\p2${T}LDAP://CN={6AC1786C-016F-11D2-945F-00C04FB984F9},CN=Policies${T}LDAP://OU=Wex,DC=ad${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
+    > "$POL/local.list"
+OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/local.list")" | tr -d '\r')" || true
+grep -q 'recorded=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record the local object"; }
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine "$REGEXT" | tr -d '\r')"
+    grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 2 ] &&
+        [ "$(grep '^gpo=' <<<"$OUT" | sed -n 1p | cut -d' ' -f1)" = 'gpo=LocalGPO' ] &&
+        grep -q '^gpo=LocalGPO .* name=Local Group Policy' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "gpolist: a $b-bit program's list with the local object first"; }
+done
+OUT2="$(as_wine "$STD" gpresult /v | tr -d '\r')"
+grep -q '^        Local Group Policy$' <<<"$OUT2" || { echo "$OUT2" >&2; fail "gpolist: gpresult does not list the local object"; }
 s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty list"
 s0_wine wexpolicy record "/user:$STD_SID" "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty user list"
 OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" | tr -d '\r')"

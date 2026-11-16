@@ -20,8 +20,9 @@ printf 'PReg' > "$POL/Registry.pol"
 
 cat > "$FX/bin/testparm" <<EOF
 #!/bin/sh
+# the file "unjoined" in the fixture: no realm, so no join
 case "\$*" in
-    *realm*) echo ad.wexlab.example ;;
+    *realm*) [ -e "$FX/unjoined" ] || echo ad.wexlab.example ;;
     *cache*) echo "$FX/cache" ;;
 esac
 EOF
@@ -33,9 +34,10 @@ cat > "$FX/bin/net" <<EOF
 #!/bin/sh
 # net ads testjoin | net ads gpo list NAME -P | net ads search ...
 case "\$2" in
-    testjoin) exit 0 ;;
+    testjoin) [ -e "$FX/unjoined" ] && exit 1; exit 0 ;;
     gpo) echo "gpo list \$4" >> "$FX/net.log"
          case "\$4" in
+             *\\$) printf 'name:\t%s\ndisplayname:\tWexLab Domain\nversion:\t1\nfilesyspath:\t/x\nlink_type:\t0\nmachine_extensions:\t[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}]\n' '$GUID' >&2 ;;
              wexuser1|bob) printf 'name:\t%s\ndisplayname:\tWexLab Domain\nversion:\t1\nfilesyspath:\t/x\nlink_type:\t0\nuser_extensions:\t[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}]\n' '$GUID' >&2 ;;
          esac ;;
     search) exit 0 ;;
@@ -50,20 +52,30 @@ case "$2" in
 esac
 exit 1
 EOF
-cat > "$FX/wine" <<EOF
+cat > "$FX/wine" <<'EOF'
 #!/bin/sh
-# the fake loader: what wexpolicy was asked
-[ "\$1" = wexpolicy ] || exit 0
+# the fake loader: what wexpolicy was asked. wexpolicy.log: "COMMAND TARGET"; detail.log: the contents of the staged
+# files in the order given ("apply TARGET [first] [second]") or the names of a recorded list ("record TARGET <id,name;...>")
+D=$(dirname "$0")
+[ "$1" = wexpolicy ] || exit 0
 shift
-echo "\$1 \$2" >> "$FX/wexpolicy.log"
+echo "$1 $2" >> "$D/wexpolicy.log"
+cmd=$1; target=$2; shift 2
+out="$cmd $target"
+case $cmd in
+    apply) for a in "$@"; do f=$(printf '%s' "${a#Z:}" | tr '\134' '/'); out="$out [$(cat "$f" | tr '\n' ' ')]"; done ;;
+    record) f=$(printf '%s' "${1#Z:}" | tr '\134' '/'); out="$out <$(cut -f1,5 "$f" | tr '\t\n' ',;')>" ;;
+esac
+echo "$out" >> "$D/detail.log"
 exit 0
 EOF
 chmod 0755 "$FX"/bin/* "$FX/wine"
 # runuser and the script's own tools come from the fakes first
 run_gpupdate()
 {
-    : > "$FX/wexpolicy.log"; : > "$FX/net.log"
-    PATH="$FX/bin:$PATH" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=root bash "$SCRIPT" > "$FX/out.log" 2>&1 ||
+    : > "$FX/wexpolicy.log"; : > "$FX/net.log"; : > "$FX/detail.log"
+    PATH="$FX/bin:$PATH" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=root WEX_MACHINE_ROOT="$FX/mroot" \
+        bash "$SCRIPT" > "$FX/out.log" 2>&1 ||
         { cat "$FX/out.log"; fail "wex-gpupdate.sh failed on $1"; }
 }
 
@@ -94,3 +106,53 @@ grep -qx 'record /user:S-1-5-21-111-222-333-1104' "$FX/wexpolicy.log" || fail 'v
 grep -qx 'gpo list wexuser1' "$FX/net.log" || { cat "$FX/net.log"; fail 'v2: Samba was not asked for the plain name'; }
 ! grep -q 'WEXLAB' "$FX/net.log" || fail 'v2: Samba was asked for a name with the domain'
 echo 'OK: wex-gpupdate.sh users of a version 1 and a version 2 accounts map'
+
+# ---- local policy (docs/GROUP_POLICY.md, "Local policy"): the local object's Registry.pol files in session 0's root
+LG="$FX/mroot/drive_c/windows/system32/GroupPolicy"
+mkdir -p "$LG/Machine" "$LG/User" "$LG/Archive" "$FX/cache/gpo_cache/AD.WEXLAB.EXAMPLE/POLICIES/$GUID/MACHINE"
+printf 'DOMAINU' > "$POL/Registry.pol"
+printf 'DOMAINM' > "$FX/cache/gpo_cache/AD.WEXLAB.EXAMPLE/POLICIES/$GUID/MACHINE/Registry.pol"
+detail() { grep -qxF "$1" "$FX/detail.log" || { echo "--- detail.log:"; cat "$FX/detail.log"; echo "--- net.log:"; cat "$FX/net.log"; fail "$2 (wanted: $1)"; }; }
+cat > "$FX/map3" <<'EOF'
+WEXACCOUNTS 2 4 1030 11 22 33 111 222 333 WEXLAB
+daemon 1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1 active local 21 11 22 33 1000
+alice 1001 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa active local 21 11 22 33 1001
+bob 1002 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb active local 21 11 22 33 1002
+gone 1003 cccccccccccccccccccccccccccccccc tombstone local 21 11 22 33 1003
+WEXLAB\wexuser1 21104 dddddddddddddddddddddddddddddddd active domain 21 111 222 333 1104
+EOF
+# a machine that is not joined, with local policy files: they apply to the computer and to every person, Samba is not asked
+touch "$FX/unjoined"
+printf 'LOCALM' > "$LG/Machine/Registry.pol"
+printf 'LOCALU' > "$LG/User/Registry.pol"
+run_gpupdate "$FX/map3"
+detail 'apply /machine [LOCALM]' 'local: the computer'
+detail 'record /machine <LocalGPO,Local Group Policy;>' 'local: the computer'"'"'s applied list'
+for sid in S-1-5-21-11-22-33-1001 S-1-5-21-11-22-33-1002 S-1-5-21-111-222-333-1104; do
+    detail "apply /user:$sid [LOCALU]" "local: the user policy of $sid"
+    detail "record /user:$sid <LocalGPO,Local Group Policy;>" "local: the applied list of $sid"
+done
+! grep -q 'daemon\|-1000\|-1003' "$FX/detail.log" || fail 'local: a system account or a removed account got policy'
+[ ! -s "$FX/net.log" ] || fail 'local: Samba was asked on a machine that is not joined'
+# joined: the local object first, the domain's after it (the domain's overrides it), for the computer and for a domain user
+rm -f "$FX/unjoined"
+run_gpupdate "$FX/map3"
+detail 'apply /machine [LOCALM] [DOMAINM]' 'joined: the local object first, then the domain'"'"'s, for the computer'
+detail 'record /machine <LocalGPO,Local Group Policy;'"$GUID"',WexLab Domain;>' 'joined: the computer'"'"'s applied list'
+detail 'apply /user:S-1-5-21-111-222-333-1104 [LOCALU] [DOMAINU]' 'joined: a domain user: local, then domain'
+detail 'apply /user:S-1-5-21-11-22-33-1002 [LOCALU]' 'joined: a local user keeps the local policy only'
+# nothing to do: not joined, no local files, nothing written before: no call at all
+touch "$FX/unjoined"; rm -f "$LG/Machine/Registry.pol" "$LG/User/Registry.pol"
+run_gpupdate "$FX/map3"
+[ -z "$(grep -v "^refreshed" "$FX/wexpolicy.log")" ] || { cat "$FX/wexpolicy.log"; fail 'no policy: the writer was called'; }
+# a policy that was removed: the target had an archive, so it is cleared (the registry policy goes away)
+: > "$LG/Archive/Machine.pol"; : > "$LG/Archive/User-S-1-5-21-11-22-33-1001.pol"
+run_gpupdate "$FX/map3"
+grep -qx 'clear /machine' "$FX/wexpolicy.log" && grep -qx 'clear /user:S-1-5-21-11-22-33-1001' "$FX/wexpolicy.log" ||
+    { cat "$FX/wexpolicy.log"; fail 'removed policy: the targets with an archive were not cleared'; }
+[ "$(grep -vc "^refreshed" "$FX/wexpolicy.log")" = 4 ] || { cat "$FX/wexpolicy.log"; fail 'removed policy: more than the two targets and their lists were touched'; }
+# a link in place of the file is not followed
+rm -f "$LG/Archive/"*.pol; ln -s /etc/hostname "$LG/Machine/Registry.pol"
+run_gpupdate "$FX/map3"
+[ -z "$(grep -v "^refreshed" "$FX/wexpolicy.log")" ] || { cat "$FX/wexpolicy.log"; fail 'a link was taken for the local file'; }
+echo 'OK: wex-gpupdate.sh local policy (not joined, joined and in order, nothing to do, removed, a link)'

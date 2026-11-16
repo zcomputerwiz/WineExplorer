@@ -31,7 +31,7 @@
  * session 0 writes and which exists while the user is not logged on.
  *
  * LIST is a UTF-8 text file written by wex-gpupdate.sh, one object per line in the order applied, nine fields
- * separated by tabs: GUID, version, link type (GPO_LINK), options, display name, file system path, DS path,
+ * separated by tabs: GUID (the local object's name is LocalGPO, "Local Group Policy" on Windows), version, link type (GPO_LINK), options, display name, file system path, DS path,
  * link, extensions (as gPCMachineExtensionNames: "[{extension}{tool}...][...]"; an object is listed for each
  * extension that starts a bracket). An empty file empties the list. The whole file is checked before the list
  * is replaced.
@@ -74,6 +74,12 @@ static BOOL is_guid_at( const WCHAR *s )
 static BOOL is_guid( const WCHAR *s )
 {
     return is_guid_at( s ) && !s[GUID_CHARS];
+}
+
+/* the name of the local Group Policy object (docs/GROUP_POLICY.md, "Local policy"): it has no GUID */
+static BOOL is_object_name( const WCHAR *s )
+{
+    return is_guid( s ) || !wcscmp( s, L"LocalGPO" );
 }
 
 static BOOL is_number( const WCHAR *s, DWORD max )
@@ -122,9 +128,10 @@ static DWORD parse_list( WCHAR *text, struct object *objects, unsigned int *coun
                 if (!(line = wcschr( line, '\t' ))) break;
                 *line++ = 0;
             }
-            /* exactly nine fields, a GUID, three numbers (GPO_LINK is 0 to 4), no field longer than a path */
+            /* exactly nine fields, a GUID (or LocalGPO), three numbers (GPO_LINK is 0 to 4), no field longer than a
+             * path */
             if (f != FIELDS - 1 || line) return ERROR_BAD_FORMAT;
-            if (!is_guid( objects[n].field[0] ) || !is_number( objects[n].field[1], 0xffffffff ) ||
+            if (!is_object_name( objects[n].field[0] ) || !is_number( objects[n].field[1], 0xffffffff ) ||
                 !is_number( objects[n].field[2], 4 ) || !is_number( objects[n].field[3], 0xffffffff ) ||
                 !is_extension_list( objects[n].field[8] ))
                 return ERROR_BAD_FORMAT;
