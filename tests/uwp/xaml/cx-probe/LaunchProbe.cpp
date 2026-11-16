@@ -64,6 +64,11 @@ void XamlProbe::RunLaunchProbe(LaunchActivatedEventArgs^ e)
     PROBE(L"launch mode", ((int)ApplicationView::PreferredLaunchWindowingMode).ToString());
     PROBE(L"launch size", ApplicationView::PreferredLaunchViewSize.Width.ToString() + L"x" +
           ApplicationView::PreferredLaunchViewSize.Height.ToString());
+    /* the view modes (IApplicationView4): the Calculator asks whether compact overlay is supported when it sets its mode */
+    PROBE(L"view mode", ((int)ApplicationView::GetForCurrentView()->ViewMode).ToString() + L", supported: default " +
+          YesNo(ApplicationView::GetForCurrentView()->IsViewModeSupported(ApplicationViewMode::Default)) + L", compact overlay " +
+          YesNo(ApplicationView::GetForCurrentView()->IsViewModeSupported(ApplicationViewMode::CompactOverlay)) + L", spanning " +
+          YesNo(ApplicationView::GetForCurrentView()->IsViewModeSupported((ApplicationViewMode)2 /* Spanning */)));
     Size size(320, 500);
     try { size = SizeHelper::FromDimensions(320, 500); Log(L"launch size helper " + size.Width.ToString() + L"x" + size.Height.ToString()); }
     catch (Exception^ x) { Log(L"launch size helper " + Hr(x)); }

@@ -20,6 +20,7 @@ launch application view same yes
 launch view title '', full screen no
 launch launch mode 0
 launch launch size 0x0
+launch view mode 0, supported: default yes, compact overlay yes, spanning no
 launch size helper 320x500
 launch min size ok
 launch try resize yes
