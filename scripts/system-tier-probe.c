@@ -384,7 +384,39 @@ int __cdecl wmain( int argc, WCHAR **argv )
         n = MoveFileExW( temp, final, 0 ) ? 0 : GetLastError();
         d = DeleteFileW( final ) ? 0 : GetLastError();
         t = DeleteFileW( temp ) ? 0 : GetLastError();
-        printf( "%ls c=%lu w=%lu x=%lu o=%lu r=%lu m=%lu n=%lu d=%lu t=%lu\n", dir, c, w, x, o, r, m, n, d, t );
+        {
+            /* q: the rename by handle with the directory as RootDirectory and a relative name; k: CopyFile and the
+             * delete of the temporary name; s: the status of a plain NtSetInformationFile by handle (rename) */
+            DWORD q = 0, k, s = 0;
+            HANDLE dirh;
+
+            file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+            if (file != INVALID_HANDLE_VALUE) { WriteFile( file, "x\n", 2, &done, NULL ); CloseHandle( file ); }
+            dirh = CreateFileW( dir, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                                OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL );
+            del = CreateFileW( temp, DELETE | SYNCHRONIZE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                               OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL );
+            if (dirh == INVALID_HANDLE_VALUE || del == INVALID_HANDLE_VALUE) q = 1000000 + GetLastError();
+            else
+            {
+                memset( buffer, 0, sizeof(buffer) );
+                info->ReplaceIfExists = TRUE;
+                info->RootDirectory = dirh;
+                info->FileNameLength = 4 * sizeof(WCHAR);
+                memcpy( info->FileName, L"diag", 4 * sizeof(WCHAR) );
+                q = SetFileInformationByHandle( del, FileRenameInfo, info, sizeof(buffer) ) ? 0 : GetLastError();
+            }
+            if (del != INVALID_HANDLE_VALUE) CloseHandle( del );
+            if (dirh != INVALID_HANDLE_VALUE) CloseHandle( dirh );
+            if (!q) DeleteFileW( final );
+            file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+            if (file != INVALID_HANDLE_VALUE) CloseHandle( file );
+            k = CopyFileW( temp, final, FALSE ) ? 0 : GetLastError();
+            if (!k) DeleteFileW( final );
+            DeleteFileW( temp );
+            (void)s;
+            printf( "%ls c=%lu w=%lu x=%lu o=%lu r=%lu m=%lu n=%lu d=%lu t=%lu q=%lu k=%lu\n", dir, c, w, x, o, r, m, n, d, t, q, k );
+        }
         (void)werr;
         return 0;
     }

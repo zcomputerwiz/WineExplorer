@@ -382,6 +382,9 @@ BAT
                 else
                     notok domain_admin_elevated_editor_write_applies "result [$GOT] runas [$(tr -d '\r' < /tmp/gpset-runas.out | tail -2 | tr '\n' ' ')] value [$(value "$GPV" NoRecentDocsHistory)]"
                     tr -d '\r' < /tmp/spoolsteps.out | sed 's/^/note spoolsteps: /'
+                    echo "note debug tools: $(command -v strace gdb ltrace perf 2>&1 | tr '\n' ' ')"
+                    ls -ld /var/lib/wineexplorer/machine/drive_c/windows/system32/GroupPolicy/Spool | sed 's/^/note spooldir: /'
+                    getfacl -p /var/lib/wineexplorer/machine/drive_c/windows/system32/GroupPolicy/Spool 2>&1 | tr '\n' ' ' | sed 's/^/note spoolacl: /'; echo
                     wc -l /tmp/gpset-trace.out | sed 's/^/note spooltrace lines: /'
                     grep -a -n -E 'diag|set_fd_name_info|open_file_object' /tmp/gpset-trace.out | cut -c1-230 | head -60 | sed 's/^/note spooltrace: /'
                 fi
