@@ -44,6 +44,18 @@ this comes first. Candidates, cheapest first, each checked with a Wine log in In
 Phase 0 ends when the click produces a `RequestTokenForWindowAsync` line in the diagnostic log. If it turns out that
 OneAuth needs something that only Windows' own components can provide, this design stops there and says so.
 
+**Result (2026-11-16, Integration's trace on Wine 46065162):** none of the four. Copilot's "Continue with
+Microsoft" does not go through WAM at all: OneAuth writes `ProviderId` and `Authority` (`common`) to
+`HKCU\Software\Microsoft\Copilot\SharedStorage\Auth` and opens its own embedded WebView2 sign-in. The WebView2
+loader looks for a runtime (`EdgeUpdate\Clients` and `ClientState` of the Evergreen runtime
+`{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}` and the Beta, Dev and Canary channels, `Policies\Microsoft\Edge\WebView2`),
+finds none, and the sign-in fails 114 ms after the click (`platformError=-21`). The Copilot MSI installs a runtime
+(`Program Files (x86)\Microsoft\EdgeCore\156.0.4314.58`) but nothing registers it. On Windows 11 the Evergreen runtime
+is always registered (`Clients\{F3017226-...}`: `pv`, `location`; `ClientState\{F3017226-...}`: `pv`, `EBWebView` =
+the version folder). So Copilot needs no broker: its blocker is WebView2 runtime discovery (why the runtime the
+installer brings is not registered, or why the updater that registers it does not run under Wine). The broker
+stays the design for programs that do call WAM's interactive methods; it is not started for Copilot.
+
 Also in phase 0: which redirect URI Copilot's client accepts. Checked 2026-11-16 without signing in (authorize
 requests with no cookies or credentials, `consumers`, `organizations` and `common`, five candidate URIs including
 ones the client cannot have registered): the endpoint answers with the sign-in page for nearly all of them and with
