@@ -348,18 +348,44 @@ int __cdecl wmain( int argc, WCHAR **argv )
             GetSystemDirectoryW( dir, MAX_PATH - 20 );
             lstrcatW( dir, L"\\GroupPolicy\\Spool" );
         }
-        printf( "dir=%ls\n", dir );
+        /* one line: c create, w write, x close, o open for DELETE, r rename by handle (SetFileInformationByHandle), m
+         * MoveFileEx (replace), n MoveFileEx without replace to another name, d delete of the new name, t delete of
+         * the temporary name */
+        DWORD c, w, x, o = 0, r = 0, m, n, d, t;
+        char buffer[sizeof(FILE_RENAME_INFO) + 2 * MAX_PATH * sizeof(WCHAR)];
+        FILE_RENAME_INFO *info = (FILE_RENAME_INFO *)buffer;
+        HANDLE del;
+
         wsprintfW( temp, L"%s\\diag.tmp", dir );
         wsprintfW( final, L"%s\\diag", dir );
         file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
-        printf( "create=%lu\n", file == INVALID_HANDLE_VALUE ? GetLastError() : 0 );
-        if (file == INVALID_HANDLE_VALUE) return 1;
-        werr = WriteFile( file, "x\n", 2, &done, NULL ) ? 0 : GetLastError();
-        printf( "write=%lu done=%lu\n", werr, done );
-        printf( "close=%lu\n", CloseHandle( file ) ? 0 : GetLastError() );
-        printf( "move=%lu\n", MoveFileExW( temp, final, MOVEFILE_REPLACE_EXISTING ) ? 0 : GetLastError() );
-        printf( "delete=%lu\n", DeleteFileW( final ) ? 0 : GetLastError() );
-        printf( "deletetemp=%lu\n", DeleteFileW( temp ) ? 0 : GetLastError() );
+        c = file == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+        if (file == INVALID_HANDLE_VALUE) { printf( "%ls c=%lu\n", dir, c ); return 1; }
+        w = WriteFile( file, "x\n", 2, &done, NULL ) ? 0 : GetLastError();
+        x = CloseHandle( file ) ? 0 : GetLastError();
+        del = CreateFileW( temp, DELETE | SYNCHRONIZE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                           OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL );
+        if (del == INVALID_HANDLE_VALUE) o = GetLastError();
+        else
+        {
+            memset( buffer, 0, sizeof(buffer) );
+            info->ReplaceIfExists = TRUE;
+            info->FileNameLength = lstrlenW( final ) * sizeof(WCHAR);
+            memcpy( info->FileName, final, info->FileNameLength );
+            r = SetFileInformationByHandle( del, FileRenameInfo, info, sizeof(buffer) ) ? 0 : GetLastError();
+            CloseHandle( del );
+        }
+        d = 0;
+        if (!r) d = DeleteFileW( final ) ? 0 : GetLastError();
+        file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+        if (file != INVALID_HANDLE_VALUE) CloseHandle( file );
+        m =MoveFileExW( temp, final, MOVEFILE_REPLACE_EXISTING ) ? 0 : GetLastError();
+        if (!m) DeleteFileW( final );
+        n = MoveFileExW( temp, final, 0 ) ? 0 : GetLastError();
+        d = DeleteFileW( final ) ? 0 : GetLastError();
+        t = DeleteFileW( temp ) ? 0 : GetLastError();
+        printf( "%ls c=%lu w=%lu x=%lu o=%lu r=%lu m=%lu n=%lu d=%lu t=%lu\n", dir, c, w, x, o, r, m, n, d, t );
+        (void)werr;
         return 0;
     }
     if (argc == 4 && !lstrcmpW( argv[1], L"runas" ))

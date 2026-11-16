@@ -363,7 +363,12 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
                 for _ in $(seq 1 150); do grep -q '^gpset=' "$GPE" && break; sleep 2; done
                 GOT=$(tr -d '\r' < "$GPE")
                 if grep -qx 'gpset=0' <<<"$GOT" && [ "$(value "$GPV" NoRecentDocsHistory)" = 0x1 ]; then ok domain_admin_elevated_editor_write_applies
-                else notok domain_admin_elevated_editor_write_applies "result [$GOT] steps [$(tr -d '\r' < /tmp/spoolsteps.out 2>&1 | tr '\n' ' ')] runas [$(tr -d '\r' < /tmp/gpset-runas.out | tail -2 | tr '\n' ' ')] value [$(value "$GPV" NoRecentDocsHistory)]"; fi
+                else
+                    notok domain_admin_elevated_editor_write_applies "result [$GOT] runas [$(tr -d '\r' < /tmp/gpset-runas.out | tail -2 | tr '\n' ' ')] value [$(value "$GPV" NoRecentDocsHistory)]"
+                    tr -d '\r' < /tmp/spoolsteps.out | sed 's/^/note spoolsteps: /'
+                    wc -l /tmp/gpset-trace.out | sed 's/^/note spooltrace lines: /'
+                    grep -a -n -E 'diag|set_fd_name_info|open_file_object' /tmp/gpset-trace.out | cut -c1-230 | head -60 | sed 's/^/note spooltrace: /'
+                fi
             else notok domain_admin_elevated_editor_write_applies "consent step: $HOST_ANSWER"; fi
         else notok domain_admin_logon "$HOST_ANSWER"; fi
         s0_reg reg delete 'HKLM\Software\Wine\Elevation' /v Helper /f >/dev/null
