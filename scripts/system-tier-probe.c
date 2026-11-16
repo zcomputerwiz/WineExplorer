@@ -33,7 +33,8 @@
  *                                 of DsRoleGetPrimaryDomainInformation> flat=<name> dns=<name>
  *   probe gpnotify machine|user MS  registers for the policy notification (RegisterGPNotification), prints
  *                                 gp=ready, waits up to MS ms and prints gp=signalled or gp=timeout
- *   probe token                   the process token: user=, primary=, elevation=, one group= line per group (attrs=)
+ *   probe token                   the process token: user=, primary=, elevation=, one group= line per group (attrs=); for a
+ *                                 split token also linkedelevation= and linkedgroup= lines of the linked token
  *   probe names                   lsa=DOMAIN\name (LookupAccountSidW of the caller) and samcompat= (GetUserNameExW)
  *   probe gpolist machine|user {EXT}  the applied objects for the extension (GetAppliedGPOListW; user: the
  *                                 caller's SID); prints gpolist=<error> and one gpo= line per object
@@ -156,6 +157,21 @@ int __cdecl wmain( int argc, WCHAR **argv )
                     printf( "group=%ls attrs=%lx\n", str, groups->Groups[i].Attributes );
                     LocalFree( str );
                 }
+        /* a split token's other half (the full token of a limited one): linkedelevation= and linkedgroup= lines */
+        if (GetTokenInformation( token, TokenLinkedToken, buffer, sizeof(buffer), &size ))
+        {
+            HANDLE linked = ((TOKEN_LINKED_TOKEN *)buffer)->LinkedToken;
+
+            if (GetTokenInformation( linked, TokenElevationType, &type, sizeof(type), &size )) printf( "linkedelevation=%lu\n", type );
+            if (GetTokenInformation( linked, TokenGroups, buffer, sizeof(buffer), &size ))
+                for (i = 0; i < groups->GroupCount; i++)
+                    if (ConvertSidToStringSidW( groups->Groups[i].Sid, &str ))
+                    {
+                        printf( "linkedgroup=%ls attrs=%lx\n", str, groups->Groups[i].Attributes );
+                        LocalFree( str );
+                    }
+            CloseHandle( linked );
+        }
         CloseHandle( token );
         return 0;
     }

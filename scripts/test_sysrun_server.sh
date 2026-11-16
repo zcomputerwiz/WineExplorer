@@ -3709,14 +3709,26 @@ for b in 64 32; do
     grep -qx 'lsa=WEXLAB\\wexdom use=1' <<<"$OUT" && grep -qx 'samcompat=WEXLAB\\wexdom' <<<"$OUT" ||
         { echo "$OUT" >&2; fail "domain: the names of a domain account, $b-bit"; }
 done
-OUT="$(dom_probe "$DOMA" 64 token)"
-grep -qx 'user=S-1-5-21-111-222-333-1120' <<<"$OUT" && grep -q '^group=S-1-5-21-111-222-333-512 attrs=7$' <<<"$OUT" &&
-    grep -q '^group=S-1-5-21-111-222-333-1300 attrs=7$' <<<"$OUT" && grep -qx 'elevation=3' <<<"$OUT" ||
-    { echo "$OUT" >&2; fail "domain: the token of a member of Domain Admins"; }
-# Administrators only for deny (SE_GROUP_USE_FOR_DENY_ONLY 0x10, not enabled): never a full token at logon
-ADMINS="$(sed -n 's/^group=S-1-5-32-544 attrs=//p' <<<"$OUT")"
-[ -n "$ADMINS" ] && [ $(( 0x$ADMINS & 0x10 )) != 0 ] && [ $(( 0x$ADMINS & 0x4 )) = 0 ] ||
-    { echo "$OUT" >&2; fail "domain: Administrators of a member of Domain Admins at logon is not deny-only"; }
+# group_attrs PREFIX SID: the attributes (hex) of SID in the probe output's PREFIX= lines (group or linkedgroup)
+group_attrs() { sed -n "s/^$1=$2 attrs=//p" <<<"$OUT"; }
+# deny_only HEX: SE_GROUP_USE_FOR_DENY_ONLY (0x10) set, SE_GROUP_ENABLED (0x4) clear; enabled HEX: 0x4 set, 0x10 clear
+deny_only() { [ -n "$1" ] && [ $(( 0x$1 & 0x10 )) != 0 ] && [ $(( 0x$1 & 0x4 )) = 0 ]; }
+enabled() { [ -n "$1" ] && [ $(( 0x$1 & 0x4 )) != 0 ] && [ $(( 0x$1 & 0x10 )) = 0 ]; }
+D3=S-1-5-21-111-222-333
+for b in 64 32; do
+    OUT="$(dom_probe "$DOMA" "$b" token)"
+    grep -qx "user=$D3-1120" <<<"$OUT" && grep -qx 'elevation=3' <<<"$OUT" && grep -qx 'linkedelevation=2' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "domain: the split token of a member of Domain Admins, $b-bit"; }
+    # the limited token at logon: Administrators and Domain Admins only for deny (UAC filtered groups), so an ACL
+    # that grants Domain Admins gives nothing without elevation; Domain Users and a plain group stay enabled
+    deny_only "$(group_attrs group S-1-5-32-544)" && deny_only "$(group_attrs group "$D3-512")" &&
+        enabled "$(group_attrs group "$D3-513")" && enabled "$(group_attrs group "$D3-1300")" ||
+        { echo "$OUT" >&2; fail "domain: the limited token of a member of Domain Admins does not filter its privileged groups, $b-bit"; }
+    # the elevated (linked) token: all of them enabled
+    enabled "$(group_attrs linkedgroup S-1-5-32-544)" && enabled "$(group_attrs linkedgroup "$D3-512")" &&
+        enabled "$(group_attrs linkedgroup "$D3-513")" && enabled "$(group_attrs linkedgroup "$D3-1300")" ||
+        { echo "$OUT" >&2; fail "domain: the elevated token of a member of Domain Admins lacks an enabled group, $b-bit"; }
+done
 OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe64.exe" token)"
 grep -qx 'primary=S-1-5-21-0-0-0-513' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: a local account's token changed"; }
 OUT="$(dom_probe "$STD" 64 names)"
