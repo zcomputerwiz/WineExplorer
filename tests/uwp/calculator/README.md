@@ -143,8 +143,17 @@ and every event handler return S_OK.
 It draws. The X screenshot of the screen is black inside the window frame (the screen does not show Uno's window
 surface), but the window's pixels read back through GDI (`XamlShim` writes `xamlshim-window.bmp` 5 s after the
 window is placed, with `XAMLSHIM_TRACE=1`; the quick loop fetches it as `calc-window.png`) show the title "Calculator",
-the navigation button, "Standard", the keep-on-top and history buttons and the accent-coloured "=" button. The
-display and the other buttons of the number pad are not drawn yet: next.
+the navigation button, "Standard", the keep-on-top and history buttons and the accent-coloured "=" button.
+
+Later (uno-uwp 22fab8e31b): the Standard calculator is drawn with its display ("0") and the whole keypad: digits,
+operators and the icon glyphs of the package's own font. What it took in XamlShim: `Style.BasedOn` completed from
+the XAML (Uno's reader left 31 of the application's 42 unresolved, so the buttons kept no setters of
+`CalcButtonStyle` and were 0 pixels high); `ms-appx:///` values of the application mapped to its package's files
+(Uno looks in its own folder); every scalar `PropertyValue` (the digit buttons' content is a Char16);
+`ContentControl.Content` taking values; the application's `OnApplyTemplate` overrides called (the display control
+finds its text block there); bindings by `ElementName` to the compiled XAML's root followed from the root's property.
+Open: the decimal separator button shows no "." (its text is laid out, enabled, same colour as the digits);
+the keep-on-top and history icons are clipped; no input tried yet.
 
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
