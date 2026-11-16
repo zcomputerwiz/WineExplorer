@@ -2208,12 +2208,21 @@ def install(verb, accepted_digest):
                 if verb == 'webview2' and result.returncode == 0:
                     # Keep the runtime on the version we verified: no machine-wide
                     # self-update from a system-level updater (see WEBVIEW2_POLICY).
-                    for name, data in WEBVIEW2_POLICY:
-                        subprocess.run(['/usr/bin/timeout', '120s', '/usr/bin/xvfb-run', '-a',
-                                        '/usr/local/bin/wine', 'reg', 'add', WEBVIEW2_POLICY_KEY,
-                                        '/v', name, '/t', 'REG_DWORD', '/d', str(data), '/f'],
-                                       env=environment, check=True, timeout=150,
-                                       stdout=subprocess.DEVNULL)
+                    try:
+                        for name, data in WEBVIEW2_POLICY:
+                            subprocess.run(['/usr/bin/timeout', '120s', '/usr/bin/xvfb-run', '-a',
+                                            '/usr/local/bin/wine', 'reg', 'add', WEBVIEW2_POLICY_KEY,
+                                            '/v', name, '/t', 'REG_DWORD', '/d', str(data), '/f'],
+                                           env=environment, check=True, timeout=150,
+                                           stdout=subprocess.DEVNULL)
+                    except (subprocess.SubprocessError, OSError):
+                        # The installer's updater keeps wineserver alive: stop it
+                        # before reporting, or the lock-holding prefix never idles.
+                        subprocess.run(['/usr/local/bin/wineserver', '-k'], env=environment, timeout=15)
+                        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=30)
+                        if recovery is not None:
+                            recovery['safe_to_restore'] = True
+                        raise ValueError('WebView2 installed but its update policy could not be set; machine-prefix Wine stopped')
                 if result.returncode in (124, 137) or (verb == 'webview2' and result.returncode == 0):
                     subprocess.run(['/usr/local/bin/wineserver', '-k'],
                                    env=environment, timeout=15, check=True)
