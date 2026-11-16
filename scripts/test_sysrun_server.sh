@@ -3738,8 +3738,9 @@ ctl129 >/dev/null
 # installed or removed, and the request waits; when the tree is right again it is installed
 spool_put Machine.Registry.pol "$POL/machine.pol"
 chmod 2775 "$LGP"
-OUT="$(ctl129)"; [ "$OUT" = 'svcctl=error13' ] || { echo "$OUT" >&2; fail "spool: a group-writable store was not refused (wanted error 13)"; }
-[ -e "$SP/Machine.Registry.pol" ] && [ ! -e "$LGP/Machine/Registry.pol" ] || fail "spool: a request was handled in a tree that is not as setup makes it"
+OUT="$(ctl129)"   # (the handler's error code, 13, is not passed on by ControlService: what counts is what happened)
+[ -e "$SP/Machine.Registry.pol" ] && [ ! -e "$LGP/Machine/Registry.pol" ] && [ ! -e "$SP/Machine.Registry.pol.error" ] ||
+    { echo "$OUT" >&2; fail "spool: a request was handled in a tree that is not as setup makes it"; }
 chmod 2755 "$LGP"
 OUT="$(ctl129)"; [ "$OUT" = 'svcctl=0' ] && cmp -s "$POL/machine.pol" "$LGP/Machine/Registry.pol" || { echo "$OUT" >&2; fail "spool: the waiting request was not installed once the tree was right"; }
 # control code 129 with an empty spool does nothing

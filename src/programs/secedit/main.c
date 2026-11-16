@@ -300,6 +300,12 @@ int __cdecl wmain( int argc, WCHAR **argv )
         out( L"\n" );
         return 1;
     }
+    if (err == ERROR_TIMEOUT)
+    {
+        out( L"Task is not completed.\nThe request was not taken or its refresh did not end: gpsvc is not running, "
+             L"or the local policy store is not set up for it.\n" );
+        return 1;
+    }
     if (err)
     {
         error_text( err );
