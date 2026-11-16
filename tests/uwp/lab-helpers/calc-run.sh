@@ -14,7 +14,10 @@ export WINEPREFIX="$run/prefix" WINESERVER="$build/server/wineserver" WINEDEBUG=
 WINEDLLOVERRIDES=mscoree,mshtml= "$build/wine" wineboot -i > boot.log 2>&1; "$build/server/wineserver" -w
 "$build/wine" reg add 'HKCU\Software\WineExplorer\Shell' /v UwpCompatibility /t REG_DWORD /d 1 /f > reg.log 2>&1
 "$build/server/wineserver" -w
-python3 $c/e2e-component.py $c/fw/wex-components.py $c/xamlshim-0.2.0-win-x64.zip "$WINEPREFIX" "$build/wine" > summary 2>&1
+# RELAY_FROM=CalcViewModel.dll with WINEDEBUG +relay: only the calls that module makes
+[ -n "$RELAY_FROM" ] && "$build/wine" reg add 'HKCU\Software\Wine\Debug' /v RelayFromInclude /t REG_SZ /d "$RELAY_FROM" /f >> reg.log 2>&1
+"$build/server/wineserver" -w
+python3 $c/e2e-component.py $c/fw/wex-components.py $c/${XAMLSHIM_ZIP:-xamlshim-0.2.0-win-x64.zip} "$WINEPREFIX" "$build/wine" > summary 2>&1
 python3 $c/fw/lab-frameworks.py install $c/fw/wex-components.py "$WINEPREFIX" $c/fw-downloads >> summary 2>&1
 (cd $c/calc && python3 -c 'import sys,zipfile,os,urllib.parse
 src=sys.argv[1]; z=zipfile.ZipFile(sys.argv[2],"w",zipfile.ZIP_DEFLATED)
@@ -29,9 +32,10 @@ echo "wexappx exit $?" >> summary; tr -d '\r' < install.log >> summary
 full=$(tr -d '\r' < install.log | sed -n 's/^Installed //p')
 family=$(tr -d '\r' < install.log | sed -n 's/^Application: \(.*\)!App$/\1/p')
 if [ -n "$full" ]; then
-  export WINEDEBUG="${1:-err+all,fixme-all}" XAMLSHIM_TRACE=1
+  export WINEDEBUG="${1:-err+all,fixme-all}" XAMLSHIM_TRACE=1 XAMLSHIM_CALLS=1
   ( sleep 20; xwd -root -silent -display "$DISPLAY" | convert xwd:- calc-20s.png; sleep 25; xwd -root -silent -display "$DISPLAY" | convert xwd:- calc-45s.png ) &
-  timeout --kill-after=10s 60s "$build/wine" $c/fixture/x64/launcher.exe "$family!App" probe unused "$full" > launch.log 2>&1
+  # launched as from the Start menu: no arguments (the Calculator reads non-empty arguments as a mode number)
+  timeout --kill-after=10s 60s "$build/wine" $c/applaunch.exe "$family!App" > launch.log 2>&1
   echo "launcher exit $?" >> summary
   sleep 50
   shimlog=$(find "$WINEPREFIX/drive_c/users" -name xamlshim.txt 2>/dev/null | head -1)

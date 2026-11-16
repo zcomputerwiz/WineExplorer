@@ -5,6 +5,9 @@
 #   lab.sh ssh 'command'            run a command in the guest (55 s limit)
 #   lab.sh push FILE [GUEST_NAME]   copy a scratchpad file into the guest workspace's claude/ directory
 #   lab.sh delta NAME               tar the modified and new files of the UWP worktree and push them as NAME.tar
+#                                   (NAME without .tar)
+#   lab.sh wait 'command' [SECONDS] run a command in the guest and wait for it (default 600 s): one ssh with the
+#                                   controller's key and host key, without the controller's 55 s limit
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
 ctl=/mnt/d/DeepThought/Projects/WineExplorer/scripts/lab/uwp/owned-lab.py
@@ -15,6 +18,11 @@ wt="C:/Users/Owner/.codex/worktrees/uwp-runtime/wine"
 lab() { wsl.exe --distribution Debian --user root --exec python3 "$ctl" "$@"; }
 case "$1" in
 ssh) lab ssh "$2" ;;
+wait)
+    wsl.exe --distribution Debian --user root --exec timeout "${3:-600}" ssh -i /var/tmp/wex-g4-lab-credentials/vm_key -p 2237 \
+        -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/tmp/wex-uwp-u1-20261111/known_hosts \
+        -o ConnectTimeout=5 -o ServerAliveInterval=15 debian@127.0.0.1 "$2"
+    ;;
 push) lab push "$pad_wsl/$2" "$ws/claude/${3:-$2}" ;;
 fixture)
     src=/d/DeepThought/Projects/WineExplorer/tests/uwp/u1_0
