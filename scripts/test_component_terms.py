@@ -34,6 +34,43 @@ def document(extra='', fmt='lowerLetter'):
     return out.getvalue()
 
 
+class WebView2TermsTests(unittest.TestCase):
+    """The WebView2 agreement arrives as JSON holding HTML; fixtures are synthetic."""
+
+    @staticmethod
+    def payload(title='MICROSOFT EDGE WEBVIEW2 RUNTIME', body='Synthetic clause. ' * 40):
+        html = f'<div><p>SYNTHETIC TERMS</p><p>{title}</p><hr/><p>{body}</p><h3><b>2.</b> Second &amp; last</h3></div>'
+        return json.dumps({'evergreenHtml': html}).encode()
+
+    def test_extraction_keeps_paragraphs_and_entities(self):
+        text = components.extract_webview2_terms(self.payload())
+        self.assertIn('MICROSOFT EDGE WEBVIEW2 RUNTIME\n\nSynthetic clause.', text)
+        self.assertIn('2. Second & last', text)
+        self.assertNotIn('<', text)
+
+    def test_other_agreement_or_missing_field_is_refused(self):
+        with self.assertRaises(ValueError):
+            components.extract_webview2_terms(self.payload(title='MICROSOFT EDGE WEBVIEW2 RUNTIME (FIXED VERSION)'))
+        with self.assertRaises(ValueError):
+            components.extract_webview2_terms(json.dumps({'strings': {}}).encode())
+        with self.assertRaises(ValueError):
+            components.extract_webview2_terms(self.payload(body='too short'))
+
+    def test_component_pins(self):
+        meta = components.COMPONENTS_METADATA['webview2']
+        payload = meta['payloads'][0]
+        self.assertTrue(meta['terms_url'].startswith('https://'))
+        self.assertEqual(meta['terms_format'], 'webview2-json')
+        self.assertEqual(len(meta['terms_sha256']), 64)
+        self.assertEqual(len(payload['sha256']), 64)
+        self.assertEqual(urllib_host(payload['url']), payload['host'])
+
+
+def urllib_host(url):
+    import urllib.parse
+    return urllib.parse.urlsplit(url).hostname
+
+
 class DocumentTests(unittest.TestCase):
     def test_real_renderer_preserves_clauses_and_target(self):
         text = components.extract_docx_terms(document())

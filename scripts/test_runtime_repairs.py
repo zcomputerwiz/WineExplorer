@@ -945,14 +945,14 @@ class OobeCoordinatorTests(unittest.TestCase):
 
 
 class CatalogParserTests(unittest.TestCase):
-    def test_catalog_contains_six_distinct_components_in_order(self):
-        expected_verbs = ['vcrun2022', 'corefonts', 'tahoma', 'd3dcompiler_47', 'xact', 'physx']
+    def test_catalog_contains_seven_distinct_components_in_order(self):
+        expected_verbs = ['vcrun2022', 'corefonts', 'tahoma', 'd3dcompiler_47', 'xact', 'physx', 'webview2']
         actual_verbs = list(components.COMPONENTS_METADATA.keys())
         self.assertEqual(actual_verbs, expected_verbs)
 
     def test_all_components_have_explicit_reasons(self):
         for verb, meta in components.COMPONENTS_METADATA.items():
-            if verb in ('vcrun2022', 'corefonts', 'd3dcompiler_47'):
+            if verb in ('vcrun2022', 'corefonts', 'd3dcompiler_47', 'webview2'):
                 self.assertFalse(meta.get('disabled'), f"{verb} must be enabled for release candidate")
                 self.assertEqual(meta.get('disabled_reason', ''), '')
             else:

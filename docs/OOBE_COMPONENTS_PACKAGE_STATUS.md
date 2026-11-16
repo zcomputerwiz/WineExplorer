@@ -21,6 +21,7 @@ separate gates. A Winetricks verb is useful prior art, not a licensing grant.
 | corefonts | Enabled | All 11 package payloads and 30 TrueType fonts verified against pinned SHA-256 evidence. Offline staging into winetricks cache and execution under /usr/bin/unshare --net prevents network access. Pre-existing font symlinks in drive_c/windows/Fonts are purged prior to winetricks font copy to prevent open-font symlink overwrite in /usr/share/fonts. Setup machine root guard protects fonts against symlink replacement. Font registration verified in HKLM\Software\Microsoft\Windows NT\CurrentVersion\Fonts. |
 | tahoma | Disabled pending rights/terms verification | Verified historical CAB contains the two fonts, but Core Fonts EULA does not automatically cover this separate IE language pack; exact applicable terms/use rights remain unresolved |
 | d3dcompiler_47 | Enabled | First-party Microsoft Windows 8.1 Standalone SDK cabinet distribution integrated. License RTF extracted statically from sdksetup.exe Burn manifest (u1, 64,354 bytes -> 18,295-byte plain text, SHA-256 5b575dc8...); offline staging and unshared net execution extracts 32-bit (syswow64) and 64-bit (system32) d3dcompiler_47.dll PEs with exact SHA-256 verification. Machine root DLL overrides protected to retain Wine builtin default globally while enabling native compiler fallback. Verified in live OOBE UI dual-acceptance flow. |
+| webview2 | Enabled | Evergreen standalone x64 installer pinned by SHA-256 and size; terms pinned from Microsoft's own download-page endpoint (see below) |
 | xact | Disabled pending matched-package/terms integration | First-party DirectX package acquired, but differs from historical pinned hash; outer terms are extractable. Need full applicable terms chain, bounded reviewed extraction and architecture-specific functional/audio proof |
 | physx | Disabled pending modern recipe/testing | 9.23.1019 package downloaded/hashed; old Winetricks bug cutoff is stale. Need matched terms extraction, reviewed recipe change and actual CPU/runtime/application compatibility tests; GPU acceleration is not implied |
 
@@ -89,6 +90,27 @@ it means we have not established that agreement or the intended-use permission.
 does not offer it as an independent free font download. Do not use Windows-owned
 font files or the Core Fonts EULA as substitutes for package-specific evidence.
 Keep Wine's builtin/open-font fallback working in the meantime.
+
+## WebView2 Runtime — Enabled, installer run directly
+
+Programs that embed WebView2 (Copilot's "Continue with Microsoft" popup, Office sign-in) look for the runtime
+registered under `HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`.
+Windows ships it; Wine has none, so without it the popup fails in the WebView2 loader's runtime discovery.
+
+- **Payload:** `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` (215,116,512 bytes, SHA256
+  `d3cbe8fedb104282d745fff106993efead51ae94f5595a4e75804446a974f9c3`, runtime 157.0.4341.60) from
+  `msedge.sf.dl.delivery.mp.microsoft.com`, the per-file address Microsoft's `go.microsoft.com/fwlink/p/?LinkId=2124701`
+  redirects to. The fwlink always serves the latest version, so it is not pinned. When Microsoft retires this file,
+  update `payloads`, `release` and the hash together; a changed hash fails closed before anything runs.
+- **Terms:** the download page's licence dialog loads `https://developer.microsoft.com/microsoft-edge/api/eula/webview2?locale=en-us`
+  (JSON, `evergreenHtml`). `extract_webview2_terms` renders it as text (English and French as published) and refuses
+  the Fixed Version agreement. The JSON hash and the text hash are pinned; nothing of the text is stored in the repository.
+- **Install:** not a winetricks verb. Downloaded only after the terms digest is accepted, verified, then
+  `wine <installer> /silent /install` under `unshare --net` in the machine prefix (about 50 s). The installer leaves
+  its update service running, so `wineserver -k` follows a successful exit (otherwise `wineserver -w` never returns).
+- **Verification:** `msedgewebview2.exe` and `msedge.dll` in `Program Files (x86)\Microsoft\EdgeWebView\Application\<version>`
+  and `pv` in the registry key above; the receipt `webview2.json` records the terms digest.
+- **Tested:** fresh VM overlay, `--prepare-terms`, `--install`, `is_installed()` true, 130 s including the download.
 
 ## Compiler 47 — Enabled with Microsoft SDK cabinet distribution
 
