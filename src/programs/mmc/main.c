@@ -38,6 +38,7 @@ typedef BOOL (WINAPI *EXECUTE)( HWND, HINSTANCE, const WCHAR *, int );
 static const struct { const char *clsid; const WCHAR *dll; const char *entry; } snapins[] =
 {
     { "{74246BFC-4C96-11D0-ABEF-0020AF6B0B7A}", L"devmgr.dll", "DeviceManager_ExecuteW" },   /* Device Manager */
+    { "{8FC0B734-A0E1-11D1-A7D3-0000F87571E3}", L"gpedit.dll", "GpEdit_ExecuteW" },          /* Group Policy (local) */
 };
 
 static char *read_console( const WCHAR *path )

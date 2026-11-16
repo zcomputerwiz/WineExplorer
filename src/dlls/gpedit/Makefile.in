@@ -1,0 +1,8 @@
+MODULE    = gpedit.dll
+IMPORTS   = comctl32 user32 gdi32 advapi32 shell32
+
+SOURCES = \
+	gpedit.c \
+	gpedit.rc \
+	model.c \
+	policies.c

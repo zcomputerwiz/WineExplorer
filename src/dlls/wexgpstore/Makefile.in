@@ -1,0 +1,8 @@
+MODULE    = wexgpstore.dll
+IMPORTLIB = wexgpstore
+UNIXLIB   = wexgpstore.so
+
+SOURCES = \
+	native.c \
+	unixlib.c \
+	wexgpstore.c

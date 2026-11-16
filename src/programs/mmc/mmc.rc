@@ -39,3 +39,5 @@ IDI_MMC ICON mmc.ico
 /* the consoles wine.inf puts into system32 */
 /* @makedep: devmgmt.msc */
 1 WINE_DATA_FILE devmgmt.msc
+/* @makedep: gpedit.msc */
+2 WINE_DATA_FILE gpedit.msc

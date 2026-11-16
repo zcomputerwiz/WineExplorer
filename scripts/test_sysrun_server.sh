@@ -3542,7 +3542,17 @@ ok st_machine_policy_and_clear_and_only_the_system_writes
 # session 0's root apply to the computer and to every person when wex-gpupdate.sh runs (this machine is not joined),
 # the applied list names "Local Group Policy", and removing the files takes the values away again
 LGP="$M/drive_c/windows/system32/GroupPolicy"
-install -d -m 0755 "$LGP/Machine" "$LGP/User"
+# the store as setup-machine-root.sh makes it: session 0's account owns it and nobody else may write it, except the
+# spool, where the system group leaves requests for gpsvc (docs/GROUP_POLICY.md, "Writing the local files: the spool")
+gp_tree()
+{
+    rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
+    install -d -m 2755 -o "$S0U" -g "$GRP" "$LGP" "$LGP/Machine" "$LGP/User"
+    install -d -m 2770 -o "$S0U" -g "$GRP" "$LGP/Spool"
+    chown "$S0U:$GRP" "$LGP"; chmod 2755 "$LGP"
+    setfacl -R -b "$LGP" 2>/dev/null || true
+}
+gp_tree
 cp "$POL/machine.pol" "$LGP/Machine/Registry.pol"; cp "$POL/user.pol" "$LGP/User/Registry.pol"
 local_gpupdate() { WEX_MACHINE_ROOT="$M" WINE="$BUILD/wine" WEX_SESSION0_USER="$S0U" bash "$SRC/installer/scripts/wex-gpupdate.sh" 2>&1; }
 OUT="$(local_gpupdate)" || { echo "$OUT" >&2; fail "local policy: wex-gpupdate.sh failed"; }
@@ -3615,7 +3625,7 @@ grep -qx 'LockoutBadCount = 4' <<<"$TXT" && grep -qx '\[System Access\]' <<<"$TX
     grep -qx 'MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\EnableInstallerDetection=4,1' <<<"$TXT" ||
     { echo "$TXT" >&2; fail "secedit: the exported template misses the lockout policy or the consent option"; }
 LSE="$LGP/Machine/Microsoft/Windows NT/SecEdit"
-rm -rf "$LGP/Machine"; install -d -m 2775 -g "$GRP" "$LGP/Machine"
+gp_tree
 TNAME=cfg.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
     'LockoutBadCount = 6' 'ResetLockoutCount = 20' '[Registry Values]' \
     'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3'
@@ -3639,6 +3649,9 @@ for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
 [ -s "$REQ" ] || { cat "$POL/secedit.out" >&2; fail "secedit: /configure did not ask for a refresh"; }
 [ -f "$LSE/GptTmpl.inf" ] || fail "secedit: /configure did not store the template"
 [ "$(head -c 2 "$LSE/GptTmpl.inf" | od -An -tx1 | tr -d ' \n')" = fffe ] || fail "secedit: the stored template has no byte order mark"
+# installed by gpsvc: the store file is session 0's own, readable by everyone, and no request or error is left behind
+[ "$(stat -c '%U:%a' "$LSE/GptTmpl.inf")" = "$S0U:644" ] || fail "secedit: the stored template is $(stat -c '%U:%a' "$LSE/GptTmpl.inf")"
+[ -z "$(ls -A "$LGP/Spool")" ] || fail "secedit: the spool is not empty: $(ls -A "$LGP/Spool")"
 grep -q 'completed successfully' "$POL/secedit.out" && fail "secedit: /configure did not wait for the refresh"
 local_gpupdate >/dev/null 2>&1 || fail "secedit: wex-gpupdate.sh after /configure"
 wait "$SE_PID" || true
@@ -3660,6 +3673,114 @@ s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Syst
 s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null 2>&1 || true
 kill_servers
 ok st_secedit_exports_and_configures_the_local_security_template
+# gpsvc and the spool (docs/GROUP_POLICY.md, "Writing the local files: the spool"): requests that the system group
+# left are checked and installed by session 0's account, or refused with NAME.error; control code 129 may be sent by
+# any user and only makes gpsvc look at the spool. Root stands in for an elevated administrator's process (the
+# service does not look at who wrote a request, only at what it is).
+SP="$LGP/Spool"
+s0_wine sc start gpsvc >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+gp_tree
+ctl129() { as_wine "$STD" "$ROOT/probes/tierprobe64.exe" svcctl gpsvc 129 | tr -d '\r'; }   # any user may send it
+spool_put()   # NAME FILE: a request as GpStoreWrite leaves it (a temporary file, then a rename)
+{
+    cp "$2" "$SP/$1.tmp" && chgrp "$GRP" "$SP/$1.tmp" && chmod 0664 "$SP/$1.tmp" && mv "$SP/$1.tmp" "$SP/$1"
+}
+spool_error() { cat "$SP/$1.error" 2>/dev/null; }
+# a standard user cannot leave a request
+if run_as "$STD" sh -c ': > "$1"' _ "$SP/Machine.Registry.pol" 2>/dev/null; then fail "spool: a standard user wrote the spool"; fi
+# a good PReg request becomes the store file of session 0's account
+spool_put Machine.Registry.pol "$POL/machine.pol"
+OUT="$(ctl129)"; [ "$OUT" = 'svcctl=0' ] || { echo "$OUT" >&2; fail "spool: control code 129"; }
+cmp -s "$POL/machine.pol" "$LGP/Machine/Registry.pol" && [ "$(stat -c '%U:%a' "$LGP/Machine/Registry.pol")" = "$S0U:644" ] ||
+    fail "spool: the request was not installed as session 0's file"
+[ -z "$(ls -A "$SP")" ] || fail "spool: not empty after a good request: $(ls -A "$SP")"
+# a damaged policy file and a damaged template are refused, with the reason, and change nothing
+printf 'this is not a policy file' > "$POL/damaged.pol"
+spool_put Machine.Registry.pol "$POL/damaged.pol"
+ctl129 >/dev/null
+[ ! -e "$SP/Machine.Registry.pol" ] && grep -q '^error 11' "$SP/Machine.Registry.pol.error" && cmp -s "$POL/machine.pol" "$LGP/Machine/Registry.pol" ||
+    { spool_error Machine.Registry.pol >&2; fail "spool: a damaged policy file was not refused with its reason"; }
+printf '[Version]\nsignature="$CHICAGO$"\n' > "$POL/nobom.inf"
+spool_put Machine.GptTmpl.inf "$POL/nobom.inf"
+ctl129 >/dev/null
+grep -q '^error 11' "$SP/Machine.GptTmpl.inf.error" && [ ! -e "$LSE/GptTmpl.inf" ] || fail "spool: a template without a byte order mark was not refused"
+spool_put Machine.GptTmpl.inf "$POL/bad.inf"
+ctl129 >/dev/null
+[ -s "$SP/Machine.GptTmpl.inf.error" ] && [ ! -e "$LSE/GptTmpl.inf" ] || fail "spool: a template without a signature was not refused"
+spool_put Machine.GptTmpl.inf "$POL/sec.inf"
+ctl129 >/dev/null
+cmp -s "$POL/sec.inf" "$LSE/GptTmpl.inf" && [ ! -e "$SP/Machine.GptTmpl.inf.error" ] || fail "spool: a good template was not installed (and its old error removed)"
+# a link, a FIFO, a file with a second link and one that is too large are refused; nothing they point to is touched
+printf 'untouched' > "$POL/target.txt"
+ln -s "$POL/target.txt" "$SP/User.Registry.pol"
+ctl129 >/dev/null
+grep -q 'refused' "$SP/User.Registry.pol.error" && [ ! -e "$SP/User.Registry.pol" ] && [ ! -L "$SP/User.Registry.pol" ] &&
+    [ "$(cat "$POL/target.txt")" = untouched ] && [ ! -e "$LGP/User/Registry.pol" ] || fail "spool: a link as request was followed or not refused"
+mkfifo "$SP/User.Registry.pol"
+OUT="$(ctl129)"   # (a FIFO that was read blocking would never return here: the suite's own timeout would end the run)
+grep -q 'refused' "$SP/User.Registry.pol.error" && [ ! -e "$SP/User.Registry.pol" ] || fail "spool: a FIFO as request held gpsvc up or was not refused: $OUT"
+cp "$POL/user.pol" "$POL/second-name.pol"
+ln "$POL/second-name.pol" "$SP/User.Registry.pol"
+ctl129 >/dev/null
+grep -q 'refused' "$SP/User.Registry.pol.error" && [ ! -e "$LGP/User/Registry.pol" ] && [ -s "$POL/second-name.pol" ] ||
+    fail "spool: a request with a second link was installed"
+head -c $((4 * 1024 * 1024 + 1)) /dev/zero > "$POL/huge.pol"
+spool_put User.Registry.pol "$POL/huge.pol"
+ctl129 >/dev/null
+grep -q 'too large' "$SP/User.Registry.pol.error" && [ ! -e "$LGP/User/Registry.pol" ] || fail "spool: an oversized request was installed"
+# zero bytes remove the store file (every setting Not Configured)
+: > "$POL/zero.pol"
+spool_put Machine.Registry.pol "$POL/zero.pol"
+ctl129 >/dev/null
+[ ! -e "$LGP/Machine/Registry.pol" ] && [ ! -e "$SP/Machine.Registry.pol" ] || fail "spool: zero bytes did not remove the store file"
+# a store that is not as setup makes it (here group-writable) is refused whole: control code 129 fails, nothing is
+# installed or removed, and the request waits; when the tree is right again it is installed
+spool_put Machine.Registry.pol "$POL/machine.pol"
+chmod 2775 "$LGP"
+OUT="$(ctl129)"   # (the handler's error code, 13, is not passed on by ControlService: what counts is what happened)
+[ -e "$SP/Machine.Registry.pol" ] && [ ! -e "$LGP/Machine/Registry.pol" ] && [ ! -e "$SP/Machine.Registry.pol.error" ] ||
+    { echo "$OUT" >&2; fail "spool: a request was handled in a tree that is not as setup makes it"; }
+chmod 2755 "$LGP"
+OUT="$(ctl129)"; [ "$OUT" = 'svcctl=0' ] && cmp -s "$POL/machine.pol" "$LGP/Machine/Registry.pol" || { echo "$OUT" >&2; fail "spool: the waiting request was not installed once the tree was right"; }
+# control code 129 with an empty spool does nothing
+OUT="$(ctl129)"; [ "$OUT" = 'svcctl=0' ] && cmp -s "$POL/machine.pol" "$LGP/Machine/Registry.pol" || fail "spool: 129 with an empty spool changed something"
+rm -rf "$LGP/Machine" "$LGP/User" "$SP"
+kill_servers
+ok st_gpsvc_spool_installs_good_requests_and_refuses_hostile_ones
+# the policy editor's save path end to end (docs/GROUP_POLICY.md, "Local policy"): GpEdit_SetPolicyW, which the window's
+# Properties sheet also ends in, makes the file, leaves it in the spool, asks gpsvc, and waits for the refresh; when
+# the refresh has run the setting is in the registry, and "Not Configured" takes it away again
+gp_tree
+EXPL='HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'
+s0_wine reg delete "$EXPL" /v NoRecentDocsHistory /f >/dev/null 2>&1 || true
+REQ="$LGP/Refresh"
+for state in 1 0; do
+    rm -f "$REQ" "$POL/gpset.out"
+    s0_wine sc start gpsvc >/dev/null 2>&1 || true
+    for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+    (s0_wine "$ROOT/probes/tierprobe64.exe" gpset computer:NoRecentDocsHistory "$state" 0 > "$POL/gpset.out" 2>&1; echo "rc=$?" >> "$POL/gpset.out") &
+    GP_PID=$!
+    for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
+    [ -s "$REQ" ] || { cat "$POL/gpset.out" >&2; fail "gpedit: setting state $state did not ask for a refresh"; }
+    [ "$state" = 0 ] || [ -s "$LGP/Machine/Registry.pol" ] || fail "gpedit: the policy file was not stored"
+    [ "$state" = 0 ] || [ "$(stat -c '%U:%a' "$LGP/Machine/Registry.pol")" = "$S0U:644" ] ||
+        fail "gpedit: the stored file is $(stat -c '%U:%a' "$LGP/Machine/Registry.pol")"
+    [ -z "$(ls -A "$LGP/Spool")" ] || fail "gpedit: the spool is not empty: $(ls -A "$LGP/Spool")"
+    local_gpupdate >/dev/null 2>&1 || fail "gpedit: wex-gpupdate.sh after the change"
+    wait "$GP_PID" || true
+    tr -d '\r' < "$POL/gpset.out" | grep -qx 'gpset=0' && grep -qx 'rc=0' "$POL/gpset.out" ||
+        { cat "$POL/gpset.out" >&2; fail "gpedit: setting state $state did not end well"; }
+    got="$(as_wine "$STD" reg query "$EXPL" /v NoRecentDocsHistory | val NoRecentDocsHistory || true)"   # (no value: reg exits 1)
+    if [ "$state" = 1 ]; then [ "$got" = 0x1 ] || fail "gpedit: enabled setting not applied: [$got]"
+    else [ -z "$got" ] || fail "gpedit: Not Configured left the value: [$got]"; fi
+done
+# an id that is not in the table is refused (ERROR_NOT_FOUND)
+OUT="$(s0_wine "$ROOT/probes/tierprobe64.exe" gpset computer:NoSuchThing 1 0 | tr -d '\r')"
+[ "$OUT" = gpset=1168 ] || fail "gpedit: an unknown id gave $OUT"
+rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
+kill_servers
+ok st_gpedit_setting_goes_through_the_spool_and_applies
 # Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
 # extension, for the machine and for the user
 REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'
