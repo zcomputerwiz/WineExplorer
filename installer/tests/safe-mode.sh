@@ -375,7 +375,10 @@ open_menu() {
         if [ "$FIRMWARE" = bios ]; then
             "${V[@]}" hold "$TEST" shift 6 --cont >/dev/null 2>&1
         else
-            "${V[@]}" hold "$TEST" f8 25 --cont >/dev/null 2>&1   # 15 seconds once missed systemd-boot
+            # 15 seconds once missed systemd-boot; 25 missed it on a loaded host (2026-11-16: four of six UEFI stages
+            # went straight to the desktop while other VMs ran), as OVMF reached the loader later. The key is still
+            # held when the menu shows on a quick start, which it ignores.
+            "${V[@]}" hold "$TEST" f8 40 --cont >/dev/null 2>&1
         fi
         if wait_text "Advanced Options" 30; then
             shot loader
@@ -637,6 +640,15 @@ expect_check() {   # the start-up check (scripts/wex-startup-check.sh) finished 
         *" ActiveState=active "*) case " $out " in *" Result=success "*) return 0 ;; esac ;;
     esac
     fail "the start-up check did not finish successfully: ${out:-no answer}"
+}
+
+wait_unit_active() {   # wait_unit_active UNIT TIMEOUT: a oneshot unit with RemainAfterExit=yes has run to its end
+    local end=$((SECONDS + $2))
+    while [ "$SECONDS" -lt "$end" ]; do
+        gsh "systemctl show -p ActiveState --value $1" | tr -d '\r' | grep -qx active && return 0
+        sleep 5
+    done
+    return 1
 }
 
 # the pattern scripts/wex-startup-check.sh uses for the Welcome screen (scripts/test_safemode.py keeps them equal)
@@ -1589,8 +1601,10 @@ phase_lastgoodgen() {   # work order D3 with Vintner Boot: from a generation tha
     rm -f "$MNT/etc/systemd/system/multi-user.target.wants/wex-test-publish.service" \
         "$MNT/etc/systemd/system/wex-test-publish.service" "$MNT/root/wex-test-publish.sh" "$MNT/root/wex-test-publish.log"
     if [ "$out" = publish=0 ]; then
+        # written whole or not at all, and active once written (the test waits for that before shutting down)
         printf '%s\n' '[Unit]' 'Description=Test: record vintner status' 'After=multi-user.target vintner-bless.service' \
-            '[Service]' 'Type=oneshot' 'ExecStart=/bin/sh -c "vintner status --json > /root/wex-test-status.json"' \
+            '[Service]' 'Type=oneshot' 'RemainAfterExit=yes' \
+            'ExecStart=/bin/sh -c "vintner status --json > /root/wex-test-status.json.tmp && mv -f /root/wex-test-status.json.tmp /root/wex-test-status.json"' \
             '[Install]' 'WantedBy=multi-user.target' > "$MNT/etc/systemd/system/wex-test-status.service"
         ln -sf /etc/systemd/system/wex-test-status.service "$MNT/etc/systemd/system/multi-user.target.wants/"
     fi
@@ -1604,13 +1618,18 @@ phase_lastgoodgen() {   # work order D3 with Vintner Boot: from a generation tha
     desktop 900
     expect_state mode=normal default=graphical.target nm=active timers!=0 cron=active prefetch!=inactive
     expect_check
+    # The unit runs after vintner-bless; a shutdown before it ends left an empty file on a loaded host (2026-11-16)
+    wait_unit_active wex-test-status.service 180 || echo "  WARNING: the status unit had not finished after 180 seconds"
     shutdown_vm
     wait_off 60 || fail "the VM did not power off"
     attach rw || fail "cannot mount the overlay"
     cp "$MNT/root/wex-test-status.json" "$OUT/lastgoodgen-status.json" 2>/dev/null
     rm -f "$MNT/etc/systemd/system/multi-user.target.wants/wex-test-status.service" \
-        "$MNT/etc/systemd/system/wex-test-status.service" "$MNT/root/wex-test-status.json"
+        "$MNT/etc/systemd/system/wex-test-status.service" "$MNT/root/wex-test-status.json" \
+        "$MNT/root/wex-test-status.json.tmp"
     detach
+    [ -s "$OUT/lastgoodgen-status.json" ] \
+        || fail "no vintner status was recorded at the start after Last Known Good ($OUT/lastgoodgen-status.json)"
     status=$(python3 -c 'import json, sys
 s = json.load(open(sys.argv[1]))
 b = s.get("booted") or {}
