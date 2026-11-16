@@ -2,8 +2,10 @@
 # Copyright 2026 WineExplorer contributors
 #
 # WineExplorer: gpupdate (docs/GROUP_POLICY.md). A user's gpupdate asks session 0's Group Policy service (gpsvc)
-# for a refresh; the service writes this file in session 0's root, and the refresh runs as root. systemd's start
-# limits of the service and of this unit bound how often users can make it run. Enabled with session 0
+# for a refresh; the service writes this file in session 0's root, and the refresh runs as root. The runs are
+# serialised by the script's lock, and the costly fetch from the domain is shared by runs that follow closely (the
+# service has no start limit: one that disables the unit would let any user stop the refreshes for everyone, and the
+# trigger limit of this unit is systemd's default, 200 in 2 seconds). Enabled with session 0
 # (setup-machine-root.sh with WEX_SESSION0=1), like the timer.
 
 [Unit]
