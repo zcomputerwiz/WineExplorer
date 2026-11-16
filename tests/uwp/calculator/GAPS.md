@@ -63,6 +63,19 @@ windows.networking.connectivity, windows.storage.applicationdata, windows.ui.xam
 | Windows.UI.Xaml.Media.FontFamily | constructed |
 | Windows.UI.Xaml.Setter | constructed |
 
+## Status (2026-11-16)
+
+* Done in XamlShim (1247b2d640, then FontWeights, which Windows serves from Windows.UI.Xaml.dll): the generator forwards
+  methods to Uno's methods of the same name (statics, factory constructors), and the 18 classes above plus
+  Windows.UI.Text.FontWeights are served.
+* Done in Wine: AsyncCausalityTracer (3fdfa06d) and MemoryManager (43ebe826).
+* Left in Wine, none reached before the first calculator view: SystemNavigationManager (the Settings page),
+  ThreadPoolTimer (the unit converter), ViewModePreferences (always on top), the clipboard classes, DateTimeFormatter and
+  CurrencyFormatter (date and currency modes), Launcher, JumpList, JumpListItem, LimitedAccessFeatures,
+  UserActivityChannel.
+* Seen at run time, outside this list: WinUI 2's Microsoft.UI.Xaml.XamlTypeInfo.XamlControlsXamlMetaDataProvider (the
+  application's XAML metadata asks it for WinUI 2 types; XamlShim does not serve it yet).
+
 ## Order of work
 
 1. XamlShim: static methods of statics interfaces forwarded to Uno's static methods of the same name by the generator
