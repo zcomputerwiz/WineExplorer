@@ -51,7 +51,10 @@
  *   probe svcstop NAME            opens the service for SERVICE_STOP and stops it; prints stop=0 or stop=error<n>
  *   probe gpset ID STATE N        sets a policy of the editor (gpedit.dll, GpEdit_SetPolicyW) as the editor saves it;
  *                                 prints gpset=0 or gpset=<win32 error>
- *   probe svcctl NAME CODE       sends the user-defined control code CODE (128 to 255) to the service; prints svcctl=0
+
+ *   probe spoolsteps              the file steps of the policy store client in the spool, with each error (diagnostics)
+ *   probe runas FILE PARAMS       ShellExecuteEx "runas" FILE with PARAMS, waits; prints runas=0 or runas=error<n>
+ *   probe svcctl NAME CODE      sends the user-defined control code CODE (128 to 255) to the service; prints svcctl=0
  *                                 or svcctl=error<n>
  *   probe pipeserve PIPE          serves \\.\pipe\PIPE for one client (message mode, 30 s at most); prints
  *                                 clientsession=<GetNamedPipeClientSessionId> and message=<what the client wrote>
@@ -62,6 +65,7 @@
 #include <windows.h>
 #include <winternl.h>
 #include <sddl.h>
+#include <shellapi.h>
 #include <stdio.h>
 
 static void print_value( const char *label, HKEY key, const WCHAR *name )
@@ -328,6 +332,116 @@ int __cdecl wmain( int argc, WCHAR **argv )
             return 1;
         }
         printf( "gpset=%lu\n", set_policy( argv[2], wcstoul( argv[3], NULL, 10 ), wcstoul( argv[4], NULL, 10 ) ) );
+        return 0;
+    }
+    if ((argc == 2 || argc == 3) && !lstrcmpW( argv[1], L"spoolsteps" ))
+    {
+        /* the file steps of GpStoreWrite in the spool (or in the directory DIR), one by one, with the error of each
+         * (diagnostics) */
+        WCHAR dir[MAX_PATH], temp[MAX_PATH + 32], final[MAX_PATH + 32];
+        HANDLE file;
+        DWORD done = 0, werr;
+
+        if (argc == 3) lstrcpynW( dir, argv[2], MAX_PATH - 20 );
+        else
+        {
+            GetSystemDirectoryW( dir, MAX_PATH - 20 );
+            lstrcatW( dir, L"\\GroupPolicy\\Spool" );
+        }
+        /* one line: c create, w write, x close, o open for DELETE, r rename by handle (SetFileInformationByHandle), m
+         * MoveFileEx (replace), n MoveFileEx without replace to another name, d delete of the new name, t delete of
+         * the temporary name */
+        DWORD c, w, x, o = 0, r = 0, m, n, d, t;
+        char buffer[sizeof(FILE_RENAME_INFO) + 2 * MAX_PATH * sizeof(WCHAR)];
+        FILE_RENAME_INFO *info = (FILE_RENAME_INFO *)buffer;
+        HANDLE del;
+
+        wsprintfW( temp, L"%s\\diag.tmp", dir );
+        wsprintfW( final, L"%s\\diag", dir );
+        file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+        c = file == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+        if (file == INVALID_HANDLE_VALUE) { printf( "%ls c=%lu\n", dir, c ); return 1; }
+        w = WriteFile( file, "x\n", 2, &done, NULL ) ? 0 : GetLastError();
+        x = CloseHandle( file ) ? 0 : GetLastError();
+        del = CreateFileW( temp, DELETE | SYNCHRONIZE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                           OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL );
+        if (del == INVALID_HANDLE_VALUE) o = GetLastError();
+        else
+        {
+            memset( buffer, 0, sizeof(buffer) );
+            info->ReplaceIfExists = TRUE;
+            info->FileNameLength = lstrlenW( final ) * sizeof(WCHAR);
+            memcpy( info->FileName, final, info->FileNameLength );
+            r = SetFileInformationByHandle( del, FileRenameInfo, info, sizeof(buffer) ) ? 0 : GetLastError();
+            CloseHandle( del );
+        }
+        d = 0;
+        if (!r) d = DeleteFileW( final ) ? 0 : GetLastError();
+        file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+        if (file != INVALID_HANDLE_VALUE) CloseHandle( file );
+        m =MoveFileExW( temp, final, MOVEFILE_REPLACE_EXISTING ) ? 0 : GetLastError();
+        if (!m) DeleteFileW( final );
+        n = MoveFileExW( temp, final, 0 ) ? 0 : GetLastError();
+        d = DeleteFileW( final ) ? 0 : GetLastError();
+        t = DeleteFileW( temp ) ? 0 : GetLastError();
+        {
+            /* q: the rename by handle with the directory as RootDirectory and a relative name; k: CopyFile and the
+             * delete of the temporary name; s: the status of a plain NtSetInformationFile by handle (rename) */
+            DWORD q = 0, k, s = 0;
+            HANDLE dirh;
+
+            file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+            if (file != INVALID_HANDLE_VALUE) { WriteFile( file, "x\n", 2, &done, NULL ); CloseHandle( file ); }
+            dirh = CreateFileW( dir, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                                OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL );
+            del = CreateFileW( temp, DELETE | SYNCHRONIZE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                               OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL );
+            if (dirh == INVALID_HANDLE_VALUE || del == INVALID_HANDLE_VALUE) q = 1000000 + GetLastError();
+            else
+            {
+                memset( buffer, 0, sizeof(buffer) );
+                info->ReplaceIfExists = TRUE;
+                info->RootDirectory = dirh;
+                info->FileNameLength = 4 * sizeof(WCHAR);
+                memcpy( info->FileName, L"diag", 4 * sizeof(WCHAR) );
+                q = SetFileInformationByHandle( del, FileRenameInfo, info, sizeof(buffer) ) ? 0 : GetLastError();
+            }
+            if (del != INVALID_HANDLE_VALUE) CloseHandle( del );
+            if (dirh != INVALID_HANDLE_VALUE) CloseHandle( dirh );
+            if (!q) DeleteFileW( final );
+            file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+            if (file != INVALID_HANDLE_VALUE) CloseHandle( file );
+            k = CopyFileW( temp, final, FALSE ) ? 0 : GetLastError();
+            if (!k) DeleteFileW( final );
+            DeleteFileW( temp );
+            (void)s;
+            printf( "%ls c=%lu w=%lu x=%lu o=%lu r=%lu m=%lu n=%lu d=%lu t=%lu q=%lu k=%lu\n", dir, c, w, x, o, r, m, n, d, t, q, k );
+        }
+        (void)werr;
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"runas" ))
+    {
+        /* runas FILE PARAMETERS: ShellExecuteEx with the verb runas, as a program asks for elevation; waits for the
+         * program. Prints runas=0 (the program ran and ended) or runas=error<n> (a refusal is 1223, cancelled).
+         * shell32 is loaded by name so that the probe's link line stays as it is. */
+        BOOL (WINAPI *execute)( SHELLEXECUTEINFOW * );
+        HMODULE shell = LoadLibraryW( L"shell32.dll" );
+        SHELLEXECUTEINFOW info = { sizeof(info) };
+
+        execute = shell ? (void *)GetProcAddress( shell, "ShellExecuteExW" ) : NULL;
+        info.fMask = SEE_MASK_NOCLOSEPROCESS;
+        info.lpVerb = L"runas";
+        info.lpFile = argv[2];
+        info.lpParameters = argv[3];
+        info.nShow = SW_HIDE;
+        if (!execute || !execute( &info ))
+        {
+            printf( "runas=error%lu\n", GetLastError() );
+            return 1;
+        }
+        if (info.hProcess) WaitForSingleObject( info.hProcess, 180000 );
+        printf( "runas=0\n" );
         return 0;
     }
     if (argc == 4 && !lstrcmpW( argv[1], L"svcctl" ))

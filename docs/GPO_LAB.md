@@ -101,7 +101,7 @@ deletes the password again at the end) and the guest checks, by `docs/DOMAIN_LOG
   probe is built on the host and installed in the guest.
 
 The guest asks the host for what needs the screen (`AD-GUEST-HOST-STEP NAME` lines in its output: `logon`,
-`logon-bad`, `tile TEXT`) and waits for `/root/host-done-NAME`; `machine.sh` runs them. A failed step leaves a
+`logon-bad`, `tile TEXT`, `consent`) and waits for `/root/host-done-NAME`; `machine.sh` runs them. A failed step leaves a
 screenshot (`host-*.png`) in the overlay folder, and a failed logon prints the session log and the journal.
 
 On an image without steps 5 to 7 (no `wex-gpupdate.path`) these are skipped with a note.
@@ -139,6 +139,12 @@ installed-machine disks and ISOs are not there either; an image is the next thin
   "Default Domain Policy"). Windows applies one container's links the other way round (MS-GPOL; GROUP_POLICY.md,
   "The order of several links on one container"); since 2026-11-15 `wex-gpupdate.sh` orders them as Windows
   does, and `parse` checks that "WexLab Domain" (link order 1) comes last.
+- `machine` passed on 2026-11-16 with all 41 checks, adding the policy editor's write by a Domain Admin: refused
+  while the token is limited, and, after the consent dialog (host step `consent`: the dialog is found on the screen
+  and answered Continue), applied from the elevated process through the spool, gpsvc and the refresh. It found that a
+  rename in the spool by an elevated process fails (B28, system tier); the client writes the request directly. The
+  probe's `spoolsteps` mode, which the elevated batch runs, is kept for such cases. Image: ISO of
+  `claude/gpedit-lab-edit` (`wexgpo-iso.sh` now drops stale stock backups of a kept clone before assembling).
 - `machine` passed on 2026-11-16 with all 39 checks (the 34 below and the five Domain Admins checks; the overlay's
   `WEX_LAB_TREE_TOOLS=1` also installs the tree's session scripts, which the policy at logon depends on).
 - `machine` passed on 2026-11-16 with all 34 checks, adding the policy at logon, the tile after the first logon and

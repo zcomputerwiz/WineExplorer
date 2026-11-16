@@ -19,7 +19,7 @@
 
 /*
  * docs/GROUP_POLICY.md, "Writing the local files: the spool". A process of the system group (an administrator's
- * elevated process) leaves the file in GroupPolicy\Spool as NAME.tmp, renames it to NAME, sends gpsvc the control
+ * elevated process) leaves the file in GroupPolicy\Spool as NAME, sends gpsvc the control
  * code 129 and waits for the refresh that gpsvc asks for, as gpupdate does. gpsvc, which is the store's only writer,
  * checks the file and installs it, or removes it and leaves NAME.error. Header only; include it once.
  */
@@ -50,21 +50,23 @@ static DWORD wex_gp_refreshed(void)
     return serial;
 }
 
-/* the request's text, written and renamed; NAME.error of an earlier run is read by the caller, not here */
+/* the request's text, written to NAME itself; NAME.error of an earlier run is read by the caller, not here.
+ * Not written as NAME.tmp and renamed: in the spool a rename by an elevated process fails with ERROR_INVALID_HANDLE
+ * (found in the lab, 2026-11-16; creating, writing, copying and deleting there work, and the rename works in every
+ * other directory). Nothing reads the spool until the control code that follows the write, and a request that is
+ * half written when another administrator's control code arrives is refused and removed by gpsvc, which is safe. */
 static DWORD wex_gp_leave_request( const WCHAR *dir, const WCHAR *name, const void *data, DWORD size )
 {
-    WCHAR temp[MAX_PATH + 32], final[MAX_PATH + 32];
+    WCHAR final[MAX_PATH + 32];
     HANDLE file;
     DWORD done, err = ERROR_SUCCESS;
 
-    swprintf( temp, ARRAY_SIZE(temp), L"%s\\%s.tmp", dir, name );
     swprintf( final, ARRAY_SIZE(final), L"%s\\%s", dir, name );
-    file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+    file = CreateFileW( final, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
     if (file == INVALID_HANDLE_VALUE) return GetLastError();
     if (size && (!WriteFile( file, data, size, &done, NULL ) || done != size)) err = GetLastError() ? GetLastError() : ERROR_WRITE_FAULT;
     if (!CloseHandle( file ) && !err) err = GetLastError();
-    if (!err && !MoveFileExW( temp, final, MOVEFILE_REPLACE_EXISTING )) err = GetLastError();
-    if (err) DeleteFileW( temp );
+    if (err) DeleteFileW( final );
     return err;
 }
 

@@ -348,6 +348,47 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
             if enabled "$(grp linkedgroup S-1-5-32-544)" && enabled "$(grp linkedgroup "$DOM3-512")" && enabled "$(grp linkedgroup "$DOM3-513")"; then
                 ok domain_admin_full_token_has_them_enabled
             else notok domain_admin_full_token_has_them_enabled "$(grep -E '^linkedgroup=(S-1-5-32-544|.*-51[23]) ' <<<"$TOK" | tr '\n' ' ')"; fi
+            # The policy editor's write (docs/GROUP_POLICY.md, "Local policy"): the limited token is refused; after the
+            # consent dialog (the host answers Continue) the same call from the elevated process puts the setting in
+            # the machine's registry through the spool, gpsvc and the refresh
+            GPV='HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'
+            LIM=$(wine_cmd "$AUSER" "wine $PROBE gpset computer:NoRecentDocsHistory 1 0" | tr -d '\r')
+            if grep -qx 'gpset=5' <<<"$LIM" && [ -z "$(value "$GPV" NoRecentDocsHistory)" ]; then ok domain_admin_limited_editor_write_refused
+            else notok domain_admin_limited_editor_write_refused "$(grep -E '^gpset=' <<<"$LIM" | tr '\n' ' ') value [$(value "$GPV" NoRecentDocsHistory)]"; fi
+            GPE=/tmp/gpset-elevated.out
+            rm -f "$GPE" /tmp/spoolsteps.out; : > "$GPE"; : > /tmp/spoolsteps.out; chmod 666 "$GPE" /tmp/spoolsteps.out
+            # the elevated commands in a batch file: the file steps of the store client in the spool and elsewhere, one
+            # traced run of them (WINEDEBUG in the batch file's environment reaches the process it starts), and the write
+            rm -f /tmp/gpset-trace.out; : > /tmp/gpset-trace.out; chmod 666 /tmp/gpset-trace.out
+            cat > /tmp/gpset-el.bat <<'BAT'
+@echo off
+set P=Z:\usr\local\share\wex-lab-probe\tierprobe64.exe
+%P% spoolsteps > Z:\tmp\spoolsteps.out
+%P% spoolsteps Z:\tmp >> Z:\tmp\spoolsteps.out
+%P% spoolsteps C:\windows\system32 >> Z:\tmp\spoolsteps.out
+%P% spoolsteps C:\windows >> Z:\tmp\spoolsteps.out
+set WINEDEBUG=+server,+file
+%P% spoolsteps 2> Z:\tmp\gpset-trace.out
+set WINEDEBUG=
+%P% gpset computer:NoRecentDocsHistory 1 0 > Z:\tmp\gpset-elevated.out
+BAT
+            sed -i 's/$/\r/' /tmp/gpset-el.bat; chmod 644 /tmp/gpset-el.bat
+            su - "$AUSER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 280 wine $PROBE runas cmd.exe '/c Z:\\tmp\\gpset-el.bat'" \
+                > /tmp/gpset-runas.out 2>&1 &
+            if host_step consent; then
+                for _ in $(seq 1 150); do grep -q '^gpset=' "$GPE" && break; sleep 2; done
+                GOT=$(tr -d '\r' < "$GPE")
+                if grep -qx 'gpset=0' <<<"$GOT" && [ "$(value "$GPV" NoRecentDocsHistory)" = 0x1 ]; then ok domain_admin_elevated_editor_write_applies
+                else
+                    notok domain_admin_elevated_editor_write_applies "result [$GOT] runas [$(tr -d '\r' < /tmp/gpset-runas.out | tail -2 | tr '\n' ' ')] value [$(value "$GPV" NoRecentDocsHistory)]"
+                    tr -d '\r' < /tmp/spoolsteps.out | sed 's/^/note spoolsteps: /'
+                    echo "note debug tools: $(command -v strace gdb ltrace perf 2>&1 | tr '\n' ' ')"
+                    ls -ld /var/lib/wineexplorer/machine/drive_c/windows/system32/GroupPolicy/Spool | sed 's/^/note spooldir: /'
+                    getfacl -p /var/lib/wineexplorer/machine/drive_c/windows/system32/GroupPolicy/Spool 2>&1 | tr '\n' ' ' | sed 's/^/note spoolacl: /'; echo
+                    wc -l /tmp/gpset-trace.out | sed 's/^/note spooltrace lines: /'
+                    grep -a -n -E 'diag|set_fd_name_info|open_file_object' /tmp/gpset-trace.out | cut -c1-230 | head -60 | sed 's/^/note spooltrace: /'
+                fi
+            else notok domain_admin_elevated_editor_write_applies "consent step: $HOST_ANSWER"; fi
         else notok domain_admin_logon "$HOST_ANSWER"; fi
         s0_reg reg delete 'HKLM\Software\Wine\Elevation' /v Helper /f >/dev/null
     else
