@@ -41,6 +41,7 @@
 
 #include "wine/debug.h"
 #include "resource.h"
+#include "restrictions.h"
 #include "wextheme.h"
 #include <wincodec.h>
 #include "desktop_view.h"
@@ -1178,6 +1179,7 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         switch (wparam)
         {
         case VK_F3:
+            if (shell_restricted(L"NoFind")) break;
             ShellExecuteW(NULL, L"open", L"explorer.exe", L"::{E17D4FC0-5564-11D1-83F2-00A0C90DC849}", NULL, SW_SHOWNORMAL);
             break;
         case VK_RETURN:

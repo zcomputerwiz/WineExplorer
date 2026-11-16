@@ -27,6 +27,7 @@
 #include "wine/list.h"
 #include "explorer_private.h"
 #include "resource.h"
+#include "restrictions.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
@@ -392,8 +393,9 @@ static void run_dialog(void)
                                const char *title, const char *desc, DWORD flags);
     HMODULE hShell32;
 
+    if (shell_restricted(L"NoRun")) return;
     hShell32 = LoadLibraryW(L"shell32");
-    pRunFileDlg = (void*)GetProcAddress(hShell32, (LPCSTR)61);
+    pRunFileDlg =(void*)GetProcAddress(hShell32, (LPCSTR)61);
 
     pRunFileDlg(NULL, NULL, NULL, NULL, NULL, 0);
 
