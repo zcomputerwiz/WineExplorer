@@ -178,4 +178,65 @@ if [ "$n" -eq 1 ]; then ok policy_service_runs; else notok policy_service_runs "
 failed=$(systemctl --failed --no-legend 2>/dev/null | grep -i wex || true)
 if [ -z "$failed" ]; then ok no_failed_units; else notok no_failed_units "$failed"; fi
 
+# 7. A domain user logs on through the greeter (docs/DOMAIN_LOGON.md, WO 4): when the host put wexuser1's
+# password here (gpo-lab.sh fixtures) and the image has the admission step (WO 3). The guest prepares the host side
+# (Winbind in NSS and PAM, the Welcome screen without automatic logon) and says AD-GUEST-LOGON-READY; the host types
+# WEXLAB\wexuser1 into the classic dialog and creates /root/logon-done once the desktop is up; then the checks.
+DUSER='WEXLAB\wexuser1'
+if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; then
+    apt-get install -y libpam-winbind libnss-winbind >> /root/ad-apt.log 2>&1
+    sed -i -E '/^(passwd|group):/ { /winbind/! s/$/ winbind/ }' /etc/nsswitch.conf
+    pam-auth-update --enable winbind mkhomedir >> /root/ad-apt.log 2>&1 || pam-auth-update --enable winbind >> /root/ad-apt.log 2>&1
+    systemctl restart winbind 2>/dev/null
+    # template homedir = /home/%D/%U: the domain's folder (pam_mkhomedir makes the user's own)
+    install -d -m 0755 /home/WEXLAB
+    sleep 3
+    pw=$(getent passwd "$DUSER")
+    duid=$(cut -d: -f3 <<<"$pw")
+    if [ -n "$duid" ] && [ "$duid" -ge 20000 ] && [ "$(cut -d: -f7 <<<"$pw")" = /bin/bash ]; then ok domain_user_resolves
+    else notok domain_user_resolves "getent [$pw] wbinfo [$(wbinfo -i "$DUSER" 2>&1)]"; finish; fi
+    if grep -q 'wex-domain-admit-pam.sh' /etc/pam.d/lightdm; then ok admission_step_installed
+    else notok admission_step_installed "$(grep pam_exec /etc/pam.d/lightdm)"; fi
+    # the Welcome screen: no automatic logon of the installed user, LightDM restarted (that user's session ends)
+    mv /etc/lightdm/lightdm.conf.d/60-wineexplorer-autologin.conf /root/60-wineexplorer-autologin.conf.off 2>/dev/null
+    rm -f /root/logon-done
+    systemctl restart lightdm
+    echo "AD-GUEST-LOGON-READY"
+    for _ in $(seq 1 120); do [ -e /root/logon-done ] && break; sleep 5; done
+    if [ ! -e /root/logon-done ]; then notok domain_logon "the host did not log $DUSER on"; finish; fi
+    if loginctl list-sessions --no-legend | awk '{ print $3 }' | grep -qixF "$DUSER"; then ok domain_logon
+    else notok domain_logon "sessions: $(loginctl list-sessions --no-legend | awk '{ print $3 }' | tr '\n' ' ')"; finish; fi
+    # admission: an active domain record and the recorded groups (Domain Users at least)
+    rec=$(awk -v n="$DUSER" 'NR > 1 && tolower($1) == tolower(n)' /etc/wineexplorer/accounts.map)
+    dsid=$(wbinfo -n "$DUSER" 2>/dev/null | awk '{ print $1 }')
+    rid=${dsid##*-}
+    if grep -q " active domain 21 " <<<"$rec" && [ "$(awk '{ print $NF }' <<<"$rec")" = "$rid" ]; then ok domain_record_admitted
+    else notok domain_record_admitted "record [$rec] sid [$dsid]"; fi
+    key=$(awk '{ print $3 }' <<<"$rec")
+    if [ -n "$key" ] && awk -v k="$key" '$1 == k { for (i = 2; i <= NF; i++) if ($i == 513) f = 1 } END { exit !f }' /etc/wineexplorer/domain-groups 2>/dev/null
+    then ok domain_groups_recorded; else notok domain_groups_recorded "key [$key] $(head -3 /etc/wineexplorer/domain-groups 2>&1)"; fi
+    # the token's user and DOMAIN\user (whoami: GetUserNameExW and the token), the environment and the profile
+    who=$(wine_cmd "$DUSER" "wine whoami /user /fo csv /nh" | tr -d '\r' | tail -1)
+    if [ "$(tr 'A-Z' 'a-z' <<<"$who")" = "$(tr 'A-Z' 'a-z' <<<"\"$DUSER\",\"$dsid\"")" ]; then ok domain_token_and_name
+    else notok domain_token_and_name "whoami [$who] expected [$DUSER $dsid]"; fi
+    env_dom=$(wine_cmd "$DUSER" "wine cmd /c echo %USERDOMAIN%" | tr -d '\r' | tail -1)
+    env_prof=$(wine_cmd "$DUSER" "wine cmd /c echo %USERPROFILE%" | tr -d '\r' | tail -1)
+    if [ "$env_dom" = WEXLAB ] && [ "$(tr 'A-Z' 'a-z' <<<"$env_prof")" = 'c:\users\wexuser1' ]; then ok domain_environment
+    else notok domain_environment "USERDOMAIN [$env_dom] USERPROFILE [$env_prof]"; fi
+    home=$(getent passwd "$DUSER" | cut -d: -f6)
+    if [ -d "$home/.wine/drive_c/users/wexuser1" ]; then ok domain_profile_folder
+    else notok domain_profile_folder "home [$home]: $(ls "$home/.wine/drive_c/users" 2>&1 | tr '\n' ' ')"; fi
+    # the domain's user policy (WexLab Domain, User/Registry.pol) in the user's hive, and gpresult for the user
+    systemctl start wex-gpupdate.service 2>/dev/null
+    ul=$(wine_cmd "$DUSER" "wine reg query \"HKCU\\Software\\Policies\\WexLab\" /v UserLimit" | tr -d '\r' | awk '$1 == "UserLimit" { print $NF }')
+    if [ "$ul" = 0x3 ]; then ok domain_user_policy_applied
+    else notok domain_user_policy_applied "UserLimit [$ul]; $(journalctl --no-pager -b 0 -u wex-gpupdate.service 2>/dev/null | tail -4)"; fi
+    gr=$(wine_cmd "$DUSER" "wine gpresult /scope user" | tr -d '\r')
+    if grep -q '^        WexLab Domain$' <<<"$gr"; then ok gpresult_user_lists_domain_object
+    else notok gpresult_user_lists_domain_object "$(grep -A4 'Applied Group Policy Objects' <<<"$gr" | head -6)"; fi
+else
+    echo "note domain_logon: skipped (wexuser1 password $( [ -s /root/wexuser1pw ] && echo present || echo absent), admission step $( [ -x /usr/local/sbin/wex-domain-admit-pam.sh ] && echo present || echo absent))"
+fi
+rm -f /root/wexuser1pw
+
 finish
