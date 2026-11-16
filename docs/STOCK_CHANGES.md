@@ -64,9 +64,14 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   model its non-WWS axes (opsz, ...) name a family of their own ("Segoe Sans Text"), with the STAT names of the
   WWS axes as the face, and in the typographic model its subfamily name is the face. Names follow STAT: the axis
   value matching each coordinate, non-elidable names in axis order, the elided fallback name when none is left.
-  Instances still render as the default instance (step 2). Microsoft Copilot looks up "Segoe Sans Text" in such a
-  collection (B15). Test `test_fontset_named_instances` in `dlls/dwrite/tests/font.c` with the generated font
-  `wine_test_var.ttf` (`wine_test_var.py`); passes on Windows 11 and Wine.
+  Microsoft Copilot looks up "Segoe Sans Text" in such a collection (B15). Test `test_fontset_named_instances` in
+  `dlls/dwrite/tests/font.c` with the generated font `wine_test_var.ttf` (`wine_test_var.py`); passes on Windows
+  11 and Wine. Step 2 (Wine 073694ae, `font.c`, `main.c`, `opentype.c`): a named instance's face is drawn at its
+  axis values (FreeType's named-instance face index); a font set entry's face reference carries the instance's
+  axis values, a reference whose values are a named instance makes that face (`factory_create_fontface`), and the
+  face cache and `IDWriteFontFace5::Equals` tell instances apart. Other axis values still give the default
+  instance (FIXME). Test `test_fontface_named_instances` (a gvar glyph in the test font; passes on Windows 11 x64
+  and x86 and on Wine).
 - `dlls/dwrite/font.c` (`fontcollection_add_replacements`): the system collection also takes family mappings from
   `HKLM\Software\Wine\Fonts\Replacements`, after the user's `HKCU` ones (a name already mapped or installed stays).
   The image writes its font aliases there as well as in `FontSubstitutes`, which only GDI reads; DirectWrite
