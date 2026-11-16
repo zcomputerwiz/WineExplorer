@@ -57,6 +57,16 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `dlls/shcore/main.c` (`IsOS`), `Makefile.in` (delay import of netapi32): `OS_DOMAINMEMBER` answers from
   `NetGetJoinInformation` (a domain join) instead of always TRUE. Chromium reads it as "the device is managed":
   Edge then skipped its modal first-run dialog (B10). Test in `dlls/shcore/tests/shcore.c`.
+- `dlls/dwrite/opentype.c` (`opentype_get_named_instance_count`, `opentype_get_named_instance`: fvar instance
+  records and a STAT reader), `font.c` (font set entries, `init_font_data`, `IDWriteFont::Equals`), `main.c`,
+  `dwrite_private.h`: a variable font with a STAT table gives a font set one entry per fvar named instance, as on
+  Windows. Each instance takes its weight, stretch and style from its coordinates; in the weight/stretch/style
+  model its non-WWS axes (opsz, ...) name a family of their own ("Segoe Sans Text"), with the STAT names of the
+  WWS axes as the face, and in the typographic model its subfamily name is the face. Names follow STAT: the axis
+  value matching each coordinate, non-elidable names in axis order, the elided fallback name when none is left.
+  Instances still render as the default instance (step 2). Microsoft Copilot looks up "Segoe Sans Text" in such a
+  collection (B15). Test `test_fontset_named_instances` in `dlls/dwrite/tests/font.c` with the generated font
+  `wine_test_var.ttf` (`wine_test_var.py`); passes on Windows 11 and Wine.
 - `dlls/dwrite/font.c` (`fontcollection_add_replacements`): the system collection also takes family mappings from
   `HKLM\Software\Wine\Fonts\Replacements`, after the user's `HKCU` ones (a name already mapped or installed stays).
   The image writes its font aliases there as well as in `FontSubstitutes`, which only GDI reads; DirectWrite
@@ -70,8 +80,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `server/named_pipe.c` (`pipe_bridge_lookup`, `pipe_bridge_allowed`, `is_lrpc_pipe_name`): a user's server that
   has no pipe `lrpc\NAME` (an ncalrpc endpoint of rpcrt4) opens session 0's through the T5.2 bridge, as the
   caller; session 0 checks the pipe's descriptor as for `svcctl`. Not bridged: every session's own rpcss endpoints
-  (`epmapper`, `irpcss`, `irot`) and names made from a process id or OXID (`LRPC<pid>.<n>`, `\pipe\OLE_<oxid>`),
-  since process ids are per server. A service in session 0 can so offer its RPC interface to users' programs, as
+  (`epmapper`, `irpcss`, `irot`), Wine's lsass (`lsasspirpc`: it reads and writes its callers' memory by process
+  id, so it serves its own server only; bridged, `secur32`'s DllMain waited for ever), and names made from a process
+  id or OXID (`LRPC<pid>.<n>`, `\pipe\OLE_<oxid>`), since process ids are per server. A bridged connection reports
+  client process id 0 to session 0's services (the opener has no process there). A service in session 0 can so offer its RPC interface to users' programs, as
   on Windows (B17, Office's licensing service). Test in `scripts/lab/system-tier-t1.sh` (`lrpc_*`).
 - `dlls/win32u/defwnd.c` (`sys_command`, `SC_MAXIMIZE`): an already maximized window is left alone, as on Windows;
   a hidden window created with `WS_MAXIMIZE` was shown and activated, and Edge's activation handler then ran on a
