@@ -3468,3 +3468,7 @@ accepts a handler on a thread with a core window and fails with ERROR_NOT_FOUND 
 (remove succeeds); the event is never raised. It returned E_NOTIMPL, and the Store Calculator's title bar subscribes
 when it loads. `tests/uisettings.c` (passes on Windows 11 x64 and x86, apart from two older IAgileObject checks that
 fail there, and on Wine).
+
+2026-11-16 (UWP, Wine eb2a8335): `dlls/windows.ui/uiviewsettings.c`: `UIViewSettings` UserInteractionMode is the mouse,
+as a Windows 11 desktop reports it (it returned E_NOTIMPL; the Store Calculator's title bar reads it when it loads);
+`tests/uisettings.c` (through IUIViewSettingsInterop.GetForWindow; passes on Windows 11 x64 and x86 and on Wine).
