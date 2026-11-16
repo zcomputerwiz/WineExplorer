@@ -44,10 +44,12 @@ this comes first. Candidates, cheapest first, each checked with a Wine log in In
 Phase 0 ends when the click produces a `RequestTokenForWindowAsync` line in the diagnostic log. If it turns out that
 OneAuth needs something that only Windows' own components can provide, this design stops there and says so.
 
-Also in phase 0, safely and without signing in: which redirect URI Copilot's client accepts. An authorization URL
-with that client id and a candidate redirect URI, opened without credentials, gives the sign-in page or an
-"redirect URI mismatch" error (`AADSTS50011`); no token and no account is involved. Candidates: the broker plugin
-URI above, `https://login.microsoftonline.com/common/oauth2/nativeclient`, `http://localhost`.
+Also in phase 0: which redirect URI Copilot's client accepts. Checked 2026-11-16 without signing in (authorize
+requests with no cookies or credentials, `consumers`, `organizations` and `common`, five candidate URIs including
+ones the client cannot have registered): the endpoint answers with the sign-in page for nearly all of them and with
+no `AADSTS50011` for any, so it checks the redirect URI only after the user has signed in. The question is
+therefore answered only by the owner's first real sign-in in step 2 (the broker plugin URI first, as the program's
+WAM path implies).
 
 ## Parts
 
