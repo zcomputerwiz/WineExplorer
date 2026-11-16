@@ -144,7 +144,9 @@ parser and the token are the system tier's security core) before they merge.
 ## State
 
 - WO 1 (map version 2, admit, sync, restore): on master since 2026-11-15 (93baa899, Wine f1347be7).
-- WO 2 (token and names): written 2026-11-15, in review. The groups file and its rules are in
+- WO 2 (token and names): approved by the system tier session 2026-11-15 (Wine 82f20380, WineExplorer d3e8c6b8),
+  waiting for the merge. A limited token keeps the UAC filtered groups (Administrators, Domain Admins and the other
+  privileged domain groups and builtin aliases) for deny only; the elevated token has them enabled. The groups file and its rules are in
   [E1_S4_ACCOUNTS_MAP.md](E1_S4_ACCOUNTS_MAP.md); the token, `user_is_administrator`, `LookupAccountSidW` and
   `GetUserNameExW` in [STOCK_CHANGES.md](STOCK_CHANGES.md). `wex-domain-state.sh` records the domain SID (`Sid`)
   beside the flat and DNS names. Tests: `scripts/test_accounts_map.sh` (groups recorded and filtered, Domain Admins
