@@ -125,7 +125,14 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   `registry.c`: a user's server accepts machine hives owned by the `session0_user` account.
 - `server/registry.c` (T2a): session 0 saves a key's own security descriptor as an `#sd=` line (hex); every server loads such a line.
 
-- Domain logon WO 2 (`docs/DOMAIN_LOGON.md`): `server/accounts.c` reads the domain groups recorded at logon
+- Domain logon WO 3 (`docs/DOMAIN_LOGON.md`): `programs/wineboot/wineboot.c`
+  (`create_volatile_environment_registry_key`): `USERDOMAIN` is the domain `LookupAccountSidW` gives for the token's
+  user (the joined domain's flat name for a domain account, this computer for a local one) in place of the
+  computer name; `LOGONSERVER` stays `\\COMPUTER`.
+- Domain logon WO 2 (`docs/DOMAIN_LOGON.md`): `server/token.c` (`sid_is_uac_filtered`) makes the UAC filtered groups
+  deny-only in a limited token (`token_apply_filter`, LUA) and in a standard user's token (`token_make_standard`):
+  Administrators, the privileged domain groups (RIDs 512, 516 to 521, 526, 527 under a domain SID) and the privileged
+  builtin aliases (548 to 551, 556, 569), as Windows' filtered token. `server/accounts.c` reads the domain groups recorded at logon
   (`domain-groups`, `accounts_own_domain`) and counts Domain Admins as the administrator group in `lookup_account`;
   `server/token.c` gives a domain account's logon token the domain's Domain Users (domain SID, RID 513) as owner
   and primary group in place of the fixed `S-1-5-21-0-0-0-513`, and the recorded domain groups;

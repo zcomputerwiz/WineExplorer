@@ -109,7 +109,8 @@ taken by a local account, `user.DOMAIN`. Its hive is `HKEY_USERS\<domain SID>-<R
 service restores the user's policy into it at logon with no change (it matches every `S-1-5-21-` hive).
 
 **F. The host configuration.** Joining the host (the installer's or an administrator's `net ads join`) sets
-`template shell = /bin/bash` and `template homedir = /home/%U`, `winbind offline logon = yes`, and `pam_winbind`
+`template shell = /bin/bash` and `template homedir = /home/%D/%U` (not `/home/%U`: a domain user must not share a
+local account's home), `winbind use default domain = no`, `winbind offline logon = yes`, and `pam_winbind`
 with `cached_login` and `krb5_auth`, and `pam_mkhomedir`. The lab's `machine-guest.sh` does the same.
 
 ## Agreed with the system tier session (2026-11-15)
@@ -154,6 +155,31 @@ parser and the token are the system tier's security core) before they merge.
   `scripts/test_sysrun_server.sh` (`st_domain_accounts_token_names_and_domain_admins_limited`: the token's user,
   primary group and groups, DOMAIN\user from both APIs in 64-bit and 32-bit programs, a member of Domain Admins with
   Administrators deny-only and a Limited token at logon, a local account unchanged).
+
+- WO 3 (logon): written 2026-11-15, in review.
+  - Admission: the session package adds
+    `account requisite pam_exec.so quiet /usr/local/sbin/wex-domain-admit-pam.sh` to `/etc/pam.d/lightdm` and
+    `lightdm-autologin`, after `common-account` (pam_winbind). The script passes a local account (a plain name) and
+    runs `wex-accounts admit` for `DOMAIN\user`; it refuses a domain account when the system tier's `wex-accounts`
+    is not installed (fail closed: no identity without a record). Nothing but `PAM_USER` is taken from the PAM
+    environment, which can carry a user's `pam_env` settings.
+  - The classic dialog (`logonui`, `resolve_domain_account`): `DOMAIN\user` with the joined domain's flat name
+    (`HKLM\Software\WineExplorer\Domain`, `FlatName`) goes to PAM as `FLAT\user` (user in lower case, 1 to 20
+    characters of `A-Z a-z 0-9 . - _`) without a tile; any other domain is refused as before. A domain user who has
+    logged on once may get a tile from AccountsService; that is not verified (Open questions).
+  - The profile folder is the plain name (`wine-explorer-session-common.sh` personalizes the template prefix with
+    `${USER##*\}`, as Wine's `WINEUSERNAME`). The `user.DOMAIN` rule of E is not needed: every account has its own
+    prefix under its own home (`/home/DOMAIN/user`), so a domain account and a local one of the same name never share
+    `C:\users`; the hive is keyed by SID (`HKEY_USERS\<domain SID>-<RID>`). The managed profile layout (lab builds)
+    keys folders on SID and incarnation already.
+  - `USERDOMAIN` (wineboot's Volatile Environment) is the flat name for a domain account.
+  - The lab (`machine-guest.sh`, `client-provision.sh`) joins with `winbind use default domain = no`,
+    `template homedir = /home/%D/%U`, `template shell = /bin/bash` and `winbind offline logon = yes`.
+  - Tests: `scripts/test_accounts_map.sh` (the PAM step: a local account passes without the tool, a domain account
+    is refused without it, admitted through it with `PAM_USER` and `PAM_TYPE`, refused when it refuses),
+    `scripts/test_sysrun_server.sh` (`USERDOMAIN`, `USERNAME` and `USERPROFILE` of a domain account, a local
+    account's `USERDOMAIN`), `scripts/test_safemode.py` (the postinst lines, once each). The greeter's typed domain
+    logon is checked end to end by WO 4.
 
 ## Work orders
 

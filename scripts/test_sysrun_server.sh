@@ -3709,6 +3709,12 @@ for b in 64 32; do
     grep -qx 'lsa=WEXLAB\\wexdom use=1' <<<"$OUT" && grep -qx 'samcompat=WEXLAB\\wexdom' <<<"$OUT" ||
         { echo "$OUT" >&2; fail "domain: the names of a domain account, $b-bit"; }
 done
+# the environment (WO 3): USERDOMAIN is the domain's flat name (wineboot's Volatile Environment), USERNAME and the
+# profile folder the plain name; a local account's USERDOMAIN is not the domain
+OUT="$(dom_probe "$DOM" 64 env USERDOMAIN)"; grep -qx 'env=WEXLAB' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: USERDOMAIN of a domain account"; }
+OUT="$(dom_probe "$DOM" 64 env USERNAME)"; grep -qx 'env=wexdom' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: USERNAME of a domain account"; }
+OUT="$(dom_probe "$DOM" 64 env USERPROFILE)"; grep -qix 'env=C:\\users\\wexdom' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: the profile folder of a domain account"; }
+OUT="$(dom_probe "$STD" 64 env USERDOMAIN)"; grep -q '^env=.' <<<"$OUT" && ! grep -q '^env=error' <<<"$OUT" && ! grep -q 'WEXLAB' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: USERDOMAIN of a local account"; }
 # group_attrs PREFIX SID: the attributes (hex) of SID in the probe output's PREFIX= lines (group or linkedgroup)
 group_attrs() { sed -n "s/^$1=$2 attrs=//p" <<<"$OUT"; }
 # deny_only HEX: SE_GROUP_USE_FOR_DENY_ONLY (0x10) set, SE_GROUP_ENABLED (0x4) clear; enabled HEX: 0x4 set, 0x10 clear

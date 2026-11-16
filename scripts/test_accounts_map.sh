@@ -626,4 +626,26 @@ d2_lookup 0 alice
 # a version 1 map keeps working byte for byte (the earlier part of this suite) and is not rewritten by sync
 cmp "$MAP" "$MAP" >/dev/null
 echo 'OK: domain accounts (map version 2, admit, sync, parser)'
+
+# ---- the PAM step (scripts/wex-domain-admit-pam.sh, WO 3): a copy with its fixed tool path moved to a stand-in ----
+PAMSTEP="$FIXTURE/wex-domain-admit-pam.sh"
+sed "s#^WEX_ACCOUNTS=/usr/local/libexec/wineexplorer/wex-accounts\$#WEX_ACCOUNTS=$FIXTURE/fake-wex-accounts#" \
+    "$REPO/scripts/wex-domain-admit-pam.sh" > "$PAMSTEP"
+grep -q "^WEX_ACCOUNTS=$FIXTURE/fake-wex-accounts\$" "$PAMSTEP" || fail 'pam step: the tool path line moved'
+pam_step() { env -i PATH=/usr/bin:/bin PAM_TYPE=account ${1+PAM_USER="$1"} sh "$PAMSTEP" > /dev/null 2>&1; }
+rm -f "$FIXTURE/fake-wex-accounts" "$FIXTURE/fake.log"
+pam_step alice || fail 'pam step: a local account was refused'
+if pam_step 'WEXLAB\wexuser1'; then fail 'pam step: a domain account passed without wex-accounts'; fi
+if pam_step ''; then fail 'pam step: an empty PAM_USER passed'; fi
+if pam_step; then fail 'pam step: no PAM_USER passed'; fi
+printf '#!/bin/sh\necho "$* user=$PAM_USER type=$PAM_TYPE" >> "%s"\nexit "$(cat "%s" 2>/dev/null || echo 0)"\n' \
+    "$FIXTURE/fake.log" "$FIXTURE/fake.rc" > "$FIXTURE/fake-wex-accounts"
+chmod 0755 "$FIXTURE/fake-wex-accounts"
+pam_step alice || fail 'pam step: a local account was refused'
+[ ! -e "$FIXTURE/fake.log" ] || fail 'pam step: wex-accounts ran for a local account'
+pam_step 'WEXLAB\wexuser1' || fail 'pam step: an admitted domain account was refused'
+grep -qx 'admit user=WEXLAB\\wexuser1 type=account' "$FIXTURE/fake.log" || { cat "$FIXTURE/fake.log"; fail 'pam step: wex-accounts was not asked to admit with PAM_USER and PAM_TYPE'; }
+echo 9 > "$FIXTURE/fake.rc"
+if pam_step 'WEXLAB\wexuser1'; then fail 'pam step: a refused admission passed'; fi
+echo 'OK: domain admission PAM step'
 echo 'OK: accounts map lifecycle, lookup and protection fixture'

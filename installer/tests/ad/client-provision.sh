@@ -48,9 +48,10 @@ cat > /etc/samba/smb.conf <<EOF
     idmap config * : range = 10000-19999
     idmap config WEXLAB : backend = rid
     idmap config WEXLAB : range = 20000-99999
-    winbind use default domain = yes
+    winbind use default domain = no
+    winbind offline logon = yes
     template shell = /bin/bash
-    template homedir = /home/%U
+    template homedir = /home/%D/%U
 EOF
 cat > /etc/krb5.conf <<EOF
 [libdefaults]
