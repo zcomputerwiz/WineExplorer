@@ -273,6 +273,8 @@ int gps_store_write( struct gps_store *store, enum gps_kind kind, const unsigned
     int dir, fd, result = GPS_OK;
 
     if (kind >= GPS_KIND_COUNT || store->root_fd < 0 || (size && !data)) return GPS_BAD_ARGUMENT;
+    /* the same limits as for a request: the caller of the unix call is not trusted to have checked */
+    if (size > (kind == GPS_MACHINE_TEMPLATE ? GPS_TEMPLATE_LIMIT : GPS_REQUEST_LIMIT)) return GPS_TOO_LARGE;
     if ((dir = open_store_dir( store, kind, 1, &result )) < 0) return result;
     snprintf( temp, sizeof(temp), "%s.new", store_names[kind] );
     /* an old STORE.new, or a link put there, is removed (not followed) before the file is made new */
