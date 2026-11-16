@@ -30,9 +30,15 @@
 
 void say( const char *format, ... );
 void bump_serial( HKEY root, BOOL user );
+DWORD request_refresh(void);
 
 /* sectmpl.c */
 DWORD apply_security_templates( int count, WCHAR **paths );
+DWORD check_security_template( const WCHAR *path );
+
+/* store.c: the control code 129 (GPSVC_CONTROL_STORE, wexgpstore.h) of the service: the requests that the system group
+ * left in the spool are checked and installed into the local store, and a refresh is asked for when one was */
+DWORD process_spool(void);
 
 /* gpolist.c */
 DWORD record_gpo_list( const WCHAR *sid, const WCHAR *path );

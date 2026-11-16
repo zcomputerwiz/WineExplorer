@@ -19,7 +19,13 @@
 
 /* See native.h and docs/GROUP_POLICY.md, "Writing the local files: the spool". */
 
+#if 0
+#pragma makedep unix
+#endif
+
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>

@@ -47,6 +47,8 @@
  *                                 and total=<entries>
  *   probe svcstate NAME           opens the service for status only; prints state=<dwCurrentState> or state=error<n>
  *   probe svcstop NAME            opens the service for SERVICE_STOP and stops it; prints stop=0 or stop=error<n>
+ *   probe svcctl NAME CODE        sends the user-defined control code CODE (128 to 255) to the service; prints svcctl=0
+ *                                 or svcctl=error<n>
  *   probe pipeserve PIPE          serves \\.\pipe\PIPE for one client (message mode, 30 s at most); prints
  *                                 clientsession=<GetNamedPipeClientSessionId> and message=<what the client wrote>
  *   probe pipesay PIPE TEXT       opens \\.\pipe\PIPE and writes TEXT; prints say=ok or say=error<n>
@@ -305,6 +307,24 @@ int __cdecl wmain( int argc, WCHAR **argv )
         services = (ENUM_SERVICE_STATUS_PROCESSW *)buffer;
         for (i = 0; i < count; i++) if (!lstrcmpiW( services[i].lpServiceName, argv[2] )) named++;
         printf( "count=%lu\ntotal=%lu\n", named, count );
+        CloseServiceHandle( manager );
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"svcctl" ))
+    {
+        /* a user-defined control code (128 to 255) to a service, as a user program sends it */
+        SC_HANDLE manager = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT ), service;
+        SERVICE_STATUS status;
+        DWORD code = wcstoul( argv[3], NULL, 10 );
+
+        if (!manager || !(service = OpenServiceW( manager, argv[2], SERVICE_USER_DEFINED_CONTROL )))
+        {
+            printf( "svcctl=error%lu\n", GetLastError() );
+            return 1;
+        }
+        if (ControlService( service, code, &status )) printf( "svcctl=0\n" );
+        else printf( "svcctl=error%lu\n", GetLastError() );
+        CloseServiceHandle( service );
         CloseServiceHandle( manager );
         return 0;
     }

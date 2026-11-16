@@ -170,6 +170,20 @@ static DWORD registry_values( HINF inf, BOOL write )
     return err;
 }
 
+/* the checks that apply_security_templates makes before it writes anything, for one file and without writing: the
+ * template a request of the spool carries is installed only when this is ERROR_SUCCESS (store.c) */
+DWORD check_security_template( const WCHAR *path )
+{
+    UINT line = 0;
+    HINF inf = SetupOpenInfFileW( path, NULL, INF_STYLE_WIN4, &line );
+    DWORD err;
+
+    if (inf == INVALID_HANDLE_VALUE) return GetLastError() ? GetLastError() : ERROR_BAD_FORMAT;
+    if (!(err = system_access( inf, FALSE ))) err = registry_values( inf, FALSE );
+    SetupCloseInfFile( inf );
+    return err;
+}
+
 /* wexpolicy security /machine FILE [FILE...] */
 DWORD apply_security_templates( int count, WCHAR **paths )
 {

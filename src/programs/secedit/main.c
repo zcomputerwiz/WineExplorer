@@ -23,12 +23,13 @@
  * (rights, audit, restricted groups, services, permissions, password policy) belongs to the host and is not read.
  *
  *   secedit /export /cfg FILE         writes those settings as they are now
- *   secedit /configure /cfg FILE      makes FILE the local object's security template
- *                                     (%SystemRoot%\System32\GroupPolicy\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf)
- *                                     and refreshes policy (gpupdate) so that it applies; a domain's template that sets
- *                                     the same values is applied after it and wins, as on Windows
+ *   secedit /configure /cfg FILE      makes FILE the local object's security template and applies it: the file goes
+ *                                     to gpsvc through the spool (wexgpclient.h), which checks it, installs it in the
+ *                                     store (%SystemRoot%\System32\GroupPolicy\Machine\Microsoft\Windows NT\SecEdit\
+ *                                     GptTmpl.inf) and asks for a refresh, which this waits for; a domain's template
+ *                                     that sets the same values is applied after it and wins, as on Windows
  *
- * The local store is in session 0's root: only an administrator's elevated process can write it. /db, /areas, /log
+ * Only an administrator's elevated process (the system group) can leave a request in the spool. /db, /areas, /log
  * and /overwrite are accepted for the command lines of Windows and do not change what is done; /areas other than
  * SECURITYPOLICY are reported as not applicable.
  */
@@ -36,6 +37,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
+
+#include "wexgpclient.h"
 
 #define ELEVATION_KEY   L"Software\\WineExplorer\\Elevation"
 #define SYSTEM_KEY      L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
@@ -225,48 +228,11 @@ static BOOL looks_like_template( const WCHAR *text, size_t len )
     return FALSE;
 }
 
-static DWORD make_directories( WCHAR *path )
-{
-    WCHAR *p;
-
-    for (p = wcschr( path + 3, '\\' ); p; p = wcschr( p + 1, '\\' ))
-    {
-        *p = 0;
-        if (!CreateDirectoryW( path, NULL ) && GetLastError() != ERROR_ALREADY_EXISTS)
-        {
-            DWORD err = GetLastError();
-            *p = '\\';
-            return err;
-        }
-        *p = '\\';
-    }
-    return ERROR_SUCCESS;
-}
-
-/* run gpupdate for the computer and wait for the refresh to end: the template is applied when this returns */
-static DWORD refresh(void)
-{
-    WCHAR system[MAX_PATH], command[2 * MAX_PATH];
-    STARTUPINFOW startup = { sizeof(startup) };
-    PROCESS_INFORMATION info;
-    DWORD code = 1;
-
-    GetSystemDirectoryW( system, ARRAY_SIZE(system) );
-    swprintf( command, ARRAY_SIZE(command), L"\"%s\\gpupdate.exe\" /target:computer /wait:600", system );
-    if (!CreateProcessW( NULL, command, NULL, NULL, FALSE, 0, NULL, NULL, &startup, &info )) return GetLastError();
-    WaitForSingleObject( info.hProcess, INFINITE );
-    GetExitCodeProcess( info.hProcess, &code );
-    CloseHandle( info.hThread );
-    CloseHandle( info.hProcess );
-    return code ? ERROR_TIMEOUT : ERROR_SUCCESS;
-}
-
 int __cdecl wmain( int argc, WCHAR **argv )
 {
-    static const WCHAR local_store[] = L"\\GroupPolicy\\Machine\\Microsoft\\Windows NT\\SecEdit\\GptTmpl.inf";
     BOOL export = FALSE, configure = FALSE, quiet = FALSE;
     const WCHAR *cfg = NULL;
-    WCHAR store[MAX_PATH + 80], temp[MAX_PATH + 90];
+    WCHAR message[260];
     DWORD err;
     struct text t = { 0 };
     WCHAR *text;
@@ -313,20 +279,28 @@ int __cdecl wmain( int argc, WCHAR **argv )
         error_text( ERROR_BAD_FORMAT );
         return 1;
     }
-    GetSystemDirectoryW( store, MAX_PATH );
-    wcscat( store, local_store );
-    wcscpy( temp, store );
-    wcscat( temp, L".new" );
-    if ((err = make_directories( store )) || (!write_utf16( temp, text, len ) && (err = GetLastError())) ||
-        (!MoveFileExW( temp, store, MOVEFILE_REPLACE_EXISTING ) && (err = GetLastError())))
+    /* the template as UTF-16LE with a byte order mark, handed to gpsvc through the spool: gpsvc checks it, installs it
+     * as the local object's template (session 0's own file) and asks for a refresh, which this waits for */
     {
-        DeleteFileW( temp );
+        DWORD bytes = (len + 1) * sizeof(WCHAR);
+        WCHAR *file = malloc( bytes );
+
+        if (!file) { free( text ); error_text( ERROR_NOT_ENOUGH_MEMORY ); return 1; }
+        file[0] = 0xfeff;
+        memcpy( file + 1, text, len * sizeof(WCHAR) );
         free( text );
-        error_text( err );
+        err = wex_gp_store_write( WEX_GP_MACHINE_TEMPLATE, file, bytes, 600, message, ARRAY_SIZE(message) );
+        free( file );
+    }
+    if (err == ERROR_INVALID_DATA && message[0])
+    {
+        /* gpsvc refused the template: its reason */
+        out( L"Task is not completed.\n" );
+        out( message );
+        out( L"\n" );
         return 1;
     }
-    free( text );
-    if ((err = refresh()))
+    if (err)
     {
         error_text( err );
         return 1;
