@@ -39,15 +39,22 @@
 static const WCHAR * const wex_gp_request_names[WEX_GP_KIND_COUNT] =
     { L"Machine.Registry.pol", L"User.Registry.pol", L"Machine.GptTmpl.inf" };
 
-static DWORD wex_gp_refreshed(void)
+/* a number that gpsvc keeps in the serial key: Refreshed (counts the finished refreshes), Stored (counts the passes over
+ * the spool, raised when one ends) and StoreStatus (the error that the last pass could not leave in a NAME.error) */
+static DWORD wex_gp_serial( const WCHAR *name )
 {
     DWORD serial = 0, size = sizeof(serial);
     HKEY key;
 
     if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, WEX_GP_SERIAL_KEY, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key )) return 0;
-    if (RegQueryValueExW( key, L"Refreshed", NULL, NULL, (BYTE *)&serial, &size )) serial = 0;
+    if (RegQueryValueExW( key, name, NULL, NULL, (BYTE *)&serial, &size )) serial = 0;
     RegCloseKey( key );
     return serial;
+}
+
+static DWORD wex_gp_refreshed(void)
+{
+    return wex_gp_serial( L"Refreshed" );
 }
 
 /* the request's text, written as NAME.tmp and renamed to NAME, so that gpsvc never sees a half-written request;
@@ -79,7 +86,7 @@ static DWORD wex_gp_leave_request( const WCHAR *dir, const WCHAR *name, const vo
  * looked at every quarter of a second: the one place left that polls, for a machine where the service never ran. */
 #define WEX_GP_WATCH_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy"
 
-static BOOL wex_gp_wait_refreshed( DWORD before, LONG wait_seconds, BOOL pump )
+static BOOL wex_gp_wait_serial( const WCHAR *name, DWORD before, LONG wait_seconds, BOOL pump )
 {
     HKEY key = NULL;
     HANDLE event = CreateEventW( NULL, FALSE, FALSE, NULL );
@@ -94,7 +101,7 @@ static BOOL wex_gp_wait_refreshed( DWORD before, LONG wait_seconds, BOOL pump )
         DWORD timeout, wait;
 
         if (key && event) RegNotifyChangeKeyValue( key, TRUE, REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET, event, TRUE );
-        if (wex_gp_refreshed() != before) { ok = TRUE; break; }
+        if (wex_gp_serial( name ) != before) { ok = TRUE; break; }
         if (elapsed >= limit) break;
         timeout = limit == ~0ull ? INFINITE : (DWORD)(limit - elapsed > 0xfffffffeu ? 0xfffffffeu : limit - elapsed);
         if (!key || !event) { Sleep( 250 ); continue; }
@@ -111,11 +118,25 @@ static BOOL wex_gp_wait_refreshed( DWORD before, LONG wait_seconds, BOOL pump )
             }
         }
         else wait = WaitForSingleObject( event, timeout );
-        if (wait == WAIT_TIMEOUT && wex_gp_refreshed() == before) break;
+        if (wait == WAIT_TIMEOUT && wex_gp_serial( name ) == before) break;
     }
     if (key) RegCloseKey( key );
     if (event) CloseHandle( event );
     return ok;
+}
+
+static BOOL wex_gp_wait_refreshed( DWORD before, LONG wait_seconds, BOOL pump )
+{
+    return wex_gp_wait_serial( L"Refreshed", before, wait_seconds, pump );
+}
+
+/* what is left of a wait of wait_seconds (-1: without end) that began at start (GetTickCount64): -1, or 0 when it is over */
+static LONG wex_gp_left( LONG wait_seconds, ULONGLONG start )
+{
+    ULONGLONG used = (GetTickCount64() - start) / 1000;
+
+    if (wait_seconds < 0) return -1;
+    return used >= (ULONGLONG)wait_seconds ? 0 : wait_seconds - (LONG)used;
 }
 
 /* what gpsvc left in NAME.error (at most 200 bytes of ANSI text), removed; empty when there is none */
@@ -139,18 +160,19 @@ static void wex_gp_take_error( const WCHAR *dir, const WCHAR *name, WCHAR *messa
 }
 
 /* Hands the file of a kind (WEX_GP_MACHINE_POL, ...) to gpsvc; size 0 asks to remove it. wait_seconds is how long to
- * wait for the refresh (0: do not; -1: without end); pump dispatches the thread's messages while it waits (a window). ERROR_SUCCESS when gpsvc installed it and the refresh ended;
- * ERROR_ACCESS_DENIED when this process is not of the system group (not elevated); ERROR_INVALID_DATA with the reason
- * in message when gpsvc refused the file; ERROR_TIMEOUT when the refresh did not end, or the request was not taken.
- * (ControlService does not hand the service handler's error code back, so a request that gpsvc refused, for a tree that
- * is not as setup makes it for one, shows up as the timeout; the request stays in the spool.) */
+ * wait for gpsvc to take the request and then for the refresh (0: do not wait, ERROR_SUCCESS means "handed over"; -1:
+ * without end); pump dispatches the thread's messages while it waits (a window). ERROR_SUCCESS when gpsvc installed it
+ * and the refresh ended; ERROR_ACCESS_DENIED when this process is not of the system group (not elevated);
+ * ERROR_INVALID_DATA with the reason in message when gpsvc refused the file; another error when gpsvc could not look
+ * at the spool (StoreStatus); ERROR_TIMEOUT when the request was not taken, or the refresh did not end. */
 static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG wait_seconds, WCHAR *message, DWORD chars,
                                   BOOL pump )
 {
     WCHAR dir[MAX_PATH], path[MAX_PATH + 40];
     SC_HANDLE manager, service;
     SERVICE_STATUS status;
-    DWORD before, err;
+    DWORD before, stored, err;
+    ULONGLONG start;
 
     message[0] = 0;
     if (kind >= WEX_GP_KIND_COUNT || (size && !data)) return ERROR_INVALID_PARAMETER;
@@ -160,6 +182,8 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
     if ((err = wex_gp_leave_request( dir, wex_gp_request_names[kind], data, size ))) return err;
 
     before = wex_gp_refreshed();
+    stored = wex_gp_serial( L"Stored" );
+    start = GetTickCount64();
     err = ERROR_SERVICE_DOES_NOT_EXIST;
     if ((manager = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT )))
     {
@@ -177,17 +201,39 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
         DeleteFileW( path );   /* not taken: it must not wait there for the next time */
         return err;
     }
-    /* gpsvc removes a request it took; one that is still there was not */
+    /* gpsvc handles the request in its own time (the control code only wakes it, and several requests are one pass):
+     * every pass ends with a new Stored number, and a request that it took is gone from the spool. A pass that ended
+     * before gpsvc read this request leaves it there: the wait goes on for the next pass. */
     swprintf( path, ARRAY_SIZE(path), L"%s\\%s", dir, wex_gp_request_names[kind] );
-    if (GetFileAttributesW( path ) != INVALID_FILE_ATTRIBUTES)
+    if (!wait_seconds) return ERROR_SUCCESS;
+    for (;;)
     {
-        DeleteFileW( path );
-        return ERROR_TIMEOUT;
+        DWORD now = wex_gp_serial( L"Stored" );
+        LONG left;
+
+        if (now != stored)
+        {
+            stored = now;
+            if (GetFileAttributesW( path ) == INVALID_FILE_ATTRIBUTES) break;
+            /* still there: refused for a reason no NAME.error can hold (the tree is not as setup makes it) */
+            if ((err = wex_gp_serial( L"StoreStatus" )))
+            {
+                DeleteFileW( path );
+                return err;
+            }
+        }
+        left = wex_gp_left( wait_seconds, start );
+        if (!left || !wex_gp_wait_serial( L"Stored", stored, left, pump ))
+        {
+            DeleteFileW( path );   /* not taken: it must not wait there for the next time */
+            return ERROR_TIMEOUT;
+        }
     }
     wex_gp_take_error( dir, wex_gp_request_names[kind], message, chars );
     if (message[0]) return ERROR_INVALID_DATA;
     /* the refresh that gpsvc asked for ends with a new serial */
-    return wex_gp_wait_refreshed( before, wait_seconds, pump ) ? ERROR_SUCCESS : ERROR_TIMEOUT;
+    return wex_gp_wait_refreshed( before, wex_gp_left( wait_seconds, start ) ? wex_gp_left( wait_seconds, start ) : 1, pump )
+           ? ERROR_SUCCESS : ERROR_TIMEOUT;
 }
 
 #endif

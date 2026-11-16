@@ -36,9 +36,10 @@ DWORD request_refresh(void);
 DWORD apply_security_templates( int count, WCHAR **paths );
 DWORD check_security_template( const WCHAR *path );
 
-/* store.c: the control code 129 (GPSVC_CONTROL_STORE, wexgpstore.h) of the service: the requests that the system group
- * left in the spool are checked and installed into the local store, and a refresh is asked for when one was */
-DWORD process_spool(void);
+/* store.c: the work that the control code 129 (GPSVC_CONTROL_STORE, wexgpstore.h) of the service asks for, done by the
+ * service's own thread: the requests that the system group left in the spool are checked and installed into the local
+ * store, and a refresh is asked for when one was */
+DWORD process_spool( HANDLE stop );
 
 /* gpolist.c */
 DWORD record_gpo_list( const WCHAR *sid, const WCHAR *path );

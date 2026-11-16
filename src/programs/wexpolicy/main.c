@@ -79,6 +79,7 @@ static size_t item_count, item_room;
 static unsigned int count_set, count_deleted, count_skipped;
 static SERVICE_STATUS_HANDLE service_handle;
 static HANDLE stop_event;
+static HANDLE work_event;   /* the spool has something to look at (auto reset: requests that come in meanwhile make one more pass) */
 
 void say( const char *format, ... )
 {
@@ -593,9 +594,11 @@ static DWORD WINAPI service_handler( DWORD control, DWORD type, void *data, void
         /* gpupdate: any authenticated user may send it (the service manager's default descriptor) */
         return request_refresh();
     case GPSVC_CONTROL_STORE:
-        /* secedit /configure and the policy editor: any authenticated user may send it too, and it only makes the
-         * service look at what the system group left in the spool (store.c) */
-        return process_spool();
+        /* secedit /configure and the policy editor: any authenticated user may send it too, and it only wakes the
+         * service's thread to look at what the system group left in the spool (store.c). A handler has to return at
+         * once (it also takes the stop), so the work is not done here; clients wait for the Stored number. */
+        SetEvent( work_event );
+        return NO_ERROR;
     default:
         return ERROR_CALL_NOT_IMPLEMENTED;
     }
@@ -632,16 +635,33 @@ static void restore_users(void)
     }
 }
 
+/* a pass over the spool has ended: StoreStatus is its error that no NAME.error holds (0: none), and Stored, raised
+ * last, tells the clients that wait (wexgpclient.h) to look */
+static void spool_pass(void)
+{
+    DWORD err = process_spool( stop_event ), serial = 0, size = sizeof(serial);
+    HKEY key;
+
+    if (RegCreateKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, NULL, REG_OPTION_VOLATILE,
+                         KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, NULL )) return;
+    RegSetValueExW( key, L"StoreStatus", 0, REG_DWORD, (const BYTE *)&err, sizeof(err) );
+    if (RegQueryValueExW( key, L"Stored", NULL, NULL, (BYTE *)&serial, &size )) serial = 0;
+    serial++;
+    RegSetValueExW( key, L"Stored", 0, REG_DWORD, (const BYTE *)&serial, sizeof(serial) );
+    RegCloseKey( key );
+}
+
 static void WINAPI service_main( DWORD argc, WCHAR **argv )
 {
-    HANDLE handles[2];
+    HANDLE handles[3];
 
     if (!(service_handle = RegisterServiceCtrlHandlerExW( SERVICE_NAME, service_handler, NULL ))) return;
     stop_event = CreateEventW( NULL, TRUE, FALSE, NULL );
     handles[0] = stop_event;
     handles[1] = CreateEventW( NULL, FALSE, FALSE, NULL );
+    handles[2] = work_event = CreateEventW( NULL, FALSE, FALSE, NULL );
     /* only the system writes policy: in a prefix without the system tier the service has nothing to do */
-    if (!stop_event || !handles[1] || !is_local_system())
+    if (!stop_event || !handles[1] || !work_event || !is_local_system())
     {
         set_service_state( SERVICE_STOPPED );
         return;
@@ -659,8 +679,16 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
         /* the notification hurries the next look; the look every two seconds does not depend on it */
         RegNotifyChangeKeyValue( HKEY_USERS, FALSE, REG_NOTIFY_CHANGE_NAME, handles[1], TRUE );
         restore_users();
-        if (WaitForMultipleObjects( 2, handles, FALSE, 2000 ) == WAIT_OBJECT_0) break;
+        for (;;)
+        {
+            DWORD wait = WaitForMultipleObjects( 3, handles, FALSE, 2000 );
+
+            if (wait == WAIT_OBJECT_0) goto stopped;
+            if (wait == WAIT_OBJECT_0 + 2) { spool_pass(); continue; }   /* a request: no look at the hives */
+            break;
+        }
     }
+stopped:
     set_service_state( SERVICE_STOPPED );
 }
 

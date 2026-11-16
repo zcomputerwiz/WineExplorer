@@ -500,8 +500,16 @@ write the store themselves; they hand a file to `gpsvc`, which checks it and ins
   server, `c4_elevated_process_renames_in_a_group_only_directory`). Zero bytes mean "remove the store
   file" (every setting back to Not Configured). Later, per user: `User-SID.Registry.pol`.
 - **The trigger** is a new user-defined control code of `gpsvc`, `GPSVC_CONTROL_STORE` (129), without data, sendable
-  by any authenticated user like 128 (`GPSVC_CONTROL_REFRESH`): it only makes `gpsvc` look at what the system group
-  put in the spool.
+  by any authenticated user like 128 (`GPSVC_CONTROL_REFRESH`): it only wakes `gpsvc` to look at what the system group
+  put in the spool. The handler does nothing else than set an auto-reset event and return (a service control handler
+  must come back at once, and it also takes the stop); the service's own thread, the one that watches the hives,
+  does the pass. Requests that arrive during a pass make one more pass, so many control codes are few passes. Every
+  pass ends by setting `StoreStatus` (its error that no `NAME.error` can hold, such as a tree that is not as setup makes
+  it; 0 when none) and then raising `Stored`, both in the volatile key of the `Refreshed` number. A client
+  (`wexgpclient.h`) waits for `Stored` to change with a registry change notification (no polling), and counts a request
+  as taken when it is gone from the spool; one that is still there after a pass that began before it was read stays
+  waiting for the next pass, and with a `StoreStatus` error it is removed and the error returned. A stop is looked at
+  between the files of a pass.
 - **`gpsvc` handling**, per known name present: open the file without following a link, regular file, at most
   4 MiB (1 MiB for a template); size 0 removes the store file; else check it completely with the parsers `wexpolicy
   apply` and `wexpolicy security` use (PReg: signature, version, every record; template: the signature and the
