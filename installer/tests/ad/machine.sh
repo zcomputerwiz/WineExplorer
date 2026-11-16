@@ -170,7 +170,7 @@ host_step() {   # NAME ARGS...: prints what goes into the done file (the last li
         tile)
             "${V[@]}" wait "$TEST" "To begin" --timeout 300 >/dev/null || { host_stuck welcome "no Welcome screen"; return 0; }
             "${V[@]}" shot "$TEST" "$STATE/host-tile.png" >/dev/null 2>&1 || true
-            if "${V[@]}" wait "$TEST" "$1" --timeout 60 >/dev/null; then echo ok; else host_stuck tile "no tile with the text '$1'"; fi ;;
+            if "${V[@]}" wait "$TEST" "$*" --timeout 60 >/dev/null; then echo ok; else host_stuck tile "no tile with the text '$*'"; fi ;;
         *) echo "fail: unknown host step $name" ;;
     esac
 }

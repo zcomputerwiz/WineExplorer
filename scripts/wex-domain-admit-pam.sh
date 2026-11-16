@@ -25,6 +25,10 @@ if [ ! -x "$WEX_ACCOUNTS" ]; then
     exit 1
 fi
 env -i PAM_USER="$PAM_USER" PAM_TYPE="${PAM_TYPE:-}" "$WEX_ACCOUNTS" admit || exit $?
+# The logon screen lists the users AccountsService has cached, and it caches a user who logged on with a local
+# passwd entry only: a domain user (Winbind) is cached on request, which is what CacheUser is for. The tile then
+# shows after the first logon. A failure or a slow answer does not matter to the logon.
+busctl --system --timeout=10 call org.freedesktop.Accounts /org/freedesktop/Accounts org.freedesktop.Accounts CacheUser s "$PAM_USER" >/dev/null 2>&1 || true
 # The user's domain policy: a refresh in the background (it applies to the user under their domain SID, from the
 # record just made; the logon neither waits for it nor fails with it).
 systemctl start --no-block wex-gpupdate.service >/dev/null 2>&1 || true

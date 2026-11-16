@@ -631,11 +631,15 @@ echo 'OK: domain accounts (map version 2, admit, sync, parser)'
 PAMSTEP="$FIXTURE/wex-domain-admit-pam.sh"
 sed -e "s#^WEX_ACCOUNTS=/usr/local/libexec/wineexplorer/wex-accounts\$#WEX_ACCOUNTS=$FIXTURE/fake-wex-accounts#" \
     -e "s#^systemctl start #$FIXTURE/fake-systemctl start #" \
+    -e "s#^busctl #$FIXTURE/fake-busctl #" \
     "$REPO/scripts/wex-domain-admit-pam.sh" > "$PAMSTEP"
 grep -q "^WEX_ACCOUNTS=$FIXTURE/fake-wex-accounts\$" "$PAMSTEP" || fail 'pam step: the tool path line moved'
 grep -q "^$FIXTURE/fake-systemctl start --no-block wex-gpupdate.service" "$PAMSTEP" || fail 'pam step: the refresh line moved'
 printf '#!/bin/sh\necho "$*" >> "%s"\n' "$FIXTURE/systemctl.log" > "$FIXTURE/fake-systemctl"
 chmod 0755 "$FIXTURE/fake-systemctl"
+grep -q "^$FIXTURE/fake-busctl --system .* CacheUser s " "$PAMSTEP" || fail 'pam step: the CacheUser line moved'
+printf '#!/bin/sh\necho "$*" >> "%s"\n' "$FIXTURE/busctl.log" > "$FIXTURE/fake-busctl"
+chmod 0755 "$FIXTURE/fake-busctl"
 # WEX_LEAK and LD_LIBRARY_PATH stand for anything else in the PAM environment: the tool must not get them
 pam_step() { env -i PATH=/usr/bin:/bin PAM_TYPE=account WEX_LEAK=1 LD_LIBRARY_PATH=/nonexistent ${1+PAM_USER="$1"} sh "$PAMSTEP" > /dev/null 2>&1; }
 rm -f "$FIXTURE/fake-wex-accounts" "$FIXTURE/fake.log"
@@ -652,8 +656,12 @@ pam_step 'WEXLAB\wexuser1' || fail 'pam step: an admitted domain account was ref
 grep -qx 'admit user=WEXLAB\\wexuser1 type=account leak=' "$FIXTURE/fake.log" || { cat "$FIXTURE/fake.log"; fail 'pam step: wex-accounts was not asked to admit with PAM_USER and PAM_TYPE'; }
 # the admitted domain logon starts a policy refresh in the background, once; a local account and a refusal do not
 [ "$(cat "$FIXTURE/systemctl.log")" = 'start --no-block wex-gpupdate.service' ] || { cat "$FIXTURE/systemctl.log"; fail 'pam step: no policy refresh after an admission'; }
+# the user is cached for the logon screen, by the name PAM gave, once
+grep -qx -- '--system --timeout=10 call org.freedesktop.Accounts /org/freedesktop/Accounts org.freedesktop.Accounts CacheUser s WEXLAB\\wexuser1' "$FIXTURE/busctl.log" ||
+    { cat "$FIXTURE/busctl.log"; fail 'pam step: the admitted user was not cached for the logon screen'; }
 echo 9 > "$FIXTURE/fake.rc"
 if pam_step 'WEXLAB\wexuser1'; then fail 'pam step: a refused admission passed'; fi
+[ "$(grep -c . "$FIXTURE/busctl.log")" = 1 ] || fail 'pam step: a user was cached after a refusal or for a local account'
 [ "$(grep -c . "$FIXTURE/systemctl.log")" = 1 ] || fail 'pam step: a refresh was started after a refusal or for a local account'
 echo 'OK: domain admission PAM step'
 echo 'OK: accounts map lifecycle, lookup and protection fixture'
