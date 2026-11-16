@@ -298,9 +298,39 @@ static void windows_name( const char *name, const WCHAR *display, WCHAR *out, in
     lstrcpynW( out, display && !lstrcmpiW( display, wname ) ? display : wname, len );
 }
 
+/* A name typed as "DOMAIN\user" for the domain this computer is joined to (wex-domain-state.sh records its flat
+ * name in HKLM\Software\WineExplorer\Domain): the Winbind name "FLAT\user" with the flat name as recorded and the
+ * user in lower case, as Winbind reports it. A domain user who never logged on has no tile and is not in
+ * AccountsService's list, so the name goes to PAM as it is; pam_winbind decides, and root's admission step
+ * (wex-accounts admit) gives the account its record or fails the logon (docs/DOMAIN_LOGON.md). */
+static BOOL resolve_domain_account( const WCHAR *typed, const WCHAR *slash, char *name, int name_len,
+                                    WCHAR *remembered, int remembered_len )
+{
+    WCHAR flat[16], user[WEX_LOGON_NAME_MAX], full[WEX_LOGON_NAME_MAX];
+    DWORD size = sizeof(flat);
+    const WCHAR *p;
+
+    if (RegGetValueW( HKEY_LOCAL_MACHINE, L"Software\\WineExplorer\\Domain", L"FlatName",
+                      RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, NULL, flat, &size ) || !flat[0])
+        return FALSE;
+    if (slash - typed != lstrlenW( flat ) || wcsnicmp( typed, flat, slash - typed )) return FALSE;
+    lstrcpynW( user, slash + 1, ARRAY_SIZE(user) );
+    if (!user[0] || lstrlenW( user ) > 20) return FALSE;
+    /* the characters a SAM account name can have, less the ones that mean something to PAM or a shell */
+    for (p = user; *p; p++)
+        if (*p > 0x7f || !(IsCharAlphaNumericW( *p ) || *p == '.' || *p == '-' || *p == '_')) return FALSE;
+    CharLowerW( user );
+    lstrcpyW( full, flat );
+    lstrcatW( full, L"\\" );
+    lstrcatW( full, user );
+    if (!WideCharToMultiByte( CP_UTF8, 0, full, -1, name, name_len, NULL, NULL )) return FALSE;
+    lstrcpynW( remembered, full, remembered_len );
+    return TRUE;
+}
+
 /* The account a name typed in the classic dialog means, as XP's LogonUser: any case, and ".\name" or
  * "COMPUTER\name" for the local computer. Only the accounts AccountsService lists qualify, hidden ones included:
- * not root, system accounts or locked accounts. */
+ * not root, system accounts or locked accounts. "DOMAIN\user" of the joined domain is resolve_domain_account's. */
 static BOOL resolve_account( const WCHAR *typed, char *name, int name_len, WCHAR *remembered, int remembered_len )
 {
     WCHAR computer[MAX_COMPUTERNAME_LENGTH + 1], want[WEX_LOGON_NAME_MAX];
@@ -314,7 +344,7 @@ static BOOL resolve_account( const WCHAR *typed, char *name, int name_len, WCHAR
         if (!GetComputerNameW( computer, &size )) computer[0] = 0;
         if (!(slash - typed == 1 && typed[0] == '.') &&
             !(slash - typed == lstrlenW( computer ) && !wcsnicmp( typed, computer, slash - typed )))
-            return FALSE;
+            return resolve_domain_account( typed, slash, name, name_len, remembered, remembered_len );
         typed = slash + 1;
     }
     lstrcpynW( want, typed, ARRAY_SIZE(want) );
