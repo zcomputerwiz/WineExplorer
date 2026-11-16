@@ -164,7 +164,14 @@ area; bindings (`{Binding Path}`) to the application's native objects (the view 
 XAML metadata (`DynamicObject`, `INotifyPropertyChanged` forwarded), so each button's `ButtonPressed` command is
 bound; and the IInspectable pointer of a shim object is usable as its default interface (.NET Native called a class's
 member through the pointer it had met as `Object`: a null vtable slot). Wine f0f972f8: `GetIids` of the dispatcher.
-Open: the expression line above the display (the bound token list), no keyboard test yet, decimal separator.
+**7 + 5 Enter by keyboard gives 12 as well** (uno-uwp, no Wine change: Wine's CoreWindow already raises KeyDown, KeyUp and
+CharacterReceived from its window messages, but the keys go to Uno's window, the focused one). XamlShim sends the key
+messages of Uno's window to the CoreWindow first and keeps a key the application marked handled from Uno's tree;
+Uno takes the character TranslateMessage posted from the queue itself, so it is sent along with its key; the stand-ins of
+application types get static `Get`/`Set` methods for the members their XAML metadata says are attachable (Uno's reader
+ignored `KeyboardShortcutManager.Character` and `.VirtualKey` without them: no key was registered); an `IReference<T>` of an
+application type (`ResourceVirtualKey` gives a `MyVirtualKey`) is kept as the application's object.
+Open: the expression line above the display (the bound token list), decimal separator.
 
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
