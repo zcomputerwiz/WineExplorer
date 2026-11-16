@@ -9,7 +9,10 @@
 # winbind use default domain = no) is admitted by wex-accounts admit, which takes the user only from PAM_USER and
 # PAM_TYPE, gives the account its record of the joined domain and records its domain groups, or fails. The logon
 # fails closed: without the system tier's wex-accounts there is no identity for a domain account, so it is refused.
-# a fixed path: the PAM environment can carry a user's pam_env settings, so nothing here is taken from it but PAM_USER
+# Fixed paths: pam_exec passes the whole PAM environment, which can carry a user's pam_env settings, so nothing here
+# is taken from it but PAM_USER and PAM_TYPE, and the tool runs with only those two.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 WEX_ACCOUNTS=/usr/local/libexec/wineexplorer/wex-accounts
 
 case "${PAM_USER:-}" in
@@ -21,4 +24,4 @@ if [ ! -x "$WEX_ACCOUNTS" ]; then
     logger -t wex-domain-admit "domain logon refused: wex-accounts is not installed (system tier)" 2>/dev/null || true
     exit 1
 fi
-exec "$WEX_ACCOUNTS" admit
+exec env -i PAM_USER="$PAM_USER" PAM_TYPE="${PAM_TYPE:-}" "$WEX_ACCOUNTS" admit

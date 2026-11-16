@@ -3715,6 +3715,10 @@ OUT="$(dom_probe "$DOM" 64 env USERDOMAIN)"; grep -qx 'env=WEXLAB' <<<"$OUT" || 
 OUT="$(dom_probe "$DOM" 64 env USERNAME)"; grep -qx 'env=wexdom' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: USERNAME of a domain account"; }
 OUT="$(dom_probe "$DOM" 64 env USERPROFILE)"; grep -qix 'env=C:\\users\\wexdom' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: the profile folder of a domain account"; }
 OUT="$(dom_probe "$STD" 64 env USERDOMAIN)"; grep -q '^env=.' <<<"$OUT" && ! grep -q '^env=error' <<<"$OUT" && ! grep -q 'WEXLAB' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: USERDOMAIN of a local account"; }
+# SYSTEM (session 0) keeps the computer name, never the well-known SIDs' "NT AUTHORITY"
+OUT="$(s0_wine "$ROOT/probes/tierprobe64.exe" env USERDOMAIN | tr -d '\r')"
+grep -q '^env=.' <<<"$OUT" && ! grep -q '^env=error' <<<"$OUT" && ! grep -qi 'NT AUTHORITY' <<<"$OUT" && ! grep -q 'WEXLAB' <<<"$OUT" ||
+    { echo "$OUT" >&2; fail "domain: USERDOMAIN of SYSTEM in session 0"; }
 # group_attrs PREFIX SID: the attributes (hex) of SID in the probe output's PREFIX= lines (group or linkedgroup)
 group_attrs() { sed -n "s/^$1=$2 attrs=//p" <<<"$OUT"; }
 # deny_only HEX: SE_GROUP_USE_FOR_DENY_ONLY (0x10) set, SE_GROUP_ENABLED (0x4) clear; enabled HEX: 0x4 set, 0x10 clear

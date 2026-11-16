@@ -128,7 +128,8 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - Domain logon WO 3 (`docs/DOMAIN_LOGON.md`): `programs/wineboot/wineboot.c`
   (`create_volatile_environment_registry_key`): `USERDOMAIN` is the domain `LookupAccountSidW` gives for the token's
   user (the joined domain's flat name for a domain account, this computer for a local one) in place of the
-  computer name; `LOGONSERVER` stays `\\COMPUTER`.
+  computer name, for an S-1-5-21 SID only (SYSTEM and the service accounts keep the computer name);
+  `LOGONSERVER` stays `\\COMPUTER`.
 - Domain logon WO 2 (`docs/DOMAIN_LOGON.md`): `server/token.c` (`sid_is_uac_filtered`) makes the UAC filtered groups
   deny-only in a limited token (`token_apply_filter`, LUA) and in a standard user's token (`token_make_standard`):
   Administrators, the privileged domain groups (RIDs 512, 516 to 521, 526, 527 under a domain SID) and the privileged
