@@ -156,7 +156,13 @@ parser and the token are the system tier's security core) before they merge.
   primary group and groups, DOMAIN\user from both APIs in 64-bit and 32-bit programs, a member of Domain Admins with
   Administrators deny-only and a Limited token at logon, a local account unchanged).
 
-- WO 3 (logon): written 2026-11-15, in review.
+- WO 4 (the lab, end to end): `machine` logs `WEXLAB\wexuser1` on through the greeter and passes all 24 checks
+  (2026-11-16; [GPO_LAB.md](GPO_LAB.md)). It found three gaps, fixed in the same change: `wex-sysrun` accepts one
+  backslash in a passwd name (`safe_account_name`: a safe flat name of 1 to 15 and a safe user name of 1 to 63
+  characters; four malformed shapes are refused, `scripts/test_wex_sysrun.sh`); `wex-gpupdate.sh` reads a version 2
+  map (the SID columns, domain records only) and asks Samba for the plain name
+  (`scripts/test_gpupdate_users.sh`); `record_domain_groups` leaves out the user's own SID. In review.
+- WO 3 (logon): on master since 2026-11-16 (b91c3631, Wine 9bbba491).
   - Admission: the session package adds
     `account requisite pam_exec.so quiet /usr/local/sbin/wex-domain-admit-pam.sh` to `/etc/pam.d/lightdm` and
     `lightdm-autologin`, after `common-account` (pam_winbind). The script passes a local account (a plain name) and

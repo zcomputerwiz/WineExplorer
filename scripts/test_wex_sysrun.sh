@@ -22,8 +22,13 @@ CONF="$FIX/etc/sysrun.conf"
 OUTDIR="$FIX/out"
 PASS=0
 
+DOM_USERS=(); DOM_HOMES=()   # the throw-away domain-style accounts of case 6a
+
 cleanup()
 {
+    local u
+    for u in ${DOM_USERS[@]+"${DOM_USERS[@]}"}; do userdel "$u" 2>/dev/null || true; done
+    [ ${#DOM_HOMES[@]} -eq 0 ] || rm -rf "${DOM_HOMES[@]}"
     [ -z "${FIFO_PID:-}" ] || kill "$FIFO_PID" 2>/dev/null || true
     [ -z "${SYS_PID:-}" ] || kill "$SYS_PID" 2>/dev/null || true
     [ -z "${FIFO2_PID:-}" ] || kill "$FIFO2_PID" 2>/dev/null || true
@@ -267,6 +272,38 @@ exec 7<&-
 OUT="$(run_as "$USR2" "$SYSRUN" wineserver </dev/null)" && grep -qx "ENV WINEPREFIX=/home/$USR2/.wine" <<<"$OUT" ||
     fail "second user did not get the prefix of the passwd home: $OUT"
 ok sysrun_prefix_from_passwd_home
+
+# 6a. A domain account's name (Winbind with winbind use default domain = no, docs/DOMAIN_LOGON.md): "FLAT\user" is
+#     accepted, and nothing else with a backslash: a second backslash, an empty or too long domain, an empty user, a
+#     character the plain rule does not allow. (useradd --badname: shadow refuses a backslash otherwise.)
+mkdom()   # mkdom NAME HOME: a throw-away account of this name and home
+{
+    useradd --badname -M -N -s /bin/bash -d "$2" "$1" || fail "useradd $1"
+    DOM_USERS+=("$1"); DOM_HOMES+=("$2")
+    install -d -m 0755 -o "$(id -u "$1")" "$2" "$2/.wine"
+}
+DOM_USERS=(); DOM_HOMES=()
+FLAT="WSR$$"
+mkdom "$FLAT\\wexu" "/home/wsrdom-$$-1"
+OUT="$(run_as "$FLAT\\wexu" "$SYSRUN" wineserver </dev/null)" || fail "a domain account was refused: $OUT"
+grep -qxF "ENV USER=$FLAT\\wexu" <<<"$OUT" && grep -qxF "ENV LOGNAME=$FLAT\\wexu" <<<"$OUT" &&
+    grep -qx "ENV WINEPREFIX=/home/wsrdom-$$-1/.wine" <<<"$OUT" || fail "a domain account's environment is wrong: $OUT"
+ok sysrun_domain_account_name_accepted
+n=2
+for bad in "$FLAT\\a\\b" '\a' "ABCDEFGHIJKLMNOP\\a" "$FLAT\\" "$FLAT\\a;b" "$FLAT\\a b"; do
+    # an empty user part and a name starting with a backslash cannot be made by useradd either: skip those it refuses
+    if ! useradd --badname -M -N -s /bin/bash -d "/home/wsrdom-$$-$n" "$bad" 2>/dev/null; then n=$((n + 1)); continue; fi
+    DOM_USERS+=("$bad"); DOM_HOMES+=("/home/wsrdom-$$-$n")
+    install -d -m 0755 -o "$(id -u "$bad")" "/home/wsrdom-$$-$n" "/home/wsrdom-$$-$n/.wine"
+    OUT="$(run_as "$bad" "$SYSRUN" wineserver </dev/null 2>&1)" && rc=0 || rc=$?
+    [ "$rc" -ne 0 ] && grep -q 'cannot use the passwd entry' <<<"$OUT" || fail "the account name [$bad] was not refused for its name: $OUT"
+    n=$((n + 1))
+done
+[ "${#DOM_USERS[@]}" -ge 4 ] || fail "too few refused names could be tried (${#DOM_USERS[@]})"
+ok sysrun_malformed_domain_account_names_refused
+for u in "${DOM_USERS[@]}"; do userdel "$u" 2>/dev/null || true; done
+rm -rf "${DOM_HOMES[@]}"
+DOM_USERS=(); DOM_HOMES=()
 
 # 6b. The server the launcher connects to: a replacement server that the user started without the launcher, a
 #     missing server, and a server in another user's prefix are refused. The stand-in started above sits at the

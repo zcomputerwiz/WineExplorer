@@ -32,9 +32,25 @@ export DEBIAN_FRONTEND=noninteractive
     { echo "DEPS FAILED"; tail -5 $L-deps.log; exit 1; }
 
 step clone
-rm -rf "$R"
-git clone -q --recurse-submodules -b "$BRANCH" https://github.com/zcomputerwiz/WineExplorer.git "$R" > $L-clone.log 2>&1 ||
-    { echo "CLONE FAILED"; tail -5 $L-clone.log; exit 1; }
+# The clone and its build stay between runs: a later run updates the clone in place (only what changed is built
+# again, minutes instead of the half hour of a whole Wine build). WEX_ISO_FRESH=1 starts from nothing.
+[ "${WEX_ISO_FRESH:-0}" != 1 ] || rm -rf "$R"
+if [ -d "$R/.git" ]; then
+    {
+        git -C "$R" remote set-url origin https://github.com/zcomputerwiz/WineExplorer.git &&
+        git -C "$R" fetch -q --recurse-submodules=yes origin "$BRANCH" &&
+        git -C "$R" checkout -q -f -B "$BRANCH" FETCH_HEAD &&
+        git -C "$R" submodule update -q --init --recursive --force &&
+        # untracked files of the clone go, the build folder stays; the wine folder's generated files stay too (the
+        # assemble step rewrites them, and cleaning them would make it rebuild what did not change)
+        git -C "$R" clean -q -fdx -e build/;
+    } > $L-clone.log 2>&1 || { echo "UPDATE FAILED"; tail -5 $L-clone.log; exit 1; }
+    echo "updated $R in place"
+else
+    rm -rf "$R"
+    git clone -q --recurse-submodules -b "$BRANCH" https://github.com/zcomputerwiz/WineExplorer.git "$R" > $L-clone.log 2>&1 ||
+        { echo "CLONE FAILED"; tail -5 $L-clone.log; exit 1; }
+fi
 git -C "$R" log --oneline -1
 
 # package-wine.sh takes only a build of the clone's own wine (it refuses another checkout's)
@@ -42,8 +58,10 @@ step build
 cd "$R" || exit 1
 timeout 900 bash scripts/assemble.sh > $L-assemble.log 2>&1 || { echo "ASSEMBLE FAILED"; tail -5 $L-assemble.log; exit 1; }
 mkdir -p "$B" && cd "$B" || exit 1
-timeout 1800 ../../wine/configure --enable-archs=i386,x86_64 --prefix="$B/install" > $L-configure.log 2>&1 ||
-    { echo "CONFIGURE FAILED"; tail -5 $L-configure.log; exit 1; }
+if [ ! -f "$B/Makefile" ]; then
+    timeout 1800 ../../wine/configure --enable-archs=i386,x86_64 --prefix="$B/install" > $L-configure.log 2>&1 ||
+        { echo "CONFIGURE FAILED"; tail -5 $L-configure.log; exit 1; }
+fi
 timeout 5400 make -j16 > $L-make.log 2>&1 || { echo "MAKE FAILED"; grep -m8 'error:' $L-make.log; exit 1; }
 
 step package
