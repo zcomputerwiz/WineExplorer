@@ -258,6 +258,34 @@ if WEX_MACHINE_ROOT="$FIX2" WEX_BACKUP_DIR="$FIX2-backup" WEX_SKIP_WINEBOOT=1 WE
 fi
 grep -q "dedicated system group" /tmp/b3-sudo-$$.log || fail "sudo refusal has the wrong reason"
 echo "b3_sudo_group_refused=PASS"
+# Root's whole-tree chown, chmod and setfacl act on inodes: a second name (hard link) of a file outside the machine root,
+# planted in a shared folder, goes before anything is changed, and the outside file keeps its owner, mode and ACL; two
+# names of one file that are both inside stay; a symbolic link's target is not touched; such a name at the top (where
+# the hives are) refuses the setup.
+HLO=/tmp/b3-hlo-$$; HLS=/tmp/b3-hls-$$
+printf private > "$HLO"; printf private > "$HLS"
+chown "$OUT_USER:root" "$HLO" "$HLS"; chmod 600 "$HLO" "$HLS"
+mkdir -p "$FIX2/drive_c/users/Public/Documents"; chmod 1777 "$FIX2/drive_c/users/Public/Documents"
+ln "$HLO" "$FIX2/drive_c/users/Public/Documents/planted.txt"
+printf dll > "$FIX2/drive_c/windows/system32/a.dll"; ln "$FIX2/drive_c/windows/system32/a.dll" "$FIX2/drive_c/windows/b.dll"
+ln -s "$HLS" "$FIX2/drive_c/windows/outside.txt"
+run_setup2 --update >/tmp/b3-hl-$$.log 2>&1 || { cat /tmp/b3-hl-$$.log; fail "the run with planted links failed"; }
+[ ! -e "$FIX2/drive_c/users/Public/Documents/planted.txt" ] || fail "a second name of an outside file stayed"
+grep -q "removed (a second name of a file outside the machine root): .*planted.txt" /tmp/b3-hl-$$.log ||
+    fail "the removal was not reported"
+for f in "$HLO" "$HLS"; do
+    [ "$(stat -c '%U:%G:%a' "$f")" = "$OUT_USER:root:600" ] || fail "the outside file $f became $(stat -c '%U:%G:%a' "$f")"
+    ! getfacl -p "$f" 2>/dev/null | grep -q "^group:$GROUP2" || fail "the outside file $f got an ACL entry"
+done
+[ "$(stat -c '%h %U:%G' "$FIX2/drive_c/windows/b.dll")" = "2 root:$GROUP2" ] || fail "two names inside were not kept and set"
+[ -L "$FIX2/drive_c/windows/outside.txt" ] || fail "the symbolic link went"
+ln "$HLO" "$FIX2/hive-link.reg"
+if run_setup2 --update >/tmp/b3-hl2-$$.log 2>&1; then fail "a top-level name of an outside file was accepted"; fi
+grep -q "has a name outside the machine root" /tmp/b3-hl2-$$.log || fail "the top-level refusal has the wrong reason"
+[ "$(stat -c '%U:%G:%a' "$HLO")" = "$OUT_USER:root:600" ] || fail "the refused run changed the outside file"
+rm -f "$FIX2/hive-link.reg" "$FIX2/drive_c/windows/outside.txt" "$FIX2/drive_c/windows/b.dll" "$FIX2/drive_c/windows/system32/a.dll" "$HLO" "$HLS"
+run_setup2 --update >/tmp/b3-hl3-$$.log 2>&1 || { cat /tmp/b3-hl3-$$.log; fail "the run after the refusal failed"; }
+echo "b3_setup_ignores_planted_hard_links=PASS"
 # --update must not nest the theme directories (S2 Test 6 compares the machine root before and after).
 mkdir -p "$FIX2-themes/Luna"
 echo style > "$FIX2-themes/Luna/Luna.msstyles"

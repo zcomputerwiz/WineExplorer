@@ -340,10 +340,35 @@ OLD_GROUP="$(stat -c '%G' -- "$MACHINE_ROOT")"
 if [ "$OLD_GROUP" != "$MACHINE_GROUP" ]; then
     echo "Migrating machine root from group $OLD_GROUP to $MACHINE_GROUP..."
 fi
+# Root changes owner, mode and ACL of every file below, and chown, chmod and setfacl act on the inode. A second name
+# (hard link) of a file outside the machine root, planted by a member of the system group or in the world-writable
+# shared folders, would hand that file to root:$MACHINE_GROUP and make it group-writable. So before anything is
+# changed, every name of a file that has a name outside the machine root goes (in drive_c and pe_section_cache; such a
+# hive at the top refuses the setup). Files whose names are all inside are left as they are. fs.protected_hardlinks
+# (Debian's default) keeps users from linking files they cannot write; with it off the setup only warns. Links made
+# while the setup runs stay possible (the window between this scan and the changes below).
+[ "$(cat /proc/sys/fs/protected_hardlinks 2>/dev/null || echo 1)" = 1 ] ||
+    echo "Warning: fs.protected_hardlinks is off; users can plant links to any file in the shared folders" >&2
+declare -A HL_INSIDE=()
+HL_KEYS=() HL_COUNTS=() HL_PATHS=()
+while IFS=' ' read -r -d '' hl_key hl_count hl_path; do
+    HL_INSIDE[$hl_key]=$(( ${HL_INSIDE[$hl_key]:-0} + 1 ))
+    HL_KEYS+=("$hl_key") HL_COUNTS+=("$hl_count") HL_PATHS+=("$hl_path")
+done < <(find "$MACHINE_ROOT" -type f -links +1 -printf '%D:%i %n %p\0')
+for i in "${!HL_PATHS[@]}"; do
+    [ "${HL_INSIDE[${HL_KEYS[$i]}]}" -lt "${HL_COUNTS[$i]}" ] || continue
+    case "${HL_PATHS[$i]}" in
+        "$MACHINE_ROOT/drive_c/"*|"$MACHINE_ROOT/pe_section_cache/"*)
+            rm -f -- "${HL_PATHS[$i]}"
+            echo "  removed (a second name of a file outside the machine root): ${HL_PATHS[$i]}" ;;
+        *) die "${HL_PATHS[$i]} has a name outside the machine root" ;;
+    esac
+done
 echo "Applying permissions and default ACLs to machine root (root:$MACHINE_GROUP, mode 2775, default ACL g:$MACHINE_GROUP:rwX)..."
 if command -v setfacl >/dev/null 2>&1; then
     setfacl -b "$MACHINE_ROOT"
-    setfacl -R -b "$MACHINE_ROOT/drive_c"
+    # (not setfacl -R: it would act on the targets of the links in the tree)
+    find "$MACHINE_ROOT/drive_c" ! -type l -exec setfacl -b {} +
     for f in system.reg userdef.reg user.reg; do
         if [ -f "$MACHINE_ROOT/$f" ]; then setfacl -b "$MACHINE_ROOT/$f"; fi
     done
@@ -407,8 +432,8 @@ fi
 if command -v setfacl >/dev/null 2>&1; then
     setfacl -m "g:$MACHINE_GROUP:rwX" "$MACHINE_ROOT"
     setfacl -d -m "u::rwX,g::rwX,g:$MACHINE_GROUP:rwX,o::r-x" "$MACHINE_ROOT"
-    setfacl -R -m "g:$MACHINE_GROUP:rwX" "$MACHINE_ROOT/drive_c"
-    setfacl -R -d -m "u::rwX,g::rwX,g:$MACHINE_GROUP:rwX,o::r-x" "$MACHINE_ROOT/drive_c"
+    find "$MACHINE_ROOT/drive_c" ! -type l -exec setfacl -m "g:$MACHINE_GROUP:rwX" {} +
+    find "$MACHINE_ROOT/drive_c" -type d -exec setfacl -d -m "u::rwX,g::rwX,g:$MACHINE_GROUP:rwX,o::r-x" {} +
     if [ -f "$MACHINE_ROOT/system.reg" ]; then
         setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/system.reg"
     fi
