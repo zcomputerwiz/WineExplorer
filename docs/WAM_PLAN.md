@@ -80,7 +80,10 @@ notice; Himmelblau only as a separate process. Wine modules stay LGPL-2.1-or-lat
   `profile openid 4765445b-32c6-49b0-83e6-1d93765276ca/.default`, authority `consumers`, with MSAL's telemetry
   properties. "Continue with Microsoft" then fails at once (`platformError=-21`) without any WinRT call; it never
   calls `RequestTokenForWindowAsync`. `IdentityCRL\LoginUrl` made no difference.
-- Open decision (the owner's): Copilot's client is Microsoft's own and its tokens are issued only to redirect URIs
-  Microsoft registered (its broker's). A WineExplorer broker would have to present itself as Microsoft's broker for
-  such clients. Nothing is built toward that until the owner decides; step 3 for clients that accept the public
-  native-client redirect is not affected.
+- Decision (owner, 2026-11-16): Copilot's client is Microsoft's own and its tokens are issued only to redirect URIs
+  Microsoft registered (its broker's). Where a protocol requires the broker to present itself as a particular
+  component (such as the broker redirect `ms-appx-web://Microsoft.AAD.BrokerPlugin/{client_id}`), WineExplorer's
+  local broker may do so, as long as the clean room holds: no Microsoft code, binaries or reference sources; public
+  protocol documentation and MIT code (MSAL) as references; Windows' own credential stores never read; no real
+  tokens taken from the owner's Windows machine for tests. Next: the design (docs/WAM_BROKER_DESIGN.md), and why
+  OneAuth fails its interactive step before calling WAM at all, which a broker alone does not fix.
