@@ -495,6 +495,25 @@ write the store themselves; they hand a file to `gpsvc`, which checks it and ins
   check is deleted too and leaves `NAME.error` (the Win32 error and a one-line reason, at most 200 bytes); a good
   one removes an old `NAME.error`. When anything changed, `gpsvc` leaves the refresh request (`Refresh`, as for
   128), so root's `wex-gpupdate.path` applies it. Nothing in the spool is trusted for its content or its name.
+- **Who owns what** (system tier review, 2026-11-16): the store tree (`GroupPolicy`, `Machine`, `User`, the SecEdit
+  path) is session 0's account's own, mode 2755 (the setgid bit passes its group on), files 0644, no ACL entries;
+  only `Spool` is group-writable (2770, session 0's account and the system group, default ACL for the group).
+  `setup-machine-root.sh` sets this at every run, which also puts an existing tree right (links and special files
+  in it are removed, ACLs dropped, stale requests removed); a link in place of `GroupPolicy` stops it. Otherwise an
+  elevated administrator could rename `Spool` or plant links at `Registry.pol.new`, in the SecEdit path and so on,
+  and `gpsvc`, which runs as session 0's account, would read, delete or write where they point. The consequence
+  is wanted: Win32 code run by an administrator (secedit's `MoveFileEx` into the store) can no longer write the
+  store; everything goes through `GpStoreWrite`.
+- **How `gpsvc` does the file work**: `gpsvc` is a Windows program and has no `openat` or `O_NOFOLLOW`, so the file
+  operations are native functions of `wexhost`'s unix side, which runs inside session 0's process as its account
+  (`WexGpSpoolRead`, `WexGpSpoolDone`, `WexGpStoreWrite`). They open `GroupPolicy` once with
+  `O_DIRECTORY|O_NOFOLLOW` (owner session 0, group the system group, or refuse) and work from that descriptor
+  with `openat`, `O_NOFOLLOW` and `unlinkat`/`renameat`, never building a path string under `GroupPolicy`. A request
+  is opened `O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC`, then `fstat`: a regular file with one link and a size
+  within the limit, and exactly `st_size` bytes are read into the buffer that is validated (never reopened). The
+  store file is written as `STORE.new` (`O_CREAT|O_EXCL|O_NOFOLLOW`, after an `unlinkat` of an old one) and
+  `renameat`d; a stale `STORE.new` is removed at start; `NAME.error` is written the same way. The content checks
+  (PReg, template) stay in `gpsvc`, on the bytes that the native side returned.
 - **Client side**: a small shared helper (`GpStoreWrite(kind, data, size)`): write the temporary file, rename it,
   `ControlService(129)`, wait for the `Refreshed` serial as `gpupdate` does, read and delete `NAME.error`. `secedit
   /configure` moves to it; the editor uses it. Reading the store (to show current settings) is a plain file read.

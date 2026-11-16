@@ -272,4 +272,32 @@ cmp -s /tmp/b3-th1-$$.txt /tmp/b3-th2-$$.txt || { diff /tmp/b3-th1-$$.txt /tmp/b
 [ -f "$THEME_ROOT/Luna/Luna.msstyles" ] && [ ! -e "$THEME_ROOT/Luna/Luna" ] || fail "theme directory nested: $(cat /tmp/b3-th2-$$.txt)"
 echo "b3_update_themes_not_nested=PASS"
 
+# The local Group Policy store (docs/GROUP_POLICY.md, "Local policy"): session 0's account is its only writer. A tree
+# that an earlier version left group-writable, with a link, a FIFO and a stale request in it, is set right: owned
+# by session 0's account, not group-writable, no ACL entries, the link and the FIFO gone; only the spool is
+# group-writable (2770, default ACL for the system group), and empty. A link in place of the directory is refused.
+S0USER="wexs0t$$"
+useradd --system -g "$GROUP2" -M -s /usr/sbin/nologin "$S0USER"
+GPD="$FIX2/drive_c/windows/system32/GroupPolicy"
+mkdir -p "$GPD/Machine/Microsoft/Windows NT/SecEdit" "$GPD/Archive" "$GPD/Spool"
+printf 'x' > "$GPD/Machine/Registry.pol"; printf 'x' > "$GPD/Refresh"; printf 'stale' > "$GPD/Spool/Machine.Registry.pol"
+ln -s /etc/passwd "$GPD/Machine/Registry.pol.new"; mkfifo "$GPD/Machine/pipe"
+chown -R "root:$GROUP2" "$GPD"; chmod -R 2775 "$GPD"; chmod 664 "$GPD/Machine/Registry.pol"
+setfacl -R -m "g:$GROUP2:rwX" "$GPD"; setfacl -R -d -m "g:$GROUP2:rwX" "$GPD"
+WEX_SESSION0=1 WEX_SESSION0_USER="$S0USER" run_setup2 --update >/tmp/b3-gp-$$.log 2>&1 || { cat /tmp/b3-gp-$$.log; fail "the store run failed"; }
+for d in "$GPD" "$GPD/Machine" "$GPD/Machine/Microsoft/Windows NT/SecEdit" "$GPD/Archive"; do
+    [ "$(stat -c '%U:%G:%a' "$d")" = "$S0USER:$GROUP2:2755" ] || fail "store directory $d is $(stat -c '%U:%G:%a' "$d")"
+done
+[ "$(stat -c '%U:%G:%a' "$GPD/Machine/Registry.pol")" = "$S0USER:$GROUP2:644" ] || fail "store file is $(stat -c '%U:%G:%a' "$GPD/Machine/Registry.pol")"
+[ ! -e "$GPD/Machine/Registry.pol.new" ] && [ ! -L "$GPD/Machine/Registry.pol.new" ] && [ ! -e "$GPD/Machine/pipe" ] || fail "a link or a FIFO stayed in the store"
+! getfacl -R -p "$GPD/Machine" "$GPD/Archive" 2>/dev/null | grep -q '^\(default:\)\?group:[^:]' || fail "the store tree has ACL entries for groups"
+[ "$(stat -c '%U:%G:%a' "$GPD/Spool")" = "$S0USER:$GROUP2:2770" ] || fail "the spool is $(stat -c '%U:%G:%a' "$GPD/Spool")"
+getfacl -p "$GPD/Spool" 2>/dev/null | grep -q "^default:group:$GROUP2:rwx" || fail "the spool has no default ACL for the system group"
+[ -z "$(ls -A "$GPD/Spool")" ] || fail "a stale request stayed in the spool"
+rm -rf "$GPD"; ln -s /etc "$GPD"
+if WEX_SESSION0=1 WEX_SESSION0_USER="$S0USER" run_setup2 --update >/tmp/b3-gp2-$$.log 2>&1; then fail "a link in place of the store directory was accepted"; fi
+rm -f "$GPD"
+userdel "$S0USER" 2>/dev/null || true
+echo "b3_local_policy_store_is_session_0s_and_only_the_spool_is_group_writable=PASS"
+
 rm -f /tmp/b3-*-$$ /tmp/b3-*-$$.txt /tmp/b3-*-$$.log

@@ -493,6 +493,32 @@ EOF
     rm -rf -- "$SYSRUN_TMP"
 fi
 
+# 2b. The local Group Policy store (docs/GROUP_POLICY.md, "Local policy", "Writing the local files"). Session 0's account
+# is its only writer: gpsvc checks the requests that an elevated administrator's process leaves in the spool and
+# installs them. The tree is therefore session 0's own and not group-writable, where the machine root's default ACL
+# would make it writable by the whole system group, who could then put links in the way of gpsvc. Only the spool is
+# group-writable. Runs at every setup, so an upgrade sets an existing tree right: links and special files in it are
+# removed (none is legitimate), ACLs dropped, owner and modes set, stale requests removed.
+S0_ACCOUNT="${WEX_SESSION0_USER:-wexsys}"   # (the test of this part uses a throw-away account)
+if [ "${SESSION0_ENABLE:-0}" = "1" ] && id "$S0_ACCOUNT" >/dev/null 2>&1; then
+    GP_DIR="$MACHINE_ROOT/drive_c/windows/system32/GroupPolicy"
+    [ ! -L "$GP_DIR" ] || die "$GP_DIR is a link"
+    echo "Setting the local Group Policy store ($GP_DIR) to session 0's account..."
+    install -d -m 2755 -o "$S0_ACCOUNT" -g "$MACHINE_GROUP" -- "$GP_DIR"
+    if command -v setfacl >/dev/null 2>&1; then setfacl -R -P -b -- "$GP_DIR"; fi
+    find "$GP_DIR" -mindepth 1 ! -type d ! -type f -print -delete | sed 's/^/  removed (not a file or directory): /'
+    chown -R -h "$S0_ACCOUNT":"$MACHINE_GROUP" -- "$GP_DIR"
+    find "$GP_DIR" -type d -exec chmod 2755 {} +
+    find "$GP_DIR" -type f -exec chmod 0644 {} +
+    # the spool: where the system group leaves requests; session 0's account reads and removes them
+    install -d -m 2770 -o "$S0_ACCOUNT" -g "$MACHINE_GROUP" -- "$GP_DIR/Spool"
+    find "$GP_DIR/Spool" -mindepth 1 -delete
+    if command -v setfacl >/dev/null 2>&1; then
+        setfacl -m "g:$MACHINE_GROUP:rwX" -- "$GP_DIR/Spool"
+        setfacl -d -m "g:$MACHINE_GROUP:rwX" -- "$GP_DIR/Spool"
+    fi
+fi
+
 # 3. Create or update template prefix in /etc/skel/.wine
 echo "Configuring template prefix in $SKEL_PFX..."
 mkdir -p "$SKEL_PFX/dosdevices" "$SKEL_PFX/drive_c/users"
