@@ -3,7 +3,8 @@
 # Copyright 2026 WineExplorer contributors
 # host (Git Bash): one quick Calculator iteration: build XamlShim incrementally (unless --no-build), push the changed
 # files, run calc-quick.sh on a copy of the lab's base prefix and print its summary.
-#   iterate.sh [--no-build] [WINEDEBUG]        env passes through: QUIET MIN MAX WINEBOOT_UPDATE
+#   iterate.sh [--no-build] [WINEDEBUG]        env passes through: QUIET MIN MAX, and for new classes of a changed
+#                                              Wine module REGCLASSES="dll=Class,Class ..." (WinRT) or REGISTER="dll ..."
 #   iterate.sh --prep XAMLSHIM_ZIP             make the base prefix (calc-prep.sh) from a release zip
 # The fresh, full run stays calc-run.sh: run it before a commit or a release and after Wine changes.
 set -uo pipefail
@@ -26,6 +27,8 @@ else
 fi
 t1=$(date +%s)
 ./lab.sh push quick.tar > /dev/null
-env="QUIET=${QUIET:-15} MIN=${MIN:-15} MAX=${MAX:-120} WINEBOOT_UPDATE=${WINEBOOT_UPDATE:-}"
+env="QUIET=${QUIET:-15} MIN=${MIN:-15} MAX=${MAX:-120} REGISTER=\"${REGISTER:-}\" REGCLASSES=\"${REGCLASSES:-}\""
+env="$env XAMLSHIM_PROBE_MEMBERS=\"${XAMLSHIM_PROBE_MEMBERS:-}\" XAMLSHIM_PROBE_TYPE=\"${XAMLSHIM_PROBE_TYPE:-}\" WINE_ROERR_STACK=${WINE_ROERR_STACK:-}"
+[ -z "${WINE_ROERR_STACK:-}" ] && env="${env% WINE_ROERR_STACK=}"
 ./lab.sh wait "cd /home/debian/uwp-u1-20261111/claude && DISPLAY=:99 $env ./calc-quick.sh ${1:-err+all,fixme+all}" 400
 echo "host: build $((t1 - t0)) s, iteration $(( $(date +%s) - t0 )) s"

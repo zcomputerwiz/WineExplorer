@@ -4,7 +4,7 @@
 # lab: the base prefix for quick Calculator runs (calc-quick.sh): a fresh prefix with the uwp-xaml component from a
 # release zip, the framework packages and the Calculator package installed, as calc-run.sh prepares it, kept in
 # quick-base/ (calc-run.sh deletes calc-*). Make it again after a Wine change that registers new classes, or use
-# WINEBOOT_UPDATE=1 with calc-quick.sh.
+# REGISTER="module.dll ..." with calc-quick.sh.
 # usage: calc-prep.sh XAMLSHIM_ZIP
 root=/home/debian/uwp-u1-20261111
 build=$root/build/candidates/u11-2/build
