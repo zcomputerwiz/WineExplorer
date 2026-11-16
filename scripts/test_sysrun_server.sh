@@ -32,6 +32,8 @@ GRP=wexsysc2
 ADM=wexadm
 STD=wexstd
 CAR=wexcar   # a second administrator, made by the callers section (step 7)
+DOM=wexdom   # domain accounts (docs/DOMAIN_LOGON.md, WO 2), made by the session 0 part: RID 500, not in Domain Admins
+DOMA=wexdoma   # and a member of Domain Admins
 SYS=wexgreeter   # an unmapped system account, made by the symlinked-hives section (3b)
 SYS_HOME=/var/lib/$SYS
 SYS_CREATED=0
@@ -108,7 +110,7 @@ cleanup()
         echo "fixture kept: $ROOT, users $ADM $STD $CAR $SYS, group $GRP, $CONF, $LIBEXEC" >&2
         exit "$rc"
     fi
-    for u in "$ADM" "$STD" "$CAR"; do
+    for u in "$ADM" "$STD" "$CAR" "$DOM" "$DOMA"; do
         uid="$(id -u "$u" 2>/dev/null)"
         userdel -r "$u" 2>/dev/null
         [ -z "$uid" ] || rm -rf "/tmp/.wine-$uid"
@@ -3654,6 +3656,91 @@ done
 s0_wine reg delete 'HKLM\Software\WineExplorer\Domain' /f >/dev/null || true
 kill_servers
 ok st_programs_are_told_the_domain_join_from_session0
+# Domain logon WO 2 (docs/DOMAIN_LOGON.md): a domain account of the map gets the domain's SID, the domain's Domain
+# Users as primary group, the domain groups recorded by root, and DOMAIN\user as its name; a member of Domain Admins
+# gets the limited token of an administrator; the domain's RID 500 is no built-in Administrator. The records are
+# written here by hand (admit and Winbind are tested in test_accounts_map.sh); the domain SID 111-222-333.
+# Real domain accounts are not in /etc/passwd; these test users are, so the account watcher (wex-accounts.path,
+# which syncs at every change of /etc/passwd) is stopped while they exist, and any local record for them is left out.
+[ "${WEX_TRACE_DOMAIN:-0}" != 1 ] || set -x
+WATCH=; systemctl is-active --quiet wex-accounts.path 2>/dev/null && WATCH=1
+systemctl stop wex-accounts.path wex-accounts.timer >/dev/null 2>&1 || true
+for u in "$DOM" "$DOMA"; do id "$u" >/dev/null 2>&1 || useradd -m -k "$ROOT/skel" -s /bin/bash "$u"; done
+AMAP=/etc/wineexplorer/accounts.map
+cp -p "$AMAP" "$ROOT/accounts.map.pre-domain"
+KDOM=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'); KDOMA=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+awk -v dom="$DOM" -v doma="$DOMA" -v udom="$(id -u "$DOM")" -v udoma="$(id -u "$DOMA")" -v kdom="$KDOM" -v kdoma="$KDOMA" '
+    NR == 1 { if ($2 != 1) exit 1; $2 = 2; print $0, 111, 222, 333, "WEXLAB"; next }
+    $1 == dom || $1 == doma || $2 == udom || $2 == udoma { next }
+    { print $1, $2, $3, $4, "local", $5, $6, $7, $8, $9 }
+    END { print "WEXLAB\\" dom, udom, kdom, "active domain 21 111 222 333 500"
+          print "WEXLAB\\" doma, udoma, kdoma, "active domain 21 111 222 333 1120" }' "$ROOT/accounts.map.pre-domain" > "$ROOT/accounts.map.domain" ||
+    fail "domain: the fixture's map is not version 1"
+cat "$ROOT/accounts.map.domain" > "$AMAP"
+printf 'WEXGROUPS 1\n%s 513\n%s 513 512 1300\n' "$KDOM" "$KDOMA" > /etc/wineexplorer/domain-groups
+chown "root:$GRP" /etc/wineexplorer/domain-groups; chmod 0640 /etc/wineexplorer/domain-groups
+s0_wine reg add 'HKLM\Software\WineExplorer\Domain' /v FlatName /d WEXLAB /f >/dev/null || fail "domain: join state"
+s0_wine reg add 'HKLM\Software\WineExplorer\Domain' /v Name /d wexlab.example.com /f >/dev/null || fail "domain: join state"
+s0_wine reg add 'HKLM\Software\WineExplorer\Domain' /v Sid /d S-1-5-21-111-222-333 /f >/dev/null || fail "domain: join state"
+# a probe of a domain account, at most two minutes; a hang says what it waited on instead of stopping the suite
+dom_probe()   # user arch mode
+{
+    local out rc=0
+    out="$(run_as "$1" env WINEDEBUG=err+all,+loaddll timeout 120 "$BUILD/wine" "$ROOT/probes/tierprobe$2.exe" "${@:3}" 2>"$ROOT/dom.err" | tr -d '\r')" || rc=$?
+    if [ "$rc" = 124 ]; then
+        { echo "--- $1 $2-bit $3: no answer in 120 s; its output so far:"; printf '%s\n' "$out"; echo "--- its last loads:"
+          grep -v ':trace:loaddll:.*builtin.*\(ntdll\|kernel\)' "$ROOT/dom.err" | tail -15; tail -6 "$ROOT/session0.log"
+          ps -u "$1" -o pid,stat,wchan:20,args | head -20; } >&2
+        fail "domain: the probe of $1 hung"
+    fi
+    printf '%s\n' "$out"
+}
+# control: the names of a local account through the same probe
+OUT="$(dom_probe "$STD" 64 names)"
+grep -q '^lsa=[^\\]*\\wexstd use=1$' <<<"$OUT" && grep -q '^samcompat=[^\\]*\\wexstd$' <<<"$OUT" ||
+    { echo "$OUT" >&2; fail "domain: the names control for a local account"; }
+for b in 64 32; do
+    OUT="$(dom_probe "$DOM" "$b" token)"
+    grep -qx 'user=S-1-5-21-111-222-333-500' <<<"$OUT" && grep -qx 'primary=S-1-5-21-111-222-333-513' <<<"$OUT" &&
+        grep -q '^group=S-1-5-21-111-222-333-513 ' <<<"$OUT" && ! grep -q '^group=S-1-5-32-544 ' <<<"$OUT" &&
+        ! grep -q '^group=S-1-5-21-0-0-0-513 ' <<<"$OUT" && grep -qx 'elevation=1' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "domain: the token of a domain account (RID 500, no Domain Admins), $b-bit"; }
+    OUT="$(dom_probe "$DOM" "$b" names)"
+    grep -qx 'lsa=WEXLAB\\wexdom use=1' <<<"$OUT" && grep -qx 'samcompat=WEXLAB\\wexdom' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "domain: the names of a domain account, $b-bit"; }
+done
+# group_attrs PREFIX SID: the attributes (hex) of SID in the probe output's PREFIX= lines (group or linkedgroup)
+group_attrs() { sed -n "s/^$1=$2 attrs=//p" <<<"$OUT"; }
+# deny_only HEX: SE_GROUP_USE_FOR_DENY_ONLY (0x10) set, SE_GROUP_ENABLED (0x4) clear; enabled HEX: 0x4 set, 0x10 clear
+deny_only() { [ -n "$1" ] && [ $(( 0x$1 & 0x10 )) != 0 ] && [ $(( 0x$1 & 0x4 )) = 0 ]; }
+enabled() { [ -n "$1" ] && [ $(( 0x$1 & 0x4 )) != 0 ] && [ $(( 0x$1 & 0x10 )) = 0 ]; }
+D3=S-1-5-21-111-222-333
+for b in 64 32; do
+    OUT="$(dom_probe "$DOMA" "$b" token)"
+    grep -qx "user=$D3-1120" <<<"$OUT" && grep -qx 'elevation=3' <<<"$OUT" && grep -qx 'linkedelevation=2' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "domain: the split token of a member of Domain Admins, $b-bit"; }
+    # the limited token at logon: Administrators and Domain Admins only for deny (UAC filtered groups), so an ACL
+    # that grants Domain Admins gives nothing without elevation; Domain Users and a plain group stay enabled
+    deny_only "$(group_attrs group S-1-5-32-544)" && deny_only "$(group_attrs group "$D3-512")" &&
+        enabled "$(group_attrs group "$D3-513")" && enabled "$(group_attrs group "$D3-1300")" ||
+        { echo "$OUT" >&2; fail "domain: the limited token of a member of Domain Admins does not filter its privileged groups, $b-bit"; }
+    # the elevated (linked) token: all of them enabled
+    enabled "$(group_attrs linkedgroup S-1-5-32-544)" && enabled "$(group_attrs linkedgroup "$D3-512")" &&
+        enabled "$(group_attrs linkedgroup "$D3-513")" && enabled "$(group_attrs linkedgroup "$D3-1300")" ||
+        { echo "$OUT" >&2; fail "domain: the elevated token of a member of Domain Admins lacks an enabled group, $b-bit"; }
+done
+OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe64.exe" token)"
+grep -qx 'primary=S-1-5-21-0-0-0-513' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: a local account's token changed"; }
+OUT="$(dom_probe "$STD" 64 names)"
+grep -q '^lsa=[^\\]*\\wexstd use=1$' <<<"$OUT" && grep -q '^samcompat=[^\\]*\\wexstd$' <<<"$OUT" && ! grep -q 'WEXLAB' <<<"$OUT" || { echo "$OUT" >&2; fail "domain: a local account was named in the domain"; }
+kill_servers
+cat "$ROOT/accounts.map.pre-domain" > "$AMAP"; rm -f /etc/wineexplorer/domain-groups
+s0_wine reg delete 'HKLM\Software\WineExplorer\Domain' /f >/dev/null 2>&1 || true
+for u in "$DOM" "$DOMA"; do pkill -u "$u" 2>/dev/null || true; userdel -r "$u" 2>/dev/null || true; done
+set +x
+[ -z "$WATCH" ] || systemctl start wex-accounts.path >/dev/null 2>&1 || true
+kill_servers
+ok st_domain_accounts_token_names_and_domain_admins_limited
 # session 0 saves the hive as its own account; the users' servers accept it, and the write survives a restart
 s0_stop
 grep -q '^"fromadm"="elevated"' "$M/system.reg" || fail "session 0 did not save the elevated write"

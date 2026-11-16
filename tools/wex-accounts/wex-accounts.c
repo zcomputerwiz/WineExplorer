@@ -334,7 +334,8 @@ static int cleanup_temps( int dir )
  * identity is NSS's and Winbind's, and anything that does not fit refuses the logon. users[] are the local
  * accounts of /etc/passwd. Under the map lock. */
 static enum wex_account_status admit_domain_user( struct account_map *map, const struct account_native *users,
-                                                  unsigned int count, const char *pam_user, int *changed )
+                                                  unsigned int count, const char *pam_user, int *changed,
+                                                  char admitted[64] )
 {
     struct account_native u;
     char flat[16];
@@ -363,6 +364,7 @@ static enum wex_account_status admit_domain_user( struct account_map *map, const
     if (memcmp( sid, domain, sizeof(sid) ) || rid < 500) return WEX_ACCOUNT_UNSUPPORTED;
     /* the name as the map keeps it: the domain's flat name, then the user's part as NSS gives it */
     memcpy( u.name, flat, len );
+    strcpy( admitted, u.name );
 
     /* The map's domain is set at the first domain logon. A logon never changes it: Winbind giving another
      * domain at one logon refuses that logon, and only sync, with the controller answering, moves the map to a
@@ -396,6 +398,75 @@ static enum wex_account_status admit_domain_user( struct account_map *map, const
     if (!new_domain_record( map, u.name, u.uid, rid )) return WEX_ACCOUNT_MAP_INVALID;
     *changed = 1;
     return WEX_ACCOUNT_OK;
+}
+
+/* WO 2, condition 4: the domain groups of an admitted account, recorded at each logon by this root step from
+ * Winbind (wbinfo --user-domgroups), never from anything the user's processes write. Winbind not answering keeps
+ * the last recorded set (and never adds a group); Winbind answering but the file not written fails the logon,
+ * since an old set could keep a user in Domain Admins after removal. Only lines of active domain records stay. */
+static int record_domain_groups( int dir, const struct account_map *map, gid_t group, const char *name )
+{
+    const struct account_record *r = NULL;
+    static char out[65536];
+    char sidtext[64], *line, *next, *text = NULL, *keep = NULL;
+    uint32_t rids[GROUPS_MAX], sid[3], rid;
+    unsigned int count = 0, i, j;
+    size_t length, used = 0, room;
+    int fd = -1, ok = 0;
+    FILE *f = NULL;
+
+    for (i = 0; i < map->count; i++)
+        if (map->records[i].active && map->records[i].domain && !strcmp( map->records[i].name, name ))
+            r = &map->records[i];
+    if (!r) return 0;
+    snprintf( sidtext, sizeof(sidtext), "S-1-5-21-%u-%u-%u-%u", r->sid[0], r->sid[1], r->sid[2], r->rid );
+    if (run_wbinfo( out, sizeof(out), "--user-domgroups", sidtext )) return 1;   /* not answering: keep */
+    for (line = out; line && *line; line = next)
+    {
+        if ((next = strchr( line, '\n' ))) *next++ = 0;
+        if (!*line) continue;
+        if (!parse_sid( line, sid, &rid )) return 0;   /* an answer that does not parse is not taken */
+        if (memcmp( sid, map->domain, sizeof(sid) ) || rid < 500) continue;   /* other domains: not recorded */
+        for (j = 0; j < count; j++) if (rids[j] == rid) break;
+        if (j < count) continue;
+        if (count == GROUPS_MAX) return 0;
+        rids[count++] = rid;
+    }
+    /* the other active domain records' lines stay as they are */
+    room = sizeof(out);
+    if (!(keep = malloc( room ))) return 0;
+    keep[0] = 0;
+    if (!read_protected( dir, "domain-groups", group, &text, &length ) && !strncmp( text, "WEXGROUPS 1\n", 12 ))
+    {
+        for (line = text + 12; *line; line = next)
+        {
+            next = strchr( line, '\n' );
+            *next++ = 0;
+            if (strlen( line ) < 33 || !strncmp( line, r->key, 32 )) continue;
+            for (j = 0; j < map->count; j++)
+                if (map->records[j].active && map->records[j].domain && !strncmp( map->records[j].key, line, 32 )) break;
+            if (j == map->count || used + strlen( line ) + 2 > room) continue;
+            used += sprintf( keep + used, "%s\n", line );
+        }
+    }
+    if ((fd = openat( dir, ".domain-groups.new", O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600 )) == -1)
+        goto done;
+    if (fchown( fd, 0, group ) || fchmod( fd, 0640 ) || !no_access_acl( fd ) || !(f = fdopen( fd, "w" ))) goto done;
+    fd = -1;
+    fprintf( f, "WEXGROUPS 1\n%s%s", keep, r->key );
+    for (j = 0; j < count; j++) fprintf( f, " %u", rids[j] );
+    fputc( '\n', f );
+    ok = !ferror( f ) && !fflush( f ) && !fsync( fileno( f ) );
+    if (fclose( f )) ok = 0;
+    f = NULL;
+    if (ok) ok = !renameat( dir, ".domain-groups.new", dir, "domain-groups" ) && !fsync( dir );
+done:
+    if (f) fclose( f );
+    if (fd != -1) close( fd );
+    if (!ok) unlinkat( dir, ".domain-groups.new", 0 );
+    free( keep );
+    free( text );
+    return ok;
 }
 
 /* wex-accounts restore NAME (review of WO 1, change 3): a domain account wrongly retired comes back. The newest
@@ -447,6 +518,7 @@ int main( int argc, char **argv )
     char *buf = NULL;
     const char *command = NULL, *legacy = NULL, *retire = NULL, *rename_old = NULL, *rename_new = NULL;
     const char *admit_user = NULL, *restore_name = NULL;
+    char admitted[64] = "";
     unsigned int count, i, j;
     int dir = -1, lock = -1, initialize = 0, fresh = 0, changed = 0, ok = 0;
     size_t length;
@@ -565,7 +637,7 @@ recovered:
     if ((status = native_accounts( users, &count ))) goto done;
     if (admit_user)
     {
-        if ((status = admit_domain_user( map, users, count, admit_user, &changed ))) goto done;
+        if ((status = admit_domain_user( map, users, count, admit_user, &changed, admitted ))) goto done;
         goto save;
     }
     if (restore_name)
@@ -664,6 +736,10 @@ save:
         map->generation++;
         if (!save_map( dir, map, policy.system_gid, fresh )) goto done;
     }
+    /* the admitted account's domain groups, after its record is in the map (WO 2) */
+    status = WEX_ACCOUNT_NSS_ERROR;
+    if (admitted[0] && !record_domain_groups( dir, map, policy.system_gid, admitted )) goto done;
+    status = WEX_ACCOUNT_MAP_UNREADABLE;
     if (!mark_initialized( dir )) goto done;
     ok = 1;
 done:

@@ -52,11 +52,21 @@ if [ "$1" = --print ]; then
     exit 0
 fi
 
+# the domain's SID (Winbind; no root needed), so that advapi32 names a domain account DOMAIN\user
+# (docs/DOMAIN_LOGON.md, WO 2); without Winbind, or with an answer that is not a domain SID, there is none
+sid=
+if [ -n "$dns" ] && command -v wbinfo >/dev/null 2>&1; then
+    sid=$(wbinfo -D "$flat" 2>/dev/null | sed -n 's/^SID *: *//p' | head -n 1)
+    printf '%s\n' "$sid" | grep -Eqx 'S-1-5-21-[0-9]{1,10}-[0-9]{1,10}-[0-9]{1,10}' || sid=
+fi
+
 WINE=${WINE:-/usr/local/bin/wine}
 KEY='HKLM\Software\WineExplorer\Domain'
 if [ -n "$dns" ]; then
     "$WINE" reg add "$KEY" /v FlatName /d "$flat" /f >/dev/null &&
     "$WINE" reg add "$KEY" /v Name /d "$dns" /f >/dev/null || { echo "wex-domain-state: writing the join state failed" >&2; exit 1; }
+    if [ -n "$sid" ]; then "$WINE" reg add "$KEY" /v Sid /d "$sid" /f >/dev/null
+    else "$WINE" reg delete "$KEY" /v Sid /f >/dev/null 2>&1; fi
     echo "wex-domain-state: joined to $dns ($flat)"
 else
     "$WINE" reg delete "$KEY" /f >/dev/null 2>&1

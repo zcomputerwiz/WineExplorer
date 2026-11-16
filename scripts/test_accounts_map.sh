@@ -374,6 +374,11 @@ WEXLAB\group1 S-1-5-21-111-222-333-1109 SID_DOM_GROUP (2)
 WEXLAB\foreign S-1-5-21-9-9-9-1110 SID_USER (1)
 EOF
 touch "$WB/ping"
+cat > "$WB/groups" <<'EOF'
+S-1-5-21-111-222-333-1104 S-1-5-21-111-222-333-513 S-1-5-21-111-222-333-1300 S-1-5-21-9-9-9-512
+S-1-5-21-111-222-333-1105 S-1-5-21-111-222-333-513
+S-1-5-21-111-222-333-1111 S-1-5-21-111-222-333-513
+EOF
 cat > "$FIXTURE/wbinfo" <<EOF
 #!/bin/sh
 W="$WB"
@@ -388,6 +393,10 @@ case "\$1" in
     N="\$2" awk '\$1 == ENVIRON["N"] { \$1 = ""; sub(/^ /, ""); print; f = 1 } END { exit !f }' "\$W/users" && exit 0
     printf 'failed to call wbcLookupName: WBC_ERR_DOMAIN_NOT_FOUND\nCould not lookup name %s\n' "\$2" >&2; exit 1 ;;
 --ping-dc) [ -e "\$W/ping" ] ;;
+--user-domgroups)
+    # one line per group SID; the user's line of \$W/groups ("USER-SID GROUP-SID...")
+    if [ -e "\$W/transient" ] || [ -e "\$W/groups-transient" ]; then echo 'failed to call wbcGetGroups: WBC_ERR_WINBIND_NOT_AVAILABLE' >&2; exit 1; fi
+    N="\$2" awk '\$1 == ENVIRON["N"] { for (i = 2; i <= NF; i++) print \$i; f = 1 } END { exit !f }' "\$W/groups" ;;
 *) exit 1 ;;
 esac
 EOF
@@ -437,7 +446,50 @@ grep -q 'sid=S-1-5-21-111-222-333-' "$FIXTURE/d2.lookup" && fail 'd2: a local ac
 G="$(d2_gen)"
 admit_ok 'WEXLAB\wexuser1'
 [ "$(d2_gen)" = "$G" ] || fail 'd2: a second admit changed the map'
+# WO 2: the domain groups, recorded by admit beside the map (protected as the map is), only the map's domain's
+GRPFILE="$D2/domain-groups"
+KEY1="$(awk '$1 == "WEXLAB\\wexuser1" && $4 == "active" { print $3 }' "$D2MAP")"
+[ "$(stat -c '%u:%g:%a' "$GRPFILE")" = '0:19999:640' ] || fail 'd2: domain-groups metadata'
+head -1 "$GRPFILE" | grep -qx 'WEXGROUPS 1' || fail 'd2: domain-groups header'
+grep -qx "$KEY1 513 1300" "$GRPFILE" || { cat "$GRPFILE"; fail 'd2: recorded groups (another domain filtered out)'; }
+d2_lookup 0 'WEXLAB\wexuser1'
+grep -q 'admin=0' "$FIXTURE/d2.lookup" || fail 'd2: a domain user outside Domain Admins is an administrator'
+# a member of Domain Admins (RID 512) is an administrator as a member of admin_group is
+printf 'WEXLAB\\wexadm1:x:21120:20513::/home/WEXLAB/wexadm1:/bin/bash\n' >> "$FIXTURE/d2.winbind"
+echo 'WEXLAB\wexadm1 S-1-5-21-111-222-333-1120 SID_USER (1)' >> "$WB/users"
+echo 'S-1-5-21-111-222-333-1120 S-1-5-21-111-222-333-513 S-1-5-21-111-222-333-512' >> "$WB/groups"
+admit_ok 'WEXLAB\wexadm1'
+d2_lookup 0 'WEXLAB\wexadm1'
+grep -q 'admin=1' "$FIXTURE/d2.lookup" || { cat "$FIXTURE/d2.lookup"; fail 'd2: a member of Domain Admins is not an administrator'; }
+# Winbind not answering for the groups at a logon: the last recorded set stays, nothing is added
+cp -p "$GRPFILE" "$FIXTURE/groups.before"
+touch "$WB/groups-transient"
+admit_ok 'WEXLAB\wexadm1'
+rm "$WB/groups-transient"
+cmp -s "$GRPFILE" "$FIXTURE/groups.before" || fail 'd2: groups changed while Winbind did not answer'
+# removed from Domain Admins: at the next logon the account is no administrator any more
+sed -i 's/^S-1-5-21-111-222-333-1120 .*/S-1-5-21-111-222-333-1120 S-1-5-21-111-222-333-513/' "$WB/groups"
+admit_ok 'WEXLAB\wexadm1'
+d2_lookup 0 'WEXLAB\wexadm1'
+grep -q 'admin=0' "$FIXTURE/d2.lookup" || fail 'd2: removal from Domain Admins kept the administrator'
+grep -qx "$KEY1 513 1300" "$GRPFILE" || fail "d2: another account's groups were lost"
+# the domain's Administrator (RID 500) is an ordinary domain account: no built-in Administrator treatment
+printf 'WEXLAB\\Administrator:x:20500:20513::/home/WEXLAB/administrator:/bin/bash\n' >> "$FIXTURE/d2.winbind"
+echo 'WEXLAB\Administrator S-1-5-21-111-222-333-500 SID_USER (1)' >> "$WB/users"
+echo 'S-1-5-21-111-222-333-500 S-1-5-21-111-222-333-513' >> "$WB/groups"
+admit_ok 'WEXLAB\Administrator'
+grep -q '^WEXLAB\\Administrator 20500 .* active domain 21 111 222 333 500$' "$D2MAP" || fail 'd2: the domain Administrator record'
+d2_lookup 0 'WEXLAB\Administrator'
+grep -q 'admin=0 .*sid=S-1-5-21-111-222-333-500$' "$FIXTURE/d2.lookup" || { cat "$FIXTURE/d2.lookup"; fail 'd2: the domain Administrator got built-in treatment'; }
+grep -q ' local 21 [0-9]* [0-9]* [0-9]* 500$' "$D2MAP" && fail 'd2: a local RID 500 record appeared'
+# a damaged groups file: no groups (no administrator through Domain Admins), never a failed lookup
+cp -p "$GRPFILE" "$FIXTURE/groups.good"
+sed -i 's/^\([0-9a-f]\{32\}\) 513$/\1 513 512 x/' "$GRPFILE"
+d2_lookup 0 'WEXLAB\wexadm1'
+grep -q 'admin=0' "$FIXTURE/d2.lookup" || fail 'd2: a damaged groups file made an administrator'
+cp -p "$FIXTURE/groups.good" "$GRPFILE"
 # sync keeps the domain record (not in /etc/passwd) and changes nothing
+G="$(d2_gen)"
 d2_sync
 [ "$(d2_gen)" = "$G" ] || { cat "$D2MAP"; fail 'd2: sync changed a map with a domain record'; }
 # refusals: each leaves the map as it was (fail closed)

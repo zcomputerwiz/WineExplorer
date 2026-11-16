@@ -24,7 +24,7 @@
 # Output: one line per stage with its result and minutes; logs in /var/tmp/wex-run/*.log (not /tmp: a tmpfs there is emptied when WSL stops the idle distribution).
 #
 # Only for wexbuild or a throwaway machine: the suites create and remove /etc/wineexplorer,
-# /usr/local/libexec/wineexplorer, /var/lib/wexsys-c2 and the users wexadm, wexstd, wexcar, wexgreeter.
+# /usr/local/libexec/wineexplorer, /var/lib/wexsys-c2 and the users wexadm, wexstd, wexcar, wexdom, wexdoma, wexgreeter.
 set -u
 # The whole script is one function, called at the end: bash reads it completely before running, so editing this
 # file during a run cannot change the run.
@@ -49,12 +49,14 @@ clean_fixture()
     pkill -f '/var/lib/wexsys-c2/bin/' 2>/dev/null
     pkill -f 'e1s6-lab.py' 2>/dev/null
     sleep 1
-    for u in wexadm wexstd wexcar wexgreeter; do pkill -u "$u" 2>/dev/null; done
+    for u in wexadm wexstd wexcar wexdom wexdoma wexgreeter; do pkill -u "$u" 2>/dev/null; done
     sleep 2
     rm -f /etc/dbus-1/system.d/org.wineexplorer.E1S6Lab.conf
     rm -rf /var/lib/wexsys-c2 /etc/wineexplorer /usr/local/libexec/wineexplorer
-    for u in wexadm wexstd wexcar; do id "$u" >/dev/null 2>&1 && userdel "$u"; rm -rf "/home/$u"; done
+    for u in wexadm wexstd wexcar wexdom wexdoma; do id "$u" >/dev/null 2>&1 && userdel "$u"; rm -rf "/home/$u"; done
     id wexgreeter >/dev/null 2>&1 && userdel -r wexgreeter 2>/dev/null
+    # session 0's account of the suite (its primary group is wexsysc2: it goes first)
+    if id wexs0c2 >/dev/null 2>&1; then pkill -9 -u wexs0c2 2>/dev/null; sleep 1; userdel wexs0c2 2>/dev/null; fi
     getent group wexsysc2 >/dev/null && groupdel wexsysc2
     rm -rf /run/user/1007 /run/user/1008 /run/user/1009
     # setup runs enable the account watcher units; the suites refuse a machine where they are active

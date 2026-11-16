@@ -99,6 +99,22 @@ Lab options (`WEX_ACCOUNTS_TEST` only): `--test-wbinfo PATH` (a fake Winbind) an
 admission and its ten refusals by status, sync with the controller away and back, a UID taken by a local account,
 a change of domain, and the parser with eleven kinds of damage plus 300 random single-field ones.
 
+**Domain groups (WO 2):** `domain-groups` beside the map, protected as the map is (root, the system group, 0640),
+written only by `admit` under the map lock, after the record:
+
+```text
+WEXGROUPS 1
+<incarnation key> <rid> [<rid>...]
+```
+
+one line per active domain record, the RIDs of the groups of the map's domain that Winbind gives for the account
+at that logon (`wbinfo --user-domgroups`; groups of other domains are left out). Winbind not answering keeps the
+last line and adds nothing; Winbind answering but the file not written fails the logon (an old line could keep a
+user in Domain Admins after removal). A line whose key is no longer an active domain record is dropped at the next
+write. The server (`accounts_own_domain`) puts these groups in the user's token; `lookup_account` and the server's
+`user_is_administrator` take Domain Admins (RID 512) as the administrator group. A missing or malformed file is no
+groups.
+
 ## Maintenance and lifecycle
 
 ```sh
