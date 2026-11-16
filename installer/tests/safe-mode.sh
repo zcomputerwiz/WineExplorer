@@ -370,15 +370,18 @@ open_menu() {
     local try
     qemu-img snapshot -d menu-try "$STATE/disk.qcow2" >/dev/null 2>&1
     qemu-img snapshot -c menu-try "$STATE/disk.qcow2" || fail "cannot snapshot the overlay before the menu"
-    for try in 1 2; do
+    for try in 1 2 3; do
         "${V[@]}" start "$TEST" "${START_ARGS[@]}" --paused >/dev/null || fail "QEMU did not start"
         if [ "$FIRMWARE" = bios ]; then
             "${V[@]}" hold "$TEST" shift 6 --cont >/dev/null 2>&1
         else
-            # 15 seconds once missed systemd-boot; 25 missed it on a loaded host (2026-11-16: four of six UEFI stages
-            # went straight to the desktop while other VMs ran), as OVMF reached the loader later. The key is still
-            # held when the menu shows on a quick start, which it ignores.
-            "${V[@]}" hold "$TEST" f8 40 --cont >/dev/null 2>&1
+            # systemd-boot (no timeout) shows the menu only when a key is waiting in OVMF's input buffer at the one
+            # moment it looks, and OVMF does not repeat a held key: a held F8 missed it whenever the host was busy
+            # (2026-11-16, chains running three VMs). Separate presses do better: on one disk, idle, held and tapped
+            # both showed the menu 4 of 4 times; with every CPU busy, held 0 of 4, tapped 2 of 4. Hence taps, for 40
+            # seconds (OVMF reaches the loader later on a busy host; the menu ignores the extra presses), and a third
+            # try. A persistent variable store with LoaderConfigTimeoutOneShot would take the race away.
+            "${V[@]}" hold "$TEST" f8 40 --cont --tap >/dev/null 2>&1
         fi
         if wait_text "Advanced Options" 30; then
             shot loader
@@ -410,7 +413,7 @@ open_menu() {
             [ "$(highlight_row)" = "$ROW_NORMALLY" ] || fail "the menu did not open on Start WineExplorer Normally"
             return 0
         fi
-        [ "$try" = 2 ] && fail "no Vintner Boot menu with the Advanced Options variant"
+        [ "$try" = 3 ] && fail "no Vintner Boot menu with the Advanced Options variant"
         shot no-loader-menu
         echo "  (Vintner Boot's menu did not show; starting again from the disk as it was)"
         "${V[@]}" stop "$TEST" >/dev/null 2>&1

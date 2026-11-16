@@ -174,12 +174,14 @@ def keys(name, combos, hold=80):
         # or text while Ctrl/Alt/Shift from this one is still held.
         time.sleep(max(0.05, hold / 1000 + 0.01))
 
-def hold(name, key, seconds, resume=False):
+def hold(name, key, seconds, resume=False, tap=False):
     # A held key: repeated key-down events with no key-up, as a keyboard's typematic repeat sends, then the release.
     # Vintner Boot's BIOS GRUB shows its menu while Shift is down (keystatus --shift), which send-key cannot do.
     # QEMU takes no input while the VM is paused, and GRUB checks Shift within 2 seconds of power-on, too soon for
     # a separate call after "start": RESUME runs a VM started with --paused and holds the key in the same session.
     # Other vmtest calls wait until the key is released.
+    # TAP: separate presses (down, then up) every 150 ms instead, for a loader that only looks for a key waiting in
+    # the firmware's input buffer when it starts (systemd-boot on OVMF, whose drivers do not repeat a held key).
     event = lambda down: [{"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": key}}}]
     try:
         with QMP(name) as q:
@@ -189,7 +191,12 @@ def hold(name, key, seconds, resume=False):
             try:
                 while time.time() < end:
                     q.call("input-send-event", events=event(True))
-                    time.sleep(0.1)
+                    if tap:
+                        time.sleep(0.05)
+                        q.call("input-send-event", events=event(False))
+                        time.sleep(0.1)
+                    else:
+                        time.sleep(0.1)
             finally:
                 q.call("input-send-event", events=event(False))
     except QMPError as e:
@@ -325,6 +332,7 @@ def main():
     s = sub.add_parser("key"); s.add_argument("name"); s.add_argument("keys", nargs="+")
     s = sub.add_parser("hold"); s.add_argument("name"); s.add_argument("key"); s.add_argument("seconds", type=float)
     s.add_argument("--cont", action="store_true", help="run a VM started with --paused first")
+    s.add_argument("--tap", action="store_true", help="separate presses every 150 ms instead of one held key")
     s = sub.add_parser("type"); s.add_argument("name"); s.add_argument("text")
     s = sub.add_parser("click"); s.add_argument("name"); s.add_argument("x", type=int); s.add_argument("y", type=int)
     s.add_argument("button", nargs="?", default="left")
@@ -358,7 +366,7 @@ def main():
     elif a.op == "key":
         keys(a.name, a.keys)
     elif a.op == "hold":
-        hold(a.name, a.key, a.seconds, a.cont)
+        hold(a.name, a.key, a.seconds, a.cont, a.tap)
     elif a.op == "type":
         type_text(a.name, a.text.rstrip("\r\n"))
     elif a.op == "click":
