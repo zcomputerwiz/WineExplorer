@@ -57,6 +57,12 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `dlls/shcore/main.c` (`IsOS`), `Makefile.in` (delay import of netapi32): `OS_DOMAINMEMBER` answers from
   `NetGetJoinInformation` (a domain join) instead of always TRUE. Chromium reads it as "the device is managed":
   Edge then skipped its modal first-run dialog (B10). Test in `dlls/shcore/tests/shcore.c`.
+- `dlls/user32/sysparams.c` (`CalculatePopupWindowPosition`, new; `user32.spec`, `include/winuser.h`:
+  `TPM_WORKAREA` and the prototype; Wine 4cfc7a2f): it was a stub. Aligned at the anchor, kept clear of the exclude
+  rectangle on the TPM_VERTICAL/TPM_HORIZONTAL axis when the anchor is in it (the other side, else the plain
+  alignment), then moved into the anchor's work area (anchor inside, or TPM_WORKAREA) or else its monitor; never
+  flipped without an exclude rectangle; invalid flags ERROR_INVALID_FLAGS. Measured on Windows 11. Copilot's
+  sign-in (OneAuth) delay-loads it (B27). Test `test_CalculatePopupWindowPosition` in `dlls/user32/tests/monitor.c`.
 - `server/fd.c` (`open_fd`, Wine cfa5d889, from the Office branch's 53e70173): CREATE_ALWAYS on a link to a file the
   process may not write replaces the link with a new file in its directory (unlink needs write access to the
   directory, which the kernel checks), as an existing file is overwritten on Windows; a read-only open still
@@ -3529,3 +3535,14 @@ keeps the core window topmost in compact overlay; TryConsolidateAsync a FIXME re
 `IAsyncOperation<boolean>`), `private.h`, `Makefile.in`. No conformance test (a view needs a core window); checked
 with the XamlProbe package (`tests/uwp/xaml/cx-probe`, its "view mode" line matches Windows). The Store Calculator asks
 IsViewModeSupported when it sets its mode; without it the view model is never made.
+
+2026-11-16 (UWP, Wine 41c7bf93): `dlls/windows.ui/window.c`: the thread that creates a CoreWindow is made per-monitor
+DPI aware first (`SetThreadDpiAwarenessContext`), as the thread and the window of a packaged application are on Windows
+(measured with the XamlProbe package: awareness 2). Wine's server only reparents windows of the same awareness
+(ERROR_INVALID_STATE_TRANSITION, 5023), so another window of the process could not be made a child of the CoreWindow, which
+a XAML host inside it needs. Checked with the XamlProbe ("core window DPI awareness" line: awareness 2 on both; Wine's
+window and thread contexts are not equal as Windows' are, which nothing depends on) and the Store Calculator.
+
+2026-11-16 (UWP, Wine f0f972f8): `dlls/windows.ui/dispatcher.c`: `GetIids` of the CoreDispatcher, its asynchronous action
+and the idle arguments (they returned E_NOTIMPL, which .NET Native turns into an exception when it wraps the object, as it
+does for the action `Dispatcher.RunAsync` returns). `tests/corewindow.c` passes on Wine x64 and x86.
