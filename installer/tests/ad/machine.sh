@@ -150,6 +150,7 @@ detach
 #              fixtures' password typed, the desktop waited for
 #   logon-bad  the same with a wrong password: the Logon Message has to come, and the dialog stays
 #   tile TEXT  the Welcome screen shows TEXT (the user's tile)
+#   consent    the User Account Control dialog is shown and answered with Continue (installer/tests/elevation.sh)
 # A screenshot of where a step stopped is kept in the test VM's folder.
 host_stuck() { "${V[@]}" shot "$TEST" "$STATE/host-$1.png" >/dev/null 2>&1 || true; echo "fail: $2 (screen $STATE/host-$1.png)"; }
 host_classic() {   # to the classic dialog from the Welcome screen (or already there, after a refused logon)
@@ -183,6 +184,10 @@ host_step() {   # NAME ARGS...: prints what goes into the done file (the last li
             "${V[@]}" key "$TEST" ret >/dev/null
             "${V[@]}" wait "$TEST" "Log On to Windows" --timeout 30 >/dev/null || { host_stuck afterrefusal "the classic dialog closed after the Logon Message"; return 0; }
             echo ok ;;
+        consent)   # the User Account Control dialog of an elevation request: Continue
+            "${V[@]}" wait "$TEST" "Account Control" --timeout 90 >/dev/null || { host_stuck consent "no User Account Control dialog"; return 0; }
+            "${V[@]}" shot "$TEST" "$STATE/host-consent.png" >/dev/null 2>&1 || true
+            if "${V[@]}" clicktext "$TEST" Continue --timeout 20 >/dev/null; then echo ok; else host_stuck consent "no Continue button"; fi ;;
         tile)
             "${V[@]}" wait "$TEST" "To begin" --timeout 300 >/dev/null || { host_stuck welcome "no Welcome screen"; return 0; }
             "${V[@]}" shot "$TEST" "$STATE/host-tile.png" >/dev/null 2>&1 || true

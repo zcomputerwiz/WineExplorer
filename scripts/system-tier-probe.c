@@ -51,7 +51,8 @@
  *   probe svcstop NAME            opens the service for SERVICE_STOP and stops it; prints stop=0 or stop=error<n>
  *   probe gpset ID STATE N        sets a policy of the editor (gpedit.dll, GpEdit_SetPolicyW) as the editor saves it;
  *                                 prints gpset=0 or gpset=<win32 error>
- *   probe svcctl NAME CODE       sends the user-defined control code CODE (128 to 255) to the service; prints svcctl=0
+ *   probe runas FILE PARAMS       ShellExecuteEx "runas" FILE with PARAMS, waits; prints runas=0 or runas=error<n>
+ *   probe svcctl NAME CODE      sends the user-defined control code CODE (128 to 255) to the service; prints svcctl=0
  *                                 or svcctl=error<n>
  *   probe pipeserve PIPE          serves \\.\pipe\PIPE for one client (message mode, 30 s at most); prints
  *                                 clientsession=<GetNamedPipeClientSessionId> and message=<what the client wrote>
@@ -62,6 +63,7 @@
 #include <windows.h>
 #include <winternl.h>
 #include <sddl.h>
+#include <shellapi.h>
 #include <stdio.h>
 
 static void print_value( const char *label, HKEY key, const WCHAR *name )
@@ -328,6 +330,30 @@ int __cdecl wmain( int argc, WCHAR **argv )
             return 1;
         }
         printf( "gpset=%lu\n", set_policy( argv[2], wcstoul( argv[3], NULL, 10 ), wcstoul( argv[4], NULL, 10 ) ) );
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"runas" ))
+    {
+        /* runas FILE PARAMETERS: ShellExecuteEx with the verb runas, as a program asks for elevation; waits for the
+         * program. Prints runas=0 (the program ran and ended) or runas=error<n> (a refusal is 1223, cancelled).
+         * shell32 is loaded by name so that the probe's link line stays as it is. */
+        BOOL (WINAPI *execute)( SHELLEXECUTEINFOW * );
+        HMODULE shell = LoadLibraryW( L"shell32.dll" );
+        SHELLEXECUTEINFOW info = { sizeof(info) };
+
+        execute = shell ? (void *)GetProcAddress( shell, "ShellExecuteExW" ) : NULL;
+        info.fMask = SEE_MASK_NOCLOSEPROCESS;
+        info.lpVerb = L"runas";
+        info.lpFile = argv[2];
+        info.lpParameters = argv[3];
+        info.nShow = SW_HIDE;
+        if (!execute || !execute( &info ))
+        {
+            printf( "runas=error%lu\n", GetLastError() );
+            return 1;
+        }
+        if (info.hProcess) WaitForSingleObject( info.hProcess, 180000 );
+        printf( "runas=0\n" );
         return 0;
     }
     if (argc == 4 && !lstrcmpW( argv[1], L"svcctl" ))
