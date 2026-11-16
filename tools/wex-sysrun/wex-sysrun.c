@@ -219,6 +219,21 @@ static int safe_value(const char *v, const char *extra)
     return 1;
 }
 
+/* The account name of the invoking user: a plain safe name, or "DOMAIN\user" of a domain account (Winbind with
+ * winbind use default domain = no, docs/DOMAIN_LOGON.md): exactly one backslash, a safe flat name of 1 to 15
+ * characters before it and a safe user name of 1 to 63 after it. Nothing else is let through. */
+static int safe_account_name(const char *v)
+{
+    const char *bs;
+    char flat[16];
+
+    if (!v || !(bs = strchr(v, '\\'))) return safe_value(v, NULL);
+    if (bs == v || bs - v > 15 || strchr(bs + 1, '\\') || strlen(bs + 1) > 63) return 0;
+    memcpy(flat, v, bs - v);
+    flat[bs - v] = 0;
+    return safe_value(flat, NULL) && safe_value(bs + 1, NULL);
+}
+
 /* Is the process at the other end of the socket a server that this launcher started? The kernel gives the pid
  * and uid at listen time; the process must have the user's own ids and the system group as its saved group (its
  * effective group is the user's, or the system group while it is raised). Only a program run through a setgid
@@ -362,7 +377,7 @@ int main(int argc, char **argv)
     for (i = 0; i < ngroups; i++)
         if (groups[i] == gr->gr_gid) refuse("the invoking user is a member of the system group", cfg.group);
 
-    if (!(pw = getpwuid(uid)) || pw->pw_dir[0] != '/' || !safe_value(pw->pw_name, NULL) ||
+    if (!(pw = getpwuid(uid)) || pw->pw_dir[0] != '/' || !safe_account_name(pw->pw_name) ||
         !safe_value(pw->pw_dir, "/"))
         refuse("cannot use the passwd entry of the invoking user", NULL);
 

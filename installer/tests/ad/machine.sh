@@ -7,7 +7,9 @@
 # packaged with WEX_SESSION0=1) with a second card on the lab network, and runs machine-guest.sh in it: the
 # guest installs Samba, joins the lab domain of dc-create.sh, and checks that Windows programs are told the
 # join and read the domain's registry policy. The controller has to be running, with the test object of
-# gpo-create.sh.
+# gpo-create.sh. With the fixtures' domain user ($WEX_AD_LAB/wexuser1_password.txt, gpo-lab.sh fixtures) and an
+# image with the admission step (docs/DOMAIN_LOGON.md, WO 3), WEXLAB\wexuser1 then logs on through the classic
+# dialog, typed here, and the guest checks the session, the record, the token, the profile and the user policy (WO 4).
 #
 #   machine.sh SOURCE_VM [TEST_VM]        (default TEST_VM: SOURCE_VM-adtest)
 #
@@ -90,12 +92,35 @@ mount "$rootdev" "$MNT" || fail "cannot mount the overlay"
 [ -f "$MNT/usr/local/bin/wex-gpupdate.sh" ] || fail "the source has no wex-gpupdate.sh (an image older than Group Policy step 4)"
 printf 'root:%s\n' "$(cat "$PWFILE")" | chroot "$MNT" chpasswd || fail "cannot set the root password"
 install -m 0600 "$LAB/admin_password.txt" "$MNT/root/adminpw"
+# the domain user of the fixtures (gpo-lab.sh fixtures): the guest then has a domain user log on (WO 4)
+DOMAIN_LOGON=0
+if [ -s "$LAB/wexuser1_password.txt" ]; then
+    install -m 0600 "$LAB/wexuser1_password.txt" "$MNT/root/wexuser1pw"
+    DOMAIN_LOGON=1
+fi
 install -m 0700 "$HERE/machine-guest.sh" "$MNT/root/ad-guest.sh"
 # WEX_LAB_TREE_GPUPDATE=1: this tree's wex-gpupdate.sh in place of the image's (a script change tested without a
 # new image; docs/GPO_LAB.md)
 if [ "${WEX_LAB_TREE_GPUPDATE:-0}" = 1 ]; then
     install -m 0755 "$REPO/installer/scripts/wex-gpupdate.sh" "$MNT/usr/local/bin/wex-gpupdate.sh"
     echo "using this tree's wex-gpupdate.sh"
+fi
+# WEX_LAB_TREE_TOOLS=1: this tree's wex-sysrun and wex-accounts (built as installer/package-wine.sh builds them) in
+# place of the image's, so that a change to either is tested without a new image
+if [ "${WEX_LAB_TREE_TOOLS:-0}" = 1 ]; then
+    TOOLS=$(mktemp -d)
+    cc -O2 -Wall -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+        -o "$TOOLS/wex-sysrun" "$REPO/tools/wex-sysrun/wex-sysrun.c" || fail "cannot build wex-sysrun"
+    cc -O2 -Wall -Wextra -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+        -o "$TOOLS/wex-accounts" "$REPO/tools/wex-accounts/wex-accounts.c" || fail "cannot build wex-accounts"
+    LIBEXEC="$MNT/usr/local/libexec/wineexplorer"
+    [ -d "$LIBEXEC" ] || fail "the image has no $LIBEXEC"
+    install -m 0755 "$TOOLS/wex-accounts" "$LIBEXEC/wex-accounts"
+    install -m 0755 "$TOOLS/wex-sysrun" "$LIBEXEC/wex-sysrun"
+    chroot "$MNT" chown root:wexsys /usr/local/libexec/wineexplorer/wex-sysrun || fail "chown wex-sysrun"
+    chmod 2755 "$LIBEXEC/wex-sysrun"
+    rm -rf "$TOOLS"
+    echo "using this tree's wex-sysrun and wex-accounts"
 fi
 detach
 
@@ -104,12 +129,37 @@ detach
 
 "${V[@]}" sh "$TEST" root "$PWFILE" "rm -f /root/ad.out; (bash /root/ad-guest.sh > /root/ad.out 2>&1 &)" --timeout 30 >/dev/null
 
-# the guest installs packages: at most 15 minutes
+# The domain user's logon (docs/DOMAIN_LOGON.md, WO 4): once the guest says AD-GUEST-LOGON-READY, the Welcome
+# screen is up without automatic logon; Ctrl+Alt+Delete twice gives the classic dialog (as installer/tests/safe-mode.sh),
+# WEXLAB\wexuser1 is typed with the fixtures' password, and the guest is told once the desktop is there.
+domain_logon() {
+    # a screenshot of where a step stopped, kept in the test VM's folder
+    stuck() { echo "note domain_logon_host: $1 (screen: $STATE/logon-$2.png)"; "${V[@]}" shot "$TEST" "$STATE/logon-$2.png" >/dev/null 2>&1 || true; return 1; }
+    "${V[@]}" wait "$TEST" "To begin" --timeout 300 >/dev/null || { stuck "no Welcome screen" welcome; return 1; }
+    "${V[@]}" key "$TEST" ctrl-alt-delete >/dev/null; sleep 2
+    "${V[@]}" key "$TEST" ctrl-alt-delete >/dev/null
+    "${V[@]}" wait "$TEST" "Log On to Windows" --timeout 30 >/dev/null || { stuck "no classic dialog" classic; return 1; }
+    "${V[@]}" key "$TEST" alt-u >/dev/null
+    "${V[@]}" type "$TEST" 'WEXLAB\wexuser1'
+    "${V[@]}" key "$TEST" alt-p delete >/dev/null
+    "${V[@]}" type "$TEST" "$(cat "$LAB/wexuser1_password.txt")"
+    "${V[@]}" key "$TEST" ret >/dev/null
+    "${V[@]}" wait "$TEST" "My Documents" --timeout 300 >/dev/null || { stuck "no desktop after the logon" desktop; return 1; }
+    "${V[@]}" sh "$TEST" root "$PWFILE" "touch /root/logon-done" --timeout 30 >/dev/null
+}
+
+# the guest installs packages: at most 15 minutes, 25 with the domain logon
 START=$(date +%s)
+LIMIT=$(( DOMAIN_LOGON ? 1500 : 900 ))
 done_seen=0
+logon_tried=0
 while :; do
     sleep 15
-    if [ $(( $(date +%s) - START )) -ge 900 ]; then break; fi
+    if [ $(( $(date +%s) - START )) -ge "$LIMIT" ]; then break; fi
+    if [ "$DOMAIN_LOGON" = 1 ] && [ "$logon_tried" = 0 ]; then
+        READY=$("${V[@]}" sh "$TEST" root "$PWFILE" "grep -c AD-GUEST-LOGON-READY /root/ad.out 2>/dev/null" --timeout 30 2>/dev/null) || true
+        if [ "$READY" = 1 ]; then logon_tried=1; domain_logon || true; fi
+    fi
     COUNT=$("${V[@]}" sh "$TEST" root "$PWFILE" "grep -c AD-GUEST-DONE /root/ad.out 2>/dev/null" --timeout 30 2>/dev/null) || true
     if [ "$COUNT" = 1 ]; then done_seen=1; break; fi
 done

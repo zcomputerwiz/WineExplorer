@@ -204,21 +204,27 @@ else
     fi
 fi
 
-# the users of the accounts map: name in column 1, "active" in column 4, the SID's last four parts in 6 to 9
+# The users of the accounts map: name in column 1, "active" in column 4, the SID's last four parts after the
+# "21" (columns 6 to 9 of a version 1 map, where "21" is column 5; a version 2 map has local|domain in column 5, so they are one further on;
+# only its domain records are users of the domain, whose name is the Winbind name DOMAIN\user, docs/DOMAIN_LOGON.md).
 [ -r "$MAP" ] || exit 0
-awk '$4 == "active" { print $1, "S-1-5-21-" $6 "-" $7 "-" $8 "-" $9 }' "$MAP" | while read -r name sid; do
+awk 'NR == 1 { v = $2; next }
+     $4 == "active" && (v != 2 || $5 == "domain") { o = (v == 2) ? 1 : 0; print $1, "S-1-5-21-" $(6 + o) "-" $(7 + o) "-" $(8 + o) "-" $(9 + o) }' \
+    "$MAP" | while read -r name sid; do
     # only domain users have policy objects; a local account is not known to the domain ("net ads gpo list"
     # does not fail for an unknown name, so Winbind is asked)
     wbinfo --name-to-sid "$name" 2>/dev/null | grep -q 'SID_USER' || continue
-    gpo_list "$name" USER > "$LISTS/user-$name.list"
-    win_order "$LISTS/user-$name.list" "$name"
-    mapfile -t USER_FILES < <(pol_files "$LISTS/user-$name.list" USER)
+    # the directory knows the account by its plain name (sAMAccountName)
+    acct=${name##*\\}
+    gpo_list "$acct" USER > "$LISTS/user-$acct.list"
+    win_order "$LISTS/user-$acct.list" "$acct"
+    mapfile -t USER_FILES < <(pol_files "$LISTS/user-$acct.list" USER)
     if [ "$PRINT" = 1 ]; then
-        sed "s/^/object user $name /" "$LISTS/user-$name.list"
-        for f in "${USER_FILES[@]}"; do echo "user $name $f"; done
+        sed "s/^/object user $acct /" "$LISTS/user-$acct.list"
+        for f in "${USER_FILES[@]}"; do echo "user $acct $f"; done
     else
-        apply "/user:$sid" "user-$name" "${USER_FILES[@]}"
-        record "/user:$sid" "$LISTS/user-$name.list"
+        apply "/user:$sid" "user-$acct" "${USER_FILES[@]}"
+        record "/user:$sid" "$LISTS/user-$acct.list"
     fi
 done
 exit 0

@@ -66,7 +66,25 @@ and a disk installed from an ISO packaged with `WEX_SESSION0=1`. Its guest joins
 - `user_gpupdate_runs_a_refresh`: the installed user's `gpupdate` starts `wex-gpupdate.service` through
   `wex-gpupdate.path` and reports the refresh (step 7).
 
+With the lab's domain user (`/var/tmp/wex-ad-lab/wexuser1_password.txt` in the distribution that runs `machine`:
+copy it there through `/mnt/wsl`, never through D:) and an image with the admission step (domain logon WO 3), the
+host then logs `WEXLAB\wexuser1` on through the greeter (the guest turns off the automatic logon in
+`/etc/lightdm/lightdm.conf` and in `lightdm.conf.d`, restarts LightDM and says `AD-GUEST-LOGON-READY`; the host
+presses Ctrl+Alt+Delete twice, types the name into the classic dialog and waits for the desktop; the guest
+deletes the password again at the end) and the guest checks, by `docs/DOMAIN_LOGON.md`:
+
+- `domain_user_resolves`, `admission_step_installed`: Winbind gives `WEXLAB\wexuser1` a UID of 20000 or more and
+  `/bin/bash` (the join sets `template shell`), and the PAM line is in `/etc/pam.d/lightdm`;
+- `domain_logon`: the session of `WEXLAB\wexuser1`; `domain_record_admitted`, `domain_groups_recorded`: an
+  active `domain` record with the domain RID and Domain Users (513) in `domain-groups`;
+- `domain_token_and_name`: `whoami /user` gives `WEXLAB\wexuser1` and the domain SID;
+  `domain_environment`: `USERDOMAIN=WEXLAB`, `USERPROFILE=C:\users\wexuser1`; `domain_profile_folder`;
+- `domain_user_policy_applied`, `gpresult_user_lists_domain_object`: `HKCU\Software\Policies\WexLab UserLimit` is 3
+  and `gpresult /scope user` lists "WexLab Domain".
+
 On an image without steps 5 to 7 (no `wex-gpupdate.path`) these are skipped with a note.
+`WEX_LAB_TREE_TOOLS=1` builds this tree's `wex-sysrun` and `wex-accounts` into the overlay, as the package builds
+them.
 `WEX_LAB_TREE_GPUPDATE=1` puts this tree's `wex-gpupdate.sh` into the overlay in place of the image's, so a
 change to the script is tested without a new image.
 
@@ -99,6 +117,15 @@ installed-machine disks and ISOs are not there either; an image is the next thin
   "Default Domain Policy"). Windows applies one container's links the other way round (MS-GPOL; GROUP_POLICY.md,
   "The order of several links on one container"); since 2026-11-15 `wex-gpupdate.sh` orders them as Windows
   does, and `parse` checks that "WexLab Domain" (link order 1) comes last.
+- `machine` with the domain user's logon passed on 2026-11-16 with all 24 checks, on a disk installed from an ISO of
+  master b91c3631 (domain logon WO 1 to 3) and this tree's launcher, `wex-accounts` and `wex-gpupdate.sh`. Three
+  findings on the way: the launcher (`wex-sysrun`) refused the passwd name `WEXLAB\wexuser1` (a backslash), so the
+  user's server started without the system role and the token was the local fallback; `wex-gpupdate.sh` read a
+  version 2 map with version 1 columns and gave Samba the name with the domain; and Samba lists the user's own SID
+  among the user's groups. The automatic logon of the installed user is set in two places
+  (`/etc/lightdm/lightdm.conf` and `lightdm.conf.d/60-wineexplorer-autologin.conf`).
+- `scripts/lab/wexgpo-iso.sh` keeps its clone and Wine build in `/root/WE-iso` between runs (the first run takes
+  about an hour, later ones less: only what changed is built); `WEX_ISO_FRESH=1` starts from nothing.
 - `machine` passed on 2026-11-15 with all 14 checks, on a disk installed on wexgpo from an ISO of
   `claude/group-policy` e1c34ecb (`scripts/lab/wexgpo-iso.sh`: build, package with `WEX_SESSION0=1`, ISO,
   unattended install; about an hour): the join, the domain's registry policy, the OU's object after the

@@ -427,6 +427,9 @@ static int record_domain_groups( int dir, const struct account_map *map, gid_t g
         if (!*line) continue;
         if (!parse_sid( line, sid, &rid )) return 0;   /* an answer that does not parse is not taken */
         if (memcmp( sid, map->domain, sizeof(sid) ) || rid < 500) continue;   /* other domains: not recorded */
+        /* Samba's answer includes the user's own SID (an identity of its own, as a group id); a token has the user
+         * once, as the user */
+        if (rid == r->rid) continue;
         for (j = 0; j < count; j++) if (rids[j] == rid) break;
         if (j < count) continue;
         if (count == GROUPS_MAX) return 0;
