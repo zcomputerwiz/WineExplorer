@@ -236,6 +236,7 @@ void desktop_view_refresh(void)
         for (i = 0; i < n; i++)
         {
             if (!shellfolder_name(csidls[i], name, ARRAY_SIZE(name))) continue;
+            if (csidls[i] == CSIDL_NETWORK && shell_restricted(L"NoNetHood")) continue;   /* Group Policy */
             add_desktop_item(DESKTOP_ITEM_NAMESPACE, name, shellfolder_clsid(csidls[i]),
                              shellfolder_icon(csidls[i], csidls[i] == CSIDL_BITBUCKET ? L"empty" : NULL, 32), col, row);
             g_desktop_view.items[g_desktop_view.item_count - 1]->csidl = csidls[i];
@@ -1050,6 +1051,17 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         if (wparam == 1) update_recycle_bin_icon();
         return 0;
 
+    case WM_WEX_POLICY:
+    {
+        /* A policy refresh has been applied (RegisterGPNotification, see restrictions.c): the desktop is built again
+         * with its restrictions, and the taskbar reads its own. */
+        HWND tray = FindWindowW(L"Shell_TrayWnd", NULL);
+
+        desktop_view_refresh();
+        if (tray) PostMessageW(tray, WM_SETTINGCHANGE, 0, 0);
+        return 0;
+    }
+
     case WM_LBUTTONUP:
     {
         ReleaseCapture();
@@ -1288,6 +1300,7 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
     if (g_desktop_view.hwnd)
     {
         SetPropW(g_desktop_view.hwnd, WEX_WAYLAND_ROLE_PROP, (HANDLE)WEX_WAYLAND_DESKTOP);
+        shell_restrictions_watch(g_desktop_view.hwnd, WM_WEX_POLICY);
         SetWindowPos(g_desktop_view.hwnd, HWND_BOTTOM, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }

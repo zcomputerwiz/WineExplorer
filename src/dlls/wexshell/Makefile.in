@@ -1,7 +1,7 @@
 MODULE    = wexshell.dll
 PARENTSRC = ../wexsearch
 IMPORTS   = msgina themeui wexres rpcrt4 user32 gdi32 advapi32 win32u
-DELAYIMPORTS = netshell wexhost dwmapi msimg32 comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm iphlpapi ws2_32 version gdiplus
+DELAYIMPORTS = netshell wexhost userenv dwmapi msimg32 comctl32 shell32 oleaut32 ole32 shlwapi uxtheme winmm iphlpapi ws2_32 version gdiplus
 
 # the XP name, which the taskbar's group buttons and Task Manager show
 VER_FILEDESCRIPTION_STR = "Windows Explorer"

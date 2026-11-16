@@ -515,7 +515,10 @@ if [ "${SESSION0_ENABLE:-0}" = "1" ] && id "$S0_ACCOUNT" >/dev/null 2>&1; then
     if command -v setfacl >/dev/null 2>&1; then ACL_EXEC=(-exec setfacl -b '{}' ';'); fi
     find "$GP_DIR" -type d -exec chown -h "$S0_ACCOUNT":"$MACHINE_GROUP" '{}' ';' -exec chmod 2755 '{}' ';' "${ACL_EXEC[@]}"
     # now no directory below can change; what is not a file or a directory goes, the files are set
-    find "$GP_DIR" -mindepth 1 ! -type d ! -type f -print -delete | sed 's/^/  removed (not a file or directory): /'
+    # (a file with more than one name goes too: chown and chmod act on the inode, so a second name planted elsewhere
+    # would hand that file to session 0's account and make it readable by all)
+    find "$GP_DIR" -mindepth 1 '(' '(' ! -type d ! -type f ')' -o '(' -type f -links +1 ')' ')' -print -delete |
+        sed 's/^/  removed (not a file or directory, or a file with more than one name): /'
     find "$GP_DIR" -type f -exec chown -h "$S0_ACCOUNT":"$MACHINE_GROUP" '{}' ';' -exec chmod 0644 '{}' ';' "${ACL_EXEC[@]}"
     # the spool: where the system group leaves requests; session 0's account reads and removes them
     install -d -m 2770 -o "$S0_ACCOUNT" -g "$MACHINE_GROUP" -- "$GP_DIR/Spool"

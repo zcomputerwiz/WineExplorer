@@ -56,6 +56,14 @@ git -C "$R" log --oneline -1
 # package-wine.sh takes only a build of the clone's own wine (it refuses another checkout's)
 step build
 cd "$R" || exit 1
+# The submodule update above puts the stock modules back as real folders; a backup that an earlier run made of the
+# same module would make assemble refuse ("Stock backup already exists"). A backup whose module is a real folder
+# again is stale: it goes. (A module that is still the replacement's link keeps its backup, the only copy.)
+for b in build/assembly-stock/*/*/*; do
+    [ -e "$b" ] || continue
+    key=${b#*/*/*/}
+    if [ -d "wine/$key" ] && [ ! -L "wine/$key" ]; then rm -rf "$b"; fi
+done
 timeout 900 bash scripts/assemble.sh > $L-assemble.log 2>&1 || { echo "ASSEMBLE FAILED"; tail -5 $L-assemble.log; exit 1; }
 mkdir -p "$B" && cd "$B" || exit 1
 if [ ! -f "$B/Makefile" ]; then

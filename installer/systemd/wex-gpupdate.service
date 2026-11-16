@@ -11,6 +11,9 @@ Documentation=https://github.com/zcomputerwiz/WineExplorer/blob/master/docs/GROU
 Requires=wex-session0-services.service
 After=wex-session0-services.service winbind.service network-online.target
 Wants=network-online.target
+# A start limit that disables the unit would let any user stop everyone's refreshes for good (a looped gpupdate).
+# Runs are serialised by the script's lock, and the costly fetch from the domain is shared by runs that follow closely.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot

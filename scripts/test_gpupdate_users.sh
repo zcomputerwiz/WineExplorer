@@ -16,7 +16,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 GUID='{AAAAAAAA-0000-0000-0000-000000000001}'
 POL="$FX/cache/gpo_cache/AD.WEXLAB.EXAMPLE/POLICIES/$GUID/USER"   # Samba's cache names the folder in capitals
-mkdir -p "$POL" "$FX/bin"
+mkdir -p "$POL" "$FX/bin"; touch "$FX/keytab"
 printf 'PReg' > "$POL/Registry.pol"
 
 cat > "$FX/bin/testparm" <<EOF
@@ -35,8 +35,8 @@ cat > "$FX/bin/net" <<EOF
 #!/bin/sh
 # net ads testjoin | net ads gpo list NAME -P | net ads search ...
 case "\$2" in
-    testjoin) [ -e "$FX/unjoined" ] && exit 1; exit 0 ;;
-    gpo) echo "gpo list \$4" >> "$FX/net.log"
+    testjoin) [ -e "$FX/unjoined" ] && exit 1; [ -e "$FX/offline" ] && exit 1; exit 0 ;;
+    gpo) [ -e "$FX/offline" ] && exit 1; echo "gpo list \$4" >> "$FX/net.log"
          case "\$4" in
              *\\$) printf 'name:\t%s\ndisplayname:\tWexLab Domain\nversion:\t1\nfilesyspath:\t/x\nlink_type:\t0\nmachine_extensions:\t[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}]\n' '$GUID' >&2 ;;
              wexuser1|bob) printf 'name:\t%s\ndisplayname:\tWexLab Domain\nversion:\t1\nfilesyspath:\t/x\nlink_type:\t0\nuser_extensions:\t[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}]\n' '$GUID' >&2 ;;
@@ -78,7 +78,7 @@ run_gpupdate()
     : > "$FX/wexpolicy.log"; : > "$FX/net.log"; : > "$FX/detail.log"; : > "$FX/ext.log"
     # session 0's account is unprivileged, as in use: the fake loader runs as it, so its logs are open to it
     chmod 666 "$FX/wexpolicy.log" "$FX/detail.log" "$FX/ext.log"
-    PATH="$FX/bin:$PATH" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" \
+    PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" \
         bash "$SCRIPT" > "$FX/out.log" 2>&1 ||
         { cat "$FX/out.log"; fail "wex-gpupdate.sh failed on $1"; }
 }
@@ -195,3 +195,32 @@ grep -qx 'clear /machine' "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log"; fail
 ! grep -q '^security' "$FX/wexpolicy.log" || fail 'an unreadable template was applied'
 rm -f "$LG/Machine/Registry.pol" "$SECDIR/GptTmpl.inf"
 echo 'OK: wex-gpupdate.sh local policy (not joined, joined and in order, a template, nothing to do, removed, a link, an unreadable file)'
+# ---- the domain out of reach (a joined machine whose controller does not answer): what was applied is not cleared
+rm -f "$FX/unjoined" "$LG/Archive/"*.pol "$LG/Machine/Registry.pol" "$LG/User/Registry.pol" "$SECDIR/GptTmpl.inf"
+rm -rf "$FX/state"
+run_gpupdate "$FX/map3"                       # the domain answers: its lists are kept
+[ -f "$FX/state/machine.list" ] && [ -f "$FX/state/user-S-1-5-21-111-222-333-1104.list" ] || { ls "$FX/state"; fail 'offline: the lists were not kept'; }
+touch "$FX/offline"
+printf 'LOCALM' > "$LG/Machine/Registry.pol"; : > "$LG/Archive/Machine.pol"; : > "$LG/Archive/User-S-1-5-21-111-222-333-1104.pol"
+run_gpupdate "$FX/map3"
+detail 'apply /machine [LOCALM] [DOMAINM]' 'offline: the last known list is used for the computer'
+detail 'apply /user:S-1-5-21-111-222-333-1104 [DOMAINU]' 'offline: the last known list is used for the domain user'
+! grep -q '^clear' "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log"; fail 'offline: policy was cleared because the domain did not answer'; }
+[ ! -s "$FX/net.log" ] || fail 'offline: Samba was asked for lists although the join test failed'
+grep -q 'last time it answered' "$FX/out.log" || { cat "$FX/out.log"; fail 'offline: the use of the old list was not said'; }
+# no list known (the controller was never reached) and something applied before: nothing is touched
+rm -rf "$FX/state"
+run_gpupdate "$FX/map3"
+[ -z "$(grep -v '^refreshed' "$FX/wexpolicy.log" | grep -v '^security\|^apply /user:S-1-5-21-11-22-33\|^record /user:S-1-5-21-11-22-33')" ] || { cat "$FX/wexpolicy.log"; fail 'offline: with no known list the applied policy was touched'; }
+grep -q 'what was applied stays' "$FX/out.log" || { cat "$FX/out.log"; fail 'offline: the kept policy was not said'; }
+rm -f "$FX/offline" "$LG/Machine/Registry.pol" "$LG/Archive/"*.pol
+# a failed writer is not lost: the run says so and ends with 1
+cp "$FX/wine" "$FX/wine.ok"
+printf '#!/bin/sh\nexit 3\n' > "$FX/wine"; chmod 0755 "$FX/wine"
+printf 'LOCALM' > "$LG/Machine/Registry.pol"
+if PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_ACCOUNTS_MAP="$FX/map3" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" bash "$SCRIPT" > "$FX/out.log" 2>&1; then
+    cat "$FX/out.log"; fail 'a failed wexpolicy did not make the run fail'
+fi
+grep -q 'wexpolicy apply /machine failed' "$FX/out.log" || { cat "$FX/out.log"; fail 'a failed wexpolicy was not said'; }
+mv "$FX/wine.ok" "$FX/wine"; rm -f "$LG/Machine/Registry.pol"
+echo 'OK: wex-gpupdate.sh with the domain out of reach (the last list, nothing cleared, nothing touched without one) and a failing writer'
