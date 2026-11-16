@@ -646,9 +646,12 @@ on the desktop, none in the Start menu) are carried out as well, which makes thi
 the folder windows and to the log off, which this shell does not make from these policies yet.
 
 A user's policy is applied after the shell is up (the session script runs `gpupdate /target:user` five seconds after
-the shell starts), so the shell has to notice it. A message does not do it: the shell's desktop is a desktop of its own
-(`explorer.exe /desktop=NAME /shell`), and a broadcast from `gpupdate.exe` stays on the default desktop. The shell
-therefore looks at the restrictions on the desktop view's existing three-second timer (`shell_restrictions_mask`, one
-bit per restriction it carries out, user and machine) and, when the set has changed, builds the desktop again and tells
-the taskbar (`WM_SETTINGCHANGE`), so a restriction, or the removal of one, shows within a few seconds without a
+the shell starts), so the shell has to learn that a refresh has applied. It does not poll, and a broadcast does not do
+it (the shell's desktop is a desktop of its own, `explorer.exe /desktop=NAME /shell`, and a message from another
+process, or from session 0, which is another wineserver, does not reach it). The prior art is "Step 3: refresh
+signalling" above: `userenv`'s `RegisterGPNotification`, the call Windows programs use for this, signalled through the
+serial that the writer leaves in the registry (a registry change notification reaches every session through session
+0). The shell registers two events, for the computer's and for the user's policy (`shell_restrictions_watch`,
+`restrictions.c`), and a thread-pool wait posts `WM_WEX_POLICY` to the desktop view, which builds the desktop again and
+tells the taskbar (`WM_SETTINGCHANGE`). A restriction, or the removal of one, shows when the refresh ends, with no
 logoff. The Start menus read the values each time they are opened.

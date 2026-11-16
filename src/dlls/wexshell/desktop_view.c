@@ -1048,25 +1048,19 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     }
 
     case WM_TIMER:
-        if (wparam == 1)
-        {
-            static DWORD last_restrictions = ~0u;
-            DWORD now = shell_restrictions_mask();
-
-            update_recycle_bin_icon();
-            /* A policy refresh runs after the shell is up and writes the registry; the desktop is not on the desktop
-             * of the program that runs it, so a message would not reach it. The restrictions are looked at here: when
-             * they have changed, the desktop and the taskbar are built again. */
-            if (last_restrictions != ~0u && now != last_restrictions)
-            {
-                HWND tray = FindWindowW(L"Shell_TrayWnd", NULL);
-
-                desktop_view_refresh();
-                if (tray) PostMessageW(tray, WM_SETTINGCHANGE, 0, 0);
-            }
-            last_restrictions = now;
-        }
+        if (wparam == 1) update_recycle_bin_icon();
         return 0;
+
+    case WM_WEX_POLICY:
+    {
+        /* A policy refresh has been applied (RegisterGPNotification, see restrictions.c): the desktop is built again
+         * with its restrictions, and the taskbar reads its own. */
+        HWND tray = FindWindowW(L"Shell_TrayWnd", NULL);
+
+        desktop_view_refresh();
+        if (tray) PostMessageW(tray, WM_SETTINGCHANGE, 0, 0);
+        return 0;
+    }
 
     case WM_LBUTTONUP:
     {
@@ -1306,6 +1300,7 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
     if (g_desktop_view.hwnd)
     {
         SetPropW(g_desktop_view.hwnd, WEX_WAYLAND_ROLE_PROP, (HANDLE)WEX_WAYLAND_DESKTOP);
+        shell_restrictions_watch(g_desktop_view.hwnd, WM_WEX_POLICY);
         SetWindowPos(g_desktop_view.hwnd, HWND_BOTTOM, 0, 0, 0, 0,
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
