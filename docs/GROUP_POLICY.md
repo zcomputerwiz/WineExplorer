@@ -455,10 +455,12 @@ a joined machine keeps it beneath the domain's (Windows applies Local, then Site
    `/areas` other than `SECURITYPOLICY` are reported not applicable. Only the system group may write the store
    (an elevated administrator, as for machine policy); a standard user gets "Task is not completed". Limits: the
    template replaces the previous one (earlier values stay applied, as security settings stay on Windows, but are
-   no longer in the file); a directory that one elevated administrator creates is theirs, so a second
-   administrator cannot write into it (to be settled with the editor of 2, perhaps by having session 0's own
-   account write the files); and `net accounts` and a template still write the same lockout values, the last
-   writer winning.
+   no longer in the file); and `net accounts` and a template still write the same lockout values, the last writer
+   winning. (Checked on the installed image, 2026-11-16: the machine root has the default ACL `g:wexsys:rwX`, so a
+   directory or file that one elevated administrator creates is group-writable for every other administrator; no
+   one is locked out.) The system tier session wants machine policy written by session 0's own account, as the
+   owner's rule for machine-registry writes has it: the editor of 2 hands its files to `gpsvc` through a spool
+   directory instead (see there).
    The root script reads the local files as session 0's account (`stage_file`), so a link put in place of one
    after its check reaches only what that account could read.
 3b. **`net accounts` and `NetUserModals`.** The password-age lines, `/forcelogoff` and `/domain` of `net accounts`
