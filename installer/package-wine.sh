@@ -239,6 +239,7 @@ cp "$ROOT_DIR/scripts/wex-safe-terminal.sh" "$STAGE_SESSION/usr/local/bin/wex-sa
 cp "$ROOT_DIR/scripts/wex-bootmode.sh" "$STAGE_SESSION/usr/local/bin/wex-bootmode"
 install -m755 "$ROOT_DIR/scripts/wex-session-choice.sh" "$STAGE_SESSION/usr/local/bin/wex-session-choice"
 cp "$ROOT_DIR/scripts/wex-safemode-pam-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-safemode-pam-check.sh"
+cp "$ROOT_DIR/scripts/wex-domain-admit-pam.sh" "$STAGE_SESSION/usr/local/sbin/wex-domain-admit-pam.sh"
 cp "$ROOT_DIR/scripts/wex-advanced-options.py" "$STAGE_SESSION/usr/local/sbin/wex-advanced-options"
 # Startup and Recovery's settings (sysdm.cpl; Safe Mode work order D5): a D-Bus activated root service, polkit-checked
 cp "$ROOT_DIR/scripts/wex-boot1.py" "$STAGE_SESSION/usr/local/sbin/wex-boot1"
@@ -399,13 +400,18 @@ done
 # Two pam_exec lines, added once, consult the boot mode: no automatic logon in Safe Mode, and administrators only
 # in Safe Mode with Command Prompt. The account phase knows the user name even for a typed-in logon.
 for pam in /etc/pam.d/lightdm /etc/pam.d/lightdm-autologin; do
-    if [ -f "$pam" ]; then sed -i '/wex-safemode-pam-check\.sh/d' "$pam"; fi
+    if [ -f "$pam" ]; then sed -i -e '/wex-safemode-pam-check\.sh/d' -e '/wex-domain-admit-pam\.sh/d' "$pam"; fi
 done
+# A third line admits a domain account (DOMAIN\user) at its logon: wex-accounts gives it its record and groups, or
+# the logon fails (docs/DOMAIN_LOGON.md); a local account passes. It comes after common-account, so pam_winbind has
+# accepted the account first.
 if [ -f /etc/pam.d/lightdm ]; then
     echo "account requisite pam_exec.so quiet stdout /usr/local/sbin/wex-safemode-pam-check.sh" >> /etc/pam.d/lightdm
+    echo "account requisite pam_exec.so quiet /usr/local/sbin/wex-domain-admit-pam.sh" >> /etc/pam.d/lightdm
 fi
 if [ -f /etc/pam.d/lightdm-autologin ]; then
     echo "account requisite pam_exec.so quiet /usr/local/sbin/wex-safemode-pam-check.sh autologin" >> /etc/pam.d/lightdm-autologin
+    echo "account requisite pam_exec.so quiet /usr/local/sbin/wex-domain-admit-pam.sh" >> /etc/pam.d/lightdm-autologin
 fi
 # The start-up check: a start counts once the logon screen is up (Vintner Boot's boot-complete.target waits for it).
 systemctl enable wex-startup-check.service || true

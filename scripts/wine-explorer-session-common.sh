@@ -29,10 +29,13 @@ wex_prepare_prefix()
     # --- First logon of an account made by Setup: its prefix is a copy of /etc/skel/.wine, built by the setup account,
     # so the registry names that account's profile.  Point it at this user, then let shell32 create this user's profile
     # folders (Desktop, My Documents...) and shell folder entries; seconds instead of building a whole prefix.
+    # The profile folder is the plain name, as Wine's WINEUSERNAME: a domain account "DOMAIN\user" (Winbind) gets
+    # C:\users\user in its own prefix (docs/DOMAIN_LOGON.md, E).
     TEMPLATE_USER=wexsetup
-    if [ "$USER" != "$TEMPLATE_USER" ] && grep -qs "users\\\\\\\\$TEMPLATE_USER\\\\\\\\" "$WINEPREFIX/user.reg"; then
+    PROFILE_USER=${USER##*\\}
+    if [ "$PROFILE_USER" != "$TEMPLATE_USER" ] && grep -qs "users\\\\\\\\$TEMPLATE_USER\\\\\\\\" "$WINEPREFIX/user.reg"; then
         echo "Making the template prefix this user's..."
-        /usr/local/bin/wex-personalize-prefix "$WINEPREFIX" "$USER" "$TEMPLATE_USER"
+        /usr/local/bin/wex-personalize-prefix "$WINEPREFIX" "$PROFILE_USER" "$TEMPLATE_USER"
         # Per-user setup only (shell32 DllInstall "U", as Windows' Active Setup); the machine part was done by wineboot.
         "$WINE" regsvr32.exe /s /n /i:U shell32.dll || echo "warning: regsvr32 /n /i:U shell32.dll failed (exit $?): the profile folders may be missing" >&2
         "$(dirname "$WINE")/wineserver" -k

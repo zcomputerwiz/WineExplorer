@@ -2384,9 +2384,13 @@ class TestPackage(TempDirTest):
         lightdm = (etc / "pam.d/lightdm").read_text()
         self.assertEqual(lightdm.count("wex-safemode-pam-check.sh"), 1)
         self.assertTrue(lightdm.rstrip().endswith(
-            "account requisite pam_exec.so quiet stdout /usr/local/sbin/wex-safemode-pam-check.sh"))
+            "account requisite pam_exec.so quiet stdout /usr/local/sbin/wex-safemode-pam-check.sh\n"
+            "account requisite pam_exec.so quiet /usr/local/sbin/wex-domain-admit-pam.sh"))
         autologin = (etc / "pam.d/lightdm-autologin").read_text()
         self.assertEqual(autologin.count("wex-safemode-pam-check.sh autologin"), 1)
+        # the domain admission line (docs/DOMAIN_LOGON.md), once in each file
+        self.assertEqual(lightdm.count("wex-domain-admit-pam.sh"), 1)
+        self.assertEqual(autologin.count("wex-domain-admit-pam.sh"), 1)
         self.assertFalse((etc / "lightdm/lightdm.conf.d/99-safemode.conf").exists())
         self.assertIn("bob", (etc / "lightdm/lightdm.conf.d/60-wineexplorer-autologin.conf").read_text())
         self.assertFalse((run / "wex-safemode").exists())

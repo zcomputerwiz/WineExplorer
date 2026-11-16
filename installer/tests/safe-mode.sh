@@ -229,6 +229,7 @@ SAFE_MODE_FILES=(
     "644 installer/live-build/config/includes.chroot/etc/lightdm/lightdm.conf.d/50-wineexplorer.conf etc/lightdm/lightdm.conf.d/50-wineexplorer.conf"
     "644 installer/lightdm/90-wineexplorer-safe-mode.conf usr/share/wineexplorer/safe-greeter/lightdm/lightdm-gtk-greeter.conf.d/90-wineexplorer-safe-mode.conf"
     "755 scripts/wex-safemode-pam-check.sh usr/local/sbin/wex-safemode-pam-check.sh"
+    "755 scripts/wex-domain-admit-pam.sh usr/local/sbin/wex-domain-admit-pam.sh"
     "755 scripts/wex-advanced-options.py usr/local/sbin/wex-advanced-options"
     "755 scripts/wex-boot1.py usr/local/sbin/wex-boot1"
     "644 installer/systemd/wex-boot1.service lib/systemd/system/wex-boot1.service"

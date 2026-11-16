@@ -88,6 +88,22 @@ and XamlShim `Window.SetTitleBar`. `ResourceString` extensions get their names. 
   `Themes/Generic.xaml` are not applied.
 - `App.xaml` theme dictionaries and styles that Uno's reader rejects.
 
+### 2026-11-15, evening (Wine development 0a4975cf, uno-uwp 87e605b2dd)
+
+WinUI 2 is mapped onto Uno: XamlShim's WinUI 2 interfaces are generated from metadata built from WinUI 2's
+MIT-licensed IDL (`wex/winui2/build-metadata.ps1`, no Microsoft binary), and a Uno control that WinUI 2 also has
+(`NavigationView`) gets the WinUI 2 shim. `NavView` and `Popup` connect; Wine gained
+`ApplicationView.GetApplicationViewIdForWindow` (2337013f) and `UserActivityRequestManager` (0a4975cf), both
+measured on Windows with the XAML probe. `MainPage` is now constructed, the Frame navigates to it and becomes
+`Window.Content`. Then:
+- `OnLaunched` ends with KeyNotFoundException ("key") thrown in the application's code (not a failed
+  `Application.Resources` lookup).
+- `Loaded` handlers fail: after `Popup.IsOpen` (E_NOTIMPL) and after `NavigationView.MenuItemsSource` (null).
+- Nothing is drawn yet (blank screenshot).
+- `App.xaml`: the three theme dictionaries ("Implicit content is not supported" in Uno's reader), the button styles
+  (`CalcButtonStyle`, `NumericButtonStyle*`, `OperatorButtonStyle`, ...) and one merged dictionary do not load.
+- `Settings`: the toolkit `SettingsExpander`'s content (`Items`) and icon members are not forwarded.
+
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
 the Calculator shows. Prior art and the Wine gaps others listed for the Calculator: `tests/uwp/frameworks/README.md`.

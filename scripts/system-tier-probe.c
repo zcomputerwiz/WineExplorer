@@ -35,6 +35,7 @@
  *                                 gp=ready, waits up to MS ms and prints gp=signalled or gp=timeout
  *   probe token                   the process token: user=, primary=, elevation=, one group= line per group (attrs=); for a
  *                                 split token also linkedelevation= and linkedgroup= lines of the linked token
+ *   probe env NAME                prints env=<the variable's value> or env=error<n>
  *   probe names                   lsa=DOMAIN\name (LookupAccountSidW of the caller) and samcompat= (GetUserNameExW)
  *   probe gpolist machine|user {EXT}  the applied objects for the extension (GetAppliedGPOListW; user: the
  *                                 caller's SID); prints gpolist=<error> and one gpo= line per object
@@ -133,6 +134,14 @@ int __cdecl wmain( int argc, WCHAR **argv )
         fflush( stdout );
         wait = WaitForSingleObject( event, wcstoul( argv[3], NULL, 10 ) );
         printf( wait == WAIT_OBJECT_0 ? "gp=signalled\n" : "gp=timeout\n" );
+        return 0;
+    }
+    if (argc == 3 && !lstrcmpW( argv[1], L"env" ))
+    {
+        /* one variable of the process environment (USERDOMAIN comes from the user's Volatile Environment) */
+        WCHAR value[1024];
+        if (GetEnvironmentVariableW( argv[2], value, sizeof(value) / sizeof(value[0]) )) printf( "env=%ls\n", value );
+        else printf( "env=error%lu\n", GetLastError() );
         return 0;
     }
     if (argc == 2 && !lstrcmpW( argv[1], L"token" ))

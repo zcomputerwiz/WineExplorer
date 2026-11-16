@@ -57,6 +57,16 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `dlls/shcore/main.c` (`IsOS`), `Makefile.in` (delay import of netapi32): `OS_DOMAINMEMBER` answers from
   `NetGetJoinInformation` (a domain join) instead of always TRUE. Chromium reads it as "the device is managed":
   Edge then skipped its modal first-run dialog (B10). Test in `dlls/shcore/tests/shcore.c`.
+- `dlls/dwrite/opentype.c` (`opentype_get_named_instance_count`, `opentype_get_named_instance`: fvar instance
+  records and a STAT reader), `font.c` (font set entries, `init_font_data`, `IDWriteFont::Equals`), `main.c`,
+  `dwrite_private.h`: a variable font with a STAT table gives a font set one entry per fvar named instance, as on
+  Windows. Each instance takes its weight, stretch and style from its coordinates; in the weight/stretch/style
+  model its non-WWS axes (opsz, ...) name a family of their own ("Segoe Sans Text"), with the STAT names of the
+  WWS axes as the face, and in the typographic model its subfamily name is the face. Names follow STAT: the axis
+  value matching each coordinate, non-elidable names in axis order, the elided fallback name when none is left.
+  Instances still render as the default instance (step 2). Microsoft Copilot looks up "Segoe Sans Text" in such a
+  collection (B15). Test `test_fontset_named_instances` in `dlls/dwrite/tests/font.c` with the generated font
+  `wine_test_var.ttf` (`wine_test_var.py`); passes on Windows 11 and Wine.
 - `dlls/dwrite/font.c` (`fontcollection_add_replacements`): the system collection also takes family mappings from
   `HKLM\Software\Wine\Fonts\Replacements`, after the user's `HKCU` ones (a name already mapped or installed stays).
   The image writes its font aliases there as well as in `FontSubstitutes`, which only GDI reads; DirectWrite
@@ -70,8 +80,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `server/named_pipe.c` (`pipe_bridge_lookup`, `pipe_bridge_allowed`, `is_lrpc_pipe_name`): a user's server that
   has no pipe `lrpc\NAME` (an ncalrpc endpoint of rpcrt4) opens session 0's through the T5.2 bridge, as the
   caller; session 0 checks the pipe's descriptor as for `svcctl`. Not bridged: every session's own rpcss endpoints
-  (`epmapper`, `irpcss`, `irot`) and names made from a process id or OXID (`LRPC<pid>.<n>`, `\pipe\OLE_<oxid>`),
-  since process ids are per server. A service in session 0 can so offer its RPC interface to users' programs, as
+  (`epmapper`, `irpcss`, `irot`), Wine's lsass (`lsasspirpc`: it reads and writes its callers' memory by process
+  id, so it serves its own server only; bridged, `secur32`'s DllMain waited for ever), and names made from a process
+  id or OXID (`LRPC<pid>.<n>`, `\pipe\OLE_<oxid>`), since process ids are per server. A bridged connection reports
+  client process id 0 to session 0's services (the opener has no process there). A service in session 0 can so offer its RPC interface to users' programs, as
   on Windows (B17, Office's licensing service). Test in `scripts/lab/system-tier-t1.sh` (`lrpc_*`).
 - `dlls/win32u/defwnd.c` (`sys_command`, `SC_MAXIMIZE`): an already maximized window is left alone, as on Windows;
   a hidden window created with `WS_MAXIMIZE` was shown and activated, and Edge's activation handler then ran on a
@@ -125,7 +137,15 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   `registry.c`: a user's server accepts machine hives owned by the `session0_user` account.
 - `server/registry.c` (T2a): session 0 saves a key's own security descriptor as an `#sd=` line (hex); every server loads such a line.
 
-- Domain logon WO 2 (`docs/DOMAIN_LOGON.md`): `server/accounts.c` reads the domain groups recorded at logon
+- Domain logon WO 3 (`docs/DOMAIN_LOGON.md`): `programs/wineboot/wineboot.c`
+  (`create_volatile_environment_registry_key`): `USERDOMAIN` is the domain `LookupAccountSidW` gives for the token's
+  user (the joined domain's flat name for a domain account, this computer for a local one) in place of the
+  computer name, for an S-1-5-21 SID only (SYSTEM and the service accounts keep the computer name);
+  `LOGONSERVER` stays `\\COMPUTER`.
+- Domain logon WO 2 (`docs/DOMAIN_LOGON.md`): `server/token.c` (`sid_is_uac_filtered`) makes the UAC filtered groups
+  deny-only in a limited token (`token_apply_filter`, LUA) and in a standard user's token (`token_make_standard`):
+  Administrators, the privileged domain groups (RIDs 512, 516 to 521, 526, 527 under a domain SID) and the privileged
+  builtin aliases (548 to 551, 556, 569), as Windows' filtered token. `server/accounts.c` reads the domain groups recorded at logon
   (`domain-groups`, `accounts_own_domain`) and counts Domain Admins as the administrator group in `lookup_account`;
   `server/token.c` gives a domain account's logon token the domain's Domain Users (domain SID, RID 513) as owner
   and primary group in place of the fixed `S-1-5-21-0-0-0-513`, and the recorded domain groups;
@@ -3401,3 +3421,44 @@ the same on Wine. The Store Calculator's `TitleBar` control reads both.
 2026-11-15 (UWP, Wine aaa610f4): `dlls/windows.ui.xaml`: new `colors.c` (`Windows.UI.Colors`, the 141 named colours;
 null pointer gives `E_INVALIDARG` as on Windows), `main.c`, `private.h`, `classes.idl`, `Makefile.in`, `tests/xaml.c`
 (every colour; passes on Windows 11 x64 and x86 and on Wine x64 and x86).
+
+2026-11-15 (UWP, Wine 2337013f): `dlls/twinapi.appcore/application_view.c`: `IApplicationViewInteropStatics`
+(`GetApplicationViewIdForWindow`: the id of the ApplicationView of the window's thread; XAML probe: the current view's
+id on Windows 11 and Wine).
+
+2026-11-15 (UWP, Wine 0a4975cf): `dlls/twinapi.appcore`: new `user_activities.c`
+(`UserActivityRequestManager.GetForCurrentView`: one manager per view thread, `ERROR_NOT_FOUND` off a view's thread,
+as on Windows 11; `UserActivityRequested` accepted, never raised), `classes.idl`, `main.c`, `private.h`, `Makefile.in`;
+new `include/windows.applicationmodel.useractivities.idl` (the request path and the `UserActivity` types it names) and
+`include/windows.ui.shell.idl` (`IAdaptiveCard`). XAML probe lines identical on Windows 11 and Wine.
+
+2026-11-15 (UWP, Wine a2356079): `dlls/windows.storage.applicationdata/propertyset.c`: `Lookup` of a key never set
+gives null with `S_OK`, not `E_BOUNDS`, for settings containers and composite values, as on Windows 11 (XAML probe);
+`tests/data.c` checks it on a composite value (passes on Windows 11 x64 and x86 and on Wine). The Store Calculator
+reads its theme setting this way.
+
+2026-11-15 (UWP, Wine 19df3184): `dlls/windows.globalization/main.c`: `ILanguageStatics` on the Language factory
+(`IsWellFormed`: BCP-47 syntax; `CurrentInputMethodLanguageTag`: the keyboard layout's language), `Makefile.in`
+(imports `user32`), `tests/globalization.c` (well-formed and malformed tags; passes on Windows 11 x64 and x86 and on
+Wine).
+
+2026-11-15 (UWP, Wine 9b95bce0): `dlls/windows.globalization`: new `number_formatter.c`
+(`Windows.Globalization.NumberFormatting.DecimalFormatter`: formatting, parsing and options as measured on Windows 11,
+140 values identical on Windows and Wine), `classes.idl`, `main.c`, `private.h` and `calendar.c` (`languages_from_iterable`
+shared), `Makefile.in`, `tests/globalization.c` (passes on Windows 11 x64 and x86 and on Wine); new
+`include/windows.globalization.numberformatting.idl` (DecimalFormatter's interfaces). The Store Calculator formats its
+display with it.
+
+2026-11-16 (UWP, Wine def374cb): `dlls/windows.globalization`: new `identifiers.c` (the static classes
+`Windows.Globalization.CalendarIdentifiers` and `ClockIdentifiers`: the calendar and clock names), `classes.idl`,
+`main.c`, `private.h`, `Makefile.in`, `tests/globalization.c` (every name; passes on Windows 11 x64 and x86 and on
+Wine); `include/windows.globalization.idl` (their four statics interfaces and two classes). The Store Calculator's
+LocalizationSettings asks for CalendarIdentifiers before it builds the calculator view model.
+
+2026-11-16 (UWP, Wine 367fdd43): `dlls/twinapi.appcore`: `user.c` (the statics of `Windows.System.User`: GetFromId
+and GetDefault give the one user object of the process, another or no id gives none; CreateWatcher and FindAllAsync
+are stubs), new `policies.c` (`Windows.Management.Policies.NamedPolicy` with the one policy applications are seen to
+read, Education/AllowGraphingCalculator, unmanaged, as Windows 11 reports it), `classes.idl`, `main.c`, `private.h`,
+`Makefile.in`, `tests/twinapi.c` (passes on Windows 11 x64 and x86 and on Wine); `include/windows.system.idl`
+(IUserStatics, IUserStatics2, IUserWatcher and their types), new `include/windows.management.policies.idl`,
+`include/Makefile.in`. The Store Calculator reads that policy for the launching user to build its navigation menu.
