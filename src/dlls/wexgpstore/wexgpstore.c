@@ -73,9 +73,12 @@ DWORD WINAPI WexGpSpoolDone( DWORD kind, const char *error )
     params.kind = kind;
     if (error)
     {
+        size_t length = strlen( error );
+
+        if (length > WEX_GP_ERROR_LIMIT) length = WEX_GP_ERROR_LIMIT;   /* the unix side stops at its limit too */
         params.has_error = TRUE;
-        strncpy( params.error, error, WEX_GP_ERROR_LIMIT );   /* the unix side stops at its limit too */
-        params.error[WEX_GP_ERROR_LIMIT] = 0;
+        memcpy( params.error, error, length );
+        params.error[length] = 0;
     }
     WEXGPSTORE_CALL( gpstore_done, &params );
     return params.err;
