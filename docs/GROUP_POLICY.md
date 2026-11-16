@@ -654,4 +654,4 @@ serial that the writer leaves in the registry (a registry change notification re
 0). The shell registers two events, for the computer's and for the user's policy (`shell_restrictions_watch`,
 `restrictions.c`), and a thread-pool wait posts `WM_WEX_POLICY` to the desktop view, which builds the desktop again and
 tells the taskbar (`WM_SETTINGCHANGE`). A restriction, or the removal of one, shows when the refresh ends, with no
-logoff. The Start menus read the values each time they are opened.
+logoff (checked under Xvfb by bumping the user serial: the icon went within seconds). The shell makes sure that `HKCU\Software\Policies` exists first, which userenv watches: a user who has had no policy yet would otherwise miss the first refresh. The Start menus read the values each time they are opened.

@@ -47,6 +47,14 @@ BOOL shell_restrictions_watch( HWND window, UINT message )
     int i;
 
     if (watch.window) return TRUE;
+    /* userenv watches HKCU\Software\Policies for the user's serial; a user who has had no policy yet has no such key,
+     * and the first refresh would then go unnoticed */
+    {
+        HKEY policies;
+
+        if (!RegCreateKeyExW( HKEY_CURRENT_USER, L"Software\\Policies", 0, NULL, 0, KEY_NOTIFY, NULL, &policies, NULL ))
+            RegCloseKey( policies );
+    }
     watch.window = window;
     watch.message = message;
     for (i = 0; i < 2; i++)
