@@ -3462,3 +3462,9 @@ read, Education/AllowGraphingCalculator, unmanaged, as Windows 11 reports it), `
 `Makefile.in`, `tests/twinapi.c` (passes on Windows 11 x64 and x86 and on Wine); `include/windows.system.idl`
 (IUserStatics, IUserStatics2, IUserWatcher and their types), new `include/windows.management.policies.idl`,
 `include/Makefile.in`. The Store Calculator reads that policy for the launching user to build its navigation menu.
+
+2026-11-16 (UWP, Wine 6b11d97c): `dlls/windows.ui/accessibilitysettings.c`: `AccessibilitySettings` add_HighContrastChanged
+accepts a handler on a thread with a core window and fails with ERROR_NOT_FOUND on another, as Windows 11 does
+(remove succeeds); the event is never raised. It returned E_NOTIMPL, and the Store Calculator's title bar subscribes
+when it loads. `tests/uisettings.c` (passes on Windows 11 x64 and x86, apart from two older IAgileObject checks that
+fail there, and on Wine).
