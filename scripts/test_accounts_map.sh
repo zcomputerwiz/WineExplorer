@@ -487,6 +487,13 @@ cp -p "$GRPFILE" "$FIXTURE/groups.good"
 sed -i 's/^\([0-9a-f]\{32\}\) 513$/\1 513 512 x/' "$GRPFILE"
 d2_lookup 0 'WEXLAB\wexadm1'
 grep -q 'admin=0' "$FIXTURE/d2.lookup" || fail 'd2: a damaged groups file made an administrator'
+# a cut groups file (the last line has no newline): admit does not crash, and the cut line is dropped, never
+# kept with a cut number (GPO audit, 2026-11-16)
+KEYADM="$(awk '$1 == "WEXLAB\\wexadm1" && $4 == "active" { print $3 }' "$D2MAP")"
+printf 'WEXGROUPS 1\n%s 513\n%s 513 13' "$KEYADM" "$KEY1" > "$GRPFILE"
+admit_ok 'WEXLAB\wexadm1'
+grep -q "^$KEY1 " "$GRPFILE" && { cat "$GRPFILE"; fail 'd2: the cut line of a cut groups file was kept'; }
+grep -qx "$KEYADM 513" "$GRPFILE" || { cat "$GRPFILE"; fail 'd2: admit after a cut groups file did not record the groups'; }
 cp -p "$FIXTURE/groups.good" "$GRPFILE"
 # sync keeps the domain record (not in /etc/passwd) and changes nothing
 G="$(d2_gen)"
