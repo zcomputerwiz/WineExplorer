@@ -3428,3 +3428,9 @@ Wine).
 shared), `Makefile.in`, `tests/globalization.c` (passes on Windows 11 x64 and x86 and on Wine); new
 `include/windows.globalization.numberformatting.idl` (DecimalFormatter's interfaces). The Store Calculator formats its
 display with it.
+
+2026-11-16 (UWP, Wine def374cb): `dlls/windows.globalization`: new `identifiers.c` (the static classes
+`Windows.Globalization.CalendarIdentifiers` and `ClockIdentifiers`: the calendar and clock names), `classes.idl`,
+`main.c`, `private.h`, `Makefile.in`, `tests/globalization.c` (every name; passes on Windows 11 x64 and x86 and on
+Wine); `include/windows.globalization.idl` (their four statics interfaces and two classes). The Store Calculator's
+LocalizationSettings asks for CalendarIdentifiers before it builds the calculator view model.
