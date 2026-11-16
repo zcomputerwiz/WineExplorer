@@ -33,9 +33,9 @@
 #include <stdlib.h>
 #include <windows.h>
 #include <winsvc.h>
+#include "wexgpclient.h"
 
 #define GPSVC_CONTROL_REFRESH  128
-#define SERIAL_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\WineExplorer Applied"
 
 static void out( const WCHAR *text )
 {
@@ -69,22 +69,17 @@ static void usage(void)
          L"    /Sync                      Applies the next policy at startup or logon synchronously.\n" );
 }
 
+/* the serial that the run of the host raises at its end: wexgpclient.h (the same one the policy editor waits for) */
 static DWORD refreshed(void)
 {
-    DWORD serial = 0, size = sizeof(serial);
-    HKEY key;
-
-    if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, SERIAL_KEY, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key )) return 0;
-    if (RegQueryValueExW( key, L"Refreshed", NULL, NULL, (BYTE *)&serial, &size )) serial = 0;
-    RegCloseKey( key );
-    return serial;
+    return wex_gp_refreshed();
 }
 
 int __cdecl wmain( int argc, WCHAR **argv )
 {
     BOOL computer = TRUE, user = TRUE;
     LONG wait = 600;
-    DWORD before, start, err = ERROR_SUCCESS;
+    DWORD before, err = ERROR_SUCCESS;
     SC_HANDLE manager, service;
     SERVICE_STATUS status;
     WCHAR *end;
@@ -132,18 +127,13 @@ int __cdecl wmain( int argc, WCHAR **argv )
     }
 
     /* the run of the host ends with a new Refreshed number */
-    start = GetTickCount();
-    while (wait && refreshed() == before)
-    {
-        if (wait > 0 && GetTickCount() - start >= (DWORD)wait * 1000)
-        {
-            if (computer) out( L"Computer Policy update has not completed in the expected time. Exiting...\n" );
-            if (user) out( L"User Policy update has not completed in the expected time. Exiting...\n" );
-            return 0;
-        }
-        Sleep( 250 );
-    }
     if (!wait) return 0;
+    if (!wex_gp_wait_refreshed( before, wait, FALSE ))
+    {
+        if (computer) out( L"Computer Policy update has not completed in the expected time. Exiting...\n" );
+        if (user) out( L"User Policy update has not completed in the expected time. Exiting...\n" );
+        return 0;
+    }
     if (user) out( L"User Policy Refresh has completed.\n" );
     if (computer) out( L"Computer Policy Refresh has completed.\n" );
     return 0;

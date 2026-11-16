@@ -282,6 +282,41 @@ static int child_mode(int argc, char **argv)
             else fprintf(out, "chain_%s=%lu\n", pass ? "open" : "runas", GetLastError());
         }
     }
+    if (argc > 3 && !strcmp(argv[3], "grouponly"))
+    {
+        /* B28: in a directory only the system group can search (as the Group Policy spool; run passes one
+         * argument, so the harness's directory is the default), create, write and rename a file; each step's
+         * Win32 error goes to <out> */
+        WCHAR *dir = argc > 4 ? widen(argv[4]) : (WCHAR *)L"C:\\windows\\system32\\WexB28", tmp[MAX_PATH], final[MAX_PATH];
+        HANDLE f;
+        DWORD done;
+
+        swprintf(tmp, MAX_PATH, L"%ls\\b28.tmp", dir);
+        swprintf(final, MAX_PATH, L"%ls\\b28", dir);
+        f = CreateFileW(tmp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        fprintf(out, "grouponly_create=%lu\n", f == INVALID_HANDLE_VALUE ? GetLastError() : 0);
+        if (f != INVALID_HANDLE_VALUE)
+        {
+            fprintf(out, "grouponly_write=%lu\n", WriteFile(f, "b28", 3, &done, NULL) ? 0 : GetLastError());
+            CloseHandle(f);
+        }
+        fprintf(out, "grouponly_move=%lu\n", MoveFileExW(tmp, final, MOVEFILE_REPLACE_EXISTING) ? 0 : GetLastError());
+        fprintf(out, "grouponly_delete=%lu\n", DeleteFileW(final) ? 0 : GetLastError());
+        DeleteFileW(tmp);
+        /* also out of the directory, into it, and within it */
+        {
+            static const WCHAR outside[] = L"C:\\windows\\temp\\b28.out";
+            WCHAR inside[MAX_PATH];
+            swprintf(inside, MAX_PATH, L"%ls\\b28.in", dir);
+            f = CreateFileW(tmp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+            fprintf(out, "grouponly_move_out=%lu\n", MoveFileExW(tmp, outside, MOVEFILE_REPLACE_EXISTING) ? 0 : GetLastError());
+            fprintf(out, "grouponly_move_in=%lu\n", MoveFileExW(outside, inside, MOVEFILE_REPLACE_EXISTING) ? 0 : GetLastError());
+            fprintf(out, "grouponly_rename_same=%lu\n", MoveFileExW(inside, tmp, MOVEFILE_REPLACE_EXISTING) ? 0 : GetLastError());
+            fprintf(out, "grouponly_attrs=%#lx/%lu\n", GetFileAttributesW(tmp), GetLastError());
+            DeleteFileW(tmp); DeleteFileW(inside); DeleteFileW(outside);
+        }
+    }
     if (argc > 3 && !strcmp(argv[3], "spawn"))
     {
         /* a child of an elevated process is elevated too, and keeps the rights of the machine root */

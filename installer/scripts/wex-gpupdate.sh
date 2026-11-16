@@ -45,11 +45,24 @@ MAP=${WEX_ACCOUNTS_MAP:-/etc/wineexplorer/accounts.map}
 STAGE=/run/wineexplorer-policy
 LISTS=
 
+# wexpolicy's own exit status is the function's (not tr's): a failed apply or record is not lost
 s0_wexpolicy()
 {
     (cd / && runuser -u "$S0_USER" -- env -i WINEPREFIX="$MACHINE_ROOT" HOME="$MACHINE_ROOT" PATH=/usr/bin:/bin \
         WINEDEBUG=-all "$WINE" wexpolicy "$@" </dev/null 2>/dev/null) | tr -d '\r'
+    return "${PIPESTATUS[0]}"
 }
+
+# a failure of the writer is said in the journal and makes the run end with 1; the run goes on with what is left
+wexpolicy_failed() { echo "wex-gpupdate: wexpolicy $* failed" >&2; [ -z "$LISTS" ] || : > "$LISTS/failed"; }
+
+# Only one run at a time: a manual run and the service's would share the staging folder and the writer. (--print
+# only reads.) A run that finds another one waits for it, so that a request made meanwhile is served by a run that
+# started after it.
+if [ "$PRINT" != 1 ]; then
+    exec 9> "${WEX_GPO_LOCK:-/run/wex-gpupdate.lock}"
+    flock -w 270 9 || { echo "wex-gpupdate: another run did not end in time" >&2; exit 1; }
+fi
 
 # Every run ends by telling session 0 it is done, also on a machine that is not joined: a gpupdate that asked for
 # it waits for that (gpupdate.exe, wexpolicy refreshed).
@@ -66,14 +79,29 @@ LOCAL_GPO=$MACHINE_ROOT/drive_c/windows/system32/GroupPolicy
 REG_EXT='[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]'
 SEC_EXT='[{827D319E-6EAC-11D2-A4EA-00C04F79F83A}{803E14A0-B4FB-11D0-A0D0-00A0C90F574B}]'
 JOINED=1
+ONLINE=0
+STATE=${WEX_GPO_STATE:-/var/lib/wineexplorer/gpo-lists}
 CACHE=
 if ! { command -v net >/dev/null 2>&1 && command -v samba-gpupdate >/dev/null 2>&1; }; then
     echo "wex-gpupdate: Samba's tools are not installed; local policy only"; JOINED=0
 else
+    # Joined is what the machine is set up as (a realm and a keytab: the detection of wex-domain-state.sh, no
+    # network); whether the domain answers now is another matter. A joined machine whose controller is out of reach
+    # (a laptop on a train) keeps the policy it has applied, as Windows does: it must not be cleared because the
+    # question could not be asked.
     REALM=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'a-z' 'A-Z')
-    if [ -n "$REALM" ] && net ads testjoin >/dev/null 2>&1; then
+    if [ -n "$REALM" ] && [ -e "${WEX_KEYTAB:-/etc/krb5.keytab}" ]; then
         CACHE=$(testparm -s --parameter-name='cache directory' 2>/dev/null)/gpo_cache/$REALM/POLICIES
-        samba-gpupdate --force >/dev/null 2>&1 || echo "wex-gpupdate: samba-gpupdate failed; the cache may be old" >&2
+        if net ads testjoin >/dev/null 2>&1; then
+            ONLINE=1
+            # the fetch is the costly part; runs that follow each other closely (a user's gpupdate, a logon) share it
+            if [ ! -e "$STATE/fetched" ] || [ -n "$(find "$STATE/fetched" -mmin +1 2>/dev/null)" ]; then
+                samba-gpupdate --force >/dev/null 2>&1 || echo "wex-gpupdate: samba-gpupdate failed; the cache may be old" >&2
+                install -d -m 0700 "$STATE" && : > "$STATE/fetched"
+            fi
+        else
+            echo "wex-gpupdate: the domain does not answer; the policy applied before stays"
+        fi
     else
         echo "wex-gpupdate: not joined to a domain; local policy only"; JOINED=0
     fi
@@ -110,9 +138,9 @@ has_archive() { [ -e "$LOCAL_GPO/Archive/$1.pol" ]; }
 # "wexpolicy record" takes: GUID, version, link type, options, display name, file system path, DS path, link and
 # the extensions of $2 (MACHINE or USER), separated by tabs. Samba's dump_gpo prints them on the error stream,
 # one block per object starting with "name:"; the extension details below it are indented and skipped.
-gpo_list()
+gpo_parse()
 {
-    net ads gpo list "$1" -P 2>&1 | awk -v kind="$2" '
+    awk -v kind="$1" '
         function val(s) { sub(/^[a-z_]+:[ \t]*/, "", s); gsub(/\t/, " ", s); return s }
         function first(s) { s = val(s); sub(/[ \t].*/, "", s); return s + 0 }
         function flush() {
@@ -137,7 +165,31 @@ gpo_list()
         END { flush() }'
 }
 
-# Put a list of gpo_list ($1, rewritten in place) in the order Windows applies it, for the account $2 (MS-GPOL
+# The domain's objects for the account $2 (kind $3, MACHINE or USER) into the file $4, in Windows' order; $1 names
+# the list in the state folder. When the domain answers, the list is kept there. When it does not (the controller is
+# out of reach, or the question failed), the list of the last time it did is used, with the files of Samba's cache:
+# an unreachable controller is not the same as "no policy applies". 1 when there is neither: the caller then leaves
+# what is applied alone.
+domain_list()
+{
+    local key=$1 name=$2 kind=$3 out=$4 raw
+    if [ "$ONLINE" = 1 ] && raw=$(net ads gpo list "$name" -P 2>&1); then
+        printf '%s\n' "$raw" | gpo_parse "$kind" > "$out"
+        win_order "$out" "$name"
+        if install -d -m 0700 "$STATE" && cp "$out" "$STATE/$key.list.new"; then mv -f "$STATE/$key.list.new" "$STATE/$key.list"; fi
+        return 0
+    fi
+    if [ -f "$STATE/$key.list" ]; then
+        cp "$STATE/$key.list" "$out"
+        echo "wex-gpupdate: $name: the domain's objects are those of the last time it answered"
+        return 0
+    fi
+    : > "$out"
+    echo "wex-gpupdate: $name: the domain's objects are not known" >&2
+    return 1
+}
+
+# Put a list of gpo_parse ($1, rewritten in place) in the order Windows applies it, for the account $2 (MS-GPOL
 # 3.2.5.1, "GPO Search", and 3.2.5.2). Samba decides which objects apply (security filtering, blocked
 # inheritance, disabled links) but keeps each container's links in gPLink order, so the last link wins; on
 # Windows the first link (link order 1) wins: each container's non-enforced links are put in front of the list in
@@ -186,7 +238,7 @@ win_order()
             # what the directory did not explain stays where Samba put it, at the end
             for (i = 1; i <= NR; i++) if (!(seen[i] in done)) { print line[seen[i]]; done[seen[i]] = 1 }
         }' "$1" > "$t.out" && mv "$t.out" "$1"
-    rm -f "$t"
+    rm -f "$t" "$t.out"
 }
 
 # the files of the objects in a list of gpo_list ($1), in order; $2 is MACHINE or USER, $3 the file's path below
@@ -205,7 +257,7 @@ record()
 {
     local copy="$STAGE/$(basename "$2")"
     install -m 0644 "$2" "$copy"
-    s0_wexpolicy record "$1" "Z:${copy//\//\\}"
+    s0_wexpolicy record "$1" "Z:${copy//\//\\}" || wexpolicy_failed record "$1"
 }
 
 # apply the files of one target: "/machine" or "/user:SID"
@@ -233,8 +285,8 @@ apply()
         n=$((n + 1))
         args+=("Z:${copy//\//\\}")
     done
-    if [ "$n" -gt 0 ]; then s0_wexpolicy apply "$target" "${args[@]}"
-    else s0_wexpolicy clear "$target" >/dev/null; echo "wexpolicy: $target has no domain policy"; fi
+    if [ "$n" -gt 0 ]; then s0_wexpolicy apply "$target" "${args[@]}" || wexpolicy_failed apply "$target"
+    else s0_wexpolicy clear "$target" >/dev/null || wexpolicy_failed clear "$target"; echo "wexpolicy: $target has no domain policy"; fi
 }
 
 HOST=$(hostname -s | tr 'a-z' 'A-Z')
@@ -242,9 +294,9 @@ LISTS=$(mktemp -d)
 # the domain's objects (only when joined), then the local object in front of them: Windows applies Local, Site,
 # Domain, OU in that order and the last wins, so the domain's policy overrides the local one
 : > "$LISTS/machine.domain.list"
+MACHINE_UNKNOWN=0
 if [ "$JOINED" = 1 ]; then
-    gpo_list "$HOST\$" MACHINE > "$LISTS/machine.domain.list"
-    win_order "$LISTS/machine.domain.list" "$HOST\$"
+    domain_list machine "$HOST\$" MACHINE "$LISTS/machine.domain.list" || MACHINE_UNKNOWN=1
 fi
 MACHINE_FILES=()
 LOCAL_MACHINE=$(local_file Machine)
@@ -269,7 +321,9 @@ else
     rm -rf "$STAGE"
     install -d -m 0755 "$STAGE"
     # a machine with no policy at all (not joined, no local file or template, nothing written before) has nothing to do
-    if [ "${#MACHINE_FILES[@]}" -gt 0 ] || [ -n "$LOCAL_TEMPLATE" ] || [ "$JOINED" = 1 ] || has_archive Machine; then
+    if [ "$MACHINE_UNKNOWN" = 1 ] && has_archive Machine; then
+        echo "wex-gpupdate: the domain's computer policy is not known: what was applied stays"
+    elif [ "${#MACHINE_FILES[@]}" -gt 0 ] || [ -n "$LOCAL_TEMPLATE" ] || [ "$JOINED" = 1 ] || has_archive Machine; then
         apply /machine machine "${MACHINE_FILES[@]}"
         record /machine "$LISTS/machine.list"
     fi
@@ -282,7 +336,7 @@ else
             echo "wex-gpupdate: $f cannot be read: left out" >&2
         fi
     done
-    [ "${#args[@]}" -eq 0 ] || s0_wexpolicy security /machine "${args[@]}"
+    [ "${#args[@]}" -eq 0 ] || s0_wexpolicy security /machine "${args[@]}" || wexpolicy_failed security
 fi
 
 # The people of the accounts map (UID 1000 or more): name in column 1, UID in column 2, "active" in column 4, the
@@ -290,7 +344,7 @@ fi
 # local|domain in column 5, so they are one further on, and the name of a domain record is the Winbind name
 # DOMAIN\user, docs/DOMAIN_LOGON.md). Every one of them gets the local object's user policy; a domain user also gets
 # the domain's, after it.
-[ -r "$MAP" ] || exit 0
+[ -r "$MAP" ] || { [ ! -e "$LISTS/failed" ]; exit; }
 LOCAL_USER=$(local_file User)
 awk 'NR == 1 { v = $2; next }
      $4 == "active" && $2 >= 1000 && $2 != 65534 {
@@ -299,16 +353,22 @@ awk 'NR == 1 { v = $2; next }
     "$MAP" | while read -r name kind sid; do
     # only domain users have policy objects of the domain; a local account is not known to the domain ("net ads
     # gpo list" does not fail for an unknown name, so Winbind is asked)
+    # (a version 2 map says it: "domain" is the answer of the join and of the logon that recorded the account, which
+    # Winbind may not be able to repeat with the controller out of reach)
     domain_user=0
-    if [ "$JOINED" = 1 ] && [ "$kind" != local ] && wbinfo --name-to-sid "$name" 2>/dev/null | grep -q 'SID_USER'; then
+    if [ "$JOINED" = 1 ] && [ "$kind" = domain ]; then
+        domain_user=1
+    elif [ "$JOINED" = 1 ] && [ "$kind" != local ] && wbinfo --name-to-sid "$name" 2>/dev/null | grep -q 'SID_USER'; then
         domain_user=1
     fi
-    # the directory knows the account by its plain name (sAMAccountName)
+    # the directory knows the account by its plain name (sAMAccountName); a name that could be taken for an option or
+    # a filter is not asked for
     acct=${name##*\\}
+    case $acct in -*|*[!A-Za-z0-9._\ \$-]*) echo "wex-gpupdate: $acct: not a name the directory is asked for" >&2; domain_user=0 ;; esac
     : > "$LISTS/user-$sid.domain.list"
+    USER_UNKNOWN=0
     if [ "$domain_user" = 1 ]; then
-        gpo_list "$acct" USER > "$LISTS/user-$sid.domain.list"
-        win_order "$LISTS/user-$sid.domain.list" "$acct"
+        domain_list "user-$sid" "$acct" USER "$LISTS/user-$sid.domain.list" || USER_UNKNOWN=1
     fi
     USER_FILES=()
     [ -z "$LOCAL_USER" ] || USER_FILES+=("$LOCAL_USER")
@@ -318,9 +378,11 @@ awk 'NR == 1 { v = $2; next }
     if [ "$PRINT" = 1 ]; then
         sed "s/^/object user $acct /" "$LISTS/user-$sid.list"
         for f in "${USER_FILES[@]}"; do echo "user $acct $f"; done
+    elif [ "$USER_UNKNOWN" = 1 ] && has_archive "User-$sid"; then
+        echo "wex-gpupdate: $acct: the domain's user policy is not known: what was applied stays"
     elif [ "${#USER_FILES[@]}" -gt 0 ] || [ "$domain_user" = 1 ] || has_archive "User-$sid"; then
         apply "/user:$sid" "user-$sid" "${USER_FILES[@]}"
         record "/user:$sid" "$LISTS/user-$sid.list"
     fi
 done
-exit 0
+[ ! -e "$LISTS/failed" ]; exit

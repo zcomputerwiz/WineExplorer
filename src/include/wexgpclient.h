@@ -50,24 +50,72 @@ static DWORD wex_gp_refreshed(void)
     return serial;
 }
 
-/* the request's text, written to NAME itself; NAME.error of an earlier run is read by the caller, not here.
- * Not written as NAME.tmp and renamed: in the spool a rename by an elevated process fails with ERROR_INVALID_HANDLE
- * (found in the lab, 2026-11-16; creating, writing, copying and deleting there work, and the rename works in every
- * other directory). Nothing reads the spool until the control code that follows the write, and a request that is
- * half written when another administrator's control code arrives is refused and removed by gpsvc, which is safe. */
+/* the request's text, written as NAME.tmp and renamed to NAME, so that gpsvc never sees a half-written request;
+ * NAME.error of an earlier run is read by the caller, not here. (Until 2026-11-16 the file was written to NAME itself:
+ * a rename in the spool by an elevated process failed, B28, a name lookup in the server without the system group; fixed
+ * in the server, tested by c4_elevated_process_renames_in_a_group_only_directory.) */
 static DWORD wex_gp_leave_request( const WCHAR *dir, const WCHAR *name, const void *data, DWORD size )
 {
-    WCHAR final[MAX_PATH + 32];
+    WCHAR temp[MAX_PATH + 32], final[MAX_PATH + 32];
     HANDLE file;
     DWORD done, err = ERROR_SUCCESS;
 
+    swprintf( temp, ARRAY_SIZE(temp), L"%s\\%s.tmp", dir, name );
     swprintf( final, ARRAY_SIZE(final), L"%s\\%s", dir, name );
-    file = CreateFileW( final, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+    file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
     if (file == INVALID_HANDLE_VALUE) return GetLastError();
     if (size && (!WriteFile( file, data, size, &done, NULL ) || done != size)) err = GetLastError() ? GetLastError() : ERROR_WRITE_FAULT;
     if (!CloseHandle( file ) && !err) err = GetLastError();
-    if (err) DeleteFileW( final );
+    if (!err && !MoveFileExW( temp, final, MOVEFILE_REPLACE_EXISTING )) err = GetLastError();
+    if (err) DeleteFileW( temp );
     return err;
+}
+
+/* Waits until the refresh serial is not the one the caller saw before it asked (before), for wait_seconds (-1: without
+ * end, 0: does not wait); TRUE when it changed. Event driven: a registry change notification on the Group Policy key,
+ * which reaches every session through session 0 (docs/GROUP_POLICY.md, "Step 3: refresh signalling"); the event is
+ * armed before the serial is looked at again, so that a change in between is not missed. With pump, the thread's
+ * messages are dispatched meanwhile (a window that waits stays alive). If the key cannot be opened, the serial is
+ * looked at every quarter of a second: the one place left that polls, for a machine where the service never ran. */
+#define WEX_GP_WATCH_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy"
+
+static BOOL wex_gp_wait_refreshed( DWORD before, LONG wait_seconds, BOOL pump )
+{
+    HKEY key = NULL;
+    HANDLE event = CreateEventW( NULL, FALSE, FALSE, NULL );
+    ULONGLONG start = GetTickCount64(), limit = wait_seconds < 0 ? ~0ull : (ULONGLONG)wait_seconds * 1000;
+    BOOL ok = FALSE;
+
+    if (!wait_seconds) { if (event) CloseHandle( event ); return TRUE; }
+    if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, WEX_GP_WATCH_KEY, 0, KEY_NOTIFY | KEY_WOW64_64KEY, &key )) key = NULL;
+    for (;;)
+    {
+        ULONGLONG elapsed = GetTickCount64() - start;
+        DWORD timeout, wait;
+
+        if (key && event) RegNotifyChangeKeyValue( key, TRUE, REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET, event, TRUE );
+        if (wex_gp_refreshed() != before) { ok = TRUE; break; }
+        if (elapsed >= limit) break;
+        timeout = limit == ~0ull ? INFINITE : (DWORD)(limit - elapsed > 0xfffffffeu ? 0xfffffffeu : limit - elapsed);
+        if (!key || !event) { Sleep( 250 ); continue; }
+        if (pump)
+        {
+            MSG msg;
+
+            wait = MsgWaitForMultipleObjects( 1, &event, FALSE, timeout, QS_ALLINPUT );
+            if (wait == WAIT_OBJECT_0 + 1)
+            {
+                while (PeekMessageW( &msg, NULL, 0, 0, PM_REMOVE )) { TranslateMessage( &msg ); DispatchMessageW( &msg ); }
+                /* the event was not what woke it: it stays armed, the serial is looked at again and the wait goes on */
+                continue;
+            }
+        }
+        else wait = WaitForSingleObject( event, timeout );
+        if (wait == WAIT_TIMEOUT && wex_gp_refreshed() == before) break;
+    }
+    if (key) RegCloseKey( key );
+    if (event) CloseHandle( event );
+    return ok;
 }
 
 /* what gpsvc left in NAME.error (at most 200 bytes of ANSI text), removed; empty when there is none */
@@ -78,6 +126,7 @@ static void wex_gp_take_error( const WCHAR *dir, const WCHAR *name, WCHAR *messa
     DWORD done = 0;
     HANDLE file;
 
+    if (!chars) return;
     message[0] = 0;
     swprintf( path, ARRAY_SIZE(path), L"%s\\%s.error", dir, name );
     file = CreateFileW( path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
@@ -90,22 +139,23 @@ static void wex_gp_take_error( const WCHAR *dir, const WCHAR *name, WCHAR *messa
 }
 
 /* Hands the file of a kind (WEX_GP_MACHINE_POL, ...) to gpsvc; size 0 asks to remove it. wait_seconds is how long to
- * wait for the refresh (0: do not; -1: without end). ERROR_SUCCESS when gpsvc installed it and the refresh ended;
+ * wait for the refresh (0: do not; -1: without end); pump dispatches the thread's messages while it waits (a window). ERROR_SUCCESS when gpsvc installed it and the refresh ended;
  * ERROR_ACCESS_DENIED when this process is not of the system group (not elevated); ERROR_INVALID_DATA with the reason
  * in message when gpsvc refused the file; ERROR_TIMEOUT when the refresh did not end, or the request was not taken.
  * (ControlService does not hand the service handler's error code back, so a request that gpsvc refused, for a tree that
  * is not as setup makes it for one, shows up as the timeout; the request stays in the spool.) */
-static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG wait_seconds, WCHAR *message, DWORD chars )
+static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG wait_seconds, WCHAR *message, DWORD chars,
+                                  BOOL pump )
 {
     WCHAR dir[MAX_PATH], path[MAX_PATH + 40];
     SC_HANDLE manager, service;
     SERVICE_STATUS status;
-    DWORD before, start, err;
+    DWORD before, err;
 
     message[0] = 0;
     if (kind >= WEX_GP_KIND_COUNT || (size && !data)) return ERROR_INVALID_PARAMETER;
     if (size > (kind == WEX_GP_MACHINE_TEMPLATE ? WEX_GP_TEMPLATE_LIMIT : WEX_GP_REQUEST_LIMIT)) return ERROR_FILE_TOO_LARGE;
-    GetSystemDirectoryW( dir, MAX_PATH - 20 );
+    if (!GetSystemDirectoryW( dir, MAX_PATH - 20 )) return GetLastError();
     wcscat( dir, L"\\GroupPolicy\\Spool" );
     if ((err = wex_gp_leave_request( dir, wex_gp_request_names[kind], data, size ))) return err;
 
@@ -137,13 +187,7 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
     wex_gp_take_error( dir, wex_gp_request_names[kind], message, chars );
     if (message[0]) return ERROR_INVALID_DATA;
     /* the refresh that gpsvc asked for ends with a new serial */
-    start = GetTickCount();
-    while (wait_seconds && wex_gp_refreshed() == before)
-    {
-        if (wait_seconds > 0 && GetTickCount() - start >= (DWORD)wait_seconds * 1000) return ERROR_TIMEOUT;
-        Sleep( 250 );
-    }
-    return ERROR_SUCCESS;
+    return wex_gp_wait_refreshed( before, wait_seconds, pump ) ? ERROR_SUCCESS : ERROR_TIMEOUT;
 }
 
 #endif

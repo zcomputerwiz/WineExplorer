@@ -2123,6 +2123,8 @@ static void panel_context_menu(HWND hwnd, int hit, POINT screen)
     BOOL folder = csidl >= 0 && csidl != CSIDL_RECENT && csidl != CSIDL_PRINTERS;
     /* Windows offers "Show on Desktop" for the folders the desktop can show */
     BOOL desktop_item = shellfolder_clsid(csidl) && csidl != CSIDL_PRINTERS;
+    /* NoChangeStartMenu: the verbs that change the Start menu are there but grayed */
+    BOOL locked = shell_restricted(L"NoChangeStartMenu");
 
     if (cmd == CMD_ALL_PROGRAMS || g_panel[hit].zone == ZONE_LOGOFF) { DestroyMenu(menu); return; }
     if (program)
@@ -2131,8 +2133,8 @@ static void panel_context_menu(HWND hwnd, int hit, POINT screen)
         BOOL pinned = dyn && g_dyn[cmd - 4000].pinned;
         BOOL fixed = cmd == STARTMENU_CMD_INTERNET || cmd == STARTMENU_CMD_EMAIL;
 
-        AppendMenuW(menu, MF_STRING | (dyn || fixed ? 0 : MF_GRAYED), PCM_PIN, pinned || fixed ? L"Unpin from Start menu" : L"Pin to Start menu");
-        if (!fixed) AppendMenuW(menu, MF_STRING | (dyn ? 0 : MF_GRAYED), PCM_REMOVE, L"Remove &from This List");
+        AppendMenuW(menu, MF_STRING | (!locked && (dyn || fixed) ? 0 : MF_GRAYED), PCM_PIN, pinned || fixed ? L"Unpin from Start menu" : L"Pin to Start menu");
+        if (!fixed) AppendMenuW(menu, MF_STRING | (!locked && dyn ? 0 : MF_GRAYED), PCM_REMOVE, L"Remove &from This List");
         AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
         AppendMenuW(menu, MF_STRING | MF_GRAYED, PCM_PROPS, L"P&roperties");
     }
@@ -2144,7 +2146,7 @@ static void panel_context_menu(HWND hwnd, int hit, POINT screen)
             AppendMenuW(menu, MF_STRING, PCM_EXPLORE, L"E&xplore");
             AppendMenuW(menu, MF_STRING, PCM_SEARCH, L"&Search...");
             AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
-            AppendMenuW(menu, MF_STRING | (desktop_item ? (shellfolder_on_desktop(csidl) ? MF_CHECKED : 0) : MF_GRAYED),
+            AppendMenuW(menu, MF_STRING | (desktop_item && !locked ? (shellfolder_on_desktop(csidl) ? MF_CHECKED : 0) : MF_GRAYED),
                         PCM_SHOWDESK, L"&Show on Desktop");
             AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
             AppendMenuW(menu, MF_STRING, PCM_PROPS, L"P&roperties");

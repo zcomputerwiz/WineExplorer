@@ -782,6 +782,19 @@ int __cdecl wmain( int argc, WCHAR **argv )
         }
     }
 
+    /* what is written has to be recorded in the archive (it is what the next apply undoes): a set that could not be
+     * is refused now, not after the registry has been changed (the archive is never larger than the files) */
+    {
+        size_t total = PREG_HEADER_SIZE;
+
+        for (i = 0; i < count; i++) total += files[i].size;
+        if (total > MAX_FILE_SIZE)
+        {
+            err = ERROR_FILE_TOO_LARGE;
+            say( "wexpolicy: the files are too large together: error %lu; nothing changed\n", err );
+            goto done;
+        }
+    }
     if ((err = undo_archive( root, archive_path, FALSE )))
     {
         say( "wexpolicy: the archive of the last apply cannot be read (error %lu); nothing changed\n", err );

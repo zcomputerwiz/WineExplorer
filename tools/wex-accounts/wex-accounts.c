@@ -8,6 +8,7 @@
 #include "../../wine/server/accounts.c"
 #include <sys/file.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <dirent.h>
 
 static int mark_initialized( int dir );
@@ -286,10 +287,18 @@ static int checked_lock( int dir )
         protection_error( ".accounts.lock", "unsafe lock metadata or ACL", fd, (gid_t)-1 );
         close( fd ); return -1;
     }
-    if (flock( fd, LOCK_EX | LOCK_NB ))
+    /* another run holds the map (a second logon at the same time, or a sync): wait for it, 20 seconds at most,
+     * without a blocking flock (an alarm is in use for wbinfo) */
+    for (int tries = 0; flock( fd, LOCK_EX | LOCK_NB ); tries++)
     {
-        fprintf( stderr, "wex-accounts: lock acquisition failed: %s\n", strerror(errno) );
-        close( fd ); return -1;
+        const struct timespec pause = { 0, 50 * 1000 * 1000 };
+
+        if ((errno != EWOULDBLOCK && errno != EINTR) || tries >= 400)
+        {
+            fprintf( stderr, "wex-accounts: lock acquisition failed: %s\n", strerror(errno) );
+            close( fd ); return -1;
+        }
+        nanosleep( &pause, NULL );
     }
     return fd;
 }
@@ -443,7 +452,9 @@ static int record_domain_groups( int dir, const struct account_map *map, gid_t g
     {
         for (line = text + 12; *line; line = next)
         {
-            next = strchr( line, '\n' );
+            /* a last line without its newline is a cut file: dropped, since a cut number is another group
+             * ("5121" cut to "512" would be Domain Admins) */
+            if (!(next = strchr( line, '\n' ))) break;
             *next++ = 0;
             if (strlen( line ) < 33 || !strncmp( line, r->key, 32 )) continue;
             for (j = 0; j < map->count; j++)

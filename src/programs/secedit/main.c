@@ -289,7 +289,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
         file[0] = 0xfeff;
         memcpy( file + 1, text, len * sizeof(WCHAR) );
         free( text );
-        err = wex_gp_store_write( WEX_GP_MACHINE_TEMPLATE, file, bytes, 600, message, ARRAY_SIZE(message) );
+        err = wex_gp_store_write( WEX_GP_MACHINE_TEMPLATE, file, bytes, 600, message, ARRAY_SIZE(message), FALSE );
         free( file );
     }
     if (err == ERROR_INVALID_DATA && message[0])

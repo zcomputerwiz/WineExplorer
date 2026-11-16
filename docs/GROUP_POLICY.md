@@ -494,9 +494,10 @@ write the store themselves; they hand a file to `gpsvc`, which checks it and ins
   `gpsvc` creates at its start; the machine root's default ACL (`g:wexsys:rwX`) makes it writable by the system
   group (an elevated administrator's process) and by nobody else.
 - **A request** is a file in the spool with one of the names `Machine.Registry.pol`, `User.Registry.pol`,
-  `Machine.GptTmpl.inf`, written to `NAME` itself (not as `NAME.tmp` and renamed: a rename in the spool by an
-  elevated process fails with `ERROR_INVALID_HANDLE`, found in the lab on 2026-11-16, while creating, writing,
-  copying and deleting there work; gpsvc reads a request only after the control code that follows the write). Zero bytes mean "remove the store
+  `Machine.GptTmpl.inf`, written as `NAME.tmp` and renamed to `NAME` (atomic). For a short time (2026-11-16) the
+  client wrote to `NAME` itself, because a rename in the spool by an elevated process failed with
+  `ERROR_INVALID_HANDLE` (B28: the server's name lookups for a system-group client ran without the group; fixed in the
+  server, `c4_elevated_process_renames_in_a_group_only_directory`). Zero bytes mean "remove the store
   file" (every setting back to Not Configured). Later, per user: `User-SID.Registry.pol`.
 - **The trigger** is a new user-defined control code of `gpsvc`, `GPSVC_CONTROL_STORE` (129), without data, sendable
   by any authenticated user like 128 (`GPSVC_CONTROL_REFRESH`): it only makes `gpsvc` look at what the system group
@@ -623,7 +624,7 @@ and the XP-style menu (an empty cascade goes too, and the Log Off and Turn Off b
 as applying; the rest of the "stored" ones (`NoChangeStartMenu`, `NoFolderOptions`, `NoViewContextMenu`,
 `NoFileAssociate`, `NoNetHood`, `ClearRecentDocsOnExit`, `NoWinKeys`) are still only read by programs that call
 `SHRestricted`. Checked by hand under Xvfb with the build tree (menu with and without `NoRun`, `NoClose`, `NoLogoff`,
-XX
+`NoFind`); there is no automated check yet, since the shell needs a desktop. The procedure is below.
 
 A value counts as a REG_DWORD or as the four bytes of a REG_BINARY (old ADM templates write the flags that way).
 
@@ -636,3 +637,22 @@ after about 12 s click the Start button (`xdotool mousemove 30 755 click 1`) and
 Without the values the menu shows Search, Run, Log Off and Turn Off Computer; with them those are gone and the
 footer is empty. Stop with `$B/wine wineboot -k` and delete the values again (plain `explorer.exe` without
 `/desktop=... /shell` opens a folder window, not the shell).
+
+#### More restrictions, and the shell reading them after a refresh (2026-11-16)
+
+`NoChangeStartMenu` (the pin, remove and show-on-desktop verbs of the Start panel's menu are grayed), `NoWinKeys` (the
+combinations with the Windows key do nothing; the key alone still opens Start) and `NoNetHood` (no My Network Places
+on the desktop, none in the Start menu) are carried out as well, which makes thirteen in the editor's "applies" list.
+`NoFolderOptions`, `NoViewContextMenu`, `NoFileAssociate` and `ClearRecentDocsOnExit` stay "stored": they belong to
+the folder windows and to the log off, which this shell does not make from these policies yet.
+
+A user's policy is applied after the shell is up (the session script runs `gpupdate /target:user` five seconds after
+the shell starts), so the shell has to learn that a refresh has applied. It does not poll, and a broadcast does not do
+it (the shell's desktop is a desktop of its own, `explorer.exe /desktop=NAME /shell`, and a message from another
+process, or from session 0, which is another wineserver, does not reach it). The prior art is "Step 3: refresh
+signalling" above: `userenv`'s `RegisterGPNotification`, the call Windows programs use for this, signalled through the
+serial that the writer leaves in the registry (a registry change notification reaches every session through session
+0). The shell registers two events, for the computer's and for the user's policy (`shell_restrictions_watch`,
+`restrictions.c`), and a thread-pool wait posts `WM_WEX_POLICY` to the desktop view, which builds the desktop again and
+tells the taskbar (`WM_SETTINGCHANGE`). A restriction, or the removal of one, shows when the refresh ends, with no
+logoff (checked under Xvfb by bumping the user serial: the icon went within seconds). The shell makes sure that `HKCU\Software\Policies` exists first, which userenv watches: a user who has had no policy yet would otherwise miss the first refresh. The Start menus read the values each time they are opened.

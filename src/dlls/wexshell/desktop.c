@@ -36,6 +36,7 @@
 #include "wine/debug.h"
 #include "explorer_private.h"
 #include "resource.h"
+#include "restrictions.h"
 #include "shellfolders.h"
 
 #include "module.h"
@@ -1279,7 +1280,12 @@ static LRESULT CALLBACK winkey_hook( int code, WPARAM wp, LPARAM lp )
             if (win_down && !win_used) PostMessageW( shell_hwnd, WM_SYSCOMMAND, SC_TASKLIST, 0 );
             win_down = FALSE;
         }
-        else if (down && win_down) win_used = TRUE;
+        else if (down && win_down)
+        {
+            win_used = TRUE;
+            /* NoWinKeys: the Windows key still opens Start by itself, its combinations do nothing */
+            if (shell_restricted( L"NoWinKeys" )) return 1;
+        }
     }
     return CallNextHookEx( NULL, code, wp, lp );
 }

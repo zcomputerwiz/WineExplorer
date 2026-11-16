@@ -39,6 +39,11 @@
 
 #include "wexgpstore_unix.h"
 #include "native.h"
+#include "wexgpstore.h"
+
+/* the limits are written twice (the PE side's header and the native code's): they have to agree */
+typedef char limits_agree[(WEX_GP_REQUEST_LIMIT == GPS_REQUEST_LIMIT && WEX_GP_TEMPLATE_LIMIT == GPS_TEMPLATE_LIMIT &&
+                           WEX_GP_ERROR_LIMIT == GPS_ERROR_LIMIT) ? 1 : -1];
 
 /* The machine root is the one in the root-owned configuration of the system tier (the same file and rule as the
  * server's: not a link, owned by root, not writable by others, "machine_root=" given exactly once), never something
@@ -54,7 +59,7 @@ static int read_machine_root( char *root, size_t size )
 
     if ((fd = open( SYSRUN_CONF, O_RDONLY | O_NOFOLLOW | O_CLOEXEC )) < 0) return 0;
     if (fstat( fd, &st ) || !S_ISREG( st.st_mode ) || st.st_uid != 0 || (st.st_mode & 022) ||
-        (length = read( fd, text, sizeof(text) - 1 )) <= 0)
+        (length = read( fd, text, sizeof(text) - 1 )) <= 0 || length >= (ssize_t)sizeof(text) - 1)   /* (a file that fills the buffer is cut: refused) */
     {
         close( fd );
         return 0;

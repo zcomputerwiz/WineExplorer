@@ -81,8 +81,15 @@ static BOOL store_path( enum policy_scope scope, WCHAR *path, DWORD chars )
     return TRUE;
 }
 
-/* the local object's file of a scope into its model; no file is an empty model, a file that is not a policy file is
- * reported and also leaves an empty one */
+/* Whether the file of a scope could not be read as a policy file when the model was loaded. A save then writes the
+ * whole model over the file, so it is refused: an empty model must not stand for a file that is there but unread
+ * (the saved file would hold one setting and drop all the others). No file at all is a normal, empty model. */
+static BOOL load_failed[2];
+/* no message boxes: GpEdit_SetPolicyW is for scripts */
+static BOOL quiet;
+
+/* the local object's file of a scope into its model; no file (or an empty one) is an empty model, a file that is
+ * there and cannot be read as a policy file is reported and leaves load_failed set */
 static void load_scope( enum policy_scope scope )
 {
     WCHAR path[MAX_PATH];
@@ -91,21 +98,40 @@ static void load_scope( enum policy_scope scope )
     BYTE *data;
     int ret = 0;
 
+    load_failed[scope] = FALSE;
     if (!models[scope]) models[scope] = model_new();
     model_load( models[scope], NULL, 0 );
     if (!store_path( scope, path, ARRAY_SIZE(path) )) return;
     file = CreateFileW( path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
-    if (file == INVALID_HANDLE_VALUE) return;
-    size = GetFileSize( file, NULL );
-    if (size != INVALID_FILE_SIZE && size && size <= WEX_GP_REQUEST_LIMIT && (data = malloc( size )))
+    if (file == INVALID_HANDLE_VALUE)
     {
-        if (ReadFile( file, data, size, &done, NULL ) && done == size) ret = model_load( models[scope], data, size );
-        else ret = -1;
-        free( data );
+        DWORD err = GetLastError();
+        ret = err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND ? 0 : -1;
     }
-    CloseHandle( file );
+    else
+    {
+        size = GetFileSize( file, NULL );
+        if (size == INVALID_FILE_SIZE || size > WEX_GP_REQUEST_LIMIT) ret = -1;
+        else if (size)
+        {
+            if (!(data = malloc( size ))) ret = -1;
+            else
+            {
+                if (ReadFile( file, data, size, &done, NULL ) && done == size) ret = model_load( models[scope], data, size );
+                else ret = -1;
+                free( data );
+            }
+        }
+        CloseHandle( file );
+    }
     if (ret)
-        MessageBoxW( frame, L"The local policy file is not a valid policy file and is ignored.", L"Group Policy", MB_OK | MB_ICONWARNING );
+    {
+        load_failed[scope] = TRUE;
+        model_load( models[scope], NULL, 0 );
+        if (!quiet)
+            MessageBoxW( frame, L"The local policy file cannot be read as a policy file. It is left as it is: changes are not saved.",
+                         L"Group Policy", MB_OK | MB_ICONWARNING );
+    }
 }
 
 /* ---------------------------------------------------------------------------------------------------- the states */
@@ -184,13 +210,19 @@ static DWORD commit_scope( enum policy_scope scope, WCHAR *message, DWORD chars 
     DWORD err;
 
     message[0] = 0;
+    if (load_failed[scope])
+    {
+        /* what is in the model is not what is in the file: nothing is written over it */
+        lstrcpynW( message, L"The existing policy file cannot be read, so it is not replaced.", chars );
+        return ERROR_INVALID_DATA;
+    }
     if (model_save( models[scope], &data, &size ))
     {
         load_scope( scope );
         return ERROR_NOT_ENOUGH_MEMORY;
     }
     err = wex_gp_store_write( scope == POLICY_COMPUTER ? WEX_GP_MACHINE_POL : WEX_GP_USER_POL, data, (DWORD)size, 120,
-                              message, chars );
+                              message, chars, !quiet );   /* (the window keeps painting while it waits) */
     free( data );
     load_scope( scope );
     return err;
@@ -200,8 +232,12 @@ static BOOL save_scope( HWND owner, enum policy_scope scope )
 {
     WCHAR message[260];
     HCURSOR old = SetCursor( LoadCursorW( NULL, (LPCWSTR)IDC_WAIT ) );
-    DWORD err = commit_scope( scope, message, ARRAY_SIZE(message) );
+    DWORD err;
 
+    /* the window is disabled while the wait pumps its messages: no second change can start meanwhile */
+    if (frame) EnableWindow( frame, FALSE );
+    err = commit_scope( scope, message, ARRAY_SIZE(message) );
+    if (frame) EnableWindow( frame, TRUE );
     SetCursor( old );
     if (err) report_error( owner, err, message );
     return !err;
@@ -366,6 +402,10 @@ static void show_properties( HWND owner, const struct policy *policy )
     PROPSHEETHEADERW header;
     WCHAR title[300];
 
+    /* the file again before it is edited: another administrator may have changed it since the window was opened, and
+     * the whole model is written back */
+    load_scope( policy->scope );
+    refresh_list();
     model_get( models[policy->scope], policy, &edit.state, &edit.number );
     if (policy->kind == POLICY_NUMBER && !edit.number && policy->allowed) edit.number = (uint32_t)strtoul( policy->allowed, NULL, 10 );
     memset( pages, 0, sizeof(pages) );
@@ -674,9 +714,12 @@ DWORD WINAPI GpEdit_SetPolicyW( const WCHAR *id, DWORD state, DWORD number )
     if (policies[i].status == POLICY_NOT_APPLICABLE) return ERROR_NOT_SUPPORTED;
     if (policies[i].kind == POLICY_NUMBER && state == SETTING_ENABLED && !number_allowed( &policies[i], number ))
         return ERROR_INVALID_PARAMETER;
+    quiet = TRUE;
     load_scope( policies[i].scope );
-    if (model_set( models[policies[i].scope], &policies[i], (enum setting_state)state, number )) return ERROR_NOT_ENOUGH_MEMORY;
-    err = commit_scope( policies[i].scope, message, ARRAY_SIZE(message) );
+    if (load_failed[policies[i].scope]) err = ERROR_INVALID_DATA;   /* the file there cannot be read: not replaced */
+    else if (model_set( models[policies[i].scope], &policies[i], (enum setting_state)state, number )) err = ERROR_NOT_ENOUGH_MEMORY;
+    else err = commit_scope( policies[i].scope, message, ARRAY_SIZE(message) );
+    quiet = FALSE;
     model_free( models[policies[i].scope] );
     models[policies[i].scope] = NULL;
     return err;

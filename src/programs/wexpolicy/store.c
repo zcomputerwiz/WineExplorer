@@ -79,22 +79,22 @@ static DWORD check_request( DWORD kind, const BYTE *data, DWORD size )
 }
 
 /* the request is handled; the reason (or NULL) goes to NAME.error */
-static void finish_request( DWORD kind, DWORD err, const char *why )
+static DWORD finish_request( DWORD kind, DWORD err, const char *why )
 {
     char text[WEX_GP_ERROR_LIMIT + 1];
 
-    if (!err) WexGpSpoolDone( kind, NULL );
+    if (!err) return WexGpSpoolDone( kind, NULL );
     else
     {
         snprintf( text, sizeof(text), "error %lu: %s", err, why );
-        WexGpSpoolDone( kind, text );
+        return WexGpSpoolDone( kind, text );
     }
 }
 
 DWORD process_spool(void)
 {
     BYTE *buffer;
-    DWORD kind, err, length, handled = 0;
+    DWORD kind, err, length, handled = 0, stuck = 0;   /* stuck: requests that could not be taken out of the spool */
 
     /* the tree has to be as setup makes it, else nothing is read or written (and stale STORE.new files go) */
     if ((err = WexGpStoreOpen())) return err;
@@ -107,24 +107,25 @@ DWORD process_spool(void)
         err = WexGpSpoolRead( kind, buffer, room, &length );
         if (err == ERROR_FILE_NOT_FOUND) continue;
         handled++;
-        if (err == ERROR_ACCESS_DENIED) { finish_request( kind, err, "refused: not a plain file with one link" ); continue; }
-        if (err == ERROR_FILE_TOO_LARGE) { finish_request( kind, err, "refused: too large" ); continue; }
-        if (err) { finish_request( kind, err, "the request could not be read" ); continue; }
+        if (err == ERROR_ACCESS_DENIED) { stuck += !!finish_request( kind, err, "refused: not a plain file with one link" ); continue; }
+        if (err == ERROR_FILE_TOO_LARGE) { stuck += !!finish_request( kind, err, "refused: too large" ); continue; }
+        if (err) { stuck += !!finish_request( kind, err, "the request could not be read" ); continue; }
         /* zero bytes: every setting back to Not Configured, the store file goes */
         if (length && (err = check_request( kind, buffer, length )))
         {
-            finish_request( kind, err, kind == WEX_GP_MACHINE_TEMPLATE ? "not a security template" : "not a policy file" );
+            stuck += !!finish_request( kind, err, kind == WEX_GP_MACHINE_TEMPLATE ? "not a security template" : "not a policy file" );
             continue;
         }
         if ((err = WexGpStoreWrite( kind, length ? buffer : NULL, length )))
         {
-            finish_request( kind, err, "the store could not be written" );
+            stuck += !!finish_request( kind, err, "the store could not be written" );
             continue;
         }
-        finish_request( kind, ERROR_SUCCESS, NULL );
+        stuck += !!finish_request( kind, ERROR_SUCCESS, NULL );
     }
     HeapFree( GetProcessHeap(), 0, buffer );
     /* a refresh also when only errors were reported: the client waits for the refresh's end, and then reads them */
-    if (handled) request_refresh();
+    /* (a request that stays in the spool is read again by every control code: it must not make a refresh each time) */
+    if (handled > stuck) request_refresh();
     return ERROR_SUCCESS;
 }

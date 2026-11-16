@@ -57,6 +57,12 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `dlls/shcore/main.c` (`IsOS`), `Makefile.in` (delay import of netapi32): `OS_DOMAINMEMBER` answers from
   `NetGetJoinInformation` (a domain join) instead of always TRUE. Chromium reads it as "the device is managed":
   Edge then skipped its modal first-run dialog (B10). Test in `dlls/shcore/tests/shcore.c`.
+- `server/fd.c`, `server/sysrun.c`, `server/sysrun.h` (Wine 273d23bb): the name lookups around a system group
+  client's file operations use the raised group too (`sysrun_stat`, `sysrun_lstat`, `sysrun_realpath`: a new fd's
+  `realpath`, the `lstat` of a link, a rename target's existence check, the check before a delete-on-close
+  unlink). In a directory only the system group can search, a file had no name, so a rename failed, a
+  non-replacing rename could replace, and DeleteFile did not delete (B28). Suite case
+  `c4_elevated_process_renames_in_a_group_only_directory` in `scripts/test_sysrun_server.sh`.
 - `dlls/user32/sysparams.c` (`CalculatePopupWindowPosition`, new; `user32.spec`, `include/winuser.h`:
   `TPM_WORKAREA` and the prototype; Wine 4cfc7a2f): it was a stub. Aligned at the anchor, kept clear of the exclude
   rectangle on the TPM_VERTICAL/TPM_HORIZONTAL axis when the anchor is in it (the other side, else the plain

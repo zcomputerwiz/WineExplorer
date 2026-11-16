@@ -155,9 +155,17 @@ static void read_config(struct config *c)
     if (fd < 0) refuse("cannot open config", SYSRUN_CONF);
     if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_uid != 0 || (st.st_mode & (S_IWGRP | S_IWOTH)))
         refuse("config is not a regular root-owned file that only root can write", SYSRUN_CONF);
-    n = read(fd, buf, sizeof(buf) - 1);
+    /* the whole file or nothing: a read that stops early could leave a cut machine_root= that still parses */
+    if (st.st_size <= 0 || st.st_size >= (off_t)sizeof(buf)) refuse("config is empty or too large", SYSRUN_CONF);
+    for (size_t got = 0; got < (size_t)st.st_size; got += n)
+    {
+        n = read(fd, buf + got, (size_t)st.st_size - got);
+        if (n < 0 && errno == EINTR) { n = 0; continue; }
+        if (n <= 0) refuse("cannot read config", SYSRUN_CONF);
+    }
+    n = st.st_size;
+    if (read(fd, buf + n, 1) != 0) refuse("config changed while it was read", SYSRUN_CONF);
     close(fd);
-    if (n <= 0) refuse("cannot read config", SYSRUN_CONF);
     buf[n] = 0;
     for (line = buf; line; line = next)
     {

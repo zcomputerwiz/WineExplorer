@@ -877,6 +877,19 @@ bp c4_child_of_an_elevated_process_is_elevated_and_can_write_program_files "$ADM
     [ "$(el_fact "$EL/out.spawn.sub" integrity)" = 12288 ] || { cat "$EL/out.spawn.sub" >&2; fail "the child of an elevated process is not elevated"; }
 ok c4_grandchild_is_elevated_and_keeps_the_system_group
 
+# B28: a directory of the machine root that only the system group can search (as the Group Policy spool: 2770 and
+# a default ACL for the group); the elevated process creates, writes, renames and deletes a file in it
+B28DIR="$SYS32/WexB28"
+install -d -m 2770 -o root -g "$GRP" "$B28DIR"
+if command -v setfacl >/dev/null 2>&1; then setfacl -m "g:$GRP:rwX" -m "d:g:$GRP:rwX" "$B28DIR"; fi
+bp c4_elevated_process_works_in_a_group_only_directory "$ADM" 64 run "$IMG" 0 "$(winpath $EL/out.b28)" - grouponly
+for step in create write move delete move_out move_in rename_same; do
+    [ "$(el_fact "$EL/out.b28" "grouponly_$step")" = 0 ] || { cat "$EL/out.b28" >&2; fail "B28: $step in a group-only directory failed"; }
+done
+[ -z "$(ls -A "$B28DIR")" ] || { ls -la "$B28DIR" >&2; fail "B28: files left in the group-only directory"; }
+rm -rf "$B28DIR"
+ok c4_elevated_process_renames_in_a_group_only_directory
+
 # -- 2. the Unix side of the elevated process, and a limited process of the same user against it (B7, B8)
 el_clean; touch "$EL/approve.all"
 bprobe "$ADM" 64 attack "$IMG" "$(winpath $EL/out.attack)" t1 > "$ROOT/attack.log" 2>&1 & APID=$!
