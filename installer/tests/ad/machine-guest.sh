@@ -323,6 +323,12 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
         deny_only() { [ -n "$1" ] && [ $(( 0x$1 & 0x10 )) != 0 ] && [ $(( 0x$1 & 0x4 )) = 0 ]; }
         enabled() { [ -n "$1" ] && [ $(( 0x$1 & 0x4 )) != 0 ] && [ $(( 0x$1 & 0x10 )) = 0 ]; }
         grp() { sed -n "s/^$1=$2 attrs=//p" <<<"$TOK"; }
+        # A default install does not enforce elevation (no elevation helper is configured: HKLM\Software\Wine\Elevation,
+        # Helper), so no token is filtered; the check needs it on, set through session 0 (the machine's registry is
+        # its) for this part, and taken away after it.
+        s0_reg() { (cd / && runuser -u wexsys -- env -i WINEPREFIX=/var/lib/wineexplorer/machine HOME=/var/lib/wineexplorer/machine \
+            PATH=/usr/bin:/bin WINEDEBUG=-all /usr/local/bin/wine "$@" </dev/null 2>/dev/null); }
+        s0_reg reg add 'HKLM\Software\Wine\Elevation' /v Helper /t REG_SZ /d 'C:\windows\system32\consent.exe' /f >/dev/null
         loginctl terminate-user "$duid"
         sleep 5
         if host_step logon "$AUSER"; then
@@ -343,6 +349,7 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
                 ok domain_admin_full_token_has_them_enabled
             else notok domain_admin_full_token_has_them_enabled "$(grep -E '^linkedgroup=(S-1-5-32-544|.*-51[23]) ' <<<"$TOK" | tr '\n' ' ')"; fi
         else notok domain_admin_logon "$HOST_ANSWER"; fi
+        s0_reg reg delete 'HKLM\Software\Wine\Elevation' /v Helper /f >/dev/null
     else
         echo "note domain_admin_logon: skipped (wexadmin1 password $( [ -s /root/wexadmin1pw ] && echo present || echo absent), probe $( [ -f "$PROBE" ] && echo present || echo absent))"
     fi
