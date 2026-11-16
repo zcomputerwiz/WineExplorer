@@ -11,6 +11,21 @@ export WINEDEBUG="${WINEDEBUG:--all,err+all}"
 WINE="${WINE:-/usr/local/bin/wine}"
 
 # Called after the display backend is ready. Keep prefix-split policy shared.
+# A user's policy applies after the profile has loaded and the shell is up, as on Windows (not during the logon, where
+# a refresh and the session's own start-up compete for session 0): this asks for a refresh through gpupdate (gpsvc
+# leaves the request for root's wex-gpupdate.path) once an explorer of this user runs, five seconds later. It runs for
+# every normal logon, a local user's too (the local object's user policy); with no policy at all a refresh does
+# nothing. Started in the background just before the shell, so the session itself does not wait for it.
+wex_refresh_policy_after_logon()
+{
+    [ "${WEXMODE:-normal}" = normal ] || return 0
+    (
+        for _ in $(seq 1 120); do pgrep -u "$(id -u)" -x explorer.exe >/dev/null 2>&1 && break; sleep 1; done
+        sleep 5
+        "$WINE" gpupdate.exe /target:user /wait:0 >/dev/null 2>&1
+    ) &
+}
+
 wex_prepare_prefix()
 {
     # Restore the shared view before wineboot updates. Changes take effect only

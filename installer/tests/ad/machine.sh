@@ -98,6 +98,15 @@ if [ -s "$LAB/wexuser1_password.txt" ]; then
     install -m 0600 "$LAB/wexuser1_password.txt" "$MNT/root/wexuser1pw"
     DOMAIN_LOGON=1
 fi
+# a member of Domain Admins (the fixtures' wexadmin1): the guest then also checks the token of a domain administrator
+# at a real logon. Wine's whoami does not print the groups, so the project's token probe goes along (this host's
+# mingw compiler builds it).
+if [ -s "$LAB/wexadmin1_password.txt" ] && [ "$DOMAIN_LOGON" = 1 ] && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+    install -d -m 0755 "$MNT/usr/local/share/wex-lab-probe"
+    x86_64-w64-mingw32-gcc -O2 -Wall -municode -o "$MNT/usr/local/share/wex-lab-probe/tierprobe64.exe" \
+        "$REPO/scripts/system-tier-probe.c" -ladvapi32 -lntdll && install -m 0600 "$LAB/wexadmin1_password.txt" "$MNT/root/wexadmin1pw" ||
+        echo "note domain_admin: not prepared (probe or password)"
+fi
 install -m 0700 "$HERE/machine-guest.sh" "$MNT/root/ad-guest.sh"
 # WEX_LAB_TREE_GPUPDATE=1: this tree's wex-gpupdate.sh in place of the image's (a script change tested without a
 # new image; docs/GPO_LAB.md)
@@ -105,8 +114,8 @@ if [ "${WEX_LAB_TREE_GPUPDATE:-0}" = 1 ]; then
     install -m 0755 "$REPO/installer/scripts/wex-gpupdate.sh" "$MNT/usr/local/bin/wex-gpupdate.sh"
     echo "using this tree's wex-gpupdate.sh"
 fi
-# WEX_LAB_TREE_TOOLS=1: this tree's wex-sysrun and wex-accounts (built as installer/package-wine.sh builds them) in
-# place of the image's, so that a change to either is tested without a new image
+# WEX_LAB_TREE_TOOLS=1: this tree's wex-sysrun and wex-accounts (built as installer/package-wine.sh builds them) and
+# the PAM step's script in place of the image's, so that a change to any is tested without a new image
 if [ "${WEX_LAB_TREE_TOOLS:-0}" = 1 ]; then
     TOOLS=$(mktemp -d)
     cc -O2 -Wall -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
@@ -119,8 +128,9 @@ if [ "${WEX_LAB_TREE_TOOLS:-0}" = 1 ]; then
     install -m 0755 "$TOOLS/wex-sysrun" "$LIBEXEC/wex-sysrun"
     chroot "$MNT" chown root:wexsys /usr/local/libexec/wineexplorer/wex-sysrun || fail "chown wex-sysrun"
     chmod 2755 "$LIBEXEC/wex-sysrun"
+    install -m 0755 "$REPO/scripts/wex-domain-admit-pam.sh" "$MNT/usr/local/sbin/wex-domain-admit-pam.sh"
     rm -rf "$TOOLS"
-    echo "using this tree's wex-sysrun and wex-accounts"
+    echo "using this tree's wex-sysrun, wex-accounts and wex-domain-admit-pam.sh"
 fi
 detach
 
@@ -129,36 +139,72 @@ detach
 
 "${V[@]}" sh "$TEST" root "$PWFILE" "rm -f /root/ad.out; (bash /root/ad-guest.sh > /root/ad.out 2>&1 &)" --timeout 30 >/dev/null
 
-# The domain user's logon (docs/DOMAIN_LOGON.md, WO 4): once the guest says AD-GUEST-LOGON-READY, the Welcome
-# screen is up without automatic logon; Ctrl+Alt+Delete twice gives the classic dialog (as installer/tests/safe-mode.sh),
-# WEXLAB\wexuser1 is typed with the fixtures' password, and the guest is told once the desktop is there.
-domain_logon() {
-    # a screenshot of where a step stopped, kept in the test VM's folder
-    stuck() { echo "note domain_logon_host: $1 (screen: $STATE/logon-$2.png)"; "${V[@]}" shot "$TEST" "$STATE/logon-$2.png" >/dev/null 2>&1 || true; return 1; }
-    "${V[@]}" wait "$TEST" "To begin" --timeout 300 >/dev/null || { stuck "no Welcome screen" welcome; return 1; }
+# Host steps (docs/DOMAIN_LOGON.md, WO 4; docs/GPO_LAB.md): the guest asks for what only the host can do, with a line
+# "AD-GUEST-HOST-STEP NAME" in its output, and waits for /root/host-done-NAME, which gets "ok" or "fail: why":
+#   logon      the classic dialog (Ctrl+Alt+Delete twice, as installer/tests/safe-mode.sh), WEXLAB\wexuser1 and the
+#              fixtures' password typed, the desktop waited for
+#   logon-bad  the same with a wrong password: the Logon Message has to come, and the dialog stays
+#   tile TEXT  the Welcome screen shows TEXT (the user's tile)
+# A screenshot of where a step stopped is kept in the test VM's folder.
+host_stuck() { "${V[@]}" shot "$TEST" "$STATE/host-$1.png" >/dev/null 2>&1 || true; echo "fail: $2 (screen $STATE/host-$1.png)"; }
+host_classic() {   # to the classic dialog from the Welcome screen (or already there, after a refused logon)
+    if "${V[@]}" wait "$TEST" "Log On to Windows" --timeout 5 >/dev/null 2>&1; then return 0; fi
+    "${V[@]}" wait "$TEST" "To begin" --timeout 300 >/dev/null || { host_stuck welcome "no Welcome screen"; return 1; }
     "${V[@]}" key "$TEST" ctrl-alt-delete >/dev/null; sleep 2
     "${V[@]}" key "$TEST" ctrl-alt-delete >/dev/null
-    "${V[@]}" wait "$TEST" "Log On to Windows" --timeout 30 >/dev/null || { stuck "no classic dialog" classic; return 1; }
+    "${V[@]}" wait "$TEST" "Log On to Windows" --timeout 30 >/dev/null || { host_stuck classic "no classic dialog"; return 1; }
+}
+host_type_credentials() {   # NAME PASSWORD
     "${V[@]}" key "$TEST" alt-u >/dev/null
-    "${V[@]}" type "$TEST" 'WEXLAB\wexuser1'
+    "${V[@]}" type "$TEST" "$1"
     "${V[@]}" key "$TEST" alt-p delete >/dev/null
-    "${V[@]}" type "$TEST" "$(cat "$LAB/wexuser1_password.txt")"
+    "${V[@]}" type "$TEST" "$2"
     "${V[@]}" key "$TEST" ret >/dev/null
-    "${V[@]}" wait "$TEST" "My Documents" --timeout 300 >/dev/null || { stuck "no desktop after the logon" desktop; return 1; }
-    "${V[@]}" sh "$TEST" root "$PWFILE" "touch /root/logon-done" --timeout 30 >/dev/null
+}
+host_step() {   # NAME ARGS...: prints what goes into the done file (the last line)
+    local name=$1; shift
+    case $name in
+        logon)   # logon [DOMAIN\user]: wexuser1 when no name is given; the password is the fixtures' $LAB/<user>_password.txt
+            local who=${1:-'WEXLAB\wexuser1'}
+            [[ $who =~ ^WEXLAB\\[a-z0-9]+$ ]] || { echo "fail: not a lab user: $who"; return 0; }
+            host_classic || return 0
+            host_type_credentials "$who" "$(cat "$LAB/${who#WEXLAB\\}_password.txt")"
+            "${V[@]}" wait "$TEST" "My Documents" --timeout 300 >/dev/null || { host_stuck desktop "no desktop after the logon"; return 0; }
+            echo ok ;;
+        logon-bad)
+            host_classic || return 0
+            host_type_credentials 'WEXLAB\wexuser1' "not-the-password-$RANDOM"
+            "${V[@]}" wait "$TEST" "could not log you on" --timeout 120 >/dev/null || { host_stuck refused "no Logon Message for a wrong password"; return 0; }
+            "${V[@]}" key "$TEST" ret >/dev/null
+            "${V[@]}" wait "$TEST" "Log On to Windows" --timeout 30 >/dev/null || { host_stuck afterrefusal "the classic dialog closed after the Logon Message"; return 0; }
+            echo ok ;;
+        tile)
+            "${V[@]}" wait "$TEST" "To begin" --timeout 300 >/dev/null || { host_stuck welcome "no Welcome screen"; return 0; }
+            "${V[@]}" shot "$TEST" "$STATE/host-tile.png" >/dev/null 2>&1 || true
+            if "${V[@]}" wait "$TEST" "$*" --timeout 60 >/dev/null; then echo ok; else host_stuck tile "no tile with the text '$*'"; fi ;;
+        *) echo "fail: unknown host step $name" ;;
+    esac
 }
 
-# the guest installs packages: at most 15 minutes, 25 with the domain logon
+# the guest installs packages and runs the logons: at most 15 minutes, 45 with the domain user's logons
 START=$(date +%s)
-LIMIT=$(( DOMAIN_LOGON ? 1500 : 900 ))
+LIMIT=$(( DOMAIN_LOGON ? 2700 : 900 ))
 done_seen=0
-logon_tried=0
+handled=0
 while :; do
     sleep 15
     if [ $(( $(date +%s) - START )) -ge "$LIMIT" ]; then break; fi
-    if [ "$DOMAIN_LOGON" = 1 ] && [ "$logon_tried" = 0 ]; then
-        READY=$("${V[@]}" sh "$TEST" root "$PWFILE" "grep -c AD-GUEST-LOGON-READY /root/ad.out 2>/dev/null" --timeout 30 2>/dev/null) || true
-        if [ "$READY" = 1 ]; then logon_tried=1; domain_logon || true; fi
+    if [ "$DOMAIN_LOGON" = 1 ]; then
+        STEPS=$("${V[@]}" sh "$TEST" root "$PWFILE" "grep '^AD-GUEST-HOST-STEP ' /root/ad.out 2>/dev/null" --timeout 30 2>/dev/null) || STEPS=
+        count=$(grep -c . <<<"$STEPS" || true)
+        while [ "$handled" -lt "$count" ]; do
+            handled=$((handled + 1))
+            line=$(sed -n "${handled}p" <<<"$STEPS" | tr -d '\r')
+            read -r -a words <<<"${line#AD-GUEST-HOST-STEP }"
+            result=$(host_step "${words[@]}" 2>&1 | tail -1)
+            echo "note host_step ${words[*]}: ${result:-no result}"
+            "${V[@]}" sh "$TEST" root "$PWFILE" "printf '%s\n' '${result:-fail: no result}' > /root/host-done-${words[0]}" --timeout 30 >/dev/null
+        done
     fi
     COUNT=$("${V[@]}" sh "$TEST" root "$PWFILE" "grep -c AD-GUEST-DONE /root/ad.out 2>/dev/null" --timeout 30 2>/dev/null) || true
     if [ "$COUNT" = 1 ]; then done_seen=1; break; fi

@@ -23,8 +23,9 @@ HKLM_POLICY='HKLM\Software\Policies\WexLab'
 
 ok() { echo "ok $1"; }
 notok() { echo "not ok $1: $(printf '%s' "$2" | tr '\n' ' ' | cut -c1-240)"; }
-# the lab password of the domain user does not stay on the machine, however the run ends
-finish() { rm -f /root/wexuser1pw; echo "AD-GUEST-DONE"; exit 0; }
+# the lab password of the domain user does not stay on the machine, and the dropped route of the offline
+# test is gone, however the run ends
+finish() { ip route del blackhole "$DC/32" 2>/dev/null; rm -f /root/wexuser1pw /root/wexadmin1pw; echo "AD-GUEST-DONE"; exit 0; }
 wine_cmd() { su - "$1" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 90 $2" 2>&1; }
 value() { wine_cmd "$INSTALLED_USER" "wine reg query \"$1\" /v $2" | tr -d '\r' | awk -v n="$2" '$1 == n { print $NF }'; }
 
@@ -181,9 +182,24 @@ if [ -z "$failed" ]; then ok no_failed_units; else notok no_failed_units "$faile
 
 # 7. A domain user logs on through the greeter (docs/DOMAIN_LOGON.md, WO 4): when the host put wexuser1's
 # password here (gpo-lab.sh fixtures) and the image has the admission step (WO 3). The guest prepares the host side
-# (Winbind in NSS and PAM, the Welcome screen without automatic logon) and says AD-GUEST-LOGON-READY; the host types
-# WEXLAB\wexuser1 into the classic dialog and creates /root/logon-done once the desktop is up; then the checks.
+# (Winbind in NSS and PAM, the Welcome screen without automatic logon) and asks the host for the steps that need the
+# screen and keyboard (machine.sh, "host steps"): the logon, the tile after it, a wrong password, the offline logon.
 DUSER='WEXLAB\wexuser1'
+LIBEXEC=/usr/local/libexec/wineexplorer
+host_step()   # NAME [ARGS]: asks the host and waits for its answer (HOST_ANSWER); true when it is "ok"
+{
+    local name=$1 i
+    rm -f "/root/host-done-$name"
+    echo "AD-GUEST-HOST-STEP $*"
+    for i in $(seq 1 300); do [ -e "/root/host-done-$name" ] && break; sleep 5; done
+    HOST_ANSWER=$(cat "/root/host-done-$name" 2>/dev/null)
+    [ "$HOST_ANSWER" = ok ]
+}
+user_session() { loginctl list-sessions --no-legend | awk '{ print $3 }' | grep -qixF "$DUSER"; }
+user_reg() { wine_cmd "$DUSER" "wine reg query \"HKCU\\Software\\Policies\\WexLab\" /v UserLimit" | tr -d '\r' | awk '$1 == "UserLimit" { print $NF }'; }
+user_record() { awk -v n="$DUSER" 'NR > 1 && tolower($1) == tolower(n)' /etc/wineexplorer/accounts.map; }
+cached_users() { busctl --system call org.freedesktop.Accounts /org/freedesktop/Accounts org.freedesktop.Accounts ListCachedUsers 2>/dev/null; }
+
 if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; then
     apt-get install -y libpam-winbind libnss-winbind >> /root/ad-apt.log 2>&1
     sed -i -E '/^(passwd|group):/ { /winbind/! s/$/ winbind/ }' /etc/nsswitch.conf
@@ -198,19 +214,27 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
     else notok domain_user_resolves "getent [$pw] wbinfo [$(wbinfo -i "$DUSER" 2>&1)]"; finish; fi
     if grep -q 'wex-domain-admit-pam.sh' /etc/pam.d/lightdm; then ok admission_step_installed
     else notok admission_step_installed "$(grep pam_exec /etc/pam.d/lightdm)"; fi
+    # AccountsService caches a user when the user first logs on: before that, no tile
+    if cached_users | grep -q "/User$duid\b"; then echo "note tile_before_first_logon: cached already"
+    else echo "note tile_before_first_logon: not cached (the greeter has no tile; the first logon is typed)"; fi
     # the Welcome screen: no automatic logon of the installed user, LightDM restarted (that user's session ends)
     # (the setting is in /etc/lightdm/lightdm.conf and in a conf.d file of the image)
     mv /etc/lightdm/lightdm.conf.d/60-wineexplorer-autologin.conf /root/60-wineexplorer-autologin.conf.off 2>/dev/null
     sed -i 's/^autologin-user=/#autologin-user=/' /etc/lightdm/lightdm.conf
-    rm -f /root/logon-done
     systemctl restart lightdm
-    echo "AD-GUEST-LOGON-READY"
-    for _ in $(seq 1 120); do [ -e /root/logon-done ] && break; sleep 5; done
-    if [ ! -e /root/logon-done ]; then notok domain_logon "the host did not log $DUSER on"; finish; fi
-    if loginctl list-sessions --no-legend | awk '{ print $3 }' | grep -qixF "$DUSER"; then ok domain_logon
+
+    # 7a. the first logon, online
+    if ! host_step logon; then
+        notok domain_logon "$HOST_ANSWER"
+        # what the session said, and what session 0 and the policy refresh did meanwhile
+        echo "note diag wine-session.log: $(tail -6 "/home/WEXLAB/wexuser1/.wine-session.log" 2>&1 | tr '\n' '|' | cut -c1-600)"
+        echo "note diag journal: $(journalctl --no-pager -b 0 2>/dev/null | grep -i 'session0\|wex-gpupdate\|lightdm\|accounts-daemon' | tail -14 | cut -c1-170 | tr '\n' '|')"
+        finish
+    fi
+    if user_session; then ok domain_logon
     else notok domain_logon "sessions: $(loginctl list-sessions --no-legend | awk '{ print $3 }' | tr '\n' ' ')"; finish; fi
     # admission: an active domain record and the recorded groups (Domain Users at least)
-    rec=$(awk -v n="$DUSER" 'NR > 1 && tolower($1) == tolower(n)' /etc/wineexplorer/accounts.map)
+    rec=$(user_record)
     dsid=$(wbinfo -n "$DUSER" 2>/dev/null | awk '{ print $1 }')
     rid=${dsid##*-}
     if grep -q " active domain 21 " <<<"$rec" && [ "$(awk '{ print $NF }' <<<"$rec")" = "$rid" ]; then ok domain_record_admitted
@@ -229,15 +253,101 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
     home=$(getent passwd "$DUSER" | cut -d: -f6)
     if [ -d "$home/.wine/drive_c/users/wexuser1" ]; then ok domain_profile_folder
     else notok domain_profile_folder "home [$home]: $(ls "$home/.wine/drive_c/users" 2>&1 | tr '\n' ' ')"; fi
-    # the domain's user policy (WexLab Domain, User/Registry.pol) in the user's hive, and gpresult for the user
+    # the domain's user policy (WexLab Domain, User/Registry.pol): the logon itself starts a refresh (the admission
+    # step), so it arrives without anyone starting wex-gpupdate.service
+    ul=
+    for _ in $(seq 1 24); do ul=$(user_reg); [ "$ul" = 0x3 ] && break; sleep 5; done
+    if [ "$ul" = 0x3 ]; then ok domain_user_policy_at_logon
+    else notok domain_user_policy_at_logon "UserLimit [$ul] two minutes after the logon; $(journalctl --no-pager -b 0 -u wex-gpupdate.service 2>/dev/null | tail -3)"; fi
     systemctl start wex-gpupdate.service 2>/dev/null
-    ul=$(wine_cmd "$DUSER" "wine reg query \"HKCU\\Software\\Policies\\WexLab\" /v UserLimit" | tr -d '\r' | awk '$1 == "UserLimit" { print $NF }')
+    ul=$(user_reg)
     if [ "$ul" = 0x3 ]; then ok domain_user_policy_applied
     else notok domain_user_policy_applied "UserLimit [$ul]; $(journalctl --no-pager -b 0 -u wex-gpupdate.service 2>/dev/null | tail -4)"; fi
     gr=$(wine_cmd "$DUSER" "wine gpresult /scope user" | tr -d '\r')
     if grep -q '^        WexLab Domain$' <<<"$gr"; then ok gpresult_user_lists_domain_object
     else notok gpresult_user_lists_domain_object "$(grep -A4 'Applied Group Policy Objects' <<<"$gr" | head -6)"; fi
+
+    # 7b. the tile after the first logon: the user logs off (the session ends, LightDM shows the Welcome screen);
+    # AccountsService has the user now and the greeter lists them (the tile shows the real name)
+    loginctl terminate-user "$duid"
+    sleep 5
+    if cached_users | grep -q "/User$duid\b"; then ok domain_user_cached_by_accountsservice
+    else notok domain_user_cached_by_accountsservice "$(cached_users | cut -c1-300)"; fi
+    if host_step tile 'Wex User'; then ok domain_user_tile_after_first_logon
+    else notok domain_user_tile_after_first_logon "$HOST_ANSWER"; fi
+
+    # 7c. offline: the controller becomes unreachable (a route that drops the packets); the first logon cached the
+    # credentials (pam_winbind cached_login, winbind offline logon = yes). Winbind has to notice by itself. A wrong
+    # password is refused, the right one logs on with the record and groups as they were, and nothing tombstones.
+    rec_before=$(user_record); groups_before=$(cat /etc/wineexplorer/domain-groups)
+    ip route add blackhole "$DC/32"
+    off=
+    for _ in $(seq 1 36); do
+        wbinfo --ping-dc >/dev/null 2>&1 || { off=1; break; }
+        sleep 5
+    done
+    echo "note winbind_online_status_offline: $(wbinfo --online-status 2>&1 | tr '\n' ' ' | cut -c1-200)"
+    if [ -n "$off" ]; then ok controller_unreachable
+    else notok controller_unreachable "wbinfo --ping-dc still answers with the route dropped"; fi
+    if host_step logon-bad; then ok offline_wrong_password_refused
+    else notok offline_wrong_password_refused "$HOST_ANSWER"; fi
+    if user_session; then notok offline_wrong_password_refused "a session exists after a wrong password"; fi
+    if host_step logon; then
+        if user_session; then ok offline_logon; else notok offline_logon "no session after the offline logon"; fi
+        if [ "$(user_record)" = "$rec_before" ] && [ "$(cat /etc/wineexplorer/domain-groups)" = "$groups_before" ]; then ok offline_record_and_groups_kept
+        else notok offline_record_and_groups_kept "record [$(user_record)] was [$rec_before]; groups [$(cat /etc/wineexplorer/domain-groups | tr '\n' ' ')]"; fi
+        who=$(wine_cmd "$DUSER" "wine whoami /user /fo csv /nh" | tr -d '\r' | tail -1)
+        if [ "$(tr 'A-Z' 'a-z' <<<"$who")" = "$(tr 'A-Z' 'a-z' <<<"\"$DUSER\",\"$dsid\"")" ]; then ok offline_token_and_name
+        else notok offline_token_and_name "whoami [$who] expected [$DUSER $dsid]"; fi
+        # a sync while the controller cannot be asked leaves the domain record alone (no tombstone offline)
+        "$LIBEXEC/wex-accounts" sync >/dev/null 2>&1
+        if [ "$(user_record)" = "$rec_before" ]; then ok offline_sync_does_not_tombstone
+        else notok offline_sync_does_not_tombstone "record [$(user_record)] was [$rec_before]"; fi
+    else notok offline_logon "$HOST_ANSWER"; fi
+    # the controller comes back: Winbind goes online again by itself (else it is told, and that is noted)
+    ip route del blackhole "$DC/32"
+    on=
+    for _ in $(seq 1 40); do wbinfo --ping-dc >/dev/null 2>&1 && { on=1; break; }; sleep 5; done
+    if [ -z "$on" ]; then smbcontrol winbindd online >/dev/null 2>&1; sleep 5; echo "note winbind_back_online: told to (it did not by itself within 200 s)"
+        wbinfo --ping-dc >/dev/null 2>&1 && on=1; fi
+    if [ -n "$on" ] && net ads testjoin >/dev/null 2>&1; then ok back_online
+    else notok back_online "ping-dc / testjoin after the route is gone"; fi
+
+    # 7d. a member of Domain Admins logs on (the fixtures' wexadmin1): at a real logon the token is the limited one,
+    # Administrators and Domain Admins only for deny, Domain Users enabled; the full token (elevation) has them
+    # enabled. Wine's whoami does not print the groups: the project's token probe does (machine.sh puts it here).
+    PROBE=/usr/local/share/wex-lab-probe/tierprobe64.exe
+    if [ -s /root/wexadmin1pw ] && [ -f "$PROBE" ]; then
+        AUSER='WEXLAB\wexadmin1'
+        # deny_only HEX: SE_GROUP_USE_FOR_DENY_ONLY (0x10) set and SE_GROUP_ENABLED (0x4) clear; enabled HEX: the reverse
+        deny_only() { [ -n "$1" ] && [ $(( 0x$1 & 0x10 )) != 0 ] && [ $(( 0x$1 & 0x4 )) = 0 ]; }
+        enabled() { [ -n "$1" ] && [ $(( 0x$1 & 0x4 )) != 0 ] && [ $(( 0x$1 & 0x10 )) = 0 ]; }
+        grp() { sed -n "s/^$1=$2 attrs=//p" <<<"$TOK"; }
+        loginctl terminate-user "$duid"
+        sleep 5
+        if host_step logon "$AUSER"; then
+            if loginctl list-sessions --no-legend | awk '{ print $3 }' | grep -qixF "$AUSER"; then ok domain_admin_logon
+            else notok domain_admin_logon "no session after the logon"; fi
+            arec=$(awk -v n="$AUSER" 'NR > 1 && tolower($1) == tolower(n)' /etc/wineexplorer/accounts.map)
+            akey=$(awk '{ print $3 }' <<<"$arec")
+            if [ -n "$akey" ] && awk -v k="$akey" '$1 == k { for (i = 2; i <= NF; i++) if ($i == 512) f = 1 } END { exit !f }' /etc/wineexplorer/domain-groups 2>/dev/null
+            then ok domain_admin_in_domain_admins; else notok domain_admin_in_domain_admins "key [$akey] $(cat /etc/wineexplorer/domain-groups 2>&1 | tr '\n' ' ')"; fi
+            TOK=$(wine_cmd "$AUSER" "wine $PROBE token" | tr -d '\r')
+            DOM3=$(sed -n 's/^user=\(S-1-5-21-[0-9]*-[0-9]*-[0-9]*\)-[0-9]*$/\1/p' <<<"$TOK")
+            if [ -n "$DOM3" ] && grep -qx 'elevation=3' <<<"$TOK" && grep -qx 'linkedelevation=2' <<<"$TOK"; then ok domain_admin_token_is_split
+            else notok domain_admin_token_is_split "$(grep -E '^(user|elevation|linkedelevation)=' <<<"$TOK" | tr '\n' ' ')"; fi
+            if deny_only "$(grp group S-1-5-32-544)" && deny_only "$(grp group "$DOM3-512")" && enabled "$(grp group "$DOM3-513")"; then
+                ok domain_admin_limited_token_filters_admin_groups
+            else notok domain_admin_limited_token_filters_admin_groups "$(grep -E '^group=(S-1-5-32-544|.*-51[23]) ' <<<"$TOK" | tr '\n' ' ')"; fi
+            if enabled "$(grp linkedgroup S-1-5-32-544)" && enabled "$(grp linkedgroup "$DOM3-512")" && enabled "$(grp linkedgroup "$DOM3-513")"; then
+                ok domain_admin_full_token_has_them_enabled
+            else notok domain_admin_full_token_has_them_enabled "$(grep -E '^linkedgroup=(S-1-5-32-544|.*-51[23]) ' <<<"$TOK" | tr '\n' ' ')"; fi
+        else notok domain_admin_logon "$HOST_ANSWER"; fi
+    else
+        echo "note domain_admin_logon: skipped (wexadmin1 password $( [ -s /root/wexadmin1pw ] && echo present || echo absent), probe $( [ -f "$PROBE" ] && echo present || echo absent))"
+    fi
 else
     echo "note domain_logon: skipped (wexuser1 password $( [ -s /root/wexuser1pw ] && echo present || echo absent), admission step $( [ -x /usr/local/sbin/wex-domain-admit-pam.sh ] && echo present || echo absent))"
 fi
+
 finish

@@ -79,8 +79,22 @@ deletes the password again at the end) and the guest checks, by `docs/DOMAIN_LOG
   active `domain` record with the domain RID and Domain Users (513) in `domain-groups`;
 - `domain_token_and_name`: `whoami /user` gives `WEXLAB\wexuser1` and the domain SID;
   `domain_environment`: `USERDOMAIN=WEXLAB`, `USERPROFILE=C:\users\wexuser1`; `domain_profile_folder`;
-- `domain_user_policy_applied`, `gpresult_user_lists_domain_object`: `HKCU\Software\Policies\WexLab UserLimit` is 3
-  and `gpresult /scope user` lists "WexLab Domain".
+- `domain_user_policy_at_logon`, `domain_user_policy_applied`, `gpresult_user_lists_domain_object`:
+  `HKCU\Software\Policies\WexLab UserLimit` is 3 within two minutes of the logon with nobody starting
+  `wex-gpupdate.service` (the session asks for a refresh once its shell is up), and `gpresult /scope user` lists
+  "WexLab Domain";
+- `domain_user_cached_by_accountsservice`, `domain_user_tile_after_first_logon`: after the logoff
+  (`loginctl terminate-user`) the Welcome screen shows the user's tile ("Wex User"). AccountsService caches only
+  users with a local passwd entry on its own, so the admission step asks it (`CacheUser`);
+- `controller_unreachable`, `offline_wrong_password_refused`, `offline_logon`, `offline_record_and_groups_kept`,
+  `offline_token_and_name`, `offline_sync_does_not_tombstone`, `back_online`: the controller made unreachable by a
+  route that drops its packets (Winbind notices by itself); a wrong password is refused, the right one logs on from
+  the credentials the first logon cached, the record and `domain-groups` are as they were, a `wex-accounts sync`
+  leaves the record active, and Winbind is online again when the route is gone.
+
+The guest asks the host for what needs the screen (`AD-GUEST-HOST-STEP NAME` lines in its output: `logon`,
+`logon-bad`, `tile TEXT`) and waits for `/root/host-done-NAME`; `machine.sh` runs them. A failed step leaves a
+screenshot (`host-*.png`) in the overlay folder, and a failed logon prints the session log and the journal.
 
 On an image without steps 5 to 7 (no `wex-gpupdate.path`) these are skipped with a note.
 `WEX_LAB_TREE_TOOLS=1` builds this tree's `wex-sysrun` and `wex-accounts` into the overlay, as the package builds
@@ -117,6 +131,12 @@ installed-machine disks and ISOs are not there either; an image is the next thin
   "Default Domain Policy"). Windows applies one container's links the other way round (MS-GPOL; GROUP_POLICY.md,
   "The order of several links on one container"); since 2026-11-15 `wex-gpupdate.sh` orders them as Windows
   does, and `parse` checks that "WexLab Domain" (link order 1) comes last.
+- `machine` passed on 2026-11-16 with all 34 checks, adding the policy at logon, the tile after the first logon and
+  the offline logon (the controller unreachable). One of three runs with them failed at the first logon: the
+  session's `wineserver` printed "session 0 ... did not register this session" and the greeter came back, while the
+  admission step's policy refresh was running; the next run passed and a stress test (a user's server restarted
+  next to a refresh, 12 times) did not reproduce it. Reported to the system tier session (B26, session 0); the
+  refresh now starts from the session once the shell is up, and the guest prints the evidence if it happens again.
 - `machine` with the domain user's logon passed on 2026-11-16 with all 24 checks, on a disk installed from an ISO of
   master b91c3631 (domain logon WO 1 to 3) and this tree's launcher, `wex-accounts` and `wex-gpupdate.sh`. Three
   findings on the way: the launcher (`wex-sysrun`) refused the passwd name `WEXLAB\wexuser1` (a backslash), so the
@@ -136,8 +156,10 @@ installed-machine disks and ISOs are not there either; an image is the next thin
 
 ## Next
 
-- A domain user logging on to WineExplorer (the accounts map has local users only), then user policy from the
-  domain end to end with `wexuser1`.
+- A member of Domain Admins in the lab: written (wexadmin1, `domain_admin_*` checks: the limited token at a real logon); still to add: the consent prompt and
+  the elevated token end to end, which the suite tests only against a fake Winbind.
+- Local policy without a domain ([GROUP_POLICY.md](GROUP_POLICY.md), "Local policy"): the unjoined machine's lab
+  check once the editor exists; the joined machine's order (local under the domain's) can be checked on `machine`.
 - If the waits on the shared runner grow, a copy of wexbuild for this lab (the owner allowed it on 2026-11-14),
   holding the installed disks next to the controller.
 - A Windows Server controller stays out: the evaluation download needs a registration form with personal details.

@@ -35,6 +35,8 @@ fixtures()
     local t
     [ -s "$LAB/wexuser1_password.txt" ] ||
         (umask 077; echo "Wu$(head -c 9 /dev/urandom | base64 | tr -d '/+=')7b" > "$LAB/wexuser1_password.txt")
+    [ -s "$LAB/wexadmin1_password.txt" ] ||
+        (umask 077; echo "Wa$(head -c 9 /dev/urandom | base64 | tr -d '/+=')7c" > "$LAB/wexadmin1_password.txt")
     t=$(mktemp -d)
     python3 -I "$REPO/scripts/lab/make-preg.py" "$t/domain-machine.pol" 'Software\Policies\WexLab' Limit 7 \
         'Software\Policies\WexLab' DomainOnly 1
@@ -45,8 +47,9 @@ fixtures()
     lab_scp "$t"/*.pol root@127.0.0.1:/root/fixtures/
     lab_scp "$HERE/fixtures-guest.sh" root@127.0.0.1:/root/fixtures-guest.sh
     lab_scp "$LAB/wexuser1_password.txt" root@127.0.0.1:/root/wexuser1pw
+    lab_scp "$LAB/wexadmin1_password.txt" root@127.0.0.1:/root/wexadmin1pw
     rm -rf "$t"
-    dc 'chmod 600 /root/wexuser1pw; bash /root/fixtures-guest.sh'
+    dc 'chmod 600 /root/wexuser1pw /root/wexadmin1pw; bash /root/fixtures-guest.sh'
 }
 
 case "${1:-}" in

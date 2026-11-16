@@ -24,4 +24,13 @@ if [ ! -x "$WEX_ACCOUNTS" ]; then
     logger -t wex-domain-admit "domain logon refused: wex-accounts is not installed (system tier)" 2>/dev/null || true
     exit 1
 fi
-exec env -i PAM_USER="$PAM_USER" PAM_TYPE="${PAM_TYPE:-}" "$WEX_ACCOUNTS" admit
+env -i PAM_USER="$PAM_USER" PAM_TYPE="${PAM_TYPE:-}" "$WEX_ACCOUNTS" admit || exit $?
+# The logon screen lists the users AccountsService has cached, and it caches a user who logged on with a local
+# passwd entry only: a domain user (Winbind) is cached on request, which is what CacheUser is for. The tile then
+# shows after the first logon. A failure does not fail the logon; a slow AccountsService holds the account phase for
+# 3 seconds at most. Like wex-accounts above, busctl gets nothing of the PAM environment but the fixed PATH (it
+# honours DBUS_SYSTEM_BUS_ADDRESS, LD_* and more).
+env -i PATH="$PATH" busctl --system --timeout=3 call org.freedesktop.Accounts /org/freedesktop/Accounts org.freedesktop.Accounts CacheUser s "$PAM_USER" >/dev/null 2>&1 || true
+# (The user's domain policy is not started from here: it arrives after the shell is up, from the session,
+# wine-explorer-session-common.sh.)
+exit 0

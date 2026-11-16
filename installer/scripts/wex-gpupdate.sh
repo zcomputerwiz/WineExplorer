@@ -2,10 +2,17 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
 #
-# Domain Group Policy for Windows programs (docs/GROUP_POLICY.md, step 4).
+# Group Policy for Windows programs: the domain's (docs/GROUP_POLICY.md, step 4) and the local object's ("Local
+# policy" there).
 #
-# Samba fetches the policy; session 0's writer applies it. Run as root by wex-gpupdate.service (at start and
-# every 90 minutes), on a machine joined with Samba (net ads join, Winbind):
+# Local policy needs no domain: the Registry.pol files of session 0's root (drive_c/windows/system32/GroupPolicy/
+# Machine and User) apply to the computer and to every person of the accounts map, as the first object; on a joined
+# machine the domain's objects follow and override it (Windows applies Local, Site, Domain, OU). A machine that is
+# not joined, or has no Samba, does only that. Everything below is for the domain's part.
+#
+# Samba fetches the policy; session 0's writer applies it. Run as root by wex-gpupdate.service (at start, every
+# 90 minutes, when a user's gpupdate asks, and at a domain user's logon), on a machine joined with Samba (net ads
+# join, Winbind):
 #
 #   1. samba-gpupdate --force brings Samba's cache of the domain's policy objects up to date
 #      (/var/cache/samba/gpo_cache/<REALM>/POLICIES/{GUID}/...).
@@ -14,7 +21,7 @@
 #   3. Their Registry.pol files are copied to a directory that session 0's account can read, and
 #      "wexpolicy apply" writes them: /machine for the computer, /user:SID for each user (the SID is the one
 #      of the accounts map; a user who is not logged on gets the policy at the next logon).
-#   An account with no Registry.pol at all gets "wexpolicy clear".
+#   An account with no Registry.pol at all gets "wexpolicy clear" (a domain user, or a target that had policy).
 #
 #   Also: the security templates (wexpolicy security), the list of applied objects (wexpolicy record), and at the
 #   end of every run "wexpolicy refreshed" for gpupdate. Started by wex-gpupdate.timer, and by wex-gpupdate.path
@@ -53,12 +60,51 @@ finish()
 }
 trap finish EXIT
 
-command -v net >/dev/null 2>&1 && command -v samba-gpupdate >/dev/null 2>&1 || { echo "wex-gpupdate: Samba's tools are not installed"; exit 0; }
-REALM=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'a-z' 'A-Z')
-[ -n "$REALM" ] && net ads testjoin >/dev/null 2>&1 || { echo "wex-gpupdate: not joined to a domain"; exit 0; }
+# The local Group Policy object (docs/GROUP_POLICY.md, "Local policy") works without a domain: its Registry.pol
+# files are in session 0's root, where Windows keeps them. The domain's objects need Samba and a join.
+LOCAL_GPO=$MACHINE_ROOT/drive_c/windows/system32/GroupPolicy
+REG_EXT='[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]'
+SEC_EXT='[{827D319E-6EAC-11D2-A4EA-00C04F79F83A}{803E14A0-B4FB-11D0-A0D0-00A0C90F574B}]'
+JOINED=1
+CACHE=
+if ! { command -v net >/dev/null 2>&1 && command -v samba-gpupdate >/dev/null 2>&1; }; then
+    echo "wex-gpupdate: Samba's tools are not installed; local policy only"; JOINED=0
+else
+    REALM=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'a-z' 'A-Z')
+    if [ -n "$REALM" ] && net ads testjoin >/dev/null 2>&1; then
+        CACHE=$(testparm -s --parameter-name='cache directory' 2>/dev/null)/gpo_cache/$REALM/POLICIES
+        samba-gpupdate --force >/dev/null 2>&1 || echo "wex-gpupdate: samba-gpupdate failed; the cache may be old" >&2
+    else
+        echo "wex-gpupdate: not joined to a domain; local policy only"; JOINED=0
+    fi
+fi
 
-CACHE=$(testparm -s --parameter-name='cache directory' 2>/dev/null)/gpo_cache/$REALM/POLICIES
-samba-gpupdate --force >/dev/null 2>&1 || echo "wex-gpupdate: samba-gpupdate failed; the cache may be old" >&2
+# the local object's file for MACHINE or USER policy: a regular file, not a link, not empty
+local_file()
+{
+    local f="$LOCAL_GPO/$1/Registry.pol"
+    [ -f "$f" ] && [ ! -L "$f" ] && [ -s "$f" ] && echo "$f"
+}
+
+# the local object's security template (the account lockout policy and the security options: where Windows' local
+# Group Policy keeps them, GroupPolicy\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf), under the same rules
+local_template()
+{
+    local f="$LOCAL_GPO/Machine/Microsoft/Windows NT/SecEdit/GptTmpl.inf"
+    [ -f "$f" ] && [ ! -L "$f" ] && [ -s "$f" ] && echo "$f"
+}
+
+# the line of the local object for the list of applied objects (wexpolicy record): the name LocalGPO, display name
+# "Local Group Policy", link "Local", no directory path; $2 is its extensions (what it has: registry policy, a
+# security template)
+local_entry()
+{
+    printf 'LocalGPO\t0\t0\t0\tLocal Group Policy\tC:\\windows\\system32\\GroupPolicy\\%s\t\tLocal\t%s\n' "$1" "$2"
+}
+
+# does session 0 hold an archive of the last policy it wrote for a target ("Machine" or "User-SID")? Without one,
+# a target with no files needs no "clear" (a machine that has no policy at all makes no work of a refresh)
+has_archive() { [ -e "$LOCAL_GPO/Archive/$1.pol" ]; }
 
 # The objects that apply to an account ($1), in the order Samba applies them, as the lines that
 # "wexpolicy record" takes: GUID, version, link type, options, display name, file system path, DS path, link and
@@ -163,14 +209,28 @@ record()
 }
 
 # apply the files of one target: "/machine" or "/user:SID"
+# Stage a policy file ($1) as $2 for session 0's account to read. The domain's files (Samba's cache, root's) are
+# copied by root. The local object's files are in session 0's root, where session 0's account, and whoever it lets
+# edit local policy, can replace them: they are read as session 0's account, so that a link put in after the check
+# reaches only what that account could read anyway, never a file that only root can.
+stage_file()
+{
+    case $1 in
+        "$LOCAL_GPO"/*)
+            runuser -u "$S0_USER" -- cat -- "$1" > "$2" 2>/dev/null || { rm -f "$2"; return 1; }
+            chmod 0644 "$2" ;;
+        *) install -m 0644 "$1" "$2" ;;
+    esac
+}
+
 apply()
 {
     local target=$1 name=$2 n=0 args=() file copy
     shift 2
     for file in "$@"; do
+        copy="$STAGE/$name-$((n + 1)).pol"
+        if ! stage_file "$file" "$copy"; then echo "wex-gpupdate: $file cannot be read: left out" >&2; continue; fi
         n=$((n + 1))
-        copy="$STAGE/$name-$n.pol"
-        install -m 0644 "$file" "$copy"
         args+=("Z:${copy//\//\\}")
     done
     if [ "$n" -gt 0 ]; then s0_wexpolicy apply "$target" "${args[@]}"
@@ -179,11 +239,27 @@ apply()
 
 HOST=$(hostname -s | tr 'a-z' 'A-Z')
 LISTS=$(mktemp -d)
-gpo_list "$HOST\$" MACHINE > "$LISTS/machine.list"
-win_order "$LISTS/machine.list" "$HOST\$"
-mapfile -t MACHINE_FILES < <(pol_files "$LISTS/machine.list" MACHINE)
-# the security templates: the account lockout policy and the security options (wexpolicy's sectmpl.c)
-mapfile -t TEMPLATES < <(pol_files "$LISTS/machine.list" MACHINE 'microsoft/windows nt/secedit/gpttmpl.inf')
+# the domain's objects (only when joined), then the local object in front of them: Windows applies Local, Site,
+# Domain, OU in that order and the last wins, so the domain's policy overrides the local one
+: > "$LISTS/machine.domain.list"
+if [ "$JOINED" = 1 ]; then
+    gpo_list "$HOST\$" MACHINE > "$LISTS/machine.domain.list"
+    win_order "$LISTS/machine.domain.list" "$HOST\$"
+fi
+MACHINE_FILES=()
+LOCAL_MACHINE=$(local_file Machine)
+[ -z "$LOCAL_MACHINE" ] || MACHINE_FILES+=("$LOCAL_MACHINE")
+mapfile -t DOMAIN_FILES < <(pol_files "$LISTS/machine.domain.list" MACHINE)
+MACHINE_FILES+=("${DOMAIN_FILES[@]}")
+LOCAL_TEMPLATE=$(local_template)
+LOCAL_EXTS=; [ -z "$LOCAL_MACHINE" ] || LOCAL_EXTS=$REG_EXT; [ -z "$LOCAL_TEMPLATE" ] || LOCAL_EXTS=$LOCAL_EXTS$SEC_EXT
+{ [ -z "$LOCAL_EXTS" ] || local_entry Machine "$LOCAL_EXTS"; cat "$LISTS/machine.domain.list"; } > "$LISTS/machine.list"
+# the security templates: the account lockout policy and the security options (wexpolicy's sectmpl.c); the local
+# object's first, the domain's after it (the last one applied wins where they set the same value)
+TEMPLATES=()
+[ -z "$LOCAL_TEMPLATE" ] || TEMPLATES+=("$LOCAL_TEMPLATE")
+mapfile -t DOMAIN_TEMPLATES < <(pol_files "$LISTS/machine.domain.list" MACHINE 'microsoft/windows nt/secedit/gpttmpl.inf')
+TEMPLATES+=("${DOMAIN_TEMPLATES[@]}")
 
 if [ "$PRINT" = 1 ]; then
     sed 's/^/object machine /' "$LISTS/machine.list"
@@ -192,39 +268,59 @@ if [ "$PRINT" = 1 ]; then
 else
     rm -rf "$STAGE"
     install -d -m 0755 "$STAGE"
-    apply /machine machine "${MACHINE_FILES[@]}"
-    record /machine "$LISTS/machine.list"
-    # security settings stay when an object no longer sets them, as on Windows: no template, nothing to do
-    if [ "${#TEMPLATES[@]}" -gt 0 ]; then
-        args=(); n=0
-        for f in "${TEMPLATES[@]}"; do
-            n=$((n + 1)); install -m 0644 "$f" "$STAGE/security-$n.inf"; args+=("Z:${STAGE//\//\\}\\security-$n.inf")
-        done
-        s0_wexpolicy security /machine "${args[@]}"
+    # a machine with no policy at all (not joined, no local file or template, nothing written before) has nothing to do
+    if [ "${#MACHINE_FILES[@]}" -gt 0 ] || [ -n "$LOCAL_TEMPLATE" ] || [ "$JOINED" = 1 ] || has_archive Machine; then
+        apply /machine machine "${MACHINE_FILES[@]}"
+        record /machine "$LISTS/machine.list"
     fi
+    # security settings stay when an object no longer sets them, as on Windows: no template, nothing to do
+    args=(); n=0
+    for f in "${TEMPLATES[@]}"; do
+        if stage_file "$f" "$STAGE/security-$((n + 1)).inf"; then
+            n=$((n + 1)); args+=("Z:${STAGE//\//\\}\\security-$n.inf")
+        else
+            echo "wex-gpupdate: $f cannot be read: left out" >&2
+        fi
+    done
+    [ "${#args[@]}" -eq 0 ] || s0_wexpolicy security /machine "${args[@]}"
 fi
 
-# The users of the accounts map: name in column 1, "active" in column 4, the SID's last four parts after the
-# "21" (columns 6 to 9 of a version 1 map, where "21" is column 5; a version 2 map has local|domain in column 5, so they are one further on;
-# only its domain records are users of the domain, whose name is the Winbind name DOMAIN\user, docs/DOMAIN_LOGON.md).
+# The people of the accounts map (UID 1000 or more): name in column 1, UID in column 2, "active" in column 4, the
+# SID's last four parts after the "21" (columns 6 to 9 of a version 1 map, where "21" is column 5; a version 2 map has
+# local|domain in column 5, so they are one further on, and the name of a domain record is the Winbind name
+# DOMAIN\user, docs/DOMAIN_LOGON.md). Every one of them gets the local object's user policy; a domain user also gets
+# the domain's, after it.
 [ -r "$MAP" ] || exit 0
+LOCAL_USER=$(local_file User)
 awk 'NR == 1 { v = $2; next }
-     $4 == "active" && (v != 2 || $5 == "domain") { o = (v == 2) ? 1 : 0; print $1, "S-1-5-21-" $(6 + o) "-" $(7 + o) "-" $(8 + o) "-" $(9 + o) }' \
-    "$MAP" | while read -r name sid; do
-    # only domain users have policy objects; a local account is not known to the domain ("net ads gpo list"
-    # does not fail for an unknown name, so Winbind is asked)
-    wbinfo --name-to-sid "$name" 2>/dev/null | grep -q 'SID_USER' || continue
+     $4 == "active" && $2 >= 1000 && $2 != 65534 {
+         o = (v == 2) ? 1 : 0
+         print $1, (v == 2 ? $5 : "unknown"), "S-1-5-21-" $(6 + o) "-" $(7 + o) "-" $(8 + o) "-" $(9 + o) }' \
+    "$MAP" | while read -r name kind sid; do
+    # only domain users have policy objects of the domain; a local account is not known to the domain ("net ads
+    # gpo list" does not fail for an unknown name, so Winbind is asked)
+    domain_user=0
+    if [ "$JOINED" = 1 ] && [ "$kind" != local ] && wbinfo --name-to-sid "$name" 2>/dev/null | grep -q 'SID_USER'; then
+        domain_user=1
+    fi
     # the directory knows the account by its plain name (sAMAccountName)
     acct=${name##*\\}
-    gpo_list "$acct" USER > "$LISTS/user-$acct.list"
-    win_order "$LISTS/user-$acct.list" "$acct"
-    mapfile -t USER_FILES < <(pol_files "$LISTS/user-$acct.list" USER)
+    : > "$LISTS/user-$sid.domain.list"
+    if [ "$domain_user" = 1 ]; then
+        gpo_list "$acct" USER > "$LISTS/user-$sid.domain.list"
+        win_order "$LISTS/user-$sid.domain.list" "$acct"
+    fi
+    USER_FILES=()
+    [ -z "$LOCAL_USER" ] || USER_FILES+=("$LOCAL_USER")
+    mapfile -t DOMAIN_USER_FILES < <(pol_files "$LISTS/user-$sid.domain.list" USER)
+    USER_FILES+=("${DOMAIN_USER_FILES[@]}")
+    { [ -z "$LOCAL_USER" ] || local_entry User "$REG_EXT"; cat "$LISTS/user-$sid.domain.list"; } > "$LISTS/user-$sid.list"
     if [ "$PRINT" = 1 ]; then
-        sed "s/^/object user $acct /" "$LISTS/user-$acct.list"
+        sed "s/^/object user $acct /" "$LISTS/user-$sid.list"
         for f in "${USER_FILES[@]}"; do echo "user $acct $f"; done
-    else
-        apply "/user:$sid" "user-$acct" "${USER_FILES[@]}"
-        record "/user:$sid" "$LISTS/user-$acct.list"
+    elif [ "${#USER_FILES[@]}" -gt 0 ] || [ "$domain_user" = 1 ] || has_archive "User-$sid"; then
+        apply "/user:$sid" "user-$sid" "${USER_FILES[@]}"
+        record "/user:$sid" "$LISTS/user-$sid.list"
     fi
 done
 exit 0
