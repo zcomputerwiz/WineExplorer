@@ -3487,3 +3487,21 @@ names, ids and options are kept as Windows 11 reports them, including the id a c
 `classes.idl`, `main.c`, `private.h`, `Makefile.in` (imports bcrypt), new `tests/diagnostics.c` (passes on Windows 11
 x64 and x86 and on Wine); new `include/windows.foundation.diagnostics.idl` (these classes' interfaces), `include/Makefile.in`.
 The Store Calculator's telemetry builds LoggingFields when it sets its mode.
+
+2026-11-16 (UWP, Wine 3fdfa06d): `dlls/wintypes/diagnostics.c`: `Windows.Foundation.Diagnostics.AsyncCausalityTracer`
+(every trace is accepted and goes nowhere, as the logging channels; TracingStatusChanged is never raised), `classes.idl`,
+`tests/diagnostics.c` (passes on Windows 11 x64 and x86 and on Wine); `include/windows.foundation.diagnostics.idl` (its
+statics, event arguments and enumerations). The .NET Native runtime asks for it when an application starts.
+
+2026-11-16 (UWP, Wine 43ebe826): `dlls/twinapi.appcore`: new `memory.c` (`Windows.System.MemoryManager` and its
+reports, as Windows 11 reports them to a process without a resource policy: the commit charge against the system's
+commit limit, a usage level only for a packaged process, the limit events never raised), `classes.idl`, `main.c`,
+`private.h`, `Makefile.in`, `tests/twinapi.c` (passes on Windows 11 x64 and x86 and on Wine); `include/windows.system.idl`
+(MemoryManager's statics, reports and event arguments). The .NET Native runtime asks for it when an application starts.
+
+2026-11-16 (UWP, Wine 0845ed03): `dlls/twinapi.appcore/application_view.c`: `IApplicationView4` (ViewMode;
+IsViewModeSupported true for default and compact overlay, false for spanning, as Windows 11 answers; TryEnterViewModeAsync
+keeps the core window topmost in compact overlay; TryConsolidateAsync a FIXME returning false); new `async.c` (a completed
+`IAsyncOperation<boolean>`), `private.h`, `Makefile.in`. No conformance test (a view needs a core window); checked
+with the XamlProbe package (`tests/uwp/xaml/cx-probe`, its "view mode" line matches Windows). The Store Calculator asks
+IsViewModeSupported when it sets its mode; without it the view model is never made.
