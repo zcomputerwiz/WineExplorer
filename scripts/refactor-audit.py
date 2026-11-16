@@ -87,7 +87,7 @@ def write_map(repository, result, output, assets_path, reviews_path):
                    if path.startswith(("dlls/", "programs/"))}
     # Explicit replacement modules named in the work order; keep their Wine notices.
     modules = new_modules - old_modules | {
-        "dlls/desk.cpl", "dlls/wlanui", "programs/wmplayer"}
+        "dlls/desk.cpl", "dlls/wlanui", "programs/wmplayer", "programs/secedit"}
     assets = {entry["path"].removeprefix("wine/"): entry["source"]
               for entry in json.loads(assets_path.read_text(encoding="utf-8"))}
     reviews = json.loads(reviews_path.read_text(encoding="utf-8")) if reviews_path.exists() else {}

@@ -57,6 +57,24 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `dlls/shcore/main.c` (`IsOS`), `Makefile.in` (delay import of netapi32): `OS_DOMAINMEMBER` answers from
   `NetGetJoinInformation` (a domain join) instead of always TRUE. Chromium reads it as "the device is managed":
   Edge then skipped its modal first-run dialog (B10). Test in `dlls/shcore/tests/shcore.c`.
+- `server/fd.c` (`open_fd`, Wine cfa5d889, from the Office branch's 53e70173): CREATE_ALWAYS on a link to a file the
+  process may not write replaces the link with a new file in its directory (unlink needs write access to the
+  directory, which the kernel checks), as an existing file is overwritten on Windows; a read-only open still
+  follows the link. A setup could not overwrite a font that the machine root links into a prefix (B20). Test in
+  `scripts/lab/system-tier-t1.sh` (`b20_*`, as a non-root user).
+- `server/session0.c` (`request_session_id`, Wine ccf20bec): a new server waits up to 30 s for session 0 to give
+  its session id (it was 2 s); linking again after a restart of session 0 still waits 2 s, since it runs in the
+  server's own loop. Session 0 is one thread, and a policy refresh writing a user's hive at the same moment could
+  make a domain user's first logon fail (B26).
+- `dlls/msi/msi.c` (`MsiIsProductElevated`, Wine 45604a7f): per-machine and managed products are elevated, a
+  per-user unmanaged one is not, an unknown product gives ERROR_UNKNOWN_PRODUCT; it always answered TRUE. Test
+  `test_MsiIsProductElevated` in `dlls/msi/tests/msi.c` (checked against Windows 11 by a probe).
+- `dlls/windows.security.authentication.web.core/provider.c` (new), `manager.c`, `map.c`, `private.h`, `Makefile.in`
+  (Wine 8b534d09; 04d50dcb converts the module's files to LF): a diagnostic account provider, off by default. With
+  `HKCU\Software\Wine\WebAuthentication` `DiagnosticProvider` = 1, provider lookups answer with a provider for the
+  id and authority asked for and token requests are written to the log and fail (silent ones with
+  UserInteractionRequired, interactive ones with ProviderError), to learn what a program asks a broker for
+  (WAM_PLAN step 3, Copilot's sign-in). Wine-only test `test_diagnostic_provider`.
 - `dlls/dwrite/opentype.c` (`opentype_get_named_instance_count`, `opentype_get_named_instance`: fvar instance
   records and a STAT reader), `font.c` (font set entries, `init_font_data`, `IDWriteFont::Equals`), `main.c`,
   `dwrite_private.h`: a variable font with a STAT table gives a font set one entry per fvar named instance, as on
@@ -64,9 +82,14 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   model its non-WWS axes (opsz, ...) name a family of their own ("Segoe Sans Text"), with the STAT names of the
   WWS axes as the face, and in the typographic model its subfamily name is the face. Names follow STAT: the axis
   value matching each coordinate, non-elidable names in axis order, the elided fallback name when none is left.
-  Instances still render as the default instance (step 2). Microsoft Copilot looks up "Segoe Sans Text" in such a
-  collection (B15). Test `test_fontset_named_instances` in `dlls/dwrite/tests/font.c` with the generated font
-  `wine_test_var.ttf` (`wine_test_var.py`); passes on Windows 11 and Wine.
+  Microsoft Copilot looks up "Segoe Sans Text" in such a collection (B15). Test `test_fontset_named_instances` in
+  `dlls/dwrite/tests/font.c` with the generated font `wine_test_var.ttf` (`wine_test_var.py`); passes on Windows
+  11 and Wine. Step 2 (Wine 073694ae, `font.c`, `main.c`, `opentype.c`): a named instance's face is drawn at its
+  axis values (FreeType's named-instance face index); a font set entry's face reference carries the instance's
+  axis values, a reference whose values are a named instance makes that face (`factory_create_fontface`), and the
+  face cache and `IDWriteFontFace5::Equals` tell instances apart. Other axis values still give the default
+  instance (FIXME). Test `test_fontface_named_instances` (a gvar glyph in the test font; passes on Windows 11 x64
+  and x86 and on Wine).
 - `dlls/dwrite/font.c` (`fontcollection_add_replacements`): the system collection also takes family mappings from
   `HKLM\Software\Wine\Fonts\Replacements`, after the user's `HKCU` ones (a name already mapped or installed stays).
   The image writes its font aliases there as well as in `FontSubstitutes`, which only GDI reads; DirectWrite
@@ -2417,6 +2440,7 @@ Project modules: `dlls/wexhost` (`elevate.c`, export `WexElevateRun`, imports `a
 | `dlls/uxtheme/system.c`, `uxthemedll.h` | watch ThemeManager registry changes and reload the active theme in other processes without reapplying global metrics | theme queries/opening theme data |
 | `dlls/winex11.drv/window.c` | virtual desktop resize does not wait for fullscreen hint acknowledgements; standalone shell sessions have no host window manager to supply them | virtual desktop root window only |
 | `programs/wmplayer` | Wine's stub `main.c` replaced by ReactOS mplay32 | always |
+| `programs/secedit` | Wine's 22-line stub replaced by `src/programs/secedit` (`/export` and `/configure` for the lockout policy and the consent options; docs/GROUP_POLICY.md, "Local policy"); listed in `src/stock-replacements.txt` | always |
 | `dlls/shdoclc` | icon 190 (Wine's `iexplore.ico`): `iexplore.inf` names it as the Internet Explorer desktop icon, stock Wine has none | always |
 | `programs/calc`, `programs/mspaint` | new programs (ReactOS calc; own mspaint) | always |
 | `dlls/ntdll/unix/system.c` | `SystemPowerCapabilities.SystemBatteriesPresent` uses Wine's existing `fill_battery_state` helper with zero-initialized state; `SystemBatteryState` and its sysfs implementation are already stock in wine-11.19 | always (replaces the hard-coded FALSE capability; no-battery state remains FALSE) |

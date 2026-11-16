@@ -99,4 +99,5 @@ wex_prepare_prefix
 # before starting Explorer as the shell; do not force a reinstall on every login.
 "$server_bin" -k
 "$server_bin" -w
+wex_refresh_policy_after_logon
 "$WINE" explorer.exe /shell

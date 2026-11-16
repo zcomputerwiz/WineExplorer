@@ -3538,6 +3538,34 @@ OUT="$(as_wine "$STD" wexpolicy clear /machine || true)"   # the writer's own ex
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: $STD ran the writer"; }
 kill_servers
 ok st_machine_policy_and_clear_and_only_the_system_writes
+# Local policy without a domain (docs/GROUP_POLICY.md, "Local policy"): the Registry.pol files of the local object in
+# session 0's root apply to the computer and to every person when wex-gpupdate.sh runs (this machine is not joined),
+# the applied list names "Local Group Policy", and removing the files takes the values away again
+LGP="$M/drive_c/windows/system32/GroupPolicy"
+install -d -m 0755 "$LGP/Machine" "$LGP/User"
+cp "$POL/machine.pol" "$LGP/Machine/Registry.pol"; cp "$POL/user.pol" "$LGP/User/Registry.pol"
+local_gpupdate() { WEX_MACHINE_ROOT="$M" WINE="$BUILD/wine" WEX_SESSION0_USER="$S0U" bash "$SRC/installer/scripts/wex-gpupdate.sh" 2>&1; }
+OUT="$(local_gpupdate)" || { echo "$OUT" >&2; fail "local policy: wex-gpupdate.sh failed"; }
+grep -q 'local policy only' <<<"$OUT" || { echo "$OUT" >&2; fail "local policy: the run did not say it is local only (is this machine joined?)"; }
+[ "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" = 0x5 ] ||
+    fail "local policy: the computer's local policy is not in HKLM"
+[ "$(pol_user 0x7)" = 0x7 ] || fail "local policy: the person's local policy is not in HKCU: [$(pol_user 0x7)]"
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine '{35378EAC-683F-11D2-A89A-00C04FBBCFA2}' | tr -d '\r')"
+    grep -qx 'gpolist=0' <<<"$OUT" && grep -q '^gpo=LocalGPO .* name=Local Group Policy' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "local policy: a $b-bit program does not see the local object in the applied list"; }
+done
+as_wine "$STD" gpresult /v | tr -d '\r' | grep -q '^        Local Group Policy$' || fail "local policy: gpresult does not list the local object"
+rm -f "$LGP/Machine/Registry.pol" "$LGP/User/Registry.pol"
+OUT="$(local_gpupdate)" || { echo "$OUT" >&2; fail "local policy: wex-gpupdate.sh failed after the files were removed"; }
+[ -z "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" ] ||
+    fail "local policy: the computer's value stayed after the file was removed"
+[ -z "$(as_wine "$STD" reg query 'HKCU\Software\Policies\WexPol' /v Limit | val Limit)" ] ||
+    fail "local policy: the person's value stayed after the file was removed"
+[ "$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine '{35378EAC-683F-11D2-A89A-00C04FBBCFA2}' | tr -d '\r')" = gpolist=0 ] ||
+    fail "local policy: the applied list kept the local object"
+kill_servers
+ok st_local_policy_without_a_domain_applies_and_is_undone
 # Group Policy step 5: the security template (GptTmpl.inf, UTF-16LE): the lockout policy goes where net accounts
 # and the verifier keep it, security options in the policy trees are written, the rest is not applicable; a
 # damaged template changes nothing
@@ -3571,6 +3599,67 @@ s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Syst
 s0_wine reg delete 'HKLM\Software\Policies\WexPol' /f >/dev/null 2>&1 || true
 kill_servers
 ok st_security_template_lockout_policy_and_options
+# secedit (docs/GROUP_POLICY.md, "Local policy"): /export writes the lockout policy and the security options as a
+# template, which anyone may do; /configure makes a template the local object's and refreshes policy, which only
+# the system (here session 0's account; in use an elevated administrator) may write: a standard user is refused
+s0_wine net accounts /lockoutthreshold:4 >/dev/null || fail "secedit: the lockout threshold as the system"
+s0_wine reg add 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v EnableInstallerDetection /t REG_DWORD /d 1 /f >/dev/null ||
+    fail "secedit: a consent option as the system"
+EXP="/home/$STD/secedit-export.inf"
+rm -f "$EXP"
+OUT="$(as_wine "$STD" secedit /export /cfg "$(winpath "$EXP")" | tr -d '\r')" || { echo "$OUT" >&2; fail "secedit: /export"; }
+[ -s "$EXP" ] || { echo "$OUT" >&2; fail "secedit: /export wrote no file"; }
+[ "$(head -c 2 "$EXP" | od -An -tx1 | tr -d ' \n')" = fffe ] || fail "secedit: the template is not UTF-16LE with a byte order mark"
+TXT="$(iconv -f UTF-16LE -t UTF-8 "$EXP" | tr -d '\r' | sed 's/^\xef\xbb\xbf//')"
+grep -qx 'LockoutBadCount = 4' <<<"$TXT" && grep -qx '\[System Access\]' <<<"$TXT" &&
+    grep -qx 'MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\EnableInstallerDetection=4,1' <<<"$TXT" ||
+    { echo "$TXT" >&2; fail "secedit: the exported template misses the lockout policy or the consent option"; }
+LSE="$LGP/Machine/Microsoft/Windows NT/SecEdit"
+rm -rf "$LGP/Machine"; install -d -m 2775 -g "$GRP" "$LGP/Machine"
+TNAME=cfg.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
+    'LockoutBadCount = 6' 'ResetLockoutCount = 20' '[Registry Values]' \
+    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3'
+chmod 0644 "$POL/cfg.inf"
+OUT="$(as_wine "$STD" secedit /configure /cfg "$(winpath "$POL/cfg.inf")" || true)"
+grep -q 'Task is not completed' <<<"$OUT" && [ ! -e "$LSE/GptTmpl.inf" ] ||
+    { echo "$OUT" >&2; fail "secedit: a standard user configured the local security template"; }
+[ -z "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v WexSecOption | val WexSecOption)" ] ||
+    fail "secedit: a refused /configure changed the registry"
+printf 'not a template' > "$POL/text.inf"; chmod 0644 "$POL/text.inf"
+OUT="$(s0_wine secedit /configure /cfg "$(winpath "$POL/text.inf")" || true)"
+grep -q 'Task is not completed' <<<"$OUT" && [ ! -e "$LSE/GptTmpl.inf" ] || { echo "$OUT" >&2; fail "secedit: a file that is no template was taken"; }
+# the system configures: the template is stored, gpupdate is asked, and when the refresh has run the values apply
+REQ="$M/drive_c/windows/system32/GroupPolicy/Refresh"
+rm -f "$REQ" "$POL/secedit.out"
+s0_wine sc start gpsvc >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+(s0_wine secedit /configure /cfg "$(winpath "$POL/cfg.inf")" > "$POL/secedit.out" 2>&1; echo "rc=$?" >> "$POL/secedit.out") &
+SE_PID=$!
+for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
+[ -s "$REQ" ] || { cat "$POL/secedit.out" >&2; fail "secedit: /configure did not ask for a refresh"; }
+[ -f "$LSE/GptTmpl.inf" ] || fail "secedit: /configure did not store the template"
+[ "$(head -c 2 "$LSE/GptTmpl.inf" | od -An -tx1 | tr -d ' \n')" = fffe ] || fail "secedit: the stored template has no byte order mark"
+grep -q 'completed successfully' "$POL/secedit.out" && fail "secedit: /configure did not wait for the refresh"
+local_gpupdate >/dev/null 2>&1 || fail "secedit: wex-gpupdate.sh after /configure"
+wait "$SE_PID" || true
+tr -d '\r' < "$POL/secedit.out" | grep -q 'The task has completed successfully.' && grep -qx 'rc=0' "$POL/secedit.out" ||
+    { cat "$POL/secedit.out" >&2; fail "secedit: /configure did not end well"; }
+[ "$(as_wine "$STD" reg query "$E" /v LockoutBadCount | val LockoutBadCount)" = 0x6 ] || fail "secedit: the lockout threshold was not applied"
+[ "$(as_wine "$STD" reg query "$E" /v ResetLockoutCount | val ResetLockoutCount)" = 0x14 ] || fail "secedit: the reset count was not applied"
+[ "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v WexSecOption | val WexSecOption)" = 0x3 ] ||
+    fail "secedit: the security option was not applied"
+as_wine "$STD" net accounts | tr -d '\r' | grep -Eq '[[:space:]]6[[:space:]]*$' || fail "secedit: net accounts does not show the new threshold"
+OUT="$(as_wine "$STD" secedit /export /cfg "$(winpath "$EXP")" | tr -d '\r')"
+iconv -f UTF-16LE -t UTF-8 "$EXP" | tr -d '\r' | grep -q 'LockoutBadCount = 6' || fail "secedit: /export does not show the configured threshold"
+as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine '{827D319E-6EAC-11D2-A4EA-00C04F79F83A}' | tr -d '\r' |
+    grep -q '^gpo=LocalGPO ' || fail "secedit: the applied list does not name the local object for the security extension"
+rm -rf "$LGP/Machine" "$EXP"
+for v in LockoutBadCount LockoutDuration ResetLockoutCount; do s0_wine reg delete "$E" /v $v /f >/dev/null 2>&1 || true; done
+s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v WexSecOption /f >/dev/null 2>&1 || true
+s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v EnableInstallerDetection /f >/dev/null 2>&1 || true
+s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null 2>&1 || true
+kill_servers
+ok st_secedit_exports_and_configures_the_local_security_template
 # Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
 # extension, for the machine and for the user
 REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'
@@ -3610,6 +3699,21 @@ grep -q 'error 11' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: a damaged list
 [ "$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" | grep -c '^gpo=')" = 1 ] || fail "gpolist: a damaged list changed the list"
 OUT="$(as_wine "$STD" wexpolicy record /machine "$(winpath "$POL/empty.list")" || true)"
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: $STD ran the writer"; }
+# local policy (docs/GROUP_POLICY.md, "Local policy"): the local object has no GUID, its name is LocalGPO
+printf '%s\n' "LocalGPO${T}0${T}0${T}0${T}Local Group Policy${T}C:\\windows\\system32\\GroupPolicy\\Machine${T}${T}Local${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
+    "{6AC1786C-016F-11D2-945F-00C04FB984F9}${T}2${T}4${T}0${T}Wex Test${T}\\\\ad\\sysvol\\p2${T}LDAP://CN={6AC1786C-016F-11D2-945F-00C04FB984F9},CN=Policies${T}LDAP://OU=Wex,DC=ad${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
+    > "$POL/local.list"
+OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/local.list")" | tr -d '\r')" || true
+grep -q 'recorded=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record the local object"; }
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine "$REGEXT" | tr -d '\r')"
+    grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 2 ] &&
+        [ "$(grep '^gpo=' <<<"$OUT" | sed -n 1p | cut -d' ' -f1)" = 'gpo=LocalGPO' ] &&
+        grep -q '^gpo=LocalGPO .* name=Local Group Policy' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "gpolist: a $b-bit program's list with the local object first"; }
+done
+OUT2="$(as_wine "$STD" gpresult /v | tr -d '\r')"
+grep -q '^        Local Group Policy$' <<<"$OUT2" || { echo "$OUT2" >&2; fail "gpolist: gpresult does not list the local object"; }
 s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty list"
 s0_wine wexpolicy record "/user:$STD_SID" "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty user list"
 OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" | tr -d '\r')"

@@ -156,6 +156,14 @@ parser and the token are the system tier's security core) before they merge.
   primary group and groups, DOMAIN\user from both APIs in 64-bit and 32-bit programs, a member of Domain Admins with
   Administrators deny-only and a Limited token at logon, a local account unchanged).
 
+- After WO 4 (2026-11-16, in review): the admission step also asks AccountsService to cache the user (`CacheUser`), so
+  the Welcome screen has the tile after the first logon (it had none: AccountsService lists only users with a local
+  passwd entry; `busctl` runs with a clean environment and a 3 second timeout). A user's policy arrives after the
+  shell is up: the session (`wine-explorer-session-common.sh`, `wex_refresh_policy_after_logon`) asks for a refresh
+  through `gpupdate` once an `explorer.exe` of the user runs, as Windows applies user policy after the profile has
+  loaded. The first version started the refresh from the admission step, which is where an intermittent
+  failure of the session to register with session 0 (B26) showed. The lab tests the tile, the policy and the
+  offline logon with the controller unreachable ([GPO_LAB.md](GPO_LAB.md), 34 checks).
 - WO 4 (the lab, end to end): `machine` logs `WEXLAB\wexuser1` on through the greeter and passes all 24 checks
   (2026-11-16; [GPO_LAB.md](GPO_LAB.md)). It found three gaps, fixed in the same change: `wex-sysrun` accepts one
   backslash in a passwd name (`safe_account_name`: a safe flat name of 1 to 15 and a safe user name of 1 to 63
@@ -215,8 +223,11 @@ parser and the token are the system tier's security core) before they merge.
   names in the map (no collisions; `accounts_valid_name` would have to allow the separator).
 - SSSD-joined hosts: the same design with `sss` in place of Winbind for the SID lookups; Group Policy needs
   Winbind today ([GROUP_POLICY.md](GROUP_POLICY.md)), so Winbind first.
-- Several domains (trusts): one joined domain only in this design.
-- Unverified: whether AccountsService lists Winbind users before their first graphical logon; where `pam_winbind`
+- Several domains: decided 2026-11-16 (owner): one joined domain at a time, as on Windows, where a computer is a
+  member of exactly one domain. Users of other, trusted domains (which Windows lets log on to a member computer)
+  are not covered: a name of another domain is refused (the greeter, `admit`, the map's domain SID). Offline logon
+  and the tile after a first logon are tested in the lab ([GPO_LAB.md](GPO_LAB.md)).
+- Settled by the lab: AccountsService does not list a Winbind user on its own (the admission step caches them); unverified: where `pam_winbind`
   puts the Kerberos ticket cache for a LightDM session (`KRB5CCNAME`).
 
 ## Sources
