@@ -20,7 +20,14 @@ wex_refresh_policy_after_logon()
 {
     [ "${WEXMODE:-normal}" = normal ] || return 0
     (
-        for _ in $(seq 1 120); do pgrep -u "$(id -u)" -x explorer.exe >/dev/null 2>&1 && break; sleep 1; done
+        up=0
+        for _ in $(seq 1 120); do
+            if pgrep -u "$(id -u)" -x explorer.exe >/dev/null 2>&1; then up=1; break; fi
+            sleep 1
+        done
+        # no shell within two minutes (the session failed or ended): nothing to refresh, and no new wineserver is
+        # started in a prefix that nobody uses any more
+        [ "$up" = 1 ] || exit 0
         sleep 5
         "$WINE" gpupdate.exe /target:user /wait:0 >/dev/null 2>&1
     ) &
