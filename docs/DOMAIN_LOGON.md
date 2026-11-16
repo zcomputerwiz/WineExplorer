@@ -158,8 +158,12 @@ parser and the token are the system tier's security core) before they merge.
 
 - After WO 4 (2026-11-16, in review): the admission step also asks AccountsService to cache the user (`CacheUser`), so
   the Welcome screen has the tile after the first logon (it had none: AccountsService lists only users with a local
-  passwd entry), and starts a policy refresh in the background, so the user's policy arrives at the logon. The lab
-  tests both, and the offline logon with the controller unreachable ([GPO_LAB.md](GPO_LAB.md), 34 checks).
+  passwd entry; `busctl` runs with a clean environment and a 3 second timeout). A user's policy arrives after the
+  shell is up: the session (`wine-explorer-session-common.sh`, `wex_refresh_policy_after_logon`) asks for a refresh
+  through `gpupdate` once an `explorer.exe` of the user runs, as Windows applies user policy after the profile has
+  loaded. The first version started the refresh from the admission step, which is where an intermittent
+  failure of the session to register with session 0 (B26) showed. The lab tests the tile, the policy and the
+  offline logon with the controller unreachable ([GPO_LAB.md](GPO_LAB.md), 34 checks).
 - WO 4 (the lab, end to end): `machine` logs `WEXLAB\wexuser1` on through the greeter and passes all 24 checks
   (2026-11-16; [GPO_LAB.md](GPO_LAB.md)). It found three gaps, fixed in the same change: `wex-sysrun` accepts one
   backslash in a passwd name (`safe_account_name`: a safe flat name of 1 to 15 and a safe user name of 1 to 63

@@ -108,4 +108,5 @@ LAUNCH=("$WINE" explorer.exe "/desktop=${DESKTOP_NAME},${WIDTH}x${HEIGHT}" "${SH
 # Gamescope owns a different root, so nesting the entire shell under it would
 # isolate native Linux and Proton windows. Use Gamescope per application instead.
 echo "Starting X11 desktop (${WIDTH}x${HEIGHT})"
+wex_refresh_policy_after_logon
 exec "${LAUNCH[@]}"

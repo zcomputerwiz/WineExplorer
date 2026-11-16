@@ -81,7 +81,7 @@ deletes the password again at the end) and the guest checks, by `docs/DOMAIN_LOG
   `domain_environment`: `USERDOMAIN=WEXLAB`, `USERPROFILE=C:\users\wexuser1`; `domain_profile_folder`;
 - `domain_user_policy_at_logon`, `domain_user_policy_applied`, `gpresult_user_lists_domain_object`:
   `HKCU\Software\Policies\WexLab UserLimit` is 3 within two minutes of the logon with nobody starting
-  `wex-gpupdate.service` (the admission step starts a refresh in the background), and `gpresult /scope user` lists
+  `wex-gpupdate.service` (the session asks for a refresh once its shell is up), and `gpresult /scope user` lists
   "WexLab Domain";
 - `domain_user_cached_by_accountsservice`, `domain_user_tile_after_first_logon`: after the logoff
   (`loginctl terminate-user`) the Welcome screen shows the user's tile ("Wex User"). AccountsService caches only
@@ -135,8 +135,8 @@ installed-machine disks and ISOs are not there either; an image is the next thin
   the offline logon (the controller unreachable). One of three runs with them failed at the first logon: the
   session's `wineserver` printed "session 0 ... did not register this session" and the greeter came back, while the
   admission step's policy refresh was running; the next run passed and a stress test (a user's server restarted
-  next to a refresh, 12 times) did not reproduce it. Reported to the system tier session; the guest prints the
-  evidence if it happens again.
+  next to a refresh, 12 times) did not reproduce it. Reported to the system tier session (B26, session 0); the
+  refresh now starts from the session once the shell is up, and the guest prints the evidence if it happens again.
 - `machine` with the domain user's logon passed on 2026-11-16 with all 24 checks, on a disk installed from an ISO of
   master b91c3631 (domain logon WO 1 to 3) and this tree's launcher, `wex-accounts` and `wex-gpupdate.sh`. Three
   findings on the way: the launcher (`wex-sysrun`) refused the passwd name `WEXLAB\wexuser1` (a backslash), so the

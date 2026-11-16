@@ -2417,6 +2417,7 @@ Project modules: `dlls/wexhost` (`elevate.c`, export `WexElevateRun`, imports `a
 | `dlls/uxtheme/system.c`, `uxthemedll.h` | watch ThemeManager registry changes and reload the active theme in other processes without reapplying global metrics | theme queries/opening theme data |
 | `dlls/winex11.drv/window.c` | virtual desktop resize does not wait for fullscreen hint acknowledgements; standalone shell sessions have no host window manager to supply them | virtual desktop root window only |
 | `programs/wmplayer` | Wine's stub `main.c` replaced by ReactOS mplay32 | always |
+| `programs/secedit` | Wine's 22-line stub replaced by `src/programs/secedit` (`/export` and `/configure` for the lockout policy and the consent options; docs/GROUP_POLICY.md, "Local policy"); listed in `src/stock-replacements.txt` | always |
 | `dlls/shdoclc` | icon 190 (Wine's `iexplore.ico`): `iexplore.inf` names it as the Internet Explorer desktop icon, stock Wine has none | always |
 | `programs/calc`, `programs/mspaint` | new programs (ReactOS calc; own mspaint) | always |
 | `dlls/ntdll/unix/system.c` | `SystemPowerCapabilities.SystemBatteriesPresent` uses Wine's existing `fill_battery_state` helper with zero-initialized state; `SystemBatteryState` and its sysfs implementation are already stock in wine-11.19 | always (replaces the hard-coded FALSE capability; no-battery state remains FALSE) |

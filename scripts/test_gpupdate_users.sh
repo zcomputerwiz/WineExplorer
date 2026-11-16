@@ -10,6 +10,7 @@ set -euo pipefail
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$HERE/../installer/scripts/wex-gpupdate.sh"
 FX="$(mktemp -d)"
+chmod 755 "$FX"   # the fake loader runs as session 0's account (nobody) and has to reach its files
 trap 'rm -rf -- "$FX"; rm -rf /run/wineexplorer-policy' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -75,7 +76,9 @@ chmod 0755 "$FX"/bin/* "$FX/wine"
 run_gpupdate()
 {
     : > "$FX/wexpolicy.log"; : > "$FX/net.log"; : > "$FX/detail.log"; : > "$FX/ext.log"
-    PATH="$FX/bin:$PATH" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=root WEX_MACHINE_ROOT="$FX/mroot" \
+    # session 0's account is unprivileged, as in use: the fake loader runs as it, so its logs are open to it
+    chmod 666 "$FX/wexpolicy.log" "$FX/detail.log" "$FX/ext.log"
+    PATH="$FX/bin:$PATH" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" \
         bash "$SCRIPT" > "$FX/out.log" 2>&1 ||
         { cat "$FX/out.log"; fail "wex-gpupdate.sh failed on $1"; }
 }
@@ -179,4 +182,16 @@ grep -qx 'clear /machine' "$FX/wexpolicy.log" && grep -qx 'clear /user:S-1-5-21-
 rm -f "$LG/Archive/"*.pol; ln -s /etc/hostname "$LG/Machine/Registry.pol"
 run_gpupdate "$FX/map3"
 [ -z "$(grep -v "^refreshed" "$FX/wexpolicy.log")" ] || { cat "$FX/wexpolicy.log"; fail 'a link was taken for the local file'; }
-echo 'OK: wex-gpupdate.sh local policy (not joined, joined and in order, nothing to do, removed, a link)'
+# Local files are read as session 0's account: a file that only root can read (what a link swapped in after the check
+# would reach) is not published to it, and not used; the run goes on without it
+rm -f "$LG/Machine/Registry.pol" "$SECDIR/GptTmpl.inf"
+printf 'SECRET' > "$LG/Machine/Registry.pol"; chmod 0600 "$LG/Machine/Registry.pol"
+printf 'SECRET' > "$SECDIR/GptTmpl.inf"; chmod 0600 "$SECDIR/GptTmpl.inf"
+touch "$FX/unjoined"
+run_gpupdate "$FX/map3"
+! grep -rq SECRET /run/wineexplorer-policy "$FX/detail.log" || fail 'a file only root can read was published to session 0'"'"'s account'
+grep -q 'cannot be read: left out' "$FX/out.log" || { cat "$FX/out.log"; fail 'an unreadable local file was not reported'; }
+grep -qx 'clear /machine' "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log"; fail 'an unreadable local file was not left out (no clear without it)'; }
+! grep -q '^security' "$FX/wexpolicy.log" || fail 'an unreadable template was applied'
+rm -f "$LG/Machine/Registry.pol" "$SECDIR/GptTmpl.inf"
+echo 'OK: wex-gpupdate.sh local policy (not joined, joined and in order, a template, nothing to do, removed, a link, an unreadable file)'

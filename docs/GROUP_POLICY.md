@@ -445,9 +445,22 @@ a joined machine keeps it beneath the domain's (Windows applies Local, then Site
    Manager): the policies that Wine components honour (the shell restrictions, `Policies\System`, the elevation
    and lockout settings), the rest grayed out as "not applicable" with a reason. Writing machine policy needs an
    administrator, so it runs elevated through the broker.
-3. **`secpol.msc` and `secedit`.** `programs/secedit` is a 22-line stub. `/export` and `/configure` on a
-   `GptTmpl.inf` can reuse the template code of `wexpolicy`; a local template store; one rule for who wins when the
-   template and `net accounts` write the same lockout values (today the last writer).
+3. **`secpol.msc` and `secedit`.** Done 2026-11-16 (the command line; `secpol.msc` itself needs the editor of 2):
+   the local object's security template is `GroupPolicy\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf` in
+   session 0's root, which `wex-gpupdate.sh` applies first and the domain's templates after it (the last one wins
+   where they set the same value). `secedit` is WineExplorer's (`src/programs/secedit`, replacing Wine's stub:
+   `src/stock-replacements.txt`): `/export /cfg FILE` writes the lockout policy and the consent options as they are
+   now; `/configure /cfg FILE` stores a template as the local one and runs `gpupdate /target:computer`, returning
+   when the refresh has applied it. `/db`, `/overwrite`, `/log`, `/quiet` are accepted and change nothing, and
+   `/areas` other than `SECURITYPOLICY` are reported not applicable. Only the system group may write the store
+   (an elevated administrator, as for machine policy); a standard user gets "Task is not completed". Limits: the
+   template replaces the previous one (earlier values stay applied, as security settings stay on Windows, but are
+   no longer in the file); a directory that one elevated administrator creates is theirs, so a second
+   administrator cannot write into it (to be settled with the editor of 2, perhaps by having session 0's own
+   account write the files); and `net accounts` and a template still write the same lockout values, the last
+   writer winning.
+   The root script reads the local files as session 0's account (`stage_file`), so a link put in place of one
+   after its check reaches only what that account could read.
 3b. **`net accounts` and `NetUserModals`.** The password-age lines, `/forcelogoff` and `/domain` of `net accounts`
    and `NetUserModalsGet` levels 0 and 1, `NetUserModalsSet` levels 0 to 2: stock Wine (`dlls/netapi32`,
    `programs/net`), each listed in [STOCK_CHANGES.md](STOCK_CHANGES.md). Password length and age have no store or

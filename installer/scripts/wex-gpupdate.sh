@@ -209,14 +209,28 @@ record()
 }
 
 # apply the files of one target: "/machine" or "/user:SID"
+# Stage a policy file ($1) as $2 for session 0's account to read. The domain's files (Samba's cache, root's) are
+# copied by root. The local object's files are in session 0's root, where session 0's account, and whoever it lets
+# edit local policy, can replace them: they are read as session 0's account, so that a link put in after the check
+# reaches only what that account could read anyway, never a file that only root can.
+stage_file()
+{
+    case $1 in
+        "$LOCAL_GPO"/*)
+            runuser -u "$S0_USER" -- cat -- "$1" > "$2" 2>/dev/null || { rm -f "$2"; return 1; }
+            chmod 0644 "$2" ;;
+        *) install -m 0644 "$1" "$2" ;;
+    esac
+}
+
 apply()
 {
     local target=$1 name=$2 n=0 args=() file copy
     shift 2
     for file in "$@"; do
+        copy="$STAGE/$name-$((n + 1)).pol"
+        if ! stage_file "$file" "$copy"; then echo "wex-gpupdate: $file cannot be read: left out" >&2; continue; fi
         n=$((n + 1))
-        copy="$STAGE/$name-$n.pol"
-        install -m 0644 "$file" "$copy"
         args+=("Z:${copy//\//\\}")
     done
     if [ "$n" -gt 0 ]; then s0_wexpolicy apply "$target" "${args[@]}"
@@ -260,13 +274,15 @@ else
         record /machine "$LISTS/machine.list"
     fi
     # security settings stay when an object no longer sets them, as on Windows: no template, nothing to do
-    if [ "${#TEMPLATES[@]}" -gt 0 ]; then
-        args=(); n=0
-        for f in "${TEMPLATES[@]}"; do
-            n=$((n + 1)); install -m 0644 "$f" "$STAGE/security-$n.inf"; args+=("Z:${STAGE//\//\\}\\security-$n.inf")
-        done
-        s0_wexpolicy security /machine "${args[@]}"
-    fi
+    args=(); n=0
+    for f in "${TEMPLATES[@]}"; do
+        if stage_file "$f" "$STAGE/security-$((n + 1)).inf"; then
+            n=$((n + 1)); args+=("Z:${STAGE//\//\\}\\security-$n.inf")
+        else
+            echo "wex-gpupdate: $f cannot be read: left out" >&2
+        fi
+    done
+    [ "${#args[@]}" -eq 0 ] || s0_wexpolicy security /machine "${args[@]}"
 fi
 
 # The people of the accounts map (UID 1000 or more): name in column 1, UID in column 2, "active" in column 4, the
@@ -289,22 +305,22 @@ awk 'NR == 1 { v = $2; next }
     fi
     # the directory knows the account by its plain name (sAMAccountName)
     acct=${name##*\\}
-    : > "$LISTS/user-$acct.domain.list"
+    : > "$LISTS/user-$sid.domain.list"
     if [ "$domain_user" = 1 ]; then
-        gpo_list "$acct" USER > "$LISTS/user-$acct.domain.list"
-        win_order "$LISTS/user-$acct.domain.list" "$acct"
+        gpo_list "$acct" USER > "$LISTS/user-$sid.domain.list"
+        win_order "$LISTS/user-$sid.domain.list" "$acct"
     fi
     USER_FILES=()
     [ -z "$LOCAL_USER" ] || USER_FILES+=("$LOCAL_USER")
-    mapfile -t DOMAIN_USER_FILES < <(pol_files "$LISTS/user-$acct.domain.list" USER)
+    mapfile -t DOMAIN_USER_FILES < <(pol_files "$LISTS/user-$sid.domain.list" USER)
     USER_FILES+=("${DOMAIN_USER_FILES[@]}")
-    { [ -z "$LOCAL_USER" ] || local_entry User "$REG_EXT"; cat "$LISTS/user-$acct.domain.list"; } > "$LISTS/user-$acct.list"
+    { [ -z "$LOCAL_USER" ] || local_entry User "$REG_EXT"; cat "$LISTS/user-$sid.domain.list"; } > "$LISTS/user-$sid.list"
     if [ "$PRINT" = 1 ]; then
-        sed "s/^/object user $acct /" "$LISTS/user-$acct.list"
+        sed "s/^/object user $acct /" "$LISTS/user-$sid.list"
         for f in "${USER_FILES[@]}"; do echo "user $acct $f"; done
     elif [ "${#USER_FILES[@]}" -gt 0 ] || [ "$domain_user" = 1 ] || has_archive "User-$sid"; then
-        apply "/user:$sid" "user-$acct" "${USER_FILES[@]}"
-        record "/user:$sid" "$LISTS/user-$acct.list"
+        apply "/user:$sid" "user-$sid" "${USER_FILES[@]}"
+        record "/user:$sid" "$LISTS/user-$sid.list"
     fi
 done
 exit 0
