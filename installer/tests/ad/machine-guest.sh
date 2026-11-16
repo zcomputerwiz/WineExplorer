@@ -224,7 +224,13 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
     systemctl restart lightdm
 
     # 7a. the first logon, online
-    if ! host_step logon; then notok domain_logon "$HOST_ANSWER"; finish; fi
+    if ! host_step logon; then
+        notok domain_logon "$HOST_ANSWER"
+        # what the session said, and what session 0 and the policy refresh did meanwhile
+        echo "note diag wine-session.log: $(tail -6 "/home/WEXLAB/wexuser1/.wine-session.log" 2>&1 | tr '\n' '|' | cut -c1-600)"
+        echo "note diag journal: $(journalctl --no-pager -b 0 2>/dev/null | grep -i 'session0\|wex-gpupdate\|lightdm\|accounts-daemon' | tail -14 | cut -c1-170 | tr '\n' '|')"
+        finish
+    fi
     if user_session; then ok domain_logon
     else notok domain_logon "sessions: $(loginctl list-sessions --no-legend | awk '{ print $3 }' | tr '\n' ' ')"; finish; fi
     # admission: an active domain record and the recorded groups (Domain Users at least)
