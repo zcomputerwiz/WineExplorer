@@ -3535,3 +3535,14 @@ keeps the core window topmost in compact overlay; TryConsolidateAsync a FIXME re
 `IAsyncOperation<boolean>`), `private.h`, `Makefile.in`. No conformance test (a view needs a core window); checked
 with the XamlProbe package (`tests/uwp/xaml/cx-probe`, its "view mode" line matches Windows). The Store Calculator asks
 IsViewModeSupported when it sets its mode; without it the view model is never made.
+
+2026-11-16 (UWP, Wine 41c7bf93): `dlls/windows.ui/window.c`: the thread that creates a CoreWindow is made per-monitor
+DPI aware first (`SetThreadDpiAwarenessContext`), as the thread and the window of a packaged application are on Windows
+(measured with the XamlProbe package: awareness 2). Wine's server only reparents windows of the same awareness
+(ERROR_INVALID_STATE_TRANSITION, 5023), so another window of the process could not be made a child of the CoreWindow, which
+a XAML host inside it needs. Checked with the XamlProbe ("core window DPI awareness" line: awareness 2 on both; Wine's
+window and thread contexts are not equal as Windows' are, which nothing depends on) and the Store Calculator.
+
+2026-11-16 (UWP, Wine f0f972f8): `dlls/windows.ui/dispatcher.c`: `GetIids` of the CoreDispatcher, its asynchronous action
+and the idle arguments (they returned E_NOTIMPL, which .NET Native turns into an exception when it wraps the object, as it
+does for the action `Dispatcher.RunAsync` returns). `tests/corewindow.c` passes on Wine x64 and x86.
