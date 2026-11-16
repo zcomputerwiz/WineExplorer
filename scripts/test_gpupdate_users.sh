@@ -67,7 +67,7 @@ run_gpupdate()
         { cat "$FX/out.log"; fail "wex-gpupdate.sh failed on $1"; }
 }
 
-# version 1: the SID parts follow the "21" in columns 5 to 8; a local account is told apart by Winbind
+# version 1: "21" is column 5 and the SID parts are columns 6 to 9; a local account is told apart by Winbind
 cat > "$FX/map1" <<'EOF'
 WEXACCOUNTS 1 3 1002 11 22 33
 alice 1001 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa active 21 11 22 33 1001

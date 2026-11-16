@@ -205,7 +205,7 @@ else
 fi
 
 # The users of the accounts map: name in column 1, "active" in column 4, the SID's last four parts after the
-# "21" (columns 5 to 8 of a version 1 map; a version 2 map has local|domain in column 5, so they are one further on;
+# "21" (columns 6 to 9 of a version 1 map, where "21" is column 5; a version 2 map has local|domain in column 5, so they are one further on;
 # only its domain records are users of the domain, whose name is the Winbind name DOMAIN\user, docs/DOMAIN_LOGON.md).
 [ -r "$MAP" ] || exit 0
 awk 'NR == 1 { v = $2; next }
