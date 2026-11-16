@@ -472,7 +472,18 @@ a joined machine keeps it beneath the domain's (Windows applies Local, then Site
 5. **Binding.** An installed system does not enforce elevation by default, so any user can overwrite machine policy
    between refreshes; the next refresh puts it back. Whether the default changes is a decision for the system tier.
 
-### Writing the local files: the spool (design, 2026-11-16, for the system tier session's review)
+### Writing the local files: the spool (implemented 2026-11-16, in review by the system tier session)
+
+Where it is: `scripts/setup-machine-root.sh` (section 2b: the store tree is session 0's account's, only the spool is
+group-writable), `src/dlls/wexgpstore` (`native.c`: the file work relative to directory descriptors; `unixlib.c`,
+`wexgpstore.c`: the Wine glue, three exports), `src/programs/wexpolicy/store.c` (control code 129: read, check, install,
+`NAME.error`), `src/include/wexgpclient.h` (the client: spool file, control code, wait for the refresh) and
+`src/programs/secedit/main.c` (the first client). Tests: `scripts/test_b3_machine_root.sh` (setup with a hostile
+tree), `scripts/test_gpstore_native.sh` (the native code against hostile trees: links, FIFOs, hard links, sizes, a
+planted `STORE.new` or `NAME.error`, a tree that is not as setup makes it; mutation-checked), and the session 0 suite
+(`st_gpsvc_spool_installs_good_requests_and_refuses_hostile_ones`, `st_secedit_...`). `ControlService` does not
+pass a handler's error code on, so a client learns of a refused tree from the request that stays (`ERROR_TIMEOUT`
+in the helper) and of a refused file from `NAME.error`.
 
 Machine policy is written by session 0's own account. The editor (2) and `secedit /configure` (3) therefore do not
 write the store themselves; they hand a file to `gpsvc`, which checks it and installs it.
