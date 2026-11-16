@@ -29,11 +29,11 @@
 #define COMDLG32      POLICIES_ROOT "Comdlg32"
 
 #define FLAG( id, scope, status, category, name, explain, key, value ) \
-    { id, scope, POLICY_FLAG, status, category, name, explain, key, value, 1, 0, NULL }
+    { id, scope, POLICY_FLAG, status, category, name, explain, key, value, 1, 0, NULL, NULL }
 #define NUMBER( id, scope, status, category, name, explain, key, value ) \
-    { id, scope, POLICY_NUMBER, status, category, name, explain, key, value, 1, 0, NULL }
+    { id, scope, POLICY_NUMBER, status, category, name, explain, key, value, 1, 0, NULL, NULL }
 #define GRAYED( id, scope, category, name, explain, key, value, reason ) \
-    { id, scope, POLICY_FLAG, POLICY_NOT_APPLICABLE, category, name, explain, key, value, 1, 0, reason }
+    { id, scope, POLICY_FLAG, POLICY_NOT_APPLICABLE, category, name, explain, key, value, 1, 0, reason, NULL }
 
 #define EXPLORER_CAT  "Windows Components\\Windows Explorer"
 #define START_CAT     "Start Menu and Taskbar"
@@ -65,11 +65,11 @@ const struct policy policies[] =
           "No document opened by any user is added to the Recent Documents list.", EXPLORER, "NoRecentDocsHistory" ),
     FLAG( "user:NoPlacesBar", POLICY_USER, POLICY_APPLIES, EXPLORER_CAT, "Hide the Places Bar in Open and Save dialogs",
           "Removes the bar of shortcuts at the left of the common Open and Save dialogs.", COMDLG32, "NoPlacesBar" ),
-    NUMBER( "computer:ConsentPromptBehaviorAdmin", POLICY_COMPUTER, POLICY_APPLIES, SECURITY_CAT,
-            "Behavior of the elevation prompt for administrators",
-            "How an administrator is asked before a program runs with full rights. 2: always ask for consent; 5: ask "
-            "for consent for changes to the computer (the default). Other values are not supported here.", SYSTEM,
-            "ConsentPromptBehaviorAdmin" ),
+    { "computer:ConsentPromptBehaviorAdmin", POLICY_COMPUTER, POLICY_NUMBER, POLICY_APPLIES, SECURITY_CAT,
+      "Behavior of the elevation prompt for administrators",
+      "How an administrator is asked before a program runs with full rights. 2: always ask for consent; 5: ask "
+      "for consent for changes to the computer (the default). Other values are not supported here.", SYSTEM,
+      "ConsentPromptBehaviorAdmin", 5, 0, NULL, "2,5" },
     FLAG( "computer:PromptOnSecureDesktop", POLICY_COMPUTER, POLICY_APPLIES, SECURITY_CAT,
           "Show the elevation prompt on the secure desktop",
           "Enabled (the default): the prompt appears on the secure desktop, where other programs cannot reach it. "

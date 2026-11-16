@@ -58,6 +58,7 @@ struct policy
     uint32_t enabled;         /* POLICY_FLAG: what Enabled writes */
     uint32_t disabled;        /* POLICY_FLAG: what Disabled writes */
     const char *reason;       /* POLICY_NOT_APPLICABLE: why it does nothing here */
+    const char *allowed;      /* POLICY_NUMBER: the numbers that are accepted, "2,5", or NULL for any */
 };
 
 extern const struct policy policies[];
