@@ -152,8 +152,7 @@ the XAML (Uno's reader left 31 of the application's 42 unresolved, so the button
 (Uno looks in its own folder); every scalar `PropertyValue` (the digit buttons' content is a Char16);
 `ContentControl.Content` taking values; the application's `OnApplyTemplate` overrides called (the display control
 finds its text block there); bindings by `ElementName` to the compiled XAML's root followed from the root's property.
-Open: the decimal separator button shows no "." (its text is laid out, enabled, same colour as the digits);
-the keep-on-top and history icons are clipped.
+(Both were fixed later, see "Layout fixed".)
 
 Later the same day (Wine development f0f972f8, uno-uwp see its log): **7 + 5 = 12 by mouse**. The clicks (a Wine program,
 `lab-helpers/calc-input.c`, SendInput on the lab's display) reach Uno and its buttons; the display shows 7, 7, 5, 12.
@@ -171,7 +170,18 @@ Uno takes the character TranslateMessage posted from the queue itself, so it is 
 application types get static `Get`/`Set` methods for the members their XAML metadata says are attachable (Uno's reader
 ignored `KeyboardShortcutManager.Character` and `.VirtualKey` without them: no key was registered); an `IReference<T>` of an
 application type (`ResourceVirtualKey` gives a `MyVirtualKey`) is kept as the application's object.
-Open: the expression line above the display (the bound token list), decimal separator.
+**Layout fixed** (uno-uwp fcd89337db): the decimal point and the clipped keypad text were one bug. The first full layout threw
+in NavigationView ("Null encountered as data template": the application's `NavViewMenuItemTemplateSelector` had no templates,
+because Uno's reader left its `{StaticResource}` attributes null, as it does `Style.BasedOn`, and its `SelectTemplateCore
+was never called), so every element kept the measure of its first pass: text boxes 10 px high, glyphs cut at the bottom.
+The fix: the selectors' `SelectTemplateCore` is forwarded to the application; their template references are filled once the
+dictionary is built; one .NET wrapper per application object (Uno compares by reference, and NavigationView's SelectedItem
+looped to a stack overflow with a new wrapper on every read); `DataTemplate` is a shim class. `XAMLSHIM_LATE_TREE=<s>` dumps the
+tree again later (with `INPUT`); the dump shows metrics, available size and `STALE` for elements arranged larger than measured.
+Open: the expression line above the display. Its template elements are now connected (GetBindingConnector, Connect,
+`DataTemplate.SetExtensionInstance` remembered) and the application's DataContextChanged handler of the x:Bind runs, but it
+hits a null reference inside the application (an access violation at one address in CalculatorApp.dll, 18 times) before it
+sets any text; not yet explained.
 
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
