@@ -609,3 +609,16 @@ lab and a 32-bit program that calls `NetGetJoinInformation`. No policy applicati
 - adsys how-to: https://documentation.ubuntu.com/adsys/stable/how-to/use-gpo
 - Red Hat, GPO access control (SSSD): https://docs.redhat.com/zh-cn/documentation/red_hat_enterprise_linux/10/html/integrating_rhel_systems_directly_with_windows_active_directory/applying-group-policy-object-access-control-in-rhel
 - MS-GPREG: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-gpreg/5c092c22-bf6b-4e7f-b180-b20743d368f5
+
+### Shell restrictions (2026-11-16)
+
+The Start menus carry out the common restrictions of `Policies\Explorer` (`src/dlls/wexshell/restrictions.c`: the
+value counts when it is not 0 in the user's hive or in the machine's). `NoRun`, `NoClose`, `NoLogoff`,
+`NoControlPanel`, `NoSetFolders` (Control Panel, Network Connections and Printers), `NoSetTaskbar`, `NoFind`
+(including F3 on the desktop), `NoSMHelp`, `NoSMMyDocs` and `NoRecentDocsMenu` take the command out of both the Classic
+and the XP-style menu (an empty cascade goes too, and the Log Off and Turn Off buttons close up), and
+`run_start_command` and the Run dialog refuse the command when something else asks for it. The editor lists these ten
+as applying; the rest of the "stored" ones (`NoChangeStartMenu`, `NoFolderOptions`, `NoViewContextMenu`,
+`NoFileAssociate`, `NoNetHood`, `ClearRecentDocsOnExit`, `NoWinKeys`) are still only read by programs that call
+`SHRestricted`. Checked by hand under Xvfb with the build tree (menu with and without `NoRun`, `NoClose`, `NoLogoff`,
+`NoFind`); there is no automated check yet, since the shell needs a desktop.
