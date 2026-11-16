@@ -2298,7 +2298,24 @@ def install(verb, accepted_digest):
             os.replace(temporary_receipt, receipt / (verb + '.json'))
         finally:
             temporary_receipt.unlink(missing_ok=True)
-        (receipt / (verb + '.sha256')).write_text(current + '\n', encoding='ascii')
+        # The digest file too (a plain write_text was left empty by a power-off right after an install), and then
+        # the directory, so that both renames survive one.
+        with tempfile.NamedTemporaryFile(mode='w', encoding='ascii', dir=receipt,
+                                         prefix='.' + verb, delete=False) as out:
+            temporary_receipt = Path(out.name)
+            os.fchmod(out.fileno(), 0o644)
+            out.write(current + '\n')
+            out.flush()
+            os.fsync(out.fileno())
+        try:
+            os.replace(temporary_receipt, receipt / (verb + '.sha256'))
+        finally:
+            temporary_receipt.unlink(missing_ok=True)
+        directory = os.open(receipt, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
 
 
 def format_size(total):
