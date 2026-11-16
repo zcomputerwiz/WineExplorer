@@ -3771,7 +3771,7 @@ for state in 1 0; do
     wait "$GP_PID" || true
     tr -d '\r' < "$POL/gpset.out" | grep -qx 'gpset=0' && grep -qx 'rc=0' "$POL/gpset.out" ||
         { cat "$POL/gpset.out" >&2; fail "gpedit: setting state $state did not end well"; }
-    got="$(as_wine "$STD" reg query "$EXPL" /v NoRecentDocsHistory | val NoRecentDocsHistory)"
+    got="$(as_wine "$STD" reg query "$EXPL" /v NoRecentDocsHistory | val NoRecentDocsHistory || true)"   # (no value: reg exits 1)
     if [ "$state" = 1 ]; then [ "$got" = 0x1 ] || fail "gpedit: enabled setting not applied: [$got]"
     else [ -z "$got" ] || fail "gpedit: Not Configured left the value: [$got]"; fi
 done
