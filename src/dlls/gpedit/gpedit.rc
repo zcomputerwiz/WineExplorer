@@ -1,0 +1,75 @@
+/*
+ * gpedit: resources
+ *
+ * Copyright 2026 WineExplorer contributors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+#include <windef.h>
+#include <winuser.h>
+#include <commctrl.h>
+
+#include "resource.h"
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+
+IDM_MAIN MENU
+{
+    POPUP "&File"
+    {
+        MENUITEM "E&xit", IDM_EXIT
+    }
+    POPUP "&Action"
+    {
+        MENUITEM "&Properties\tAlt+Enter", IDM_PROPERTIES
+        MENUITEM SEPARATOR
+        MENUITEM "&Refresh\tF5", IDM_REFRESH
+    }
+    POPUP "&Help"
+    {
+        MENUITEM "&About Group Policy", IDM_ABOUT
+    }
+}
+
+IDA_MAIN ACCELERATORS
+{
+    VK_RETURN, IDM_PROPERTIES, VIRTKEY, ALT
+    VK_F5,     IDM_REFRESH,    VIRTKEY
+}
+
+/* the Setting page of a policy: three choices and, for a number, its value */
+IDD_SETTING DIALOGEX 0, 0, 252, 170
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Setting"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT        "", IDC_POLICY_NAME, 10, 10, 232, 24
+    AUTORADIOBUTTON "&Not Configured", IDC_NOTCONFIGURED, 10, 42, 120, 10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "&Enabled", IDC_ENABLED, 10, 56, 120, 10
+    AUTORADIOBUTTON "&Disabled", IDC_DISABLED, 10, 70, 120, 10
+    LTEXT        "&Value:", IDC_NUMBER_LABEL, 24, 90, 40, 10
+    EDITTEXT     IDC_NUMBER, 66, 88, 60, 12, ES_AUTOHSCROLL
+    LTEXT        "", IDC_HINT, 24, 104, 218, 22
+    LTEXT        "", IDC_SUPPORT, 10, 132, 232, 30
+}
+
+/* the Explain page */
+IDD_EXPLAIN DIALOGEX 0, 0, 252, 170
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Explain"
+FONT 8, "MS Shell Dlg"
+{
+    EDITTEXT     IDC_EXPLAIN, 10, 10, 232, 150, ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL
+}

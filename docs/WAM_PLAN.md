@@ -65,3 +65,22 @@ notice; Himmelblau only as a separate process. Wine modules stay LGPL-2.1-or-lat
 ## Progress
 
 - 2026-11-14: research and verification done; step 1 started.
+- 2026-11-15: step 1 in Wine (762955ab): no provider; requests complete with `AccountProviderNotAvailable`.
+- 2026-11-16: a diagnostic provider for step 3's design (Wine 8b534d09 and later; off by default, switched on per user
+  with `HKCU\Software\Wine\WebAuthentication` `DiagnosticProvider` = 1). Provider lookups answer with a provider
+  object; token requests are written to the log and fail. A silent request that needs the user gets
+  `UserInteractionRequired` with the error Windows 11's Microsoft account provider gives (checked on the owner's
+  machine with a client id that is not registered, so no token could be issued): `0x80860006` "Error" for
+  `consumers`, `0xCAA10001` "Need user interaction to continue." for `organizations`. The error object is always
+  there (OneAuth dereferences it without a check). The request and response property maps answer
+  `IIterable<IKeyValuePair<HSTRING, HSTRING>>` (Wine 46065162).
+- What Microsoft Copilot (OneAuth, MSAL.xplat 11.2.2) does with it: at start, provider lookups for
+  `login.microsoft.com` (`consumers`, `organizations`) and `login.windows.local`, `FindAllAccountsWithClientIdAsync`
+  (no accounts), two `GetTokenSilentlyAsync` for client `0ec893e0-5785-4de6-99da-4ed124e5296c`, scope
+  `profile openid 4765445b-32c6-49b0-83e6-1d93765276ca/.default`, authority `consumers`, with MSAL's telemetry
+  properties. "Continue with Microsoft" then fails at once (`platformError=-21`) without any WinRT call; it never
+  calls `RequestTokenForWindowAsync`. `IdentityCRL\LoginUrl` made no difference.
+- Open decision (the owner's): Copilot's client is Microsoft's own and its tokens are issued only to redirect URIs
+  Microsoft registered (its broker's). A WineExplorer broker would have to present itself as Microsoft's broker for
+  such clients. Nothing is built toward that until the owner decides; step 3 for clients that accept the public
+  native-client redirect is not affected.

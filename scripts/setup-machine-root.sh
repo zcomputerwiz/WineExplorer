@@ -493,6 +493,39 @@ EOF
     rm -rf -- "$SYSRUN_TMP"
 fi
 
+# 2b. The local Group Policy store (docs/GROUP_POLICY.md, "Local policy", "Writing the local files"). Session 0's account
+# is its only writer: gpsvc checks the requests that an elevated administrator's process leaves in the spool and
+# installs them. The tree is therefore session 0's own and not group-writable, where the machine root's default ACL
+# would make it writable by the whole system group, who could then put links in the way of gpsvc. Only the spool is
+# group-writable. Runs at every setup, so an upgrade sets an existing tree right: links and special files in it are
+# removed (none is legitimate), ACLs dropped, owner and modes set, stale requests removed.
+S0_ACCOUNT="${WEX_SESSION0_USER:-wexsys}"   # (the test of this part uses a throw-away account)
+if [ "${SESSION0_ENABLE:-0}" = "1" ] && id "$S0_ACCOUNT" >/dev/null 2>&1; then
+    GP_DIR="$MACHINE_ROOT/drive_c/windows/system32/GroupPolicy"
+    [ ! -L "$GP_DIR" ] || die "$GP_DIR is a link"
+    echo "Setting the local Group Policy store ($GP_DIR) to session 0's account..."
+    # The directory itself first (the short window between the link check above and this call stays: system32 above
+    # is group-writable, as the whole machine root is by design).
+    install -d -m 2755 -o "$S0_ACCOUNT" -g "$MACHINE_GROUP" -- "$GP_DIR"
+    [ ! -L "$GP_DIR" ] || die "$GP_DIR is a link"
+    # Then every directory is made unwritable for the group before anything below it is listed: find's default
+    # pre-order does one directory at a time (\; not +), so a member of the system group cannot swap an entry for
+    # a link between a listing and the chown or chmod that follows it (chmod follows links, and root runs this).
+    ACL_EXEC=(-exec true ';')
+    if command -v setfacl >/dev/null 2>&1; then ACL_EXEC=(-exec setfacl -b '{}' ';'); fi
+    find "$GP_DIR" -type d -exec chown -h "$S0_ACCOUNT":"$MACHINE_GROUP" '{}' ';' -exec chmod 2755 '{}' ';' "${ACL_EXEC[@]}"
+    # now no directory below can change; what is not a file or a directory goes, the files are set
+    find "$GP_DIR" -mindepth 1 ! -type d ! -type f -print -delete | sed 's/^/  removed (not a file or directory): /'
+    find "$GP_DIR" -type f -exec chown -h "$S0_ACCOUNT":"$MACHINE_GROUP" '{}' ';' -exec chmod 0644 '{}' ';' "${ACL_EXEC[@]}"
+    # the spool: where the system group leaves requests; session 0's account reads and removes them
+    install -d -m 2770 -o "$S0_ACCOUNT" -g "$MACHINE_GROUP" -- "$GP_DIR/Spool"
+    find "$GP_DIR/Spool" -mindepth 1 -delete
+    if command -v setfacl >/dev/null 2>&1; then
+        setfacl -m "g:$MACHINE_GROUP:rwX" -- "$GP_DIR/Spool"
+        setfacl -d -m "g:$MACHINE_GROUP:rwX" -- "$GP_DIR/Spool"
+    fi
+fi
+
 # 3. Create or update template prefix in /etc/skel/.wine
 echo "Configuring template prefix in $SKEL_PFX..."
 mkdir -p "$SKEL_PFX/dosdevices" "$SKEL_PFX/drive_c/users"

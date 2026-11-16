@@ -53,6 +53,7 @@
 #include <sddl.h>
 
 #include "preg.h"
+#include "wexgpstore.h"
 #include "wexpolicy.h"
 #define MAX_FILE_SIZE  (32 * 1024 * 1024)
 
@@ -546,7 +547,7 @@ void bump_serial( HKEY root, BOOL user )
 /* gpupdate asked for a refresh: the request file in session 0's root, which root's wex-gpupdate.path watches and
  * turns into a run of wex-gpupdate.service. The file holds the time of the last request; the program that
  * asked waits for the Refreshed number that the run leaves at its end. */
-static DWORD request_refresh(void)
+DWORD request_refresh(void)
 {
     WCHAR path[MAX_PATH];
     char text[32];
@@ -591,6 +592,10 @@ static DWORD WINAPI service_handler( DWORD control, DWORD type, void *data, void
     case GPSVC_CONTROL_REFRESH:
         /* gpupdate: any authenticated user may send it (the service manager's default descriptor) */
         return request_refresh();
+    case GPSVC_CONTROL_STORE:
+        /* secedit /configure and the policy editor: any authenticated user may send it too, and it only makes the
+         * service look at what the system group left in the spool (store.c) */
+        return process_spool();
     default:
         return ERROR_CALL_NOT_IMPLEMENTED;
     }

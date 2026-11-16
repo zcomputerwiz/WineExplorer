@@ -38,6 +38,7 @@
 #include <wexhost.h>
 
 #include "resource.h"
+#include "restrictions.h"
 #include "wextheme.h"
 #include "wexpower.h"
 #include "desktop_view.h"
@@ -933,9 +934,55 @@ static int command_csidl(UINT cmd)
     }
 }
 
+/* The Group Policy restriction (Policies\Explorer) that removes a command of the Start menu, or NULL. What Windows
+ * does: the command is gone from the menu, and a program or a shortcut that asks for it is refused too. */
+static const WCHAR *command_restriction(UINT cmd)
+{
+    switch (cmd)
+    {
+    case STARTMENU_CMD_RUN:          return L"NoRun";
+    case STARTMENU_CMD_SHUTDOWN:     return L"NoClose";
+    case STARTMENU_CMD_LOGOFF:       return L"NoLogoff";
+    case STARTMENU_CMD_CONTROLPANEL: return L"NoControlPanel";
+    case STARTMENU_CMD_NETWORK:
+    case STARTMENU_CMD_PRINTERS:     return L"NoSetFolders";
+    case STARTMENU_CMD_TASKBAR_PROPS: return L"NoSetTaskbar";
+    case STARTMENU_CMD_SEARCH:
+    case STARTMENU_CMD_SEARCH_COMPUTERS: return L"NoFind";
+    case STARTMENU_CMD_HELP:         return L"NoSMHelp";
+    case STARTMENU_CMD_MYDOCS:       return L"NoSMMyDocs";
+    case STARTMENU_CMD_RECENT_DOCS:  return L"NoRecentDocsMenu";
+    case STARTMENU_CMD_MYNET:        return L"NoNetHood";
+    }
+    return NULL;
+}
+
+static BOOL command_allowed(UINT cmd)
+{
+    const WCHAR *name = command_restriction(cmd);
+
+    /* Control Panel and Printers are removed from the Settings menu by NoSetFolders too */
+    if (cmd == STARTMENU_CMD_CONTROLPANEL && shell_restricted(L"NoSetFolders")) return FALSE;
+    return !name || !shell_restricted(name);
+}
+
+/* a command of the Classic menu, unless a restriction removes it */
+static void append_allowed(HMENU menu, UINT_PTR cmd, const WCHAR *label, HBITMAP bitmap)
+{
+    if (command_allowed((UINT)cmd)) append_menu_item_icon(menu, MF_STRING, cmd, label, bitmap);
+}
+
+/* a cascade, left out when every item of it is */
+static void append_cascade(HMENU menu, HMENU sub, const WCHAR *label, HBITMAP bitmap)
+{
+    if (GetMenuItemCount(sub) > 0) append_menu_item_icon(menu, MF_POPUP, (UINT_PTR)sub, label, bitmap);
+    else DestroyMenu(sub);
+}
+
 /* What a command of either Start menu (Classic or Windows XP style) does */
 static void run_start_command(UINT cmd, HWND tray)
 {
+    if (!command_allowed(cmd)) return;
     static const struct { UINT cmd; const WCHAR *file, *params; } programs[] =
     {
         { STARTMENU_CMD_INTERNET,     L"iexplore.exe", NULL },
@@ -1043,18 +1090,19 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 
     /* Documents Submenu */
     if (SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, 0, my_docs) == S_OK)
-        append_menu_item_icon(hDocuments, MF_STRING, STARTMENU_CMD_MYDOCS, L"My &Documents", get_shell32_icon_bitmap(235, 16));
+        append_allowed(hDocuments, STARTMENU_CMD_MYDOCS, L"My &Documents", get_shell32_icon_bitmap(235, 16));
 
     /* Settings Submenu */
-    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_CONTROLPANEL, L"&Control Panel", get_shell32_icon_bitmap(137, 16));
-    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_NETWORK, L"&Network Connections", get_shell32_icon_bitmap(175, 16));
-    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_PRINTERS, L"&Printers and Faxes", get_shell32_icon_bitmap(138, 16));
-    AppendMenuW(hSettings, MF_SEPARATOR, 0, NULL);
-    append_menu_item_icon(hSettings, MF_STRING, STARTMENU_CMD_TASKBAR_PROPS, L"&Taskbar and Start Menu", get_shell32_icon_bitmap(40, 16));
+    append_allowed(hSettings, STARTMENU_CMD_CONTROLPANEL, L"&Control Panel", get_shell32_icon_bitmap(137, 16));
+    append_allowed(hSettings, STARTMENU_CMD_NETWORK, L"&Network Connections", get_shell32_icon_bitmap(175, 16));
+    append_allowed(hSettings, STARTMENU_CMD_PRINTERS, L"&Printers and Faxes", get_shell32_icon_bitmap(138, 16));
+    if (GetMenuItemCount(hSettings) > 0 && command_allowed(STARTMENU_CMD_TASKBAR_PROPS))
+        AppendMenuW(hSettings, MF_SEPARATOR, 0, NULL);
+    append_allowed(hSettings, STARTMENU_CMD_TASKBAR_PROPS, L"&Taskbar and Start Menu", get_shell32_icon_bitmap(40, 16));
 
     /* Search Submenu */
-    append_menu_item_icon(hSearch, MF_STRING, STARTMENU_CMD_SEARCH, L"For &Files or Folders...", get_shell32_icon_bitmap(23, 16));
-    append_menu_item_icon(hSearch, MF_STRING, STARTMENU_CMD_SEARCH_COMPUTERS, L"For &Computers...", get_shell32_icon_bitmap(135, 16));
+    append_allowed(hSearch, STARTMENU_CMD_SEARCH, L"For &Files or Folders...", get_shell32_icon_bitmap(23, 16));
+    append_allowed(hSearch, STARTMENU_CMD_SEARCH_COMPUTERS, L"For &Computers...", get_shell32_icon_bitmap(135, 16));
 
     /* Load authentic icon bitmaps from shell32 (24x24 for authentic Windows XP classic scale) */
     bm_progacc = get_padded_icon_bitmap_app(L"setprogramaccess.exe", 37, 32, 2, 8); /* Set Program Access and Defaults */
@@ -1083,14 +1131,15 @@ static void show_classic_start_menu(HWND tray_hwnd, const RECT *btn_rect)
 
     /* Cascading and Single Standard Items */
     append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hPrograms, L"&Programs", bm_prog);
-    append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hDocuments, L"&Documents", bm_doc);
-    append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hSettings, L"&Settings", bm_set);
-    append_menu_item_icon(hMenu, MF_POPUP, (UINT_PTR)hSearch, L"Sea&rch", bm_srch);
-    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_HELP, L"&Help and Support", bm_help);
-    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_RUN, L"&Run...", bm_run);
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_LOGOFF, logoff_label, bm_logoff);
-    append_menu_item_icon(hMenu, MF_STRING, STARTMENU_CMD_SHUTDOWN, L"T&urn Off Computer...", bm_shut);
+    append_cascade(hMenu, hDocuments, L"&Documents", bm_doc);
+    append_cascade(hMenu, hSettings, L"&Settings", bm_set);
+    append_cascade(hMenu, hSearch, L"Sea&rch", bm_srch);
+    append_allowed(hMenu, STARTMENU_CMD_HELP, L"&Help and Support", bm_help);
+    append_allowed(hMenu, STARTMENU_CMD_RUN, L"&Run...", bm_run);
+    if (command_allowed(STARTMENU_CMD_LOGOFF) || command_allowed(STARTMENU_CMD_SHUTDOWN))
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+    append_allowed(hMenu, STARTMENU_CMD_LOGOFF, logoff_label, bm_logoff);
+    append_allowed(hMenu, STARTMENU_CMD_SHUTDOWN, L"T&urn Off Computer...", bm_shut);
 
     /* Show Companion Vertical Gradient Banner Window */
     if (banner_w > 0)
@@ -1277,6 +1326,7 @@ static int g_dyn_n;
 
 static BOOL right_item_visible(UINT cmd)
 {
+    if (!command_allowed(cmd)) return FALSE;
     switch (cmd)
     {
     case STARTMENU_CMD_MYDOCS:       return g_start.my_docs != START_HIDE;
@@ -1460,10 +1510,18 @@ static void panel_layout(void)
         int right = W - 8;
         PANEL_ITEM *it;
 
-        SetRect(&r, right - shut_w, by, right, by + bh);
-        it = panel_add(ZONE_LOGOFF, &r, STARTMENU_CMD_SHUTDOWN); it->title = L"Turn Off Computer"; it->bold = TRUE;
-        SetRect(&r, right - shut_w - 6 - off_w, by, right - shut_w - 6, by + bh);
-        it = panel_add(ZONE_LOGOFF, &r, STARTMENU_CMD_LOGOFF); it->title = L"Log Off"; it->bold = TRUE;
+        /* NoClose and NoLogoff remove their buttons; the other one then takes the right edge */
+        if (command_allowed(STARTMENU_CMD_SHUTDOWN))
+        {
+            SetRect(&r, right - shut_w, by, right, by + bh);
+            it = panel_add(ZONE_LOGOFF, &r, STARTMENU_CMD_SHUTDOWN); it->title = L"Turn Off Computer"; it->bold = TRUE;
+            right -= shut_w + 6;
+        }
+        if (command_allowed(STARTMENU_CMD_LOGOFF))
+        {
+            SetRect(&r, right - off_w, by, right, by + bh);
+            it = panel_add(ZONE_LOGOFF, &r, STARTMENU_CMD_LOGOFF); it->title = L"Log Off"; it->bold = TRUE;
+        }
     }
     if (own_bold) DeleteObject(bold);
     ReleaseDC(NULL, hdc);

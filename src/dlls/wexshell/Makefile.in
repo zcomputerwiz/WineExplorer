@@ -22,6 +22,7 @@ SOURCES = \
 	search_dispatch.c \
 	startmenu.c \
 	startmenu_view.c \
+	restrictions.c \
 	startsettings.c \
 	startskin.c \
 	notifyprops.c \
