@@ -63,6 +63,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   unlink). In a directory only the system group can search, a file had no name, so a rename failed, a
   non-replacing rename could replace, and DeleteFile did not delete (B28). Suite case
   `c4_elevated_process_renames_in_a_group_only_directory` in `scripts/test_sysrun_server.sh`.
+- `server/registry.c` (`notify_hive_mount`, Wine c2913ae2): loading a hive (NtLoadKey, session 0's user hive) and
+  session 0's unload of a user hive tell the parent's REG_NOTIFY_CHANGE_NAME watchers, as on Windows; only a key
+  created by a program did. gpsvc (`wexpolicy`) waits on HKEY_USERS for a user's hive and saw a logon only through
+  its two-second timer. Test in `dlls/advapi32/tests/registry.c` (`test_reg_load_key`).
 - `dlls/user32/sysparams.c` (`CalculatePopupWindowPosition`, new; `user32.spec`, `include/winuser.h`:
   `TPM_WORKAREA` and the prototype; Wine 4cfc7a2f): it was a stub. Aligned at the anchor, kept clear of the exclude
   rectangle on the TPM_VERTICAL/TPM_HORIZONTAL axis when the anchor is in it (the other side, else the plain
