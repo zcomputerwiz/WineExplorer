@@ -73,6 +73,13 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   programs (Edge, Chromium, Copilot) asked for "Segoe UI" and found nothing (B16). Windows' DirectWrite does not
   read `FontSubstitutes`, so it is left alone. Wine-only test in `dlls/dwrite/tests/font.c`
   (`test_system_fontcollection_replacements`; the tests now import advapi32).
+- `dlls/sppc/sppc.c`, `sppc.spec`, `dlls/slc/slc.spec` (forwarded), `include/slpublic.h`, `include/slerror.h`
+  (Wine 0a4d72b3): `SLRegisterEvent` and `SLUnregisterEvent`, which were stubs. A registration of one of the three
+  documented event IDs (case-sensitive) is remembered, can be removed once, and is never signalled, since nothing
+  fires licensing events on Wine; argument checks and error codes are Windows 11's (`SL_E_INVALID_EVENT_ID`,
+  `SL_E_EVENT_NOT_REGISTERED`, `E_HANDLE`). Copilot called it after "Continue with Microsoft" and died (B25). Test
+  `test_SLRegisterEvent` in `dlls/slc/tests/slc.c` (passes on Windows 11 x64 and on Wine x64 and x86; 32-bit slc on
+  Windows refuses a registration through an `SLOpen` handle, which the test marks broken).
 - `dlls/msi/action.c` (`publish_product_properties`): `Assignment` is 1 for a per-machine install, as on
   Windows (it was always 0). Office 2016's setup reads `AssignmentType` and asked for the source list of a
   per-machine product in the per-user context, which gave 1605 and stopped its uninstall (B18). Wine's own test
