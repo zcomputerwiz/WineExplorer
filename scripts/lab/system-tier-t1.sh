@@ -246,6 +246,21 @@ mkdir -p "$W/home"; chown $OTHER "$W/home"
 U() { runuser -u $OTHER -- env HOME="$W/home" WINEPREFIX="$W/home/.wine" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" WINEDEBUG=-all "$@"; }
 U timeout 240 ./wine wineboot -i >/dev/null 2>&1; U ./server/wineserver -w
 check other_off_reads "$(U timeout 60 ./wine reg query 'HKLM\Software\Microsoft\Windows NT\CurrentVersion' /v CurrentBuild 2>/dev/null | value CurrentBuild | grep -c .)" 1
+
+# B20: a link in a writable directory to a file the user may not write (the machine root's fonts, linked into a
+# prefix): CREATE_ALWAYS replaces the link with a file of the user's own and leaves the target alone; a read-only
+# open still reads through a link
+D20="$W/home/.wine/drive_c/b20"
+runuser -u $OTHER -- mkdir -p "$D20"
+printf original > "$W/b20-target"; chmod 0644 "$W/b20-target"
+ln -s "$W/b20-target" "$D20/font.ttf"; ln -s "$W/b20-target" "$D20/other.ttf"
+cp "$W/p64.exe" "$W/home/p64.exe"; chown $OTHER "$W/home/p64.exe"
+check b20_overwrite_through_link "$(U timeout 60 ./wine "$W/home/p64.exe" overwrite 'C:\b20\font.ttf' replaced | field overwrite)" ok
+check b20_link_replaced_by_file "$( [ -f "$D20/font.ttf" ] && [ ! -L "$D20/font.ttf" ] && cat "$D20/font.ttf")" replaced
+check b20_target_untouched "$(cat "$W/b20-target")" original
+check b20_read_follows_link "$(U timeout 60 ./wine "$W/home/p64.exe" readfile 'C:\b20\other.ttf' | field read)" original
+check b20_other_link_kept "$( [ -L "$D20/other.ttf" ] && echo link)" link
+U ./server/wineserver -w
 U ./server/wineserver -k; sleep 1  # the next server must start with the session 0 setting
 U env WEX_SESSION0_SOCKET=$SOCK timeout 60 ./wine reg query 'HKLM\Software\Microsoft\Windows NT\CurrentVersion' /v CurrentBuild >/dev/null 2>&1
 check other_uid_refused "$?" 1

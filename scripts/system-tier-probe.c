@@ -43,6 +43,8 @@
  *                                 manager's interface and prints pipe=open (or pipe=error<n>) and bind=<the answer's
  *                                 packet type: 12 bind_ack, 13 bind_nak>
  *   probe pipecreate PIPE         tries to create \\.\pipe\PIPE; prints create=ok or create=error<n>
+ *   probe overwrite FILE TEXT     CreateFileW(CREATE_ALWAYS) and writes TEXT; prints overwrite=ok or overwrite=error<n>
+ *   probe readfile FILE           prints read=<the file's first bytes> or read=error<n>
  *   probe enumsvc NAME            lists the Win32 services (EnumServicesStatusExW); prints count=<entries named NAME>
  *                                 and total=<entries>
  *   probe svcstate NAME           opens the service for status only; prints state=<dwCurrentState> or state=error<n>
@@ -429,6 +431,41 @@ int __cdecl wmain( int argc, WCHAR **argv )
         else printf( "say=error%lu\n", GetLastError() );
         Sleep( 500 );
         CloseHandle( pipe );
+        return 0;
+    }
+    if (argc == 4 && !lstrcmpW( argv[1], L"overwrite" ))
+    {
+        /* B20: CREATE_ALWAYS over an existing file, as a setup replacing a font */
+        HANDLE file = CreateFileW( argv[2], GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+        char text[256];
+        DWORD written = 0;
+        int len;
+
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            printf( "overwrite=error%lu\n", GetLastError() );
+            return 0;
+        }
+        len = WideCharToMultiByte( CP_UTF8, 0, argv[3], -1, text, sizeof(text), NULL, NULL );
+        printf( len > 0 && WriteFile( file, text, len - 1, &written, NULL ) ? "overwrite=ok\n" : "overwrite=writefailed\n" );
+        CloseHandle( file );
+        return 0;
+    }
+    if (argc == 3 && !lstrcmpW( argv[1], L"readfile" ))
+    {
+        HANDLE file = CreateFileW( argv[2], GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL );
+        char text[256];
+        DWORD got = 0;
+
+        if (file == INVALID_HANDLE_VALUE)
+        {
+            printf( "read=error%lu\n", GetLastError() );
+            return 0;
+        }
+        if (!ReadFile( file, text, sizeof(text) - 1, &got, NULL )) got = 0;
+        text[got] = 0;
+        printf( "read=%s\n", text );
+        CloseHandle( file );
         return 0;
     }
     if (argc == 3 && !lstrcmpW( argv[1], L"pipecreate" ))

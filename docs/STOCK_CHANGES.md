@@ -57,6 +57,24 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `dlls/shcore/main.c` (`IsOS`), `Makefile.in` (delay import of netapi32): `OS_DOMAINMEMBER` answers from
   `NetGetJoinInformation` (a domain join) instead of always TRUE. Chromium reads it as "the device is managed":
   Edge then skipped its modal first-run dialog (B10). Test in `dlls/shcore/tests/shcore.c`.
+- `server/fd.c` (`open_fd`, Wine cfa5d889, from the Office branch's 53e70173): CREATE_ALWAYS on a link to a file the
+  process may not write replaces the link with a new file in its directory (unlink needs write access to the
+  directory, which the kernel checks), as an existing file is overwritten on Windows; a read-only open still
+  follows the link. A setup could not overwrite a font that the machine root links into a prefix (B20). Test in
+  `scripts/lab/system-tier-t1.sh` (`b20_*`, as a non-root user).
+- `server/session0.c` (`request_session_id`, Wine ccf20bec): a new server waits up to 30 s for session 0 to give
+  its session id (it was 2 s); linking again after a restart of session 0 still waits 2 s, since it runs in the
+  server's own loop. Session 0 is one thread, and a policy refresh writing a user's hive at the same moment could
+  make a domain user's first logon fail (B26).
+- `dlls/msi/msi.c` (`MsiIsProductElevated`, Wine 45604a7f): per-machine and managed products are elevated, a
+  per-user unmanaged one is not, an unknown product gives ERROR_UNKNOWN_PRODUCT; it always answered TRUE. Test
+  `test_MsiIsProductElevated` in `dlls/msi/tests/msi.c` (checked against Windows 11 by a probe).
+- `dlls/windows.security.authentication.web.core/provider.c` (new), `manager.c`, `map.c`, `private.h`, `Makefile.in`
+  (Wine 8b534d09; 04d50dcb converts the module's files to LF): a diagnostic account provider, off by default. With
+  `HKCU\Software\Wine\WebAuthentication` `DiagnosticProvider` = 1, provider lookups answer with a provider for the
+  id and authority asked for and token requests are written to the log and fail (silent ones with
+  UserInteractionRequired, interactive ones with ProviderError), to learn what a program asks a broker for
+  (WAM_PLAN step 3, Copilot's sign-in). Wine-only test `test_diagnostic_provider`.
 - `dlls/dwrite/opentype.c` (`opentype_get_named_instance_count`, `opentype_get_named_instance`: fvar instance
   records and a STAT reader), `font.c` (font set entries, `init_font_data`, `IDWriteFont::Equals`), `main.c`,
   `dwrite_private.h`: a variable font with a STAT table gives a font set one entry per fvar named instance, as on
