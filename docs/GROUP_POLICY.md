@@ -472,6 +472,37 @@ a joined machine keeps it beneath the domain's (Windows applies Local, then Site
 5. **Binding.** An installed system does not enforce elevation by default, so any user can overwrite machine policy
    between refreshes; the next refresh puts it back. Whether the default changes is a decision for the system tier.
 
+### Writing the local files: the spool (design, 2026-11-16, for the system tier session's review)
+
+Machine policy is written by session 0's own account. The editor (2) and `secedit /configure` (3) therefore do not
+write the store themselves; they hand a file to `gpsvc`, which checks it and installs it.
+
+- **Store** (as now): `%SystemRoot%\System32\GroupPolicy\Machine\Registry.pol`, `...\User\Registry.pol`,
+  `...\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf`, in session 0's root, read by everyone and written only by
+  `gpsvc` (so always owned by session 0's account). **Spool:** `%SystemRoot%\System32\GroupPolicy\Spool`, which
+  `gpsvc` creates at its start; the machine root's default ACL (`g:wexsys:rwX`) makes it writable by the system
+  group (an elevated administrator's process) and by nobody else.
+- **A request** is a file in the spool with one of the names `Machine.Registry.pol`, `User.Registry.pol`,
+  `Machine.GptTmpl.inf`, written as `NAME.tmp` and renamed to `NAME` (atomic). Zero bytes mean "remove the store
+  file" (every setting back to Not Configured). Later, per user: `User-SID.Registry.pol`.
+- **The trigger** is a new user-defined control code of `gpsvc`, `GPSVC_CONTROL_STORE` (129), without data, sendable
+  by any authenticated user like 128 (`GPSVC_CONTROL_REFRESH`): it only makes `gpsvc` look at what the system group
+  put in the spool.
+- **`gpsvc` handling**, per known name present: open the file without following a link, regular file, at most
+  4 MiB (1 MiB for a template); size 0 removes the store file; else check it completely with the parsers `wexpolicy
+  apply` and `wexpolicy security` use (PReg: signature, version, every record; template: the signature and the
+  sections), write `STORE.new` and replace the store file with it, delete the request. A request that fails the
+  check is deleted too and leaves `NAME.error` (the Win32 error and a one-line reason, at most 200 bytes); a good
+  one removes an old `NAME.error`. When anything changed, `gpsvc` leaves the refresh request (`Refresh`, as for
+  128), so root's `wex-gpupdate.path` applies it. Nothing in the spool is trusted for its content or its name.
+- **Client side**: a small shared helper (`GpStoreWrite(kind, data, size)`): write the temporary file, rename it,
+  `ControlService(129)`, wait for the `Refreshed` serial as `gpupdate` does, read and delete `NAME.error`. `secedit
+  /configure` moves to it; the editor uses it. Reading the store (to show current settings) is a plain file read.
+- **Tests** (session 0 suite): a request of the system group becomes a store file owned by session 0's account and
+  is applied by the next refresh; a standard user cannot write the spool; a damaged PReg, a template without
+  signature, a name that is not on the list, a link, an oversized file and a path trick leave the store as it was
+  (the first two with an `.error`); zero bytes remove the store file; 129 with an empty spool does nothing.
+
 Order of work: 1, then 3 (the lockout and consent settings are what already works end to end), then 2, then 3b. Each
 step ends with a lab check on an unjoined machine and, where it touches the joined case, on the lab domain.
 
