@@ -57,6 +57,12 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `dlls/shcore/main.c` (`IsOS`), `Makefile.in` (delay import of netapi32): `OS_DOMAINMEMBER` answers from
   `NetGetJoinInformation` (a domain join) instead of always TRUE. Chromium reads it as "the device is managed":
   Edge then skipped its modal first-run dialog (B10). Test in `dlls/shcore/tests/shcore.c`.
+- `dlls/user32/sysparams.c` (`CalculatePopupWindowPosition`, new; `user32.spec`, `include/winuser.h`:
+  `TPM_WORKAREA` and the prototype; Wine 4cfc7a2f): it was a stub. Aligned at the anchor, kept clear of the exclude
+  rectangle on the TPM_VERTICAL/TPM_HORIZONTAL axis when the anchor is in it (the other side, else the plain
+  alignment), then moved into the anchor's work area (anchor inside, or TPM_WORKAREA) or else its monitor; never
+  flipped without an exclude rectangle; invalid flags ERROR_INVALID_FLAGS. Measured on Windows 11. Copilot's
+  sign-in (OneAuth) delay-loads it (B27). Test `test_CalculatePopupWindowPosition` in `dlls/user32/tests/monitor.c`.
 - `server/fd.c` (`open_fd`, Wine cfa5d889, from the Office branch's 53e70173): CREATE_ALWAYS on a link to a file the
   process may not write replaces the link with a new file in its directory (unlink needs write access to the
   directory, which the kernel checks), as an existing file is overwritten on Windows; a read-only open still
