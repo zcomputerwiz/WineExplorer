@@ -357,7 +357,23 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
             else notok domain_admin_limited_editor_write_refused "$(grep -E '^gpset=' <<<"$LIM" | tr '\n' ' ') value [$(value "$GPV" NoRecentDocsHistory)]"; fi
             GPE=/tmp/gpset-elevated.out
             rm -f "$GPE" /tmp/spoolsteps.out; : > "$GPE"; : > /tmp/spoolsteps.out; chmod 666 "$GPE" /tmp/spoolsteps.out
-            su - "$AUSER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 280 wine $PROBE runas cmd.exe '/c Z:\\usr\\local\\share\\wex-lab-probe\\tierprobe64.exe spoolsteps > Z:\\tmp\\spoolsteps.out & Z:\\usr\\local\\share\\wex-lab-probe\\tierprobe64.exe spoolsteps Z:\\tmp >> Z:\\tmp\\spoolsteps.out & Z:\\usr\\local\\share\\wex-lab-probe\\tierprobe64.exe spoolsteps C:\\windows >> Z:\\tmp\\spoolsteps.out &Z:\\usr\\local\\share\\wex-lab-probe\\tierprobe64.exe gpset computer:NoRecentDocsHistory 1 0 > Z:\\tmp\\gpset-elevated.out'" \
+            # the elevated commands in a batch file: the file steps of the store client in the spool and elsewhere, one
+            # traced run of them (WINEDEBUG in the batch file's environment reaches the process it starts), and the write
+            rm -f /tmp/gpset-trace.out; : > /tmp/gpset-trace.out; chmod 666 /tmp/gpset-trace.out
+            cat > /tmp/gpset-el.bat <<'BAT'
+@echo off
+set P=Z:\usr\local\share\wex-lab-probe\tierprobe64.exe
+%P% spoolsteps > Z:\tmp\spoolsteps.out
+%P% spoolsteps Z:\tmp >> Z:\tmp\spoolsteps.out
+%P% spoolsteps C:\windows\system32 >> Z:\tmp\spoolsteps.out
+%P% spoolsteps C:\windows >> Z:\tmp\spoolsteps.out
+set WINEDEBUG=+server,+file
+%P% spoolsteps 2> Z:\tmp\gpset-trace.out
+set WINEDEBUG=
+%P% gpset computer:NoRecentDocsHistory 1 0 > Z:\tmp\gpset-elevated.out
+BAT
+            sed -i 's/$/\r/' /tmp/gpset-el.bat; chmod 644 /tmp/gpset-el.bat
+            su - "$AUSER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 280 wine $PROBE runas cmd.exe '/c Z:\\tmp\\gpset-el.bat'" \
                 > /tmp/gpset-runas.out 2>&1 &
             if host_step consent; then
                 for _ in $(seq 1 150); do grep -q '^gpset=' "$GPE" && break; sleep 2; done
