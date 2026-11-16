@@ -263,6 +263,22 @@ This replaces the ST-04 prototype (`WEX_REGISTRY_SERVER`), which is gone.
   `net accounts` output (password ages, force logoff, role) is not there. Exit code 2 on an error, as on Windows.
 - Test: `scripts/netmodals-lockout-probe.c` (32-bit and 64-bit).
 
+## netapi32 and net.exe: password policy and role (local policy 3b, 2026-11-16)
+
+- `dlls/netapi32/netapi32.c`: `NetUserModalsGet` level 0 (was a FIXME) and `NetUserModalsSet` level 0 keep the
+  password policy in the same key as the lockout policy: `MinPasswordLength`, `MaxPasswordAge` and `MinPasswordAge`
+  (days, 0xffffffff = unlimited for the maximum), `ForceLogoff` (minutes, 0xffffffff = never) and
+  `PasswordHistoryLength`. Windows's defaults when a value is missing (maximum age 42 days, the rest 0 or never).
+  Nothing enforces them: the host's PAM owns password length and age. Out of range (length over 256, maximum age
+  under a day, minimum age over 998 days or not below the maximum, history over 24) is `ERROR_INVALID_PARAMETER`
+  with `parm_err` set to the field. Level 1 (was a FIXME) returns a standalone workstation (role 0, no primary
+  controller); `NetUserModalsSet` levels 1 and 2 return `NERR_NotPrimary`, as a machine that is no domain controller
+  does. Level 2 get is unchanged.
+- `programs/net/net.c`: `net accounts` shows the password and logoff lines and the computer role (WORKSTATION) in the
+  Windows order and sets them with `/forcelogoff:{minutes|NO}`, `/minpwage:days`, `/maxpwage:{days|UNLIMITED}`,
+  `/minpwlen:N` and `/uniquepw:N`. `/sync` and `/domain` are refused (`ERROR_NOT_SUPPORTED`): they are for domain
+  controllers.
+
 ## DWM: name of the broker's change event (2026-11-11)
 
 `include/wine/dwm_protocol.h` (a project header in the Wine tree): one new define, `DWM_CHANGE_EVENT_NAME`, the

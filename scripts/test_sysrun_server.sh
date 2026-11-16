@@ -3673,6 +3673,38 @@ s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Syst
 s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null 2>&1 || true
 kill_servers
 ok st_secedit_exports_and_configures_the_local_security_template
+# net accounts and NetUserModals levels 0 and 1 (docs/GROUP_POLICY.md, local policy 3b): the password policy is kept
+# and shown, with Windows's defaults when nothing is set; the system sets it, a standard user is refused, and values
+# out of range are refused
+E='HKLM\Software\WineExplorer\Elevation'
+for v in MinPasswordLength MaxPasswordAge MinPasswordAge ForceLogoff PasswordHistoryLength; do s0_wine reg delete "$E" /v $v /f >/dev/null 2>&1 || true; done
+acc() { as_wine "$STD" net accounts | tr -d '\r'; }
+line() { sed -n "s/^$1: *//p" <<<"$OUT"; }
+OUT="$(acc)"
+[ "$(line 'Force user logoff how long after time expires?')" = Never ] && [ "$(line 'Minimum password age (days)')" = 0 ] &&
+    [ "$(line 'Maximum password age (days)')" = 42 ] && [ "$(line 'Minimum password length')" = 0 ] &&
+    [ "$(line 'Length of password history maintained')" = None ] && [ "$(line 'Computer role')" = WORKSTATION ] ||
+    { echo "$OUT" >&2; fail "net accounts: the defaults"; }
+s0_wine net accounts /minpwlen:8 /maxpwage:30 /minpwage:2 /uniquepw:5 /forcelogoff:15 >/dev/null || fail "net accounts: the system sets the password policy"
+OUT="$(acc)"
+[ "$(line 'Force user logoff how long after time expires?')" = 15 ] && [ "$(line 'Minimum password age (days)')" = 2 ] &&
+    [ "$(line 'Maximum password age (days)')" = 30 ] && [ "$(line 'Minimum password length')" = 8 ] &&
+    [ "$(line 'Length of password history maintained')" = 5 ] ||
+    { echo "$OUT" >&2; fail "net accounts: the values that were set"; }
+s0_wine net accounts /maxpwage:unlimited /forcelogoff:no >/dev/null || fail "net accounts: unlimited and no forced logoff"
+OUT="$(acc)"
+[ "$(line 'Maximum password age (days)')" = Unlimited ] && [ "$(line 'Force user logoff how long after time expires?')" = Never ] ||
+    { echo "$OUT" >&2; fail "net accounts: unlimited and never"; }
+OUT="$(as_wine "$STD" net accounts /minpwlen:9 || true)"
+[ "$(acc | sed -n 's/^Minimum password length: *//p')" = 8 ] || fail "net accounts: a standard user changed the password policy"
+for bad in /minpwlen:15 /maxpwage:0 /minpwage:999 /uniquepw:25 /forcelogoff:0 /domain /sync; do
+    if s0_wine net accounts "$bad" >/dev/null 2>&1; then fail "net accounts: $bad was taken"; fi
+done
+if s0_wine net accounts /minpwage:40 /maxpwage:30 >/dev/null 2>&1; then fail "net accounts: a minimum age above the maximum was taken"; fi
+[ "$(acc | sed -n 's/^Minimum password age (days): *//p')" = 2 ] || fail "net accounts: a refused change was kept"
+for v in MinPasswordLength MaxPasswordAge MinPasswordAge ForceLogoff PasswordHistoryLength; do s0_wine reg delete "$E" /v $v /f >/dev/null 2>&1 || true; done
+kill_servers
+ok st_net_accounts_password_policy_is_kept_and_shown
 # gpsvc and the spool (docs/GROUP_POLICY.md, "Writing the local files: the spool"): requests that the system group
 # left are checked and installed by session 0's account, or refused with NAME.error; control code 129 may be sent by
 # any user and only makes gpsvc look at the spool. Root stands in for an elevated administrator's process (the
