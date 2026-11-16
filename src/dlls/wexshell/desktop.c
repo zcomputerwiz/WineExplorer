@@ -36,6 +36,7 @@
 #include "wine/debug.h"
 #include "explorer_private.h"
 #include "resource.h"
+#include "restrictions.h"
 #include "shellfolders.h"
 
 #include "module.h"
@@ -896,6 +897,8 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
     case WM_SETTINGCHANGE:
         if (wp == SPI_SETDESKWALLPAPER)
             SystemParametersInfoW( SPI_SETDESKWALLPAPER, 0, NULL, FALSE );
+        /* Group Policy has been applied ("Policy", as on Windows): the desktop is built again with its restrictions */
+        if (lp && !lstrcmpW( (const WCHAR *)lp, L"Policy" )) desktop_view_refresh();
         return 0;
 
     case WM_PARENTNOTIFY:
@@ -1279,7 +1282,12 @@ static LRESULT CALLBACK winkey_hook( int code, WPARAM wp, LPARAM lp )
             if (win_down && !win_used) PostMessageW( shell_hwnd, WM_SYSCOMMAND, SC_TASKLIST, 0 );
             win_down = FALSE;
         }
-        else if (down && win_down) win_used = TRUE;
+        else if (down && win_down)
+        {
+            win_used = TRUE;
+            /* NoWinKeys: the Windows key still opens Start by itself, its combinations do nothing */
+            if (shell_restricted( L"NoWinKeys" )) return 1;
+        }
     }
     return CallNextHookEx( NULL, code, wp, lp );
 }

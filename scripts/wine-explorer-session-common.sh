@@ -22,7 +22,9 @@ wex_refresh_policy_after_logon()
     (
         for _ in $(seq 1 120); do pgrep -u "$(id -u)" -x explorer.exe >/dev/null 2>&1 && break; sleep 1; done
         sleep 5
-        "$WINE" gpupdate.exe /target:user /wait:0 >/dev/null 2>&1
+        # it waits for the refresh (in the background, so nothing else does): at its end gpupdate tells the desktop's
+        # programs to read their restrictions again, so the shell shows what the policy says without a new logon
+        "$WINE" gpupdate.exe /target:user /wait:600 >/dev/null 2>&1
     ) &
 }
 

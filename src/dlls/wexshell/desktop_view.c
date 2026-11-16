@@ -236,6 +236,7 @@ void desktop_view_refresh(void)
         for (i = 0; i < n; i++)
         {
             if (!shellfolder_name(csidls[i], name, ARRAY_SIZE(name))) continue;
+            if (csidls[i] == CSIDL_NETWORK && shell_restricted(L"NoNetHood")) continue;   /* Group Policy */
             add_desktop_item(DESKTOP_ITEM_NAMESPACE, name, shellfolder_clsid(csidls[i]),
                              shellfolder_icon(csidls[i], csidls[i] == CSIDL_BITBUCKET ? L"empty" : NULL, 32), col, row);
             g_desktop_view.items[g_desktop_view.item_count - 1]->csidl = csidls[i];
@@ -943,6 +944,8 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
 
     case WM_SETTINGCHANGE:
         if (wparam == SPI_SETDESKWALLPAPER) desktop_view_refresh();
+        /* Group Policy has been applied: the icons are chosen again with the restrictions */
+        else if (lparam && !lstrcmpW((const WCHAR *)lparam, L"Policy")) desktop_view_refresh();
         return 0;
 
     case WM_DISPLAYCHANGE:

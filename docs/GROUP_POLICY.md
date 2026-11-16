@@ -623,7 +623,7 @@ and the XP-style menu (an empty cascade goes too, and the Log Off and Turn Off b
 as applying; the rest of the "stored" ones (`NoChangeStartMenu`, `NoFolderOptions`, `NoViewContextMenu`,
 `NoFileAssociate`, `NoNetHood`, `ClearRecentDocsOnExit`, `NoWinKeys`) are still only read by programs that call
 `SHRestricted`. Checked by hand under Xvfb with the build tree (menu with and without `NoRun`, `NoClose`, `NoLogoff`,
-XX
+`NoFind`); there is no automated check yet, since the shell needs a desktop. The procedure is below.
 
 A value counts as a REG_DWORD or as the four bytes of a REG_BINARY (old ADM templates write the flags that way).
 
@@ -636,3 +636,17 @@ after about 12 s click the Start button (`xdotool mousemove 30 755 click 1`) and
 Without the values the menu shows Search, Run, Log Off and Turn Off Computer; with them those are gone and the
 footer is empty. Stop with `$B/wine wineboot -k` and delete the values again (plain `explorer.exe` without
 `/desktop=... /shell` opens a folder window, not the shell).
+
+#### More restrictions, and the shell reading them after a refresh (2026-11-16)
+
+`NoChangeStartMenu` (the pin, remove and show-on-desktop verbs of the Start panel's menu are grayed), `NoWinKeys` (the
+combinations with the Windows key do nothing; the key alone still opens Start) and `NoNetHood` (no My Network Places
+on the desktop, none in the Start menu) are carried out as well, which makes thirteen in the editor's "applies" list.
+`NoFolderOptions`, `NoViewContextMenu`, `NoFileAssociate` and `ClearRecentDocsOnExit` stay "stored": they belong to
+the folder windows and to the log off, which this shell does not make from these policies yet.
+
+A user's policy is applied after the shell is up (the session script runs `gpupdate /target:user` five seconds after
+the shell starts). So that the shell does not show it only at the next logon, a refresh that ends now broadcasts
+`WM_SETTINGCHANGE` with the string "Policy", as Windows does: `gpupdate.exe` after it has waited for the refresh (the
+session script now waits, in the background) and the editor's and `secedit`'s store write (`wexgpclient.h`). The shell
+window and the desktop view build the desktop again on it; the taskbar already reads its settings on that message.

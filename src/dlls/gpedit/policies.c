@@ -89,7 +89,7 @@ const struct policy policies[] =
           "Removes these folders from the Settings menu.", EXPLORER, "NoSetFolders" ),
     FLAG( "user:NoSetTaskbar", POLICY_USER, POLICY_APPLIES, START_CAT, "Remove Taskbar and Start Menu from the Settings menu",
           "Users can no longer open the properties of the taskbar and the Start menu.", EXPLORER, "NoSetTaskbar" ),
-    FLAG( "user:NoChangeStartMenu", POLICY_USER, POLICY_STORED, START_CAT, "Prevent changes to the Start menu",
+    FLAG( "user:NoChangeStartMenu", POLICY_USER, POLICY_APPLIES, START_CAT, "Prevent changes to the Start menu",
           "Users cannot drag items on the Start menu or change its contents.", EXPLORER, "NoChangeStartMenu" ),
     FLAG( "user:NoFind", POLICY_USER, POLICY_APPLIES, START_CAT, "Remove Search from the Start menu",
           "Removes the Search command from the Start menu and the shell's Search action.", EXPLORER, "NoFind" ),
@@ -99,7 +99,7 @@ const struct policy policies[] =
           "Right-clicking in a folder's background no longer shows a menu.", EXPLORER, "NoViewContextMenu" ),
     FLAG( "user:NoFileAssociate", POLICY_USER, POLICY_STORED, EXPLORER_CAT, "Do not allow changing file associations",
           "Removes the commands that change which program opens a file type.", EXPLORER, "NoFileAssociate" ),
-    FLAG( "user:NoNetHood", POLICY_USER, POLICY_STORED, DESKTOP_CAT, "Hide My Network Places",
+    FLAG( "user:NoNetHood", POLICY_USER, POLICY_APPLIES, DESKTOP_CAT, "Hide My Network Places",
           "Removes My Network Places from the desktop and from Windows Explorer.", EXPLORER, "NoNetHood" ),
     FLAG( "user:NoRecentDocsMenu", POLICY_USER, POLICY_APPLIES, START_CAT, "Remove Recent Documents from the Start menu",
           "Removes the Recent Documents menu from the Start menu.", EXPLORER, "NoRecentDocsMenu" ),
@@ -109,7 +109,7 @@ const struct policy policies[] =
           "Removes the Help and Support command from the Start menu.", EXPLORER, "NoSMHelp" ),
     FLAG( "user:NoSMMyDocs", POLICY_USER, POLICY_APPLIES, START_CAT, "Remove My Documents from the Start menu",
           "Removes the My Documents shortcut from the Start menu.", EXPLORER, "NoSMMyDocs" ),
-    FLAG( "user:NoWinKeys", POLICY_USER, POLICY_STORED, EXPLORER_CAT, "Turn off the Windows key shortcuts",
+    FLAG( "user:NoWinKeys", POLICY_USER, POLICY_APPLIES, EXPLORER_CAT, "Turn off the Windows key shortcuts",
           "The keyboard shortcuts that use the Windows logo key do nothing.", EXPLORER, "NoWinKeys" ),
 
     /* ---- nothing here reads them: shown grayed out ---- */
