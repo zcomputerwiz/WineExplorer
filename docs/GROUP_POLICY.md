@@ -494,9 +494,10 @@ write the store themselves; they hand a file to `gpsvc`, which checks it and ins
   `gpsvc` creates at its start; the machine root's default ACL (`g:wexsys:rwX`) makes it writable by the system
   group (an elevated administrator's process) and by nobody else.
 - **A request** is a file in the spool with one of the names `Machine.Registry.pol`, `User.Registry.pol`,
-  `Machine.GptTmpl.inf`, written to `NAME` itself (not as `NAME.tmp` and renamed: a rename in the spool by an
-  elevated process fails with `ERROR_INVALID_HANDLE`, found in the lab on 2026-11-16, while creating, writing,
-  copying and deleting there work; gpsvc reads a request only after the control code that follows the write). Zero bytes mean "remove the store
+  `Machine.GptTmpl.inf`, written as `NAME.tmp` and renamed to `NAME` (atomic). For a short time (2026-11-16) the
+  client wrote to `NAME` itself, because a rename in the spool by an elevated process failed with
+  `ERROR_INVALID_HANDLE` (B28: the server's name lookups for a system-group client ran without the group; fixed in the
+  server, `c4_elevated_process_renames_in_a_group_only_directory`). Zero bytes mean "remove the store
   file" (every setting back to Not Configured). Later, per user: `User-SID.Registry.pol`.
 - **The trigger** is a new user-defined control code of `gpsvc`, `GPSVC_CONTROL_STORE` (129), without data, sendable
   by any authenticated user like 128 (`GPSVC_CONTROL_REFRESH`): it only makes `gpsvc` look at what the system group

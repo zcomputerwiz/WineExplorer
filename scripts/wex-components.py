@@ -58,6 +58,7 @@ COMPONENTS = {
     'd3dcompiler_47': 'DirectX shader compiler (optional)',
     'xact': 'XACT audio libraries (optional)',
     'physx': 'NVIDIA PhysX (optional)',
+    'webview2': 'Microsoft Edge WebView2 Runtime (optional)',
 }
 
 COMPONENTS_METADATA = {
@@ -208,6 +209,32 @@ COMPONENTS_METADATA = {
             ('PhysX_9.21.0713_SystemSoftware.exe', '26d62c5c347c15cb27c3be92bf10706113511b48b28aecc09f61ee58b3b62778'),
         ],
     },
+    # Not a winetricks verb: Microsoft's Evergreen standalone installer is run
+    # directly and silently. Programs such as Copilot embed WebView2 and look for
+    # the runtime this installer registers under EdgeUpdate\Clients.
+    'webview2': {
+        'title': 'Microsoft Edge WebView2 Runtime',
+        'publisher': 'Microsoft Corporation',
+        'description': 'Installs the Evergreen WebView2 Runtime that programs embed for web content and Microsoft account sign-in (for example Copilot and Office).',
+        'size': '~205 MiB',
+        'reboot': False,
+        'disabled': False,
+        'disabled_reason': '',
+        'terms_url': 'https://developer.microsoft.com/microsoft-edge/api/eula/webview2?locale=en-us',
+        'terms_format': 'webview2-json',
+        'terms_sha256': '821657eb0994850b0ea86b53242c52a22016e45859fee74bcd456dd77c0ba18e',
+        'terms_text_sha256': 'ea872143d6deec90961d3fcfe303c199b3c8fcbe168fed5a6447ce916e37aa53',
+        'release': '157.0.4341.60',
+        'execution_policy': 'webview2-evergreen-standalone-silent-v1',
+        'payloads': [
+            {'name': 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe', 'architecture': 'x64', 'size': 215116512,
+             'sha256': 'd3cbe8fedb104282d745fff106993efead51ae94f5595a4e75804446a974f9c3',
+             'host': 'msedge.sf.dl.delivery.mp.microsoft.com',
+             'url': 'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/52cfd0a8-f256-48d4-9b18-467f2b3cda78/MicrosoftEdgeWebView2RuntimeInstallerX64.exe'},
+        ],
+        'client_guid': '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+        'recipe_files': [],
+    },
 }
 
 TERMS = Path('/etc/wineexplorer/component-licenses')
@@ -255,6 +282,8 @@ def validate_recipe_files(verb, path=None):
     if verb == 'd3dcompiler_47':
         approved_d3dcompiler_recipe(path)
         return
+    if verb == 'webview2':
+        return  # no winetricks recipe: one pinned installer, verified before it runs
     winetricks = path or WINETRICKS_PATH
     meta = COMPONENTS_METADATA.get(verb, {})
     expected_files = meta.get('recipe_files', [])
@@ -518,6 +547,98 @@ def cache_runtime_payloads(cache):
                 temporary.unlink(missing_ok=True)
 
 
+def cache_webview2_payload(cache):
+    """Download Microsoft's pinned standalone installer. Called only after install()
+    has rechecked explicit terms acceptance; the file is verified before it runs."""
+    payload = COMPONENTS_METADATA['webview2']['payloads'][0]
+    destination = cache / 'webview2'
+    if destination.is_symlink():
+        raise ValueError('Refusing symlinked WebView2 payload cache')
+    destination.mkdir(mode=0o700, exist_ok=True)
+    if destination.stat().st_uid != 0 or destination.stat().st_mode & 0o022:
+        raise ValueError('WebView2 cache must be root-owned and private')
+    target = destination / payload['name']
+    if target.exists() or target.is_symlink():
+        if (target.is_symlink() or not target.is_file() or target.stat().st_uid != 0 or
+                target.stat().st_mode & 0o022):
+            raise ValueError('Untrusted cached WebView2 payload')
+        if target.stat().st_size == payload['size'] and hashlib.sha256(target.read_bytes()).hexdigest() == payload['sha256']:
+            return target
+        target.unlink()
+    temporary = None
+    try:
+        with urllib.request.urlopen(payload['url'], timeout=30) as response:
+            if urllib.parse.urlsplit(response.url).hostname != payload['host']:
+                raise ValueError('Unexpected WebView2 download redirect')
+            with tempfile.NamedTemporaryFile(dir=destination, prefix='.download-', delete=False) as out:
+                temporary = Path(out.name)
+                total, digest = 0, hashlib.sha256()
+                deadline = time.monotonic() + 1200
+                while True:
+                    chunk = response.read(1 << 20)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > payload['size'] or time.monotonic() > deadline:
+                        raise ValueError('WebView2 download exceeded approved size/deadline')
+                    digest.update(chunk)
+                    out.write(chunk)
+                out.flush()
+                os.fsync(out.fileno())
+        if total != payload['size'] or digest.hexdigest() != payload['sha256']:
+            raise ValueError('WebView2 installer hash/size mismatch (Microsoft may have replaced the file); nothing was run')
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, target)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return target
+
+
+# The installer also registers Microsoft's update tasks and COM classes. These
+# EdgeUpdate policies turn automatic updates off (0 = updates disabled), so the
+# runtime stays on the pinned, verified version.
+WEBVIEW2_POLICY_KEY = r'HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate'
+WEBVIEW2_POLICY = (('UpdateDefault', 0), ('Update{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 0),
+                   ('AutoUpdateCheckPeriodMinutes', 0))
+
+
+def verify_webview2_artifacts(machine):
+    """The runtime folder and the EdgeUpdate registration the installer must leave."""
+    meta = COMPONENTS_METADATA['webview2']
+    version = meta['release']
+    base = machine / 'drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application' / version
+    for name in ('msedgewebview2.exe', 'msedge.dll'):
+        path = base / name
+        if path.is_symlink() or not path.is_file() or path.stat().st_size < 1024 * 1024:
+            raise ValueError('WebView2 runtime file missing: ' + str(path))
+    registry = machine / 'system.reg'
+    if registry.is_symlink() or not registry.is_file():
+        raise ValueError('Machine registry missing')
+    text = registry.read_text(encoding='utf-8', errors='replace')
+    key = (r'[Software\\Wow6432Node\\Microsoft\\EdgeUpdate\\Clients\\' + meta['client_guid'] + ']').lower()
+    section = None
+    lines = text.split('\n')
+    for index, line in enumerate(lines):
+        if line.lower().startswith(key):
+            section = lines[index + 1:index + 12]
+            break
+    if section is None or ('"pv"="' + version + '"') not in section:
+        raise ValueError('WebView2 is not registered in the machine registry')
+    # Wine shares HKLM\SOFTWARE\Policies between the 32- and 64-bit views.
+    for hive in (r'[Software\\Policies\\Microsoft\\EdgeUpdate]',):
+        block = None
+        for index, line in enumerate(lines):
+            if line.lower().startswith(hive.lower()):
+                block = lines[index + 1:index + 20]
+                break
+        if block is None:
+            raise ValueError('WebView2 update policy missing: ' + hive)
+        for name, data in WEBVIEW2_POLICY:
+            if f'"{name}"=dword:{data:08x}' not in block:
+                raise ValueError(f'WebView2 update policy {name} not set in {hive}')
+
+
 def cache_corefonts_payloads(cache, review_cache=None):
     """Stage verified Core Fonts packages from the review cache into winetricks cache.
 
@@ -763,6 +884,8 @@ def component_identity(verb):
         record['corefonts_artifacts'] = COREFONTS_ARTIFACTS
     elif verb == 'd3dcompiler_47':
         record['d3dcompiler_artifacts'] = D3DCOMPILER_47_ARTIFACTS
+    elif verb == 'webview2':
+        record['webview2_policy'] = [WEBVIEW2_POLICY_KEY, WEBVIEW2_POLICY]
     return hashlib.sha256(json.dumps(record, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -941,6 +1064,49 @@ def extract_docx_terms(data):
         return text
 
 
+def extract_webview2_terms(data):
+    """Render the terms Microsoft publishes for the WebView2 Runtime as plain text.
+
+    The download page fetches them as JSON ({"evergreenHtml": "<div>...</div>"})
+    and shows them in its licence dialog. Only text nodes are kept; nothing in
+    the document is interpreted or fetched.
+    """
+    import html.parser
+    record = json.loads(data.decode('utf-8'))
+    markup = record.get('evergreenHtml')
+    if not isinstance(markup, str):
+        raise ValueError('WebView2 terms document has no evergreenHtml')
+
+    class Text(html.parser.HTMLParser):
+        BLOCKS = {'p', 'div', 'h1', 'h2', 'h3', 'h4', 'li', 'br', 'hr'}
+
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.parts = ['']
+
+        def handle_starttag(self, tag, attrs):
+            if tag in self.BLOCKS:
+                self.parts.append('')
+
+        def handle_endtag(self, tag):
+            if tag in self.BLOCKS:
+                self.parts.append('')
+
+        def handle_data(self, text):
+            self.parts[-1] += text
+
+    parser = Text()
+    parser.feed(markup)
+    parser.close()
+    paragraphs = [' '.join(part.split()) for part in parser.parts]
+    text = '\n\n'.join(part for part in paragraphs if part) + '\n'
+    if len(text.strip()) < 500 or len(text.encode('utf-8')) > MAX_TERMS_BYTES or '\x00' in text:
+        raise ValueError('Incomplete or oversized extracted terms')
+    if 'MICROSOFT EDGE WEBVIEW2 RUNTIME' not in text or 'FIXED VERSION' in text:
+        raise ValueError('Terms document is not the WebView2 Evergreen Runtime agreement')
+    return text
+
+
 class StaleTermsError(ValueError):
     """Trusted cached document no longer matches the reviewed package policy."""
 
@@ -984,9 +1150,12 @@ def fetch_vendor_terms(verb, directory=None):
 
     if len(data) > MAX_TERMS_BYTES or hashlib.sha256(data).hexdigest() != meta['terms_sha256']:
         raise ValueError('Vendor document changed or exceeded its size limit; review required')
-    if not terms_url.endswith('.docx'):
+    if meta.get('terms_format') == 'webview2-json':
+        text = extract_webview2_terms(data)
+    elif terms_url.endswith('.docx'):
+        text = extract_docx_terms(data)
+    else:
         raise ValueError('Unreviewed vendor document format')
-    text = extract_docx_terms(data)
     if hashlib.sha256(text.encode()).hexdigest() != meta['terms_text_sha256']:
         raise ValueError('Terms extraction changed; full document review required')
 
@@ -1789,6 +1958,10 @@ def is_installed(verb, accepted_digest=None, machine=None):
                     if data.get('execution_recipe_sha256') != hashlib.sha256(approved_d3dcompiler_recipe()).hexdigest():
                         return False
                     verify_d3dcompiler_artifacts(machine)
+                elif verb == 'webview2':
+                    if data.get('component_identity') != component_identity(verb):
+                        return False
+                    verify_webview2_artifacts(machine)
                 return True
         except Exception:
             pass
@@ -2009,6 +2182,14 @@ def install(verb, accepted_digest):
             os.replace(script, approved_script)
             command = ['/usr/bin/unshare', '--net', *command]
             command[command.index('/usr/bin/winetricks')] = str(approved_script)
+        elif verb == 'webview2':
+            installer = cache_webview2_payload(cache)
+            execution_digest = hashlib.sha256(
+                (COMPONENTS_METADATA['webview2']['execution_policy'] + ' ' +
+                 COMPONENTS_METADATA['webview2']['payloads'][0]['sha256']).encode()).hexdigest()
+            command = ['/usr/bin/timeout', '--signal=TERM', '--kill-after=10s', '1800s',
+                       '/usr/bin/unshare', '--net', '/usr/bin/xvfb-run', '-a',
+                       '/usr/local/bin/wine', str(installer), '/silent', '/install']
         regedit_src = MACHINE / 'drive_c/windows/regedit.exe'
         if regedit_src.is_file():
             ensure_installer_regedit(MACHINE)
@@ -2022,7 +2203,27 @@ def install(verb, accepted_digest):
             # Keep the lock and builtin snapshots until Wine has also stopped.
             result = subprocess.run(command, env=environment)
             try:
-                if result.returncode in (124, 137):
+                # Microsoft's installer leaves its update service running, so
+                # wineserver would never go idle: stop it once the installer succeeded.
+                if verb == 'webview2' and result.returncode == 0:
+                    # Keep the runtime on the version we verified: no machine-wide
+                    # self-update from a system-level updater (see WEBVIEW2_POLICY).
+                    try:
+                        for name, data in WEBVIEW2_POLICY:
+                            subprocess.run(['/usr/bin/timeout', '120s', '/usr/bin/xvfb-run', '-a',
+                                            '/usr/local/bin/wine', 'reg', 'add', WEBVIEW2_POLICY_KEY,
+                                            '/v', name, '/t', 'REG_DWORD', '/d', str(data), '/f'],
+                                           env=environment, check=True, timeout=150,
+                                           stdout=subprocess.DEVNULL)
+                    except (subprocess.SubprocessError, OSError):
+                        # The installer's updater keeps wineserver alive: stop it
+                        # before reporting, or the lock-holding prefix never idles.
+                        subprocess.run(['/usr/local/bin/wineserver', '-k'], env=environment, timeout=15)
+                        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=30)
+                        if recovery is not None:
+                            recovery['safe_to_restore'] = True
+                        raise ValueError('WebView2 installed but its update policy could not be set; machine-prefix Wine stopped')
+                if result.returncode in (124, 137) or (verb == 'webview2' and result.returncode == 0):
                     subprocess.run(['/usr/local/bin/wineserver', '-k'],
                                    env=environment, timeout=15, check=True)
                 subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment,
@@ -2062,6 +2263,8 @@ def install(verb, accepted_digest):
             verify_corefonts_artifacts(MACHINE)
         elif verb == 'd3dcompiler_47':
             verify_d3dcompiler_artifacts(MACHINE)
+        elif verb == 'webview2':
+            verify_webview2_artifacts(MACHINE)
         receipt = MACHINE.parent / 'component-receipts'
         receipt.mkdir(mode=0o755, exist_ok=True)
         if receipt.is_symlink() or receipt.stat().st_uid != 0 or receipt.stat().st_mode & 0o022:
