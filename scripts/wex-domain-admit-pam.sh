@@ -24,4 +24,8 @@ if [ ! -x "$WEX_ACCOUNTS" ]; then
     logger -t wex-domain-admit "domain logon refused: wex-accounts is not installed (system tier)" 2>/dev/null || true
     exit 1
 fi
-exec env -i PAM_USER="$PAM_USER" PAM_TYPE="${PAM_TYPE:-}" "$WEX_ACCOUNTS" admit
+env -i PAM_USER="$PAM_USER" PAM_TYPE="${PAM_TYPE:-}" "$WEX_ACCOUNTS" admit || exit $?
+# The user's domain policy: a refresh in the background (it applies to the user under their domain SID, from the
+# record just made; the logon neither waits for it nor fails with it).
+systemctl start --no-block wex-gpupdate.service >/dev/null 2>&1 || true
+exit 0

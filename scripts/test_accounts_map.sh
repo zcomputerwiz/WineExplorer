@@ -629,9 +629,13 @@ echo 'OK: domain accounts (map version 2, admit, sync, parser)'
 
 # ---- the PAM step (scripts/wex-domain-admit-pam.sh, WO 3): a copy with its fixed tool path moved to a stand-in ----
 PAMSTEP="$FIXTURE/wex-domain-admit-pam.sh"
-sed "s#^WEX_ACCOUNTS=/usr/local/libexec/wineexplorer/wex-accounts\$#WEX_ACCOUNTS=$FIXTURE/fake-wex-accounts#" \
+sed -e "s#^WEX_ACCOUNTS=/usr/local/libexec/wineexplorer/wex-accounts\$#WEX_ACCOUNTS=$FIXTURE/fake-wex-accounts#" \
+    -e "s#^systemctl start #$FIXTURE/fake-systemctl start #" \
     "$REPO/scripts/wex-domain-admit-pam.sh" > "$PAMSTEP"
 grep -q "^WEX_ACCOUNTS=$FIXTURE/fake-wex-accounts\$" "$PAMSTEP" || fail 'pam step: the tool path line moved'
+grep -q "^$FIXTURE/fake-systemctl start --no-block wex-gpupdate.service" "$PAMSTEP" || fail 'pam step: the refresh line moved'
+printf '#!/bin/sh\necho "$*" >> "%s"\n' "$FIXTURE/systemctl.log" > "$FIXTURE/fake-systemctl"
+chmod 0755 "$FIXTURE/fake-systemctl"
 # WEX_LEAK and LD_LIBRARY_PATH stand for anything else in the PAM environment: the tool must not get them
 pam_step() { env -i PATH=/usr/bin:/bin PAM_TYPE=account WEX_LEAK=1 LD_LIBRARY_PATH=/nonexistent ${1+PAM_USER="$1"} sh "$PAMSTEP" > /dev/null 2>&1; }
 rm -f "$FIXTURE/fake-wex-accounts" "$FIXTURE/fake.log"
@@ -646,7 +650,10 @@ pam_step alice || fail 'pam step: a local account was refused'
 [ ! -e "$FIXTURE/fake.log" ] || fail 'pam step: wex-accounts ran for a local account'
 pam_step 'WEXLAB\wexuser1' || fail 'pam step: an admitted domain account was refused'
 grep -qx 'admit user=WEXLAB\\wexuser1 type=account leak=' "$FIXTURE/fake.log" || { cat "$FIXTURE/fake.log"; fail 'pam step: wex-accounts was not asked to admit with PAM_USER and PAM_TYPE'; }
+# the admitted domain logon starts a policy refresh in the background, once; a local account and a refusal do not
+[ "$(cat "$FIXTURE/systemctl.log")" = 'start --no-block wex-gpupdate.service' ] || { cat "$FIXTURE/systemctl.log"; fail 'pam step: no policy refresh after an admission'; }
 echo 9 > "$FIXTURE/fake.rc"
 if pam_step 'WEXLAB\wexuser1'; then fail 'pam step: a refused admission passed'; fi
+[ "$(grep -c . "$FIXTURE/systemctl.log")" = 1 ] || fail 'pam step: a refresh was started after a refusal or for a local account'
 echo 'OK: domain admission PAM step'
 echo 'OK: accounts map lifecycle, lookup and protection fixture'
