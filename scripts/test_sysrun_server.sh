@@ -3379,7 +3379,14 @@ el_down "$ADM"
 ok st_idle_connections_do_not_hold_session0
 # a save that the user's server cannot write is sent again: nothing is lost
 el_up "$STD"
-install -d -o "$STD" "/home/$STD/.wine/user.reg.wex-session0"   # the temporary file cannot be made
+# the temporary file cannot be made (a directory in its place). The server's own temporary file can be there for a
+# moment (a save sent when the server started) or left by a server stopped in a save: removed, and tried again.
+for try in 1 2 3 4 5; do
+    rm -f "/home/$STD/.wine/user.reg.wex-session0"
+    ! install -d -o "$STD" "/home/$STD/.wine/user.reg.wex-session0" 2>/dev/null || break
+    sleep 1
+done
+[ -d "/home/$STD/.wine/user.reg.wex-session0" ] || fail "the save test cannot put a directory in place of the temporary file"
 as_wine "$STD" reg add 'HKCU\Software\WexAck' /v v /d acked /f >/dev/null || fail "HKCU write for the save test"
 sleep 7
 ! grep -q '"v"="acked"' "$UREG" || fail "a failed save wrote user.reg"
