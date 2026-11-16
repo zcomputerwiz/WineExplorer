@@ -51,6 +51,8 @@
  *   probe svcstop NAME            opens the service for SERVICE_STOP and stops it; prints stop=0 or stop=error<n>
  *   probe gpset ID STATE N        sets a policy of the editor (gpedit.dll, GpEdit_SetPolicyW) as the editor saves it;
  *                                 prints gpset=0 or gpset=<win32 error>
+
+ *   probe spoolsteps              the file steps of the policy store client in the spool, with each error (diagnostics)
  *   probe runas FILE PARAMS       ShellExecuteEx "runas" FILE with PARAMS, waits; prints runas=0 or runas=error<n>
  *   probe svcctl NAME CODE      sends the user-defined control code CODE (128 to 255) to the service; prints svcctl=0
  *                                 or svcctl=error<n>
@@ -330,6 +332,34 @@ int __cdecl wmain( int argc, WCHAR **argv )
             return 1;
         }
         printf( "gpset=%lu\n", set_policy( argv[2], wcstoul( argv[3], NULL, 10 ), wcstoul( argv[4], NULL, 10 ) ) );
+        return 0;
+    }
+    if ((argc == 2 || argc == 3) && !lstrcmpW( argv[1], L"spoolsteps" ))
+    {
+        /* the file steps of GpStoreWrite in the spool (or in the directory DIR), one by one, with the error of each
+         * (diagnostics) */
+        WCHAR dir[MAX_PATH], temp[MAX_PATH + 32], final[MAX_PATH + 32];
+        HANDLE file;
+        DWORD done = 0, werr;
+
+        if (argc == 3) lstrcpynW( dir, argv[2], MAX_PATH - 20 );
+        else
+        {
+            GetSystemDirectoryW( dir, MAX_PATH - 20 );
+            lstrcatW( dir, L"\\GroupPolicy\\Spool" );
+        }
+        printf( "dir=%ls\n", dir );
+        wsprintfW( temp, L"%s\\diag.tmp", dir );
+        wsprintfW( final, L"%s\\diag", dir );
+        file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+        printf( "create=%lu\n", file == INVALID_HANDLE_VALUE ? GetLastError() : 0 );
+        if (file == INVALID_HANDLE_VALUE) return 1;
+        werr = WriteFile( file, "x\n", 2, &done, NULL ) ? 0 : GetLastError();
+        printf( "write=%lu done=%lu\n", werr, done );
+        printf( "close=%lu\n", CloseHandle( file ) ? 0 : GetLastError() );
+        printf( "move=%lu\n", MoveFileExW( temp, final, MOVEFILE_REPLACE_EXISTING ) ? 0 : GetLastError() );
+        printf( "delete=%lu\n", DeleteFileW( final ) ? 0 : GetLastError() );
+        printf( "deletetemp=%lu\n", DeleteFileW( temp ) ? 0 : GetLastError() );
         return 0;
     }
     if (argc == 4 && !lstrcmpW( argv[1], L"runas" ))

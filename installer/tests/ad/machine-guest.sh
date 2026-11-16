@@ -356,14 +356,14 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
             if grep -qx 'gpset=5' <<<"$LIM" && [ -z "$(value "$GPV" NoRecentDocsHistory)" ]; then ok domain_admin_limited_editor_write_refused
             else notok domain_admin_limited_editor_write_refused "$(grep -E '^gpset=' <<<"$LIM" | tr '\n' ' ') value [$(value "$GPV" NoRecentDocsHistory)]"; fi
             GPE=/tmp/gpset-elevated.out
-            rm -f "$GPE"; : > "$GPE"; chmod 666 "$GPE"
-            su - "$AUSER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 280 wine $PROBE runas cmd.exe '/c Z:\\usr\\local\\share\\wex-lab-probe\\tierprobe64.exe gpset computer:NoRecentDocsHistory 1 0 > Z:\\tmp\\gpset-elevated.out'" \
+            rm -f "$GPE" /tmp/spoolsteps.out; : > "$GPE"; : > /tmp/spoolsteps.out; chmod 666 "$GPE" /tmp/spoolsteps.out
+            su - "$AUSER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 280 wine $PROBE runas cmd.exe '/c Z:\\usr\\local\\share\\wex-lab-probe\\tierprobe64.exe spoolsteps > Z:\\tmp\\spoolsteps.out & Z:\\usr\\local\\share\\wex-lab-probe\\tierprobe64.exe spoolsteps Z:\\tmp >> Z:\\tmp\\spoolsteps.out & Z:\\usr\\local\\share\\wex-lab-probe\\tierprobe64.exe spoolsteps C:\\windows >> Z:\\tmp\\spoolsteps.out &Z:\\usr\\local\\share\\wex-lab-probe\\tierprobe64.exe gpset computer:NoRecentDocsHistory 1 0 > Z:\\tmp\\gpset-elevated.out'" \
                 > /tmp/gpset-runas.out 2>&1 &
             if host_step consent; then
                 for _ in $(seq 1 150); do grep -q '^gpset=' "$GPE" && break; sleep 2; done
                 GOT=$(tr -d '\r' < "$GPE")
                 if grep -qx 'gpset=0' <<<"$GOT" && [ "$(value "$GPV" NoRecentDocsHistory)" = 0x1 ]; then ok domain_admin_elevated_editor_write_applies
-                else notok domain_admin_elevated_editor_write_applies "result [$GOT] runas [$(tr -d '\r' < /tmp/gpset-runas.out | tail -2 | tr '\n' ' ')] value [$(value "$GPV" NoRecentDocsHistory)]"; fi
+                else notok domain_admin_elevated_editor_write_applies "result [$GOT] steps [$(tr -d '\r' < /tmp/spoolsteps.out 2>&1 | tr '\n' ' ')] runas [$(tr -d '\r' < /tmp/gpset-runas.out | tail -2 | tr '\n' ' ')] value [$(value "$GPV" NoRecentDocsHistory)]"; fi
             else notok domain_admin_elevated_editor_write_applies "consent step: $HOST_ANSWER"; fi
         else notok domain_admin_logon "$HOST_ANSWER"; fi
         s0_reg reg delete 'HKLM\Software\Wine\Elevation' /v Helper /f >/dev/null
