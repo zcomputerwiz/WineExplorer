@@ -90,7 +90,9 @@ static void wex_gp_take_error( const WCHAR *dir, const WCHAR *name, WCHAR *messa
 /* Hands the file of a kind (WEX_GP_MACHINE_POL, ...) to gpsvc; size 0 asks to remove it. wait_seconds is how long to
  * wait for the refresh (0: do not; -1: without end). ERROR_SUCCESS when gpsvc installed it and the refresh ended;
  * ERROR_ACCESS_DENIED when this process is not of the system group (not elevated); ERROR_INVALID_DATA with the reason
- * in message when gpsvc refused the file; ERROR_TIMEOUT when the refresh did not end, or the request was not taken. */
+ * in message when gpsvc refused the file; ERROR_TIMEOUT when the refresh did not end, or the request was not taken.
+ * (ControlService does not hand the service handler's error code back, so a request that gpsvc refused, for a tree that
+ * is not as setup makes it for one, shows up as the timeout; the request stays in the spool.) */
 static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG wait_seconds, WCHAR *message, DWORD chars )
 {
     WCHAR dir[MAX_PATH], path[MAX_PATH + 40];
