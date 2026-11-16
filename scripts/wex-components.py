@@ -595,6 +595,14 @@ def cache_webview2_payload(cache):
     return target
 
 
+# The installer also registers Microsoft's update tasks and COM classes. These
+# EdgeUpdate policies turn automatic updates off (0 = updates disabled), so the
+# runtime stays on the pinned, verified version.
+WEBVIEW2_POLICY_KEY = r'HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate'
+WEBVIEW2_POLICY = (('UpdateDefault', 0), ('Update{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 0),
+                   ('AutoUpdateCheckPeriodMinutes', 0))
+
+
 def verify_webview2_artifacts(machine):
     """The runtime folder and the EdgeUpdate registration the installer must leave."""
     meta = COMPONENTS_METADATA['webview2']
@@ -617,6 +625,18 @@ def verify_webview2_artifacts(machine):
             break
     if section is None or ('"pv"="' + version + '"') not in section:
         raise ValueError('WebView2 is not registered in the machine registry')
+    # Wine shares HKLM\SOFTWARE\Policies between the 32- and 64-bit views.
+    for hive in (r'[Software\\Policies\\Microsoft\\EdgeUpdate]',):
+        block = None
+        for index, line in enumerate(lines):
+            if line.lower().startswith(hive.lower()):
+                block = lines[index + 1:index + 20]
+                break
+        if block is None:
+            raise ValueError('WebView2 update policy missing: ' + hive)
+        for name, data in WEBVIEW2_POLICY:
+            if f'"{name}"=dword:{data:08x}' not in block:
+                raise ValueError(f'WebView2 update policy {name} not set in {hive}')
 
 
 def cache_corefonts_payloads(cache, review_cache=None):
@@ -864,6 +884,8 @@ def component_identity(verb):
         record['corefonts_artifacts'] = COREFONTS_ARTIFACTS
     elif verb == 'd3dcompiler_47':
         record['d3dcompiler_artifacts'] = D3DCOMPILER_47_ARTIFACTS
+    elif verb == 'webview2':
+        record['webview2_policy'] = [WEBVIEW2_POLICY_KEY, WEBVIEW2_POLICY]
     return hashlib.sha256(json.dumps(record, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -2183,6 +2205,15 @@ def install(verb, accepted_digest):
             try:
                 # Microsoft's installer leaves its update service running, so
                 # wineserver would never go idle: stop it once the installer succeeded.
+                if verb == 'webview2' and result.returncode == 0:
+                    # Keep the runtime on the version we verified: no machine-wide
+                    # self-update from a system-level updater (see WEBVIEW2_POLICY).
+                    for name, data in WEBVIEW2_POLICY:
+                        subprocess.run(['/usr/bin/timeout', '120s', '/usr/bin/xvfb-run', '-a',
+                                        '/usr/local/bin/wine', 'reg', 'add', WEBVIEW2_POLICY_KEY,
+                                        '/v', name, '/t', 'REG_DWORD', '/d', str(data), '/f'],
+                                       env=environment, check=True, timeout=150,
+                                       stdout=subprocess.DEVNULL)
                 if result.returncode in (124, 137) or (verb == 'webview2' and result.returncode == 0):
                     subprocess.run(['/usr/local/bin/wineserver', '-k'],
                                    env=environment, timeout=15, check=True)

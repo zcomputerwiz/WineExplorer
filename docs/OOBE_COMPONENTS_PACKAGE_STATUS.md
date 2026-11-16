@@ -108,6 +108,12 @@ Windows ships it; Wine has none, so without it the popup fails in the WebView2 l
 - **Install:** not a winetricks verb. Downloaded only after the terms digest is accepted, verified, then
   `wine <installer> /silent /install` under `unshare --net` in the machine prefix (about 50 s). The installer leaves
   its update service running, so `wineserver -k` follows a successful exit (otherwise `wineserver -w` never returns).
+- **Updater:** the installer registers two Microsoft Edge Update scheduled-task files
+  (`system32\tasks\MicrosoftEdgeUpdateTaskMachineCore/UA`) and COM classes, but no Windows service and no Run key.
+  Wine does not run scheduled tasks, so nothing starts at boot; only the process the installer itself starts lingers.
+  To keep the runtime on the verified version even if something launches the updater, install also sets
+  `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate` `UpdateDefault=0`, `Update{F3017226-…}=0` and
+  `AutoUpdateCheckPeriodMinutes=0` (Wine shares this key between the 32- and 64-bit views), and verification checks them.
 - **Verification:** `msedgewebview2.exe` and `msedge.dll` in `Program Files (x86)\Microsoft\EdgeWebView\Application\<version>`
   and `pv` in the registry key above; the receipt `webview2.json` records the terms digest.
 - **Tested:** fresh VM overlay, `--prepare-terms`, `--install`, `is_installed()` true, 130 s including the download.
