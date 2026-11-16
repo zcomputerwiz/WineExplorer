@@ -33,6 +33,8 @@
  *                                 of DsRoleGetPrimaryDomainInformation> flat=<name> dns=<name>
  *   probe gpnotify machine|user MS  registers for the policy notification (RegisterGPNotification), prints
  *                                 gp=ready, waits up to MS ms and prints gp=signalled or gp=timeout
+ *   probe token                   the process token: user=, primary=, elevation=, one group= line per group (attrs=)
+ *   probe names                   lsa=DOMAIN\name (LookupAccountSidW of the caller) and samcompat= (GetUserNameExW)
  *   probe gpolist machine|user {EXT}  the applied objects for the extension (GetAppliedGPOListW; user: the
  *                                 caller's SID); prints gpolist=<error> and one gpo= line per object
  *   probe rpcbind PIPE            opens \\.\pipe\PIPE in message mode, sends a DCE/RPC bind for the service control
@@ -130,6 +132,59 @@ int __cdecl wmain( int argc, WCHAR **argv )
         fflush( stdout );
         wait = WaitForSingleObject( event, wcstoul( argv[3], NULL, 10 ) );
         printf( wait == WAIT_OBJECT_0 ? "gp=signalled\n" : "gp=timeout\n" );
+        return 0;
+    }
+    if (argc == 2 && !lstrcmpW( argv[1], L"token" ))
+    {
+        /* the process token: user, primary group, elevation type, and every group with its attributes */
+        static BYTE buffer[65536];
+        TOKEN_GROUPS *groups = (TOKEN_GROUPS *)buffer;
+        HANDLE token;
+        DWORD size, i, type;
+        WCHAR *str;
+
+        if (!OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token )) { printf( "token=error%lu\n", GetLastError() ); return 1; }
+        if (GetTokenInformation( token, TokenUser, buffer, sizeof(buffer), &size ) &&
+            ConvertSidToStringSidW( ((TOKEN_USER *)buffer)->User.Sid, &str )) { printf( "user=%ls\n", str ); LocalFree( str ); }
+        if (GetTokenInformation( token, TokenPrimaryGroup, buffer, sizeof(buffer), &size ) &&
+            ConvertSidToStringSidW( ((TOKEN_PRIMARY_GROUP *)buffer)->PrimaryGroup, &str )) { printf( "primary=%ls\n", str ); LocalFree( str ); }
+        if (GetTokenInformation( token, TokenElevationType, &type, sizeof(type), &size )) printf( "elevation=%lu\n", type );
+        if (GetTokenInformation( token, TokenGroups, buffer, sizeof(buffer), &size ))
+            for (i = 0; i < groups->GroupCount; i++)
+                if (ConvertSidToStringSidW( groups->Groups[i].Sid, &str ))
+                {
+                    printf( "group=%ls attrs=%lx\n", str, groups->Groups[i].Attributes );
+                    LocalFree( str );
+                }
+        CloseHandle( token );
+        return 0;
+    }
+    if ((argc == 2 || argc == 3) && !lstrcmpW( argv[1], L"names" ))
+    {
+        /* the caller as LookupAccountSidW names it, and GetUserNameExW(NameSamCompatible) (secur32) */
+        BOOLEAN (WINAPI *get_name_ex)( int, WCHAR *, ULONG * );
+        char buf[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
+        WCHAR account[256], domain[256], sam[512];
+        DWORD alen = 256, dlen = 256, size;
+        ULONG slen = 512;
+        SID_NAME_USE use;
+        HANDLE token;
+        HMODULE secur32;
+
+        if (!OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token ) ||
+            !GetTokenInformation( token, TokenUser, buf, sizeof(buf), &size )) { printf( "names=error%lu\n", GetLastError() ); return 1; }
+        if (LookupAccountSidW( NULL, ((TOKEN_USER *)buf)->User.Sid, account, &alen, domain, &dlen, &use ))
+            printf( "lsa=%ls\\%ls use=%d\n", domain, account, use );
+        else printf( "lsa=error%lu\n", GetLastError() );
+        fflush( stdout );   /* what came before secur32 shows even if loading it does not return */
+        /* "names lsa": LookupAccountSidW only (loading secur32 hangs in a session 0 setup, reported 2026-11-15) */
+        if (argc == 3 && !lstrcmpW( argv[2], L"lsa" )) return 0;
+        secur32 = LoadLibraryW( L"secur32.dll" );
+        printf( "secur32=%s\n", secur32 ? "loaded" : "missing" );
+        fflush( stdout );
+        get_name_ex = secur32 ? (void *)GetProcAddress( secur32, "GetUserNameExW" ) : NULL;
+        if (get_name_ex && get_name_ex( 2 /* NameSamCompatible */, sam, &slen )) printf( "samcompat=%ls\n", sam );
+        else printf( "samcompat=error%lu\n", GetLastError() );
         return 0;
     }
     if (argc == 4 && !lstrcmpW( argv[1], L"gpolist" ))

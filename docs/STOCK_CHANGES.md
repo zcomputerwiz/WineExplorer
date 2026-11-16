@@ -125,6 +125,15 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   `registry.c`: a user's server accepts machine hives owned by the `session0_user` account.
 - `server/registry.c` (T2a): session 0 saves a key's own security descriptor as an `#sd=` line (hex); every server loads such a line.
 
+- Domain logon WO 2 (`docs/DOMAIN_LOGON.md`): `server/accounts.c` reads the domain groups recorded at logon
+  (`domain-groups`, `accounts_own_domain`) and counts Domain Admins as the administrator group in `lookup_account`;
+  `server/token.c` gives a domain account's logon token the domain's Domain Users (domain SID, RID 513) as owner
+  and primary group in place of the fixed `S-1-5-21-0-0-0-513`, and the recorded domain groups;
+  `server/registry.c` (`user_is_administrator`) counts Domain Admins, so the logon token is limited and elevation
+  goes through the broker as for a local administrator. `dlls/advapi32/security.c` (`LookupAccountSidW`): the
+  caller's own SID under the joined domain's SID (`HKLM\Software\WineExplorer\Domain`, `Sid`) is named with the
+  domain's flat name. `dlls/secur32/secur32.c` (`GetUserNameExW`, `NameSamCompatible`): `DOMAIN\user` from
+  `LookupAccountSidW` of the token's user. The local computer SID scheme is unchanged.
 - Domain logon WO 1 (`docs/DOMAIN_LOGON.md`): `server/accounts.c` reads accounts map version 2 (the joined domain
   in the header, `local`/`domain` records; `docs/E1_S4_ACCOUNTS_MAP.md`); lookups and `accounts_own_sid` take a
   record's SID from the record, so a domain account's SID is the domain's.

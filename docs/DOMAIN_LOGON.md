@@ -141,6 +141,19 @@ The design is agreed, with these conditions, which take precedence over the text
 Ownership: the Group Policy session writes WO 1 to 4; the system tier session reviews WO 1 and WO 2 (the map
 parser and the token are the system tier's security core) before they merge.
 
+## State
+
+- WO 1 (map version 2, admit, sync, restore): on master since 2026-11-15 (93baa899, Wine f1347be7).
+- WO 2 (token and names): written 2026-11-15, in review. The groups file and its rules are in
+  [E1_S4_ACCOUNTS_MAP.md](E1_S4_ACCOUNTS_MAP.md); the token, `user_is_administrator`, `LookupAccountSidW` and
+  `GetUserNameExW` in [STOCK_CHANGES.md](STOCK_CHANGES.md). `wex-domain-state.sh` records the domain SID (`Sid`)
+  beside the flat and DNS names. Tests: `scripts/test_accounts_map.sh` (groups recorded and filtered, Domain Admins
+  makes an administrator and removal undoes it at the next logon, Winbind not answering keeps the groups, a damaged
+  groups file gives no groups, the domain's Administrator RID 500 is an ordinary domain account) and
+  `scripts/test_sysrun_server.sh` (`st_domain_accounts_token_names_and_domain_admins_limited`: the token's user,
+  primary group and groups, DOMAIN\user from both APIs in 64-bit and 32-bit programs, a member of Domain Admins with
+  Administrators deny-only and a Limited token at logon, a local account unchanged).
+
 ## Work orders
 
 1. Format version 2 of the map and the parser (`accounts.c`), with the tool's `admit` and the `sync` rules for
