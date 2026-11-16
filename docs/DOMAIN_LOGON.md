@@ -215,7 +215,10 @@ parser and the token are the system tier's security core) before they merge.
   names in the map (no collisions; `accounts_valid_name` would have to allow the separator).
 - SSSD-joined hosts: the same design with `sss` in place of Winbind for the SID lookups; Group Policy needs
   Winbind today ([GROUP_POLICY.md](GROUP_POLICY.md)), so Winbind first.
-- Several domains (trusts): one joined domain only in this design.
+- Several domains: decided 2026-11-16 (owner): one joined domain at a time, as on Windows, where a computer is a
+  member of exactly one domain. Users of other, trusted domains (which Windows lets log on to a member computer)
+  are not covered: a name of another domain is refused (the greeter, `admit`, the map's domain SID). Offline logon
+  and the tile after a first logon are tested in the lab ([GPO_LAB.md](GPO_LAB.md)).
 - Unverified: whether AccountsService lists Winbind users before their first graphical logon; where `pam_winbind`
   puts the Kerberos ticket cache for a LightDM session (`KRB5CCNAME`).
 

@@ -414,6 +414,52 @@ Policy" before and the other way round now; `gpo-lab.sh parse` checks it on the 
 - The Windows Server evaluation controller: Microsoft's Evaluation Center requires a registration form with
   personal details for the ISO, so per the owner's condition the lab stays on Samba AD.
 
+## Local policy (without a domain)
+
+Wanted by the owner (2026-11-16): a machine that is not joined has policy of its own, set by its administrators, and
+a joined machine keeps it beneath the domain's (Windows applies Local, then Site, Domain, OU; the last wins).
+
+**What exists** (survey of 2026-11-16, tree at Wine a8a504bb):
+
+- The writer is not tied to Samba. `wexpolicy apply /machine|/user:SID FILE...` parses PReg itself, honours the
+  delete markers, undoes the previous archive (registry policy un-tattoos, a security template tattoos) and, for a
+  user who is not logged on, only changes the archive; `gpsvc` restores it at the logon (`src/programs/wexpolicy`).
+  `wexpolicy security /machine` applies a `GptTmpl.inf` (the lockout values and the consent options).
+- `net accounts` (`/lockoutthreshold`, `/lockoutduration`, `/lockoutwindow`) and `NetUserModalsGet/Set` level 3
+  work, with no RPC: they read and write `HKLM\Software\WineExplorer\Elevation` (`LockoutBadCount`,
+  `LockoutDuration`, `ResetLockoutCount`). (The "stub" in the open question of an earlier note was out of date.)
+- `GetAppliedGPOListW` reads whatever `wexpolicy record` stored, so a local entry needs no stock-Wine change.
+
+**What is missing**, in the order a user would need it:
+
+1. **A local `Registry.pol` that applies.** Nothing reads `%SystemRoot%\System32\GroupPolicy\Machine\Registry.pol`
+   or `\User\Registry.pol` (in the machine root's `drive_c`), and `wex-gpupdate.sh` exits at "not joined" before it
+   applies anything, so a machine without a domain never gets a refresh that does work. The work: the store; the
+   script applies local files when not joined (and clears the archive when there are none), and puts them in front
+   of the domain's files when joined (one `apply` per target holds the whole ordered set); `wexpolicy record`
+   accepts a non-GUID entry "Local Group Policy" so that `gpresult` and `GetAppliedGPOList` show it; a
+   `gpupdate` of an administrator triggers it through the existing `GPSVC_CONTROL_REFRESH`. WineExplorer code only.
+   Later, as Windows has them: the Administrators and Non-Administrators local objects and the user-specific ones
+   under `GroupPolicyUsers`.
+2. **An editor.** A `gpedit.msc` that edits the local `Registry.pol` (`mmc` knows one snap-in today, Device
+   Manager): the policies that Wine components honour (the shell restrictions, `Policies\System`, the elevation
+   and lockout settings), the rest grayed out as "not applicable" with a reason. Writing machine policy needs an
+   administrator, so it runs elevated through the broker.
+3. **`secpol.msc` and `secedit`.** `programs/secedit` is a 22-line stub. `/export` and `/configure` on a
+   `GptTmpl.inf` can reuse the template code of `wexpolicy`; a local template store; one rule for who wins when the
+   template and `net accounts` write the same lockout values (today the last writer).
+3b. **`net accounts` and `NetUserModals`.** The password-age lines, `/forcelogoff` and `/domain` of `net accounts`
+   and `NetUserModalsGet` levels 0 and 1, `NetUserModalsSet` levels 0 to 2: stock Wine (`dlls/netapi32`,
+   `programs/net`), each listed in [STOCK_CHANGES.md](STOCK_CHANGES.md). Password length and age have no store or
+   enforcement here (the host's PAM owns them): shown as "not applicable".
+4. **Local users and groups** (`net user`, `net localgroup`, `lusrmgr.msc`, the User Accounts panel): not needed for
+   local policy to work; `NetUserAdd` and `NetLocalGroupAdd` are stubs today.
+5. **Binding.** An installed system does not enforce elevation by default, so any user can overwrite machine policy
+   between refreshes; the next refresh puts it back. Whether the default changes is a decision for the system tier.
+
+Order of work: 1, then 3 (the lockout and consent settings are what already works end to end), then 2, then 3b. Each
+step ends with a lab check on an unjoined machine and, where it touches the joined case, on the lab domain.
+
 ## Design
 
 1. **Join detection (`wexhost`).** Detect the join from `net ads info` or SSSD/realmd state and publish domain name,
@@ -445,11 +491,13 @@ Policy" before and the other way round now; `gpo-lab.sh parse` checks it on the 
 - Per-user policy: `samba-gpupdate --target=User` works as root and drops to the user, but no automatic per-logon
   trigger is documented. Decide whether the wex logon flow (or a PAM hook) runs it, and check `winbindd` source for what
   `apply group policies` covers. The profile hive loading (`e1s_load_profile`) decides where the user hive is writable.
-- Who may write the policy trees. On Windows only administrators and SYSTEM can; `HKLM` is covered by the machine
-  root, but a user's own programs can write their own `HKCU\Software\Policies` in Wine today, so user policy is not
-  binding until those keys are protected.
-- Local policy without a domain: `secpol.msc`, `net accounts` and `NetUserModalsGet/Set` level 3 (a stub in Wine)
-  on top of the lockout values, independent of the domain work.
+- Who may write the policy trees: decided 2026-11-16 (owner): a user may write their own `HKCU\Software\Policies`
+  keys, as on Windows, where user policy is not tamper-proof either (the policy engine rewrites them at each
+  refresh, and only `HKLM` policy needs administrators). Nothing to protect.
+- Local policy without a domain: wanted (owner, 2026-11-16): `gpedit.msc`-style local Group Policy, `secpol.msc`,
+  `net accounts` and `NetUserModalsGet/Set` level 3 (a stub in Wine) on top of the lockout values, working on a
+  machine that is not joined, through the same policy writer as domain policy (local objects first, overridden by
+  the domain's). Survey and plan: the "Local policy" section.
 - Winbind or SSSD as the supported join: the docs steer to Winbind for GPO. Decide before the installer offers a join.
 - SYSVOL access with the machine account's Kerberos ticket works in both; SSSD additionally needs the `net ads join -k`
   Samba machine account to stay in sync.
