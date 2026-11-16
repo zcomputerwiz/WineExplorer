@@ -37,6 +37,7 @@ set -u
 
 PRINT=0
 [ "${1:-}" = --print ] && PRINT=1
+ARGS=("$@")
 
 MACHINE_ROOT=${WEX_MACHINE_ROOT:-/var/lib/wineexplorer/machine}
 S0_USER=${WEX_SESSION0_USER:-wexsys}
@@ -64,12 +65,26 @@ if [ "$PRINT" != 1 ]; then
     flock -w 270 9 || { echo "wex-gpupdate: another run did not end in time" >&2; exit 1; }
 fi
 
+# gpsvc numbers the refresh requests and leaves the last number in the request file (Refresh). The run reads it now,
+# when it has the lock: it serves every request up to that one, and says so at its end, so that a program that asked
+# later does not take this run for the answer.
+REQUEST_FILE=${WEX_MACHINE_ROOT:-/var/lib/wineexplorer/machine}/drive_c/windows/system32/GroupPolicy/Refresh
+request_number() { head -c 20 "$REQUEST_FILE" 2>/dev/null | tr -dc '0-9'; }
+REQ0=
+[ "$PRINT" = 1 ] || REQ0=$(request_number)
+
 # Every run ends by telling session 0 it is done, also on a machine that is not joined: a gpupdate that asked for
-# it waits for that (gpupdate.exe, wexpolicy refreshed).
+# it waits for that (gpupdate.exe, wexpolicy refreshed). A request that came in during the run is not served by it
+# (the path unit does not start a service that is running again): the run begins again.
 finish()
 {
+    local now
     [ -z "$LISTS" ] || rm -rf "$LISTS"
-    [ "$PRINT" = 1 ] || s0_wexpolicy refreshed >/dev/null || true
+    [ "$PRINT" = 1 ] || s0_wexpolicy refreshed $REQ0 >/dev/null || true
+    now=$(request_number)
+    if [ "$PRINT" != 1 ] && [ -n "$REQ0" ] && [ -n "$now" ] && [ "$now" -gt "$REQ0" ] 2>/dev/null; then
+        exec "$0" "${ARGS[@]}"
+    fi
 }
 trap finish EXIT
 

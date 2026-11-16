@@ -52,11 +52,6 @@ static DWORD wex_gp_serial( const WCHAR *name )
     return serial;
 }
 
-static DWORD wex_gp_refreshed(void)
-{
-    return wex_gp_serial( L"Refreshed" );
-}
-
 /* the request's text, written as NAME.tmp and renamed to NAME, so that gpsvc never sees a half-written request;
  * NAME.error of an earlier run is read by the caller, not here. (Until 2026-11-16 the file was written to NAME itself:
  * a rename in the spool by an elevated process failed, B28, a name lookup in the server without the system group; fixed
@@ -86,7 +81,16 @@ static DWORD wex_gp_leave_request( const WCHAR *dir, const WCHAR *name, const vo
  * looked at every quarter of a second: the one place left that polls, for a machine where the service never ran. */
 #define WEX_GP_WATCH_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy"
 
-static BOOL wex_gp_wait_serial( const WCHAR *name, DWORD before, LONG wait_seconds, BOOL pump )
+/* the wait is over when the number of that name is not `ref` (at_least FALSE), or has reached it (at_least TRUE; the
+ * numbers count up and may wrap) */
+static BOOL wex_gp_reached( const WCHAR *name, DWORD ref, BOOL at_least )
+{
+    DWORD now = wex_gp_serial( name );
+
+    return at_least ? (LONG)(now - ref) >= 0 : now != ref;
+}
+
+static BOOL wex_gp_wait_cond( const WCHAR *name, DWORD before, BOOL at_least, LONG wait_seconds, BOOL pump )
 {
     HKEY key = NULL;
     HANDLE event = CreateEventW( NULL, FALSE, FALSE, NULL );
@@ -101,7 +105,7 @@ static BOOL wex_gp_wait_serial( const WCHAR *name, DWORD before, LONG wait_secon
         DWORD timeout, wait;
 
         if (key && event) RegNotifyChangeKeyValue( key, TRUE, REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET, event, TRUE );
-        if (wex_gp_serial( name ) != before) { ok = TRUE; break; }
+        if (wex_gp_reached( name, before, at_least )) { ok = TRUE; break; }
         if (elapsed >= limit) break;
         timeout = limit == ~0ull ? INFINITE : (DWORD)(limit - elapsed > 0xfffffffeu ? 0xfffffffeu : limit - elapsed);
         if (!key || !event) { Sleep( 250 ); continue; }
@@ -118,16 +122,25 @@ static BOOL wex_gp_wait_serial( const WCHAR *name, DWORD before, LONG wait_secon
             }
         }
         else wait = WaitForSingleObject( event, timeout );
-        if (wait == WAIT_TIMEOUT && wex_gp_serial( name ) == before) break;
+        if (wait == WAIT_TIMEOUT && !wex_gp_reached( name, before, at_least )) break;
     }
     if (key) RegCloseKey( key );
     if (event) CloseHandle( event );
     return ok;
 }
 
-static BOOL wex_gp_wait_refreshed( DWORD before, LONG wait_seconds, BOOL pump )
+static BOOL wex_gp_wait_serial( const WCHAR *name, DWORD before, LONG wait_seconds, BOOL pump )
 {
-    return wex_gp_wait_serial( L"Refreshed", before, wait_seconds, pump );
+    return wex_gp_wait_cond( name, before, FALSE, wait_seconds, pump );
+}
+
+/* Waits for the refresh that serves the request just made: gpsvc numbers the requests (Requested), a run of the host
+ * tells which it served (Served, set before Refreshed is raised). A run that began before the request, and ends after
+ * it, served an older number and does not count. Call it after the request has been made (gpupdate: after
+ * ControlService; the store: after the pass that asked for it ended). TRUE when the run has ended. */
+static BOOL wex_gp_wait_served( LONG wait_seconds, BOOL pump )
+{
+    return wex_gp_wait_cond( L"Served", wex_gp_serial( L"Requested" ), TRUE, wait_seconds, pump );
 }
 
 /* what is left of a wait of wait_seconds (-1: without end) that began at start (GetTickCount64): -1, or 0 when it is over */
@@ -171,7 +184,7 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
     WCHAR dir[MAX_PATH], path[MAX_PATH + 40];
     SC_HANDLE manager, service;
     SERVICE_STATUS status;
-    DWORD before, stored, err;
+    DWORD stored, err;
     ULONGLONG start;
 
     message[0] = 0;
@@ -181,7 +194,6 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
     wcscat( dir, L"\\GroupPolicy\\Spool" );
     if ((err = wex_gp_leave_request( dir, wex_gp_request_names[kind], data, size ))) return err;
 
-    before = wex_gp_refreshed();
     stored = wex_gp_serial( L"Stored" );
     start = GetTickCount64();
     err = ERROR_SERVICE_DOES_NOT_EXIST;
@@ -231,8 +243,8 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
     }
     wex_gp_take_error( dir, wex_gp_request_names[kind], message, chars );
     if (message[0]) return ERROR_INVALID_DATA;
-    /* the refresh that gpsvc asked for ends with a new serial */
-    return wex_gp_wait_refreshed( before, wex_gp_left( wait_seconds, start ) ? wex_gp_left( wait_seconds, start ) : 1, pump )
+    /* the refresh that the pass asked for (the pass ended before Stored was raised, so its request is numbered) */
+    return wex_gp_wait_served( wex_gp_left( wait_seconds, start ) ? wex_gp_left( wait_seconds, start ) : 1, pump )
            ? ERROR_SUCCESS : ERROR_TIMEOUT;
 }
 

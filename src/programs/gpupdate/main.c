@@ -69,17 +69,11 @@ static void usage(void)
          L"    /Sync                      Applies the next policy at startup or logon synchronously.\n" );
 }
 
-/* the serial that the run of the host raises at its end: wexgpclient.h (the same one the policy editor waits for) */
-static DWORD refreshed(void)
-{
-    return wex_gp_refreshed();
-}
-
 int __cdecl wmain( int argc, WCHAR **argv )
 {
     BOOL computer = TRUE, user = TRUE;
     LONG wait = 600;
-    DWORD before, err = ERROR_SUCCESS;
+    DWORD err = ERROR_SUCCESS;
     SC_HANDLE manager, service;
     SERVICE_STATUS status;
     WCHAR *end;
@@ -104,7 +98,6 @@ int __cdecl wmain( int argc, WCHAR **argv )
     }
 
     out( L"Refreshing Policy...\n\n" );
-    before = refreshed();
     if (!(manager = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT ))) err = GetLastError();
     else
     {
@@ -126,9 +119,9 @@ int __cdecl wmain( int argc, WCHAR **argv )
         return 1;
     }
 
-    /* the run of the host ends with a new Refreshed number */
+    /* the run of the host that serves this request ends with Served reaching the request's number */
     if (!wait) return 0;
-    if (!wex_gp_wait_refreshed( before, wait, FALSE ))
+    if (!wex_gp_wait_served( wait, FALSE ))
     {
         if (computer) out( L"Computer Policy update has not completed in the expected time. Exiting...\n" );
         if (user) out( L"User Policy update has not completed in the expected time. Exiting...\n" );

@@ -545,9 +545,15 @@ void bump_serial( HKEY root, BOOL user )
     RegCloseKey( key );
 }
 
-/* gpupdate asked for a refresh: the request file in session 0's root, which root's wex-gpupdate.path watches and
- * turns into a run of wex-gpupdate.service. The file holds the time of the last request; the program that
- * asked waits for the Refreshed number that the run leaves at its end. */
+/* A refresh is asked for: the request file in session 0's root, which root's wex-gpupdate.path watches and turns into a
+ * run of wex-gpupdate.service. Requests are numbered: Requested (in the serial key) is the number of the last one, and
+ * the file holds it. A run reads the number when it begins and, when it ends, tells session 0 which it served
+ * ("wexpolicy refreshed N" sets Served); a program that asked waits for Served to reach the Requested it saw after
+ * asking, so that a run that began before its request does not count. The numbers are given under a lock: the control
+ * handler (gpupdate) and the service's own thread (a stored request) both ask. */
+static CRITICAL_SECTION request_lock;
+static DWORD requested;
+
 DWORD request_refresh(void)
 {
     WCHAR path[MAX_PATH];
@@ -555,16 +561,29 @@ DWORD request_refresh(void)
     UINT len = GetSystemDirectoryW( path, ARRAY_SIZE(path) );
     DWORD done, err = ERROR_SUCCESS;
     HANDLE file;
+    HKEY key;
 
     if (!len || len > ARRAY_SIZE(path) - 32) return ERROR_BUFFER_OVERFLOW;
     wcscat( path, L"\\GroupPolicy" );
     if (!CreateDirectoryW( path, NULL ) && GetLastError() != ERROR_ALREADY_EXISTS) return GetLastError();
     wcscat( path, L"\\Refresh" );
+    EnterCriticalSection( &request_lock );
+    requested++;
+    if (!RegCreateKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, NULL, REG_OPTION_VOLATILE,
+                          KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, NULL ))
+    {
+        RegSetValueExW( key, L"Requested", 0, REG_DWORD, (const BYTE *)&requested, sizeof(requested) );
+        RegCloseKey( key );
+    }
     file = CreateFileW( path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
-    if (file == INVALID_HANDLE_VALUE) return GetLastError();
-    len = snprintf( text, sizeof(text), "%lu\n", GetTickCount() );
-    if (!WriteFile( file, text, len, &done, NULL )) err = GetLastError();
-    CloseHandle( file );
+    if (file == INVALID_HANDLE_VALUE) err = GetLastError();
+    else
+    {
+        len = snprintf( text, sizeof(text), "%lu\n", requested );
+        if (!WriteFile( file, text, len, &done, NULL )) err = GetLastError();
+        CloseHandle( file );
+    }
+    LeaveCriticalSection( &request_lock );
     return err;
 }
 
@@ -654,7 +673,17 @@ static void spool_pass(void)
 static void WINAPI service_main( DWORD argc, WCHAR **argv )
 {
     HANDLE handles[3];
+    HKEY key;
+    DWORD size = sizeof(requested);
 
+    InitializeCriticalSection( &request_lock );
+    /* the numbers go on from where the registry has them (the service may have been restarted) */
+    /* opened, not created: a key made here, before the stable Group Policy key below, would make that one volatile */
+    if (!RegOpenKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key ))
+    {
+        if (RegQueryValueExW( key, L"Requested", NULL, NULL, (BYTE *)&requested, &size )) requested = 0;
+        RegCloseKey( key );
+    }
     if (!(service_handle = RegisterServiceCtrlHandlerExW( SERVICE_NAME, service_handler, NULL ))) return;
     stop_event = CreateEventW( NULL, TRUE, FALSE, NULL );
     handles[0] = stop_event;
@@ -705,10 +734,19 @@ int __cdecl wmain( int argc, WCHAR **argv )
 
     if (argc == 1 && StartServiceCtrlDispatcherW( service_table )) return 0;
     /* wex-gpupdate.sh at the end of every run: the programs that asked for it (gpupdate) are done waiting */
-    if (argc == 2 && !_wcsicmp( argv[1], L"refreshed" ))
+    if ((argc == 2 || argc == 3) && !_wcsicmp( argv[1], L"refreshed" ))
     {
-        DWORD serial = 0, size = sizeof(serial);
+        DWORD serial = 0, size = sizeof(serial), served = 0;
+        WCHAR *end;
         HKEY key;
+
+        /* the optional number is the last request that the run saw when it began; without one, the run serves every
+         * request made so far */
+        if (argc == 3)
+        {
+            served = wcstoul( argv[2], &end, 10 );
+            if (!argv[2][0] || *end) return ERROR_INVALID_PARAMETER;
+        }
 
         if (!is_local_system())
         {
@@ -719,6 +757,13 @@ int __cdecl wmain( int argc, WCHAR **argv )
                                     KEY_QUERY_VALUE | KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, NULL ))) return err;
         if (RegQueryValueExW( key, L"Refreshed", NULL, NULL, (BYTE *)&serial, &size )) serial = 0;
         serial++;
+        /* Served first: whoever sees the new Refreshed finds Served already there */
+        if (argc == 2)
+        {
+            size = sizeof(served);
+            if (RegQueryValueExW( key, L"Requested", NULL, NULL, (BYTE *)&served, &size )) served = 0;
+        }
+        RegSetValueExW( key, L"Served", 0, REG_DWORD, (const BYTE *)&served, sizeof(served) );
         err = RegSetValueExW( key, L"Refreshed", 0, REG_DWORD, (const BYTE *)&serial, sizeof(serial) );
         RegCloseKey( key );
         return err;

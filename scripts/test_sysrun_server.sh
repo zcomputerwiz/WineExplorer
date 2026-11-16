@@ -3906,7 +3906,7 @@ for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
 [ -s "$REQ" ] || { cat "$POL/gpupdate.out" >&2; fail "gpupdate: gpsvc did not leave the request"; }
 sleep 1
 grep -q 'Computer Policy Refresh has completed' "$POL/gpupdate.out" && fail "gpupdate: did not wait for the refresh"
-s0_wine wexpolicy refreshed >/dev/null || fail "gpupdate: wexpolicy refreshed"
+s0_wine wexpolicy refreshed "$(tr -dc 0-9 < "$REQ")" >/dev/null || fail "gpupdate: wexpolicy refreshed"
 wait "$GP_PID" || true
 tr -d '\r' < "$POL/gpupdate.out" | grep -qx 'Computer Policy Refresh has completed.' &&
     ! grep -q 'User Policy' "$POL/gpupdate.out" || { cat "$POL/gpupdate.out" >&2; fail "gpupdate: the computer refresh"; }

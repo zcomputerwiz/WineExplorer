@@ -359,8 +359,13 @@ Tested: the parser against a dump in that layout; the suite case `st_applied_gpo
 3. Root's `wex-gpupdate.path` (enabled with session 0 by `setup-machine-root.sh`, which adds a drop-in when the
    machine root is not the default) starts `wex-gpupdate.service`. systemd's start limits bound how often users
    can make it run.
-4. Every run of `wex-gpupdate.sh` ends with `wexpolicy refreshed`, also on a machine that is not joined, which
-   raises `Refreshed` under `HKLM\...\Group Policy\WineExplorer Applied`. `gpupdate` waits for it (600 seconds by
+4. Every run of `wex-gpupdate.sh` ends with `wexpolicy refreshed N`, also on a machine that is not joined, which
+   sets `Served` to N and raises `Refreshed` under `HKLM\...\Group Policy\WineExplorer Applied`. The requests are
+   numbered: `gpsvc` raises `Requested` and writes the number into the request file (`Refresh`); a run reads that
+   number when it has the lock (N) and serves every request up to it; a request that comes in during a run makes the
+   run begin again at its end (the path unit does not restart a running service). A program that asked reads
+   `Requested` after asking and waits (a registry change notification) for `Served` to reach it, so that a run that
+   began before its request does not count as the answer. `gpupdate` waits for it (600 seconds by
    default) and prints "Computer Policy Refresh has completed." and "User Policy Refresh has completed." (XP's
    wording as remembered, unverified; the research found only the Vista and later wording).
 
