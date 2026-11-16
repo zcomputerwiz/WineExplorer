@@ -621,4 +621,16 @@ and the XP-style menu (an empty cascade goes too, and the Log Off and Turn Off b
 as applying; the rest of the "stored" ones (`NoChangeStartMenu`, `NoFolderOptions`, `NoViewContextMenu`,
 `NoFileAssociate`, `NoNetHood`, `ClearRecentDocsOnExit`, `NoWinKeys`) are still only read by programs that call
 `SHRestricted`. Checked by hand under Xvfb with the build tree (menu with and without `NoRun`, `NoClose`, `NoLogoff`,
-`NoFind`); there is no automated check yet, since the shell needs a desktop.
+XX
+
+A value counts as a REG_DWORD or as the four bytes of a REG_BINARY (old ADM templates write the flags that way).
+
+To repeat the screenshot check (build machine `wexgpo`, root; needs `Xvfb`, `xdotool` and ImageMagick's `import`): build
+with `scripts/lab/wex-run.sh build`, then with `B=/root/WE-prefetch/build/wow64`, `WINEPREFIX` a scratch prefix,
+`DISPLAY=:99` and the policy key `K='HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'`:
+start `Xvfb :99 -screen 0 1024x768x24 &`; `$B/wine reg add "$K" /v NoRun /t REG_DWORD /d 1 /f` (and `NoClose`,
+`NoLogoff`, `NoFind`); start the shell as the session does, `$B/wine explorer.exe /desktop=Shell,1024x768 /shell &`;
+after about 12 s click the Start button (`xdotool mousemove 30 755 click 1`) and take `import -window root x.png`.
+Without the values the menu shows Search, Run, Log Off and Turn Off Computer; with them those are gone and the
+footer is empty. Stop with `$B/wine wineboot -k` and delete the values again (plain `explorer.exe` without
+`/desktop=... /shell` opens a folder window, not the shell).
