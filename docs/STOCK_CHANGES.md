@@ -3434,3 +3434,11 @@ display with it.
 `main.c`, `private.h`, `Makefile.in`, `tests/globalization.c` (every name; passes on Windows 11 x64 and x86 and on
 Wine); `include/windows.globalization.idl` (their four statics interfaces and two classes). The Store Calculator's
 LocalizationSettings asks for CalendarIdentifiers before it builds the calculator view model.
+
+2026-11-16 (UWP, Wine 367fdd43): `dlls/twinapi.appcore`: `user.c` (the statics of `Windows.System.User`: GetFromId
+and GetDefault give the one user object of the process, another or no id gives none; CreateWatcher and FindAllAsync
+are stubs), new `policies.c` (`Windows.Management.Policies.NamedPolicy` with the one policy applications are seen to
+read, Education/AllowGraphingCalculator, unmanaged, as Windows 11 reports it), `classes.idl`, `main.c`, `private.h`,
+`Makefile.in`, `tests/twinapi.c` (passes on Windows 11 x64 and x86 and on Wine); `include/windows.system.idl`
+(IUserStatics, IUserStatics2, IUserWatcher and their types), new `include/windows.management.policies.idl`,
+`include/Makefile.in`. The Store Calculator reads that policy for the launching user to build its navigation menu.
