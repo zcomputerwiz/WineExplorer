@@ -80,8 +80,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `server/named_pipe.c` (`pipe_bridge_lookup`, `pipe_bridge_allowed`, `is_lrpc_pipe_name`): a user's server that
   has no pipe `lrpc\NAME` (an ncalrpc endpoint of rpcrt4) opens session 0's through the T5.2 bridge, as the
   caller; session 0 checks the pipe's descriptor as for `svcctl`. Not bridged: every session's own rpcss endpoints
-  (`epmapper`, `irpcss`, `irot`) and names made from a process id or OXID (`LRPC<pid>.<n>`, `\pipe\OLE_<oxid>`),
-  since process ids are per server. A service in session 0 can so offer its RPC interface to users' programs, as
+  (`epmapper`, `irpcss`, `irot`), Wine's lsass (`lsasspirpc`: it reads and writes its callers' memory by process
+  id, so it serves its own server only; bridged, `secur32`'s DllMain waited for ever), and names made from a process
+  id or OXID (`LRPC<pid>.<n>`, `\pipe\OLE_<oxid>`), since process ids are per server. A bridged connection reports
+  client process id 0 to session 0's services (the opener has no process there). A service in session 0 can so offer its RPC interface to users' programs, as
   on Windows (B17, Office's licensing service). Test in `scripts/lab/system-tier-t1.sh` (`lrpc_*`).
 - `dlls/win32u/defwnd.c` (`sys_command`, `SC_MAXIMIZE`): an already maximized window is left alone, as on Windows;
   a hidden window created with `WS_MAXIMIZE` was shown and activated, and Edge's activation handler then ran on a
