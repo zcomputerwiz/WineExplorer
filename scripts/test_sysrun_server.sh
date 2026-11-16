@@ -3748,6 +3748,39 @@ OUT="$(ctl129)"; [ "$OUT" = 'svcctl=0' ] && cmp -s "$POL/machine.pol" "$LGP/Mach
 rm -rf "$LGP/Machine" "$LGP/User" "$SP"
 kill_servers
 ok st_gpsvc_spool_installs_good_requests_and_refuses_hostile_ones
+# the policy editor's save path end to end (docs/GROUP_POLICY.md, "Local policy"): GpEdit_SetPolicyW, which the window's
+# Properties sheet also ends in, makes the file, leaves it in the spool, asks gpsvc, and waits for the refresh; when
+# the refresh has run the setting is in the registry, and "Not Configured" takes it away again
+gp_tree
+EXPL='HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'
+s0_wine reg delete "$EXPL" /v NoRecentDocsHistory /f >/dev/null 2>&1 || true
+REQ="$LGP/Refresh"
+for state in 1 0; do
+    rm -f "$REQ" "$POL/gpset.out"
+    s0_wine sc start gpsvc >/dev/null 2>&1 || true
+    for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+    (s0_wine "$ROOT/probes/tierprobe64.exe" gpset computer:NoRecentDocsHistory "$state" 0 > "$POL/gpset.out" 2>&1; echo "rc=$?" >> "$POL/gpset.out") &
+    GP_PID=$!
+    for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
+    [ -s "$REQ" ] || { cat "$POL/gpset.out" >&2; fail "gpedit: setting state $state did not ask for a refresh"; }
+    [ "$state" = 0 ] || [ -s "$LGP/Machine/Registry.pol" ] || fail "gpedit: the policy file was not stored"
+    [ "$state" = 0 ] || [ "$(stat -c '%U:%a' "$LGP/Machine/Registry.pol")" = "$S0U:644" ] ||
+        fail "gpedit: the stored file is $(stat -c '%U:%a' "$LGP/Machine/Registry.pol")"
+    [ -z "$(ls -A "$LGP/Spool")" ] || fail "gpedit: the spool is not empty: $(ls -A "$LGP/Spool")"
+    local_gpupdate >/dev/null 2>&1 || fail "gpedit: wex-gpupdate.sh after the change"
+    wait "$GP_PID" || true
+    tr -d '\r' < "$POL/gpset.out" | grep -qx 'gpset=0' && grep -qx 'rc=0' "$POL/gpset.out" ||
+        { cat "$POL/gpset.out" >&2; fail "gpedit: setting state $state did not end well"; }
+    got="$(as_wine "$STD" reg query "$EXPL" /v NoRecentDocsHistory | val NoRecentDocsHistory)"
+    if [ "$state" = 1 ]; then [ "$got" = 0x1 ] || fail "gpedit: enabled setting not applied: [$got]"
+    else [ -z "$got" ] || fail "gpedit: Not Configured left the value: [$got]"; fi
+done
+# an id that is not in the table is refused (ERROR_NOT_FOUND)
+OUT="$(s0_wine "$ROOT/probes/tierprobe64.exe" gpset computer:NoSuchThing 1 0 | tr -d '\r')"
+[ "$OUT" = gpset=1168 ] || fail "gpedit: an unknown id gave $OUT"
+rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
+kill_servers
+ok st_gpedit_setting_goes_through_the_spool_and_applies
 # Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
 # extension, for the machine and for the user
 REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'

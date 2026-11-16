@@ -175,27 +175,34 @@ static void report_error( HWND owner, DWORD err, const WCHAR *message )
     MessageBoxW( owner, text, L"Group Policy", MB_OK | MB_ICONERROR );
 }
 
-/* the model of a scope goes to gpsvc; the model is read again afterwards either way (a refused change is dropped) */
-static BOOL save_scope( HWND owner, enum policy_scope scope )
+/* the model of a scope goes to gpsvc, which waits for the refresh to end; the model is read again afterwards either
+ * way (a refused change is dropped). The result, and gpsvc's reason in message when it refused the file. */
+static DWORD commit_scope( enum policy_scope scope, WCHAR *message, DWORD chars )
 {
     uint8_t *data;
     size_t size;
-    WCHAR message[260];
     DWORD err;
-    HCURSOR old;
 
+    message[0] = 0;
     if (model_save( models[scope], &data, &size ))
     {
-        report_error( owner, ERROR_NOT_ENOUGH_MEMORY, L"" );
         load_scope( scope );
-        return FALSE;
+        return ERROR_NOT_ENOUGH_MEMORY;
     }
-    old = SetCursor( LoadCursorW( NULL, (LPCWSTR)IDC_WAIT ) );
     err = wex_gp_store_write( scope == POLICY_COMPUTER ? WEX_GP_MACHINE_POL : WEX_GP_USER_POL, data, (DWORD)size, 120,
-                              message, ARRAY_SIZE(message) );
-    SetCursor( old );
+                              message, chars );
     free( data );
     load_scope( scope );
+    return err;
+}
+
+static BOOL save_scope( HWND owner, enum policy_scope scope )
+{
+    WCHAR message[260];
+    HCURSOR old = SetCursor( LoadCursorW( NULL, (LPCWSTR)IDC_WAIT ) );
+    DWORD err = commit_scope( scope, message, ARRAY_SIZE(message) );
+
+    SetCursor( old );
     if (err) report_error( owner, err, message );
     return !err;
 }
@@ -645,6 +652,34 @@ static LRESULT CALLBACK frame_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
         return 0;
     }
     return DefWindowProcW( hwnd, msg, wp, lp );
+}
+
+/* A setting by its id ("user:NoRun") without the window, for scripts and tests: the state is 0 Not Configured, 1 Enabled,
+ * 2 Disabled, the number is for a number setting. The change goes the way the window's does (the file, gpsvc, the
+ * refresh), so it needs the system group as well. 0 when it is installed and applied, else a Win32 error; a setting
+ * that is not applicable here, or an id that is not in the table, is ERROR_NOT_SUPPORTED or ERROR_NOT_FOUND. */
+DWORD WINAPI GpEdit_SetPolicyW( const WCHAR *id, DWORD state, DWORD number )
+{
+    WCHAR message[260], wide[128];
+    unsigned int i;
+    DWORD err;
+
+    if (!id || state > SETTING_DISABLED) return ERROR_INVALID_PARAMETER;
+    for (i = 0; i < policy_count; i++)
+    {
+        to_wide( policies[i].id, wide, ARRAY_SIZE(wide) );
+        if (!wcscmp( wide, id )) break;
+    }
+    if (i == policy_count) return ERROR_NOT_FOUND;
+    if (policies[i].status == POLICY_NOT_APPLICABLE) return ERROR_NOT_SUPPORTED;
+    if (policies[i].kind == POLICY_NUMBER && state == SETTING_ENABLED && !number_allowed( &policies[i], number ))
+        return ERROR_INVALID_PARAMETER;
+    load_scope( policies[i].scope );
+    if (model_set( models[policies[i].scope], &policies[i], (enum setting_state)state, number )) return ERROR_NOT_ENOUGH_MEMORY;
+    err = commit_scope( policies[i].scope, message, ARRAY_SIZE(message) );
+    model_free( models[policies[i].scope] );
+    models[policies[i].scope] = NULL;
+    return err;
 }
 
 /* the entry point that mmc.exe calls for the console gpedit.msc: runs until the window closes */

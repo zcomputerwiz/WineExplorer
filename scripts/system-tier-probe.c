@@ -49,7 +49,9 @@
  *                                 and total=<entries>
  *   probe svcstate NAME           opens the service for status only; prints state=<dwCurrentState> or state=error<n>
  *   probe svcstop NAME            opens the service for SERVICE_STOP and stops it; prints stop=0 or stop=error<n>
- *   probe svcctl NAME CODE        sends the user-defined control code CODE (128 to 255) to the service; prints svcctl=0
+ *   probe gpset ID STATE N        sets a policy of the editor (gpedit.dll, GpEdit_SetPolicyW) as the editor saves it;
+ *                                 prints gpset=0 or gpset=<win32 error>
+ *   probe svcctl NAME CODE       sends the user-defined control code CODE (128 to 255) to the service; prints svcctl=0
  *                                 or svcctl=error<n>
  *   probe pipeserve PIPE          serves \\.\pipe\PIPE for one client (message mode, 30 s at most); prints
  *                                 clientsession=<GetNamedPipeClientSessionId> and message=<what the client wrote>
@@ -310,6 +312,22 @@ int __cdecl wmain( int argc, WCHAR **argv )
         for (i = 0; i < count; i++) if (!lstrcmpiW( services[i].lpServiceName, argv[2] )) named++;
         printf( "count=%lu\ntotal=%lu\n", named, count );
         CloseServiceHandle( manager );
+        return 0;
+    }
+    if (argc == 5 && !lstrcmpW( argv[1], L"gpset" ))
+    {
+        /* a setting of the policy editor without its window: gpset ID STATE NUMBER (0 not configured, 1 enabled,
+         * 2 disabled); prints gpset=0 or gpset=error<n> */
+        DWORD (WINAPI *set_policy)( const WCHAR *, DWORD, DWORD );
+        HMODULE module = LoadLibraryW( L"gpedit.dll" );
+
+        set_policy = module ? (void *)GetProcAddress( module, "GpEdit_SetPolicyW" ) : NULL;
+        if (!set_policy)
+        {
+            printf( "gpset=error%lu\n", GetLastError() );
+            return 1;
+        }
+        printf( "gpset=%lu\n", set_policy( argv[2], wcstoul( argv[3], NULL, 10 ), wcstoul( argv[4], NULL, 10 ) ) );
         return 0;
     }
     if (argc == 4 && !lstrcmpW( argv[1], L"svcctl" ))

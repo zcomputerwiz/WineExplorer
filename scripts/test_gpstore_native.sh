@@ -166,4 +166,12 @@ want $R_OK "write (makes Machine)" gpt write $K_MPOL "$BIN/in"
 if as_adm sh -c ': > "$1/Machine/x"' _ "$GP" 2>/dev/null; then fail "the administrator can write the store directory"; fi
 ok gps_administrator_writes_the_spool_only
 
+# 4. a newer request put under the same name between the read and done is not deleted unread
+fresh
+request Machine.Registry.pol 'old'
+as_s0 sh -c 'printf newer > "$1/Spool/swap"' _ "$GP" 2>/dev/null || as_adm sh -c 'printf newer > "$1/Spool/swap"' _ "$GP"
+want $R_OK "read, swap, done" gpt readswap $K_MPOL "$GP/Spool/swap" "$GP/Spool/Machine.Registry.pol"
+[ "$(cat "$GP/Spool/Machine.Registry.pol" 2>/dev/null)" = newer ] || fail "done removed a request that was not read"
+ok gps_done_keeps_a_newer_request
+
 echo "=== gpstore native: $PASS checks passed ==="

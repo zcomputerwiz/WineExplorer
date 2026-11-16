@@ -173,6 +173,10 @@ static int write_all( int fd, const unsigned char *buffer, size_t size )
     return 0;
 }
 
+/* the request that gps_spool_read last returned, by kind: spool_done removes that file, and not a newer one that the
+ * writer put under the same name in between (that one stays for the next request) */
+static struct { int valid; dev_t dev; ino_t ino; } seen[GPS_KIND_COUNT];
+
 int gps_spool_read( struct gps_store *store, enum gps_kind kind, unsigned char **data, size_t *size )
 {
     struct stat st;
@@ -183,6 +187,7 @@ int gps_spool_read( struct gps_store *store, enum gps_kind kind, unsigned char *
     *data = NULL;
     *size = 0;
     if (kind >= GPS_KIND_COUNT || store->spool_fd < 0) return GPS_BAD_ARGUMENT;
+    seen[kind].valid = 0;
     limit = kind == GPS_MACHINE_TEMPLATE ? GPS_TEMPLATE_LIMIT : GPS_REQUEST_LIMIT;
     /* O_NONBLOCK: a FIFO that was put in the place of the request must not hold this up */
     fd = openat( store->spool_fd, request_names[kind], O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC );
@@ -192,6 +197,9 @@ int gps_spool_read( struct gps_store *store, enum gps_kind kind, unsigned char *
         close( fd );
         return GPS_IO_ERROR;
     }
+    seen[kind].valid = 1;
+    seen[kind].dev = st.st_dev;
+    seen[kind].ino = st.st_ino;
     /* a regular file with one link: a second name for a file that this account can read and the writer cannot
      * must not be installed as a store file that everyone can read */
     if (!S_ISREG( st.st_mode ) || st.st_nlink != 1)
@@ -235,7 +243,17 @@ int gps_spool_done( struct gps_store *store, enum gps_kind kind, const char *err
 
     if (kind >= GPS_KIND_COUNT || store->spool_fd < 0) return GPS_BAD_ARGUMENT;
     snprintf( error_name, sizeof(error_name), "%s.error", request_names[kind] );
+    if (seen[kind].valid)
+    {
+        struct stat now;
+
+        seen[kind].valid = 0;
+        if (!fstatat( store->spool_fd, request_names[kind], &now, AT_SYMLINK_NOFOLLOW ) &&
+            (now.st_dev != seen[kind].dev || now.st_ino != seen[kind].ino))
+            goto keep_request;   /* a newer request under the same name, not read yet: it stays */
+    }
     if (unlinkat( store->spool_fd, request_names[kind], 0 ) && errno != ENOENT) result = GPS_IO_ERROR;
+keep_request:
     /* whatever is at NAME.error goes (a link is removed, not followed), then a new file or none */
     if (unlinkat( store->spool_fd, error_name, 0 ) && errno != ENOENT) return GPS_IO_ERROR;
     if (!error) return result;

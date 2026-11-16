@@ -78,6 +78,17 @@ int main( int argc, char **argv )
             printf( "result=%d size=%zu\n", result, size );
             free( data );
         }
+        else if (!strcmp( argv[2], "readswap" ) && argc >= 6)
+        {
+            /* read the request, a newer one takes its place (argv[4] is renamed to argv[5]), then done */
+            unsigned char *data;
+            size_t size;
+
+            result = gps_spool_read( &store, kind, &data, &size );
+            free( data );
+            if (!result && rename( argv[4], argv[5] )) { printf( "result=-1\n" ); return 1; }
+            printf( "result=%d\n", result ? result : gps_spool_done( &store, kind, NULL ) );
+        }
         else if (!strcmp( argv[2], "write" ) && argc >= 5)
         {
             size_t size = 0;
