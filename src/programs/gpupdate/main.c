@@ -144,9 +144,6 @@ int __cdecl wmain( int argc, WCHAR **argv )
         Sleep( 250 );
     }
     if (!wait) return 0;
-    /* what Windows does when a policy refresh ends: the programs of the desktop (the shell among them) are told to
-     * read their restrictions again */
-    SendMessageTimeoutW( HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"Policy", SMTO_ABORTIFHUNG, 2000, NULL );
     if (user) out( L"User Policy Refresh has completed.\n" );
     if (computer) out( L"Computer Policy Refresh has completed.\n" );
     return 0;

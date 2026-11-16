@@ -897,8 +897,6 @@ static LRESULT WINAPI desktop_wnd_proc( HWND hwnd, UINT message, WPARAM wp, LPAR
     case WM_SETTINGCHANGE:
         if (wp == SPI_SETDESKWALLPAPER)
             SystemParametersInfoW( SPI_SETDESKWALLPAPER, 0, NULL, FALSE );
-        /* Group Policy has been applied ("Policy", as on Windows): the desktop is built again with its restrictions */
-        if (lp && !lstrcmpW( (const WCHAR *)lp, L"Policy" )) desktop_view_refresh();
         return 0;
 
     case WM_PARENTNOTIFY:

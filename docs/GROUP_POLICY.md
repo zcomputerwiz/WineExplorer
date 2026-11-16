@@ -646,7 +646,9 @@ on the desktop, none in the Start menu) are carried out as well, which makes thi
 the folder windows and to the log off, which this shell does not make from these policies yet.
 
 A user's policy is applied after the shell is up (the session script runs `gpupdate /target:user` five seconds after
-the shell starts). So that the shell does not show it only at the next logon, a refresh that ends now broadcasts
-`WM_SETTINGCHANGE` with the string "Policy", as Windows does: `gpupdate.exe` after it has waited for the refresh (the
-session script now waits, in the background) and the editor's and `secedit`'s store write (`wexgpclient.h`). The shell
-window and the desktop view build the desktop again on it; the taskbar already reads its settings on that message.
+the shell starts), so the shell has to notice it. A message does not do it: the shell's desktop is a desktop of its own
+(`explorer.exe /desktop=NAME /shell`), and a broadcast from `gpupdate.exe` stays on the default desktop. The shell
+therefore looks at the restrictions on the desktop view's existing three-second timer (`shell_restrictions_mask`, one
+bit per restriction it carries out, user and machine) and, when the set has changed, builds the desktop again and tells
+the taskbar (`WM_SETTINGCHANGE`), so a restriction, or the removal of one, shows within a few seconds without a
+logoff. The Start menus read the values each time they are opened.

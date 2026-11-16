@@ -944,8 +944,6 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
 
     case WM_SETTINGCHANGE:
         if (wparam == SPI_SETDESKWALLPAPER) desktop_view_refresh();
-        /* Group Policy has been applied: the icons are chosen again with the restrictions */
-        else if (lparam && !lstrcmpW((const WCHAR *)lparam, L"Policy")) desktop_view_refresh();
         return 0;
 
     case WM_DISPLAYCHANGE:
@@ -1050,7 +1048,24 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     }
 
     case WM_TIMER:
-        if (wparam == 1) update_recycle_bin_icon();
+        if (wparam == 1)
+        {
+            static DWORD last_restrictions = ~0u;
+            DWORD now = shell_restrictions_mask();
+
+            update_recycle_bin_icon();
+            /* A policy refresh runs after the shell is up and writes the registry; the desktop is not on the desktop
+             * of the program that runs it, so a message would not reach it. The restrictions are looked at here: when
+             * they have changed, the desktop and the taskbar are built again. */
+            if (last_restrictions != ~0u && now != last_restrictions)
+            {
+                HWND tray = FindWindowW(L"Shell_TrayWnd", NULL);
+
+                desktop_view_refresh();
+                if (tray) PostMessageW(tray, WM_SETTINGCHANGE, 0, 0);
+            }
+            last_restrictions = now;
+        }
         return 0;
 
     case WM_LBUTTONUP:

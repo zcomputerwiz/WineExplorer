@@ -14,4 +14,7 @@
 /* TRUE when the value NAME ("NoRun", "NoClose", ...) of Policies\Explorer is not 0 for the user or for the machine */
 BOOL shell_restricted( const WCHAR *name );
 
+/* one bit for each of the restrictions the shell carries out, set when it is: to notice that a policy refresh changed one */
+DWORD shell_restrictions_mask(void);
+
 #endif

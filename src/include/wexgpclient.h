@@ -143,8 +143,6 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
         if (wait_seconds > 0 && GetTickCount() - start >= (DWORD)wait_seconds * 1000) return ERROR_TIMEOUT;
         Sleep( 250 );
     }
-    /* as gpupdate does at the end of a refresh: the desktop's programs read their restrictions again */
-    if (wait_seconds) SendMessageTimeoutW( HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"Policy", SMTO_ABORTIFHUNG, 2000, NULL );
     return ERROR_SUCCESS;
 }
 
