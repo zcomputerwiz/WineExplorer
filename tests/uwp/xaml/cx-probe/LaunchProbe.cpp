@@ -5,6 +5,17 @@
 // arguments and their values, the user (only the shape of its id is logged, never the id), ApplicationView before the
 // window is activated, SizeHelper. One line each; a missing piece is logged with its HRESULT instead of ending the run.
 #include "pch.h"
+#include <wrl/client.h>
+#include <windows.h>
+
+/* ICoreWindowInterop (corewindow.h is not in the UWP partition of the SDK) */
+MIDL_INTERFACE("45D64A29-A63E-4CB6-B498-5781D298CB4F")
+ICoreWindowInteropProbe : public IUnknown
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE get_WindowHandle(HWND* hwnd) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_MessageHandled(unsigned char value) = 0;
+};
 
 using namespace XamlProbe;
 using namespace Platform;
@@ -69,6 +80,37 @@ void XamlProbe::RunLaunchProbe(LaunchActivatedEventArgs^ e)
           YesNo(ApplicationView::GetForCurrentView()->IsViewModeSupported(ApplicationViewMode::Default)) + L", compact overlay " +
           YesNo(ApplicationView::GetForCurrentView()->IsViewModeSupported(ApplicationViewMode::CompactOverlay)) + L", spanning " +
           YesNo(ApplicationView::GetForCurrentView()->IsViewModeSupported((ApplicationViewMode)2 /* Spanning */)));
+    /* the DPI awareness of the CoreWindow and of the thread that shows it: a window of another awareness cannot be made
+     * its child (SetParent gives ERROR_INVALID_STATE, 5023), which a XAML host inside the CoreWindow needs */
+    try
+    {
+        Microsoft::WRL::ComPtr<IUnknown> unknown(reinterpret_cast<IUnknown*>(Windows::UI::Core::CoreWindow::GetForCurrentThread()));
+        Microsoft::WRL::ComPtr<ICoreWindowInteropProbe> interop;
+        HWND hwnd = nullptr;
+        if (SUCCEEDED(unknown.As(&interop)) && SUCCEEDED(interop->get_WindowHandle(&hwnd)) && hwnd)
+        {
+            /* user32's DPI functions are not in the UWP partition of the SDK: by name */
+            auto user32 = GetModuleHandleW(L"user32.dll");
+            typedef HANDLE (WINAPI *GetContextOfWindow)(HWND);
+            typedef HANDLE (WINAPI *GetContextOfThread)();
+            typedef int (WINAPI *AwarenessOf)(HANDLE);
+            typedef BOOL (WINAPI *ContextsEqual)(HANDLE, HANDLE);
+            auto getWindow = (GetContextOfWindow)GetProcAddress(user32, "GetWindowDpiAwarenessContext");
+            auto getThread = (GetContextOfThread)GetProcAddress(user32, "GetThreadDpiAwarenessContext");
+            auto awareness = (AwarenessOf)GetProcAddress(user32, "GetAwarenessFromDpiAwarenessContext");
+            auto equal = (ContextsEqual)GetProcAddress(user32, "AreDpiAwarenessContextsEqual");
+            if (getWindow && getThread && awareness && equal)
+            {
+                HANDLE context = getWindow(hwnd), thread = getThread();
+                HANDLE perMonitorV2 = (HANDLE)-4;
+                Log(L"launch core window DPI awareness " + awareness(context).ToString() + L", thread " + awareness(thread).ToString() +
+                    L", same context " + YesNo(equal(context, thread) != 0) + L", per-monitor v2 " + YesNo(equal(context, perMonitorV2) != 0));
+            }
+            else Log(L"launch core window DPI awareness: functions not found");
+        }
+        else Log(L"launch core window DPI awareness: no window handle");
+    }
+    catch (Exception^ x) { Log(L"launch core window DPI awareness " + Hr(x)); }
     Size size(320, 500);
     try { size = SizeHelper::FromDimensions(320, 500); Log(L"launch size helper " + size.Width.ToString() + L"x" + size.Height.ToString()); }
     catch (Exception^ x) { Log(L"launch size helper " + Hr(x)); }

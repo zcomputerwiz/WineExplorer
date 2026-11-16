@@ -30,7 +30,10 @@ Two ways to run the Store Calculator (lab copy only) on the guest's Wine build w
   What the window shows: the X screenshot (`quick.png`) is black inside the window frame, as the screen does not show
   Uno's window surface; the shim reads the window's pixels back through GDI 5 s after placing it, and `iterate.sh`
   fetches them as `calc-window.png` in the scratchpad. `XAMLSHIM_RENDER=software|opengl|vulkan` forces Uno's
-  rendering backend. Wine classes newer than the base prefix need `REGCLASSES="wintypes.dll=Class,Class other.dll=..."`
+  rendering backend. `INPUT=clicks|keys` runs `calc-input.exe` (built in the guest from `calc-input.c` with
+  `x86_64-w64-mingw32-gcc -O2 -o calc-input.exe calc-input.c -luser32`) beside the Calculator: after 12 s it types
+  7 + 5 = (8 s between the steps, as the shim's readbacks, one every 8 s, are), the run's summary lists the display
+  text of each readback and `calc-window-all.png` shows them side by side. Wine classes newer than the base prefix need `REGCLASSES="wintypes.dll=Class,Class other.dll=..."`
   (the DLL name with `.dll`).
   `iterate.sh --prep XAMLSHIM_ZIP` makes the base prefix (`calc-prep.sh`, about 5 minutes) from a release zip; make it
   again after a new release or a Wine change that registers classes, or pass `WINEBOOT_UPDATE=1` for a run.

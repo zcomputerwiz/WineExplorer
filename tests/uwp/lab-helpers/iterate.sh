@@ -27,7 +27,7 @@ t1=$(date +%s)
 ./lab.sh push quick.tar > /dev/null
 env="QUIET=${QUIET:-15} MIN=${MIN:-15} MAX=${MAX:-120} REGISTER=\"${REGISTER:-}\" REGCLASSES=\"${REGCLASSES:-}\""
 env="$env XAMLSHIM_PROBE_MEMBERS=\"${XAMLSHIM_PROBE_MEMBERS:-}\" XAMLSHIM_PROBE_TYPE=\"${XAMLSHIM_PROBE_TYPE:-}\" XAMLSHIM_RENDER=\"${XAMLSHIM_RENDER:-}\""
-env="$env WINE_ROERR_STACK=${WINE_ROERR_STACK:-}"
+env="$env INPUT=\"${INPUT:-}\" WINE_ROERR_STACK=${WINE_ROERR_STACK:-}"
 [ -z "${WINE_ROERR_STACK:-}" ] && env="${env% WINE_ROERR_STACK=}"
 ./lab.sh wait "cd /home/debian/uwp-u1-20261111/claude && DISPLAY=:99 $env ./calc-quick.sh ${1:-err+all,fixme+all}" 400
 # the window's pixels as the shim read them back (calc-window.png here)
@@ -35,4 +35,9 @@ rm -f calc-window.png
 ./lab.sh ssh 'f=/home/debian/uwp-u1-20261111/build/candidates/u11-2/quick-run/window.png; [ -f $f ] && base64 -w0 $f; true' |
   tr -d '\r\n' | base64 -d > calc-window.png 2>/dev/null
 [ -s calc-window.png ] && echo "window readback: $pad/calc-window.png" || rm -f calc-window.png
+# with INPUT: the numbered readbacks side by side
+rm -f calc-window-all.png
+./lab.sh ssh 'f=/home/debian/uwp-u1-20261111/build/candidates/u11-2/quick-run/window-all.png; [ -f $f ] && convert $f -resize 2400x /tmp/wa.png && base64 -w0 /tmp/wa.png; true' |
+  tr -d '\r\n' | base64 -d > calc-window-all.png 2>/dev/null
+[ -s calc-window-all.png ] && echo "readbacks: $pad/calc-window-all.png" || rm -f calc-window-all.png
 echo "host: build $((t1 - t0)) s, iteration $(( $(date +%s) - t0 )) s"

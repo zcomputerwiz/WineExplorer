@@ -37,6 +37,11 @@ t2=$(date +%s)
 export WINEDEBUG="${1:-err+all,fixme+all}" XAMLSHIM_TRACE=1 XAMLSHIM_CALLS=1
 "$build/wine" "$c/applaunch.exe" "$family!App" > launch.log 2>&1 &
 launcher=$!
+# INPUT=clicks|keys: calc-input.exe types 7 + 5 = (8 s apart, as the shim's window readbacks are), after 12 s
+if [ -n "$INPUT" ]; then
+  WINEDEBUG=-all "$build/wine" "$c/calc-input.exe" 12 "$INPUT" > input.log 2>&1 &
+  MIN=${MIN_INPUT:-60}; [ "$MAX" -lt 120 ] && MAX=120
+fi
 last=-1; still=0; elapsed=0; shimlog=
 while [ $elapsed -lt $MAX ]; do
   sleep 2; elapsed=$(( $(date +%s) - t2 ))
@@ -53,7 +58,12 @@ done
 [ -n "$DISPLAY" ] && xwd -root -silent -display "$DISPLAY" | convert xwd:- quick.png 2>/dev/null
 "$build/server/wineserver" -k
 bmp=$(find "$WINEPREFIX/drive_c/users" -name xamlshim-window.bmp 2>/dev/null | head -1)
-rm -f window.png; [ -n "$bmp" ] && convert "$bmp" window.png 2>/dev/null
+rm -f window.png window-*.png; [ -n "$bmp" ] && convert "$bmp" window.png 2>/dev/null
+# the numbered readbacks, side by side in one picture (window-all.png)
+for b in $(find "$WINEPREFIX/drive_c/users" -name 'xamlshim-window-*.bmp' 2>/dev/null | sort -V); do
+  n=${b##*window-}; n=${n%.bmp}; convert "$b" "window-$n.png" 2>/dev/null
+done
+ls window-*.png > /dev/null 2>&1 && convert $(ls window-*.png | sort -V) +append window-all.png 2>/dev/null
 t3=$(date +%s)
 [ -n "$shimlog" ] && tr -d '\r' < "$shimlog" > shim.txt
 echo "timing: copy $((t1 - t0)) s, swap $((t2 - t1)) s, run $((t3 - t2)) s, total $((t3 - t0)) s"
@@ -62,6 +72,7 @@ grep -h "probe \|OnLaunched\|OnNavigatedTo\|event handler returned\|not implemen
 echo "--- wine"
 grep -a "err:\|stub!\|semi-stub" launch.log | sed 's/^[0-9a-f]*://; s/0x[0-9a-f]*\|[0-9A-F]\{16\}/X/g' | sort | uniq -c | sort -rn | cut -c1-200 | head -15
 ls -la quick.png 2>/dev/null | awk '{print "screenshot " $5 " bytes"}'
-grep -h "draw check: CoreWindow" shim.txt 2>/dev/null | cut -c1-300
+grep -h "draw check [0-9]*:" shim.txt 2>/dev/null | sed 's/^[0-9]*: //; s/; pixels.*//; s/CoreWindow client [0-9x]*, Uno window [0-9x]* visible [0-9]*; content Frame [0-9.x]* visibility Visible; XamlRoot [0-9.x]*;//' | cut -c1-200
+[ -f input.log ] && cat input.log
 ls -la window.png 2>/dev/null | awk '{print "window readback " $5 " bytes (window.png)"}'
 echo quick-done

@@ -153,7 +153,18 @@ the XAML (Uno's reader left 31 of the application's 42 unresolved, so the button
 `ContentControl.Content` taking values; the application's `OnApplyTemplate` overrides called (the display control
 finds its text block there); bindings by `ElementName` to the compiled XAML's root followed from the root's property.
 Open: the decimal separator button shows no "." (its text is laid out, enabled, same colour as the digits);
-the keep-on-top and history icons are clipped; no input tried yet.
+the keep-on-top and history icons are clipped.
+
+Later the same day (Wine development f0f972f8, uno-uwp see its log): **7 + 5 = 12 by mouse**. The clicks (a Wine program,
+`lab-helpers/calc-input.c`, SendInput on the lab's display) reach Uno and its buttons; the display shows 7, 7, 5, 12.
+What it took: Uno's window was never a child of the CoreWindow (`SetParent` failed with 5023: Wine's server needs the
+same DPI awareness and the CoreWindow's thread was system aware, where Windows' is per-monitor, measured with the
+XamlProbe; Wine 41c7bf93), so pointer positions were the screen's; the child window is held to the CoreWindow's client
+area; bindings (`{Binding Path}`) to the application's native objects (the view model) now read through the application's
+XAML metadata (`DynamicObject`, `INotifyPropertyChanged` forwarded), so each button's `ButtonPressed` command is
+bound; and the IInspectable pointer of a shim object is usable as its default interface (.NET Native called a class's
+member through the pointer it had met as `Object`: a null vtable slot). Wine f0f972f8: `GetIids` of the dispatcher.
+Open: the expression line above the display (the bound token list), no keyboard test yet, decimal separator.
 
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
