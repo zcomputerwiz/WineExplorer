@@ -115,7 +115,8 @@ if [ "${WEX_LAB_TREE_GPUPDATE:-0}" = 1 ]; then
     echo "using this tree's wex-gpupdate.sh"
 fi
 # WEX_LAB_TREE_TOOLS=1: this tree's wex-sysrun and wex-accounts (built as installer/package-wine.sh builds them) and
-# the PAM step's script in place of the image's, so that a change to any is tested without a new image
+# the PAM step's script and the session scripts in place of the image's, so that a change to any is tested without a
+# new image
 if [ "${WEX_LAB_TREE_TOOLS:-0}" = 1 ]; then
     TOOLS=$(mktemp -d)
     cc -O2 -Wall -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
@@ -129,8 +130,12 @@ if [ "${WEX_LAB_TREE_TOOLS:-0}" = 1 ]; then
     chroot "$MNT" chown root:wexsys /usr/local/libexec/wineexplorer/wex-sysrun || fail "chown wex-sysrun"
     chmod 2755 "$LIBEXEC/wex-sysrun"
     install -m 0755 "$REPO/scripts/wex-domain-admit-pam.sh" "$MNT/usr/local/sbin/wex-domain-admit-pam.sh"
+    # the session scripts (the refresh after the shell is up is theirs)
+    for s in wine-explorer-session.sh wine-explorer-session-common.sh wine-explorer-wayland-session.sh; do
+        install -m 0755 "$REPO/scripts/$s" "$MNT/usr/local/bin/$s"
+    done
     rm -rf "$TOOLS"
-    echo "using this tree's wex-sysrun, wex-accounts and wex-domain-admit-pam.sh"
+    echo "using this tree's wex-sysrun, wex-accounts, wex-domain-admit-pam.sh and session scripts"
 fi
 detach
 

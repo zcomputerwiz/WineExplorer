@@ -92,6 +92,14 @@ deletes the password again at the end) and the guest checks, by `docs/DOMAIN_LOG
   the credentials the first logon cached, the record and `domain-groups` are as they were, a `wex-accounts sync`
   leaves the record active, and Winbind is online again when the route is gone.
 
+- `domain_admin_logon`, `domain_admin_in_domain_admins`, `domain_admin_token_is_split`,
+  `domain_admin_limited_token_filters_admin_groups`, `domain_admin_full_token_has_them_enabled`: a member of Domain
+  Admins (the fixtures' `wexadmin1`) logs on through the greeter with elevation enforced (the check sets
+  `HKLM\Software\Wine\Elevation\Helper` through session 0 for this part: a default install has no helper, so no
+  token is filtered); the limited token has Administrators and Domain Admins for deny only and Domain Users
+  enabled, the full (linked) token has them enabled. Wine's `whoami` does not print groups: the project's token
+  probe is built on the host and installed in the guest.
+
 The guest asks the host for what needs the screen (`AD-GUEST-HOST-STEP NAME` lines in its output: `logon`,
 `logon-bad`, `tile TEXT`) and waits for `/root/host-done-NAME`; `machine.sh` runs them. A failed step leaves a
 screenshot (`host-*.png`) in the overlay folder, and a failed logon prints the session log and the journal.
@@ -131,6 +139,8 @@ installed-machine disks and ISOs are not there either; an image is the next thin
   "Default Domain Policy"). Windows applies one container's links the other way round (MS-GPOL; GROUP_POLICY.md,
   "The order of several links on one container"); since 2026-11-15 `wex-gpupdate.sh` orders them as Windows
   does, and `parse` checks that "WexLab Domain" (link order 1) comes last.
+- `machine` passed on 2026-11-16 with all 39 checks (the 34 below and the five Domain Admins checks; the overlay's
+  `WEX_LAB_TREE_TOOLS=1` also installs the tree's session scripts, which the policy at logon depends on).
 - `machine` passed on 2026-11-16 with all 34 checks, adding the policy at logon, the tile after the first logon and
   the offline logon (the controller unreachable). One of three runs with them failed at the first logon: the
   session's `wineserver` printed "session 0 ... did not register this session" and the greeter came back, while the
@@ -156,8 +166,8 @@ installed-machine disks and ISOs are not there either; an image is the next thin
 
 ## Next
 
-- A member of Domain Admins in the lab: written (wexadmin1, `domain_admin_*` checks: the limited token at a real logon); still to add: the consent prompt and
-  the elevated token end to end, which the suite tests only against a fake Winbind.
+- A member of Domain Admins in the lab (wexadmin1, done: the limited and full tokens at a real logon); still to add: the consent prompt and
+  the elevated process end to end through the broker.
 - Local policy without a domain ([GROUP_POLICY.md](GROUP_POLICY.md), "Local policy"): the unjoined machine's lab
   check once the editor exists; the joined machine's order (local under the domain's) can be checked on `machine`.
 - If the waits on the shared runner grow, a copy of wexbuild for this lab (the owner allowed it on 2026-11-14),
