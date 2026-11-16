@@ -23,7 +23,8 @@ HKLM_POLICY='HKLM\Software\Policies\WexLab'
 
 ok() { echo "ok $1"; }
 notok() { echo "not ok $1: $(printf '%s' "$2" | tr '\n' ' ' | cut -c1-240)"; }
-finish() { echo "AD-GUEST-DONE"; exit 0; }
+# the lab password of the domain user does not stay on the machine, however the run ends
+finish() { rm -f /root/wexuser1pw; echo "AD-GUEST-DONE"; exit 0; }
 wine_cmd() { su - "$1" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 90 $2" 2>&1; }
 value() { wine_cmd "$INSTALLED_USER" "wine reg query \"$1\" /v $2" | tr -d '\r' | awk -v n="$2" '$1 == n { print $NF }'; }
 
@@ -198,7 +199,9 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
     if grep -q 'wex-domain-admit-pam.sh' /etc/pam.d/lightdm; then ok admission_step_installed
     else notok admission_step_installed "$(grep pam_exec /etc/pam.d/lightdm)"; fi
     # the Welcome screen: no automatic logon of the installed user, LightDM restarted (that user's session ends)
+    # (the setting is in /etc/lightdm/lightdm.conf and in a conf.d file of the image)
     mv /etc/lightdm/lightdm.conf.d/60-wineexplorer-autologin.conf /root/60-wineexplorer-autologin.conf.off 2>/dev/null
+    sed -i 's/^autologin-user=/#autologin-user=/' /etc/lightdm/lightdm.conf
     rm -f /root/logon-done
     systemctl restart lightdm
     echo "AD-GUEST-LOGON-READY"
@@ -237,6 +240,4 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
 else
     echo "note domain_logon: skipped (wexuser1 password $( [ -s /root/wexuser1pw ] && echo present || echo absent), admission step $( [ -x /usr/local/sbin/wex-domain-admit-pam.sh ] && echo present || echo absent))"
 fi
-rm -f /root/wexuser1pw
-
 finish

@@ -105,6 +105,23 @@ if [ "${WEX_LAB_TREE_GPUPDATE:-0}" = 1 ]; then
     install -m 0755 "$REPO/installer/scripts/wex-gpupdate.sh" "$MNT/usr/local/bin/wex-gpupdate.sh"
     echo "using this tree's wex-gpupdate.sh"
 fi
+# WEX_LAB_TREE_TOOLS=1: this tree's wex-sysrun and wex-accounts (built as installer/package-wine.sh builds them) in
+# place of the image's, so that a change to either is tested without a new image
+if [ "${WEX_LAB_TREE_TOOLS:-0}" = 1 ]; then
+    TOOLS=$(mktemp -d)
+    cc -O2 -Wall -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+        -o "$TOOLS/wex-sysrun" "$REPO/tools/wex-sysrun/wex-sysrun.c" || fail "cannot build wex-sysrun"
+    cc -O2 -Wall -Wextra -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+        -o "$TOOLS/wex-accounts" "$REPO/tools/wex-accounts/wex-accounts.c" || fail "cannot build wex-accounts"
+    LIBEXEC="$MNT/usr/local/libexec/wineexplorer"
+    [ -d "$LIBEXEC" ] || fail "the image has no $LIBEXEC"
+    install -m 0755 "$TOOLS/wex-accounts" "$LIBEXEC/wex-accounts"
+    install -m 0755 "$TOOLS/wex-sysrun" "$LIBEXEC/wex-sysrun"
+    chroot "$MNT" chown root:wexsys /usr/local/libexec/wineexplorer/wex-sysrun || fail "chown wex-sysrun"
+    chmod 2755 "$LIBEXEC/wex-sysrun"
+    rm -rf "$TOOLS"
+    echo "using this tree's wex-sysrun and wex-accounts"
+fi
 detach
 
 "${V[@]}" start "$TEST" >/dev/null || fail "QEMU did not start"
@@ -116,16 +133,18 @@ detach
 # screen is up without automatic logon; Ctrl+Alt+Delete twice gives the classic dialog (as installer/tests/safe-mode.sh),
 # WEXLAB\wexuser1 is typed with the fixtures' password, and the guest is told once the desktop is there.
 domain_logon() {
-    "${V[@]}" wait "$TEST" "To begin" --timeout 120 >/dev/null || { echo "note domain_logon_host: no Welcome screen"; return 1; }
+    # a screenshot of where a step stopped, kept in the test VM's folder
+    stuck() { echo "note domain_logon_host: $1 (screen: $STATE/logon-$2.png)"; "${V[@]}" shot "$TEST" "$STATE/logon-$2.png" >/dev/null 2>&1 || true; return 1; }
+    "${V[@]}" wait "$TEST" "To begin" --timeout 300 >/dev/null || { stuck "no Welcome screen" welcome; return 1; }
     "${V[@]}" key "$TEST" ctrl-alt-delete >/dev/null; sleep 2
     "${V[@]}" key "$TEST" ctrl-alt-delete >/dev/null
-    "${V[@]}" wait "$TEST" "Log On to Windows" --timeout 30 >/dev/null || { echo "note domain_logon_host: no classic dialog"; return 1; }
+    "${V[@]}" wait "$TEST" "Log On to Windows" --timeout 30 >/dev/null || { stuck "no classic dialog" classic; return 1; }
     "${V[@]}" key "$TEST" alt-u >/dev/null
     "${V[@]}" type "$TEST" 'WEXLAB\wexuser1'
     "${V[@]}" key "$TEST" alt-p delete >/dev/null
     "${V[@]}" type "$TEST" "$(cat "$LAB/wexuser1_password.txt")"
     "${V[@]}" key "$TEST" ret >/dev/null
-    "${V[@]}" wait "$TEST" "My Documents" --timeout 300 >/dev/null || { echo "note domain_logon_host: no desktop after the logon"; return 1; }
+    "${V[@]}" wait "$TEST" "My Documents" --timeout 300 >/dev/null || { stuck "no desktop after the logon" desktop; return 1; }
     "${V[@]}" sh "$TEST" root "$PWFILE" "touch /root/logon-done" --timeout 30 >/dev/null
 }
 
