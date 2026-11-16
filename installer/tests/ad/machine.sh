@@ -98,6 +98,15 @@ if [ -s "$LAB/wexuser1_password.txt" ]; then
     install -m 0600 "$LAB/wexuser1_password.txt" "$MNT/root/wexuser1pw"
     DOMAIN_LOGON=1
 fi
+# a member of Domain Admins (the fixtures' wexadmin1): the guest then also checks the token of a domain administrator
+# at a real logon. Wine's whoami does not print the groups, so the project's token probe goes along (this host's
+# mingw compiler builds it).
+if [ -s "$LAB/wexadmin1_password.txt" ] && [ "$DOMAIN_LOGON" = 1 ] && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+    install -d -m 0755 "$MNT/usr/local/share/wex-lab-probe"
+    x86_64-w64-mingw32-gcc -O2 -Wall -municode -o "$MNT/usr/local/share/wex-lab-probe/tierprobe64.exe" \
+        "$REPO/scripts/system-tier-probe.c" -ladvapi32 -lntdll && install -m 0600 "$LAB/wexadmin1_password.txt" "$MNT/root/wexadmin1pw" ||
+        echo "note domain_admin: not prepared (probe or password)"
+fi
 install -m 0700 "$HERE/machine-guest.sh" "$MNT/root/ad-guest.sh"
 # WEX_LAB_TREE_GPUPDATE=1: this tree's wex-gpupdate.sh in place of the image's (a script change tested without a
 # new image; docs/GPO_LAB.md)
@@ -155,9 +164,11 @@ host_type_credentials() {   # NAME PASSWORD
 host_step() {   # NAME ARGS...: prints what goes into the done file (the last line)
     local name=$1; shift
     case $name in
-        logon)
+        logon)   # logon [DOMAIN\user]: wexuser1 when no name is given; the password is the fixtures' $LAB/<user>_password.txt
+            local who=${1:-'WEXLAB\wexuser1'}
+            [[ $who =~ ^WEXLAB\\[a-z0-9]+$ ]] || { echo "fail: not a lab user: $who"; return 0; }
             host_classic || return 0
-            host_type_credentials 'WEXLAB\wexuser1' "$(cat "$LAB/wexuser1_password.txt")"
+            host_type_credentials "$who" "$(cat "$LAB/${who#WEXLAB\\}_password.txt")"
             "${V[@]}" wait "$TEST" "My Documents" --timeout 300 >/dev/null || { host_stuck desktop "no desktop after the logon"; return 0; }
             echo ok ;;
         logon-bad)

@@ -25,7 +25,7 @@ ok() { echo "ok $1"; }
 notok() { echo "not ok $1: $(printf '%s' "$2" | tr '\n' ' ' | cut -c1-240)"; }
 # the lab password of the domain user does not stay on the machine, and the dropped route of the offline
 # test is gone, however the run ends
-finish() { ip route del blackhole "$DC/32" 2>/dev/null; rm -f /root/wexuser1pw; echo "AD-GUEST-DONE"; exit 0; }
+finish() { ip route del blackhole "$DC/32" 2>/dev/null; rm -f /root/wexuser1pw /root/wexadmin1pw; echo "AD-GUEST-DONE"; exit 0; }
 wine_cmd() { su - "$1" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 90 $2" 2>&1; }
 value() { wine_cmd "$INSTALLED_USER" "wine reg query \"$1\" /v $2" | tr -d '\r' | awk -v n="$2" '$1 == n { print $NF }'; }
 
@@ -312,6 +312,40 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
         wbinfo --ping-dc >/dev/null 2>&1 && on=1; fi
     if [ -n "$on" ] && net ads testjoin >/dev/null 2>&1; then ok back_online
     else notok back_online "ping-dc / testjoin after the route is gone"; fi
+
+    # 7d. a member of Domain Admins logs on (the fixtures' wexadmin1): at a real logon the token is the limited one,
+    # Administrators and Domain Admins only for deny, Domain Users enabled; the full token (elevation) has them
+    # enabled. Wine's whoami does not print the groups: the project's token probe does (machine.sh puts it here).
+    PROBE=/usr/local/share/wex-lab-probe/tierprobe64.exe
+    if [ -s /root/wexadmin1pw ] && [ -f "$PROBE" ]; then
+        AUSER='WEXLAB\wexadmin1'
+        # deny_only HEX: SE_GROUP_USE_FOR_DENY_ONLY (0x10) set and SE_GROUP_ENABLED (0x4) clear; enabled HEX: the reverse
+        deny_only() { [ -n "$1" ] && [ $(( 0x$1 & 0x10 )) != 0 ] && [ $(( 0x$1 & 0x4 )) = 0 ]; }
+        enabled() { [ -n "$1" ] && [ $(( 0x$1 & 0x4 )) != 0 ] && [ $(( 0x$1 & 0x10 )) = 0 ]; }
+        grp() { sed -n "s/^$1=$2 attrs=//p" <<<"$TOK"; }
+        loginctl terminate-user "$duid"
+        sleep 5
+        if host_step logon "$AUSER"; then
+            if loginctl list-sessions --no-legend | awk '{ print $3 }' | grep -qixF "$AUSER"; then ok domain_admin_logon
+            else notok domain_admin_logon "no session after the logon"; fi
+            arec=$(awk -v n="$AUSER" 'NR > 1 && tolower($1) == tolower(n)' /etc/wineexplorer/accounts.map)
+            akey=$(awk '{ print $3 }' <<<"$arec")
+            if [ -n "$akey" ] && awk -v k="$akey" '$1 == k { for (i = 2; i <= NF; i++) if ($i == 512) f = 1 } END { exit !f }' /etc/wineexplorer/domain-groups 2>/dev/null
+            then ok domain_admin_in_domain_admins; else notok domain_admin_in_domain_admins "key [$akey] $(cat /etc/wineexplorer/domain-groups 2>&1 | tr '\n' ' ')"; fi
+            TOK=$(wine_cmd "$AUSER" "wine $PROBE token" | tr -d '\r')
+            DOM3=$(sed -n 's/^user=\(S-1-5-21-[0-9]*-[0-9]*-[0-9]*\)-[0-9]*$/\1/p' <<<"$TOK")
+            if [ -n "$DOM3" ] && grep -qx 'elevation=3' <<<"$TOK" && grep -qx 'linkedelevation=2' <<<"$TOK"; then ok domain_admin_token_is_split
+            else notok domain_admin_token_is_split "$(grep -E '^(user|elevation|linkedelevation)=' <<<"$TOK" | tr '\n' ' ')"; fi
+            if deny_only "$(grp group S-1-5-32-544)" && deny_only "$(grp group "$DOM3-512")" && enabled "$(grp group "$DOM3-513")"; then
+                ok domain_admin_limited_token_filters_admin_groups
+            else notok domain_admin_limited_token_filters_admin_groups "$(grep -E '^group=(S-1-5-32-544|.*-51[23]) ' <<<"$TOK" | tr '\n' ' ')"; fi
+            if enabled "$(grp linkedgroup S-1-5-32-544)" && enabled "$(grp linkedgroup "$DOM3-512")" && enabled "$(grp linkedgroup "$DOM3-513")"; then
+                ok domain_admin_full_token_has_them_enabled
+            else notok domain_admin_full_token_has_them_enabled "$(grep -E '^linkedgroup=(S-1-5-32-544|.*-51[23]) ' <<<"$TOK" | tr '\n' ' ')"; fi
+        else notok domain_admin_logon "$HOST_ANSWER"; fi
+    else
+        echo "note domain_admin_logon: skipped (wexadmin1 password $( [ -s /root/wexadmin1pw ] && echo present || echo absent), probe $( [ -f "$PROBE" ] && echo present || echo absent))"
+    fi
 else
     echo "note domain_logon: skipped (wexuser1 password $( [ -s /root/wexuser1pw ] && echo present || echo absent), admission step $( [ -x /usr/local/sbin/wex-domain-admit-pam.sh ] && echo present || echo absent))"
 fi

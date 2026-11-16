@@ -156,7 +156,7 @@ installed-machine disks and ISOs are not there either; an image is the next thin
 
 ## Next
 
-- A member of Domain Admins in the lab (a second fixture user): the limited token at logon, the consent prompt and
+- A member of Domain Admins in the lab: written (wexadmin1, `domain_admin_*` checks: the limited token at a real logon); still to add: the consent prompt and
   the elevated token end to end, which the suite tests only against a fake Winbind.
 - Local policy without a domain ([GROUP_POLICY.md](GROUP_POLICY.md), "Local policy"): the unjoined machine's lab
   check once the editor exists; the joined machine's order (local under the domain's) can be checked on `machine`.

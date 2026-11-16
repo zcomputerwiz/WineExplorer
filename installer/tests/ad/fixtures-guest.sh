@@ -6,6 +6,7 @@
 #
 #   OU=WexMachines              the members join into it (net ads join createcomputer=WexMachines)
 #   user wexuser1               a domain user; the throwaway password is /root/wexuser1pw
+#   user wexadmin1              a member of Domain Admins; the throwaway password is /root/wexadmin1pw (when it is there)
 #   GPO "WexLab Domain"         linked at the domain:
 #       Machine/Registry.pol    HKLM\Software\Policies\WexLab Limit=7, DomainOnly=1
 #       User/Registry.pol       HKCU\Software\Policies\WexLab UserLimit=3
@@ -73,6 +74,12 @@ set_object()
 samba-tool ou list 2>/dev/null | grep -qx 'OU=WexMachines' || samba-tool ou create "OU=WexMachines,$BASE" >/dev/null
 samba-tool user show wexuser1 >/dev/null 2>&1 ||
     samba-tool user create wexuser1 "$(cat /root/wexuser1pw)" --given-name=Wex --surname=User >/dev/null
+if [ -s /root/wexadmin1pw ]; then
+    samba-tool user show wexadmin1 >/dev/null 2>&1 ||
+        samba-tool user create wexadmin1 "$(cat /root/wexadmin1pw)" --given-name=Wex --surname=Admin >/dev/null
+    samba-tool group listmembers 'Domain Admins' | grep -qx wexadmin1 ||
+        samba-tool group addmembers 'Domain Admins' wexadmin1 >/dev/null
+fi
 
 # the object linked at the domain
 G1=$(make_gpo 'WexLab Domain' "$BASE")

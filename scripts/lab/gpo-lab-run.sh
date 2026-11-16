@@ -20,6 +20,7 @@ cp -a "$D/installer/scripts" "$C/installer/scripts"
 cp -a "$D/scripts/lab" "$C/scripts/lab"
 cp -a "$D/scripts/vmtest.py" "$C/scripts/vmtest.py"   # machine.sh drives the installed VM with it
 cp -a "$D/scripts/wex-domain-admit-pam.sh" "$C/scripts/wex-domain-admit-pam.sh"   # (the PAM step's script, likewise)
+cp -a "$D/scripts/system-tier-probe.c" "$C/scripts/system-tier-probe.c"           # (the token probe machine.sh builds)
 mkdir -p "$C/tools"
 cp -a "$D/tools/wex-sysrun" "$D/tools/wex-accounts" "$C/tools/"   # machine.sh with WEX_LAB_TREE_TOOLS=1 builds them
 mkdir -p "$C/wine/server"                                         # (wex-accounts includes the server's account code)
