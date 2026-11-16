@@ -294,6 +294,8 @@ done
 [ "$(stat -c '%U:%G:%a' "$GPD/Spool")" = "$S0USER:$GROUP2:2770" ] || fail "the spool is $(stat -c '%U:%G:%a' "$GPD/Spool")"
 getfacl -p "$GPD/Spool" 2>/dev/null | grep -q "^default:group:$GROUP2:rwx" || fail "the spool has no default ACL for the system group"
 [ -z "$(ls -A "$GPD/Spool")" ] || fail "a stale request stayed in the spool"
+[ -z "$(find "$GPD" -type d -perm -g+w ! -path "$GPD/Spool" ! -path "$GPD/Spool/*")" ] ||
+    fail "a directory of the store is group-writable: $(find "$GPD" -type d -perm -g+w ! -path "$GPD/Spool")"
 rm -rf "$GPD"; ln -s /etc "$GPD"
 if WEX_SESSION0=1 WEX_SESSION0_USER="$S0USER" run_setup2 --update >/tmp/b3-gp2-$$.log 2>&1; then fail "a link in place of the store directory was accepted"; fi
 rm -f "$GPD"
