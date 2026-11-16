@@ -1,5 +1,5 @@
 MODULE    = gpupdate.exe
-IMPORTS   = advapi32
+IMPORTS   = advapi32 user32
 
 EXTRADLLFLAGS = -mconsole -municode
 
