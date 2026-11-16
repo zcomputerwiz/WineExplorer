@@ -3479,3 +3479,11 @@ fail there, and on Wine).
 2026-11-16 (UWP, Wine eb2a8335): `dlls/windows.ui/uiviewsettings.c`: `UIViewSettings` UserInteractionMode is the mouse,
 as a Windows 11 desktop reports it (it returned E_NOTIMPL; the Store Calculator's title bar reads it when it loads);
 `tests/uisettings.c` (through IUIViewSettingsInterop.GetForWindow; passes on Windows 11 x64 and x86 and on Wine).
+
+2026-11-16 (UWP, Wine 2dd64423): `dlls/wintypes`: new `diagnostics.c` (the `Windows.Foundation.Diagnostics` logging
+classes Windows keeps in WinRtTracing.dll: LoggingChannel, LoggingActivity, LoggingFields, LoggingOptions and
+LoggingChannelOptions; no tracing session listens on Wine, so a channel is never enabled and its events go nowhere;
+names, ids and options are kept as Windows 11 reports them, including the id a channel derives from its name),
+`classes.idl`, `main.c`, `private.h`, `Makefile.in` (imports bcrypt), new `tests/diagnostics.c` (passes on Windows 11
+x64 and x86 and on Wine); new `include/windows.foundation.diagnostics.idl` (these classes' interfaces), `include/Makefile.in`.
+The Store Calculator's telemetry builds LoggingFields when it sets its mode.
