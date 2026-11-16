@@ -63,8 +63,9 @@ echo "$1 $2" >> "$D/wexpolicy.log"
 cmd=$1; target=$2; shift 2
 out="$cmd $target"
 case $cmd in
-    apply) for a in "$@"; do f=$(printf '%s' "${a#Z:}" | tr '\134' '/'); out="$out [$(cat "$f" | tr '\n' ' ')]"; done ;;
-    record) f=$(printf '%s' "${1#Z:}" | tr '\134' '/'); out="$out <$(cut -f1,5 "$f" | tr '\t\n' ',;')>" ;;
+    apply|security) for a in "$@"; do f=$(printf '%s' "${a#Z:}" | tr '\134' '/'); out="$out [$(cat "$f" | tr '\n' ' ')]"; done ;;
+    record) f=$(printf '%s' "${1#Z:}" | tr '\134' '/'); out="$out <$(cut -f1,5 "$f" | tr '\t\n' ',;')>"
+            echo "$target $(cut -f9 "$f" | tr '\n' ';')" >> "$D/ext.log" ;;
 esac
 echo "$out" >> "$D/detail.log"
 exit 0
@@ -73,7 +74,7 @@ chmod 0755 "$FX"/bin/* "$FX/wine"
 # runuser and the script's own tools come from the fakes first
 run_gpupdate()
 {
-    : > "$FX/wexpolicy.log"; : > "$FX/net.log"; : > "$FX/detail.log"
+    : > "$FX/wexpolicy.log"; : > "$FX/net.log"; : > "$FX/detail.log"; : > "$FX/ext.log"
     PATH="$FX/bin:$PATH" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=root WEX_MACHINE_ROOT="$FX/mroot" \
         bash "$SCRIPT" > "$FX/out.log" 2>&1 ||
         { cat "$FX/out.log"; fail "wex-gpupdate.sh failed on $1"; }
@@ -141,6 +142,29 @@ detail 'apply /machine [LOCALM] [DOMAINM]' 'joined: the local object first, then
 detail 'record /machine <LocalGPO,Local Group Policy;'"$GUID"',WexLab Domain;>' 'joined: the computer'"'"'s applied list'
 detail 'apply /user:S-1-5-21-111-222-333-1104 [LOCALU] [DOMAINU]' 'joined: a domain user: local, then domain'
 detail 'apply /user:S-1-5-21-11-22-33-1002 [LOCALU]' 'joined: a local user keeps the local policy only'
+# the local security template (the lockout and the security options): where Windows' local Group Policy keeps it; the
+# local object's first, the domain's after it, and the object's list of applied objects names the security extension
+SECDIR="$LG/Machine/Microsoft/Windows NT/SecEdit"
+mkdir -p "$SECDIR" "$FX/cache/gpo_cache/AD.WEXLAB.EXAMPLE/POLICIES/$GUID/MACHINE/microsoft/windows nt/secedit"
+printf 'LOCALT' > "$SECDIR/GptTmpl.inf"
+printf 'DOMAINT' > "$FX/cache/gpo_cache/AD.WEXLAB.EXAMPLE/POLICIES/$GUID/MACHINE/microsoft/windows nt/secedit/gpttmpl.inf"
+SECX='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'
+# not joined, a template and no registry file: the template applies and the object is listed for the security extension only
+touch "$FX/unjoined"; rm -f "$LG/Machine/Registry.pol" "$LG/User/Registry.pol"
+run_gpupdate "$FX/map3"
+detail 'security /machine [LOCALT]' 'template: the local template, not joined'
+grep -q "^/machine \[$SECX{803E14A0-B4FB-11D0-A0D0-00A0C90F574B}\];\$" "$FX/ext.log" || { cat "$FX/ext.log"; fail 'template: the local object was not listed for the security extension only'; }
+# joined: the local template first, the domain's after it
+rm -f "$FX/unjoined"
+run_gpupdate "$FX/map3"
+detail 'security /machine [LOCALT] [DOMAINT]' 'template: the local template first, then the domain'"'"'s'
+rm -f "$SECDIR/GptTmpl.inf"
+# a link in place of the template is not followed
+ln -s /etc/hostname "$SECDIR/GptTmpl.inf"
+touch "$FX/unjoined"
+run_gpupdate "$FX/map3"
+[ -z "$(grep -v '^refreshed' "$FX/wexpolicy.log")" ] || { cat "$FX/wexpolicy.log"; fail 'template: a link was taken for the template'; }
+rm -f "$SECDIR/GptTmpl.inf"
 # nothing to do: not joined, no local files, nothing written before: no call at all
 touch "$FX/unjoined"; rm -f "$LG/Machine/Registry.pol" "$LG/User/Registry.pol"
 run_gpupdate "$FX/map3"

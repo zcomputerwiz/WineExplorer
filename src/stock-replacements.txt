@@ -3,3 +3,4 @@
 dlls/desk.cpl
 dlls/wlanui
 programs/wmplayer
+programs/secedit

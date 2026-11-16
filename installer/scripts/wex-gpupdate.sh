@@ -64,6 +64,7 @@ trap finish EXIT
 # files are in session 0's root, where Windows keeps them. The domain's objects need Samba and a join.
 LOCAL_GPO=$MACHINE_ROOT/drive_c/windows/system32/GroupPolicy
 REG_EXT='[{35378EAC-683F-11D2-A89A-00C04FBBCFA2}{D02B1F72-3407-48AE-BA88-E8213C6761F1}]'
+SEC_EXT='[{827D319E-6EAC-11D2-A4EA-00C04F79F83A}{803E14A0-B4FB-11D0-A0D0-00A0C90F574B}]'
 JOINED=1
 CACHE=
 if ! { command -v net >/dev/null 2>&1 && command -v samba-gpupdate >/dev/null 2>&1; }; then
@@ -85,11 +86,20 @@ local_file()
     [ -f "$f" ] && [ ! -L "$f" ] && [ -s "$f" ] && echo "$f"
 }
 
+# the local object's security template (the account lockout policy and the security options: where Windows' local
+# Group Policy keeps them, GroupPolicy\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf), under the same rules
+local_template()
+{
+    local f="$LOCAL_GPO/Machine/Microsoft/Windows NT/SecEdit/GptTmpl.inf"
+    [ -f "$f" ] && [ ! -L "$f" ] && [ -s "$f" ] && echo "$f"
+}
+
 # the line of the local object for the list of applied objects (wexpolicy record): the name LocalGPO, display name
-# "Local Group Policy", link "Local", no directory path
+# "Local Group Policy", link "Local", no directory path; $2 is its extensions (what it has: registry policy, a
+# security template)
 local_entry()
 {
-    printf 'LocalGPO\t0\t0\t0\tLocal Group Policy\tC:\\windows\\system32\\GroupPolicy\\%s\t\tLocal\t%s\n' "$1" "$REG_EXT"
+    printf 'LocalGPO\t0\t0\t0\tLocal Group Policy\tC:\\windows\\system32\\GroupPolicy\\%s\t\tLocal\t%s\n' "$1" "$2"
 }
 
 # does session 0 hold an archive of the last policy it wrote for a target ("Machine" or "User-SID")? Without one,
@@ -227,9 +237,15 @@ LOCAL_MACHINE=$(local_file Machine)
 [ -z "$LOCAL_MACHINE" ] || MACHINE_FILES+=("$LOCAL_MACHINE")
 mapfile -t DOMAIN_FILES < <(pol_files "$LISTS/machine.domain.list" MACHINE)
 MACHINE_FILES+=("${DOMAIN_FILES[@]}")
-{ [ -z "$LOCAL_MACHINE" ] || local_entry Machine; cat "$LISTS/machine.domain.list"; } > "$LISTS/machine.list"
-# the security templates: the account lockout policy and the security options (wexpolicy's sectmpl.c)
-mapfile -t TEMPLATES < <(pol_files "$LISTS/machine.domain.list" MACHINE 'microsoft/windows nt/secedit/gpttmpl.inf')
+LOCAL_TEMPLATE=$(local_template)
+LOCAL_EXTS=; [ -z "$LOCAL_MACHINE" ] || LOCAL_EXTS=$REG_EXT; [ -z "$LOCAL_TEMPLATE" ] || LOCAL_EXTS=$LOCAL_EXTS$SEC_EXT
+{ [ -z "$LOCAL_EXTS" ] || local_entry Machine "$LOCAL_EXTS"; cat "$LISTS/machine.domain.list"; } > "$LISTS/machine.list"
+# the security templates: the account lockout policy and the security options (wexpolicy's sectmpl.c); the local
+# object's first, the domain's after it (the last one applied wins where they set the same value)
+TEMPLATES=()
+[ -z "$LOCAL_TEMPLATE" ] || TEMPLATES+=("$LOCAL_TEMPLATE")
+mapfile -t DOMAIN_TEMPLATES < <(pol_files "$LISTS/machine.domain.list" MACHINE 'microsoft/windows nt/secedit/gpttmpl.inf')
+TEMPLATES+=("${DOMAIN_TEMPLATES[@]}")
 
 if [ "$PRINT" = 1 ]; then
     sed 's/^/object machine /' "$LISTS/machine.list"
@@ -238,8 +254,8 @@ if [ "$PRINT" = 1 ]; then
 else
     rm -rf "$STAGE"
     install -d -m 0755 "$STAGE"
-    # a machine with no policy at all (not joined, no local file, nothing written before) has nothing to do
-    if [ "${#MACHINE_FILES[@]}" -gt 0 ] || [ "$JOINED" = 1 ] || has_archive Machine; then
+    # a machine with no policy at all (not joined, no local file or template, nothing written before) has nothing to do
+    if [ "${#MACHINE_FILES[@]}" -gt 0 ] || [ -n "$LOCAL_TEMPLATE" ] || [ "$JOINED" = 1 ] || has_archive Machine; then
         apply /machine machine "${MACHINE_FILES[@]}"
         record /machine "$LISTS/machine.list"
     fi
@@ -282,7 +298,7 @@ awk 'NR == 1 { v = $2; next }
     [ -z "$LOCAL_USER" ] || USER_FILES+=("$LOCAL_USER")
     mapfile -t DOMAIN_USER_FILES < <(pol_files "$LISTS/user-$acct.domain.list" USER)
     USER_FILES+=("${DOMAIN_USER_FILES[@]}")
-    { [ -z "$LOCAL_USER" ] || local_entry User; cat "$LISTS/user-$acct.domain.list"; } > "$LISTS/user-$acct.list"
+    { [ -z "$LOCAL_USER" ] || local_entry User "$REG_EXT"; cat "$LISTS/user-$acct.domain.list"; } > "$LISTS/user-$acct.list"
     if [ "$PRINT" = 1 ]; then
         sed "s/^/object user $acct /" "$LISTS/user-$acct.list"
         for f in "${USER_FILES[@]}"; do echo "user $acct $f"; done

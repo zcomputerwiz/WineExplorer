@@ -93,7 +93,7 @@ sync_tree()
     echo "wine $head"
     git -C "$CL" fetch -q "$GD" "$head" && git -C "$CL" checkout -q -f "$head" || return 1
     # the stock folders that the src overlay replaces are links into src (checkout -f restores the real folders)
-    for m in dlls/desk.cpl dlls/wlanui programs/wmplayer; do
+    for m in dlls/desk.cpl dlls/wlanui programs/wmplayer programs/secedit; do
         if [ -d "$CL/$m" ] && [ ! -L "$CL/$m" ]; then
             rm -rf "$P/build/e1s-batch-realdir-backup/$(echo "$m" | tr / -)"
             mkdir -p "$P/build/e1s-batch-realdir-backup"

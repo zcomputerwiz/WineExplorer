@@ -3599,6 +3599,67 @@ s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Syst
 s0_wine reg delete 'HKLM\Software\Policies\WexPol' /f >/dev/null 2>&1 || true
 kill_servers
 ok st_security_template_lockout_policy_and_options
+# secedit (docs/GROUP_POLICY.md, "Local policy"): /export writes the lockout policy and the security options as a
+# template, which anyone may do; /configure makes a template the local object's and refreshes policy, which only
+# the system (here session 0's account; in use an elevated administrator) may write: a standard user is refused
+s0_wine net accounts /lockoutthreshold:4 >/dev/null || fail "secedit: the lockout threshold as the system"
+s0_wine reg add 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v EnableInstallerDetection /t REG_DWORD /d 1 /f >/dev/null ||
+    fail "secedit: a consent option as the system"
+EXP="/home/$STD/secedit-export.inf"
+rm -f "$EXP"
+OUT="$(as_wine "$STD" secedit /export /cfg "$(winpath "$EXP")" | tr -d '\r')" || { echo "$OUT" >&2; fail "secedit: /export"; }
+[ -s "$EXP" ] || { echo "$OUT" >&2; fail "secedit: /export wrote no file"; }
+[ "$(head -c 2 "$EXP" | od -An -tx1 | tr -d ' \n')" = fffe ] || fail "secedit: the template is not UTF-16LE with a byte order mark"
+TXT="$(iconv -f UTF-16LE -t UTF-8 "$EXP" | tr -d '\r' | sed 's/^\xef\xbb\xbf//')"
+grep -qx 'LockoutBadCount = 4' <<<"$TXT" && grep -qx '\[System Access\]' <<<"$TXT" &&
+    grep -qx 'MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\EnableInstallerDetection=4,1' <<<"$TXT" ||
+    { echo "$TXT" >&2; fail "secedit: the exported template misses the lockout policy or the consent option"; }
+LSE="$LGP/Machine/Microsoft/Windows NT/SecEdit"
+rm -rf "$LGP/Machine"; install -d -m 2775 -g "$GRP" "$LGP/Machine"
+TNAME=cfg.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
+    'LockoutBadCount = 6' 'ResetLockoutCount = 20' '[Registry Values]' \
+    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3'
+chmod 0644 "$POL/cfg.inf"
+OUT="$(as_wine "$STD" secedit /configure /cfg "$(winpath "$POL/cfg.inf")" || true)"
+grep -q 'Task is not completed' <<<"$OUT" && [ ! -e "$LSE/GptTmpl.inf" ] ||
+    { echo "$OUT" >&2; fail "secedit: a standard user configured the local security template"; }
+[ -z "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v WexSecOption | val WexSecOption)" ] ||
+    fail "secedit: a refused /configure changed the registry"
+printf 'not a template' > "$POL/text.inf"; chmod 0644 "$POL/text.inf"
+OUT="$(s0_wine secedit /configure /cfg "$(winpath "$POL/text.inf")" || true)"
+grep -q 'Task is not completed' <<<"$OUT" && [ ! -e "$LSE/GptTmpl.inf" ] || { echo "$OUT" >&2; fail "secedit: a file that is no template was taken"; }
+# the system configures: the template is stored, gpupdate is asked, and when the refresh has run the values apply
+REQ="$M/drive_c/windows/system32/GroupPolicy/Refresh"
+rm -f "$REQ" "$POL/secedit.out"
+s0_wine sc start gpsvc >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+(s0_wine secedit /configure /cfg "$(winpath "$POL/cfg.inf")" > "$POL/secedit.out" 2>&1; echo "rc=$?" >> "$POL/secedit.out") &
+SE_PID=$!
+for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
+[ -s "$REQ" ] || { cat "$POL/secedit.out" >&2; fail "secedit: /configure did not ask for a refresh"; }
+[ -f "$LSE/GptTmpl.inf" ] || fail "secedit: /configure did not store the template"
+[ "$(head -c 2 "$LSE/GptTmpl.inf" | od -An -tx1 | tr -d ' \n')" = fffe ] || fail "secedit: the stored template has no byte order mark"
+grep -q 'completed successfully' "$POL/secedit.out" && fail "secedit: /configure did not wait for the refresh"
+local_gpupdate >/dev/null 2>&1 || fail "secedit: wex-gpupdate.sh after /configure"
+wait "$SE_PID" || true
+tr -d '\r' < "$POL/secedit.out" | grep -q 'The task has completed successfully.' && grep -qx 'rc=0' "$POL/secedit.out" ||
+    { cat "$POL/secedit.out" >&2; fail "secedit: /configure did not end well"; }
+[ "$(as_wine "$STD" reg query "$E" /v LockoutBadCount | val LockoutBadCount)" = 0x6 ] || fail "secedit: the lockout threshold was not applied"
+[ "$(as_wine "$STD" reg query "$E" /v ResetLockoutCount | val ResetLockoutCount)" = 0x14 ] || fail "secedit: the reset count was not applied"
+[ "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v WexSecOption | val WexSecOption)" = 0x3 ] ||
+    fail "secedit: the security option was not applied"
+as_wine "$STD" net accounts | tr -d '\r' | grep -Eq '[[:space:]]6[[:space:]]*$' || fail "secedit: net accounts does not show the new threshold"
+OUT="$(as_wine "$STD" secedit /export /cfg "$(winpath "$EXP")" | tr -d '\r')"
+iconv -f UTF-16LE -t UTF-8 "$EXP" | tr -d '\r' | grep -q 'LockoutBadCount = 6' || fail "secedit: /export does not show the configured threshold"
+as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine '{827D319E-6EAC-11D2-A4EA-00C04F79F83A}' | tr -d '\r' |
+    grep -q '^gpo=LocalGPO ' || fail "secedit: the applied list does not name the local object for the security extension"
+rm -rf "$LGP/Machine" "$EXP"
+for v in LockoutBadCount LockoutDuration ResetLockoutCount; do s0_wine reg delete "$E" /v $v /f >/dev/null 2>&1 || true; done
+s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v WexSecOption /f >/dev/null 2>&1 || true
+s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v EnableInstallerDetection /f >/dev/null 2>&1 || true
+s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null 2>&1 || true
+kill_servers
+ok st_secedit_exports_and_configures_the_local_security_template
 # Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
 # extension, for the machine and for the user
 REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'
