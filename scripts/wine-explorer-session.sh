@@ -40,7 +40,7 @@ WEXOPTION=$(/usr/local/bin/wex-bootmode --option 2>/dev/null) || WEXOPTION=
 
 # winemenubuilder (started by wineboot) creates a window before our explorer exists, which starts Wine's default
 # desktop first; ours then fails to create "Default" and the session ends.  It only exports Linux menu entries.
-. "$(dirname "$0")/wine-explorer-session-common.sh"
+. "$(dirname "$0")/wine-explorer-session-common.sh" || exit 1
 DESKTOP_NAME="Default"
 
 # Disable screen blanking & DPMS
@@ -82,7 +82,7 @@ WIDTH="${WIDTH:-1920}"
 HEIGHT="${HEIGHT:-1080}"
 REFRESH="${REFRESH:-60}"
 
-wex_prepare_prefix
+wex_prepare_prefix || { echo 'Session setup failed.' >&2; exit 1; }
 
 # --- Winlogon: which shell?  (no prefix yet = first boot = the default)
 SHELL_CMD=""
