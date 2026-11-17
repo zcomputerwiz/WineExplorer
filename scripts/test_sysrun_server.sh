@@ -3973,6 +3973,16 @@ for variant in "$CK${BS}ConsentPromptBehaviorAdmin=4,0" "$CK${BS}${BS}ConsentPro
     [ "$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)" = "$BEFORE" ] ||
         fail "secpol: a prompt behavior was stored ($variant)"
 done
+# characters that lower-case to themselves but have an upper-case partner (U+017F for S, U+0131 for I), which the registry
+# server compares by: whether Wine's tables make them the same key or not, the value of the real key must not change
+for variant in "$CK${BS}${BS}ConsentPromptBehaviorAdmın=4,0" "${CK/System/ſystem}${BS}ConsentPromptBehaviorAdmin=4,0"; do
+    TNAME=consent0.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[Registry Values]' "$variant"
+    chmod 0644 "$POL/consent0.inf"
+    BEFORE="$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)"
+    s0_wine wexpolicy security /machine "$(winpath "$POL/consent0.inf")" >/dev/null || true
+    [ "$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)" = "$BEFORE" ] ||
+        fail "secpol: a spelling with U+0131 or U+017F changed the prompt behavior ($variant)"
+done
 s0_wine reg delete "$SYSK" /v PromptOnSecureDesktop /f >/dev/null 2>&1 || true
 s0_wine reg delete "$ELEV" /v LockoutBadCount /f >/dev/null 2>&1 || true
 rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"

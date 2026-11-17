@@ -143,14 +143,16 @@ static BOOL is_consent_value( const WCHAR *key, size_t length, const WCHAR *valu
     WCHAR collapsed[MAX_TEXT];
     size_t i, n = 0;
 
-    if (_wcsicmp( value, L"ConsentPromptBehaviorAdmin" )) return FALSE;
+    /* (names compare as the registry server compares them, in upper case: _wcsicmp lower-cases, and a few characters
+     * differ, such as U+017F and U+0131) */
+    if (CompareStringOrdinal( value, -1, L"ConsentPromptBehaviorAdmin", -1, TRUE ) != CSTR_EQUAL) return FALSE;
     for (i = 0; i < length && n + 1 < ARRAY_SIZE(collapsed); i++)
     {
         if (key[i] == '\\' && (!n || collapsed[n - 1] == '\\')) continue;
         collapsed[n++] = key[i];
     }
     if (n && collapsed[n - 1] == '\\') n--;
-    return n == ARRAY_SIZE(CONSENT_KEY) - 1 && !_wcsnicmp( collapsed, CONSENT_KEY, n );
+    return n == ARRAY_SIZE(CONSENT_KEY) - 1 && CompareStringOrdinal( collapsed, n, CONSENT_KEY, n, TRUE ) == CSTR_EQUAL;
 }
 
 /* [Registry Values]: security options in the policy trees */
