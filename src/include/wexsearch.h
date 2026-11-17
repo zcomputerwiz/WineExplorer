@@ -28,7 +28,7 @@
 
 /* Sent to the Explorer window when the search changes what it shows (wparam: SEARCHUI_*) */
 #define WM_SEARCHUI_CHANGED (WM_APP + 50)
-enum { SEARCHUI_RESULTS_SHOWN = 1, SEARCHUI_PANE_CLOSED, SEARCHUI_SEARCH_DONE };
+enum { SEARCHUI_RESULTS_SHOWN = 1, SEARCHUI_PANE_CLOSED, SEARCHUI_SEARCH_DONE, SEARCHUI_COUNTS_CHANGED };
 
 typedef struct search_ui SEARCH_UI;
 

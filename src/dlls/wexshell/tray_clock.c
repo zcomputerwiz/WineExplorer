@@ -3,7 +3,7 @@
  *
  * Implements:
  * - Sunken notification area in Classic mode & themed notification area in Visual Styles mode
- * - Locale-formatted tray clock with 1-second update timer
+ * - Locale-formatted tray clock updated at each minute boundary
  * - Interactive calendar popup & Date/Time control panel launch
  * - "Show Desktop" (Minimize All / Restore) toggle button
  *
@@ -46,6 +46,14 @@
 static HWND g_tray_clock_hwnd = NULL;
 static HWND g_clock_tip = NULL;
 static HWND g_calendar_popup_hwnd = NULL;
+
+static void arm_clock_timer(HWND hwnd)
+{
+    SYSTEMTIME now;
+
+    GetLocalTime(&now);
+    SetTimer(hwnd, IDT_CLOCK_TIMER, (60 - now.wSecond) * 1000 - now.wMilliseconds, NULL);
+}
 
 static LRESULT CALLBACK tray_clock_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
@@ -159,11 +167,15 @@ static LRESULT CALLBACK tray_clock_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
     case WM_TIMER:
         if (wparam == IDT_CLOCK_TIMER)
         {
+            KillTimer(hwnd, IDT_CLOCK_TIMER);
+            arm_clock_timer(hwnd);
             InvalidateRect(hwnd, NULL, FALSE);
         }
         return 0;
 
     case WM_TIMECHANGE:
+        KillTimer(hwnd, IDT_CLOCK_TIMER);
+        arm_clock_timer(hwnd);
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
 
@@ -203,7 +215,7 @@ HWND tray_clock_create(HWND parent_tray, int x, int y, int width, int height)
                                         x, y, width, height,
                                         parent_tray, NULL, wc.hInstance, NULL);
 
-    SetTimer(g_tray_clock_hwnd, IDT_CLOCK_TIMER, 1000, NULL);
+    if (g_tray_clock_hwnd) arm_clock_timer(g_tray_clock_hwnd);
     return g_tray_clock_hwnd;
 }
 
@@ -231,5 +243,9 @@ void tray_clock_show(BOOL show)
 void tray_clock_update(void)
 {
     if (g_tray_clock_hwnd)
+    {
+        KillTimer(g_tray_clock_hwnd, IDT_CLOCK_TIMER);
+        arm_clock_timer(g_tray_clock_hwnd);
         InvalidateRect(g_tray_clock_hwnd, NULL, FALSE);
+    }
 }

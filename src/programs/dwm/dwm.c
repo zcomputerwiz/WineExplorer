@@ -76,8 +76,8 @@ struct log_entry { uint64_t revision; uint32_t hwnd; uint32_t attribute; uint32_
 static uint64_t revision = 1;
 static struct log_entry change_log[LOG_SIZE];
 
-/* The shell's bridge polls for changes (DWM_OP_POLL, DWM_OP_THUMB_LIST); this per-desktop event makes it
- * poll at once instead of at its next interval. A hint only: nothing depends on it being delivered. */
+/* The shell's bridge waits on this per-desktop event before reading changes
+ * (DWM_OP_POLL, DWM_OP_THUMB_LIST). Revisions preserve changes when signals coalesce. */
 static HANDLE change_event;
 
 static void notify_change(void)
