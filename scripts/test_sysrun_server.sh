@@ -3877,7 +3877,13 @@ GUSERS="$M/drive_c/windows/system32/GroupPolicyUsers"
 # as setup-machine-root.sh makes it: session 0's account owns it, nobody else may write it
 rm -rf "$GUSERS"; install -d -m 2755 -o "$S0U" -g "$GRP" "$GUSERS"
 EXPLU='HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'
-gpsetuser() { s0_wine "$ROOT/probes/tierprobe64.exe" gpsetuser "$1" "$2" "$3" 0 2>&1 | tr -d '\r' | tr '\n' ' ' | sed 's/ $//' || true; }
+gpsetuser()   # OBJECT ID STATE: "gpset=N" (the probe's line), and "rc=N" when the probe printed nothing or failed
+{
+    local out rc=0
+    out="$(s0_wine "$ROOT/probes/tierprobe64.exe" gpsetuser "$1" "$2" "$3" 0 2>&1)" || rc=$?
+    out="$(tr -d '\r' <<<"$out" | grep '^gpset=' || true)"
+    if [ -n "$out" ] && [ "$rc" = 0 ]; then echo "$out"; else echo "${out:-no output} rc=$rc probe=$(ls -la "$ROOT/probes/tierprobe64.exe" 2>&1 | tr '\n' ' ')"; fi
+}
 s0_wine sc start gpsvc >/dev/null 2>&1 || true
 for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
 OUT="$(gpsetuser Non-Administrators user:NoRun 1)"
