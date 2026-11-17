@@ -334,6 +334,11 @@ HLT=/tmp/b3-hl-$$; printf private > "$HLT"; ln "$HLT" "$GPD/Machine/hardlink.pol
 GUD="$FIX2/drive_c/windows/system32/GroupPolicyUsers"
 mkdir -p "$GUD/S-1-5-32-544/User"; printf 'x' > "$GUD/S-1-5-32-544/User/Registry.pol"; ln -s /etc/passwd "$GUD/S-1-5-32-544/User/Registry.pol.new"
 chown -R "root:$GROUP2" "$GUD"; chmod -R 2775 "$GUD"; setfacl -R -m "g:$GROUP2:rwX" "$GUD"
+# a link in the stores, to a file only root may touch (root changes the stores by descriptor, never by path): the link goes
+# and the file it pointed to keeps its owner and mode; a link in the place of a store directory goes too
+SECRET=/tmp/b3-secret-$$; printf secret > "$SECRET"; chmod 0600 "$SECRET"; chown root:root "$SECRET"
+ln -s "$SECRET" "$GUD/S-1-5-32-544/User/Registry.pol.link"; ln -s "$SECRET" "$GPD/Machine/secret.pol"
+ln -s /etc "$GUD/S-1-5-32-544/User/linkdir"
 WEX_SESSION0=1 WEX_SESSION0_USER="$S0USER" run_setup2 --update >/tmp/b3-gp-$$.log 2>&1 || { cat /tmp/b3-gp-$$.log; fail "the store run failed"; }
 for d in "$GPD" "$GPD/Machine" "$GPD/Machine/Microsoft/Windows NT/SecEdit" "$GPD/Archive"; do
     [ "$(stat -c '%U:%G:%a' "$d")" = "$S0USER:$GROUP2:2755" ] || fail "store directory $d is $(stat -c '%U:%G:%a' "$d")"
@@ -348,6 +353,11 @@ for d in "$GUD" "$GUD/S-1-5-32-544" "$GUD/S-1-5-32-544/User"; do
 done
 [ ! -e "$GUD/S-1-5-32-544/User/Registry.pol.new" ] && [ ! -L "$GUD/S-1-5-32-544/User/Registry.pol.new" ] || fail "a link stayed in the users' store"
 [ "$(stat -c '%U:%G:%a' "$GUD/S-1-5-32-544/User/Registry.pol")" = "$S0USER:$GROUP2:644" ] || fail "the users' store file is not session 0's"
+[ "$(stat -c '%U:%a' "$SECRET")" = "root:600" ] || fail "a link in a store sent root's change to the file it pointed to: $(stat -c '%U:%a' "$SECRET")"
+[ ! -e "$GUD/S-1-5-32-544/User/Registry.pol.link" ] && [ ! -L "$GUD/S-1-5-32-544/User/Registry.pol.link" ] && [ ! -L "$GPD/Machine/secret.pol" ] &&
+    [ ! -L "$GUD/S-1-5-32-544/User/linkdir" ] || fail "a link stayed in a store"
+[ "$(stat -c '%a' /etc)" = "755" ] || fail "a link to a directory sent root's change to /etc"
+rm -f "$SECRET"
 getfacl -p "$GPD/Spool" 2>/dev/null | grep -q "^default:group:$GROUP2:rwx" || fail "the spool has no default ACL for the system group"
 [ -z "$(ls -A "$GPD/Spool")" ] || fail "a stale request stayed in the spool"
 [ -z "$(find "$GPD" -type d -perm -g+w ! -path "$GPD/Spool" ! -path "$GPD/Spool/*")" ] ||
