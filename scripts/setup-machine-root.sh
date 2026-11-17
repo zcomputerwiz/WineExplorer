@@ -672,6 +672,18 @@ if [ "${SESSION0_ENABLE:-0}" = "1" ] && id "$S0_ACCOUNT" >/dev/null 2>&1; then
         setfacl -m "g:$MACHINE_GROUP:rwX" -- "$GP_DIR/Spool"
         setfacl -d -m "g:$MACHINE_GROUP:rwX" -- "$GP_DIR/Spool"
     fi
+    # The local objects of the users (docs/GROUP_POLICY.md, "The local objects of the users"), GroupPolicyUsers beside
+    # GroupPolicy: session 0's account is the only writer here as well, so the directory is made now with the same rules
+    # and gpsvc never has to create it in system32 (the system group writes there). No spool of its own: the requests
+    # for it are in GroupPolicy/Spool.
+    GU_DIR="$MACHINE_ROOT/drive_c/windows/system32/GroupPolicyUsers"
+    [ ! -L "$GU_DIR" ] || die "$GU_DIR is a link"
+    install -d -m 2755 -o "$S0_ACCOUNT" -g "$MACHINE_GROUP" -- "$GU_DIR"
+    [ ! -L "$GU_DIR" ] || die "$GU_DIR is a link"
+    find "$GU_DIR" -type d -exec chown -h "$S0_ACCOUNT":"$MACHINE_GROUP" '{}' ';' -exec chmod 2755 '{}' ';' "${ACL_EXEC[@]}"
+    find "$GU_DIR" -mindepth 1 '(' '(' ! -type d ! -type f ')' -o '(' -type f -links +1 ')' ')' -print -delete |
+        sed 's/^/  removed (not a file or directory, or a file with more than one name): /'
+    find "$GU_DIR" -type f -exec chown -h "$S0_ACCOUNT":"$MACHINE_GROUP" '{}' ';' -exec chmod 0644 '{}' ';' "${ACL_EXEC[@]}"
 fi
 
 # 2c. UWP frameworks installed before their records carried the classes of their in-process servers get the class

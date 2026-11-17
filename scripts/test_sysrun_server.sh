@@ -3874,13 +3874,16 @@ ok st_gpedit_setting_goes_through_the_spool_and_applies
 # applies them in order to the standard user
 gp_tree
 GUSERS="$M/drive_c/windows/system32/GroupPolicyUsers"
-rm -rf "$GUSERS"
+# as setup-machine-root.sh makes it: session 0's account owns it, nobody else may write it
+rm -rf "$GUSERS"; install -d -m 2755 -o "$S0U" -g "$GRP" "$GUSERS"
 EXPLU='HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'
 gpsetuser() { s0_wine "$ROOT/probes/tierprobe64.exe" gpsetuser "$1" "$2" "$3" 0 | tr -d '\r'; }
 s0_wine sc start gpsvc >/dev/null 2>&1 || true
 for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
-[ "$(gpsetuser Non-Administrators user:NoRun 1)" = gpset=0 ] || fail "gpedit users: the Non-Administrators object was not saved"
-[ "$(gpsetuser "$STD_SID" user:NoFind 1)" = gpset=0 ] || fail "gpedit users: the person's object was not saved"
+OUT="$(gpsetuser Non-Administrators user:NoRun 1)"
+[ "$OUT" = gpset=0 ] || fail "gpedit users: the Non-Administrators object was not saved ($OUT; spool: $(ls -A "$LGP/Spool" 2>&1 | tr '\n' ' '); errors: $(cat "$LGP"/Spool/*.error 2>/dev/null))"
+OUT="$(gpsetuser "$STD_SID" user:NoFind 1)"
+[ "$OUT" = gpset=0 ] || fail "gpedit users: the person's object was not saved ($OUT)"
 for sid in S-1-5-32-545 "$STD_SID"; do
     [ "$(stat -c '%U:%a' "$GUSERS/$sid/User/Registry.pol")" = "$S0U:644" ] ||
         fail "gpedit users: the file of $sid is $(stat -c '%U:%a' "$GUSERS/$sid/User/Registry.pol" 2>&1)"

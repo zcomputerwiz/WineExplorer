@@ -330,6 +330,10 @@ setfacl -R -m "g:$GROUP2:rwX" "$GPD"; setfacl -R -d -m "g:$GROUP2:rwX" "$GPD"
 # a second name for a file outside the store: chown and chmod act on the inode, so the name must go (the earlier whole-tree
 # passes of the setup act on such an inode as well; fs.protected_hardlinks is what keeps a group member from making one)
 HLT=/tmp/b3-hl-$$; printf private > "$HLT"; ln "$HLT" "$GPD/Machine/hardlink.pol"; HLT_CLEAN=1
+# the local objects of the users (GroupPolicyUsers beside GroupPolicy): the same rules, and the directory is made when missing
+GUD="$FIX2/drive_c/windows/system32/GroupPolicyUsers"
+mkdir -p "$GUD/S-1-5-32-544/User"; printf 'x' > "$GUD/S-1-5-32-544/User/Registry.pol"; ln -s /etc/passwd "$GUD/S-1-5-32-544/User/Registry.pol.new"
+chown -R "root:$GROUP2" "$GUD"; chmod -R 2775 "$GUD"; setfacl -R -m "g:$GROUP2:rwX" "$GUD"
 WEX_SESSION0=1 WEX_SESSION0_USER="$S0USER" run_setup2 --update >/tmp/b3-gp-$$.log 2>&1 || { cat /tmp/b3-gp-$$.log; fail "the store run failed"; }
 for d in "$GPD" "$GPD/Machine" "$GPD/Machine/Microsoft/Windows NT/SecEdit" "$GPD/Archive"; do
     [ "$(stat -c '%U:%G:%a' "$d")" = "$S0USER:$GROUP2:2755" ] || fail "store directory $d is $(stat -c '%U:%G:%a' "$d")"
@@ -339,10 +343,18 @@ done
 [ ! -e "$GPD/Machine/hardlink.pol" ] || fail "a file with a second name stayed in the store" ; rm -f "$HLT"
 ! getfacl -R -p "$GPD/Machine" "$GPD/Archive" 2>/dev/null | grep -q '^\(default:\)\?group:[^:]' || fail "the store tree has ACL entries for groups"
 [ "$(stat -c '%U:%G:%a' "$GPD/Spool")" = "$S0USER:$GROUP2:2770" ] || fail "the spool is $(stat -c '%U:%G:%a' "$GPD/Spool")"
+for d in "$GUD" "$GUD/S-1-5-32-544" "$GUD/S-1-5-32-544/User"; do
+    [ "$(stat -c '%U:%G:%a' "$d")" = "$S0USER:$GROUP2:2755" ] || fail "the users' store directory $d is $(stat -c '%U:%G:%a' "$d")"
+done
+[ ! -e "$GUD/S-1-5-32-544/User/Registry.pol.new" ] && [ ! -L "$GUD/S-1-5-32-544/User/Registry.pol.new" ] || fail "a link stayed in the users' store"
+[ "$(stat -c '%U:%G:%a' "$GUD/S-1-5-32-544/User/Registry.pol")" = "$S0USER:$GROUP2:644" ] || fail "the users' store file is not session 0's"
 getfacl -p "$GPD/Spool" 2>/dev/null | grep -q "^default:group:$GROUP2:rwx" || fail "the spool has no default ACL for the system group"
 [ -z "$(ls -A "$GPD/Spool")" ] || fail "a stale request stayed in the spool"
 [ -z "$(find "$GPD" -type d -perm -g+w ! -path "$GPD/Spool" ! -path "$GPD/Spool/*")" ] ||
     fail "a directory of the store is group-writable: $(find "$GPD" -type d -perm -g+w ! -path "$GPD/Spool")"
+rm -rf "$GUD"; ln -s /etc "$GUD"
+if WEX_SESSION0=1 WEX_SESSION0_USER="$S0USER" run_setup2 --update >/tmp/b3-gu2-$$.log 2>&1; then fail "a link in place of the users' store directory was accepted"; fi
+rm -f "$GUD"
 rm -rf "$GPD"; ln -s /etc "$GPD"
 if WEX_SESSION0=1 WEX_SESSION0_USER="$S0USER" run_setup2 --update >/tmp/b3-gp2-$$.log 2>&1; then fail "a link in place of the store directory was accepted"; fi
 rm -f "$GPD"
