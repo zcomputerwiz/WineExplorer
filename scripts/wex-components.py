@@ -3068,15 +3068,25 @@ def verify_uwp_xaml(machine, data, full=False):
     files, classes = data.get('files'), data.get('classes')
     if arch != 'x64' or not isinstance(files, dict) or not isinstance(classes, list):
         raise ValueError('Malformed UWP XAML receipt')
-    root = machine / UWP_XAML_ROOT / arch
-    if root.is_symlink() or not root.is_dir():
-        raise ValueError('UWP XAML directory missing')
-    for relative, (size, digest) in files.items():
-        target = root / relative
-        if target.is_symlink() or not target.is_file() or target.stat().st_size != size:
-            raise ValueError('UWP XAML file missing or changed: ' + relative)
-        if (full or relative in ('XamlShim.dll', 'classes.txt')) and hashlib.sha256(target.read_bytes()).hexdigest() != digest:
-            raise ValueError('UWP XAML file changed: ' + relative)
+    try:
+        root = machine_open_for_reading(machine, tuple(UWP_XAML_ROOT.split('/')) + (arch,))
+    except ValueError:
+        raise ValueError('UWP XAML directory missing') from None
+    try:
+        for relative, (size, digest) in files.items():
+            try:
+                fd = machine_open_regular(root, relative.split('/'))
+            except ValueError:
+                raise ValueError('UWP XAML file missing or changed: ' + relative) from None
+            try:
+                if os.fstat(fd).st_size != size:
+                    raise ValueError('UWP XAML file missing or changed: ' + relative)
+                if (full or relative in ('XamlShim.dll', 'classes.txt')) and machine_fd_sha256(fd) != digest:
+                    raise ValueError('UWP XAML file changed: ' + relative)
+            finally:
+                os.close(fd)
+    finally:
+        os.close(root)
     if not uwp_xaml_hive_has(machine, arch, classes):
         raise ValueError('UWP XAML registration missing')
 
@@ -3507,22 +3517,39 @@ def verify_uwp_frameworks(machine, data, full=False):
     for full_name, files in packages.items():
         if not re.match(r'^[A-Za-z0-9.-]+_[0-9.]+_[a-z0-9]+__[0-9a-z]{13}$', full_name) or not isinstance(files, dict):
             raise ValueError('Malformed UWP frameworks receipt')
-        record = machine / FRAMEWORK_CATALOG / (full_name + '.wexappx')
-        root = machine / FRAMEWORK_STORE / full_name
-        if root.is_symlink() or not root.is_dir():
-            raise ValueError('Framework directory missing: ' + full_name)
-        manifest = root / 'AppxManifest.xml'
-        if manifest.is_symlink() or not manifest.is_file():
-            raise ValueError('Framework manifest missing: ' + full_name)
-        if (record.is_symlink() or not record.is_file() or
-                record.read_bytes() != uwp_frameworks_record(full_name, publisher, manifest.read_bytes())):
-            raise ValueError('Framework registration missing or changed: ' + full_name)
-        for relative, (size, digest) in files.items():
-            target = root / relative
-            if target.is_symlink() or not target.is_file() or target.stat().st_size != size:
-                raise ValueError(f'Framework file missing or changed: {full_name}/{relative}')
-            if (full or relative == 'AppxManifest.xml') and file_sha256(target) != digest:
-                raise ValueError(f'Framework file changed: {full_name}/{relative}')
+        try:
+            root = machine_open_for_reading(machine, tuple(FRAMEWORK_STORE.split('/')) + (full_name,))
+        except ValueError:
+            raise ValueError('Framework directory missing: ' + full_name) from None
+        try:
+            try:
+                manifest = machine_read_regular(root, ['AppxManifest.xml'])
+            except ValueError:
+                raise ValueError('Framework manifest missing: ' + full_name) from None
+            try:
+                catalog = machine_open_for_reading(machine, tuple(FRAMEWORK_CATALOG.split('/')))
+                try:
+                    record = machine_read_regular(catalog, [full_name + '.wexappx'], UWP_RECORD_LIMIT)
+                finally:
+                    os.close(catalog)
+            except ValueError:
+                record = None
+            if record is None or record != uwp_frameworks_record(full_name, publisher, manifest):
+                raise ValueError('Framework registration missing or changed: ' + full_name)
+            for relative, (size, digest) in files.items():
+                try:
+                    fd = machine_open_regular(root, relative.split('/'))
+                except ValueError:
+                    raise ValueError(f'Framework file missing or changed: {full_name}/{relative}') from None
+                try:
+                    if os.fstat(fd).st_size != size:
+                        raise ValueError(f'Framework file missing or changed: {full_name}/{relative}')
+                    if (full or relative == 'AppxManifest.xml') and machine_fd_sha256(fd) != digest:
+                        raise ValueError(f'Framework file changed: {full_name}/{relative}')
+                finally:
+                    os.close(fd)
+        finally:
+            os.close(root)
 
 
 def refresh_uwp_frameworks_records(machine=None):

@@ -177,6 +177,30 @@ class UwpXamlTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             c.verify_uwp_xaml(self.machine, data)
 
+    def test_verify_does_not_hang_on_a_fifo_or_follow_a_link(self):
+        import signal
+        files, classes = self.unpack(archive(self.root / 'a.zip'))
+        self.hive(classes)
+        data = {'payload_architecture': 'x64', 'files': files, 'classes': classes}
+        target = self.machine / c.UWP_XAML_ROOT / 'x64' / 'hostfxr.dll'
+
+        def alarm(signum, frame):
+            raise AssertionError('blocked (a FIFO was opened or read)')
+        previous = signal.signal(signal.SIGALRM, alarm)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        self.addCleanup(signal.alarm, 0)
+        signal.alarm(30)
+        target.unlink()
+        os.mkfifo(target)
+        with self.assertRaisesRegex(ValueError, 'missing or changed'):
+            c.verify_uwp_xaml(self.machine, data)
+        target.unlink()
+        outside = self.root / 'outside'
+        outside.write_bytes(b'x' * files['hostfxr.dll'][0])
+        target.symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, 'missing or changed'):
+            c.verify_uwp_xaml(self.machine, data)
+
     def test_plain_text_terms_only_for_this_policy(self):
         text = 'Apache License\n' + 'x' * 600
         data = text.encode()
