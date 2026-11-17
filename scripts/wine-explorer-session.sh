@@ -105,4 +105,21 @@ LAUNCH=("$WINE" explorer.exe "/desktop=${DESKTOP_NAME},${WIDTH}x${HEIGHT}" "${SH
 # isolate native Linux and Proton windows. Use Gamescope per application instead.
 echo "Starting X11 desktop (${WIDTH}x${HEIGHT})"
 wex_refresh_policy_after_logon
+
+# Safe Mode, an administrator, Explorer as the shell: the desktop runs elevated, as on Windows, where User Account
+# Control does not run in Safe Mode (docs/SAFE_MODE_ELEVATED_DESKTOP.md). The launcher checks Safe Mode and the
+# account again, and the server once more; when it refuses (77), the desktop starts as usual.
+SYSRUN="${WEX_SYSRUN:-/usr/local/libexec/wineexplorer/wex-sysrun}"
+IS_ADMIN="${WEX_IS_ADMIN_HELPER:-/usr/local/libexec/wineexplorer/wex-is-admin}"
+if [ "$WEXMODE" != normal ] && [ "$SHELL_BASE" = explorer.exe ] && [ -x "$SYSRUN" ] && [ -x "$IS_ADMIN" ] &&
+        "$IS_ADMIN" "$USER" >/dev/null 2>&1; then
+    echo "Safe Mode: the administrator's desktop runs elevated"
+    started=$SECONDS
+    "$SYSRUN" safe-shell "$WIDTH" "$HEIGHT"
+    rc=$?
+    # a refusal (77), or a desktop that ended at once (the server ended it, it failed to start): the usual desktop,
+    # so that Safe Mode always gives one; a desktop that ran is the end of the session
+    if [ "$rc" != 77 ] && [ $((SECONDS - started)) -ge 15 ]; then exit "$rc"; fi
+    echo "Safe Mode: no elevated desktop (status $rc); starting it as usual"
+fi
 exec "${LAUNCH[@]}"

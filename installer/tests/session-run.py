@@ -20,9 +20,19 @@ def desktop_session(account):
             command = (entry / "cmdline").read_bytes().replace(b"\0", b" ").lower()
             if b"explorer.exe" not in command or b"/shell" not in command:
                 continue
-            environment = dict(item.split(b"=", 1) for item in
-                               (entry / "environ").read_bytes().split(b"\0")
+            parent = Path("/proc") / (entry / "stat").read_text().rsplit(")", 1)[1].split()[1]
+            try:
+                raw = (entry / "environ").read_bytes()
+            except PermissionError:
+                raw = b""
+            environment = dict(item.split(b"=", 1) for item in raw.split(b"\0") if b"=" in item)
+            if not environment:
+                # an administrator's elevated desktop in Safe Mode runs with the system group, so an account without
+                # root cannot read its environment: the session script's (its parent, as it was started) gives the
+                # display and the prefix; it has no WEXMODE (the script exports that later), so a report runs as root
+                session = dict(item.split(b"=", 1) for item in (parent / "environ").read_bytes().split(b"\0")
                                if b"=" in item)
+                environment = {**session, **environment}
             candidates.append((int(entry.name), environment))
         except (FileNotFoundError, PermissionError, ProcessLookupError):
             continue

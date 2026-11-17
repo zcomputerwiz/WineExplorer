@@ -28,6 +28,11 @@
  *   wineserver      the Wine server, started with the effective group wexsys.
  *   wineboot-init   the machine root's wineboot.exe --init through the Wine loader, so that the services.exe it
  *                   starts inherits wexsys.
+ *   safe-shell W H  in Safe Mode, for an administrator only: the machine root's explorer.exe as the desktop and shell
+ *                   (/desktop=Default,WxH /shell) of the user's own prefix, with wexsys, so that the administrator's
+ *                   desktop runs elevated, as on Windows where UAC is off in Safe Mode
+ *                   (docs/SAFE_MODE_ELEVATED_DESKTOP.md). The server gives it the elevated desktop only for an
+ *                   administrator's full token in Safe Mode, and ends it otherwise.
  *
  * The paths come from one root-owned file (SYSRUN_CONF, default /etc/wineexplorer/sysrun.conf), lines "key=value":
  * group, loader, ntdll, wineserver, machine_root, and admin_group (read by the Wine server, ignored here). An
@@ -56,11 +61,16 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include "../../wine/include/wine/wex_sysrun_conf.h"
 
 #ifndef SYSRUN_CONF
 #define SYSRUN_CONF "/etc/wineexplorer/sysrun.conf"
+#endif
+/* where wex-is-admin is installed, beside this launcher */
+#ifndef SYSRUN_LIBEXEC
+#define SYSRUN_LIBEXEC "/usr/local/libexec/wineexplorer"
 #endif
 
 #define EXIT_REFUSED 77
@@ -285,6 +295,65 @@ static int connect_server(const struct passwd *pw, uid_t uid, gid_t rgid, gid_t 
     return fd;
 }
 
+/* Safe Mode (docs/SAFE_MODE.md): /run/wineexplorer/bootmode, a regular file that root owns and others cannot write,
+ * in a root-owned directory that others cannot write, says safe or safenet (safecmd has no desktop). The same
+ * source of truth as the server's and the broker's. Returns the mode (the desktop's WEXMODE), or NULL. */
+static const char *safe_mode_desktop(void)
+{
+    struct stat st;
+    char buf[16];
+    ssize_t n;
+    int fd;
+
+    if (lstat("/run/wineexplorer", &st) || !S_ISDIR(st.st_mode) || st.st_uid || (st.st_mode & 022)) return NULL;
+    if ((fd = open("/run/wineexplorer/bootmode", O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)) < 0) return NULL;
+    if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_uid || (st.st_mode & 022) || (n = read(fd, buf, sizeof(buf) - 1)) <= 0)
+    {
+        close(fd);
+        return NULL;
+    }
+    close(fd);
+    buf[n] = 0;
+    buf[strcspn(buf, "\r\n")] = 0;
+    if (!strcmp(buf, "safe")) return "safe";
+    if (!strcmp(buf, "safenet")) return "safenet";
+    return NULL;
+}
+
+/* Is the invoking user an administrator? The shared rule of the server (wex-is-admin, which reads the same protected
+ * configuration with the same parser), with nothing of the caller's environment. The helper keeps the system group
+ * as its effective and saved group (it only reads): so it stays non-dumpable and AT_SECURE, and the caller, whose
+ * ids it shares, cannot trace it or write its memory to change the answer. Anything but a plain exit 0 is a no. */
+static int caller_is_administrator(const char *helper, const struct passwd *pw, gid_t rgid, gid_t sys)
+{
+    char *args[3] = { "wex-is-admin", pw->pw_name, NULL };
+    char *env[] = { "PATH=/usr/bin:/bin", NULL };
+    int status;
+    pid_t pid;
+
+    if ((pid = fork()) < 0) return 0;
+    if (!pid)
+    {
+        if (setresgid(rgid, sys, sys) || prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)) _exit(EXIT_REFUSED);
+        execve(helper, args, env);
+        _exit(EXIT_REFUSED);
+    }
+    if (waitpid(pid, &status, 0) != pid) return 0;
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+/* WIDTH or HEIGHT of the Safe Mode desktop: a number of pixels in a sane range, nothing else */
+static unsigned int desktop_size(const char *v)
+{
+    unsigned long n;
+    char *end;
+
+    if (!v || !*v || strlen(v) > 5 || strspn(v, "0123456789") != strlen(v)) refuse("invalid desktop size", v);
+    n = strtoul(v, &end, 10);
+    if (*end || n < 320 || n > 16384) refuse("invalid desktop size", v);
+    return (unsigned int)n;
+}
+
 #define MAX_ENV 40
 
 static void add_env(char **env, int *count, const char *key, const char *value)
@@ -296,13 +365,18 @@ static void add_env(char **env, int *count, const char *key, const char *value)
 }
 
 /* The environment of the new program: nothing but what is derived here or taken from a short list, checked. */
-static void build_env(char **env, int with_display, const struct passwd *pw, const char *prefix, int server_fd)
+static void build_env(char **env, int with_display, const struct passwd *pw, const char *prefix, int server_fd,
+                      const char *mode, const char *boot_mode)
 {
     extern char **environ;
     char **e;
     int count = 0;
     char fdstr[16];
 
+    /* which mode started the program: ntdll skips the session's wineboot only in the wineboot-init it is */
+    add_env(env, &count, "WEXSYSRUN_MODE", mode);
+    /* the Safe Mode desktop: the verified boot mode, which Explorer and the shell read as the session's WEXMODE */
+    if (boot_mode) add_env(env, &count, "WEXMODE", boot_mode);
     add_env(env, &count, "HOME", pw->pw_dir);
     add_env(env, &count, "USER", pw->pw_name);
     add_env(env, &count, "LOGNAME", pw->pw_name);
@@ -353,15 +427,24 @@ int main(int argc, char **argv)
     struct group *gr;
     gid_t rgid, egid, sgid, groups[NGROUPS_MAX];
     uid_t uid;
-    int i, ngroups, wineboot_mode, server_fd = -1;
-    char wineboot[PATH_MAX], services[PATH_MAX], user_prefix[PATH_MAX], *env[MAX_ENV], *args[4];
+    int i, ngroups, wineboot_mode = 0, shell_mode = 0, server_fd = -1;
+    unsigned int width = 0, height = 0;
+    char wineboot[PATH_MAX], services[PATH_MAX], explorer[PATH_MAX], is_admin[PATH_MAX], user_prefix[PATH_MAX];
+    char desktop[64], *env[MAX_ENV], *args[5];
+    const char *boot_mode = NULL;
 
     fix_std_fds();
     /* The table of modes. Anything else, and any extra argument, is refused. */
-    if (argc != 2) refuse("usage: wex-sysrun wineserver|wineboot-init", NULL);
-    if (!strcmp(argv[1], "wineserver")) wineboot_mode = 0;
-    else if (!strcmp(argv[1], "wineboot-init")) wineboot_mode = 1;
-    else refuse("unknown mode", argv[1]);
+    if (argc == 2 && !strcmp(argv[1], "wineserver")) ;
+    else if (argc == 2 && !strcmp(argv[1], "wineboot-init")) wineboot_mode = 1;
+    else if (argc == 4 && !strcmp(argv[1], "safe-shell"))
+    {
+        /* an administrator's elevated desktop in Safe Mode (docs/SAFE_MODE_ELEVATED_DESKTOP.md) */
+        shell_mode = 1;
+        width = desktop_size(argv[2]);
+        height = desktop_size(argv[3]);
+    }
+    else refuse("usage: wex-sysrun wineserver|wineboot-init|safe-shell WIDTH HEIGHT", NULL);
 
     /* A setgid bit that was not applied (nosuid mount, no_new_privs, a copy of the file) must not go on. */
     if (prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 0) refuse("no_new_privs is set, the setgid bit is ignored", NULL);
@@ -392,6 +475,20 @@ int main(int argc, char **argv)
 
     if (snprintf(user_prefix, sizeof(user_prefix), "%s/.wine", pw->pw_dir) >= (int)sizeof(user_prefix))
         refuse("home directory path too long", pw->pw_dir);
+    if (shell_mode)
+    {
+        /* Safe Mode and an administrator, both checked here; the server checks both again (it gives a launcher-started
+         * explorer.exe the elevated desktop only for an administrator's full token in Safe Mode, else ends it) */
+        if (snprintf(explorer, sizeof(explorer), "%s/drive_c/windows/explorer.exe", cfg.machine_root) >= (int)sizeof(explorer) ||
+            snprintf(is_admin, sizeof(is_admin), "%s/wex-is-admin", SYSRUN_LIBEXEC) >= (int)sizeof(is_admin))
+            refuse("path too long", NULL);
+        check_trusted(explorer);
+        check_trusted(is_admin);
+        if (!(boot_mode = safe_mode_desktop())) refuse("not a Safe Mode start with a desktop", NULL);
+        if (!caller_is_administrator(is_admin, pw, rgid, gr->gr_gid))
+            refuse("the invoking user is not an administrator", pw->pw_name);
+        snprintf(desktop, sizeof(desktop), "/desktop=Default,%ux%u", width, height);
+    }
     /* Keep the real gid: egid != rgid is what keeps the new image non-dumpable and AT_SECURE. */
     if (setresgid(rgid, gr->gr_gid, gr->gr_gid)) refuse("setresgid failed", NULL);
     if (prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)) refuse("PR_SET_DUMPABLE failed", NULL);
@@ -406,7 +503,8 @@ int main(int argc, char **argv)
         if (server_fd != 3 && (dup2(server_fd, 3) != 3 || close(server_fd))) refuse("cannot place the server socket", NULL);
         server_fd = 3;
     }
-    build_env(env, wineboot_mode, pw, wineboot_mode ? cfg.machine_root : user_prefix, server_fd);
+    build_env(env, wineboot_mode || shell_mode, pw, wineboot_mode ? cfg.machine_root : user_prefix, server_fd,
+              wineboot_mode ? "wineboot-init" : shell_mode ? "safe-shell" : "wineserver", boot_mode);
 
     if (wineboot_mode)
     {
@@ -414,6 +512,17 @@ int main(int argc, char **argv)
         args[1] = wineboot;
         args[2] = "--init";
         args[3] = NULL;
+        execve(cfg.loader, args, env);
+    }
+    else if (shell_mode)
+    {
+        /* the user's own prefix and server: explorer.exe of the machine root (through the prefix's link) runs the
+         * desktop and the shell, as the session does outside Safe Mode */
+        args[0] = "wine";
+        args[1] = explorer;
+        args[2] = desktop;
+        args[3] = "/shell";
+        args[4] = NULL;
         execve(cfg.loader, args, env);
     }
     else
