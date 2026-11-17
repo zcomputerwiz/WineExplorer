@@ -34,15 +34,19 @@ struct tmpl;
 struct tmpl *tmpl_new(void);
 void tmpl_free( struct tmpl *t );
 
-/* the text of a template (lines ended by CR LF or LF); a byte order mark in front is skipped. 0, or -1 for memory. */
+/* the text of a template (lines ended by CR LF or LF); a byte order mark in front is skipped. 0, -1 for memory, or -2
+ * for a text that the setup library reads differently from a list of lines (a NUL or Ctrl-Z in it, a line that ends in
+ * a backslash and goes on in the next): such a template is not edited. */
 int tmpl_load( struct tmpl *t, const char *text, size_t length );
 
-/* the value of NAME in [SECTION] (after the "=", without blanks around it; names and sections compare without case):
- * 1 when the line is there, else 0. A value longer than room is cut. */
+/* the value of NAME in [SECTION] as setup reads it (the last line of that name in any section of that name; after the
+ * "=", without a ";" comment and without blanks around it; names and sections compare without case): 1 when the line
+ * is there, else 0. A value longer than room is cut. */
 int tmpl_get( const struct tmpl *t, const char *section, const char *name, char *value, size_t room );
 
-/* the line "NAME = VALUE" in [SECTION]: replaced when it is there (the name keeps the spelling it had), else added at
- * the end of the section, which is made (before [Version], else at the end) when it is not. NAME and VALUE hold no
+/* the line "NAME = VALUE" in [SECTION]: every line of that name in every section of that name is replaced (the name
+ * keeps the spelling it had), else it is added at the end of the last such section, which is made (before [Version],
+ * else at the end) when there is none. NAME and VALUE hold no
  * line break and NAME no "=". 0, or -1 for memory or a bad argument. */
 int tmpl_set( struct tmpl *t, const char *section, const char *name, const char *value );
 

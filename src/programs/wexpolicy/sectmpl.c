@@ -48,6 +48,7 @@
 
 #define ELEVATION_KEY  L"Software\\WineExplorer\\Elevation"
 #define MAX_TEXT       4096
+#define CONSENT_KEY    L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
 #define LONGEST_MINUTES 99999
 
 static unsigned int count_set, count_not_applicable;
@@ -158,6 +159,16 @@ static DWORD registry_values( HINF inf, BOOL write )
             continue;
         }
         if (!(size = registry_data( &ctx, type, data, sizeof(data) ))) return ERROR_BAD_FORMAT;
+        /* the elevation service reads this one and fails closed for any other number than the two it implements; a
+         * template that would store another (0 asks for no prompt at all) is refused, whoever wrote it */
+        if (type == REG_DWORD && !_wcsicmp( name + 1, L"ConsentPromptBehaviorAdmin" ) &&
+            (size_t)(name - (path + 8)) == ARRAY_SIZE(CONSENT_KEY) - 1 && !_wcsnicmp( path + 8, CONSENT_KEY, ARRAY_SIZE(CONSENT_KEY) - 1 ))
+        {
+            DWORD behavior;
+
+            memcpy( &behavior, data, sizeof(behavior) );
+            if (behavior != 2 && behavior != 5) return ERROR_BAD_FORMAT;
+        }
         if (!write) continue;
         *name++ = 0;
         if ((err = RegCreateKeyExW( HKEY_LOCAL_MACHINE, path + 8, 0, NULL, 0, KEY_SET_VALUE | KEY_WOW64_64KEY, NULL,

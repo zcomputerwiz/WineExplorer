@@ -69,15 +69,23 @@ static int insert_line( struct tmpl *t, size_t at, const char *text, size_t leng
     return 0;
 }
 
+/* The setup library that applies the template reads a few things that this editor does not edit around: a line that
+ * ends in a backslash goes on in the next one (a line added at the end of such a file would be swallowed), Ctrl-Z ends
+ * the file, and a NUL ends a line. A template that has any of them is refused (-2): the caller leaves it as it is. */
 int tmpl_load( struct tmpl *t, const char *text, size_t length )
 {
-    size_t start = 0, end;
+    size_t start = 0, end, n, i;
 
     if (length >= 3 && !memcmp( text, "\xef\xbb\xbf", 3 )) { text += 3; length -= 3; }
+    for (i = 0; i < length; i++) if (!text[i] || text[i] == 0x1a) return -2;
     while (start < length)
     {
         for (end = start; end < length && text[end] != '\n'; end++) {}
-        if (insert_line( t, t->count, text + start, end > start && text[end - 1] == '\r' ? end - start - 1 : end - start )) return -1;
+        n = end - start;
+        if (n && text[start + n - 1] == '\r') n--;
+        for (i = n; i && (text[start + i - 1] == ' ' || text[start + i - 1] == '\t'); i--) {}
+        if (i && text[start + i - 1] == '\\') return -2;
+        if (insert_line( t, t->count, text + start, n )) return -1;
         start = end + 1;
     }
     return 0;
@@ -135,52 +143,65 @@ static int split_line( const char *line, size_t *name_start, size_t *name_length
     return 1;
 }
 
-/* the index of the line of NAME in SECTION, or -1; end is the index after the last line of the section (or count when
- * the section is not there, with *found cleared) */
-static long find_line( const struct tmpl *t, const char *section, const char *name, size_t *end, int *found )
+/* The setup library merges every section of one name and applies the lines in order, so the last line of a name is the
+ * one in force. The scan gives the index of the first and the last line of NAME in SECTION (-1 when there is none), and
+ * where a new line of that section goes: after the last line that is not blank of the last section of that name; *found
+ * says whether there is such a section. */
+struct scan
+{
+    long first, last;
+    size_t after;
+    int found;
+};
+
+static void scan_lines( const struct tmpl *t, const char *section, const char *name, struct scan *s )
 {
     char current[128];
-    size_t i, n = strlen( name );
-    long hit = -1;
+    size_t i, n = strlen( name ), start, length;
+    const char *value;
     int in = 0;
 
-    *found = 0;
-    *end = t->count;
+    s->first = s->last = -1;
+    s->after = t->count;
+    s->found = 0;
     for (i = 0; i < t->count; i++)
     {
         if (section_of( t->line[i], current, sizeof(current) ))
         {
-            if (in) { *end = i; return hit; }
             in = !icmp( current, section, (size_t)-1 );
-            if (in) *found = 1;
+            if (in) { s->found = 1; s->after = i + 1; }
             continue;
         }
-        if (in)
+        if (!in) continue;
+        if (*skip_blanks( t->line[i] )) s->after = i + 1;
+        if (split_line( t->line[i], &start, &length, &value ) && length == n && !icmp( t->line[i] + start, name, n ))
         {
-            size_t start, length;
-            const char *value;
-
-            if (hit < 0 && split_line( t->line[i], &start, &length, &value ) && length == n &&
-                !icmp( t->line[i] + start, name, n ))
-                hit = (long)i;
+            if (s->first < 0) s->first = (long)i;
+            s->last = (long)i;
         }
     }
-    return hit;
 }
 
+/* the value of a line: after the "=", without the comment that the setup library cuts off (a ";" outside quotes) and
+ * without the blanks around it */
 int tmpl_get( const struct tmpl *t, const char *section, const char *name, char *value, size_t room )
 {
-    size_t end, start, length, n;
+    struct scan s;
+    size_t start, length, n, i;
     const char *v;
-    int found;
-    long hit = find_line( t, section, name, &end, &found );
+    int quoted = 0;
 
-    if (hit < 0 || !room) return 0;
-    split_line( t->line[hit], &start, &length, &v );
-    n = strlen( v );
+    scan_lines( t, section, name, &s );
+    if (s.last < 0 || !room) return 0;
+    split_line( t->line[s.last], &start, &length, &v );
+    for (n = 0; v[n]; n++)
+    {
+        if (v[n] == '"') quoted = !quoted;
+        else if (v[n] == ';' && !quoted) break;
+    }
     while (n && (v[n - 1] == ' ' || v[n - 1] == '\t' || v[n - 1] == '\r')) n--;
     if (n >= room) n = room - 1;
-    memcpy( value, v, n );
+    for (i = 0; i < n; i++) value[i] = v[i];
     value[n] = 0;
     return 1;
 }
@@ -191,30 +212,35 @@ static const char empty_template[] = "[Unicode]\r\nUnicode=yes\r\n[Version]\r\ns
 int tmpl_set( struct tmpl *t, const char *section, const char *name, const char *value )
 {
     char *text;
-    size_t end, n = strlen( name ), at, version;
-    int found;
-    long hit;
+    struct scan s;
+    size_t n = strlen( name ), at, version, i, start, length;
+    const char *v;
+    char current[128];
 
     if (!t->count && tmpl_load( t, empty_template, sizeof(empty_template) - 1 )) return -1;
     if (!*section || !n || strpbrk( section, "\r\n[]" ) || strpbrk( name, "\r\n=" ) || strpbrk( value, "\r\n" )) return -1;
-    hit = find_line( t, section, name, &end, &found );
-    if (!(text = malloc( n + strlen( value ) + 4 ))) return -1;
-    if (hit >= 0)
+    scan_lines( t, section, name, &s );
+    if (s.first >= 0)
     {
-        /* the name keeps the spelling it had */
-        size_t start, length;
-        const char *v;
+        /* every line of the name, in every section of that name, gets the value (the name keeps the spelling it had) */
+        int in = 0;
 
-        split_line( t->line[hit], &start, &length, &v );
-        sprintf( text, "%.*s = %s", (int)length, t->line[hit] + start, value );
-        free( t->line[hit] );
-        t->line[hit] = text;
+        for (i = 0; i < t->count; i++)
+        {
+            if (section_of( t->line[i], current, sizeof(current) )) { in = !icmp( current, section, (size_t)-1 ); continue; }
+            if (!in || !split_line( t->line[i], &start, &length, &v ) || length != n || icmp( t->line[i] + start, name, n )) continue;
+            if (!(text = malloc( length + strlen( value ) + 4 ))) return -1;
+            sprintf( text, "%.*s = %s", (int)length, t->line[i] + start, value );
+            free( t->line[i] );
+            t->line[i] = text;
+        }
         return 0;
     }
+    if (!(text = malloc( n + strlen( value ) + 4 ))) return -1;
     sprintf( text, "%s = %s", name, value );
-    if (!found)
+    if (!s.found)
     {
-        char header[160], current[128];
+        char header[160];
 
         if (strlen( section ) > 120) { free( text ); return -1; }
         /* a new section goes before [Version], which is last in the templates of Windows */
@@ -223,14 +249,9 @@ int tmpl_set( struct tmpl *t, const char *section, const char *name, const char 
             if (section_of( t->line[version], current, sizeof(current) ) && !icmp( current, "Version", (size_t)-1 )) { at = version; break; }
         sprintf( header, "[%s]", section );
         if (insert_line( t, at, header, strlen( header ) )) { free( text ); return -1; }
-        end = at + 1;
+        s.after = at + 1;
     }
-    else
-    {
-        /* after the last line of the section that is not blank */
-        while (end > 0 && !*skip_blanks( t->line[end - 1] )) end--;
-    }
-    n = insert_line( t, end, text, strlen( text ) );
+    n = insert_line( t, s.after, text, strlen( text ) );
     free( text );
     return n ? -1 : 0;
 }

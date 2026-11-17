@@ -3953,6 +3953,13 @@ grep -qxF 'LockoutBadCount = 3' <<<"$TXT" && grep -qF 'PromptOnSecureDesktop = 4
 [ "$(secpolset NoSuchSetting 1)" = gpset=1168 ] || fail "secpol: an unknown setting gave $(secpolset NoSuchSetting 1)"
 [ "$(secpolset LockoutBadCount 1000)" = gpset=87 ] || fail "secpol: a threshold of 1000 gave $(secpolset LockoutBadCount 1000)"
 [ "$(secpolset ConsentPromptBehaviorAdmin 3)" = gpset=87 ] || fail "secpol: a prompt behavior of 3 gave $(secpolset ConsentPromptBehaviorAdmin 3)"
+# the writer refuses a prompt behavior that the elevation service does not implement, from any tool (0 asks for no prompt)
+TNAME=consent0.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[Registry Values]' \
+    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\ConsentPromptBehaviorAdmin=4,0'
+chmod 0644 "$POL/consent0.inf"
+OUT="$(s0_wine secedit /configure /cfg "$(winpath "$POL/consent0.inf")" || true)"
+grep -q 'Task is not completed' <<<"$OUT" || { echo "$OUT" >&2; fail "secpol: a template with a prompt behavior of 0 was taken"; }
+! iconv -f UTF-16LE -t UTF-8 "$TMPL" | grep -q ConsentPromptBehaviorAdmin || fail "secpol: the refused template was installed"
 s0_wine reg delete "$SYSK" /v PromptOnSecureDesktop /f >/dev/null 2>&1 || true
 s0_wine reg delete "$ELEV" /v LockoutBadCount /f >/dev/null 2>&1 || true
 rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
@@ -3974,6 +3981,17 @@ secpol_open_threshold()   # the Properties sheet of the lockout threshold, the n
 }
 secpol_shot() { DISPLAY=":$DNUM" xwd -root -silent 2>/dev/null | convert xwd:- "/var/tmp/wex-run/secpol-$1.png" 2>/dev/null || true; cp "$POL/secpol-win.out" /var/tmp/wex-run/secpol-win.out 2>/dev/null || true; }
 secpol_windows() { XD search --onlyvisible --name 'Local Security Settings' 2>/dev/null | wc -l; }
+secpol_offer() { XD search --onlyvisible --name 'Administrator rights' 2>/dev/null | wc -l; }   # the message box of the offer, by its own title
+# a limited administrator and a standard user: the save is refused with ERROR_ACCESS_DENIED, nothing is left in the spool
+# and no refresh is asked for (the owner of the store, session 0's account, stands in above for an elevated administrator:
+# the system group is what the store checks)
+for u in "$ADM" "$STD"; do
+    rm -f "$REQ"
+    OUT="$(wine_as "$u" "$ROOT/probes/tierprobe64.exe" secpolset LockoutBadCount 3 2>/dev/null | tr -d '\r' | grep '^gpset=')" || true
+    [ "$OUT" = gpset=5 ] || fail "secpol: $u was not refused (got: $OUT)"
+    [ -z "$(ls -A "$LGP/Spool")" ] && [ ! -s "$REQ" ] || fail "secpol: the refused save of $u left something behind: $(ls -A "$LGP/Spool")"
+    [ ! -e "$LGP/Machine/Microsoft/Windows NT/SecEdit/GptTmpl.inf" ] || fail "secpol: $u stored a template"
+done
 # a standard user: refused, offered elevation, nothing changed, no refresh asked
 rm -f "$REQ"
 (wine_as "$STD" mmc.exe secpol.msc </dev/null > "$POL/secpol-std.out" 2>&1) &
@@ -3983,7 +4001,7 @@ sleep 5
 secpol_open_threshold
 sleep 8
 secpol_shot denied
-[ "$(secpol_windows)" -ge 2 ] || fail "secpol window: a standard user was not offered elevation (windows: $(secpol_windows))"
+[ "$(secpol_offer)" -ge 1 ] || { secpol_shot denied; fail "secpol window: a standard user was not offered elevation"; }
 [ ! -s "$REQ" ] || fail "secpol window: a standard user's save asked for a refresh"
 [ -z "$(as_wine "$STD" reg query "$ELEV" /v LockoutBadCount | val LockoutBadCount || true)" ] || fail "secpol window: a standard user changed the setting"
 XD key Escape; sleep 1
@@ -4034,17 +4052,20 @@ grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "gp
 # local policy (docs/GROUP_POLICY.md, "Local policy"): the local object has no GUID, its name is LocalGPO
 printf '%s\n' "LocalGPO${T}0${T}0${T}0${T}Local Group Policy${T}C:\\windows\\system32\\GroupPolicy\\Machine${T}${T}Local${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
     "LocalGPO-S-1-5-32-544${T}0${T}0${T}0${T}Local Group Policy\\Administrators${T}C:\\windows\\system32\\GroupPolicyUsers\\S-1-5-32-544\\User${T}${T}Local${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
+    "LocalGPO-S-1-5-21-4294967295-4294967295-4294967295-4294967295${T}0${T}0${T}0${T}Local Group Policy\\longest${T}C:\\windows\\system32\\GroupPolicyUsers\\S-1-5-21-4294967295-4294967295-4294967295-4294967295\\User${T}${T}Local${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
     "{6AC1786C-016F-11D2-945F-00C04FB984F9}${T}2${T}4${T}0${T}Wex Test${T}\\\\ad\\sysvol\\p2${T}LDAP://CN={6AC1786C-016F-11D2-945F-00C04FB984F9},CN=Policies${T}LDAP://OU=Wex,DC=ad${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
     > "$POL/local.list"
 OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/local.list")" | tr -d '\r')" || true
-grep -q 'recorded=3 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record the local objects"; }
-# a name that is neither a GUID, LocalGPO nor LocalGPO- and a SID is not taken
-sed 's/^LocalGPO-S-1-5-32-544/LocalGPO-x/' "$POL/local.list" > "$POL/badname.list"
-OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/badname.list")" | tr -d '\r')" || true
-grep -q 'error 11' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: a bad local object name was taken"; }
+grep -q 'recorded=4 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record the local objects (the longest SID too)"; }
+# a name that is neither a GUID, LocalGPO nor LocalGPO- and a SID of the store's grammar is not taken
+for bad in 'LocalGPO-x' 'LocalGPO-S-1-SS--S' 'LocalGPO-S-1-5-21-1-2-3' 'LocalGPO-S-1-5-21-01-2-3-4' 'LocalGPO-S-1-5-21-1-2-3-4294967296'; do
+    sed "s/^LocalGPO-S-1-5-32-544/$bad/" "$POL/local.list" > "$POL/badname.list"
+    OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/badname.list")" | tr -d '\r')" || true
+    grep -q 'error 11' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: the local object name $bad was taken"; }
+done
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine "$REGEXT" | tr -d '\r')"
-    grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 3 ] &&
+    grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 4 ] &&
         [ "$(grep '^gpo=' <<<"$OUT" | sed -n 1p | cut -d' ' -f1)" = 'gpo=LocalGPO' ] &&
         grep -q '^gpo=LocalGPO .* name=Local Group Policy' <<<"$OUT" ||
         { echo "$OUT" >&2; fail "gpolist: a $b-bit program's list with the local object first"; }

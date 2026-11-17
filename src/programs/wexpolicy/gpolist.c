@@ -42,6 +42,7 @@
 #include <stdlib.h>
 #include <windows.h>
 
+#include "wexgpstore.h"
 #include "wexpolicy.h"
 
 #define GP_KEY      L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy"
@@ -80,10 +81,19 @@ static BOOL is_guid( const WCHAR *s )
  * of the users are LocalGPO- and the SID of their folder */
 static BOOL is_object_name( const WCHAR *s )
 {
+    char sid[WEX_GP_TARGET_MAX];
+    size_t i;
+
     if (is_guid( s ) || !wcscmp( s, L"LocalGPO" )) return TRUE;
-    if (wcsncmp( s, L"LocalGPO-S-1-", 13 ) || wcslen( s ) > 60) return FALSE;
-    for (s += 8; *s; s++) if (*s != '-' && *s != 'S' && (*s < '0' || *s > '9')) return FALSE;
-    return TRUE;
+    if (wcsncmp( s, L"LocalGPO-", 9 ) || wcslen( s + 9 ) >= ARRAY_SIZE(sid)) return FALSE;
+    /* the SID of a folder of the store, in the grammar of the store (wexgpstore.h) */
+    for (i = 0; s[9 + i]; i++)
+    {
+        if (s[9 + i] > 127) return FALSE;
+        sid[i] = (char)s[9 + i];
+    }
+    sid[i] = 0;
+    return wex_gp_target_valid( sid );
 }
 
 static BOOL is_number( const WCHAR *s, DWORD max )

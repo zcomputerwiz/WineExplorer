@@ -138,6 +138,8 @@ uint32_t sec_from_template( const struct sec_setting *s, const char *value, int 
     n = strtol( value, &end, 10 );
     if (*end) return 0;
     if (s->forever && (n < 0 || n >= LONGEST)) n = 0;
+    /* the writer applies a time of 0 or less as the longest (sectmpl.c): that is what is in force */
+    else if (s->kind == SEC_NUMBER && s->min && n < (long)s->min && s->max == LONGEST) n = LONGEST;
     if (n < 0 || n > 0xfffffffeL) return 0;
     *ok = 1;
     return (uint32_t)n;

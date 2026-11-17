@@ -124,6 +124,48 @@ static void test_template(void)
     free( text );
     tmpl_free( t );
 
+    /* setup merges the sections of one name and applies the lines in order: the last one is in force, and a change has to
+     * reach every one of them */
+    t = load( "[Unicode]\r\nUnicode=yes\r\n[System Access]\r\nLockoutBadCount = 5\r\n[Registry Values]\r\nA\\B=4,2\r\n"
+              "[System Access]\r\nLockoutBadCount = 9 ; the later one wins\r\nResetLockoutCount = 10\r\n"
+              "[Registry Values]\r\nA\\B=4,5\r\n[Version]\r\nsignature=\"$CHICAGO$\"\r\n" );
+    CHECK( tmpl_get( t, "System Access", "LockoutBadCount", value, sizeof(value) ) && !strcmp( value, "9" ), "last line, comment cut: '%s'", value );
+    CHECK( tmpl_get( t, "Registry Values", "A\\B", value, sizeof(value) ) && !strcmp( value, "4,5" ), "last section: '%s'", value );
+    CHECK( !tmpl_set( t, "System Access", "LockoutBadCount", "3" ) && !tmpl_set( t, "Registry Values", "A\\B", "4,2" ), "set duplicates" );
+    text = saved( t );
+    CHECK( !strstr( text, "= 5" ) && !strstr( text, "= 9" ) && !strstr( text, "=4,5" ), "an old line stayed: %s", text );
+    CHECK( strstr( text, "LockoutBadCount = 3\r\nResetLockoutCount" ) && strstr( text, "A\\B = 4,2\r\n[Version]" ), "both replaced in place: %s", text );
+    /* a new name goes to the end of the last section of that name */
+    CHECK( !tmpl_set( t, "Registry Values", "C", "4,1" ), "new name" );
+    free( text );
+    text = saved( t );
+    CHECK( strstr( text, "A\\B = 4,2\r\nC = 4,1\r\n[Version]" ), "after the last section: %s", text );
+    free( text );
+    tmpl_free( t );
+    t = load( "[S]\r\nk = \"a;b\" ; c\r\nq = \r\n" );
+    CHECK( tmpl_get( t, "S", "k", value, sizeof(value) ) && !strcmp( value, "\"a;b\"" ), "a ; in quotes is kept: '%s'", value );
+    CHECK( tmpl_get( t, "S", "q", value, sizeof(value) ) && !strcmp( value, "" ), "empty value" );
+    tmpl_free( t );
+
+    /* what setup reads differently from a list of lines is refused, not edited around */
+    {
+        static const char * const refused[] = { "[S]\r\nk = a \\\r\nj = b\r\n", "[S]\r\nk = a\x1a\r\n", "[S]\r\nk = a  \\  \r\n" };
+        unsigned int i;
+
+        for (i = 0; i < sizeof(refused) / sizeof(refused[0]); i++)
+        {
+            t = tmpl_new();
+            CHECK( tmpl_load( t, refused[i], strlen( refused[i] ) ) == -2, "refused %u", i );
+            tmpl_free( t );
+        }
+        t = tmpl_new();
+        CHECK( tmpl_load( t, "[S]\r\nk = a\0b\r\n", 14 ) == -2, "a NUL is refused" );
+        tmpl_free( t );
+        t = tmpl_new();
+        CHECK( !tmpl_load( t, "[S]\r\npath = C:\\x\\y\r\n", 20 ), "a backslash inside a line is no continuation" );
+        tmpl_free( t );
+    }
+
     /* a first setting in no template at all makes the minimal one around it */
     t = tmpl_new();
     CHECK( !tmpl_set( t, "System Access", "LockoutBadCount", "3" ), "set in nothing" );
@@ -154,6 +196,10 @@ static void test_settings(void)
     CHECK( sec_from_template( duration, "-1", &ok ) == 0 && ok, "forever in the template" );
     CHECK( sec_from_template( duration, "99999", &ok ) == 0 && ok, "forever as the longest time" );
     CHECK( sec_from_template( duration, "45", &ok ) == 45 && ok, "minutes" );
+    CHECK( sec_from_template( reset, "0", &ok ) == 99999 && ok, "a reset time of 0 is applied as the longest" );
+    CHECK( sec_from_template( reset, "-1", &ok ) == 99999 && ok, "a reset time of -1 too" );
+    CHECK( sec_from_template( reset, "45", &ok ) == 45 && ok, "a reset time" );
+    CHECK( sec_from_template( bad, "0", &ok ) == 0 && ok, "a threshold of 0 stays 0" );
     CHECK( sec_from_template( admin, "4,5", &ok ) == 5 && ok, "registry value" );
     sec_from_template( admin, "5", &ok );
     CHECK( !ok, "a registry value without its type is not read" );

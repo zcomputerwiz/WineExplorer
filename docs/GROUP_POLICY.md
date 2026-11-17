@@ -534,7 +534,7 @@ The value shown is the one in the local template (`GroupPolicy\Machine\Microsoft
 readable by anyone), else the one the system keeps now (registry), else "Not Defined" (a lockout number has its
 default). While the lockout threshold is 0, the duration and the reset counter show "Not applicable", as on Windows. A
 change edits the template's text (`template.c`: it replaces or adds one line and keeps every other line and section, so a
-template that holds rights or audit settings loses nothing), and hands the whole file to `gpsvc` through the spool (kind
+template that holds rights or audit settings loses nothing; a line of a name that occurs in several sections of that name is changed in all of them, as setup applies the last one; a template that setup reads differently from a list of lines, with a NUL, Ctrl-Z, an unpaired surrogate or a line that ends in a backslash, is not edited and not replaced), and hands the whole file to `gpsvc` through the spool (kind
 `WEX_GP_MACHINE_TEMPLATE`, as `secedit /configure` does): `gpsvc` checks it with the same parser as the writer, installs it
 as session 0's own file, and the editor waits for the refresh. The values are tattooed as on Windows: removing a line
 later does not undo what was applied. A process that is not of the system group (not elevated) can look but not change:

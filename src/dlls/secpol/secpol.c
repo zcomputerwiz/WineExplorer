@@ -52,6 +52,7 @@ static int icon_folder, icon_open;   /* the shell's folder icons in the system i
 static struct tmpl *tmpl;            /* the local object's template as it was read */
 static BOOL load_failed;             /* a template is there and cannot be read: a save would drop it, so it is refused */
 static BOOL quiet;                   /* no message boxes: SecPol_SetW is for scripts */
+static BOOL saving;                  /* a change is being handed to gpsvc: the window is not closed meanwhile */
 
 #define MAX_FOLDERS 16
 
@@ -99,6 +100,8 @@ static char *bytes_to_utf8( const BYTE *bytes, DWORD size, size_t *length )
     char *text;
     int n, wide_chars;
 
+    /* what cannot be kept exactly is refused (NULL): a NUL inside, a half of a surrogate pair, bytes that are not UTF-8
+     * after a UTF-8 byte order mark */
     if (size >= 2 && bytes[0] == 0xff && bytes[1] == 0xfe)
     {
         wide_chars = (size - 2) / sizeof(WCHAR);
@@ -107,14 +110,21 @@ static char *bytes_to_utf8( const BYTE *bytes, DWORD size, size_t *length )
     }
     else
     {
-        wide_chars = MultiByteToWideChar( CP_ACP, 0, (const char *)bytes, size, NULL, 0 );
+        UINT page = CP_ACP;
+        DWORD flags = 0;
+
+        if (size >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf) { bytes += 3; size -= 3; page = CP_UTF8; flags = MB_ERR_INVALID_CHARS; }
+        wide_chars = size ? MultiByteToWideChar( page, flags, (const char *)bytes, size, NULL, 0 ) : 0;
+        if (size && !wide_chars) return NULL;
         if (!(wide = malloc( (wide_chars + 1) * sizeof(WCHAR) ))) return NULL;
-        if (wide_chars) MultiByteToWideChar( CP_ACP, 0, (const char *)bytes, size, wide, wide_chars );
+        if (wide_chars) MultiByteToWideChar( page, flags, (const char *)bytes, size, wide, wide_chars );
     }
     wide[wide_chars] = 0;
-    n = wide_chars ? WideCharToMultiByte( CP_UTF8, 0, wide, wide_chars, NULL, 0, NULL, NULL ) : 0;
+    if (wcslen( wide ) != (size_t)wide_chars) { free( wide ); return NULL; }
+    n = wide_chars ? WideCharToMultiByte( CP_UTF8, WC_ERR_INVALID_CHARS, wide, wide_chars, NULL, 0, NULL, NULL ) : 0;
+    if (wide_chars && !n) { free( wide ); return NULL; }
     if (!(text = malloc( n + 1 ))) { free( wide ); return NULL; }
-    if (n) WideCharToMultiByte( CP_UTF8, 0, wide, wide_chars, text, n, NULL, NULL );
+    if (n) WideCharToMultiByte( CP_UTF8, WC_ERR_INVALID_CHARS, wide, wide_chars, text, n, NULL, NULL );
     text[n] = 0;
     free( wide );
     *length = n;
@@ -250,7 +260,8 @@ static void value_text( const struct sec_setting *s, WCHAR *text, int chars )
         lstrcpynW( text, number ? L"Enabled" : L"Disabled", chars );
         break;
     case SEC_CHOICE:
-        swprintf( text, chars, L"%lu", (unsigned long)number );
+        /* a number that is not one of the list (another tool stored it) is shown as it is, not as one of the choices */
+        swprintf( text, chars, L"Unknown value (%lu)", (unsigned long)number );
         for (c = s->choices; c && c->text; c++)
             if (c->value == number) { to_wide( c->text, word, ARRAY_SIZE(word) ); lstrcpynW( text, word, chars ); }
         break;
@@ -277,11 +288,19 @@ static void support_text( const struct sec_setting *s, WCHAR *text, int chars )
 
 static void offer_elevation( HWND owner )
 {
+    WCHAR program[MAX_PATH], console[MAX_PATH + 16];
+    UINT n;
+
     if (MessageBoxW( owner, L"Changing the local security settings needs the rights of an administrator.\n\n"
-                            L"Open Local Security Settings again as an administrator?", L"Local Security Settings",
+                            L"Open Local Security Settings again as an administrator?", L"Administrator rights",
                      MB_YESNO | MB_ICONQUESTION ) != IDYES)
         return;
-    if ((INT_PTR)ShellExecuteW( owner, L"runas", L"mmc.exe", L"secpol.msc", NULL, SW_SHOWNORMAL ) > 32) DestroyWindow( frame );
+    /* the programs of the system folder, not whatever the current directory has under those names */
+    n = GetSystemDirectoryW( program, ARRAY_SIZE(program) - 12 );
+    if (!n) return;
+    swprintf( console, ARRAY_SIZE(console), L"\"%ls\\secpol.msc\"", program );
+    wcscat( program, L"\\mmc.exe" );
+    if ((INT_PTR)ShellExecuteW( owner, L"runas", program, console, NULL, SW_SHOWNORMAL ) > 32 && IsWindow( frame )) DestroyWindow( frame );
 }
 
 static void report_error( HWND owner, DWORD err, const WCHAR *message )
@@ -338,15 +357,19 @@ static DWORD change_setting( HWND owner, const struct sec_setting *s, uint32_t n
     HCURSOR old = SetCursor( LoadCursorW( NULL, (LPCWSTR)IDC_WAIT ) );
     DWORD err;
 
+    message[0] = 0;
     load_template();
     sec_to_template( s, number, value, sizeof(value) );
     if (tmpl_set( tmpl, s->section, s->key, value )) err = ERROR_NOT_ENOUGH_MEMORY;
     else
     {
-        /* (the window is disabled while the wait pumps its messages: no second change can start meanwhile) */
+        /* (the window is disabled while the wait pumps its messages: no second change can start meanwhile, and a request
+         * to close it waits until the change has ended, see frame_proc) */
+        saving = TRUE;
         if (frame) EnableWindow( frame, FALSE );
         err = commit_template( message, ARRAY_SIZE(message) );
-        if (frame) EnableWindow( frame, TRUE );
+        saving = FALSE;
+        if (frame && IsWindow( frame )) EnableWindow( frame, TRUE );
     }
     SetCursor( old );
     if (err && owner) report_error( owner, err, message );
@@ -423,11 +446,18 @@ static void init_setting_page( HWND dlg, struct edit *edit )
         CheckRadioButton( dlg, IDC_ENABLED, IDC_DISABLED, edit->number ? IDC_ENABLED : IDC_DISABLED );
     else
     {
+        index = -1;
         for (c = s->choices, i = 0; c && c->text; c++, i++)
         {
             to_wide( c->text, wide, ARRAY_SIZE(wide) );
             SendDlgItemMessageW( dlg, IDC_CHOICE, CB_ADDSTRING, 0, (LPARAM)wide );
             if (c->value == edit->number) index = i;
+        }
+        if (index < 0)
+        {
+            /* the value in force is not one of the list: it is the last entry, selected, and OK leaves it as it is */
+            swprintf( text, ARRAY_SIZE(text), L"Unknown value (%lu)", (unsigned long)edit->number );
+            index = (int)SendDlgItemMessageW( dlg, IDC_CHOICE, CB_ADDSTRING, 0, (LPARAM)text );
         }
         SendDlgItemMessageW( dlg, IDC_CHOICE, CB_SETCURSEL, index, 0 );
     }
@@ -455,6 +485,8 @@ static BOOL apply_setting_page( HWND dlg, struct edit *edit )
         const struct sec_choice *c;
 
         for (c = s->choices; c && c->text; c++, i++) if (i == index) edit->number = c->value;
+        /* the entry for a value that is not in the list: nothing is chosen, nothing is changed */
+        if (!c || !c->text) { if (index >= i) return TRUE; }
     }
     else
     {
@@ -823,7 +855,12 @@ static LRESULT CALLBACK frame_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
             return 0;
         }
         break;
+    case WM_CLOSE:
+        /* not while a change is being handed over: the wait pumps messages, and the window must still be there when it ends */
+        if (saving) return 0;
+        break;
     case WM_DESTROY:
+        frame = NULL;
         PostQuitMessage( 0 );
         return 0;
     }
