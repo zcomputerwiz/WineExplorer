@@ -190,3 +190,11 @@ fails the cast (E_NOINTERFACE, logged as an event handler error); the item follo
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
 the Calculator shows. Prior art and the Wine gaps others listed for the Calculator: `tests/uwp/frameworks/README.md`.
+
+### 2026-11-16, fresh verification (lab build 0.2.129 of XamlShim = uno-uwp d41002cd07, Wine 88541ec9)
+
+`calc-run.sh` with a fresh prefix: install and launch unchanged, no `NtRaiseException`, no `STALE` layout in the tree
+dump; the window readback shows the whole Standard calculator (title bar, menu, "0" display, 24 keys with the "."
+visible and no clipped text). Still logged: 107 `XamlControlsXamlMetaDataProvider` activation failures (WinUI 2's
+provider, not registered) and the `mrt100.dll` delay-load note. Settings and the remaining Wine classes of the gap list
+are next.
