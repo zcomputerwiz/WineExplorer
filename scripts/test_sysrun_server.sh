@@ -3953,13 +3953,26 @@ grep -qxF 'LockoutBadCount = 3' <<<"$TXT" && grep -qF 'PromptOnSecureDesktop = 4
 [ "$(secpolset NoSuchSetting 1)" = gpset=1168 ] || fail "secpol: an unknown setting gave $(secpolset NoSuchSetting 1)"
 [ "$(secpolset LockoutBadCount 1000)" = gpset=87 ] || fail "secpol: a threshold of 1000 gave $(secpolset LockoutBadCount 1000)"
 [ "$(secpolset ConsentPromptBehaviorAdmin 3)" = gpset=87 ] || fail "secpol: a prompt behavior of 3 gave $(secpolset ConsentPromptBehaviorAdmin 3)"
-# the writer refuses a prompt behavior that the elevation service does not implement, from any tool (0 asks for no prompt)
-TNAME=consent0.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[Registry Values]' \
-    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\ConsentPromptBehaviorAdmin=4,0'
-chmod 0644 "$POL/consent0.inf"
-OUT="$(s0_wine secedit /configure /cfg "$(winpath "$POL/consent0.inf")" || true)"
-grep -q 'Task is not completed' <<<"$OUT" || { echo "$OUT" >&2; fail "secpol: a template with a prompt behavior of 0 was taken"; }
-! iconv -f UTF-16LE -t UTF-8 "$TMPL" | grep -q ConsentPromptBehaviorAdmin || fail "secpol: the refused template was installed"
+# the writer leaves out a prompt behavior that the elevation service does not implement (0 asks for no prompt), in any
+# spelling of the key and of the type, says so, and applies the rest of the template
+BS='\'
+CK="MACHINE${BS}Software${BS}Microsoft${BS}Windows${BS}CurrentVersion${BS}Policies${BS}System"
+for variant in "$CK${BS}ConsentPromptBehaviorAdmin=4,0" "$CK${BS}${BS}ConsentPromptBehaviorAdmin=4,0" \
+               "$CK${BS}ConsentPromptBehaviorAdmin=1,0" "${CK,,}${BS}consentpromptbehavioradmin=4,3" \
+               "$CK${BS}ConsentPromptBehaviorAdmin=4,5x"; do
+    TNAME=consent0.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[Registry Values]' \
+        "$variant" "$CK${BS}PromptOnSecureDesktop=4,0"
+    chmod 0644 "$POL/consent0.inf"
+    s0_wine reg delete "$SYSK" /v PromptOnSecureDesktop /f >/dev/null 2>&1 || true
+    BEFORE="$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)"   # (whatever an earlier check left)
+    OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/consent0.inf")" | tr -d '\r')" || true
+    grep -q 'security set=1 not-applicable=1 status=0' <<<"$OUT" && grep -q 'only the values 2 and 5' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "secpol: the prompt behavior line was not left out alone ($variant)"; }
+    [ "$(as_wine "$STD" reg query "$SYSK" /v PromptOnSecureDesktop | val PromptOnSecureDesktop)" = 0x0 ] ||
+        fail "secpol: the rest of the template was not applied ($variant)"
+    [ "$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)" = "$BEFORE" ] ||
+        fail "secpol: a prompt behavior was stored ($variant)"
+done
 s0_wine reg delete "$SYSK" /v PromptOnSecureDesktop /f >/dev/null 2>&1 || true
 s0_wine reg delete "$ELEV" /v LockoutBadCount /f >/dev/null 2>&1 || true
 rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"

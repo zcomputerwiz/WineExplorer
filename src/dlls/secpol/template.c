@@ -75,6 +75,7 @@ static int insert_line( struct tmpl *t, size_t at, const char *text, size_t leng
 int tmpl_load( struct tmpl *t, const char *text, size_t length )
 {
     size_t start = 0, end, n, i;
+    int quoted;
 
     if (length >= 3 && !memcmp( text, "\xef\xbb\xbf", 3 )) { text += 3; length -= 3; }
     for (i = 0; i < length; i++) if (!text[i] || text[i] == 0x1a) return -2;
@@ -83,7 +84,13 @@ int tmpl_load( struct tmpl *t, const char *text, size_t length )
         for (end = start; end < length && text[end] != '\n'; end++) {}
         n = end - start;
         if (n && text[start + n - 1] == '\r') n--;
-        for (i = n; i && (text[start + i - 1] == ' ' || text[start + i - 1] == '\t'); i--) {}
+        /* the end of what setup reads of the line: before a ";" comment (outside quotes), without the blanks */
+        for (i = 0, quoted = 0; i < n; i++)
+        {
+            if (text[start + i] == '"') quoted = !quoted;
+            else if (text[start + i] == ';' && !quoted) break;
+        }
+        for (; i && (text[start + i - 1] == ' ' || text[start + i - 1] == '\t'); i--) {}
         if (i && text[start + i - 1] == '\\') return -2;
         if (insert_line( t, t->count, text + start, n )) return -1;
         start = end + 1;

@@ -149,7 +149,8 @@ static void test_template(void)
 
     /* what setup reads differently from a list of lines is refused, not edited around */
     {
-        static const char * const refused[] = { "[S]\r\nk = a \\\r\nj = b\r\n", "[S]\r\nk = a\x1a\r\n", "[S]\r\nk = a  \\  \r\n" };
+        static const char * const refused[] = { "[S]\r\nk = a \\\r\nj = b\r\n", "[S]\r\nk = a\x1a\r\n", "[S]\r\nk = a  \\  \r\n",
+                                                    "[S]\r\nk = a \\ ; note\r\nj = b\r\n" };
         unsigned int i;
 
         for (i = 0; i < sizeof(refused) / sizeof(refused[0]); i++)
@@ -163,6 +164,9 @@ static void test_template(void)
         tmpl_free( t );
         t = tmpl_new();
         CHECK( !tmpl_load( t, "[S]\r\npath = C:\\x\\y\r\n", 20 ), "a backslash inside a line is no continuation" );
+        tmpl_free( t );
+        t = tmpl_new();
+        CHECK( !tmpl_load( t, "[S]\r\n; a comment \\\r\nk = a\r\n", 27 ), "a comment that ends in a backslash is no continuation" );
         tmpl_free( t );
     }
 
