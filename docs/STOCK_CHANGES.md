@@ -3734,3 +3734,8 @@ Test in `capabilities.c` (x64 and x86). **Unconditional**: a new class only.
   `QueryServiceObjectSecurity(h, ..., NULL, 0, &needed)` failed with `ERROR_INVALID_ADDRESS` instead of
   `ERROR_INSUFFICIENT_BUFFER` (Office 2016's MSI ended with 1603). The same for the forwarded enumerations,
   `QueryServiceConfig2W`, `QueryServiceStatusEx` and `EnumDependentServicesW`. Only with session 0.
+
+2026-11-17 (UWP, Wine b3370991): `dlls/twinapi.appcore`: new `power_manager.c` (`Windows.System.Power.PowerManager`: the
+battery, supply, energy saver, charge and discharge values from `GetSystemPowerStatus`; the changed events are accepted
+and never raised); `include/windows.system.power.idl` gets the statics and the `EnergySaverStatus` and
+`PowerSupplyStatus` enums. Test in `capabilities.c` (x64 and x86). **Unconditional**: a new class only.

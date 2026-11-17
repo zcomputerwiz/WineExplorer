@@ -247,3 +247,20 @@ Released from uno-uwp 7daa76b182 (tag `wex-xamlshim-v0.3.0`, CI green): `xamlshi
 SHA-256 2bdb9d8d4278..., 114 classes. The `uwp-xaml` component pins it (terms identity updated). A fresh lab run with that
 zip (component install by `e2e-component.py`, verify full) launches the Calculator to its Standard view; the 99 component
 tests pass.
+
+### 2026-11-17, XamlShim 0.3.1 and what stays open
+
+0.3.1 (uno-uwp ecedd91ab5 and the StyleSelector commit; `xamlshim-0.3.1-win-x64.zip`, 59807876 bytes): the window's own
+background follows the content's theme (Uno updates its root visual for the application's theme only; the Calculator
+sets `RequestedTheme` on its root element), and the toolkit expander's `StyleSelector` is served, so its item container
+style is applied. Wine b3370991 adds `PowerManager`. Open, with what is known:
+* Dark theme: toolkit card and expander item backgrounds keep their light values. The toolkit's `Generic.xbf` is
+  loaded entry by entry (as a whole it fails to parse), and the `{ThemeResource}` references inside its Default/Light
+  theme dictionaries are resolved when each entry is loaded, with the light theme; they must be resolved at lookup
+  time in the theme of the element.
+* Date calculation: both sub-layouts show. `AddSubtractDateGrid` is `x:DeferLoadStrategy="Lazy"` with
+  `Visibility="{x:Bind ViewModel.IsDateDiffMode, Converter=...}"`. XamlReader builds it at once, so its binding is
+  initialised before the view model is set; the application's `FindName("AddSubtractDateGrid")` should be the point where
+  the binding is initialised.
+* Currency: the page shows the volume units; the handler ends with E_NOTIMPL while a worker thread loads data, which
+  needs a managed stack to place.
