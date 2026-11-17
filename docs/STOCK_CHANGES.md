@@ -3699,3 +3699,19 @@ fit upstream Wine.
 and the filter factory; the requests and the default headers fail with E_NOTIMPL), `include/windows.web.http.idl` (the
 `IHttpClient` and `IHttpClientFactory` layouts with `IInspectable` pointers where the contract has the response types).
 Test in `capabilities.c` (x64 and x86). **Unconditional**: a new class only.
+
+# Safe Mode with session 0: each session's SafeBoot\Option (2026-11-17, Wine 1ec69563)
+
+- `programs/wineboot/wineboot.c` (`create_safeboot_option_key`): `SafeBoot` is opened for reading only (created when
+  missing, as before), and `Option` is created or deleted by its full path. With session 0, `SafeBoot` is session
+  0's and `Option` a key of each session (`wine/wex_session0.h`): a session's wineboot asked session 0 for
+  `KEY_ALL_ACCESS` on `SafeBoot`, was refused, and never wrote `Option`, so its programs saw a normal start in Safe
+  Mode (B33). Without session 0 nothing changes.
+
+# Service size queries through session 0 (2026-11-17, Wine c382c972)
+
+- `programs/services/forward.c`: a call with no buffer (a size query) passes a one-byte buffer to session 0, as
+  sechost does: the NULL out buffer of size 0 was refused by the client stub as a NULL reference, so
+  `QueryServiceObjectSecurity(h, ..., NULL, 0, &needed)` failed with `ERROR_INVALID_ADDRESS` instead of
+  `ERROR_INSUFFICIENT_BUFFER` (Office 2016's MSI ended with 1603). The same for the forwarded enumerations,
+  `QueryServiceConfig2W`, `QueryServiceStatusEx` and `EnumDependentServicesW`. Only with session 0.
