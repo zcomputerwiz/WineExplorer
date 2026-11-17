@@ -12,7 +12,10 @@
  *
  * Exit status: 0 administrator, 1 not an administrator or not decidable
  * (unknown user, root, NSS disagreement, bad configuration), 2 usage error.
- * Prints nothing; callers treat every nonzero status as "not an administrator".
+ * --print-group [SYSRUN_CONF] prints the effective administrator group, or
+ * returns 1 for an invalid/unprotected configuration or a missing group.
+ * The optional protected path is for provisioning an alternate machine root.
+ * USER mode prints nothing; callers treat every nonzero status as denial.
  */
 #define _GNU_SOURCE
 #define WEX_ACCOUNTS_STANDALONE
@@ -26,6 +29,16 @@ int main( int argc, char **argv )
     const char *name = NULL;
     int i, dir, member = 0;
 
+    if (argc >= 2 && !strcmp( argv[1], "--print-group" ))
+    {
+        if (argc > 3) return 2;
+        if ((dir = wex_sysrun_conf_parent( argc == 3 ? argv[2] : "/etc/wineexplorer/sysrun.conf" )) == -1) return 1;
+        status = read_policy( dir, &policy );
+        close( dir );
+        if (status) return 1;
+        puts( policy.admin_group );
+        return 0;
+    }
     for (i = 1; i < argc; i++)
     {
 #ifdef WEX_ACCOUNTS_TEST
@@ -36,7 +49,7 @@ int main( int argc, char **argv )
         if (name) return 2;
         name = argv[i];
     }
-    if (!name) { fprintf( stderr, "usage: wex-is-admin USER\n" ); return 2; }
+    if (!name) { fprintf( stderr, "usage: wex-is-admin USER | --print-group [SYSRUN_CONF]\n" ); return 2; }
     if (!accounts_valid_name( name )) return 1;
     if ((dir = protected_directory( account_directory, &status )) == -1) return 1;
     status = read_policy( dir, &policy );

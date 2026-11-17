@@ -1250,5 +1250,31 @@ class ComponentCLITests(ReviewTestCase):
             self.assertTrue((self.cache_dir('synfont') / name).is_file(), f'{name} not written')
 
 
+class AdministratorPolicyTests(unittest.TestCase):
+    def test_root_remains_admin_without_helper(self):
+        with patch.object(components.os, 'getuid', return_value=0), \
+                patch.object(components.subprocess, 'run') as run:
+            self.assertTrue(components.is_admin())
+            run.assert_not_called()
+
+    def test_nonroot_uses_helper_and_current_uid_name(self):
+        from types import SimpleNamespace
+        with patch.object(components.os, 'getuid', return_value=1001), \
+                patch.object(components.pwd, 'getpwuid', return_value=SimpleNamespace(pw_name='alice')), \
+                patch.object(components, 'IS_ADMIN_HELPER', '/test/wex-is-admin'), \
+                patch.object(components.subprocess, 'run') as run:
+            for status in (0, 1, 2, 127):
+                run.return_value.returncode = status
+                self.assertEqual(components.is_admin(), status == 0)
+                self.assertEqual(run.call_args.args[0], ['/test/wex-is-admin', 'alice'])
+            run.side_effect = FileNotFoundError()
+            self.assertFalse(components.is_admin())
+
+    def test_nss_failure_denies(self):
+        with patch.object(components.os, 'getuid', return_value=1001), \
+                patch.object(components.pwd, 'getpwuid', side_effect=KeyError(1001)):
+            self.assertFalse(components.is_admin())
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

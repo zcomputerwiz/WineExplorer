@@ -40,6 +40,7 @@
 #include "wexgpstore_unix.h"
 #include "native.h"
 #include "wexgpstore.h"
+#include "wine/wex_sysrun_conf.h"
 
 /* the limits are written twice (the PE side's header and the native code's): they have to agree */
 typedef char limits_agree[(WEX_GP_REQUEST_LIMIT == GPS_REQUEST_LIMIT && WEX_GP_TEMPLATE_LIMIT == GPS_TEMPLATE_LIMIT &&
@@ -52,29 +53,10 @@ typedef char limits_agree[(WEX_GP_REQUEST_LIMIT == GPS_REQUEST_LIMIT && WEX_GP_T
 
 static int read_machine_root( char *root, size_t size )
 {
-    char text[8192], *line, *next;
-    struct stat st;
-    ssize_t length;
-    int fd, found = 0;
+    struct wex_sysrun_conf conf;
 
-    if ((fd = open( SYSRUN_CONF, O_RDONLY | O_NOFOLLOW | O_CLOEXEC )) < 0) return 0;
-    if (fstat( fd, &st ) || !S_ISREG( st.st_mode ) || st.st_uid != 0 || (st.st_mode & 022) ||
-        (length = read( fd, text, sizeof(text) - 1 )) <= 0 || length >= (ssize_t)sizeof(text) - 1)   /* (a file that fills the buffer is cut: refused) */
-    {
-        close( fd );
-        return 0;
-    }
-    close( fd );
-    text[length] = 0;
-    for (line = text; line; line = next)
-    {
-        if ((next = strchr( line, '\n' ))) *next++ = 0;
-        if (strncmp( line, "machine_root=", 13 )) continue;
-        if (found || line[13] != '/' || strlen( line + 13 ) >= size) return 0;
-        strcpy( root, line + 13 );
-        found = 1;
-    }
-    return found;
+    return wex_sysrun_conf_load( SYSRUN_CONF, &conf ) &&
+           wex_sysrun_conf_get( &conf, "machine_root", root, size ) == WEX_SYSRUN_CONF_VALUE && root[0] == '/';
 }
 
 static DWORD win32_error( int result )

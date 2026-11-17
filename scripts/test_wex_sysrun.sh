@@ -170,11 +170,20 @@ chown "$USR_UID" "$CONF"
 expect_refused sysrun_config_user_owned_refused "not owned by root" sysrun "$SYSRUN" wineserver
 chown root:root "$CONF"
 chmod 664 "$CONF"
-expect_refused sysrun_config_group_writable_refused "config is not a regular root-owned file" sysrun "$SYSRUN" wineserver
+expect_refused sysrun_config_group_writable_refused "invalid or unprotected config" sysrun "$SYSRUN" wineserver
 chmod 666 "$CONF"
 expect_refused sysrun_config_world_writable_refused "writable by others" sysrun "$SYSRUN" wineserver
 chmod 644 "$CONF"
 cp "$CONF" "$CONF.good"
+printf 'group=%s\n' "$GRP" >> "$CONF"
+expect_refused sysrun_config_duplicate_refused "invalid or unprotected config" sysrun "$SYSRUN" wineserver
+cp "$CONF.good" "$CONF"
+truncate -s 4096 "$CONF"
+expect_refused sysrun_config_oversize_refused "invalid or unprotected config" sysrun "$SYSRUN" wineserver
+cp "$CONF.good" "$CONF"
+printf 'malformed\n' >> "$CONF"
+expect_refused sysrun_config_malformed_refused "invalid or unprotected config" sysrun "$SYSRUN" wineserver
+cp "$CONF.good" "$CONF"
 echo "bogus=1" >> "$CONF"
 expect_refused sysrun_config_unknown_key_refused "unknown config key" sysrun "$SYSRUN" wineserver
 cp "$CONF.good" "$CONF"
@@ -184,7 +193,7 @@ OUT="$(sysrun "$SYSRUN" wineserver </dev/null)" || fail "sysrun_config_account_k
 case "$OUT" in *"READY"*) ok "sysrun_config_account_keys_accepted" ;; *) fail "account keys output: $OUT" ;; esac
 cp "$CONF.good" "$CONF"; rm -f "$CONF.good"
 mv "$CONF" "$CONF.real"; ln -s "$CONF.real" "$CONF"
-expect_refused sysrun_config_symlink_refused "cannot open config" sysrun "$SYSRUN" wineserver
+expect_refused sysrun_config_symlink_refused "invalid or unprotected config" sysrun "$SYSRUN" wineserver
 rm -f "$CONF"; mv "$CONF.real" "$CONF"
 OUT="$(sysrun "$SYSRUN" wineserver </dev/null)" || fail "control after the config tests: $OUT"
 
