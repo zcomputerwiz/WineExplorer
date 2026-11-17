@@ -313,6 +313,8 @@ class ComponentsTests(unittest.TestCase):
             dll.symlink_to(original)
 
             class FakeWine:
+                file_owner = 0
+
                 def reg(self, operation, key, *args, **kwargs):
                     return subprocess.CompletedProcess([], 0 if key.endswith('\\Software') else 1)
 

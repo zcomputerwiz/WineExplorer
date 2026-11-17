@@ -35,6 +35,7 @@ def pe(machine, size=256):
 
 class FakeWine:
     """MachineWine without Wine: no override keys exist, the hive root does."""
+    file_owner = 0
     def reg(self, operation, key, *args, **kwargs):
         return subprocess.CompletedProcess([], 0 if key.endswith('\\Software') else 1)
 
@@ -142,11 +143,36 @@ class MachineLinkTests(unittest.TestCase):
         with c.protect_builtins(self.machine, FakeWine(), self.libraries):
             info = link.lstat()
             self.assertTrue(stat.S_ISREG(info.st_mode))
-            self.assertEqual((link.read_bytes(), stat.S_IMODE(info.st_mode)), (pe(0x8664), 0o644))
+            # the machine root's DLL mode, group-writable: the installer (session 0's account) may replace it
+            self.assertEqual((link.read_bytes(), stat.S_IMODE(info.st_mode)), (pe(0x8664), 0o775))
             self.assertEqual((info.st_uid, info.st_gid), (0, self.machine.stat().st_gid))
             self.assertEqual(info.st_mtime_ns, good.stat().st_mtime_ns)
         self.assertEqual(os.readlink(link), '../../../../lib-wine/x86_64-windows/good.dll')
         self.assertEqual(good.read_bytes(), pe(0x8664))
+
+    def test_detached_copy_belongs_to_the_installs_account(self):
+        """With session 0 the install runs as its account: the copy is that account's, so that an installer can
+        replace it and set its times (only an owner may)."""
+        good = self.libraries / 'x86_64-windows/good.dll'
+        good.write_bytes(pe(0x8664))
+        link = self.windows / 'system32/good.dll'
+        link.symlink_to(good)
+        wine = FakeWine()
+        wine.file_owner = 65534
+        with c.protect_builtins(self.machine, wine, self.libraries):
+            info = link.lstat()
+            self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)),
+                             (65534, self.machine.stat().st_gid, 0o775))
+        self.assertTrue(link.is_symlink())
+
+    def test_detached_copy_removed_by_the_installer_gets_its_link_back(self):
+        good = self.libraries / 'i386-windows/good.dll'
+        good.write_bytes(pe(0x14c))
+        link = self.windows / 'syswow64/good.dll'
+        link.symlink_to(good)
+        with c.protect_builtins(self.machine, FakeWine(), self.libraries):
+            link.unlink()                                   # a failed MSI's rollback
+        self.assertEqual(os.readlink(link), str(good))
 
     def test_a_linked_system_directory_is_refused(self):
         secret = self.outside()

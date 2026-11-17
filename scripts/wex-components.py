@@ -2252,6 +2252,11 @@ class MachineWine:
         os.chown(run / 'home', self.account.pw_uid, self.account.pw_gid, follow_symlinks=False)
         return run
 
+    @property
+    def file_owner(self):
+        """Who the install's programs run as: session 0's account, else root."""
+        return self.account.pw_uid if self.session0 else 0
+
     def stage(self, *sources):
         """SOURCES, verified files or directories of root's cache, as the install sees them: the directory that holds
         them (winetricks' W_CACHE from then on). With session 0 a copy for the account: root copies into a new
@@ -2516,7 +2521,10 @@ def protect_builtins(machine, wine, libraries=WINE_LIBRARIES):
                 backup.parent.mkdir(parents=True, exist_ok=True)
                 os.symlink(link, backup)
                 data, info = installed_wine_file(source)
-                machine_write_file(fd, name, data, gid, stat.S_IMODE(info.st_mode) & 0o775)
+                # the machine root's mode for a DLL (group-writable), not the installed file's 0755, and the owner the
+                # install runs as: it may replace the builtin with its own native DLL, as any installer may, and set
+                # the file's times (only an owner may). Session 0's account could delete and recreate it anyway.
+                machine_write_file(fd, name, data, gid, machine_file_mode(Path(name)), owner=wine.file_owner)
                 os.utime(name, ns=(info.st_atime_ns, info.st_mtime_ns), dir_fd=fd, follow_symlinks=False)
                 detached_links.append((directory, name, backup, hashlib.sha256(data).hexdigest()))
                 del data
@@ -2558,7 +2566,14 @@ def protect_builtins(machine, wine, libraries=WINE_LIBRARIES):
                 for directory, name, backup, digest in detached_links:
                     fd = directories[directory]
                     try:
-                        copy = machine_open_regular(fd, [name])     # a link, a FIFO or gone: left as it is
+                        os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        # removed by the installer (a failed MSI's rollback removes what it extracted): the builtin's
+                        # link goes back, as it was before the install
+                        machine_symlink(fd, name, os.readlink(backup))
+                        continue
+                    try:
+                        copy = machine_open_regular(fd, [name])     # a link or a FIFO: left as it is
                     except ValueError:
                         continue
                     try:
@@ -3081,13 +3096,14 @@ def machine_remove(parent_fd, name, area):
     remove_staged(trash)
 
 
-def machine_write_file(dir_fd, name, data, admin_gid, mode=0o664):
-    """A file of a machine root directory, written to a temporary name and renamed over NAME, all by descriptor."""
+def machine_write_file(dir_fd, name, data, admin_gid, mode=0o664, owner=None):
+    """A file of a machine root directory, written to a temporary name and renamed over NAME, all by descriptor.
+    OWNER: root's (UWP_XAML_OWNER) unless another account is named."""
     temporary = '.record-' + uuid.uuid4().hex
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=dir_fd)
     try:
         with os.fdopen(fd, 'wb', closefd=False) as out:
-            os.fchown(fd, UWP_XAML_OWNER, admin_gid)
+            os.fchown(fd, UWP_XAML_OWNER if owner is None else owner, admin_gid)
             os.fchmod(fd, mode)
             out.write(data)
             out.flush()
