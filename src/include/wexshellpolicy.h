@@ -29,7 +29,7 @@
 
 #include <windows.h>
 
-#define WEX_EXPLORER_POLICY_KEY L"Software\Microsoft\Windows\CurrentVersion\Policies\Explorer"
+#define WEX_EXPLORER_POLICY_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
 
 static inline BOOL wex_shell_policy_value( HKEY root, const WCHAR *name )
 {
