@@ -215,6 +215,11 @@ check r9_message_crossed "$(field message < "$W/serve.out")" hello
 serve_s0() { rm -f "$W/$2"; (s0 "$W/p64.exe" pipeserve "$1" >"$W/$2" &)
              for i in $(seq 1 60); do grep -q '^listening' "$W/$2" 2>/dev/null && break; sleep 0.5; done; }
 serve_s0 'lrpc\WexT1Endpoint' lrpc.out
+# a wait finds session 0's endpoint; for one that exists nowhere it fails with error 2 at once, as on Windows (an RPC
+# client's connect loop spun for ever when the wait succeeded and the open failed: Office's setup)
+check lrpc_wait_finds_session0_endpoint "$(A "$W/p64.exe" pipewait 'lrpc\WexT1Endpoint' | field wait)" ok
+check lrpc_wait_missing_endpoint "$(A "$W/p64.exe" pipewait 'lrpc\WexT1Missing' | field wait)" error2
+check lrpc_wait_missing_is_immediate "$(A "$W/p64.exe" pipewait 'lrpc\WexT1Missing' | field wait_ms | awk '{print ($1 < 1500) ? "yes" : "no"}')" yes
 check lrpc_endpoint_from_session "$(A "$W/p64.exe" pipesay 'lrpc\WexT1Endpoint' hello | field say)" ok
 for i in $(seq 1 40); do grep -q '^message=' "$W/lrpc.out" 2>/dev/null && break; sleep 0.5; done
 check lrpc_message_crossed "$(field message < "$W/lrpc.out")" hello
