@@ -470,9 +470,26 @@ def runtime_artifact_paths(machine):
 
 
 def verify_runtime_artifacts(machine):
-    for path, digest in runtime_artifact_paths(machine):
-        if path.is_symlink() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-            raise ValueError('Approved runtime artifact missing or changed: ' + str(path))
+    """Read only, through descriptors (a link, a FIFO or a device in a name is refused, never followed or waited on)."""
+    windows = machine / 'drive_c/windows'
+    try:
+        root = machine_open_for_reading(machine, ('drive_c', 'windows'))
+    except ValueError:
+        raise ValueError('Approved runtime artifact missing or changed: ' + str(windows)) from None
+    try:
+        for path, digest in runtime_artifact_paths(machine):
+            try:
+                fd = machine_open_regular(root, list(path.relative_to(windows).parts))
+                try:
+                    actual = machine_fd_sha256(fd)
+                finally:
+                    os.close(fd)
+            except ValueError:
+                actual = None
+            if actual != digest:
+                raise ValueError('Approved runtime artifact missing or changed: ' + str(path))
+    finally:
+        os.close(root)
 
 
 COREFONTS_ARTIFACTS = {
@@ -516,26 +533,101 @@ def corefonts_artifact_paths(machine):
 
 
 def verify_corefonts_artifacts(machine):
+    """Read only, through descriptors (a link, a FIFO or a device in a name is refused, never followed or waited on)."""
     fonts_dir = machine / 'drive_c/windows/Fonts'
-    if fonts_dir.is_symlink() or not fonts_dir.is_dir():
-        raise ValueError('Invalid fonts directory: ' + str(fonts_dir))
-    for path, expected_size, digest in corefonts_artifact_paths(machine):
-        actual_path = path
-        if not actual_path.is_file() and not actual_path.is_symlink():
-            candidates = [p for p in fonts_dir.iterdir() if p.name.casefold() == path.name.casefold()]
-            if candidates:
-                actual_path = candidates[0]
-        if actual_path.is_symlink():
-            raise ValueError('Core fonts artifact is a symlink: ' + str(actual_path))
-        if not actual_path.is_file():
-            raise ValueError('Core fonts artifact missing: ' + str(actual_path))
-        stat_info = actual_path.stat()
-        if stat_info.st_size != expected_size:
-            raise ValueError(f'Core fonts artifact size mismatch for {actual_path.name}: expected {expected_size}, got {stat_info.st_size}')
-        if hashlib.sha256(actual_path.read_bytes()).hexdigest() != digest:
-            raise ValueError('Approved core fonts artifact changed: ' + str(actual_path))
-        if stat_info.st_mode & 0o444 != 0o444:
-            raise ValueError('Core fonts artifact not readable by all users: ' + str(actual_path))
+    try:
+        fonts = machine_open_for_reading(machine, ('drive_c', 'windows', 'Fonts'))
+    except ValueError:
+        raise ValueError('Invalid fonts directory: ' + str(fonts_dir)) from None
+    try:
+        names = os.listdir(fonts)
+        for path, expected_size, digest in corefonts_artifact_paths(machine):
+            name = path.name
+            if name not in names:
+                name = next((n for n in names if n.casefold() == path.name.casefold()), name)
+            actual_path = fonts_dir / name
+            try:
+                info = os.stat(name, dir_fd=fonts, follow_symlinks=False)
+            except FileNotFoundError:
+                info = None
+            if info is not None and stat.S_ISLNK(info.st_mode):
+                raise ValueError('Core fonts artifact is a symlink: ' + str(actual_path))
+            if info is None or not stat.S_ISREG(info.st_mode):
+                raise ValueError('Core fonts artifact missing: ' + str(actual_path))
+            if info.st_size != expected_size:
+                raise ValueError(f'Core fonts artifact size mismatch for {name}: expected {expected_size}, got {info.st_size}')
+            if info.st_mode & 0o444 != 0o444:
+                raise ValueError('Core fonts artifact not readable by all users: ' + str(actual_path))
+            try:
+                fd = machine_open_regular(fonts, [name])
+                try:
+                    opened = os.fstat(fd)
+                    if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+                        raise ValueError('replaced')
+                    actual = machine_fd_sha256(fd, expected_size)
+                finally:
+                    os.close(fd)
+            except ValueError:
+                actual = None
+            if actual != digest:
+                raise ValueError('Approved core fonts artifact changed: ' + str(actual_path))
+    finally:
+        os.close(fonts)
+
+
+def corefonts_fonts_fd(machine):
+    """windows/Fonts of the machine root as a checked descriptor (machine_open_path), or None when it is missing."""
+    try:
+        return machine_open_path(machine, ('drive_c', 'windows', 'Fonts'), machine_admin_gid(machine))
+    except FileNotFoundError:
+        return None
+
+
+def corefonts_drop_links(machine):
+    """Before the installer runs: links in the names of the core fonts (any case) are removed, by descriptor."""
+    fonts = corefonts_fonts_fd(machine)
+    if fonts is None:
+        return
+    try:
+        wanted = {name.casefold() for name in COREFONTS_ARTIFACTS}
+        for entry in os.listdir(fonts):
+            if entry.casefold() not in wanted:
+                continue
+            try:
+                if stat.S_ISLNK(os.stat(entry, dir_fd=fonts, follow_symlinks=False).st_mode):
+                    os.unlink(entry, dir_fd=fonts)
+            except FileNotFoundError:
+                pass
+    finally:
+        os.close(fonts)
+
+
+def corefonts_publish_modes(machine):
+    """After the installer: the core fonts (any case) get the Fonts directory's group and 644, through a descriptor of
+    each regular file (a link, a FIFO or a file with other names is left alone)."""
+    fonts = corefonts_fonts_fd(machine)
+    if fonts is None:
+        return
+    try:
+        group = os.fstat(fonts).st_gid
+        wanted = {name.casefold() for name in COREFONTS_ARTIFACTS}
+        for entry in os.listdir(fonts):
+            if entry.casefold() not in wanted:
+                continue
+            try:
+                fd = machine_open_regular(fonts, [entry])
+            except ValueError:
+                continue
+            try:
+                if os.fstat(fd).st_nlink == 1:          # a hard link to a file elsewhere is never changed
+                    os.fchown(fd, -1, group)
+                    os.fchmod(fd, 0o644)
+            except OSError:
+                pass
+            finally:
+                os.close(fd)
+    finally:
+        os.close(fonts)
 
 
 def repair_runtime_artifacts(machine, cache):
@@ -571,25 +663,26 @@ def repair_runtime_artifacts(machine, cache):
                 if (data[:2] != b'MZ' or pe + 6 > len(data) or data[pe:pe + 4] != b'PE\0\0' or
                         struct.unpack_from('<H', data, pe + 4)[0] != expected_machine):
                     raise ValueError('Wrong runtime member architecture: ' + member)
-                target = machine / 'drive_c/windows' / directory / (name + '.dll')
-                staged.append((source, target))
-        for source, target in staged:
-            if target.parent.is_symlink() or not target.parent.is_dir():
-                raise ValueError('Unexpected runtime destination directory')
-        for source, target in staged:
-            with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.runtime-', delete=False) as out:
-                temporary = Path(out.name)
-            try:
-                shutil.copyfile(source, temporary)
-                # Respect the shared directory's sudo-group/default-ACL policy.
-                # A hardcoded 0644 mask would silently remove admin write access.
-                parent = target.parent.stat()
-                os.chown(temporary, -1, parent.st_gid)
-                temporary.chmod(stat.S_IMODE(parent.st_mode) & 0o777)
-                os.replace(temporary, target)
-            finally:
-                temporary.unlink(missing_ok=True)
+                staged.append((directory, name + '.dll', data))
+        publish_system_files(machine, staged)
         verify_runtime_artifacts(machine)
+
+
+def publish_system_files(machine, staged):
+    """Publish (directory, name, bytes) items into windows/system32 or syswow64 of the machine root: every destination
+    directory is opened and checked first (by descriptor, never through a link), then each file is written under a
+    temporary name and renamed over its name, root and the machine group, 775 like every library there."""
+    gid = machine_admin_gid(machine)
+    directories = {}
+    try:
+        for directory, _, _ in staged:
+            if directory not in directories:
+                directories[directory] = machine_open_path(machine, ('drive_c', 'windows', directory), gid)
+        for directory, name, data in staged:
+            machine_write_file(directories[directory], name, data, gid, 0o775)
+    finally:
+        for descriptor in directories.values():
+            os.close(descriptor)
 
 
 def approved_runtime_recipe(path=None):
@@ -739,14 +832,28 @@ def verify_webview2_artifacts(machine):
     meta = COMPONENTS_METADATA['webview2']
     version = meta['release']
     base = machine / 'drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application' / version
-    for name in ('msedgewebview2.exe', 'msedge.dll'):
-        path = base / name
-        if path.is_symlink() or not path.is_file() or path.stat().st_size < 1024 * 1024:
-            raise ValueError('WebView2 runtime file missing: ' + str(path))
-    registry = machine / 'system.reg'
-    if registry.is_symlink() or not registry.is_file():
-        raise ValueError('Machine registry missing')
-    text = registry.read_text(encoding='utf-8', errors='replace')
+    # Read only, through descriptors (a link, a FIFO or a device in a name is refused, never followed or waited on).
+    root = machine_open_for_reading(machine)
+    try:
+        for name in ('msedgewebview2.exe', 'msedge.dll'):
+            path = base / name
+            try:
+                fd = machine_open_regular(root, list(path.relative_to(machine).parts))
+                try:
+                    size = os.fstat(fd).st_size
+                finally:
+                    os.close(fd)
+            except ValueError:
+                size = 0
+            if size < 1024 * 1024:
+                raise ValueError('WebView2 runtime file missing: ' + str(path))
+        try:
+            raw = machine_read_regular(root, ['system.reg'], MAX_MACHINE_HIVE_BYTES)
+        except ValueError:
+            raise ValueError('Machine registry missing') from None
+    finally:
+        os.close(root)
+    text = raw.decode('utf-8', errors='replace').replace('\r\n', '\n').replace('\r', '\n')   # as read_text() reads it
     key = (r'[Software\\Wow6432Node\\Microsoft\\EdgeUpdate\\Clients\\' + meta['client_guid'] + ']').lower()
     lines = text.split('\n')
     section = registry_section(lines, key)
@@ -833,23 +940,43 @@ def d3dcompiler_artifact_paths(machine):
 
 
 def verify_d3dcompiler_artifacts(machine):
-    for target, entry in d3dcompiler_artifact_paths(machine):
-        if target.is_symlink():
-            raise ValueError('d3dcompiler_47 artifact is a symlink: ' + str(target))
-        if not target.is_file():
-            raise ValueError('d3dcompiler_47 artifact missing: ' + str(target))
-        stat_info = target.stat()
-        if stat_info.st_size != entry['size']:
-            raise ValueError(f'd3dcompiler_47 artifact size mismatch for {target.name}: expected {entry["size"]}, got {stat_info.st_size}')
-        data = target.read_bytes()
-        if hashlib.sha256(data).hexdigest() != entry['sha256']:
-            raise ValueError('d3dcompiler_47 artifact hash mismatch: ' + str(target))
-        pe = struct.unpack_from('<I', data, 0x3c)[0] if len(data) >= 64 else len(data)
-        if (data[:2] != b'MZ' or pe + 6 > len(data) or data[pe:pe + 4] != b'PE\0\0' or
-                struct.unpack_from('<H', data, pe + 4)[0] != entry['machine']):
-            raise ValueError('Wrong d3dcompiler_47 artifact architecture: ' + str(target))
-        if stat_info.st_mode & 0o444 != 0o444:
-            raise ValueError('d3dcompiler_47 artifact not readable by all users: ' + str(target))
+    """Read only, through descriptors (a link, a FIFO or a device in a name is refused, never followed or waited on)."""
+    try:
+        root = machine_open_for_reading(machine, ('drive_c', 'windows'))
+    except ValueError:
+        raise ValueError('d3dcompiler_47 artifact missing: ' + str(machine / 'drive_c/windows')) from None
+    try:
+        for target, entry in d3dcompiler_artifact_paths(machine):
+            directory, name = entry['path'].split('/')
+            try:
+                parent = os.open(directory, DIR_OPEN_FLAGS, dir_fd=root)
+            except OSError:
+                raise ValueError('d3dcompiler_47 artifact missing: ' + str(target)) from None
+            try:
+                try:
+                    info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                except FileNotFoundError:
+                    info = None
+                if info is not None and stat.S_ISLNK(info.st_mode):
+                    raise ValueError('d3dcompiler_47 artifact is a symlink: ' + str(target))
+                if info is None or not stat.S_ISREG(info.st_mode):
+                    raise ValueError('d3dcompiler_47 artifact missing: ' + str(target))
+                if info.st_size != entry['size']:
+                    raise ValueError(f'd3dcompiler_47 artifact size mismatch for {target.name}: expected {entry["size"]}, got {info.st_size}')
+                if info.st_mode & 0o444 != 0o444:
+                    raise ValueError('d3dcompiler_47 artifact not readable by all users: ' + str(target))
+                try:
+                    data = machine_read_regular(parent, [name], entry['size'])
+                except ValueError:
+                    raise ValueError('d3dcompiler_47 artifact missing: ' + str(target)) from None
+            finally:
+                os.close(parent)
+            if len(data) != entry['size'] or hashlib.sha256(data).hexdigest() != entry['sha256']:
+                raise ValueError('d3dcompiler_47 artifact hash mismatch: ' + str(target))
+            if not pe_machine_is(data, entry['machine']):
+                raise ValueError('Wrong d3dcompiler_47 artifact architecture: ' + str(target))
+    finally:
+        os.close(root)
 
 
 def repair_d3dcompiler_artifacts(machine, cache):
@@ -875,22 +1002,9 @@ def repair_d3dcompiler_artifacts(machine, cache):
             if (data[:2] != b'MZ' or pe + 6 > len(data) or data[pe:pe + 4] != b'PE\0\0' or
                     struct.unpack_from('<H', data, pe + 4)[0] != entry['machine']):
                 raise ValueError('Wrong d3dcompiler_47 member architecture: ' + entry['member'])
-            target = machine / 'drive_c/windows' / entry['path']
-            staged.append((source, target))
-        for source, target in staged:
-            if target.parent.is_symlink() or not target.parent.is_dir():
-                raise ValueError('Unexpected d3dcompiler destination directory')
-        for source, target in staged:
-            with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.d3dcompiler-', delete=False) as out:
-                temporary = Path(out.name)
-            try:
-                shutil.copyfile(source, temporary)
-                parent = target.parent.stat()
-                os.chown(temporary, -1, parent.st_gid)
-                temporary.chmod(stat.S_IMODE(parent.st_mode) & 0o777)
-                os.replace(temporary, target)
-            finally:
-                temporary.unlink(missing_ok=True)
+            directory, name = entry['path'].split('/')
+            staged.append((directory, name, data))
+        publish_system_files(machine, staged)
         verify_d3dcompiler_artifacts(machine)
 
 
@@ -2031,9 +2145,65 @@ def reg(wine, environment, *args, **kwargs):
                           capture_output=True, timeout=90, **kwargs)
 
 
+WINE_LIBRARIES = Path('/usr/local/lib/wine')
+BUILTIN_LIBRARY_DIRS = ('i386-windows', 'x86_64-windows')
+
+
+def builtin_link_source(machine, directory, link, libraries=WINE_LIBRARIES):
+    """The installed Wine file that the library link LINK of windows/DIRECTORY names, when it resolves inside
+    LIBRARIES/{i386,x86_64}-windows. A link to anything else (planted by a member of the machine group: a root-only
+    file, a device) is refused, so that root never copies it into the machine root."""
+    resolved = Path(os.path.realpath(os.path.join(machine / 'drive_c/windows' / directory, link)))
+    real = Path(os.path.realpath(libraries))
+    if not any(resolved.parent.is_relative_to(real / arch) for arch in BUILTIN_LIBRARY_DIRS):
+        raise ValueError(f'Unexpected builtin DLL symlink: {directory}/{link}')
+    return resolved
+
+
+def snapshot_system_entry(dir_fd, name, backup, path):
+    """Copy the entry NAME of a system directory into the root-only snapshot BACKUP: a link as a link, a regular file
+    through its descriptor (mode without set-id bits, times). False when there is nothing by that name; a directory, a
+    FIFO or a device is refused."""
+    try:
+        info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    if stat.S_ISLNK(info.st_mode):
+        os.symlink(os.readlink(name, dir_fd=dir_fd), backup)
+        return True
+    if stat.S_ISDIR(info.st_mode):
+        raise ValueError(f'Unexpected protected DLL directory: {path}')
+    fd = machine_open_regular(dir_fd, [name])
+    try:
+        opened = os.fstat(fd)
+        total = 0
+        with os.fdopen(fd, 'rb', closefd=False) as source, open(backup, 'xb') as out:
+            while chunk := source.read(1 << 20):
+                total += len(chunk)
+                if total > MAX_MACHINE_HASH_BYTES:
+                    raise ValueError(f'Oversized protected DLL: {path}')
+                out.write(chunk)
+        os.chmod(backup, stat.S_IMODE(opened.st_mode) & 0o775)
+        os.utime(backup, ns=(opened.st_atime_ns, opened.st_mtime_ns))
+    finally:
+        os.close(fd)
+    return True
+
+
+def restore_system_entry(dir_fd, name, backup, gid):
+    """Put the snapshot BACKUP back as NAME of a system directory, by descriptor and one rename (a link as a link)."""
+    info = os.lstat(backup)
+    if stat.S_ISLNK(info.st_mode):
+        machine_symlink(dir_fd, name, os.readlink(backup))
+        return
+    machine_write_file(dir_fd, name, backup.read_bytes(), gid, stat.S_IMODE(info.st_mode) & 0o775)
+    os.utime(name, ns=(info.st_atime_ns, info.st_mtime_ns), dir_fd=dir_fd, follow_symlinks=False)
+
+
 @contextmanager
-def protect_builtins(machine, environment):
-    """Preserve core files and override keys in the isolated maintenance prefix."""
+def protect_builtins(machine, environment, libraries=WINE_LIBRARIES):
+    """Preserve core files and override keys in the isolated maintenance prefix. The system directories are worked on
+    through descriptors opened without following links (the machine group can rename entries there while root works)."""
     wine = '/usr/local/bin/wine'
     # Keep the root-only recovery snapshot even if restoration itself fails.
     # Debian 13's Python supports delete=False; these can be removed by an
@@ -2041,92 +2211,124 @@ def protect_builtins(machine, environment):
     with tempfile.TemporaryDirectory(prefix='components-protected-', dir=machine.parent, delete=False) as scratch:
         saved = Path(scratch)
         print(f'Protected builtin recovery snapshot: {saved}', file=sys.stderr)
-        files = []
-        for directory in ('system32', 'syswow64'):
-            system = machine / 'drive_c/windows' / directory
-            names = {name + '.dll' for name in PROTECTED}
-            names.update(path.name for path in system.iterdir() if protected_name(path.name))
-            for name in names:
-                target = system / name
-                backup = saved / directory / target.name
-                backup.parent.mkdir(exist_ok=True)
-                existed = target.exists() or target.is_symlink()
-                if existed:
-                    if target.is_dir() and not target.is_symlink():
-                        raise ValueError(f'Unexpected protected DLL directory: {target}')
-                    shutil.copy2(target, backup, follow_symlinks=False)
-                files.append((target, backup, existed))
-        keys = []
-        for hive in ('HKCU', 'HKLM'):
-            for suffix in ('DllOverrides', 'AppDefaults'):
-                key = hive + '\\Software\\Wine\\' + suffix
-                backup = saved / (hive + '-' + suffix + '.reg')
-                query = reg(wine, environment, 'query', key)
-                if query.returncode:
-                    # Distinguish "key absent" from a broken Wine invocation.
-                    reg(wine, environment, 'query', hive + '\\Software', check=True)
-                    existed = False
-                else:
-                    reg(wine, environment, 'export', key, str(backup), '/y', check=True)
-                    existed = True
-                keys.append((key, backup, existed))
-        # A third-party extractor/installer may write through symlinks instead
-        # of replacing them. Never expose the installed Wine binaries that way.
-        detached_links = []
-        for directory in ('system32', 'syswow64'):
-            for target in (machine / 'drive_c/windows' / directory).iterdir():
-                if not target.is_symlink() or target.suffix.lower() != '.dll':
-                    continue
-                resolved = target.resolve(strict=True)
-                if not resolved.is_file():
-                    raise ValueError('Unexpected builtin DLL symlink: ' + str(target))
-                backup = saved / 'builtin-links' / directory / target.name
-                backup.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(target, backup, follow_symlinks=False)
-                digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
-                with tempfile.NamedTemporaryFile(dir=target.parent, prefix='.component-copy-', delete=False) as out:
-                    temporary = Path(out.name)
-                try:
-                    shutil.copy2(resolved, temporary)
-                    os.replace(temporary, target)
-                finally:
-                    temporary.unlink(missing_ok=True)
-                detached_links.append((target, backup, digest))
-        recovery = {'safe_to_restore': True}
+        gid = machine_admin_gid(machine)
+        directories = {}
         try:
-            yield recovery
-        finally:
-            if not recovery['safe_to_restore']:
-                marker = machine.parent / 'component-recovery-required'
-                marker.write_text(str(saved) + '\n', encoding='utf-8')
-                raise RuntimeError('Cannot establish an idle machine prefix; protected snapshot retained; administrator recovery required: ' + str(saved))
-            known = {target for target, _, _ in files}
             for directory in ('system32', 'syswow64'):
-                for target in (machine / 'drive_c/windows' / directory).iterdir():
-                    if target not in known and protected_name(target.name):
-                        if target.is_dir() and not target.is_symlink():
-                            raise ValueError(f'Unexpected protected DLL directory: {target}')
-                        target.unlink()
-            for target, backup, existed in files:
-                if target.is_dir() and not target.is_symlink():
-                    raise ValueError(f'Installer replaced protected file with directory: {target}')
-                target.unlink(missing_ok=True)
-                if existed:
-                    shutil.copy2(backup, target, follow_symlinks=False)
-            for target, backup, digest in detached_links:
-                if target.is_symlink() or not target.is_file():
-                    continue
-                if hashlib.sha256(target.read_bytes()).hexdigest() == digest:
-                    target.unlink()
-                    shutil.copy2(backup, target, follow_symlinks=False)
-            # The machine root's HKCU is not a user's HKCU. Restore all installer
-            # override side effects instead of propagating them into templates.
-            for key, backup, existed in keys:
-                result = reg(wine, environment, 'delete', key, '/f')
-                if result.returncode:
-                    reg(wine, environment, 'query', key.split('\\Software')[0] + '\\Software', check=True)
-                if existed:
-                    reg(wine, environment, 'import', str(backup), check=True)
+                directories[directory] = machine_open_path(machine, ('drive_c', 'windows', directory), gid)
+            files = []
+            for directory, fd in directories.items():
+                names = {name + '.dll' for name in PROTECTED}
+                names.update(name for name in os.listdir(fd) if protected_name(name))
+                (saved / directory).mkdir(exist_ok=True)
+                for name in names:
+                    backup = saved / directory / name
+                    existed = snapshot_system_entry(fd, name, backup, machine / 'drive_c/windows' / directory / name)
+                    files.append((directory, name, backup, existed))
+            keys = []
+            for hive in ('HKCU', 'HKLM'):
+                for suffix in ('DllOverrides', 'AppDefaults'):
+                    key = hive + '\\Software\\Wine\\' + suffix
+                    backup = saved / (hive + '-' + suffix + '.reg')
+                    query = reg(wine, environment, 'query', key)
+                    if query.returncode:
+                        # Distinguish "key absent" from a broken Wine invocation.
+                        reg(wine, environment, 'query', hive + '\\Software', check=True)
+                        existed = False
+                    else:
+                        reg(wine, environment, 'export', key, str(backup), '/y', check=True)
+                        existed = True
+                    keys.append((key, backup, existed))
+            # A third-party extractor/installer may write through symlinks instead
+            # of replacing them. Never expose the installed Wine binaries that way.
+            # Only links into the installed Wine's PE directories are detached (copied
+            # in place); every one is checked before any is replaced.
+            links = []
+            for directory, fd in directories.items():
+                for name in os.listdir(fd):
+                    if Path(name).suffix.lower() != '.dll':
+                        continue
+                    try:
+                        info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        continue
+                    if not stat.S_ISLNK(info.st_mode):
+                        continue
+                    link = os.readlink(name, dir_fd=fd)
+                    source = builtin_link_source(machine, directory, link, libraries)
+                    installed_wine_file(source, read=False)
+                    links.append((directory, name, link, source))
+            detached_links = []
+            for directory, name, link, source in links:
+                fd = directories[directory]
+                backup = saved / 'builtin-links' / directory / name
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(link, backup)
+                data, info = installed_wine_file(source)
+                machine_write_file(fd, name, data, gid, stat.S_IMODE(info.st_mode) & 0o775)
+                os.utime(name, ns=(info.st_atime_ns, info.st_mtime_ns), dir_fd=fd, follow_symlinks=False)
+                detached_links.append((directory, name, backup, hashlib.sha256(data).hexdigest()))
+                del data
+            recovery = {'safe_to_restore': True}
+            try:
+                yield recovery
+            finally:
+                if not recovery['safe_to_restore']:
+                    marker = machine.parent / 'component-recovery-required'
+                    marker.write_text(str(saved) + '\n', encoding='utf-8')
+                    raise RuntimeError('Cannot establish an idle machine prefix; protected snapshot retained; administrator recovery required: ' + str(saved))
+                known = {(directory, name) for directory, name, _, _ in files}
+                area = machine_stage_area(machine)
+                for directory, fd in directories.items():
+                    for name in os.listdir(fd):
+                        if (directory, name) not in known and protected_name(name):
+                            try:
+                                info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                            except FileNotFoundError:
+                                continue
+                            if stat.S_ISDIR(info.st_mode):
+                                raise ValueError(f'Unexpected protected DLL directory: {machine / "drive_c/windows" / directory / name}')
+                            machine_remove(fd, name, area)
+                for directory, name, backup, existed in files:
+                    fd = directories[directory]
+                    try:
+                        info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        info = None
+                    if info is not None and stat.S_ISDIR(info.st_mode):
+                        raise ValueError(f'Installer replaced protected file with directory: {machine / "drive_c/windows" / directory / name}')
+                    if existed:
+                        restore_system_entry(fd, name, backup, gid)
+                    elif info is not None:
+                        try:
+                            os.unlink(name, dir_fd=fd)
+                        except FileNotFoundError:
+                            pass
+                for directory, name, backup, digest in detached_links:
+                    fd = directories[directory]
+                    try:
+                        copy = machine_open_regular(fd, [name])     # a link, a FIFO or gone: left as it is
+                    except ValueError:
+                        continue
+                    try:
+                        current = machine_fd_sha256(copy)
+                    except ValueError:
+                        current = None
+                    finally:
+                        os.close(copy)
+                    if current == digest:
+                        machine_symlink(fd, name, os.readlink(backup))
+                # The machine root's HKCU is not a user's HKCU. Restore all installer
+                # override side effects instead of propagating them into templates.
+                for key, backup, existed in keys:
+                    result = reg(wine, environment, 'delete', key, '/f')
+                    if result.returncode:
+                        reg(wine, environment, 'query', key.split('\\Software')[0] + '\\Software', check=True)
+                    if existed:
+                        reg(wine, environment, 'import', str(backup), check=True)
+        finally:
+            for descriptor in directories.values():
+                os.close(descriptor)
 
 
 def is_installed(verb, accepted_digest=None, machine=None):
@@ -2277,45 +2479,70 @@ def apply_user_defaults():
             temporary.unlink(missing_ok=True)
 
 
-def ensure_installer_regedit(machine, libraries=Path('/usr/local/lib/wine')):
+REGEDIT_MAX_BYTES = 64 * 1024 * 1024
+
+
+def ensure_installer_regedit(machine, libraries=WINE_LIBRARIES):
     """Repair only missing/empty regedit launchers, never arbitrary native DLLs.
 
     Old code linked BOTH architectures to windows/regedit.exe, a 64-bit image.
     Use the corresponding installed Wine PE; never write through prefix links.
+    The machine root is read and written through descriptors opened without
+    following links; a link is followed only to windows/regedit.exe (the legacy
+    link) or to the installed Wine's own regedit.exe.
     """
-    replacements = []
-    for directory, arch, expected in (('system32', 'x86_64', 0x8664), ('syswow64', 'i386', 0x14c)):
-        target = machine / 'drive_c/windows' / directory / 'regedit.exe'
-        if target.parent.is_symlink() or not target.parent.is_dir():
-            raise ValueError('Unexpected regedit destination directory')
-        def valid_pe(path):
-            data = path.read_bytes()
-            pe = struct.unpack_from('<I', data, 0x3c)[0] if len(data) >= 64 else len(data)
-            return (data[:2] == b'MZ' and pe + 6 <= len(data) and data[pe:pe + 4] == b'PE\0\0'
-                    and struct.unpack_from('<H', data, pe + 4)[0] == expected)
-        if target.is_file() and valid_pe(target):
-            continue
-        legacy_link = target.is_symlink() and os.readlink(target) == '../regedit.exe'
-        if target.is_symlink() and not legacy_link:
-            raise ValueError('Refusing unexpected invalid regedit link')
-        if target.exists() and not legacy_link and (not target.is_file() or target.stat().st_size):
-            raise ValueError('Nonempty invalid regedit image requires explicit recovery')
-        source = libraries / (arch + '-windows') / 'regedit.exe'
-        for entry in (source, *source.parents):
-            info = entry.stat()
-            if entry.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
-                raise ValueError('Untrusted installed Wine regedit source')
-        if not valid_pe(source):
-            raise ValueError('Installed Wine regedit has wrong PE architecture')
-        replacements.append((target, source))
-    # Validate both candidates before replacing either destination.
-    for target, source in replacements:
-        temporary = target.with_name('.regedit-link-' + uuid.uuid4().hex)
-        try:
-            temporary.symlink_to(source)
-            os.replace(temporary, target)
-        finally:
-            temporary.unlink(missing_ok=True)
+    gid = machine_admin_gid(machine)
+    directories = {}
+    try:
+        directories['windows'] = machine_open_path(machine, ('drive_c', 'windows'), gid)
+        replacements = []
+        for directory, arch, expected in (('system32', 'x86_64', 0x8664), ('syswow64', 'i386', 0x14c)):
+            fd = directories[directory] = machine_open_path(machine, ('drive_c', 'windows', directory), gid)
+            source = libraries / (arch + '-windows') / 'regedit.exe'
+
+            def valid_pe(dir_fd, parts):
+                try:
+                    return pe_machine_is(machine_read_regular(dir_fd, parts, REGEDIT_MAX_BYTES), expected)
+                except ValueError:
+                    return False
+
+            def checked_source():
+                try:
+                    data, _ = installed_wine_file(source, REGEDIT_MAX_BYTES)
+                except ValueError:
+                    raise ValueError('Untrusted installed Wine regedit source') from None
+                if not pe_machine_is(data, expected):
+                    raise ValueError('Installed Wine regedit has wrong PE architecture')
+
+            try:
+                info = os.stat('regedit.exe', dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                info = None
+            legacy_link = False
+            if info is not None and stat.S_ISLNK(info.st_mode):
+                link = os.readlink('regedit.exe', dir_fd=fd)
+                legacy_link = link == '../regedit.exe'
+                if legacy_link:
+                    if valid_pe(directories['windows'], ['regedit.exe']):
+                        continue
+                elif os.path.realpath(os.path.join(machine / 'drive_c/windows' / directory, link)) == \
+                        os.path.realpath(source):
+                    checked_source()            # already linked to the installed Wine's own image
+                    continue
+                else:
+                    raise ValueError('Refusing unexpected invalid regedit link')
+            elif info is not None and stat.S_ISREG(info.st_mode) and valid_pe(fd, ['regedit.exe']):
+                continue
+            if info is not None and not legacy_link and (not stat.S_ISREG(info.st_mode) or info.st_size):
+                raise ValueError('Nonempty invalid regedit image requires explicit recovery')
+            checked_source()
+            replacements.append((fd, source))
+        # Validate both candidates before replacing either destination.
+        for fd, source in replacements:
+            machine_symlink(fd, 'regedit.exe', str(source))
+    finally:
+        for descriptor in directories.values():
+            os.close(descriptor)
 
 
 # ---------------------------------------------------------------------------
@@ -2625,6 +2852,93 @@ def machine_write_file(dir_fd, name, data, admin_gid, mode=0o664):
         os.close(fd)
 
 
+def machine_symlink(dir_fd, name, target):
+    """A link of a machine root directory, made under a temporary name and renamed over NAME, all by descriptor."""
+    temporary = '.link-' + uuid.uuid4().hex
+    os.symlink(target, temporary, dir_fd=dir_fd)
+    try:
+        os.rename(temporary, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except BaseException:
+        try:
+            os.unlink(temporary, dir_fd=dir_fd)
+        except OSError:
+            pass
+        raise
+
+
+MAX_MACHINE_HASH_BYTES = 512 * 1024 * 1024     # a library or font hashed or copied in place
+MAX_MACHINE_HIVE_BYTES = 256 * 1024 * 1024     # system.reg
+
+
+def machine_open_for_reading(machine, parts=()):
+    """A directory of the machine root (PARTS: the names below it) as a descriptor to read through: each step opened
+    from the one before without following a link. There is no ownership check, because verification also runs for a
+    desktop user (is_installed) and only reads; anything written goes through machine_open_path. The caller closes it."""
+    try:
+        fd = os.open(machine, DIR_OPEN_FLAGS)
+    except OSError as error:
+        raise ValueError(f'Cannot open the machine root: {error.strerror}') from None
+    try:
+        for name in parts:
+            child = os.open(name, DIR_OPEN_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = child
+    except OSError as error:
+        os.close(fd)
+        raise ValueError(f'Cannot open {"/".join(parts)}: {error.strerror} (a link or not a directory)') from None
+    return fd
+
+
+def machine_fd_sha256(fd, limit=MAX_MACHINE_HASH_BYTES):
+    """The SHA-256 of an open regular file from its start; more than LIMIT bytes are refused."""
+    digest, total = hashlib.sha256(), 0
+    os.lseek(fd, 0, os.SEEK_SET)
+    while chunk := os.read(fd, 1 << 20):
+        total += len(chunk)
+        if total > limit:
+            raise ValueError('Oversized file')
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def installed_wine_file(path, limit=MAX_MACHINE_HASH_BYTES, read=True):
+    """(bytes, fstat) of a file of the installed Wine: every directory above it up to / is root's, a real directory and
+    not writable by group or others, and so is the file, which is opened without following a link or waiting for a
+    FIFO. Nobody but root can then change what is read. READ false: only the checks (bytes None)."""
+    for entry in path.parents:
+        info = os.lstat(entry)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError(f'Untrusted installed Wine file: {path}')
+    try:
+        fd = os.open(path, FILE_OPEN_FLAGS)
+    except FileNotFoundError:
+        raise
+    except OSError as error:
+        raise ValueError(f'Untrusted installed Wine file: {path} ({error.strerror})') from None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError(f'Untrusted installed Wine file: {path}')
+        if info.st_size > limit:
+            raise ValueError(f'Oversized installed Wine file: {path}')
+        if not read:
+            return None, info
+        with os.fdopen(fd, 'rb', closefd=False) as source:
+            data = source.read(limit + 1)
+        if len(data) > limit:
+            raise ValueError(f'Oversized installed Wine file: {path}')
+        return data, info
+    finally:
+        os.close(fd)
+
+
+def pe_machine_is(data, expected):
+    """DATA is a PE image for the machine EXPECTED (0x14c, 0x8664)."""
+    pe = struct.unpack_from('<I', data, 0x3c)[0] if len(data) >= 64 else len(data)
+    return (data[:2] == b'MZ' and pe + 6 <= len(data) and data[pe:pe + 4] == b'PE\0\0'
+            and struct.unpack_from('<H', data, pe + 4)[0] == expected)
+
+
 @contextmanager
 def _components_lock(machine):
     """The lock that installs and uninstalls hold (a non-blocking one: a run that finds it taken reports and stops)."""
@@ -2719,11 +3033,16 @@ def uwp_xaml_registry_text(arch, classes):
 
 def read_machine_hive(machine):
     """Wine's system.reg as {key: [value lines]}, keys as written there (backslashes doubled), read without Wine."""
-    hive = machine / 'system.reg'
-    if hive.is_symlink() or not hive.is_file():
-        return {}
+    try:
+        root = machine_open_for_reading(machine)
+        try:
+            raw = machine_read_regular(root, ['system.reg'], MAX_MACHINE_HIVE_BYTES)
+        finally:
+            os.close(root)
+    except ValueError:
+        return {}                       # missing, a link, a FIFO or oversized: nothing registered
     keys, current = {}, None
-    for line in hive.read_text(encoding='utf-8', errors='replace').splitlines():
+    for line in raw.decode('utf-8', errors='replace').splitlines():
         if line.startswith('['):
             end = line.find(']')
             current = keys.setdefault(line[1:end], []) if end > 0 else None
@@ -3512,12 +3831,7 @@ def install(verb, accepted_digest):
         elif verb == 'corefonts':
             cache_corefonts_payloads(cache)
             command = ['/usr/bin/unshare', '--net', *command]
-            fonts_dir = MACHINE / 'drive_c/windows/Fonts'
-            if fonts_dir.is_dir() and not fonts_dir.is_symlink():
-                for font_name in COREFONTS_ARTIFACTS:
-                    for entry in fonts_dir.glob('*'):
-                        if entry.name.casefold() == font_name.casefold() and entry.is_symlink():
-                            entry.unlink()
+            corefonts_drop_links(MACHINE)
         elif verb == 'd3dcompiler_47':
             recipe = approved_d3dcompiler_recipe()
             cache_d3dcompiler_payloads(cache)
@@ -3601,17 +3915,7 @@ def install(verb, accepted_digest):
                 if verb == 'vcrun2022':
                     repair_runtime_artifacts(MACHINE, cache)
                 elif verb == 'corefonts':
-                    fonts_dir = MACHINE / 'drive_c/windows/Fonts'
-                    if fonts_dir.is_dir() and not fonts_dir.is_symlink():
-                        parent_stat = fonts_dir.stat()
-                        for font_name in COREFONTS_ARTIFACTS:
-                            for entry in fonts_dir.glob('*'):
-                                if entry.name.casefold() == font_name.casefold() and entry.is_file() and not entry.is_symlink():
-                                    try:
-                                        os.chown(entry, -1, parent_stat.st_gid)
-                                        entry.chmod(0o644)
-                                    except OSError:
-                                        pass
+                    corefonts_publish_modes(MACHINE)
                 elif verb == 'd3dcompiler_47':
                     repair_d3dcompiler_artifacts(MACHINE, cache)
         if result.returncode:

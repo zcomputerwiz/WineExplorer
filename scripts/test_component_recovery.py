@@ -115,6 +115,8 @@ class RegeditBootstrapTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         self.machine, self.libraries = self.root / 'machine', self.root / 'libraries'
+        self.addCleanup(patch.stopall)
+        patch.object(c, 'machine_group_gid', lambda: self.machine.stat().st_gid).start()
         self.targets, self.sources = [], []
         for directory, arch, machine in (('system32', 'x86_64', 0x8664), ('syswow64', 'i386', 0x14c)):
             source = self.libraries / (arch + '-windows') / 'regedit.exe'

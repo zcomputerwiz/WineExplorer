@@ -6,6 +6,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import struct
 import subprocess
@@ -16,6 +17,13 @@ from unittest.mock import patch
 spec = importlib.util.spec_from_file_location('components', Path(__file__).with_name('wex-components.py'))
 c = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(c)
+
+
+def machine_owner(machine):
+    """The fixture's machine root stands in for root:<machine group>: whoever runs the test owns it (the publish path
+    checks the machine root's owner and group). Started patches; the test stops them."""
+    patch.object(c, 'UWP_XAML_OWNER', os.getuid()).start()
+    patch.object(c, 'machine_group_gid', lambda: machine.stat().st_gid).start()
 
 
 def pe(machine):
@@ -46,6 +54,7 @@ class RuntimeArtifactTests(unittest.TestCase):
             self.payloads.append({'architecture': arch, 'name': name,
                                   'sha256': hashlib.sha256(arch.encode()).hexdigest()})
         self.addCleanup(patch.stopall)
+        machine_owner(self.machine)
         patch.object(c, 'RUNTIME_ARTIFACTS', self.manifest).start()
         meta = dict(c.COMPONENTS_METADATA)
         meta['vcrun2022'] = dict(meta['vcrun2022'], payloads=self.payloads)
@@ -333,6 +342,7 @@ class D3DCompiler47ArtifactTests(unittest.TestCase):
         (self.cache / 'd3dcompiler_47').mkdir(parents=True)
         (self.review_cache / 'd3dcompiler_47').mkdir(parents=True)
         self.addCleanup(patch.stopall)
+        machine_owner(self.machine)
 
     def test_artifact_table_identities(self):
         self.assertEqual(len(c.D3DCOMPILER_47_ARTIFACTS), 2)
