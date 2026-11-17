@@ -759,11 +759,12 @@ phase_safecmd() {
     shutdown_vm
 }
 
-recovery_console() {   # after logging on in Safe Mode with Command Prompt: the console, and no wineserver
+recovery_console() {   # after logging on in Safe Mode with Command Prompt: the console, and no wineserver of the user's
     local out
     wait_text "Recovery Commands" 120 || fail "no recovery console after logging on"
     shot console
-    out=$(gsh 'echo wineservers=$(pgrep -c wineserver) xterms=$(pgrep -c xterm)' | grep '^wineservers=')
+    # session 0's server runs in Safe Mode too (as on Windows), as its own account: not the user's Wine
+    out=$(gsh 's0=$(sed -n "s/^session0_user=//p" /etc/wineexplorer/sysrun.conf 2>/dev/null); echo wineservers=$(ps -C wineserver -o user= | grep -cvx "${s0:-none}") xterms=$(pgrep -c xterm)' | grep '^wineservers=')
     echo "  $out"
     case "$out" in "wineservers=0 xterms="[1-9]*) ;; *) fail "expected the recovery console without Wine: $out" ;; esac
     # XP's shape (work order C6): 80 columns and at least 30 rows (36 at 640x480). The size of the shell's terminal;
