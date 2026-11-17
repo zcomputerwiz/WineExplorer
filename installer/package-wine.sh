@@ -244,6 +244,7 @@ cp "$ROOT_DIR/scripts/wex-domain-admit-pam.sh" "$STAGE_SESSION/usr/local/sbin/we
 cp "$ROOT_DIR/scripts/wex-advanced-options.py" "$STAGE_SESSION/usr/local/sbin/wex-advanced-options"
 # Startup and Recovery's settings (sysdm.cpl; Safe Mode work order D5): a D-Bus activated root service, polkit-checked
 cp "$ROOT_DIR/scripts/wex-boot1.py" "$STAGE_SESSION/usr/local/sbin/wex-boot1"
+install -D -m644 "$ROOT_DIR/scripts/wexcommon.py" "$STAGE_SESSION/usr/local/lib/wineexplorer/python/wexcommon.py"
 install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.Boot1.conf" "$STAGE_SESSION/usr/share/dbus-1/system.d/org.wineexplorer.Boot1.conf"
 install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.Boot1.service" "$STAGE_SESSION/usr/share/dbus-1/system-services/org.wineexplorer.Boot1.service"
 install -D -m644 "$SCRIPT_DIR/polkit/org.wineexplorer.boot1.policy" "$STAGE_SESSION/usr/share/polkit-1/actions/org.wineexplorer.boot1.policy"
