@@ -477,6 +477,21 @@ a joined machine keeps it beneath the domain's (Windows applies Local, then Site
 5. **Binding.** An installed system does not enforce elevation by default, so any user can overwrite machine policy
    between refreshes; the next refresh puts it back. Whether the default changes is a decision for the system tier.
 
+### The local objects of the users (2026-11-17)
+
+As on Windows Vista and later, besides the local object (`GroupPolicy`, Machine and User) there are local objects that
+hold user policy only, in `%SystemRoot%\system32\GroupPolicyUsers\<SID>\User\Registry.pol` of session 0's root:
+`S-1-5-32-544` for the Administrators, `S-1-5-32-545` for the Non-Administrators, and one folder for a single person
+(the SID of the accounts map). A person gets, in this order, the local object's User policy, the policy of the
+Administrators or of the Non-Administrators (whichever the person is, by the rule of the system tier,
+`wex-is-admin`; not known counts as Non-Administrator, so that a restriction meant for them holds), the person's own,
+and then the domain's objects; the last wins. `wex-gpupdate.sh` puts the files in that order into the one `apply` of
+the person, so nothing else changes in the writer; the applied list has the one entry "Local Group Policy" when any of
+them has a file. Same rules as for the other local files: a regular file, not a link, not empty, read as session 0's
+account; a folder is looked at only when its name is one of the two group SIDs or begins with `S-1-5-21-`.
+Checked in `scripts/test_gpupdate_users.sh` (the order, administrator or not, a domain user, joined and not, the
+person's file alone, a link). Not yet: the editor writing these files through the spool, and `gpresult` naming the layer.
+
 ### Writing the local files: the spool (implemented 2026-11-16, in review by the system tier session)
 
 Where it is: `scripts/setup-machine-root.sh` (section 2b: the store tree is session 0's account's, only the spool is
