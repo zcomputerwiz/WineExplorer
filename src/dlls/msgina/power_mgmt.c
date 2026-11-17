@@ -29,7 +29,7 @@
 #include <uxtheme.h>
 #include <vsstyle.h>
 
-#include <shellapi.h>
+#include <shlobj.h>
 #include <wexhost.h>
 
 #include "wine/debug.h"
