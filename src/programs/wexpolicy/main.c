@@ -572,7 +572,7 @@ static DWORD requested;
 /* The numbers go on from where they were (the service may have been restarted, or the machine: the registry's
  * Requested is volatile, the number in the request file is not): the one that is ahead, in the sense of a serial number
  * that may wrap. Called once the stable Group Policy key exists, so that the volatile key below is made under it. */
-static void restore_requested(void)
+static void restore_requested_locked(void)
 {
     WCHAR path[MAX_PATH];
     char text[32];
@@ -602,6 +602,14 @@ static void restore_requested(void)
         RegSetValueExW( key, L"Requested", 0, REG_DWORD, (const BYTE *)&requested, sizeof(requested) );
         RegCloseKey( key );
     }
+}
+
+/* under the lock: a request the control handler takes meanwhile is numbered from the restored value, not before it */
+static void restore_requested(void)
+{
+    EnterCriticalSection( &request_lock );
+    restore_requested_locked();
+    LeaveCriticalSection( &request_lock );
 }
 
 DWORD request_refresh(void)
@@ -742,15 +750,16 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
         set_service_state( SERVICE_STOPPED, ERROR_ACCESS_DENIED );
         return;
     }
-    set_service_state( SERVICE_RUNNING, NO_ERROR );
     /* the key that programs watch for the machine's serial number exists from now on (a machine root older
-     * than this service has none) */
+     * than this service has none); it is made before the volatile keys below it. The numbers are restored before the
+     * service says it runs, and under the lock besides: no request is numbered from the old value. */
     {
         HKEY key;
         if (!RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy", 0, NULL,
                               0, KEY_READ | KEY_WOW64_64KEY, NULL, &key, NULL )) RegCloseKey( key );
     }
     restore_requested();
+    set_service_state( SERVICE_RUNNING, NO_ERROR );
     for (;;)
     {
         /* a hive that is loaded notifies this watch (the server does, as on Windows; an unload does not); the look every half
