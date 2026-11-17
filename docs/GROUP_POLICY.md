@@ -414,8 +414,12 @@ Policy" before and the other way round now; `gpo-lab.sh parse` checks it on the 
 
 ## Next
 
-- User policy from the domain end to end: a domain user logging on to WineExplorer (the accounts map has local
-  users only).
+- User policy from the domain at logon is done (DOMAIN_LOGON.md, WO 4, 2026-11-16: admission at the first logon by the
+  PAM line of the greeter, a refresh asked for by the session once the user's `explorer.exe` runs, lab-tested). What
+  differs from Windows: the policy arrives shortly after the shell is up, not before the desktop on a first logon.
+  A logon that does not go through the greeter's PAM stack (ssh) gets no record and no WineExplorer session, so no
+  user policy; Windows documents user policy only for a sign-in at the user's own desktop (RunAs and alternate
+  credentials do not trigger it), and does not say it for SSH sessions.
 - The Windows Server evaluation controller: Microsoft's Evaluation Center requires a registration form with
   personal details for the ISO, so per the owner's condition the lab stays on Samba AD.
 
@@ -647,8 +651,8 @@ step ends with a lab check on an unjoined machine and, where it touches the join
 
 ## Open questions
 
-- Per-user policy: `samba-gpupdate --target=User` works as root and drops to the user, but no automatic per-logon
-  trigger is documented. Decide whether the wex logon flow (or a PAM hook) runs it, and check `winbindd` source for what
+- Per-user policy: decided and built (see "Next"): the session asks for a refresh through `gpupdate` after the shell is
+  up. Left: whether to wait for it before the desktop on a first logon, and check `winbindd` source for what
   `apply group policies` covers. The profile hive loading (`e1s_load_profile`) decides where the user hive is writable.
 - Who may write the policy trees: decided 2026-11-16 (owner): a user may write their own `HKCU\Software\Policies`
   keys, as on Windows, where user policy is not tamper-proof either (the policy engine rewrites them at each
