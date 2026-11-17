@@ -27,11 +27,12 @@ spec.loader.exec_module(c)
 MS = 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'
 
 
-def appx(name, version, arch='x64', publisher=MS, framework=True, extra=None):
+def appx(name, version, arch='x64', publisher=MS, framework=True, extra=None, servers=''):
     manifest = ('<?xml version="1.0" encoding="utf-8"?>'
                 '<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">'
                 f'<Identity Name="{name}" ProcessorArchitecture="{arch}" Publisher="{publisher}" Version="{version}"/>'
-                f'<Properties><Framework>{"true" if framework else "false"}</Framework></Properties></Package>')
+                f'<Properties><Framework>{"true" if framework else "false"}</Framework></Properties>'
+                f'<Extensions>{servers}</Extensions></Package>')
     out = io.BytesIO()
     with zipfile.ZipFile(out, 'w') as z:
         z.writestr('AppxManifest.xml', manifest)
@@ -145,6 +146,35 @@ class FrameworkTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in (self.machine / c.FRAMEWORK_STORE).iterdir()),
                          sorted(data['packages']))              # no staging or work directories left
         self.assertEqual(sorted(p.name for p in (self.cache / 'uwp-frameworks').iterdir()), ['a.nupkg', 'b.cab'])
+
+    def test_record_carries_the_classes_of_the_in_process_servers(self):
+        servers = ('<Extension Category="windows.activatableClass.inProcessServer"><InProcessServer>'
+                   '<Path>Microsoft.UI.Xaml.dll</Path>'
+                   '<ActivatableClass ActivatableClassId="Microsoft.UI.Xaml.Controls.Button" ThreadingModel="both"/>'
+                   '<ActivatableClass ActivatableClassId="Microsoft.UI.Xaml.Controls.Button" ThreadingModel="both"/>'
+                   '<ActivatableClass ActivatableClassId="bad id with spaces" ThreadingModel="both"/>'
+                   '</InProcessServer></Extension>'
+                   '<Extension Category="windows.activatableClass.inProcessServer"><InProcessServer>'
+                   '<Path>../escape.dll</Path>'
+                   '<ActivatableClass ActivatableClassId="Escapes.Class" ThreadingModel="both"/>'
+                   '</InProcessServer></Extension>'
+                   '<Extension Category="windows.activatableClass.inProcessServer"><InProcessServer>'
+                   '<Path>bin/Other.dll</Path>'
+                   '<ActivatableClass ActivatableClassId="Other.Thing" ThreadingModel="both"/>'
+                   '</InProcessServer></Extension>')
+        package = appx('Microsoft.UI.Xaml.2.8', '8.2501.31001.0', servers=servers)
+        self.assertEqual(c.appx_manifest_classes(zipfile.ZipFile(io.BytesIO(package)).read('AppxManifest.xml')),
+                         [('Microsoft.UI.Xaml.Controls.Button', 'Microsoft.UI.Xaml.dll'),
+                          ('Other.Thing', 'bin\\Other.dll')])
+        self.set_containers(self.container('a.nupkg', 'zip', [('tools/AppX/x64/Release/x.appx', package, {})]))
+        self.install()
+        full = 'Microsoft.UI.Xaml.2.8_8.2501.31001.0_x64__8wekyb3d8bbwe'
+        record = (self.machine / c.FRAMEWORK_CATALOG / (full + '.wexappx')).read_bytes().decode('utf-16-le')
+        self.assertEqual(record, 'WEXAPPX 1\nroot\tC:\\Program Files\\WindowsApps\\' + full +
+                         '\npublisher\t' + MS + '\nframework\t1\n'
+                         'class\tMicrosoft.UI.Xaml.Controls.Button\tMicrosoft.UI.Xaml.dll\n'
+                         'class\tOther.Thing\tbin\\Other.dll\n')
+        c.verify_uwp_frameworks(self.machine, self.receipt(), full=True)
 
     def test_refuses_wrong_identity_hash_and_non_framework(self):
         good = appx('Microsoft.UI.Xaml.2.8', '8.2501.31001.0')

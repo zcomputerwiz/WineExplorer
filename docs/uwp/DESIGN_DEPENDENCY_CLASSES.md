@@ -2,10 +2,31 @@
 SPDX-License-Identifier: GPL-2.0-or-later
 Copyright 2026 WineExplorer contributors
 -->
-# Activatable classes of a package's dependencies (draft, 2026-11-17)
+# Activatable classes of a package's dependencies (built, 2026-11-17)
 
-Status: proposal, nothing built. Needs the owner's and Session 0's agreement because it changes the package context
-(`DESIGN_PACKAGE_CONTEXT.md`, server `set_token_package` / `get_token_package`, combase `RoGetActivationFactory`).
+Status: built on `codex/uwp-runtime` (Wine 3a81db3e) and in the `uwp-frameworks` component (owner's go-ahead,
+2026-11-17). It changes the package context (`DESIGN_PACKAGE_CONTEXT.md`, server `get_token_package`, combase
+`RoGetActivationFactory`); `docs/STOCK_CHANGES.md` lists the files.
+
+What differs from the first draft below: the server reads the dependency records from the machine catalog
+(`C:\ProgramData\WineExplorer\appx-catalog`, where the frameworks are published; the prefix's own `appx-catalog` holds
+the users' packages), and the table path of a dependency's class is absolute (`C:\Program Files\WindowsApps\<full
+name>\<relative>`) rather than "full name plus relative", so combase needs no knowledge of roots: a path with `X:` is
+used as it is (the server allows no `:` in a package's own relative paths). What Microsoft documents (checked
+2026-11-17, Microsoft Learn: the `ActivatableClass` / `InProcessServer` elements of the package manifest, the Windows
+App SDK deployment architecture and the Dynamic Dependencies specification): a framework package declares the classes
+it implements in its own manifest, and a package reaches the framework through its package graph (a declared
+dependency, or added at run time by the Dynamic Dependencies API); the manifest, not a registry key, is where
+the classes of a package are declared. I found no statement that packaged apps depend on machine-wide registry
+entries for framework classes, and none on how the resolver orders classes of several packages; the ordering rule
+here (own classes first, then dependencies in the order the package lists them) is ours.
+
+Result in the lab: `RoGetActivationFactory(XamlControlsXamlMetaDataProvider)` succeeds once and the 107 to 150 error
+lines are gone; the Standard calculator still works (7 + 5 = 12), the U1.0 fixture passes on x64 and x86 (14 context
+checks each). Not added yet: fixture cases for a dependency (class served, own class wins, missing dependency skipped,
+oversized table); the component test covers the record's class lines.
+
+# The first draft (kept for the reasoning)
 
 ## Problem
 

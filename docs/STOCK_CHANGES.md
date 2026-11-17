@@ -3601,3 +3601,14 @@ WineExplorer consumers: wex-sysrun and wexgpstore use the same header; wex-is-ad
 provisioning, and PAM/components use its membership mode. Native reader regression tests compile the actual caller
 functions in isolation; the existing server fixture also checks the unsafe-file token shape. Runtime/build
 verification is deferred to the reviewer; static checks alone do not prove either.
+2026-11-17 (UWP, Wine 3a81db3e): `server/uwp_context.c`, `server/uwp_context.h`, `dlls/combase/roapi.c`: the class table
+of a package context also holds the classes of the package's framework dependencies, so `RoGetActivationFactory` finds
+a class a framework package declares (WinUI 2's `XamlControlsXamlMetaDataProvider`). The server reads the records the
+package's `dependency` lines name from the machine catalog (`C:\ProgramData\WineExplorer\appx-catalog`; only a record
+with `framework 1` counts), takes their `class` lines with the paths made absolute (directory of the dependency plus
+the relative path) and appends them after the package's own classes; a class the package declares is never taken from a
+dependency, a dependency that is missing, malformed or would take the table beyond 256 KiB is left out (at most 16
+dependencies). combase uses a table path that starts with `X:` as it is. Framework records written by the
+`uwp-frameworks` component now carry the `class` lines of the package's in-process servers (from its manifest).
+Design: `docs/uwp/DESIGN_DEPENDENCY_CLASSES.md`. The U1.0 fixture (14 context checks) passes on x64 and x86; the Calculator
+run no longer logs the 107 to 150 `Failed to find library` lines for `XamlControlsXamlMetaDataProvider`.

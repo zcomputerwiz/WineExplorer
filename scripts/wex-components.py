@@ -2887,9 +2887,47 @@ def uwp_frameworks_check_identity(data, package, publisher):
     return appx_full_name(name, version, architecture, publisher)
 
 
-def uwp_frameworks_record(full_name, publisher):
-    """The catalog record (UTF-16LE, no byte order mark), as wexappx writes it, for a framework."""
+FRAMEWORK_RECORD_MAX_BYTES = 60000   # the server reads a record of 64 KiB at most
+FRAMEWORK_CLASS_ID = re.compile(r'^[A-Za-z0-9._-]{1,255}$')
+FRAMEWORK_SERVER_COMPONENT = re.compile(r'^[A-Za-z0-9_()+,. -]+$')
+
+
+def appx_manifest_classes(manifest):
+    """[(class id, server path)] of the in-process servers of a package manifest (windows.activatableClass.inProcessServer),
+    the path relative to the package and backslash separated. A class whose id or path the server would refuse is left
+    out."""
+    root = ET.fromstring(manifest)
+    classes = []
+    for server in root.iter():
+        if server.tag.rsplit('}', 1)[-1] != 'InProcessServer':
+            continue
+        path = None
+        for child in server:
+            if child.tag.rsplit('}', 1)[-1] == 'Path' and child.text:
+                path = child.text.strip().replace('/', '\\')
+        parts = path.split('\\') if path else []
+        if (not parts or len(path) > 512 or any(not FRAMEWORK_SERVER_COMPONENT.match(part) or part in ('.', '..') or
+                                                 part.endswith(('.', ' ')) for part in parts)):
+            continue
+        for child in server:
+            if child.tag.rsplit('}', 1)[-1] != 'ActivatableClass':
+                continue
+            class_id = child.attrib.get('ActivatableClassId', '')
+            if FRAMEWORK_CLASS_ID.match(class_id) and (class_id, path) not in classes:
+                classes.append((class_id, path))
+    return classes
+
+
+def uwp_frameworks_record(full_name, publisher, manifest=b''):
+    """The catalog record (UTF-16LE, no byte order mark), as wexappx writes it, for a framework: the classes of its
+    in-process servers are in it, so that the packages that depend on it can activate them."""
     text = (f'WEXAPPX 1\nroot\t{FRAMEWORK_WINDOWS_STORE}\\{full_name}\npublisher\t{publisher}\nframework\t1\n')
+    if manifest:
+        for class_id, path in appx_manifest_classes(manifest):
+            line = f'class\t{class_id}\t{path}\n'
+            if (len(text) + len(line)) * 2 > FRAMEWORK_RECORD_MAX_BYTES:
+                break
+            text += line
     if any(ord(ch) < 0x20 and ch not in '\t\n' or ord(ch) > 0x7e for ch in text):
         raise ValueError('Framework record is not plain ASCII')
     return text.encode('utf-16-le')
@@ -2956,11 +2994,11 @@ def uwp_frameworks_catalog(machine, gid):
     return catalog
 
 
-def uwp_frameworks_publish_record(machine, gid, full_name, publisher):
+def uwp_frameworks_publish_record(machine, gid, full_name, publisher, manifest):
     catalog = uwp_frameworks_catalog(machine, gid)
     with tempfile.NamedTemporaryFile(dir=catalog, prefix='.record-', delete=False) as out:
         temporary = Path(out.name)
-        out.write(uwp_frameworks_record(full_name, publisher))
+        out.write(uwp_frameworks_record(full_name, publisher, manifest))
         out.flush()
         os.fsync(out.fileno())
     try:
@@ -2979,11 +3017,15 @@ def verify_uwp_frameworks(machine, data, full=False):
         if not re.match(r'^[A-Za-z0-9.-]+_[0-9.]+_[a-z0-9]+__[0-9a-z]{13}$', full_name) or not isinstance(files, dict):
             raise ValueError('Malformed UWP frameworks receipt')
         record = machine / FRAMEWORK_CATALOG / (full_name + '.wexappx')
-        if record.is_symlink() or not record.is_file() or record.read_bytes() != uwp_frameworks_record(full_name, publisher):
-            raise ValueError('Framework registration missing or changed: ' + full_name)
         root = machine / FRAMEWORK_STORE / full_name
         if root.is_symlink() or not root.is_dir():
             raise ValueError('Framework directory missing: ' + full_name)
+        manifest = root / 'AppxManifest.xml'
+        if manifest.is_symlink() or not manifest.is_file():
+            raise ValueError('Framework manifest missing: ' + full_name)
+        if (record.is_symlink() or not record.is_file() or
+                record.read_bytes() != uwp_frameworks_record(full_name, publisher, manifest.read_bytes())):
+            raise ValueError('Framework registration missing or changed: ' + full_name)
         for relative, (size, digest) in files.items():
             target = root / relative
             if target.is_symlink() or not target.is_file() or target.stat().st_size != size:
@@ -3077,7 +3119,9 @@ def install_uwp_frameworks_into(verb, machine, cache, terms_digest):
         for full_name, data in contents:
             published.append(full_name)
             data_receipt['packages'][full_name] = uwp_frameworks_unpack(data, machine, full_name, gid)
-            uwp_frameworks_publish_record(machine, gid, full_name, publisher)
+            with zipfile.ZipFile(io.BytesIO(data)) as package:
+                manifest = package.read('AppxManifest.xml')
+            uwp_frameworks_publish_record(machine, gid, full_name, publisher, manifest)
         verify_uwp_frameworks(machine, data_receipt, full=True)
     except BaseException:
         try:
