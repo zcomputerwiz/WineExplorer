@@ -74,8 +74,8 @@ static int new_domain_record( struct account_map *map, const char *name, uid_t u
 }
 
 /* Winbind, asked by running wbinfo from a fixed path with a clean environment (no shell); its standard output
- * and error, at most size - 1 bytes, in out (on success the error stream is empty). The exit status, or -1 when it
- * cannot run or takes more than 15 seconds. */
+ * and error in out (on success the error stream is empty). The exit status, or -1 when it cannot run, times out,
+ * fails to read, fills the buffer or contains NUL bytes. */
 #ifdef WEX_ACCOUNTS_TEST
 static const char *wbinfo_path = "/usr/bin/wbinfo";
 #else
@@ -86,7 +86,7 @@ static int run_wbinfo( char *out, size_t size, const char *arg1, const char *arg
     char *argv[] = { (char *)"wbinfo", (char *)arg1, (char *)arg2, NULL };
     char *envp[] = { (char *)"PATH=/usr/bin:/bin", (char *)"LC_ALL=C", NULL };
     size_t used = 0;
-    int pipefd[2], status, waited;
+    int pipefd[2], status, waited, read_error = 0;
     pid_t pid;
     ssize_t n;
 
@@ -106,13 +106,13 @@ static int run_wbinfo( char *out, size_t size, const char *arg1, const char *arg
     close( pipefd[1] );
     while (used + 1 < size && (n = read( pipefd[0], out + used, size - 1 - used )) != 0)
     {
-        if (n < 0) { if (errno == EINTR) continue; break; }
+        if (n < 0) { if (errno == EINTR) continue; read_error = 1; break; }
         used += n;
     }
     out[used] = 0;
     close( pipefd[0] );
     while ((waited = waitpid( pid, &status, 0 )) == -1 && errno == EINTR) ;
-    if (waited != pid || !WIFEXITED( status )) return -1;
+    if (waited != pid || !WIFEXITED( status ) || read_error || used == size - 1 || memchr( out, 0, used )) return -1;
     return WEXITSTATUS( status );
 }
 
@@ -161,24 +161,50 @@ static int winbind_domain( char flat[16], uint32_t sid[3] )
     return 0;
 }
 
-/* What Winbind says of a name. Only a definitive answer may retire an account (tombstones are permanent):
- * WB_USER    a user, with its SID
- * WB_NONE    no such account, or not a user: Samba (4.17, checked in the GPO lab) says "failed to call
- *            wbcLookupName: WBC_ERR_DOMAIN_NOT_FOUND" with status 1 for a name the reachable controller does not
- *            have, and gives the type of other accounts (SID_DOM_GROUP...)
- * WB_ERROR   anything else: Winbind or the controller unavailable (WBC_ERR_WINBIND_NOT_AVAILABLE), a timeout,
- *            output that does not parse */
+/* Successful name lookups include the numeric SID_NAME_USE in parentheses. Ignore the display label: neither
+ * it nor a failed lookup's diagnostic is an API. Unknown types and failed lookups are inconclusive.
+ * The standalone package has no libwbclient dependency; missing records are checked by the successful,
+ * numeric --lookup-sids result below instead of linking Samba into every build of this tool. */
 enum winbind_answer { WB_USER, WB_NONE, WB_ERROR };
 
 static enum winbind_answer winbind_user_sid( const char *name, uint32_t sid[3], uint32_t *rid )
 {
-    char out[4096];
-    int status = run_wbinfo( out, sizeof(out), "--name-to-sid", name );
+    char out[4096], *p, *end;
+    uint64_t type;
+    size_t len;
 
-    if (status == 1 && strstr( out, "failed to call wbcLookupName: WBC_ERR_DOMAIN_NOT_FOUND" ) &&
-        !strstr( out, "WBC_ERR_WINBIND_NOT_AVAILABLE" )) return WB_NONE;
-    if (status || !parse_sid( out, sid, rid )) return WB_ERROR;
-    return strstr( out, " SID_USER " ) ? WB_USER : WB_NONE;
+    if (run_wbinfo( out, sizeof(out), "--name-to-sid", name ) || !parse_sid( out, sid, rid )) return WB_ERROR;
+    len = strlen( out );
+    if (!len || out[len - 1] != '\n' || strchr( out, '\n' ) != out + len - 1 ||
+        !(p = strrchr( out, '(' )) || p == out || p[-1] != ' ' || !(end = strchr( p, ')' )) ||
+        end != out + len - 2) return WB_ERROR;
+    *end = 0;
+    if (!parse_number( p + 1, U32_MAX_VALUE, &type )) return WB_ERROR;
+    switch (type)
+    {
+    case 1: return WB_USER;  /* SidTypeUser */
+    case 2: case 3: case 4: case 5: case 6: case 9: return WB_NONE; /* known non-user or deleted account */
+    default: return WB_ERROR;
+    }
+}
+
+/* --lookup-sids uses wbcLookupSids: errors fail the command, whereas a successful answer includes the queried
+ * SID and a numeric SID_NAME_USE. Only SidTypeUnknown (8), on exactly that SID and one complete line, proves
+ * it is unmapped. Unsupported options, diagnostics, truncation, malformed data and all nonzero exits KEEP.
+ * A failed name lookup alone proves nothing, even if a previous --ping-dc succeeded. */
+static int winbind_record_missing( const struct account_record *r )
+{
+    char out[4096], sid[64], *type;
+    size_t len, sidlen;
+
+    snprintf( sid, sizeof(sid), "S-1-5-21-%u-%u-%u-%u", r->sid[0], r->sid[1], r->sid[2], r->rid );
+    if (run_wbinfo( out, sizeof(out), "--lookup-sids", sid )) return 0;
+    len = strlen( out );
+    sidlen = strlen( sid );
+    if (len <= sidlen + 7 || strncmp( out, sid, sidlen ) || strncmp( out + sidlen, " -> ", 4 ) ||
+        out[len - 1] != '\n' || strchr( out, '\n' ) != out + len - 1 ||
+        !(type = strrchr( out, ' ' )) || type <= out + sidlen + 4) return 0;
+    return !strcmp( type, " 8\n" );
 }
 
 /* Domain records that the domain no longer has become tombstones, but only when the controller answers: a user
@@ -212,7 +238,9 @@ static int check_domain_records( struct account_map *map )
          * record for the next sync */
         switch (winbind_user_sid( r->name, sid, &rid ))
         {
-        case WB_ERROR: continue;
+        case WB_ERROR:
+            if (!winbind_record_missing( r )) continue;
+            break;
         case WB_NONE: break;
         case WB_USER:
             if (!memcmp( sid, r->sid, sizeof(sid) ) && rid == r->rid &&
@@ -223,6 +251,31 @@ static int check_domain_records( struct account_map *map )
         changed = 1;
     }
     return changed;
+}
+
+struct domain_check
+{
+    char *original;
+    size_t length;
+    struct account_map *map;
+    int changed;
+};
+
+/* Sync's potentially slow Winbind/NSS probes never hold the map lock. Publication is atomic, so a protected
+ * snapshot can be read without it. After locking, apply these answers only to the exact bytes probed: a
+ * concurrent admit, restore or other writer invalidates the whole batch, leaving domain records for next sync.
+ * Missing/invalid maps are handled by the normal locked validation and recovery, never by this preflight. */
+static void prepare_domain_check( int dir, gid_t group, struct domain_check *check )
+{
+    struct stat st;
+    char *parsed;
+
+    if (fstatat( dir, "accounts.map", &st, AT_SYMLINK_NOFOLLOW ) ||
+        read_protected( dir, "accounts.map", group, &check->original, &check->length )) return;
+    if (!(check->map = calloc( 1, sizeof(*check->map) )) || !(parsed = strdup( check->original ))) return;
+    /* parse_map splits its buffer in place; retain the original bytes for the locked comparison. */
+    if (!parse_map( parsed, check->map )) check->changed = check_domain_records( check->map );
+    free( parsed );
 }
 
 static int save_map( int dir, const struct account_map *map, gid_t group, int fresh )
@@ -528,6 +581,7 @@ int main( int argc, char **argv )
     struct account_native *users = NULL;
     const struct account_native *builtin = NULL;
     struct account_policy policy;
+    struct domain_check domain_check = {0};
     struct stat st;
     char *buf = NULL;
     const char *command = NULL, *legacy = NULL, *retire = NULL, *rename_old = NULL, *rename_new = NULL;
@@ -610,6 +664,7 @@ int main( int argc, char **argv )
     }
     if ((dir = protected_directory( account_directory, &status )) == -1) goto done;
     if ((status = read_policy( dir, &policy ))) goto done;
+    if (!strcmp( command, "sync" )) prepare_domain_check( dir, policy.system_gid, &domain_check );
     status = WEX_ACCOUNT_MAP_UNPROTECTED;
     if ((lock = checked_lock( dir )) == -1) goto done;
     if (!cleanup_temps( dir )) goto done;
@@ -644,8 +699,14 @@ int main( int argc, char **argv )
     }
     else
     {
-        if ((status = read_protected( dir, "accounts.map", policy.system_gid, &buf, &length )) ||
-            (status = parse_map( buf, map ))) goto done;
+        if ((status = read_protected( dir, "accounts.map", policy.system_gid, &buf, &length ))) goto done;
+        if (domain_check.changed && length == domain_check.length &&
+            !memcmp( buf, domain_check.original, length ))
+        {
+            memcpy( map, domain_check.map, sizeof(*map) );
+            changed = 1;
+        }
+        else if ((status = parse_map( buf, map ))) goto done;
     }
 recovered:
     if ((status = native_accounts( users, &count ))) goto done;
@@ -701,7 +762,6 @@ recovered:
             for (j = 0; j < count; j++) if (map->records[i].uid == users[j].uid) break;
             if (j < count) { map->records[i].active = 0; changed = 1; }
         }
-        if (!strcmp( command, "sync" ) && check_domain_records( map )) changed = 1;
         /* The built-in Administrator (sysrun.conf "builtin_administrator=NAME")
          * receives the reserved RID 500 the first time it is mapped. A counter-RID
          * record it already has is retired once and replaced (a new SID). RID 500
@@ -760,6 +820,8 @@ done:
     if (!ok) fprintf( stderr, "wex-accounts: FAIL status=%u (sync [--initialize] [--legacy-user NAME], retire NAME, rename OLD NEW, admit, restore NAME)\n", (unsigned int)status );
     else printf( "wex-accounts: OK generation=%llu changed=%d\n", map ? (unsigned long long)map->generation : 0ULL, changed );
     free( buf );
+    free( domain_check.original );
+    free( domain_check.map );
     free( users );
     free( map );
     if (lock != -1) close( lock );

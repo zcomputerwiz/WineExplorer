@@ -23,7 +23,7 @@ printf 'bob:x:1001:2001::/home/bob:/bin/sh\nalice:x:1002:2001::/home/alice:/bin/
 
 cc -O2 -Wall -Wextra -Werror -DWEX_ACCOUNTS_TEST \
     -o "$FIXTURE/lab" "$REPO/tools/wex-accounts/wex-accounts.c"
-cc -O2 -Wall -Wextra -Werror \
+cc -O2 -Wall -Wextra -Werror -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
     -o "$FIXTURE/production" "$REPO/tools/wex-accounts/wex-accounts.c"
 TOOL=("$FIXTURE/lab" --directory "$CONF" --test-passwd "$PASSWD" --test-group "$GROUP")
 "$FIXTURE/lab" test-small-number || fail 'small numeric bound'
@@ -382,16 +382,44 @@ EOF
 cat > "$FIXTURE/wbinfo" <<EOF
 #!/bin/sh
 W="$WB"
+L="$D2/.accounts.lock"
+if [ -e "\$W/check-lock" ]; then
+    touch "\$W/lock-checked"
+    if [ -e "\$L" ] && ! flock -n "\$L" true; then touch "\$W/lock-held"; exit 1; fi
+fi
 case "\$1" in
 --own-domain) [ -s "\$W/own-domain" ] && cat "\$W/own-domain" ;;
 -D) [ "\$2" = "\$(cat "\$W/own-domain")" ] || exit 1
     printf 'Name              : %s\nAlt_Name          : ad.wexlab.example\nSID               : %s\n' "\$2" "\$(cat "\$W/domain-sid")" ;;
 --name-to-sid)
-    # Samba's own words (4.17, from the GPO lab): Winbind or the controller unavailable, or no such name
     [ ! -e "\$W/hang" ] || sleep 30
-    if [ -e "\$W/transient" ]; then echo 'failed to call wbcLookupName: WBC_ERR_WINBIND_NOT_AVAILABLE' >&2; exit 1; fi
+    if [ -e "\$W/transient" ]; then
+        if [ -e "\$W/transient-message" ]; then cat "\$W/transient-message" >&2
+        else echo 'failed to call wbcLookupName: WBC_ERR_WINBIND_NOT_AVAILABLE' >&2; fi
+        exit 1
+    fi
+    if [ -e "\$W/name-transient" ]; then echo 'name lookup temporarily unavailable' >&2; exit 1; fi
     N="\$2" awk '\$1 == ENVIRON["N"] { \$1 = ""; sub(/^ /, ""); print; f = 1 } END { exit !f }' "\$W/users" && exit 0
+    if [ -e "\$W/notfound-message" ]; then cat "\$W/notfound-message" >&2; exit 1; fi
     printf 'failed to call wbcLookupName: WBC_ERR_DOMAIN_NOT_FOUND\nCould not lookup name %s\n' "\$2" >&2; exit 1 ;;
+--lookup-sids)
+    [ ! -e "\$W/hang" ] || sleep 30
+    if [ -e "\$W/transient" ]; then echo 'reverse lookup temporarily unavailable' >&2; exit 1; fi
+    if [ -e "\$W/publish-map" ]; then
+        cp -p "$D2/accounts.map" "$D2/.concurrent-map"
+        awk 'NR == 1 { \$3++ } \$1 == "WEXLAB\\\\wexadm1" && \$4 == "active" { \$4 = "tombstone" } { print }' \
+            "$D2/accounts.map" > "$D2/.concurrent-map"
+        mv "$D2/.concurrent-map" "$D2/accounts.map"
+        cp -p "$D2/accounts.map" "\$W/published-map"
+        rm "\$W/publish-map"
+    fi
+    if [ -e "\$W/sid-reply" ]; then
+        cat "\$W/sid-reply"
+        [ ! -e "\$W/sid-status" ] || exit "\$(cat "\$W/sid-status")"
+        exit 0
+    fi
+    N="\$2" awk '\$2 == ENVIRON["N"] { t = \$4; gsub(/[()]/, "", t); print \$2 " -> " \$1 " " t; f = 1 } END { exit !f }' "\$W/users" && exit 0
+    printf '%s -> %s 8\n' "\$2" '<none>\unknown' ;;
 --ping-dc) [ -e "\$W/ping" ] ;;
 --user-domgroups)
     # one line per group SID; the user's line of \$W/groups ("USER-SID GROUP-SID...")
@@ -420,7 +448,14 @@ d2_lookup()
     "${D2TOOL[@]}" lookup "$query" > "$FIXTURE/d2.lookup" || status=$?
     [ "$status" -eq "$wanted" ] || { cat "$FIXTURE/d2.lookup"; fail "d2 lookup $query expected $wanted got $status"; }
 }
-d2_sync() { "${D2TOOL[@]}" sync "$@" > "$FIXTURE/d2.sync" 2>&1 || { cat "$FIXTURE/d2.sync"; fail "d2 sync $*"; }; }
+d2_sync()
+{
+    rm -f "$WB/lock-held" "$WB/lock-checked"
+    touch "$WB/check-lock"
+    "${D2TOOL[@]}" sync "$@" > "$FIXTURE/d2.sync" 2>&1 || { cat "$FIXTURE/d2.sync"; fail "d2 sync $*"; }
+    rm "$WB/check-lock"
+    [ ! -e "$WB/lock-held" ] || fail 'd2: a Winbind sync probe ran with the map lock held'
+}
 d2_gen() { awk 'NR == 1 {print $3}' "$D2MAP"; }
 
 d2_sync --initialize --legacy-user bob
@@ -514,6 +549,22 @@ mv "$WB/own-domain" "$WB/own-domain.off"
 admit_refused 'WEXLAB\wexuser2' 'Winbind not answering' 9
 mv "$WB/own-domain.off" "$WB/own-domain"
 admit_ok 'WEXLAB\wexuser2'
+# A display label may change independently of its numeric SID type.
+cp -p "$D2MAP" "$FIXTURE/d2.before-type-label"
+cp "$WB/users" "$WB/users.before-type-label"
+awk '{ $3 = "reworded-type-label"; print }' "$WB/users" > "$WB/users.next"
+mv "$WB/users.next" "$WB/users"
+d2_sync
+cmp -s "$D2MAP" "$FIXTURE/d2.before-type-label" || fail 'd2: a changed SID type label changed the map'
+mv "$WB/users.before-type-label" "$WB/users"
+echo 'OK: domain successful lookups use numeric types independently of display labels'
+# A failed name lookup does not erase an account whose stored SID still resolves as a user.
+cp -p "$D2MAP" "$FIXTURE/d2.before-name-error"
+touch "$WB/name-transient"
+d2_sync
+cmp -s "$D2MAP" "$FIXTURE/d2.before-name-error" || fail 'd2: a name-only failure retired an existing SID'
+rm "$WB/name-transient"
+echo 'OK: domain typed errors keep an existing SID after a name-only failure'
 # the controller away: sync keeps every domain record, also one the domain has dropped
 sed -i '/wexuser2/d' "$WB/users"
 rm "$WB/ping"
@@ -524,14 +575,60 @@ grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: a record was
 touch "$WB/ping" "$WB/transient"
 d2_sync
 grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: a transient Winbind error retired a record'
+# Even the old exact error text is not a typed answer: the reverse lookup still fails.
+echo 'failed to call wbcLookupName: WBC_ERR_DOMAIN_NOT_FOUND' > "$WB/transient-message"
+d2_sync
+grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: transient legacy error wording retired a record'
+rm "$WB/transient-message"
 rm "$WB/transient"; touch "$WB/hang"
 d2_sync
 grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: a Winbind timeout retired a record'
 rm "$WB/hang"
-# the controller back and answering: the dropped user becomes a tombstone, the other stays
+echo 'OK: domain typed errors keep transient failures and timeouts'
+# A successful command alone is insufficient: only one matching SID with numeric type 8 is definitive.
+D2SID2='S-1-5-21-111-222-333-1105'
+cp -p "$D2MAP" "$FIXTURE/d2.before-sid-errors"
+for reply in malformed wrong-sid unknown-type user-type invalid-type multiline cut nul overflow nonzero; do
+    case "$reply" in
+    malformed) printf '%s\n' "$D2SID2 -> 8" > "$WB/sid-reply" ;;
+    wrong-sid) printf '%s\n' 'S-1-5-21-111-222-333-9999 -> <none>\unknown 8' > "$WB/sid-reply" ;;
+    unknown-type) printf '%s\n' "$D2SID2 -> <none>\unknown 99" > "$WB/sid-reply" ;;
+    user-type) printf '%s\n' "$D2SID2 -> WEXLAB\renamed 1" > "$WB/sid-reply" ;;
+    invalid-type) printf '%s\n' "$D2SID2 -> <none>\unknown invalid" > "$WB/sid-reply" ;;
+    multiline) printf '%s\n' "$D2SID2 -> <none>\unknown 8" "$D2SID2 -> <none>\unknown 8" > "$WB/sid-reply" ;;
+    cut) printf '%s' "$D2SID2 -> <none>\unknown 8" > "$WB/sid-reply" ;;
+    nul) printf '%s\n\000trailing junk\n' "$D2SID2 -> <none>\unknown 8" > "$WB/sid-reply" ;;
+    # The valid-looking first line occupies exactly the 4095-byte capture limit, followed by more data.
+    overflow) printf '%s -> %0*d 8\ntrailing junk\n' "$D2SID2" "$((4095 - ${#D2SID2} - 7))" 0 > "$WB/sid-reply" ;;
+    nonzero) printf '%s\n' "$D2SID2 -> <none>\unknown 8" > "$WB/sid-reply"; echo 1 > "$WB/sid-status" ;;
+    esac
+    d2_sync
+    cmp -s "$D2MAP" "$FIXTURE/d2.before-sid-errors" || fail "d2: $reply reverse lookup changed the map"
+done
+rm "$WB/sid-reply" "$WB/sid-status"
+echo 'OK: domain typed errors keep malformed or unsuccessful reverse lookups'
+# The fake publishes a concurrent writer's map during the missing-SID probe. Its unrelated retirement wins,
+# and the stale missing-SID answer must not retire wexuser2 or overwrite the concurrent publication.
+touch "$WB/publish-map"
 d2_sync
-grep -q '^WEXLAB\\wexuser2 .* tombstone domain ' "$D2MAP" || fail 'd2: a user the domain dropped stayed active'
+[ -e "$WB/published-map" ] || fail 'd2: concurrent publication hook did not run'
+cmp -s "$D2MAP" "$WB/published-map" || fail 'd2: stale domain probes overwrote a concurrent map publication'
+grep -q '^WEXLAB\\wexuser2 .* active domain ' "$D2MAP" || fail 'd2: stale domain probe retired an account'
+grep -q '^WEXLAB\\wexadm1 .* tombstone domain ' "$D2MAP" || fail 'd2: concurrent retirement was lost'
+[ -e "$WB/lock-checked" ] || fail 'd2: sync did not check the map lock during Winbind probes'
+echo 'OK: domain probes run without the map lock and discard stale answers'
+# Default and changed diagnostics produce identical tombstones from the definite numeric missing-SID answer.
+cp -p "$D2MAP" "$FIXTURE/d2.before-notfound"
+d2_sync
+grep -q '^WEXLAB\\wexuser2 .* tombstone domain ' "$D2MAP" || fail 'd2: a definite missing SID stayed active'
 grep -q '^WEXLAB\\wexuser1 .* active domain ' "$D2MAP" || fail 'd2: a user the domain has was retired'
+cp -p "$D2MAP" "$FIXTURE/d2.default-notfound"
+cp -p "$FIXTURE/d2.before-notfound" "$D2MAP"
+echo 'The requested account is absent from this directory (new diagnostic wording).' > "$WB/notfound-message"
+d2_sync
+cmp -s "$D2MAP" "$FIXTURE/d2.default-notfound" || fail 'd2: changed diagnostic wording changed the not-found decision'
+rm "$WB/notfound-message"
+echo 'OK: domain typed not-found ignores diagnostic wording'
 d2_lookup 2 'WEXLAB\wexuser2'
 # the same SID is not given twice, not even to the account coming back
 echo 'WEXLAB\wexuser2 S-1-5-21-111-222-333-1105 SID_USER (1)' >> "$WB/users"
