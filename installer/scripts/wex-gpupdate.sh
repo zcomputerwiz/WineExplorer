@@ -146,10 +146,20 @@ local_file()
 # A person gets, in this order, the local object's User policy, the policy of Administrators or of Non-Administrators
 # (whichever the person is), the person's own, and then the domain's; the last wins. Same rules for the file as above.
 LOCAL_USERS=$MACHINE_ROOT/drive_c/windows/system32/GroupPolicyUsers
+# a folder name that is a SID of these forms and nothing else (the grammar of the store's C code, gps_target_valid: digits
+# and dashes, four subauthorities after S-1-5-21, no leading zeros, none over 4294967295)
+target_sid_valid()
+{
+    local part rest
+    case $1 in S-1-5-32-544|S-1-5-32-545) return 0 ;; S-1-5-21-*) ;; *) return 1 ;; esac
+    rest=${1#S-1-5-21-}
+    [[ $rest =~ ^(0|[1-9][0-9]{0,9})(-(0|[1-9][0-9]{0,9})){3}$ ]] || return 1
+    for part in ${rest//-/ }; do [ "$part" -le 4294967295 ] || return 1; done
+}
 local_users_file()
 {
     local f="$LOCAL_USERS/$1/User/Registry.pol"
-    case $1 in S-1-5-32-544|S-1-5-32-545|S-1-5-21-*) ;; *) return 1 ;; esac
+    target_sid_valid "$1" || return 1
     [ -f "$f" ] && [ ! -L "$f" ] && [ -s "$f" ] && echo "$f"
 }
 

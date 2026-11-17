@@ -2,6 +2,9 @@
  * Copyright 2026 WineExplorer contributors
  *
  * wex-is-admin USER: is USER a WineExplorer administrator?
+ * USER is a local account's name, or a domain account's as the accounts map has it (DOMAIN\user): the latter is decided
+ * by the server's own lookup (lookup_account), so that a member of the administrator group and a member of Domain Admins
+ * are administrators exactly as the server takes them.
  *
  * The same rule and parser as the server (wine/server/accounts.c): the
  * administrator group is "admin_group=" of the root-owned, protected
@@ -45,11 +48,21 @@ int main( int argc, char **argv )
         if (!strcmp( argv[i], "--directory" ) && i + 1 < argc) { account_directory = argv[++i]; continue; }
         if (!strcmp( argv[i], "--test-passwd" ) && i + 1 < argc) { test_passwd = argv[++i]; continue; }
         if (!strcmp( argv[i], "--test-group" ) && i + 1 < argc) { test_group = argv[++i]; continue; }
+        if (!strcmp( argv[i], "--test-winbind-passwd" ) && i + 1 < argc) { test_winbind_passwd = argv[++i]; continue; }
 #endif
         if (name) return 2;
         name = argv[i];
     }
     if (!name) { fprintf( stderr, "usage: wex-is-admin USER | --print-group [SYSRUN_CONF]\n" ); return 2; }
+    if (strchr( name, '\\' ))
+    {
+        /* a domain account: the map's record decides, as it does for the server (the administrator group by NSS, and
+         * Domain Admins by the groups recorded at the logon) */
+        struct wex_account account;
+
+        if (!valid_any_account( name )) return 1;
+        return lookup_account( name, 0, WEX_ACCOUNT_MAP_V1, &account ) == WEX_ACCOUNT_OK && account.administrator ? 0 : 1;
+    }
     if (!accounts_valid_name( name )) return 1;
     if ((dir = protected_directory( account_directory, &status )) == -1) return 1;
     status = read_policy( dir, &policy );

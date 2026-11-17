@@ -196,7 +196,10 @@ static int open_store_dir( const struct gps_store *store, enum gps_kind kind, co
     for (; *name; name++)
     {
         next = openat( fd, *name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC );
-        if (next < 0 && errno == ENOENT && create && !mkdirat( fd, *name, 02755 ))
+        /* GroupPolicyUsers itself is made by setup-machine-root.sh (session 0 does not create folders in system32, where the
+         * system group writes): a missing one is refused; the folders below it are session 0's to make */
+        if (next < 0 && errno == ENOENT && create && !(kind == GPS_USER_TARGET_POL && fd == store->sys_fd) &&
+            !mkdirat( fd, *name, 02755 ))
         {
             next = openat( fd, *name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC );
             if (next >= 0) fchmod( next, 02755 );   /* the umask does not decide */
@@ -336,7 +339,11 @@ int gps_spool_done( struct gps_store *store, enum gps_kind kind, const char *tar
             (now.st_dev != seen[kind].dev || now.st_ino != seen[kind].ino))
             goto keep_request;   /* a newer request under the same name, not read yet: it stays */
     }
-    if (unlinkat( store->spool_fd, name, 0 ) && errno != ENOENT) result = GPS_IO_ERROR;
+    if (unlinkat( store->spool_fd, name, 0 ) && errno != ENOENT)
+    {
+        /* something that is not a file under the request's name (a directory): removed when empty, else it stays */
+        if (errno != EISDIR || unlinkat( store->spool_fd, name, AT_REMOVEDIR )) result = GPS_IO_ERROR;
+    }
 keep_request:
     /* whatever is at NAME.error goes (a link is removed, not followed), then a new file or none */
     if (unlinkat( store->spool_fd, error_name, 0 ) && errno != ENOENT) return GPS_IO_ERROR;
@@ -426,12 +433,20 @@ int gps_spool_targets( struct gps_store *store, char (*targets)[GPS_TARGET_MAX],
     {
         size_t length = strlen( entry->d_name ), head = sizeof(prefix) - 1, tail = sizeof(suffix) - 1;
         char target[GPS_TARGET_MAX];
+        struct stat st;
 
         if (length <= head + tail || length - head - tail >= GPS_TARGET_MAX) continue;
         if (strncmp( entry->d_name, prefix, head ) || strcmp( entry->d_name + length - tail, suffix )) continue;
         memcpy( target, entry->d_name + head, length - head - tail );
         target[length - head - tail] = 0;
         if (!gps_target_valid( target )) continue;
+        /* a request is a regular file: a directory, a link or another thing under that name is removed (nothing is followed;
+         * a directory that is not empty stays, and is not listed) and takes no place in the round */
+        if (fstatat( store->spool_fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW ) || !S_ISREG( st.st_mode ))
+        {
+            unlinkat( store->spool_fd, entry->d_name, S_ISDIR( st.st_mode ) ? AT_REMOVEDIR : 0 );
+            continue;
+        }
         memcpy( targets[count++], target, GPS_TARGET_MAX );
     }
     closedir( dir );

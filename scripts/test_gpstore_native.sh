@@ -44,6 +44,10 @@ fresh()
     chmod 2755 "$GP"
     chmod 2770 "$GP/Spool"
     chmod 0755 "$FX" "$FX/drive_c" "$FX/drive_c/windows" "$FX/drive_c/windows/system32"
+    # as setup-machine-root.sh makes it: session 0's, beside GroupPolicy (the store does not make it)
+    mkdir -p "$FX/drive_c/windows/system32/GroupPolicyUsers"
+    chown "$S0:$GRP" "$FX/drive_c/windows/system32/GroupPolicyUsers"
+    chmod 2755 "$FX/drive_c/windows/system32/GroupPolicyUsers"
 }
 expect() { local out; out=$("$@") || true; [ "$(code "$out")" = "$EXPECT" ] || fail "$WHAT: wanted result $EXPECT: $out"; }
 want() { EXPECT=$1; WHAT=$2; shift 2; expect "$@"; }
@@ -203,6 +207,15 @@ want $R_OK "done of a target" gpt done "$K_TARGET:$SIDA"
 [ ! -e "$GP/Spool/UserPolicy.$SIDA.Registry.pol" ] || fail "the target's request stayed"
 [ -e "$GP/Spool/UserPolicy.$SIDP.Registry.pol" ] || fail "done of one target removed another's request"
 want $R_OK "the other target's request is still there" gpt read "$K_TARGET:$SIDP" "$BIN/out"
+# directories, links and FIFOs under valid request names are not requests: they are removed and do not fill the round
+request "UserPolicy.S-1-5-21-5-6-7-8.Registry.pol" 'x'
+as_adm sh -c 'rm -f "$1" && mkdir "$1"' _ "$GP/Spool/UserPolicy.S-1-5-21-5-6-7-8.Registry.pol"
+for n in 1 2 3 4 5 6 7 8 9; do as_adm mkdir "$GP/Spool/UserPolicy.S-1-5-21-5-6-7-9$n.Registry.pol"; done
+as_adm ln -s /etc/passwd "$GP/Spool/UserPolicy.S-1-5-21-5-6-7-20.Registry.pol"
+as_adm mkfifo "$GP/Spool/UserPolicy.S-1-5-21-5-6-7-21.Registry.pol"
+OUT=$(gpt targets) || true
+case "$OUT" in "result=0 targets=$SIDP"|"result=0 targets=$SIDP,$SIDA"|"result=0 targets=$SIDA,$SIDP") ;; *) fail "listing with planted entries: $OUT" ;; esac
+[ -z "$(ls "$GP/Spool" | grep -E 'S-1-5-21-5-6-7|^$')" ] || fail "planted entries stayed: $(ls "$GP/Spool")"
 # an error for a target goes to its own NAME.error
 want $R_OK "done with an error" gpt done "$K_TARGET:$SIDP" 'error 13: refused'
 [ "$(cat "$GP/Spool/UserPolicy.$SIDP.Registry.pol.error")" = 'error 13: refused' ] || fail "the target's error file"
@@ -217,6 +230,11 @@ want $R_BADARG "no target at all" gpt write "$K_TARGET" "$BIN/in"
 : > "$BIN/empty"
 want $R_OK "remove a target's file" gpt write "$K_TARGET:$SIDA" "$BIN/empty"
 [ ! -e "$GU/$SIDA/User/Registry.pol" ] || fail "zero bytes did not remove the target's file"
+# GroupPolicyUsers itself is setup's: a store write does not make it
+rm -rf "$GU"
+want $R_NONE "no GroupPolicyUsers" gpt write "$K_TARGET:$SIDP" "$BIN/in"
+[ ! -e "$GU" ] || fail "the store made GroupPolicyUsers"
+mkdir "$GU"; chown "$S0:$GRP" "$GU"; chmod 2755 "$GU"
 # a link in place of GroupPolicyUsers, of a target's folder, or a folder the group can write, is not used
 want $R_OK "write again" gpt write "$K_TARGET:$SIDP" "$BIN/in"
 mv "$GU/$SIDP" "$GU/$SIDP.real"; ln -s "$SIDP.real" "$GU/$SIDP"

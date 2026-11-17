@@ -232,6 +232,14 @@ rm -f "$GU/S-1-5-21-11-22-33-1002/User/Registry.pol"; ln -s /etc/hostname "$GU/S
 mkdir -p "$GU/bob/User"; printf 'BYNAME' > "$GU/bob/User/Registry.pol"
 run_gpupdate "$FX/map3"
 ! grep -q '^apply /user:S-1-5-21-11-22-33-1002' "$FX/wexpolicy.log" || { cat "$FX/detail.log"; fail 'users: a link, or a folder named for the account, was taken for the person'"'"'s policy'; }
+# a SID that is not in the grammar of the store (a subauthority over 4294967295) names no object, whatever the folder holds
+mkdir -p "$GU/S-1-5-21-11-22-33-99999999999/User"; printf 'CAROL' > "$GU/S-1-5-21-11-22-33-99999999999/User/Registry.pol"
+cat > "$FX/map4" <<'EOF2'
+WEXACCOUNTS 2 4 1030 11 22 33 111 222 333 WEXLAB
+carol 1003 cccccccccccccccccccccccccccccccc active local 21 11 22 33 99999999999
+EOF2
+run_gpupdate "$FX/map4"
+! grep -q CAROL "$FX/detail.log" || { cat "$FX/detail.log"; fail 'users: a folder named for an invalid SID was taken for a person'"'"'s policy'; }
 rm -rf "$GU" "$FX/bin/wex-is-admin" "$LG/User/Registry.pol" "$LG/Machine/Registry.pol"
 echo 'OK: wex-gpupdate.sh local objects of the users (Administrators, Non-Administrators, one person; the order; a link)'
 # ---- the domain out of reach (a joined machine whose controller does not answer): what was applied is not cleared

@@ -489,8 +489,27 @@ and then the domain's objects; the last wins. `wex-gpupdate.sh` puts the files i
 the person, so nothing else changes in the writer; the applied list has the one entry "Local Group Policy" when any of
 them has a file. Same rules as for the other local files: a regular file, not a link, not empty, read as session 0's
 account; a folder is looked at only when its name is one of the two group SIDs or begins with `S-1-5-21-`.
+A domain account is asked for with its map name (`DOMAIN\user`); `wex-is-admin` decides it through the server's own
+lookup, so a member of the administrator group and a member of Domain Admins both get the Administrators object.
+A folder is looked at only when its name is in the grammar of the store (digits and dashes, four subauthorities
+after `S-1-5-21`, no leading zeros, none over 4294967295; `target_sid_valid`).
+
+*Writing them.* The editor (`mmc.exe gpedit.msc /gpobject:Administrators|Non-Administrators|ACCOUNT|SID`, the same
+window with User Configuration only; `GpEdit_SetUserPolicyW` without the window) leaves the file in the spool as
+`UserPolicy.<SID>.Registry.pol`, as for the computer's files, and gpsvc installs it (`WEX_GP_USER_TARGET_POL`, the
+target is the SID and nothing else: `gps_target_valid`, the same grammar in the C store, the Windows side and the
+script). The store opens `GroupPolicyUsers` below the `system32` descriptor that `gps_open` keeps, without following
+links, and checks every folder (session 0's, not writable by group or others); it never makes `GroupPolicyUsers`
+itself: `setup-machine-root.sh` does (section 2b, by descriptor, as the permission pass above it does, so that no
+change of root goes through a path in `system32`, which the system group can write), and the folders of a SID and its
+`User` are session 0's to make. The spool listing takes regular files only; a directory, link or FIFO under a request's
+name is removed and takes no place in the round.
+
 Checked in `scripts/test_gpupdate_users.sh` (the order, administrator or not, a domain user, joined and not, the
-person's file alone, a link). Not yet: the editor writing these files through the spool, and `gpresult` naming the layer.
+person's file alone, a link, an invalid SID), `scripts/test_gpstore_native.sh` (the targets in the store),
+`scripts/test_b3_machine_root.sh` (the setup of both stores, links in them), `scripts/test_accounts_map.sh`
+(`wex-is-admin` for domain accounts) and the suite's `st_gpedit_objects_of_the_users_go_through_the_spool_and_apply_in_order`.
+Not yet: `gpresult` naming the layer.
 
 ### Writing the local files: the spool (implemented 2026-11-16, in review by the system tier session)
 
