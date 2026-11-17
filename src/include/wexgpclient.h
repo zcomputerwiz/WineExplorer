@@ -29,6 +29,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <windows.h>
 #include <winsvc.h>
 
@@ -37,7 +38,28 @@
 #define WEX_GP_SERIAL_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\WineExplorer Applied"
 
 static const WCHAR * const wex_gp_request_names[WEX_GP_KIND_COUNT] =
-    { L"Machine.Registry.pol", L"User.Registry.pol", L"Machine.GptTmpl.inf" };
+    { L"Machine.Registry.pol", L"User.Registry.pol", L"Machine.GptTmpl.inf", NULL };
+
+/* the name of a request in the spool: the fixed one of a kind, or UserPolicy.TARGET.Registry.pol for the target of
+ * WEX_GP_USER_TARGET_POL (a SID of the forms of wexgpstore.h: only S, digits and dashes are let through, gpsvc checks the
+ * rest) */
+static DWORD wex_gp_request_name( DWORD kind, const char *target, WCHAR *name, DWORD chars )
+{
+    DWORD i;
+
+    if (kind >= WEX_GP_KIND_COUNT || (kind == WEX_GP_USER_TARGET_POL) != (target != NULL)) return ERROR_INVALID_PARAMETER;
+    if (!target)
+    {
+        if (wcslen( wex_gp_request_names[kind] ) >= chars) return ERROR_INSUFFICIENT_BUFFER;
+        wcscpy( name, wex_gp_request_names[kind] );
+        return ERROR_SUCCESS;
+    }
+    if (!target[0] || strlen( target ) >= WEX_GP_TARGET_MAX) return ERROR_INVALID_PARAMETER;
+    for (i = 0; target[i]; i++)
+        if (target[i] != 'S' && target[i] != '-' && (target[i] < '0' || target[i] > '9')) return ERROR_INVALID_PARAMETER;
+    if (swprintf( name, chars, L"UserPolicy.%hs.Registry.pol", target ) < 0) return ERROR_INSUFFICIENT_BUFFER;
+    return ERROR_SUCCESS;
+}
 
 /* a number that gpsvc keeps in the serial key: Refreshed (counts the finished refreshes), Stored (counts the passes over
  * the spool, raised when one ends) and StoreStatus (the error that the last pass could not leave in a NAME.error) */
@@ -178,10 +200,10 @@ static void wex_gp_take_error( const WCHAR *dir, const WCHAR *name, WCHAR *messa
  * and the refresh ended; ERROR_ACCESS_DENIED when this process is not of the system group (not elevated);
  * ERROR_INVALID_DATA with the reason in message when gpsvc refused the file; another error when gpsvc could not look
  * at the spool (StoreStatus); ERROR_TIMEOUT when the request was not taken, or the refresh did not end. */
-static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG wait_seconds, WCHAR *message, DWORD chars,
-                                  BOOL pump )
+static DWORD wex_gp_store_write_target( DWORD kind, const char *target, const void *data, DWORD size, LONG wait_seconds,
+                                         WCHAR *message, DWORD chars, BOOL pump )
 {
-    WCHAR dir[MAX_PATH], path[MAX_PATH + 40];
+    WCHAR dir[MAX_PATH], path[MAX_PATH + 40], name[WEX_GP_TARGET_MAX + 40];
     SC_HANDLE manager, service;
     SERVICE_STATUS status;
     DWORD stored, err;
@@ -189,10 +211,11 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
 
     message[0] = 0;
     if (kind >= WEX_GP_KIND_COUNT || (size && !data)) return ERROR_INVALID_PARAMETER;
+    if ((err = wex_gp_request_name( kind, target, name, ARRAY_SIZE(name) ))) return err;
     if (size > (kind == WEX_GP_MACHINE_TEMPLATE ? WEX_GP_TEMPLATE_LIMIT : WEX_GP_REQUEST_LIMIT)) return ERROR_FILE_TOO_LARGE;
     if (!GetSystemDirectoryW( dir, MAX_PATH - 20 )) return GetLastError();
     wcscat( dir, L"\\GroupPolicy\\Spool" );
-    if ((err = wex_gp_leave_request( dir, wex_gp_request_names[kind], data, size ))) return err;
+    if ((err = wex_gp_leave_request( dir, name, data, size ))) return err;
 
     stored = wex_gp_serial( L"Stored" );
     start = GetTickCount64();
@@ -209,14 +232,14 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
     }
     if (err)
     {
-        swprintf( path, ARRAY_SIZE(path), L"%ls\\%ls", dir, wex_gp_request_names[kind] );
+        swprintf( path, ARRAY_SIZE(path), L"%ls\\%ls", dir, name );
         DeleteFileW( path );   /* not taken: it must not wait there for the next time */
         return err;
     }
     /* gpsvc handles the request in its own time (the control code only wakes it, and several requests are one pass):
      * every pass ends with a new Stored number, and a request that it took is gone from the spool. A pass that ended
      * before gpsvc read this request leaves it there: the wait goes on for the next pass. */
-    swprintf( path, ARRAY_SIZE(path), L"%ls\\%ls", dir, wex_gp_request_names[kind] );
+    swprintf( path, ARRAY_SIZE(path), L"%ls\\%ls", dir, name );
     if (!wait_seconds) return ERROR_SUCCESS;
     for (;;)
     {
@@ -241,11 +264,18 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
             return ERROR_TIMEOUT;
         }
     }
-    wex_gp_take_error( dir, wex_gp_request_names[kind], message, chars );
+    wex_gp_take_error( dir, name, message, chars );
     if (message[0]) return ERROR_INVALID_DATA;
     /* the refresh that the pass asked for (the pass ended before Stored was raised, so its request is numbered) */
     return wex_gp_wait_served( wex_gp_left( wait_seconds, start ) ? wex_gp_left( wait_seconds, start ) : 1, pump )
            ? ERROR_SUCCESS : ERROR_TIMEOUT;
+}
+
+/* a kind that has no target (the computer's files, the local object's User policy) */
+static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG wait_seconds, WCHAR *message, DWORD chars,
+                                  BOOL pump )
+{
+    return wex_gp_store_write_target( kind, NULL, data, size, wait_seconds, message, chars, pump );
 }
 
 #endif

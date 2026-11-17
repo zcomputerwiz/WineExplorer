@@ -44,7 +44,15 @@
 
 /* the limits are written twice (the PE side's header and the native code's): they have to agree */
 typedef char limits_agree[(WEX_GP_REQUEST_LIMIT == GPS_REQUEST_LIMIT && WEX_GP_TEMPLATE_LIMIT == GPS_TEMPLATE_LIMIT &&
-                           WEX_GP_ERROR_LIMIT == GPS_ERROR_LIMIT) ? 1 : -1];
+                           WEX_GP_ERROR_LIMIT == GPS_ERROR_LIMIT && WEX_GP_TARGET_MAX == GPS_TARGET_MAX &&
+                           WEX_GP_KIND_COUNT == GPS_KIND_COUNT) ? 1 : -1];
+
+/* the target of a call: NULL when none was given; the text is zero-terminated here, whatever the caller sent */
+static const char *call_target( char *target, DWORD given )
+{
+    target[WEX_GP_TARGET_MAX - 1] = 0;
+    return given ? target : NULL;
+}
 
 /* The machine root is the one in the root-owned configuration of the system tier (the same file and rule as the
  * server's: not a link, owned by root, not writable by others, "machine_root=" given exactly once), never something
@@ -109,7 +117,7 @@ static NTSTATUS gpstore_read( void *args )
     params->length = 0;
     if (result == GPS_OK)
     {
-        result = gps_spool_read( &store, params->kind, &data, &size );
+        result = gps_spool_read( &store, params->kind, call_target( params->target, params->target_given ), &data, &size );
         gps_close( &store );
     }
     params->err = win32_error( result );
@@ -132,7 +140,7 @@ static NTSTATUS gpstore_done( void *args )
     params->error[WEX_GP_ERROR_LIMIT] = 0;
     if (result == GPS_OK)
     {
-        result = gps_spool_done( &store, params->kind, params->has_error ? params->error : NULL );
+        result = gps_spool_done( &store, params->kind, call_target( params->target, params->target_given ), params->has_error ? params->error : NULL );
         gps_close( &store );
     }
     params->err = win32_error( result );
@@ -147,7 +155,26 @@ static NTSTATUS gpstore_write( void *args )
 
     if (result == GPS_OK)
     {
-        result = gps_store_write( &store, params->kind, (const unsigned char *)(ULONG_PTR)params->data, params->size );
+        result = gps_store_write( &store, params->kind, call_target( params->target, params->target_given ), (const unsigned char *)(ULONG_PTR)params->data, params->size );
+        gps_close( &store );
+    }
+    params->err = win32_error( result );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS gpstore_targets( void *args )
+{
+    struct targets_params *params = args;
+    struct gps_store store;
+    int result = open_store( &store );
+
+    params->count = 0;
+    if (result == GPS_OK)
+    {
+        int count = gps_spool_targets( &store, (char (*)[GPS_TARGET_MAX])(ULONG_PTR)params->targets, params->max );
+
+        if (count < 0) result = GPS_IO_ERROR;
+        else params->count = count;
         gps_close( &store );
     }
     params->err = win32_error( result );
@@ -160,6 +187,7 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     gpstore_read,
     gpstore_done,
     gpstore_write,
+    gpstore_targets,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -172,6 +200,7 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     gpstore_read,
     gpstore_done,
     gpstore_write,
+    gpstore_targets,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );

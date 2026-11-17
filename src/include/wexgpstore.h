@@ -27,7 +27,12 @@
 #define WEX_GP_MACHINE_POL       0   /* GroupPolicy\Machine\Registry.pol; request Machine.Registry.pol */
 #define WEX_GP_USER_POL          1   /* GroupPolicy\User\Registry.pol; request User.Registry.pol */
 #define WEX_GP_MACHINE_TEMPLATE  2   /* GroupPolicy\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf; Machine.GptTmpl.inf */
-#define WEX_GP_KIND_COUNT        3
+#define WEX_GP_USER_TARGET_POL   3   /* GroupPolicyUsers/TARGET/User/Registry.pol, TARGET a SID; request UserPolicy.TARGET.Registry.pol */
+#define WEX_GP_KIND_COUNT        4
+
+/* The target of WEX_GP_USER_TARGET_POL: the SID of the Administrators (S-1-5-32-544), of the Non-Administrators
+ * (S-1-5-32-545) or of a person (S-1-5-21-A-B-C-RID), as ANSI text; every other kind takes NULL. */
+#define WEX_GP_TARGET_MAX        64
 
 #define WEX_GP_REQUEST_LIMIT     (4 * 1024 * 1024)
 #define WEX_GP_TEMPLATE_LIMIT    (1024 * 1024)
@@ -46,13 +51,17 @@ DWORD WINAPI WexGpStoreOpen(void);
  * when there is none, ERROR_ACCESS_DENIED for a link, a FIFO or a file with a second link, ERROR_FILE_TOO_LARGE over
  * the limit; *length 0 with ERROR_SUCCESS asks to remove the store file. ERROR_INSUFFICIENT_BUFFER (and *length)
  * when the buffer is too small. */
-DWORD WINAPI WexGpSpoolRead( DWORD kind, void *buffer, DWORD size, DWORD *length );
+DWORD WINAPI WexGpSpoolRead( DWORD kind, const char *target, void *buffer, DWORD size, DWORD *length );
+
+/* the targets that have a request in the spool: at most max names of WEX_GP_TARGET_MAX bytes in targets, their number
+ * in *count (a request over max waits for the next call) */
+DWORD WINAPI WexGpSpoolTargets( char (*targets)[WEX_GP_TARGET_MAX], DWORD max, DWORD *count );
 
 /* the request is handled: it is removed, and NAME.error is written with the text (at most 200 bytes), or an old
  * NAME.error is removed when the text is NULL */
-DWORD WINAPI WexGpSpoolDone( DWORD kind, const char *error );
+DWORD WINAPI WexGpSpoolDone( DWORD kind, const char *target, const char *error );
 
 /* the store file of a kind, written as STORE.new and renamed into place; size 0 removes it */
-DWORD WINAPI WexGpStoreWrite( DWORD kind, const void *data, DWORD size );
+DWORD WINAPI WexGpStoreWrite( DWORD kind, const char *target, const void *data, DWORD size );
 
 #endif
