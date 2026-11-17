@@ -569,6 +569,41 @@ void bump_serial( HKEY root, BOOL user )
 static CRITICAL_SECTION request_lock;
 static DWORD requested;
 
+/* The numbers go on from where they were (the service may have been restarted, or the machine: the registry's
+ * Requested is volatile, the number in the request file is not): the one that is ahead, in the sense of a serial number
+ * that may wrap. Called once the stable Group Policy key exists, so that the volatile key below is made under it. */
+static void restore_requested(void)
+{
+    WCHAR path[MAX_PATH];
+    char text[32];
+    UINT len = GetSystemDirectoryW( path, ARRAY_SIZE(path) );
+    DWORD size = sizeof(requested), done = 0, from_file = 0, i;
+    HANDLE file;
+    HKEY key;
+
+    requested = 0;
+    if (!RegOpenKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key ))
+    {
+        if (RegQueryValueExW( key, L"Requested", NULL, NULL, (BYTE *)&requested, &size )) requested = 0;
+        RegCloseKey( key );
+    }
+    if (!len || len > ARRAY_SIZE(path) - 32) return;
+    wcscat( path, L"\\GroupPolicy\\Refresh" );
+    file = CreateFileW( path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL );
+    if (file == INVALID_HANDLE_VALUE) return;
+    if (!ReadFile( file, text, sizeof(text) - 1, &done, NULL )) done = 0;
+    CloseHandle( file );
+    for (i = 0; i < done && text[i] >= '0' && text[i] <= '9'; i++) from_file = from_file * 10 + (text[i] - '0');
+    if (!i || (LONG)(from_file - requested) <= 0) return;
+    requested = from_file;
+    if (!RegCreateKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, NULL, REG_OPTION_VOLATILE,
+                          KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, NULL ))
+    {
+        RegSetValueExW( key, L"Requested", 0, REG_DWORD, (const BYTE *)&requested, sizeof(requested) );
+        RegCloseKey( key );
+    }
+}
+
 DWORD request_refresh(void)
 {
     WCHAR path[MAX_PATH];
@@ -689,17 +724,8 @@ static void spool_pass(void)
 static void WINAPI service_main( DWORD argc, WCHAR **argv )
 {
     HANDLE handles[3];
-    HKEY key;
-    DWORD size = sizeof(requested);
 
     InitializeCriticalSection( &request_lock );
-    /* the numbers go on from where the registry has them (the service may have been restarted) */
-    /* opened, not created: a key made here, before the stable Group Policy key below, would make that one volatile */
-    if (!RegOpenKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key ))
-    {
-        if (RegQueryValueExW( key, L"Requested", NULL, NULL, (BYTE *)&requested, &size )) requested = 0;
-        RegCloseKey( key );
-    }
     if (!(service_handle = RegisterServiceCtrlHandlerExW( SERVICE_NAME, service_handler, NULL ))) return;
     stop_event = CreateEventW( NULL, TRUE, FALSE, NULL );
     handles[0] = stop_event;
@@ -724,6 +750,7 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
         if (!RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy", 0, NULL,
                               0, KEY_READ | KEY_WOW64_64KEY, NULL, &key, NULL )) RegCloseKey( key );
     }
+    restore_requested();
     for (;;)
     {
         /* a hive that is loaded notifies this watch (the server does, as on Windows; an unload does not); the look every half
