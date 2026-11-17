@@ -3958,6 +3958,40 @@ s0_wine reg delete "$ELEV" /v LockoutBadCount /f >/dev/null 2>&1 || true
 rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
 kill_servers
 ok st_secpol_setting_goes_through_the_spool_into_the_template_and_applies
+# the window itself (xdotool on Xvfb, no window manager: a window opens at 0,0 and its parts are at the places the
+# window has by design): a standard user's save through the Properties sheet is refused and the window offers to open
+# again as an administrator (a message box, a second window of the same title) and changes nothing. (The save of a process
+# of the system group is the one of SecPol_SetW above: the window of session 0's account does not get xdotool's input.)
+gp_tree
+s0_wine sc start gpsvc >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+secpol_open_threshold()   # the Properties sheet of the lockout threshold, the number set to 3, OK
+{
+    XD mousemove 130 107 click 1; sleep 2
+    XD mousemove 300 94 click 1; sleep 1; XD key alt+Return; sleep 4
+    XD mousemove 50 182 click 1; XD key ctrl+a BackSpace; XD type 3; sleep 1
+    XD key Return
+}
+secpol_shot() { DISPLAY=":$DNUM" xwd -root -silent 2>/dev/null | convert xwd:- "/var/tmp/wex-run/secpol-$1.png" 2>/dev/null || true; cp "$POL/secpol-win.out" /var/tmp/wex-run/secpol-win.out 2>/dev/null || true; }
+secpol_windows() { XD search --onlyvisible --name 'Local Security Settings' 2>/dev/null | wc -l; }
+# a standard user: refused, offered elevation, nothing changed, no refresh asked
+rm -f "$REQ"
+(wine_as "$STD" mmc.exe secpol.msc </dev/null > "$POL/secpol-std.out" 2>&1) &
+SPS_PID=$!
+for i in $(seq 1 60); do [ "$(secpol_windows)" -ge 1 ] && break; sleep 1; done
+sleep 5
+secpol_open_threshold
+sleep 8
+secpol_shot denied
+[ "$(secpol_windows)" -ge 2 ] || fail "secpol window: a standard user was not offered elevation (windows: $(secpol_windows))"
+[ ! -s "$REQ" ] || fail "secpol window: a standard user's save asked for a refresh"
+[ -z "$(as_wine "$STD" reg query "$ELEV" /v LockoutBadCount | val LockoutBadCount || true)" ] || fail "secpol window: a standard user changed the setting"
+XD key Escape; sleep 1
+pkill -u "$STD" -f 'mmc.exe' || true
+wait "$SPS_PID" 2>/dev/null || true
+rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
+kill_servers
+ok st_secpol_window_offers_a_standard_user_elevation
 # Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
 # extension, for the machine and for the user
 REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'
