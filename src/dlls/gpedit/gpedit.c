@@ -99,6 +99,8 @@ static BOOL store_path( enum policy_scope scope, WCHAR *path, DWORD chars )
 static BOOL load_failed[2];
 /* no message boxes: GpEdit_SetPolicyW is for scripts */
 static BOOL quiet;
+/* a change is being handed to gpsvc: the window is not closed meanwhile */
+static BOOL saving;
 
 /* the local object's file of a scope into its model; no file (or an empty one) is an empty model, a file that is
  * there and cannot be read as a policy file is reported and leaves load_failed set */
@@ -192,10 +194,15 @@ static void offer_elevation( HWND owner )
     if (MessageBoxW( owner, L"Changing the local policy needs the rights of an administrator.\n\n"
                             L"Open Group Policy again as an administrator?", L"Group Policy", MB_YESNO | MB_ICONQUESTION ) != IDYES)
         return;
-    WCHAR parameters[128] = L"gpedit.msc";
+    WCHAR program[MAX_PATH], parameters[MAX_PATH + 64];
+    UINT n = GetSystemDirectoryW( program, ARRAY_SIZE(program) - 12 );
 
-    if (target_sid[0]) swprintf( parameters, ARRAY_SIZE(parameters), L"gpedit.msc /gpobject:%hs", target_sid );
-    if ((INT_PTR)ShellExecuteW( owner, L"runas", L"mmc.exe", parameters, NULL, SW_SHOWNORMAL ) > 32) DestroyWindow( frame );
+    /* the programs of the system folder, not whatever the current directory has under those names */
+    if (!n) return;
+    if (target_sid[0]) swprintf( parameters, ARRAY_SIZE(parameters), L"\"%ls\\gpedit.msc\" /gpobject:%hs", program, target_sid );
+    else swprintf( parameters, ARRAY_SIZE(parameters), L"\"%ls\\gpedit.msc\"", program );
+    wcscat( program, L"\\mmc.exe" );
+    if ((INT_PTR)ShellExecuteW( owner, L"runas", program, parameters, NULL, SW_SHOWNORMAL ) > 32 && IsWindow( frame )) DestroyWindow( frame );
 }
 
 static void report_error( HWND owner, DWORD err, const WCHAR *message )
@@ -254,10 +261,13 @@ static BOOL save_scope( HWND owner, enum policy_scope scope )
     HCURSOR old = SetCursor( LoadCursorW( NULL, (LPCWSTR)IDC_WAIT ) );
     DWORD err;
 
-    /* the window is disabled while the wait pumps its messages: no second change can start meanwhile */
+    /* the window is disabled while the wait pumps its messages: no second change can start meanwhile, and a request to
+     * close it waits until the change has ended (frame_proc) */
+    saving = TRUE;
     if (frame) EnableWindow( frame, FALSE );
     err = commit_scope( scope, message, ARRAY_SIZE(message) );
-    if (frame) EnableWindow( frame, TRUE );
+    saving = FALSE;
+    if (frame && IsWindow( frame )) EnableWindow( frame, TRUE );
     SetCursor( old );
     if (err) report_error( owner, err, message );
     return !err;
@@ -714,7 +724,11 @@ static LRESULT CALLBACK frame_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
             return 0;
         }
         break;
+    case WM_CLOSE:
+        if (saving) return 0;
+        break;
     case WM_DESTROY:
+        frame = NULL;
         PostQuitMessage( 0 );
         return 0;
     }

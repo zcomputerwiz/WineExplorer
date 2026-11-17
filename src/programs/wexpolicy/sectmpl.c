@@ -48,6 +48,7 @@
 
 #define ELEVATION_KEY  L"Software\\WineExplorer\\Elevation"
 #define MAX_TEXT       4096
+#define CONSENT_KEY    L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
 #define LONGEST_MINUTES 99999
 
 static unsigned int count_set, count_not_applicable;
@@ -134,6 +135,26 @@ static DWORD registry_data( INFCONTEXT *ctx, DWORD type, BYTE *data, DWORD room 
     }
 }
 
+/* whether a line of [Registry Values] names the value ConsentPromptBehaviorAdmin of the System policy key: the key is
+ * compared as the registry reads it (case-insensitive, repeated backslashes count as one, one at either end is no part
+ * of the name), so that a doubled backslash does not make another key of it */
+static BOOL is_consent_value( const WCHAR *key, size_t length, const WCHAR *value )
+{
+    WCHAR collapsed[MAX_TEXT];
+    size_t i, n = 0;
+
+    /* (names compare as the registry server compares them, in upper case: _wcsicmp lower-cases, and a few characters
+     * differ, such as U+017F and U+0131) */
+    if (CompareStringOrdinal( value, -1, L"ConsentPromptBehaviorAdmin", -1, TRUE ) != CSTR_EQUAL) return FALSE;
+    for (i = 0; i < length && n + 1 < ARRAY_SIZE(collapsed); i++)
+    {
+        if (key[i] == '\\' && (!n || collapsed[n - 1] == '\\')) continue;
+        collapsed[n++] = key[i];
+    }
+    if (n && collapsed[n - 1] == '\\') n--;
+    return n == ARRAY_SIZE(CONSENT_KEY) - 1 && CompareStringOrdinal( collapsed, n, CONSENT_KEY, n, TRUE ) == CSTR_EQUAL;
+}
+
 /* [Registry Values]: security options in the policy trees */
 static DWORD registry_values( HINF inf, BOOL write )
 {
@@ -156,6 +177,25 @@ static DWORD registry_values( HINF inf, BOOL write )
         {
             if (write) count_not_applicable++;
             continue;
+        }
+        /* The elevation service reads ConsentPromptBehaviorAdmin and fails closed for any other number than the two it
+         * implements (2 and 5): a line that would store another value, or a value of another type (0 asks for no prompt at
+         * all), is left out as not applicable, and said, so that the rest of the template still applies. */
+        if (is_consent_value( path + 8, name - (path + 8), name + 1 ))
+        {
+            DWORD behavior = 0;
+
+            if (type != REG_DWORD || !registry_data( &ctx, type, data, sizeof(data) )) behavior = 0;
+            else memcpy( &behavior, data, sizeof(behavior) );
+            if (behavior != 2 && behavior != 5)
+            {
+                if (write)
+                {
+                    count_not_applicable++;
+                    say( "wexpolicy: [Registry Values] %ls: only the values 2 and 5 (REG_DWORD) are taken, the line is left out\n", name + 1 );
+                }
+                continue;
+            }
         }
         if (!(size = registry_data( &ctx, type, data, sizeof(data) ))) return ERROR_BAD_FORMAT;
         if (!write) continue;

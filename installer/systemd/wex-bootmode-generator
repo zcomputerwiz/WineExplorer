@@ -47,6 +47,18 @@ networking="NetworkManager.service dbus-org.freedesktop.NetworkManager.service N
 NetworkManager-dispatcher.service dbus-org.freedesktop.nm-dispatcher.service wpa_supplicant.service
 ModemManager.service networking.service"
 
+# Session 0, when this machine has it (enabled for multi-user.target, which no Safe Mode target pulls in), runs in
+# Safe Mode too, as Windows keeps session 0 and its service manager there; its services.exe starts only the
+# SafeBoot services. Without it the logon screen's and the users' Wine cannot start, and there is no elevation.
+enabled=${WEX_BOOTMODE_ENABLED_DIR:-/etc/systemd/system}
+session0()   # session0 TARGET
+{
+    if [ -L "$enabled/multi-user.target.wants/wex-session0.service" ] ||
+       [ -e "$enabled/multi-user.target.wants/wex-session0.service" ]; then
+        wants "$1" wex-session0.service
+    fi
+}
+
 case "$mode" in
     menu)
         ln -sfn "$units/wex-advanced-options.target" "$early/default.target"
@@ -55,11 +67,13 @@ case "$mode" in
         ln -sfn "$units/wex-safemode.target" "$early/default.target"
         mask $not_in_safe_mode $networking
         wants wex-safemode.target wex-bootlog.service
+        session0 wex-safemode.target
         ;;
     safenet)
         ln -sfn "$units/wex-safenet.target" "$early/default.target"
         mask $not_in_safe_mode
         wants wex-safenet.target wex-bootlog.service
+        session0 wex-safenet.target
         ;;
 esac
 exit 0

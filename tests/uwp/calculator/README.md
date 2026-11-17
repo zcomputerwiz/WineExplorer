@@ -208,7 +208,42 @@ and of the graph control, with their `Source` dictionaries put in place, merged 
 toolkit's `CornerRadiusConverter` and `SettingsExpanderItemStyleSelector` (not in the application's metadata, written
 here from how the styles use them), a `TemplateBinding` as content or as a whole property element turned into the
 attribute form Uno reads, a style's `Resources` setter hoisted into a merged dictionary, and `GridLength` from the
-ABI by its constructor. Not yet: a click on the "App theme" card does not expand it (the click reaches Uno as a
-hover only; the theme choices are not seen yet), and `XamlControlsXamlMetaDataProvider` (WinUI 2) stays unregistered
+ABI by its constructor. Not yet (fixed on 2026-11-17, below): a click on the "App theme" card did not expand it, and `XamlControlsXamlMetaDataProvider` (WinUI 2) stays unregistered
 (Wine does not serve classes of a package's dependencies; the process package's class table holds only the
 package's own). The lab's input steps now wait longer (`INPUT=settings`, `INPUT_MORE=1`): the guest is often busy.
+
+### 2026-11-17, fresh run and the Settings expanders (uno-uwp 6711e75b5d)
+
+The fresh run (Wine bb08d101 with the new classes, XamlShim 0.2.129) installs, launches and shows the Standard view; 7 + 5 =
+gives 12 by clicks. The only error lines are the launcher's `ApplicationActivationManager` CLSID (not registered in a lab
+prefix) and the `mrt100.dll` delay load. The Settings cards now expand and collapse on a click: "App theme" shows
+Light, Dark and Use system setting, "Calculator" shows the licence links. Three causes, found with the trace-only
+`XAMLSHIM_HITTEST` diagnostics (pointer events inside the popup, the expander's toggle button, the repeater's source):
+(1) the stand-ins of the application's controls overrode only `OnApplyTemplate`, so Uno's `ButtonBase` took the press at
+the toolkit's `SettingsCard` although the card, not clickable, does not handle it in WinUI; the input and focus overrides
+of `IControlOverrides` now go to the application first, and its call to the base is Uno's. (2) An item written in a
+collection's property element (`SettingsExpander.Items`) was set as the property, which the collection refuses; it is
+added (`IXamlType.AddToVector`). (3) The expander's `ItemsRepeater` is WinUI 2's class, served as a bare element, so the
+toolkit's cast failed and the repeater never got its items; WinUI 2's `ItemsRepeater` (and its element event arguments)
+is generated now. Not yet checked: choosing a theme (the radio buttons).
+
+### 2026-11-17, the modes (uno-uwp 7daa76b182, Wine fcf9871d)
+
+`INPUT=modes` (lab `calc-input.exe`) opens each mode of the navigation pane, `XAMLSHIM_CHECKS=14 TILE=5` reads the window
+back after each step. Scientific, Programmer, Date calculation, Currency and Volume now open and show their layout
+(Scientific and Programmer overwrote the Standard keys before). Fixed: `XamlMarkupHelper.UnloadObject` (the
+Calculator unloads the layout it leaves; XamlReader builds every element at once, so the element is collapsed and
+`FindName` shows it again), `SelectionChangedEventArgs`, WinUI 2's `ItemsRepeater`, the `ComboBox`/`CalendarDatePicker`
+classes with their dates (`DateTime` is ticks since 1601 on the ABI, `DateTimeOffset` in Uno), named objects of the
+application's own types (converters) connected as their native objects, and in Wine `Windows.Web.Http.HttpClient`
+(the object only; the Calculator makes one and never calls it). Not yet: the Date calculation page shows both of its
+sub-layouts at once, the Currency page shows the volume units (no currency data), the dark theme leaves the page and card
+backgrounds light (text turns white), and the toolkit expander's item container style is not applied (its style
+selector is a stand-in the application cannot call).
+
+### 2026-11-17, XamlShim 0.3.0
+
+Released from uno-uwp 7daa76b182 (tag `wex-xamlshim-v0.3.0`, CI green): `xamlshim-0.3.0-win-x64.zip`, 59804097 bytes,
+SHA-256 2bdb9d8d4278..., 114 classes. The `uwp-xaml` component pins it (terms identity updated). A fresh lab run with that
+zip (component install by `e2e-component.py`, verify full) launches the Calculator to its Standard view; the 99 component
+tests pass.

@@ -17,7 +17,7 @@ WINEDLLOVERRIDES=mscoree,mshtml= "$build/wine" wineboot -i > boot.log 2>&1; "$bu
 # RELAY_FROM=CalcViewModel.dll with WINEDEBUG +relay: only the calls that module makes
 [ -n "$RELAY_FROM" ] && "$build/wine" reg add 'HKCU\Software\Wine\Debug' /v RelayFromInclude /t REG_SZ /d "$RELAY_FROM" /f >> reg.log 2>&1
 "$build/server/wineserver" -w
-python3 $c/e2e-component.py $c/fw/wex-components.py $c/${XAMLSHIM_ZIP:-xamlshim-0.2.0-win-x64.zip} "$WINEPREFIX" "$build/wine" > summary 2>&1
+python3 $c/e2e-component.py $c/fw/wex-components.py $c/${XAMLSHIM_ZIP:-xamlshim-0.3.0-win-x64.zip} "$WINEPREFIX" "$build/wine" > summary 2>&1
 python3 $c/fw/lab-frameworks.py install $c/fw/wex-components.py "$WINEPREFIX" $c/fw-downloads >> summary 2>&1
 (cd $c/calc && python3 -c 'import sys,zipfile,os,urllib.parse
 src=sys.argv[1]; z=zipfile.ZipFile(sys.argv[2],"w",zipfile.ZIP_DEFLATED)

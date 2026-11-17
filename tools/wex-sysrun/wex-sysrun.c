@@ -30,7 +30,8 @@
  *                   starts inherits wexsys.
  *
  * The paths come from one root-owned file (SYSRUN_CONF, default /etc/wineexplorer/sysrun.conf), lines "key=value":
- * group, loader, ntdll, wineserver, machine_root, and admin_group (read by the Wine server, ignored here).
+ * group, loader, ntdll, wineserver, machine_root, and admin_group (read by the Wine server, ignored here). An
+ * optional winedebug= is passed on as WINEDEBUG (tracing in a lab; only root can set it).
  * wineserver mode starts a fresh server for the user's own prefix (<passwd home>/.wine). The server drops its
  * effective group to the user's real group at once and keeps the system group as its saved group; it raises it
  * only to load and save the machine hives and for clients that have the system group themselves.
@@ -141,7 +142,7 @@ static void read_config(struct config *c)
     struct wex_sysrun_conf conf;
     char *line, *end, *eq;
     const char *keys[] = { "group", "loader", "ntdll", "wineserver", "machine_root", "admin_group",
-                           "builtin_administrator", "session0_socket", "session0_user" };
+                           "builtin_administrator", "session0_socket", "session0_user", "winedebug" };
     size_t i;
 
     /* the path's directories first, for the administrator's diagnostic (which one is writable by whom); the shared
@@ -311,6 +312,17 @@ static void build_env(char **env, int with_display, const struct passwd *pw, con
     {
         snprintf(fdstr, sizeof(fdstr), "%d", server_fd);
         add_env(env, &count, "WINESERVERSOCKET", fdstr);
+    }
+    /* Tracing for the lab: "winedebug=" of the root-owned configuration becomes WINEDEBUG of the system role's
+     * programs (and of the elevated programs the broker among them starts). Never the caller's WINEDEBUG. */
+    {
+        struct wex_sysrun_conf conf;
+        char debug[256];
+
+        if (wex_sysrun_conf_load(SYSRUN_CONF, &conf) &&
+            wex_sysrun_conf_get(&conf, "winedebug", debug, sizeof(debug)) == WEX_SYSRUN_CONF_VALUE &&
+            debug[strspn(debug, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+-,:.")] == 0)
+            add_env(env, &count, "WINEDEBUG", debug);
     }
     for (e = environ; e && *e; e++)
     {

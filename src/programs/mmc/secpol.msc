@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<MMC_ConsoleFile ConsoleVersion="2.0" ProgramMode="UserSDI">
+  <!-- Wine's mmc.exe reads only the snap-in of a console -->
+  <SnapIns>
+    <SnapIn CLSID="{5ADF5BF6-E452-11D1-945A-00C04FB984F9}"/>
+  </SnapIns>
+  <StringTables>
+    <StringTable>
+      <Strings>
+        <String ID="1">Local Security Settings</String>
+      </Strings>
+    </StringTable>
+  </StringTables>
+</MMC_ConsoleFile>

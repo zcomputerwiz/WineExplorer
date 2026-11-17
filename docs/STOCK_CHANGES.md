@@ -2532,7 +2532,7 @@ Project modules: `dlls/wexhost` (`elevate.c`, export `WexElevateRun`, imports `a
 | `programs/shell32`-visible: none | Run dialog placement is done by explorer (CBT hook), not by shell32 | - |
 | `dlls/shell32` (`dialogs.c`, `classes.c`; Wine `042fc59aab4` and `68ab2d5dab3` on `1660e1d1`, the fork's branch `claude/run-dialog` (with `1d6c6a65acf` below), in `development` since `5ec3c009` (2026-11-14), which `claude/vintner-boot-integration` pins) | Run runs a program with its parameters, as XP's (`control sysdm.cpl,,3`, `notepad %USERPROFILE%\x.txt`): the line as one name first (a file, a folder, a URL, a program path with spaces); if nothing has that name, the program at its start (a quoted name, or the shortest start found in the directory or on the path, with or without .exe) with the rest as its parameters, environment strings expanded, as Windows' ShellExecCmdLine; otherwise the first try's error is shown, with ShellExecuteEx's own text, and nothing is run twice. A class with no default verb and no `open` uses the first verb under its `shell` key, as Windows 2000 and later, so a `.cpl` file opens (cplfile's `cplopen`); Wine took the class's first key (`shell` or `DefaultIcon`) and found no command | always |
 | `dlls/shell32` (`shlexec.c`: `dde_connect`, `execute_from_key`; Wine `1d6c6a65acf`, branch `claude/run-dialog`, 2026-11-13) | Opening a folder (Run, a program, a shortcut) no longer reports "DDE failure." once the folder is open. The folder class's open verb has a `ddeexec` for "Folders", whose conversation shell32's DDE server does not take (no `topic` is registered, so the client asks for "System"); ShellExecute then starts the verb's command, `explorer.exe "%1"`, which opens the folder, and returned `SE_ERR_DDEFAIL` when it still could not connect. When the command that started the application carried the file (`%1`, `%l`, `%L`), that launch's result is returned; a command without the file still reports the failure | always |
-| `loader/wine.inf.in` | `.msc` files open with `mmc.exe` (`MSCFile`); new `[MscFiles]` copies `devmgmt.msc` and `gpedit.msc` (data files of `programs/mmc`) into system32 | always |
+| `loader/wine.inf.in` | `.msc` files open with `mmc.exe` (`MSCFile`); new `[MscFiles]` copies `devmgmt.msc`, `gpedit.msc` and `secpol.msc` (data files of `programs/mmc`) into system32 | always |
 | `dlls/ntdll` (`unixlib.h`, `loader.c`, `ntdll.spec`, `unix/unix_private.h`, `unix/loader.c`, `unix/file.c`) | `wine_create_symlink` internal unix call with target canonicalization (`realpath`) to support fake DLL symlinks; client-side copy-on-write symlink break (`check_cow_break_symlink`) in `NtCreateFile` gated on Wine DLL directories (`is_in_wine_dll_dirs`) resolving relative symlink targets against the link directory for data writes, truncate, overwrite, or supersede, and adding `S_IWGRP` to the replacement file mode when `S_IWUSR` is set on the target so POSIX default ACLs in shared machine roots retain group write access | internal call / writes to built-in DLL symlinks |
 | `dlls/setupapi` (`fakedll.c`) | symlinked fake DLL generation replacing copied fake DLLs with symlinks to Wine's installation tree while preserving native DLLs and WinSxS assemblies; WOW64 path redirection in `get_real_link_dest()` | `WINELINKFAKEDLLS=1` env var or `HKLM\Software\Wine\LinkFakeDlls` (DWORD 1) |
 | `server/fd.c` | leaf symlink preservation in `dup_fd_name` / `open_fd()`: ensures `fd->unix_name` retains the leaf symbolic link when opening a symlink, so closing with `FILE_DELETE_ON_CLOSE` unlinks the link rather than the package target | symlinks opened with delete-on-close |
@@ -3694,3 +3694,24 @@ fit upstream Wine.
   manager's or the services' generic mapping before `AccessCheck`, which takes specific rights only. A
   `GENERIC_READ` or `GENERIC_ALL` open was refused for everybody while checks are enforced (B37). Only with an
   elevation helper configured, as the check itself.
+
+2026-11-17 (UWP, Wine fcf9871d): `dlls/twinapi.appcore`: new `http_client.c` (`Windows.Web.Http.HttpClient`: the object, `IClosable`
+and the filter factory; the requests and the default headers fail with E_NOTIMPL), `include/windows.web.http.idl` (the
+`IHttpClient` and `IHttpClientFactory` layouts with `IInspectable` pointers where the contract has the response types).
+Test in `capabilities.c` (x64 and x86). **Unconditional**: a new class only.
+
+# Safe Mode with session 0: each session's SafeBoot\Option (2026-11-17, Wine 1ec69563)
+
+- `programs/wineboot/wineboot.c` (`create_safeboot_option_key`): `SafeBoot` is opened for reading only (created when
+  missing, as before), and `Option` is created or deleted by its full path. With session 0, `SafeBoot` is session
+  0's and `Option` a key of each session (`wine/wex_session0.h`): a session's wineboot asked session 0 for
+  `KEY_ALL_ACCESS` on `SafeBoot`, was refused, and never wrote `Option`, so its programs saw a normal start in Safe
+  Mode (B33). Without session 0 nothing changes.
+
+# Service size queries through session 0 (2026-11-17, Wine c382c972)
+
+- `programs/services/forward.c`: a call with no buffer (a size query) passes a one-byte buffer to session 0, as
+  sechost does: the NULL out buffer of size 0 was refused by the client stub as a NULL reference, so
+  `QueryServiceObjectSecurity(h, ..., NULL, 0, &needed)` failed with `ERROR_INVALID_ADDRESS` instead of
+  `ERROR_INSUFFICIENT_BUFFER` (Office 2016's MSI ended with 1603). The same for the forwarded enumerations,
+  `QueryServiceConfig2W`, `QueryServiceStatusEx` and `EnumDependentServicesW`. Only with session 0.
