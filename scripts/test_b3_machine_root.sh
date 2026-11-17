@@ -262,28 +262,43 @@ echo "b3_sudo_group_refused=PASS"
 # planted in a shared folder, goes before anything is changed, and the outside file keeps its owner, mode and ACL; two
 # names of one file that are both inside stay; a symbolic link's target is not touched; such a name at the top (where
 # the hives are) refuses the setup.
-HLO=/tmp/b3-hlo-$$; HLS=/tmp/b3-hls-$$
-printf private > "$HLO"; printf private > "$HLS"
-chown "$OUT_USER:root" "$HLO" "$HLS"; chmod 600 "$HLO" "$HLS"
+HLO=/tmp/b3-hlo-$$; HLS=/tmp/b3-hls-$$; HLP=/tmp/b3-hlp-$$; DINI=/tmp/b3-dini-$$
+printf private > "$HLO"; printf private > "$HLS"; printf private > "$HLP"
+chown "$OUT_USER:root" "$HLO" "$HLS" "$HLP"; chmod 600 "$HLO" "$HLS" "$HLP"
 mkdir -p "$FIX2/drive_c/users/Public/Documents"; chmod 1777 "$FIX2/drive_c/users/Public/Documents"
 ln "$HLO" "$FIX2/drive_c/users/Public/Documents/planted.txt"
+# a name ending in a space (the earlier scan lost it and removed nothing), and a dangling link where the setup creates
+# desktop.ini (root's write must not create the link's target)
+ln "$HLP" "$FIX2/drive_c/users/Public/Documents/secret "
+rm -f "$FIX2/drive_c/users/Public/Documents/desktop.ini"; ln -s "$DINI" "$FIX2/drive_c/users/Public/Documents/desktop.ini"
 printf dll > "$FIX2/drive_c/windows/system32/a.dll"; ln "$FIX2/drive_c/windows/system32/a.dll" "$FIX2/drive_c/windows/b.dll"
 ln -s "$HLS" "$FIX2/drive_c/windows/outside.txt"
 run_setup2 --update >/tmp/b3-hl-$$.log 2>&1 || { cat /tmp/b3-hl-$$.log; fail "the run with planted links failed"; }
 [ ! -e "$FIX2/drive_c/users/Public/Documents/planted.txt" ] || fail "a second name of an outside file stayed"
 grep -q "removed (a second name of a file outside the machine root): .*planted.txt" /tmp/b3-hl-$$.log ||
     fail "the removal was not reported"
-for f in "$HLO" "$HLS"; do
+[ ! -e "$FIX2/drive_c/users/Public/Documents/secret " ] || fail "a second name ending in a space stayed"
+for f in "$HLO" "$HLS" "$HLP"; do
     [ "$(stat -c '%U:%G:%a' "$f")" = "$OUT_USER:root:600" ] || fail "the outside file $f became $(stat -c '%U:%G:%a' "$f")"
     ! getfacl -p "$f" 2>/dev/null | grep -q "^group:$GROUP2" || fail "the outside file $f got an ACL entry"
 done
+[ ! -e "$DINI" ] && [ -L "$FIX2/drive_c/users/Public/Documents/desktop.ini" ] || fail "desktop.ini was written through a link"
+rm -f "$FIX2/drive_c/users/Public/Documents/desktop.ini" "$DINI"
 [ "$(stat -c '%h %U:%G' "$FIX2/drive_c/windows/b.dll")" = "2 root:$GROUP2" ] || fail "two names inside were not kept and set"
 [ -L "$FIX2/drive_c/windows/outside.txt" ] || fail "the symbolic link went"
 ln "$HLO" "$FIX2/hive-link.reg"
 if run_setup2 --update >/tmp/b3-hl2-$$.log 2>&1; then fail "a top-level name of an outside file was accepted"; fi
 grep -q "has a name outside the machine root" /tmp/b3-hl2-$$.log || fail "the top-level refusal has the wrong reason"
 [ "$(stat -c '%U:%G:%a' "$HLO")" = "$OUT_USER:root:600" ] || fail "the refused run changed the outside file"
-rm -f "$FIX2/hive-link.reg" "$FIX2/drive_c/windows/outside.txt" "$FIX2/drive_c/windows/b.dll" "$FIX2/drive_c/windows/system32/a.dll" "$HLO" "$HLS"
+rm -f "$FIX2/hive-link.reg"
+# a hive replaced by a symbolic link: refused, and the link's target keeps its owner, mode and ACL
+[ ! -e "$FIX2/userdef.reg" ] || mv "$FIX2/userdef.reg" "$FIX2-userdef.reg"
+ln -s "$HLO" "$FIX2/userdef.reg"
+if run_setup2 --update >/tmp/b3-hl4-$$.log 2>&1; then fail "a hive that is a symbolic link was accepted"; fi
+grep -q "userdef.reg is a symbolic link" /tmp/b3-hl4-$$.log || fail "the hive link refusal has the wrong reason"
+[ "$(stat -c '%U:%G:%a' "$HLO")" = "$OUT_USER:root:600" ] || fail "the hive link's target became $(stat -c '%U:%G:%a' "$HLO")"
+rm -f "$FIX2/userdef.reg"; [ ! -e "$FIX2-userdef.reg" ] || mv "$FIX2-userdef.reg" "$FIX2/userdef.reg"
+rm -f "$FIX2/drive_c/windows/outside.txt" "$FIX2/drive_c/windows/b.dll" "$FIX2/drive_c/windows/system32/a.dll" "$HLO" "$HLS" "$HLP"
 run_setup2 --update >/tmp/b3-hl3-$$.log 2>&1 || { cat /tmp/b3-hl3-$$.log; fail "the run after the refusal failed"; }
 echo "b3_setup_ignores_planted_hard_links=PASS"
 # --update must not nest the theme directories (S2 Test 6 compares the machine root before and after).

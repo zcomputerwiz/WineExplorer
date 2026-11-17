@@ -340,70 +340,13 @@ OLD_GROUP="$(stat -c '%G' -- "$MACHINE_ROOT")"
 if [ "$OLD_GROUP" != "$MACHINE_GROUP" ]; then
     echo "Migrating machine root from group $OLD_GROUP to $MACHINE_GROUP..."
 fi
-# Root changes owner, mode and ACL of every file below, and chown, chmod and setfacl act on the inode. A second name
-# (hard link) of a file outside the machine root, planted by a member of the system group or in the world-writable
-# shared folders, would hand that file to root:$MACHINE_GROUP and make it group-writable. So before anything is
-# changed, every name of a file that has a name outside the machine root goes (in drive_c and pe_section_cache; such a
-# hive at the top refuses the setup). Files whose names are all inside are left as they are. fs.protected_hardlinks
-# (Debian's default) keeps users from linking files they cannot write; with it off the setup only warns. Links made
-# while the setup runs stay possible (the window between this scan and the changes below).
-[ "$(cat /proc/sys/fs/protected_hardlinks 2>/dev/null || echo 1)" = 1 ] ||
-    echo "Warning: fs.protected_hardlinks is off; users can plant links to any file in the shared folders" >&2
-declare -A HL_INSIDE=()
-HL_KEYS=() HL_COUNTS=() HL_PATHS=()
-while IFS=' ' read -r -d '' hl_key hl_count hl_path; do
-    HL_INSIDE[$hl_key]=$(( ${HL_INSIDE[$hl_key]:-0} + 1 ))
-    HL_KEYS+=("$hl_key") HL_COUNTS+=("$hl_count") HL_PATHS+=("$hl_path")
-done < <(find "$MACHINE_ROOT" -type f -links +1 -printf '%D:%i %n %p\0')
-for i in "${!HL_PATHS[@]}"; do
-    [ "${HL_INSIDE[${HL_KEYS[$i]}]}" -lt "${HL_COUNTS[$i]}" ] || continue
-    case "${HL_PATHS[$i]}" in
-        "$MACHINE_ROOT/drive_c/"*|"$MACHINE_ROOT/pe_section_cache/"*)
-            rm -f -- "${HL_PATHS[$i]}"
-            echo "  removed (a second name of a file outside the machine root): ${HL_PATHS[$i]}" ;;
-        *) die "${HL_PATHS[$i]} has a name outside the machine root" ;;
-    esac
+# The hives are edited below (sed, the elevation value) and their permissions set by root: a link in their place (a
+# member of the system group can write the top of the machine root) is refused, so that root never writes or changes
+# the file it points to.
+for f in system.reg userdef.reg user.reg; do
+    [ ! -L "$MACHINE_ROOT/$f" ] || die "$MACHINE_ROOT/$f is a symbolic link"
 done
-echo "Applying permissions and default ACLs to machine root (root:$MACHINE_GROUP, mode 2775, default ACL g:$MACHINE_GROUP:rwX)..."
-if command -v setfacl >/dev/null 2>&1; then
-    setfacl -b "$MACHINE_ROOT"
-    # (not setfacl -R: it would act on the targets of the links in the tree)
-    find "$MACHINE_ROOT/drive_c" ! -type l -exec setfacl -b {} +
-    for f in system.reg userdef.reg user.reg; do
-        if [ -f "$MACHINE_ROOT/$f" ]; then setfacl -b "$MACHINE_ROOT/$f"; fi
-    done
-fi
-find "$MACHINE_ROOT" -mindepth 1 -maxdepth 1 ! -type l -exec chown -h "root:$MACHINE_GROUP" {} +
-chown -h "root:$MACHINE_GROUP" "$MACHINE_ROOT"
-chown -R -h "root:$MACHINE_GROUP" "$MACHINE_ROOT/drive_c"
-# The bootstrap wineboot (run as root) leaves pe_section_cache/*.cache as root:root. They are not under drive_c, so the
-# chown above missed them and the "migration incomplete" check below failed on the second pass (found on the lab guest).
-[ ! -d "$MACHINE_ROOT/pe_section_cache" ] || chown -R -h "root:$MACHINE_GROUP" "$MACHINE_ROOT/pe_section_cache"
-chmod 2775 "$MACHINE_ROOT" "$MACHINE_ROOT/drive_c"
-find "$MACHINE_ROOT/drive_c" -type d -exec chmod 2775 {} +
-find "$MACHINE_ROOT/drive_c" -type f -exec chmod 664 {} +
-find "$MACHINE_ROOT/drive_c" -type f \( -iname "*.exe" -o -iname "*.dll" \) -exec chmod 775 {} +
-# The shared document folders (Shared Documents, Music, Video and Pictures of Windows XP) are every user's to
-# write, and a user's files there are that user's to delete: world-writable with the sticky bit, like /tmp.
-# C:\users\Public itself and the common desktop and favourites stay machine state, as on XP, where only
-# administrators change what every user sees. The folders' XP names are set here, because a user's shell
-# cannot be relied on to write them at first logon (they are shell32 strings; the shell looks for the same
-# value and leaves an existing one alone).
-if [ -d "$MACHINE_ROOT/drive_c/users/Public" ]; then
-    for shared in "Documents:21785" "Music:29059" "Videos:29060" "Pictures:29061"; do
-        shared_dir="$MACHINE_ROOT/drive_c/users/Public/${shared%%:*}"
-        [ -d "$shared_dir" ] || continue
-        chmod 1777 "$shared_dir"
-        if [ ! -e "$shared_dir/desktop.ini" ]; then
-            printf '%s\r\n' '[.ShellClassInfo]' "LocalizedResourceName=@%SystemRoot%\\system32\\shell32.dll,-${shared##*:}" \
-                > "$shared_dir/desktop.ini"
-            chown "root:$MACHINE_GROUP" "$shared_dir/desktop.ini"
-            chmod 664 "$shared_dir/desktop.ini"
-        fi
-    done
-fi
 if [ -f "$MACHINE_ROOT/system.reg" ]; then
-    chmod 664 "$MACHINE_ROOT/system.reg"
     sed -i 's/\\\\users\\\\root\\\\Favorites/\\\\users\\\\Public\\\\Favorites/g' "$MACHINE_ROOT/system.reg"
     # Enforced elevation: the helper's name in the machine hive is the switch (the servers and ntdll read
     # HKLM\Software\Wine\Elevation, value Helper). The hive file is written only while no server has it: at
@@ -420,30 +363,195 @@ ELEVATION_EOF
         fi
     fi
 fi
-if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
-    chmod 664 "$MACHINE_ROOT/userdef.reg"
-fi
+# Root changes owner, mode and ACL of every file below. Users can write parts of the tree while this runs (the shared
+# folders are world-writable, the rest is the system group's), so every change is made on a file descriptor opened
+# without following links, in directories opened the same way (os.fwalk): a name swapped for a symbolic link between
+# a check and a change cannot send root's change to the link's target (the earlier find/setfacl passes could), and
+# names are taken as they are (spaces, newlines).
+# chown, chmod and ACLs act on the inode, so a second name (hard link) of a file outside the machine root would hand
+# that file to root:$MACHINE_GROUP: every name of a file that has a name outside goes (in drive_c and pe_section_cache;
+# such a name anywhere else refuses the setup before anything is changed). Files whose names are all inside are left
+# as they are. A name added while a file is changed undoes that file's change and stops the setup.
+# fs.protected_hardlinks (Debian's default) keeps users from linking files they cannot write; with it off the setup
+# only warns.
+# The shared document folders (Shared Documents, Music, Video and Pictures of Windows XP) are every user's to
+# write, and a user's files there are that user's to delete: world-writable with the sticky bit, like /tmp.
+# C:\users\Public itself and the common desktop and favourites stay machine state, as on XP, where only
+# administrators change what every user sees. The folders' XP names are set here (desktop.ini, created only where none
+# exists, never through a link), because a user's shell cannot be relied on to write them at first logon (they are
+# shell32 strings; the shell looks for the same value and leaves an existing one alone).
 # user.reg is session 0's own HKCU (the system account's settings, such as its Windows version): session 0 runs as
 # the system group and saves it like the machine hives. Read-only, the server dropped every change at the next
 # save (B19).
-if [ -f "$MACHINE_ROOT/user.reg" ]; then
-    chmod 664 "$MACHINE_ROOT/user.reg"
-fi
-if command -v setfacl >/dev/null 2>&1; then
-    setfacl -m "g:$MACHINE_GROUP:rwX" "$MACHINE_ROOT"
-    setfacl -d -m "u::rwX,g::rwX,g:$MACHINE_GROUP:rwX,o::r-x" "$MACHINE_ROOT"
-    find "$MACHINE_ROOT/drive_c" ! -type l -exec setfacl -m "g:$MACHINE_GROUP:rwX" {} +
-    find "$MACHINE_ROOT/drive_c" -type d -exec setfacl -d -m "u::rwX,g::rwX,g:$MACHINE_GROUP:rwX,o::r-x" {} +
-    if [ -f "$MACHINE_ROOT/system.reg" ]; then
-        setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/system.reg"
-    fi
-    if [ -f "$MACHINE_ROOT/userdef.reg" ]; then
-        setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/userdef.reg"
-    fi
-    if [ -f "$MACHINE_ROOT/user.reg" ]; then
-        setfacl -m "g:$MACHINE_GROUP:rw" "$MACHINE_ROOT/user.reg"
-    fi
-fi
+[ "$(cat /proc/sys/fs/protected_hardlinks 2>/dev/null || echo 1)" = 1 ] ||
+    echo "Warning: fs.protected_hardlinks is off; users can plant links to any file in the shared folders" >&2
+echo "Applying permissions and default ACLs to machine root (root:$MACHINE_GROUP, mode 2775, default ACL g:$MACHINE_GROUP:rwX)..."
+python3 -I - "$MACHINE_ROOT" "$MACHINE_GROUP" <<'FIXPERMS' || die "the permissions of the machine root were not set"
+import ctypes, errno, grp, os, stat, struct, sys
+
+root, group = sys.argv[1], sys.argv[2]
+GID = grp.getgrnam(group).gr_gid
+HIVES = ('system.reg', 'userdef.reg', 'user.reg')
+TREES = ('drive_c', 'pe_section_cache')
+SHARED = {'drive_c/users/Public/' + name: rid for name, rid in
+          (('Documents', 21785), ('Music', 29059), ('Videos', 29060), ('Pictures', 29061))}
+ACCESS, DEFAULT = 'system.posix_acl_access', 'system.posix_acl_default'
+UNDEFINED = 0xFFFFFFFF
+acl_ok = True
+inside = {}
+libc = ctypes.CDLL(None, use_errno=True)
+
+
+def show(rel):
+    path = os.path.join(root, rel) if rel != '.' else root
+    return path if path.isprintable() and path == path.strip() else ascii(path)
+
+
+def die(message):
+    print('Error: ' + message, file=sys.stderr)
+    sys.exit(1)
+
+
+def acl(entries):
+    # POSIX ACL xattr: version 2, then (tag, permissions, id) sorted by tag (USER_OBJ 1, GROUP_OBJ 4, GROUP 8, MASK 16,
+    # OTHER 32)
+    return struct.pack('<I', 2) + b''.join(struct.pack('<HHI', *entry) for entry in sorted(entries))
+
+
+def access_acl(mode, named):
+    group_bits = (mode >> 3) & 7
+    return acl([(1, (mode >> 6) & 7, UNDEFINED), (4, group_bits, UNDEFINED), (8, named, GID),
+                (16, group_bits | named, UNDEFINED), (32, mode & 7, UNDEFINED)])
+
+
+DEFAULT_ACL = acl([(1, 7, UNDEFINED), (4, 7, UNDEFINED), (8, 7, GID), (16, 7, UNDEFINED), (32, 5, UNDEFINED)])
+
+
+def strip(path, directory):
+    for name in (ACCESS, DEFAULT) if directory else (ACCESS,):
+        try:
+            os.removexattr(path, name)
+        except OSError as error:
+            if error.errno not in (errno.ENODATA, errno.EOPNOTSUPP):
+                raise
+
+
+def set_acl(path, data, name=ACCESS):
+    global acl_ok
+    if not acl_ok:
+        return
+    try:
+        os.setxattr(path, name, data)
+    except OSError as error:
+        if error.errno != errno.EOPNOTSUPP:
+            raise
+        acl_ok = False
+        print('Warning: the file system of the machine root has no POSIX ACLs', file=sys.stderr)
+
+
+def fix(dirfd, name, rel, kind):
+    """kind: root, hive, dir, file (owner, mode, ACL) or chown (owner only)."""
+    fd = os.open(name, os.O_PATH | os.O_NOFOLLOW, dir_fd=dirfd)
+    try:
+        st = os.fstat(fd)
+        if stat.S_ISLNK(st.st_mode):
+            # the link itself (as chown -h did; never its target): fchownat(fd, "", AT_EMPTY_PATH)
+            if kind != 'hive' and libc.fchownat(fd, b'', 0, GID, 0x1000) != 0:
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error), show(rel))
+            return
+        # The descriptor's magic link: chown, chmod and the xattr calls act on the opened inode, whatever the name is now.
+        path = '/proc/self/fd/%d' % fd
+        regular, directory = stat.S_ISREG(st.st_mode), stat.S_ISDIR(st.st_mode)
+        if regular and st.st_nlink > 1 and inside.get((st.st_dev, st.st_ino), 0) < st.st_nlink:
+            if kind == 'hive' or rel.split('/')[0] not in TREES:
+                die(show(rel) + ' has a name outside the machine root')
+            os.unlink(name, dir_fd=dirfd)
+            print('  removed (a second name of a file outside the machine root): ' + show(rel))
+            return
+        if kind == 'chown' or not (regular or directory):
+            os.chown(path, 0, GID)
+            return
+        if directory:
+            mode = 0o1777 if rel in SHARED else 0o2775
+            named = 7
+        elif kind == 'hive':
+            mode, named = 0o664, 6
+        else:
+            mode = 0o775 if name.lower().endswith(('.exe', '.dll')) else 0o664
+            named = 7 if mode & 0o111 else 6
+        strip(path, directory)
+        os.chown(path, 0, GID)
+        os.chmod(path, mode)
+        set_acl(path, access_acl(mode, named))
+        if directory:
+            set_acl(path, DEFAULT_ACL, DEFAULT)
+        if regular and os.fstat(fd).st_nlink > st.st_nlink:
+            os.chown(path, st.st_uid, st.st_gid)
+            os.chmod(path, stat.S_IMODE(st.st_mode))
+            strip(path, False)
+            die(show(rel) + ' got another name while its permissions were set; run the setup again')
+    finally:
+        os.close(fd)
+
+
+def desktop_ini(dirfd, rel):
+    text = '[.ShellClassInfo]\r\nLocalizedResourceName=@%%SystemRoot%%\\system32\\shell32.dll,-%d\r\n' % SHARED[rel]
+    try:
+        fd = os.open('desktop.ini', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o664, dir_fd=dirfd)
+    except FileExistsError:
+        return
+    try:
+        os.write(fd, text.encode('ascii'))
+    finally:
+        os.close(fd)
+    fix(dirfd, 'desktop.ini', rel + '/desktop.ini', 'file')
+
+
+rootfd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+# Pass 1, nothing changed: count the names inside of every file with more than one, refuse what cannot be removed.
+multiple = []
+for dirpath, dirnames, filenames, dirfd in os.fwalk('.', dir_fd=rootfd):
+    for name in filenames:
+        st = os.stat(name, dir_fd=dirfd, follow_symlinks=False)
+        if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
+            key = (st.st_dev, st.st_ino)
+            inside[key] = inside.get(key, 0) + 1
+            multiple.append((os.path.normpath(os.path.join(dirpath, name)), key, st.st_nlink))
+for rel, key, links in multiple:
+    if inside[key] < links and (rel.split('/')[0] not in TREES or '/' not in rel):
+        die(show(rel) + ' has a name outside the machine root')
+for hive in HIVES:
+    try:
+        st = os.stat(hive, dir_fd=rootfd, follow_symlinks=False)
+    except FileNotFoundError:
+        continue
+    if not stat.S_ISREG(st.st_mode):
+        die(show(hive) + ' is not a regular file')
+# Pass 2: the changes.
+fix(rootfd, '.', '.', 'root')
+for name in sorted(os.listdir(rootfd)):
+    st = os.stat(name, dir_fd=rootfd, follow_symlinks=False)
+    if stat.S_ISLNK(st.st_mode):
+        continue
+    if name in HIVES:
+        fix(rootfd, name, name, 'hive')
+    elif name in TREES and stat.S_ISDIR(st.st_mode):
+        full = name == 'drive_c'
+        for dirpath, dirnames, filenames, dirfd in os.fwalk(name, dir_fd=rootfd):
+            rel = os.path.normpath(dirpath)
+            fix(dirfd, '.', rel, 'dir' if full else 'chown')
+            if full and rel in SHARED:
+                desktop_ini(dirfd, rel)
+            for entry in dirnames:
+                # a link to a directory is listed with the directories and not entered: its owner only
+                if stat.S_ISLNK(os.stat(entry, dir_fd=dirfd, follow_symlinks=False).st_mode):
+                    fix(dirfd, entry, rel + '/' + entry, 'chown')
+            for entry in filenames:
+                fix(dirfd, entry, rel + '/' + entry, 'file' if full else 'chown')
+    else:
+        fix(rootfd, name, name, 'chown')
+FIXPERMS
 # Nothing may remain that a desktop user owns (an owner can always write), and nothing may have another group.
 LEFTOVER="$(find "$MACHINE_ROOT" ! -type l \( ! -user root -o ! -group "$MACHINE_GROUP" \) -print -quit)"
 [ -z "$LEFTOVER" ] || die "migration incomplete: $LEFTOVER is not root:$MACHINE_GROUP"
