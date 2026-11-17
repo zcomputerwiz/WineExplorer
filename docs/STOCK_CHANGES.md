@@ -3687,3 +3687,10 @@ gets the three capability classes; `windows.applicationmodel.useractivities.idl`
 mixed in). Tests `activities.c` and `capabilities.c` (x64 and x86); behaviour measured on Windows 11
 (`tests/uwp/ua-batch`). **Unconditional**: new classes only, no stock behaviour changes; the IDL and registration parts
 fit upstream Wine.
+
+# The service manager maps generic rights before its access check (2026-11-17, Wine bb08d101)
+
+- `programs/services/rpc.c` (`check_client_access`): the requested mask is mapped with `MapGenericMask` and the
+  manager's or the services' generic mapping before `AccessCheck`, which takes specific rights only. A
+  `GENERIC_READ` or `GENERIC_ALL` open was refused for everybody while checks are enforced (B37). Only with an
+  elevation helper configured, as the check itself.
