@@ -3877,18 +3877,26 @@ GUSERS="$M/drive_c/windows/system32/GroupPolicyUsers"
 # as setup-machine-root.sh makes it: session 0's account owns it, nobody else may write it
 rm -rf "$GUSERS"; install -d -m 2755 -o "$S0U" -g "$GRP" "$GUSERS"
 EXPLU='HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'
-gpsetuser()   # OBJECT ID STATE: "gpset=N" (the probe's line), and "rc=N" when the probe printed nothing or failed
+# gpsetuser OBJECT ID STATE [wait]: the editor's save of one setting; with "wait" the refresh that the save asks for is
+# run (as the service would) while the probe waits for it, as in the test above. Prints the probe's "gpset=N" line.
+gpsetuser()
 {
-    local out rc=0
-    out="$(s0_wine "$ROOT/probes/tierprobe64.exe" gpsetuser "$1" "$2" "$3" 0 2>&1)" || rc=$?
-    out="$(tr -d '\r' <<<"$out" | grep '^gpset=' || true)"
-    if [ -n "$out" ] && [ "$rc" = 0 ]; then echo "$out"; else echo "${out:-no output} rc=$rc probe=$(ls -la "$ROOT/probes/tierprobe64.exe" 2>&1 | tr '\n' ' ')"; fi
+    local out="$POL/gpsetuser.out" pid i
+    rm -f "$REQ" "$out"
+    (s0_wine "$ROOT/probes/tierprobe64.exe" gpsetuser "$1" "$2" "$3" 0 > "$out" 2>&1; echo "rc=$?" >> "$out") &
+    pid=$!
+    if [ "${4:-}" = wait ]; then
+        for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
+        local_gpupdate >/dev/null 2>&1 || true
+    fi
+    wait "$pid" || true
+    tr -d '\r' < "$out" | grep '^gpset=' || echo "no result: $(tr -d '\r' < "$out" | tr '\n' ' ') spool: $(ls -A "$LGP/Spool" | tr '\n' ' ')"
 }
 s0_wine sc start gpsvc >/dev/null 2>&1 || true
 for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
-OUT="$(gpsetuser Non-Administrators user:NoRun 1)"
-[ "$OUT" = gpset=0 ] || fail "gpedit users: the Non-Administrators object was not saved ($OUT; spool: $(ls -A "$LGP/Spool" 2>&1 | tr '\n' ' '); errors: $(cat "$LGP"/Spool/*.error 2>/dev/null))"
-OUT="$(gpsetuser "$STD_SID" user:NoFind 1)"
+OUT="$(gpsetuser Non-Administrators user:NoRun 1 wait)"
+[ "$OUT" = gpset=0 ] || fail "gpedit users: the Non-Administrators object was not saved ($OUT)"
+OUT="$(gpsetuser "$STD_SID" user:NoFind 1 wait)"
 [ "$OUT" = gpset=0 ] || fail "gpedit users: the person's object was not saved ($OUT)"
 for sid in S-1-5-32-545 "$STD_SID"; do
     [ "$(stat -c '%U:%a' "$GUSERS/$sid/User/Registry.pol")" = "$S0U:644" ] ||
@@ -3898,12 +3906,12 @@ done
 local_gpupdate >/dev/null 2>&1 || fail "gpedit users: wex-gpupdate.sh after the change"
 [ "$(as_wine "$STD" reg query "$EXPLU" /v NoRun | val NoRun)" = 0x1 ] || fail "gpedit users: the Non-Administrators' setting did not reach the standard user"
 [ "$(as_wine "$STD" reg query "$EXPLU" /v NoFind | val NoFind)" = 0x1 ] || fail "gpedit users: the person's own setting did not reach the user"
-# a computer setting is refused for an object of the users, an unknown user is not mapped, a path is not a user
+# a computer setting is refused for an object of the users, an unknown user is not mapped, a path is not a user (no refresh asked)
 [ "$(gpsetuser Non-Administrators computer:NoRecentDocsHistory 1)" = gpset=50 ] || fail "gpedit users: a computer setting was taken for an object of the users"
 [ "$(gpsetuser NoSuchPerson user:NoRun 1)" = gpset=1332 ] || fail "gpedit users: an unknown user gave $(gpsetuser NoSuchPerson user:NoRun 1)"
 [ "$(gpsetuser '..\..\x' user:NoRun 1)" = gpset=1332 ] || fail "gpedit users: a path as the user"
 # Not Configured takes the settings away again
-[ "$(gpsetuser Non-Administrators user:NoRun 0)" = gpset=0 ] && [ "$(gpsetuser "$STD_SID" user:NoFind 0)" = gpset=0 ] || fail "gpedit users: Not Configured was not saved"
+[ "$(gpsetuser Non-Administrators user:NoRun 0 wait)" = gpset=0 ] && [ "$(gpsetuser "$STD_SID" user:NoFind 0 wait)" = gpset=0 ] || fail "gpedit users: Not Configured was not saved"
 local_gpupdate >/dev/null 2>&1 || fail "gpedit users: wex-gpupdate.sh after Not Configured"
 [ -z "$(as_wine "$STD" reg query "$EXPLU" /v NoRun | val NoRun || true)" ] && [ -z "$(as_wine "$STD" reg query "$EXPLU" /v NoFind | val NoFind || true)" ] ||
     fail "gpedit users: a setting stayed after Not Configured"
