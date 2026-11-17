@@ -18,6 +18,7 @@ export WINEPREFIX
 export WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"   # see wine-explorer-session.sh
 export WINEDEBUG="${WINEDEBUG:--all,err+all}"
 WINE="${WINE:-/usr/local/bin/wine}"
+. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
 echo "=== WineExplorer logon started: $(date) ==="   # the output goes to /var/log/lightdm/seat0-greeter.log
 
 # Safe Mode shows the Welcome screen too, as XP does. The GTK greeter, which needs no Wine, is only the last resort
@@ -39,14 +40,7 @@ WEXOPTION=$("${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}" --option 2>/de
 # VGA Mode (D2), whatever logon screen follows (the GTK greeter too). Only this X server changes: the next start's
 # begins at its own mode, and the accounts' display profiles stay as they are. The session script does the same
 # (wine-explorer-session.sh), for a session that gets an X server of its own.
-low_resolution() {
-    local output
-    output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" && / primary / { print $1; exit }')
-    [ -n "$output" ] || output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" { print $1; exit }')
-    [ -n "$output" ] || return 0
-    xrandr --output "$output" --mode 640x480 2>/dev/null || echo "=== $output offers no 640x480 mode ==="
-}
-if [ -n "$SAFE" ] || [ "$WEXOPTION" = vga ]; then low_resolution; fi
+if [ -n "$SAFE" ] || [ "$WEXOPTION" = vga ]; then wex_low_resolution; fi
 
 gtk_greeter() {
     echo "=== Safe Mode: $1; starting the GTK greeter instead: $(date) ==="
@@ -59,8 +53,7 @@ if [ -n "$SAFE" ] && [ ! -x "$WINE" ]; then gtk_greeter "no Wine at $WINE"; fi
 
 # update the prefix after a Wine (re)install before showing anything (as the session script does). A made prefix
 # always has user.reg; under the system role its HKLM comes from the machine root and it has no system.reg.
-NTDLL=$(ls "${WEX_NTDLL:-/usr/local/lib/wine/x86_64-unix/ntdll.so}" 2>/dev/null)
-if [ ! -e "$WINEPREFIX/user.reg" ] || { [ -n "$NTDLL" ] && { [ ! -e "$WINEPREFIX/.update-timestamp" ] || [ "$NTDLL" -nt "$WINEPREFIX/.update-timestamp" ]; }; }; then
+if [ ! -e "$WINEPREFIX/user.reg" ] || wex_prefix_needs_update "$WINEPREFIX"; then
     # built-in DLLs as links to the packaged files (docs/PREFIX_SPLIT.md), not 1.7 GB of copies
     "${LIMIT[@]}" env -u DISPLAY WINELINKFAKEDLLS=1 "$WINE" wineboot.exe -u
     "${LIMIT[@]}" "$(dirname "$WINE")/wineserver" -w

@@ -10,7 +10,9 @@
 # before that format is converted once.
 # Installed as /usr/local/sbin/wex-bootlog and run by wex-bootlog.service.
 set -u
-windir=${WEX_BOOTLOG_WINDIR:-/var/lib/wineexplorer/machine/drive_c/windows}
+. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
+machine=$(wex_machine_root)
+windir=${WEX_BOOTLOG_WINDIR:-$machine/drive_c/windows}
 [ -d "$windir" ] || windir=/var/log/wineexplorer
 mkdir -p "$windir"
 log="$windir/ntbtlog.txt"
@@ -20,14 +22,13 @@ modules=${WEX_BOOTLOG_MODULES:-/proc/modules}
 # The version Wine reports to Windows programs, from the machine registry. A service pack string (CSDVersion, as with
 # winecfg's XP setting) gives XP's header. Without one (Wine's default, Windows 10) the product name, version and
 # build stand in its place, followed by a space: " Windows 10 Pro Version 10.0 (Build 19045) 11 10 2026 ...".
-version=$(awk '
+version=$(wex_reg_section "$system_reg" 'Software\Microsoft\Windows NT\CurrentVersion' 2>/dev/null | awk '
     function hex(s,    n, i) {
         n = 0; s = tolower(s)
         for (i = 1; i <= length(s); i++) n = n * 16 + index("0123456789abcdef", substr(s, i, 1)) - 1
         return n
     }
-    /^\[/ { if (in_key) exit; in_key = ($0 ~ /^\[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\]/); next }
-    !in_key || !/^"/ { next }
+    !/^"/ { next }
     {
         name = $0; sub(/^"/, "", name); sub(/".*/, "", name)
         value = $0; sub(/^"[^"]*"=/, "", value); sub(/[ \t\r]*$/, "", value)
@@ -47,7 +48,7 @@ version=$(awk '
         if (build != "") text = text (text != "" ? " " : "") "(Build " build ")"
         if (text != "") print text " "
     }
-' "$system_reg" 2>/dev/null)
+' 2>/dev/null)
 
 if [ -s "$log" ] && [ "$(od -An -N2 -tx1 "$log" | tr -d ' \n')" != fffe ]; then
     # plain text with CRLF line ends, as written before this format

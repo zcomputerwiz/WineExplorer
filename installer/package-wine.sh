@@ -231,6 +231,7 @@ mkdir -p "$STAGE_SESSION/etc/polkit-1/rules.d"
 # Session launcher and setup runners
 cp "$ROOT_DIR/scripts/wine-explorer-session.sh" "$STAGE_SESSION/usr/local/bin/wine-explorer-session.sh"
 cp "$ROOT_DIR/scripts/wine-explorer-session-common.sh" "$STAGE_SESSION/usr/local/bin/"
+install -D -m644 "$ROOT_DIR/scripts/lib/wex-common.sh" "$STAGE_SESSION/usr/local/lib/wineexplorer/wex-common.sh"
 cp "$ROOT_DIR/scripts/personalize-prefix.sh" "$STAGE_SESSION/usr/local/bin/wex-personalize-prefix"
 chmod 755 "$STAGE_SESSION/usr/local/bin/wex-personalize-prefix"
 cp "$ROOT_DIR/scripts/wine-explorer-wayland-session.sh" "$STAGE_SESSION/usr/local/bin/"

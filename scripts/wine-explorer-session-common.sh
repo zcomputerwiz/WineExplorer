@@ -3,6 +3,7 @@
 # Copyright 2026 WineExplorer contributors
 # Sourced by the X11 and Wayland session launchers. Keep account/prefix setup
 # independent of the display backend (the prefix-split work owns that policy).
+. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
 export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
 export XDG_CURRENT_DESKTOP=WineExplorer
 export XDG_SESSION_DESKTOP=WineExplorer
@@ -102,10 +103,8 @@ wex_prepare_prefix()
 
     # --- Prefix update after a Wine (re)install or machine root update.
     # In the split prefix layout, machine updates advance /var/lib/wineexplorer/machine/.update-timestamp.
-    NTDLL=/usr/local/lib/wine/x86_64-unix/ntdll.so
-    MACHINE_ROOT="${WEX_MACHINE_ROOT:-/var/lib/wineexplorer/machine}"
-    if { [ -f "$NTDLL" ] && { [ ! -e "$WINEPREFIX/.update-timestamp" ] || [ "$NTDLL" -nt "$WINEPREFIX/.update-timestamp" ]; }; } || \
-       { [ -e "$MACHINE_ROOT/.update-timestamp" ] && [ "$MACHINE_ROOT/.update-timestamp" -nt "$WINEPREFIX/.update-timestamp" ]; }; then
+    MACHINE_ROOT="${WEX_MACHINE_ROOT:-$(wex_machine_root)}"
+    if wex_prefix_needs_update "$WINEPREFIX" "$MACHINE_ROOT"; then
         echo "Updating the Wine prefix..."
         "$WINE" wineboot.exe -u || echo "warning: wineboot -u failed (exit $?)" >&2
         wex_stop_wine || true

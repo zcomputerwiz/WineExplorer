@@ -11,6 +11,7 @@
 #
 #   wex-domain-state.sh           detect and write
 #   wex-domain-state.sh --print   detect and print "FLAT dns.name", or nothing; writes nothing
+#   wex-domain-state.sh --joined  exit 0 when joined, 1 when not joined; writes nothing
 #
 # Detection uses no network and no root rights:
 #   realmd (SSSD or Winbind joins made with "realm join"):  realm list
@@ -29,7 +30,7 @@ if command -v testparm >/dev/null 2>&1; then
     security=$(testparm -s --parameter-name=security 2>/dev/null | tr 'A-Z' 'a-z')
     realm=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'A-Z' 'a-z')
     workgroup=$(testparm -s --parameter-name=workgroup 2>/dev/null | tr 'a-z' 'A-Z')
-    if [ -z "$dns" ] && [ "$security" = ads ] && [ -n "$realm" ] && [ -e /etc/krb5.keytab ]; then
+    if [ -z "$dns" ] && { [ "$security" = ads ] || [ -z "$security" ]; } && [ -n "$realm" ] && [ -e "${WEX_KEYTAB:-/etc/krb5.keytab}" ]; then
         dns=$realm
     fi
     if [ -n "$dns" ] && [ -n "$workgroup" ] && [ "$workgroup" != WORKGROUP ]; then
@@ -47,7 +48,12 @@ case "$dns$flat" in
                        dns=; flat= ;;
 esac
 
-if [ "$1" = --print ]; then
+if [ "${1:-}" = --joined ]; then
+    [ -n "$dns" ] && exit 0
+    exit 1
+fi
+
+if [ "${1:-}" = --print ]; then
     [ -n "$dns" ] && echo "$flat $dns"
     exit 0
 fi

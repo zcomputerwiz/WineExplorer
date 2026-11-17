@@ -35,11 +35,13 @@
 # a Python file under Samba's licence (GPL-3.0-or-later).
 set -u
 
+. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/../../scripts/lib/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
+
 PRINT=0
 [ "${1:-}" = --print ] && PRINT=1
 ARGS=("$@")
 
-MACHINE_ROOT=${WEX_MACHINE_ROOT:-/var/lib/wineexplorer/machine}
+MACHINE_ROOT=${WEX_MACHINE_ROOT:-$(wex_machine_root)}
 S0_USER=${WEX_SESSION0_USER:-wexsys}
 WINE=${WINE:-/usr/local/bin/wine}
 MAP=${WEX_ACCOUNTS_MAP:-/etc/wineexplorer/accounts.map}
@@ -68,7 +70,7 @@ fi
 # gpsvc numbers the refresh requests and leaves the last number in the request file (Refresh). The run reads it now,
 # when it has the lock: it serves every request up to that one, and says so at its end, so that a program that asked
 # later does not take this run for the answer.
-REQUEST_FILE=${WEX_MACHINE_ROOT:-/var/lib/wineexplorer/machine}/drive_c/windows/system32/GroupPolicy/Refresh
+REQUEST_FILE=$MACHINE_ROOT/drive_c/windows/system32/GroupPolicy/Refresh
 request_number() { head -c 20 "$REQUEST_FILE" 2>/dev/null | tr -dc '0-9'; }
 REQ0=
 [ "$PRINT" = 1 ] || REQ0=$(request_number)
@@ -106,8 +108,14 @@ else
     # network); whether the domain answers now is another matter. A joined machine whose controller is out of reach
     # (a laptop on a train) keeps the policy it has applied, as Windows does: it must not be cleared because the
     # question could not be asked.
-    REALM=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'a-z' 'A-Z')
-    if [ -n "$REALM" ] && [ -e "${WEX_KEYTAB:-/etc/krb5.keytab}" ]; then
+    wex_domain_state="${WEX_DOMAIN_STATE_HELPER:-/usr/local/bin/wex-domain-state.sh}"
+    [ -e "$wex_domain_state" ] || wex_domain_state="$(dirname -- "$(readlink -f -- "$0")")/wex-domain-state.sh"
+    if [ ! -e "$wex_domain_state" ] && command -v wex-domain-state.sh >/dev/null 2>&1; then
+        wex_domain_state="$(command -v wex-domain-state.sh)"
+    fi
+    if { [ -x "$wex_domain_state" ] && "$wex_domain_state" --joined 2>/dev/null; } || \
+       { [ -f "$wex_domain_state" ] && sh "$wex_domain_state" --joined 2>/dev/null; }; then
+        REALM=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'a-z' 'A-Z')
         CACHE=$(testparm -s --parameter-name='cache directory' 2>/dev/null)/gpo_cache/$REALM/POLICIES
         if net ads testjoin >/dev/null 2>&1; then
             ONLINE=1

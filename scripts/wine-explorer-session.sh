@@ -15,10 +15,12 @@ exec > "$LOG" 2>&1
 echo "=== WineExplorer session started: $(date) ==="
 echo "USER=$USER DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY"
 
+. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
+
 # Safe Mode (docs/SAFE_MODE.md). The session keeps its name in every mode, so LightDM records nothing new for the
 # account; the mode only decides what starts. With Command Prompt the recovery console replaces the shell, as
 # Windows starts its AlternateShell; it needs no Wine.
-WEXMODE=$(/usr/local/bin/wex-bootmode 2>/dev/null) || WEXMODE=normal
+WEXMODE=$("${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}" 2>/dev/null) || WEXMODE=normal
 # A Safe Mode logon leaves the account's session choice (X11 or Wayland) as it was: LightDM has just saved this
 # session as the choice, and the snapshot taken before LightDM started goes back (wex-session-choice)
 case "$WEXMODE" in
@@ -35,7 +37,7 @@ esac
 export WEXMODE
 # Enable VGA Mode (the menu's start option, docs/SAFE_MODE_WORKORDER.md D2): a normal start at 640x480 with the display
 # driver it has, as XP's. It skips the saved display mode, so a mode chosen in Display Properties then replaces it.
-WEXOPTION=$(/usr/local/bin/wex-bootmode --option 2>/dev/null) || WEXOPTION=
+WEXOPTION=$("${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}" --option 2>/dev/null) || WEXOPTION=
 [ "$WEXOPTION" != vga ] || echo "Enable VGA Mode: 640x480, and the saved display mode is skipped"
 
 # winemenubuilder (started by wineboot) creates a window before our explorer exists, which starts Wine's default
@@ -52,15 +54,8 @@ xset s off -dpms 2>/dev/null || true
 # Safe Mode runs at 640x480 instead, as XP's basic display driver does (docs/SAFE_MODE_WORKORDER.md C3), and never
 # reads or writes the profile; so does Enable VGA Mode (D2), which only skips reading it. wex-greeter.sh has set the
 # mode already when the session keeps the greeter's X server.
-low_resolution() {
-    local output
-    output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" && / primary / { print $1; exit }')
-    [ -n "$output" ] || output=$(xrandr --current 2>/dev/null | awk '$2 == "connected" { print $1; exit }')
-    [ -n "$output" ] || return 0
-    xrandr --output "$output" --mode 640x480 2>/dev/null || echo "$output offers no 640x480 mode"
-}
 if { [ "$WEXMODE" != normal ] || [ "$WEXOPTION" = vga ]; } && [ -z "$WIDTH" ] && command -v xrandr >/dev/null 2>&1; then
-    low_resolution
+    wex_low_resolution
 fi
 DISPLAY_PROFILE="${XDG_CONFIG_HOME:-$HOME/.config}/wineexplorer/display"
 if [ "$WEXMODE" = normal ] && [ "$WEXOPTION" != vga ] && [ -z "$WIDTH" ] && [ -r "$DISPLAY_PROFILE" ] \
@@ -87,10 +82,9 @@ wex_prepare_prefix || { echo 'Session setup failed.' >&2; exit 1; }
 # --- Winlogon: which shell?  (no prefix yet = first boot = the default)
 SHELL_CMD=""
 if [ -r "$WINEPREFIX/system.reg" ]; then
-    SHELL_CMD=$(awk '
-        /^\[/ { in_key = ($0 ~ /^\[Software\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon\]/) }
-        in_key && /^"Shell"=/ { sub(/^"Shell"="/, ""); sub(/"[ \t\r]*$/, ""); gsub(/\\\\/, "\\"); print; exit }
-    ' "$WINEPREFIX/system.reg")
+    SHELL_CMD=$(wex_reg_section "$WINEPREFIX/system.reg" 'Software\Microsoft\Windows NT\CurrentVersion\Winlogon' 2>/dev/null | awk '
+        /^"Shell"=/ { sub(/^"Shell"="/, ""); sub(/"[ \t\r]*$/, ""); gsub(/\\\\/, "\\"); print; exit }
+    ')
 fi
 SHELL_CMD="${SHELL_CMD:-explorer.exe}"
 SHELL_BASE=$(basename "${SHELL_CMD//\\//}" | tr 'A-Z' 'a-z')
