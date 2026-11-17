@@ -3877,7 +3877,7 @@ GUSERS="$M/drive_c/windows/system32/GroupPolicyUsers"
 # as setup-machine-root.sh makes it: session 0's account owns it, nobody else may write it
 rm -rf "$GUSERS"; install -d -m 2755 -o "$S0U" -g "$GRP" "$GUSERS"
 EXPLU='HKCU\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'
-gpsetuser() { s0_wine "$ROOT/probes/tierprobe64.exe" gpsetuser "$1" "$2" "$3" 0 | tr -d '\r'; }
+gpsetuser() { s0_wine "$ROOT/probes/tierprobe64.exe" gpsetuser "$1" "$2" "$3" 0 2>&1 | tr -d '\r' | tr '\n' ' ' | sed 's/ $//' || true; }
 s0_wine sc start gpsvc >/dev/null 2>&1 || true
 for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
 OUT="$(gpsetuser Non-Administrators user:NoRun 1)"
