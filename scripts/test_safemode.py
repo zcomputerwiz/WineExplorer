@@ -1611,7 +1611,7 @@ class TestSessionAndGreeter(unittest.TestCase):
         menu = menu[:menu.index("\n}\n")]
         snapshot = menu.index('qemu-img snapshot -c menu-try "$STATE/disk.qcow2"')
         self.assertLess(menu.index('qemu-img snapshot -d menu-try'), snapshot)
-        self.assertLess(snapshot, menu.index("for try in 1 2; do"))
+        self.assertLess(snapshot, menu.index("for try in 1 2 3; do"))
         retry = menu.index("starting again from the disk as it was")
         self.assertLess(retry, menu.index('wait_off 60 || fail "the VM did not stop"'))
         self.assertLess(menu.index('wait_off 60 || fail "the VM did not stop"'),
@@ -1919,7 +1919,9 @@ class TestGreeter(TempDirTest):
         gtk.chmod(0o755)
         env = {"PATH": path, "LOG": str(log), "WINE": str(wine),
                "WEX_BOOTMODE_HELPER": self.fake_helper(mode, option=option), "WEX_GTK_GREETER": str(gtk),
-               "FAKE_CMD": str(cmd_status), "FAKE_EXPLORER": str(explorer_status), **(extra_env or {})}
+               "FAKE_CMD": str(cmd_status), "FAKE_EXPLORER": str(explorer_status),
+               # not the build machine's installed Wine: its ntdll would look newer than every test prefix
+               "WEX_NTDLL": str(self.tmp / "no-ntdll.so"), **(extra_env or {})}
         if home is None:
             prefix = self.tmp / "prefix"
             prefix.mkdir(exist_ok=True)
