@@ -141,6 +141,27 @@ local_file()
     [ -f "$f" ] && [ ! -L "$f" ] && [ -s "$f" ] && echo "$f"
 }
 
+# The local objects of the users (Windows Vista and later, kept here as there): GroupPolicyUsers/<SID>/User/Registry.pol
+# for the Administrators (S-1-5-32-544), the Non-Administrators (S-1-5-32-545) and single users, beside GroupPolicy.
+# A person gets, in this order, the local object's User policy, the policy of Administrators or of Non-Administrators
+# (whichever the person is), the person's own, and then the domain's; the last wins. Same rules for the file as above.
+LOCAL_USERS=$MACHINE_ROOT/drive_c/windows/system32/GroupPolicyUsers
+local_users_file()
+{
+    local f="$LOCAL_USERS/$1/User/Registry.pol"
+    case $1 in S-1-5-32-544|S-1-5-32-545|S-1-5-21-*) ;; *) return 1 ;; esac
+    [ -f "$f" ] && [ ! -L "$f" ] && [ -s "$f" ] && echo "$f"
+}
+
+# is the account an administrator, by the rule of the system tier (wex-is-admin)? Not known counts as no: a restriction
+# meant for the Non-Administrators then holds
+user_is_admin()
+{
+    local helper=${WEX_IS_ADMIN:-}
+    [ -n "$helper" ] || helper=$(command -v wex-is-admin 2>/dev/null) || helper=/usr/local/bin/wex-is-admin
+    [ -x "$helper" ] && "$helper" "$1" 2>/dev/null
+}
+
 # the local object's security template (the account lockout policy and the security options: where Windows' local
 # Group Policy keeps them, GroupPolicy\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf), under the same rules
 local_template()
@@ -295,7 +316,7 @@ record()
 stage_file()
 {
     case $1 in
-        "$LOCAL_GPO"/*)
+        "$LOCAL_GPO"/*|"$LOCAL_USERS"/*)
             runuser -u "$S0_USER" -- cat -- "$1" > "$2" 2>/dev/null || { rm -f "$2"; return 1; }
             chmod 0644 "$2" ;;
         *) install -m 0644 "$1" "$2" ;;
@@ -399,9 +420,14 @@ awk 'NR == 1 { v = $2; next }
     fi
     USER_FILES=()
     [ -z "$LOCAL_USER" ] || USER_FILES+=("$LOCAL_USER")
+    if user_is_admin "$name"; then layer=S-1-5-32-544; else layer=S-1-5-32-545; fi
+    LAYER_FILE=$(local_users_file "$layer"); PERSON_FILE=$(local_users_file "$sid")
+    [ -z "$LAYER_FILE" ] || USER_FILES+=("$LAYER_FILE")
+    [ -z "$PERSON_FILE" ] || USER_FILES+=("$PERSON_FILE")
     mapfile -t DOMAIN_USER_FILES < <(pol_files "$LISTS/user-$sid.domain.list" USER)
     USER_FILES+=("${DOMAIN_USER_FILES[@]}")
-    { [ -z "$LOCAL_USER" ] || local_entry User "$REG_EXT"; cat "$LISTS/user-$sid.domain.list"; } > "$LISTS/user-$sid.list"
+    # one "Local Group Policy" in the applied list, whichever of the local objects have policy for the person
+    { [ -z "$LOCAL_USER$LAYER_FILE$PERSON_FILE" ] || local_entry User "$REG_EXT"; cat "$LISTS/user-$sid.domain.list"; } > "$LISTS/user-$sid.list"
     if [ "$PRINT" = 1 ]; then
         sed "s/^/object user $acct /" "$LISTS/user-$sid.list"
         for f in "${USER_FILES[@]}"; do echo "user $acct $f"; done
