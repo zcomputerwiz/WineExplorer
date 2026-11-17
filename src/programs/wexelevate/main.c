@@ -14,7 +14,8 @@
  *  - asks for approval: click consent (ConsentPromptBehaviorAdmin 2 or 5, 5 when absent) in the consent window,
  *    which runs on the secure desktop WinSta0\Winlogon (PromptOnSecureDesktop, default 1) that this service makes
  *    with a SYSTEM-only descriptor; any other policy fails closed. A build with WEXELEVATE_TEST_APPROVAL calls a
- *    stub program for a request with no policy value, which exists in the test harness only;
+ *    stub program for a request with no policy value, which exists in the test harness only. In Safe Mode there
+ *    is no prompt: User Account Control is off there, as on Windows;
  *  - gets the linked full token of the caller's token as a primary token (it can, as the system role), creates
  *    the process with the caller as its parent and duplicates the process handle into the caller.
  * A standard user, or a caller that is elevated already, gets ERROR_NOT_SUPPORTED. If the service does not run
@@ -1145,10 +1146,31 @@ static DWORD approve_stub( struct request *req )
 }
 #endif
 
+/* Safe Mode, as Windows: User Account Control is off, and an administrator's request is approved without a prompt.
+ * The boot mode comes from /run/wineexplorer/bootmode itself, which only root can create, and not from
+ * SafeBoot\Option, which wineboot publishes from that file but an elevated program could write. */
+static BOOL safe_boot(void)
+{
+    char buffer[16];
+    DWORD size = 0;
+    HANDLE file;
+
+    file = CreateFileW( L"\\\\?\\unix\\run\\wineexplorer\\bootmode", GENERIC_READ,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL );
+    if (file == INVALID_HANDLE_VALUE) return FALSE;
+    if (!ReadFile( file, buffer, sizeof(buffer) - 1, &size, NULL )) size = 0;
+    CloseHandle( file );
+    buffer[size] = 0;
+    buffer[strcspn( buffer, "\r\n" )] = 0;
+    return !strcmp( buffer, "safe" ) || !strcmp( buffer, "safenet" ) || !strcmp( buffer, "safecmd" );
+}
+
 static DWORD approve( struct request *req )
 {
     BOOL absent;
 
+    /* only the limited half of an administrator's token gets here (a standard user's request takes its own way) */
+    if (safe_boot()) return ERROR_SUCCESS;
     if (click_consent_selected( &absent ))
     {
 #ifdef WEXELEVATE_TEST_APPROVAL

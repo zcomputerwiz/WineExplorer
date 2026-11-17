@@ -226,15 +226,24 @@ class TestBootMode(TempDirTest):
 
 
 class TestGenerator(TempDirTest):
-    def generate(self, mode, status=0, system_update=False):
+    def generate(self, mode, status=0, system_update=False, session0=False):
         early = self.tmp / "early"
         for d in ("normal", "early", "late"):
             (self.tmp / d).mkdir(exist_ok=True)
         update = self.tmp / "system-update"
         if system_update:
             update.touch()
+        enabled = self.tmp / "enabled"
+        wants = enabled / "multi-user.target.wants"
+        wants.mkdir(parents=True, exist_ok=True)
+        unit = wants / "wex-session0.service"
+        if session0 and not unit.is_symlink():
+            unit.symlink_to("/units/wex-session0.service")
+        elif not session0 and unit.is_symlink():
+            unit.unlink()
         env = dict(os.environ, WEX_BOOTMODE_HELPER=self.fake_helper(mode, status),
-                   WEX_BOOTMODE_UNIT_DIR="/units", WEX_BOOTMODE_SYSTEM_UPDATE=str(update))
+                   WEX_BOOTMODE_UNIT_DIR="/units", WEX_BOOTMODE_SYSTEM_UPDATE=str(update),
+                   WEX_BOOTMODE_ENABLED_DIR=str(enabled))
         subprocess.run(["sh", str(GENERATOR), str(self.tmp / "normal"), str(early), str(self.tmp / "late")],
                        env=env, check=True)
         return {p.relative_to(early).as_posix(): os.readlink(p) for p in early.rglob("*") if p.is_symlink()}
@@ -263,6 +272,18 @@ class TestGenerator(TempDirTest):
         self.assertEqual(links.get("timers.target"), "/dev/null")
         self.assertNotIn("NetworkManager.service", links)
         self.assertEqual(links.get("wex-safenet.target.wants/wex-bootlog.service"), "/units/wex-bootlog.service")
+
+    def test_session0_runs_in_safe_mode_where_enabled(self):
+        """As on Windows, session 0 runs in Safe Mode (its services.exe starts the SafeBoot services only); a machine
+        without it gets nothing new."""
+        for mode, target in (("safe", "wex-safemode.target"), ("safecmd", "wex-safemode.target"),
+                             ("safenet", "wex-safenet.target")):
+            links = self.generate(mode, session0=True)
+            self.assertEqual(links.get(f"{target}.wants/wex-session0.service"), "/units/wex-session0.service", mode)
+            shutil.rmtree(self.tmp / "early")
+            self.assertFalse([k for k in self.generate(mode) if "session0" in k], mode)
+            shutil.rmtree(self.tmp / "early")
+        self.assertFalse([k for k in self.generate("menu", session0=True) if "session0" in k])
 
     def test_menu_and_normal_start_log_nothing(self):
         for mode in ("menu", "normal"):
