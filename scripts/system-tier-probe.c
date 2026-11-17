@@ -51,6 +51,9 @@
  *   probe svcstop NAME            opens the service for SERVICE_STOP and stops it; prints stop=0 or stop=error<n>
  *   probe gpset ID STATE N        sets a policy of the editor (gpedit.dll, GpEdit_SetPolicyW) as the editor saves it;
  *                                 prints gpset=0 or gpset=<win32 error>
+ *   probe gpsetuser OBJECT ID STATE N
+ *                                 the same for a local object of the users (GpEdit_SetUserPolicyW; OBJECT is
+ *                                 Administrators, Non-Administrators or a user); prints gpset=0 or gpset=<win32 error>
 
  *   probe spoolsteps              the file steps of the policy store client in the spool, with each error (diagnostics)
  *   probe runas FILE PARAMS       ShellExecuteEx "runas" FILE with PARAMS, waits; prints runas=0 or runas=error<n>
@@ -332,6 +335,20 @@ int __cdecl wmain( int argc, WCHAR **argv )
             return 1;
         }
         printf( "gpset=%lu\n", set_policy( argv[2], wcstoul( argv[3], NULL, 10 ), wcstoul( argv[4], NULL, 10 ) ) );
+        return 0;
+    }
+    if (argc == 6 && !lstrcmpW( argv[1], L"gpsetuser" ))
+    {
+        DWORD (WINAPI *set_user_policy)( const WCHAR *, const WCHAR *, DWORD, DWORD );
+        HMODULE module = LoadLibraryW( L"gpedit.dll" );
+
+        set_user_policy = module ? (void *)GetProcAddress( module, "GpEdit_SetUserPolicyW" ) : NULL;
+        if (!set_user_policy)
+        {
+            printf( "gpset=error%lu\n", GetLastError() );
+            return 1;
+        }
+        printf( "gpset=%lu\n", set_user_policy( argv[2], argv[3], wcstoul( argv[4], NULL, 10 ), wcstoul( argv[5], NULL, 10 ) ) );
         return 0;
     }
     if ((argc == 2 || argc == 3) && !lstrcmpW( argv[1], L"spoolsteps" ))
