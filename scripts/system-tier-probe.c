@@ -337,6 +337,21 @@ int __cdecl wmain( int argc, WCHAR **argv )
         printf( "gpset=%lu\n", set_policy( argv[2], wcstoul( argv[3], NULL, 10 ), wcstoul( argv[4], NULL, 10 ) ) );
         return 0;
     }
+    if (argc == 4 && !lstrcmpW( argv[1], L"secpolset" ))
+    {
+        /* a security setting of the local security editor without its window: secpolset NAME NUMBER; prints gpset=N */
+        DWORD (WINAPI *set_setting)( const WCHAR *, DWORD );
+        HMODULE module = LoadLibraryW( L"secpol.dll" );
+
+        set_setting = module ? (void *)GetProcAddress( module, "SecPol_SetW" ) : NULL;
+        if (!set_setting)
+        {
+            printf( "gpset=error%lu\n", GetLastError() );
+            return 1;
+        }
+        printf( "gpset=%lu\n", set_setting( argv[2], wcstoul( argv[3], NULL, 10 ) ) );
+        return 0;
+    }
     if (argc == 6 && !lstrcmpW( argv[1], L"gpsetuser" ))
     {
         DWORD (WINAPI *set_user_policy)( const WCHAR *, const WCHAR *, DWORD, DWORD );

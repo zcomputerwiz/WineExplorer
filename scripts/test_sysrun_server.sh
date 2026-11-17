@@ -3918,6 +3918,121 @@ local_gpupdate >/dev/null 2>&1 || fail "gpedit users: wex-gpupdate.sh after Not 
 rm -rf "$GUSERS" "$LGP/Machine" "$LGP/User" "$LGP/Spool"
 kill_servers
 ok st_gpedit_objects_of_the_users_go_through_the_spool_and_apply_in_order
+# the local security settings editor's save (secpol.dll, SecPol_SetW; docs/GROUP_POLICY.md, "The local security settings
+# editor"): a setting goes into the local template through the spool, the refresh applies it, and a second setting keeps
+# the first one's line
+gp_tree
+ELEV='HKLM\Software\WineExplorer\Elevation'; SYSK='HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System'
+TMPL="$LGP/Machine/Microsoft/Windows NT/SecEdit/GptTmpl.inf"
+s0_wine sc start gpsvc >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+secpolset()
+{
+    local out="$POL/secpolset.out" pid i
+    rm -f "$REQ" "$out"
+    (s0_wine "$ROOT/probes/tierprobe64.exe" secpolset "$1" "$2" > "$out" 2>&1; echo "rc=$?" >> "$out") &
+    pid=$!
+    if [ "${3:-}" = wait ]; then
+        for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
+        local_gpupdate >/dev/null 2>&1 || true
+    fi
+    wait "$pid" || true
+    tr -d '\r' < "$out" | grep '^gpset=' || echo "no result: $(tr -d '\r' < "$out" | tr '\n' ' ')"
+}
+OUT="$(secpolset LockoutBadCount 3 wait)"
+[ "$OUT" = gpset=0 ] || fail "secpol: the lockout threshold was not saved ($OUT; $(tr -d '\r' < "$POL/secpolset.out" | tr '\n' ' ') spool: $(ls -A "$LGP/Spool" | tr '\n' ' '))"
+[ "$(as_wine "$STD" reg query "$ELEV" /v LockoutBadCount | val LockoutBadCount)" = 0x3 ] || fail "secpol: the lockout threshold did not reach the registry"
+OUT="$(secpolset PromptOnSecureDesktop 0 wait)"
+[ "$OUT" = gpset=0 ] || fail "secpol: the secure desktop setting was not saved ($OUT)"
+[ "$(as_wine "$STD" reg query "$SYSK" /v PromptOnSecureDesktop | val PromptOnSecureDesktop)" = 0x0 ] || fail "secpol: the secure desktop setting did not reach the registry"
+[ "$(stat -c '%U:%a' "$TMPL")" = "$S0U:644" ] || fail "secpol: the template is $(stat -c '%U:%a' "$TMPL" 2>&1)"
+TXT="$(iconv -f UTF-16LE -t UTF-8 "$TMPL" | tr -d '\r\357\273\277')"
+grep -qxF 'LockoutBadCount = 3' <<<"$TXT" && grep -qF 'PromptOnSecureDesktop = 4,0' <<<"$TXT" ||
+    fail "secpol: the template lost a line: $TXT"
+# refused: a name that is not in the table, a number out of range, a setting that does not apply (no refresh asked)
+[ "$(secpolset NoSuchSetting 1)" = gpset=1168 ] || fail "secpol: an unknown setting gave $(secpolset NoSuchSetting 1)"
+[ "$(secpolset LockoutBadCount 1000)" = gpset=87 ] || fail "secpol: a threshold of 1000 gave $(secpolset LockoutBadCount 1000)"
+[ "$(secpolset ConsentPromptBehaviorAdmin 3)" = gpset=87 ] || fail "secpol: a prompt behavior of 3 gave $(secpolset ConsentPromptBehaviorAdmin 3)"
+# the writer leaves out a prompt behavior that the elevation service does not implement (0 asks for no prompt), in any
+# spelling of the key and of the type, says so, and applies the rest of the template
+BS='\'
+CK="MACHINE${BS}Software${BS}Microsoft${BS}Windows${BS}CurrentVersion${BS}Policies${BS}System"
+for variant in "$CK${BS}ConsentPromptBehaviorAdmin=4,0" "$CK${BS}${BS}ConsentPromptBehaviorAdmin=4,0" \
+               "$CK${BS}ConsentPromptBehaviorAdmin=1,0" "${CK,,}${BS}consentpromptbehavioradmin=4,3" \
+               "$CK${BS}ConsentPromptBehaviorAdmin=4,5x"; do
+    TNAME=consent0.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[Registry Values]' \
+        "$variant" "$CK${BS}PromptOnSecureDesktop=4,0"
+    chmod 0644 "$POL/consent0.inf"
+    s0_wine reg delete "$SYSK" /v PromptOnSecureDesktop /f >/dev/null 2>&1 || true
+    BEFORE="$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)"   # (whatever an earlier check left)
+    OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/consent0.inf")" | tr -d '\r')" || true
+    grep -q 'security set=1 not-applicable=1 status=0' <<<"$OUT" && grep -q 'only the values 2 and 5' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "secpol: the prompt behavior line was not left out alone ($variant)"; }
+    [ "$(as_wine "$STD" reg query "$SYSK" /v PromptOnSecureDesktop | val PromptOnSecureDesktop)" = 0x0 ] ||
+        fail "secpol: the rest of the template was not applied ($variant)"
+    [ "$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)" = "$BEFORE" ] ||
+        fail "secpol: a prompt behavior was stored ($variant)"
+done
+# characters that lower-case to themselves but have an upper-case partner (U+017F for S, U+0131 for I), which the registry
+# server compares by: whether Wine's tables make them the same key or not, the value of the real key must not change
+for variant in "$CK${BS}${BS}ConsentPromptBehaviorAdmın=4,0" "${CK/System/ſystem}${BS}ConsentPromptBehaviorAdmin=4,0"; do
+    TNAME=consent0.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[Registry Values]' "$variant"
+    chmod 0644 "$POL/consent0.inf"
+    BEFORE="$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)"
+    s0_wine wexpolicy security /machine "$(winpath "$POL/consent0.inf")" >/dev/null || true
+    [ "$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)" = "$BEFORE" ] ||
+        fail "secpol: a spelling with U+0131 or U+017F changed the prompt behavior ($variant)"
+done
+s0_wine reg delete "$SYSK" /v PromptOnSecureDesktop /f >/dev/null 2>&1 || true
+s0_wine reg delete "$ELEV" /v LockoutBadCount /f >/dev/null 2>&1 || true
+rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
+kill_servers
+ok st_secpol_setting_goes_through_the_spool_into_the_template_and_applies
+# the window itself (xdotool on Xvfb, no window manager: a window opens at 0,0 and its parts are at the places the
+# window has by design): a standard user's save through the Properties sheet is refused and the window offers to open
+# again as an administrator (a message box, a second window of the same title) and changes nothing. (The save of a process
+# of the system group is the one of SecPol_SetW above: the window of session 0's account does not get xdotool's input.)
+gp_tree
+s0_wine sc start gpsvc >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+secpol_open_threshold()   # the Properties sheet of the lockout threshold, the number set to 3, OK
+{
+    XD mousemove 130 107 click 1; sleep 2
+    XD mousemove 300 94 click 1; sleep 1; XD key alt+Return; sleep 4
+    XD mousemove 50 182 click 1; XD key ctrl+a BackSpace; XD type 3; sleep 1
+    XD key Return
+}
+secpol_shot() { DISPLAY=":$DNUM" xwd -root -silent 2>/dev/null | convert xwd:- "/var/tmp/wex-run/secpol-$1.png" 2>/dev/null || true; cp "$POL/secpol-win.out" /var/tmp/wex-run/secpol-win.out 2>/dev/null || true; }
+secpol_windows() { XD search --onlyvisible --name 'Local Security Settings' 2>/dev/null | wc -l; }
+secpol_offer() { XD search --onlyvisible --name 'Administrator rights' 2>/dev/null | wc -l; }   # the message box of the offer, by its own title
+# a limited administrator and a standard user: the save is refused with ERROR_ACCESS_DENIED, nothing is left in the spool
+# and no refresh is asked for (the owner of the store, session 0's account, stands in above for an elevated administrator:
+# the system group is what the store checks)
+for u in "$ADM" "$STD"; do
+    rm -f "$REQ"
+    OUT="$(wine_as "$u" "$ROOT/probes/tierprobe64.exe" secpolset LockoutBadCount 3 2>/dev/null | tr -d '\r' | grep '^gpset=')" || true
+    [ "$OUT" = gpset=5 ] || fail "secpol: $u was not refused (got: $OUT)"
+    [ -z "$(ls -A "$LGP/Spool")" ] && [ ! -s "$REQ" ] || fail "secpol: the refused save of $u left something behind: $(ls -A "$LGP/Spool")"
+    [ ! -e "$LGP/Machine/Microsoft/Windows NT/SecEdit/GptTmpl.inf" ] || fail "secpol: $u stored a template"
+done
+# a standard user: refused, offered elevation, nothing changed, no refresh asked
+rm -f "$REQ"
+(wine_as "$STD" mmc.exe secpol.msc </dev/null > "$POL/secpol-std.out" 2>&1) &
+SPS_PID=$!
+for i in $(seq 1 60); do [ "$(secpol_windows)" -ge 1 ] && break; sleep 1; done
+sleep 5
+secpol_open_threshold
+sleep 8
+secpol_shot denied
+[ "$(secpol_offer)" -ge 1 ] || { secpol_shot denied; fail "secpol window: a standard user was not offered elevation"; }
+[ ! -s "$REQ" ] || fail "secpol window: a standard user's save asked for a refresh"
+[ -z "$(as_wine "$STD" reg query "$ELEV" /v LockoutBadCount | val LockoutBadCount || true)" ] || fail "secpol window: a standard user changed the setting"
+XD key Escape; sleep 1
+pkill -u "$STD" -f 'mmc.exe' || true
+wait "$SPS_PID" 2>/dev/null || true
+rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
+kill_servers
+ok st_secpol_window_offers_a_standard_user_elevation
 # Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
 # extension, for the machine and for the user
 REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'
@@ -3959,19 +4074,28 @@ OUT="$(as_wine "$STD" wexpolicy record /machine "$(winpath "$POL/empty.list")" |
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: $STD ran the writer"; }
 # local policy (docs/GROUP_POLICY.md, "Local policy"): the local object has no GUID, its name is LocalGPO
 printf '%s\n' "LocalGPO${T}0${T}0${T}0${T}Local Group Policy${T}C:\\windows\\system32\\GroupPolicy\\Machine${T}${T}Local${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
+    "LocalGPO-S-1-5-32-544${T}0${T}0${T}0${T}Local Group Policy\\Administrators${T}C:\\windows\\system32\\GroupPolicyUsers\\S-1-5-32-544\\User${T}${T}Local${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
+    "LocalGPO-S-1-5-21-4294967295-4294967295-4294967295-4294967295${T}0${T}0${T}0${T}Local Group Policy\\longest${T}C:\\windows\\system32\\GroupPolicyUsers\\S-1-5-21-4294967295-4294967295-4294967295-4294967295\\User${T}${T}Local${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
     "{6AC1786C-016F-11D2-945F-00C04FB984F9}${T}2${T}4${T}0${T}Wex Test${T}\\\\ad\\sysvol\\p2${T}LDAP://CN={6AC1786C-016F-11D2-945F-00C04FB984F9},CN=Policies${T}LDAP://OU=Wex,DC=ad${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
     > "$POL/local.list"
 OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/local.list")" | tr -d '\r')" || true
-grep -q 'recorded=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record the local object"; }
+grep -q 'recorded=4 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record the local objects (the longest SID too)"; }
+# a name that is neither a GUID, LocalGPO nor LocalGPO- and a SID of the store's grammar is not taken
+for bad in 'LocalGPO-x' 'LocalGPO-S-1-SS--S' 'LocalGPO-S-1-5-21-1-2-3' 'LocalGPO-S-1-5-21-01-2-3-4' 'LocalGPO-S-1-5-21-1-2-3-4294967296'; do
+    sed "s/^LocalGPO-S-1-5-32-544/$bad/" "$POL/local.list" > "$POL/badname.list"
+    OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/badname.list")" | tr -d '\r')" || true
+    grep -q 'error 11' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: the local object name $bad was taken"; }
+done
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine "$REGEXT" | tr -d '\r')"
-    grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 2 ] &&
+    grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 4 ] &&
         [ "$(grep '^gpo=' <<<"$OUT" | sed -n 1p | cut -d' ' -f1)" = 'gpo=LocalGPO' ] &&
         grep -q '^gpo=LocalGPO .* name=Local Group Policy' <<<"$OUT" ||
         { echo "$OUT" >&2; fail "gpolist: a $b-bit program's list with the local object first"; }
 done
 OUT2="$(as_wine "$STD" gpresult /v | tr -d '\r')"
 grep -q '^        Local Group Policy$' <<<"$OUT2" || { echo "$OUT2" >&2; fail "gpolist: gpresult does not list the local object"; }
+grep -q '^        Local Group Policy\\Administrators$' <<<"$OUT2" || { echo "$OUT2" >&2; fail "gpolist: gpresult does not list the Administrators object"; }
 s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty list"
 s0_wine wexpolicy record "/user:$STD_SID" "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty user list"
 OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" | tr -d '\r')"
