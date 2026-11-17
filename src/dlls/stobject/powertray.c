@@ -28,6 +28,7 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#include <wexhost.h>
 
 #include "wine/debug.h"
 #include "resource.h"
@@ -40,6 +41,7 @@
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define WM_POWERTRAY_NOTIFY  (WM_APP + 220)
+#define WM_POWERTRAY_CHANGED (WM_APP + 221)
 #define IDT_POWERTRAY_TIMER  103
 #define POWERTRAY_CLASS_NAME L"Power Tray Window"
 
@@ -48,6 +50,7 @@ static NOTIFYICONDATAW g_pwr_nid = {0};
 static POWER_STATUS_INFO g_pwr_status = {0};
 static int g_current_pwr_icon = 0;
 static BOOL g_icon_added = FALSE;
+static BOOL g_power_watch;
 
 static const WCHAR *g_scheme_names[] = {
     L"Home/Office Desk",
@@ -64,6 +67,10 @@ static void update_pwr_tray_icon_and_tooltip(HWND hwnd)
     WCHAR new_tip[128] = {0};
 
     power_backend_get_status(&g_pwr_status);
+    if (!g_power_watch || power_backend_uses_fallback())
+        SetTimer(hwnd, IDT_POWERTRAY_TIMER, 30000, NULL);
+    else
+        KillTimer(hwnd, IDT_POWERTRAY_TIMER);
 
     /* If machine is a desktop without battery and AC online, don't clutter tray unless forced */
     if (!g_pwr_status.has_battery)
@@ -170,9 +177,13 @@ static LRESULT CALLBACK PowerTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPA
     switch (msg)
     {
     case WM_CREATE:
+        g_power_watch = !WexHostSubscribe(hwnd, WM_POWERTRAY_CHANGED, WEX_HOST_CHANGE_POWER);
         power_backend_init();
         update_pwr_tray_icon_and_tooltip(hwnd);
-        SetTimer(hwnd, IDT_POWERTRAY_TIMER, 1500, NULL);
+        return 0;
+
+    case WM_POWERTRAY_CHANGED:
+        update_pwr_tray_icon_and_tooltip(hwnd);
         return 0;
 
     case WM_TIMER:
@@ -201,6 +212,8 @@ static LRESULT CALLBACK PowerTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPA
     }
 
     case WM_DESTROY:
+        WexHostUnsubscribe(hwnd);
+        g_power_watch = FALSE;
         KillTimer(hwnd, IDT_POWERTRAY_TIMER);
         if (g_icon_added)
         {

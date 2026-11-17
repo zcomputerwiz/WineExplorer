@@ -292,6 +292,8 @@ void tray_x11_next(WEX_TRAY_ITEM *item)
     }
     p_XFlush(display);
 }
+int tray_x11_fd(void) { return display ? ConnectionNumber(display) : -1; }
+BOOL tray_x11_pending(void) { return display && p_XPending(display); }
 BOOL tray_x11_action(struct tray_action_params *params)
 {
     unsigned int i, button;
@@ -352,6 +354,8 @@ void tray_x11_stop(void)
 }
 #else
 void tray_x11_next(WEX_TRAY_ITEM *item) {}
+int tray_x11_fd(void) { return -1; }
+BOOL tray_x11_pending(void) { return FALSE; }
 BOOL tray_x11_action(struct tray_action_params *params) { return FALSE; }
 void tray_x11_stop(void) {}
 #endif

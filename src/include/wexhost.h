@@ -85,6 +85,14 @@ typedef struct
 
 DWORD WINAPI WexBatteryGet( WEX_BATTERY *info );
 
+/* Subscribe before reading the initial snapshot. Notifications post a change
+ * counter in wParam and a Win32 transport error in lParam. Unsubscribe before destroying
+ * the window. Posted notifications are hints: always re-read the full state. */
+#define WEX_HOST_CHANGE_NETWORK 0x01
+#define WEX_HOST_CHANGE_POWER   0x02
+DWORD WINAPI WexHostSubscribe( HWND window, UINT message, DWORD changes );
+void WINAPI WexHostUnsubscribe( HWND window );
+
 /* computer name: hostname1 */
 typedef struct { char static_name[64]; char pretty_name[128]; char transient_name[64]; } WEX_HOSTNAME;
 

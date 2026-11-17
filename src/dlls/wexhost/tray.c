@@ -14,6 +14,9 @@
 #include <glob.h>
 #include <unistd.h>
 #include <poll.h>
+#include <errno.h>
+#include <stdint.h>
+#include <sys/eventfd.h>
 #include <ntstatus.h>
 #define WIN32_NO_STATUS
 #include <winerror.h>
@@ -37,7 +40,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(wexhost);
     X(dbus_message_iter_recurse) X(dbus_message_iter_get_arg_type) X(dbus_message_iter_get_basic) \
     X(dbus_message_iter_get_fixed_array) X(dbus_message_iter_append_basic) \
     X(dbus_message_iter_open_container) X(dbus_message_iter_close_container) \
-    X(dbus_validate_bus_name) X(dbus_validate_path) X(dbus_connection_get_unix_fd)
+    X(dbus_validate_bus_name) X(dbus_validate_path) X(dbus_connection_get_unix_fd) \
+    X(dbus_connection_get_dispatch_status)
 #define X(f) static typeof(f) *p_##f;
 DBUS_FUNCS
 #undef X
@@ -56,6 +60,8 @@ struct item
 };
 static struct item items[ITEM_MAX];
 static DBusConnection *bus;
+static int wake_fd = -1;
+static BOOL stopping;
 static BOOL watcher;
 static DWORD next_token;
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -508,6 +514,13 @@ NTSTATUS tray_start(void *args)
     DBusMessage *msg, *reply;
     DBusMessageIter it, array;
     const char *iface = WATCHER, *prop = "RegisteredStatusNotifierItems", *host;
+    static const char *const matches[] = {
+        "type='signal',interface='org.freedesktop.DBus',member='NameOwnerChanged'",
+        "type='signal',interface='org.kde.StatusNotifierItem'",
+        "type='signal',interface='org.freedesktop.DBus.Properties'",
+        "type='signal',interface='org.kde.StatusNotifierWatcher'"
+    };
+    unsigned int i;
     int result;
     params->err = ERROR_NOT_SUPPORTED;
     pthread_mutex_lock(&mutex);
@@ -524,15 +537,30 @@ NTSTATUS tray_start(void *args)
     bus = p_dbus_bus_get_private(DBUS_BUS_SESSION, &error);
     p_dbus_error_free(&error);
     if (!bus) goto done;
+    if ((wake_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)) < 0)
+    {
+        p_dbus_connection_close(bus); p_dbus_connection_unref(bus); bus = NULL;
+        params->err = ERROR_NOT_ENOUGH_MEMORY;
+        goto done;
+    }
+    stopping = FALSE;
     p_dbus_connection_set_exit_on_disconnect(bus, FALSE);
     p_dbus_error_init(&error);
     result = p_dbus_bus_request_name(bus, WATCHER, DBUS_NAME_FLAG_DO_NOT_QUEUE, &error);
     p_dbus_error_free(&error);
     watcher = result == DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER;
-    p_dbus_bus_add_match(bus, "type='signal',interface='org.freedesktop.DBus',member='NameOwnerChanged'", NULL);
-    p_dbus_bus_add_match(bus, "type='signal',interface='org.kde.StatusNotifierItem'", NULL);
-    p_dbus_bus_add_match(bus, "type='signal',interface='org.freedesktop.DBus.Properties'", NULL);
-    p_dbus_bus_add_match(bus, "type='signal',interface='org.kde.StatusNotifierWatcher'", NULL);
+    for (i = 0; i < ARRAY_SIZE(matches); i++)
+    {
+        p_dbus_error_init(&error);
+        p_dbus_bus_add_match(bus, matches[i], &error);
+        if (error.name)
+        {
+            p_dbus_error_free(&error);
+            p_dbus_connection_close(bus); p_dbus_connection_unref(bus); bus = NULL;
+            close(wake_fd); wake_fd = -1;
+            goto done;
+        }
+    }
     if (watcher)
         send_message(p_dbus_message_new_signal(WATCH_PATH, WATCHER, "StatusNotifierHostRegistered"));
     else
@@ -568,36 +596,74 @@ NTSTATUS tray_next(void *args)
 {
     struct tray_params *params = args;
     DBusMessage *msg;
-    struct pollfd waitfd = {-1, POLLIN, 0};
+    struct pollfd fds[3];
+    uint64_t wake;
     unsigned int i;
+    int ret;
     memset(&params->item, 0, sizeof(params->item));
     params->err = 0;
-    pthread_mutex_lock(&mutex);
-    if (bus) p_dbus_connection_get_unix_fd(bus, &waitfd.fd);
-    pthread_mutex_unlock(&mutex);
-    /* Do not hold the command mutex across the idle wait: an unfair pthread
-     * mutex can otherwise starve a user's click behind the next-event loop. */
-    if (waitfd.fd >= 0) poll(&waitfd, 1, 100);
-    pthread_mutex_lock(&mutex);
-    if (!bus || !p_dbus_connection_read_write(bus, 0)) { params->err = ERROR_BROKEN_PIPE; goto done; }
-    /* Bound each dispatch batch so a noisy client cannot starve shutdown/UI. */
-    for (i = 0; i < 64 && (msg = p_dbus_connection_pop_message(bus)); i++)
-    { handle_message(msg); p_dbus_message_unref(msg); }
-    for (i = 0; i < ITEM_MAX; i++) if (items[i].token)
+    for (;;)
     {
-        if (items[i].dirty && !items[i].removed) refresh(&items[i]);
-        if (items[i].removed)
+        pthread_mutex_lock(&mutex);
+        if (stopping) { params->err = ERROR_CANCELLED; goto done; }
+        if (wake_fd >= 0 && read(wake_fd, &wake, sizeof(wake)) < 0) {}
+        if (!bus || !p_dbus_connection_read_write(bus, 0)) { params->err = ERROR_BROKEN_PIPE; goto done; }
+        /* Drain libdbus's userspace queue before looking at its socket. Calls
+         * from actions/refresh may have read signals into that queue already. */
+        for (i = 0; i < 64 && p_dbus_connection_get_dispatch_status(bus) == DBUS_DISPATCH_DATA_REMAINS &&
+             (msg = p_dbus_connection_pop_message(bus)); i++)
+        { handle_message(msg); p_dbus_message_unref(msg); }
+        for (i = 0; i < ITEM_MAX; i++) if (items[i].token)
         {
-            params->item.token = items[i].token; params->item.event = WEX_TRAY_REMOVED;
-            memset(&items[i], 0, sizeof(items[i])); break;
+            if (items[i].dirty && !items[i].removed) refresh(&items[i]);
+            if (items[i].removed)
+            {
+                params->item.token = items[i].token; params->item.event = WEX_TRAY_REMOVED;
+                memset(&items[i], 0, sizeof(items[i])); break;
+            }
+            if (items[i].data.event)
+            { params->item = items[i].data; items[i].data.event = 0; break; }
         }
-        if (items[i].data.event)
-        { params->item = items[i].data; items[i].data.event = 0; break; }
+        if (!params->item.event) tray_x11_next(&params->item);
+        p_dbus_connection_flush(bus);
+        if (params->item.event) goto done;
+        /* XSync/GetImage can queue more X events during capture. The next
+         * call drains them too, even when the X socket is no longer readable. */
+        if (tray_x11_pending() || p_dbus_connection_get_dispatch_status(bus) == DBUS_DISPATCH_DATA_REMAINS)
+        { pthread_mutex_unlock(&mutex); continue; }
+        fds[0].fd = wake_fd;
+        fds[1].fd = -1;
+        if (!p_dbus_connection_get_unix_fd(bus, &fds[1].fd))
+        { params->err = ERROR_BROKEN_PIPE; goto done; }
+        fds[2].fd = tray_x11_fd();
+        fds[0].events = fds[1].events = fds[2].events = POLLIN;
+        fds[0].revents = fds[1].revents = fds[2].revents = 0;
+        pthread_mutex_unlock(&mutex);
+        ret = poll(fds, ARRAY_SIZE(fds), -1);
+        if (ret < 0 && errno == EINTR) continue;
+        if (ret < 0 || ((fds[0].revents | fds[1].revents | fds[2].revents) & (POLLERR | POLLHUP | POLLNVAL)))
+        { params->err = ERROR_BROKEN_PIPE; return STATUS_SUCCESS; }
     }
-    if (!params->item.event) tray_x11_next(&params->item);
-    p_dbus_connection_flush(bus);
 done:
     pthread_mutex_unlock(&mutex);
+    return STATUS_SUCCESS;
+}
+/* Also wake after a command: synchronous D-Bus/Xlib calls may have consumed fd
+ * readiness while leaving events in their userspace queues. Holds mutex. */
+static void wake_tray(void)
+{
+    uint64_t one = 1;
+    ssize_t ret;
+    if (wake_fd >= 0)
+        do ret = write(wake_fd, &one, sizeof(one)); while (ret < 0 && errno == EINTR);
+}
+NTSTATUS tray_wake(void *args)
+{
+    pthread_mutex_lock(&mutex);
+    stopping = TRUE;
+    wake_tray();
+    pthread_mutex_unlock(&mutex);
+    ((struct init_params *)args)->err = 0;
     return STATUS_SUCCESS;
 }
 NTSTATUS tray_stop(void *args)
@@ -605,6 +671,8 @@ NTSTATUS tray_stop(void *args)
     pthread_mutex_lock(&mutex);
     tray_x11_stop();
     if (bus) { p_dbus_connection_close(bus); p_dbus_connection_unref(bus); bus = NULL; }
+    if (wake_fd >= 0) close(wake_fd);
+    wake_fd = -1;
     memset(items, 0, sizeof(items));
     ((struct init_params *)args)->err = 0;
     pthread_mutex_unlock(&mutex);
@@ -656,6 +724,7 @@ NTSTATUS tray_action(void *args)
     params->err = msg ? 0 : ERROR_NOT_SUPPORTED;
     if (msg) { p_dbus_message_set_no_reply(msg, TRUE); send_message(msg); p_dbus_connection_flush(bus); }
 done:
+    wake_tray();
     pthread_mutex_unlock(&mutex);
     return STATUS_SUCCESS;
 }
@@ -728,6 +797,7 @@ NTSTATUS tray_menu(void *args)
         params->err = params->menu.count ? 0 : ERROR_INVALID_DATA;
     }
 done:
+    wake_tray();
     pthread_mutex_unlock(&mutex);
     return STATUS_SUCCESS;
 }
@@ -735,6 +805,7 @@ done:
 #define STUB(name, type) NTSTATUS name(void *args) { ((type *)args)->err = ERROR_NOT_SUPPORTED; return STATUS_SUCCESS; }
 STUB(tray_start, struct init_params)
 STUB(tray_stop, struct init_params)
+STUB(tray_wake, struct init_params)
 STUB(tray_next, struct tray_params)
 STUB(tray_action, struct tray_action_params)
 STUB(tray_menu, struct tray_menu_params)

@@ -35,7 +35,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 static UINT g_active_scheme = POWER_SCHEME_DESK;
 static POWER_STATUS_INFO g_cached_status = {0};
-static DWORD g_last_check = 0;
+static BOOL g_fallback = TRUE;
 
 /* Read integer from sysfs file */
 static BOOL read_sysfs_int(const char *path, int *out_val)
@@ -167,21 +167,18 @@ void power_backend_init(void)
         RegCloseKey(hKey);
     }
 
-    power_backend_get_status(&g_cached_status);
 }
 
 BOOL power_backend_get_status(POWER_STATUS_INFO *info)
 {
-    DWORD now = GetTickCount();
-
     if (!info) return FALSE;
 
-    if (now - g_last_check > 1000 || g_last_check == 0)
+    /* Callers control refresh timing. A throttle here can discard a signal
+     * arriving just after the preceding read, leaving stale state forever. */
+    g_fallback = !query_upower(&g_cached_status);
     {
-        g_last_check = now;
-
         /* 1. UPower over D-Bus, else zero-fork Linux kernel sysfs */
-        if (!query_upower(&g_cached_status) && !query_linux_sysfs(&g_cached_status))
+        if (g_fallback && !query_linux_sysfs(&g_cached_status))
         {
             /* 2. Fall back to Win32 GetSystemPowerStatus */
             SYSTEM_POWER_STATUS sps;
@@ -208,6 +205,11 @@ BOOL power_backend_get_status(POWER_STATUS_INFO *info)
     g_cached_status.active_scheme = g_active_scheme;
     *info = g_cached_status;
     return TRUE;
+}
+
+BOOL power_backend_uses_fallback(void)
+{
+    return g_fallback;
 }
 
 void power_backend_set_scheme(UINT scheme_id)

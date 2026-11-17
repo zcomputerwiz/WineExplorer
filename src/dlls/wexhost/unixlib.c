@@ -35,6 +35,10 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <poll.h>
+#include <stdint.h>
+#include <sys/eventfd.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 #include <pwd.h>
 #include <grp.h>
 #include <sys/types.h>
@@ -58,9 +62,16 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL( wexhost );
 
+static int change_stop = -1, change_route = -1;
+
 #ifdef SONAME_LIBDBUS_1
 
 #define DBUS_FUNCS \
+    DO_FUNC( dbus_bus_add_match ); \
+    DO_FUNC( dbus_connection_get_dispatch_status ); \
+    DO_FUNC( dbus_connection_get_is_connected ); \
+    DO_FUNC( dbus_connection_get_unix_fd ); \
+    DO_FUNC( dbus_connection_ref ); \
     DO_FUNC( dbus_bus_get_private ); \
     DO_FUNC( dbus_bus_name_has_owner ); \
     DO_FUNC( dbus_connection_close ); \
@@ -77,7 +88,9 @@ WINE_DEFAULT_DEBUG_CHANNEL( wexhost );
     DO_FUNC( dbus_error_is_set ); \
     DO_FUNC( dbus_message_append_args ); \
     DO_FUNC( dbus_message_get_interface ); \
+    DO_FUNC( dbus_message_get_destination ); \
     DO_FUNC( dbus_message_get_member ); \
+    DO_FUNC( dbus_message_get_path ); \
     DO_FUNC( dbus_message_get_type ); \
     DO_FUNC( dbus_message_iter_append_basic ); \
     DO_FUNC( dbus_message_iter_close_container ); \
@@ -101,20 +114,25 @@ WINE_DEFAULT_DEBUG_CHANNEL( wexhost );
 DBUS_FUNCS;
 #undef DO_FUNC
 
-static BOOL load_dbus( void )
+static pthread_once_t dbus_once = PTHREAD_ONCE_INIT;
+static BOOL dbus_loaded;
+
+static void load_dbus_once( void )
 {
-    static int state;   /* 0 = untried, 1 = ok, -1 = failed */
     void *handle;
 
-    if (state) return state > 0;
-    state = -1;
-    if (!(handle = dlopen( SONAME_LIBDBUS_1, RTLD_NOW ))) { WARN( "libdbus not available: %s\n", dlerror() ); return FALSE; }
-#define DO_FUNC( f ) if (!(p_##f = dlsym( handle, #f ))) { ERR( "missing %s\n", #f ); return FALSE; }
+    if (!(handle = dlopen( SONAME_LIBDBUS_1, RTLD_NOW ))) { WARN( "libdbus not available: %s\n", dlerror() ); return; }
+#define DO_FUNC( f ) if (!(p_##f = dlsym( handle, #f ))) { ERR( "missing %s\n", #f ); return; }
     DBUS_FUNCS;
 #undef DO_FUNC
-    p_dbus_threads_init_default();
-    state = 1;
-    return TRUE;
+    if (!p_dbus_threads_init_default()) return;
+    dbus_loaded = TRUE;
+}
+
+static BOOL load_dbus( void )
+{
+    pthread_once( &dbus_once, load_dbus_once );
+    return dbus_loaded;
 }
 
 static DWORD map_error( DBusError *err )
@@ -131,6 +149,8 @@ static DWORD map_error( DBusError *err )
         p_dbus_error_has_name( err, DBUS_ERROR_FILE_NOT_FOUND ) || p_dbus_error_has_name( err, DBUS_ERROR_UNKNOWN_METHOD ))
         return ERROR_NOT_SUPPORTED;
     if (p_dbus_error_has_name( err, DBUS_ERROR_INVALID_ARGS )) return ERROR_INVALID_PARAMETER;
+    if (p_dbus_error_has_name( err, DBUS_ERROR_NO_REPLY ) ||
+        p_dbus_error_has_name( err, DBUS_ERROR_TIMEOUT )) return ERROR_TIMEOUT;
     WARN( "D-Bus error %s: %s\n", err->name, err->message );
     return ERROR_GEN_FAILURE;
 }
@@ -141,8 +161,15 @@ static pthread_mutex_t bus_mutex = PTHREAD_MUTEX_INITIALIZER;
 static DBusConnection *get_system_bus( void )
 {
     DBusError err;
+    DBusConnection *bus;
 
     pthread_mutex_lock( &bus_mutex );
+    if (system_bus && !p_dbus_connection_get_is_connected( system_bus ))
+    {
+        p_dbus_connection_close( system_bus );
+        p_dbus_connection_unref( system_bus );
+        system_bus = NULL;
+    }
     if (!system_bus && load_dbus())
     {
         p_dbus_error_init( &err );
@@ -154,24 +181,112 @@ static DBusConnection *get_system_bus( void )
             p_dbus_error_free( &err );
         }
     }
+    bus = system_bus ? p_dbus_connection_ref( system_bus ) : NULL;
     pthread_mutex_unlock( &bus_mutex );
-    return system_bus;
+    return bus;
 }
 
-/* Blocks without a time limit: polkit may be waiting for the user to type a password. */
+/* Bound reads and NetworkManager calls to five seconds. Other mutating methods get two minutes for polkit's
+ * password dialog; neither a service failure nor user input can wait forever. */
 static DWORD call_system( DBusMessage *msg, DBusMessage **reply_out )
 {
     DBusConnection *bus = get_system_bus();
     DBusMessage *reply;
     DBusError err;
     DWORD ret = ERROR_SUCCESS;
+    const char *member, *destination;
+    int timeout;
 
-    if (!bus || !msg) return ERROR_NOT_SUPPORTED;
+    if (!bus || !msg)
+    {
+        if (bus) p_dbus_connection_unref( bus );
+        if (reply_out) *reply_out = NULL;
+        return ERROR_NOT_SUPPORTED;
+    }
     p_dbus_error_init( &err );
-    reply = p_dbus_connection_send_with_reply_and_block( bus, msg, DBUS_TIMEOUT_INFINITE, &err );
+    member = p_dbus_message_get_member( msg );
+    destination = p_dbus_message_get_destination( msg );
+    timeout = (destination && !strcmp( destination, "org.freedesktop.NetworkManager" )) ||
+              (member && (!strncmp( member, "Get", 3 ) || !strncmp( member, "List", 4 ) ||
+                          !strncmp( member, "Can", 3 ))) ? 5000 : 120000;
+    reply = p_dbus_connection_send_with_reply_and_block( bus, msg, timeout, &err );
     if (!reply) { ret = map_error( &err ); p_dbus_error_free( &err ); }
     if (reply_out) *reply_out = reply; else if (reply) p_dbus_message_unref( reply );
+    p_dbus_connection_unref( bus );
     return ret;
+}
+
+/* A single signal connection, independent of synchronous method calls, serves
+ * both trays. Only the PE watch thread reads it. Stop wakes its eventfd; close
+ * runs after that thread has joined, so poll never sees recycled descriptors. */
+static DBusConnection *change_bus;
+static BOOL change_connect( void )
+{
+    static const char *const matches[] =
+    {
+        "type='signal',sender='org.freedesktop.NetworkManager',path_namespace='/org/freedesktop/NetworkManager'",
+        "type='signal',sender='org.freedesktop.UPower',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path='/org/freedesktop/UPower'",
+        "type='signal',sender='org.freedesktop.UPower',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path='/org/freedesktop/UPower/devices/DisplayDevice'",
+        "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.freedesktop.NetworkManager'",
+        "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.freedesktop.UPower'"
+    };
+    DBusError error;
+    unsigned int i;
+    int fd;
+
+    if (!load_dbus()) return FALSE;
+    p_dbus_error_init( &error );
+    change_bus = p_dbus_bus_get_private( DBUS_BUS_SYSTEM, &error );
+    if (!change_bus) { p_dbus_error_free( &error ); return FALSE; }
+    p_dbus_connection_set_exit_on_disconnect( change_bus, FALSE );
+    for (i = 0; i < ARRAY_SIZE(matches); i++)
+    {
+        /* AddMatch's reply acknowledges subscription before the first read. */
+        p_dbus_bus_add_match( change_bus, matches[i], &error );
+        if (p_dbus_error_is_set( &error ))
+        {
+            p_dbus_error_free( &error );
+            p_dbus_connection_close( change_bus );
+            p_dbus_connection_unref( change_bus );
+            change_bus = NULL;
+            return FALSE;
+        }
+    }
+    if (!p_dbus_connection_get_unix_fd( change_bus, &fd ) || fd < 0)
+    {
+        p_dbus_connection_close( change_bus );
+        p_dbus_connection_unref( change_bus );
+        change_bus = NULL;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static DWORD change_message( DBusMessage *msg )
+{
+    const char *member = p_dbus_message_get_member( msg );
+    const char *iface = p_dbus_message_get_interface( msg );
+    const char *path = p_dbus_message_get_path( msg );
+    DBusMessageIter it;
+    const char *name;
+
+    if (p_dbus_message_get_type( msg ) != DBUS_MESSAGE_TYPE_SIGNAL || !member || !iface || !path) return 0;
+    if (!strcmp( iface, DBUS_INTERFACE_DBUS ) && !strcmp( member, "NameOwnerChanged" ) &&
+        p_dbus_message_iter_init( msg, &it ) && p_dbus_message_iter_get_arg_type( &it ) == DBUS_TYPE_STRING)
+    {
+        p_dbus_message_iter_get_basic( &it, &name );
+        if (!strcmp( name, "org.freedesktop.NetworkManager" )) return WEX_HOST_CHANGE_NETWORK;
+        if (!strcmp( name, "org.freedesktop.UPower" )) return WEX_HOST_CHANGE_POWER;
+    }
+    if ((!strcmp( member, "PropertiesChanged" ) || !strcmp( member, "StateChanged" ) ||
+         !strcmp( member, "DeviceAdded" ) || !strcmp( member, "DeviceRemoved" )) &&
+        (!strcmp( path, "/org/freedesktop/NetworkManager" ) ||
+         !strncmp( path, "/org/freedesktop/NetworkManager/", strlen("/org/freedesktop/NetworkManager/") )))
+        return WEX_HOST_CHANGE_NETWORK;
+    if (!strcmp( iface, "org.freedesktop.DBus.Properties" ) && !strcmp( member, "PropertiesChanged" ) &&
+        (!strcmp( path, "/org/freedesktop/UPower" ) ||
+         !strcmp( path, "/org/freedesktop/UPower/devices/DisplayDevice" ))) return WEX_HOST_CHANGE_POWER;
+    return 0;
 }
 
 /* ------------------------------------------------------------------ timedate1 */
@@ -183,7 +298,9 @@ static DWORD call_system( DBusMessage *msg, DBusMessage **reply_out )
 static NTSTATUS unix_init_impl( void *args )
 {
     struct init_params *params = args;
-    params->err = get_system_bus() ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
+    DBusConnection *bus = get_system_bus();
+    params->err = bus ? ERROR_SUCCESS : ERROR_NOT_SUPPORTED;
+    if (bus) p_dbus_connection_unref( bus );
     return STATUS_SUCCESS;
 }
 
@@ -398,11 +515,14 @@ static BOOL session_can( DWORD action )
     char session[64];
     const char *seat = getenv( "XDG_SEAT_PATH" );
     DBusConnection *bus = get_system_bus();
+    BOOL result;
 
     if (!bus) return FALSE;
-    if (action == WEX_POWER_LOGOFF) return find_session_id( bus, session, sizeof(session) );
-    if (seat && p_dbus_bus_name_has_owner( bus, LIGHTDM_DEST, NULL )) return TRUE;
-    return action == WEX_POWER_SWITCHUSER && p_dbus_bus_name_has_owner( bus, GDM_DEST, NULL );
+    if (action == WEX_POWER_LOGOFF) result = find_session_id( bus, session, sizeof(session) );
+    else if (seat && p_dbus_bus_name_has_owner( bus, LIGHTDM_DEST, NULL )) result = TRUE;
+    else result = action == WEX_POWER_SWITCHUSER && p_dbus_bus_name_has_owner( bus, GDM_DEST, NULL );
+    p_dbus_connection_unref( bus );
+    return result;
 }
 
 static DWORD session_do( DWORD action )
@@ -418,16 +538,19 @@ static DWORD session_do( DWORD action )
         char session[64];
         const char *id = session;
 
-        if (!find_session_id( bus, session, sizeof(session) )) return ERROR_NOT_SUPPORTED;
+        if (!find_session_id( bus, session, sizeof(session) ))
+        { p_dbus_connection_unref( bus ); return ERROR_NOT_SUPPORTED; }
         msg = p_dbus_message_new_method_call( LOGIN_DEST, LOGIN_PATH, LOGIN_IFACE, "TerminateSession" );
         if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &id, DBUS_TYPE_INVALID );
     }
     else if (seat && p_dbus_bus_name_has_owner( bus, LIGHTDM_DEST, NULL ))
         msg = p_dbus_message_new_method_call( LIGHTDM_DEST, seat, LIGHTDM_IFACE,
                                                action == WEX_POWER_LOCK ? "Lock" : "SwitchToGreeter" );
-    else if (action == WEX_POWER_LOCK) return ERROR_NOT_SUPPORTED;
+    else if (action == WEX_POWER_LOCK)
+    { p_dbus_connection_unref( bus ); return ERROR_NOT_SUPPORTED; }
     else msg = p_dbus_message_new_method_call( GDM_DEST, "/org/gnome/DisplayManager/LocalDisplayFactory",
                                                "org.gnome.DisplayManager.LocalDisplayFactory", "CreateTransientDisplay" );
+    p_dbus_connection_unref( bus );
     err = call_system( msg, NULL );
     if (msg) p_dbus_message_unref( msg );
     return err;
@@ -588,7 +711,12 @@ static DWORD call_boot( DBusMessage *msg, DBusMessage **reply_out, char *message
     DWORD ret = ERROR_SUCCESS;
 
     if (size) message[0] = 0;
-    if (!bus || !msg) return ERROR_NOT_SUPPORTED;
+    if (!bus || !msg)
+    {
+        if (bus) p_dbus_connection_unref( bus );
+        if (reply_out) *reply_out = NULL;
+        return ERROR_NOT_SUPPORTED;
+    }
     p_dbus_error_init( &err );
     reply = p_dbus_connection_send_with_reply_and_block( bus, msg, DBUS_TIMEOUT_INFINITE, &err );
     if (!reply)
@@ -598,6 +726,7 @@ static DWORD call_boot( DBusMessage *msg, DBusMessage **reply_out, char *message
         p_dbus_error_free( &err );
     }
     if (reply_out) *reply_out = reply; else if (reply) p_dbus_message_unref( reply );
+    p_dbus_connection_unref( bus );
     return ret;
 }
 
@@ -1761,6 +1890,130 @@ STUB( user_set_session, struct user_set_session_params )
 
 #endif
 
+static NTSTATUS host_watch_start( void *args )
+{
+    struct init_params *params = args;
+    struct sockaddr_nl address = {0};
+
+    params->err = ERROR_ALREADY_EXISTS;
+    if (change_stop >= 0) return STATUS_SUCCESS;
+    if ((change_stop = eventfd( 0, EFD_NONBLOCK | EFD_CLOEXEC )) < 0)
+    { params->err = ERROR_NOT_ENOUGH_MEMORY; return STATUS_SUCCESS; }
+    /* Kernel link/address changes also cover the no-NetworkManager fallback. */
+    change_route = socket( AF_NETLINK, SOCK_RAW | SOCK_NONBLOCK | SOCK_CLOEXEC, NETLINK_ROUTE );
+    address.nl_family = AF_NETLINK;
+    address.nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR;
+    if (change_route >= 0 && bind( change_route, (struct sockaddr *)&address, sizeof(address) ))
+    { close( change_route ); change_route = -1; }
+#ifdef SONAME_LIBDBUS_1
+    change_connect();
+#endif
+    params->err = ERROR_SUCCESS;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS host_watch_next( void *args )
+{
+    struct host_watch_params *params = args;
+    struct pollfd fds[3];
+#ifdef SONAME_LIBDBUS_1
+    DBusMessage *msg;
+#endif
+    uint64_t stop;
+    char data[8192];
+    int ret, timeout = -1;
+    ssize_t length;
+    unsigned int count;
+
+    params->changes = 0;
+    params->err = ERROR_SUCCESS;
+    for (;;)
+    {
+        /* The event is level-triggered, including stop before the first wait. */
+        if (change_stop < 0 || read( change_stop, &stop, sizeof(stop) ) == (ssize_t)sizeof(stop))
+        { params->err = ERROR_CANCELLED; return STATUS_SUCCESS; }
+#ifdef SONAME_LIBDBUS_1
+        if (change_bus)
+        {
+            p_dbus_connection_read_write( change_bus, 0 );
+            for (count = 0; count < 64 &&
+                 p_dbus_connection_get_dispatch_status( change_bus ) == DBUS_DISPATCH_DATA_REMAINS &&
+                 (msg = p_dbus_connection_pop_message( change_bus )); count++)
+            {
+                params->changes |= change_message( msg );
+                p_dbus_message_unref( msg );
+            }
+            if (!p_dbus_connection_get_is_connected( change_bus ))
+            {
+                p_dbus_connection_close( change_bus );
+                p_dbus_connection_unref( change_bus );
+                change_bus = NULL;
+                params->changes |= WEX_HOST_CHANGE_NETWORK | WEX_HOST_CHANGE_POWER;
+            }
+        }
+#endif
+        if (change_route >= 0)
+        {
+            length = 0;
+            for (count = 0; count < 64 && (length = recv( change_route, data, sizeof(data), 0 )) > 0; count++)
+                params->changes |= WEX_HOST_CHANGE_NETWORK;
+            /* A full kernel queue means the snapshot must be read again. */
+            if (length < 0 && errno == ENOBUFS) params->changes |= WEX_HOST_CHANGE_NETWORK;
+        }
+        if (params->changes) return STATUS_SUCCESS;
+#ifdef SONAME_LIBDBUS_1
+        if (change_bus && p_dbus_connection_get_dispatch_status( change_bus ) == DBUS_DISPATCH_DATA_REMAINS) continue;
+        timeout = change_bus ? -1 : 30000;
+#endif
+        fds[0].fd = change_stop;
+        fds[1].fd = -1;
+#ifdef SONAME_LIBDBUS_1
+        if (change_bus) p_dbus_connection_get_unix_fd( change_bus, &fds[1].fd );
+#endif
+        fds[2].fd = change_route;
+        fds[0].events = fds[1].events = fds[2].events = POLLIN;
+        fds[0].revents = fds[1].revents = fds[2].revents = 0;
+        ret = poll( fds, 3, timeout );
+        if (ret < 0 && errno == EINTR) continue;
+        if (ret < 0) { params->err = ERROR_GEN_FAILURE; return STATUS_SUCCESS; }
+#ifdef SONAME_LIBDBUS_1
+        /* Bus recovery is the only timed wake, and never polls service state. */
+        if (!ret && !change_bus && change_connect())
+        {
+            params->changes = WEX_HOST_CHANGE_NETWORK | WEX_HOST_CHANGE_POWER;
+            return STATUS_SUCCESS;
+        }
+#endif
+    }
+}
+
+static NTSTATUS host_watch_stop( void *args )
+{
+    uint64_t one = 1;
+    ssize_t ret;
+    if (change_stop >= 0)
+        do ret = write( change_stop, &one, sizeof(one) ); while (ret < 0 && errno == EINTR);
+    ((struct init_params *)args)->err = ERROR_SUCCESS;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS host_watch_close( void *args )
+{
+#ifdef SONAME_LIBDBUS_1
+    if (change_bus)
+    {
+        p_dbus_connection_close( change_bus );
+        p_dbus_connection_unref( change_bus );
+        change_bus = NULL;
+    }
+#endif
+    if (change_route >= 0) close( change_route );
+    if (change_stop >= 0) close( change_stop );
+    change_stop = change_route = -1;
+    ((struct init_params *)args)->err = ERROR_SUCCESS;
+    return STATUS_SUCCESS;
+}
+
 static BOOL oobe_write_all( int fd, const void *buf, size_t count )
 {
     const char *p = buf;
@@ -2702,6 +2955,11 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     boot_get,
     boot_set,
     boot_set_options,
+    host_watch_start,
+    host_watch_next,
+    host_watch_stop,
+    host_watch_close,
+    tray_wake,
 };
 
 C_ASSERT( ARRAYSIZE(__wine_unix_call_funcs) == unix_funcs_count );
@@ -2803,6 +3061,11 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     boot_get,
     boot_set,
     boot_set_options,
+    host_watch_start,
+    host_watch_next,
+    host_watch_stop,
+    host_watch_close,
+    tray_wake,
 };
 C_ASSERT( ARRAYSIZE(__wine_unix_call_wow64_funcs) == unix_funcs_count );
 #endif

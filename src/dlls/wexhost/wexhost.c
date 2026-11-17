@@ -198,6 +198,7 @@ DWORD WINAPI WexTrayStop(void)
 {
     struct init_params params = {0};
     if (!InterlockedExchange(&tray_running, 0)) return 0;
+    WEXHOST_CALL(tray_wake, &params);
     WaitForSingleObject(tray_thread, INFINITE);
     CloseHandle(tray_thread);
     tray_thread = NULL;

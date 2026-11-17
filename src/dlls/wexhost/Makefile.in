@@ -14,6 +14,7 @@ SOURCES = \
 	greeter.c \
 	lease.c \
 	hardware.c \
+	hostwatch.c \
 	shellkeys.c \
 	tray.c \
 	tray_x11.c \
