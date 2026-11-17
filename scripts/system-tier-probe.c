@@ -63,6 +63,7 @@
  *                                 clientsession=<GetNamedPipeClientSessionId> and message=<what the client wrote>
  *   probe pipesay PIPE TEXT       opens \\.\pipe\PIPE and writes TEXT; prints say=ok or say=error<n>
  *   probe pipehold PIPE SECONDS   opens \\.\pipe\PIPE for read/write, holds for SECONDS; prints hold=ok or hold=error<n>
+ *   probe pipewait PIPE           WaitNamedPipe(\\.\pipe\PIPE, 2 s); prints wait=ok or wait=error<n>, and wait_ms
  * Build: x86_64-w64-mingw32-gcc / i686-w64-mingw32-gcc -municode -o probe.exe system-tier-probe.c -ladvapi32 -lntdll */
 
 #include <windows.h>
@@ -595,6 +596,20 @@ int __cdecl wmain( int argc, WCHAR **argv )
         else printf( "say=error%lu\n", GetLastError() );
         Sleep( 500 );
         CloseHandle( pipe );
+        return 0;
+    }
+    if (argc == 3 && !lstrcmpW( argv[1], L"pipewait" ))
+    {
+        /* WaitNamedPipe with a timeout of 2 s: a missing pipe is not found at once (error 2), as on Windows; an RPC
+         * client's connect loop spins for ever when a wait succeeds for a pipe that cannot be opened */
+        WCHAR path[MAX_PATH];
+        DWORD start = GetTickCount();
+
+        lstrcpyW( path, L"\\\\.\\pipe\\" );
+        lstrcpynW( path + 9, argv[2], MAX_PATH - 9 );
+        if (WaitNamedPipeW( path, 2000 )) printf( "wait=ok\n" );
+        else printf( "wait=error%lu\n", GetLastError() );
+        printf( "wait_ms=%lu\n", GetTickCount() - start );
         return 0;
     }
     if (argc == 4 && !lstrcmpW( argv[1], L"overwrite" ))
