@@ -178,10 +178,14 @@ The fix: the selectors' `SelectTemplateCore` is forwarded to the application; th
 dictionary is built; one .NET wrapper per application object (Uno compares by reference, and NavigationView's SelectedItem
 looped to a stack overflow with a new wrapper on every read); `DataTemplate` is a shim class. `XAMLSHIM_LATE_TREE=<s>` dumps the
 tree again later (with `INPUT`); the dump shows metrics, available size and `STALE` for elements arranged larger than measured.
-Open: the expression line above the display. Its template elements are now connected (GetBindingConnector, Connect,
-`DataTemplate.SetExtensionInstance` remembered) and the application's DataContextChanged handler of the x:Bind runs, but it
-hits a null reference inside the application (an access violation at one address in CalculatorApp.dll, 18 times) before it
-sets any text; not yet explained.
+**Expression line works** (uno-uwp, see its log): "7 +" and "7 + 5 =" show above the display. The null reference was an
+unregistered class: the application's generated x:Bind code for a DataTemplate activates `Windows.UI.Xaml.Markup.XamlBindingHelper`,
+which failed with 0x80040154 inside `GetBindingConnector`, so the bindings object never reached the element (its text block
+stayed null). Found by logging each template's GetBindingConnector result, not by the crash address. XamlBindingHelper is a
+shim class now; the ids of a template's children are connected to the bindings of the template instance being built; and an
+`ItemsStackPanel` in the panel of a plain `ItemsControl` is a `StackPanel` (Uno's stays zero wide there).
+Seen and left: each template element first gets the inherited DataContext (the view model) and the application's handler
+fails the cast (E_NOINTERFACE, logged as an event handler error); the item follows and the bindings update.
 
 Earlier next step: dependency-property registration from native code (`DependencyProperty.Register*` with `TypeName` owner and
 property types that are not .NET types, `PropertyMetadata` with a native `PropertyChangedCallback`), then the next gap
