@@ -390,6 +390,45 @@ class FrameworkTests(unittest.TestCase):
         self.assertEqual(list((self.machine / c.FRAMEWORK_CATALOG).iterdir()), [])
         self.assertFalse((self.root / 'component-receipts' / 'uwp-frameworks.json').exists())
 
+    def test_verify_does_not_hang_on_a_fifo_or_follow_a_link(self):
+        import signal
+        self.set_containers(self.container('v1.nupkg', 'zip', [('x.appx', appx('A.Fw', '1.0.0.0'), {})]))
+        self.install()
+        data = self.receipt()
+        full_name = 'A.Fw_1.0.0.0_x64__8wekyb3d8bbwe'
+        root = self.machine / c.FRAMEWORK_STORE / full_name
+
+        def alarm(signum, frame):
+            raise AssertionError('blocked (a FIFO was opened or read)')
+        previous = signal.signal(signal.SIGALRM, alarm)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        self.addCleanup(signal.alarm, 0)
+        signal.alarm(30)
+        c.verify_uwp_frameworks(self.machine, data, full=True)
+        manifest = root / 'AppxManifest.xml'
+        saved = manifest.read_bytes()
+        manifest.unlink()
+        os.mkfifo(manifest)
+        with self.assertRaisesRegex(ValueError, 'manifest missing'):
+            c.verify_uwp_frameworks(self.machine, data)
+        manifest.unlink()
+        outside = self.root / 'outside'
+        outside.write_bytes(saved)
+        manifest.symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, 'manifest missing'):
+            c.verify_uwp_frameworks(self.machine, data)
+        manifest.unlink()
+        manifest.write_bytes(saved)
+        record = self.machine / c.FRAMEWORK_CATALOG / (full_name + '.wexappx')
+        content = record.read_bytes()
+        record.unlink()
+        os.mkfifo(record)
+        with self.assertRaisesRegex(ValueError, 'registration missing'):
+            c.verify_uwp_frameworks(self.machine, data)
+        record.unlink()
+        record.write_bytes(content)
+        c.verify_uwp_frameworks(self.machine, data, full=True)
+
     def test_published_metadata(self):
         meta = c.COMPONENTS_METADATA['uwp-frameworks']
         pins = c.uwp_frameworks_packages('uwp-frameworks')

@@ -31,5 +31,5 @@ MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 CapabilityBoundingSet=
 UMask=0022
-ReadWritePaths=/var/cache/wineexplorer
+ReadWritePaths=/var/cache/wineexplorer/images /var/cache/wineexplorer/prefetch
 MemoryMax=2G

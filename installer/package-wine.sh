@@ -272,6 +272,9 @@ cc -O2 -Wall -Wextra -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl
     -o "$STAGE_SESSION/usr/local/bin/wex-is-admin.bin" "$ROOT_DIR/tools/wex-is-admin/wex-is-admin.c"
 install -m755 "$ROOT_DIR/scripts/wex-graphics.py" "$STAGE_SESSION/usr/local/bin/wex-graphics"
 install -m755 "$ROOT_DIR/scripts/wex-components.py" "$STAGE_SESSION/usr/local/bin/wex-components"
+# winetricks' wineserver for component installs through session 0 (MachineWine in wex-components)
+install -D -m755 "$ROOT_DIR/scripts/wex-maint-wineserver.py" \
+    "$STAGE_SESSION/usr/local/libexec/wineexplorer/wex-maint-wineserver"
 install -m755 "$ROOT_DIR/scripts/check-font-targets.py" "$STAGE_SESSION/usr/local/bin/wex-check-font-targets"
 install -Dm644 "$SCRIPT_DIR/wex-components.desktop" "$STAGE_SESSION/usr/share/applications/wex-components.desktop"
 mkdir -p "$STAGE_SESSION/etc/wineexplorer/component-licenses"

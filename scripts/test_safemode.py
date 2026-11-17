@@ -215,6 +215,15 @@ class TestBootMode(TempDirTest):
         self.assertNotIn("RuntimeDirectory=", service)
         self.assertNotIn("/run/wineexplorer\n", service.split("ReadWritePaths=", 1)[1].split("\n", 1)[0] + "\n")
 
+    def test_cache_parent_belongs_to_root(self):
+        """B35: root's component review cache is /var/cache/wineexplorer/review and trusts only a root-owned path; the
+        prefetch service owns its two folders there, never their parent."""
+        tmpfiles = (SYSTEMD / "wexprefetchd.tmpfiles").read_text(encoding="utf-8")
+        self.assertIn("d /var/cache/wineexplorer 0755 root root -\n", tmpfiles)
+        service = (SYSTEMD / "wexprefetchd.service").read_text(encoding="utf-8")
+        writable = service.split("ReadWritePaths=", 1)[1].split("\n", 1)[0].split()
+        self.assertEqual(writable, ["/var/cache/wineexplorer/images", "/var/cache/wineexplorer/prefetch"])
+
 
 class TestGenerator(TempDirTest):
     def generate(self, mode, status=0, system_update=False):

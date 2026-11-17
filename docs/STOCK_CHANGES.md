@@ -3656,3 +3656,41 @@ Calculator's Standard mode and Settings page run without a missing Wine class (7
   source. **Unconditional**, upstreamable. Found on an image with session 0 and enforced elevation, where the volatile
   machine keys outlive a user's server: the greeter's prefix update (no display) left a 1024x768 `Default` source, and
   the logon screen then had two stacked monitors and drew below the visible screen (black screen, a blue bar).
+
+# No launcher warning for session 0's own programs (2026-11-17)
+
+- `dlls/ntdll/unix/sysrun.c` (`sysrun_launcher_usable`): a non-root process on a root-owned prefix (session 0's
+  own programs on the machine root) returns FALSE before the "the prefix ... is not ~/.wine" warning. Those programs
+  never use the launcher, and the line was printed at every boot (`journalctl -u wex-session0-services`) and read as
+  a fault. Only with the launcher installed, as before.
+
+# An elevated token of the default type needs no elevation (2026-11-17, Wine 0f6cb784)
+
+- `dlls/kernelbase/process.c` (`is_elevation_required`) and `dlls/shell32/shlexec.c` (`is_elevated_token`, was
+  `is_full_token`): with an elevation helper configured, a token whose `TokenElevation` is TRUE (a Full one, and one
+  of the default type holding the Administrators group: LocalSystem, the built-in Administrator) starts a
+  `requireAdministrator` program and a `runas` directly, as on Windows. Before, only a Full token did, and LocalSystem
+  in session 0 was refused (B36). Without a helper (stock behavior) nothing changes.
+
+2026-11-17 (UWP, Wine 4b3ed43b and bcb62ad5): `dlls/twinapi.appcore`: new `user_activity.c` (`UserActivityChannel`,
+`UserActivity`, `UserActivityVisualElements`, `UserActivityAttribution`, `UserActivityContentInfo`,
+`UserActivitySession`: the channel keeps the activities published in the process; the JSON forms and the session
+history need a timeline and are not implemented), `jumplist.c` and `jumplist_vector.c` (`Windows.UI.StartScreen.JumpList`
+and `JumpListItem`: SaveAsync keeps the list of the process, LoadCurrentAsync builds a new one from it),
+`device_capabilities.c` (`KeyboardCapabilities`, `MouseCapabilities`, `TouchCapabilities` from the system metrics),
+`display_request.c` (`Windows.System.Display.DisplayRequest`: counted requests, `SetThreadExecutionState`),
+`static_factory.c` (one factory type for classes with statics, and a helper for objects with one interface),
+`async_action.c` (an `IAsyncAction` that is done when made), `async_value.c` (operations for `UserActivity` and `JumpList`).
+`include/`: new `windows.ui.startscreen.idl` (JumpList only) and `windows.system.display.idl`; `windows.devices.input.idl`
+gets the three capability classes; `windows.applicationmodel.useractivities.idl` gets the channel, `IUserActivity2` and
+`3`, the factories, statics and the corrected `IUserActivityAttribution` (it had the properties of a later contract
+mixed in). Tests `activities.c` and `capabilities.c` (x64 and x86); behaviour measured on Windows 11
+(`tests/uwp/ua-batch`). **Unconditional**: new classes only, no stock behaviour changes; the IDL and registration parts
+fit upstream Wine.
+
+# The service manager maps generic rights before its access check (2026-11-17, Wine bb08d101)
+
+- `programs/services/rpc.c` (`check_client_access`): the requested mask is mapped with `MapGenericMask` and the
+  manager's or the services' generic mapping before `AccessCheck`, which takes specific rights only. A
+  `GENERIC_READ` or `GENERIC_ALL` open was refused for everybody while checks are enforced (B37). Only with an
+  elevation helper configured, as the check itself.

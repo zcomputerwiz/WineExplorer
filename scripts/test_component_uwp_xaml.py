@@ -177,6 +177,30 @@ class UwpXamlTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             c.verify_uwp_xaml(self.machine, data)
 
+    def test_verify_does_not_hang_on_a_fifo_or_follow_a_link(self):
+        import signal
+        files, classes = self.unpack(archive(self.root / 'a.zip'))
+        self.hive(classes)
+        data = {'payload_architecture': 'x64', 'files': files, 'classes': classes}
+        target = self.machine / c.UWP_XAML_ROOT / 'x64' / 'hostfxr.dll'
+
+        def alarm(signum, frame):
+            raise AssertionError('blocked (a FIFO was opened or read)')
+        previous = signal.signal(signal.SIGALRM, alarm)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        self.addCleanup(signal.alarm, 0)
+        signal.alarm(30)
+        target.unlink()
+        os.mkfifo(target)
+        with self.assertRaisesRegex(ValueError, 'missing or changed'):
+            c.verify_uwp_xaml(self.machine, data)
+        target.unlink()
+        outside = self.root / 'outside'
+        outside.write_bytes(b'x' * files['hostfxr.dll'][0])
+        target.symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, 'missing or changed'):
+            c.verify_uwp_xaml(self.machine, data)
+
     def test_plain_text_terms_only_for_this_policy(self):
         text = 'Apache License\n' + 'x' * 600
         data = text.encode()
@@ -206,12 +230,12 @@ class UwpXamlTests(unittest.TestCase):
         self.unpack(archive(self.root / 'a.zip'))
         calls = []
 
-        def failing_reg(wine, environment, *args, **kwargs):
-            calls.append(args)
-            raise OSError('wine is not available here')
+        class FailingWine:
+            def reg(self, *args, **kwargs):
+                calls.append(args)
+                raise OSError('wine is not available here')
 
-        with patch.object(c, 'reg', failing_reg):
-            c.uwp_xaml_rollback(self.machine, 'x64', CLASSES, {})   # registry cleanup fails, directory still goes
+        c.uwp_xaml_rollback(self.machine, 'x64', CLASSES, FailingWine())   # registry cleanup fails, directory still goes
         self.assertTrue(calls and calls[0][0] == 'delete')
         self.assertEqual(list((self.machine / c.UWP_XAML_ROOT).iterdir()), [])
 
@@ -238,15 +262,28 @@ class UwpXamlTests(unittest.TestCase):
             if verify_error:
                 raise verify_error
 
+        class FakeWine:
+            """MachineWine without Wine: reg.exe calls are recorded, the keys are missing."""
+            def reg(self, *args, **kwargs):
+                calls.append(args)
+                return types.SimpleNamespace(returncode=1, stdout=b'')
+
+            def import_file(self, path):
+                calls.append(('import', str(path)))
+
+            def require_idle(self):
+                pass
+
+            def wait_idle(self):
+                pass
+
         payload = archive(self.root / 'new.zip')
         with patch.object(c, 'MACHINE', self.machine), patch.object(c, 'CACHE', self.root / 'cache'), \
-                patch.object(c, '_machine_maintenance', lambda environment: contextlib.nullcontext()), \
+                patch.object(c, '_machine_maintenance', lambda: contextlib.nullcontext(FakeWine())), \
                 patch.object(c, 'license_text', lambda verb: ('terms', 'digest')), \
                 patch.object(c, 'is_installed', lambda *a, **k: False), \
                 patch.object(c, 'uwp_xaml_payload', lambda verb: {'architecture': 'x64', 'sha256': 'p'}), \
                 patch.object(c, 'cache_uwp_xaml_payload', lambda verb, cache: payload), \
-                patch.object(c, 'reg', lambda wine, environment, *args, **kwargs:
-                             calls.append(args) or types.SimpleNamespace(returncode=1, stdout=b'')), \
                 patch.object(c.subprocess, 'run', lambda *a, **k: None), \
                 patch.object(c, 'verify_uwp_xaml', verify):
             if verify_error:

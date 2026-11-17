@@ -27,14 +27,14 @@ windows.networking.connectivity, windows.storage.applicationdata, windows.ui.xam
 | Windows.ApplicationModel.DataTransfer.HtmlFormatHelper | statics (CreateHtmlFormat) |
 | Windows.ApplicationModel.DataTransfer.StandardDataFormats | statics (Text) |
 | Windows.ApplicationModel.LimitedAccessFeatures | statics (TryUnlockFeature) |
-| Windows.ApplicationModel.UserActivities.UserActivityChannel | statics (GetDefault) |
+| Windows.ApplicationModel.UserActivities.UserActivityChannel | statics (GetDefault); served since Wine 4b3ed43b (with UserActivity, its visual elements, attribution, content info and session) |
 | Windows.Globalization.DateTimeFormatting.DateTimeFormatter | constructed |
 | Windows.Globalization.NumberFormatting.CurrencyFormatter | constructed |
 | Windows.System.Launcher | statics (LaunchUriAsync) |
 | Windows.System.Threading.ThreadPoolTimer | statics (CreateTimer) |
 | Windows.UI.Core.SystemNavigationManager | statics (GetForCurrentView) |
-| Windows.UI.StartScreen.JumpList | statics (LoadCurrentAsync) |
-| Windows.UI.StartScreen.JumpListItem | statics (CreateWithArguments) |
+| Windows.UI.StartScreen.JumpList | statics (LoadCurrentAsync); served since Wine 4b3ed43b |
+| Windows.UI.StartScreen.JumpListItem | statics (CreateWithArguments); served since Wine 4b3ed43b |
 | Windows.UI.Text.FontWeights | statics (Normal, SemiBold, SemiLight, Thin) |
 | Windows.UI.ViewManagement.ViewModePreferences | statics (CreateDefault) |
 | Windows.Foundation.Diagnostics.AsyncCausalityTracer | the .NET Native runtime (seen at run time) |
