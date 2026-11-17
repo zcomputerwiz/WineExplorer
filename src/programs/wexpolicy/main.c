@@ -480,7 +480,7 @@ static DWORD write_archive( const WCHAR *archive_path )
                                (const BYTE *)items[i].value, wcslen( items[i].value ),
                                items[i].type, items[i].data, items[i].size );
 
-    if (swprintf( temp, ARRAY_SIZE(temp), L"%s.new", archive_path ) < 0) { free( data ); return ERROR_BUFFER_OVERFLOW; }
+    if (swprintf( temp, ARRAY_SIZE(temp), L"%ls.new", archive_path ) < 0) { free( data ); return ERROR_BUFFER_OVERFLOW; }
     handle = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
     if (handle == INVALID_HANDLE_VALUE) { free( data ); return GetLastError(); }
     if (!WriteFile( handle, data, pos, &done, NULL ) || done != pos) err = GetLastError() ? GetLastError() : ERROR_WRITE_FAULT;
@@ -503,14 +503,16 @@ static DWORD archive_file( const WCHAR *sid, WCHAR *path, DWORD size )
     if (!CreateDirectoryW( dir, NULL ) && GetLastError() != ERROR_ALREADY_EXISTS) return GetLastError();
     wcscat( dir, L"\\Archive" );
     if (!CreateDirectoryW( dir, NULL ) && GetLastError() != ERROR_ALREADY_EXISTS) return GetLastError();
-    if (swprintf( path, size, sid ? L"%s\\User-%s.pol" : L"%s\\Machine.pol", dir, sid ) < 0) return ERROR_BUFFER_OVERFLOW;
+    if (swprintf( path, size, sid ? L"%ls\\User-%ls.pol" : L"%ls\\Machine.pol", dir, sid ) < 0) return ERROR_BUFFER_OVERFLOW;
     return ERROR_SUCCESS;
 }
 
 /* /machine, or /user:SID with a well-formed SID (it becomes a key name and a file name) */
 static DWORD parse_target( const WCHAR *arg, const WCHAR **sid, HKEY *root )
 {
+    static WCHAR canonical[188];
     PSID parsed;
+    WCHAR *text;
 
     *sid = NULL;
     if (!_wcsicmp( arg, L"/machine" ))
@@ -519,10 +521,23 @@ static DWORD parse_target( const WCHAR *arg, const WCHAR **sid, HKEY *root )
         return ERROR_SUCCESS;
     }
     if (_wcsnicmp( arg, L"/user:", 6 ) || !arg[6]) return ERROR_INVALID_PARAMETER;
+    /* the SID as Windows writes it, whatever the spelling given (s-1-5-..., or an alias such as BA): one user is
+     * one key and one file name */
     if (!ConvertStringSidToSidW( arg + 6, &parsed )) return ERROR_INVALID_SID;
+    if (!ConvertSidToStringSidW( parsed, &text ))
+    {
+        LocalFree( parsed );
+        return ERROR_INVALID_SID;
+    }
     LocalFree( parsed );
-    if (wcslen( arg + 6 ) > 184) return ERROR_INVALID_SID;
-    *sid = arg + 6;
+    if (wcslen( text ) >= ARRAY_SIZE(canonical))
+    {
+        LocalFree( text );
+        return ERROR_INVALID_SID;
+    }
+    wcscpy( canonical, text );
+    LocalFree( text );
+    *sid = canonical;
     /* the hive of a user who is logged on; for a user who is not, the archive alone changes and the service
      * writes it into the hive at logon */
     if (RegOpenKeyExW( HKEY_USERS, *sid, 0, KEY_READ | KEY_WOW64_64KEY, root )) *root = NULL;
@@ -587,13 +602,14 @@ DWORD request_refresh(void)
     return err;
 }
 
-static void set_service_state( DWORD state )
+static void set_service_state( DWORD state, DWORD exit_code )
 {
     SERVICE_STATUS status;
 
     memset( &status, 0, sizeof(status) );
     status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     status.dwCurrentState = state;
+    status.dwWin32ExitCode = exit_code;
     if (state == SERVICE_RUNNING) status.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
     SetServiceStatus( service_handle, &status );
 }
@@ -604,7 +620,7 @@ static DWORD WINAPI service_handler( DWORD control, DWORD type, void *data, void
     {
     case SERVICE_CONTROL_STOP:
     case SERVICE_CONTROL_SHUTDOWN:
-        set_service_state( SERVICE_STOP_PENDING );
+        set_service_state( SERVICE_STOP_PENDING, NO_ERROR );
         SetEvent( stop_event );
         return NO_ERROR;
     case SERVICE_CONTROL_INTERROGATE:
@@ -690,12 +706,17 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
     handles[1] = CreateEventW( NULL, FALSE, FALSE, NULL );
     handles[2] = work_event = CreateEventW( NULL, FALSE, FALSE, NULL );
     /* only the system writes policy: in a prefix without the system tier the service has nothing to do */
-    if (!stop_event || !handles[1] || !work_event || !is_local_system())
+    if (!stop_event || !handles[1] || !work_event)
     {
-        set_service_state( SERVICE_STOPPED );
+        set_service_state( SERVICE_STOPPED, ERROR_OUTOFMEMORY );
         return;
     }
-    set_service_state( SERVICE_RUNNING );
+    if (!is_local_system())
+    {
+        set_service_state( SERVICE_STOPPED, ERROR_ACCESS_DENIED );
+        return;
+    }
+    set_service_state( SERVICE_RUNNING, NO_ERROR );
     /* the key that programs watch for the machine's serial number exists from now on (a machine root older
      * than this service has none) */
     {
@@ -719,7 +740,7 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
         }
     }
 stopped:
-    set_service_state( SERVICE_STOPPED );
+    set_service_state( SERVICE_STOPPED, NO_ERROR );
 }
 
 int __cdecl wmain( int argc, WCHAR **argv )

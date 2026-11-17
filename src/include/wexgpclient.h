@@ -62,8 +62,8 @@ static DWORD wex_gp_leave_request( const WCHAR *dir, const WCHAR *name, const vo
     HANDLE file;
     DWORD done, err = ERROR_SUCCESS;
 
-    swprintf( temp, ARRAY_SIZE(temp), L"%s\\%s.tmp", dir, name );
-    swprintf( final, ARRAY_SIZE(final), L"%s\\%s", dir, name );
+    swprintf( temp, ARRAY_SIZE(temp), L"%ls\\%ls.tmp", dir, name );
+    swprintf( final, ARRAY_SIZE(final), L"%ls\\%ls", dir, name );
     file = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
     if (file == INVALID_HANDLE_VALUE) return GetLastError();
     if (size && (!WriteFile( file, data, size, &done, NULL ) || done != size)) err = GetLastError() ? GetLastError() : ERROR_WRITE_FAULT;
@@ -162,7 +162,7 @@ static void wex_gp_take_error( const WCHAR *dir, const WCHAR *name, WCHAR *messa
 
     if (!chars) return;
     message[0] = 0;
-    swprintf( path, ARRAY_SIZE(path), L"%s\\%s.error", dir, name );
+    swprintf( path, ARRAY_SIZE(path), L"%ls\\%ls.error", dir, name );
     file = CreateFileW( path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
     if (file == INVALID_HANDLE_VALUE) return;
     if (ReadFile( file, text, WEX_GP_ERROR_LIMIT, &done, NULL )) text[done] = 0; else text[0] = 0;
@@ -209,14 +209,14 @@ static DWORD wex_gp_store_write( DWORD kind, const void *data, DWORD size, LONG 
     }
     if (err)
     {
-        swprintf( path, ARRAY_SIZE(path), L"%s\\%s", dir, wex_gp_request_names[kind] );
+        swprintf( path, ARRAY_SIZE(path), L"%ls\\%ls", dir, wex_gp_request_names[kind] );
         DeleteFileW( path );   /* not taken: it must not wait there for the next time */
         return err;
     }
     /* gpsvc handles the request in its own time (the control code only wakes it, and several requests are one pass):
      * every pass ends with a new Stored number, and a request that it took is gone from the spool. A pass that ended
      * before gpsvc read this request leaves it there: the wait goes on for the next pass. */
-    swprintf( path, ARRAY_SIZE(path), L"%s\\%s", dir, wex_gp_request_names[kind] );
+    swprintf( path, ARRAY_SIZE(path), L"%ls\\%ls", dir, wex_gp_request_names[kind] );
     if (!wait_seconds) return ERROR_SUCCESS;
     for (;;)
     {

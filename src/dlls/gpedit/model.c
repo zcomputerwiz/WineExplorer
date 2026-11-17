@@ -171,17 +171,35 @@ static int same_name( const char *a, const char *b )
     return *a == *b;
 }
 
-/* the entry of a policy: the key and the value name match without case, and it is a DWORD */
+/* the entry of a policy: the key and the value name match without case. A file may hold the same value more than once
+ * (the registry takes the last), so the last is the one returned; model_set drops the others. */
 static struct entry *find_entry( const struct model *model, const struct policy *policy )
 {
-    size_t i;
+    size_t i = model->count;
 
-    for (i = 0; i < model->count; i++)
+    while (i--)
     {
         struct entry *e = &model->entries[i];
         if (same_name( e->key, policy->key ) && same_name( e->value, policy->value )) return e;
     }
     return NULL;
+}
+
+/* remove every entry of the policy except keep (which may be NULL) */
+static void remove_other_entries( struct model *model, const struct policy *policy, const struct entry *keep )
+{
+    size_t i = model->count;
+
+    while (i--)
+    {
+        struct entry *e = &model->entries[i];
+        if (e != keep && same_name( e->key, policy->key ) && same_name( e->value, policy->value ))
+        {
+            entry_clear( e );
+            memmove( e, e + 1, (model->count - i - 1) * sizeof(*e) );
+            model->count--;
+        }
+    }
 }
 
 void model_get( const struct model *model, const struct policy *policy, enum setting_state *state, uint32_t *number )
@@ -229,12 +247,15 @@ int model_set( struct model *model, const struct policy *policy, enum setting_st
     size_t size, off;
     int ret;
 
+    remove_other_entries( model, policy, old );   /* a value the file holds twice becomes one */
+    old = find_entry( model, policy );
     if (state == SETTING_NOT_CONFIGURED)
     {
         if (old) remove_entry( model, old );
         return 0;
     }
-    if (state == SETTING_DISABLED && policy->kind == POLICY_FLAG) data = policy->disabled;
+    if (state == SETTING_DISABLED && policy->kind != POLICY_FLAG) return -1;   /* a number has no Disabled */
+    if (state == SETTING_DISABLED) data = policy->disabled;
     else if (policy->kind == POLICY_FLAG) data = policy->enabled;
     else data = number;
     preg_put_u32( value, data );
