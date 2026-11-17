@@ -87,9 +87,15 @@ class UwpXamlTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.unpack(archive(self.root / 'c.zip'))
         os.chmod(program_files, 0o2775)
-        with patch.object(c.Path, 'lstat', lambda p: os.stat_result(
-                (stat.S_IFDIR | 0o2775, 0, 0, 0, os.getuid(), os.getgid() + 1, 0, 0, 0, 0))
-                if p == program_files else os.lstat(p)):
+        real_fstat, inode = os.fstat, program_files.stat().st_ino
+
+        def fstat(fd):
+            info = real_fstat(fd)
+            if info.st_ino == inode:      # the directory is group-writable for a group that is not the machine's
+                return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, info.st_uid,
+                                       info.st_gid + 1, info.st_size, 0, 0, 0))
+            return info
+        with patch.object(c.os, 'fstat', fstat):
             with self.assertRaises(ValueError):                      # group-writable for another group: refused
                 self.unpack(archive(self.root / 'd.zip'))
 

@@ -6,6 +6,7 @@ synthetic containers (a zip and an uncompressed cabinet), through the real downl
 records, verification, upgrade, rollback and uninstall; no network and no Wine. Run as root (the cache and receipt
 checks want root-owned directories); cabextract is needed for the cabinet case."""
 import copy
+import fcntl
 import hashlib
 import importlib.util
 import io
@@ -201,6 +202,156 @@ class FrameworkTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.install()
         self.assertFalse((self.machine / c.FRAMEWORK_STORE).exists())
+
+    # ---- planted links: the machine root is writable by the machine group, whose members can put a link where root
+    # is about to work; nothing outside the machine root may be touched ----
+
+    FULL = 'Microsoft.UI.Xaml.2.8_8.2501.31001.0_x64__8wekyb3d8bbwe'
+
+    def outside(self):
+        """A directory outside the machine root with a file in it, and its state: (directory, file, mode, names)."""
+        directory = self.root / 'outside'
+        directory.mkdir(exist_ok=True)
+        sentinel = directory / 'sentinel'
+        sentinel.write_text('keep')
+        sentinel.chmod(0o600)
+        return directory, sentinel
+
+    def assertOutsideUntouched(self, directory, sentinel):
+        self.assertEqual(sorted(p.name for p in directory.iterdir()), ['sentinel'])
+        self.assertEqual((stat.S_IMODE(sentinel.stat().st_mode), sentinel.read_text()), (0o600, 'keep'))
+        self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o755 & ~os.umask(0) | stat.S_IMODE(directory.stat().st_mode))
+
+    def unpack_package(self):
+        gid = self.machine.stat().st_gid
+        return c.uwp_frameworks_unpack(appx('Microsoft.UI.Xaml.2.8', '8.2501.31001.0'), self.machine, self.FULL, gid)
+
+    def test_a_linked_store_is_refused(self):
+        directory, sentinel = self.outside()
+        before = stat.S_IMODE(directory.stat().st_mode)
+        (self.machine / 'drive_c/Program Files/WindowsApps').symlink_to(directory)
+        with self.assertRaises(ValueError):
+            self.unpack_package()
+        self.assertOutsideUntouched(directory, sentinel)
+        self.assertEqual(stat.S_IMODE(directory.stat().st_mode), before)
+
+    def test_a_linked_program_files_is_refused(self):
+        directory, sentinel = self.outside()
+        program_files = self.machine / 'drive_c/Program Files'
+        program_files.rmdir()
+        program_files.symlink_to(directory)
+        with self.assertRaises(ValueError):
+            self.unpack_package()
+        self.assertOutsideUntouched(directory, sentinel)
+
+    def test_a_link_in_the_name_of_the_package_is_replaced_not_followed(self):
+        directory, sentinel = self.outside()
+        before = stat.S_IMODE(directory.stat().st_mode)
+        self.unpack_package()
+        package = self.machine / c.FRAMEWORK_STORE / self.FULL
+        shutil.rmtree(package)
+        package.symlink_to(directory)                       # planted where the package directory goes
+        self.unpack_package()
+        self.assertFalse(package.is_symlink())
+        self.assertTrue((package / 'AppxManifest.xml').is_file())
+        self.assertOutsideUntouched(directory, sentinel)
+        self.assertEqual(stat.S_IMODE(directory.stat().st_mode), before)
+
+    def test_a_linked_catalog_is_refused(self):
+        directory, sentinel = self.outside()
+        gid = self.machine.stat().st_gid
+        parent = self.machine / 'drive_c/ProgramData/WineExplorer'
+        parent.mkdir(parents=True)
+        os.chmod(parent, 0o2775)
+        (parent / 'appx-catalog').symlink_to(directory)
+        with self.assertRaises(ValueError):
+            c.uwp_frameworks_publish_record(self.machine, gid, self.FULL, MS, b'')
+        self.assertOutsideUntouched(directory, sentinel)
+
+    def installed_old_format(self):
+        """One installed framework whose record is in the old format, with its receipt."""
+        package = appx('Microsoft.UI.Xaml.2.8', '8.2501.31001.0', servers=(
+            '<Extension Category="windows.activatableClass.inProcessServer"><InProcessServer><Path>X.dll</Path>'
+            '<ActivatableClass ActivatableClassId="X.Y" ThreadingModel="both"/></InProcessServer></Extension>'))
+        gid = self.machine.stat().st_gid
+        files = c.uwp_frameworks_unpack(package, self.machine, self.FULL, gid)
+        catalog = c.uwp_frameworks_catalog(self.machine, gid)
+        record = catalog / (self.FULL + '.wexappx')
+        record.write_bytes(c.uwp_frameworks_record(self.FULL, MS))
+        receipts = self.root / 'component-receipts'
+        receipts.mkdir(mode=0o755, exist_ok=True)
+        (receipts / 'uwp-frameworks.json').write_text(json.dumps({
+            'verb': 'uwp-frameworks', 'execution_policy': c.UWP_FRAMEWORKS_POLICY, 'publisher': MS,
+            'packages': {self.FULL: files}}))
+        os.chmod(receipts / 'uwp-frameworks.json', 0o644)
+        return record, self.machine / c.FRAMEWORK_STORE / self.FULL
+
+    def test_refresh_does_not_follow_links_or_wait_for_a_fifo(self):
+        directory, sentinel = self.outside()
+        record, package = self.installed_old_format()
+        old = record.read_bytes()
+        manifest = package / 'AppxManifest.xml'
+        original = manifest.read_bytes()
+        # the manifest swapped for a link to a file that has the same bytes: refused, nothing refreshed
+        copy = directory / 'copy'
+        copy.write_bytes(original)
+        manifest.unlink()
+        manifest.symlink_to(copy)
+        refreshed, skipped = c.refresh_uwp_frameworks_records(self.machine)
+        self.assertEqual((refreshed, [n for n, _ in skipped]), ([], [self.FULL]))
+        self.assertEqual(record.read_bytes(), old)
+        # and for a FIFO (a read of it would never return)
+        manifest.unlink()
+        os.mkfifo(manifest)
+        refreshed, skipped = c.refresh_uwp_frameworks_records(self.machine)
+        self.assertEqual((refreshed, [n for n, _ in skipped]), ([], [self.FULL]))
+        # the record swapped for a link to a file outside: it is not read, not written
+        manifest.unlink()
+        manifest.write_bytes(original)
+        manifest.chmod(0o664)
+        target = directory / 'record'
+        target.write_bytes(old)
+        record.unlink()
+        record.symlink_to(target)
+        refreshed, skipped = c.refresh_uwp_frameworks_records(self.machine)
+        self.assertEqual((refreshed, [n for n, _ in skipped]), ([], [self.FULL]))
+        self.assertEqual(target.read_bytes(), old)
+        self.assertEqual(sorted(p.name for p in directory.iterdir()), ['copy', 'record', 'sentinel'])
+        self.assertEqual(stat.S_IMODE(sentinel.stat().st_mode), 0o600)
+
+    def test_refresh_with_a_linked_store_touches_nothing_outside(self):
+        directory, sentinel = self.outside()
+        record, package = self.installed_old_format()
+        store = package.parent
+        moved = self.root / 'moved-store'
+        store.rename(moved)
+        store.symlink_to(moved)
+        old = record.read_bytes()
+        refreshed, skipped = c.refresh_uwp_frameworks_records(self.machine)
+        self.assertEqual((refreshed, [n for n, _ in skipped]), ([], [self.FULL]))
+        self.assertEqual(record.read_bytes(), old)
+
+    def test_refresh_takes_the_components_lock(self):
+        record, package = self.installed_old_format()
+        lock = os.open(self.root / '.components.lock', os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            with self.assertRaises(OSError):                 # an install holds it: the repair stops instead of racing
+                c.refresh_uwp_frameworks_records(self.machine)
+        finally:
+            os.close(lock)
+        self.assertEqual(c.refresh_uwp_frameworks_records(self.machine)[0], [self.FULL])
+
+    def test_remove_does_not_follow_a_linked_store(self):
+        directory, sentinel = self.outside()
+        victim = directory / self.FULL
+        victim.mkdir()
+        (victim / 'keep').write_text('keep')
+        program_files = self.machine / 'drive_c/Program Files'
+        (program_files / 'WindowsApps').symlink_to(directory)
+        with self.assertRaises(ValueError):
+            c.uwp_frameworks_remove(self.machine, [self.FULL])
+        self.assertEqual((victim / 'keep').read_text(), 'keep')
 
     def test_corrupt_cache_is_refused(self):
         self.set_containers(self.container('a.nupkg', 'zip', [('x.appx', appx('A.Fw', '1.0.0.0'), {})]))

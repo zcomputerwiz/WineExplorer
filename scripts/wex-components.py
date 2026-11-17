@@ -11,6 +11,7 @@ stage-limited Unix domain socket verified via SO_PEERCRED.
 """
 import argparse
 from contextlib import contextmanager
+import errno
 import fcntl
 import grp
 import hashlib
@@ -50,6 +51,11 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
+
+try:   # a parser that refuses entity tricks, when the system has it
+    from defusedxml.ElementTree import fromstring as xml_fromstring
+except ImportError:
+    xml_fromstring = ET.fromstring
 
 COMPONENTS = {
     'vcrun2022': 'Visual C++ 2015–2022 runtime',
@@ -2423,33 +2429,211 @@ def machine_file_mode(path):
     return 0o775 if path.suffix.lower() in ('.exe', '.dll') else 0o664
 
 
-def machine_mkdir(path):
-    """A new directory of the machine root, 2775 whatever the umask (its group is inherited from the setgid parent)."""
-    path.mkdir(mode=MACHINE_DIR_MODE)
-    path.chmod(MACHINE_DIR_MODE)
+# The machine root is writable by the machine group, whose members (a per-machine installer started through wex-sysrun, a
+# session 0 Wine process) can swap names in it while root works. Root therefore never acts on the machine root by path name:
+# every directory is opened from its parent without following links and checked by fstat, files are opened without following
+# links and changed through their descriptor, and a tree is built in a root-only area beside the machine root (STAGE_AREA,
+# 0700) and published by one rename between a checked directory descriptor and the staging area.
+DIR_OPEN_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+FILE_OPEN_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC    # no wait on a FIFO planted in a name
+STAGE_AREA_NAME = '.uwp-stage'
+MAX_MACHINE_FILE_BYTES = 1024 * 1024
 
 
-def machine_makedirs(path, top):
-    """Create PATH and its missing parents below the existing directory TOP, each as machine_mkdir does."""
-    missing = []
-    while path != top and not path.exists():
-        missing.append(path)
-        path = path.parent
-    for directory in reversed(missing):
-        machine_mkdir(directory)
+def machine_open_dir(parent_fd, name, admin_gid, create=False):
+    """A directory of the machine root as a descriptor, opened from its parent without following a link and checked: root
+    owns it, others cannot write it, and group write is the machine group's alone. CREATE makes it (2775, machine group)."""
+    try:
+        fd = os.open(name, DIR_OPEN_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        if not create:
+            raise
+        os.mkdir(name, 0o700, dir_fd=parent_fd)
+        fd = os.open(name, DIR_OPEN_FLAGS, dir_fd=parent_fd)
+        try:
+            os.fchown(fd, UWP_XAML_OWNER, admin_gid)
+            os.fchmod(fd, MACHINE_DIR_MODE)
+        except BaseException:
+            os.close(fd)
+            raise
+    except OSError as error:
+        raise ValueError(f'Refusing {name}: {error.strerror} (a link or not a directory)') from None
+    try:
+        info = os.fstat(fd)
+        group_ok = not info.st_mode & 0o020 or info.st_gid == admin_gid
+        if info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o002 or not group_ok:
+            raise ValueError(f'Untrusted directory: {name}')
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
-def _uwp_xaml_real_directory(path, create, admin_gid=None):
-    """A root-owned directory that is no symlink and that nobody else can write (made 2775 when create is set).
-    Group write is accepted only for ADMIN_GID, the configured machine group (see machine_admin_gid)."""
-    if path.is_symlink():
-        raise ValueError(f'Refusing symlinked directory: {path}')
-    if create and not path.exists():
-        machine_mkdir(path)
-    info = path.lstat()
-    group_ok = not info.st_mode & 0o020 or (admin_gid is not None and info.st_gid == admin_gid)
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o002 or not group_ok:
-        raise ValueError(f'Untrusted directory: {path}')
+def machine_open_path(machine, existing, admin_gid, create=()):
+    """The descriptor of machine/EXISTING.../CREATE...: each step opened from the one before (the EXISTING ones must be
+    there, the CREATE ones are made). The caller closes it."""
+    try:
+        fd = os.open(machine, DIR_OPEN_FLAGS)
+    except OSError as error:
+        raise ValueError(f'Refusing the machine root: {error.strerror}') from None
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o002 or info.st_gid != admin_gid:
+            raise ValueError(f'Untrusted machine root: {machine}')
+        for names, make in ((existing, False), (create, True)):
+            for name in names:
+                child = machine_open_dir(fd, name, admin_gid, make)
+                os.close(fd)
+                fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def machine_open_regular(dir_fd, parts):
+    """A regular file below a directory descriptor (PARTS: the names of the path), opened without following a link and
+    without waiting for a FIFO; the caller closes it."""
+    opened = []
+    try:
+        current = dir_fd
+        for name in parts[:-1]:
+            current = os.open(name, DIR_OPEN_FLAGS, dir_fd=current)
+            opened.append(current)
+        fd = os.open(parts[-1], FILE_OPEN_FLAGS, dir_fd=current)
+    except OSError as error:
+        raise ValueError(f'Cannot open {"/".join(parts)}: {error.strerror}') from None
+    finally:
+        for descriptor in opened:
+            os.close(descriptor)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError(f'Not a regular file: {"/".join(parts)}')
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def machine_read_regular(dir_fd, parts, limit=MAX_MACHINE_FILE_BYTES):
+    """The bytes of a regular file below a directory descriptor, read once (at most LIMIT)."""
+    fd = machine_open_regular(dir_fd, parts)
+    try:
+        if os.fstat(fd).st_size > limit:
+            raise ValueError(f'Oversized file: {"/".join(parts)}')
+        with os.fdopen(fd, 'rb', closefd=False) as source:
+            return source.read(limit + 1)
+    finally:
+        os.close(fd)
+
+
+def machine_stage_area(machine):
+    """The root-only staging area beside the machine root (made 0700 when missing); a Path."""
+    parent = machine.parent
+    info = parent.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o022:
+        raise ValueError(f'Untrusted directory: {parent}')
+    area = parent / STAGE_AREA_NAME
+    try:
+        area.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    info = area.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o077:
+        raise ValueError(f'Untrusted staging area: {area}')
+    return area
+
+
+def machine_stage_finalize(tree, admin_gid):
+    """Owner, group and modes of a staged tree, which only root can reach: directories 2775, files 664 (775 for .exe and
+    .dll), all root and the machine group. Anything that is not a plain file or directory is refused."""
+    entries = [tree]
+    for directory, directories, files in os.walk(tree):
+        entries.extend(os.path.join(directory, name) for name in directories + files)
+    for entry in entries:
+        info = os.lstat(entry)
+        if stat.S_ISDIR(info.st_mode):
+            mode = MACHINE_DIR_MODE
+        elif stat.S_ISREG(info.st_mode):
+            mode = machine_file_mode(Path(entry))
+        else:
+            raise ValueError(f'Unexpected entry in a staged tree: {entry}')
+        os.lchown(entry, UWP_XAML_OWNER, admin_gid)
+        os.chmod(entry, mode)
+
+
+def remove_staged(path):
+    """Remove a name of the staging area: a tree, a file or a link (a link is removed, not followed)."""
+    path = Path(path)
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
+def machine_publish(tree, parent_fd, name, area):
+    """Move the staged TREE to PARENT_FD/NAME; whatever is there goes to the staging area first (and is removed)."""
+    trash = area / ('.old-' + uuid.uuid4().hex)
+    try:
+        try:
+            os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            os.rename(name, trash, src_dir_fd=parent_fd)
+        except FileNotFoundError:
+            trash = None
+        os.rename(tree, name, dst_dir_fd=parent_fd)
+    except OSError as error:
+        if error.errno == errno.EXDEV:
+            raise ValueError('The machine root and its staging area must be on one file system') from None
+        raise
+    if trash is not None:
+        remove_staged(trash)
+
+
+def machine_remove(parent_fd, name, area):
+    """Remove an entry of a machine root directory: it is moved to the staging area by one rename, then removed there."""
+    trash = area / ('.removed-' + uuid.uuid4().hex)
+    try:
+        os.rename(name, trash, src_dir_fd=parent_fd)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        if error.errno == errno.EXDEV:
+            raise ValueError('The machine root and its staging area must be on one file system') from None
+        raise
+    remove_staged(trash)
+
+
+def machine_write_file(dir_fd, name, data, admin_gid, mode=0o664):
+    """A file of a machine root directory, written to a temporary name and renamed over NAME, all by descriptor."""
+    temporary = '.record-' + uuid.uuid4().hex
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=dir_fd)
+    try:
+        with os.fdopen(fd, 'wb', closefd=False) as out:
+            os.fchown(fd, UWP_XAML_OWNER, admin_gid)
+            os.fchmod(fd, mode)
+            out.write(data)
+            out.flush()
+            os.fsync(fd)
+        os.rename(temporary, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except BaseException:
+        try:
+            os.unlink(temporary, dir_fd=dir_fd)
+        except OSError:
+            pass
+        raise
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def _components_lock(machine):
+    """The lock that installs and uninstalls hold (a non-blocking one: a run that finds it taken reports and stops)."""
+    if machine.is_symlink() or machine.stat().st_uid != UWP_XAML_OWNER:
+        raise ValueError('Machine prefix must be a root-owned real directory')
+    descriptor = os.open(machine.parent / '.components.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
 
 
 def machine_admin_gid(machine):
@@ -2466,15 +2650,14 @@ def machine_admin_gid(machine):
 
 
 def uwp_xaml_unpack(archive, machine, arch):
-    """Check every member and unpack into <root>/<arch> by rename. Returns ({member: [size, sha256]}, [classes])."""
+    """Check every member and unpack into <root>/<arch>: staged in the root-only area, published by one rename.
+    Returns ({member: [size, sha256]}, [classes])."""
     gid = machine_admin_gid(machine)
-    program_files = machine / 'drive_c/Program Files'
-    _uwp_xaml_real_directory(program_files, False, gid)
-    root = machine / UWP_XAML_ROOT
-    _uwp_xaml_real_directory(root.parent, True, gid)
-    _uwp_xaml_real_directory(root, True, gid)
-    staging = root / ('.staging-' + uuid.uuid4().hex)
-    machine_mkdir(staging)
+    area = machine_stage_area(machine)
+    stage = area / ('xaml-' + uuid.uuid4().hex)
+    stage.mkdir(mode=0o700)
+    tree = stage / 'tree'
+    tree.mkdir(mode=0o700)
     files = {}
     try:
         with zipfile.ZipFile(archive) as package:
@@ -2491,8 +2674,8 @@ def uwp_xaml_unpack(archive, machine, arch):
                 if (not UWP_XAML_MEMBER.match(relative) or any(part in ('.', '..') for part in relative.split('/')) or
                         (member.external_attr >> 16) & 0o170000 == 0o120000):
                     raise ValueError('Unsafe UWP XAML archive member: ' + name)
-                target = staging / relative
-                machine_makedirs(target.parent, staging)
+                target = tree / relative
+                target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 digest = hashlib.sha256()
                 size = 0
                 with package.open(member) as source, open(target, 'xb') as out:
@@ -2504,29 +2687,22 @@ def uwp_xaml_unpack(archive, machine, arch):
                         out.write(chunk)
                     out.flush()
                     os.fsync(out.fileno())
-                target.chmod(machine_file_mode(target))
                 files[relative] = [size, digest.hexdigest()]
         for required in UWP_XAML_REQUIRED:
             if required not in files:
                 raise ValueError('UWP XAML archive lacks ' + required)
-        classes = (staging / 'classes.txt').read_text(encoding='utf-8').split()
+        classes = (tree / 'classes.txt').read_text(encoding='utf-8').split()
         if not classes or len(classes) > UWP_XAML_MAX_CLASSES or any(not UWP_XAML_CLASS.match(c) for c in classes):
             raise ValueError('UWP XAML archive has an invalid class list')
-        final = root / arch
-        old = None
-        if final.exists() or final.is_symlink():
-            if final.is_symlink():
-                raise ValueError('Refusing symlinked UWP XAML directory')
-            old = root / ('.old-' + uuid.uuid4().hex)
-            os.replace(final, old)
-        os.replace(staging, final)
-        staging = None
-        if old is not None:
-            shutil.rmtree(old)
+        machine_stage_finalize(tree, gid)
+        directory = machine_open_path(machine, ('drive_c', 'Program Files'), gid, ('WineExplorer', 'Xaml'))
+        try:
+            machine_publish(tree, directory, arch, area)
+        finally:
+            os.close(directory)
         return files, classes
     finally:
-        if staging is not None:
-            shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(stage, ignore_errors=True)
 
 
 def uwp_xaml_registry_text(arch, classes):
@@ -2628,13 +2804,15 @@ def uwp_xaml_drop_receipt(receipt_dir, verb):
 
 
 def uwp_xaml_remove_directory(machine, arch):
-    directory = machine / UWP_XAML_ROOT / arch
-    if directory.is_symlink():
-        raise ValueError('Refusing symlinked UWP XAML directory')
-    if directory.is_dir():
-        trash = directory.parent / ('.removed-' + uuid.uuid4().hex)
-        os.replace(directory, trash)
-        shutil.rmtree(trash)
+    gid = machine_admin_gid(machine)
+    try:
+        directory = machine_open_path(machine, ('drive_c', 'Program Files', 'WineExplorer', 'Xaml'), gid)
+    except FileNotFoundError:
+        return
+    try:
+        machine_remove(directory, arch, machine_stage_area(machine))
+    finally:
+        os.close(directory)
 
 
 def uwp_xaml_rollback(machine, arch, classes, environment):
@@ -2802,7 +2980,7 @@ def appx_identity(appx):
         info = package.getinfo('AppxManifest.xml')
         if info.file_size > 1024 * 1024:
             raise ValueError('Oversized package manifest')
-        root = ET.fromstring(package.read(info))
+        root = xml_fromstring(package.read(info))
     identity = framework = None
     for element in root.iter():
         tag = element.tag.rsplit('}', 1)[-1]
@@ -2889,6 +3067,7 @@ def uwp_frameworks_check_identity(data, package, publisher):
 
 
 FRAMEWORK_RECORD_MAX_BYTES = 60000   # the server reads a record of 64 KiB at most
+UWP_RECORD_LIMIT = 65536
 FRAMEWORK_CLASS_ID = re.compile(r'^[A-Za-z0-9._-]{1,255}$')
 FRAMEWORK_SERVER_COMPONENT = re.compile(r'^[A-Za-z0-9_()+,. -]+$')
 
@@ -2897,7 +3076,7 @@ def appx_manifest_classes(manifest):
     """[(class id, server path)] of the in-process servers of a package manifest (windows.activatableClass.inProcessServer),
     the path relative to the package and backslash separated. A class whose id or path the server would refuse is left
     out."""
-    root = ET.fromstring(manifest)
+    root = xml_fromstring(manifest)
     classes = []
     for server in root.iter():
         if server.tag.rsplit('}', 1)[-1] != 'InProcessServer':
@@ -2935,12 +3114,13 @@ def uwp_frameworks_record(full_name, publisher, manifest=b''):
 
 
 def uwp_frameworks_unpack(data, machine, full_name, gid):
-    """Unpack one package into the machine's WindowsApps by rename. Returns {member: [size, sha256]}."""
-    _uwp_xaml_real_directory(machine / 'drive_c/Program Files', False, gid)
-    store = machine / FRAMEWORK_STORE
-    _uwp_xaml_real_directory(store, True, gid)
-    staging = store / ('.staging-' + uuid.uuid4().hex)
-    machine_mkdir(staging)
+    """Unpack one package into the machine's WindowsApps: staged in the root-only area, published by one rename.
+    Returns {member: [size, sha256]}."""
+    area = machine_stage_area(machine)
+    stage = area / ('framework-' + uuid.uuid4().hex)
+    stage.mkdir(mode=0o700)
+    tree = stage / 'tree'
+    tree.mkdir(mode=0o700)
     files, seen = {}, set()
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as package:
@@ -2956,8 +3136,8 @@ def uwp_frameworks_unpack(data, machine, full_name, gid):
                 if relative.lower() in seen:
                     raise ValueError('Duplicate framework package member: ' + member.filename)
                 seen.add(relative.lower())
-                target = staging / relative
-                machine_makedirs(target.parent, staging)
+                target = tree / relative
+                target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 digest, size = hashlib.sha256(), 0
                 with package.open(member) as source, open(target, 'xb') as out:
                     while chunk := source.read(1 << 20):
@@ -2966,47 +3146,38 @@ def uwp_frameworks_unpack(data, machine, full_name, gid):
                             raise ValueError('Framework package member larger than declared: ' + member.filename)
                         digest.update(chunk)
                         out.write(chunk)
-                target.chmod(machine_file_mode(target))
                 files[relative] = [size, digest.hexdigest()]
         if 'AppxManifest.xml' not in files:
             raise ValueError('Framework package without a manifest')
-        final = store / full_name
-        old = None
-        if final.exists() or final.is_symlink():
-            if final.is_symlink():
-                raise ValueError('Refusing symlinked framework directory')
-            old = store / ('.old-' + uuid.uuid4().hex)
-            os.replace(final, old)
-        os.replace(staging, final)
-        staging = None
-        if old is not None:
-            shutil.rmtree(old)
+        machine_stage_finalize(tree, gid)
+        store = machine_open_path(machine, ('drive_c', 'Program Files'), gid, ('WindowsApps',))
+        try:
+            machine_publish(tree, store, full_name, area)
+        finally:
+            os.close(store)
         return files
     finally:
-        if staging is not None:
-            shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def uwp_frameworks_catalog_fd(machine, gid, create=True):
+    """The descriptor of the machine's catalog of framework records (made when missing); the caller closes it."""
+    return machine_open_path(machine, ('drive_c', 'ProgramData') if create else tuple(FRAMEWORK_CATALOG.split('/')), gid,
+                             ('WineExplorer', 'appx-catalog') if create else ())
 
 
 def uwp_frameworks_catalog(machine, gid):
-    catalog = machine / FRAMEWORK_CATALOG
-    _uwp_xaml_real_directory(machine / 'drive_c/ProgramData', False, gid)
-    _uwp_xaml_real_directory(catalog.parent, True, gid)
-    _uwp_xaml_real_directory(catalog, True, gid)
-    return catalog
+    """The catalog's Path (made when missing)."""
+    os.close(uwp_frameworks_catalog_fd(machine, gid))
+    return machine / FRAMEWORK_CATALOG
 
 
 def uwp_frameworks_publish_record(machine, gid, full_name, publisher, manifest):
-    catalog = uwp_frameworks_catalog(machine, gid)
-    with tempfile.NamedTemporaryFile(dir=catalog, prefix='.record-', delete=False) as out:
-        temporary = Path(out.name)
-        out.write(uwp_frameworks_record(full_name, publisher, manifest))
-        out.flush()
-        os.fsync(out.fileno())
+    catalog = uwp_frameworks_catalog_fd(machine, gid)
     try:
-        os.chmod(temporary, 0o664)
-        os.replace(temporary, catalog / (full_name + '.wexappx'))
+        machine_write_file(catalog, full_name + '.wexappx', uwp_frameworks_record(full_name, publisher, manifest), gid)
     finally:
-        temporary.unlink(missing_ok=True)
+        os.close(catalog)
 
 
 def verify_uwp_frameworks(machine, data, full=False):
@@ -3036,74 +3207,101 @@ def verify_uwp_frameworks(machine, data, full=False):
 
 
 def refresh_uwp_frameworks_records(machine=None):
-    """Update-time repair, as root: an installation from before the class lines (record without them) gets its records
-    rewritten from the installed AppxManifest.xml. Only a package that matches its receipt (directory, files with their
-    sizes, the manifest's digest) and whose record is exactly the old format is touched; anything else is left alone.
-    The receipt holds no digest of a record, so it needs no change. Returns (refreshed, skipped): lists of full names,
-    and of (full name, reason)."""
+    """Update-time repair, as root, under the components lock: an installation from before the class lines (a record
+    without them) gets its records rewritten from the installed AppxManifest.xml. Only a package that matches its
+    receipt (directory, files with their sizes, the manifest's digest) and whose record is exactly the old format is
+    touched; anything else is left alone. Everything is read and written through directory descriptors opened without
+    following links, each file read once (the digest and the parse see the same bytes). The receipt holds no digest of a
+    record, so it needs no change. Returns (refreshed, skipped): lists of full names, and of (full name, reason)."""
     machine = machine or MACHINE
     refreshed, skipped = [], []
     receipts_dir = machine.parent / 'component-receipts'
     receipt_file = receipts_dir / 'uwp-frameworks.json'
     if not receipt_file.is_file() or receipt_file.is_symlink():
         return refreshed, skipped                    # the component is not installed
-    for path in (receipts_dir, receipt_file):
-        info = path.lstat()
-        if path.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+    with _components_lock(machine):
+        for path in (receipts_dir, receipt_file):
+            info = path.lstat()
+            if path.is_symlink() or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o022:
+                raise ValueError('Untrusted UWP frameworks receipt')
+        if receipt_file.stat().st_size > 1024 * 1024:
             raise ValueError('Untrusted UWP frameworks receipt')
-    if receipt_file.stat().st_size > 1024 * 1024:
-        raise ValueError('Untrusted UWP frameworks receipt')
-    data = json.loads(receipt_file.read_text(encoding='utf-8'))
-    packages, publisher = data.get('packages'), data.get('publisher')
-    if (data.get('verb') != 'uwp-frameworks' or data.get('execution_policy') != UWP_FRAMEWORKS_POLICY or
-            not isinstance(packages, dict) or not packages or not isinstance(publisher, str)):
-        raise ValueError('Malformed UWP frameworks receipt')
-    gid = machine_group_gid()
-    for full_name, files in packages.items():
-        if not re.match(r'^[A-Za-z0-9.-]+_[0-9.]+_[a-z0-9]+__[0-9a-z]{13}$', full_name) or not isinstance(files, dict):
-            skipped.append((full_name, 'malformed receipt entry'))
-            continue
+        data = json.loads(receipt_file.read_text(encoding='utf-8'))
+        packages, publisher = data.get('packages'), data.get('publisher')
+        if (data.get('verb') != 'uwp-frameworks' or data.get('execution_policy') != UWP_FRAMEWORKS_POLICY or
+                not isinstance(packages, dict) or not packages or not isinstance(publisher, str)):
+            raise ValueError('Malformed UWP frameworks receipt')
+        gid = machine_admin_gid(machine)
         try:
-            root = machine / FRAMEWORK_STORE / full_name
-            manifest = root / 'AppxManifest.xml'
-            record = machine / FRAMEWORK_CATALOG / (full_name + '.wexappx')
-            if root.is_symlink() or not root.is_dir() or manifest.is_symlink() or not manifest.is_file():
-                raise ValueError('the package directory or its manifest is missing')
-            for relative, (size, digest) in files.items():
-                target = root / relative
-                if target.is_symlink() or not target.is_file() or target.stat().st_size != size:
-                    raise ValueError('a package file is missing or changed: ' + relative)
-                if relative == 'AppxManifest.xml' and file_sha256(target) != digest:
-                    raise ValueError('the manifest changed')
-            if record.is_symlink() or not record.is_file():
-                raise ValueError('the record is missing')
-            current = record.read_bytes()
-            manifest_bytes = manifest.read_bytes()
-            wanted = uwp_frameworks_record(full_name, publisher, manifest_bytes)
-            if current == wanted:
-                continue                             # up to date
-            if current != uwp_frameworks_record(full_name, publisher):
-                raise ValueError('the record is not in the old format')
-            uwp_frameworks_publish_record(machine, gid, full_name, publisher, manifest_bytes)
-            refreshed.append(full_name)
-        except (OSError, ValueError, ET.ParseError) as error:
-            skipped.append((full_name, str(error)))
+            store = machine_open_path(machine, tuple(FRAMEWORK_STORE.split('/')), gid)
+            catalog = uwp_frameworks_catalog_fd(machine, gid, create=False)
+        except (OSError, ValueError) as error:
+            return refreshed, [(name, f'the framework store or its catalog cannot be opened: {error}') for name in packages]
+        try:
+            for full_name, files in packages.items():
+                if not re.match(r'^[A-Za-z0-9.-]+_[0-9.]+_[a-z0-9]+__[0-9a-z]{13}$', full_name) or not isinstance(files, dict):
+                    skipped.append((full_name, 'malformed receipt entry'))
+                    continue
+                try:
+                    root = machine_open_dir(store, full_name, gid)
+                    try:
+                        for relative, (size, digest) in files.items():
+                            if relative == 'AppxManifest.xml':
+                                continue
+                            fd = machine_open_regular(root, relative.split('/'))
+                            try:
+                                if os.fstat(fd).st_size != size:
+                                    raise ValueError('a package file changed: ' + relative)
+                            finally:
+                                os.close(fd)
+                        manifest = machine_read_regular(root, ['AppxManifest.xml'])
+                    finally:
+                        os.close(root)
+                    if 'AppxManifest.xml' not in files or hashlib.sha256(manifest).hexdigest() != files['AppxManifest.xml'][1] \
+                            or len(manifest) != files['AppxManifest.xml'][0]:
+                        raise ValueError('the manifest changed')
+                    current = machine_read_regular(catalog, [full_name + '.wexappx'], UWP_RECORD_LIMIT)
+                    if current == uwp_frameworks_record(full_name, publisher, manifest):
+                        continue                         # up to date
+                    if current != uwp_frameworks_record(full_name, publisher):
+                        raise ValueError('the record is not in the old format')
+                    machine_write_file(catalog, full_name + '.wexappx', uwp_frameworks_record(full_name, publisher, manifest), gid)
+                    refreshed.append(full_name)
+                except (OSError, ValueError, ET.ParseError) as error:
+                    skipped.append((full_name, str(error)))
+        finally:
+            os.close(store)
+            os.close(catalog)
     return refreshed, skipped
 
 
 def uwp_frameworks_remove(machine, full_names):
-    """Records first (the packages stop being visible), then their directories; missing ones are fine."""
-    for full_name in full_names:
-        (machine / FRAMEWORK_CATALOG / (full_name + '.wexappx')).unlink(missing_ok=True)
-    store = machine / FRAMEWORK_STORE
-    for full_name in full_names:
-        directory = store / full_name
-        if directory.is_symlink():
-            raise ValueError('Refusing symlinked framework directory')
-        if directory.is_dir():
-            trash = store / ('.removed-' + uuid.uuid4().hex)
-            os.replace(directory, trash)
-            shutil.rmtree(trash)
+    """Records first (the packages stop being visible), then their directories; missing ones are fine. The machine root
+    is worked on by directory descriptors, each removal is one rename into the root-only staging area."""
+    gid = machine_admin_gid(machine)
+    area = machine_stage_area(machine)
+    try:
+        catalog = uwp_frameworks_catalog_fd(machine, gid, create=False)
+    except FileNotFoundError:
+        catalog = None
+    if catalog is not None:
+        try:
+            for full_name in full_names:
+                try:
+                    os.unlink(full_name + '.wexappx', dir_fd=catalog)
+                except FileNotFoundError:
+                    pass
+        finally:
+            os.close(catalog)
+    try:
+        store = machine_open_path(machine, tuple(FRAMEWORK_STORE.split('/')), gid)
+    except FileNotFoundError:
+        return
+    try:
+        for full_name in full_names:
+            machine_remove(store, full_name, area)
+    finally:
+        os.close(store)
 
 
 def uwp_frameworks_previous(receipt_dir, verb):
