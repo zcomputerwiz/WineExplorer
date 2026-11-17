@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import shutil
 import socket
+import stat
 import struct
 import subprocess
 import sys
@@ -1004,6 +1005,79 @@ class NativeSeamTests(unittest.TestCase):
             run_res = subprocess.run([wine, str(binary)], capture_output=True, text=True, env=env, timeout=90)
             self.assertEqual(run_res.returncode, 0, f'Native test run failed:\n{run_res.stdout}\n{run_res.stderr}')
             self.assertIn('ALL 9 NATIVE TESTS PASSED (148 assertions verified)', run_res.stdout)
+
+
+class UwpFrameworksRefreshTests(unittest.TestCase):
+    """The update-time repair that adds the class lines to the records of installed UWP frameworks."""
+    MS = 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US'
+    SERVERS = ('<Extension Category="windows.activatableClass.inProcessServer"><InProcessServer>'
+               '<Path>Microsoft.UI.Xaml.dll</Path>'
+               '<ActivatableClass ActivatableClassId="Microsoft.UI.Xaml.Controls.Button" ThreadingModel="both"/>'
+               '</InProcessServer></Extension>')
+
+    def setUp(self):
+        if os.getuid() != 0:
+            self.skipTest('needs root-owned directories')
+        frameworks = module('frameworks_tests', ROOT / 'scripts/test_component_uwp_frameworks.py')
+        self.temp = tempfile.TemporaryDirectory(prefix='wex-frameworks-refresh-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.machine = self.root / 'machine'
+        for directory in ('drive_c/Program Files', 'drive_c/ProgramData'):
+            (self.machine / directory).mkdir(parents=True)
+        for directory in (self.machine, self.machine / 'drive_c', self.machine / 'drive_c/Program Files',
+                          self.machine / 'drive_c/ProgramData'):
+            os.chmod(directory, 0o2775)
+        self.gid = self.machine.stat().st_gid
+        patcher = patch.object(components, 'machine_group_gid', lambda: self.gid)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.full = 'Microsoft.UI.Xaml.2.8_8.2501.31001.0_x64__8wekyb3d8bbwe'
+        package = frameworks.appx('Microsoft.UI.Xaml.2.8', '8.2501.31001.0', servers=self.SERVERS)
+        # an installation made before the class lines: the files, the old record, the receipt
+        files = components.uwp_frameworks_unpack(package, self.machine, self.full, self.gid)
+        catalog = components.uwp_frameworks_catalog(self.machine, self.gid)
+        self.record = catalog / (self.full + '.wexappx')
+        self.record.write_bytes(components.uwp_frameworks_record(self.full, self.MS))
+        self.record.chmod(0o664)
+        receipts = self.machine.parent / 'component-receipts'
+        receipts.mkdir(mode=0o755, exist_ok=True)
+        self.receipt = receipts / 'uwp-frameworks.json'
+        self.receipt.write_text(json.dumps({'verb': 'uwp-frameworks', 'execution_policy': components.UWP_FRAMEWORKS_POLICY,
+                                            'publisher': self.MS, 'packages': {self.full: files}}))
+        self.receipt.chmod(0o644)
+        self.manifest = self.machine / components.FRAMEWORK_STORE / self.full / 'AppxManifest.xml'
+
+    def test_old_format_record_is_refreshed_and_the_next_run_changes_nothing(self):
+        refreshed, skipped = components.refresh_uwp_frameworks_records(self.machine)
+        self.assertEqual((refreshed, skipped), ([self.full], []))
+        text = self.record.read_bytes().decode('utf-16-le')
+        self.assertIn('class\tMicrosoft.UI.Xaml.Controls.Button\tMicrosoft.UI.Xaml.dll\n', text)
+        self.assertEqual(stat.S_IMODE(self.record.stat().st_mode), 0o664)
+        components.verify_uwp_frameworks(self.machine, json.loads(self.receipt.read_text()), full=True)
+        before = self.record.stat().st_mtime_ns
+        self.assertEqual(components.refresh_uwp_frameworks_records(self.machine), ([], []))
+        self.assertEqual(self.record.stat().st_mtime_ns, before)
+
+    def test_changed_package_or_record_is_left_alone_and_reported(self):
+        old = self.record.read_bytes()
+        with open(self.machine / components.FRAMEWORK_STORE / self.full / 'lib/fw one.dll', 'ab') as out:
+            out.write(b'x')                                   # a file of another size than the receipt says
+        refreshed, skipped = components.refresh_uwp_frameworks_records(self.machine)
+        self.assertEqual(refreshed, [])
+        self.assertEqual([name for name, _ in skipped], [self.full])
+        self.assertEqual(self.record.read_bytes(), old)
+        with open(self.machine / components.FRAMEWORK_STORE / self.full / 'lib/fw one.dll', 'r+b') as out:
+            out.truncate(out.seek(0, 2) - 1)                  # the package matches again
+        self.record.write_bytes(old + 'publisher\tsomebody else\n'.encode('utf-16-le'))   # a record of another kind
+        refreshed, skipped = components.refresh_uwp_frameworks_records(self.machine)
+        self.assertEqual(refreshed, [])
+        self.assertEqual([name for name, _ in skipped], [self.full])
+        self.assertIn('not in the old format', skipped[0][1])
+
+    def test_nothing_installed_nothing_done(self):
+        self.receipt.unlink()
+        self.assertEqual(components.refresh_uwp_frameworks_records(self.machine), ([], []))
 
 
 if __name__ == '__main__':

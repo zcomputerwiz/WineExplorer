@@ -674,6 +674,14 @@ if [ "${SESSION0_ENABLE:-0}" = "1" ] && id "$S0_ACCOUNT" >/dev/null 2>&1; then
     fi
 fi
 
+# 2c. UWP frameworks installed before their records carried the classes of their in-process servers get the class
+# lines added (a package that matches its receipt, a record in the old format; anything else is left alone and
+# reported). It never stops the setup. The component tool only knows the default machine root.
+COMPONENTS_BIN="${WEX_COMPONENTS_BIN:-/usr/local/bin/wex-components}"
+if [ "$MACHINE_ROOT" = /var/lib/wineexplorer/machine ] && [ -x "$COMPONENTS_BIN" ]; then
+    "$COMPONENTS_BIN" --refresh-uwp-frameworks || echo "Warning: the UWP frameworks records were not all refreshed" >&2
+fi
+
 # 3. Create or update template prefix in /etc/skel/.wine
 echo "Configuring template prefix in $SKEL_PFX..."
 mkdir -p "$SKEL_PFX/dosdevices" "$SKEL_PFX/drive_c/users"

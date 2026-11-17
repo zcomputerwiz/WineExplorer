@@ -3034,6 +3034,62 @@ def verify_uwp_frameworks(machine, data, full=False):
                 raise ValueError(f'Framework file changed: {full_name}/{relative}')
 
 
+def refresh_uwp_frameworks_records(machine=None):
+    """Update-time repair, as root: an installation from before the class lines (record without them) gets its records
+    rewritten from the installed AppxManifest.xml. Only a package that matches its receipt (directory, files with their
+    sizes, the manifest's digest) and whose record is exactly the old format is touched; anything else is left alone.
+    The receipt holds no digest of a record, so it needs no change. Returns (refreshed, skipped): lists of full names,
+    and of (full name, reason)."""
+    machine = machine or MACHINE
+    refreshed, skipped = [], []
+    receipts_dir = machine.parent / 'component-receipts'
+    receipt_file = receipts_dir / 'uwp-frameworks.json'
+    if not receipt_file.is_file() or receipt_file.is_symlink():
+        return refreshed, skipped                    # the component is not installed
+    for path in (receipts_dir, receipt_file):
+        info = path.lstat()
+        if path.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError('Untrusted UWP frameworks receipt')
+    if receipt_file.stat().st_size > 1024 * 1024:
+        raise ValueError('Untrusted UWP frameworks receipt')
+    data = json.loads(receipt_file.read_text(encoding='utf-8'))
+    packages, publisher = data.get('packages'), data.get('publisher')
+    if (data.get('verb') != 'uwp-frameworks' or data.get('execution_policy') != UWP_FRAMEWORKS_POLICY or
+            not isinstance(packages, dict) or not packages or not isinstance(publisher, str)):
+        raise ValueError('Malformed UWP frameworks receipt')
+    gid = machine_group_gid()
+    for full_name, files in packages.items():
+        if not re.match(r'^[A-Za-z0-9.-]+_[0-9.]+_[a-z0-9]+__[0-9a-z]{13}$', full_name) or not isinstance(files, dict):
+            skipped.append((full_name, 'malformed receipt entry'))
+            continue
+        try:
+            root = machine / FRAMEWORK_STORE / full_name
+            manifest = root / 'AppxManifest.xml'
+            record = machine / FRAMEWORK_CATALOG / (full_name + '.wexappx')
+            if root.is_symlink() or not root.is_dir() or manifest.is_symlink() or not manifest.is_file():
+                raise ValueError('the package directory or its manifest is missing')
+            for relative, (size, digest) in files.items():
+                target = root / relative
+                if target.is_symlink() or not target.is_file() or target.stat().st_size != size:
+                    raise ValueError('a package file is missing or changed: ' + relative)
+                if relative == 'AppxManifest.xml' and file_sha256(target) != digest:
+                    raise ValueError('the manifest changed')
+            if record.is_symlink() or not record.is_file():
+                raise ValueError('the record is missing')
+            current = record.read_bytes()
+            manifest_bytes = manifest.read_bytes()
+            wanted = uwp_frameworks_record(full_name, publisher, manifest_bytes)
+            if current == wanted:
+                continue                             # up to date
+            if current != uwp_frameworks_record(full_name, publisher):
+                raise ValueError('the record is not in the old format')
+            uwp_frameworks_publish_record(machine, gid, full_name, publisher, manifest_bytes)
+            refreshed.append(full_name)
+        except (OSError, ValueError, ET.ParseError) as error:
+            skipped.append((full_name, str(error)))
+    return refreshed, skipped
+
+
 def uwp_frameworks_remove(machine, full_names):
     """Records first (the packages stop being visible), then their directories; missing ones are fine."""
     for full_name in full_names:
@@ -4079,6 +4135,8 @@ def main():
     parser.add_argument('--prepare-terms', metavar='VERB', help=argparse.SUPPRESS)
     parser.add_argument('--review-download', metavar='VERB', help=argparse.SUPPRESS)
     parser.add_argument('--uninstall', metavar='VERB', help='Remove a component that supports it (uwp-xaml), as root')
+    parser.add_argument('--refresh-uwp-frameworks', action='store_true',
+                        help='Update-time repair, as root: add the class lines to the records of installed UWP frameworks')
     parser.add_argument('--oobe-coordinator', action='store_true', help='Run OOBE setup coordinator daemon')
     parser.add_argument('--apply-user-defaults', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--reconcile-operation', metavar='OP_ID', help='Reconcile an inspected interrupted install while coordinator is stopped')
@@ -4089,7 +4147,7 @@ def main():
     args = parser.parse_args()
     privileged_actions = sum(bool(value) for value in (args.install, args.prepare_terms, args.review_download,
                              args.oobe_coordinator, args.apply_user_defaults, args.reconcile_operation,
-                             args.uninstall))
+                             args.uninstall, args.refresh_uwp_frameworks))
     if privileged_actions > 1 or (privileged_actions and (args.action or args.verbs)):
         parser.error('Choose exactly one backend action, without unrelated positional arguments')
     if args.reconcile_operation:
@@ -4118,6 +4176,16 @@ def main():
         install(*args.install)
     elif args.uninstall:
         uninstall(args.uninstall)
+    elif args.refresh_uwp_frameworks:
+        if os.geteuid() != 0:
+            parser.error('--refresh-uwp-frameworks runs as root')
+        refreshed, skipped = refresh_uwp_frameworks_records()
+        for full_name in refreshed:
+            print('UWP frameworks: class lines added to the record of ' + full_name)
+        for full_name, reason in skipped:
+            print(f'UWP frameworks: record of {full_name} left alone: {reason}', file=sys.stderr)
+        if skipped:
+            sys.exit(1)
     elif args.action == 'list':
         for verb, meta in COMPONENTS_METADATA.items():
             status = f" (disabled: {meta['disabled_reason']})" if meta.get('disabled') else ''
