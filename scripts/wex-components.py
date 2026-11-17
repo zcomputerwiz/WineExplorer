@@ -603,6 +603,22 @@ WEBVIEW2_POLICY = (('UpdateDefault', 0), ('Update{F3017226-FE2A-4295-8BDF-00C3A9
                    ('AutoUpdateCheckPeriodMinutes', 0))
 
 
+def registry_section(lines, header):
+    """The value lines of one key of a Wine .reg hive (up to the next key's header), or None.
+
+    header is the whole bracketed key name, so a subkey (same prefix, longer name) never matches."""
+    header = header.lower()
+    for index, line in enumerate(lines):
+        if line.lower().startswith(header):
+            section = []
+            for entry in lines[index + 1:]:
+                if entry.startswith('['):
+                    break
+                section.append(entry)
+            return section
+    return None
+
+
 def verify_webview2_artifacts(machine):
     """The runtime folder and the EdgeUpdate registration the installer must leave."""
     meta = COMPONENTS_METADATA['webview2']
@@ -617,21 +633,13 @@ def verify_webview2_artifacts(machine):
         raise ValueError('Machine registry missing')
     text = registry.read_text(encoding='utf-8', errors='replace')
     key = (r'[Software\\Wow6432Node\\Microsoft\\EdgeUpdate\\Clients\\' + meta['client_guid'] + ']').lower()
-    section = None
     lines = text.split('\n')
-    for index, line in enumerate(lines):
-        if line.lower().startswith(key):
-            section = lines[index + 1:index + 12]
-            break
+    section = registry_section(lines, key)
     if section is None or ('"pv"="' + version + '"') not in section:
         raise ValueError('WebView2 is not registered in the machine registry')
     # Wine shares HKLM\SOFTWARE\Policies between the 32- and 64-bit views.
     for hive in (r'[Software\\Policies\\Microsoft\\EdgeUpdate]',):
-        block = None
-        for index, line in enumerate(lines):
-            if line.lower().startswith(hive.lower()):
-                block = lines[index + 1:index + 20]
-                break
+        block = registry_section(lines, hive)
         if block is None:
             raise ValueError('WebView2 update policy missing: ' + hive)
         for name, data in WEBVIEW2_POLICY:
@@ -2199,6 +2207,15 @@ def install(verb, accepted_digest):
         with protect_builtins(MACHINE, environment) as recovery:
             if recovery is not None:
                 recovery['safe_to_restore'] = False
+            # unshare --net isolates only processes started inside it: a wineserver the reg.exe
+            # calls above started (host network) would serve the installer's sockets. Let it
+            # exit first, so the installer starts its own server in the empty namespace.
+            if '/usr/bin/unshare' in command:
+                try:
+                    subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=60, check=True)
+                except subprocess.TimeoutExpired:
+                    subprocess.run(['/usr/local/bin/wineserver', '-k'], env=environment, timeout=15, check=True)
+                    subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=30, check=True)
             # timeout owns a separate process group (do not use --foreground).
             # Keep the lock and builtin snapshots until Wine has also stopped.
             result = subprocess.run(command, env=environment)

@@ -531,6 +531,30 @@ class D3DCompiler47ArtifactTests(unittest.TestCase):
             self.assertIn('efbdbbcd0d954f8fdc53467de5d89ad525e4e4a9cfff8a15d07c6fdb350c407f d3dcompiler_47_32.dll', patched)
             self.assertIn('e994847e01a6f1e4cbdc5a864616ac262f67ee4f14db194984661a8d927ab7f4 d3dcompiler_47.dll', patched)
 
+    def test_webview2_verification_reads_only_its_own_keys(self):
+        meta = c.COMPONENTS_METADATA['webview2']
+        base = self.machine / 'drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application' / meta['release']
+        base.mkdir(parents=True)
+        for name in ('msedgewebview2.exe', 'msedge.dll'):
+            with open(base / name, 'wb') as out:
+                out.truncate(2 * 1024 * 1024)
+        values = ''.join(f'"{name}"=dword:{data:08x}\n' for name, data in c.WEBVIEW2_POLICY)
+        client = (r'[Software\\Wow6432Node\\Microsoft\\EdgeUpdate\\Clients\\' + meta['client_guid'] + '] 1\n'
+                  '"pv"="' + meta['release'] + '"\n\n')
+        parent = r'[Software\\Policies\\Microsoft\\EdgeUpdate] 1' + '\n'
+        child = r'[Software\\Policies\\Microsoft\\EdgeUpdate\\ClientState] 1' + '\n'
+        registry = self.machine / 'system.reg'
+        # the policy values in a subkey right after the (empty) policy key do not count
+        registry.write_text(parent + '\n' + child + values + '\n' + client, encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'update policy'):
+            c.verify_webview2_artifacts(self.machine)
+        # nor does a version in the key after the client's
+        registry.write_text(parent + values + '\n' + client.replace('"pv"', '[Other] 1\n"pv"'), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'not registered'):
+            c.verify_webview2_artifacts(self.machine)
+        registry.write_text(parent + values + '\n' + child + '\n' + client, encoding='utf-8')
+        c.verify_webview2_artifacts(self.machine)
+
 
 if __name__ == '__main__':
     unittest.main()
