@@ -3612,3 +3612,13 @@ dependencies). combase uses a table path that starts with `X:` as it is. Framewo
 `uwp-frameworks` component now carry the `class` lines of the package's in-process servers (from its manifest).
 Design: `docs/uwp/DESIGN_DEPENDENCY_CLASSES.md`. The U1.0 fixture (14 context checks) passes on x64 and x86; the Calculator
 run no longer logs the 107 to 150 `Failed to find library` lines for `XamlControlsXamlMetaDataProvider`.
+
+2026-11-17 (UWP, Wine 44e495fa, d75ca729, a672e1bb): runtime classes the Store Calculator asks for, each in the DLL that
+already serves its neighbours, with interface definitions written in widl style from the public API metadata:
+`dlls/windows.ui` (`systemnavigation.c`, `fontweights.c`; `include/windows.ui.core.idl`, `include/windows.ui.text.idl`):
+`Windows.UI.Core.SystemNavigationManager` (back button visibility and BackRequested handlers of the process's view; the
+event is not raised) and `Windows.UI.Text.FontWeights`; `dlls/threadpoolwinrt` (`timer.c`, `timer_statics.c`,
+`private.h`; `include/windows.system.threading.idl`): `Windows.System.Threading.ThreadPoolTimer` on the system thread
+pool, test in `tests/threadpool.c`; `dlls/windows.applicationmodel` (`limitedaccess.c`;
+`include/windows.applicationmodel.idl`): `Windows.ApplicationModel.LimitedAccessFeatures` (always Unavailable), test in
+`tests/model.c`. Verified on x64 and x86 in the owned U1 guest.
