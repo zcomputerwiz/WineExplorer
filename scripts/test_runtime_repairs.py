@@ -297,12 +297,18 @@ class ComponentsTests(unittest.TestCase):
                 components.validate_recipe_files('corefonts', path=wt_path)
 
     def test_protected_files_restored_even_when_installer_fails(self):
-        with tempfile.TemporaryDirectory(prefix='wex-components-test-') as scratch:
+        if os.getuid() != 0:
+            self.skipTest('needs a root-owned machine root and installed-Wine fixture')
+        # /run, not /tmp: the installed Wine's directories up to / must be root's and not writable by others
+        with tempfile.TemporaryDirectory(prefix='wex-components-test-', dir='/run') as scratch, \
+                patch.object(components, 'machine_group_gid', lambda: Path(scratch).stat().st_gid):
             machine = Path(scratch) / 'machine'
             for directory in ('system32', 'syswow64'):
                 (machine / 'drive_c/windows' / directory).mkdir(parents=True)
             dll = machine / 'drive_c/windows/system32/ucrtbase.dll'
-            original = Path(scratch) / 'wine-ucrtbase.dll'
+            libraries = Path(scratch) / 'lib-wine'
+            original = libraries / 'x86_64-windows/ucrtbase.dll'
+            original.parent.mkdir(parents=True)
             original.write_text('open builtin')
             dll.symlink_to(original)
 
@@ -311,7 +317,7 @@ class ComponentsTests(unittest.TestCase):
 
             with patch.object(components, 'reg', side_effect=fake_reg):
                 with self.assertRaisesRegex(ValueError, 'fixture failure'):
-                    with components.protect_builtins(machine, {}):
+                    with components.protect_builtins(machine, {}, libraries):
                         self.assertFalse(dll.is_symlink())
                         dll.write_text('write-through attempt stays in the prefix')
                         self.assertEqual(original.read_text(), 'open builtin')
@@ -326,7 +332,7 @@ class ComponentsTests(unittest.TestCase):
             # If stopping Wine itself fails, do not restore over live modules.
             with patch.object(components, 'reg', side_effect=fake_reg):
                 with self.assertRaisesRegex(RuntimeError, 'administrator recovery required'):
-                    with components.protect_builtins(machine, {}) as recovery:
+                    with components.protect_builtins(machine, {}, libraries) as recovery:
                         recovery['safe_to_restore'] = False
                         dll.unlink()
                         dll.write_text('possibly live module')
@@ -352,6 +358,7 @@ class ComponentsTests(unittest.TestCase):
                     patch.object(components, 'validate_recipe_files'), \
                     patch.object(components, 'cache_corefonts_payloads'), \
                     patch.object(components, 'MACHINE', machine), patch.object(components, 'CACHE', cache), \
+                    patch.object(components, 'machine_group_gid', lambda: machine.stat().st_gid), \
                     patch.object(components.os, 'getuid', return_value=0), \
                     patch.object(components, 'license_text', return_value=('vendor terms', 'sha')), \
                     patch.object(components, 'protect_builtins', return_value=nullcontext()), \
@@ -390,6 +397,7 @@ class ComponentsTests(unittest.TestCase):
                     patch.object(components, 'validate_recipe_files'), \
                     patch.object(components, 'cache_corefonts_payloads'), \
                     patch.object(components, 'MACHINE', machine), \
+                    patch.object(components, 'machine_group_gid', lambda: machine.stat().st_gid), \
                     patch.object(components, 'CACHE', Path(scratch) / 'cache'), \
                     patch.object(components.os, 'getuid', return_value=0), \
                     patch.object(components, 'license_text', return_value=('terms', 'sha')), \
@@ -413,6 +421,7 @@ class ComponentsTests(unittest.TestCase):
                     patch.object(components, 'cache_corefonts_payloads'), \
                     patch.object(components, 'verify_corefonts_artifacts'), \
                     patch.object(components, 'MACHINE', machine), patch.object(components, 'CACHE', cache), \
+                    patch.object(components, 'machine_group_gid', lambda: machine.stat().st_gid), \
                     patch.object(components.os, 'getuid', return_value=0), \
                     patch.object(components, 'license_text', return_value=('vendor terms', 'test-sha')), \
                     patch.object(components, 'protect_builtins', return_value=nullcontext()), \
@@ -451,6 +460,7 @@ class ComponentsTests(unittest.TestCase):
                     patch.object(components, 'validate_recipe_files'), \
                     patch.object(components, 'verify_corefonts_artifacts'), \
                     patch.object(components, 'MACHINE', machine), \
+                    patch.object(components, 'machine_group_gid', lambda: machine.stat().st_gid), \
                     patch.object(components.os, 'getuid', return_value=0), \
                     patch.object(components, 'license_text', return_value=('vendor terms', 'test-sha')), \
                     patch.object(components.subprocess, 'run') as run:
@@ -930,6 +940,7 @@ class OobeCoordinatorTests(unittest.TestCase):
                  patch.object(components, 'cache_corefonts_payloads'), \
                  patch.object(components, 'verify_corefonts_artifacts'), \
                  patch.object(components, 'MACHINE', machine_dir), \
+                 patch.object(components, 'machine_group_gid', lambda: machine_dir.stat().st_gid), \
                  patch.object(components, 'CACHE', cache_dir), \
                  patch.object(components, 'license_text', return_value=('dummy terms', fake_sha)), \
                  patch.object(components, 'protect_builtins', return_value=nullcontext()), \
