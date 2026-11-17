@@ -762,13 +762,13 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
     set_service_state( SERVICE_RUNNING, NO_ERROR );
     for (;;)
     {
-        /* a hive that is loaded notifies this watch (the server does, as on Windows; an unload does not); the look every half
-         * minute is only the safety net for a notification that was lost */
+        /* a hive that is loaded notifies this watch (the server does, as on Windows; an unload does not); the look every five
+         * minutes is only the safety net for a notification that was lost */
         RegNotifyChangeKeyValue( HKEY_USERS, FALSE, REG_NOTIFY_CHANGE_NAME, handles[1], TRUE );
         restore_users();
         for (;;)
         {
-            DWORD wait = WaitForMultipleObjects( 3, handles, FALSE, 30000 );
+            DWORD wait = WaitForMultipleObjects( 3, handles, FALSE, 300000 );
 
             if (wait == WAIT_OBJECT_0) goto stopped;
             if (wait == WAIT_OBJECT_0 + 2) { spool_pass(); continue; }   /* a request: no look at the hives */
