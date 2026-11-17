@@ -66,7 +66,7 @@ fi
 compositor=
 cleanup()
 {
-    "$server_bin" -k 2>/dev/null || true
+    wex_stop_wine || echo 'Warning: Wine cleanup failed while ending the session.' >&2
     if [ -n "$compositor" ]; then
         kill "$compositor" 2>/dev/null || true
         wait "$compositor" 2>/dev/null || true
@@ -91,13 +91,12 @@ done
 test -S "$XDG_RUNTIME_DIR/$shell_socket" || compositor_failed
 export WAYLAND_DISPLAY=$shell_socket
 export WINELOADER="$WINE" WINESERVER="$server_bin"
-wex_prepare_prefix
+wex_prepare_prefix || { echo 'Session setup failed.' >&2; exit 1; }
 # The shell and all Wine children use the private endpoint. Native desktop-file
 # launches obtain the public endpoints through wexhost's compositor inventory.
 "$WINE" reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d x11,wayland /f
 # The first client performs any required prefix update. Stop its bare desktop
 # before starting Explorer as the shell; do not force a reinstall on every login.
-"$server_bin" -k
-"$server_bin" -w
+wex_stop_wine || true
 wex_refresh_policy_after_logon
 "$WINE" explorer.exe /shell

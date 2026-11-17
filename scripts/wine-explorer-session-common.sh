@@ -33,6 +33,48 @@ wex_refresh_policy_after_logon()
     ) &
 }
 
+# Publish only a complete template copy. Interrupted prefixes and failed copies
+# stay on disk for recovery; never merge the template into an existing prefix.
+wex_init_prefix()
+{
+    local skel="${WEX_SKEL_PFX:-/etc/skel/.wine}" staging backup
+    [ ! -d "$WINEPREFIX/drive_c" ] || return 0
+    # no template (a machine without Setup's skeleton): wineboot creates the prefix, as before
+    [ -d "$skel/drive_c" ] || {
+        echo "Warning: no complete prefix template in $skel; wineboot creates the prefix" >&2
+        return 0
+    }
+    mkdir -p -- "$(dirname "$WINEPREFIX")" || return 1
+    if [ -e "$WINEPREFIX" ] || [ -L "$WINEPREFIX" ]; then
+        backup=$(mktemp -d "${WINEPREFIX}.backup-$(date +%Y%m%d-%H%M%S).XXXXXX") || return 1
+        mv -T -- "$WINEPREFIX" "$backup/prefix" || return 1
+        echo "Saved interrupted prefix in $backup/prefix"
+    fi
+    staging=$(mktemp -d "${WINEPREFIX}.init.XXXXXX") || return 1
+    echo "Initializing prefix from $skel (staging in $staging)..."
+    if ! cp -a -- "$skel/." "$staging/" || [ ! -d "$staging/drive_c" ]; then
+        echo "Prefix copy failed; retained staging directory $staging" >&2
+        return 1
+    fi
+    # -T prevents nesting if a target appears while copying.
+    if [ -e "$WINEPREFIX" ] || [ -L "$WINEPREFIX" ] || ! mv -T -- "$staging" "$WINEPREFIX"; then
+        echo "Prefix publication failed; retained staging directory $staging" >&2
+        return 1
+    fi
+}
+
+# Stop this prefix's Wine and wait until its server is gone (instead of a fixed sleep). -k fails when no server
+# runs, which is fine; only a server that does not go away within 30 s is a failure.
+wex_stop_wine()
+{
+    local server="$(dirname "$WINE")/wineserver"
+    timeout -k 2s 10s "$server" -k 2>/dev/null || true
+    if ! timeout -k 2s 30s "$server" -w; then
+        echo "Warning: Wine did not stop within 30 s for $WINEPREFIX" >&2
+        return 1
+    fi
+}
+
 wex_prepare_prefix()
 {
     # Restore the shared view before wineboot updates. Changes take effect only
@@ -40,13 +82,7 @@ wex_prepare_prefix()
     if [ -x /usr/local/bin/wex-graphics ] && [ -d "$WINEPREFIX/.wex-graphics" ]; then
         /usr/local/bin/wex-graphics vulkan restore || return 1
     fi
-    # Ensure the prefix exists from /etc/skel/.wine template if missing
-    if [ ! -d "$WINEPREFIX" ] || [ ! -d "$WINEPREFIX/drive_c" ]; then
-        if [ -d "/etc/skel/.wine" ]; then
-            echo "Initializing prefix from /etc/skel/.wine..."
-            cp -a /etc/skel/.wine "$WINEPREFIX"
-        fi
-    fi
+    wex_init_prefix || return 1
 
     # --- First logon of an account made by Setup: its prefix is a copy of /etc/skel/.wine, built by the setup account,
     # so the registry names that account's profile.  Point it at this user, then let shell32 create this user's profile
@@ -57,11 +93,11 @@ wex_prepare_prefix()
     PROFILE_USER=${USER##*\\}
     if [ "$PROFILE_USER" != "$TEMPLATE_USER" ] && grep -qs "users\\\\\\\\$TEMPLATE_USER\\\\\\\\" "$WINEPREFIX/user.reg"; then
         echo "Making the template prefix this user's..."
-        /usr/local/bin/wex-personalize-prefix "$WINEPREFIX" "$PROFILE_USER" "$TEMPLATE_USER"
+        /usr/local/bin/wex-personalize-prefix "$WINEPREFIX" "$PROFILE_USER" "$TEMPLATE_USER" ||
+            echo "warning: wex-personalize-prefix failed (exit $?): the profile may still name $TEMPLATE_USER" >&2
         # Per-user setup only (shell32 DllInstall "U", as Windows' Active Setup); the machine part was done by wineboot.
         "$WINE" regsvr32.exe /s /n /i:U shell32.dll || echo "warning: regsvr32 /n /i:U shell32.dll failed (exit $?): the profile folders may be missing" >&2
-        "$(dirname "$WINE")/wineserver" -k
-        sleep 1
+        wex_stop_wine || true
     fi
 
     # --- Prefix update after a Wine (re)install or machine root update.
@@ -71,9 +107,8 @@ wex_prepare_prefix()
     if { [ -f "$NTDLL" ] && { [ ! -e "$WINEPREFIX/.update-timestamp" ] || [ "$NTDLL" -nt "$WINEPREFIX/.update-timestamp" ]; }; } || \
        { [ -e "$MACHINE_ROOT/.update-timestamp" ] && [ "$MACHINE_ROOT/.update-timestamp" -nt "$WINEPREFIX/.update-timestamp" ]; }; then
         echo "Updating the Wine prefix..."
-        "$WINE" wineboot.exe -u
-        "$(dirname "$WINE")/wineserver" -k
-        sleep 2
+        "$WINE" wineboot.exe -u || echo "warning: wineboot -u failed (exit $?)" >&2
+        wex_stop_wine || true
     fi
 
     # Safe Mode (docs/SAFE_MODE.md): the steps above are what logging on needs; the optional ones below are
@@ -95,16 +130,16 @@ wex_prepare_prefix()
     THEME_DATA_DIR="${WEX_THEME_DATA_DIR:-/usr/local/share/wineexplorer/themes}"
     if [ -d "$THEME_DATA_DIR" ] && [ ! -L "$WINEPREFIX/drive_c/windows" ] && [ -w "$WINEPREFIX/drive_c/windows" ]; then
         THEME_PREFIX_DIR="$WINEPREFIX/drive_c/windows/Resources/Themes"
-        mkdir -p "$THEME_PREFIX_DIR" 2>/dev/null || true
+        mkdir -p "$THEME_PREFIX_DIR" || echo 'Warning: theme directory could not be prepared.' >&2
         for theme_file in "$THEME_DATA_DIR/"*.theme; do
             [ -f "$theme_file" ] || continue
             theme_target="$THEME_PREFIX_DIR/$(basename "$theme_file")"
-            [ -e "$theme_target" ] || install -m644 "$theme_file" "$theme_target" 2>/dev/null || true
+            [ -e "$theme_target" ] || install -m644 "$theme_file" "$theme_target" || echo "Warning: could not install $theme_target" >&2
         done
         for theme_dir in "$THEME_DATA_DIR/"*/; do
             [ -d "$theme_dir" ] || continue
             tname="$(basename "$theme_dir")"
-            [ -e "$THEME_PREFIX_DIR/$tname" ] || cp -rf "$theme_dir" "$THEME_PREFIX_DIR/$tname" 2>/dev/null || true
+            [ -e "$THEME_PREFIX_DIR/$tname" ] || cp -rf "$theme_dir" "$THEME_PREFIX_DIR/$tname" || echo "Warning: could not install theme $tname" >&2
         done
     fi
 
@@ -118,8 +153,7 @@ wex_prepare_prefix()
         echo "Applying the default theme (Open Luna)..."
         "$WINE" explorer.exe '/theme=C:\windows\Resources\Themes\Luna.theme' \
             || echo "warning: the default theme was not applied (exit $?)" >&2
-        "$(dirname "$WINE")/wineserver" -k
-        sleep 1
+        wex_stop_wine || true
     fi
     if [ -x /usr/local/bin/wex-graphics ] && [ -d "$WINEPREFIX/.wex-graphics" ]; then
         local graphics_overrides
@@ -130,4 +164,5 @@ wex_prepare_prefix()
             /usr/local/bin/wex-graphics vulkan restore || return 1
         fi
     fi
+    return 0
 }
