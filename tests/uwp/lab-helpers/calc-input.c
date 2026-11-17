@@ -114,7 +114,13 @@ int main( int argc, char **argv )
     {
         click( 22, 56, "navigation menu" );  Sleep( 16000 );
         click( 60, 470, "Settings" );        Sleep( 16000 );
-        if (argc > 3) { click( 150, 160, "App theme" ); Sleep( 30000 ); }
+        if (argc > 3)
+        {
+            click( 150, 160, "App theme" ); Sleep( 8000 );
+            click( 150, 160, "App theme again" ); Sleep( 8000 );
+            click( 150, 300, "About" ); Sleep( 8000 );
+            click( 60, 22, "Settings header" ); Sleep( 12000 );
+        }
     }
     else if (keys)
     {
