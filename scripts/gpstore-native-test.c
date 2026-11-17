@@ -23,6 +23,9 @@
  *   gpstore-native-test PREFIX write KIND INFILE     INFILE empty: removes the store file
  *   gpstore-native-test PREFIX done KIND [ERROR]
  *   gpstore-native-test PREFIX clean
+ *   gpstore-native-test PREFIX targets            prints "result=N targets=SID,SID,..."
+ * KIND is a number, or KIND:TARGET for the kind that has a target (3:S-1-5-32-544); "x" for no target given where the
+ * kind needs one is KIND:
  * Prints "result=N" (enum gps_result) and, for read, "size=N".
  */
 
@@ -59,9 +62,19 @@ int main( int argc, char **argv )
     if (result) { printf( "result=%d\n", result ); return 1; }
     if (!strcmp( argv[2], "open" )) printf( "result=0\n" );
     else if (!strcmp( argv[2], "clean" )) { gps_clean( &store ); printf( "result=0\n" ); }
+    else if (!strcmp( argv[2], "targets" ))
+    {
+        char list[8][GPS_TARGET_MAX];
+        int i, n = gps_spool_targets( &store, list, 8 );
+
+        printf( "result=%d targets=", n < 0 ? n : 0 );
+        for (i = 0; i < n; i++) printf( "%s%s", i ? "," : "", list[i] );
+        printf( "\n" );
+    }
     else if (argc >= 4)
     {
         enum gps_kind kind = atoi( argv[3] );
+        const char *colon = strchr( argv[3], ':' ), *target = colon ? colon + 1 : NULL;
 
         if (!strcmp( argv[2], "read" ) && argc >= 5)
         {
@@ -69,7 +82,7 @@ int main( int argc, char **argv )
             size_t size;
             FILE *out;
 
-            result = gps_spool_read( &store, kind, &data, &size );
+            result = gps_spool_read( &store, kind, target, &data, &size );
             if (!result && (out = fopen( argv[4], "wb" )))
             {
                 if (size) fwrite( data, 1, size, out );
@@ -84,10 +97,10 @@ int main( int argc, char **argv )
             unsigned char *data;
             size_t size;
 
-            result = gps_spool_read( &store, kind, &data, &size );
+            result = gps_spool_read( &store, kind, target, &data, &size );
             free( data );
             if (!result && rename( argv[4], argv[5] )) { printf( "result=-1\n" ); return 1; }
-            printf( "result=%d\n", result ? result : gps_spool_done( &store, kind, NULL ) );
+            printf( "result=%d\n", result ? result : gps_spool_done( &store, kind, target, NULL ) );
         }
         else if (!strcmp( argv[2], "write" ) && argc >= 5)
         {
@@ -95,13 +108,13 @@ int main( int argc, char **argv )
             unsigned char *data = slurp( argv[4], &size );
 
             if (!data) { printf( "result=-1\n" ); return 1; }
-            result = gps_store_write( &store, kind, size ? data : NULL, size );
+            result = gps_store_write( &store, kind, target, size ? data : NULL, size );
             printf( "result=%d\n", result );
             free( data );
         }
         else if (!strcmp( argv[2], "done" ))
         {
-            result = gps_spool_done( &store, kind, argc >= 5 ? argv[4] : NULL );
+            result = gps_spool_done( &store, kind, target, argc >= 5 ? argv[4] : NULL );
             printf( "result=%d\n", result );
         }
         else return 2;

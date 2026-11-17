@@ -174,4 +174,64 @@ want $R_OK "read, swap, done" gpt readswap $K_MPOL "$GP/Spool/swap" "$GP/Spool/M
 [ "$(cat "$GP/Spool/Machine.Registry.pol" 2>/dev/null)" = newer ] || fail "done removed a request that was not read"
 ok gps_done_keeps_a_newer_request
 
+# 8. the targets: the user policy of the local objects of the users (GroupPolicyUsers/SID/User/Registry.pol); the target is
+# a valid SID or nothing, never a path
+R_BADARG=7; K_TARGET=3
+SIDA=S-1-5-32-544; SIDP=S-1-5-21-111-222-333-1104
+GU="$FX/drive_c/windows/system32/GroupPolicyUsers"
+fresh
+request "UserPolicy.$SIDA.Registry.pol" 'ADM-POL'
+request "UserPolicy.$SIDP.Registry.pol" 'PERSON'
+request "UserPolicy.S-1-5-21-1-2-3.Registry.pol" 'a SID with too few parts'
+request "UserPolicy.S-1-5-32-546.Registry.pol" 'a group that has no object'
+request "UserPolicy.S-1-5-21-111-222-333-0104.Registry.pol" 'a leading zero'
+request "UserPolicy.S-1-5-21-111-222-333-99999999999.Registry.pol" 'eleven digits'
+request "UserPolicy...Registry.pol" 'dots'
+request "Machine.Registry.pol" 'not a target'
+OUT=$(gpt targets) || true
+[ "$OUT" = "result=0 targets=$SIDA,$SIDP" ] || [ "$OUT" = "result=0 targets=$SIDP,$SIDA" ] || fail "the listed targets: $OUT"
+OUT=$(gpt read "$K_TARGET:$SIDA" "$BIN/out") || true
+[ "$(code "$OUT")" = $R_OK ] && [ "$(cat "$BIN/out")" = 'ADM-POL' ] || fail "read of a target's request: $OUT"
+cp "$BIN/out" "$BIN/in"
+want $R_OK "write of a target" gpt write "$K_TARGET:$SIDA" "$BIN/in"
+[ "$(cat "$GU/$SIDA/User/Registry.pol")" = 'ADM-POL' ] || fail "the target's store file has other content"
+[ "$(stat -c '%U:%a' "$GU/$SIDA/User/Registry.pol")" = "$S0:644" ] || fail "target file is $(stat -c '%U:%a' "$GU/$SIDA/User/Registry.pol")"
+for d in "$GU" "$GU/$SIDA" "$GU/$SIDA/User"; do
+    [ "$(stat -c '%U:%a' "$d")" = "$S0:2755" ] || fail "target directory $d is $(stat -c '%U:%a' "$d")"
+done
+want $R_OK "done of a target" gpt done "$K_TARGET:$SIDA"
+[ ! -e "$GP/Spool/UserPolicy.$SIDA.Registry.pol" ] || fail "the target's request stayed"
+[ -e "$GP/Spool/UserPolicy.$SIDP.Registry.pol" ] || fail "done of one target removed another's request"
+want $R_OK "the other target's request is still there" gpt read "$K_TARGET:$SIDP" "$BIN/out"
+# an error for a target goes to its own NAME.error
+want $R_OK "done with an error" gpt done "$K_TARGET:$SIDP" 'error 13: refused'
+[ "$(cat "$GP/Spool/UserPolicy.$SIDP.Registry.pol.error")" = 'error 13: refused' ] || fail "the target's error file"
+# names that are not targets are refused before any path is made, and a target is refused for another kind
+want $R_BADARG "a path as the target" gpt read "$K_TARGET:../../x" "$BIN/out"
+want $R_BADARG "no target for the kind that needs one" gpt read "$K_TARGET:" "$BIN/out"
+want $R_BADARG "a group SID that has no object" gpt write "$K_TARGET:S-1-5-32-546" "$BIN/in"
+want $R_BADARG "a target for a kind that has none" gpt write "$K_MPOL:$SIDA" "$BIN/in"
+want $R_BADARG "no target at all" gpt write "$K_TARGET" "$BIN/in"
+[ ! -e "$GU/S-1-5-32-546" ] && [ ! -e "$FX/x" ] || fail "a refused target made a path"
+# zero bytes remove the target's store file
+: > "$BIN/empty"
+want $R_OK "remove a target's file" gpt write "$K_TARGET:$SIDA" "$BIN/empty"
+[ ! -e "$GU/$SIDA/User/Registry.pol" ] || fail "zero bytes did not remove the target's file"
+# a link in place of GroupPolicyUsers, of a target's folder, or a folder the group can write, is not used
+want $R_OK "write again" gpt write "$K_TARGET:$SIDP" "$BIN/in"
+mv "$GU/$SIDP" "$GU/$SIDP.real"; ln -s "$SIDP.real" "$GU/$SIDP"
+want $R_TREE "a link in place of the target's folder" gpt write "$K_TARGET:$SIDP" "$BIN/in"
+rm -f "$GU/$SIDP"; mv "$GU/$SIDP.real" "$GU/$SIDP"; chmod 2775 "$GU/$SIDP/User"
+want $R_TREE "the target's folder writable by the group" gpt write "$K_TARGET:$SIDP" "$BIN/in"
+chmod 2755 "$GU/$SIDP/User"
+mv "$GU" "$GU.real"; ln -s GroupPolicyUsers.real "$GU"
+want $R_TREE "a link in place of GroupPolicyUsers" gpt write "$K_TARGET:$SIDP" "$BIN/in"
+rm -f "$GU"; mv "$GU.real" "$GU"
+# the administrator cannot write the store of the users either
+if as_adm sh -c ': > "$1/x"' _ "$GU" 2>/dev/null; then fail "the administrator can write GroupPolicyUsers"; fi
+# system32 not owned by this user is not trusted
+chown root "$FX/drive_c/windows/system32"
+want $R_TREE "system32 owned by someone else" gpt open
+ok gps_targets_are_sids_and_stay_in_the_store_of_the_users
+
 echo "=== gpstore native: $PASS checks passed ==="
