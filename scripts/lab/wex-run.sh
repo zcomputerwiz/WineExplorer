@@ -39,11 +39,12 @@ MAIN=$P/build/wow64
 LAB=/root/owned-r8/build/wow64
 LOGS=/var/tmp/wex-run
 mkdir -p "$LOGS"
-# All WSL distributions share one kernel. A suite case that changes a kernel setting (fs.leases-enable in
-# test_sysrun_server.sh) breaks a suite running in another distribution at the same time (wex-run-split.sh), so it
-# is skipped while another run is going: a run says so in /mnt/wsl (shared by the distributions) until it ends.
-ACTIVE=/mnt/wsl/wex-run.${WSL_DISTRO_NAME:-unknown}
-if [ -d /mnt/wsl ]; then date +%s > "$ACTIVE" 2>/dev/null && trap 'rm -f "$ACTIVE"' EXIT; fi
+# One run per distribution (clean included: it removes a live run's fixture). A pid file, not flock: a lock fd would
+# be inherited by the servers and daemons the suites start and could outlive the run. A killed run's pid is not alive.
+ACTIVE=
+if [ -f "$LOGS/run.pid" ] && kill -0 "$(cat "$LOGS/run.pid" 2>/dev/null)" 2>/dev/null; then echo BUSY; exit 3; fi
+echo $$ > "$LOGS/run.pid"
+trap 'rm -f "$LOGS/run.pid"; [ -z "$ACTIVE" ] || rm -f "$ACTIVE"' EXIT
 # a run with WEX_SUITE_ONLY leaves groups of the normal suite out: its summary says so, so that it is never read as a
 # full pass (the full suite runs before every merge)
 PARTIAL=
@@ -78,6 +79,15 @@ esac
 [ -d "$D/scripts" ] && [ -e "$D/wine" ] || { echo "not a worktree: $D"; exit 2; }
 if pgrep -f 'test_sysrun_server|test_e1s6|test_broker_e1s18' >/dev/null || pgrep -f "make -C $P|make -C /root/owned-r8" >/dev/null; then
     echo BUSY; exit 3
+fi
+# All WSL distributions share one kernel. A suite case that changes a kernel setting (fs.leases-enable in
+# test_sysrun_server.sh) breaks a suite running in another distribution at the same time (wex-run-split.sh), so it
+# is skipped while another run is going: a run says so in /mnt/wsl (shared by the distributions) until it ends. Only
+# a run that passed the checks above writes it (and removes it at its end), so a refused one never removes a live
+# run's marker.
+if [ -d /mnt/wsl ]; then
+    ACTIVE=/mnt/wsl/wex-run.${WSL_DISTRO_NAME:-unknown}
+    date +%s > "$ACTIVE" 2>/dev/null || ACTIVE=
 fi
 
 # A git worktree's .git file names a Windows path (D:/...): translate it for WSL.
