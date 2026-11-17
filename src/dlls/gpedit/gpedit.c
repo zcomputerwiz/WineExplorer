@@ -712,6 +712,7 @@ DWORD WINAPI GpEdit_SetPolicyW( const WCHAR *id, DWORD state, DWORD number )
     }
     if (i == policy_count) return ERROR_NOT_FOUND;
     if (policies[i].status == POLICY_NOT_APPLICABLE) return ERROR_NOT_SUPPORTED;
+    if (policies[i].kind == POLICY_NUMBER && state == SETTING_DISABLED) return ERROR_INVALID_PARAMETER;   /* it has no Disabled */
     if (policies[i].kind == POLICY_NUMBER && state == SETTING_ENABLED && !number_allowed( &policies[i], number ))
         return ERROR_INVALID_PARAMETER;
     quiet = TRUE;

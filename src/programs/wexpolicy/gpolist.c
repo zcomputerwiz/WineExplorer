@@ -246,7 +246,7 @@ DWORD record_gpo_list( const WCHAR *sid, const WCHAR *path )
         return err;
     }
 
-    swprintf( key_name, ARRAY_SIZE(key_name), sid ? L"%s\\%s" : L"%s", GP_KEY, sid );
+    swprintf( key_name, ARRAY_SIZE(key_name), sid ? L"%ls\\%ls" : L"%ls", GP_KEY, sid );
     if (!(err = RegCreateKeyExW( HKEY_LOCAL_MACHINE, key_name, 0, NULL, 0, KEY_ALL_ACCESS | KEY_WOW64_64KEY, NULL,
                                  &base, NULL )))
     {

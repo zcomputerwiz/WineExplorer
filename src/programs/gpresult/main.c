@@ -87,6 +87,27 @@ static void usage(void)
          L"    /?                     Displays this help message.\n" );
 }
 
+/* whether the caller may see the data of the user with this SID: the caller's own always, another user's only for an
+ * administrator (as the tool of Windows has it) */
+static BOOL may_show_user( PSID sid )
+{
+    BYTE buf[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE], admins[SECURITY_MAX_SID_SIZE];
+    DWORD size = sizeof(admins);
+    HANDLE token;
+    BOOL ok = FALSE, member = FALSE;
+
+    if (OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token ))
+    {
+        if (GetTokenInformation( token, TokenUser, buf, sizeof(buf), &size ) && EqualSid( ((TOKEN_USER *)buf)->User.Sid, sid ))
+            ok = TRUE;
+        CloseHandle( token );
+    }
+    if (ok) return TRUE;
+    size = sizeof(admins);
+    return CreateWellKnownSid( WinBuiltinAdministratorsSid, NULL, admins, &size ) &&
+           CheckTokenMembership( NULL, admins, &member ) && member;
+}
+
 /* the objects applied for every known extension, merged in the order applied */
 static unsigned int collect( BOOL machine, PSID sid, struct applied *list, unsigned int room )
 {
@@ -127,20 +148,20 @@ static void section( const WCHAR *title, BOOL machine, PSID sid, BOOL verbose, c
     unsigned int count, i, e;
     size_t len = wcslen( title );
 
-    out( L"\n%s\n", title );
+    out( L"\n%ls\n", title );
     for (i = 0; i < len; i++) out( L"-" );
     out( L"\n" );
-    out( L"    Group Policy was applied from:      %s\n", source ? source : L"N/A" );
+    out( L"    Group Policy was applied from:      %ls\n", source ? source : L"N/A" );
     out( L"\n    Applied Group Policy Objects\n    -----------------------------\n" );
     count = collect( machine, sid, list, ARRAY_SIZE(list) );
     if (!count) out( L"        N/A\n" );
     for (i = 0; i < count; i++)
     {
-        out( L"        %s\n", list[i].display[0] ? list[i].display : list[i].name );
+        out( L"        %ls\n", list[i].display[0] ? list[i].display : list[i].name );
         if (!verbose) continue;
-        out( L"            GPO: %s\n", list[i].name );
+        out( L"            GPO: %ls\n", list[i].name );
         for (e = 0; e < ARRAY_SIZE(extensions); e++)
-            if (list[i].exts & (1u << e)) out( L"            Applied for: %s\n", extensions[e].name );
+            if (list[i].exts & (1u << e)) out( L"            Applied for: %ls\n", extensions[e].name );
     }
 }
 
@@ -190,6 +211,11 @@ int __cdecl wmain( int argc, WCHAR **argv )
             out( L"ERROR: The user \"%s\" does not have RSoP data.\n", target );
             return 1;
         }
+        if (!may_show_user( sid ))
+        {
+            out( L"ERROR: Access denied. You must be an administrator to display the data of another user.\n" );
+            return 1;
+        }
         lstrcpynW( user, target, ARRAY_SIZE(user) );
     }
     else
@@ -217,8 +243,8 @@ int __cdecl wmain( int argc, WCHAR **argv )
     GetLocalTime( &now );
     GetDateFormatW( LOCALE_USER_DEFAULT, 0, &now, NULL, date, ARRAY_SIZE(date) );
     GetTimeFormatW( LOCALE_USER_DEFAULT, 0, &now, NULL, time, ARRAY_SIZE(time) );
-    out( L"\nGroup Policy Result tool v2.0\n\nCreated On %s at %s\n\n\n", date, time );
-    out( L"RSOP data for %s\\%s on %s : Logging Mode\n", dom, user, computer );
+    out( L"\nGroup Policy Result tool v2.0\n\nCreated On %ls at %ls\n\n\n", date, time );
+    out( L"RSOP data for %ls\\%ls on %ls : Logging Mode\n", dom, user, computer );
     out( L"------------------------------------------------------------\n\n" );
     product[0] = 0;
     if (!RegOpenKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows NT\\CurrentVersion", 0,
@@ -229,12 +255,12 @@ int __cdecl wmain( int argc, WCHAR **argv )
         product[size / sizeof(WCHAR)] = 0;
         RegCloseKey( key );
     }
-    out( L"OS Type:                     %s\n", product );
-    out( L"OS Configuration:            %s\n", joined ? L"Member Workstation" : L"Standalone Workstation" );
+    out( L"OS Type:                     %ls\n", product );
+    out( L"OS Configuration:            %ls\n", joined ? L"Member Workstation" : L"Standalone Workstation" );
     out( L"OS Version:                  %u.%u.%u\n", (unsigned int)LOBYTE(LOWORD(version)),
          (unsigned int)HIBYTE(LOWORD(version)), (unsigned int)(version < 0x80000000 ? HIWORD(version) : 0) );
-    out( L"Domain Name:                 %s\n", joined ? info->DomainNameFlat : L"N/A" );
-    out( L"Domain Type:                 %s\n", joined ? L"Windows 2000" : L"<Local Computer>" );
+    out( L"Domain Name:                 %ls\n", joined ? info->DomainNameFlat : L"N/A" );
+    out( L"Domain Type:                 %ls\n", joined ? L"Windows 2000" : L"<Local Computer>" );
     out( L"Site Name:                   N/A\n" );
     out( L"Roaming Profile:             \n" );
     size = ARRAY_SIZE(profile);
@@ -244,7 +270,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
         CloseHandle( token );
     }
     else profile[0] = 0;
-    out( L"Local Profile:               %s\n", profile );
+    out( L"Local Profile:               %ls\n", profile );
     out( L"Connected over a slow link?: No\n" );
 
     /* the domain, not one of its controllers: Samba picks the controller and does not record it */

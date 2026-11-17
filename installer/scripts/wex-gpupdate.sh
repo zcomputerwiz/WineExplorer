@@ -72,6 +72,7 @@ REQUEST_FILE=${WEX_MACHINE_ROOT:-/var/lib/wineexplorer/machine}/drive_c/windows/
 request_number() { head -c 20 "$REQUEST_FILE" 2>/dev/null | tr -dc '0-9'; }
 REQ0=
 [ "$PRINT" = 1 ] || REQ0=$(request_number)
+REQ0=${REQ0:-0}   # no file yet (or read while it is written): nothing is served beyond 0, so a request that comes in reruns
 
 # Every run ends by telling session 0 it is done, also on a machine that is not joined: a gpupdate that asked for
 # it waits for that (gpupdate.exe, wexpolicy refreshed). A request that came in during the run is not served by it
@@ -82,7 +83,8 @@ finish()
     [ -z "$LISTS" ] || rm -rf "$LISTS"
     [ "$PRINT" = 1 ] || s0_wexpolicy refreshed $REQ0 >/dev/null || true
     now=$(request_number)
-    if [ "$PRINT" != 1 ] && [ -n "$REQ0" ] && [ -n "$now" ] && [ "$now" -gt "$REQ0" ] 2>/dev/null; then
+    # the number only moves forward (and may wrap): a different one is a newer request
+    if [ "$PRINT" != 1 ] && [ -n "$now" ] && [ "$now" != "$REQ0" ]; then
         exec "$0" "${ARGS[@]}"
     fi
 }

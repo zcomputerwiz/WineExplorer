@@ -480,7 +480,7 @@ static DWORD write_archive( const WCHAR *archive_path )
                                (const BYTE *)items[i].value, wcslen( items[i].value ),
                                items[i].type, items[i].data, items[i].size );
 
-    if (swprintf( temp, ARRAY_SIZE(temp), L"%s.new", archive_path ) < 0) { free( data ); return ERROR_BUFFER_OVERFLOW; }
+    if (swprintf( temp, ARRAY_SIZE(temp), L"%ls.new", archive_path ) < 0) { free( data ); return ERROR_BUFFER_OVERFLOW; }
     handle = CreateFileW( temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
     if (handle == INVALID_HANDLE_VALUE) { free( data ); return GetLastError(); }
     if (!WriteFile( handle, data, pos, &done, NULL ) || done != pos) err = GetLastError() ? GetLastError() : ERROR_WRITE_FAULT;
@@ -503,14 +503,16 @@ static DWORD archive_file( const WCHAR *sid, WCHAR *path, DWORD size )
     if (!CreateDirectoryW( dir, NULL ) && GetLastError() != ERROR_ALREADY_EXISTS) return GetLastError();
     wcscat( dir, L"\\Archive" );
     if (!CreateDirectoryW( dir, NULL ) && GetLastError() != ERROR_ALREADY_EXISTS) return GetLastError();
-    if (swprintf( path, size, sid ? L"%s\\User-%s.pol" : L"%s\\Machine.pol", dir, sid ) < 0) return ERROR_BUFFER_OVERFLOW;
+    if (swprintf( path, size, sid ? L"%ls\\User-%ls.pol" : L"%ls\\Machine.pol", dir, sid ) < 0) return ERROR_BUFFER_OVERFLOW;
     return ERROR_SUCCESS;
 }
 
 /* /machine, or /user:SID with a well-formed SID (it becomes a key name and a file name) */
 static DWORD parse_target( const WCHAR *arg, const WCHAR **sid, HKEY *root )
 {
+    static WCHAR canonical[188];
     PSID parsed;
+    WCHAR *text;
 
     *sid = NULL;
     if (!_wcsicmp( arg, L"/machine" ))
@@ -519,10 +521,23 @@ static DWORD parse_target( const WCHAR *arg, const WCHAR **sid, HKEY *root )
         return ERROR_SUCCESS;
     }
     if (_wcsnicmp( arg, L"/user:", 6 ) || !arg[6]) return ERROR_INVALID_PARAMETER;
+    /* the SID as Windows writes it, whatever the spelling given (s-1-5-..., or an alias such as BA): one user is
+     * one key and one file name */
     if (!ConvertStringSidToSidW( arg + 6, &parsed )) return ERROR_INVALID_SID;
+    if (!ConvertSidToStringSidW( parsed, &text ))
+    {
+        LocalFree( parsed );
+        return ERROR_INVALID_SID;
+    }
     LocalFree( parsed );
-    if (wcslen( arg + 6 ) > 184) return ERROR_INVALID_SID;
-    *sid = arg + 6;
+    if (wcslen( text ) >= ARRAY_SIZE(canonical))
+    {
+        LocalFree( text );
+        return ERROR_INVALID_SID;
+    }
+    wcscpy( canonical, text );
+    LocalFree( text );
+    *sid = canonical;
     /* the hive of a user who is logged on; for a user who is not, the archive alone changes and the service
      * writes it into the hive at logon */
     if (RegOpenKeyExW( HKEY_USERS, *sid, 0, KEY_READ | KEY_WOW64_64KEY, root )) *root = NULL;
@@ -553,6 +568,49 @@ void bump_serial( HKEY root, BOOL user )
  * handler (gpupdate) and the service's own thread (a stored request) both ask. */
 static CRITICAL_SECTION request_lock;
 static DWORD requested;
+
+/* The numbers go on from where they were (the service may have been restarted, or the machine: the registry's
+ * Requested is volatile, the number in the request file is not): the one that is ahead, in the sense of a serial number
+ * that may wrap. Called once the stable Group Policy key exists, so that the volatile key below is made under it. */
+static void restore_requested_locked(void)
+{
+    WCHAR path[MAX_PATH];
+    char text[32];
+    UINT len = GetSystemDirectoryW( path, ARRAY_SIZE(path) );
+    DWORD size = sizeof(requested), done = 0, from_file = 0, i;
+    HANDLE file;
+    HKEY key;
+
+    requested = 0;
+    if (!RegOpenKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key ))
+    {
+        if (RegQueryValueExW( key, L"Requested", NULL, NULL, (BYTE *)&requested, &size )) requested = 0;
+        RegCloseKey( key );
+    }
+    if (!len || len > ARRAY_SIZE(path) - 32) return;
+    wcscat( path, L"\\GroupPolicy\\Refresh" );
+    file = CreateFileW( path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL );
+    if (file == INVALID_HANDLE_VALUE) return;
+    if (!ReadFile( file, text, sizeof(text) - 1, &done, NULL )) done = 0;
+    CloseHandle( file );
+    for (i = 0; i < done && text[i] >= '0' && text[i] <= '9'; i++) from_file = from_file * 10 + (text[i] - '0');
+    if (!i || (LONG)(from_file - requested) <= 0) return;
+    requested = from_file;
+    if (!RegCreateKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, NULL, REG_OPTION_VOLATILE,
+                          KEY_SET_VALUE | KEY_WOW64_64KEY, NULL, &key, NULL ))
+    {
+        RegSetValueExW( key, L"Requested", 0, REG_DWORD, (const BYTE *)&requested, sizeof(requested) );
+        RegCloseKey( key );
+    }
+}
+
+/* under the lock: a request the control handler takes meanwhile is numbered from the restored value, not before it */
+static void restore_requested(void)
+{
+    EnterCriticalSection( &request_lock );
+    restore_requested_locked();
+    LeaveCriticalSection( &request_lock );
+}
 
 DWORD request_refresh(void)
 {
@@ -587,13 +645,14 @@ DWORD request_refresh(void)
     return err;
 }
 
-static void set_service_state( DWORD state )
+static void set_service_state( DWORD state, DWORD exit_code )
 {
     SERVICE_STATUS status;
 
     memset( &status, 0, sizeof(status) );
     status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
     status.dwCurrentState = state;
+    status.dwWin32ExitCode = exit_code;
     if (state == SERVICE_RUNNING) status.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
     SetServiceStatus( service_handle, &status );
 }
@@ -604,7 +663,7 @@ static DWORD WINAPI service_handler( DWORD control, DWORD type, void *data, void
     {
     case SERVICE_CONTROL_STOP:
     case SERVICE_CONTROL_SHUTDOWN:
-        set_service_state( SERVICE_STOP_PENDING );
+        set_service_state( SERVICE_STOP_PENDING, NO_ERROR );
         SetEvent( stop_event );
         return NO_ERROR;
     case SERVICE_CONTROL_INTERROGATE:
@@ -673,36 +732,34 @@ static void spool_pass(void)
 static void WINAPI service_main( DWORD argc, WCHAR **argv )
 {
     HANDLE handles[3];
-    HKEY key;
-    DWORD size = sizeof(requested);
 
     InitializeCriticalSection( &request_lock );
-    /* the numbers go on from where the registry has them (the service may have been restarted) */
-    /* opened, not created: a key made here, before the stable Group Policy key below, would make that one volatile */
-    if (!RegOpenKeyExW( HKEY_LOCAL_MACHINE, MACHINE_SERIAL_KEY, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key ))
-    {
-        if (RegQueryValueExW( key, L"Requested", NULL, NULL, (BYTE *)&requested, &size )) requested = 0;
-        RegCloseKey( key );
-    }
     if (!(service_handle = RegisterServiceCtrlHandlerExW( SERVICE_NAME, service_handler, NULL ))) return;
     stop_event = CreateEventW( NULL, TRUE, FALSE, NULL );
     handles[0] = stop_event;
     handles[1] = CreateEventW( NULL, FALSE, FALSE, NULL );
     handles[2] = work_event = CreateEventW( NULL, FALSE, FALSE, NULL );
     /* only the system writes policy: in a prefix without the system tier the service has nothing to do */
-    if (!stop_event || !handles[1] || !work_event || !is_local_system())
+    if (!stop_event || !handles[1] || !work_event)
     {
-        set_service_state( SERVICE_STOPPED );
+        set_service_state( SERVICE_STOPPED, ERROR_OUTOFMEMORY );
         return;
     }
-    set_service_state( SERVICE_RUNNING );
+    if (!is_local_system())
+    {
+        set_service_state( SERVICE_STOPPED, ERROR_ACCESS_DENIED );
+        return;
+    }
     /* the key that programs watch for the machine's serial number exists from now on (a machine root older
-     * than this service has none) */
+     * than this service has none); it is made before the volatile keys below it. The numbers are restored before the
+     * service says it runs, and under the lock besides: no request is numbered from the old value. */
     {
         HKEY key;
         if (!RegCreateKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy", 0, NULL,
                               0, KEY_READ | KEY_WOW64_64KEY, NULL, &key, NULL )) RegCloseKey( key );
     }
+    restore_requested();
+    set_service_state( SERVICE_RUNNING, NO_ERROR );
     for (;;)
     {
         /* a hive that is loaded notifies this watch (the server does, as on Windows; an unload does not); the look every half
@@ -719,7 +776,7 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
         }
     }
 stopped:
-    set_service_state( SERVICE_STOPPED );
+    set_service_state( SERVICE_STOPPED, NO_ERROR );
 }
 
 int __cdecl wmain( int argc, WCHAR **argv )

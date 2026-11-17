@@ -114,7 +114,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
         WCHAR text[512], msg[400];
         if (!FormatMessageW( FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, err, 0, msg,
                              ARRAY_SIZE(msg), NULL )) swprintf( msg, ARRAY_SIZE(msg), L"%lu\n", err );
-        swprintf( text, ARRAY_SIZE(text), L"Failed to refresh policy. Error - %s", msg );
+        swprintf( text, ARRAY_SIZE(text), L"Failed to refresh policy. Error - %ls", msg );
         out( text );
         return 1;
     }

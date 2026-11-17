@@ -227,7 +227,7 @@ mv "$FX/wine.ok" "$FX/wine"; rm -f "$LG/Machine/Registry.pol"
 # and, finding a newer one, runs again; a run with no request file says no number
 rm -f "$FX/mroot/drive_c/windows/system32/GroupPolicy/Refresh"
 run_gpupdate "$FX/map3"
-grep -qx 'refreshed ' "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log"; fail 'a run with no request file said a number'; }
+grep -qx 'refreshed 0' "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log"; fail 'a run with no request file did not serve 0'; }
 cp "$FX/wine" "$FX/wine.ok"
 cat > "$FX/wine" <<'EOF2'
 #!/bin/sh
@@ -245,5 +245,28 @@ printf '5\n' > "$LG/Refresh"; chmod 666 "$LG/Refresh"
 run_gpupdate "$FX/map3"
 [ "$(tr '\n' ' ' < "$FX/refreshed.log")" = 'refreshed 5 refreshed 6 ' ] || { cat "$FX/refreshed.log"; fail 'a request made during the run did not make a second run that served it'; }
 mv "$FX/wine.ok" "$FX/wine"; rm -f "$LG/Refresh" "$FX/refreshed.log"
+# the same with no request file when the run begins (the first request is 1), and with the number wrapping
+for case in "none:0:1" "4294967295:4294967295:0"; do
+    start=${case%%:*}; rest=${case#*:}; first=${rest%%:*}; next=${rest#*:}
+    cp "$FX/wine" "$FX/wine.ok"
+    cat > "$FX/wine" <<'EOF2'
+#!/bin/sh
+D=$(dirname "$0")
+if [ "$1" = wexpolicy ] && [ "$2" = refreshed ]; then
+    echo "refreshed $3" >> "$D/refreshed.log"
+    [ "$3" = "$(cat "$D/first")" ] && echo "$(cat "$D/next")" > "$D/mroot/drive_c/windows/system32/GroupPolicy/Refresh"
+    exit 0
+fi
+exec "$D/wine.ok" "$@"
+EOF2
+    chmod 0755 "$FX/wine"; echo "$first" > "$FX/first"; echo "$next" > "$FX/next"
+    : > "$FX/refreshed.log"; chmod 666 "$FX/refreshed.log"
+    rm -f "$LG/Refresh"
+    [ "$start" = none ] || { echo "$start" > "$LG/Refresh"; chmod 666 "$LG/Refresh"; }
+    [ "$start" != none ] || { : > "$LG/Refresh"; chmod 666 "$LG/Refresh"; }   # the file is there, empty (read while written)
+    run_gpupdate "$FX/map3"
+    [ "$(tr '\n' ' ' < "$FX/refreshed.log")" = "refreshed $first refreshed $next " ] || { cat "$FX/refreshed.log"; fail "request $next during a run that began at '$start' was lost"; }
+    mv "$FX/wine.ok" "$FX/wine"; rm -f "$LG/Refresh" "$FX/refreshed.log" "$FX/first" "$FX/next"
+done
 echo 'OK: wex-gpupdate.sh serves the request it began with and runs again for one that came in meanwhile'
 echo 'OK: wex-gpupdate.sh with the domain out of reach (the last list, nothing cleared, nothing touched without one) and a failing writer'
