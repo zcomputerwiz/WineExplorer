@@ -77,6 +77,63 @@ static IExplorerBrowserEventsImpl *impl_from_IExplorerBrowserEvents(IExplorerBro
     return CONTAINING_RECORD(iface, IExplorerBrowserEventsImpl, IExplorerBrowserEvents_iface);
 }
 
+/* The shell view owns the list and consumes its notifications. Observe them
+ * without changing how the view handles selection, enumeration or refresh. */
+static LRESULT CALLBACK view_notify_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
+                                         UINT_PTR id, DWORD_PTR data)
+{
+    explorer_info *info = (explorer_info *)data;
+
+    if (msg == WM_NOTIFY)
+    {
+        NMHDR *nm = (NMHDR *)lparam;
+        switch (nm->code)
+        {
+        case LVN_ITEMCHANGED:
+        case LVN_ODSTATECHANGED:
+        case LVN_INSERTITEM:
+        case LVN_DELETEITEM:
+        case LVN_DELETEALLITEMS:
+            browser_queue_update(info);
+            break;
+        }
+    }
+    else if (msg == WM_NCDESTROY)
+    {
+        RemoveWindowSubclass(hwnd, view_notify_proc, id);
+        if (info->view_window == hwnd) info->view_window = NULL;
+    }
+    return DefSubclassProc(hwnd, msg, wparam, lparam);
+}
+
+static void watch_view(explorer_info *info, IShellView *view)
+{
+    HWND hwnd;
+
+    if (FAILED(IShellView_GetWindow(view, &hwnd)) || !hwnd) return;
+    if (info->view_window && info->view_window != hwnd)
+        RemoveWindowSubclass(info->view_window, view_notify_proc, 1);
+    info->view_window = SetWindowSubclass(hwnd, view_notify_proc, 1, (DWORD_PTR)info) ? hwnd : NULL;
+    browser_queue_update(info);
+}
+
+static void watch_folder(explorer_info *info)
+{
+    SHChangeNotifyEntry entry = { info->pidl, FALSE };
+    IShellView *view;
+
+    if (info->folder_notify) SHChangeNotifyDeregister(info->folder_notify);
+    info->folder_notify = SHChangeNotifyRegister(info->main_window,
+        SHCNRF_ShellLevel | SHCNRF_InterruptLevel | SHCNRF_NewDelivery,
+        SHCNE_ALLEVENTS, WM_BROWSER_FOLDER_CHANGED, 1, &entry);
+    if (!info->folder_notify) WARN("Could not watch folder changes\n");
+    if (SUCCEEDED(IExplorerBrowser_GetCurrentView(info->browser, &IID_IShellView, (void **)&view)))
+    {
+        watch_view(info, view);
+        IShellView_Release(view);
+    }
+}
+
 static HRESULT WINAPI IExplorerBrowserEventsImpl_fnQueryInterface(IExplorerBrowserEvents *iface, REFIID riid, void **ppvObject)
 {
     return E_NOINTERFACE;
@@ -353,6 +410,7 @@ static HRESULT WINAPI IExplorerBrowserEventsImpl_fnOnNavigationComplete(IExplore
 
     ILFree(This->info->pidl);
     This->info->pidl = ILClone(pidl);
+    watch_folder(This->info);
     if (This->info->search_started)
     {
         /* opened as Search Results: the folder behind it is not shown */
@@ -414,6 +472,8 @@ static HRESULT WINAPI IExplorerBrowserEventsImpl_fnOnNavigationComplete(IExplore
 
 static HRESULT WINAPI IExplorerBrowserEventsImpl_fnOnNavigationFailed(IExplorerBrowserEvents *iface, PCIDLIST_ABSOLUTE pidl)
 {
+    IExplorerBrowserEventsImpl *This = impl_from_IExplorerBrowserEvents(iface);
+    browser_navigation_state(This->info, FALSE);
     return S_OK;
 }
 
@@ -426,6 +486,8 @@ static HRESULT WINAPI IExplorerBrowserEventsImpl_fnOnNavigationPending(IExplorer
 
 static HRESULT WINAPI IExplorerBrowserEventsImpl_fnOnViewCreated(IExplorerBrowserEvents *iface, IShellView *psv)
 {
+    IExplorerBrowserEventsImpl *This = impl_from_IExplorerBrowserEvents(iface);
+    watch_view(This->info, psv);
     return S_OK;
 }
 
@@ -791,8 +853,23 @@ static LRESULT CALLBACK explorer_wnd_proc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         browser = info->browser;
     switch(uMsg)
     {
+    case WM_BROWSER_FOLDER_CHANGED:
+        if (info)
+        {
+            PIDLIST_ABSOLUTE *pidls;
+            LONG event;
+            HANDLE lock = SHChangeNotification_Lock((HANDLE)wParam, (DWORD)lParam, &pidls, &event);
+            if (lock) SHChangeNotification_Unlock(lock);
+            browser_queue_update(info);
+        }
+        break;
     case WM_SEARCHUI_CHANGED:
         if (!info) break;
+        if (wParam == SEARCHUI_COUNTS_CHANGED)
+        {
+            browser_queue_update(info);
+            break;
+        }
         if (wParam == SEARCHUI_RESULTS_SHOWN && search_ui_results_visible(info->search)) show_search_title(info);
         if (wParam == SEARCHUI_PANE_CLOSED && !search_ui_results_visible(info->search))
         {
@@ -800,9 +877,14 @@ static LRESULT CALLBACK explorer_wnd_proc(HWND hwnd, UINT uMsg, WPARAM wParam, L
             break;
         }
         relayout_window(info);
-        browser_update_ui(info);
+        browser_queue_update(info);
         break;
     case WM_DESTROY:
+        KillTimer(hwnd, IDT_BROWSER_STATUS);
+        KillTimer(hwnd, IDT_BROWSER_BRAND);
+        if (info->folder_notify) SHChangeNotifyDeregister(info->folder_notify);
+        if (info->view_window) RemoveWindowSubclass(info->view_window, view_notify_proc, 1);
+        info->view_window = NULL;
         search_ui_destroy(info->search);
         info->search = NULL;
         if(info->sw)
@@ -832,8 +914,13 @@ static LRESULT CALLBACK explorer_wnd_proc(HWND hwnd, UINT uMsg, WPARAM wParam, L
         browser_init_menu_popup(info, (HMENU)wParam);
         break;
     case WM_TIMER:
-        if (wParam == IDT_BROWSER_STATUS) browser_update_ui(info);
-        else if (wParam == IDT_BROWSER_BRAND && info->navigating)
+        if (wParam == IDT_BROWSER_STATUS && info)
+        {
+            KillTimer(hwnd, IDT_BROWSER_STATUS);
+            info->status_pending = FALSE;
+            browser_update_ui(info);
+        }
+        else if (wParam == IDT_BROWSER_BRAND && info && info->navigating)
         {
             info->brand_frame++;
             InvalidateRect(info->brand, NULL, FALSE);

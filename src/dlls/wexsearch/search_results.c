@@ -305,6 +305,11 @@ static LRESULT on_notify(RESULTS *res, NMHDR *nm)
     if (nm->hwndFrom != res->list) return 0;
     switch (nm->code)
     {
+    case LVN_ITEMCHANGED:
+    case LVN_ODSTATECHANGED:
+    case LVN_INSERTITEM:
+        PostMessageW(GetParent(res->hwnd), WM_SEARCHUI_CHANGED, SEARCHUI_COUNTS_CHANGED, 0);
+        break;
     case LVN_GETDISPINFOW:
     {
         NMLVDISPINFOW *di = (NMLVDISPINFOW *)nm;
@@ -345,8 +350,10 @@ static LRESULT on_notify(RESULTS *res, NMHDR *nm)
         break;
     }
     case LVN_DELETEALLITEMS:
+        PostMessageW(GetParent(res->hwnd), WM_SEARCHUI_CHANGED, SEARCHUI_COUNTS_CHANGED, 0);
         return FALSE;   /* LVN_DELETEITEM for each: the results are freed there */
     case LVN_DELETEITEM:
+        PostMessageW(GetParent(res->hwnd), WM_SEARCHUI_CHANGED, SEARCHUI_COUNTS_CHANGED, 0);
         free((void *)((NMLISTVIEW *)nm)->lParam);
         break;
     }

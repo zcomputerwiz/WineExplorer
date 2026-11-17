@@ -21,7 +21,7 @@
  */
 
 /* docs/DWM_ARCHITECTURE.md section 4: application DLL -> broker -> this bridge -> wexhost -> the compositor.
- * The bridge polls the broker for attribute changes and hands the ones the compositor draws to wexhost. It only
+ * The bridge waits for broker changes and hands the ones the compositor draws to wexhost. It only
  * runs while composition is on. Nothing here draws, and nothing here is needed for the attributes to read back. */
 
 #include <stdarg.h>
@@ -35,7 +35,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(wexshell);
 
-#define DWM_BRIDGE_POLL_MS    250    /* fallback: the broker's change event normally wakes the bridge at once */
 #define DWM_BRIDGE_RETRY_MS   50     /* while a window waits for its X window or wex handle */
 #define DWM_BRIDGE_IDLE_MS    1000   /* no broker */
 #define DWM_BRIDGE_PENDING    64
@@ -74,11 +73,12 @@ struct pending
     int tries;
 };
 
-/* Live thumbnails (P8): the broker list is resolved by wexhost on every poll,
+/* Live thumbnails (P8): the broker list is resolved by wexhost on every update,
  * since a window may acquire its backend identity after registration. */
 static struct dwm_thumb thumb_list[DWM_THUMB_MAX];
 static unsigned int thumb_list_count;
 static UINT64 thumb_revision;
+static BOOL thumbs_waiting;
 
 /* The broker's thumbnail flags map one-to-one onto the compositor's (equal values); fill the destination's flags,
  * opacity and the two rectangles from the broker record */
@@ -96,32 +96,59 @@ static void sync_thumbnails( BOOL have_broker )
     const struct dwm_thumb_list_reply *reply = (const struct dwm_thumb_list_reply *)buf;
     WEX_WINDOW_THUMB out[WEX_THUMB_MAX];
     DWORD len = sizeof(buf), i, count = 0;
+    DWORD err;
+    BOOL visible = FALSE;
 
+    thumbs_waiting = FALSE;
     if (!have_broker) thumb_list_count = 0, thumb_revision = 0;
-    else if (!WexDwmpThumbList( thumb_revision, buf, &len ) && len >= sizeof(*reply) &&
-             reply->count <= DWM_THUMB_MAX && len >= sizeof(*reply) + reply->count * sizeof(struct dwm_thumb) &&
-             (reply->count || reply->revision != thumb_revision))
+    else
     {
-        memcpy( thumb_list, buf + sizeof(*reply), reply->count * sizeof(struct dwm_thumb) );
-        thumb_list_count = reply->count;
-        thumb_revision = reply->revision;
-        TRACE( "%u thumbnails, revision %I64u\n", thumb_list_count, thumb_revision );
+        err = WexDwmpThumbList( thumb_revision, buf, &len );
+        if (err || len < sizeof(*reply) || reply->count > DWM_THUMB_MAX ||
+            len < sizeof(*reply) + reply->count * sizeof(struct dwm_thumb))
+            thumbs_waiting = TRUE; /* retry a notification whose list could not be read */
+        else if (reply->count || reply->revision != thumb_revision)
+        {
+            memcpy( thumb_list, buf + sizeof(*reply), reply->count * sizeof(struct dwm_thumb) );
+            thumb_list_count = reply->count;
+            thumb_revision = reply->revision;
+            TRACE( "%u thumbnails, revision %I64u\n", thumb_list_count, thumb_revision );
+        }
     }
     for (i = 0; i < thumb_list_count; i++)
     {
         const struct dwm_thumb *t = &thumb_list[i];
         out[count].dest = UlongToHandle( t->dest );
         out[count].src = UlongToHandle( t->src );
+        if (t->flags & DWM_THUMB_VISIBLE) visible = TRUE;
+        if ((t->flags & DWM_THUMB_VISIBLE) && IsWindow(out[count].dest) && IsWindow(out[count].src))
+        {
+            WEX_WM_IDENTITY identity;
+            if (WexWmGetEffectIdentity(out[count].dest, &identity) ||
+                WexWmGetEffectIdentity(out[count].src, &identity)) thumbs_waiting = TRUE;
+        }
         thumb_fill( &out[count].flags, &out[count].opacity, out[count].dest_rect, out[count].source_rect, t );
         count++;
     }
-    WexWmApplyThumbnails( out, count );
+    err = WexWmApplyThumbnails( out, count );
+    if (visible && err == ERROR_NOT_READY) thumbs_waiting = TRUE;
 }
 
 static HANDLE bridge_thread, bridge_stop;
 static HDESK bridge_desktop;
 static struct pending pending[DWM_BRIDGE_PENDING];
 static BOOL materials_on;
+/* Only the bridge thread and its out-of-context WinEvent callback use this. */
+static BOOL windows_changed;
+
+static void CALLBACK bridge_window_event( HWINEVENTHOOK hook, DWORD event, HWND hwnd,
+                                          LONG object, LONG child, DWORD thread, DWORD time )
+{
+    if (!hwnd || object != OBJID_WINDOW || child != CHILDID_SELF) return;
+    if (event == EVENT_OBJECT_CREATE || event == EVENT_OBJECT_DESTROY ||
+        event == EVENT_OBJECT_SHOW || event == EVENT_OBJECT_HIDE || event == EVENT_OBJECT_LOCATIONCHANGE)
+        windows_changed = TRUE;
+}
 
 /* Called before starting the bridge, or after its thread has finished. */
 static void reset_bridge_state(void)
@@ -130,6 +157,7 @@ static void reset_bridge_state(void)
     memset( pending, 0, sizeof(pending) );
     thumb_list_count = 0;
     thumb_revision = 0;
+    thumbs_waiting = FALSE;
     err = WexWmApplyThumbnails( NULL, 0 );
     if (err) WexWmApplyThumbnails( NULL, 0 ); /* one bounded retry for a remote scene clear */
 }
@@ -256,14 +284,14 @@ static void retry_pending(void)
     }
 }
 
-/* whether a window is still waiting for its X window or wex handle */
+/* Whether effects or thumbnails are still waiting for their backend. */
 static BOOL pending_waiting(void)
 {
     int i;
 
     for (i = 0; i < DWM_BRIDGE_PENDING; i++)
         if (pending[i].hwnd && pending[i].tries) return TRUE;
-    return FALSE;
+    return thumbs_waiting;
 }
 
 static void apply_change( const struct dwm_change *change )
@@ -330,14 +358,22 @@ static DWORD WINAPI bridge_proc( void *arg )
     unsigned char buf[sizeof(struct dwm_poll_reply) + DWM_POLL_MAX_CHANGES * sizeof(struct dwm_change)];
     UINT64 revision = 0;
     DWORD cursor = 0;
-    DWORD wait = DWM_BRIDGE_POLL_MS, last_retry = GetTickCount();
+    DWORD wait = 0, last_retry = GetTickCount();
     HANDLE objs[2] = { bridge_stop, NULL };
     DWORD count = 1;
+    HWINEVENTHOOK hook;
 
     SetThreadDesktop( bridge_desktop );
+    windows_changed = FALSE;
+    /* A remap or scale change need not change a broker attribute. Keep those
+     * identity checks event driven as well, including unchanged thumbnails. */
+    hook = SetWinEventHook( EVENT_OBJECT_CREATE, EVENT_OBJECT_LOCATIONCHANGE, NULL,
+                           bridge_window_event, 0, 0, WINEVENT_OUTOFCONTEXT );
+    if (!hook) WARN( "Could not watch backend window changes\n" );
     read_materials_gate();
     {
-        /* the broker sets this when its state changes; without it the bridge polls at DWM_BRIDGE_POLL_MS */
+        /* Create before the initial snapshot so a concurrent change stays signalled.
+         * Without the event, use the same slow fallback as an absent broker. */
         WCHAR desk_name[MAX_PATH], name[MAX_PATH + 64];
 
         if (GetUserObjectInformationW( bridge_desktop, UOI_NAME, desk_name, ARRAY_SIZE( desk_name ), NULL ))
@@ -354,8 +390,20 @@ static DWORD WINAPI bridge_proc( void *arg )
         DWORD len = sizeof(buf);
         DWORD i, r;
 
-        r = WaitForMultipleObjects( count, objs, FALSE, wait );
+        r = MsgWaitForMultipleObjects( count, objs, FALSE, wait, QS_ALLINPUT );
         if (r == WAIT_OBJECT_0 || r == WAIT_FAILED) break;
+        if (r == WAIT_OBJECT_0 + count)
+        {
+            MSG msg;
+            while (PeekMessageW( &msg, NULL, 0, 0, PM_REMOVE ))
+            {
+                TranslateMessage( &msg );
+                DispatchMessageW( &msg );
+            }
+            if (!windows_changed) continue;
+            windows_changed = FALSE;
+            last_retry = GetTickCount() - DWM_BRIDGE_RETRY_MS;
+        }
 
         /* by elapsed time, so that a burst of change events does not use up a window's retries */
         if (GetTickCount() - last_retry >= DWM_BRIDGE_RETRY_MS)
@@ -375,7 +423,7 @@ static DWORD WINAPI bridge_proc( void *arg )
             sync_thumbnails( FALSE );
             continue;
         }
-        wait = DWM_BRIDGE_POLL_MS;
+        wait = count == 2 && hook ? INFINITE : DWM_BRIDGE_IDLE_MS;
         sync_thumbnails( TRUE );
         if (reply->count) TRACE( "poll: %lu changes, revision %I64u\n", (DWORD)reply->count, (UINT64)reply->revision );
         for (i = 0; i < reply->count; i++) apply_change( &changes[i] );
@@ -393,6 +441,7 @@ static DWORD WINAPI bridge_proc( void *arg )
             if (pending_waiting()) wait = DWM_BRIDGE_RETRY_MS;
         }
     }
+    if (hook) UnhookWinEvent( hook );
     if (objs[1]) CloseHandle( objs[1] );
     return 0;
 }

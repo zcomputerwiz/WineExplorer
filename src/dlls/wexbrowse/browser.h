@@ -45,6 +45,9 @@ typedef struct
     HIMAGELIST tb_normal, tb_hot;
     BOOL show_toolbar, show_address, show_status, show_folders;
     BOOL navigating;
+    BOOL status_pending;
+    HWND view_window;
+    ULONG folder_notify;
     struct search_ui *search;   /* Search Companion and Search Results, when searching */
     BOOL search_started;         /* the window opened as Search Results: its first navigation keeps the results */
     UINT brand_frame;
@@ -67,6 +70,7 @@ enum
 
 #define IDT_BROWSER_STATUS 1
 #define IDT_BROWSER_BRAND  2
+#define WM_BROWSER_FOLDER_CHANGED (WM_APP + 60)
 
 #define TASKPANE_WIDTH 210   /* Windows XP's */
 
@@ -79,6 +83,7 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label);
 void browser_layout(explorer_info *info, int width, int height);
 void browser_command(explorer_info *info, UINT id);
 void browser_update_ui(explorer_info *info);
+void browser_queue_update(explorer_info *info);
 void browser_search(explorer_info *info, BOOL show);   /* the Search button: Search Companion on or off */
 void browser_exit_search(explorer_info *info);         /* back to the folder */
 void browser_navigation_state(explorer_info *info, BOOL navigating);

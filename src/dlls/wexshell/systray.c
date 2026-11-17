@@ -549,7 +549,39 @@ static POINT get_icon_pos( struct icon *icon )
 
 #define IDT_AUTOHIDE 9998
 #define IDT_THEMEREDRAW 9997
+#define IDT_ICON_AGING 9996
 static BOOL taskbar_hidden;
+static BOOL tray_polling;
+
+static void update_tray_timer(void)
+{
+    BOOL needed = enable_taskbar && (taskbar_settings_get()->autohide || tray_expanded);
+
+    if (needed == tray_polling) return;
+    tray_polling = needed;
+    if (needed) tray_polling = SetTimer(tray_window, IDT_AUTOHIDE, 150, NULL) != 0;
+    else KillTimer(tray_window, IDT_AUTOHIDE);
+}
+
+static void arm_icon_aging(void)
+{
+    struct icon *icon;
+    DWORD now = GetTickCount(), delay = INFINITE;
+
+    KillTimer(tray_window, IDT_ICON_AGING);
+    if (!setting_hide_inactive() || tray_expanded) return;
+    LIST_FOR_EACH_ENTRY(icon, &icon_list, struct icon, entry)
+    {
+        DWORD age, remaining;
+        if (!icon->window || (icon->state & NIS_HIDDEN) || icon->auto_hidden ||
+            icon->display == ICON_DISPLAY_HIDDEN ||
+            icon_behavior(icon) != NOTIFY_HIDE_WHEN_INACTIVE) continue;
+        age = now - icon->last_active;
+        remaining = age > INACTIVE_AFTER ? 1 : INACTIVE_AFTER + 1 - age;
+        delay = min(delay, remaining);
+    }
+    if (delay != INFINITE) SetTimer(tray_window, IDT_ICON_AGING, delay, NULL);
+}
 
 static const WCHAR rows_key[] = L"Software\\WineExplorer\\Taskbar";
 static int tray_rows;   /* rows of task buttons; an unlocked taskbar is made taller by dragging its top edge */
@@ -632,6 +664,12 @@ static void autohide_tick(void)
 
 static void update_tray_layout(void);
 
+static void track_tray_mouse(HWND hwnd)
+{
+    TRACKMOUSEEVENT track = { sizeof(track), TME_LEAVE, hwnd, 0 };
+    TrackMouseEvent(&track);
+}
+
 static void refresh_inactive_icons(void)
 {
     struct icon *icon;
@@ -659,6 +697,8 @@ static void refresh_inactive_icons(void)
         }
     }
     if (changed && enable_taskbar) update_tray_layout();
+    arm_icon_aging();
+    update_tray_timer();
 }
 
 static void update_tray_layout(void)
@@ -942,7 +982,12 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
     case WM_MBUTTONDBLCLK:
     {
         MSG message = {.hwnd = hwnd, .message = msg, .wParam = wparam, .lParam = lparam};
-        if (msg != WM_MOUSEMOVE) icon->last_active = GetTickCount();
+        if (msg == WM_MOUSEMOVE) track_tray_mouse(hwnd);
+        else
+        {
+            icon->last_active = GetTickCount();
+            arm_icon_aging();
+        }
         SendMessageW( icon->tooltip, TTM_RELAYEVENT, 0, (LPARAM)&message );
         if (native_tray_input(icon, msg, wparam)) return 0;
         if (!notify_owner( icon, msg, lparam )) break;
@@ -961,6 +1006,11 @@ static LRESULT WINAPI tray_icon_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPA
             WINDOWPOS *wp = (WINDOWPOS*)lparam;
             wp->flags |= SWP_NOACTIVATE;
         }
+        break;
+
+    case WM_MOUSELEAVE:
+        if (tray_expanded) tray_expanded_hover_tick = GetTickCount();
+        autohide_tick();
         break;
 
     case WM_WINDOWPOSCHANGED:
@@ -1209,6 +1259,7 @@ static BOOL modify_icon( struct icon *icon, NOTIFYICONDATAW *nid )
     /* An initially hidden icon changes the chevron without changing the
      * visible icon count. Reserve its space before the task band paints it. */
     if (enable_taskbar && had_chevron != chevron_visible()) update_tray_layout();
+    arm_icon_aging();
     return TRUE;
 }
 
@@ -1258,6 +1309,7 @@ static BOOL delete_icon( struct icon *icon )
     DestroyWindow( icon->window );
     DestroyIcon( icon->image );
     free( icon );
+    arm_icon_aging();
     return TRUE;
 }
 
@@ -1967,7 +2019,7 @@ static void do_show_systray(void)
     update_tray_top();
     start_button_width = startbutton_get_desired_width();
     position_taskbar();
-    SetTimer( tray_window, IDT_AUTOHIDE, 150, NULL );
+    update_tray_timer();
 
     /* Instantiate complete desktop taskbar components */
     {
@@ -2025,6 +2077,9 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     switch (msg)
     {
     case WM_DESTROY:
+        KillTimer(hwnd, IDT_AUTOHIDE);
+        KillTimer(hwnd, IDT_ICON_AGING);
+        tray_polling = FALSE;
         WexTrayStop();
         shellservices_stop();
         break;
@@ -2226,6 +2281,8 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         /* fall through */
     case WM_SETTINGCHANGE:
         update_taskbar_layout();
+        autohide_tick();
+        refresh_inactive_icons();
         RedrawWindow( hwnd, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN );
         break;
 
@@ -2247,6 +2304,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
     }
 
     case WM_MOUSEMOVE:
+        track_tray_mouse(hwnd);
         if (sizing_rows && GetCapture() == hwnd)
         {
             /* the height snaps to whole rows of buttons, up to half the screen */
@@ -2298,7 +2356,18 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         }
         break;
 
+    case WM_MOUSELEAVE:
+        if (tray_expanded) tray_expanded_hover_tick = GetTickCount();
+        autohide_tick();
+        break;
+
     case WM_TIMER:
+        if (wparam == IDT_ICON_AGING)
+        {
+            KillTimer(hwnd, IDT_ICON_AGING);
+            refresh_inactive_icons();
+            return 0;
+        }
         if (wparam == IDT_THEMEREDRAW)
         {
             KillTimer( hwnd, IDT_THEMEREDRAW );
@@ -2308,7 +2377,6 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
         }
         if (wparam == IDT_AUTOHIDE)
         {
-            static DWORD last_inactive_check;
             static BOOL was_down;
             BOOL down = (GetAsyncKeyState( VK_LBUTTON ) & 0x8000) != 0;
 
@@ -2342,11 +2410,7 @@ static LRESULT WINAPI shell_traywnd_proc( HWND hwnd, UINT msg, WPARAM wparam, LP
                 }
             }
             was_down = down;
-            if (GetTickCount() - last_inactive_check > 1000)
-            {
-                last_inactive_check = GetTickCount();
-                refresh_inactive_icons();
-            }
+            update_tray_timer();
             return 0;
         }
         if (wparam == 9999)

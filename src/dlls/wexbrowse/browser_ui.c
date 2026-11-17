@@ -868,8 +868,6 @@ void browser_create_bars(explorer_info *info, const WCHAR *address_label)
     info->taskpane = taskpane_create(info);
     info->status = CreateWindowExW(0, STATUSCLASSNAMEW, NULL, WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
                                    info->main_window, NULL, wexbrowse_module(), NULL);
-    SetTimer(info->main_window, IDT_BROWSER_STATUS, 400, NULL);
-    SetTimer(info->main_window, IDT_BROWSER_BRAND, 70, NULL);
 }
 
 void browser_layout(explorer_info *info, int width, int height)
@@ -924,6 +922,13 @@ void browser_layout(explorer_info *info, int width, int height)
 
 /* ---- status bar ---- */
 
+void browser_queue_update(explorer_info *info)
+{
+    /* Do not postpone the update indefinitely while a folder is filling. */
+    if (!info->status_pending)
+        info->status_pending = SetTimer(info->main_window, IDT_BROWSER_STATUS, 50, NULL) != 0;
+}
+
 void browser_update_ui(explorer_info *info)
 {
     WCHAR text[200];
@@ -953,6 +958,8 @@ void browser_update_ui(explorer_info *info)
 
 void browser_navigation_state(explorer_info *info, BOOL navigating)
 {
+    if (navigating) SetTimer(info->main_window, IDT_BROWSER_BRAND, 70, NULL);
+    else KillTimer(info->main_window, IDT_BROWSER_BRAND);
     info->navigating = navigating;
     info->brand_frame = 0;
     if (info->brand) InvalidateRect(info->brand, NULL, FALSE);

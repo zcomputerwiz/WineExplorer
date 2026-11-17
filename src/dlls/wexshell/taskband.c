@@ -1031,7 +1031,7 @@ HWND taskband_create(HWND parent_tray, int x, int y, int width, int height)
     g_taskband.shell_hook_msg = RegisterWindowMessageW(L"SHELLHOOK");
     RegisterShellHookWindow(g_taskband.hwnd);
 
-    SetTimer(g_taskband.hwnd, 1, 2000, NULL);
+    SetTimer(g_taskband.hwnd, 1, 30000, NULL);
     taskband_sync_windows();
 
     return g_taskband.hwnd;

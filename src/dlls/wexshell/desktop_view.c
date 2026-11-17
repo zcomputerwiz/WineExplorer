@@ -54,6 +54,7 @@
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define DESKTOP_VIEW_CLASS L"SHELLDLL_DefView"
+#define WM_RECYCLE_BIN_CHANGED (WM_APP + 61)
 
 #define IDM_ARRANGE_NAME      101
 #define IDM_ARRANGE_SIZE      102
@@ -190,6 +191,7 @@ static void populate_directory_items(const WCHAR *folder_path, int *cur_row, int
 }
 
 static int g_rb_full = -1;
+static ULONG recycle_bin_notify;
 
 /* The Recycle Bin icon shows whether it holds anything */
 static void update_recycle_bin_icon(void)
@@ -1047,8 +1049,19 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         return 0;
     }
 
-    case WM_TIMER:
-        if (wparam == 1) update_recycle_bin_icon();
+    case WM_RECYCLE_BIN_CHANGED:
+    {
+        PIDLIST_ABSOLUTE *pidls;
+        LONG event;
+        HANDLE lock = SHChangeNotification_Lock((HANDLE)wparam, (DWORD)lparam, &pidls, &event);
+        if (lock) SHChangeNotification_Unlock(lock);
+        update_recycle_bin_icon();
+        return 0;
+    }
+
+    case WM_DESTROY:
+        if (recycle_bin_notify) SHChangeNotifyDeregister(recycle_bin_notify);
+        recycle_bin_notify = 0;
         return 0;
 
     case WM_WEX_POLICY:
@@ -1299,6 +1312,17 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
 
     if (g_desktop_view.hwnd)
     {
+        LPITEMIDLIST bitbucket;
+
+        if (SUCCEEDED(SHGetSpecialFolderLocation(NULL, CSIDL_BITBUCKET, &bitbucket)))
+        {
+            SHChangeNotifyEntry entry = { bitbucket, TRUE };
+            recycle_bin_notify = SHChangeNotifyRegister(g_desktop_view.hwnd,
+                SHCNRF_ShellLevel | SHCNRF_InterruptLevel | SHCNRF_NewDelivery,
+                SHCNE_ALLEVENTS, WM_RECYCLE_BIN_CHANGED, 1, &entry);
+            ILFree(bitbucket);
+        }
+        if (!recycle_bin_notify) WARN("Could not watch Recycle Bin changes\n");
         SetPropW(g_desktop_view.hwnd, WEX_WAYLAND_ROLE_PROP, (HANDLE)WEX_WAYLAND_DESKTOP);
         shell_restrictions_watch(g_desktop_view.hwnd, WM_WEX_POLICY);
         SetWindowPos(g_desktop_view.hwnd, HWND_BOTTOM, 0, 0, 0, 0,
@@ -1306,7 +1330,6 @@ HWND desktop_view_create(HWND parent_desktop, int width, int height)
     }
 
     desktop_view_refresh();
-    SetTimer(g_desktop_view.hwnd, 1, 3000, NULL);
     return g_desktop_view.hwnd;
 }
 
