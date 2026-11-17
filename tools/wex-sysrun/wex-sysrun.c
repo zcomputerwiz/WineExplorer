@@ -142,7 +142,7 @@ static void read_config(struct config *c)
     struct wex_sysrun_conf conf;
     char *line, *end, *eq;
     const char *keys[] = { "group", "loader", "ntdll", "wineserver", "machine_root", "admin_group",
-                           "builtin_administrator", "session0_socket", "session0_user" };
+                           "builtin_administrator", "session0_socket", "session0_user", "winedebug" };
     size_t i;
 
     /* the path's directories first, for the administrator's diagnostic (which one is writable by whom); the shared
