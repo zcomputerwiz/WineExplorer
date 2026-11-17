@@ -673,6 +673,11 @@ through shell32's `SHRestricted`, which caches a value for the life of the proce
 refresh that applies a policy counts at once for the menus that open afterwards. A folder window that is already open
 keeps the menu bar it was built with.
 
+Checked by hand under Xvfb with the build tree (the procedure above; screenshots with and without the values): the
+desktop shows no menu on a right click, a folder window has no Tools menu and no menu in its view, and the Open With
+dialog has no "Always use the selected program". Not checked on screen: the Change... button of a file's properties
+and the emptying of Recent Documents at log off (they need a log off, which the Xvfb check does not make).
+
 A user's policy is applied after the shell is up (the session script runs `gpupdate /target:user` five seconds after
 the shell starts), so the shell has to learn that a refresh has applied. It does not poll, and a broadcast does not do
 it (the shell's desktop is a desktop of its own, `explorer.exe /desktop=NAME /shell`, and a message from another
