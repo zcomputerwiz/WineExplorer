@@ -252,23 +252,23 @@ COMPONENTS_METADATA = {
                        'windows.ui.xaml.dll serves these classes from this component, built on the Uno Platform '
                        'and the .NET runtime. No winetricks and no installer program run: the archive is verified, '
                        'unpacked and registered.',
-        'size': '~57 MiB download, ~138 MiB installed (x64)',
+        'size': '~57 MiB download, ~140 MiB installed (x64)',
         'reboot': False,
         'disabled': False,
         'disabled_reason': '',
         # Apache-2.0 (XamlShim, Uno) followed by every bundled third-party licence (.NET, SkiaSharp, HarfBuzz, ICU)
-        'terms_url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.2.0/TERMS.txt',
-        'terms_sha256': 'c20cb99d0d6783cf1bc971aa96b5aeb9c0b591ff741c5fde29361935aa8e3df2',
-        'terms_text_sha256': 'c20cb99d0d6783cf1bc971aa96b5aeb9c0b591ff741c5fde29361935aa8e3df2',
-        'release': '0.2.0',
+        'terms_url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.3.0/TERMS.txt',
+        'terms_sha256': '975b8b70616d6321bfd663b9283b801fc5f3db75e54a39127352d301f839f034',
+        'terms_text_sha256': '975b8b70616d6321bfd663b9283b801fc5f3db75e54a39127352d301f839f034',
+        'release': '0.3.0',
         'execution_policy': 'uwp-xaml-extract-register-v1',
         'payloads': [
-            {'name': 'xamlshim-0.2.0-win-x64.zip', 'architecture': 'x64', 'size': 59544427,
-             'sha256': 'ff0e05c707bbaf6164af448983e8066c6287821b67675124f33d28ba729646df',
-             'url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.2.0/xamlshim-0.2.0-win-x64.zip'},
+            {'name': 'xamlshim-0.3.0-win-x64.zip', 'architecture': 'x64', 'size': 59804097,
+             'sha256': '2bdb9d8d427848ddc217346a35341ca978c1e882c16ea4e7d912b4fd24d631d8',
+             'url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.3.0/xamlshim-0.3.0-win-x64.zip'},
         ],
         'recipe_files': [
-            ('xamlshim-0.2.0-win-x64.zip', 'ff0e05c707bbaf6164af448983e8066c6287821b67675124f33d28ba729646df'),
+            ('xamlshim-0.3.0-win-x64.zip', '2bdb9d8d427848ddc217346a35341ca978c1e882c16ea4e7d912b4fd24d631d8'),
         ],
     },
     # Microsoft's framework packages that UWP applications declare as dependencies (the Windows Calculator 11.2607

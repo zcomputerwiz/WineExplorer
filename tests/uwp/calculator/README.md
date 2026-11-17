@@ -240,3 +240,10 @@ application's own types (converters) connected as their native objects, and in W
 sub-layouts at once, the Currency page shows the volume units (no currency data), the dark theme leaves the page and card
 backgrounds light (text turns white), and the toolkit expander's item container style is not applied (its style
 selector is a stand-in the application cannot call).
+
+### 2026-11-17, XamlShim 0.3.0
+
+Released from uno-uwp 7daa76b182 (tag `wex-xamlshim-v0.3.0`, CI green): `xamlshim-0.3.0-win-x64.zip`, 59804097 bytes,
+SHA-256 2bdb9d8d4278..., 114 classes. The `uwp-xaml` component pins it (terms identity updated). A fresh lab run with that
+zip (component install by `e2e-component.py`, verify full) launches the Calculator to its Standard view; the 99 component
+tests pass.
