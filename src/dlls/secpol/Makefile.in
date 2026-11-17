@@ -1,0 +1,8 @@
+MODULE    = secpol.dll
+IMPORTS   = comctl32 user32 gdi32 advapi32 shell32
+
+SOURCES = \
+	secpol.c \
+	secpol.rc \
+	settings.c \
+	template.c

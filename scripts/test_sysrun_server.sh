@@ -3918,6 +3918,46 @@ local_gpupdate >/dev/null 2>&1 || fail "gpedit users: wex-gpupdate.sh after Not 
 rm -rf "$GUSERS" "$LGP/Machine" "$LGP/User" "$LGP/Spool"
 kill_servers
 ok st_gpedit_objects_of_the_users_go_through_the_spool_and_apply_in_order
+# the local security settings editor's save (secpol.dll, SecPol_SetW; docs/GROUP_POLICY.md, "The local security settings
+# editor"): a setting goes into the local template through the spool, the refresh applies it, and a second setting keeps
+# the first one's line
+gp_tree
+ELEV='HKLM\Software\WineExplorer\Elevation'; SYSK='HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System'
+TMPL="$LGP/Machine/Microsoft/Windows NT/SecEdit/GptTmpl.inf"
+s0_wine sc start gpsvc >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
+secpolset()
+{
+    local out="$POL/secpolset.out" pid i
+    rm -f "$REQ" "$out"
+    (s0_wine "$ROOT/probes/tierprobe64.exe" secpolset "$1" "$2" > "$out" 2>&1; echo "rc=$?" >> "$out") &
+    pid=$!
+    if [ "${3:-}" = wait ]; then
+        for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
+        local_gpupdate >/dev/null 2>&1 || true
+    fi
+    wait "$pid" || true
+    tr -d '\r' < "$out" | grep '^gpset=' || echo "no result: $(tr -d '\r' < "$out" | tr '\n' ' ')"
+}
+OUT="$(secpolset LockoutBadCount 3 wait)"
+[ "$OUT" = gpset=0 ] || fail "secpol: the lockout threshold was not saved ($OUT; $(tr -d '\r' < "$POL/secpolset.out" | tr '\n' ' ') spool: $(ls -A "$LGP/Spool" | tr '\n' ' '))"
+[ "$(as_wine "$STD" reg query "$ELEV" /v LockoutBadCount | val LockoutBadCount)" = 0x3 ] || fail "secpol: the lockout threshold did not reach the registry"
+OUT="$(secpolset PromptOnSecureDesktop 0 wait)"
+[ "$OUT" = gpset=0 ] || fail "secpol: the secure desktop setting was not saved ($OUT)"
+[ "$(as_wine "$STD" reg query "$SYSK" /v PromptOnSecureDesktop | val PromptOnSecureDesktop)" = 0x0 ] || fail "secpol: the secure desktop setting did not reach the registry"
+[ "$(stat -c '%U:%a' "$TMPL")" = "$S0U:644" ] || fail "secpol: the template is $(stat -c '%U:%a' "$TMPL" 2>&1)"
+TXT="$(iconv -f UTF-16LE -t UTF-8 "$TMPL" | tr -d '\r\357\273\277')"
+grep -qxF 'LockoutBadCount = 3' <<<"$TXT" && grep -qF 'PromptOnSecureDesktop = 4,0' <<<"$TXT" ||
+    fail "secpol: the template lost a line: $TXT"
+# refused: a name that is not in the table, a number out of range, a setting that does not apply (no refresh asked)
+[ "$(secpolset NoSuchSetting 1)" = gpset=1168 ] || fail "secpol: an unknown setting gave $(secpolset NoSuchSetting 1)"
+[ "$(secpolset LockoutBadCount 1000)" = gpset=87 ] || fail "secpol: a threshold of 1000 gave $(secpolset LockoutBadCount 1000)"
+[ "$(secpolset ConsentPromptBehaviorAdmin 3)" = gpset=87 ] || fail "secpol: a prompt behavior of 3 gave $(secpolset ConsentPromptBehaviorAdmin 3)"
+s0_wine reg delete "$SYSK" /v PromptOnSecureDesktop /f >/dev/null 2>&1 || true
+s0_wine reg delete "$ELEV" /v LockoutBadCount /f >/dev/null 2>&1 || true
+rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
+kill_servers
+ok st_secpol_setting_goes_through_the_spool_into_the_template_and_applies
 # Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
 # extension, for the machine and for the user
 REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'

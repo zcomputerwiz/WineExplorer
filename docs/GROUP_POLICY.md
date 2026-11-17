@@ -489,7 +489,8 @@ and then the domain's objects; the last wins. `wex-gpupdate.sh` puts the files i
 the person, so nothing else changes in the writer. The applied list (and so `gpresult`) names each local object that
 has a file for the person, in that order: "Local Group Policy" (the local User policy), "Local Group Policy\Administrators"
 or "Local Group Policy\Non-Administrators", and "Local Group Policy\<account>"; their internal names are `LocalGPO`
-and `LocalGPO-<SID of the folder>` (`gpolist.c` takes exactly these besides GUIDs). Same rules as for the other local files: a regular file, not a link, not empty, read as session 0's
+and `LocalGPO-<SID of the folder>` (`gpolist.c` takes exactly these besides GUIDs). Windows' own tools may show one entry for
+all of them; this system names each so that a person can see which object a setting came from. Same rules as for the other local files: a regular file, not a link, not empty, read as session 0's
 account; a folder is looked at only when its name is one of the two group SIDs or begins with `S-1-5-21-`.
 A domain account is asked for with its map name (`DOMAIN\user`); `wex-is-admin` decides it through the server's own
 lookup, so a member of the administrator group and a member of Domain Admins both get the Administrators object.
@@ -511,7 +512,37 @@ Checked in `scripts/test_gpupdate_users.sh` (the order, administrator or not, a 
 person's file alone, a link, an invalid SID), `scripts/test_gpstore_native.sh` (the targets in the store),
 `scripts/test_b3_machine_root.sh` (the setup of both stores, links in them), `scripts/test_accounts_map.sh`
 (`wex-is-admin` for domain accounts) and the suite's `st_gpedit_objects_of_the_users_go_through_the_spool_and_apply_in_order`.
-Not yet: `gpresult` naming the layer.
+`gpresult` names the layers (2026-11-17): see above.
+
+### The local security settings editor (`secpol.msc`, 2026-11-17)
+
+`secpol.msc` is the Security Settings half of the local policy: the account lockout policy and the security options
+that the security extension writes (`sectmpl.c`: `[System Access]` and `[Registry Values]` of the template, the one
+`secedit /configure` stores). It is the module `src/dlls/secpol` (`secpol.dll`), started by `mmc.exe` for the console
+`secpol.msc` (CLSID in the console file; `loader/wine.inf.in` copies the console into system32, listed in
+[STOCK_CHANGES.md](STOCK_CHANGES.md)). The window is the one of `gpedit.msc` (tree, list, Properties with a page and an
+Explain page) with the tree of Windows' Local Security Settings:
+
+| Folder | Settings |
+|---|---|
+| Account Policies\Account Lockout Policy | account lockout duration, threshold, reset counter: applies (the three values the elevation verifier reads) |
+| Account Policies\Password Policy | the six settings, grayed out (passwords belong to the host's authentication and the domain) |
+| Local Policies\Audit Policy, User Rights Assignment | the common entries, grayed out (nothing here keeps them) |
+| Local Policies\Security Options | the elevation prompt behavior for administrators (2 or 5) and the secure desktop: apply; the other three User Account Control entries are grayed out (the elevation service does not read them) |
+
+The value shown is the one in the local template (`GroupPolicy\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf`,
+readable by anyone), else the one the system keeps now (registry), else "Not Defined" (a lockout number has its
+default). While the lockout threshold is 0, the duration and the reset counter show "Not applicable", as on Windows. A
+change edits the template's text (`template.c`: it replaces or adds one line and keeps every other line and section, so a
+template that holds rights or audit settings loses nothing), and hands the whole file to `gpsvc` through the spool (kind
+`WEX_GP_MACHINE_TEMPLATE`, as `secedit /configure` does): `gpsvc` checks it with the same parser as the writer, installs it
+as session 0's own file, and the editor waits for the refresh. The values are tattooed as on Windows: removing a line
+later does not undo what was applied. A process that is not of the system group (not elevated) can look but not change:
+the editor offers to open again elevated. A template that is there and cannot be read is never replaced.
+`SecPol_SetW(name, number)` (the entry used by tests, as `GpEdit_SetPolicyW`) makes one change without the window.
+
+Checked in `scripts/test_secpol_model.sh` (the template editor and the table, natively) and the suite's
+`st_secpol_*` cases.
 
 ### Writing the local files: the spool (implemented 2026-11-16, in review by the system tier session)
 
