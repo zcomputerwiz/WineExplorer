@@ -63,7 +63,7 @@ rm -f window.png window-*.png; [ -n "$bmp" ] && convert "$bmp" window.png 2>/dev
 for b in $(find "$WINEPREFIX/drive_c/users" -name 'xamlshim-window-*.bmp' 2>/dev/null | sort -V); do
   n=${b##*window-}; n=${n%.bmp}; convert "$b" "window-$n.png" 2>/dev/null
 done
-ls window-*.png > /dev/null 2>&1 && convert $(ls window-*.png | sort -V) +append window-all.png 2>/dev/null
+ls window-*.png > /dev/null 2>&1 && montage $(ls window-*.png | sort -V) -tile ${TILE:-8}x -geometry +0+0 window-all.png 2>/dev/null
 t3=$(date +%s)
 [ -n "$shimlog" ] && tr -d '\r' < "$shimlog" > shim.txt
 echo "timing: copy $((t1 - t0)) s, swap $((t2 - t1)) s, run $((t3 - t2)) s, total $((t3 - t0)) s"

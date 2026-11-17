@@ -3694,3 +3694,8 @@ fit upstream Wine.
   manager's or the services' generic mapping before `AccessCheck`, which takes specific rights only. A
   `GENERIC_READ` or `GENERIC_ALL` open was refused for everybody while checks are enforced (B37). Only with an
   elevation helper configured, as the check itself.
+
+2026-11-17 (UWP, Wine fcf9871d): `dlls/twinapi.appcore`: new `http_client.c` (`Windows.Web.Http.HttpClient`: the object, `IClosable`
+and the filter factory; the requests and the default headers fail with E_NOTIMPL), `include/windows.web.http.idl` (the
+`IHttpClient` and `IHttpClientFactory` layouts with `IInspectable` pointers where the contract has the response types).
+Test in `capabilities.c` (x64 and x86). **Unconditional**: a new class only.

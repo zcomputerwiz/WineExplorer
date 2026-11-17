@@ -117,9 +117,24 @@ int main( int argc, char **argv )
         if (argc > 3)
         {
             click( 150, 160, "App theme" ); Sleep( 8000 );
-            click( 150, 160, "App theme again" ); Sleep( 8000 );
+            click( 144, 282, "Dark" ); Sleep( 10000 );
             click( 150, 300, "About" ); Sleep( 8000 );
             click( 60, 22, "Settings header" ); Sleep( 12000 );
+        }
+    }
+    else if (!strcmp( argc > 2 ? argv[2] : "", "modes" ))
+    {
+        /* each mode of the navigation pane (client coordinates of the 320x500 layout), with a digit typed where it has a keypad */
+        static const struct { int y; const char *name; } modes[] =
+        {
+            { 180, "Scientific" }, { 262, "Programmer" }, { 304, "Date calculation" }, { 386, "Currency" }, { 427, "Volume" },
+        };
+        unsigned int i;
+
+        for (i = 0; i < sizeof(modes) / sizeof(modes[0]); i++)
+        {
+            click( 22, 56, "navigation menu" );  Sleep( 6000 );
+            click( 100, modes[i].y, modes[i].name );  Sleep( 10000 );
         }
     }
     else if (keys)

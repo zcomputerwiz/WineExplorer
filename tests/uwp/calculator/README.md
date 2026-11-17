@@ -226,3 +226,17 @@ collection's property element (`SettingsExpander.Items`) was set as the property
 added (`IXamlType.AddToVector`). (3) The expander's `ItemsRepeater` is WinUI 2's class, served as a bare element, so the
 toolkit's cast failed and the repeater never got its items; WinUI 2's `ItemsRepeater` (and its element event arguments)
 is generated now. Not yet checked: choosing a theme (the radio buttons).
+
+### 2026-11-17, the modes (uno-uwp 7daa76b182, Wine fcf9871d)
+
+`INPUT=modes` (lab `calc-input.exe`) opens each mode of the navigation pane, `XAMLSHIM_CHECKS=14 TILE=5` reads the window
+back after each step. Scientific, Programmer, Date calculation, Currency and Volume now open and show their layout
+(Scientific and Programmer overwrote the Standard keys before). Fixed: `XamlMarkupHelper.UnloadObject` (the
+Calculator unloads the layout it leaves; XamlReader builds every element at once, so the element is collapsed and
+`FindName` shows it again), `SelectionChangedEventArgs`, WinUI 2's `ItemsRepeater`, the `ComboBox`/`CalendarDatePicker`
+classes with their dates (`DateTime` is ticks since 1601 on the ABI, `DateTimeOffset` in Uno), named objects of the
+application's own types (converters) connected as their native objects, and in Wine `Windows.Web.Http.HttpClient`
+(the object only; the Calculator makes one and never calls it). Not yet: the Date calculation page shows both of its
+sub-layouts at once, the Currency page shows the volume units (no currency data), the dark theme leaves the page and card
+backgrounds light (text turns white), and the toolkit expander's item container style is not applied (its style
+selector is a stand-in the application cannot call).
