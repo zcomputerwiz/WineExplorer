@@ -3671,3 +3671,19 @@ Calculator's Standard mode and Settings page run without a missing Wine class (7
   of the default type holding the Administrators group: LocalSystem, the built-in Administrator) starts a
   `requireAdministrator` program and a `runas` directly, as on Windows. Before, only a Full token did, and LocalSystem
   in session 0 was refused (B36). Without a helper (stock behavior) nothing changes.
+
+2026-11-17 (UWP, Wine 4b3ed43b and bcb62ad5): `dlls/twinapi.appcore`: new `user_activity.c` (`UserActivityChannel`,
+`UserActivity`, `UserActivityVisualElements`, `UserActivityAttribution`, `UserActivityContentInfo`,
+`UserActivitySession`: the channel keeps the activities published in the process; the JSON forms and the session
+history need a timeline and are not implemented), `jumplist.c` and `jumplist_vector.c` (`Windows.UI.StartScreen.JumpList`
+and `JumpListItem`: SaveAsync keeps the list of the process, LoadCurrentAsync builds a new one from it),
+`device_capabilities.c` (`KeyboardCapabilities`, `MouseCapabilities`, `TouchCapabilities` from the system metrics),
+`display_request.c` (`Windows.System.Display.DisplayRequest`: counted requests, `SetThreadExecutionState`),
+`static_factory.c` (one factory type for classes with statics, and a helper for objects with one interface),
+`async_action.c` (an `IAsyncAction` that is done when made), `async_value.c` (operations for `UserActivity` and `JumpList`).
+`include/`: new `windows.ui.startscreen.idl` (JumpList only) and `windows.system.display.idl`; `windows.devices.input.idl`
+gets the three capability classes; `windows.applicationmodel.useractivities.idl` gets the channel, `IUserActivity2` and
+`3`, the factories, statics and the corrected `IUserActivityAttribution` (it had the properties of a later contract
+mixed in). Tests `activities.c` and `capabilities.c` (x64 and x86); behaviour measured on Windows 11
+(`tests/uwp/ua-batch`). **Unconditional**: new classes only, no stock behaviour changes; the IDL and registration parts
+fit upstream Wine.
