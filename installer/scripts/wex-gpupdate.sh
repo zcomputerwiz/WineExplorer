@@ -35,7 +35,9 @@
 # a Python file under Samba's licence (GPL-3.0-or-later).
 set -u
 
-. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/../../scripts/lib/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
+# the shared library (scripts/lib/wex-common.sh): installed, else next to this script in the repository
+for wex_lib in "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh" "$(dirname -- "$(readlink -f -- "$0")")/../../scripts/lib/wex-common.sh"; do [ -r "$wex_lib" ] && break; done
+. "$wex_lib"
 
 PRINT=0
 [ "${1:-}" = --print ] && PRINT=1

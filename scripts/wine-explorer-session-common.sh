@@ -3,7 +3,9 @@
 # Copyright 2026 WineExplorer contributors
 # Sourced by the X11 and Wayland session launchers. Keep account/prefix setup
 # independent of the display backend (the prefix-split work owns that policy).
-. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
+# the shared library (scripts/lib/wex-common.sh): installed, else next to this script in the repository
+for wex_lib in "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"; do [ -r "$wex_lib" ] && break; done
+. "$wex_lib"
 export WINEPREFIX="${WINEPREFIX:-$HOME/.wine}"
 export XDG_CURRENT_DESKTOP=WineExplorer
 export XDG_SESSION_DESKTOP=WineExplorer

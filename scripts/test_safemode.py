@@ -1441,13 +1441,15 @@ class TestSessionAndGreeter(unittest.TestCase):
         # the saved display mode: only in a normal start without Enable VGA Mode (D2)
         self.assertIn('[ "$WEXMODE" = normal ] && [ "$WEXOPTION" != vga ] && [ -z "$WIDTH" ] && [ -r "$DISPLAY_PROFILE" ]',
                       session)
-        self.assertLess(session.index("WEXOPTION=$(/usr/local/bin/wex-bootmode --option"),
+        self.assertLess(session.index('WEXOPTION=$("${WEX_BOOTMODE_HELPER:-/usr/local/bin/wex-bootmode}" --option'),
                         session.index('[ "$WEXOPTION" != vga ] && [ -z "$WIDTH" ]'))
-        # C3, D2: Safe Mode and Enable VGA Mode set 640x480 before the desktop's size is read
+        # C3, D2: Safe Mode and Enable VGA Mode set 640x480 before the desktop's size is read (the function is in the
+        # shared library, which the session sources before)
         low = session.index('if { [ "$WEXMODE" != normal ] || [ "$WEXOPTION" = vga ]; } && [ -z "$WIDTH" ]')
-        self.assertLess(session.index("low_resolution() {"), low)
+        self.assertLess(session.index('. "$wex_lib"'), low)
+        self.assertIn("wex_low_resolution() {", (SCRIPTS / "lib" / "wex-common.sh").read_text(encoding="utf-8"))
         self.assertLess(low, session.index("RES=$(xrandr"))
-        self.assertIn("--mode 640x480", session)
+        self.assertIn("--mode 640x480", (SCRIPTS / "lib" / "wex-common.sh").read_text(encoding="utf-8"))
         common = (SCRIPTS / "wine-explorer-session-common.sh").read_text(encoding="utf-8")
         skip = common.index("safe|safenet) return 0")
         self.assertLess(common.index("wineboot.exe -u"), skip)

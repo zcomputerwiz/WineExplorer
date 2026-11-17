@@ -15,7 +15,9 @@
 # If PREFIX_PATH is omitted, $WINEPREFIX or $HOME/.wine is used.
 set -euo pipefail
 
-. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
+# the shared library (scripts/lib/wex-common.sh): installed, else next to this script in the repository
+for wex_lib in "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"; do [ -r "$wex_lib" ] && break; done
+. "$wex_lib"
 
 MACHINE_ROOT="${WEX_MACHINE_ROOT:-$(wex_machine_root)}"
 TARGET_PFX="${1:-${WINEPREFIX:-$HOME/.wine}}"

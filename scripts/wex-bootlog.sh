@@ -10,7 +10,9 @@
 # before that format is converted once.
 # Installed as /usr/local/sbin/wex-bootlog and run by wex-bootlog.service.
 set -u
-. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
+# the shared library (scripts/lib/wex-common.sh): installed, else next to this script in the repository
+for wex_lib in "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"; do [ -r "$wex_lib" ] && break; done
+. "$wex_lib"
 machine=$(wex_machine_root)
 windir=${WEX_BOOTLOG_WINDIR:-$machine/drive_c/windows}
 [ -d "$windir" ] || windir=/var/log/wineexplorer

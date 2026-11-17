@@ -24,6 +24,8 @@ cat > "$FX/bin/testparm" <<EOF
 # the file "unjoined" in the fixture: no realm, so no join
 case "\$*" in
     *realm*) [ -e "$FX/unjoined" ] || echo ad.wexlab.example ;;
+    *security*) echo ADS ;;
+    *workgroup*) echo WEXLAB ;;
     *cache*) echo "$FX/cache" ;;
 esac
 EOF

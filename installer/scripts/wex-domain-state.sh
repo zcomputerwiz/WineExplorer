@@ -30,7 +30,7 @@ if command -v testparm >/dev/null 2>&1; then
     security=$(testparm -s --parameter-name=security 2>/dev/null | tr 'A-Z' 'a-z')
     realm=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'A-Z' 'a-z')
     workgroup=$(testparm -s --parameter-name=workgroup 2>/dev/null | tr 'a-z' 'A-Z')
-    if [ -z "$dns" ] && { [ "$security" = ads ] || [ -z "$security" ]; } && [ -n "$realm" ] && [ -e "${WEX_KEYTAB:-/etc/krb5.keytab}" ]; then
+    if [ -z "$dns" ] && [ "$security" = ads ] && [ -n "$realm" ] && [ -e "${WEX_KEYTAB:-/etc/krb5.keytab}" ]; then
         dns=$realm
     fi
     if [ -n "$dns" ] && [ -n "$workgroup" ] && [ "$workgroup" != WORKGROUP ]; then

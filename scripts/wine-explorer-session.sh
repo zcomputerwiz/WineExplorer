@@ -15,7 +15,9 @@ exec > "$LOG" 2>&1
 echo "=== WineExplorer session started: $(date) ==="
 echo "USER=$USER DISPLAY=$DISPLAY XAUTHORITY=$XAUTHORITY"
 
-. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
+# the shared library (scripts/lib/wex-common.sh): installed, else next to this script in the repository
+for wex_lib in "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"; do [ -r "$wex_lib" ] && break; done
+. "$wex_lib"
 
 # Safe Mode (docs/SAFE_MODE.md). The session keeps its name in every mode, so LightDM records nothing new for the
 # account; the mode only decides what starts. With Command Prompt the recovery console replaces the shell, as

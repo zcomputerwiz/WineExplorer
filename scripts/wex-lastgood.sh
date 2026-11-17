@@ -14,7 +14,9 @@
 #
 # Installed as /usr/local/sbin/wex-lastgood. The WEX_* variables let scripts/test_safemode.py use other paths.
 set -u
-. "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" 2>/dev/null || . "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"
+# the shared library (scripts/lib/wex-common.sh): installed, else next to this script in the repository
+for wex_lib in "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"; do [ -r "$wex_lib" ] && break; done
+. "$wex_lib"
 umask 077
 machine=${WEX_LASTGOOD_MACHINE:-$(wex_machine_root)}
 state=${WEX_LASTGOOD_DIR:-/var/lib/wineexplorer/lastgood}
