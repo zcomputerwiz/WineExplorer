@@ -229,9 +229,15 @@ want $R_TREE "a link in place of GroupPolicyUsers" gpt write "$K_TARGET:$SIDP" "
 rm -f "$GU"; mv "$GU.real" "$GU"
 # the administrator cannot write the store of the users either
 if as_adm sh -c ': > "$1/x"' _ "$GU" 2>/dev/null; then fail "the administrator can write GroupPolicyUsers"; fi
-# system32 not owned by this user is not trusted
-chown root "$FX/drive_c/windows/system32"
+# system32 as the machine root has it: root's, writable by the system group; the store still opens and writes (the
+# directories below it are session 0's own). Owned by someone else, or writable by others, it is not trusted.
+S32="$FX/drive_c/windows/system32"
+chown "root:$GRP" "$S32"; chmod 2775 "$S32"
+want $R_OK "system32 owned by root, group-writable" gpt write "$K_TARGET:$SIDP" "$BIN/in"
+chown "$ADM:$GRP" "$S32"
 want $R_TREE "system32 owned by someone else" gpt open
+chown "root:$GRP" "$S32"; chmod 2777 "$S32"
+want $R_TREE "system32 writable by others" gpt open
 ok gps_targets_are_sids_and_stay_in_the_store_of_the_users
 
 echo "=== gpstore native: $PASS checks passed ==="

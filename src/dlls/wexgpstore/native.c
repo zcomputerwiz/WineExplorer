@@ -136,10 +136,12 @@ int gps_open( const char *prefix, struct gps_store *store )
         }
         fd = next;
     }
-    /* system32 has to be a directory of this user; its group may be wider (the default ACL of the machine root), which
-     * is why nothing below it is trusted without the same check, and nothing is followed */
+    /* system32 is root's (setup-machine-root.sh) and its group may write it (the system group, the machine root's default
+     * ACL): it is a directory of root or of this user and not writable by others. Nothing below it is trusted without
+     * the checks of every directory (owner this user, no write for group or others), and nothing is followed, so a
+     * GroupPolicyUsers that someone else put there is refused. */
     if (!directory_ok( fd, S_IWGRP | S_IWOTH, 1 ) || fstat( sys, &st ) || !S_ISDIR( st.st_mode ) ||
-        st.st_uid != geteuid() || (st.st_mode & S_IWOTH))
+        (st.st_uid != geteuid() && st.st_uid != 0) || (st.st_mode & S_IWOTH))
     {
         close( fd );
         close( sys );
