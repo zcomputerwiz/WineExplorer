@@ -46,6 +46,19 @@ WINM="Z:${M//\//\\}"
 PASS=0
 DUMPABLE_SAVED=""
 XV_PID=""
+# Kernel settings (fs.suid_dumpable, fs.leases-enable) are shared by every WSL distribution. While another one runs a
+# suite (wex-run.sh leaves /mnt/wsl/wex-run.<distribution>, wex-run-split.sh runs two), a case that changes one is
+# skipped: it would change the other suite's conditions, and the two save-and-restore pairs would race (B29).
+# Prints the other distribution's name, or nothing.
+other_wsl_run()
+{
+    local f started
+    for f in /mnt/wsl/wex-run.*; do
+        [ -f "$f" ] && [ "$f" != "/mnt/wsl/wex-run.${WSL_DISTRO_NAME:-unknown}" ] || continue
+        started="$(head -c 20 "$f" 2>/dev/null | tr -dc '0-9')"
+        if [ -n "$started" ] && [ $(( $(date +%s) - started )) -lt 7200 ]; then echo "${f#/mnt/wsl/wex-run.}"; return; fi
+    done
+}
 
 # WEX_C3_REUSE=1 reuses the fixture that an earlier run left with WEX_C2_KEEP=1 (development of the checks)
 REUSE="${WEX_C3_REUSE:-0}"
@@ -407,8 +420,12 @@ OUT="$(run_as "$STD" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$ROOT/probes/probe64.
 sleep 32                                 # at least one periodic save
 check_server_protected after_round_trips
 # with fs.suid_dumpable=1 a credential change would make the process dumpable unless the server resets the flag
+OTHER_RUN="$(other_wsl_run)"
 DUMPABLE_SAVED="$(cat /proc/sys/fs/suid_dumpable)"
-if echo 1 > /proc/sys/fs/suid_dumpable 2>/dev/null; then
+if [ -n "$OTHER_RUN" ]; then
+    echo "NOTE: a suite runs in the WSL distribution $OTHER_RUN (same kernel): the suid_dumpable=1 case was not run"
+    DUMPABLE_SAVED=""
+elif echo 1 > /proc/sys/fs/suid_dumpable 2>/dev/null; then
     hold_stop
     hold_start
     probe "$STD" 64 hklm-write >/dev/null
@@ -2549,16 +2566,9 @@ el_down "$STD"
 el_clean; touch "$EL/approve.all"
 el_up "$ADM"
 run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"
-# The setting is the kernel's, and every WSL distribution shares the kernel: while another distribution runs a suite
-# (wex-run.sh leaves /mnt/wsl/wex-run.<distribution>, wex-run-split.sh runs two), turning leases off would fail its
-# elevations and its own save and restore would race this one (B29). The case is skipped then; the error it checks
-# is also checked by c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation.
-OTHER_RUN=
-for f in /mnt/wsl/wex-run.*; do
-    [ -f "$f" ] && [ "$f" != "/mnt/wsl/wex-run.${WSL_DISTRO_NAME:-unknown}" ] || continue
-    started="$(head -c 20 "$f" 2>/dev/null | tr -dc '0-9')"
-    [ -n "$started" ] && [ $(( $(date +%s) - started )) -lt 7200 ] && OTHER_RUN="${f#/mnt/wsl/wex-run.}"
-done
+# (skipped while another WSL distribution runs a suite, other_wsl_run: leases off there would fail its elevations; the
+# error is also checked by c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation)
+OTHER_RUN="$(other_wsl_run)"
 if [ -n "$OTHER_RUN" ]; then
     echo "NOTE: a suite runs in the WSL distribution $OTHER_RUN (same kernel): leases were not turned off, c4_file_system_without_leases was not run"
 else
