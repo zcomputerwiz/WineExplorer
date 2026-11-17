@@ -3601,3 +3601,11 @@ WineExplorer consumers: wex-sysrun and wexgpstore use the same header; wex-is-ad
 provisioning, and PAM/components use its membership mode. Native reader regression tests compile the actual caller
 functions in isolation; the existing server fixture also checks the unsafe-file token shape. Runtime/build
 verification is deferred to the reviewer; static checks alone do not prove either.
+
+# Group Policy: NoFileAssociate (2026-11-17)
+
+- `dlls/shell32/openwith.c`, `shell32_main.h`: `SHELL_FileAssociationsRestricted()` reads the Policies\Explorer value
+  `NoFileAssociate` (user's hive, then the machine's) each time it is asked, because `SHRestricted` caches a value for
+  the life of the process and reads only the user's hive, so a policy refresh would not count. The Open With dialog
+  then drops the registration flags and hides "Always use the selected program".
+- `dlls/shell32/shlview_cmenu.c`: the Change... button of a file's properties is hidden under the same policy.

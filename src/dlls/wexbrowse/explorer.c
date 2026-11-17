@@ -32,6 +32,7 @@
 #include "wexbrowse.h"
 #include "search_dispatch.h"
 #include "wexres.h"
+#include "wexshellpolicy.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -84,6 +85,9 @@ static LRESULT CALLBACK view_notify_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
 {
     explorer_info *info = (explorer_info *)data;
 
+    /* Group Policy "Remove the shortcut menu of folders": the view shows none, by the mouse or by the keyboard. It
+     * is read when the menu is asked for, so that a refresh that applies the policy counts at once. */
+    if (msg == WM_CONTEXTMENU && wex_shell_restricted(L"NoViewContextMenu")) return 0;
     if (msg == WM_NOTIFY)
     {
         NMHDR *nm = (NMHDR *)lparam;

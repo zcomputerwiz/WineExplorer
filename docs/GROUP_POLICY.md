@@ -655,9 +655,23 @@ footer is empty. Stop with `$B/wine wineboot -k` and delete the values again (pl
 
 `NoChangeStartMenu` (the pin, remove and show-on-desktop verbs of the Start panel's menu are grayed), `NoWinKeys` (the
 combinations with the Windows key do nothing; the key alone still opens Start) and `NoNetHood` (no My Network Places
-on the desktop, none in the Start menu) are carried out as well, which makes thirteen in the editor's "applies" list.
-`NoFolderOptions`, `NoViewContextMenu`, `NoFileAssociate` and `ClearRecentDocsOnExit` stay "stored": they belong to
-the folder windows and to the log off, which this shell does not make from these policies yet.
+on the desktop, none in the Start menu) are carried out as well, which made thirteen in the editor's "applies" list.
+`NoFolderOptions`, `NoViewContextMenu`, `NoFileAssociate` and `ClearRecentDocsOnExit` are carried out too (2026-11-17),
+which makes seventeen in the editor's "applies" list, and none is "stored" only any more:
+
+- `NoFolderOptions`: the folder window has no Tools menu (Folder Options was its only command, and a grayed one).
+- `NoViewContextMenu`: the folder view and the desktop show no shortcut menus, by mouse or keyboard (the view's
+  `WM_CONTEXTMENU` is swallowed in `wexbrowse/explorer.c`; the desktop view skips its menus). The item under the
+  pointer is still selected.
+- `NoFileAssociate`: shell32's Open With dialog (`openwith.c`) has no "Always use the selected program" and registers
+  nothing, and the Change... button of a file's properties is hidden. A stock Wine change (`STOCK_CHANGES.md`).
+- `ClearRecentDocsOnExit`: when a log off or shutdown is carried out (`msgina/power_mgmt.c`, after the programs agreed)
+  the Recent Documents list is emptied (`SHAddToRecentDocs( SHARD_PIDL, NULL )`).
+
+They read the policy at the moment of use (`src/include/wexshellpolicy.h`, user's hive then the machine's), not
+through shell32's `SHRestricted`, which caches a value for the life of the process and reads only the user's hive: a
+refresh that applies a policy counts at once for the menus that open afterwards. A folder window that is already open
+keeps the menu bar it was built with.
 
 A user's policy is applied after the shell is up (the session script runs `gpupdate /target:user` five seconds after
 the shell starts), so the shell has to learn that a refresh has applied. It does not poll, and a broadcast does not do

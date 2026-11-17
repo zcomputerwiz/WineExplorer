@@ -1116,14 +1116,21 @@ static LRESULT CALLBACK desktop_view_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
 
         hit_idx = item_at(hwnd, pt);
 
-        if (hit_idx != -1)
+        /* Group Policy "Remove the shortcut menu of folders": the desktop has none either (the item is still selected) */
+        if (hit_idx != -1 && shell_restricted(L"NoViewContextMenu"))
+        {
+            for (i = 0; i < g_desktop_view.item_count; i++)
+                g_desktop_view.items[i]->selected = g_desktop_view.items[i]->focused = (i == hit_idx);
+            InvalidateRect(hwnd, NULL, FALSE);
+        }
+        else if (hit_idx != -1)
         {
             for (i = 0; i < g_desktop_view.item_count; i++)
                 g_desktop_view.items[i]->selected = g_desktop_view.items[i]->focused = (i == hit_idx);
             InvalidateRect(hwnd, NULL, FALSE);
             show_item_context_menu(hwnd, g_desktop_view.items[hit_idx], screen_pt);
         }
-        else
+        else if (!shell_restricted(L"NoViewContextMenu"))
         {
             show_desktop_context_menu(hwnd, screen_pt);
         }

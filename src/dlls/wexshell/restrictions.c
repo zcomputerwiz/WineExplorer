@@ -9,21 +9,11 @@
 #include <userenv.h>
 
 #include "restrictions.h"
-
-#define POLICY_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer"
-
-static BOOL value_set( HKEY root, const WCHAR *name )
-{
-    /* a REG_DWORD, or the four bytes of a REG_BINARY that old ADM templates write (a longer one is not a flag) */
-    DWORD value = 0, size = sizeof(value);
-
-    return !RegGetValueW( root, POLICY_KEY, name, RRF_RT_REG_DWORD | RRF_RT_REG_BINARY, NULL, &value, &size ) &&
-           size == sizeof(value) && value;
-}
+#include "wexshellpolicy.h"
 
 BOOL shell_restricted( const WCHAR *name )
 {
-    return value_set( HKEY_CURRENT_USER, name ) || value_set( HKEY_LOCAL_MACHINE, name );
+    return wex_shell_restricted( name );
 }
 
 static struct
