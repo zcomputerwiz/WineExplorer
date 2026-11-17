@@ -26,8 +26,8 @@ fi
 t1=$(date +%s)
 ./lab.sh push quick.tar > /dev/null
 env="QUIET=${QUIET:-15} MIN=${MIN:-15} MAX=${MAX:-120} REGISTER=\"${REGISTER:-}\" REGCLASSES=\"${REGCLASSES:-}\""
-env="$env XAMLSHIM_PROBE_MEMBERS=\"${XAMLSHIM_PROBE_MEMBERS:-}\" XAMLSHIM_PROBE_TYPE=\"${XAMLSHIM_PROBE_TYPE:-}\" XAMLSHIM_RENDER=\"${XAMLSHIM_RENDER:-}\""
-env="$env INPUT=\"${INPUT:-}\" WINE_ROERR_STACK=${WINE_ROERR_STACK:-}"
+env="$env XAMLSHIM_PROBE_MEMBERS=\"${XAMLSHIM_PROBE_MEMBERS:-}\" XAMLSHIM_PROBE_TYPE=\"${XAMLSHIM_PROBE_TYPE:-}\" XAMLSHIM_RENDER=\"${XAMLSHIM_RENDER:-}\" XAMLSHIM_LATE_TREE=\"${XAMLSHIM_LATE_TREE:-}\" XAMLSHIM_TPL=\"${XAMLSHIM_TPL:-}\""
+env="$env INPUT_MORE=\"${INPUT_MORE:-}\" INPUT=\"${INPUT:-}\" WINE_ROERR_STACK=${WINE_ROERR_STACK:-}"
 [ -z "${WINE_ROERR_STACK:-}" ] && env="${env% WINE_ROERR_STACK=}"
 ./lab.sh wait "cd /home/debian/uwp-u1-20261111/claude && DISPLAY=:99 $env ./calc-quick.sh ${1:-err+all,fixme+all}" 400
 # the window's pixels as the shim read them back (calc-window.png here)

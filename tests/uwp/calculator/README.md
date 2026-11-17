@@ -198,3 +198,17 @@ dump; the window readback shows the whole Standard calculator (title bar, menu, 
 visible and no clipped text). Still logged: 107 `XamlControlsXamlMetaDataProvider` activation failures (WinUI 2's
 provider, not registered) and the `mrt100.dll` delay-load note. Settings and the remaining Wine classes of the gap list
 are next.
+
+### 2026-11-16, Settings (uno-uwp d9d4af4185)
+
+The Settings page opens (navigation menu, Settings) and shows the Appearance and About groups with their expander cards
+(icon, "App theme" / "Calculator" header, description, chevron), the feedback link and the contribution text.
+Needed: the default styles of the package's control libraries (`Themes\Generic.xbf` of the toolkit's settings controls
+and of the graph control, with their `Source` dictionaries put in place, merged into the application's resources), the
+toolkit's `CornerRadiusConverter` and `SettingsExpanderItemStyleSelector` (not in the application's metadata, written
+here from how the styles use them), a `TemplateBinding` as content or as a whole property element turned into the
+attribute form Uno reads, a style's `Resources` setter hoisted into a merged dictionary, and `GridLength` from the
+ABI by its constructor. Not yet: a click on the "App theme" card does not expand it (the click reaches Uno as a
+hover only; the theme choices are not seen yet), and `XamlControlsXamlMetaDataProvider` (WinUI 2) stays unregistered
+(Wine does not serve classes of a package's dependencies; the process package's class table holds only the
+package's own). The lab's input steps now wait longer (`INPUT=settings`, `INPUT_MORE=1`): the guest is often busy.

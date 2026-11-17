@@ -39,7 +39,7 @@ export WINEDEBUG="${1:-err+all,fixme+all}" XAMLSHIM_TRACE=1 XAMLSHIM_CALLS=1
 launcher=$!
 # INPUT=clicks|keys: calc-input.exe types 7 + 5 = (8 s apart, as the shim's window readbacks are), after 12 s
 if [ -n "$INPUT" ]; then
-  WINEDEBUG=-all "$build/wine" "$c/calc-input.exe" 12 "$INPUT" > input.log 2>&1 &
+  WINEDEBUG=-all "$build/wine" "$c/calc-input.exe" 12 "$INPUT" $INPUT_MORE > input.log 2>&1 &
   MIN=${MIN_INPUT:-60}; [ "$MAX" -lt 120 ] && MAX=120
 fi
 last=-1; still=0; elapsed=0; shimlog=

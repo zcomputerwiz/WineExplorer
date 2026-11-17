@@ -93,7 +93,7 @@ int main( int argc, char **argv )
     BOOL keys = argc > 2 && !strcmp( argv[2], "keys" );
     HWND hwnd = NULL;
 
-    for (i = 0; i < 600 && !(hwnd && IsWindowVisible( hwnd )); i++)
+    for (i = 0; i < 3000 && !(hwnd && IsWindowVisible( hwnd )); i++)
     {
         Sleep( 100 );
         hwnd = FindWindowW( L"Windows.UI.Core.CoreWindow", NULL );
@@ -110,7 +110,13 @@ int main( int argc, char **argv )
     SetForegroundWindow( hwnd );
     Sleep( 500 );
 
-    if (keys)
+    if (!strcmp( argc > 2 ? argv[2] : "", "settings" ))
+    {
+        click( 22, 56, "navigation menu" );  Sleep( 16000 );
+        click( 60, 470, "Settings" );        Sleep( 16000 );
+        if (argc > 3) { click( 150, 160, "App theme" ); Sleep( 30000 ); }
+    }
+    else if (keys)
     {
         tap( '7', FALSE, "7" );     Sleep( 8000 );
         tap( VK_OEM_PLUS, TRUE, "+" ); Sleep( 8000 );
