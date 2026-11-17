@@ -6,6 +6,8 @@ ConditionPathExists=/etc/wineexplorer/accounts.map
 
 [Path]
 PathChanged=/etc/passwd
+# the administrator group's membership is part of the map (admin= in lookups)
+PathChanged=/etc/group
 Unit=wex-accounts.service
 
 [Install]
