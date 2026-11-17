@@ -694,14 +694,20 @@ programs_32_64() {   # the regression check: Wine's 32-bit (syswow64) and 64-bit
 
 expect_safeboot() {   # expect_safeboot 0|1|2|cmd: what Windows programs see, from the 32-bit and the 64-bit probe.
                       # cmd: Safe Mode with Command Prompt, run from the serial console, as from the recovery console
-    local bits out miss raw run want=()
+    local bits out miss raw run want=() refused=spooler=1084
     [ -n "$PROBE_DIR" ] || return 0
+    # With enforced elevation the probe (a limited token) may not open the spooler to start it at all, as on Windows:
+    # access denied comes before the Safe Mode refusal. The service filter is still seen in NDIS and nsiproxy.
+    if gsh 'test -f /usr/local/share/wineexplorer/elevation.enable && echo elevation=enforced' 30 2>/dev/null \
+            | grep -q '^elevation=enforced'; then
+        refused=spooler=open-5
+    fi
     case "$1" in
         0) want=(cleanboot=0 option=none shell=none MountMgr=running spooler=untried) ;;
         # themed=0: no visual style in Safe Mode, whatever the account chose (2026-11-12)
-        1) want=(cleanboot=1 option=1 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped spooler=1084 themed=0) ;;
-        2) want=(cleanboot=2 option=2 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=running nsiproxy=running spooler=1084 themed=0) ;;
-        cmd) want=(cleanboot=1 option=1 shell=1 EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped spooler=1084 themed=0) ;;
+        1) want=(cleanboot=1 option=1 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped "$refused" themed=0) ;;
+        2) want=(cleanboot=2 option=2 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=running nsiproxy=running "$refused" themed=0) ;;
+        cmd) want=(cleanboot=1 option=1 shell=1 EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped "$refused" themed=0) ;;
     esac
     for bits in 32 64; do
         if [ "$1" = cmd ]; then
