@@ -49,12 +49,42 @@ DWORD WINAPI WexGpStoreOpen(void)
     return params.err;
 }
 
-DWORD WINAPI WexGpSpoolRead( DWORD kind, void *buffer, DWORD size, DWORD *length )
+/* the target of a call: it goes with the kind that has one, and only with that one */
+static BOOL copy_target( DWORD kind, const char *target, DWORD *given, char *to )
+{
+    size_t length;
+
+    *given = 0;
+    if ((kind == WEX_GP_USER_TARGET_POL) != (target != NULL)) return FALSE;
+    if (!target) return TRUE;
+    if (!wex_gp_target_valid( target )) return FALSE;
+    length = strlen( target );
+    memcpy( to, target, length + 1 );
+    *given = 1;
+    return TRUE;
+}
+
+DWORD WINAPI WexGpSpoolTargets( char (*targets)[WEX_GP_TARGET_MAX], DWORD max, DWORD *count )
+{
+    struct targets_params params = {0};
+
+    if (count) *count = 0;
+    if (!count || !targets || !max) return ERROR_INVALID_PARAMETER;
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    params.targets = (ULONG_PTR)targets;
+    params.max = max;
+    WEXGPSTORE_CALL( gpstore_targets, &params );
+    *count = params.count;
+    return params.err;
+}
+
+DWORD WINAPI WexGpSpoolRead( DWORD kind, const char *target, void *buffer, DWORD size, DWORD *length )
 {
     struct read_params params = {0};
 
     if (length) *length = 0;
     if (kind >= WEX_GP_KIND_COUNT || (size && !buffer) || !length) return ERROR_INVALID_PARAMETER;
+    if (!copy_target( kind, target, &params.target_given, params.target )) return ERROR_INVALID_PARAMETER;
     if (!unix_ready) return ERROR_NOT_SUPPORTED;
     params.buffer = (ULONG_PTR)buffer;
     params.size = size;
@@ -64,11 +94,12 @@ DWORD WINAPI WexGpSpoolRead( DWORD kind, void *buffer, DWORD size, DWORD *length
     return params.err;
 }
 
-DWORD WINAPI WexGpSpoolDone( DWORD kind, const char *error )
+DWORD WINAPI WexGpSpoolDone( DWORD kind, const char *target, const char *error )
 {
     struct done_params params = {0};
 
     if (kind >= WEX_GP_KIND_COUNT) return ERROR_INVALID_PARAMETER;
+    if (!copy_target( kind, target, &params.target_given, params.target )) return ERROR_INVALID_PARAMETER;
     if (!unix_ready) return ERROR_NOT_SUPPORTED;
     params.kind = kind;
     if (error)
@@ -84,11 +115,12 @@ DWORD WINAPI WexGpSpoolDone( DWORD kind, const char *error )
     return params.err;
 }
 
-DWORD WINAPI WexGpStoreWrite( DWORD kind, const void *data, DWORD size )
+DWORD WINAPI WexGpStoreWrite( DWORD kind, const char *target, const void *data, DWORD size )
 {
     struct write_params params = {0};
 
     if (kind >= WEX_GP_KIND_COUNT || (size && !data)) return ERROR_INVALID_PARAMETER;
+    if (!copy_target( kind, target, &params.target_given, params.target )) return ERROR_INVALID_PARAMETER;
     if (!unix_ready) return ERROR_NOT_SUPPORTED;
     params.data = (ULONG_PTR)data;
     params.size = size;

@@ -27,6 +27,7 @@
 #define _GNU_SOURCE
 #endif
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,7 +39,7 @@
 
 /* the requests the system group may leave, by kind; the caller never names a path */
 static const char *const request_names[GPS_KIND_COUNT] =
-    { "Machine.Registry.pol", "User.Registry.pol", "Machine.GptTmpl.inf" };
+    { "Machine.Registry.pol", "User.Registry.pol", "Machine.GptTmpl.inf", NULL };   /* the target kind: gps_request_name */
 
 /* the store file of each kind: its directories below GroupPolicy (a NULL ends the list) and its name */
 static const char *const store_dirs[GPS_KIND_COUNT][5] =
@@ -46,12 +47,59 @@ static const char *const store_dirs[GPS_KIND_COUNT][5] =
     { "Machine", NULL },
     { "User", NULL },
     { "Machine", "Microsoft", "Windows NT", "SecEdit", NULL },
+    { NULL },   /* the target kind: GroupPolicyUsers, the target, User (open_store_dir) */
 };
-static const char *const store_names[GPS_KIND_COUNT] = { "Registry.pol", "Registry.pol", "GptTmpl.inf" };
+static const char *const store_names[GPS_KIND_COUNT] = { "Registry.pol", "Registry.pol", "GptTmpl.inf", "Registry.pol" };
 
-const char *gps_request_name( enum gps_kind kind )
+/* one subauthority: 1 to 10 digits, no leading zero, at most 4294967295 */
+static int subauthority( const char **p )
 {
-    return kind < GPS_KIND_COUNT ? request_names[kind] : NULL;
+    unsigned long long value = 0;
+    int digits = 0;
+
+    if (**p == '0' && (*p)[1] >= '0' && (*p)[1] <= '9') return 0;
+    while (**p >= '0' && **p <= '9')
+    {
+        if (++digits > 10) return 0;
+        value = value * 10 + (**p - '0');
+        (*p)++;
+    }
+    return digits && value <= 0xffffffffULL;
+}
+
+int gps_target_valid( const char *target )
+{
+    const char *p;
+    int i;
+
+    if (!target) return 0;
+    if (!strcmp( target, "S-1-5-32-544" ) || !strcmp( target, "S-1-5-32-545" )) return 1;
+    if (strncmp( target, "S-1-5-21-", 9 )) return 0;
+    p = target + 9;
+    for (i = 0; i < 4; i++)
+    {
+        if (!subauthority( &p )) return 0;
+        if (i < 3 && *p++ != '-') return 0;
+    }
+    return !*p && (size_t)(p - target) < GPS_TARGET_MAX;
+}
+
+int gps_request_name( enum gps_kind kind, const char *target, char *name, size_t size )
+{
+    int n;
+
+    if (kind >= GPS_KIND_COUNT) return -1;
+    if (kind == GPS_USER_TARGET_POL)
+    {
+        if (!gps_target_valid( target )) return -1;
+        n = snprintf( name, size, "UserPolicy.%s.Registry.pol", target );
+    }
+    else
+    {
+        if (target) return -1;
+        n = snprintf( name, size, "%s", request_names[kind] );
+    }
+    return n > 0 && (size_t)n < size ? 0 : -1;
 }
 
 /* a directory that belongs to this user and that the given classes of users may not use */
@@ -67,23 +115,36 @@ static int directory_ok( int fd, mode_t forbidden, int check_group )
 int gps_open( const char *prefix, struct gps_store *store )
 {
     static const char *const path[] = { "drive_c", "windows", "system32", "GroupPolicy" };
-    int fd, next;
+    int fd, next, sys = -1;
     unsigned int i;
+    struct stat st;
 
-    store->root_fd = store->spool_fd = -1;
+    store->root_fd = store->spool_fd = store->sys_fd = -1;
     if (!prefix || prefix[0] != '/') return GPS_BAD_ARGUMENT;
     /* the prefix is session 0's own configured path; below it nothing may be a link */
     if ((fd = open( prefix, O_RDONLY | O_DIRECTORY | O_CLOEXEC )) < 0) return GPS_BAD_TREE;
     for (i = 0; i < sizeof(path) / sizeof(path[0]); i++)
     {
         next = openat( fd, path[i], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC );
-        close( fd );
-        if (next < 0) return GPS_BAD_TREE;
+        /* system32 is kept: GroupPolicyUsers is below it, beside GroupPolicy */
+        if (i == 3) sys = fd;
+        else close( fd );
+        if (next < 0)
+        {
+            if (sys >= 0) close( sys );
+            return GPS_BAD_TREE;
+        }
         fd = next;
     }
-    if (!directory_ok( fd, S_IWGRP | S_IWOTH, 1 ))
+    /* system32 is root's (setup-machine-root.sh) and its group may write it (the system group, the machine root's default
+     * ACL): it is a directory of root or of this user and not writable by others. Nothing below it is trusted without
+     * the checks of every directory (owner this user, no write for group or others), and nothing is followed, so a
+     * GroupPolicyUsers that someone else put there is refused. */
+    if (!directory_ok( fd, S_IWGRP | S_IWOTH, 1 ) || fstat( sys, &st ) || !S_ISDIR( st.st_mode ) ||
+        (st.st_uid != geteuid() && st.st_uid != 0) || (st.st_mode & S_IWOTH))
     {
         close( fd );
+        close( sys );
         return GPS_BAD_TREE;
     }
     next = openat( fd, "Spool", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC );
@@ -91,10 +152,12 @@ int gps_open( const char *prefix, struct gps_store *store )
     {
         if (next >= 0) close( next );
         close( fd );
+        close( sys );
         return GPS_BAD_TREE;
     }
     store->root_fd = fd;
     store->spool_fd = next;
+    store->sys_fd = sys;
     return GPS_OK;
 }
 
@@ -102,21 +165,41 @@ void gps_close( struct gps_store *store )
 {
     if (store->spool_fd >= 0) close( store->spool_fd );
     if (store->root_fd >= 0) close( store->root_fd );
-    store->root_fd = store->spool_fd = -1;
+    if (store->sys_fd >= 0) close( store->sys_fd );
+    store->root_fd = store->spool_fd = store->sys_fd = -1;
 }
 
 /* a directory of the store: opened without following links, from the descriptor of the one above; made when missing
  * (when create is set); it has to belong to this user and not be writable by group or others. Returns a new
  * descriptor, or -1 with *result set. */
-static int open_store_dir( const struct gps_store *store, enum gps_kind kind, int create, int *result )
+static int open_store_dir( const struct gps_store *store, enum gps_kind kind, const char *target, int create, int *result )
 {
+    const char *target_dirs[4];
     const char *const *name;
     int fd = store->root_fd, next, owned = 0;
 
-    for (name = store_dirs[kind]; *name; name++)
+    name = store_dirs[kind];
+    if (kind == GPS_USER_TARGET_POL)
+    {
+        if (!gps_target_valid( target ) || store->sys_fd < 0)
+        {
+            *result = GPS_BAD_ARGUMENT;
+            return -1;
+        }
+        target_dirs[0] = "GroupPolicyUsers";
+        target_dirs[1] = target;
+        target_dirs[2] = "User";
+        target_dirs[3] = NULL;
+        name = target_dirs;
+        fd = store->sys_fd;
+    }
+    for (; *name; name++)
     {
         next = openat( fd, *name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC );
-        if (next < 0 && errno == ENOENT && create && !mkdirat( fd, *name, 02755 ))
+        /* GroupPolicyUsers itself is made by setup-machine-root.sh (session 0 does not create folders in system32, where the
+         * system group writes): a missing one is refused; the folders below it are session 0's to make */
+        if (next < 0 && errno == ENOENT && create && !(kind == GPS_USER_TARGET_POL && fd == store->sys_fd) &&
+            !mkdirat( fd, *name, 02755 ))
         {
             next = openat( fd, *name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC );
             if (next >= 0) fchmod( next, 02755 );   /* the umask does not decide */
@@ -175,10 +258,11 @@ static int write_all( int fd, const unsigned char *buffer, size_t size )
 
 /* the request that gps_spool_read last returned, by kind: spool_done removes that file, and not a newer one that the
  * writer put under the same name in between (that one stays for the next request) */
-static struct { int valid; dev_t dev; ino_t ino; } seen[GPS_KIND_COUNT];
+static struct { int valid; dev_t dev; ino_t ino; char target[GPS_TARGET_MAX]; } seen[GPS_KIND_COUNT];
 
-int gps_spool_read( struct gps_store *store, enum gps_kind kind, unsigned char **data, size_t *size )
+int gps_spool_read( struct gps_store *store, enum gps_kind kind, const char *target, unsigned char **data, size_t *size )
 {
+    char name[GPS_TARGET_MAX + 40];
     struct stat st;
     size_t limit;
     unsigned char *buffer;
@@ -186,11 +270,11 @@ int gps_spool_read( struct gps_store *store, enum gps_kind kind, unsigned char *
 
     *data = NULL;
     *size = 0;
-    if (kind >= GPS_KIND_COUNT || store->spool_fd < 0) return GPS_BAD_ARGUMENT;
+    if (kind >= GPS_KIND_COUNT || store->spool_fd < 0 || gps_request_name( kind, target, name, sizeof(name) )) return GPS_BAD_ARGUMENT;
     seen[kind].valid = 0;
     limit = kind == GPS_MACHINE_TEMPLATE ? GPS_TEMPLATE_LIMIT : GPS_REQUEST_LIMIT;
     /* O_NONBLOCK: a FIFO that was put in the place of the request must not hold this up */
-    fd = openat( store->spool_fd, request_names[kind], O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC );
+    fd = openat( store->spool_fd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC );
     if (fd < 0) return errno == ENOENT ? GPS_NONE : errno == ELOOP ? GPS_REFUSED : GPS_IO_ERROR;
     if (fstat( fd, &st ))
     {
@@ -200,6 +284,7 @@ int gps_spool_read( struct gps_store *store, enum gps_kind kind, unsigned char *
     seen[kind].valid = 1;
     seen[kind].dev = st.st_dev;
     seen[kind].ino = st.st_ino;
+    snprintf( seen[kind].target, sizeof(seen[kind].target), "%s", target ? target : "" );
     /* a regular file with one link: a second name for a file that this account can read and the writer cannot
      * must not be installed as a store file that everyone can read */
     if (!S_ISREG( st.st_mode ) || st.st_nlink != 1)
@@ -235,24 +320,30 @@ int gps_spool_read( struct gps_store *store, enum gps_kind kind, unsigned char *
     return GPS_OK;
 }
 
-int gps_spool_done( struct gps_store *store, enum gps_kind kind, const char *error )
+int gps_spool_done( struct gps_store *store, enum gps_kind kind, const char *target, const char *error )
 {
-    char error_name[64];
+    char name[GPS_TARGET_MAX + 40], error_name[GPS_TARGET_MAX + 60];
     size_t length;
     int fd, result = GPS_OK;
 
-    if (kind >= GPS_KIND_COUNT || store->spool_fd < 0) return GPS_BAD_ARGUMENT;
-    snprintf( error_name, sizeof(error_name), "%s.error", request_names[kind] );
+    if (kind >= GPS_KIND_COUNT || store->spool_fd < 0 || gps_request_name( kind, target, name, sizeof(name) )) return GPS_BAD_ARGUMENT;
+    snprintf( error_name, sizeof(error_name), "%s.error", name );
     if (seen[kind].valid)
     {
         struct stat now;
 
         seen[kind].valid = 0;
-        if (!fstatat( store->spool_fd, request_names[kind], &now, AT_SYMLINK_NOFOLLOW ) &&
+        /* what was read last was the request of another target: nothing is known of this one's */
+        if (!strcmp( seen[kind].target, target ? target : "" ) &&
+            !fstatat( store->spool_fd, name, &now, AT_SYMLINK_NOFOLLOW ) &&
             (now.st_dev != seen[kind].dev || now.st_ino != seen[kind].ino))
             goto keep_request;   /* a newer request under the same name, not read yet: it stays */
     }
-    if (unlinkat( store->spool_fd, request_names[kind], 0 ) && errno != ENOENT) result = GPS_IO_ERROR;
+    if (unlinkat( store->spool_fd, name, 0 ) && errno != ENOENT)
+    {
+        /* something that is not a file under the request's name (a directory): removed when empty, else it stays */
+        if (errno != EISDIR || unlinkat( store->spool_fd, name, AT_REMOVEDIR )) result = GPS_IO_ERROR;
+    }
 keep_request:
     /* whatever is at NAME.error goes (a link is removed, not followed), then a new file or none */
     if (unlinkat( store->spool_fd, error_name, 0 ) && errno != ENOENT) return GPS_IO_ERROR;
@@ -267,15 +358,16 @@ keep_request:
     return result;
 }
 
-int gps_store_write( struct gps_store *store, enum gps_kind kind, const unsigned char *data, size_t size )
+int gps_store_write( struct gps_store *store, enum gps_kind kind, const char *target, const unsigned char *data, size_t size )
 {
     char temp[64];
     int dir, fd, result = GPS_OK;
 
-    if (kind >= GPS_KIND_COUNT || store->root_fd < 0 || (size && !data)) return GPS_BAD_ARGUMENT;
+    if (kind >= GPS_KIND_COUNT || store->root_fd < 0 || (size && !data) || (kind != GPS_USER_TARGET_POL && target))
+        return GPS_BAD_ARGUMENT;
     /* the same limits as for a request: the caller of the unix call is not trusted to have checked */
     if (size > (kind == GPS_MACHINE_TEMPLATE ? GPS_TEMPLATE_LIMIT : GPS_REQUEST_LIMIT)) return GPS_TOO_LARGE;
-    if ((dir = open_store_dir( store, kind, 1, &result )) < 0) return result;
+    if ((dir = open_store_dir( store, kind, target, 1, &result )) < 0) return result;
     snprintf( temp, sizeof(temp), "%s.new", store_names[kind] );
     /* an old STORE.new, or a link put there, is removed (not followed) before the file is made new */
     if (unlinkat( dir, temp, 0 ) && errno != ENOENT)
@@ -311,9 +403,52 @@ void gps_clean( struct gps_store *store )
 
     for (kind = 0; kind < GPS_KIND_COUNT; kind++)
     {
-        if ((dir = open_store_dir( store, kind, 0, &result )) < 0) continue;
+        if (kind == GPS_USER_TARGET_POL) continue;   /* its folders are many; STORE.new is removed before every write */
+        if ((dir = open_store_dir( store, kind, NULL, 0, &result )) < 0) continue;
         snprintf( temp, sizeof(temp), "%s.new", store_names[kind] );
         unlinkat( dir, temp, 0 );
         close( dir );
     }
+}
+
+/* the targets with a request: names of the form UserPolicy.TARGET.Registry.pol, TARGET a valid SID. The directory is
+ * read from a copy of the descriptor of the spool; nothing in it is opened here (gps_spool_read opens without following
+ * links). A request over the maximum waits for the next pass. */
+int gps_spool_targets( struct gps_store *store, char (*targets)[GPS_TARGET_MAX], unsigned int max )
+{
+    static const char prefix[] = "UserPolicy.", suffix[] = ".Registry.pol";
+    struct dirent *entry;
+    DIR *dir;
+    int fd, count = 0;
+
+    if (store->spool_fd < 0) return -1;
+    if ((fd = fcntl( store->spool_fd, F_DUPFD_CLOEXEC, 0 )) < 0) return -1;
+    if (!(dir = fdopendir( fd )))
+    {
+        close( fd );
+        return -1;
+    }
+    rewinddir( dir );
+    while ((entry = readdir( dir )) && (unsigned int)count < max)
+    {
+        size_t length = strlen( entry->d_name ), head = sizeof(prefix) - 1, tail = sizeof(suffix) - 1;
+        char target[GPS_TARGET_MAX];
+        struct stat st;
+
+        if (length <= head + tail || length - head - tail >= GPS_TARGET_MAX) continue;
+        if (strncmp( entry->d_name, prefix, head ) || strcmp( entry->d_name + length - tail, suffix )) continue;
+        memcpy( target, entry->d_name + head, length - head - tail );
+        target[length - head - tail] = 0;
+        if (!gps_target_valid( target )) continue;
+        /* a request is a regular file: a directory, a link or another thing under that name is removed (nothing is followed;
+         * a directory that is not empty stays, and is not listed) and takes no place in the round */
+        if (fstatat( store->spool_fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW ) || !S_ISREG( st.st_mode ))
+        {
+            unlinkat( store->spool_fd, entry->d_name, S_ISDIR( st.st_mode ) ? AT_REMOVEDIR : 0 );
+            continue;
+        }
+        memcpy( targets[count++], target, GPS_TARGET_MAX );
+    }
+    closedir( dir );
+    return count;
 }

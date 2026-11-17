@@ -646,32 +646,141 @@ fi
 # removed (none is legitimate), ACLs dropped, owner and modes set, stale requests removed.
 S0_ACCOUNT="${WEX_SESSION0_USER:-wexsys}"   # (the test of this part uses a throw-away account)
 if [ "${SESSION0_ENABLE:-0}" = "1" ] && id "$S0_ACCOUNT" >/dev/null 2>&1; then
-    GP_DIR="$MACHINE_ROOT/drive_c/windows/system32/GroupPolicy"
-    [ ! -L "$GP_DIR" ] || die "$GP_DIR is a link"
-    echo "Setting the local Group Policy store ($GP_DIR) to session 0's account..."
-    # The directory itself first (the short window between the link check above and this call stays: system32 above
-    # is group-writable, as the whole machine root is by design).
-    install -d -m 2755 -o "$S0_ACCOUNT" -g "$MACHINE_GROUP" -- "$GP_DIR"
-    [ ! -L "$GP_DIR" ] || die "$GP_DIR is a link"
-    # Then every directory is made unwritable for the group before anything below it is listed: find's default
-    # pre-order does one directory at a time (\; not +), so a member of the system group cannot swap an entry for
-    # a link between a listing and the chown or chmod that follows it (chmod follows links, and root runs this).
-    ACL_EXEC=(-exec true ';')
-    if command -v setfacl >/dev/null 2>&1; then ACL_EXEC=(-exec setfacl -b '{}' ';'); fi
-    find "$GP_DIR" -type d -exec chown -h "$S0_ACCOUNT":"$MACHINE_GROUP" '{}' ';' -exec chmod 2755 '{}' ';' "${ACL_EXEC[@]}"
-    # now no directory below can change; what is not a file or a directory goes, the files are set
-    # (a file with more than one name goes too: chown and chmod act on the inode, so a second name planted elsewhere
-    # would hand that file to session 0's account and make it readable by all)
-    find "$GP_DIR" -mindepth 1 '(' '(' ! -type d ! -type f ')' -o '(' -type f -links +1 ')' ')' -print -delete |
-        sed 's/^/  removed (not a file or directory, or a file with more than one name): /'
-    find "$GP_DIR" -type f -exec chown -h "$S0_ACCOUNT":"$MACHINE_GROUP" '{}' ';' -exec chmod 0644 '{}' ';' "${ACL_EXEC[@]}"
-    # the spool: where the system group leaves requests; session 0's account reads and removes them
-    install -d -m 2770 -o "$S0_ACCOUNT" -g "$MACHINE_GROUP" -- "$GP_DIR/Spool"
-    find "$GP_DIR/Spool" -mindepth 1 -delete
-    if command -v setfacl >/dev/null 2>&1; then
-        setfacl -m "g:$MACHINE_GROUP:rwX" -- "$GP_DIR/Spool"
-        setfacl -d -m "g:$MACHINE_GROUP:rwX" -- "$GP_DIR/Spool"
-    fi
+    echo "Setting the local Group Policy stores (GroupPolicy and GroupPolicyUsers) to session 0's account..."
+    # Root changes owner, mode and ACL of everything below the two folders, which sit in system32, where the whole system
+    # group can write. So no change is made by a path: the folders and every entry are opened without following links
+    # (os.fwalk, O_NOFOLLOW) and changed through the descriptor, as the permission pass above does it. A name that is
+    # swapped for a link, or for another tree, while this runs cannot send a change anywhere else: what was opened is what
+    # is changed, a link or any other thing that is not a plain file or directory is removed, and so is a file with
+    # more than one name (chown and chmod act on the inode, so a second name planted elsewhere would hand that file to
+    # session 0's account and make it readable by all). GroupPolicy/Spool is the system group's: emptied, and given
+    # its own owner, mode and default ACL.
+python3 -I - "$MACHINE_ROOT" "$MACHINE_GROUP" "$S0_ACCOUNT" <<'STORETREE' || die "the local Group Policy stores were not set"
+import errno, grp, os, pwd, stat, struct, sys
+
+root, group, account = sys.argv[1:4]
+GID = grp.getgrnam(group).gr_gid
+UID = pwd.getpwnam(account).pw_uid
+ACCESS, DEFAULT = 'system.posix_acl_access', 'system.posix_acl_default'
+UNDEFINED = 0xFFFFFFFF
+FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def die(message):
+    print('Error: ' + message, file=sys.stderr)
+    sys.exit(1)
+
+
+def acl(entries):
+    # POSIX ACL xattr: version 2, then (tag, permissions, id) sorted by tag (USER_OBJ 1, GROUP_OBJ 4, GROUP 8, MASK 16,
+    # OTHER 32)
+    return struct.pack('<I', 2) + b''.join(struct.pack('<HHI', *entry) for entry in sorted(entries))
+
+
+SPOOL_ACL = acl([(1, 7, UNDEFINED), (4, 7, UNDEFINED), (8, 7, GID), (16, 7, UNDEFINED), (32, 0, UNDEFINED)])
+
+
+def strip(fd, directory):
+    path = '/proc/self/fd/%d' % fd   # the descriptor's magic link: the call acts on the opened inode
+    for name in (ACCESS, DEFAULT) if directory else (ACCESS,):
+        try:
+            os.removexattr(path, name)
+        except OSError as error:
+            if error.errno not in (errno.ENODATA, errno.EOPNOTSUPP):
+                raise
+
+
+def open_dir(name, dirfd, create=False):
+    try:
+        return os.open(name, FLAGS, dir_fd=dirfd)
+    except FileNotFoundError:
+        if not create:
+            raise
+        os.mkdir(name, 0o700, dir_fd=dirfd)
+        return os.open(name, FLAGS, dir_fd=dirfd)
+    except OSError as error:
+        if error.errno in (errno.ELOOP, errno.ENOTDIR):
+            die(name + ' is a link or not a directory')
+        raise
+
+
+def set_dir(fd, mode):
+    os.fchown(fd, UID, GID)
+    os.fchmod(fd, mode)
+    strip(fd, True)
+
+
+def remove_all(dirfd):
+    """everything below the directory goes, nothing is followed"""
+    for dirpath, dirnames, filenames, fd in os.fwalk('.', dir_fd=dirfd, topdown=False, follow_symlinks=False):
+        for name in filenames + dirnames:
+            try:
+                os.unlink(name, dir_fd=fd)
+            except IsADirectoryError:
+                os.rmdir(name, dir_fd=fd)
+            except PermissionError:
+                os.rmdir(name, dir_fd=fd)
+
+
+def fix_files(dfd, names):
+    for name in names:
+        try:
+            st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+            if stat.S_ISDIR(st.st_mode):
+                continue   # fwalk goes into it
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dfd)
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            if error.errno != errno.ELOOP:
+                raise
+            os.unlink(name, dir_fd=dfd)   # a link, which O_NOFOLLOW would not open
+            print('  removed (not a file or directory, or a file with more than one name): ' + name)
+            continue
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                os.unlink(name, dir_fd=dfd)
+                print('  removed (not a file or directory, or a file with more than one name): ' + name)
+                continue
+            os.fchown(fd, UID, GID)
+            os.fchmod(fd, 0o644)
+            strip(fd, False)
+        finally:
+            os.close(fd)
+
+
+system32 = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+for part in ('drive_c', 'windows', 'system32'):
+    next_fd = open_dir(part, system32)
+    os.close(system32)
+    system32 = next_fd
+
+for top in ('GroupPolicy', 'GroupPolicyUsers'):
+    topfd = open_dir(top, system32, create=True)
+    for dirpath, dirnames, filenames, dfd in os.fwalk('.', dir_fd=topfd, follow_symlinks=False):
+        set_dir(dfd, 0o2755)
+        fix_files(dfd, filenames + dirnames)
+        if top == 'GroupPolicy' and dirpath == '.' and 'Spool' in dirnames:
+            dirnames.remove('Spool')   # the system group's: below
+    if top == 'GroupPolicy':
+        spool = open_dir('Spool', topfd, create=True)
+        remove_all(spool)
+        os.fchown(spool, UID, GID)
+        os.fchmod(spool, 0o2770)
+        strip(spool, True)
+        for name, data in ((ACCESS, SPOOL_ACL), (DEFAULT, SPOOL_ACL)):
+            try:
+                os.setxattr('/proc/self/fd/%d' % spool, name, data)
+            except OSError as error:
+                if error.errno != errno.EOPNOTSUPP:
+                    raise
+                print('Warning: the file system of the machine root has no POSIX ACLs', file=sys.stderr)
+                break
+        os.close(spool)
+    os.close(topfd)
+os.close(system32)
+STORETREE
 fi
 
 # 2c. UWP frameworks installed before their records carried the classes of their in-process servers get the class

@@ -1,4 +1,5 @@
 @ stdcall WexGpStoreOpen()
-@ stdcall WexGpSpoolRead(long ptr long ptr)
-@ stdcall WexGpSpoolDone(long str)
-@ stdcall WexGpStoreWrite(long ptr long)
+@ stdcall WexGpSpoolRead(long str ptr long ptr)
+@ stdcall WexGpSpoolTargets(ptr long ptr)
+@ stdcall WexGpSpoolDone(long str str)
+@ stdcall WexGpStoreWrite(long str ptr long)

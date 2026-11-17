@@ -33,11 +33,14 @@
 
 struct open_params { DWORD err; };
 
-struct read_params { ULONG64 buffer; DWORD size; DWORD kind; DWORD length; DWORD err; };
+/* target: the target of the kind that has one, else empty (target_given 0) */
+struct read_params { ULONG64 buffer; DWORD size; DWORD kind; DWORD length; DWORD err; DWORD target_given; char target[WEX_GP_TARGET_MAX]; };
 
-struct done_params { DWORD kind; DWORD has_error; char error[WEX_GP_ERROR_LIMIT + 1]; DWORD err; };
+struct targets_params { ULONG64 targets; DWORD max; DWORD count; DWORD err; };
 
-struct write_params { ULONG64 data; DWORD size; DWORD kind; DWORD err; };
+struct done_params { DWORD kind; DWORD has_error; char error[WEX_GP_ERROR_LIMIT + 1]; DWORD err; DWORD target_given; char target[WEX_GP_TARGET_MAX]; };
+
+struct write_params { ULONG64 data; DWORD size; DWORD kind; DWORD err; DWORD target_given; char target[WEX_GP_TARGET_MAX]; };
 
 enum wexgpstore_funcs
 {
@@ -45,6 +48,7 @@ enum wexgpstore_funcs
     unix_gpstore_read,
     unix_gpstore_done,
     unix_gpstore_write,
+    unix_gpstore_targets,
     unix_funcs_count
 };
 

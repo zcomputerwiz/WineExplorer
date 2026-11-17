@@ -34,11 +34,14 @@
 #include "resource.h"
 
 typedef BOOL (WINAPI *EXECUTE)( HWND, HINSTANCE, const WCHAR *, int );
+typedef BOOL (WINAPI *EXECUTE_OBJECT)( HWND, HINSTANCE, const WCHAR *, const WCHAR *, int );
 
-static const struct { const char *clsid; const WCHAR *dll; const char *entry; } snapins[] =
+/* object_entry: the entry of a snap-in that takes /gpobject:OBJECT (the object of a Group Policy snap-in, here the local
+ * objects of the users: Administrators, Non-Administrators or an account), or NULL */
+static const struct { const char *clsid; const WCHAR *dll; const char *entry; const char *object_entry; } snapins[] =
 {
-    { "{74246BFC-4C96-11D0-ABEF-0020AF6B0B7A}", L"devmgr.dll", "DeviceManager_ExecuteW" },   /* Device Manager */
-    { "{8FC0B734-A0E1-11D1-A7D3-0000F87571E3}", L"gpedit.dll", "GpEdit_ExecuteW" },          /* Group Policy (local) */
+    { "{74246BFC-4C96-11D0-ABEF-0020AF6B0B7A}", L"devmgr.dll", "DeviceManager_ExecuteW", NULL },   /* Device Manager */
+    { "{8FC0B734-A0E1-11D1-A7D3-0000F87571E3}", L"gpedit.dll", "GpEdit_ExecuteW", "GpEdit_ExecuteObjectW" },   /* Group Policy (local) */
 };
 
 static char *read_console( const WCHAR *path )
@@ -75,7 +78,7 @@ static void cannot_open( HINSTANCE instance, const WCHAR *path )
 
 int WINAPI wWinMain( HINSTANCE instance, HINSTANCE previous, WCHAR *cmdline, int show )
 {
-    WCHAR **argv, path[MAX_PATH], *file;
+    WCHAR **argv, path[MAX_PATH], *file, *object = NULL;
     unsigned int i;
     char *console;
     int argc;
@@ -86,6 +89,9 @@ int WINAPI wWinMain( HINSTANCE instance, HINSTANCE previous, WCHAR *cmdline, int
         cannot_open( instance, L"" );
         return 1;
     }
+    /* /gpobject:OBJECT after the console: the object of the Group Policy snap-in */
+    for (i = 2; i < (unsigned int)argc; i++)
+        if (!_wcsnicmp( argv[i], L"/gpobject:", 10 ) && argv[i][10]) object = argv[i] + 10;
     /* "devmgmt.msc" is in system32, as on Windows */
     if (!SearchPathW( NULL, argv[1], NULL, ARRAY_SIZE(path), path, &file )) lstrcpynW( path, argv[1], MAX_PATH );
     if (!(console = read_console( path )))
@@ -102,6 +108,13 @@ int WINAPI wWinMain( HINSTANCE instance, HINSTANCE previous, WCHAR *cmdline, int
         free( console );
         if (!(dll = LoadLibraryW( snapins[i].dll )) || !(execute = (EXECUTE)GetProcAddress( dll, snapins[i].entry )))
             break;
+        if (object)
+        {
+            EXECUTE_OBJECT execute_object = snapins[i].object_entry ? (EXECUTE_OBJECT)GetProcAddress( dll, snapins[i].object_entry ) : NULL;
+
+            if (!execute_object) break;
+            return !execute_object( NULL, instance, NULL, object, show );
+        }
         return !execute( NULL, instance, NULL, show );
     }
     cannot_open( instance, path );

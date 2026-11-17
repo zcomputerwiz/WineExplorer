@@ -197,6 +197,51 @@ grep -qx 'clear /machine' "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log"; fail
 ! grep -q '^security' "$FX/wexpolicy.log" || fail 'an unreadable template was applied'
 rm -f "$LG/Machine/Registry.pol" "$SECDIR/GptTmpl.inf"
 echo 'OK: wex-gpupdate.sh local policy (not joined, joined and in order, a template, nothing to do, removed, a link, an unreadable file)'
+# ---- the local objects of the users: GroupPolicyUsers/<SID>/User/Registry.pol for the Administrators (S-1-5-32-544), the
+# Non-Administrators (S-1-5-32-545) and single people. Order for a person: the local User policy, the Administrators' or the
+# Non-Administrators' (wex-is-admin says which), the person's own, then the domain's. Here alice is the only administrator.
+cat > "$FX/bin/wex-is-admin" <<'EOF2'
+#!/bin/sh
+[ "$1" = alice ]
+EOF2
+chmod 0755 "$FX/bin/wex-is-admin"
+GU="$FX/mroot/drive_c/windows/system32/GroupPolicyUsers"
+mkdir -p "$GU/S-1-5-32-544/User" "$GU/S-1-5-32-545/User" "$GU/S-1-5-21-11-22-33-1001/User" "$GU/S-1-5-21-11-22-33-1002/User"
+printf 'ADMINS' > "$GU/S-1-5-32-544/User/Registry.pol"
+printf 'NONADMINS' > "$GU/S-1-5-32-545/User/Registry.pol"
+printf 'ALICE' > "$GU/S-1-5-21-11-22-33-1001/User/Registry.pol"
+printf 'LOCALU' > "$LG/User/Registry.pol"
+touch "$FX/unjoined"
+run_gpupdate "$FX/map3"
+detail 'apply /user:S-1-5-21-11-22-33-1001 [LOCALU] [ADMINS] [ALICE]' 'users: an administrator gets the local User policy, the Administrators'"'"' and her own'
+detail 'apply /user:S-1-5-21-11-22-33-1002 [LOCALU] [NONADMINS]' 'users: a standard user gets the Non-Administrators'"'"''
+detail 'apply /user:S-1-5-21-111-222-333-1104 [LOCALU] [NONADMINS]' 'users: a domain user on an unjoined machine gets the local ones too'
+detail 'record /user:S-1-5-21-11-22-33-1001 <LocalGPO,Local Group Policy;>' 'users: one Local Group Policy in the applied list'
+# joined: the domain's policy comes after all of them
+rm -f "$FX/unjoined"
+run_gpupdate "$FX/map3"
+detail 'apply /user:S-1-5-21-111-222-333-1104 [LOCALU] [NONADMINS] [DOMAINU]' 'users: the domain'"'"'s user policy after the local objects'
+# only a person's own file, no local User policy: it applies, and the object is listed
+touch "$FX/unjoined"; rm -f "$LG/User/Registry.pol" "$GU/S-1-5-32-544/User/Registry.pol" "$GU/S-1-5-32-545/User/Registry.pol"
+printf 'BOB' > "$GU/S-1-5-21-11-22-33-1002/User/Registry.pol"
+run_gpupdate "$FX/map3"
+detail 'apply /user:S-1-5-21-11-22-33-1002 [BOB]' 'users: a person'"'"'s own file alone'
+detail 'record /user:S-1-5-21-11-22-33-1002 <LocalGPO,Local Group Policy;>' 'users: the person'"'"'s own file lists the local object'
+# a link in place of a file is not followed, and a name that is not a SID is not looked at
+rm -f "$GU/S-1-5-21-11-22-33-1002/User/Registry.pol"; ln -s /etc/hostname "$GU/S-1-5-21-11-22-33-1002/User/Registry.pol"
+mkdir -p "$GU/bob/User"; printf 'BYNAME' > "$GU/bob/User/Registry.pol"
+run_gpupdate "$FX/map3"
+! grep -q '^apply /user:S-1-5-21-11-22-33-1002' "$FX/wexpolicy.log" || { cat "$FX/detail.log"; fail 'users: a link, or a folder named for the account, was taken for the person'"'"'s policy'; }
+# a SID that is not in the grammar of the store (a subauthority over 4294967295) names no object, whatever the folder holds
+mkdir -p "$GU/S-1-5-21-11-22-33-99999999999/User"; printf 'CAROL' > "$GU/S-1-5-21-11-22-33-99999999999/User/Registry.pol"
+cat > "$FX/map4" <<'EOF2'
+WEXACCOUNTS 2 4 1030 11 22 33 111 222 333 WEXLAB
+carol 1003 cccccccccccccccccccccccccccccccc active local 21 11 22 33 99999999999
+EOF2
+run_gpupdate "$FX/map4"
+! grep -q CAROL "$FX/detail.log" || { cat "$FX/detail.log"; fail 'users: a folder named for an invalid SID was taken for a person'"'"'s policy'; }
+rm -rf "$GU" "$FX/bin/wex-is-admin" "$LG/User/Registry.pol" "$LG/Machine/Registry.pol"
+echo 'OK: wex-gpupdate.sh local objects of the users (Administrators, Non-Administrators, one person; the order; a link)'
 # ---- the domain out of reach (a joined machine whose controller does not answer): what was applied is not cleared
 rm -f "$FX/unjoined" "$LG/Archive/"*.pol "$LG/Machine/Registry.pol" "$LG/User/Registry.pol" "$SECDIR/GptTmpl.inf"
 rm -rf "$FX/state"

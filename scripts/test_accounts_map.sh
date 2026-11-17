@@ -526,6 +526,15 @@ echo 'S-1-5-21-111-222-333-1120 S-1-5-21-111-222-333-513 S-1-5-21-111-222-333-51
 admit_ok 'WEXLAB\wexadm1'
 d2_lookup 0 'WEXLAB\wexadm1'
 grep -q 'admin=1' "$FIXTURE/d2.lookup" || { cat "$FIXTURE/d2.lookup"; fail 'd2: a member of Domain Admins is not an administrator'; }
+# wex-is-admin takes a domain account's name and decides as the server's lookup does (wex-gpupdate.sh asks it for the
+# local objects of the users)
+D2ISA=("$FIXTURE/is-admin-lab" --directory "$D2" --test-passwd "$FIXTURE/d2.passwd" --test-group "$FIXTURE/d2.group"
+       --test-winbind-passwd "$FIXTURE/d2.winbind")
+expect_admin 0 "${D2ISA[@]}" 'WEXLAB\wexadm1'
+expect_admin 1 "${D2ISA[@]}" 'WEXLAB\wexuser1'
+expect_admin 1 "${D2ISA[@]}" 'WEXLAB\nosuchuser'
+expect_admin 1 "${D2ISA[@]}" 'WEXLAB\wexadm1\x'
+expect_admin 1 "${D2ISA[@]}" '\wexadm1'
 # Winbind not answering for the groups at a logon: the last recorded set stays, nothing is added
 cp -p "$GRPFILE" "$FIXTURE/groups.before"
 touch "$WB/groups-transient"
@@ -537,6 +546,7 @@ sed -i 's/^S-1-5-21-111-222-333-1120 .*/S-1-5-21-111-222-333-1120 S-1-5-21-111-2
 admit_ok 'WEXLAB\wexadm1'
 d2_lookup 0 'WEXLAB\wexadm1'
 grep -q 'admin=0' "$FIXTURE/d2.lookup" || fail 'd2: removal from Domain Admins kept the administrator'
+expect_admin 1 "${D2ISA[@]}" 'WEXLAB\wexadm1'
 grep -qx "$KEY1 513 1300" "$GRPFILE" || fail "d2: another account's groups were lost"
 # the domain's Administrator (RID 500) is an ordinary domain account: no built-in Administrator treatment
 printf 'WEXLAB\\Administrator:x:20500:20513::/home/WEXLAB/administrator:/bin/bash\n' >> "$FIXTURE/d2.winbind"
