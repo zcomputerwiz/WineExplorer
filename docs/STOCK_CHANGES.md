@@ -3622,3 +3622,11 @@ event is not raised) and `Windows.UI.Text.FontWeights`; `dlls/threadpoolwinrt` (
 pool, test in `tests/threadpool.c`; `dlls/windows.applicationmodel` (`limitedaccess.c`;
 `include/windows.applicationmodel.idl`): `Windows.ApplicationModel.LimitedAccessFeatures` (always Unavailable), test in
 `tests/model.c`. Verified on x64 and x86 in the owned U1 guest.
+
+# Group Policy: NoFileAssociate (2026-11-17)
+
+- `dlls/shell32/openwith.c`, `shell32_main.h`: `SHELL_FileAssociationsRestricted()` reads the Policies\Explorer value
+  `NoFileAssociate` (user's hive, then the machine's) each time it is asked, because `SHRestricted` caches a value for
+  the life of the process and reads only the user's hive, so a policy refresh would not count. The Open With dialog
+  then drops the registration flags and hides "Always use the selected program".
+- `dlls/shell32/shlview_cmenu.c`: the Change... button of a file's properties is hidden under the same policy.

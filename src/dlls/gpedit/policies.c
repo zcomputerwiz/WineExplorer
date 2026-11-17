@@ -75,8 +75,8 @@ const struct policy policies[] =
           "Enabled (the default): the prompt appears on the secure desktop, where other programs cannot reach it. "
           "Disabled: it appears on the user's own desktop.", SYSTEM, "PromptOnSecureDesktop" ),
 
-    /* ---- Start menu restrictions, carried out by the shell (wexshell restrictions.c, startmenu_view.c); the ones below that
-     stay "stored" are read by programs that call SHRestricted, the shell of this system does not carry them out ---- */
+    /* ---- shell restrictions, carried out by the shell programs (wexshell restrictions.c, startmenu_view.c, the folder
+     window in wexbrowse, msgina at logoff, shell32's Open With dialog) ---- */
     FLAG( "user:NoRun", POLICY_USER, POLICY_APPLIES, START_CAT, "Remove Run from the Start menu",
           "Removes the Run command from the Start menu.", EXPLORER, "NoRun" ),
     FLAG( "user:NoClose", POLICY_USER, POLICY_APPLIES, START_CAT, "Remove Shut Down from the Start menu",
@@ -93,17 +93,17 @@ const struct policy policies[] =
           "Users cannot drag items on the Start menu or change its contents.", EXPLORER, "NoChangeStartMenu" ),
     FLAG( "user:NoFind", POLICY_USER, POLICY_APPLIES, START_CAT, "Remove Search from the Start menu",
           "Removes the Search command from the Start menu and the shell's Search action.", EXPLORER, "NoFind" ),
-    FLAG( "user:NoFolderOptions", POLICY_USER, POLICY_STORED, EXPLORER_CAT, "Remove Folder Options",
+    FLAG( "user:NoFolderOptions", POLICY_USER, POLICY_APPLIES, EXPLORER_CAT, "Remove Folder Options",
           "Removes the Folder Options command from the Tools menu of Windows Explorer.", EXPLORER, "NoFolderOptions" ),
-    FLAG( "user:NoViewContextMenu", POLICY_USER, POLICY_STORED, EXPLORER_CAT, "Remove the shortcut menu of folders",
+    FLAG( "user:NoViewContextMenu", POLICY_USER, POLICY_APPLIES, EXPLORER_CAT, "Remove the shortcut menu of folders",
           "Right-clicking in a folder's background no longer shows a menu.", EXPLORER, "NoViewContextMenu" ),
-    FLAG( "user:NoFileAssociate", POLICY_USER, POLICY_STORED, EXPLORER_CAT, "Do not allow changing file associations",
+    FLAG( "user:NoFileAssociate", POLICY_USER, POLICY_APPLIES, EXPLORER_CAT, "Do not allow changing file associations",
           "Removes the commands that change which program opens a file type.", EXPLORER, "NoFileAssociate" ),
     FLAG( "user:NoNetHood", POLICY_USER, POLICY_APPLIES, DESKTOP_CAT, "Hide My Network Places",
           "Removes My Network Places from the desktop and from Windows Explorer.", EXPLORER, "NoNetHood" ),
     FLAG( "user:NoRecentDocsMenu", POLICY_USER, POLICY_APPLIES, START_CAT, "Remove Recent Documents from the Start menu",
           "Removes the Recent Documents menu from the Start menu.", EXPLORER, "NoRecentDocsMenu" ),
-    FLAG( "user:ClearRecentDocsOnExit", POLICY_USER, POLICY_STORED, START_CAT, "Clear the history of recent documents at logoff",
+    FLAG( "user:ClearRecentDocsOnExit", POLICY_USER, POLICY_APPLIES, START_CAT, "Clear the history of recent documents at logoff",
           "The Recent Documents list is emptied when the user logs off.", EXPLORER, "ClearRecentDocsOnExit" ),
     FLAG( "user:NoSMHelp", POLICY_USER, POLICY_APPLIES, START_CAT, "Remove Help from the Start menu",
           "Removes the Help and Support command from the Start menu.", EXPLORER, "NoSMHelp" ),

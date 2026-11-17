@@ -29,12 +29,14 @@
 #include <uxtheme.h>
 #include <vsstyle.h>
 
+#include <shlobj.h>
 #include <wexhost.h>
 
 #include "wine/debug.h"
 #include "wextheme.h"
 #include "wexpower.h"
 #include "wexres.h"
+#include "wexshellpolicy.h"
 #include "resource.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
@@ -82,6 +84,9 @@ static BOOL end_session_with_consent(LPARAM flags)
 
     ctx.msg = WM_ENDSESSION; ctx.wparam = TRUE;
     EnumWindows(enum_end_session_proc, (LPARAM)&ctx);
+    /* Group Policy "Clear the history of recent documents at logoff" (also at shutdown, as on Windows): the list
+     * is emptied when the session ends */
+    if (wex_shell_restricted(L"ClearRecentDocsOnExit")) SHAddToRecentDocs(SHARD_PIDL, NULL);
     return TRUE;
 }
 

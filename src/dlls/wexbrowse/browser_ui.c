@@ -35,6 +35,7 @@
 #include "browser.h"
 #include "search_dispatch.h"
 #include "wexres.h"
+#include "wexshellpolicy.h"
 
 #define ADDRESS_CLASS L"BrowserAddressBand"
 #define BRAND_CLASS   L"BrowserBrand"
@@ -495,7 +496,9 @@ HMENU browser_create_menu(void)
     AppendMenuW(bar, MF_POPUP, (UINT_PTR)view, L"&View");
     g_favorites_menu = favorites;
     AppendMenuW(bar, MF_POPUP, (UINT_PTR)favorites, L"F&avorites");
-    AppendMenuW(bar, MF_POPUP, (UINT_PTR)tools, L"&Tools");
+    /* Group Policy "Remove Folder Options": Folder Options is the only command of Tools, so the menu goes with it */
+    if (wex_shell_restricted(L"NoFolderOptions")) DestroyMenu(tools);
+    else AppendMenuW(bar, MF_POPUP, (UINT_PTR)tools, L"&Tools");
     AppendMenuW(bar, MF_POPUP, (UINT_PTR)help, L"&Help");
     return bar;
 }

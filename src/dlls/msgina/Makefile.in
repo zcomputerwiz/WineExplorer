@@ -2,6 +2,6 @@
 # Copyright 2026 WineExplorer contributors
 MODULE = msgina.dll
 IMPORTLIB = msgina
-IMPORTS = themeui wexres user32 gdi32
-DELAYIMPORTS = wexhost msimg32 uxtheme
+IMPORTS = themeui wexres user32 gdi32 advapi32
+DELAYIMPORTS = wexhost msimg32 uxtheme shell32
 SOURCES = logon.c logon.rc power_mgmt.c power.rc
