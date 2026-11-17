@@ -76,10 +76,14 @@ static BOOL is_guid( const WCHAR *s )
     return is_guid_at( s ) && !s[GUID_CHARS];
 }
 
-/* the name of the local Group Policy object (docs/GROUP_POLICY.md, "Local policy"): it has no GUID */
+/* the name of the local Group Policy object (docs/GROUP_POLICY.md, "Local policy"): it has no GUID; the local objects
+ * of the users are LocalGPO- and the SID of their folder */
 static BOOL is_object_name( const WCHAR *s )
 {
-    return is_guid( s ) || !wcscmp( s, L"LocalGPO" );
+    if (is_guid( s ) || !wcscmp( s, L"LocalGPO" )) return TRUE;
+    if (wcsncmp( s, L"LocalGPO-S-1-", 13 ) || wcslen( s ) > 60) return FALSE;
+    for (s += 8; *s; s++) if (*s != '-' && *s != 'S' && (*s < '0' || *s > '9')) return FALSE;
+    return TRUE;
 }
 
 static BOOL is_number( const WCHAR *s, DWORD max )

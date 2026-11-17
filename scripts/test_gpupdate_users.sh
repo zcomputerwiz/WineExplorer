@@ -70,7 +70,7 @@ case $cmd in
     record) f=$(printf '%s' "${1#Z:}" | tr '\134' '/'); out="$out <$(cut -f1,5 "$f" | tr '\t\n' ',;')>"
             echo "$target $(cut -f9 "$f" | tr '\n' ';')" >> "$D/ext.log" ;;
 esac
-echo "$out" >> "$D/detail.log"
+printf '%s\n' "$out" >> "$D/detail.log"
 exit 0
 EOF
 chmod 0755 "$FX"/bin/* "$FX/wine"
@@ -216,7 +216,8 @@ run_gpupdate "$FX/map3"
 detail 'apply /user:S-1-5-21-11-22-33-1001 [LOCALU] [ADMINS] [ALICE]' 'users: an administrator gets the local User policy, the Administrators'"'"' and her own'
 detail 'apply /user:S-1-5-21-11-22-33-1002 [LOCALU] [NONADMINS]' 'users: a standard user gets the Non-Administrators'"'"''
 detail 'apply /user:S-1-5-21-111-222-333-1104 [LOCALU] [NONADMINS]' 'users: a domain user on an unjoined machine gets the local ones too'
-detail 'record /user:S-1-5-21-11-22-33-1001 <LocalGPO,Local Group Policy;>' 'users: one Local Group Policy in the applied list'
+detail 'record /user:S-1-5-21-11-22-33-1001 <LocalGPO,Local Group Policy;LocalGPO-S-1-5-32-544,Local Group Policy\Administrators;LocalGPO-S-1-5-21-11-22-33-1001,Local Group Policy\alice;>' 'users: the applied list names each local object, in the order applied'
+detail 'record /user:S-1-5-21-11-22-33-1002 <LocalGPO,Local Group Policy;LocalGPO-S-1-5-32-545,Local Group Policy\Non-Administrators;>' 'users: a standard user lists the Non-Administrators object'
 # joined: the domain's policy comes after all of them
 rm -f "$FX/unjoined"
 run_gpupdate "$FX/map3"
@@ -226,7 +227,7 @@ touch "$FX/unjoined"; rm -f "$LG/User/Registry.pol" "$GU/S-1-5-32-544/User/Regis
 printf 'BOB' > "$GU/S-1-5-21-11-22-33-1002/User/Registry.pol"
 run_gpupdate "$FX/map3"
 detail 'apply /user:S-1-5-21-11-22-33-1002 [BOB]' 'users: a person'"'"'s own file alone'
-detail 'record /user:S-1-5-21-11-22-33-1002 <LocalGPO,Local Group Policy;>' 'users: the person'"'"'s own file lists the local object'
+detail 'record /user:S-1-5-21-11-22-33-1002 <LocalGPO-S-1-5-21-11-22-33-1002,Local Group Policy\bob;>' 'users: the person'"'"'s own file lists its object'
 # a link in place of a file is not followed, and a name that is not a SID is not looked at
 rm -f "$GU/S-1-5-21-11-22-33-1002/User/Registry.pol"; ln -s /etc/hostname "$GU/S-1-5-21-11-22-33-1002/User/Registry.pol"
 mkdir -p "$GU/bob/User"; printf 'BYNAME' > "$GU/bob/User/Registry.pol"

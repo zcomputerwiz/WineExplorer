@@ -188,6 +188,13 @@ local_entry()
     printf 'LocalGPO\t0\t0\t0\tLocal Group Policy\tC:\\windows\\system32\\GroupPolicy\\%s\t\tLocal\t%s\n' "$1" "$2"
 }
 
+# the same for one of the users' local objects ($1 the SID of its folder, $2 the name shown after "Local Group
+# Policy\", $3 its extensions): the name LocalGPO-SID keeps it apart from the others in the list
+local_user_entry()
+{
+    printf 'LocalGPO-%s\t0\t0\t0\tLocal Group Policy\\%s\tC:\\windows\\system32\\GroupPolicyUsers\\%s\\User\t\tLocal\t%s\n' "$1" "$2" "$1" "$3"
+}
+
 # does session 0 hold an archive of the last policy it wrote for a target ("Machine" or "User-SID")? Without one,
 # a target with no files needs no "clear" (a machine that has no policy at all makes no work of a refresh)
 has_archive() { [ -e "$LOCAL_GPO/Archive/$1.pol" ]; }
@@ -436,8 +443,16 @@ awk 'NR == 1 { v = $2; next }
     [ -z "$PERSON_FILE" ] || USER_FILES+=("$PERSON_FILE")
     mapfile -t DOMAIN_USER_FILES < <(pol_files "$LISTS/user-$sid.domain.list" USER)
     USER_FILES+=("${DOMAIN_USER_FILES[@]}")
-    # one "Local Group Policy" in the applied list, whichever of the local objects have policy for the person
-    { [ -z "$LOCAL_USER$LAYER_FILE$PERSON_FILE" ] || local_entry User "$REG_EXT"; cat "$LISTS/user-$sid.domain.list"; } > "$LISTS/user-$sid.list"
+    # the applied list names each local object that has policy for the person, in the order applied
+    {
+        [ -z "$LOCAL_USER" ] || local_entry User "$REG_EXT"
+        if [ -n "$LAYER_FILE" ]; then
+            if [ "$layer" = S-1-5-32-544 ]; then lname=Administrators; else lname=Non-Administrators; fi
+            local_user_entry "$layer" "$lname" "$REG_EXT"
+        fi
+        [ -z "$PERSON_FILE" ] || local_user_entry "$sid" "$acct" "$REG_EXT"
+        cat "$LISTS/user-$sid.domain.list"
+    } > "$LISTS/user-$sid.list"
     if [ "$PRINT" = 1 ]; then
         sed "s/^/object user $acct /" "$LISTS/user-$sid.list"
         for f in "${USER_FILES[@]}"; do echo "user $acct $f"; done

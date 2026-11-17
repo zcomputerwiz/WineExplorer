@@ -3959,19 +3959,25 @@ OUT="$(as_wine "$STD" wexpolicy record /machine "$(winpath "$POL/empty.list")" |
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: $STD ran the writer"; }
 # local policy (docs/GROUP_POLICY.md, "Local policy"): the local object has no GUID, its name is LocalGPO
 printf '%s\n' "LocalGPO${T}0${T}0${T}0${T}Local Group Policy${T}C:\\windows\\system32\\GroupPolicy\\Machine${T}${T}Local${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
+    "LocalGPO-S-1-5-32-544${T}0${T}0${T}0${T}Local Group Policy\\Administrators${T}C:\\windows\\system32\\GroupPolicyUsers\\S-1-5-32-544\\User${T}${T}Local${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
     "{6AC1786C-016F-11D2-945F-00C04FB984F9}${T}2${T}4${T}0${T}Wex Test${T}\\\\ad\\sysvol\\p2${T}LDAP://CN={6AC1786C-016F-11D2-945F-00C04FB984F9},CN=Policies${T}LDAP://OU=Wex,DC=ad${T}[$REGEXT{D02B1F72-3407-48AE-BA88-E8213C6761F1}]" \
     > "$POL/local.list"
 OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/local.list")" | tr -d '\r')" || true
-grep -q 'recorded=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record the local object"; }
+grep -q 'recorded=3 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: record the local objects"; }
+# a name that is neither a GUID, LocalGPO nor LocalGPO- and a SID is not taken
+sed 's/^LocalGPO-S-1-5-32-544/LocalGPO-x/' "$POL/local.list" > "$POL/badname.list"
+OUT="$(s0_wine wexpolicy record /machine "$(winpath "$POL/badname.list")" | tr -d '\r')" || true
+grep -q 'error 11' <<<"$OUT" || { echo "$OUT" >&2; fail "gpolist: a bad local object name was taken"; }
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" gpolist machine "$REGEXT" | tr -d '\r')"
-    grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 2 ] &&
+    grep -qx 'gpolist=0' <<<"$OUT" && [ "$(grep -c '^gpo=' <<<"$OUT")" = 3 ] &&
         [ "$(grep '^gpo=' <<<"$OUT" | sed -n 1p | cut -d' ' -f1)" = 'gpo=LocalGPO' ] &&
         grep -q '^gpo=LocalGPO .* name=Local Group Policy' <<<"$OUT" ||
         { echo "$OUT" >&2; fail "gpolist: a $b-bit program's list with the local object first"; }
 done
 OUT2="$(as_wine "$STD" gpresult /v | tr -d '\r')"
 grep -q '^        Local Group Policy$' <<<"$OUT2" || { echo "$OUT2" >&2; fail "gpolist: gpresult does not list the local object"; }
+grep -q '^        Local Group Policy\\Administrators$' <<<"$OUT2" || { echo "$OUT2" >&2; fail "gpolist: gpresult does not list the Administrators object"; }
 s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty list"
 s0_wine wexpolicy record "/user:$STD_SID" "$(winpath "$POL/empty.list")" >/dev/null || fail "gpolist: record an empty user list"
 OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe32.exe" gpolist machine "$REGEXT" | tr -d '\r')"

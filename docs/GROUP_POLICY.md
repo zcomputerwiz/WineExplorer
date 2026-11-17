@@ -486,8 +486,10 @@ hold user policy only, in `%SystemRoot%\system32\GroupPolicyUsers\<SID>\User\Reg
 Administrators or of the Non-Administrators (whichever the person is, by the rule of the system tier,
 `wex-is-admin`; not known counts as Non-Administrator, so that a restriction meant for them holds), the person's own,
 and then the domain's objects; the last wins. `wex-gpupdate.sh` puts the files in that order into the one `apply` of
-the person, so nothing else changes in the writer; the applied list has the one entry "Local Group Policy" when any of
-them has a file. Same rules as for the other local files: a regular file, not a link, not empty, read as session 0's
+the person, so nothing else changes in the writer. The applied list (and so `gpresult`) names each local object that
+has a file for the person, in that order: "Local Group Policy" (the local User policy), "Local Group Policy\Administrators"
+or "Local Group Policy\Non-Administrators", and "Local Group Policy\<account>"; their internal names are `LocalGPO`
+and `LocalGPO-<SID of the folder>` (`gpolist.c` takes exactly these besides GUIDs). Same rules as for the other local files: a regular file, not a link, not empty, read as session 0's
 account; a folder is looked at only when its name is one of the two group SIDs or begins with `S-1-5-21-`.
 A domain account is asked for with its map name (`DOMAIN\user`); `wex-is-admin` decides it through the server's own
 lookup, so a member of the administrator group and a member of Domain Admins both get the Administrators object.
