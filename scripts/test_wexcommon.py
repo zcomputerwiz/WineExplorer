@@ -6,11 +6,14 @@
 import os
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 import unittest
 from unittest import mock
 
-import wexcommon
+# python3 -I ignores the current directory: the module is next to this test
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import wexcommon  # noqa: E402
 from wexcommon import (
     COUNTDOWN_MAX,
     atomic_write,
