@@ -3613,7 +3613,7 @@ dependencies). combase uses a table path that starts with `X:` as it is. Framewo
 Design: `docs/uwp/DESIGN_DEPENDENCY_CLASSES.md`. The U1.0 fixture (14 context checks) passes on x64 and x86; the Calculator
 run no longer logs the 107 to 150 `Failed to find library` lines for `XamlControlsXamlMetaDataProvider`.
 
-2026-11-17 (UWP, Wine 44e495fa, d75ca729, a672e1bb): runtime classes the Store Calculator asks for, each in the DLL that
+2026-11-17 (UWP, Wine 44e495fa, d75ca729, a672e1bb, 47e9920c; on Wine development): runtime classes the Store Calculator asks for, each in the DLL that
 already serves its neighbours, with interface definitions written in widl style from the public API metadata:
 `dlls/windows.ui` (`systemnavigation.c`, `fontweights.c`; `include/windows.ui.core.idl`, `include/windows.ui.text.idl`):
 `Windows.UI.Core.SystemNavigationManager` (back button visibility and BackRequested handlers of the process's view; the
@@ -3621,7 +3621,23 @@ event is not raised) and `Windows.UI.Text.FontWeights`; `dlls/threadpoolwinrt` (
 `private.h`; `include/windows.system.threading.idl`): `Windows.System.Threading.ThreadPoolTimer` on the system thread
 pool, test in `tests/threadpool.c`; `dlls/windows.applicationmodel` (`limitedaccess.c`;
 `include/windows.applicationmodel.idl`): `Windows.ApplicationModel.LimitedAccessFeatures` (always Unavailable), test in
-`tests/model.c`. Verified on x64 and x86 in the owned U1 guest.
+`tests/model.c`; `dlls/windows.globalization` (`date_time_formatter.c`, `number_formatter.c`, `main.c`, `private.h`, `classes.idl`;
+`include/windows.globalization.datetimeformatting.idl`, `include/windows.globalization.numberformatting.idl`,
+`include/Makefile.in`): `Windows.Globalization.DateTimeFormatting.DateTimeFormatter` and
+`Windows.Globalization.NumberFormatting.CurrencyFormatter` (over NLS; GetIids and GetRuntimeClassName of the formatters
+and factories implemented), tests in `tests/globalization.c`. Verified on x64 and x86 in the owned U1 guest.
+
+2026-11-17 (UWP, Wine 01fdc9a8, cf34eb4c; on Wine development): `dlls/twinapi.appcore`: `Windows.ApplicationModel.DataTransfer`
+`Clipboard` (bridged to the Win32 clipboard for text and HTML), `DataPackage`, `DataPackageView`, the property sets,
+`StandardDataFormats` and `HtmlFormatHelper` (`clipboard.c`, `datapackage.c`, `datapackage_props.c`, `async_value.c`,
+`hstring_vector.c`, `boxed_string.c`, `htmlformathelper.c`, `standarddataformats.c`; the interfaces were already in
+`include/windows.applicationmodel.datatransfer.idl`), test in `tests/datatransfer.c`; `Windows.UI.ViewManagement.ViewModePreferences`
+(`view_mode_preferences.c`) and `Windows.System.Launcher` (`launcher.c`: LaunchUriAsync and LaunchFileAsync through
+`ShellExecuteW`; `ILauncherStatics` added to `include/windows.system.idl`, its options parameters typed IInspectable
+because `LauncherOptions` is not defined), test in `tests/viewmode.c`; `Makefile.in` delay-imports shell32. Verified on
+x64 and x86 in the owned U1 guest; the existing `twinapi` test (134 checks) still passes on both. With these the
+Calculator's Standard mode and Settings page run without a missing Wine class (7 + 5 = 12 again). Not yet:
+`UserActivityChannel`, `JumpList`, `JumpListItem`, bitmap and storage-item data of a data package, clipboard history.
 
 # Group Policy: NoFileAssociate (2026-11-17)
 
@@ -3630,3 +3646,13 @@ pool, test in `tests/threadpool.c`; `dlls/windows.applicationmodel` (`limitedacc
   the life of the process and reads only the user's hive, so a policy refresh would not count. The Open With dialog
   then drops the registration flags and hides "Always use the selected program".
 - `dlls/shell32/shlview_cmenu.c`: the Change... button of a file's properties is hidden under the same policy.
+
+# Display source links are repointed, not their targets (2026-11-17, Wine 3bb6ae41)
+
+- `dlls/win32u/sysparams.c` (`reg_create_link_key`, used twice in `write_source_to_registry`): when the volatile link
+  key `Control\Video\{gpu}\NNNN` exists already, it is opened with `OBJ_OPENLINK` and its `SymbolicLinkValue`
+  rewritten. The old fallback created it with `REG_OPTION_OPEN_LINK`, which `NtCreateKey` ignores (as on Windows), so it
+  opened the link's target: the new link value went into the old source key and the link kept pointing at the old
+  source. **Unconditional**, upstreamable. Found on an image with session 0 and enforced elevation, where the volatile
+  machine keys outlive a user's server: the greeter's prefix update (no display) left a 1024x768 `Default` source, and
+  the logon screen then had two stacked monitors and drew below the visible screen (black screen, a blue bar).
