@@ -55,6 +55,7 @@ void power_backend_init(void);
 
 /* Query live battery and AC power status */
 BOOL power_backend_get_status(POWER_STATUS_INFO *info);
+BOOL power_backend_uses_fallback(void);
 
 /* Set active power scheme */
 void power_backend_set_scheme(UINT scheme_id);

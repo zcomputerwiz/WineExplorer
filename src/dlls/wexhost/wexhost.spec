@@ -9,6 +9,8 @@
 @ stdcall WexPowerCan(long ptr)
 @ stdcall WexPowerDo(long long)
 @ stdcall WexBatteryGet(ptr)
+@ stdcall WexHostSubscribe(long long long)
+@ stdcall WexHostUnsubscribe(long)
 @ stdcall WexHostnameGet(ptr)
 @ stdcall WexHostnameSet(long str long)
 @ stdcall WexUserGet(ptr)

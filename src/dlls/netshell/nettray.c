@@ -29,6 +29,7 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#include <wexhost.h>
 
 #include "wine/debug.h"
 #include "resource.h"
@@ -44,6 +45,8 @@
 WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 #define WM_NETTRAY_NOTIFY  (WM_APP + 200)
+#define WM_NETTRAY_CHANGED (WM_APP + 201)
+#define WM_NETTRAY_STATE   (WM_APP + 202)
 #define IDT_NETTRAY_TIMER  101
 #define NETTRAY_CLASS_NAME L"Connections Tray"
 
@@ -63,6 +66,30 @@ static ULONGLONG g_last_packets_sent = 0;
 static ULONGLONG g_last_packets_recv = 0;
 static BOOL g_activity_baseline;
 static WCHAR g_activity_device[128];
+static HANDLE g_refresh, g_stop, g_worker;
+static SRWLOCK g_snapshot_lock = SRWLOCK_INIT;
+static NET_STATUS_INFO g_snapshot;
+
+static DWORD WINAPI net_snapshot_thread(void *unused)
+{
+    HANDLE events[2] = {g_stop, g_refresh};
+    NET_STATUS_INFO status;
+
+    while (WaitForMultipleObjects(2, events, FALSE, INFINITE) == WAIT_OBJECT_0 + 1)
+    {
+        net_backend_get_status(&status);
+        AcquireSRWLockExclusive(&g_snapshot_lock);
+        g_snapshot = status;
+        ReleaseSRWLockExclusive(&g_snapshot_lock);
+        PostMessageW(g_hwnd_nettray, WM_NETTRAY_STATE, 0, 0);
+    }
+    return 0;
+}
+
+static void refresh_tray(void)
+{
+    if (g_refresh) SetEvent(g_refresh);
+}
 
 static const WCHAR *get_signal_strength_str(int bars)
 {
@@ -105,8 +132,12 @@ static void update_tray_icon_and_tooltip(HWND hwnd)
     WCHAR new_tip[128] = {0};
     BOOL should_show = net_backend_get_show_tray_icon();
 
-    net_backend_get_status(&g_status);
     if (!g_status.has_adapter) should_show = FALSE;   /* nothing to monitor */
+    /* This timer reads traffic only; it never calls NetworkManager. */
+    if (should_show && g_status.is_connected)
+        SetTimer(hwnd, IDT_NETTRAY_TIMER, 2000, NULL);
+    else
+        KillTimer(hwnd, IDT_NETTRAY_TIMER);
 
     if (!should_show || !g_status.is_connected || g_status.conn_type == NET_TYPE_WIRELESS)
         g_activity_baseline = FALSE;
@@ -186,7 +217,15 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
     case WM_CREATE:
     {
         net_backend_init();
-        net_backend_get_status(&g_status);
+        g_hwnd_nettray = hwnd;
+        g_stop = CreateEventW(NULL, TRUE, FALSE, NULL);
+        g_refresh = CreateEventW(NULL, FALSE, FALSE, NULL);
+        if (!g_stop || !g_refresh) goto create_failed;
+        g_worker = CreateThread(NULL, 0, net_snapshot_thread, NULL, 0, NULL);
+        if (!g_worker) goto create_failed;
+        /* Subscribe first. A change during the snapshot leaves the auto-reset
+         * refresh event signaled for another pass through the worker. */
+        if (WexHostSubscribe(hwnd, WM_NETTRAY_CHANGED, WEX_HOST_CHANGE_NETWORK)) goto create_failed;
 
         memset(&g_nid, 0, sizeof(g_nid));
         g_nid.cbSize = sizeof(g_nid);
@@ -195,19 +234,33 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
         g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
         g_nid.uCallbackMessage = WM_NETTRAY_NOTIFY;
 
-        g_last_packets_sent = g_status.packets_sent;
-        g_last_packets_recv = g_status.packets_received;
-
-        update_tray_icon_and_tooltip(hwnd);
-
-        /* 500ms polling timer for responsive packet activity indicator */
-        SetTimer(hwnd, IDT_NETTRAY_TIMER, 500, NULL);
+        refresh_tray();
         return 0;
+create_failed:
+        if (g_stop) SetEvent(g_stop);
+        if (g_worker) { WaitForSingleObject(g_worker, INFINITE); CloseHandle(g_worker); }
+        if (g_stop) CloseHandle(g_stop);
+        if (g_refresh) CloseHandle(g_refresh);
+        g_worker = g_stop = g_refresh = NULL;
+        g_hwnd_nettray = NULL;
+        return -1;
     }
+
+    case WM_NETTRAY_CHANGED:
+        refresh_tray();
+        return 0;
+
+    case WM_NETTRAY_STATE:
+        AcquireSRWLockShared(&g_snapshot_lock);
+        g_status = g_snapshot;
+        ReleaseSRWLockShared(&g_snapshot_lock);
+        update_tray_icon_and_tooltip(hwnd);
+        return 0;
 
     case WM_TIMER:
         if (wparam == IDT_NETTRAY_TIMER)
         {
+            net_backend_get_traffic(&g_status);
             update_tray_icon_and_tooltip(hwnd);
         }
         return 0;
@@ -303,6 +356,13 @@ static LRESULT CALLBACK NetTrayWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
         return 0;
 
     case WM_DESTROY:
+        WexHostUnsubscribe(hwnd);
+        SetEvent(g_stop);
+        WaitForSingleObject(g_worker, INFINITE);
+        CloseHandle(g_worker);
+        CloseHandle(g_stop);
+        CloseHandle(g_refresh);
+        g_worker = g_stop = g_refresh = NULL;
         KillTimer(hwnd, IDT_NETTRAY_TIMER);
         if (g_tray_visible)
         {
@@ -356,6 +416,7 @@ void nettray_update(void)
 {
     if (g_hwnd_nettray)
     {
+        refresh_tray();
         update_tray_icon_and_tooltip(g_hwnd_nettray);
     }
 }

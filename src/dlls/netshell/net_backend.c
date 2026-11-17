@@ -37,6 +37,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(explorer);
 
 static BOOL g_was_connected = FALSE;
 static DWORD g_connection_start_tick = 0;
+static SRWLOCK g_connection_lock = SRWLOCK_INIT;
 static char g_sae_only[MAX_NETWORKS][MAX_SSID_LEN];   /* SSIDs of the last scan that need WPA3 (SAE) */
 static int g_sae_count;
 
@@ -165,7 +166,9 @@ BOOL net_backend_get_status(NET_STATUS_INFO *info)
     {
         info->has_adapter = FALSE;
         info->conn_type = NET_TYPE_DISCONNECTED;
+        AcquireSRWLockExclusive(&g_connection_lock);
         g_was_connected = FALSE;
+        ReleaseSRWLockExclusive(&g_connection_lock);
         return TRUE;
     }
 
@@ -222,11 +225,28 @@ BOOL net_backend_get_status(NET_STATUS_INFO *info)
     }
 
     /* Duration = time since this process first saw the link up */
+    AcquireSRWLockExclusive(&g_connection_lock);
     if (info->is_connected && !g_was_connected) g_connection_start_tick = GetTickCount();
     g_was_connected = info->is_connected;
     if (info->is_connected) info->duration_seconds = (GetTickCount() - g_connection_start_tick) / 1000;
+    ReleaseSRWLockExclusive(&g_connection_lock);
 
     return TRUE;
+}
+
+/* Traffic sampling never queries NetworkManager or rebuilds adapter state. */
+void net_backend_get_traffic(NET_STATUS_INFO *info)
+{
+    char iface[32];
+    ULONGLONG rx_b = 0, rx_p = 0, tx_b = 0, tx_p = 0;
+
+    if (!info || !info->is_connected) return;
+    if (!WideCharToMultiByte(CP_UTF8, 0, info->active_device, -1, iface, sizeof(iface), NULL, NULL)) return;
+    if (!read_interface_counters(iface, sizeof(iface), &rx_b, &rx_p, &tx_b, &tx_p)) return;
+    info->bytes_received = rx_b;
+    info->bytes_sent = tx_b;
+    info->packets_received = rx_p;
+    info->packets_sent = tx_p;
 }
 
 /* Visible Wi-Fi networks (empty when there is no Wi-Fi device or NetworkManager). */

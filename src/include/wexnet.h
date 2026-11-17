@@ -71,6 +71,7 @@ typedef struct _NET_STATUS_INFO {
 
 void net_backend_init(void);
 BOOL net_backend_get_status(NET_STATUS_INFO *info);
+void net_backend_get_traffic(NET_STATUS_INFO *info);
 int  net_backend_scan_wireless(WLAN_NETWORK_ENTRY *entries, int max_entries);
 BOOL net_backend_connect_wireless(const WCHAR *ssid, const WCHAR *passphrase);
 BOOL net_backend_disconnect(void);

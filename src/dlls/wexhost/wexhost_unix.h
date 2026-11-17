@@ -32,6 +32,9 @@
 /* Every call returns STATUS_SUCCESS; the Win32 outcome (0, ERROR_ACCESS_DENIED, ...) is in params->err. */
 
 struct init_params { DWORD err; };
+struct host_watch_params { DWORD changes, err; };
+C_ASSERT( sizeof(struct host_watch_params) == 8 );
+C_ASSERT( FIELD_OFFSET(struct host_watch_params, err) == 4 );
 
 struct timedate_get_params { WEX_TIMEDATE info; DWORD err; };
 
@@ -292,6 +295,7 @@ struct tray_menu_params { DWORD token; INT root; WEX_TRAY_MENU menu; DWORD err; 
 extern NTSTATUS tray_start(void *args);
 extern NTSTATUS tray_next(void *args);
 extern NTSTATUS tray_stop(void *args);
+extern NTSTATUS tray_wake(void *args);
 extern NTSTATUS tray_action(void *args);
 extern NTSTATUS tray_menu(void *args);
 
@@ -306,6 +310,8 @@ extern NTSTATUS lease_arm(void *args);
 extern NTSTATUS lease_release(void *args);
 #ifdef WINE_UNIX_LIB
 extern void tray_x11_next(WEX_TRAY_ITEM *item);
+extern int tray_x11_fd(void);
+extern BOOL tray_x11_pending(void);
 extern BOOL tray_x11_action(struct tray_action_params *params);
 extern void tray_x11_stop(void);
 #endif
@@ -418,6 +424,11 @@ enum wexhost_funcs
     unix_boot_get,
     unix_boot_set,
     unix_boot_set_options,
+    unix_host_watch_start,
+    unix_host_watch_next,
+    unix_host_watch_stop,
+    unix_host_watch_close,
+    unix_tray_wake,
     unix_funcs_count
 };
 

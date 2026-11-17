@@ -10,7 +10,8 @@
  * file makes the wineserver itself block in open() until the lease is released.
  *
  * The signal that the kernel sends on a lease break is redirected to SIGURG, which is ignored by default and
- * unused by Wine (the default, SIGIO, would end the broker).
+ * unused by Wine (the default, SIGIO, would end the broker). Its SA_SIGINFO
+ * handler only writes the affected descriptor to a nonblocking self-pipe.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -73,12 +74,12 @@
 #endif
 
 #define MAX_LEASES   64
-#define POLL_MS      10
+#define POLL_MS      1000
 #define KILL_WAIT_MS 30000
 
 struct lease
 {
-    int fd, stop_pipe[2], pidfd;
+    int fd, stop_pipe[2], pidfd, slot;
     int phase;        /* 0: waiting for approval, nothing runs; 1: launching or running */
     int broken;       /* the kernel broke the lease */
     int released;     /* the lease was given up (F_UNLCK) */
@@ -87,6 +88,49 @@ struct lease
 
 static struct lease *leases[MAX_LEASES];
 static pthread_mutex_t table_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_once_t signal_once = PTHREAD_ONCE_INIT;
+/* Keep these pipes for the process lifetime: a handler already in flight must
+ * never write into a closed/reused descriptor. Each monitor has its own queue. */
+static int signal_pipes[MAX_LEASES][2];
+static volatile sig_atomic_t signal_fds[MAX_LEASES];
+static int signal_ready;
+
+static void lease_signal( int signal, siginfo_t *info, void *context )
+{
+    int saved_errno = errno, i, fd = info->si_fd;
+
+    (void)signal;
+    (void)context;
+    for (i = 0; i < MAX_LEASES; i++)
+        if (signal_fds[i] == fd && write( signal_pipes[i][1], &fd, sizeof(fd) ) < 0) {}
+    errno = saved_errno;
+}
+
+static void init_lease_signal( void )
+{
+    struct sigaction action = {0};
+    int i;
+
+    for (i = 0; i < MAX_LEASES; i++) signal_fds[i] = -1;
+    for (i = 0; i < MAX_LEASES; i++)
+        if (pipe2( signal_pipes[i], O_NONBLOCK | O_CLOEXEC ))
+        {
+            while (i--) { close( signal_pipes[i][0] ); close( signal_pipes[i][1] ); }
+            return;
+        }
+    action.sa_sigaction = lease_signal;
+    action.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigemptyset( &action.sa_mask );
+    if (!sigaction( SIGURG, &action, NULL )) signal_ready = 1;
+    else for (i = 0; i < MAX_LEASES; i++)
+    { close( signal_pipes[i][0] ); close( signal_pipes[i][1] ); }
+}
+
+static void drain_lease_signal( int slot )
+{
+    int fd;
+    while (read( signal_pipes[slot][0], &fd, sizeof(fd) ) > 0) {}
+}
 
 static struct lease *lease_get( UINT64 id )
 {
@@ -156,19 +200,26 @@ NTSTATUS lease_monitor( void *args )
 {
     struct lease_monitor_params *params = args;
     struct lease *l = lease_get( params->lease );
-    struct pollfd p;
+    struct pollfd p[2];
+    int ret;
 
     params->broken = 0;
     params->err = ERROR_SUCCESS;
     if (!l) { params->err = ERROR_INVALID_HANDLE; return STATUS_SUCCESS; }
-    p.fd = l->stop_pipe[0];
-    p.events = POLLIN;
-    p.revents = 0;
+    p[0].fd = l->stop_pipe[0];
+    p[1].fd = signal_pipes[l->slot][0];
+    p[0].events = p[1].events = POLLIN;
+    p[0].revents = p[1].revents = 0;
 
     for (;;)
     {
-        if (poll( &p, 1, POLL_MS ) > 0) return STATUS_SUCCESS;       /* released by the owner */
+        /* Check once before sleeping: a break can precede thread creation. */
         if (fcntl( l->fd, F_GETLEASE ) != F_RDLCK) break;             /* a writer is waiting */
+        ret = poll( p, 2, POLL_MS );
+        if (ret < 0 && errno == EINTR) continue;
+        if (ret < 0) break; /* fail closed */
+        if (p[0].revents) return STATUS_SUCCESS;
+        if (p[1].revents) drain_lease_signal( l->slot );
     }
 
     pthread_mutex_lock( &l->lock );
@@ -179,7 +230,9 @@ NTSTATUS lease_monitor( void *args )
         while (l->pidfd < 0)
         {
             pthread_mutex_unlock( &l->lock );
-            if (poll( &p, 1, POLL_MS ) > 0) return STATUS_SUCCESS;   /* the launch failed, nothing runs */
+            ret = poll( p, 2, POLL_MS );
+            if (ret > 0 && p[0].revents) return STATUS_SUCCESS; /* launch failed */
+            if (ret > 0 && p[1].revents) drain_lease_signal( l->slot );
             pthread_mutex_lock( &l->lock );
         }
         syscall( SYS_pidfd_send_signal, l->pidfd, SIGKILL, NULL, 0 );
@@ -265,20 +318,16 @@ NTSTATUS lease_take( void *args )
         return STATUS_SUCCESS;
     }
 
-    fcntl( fd, F_SETSIG, SIGURG );
-    if (fcntl( fd, F_SETLEASE, F_RDLCK ))
+    pthread_once( &signal_once, init_lease_signal );
+    if (!signal_ready)
     {
-        /* EAGAIN: someone has the file open for writing. Anything else: no lease possible here (a file system
-         * without lease support, or a file that the user can write but does not own); no fallback copy. */
-        params->err = errno == EAGAIN ? ERROR_SHARING_VIOLATION : ERROR_FILE_SYSTEM_LIMITATION;
         close( fd );
+        params->err = ERROR_FILE_SYSTEM_LIMITATION;
         return STATUS_SUCCESS;
     }
-
-    if (!(l = calloc( 1, sizeof(*l) )) || pipe( l->stop_pipe ))
+    if (!(l = calloc( 1, sizeof(*l) )) || pipe2( l->stop_pipe, O_CLOEXEC | O_NONBLOCK ))
     {
         if (l) free( l );
-        fcntl( fd, F_SETLEASE, F_UNLCK );
         close( fd );
         params->err = ERROR_NOT_ENOUGH_MEMORY;
         return STATUS_SUCCESS;
@@ -289,14 +338,28 @@ NTSTATUS lease_take( void *args )
 
     pthread_mutex_lock( &table_lock );
     for (i = 0; i < MAX_LEASES; i++) if (!leases[i]) break;
-    if (i < MAX_LEASES) leases[i] = l;
+    if (i < MAX_LEASES)
+    {
+        l->slot = i;
+        drain_lease_signal( i );
+        signal_fds[i] = fd;
+        /* Subscribe before arming; hold the slot until setup has completed. */
+        if (fcntl( fd, F_SETSIG, SIGURG ) < 0 || fcntl( fd, F_SETOWN, getpid() ) < 0 ||
+            fcntl( fd, F_SETLEASE, F_RDLCK ) < 0)
+            params->err = errno == EAGAIN ? ERROR_SHARING_VIOLATION : ERROR_FILE_SYSTEM_LIMITATION;
+        else if (fcntl( fd, F_GETLEASE ) != F_RDLCK)
+            params->err = ERROR_SHARING_VIOLATION;
+        if (params->err) signal_fds[i] = -1;
+        else leases[i] = l;
+    }
     pthread_mutex_unlock( &table_lock );
-    if (i == MAX_LEASES)
+    if (i == MAX_LEASES || params->err)
     {
         fcntl( fd, F_SETLEASE, F_UNLCK );
         close( fd ); close( l->stop_pipe[0] ); close( l->stop_pipe[1] );
+        pthread_mutex_destroy( &l->lock );
         free( l );
-        params->err = ERROR_NOT_ENOUGH_MEMORY;
+        if (!params->err) params->err = ERROR_NOT_ENOUGH_MEMORY;
         return STATUS_SUCCESS;
     }
     params->lease = i + 1;
@@ -329,12 +392,15 @@ NTSTATUS lease_arm( void *args )
         pthread_mutex_lock( &l->lock );
         l->pidfd = pidfd;
         l->phase = 1;
+        if (!l->released && fcntl( l->fd, F_GETLEASE ) != F_RDLCK) l->broken = 1;
         params->err = l->broken ? ERROR_FILE_CORRUPT : ERROR_SUCCESS;
         pthread_mutex_unlock( &l->lock );
+        if (write( signal_pipes[l->slot][1], &l->fd, sizeof(l->fd) ) < 0) {}
         return STATUS_SUCCESS;
     }
     pthread_mutex_lock( &l->lock );
     l->phase = 1;
+    if (!l->released && fcntl( l->fd, F_GETLEASE ) != F_RDLCK) l->broken = 1;
     params->err = l->broken ? ERROR_FILE_CORRUPT : ERROR_SUCCESS;
     pthread_mutex_unlock( &l->lock );
     return STATUS_SUCCESS;
@@ -345,9 +411,13 @@ NTSTATUS lease_stop( void *args )
 {
     struct lease_release_params *params = args;
     struct lease *l = lease_get( params->lease );
+    ssize_t ret;
 
     params->err = l ? ERROR_SUCCESS : ERROR_INVALID_HANDLE;
-    if (l && write( l->stop_pipe[1], "x", 1 ) < 0) {}
+    if (l)
+    {
+        do ret = write( l->stop_pipe[1], "x", 1 ); while (ret < 0 && errno == EINTR);
+    }
     return STATUS_SUCCESS;
 }
 
@@ -361,6 +431,7 @@ NTSTATUS lease_release( void *args )
     if (!l) { params->err = ERROR_INVALID_HANDLE; return STATUS_SUCCESS; }
     pthread_mutex_lock( &table_lock );
     leases[params->lease - 1] = NULL;
+    signal_fds[l->slot] = -1;
     pthread_mutex_unlock( &table_lock );
 
     params->broken = l->broken;
@@ -369,6 +440,7 @@ NTSTATUS lease_release( void *args )
     close( l->stop_pipe[0] );
     close( l->stop_pipe[1] );
     if (l->pidfd >= 0) close( l->pidfd );
+    pthread_mutex_destroy( &l->lock );
     free( l );
     return STATUS_SUCCESS;
 }
