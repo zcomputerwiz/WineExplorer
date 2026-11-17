@@ -13,7 +13,9 @@ Documentation=https://github.com/zcomputerwiz/WineExplorer/blob/master/docs/SYST
 Before=display-manager.service
 
 [Service]
-Type=simple
+# the server tells systemd when its socket listens (sd_notify READY=1), so units after this one start when it serves
+Type=notify
+NotifyAccess=main
 User=wexsys
 Group=wexsys
 UMask=0022

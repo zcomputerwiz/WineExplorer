@@ -83,6 +83,11 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   its session id (it was 2 s); linking again after a restart of session 0 still waits 2 s, since it runs in the
   server's own loop. Session 0 is one thread, and a policy refresh writing a user's hive at the same moment could
   make a domain user's first logon fail (B26).
+- `server/session0.c` (`notify_service_ready`, `watch_session0_directory`): session 0 tells systemd when its socket
+  listens (the sd_notify datagram READY=1 to `$NOTIFY_SOCKET`, without libsystemd; `wex-session0.service` is
+  `Type=notify`, and `wex-session0-services.service` no longer polls for the socket). A user's server whose link to
+  session 0 dropped watches the socket's directory with inotify and links a second after the socket is made again,
+  instead of at its next backed-off try (up to a minute without the machine registry). Polling review.
 - `dlls/msi/msi.c` (`MsiIsProductElevated`, Wine 45604a7f): per-machine and managed products are elevated, a
   per-user unmanaged one is not, an unknown product gives ERROR_UNKNOWN_PRODUCT; it always answered TRUE. Test
   `test_MsiIsProductElevated` in `dlls/msi/tests/msi.c` (checked against Windows 11 by a probe).
