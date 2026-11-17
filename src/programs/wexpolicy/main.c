@@ -705,7 +705,7 @@ static void WINAPI service_main( DWORD argc, WCHAR **argv )
     }
     for (;;)
     {
-        /* a hive that is loaded or unloaded notifies this watch (the server does, as on Windows); the look every half
+        /* a hive that is loaded notifies this watch (the server does, as on Windows; an unload does not); the look every half
          * minute is only the safety net for a notification that was lost */
         RegNotifyChangeKeyValue( HKEY_USERS, FALSE, REG_NOTIFY_CHANGE_NAME, handles[1], TRUE );
         restore_users();
