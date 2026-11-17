@@ -3656,3 +3656,19 @@ Calculator's Standard mode and Settings page run without a missing Wine class (7
   source. **Unconditional**, upstreamable. Found on an image with session 0 and enforced elevation, where the volatile
   machine keys outlive a user's server: the greeter's prefix update (no display) left a 1024x768 `Default` source, and
   the logon screen then had two stacked monitors and drew below the visible screen (black screen, a blue bar).
+
+2026-11-17 (UWP, Wine 4b3ed43b and bcb62ad5): `dlls/twinapi.appcore`: new `user_activity.c` (`UserActivityChannel`,
+`UserActivity`, `UserActivityVisualElements`, `UserActivityAttribution`, `UserActivityContentInfo`,
+`UserActivitySession`: the channel keeps the activities published in the process; the JSON forms and the session
+history need a timeline and are not implemented), `jumplist.c` and `jumplist_vector.c` (`Windows.UI.StartScreen.JumpList`
+and `JumpListItem`: SaveAsync keeps the list of the process, LoadCurrentAsync builds a new one from it),
+`device_capabilities.c` (`KeyboardCapabilities`, `MouseCapabilities`, `TouchCapabilities` from the system metrics),
+`display_request.c` (`Windows.System.Display.DisplayRequest`: counted requests, `SetThreadExecutionState`),
+`static_factory.c` (one factory type for classes with statics, and a helper for objects with one interface),
+`async_action.c` (an `IAsyncAction` that is done when made), `async_value.c` (operations for `UserActivity` and `JumpList`).
+`include/`: new `windows.ui.startscreen.idl` (JumpList only) and `windows.system.display.idl`; `windows.devices.input.idl`
+gets the three capability classes; `windows.applicationmodel.useractivities.idl` gets the channel, `IUserActivity2` and
+`3`, the factories, statics and the corrected `IUserActivityAttribution` (it had the properties of a later contract
+mixed in). Tests `activities.c` and `capabilities.c` (x64 and x86); behaviour measured on Windows 11
+(`tests/uwp/ua-batch`). **Unconditional**: new classes only, no stock behaviour changes; the IDL and registration parts
+fit upstream Wine.
