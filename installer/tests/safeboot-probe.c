@@ -61,6 +61,26 @@ static void print_themed(void)
         printf(" themed=none");
 }
 
+/* elevated: TokenElevation of the process token (1: the full token; in Safe Mode an administrator's programs have it,
+ * as on Windows where User Account Control does not run there) */
+static void print_elevated(void)
+{
+    TOKEN_ELEVATION elevation;
+    HANDLE token;
+    DWORD size;
+
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+    {
+        printf(" elevated=none");
+        return;
+    }
+    if (GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size))
+        printf(" elevated=%lu", elevation.TokenIsElevated ? 1UL : 0UL);
+    else
+        printf(" elevated=none");
+    CloseHandle(token);
+}
+
 int main(void)
 {
     DWORD option, size = sizeof(option);
@@ -90,6 +110,7 @@ int main(void)
     }
     CloseServiceHandle(scm);
     print_themed();
+    print_elevated();
     printf("\n");
     fflush(stdout);
     return 0;

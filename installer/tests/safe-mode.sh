@@ -590,7 +590,9 @@ expect_screen() {   # expect_screen WxH|!WxH: the VM's screen size, from a scree
 
 expect_session_mode() {   # the logged-on Explorer session's WEXMODE
     local out
-    out=$(gsh "python3 $HELPER --user $USER_NAME --report")
+    # as root: an administrator's elevated Safe Mode desktop runs with the system group, so only root reads its
+    # environment (the session script's, which the account can read, has WEXMODE only as exported later, not in /proc)
+    out=$(as_root "python3 $HELPER --user $USER_NAME --report")
     grep -qx "WEXMODE=$1" <<< "$out" || fail "the Explorer session does not have WEXMODE=$1: $(tr '\n' ' ' <<< "$out")"
     echo "  session WEXMODE=$1"
 }
@@ -698,9 +700,19 @@ expect_safeboot() {   # expect_safeboot 0|1|2|cmd: what Windows programs see, fr
     [ -n "$PROBE_DIR" ] || return 0
     # With enforced elevation the probe (a limited token) may not open the spooler to start it at all, as on Windows:
     # access denied comes before the Safe Mode refusal. The service filter is still seen in NDIS and nsiproxy.
+    local enforced=0 admin=0 elevated=()
     if gsh 'test -f /usr/local/share/wineexplorer/elevation.enable && echo elevation=enforced' 30 2>/dev/null \
             | grep -q '^elevation=enforced'; then
         refused=spooler=open-5
+        enforced=1
+        gsh "/usr/local/libexec/wineexplorer/wex-is-admin '$USER_NAME' && echo admin=yes" 30 2>/dev/null \
+            | grep -q '^admin=yes' && admin=1
+    fi
+    # With enforced elevation an administrator's programs have the full token in Safe Mode (UAC does not run there,
+    # docs/SAFE_MODE_ELEVATED_DESKTOP.md) and the limited one in a normal start. Elevated, the probe may open the
+    # spooler, and the Safe Mode refusal (ERROR_NOT_SAFEBOOT_SERVICE) is what it sees, as on Windows.
+    if [ "$enforced" = 1 ] && [ "$admin" = 1 ]; then
+        case "$1" in 0) elevated=(elevated=0) ;; *) elevated=(elevated=1); refused=spooler=1084 ;; esac
     fi
     case "$1" in
         0) want=(cleanboot=0 option=none shell=none MountMgr=running spooler=untried) ;;
@@ -709,6 +721,15 @@ expect_safeboot() {   # expect_safeboot 0|1|2|cmd: what Windows programs see, fr
         2) want=(cleanboot=2 option=2 shell=none EventLog=running PlugPlay=running MountMgr=running NDIS=running nsiproxy=running "$refused" themed=0) ;;
         cmd) want=(cleanboot=1 option=1 shell=1 EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped "$refused" themed=0) ;;
     esac
+    want+=("${elevated[@]}")
+    # an administrator's Safe Mode desktop (X11) runs with the system group, so that what it starts may write the
+    # machine root, as an elevated program may
+    if [ "${#elevated[@]}" -gt 0 ] && { [ "$1" = 1 ] || [ "$1" = 2 ]; }; then
+        out=$(gsh "pid=\$(pgrep -u '$USER_NAME' -f 'explorer.exe /desktop' | head -n 1); [ -n \"\$pid\" ] && echo egid=\$(awk '/^Gid:/ {print \$3}' /proc/\$pid/status) sys=\$(getent group wexsys | cut -d: -f3)" 30 2>/dev/null | grep '^egid=' | tail -n 1)
+        echo "  desktop: $out"
+        local egid=${out#egid=}; egid=${egid%% *}; local sys=${out##*sys=}
+        [ -n "$egid" ] && [ "$egid" = "$sys" ] || fail "the administrator's Safe Mode desktop does not run elevated: $out"
+    fi
     for bits in 32 64; do
         if [ "$1" = cmd ]; then
             run="timeout 150 env WINEDEBUG=err-all wine $PROBES/safeboot-probe$bits.exe > /tmp/wex-safeboot$bits.out 2>&1; echo wine-rc=\$?; tail -n 15 /tmp/wex-safeboot$bits.out"

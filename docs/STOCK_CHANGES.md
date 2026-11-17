@@ -674,6 +674,25 @@ Project changes:
 * `scripts/e1s13_hku_checks.h` and `scripts/test_e1s10_token.sh`: Extended with assertions that
   effective Alice token sees her profile path and variables, while peer sees Bob's.
 
+## server, ntdll: an administrator's desktop runs elevated in Safe Mode (2026-11-17)
+
+Wine branch `claude/safemode-elevated-desktop` on `82c5b725` (`docs/SAFE_MODE_ELEVATED_DESKTOP.md`). Active only with
+the system role (`/etc/wineexplorer/sysrun.conf`) and a root-owned `/run/wineexplorer/bootmode` that says `safe`,
+`safenet` or `safecmd`; otherwise nothing changes.
+
+* `server/sysrun.c`, `sysrun.h`: `sysrun_safe_boot()` reads the boot mode file once (root-owned directory and file,
+  not writable by others, `O_NOFOLLOW`). In `sysrun_main_image`, a launcher-started root process whose main image is
+  the machine root's `explorer.exe` and whose token is elevated becomes the administrator's elevated desktop
+  (`SYSRUN_ACCOUNT_ELEVATED`, its token, process and threads protected as an elevated process) instead of being ended;
+  every other image keeps the rule before (SYSTEM for the listed system programs, else ended).
+* `server/token.c`, `security.h`: `token_make_full()` makes a token the full half (`TokenElevationTypeFull`, High
+  label).
+* `server/process.c`: the first token of an administrator's session is the full one in Safe Mode, the filtered one
+  otherwise (as before); a standard user's is unchanged.
+* `dlls/ntdll/unix/sysrun.c`, `env.c`, `unix_private.h`: `sysrun_safe_shell_gate()`: a process the launcher started in
+  its `safe-shell` mode drops the system group for good before anything of the prefix is loaded, unless its token is
+  the full one.
+
 ## wineboot, win32u, services.exe, wine.inf, user32: Safe Mode (2026-11-09, 2026-11-11)
 
 Merged into Wine `development` as `572d4b74` (2026-11-12). `d1119bee` then drops the `todo_wine` on
@@ -3715,3 +3734,8 @@ Test in `capabilities.c` (x64 and x86). **Unconditional**: a new class only.
   `QueryServiceObjectSecurity(h, ..., NULL, 0, &needed)` failed with `ERROR_INVALID_ADDRESS` instead of
   `ERROR_INSUFFICIENT_BUFFER` (Office 2016's MSI ended with 1603). The same for the forwarded enumerations,
   `QueryServiceConfig2W`, `QueryServiceStatusEx` and `EnumDependentServicesW`. Only with session 0.
+
+2026-11-17 (UWP, Wine b3370991): `dlls/twinapi.appcore`: new `power_manager.c` (`Windows.System.Power.PowerManager`: the
+battery, supply, energy saver, charge and discharge values from `GetSystemPowerStatus`; the changed events are accepted
+and never raised); `include/windows.system.power.idl` gets the statics and the `EnergySaverStatus` and
+`PowerSupplyStatus` enums. Test in `capabilities.c` (x64 and x86). **Unconditional**: a new class only.

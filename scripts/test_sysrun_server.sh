@@ -340,6 +340,16 @@ OUT="$(run_as "$STD" "$SYSRUN" wineboot-init 2>&1 </dev/null)"; rc=$?
 set -e
 [ "$rc" -eq 77 ] && grep -q "the server was not started by this launcher" <<<"$OUT" || fail "launcher accepted a replacement server (rc $rc): $OUT"
 ok c2_launcher_refuses_replacement_server
+# safe-shell (an administrator's elevated desktop in Safe Mode, docs/SAFE_MODE_ELEVATED_DESKTOP.md): refused here, a
+# normal start and a standard user; and for sizes or arguments that are not two numbers in range
+for args in "safe-shell 800 600" "safe-shell 80 600" "safe-shell 800 x600" "safe-shell 800" "safe-shell 800 600 /x"; do
+    set +e
+    OUT="$(run_as "$STD" "$SYSRUN" $args 2>&1 </dev/null)"; rc=$?
+    set -e
+    [ "$rc" -eq 77 ] && grep -q "wex-sysrun: refused" <<<"$OUT" || fail "launcher did not refuse '$args' (rc $rc): $OUT"
+done
+pgrep -u "$STD" -f 'explorer.exe /desktop' >/dev/null && fail "a refused safe-shell started a desktop"
+ok c2_launcher_refuses_safe_shell_outside_safe_mode_and_bad_arguments
 set +e
 OUT="$(run_as "$STD" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$ROOT/probes/probe64.exe" files-allowed "$WINM" 2>&1)"; rc=$?
 set -e
