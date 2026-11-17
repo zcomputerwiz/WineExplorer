@@ -39,6 +39,18 @@ import sys
 import textwrap
 import time
 
+for _dir in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/wineexplorer/python"):
+    if _dir not in sys.path:
+        sys.path.insert(0, _dir)
+
+import wexcommon
+from wexcommon import (
+    COUNTDOWN_MAX,
+    atomic_write,
+    boot_conf_value,
+    recovery_enabled as _recovery_enabled,
+)
+
 STATE_DIR = os.environ.get("WEX_BOOTMODE_STATE_DIR", "/run/wineexplorer")
 SETUP_STAGE = os.environ.get("WEX_BOOTMODE_SETUP_STAGE", "/etc/wineexplorer/setup/stage")
 PANIC_SYSCTL = os.environ.get("WEX_PANIC_SYSCTL", "/proc/sys/kernel/panic")
@@ -220,12 +232,7 @@ def failed_starts(status):
 def write_pending(mode, generation):
     """Record MODE for the next start, the Advanced Options variant of GENERATION (root only, on disk: /run does not
     survive the restart)."""
-    os.makedirs(os.path.dirname(PENDING), mode=0o755, exist_ok=True)
-    tmp = PENDING + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="ascii") as f:
-        f.write(f"{mode} {generation}\n")
-    os.replace(tmp, PENDING)
+    atomic_write(PENDING, f"{mode} {generation}\n", mode=0o600)
 
 
 def restart_into_variant(generation, run=subprocess.run):
@@ -385,13 +392,8 @@ def write_menu_start(mode, option):
     """Record a start through the menu that counts (MENU_START, on disk), so that the next ordinary start shows the
     failure screen if this one never reaches the logon screen. Root only; a failure only loses that screen."""
     try:
-        os.makedirs(os.path.dirname(MENU_START), mode=0o755, exist_ok=True)
-        tmp = MENU_START + ".tmp"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
-        with os.fdopen(fd, "w", encoding="ascii") as f:
-            f.write(f"{mode} {option or '-'}\n")
-        os.replace(tmp, MENU_START)
-    except OSError as error:
+        atomic_write(MENU_START, f"{mode} {option or '-'}\n", mode=0o644)
+    except (OSError, ValueError) as error:
         print(f"wex-advanced-options: this start is not recorded: {error}", file=sys.stderr)
 
 
@@ -587,18 +589,7 @@ def run_menu(stdscr, previous=None):
 
 def boot_conf(key, path=None):
     """A value from boot.conf (wex-boot1 writes it), or None."""
-    try:
-        with open(path or BOOT_CONF, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("#") or "=" not in line:
-                    continue
-                name, value = line.split("=", 1)
-                if name.strip() == key:
-                    return value.strip()
-    except OSError:
-        pass
-    return None
+    return boot_conf_value(key, path or BOOT_CONF)
 
 
 def failure_countdown(path=None):
@@ -612,7 +603,7 @@ def failure_countdown(path=None):
 
 def recovery_enabled(path=None):
     """Whether a failed start shows the failure screen: recovery_menu= in boot.conf, on unless it says 0."""
-    return boot_conf("recovery_menu", path) != "0"
+    return _recovery_enabled(path or BOOT_CONF)
 
 
 def run_failure(stdscr, previous=None, clock=time.monotonic, countdown=None):

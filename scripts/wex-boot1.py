@@ -34,6 +34,19 @@ import subprocess
 import sys
 import tempfile
 
+for _dir in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/wineexplorer/python"):
+    if _dir not in sys.path:
+        sys.path.insert(0, _dir)
+
+import wexcommon
+from wexcommon import (
+    COUNTDOWN_MAX,
+    atomic_write,
+    boot_conf_value,
+    read_boot_conf,
+    set_boot_conf_value,
+)
+
 BUS_NAME = "org.wineexplorer.Boot1"
 OBJECT_PATH = "/org/wineexplorer/Boot1"
 INTERFACE = BUS_NAME
@@ -47,7 +60,7 @@ CRASH_CONF = os.environ.get("WEX_CRASH_CONF", "/etc/systemd/system.conf.d/90-win
 SYSTEMCTL = os.environ.get("WEX_SYSTEMCTL", "systemctl")
 PRODUCT_CONF = os.environ.get("WEX_PRODUCT_CONF", "/etc/vintner/product.conf")
 RECOVERY_DEFAULT = 30    # seconds, as XP
-TIMEOUT_MAX = 999        # the dialog's range, as XP's
+TIMEOUT_MAX = COUNTDOWN_MAX        # the dialog's range, as XP's
 PANIC_RESTART = 10       # seconds from a kernel panic to the restart, when Automatically restart is on
 IDLE_SECONDS = 60
 VINTNER_SECONDS = 600    # a publish (Options) copies a kernel and an initramfs
@@ -61,60 +74,9 @@ class Failed(Exception):
     """A change that did not happen (D-Bus error Failed); the message says why."""
 
 
-def read_conf(path):
-    """key=value lines; blank lines and lines starting with # are ignored."""
-    values = {}
-    try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                values[key.strip()] = value.strip()
-    except OSError:
-        pass
-    return values
-
-
-def write_file(path, text, mode=0o644):
-    """Replace path atomically: a temporary file in its directory, then a rename."""
-    directory = os.path.dirname(path) or "."
-    os.makedirs(directory, mode=0o755, exist_ok=True)
-    fd, temp = tempfile.mkstemp(prefix=".wex-boot1-", dir=directory)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
-        os.chmod(temp, mode)
-        os.replace(temp, path)
-    except BaseException:
-        try:
-            os.unlink(temp)
-        except OSError:
-            pass
-        raise
-
-
-def set_conf_value(path, key, value, header=""):
-    """Set key=value in path, keeping its other lines and comments; a new file starts with header."""
-    lines = []
-    try:
-        with open(path, encoding="utf-8") as f:
-            lines = f.read().splitlines()
-    except FileNotFoundError:
-        lines = header.splitlines()
-    done = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped.startswith("#") and "=" in stripped and stripped.split("=", 1)[0].strip() == key:
-            lines[i] = f"{key}={value}"
-            done = True
-            break
-    if not done:
-        lines.append(f"{key}={value}")
-    write_file(path, "\n".join(lines) + "\n")
+read_conf = read_boot_conf
+write_file = atomic_write
+set_conf_value = set_boot_conf_value
 
 
 def check_timeout(seconds):
@@ -125,23 +87,19 @@ def check_timeout(seconds):
 
 def recovery_timeout(path=None):
     """The failure screen's countdown: recovery_timeout= in boot.conf, 30 when missing or not a number."""
-    value = read_conf(path or BOOT_CONF).get("recovery_timeout", "")
+    value = boot_conf_value("recovery_timeout", path or BOOT_CONF)
     try:
         return min(max(int(value), 0), TIMEOUT_MAX)
-    except ValueError:
+    except (TypeError, ValueError):
         return RECOVERY_DEFAULT
 
 
 def recovery_enabled(path=None):
     """Whether a failed start shows the failure screen: recovery_menu= in boot.conf, on unless it says 0."""
-    return read_conf(path or BOOT_CONF).get("recovery_menu", "1") != "0"
+    return wexcommon.recovery_enabled(path or BOOT_CONF)
 
 
-BOOT_CONF_HEADER = """\
-# WineExplorer's startup settings (System Properties > Advanced > Startup and Recovery). Written by wex-boot1.
-# recovery_menu: 1 shows the "did not start successfully" screen after a failed start, 0 starts normally instead.
-# recovery_timeout: seconds that screen counts down before it starts normally.
-"""
+BOOT_CONF_HEADER = wexcommon.BOOT_CONF_HEADER
 
 
 def set_recovery(enabled, seconds, path=None):
