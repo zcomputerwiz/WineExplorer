@@ -81,11 +81,19 @@ A logon never changes the map's domain: when Winbind gives another joined domain
 logon is refused (status 9) and nothing changes; only `sync` moves the map to a new domain.
 
 **Sync and domain records:** `sync` leaves domain records to Winbind, and tombstones are permanent, so only a
-definitive answer retires one: the controller answers (`wbinfo --ping-dc`) and then the lookup says there is no
-such user (status 1 with `WBC_ERR_DOMAIN_NOT_FOUND`, Samba 4.17's words, checked against the lab controller) or
-gives another SID, RID, type or (NSS answering) UID. Winbind or the controller unavailable
-(`WBC_ERR_WINBIND_NOT_AVAILABLE`), a lookup over 15 seconds, or output that does not parse keeps the record. A
-different joined domain tombstones all of the old domain's active records and the header follows the new one. A
+definitive answer retires one: the controller answers (`wbinfo --ping-dc`) and then a successful name lookup
+gives another SID, RID, a known non-user numeric SID type or (NSS answering) UID. A failed name lookup alone
+always keeps the record, regardless of its diagnostic wording. To confirm deletion, sync asks
+`wbinfo --lookup-sids` about the record's stored SID: only exit status zero and exactly one complete result for
+that SID with numeric `SID_NAME_USE` 8 (unmapped) retires it. A still-mapped SID, any nonzero exit, timeout,
+unsupported option, unknown type, truncated or malformed result keeps it. This uses wbinfo's successful numeric
+results without adding libwbclient to the standalone tool's package and source-build dependencies.
+
+Sync gathers these Winbind/NSS answers before taking the map lock, then re-reads the protected map under the
+lock. It applies the batch only if the map bytes are identical to the snapshot probed; any concurrent map
+change discards the batch and leaves domain checks for the next sync. Admission, restore and group recording
+retain their existing locked identity checks. A different joined domain tombstones all of the old domain's
+active records and the header follows the new one. A
 local account always wins a UID: a domain record with the UID of a local account becomes a tombstone.
 
 **Restore:** `wex-accounts restore DOMAIN\user` (root, under the lock) makes the newest tombstone of that domain
