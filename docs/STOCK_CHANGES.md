@@ -3573,3 +3573,26 @@ window and thread contexts are not equal as Windows' are, which nothing depends 
 2026-11-16 (UWP, Wine f0f972f8): `dlls/windows.ui/dispatcher.c`: `GetIids` of the CoreDispatcher, its asynchronous action
 and the idle arguments (they returned E_NOTIMPL, which .NET Native turns into an exception when it wraps the object, as it
 does for the action `Dispatcher.RunAsync` returns). `tests/corewindow.c` passes on Wine x64 and x86.
+
+# Shared administrator policy and sysrun.conf reader (2026-11-16)
+
+Branch `codex/refactor-admin-conf-wine` (uncommitted; reviewer builds and tests):
+
+- New `include/wine/wex_sysrun_conf.h`, listed in `include/Makefile.in`: header-only Unix reader with root-owned,
+  non-writable ancestors, no symlink traversal or extended access ACLs, a root-owned regular single-link file,
+  bounded reads through EOF, metadata recheck, a strict limit below 4096 bytes, complete lines and no duplicate
+  keys (including keys the caller does not request). Per-key ABSENT/VALUE/INVALID results; missing files stay
+  ABSENT for optional consumers, but administrator policy requires a valid file. Account-name grammar and the
+  effective administrator-group rule are shared here: absent key defaults to sudo; invalid/unsafe file denies all.
+- `server/sysrun.c`, `server/sysrun.h`: replace the local parser with the shared reader, load group/machine_root
+  from one snapshot and document the per-key results.
+  `dlls/ntdll/unix/sysrun.c`: read group and machine_root from one shared-reader snapshot.
+- `server/accounts.c`: use the same reader for sysrun.conf and the common name/admin-group policy; retain the
+  existing protected accounts.map/domain-groups reader and NSS membership checks.
+- `server/registry.c`: use the common administrator-group policy, including fail-closed protection checks before
+  the Domain Admins path. An unsafe file no longer falls back to sudo.
+
+WineExplorer consumers: wex-sysrun and wexgpstore use the same header; wex-is-admin exposes `--print-group` for
+provisioning, and PAM/components use its membership mode. Native reader regression tests compile the actual caller
+functions in isolation; the existing server fixture also checks the unsafe-file token shape. Runtime/build
+verification is deferred to the reviewer; static checks alone do not prove either.

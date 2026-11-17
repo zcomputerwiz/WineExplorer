@@ -474,6 +474,16 @@ ok c2_admin_group_duplicate_line_gives_standard_token_shape
 cat "$ROOT/sysrun.conf.orig" > "$CONF"
 prefix_server_env "$ADM" -k || true; prefix_server_env "$ADM" -w
 
+# Unsafe configuration must deny administrator tokens in registry.c too, even
+# when the named group is sudo and the caller is a member of it.
+chmod 0664 "$CONF"
+OUT="$(wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" token 2>&1 | tr -d '\r')" || { echo "$OUT" >&2; fail "unsafe sysrun config: token probe"; }
+grep -q '^admins=absent$' <<<"$OUT" && grep -q '^elevation=1$' <<<"$OUT" && grep -q '^linked=none$' <<<"$OUT" ||
+    { echo "$OUT" >&2; fail "unsafe sysrun config gave the administrator token shape"; }
+ok c2_unsafe_sysrun_config_gives_standard_token_shape
+chmod 0644 "$CONF"
+prefix_server_env "$ADM" -k || true; prefix_server_env "$ADM" -w
+
 # ---- 8. the system role (C3), elevation enforced --------------------------------------------------------------
 # services.exe, winedevice.exe and the LocalSystem service report SYSTEM; the LocalService and NetworkService
 # services report their accounts and have no system group; a limited and a standard user cannot get at the system

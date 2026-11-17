@@ -56,6 +56,7 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "../../wine/include/wine/wex_sysrun_conf.h"
 
 #ifndef SYSRUN_CONF
 #define SYSRUN_CONF "/etc/wineexplorer/sysrun.conf"
@@ -135,57 +136,35 @@ static void check_trusted(const char *path)
     if (strcmp(real, path)) check_components(real);
 }
 
-static void set_value(char *dst, size_t size, const char *value, const char *key)
-{
-    if (strlen(value) >= size) refuse("config value too long", key);
-    strcpy(dst, value);
-}
-
 static void read_config(struct config *c)
 {
-    char buf[4096], *line, *next;
-    struct stat st;
-    ssize_t n;
-    int fd;
+    struct wex_sysrun_conf conf;
+    char *line, *end, *eq;
+    const char *keys[] = { "group", "loader", "ntdll", "wineserver", "machine_root", "admin_group",
+                           "builtin_administrator", "session0_socket", "session0_user" };
+    size_t i;
 
-    strcpy(c->group, "wexsys");
-    c->loader[0] = c->ntdll[0] = c->wineserver[0] = c->machine_root[0] = 0;
+    /* the path's directories first, for the administrator's diagnostic (which one is writable by whom); the shared
+     * reader then checks the same again on descriptors and is the one that decides */
     check_components(SYSRUN_CONF);
-    fd = open(SYSRUN_CONF, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-    if (fd < 0) refuse("cannot open config", SYSRUN_CONF);
-    if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_uid != 0 || (st.st_mode & (S_IWGRP | S_IWOTH)))
-        refuse("config is not a regular root-owned file that only root can write", SYSRUN_CONF);
-    /* the whole file or nothing: a read that stops early could leave a cut machine_root= that still parses */
-    if (st.st_size <= 0 || st.st_size >= (off_t)sizeof(buf)) refuse("config is empty or too large", SYSRUN_CONF);
-    for (size_t got = 0; got < (size_t)st.st_size; got += n)
+    if (!wex_sysrun_conf_load(SYSRUN_CONF, &conf)) refuse("invalid or unprotected config", SYSRUN_CONF);
+    /* The launcher has always refused unknown keys. Other readers may ignore them. */
+    for (line = conf.text; *line; line = end + 1)
     {
-        n = read(fd, buf + got, (size_t)st.st_size - got);
-        if (n < 0 && errno == EINTR) { n = 0; continue; }
-        if (n <= 0) refuse("cannot read config", SYSRUN_CONF);
+        end = strchr(line, '\n');
+        if (line == end || *line == '#') continue;
+        eq = strchr(line, '=');
+        for (i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
+            if (strlen(keys[i]) == (size_t)(eq - line) && !strncmp(line, keys[i], eq - line)) break;
+        if (i == sizeof(keys) / sizeof(keys[0])) refuse("unknown config key", SYSRUN_CONF);
     }
-    n = st.st_size;
-    if (read(fd, buf + n, 1) != 0) refuse("config changed while it was read", SYSRUN_CONF);
-    close(fd);
-    buf[n] = 0;
-    for (line = buf; line; line = next)
-    {
-        char *eq;
-
-        if ((next = strchr(line, '\n'))) *next++ = 0;
-        if (!*line || *line == '#') continue;
-        if (!(eq = strchr(line, '='))) refuse("bad config line", line);
-        *eq++ = 0;
-        if (!strcmp(line, "group")) set_value(c->group, sizeof(c->group), eq, line);
-        else if (!strcmp(line, "loader")) set_value(c->loader, sizeof(c->loader), eq, line);
-        else if (!strcmp(line, "ntdll")) set_value(c->ntdll, sizeof(c->ntdll), eq, line);
-        else if (!strcmp(line, "wineserver")) set_value(c->wineserver, sizeof(c->wineserver), eq, line);
-        else if (!strcmp(line, "machine_root")) set_value(c->machine_root, sizeof(c->machine_root), eq, line);
-        else if (!strcmp(line, "admin_group") || !strcmp(line, "builtin_administrator")) continue;
-        /* read by the Wine server: the system tier's session 0 (docs/SYSTEM_TIER_DESIGN.md) */
-        else if (!strcmp(line, "session0_socket") || !strcmp(line, "session0_user")) continue;
-        else refuse("unknown config key", line);
-    }
-    if (!c->loader[0] || !c->ntdll[0] || !c->wineserver[0] || !c->machine_root[0])
+    if (wex_sysrun_conf_get(&conf, "group", c->group, sizeof(c->group)) == WEX_SYSRUN_CONF_INVALID)
+        refuse("invalid config group", SYSRUN_CONF);
+    if (!c->group[0]) strcpy(c->group, "wexsys");
+    if (wex_sysrun_conf_get(&conf, "loader", c->loader, sizeof(c->loader)) != WEX_SYSRUN_CONF_VALUE ||
+        wex_sysrun_conf_get(&conf, "ntdll", c->ntdll, sizeof(c->ntdll)) != WEX_SYSRUN_CONF_VALUE ||
+        wex_sysrun_conf_get(&conf, "wineserver", c->wineserver, sizeof(c->wineserver)) != WEX_SYSRUN_CONF_VALUE ||
+        wex_sysrun_conf_get(&conf, "machine_root", c->machine_root, sizeof(c->machine_root)) != WEX_SYSRUN_CONF_VALUE)
         refuse("config lacks loader, ntdll, wineserver or machine_root", SYSRUN_CONF);
 }
 

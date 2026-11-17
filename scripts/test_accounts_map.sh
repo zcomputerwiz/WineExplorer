@@ -7,6 +7,8 @@ set -euo pipefail
 [ "$(id -u)" -eq 0 ] || { echo 'FAIL: run as root' >&2; exit 1; }
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname -- "$SCRIPT_DIR")"
+# Shared parser and the actual launcher/server/ntdll/gpstore/registry reader functions.
+python3 "$SCRIPT_DIR/test_sysrun_conf.py"
 # /tmp is intentionally forbidden by the provider's protected-ancestor check.
 FIXTURE="$(mktemp -d /run/wex-accounts-test-XXXXXXXX)"
 trap 'rm -rf -- "$FIXTURE"' EXIT
@@ -343,6 +345,34 @@ chmod 0644 "$B5/sysrun.conf"
 expect_admin 0 "${ISA[@]}" alice
 # The production build has no fixture options: they are just extra arguments.
 expect_admin 2 "$FIXTURE/is-admin" --directory "$B5" alice
+
+# Even a duplicate unrelated key, malformed trailing line or 4 KiB file denies admin membership.
+b5_conf 'group=wexsys
+'
+expect_admin 1 "${ISA[@]}" alice
+b5_conf 'malformed
+'
+expect_admin 1 "${ISA[@]}" alice
+python3 - "$B5/sysrun.conf" <<'PY'
+import sys
+text = 'group=wexsys\nadmin_group=sudo\n'
+open(sys.argv[1], 'w').write(text + '#' + 'x' * (4096 - len(text) - 2) + '\n')
+PY
+expect_admin 1 "${ISA[@]}" alice
+b5_conf ''
+
+# PAM must honor a non-sudo administrator group through the real helper.
+printf 'wheel:x:2002:bob\n' >> "$FIXTURE/b5.group"
+printf 'group=wexsys\nadmin_group=wheel\n' > "$B5/sysrun.conf"
+printf '#!/bin/sh\necho safecmd\n' > "$FIXTURE/bootmode"
+printf '#!/bin/sh\nexec "%s" --directory "%s" --test-passwd "%s" --test-group "%s" "$@"\n' \
+    "$FIXTURE/is-admin-lab" "$B5" "$FIXTURE/b5.passwd" "$FIXTURE/b5.group" > "$FIXTURE/admin-helper"
+chmod 0755 "$FIXTURE/bootmode" "$FIXTURE/admin-helper"
+WEX_BOOTMODE_HELPER="$FIXTURE/bootmode" WEX_IS_ADMIN_HELPER="$FIXTURE/admin-helper" PAM_USER=bob \
+    sh "$SCRIPT_DIR/wex-safemode-pam-check.sh" || fail 'PAM denied non-sudo admin_group member'
+if WEX_BOOTMODE_HELPER="$FIXTURE/bootmode" WEX_IS_ADMIN_HELPER="$FIXTURE/admin-helper" PAM_USER=alice \
+    sh "$SCRIPT_DIR/wex-safemode-pam-check.sh"; then fail 'PAM accepted sudo member outside admin_group'; fi
+b5_conf ''
 
 # ---- Domain accounts, map version 2 (docs/DOMAIN_LOGON.md, WO 1) ----
 # A fake Winbind: wbinfo answers from files in $WB (own-domain, domain SID, users, ping); NSS knows the domain

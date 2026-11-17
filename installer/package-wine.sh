@@ -427,12 +427,17 @@ systemctl enable wex-session-choice.service || true
 # root's); until then it cannot log on, and the Welcome screen leaves it out. The AccountsService file makes it a
 # cached account, which the Welcome screen lists (in Safe Mode only, or as SpecialAccounts\UserList says).
 if ! getent passwd administrator >/dev/null 2>&1; then
-    admin_group=sudo
-    if [ -f /etc/wineexplorer/sysrun.conf ] && [ ! -L /etc/wineexplorer/sysrun.conf ]; then
-        admin_group=$(sed -n 's/^admin_group=//p' /etc/wineexplorer/sysrun.conf | head -n 1)
-        admin_group=${admin_group:-sudo}
+    admin_group=
+    if [ ! -e /etc/wineexplorer/sysrun.conf ] && [ ! -L /etc/wineexplorer/sysrun.conf ]; then
+        # Before the first machine setup there is no configuration or installed helper yet.
+        admin_group=sudo
+    else
+        is_admin=/usr/local/libexec/wineexplorer/wex-is-admin
+        # The package ships a fresh reader beside setup, before setup installs it in libexec.
+        [ ! -x /usr/local/bin/wex-is-admin.bin ] || is_admin=/usr/local/bin/wex-is-admin.bin
+        admin_group=$("$is_admin" --print-group 2>/dev/null) || admin_group=
     fi
-    if getent group "$admin_group" >/dev/null 2>&1; then
+    if [ -n "$admin_group" ] && getent group "$admin_group" >/dev/null 2>&1; then
         useradd --create-home --comment Administrator --shell /bin/bash --groups "$admin_group" administrator || true
     else
         useradd --create-home --comment Administrator --shell /bin/bash administrator || true

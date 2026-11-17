@@ -344,15 +344,17 @@ class TestBootLog(TempDirTest):
 
 
 class TestPamCheck(TempDirTest):
-    def check(self, mode, user, arg=None, sudo=False):
+    def check(self, mode, user, arg=None, admin=False, missing=False, helper_status=None):
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir(exist_ok=True)
-        groups = f"{user} sudo" if sudo else user
-        (bin_dir / "id").write_text(f"#!/bin/sh\necho {groups}\n", encoding="ascii")
+        helper = bin_dir / "wex-is-admin"
+        status = helper_status if helper_status is not None else (0 if admin else 1)
+        helper.write_text(f'#!/bin/sh\n[ "$1" = "{user}" ] || exit 2\nexit {status}\n', encoding="ascii")
         (bin_dir / "logger").write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
         for f in bin_dir.iterdir():
             f.chmod(0o755)
-        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "WEX_BOOTMODE_HELPER": self.fake_helper(mode)}
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "WEX_BOOTMODE_HELPER": self.fake_helper(mode),
+               "WEX_IS_ADMIN_HELPER": str(bin_dir / "missing" if missing else helper)}
         if user is not None:
             env["PAM_USER"] = user
         cmd = ["sh", str(PAM_CHECK)] + ([arg] if arg else [])
@@ -372,11 +374,16 @@ class TestPamCheck(TempDirTest):
 
     def test_command_prompt_admins_only(self):
         self.assertEqual(self.check("safecmd", "root").returncode, 0)
-        self.assertEqual(self.check("safecmd", "alice", sudo=True).returncode, 0)
+        self.assertEqual(self.check("safecmd", "alice", admin=True).returncode, 0)
         refused = self.check("safecmd", "alice")
         self.assertEqual(refused.returncode, 1)
         self.assertIn("Only administrators", refused.stdout)
         self.assertEqual(self.check("safecmd", None).returncode, 1)
+
+    def test_missing_or_failing_admin_helper_denies(self):
+        self.assertEqual(self.check("safecmd", "alice", missing=True).returncode, 1)
+        self.assertEqual(self.check("safecmd", "alice", helper_status=2).returncode, 1)
+        self.assertEqual(self.check("safecmd", "alice", helper_status=127).returncode, 1)
 
 
 class TestStartupCheck(TempDirTest):
@@ -2221,9 +2228,14 @@ class TestPackage(TempDirTest):
         (etc / "wineexplorer").mkdir(parents=True)
         (etc / "pam.d").mkdir()
         (etc / "wineexplorer" / "sysrun.conf").write_text("group=wexsys\nadmin_group=wexadmins\n", encoding="ascii")
-        block = self.safe_mode_block()
         bin_dir = self.tmp / "bin"
         bin_dir.mkdir()
+        # the postinst asks wex-is-admin --print-group (the shared reader); a stand-in answers from the test's file
+        helper = bin_dir / "wex-is-admin"
+        helper.write_text('#!/bin/sh\n[ "$1" = --print-group ] || exit 2\n'
+                          f"sed -n 's/^admin_group=//p' '{etc}/wineexplorer/sysrun.conf'\n", encoding="ascii")
+        helper.chmod(0o755)
+        block = self.safe_mode_block().replace("/usr/local/libexec/wineexplorer/wex-is-admin", str(helper))
         for name, body in (("systemctl", "exit 0\n"),
                            ("getent", '[ "$1" = group ] && [ "$2" = "$FAKE_GROUP" ]\n'),
                            ("useradd", 'echo "useradd $*" >> "$LOG"\n')):

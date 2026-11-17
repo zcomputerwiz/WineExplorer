@@ -12,7 +12,6 @@ stage-limited Unix domain socket verified via SO_PEERCRED.
 import argparse
 from contextlib import contextmanager
 import fcntl
-import grp
 import hashlib
 import io
 import json
@@ -869,8 +868,18 @@ def cache_d3dcompiler_payloads(cache, review_cache=None):
                 temporary.unlink(missing_ok=True)
 
 
+IS_ADMIN_HELPER = '/usr/local/libexec/wineexplorer/wex-is-admin'
+
+
 def is_admin():
-    return os.getuid() == 0 or grp.getgrnam('sudo').gr_gid in (*os.getgroups(), os.getgid())
+    if os.getuid() == 0:
+        return True
+    try:
+        user = pwd.getpwuid(os.getuid()).pw_name
+        return subprocess.run([IS_ADMIN_HELPER, user], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, check=False).returncode == 0
+    except (OSError, KeyError):
+        return False
 
 
 def protected_name(name):
