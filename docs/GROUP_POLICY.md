@@ -531,8 +531,8 @@ Explain page) with the tree of Windows' Local Security Settings:
 | Local Policies\Security Options | the elevation prompt behavior for administrators (2 or 5) and the secure desktop: apply; the other three User Account Control entries are grayed out (the elevation service does not read them) |
 
 The value shown is the one in the local template (`GroupPolicy\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf`,
-readable by anyone), else the one the system keeps now (registry), else "Not Defined" (a lockout number has its
-default). While the lockout threshold is 0, the duration and the reset counter show "Not applicable", as on Windows. A
+readable by anyone), else the one the system keeps now (registry), else the default that is in force when
+the value is absent (lockout 0 attempts and 30 minutes, the prompt for changes to the computer, the secure desktop). While the lockout threshold is 0, the duration and the reset counter show "Not applicable", as on Windows. A
 change edits the template's text (`template.c`: it replaces or adds one line and keeps every other line and section, so a
 template that holds rights or audit settings loses nothing; a line of a name that occurs in several sections of that name is changed in all of them, as setup applies the last one; a template that setup reads differently from a list of lines, with a NUL, Ctrl-Z, an unpaired surrogate or a line that ends in a backslash, is not edited and not replaced), and hands the whole file to `gpsvc` through the spool (kind
 `WEX_GP_MACHINE_TEMPLATE`, as `secedit /configure` does): `gpsvc` checks it with the same parser as the writer, installs it

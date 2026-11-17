@@ -225,9 +225,11 @@ static BOOL current_value( const struct sec_setting *s, uint32_t *number, BOOL *
         if (ok) return TRUE;
     }
     if (read_registry( s, number )) return TRUE;
+    /* neither has one: the default is what is in force (the elevation service takes 5 and the secure desktop when the
+     * values are absent), so it is shown as the value, not as "Not Defined" */
     *number = s->def;
-    *defined = s->kind == SEC_NUMBER;
-    return *defined;
+    *defined = FALSE;
+    return TRUE;
 }
 
 static BOOL lockout_off(void)
