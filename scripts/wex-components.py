@@ -257,18 +257,18 @@ COMPONENTS_METADATA = {
         'disabled': False,
         'disabled_reason': '',
         # Apache-2.0 (XamlShim, Uno) followed by every bundled third-party licence (.NET, SkiaSharp, HarfBuzz, ICU)
-        'terms_url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.3.0/TERMS.txt',
-        'terms_sha256': '975b8b70616d6321bfd663b9283b801fc5f3db75e54a39127352d301f839f034',
-        'terms_text_sha256': '975b8b70616d6321bfd663b9283b801fc5f3db75e54a39127352d301f839f034',
-        'release': '0.3.0',
+        'terms_url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.3.1/TERMS.txt',
+        'terms_sha256': '404cf5de76ac9e2adbb2f3d0569a7619ee64d550e861c036b07b9cd6fd37bfd6',
+        'terms_text_sha256': '404cf5de76ac9e2adbb2f3d0569a7619ee64d550e861c036b07b9cd6fd37bfd6',
+        'release': '0.3.1',
         'execution_policy': 'uwp-xaml-extract-register-v1',
         'payloads': [
-            {'name': 'xamlshim-0.3.0-win-x64.zip', 'architecture': 'x64', 'size': 59804097,
-             'sha256': '2bdb9d8d427848ddc217346a35341ca978c1e882c16ea4e7d912b4fd24d631d8',
-             'url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.3.0/xamlshim-0.3.0-win-x64.zip'},
+            {'name': 'xamlshim-0.3.1-win-x64.zip', 'architecture': 'x64', 'size': 59807876,
+             'sha256': '536b35b427082cf89d08ca7d515215c01a46c5d873456013d7bb56dea7f5e2d3',
+             'url': 'https://github.com/zcomputerwiz/uno-uwp/releases/download/wex-xamlshim-v0.3.1/xamlshim-0.3.1-win-x64.zip'},
         ],
         'recipe_files': [
-            ('xamlshim-0.3.0-win-x64.zip', '2bdb9d8d427848ddc217346a35341ca978c1e882c16ea4e7d912b4fd24d631d8'),
+            ('xamlshim-0.3.1-win-x64.zip', '536b35b427082cf89d08ca7d515215c01a46c5d873456013d7bb56dea7f5e2d3'),
         ],
     },
     # Microsoft's framework packages that UWP applications declare as dependencies (the Windows Calculator 11.2607
