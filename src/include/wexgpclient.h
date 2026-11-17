@@ -41,12 +41,9 @@ static const WCHAR * const wex_gp_request_names[WEX_GP_KIND_COUNT] =
     { L"Machine.Registry.pol", L"User.Registry.pol", L"Machine.GptTmpl.inf", NULL };
 
 /* the name of a request in the spool: the fixed one of a kind, or UserPolicy.TARGET.Registry.pol for the target of
- * WEX_GP_USER_TARGET_POL (a SID of the forms of wexgpstore.h: only S, digits and dashes are let through, gpsvc checks the
- * rest) */
+ * WEX_GP_USER_TARGET_POL (a SID of the forms of wexgpstore.h, wex_gp_target_valid) */
 static DWORD wex_gp_request_name( DWORD kind, const char *target, WCHAR *name, DWORD chars )
 {
-    DWORD i;
-
     if (kind >= WEX_GP_KIND_COUNT || (kind == WEX_GP_USER_TARGET_POL) != (target != NULL)) return ERROR_INVALID_PARAMETER;
     if (!target)
     {
@@ -54,9 +51,7 @@ static DWORD wex_gp_request_name( DWORD kind, const char *target, WCHAR *name, D
         wcscpy( name, wex_gp_request_names[kind] );
         return ERROR_SUCCESS;
     }
-    if (!target[0] || strlen( target ) >= WEX_GP_TARGET_MAX) return ERROR_INVALID_PARAMETER;
-    for (i = 0; target[i]; i++)
-        if (target[i] != 'S' && target[i] != '-' && (target[i] < '0' || target[i] > '9')) return ERROR_INVALID_PARAMETER;
+    if (!wex_gp_target_valid( target )) return ERROR_INVALID_PARAMETER;
     if (swprintf( name, chars, L"UserPolicy.%hs.Registry.pol", target ) < 0) return ERROR_INSUFFICIENT_BUFFER;
     return ERROR_SUCCESS;
 }

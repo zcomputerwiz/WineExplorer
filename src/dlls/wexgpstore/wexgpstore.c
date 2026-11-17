@@ -57,8 +57,8 @@ static BOOL copy_target( DWORD kind, const char *target, DWORD *given, char *to 
     *given = 0;
     if ((kind == WEX_GP_USER_TARGET_POL) != (target != NULL)) return FALSE;
     if (!target) return TRUE;
+    if (!wex_gp_target_valid( target )) return FALSE;
     length = strlen( target );
-    if (!length || length >= WEX_GP_TARGET_MAX) return FALSE;
     memcpy( to, target, length + 1 );
     *given = 1;
     return TRUE;

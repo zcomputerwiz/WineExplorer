@@ -38,6 +38,7 @@
 #include <commctrl.h>
 #include <prsht.h>
 #include <shellapi.h>
+#include <sddl.h>
 
 #include "resource.h"
 #include "wexgpclient.h"
@@ -59,6 +60,11 @@ static struct node nodes[MAX_NODES];
 static unsigned int node_count;
 static int split = 230;
 static int icon_folder, icon_open;   /* the shell's folder icons in the system image list */
+/* the local object that is edited: none (the local computer policy: Machine and User, GroupPolicy), or one of the objects
+ * of the users (docs/GROUP_POLICY.md, "The local objects of the users"): the SID of the Administrators, of the
+ * Non-Administrators or of a person, with the name for the window. Those have User Configuration only. */
+static char target_sid[WEX_GP_TARGET_MAX];
+static WCHAR target_name[128];
 
 static void to_wide( const char *text, WCHAR *out, int count )
 {
@@ -76,7 +82,13 @@ static BOOL store_path( enum policy_scope scope, WCHAR *path, DWORD chars )
 {
     UINT n = GetSystemDirectoryW( path, chars );
 
-    if (!n || n + 40 > chars) return FALSE;
+    if (!n || n + 40 + WEX_GP_TARGET_MAX > chars) return FALSE;
+    if (target_sid[0])
+    {
+        if (scope == POLICY_COMPUTER) return FALSE;
+        swprintf( path + n, chars - n, L"\\GroupPolicyUsers\\%hs\\User\\Registry.pol", target_sid );
+        return TRUE;
+    }
     wcscat( path, scope == POLICY_COMPUTER ? L"\\GroupPolicy\\Machine\\Registry.pol" : L"\\GroupPolicy\\User\\Registry.pol" );
     return TRUE;
 }
@@ -180,7 +192,10 @@ static void offer_elevation( HWND owner )
     if (MessageBoxW( owner, L"Changing the local policy needs the rights of an administrator.\n\n"
                             L"Open Group Policy again as an administrator?", L"Group Policy", MB_YESNO | MB_ICONQUESTION ) != IDYES)
         return;
-    if ((INT_PTR)ShellExecuteW( owner, L"runas", L"mmc.exe", L"gpedit.msc", NULL, SW_SHOWNORMAL ) > 32) DestroyWindow( frame );
+    WCHAR parameters[128] = L"gpedit.msc";
+
+    if (target_sid[0]) swprintf( parameters, ARRAY_SIZE(parameters), L"gpedit.msc /gpobject:%hs", target_sid );
+    if ((INT_PTR)ShellExecuteW( owner, L"runas", L"mmc.exe", parameters, NULL, SW_SHOWNORMAL ) > 32) DestroyWindow( frame );
 }
 
 static void report_error( HWND owner, DWORD err, const WCHAR *message )
@@ -221,8 +236,13 @@ static DWORD commit_scope( enum policy_scope scope, WCHAR *message, DWORD chars 
         load_scope( scope );
         return ERROR_NOT_ENOUGH_MEMORY;
     }
-    err = wex_gp_store_write( scope == POLICY_COMPUTER ? WEX_GP_MACHINE_POL : WEX_GP_USER_POL, data, (DWORD)size, 120,
-                              message, chars, !quiet );   /* (the window keeps painting while it waits) */
+    /* (the window keeps painting while it waits) */
+    if (target_sid[0])
+        err = scope == POLICY_COMPUTER ? ERROR_NOT_SUPPORTED :
+              wex_gp_store_write_target( WEX_GP_USER_TARGET_POL, target_sid, data, (DWORD)size, 120, message, chars, !quiet );
+    else
+        err = wex_gp_store_write( scope == POLICY_COMPUTER ? WEX_GP_MACHINE_POL : WEX_GP_USER_POL, data, (DWORD)size, 120,
+                                  message, chars, !quiet );
     free( data );
     load_scope( scope );
     return err;
@@ -557,8 +577,15 @@ static void build_tree(void)
 
     node_count = 0;
     TreeView_DeleteAllItems( tree );
-    root = add_node( TVI_ROOT, L"Local Computer Policy", POLICY_COMPUTER, L"" );
-    for (s = 0; s < 2; s++)
+    if (target_sid[0])
+    {
+        WCHAR title[160];
+
+        swprintf( title, ARRAY_SIZE(title), L"Local Group Policy: %ls", target_name );
+        root = add_node( TVI_ROOT, title, POLICY_USER, L"" );
+    }
+    else root = add_node( TVI_ROOT, L"Local Computer Policy", POLICY_COMPUTER, L"" );
+    for (s = target_sid[0] ? 1 : 0; s < 2; s++)
     {
         scope_item = add_node( root, scope_name( scopes[s] ), scopes[s], L"" );
         templates = add_node( scope_item, L"Administrative Templates", scopes[s], L"" );
@@ -698,7 +725,7 @@ static LRESULT CALLBACK frame_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
  * 2 Disabled, the number is for a number setting. The change goes the way the window's does (the file, gpsvc, the
  * refresh), so it needs the system group as well. 0 when it is installed and applied, else a Win32 error; a setting
  * that is not applicable here, or an id that is not in the table, is ERROR_NOT_SUPPORTED or ERROR_NOT_FOUND. */
-DWORD WINAPI GpEdit_SetPolicyW( const WCHAR *id, DWORD state, DWORD number )
+static DWORD set_policy( const WCHAR *id, DWORD state, DWORD number )
 {
     WCHAR message[260], wide[128];
     unsigned int i;
@@ -712,6 +739,7 @@ DWORD WINAPI GpEdit_SetPolicyW( const WCHAR *id, DWORD state, DWORD number )
     }
     if (i == policy_count) return ERROR_NOT_FOUND;
     if (policies[i].status == POLICY_NOT_APPLICABLE) return ERROR_NOT_SUPPORTED;
+    if (target_sid[0] && policies[i].scope == POLICY_COMPUTER) return ERROR_NOT_SUPPORTED;   /* an object of the users has no computer policy */
     if (policies[i].kind == POLICY_NUMBER && state == SETTING_DISABLED) return ERROR_INVALID_PARAMETER;   /* it has no Disabled */
     if (policies[i].kind == POLICY_NUMBER && state == SETTING_ENABLED && !number_allowed( &policies[i], number ))
         return ERROR_INVALID_PARAMETER;
@@ -724,6 +752,89 @@ DWORD WINAPI GpEdit_SetPolicyW( const WCHAR *id, DWORD state, DWORD number )
     model_free( models[policies[i].scope] );
     models[policies[i].scope] = NULL;
     return err;
+}
+
+DWORD WINAPI GpEdit_SetPolicyW( const WCHAR *id, DWORD state, DWORD number )
+{
+    target_sid[0] = 0;
+    return set_policy( id, state, number );
+}
+
+/* The object of the users that OBJECT names: "Administrators", "Non-Administrators", a SID of a person, or an account
+ * name (looked up, and only a user is taken). target_sid and target_name are set, or the error. */
+static DWORD resolve_object( const WCHAR *object )
+{
+    BYTE sid_buffer[SECURITY_MAX_SID_SIZE];
+    WCHAR domain[256], *text;
+    DWORD size = sizeof(sid_buffer), domain_size = ARRAY_SIZE(domain);
+    SID_NAME_USE use;
+    PSID sid = (PSID)sid_buffer;
+    char narrow[WEX_GP_TARGET_MAX];
+
+    target_sid[0] = 0;
+    if (!object || !object[0]) return ERROR_INVALID_PARAMETER;
+    if (!_wcsicmp( object, L"Administrators" )) { strcpy( narrow, "S-1-5-32-544" ); lstrcpynW( target_name, L"Administrators", ARRAY_SIZE(target_name) ); }
+    else if (!_wcsicmp( object, L"Non-Administrators" )) { strcpy( narrow, "S-1-5-32-545" ); lstrcpynW( target_name, L"Non-Administrators", ARRAY_SIZE(target_name) ); }
+    else
+    {
+        if (!_wcsnicmp( object, L"S-1-5-21-", 9 ))
+        {
+            PSID parsed;
+
+            if (!ConvertStringSidToSidW( object, &parsed )) return ERROR_INVALID_PARAMETER;
+            size = GetLengthSid( parsed );
+            if (size > sizeof(sid_buffer)) { LocalFree( parsed ); return ERROR_INVALID_PARAMETER; }
+            CopySid( sizeof(sid_buffer), sid, parsed );
+            LocalFree( parsed );
+            lstrcpynW( target_name, object, ARRAY_SIZE(target_name) );
+        }
+        else
+        {
+            if (!LookupAccountNameW( NULL, object, sid, &size, domain, &domain_size, &use )) return ERROR_NONE_MAPPED;
+            if (use != SidTypeUser) return ERROR_NONE_MAPPED;
+            lstrcpynW( target_name, object, ARRAY_SIZE(target_name) );
+        }
+        if (!ConvertSidToStringSidW( sid, &text )) return GetLastError();
+        if (WideCharToMultiByte( CP_ACP, 0, text, -1, narrow, sizeof(narrow), NULL, NULL ) <= 0) { LocalFree( text ); return ERROR_INVALID_PARAMETER; }
+        LocalFree( text );
+    }
+    if (!wex_gp_target_valid( narrow )) return ERROR_INVALID_PARAMETER;   /* a user whose SID is not one of a person of this machine */
+    strcpy( target_sid, narrow );
+    return ERROR_SUCCESS;
+}
+
+/* A setting of an object of the users by its id ("user:NoRun") without the window: as GpEdit_SetPolicyW, for OBJECT of
+ * resolve_object. A setting of the computer is ERROR_NOT_SUPPORTED. */
+DWORD WINAPI GpEdit_SetUserPolicyW( const WCHAR *object, const WCHAR *id, DWORD state, DWORD number )
+{
+    DWORD err = resolve_object( object );
+
+    if (!err) err = set_policy( id, state, number );
+    target_sid[0] = 0;
+    return err;
+}
+
+BOOL WINAPI GpEdit_ExecuteW( HWND parent, HINSTANCE inst, const WCHAR *machine, int show );
+
+/* the console gpedit.msc with /gpobject:OBJECT (mmc.exe): the same window for the object of the users, User Configuration only */
+BOOL WINAPI GpEdit_ExecuteObjectW( HWND parent, HINSTANCE inst, const WCHAR *machine, const WCHAR *object, int show )
+{
+    DWORD err;
+    BOOL ret;
+
+    if (object && object[0])
+    {
+        if ((err = resolve_object( object )))
+        {
+            MessageBoxW( parent, err == ERROR_NONE_MAPPED ? L"That user was not found. Name Administrators, Non-Administrators or a user of this computer."
+                                                           : L"That is not a user or group that has a local Group Policy object.",
+                         L"Group Policy", MB_OK | MB_ICONINFORMATION );
+            return FALSE;
+        }
+    }
+    ret = GpEdit_ExecuteW( parent, inst, machine, show );
+    target_sid[0] = 0;
+    return ret;
 }
 
 /* the entry point that mmc.exe calls for the console gpedit.msc: runs until the window closes */
@@ -748,6 +859,15 @@ BOOL WINAPI GpEdit_ExecuteW( HWND parent, HINSTANCE inst, const WCHAR *machine, 
     wc.lpszClassName = L"GpEditFrame";
     wc.lpszMenuName = MAKEINTRESOURCEW( IDM_MAIN );
     RegisterClassW( &wc );
+    if (target_sid[0])
+    {
+        WCHAR title[200];
+
+        swprintf( title, ARRAY_SIZE(title), L"Group Policy - %ls", target_name );
+        frame = CreateWindowExW( 0, L"GpEditFrame", title, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 800, 520,
+                                 parent, NULL, instance, NULL );
+    }
+    else
     frame = CreateWindowExW( 0, L"GpEditFrame", L"Group Policy", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 800, 520,
                              parent, NULL, instance, NULL );
     if (!frame) return FALSE;

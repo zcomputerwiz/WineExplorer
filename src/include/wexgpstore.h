@@ -20,6 +20,7 @@
 #ifndef __WEXGPSTORE_H
 #define __WEXGPSTORE_H
 
+#include <string.h>
 #include <windef.h>
 
 /* docs/GROUP_POLICY.md, "Writing the local files: the spool". The kinds are the fixed list of what may be stored,
@@ -33,6 +34,35 @@
 /* The target of WEX_GP_USER_TARGET_POL: the SID of the Administrators (S-1-5-32-544), of the Non-Administrators
  * (S-1-5-32-545) or of a person (S-1-5-21-A-B-C-RID), as ANSI text; every other kind takes NULL. */
 #define WEX_GP_TARGET_MAX        64
+
+/* TRUE for a target in the forms above, and for nothing else (the same grammar as the unix side's gps_target_valid: digits
+ * and dashes, no leading zero, a subauthority up to 4294967295). A caller checks it before it leaves a request, which
+ * gpsvc would otherwise not look at. */
+static inline int wex_gp_target_valid( const char *target )
+{
+    const char *p;
+    int i;
+
+    if (!target) return 0;
+    if (!strcmp( target, "S-1-5-32-544" ) || !strcmp( target, "S-1-5-32-545" )) return 1;
+    if (strncmp( target, "S-1-5-21-", 9 )) return 0;
+    p = target + 9;
+    for (i = 0; i < 4; i++)
+    {
+        unsigned long long value = 0;
+        int digits = 0;
+
+        if (*p == '0' && p[1] >= '0' && p[1] <= '9') return 0;
+        while (*p >= '0' && *p <= '9')
+        {
+            if (++digits > 10) return 0;
+            value = value * 10 + (*p++ - '0');
+        }
+        if (!digits || value > 0xffffffffULL) return 0;
+        if (i < 3 && *p++ != '-') return 0;
+    }
+    return !*p && (p - target) < WEX_GP_TARGET_MAX;
+}
 
 #define WEX_GP_REQUEST_LIMIT     (4 * 1024 * 1024)
 #define WEX_GP_TEMPLATE_LIMIT    (1024 * 1024)
