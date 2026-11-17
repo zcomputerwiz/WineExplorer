@@ -2303,8 +2303,10 @@ class MachineWine:
 
     def environment(self):
         """What Wine and winetricks get; nothing of the caller's environment (no prefix, overrides, display)."""
+        # WINE64: Wine is a new-style WoW64 build, whose one loader runs 64-bit programs too. winetricks would find that
+        # out from the wineserver binary's architecture, which with session 0 is MAINTENANCE_WINESERVER, a script.
         common = {'PATH': self.PATH, 'LANG': 'C.UTF-8', 'WINEPREFIX': str(self.machine), 'WINE': self.WINE,
-                  'WINEDLLOVERRIDES': 'winemenubuilder.exe=d', 'WINEDEBUG': '-all'}
+                  'WINE64': self.WINE, 'WINEDLLOVERRIDES': 'winemenubuilder.exe=d', 'WINEDEBUG': '-all'}
         if not self.session0:
             return dict(common, HOME='/root', USER='root', LOGNAME='root', WINESERVER=self.WINESERVER,
                         W_CACHE=str(CACHE), XDG_CACHE_HOME=str(CACHE.parent))

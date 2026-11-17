@@ -3656,3 +3656,18 @@ Calculator's Standard mode and Settings page run without a missing Wine class (7
   source. **Unconditional**, upstreamable. Found on an image with session 0 and enforced elevation, where the volatile
   machine keys outlive a user's server: the greeter's prefix update (no display) left a 1024x768 `Default` source, and
   the logon screen then had two stacked monitors and drew below the visible screen (black screen, a blue bar).
+
+# No launcher warning for session 0's own programs (2026-11-17)
+
+- `dlls/ntdll/unix/sysrun.c` (`sysrun_launcher_usable`): a non-root process on a root-owned prefix (session 0's
+  own programs on the machine root) returns FALSE before the "the prefix ... is not ~/.wine" warning. Those programs
+  never use the launcher, and the line was printed at every boot (`journalctl -u wex-session0-services`) and read as
+  a fault. Only with the launcher installed, as before.
+
+# An elevated token of the default type needs no elevation (2026-11-17, Wine 0f6cb784)
+
+- `dlls/kernelbase/process.c` (`is_elevation_required`) and `dlls/shell32/shlexec.c` (`is_elevated_token`, was
+  `is_full_token`): with an elevation helper configured, a token whose `TokenElevation` is TRUE (a Full one, and one
+  of the default type holding the Administrators group: LocalSystem, the built-in Administrator) starts a
+  `requireAdministrator` program and a `runas` directly, as on Windows. Before, only a Full token did, and LocalSystem
+  in session 0 was refused (B36). Without a helper (stock behavior) nothing changes.

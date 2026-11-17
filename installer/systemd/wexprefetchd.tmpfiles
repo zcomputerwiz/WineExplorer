@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-d /var/cache/wineexplorer 0755 wexcache wexcache -
+# root's: the component review cache (wex-components) lives beside the service's two folders and trusts only a
+# root-owned path (KNOWN_BUGS B35). The service owns images/ and prefetch/, nothing else.
+d /var/cache/wineexplorer 0755 root root -
 d /var/cache/wineexplorer/images 0755 wexcache wexcache -
 d /var/cache/wineexplorer/prefetch 0755 wexcache wexcache -
 d /run/wineexplorer 0755 root root -

@@ -120,6 +120,8 @@ class Session0Tests(Fixture):
             settings = dict(arg[len('--setenv='):].split('=', 1) for arg in command if arg.startswith('--setenv='))
             self.assertEqual(settings['WINEPREFIX'], str(self.machine))
             self.assertEqual(settings['WINESERVER'], c.MAINTENANCE_WINESERVER)
+            # winetricks cannot detect the WoW64 style from a script: it is told
+            self.assertEqual(settings['WINE64'], '/usr/local/bin/wine')
             self.assertEqual(settings['USER'], 'nobody')
             self.assertTrue(settings['HOME'].startswith(str(self.machine.parent / 'component-runs')))
             self.assertNotIn('/root', ' '.join(command))
