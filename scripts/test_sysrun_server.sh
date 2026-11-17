@@ -2549,10 +2549,25 @@ el_down "$STD"
 el_clean; touch "$EL/approve.all"
 el_up "$ADM"
 run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/lv.exe"
-LEASES_SAVED="$(cat /proc/sys/fs/leases-enable)"
-echo 0 > /proc/sys/fs/leases-enable
-bp c4_file_system_without_leases_fails_the_request_with_file_system_limitation "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 665 "$(winpath $EL/out.nolease)" -
-echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
+# The setting is the kernel's, and every WSL distribution shares the kernel: while another distribution runs a suite
+# (wex-run.sh leaves /mnt/wsl/wex-run.<distribution>, wex-run-split.sh runs two), turning leases off would fail its
+# elevations and its own save and restore would race this one (B29). The case is skipped then; the error it checks
+# is also checked by c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation.
+OTHER_RUN=
+for f in /mnt/wsl/wex-run.*; do
+    [ -f "$f" ] && [ "$f" != "/mnt/wsl/wex-run.${WSL_DISTRO_NAME:-unknown}" ] || continue
+    started="$(head -c 20 "$f" 2>/dev/null | tr -dc '0-9')"
+    [ -n "$started" ] && [ $(( $(date +%s) - started )) -lt 7200 ] && OTHER_RUN="${f#/mnt/wsl/wex-run.}"
+done
+if [ -n "$OTHER_RUN" ]; then
+    echo "NOTE: a suite runs in the WSL distribution $OTHER_RUN (same kernel): leases were not turned off, c4_file_system_without_leases was not run"
+else
+    LEASES_SAVED="$(cat /proc/sys/fs/leases-enable)"
+    echo 0 > /proc/sys/fs/leases-enable
+    bp c4_file_system_without_leases_fails_the_request_with_file_system_limitation "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 665 "$(winpath $EL/out.nolease)" -
+    echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable
+    LEASES_SAVED=
+fi
 [ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
 bp c4_control_with_leases_enabled_again_runs "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 0 "$(winpath $EL/out.nolease)" -
 el_down "$ADM"
@@ -2942,7 +2957,8 @@ cp_case()   # name user probe-arch verb image expect action(approve|cancel|none)
     el_clean
     bprobe_f "$ROOT/cp.log" "$u" "$arch" shexec "$verb" "$(winpath $img)" "$expect" "$(winpath $EL/out.cp)" "$elev" ${extra:+"$extra"} & CPP=$!
     if [ "$action" != none ]; then
-        shown="$(wait_shown)" || { cat "$ROOT/cp.log" >&2; fail "$name: no consent window"; }
+        # (the probe is still running: what it said so far is in cp.log.raw; cp.log is written when it ends)
+        shown="$(wait_shown)" || { cat "$ROOT/cp.log.raw" >&2; fail "$name: no consent window"; }
         grep -qF "Program location: $(winpath $img)" "$shown" || { cat "$shown" >&2; fail "$name: the window does not show the image"; }
         grep -qx 'desktop=Winlogon' "$shown" || { cat "$shown" >&2; fail "$name: the window is not on the secure desktop"; }
         touch "${shown%.shown}.$action"

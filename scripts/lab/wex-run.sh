@@ -39,6 +39,11 @@ MAIN=$P/build/wow64
 LAB=/root/owned-r8/build/wow64
 LOGS=/var/tmp/wex-run
 mkdir -p "$LOGS"
+# All WSL distributions share one kernel. A suite case that changes a kernel setting (fs.leases-enable in
+# test_sysrun_server.sh) breaks a suite running in another distribution at the same time (wex-run-split.sh), so it
+# is skipped while another run is going: a run says so in /mnt/wsl (shared by the distributions) until it ends.
+ACTIVE=/mnt/wsl/wex-run.${WSL_DISTRO_NAME:-unknown}
+if [ -d /mnt/wsl ]; then date +%s > "$ACTIVE" 2>/dev/null && trap 'rm -f "$ACTIVE"' EXIT; fi
 # a run with WEX_SUITE_ONLY leaves groups of the normal suite out: its summary says so, so that it is never read as a
 # full pass (the full suite runs before every merge)
 PARTIAL=
