@@ -193,6 +193,26 @@ class TestReaders(unittest.TestCase):
         self.path.chmod(0o664)
         self.assertNotEqual(run().returncode, 0)
 
+    def test_print_value(self):
+        """The components read session 0's settings through this, never parsing the file themselves."""
+        def run(key, path=None):
+            return subprocess.run([str(self.helper), '--print-value', key, str(path or self.path)],
+                                  capture_output=True, text=True)
+        self.write('group=wexsys\nsession0_socket=/run/s0/session0\nsession0_user=wexsys\n')
+        self.assertEqual((run('session0_user').returncode, run('session0_user').stdout), (0, 'wexsys\n'))
+        self.assertEqual(run('session0_socket').stdout, '/run/s0/session0\n')
+        self.assertEqual((run('builtin_administrator').returncode, run('builtin_administrator').stdout), (3, ''))
+        self.assertEqual(run('session0_user', self.directory / 'missing' / 'sysrun.conf').returncode, 3)
+        for key in ('Bad', '0key', 'a-b', ''):
+            with self.subTest(key=key):
+                self.assertEqual(run(key).returncode, 2)
+        # an invalid or unprotected file is never "absent": callers must not fall back to the defaults
+        self.write('group=wexsys\nsession0_user=wexsys\nsession0_user=root\n')
+        self.assertEqual((run('session0_user').returncode, run('session0_user').stdout), (1, ''))
+        self.write('group=wexsys\nsession0_user=wexsys\n')
+        self.path.chmod(0o664)
+        self.assertEqual(run('session0_user').returncode, 1)
+
 
 if __name__ == '__main__':
     unittest.main()

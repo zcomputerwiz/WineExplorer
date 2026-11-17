@@ -11,6 +11,7 @@ stage-limited Unix domain socket verified via SO_PEERCRED.
 """
 import argparse
 from contextlib import contextmanager
+import ctypes
 import errno
 import fcntl
 import grp
@@ -21,6 +22,7 @@ import os
 from pathlib import Path
 import pwd
 import re
+import select
 import shutil
 import signal
 import socket
@@ -2140,9 +2142,256 @@ def review_download(verb, cache_dir=None, terms_dir=None, progress=None, cancel=
         return text, fingerprint
 
 
-def reg(wine, environment, *args, **kwargs):
-    return subprocess.run([wine, 'reg.exe', *args], env=environment,
-                          capture_output=True, timeout=90, **kwargs)
+SYSRUN_CONF = Path('/etc/wineexplorer/sysrun.conf')
+# the shared protected reader of sysrun.conf (wine/include/wine/wex_sysrun_conf.h); its rules are not repeated here
+SYSRUN_CONF_READER = '/usr/local/libexec/wineexplorer/wex-is-admin'
+# winetricks' "$WINESERVER -w/-k" for an install that runs as a client of session 0 (see MachineWine)
+MAINTENANCE_WINESERVER = '/usr/local/libexec/wineexplorer/wex-maint-wineserver'
+HIVE_SAVE_TIMEOUT = 20      # session 0 saves a changed hive every 5 seconds (server/registry.c)
+IN_CLOSE_WRITE, IN_MOVED_TO = 0x08, 0x80
+
+
+def sysrun_value(key, conf=None):
+    """KEY of the protected sysrun.conf, read by the shared C reader: None when the file or the key is absent. A file
+    that is there but invalid or unprotected raises: maintenance never falls back to the defaults for it."""
+    conf = Path(conf or SYSRUN_CONF)
+    if not os.path.lexists(conf):
+        return None
+    result = subprocess.run([SYSRUN_CONF_READER, '--print-value', key, str(conf)],
+                            capture_output=True, text=True, timeout=30)
+    if result.returncode == 3:
+        return None
+    if result.returncode or not result.stdout.endswith('\n'):
+        raise ValueError(f'{conf} is invalid or unprotected; machine maintenance refused')
+    return result.stdout[:-1]
+
+
+def wait_for_newer(directory, name, since_ns, timeout):
+    """Wait until DIRECTORY/NAME was written after SINCE_NS (inotify on the directory: Wine saves a hive into a new
+    file and renames it into place). True when it was, False at TIMEOUT. Only metadata is read, nothing opened."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    fd = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
+    if fd < 0:
+        raise OSError(ctypes.get_errno(), 'inotify_init1')
+    try:
+        if libc.inotify_add_watch(fd, os.fsencode(directory), IN_CLOSE_WRITE | IN_MOVED_TO) < 0:
+            raise OSError(ctypes.get_errno(), 'inotify_add_watch', str(directory))
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if os.stat(Path(directory) / name, follow_symlinks=False).st_mtime_ns > since_ns:
+                    return True
+            except FileNotFoundError:
+                pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            if select.select([fd], [], [], remaining)[0]:
+                os.read(fd, 65536)
+    finally:
+        os.close(fd)
+
+
+class MachineWine:
+    """Wine on the machine root for component maintenance (docs/KNOWN_BUGS.md B11 and B34).
+
+    With session 0 (session0_socket in sysrun.conf) every Wine program of an install runs as session 0's account,
+    in a transient systemd unit, as a client of session 0's running server. Root never runs Wine on the machine
+    root, whose files and registry overrides the whole system group can change, and the machine registry is written
+    through session 0 only (no second server saves system.reg). The unit's cgroup holds exactly this install's
+    programs: systemd ends what is left when the main program returns, and MAINTENANCE_WINESERVER gives winetricks'
+    `wineserver -w` / `-k` that meaning, since session 0 never goes idle and is not the install's to stop. The
+    account reads nothing of root's: the verified payloads are copied into a run directory of its own (stage()), and
+    root never reads that copy back.
+
+    Without session 0 the earlier way stays: root runs Wine with a server of its own (B34 is open for that case)."""
+
+    WINE = '/usr/local/bin/wine'
+    WINESERVER = '/usr/local/bin/wineserver'
+    PATH = '/usr/local/bin:/usr/bin:/bin'
+
+    def __init__(self, machine=None, conf=None):
+        self.machine = Path(machine or MACHINE)
+        self.run_dir = None
+        self.w_cache = None
+        self.started_ns = None
+        socket_path = sysrun_value('session0_socket', conf)
+        self.session0 = socket_path is not None
+        if self.session0:
+            account = sysrun_value('session0_user', conf)
+            if not account:
+                raise ValueError('sysrun.conf names session 0 but not its account (session0_user)')
+            self.account = pwd.getpwnam(account)
+            if self.account.pw_uid == 0:
+                raise ValueError('Session 0 must not run as root')
+            self.socket = Path(socket_path)
+
+    def __enter__(self):
+        if self.session0:
+            self.run_dir = self._make_run_dir()
+        return self
+
+    def __exit__(self, *exc):
+        if self.run_dir is not None:
+            # the account's own tree: removed through descriptors (a link put in it is removed, never followed)
+            assert shutil.rmtree.avoids_symlink_attacks
+            shutil.rmtree(self.run_dir, ignore_errors=True)
+            self.run_dir = None
+
+    def _make_run_dir(self):
+        """A private directory for this run, made by root in a root-only parent and only traversable by others; its
+        home/ is the account's. Nothing in it can be in root's way: root creates every name in it itself."""
+        base = self.machine.parent / 'component-runs'
+        base.mkdir(mode=0o755, exist_ok=True)
+        info = base.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError(f'Untrusted component run directory: {base}')
+        run = Path(tempfile.mkdtemp(prefix='run-', dir=base))
+        os.chmod(run, 0o711)
+        os.mkdir(run / 'home', 0o700)
+        os.chown(run / 'home', self.account.pw_uid, self.account.pw_gid, follow_symlinks=False)
+        return run
+
+    def stage(self, *sources):
+        """SOURCES, verified files or directories of root's cache, as the install sees them: the directory that holds
+        them (winetricks' W_CACHE from then on). With session 0 a copy for the account: root copies into a new
+        directory of its own that nobody else can enter, then hands it over by descriptor, and never reads it back.
+        Without session 0 the sources stay where they are (in CACHE)."""
+        if not self.session0:
+            return CACHE
+        self.w_cache = self._hand_over(sources)
+        return self.w_cache
+
+    def _hand_over(self, sources=()):
+        """A new directory of the account's in the run directory holding copies of SOURCES. Root makes and fills it
+        while nobody else can enter it, then changes the owners through descriptors (no name is followed)."""
+        directory = Path(tempfile.mkdtemp(prefix='stage-', dir=self.run_dir))
+        for source in map(Path, sources):
+            if source.is_dir() and not source.is_symlink():
+                shutil.copytree(source, directory / source.name, symlinks=True)
+            else:
+                shutil.copy2(source, directory / source.name, follow_symlinks=False)
+        uid, gid = self.account.pw_uid, self.account.pw_gid
+        for _, dirs, files, dir_fd in os.fwalk(directory, follow_symlinks=False):
+            for name in dirs + files:
+                os.chown(name, uid, gid, dir_fd=dir_fd, follow_symlinks=False)
+        os.chown(directory, uid, gid, follow_symlinks=False)
+        return directory
+
+    def export_key(self, key, backup):
+        """reg export KEY into the root-only file BACKUP. With session 0 the account exports into a directory of its
+        own and root copies the result through a descriptor (a regular file only, bounded; never followed)."""
+        if not self.session0:
+            return self.reg('export', key, str(backup), '/y', check=True)
+        directory = self._hand_over()
+        result = self.reg('export', key, str(directory / 'export.reg'), '/y', check=True)
+        dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            data = machine_read_regular(dir_fd, ['export.reg'], MAX_MACHINE_HIVE_BYTES)
+        finally:
+            os.close(dir_fd)
+        with open(backup, 'xb') as out:
+            out.write(data)
+        return result
+
+    def import_file(self, path):
+        """reg import PATH (a file of root's): with session 0 the account imports a copy handed to it."""
+        path = Path(path)
+        if self.session0:
+            path = self._hand_over([path]) / path.name
+        return self.reg('import', str(path), check=True)
+
+    def environment(self):
+        """What Wine and winetricks get; nothing of the caller's environment (no prefix, overrides, display)."""
+        common = {'PATH': self.PATH, 'LANG': 'C.UTF-8', 'WINEPREFIX': str(self.machine), 'WINE': self.WINE,
+                  'WINEDLLOVERRIDES': 'winemenubuilder.exe=d', 'WINEDEBUG': '-all'}
+        if not self.session0:
+            return dict(common, HOME='/root', USER='root', LOGNAME='root', WINESERVER=self.WINESERVER,
+                        W_CACHE=str(CACHE), XDG_CACHE_HOME=str(CACHE.parent))
+        home = str(self.run_dir / 'home')
+        return dict(common, HOME=home, USER=self.account.pw_name, LOGNAME=self.account.pw_name,
+                    WINESERVER=MAINTENANCE_WINESERVER, W_CACHE=str(self.w_cache or self.run_dir / 'home'),
+                    XDG_CACHE_HOME=home + '/.cache')
+
+    def command(self, argv, *, timeout, isolate=False):
+        """ARGV bounded by TIMEOUT seconds; ISOLATE: without a network. With session 0 inside a transient unit as the
+        account (a deadline of systemd's too, past the inner one)."""
+        bounded = ['/usr/bin/timeout', '--signal=TERM', '--kill-after=10s', f'{timeout}s', *argv]
+        if not self.session0:
+            return ['/usr/bin/unshare', '--net', *bounded] if isolate else bounded
+        command = ['/usr/bin/systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec',
+                   '--unit=wex-components-' + uuid.uuid4().hex[:12],
+                   f'--uid={self.account.pw_uid}', f'--gid={self.account.pw_gid}',
+                   '--working-directory=' + str(self.run_dir / 'home'),
+                   '-p', 'NoNewPrivileges=yes', '-p', f'RuntimeMaxSec={timeout + 60}']
+        if isolate:
+            command += ['-p', 'PrivateNetwork=yes']
+        command += [f'--setenv={key}={value}' for key, value in sorted(self.environment().items())]
+        return command + ['--', *bounded]
+
+    def run(self, argv, *, timeout, isolate=False, **kwargs):
+        """Run ARGV (see command()). Without session 0 root's environment is the program's; with it systemd-run gets
+        a bare one and passes the program its own."""
+        self.started_ns = self.started_ns or time.time_ns()
+        if not self.session0:
+            if isolate:
+                # unshare --net isolates only processes started inside it: a server that an earlier program started
+                # (host network) would serve the isolated program's sockets. It must end first.
+                try:
+                    self._server('-w', timeout=60)
+                except subprocess.TimeoutExpired:
+                    self.stop()
+            return subprocess.run(self.command(argv, timeout=timeout, isolate=isolate), env=self.environment(), **kwargs)
+        return subprocess.run(self.command(argv, timeout=timeout, isolate=isolate),
+                              env={'PATH': self.PATH, 'LANG': 'C.UTF-8'}, timeout=timeout + 90, **kwargs)
+
+    def reg(self, *args, check=False):
+        argv = [self.WINE, 'reg.exe', *args]
+        if not self.session0:
+            self.started_ns = self.started_ns or time.time_ns()
+            return subprocess.run(argv, env=self.environment(), capture_output=True, timeout=90, check=check)
+        return self.run(argv, timeout=90, capture_output=True, check=check)
+
+    def _server(self, *args, timeout, check=True):
+        return subprocess.run([self.WINESERVER, *args], env=self.environment(), timeout=timeout, check=check)
+
+    def require_idle(self):
+        """Before maintenance: without session 0 no Wine may run on the machine root (root's server must be gone);
+        with it session 0 must be serving (its programs keep running: they are not the install's)."""
+        if not self.session0:
+            self._server('-w', timeout=2)
+            return
+        try:
+            serving = stat.S_ISSOCK(self.socket.lstat().st_mode)
+        except FileNotFoundError:
+            serving = False
+        if not serving:
+            raise ValueError('Session 0 is not running (wex-session0.service); components install through it')
+        # an earlier install's programs outlive a killed backend in their unit: none may still be running
+        units = subprocess.run(['/usr/bin/systemctl', 'list-units', '--no-legend', '--plain',
+                                '--state=active,activating,deactivating', 'wex-components-*.service'],
+                               capture_output=True, text=True, timeout=30, check=True)
+        if units.stdout.strip():
+            raise ValueError('An earlier component install is still running: ' + units.stdout.split()[0])
+
+    def wait_idle(self, timeout=120):
+        """After Wine programs that changed the machine: their changes are in system.reg. Without session 0 root's
+        server has exited; with it session 0 has saved the hive since the first program of this run started (when
+        nothing changed it saves nothing: the verification that follows decides). Nothing to wait for when no
+        program ran."""
+        if self.started_ns is None:
+            return
+        if not self.session0:
+            self._server('-w', timeout=timeout)
+            return
+        wait_for_newer(self.machine, 'system.reg', self.started_ns, min(timeout, HIVE_SAVE_TIMEOUT))
+
+    def stop(self, check=True):
+        """End what is left of an install. Without session 0 root's whole server; with it nothing is left to end:
+        systemd ended the unit's programs with the unit."""
+        if not self.session0:
+            self._server('-k', timeout=15, check=check)
+            self._server('-w', timeout=30, check=check)
 
 
 WINE_LIBRARIES = Path('/usr/local/lib/wine')
@@ -2201,10 +2450,10 @@ def restore_system_entry(dir_fd, name, backup, gid):
 
 
 @contextmanager
-def protect_builtins(machine, environment, libraries=WINE_LIBRARIES):
+def protect_builtins(machine, wine, libraries=WINE_LIBRARIES):
     """Preserve core files and override keys in the isolated maintenance prefix. The system directories are worked on
-    through descriptors opened without following links (the machine group can rename entries there while root works)."""
-    wine = '/usr/local/bin/wine'
+    through descriptors opened without following links (the machine group can rename entries there while root works).
+    WINE (a MachineWine) runs reg.exe for the override keys."""
     # Keep the root-only recovery snapshot even if restoration itself fails.
     # Debian 13's Python supports delete=False; these can be removed by an
     # administrator after validating the installed component.
@@ -2230,13 +2479,13 @@ def protect_builtins(machine, environment, libraries=WINE_LIBRARIES):
                 for suffix in ('DllOverrides', 'AppDefaults'):
                     key = hive + '\\Software\\Wine\\' + suffix
                     backup = saved / (hive + '-' + suffix + '.reg')
-                    query = reg(wine, environment, 'query', key)
+                    query = wine.reg('query', key)
                     if query.returncode:
                         # Distinguish "key absent" from a broken Wine invocation.
-                        reg(wine, environment, 'query', hive + '\\Software', check=True)
+                        wine.reg('query', hive + '\\Software', check=True)
                         existed = False
                     else:
-                        reg(wine, environment, 'export', key, str(backup), '/y', check=True)
+                        wine.export_key(key, backup)
                         existed = True
                     keys.append((key, backup, existed))
             # A third-party extractor/installer may write through symlinks instead
@@ -2321,11 +2570,11 @@ def protect_builtins(machine, environment, libraries=WINE_LIBRARIES):
                 # The machine root's HKCU is not a user's HKCU. Restore all installer
                 # override side effects instead of propagating them into templates.
                 for key, backup, existed in keys:
-                    result = reg(wine, environment, 'delete', key, '/f')
+                    result = wine.reg('delete', key, '/f')
                     if result.returncode:
-                        reg(wine, environment, 'query', key.split('\\Software')[0] + '\\Software', check=True)
+                        wine.reg('query', key.split('\\Software')[0] + '\\Software', check=True)
                     if existed:
-                        reg(wine, environment, 'import', str(backup), check=True)
+                        wine.import_file(backup)
         finally:
             for descriptor in directories.values():
                 os.close(descriptor)
@@ -3081,16 +3330,14 @@ def verify_uwp_xaml(machine, data, full=False):
         raise ValueError('UWP XAML registration missing')
 
 
-def uwp_xaml_unregister(environment, classes):
+def uwp_xaml_unregister(wine, classes):
     """Delete the class keys and ComponentPath (and the Xaml key when nothing else is in it); missing keys are fine."""
-    wine = '/usr/local/bin/wine'
-    for name in classes:
-        reg(wine, environment, 'delete', 'HKLM\\Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\' + name, '/f')
-    reg(wine, environment, 'delete', 'HKLM\\Software\\Wine\\Xaml', '/v', 'ComponentPath', '/f')
-    query = reg(wine, environment, 'query', 'HKLM\\Software\\Wine\\Xaml')
+    uwp_xaml_unregister_classes(wine, classes)
+    wine.reg('delete', 'HKLM\\Software\\Wine\\Xaml', '/v', 'ComponentPath', '/f')
+    query = wine.reg('query', 'HKLM\\Software\\Wine\\Xaml')
     if query.returncode == 0 and 'REG_' not in query.stdout.decode('utf-8', 'replace'):
-        reg(wine, environment, 'delete', 'HKLM\\Software\\Wine\\Xaml', '/f')
-    subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
+        wine.reg('delete', 'HKLM\\Software\\Wine\\Xaml', '/f')
+    wine.wait_idle()
 
 
 def uwp_xaml_previous_classes(receipt_dir, verb):
@@ -3107,11 +3354,10 @@ def uwp_xaml_previous_classes(receipt_dir, verb):
     return classes
 
 
-def uwp_xaml_unregister_classes(environment, classes):
+def uwp_xaml_unregister_classes(wine, classes):
     """Delete only these class keys (ComponentPath stays); missing keys are fine."""
     for name in classes:
-        reg('/usr/local/bin/wine', environment, 'delete',
-            'HKLM\\Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\' + name, '/f')
+        wine.reg('delete', 'HKLM\\Software\\Microsoft\\WindowsRuntime\\ActivatableClassId\\' + name, '/f')
 
 
 def uwp_xaml_drop_receipt(receipt_dir, verb):
@@ -3134,10 +3380,10 @@ def uwp_xaml_remove_directory(machine, arch):
         os.close(directory)
 
 
-def uwp_xaml_rollback(machine, arch, classes, environment):
+def uwp_xaml_rollback(machine, arch, classes, wine):
     """After a failed registration or verification: best effort, never masking the original error."""
     try:
-        uwp_xaml_unregister(environment, classes)
+        uwp_xaml_unregister(wine, classes)
     except Exception as error:
         print(f'UWP XAML rollback: registry cleanup failed: {error}', file=sys.stderr)
     try:
@@ -3146,18 +3392,11 @@ def uwp_xaml_rollback(machine, arch, classes, environment):
         print(f'UWP XAML rollback: directory removal failed: {error}', file=sys.stderr)
 
 
-def _uwp_xaml_environment():
-    return {
-        'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/root', 'USER': 'root',
-        'LOGNAME': 'root', 'LANG': 'C.UTF-8', 'WINEPREFIX': str(MACHINE),
-        'WINE': '/usr/local/bin/wine', 'WINESERVER': '/usr/local/bin/wineserver',
-        'WINEDLLOVERRIDES': 'winemenubuilder.exe=d', 'WINEDEBUG': '-all',
-    }
-
-
 @contextmanager
-def _machine_maintenance(environment):
-    """The components lock, no pending recovery or interrupted OOBE operation, and an idle machine prefix."""
+def _machine_maintenance():
+    """The components lock, no pending recovery or interrupted OOBE operation, and Wine for the machine root
+    (MachineWine: through session 0 when there is one, else root's own server); yields the MachineWine. The caller
+    calls its require_idle() once it knows it has work to do; what its programs changed is saved when this ends."""
     if MACHINE.is_symlink() or MACHINE.stat().st_uid != 0:
         raise ValueError('Machine prefix must be a root-owned real directory')
     lock_path = MACHINE.parent / '.components.lock'
@@ -3171,9 +3410,9 @@ def _machine_maintenance(environment):
         recovery_marker = MACHINE.parent / 'component-recovery-required'
         if recovery_marker.exists() or recovery_marker.is_symlink():
             raise ValueError('Machine prefix requires administrator recovery before another installation')
-        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=2, check=True)
-        yield
-        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
+        with MachineWine(MACHINE) as wine:
+            yield wine
+            wine.wait_idle()
 
 
 def _uwp_xaml_receipt_dir():
@@ -3190,10 +3429,10 @@ def install_uwp_xaml(verb, accepted_digest):
     _, current = license_text(verb)
     if current != accepted_digest:
         raise ValueError('Terms changed; review and accept the current text')
-    environment = _uwp_xaml_environment()
-    with _machine_maintenance(environment):
+    with _machine_maintenance() as wine:
         if is_installed(verb, accepted_digest, machine=MACHINE):
             return
+        wine.require_idle()
         if CACHE.is_symlink():
             raise ValueError('Refusing symlinked component cache')
         CACHE.mkdir(mode=0o700, exist_ok=True)
@@ -3223,15 +3462,15 @@ def install_uwp_xaml(verb, accepted_digest):
                 registry = Path(out.name)
                 out.write(uwp_xaml_registry_text(payload['architecture'], classes))
             try:
-                reg('/usr/local/bin/wine', environment, 'import', str(registry), check=True)
+                wine.import_file(registry)
             finally:
                 registry.unlink(missing_ok=True)
-            subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
+            wine.wait_idle()
             verify_uwp_xaml(MACHINE, data, full=True)
         except BaseException:
             # no receipt will name these files: take back what this attempt added before reporting the failure; the
             # unpack already replaced an earlier version, so its classes and receipt go too
-            uwp_xaml_rollback(MACHINE, payload['architecture'], sorted(set(classes) | set(previous)), environment)
+            uwp_xaml_rollback(MACHINE, payload['architecture'], sorted(set(classes) | set(previous)), wine)
             try:
                 uwp_xaml_drop_receipt(receipt_dir, verb)
             except OSError as error:
@@ -3241,8 +3480,8 @@ def install_uwp_xaml(verb, accepted_digest):
         stale = [name for name in previous if name not in classes]
         if stale:
             try:
-                uwp_xaml_unregister_classes(environment, stale)
-                subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=120, check=True)
+                uwp_xaml_unregister_classes(wine, stale)
+                wine.wait_idle()
             except Exception as error:
                 print(f'UWP XAML upgrade: removing {len(stale)} classes failed: {error}', file=sys.stderr)
         receipt = _uwp_xaml_receipt_dir()
@@ -3641,10 +3880,10 @@ def install_uwp_frameworks(verb, accepted_digest):
     _, current = license_text(verb)
     if current != accepted_digest:
         raise ValueError('Terms changed; review and accept the current text')
-    environment = _uwp_xaml_environment()
-    with _machine_maintenance(environment):
+    with _machine_maintenance() as wine:
         if is_installed(verb, accepted_digest, machine=MACHINE):
             return
+        wine.require_idle()
         if CACHE.is_symlink():
             raise ValueError('Refusing symlinked component cache')
         CACHE.mkdir(mode=0o700, exist_ok=True)
@@ -3738,12 +3977,13 @@ def uninstall(verb):
         raise ValueError(f'{verb} cannot be uninstalled by this tool')
     if os.getuid() != 0:
         raise ValueError('The installer backend requires authenticated elevation')
-    environment = _uwp_xaml_environment()
     if policy == UWP_FRAMEWORKS_POLICY:
-        with _machine_maintenance(environment):
+        with _machine_maintenance() as wine:
+            wine.require_idle()
             uninstall_uwp_frameworks(verb, MACHINE)
         return
-    with _machine_maintenance(environment):
+    with _machine_maintenance() as wine:
+        wine.require_idle()
         receipt = MACHINE.parent / 'component-receipts' / (verb + '.json')
         if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_uid != 0:
             raise ValueError(f'{verb} is not installed')
@@ -3751,7 +3991,7 @@ def uninstall(verb):
         arch, classes = data.get('payload_architecture'), data.get('classes')
         if arch != 'x64' or not isinstance(classes, list) or any(not UWP_XAML_CLASS.match(c) for c in classes):
             raise ValueError('Malformed UWP XAML receipt')
-        uwp_xaml_unregister(environment, classes)
+        uwp_xaml_unregister(wine, classes)
         uwp_xaml_remove_directory(MACHINE, arch)
         receipt.unlink()
         (receipt.parent / (verb + '.sha256')).unlink(missing_ok=True)
@@ -3779,133 +4019,90 @@ def install(verb, accepted_digest):
         raise ValueError('Vendor terms changed; review and accept the current text')
     if MACHINE.is_symlink() or MACHINE.stat().st_uid != 0:
         raise ValueError('Machine prefix must be a root-owned real directory')
-
     # Neither arbitrary prefixes, DLL overrides, executables, display sockets nor
-    # user-controlled caches are inherited across the privilege boundary.
-    environment = {
-        'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/root', 'USER': 'root',
-        'LOGNAME': 'root', 'LANG': 'C.UTF-8', 'WINEPREFIX': str(MACHINE),
-        'WINE': '/usr/local/bin/wine', 'WINESERVER': '/usr/local/bin/wineserver',
-        'WINEDLLOVERRIDES': 'winemenubuilder.exe=d', 'WINEDEBUG': '-all',
-        'W_CACHE': str(CACHE), 'XDG_CACHE_HOME': str(CACHE.parent),
-    }
-    lock_path = MACHINE.parent / '.components.lock'
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, 'a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if OPERATION_STATE.exists() or OPERATION_STATE.is_symlink():
-            checked_operation_directory()
-            if any(record['status'] == 'UNKNOWN' for record in read_operation_journal().values()):
-                raise ValueError('Interrupted OOBE installation requires administrator reconciliation before install later')
-        recovery_marker = MACHINE.parent / 'component-recovery-required'
-        if recovery_marker.exists() or recovery_marker.is_symlink():
-            raise ValueError('Machine prefix requires administrator recovery before another installation')
+    # user-controlled caches are inherited across the privilege boundary (MachineWine.environment).
+    with _machine_maintenance() as wine:
         if is_installed(verb, accepted_digest, machine=MACHINE):
             return
         # Do not kill somebody else's maintenance client or wait for a desktop.
-        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment,
-                       timeout=2, check=True)
+        wine.require_idle()
         cache = CACHE
         if cache.is_symlink():
             raise ValueError('Refusing symlinked component cache')
         cache.mkdir(mode=0o700, exist_ok=True)
         if cache.stat().st_uid != 0 or cache.stat().st_mode & 0o022:
             raise ValueError('Component cache must be root-owned and not writable by others')
-        command = ['/usr/bin/timeout', '--signal=TERM', '--kill-after=10s', '1800s',
-                   '/usr/bin/xvfb-run', '-a', '/usr/bin/winetricks', '-q', verb]
+        program = '/usr/bin/winetricks'
         execution_digest = None
-        if verb == 'vcrun2022':
-            recipe = approved_runtime_recipe()
-            cache_runtime_payloads(cache)
+        isolate = True      # every pinned recipe runs without a network
+        if verb in ('vcrun2022', 'd3dcompiler_47'):
+            if verb == 'vcrun2022':
+                recipe = approved_runtime_recipe()
+                cache_runtime_payloads(cache)
+            else:
+                recipe = approved_d3dcompiler_recipe()
+                cache_d3dcompiler_payloads(cache)
             execution_digest = hashlib.sha256(recipe).hexdigest()
-            with tempfile.NamedTemporaryFile(dir=cache, prefix='.approved-recipe-', delete=False) as out:
+            with tempfile.NamedTemporaryFile(dir=cache, prefix='.approved-' + verb + '-', delete=False) as out:
                 script = Path(out.name)
                 os.fchmod(out.fileno(), 0o700)
                 out.write(recipe)
                 out.flush()
                 os.fsync(out.fileno())
-            approved_script = cache / 'approved-vcrun2022.sh'
+            approved_script = cache / ('approved-' + verb + '.sh')
             os.replace(script, approved_script)
-            command = ['/usr/bin/unshare', '--net', *command]
-            command[command.index('/usr/bin/winetricks')] = str(approved_script)
+            program = str(wine.stage(cache / verb, approved_script) / approved_script.name)
+            argv = ['/usr/bin/xvfb-run', '-a', program, '-q', verb]
         elif verb == 'corefonts':
             cache_corefonts_payloads(cache)
-            command = ['/usr/bin/unshare', '--net', *command]
+            wine.stage(cache / verb)
             corefonts_drop_links(MACHINE)
-        elif verb == 'd3dcompiler_47':
-            recipe = approved_d3dcompiler_recipe()
-            cache_d3dcompiler_payloads(cache)
-            execution_digest = hashlib.sha256(recipe).hexdigest()
-            with tempfile.NamedTemporaryFile(dir=cache, prefix='.approved-d3dcompiler-', delete=False) as out:
-                script = Path(out.name)
-                os.fchmod(out.fileno(), 0o700)
-                out.write(recipe)
-                out.flush()
-                os.fsync(out.fileno())
-            approved_script = cache / 'approved-d3dcompiler_47.sh'
-            os.replace(script, approved_script)
-            command = ['/usr/bin/unshare', '--net', *command]
-            command[command.index('/usr/bin/winetricks')] = str(approved_script)
+            argv = ['/usr/bin/xvfb-run', '-a', program, '-q', verb]
         elif verb == 'webview2':
             installer = cache_webview2_payload(cache)
             execution_digest = hashlib.sha256(
                 (COMPONENTS_METADATA['webview2']['execution_policy'] + ' ' +
                  COMPONENTS_METADATA['webview2']['payloads'][0]['sha256']).encode()).hexdigest()
-            command = ['/usr/bin/timeout', '--signal=TERM', '--kill-after=10s', '1800s',
-                       '/usr/bin/unshare', '--net', '/usr/bin/xvfb-run', '-a',
-                       '/usr/local/bin/wine', str(installer), '/silent', '/install']
+            installer = wine.stage(cache / verb) / installer.relative_to(cache)
+            argv = ['/usr/bin/xvfb-run', '-a', wine.WINE, str(installer), '/silent', '/install']
+        else:
+            # winetricks' own recipe, which downloads (only for components enabled without a pinned one)
+            isolate = False
+            argv = ['/usr/bin/xvfb-run', '-a', program, '-q', verb]
         regedit_src = MACHINE / 'drive_c/windows/regedit.exe'
         if regedit_src.is_file():
             ensure_installer_regedit(MACHINE)
         # Prefix ownership and default ACLs stay intact: do not recursively
         # chown live user prefixes. Record the real verb result, never success
         # from a progress-dialog pipeline. All package terms were accepted above.
-        with protect_builtins(MACHINE, environment) as recovery:
+        with protect_builtins(MACHINE, wine) as recovery:
             if recovery is not None:
                 recovery['safe_to_restore'] = False
-            # unshare --net isolates only processes started inside it: a wineserver the reg.exe
-            # calls above started (host network) would serve the installer's sockets. Let it
-            # exit first, so the installer starts its own server in the empty namespace.
-            if '/usr/bin/unshare' in command:
-                try:
-                    subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=60, check=True)
-                except subprocess.TimeoutExpired:
-                    subprocess.run(['/usr/local/bin/wineserver', '-k'], env=environment, timeout=15, check=True)
-                    subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=30, check=True)
-            # timeout owns a separate process group (do not use --foreground).
-            # Keep the lock and builtin snapshots until Wine has also stopped.
-            result = subprocess.run(command, env=environment)
+            # Without a network; the lock and builtin snapshots stay until Wine has also stopped.
+            result = wine.run(argv, timeout=1800, isolate=isolate)
             try:
-                # Microsoft's installer leaves its update service running, so
-                # wineserver would never go idle: stop it once the installer succeeded.
                 if verb == 'webview2' and result.returncode == 0:
                     # Keep the runtime on the version we verified: no machine-wide
                     # self-update from a system-level updater (see WEBVIEW2_POLICY).
                     try:
                         for name, data in WEBVIEW2_POLICY:
-                            subprocess.run(['/usr/bin/timeout', '120s', '/usr/bin/xvfb-run', '-a',
-                                            '/usr/local/bin/wine', 'reg', 'add', WEBVIEW2_POLICY_KEY,
-                                            '/v', name, '/t', 'REG_DWORD', '/d', str(data), '/f'],
-                                           env=environment, check=True, timeout=150,
-                                           stdout=subprocess.DEVNULL)
+                            wine.run(['/usr/bin/xvfb-run', '-a', wine.WINE, 'reg', 'add', WEBVIEW2_POLICY_KEY,
+                                      '/v', name, '/t', 'REG_DWORD', '/d', str(data), '/f'],
+                                     timeout=120, check=True, stdout=subprocess.DEVNULL)
                     except (subprocess.SubprocessError, OSError):
-                        # The installer's updater keeps wineserver alive: stop it
+                        # The installer's updater keeps the server busy: stop what is left
                         # before reporting, or the lock-holding prefix never idles.
-                        subprocess.run(['/usr/local/bin/wineserver', '-k'], env=environment, timeout=15)
-                        subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment, timeout=30)
+                        wine.stop(check=False)
                         if recovery is not None:
                             recovery['safe_to_restore'] = True
                         raise ValueError('WebView2 installed but its update policy could not be set; machine-prefix Wine stopped')
+                # Microsoft's installer leaves its update service running: stop what is
+                # left once the installer succeeded, and after a deadline.
                 if result.returncode in (124, 137) or (verb == 'webview2' and result.returncode == 0):
-                    subprocess.run(['/usr/local/bin/wineserver', '-k'],
-                                   env=environment, timeout=15, check=True)
-                subprocess.run(['/usr/local/bin/wineserver', '-w'], env=environment,
-                               timeout=120, check=True)
+                    wine.stop()
+                wine.wait_idle()
             except subprocess.TimeoutExpired:
-                subprocess.run(['/usr/local/bin/wineserver', '-k'],
-                               env=environment, timeout=15, check=True)
-                subprocess.run(['/usr/local/bin/wineserver', '-w'],
-                               env=environment, timeout=30, check=True)
+                wine.stop()
                 if recovery is not None:
                     recovery['safe_to_restore'] = True
                 raise ValueError('Installer did not finish; machine-prefix Wine stopped; installation may be partial')
@@ -4207,9 +4404,7 @@ def reconcile_operation(operation, note):
             marker = MACHINE.parent / 'component-recovery-required'
             if marker.exists() or marker.is_symlink():
                 raise ValueError('Protected-state recovery is required; retain and inspect marker/snapshots before reconciliation')
-            subprocess.run(['/usr/local/bin/wineserver', '-w'],
-                           env={'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/root',
-                                'WINEPREFIX': str(MACHINE)}, timeout=2, check=True)
+            MachineWine(MACHINE).require_idle()
             records = read_operation_journal()
             record = records.get(operation)
             if not record or record['status'] not in ('UNKNOWN', 'RUNNING'):

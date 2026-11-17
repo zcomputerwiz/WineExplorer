@@ -312,12 +312,13 @@ class ComponentsTests(unittest.TestCase):
             original.write_text('open builtin')
             dll.symlink_to(original)
 
-            def fake_reg(wine, env, operation, key, *args, **kwargs):
-                return subprocess.CompletedProcess([], 0 if key.endswith('\\Software') else 1)
+            class FakeWine:
+                def reg(self, operation, key, *args, **kwargs):
+                    return subprocess.CompletedProcess([], 0 if key.endswith('\\Software') else 1)
 
-            with patch.object(components, 'reg', side_effect=fake_reg):
+            with self.subTest('the installer fails'):
                 with self.assertRaisesRegex(ValueError, 'fixture failure'):
-                    with components.protect_builtins(machine, {}, libraries):
+                    with components.protect_builtins(machine, FakeWine(), libraries):
                         self.assertFalse(dll.is_symlink())
                         dll.write_text('write-through attempt stays in the prefix')
                         self.assertEqual(original.read_text(), 'open builtin')
@@ -330,9 +331,9 @@ class ComponentsTests(unittest.TestCase):
             self.assertFalse((dll.parent / 'msxml99.dll').exists())
 
             # If stopping Wine itself fails, do not restore over live modules.
-            with patch.object(components, 'reg', side_effect=fake_reg):
+            with self.subTest('Wine cannot be stopped'):
                 with self.assertRaisesRegex(RuntimeError, 'administrator recovery required'):
-                    with components.protect_builtins(machine, {}, libraries) as recovery:
+                    with components.protect_builtins(machine, FakeWine(), libraries) as recovery:
                         recovery['safe_to_restore'] = False
                         dll.unlink()
                         dll.write_text('possibly live module')

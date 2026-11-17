@@ -33,9 +33,16 @@ def pe(machine, size=256):
     return bytes(data)
 
 
-def fake_reg(wine, env, operation, key, *args, **kwargs):
-    """reg.exe without Wine: no override keys exist, the hive root does."""
-    return subprocess.CompletedProcess([], 0 if key.endswith('\\Software') else 1)
+class FakeWine:
+    """MachineWine without Wine: no override keys exist, the hive root does."""
+    def reg(self, operation, key, *args, **kwargs):
+        return subprocess.CompletedProcess([], 0 if key.endswith('\\Software') else 1)
+
+    def export_key(self, key, backup):
+        raise AssertionError('no override key exists to export')
+
+    def import_file(self, path):
+        raise AssertionError('no override key existed to import')
 
 
 class Timeout(Exception):
@@ -61,7 +68,6 @@ class MachineLinkTests(unittest.TestCase):
             (self.libraries / arch).mkdir(parents=True)
         self.addCleanup(patch.stopall)
         patch.object(c, 'machine_group_gid', lambda: self.machine.stat().st_gid).start()
-        patch.object(c, 'reg', side_effect=fake_reg).start()
         # a hang is reported as a failure, not waited on forever
         previous = signal.signal(signal.SIGALRM, self.alarm)
         self.addCleanup(signal.signal, signal.SIGALRM, previous)
@@ -100,7 +106,7 @@ class MachineLinkTests(unittest.TestCase):
                 link = system32 / 'evil.dll'
                 link.symlink_to(target)
                 with self.assertRaisesRegex(ValueError, 'Unexpected builtin DLL symlink'):
-                    with c.protect_builtins(self.machine, {}, self.libraries):
+                    with c.protect_builtins(self.machine, FakeWine(), self.libraries):
                         self.fail('the installer must not run')
                 self.assertTrue(link.is_symlink())
                 self.assertEqual(os.readlink(link), str(target))
@@ -112,7 +118,7 @@ class MachineLinkTests(unittest.TestCase):
         secret = self.outside()
         (self.windows / 'syswow64/evil.dll').symlink_to(self.libraries / 'i386-windows/../../outside/secret')
         with self.assertRaisesRegex(ValueError, 'Unexpected builtin DLL symlink'):
-            with c.protect_builtins(self.machine, {}, self.libraries):
+            with c.protect_builtins(self.machine, FakeWine(), self.libraries):
                 self.fail('the installer must not run')
         self.assertNoCopyOf(self.windows / 'syswow64', b'root only')
         self.assertUntouched(secret)
@@ -123,7 +129,7 @@ class MachineLinkTests(unittest.TestCase):
         (self.windows / 'system32/good.dll').symlink_to(good)
         (self.windows / 'system32/zzz-bad.dll').symlink_to(self.outside())
         with self.assertRaises(ValueError):
-            with c.protect_builtins(self.machine, {}, self.libraries):
+            with c.protect_builtins(self.machine, FakeWine(), self.libraries):
                 self.fail('the installer must not run')
         self.assertTrue((self.windows / 'system32/good.dll').is_symlink())   # every link is checked before any is replaced
 
@@ -133,7 +139,7 @@ class MachineLinkTests(unittest.TestCase):
         good.chmod(0o644)
         link = self.windows / 'system32/good.dll'
         link.symlink_to('../../../../lib-wine/x86_64-windows/good.dll')          # relative, as Wine may make them
-        with c.protect_builtins(self.machine, {}, self.libraries):
+        with c.protect_builtins(self.machine, FakeWine(), self.libraries):
             info = link.lstat()
             self.assertTrue(stat.S_ISREG(info.st_mode))
             self.assertEqual((link.read_bytes(), stat.S_IMODE(info.st_mode)), (pe(0x8664), 0o644))
@@ -148,7 +154,7 @@ class MachineLinkTests(unittest.TestCase):
         system32.rmdir()
         system32.symlink_to(secret.parent)
         with self.assertRaises(ValueError):
-            with c.protect_builtins(self.machine, {}, self.libraries):
+            with c.protect_builtins(self.machine, FakeWine(), self.libraries):
                 self.fail('the installer must not run')
         self.assertEqual(sorted(p.name for p in secret.parent.iterdir()), ['secret'])
         self.assertUntouched(secret)
@@ -165,7 +171,7 @@ class MachineLinkTests(unittest.TestCase):
         detached = self.windows / 'system32/good.dll'
         detached.symlink_to(good)
         with self.assertRaisesRegex(ValueError, 'fixture failure'):
-            with c.protect_builtins(self.machine, {}, self.libraries):
+            with c.protect_builtins(self.machine, FakeWine(), self.libraries):
                 dll.unlink()
                 dll.symlink_to(secret)                         # the restore target, now a link out
                 (self.windows / 'system32/msxml99.dll').symlink_to(secret)   # an unexpected protected name
@@ -188,7 +194,7 @@ class MachineLinkTests(unittest.TestCase):
         builtin.write_bytes(pe(0x14c, 512))
         user32 = self.windows / 'syswow64/user32.dll'
         user32.symlink_to(builtin)                             # a protected name that is a library link
-        with c.protect_builtins(self.machine, {}, self.libraries):
+        with c.protect_builtins(self.machine, FakeWine(), self.libraries):
             kernel32.unlink()
             os.mkfifo(kernel32)
             user32.unlink()
@@ -200,7 +206,7 @@ class MachineLinkTests(unittest.TestCase):
     def test_a_fifo_in_a_protected_name_does_not_hang(self):
         os.mkfifo(self.windows / 'system32/kernel32.dll')
         with self.assertRaises(ValueError):
-            with c.protect_builtins(self.machine, {}, self.libraries):
+            with c.protect_builtins(self.machine, FakeWine(), self.libraries):
                 self.fail('the installer must not run')
 
     # ---- publication of verified libraries (vcrun2022, d3dcompiler_47) ----

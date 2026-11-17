@@ -18,6 +18,9 @@
  * --print-group [SYSRUN_CONF] prints the effective administrator group, or
  * returns 1 for an invalid/unprotected configuration or a missing group.
  * The optional protected path is for provisioning an alternate machine root.
+ * --print-value KEY [SYSRUN_CONF] prints KEY's value from the same protected
+ * reader, so that scripts never parse the file themselves: 0 with the value,
+ * 3 when the file or the key is absent, 1 for an invalid or unprotected file.
  * USER mode prints nothing; callers treat every nonzero status as denial.
  */
 #define _GNU_SOURCE
@@ -42,6 +45,23 @@ int main( int argc, char **argv )
         puts( policy.admin_group );
         return 0;
     }
+    if (argc >= 3 && !strcmp( argv[1], "--print-value" ))
+    {
+        struct wex_sysrun_conf conf;
+        char value[PATH_MAX];
+        const char *key = argv[2];
+        const char *p;
+
+        if (argc > 4 || !*key) return 2;
+        for (p = key; *p; p++) if (!((*p >= 'a' && *p <= 'z') || *p == '_' || (p > key && *p >= '0' && *p <= '9'))) return 2;
+        wex_sysrun_conf_load( argc == 4 ? argv[3] : "/etc/wineexplorer/sysrun.conf", &conf );
+        switch (wex_sysrun_conf_get( &conf, key, value, sizeof(value) ))
+        {
+        case WEX_SYSRUN_CONF_VALUE: puts( value ); return 0;
+        case WEX_SYSRUN_CONF_ABSENT: return 3;
+        default: return 1;
+        }
+    }
     for (i = 1; i < argc; i++)
     {
 #ifdef WEX_ACCOUNTS_TEST
@@ -53,7 +73,7 @@ int main( int argc, char **argv )
         if (name) return 2;
         name = argv[i];
     }
-    if (!name) { fprintf( stderr, "usage: wex-is-admin USER | --print-group [SYSRUN_CONF]\n" ); return 2; }
+    if (!name) { fprintf( stderr, "usage: wex-is-admin USER | --print-group [SYSRUN_CONF] | --print-value KEY [SYSRUN_CONF]\n" ); return 2; }
     if (strchr( name, '\\' ))
     {
         /* a domain account: the map's record decides, as it does for the server (the administrator group by NSS, and

@@ -137,8 +137,8 @@ First findings for T1:
 0.** Not only programs in user sessions: root maintenance too (`scripts/wex-components.py`, setup and upgrade
 scripts, anything that today starts its own wineserver on the machine root). Session 0's server is the only one that
 holds and saves `system.reg`; a second server on the machine root (another uid, its own copy of the hive) loses one
-side's changes on save. Known violation: `wex-components.py`'s maintenance (`docs/KNOWN_BUGS.md` B11), to be changed
-to write through session 0. Tools check whether session 0 is configured (`session0_socket=` in `sysrun.conf`) and,
+side's changes on save. `wex-components.py`'s maintenance writes through session 0 (`MachineWine`, `docs/KNOWN_BUGS.md`
+B11 and B34): its Wine programs run as session 0's account, as clients of session 0's server. Tools check whether session 0 is configured (`session0_socket=` in `sysrun.conf`) and,
 if so, never load the machine hive themselves.
 
 ## T1 first increment: ST-11, ST-12, ST-13, ST-15 and the development form of ST-10 (2026-11-11)
