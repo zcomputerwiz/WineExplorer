@@ -94,7 +94,9 @@ wex_setup_run() {
     local label=$1 desktop=$2 done_file=$3 resolution=$4
     shift 4
     rm -f -- "$done_file"
-    su -s /bin/bash wexsetup -c '
+    # "--" ends su's options: the program's own arguments (setup.exe -newsetup) come after the user, and su parses
+    # options anywhere on its command line ("-newsetup" was taken as -n...; found on the installed image)
+    su -s /bin/bash -c '
         RES="${1:-1024x768}"
         DESKTOP=$2
         DONE_FILE=$3
@@ -116,5 +118,5 @@ wex_setup_run() {
         sleep 1
         wineserver -k 2>/dev/null || true
         wait "$WINE_PID" 2>/dev/null || true
-    ' bash "$resolution" "$desktop" "$done_file" "$label" "$@"
+    ' -- wexsetup bash "$resolution" "$desktop" "$done_file" "$label" "$@"
 }

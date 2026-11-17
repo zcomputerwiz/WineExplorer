@@ -89,10 +89,13 @@ grep -Fxq 'usermod -a -G adm wexsetup' "$scratch/users.log" || fail "existing se
 unset -f id useradd usermod mkdir chmod find
 
 # Run the actual su command body in a subshell with fake Wine, preserving positional arguments.
+# Like util-linux su, which takes options anywhere before "--": everything after the user must come after "--", or
+# an argument such as setup.exe's -newsetup is read as su's own options.
 su() {
-    [ "$1 $2 $3 $4" = '-s /bin/bash wexsetup -c' ] || fail "su identity/options"
-    local body=$5
-    shift 6
+    [ "$1 $2 $3" = '-s /bin/bash -c' ] || fail "su options"
+    local body=$4
+    [ "$5 $6" = '-- wexsetup' ] || fail "su: the user and the program's arguments must follow --"
+    shift 7
     (eval "$body")
 }
 function /usr/local/bin/wine {
