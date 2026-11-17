@@ -12,6 +12,7 @@ stage-limited Unix domain socket verified via SO_PEERCRED.
 import argparse
 from contextlib import contextmanager
 import fcntl
+import grp
 import hashlib
 import io
 import json
