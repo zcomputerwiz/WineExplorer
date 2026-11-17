@@ -215,11 +215,11 @@ static void SaveSettings(void)
         }
     }
 
-    /* 2. Registered Owner and Org */
-    CreateDirectoryA("Z:\\etc\\wineexplorer", NULL);
-    CreateDirectoryA("/etc/wineexplorer", NULL);
-    fo = fopen("Z:\\etc\\wineexplorer\\owner", "w");
-    if (!fo) fo = fopen("/etc/wineexplorer/owner", "w");
+    /* 2. Registered Owner and Org: the root runner publishes these staged settings after completion. */
+    CreateDirectoryA("Z:\\etc\\wineexplorer\\setup", NULL);
+    CreateDirectoryA("/etc/wineexplorer/setup", NULL);
+    fo = fopen("Z:\\etc\\wineexplorer\\setup\\owner", "w");
+    if (!fo) fo = fopen("/etc/wineexplorer/setup/owner", "w");
     if (fo) {
         fprintf(fo, "RegisteredOwner=%s\nRegisteredOrganization=%s\n",
                 g_ctx.owner[0] ? g_ctx.owner : "Wine User",
@@ -228,8 +228,8 @@ static void SaveSettings(void)
     }
 
     /* 3. Workgroup */
-    fw = fopen("Z:\\etc\\wineexplorer\\workgroup", "w");
-    if (!fw) fw = fopen("/etc/wineexplorer/workgroup", "w");
+    fw = fopen("Z:\\etc\\wineexplorer\\setup\\workgroup", "w");
+    if (!fw) fw = fopen("/etc/wineexplorer/setup/workgroup", "w");
     if (fw) {
         fprintf(fw, "%s\n", g_ctx.workgroup[0] ? g_ctx.workgroup : "WORKGROUP");
         fclose(fw);

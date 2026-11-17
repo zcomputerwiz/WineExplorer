@@ -2,6 +2,8 @@
 # Runner for Stage 2 GUI-mode Setup
 set -e
 
+source "$(dirname -- "${BASH_SOURCE[0]}")/wex-setup-common.sh"
+
 STAGE_FILE="/etc/wineexplorer/setup/stage"
 [ -f "$STAGE_FILE" ] || exit 0
 STAGE=$(cat "$STAGE_FILE" 2>/dev/null | tr -d ' \r\n')
@@ -16,66 +18,23 @@ plymouth --quit 2>/dev/null || true
 mkdir -p /etc/wineexplorer/setup /var/lib/wexsetup /var/log
 touch /var/log/wineexplorer-setup.log
 
-# Create dedicated wexsetup user if not already present, ensuring membership in adm
-if ! id "wexsetup" >/dev/null 2>&1; then
-    useradd -r -m -d /var/lib/wexsetup -s /usr/sbin/nologin -G audio,video,render,users,adm wexsetup
-else
-    usermod -a -G adm wexsetup 2>/dev/null || true
-fi
-chown -R wexsetup:wexsetup /var/lib/wexsetup /etc/wineexplorer
-chmod 755 /etc/wineexplorer /etc/wineexplorer/setup
-chmod 644 /etc/wineexplorer/setup/* 2>/dev/null || true
+wex_setup_prepare_user
 chown wexsetup:adm /var/log/wineexplorer-setup.log
 chmod 660 /var/log/wineexplorer-setup.log
 
-# Setup X display on vt7
-export DISPLAY=:0
-export XAUTHORITY=/var/lib/wexsetup/.Xauthority
-
-# Start X server if not running
-if ! pidof Xorg >/dev/null 2>&1; then
-    Xorg :0 vt7 -nolisten tcp -noreset -keeptty -verbose 3 &
-    X_PID=$!
-    for i in $(seq 1 30); do
-        if xset q >/dev/null 2>&1; then break; fi
-        sleep 0.5
-    done
-fi
-
-chvt 7 2>/dev/null || true
-xhost +SI:localuser:wexsetup 2>/dev/null || true
-
-# Ensure /etc/skel/.wine is writable by wexsetup
-mkdir -p /etc/skel/.wine
-chown -R wexsetup:wexsetup /etc/skel/.wine
+wex_setup_start_xorg
 
 # Query active X resolution dynamically
-RES=$(DISPLAY=:0 xdpyinfo 2>/dev/null | grep 'dimensions:' | awk '{print $2}' || true)
-[ -z "$RES" ] && RES=$(DISPLAY=:0 xdotool getdisplaygeometry 2>/dev/null | awk '{print $1"x"$2}' || true)
-[ -z "$RES" ] && RES="1024x768"
+RES=$(wex_setup_resolution)
 echo "Detected display resolution: $RES"
 
 # Run setup.exe inside dedicated wine prefix as wexsetup
-rm -f /etc/wineexplorer/setup/stage-gui-done
-su -s /bin/bash wexsetup -c '
-    RES="${1:-1024x768}"
-    export DISPLAY=:0
-    export WINEPREFIX=/etc/skel/.wine
-    export WINEDLLOVERRIDES="winemenubuilder.exe=d"
-    export WINEDEBUG=-all
-    /usr/local/bin/wine explorer /desktop=Setup,$RES setup.exe -newsetup &
-    WINE_PID=$!
-    while [ ! -f /etc/wineexplorer/setup/stage-gui-done ]; do
-        if ! kill -0 "$WINE_PID" 2>/dev/null; then
-            echo "GUI-mode Setup exited without completion; preserving setup for retry." >&2
-            exit 1
-        fi
-        sleep 1
-    done
-    sleep 1
-    wineserver -k 2>/dev/null || true
-    wait $WINE_PID 2>/dev/null || true
-' bash "$RES"
+rm -f /etc/wineexplorer/setup/owner /etc/wineexplorer/setup/workgroup
+wex_setup_run "GUI-mode Setup" Setup /etc/wineexplorer/setup/stage-gui-done "$RES" setup.exe -newsetup
+
+# setup.exe stages these settings; publish them with root ownership for their consumers.
+wex_setup_publish owner
+wex_setup_publish workgroup
 
 # Template prefix for new users (AccountsService copies /etc/skel into each new home): their first logon then
 # does not build a prefix.  The runner's own profile folder is dropped; Wine creates each user's on first use.
