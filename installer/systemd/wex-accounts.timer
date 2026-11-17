@@ -5,7 +5,9 @@ Description=Retry WineExplorer account synchronization
 
 [Timer]
 OnBootSec=1min
-OnUnitInactiveSec=1min
+# Local changes come through wex-accounts.path at once; this only retries a failed sync and picks up domain
+# accounts (Winbind has no change event), so every 15 minutes, not every minute.
+OnUnitInactiveSec=15min
 Unit=wex-accounts.service
 
 [Install]
