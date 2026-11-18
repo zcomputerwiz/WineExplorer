@@ -416,7 +416,13 @@ static void build_env(char **env, int with_display, const struct passwd *pw, con
         {
             if (safe_value(eq + 1, ":/")) add_env(env, &count, key, eq + 1);
         }
+        else if (with_display == 2 && !strcmp(key, "WEX_SHELL_SOCKET"))
+        {
+            /* the compositor's private socket: a name in XDG_RUNTIME_DIR, never a path */
+            if (safe_value(eq + 1, "-") && !strchr(eq + 1, '/')) add_env(env, &count, key, eq + 1);
+        }
     }
+    if (with_display == 2) add_env(env, &count, "WEX_WAYLAND_NATIVE_WINDOWS", "1");
     env[count] = NULL;
 }
 
@@ -444,7 +450,9 @@ int main(int argc, char **argv)
         width = desktop_size(argv[2]);
         height = desktop_size(argv[3]);
     }
-    else refuse("usage: wex-sysrun wineserver|wineboot-init|safe-shell WIDTH HEIGHT", NULL);
+    else if (argc == 2 && !strcmp(argv[1], "safe-shell-wayland"))
+        shell_mode = 2;  /* the same under the Wayland compositor: Explorer's shell on its private socket */
+    else refuse("usage: wex-sysrun wineserver|wineboot-init|safe-shell WIDTH HEIGHT|safe-shell-wayland", NULL);
 
     /* A setgid bit that was not applied (nosuid mount, no_new_privs, a copy of the file) must not go on. */
     if (prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 0) refuse("no_new_privs is set, the setgid bit is ignored", NULL);
@@ -487,7 +495,7 @@ int main(int argc, char **argv)
         if (!(boot_mode = safe_mode_desktop())) refuse("not a Safe Mode start with a desktop", NULL);
         if (!caller_is_administrator(is_admin, pw, rgid, gr->gr_gid))
             refuse("the invoking user is not an administrator", pw->pw_name);
-        snprintf(desktop, sizeof(desktop), "/desktop=Default,%ux%u", width, height);
+        if (shell_mode == 1) snprintf(desktop, sizeof(desktop), "/desktop=Default,%ux%u", width, height);
     }
     /* Keep the real gid: egid != rgid is what keeps the new image non-dumpable and AT_SECURE. */
     if (setresgid(rgid, gr->gr_gid, gr->gr_gid)) refuse("setresgid failed", NULL);
@@ -503,7 +511,7 @@ int main(int argc, char **argv)
         if (server_fd != 3 && (dup2(server_fd, 3) != 3 || close(server_fd))) refuse("cannot place the server socket", NULL);
         server_fd = 3;
     }
-    build_env(env, wineboot_mode || shell_mode, pw, wineboot_mode ? cfg.machine_root : user_prefix, server_fd,
+    build_env(env, shell_mode == 2 ? 2 : wineboot_mode || shell_mode, pw, wineboot_mode ? cfg.machine_root : user_prefix, server_fd,
               wineboot_mode ? "wineboot-init" : shell_mode ? "safe-shell" : "wineserver", boot_mode);
 
     if (wineboot_mode)
@@ -520,9 +528,17 @@ int main(int argc, char **argv)
          * desktop and the shell, as the session does outside Safe Mode */
         args[0] = "wine";
         args[1] = explorer;
-        args[2] = desktop;
-        args[3] = "/shell";
-        args[4] = NULL;
+        if (shell_mode == 1)
+        {
+            args[2] = desktop;
+            args[3] = "/shell";
+            args[4] = NULL;
+        }
+        else
+        {
+            args[2] = "/shell";  /* Wayland: the compositor is the desktop */
+            args[3] = NULL;
+        }
         execve(cfg.loader, args, env);
     }
     else

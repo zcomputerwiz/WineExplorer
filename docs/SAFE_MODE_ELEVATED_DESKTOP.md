@@ -54,8 +54,10 @@ prefix (their HKCU, profile and desktop), so it cannot simply be started through
 5. **The session script.** `wine-explorer-session.sh` (X11) in `safe` or `safenet`: when `wex-is-admin` says the
    user is an administrator, the desktop starts through `wex-sysrun safe-shell` instead of `wine explorer.exe`;
    otherwise as today. When the launcher refuses, or the desktop ends within 15 seconds, the usual desktop starts, so
-   Safe Mode always gives one. `safecmd` keeps the recovery console. Not yet in the Wayland session (its shell runs
-   as `explorer.exe /shell` under the compositor; a follow-up).
+   Safe Mode always gives one. `safecmd` keeps the recovery console. The Wayland session
+   (`wine-explorer-wayland-session.sh`) does the same through `wex-sysrun safe-shell-wayland`, which starts
+   `explorer.exe /shell` under the compositor with only its private socket (`WEX_SHELL_SOCKET`, a plain name,
+   `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`) and `WEX_WAYLAND_NATIVE_WINDOWS=1` from the session (2026-11-17).
 
 6. **The gates.** The launcher checks Safe Mode and runs `wex-is-admin` with the system group kept as its effective
    and saved group, so that the helper stays non-dumpable and the caller (who shares its ids) cannot trace it or

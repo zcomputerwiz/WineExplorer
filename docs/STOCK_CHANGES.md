@@ -674,6 +674,25 @@ Project changes:
 * `scripts/e1s13_hku_checks.h` and `scripts/test_e1s10_token.sh`: Extended with assertions that
   effective Alice token sees her profile path and variables, while peer sees Bob's.
 
+## kernelbase, server: key descriptors at creation and inheritance; machine-root file DACLs (B41, B42, 2026-11-17)
+
+Wine branch `claude/b41-b42-acl` on `974f5a00`.
+
+* `dlls/kernelbase/registry.c` (B42): `RegCreateKeyExW`/`A` pass `SECURITY_ATTRIBUTES.lpSecurityDescriptor` to the
+  `NtCreateKey` that creates the last key of the path (keys created on the way get inheritance only). Stock Wine
+  ignored the argument. Upstreamable.
+* `server/registry.c` (B42): `key_inherit_sd`: a newly created key whose parent has a descriptor of its own gets the
+  parent's inheritable ACEs after its explicit ones, unless its DACL is protected: container-inherit ACEs become
+  inherited ACEs (generic rights mapped, plus an inherit-only copy that keeps them), object-inherit-only ACEs become
+  inherit-only, no-propagate ACEs apply to this key only. Keys under the built-in default descriptors are unchanged.
+  Upstreamable in principle (Wine has no inheritance for any object).
+* `dlls/advapi32/tests/registry.c`: `test_reg_create_key_security` (the descriptor given at creation, inheritance,
+  generic rights).
+* `server/file.c`, `file.h`, `change.c` (B41, WineExplorer-specific): `sd_system_group_mode`: with the system role, on
+  a file whose group is the system group, the ACEs for SYSTEM, LocalService, NetworkService, Administrators and
+  Everyone give the group bits of the mode a DACL is turned into (stock: derived from the owner); `sysrun_fchmod`
+  runs an elevated caller's `fchmod` with the system group, so the kernel keeps a directory's setgid bit.
+
 ## server, ntdll: an administrator's desktop runs elevated in Safe Mode (2026-11-17)
 
 Wine branch `claude/safemode-elevated-desktop` on `82c5b725` (`docs/SAFE_MODE_ELEVATED_DESKTOP.md`). Active only with
