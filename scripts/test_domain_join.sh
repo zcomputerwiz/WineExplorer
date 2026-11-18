@@ -20,6 +20,7 @@ case "\$*" in
     "ads join"*) exit \$(cat "$FX/join.rc" 2>/dev/null || echo 0) ;;
     "ads testjoin") exit \$(cat "$FX/testjoin.rc" 2>/dev/null || echo 0) ;;
     "ads leave"*) exit \$(cat "$FX/leave.rc" 2>/dev/null || echo 0) ;;
+    "ads changetrustpw") exit \$(cat "$FX/ctp.rc" 2>/dev/null || echo 0) ;;
 esac
 exit 0
 EOF
@@ -47,7 +48,15 @@ EOF
 cat > "$FX/bin/host" <<EOF
 #!/bin/sh
 echo "host \$*" >> "$FX/calls.log"
+case "\$*" in
+    *dc._msdcs*) [ -e "$FX/dc.none" ] || printf '_ldap._tcp.dc._msdcs.ad.wexlab.example has SRV record 0 100 389 dc2.ad.wexlab.example.\n_ldap._tcp.dc._msdcs.ad.wexlab.example has SRV record 0 100 389 dc1.ad.wexlab.example.\n' ;;
+esac
 exit \$(cat "$FX/host.rc" 2>/dev/null || echo 0)
+EOF
+cat > "$FX/bin/wbinfo" <<EOF
+#!/bin/sh
+echo "wbinfo \$*" >> "$FX/calls.log"
+exit \$(cat "$FX/wbinfo.rc" 2>/dev/null || echo 0)
 EOF
 cat > "$FX/bin/testparm" <<'EOF'
 #!/bin/sh
@@ -270,4 +279,24 @@ expect 87 'an unknown name type' 'op=validate' 'nametype=other' 'name=x'
 reset_etc; echo winbind > "$FX/kind"
 out=$(serve op=status); [ "$(status_of "$out")" = 0 ] && grep -q '^message=kind=winbind' <<<"$out" || { echo "$out"; fail 'serve: status'; }
 echo 'OK: wex-domain-join.sh serve (a request, the answer, the codes, a password that reaches kinit unchanged and nothing else)'
+
+# ---- the secure channel and the controllers (netdom verify and reset, nltest /sc_verify and /sc_reset)
+reset_etc; rm -f "$FX/dc.none"
+expect 2692 'verify when not joined' 'op=verify'
+expect 2692 'reset when not joined' 'op=reset'
+expect 2692 'dclist when not joined' 'op=dclist'
+echo winbind > "$FX/kind"
+out=$(serve op=verify); [ "$(status_of "$out")" = 0 ] && grep -q 'secure channel to the domain ad.wexlab.example is verified' <<<"$out" || { echo "$out"; fail 'serve: verify'; }
+grep -q '^net ads testjoin' "$FX/calls.log" && grep -q '^wbinfo --check-secret' "$FX/calls.log" || fail 'serve: verify did not ask Samba and Winbind'
+! grep -q 'changetrustpw' "$FX/calls.log" || fail 'serve: verify changed the machine password'
+echo 1 > "$FX/testjoin.rc"; expect 1789 'verify with a failing testjoin' op=verify
+rm -f "$FX/testjoin.rc"; echo 1 > "$FX/wbinfo.rc"; expect 1789 'verify with a failing trust secret' op=verify
+rm -f "$FX/wbinfo.rc"; : > "$FX/calls.log"
+out=$(serve op=reset); [ "$(status_of "$out")" = 0 ] && grep -q 'is reset' <<<"$out" || { echo "$out"; fail 'serve: reset'; }
+[ "$(grep -n 'changetrustpw' "$FX/calls.log" | head -1 | cut -d: -f1)" -lt "$(grep -n 'testjoin' "$FX/calls.log" | head -1 | cut -d: -f1)" ] || fail 'serve: reset did not change the password before it verified'
+echo 1 > "$FX/ctp.rc"; expect 1789 'reset with a failing password change' op=reset
+rm -f "$FX/ctp.rc"
+out=$(serve op=dclist); [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc1.ad.wexlab.example dc2.ad.wexlab.example *$' <<<"$out" || { echo "$out"; fail 'serve: dclist is not the sorted names without the trailing dot'; }
+: > "$FX/dc.none"; expect 1355 'no controllers' op=dclist
+echo 'OK: wex-domain-join.sh serve verify, reset and dclist'
 echo domain_join=PASS
