@@ -4075,6 +4075,9 @@ while True:
         status, message = 1210, 'not a valid computer name'
     if fields.get('op') == 'join' and fields.get('password') == 'wrong':
         status, message = 1326, 'the controller did not accept the account'
+    if fields.get('op') == 'dclist': message = 'dc1.ad.wexlab.example dc2.ad.wexlab.example '
+    if fields.get('op') == 'verify': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been verified.||The connection is with the machine dc1.ad.wexlab.example.'
+    if fields.get('op') == 'reset': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been reset.'
     conn.sendall(('status=%d\nmessage=%s\n' % (status, message)).encode())
     conn.close()
 PYEOF
@@ -4115,6 +4118,58 @@ for b in 64 32; do
     : > "$JREQ"
     OUT="$(jp $b unjoin - - 0)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'force=1' "$JREQ" && ! grep -q '^password=' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: NetUnjoinDomain without an account (this computer's side only)"; }
 done
+# netdom.exe, on the same API (docs/DOMAIN_JOIN.md): the syntax of Windows' NETDOM for join, remove, verify, reset and query DC
+nd()   # ARGS...: netdom as session 0's account; the output in $NDOUT, the status in $NDRC
+{
+    NDRC=0
+    NDOUT="$(s0_wine netdom "$@")" || NDRC=$?
+    NDOUT=$(tr -d '\r' <<<"$NDOUT")
+}
+for b in 1; do
+    : > "$JREQ"
+    nd join /domain:ad.wexlab.example '/userd:WEXLAB\Administrator' /passwordd:pw '/ou:OU=WexMachines,DC=ad,DC=wexlab,DC=example' /reboot
+    [ "$NDRC" = 0 ] && grep -q 'The command completed successfully.' <<<"$NDOUT" || { echo "$NDOUT (rc $NDRC)" >&2; fail 'netdom join'; }
+    grep -qx 'op=join' "$JREQ" && grep -qx 'domain=ad.wexlab.example' "$JREQ" && grep -qx 'user=Administrator' "$JREQ" && grep -qx 'password=pw' "$JREQ" &&
+        grep -qx 'ou=OU=WexMachines,DC=ad,DC=wexlab,DC=example' "$JREQ" && grep -qx 'flags=3' "$JREQ" || { cat "$JREQ" >&2; fail 'netdom join: the request'; }
+    ! grep -qi 'restart' <<<"$NDOUT" || fail 'netdom join asked for a restart'
+    # a password of * is asked for: one line from standard input when there is no console
+    : > "$JREQ"
+    NDOUT="$(printf 'p w\n' | (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+        WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" netdom join /domain:d.example /userd:admin '/passwordd:*' 2>/dev/null) | tr -d '\r')"
+    grep -qxF 'password=p w' "$JREQ" && grep -q 'Type the password' <<<"$NDOUT" || { echo "$NDOUT" >&2; cat "$JREQ" >&2; fail 'netdom join: the password asked for'; }
+    # refused before the engine
+    n=$(reqs)
+    nd join; [ "$NDRC" = 87 ] && grep -q '/Domain option is required' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom join without a domain'; }
+    nd join /domain:d.example /passwordd:x; [ "$NDRC" = 87 ] && grep -q '/UserD option is required' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom join without a user'; }
+    nd join OTHERPC /domain:d.example /userd:a /passwordd:x; [ "$NDRC" = 50 ] && grep -q 'another computer is not supported' <<<"${NDOUT,,}" || { echo "$NDOUT" >&2; fail 'netdom join of another computer'; }
+    nd join /domain:d.example /userd:a /passwordd:x /readonly; [ "$NDRC" = 50 ] || fail 'netdom join /readonly'
+    nd frobnicate; [ "$NDRC" = 87 ] || fail 'netdom: an unknown command'
+    nd join /nonsense; [ "$NDRC" = 87 ] && grep -q 'not valid' <<<"$NDOUT" || fail 'netdom: an unknown option'
+    nd resetpwd /server:x; [ "$NDRC" = 50 ] && grep -q 'not supported' <<<"$NDOUT" || fail 'netdom resetpwd'
+    nd renamecomputer /newname:NEWNAME; [ "$NDRC" = 50 ] && grep -q 'not supported yet' <<<"$NDOUT" || fail 'netdom renamecomputer'
+    [ "$(reqs)" = "$n" ] || { cat "$JREQ" >&2; fail 'a refused netdom call reached the engine'; }
+    nd help; [ "$NDRC" = 0 ] && grep -q 'NETDOM JOIN' <<<"$NDOUT" || fail 'netdom help'
+    # the engine's refusal is shown, with Windows' closing line
+    nd join /domain:ad.wexlab.example /userd:a /passwordd:wrong
+    [ "$NDRC" = 1326 ] && grep -q 'Logon failure' <<<"$NDOUT" && grep -q '(the controller did not accept the account)' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom join: the refusal'; }
+    # remove
+    : > "$JREQ"
+    nd remove /domain:ad.wexlab.example /userd:admin /passwordd:pw
+    [ "$NDRC" = 0 ] && grep -qx 'op=leave' "$JREQ" && grep -qx 'user=admin' "$JREQ" && grep -qx 'flags=4' "$JREQ" || { cat "$JREQ" >&2; echo "$NDOUT" >&2; fail 'netdom remove'; }
+    : > "$JREQ"
+    nd remove /force
+    [ "$NDRC" = 0 ] && grep -qx 'force=1' "$JREQ" && ! grep -q '^password=' "$JREQ" || { cat "$JREQ" >&2; fail 'netdom remove /force'; }
+    nd remove; [ "$NDRC" = 87 ] && grep -q '/UserD option is required' <<<"$NDOUT" || fail 'netdom remove without a user'
+    # verify, reset, query
+    : > "$JREQ"
+    nd verify; [ "$NDRC" = 0 ] && grep -qx 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been verified.' <<<"$NDOUT" && grep -qx 'The connection is with the machine dc1.ad.wexlab.example.' <<<"$NDOUT" && grep -qx 'op=verify' "$JREQ" || { echo "$NDOUT" >&2; fail 'netdom verify'; }
+    nd reset; [ "$NDRC" = 0 ] && grep -q 'has been reset.' <<<"$NDOUT" && grep -qx 'op=reset' "$JREQ" || { echo "$NDOUT" >&2; fail 'netdom reset'; }
+    nd query dc; [ "$NDRC" = 0 ] && grep -qx 'dc1.ad.wexlab.example' <<<"$NDOUT" && grep -qx 'dc2.ad.wexlab.example' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom query dc'; }
+    nd query workstation; [ "$NDRC" = 50 ] && grep -q 'Only NETDOM QUERY DC' <<<"$NDOUT" || fail 'netdom query workstation'
+done
+# a standard user is refused with Windows' words
+NDOUT="$(as_wine "$STD" netdom join /domain:ad.wexlab.example /userd:a /passwordd:x)"
+grep -qi 'access is denied' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom: a standard user was not refused'; }
 # a standard user is not in the system group: access denied, nothing sent
 : > "$JREQ"
 OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" validate WEXBOX 1)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user was not refused"; }

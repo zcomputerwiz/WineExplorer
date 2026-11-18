@@ -282,7 +282,10 @@ cmd_secure_channel()   # verify|reset
         net ads changetrustpw >/dev/null 2>&1 || fail 1789 "the machine password could not be changed: the trust relationship between this workstation and the primary domain failed"
     fi
     if net ads testjoin >/dev/null 2>&1 && { ! command -v wbinfo >/dev/null 2>&1 || wbinfo --check-secret >/dev/null 2>&1; }; then
-        note "the secure channel to the domain $realm is $([ "$1" = reset ] && echo reset || echo verified)"
+        # as NETDOM prints it: the channel, then the controller it is with; "||" ends a line of the message
+        dc=$(net ads info 2>/dev/null | sed -n 's/^LDAP server name: *//p' | head -n 1)
+        host=$(printf '%s' "${WEX_JOIN_HOSTNAME:-$(hostname -s)}" | tr 'a-z' 'A-Z')
+        note "The secure channel from $host to the domain $(printf '%s' "$realm" | tr 'a-z' 'A-Z') has been $([ "$1" = reset ] && echo reset || echo verified).${dc:+||The connection is with the machine $dc.}"
     else
         fail 1789 "the trust relationship between this workstation and the primary domain failed"
     fi

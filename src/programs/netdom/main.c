@@ -31,7 +31,8 @@
  * elevated administrator) may call, and the secure channel functions of wexjoin. The computer is this one: another
  * computer is refused. /REBoot and /SecurePasswordPrompt are accepted and do nothing: the join takes effect at once, so no
  * restart is asked for (docs/DOMAIN_JOIN.md). A password given as * (or left out when a user is) is asked for without echo.
- * The exit status is 0 or 1; Windows' own codes for the failures were not checked.
+ * The exit status is 0, or the error code of the failure (87 for a wrong command line), as the batch files that test
+ * ERRORLEVEL after NETDOM expect (one tests for 2224, an account that exists): found in forum threads, not documented.
  */
 
 #include <stdarg.h>
@@ -140,9 +141,12 @@ static const WCHAR *parse_options( int argc, WCHAR **argv, struct options *o, BO
         else if (name_is( name, L"PasswordD", L"PD" )) o->password = value ? value : L"*";
         else if (name_is( name, L"NewName", NULL )) o->new_name = value ? value : L"";
         else if (name_is( name, L"Force", L"F" )) o->force = TRUE;
-        else if (name_is( name, L"ReadOnly", NULL ) || name_is( name, L"PasswordM", L"PM" )) { o->read_only = TRUE; o->machine_password = TRUE; }
-        else if (name_is( name, L"UserO", L"UO" ) || name_is( name, L"PasswordO", L"PO" )) o->other_user = TRUE;
-        else if (name_is( name, L"REBoot", L"REB" ) || name_is( name, L"SecurePasswordPrompt", L"SPP" ) || name_is( name, L"Verify", NULL )) {}
+        else if (name_is( name, L"ReadOnly", L"RO" ) || name_is( name, L"PasswordM", L"PM" )) { o->read_only = TRUE; o->machine_password = TRUE; }
+        else if (name_is( name, L"UserO", L"UO" ) || name_is( name, L"PasswordO", L"PO" ) || name_is( name, L"UserF", L"UF" ) || name_is( name, L"PasswordF", L"PF" ))
+            o->other_user = TRUE;
+        /* accepted, and nothing to do: no restart is asked for, the server is this computer's engine, verbose adds nothing here */
+        else if (name_is( name, L"REBoot", L"REB" ) || name_is( name, L"SecurePasswordPrompt", L"SPP" ) || name_is( name, L"Verify", NULL ) ||
+                 name_is( name, L"Verbose", L"V" ) || name_is( name, L"Server", L"S" )) {}
         else return argv[i];
     }
     return NULL;
@@ -186,18 +190,32 @@ static void last_message( WCHAR *text, DWORD chars )
     if (message) message( text, chars );
 }
 
-/* the failure: the engine's words when there are any, else the system's for the code; then Windows' closing line */
+/* the failure: the system's text for the code (as NETDOM prints it), else the engine's; the engine's reason is added when
+ * the two differ (Samba's or the engine's own words); then Windows' closing line. The exit status is the error code. */
 static int failed( DWORD status )
 {
-    WCHAR message[MAX_TEXT] = { 0 }, system[400];
+    WCHAR message[MAX_TEXT] = { 0 }, system[400] = { 0 }, *end;
 
     last_message( message, ARRAY_SIZE(message) );
-    if (message[0]) out( L"%ls\n", message );
-    else if (FormatMessageW( FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, status, 0, system, ARRAY_SIZE(system), NULL ))
-        out( L"%ls", system );
+    FormatMessageW( FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, status, 0, system, ARRAY_SIZE(system), NULL );
+    for (end = system + wcslen( system ); end > system && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' '); end--) end[-1] = 0;
+    if (system[0])
+    {
+        out( L"%ls\n", system );
+        if (message[0] && _wcsicmp( message, system )) out( L"(%ls)\n", message );
+    }
+    else if (message[0]) out( L"%ls\n", message );
     else out( L"Error %lu.\n", status );
     out( L"\nThe command failed to complete successfully.\n" );
-    return 1;
+    return status ? status : 1;
+}
+
+/* a wrong command line, as NETDOM says it */
+static int bad_parameters( const WCHAR *what )
+{
+    if (what && what[0]) out( L"%ls\n", what );
+    out( L"The parameter is incorrect.\nTry \"NetDom HELP\" for more information.\n\nThe command failed to complete successfully.\n" );
+    return ERROR_INVALID_PARAMETER;
 }
 
 static int succeeded( void )
@@ -205,7 +223,17 @@ static int succeeded( void )
     WCHAR message[MAX_TEXT];
 
     last_message( message, ARRAY_SIZE(message) );
-    if (message[0] && wcscmp( message, L"ok" )) out( L"%ls\n", message );
+    if (message[0] && wcscmp( message, L"ok" ))
+    {
+        WCHAR *line, *next;
+
+        /* "||" ends a line of the engine's message */
+        for (line = message; line; line = next)
+        {
+            if ((next = wcsstr( line, L"||" ))) { *next = 0; next += 2; }
+            out( L"%ls\n", line );
+        }
+    }
     out( L"\nThe command completed successfully.\n" );
     return 0;
 }
@@ -222,17 +250,17 @@ static BOOL is_this_computer( const WCHAR *computer )
 }
 
 /* the account and its password: both given, or the user and a password asked for */
-static BOOL credentials( struct options *o, WCHAR *password, DWORD chars, BOOL required )
+static BOOL credentials( struct options *o, WCHAR *password, DWORD chars, BOOL required, int *failure )
 {
     if (!o->user || !o->user[0])
     {
-        if (required) out( L"The /UserD option is required: this computer has no logged-on domain account to use.\n" );
+        if (required) { out( L"The /UserD option is required: this computer has no logged-on domain account to use.\n" ); *failure = bad_parameters( NULL ); }
         return !required;
     }
     if (o->password && wcscmp( o->password, L"*" ) && o->password[0]) { lstrcpynW( password, o->password, chars ); return TRUE; }
     if (!ask_password( L"Type the password associated with the domain user: ", password, chars ))
     {
-        out( L"A password is required.\n" );
+        *failure = bad_parameters( L"A password is required." );
         return FALSE;
     }
     return TRUE;
@@ -242,11 +270,12 @@ static int cmd_join( struct options *o )
 {
     WCHAR password[256];
     DWORD status;
+    int failure = 1;
 
-    if (!o->domain || !o->domain[0]) { out( L"The /Domain option is required.\n\n" ); usage(); return 1; }
+    if (!o->domain || !o->domain[0]) return bad_parameters( L"The /Domain option is required." );
     if (!is_this_computer( o->computer )) { out( L"Joining another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
     if (o->read_only || o->other_user) { out( L"The read-only join and the options for another computer's account are not supported.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
-    if (!credentials( o, password, ARRAY_SIZE(password), TRUE )) return 1;
+    if (!credentials( o, password, ARRAY_SIZE(password), TRUE, &failure )) return failure;
     status = NetJoinDomain( NULL, o->domain, o->ou && o->ou[0] ? o->ou : NULL, o->user, password, NETSETUP_JOIN_DOMAIN | NETSETUP_ACCT_CREATE );
     memset( password, 0, sizeof(password) );
     return status ? failed( status ) : succeeded();
@@ -256,11 +285,12 @@ static int cmd_remove( struct options *o )
 {
     WCHAR password[256];
     DWORD status;
+    int failure = 1;
 
     if (!is_this_computer( o->computer )) { out( L"Removing another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
     if (o->other_user) { out( L"The options for another computer's account are not supported.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
     /* with /Force and no account only this computer's side is undone (the controller may be out of reach) */
-    if (!(o->force && (!o->user || !o->user[0])) && !credentials( o, password, ARRAY_SIZE(password), TRUE )) return 1;
+    if (!(o->force && (!o->user || !o->user[0])) && !credentials( o, password, ARRAY_SIZE(password), TRUE, &failure )) return failure;
     if (o->user && o->user[0]) status = NetUnjoinDomain( NULL, o->user, password, NETSETUP_ACCT_DELETE );
     else status = NetUnjoinDomain( NULL, NULL, NULL, 0 );
     memset( password, 0, sizeof(password) );
@@ -327,9 +357,8 @@ int __cdecl wmain( int argc, WCHAR **argv )
     }
     if ((bad = parse_options( argc, argv, &o, !_wcsicmp( command, L"QUERY" ) )))
     {
-        out( L"The option %ls is not valid for this command.\n\n", bad );
-        usage();
-        return 1;
+        out( L"The option %ls is not valid for this command.\n", bad );
+        return bad_parameters( NULL );
     }
     if (!_wcsicmp( command, L"JOIN" )) return cmd_join( &o );
     if (!_wcsicmp( command, L"REMOVE" )) return cmd_remove( &o );
@@ -338,11 +367,10 @@ int __cdecl wmain( int argc, WCHAR **argv )
     if (!_wcsicmp( command, L"QUERY" )) return cmd_query( &o );
     if (!_wcsicmp( command, L"RENAMECOMPUTER" ))
     {
-        if (!o.new_name) { out( L"The /NewName option is required.\n\n" ); usage(); return 1; }
+        if (!o.new_name) return bad_parameters( L"The /NewName option is required." );
         out( L"Renaming the computer in the domain is not supported yet on this system.\n" );
         return failed( ERROR_NOT_SUPPORTED );
     }
-    out( L"The command %ls is not valid.\n\n", command );
-    usage();
-    return 1;
+    out( L"The command %ls is not valid.\n", command );
+    return bad_parameters( NULL );
 }

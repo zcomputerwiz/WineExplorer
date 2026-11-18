@@ -20,6 +20,7 @@ case "\$*" in
     "ads join"*) exit \$(cat "$FX/join.rc" 2>/dev/null || echo 0) ;;
     "ads testjoin") exit \$(cat "$FX/testjoin.rc" 2>/dev/null || echo 0) ;;
     "ads leave"*) exit \$(cat "$FX/leave.rc" 2>/dev/null || echo 0) ;;
+    "ads info") echo "LDAP server name: dc1.ad.wexlab.example"; exit 0 ;;
     "ads changetrustpw") exit \$(cat "$FX/ctp.rc" 2>/dev/null || echo 0) ;;
 esac
 exit 0
@@ -286,13 +287,13 @@ expect 2692 'verify when not joined' 'op=verify'
 expect 2692 'reset when not joined' 'op=reset'
 expect 2692 'dclist when not joined' 'op=dclist'
 echo winbind > "$FX/kind"
-out=$(serve op=verify); [ "$(status_of "$out")" = 0 ] && grep -q 'secure channel to the domain ad.wexlab.example is verified' <<<"$out" || { echo "$out"; fail 'serve: verify'; }
+out=$(serve op=verify); [ "$(status_of "$out")" = 0 ] && grep -q 'message=The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been verified.||The connection is with the machine dc1.ad.wexlab.example.$' <<<"$out" || { echo "$out"; fail 'serve: verify'; }
 grep -q '^net ads testjoin' "$FX/calls.log" && grep -q '^wbinfo --check-secret' "$FX/calls.log" || fail 'serve: verify did not ask Samba and Winbind'
 ! grep -q 'changetrustpw' "$FX/calls.log" || fail 'serve: verify changed the machine password'
 echo 1 > "$FX/testjoin.rc"; expect 1789 'verify with a failing testjoin' op=verify
 rm -f "$FX/testjoin.rc"; echo 1 > "$FX/wbinfo.rc"; expect 1789 'verify with a failing trust secret' op=verify
 rm -f "$FX/wbinfo.rc"; : > "$FX/calls.log"
-out=$(serve op=reset); [ "$(status_of "$out")" = 0 ] && grep -q 'is reset' <<<"$out" || { echo "$out"; fail 'serve: reset'; }
+out=$(serve op=reset); [ "$(status_of "$out")" = 0 ] && grep -q 'to the domain AD.WEXLAB.EXAMPLE has been reset.' <<<"$out" || { echo "$out"; fail 'serve: reset'; }
 [ "$(grep -n 'changetrustpw' "$FX/calls.log" | head -1 | cut -d: -f1)" -lt "$(grep -n 'testjoin' "$FX/calls.log" | head -1 | cut -d: -f1)" ] || fail 'serve: reset did not change the password before it verified'
 echo 1 > "$FX/ctp.rc"; expect 1789 'reset with a failing password change' op=reset
 rm -f "$FX/ctp.rc"
