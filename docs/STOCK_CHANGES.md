@@ -3782,3 +3782,19 @@ Test in `capabilities.c` (x64 and x86). **Unconditional**: a new class only.
 battery, supply, energy saver, charge and discharge values from `GetSystemPowerStatus`; the changed events are accepted
 and never raised); `include/windows.system.power.idl` gets the statics and the `EnergySaverStatus` and
 `PowerSupplyStatus` enums. Test in `capabilities.c` (x64 and x86). **Unconditional**: a new class only.
+
+2026-11-18 (UWP, Wine branch claude/uwp-appcapability): `dlls/twinapi.appcore`: new `app_capability.c` and `async_status.c`
+(`Windows.Security.Authorization.AppCapabilityAccess.AppCapability`: Create, CreateWithProcessIdForUser, CheckAccess,
+RequestAccessAsync and the user and display message as Windows 11 gives them to an unpackaged desktop application (every
+capability Allowed, an empty name or process id 0 E_INVALIDARG; measured with `tests/uwp/ua-batch/capprobe.cpp`);
+AccessChanged accepted and never raised; the two RequestAccessForCapabilities methods return E_NOTIMPL). The module
+and its tests define `WINDOWS_FOUNDATION_UNIVERSALAPICONTRACT_VERSION` 0xf0000 for `IAppCapability2`. Test in
+`capabilities.c` (x64 and x86). **Unconditional**: a new class only.
+
+2026-11-18 (UWP, Wine branch claude/uwp-appcapability): `dlls/twinapi.appcore`: new `settings_classes.c` (`EducationSettings`,
+`PlatformDiagnosticsAndUsageDataSettings`, `AssignedAccessSettings`, `DiagnosticsSettings`, `ApplicationDataManager`,
+`PenDevice`: the answers of Windows 11 to an unpackaged desktop application, measured with
+`tests/uwp/ua-batch/noiseprobe.cpp`; the diagnostics level is Basic and not used to tailor experiences because Wine has no
+telemetry; the manager gives the data of the process's own package only); new `include/windows.management.core.idl`;
+`windows.system.profile.idl`, `windows.system.userprofile.idl` and `windows.devices.input.idl` get the interfaces.
+Test `settings.c` (x64 and x86). **Unconditional**: new classes only.

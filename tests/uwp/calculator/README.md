@@ -264,3 +264,15 @@ style is applied. Wine b3370991 adds `PowerManager`. Open, with what is known:
   the binding is initialised.
 * Currency: the page shows the volume units; the handler ends with E_NOTIMPL while a worker thread loads data, which
   needs a managed stack to place.
+
+### 2026-11-17, Date calculation: what the trace shows (not fixed)
+
+`XAMLSHIM_WATCH` and the call trace now show: the page's `Loading` and `Loaded` are raised (`dateCalculator.Loading` at
+the right time, after its `DataContext` is set), the application's handler for the lazy `AddSubtractDateGrid` runs
+(`FindName`, `MinDate`/`MaxDate`, `PlaceholderText`), and the application then sets no `Visibility` at all: neither
+`DateDiffGrid` nor `AddSubtractDateGrid` gets a `put_Visibility`, so the compiled `x:Bind` of
+`ViewModel.IsDateDiffMode` through `BooleanToVisibility(Negation)Converter` is not evaluated, or evaluates to no change.
+Uno's own converter path is not used (the converters are looked up by the application: `ResourceDictionary.Lookup`).
+The application also throws "Unrecognized custom TypeName" (E_INVALIDARG) many times while the page loads: a
+`GetXamlType(TypeName)` probe of the shim's. Next: find which `TypeName` it is (the kind and name are in
+`NativeObjects.ToTypeName`) and whether that probe is the one the bindings need.
