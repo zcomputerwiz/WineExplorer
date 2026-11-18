@@ -104,6 +104,11 @@ cp -a "$SCRIPT_DIR/live-build/config"/* "$WORK_DIR/config/" 2>/dev/null || true
 cp -a "$SCRIPT_DIR/tools/mklayout.py" "$WORK_DIR/config/" 2>/dev/null || true
 cp -a "$SCRIPT_DIR/setupinfs/txtsetup.sif.in" "$WORK_DIR/config/" 2>/dev/null || true
 mkdir -p "$WORK_DIR/config/packages.chroot"
+# The packages built below are the only ones of their names: a copy that came with the configuration (package-*.sh
+# writes into live-build/config/packages.chroot when run without OUT_DIR) is stale, and an old wexcomp_*.deb once won
+# apt's version comparison over the new build, so the ISO had a compositor without WEX_OUTPUT_MODE (B40, 2026-11-17)
+rm -f "$WORK_DIR/config/packages.chroot"/wexcomp_*.deb "$WORK_DIR/config/packages.chroot"/wineexplorer_*.deb \
+    "$WORK_DIR/config/packages.chroot"/wineexplorer-session_*.deb
 mkdir -p "$WORK_DIR/config/includes.chroot/setup/art"
 
 # 1. Compile textsetup binary into work directory
