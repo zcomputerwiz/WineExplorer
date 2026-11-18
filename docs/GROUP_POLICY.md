@@ -416,12 +416,44 @@ Policy" before and the other way round now; `gpo-lab.sh parse` checks it on the 
 
 - User policy from the domain at logon is done (DOMAIN_LOGON.md, WO 4, 2026-11-16: admission at the first logon by the
   PAM line of the greeter, a refresh asked for by the session once the user's `explorer.exe` runs, lab-tested). What
-  differs from Windows: the policy arrives shortly after the shell is up, not before the desktop on a first logon.
+  differs from Windows: for a later logon the policy arrives shortly after the shell is up (as it does there); on a first logon it is applied before the desktop, see "Policy before the desktop".
   A logon that does not go through the greeter's PAM stack (ssh) gets no record and no WineExplorer session, so no
   user policy; Windows documents user policy only for a sign-in at the user's own desktop (RunAs and alternate
   credentials do not trigger it), and does not say it for SSH sessions.
 - The Windows Server evaluation controller: Microsoft's Evaluation Center requires a registration form with
   personal details for the ISO, so per the owner's condition the lab stays on Samba AD.
+
+## Policy before the desktop (2026-11-17)
+
+Windows applies a user's policy before the desktop on the user's first sign-in on a computer: Fast Logon Optimization is
+always off then (also for a roaming profile, a home directory or synchronous logon scripts, which do not exist here), so
+the sign-in waits. At the other sign-ins the policy is applied asynchronously, after the desktop is up, unless the
+computer policy "Always wait for the network at computer startup and logon" (`SyncForegroundPolicy`, a DWORD 1 under
+`HKLM\Software\Policies\Microsoft\Windows NT\CurrentVersion\Winlogon`) turns the optimization off for every sign-in
+(sources: Microsoft's pages on Fast Logon Optimization and on the initial processing of Group Policy; the registry name
+is from a mirror of the policy template and was not checked against Windows).
+
+`wex-gpupdate.sh --logon NAME` is that first kind, run as root by the PAM step of the greeter
+(`scripts/wex-domain-admit-pam.sh`, after the admission of a domain account) before the user's session exists, bounded to
+60 seconds, and never failing the logon. It looks the user up in the accounts map (active records, a plain name or
+`DOMAIN\user`) and ends at once, status 0, when:
+- there is no policy to apply: a local account with none of the local files (the local User policy, the Administrators' or
+  the Non-Administrators', the user's own); a domain account always may have objects, so the run finds out;
+- it is not the user's first logon (session 0 has an archive of the user's policy, `GroupPolicy\Archive\User-SID.pol`) and
+  `SyncForegroundPolicy` is not 1 in session 0's registry (`system.reg`, read by root);
+- the name is not in the map or is not a name.
+Otherwise it runs the user's part of the usual run: the domain's list for that user alone, the order of the local objects and
+the domain's, `wexpolicy apply /user:SID` and `record`; the computer's policy and security template are left to the
+refresh, and the run does not answer a user's `gpupdate` (it serves no request). A logon that is not a first one is
+refreshed by the session after the shell is up, as before. The wait is before the session starts on purpose: a refresh
+while the session registers with session 0 is what B26 found. A policy that is not applied in 60 seconds arrives with
+the session's refresh. Not done: the other settings of that family (slow-link detection, the startup wait time,
+the asynchronous setting for Remote Desktop), which have no counterpart on this system.
+
+Checked in `scripts/test_gpupdate_users.sh` (the first logon, a later one, `SyncForegroundPolicy` in its three wrong
+forms, nothing to apply, a name that is not a user, a domain user asked for alone) and `scripts/test_accounts_map.sh` (the
+PAM step: every account that passes, no PAM environment, bounded, a failing or slow step does not fail the logon).
+Not checked: a first logon through the greeter in the lab (`installer/tests/ad`).
 
 ## Local policy (without a domain)
 

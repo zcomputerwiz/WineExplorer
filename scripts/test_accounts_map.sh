@@ -775,9 +775,11 @@ echo 'OK: domain accounts (map version 2, admit, sync, parser)'
 PAMSTEP="$FIXTURE/wex-domain-admit-pam.sh"
 sed -e "s#^WEX_ACCOUNTS=/usr/local/libexec/wineexplorer/wex-accounts\$#WEX_ACCOUNTS=$FIXTURE/fake-wex-accounts#" \
     -e "s# busctl --system # $FIXTURE/fake-busctl --system #" \
+    -e "s#^WEX_GPUPDATE=/usr/local/bin/wex-gpupdate.sh\$#WEX_GPUPDATE=$FIXTURE/fake-gpupdate#" \
+    -e "s#^LOGON_POLICY_WAIT=60 #LOGON_POLICY_WAIT=2 #" \
     "$REPO/scripts/wex-domain-admit-pam.sh" > "$PAMSTEP"
 grep -q "^WEX_ACCOUNTS=$FIXTURE/fake-wex-accounts\$" "$PAMSTEP" || fail 'pam step: the tool path line moved'
-grep -q "^env -i PATH=\"\$PATH\" $FIXTURE/fake-busctl --system .* CacheUser s " "$PAMSTEP" || fail 'pam step: the CacheUser line moved'
+grep -q "^ *env -i PATH=\"\$PATH\" $FIXTURE/fake-busctl --system .* CacheUser s " "$PAMSTEP" || fail 'pam step: the CacheUser line moved'
 ! grep -q 'systemctl' "$PAMSTEP" || fail 'pam step: the policy refresh is not started from the logon any more'
 # the fake logs what the PAM environment leaked into it (WEX_LEAK, LD_LIBRARY_PATH, DBUS_SYSTEM_BUS_ADDRESS)
 printf '#!/bin/sh\necho "$* leak=${WEX_LEAK:-}${LD_LIBRARY_PATH:-}${DBUS_SYSTEM_BUS_ADDRESS:-}" >> "%s"\n' "$FIXTURE/busctl.log" > "$FIXTURE/fake-busctl"
@@ -803,4 +805,31 @@ echo 9 > "$FIXTURE/fake.rc"
 if pam_step 'WEXLAB\wexuser1'; then fail 'pam step: a refused admission passed'; fi
 [ "$(grep -c . "$FIXTURE/busctl.log")" = 1 ] || fail 'pam step: a user was cached after a refusal or for a local account'
 echo 'OK: domain admission PAM step'
+# the policy step (docs/GROUP_POLICY.md, "Policy before the desktop"): wex-gpupdate.sh --logon NAME runs for every account that
+# passes (a local one too, and after the admission of a domain one), gets nothing of the PAM environment, is bounded, and
+# never fails the logon
+grep -q "^WEX_GPUPDATE=$FIXTURE/fake-gpupdate\$" "$PAMSTEP" && grep -q '^LOGON_POLICY_WAIT=2 ' "$PAMSTEP" || fail 'pam step: the policy lines moved'
+printf '#!/bin/sh\necho "$* leak=${WEX_LEAK:-}${LD_LIBRARY_PATH:-} path=$PATH" >> "%s"\n[ -e "%s" ] && sleep 30\nexit "$(cat "%s" 2>/dev/null || echo 0)"\n' \
+    "$FIXTURE/gp.log" "$FIXTURE/gp.slow" "$FIXTURE/gp.rc" > "$FIXTURE/fake-gpupdate"
+chmod 0755 "$FIXTURE/fake-gpupdate"
+rm -f "$FIXTURE/gp.log" "$FIXTURE/gp.slow" "$FIXTURE/gp.rc" "$FIXTURE/fake.rc"
+pam_step alice || fail 'pam step: a local account was refused with the policy step'
+grep -qx -- '--logon alice leak= path=/usr/sbin:/usr/bin:/sbin:/bin' "$FIXTURE/gp.log" || { cat "$FIXTURE/gp.log"; fail 'pam step: the policy step did not run for a local account, or got the PAM environment'; }
+pam_step 'WEXLAB\wexuser1' || fail 'pam step: an admitted domain account was refused with the policy step'
+grep -qxF -- '--logon WEXLAB\wexuser1 leak= path=/usr/sbin:/usr/bin:/sbin:/bin' "$FIXTURE/gp.log" || { cat "$FIXTURE/gp.log"; fail 'pam step: the policy step did not run for a domain account'; }
+# a failing step does not fail the logon
+echo 7 > "$FIXTURE/gp.rc"
+pam_step alice || fail 'pam step: a failing policy step failed the logon'
+# a step that does not end in time is stopped, and the logon goes on (the wait here is 2 seconds)
+rm -f "$FIXTURE/gp.rc"; : > "$FIXTURE/gp.slow"
+start=$(date +%s)
+pam_step alice || fail 'pam step: a slow policy step failed the logon'
+[ $(( $(date +%s) - start )) -lt 15 ] || fail 'pam step: a slow policy step was not stopped'
+rm -f "$FIXTURE/gp.slow"
+# a refused admission runs no policy step
+: > "$FIXTURE/gp.log"; echo 9 > "$FIXTURE/fake.rc"
+if pam_step 'WEXLAB\wexuser1'; then fail 'pam step: a refused admission passed'; fi
+[ ! -s "$FIXTURE/gp.log" ] || fail 'pam step: the policy step ran for a refused account'
+rm -f "$FIXTURE/fake.rc"
+echo 'OK: PAM policy step (every account that passes, bounded, no PAM environment, never fails the logon)'
 echo 'OK: accounts map lifecycle, lookup and protection fixture'
