@@ -54,7 +54,7 @@ int wmain( int argc, WCHAR **argv )
     printf( "status=%lu\n", status );
     if ((module = LoadLibraryW( L"wexjoin.dll" )) && (message = (message_fn)GetProcAddress( module, "WexJoinLastMessage" )))
     {
-        message( text, ARRAY_SIZE(text) );
+        message( text, sizeof(text) / sizeof(text[0]) );
         printf( "message=%ls\n", text );
     }
     return 0;
