@@ -674,6 +674,20 @@ Project changes:
 * `scripts/e1s13_hku_checks.h` and `scripts/test_e1s10_token.sh`: Extended with assertions that
   effective Alice token sees her profile path and variables, while peer sees Bob's.
 
+## services.exe: status notifications of session 0's services; SamSs in every session (B45, 2026-11-18)
+
+Wine branch `claude/svc-notify` on `a80a645e`. WineExplorer-specific (the system tier's forwarding, T5.4).
+
+* `programs/services/rpc.c`: `svcctl_NotifyServiceStatusChange` on a forwarded handle (a service of session 0)
+  returned `ERROR_CALL_NOT_IMPLEMENTED`; now `remote_notify` checks the access through session 0 (a forwarded status
+  query) and a thread (`remote_notify_thread`) queries the status every 250 ms and gives the notification as
+  `notify_service_state` does for the session's own services: at once for a state asked for, once per registration,
+  not again for the state already notified on the handle; closing the handle ends it without a result.
+  `fill_notify` is split into `fill_notify_status`. Office's licensing client (osppc `SLOpen`) needs it.
+* `programs/services/services.c`: `always_started` (B44) now holds for every service manager with the system role, not
+  only session 0's: SamSs is one of a session's own services and a standard user may not start it, so secur32's
+  authentication packages failed in a standard user's programs.
+
 ## services.exe, wine.inf: session 0 starts SamSs (B44, 2026-11-17)
 
 Wine branch `claude/b41-b42-acl`.

@@ -64,6 +64,9 @@
  *   probe pipesay PIPE TEXT       opens \\.\pipe\PIPE and writes TEXT; prints say=ok or say=error<n>
  *   probe pipehold PIPE SECONDS   opens \\.\pipe\PIPE for read/write, holds for SECONDS; prints hold=ok or hold=error<n>
  *   probe pipewait PIPE           WaitNamedPipe(\\.\pipe\PIPE, 2 s); prints wait=ok or wait=error<n>, and wait_ms
+ *   probe svcnotify NAME MASK MS  NotifyServiceStatusChangeW on the service for the SERVICE_NOTIFY_* MASK, then waits
+ *                                 alertably up to MS milliseconds; prints notify=registered (or notify=error<n>), then
+ *                                 fired=<the state notified>, fired=error<n> or fired=none
  * Build: x86_64-w64-mingw32-gcc / i686-w64-mingw32-gcc -municode -o probe.exe system-tier-probe.c -ladvapi32 -lntdll */
 
 #include <windows.h>
@@ -71,6 +74,18 @@
 #include <sddl.h>
 #include <shellapi.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+/* svcnotify: what the status notification delivered */
+static DWORD notified_status = ~0u, notified_state;
+
+static void CALLBACK status_notified( void *param )
+{
+    SERVICE_NOTIFYW *notify = param;
+
+    notified_state = notify->ServiceStatus.dwCurrentState;
+    notified_status = notify->dwNotificationStatus;
+}
 
 static void print_value( const char *label, HKEY key, const WCHAR *name )
 {
@@ -596,6 +611,38 @@ int __cdecl wmain( int argc, WCHAR **argv )
         else printf( "say=error%lu\n", GetLastError() );
         Sleep( 500 );
         CloseHandle( pipe );
+        return 0;
+    }
+    if (argc == 5 && !lstrcmpW( argv[1], L"svcnotify" ))
+    {
+        /* a status notification of a service; for a service of session 0, the session's service manager relays it */
+        SC_HANDLE scm, service;
+        SERVICE_NOTIFYW notify = {0};
+        DWORD err, mask = wcstoul( argv[3], NULL, 0 ), timeout = wcstoul( argv[4], NULL, 0 ), start;
+
+        if (!(scm = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT )) ||
+            !(service = OpenServiceW( scm, argv[2], SERVICE_QUERY_STATUS )))
+        {
+            printf( "notify=error%lu\n", GetLastError() );
+            return 0;
+        }
+        notify.dwVersion = SERVICE_NOTIFY_STATUS_CHANGE;
+        notify.pfnNotifyCallback = status_notified;
+        notify.pContext = &notify;
+        if ((err = NotifyServiceStatusChangeW( service, mask, &notify )))
+        {
+            printf( "notify=error%lu\n", err );
+            return 0;
+        }
+        printf( "notify=registered\n" );
+        fflush( stdout );
+        start = GetTickCount();
+        while (notified_status == ~0u && GetTickCount() - start < timeout) SleepEx( 200, TRUE );
+        if (notified_status == ~0u) printf( "fired=none\n" );
+        else if (notified_status) printf( "fired=error%lu\n", notified_status );
+        else printf( "fired=%lu\n", notified_state );
+        CloseServiceHandle( service );
+        CloseServiceHandle( scm );
         return 0;
     }
     if (argc == 3 && !lstrcmpW( argv[1], L"pipewait" ))

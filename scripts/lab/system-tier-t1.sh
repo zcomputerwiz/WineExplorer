@@ -189,6 +189,18 @@ check a_service_process_not_in_a "$(A tasklist 2>/dev/null | grep -ci wuauserv)"
 A sc stop wuauserv >/dev/null 2>&1
 for i in $(seq 1 20); do [ "$(s0 sc query wuauserv | state)" = 1 ] && break; sleep 0.5; done
 check stopped_from_a_in_session0 "$(s0 sc query wuauserv | state)" 1
+# NotifyServiceStatusChange on a service of session 0, relayed by the session's service manager: the current state at
+# once (SERVICE_NOTIFY_STOPPED 1), and a start made in session 0 (SERVICE_NOTIFY_RUNNING 8, state 4)
+check notify_session0_current_state "$(A "$W/p64.exe" svcnotify wuauserv 1 5000 | field fired)" 1
+rm -f "$W/notify.out"
+(A "$W/p64.exe" svcnotify wuauserv 8 20000 >"$W/notify.out" &)
+for i in $(seq 1 40); do grep -q '^notify=' "$W/notify.out" 2>/dev/null && break; sleep 0.5; done
+check notify_session0_registered "$(field notify < "$W/notify.out")" registered
+s0 sc start wuauserv >/dev/null 2>&1
+for i in $(seq 1 50); do grep -q '^fired=' "$W/notify.out" 2>/dev/null && break; sleep 0.5; done
+check notify_session0_change "$(field fired < "$W/notify.out")" 4
+s0 sc stop wuauserv >/dev/null 2>&1
+for i in $(seq 1 20); do [ "$(s0 sc query wuauserv | state)" = 1 ] && break; sleep 0.5; done
 check a_keeps_own_plugplay "$(A sc query PlugPlay | state)" 4
 A sc create WexT5Probe binPath= 'C:\windows\system32\wuauserv.exe' >/dev/null 2>&1
 check created_from_a_in_session0 "$(s0 sc query WexT5Probe | state)" 1
