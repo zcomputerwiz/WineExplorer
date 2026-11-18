@@ -1,0 +1,5 @@
+@ stdcall NetJoinDomain(wstr wstr wstr wstr wstr long)
+@ stdcall NetUnjoinDomain(wstr wstr wstr long)
+@ stdcall NetRenameMachineInDomain(wstr wstr wstr wstr long)
+@ stdcall NetValidateName(wstr wstr wstr wstr long)
+@ stdcall WexJoinLastMessage(ptr long)
