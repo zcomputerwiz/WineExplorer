@@ -1075,13 +1075,21 @@ ok c4_no_lease_no_process
 # -- B39: an image on a file system that gives no read leases (UDF, as a loop-mounted ISO): the broker refuses it
 # with its own reply error (WEXELEVATE_E_NO_IMAGE_LEASE), nothing runs; through ShellExecuteEx the program still
 # sees ERROR_NOT_SUPPORTED (no box with SEE_MASK_FLAG_NO_UI); shell32's dialog tells the user to copy it to a disk
-if command -v xorriso >/dev/null 2>&1; then
+# (the image: an empty UDF file system by mkudffs, the probe copied in through a writable loop mount, then mounted
+# read-only as an ISO is; xorriso cannot write UDF)
+if command -v mkudffs >/dev/null 2>&1; then
     el_clean; touch "$EL/approve.all"
-    UDFTMP="$ROOT/udfsrc"; UDFIMG="$ROOT/udf.iso"; UDMMNT="$ROOT/udfmnt"
+    UDFTMP="$ROOT/udfsrc"; UDFIMG="$ROOT/udf.img"; UDMMNT="$ROOT/udfmnt"
     rm -rf "$UDFTMP" "$UDFIMG" "$UDMMNT"; install -d -m 0755 "$UDFTMP" "$UDMMNT"
-    cp "$ROOT/probes/wexelevate_probe64.exe" "$UDFTMP/udf.exe"
-    xorriso -as mkisofs -quiet -udf -output "$UDFIMG" "$UDFTMP/udf.exe" || fail "the UDF image was not made"
-    if ! mount -o loop,ro "$UDFIMG" "$UDMMNT"; then
+    truncate -s 16M "$UDFIMG" && mkudffs --media-type=hd --label=WEXB39 "$UDFIMG" >/dev/null 2>&1 ||
+        fail "the UDF image was not made"
+    udf_mounted=0
+    if mount -o loop "$UDFIMG" "$UDMMNT" 2>/dev/null; then
+        cp "$ROOT/probes/wexelevate_probe64.exe" "$UDMMNT/udf.exe" && chmod 0755 "$UDMMNT/udf.exe"
+        umount "$UDMMNT"
+        mount -o loop,ro "$UDFIMG" "$UDMMNT" 2>/dev/null && udf_mounted=1
+    fi
+    if [ "$udf_mounted" != 1 ]; then
         echo "NOTE: the UDF image did not mount (no loop mounts here?), the B39 case was not run"
         rm -rf "$UDFTMP" "$UDFIMG" "$UDMMNT"
     else
@@ -1101,7 +1109,7 @@ if command -v xorriso >/dev/null 2>&1; then
         umount "$UDMMNT"; rm -rf "$UDFTMP" "$UDFIMG" "$UDMMNT"
     fi
 else
-    echo "NOTE: xorriso is not installed, the UDF refusal case (B39) was not run"
+    echo "NOTE: mkudffs (udftools) is not installed, the UDF refusal case (B39) was not run"
 fi
 
 # -- 4. A/B concurrency: approving A does not approve B
