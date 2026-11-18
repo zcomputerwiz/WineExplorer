@@ -1,0 +1,7 @@
+MODULE    = tokenbroker.exe
+IMPORTS   = advapi32
+
+EXTRADLLFLAGS = -mwindows -municode
+
+SOURCES = \
+	main.c

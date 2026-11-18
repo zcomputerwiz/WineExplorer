@@ -91,6 +91,14 @@ its UI, how the caller is identified, and where accounts and tokens are stored.
     documentation, with MSAL (MIT) as the reference for property names. No LGPL-3.0 or GPL-3.0 library code is linked
     (licences are in the research document's third pass).
 
+## Status
+
+- 2026-11-18, session 0: the plan is adopted as written. Step 1 is written (not yet built or run): the protocol
+  (`wine/include/wine/tokenbroker.h`), the broker (`src/programs/tokenbroker`: per-user pipe for the user's SID only,
+  a second broker ends, idle exit after 10 minutes, never in session 0, the client's token user checked) and the
+  client (`dlls/windows.security.authentication.web.core/broker.c`: switch `Broker`, the broker started on demand,
+  its server checked, fallback to the answers without it). The broker answers as the diagnostic provider in step 1.
+
 ## Order of work
 
 | # | Deliverable | Proves | Owner (proposed) |
