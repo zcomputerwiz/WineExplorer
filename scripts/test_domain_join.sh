@@ -189,4 +189,85 @@ echo 1 > "$FX/testjoin.rc"; out=$(status); grep -qx 'testjoin=failed' <<<"$out" 
 rm -f "$FX/testjoin.rc"; echo sssd > "$FX/kind"; out=$(status); grep -qx 'kind=sssd' <<<"$out" && grep -q 'Winbind is the supported join' <<<"$out" || { echo "$out"; fail 'status of an SSSD join'; }
 rm -f "$FX/kind"; out=$(status); grep -qx 'kind=none' <<<"$out" || fail 'status: not joined'
 echo 'OK: wex-domain-join.sh status'
+
+# ---- serve: one request on standard input (the socket unit), the answer is status= (a Win32 error code) and message=
+serve()   # request lines...; the empty line that ends the request is added
+{
+    { printf '%s\n' "$@"; echo; } | PATH="$FX/bin:$PATH" WEX_JOIN_NOROOT=1 WEX_JOIN_ETC="$FX/etc" WEX_DOMAIN_STATE="$FX/state" \
+        WEX_JOIN_HOSTNAME=wexbox bash "$SCRIPT" serve 2>&1
+}
+status_of() { sed -n 's/^status=//p' <<<"$1" | head -n 1; }
+expect()   # CODE WHAT request lines...
+{
+    local want=$1 what=$2 out; shift 2
+    out=$(serve "$@")
+    [ "$(status_of "$out")" = "$want" ] || { echo "$out" >&2; cat "$FX/calls.log" >&2; fail "serve: $what: status $(status_of "$out"), wanted $want"; }
+    [ "$(grep -c '^status=' <<<"$out")" = 1 ] && [ "$(grep -c '^message=' <<<"$out")" = 1 ] || { echo "$out" >&2; fail "serve: $what: the answer is not one status and one message"; }
+    ! grep -q 'p w\$d' <<<"$out" || fail "serve: $what: the password is in the answer"
+}
+PWSPEC='p w$d"`;\x'
+reset_etc
+expect 0 'a join' 'op=join' 'domain=ad.wexlab.example' 'user=Administrator' "password=$PWSPEC" 'ou=OU=WexMachines,DC=ad,DC=wexlab,DC=example' 'flags=3'
+[ "$(cat "$FX/kinit.stdin")" = "$PWSPEC" ] || fail 'serve: the password reached kinit changed'
+! grep -qF 'p w' "$FX/calls.log" || fail 'serve: the password is on a command line'
+grep -q '^net ads join -k createcomputer=OU=WexMachines' "$FX/calls.log" || fail 'serve: the join did not run with the OU'
+out=$(serve op=join domain=ad.wexlab.example user=Administrator password=x); echo "$out" | grep -q 'message=' || fail 'serve: no message'
+# a user principal name is used as it is
+reset_etc; expect 0 'a join with a UPN' 'op=join' 'domain=ad.wexlab.example' 'user=admin@ad.wexlab.example' 'password=pw'
+grep -q '^kinit admin@ad.wexlab.example ' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'serve: the UPN was changed'; }
+# bad requests
+reset_etc
+expect 87 'an unknown field' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p' 'evil=1'
+expect 87 'a line without =' 'op=join' 'nonsense'
+expect 87 'a control character' 'op=join' $'domain=ad.wexlab.example\001'
+expect 87 'a long value' 'op=join' "domain=$(printf 'a%.0s' $(seq 1 600))"
+expect 87 'no operation' 'domain=ad.wexlab.example'
+expect 87 'an unknown operation' 'op=format'
+expect 87 'a bad domain' 'op=join' 'domain=x' 'user=a' 'password=p'
+expect 87 'a bad user' 'op=join' 'domain=ad.wexlab.example' 'user=-oX' 'password=p'
+expect 87 'no password' 'op=join' 'domain=ad.wexlab.example' 'user=a'
+expect 87 'an empty password' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password='
+expect 87 'a bad OU' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p' 'ou=OU=x;y'
+! grep -q '^kinit\|^net ads join' "$FX/calls.log" || fail 'serve: a bad request reached kinit or net'
+reset_etc; echo winbind > "$FX/kind"; expect 2691 'joined already' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p'
+echo sssd > "$FX/kind"; expect 2691 'joined with sssd' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p'
+reset_etc; echo 1 > "$FX/host.rc"; expect 1355 'no controllers in DNS' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p'
+reset_etc; echo 1 > "$FX/kinit.rc"; expect 1326 'a wrong password' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p'
+[ "$(cat "$FX/etc/samba/smb.conf")" = "${ORIG_SMB%$'\n'}" ] || fail 'serve: a wrong password left smb.conf changed'
+reset_etc; echo 1 > "$FX/join.rc"; expect 31 'a failing net ads join' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p'
+reset_etc; echo 1 > "$FX/testjoin.rc"; expect 31 'a testjoin that does not confirm' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p'
+reset_etc; mv "$FX/bin/kinit" "$FX/bin/kinit.off"
+out=$({ printf '%s\n' op=join domain=ad.wexlab.example user=a password=p; echo; } | PATH="$FX/bin:/usr/bin:/bin" WEX_JOIN_NOROOT=1 WEX_JOIN_ETC="$FX/etc" WEX_DOMAIN_STATE="$FX/state" WEX_JOIN_HOSTNAME=wexbox bash "$SCRIPT" serve 2>&1)
+[ "$(status_of "$out")" = 50 ] || { echo "$out"; fail 'serve: a missing tool is not 50'; }
+mv "$FX/bin/kinit.off" "$FX/bin/kinit"
+# leave
+reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
+expect 0 'a leave with the administrator' 'op=leave' 'user=Administrator' 'password=pw'
+grep -q '^net ads leave -k' "$FX/calls.log" || fail 'serve: leave did not ask the controller'
+reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
+expect 0 'a forced leave' 'op=leave' 'force=1'
+! grep -q '^kinit\|^net ads leave' "$FX/calls.log" || fail 'serve: a forced leave asked the controller'
+reset_etc; expect 2692 'a leave when not joined' 'op=leave' 'force=1'
+reset_etc; echo winbind > "$FX/kind"; echo 1 > "$FX/kinit.rc"; expect 1326 'a leave with a wrong password' 'op=leave' 'user=a' 'password=p'
+# validate
+reset_etc
+expect 0 'a computer name' 'op=validate' 'nametype=machine' 'name=WEXBOX-1'
+expect 1210 'a name with an underscore' 'op=validate' 'nametype=machine' 'name=bad_name'
+expect 1210 'only digits' 'op=validate' 'nametype=machine' 'name=12345'
+expect 1210 'sixteen characters' 'op=validate' 'nametype=machine' 'name=ABCDEFGHIJKLMNOP'
+expect 1210 'a hyphen at the end' 'op=validate' 'nametype=machine' 'name=abc-'
+expect 0 'a DNS host name' 'op=validate' 'nametype=dnsmachine' 'name=long-host-name-over-fifteen-chars'
+expect 0 'a workgroup' 'op=validate' 'nametype=workgroup' 'name=WORKGROUP'
+expect 1212 'a bad workgroup' 'op=validate' 'nametype=workgroup' 'name=A B'
+expect 0 'a domain that DNS knows' 'op=validate' 'nametype=domain' 'name=ad.wexlab.example'
+expect 52 'a domain that exists, as a name that must not' 'op=validate' 'nametype=nonexistentdomain' 'name=ad.wexlab.example'
+echo 1 > "$FX/host.rc"
+expect 1355 'a domain that DNS does not know' 'op=validate' 'nametype=domain' 'name=nowhere.example'
+expect 0 'a name that is no domain, where that is wanted' 'op=validate' 'nametype=nonexistentdomain' 'name=nowhere.example'
+expect 1212 'a bad domain name' 'op=validate' 'nametype=domain' 'name=a..b'
+expect 87 'an unknown name type' 'op=validate' 'nametype=other' 'name=x'
+# status
+reset_etc; echo winbind > "$FX/kind"
+out=$(serve op=status); [ "$(status_of "$out")" = 0 ] && grep -q '^message=kind=winbind' <<<"$out" || { echo "$out"; fail 'serve: status'; }
+echo 'OK: wex-domain-join.sh serve (a request, the answer, the codes, a password that reaches kinit unchanged and nothing else)'
 echo domain_join=PASS

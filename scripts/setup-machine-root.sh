@@ -893,6 +893,15 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
                 fi
                 systemctl enable --now wex-gpupdate.path || true
             fi
+            # the domain join engine's socket (docs/DOMAIN_JOIN.md): the system group may connect (the unit names wexsys)
+            if [ -f /lib/systemd/system/wex-domain-join.socket ]; then
+                if [ "$MACHINE_GROUP" != wexsys ]; then
+                    install -d -m 0755 /etc/systemd/system/wex-domain-join.socket.d
+                    printf '[Socket]\nSocketGroup=%s\n' "$MACHINE_GROUP" > /etc/systemd/system/wex-domain-join.socket.d/group.conf
+                    systemctl daemon-reload
+                fi
+                systemctl enable --now wex-domain-join.socket || true
+            fi
         fi
     fi
 fi
