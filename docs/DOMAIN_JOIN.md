@@ -64,9 +64,10 @@ names are 15 characters for NetBIOS (up to 63 for DNS): letters, digits and hyph
 | Part | State |
 |---|---|
 | `NetGetJoinInformation` (wkscli, stock Wine semi-stub) | reads `HKLM\Software\WineExplorer\Domain`, written by `wex-domain-state.sh` |
-| `NetJoinDomain`, `NetUnjoinDomain`, `NetRenameMachineInDomain`, `NetValidateName` | stubs in stock Wine's wkscli; not exported by netapi32 |
-| A workstation service | none |
-| `netdom`, `nltest`, PowerShell cmdlets | none (Wine has `net`, `whoami`, `powershell`, `wmic` stubs) |
+| `NetJoinDomain`, `NetUnjoinDomain`, `NetValidateName` | done (2026-11-18): `src/dlls/wexjoin`, forwarded from wkscli and netapi32 (stock change in `STOCK_CHANGES.md`); `NetRenameMachineInDomain` answers "not supported" |
+| A workstation service | none: the engine's socket takes its place (see "How the API reaches root") |
+| `netdom.exe` | done: `join`, `remove`, `verify`, `reset`, `query DC`; `renamecomputer` is "not supported yet" (see below) |
+| `nltest`, PowerShell cmdlets | none (Wine has `net`, `whoami`, `powershell`, `wmic` stubs) |
 | System Properties > Computer Name | renames the host through wexhost (hostnamed); no domain choice |
 | Join engine (root) | `installer/scripts/wex-domain-join.sh` (this change): `join`, `leave`, `status` with Winbind, tested with fakes (`scripts/test_domain_join.sh`) |
 | Logon with `DOMAIN\user`, groups, Group Policy | built (`DOMAIN_LOGON.md`, `GROUP_POLICY.md`) |
@@ -84,9 +85,35 @@ machine's side; both undo nsswitch and PAM and put the first files back. `status
 `testjoin`. The same engine serves every utility below; what Windows calls the Workstation service's work is this plus the
 Windows-side state (`wex-domain-state.sh`).
 
+## `netdom.exe` (2026-11-18)
+
+The syntax of Windows' `NETDOM` (from Microsoft's pages for each command and from transcripts in forum threads), for this
+computer only (another computer is refused with "not supported"): `join [computer] /Domain /UserD /PasswordD /OU`, `remove
+[computer] [/Domain] /UserD /PasswordD /Force`, `verify`, `reset`, `query DC`, `renamecomputer` (the engine cannot rename the
+machine account yet), `help`. Options may be given as `/Name:value` or `-Name:value`, abbreviated as Windows does
+(`/UD`, `/PD`, `/UO`, `/PO`, `/PM`, `/RO`, `/REB`, `/SPP`); `/REBoot`, `/SecurePasswordPrompt`, `/Verbose`, `/Server`, `/Verify`
+are accepted and change nothing; `/UserO`, `/PasswordO`, `/UserF`, `/PasswordF`, `/ReadOnly` and `/PasswordM` are refused as
+not supported. A password of `*`, or none with a user, is asked for ("Type the password associated with the domain user:",
+without echo at a console, one line from standard input otherwise). The other commands of Windows (`add`, `move`, `resetpwd`,
+`trust`, `time`, `computername`, `query` of other objects) say they are not supported on this system.
+
+Output: a success ends with "The command completed successfully."; a failure prints the text of the error (Wine's message
+table; the engine's reason follows in parentheses when it differs) and "The command failed to complete successfully."; a
+wrong command line prints "The parameter is incorrect." and `Try "NetDom HELP" for more information.`; `verify` prints "The
+secure channel from COMPUTER to the domain DOMAIN has been verified." and "The connection is with the machine DC.";
+`query DC` prints "List of domain controllers with accounts in the domain:" and the names. The exit status is 0, or the
+error code of the failure: forum threads show batch files testing it (2224, account exists), but no Microsoft page documents
+it. Not found online, so these are our own: the line after a successful join (none is printed: no restart is needed),
+the text of `reset`'s success ("has been reset"), and the wording of the help screen. Wine's text for error 5 is "Access
+denied." where Windows says "Access is denied." (stock message table, not changed).
+
+Checked in `scripts/test_domain_join.sh` (the engine's operations), `st_join_api_reaches_the_engine_only_from_the_system_group` (the
+API and `netdom` against a fake engine, from the system group and from a standard user). Not checked: a real join to a domain
+from `netdom` (the AD lab), and `netdom` on a console (the password without echo).
+
 ## The layers still to build (order)
 
-1. **A privileged service and the API.** `NetJoinDomain` and the others in wkscli call a WineExplorer workstation service in
+1. **A privileged service and the API (done, see above).** `NetJoinDomain` and the others in wkscli call a WineExplorer workstation service in
    session 0 (local RPC, our own interface: nothing else speaks MS-WKST here), which checks the caller as Windows does
    (local Administrators: an elevated administrator; the consent prompt is the elevation), maps the flags (join,
    create account, `DOMAIN_JOIN_IF_JOINED`, unsecured join with the machine password through `net ads join` with a
@@ -96,8 +123,7 @@ Windows-side state (`wex-domain-state.sh`).
    The stock-Wine part is the stub replacement in wkscli and the exports in netapi32, listed in `STOCK_CHANGES.md`.
    `NetValidateName` answers from DNS and Samba (`net ads` / `host`), `NetRenameMachineInDomain` from `net ads` and the
    host name.
-2. **Tools.** `netdom.exe` (join, remove, renamecomputer, verify, reset, query; the same options and `*` password prompt;
-   the same messages), `nltest.exe` (`/dsgetdc`, `/sc_query`, `/sc_verify`, `/sc_reset` over `net ads` and `wbinfo`),
+2. **Tools.** `netdom.exe` (done), `nltest.exe` (`/dsgetdc`, `/sc_query`, `/sc_verify`, `/sc_reset` over `net ads` and `wbinfo`),
    the PowerShell cmdlets when the project's `powershell` can host them, `whoami /fqdn /upn`, `net config workstation`.
 3. **The window.** The Computer Name page of System Properties gets Change..., "Computer Name Changes" (name, Domain or
    Workgroup, More), the credential prompt, the success and failure messages, the restart question, and the Network ID
