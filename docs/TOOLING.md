@@ -252,6 +252,23 @@ Antigravity: user-reported operational guidance is `agy_run`, `mode: edit` for w
   it: `unshare --mount --propagation private sh -c 'mount --bind /var/tmp/wex-r8-x /tmp/.X11-unix && exec bash
   scripts/test_e1s6_transport.sh'` (directory mode 1777). `chmod` on the WSLg mount has no effect.
 
+## Added 2026-11-18: Builds (one at a time, low priority, ccache)
+
+Every Wine build on the test machine goes through `scripts/lab/wex-make.sh [MAKE ARGUMENTS]` instead of `make`:
+`wex-run.sh`, `r8-lab-build.sh`, `build-test-iso.sh`, `wexgpo-iso.sh` and `wexgpo-setup-tree.sh` do, and so does any
+session building a tree of its own (`bash .../scripts/lab/wex-make.sh -C <build/wow64> -j16 [targets]`).
+
+- One build at a time on the whole machine: the lock is `/mnt/wsl/wex-build.lock`, shared by all WSL distributions. A
+  build that has to wait prints whose build it waits for (`/mnt/wsl/wex-build.lock.owner`).
+- `nice 10` and the idle I/O class, so that suites and VMs running meanwhile keep their share.
+- ccache when installed (Debian's `/usr/lib/ccache` wrappers for gcc and the MinGW compilers), one cache per
+  distribution in `/var/cache/wex-ccache`: a rebuild of a tree with a few changed files, or of a second tree of the
+  same commit, recompiles only what differs.
+
+Rules for sessions: never run `make -jN` directly on the test machine; never build or check out in another session's
+tree (the ISO build's `/root/WineExplorer` included); stop lab VMs that are no longer needed (each holds 4-8 GB and a
+share of the CPU). A queue that keeps ready builds per commit for all sessions is the next step (not yet).
+
 ## Added 2026-11-14: wex-run (system tier build and suites in one command)
 
 `scripts/lab/wex-run.sh MODE` does the whole chain above for the worktree it lives in (wexbuild, root):

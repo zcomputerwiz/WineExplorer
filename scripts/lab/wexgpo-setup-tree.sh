@@ -7,6 +7,8 @@
 # wexgpo-provision.sh (docs/GPO_LAB.md, "The build machine"). Shallow clones from GitHub; wex-run's sync then
 # fetches the worktree's own commits. Then a first build (about 30 minutes on 16 cores).
 set -euo pipefail
+WEX_MAKE="$(cd "$(dirname "$0")" && pwd)/wex-make.sh"  # every build on the machine goes through it (one at a time)
+make() { bash "$WEX_MAKE" "$@"; }
 BRANCH=${1:?WineExplorer branch}
 WINE_BRANCH=${2:?Wine branch}
 P=/root/WE-prefetch

@@ -159,7 +159,7 @@ passed() { grep -o '[0-9]* checks passed' "$1" | tail -1; }
 
 if [ "$MODE" != labsuite ]; then
     sync_tree > $LOGS/sync.log 2>&1 && stage sync ok || { stage sync FAILED; tail -5 $LOGS/sync.log; exit 1; }
-    make -C "$MAIN" -j16 > $LOGS/make.log 2>&1 && stage build ok ||
+    bash "$SNAP/scripts/lab/wex-make.sh" -C "$MAIN" -j16 > $LOGS/make.log 2>&1 && stage build ok ||
         { stage build FAILED; grep -m5 'error:' $LOGS/make.log; exit 1; }
 fi
 if [ "$MODE" = build ]; then
