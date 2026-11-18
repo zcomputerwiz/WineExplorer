@@ -41,7 +41,7 @@
 #include "wexjoin.h"
 
 static BOOL unix_ready;
-static WCHAR last_message[256];
+static WCHAR last_message[1024];
 
 BOOL WINAPI DllMain( HINSTANCE inst, DWORD reason, void *reserved )
 {
@@ -204,6 +204,18 @@ DWORD WINAPI NetValidateName( const WCHAR *server, const WCHAR *name, const WCHA
     add_text( &r, "op", "validate" );
     add_text( &r, "nametype", types[type] );
     add_field( &r, "name", name );
+    return ask( &r );
+}
+
+/* The secure channel of the machine account and the controllers (netdom verify, reset and query DC; nltest): the engine asks
+ * Samba and Winbind. The answer's message is the text to show (WexJoinLastMessage), for the controllers the names. */
+DWORD WINAPI WexJoinSecureChannel( DWORD op )
+{
+    static const char * const ops[] = { NULL, "verify", "reset", "dclist" };
+    struct request r = {0};
+
+    if (!op || op >= ARRAY_SIZE(ops)) return ERROR_INVALID_PARAMETER;
+    add_text( &r, "op", ops[op] );
     return ask( &r );
 }
 

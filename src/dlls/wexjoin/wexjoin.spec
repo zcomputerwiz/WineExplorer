@@ -3,3 +3,4 @@
 @ stdcall NetRenameMachineInDomain(wstr wstr wstr wstr long)
 @ stdcall NetValidateName(wstr wstr wstr wstr long)
 @ stdcall WexJoinLastMessage(ptr long)
+@ stdcall WexJoinSecureChannel(long)

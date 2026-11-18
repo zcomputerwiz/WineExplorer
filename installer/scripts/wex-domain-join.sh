@@ -269,6 +269,38 @@ cmd_validate()   # TYPE NAME
     esac
 }
 
+# the secure channel of the machine account (netdom verify and reset, nltest /sc_verify and /sc_reset): verify asks Samba
+# (net ads testjoin) and Winbind (the trust secret); reset changes the machine password first (net ads changetrustpw)
+cmd_secure_channel()   # verify|reset
+{
+    local kind realm
+    kind=$(join_kind)
+    [ "$kind" = winbind ] || fail 2692 "this machine is not joined with Winbind (kind: ${kind:-none})"
+    command -v net >/dev/null 2>&1 || fail 50 "missing: net (on Debian: apt-get install $PACKAGES)"
+    realm=$("$STATE_TOOL" --print 2>/dev/null | awk '{ print $2 }')
+    if [ "$1" = reset ]; then
+        net ads changetrustpw >/dev/null 2>&1 || fail 1789 "the machine password could not be changed: the trust relationship between this workstation and the primary domain failed"
+    fi
+    if net ads testjoin >/dev/null 2>&1 && { ! command -v wbinfo >/dev/null 2>&1 || wbinfo --check-secret >/dev/null 2>&1; }; then
+        note "the secure channel to the domain $realm is $([ "$1" = reset ] && echo reset || echo verified)"
+    else
+        fail 1789 "the trust relationship between this workstation and the primary domain failed"
+    fi
+}
+
+# the domain controllers that DNS lists for the joined domain
+cmd_dclist()
+{
+    local kind realm list
+    kind=$(join_kind)
+    [ "$kind" = winbind ] || fail 2692 "this machine is not joined with Winbind (kind: ${kind:-none})"
+    realm=$("$STATE_TOOL" --print 2>/dev/null | awk '{ print $2 }')
+    command -v host >/dev/null 2>&1 || fail 50 "missing: host (on Debian: apt-get install dnsutils)"
+    list=$(host -t SRV "_ldap._tcp.dc._msdcs.$realm" 2>/dev/null | awk '/has SRV record/ { sub(/\.$/, "", $NF); print $NF }' | sort -u | tr '\n' ' ')
+    [ -n "$list" ] || fail 1355 "no domain controller of $realm is listed in DNS"
+    NOTES="$list"
+}
+
 # one request on standard input: lines of key=value ended by an empty line; the answer is status= and message=
 cmd_serve()
 {
@@ -292,6 +324,9 @@ cmd_serve()
         leave) if [ "$force" = 1 ]; then cmd_leave --force
                else JOIN_PW=$password; cmd_leave --user "$user" --password-stdin; fi ;;
         validate) cmd_validate "$nametype" "$name" ;;
+        verify) cmd_secure_channel verify ;;
+        reset) cmd_secure_channel reset ;;
+        dclist) cmd_dclist ;;
         status) kind=$(join_kind); NOTES="kind=${kind:-none}" ;;
         *) fail 87 "unknown operation" ;;
     esac
@@ -301,6 +336,9 @@ cmd_serve()
 
 case ${1:-} in
     serve) cmd_serve ;;
+    verify) cmd_secure_channel verify ;;
+    reset) cmd_secure_channel reset ;;
+    dclist) cmd_dclist; echo "$NOTES" ;;
     join) shift; cmd_join "$@" ;;
     leave) shift; cmd_leave "$@" ;;
     status) cmd_status ;;
