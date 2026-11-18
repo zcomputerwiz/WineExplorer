@@ -1,5 +1,14 @@
 # Changes to stock Wine / third-party code
 
+## server: inherited CREATOR OWNER / CREATOR GROUP ACEs of keys (B46, 2026-11-18)
+
+Wine branch `claude/inherit-creator`, a fix to B42's key inheritance (`server/registry.c` `key_inherit_sd`,
+`inherit_ace`): the effective ACE a new key inherits from a container-inheritable CREATOR OWNER (S-1-3-0) or CREATOR
+GROUP (S-1-3-1) ACE gets the key's owner or primary group in place of the creator SID, with an inherit-only copy that
+keeps the creator SID for the keys below (generic rights mapped in the effective ACE), as on Windows. B42 copied the
+SID unchanged, which no token holds, so WebView2's setup was denied a key it had just created.
+`dlls/advapi32/tests/registry.c`: the CREATOR OWNER case in `test_reg_create_key_security`.
+
 ## windows.security.authentication.web.core: the token broker's client (WAM step 3, plan step 1, 2026-11-18)
 
 Wine branch `claude/wam-broker` (docs/WAM_BROKER_PLAN.md). Off by default: nothing changes without
@@ -14,6 +23,21 @@ Wine branch `claude/wam-broker` (docs/WAM_BROKER_PLAN.md). Off by default: nothi
   `ForWindow` interop calls), which the broker gets for the sign-in window of a later step.
 * The broker itself is WineExplorer's (`src/programs/tokenbroker`, GPL); in step 1 it answers as the diagnostic
   provider does.
+
+## msxml3: schema cache documents in another encoding, \uXXXX in patterns (B47, 2026-11-18)
+
+General msxml3 gaps, not tied to this shell; both are in `dlls/msxml3/schema.c` and have tests in
+`dlls/msxml3/tests/schema.c` (todo_wine first, removed with the fix). Found by Office 2024's Click-to-Run, whose
+App-V API (`OISVAPI::ConfigurePackage`) loads a deployment configuration schema through
+`ISchemaCache::add(IXMLDOMDocument)`.
+
+- `create_xmldoc_for_text` (the re-parse of `IXMLDOMNode::xml` in `schema_cache_add`): the text has been converted to
+  UTF-8, but a document loaded from an `encoding="utf-16"` source keeps that declaration, so `xmlParseMemory` failed
+  and `add` returned `E_INVALIDARG`. It now uses `xmlReadMemory(..., "UTF-8", 0)`.
+- `fix_pattern_u_escapes` (new, called from `cache_entry_from_xsd_doc` before `xmlSchemaParse`): MSXML accepts
+  `\uXXXX` in an `xs:pattern` value, libxml2's regular expression compiler does not ("not a valid regular
+  expression", schema not added). The escapes are replaced by the characters; only a backslash that is not itself
+  escaped starts one (`\\u0041` stays a literal backslash and `u0041`); U+0000 becomes U+0001 (XML cannot contain it).
 
 ## System tier: session 0 holds the machine registry (T1, 2026-11-11)
 
