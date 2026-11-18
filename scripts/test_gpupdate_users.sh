@@ -80,7 +80,7 @@ run_gpupdate()
     : > "$FX/wexpolicy.log"; : > "$FX/net.log"; : > "$FX/detail.log"; : > "$FX/ext.log"
     # session 0's account is unprivileged, as in use: the fake loader runs as it, so its logs are open to it
     chmod 666 "$FX/wexpolicy.log" "$FX/detail.log" "$FX/ext.log"
-    PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" \
+    PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_GPO_DUE="$FX/due" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" \
         bash "$SCRIPT" > "$FX/out.log" 2>&1 ||
         { cat "$FX/out.log"; fail "wex-gpupdate.sh failed on $1"; }
 }
@@ -266,7 +266,7 @@ rm -f "$FX/offline" "$LG/Machine/Registry.pol" "$LG/Archive/"*.pol
 cp "$FX/wine" "$FX/wine.ok"
 printf '#!/bin/sh\nexit 3\n' > "$FX/wine"; chmod 0755 "$FX/wine"
 printf 'LOCALM' > "$LG/Machine/Registry.pol"
-if PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_ACCOUNTS_MAP="$FX/map3" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" bash "$SCRIPT" > "$FX/out.log" 2>&1; then
+if PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_GPO_DUE="$FX/due" WEX_ACCOUNTS_MAP="$FX/map3" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" bash "$SCRIPT" > "$FX/out.log" 2>&1; then
     cat "$FX/out.log"; fail 'a failed wexpolicy did not make the run fail'
 fi
 grep -q 'wexpolicy apply /machine failed' "$FX/out.log" || { cat "$FX/out.log"; fail 'a failed wexpolicy was not said'; }
@@ -325,7 +325,7 @@ run_logon()   # MAP NAME
 {
     : > "$FX/wexpolicy.log"; : > "$FX/net.log"; : > "$FX/detail.log"; : > "$FX/ext.log"
     chmod 666 "$FX/wexpolicy.log" "$FX/detail.log" "$FX/ext.log"
-    PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" \
+    PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_GPO_DUE="$FX/due" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" \
         bash "$SCRIPT" --logon "$2" > "$FX/out.log" 2>&1 || { cat "$FX/out.log"; fail "--logon $2 failed"; }
 }
 ARCH="$LG/Archive"; mkdir -p "$ARCH"
@@ -387,3 +387,64 @@ grep -qx 'apply /user:S-1-5-21-111-222-333-1104' "$FX/wexpolicy.log" || { cat "$
 run_logon "$FX/map3" wexuser1
 grep -qx 'apply /user:S-1-5-21-111-222-333-1104' "$FX/wexpolicy.log" || fail 'logon: the plain name of a domain user did not find the record'
 echo 'OK: wex-gpupdate.sh --logon (a first logon only, or SyncForegroundPolicy; only with policy; only that user)'
+# ---- --background (docs/GROUP_POLICY.md, "The refresh interval"): the timer's run does nothing until the time the last run
+# set, which comes from GroupPolicyRefreshTime (minutes, 90 by default) plus a random part of GroupPolicyRefreshTimeOffset
+# (30 by default); "Turn off background refresh of Group Policy" stops it, except for the first run after a boot
+run_bg()   # [plain]: --background (or no argument), with the due file of the fixture
+{
+    : > "$FX/wexpolicy.log"; : > "$FX/net.log"; : > "$FX/detail.log"; : > "$FX/ext.log"
+    chmod 666 "$FX/wexpolicy.log" "$FX/detail.log" "$FX/ext.log"
+    PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_GPO_DUE="$FX/due" WEX_ACCOUNTS_MAP="$FX/map3" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" \
+        bash "$SCRIPT" ${1:+--background} > "$FX/out.log" 2>&1 || { cat "$FX/out.log"; fail "run_bg failed"; }
+}
+ran() { grep -q '^apply ' "$FX/wexpolicy.log"; }
+# Session 0's registry as root reads it (system.reg): the policy values, as a hive writes them
+write_hive()   # lines of "KEY" "name=dword:hex"... as KEY|NAME|HEX
+{
+    printf 'WINE REGISTRY Version 2\n\n' > "$FX/mroot/system.reg"
+    local entry key name hex
+    for entry in "$@"; do
+        IFS='|' read -r key name hex <<<"$entry"
+        printf '[%s] 1\n"%s"=dword:%08x\n\n' "${key//\\/\\\\}" "$name" "$((hex))" >> "$FX/mroot/system.reg"
+    done
+}
+BGKEY='Software\Policies\Microsoft\Windows\System'
+BKDIS='Software\Microsoft\Windows\CurrentVersion\Policies\System'
+touch "$FX/unjoined"; rm -f "$FX/due" "$FX/mroot/system.reg"
+printf 'LOCALU' > "$LG/User/Registry.pol"
+# the first run (no due time): refreshes, and sets the next one 90 to 120 minutes ahead
+run_bg bg; ran || { cat "$FX/wexpolicy.log" "$FX/out.log"; fail 'background: the first run did not refresh'; }
+now=$(date +%s); due=$(cat "$FX/due")
+[ "$due" -ge $((now + 90 * 60 - 5)) ] && [ "$due" -le $((now + 120 * 60 + 5)) ] || fail "background: the default due time is $((due - now)) s ahead"
+# before the time: nothing; at or after it: a refresh
+run_bg bg; ! ran || fail 'background: a run before the due time refreshed'
+echo $(( $(date +%s) - 10 )) > "$FX/due"
+run_bg bg; ran || fail 'background: a run after the due time did not refresh'
+# a plain run (gpupdate's request, a boot) is not limited by the time
+echo $(( $(date +%s) + 3600 )) > "$FX/due"
+run_bg; ran || fail 'background: a plain run was held back by the due time'
+# the interval and the offset of the policy
+for case in "15|0|900|900" "0|0|300|300" "99999|0|2678400|2678400" "20|10|1200|1800"; do
+    IFS='|' read -r iv off lo hi <<<"$case"
+    write_hive "$BGKEY|GroupPolicyRefreshTime|$iv" "$BGKEY|GroupPolicyRefreshTimeOffset|$off"
+    rm -f "$FX/due"; run_bg bg
+    now=$(date +%s); due=$(cat "$FX/due")
+    [ "$due" -ge $((now + lo - 5)) ] && [ "$due" -le $((now + hi + 5)) ] || fail "background: interval $iv offset $off: the due time is $((due - now)) s ahead, wanted $lo to $hi"
+done
+# the offset is random: five runs with a 60 minute offset do not all give the same time, and stay inside 90 to 150 minutes
+write_hive "$BGKEY|GroupPolicyRefreshTimeOffset|60"
+dues=""
+for _ in 1 2 3 4 5; do rm -f "$FX/due"; run_bg bg; now=$(date +%s); d=$(cat "$FX/due"); dues="$dues $((d - now))"
+    [ $((d - now)) -ge $((90 * 60 - 5)) ] && [ $((d - now)) -le $((150 * 60 + 5)) ] || fail "background: a random due time outside 90 to 150 minutes: $((d - now))"; done
+[ "$(tr ' ' '\n' <<<"$dues" | sort -u | grep -c .)" -gt 1 ] || fail "background: the random part did not vary: $dues"
+# "Turn off background refresh of Group Policy": no run on the timer once a time is set; the first run after a boot still refreshes
+write_hive "$BKDIS|DisableBkGndGroupPolicy|1"
+echo $(( $(date +%s) - 10 )) > "$FX/due"
+run_bg bg; ! ran || fail 'background: a refresh ran with the background refresh turned off'
+grep -q 'turned off by policy' "$FX/out.log" || fail 'background: the policy was not said'
+rm -f "$FX/due"; run_bg bg; ran || fail 'background: the first run after a boot was held back by the policy'
+run_bg; ran || fail 'background: a plain run was held back by the policy'
+write_hive "$BKDIS|DisableBkGndGroupPolicy|0"
+echo $(( $(date +%s) - 10 )) > "$FX/due"; run_bg bg; ran || fail 'background: DisableBkGndGroupPolicy = 0 stopped a run'
+rm -f "$FX/mroot/system.reg" "$FX/due"
+echo 'OK: wex-gpupdate.sh --background (the due time, the interval and offset of the policy, the background refresh turned off)'

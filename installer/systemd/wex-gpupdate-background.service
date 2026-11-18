@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: the background refresh of domain and local Group Policy (docs/GROUP_POLICY.md, "The refresh interval"):
+# started by wex-gpupdate.timer every 5 minutes; wex-gpupdate.sh --background does nothing until the next refresh is due
+# (the policy "Set Group Policy refresh interval for computers", 90 minutes plus up to 30 by default) and when "Turn off
+# background refresh of Group Policy" is enabled. The requests of gpupdate, and the first run after boot, are
+# wex-gpupdate.service's.
+
+[Unit]
+Description=WineExplorer Group Policy background refresh
+Documentation=https://github.com/zcomputerwiz/WineExplorer/blob/master/docs/GROUP_POLICY.md
+Requires=wex-session0-services.service
+After=wex-session0-services.service winbind.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/wex-gpupdate.sh --background
+TimeoutStartSec=300
