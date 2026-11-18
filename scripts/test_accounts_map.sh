@@ -777,6 +777,7 @@ sed -e "s#^WEX_ACCOUNTS=/usr/local/libexec/wineexplorer/wex-accounts\$#WEX_ACCOU
     -e "s# busctl --system # $FIXTURE/fake-busctl --system #" \
     -e "s#^WEX_GPUPDATE=/usr/local/bin/wex-gpupdate.sh\$#WEX_GPUPDATE=$FIXTURE/fake-gpupdate#" \
     -e "s#^LOGON_POLICY_WAIT=60 #LOGON_POLICY_WAIT=2 #" \
+    -e "s#logger -t wex-domain-admit#$FIXTURE/fake-logger -t wex-domain-admit#" \
     "$REPO/scripts/wex-domain-admit-pam.sh" > "$PAMSTEP"
 grep -q "^WEX_ACCOUNTS=$FIXTURE/fake-wex-accounts\$" "$PAMSTEP" || fail 'pam step: the tool path line moved'
 grep -q "^ *env -i PATH=\"\$PATH\" $FIXTURE/fake-busctl --system .* CacheUser s " "$PAMSTEP" || fail 'pam step: the CacheUser line moved'
@@ -809,22 +810,32 @@ echo 'OK: domain admission PAM step'
 # passes (a local one too, and after the admission of a domain one), gets nothing of the PAM environment, is bounded, and
 # never fails the logon
 grep -q "^WEX_GPUPDATE=$FIXTURE/fake-gpupdate\$" "$PAMSTEP" && grep -q '^LOGON_POLICY_WAIT=2 ' "$PAMSTEP" || fail 'pam step: the policy lines moved'
-printf '#!/bin/sh\necho "$* leak=${WEX_LEAK:-}${LD_LIBRARY_PATH:-} path=$PATH" >> "%s"\n[ -e "%s" ] && sleep 30\nexit "$(cat "%s" 2>/dev/null || echo 0)"\n' \
-    "$FIXTURE/gp.log" "$FIXTURE/gp.slow" "$FIXTURE/gp.rc" > "$FIXTURE/fake-gpupdate"
+printf '#!/bin/sh\necho "$* leak=${WEX_LEAK:-}${LD_LIBRARY_PATH:-} path=$PATH" >> "%s"\n[ -e "%s" ] && cat "%s"\n[ -e "%s" ] && sleep 30\nexit "$(cat "%s" 2>/dev/null || echo 0)"\n' \
+    "$FIXTURE/gp.log" "$FIXTURE/gp.msg" "$FIXTURE/gp.msg" "$FIXTURE/gp.slow" "$FIXTURE/gp.rc" > "$FIXTURE/fake-gpupdate"
 chmod 0755 "$FIXTURE/fake-gpupdate"
-rm -f "$FIXTURE/gp.log" "$FIXTURE/gp.slow" "$FIXTURE/gp.rc" "$FIXTURE/fake.rc"
+printf '#!/bin/sh\necho "$*" >> "%s"\n' "$FIXTURE/logger.log" > "$FIXTURE/fake-logger"; chmod 0755 "$FIXTURE/fake-logger"
+rm -f "$FIXTURE/gp.log" "$FIXTURE/gp.slow" "$FIXTURE/gp.rc" "$FIXTURE/gp.msg" "$FIXTURE/fake.rc" "$FIXTURE/logger.log"
+last_logger() { tail -n 1 "$FIXTURE/logger.log" 2>/dev/null; }
 pam_step alice || fail 'pam step: a local account was refused with the policy step'
 grep -qx -- '--logon alice leak= path=/usr/sbin:/usr/bin:/sbin:/bin' "$FIXTURE/gp.log" || { cat "$FIXTURE/gp.log"; fail 'pam step: the policy step did not run for a local account, or got the PAM environment'; }
 pam_step 'WEXLAB\wexuser1' || fail 'pam step: an admitted domain account was refused with the policy step'
 grep -qxF -- '--logon WEXLAB\wexuser1 leak= path=/usr/sbin:/usr/bin:/sbin:/bin' "$FIXTURE/gp.log" || { cat "$FIXTURE/gp.log"; fail 'pam step: the policy step did not run for a domain account'; }
+# what the step says in the journal (the lab reads it): the outcome and the seconds
+grep -qxE -- '-t wex-domain-admit -- policy step for WEXLAB.wexuser1: applied in [0-9]+ s' "$FIXTURE/logger.log" || { cat "$FIXTURE/logger.log"; fail 'pam step: no "applied" line in the journal'; }
+echo 'wex-gpupdate: --logon alice: no policy to apply' > "$FIXTURE/gp.msg"
+pam_step alice || fail 'pam step: a logon with nothing to apply failed'
+last_logger | grep -qE -- '^-t wex-domain-admit -- policy step for alice: nothing to apply in [0-9]+ s$' || fail "pam step: the journal line for nothing to apply: $(last_logger)"
+rm -f "$FIXTURE/gp.msg"
 # a failing step does not fail the logon
 echo 7 > "$FIXTURE/gp.rc"
 pam_step alice || fail 'pam step: a failing policy step failed the logon'
+last_logger | grep -qE -- '^-t wex-domain-admit -- policy step for alice: failed \(status 7\) in [0-9]+ s$' || fail "pam step: the journal line for a failure: $(last_logger)"
 # a step that does not end in time is stopped, and the logon goes on (the wait here is 2 seconds)
 rm -f "$FIXTURE/gp.rc"; : > "$FIXTURE/gp.slow"
 start=$(date +%s)
 pam_step alice || fail 'pam step: a slow policy step failed the logon'
 [ $(( $(date +%s) - start )) -lt 15 ] || fail 'pam step: a slow policy step was not stopped'
+last_logger | grep -qE -- 'policy step for alice: timed out in [0-9]+ s$' || fail "pam step: the journal line for a timeout: $(last_logger)"
 rm -f "$FIXTURE/gp.slow"
 # a refused admission runs no policy step
 : > "$FIXTURE/gp.log"; echo 9 > "$FIXTURE/fake.rc"

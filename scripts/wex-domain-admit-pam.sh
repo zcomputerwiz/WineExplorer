@@ -44,6 +44,23 @@ if [ "$DOMAIN_ACCOUNT" = 1 ]; then
 fi
 # the user's policy before the session, bounded; whatever happens, the logon goes on
 if [ -x "$WEX_GPUPDATE" ]; then
-    timeout -k 5 "$LOGON_POLICY_WAIT" env -i PATH="$PATH" "$WEX_GPUPDATE" --logon "$PAM_USER" >/dev/null 2>&1 || true
+    started=$(date +%s)
+    # (the output goes to a file, not a pipe: a child of the run that outlives the timeout would hold a pipe open and
+    # make this step wait for it, past the bound)
+    step_log=$(mktemp 2>/dev/null) || step_log=/dev/null
+    timeout -k 5 "$LOGON_POLICY_WAIT" env -i PATH="$PATH" "$WEX_GPUPDATE" --logon "$PAM_USER" >"$step_log" 2>&1 </dev/null
+    step_rc=$?
+    step_out=$(head -c 4000 "$step_log" 2>/dev/null)
+    [ "$step_log" = /dev/null ] || rm -f "$step_log"
+    # what happened and how long it took, for the journal (the lab reads it): the run's own words tell "nothing to apply"
+    case $step_rc in
+        0) case $step_out in
+               *"no policy to apply"*|*"not a first logon"*|*"no active record"*|*"not a user name"*) outcome="nothing to apply" ;;
+               *) outcome=applied ;;
+           esac ;;
+        124|137) outcome="timed out" ;;
+        *) outcome="failed (status $step_rc)" ;;
+    esac
+    logger -t wex-domain-admit -- "policy step for $PAM_USER: $outcome in $(( $(date +%s) - started )) s" 2>/dev/null || true
 fi
 exit 0
