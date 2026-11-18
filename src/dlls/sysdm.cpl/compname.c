@@ -28,6 +28,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <lm.h>
+#include <shellapi.h>
 #include <stdio.h>
 #include <string.h>
 #include <wexhost.h>
