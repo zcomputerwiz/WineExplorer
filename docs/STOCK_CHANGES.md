@@ -674,6 +674,23 @@ Project changes:
 * `scripts/e1s13_hku_checks.h` and `scripts/test_e1s10_token.sh`: Extended with assertions that
   effective Alice token sees her profile path and variables, while peer sees Bob's.
 
+## shell32, msi: the broker's UDF image refusal message (B39, 2026-11-18)
+
+Wine branch `claude/b39-udf-message` on `6e6bd1a7`. The elevation broker cannot freeze an image on a file system
+that gives no read leases (UDF, as a loop-mounted ISO), and refuses it; before, the program saw only the generic
+"Request not supported" of ERROR_NOT_SUPPORTED ([KNOWN_BUGS.md](KNOWN_BUGS.md) B39).
+
+* `dlls/shell32/shlexec.c`: the broker's reply error WEXELEVATE_E_NO_IMAGE_LEASE (defined in wexelevate.h in the
+  WineExplorer tree; no other failure produces it, and it never crosses back to a program) is recognized end to
+  end: `do_error_dialog` shows a dedicated message ("Windows cannot run this program as an administrator from this
+  location. Copy it to a folder on the local disk, such as the Desktop, and run it from there.") in the calling
+  process (the user's desktop), and both failure exits of ShellExecuteExW map the error back to ERROR_NOT_SUPPORTED
+  before returning: with SEE_MASK_FLAG_NO_UI no box is shown, and the program sees only the code. The refusal
+  itself is unchanged.
+* `dlls/shell32/shresdef.h`, `shell32.rc`: string IDS_SHLEXEC_NO_IMAGE_LEASE (248).
+* `dlls/msi/custom.c` (`msi_install_through_broker`): maps the same value back to ERROR_NOT_SUPPORTED; its image
+  is always msiexec in the system directory, so the value cannot actually arrive there.
+
 ## services.exe: status notifications of session 0's services; SamSs in every session (B45, 2026-11-18)
 
 Wine branch `claude/svc-notify` on `a80a645e`. WineExplorer-specific (the system tier's forwarding, T5.4).

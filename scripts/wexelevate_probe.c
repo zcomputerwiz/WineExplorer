@@ -74,8 +74,6 @@
  *   consentattack      try to open the consent process (consent_test.exe) with the rights that would let a limited
  *                      process approve or steer it; every one must be denied
  *   winwrite <path>    open <path> for writing through Win32 and append a byte (a Wine program as the writer)
- *   udfbox             B39: after a UDF refusal, find the broker's message box on this desktop, check that it
- *                      says to copy the program to a local disk, answer OK and wait for it to go away
  *   child <out> [hold <tag>|chain <admin image>|args...]
  *                      what the elevated process does: write its facts to <out>, create a folder in
  *                      "C:\Program Files", exit with 42. "chain": it is elevated already, so ShellExecuteEx "runas" of
@@ -1581,57 +1579,6 @@ static void winwrite_mode(const char *path)
     CloseHandle(f);
 }
 
-/* B39: after a request whose image is on a file system without read leases (UDF) was refused with
- * ERROR_NOT_SUPPORTED, the broker's message box must be up on this desktop and say what to do (copy the
- * program to a local disk). Find it, answer OK and wait for it to go away. */
-struct udfbox_ctx { HWND hwnd; BOOL body_ok; };
-
-static BOOL CALLBACK udfbox_children(HWND hwnd, LPARAM lp)
-{
-    char text[512];
-
-    if (GetClassNameA(hwnd, text, 8) && !strcmp(text, "Static") &&
-        GetWindowTextA(hwnd, text, sizeof(text)) && strstr(text, "local disk"))
-        ((struct udfbox_ctx *)lp)->body_ok = TRUE;
-    return TRUE;
-}
-
-static BOOL CALLBACK udfbox_windows(HWND hwnd, LPARAM lp)
-{
-    struct udfbox_ctx *ctx = (struct udfbox_ctx *)lp;
-    char title[128];
-
-    if (!ctx->hwnd && IsWindowVisible(hwnd) &&
-        GetWindowTextA(hwnd, title, sizeof(title)) && !strcmp(title, "User Account Control"))
-    {
-        ctx->body_ok = FALSE;
-        EnumChildWindows(hwnd, udfbox_children, (LPARAM)ctx);
-        if (ctx->body_ok) ctx->hwnd = hwnd;
-    }
-    return TRUE;
-}
-
-static void udfbox_mode(void)
-{
-    struct udfbox_ctx ctx = { NULL, FALSE };
-    int i;
-
-    for (i = 0; i < 300 && !ctx.hwnd; i++)
-    {
-        EnumWindows(udfbox_windows, (LPARAM)&ctx);
-        if (!ctx.hwnd) Sleep(100);
-    }
-    check(ctx.hwnd != NULL, "the broker's message box is up on the default desktop");
-    if (ctx.hwnd)
-    {
-        PostMessageA(ctx.hwnd, WM_COMMAND, MAKEWPARAM(IDOK, 0), 0);
-        for (i = 0; i < 100 && IsWindow(ctx.hwnd); i++) Sleep(100);
-        if (IsWindow(ctx.hwnd)) PostMessageA(ctx.hwnd, WM_CLOSE, 0, 0);
-        for (i = 0; i < 100 && IsWindow(ctx.hwnd); i++) Sleep(100);
-        check(!IsWindow(ctx.hwnd), "the message box is dismissed by OK");
-    }
-}
-
 #ifdef WEXELEVATE_TEST_APPROVAL
 static void transport_impostor(void)
 {
@@ -2760,7 +2707,6 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "msi") && argc > 4) msi_mode(argv[2], argv[3], atoi(argv[4]), argc > 5 ? argv[5] : NULL);
     else if (!strcmp(mode, "consentattack")) consentattack_mode();
     else if (!strcmp(mode, "winwrite") && argc > 2) winwrite_mode(argv[2]);
-    else if (!strcmp(mode, "udfbox")) udfbox_mode();
     else if (!strcmp(mode, "r8child") && argc > 2)
     {
         r8child_mode(argv[2]);

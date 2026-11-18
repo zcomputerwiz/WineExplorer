@@ -619,9 +619,6 @@ static BOOL same_file_info( const BY_HANDLE_FILE_INFORMATION *a, const BY_HANDLE
            a->ftLastWriteTime.dwHighDateTime == b->ftLastWriteTime.dwHighDateTime;
 }
 
-/* The Unix side's refusal of an image on a file system that gives no read leases: tell the user what to do. */
-static DWORD WINAPI notify_image_location( void *arg );
-
 /* open the image by its path (no write or delete sharing for the others), record what it is */
 static DWORD freeze_image( struct request *req )
 {
@@ -641,14 +638,11 @@ static DWORD freeze_image( struct request *req )
     if ((err = pLeaseTake( req->image_file, req->lease_event, &req->lease )))
     {
         E1S_AUDIT( "freeze-lease-take" );
-        /* ERROR_NOT_SUPPORTED comes from the Unix side only when the image's file system gives no read leases
-         * (UDF, a loop-mounted ISO): the request fails as before, and the user is told what to do */
-        if (err == ERROR_NOT_SUPPORTED)
-        {
-            HANDLE notify = CreateThread( NULL, 0, notify_image_location, NULL, 0, NULL );
-
-            if (notify) CloseHandle( notify );
-        }
+        /* The Unix side gives ERROR_NOT_SUPPORTED only when the image's file system gives no read leases (UDF, a
+         * loop-mounted ISO). Reply with the broker's own value for that one case (wexelevate.h): the client maps
+         * it back to ERROR_NOT_SUPPORTED for the program, and shell32 shows the user what to do (copy the program
+         * to a local disk). The refusal and the error the program sees are unchanged. */
+        if (err == ERROR_NOT_SUPPORTED) err = WEXELEVATE_E_NO_IMAGE_LEASE;
         return err;
     }
     if ((err = hash_file( req->image_file, req->hash )))
@@ -1045,49 +1039,6 @@ static void secure_leave(void)
     EnterCriticalSection( &secure_cs );
     if (secure_users && !--secure_users) return_input();
     LeaveCriticalSection( &secure_cs );
-}
-
-/* The Unix side refuses an image on a file system that gives no read leases (UDF, a loop-mounted ISO) with
- * ERROR_NOT_SUPPORTED, and for no other reason. The request fails at once with that error, and its own dialog
- * follows in the caller; this thread adds what the user can do about it, on their own desktop. The broker is a
- * service in its window station of its own until the first secure prompt, so the thread switches it to the
- * default desktop for the box only. The switch is serialized with the consent flow (secure_cs), which owns the
- * input desktop while a consent window is open; when the box is answered the input goes back to the secure
- * desktop if one is still open there. */
-static DWORD WINAPI notify_image_location( void *arg )
-{
-    HWINSTA station, saved;
-    HDESK desk;
-
-    (void)arg;
-    EnterCriticalSection( &secure_cs );
-    saved = GetProcessWindowStation();
-    if ((station = OpenWindowStationW( L"WinSta0", FALSE, WINSTA_ACCESSGLOBALATOMS | WINSTA_CREATEDESKTOP |
-                                       WINSTA_ENUMDESKTOPS )))
-    {
-        if ((desk = OpenDesktopW( L"Default", 0, FALSE, DESKTOP_SWITCHDESKTOP )))
-        {
-            SetProcessWindowStation( station );
-            SwitchDesktop( desk );
-            CloseDesktop( desk );
-            LeaveCriticalSection( &secure_cs );
-            MessageBoxW( NULL,
-                         L"Windows cannot run this program as an administrator from this location.\n\n"
-                         L"Copy it to a folder on the local disk, such as the Desktop, and run it from there.",
-                         L"User Account Control", MB_OK | MB_ICONWARNING );
-            EnterCriticalSection( &secure_cs );
-            if (secure_users) SwitchDesktop( secure_desktop );   /* the consent window is still open */
-            else if ((desk = OpenDesktopW( L"Default", 0, FALSE, DESKTOP_SWITCHDESKTOP )))
-            {
-                SwitchDesktop( desk );
-                CloseDesktop( desk );
-            }
-        }
-        CloseWindowStation( station );
-        if (saved) SetProcessWindowStation( saved );
-    }
-    LeaveCriticalSection( &secure_cs );
-    return 0;
 }
 
 static DWORD consent_timeout(void)

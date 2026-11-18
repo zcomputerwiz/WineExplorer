@@ -13,10 +13,11 @@
  * from GetCommandLineW, byte for byte. Reply: struct wexelevate_reply.
  *
  * Errors: ERROR_NOT_SUPPORTED (no system role, a standard user, or a caller that is elevated already),
- * ERROR_NOT_READY (the broker has no way to ask for consent), ERROR_CANCELLED (consent was refused),
- * ERROR_FILE_NOT_FOUND or ERROR_PATH_NOT_FOUND (no such image), ERROR_FILE_CORRUPT (the image changed after the
- * request was frozen), ERROR_BUSY (too many requests), ERROR_TIMEOUT, ERROR_INVALID_PARAMETER, or the error of
- * CreateProcessAsUser.
+ * WEXELEVATE_E_NO_IMAGE_LEASE (the image's file system gives no read leases, UDF as a loop-mounted ISO; the
+ * client maps it back to ERROR_NOT_SUPPORTED before the program sees it), ERROR_NOT_READY (the broker has no way
+ * to ask for consent), ERROR_CANCELLED (consent was refused), ERROR_FILE_NOT_FOUND or ERROR_PATH_NOT_FOUND (no
+ * such image), ERROR_FILE_CORRUPT (the image changed after the request was frozen), ERROR_BUSY (too many
+ * requests), ERROR_TIMEOUT, ERROR_INVALID_PARAMETER, or the error of CreateProcessAsUser.
  *
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
@@ -55,6 +56,13 @@
 #define WEXELEVATE_WANT_HANDLE    0x1  /* duplicate a process handle into the caller */
 #define WEXELEVATE_ENV_INHERIT    0x2  /* the request carries the environment block; else the target user's default */
 #define WEXELEVATE_FLAGS_MASK     0x3
+
+/* The reply error for a request whose image is on a file system that gives no read leases (UDF, as a loop-mounted
+ * ISO): the broker cannot freeze the image and refuses. This is the broker's own value, outside the Win32 error
+ * range, so it names exactly this one case end to end and no other failure can look like it; every consumer maps
+ * it back to ERROR_NOT_SUPPORTED before the program sees it (shell32 also shows the user what to do: copy the
+ * program to a local disk). */
+#define WEXELEVATE_E_NO_IMAGE_LEASE 0x20150
 
 struct wexelevate_request
 {

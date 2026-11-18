@@ -1072,8 +1072,9 @@ bp c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation
 [ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
 ok c4_no_lease_no_process
 
-# -- B39: an image on a file system that gives no read leases (UDF, as a loop-mounted ISO): refused with
-# ERROR_NOT_SUPPORTED (50), nothing runs, and the broker's message box tells the user to copy it to a local disk
+# -- B39: an image on a file system that gives no read leases (UDF, as a loop-mounted ISO): the broker refuses it
+# with its own reply error (WEXELEVATE_E_NO_IMAGE_LEASE), nothing runs; through ShellExecuteEx the program still
+# sees ERROR_NOT_SUPPORTED (no box with SEE_MASK_FLAG_NO_UI); shell32's dialog tells the user to copy it to a disk
 if command -v xorriso >/dev/null 2>&1; then
     el_clean; touch "$EL/approve.all"
     UDFTMP="$ROOT/udfsrc"; UDFIMG="$ROOT/udf.iso"; UDMMNT="$ROOT/udfmnt"
@@ -1086,12 +1087,17 @@ if command -v xorriso >/dev/null 2>&1; then
     else
         fstype="$(stat -f -c %T "$UDMMNT")"
         grep -qi '^udf' <<<"$fstype" || { umount "$UDMMNT"; fail "the mounted file system is not UDF: $fstype"; }
+        UDFLINE="$(grep 'define WEXELEVATE_E_NO_IMAGE_LEASE' "$SRC/src/include/wexelevate.h")"
+        UDFHEX="$(printf '%s' "$UDFLINE" | grep -oE '0x[0-9a-fA-F]+' | head -1)"
+        [ -n "$UDFHEX" ] || { umount "$UDMMNT"; fail "WEXELEVATE_E_NO_IMAGE_LEASE is not in wexelevate.h"; }
+        UDFERR="$(printf '%d' "$UDFHEX")"
         WUDF="$(winpath "$UDMMNT/udf.exe")"
-        bp c4_image_on_udf_is_refused_with_not_supported "$ADM" 64 run "$WUDF" 50 "$(winpath "$EL/out.udf")" -
+        bp c4_udf_image_is_refused_with_the_brokers_own_error "$ADM" 64 run "$WUDF" "$UDFERR" "$(winpath $EL/out.udf)" -
         [ ! -e "$EL/out.udf" ] || fail "a request from a UDF image started a process"
-        bprobe "$ADM" 64 udfbox > "$ROOT/udfbox.log" 2>&1
-        grep -q '^udfbox=PASS' "$ROOT/udfbox.log" || { cat "$ROOT/udfbox.log" >&2; fail "the UDF message box: no PASS"; }
-        ok c4_udf_refusal_shows_the_copy_to_local_disk_message
+        UDFLOG="$ROOT/shexec-udf.log"
+        bprobe "$ADM" 64 shexec runas "$WUDF" 50 "$(winpath $EL/out.ui)" - > "$UDFLOG" 2>&1
+        grep -q '^shexec=PASS' "$UDFLOG" || { cat "$UDFLOG" >&2; fail "the UDF refusal via ShellExecuteEx: no PASS"; }
+        ok c4_udf_refusal_carries_the_distinct_error_and_keeps_50_for_programs
         umount "$UDMMNT"; rm -rf "$UDFTMP" "$UDFIMG" "$UDMMNT"
     fi
 else
