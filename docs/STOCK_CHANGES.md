@@ -3868,3 +3868,8 @@ and its tests define `WINDOWS_FOUNDATION_UNIVERSALAPICONTRACT_VERSION` 0xf0000 f
 telemetry; the manager gives the data of the process's own package only); new `include/windows.management.core.idl`;
 `windows.system.profile.idl`, `windows.system.userprofile.idl` and `windows.devices.input.idl` get the interfaces.
 Test `settings.c` (x64 and x86). **Unconditional**: new classes only.
+
+2026-11-18 (UWP, Wine 1fdd6ee0): `dlls/windows.networking.connectivity/network_information.c`:
+`ConnectionProfile::GetConnectionCost` (was E_NOTIMPL; the Store Calculator's currency page asks for it when it opens)
+returns a `ConnectionCost` of an unrestricted connection (`NetworkCostType_Unrestricted`, not roaming, not over or
+approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Unconditional**.
