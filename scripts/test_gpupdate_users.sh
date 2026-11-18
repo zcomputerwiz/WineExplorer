@@ -448,3 +448,11 @@ write_hive "$BKDIS|DisableBkGndGroupPolicy|0"
 echo $(( $(date +%s) - 10 )) > "$FX/due"; run_bg bg; ran || fail 'background: DisableBkGndGroupPolicy = 0 stopped a run'
 rm -f "$FX/mroot/system.reg" "$FX/due"
 echo 'OK: wex-gpupdate.sh --background (the due time, the interval and offset of the policy, the background refresh turned off)'
+# ---- a machine joined with SSSD (realm join): Winbind is the supported join, so the domain is not asked, only local policy runs
+rm -f "$FX/unjoined" "$FX/due"; touch "$FX/keytab"
+printf '#!/bin/sh\ncat <<EOT\nad.wexlab.example\n  domain-name: ad.wexlab.example\n  client-software: sssd\nEOT\n' > "$FX/bin/realm"; chmod 0755 "$FX/bin/realm"
+run_gpupdate "$FX/map3"
+grep -q 'joined with sssd' "$FX/out.log" || { cat "$FX/out.log"; fail 'sssd: the refusal to use the domain was not said'; }
+[ ! -s "$FX/net.log" ] || { cat "$FX/net.log"; fail 'sssd: the domain was asked'; }
+rm -f "$FX/bin/realm"
+echo 'OK: wex-gpupdate.sh on a machine joined with SSSD (local policy only, said)'

@@ -12,6 +12,9 @@
 #   wex-domain-state.sh           detect and write
 #   wex-domain-state.sh --print   detect and print "FLAT dns.name", or nothing; writes nothing
 #   wex-domain-state.sh --joined  exit 0 when joined, 1 when not joined; writes nothing
+#   wex-domain-state.sh --kind    "winbind", "sssd", "other" (a realmd join of another client) or nothing when not
+#                                 joined; writes nothing. Winbind is the supported join (docs/DOMAIN_LOGON.md,
+#                                 "The supported join"): with another, domain logon and Group Policy are not offered
 #
 # Detection uses no network and no root rights:
 #   realmd (SSSD or Winbind joins made with "realm join"):  realm list
@@ -21,9 +24,18 @@
 
 dns=
 flat=
+kind=
 
 if command -v realm >/dev/null 2>&1; then
-    dns=$(realm list 2>/dev/null | sed -n 's/^ *domain-name: *//p' | head -n 1)
+    realm_out=$(realm list 2>/dev/null)
+    dns=$(printf '%s\n' "$realm_out" | sed -n 's/^ *domain-name: *//p' | head -n 1)
+    if [ -n "$dns" ]; then
+        case $(printf '%s\n' "$realm_out" | sed -n 's/^ *client-software: *//p' | head -n 1) in
+            winbind) kind=winbind ;;
+            sssd) kind=sssd ;;
+            *) kind=other ;;
+        esac
+    fi
 fi
 
 if command -v testparm >/dev/null 2>&1; then
@@ -32,6 +44,7 @@ if command -v testparm >/dev/null 2>&1; then
     workgroup=$(testparm -s --parameter-name=workgroup 2>/dev/null | tr 'a-z' 'A-Z')
     if [ -z "$dns" ] && [ "$security" = ads ] && [ -n "$realm" ] && [ -e "${WEX_KEYTAB:-/etc/krb5.keytab}" ]; then
         dns=$realm
+        kind=winbind
     fi
     if [ -n "$dns" ] && [ -n "$workgroup" ] && [ "$workgroup" != WORKGROUP ]; then
         flat=$workgroup
@@ -47,6 +60,12 @@ case "$dns$flat" in
     *[!A-Za-z0-9._-]*) echo "wex-domain-state: unexpected characters in the domain names; not joined is assumed" >&2
                        dns=; flat= ;;
 esac
+
+[ -n "$dns" ] || kind=
+if [ "${1:-}" = --kind ]; then
+    [ -z "$kind" ] || echo "$kind"
+    exit 0
+fi
 
 if [ "${1:-}" = --joined ]; then
     [ -n "$dns" ] && exit 0
