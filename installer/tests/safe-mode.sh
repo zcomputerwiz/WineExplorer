@@ -367,23 +367,28 @@ open_menu() {
     # A start that misses the menu goes on to the desktop, where the start-up check counts it, and so saves the
     # control set as Last Known Good (2026-11-12, OVMF: lastgood then "restored" the change it had to undo). The disk
     # is snapshotted first and put back before the second try. One snapshot at a time, replaced at the next menu.
-    local try
+    local try oneshot menu_wait
     qemu-img snapshot -d menu-try "$STATE/disk.qcow2" >/dev/null 2>&1
     qemu-img snapshot -c menu-try "$STATE/disk.qcow2" || fail "cannot snapshot the overlay before the menu"
     for try in 1 2 3; do
+        # UEFI: systemd-boot (no timeout) shows the menu only when a key is waiting in OVMF's input buffer at the one
+        # moment it looks, and a busy host misses that (2026-11-16: with every CPU busy, a held F8 0 of 4, taps 2 of
+        # 4). So the VM's own variable store gets LoaderConfigTimeoutOneShot while it is off (vmtest loader-timeout,
+        # 2026-11-18): the loader shows the menu at this start without any key, whatever the load, and deletes the
+        # variable. Taps of F8 stay the fallback for a VM without a variable store (no split OVMF files).
+        oneshot=0
+        if [ "$FIRMWARE" != bios ] && "${V[@]}" loader-timeout "$TEST" 120 >/dev/null 2>&1; then oneshot=1; fi
         "${V[@]}" start "$TEST" "${START_ARGS[@]}" --paused >/dev/null || fail "QEMU did not start"
+        menu_wait=30
         if [ "$FIRMWARE" = bios ]; then
             "${V[@]}" hold "$TEST" shift 6 --cont >/dev/null 2>&1
+        elif [ "$oneshot" = 1 ]; then
+            "${V[@]}" cont "$TEST" >/dev/null 2>&1
+            menu_wait=90   # OVMF reaches the loader later on a busy host; the menu then waits 120 seconds
         else
-            # systemd-boot (no timeout) shows the menu only when a key is waiting in OVMF's input buffer at the one
-            # moment it looks, and OVMF does not repeat a held key: a held F8 missed it whenever the host was busy
-            # (2026-11-16, chains running three VMs). Separate presses do better: on one disk, idle, held and tapped
-            # both showed the menu 4 of 4 times; with every CPU busy, held 0 of 4, tapped 2 of 4. Hence taps, for 40
-            # seconds (OVMF reaches the loader later on a busy host; the menu ignores the extra presses), and a third
-            # try. A persistent variable store with LoaderConfigTimeoutOneShot would take the race away.
             "${V[@]}" hold "$TEST" f8 40 --cont --tap >/dev/null 2>&1
         fi
-        if wait_text "Advanced Options" 30; then
+        if wait_text "Advanced Options" "$menu_wait"; then
             shot loader
             move_down 1
             shot loader-variant

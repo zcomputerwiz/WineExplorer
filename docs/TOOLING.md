@@ -270,6 +270,32 @@ Rules for sessions: never run `make -jN` directly on the test machine; never bui
 tree (the ISO build's `/root/WineExplorer` included); stop lab VMs that are no longer needed (each holds 4-8 GB and a
 share of the CPU). A queue that keeps ready builds per commit for all sessions is the next step (not yet).
 
+## Added 2026-11-18: Which checks when (owner's rule)
+
+- **While iterating:** the quickest check that covers the change: a module's own Wine tests (both architectures),
+  the T1 lab (`wex-run.sh labt1`), one VM phase (`safe-mode.sh` with `diag=PHASE`, `installer/tests/quick-run.sh`
+  onto an installed disk), or the app's own test.
+- **Before a merge:** the full suite (`wex-run.sh full`) every time, plus the VM stages the change touches.
+- **The whole chain** (an ISO, install and every stage on both firmwares; `wex-batch.sh`): for changes to the
+  installer, the image or a default, and once a feature is complete.
+
+## Added 2026-11-18: Batches (the suite and the image side by side)
+
+`scripts/lab/wex-batch.sh REV NAME [STAGE...]` runs the checks before a merge at the same time instead of one after
+the other: the full suite of the worktree (`wex-run.sh full`; the worktree must be at REV with nothing changed) and,
+meanwhile, a test ISO from REV, the probes and the VM chain on it (install and the STAGEs, default all; 3 VMs at once,
+`WEX_BATCH_LANES`, firmwares `WEX_BATCH_FWS`, default `bios uefi`). Both Wine compiles take turns through
+`wex-make.sh`. About an hour where the parts in sequence took about two. As root in wexbuild:
+`wsl.exe -d wexbuild -u root --exec bash /mnt/d/DeepThought/Projects/<worktree>/scripts/lab/wex-batch.sh REV NAME`.
+Logs in `/var/tmp/wex-batch/NAME-{suite,iso,chain}.log`; the chain's summary in `/var/tmp/wex-chain/NAME/summary.txt`.
+
+UEFI test VMs (`vmtest.py start --efi`) have a variable store of their own (`STATE/efivars.fd`, OVMF's split
+`OVMF_CODE_4M.fd`/`OVMF_VARS_4M.fd`), and `vmtest.py loader-timeout NAME SECONDS` writes systemd-boot's
+`LoaderConfigTimeoutOneShot` into it while the VM is off (`virt-fw-vars`, package python3-virt-firmware): the Vintner
+Boot menu then shows at the next start without a key press. `safe-mode.sh` opens the menu that way on UEFI (F8 taps
+only as the fallback), so the menu no longer depends on catching a key press on a busy host, and chains may run more
+VMs at once.
+
 ## Added 2026-11-14: wex-run (system tier build and suites in one command)
 
 `scripts/lab/wex-run.sh MODE` does the whole chain above for the worktree it lives in (wexbuild, root):

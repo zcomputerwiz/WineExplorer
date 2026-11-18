@@ -20,6 +20,8 @@ Set VMTEST_DIR to a persistent directory if /tmp is a RAM filesystem.
   vmtest.py wait NAME TEXT [--timeout 120]                                wait until OCR finds TEXT on screen
   vmtest.py text NAME                                                     print the OCR text of the screen
   vmtest.py sh NAME USER PASSWORD_FILE COMMAND [--timeout 60]             run COMMAND on the serial console
+  vmtest.py loader-timeout NAME SECONDS                                   (UEFI, VM off) the boot menu shows once,
+                                                                          with this timeout (LoaderConfigTimeoutOneShot)
 
 The serial console needs a getty on ttyS0 in the guest (systemctl enable serial-getty@ttyS0).  Machines started here
 carry the fw_cfg entry opt/org.wineexplorer/serial-login, on which textsetup enables that getty when installing.
@@ -71,6 +73,48 @@ def qmp(name, cmd, **args):
     except QMPError as e:
         sys.exit(str(e))
 
+# UEFI: OVMF's code read-only and a variable store of the VM's own (STATE/efivars.fd, made from the template at the
+# first start and kept), so that a variable written while the VM is off (loader_timeout) is there at the next start.
+# Without the split firmware files, the combined image as before (no variables kept).
+OVMF_CODE = "/usr/share/OVMF/OVMF_CODE_4M.fd"
+OVMF_VARS = "/usr/share/OVMF/OVMF_VARS_4M.fd"
+
+def efi_firmware(d):
+    if not (os.path.exists(OVMF_CODE) and os.path.exists(OVMF_VARS)):
+        return ["-bios", "/usr/share/ovmf/OVMF.fd"]
+    store = os.path.join(d, "efivars.fd")
+    if not os.path.exists(store):
+        with open(OVMF_VARS, "rb") as src, open(store, "wb") as dst:
+            dst.write(src.read())
+    return ["-drive", f"if=pflash,format=raw,unit=0,readonly=on,file={OVMF_CODE}",
+            "-drive", f"if=pflash,format=raw,unit=1,file={store}"]
+
+# systemd-boot's LoaderConfigTimeoutOneShot (vendor GUID of the Boot Loader Interface): the menu shows at the next start
+# with this timeout, whatever the configured one, and the loader deletes the variable. Vintner Boot's menu otherwise
+# shows only after a key press that OVMF has buffered at the one moment systemd-boot looks, which a busy host misses.
+LOADER_GUID = "4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
+
+def loader_timeout(name, seconds):
+    d = state(name)
+    store = os.path.join(d, "efivars.fd")
+    if not os.path.exists(store):
+        sys.exit(f"{name} has no variable store (a UEFI VM started with the split OVMF files makes one)")
+    if os.path.exists(os.path.join(d, "qmp.sock")) and subprocess.run(
+            ["pgrep", "-f", f"file={store}"], stdout=subprocess.DEVNULL).returncode == 0:
+        sys.exit(f"{name} is running; the variable store is written while it is off")
+    data = (str(int(seconds)) + "\0").encode("utf-16-le").hex()
+    attr = 7  # non-volatile, boot service and runtime access, as bootctl sets it
+    variables = {"version": 2, "variables": [{"name": "LoaderConfigTimeoutOneShot", "guid": LOADER_GUID,
+                                              "attr": attr, "data": data}]}
+    path = os.path.join(d, "loader-timeout.json")
+    with open(path, "w") as f:
+        json.dump(variables, f)
+    result = subprocess.run(["virt-fw-vars", "-i", store, "-o", store, "--set-json", path],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    os.remove(path)
+    if result.returncode:
+        sys.exit("virt-fw-vars failed: " + result.stderr.strip())
+
 def start(a):
     d = state(a.name)
     disk = os.path.join(d, "disk.qcow2")
@@ -96,7 +140,7 @@ def start(a):
            # last, so the devices before it keep the PCI addresses the installed disks were set up with
            "-device", "virtio-balloon-pci,free-page-reporting=on"]
     if a.efi:
-        cmd += ["-bios", "/usr/share/ovmf/OVMF.fd"]
+        cmd += efi_firmware(d)
     # more QEMU arguments for one test, for example a second network card (installer/tests/ad/machine.sh)
     cmd += shlex.split(os.environ.get("VMTEST_QEMU_EXTRA", ""))
     if a.paused:   # the CPU waits for "cont": input that must already be there when the firmware or loader runs
@@ -347,10 +391,13 @@ def main():
     s = sub.add_parser("sh"); s.add_argument("name"); s.add_argument("user"); s.add_argument("pwfile"); s.add_argument("command")
     s.add_argument("--timeout", type=float, default=60)
     s = sub.add_parser("listen"); s.add_argument("name"); s.add_argument("seconds", type=float)
+    s = sub.add_parser("loader-timeout"); s.add_argument("name"); s.add_argument("seconds", type=int)
     a = p.parse_args()
 
     if a.op == "start":
         start(a)
+    elif a.op == "loader-timeout":
+        loader_timeout(a.name, a.seconds)
     elif a.op == "stop":
         qmp(a.name, "quit")
     elif a.op == "reset":
