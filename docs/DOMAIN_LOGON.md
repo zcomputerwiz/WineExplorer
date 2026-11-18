@@ -248,3 +248,11 @@ parser and the token are the system tier's security core) before they merge.
   [NetGetJoinInformation](https://learn.microsoft.com/en-us/windows/win32/api/lmjoin/nf-lmjoin-netgetjoininformation).
   The `user.DOMAIN` profile folder rule is from Microsoft's troubleshooting articles on profile folder names (the
   exact page not re-checked).
+
+## The supported join (2026-11-18)
+
+Winbind is the supported way to join (owner's decision): `net ads join` with Winbind, `libnss-winbind` and `libpam-winbind`.
+Everything here (the accounts map's domain records, the admission step, `wbinfo` and `net ads` in `wex-gpupdate.sh`)
+is built on it. `installer/scripts/wex-domain-join.sh` joins and leaves that way (`DOMAIN_JOIN.md`); a join made with SSSD
+(`realm join`) is reported by `wex-domain-state.sh --kind` as `sssd`, refused by the join tool, and gets local policy
+only; its domain users are not admitted at logon.

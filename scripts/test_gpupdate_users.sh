@@ -387,3 +387,11 @@ grep -qx 'apply /user:S-1-5-21-111-222-333-1104' "$FX/wexpolicy.log" || { cat "$
 run_logon "$FX/map3" wexuser1
 grep -qx 'apply /user:S-1-5-21-111-222-333-1104' "$FX/wexpolicy.log" || fail 'logon: the plain name of a domain user did not find the record'
 echo 'OK: wex-gpupdate.sh --logon (a first logon only, or SyncForegroundPolicy; only with policy; only that user)'
+# ---- a machine joined with SSSD (realm join): Winbind is the supported join, so the domain is not asked, only local policy runs
+rm -f "$FX/unjoined" "$FX/due"; touch "$FX/keytab"
+printf '#!/bin/sh\ncat <<EOT\nad.wexlab.example\n  domain-name: ad.wexlab.example\n  client-software: sssd\nEOT\n' > "$FX/bin/realm"; chmod 0755 "$FX/bin/realm"
+run_gpupdate "$FX/map3"
+grep -q 'joined with sssd' "$FX/out.log" || { cat "$FX/out.log"; fail 'sssd: the refusal to use the domain was not said'; }
+[ ! -s "$FX/net.log" ] || { cat "$FX/net.log"; fail 'sssd: the domain was asked'; }
+rm -f "$FX/bin/realm"
+echo 'OK: wex-gpupdate.sh on a machine joined with SSSD (local policy only, said)'

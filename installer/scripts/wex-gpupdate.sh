@@ -165,7 +165,11 @@ else
     if [ ! -e "$wex_domain_state" ] && command -v wex-domain-state.sh >/dev/null 2>&1; then
         wex_domain_state="$(command -v wex-domain-state.sh)"
     fi
-    if { [ -x "$wex_domain_state" ] && "$wex_domain_state" --joined 2>/dev/null; } || \
+    kind=$({ [ -x "$wex_domain_state" ] && "$wex_domain_state" --kind 2>/dev/null; } || { [ -f "$wex_domain_state" ] && sh "$wex_domain_state" --kind 2>/dev/null; })
+    if [ -n "$kind" ] && [ "$kind" != winbind ]; then
+        # Winbind is the supported join (docs/DOMAIN_LOGON.md, "The supported join"): Group Policy is built on Samba's tools
+        echo "wex-gpupdate: this machine is joined with $kind; the domain's policy needs a Winbind join (wex-domain-join.sh): local policy only"; JOINED=0
+    elif { [ -x "$wex_domain_state" ] && "$wex_domain_state" --joined 2>/dev/null; } || \
        { [ -f "$wex_domain_state" ] && sh "$wex_domain_state" --joined 2>/dev/null; }; then
         REALM=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'a-z' 'A-Z')
         CACHE=$(testparm -s --parameter-name='cache directory' 2>/dev/null)/gpo_cache/$REALM/POLICIES
