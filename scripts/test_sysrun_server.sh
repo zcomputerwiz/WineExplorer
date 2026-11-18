@@ -1072,6 +1072,32 @@ bp c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation
 [ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
 ok c4_no_lease_no_process
 
+# -- B39: an image on a file system that gives no read leases (UDF, as a loop-mounted ISO): refused with
+# ERROR_NOT_SUPPORTED (50), nothing runs, and the broker's message box tells the user to copy it to a local disk
+if command -v xorriso >/dev/null 2>&1; then
+    el_clean; touch "$EL/approve.all"
+    UDFTMP="$ROOT/udfsrc"; UDFIMG="$ROOT/udf.iso"; UDMMNT="$ROOT/udfmnt"
+    rm -rf "$UDFTMP" "$UDFIMG" "$UDMMNT"; install -d -m 0755 "$UDFTMP" "$UDMMNT"
+    cp "$ROOT/probes/wexelevate_probe64.exe" "$UDFTMP/udf.exe"
+    xorriso -as mkisofs -quiet -udf -output "$UDFIMG" "$UDFTMP/udf.exe" || fail "the UDF image was not made"
+    if ! mount -o loop,ro "$UDFIMG" "$UDMMNT"; then
+        echo "NOTE: the UDF image did not mount (no loop mounts here?), the B39 case was not run"
+        rm -rf "$UDFTMP" "$UDFIMG" "$UDMMNT"
+    else
+        fstype="$(stat -f -c %T "$UDMMNT")"
+        grep -qi '^udf' <<<"$fstype" || { umount "$UDMMNT"; fail "the mounted file system is not UDF: $fstype"; }
+        WUDF="$(winpath "$UDMMNT/udf.exe")"
+        bp c4_image_on_udf_is_refused_with_not_supported "$ADM" 64 run "$WUDF" 50 "$(winpath "$EL/out.udf")" -
+        [ ! -e "$EL/out.udf" ] || fail "a request from a UDF image started a process"
+        bprobe "$ADM" 64 udfbox > "$ROOT/udfbox.log" 2>&1
+        grep -q '^udfbox=PASS' "$ROOT/udfbox.log" || { cat "$ROOT/udfbox.log" >&2; fail "the UDF message box: no PASS"; }
+        ok c4_udf_refusal_shows_the_copy_to_local_disk_message
+        umount "$UDMMNT"; rm -rf "$UDFTMP" "$UDFIMG" "$UDMMNT"
+    fi
+else
+    echo "NOTE: xorriso is not installed, the UDF refusal case (B39) was not run"
+fi
+
 # -- 4. A/B concurrency: approving A does not approve B
 el_clean; touch "$EL/wait-for-gate" "$EL/approve.a.exe"
 bprobe "$ADM" 64 concurrent "$(winpath /home/$ADM/wexel/a.exe)" "$(winpath /home/$ADM/wexel/b.exe)" "$(winpath $EL/out.a)" "$(winpath $EL/out.b)" \
