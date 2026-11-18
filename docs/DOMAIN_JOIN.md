@@ -111,6 +111,18 @@ Checked in `scripts/test_domain_join.sh` (the engine's operations), `st_join_api
 API and `netdom` against a fake engine, from the system group and from a standard user). Not checked: a real join to a domain
 from `netdom` (the AD lab), and `netdom` on a console (the password without echo).
 
+## Computer Name in System Properties (2026-11-18)
+
+`sysdm.cpl` (Computer Name tab) follows the XP dialogs: "Computer Name Changes" with the computer name, the full name, More...
+(the DNS suffix and NetBIOS name, shown and not changed), and "Member of" with Domain and Workgroup. A domain asks first
+(`NetValidateName`), then for the user, password and domain of an account that may join ("Enter the name and password of an
+account with permission to join the domain."), then joins through `NetJoinDomain` and says "Welcome to the X domain." No
+restart is asked for: the join takes effect at once. Leaving uses `NetUnjoinDomain` with the account deleted and says
+"Welcome to the WORKGROUP workgroup." A failure shows the error with a Details >> pane holding the engine's text; a domain
+controller that cannot be found says so, as Windows does. A standard user is offered an elevated copy of the page.
+Checked under Xvfb against a fake engine (validation error, credentials, logon failure). Not done: the Network ID wizard
+(the button is disabled), and a real join from the dialog (the AD lab).
+
 ## The layers still to build (order)
 
 1. **A privileged service and the API (done, see above).** `NetJoinDomain` and the others in wkscli call a WineExplorer workstation service in
