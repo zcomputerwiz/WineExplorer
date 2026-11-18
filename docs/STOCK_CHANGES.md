@@ -1,5 +1,20 @@
 # Changes to stock Wine / third-party code
 
+## windows.security.authentication.web.core: the token broker's client (WAM step 3, plan step 1, 2026-11-18)
+
+Wine branch `claude/wam-broker` (docs/WAM_BROKER_PLAN.md). Off by default: nothing changes without
+`HKCU\Software\Wine\WebAuthentication` `Broker` (REG_DWORD 1).
+
+* `include/wine/tokenbroker.h` (new): the broker's pipe protocol (one request and one reply message per exchange,
+  versioned, with a request id; the fields as counted UTF-16).
+* `dlls/windows.security.authentication.web.core/broker.c` (new), `manager.c`, `private.h`, `Makefile.in`: with the
+  switch on, every token request goes to the user's broker (`\pipe\WineTokenBroker\<SID>`, `tokenbroker.exe`
+  started on demand); the pipe's server must be a process of the same user; an unreachable broker or an invalid reply
+  answers as before (no provider, or the diagnostic provider). `request_token` takes the calling window (the
+  `ForWindow` interop calls), which the broker gets for the sign-in window of a later step.
+* The broker itself is WineExplorer's (`src/programs/tokenbroker`, GPL); in step 1 it answers as the diagnostic
+  provider does.
+
 ## System tier: session 0 holds the machine registry (T1, 2026-11-11)
 
 Inactive unless configured: a server is session 0 only with `--session0`, and a user's server uses session 0 only
