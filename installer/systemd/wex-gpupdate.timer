@@ -1,17 +1,19 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
 #
-# WineExplorer: domain Group Policy for Windows programs, at start and then every 90 minutes with up to 30
-# minutes added at random, the background refresh interval of Windows. Enabled together with session 0
-# (setup-machine-root.sh with WEX_SESSION0=1).
+# WineExplorer: domain Group Policy for Windows programs, at start and then in the background at the interval of
+# Windows (90 minutes plus up to 30 at random, set by the policy "Set Group Policy refresh interval for computers";
+# docs/GROUP_POLICY.md, "The refresh interval"). The first run is wex-gpupdate.service's, two minutes after start; the
+# timer then ticks every 5 minutes and wex-gpupdate.sh --background decides whether a refresh is due. Enabled together
+# with session 0 (setup-machine-root.sh with WEX_SESSION0=1).
 
 [Unit]
 Description=WineExplorer domain Group Policy refresh (timer)
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=90min
-RandomizedDelaySec=30min
+OnUnitActiveSec=5min
+Unit=wex-gpupdate-background.service
 
 [Install]
 WantedBy=timers.target

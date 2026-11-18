@@ -60,15 +60,23 @@ LISTS=
 # map (active records only); a name that is not there ends the run too.
 ONLY_SID=
 LOCK_WAIT=270
-sync_foreground_policy()
+# A DWORD of session 0's registry (the policies of Windows that steer this script: the file system.reg, as root reads
+# it): KEY below HKLM with single backslashes, VALUE; the number on stdout, nothing when it is not there
+hive_dword()
 {
-    awk 'BEGIN { key = "[software\\\\policies\\\\microsoft\\\\windows nt\\\\currentversion\\\\winlogon]" }
-         { l = tolower($0) }
-         index(l, key) == 1 { inside = 1; next }
-         substr(l, 1, 1) == "[" { inside = 0 }
-         inside && l ~ /^"syncforegroundpolicy"=dword:0*1[[:space:]]*$/ { found = 1 }
-         END { exit found ? 0 : 1 }' "$MACHINE_ROOT/system.reg" 2>/dev/null
+    awk -v key="$1" -v name="$2" '
+        BEGIN {
+            n = split(tolower(key), parts, "\\"); want = parts[1]
+            for (i = 2; i <= n; i++) want = want "\\\\" parts[i]
+            want = "[" want "]"; nm = "\"" tolower(name) "\"=dword:"
+        }
+        { l = tolower($0) }
+        index(l, want) == 1 { inside = 1; next }
+        substr(l, 1, 1) == "[" { inside = 0 }
+        inside && index(l, nm) == 1 { v = substr(l, length(nm) + 1); sub(/[^0-9a-f].*/, "", v); print v; exit }' \
+        "$MACHINE_ROOT/system.reg" 2>/dev/null | { read -r hex && [ -n "$hex" ] && echo $((16#$hex)); }
 }
+sync_foreground_policy() { [ "$(hive_dword 'Software\Policies\Microsoft\Windows NT\CurrentVersion\Winlogon' SyncForegroundPolicy)" = 1 ]; }
 if [ "${1:-}" = --logon ]; then
     LOGON_NAME=${2:-}
     LOGON_MAP=${WEX_ACCOUNTS_MAP:-/etc/wineexplorer/accounts.map}
@@ -98,6 +106,35 @@ if [ "${1:-}" = --logon ]; then
     fi
     LOCK_WAIT=40
 fi
+
+# --background: the timer's run (wex-gpupdate-background.service, every 5 minutes), docs/GROUP_POLICY.md, "The refresh
+# interval". Windows refreshes in the background every 90 minutes plus a random 0 to 30 (GroupPolicyRefreshTime and
+# GroupPolicyRefreshTimeOffset, in minutes: 0 to 44640 and 0 to 1440), unless "Turn off background refresh of Group Policy"
+# (DisableBkGndGroupPolicy = 1) is enabled. A run does nothing until the time that the last run set (/run/wex-gpupdate.due, gone after a boot);
+# every run sets the next one. The requests of gpupdate, the logons and the first run after boot are not limited by it.
+DUE_FILE=${WEX_GPO_DUE:-/run/wex-gpupdate.due}   # in /run: a boot starts again, as Windows refreshes at startup
+if [ "${1:-}" = --background ]; then
+    due=$(tr -dc 0-9 < "$DUE_FILE" 2>/dev/null)
+    # (the first run after a boot, with no due time yet, is the refresh at startup, which the policy does not turn off)
+    if [ -n "$due" ] && [ "$(hive_dword 'Software\Microsoft\Windows\CurrentVersion\Policies\System' DisableBkGndGroupPolicy)" = 1 ]; then
+        echo "wex-gpupdate: --background: the background refresh is turned off by policy"
+        exit 0
+    fi
+    if [ -n "$due" ] && [ "$(date +%s)" -lt "$due" ]; then exit 0; fi
+fi
+# when the next background run is due: the interval and a random part of the offset after now
+schedule_background()
+{
+    local interval offset add
+    interval=$(hive_dword 'Software\Policies\Microsoft\Windows\System' GroupPolicyRefreshTime); interval=${interval:-90}
+    offset=$(hive_dword 'Software\Policies\Microsoft\Windows\System' GroupPolicyRefreshTimeOffset); offset=${offset:-30}
+    [ "$interval" -le 44640 ] || interval=44640
+    [ "$offset" -le 1440 ] || offset=1440
+    # (a time of 0 asks for a refresh about every 7 seconds on Windows, for tests: here every tick of the timer)
+    [ "$interval" -ge 5 ] || interval=5
+    add=$(( (RANDOM * 32768 + RANDOM) % (offset * 60 + 1) ))
+    echo $(( $(date +%s) + interval * 60 + add )) > "$DUE_FILE.new" && mv -f "$DUE_FILE.new" "$DUE_FILE"
+}
 
 # wexpolicy's own exit status is the function's (not tr's): a failed apply or record is not lost
 s0_wexpolicy()
@@ -134,12 +171,13 @@ finish()
 {
     local now
     [ -z "$LISTS" ] || rm -rf "$LISTS"
+    [ "$PRINT" = 1 ] || [ -n "$ONLY_SID" ] || schedule_background || true
     [ "$PRINT" = 1 ] || [ -n "$ONLY_SID" ] || s0_wexpolicy refreshed $REQ0 >/dev/null || true
     now=$(request_number)
     # the number only moves forward (and may wrap): a different one is a newer request (a logon run, which serves
     # no request, leaves it to the run that does)
     if [ "$PRINT" != 1 ] && [ -z "$ONLY_SID" ] && [ -n "$now" ] && [ "$now" != "$REQ0" ]; then
-        exec "$0" "${ARGS[@]}"
+        exec "$0"
     fi
 }
 trap finish EXIT

@@ -279,8 +279,8 @@ domain user does not exist yet), the lockout policy from the security template, 
 
 ## Step 4: domain policy, from Samba to the writer (2026-11-13)
 
-`installer/scripts/wex-gpupdate.sh`, run as root by `wex-gpupdate.timer` (at start, then every 90 minutes plus
-up to 30 at random) on a machine joined with Samba:
+`installer/scripts/wex-gpupdate.sh`, run as root by `wex-gpupdate.timer` (at start, then in the background at the refresh
+interval, 90 minutes plus up to 30 at random by default, see "The refresh interval") on a machine joined with Samba:
 
 1. `samba-gpupdate --force` refreshes Samba's cache of the domain's policy objects.
 2. `net ads gpo list` names the objects that apply to the computer, and to each user of the accounts map whom
@@ -447,13 +447,46 @@ the domain's, `wexpolicy apply /user:SID` and `record`; the computer's policy an
 refresh, and the run does not answer a user's `gpupdate` (it serves no request). A logon that is not a first one is
 refreshed by the session after the shell is up, as before. The wait is before the session starts on purpose: a refresh
 while the session registers with session 0 is what B26 found. A policy that is not applied in 60 seconds arrives with
-the session's refresh. Not done: the other settings of that family (slow-link detection, the startup wait time,
-the asynchronous setting for Remote Desktop), which have no counterpart on this system.
+the session's refresh. The other settings of that family are in "The refresh interval and the settings around it".
 
 Checked in `scripts/test_gpupdate_users.sh` (the first logon, a later one, `SyncForegroundPolicy` in its three wrong
 forms, nothing to apply, a name that is not a user, a domain user asked for alone) and `scripts/test_accounts_map.sh` (the
 PAM step: every account that passes, no PAM environment, bounded, a failing or slow step does not fail the logon).
 Not checked: a first logon through the greeter in the lab (`installer/tests/ad`).
+
+## The refresh interval and the settings around it (2026-11-18)
+
+The settings of Windows that govern when policy is processed (names, keys and ranges checked against the Administrative
+Template files of a Windows installation, read for the facts only; the editor's table lists all of them, in
+`System\Group Policy` and `System\Logon`):
+
+| Setting | Key and value (below HKLM) | Here |
+|---|---|---|
+| Set Group Policy refresh interval for computers | `Software\Policies\Microsoft\Windows\System`: `GroupPolicyRefreshTime` (minutes, 0 to 44640, 90 by default) and `GroupPolicyRefreshTimeOffset` (0 to 1440, 30 by default) | applies: two entries in the editor (Windows has one with two numbers); `wex-gpupdate.sh --background` |
+| Turn off background refresh of Group Policy | `Software\Microsoft\Windows\CurrentVersion\Policies\System`: `DisableBkGndGroupPolicy` (1) | applies: the timer's runs do nothing; the refresh at start, at logon and for gpupdate remain |
+| Always wait for the network at computer startup and logon | `Software\Policies\Microsoft\Windows NT\CurrentVersion\Winlogon`: `SyncForegroundPolicy` (1) | applies: the logon step waits at every logon, not only the first |
+| Specify startup policy processing wait time | `Software\Policies\Microsoft\Windows\System`: `GpNetworkStartTimeoutPolicyValue` (seconds, 1 to 600) | grayed out: no policy processing at computer start |
+| Change Group Policy processing to run asynchronously when a slow network connection is detected | same key: `SlowlinkDefaultToAsync` | grayed out: no slow-link detection |
+| Configure Group Policy slow link detection | same key: `GroupPolicyMinTransferRate` (Kbps) | grayed out |
+| Allow asynchronous user Group Policy processing when logging on through Remote Desktop Services | same key: `ProcessTSUserLogonAsync` (name from a third-party listing; it is not in the Administrative Template files of the Windows installation that was read) | grayed out: no Remote Desktop sessions |
+
+The user's own refresh-interval setting of Windows (User Configuration) is not offered: a user's policy is refreshed in the
+same run as the computer's, at the computer's interval. The domain controllers' interval (5 minutes) is not used.
+
+How the timer works: `wex-gpupdate.timer` ticks 2 minutes after boot and then every 5 minutes, and starts
+`wex-gpupdate-background.service`, which runs `wex-gpupdate.sh --background`. That run reads the time that the last run set
+(`/run/wex-gpupdate.due`, gone after a reboot) and ends at once before it; every real run (the timer's, a gpupdate request,
+the first after boot) sets the next one: now, plus the interval, plus a random part of the offset. So the interval cannot
+be below 5 minutes (a time of 0, about every 7 seconds on Windows and meant for tests, is every tick), and a change of the
+setting takes effect at the next run, as the due time is set at the end of each run. With the background refresh turned
+off, a tick that finds a due time does nothing; the first tick after a boot (no due time) is the refresh at startup and
+still runs. Requests of `gpupdate` (`wex-gpupdate.service`) and logons are never limited by any of this.
+The values are read as root from session 0's registry file (`system.reg`), which the server writes some seconds after
+a change, so a setting that was just applied counts from the run after the next save.
+
+Checked in `scripts/test_gpupdate_users.sh` (the due time, the interval and offset including the limits and the random
+part, the background refresh turned off, a plain run not limited) and `scripts/test_gpedit_model.sh` (the table). Not checked:
+the timer on a running system.
 
 ## Local policy (without a domain)
 

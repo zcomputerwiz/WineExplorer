@@ -41,6 +41,10 @@
 #define PANEL_CAT     "Control Panel"
 #define SYSTEM_CAT    "System"
 #define SECURITY_CAT  "Security Options"
+#define GROUPPOLICY_CAT "System\\Group Policy"
+#define LOGON_CAT       "System\\Logon"
+#define WINDOWS_SYSTEM  "Software\\Policies\\Microsoft\\Windows\\System"
+#define WINLOGON_POLICY "Software\\Policies\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
 
 const struct policy policies[] =
 {
@@ -112,6 +116,27 @@ const struct policy policies[] =
     FLAG( "user:NoWinKeys", POLICY_USER, POLICY_APPLIES, EXPLORER_CAT, "Turn off the Windows key shortcuts",
           "The keyboard shortcuts that use the Windows logo key do nothing.", EXPLORER, "NoWinKeys" ),
 
+    /* ---- when policy is refreshed (wex-gpupdate.sh: --background, --logon; docs/GROUP_POLICY.md, "The refresh interval" and
+     "Policy before the desktop"). Windows keeps the interval and its random part in one setting; here they are two. ---- */
+    NUMBER( "computer:GroupPolicyRefreshTime", POLICY_COMPUTER, POLICY_APPLIES, GROUPPOLICY_CAT,
+            "Set Group Policy refresh interval for computers: minutes between refreshes",
+            "How often policy is refreshed in the background, in minutes (0 to 44640; 90 when not configured). The timer of "
+            "this system looks every five minutes, so a time below five minutes means every five. The refresh at start, "
+            "at logon and the requests of gpupdate are not limited by it.", WINDOWS_SYSTEM, "GroupPolicyRefreshTime" ),
+    NUMBER( "computer:GroupPolicyRefreshTimeOffset", POLICY_COMPUTER, POLICY_APPLIES, GROUPPOLICY_CAT,
+            "Set Group Policy refresh interval for computers: random time added, in minutes",
+            "A random time from zero to this many minutes (0 to 1440; 30 when not configured) is added to the interval, so "
+            "that computers do not all ask the domain at the same moment.", WINDOWS_SYSTEM, "GroupPolicyRefreshTimeOffset" ),
+    FLAG( "computer:DisableBkGndGroupPolicy", POLICY_COMPUTER, POLICY_APPLIES, GROUPPOLICY_CAT,
+          "Turn off background refresh of Group Policy",
+          "Enabled: policy is refreshed at start, at logon and when gpupdate asks, and not on the timer; the refresh "
+          "interval is then ignored.", SYSTEM, "DisableBkGndGroupPolicy" ),
+    FLAG( "computer:SyncForegroundPolicy", POLICY_COMPUTER, POLICY_APPLIES, LOGON_CAT,
+          "Always wait for the network at computer startup and logon",
+          "Enabled: a user's policy is applied before the desktop at every logon. Not configured: only at a user's first "
+          "logon on this computer, as on Windows; at later logons the session refreshes policy once its shell is up. "
+          "(The wait is limited to a minute.)", WINLOGON_POLICY, "SyncForegroundPolicy" ),
+
     /* ---- nothing here reads them: shown grayed out ---- */
     GRAYED( "user:NoDesktop", POLICY_USER, DESKTOP_CAT, "Hide all icons on the desktop",
             "Removes the icons and shortcuts from the desktop.", EXPLORER, "NoDesktop",
@@ -128,6 +153,23 @@ const struct policy policies[] =
     GRAYED( "computer:DontDisplayLastUserName", POLICY_COMPUTER, SECURITY_CAT, "Do not display the last user name at logon",
             "The logon screen does not offer the name of the last user.", SYSTEM, "DontDisplayLastUserName",
             "the logon screen does not read this value" ),
+    GRAYED( "computer:GpNetworkStartTimeoutPolicyValue", POLICY_COMPUTER, GROUPPOLICY_CAT,
+            "Specify startup policy processing wait time",
+            "How long computer start waits for the network before it processes policy.", WINDOWS_SYSTEM,
+            "GpNetworkStartTimeoutPolicyValue",
+            "there is no policy processing at computer start to wait in: the first refresh runs two minutes after start" ),
+    GRAYED( "computer:SlowlinkDefaultToAsync", POLICY_COMPUTER, GROUPPOLICY_CAT,
+            "Change Group Policy processing to run asynchronously when a slow network connection is detected",
+            "On a slow connection, policy does not hold up the logon.", WINDOWS_SYSTEM, "SlowlinkDefaultToAsync",
+            "this system does not detect slow links: Samba fetches the policy, and only a first logon waits for it" ),
+    GRAYED( "computer:GroupPolicyMinTransferRate", POLICY_COMPUTER, GROUPPOLICY_CAT,
+            "Configure Group Policy slow link detection",
+            "The speed below which a connection to the domain counts as slow.", WINDOWS_SYSTEM, "GroupPolicyMinTransferRate",
+            "this system does not measure the connection to the domain" ),
+    GRAYED( "computer:ProcessTSUserLogonAsync", POLICY_COMPUTER, GROUPPOLICY_CAT,
+            "Allow asynchronous user Group Policy processing when logging on through Remote Desktop Services",
+            "User policy does not hold up a Remote Desktop logon.", WINDOWS_SYSTEM, "ProcessTSUserLogonAsync",
+            "this system has no Remote Desktop Services sessions" ),
 };
 
 const unsigned int policy_count = sizeof(policies) / sizeof(policies[0]);
