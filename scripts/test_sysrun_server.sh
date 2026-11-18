@@ -4084,6 +4084,142 @@ wait "$SPS_PID" 2>/dev/null || true
 rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
 kill_servers
 ok st_secpol_window_offers_a_standard_user_elevation
+# the domain join API (docs/DOMAIN_JOIN.md): NetJoinDomain, NetUnjoinDomain and NetValidateName reach the engine through its
+# socket, which only the system group may connect to; a fake engine stands in for wex-domain-join.sh (serve) and records
+# each request. A process of the system group (session 0's account) is the elevated administrator; a standard user is refused.
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/joinprobe64.exe" "$SRC/scripts/join-probe.c" -lnetapi32 || fail "join: cannot build the probe (64)"
+i686-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/joinprobe32.exe" "$SRC/scripts/join-probe.c" -lnetapi32 || fail "join: cannot build the probe (32)"
+JSOCK=/run/wex-domain-join.sock
+JREQ="$POL/join-requests.log"
+cat > "$POL/fake-join-engine.py" <<'PYEOF'
+import os, socket, sys
+path, log = sys.argv[1], sys.argv[2]
+if os.path.exists(path): os.unlink(path)
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+srv.bind(path)
+os.chmod(path, 0o660)
+os.chown(path, 0, int(sys.argv[3]))
+srv.listen(4)
+while True:
+    conn, _ = srv.accept()
+    data = b''
+    while not data.endswith(b'\n\n') and b'\n\n' not in data:
+        chunk = conn.recv(4096)
+        if not chunk: break
+        data += chunk
+    with open(log, 'ab') as f: f.write(data + b'--\n')
+    text = data.decode('utf-8', 'replace')
+    fields = dict(l.split('=', 1) for l in text.split('\n') if '=' in l)
+    status, message = 0, 'ok'
+    if fields.get('op') == 'validate' and fields.get('nametype') == 'machine' and '_' in fields.get('name', ''):
+        status, message = 1210, 'not a valid computer name'
+    if fields.get('op') == 'join' and fields.get('password') == 'wrong':
+        status, message = 1326, 'the controller did not accept the account'
+    if fields.get('op') == 'dclist': message = 'dc1.ad.wexlab.example dc2.ad.wexlab.example '
+    if fields.get('op') == 'verify': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been verified.||The connection is with the machine dc1.ad.wexlab.example.'
+    if fields.get('op') == 'reset': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been reset.'
+    conn.sendall(('status=%d\nmessage=%s\n' % (status, message)).encode())
+    conn.close()
+PYEOF
+rm -f "$JREQ"
+python3 -I "$POL/fake-join-engine.py" "$JSOCK" "$JREQ" "$(getent group "$GRP" | cut -d: -f3)" &
+JENG_PID=$!
+for i in $(seq 1 20); do [ -S "$JSOCK" ] && break; sleep 0.25; done
+[ -S "$JSOCK" ] || fail "join: the fake engine did not start"
+jp()   # ARCH ARGS... as session 0's account (the system group); prints the probe's lines
+{
+    local b=$1; shift
+    s0_wine "$ROOT/probes/joinprobe$b.exe" "$@" | tr -d '\r'
+}
+reqs() { grep -c '^--$' "$JREQ" 2>/dev/null || true; }
+for b in 64 32; do
+    : > "$JREQ"
+    OUT="$(jp $b validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'message=ok' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: a valid computer name"; }
+    grep -qx 'op=validate' "$JREQ" && grep -qx 'nametype=machine' "$JREQ" && grep -qx 'name=WEXBOX' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the validate request"; }
+    OUT="$(jp $b validate bad_name 1)"; grep -qx 'status=1210' <<<"$OUT" && grep -qx 'message=not a valid computer name' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: the engine's error and message"; }
+    : > "$JREQ"
+    OUT="$(jp $b join - 'ad.wexlab.example\dc1' 'OU=WexMachines,DC=ad,DC=wexlab,DC=example' 'WEXLAB\Administrator' 'p w$d' 1)"
+    grep -qx 'status=0' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: NetJoinDomain"; }
+    grep -qx 'op=join' "$JREQ" && grep -qx 'domain=ad.wexlab.example' "$JREQ" && grep -qx 'user=Administrator' "$JREQ" && grep -qxF 'password=p w$d' "$JREQ" &&
+        grep -qx 'ou=OU=WexMachines,DC=ad,DC=wexlab,DC=example' "$JREQ" && grep -qx 'flags=1' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the join request (domain without the controller, user without the domain, the password as it is)"; }
+    OUT="$(jp $b join - ad.wexlab.example - 'admin@ad.wexlab.example' wrong 3)"
+    grep -qx 'status=1326' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: a refused account is 1326"; }
+    grep -qx 'user=admin@ad.wexlab.example' "$JREQ" || fail "join $b: a user principal name is passed as it is"
+    # refused before the engine: nothing is sent
+    n=$(reqs)
+    for case in "join - - - A p 1:87" "join - ad.wexlab.example - A p 0:50" "join - ad.wexlab.example - A p 0x41:50" "join - ad.wexlab.example - - p 1:1326" \
+                "join - ad.wexlab.example - A - 1:1326" "join \\\\\\\\other ad.wexlab.example - A p 1:50" "unjoin A p 2:1004" "rename NEW:50"; do
+        args=${case%:*}; want=${case##*:}
+        OUT="$(jp $b $args)"; grep -qx "status=$want" <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: '$args' gave something other than $want"; }
+    done
+    [ "$(reqs)" = "$n" ] || { cat "$JREQ" >&2; fail "join $b: a refused call reached the engine"; }
+    : > "$JREQ"
+    OUT="$(jp $b unjoin 'WEXLAB\Administrator' pw 4)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'op=leave' "$JREQ" && grep -qx 'user=Administrator' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: NetUnjoinDomain with an account"; }
+    : > "$JREQ"
+    OUT="$(jp $b unjoin - - 0)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'force=1' "$JREQ" && ! grep -q '^password=' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: NetUnjoinDomain without an account (this computer's side only)"; }
+done
+# netdom.exe, on the same API (docs/DOMAIN_JOIN.md): the syntax of Windows' NETDOM for join, remove, verify, reset and query DC
+nd()   # ARGS...: netdom as session 0's account; the output in $NDOUT, the status in $NDRC
+{
+    NDRC=0
+    NDOUT="$(s0_wine netdom "$@")" || NDRC=$?
+    NDOUT=$(tr -d '\r' <<<"$NDOUT")
+}
+for b in 1; do
+    : > "$JREQ"
+    nd join /domain:ad.wexlab.example '/userd:WEXLAB\Administrator' /passwordd:pw '/ou:OU=WexMachines,DC=ad,DC=wexlab,DC=example' /reboot
+    [ "$NDRC" = 0 ] && grep -q 'The command completed successfully.' <<<"$NDOUT" || { echo "$NDOUT (rc $NDRC)" >&2; fail 'netdom join'; }
+    grep -qx 'op=join' "$JREQ" && grep -qx 'domain=ad.wexlab.example' "$JREQ" && grep -qx 'user=Administrator' "$JREQ" && grep -qx 'password=pw' "$JREQ" &&
+        grep -qx 'ou=OU=WexMachines,DC=ad,DC=wexlab,DC=example' "$JREQ" && grep -qx 'flags=3' "$JREQ" || { cat "$JREQ" >&2; fail 'netdom join: the request'; }
+    ! grep -qi 'restart' <<<"$NDOUT" || fail 'netdom join asked for a restart'
+    # a password of * is asked for: one line from standard input when there is no console
+    : > "$JREQ"
+    NDOUT="$(printf 'p w\n' | (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+        WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" netdom join /domain:d.example /userd:admin '/passwordd:*' 2>/dev/null) | tr -d '\r')"
+    grep -qxF 'password=p w' "$JREQ" && grep -q 'Type the password' <<<"$NDOUT" || { echo "$NDOUT" >&2; cat "$JREQ" >&2; fail 'netdom join: the password asked for'; }
+    # refused before the engine
+    n=$(reqs)
+    nd join; [ "$NDRC" = 87 ] && grep -q '/Domain option is required' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom join without a domain'; }
+    nd join /domain:d.example /passwordd:x; [ "$NDRC" = 87 ] && grep -q '/UserD option is required' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom join without a user'; }
+    nd join OTHERPC /domain:d.example /userd:a /passwordd:x; [ "$NDRC" = 50 ] && grep -q 'another computer is not supported' <<<"${NDOUT,,}" || { echo "$NDOUT" >&2; fail 'netdom join of another computer'; }
+    nd join /domain:d.example /userd:a /passwordd:x /readonly; [ "$NDRC" = 50 ] || fail 'netdom join /readonly'
+    nd frobnicate; [ "$NDRC" = 87 ] || fail 'netdom: an unknown command'
+    nd join /nonsense; [ "$NDRC" = 87 ] && grep -q 'not valid' <<<"$NDOUT" || fail 'netdom: an unknown option'
+    nd resetpwd /server:x; [ "$NDRC" = 50 ] && grep -q 'not supported' <<<"$NDOUT" || fail 'netdom resetpwd'
+    nd renamecomputer /newname:NEWNAME; [ "$NDRC" = 50 ] && grep -q 'not supported yet' <<<"$NDOUT" || fail 'netdom renamecomputer'
+    [ "$(reqs)" = "$n" ] || { cat "$JREQ" >&2; fail 'a refused netdom call reached the engine'; }
+    nd help; [ "$NDRC" = 0 ] && grep -q 'NETDOM JOIN' <<<"$NDOUT" || fail 'netdom help'
+    # the engine's refusal is shown, with Windows' closing line
+    nd join /domain:ad.wexlab.example /userd:a /passwordd:wrong
+    # (a unix shell sees the exit status modulo 256: 1326 is 46)
+    [ "$NDRC" = 46 ] && grep -q 'Logon failure' <<<"$NDOUT" && grep -q '(the controller did not accept the account)' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom join: the refusal'; }
+    # remove
+    : > "$JREQ"
+    nd remove /domain:ad.wexlab.example /userd:admin /passwordd:pw
+    [ "$NDRC" = 0 ] && grep -qx 'op=leave' "$JREQ" && grep -qx 'user=admin' "$JREQ" && grep -qx 'flags=4' "$JREQ" || { cat "$JREQ" >&2; echo "$NDOUT" >&2; fail 'netdom remove'; }
+    : > "$JREQ"
+    nd remove /force
+    [ "$NDRC" = 0 ] && grep -qx 'force=1' "$JREQ" && ! grep -q '^password=' "$JREQ" || { cat "$JREQ" >&2; fail 'netdom remove /force'; }
+    nd remove; [ "$NDRC" = 87 ] && grep -q '/UserD option is required' <<<"$NDOUT" || fail 'netdom remove without a user'
+    # verify, reset, query
+    : > "$JREQ"
+    nd verify; [ "$NDRC" = 0 ] && grep -qx 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been verified.' <<<"$NDOUT" && grep -qx 'The connection is with the machine dc1.ad.wexlab.example.' <<<"$NDOUT" && grep -qx 'op=verify' "$JREQ" || { echo "$NDOUT" >&2; fail 'netdom verify'; }
+    nd reset; [ "$NDRC" = 0 ] && grep -q 'has been reset.' <<<"$NDOUT" && grep -qx 'op=reset' "$JREQ" || { echo "$NDOUT" >&2; fail 'netdom reset'; }
+    nd query dc; [ "$NDRC" = 0 ] && grep -qx 'dc1.ad.wexlab.example' <<<"$NDOUT" && grep -qx 'dc2.ad.wexlab.example' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom query dc'; }
+    nd query workstation; [ "$NDRC" = 50 ] && grep -q 'Only NETDOM QUERY DC' <<<"$NDOUT" || fail 'netdom query workstation'
+done
+# a standard user is refused with Windows' words (the status is the error: the pipeline of as_wine fails with it)
+NDOUT="$(as_wine "$STD" netdom join /domain:ad.wexlab.example /userd:a /passwordd:x)" || true
+grep -qi 'access.*denied' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom: a standard user was not refused'; }
+# a standard user is not in the system group: access denied, nothing sent
+: > "$JREQ"
+OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" validate WEXBOX 1)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user was not refused"; }
+[ ! -s "$JREQ" ] || fail "join: a standard user's call reached the engine"
+# the engine is not there: the workstation service is not started
+kill "$JENG_PID" 2>/dev/null; wait "$JENG_PID" 2>/dev/null || true; rm -f "$JSOCK"
+OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=2138' <<<"$OUT" || { echo "$OUT" >&2; fail "join: no engine is not NERR_WkstaNotStarted"; }
+kill_servers
+ok st_join_api_reaches_the_engine_only_from_the_system_group
 # Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
 # extension, for the machine and for the user
 REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'

@@ -1,0 +1,7 @@
+MODULE    = netdom.exe
+IMPORTS   = netapi32 advapi32
+
+EXTRADLLFLAGS = -mconsole -municode
+
+SOURCES = \
+	main.c

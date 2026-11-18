@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: one request of the domain join engine (docs/DOMAIN_JOIN.md), started by wex-domain-join.socket for each
+# connection: the request is on standard input, the answer goes to standard output. A join takes up to a minute or two
+# (the controller, the account, winbind), hence the long time out. Root: the engine writes smb.conf, krb5.conf,
+# nsswitch.conf and PAM, and joins.
+
+[Unit]
+Description=WineExplorer domain join (one request)
+
+[Service]
+ExecStart=/usr/local/sbin/wex-domain-join.sh serve
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+TimeoutStartSec=300
+RuntimeMaxSec=600
+# the engine is the one place that changes the machine's authentication: nothing else of the system is its business
+PrivateTmp=true
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true

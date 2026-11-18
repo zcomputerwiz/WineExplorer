@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: the domain join engine's socket (docs/DOMAIN_JOIN.md, "How the API reaches root"). A process of the
+# system group (an elevated administrator's, as for the Group Policy spool) connects and sends one request; no other
+# process can connect, which is Windows' "access denied" for a caller who is not an administrator. Enabled with
+# session 0 (setup-machine-root.sh with WEX_SESSION0=1); the group is wexsys unless setup names another (a drop-in).
+
+[Unit]
+Description=WineExplorer domain join (socket)
+
+[Socket]
+ListenStream=/run/wex-domain-join.sock
+SocketUser=root
+SocketGroup=wexsys
+SocketMode=0660
+Accept=yes
+MaxConnections=2
+
+[Install]
+WantedBy=sockets.target

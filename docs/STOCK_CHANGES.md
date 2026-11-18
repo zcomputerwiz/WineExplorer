@@ -221,6 +221,10 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
 - `dlls/wkscli/wkscli.c` (`NetGetJoinInformation`), `dlls/dsrole/dsrole.c` (`DsRoleGetPrimaryDomainInformation`):
   with `HKLM\Software\WineExplorer\Domain` (`FlatName`, `Name`) the machine is reported as a member of that domain;
   without the key, stock behaviour. `wkscli` imports `advapi32` for it.
+- `dlls/wkscli/wkscli.spec`, `dlls/netapi32/netapi32.spec` (2026-11-18): `NetJoinDomain`, `NetUnjoinDomain`,
+  `NetValidateName` and `NetRenameMachineInDomain` (stubs in `wkscli`, not exported by `netapi32`) are forwarded to
+  `wexjoin.dll` (`src/dlls/wexjoin`, docs/DOMAIN_JOIN.md), which asks the domain join engine through its socket.
+  Without that dll the forwards do not resolve and the functions are missing, as before for `netapi32`. **Unconditional**.
 - `dlls/ntdll/unix/server.c`: the channel to session 0 (`regsrv_*`): obtained from the process's server, a
   table of session 0 key handles that survives a new channel, reopen by path, lost-channel retry; `NtClose` and
   `NtDuplicateObject` (within the process) for those handles. `unix_private.h`: the interface.
