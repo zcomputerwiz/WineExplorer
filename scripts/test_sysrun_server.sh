@@ -1072,6 +1072,38 @@ bp c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation
 [ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
 ok c4_no_lease_no_process
 
+# -- B39: an image on a file system that gives no read leases (UDF, as a loop-mounted ISO): the broker refuses it
+# with its own reply error (WEXELEVATE_E_NO_IMAGE_LEASE), nothing runs; through ShellExecuteEx the program still
+# sees ERROR_NOT_SUPPORTED (no box with SEE_MASK_FLAG_NO_UI); shell32's dialog tells the user to copy it to a disk
+if command -v xorriso >/dev/null 2>&1; then
+    el_clean; touch "$EL/approve.all"
+    UDFTMP="$ROOT/udfsrc"; UDFIMG="$ROOT/udf.iso"; UDMMNT="$ROOT/udfmnt"
+    rm -rf "$UDFTMP" "$UDFIMG" "$UDMMNT"; install -d -m 0755 "$UDFTMP" "$UDMMNT"
+    cp "$ROOT/probes/wexelevate_probe64.exe" "$UDFTMP/udf.exe"
+    xorriso -as mkisofs -quiet -udf -output "$UDFIMG" "$UDFTMP/udf.exe" || fail "the UDF image was not made"
+    if ! mount -o loop,ro "$UDFIMG" "$UDMMNT"; then
+        echo "NOTE: the UDF image did not mount (no loop mounts here?), the B39 case was not run"
+        rm -rf "$UDFTMP" "$UDFIMG" "$UDMMNT"
+    else
+        fstype="$(stat -f -c %T "$UDMMNT")"
+        grep -qi '^udf' <<<"$fstype" || { umount "$UDMMNT"; fail "the mounted file system is not UDF: $fstype"; }
+        UDFLINE="$(grep 'define WEXELEVATE_E_NO_IMAGE_LEASE' "$SRC/src/include/wexelevate.h")"
+        UDFHEX="$(printf '%s' "$UDFLINE" | grep -oE '0x[0-9a-fA-F]+' | head -1)"
+        [ -n "$UDFHEX" ] || { umount "$UDMMNT"; fail "WEXELEVATE_E_NO_IMAGE_LEASE is not in wexelevate.h"; }
+        UDFERR="$(printf '%d' "$UDFHEX")"
+        WUDF="$(winpath "$UDMMNT/udf.exe")"
+        bp c4_udf_image_is_refused_with_the_brokers_own_error "$ADM" 64 run "$WUDF" "$UDFERR" "$(winpath $EL/out.udf)" -
+        [ ! -e "$EL/out.udf" ] || fail "a request from a UDF image started a process"
+        UDFLOG="$ROOT/shexec-udf.log"
+        bprobe "$ADM" 64 shexec runas "$WUDF" 50 "$(winpath $EL/out.ui)" - > "$UDFLOG" 2>&1
+        grep -q '^shexec=PASS' "$UDFLOG" || { cat "$UDFLOG" >&2; fail "the UDF refusal via ShellExecuteEx: no PASS"; }
+        ok c4_udf_refusal_carries_the_distinct_error_and_keeps_50_for_programs
+        umount "$UDMMNT"; rm -rf "$UDFTMP" "$UDFIMG" "$UDMMNT"
+    fi
+else
+    echo "NOTE: xorriso is not installed, the UDF refusal case (B39) was not run"
+fi
+
 # -- 4. A/B concurrency: approving A does not approve B
 el_clean; touch "$EL/wait-for-gate" "$EL/approve.a.exe"
 bprobe "$ADM" 64 concurrent "$(winpath /home/$ADM/wexel/a.exe)" "$(winpath /home/$ADM/wexel/b.exe)" "$(winpath $EL/out.a)" "$(winpath $EL/out.b)" \

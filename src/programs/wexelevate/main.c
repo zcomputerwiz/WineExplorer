@@ -636,7 +636,15 @@ static DWORD freeze_image( struct request *req )
     if (!(req->lease_event = CreateEventW( NULL, TRUE, FALSE, NULL )))
     { err = GetLastError(); E1S_AUDIT( "freeze-lease-event" ); return err; }
     if ((err = pLeaseTake( req->image_file, req->lease_event, &req->lease )))
-    { E1S_AUDIT( "freeze-lease-take" ); return err; }
+    {
+        E1S_AUDIT( "freeze-lease-take" );
+        /* The Unix side gives ERROR_NOT_SUPPORTED only when the image's file system gives no read leases (UDF, a
+         * loop-mounted ISO). Reply with the broker's own value for that one case (wexelevate.h): the client maps
+         * it back to ERROR_NOT_SUPPORTED for the program, and shell32 shows the user what to do (copy the program
+         * to a local disk). The refusal and the error the program sees are unchanged. */
+        if (err == ERROR_NOT_SUPPORTED) err = WEXELEVATE_E_NO_IMAGE_LEASE;
+        return err;
+    }
     if ((err = hash_file( req->image_file, req->hash )))
     { E1S_AUDIT( "freeze-image-hash" ); return err; }
     return ERROR_SUCCESS;
