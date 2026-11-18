@@ -4191,7 +4191,8 @@ for b in 1; do
     nd help; [ "$NDRC" = 0 ] && grep -q 'NETDOM JOIN' <<<"$NDOUT" || fail 'netdom help'
     # the engine's refusal is shown, with Windows' closing line
     nd join /domain:ad.wexlab.example /userd:a /passwordd:wrong
-    [ "$NDRC" = 1326 ] && grep -q 'Logon failure' <<<"$NDOUT" && grep -q '(the controller did not accept the account)' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom join: the refusal'; }
+    # (a unix shell sees the exit status modulo 256: 1326 is 46)
+    [ "$NDRC" = 46 ] && grep -q 'Logon failure' <<<"$NDOUT" && grep -q '(the controller did not accept the account)' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom join: the refusal'; }
     # remove
     : > "$JREQ"
     nd remove /domain:ad.wexlab.example /userd:admin /passwordd:pw
