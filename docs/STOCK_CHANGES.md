@@ -1,5 +1,20 @@
 # Changes to stock Wine / third-party code
 
+## msxml3: schema cache documents in another encoding, \uXXXX in patterns (B47, 2026-11-18)
+
+General msxml3 gaps, not tied to this shell; both are in `dlls/msxml3/schema.c` and have tests in
+`dlls/msxml3/tests/schema.c` (todo_wine first, removed with the fix). Found by Office 2024's Click-to-Run, whose
+App-V API (`OISVAPI::ConfigurePackage`) loads a deployment configuration schema through
+`ISchemaCache::add(IXMLDOMDocument)`.
+
+- `create_xmldoc_for_text` (the re-parse of `IXMLDOMNode::xml` in `schema_cache_add`): the text has been converted to
+  UTF-8, but a document loaded from an `encoding="utf-16"` source keeps that declaration, so `xmlParseMemory` failed
+  and `add` returned `E_INVALIDARG`. It now uses `xmlReadMemory(..., "UTF-8", 0)`.
+- `fix_pattern_u_escapes` (new, called from `cache_entry_from_xsd_doc` before `xmlSchemaParse`): MSXML accepts
+  `\uXXXX` in an `xs:pattern` value, libxml2's regular expression compiler does not ("not a valid regular
+  expression", schema not added). The escapes are replaced by the characters; only a backslash that is not itself
+  escaped starts one (`\\u0041` stays a literal backslash and `u0041`); U+0000 becomes U+0001 (XML cannot contain it).
+
 ## System tier: session 0 holds the machine registry (T1, 2026-11-11)
 
 Inactive unless configured: a server is session 0 only with `--session0`, and a user's server uses session 0 only
