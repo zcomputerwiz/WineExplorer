@@ -42,6 +42,9 @@
 #define IDD_ENVVARS         1006
 #define IDD_COMPNAME_CHANGE 1007
 #define IDD_STARTREC        1008
+#define IDD_COMPNAME_MORE   1009
+#define IDD_JOIN_CREDS      1010
+#define IDD_JOIN_ERROR      1011
 
 /* Startup and Recovery strings */
 #define IDS_STARTREC_NO_DUMP     11
@@ -66,6 +69,25 @@
 #define IDC_COMP_WORKGROUP     2103
 #define IDC_COMP_CHANGE_BTN    2104
 #define IDC_COMPCHG_NAME       2105
+#define IDC_COMPCHG_DOMAIN_RB  2106
+#define IDC_COMPCHG_DOMAIN     2107
+#define IDC_COMPCHG_WG_RB      2108
+#define IDC_COMPCHG_WG         2109
+#define IDC_COMPCHG_FULL       2110
+#define IDC_COMPCHG_MORE       2111
+#define IDC_COMP_MEMBER_LABEL  2112
+#define IDC_COMP_NETID_BTN     2113
+#define IDC_MORE_SUFFIX        2120
+#define IDC_MORE_CHECK         2121
+#define IDC_MORE_NETBIOS       2122
+#define IDC_CRED_TEXT          2130
+#define IDC_CRED_USER          2131
+#define IDC_CRED_PASS          2132
+#define IDC_CRED_DOMAIN        2133
+#define IDC_ERR_TEXT           2140
+#define IDC_ERR_DETAILS_BTN    2141
+#define IDC_ERR_DETAILS        2142
+#define IDC_ERR_ICON           2143
 
 /* Hardware Controls */
 #define IDC_HW_DEVMGR_BTN      2201
