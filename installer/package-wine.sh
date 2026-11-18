@@ -313,22 +313,29 @@ for unit in wex-advanced-options.target wex-advanced-options.service wex-safemod
     cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
-# system tier session 0 (docs/SYSTEM_TIER_WORK_ORDERS.md); enabled only by setup-machine-root.sh with WEX_SESSION0=1
+# system tier session 0 (docs/SYSTEM_TIER_WORK_ORDERS.md); enabled by setup-machine-root.sh with WEX_SESSION0=1 (the
+# default for new installs, below)
 cp "$SCRIPT_DIR/systemd/wex-session0.service" "$SCRIPT_DIR/systemd/wex-session0-services.service" "$STAGE_SESSION/lib/systemd/system/"
 # domain Group Policy for Windows programs (docs/GROUP_POLICY.md); the timer is enabled with session 0
 cp "$SCRIPT_DIR/systemd/wex-gpupdate.service" "$SCRIPT_DIR/systemd/wex-gpupdate-background.service" \
     "$SCRIPT_DIR/systemd/wex-gpupdate.timer" "$SCRIPT_DIR/systemd/wex-gpupdate.path" \
     "$STAGE_SESSION/lib/systemd/system/"
 install -m 0755 "$SCRIPT_DIR/scripts/wex-gpupdate.sh" "$STAGE_SESSION/usr/local/bin/wex-gpupdate.sh"
-# Opt-in for a test image: WEX_SESSION0=1 at packaging time leaves a marker, and the installed system's setup
-# (wex-gui-setup.sh) then runs the machine root setup with WEX_SESSION0=1. Without it nothing changes.
-if [ "${WEX_SESSION0:-0}" = 1 ]; then
+# Session 0 and enforced elevation are on by default for new installs (owner, 2026-11-18): the package carries a
+# marker for each, and the installed system's first setup (wex-gui-setup.sh) runs the machine root setup with
+# WEX_SESSION0=1 and WEX_ELEVATION=1. An existing install keeps its own setting: the package's upgrade runs
+# wex-setup-machine.sh --update, which reads session 0 from the existing sysrun.conf and never removes the elevation
+# helper, and does not look at the markers. WEX_SESSION0=0 / WEX_ELEVATION=0 at packaging time leave a marker out
+# (an image without them, for comparison).
+case "${WEX_SESSION0:-1}" in 0|1) ;; *) echo "WEX_SESSION0 must be 0 or 1" >&2; exit 1 ;; esac
+case "${WEX_ELEVATION:-1}" in 0|1) ;; *) echo "WEX_ELEVATION must be 0 or 1" >&2; exit 1 ;; esac
+if [ "${WEX_SESSION0:-1}" = 1 ]; then
     install -d -m 0755 "$STAGE_SESSION/usr/local/share/wineexplorer"
     echo 1 > "$STAGE_SESSION/usr/local/share/wineexplorer/session0.enable"
 fi
-# The same for enforced elevation: WEX_ELEVATION=1 at packaging time, a marker, and setup then names the consent
-# helper in the machine hive (docs/SYSTEM_TIER_WORK_ORDERS.md, "Enforced elevation on an installed machine").
-if [ "${WEX_ELEVATION:-0}" = 1 ]; then
+# enforced elevation: setup names the consent helper in the machine hive (docs/SYSTEM_TIER_WORK_ORDERS.md, "Enforced
+# elevation on an installed machine")
+if [ "${WEX_ELEVATION:-1}" = 1 ]; then
     install -d -m 0755 "$STAGE_SESSION/usr/local/share/wineexplorer"
     echo 1 > "$STAGE_SESSION/usr/local/share/wineexplorer/elevation.enable"
 fi

@@ -48,8 +48,8 @@ find /etc/skel/.wine -name "*.tmp" -delete 2>/dev/null || true
 
 # Split prefix into shared machine root (/var/lib/wineexplorer/machine) and per-user symlinks
 if [ -x /usr/local/bin/wex-setup-machine.sh ]; then
-    # an image packaged with WEX_SESSION0=1 turns the system tier's session 0 on (docs/SYSTEM_TIER_WORK_ORDERS.md)
-    # and one packaged with WEX_ELEVATION=1 enforces elevation ("Enforced elevation on an installed machine")
+    # the package's markers (present by default since 2026-11-18; package-wine.sh) turn the system tier's session 0 on
+    # (docs/SYSTEM_TIER_WORK_ORDERS.md) and enforce elevation ("Enforced elevation on an installed machine")
     WEX_SETUP_ENV=()
     [ ! -f /usr/local/share/wineexplorer/session0.enable ] || WEX_SETUP_ENV+=(WEX_SESSION0=1)
     [ ! -f /usr/local/share/wineexplorer/elevation.enable ] || WEX_SETUP_ENV+=(WEX_ELEVATION=1)

@@ -139,15 +139,16 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
   system's network service takes a hand-set address off the second card unless told not to manage it.
 * `installer/tests/elevation.sh` (enforced elevation on an installed machine; `docs/SYSTEM_TIER_WORK_ORDERS.md`,
   "Enforced elevation on an installed machine"): as root, `VMTEST_DIR=DIR bash installer/tests/elevation.sh SOURCE_VM
-  [TEST_VM]`. SOURCE_VM is a disk installed from an ISO packaged with `WEX_SESSION0=1 WEX_ELEVATION=1` (both for
-  `package-wine.sh` and for `build-iso.sh`). It builds `scripts/wexelevate_probe.c` with MinGW, copies it into an
+  [TEST_VM]`. SOURCE_VM is a disk installed from an ISO with session 0 and enforced elevation (the default since
+  2026-11-18; before, `WEX_SESSION0=1 WEX_ELEVATION=1` for `package-wine.sh` and `build-iso.sh`; `=0` now makes an
+  image without them). It builds `scripts/wexelevate_probe.c` with MinGW, copies it into an
   overlay, and answers the real consent dialog on the screen (Enter for Cancel, a click on "Continue"). About 8
   minutes; passed on 2026-11-13 in wexbuild (`/root/vmtest-el/wex-el`, ISO `/root/out/wex-el.iso`). Pitfall: the
   screen reading does not find "Cancel" under the default button's focus mark.
 * `installer/tests/session0.sh` (system tier, session 0 on an installed machine; `docs/SYSTEM_TIER_WORK_ORDERS.md`): as
   root, `VMTEST_DIR=DIR bash installer/tests/session0.sh SOURCE_VM [TEST_VM]`. SOURCE_VM is a disk installed by
-  `install-unattended.sh` from an ISO packaged with `WEX_SESSION0=1` (the variable must be set for `build-iso.sh`
-  too: it packages again); it is never written. The test runs in an overlay, gives its root a throwaway password
+  `install-unattended.sh` from an ISO with session 0 (the default since 2026-11-18; `WEX_SESSION0=0` for
+  `package-wine.sh` and `build-iso.sh`, which packages again, makes one without); it is never written. The test runs in an overlay, gives its root a throwaway password
   offline, sends `session0-guest.sh` in over the serial console and decides from its 16 `ok`/`not ok` lines (units,
   the user's session, registry through session 0, a second user, a forwarded service, a restart of session 0).
   About 4 minutes; passed on 2026-11-13 in wexbuild (`/root/vmtest-s0/wex-s0`, ISO from `/root/WE-s0`). It takes the

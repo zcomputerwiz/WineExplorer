@@ -565,6 +565,11 @@ What was missing and is added:
 * **Opt-in image.** `WEX_SESSION0=1` for `package-wine.sh` and `build-iso.sh` (the ISO step packages again, so it
   needs the variable too) leaves `/usr/local/share/wineexplorer/session0.enable`; `wex-gui-setup.sh` then runs
   the machine setup with `WEX_SESSION0=1`. Without it nothing changes; session 0 stays off by default.
+  **Since 2026-11-18 the marker is the default** (owner's decision, after the whole chain, Safe Mode and the AD lab
+  passed on session 0 + elevation images): new installs get session 0 and enforced elevation, `WEX_SESSION0=0` /
+  `WEX_ELEVATION=0` at packaging time make an image without them. An existing install keeps its setting: the
+  package's upgrade (`wex-setup-machine.sh --update`) reads session 0 from its `sysrun.conf`, never removes the
+  elevation helper, and does not read the markers.
 * **A server that the launcher did not start does not use a configured session 0.** Found by the install: the
   out-of-box setup runs Wine as the temporary setup account on the skeleton prefix, which the launcher does not
   serve (it serves `~/.wine` only). That server read the configuration, was refused by session 0, and its machine
@@ -616,6 +621,8 @@ there, in this order:
    machine state in places the lab suite does not reach);
 4. a person driving the dialog at human pace;
 5. then the default.
+
+**Status (2026-11-18): step 5 done**, the default for new installs (with session 0); see "Opt-in image" above.
 
 **Status (2026-11-13): steps 1 and 2 done for an administrator.**
 
