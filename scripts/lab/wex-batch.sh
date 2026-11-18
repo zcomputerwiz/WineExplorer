@@ -30,11 +30,17 @@ mkdir -p "$LOGS"
 T0=$SECONDS
 part() { echo "$(date +%T) $*"; }
 
-# The suite runs the worktree as it is: it must be REV, with nothing changed (a worktree's .git file names a Windows
-# path, which wex-run.sh translates; here only HEAD and the status are asked)
-head=$("${G[@]}" -C "$D" rev-parse HEAD 2>/dev/null)
+# The suite runs the worktree as it is: it must be REV, with nothing changed. A git worktree's .git file names a
+# Windows path (D:/...): translated for WSL, as wex-run.sh does.
+if [ -f "$D/.git" ]; then
+    GD=$(sed -n 's/^gitdir: //p' "$D/.git" | tr -d '\r' | sed 's#^\([A-Za-z]\):#/mnt/\L\1#')
+    WG=("${G[@]}" --git-dir="$GD" --work-tree="$D")
+else
+    WG=("${G[@]}" -C "$D")
+fi
+head=$("${WG[@]}" rev-parse HEAD 2>/dev/null)
 [ "$head" = "$REV" ] || { echo "the worktree is at ${head:-?}, not at $REV"; exit 2; }
-[ -z "$("${G[@]}" -C "$D" status --porcelain --untracked-files=no 2>/dev/null)" ] ||
+[ -z "$("${WG[@]}" status --porcelain --untracked-files=no --ignore-submodules=dirty 2>/dev/null)" ] ||
     { echo "the worktree has changes; commit them (the suite runs the worktree, the ISO REV)"; exit 2; }
 
 part "suite: wex-run.sh full"
