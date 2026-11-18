@@ -50,6 +50,55 @@ MAP=${WEX_ACCOUNTS_MAP:-/etc/wineexplorer/accounts.map}
 STAGE=/run/wineexplorer-policy
 LISTS=
 
+# --logon NAME: root's step of a logon (the PAM line of the greeter, wex-domain-admit-pam.sh), docs/GROUP_POLICY.md,
+# "Policy before the desktop". Windows applies a user's policy before the desktop on the user's first sign-in on a
+# computer (fast logon optimization is off then), and at every sign-in when "Always wait for the network at computer
+# startup and logon" is enabled (SyncForegroundPolicy); at other sign-ins the policy is applied while the user already
+# works. This is the first kind: it runs only the user's part of this script, and only when there is policy to apply
+# and the user is new here (no archive of the user's policy) or the computer asks to wait. Anything else ends at
+# once, status 0, and the session's own refresh after the shell is up does the work. NAME is looked up in the accounts
+# map (active records only); a name that is not there ends the run too.
+ONLY_SID=
+LOCK_WAIT=270
+sync_foreground_policy()
+{
+    awk 'BEGIN { key = "[software\\\\policies\\\\microsoft\\\\windows nt\\\\currentversion\\\\winlogon]" }
+         { l = tolower($0) }
+         index(l, key) == 1 { inside = 1; next }
+         substr(l, 1, 1) == "[" { inside = 0 }
+         inside && l ~ /^"syncforegroundpolicy"=dword:0*1[[:space:]]*$/ { found = 1 }
+         END { exit found ? 0 : 1 }' "$MACHINE_ROOT/system.reg" 2>/dev/null
+}
+if [ "${1:-}" = --logon ]; then
+    LOGON_NAME=${2:-}
+    LOGON_MAP=${WEX_ACCOUNTS_MAP:-/etc/wineexplorer/accounts.map}
+    case $LOGON_NAME in ""|-*|*[!A-Za-z0-9._\\\ \$@-]*) echo "wex-gpupdate: --logon: not a user name"; exit 0 ;; esac
+    [ -r "$LOGON_MAP" ] || exit 0
+    # name, kind (local or domain: a version 2 map says it), SID, as the loop over the map further down reads them
+    LOGON_REC=$(awk -v want="$LOGON_NAME" '
+        function plain(s) { sub(/^.*\\/, "", s); return tolower(s) }
+        NR == 1 { v = $2; next }
+        $4 == "active" && $2 >= 1000 && $2 != 65534 && (tolower($1) == tolower(want) || plain($1) == plain(want)) {
+            o = (v == 2) ? 1 : 0
+            print $1, (v == 2 ? $5 : "unknown"), "S-1-5-21-" $(6 + o) "-" $(7 + o) "-" $(8 + o) "-" $(9 + o); exit }' "$LOGON_MAP")
+    [ -n "$LOGON_REC" ] || { echo "wex-gpupdate: --logon $LOGON_NAME: no active record in the accounts map"; exit 0; }
+    read -r _ logon_kind ONLY_SID <<<"$LOGON_REC"
+    LOGON_GPO=$MACHINE_ROOT/drive_c/windows/system32
+    logon_has=0
+    for f in "$LOGON_GPO/GroupPolicy/User/Registry.pol" "$LOGON_GPO/GroupPolicyUsers/S-1-5-32-544/User/Registry.pol" \
+             "$LOGON_GPO/GroupPolicyUsers/S-1-5-32-545/User/Registry.pol" "$LOGON_GPO/GroupPolicyUsers/$ONLY_SID/User/Registry.pol"; do
+        [ -f "$f" ] && [ ! -L "$f" ] && [ -s "$f" ] && logon_has=1
+    done
+    # a domain account (or one whose kind is not known) may have objects of the domain: the run finds out
+    [ "$logon_kind" = local ] || logon_has=1
+    if [ "$logon_has" = 0 ]; then echo "wex-gpupdate: --logon $LOGON_NAME: no policy to apply"; exit 0; fi
+    if [ -e "$MACHINE_ROOT/drive_c/windows/system32/GroupPolicy/Archive/User-$ONLY_SID.pol" ] && ! sync_foreground_policy; then
+        echo "wex-gpupdate: --logon $LOGON_NAME: not a first logon; the session refreshes after the shell is up"
+        exit 0
+    fi
+    LOCK_WAIT=40
+fi
+
 # wexpolicy's own exit status is the function's (not tr's): a failed apply or record is not lost
 s0_wexpolicy()
 {
@@ -66,7 +115,7 @@ wexpolicy_failed() { echo "wex-gpupdate: wexpolicy $* failed" >&2; [ -z "$LISTS"
 # started after it.
 if [ "$PRINT" != 1 ]; then
     exec 9> "${WEX_GPO_LOCK:-/run/wex-gpupdate.lock}"
-    flock -w 270 9 || { echo "wex-gpupdate: another run did not end in time" >&2; exit 1; }
+    flock -w "$LOCK_WAIT" 9 || { echo "wex-gpupdate: another run did not end in time" >&2; exit 1; }
 fi
 
 # gpsvc numbers the refresh requests and leaves the last number in the request file (Refresh). The run reads it now,
@@ -85,10 +134,11 @@ finish()
 {
     local now
     [ -z "$LISTS" ] || rm -rf "$LISTS"
-    [ "$PRINT" = 1 ] || s0_wexpolicy refreshed $REQ0 >/dev/null || true
+    [ "$PRINT" = 1 ] || [ -n "$ONLY_SID" ] || s0_wexpolicy refreshed $REQ0 >/dev/null || true
     now=$(request_number)
-    # the number only moves forward (and may wrap): a different one is a newer request
-    if [ "$PRINT" != 1 ] && [ -n "$now" ] && [ "$now" != "$REQ0" ]; then
+    # the number only moves forward (and may wrap): a different one is a newer request (a logon run, which serves
+    # no request, leaves it to the run that does)
+    if [ "$PRINT" != 1 ] && [ -z "$ONLY_SID" ] && [ -n "$now" ] && [ "$now" != "$REQ0" ]; then
         exec "$0" "${ARGS[@]}"
     fi
 }
@@ -360,7 +410,7 @@ LISTS=$(mktemp -d)
 # Domain, OU in that order and the last wins, so the domain's policy overrides the local one
 : > "$LISTS/machine.domain.list"
 MACHINE_UNKNOWN=0
-if [ "$JOINED" = 1 ]; then
+if [ "$JOINED" = 1 ] && [ -z "$ONLY_SID" ]; then
     domain_list machine "$HOST\$" MACHINE "$LISTS/machine.domain.list" || MACHINE_UNKNOWN=1
 fi
 MACHINE_FILES=()
@@ -385,6 +435,7 @@ if [ "$PRINT" = 1 ]; then
 else
     rm -rf "$STAGE"
     install -d -m 0755 "$STAGE"
+    if [ -z "$ONLY_SID" ]; then   # (a logon run is the user's alone)
     # a machine with no policy at all (not joined, no local file or template, nothing written before) has nothing to do
     if [ "$MACHINE_UNKNOWN" = 1 ] && has_archive Machine; then
         echo "wex-gpupdate: the domain's computer policy is not known: what was applied stays"
@@ -402,6 +453,7 @@ else
         fi
     done
     [ "${#args[@]}" -eq 0 ] || s0_wexpolicy security /machine "${args[@]}" || wexpolicy_failed security
+    fi
 fi
 
 # The people of the accounts map (UID 1000 or more): name in column 1, UID in column 2, "active" in column 4, the
@@ -416,6 +468,8 @@ awk 'NR == 1 { v = $2; next }
          o = (v == 2) ? 1 : 0
          print $1, (v == 2 ? $5 : "unknown"), "S-1-5-21-" $(6 + o) "-" $(7 + o) "-" $(8 + o) "-" $(9 + o) }' \
     "$MAP" | while read -r name kind sid; do
+    # a logon run is for one user (ONLY_SID)
+    [ -z "$ONLY_SID" ] || [ "$sid" = "$ONLY_SID" ] || continue
     # only domain users have policy objects of the domain; a local account is not known to the domain ("net ads
     # gpo list" does not fail for an unknown name, so Winbind is asked)
     # (a version 2 map says it: "domain" is the answer of the join and of the logon that recorded the account, which

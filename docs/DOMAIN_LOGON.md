@@ -162,7 +162,9 @@ parser and the token are the system tier's security core) before they merge.
   shell is up: the session (`wine-explorer-session-common.sh`, `wex_refresh_policy_after_logon`) asks for a refresh
   through `gpupdate` once an `explorer.exe` of the user runs, as Windows applies user policy after the profile has
   loaded. The first version started the refresh from the admission step, which is where an intermittent
-  failure of the session to register with session 0 (B26) showed. The lab tests the tile, the policy and the
+  failure of the session to register with session 0 (B26) showed. (Since 2026-11-17 the PAM step also applies a user's
+  policy on the first logon, before the session exists: `wex-gpupdate.sh --logon`, bounded to 60 seconds, so it does
+  not compete with the session's registration; GROUP_POLICY.md, "Policy before the desktop".) The lab tests the tile, the policy and the
   offline logon with the controller unreachable ([GPO_LAB.md](GPO_LAB.md), 34 checks).
 - WO 4 (the lab, end to end): `machine` logs `WEXLAB\wexuser1` on through the greeter and passes all 24 checks
   (2026-11-16; [GPO_LAB.md](GPO_LAB.md)). It found three gaps, fixed in the same change: `wex-sysrun` accepts one
