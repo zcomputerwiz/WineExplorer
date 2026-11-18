@@ -63,6 +63,24 @@ no `AADSTS50011` for any, so it checks the redirect URI only after the user has 
 therefore answered only by the owner's first real sign-in in step 2 (the broker plugin URI first, as the program's
 WAM path implies).
 
+**Update (2026-11-17, Integration, image a2d4ed34 / Wine 7a0018f7, WebView2 Runtime 157.0.4341.60 installed as the
+optional component, so the runtime is registered):** the blocker above is gone, and Copilot does need the broker.
+"Continue with Microsoft" opens the embedded sign-in window; once the owner types the account name, Copilot calls
+`IWebAuthenticationCoreManagerInterop::RequestTokenForWindowAsync` (prompt type 1) for client
+`0ec893e0-5785-4de6-99da-4ed124e5296c`, scope `profile openid 4765445b-32c6-49b0-83e6-1d93765276ca/.default`,
+provider `https://login.microsoft.com`, authority `consumers`, with the request properties `Client_uiflow` =
+`new_account`, `LoginHint` (the typed account name), `api-version` 2.0, `oauth2_batch` 1, `telemetry` MATS, `nopa` 2,
+`mkt` and MSAL's `x-client-*` fields. The diagnostic provider answers status 5 (`ProviderError`, 0x80004001), and
+Microsoft's page in the window then shows "Something went wrong [4wp0s]", code -2146893805 (0x80090013,
+`NTE_BAD_PROVIDER`; the same tag and code are reported on Windows too, so it is a general failure of the sign-in
+step, not a Wine-only code). Ruled out with a Wine trace of the whole session: no `NCrypt*` call (no key-provider
+failure), only ordinary `CryptAcquireContext` with verify-context, no TPM or key-credential lookups, no library
+load failures. Still missing at that point, for the owner's scope (generic classes belong to the UWP work): the
+internal class `Windows.Internal.Security.WebAuthentication.AuthenticationManager` and
+`Windows.Security.Authorization.AppCapabilityAccess.AppCapability` (activation fails), and COM class
+`{daa52b27-8897-50af-ada5-c6c71bb64e17}` (not registered). So the next step is step 3 itself: answer this
+`RequestTokenForWindowAsync` call with a real sign-in.
+
 ## Parts
 
 ```
