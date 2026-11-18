@@ -32,10 +32,25 @@ PACKAGES="samba winbind libnss-winbind libpam-winbind krb5-user"
 # status=N (a Win32 error code) and message=TEXT; the command line says the text and ends with status 1
 SERVE=0
 NOTES=
-reply() { printf 'status=%s\nmessage=%s\n' "$1" "$2"; }
+REQ_LOG=
+reply()   # CODE MESSAGE: control characters become spaces (the names come from outside), the end is trimmed
+{
+    local m=${2//[[:cntrl:]]/ }
+    m=${m%"${m##*[![:space:]]}"}
+    printf 'status=%s\nmessage=%s\n' "$1" "$m"
+}
+# one change of the machine's authentication at a time (smb.conf, krb5.conf, nsswitch.conf, PAM): the socket service and
+# the root command line wait for each other; the lock lasts until the process ends
+take_lock()
+{
+    command -v flock >/dev/null 2>&1 || return 0
+    { exec 9>"${WEX_JOIN_LOCK:-/run/wex-domain-join.lock}"; } 2>/dev/null || return 0
+    flock -w 300 9 || fail 170 "another change of the domain membership is in progress"   # ERROR_BUSY
+}
 fail()   # CODE MESSAGE
 {
-    if [ "$SERVE" = 1 ]; then reply "$1" "${2//[[:cntrl:]]/ }"; exit 0; fi
+    if [ "$SERVE" = 1 ]; then logger -t wex-domain-join "request $REQ_LOG: failed $1" 2>/dev/null || true
+                              reply "$1" "${2//[[:cntrl:]]/ }"; exit 0; fi
     echo "wex-domain-join: $2" >&2
     exit 1
 }
@@ -45,6 +60,7 @@ note() { if [ "$SERVE" = 1 ]; then NOTES="$NOTES$* "; else echo "wex-domain-join
 
 usage()
 {
+    [ "$SERVE" != 1 ] || fail 87 "invalid request"
     sed -n '/^#   wex-domain-join.sh join/,/^#   wex-domain-join.sh status/p' "$0" | sed 's/^# \{0,3\}//' >&2
     exit 2
 }
@@ -127,6 +143,7 @@ cmd_join()
 {
     local domain=${1:-} user= workgroup= ou= stdin=0 realm kind netbios principal
     [ -n "$domain" ] || usage
+    take_lock
     shift
     while [ $# -gt 0 ]; do
         case $1 in
@@ -195,6 +212,7 @@ undo_files()
 cmd_leave()
 {
     local user= stdin=0 force=0 kind realm principal
+    take_lock
     while [ $# -gt 0 ]; do
         case $1 in
             --user) user=${2:-}; shift 2 || usage ;;
@@ -274,6 +292,7 @@ cmd_validate()   # TYPE NAME
 cmd_secure_channel()   # verify|reset
 {
     local kind realm
+    [ "$1" != reset ] || take_lock
     kind=$(join_kind)
     [ "$kind" = winbind ] || fail 2692 "this machine is not joined with Winbind (kind: ${kind:-none})"
     command -v net >/dev/null 2>&1 || fail 50 "missing: net (on Debian: apt-get install $PACKAGES)"
@@ -307,9 +326,12 @@ cmd_dclist()
 # one request on standard input: lines of key=value ended by an empty line; the answer is status= and message=
 cmd_serve()
 {
-    local line key val n=0 op= domain= user= password= ou= workgroup= name= nametype= force= kind
+    local line key val n=0 op= domain= user= password= ou= workgroup= name= nametype= force= kind rc
     SERVE=1
-    while IFS= read -r line; do
+    while :; do
+        # a client that connects and says nothing must not keep the service for ever
+        rc=0; IFS= read -r -t 30 line || rc=$?
+        [ "$rc" -le 128 ] || fail 1460 "no request arrived in 30 seconds"   # ERROR_TIMEOUT
         [ -n "$line" ] || break
         n=$((n + 1)); [ "$n" -le 32 ] || fail 87 "too many lines"
         [[ $line == *=* ]] || fail 87 "a line without a ="
@@ -322,6 +344,8 @@ cmd_serve()
             *) fail 87 "unknown field" ;;
         esac
     done
+    REQ_LOG="op=${op:-?} domain=${domain:-} user=${user:-}"
+    logger -t wex-domain-join "request $REQ_LOG" 2>/dev/null || true
     case $op in
         join) JOIN_PW=$password; cmd_join "$domain" --user "$user" --password-stdin ${workgroup:+--workgroup "$workgroup"} ${ou:+--ou "$ou"} ;;
         leave) if [ "$force" = 1 ]; then cmd_leave --force
@@ -333,6 +357,7 @@ cmd_serve()
         status) kind=$(join_kind); NOTES="kind=${kind:-none}" ;;
         *) fail 87 "unknown operation" ;;
     esac
+    logger -t wex-domain-join "request $REQ_LOG: done" 2>/dev/null || true
     reply 0 "$NOTES"
     exit 0
 }

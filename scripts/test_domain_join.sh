@@ -204,7 +204,7 @@ echo 'OK: wex-domain-join.sh status'
 serve()   # request lines...; the empty line that ends the request is added
 {
     { printf '%s\n' "$@"; echo; } | PATH="$FX/bin:$PATH" WEX_JOIN_NOROOT=1 WEX_JOIN_ETC="$FX/etc" WEX_DOMAIN_STATE="$FX/state" \
-        WEX_JOIN_HOSTNAME=wexbox bash "$SCRIPT" serve 2>&1
+        WEX_JOIN_HOSTNAME=wexbox WEX_JOIN_LOCK="$FX/lock" bash "$SCRIPT" serve 2>&1
 }
 status_of() { sed -n 's/^status=//p' <<<"$1" | head -n 1; }
 expect()   # CODE WHAT request lines...
@@ -279,6 +279,10 @@ expect 87 'an unknown name type' 'op=validate' 'nametype=other' 'name=x'
 # status
 reset_etc; echo winbind > "$FX/kind"
 out=$(serve op=status); [ "$(status_of "$out")" = 0 ] && grep -q '^message=kind=winbind' <<<"$out" || { echo "$out"; fail 'serve: status'; }
+# a client that sends nothing is answered with a time out, not kept for ever; a bad join request is 87, not a usage text
+out=$( { sleep 40; } | PATH="$FX/bin:$PATH" WEX_JOIN_NOROOT=1 WEX_JOIN_ETC="$FX/etc" WEX_DOMAIN_STATE="$FX/state" WEX_JOIN_LOCK="$FX/lock" bash "$SCRIPT" serve 2>&1)
+[ "$(status_of "$out")" = 1460 ] || { echo "$out"; fail 'serve: a silent client did not get 1460'; }
+out=$(serve op=join domain=); [ "$(status_of "$out")" = 87 ] || { echo "$out"; fail 'serve: an empty domain is not 87'; }
 echo 'OK: wex-domain-join.sh serve (a request, the answer, the codes, a password that reaches kinit unchanged and nothing else)'
 
 # ---- the secure channel and the controllers (netdom verify and reset, nltest /sc_verify and /sc_reset)

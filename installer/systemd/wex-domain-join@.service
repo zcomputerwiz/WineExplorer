@@ -15,6 +15,13 @@ StandardInput=socket
 StandardOutput=socket
 StandardError=journal
 TimeoutStartSec=300
+RuntimeMaxSec=600
 # the engine is the one place that changes the machine's authentication: nothing else of the system is its business
 PrivateTmp=true
 NoNewPrivileges=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
