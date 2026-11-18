@@ -12,6 +12,7 @@
 #   wex-domain-join.sh leave --force                           only this machine's side (the controller is out of
 #                                                              reach): the machine account stays in the domain
 #   wex-domain-join.sh status                                  what the machine is joined to and what is set up
+#   wex-domain-join.sh serve                                   one request on standard input (the socket unit)
 #
 # The administrator's password is read from standard input only, never from the command line (which every user can
 # read in the process list), and is given to kinit; the join itself uses the ticket (net ads join -k), whose cache is a
@@ -27,9 +28,20 @@ STATE_TOOL=${WEX_DOMAIN_STATE:-/usr/local/bin/wex-domain-state.sh}
 [ -e "$STATE_TOOL" ] || STATE_TOOL=$HERE/wex-domain-state.sh
 PACKAGES="samba winbind libnss-winbind libpam-winbind krb5-user"
 
-die() { echo "wex-domain-join: $*" >&2; exit 1; }
-note() { echo "wex-domain-join: $*"; }
-[ "${WEX_JOIN_NOROOT:-0}" = 1 ] || [ "$(id -u)" -eq 0 ] || die "run as root"
+# serve mode (a request on standard input from the socket, docs/DOMAIN_JOIN.md, "How the API reaches root") answers with
+# status=N (a Win32 error code) and message=TEXT; the command line says the text and ends with status 1
+SERVE=0
+NOTES=
+reply() { printf 'status=%s\nmessage=%s\n' "$1" "$2"; }
+fail()   # CODE MESSAGE
+{
+    if [ "$SERVE" = 1 ]; then reply "$1" "${2//[[:cntrl:]]/ }"; exit 0; fi
+    echo "wex-domain-join: $2" >&2
+    exit 1
+}
+die() { fail 31 "$*"; }   # ERROR_GEN_FAILURE
+note() { if [ "$SERVE" = 1 ]; then NOTES="$NOTES$* "; else echo "wex-domain-join: $*"; fi; }
+[ "${WEX_JOIN_NOROOT:-0}" = 1 ] || [ "$(id -u)" -eq 0 ] || fail 5 "run as root"
 
 usage()
 {
@@ -50,7 +62,7 @@ need_tools()
 {
     local missing= t
     for t in net kinit kdestroy pam-auth-update systemctl; do command -v "$t" >/dev/null 2>&1 || missing="$missing $t"; done
-    [ -z "$missing" ] || die "missing:$missing (on Debian: apt-get install $PACKAGES)"
+    [ -z "$missing" ] || fail 50 "missing:$missing (on Debian: apt-get install $PACKAGES)"
 }
 
 # the kind of the join now: winbind, sssd, other, or nothing
@@ -100,8 +112,8 @@ CCDIR=
 get_ticket()   # NAME@REALM
 {
     local pw
-    IFS= read -r pw || die "no password on standard input"
-    [ -n "$pw" ] || die "an empty password"
+    if [ -n "${JOIN_PW+x}" ]; then pw=$JOIN_PW; JOIN_PW=; else IFS= read -r pw || fail 87 "no password on standard input"; fi
+    [ -n "$pw" ] || fail 87 "an empty password"
     CCDIR=$(mktemp -d) || die "no temporary directory"
     chmod 0700 "$CCDIR"
     export KRB5CCNAME="FILE:$CCDIR/cc"
@@ -113,7 +125,7 @@ trap drop_ticket EXIT
 
 cmd_join()
 {
-    local domain=${1:-} user= workgroup= ou= stdin=0 realm kind netbios
+    local domain=${1:-} user= workgroup= ou= stdin=0 realm kind netbios principal
     [ -n "$domain" ] || usage
     shift
     while [ $# -gt 0 ]; do
@@ -125,38 +137,39 @@ cmd_join()
             *) usage ;;
         esac
     done
-    valid_domain "$domain" || die "'$domain' is not a domain name"
-    valid_user "$user" || die "--user: a user name is needed (letters, digits and . _ @ -)"
-    [ "$stdin" = 1 ] || die "the password is read from standard input: give --password-stdin"
+    valid_domain "$domain" || fail 87 "'$domain' is not a domain name"
+    valid_user "$user" || fail 87 "--user: a user name is needed (letters, digits and . _ @ -)"
+    [ "$stdin" = 1 ] || fail 87 "the password is read from standard input: give --password-stdin"
     realm=$(printf '%s' "$domain" | tr 'a-z' 'A-Z')
     if [ -z "$workgroup" ]; then workgroup=$(printf '%s' "${domain%%.*}" | tr 'a-z' 'A-Z' | cut -c 1-15); fi
     # the computer's NetBIOS name is its host name, cut to 15 characters as Windows does
     netbios=$(printf '%s' "${WEX_JOIN_HOSTNAME:-$(hostname -s)}" | tr 'a-z' 'A-Z' | cut -c 1-15)
-    [[ $netbios =~ ^[A-Z0-9]([A-Z0-9-]*[A-Z0-9])?$ ]] || die "the host name '$netbios' cannot be a computer name (letters, digits and hyphens)"
-    [ "$netbios" != "$workgroup" ] || die "the computer name and the domain's NetBIOS name are both $netbios: give --workgroup"
-    valid_workgroup "$workgroup" || die "--workgroup: the NetBIOS name is 1 to 15 letters, digits and hyphens"
-    [ -z "$ou" ] || valid_ou "$ou" || die "--ou: not a distinguished name"
+    [[ $netbios =~ ^[A-Z0-9]([A-Z0-9-]*[A-Z0-9])?$ ]] || fail 1210 "the host name '$netbios' cannot be a computer name (letters, digits and hyphens)"
+    [ "$netbios" != "$workgroup" ] || fail 1210 "the computer name and the domain's NetBIOS name are both $netbios: give --workgroup"
+    valid_workgroup "$workgroup" || fail 87 "--workgroup: the NetBIOS name is 1 to 15 letters, digits and hyphens"
+    [ -z "$ou" ] || valid_ou "$ou" || fail 87 "--ou: not a distinguished name"
     need_tools
     kind=$(join_kind)
     case $kind in
         "") ;;
-        winbind) die "this machine is joined already (status shows to what): leave first" ;;
-        *) die "this machine is joined with $kind (realm); Winbind is the supported join: leave that one first (realm leave)" ;;
+        winbind) fail 2691 "this machine is joined already (status shows to what): leave first" ;;
+        *) fail 2691 "this machine is joined with $kind (realm); Winbind is the supported join: leave that one first (realm leave)" ;;
     esac
     # the domain's controllers are found in DNS, or nothing below can work
     if command -v host >/dev/null 2>&1; then
-        host -t SRV "_ldap._tcp.$domain" >/dev/null 2>&1 || die "DNS does not know the controllers of $domain (_ldap._tcp.$domain): is the resolver the domain's?"
+        host -t SRV "_ldap._tcp.$domain" >/dev/null 2>&1 || fail 1355 "DNS does not know the controllers of $domain (_ldap._tcp.$domain): is the resolver the domain's?"
     else
-        getent hosts "$domain" >/dev/null 2>&1 || die "$domain does not resolve: is the resolver the domain's?"
+        getent hosts "$domain" >/dev/null 2>&1 || fail 1355 "$domain does not resolve: is the resolver the domain's?"
     fi
 
     mkdir -p "$ETC/samba"
     keep_first "$ETC/samba/smb.conf"; keep_first "$ETC/krb5.conf"; keep_first "$ETC/nsswitch.conf"
     write_smb_conf "$workgroup" "$realm" "$netbios" || die "cannot write smb.conf"
     write_krb5_conf "$realm" || die "cannot write krb5.conf"
-    if ! get_ticket "$user@$realm"; then
+    principal=$user; [[ $user == *@* ]] || principal=$user@$realm
+    if ! get_ticket "$principal"; then
         undo_files
-        die "the controller did not accept $user@$realm (a wrong password, or the clock or DNS)"
+        fail 1326 "the controller did not accept $user@$realm (a wrong password, or the clock or DNS)"
     fi
     if ! net ads join -k ${ou:+createcomputer="$ou"} >/dev/null 2>&1; then
         drop_ticket; undo_files
@@ -169,7 +182,8 @@ cmd_join()
     install -d -m 0755 "/home/$workgroup"
     systemctl enable --now winbind >/dev/null 2>&1 || note "warning: winbind did not start"
     systemctl restart winbind >/dev/null 2>&1
-    net ads testjoin >/dev/null 2>&1 && note "joined to $domain ($workgroup)" || { note "joined, but net ads testjoin does not confirm it yet"; exit 1; }
+    if net ads testjoin >/dev/null 2>&1; then note "joined to $domain ($workgroup)"
+    else fail 31 "joined, but net ads testjoin does not confirm it yet"; fi
 }
 
 # put the files back as they were before this run changed them
@@ -180,7 +194,7 @@ undo_files()
 
 cmd_leave()
 {
-    local user= stdin=0 force=0 kind realm
+    local user= stdin=0 force=0 kind realm principal
     while [ $# -gt 0 ]; do
         case $1 in
             --user) user=${2:-}; shift 2 || usage ;;
@@ -190,14 +204,15 @@ cmd_leave()
         esac
     done
     kind=$(join_kind)
-    [ "$kind" = winbind ] || die "this machine is not joined with Winbind (kind: ${kind:-none})"
+    [ "$kind" = winbind ] || fail 2692 "this machine is not joined with Winbind (kind: ${kind:-none})"
     need_tools
     if [ "$force" = 0 ]; then
-        valid_user "$user" || die "--user: a user name is needed (or --force to leave on this machine only)"
-        [ "$stdin" = 1 ] || die "the password is read from standard input: give --password-stdin"
+        valid_user "$user" || fail 87 "--user: a user name is needed (or --force to leave on this machine only)"
+        [ "$stdin" = 1 ] || fail 87 "the password is read from standard input: give --password-stdin"
         realm=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'a-z' 'A-Z')
         [ -n "$realm" ] || realm=$(sed -n 's/^[[:space:]]*realm[[:space:]]*=[[:space:]]*//p' "$ETC/samba/smb.conf" | head -n 1 | tr 'a-z' 'A-Z')
-        get_ticket "$user@$realm" || die "the controller did not accept $user@$realm"
+        principal=$user; [[ $user == *@* ]] || principal=$user@$realm
+        get_ticket "$principal" || fail 1326 "the controller did not accept $principal"
         net ads leave -k >/dev/null 2>&1 || { drop_ticket; die "net ads leave failed: nothing was changed (--force leaves on this machine only)"; }
         drop_ticket
     else
@@ -233,7 +248,59 @@ cmd_status()
     esac
 }
 
+# a name by the rules of NetValidateName (NetSetupMachine, Workgroup, Domain, NonExistentDomain, DnsMachine)
+cmd_validate()   # TYPE NAME
+{
+    local type=$1 name=$2 flat
+    case $type in
+        machine) [[ $name =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,13}[A-Za-z0-9])?$ ]] && [[ ! $name =~ ^[0-9]+$ ]] || fail 1210 "'$name' is not a valid computer name (1 to 15 letters, digits and hyphens, not only digits)" ;;
+        dnsmachine) [[ $name =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]] || fail 1210 "'$name' is not a valid DNS host name" ;;
+        workgroup) valid_workgroup "$name" || fail 1212 "'$name' is not a valid workgroup name" ;;
+        domain|nonexistentdomain)
+            valid_domain "$name" || [[ $name =~ ^[A-Za-z0-9-]{1,15}$ ]] || fail 1212 "'$name' is not a valid domain name"
+            flat=$("$STATE_TOOL" --print 2>/dev/null | awk '{ print tolower($1) }')
+            if [ "$(printf '%s' "$name" | tr 'A-Z' 'a-z')" = "$flat" ] ||
+               { command -v host >/dev/null 2>&1 && host -t SRV "_ldap._tcp.$name" >/dev/null 2>&1; }; then
+                [ "$type" = domain ] || fail 52 "the name '$name' is a domain already"
+            else
+                [ "$type" = nonexistentdomain ] || fail 1355 "the domain '$name' does not exist or its controllers cannot be found in DNS"
+            fi ;;
+        *) fail 87 "unknown name type" ;;
+    esac
+}
+
+# one request on standard input: lines of key=value ended by an empty line; the answer is status= and message=
+cmd_serve()
+{
+    local line key val n=0 op= domain= user= password= ou= workgroup= name= nametype= force= kind
+    SERVE=1
+    while IFS= read -r line; do
+        [ -n "$line" ] || break
+        n=$((n + 1)); [ "$n" -le 32 ] || fail 87 "too many lines"
+        [[ $line == *=* ]] || fail 87 "a line without a ="
+        key=${line%%=*}; val=${line#*=}
+        [ "${#val}" -le 512 ] || fail 87 "a value is too long"
+        [[ $val != *[[:cntrl:]]* ]] || fail 87 "a value holds a control character"
+        case $key in
+            op|domain|user|password|ou|workgroup|name|nametype|force) printf -v "$key" '%s' "$val" ;;
+            flags) ;;   # (the flags of the API are the caller's business: the engine does what the fields say)
+            *) fail 87 "unknown field" ;;
+        esac
+    done
+    case $op in
+        join) JOIN_PW=$password; cmd_join "$domain" --user "$user" --password-stdin ${workgroup:+--workgroup "$workgroup"} ${ou:+--ou "$ou"} ;;
+        leave) if [ "$force" = 1 ]; then cmd_leave --force
+               else JOIN_PW=$password; cmd_leave --user "$user" --password-stdin; fi ;;
+        validate) cmd_validate "$nametype" "$name" ;;
+        status) kind=$(join_kind); NOTES="kind=${kind:-none}" ;;
+        *) fail 87 "unknown operation" ;;
+    esac
+    reply 0 "$NOTES"
+    exit 0
+}
+
 case ${1:-} in
+    serve) cmd_serve ;;
     join) shift; cmd_join "$@" ;;
     leave) shift; cmd_leave "$@" ;;
     status) cmd_status ;;

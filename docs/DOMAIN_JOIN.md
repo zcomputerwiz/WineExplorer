@@ -1,6 +1,6 @@
 # Joining a domain: how Windows does it, and the tools WineExplorer offers (2026-11-18)
 
-Winbind is the supported join (decided by the owner, 2026-11-18). Domain logon (`DOMAIN_LOGON.md`), the accounts map,
+Winbind is the supported join (decided by the owner, 2026-11-18); so is our own engine (not realmd). Domain logon (`DOMAIN_LOGON.md`), the accounts map,
 domain groups in tokens and Group Policy (`GROUP_POLICY.md`) are built on Samba's tools. A machine joined with SSSD
 (`realm join`) is told so and is not touched: `wex-domain-state.sh --kind` says `sssd`, `wex-domain-join.sh join` refuses,
 `wex-gpupdate.sh` does local policy only, and domain logon is not offered (the admission step needs Winbind).
@@ -103,12 +103,26 @@ Windows-side state (`wex-domain-state.sh`).
    Workgroup, More), the credential prompt, the success and failure messages, the restart question, and the Network ID
    wizard; texts and layout copied from the XP VM. The logon dialog's "Log on to" box already takes `DOMAIN\user`
    (`logonui`).
-4. **Restart.** Windows needs one. Here the join takes effect when the engine ends (the Windows-side state is rewritten at
-   once by `wex-domain-state.sh`), but the dialogs and tools say what Windows says, and a restart is offered: whether it is
-   required is a decision for the owner (parity, or honesty about what is needed).
+4. **No restart** (owner, 2026-11-18: "if it takes effect immediately, no prompt for restart is needed"). Windows needs one;
+   here the join takes effect when the engine ends (the Windows-side state is rewritten at once by `wex-domain-state.sh`),
+   so the tools and dialogs do not ask for a restart and do not offer `/REBoot`-style options beyond accepting them
+   silently (`netdom ... /REBoot` is accepted and does nothing), and the success message is the "Welcome to the domain"
+   one only. If a step proves to need one (a service that reads its configuration at start), the engine restarts that
+   service itself.
 
-Decisions wanted: (a) the restart question above; (b) whether the engine stays our own script or drives `realmd` (a standard
-D-Bus service with polkit, which can join with Winbind, but writes its own Samba configuration, while domain logon here
-needs the rid mapping from 20000 and `DOMAIN\user` names, which realmd does not offer to configure); this note keeps our own
-engine for that reason; (c) `ms-DS-MachineAccountQuota` and the join hardening of current Windows are the domain's business;
-the tools only report the errors.
+Decided (owner, 2026-11-18): the engine stays our own script, not `realmd` (a standard D-Bus service with polkit, which can
+join with Winbind, but writes its own Samba configuration, while domain logon here needs the rid mapping from 20000 and
+`DOMAIN\user` names, which realmd does not offer to configure). `ms-DS-MachineAccountQuota` and the join hardening of
+current Windows are the domain's business; the tools only report the errors.
+
+## How the API reaches root
+
+The engine is root's work and takes a password, which must reach it without a file or a command line. As for the policy
+spool (`GROUP_POLICY.md`), the process that asks is an elevated administrator's (the system group): the engine listens
+on a Unix socket, `/run/wex-domain-join.sock`, owned by root with the system group and mode 0660 (a `wex-domain-join.socket`
+unit that starts `wex-domain-join@.service`, which runs `wex-domain-join.sh serve` on the connection, one request each).
+A process outside the group cannot connect: that is Windows' "access denied for a caller who is not an administrator".
+The request is lines of `key=value` ended by an empty line (`op`, `domain`, `user`, `password`, `ou`, `workgroup`, `flags`);
+the answer is `status=N` (a Win32 or network error code of the table above) and `message=TEXT`. The client is a header
+(`src/include/wexjoinclient.h`) that `wkscli` (NetJoinDomain and the others) and the tools include; it connects with
+winsock's `AF_UNIX` where the build of Wine supports it (probed first, 2026-11-18).
