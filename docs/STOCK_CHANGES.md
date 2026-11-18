@@ -39,6 +39,16 @@ App-V API (`OISVAPI::ConfigurePackage`) loads a deployment configuration schema 
   expression", schema not added). The escapes are replaced by the characters; only a backslash that is not itself
   escaped starts one (`\\u0041` stays a literal backslash and `u0041`); U+0000 becomes U+0001 (XML cannot contain it).
 
+## start.exe: fall back to ShellExecuteEx on ERROR_ELEVATION_REQUIRED (B38, 2026-11-18)
+
+Wine branch `claude/b38-start-elevation`. Upstreamable.
+
+- `programs/start/start.c`: when launching a binary via `CreateProcessW` fails with `ERROR_ELEVATION_REQUIRED` (740),
+  fall back to `ShellExecuteExW` instead of terminating with `fatal_string_error`. When elevation is enforced,
+  `ShellExecuteExW` routes the request to the elevation broker (`wexelevate`) and, when `SEE_MASK_NOCLOSEPROCESS`
+  is present (such as with `start /wait`), receives the elevated process handle so that `start.exe` waits for
+  the elevated process and propagates its exit code, matching native Windows behavior.
+
 ## System tier: session 0 holds the machine registry (T1, 2026-11-11)
 
 Inactive unless configured: a server is session 0 only with `--session0`, and a user's server uses session 0 only
