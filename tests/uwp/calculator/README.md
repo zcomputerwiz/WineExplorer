@@ -276,3 +276,15 @@ Uno's own converter path is not used (the converters are looked up by the applic
 The application also throws "Unrecognized custom TypeName" (E_INVALIDARG) many times while the page loads: a
 `GetXamlType(TypeName)` probe of the shim's. Next: find which `TypeName` it is (the kind and name are in
 `NativeObjects.ToTypeName`) and whether that probe is the one the bindings need.
+
+### 2026-11-18, Date calculation fixed (uno-uwp 9178f2efee)
+
+Root cause: not the app's x:Bind. XbfKit writes a `{Binding Path, Converter={StaticResource K}}` as
+`<Grid.Visibility><Binding Converter=... Path=.../></Grid.Visibility>`; Uno's reader resolves the StaticResource while the
+element is outside the tree and leaves `Converter` null, so the bool was used raw and both sub-layouts showed (no
+`put_Visibility` was expected: Uno's own binding sets the property). `XbfLoader.BindingAttributes` now writes such
+bindings as `ConverterBinding.Bindings`, whose `LazyConverter` looks the key up in the element's parents' resources and the
+application's when evaluated. A C++/CX converter returns a boxed `IReference<Visibility>`; `NativeObjects.Convert` unboxes
+framework enums through that interface (it also fixes the Calculator page's own negation converters). Quick run: only
+the difference layout shows, `AddSubtractDateGrid` Collapsed; all modes still open. Still open: Currency (E_NOTIMPL on a
+worker thread), dark theme cards.
