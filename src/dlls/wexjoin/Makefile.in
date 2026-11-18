@@ -1,0 +1,7 @@
+MODULE    = wexjoin.dll
+IMPORTLIB = wexjoin
+UNIXLIB   = wexjoin.so
+
+SOURCES = \
+	unixlib.c \
+	wexjoin.c
