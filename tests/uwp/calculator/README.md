@@ -288,3 +288,11 @@ application's when evaluated. A C++/CX converter returns a boxed `IReference<Vis
 framework enums through that interface (it also fixes the Calculator page's own negation converters). Quick run: only
 the difference layout shows, `AddSubtractDateGrid` Collapsed; all modes still open. Still open: Currency (E_NOTIMPL on a
 worker thread), dark theme cards.
+
+### 2026-11-18, Currency: E_NOTIMPL placed
+
+The currency page's SelectionChanged handler ended in E_NOTIMPL because it calls `ConnectionProfile::GetConnectionCost` (a stock Wine stub; the
+log line `connection_profile_GetConnectionCost ... stub!` sits right before the `RoOriginateLanguageException 0x80004001`). Wine branch
+`claude/uwp-connectioncost` (1fdd6ee0) implements it. Result: the page no longer shows the volume units; with no network the
+pickers are empty. Dark cards: the toolkit `Generic.xbf` whole-file parse still fails (`x:Object` unknown in `TryProcessStyle`);
+stripping the `BasedOn` of the styles does not help (it fails the same way), so the cause is another construct in that file.
