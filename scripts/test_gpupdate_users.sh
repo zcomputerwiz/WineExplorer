@@ -448,3 +448,17 @@ write_hive "$BKDIS|DisableBkGndGroupPolicy|0"
 echo $(( $(date +%s) - 10 )) > "$FX/due"; run_bg bg; ran || fail 'background: DisableBkGndGroupPolicy = 0 stopped a run'
 rm -f "$FX/mroot/system.reg" "$FX/due"
 echo 'OK: wex-gpupdate.sh --background (the due time, the interval and offset of the policy, the background refresh turned off)'
+# ---- what --background decided is in the journal (logger, the tag wex-gpupdate): the next image run shows why a tick did nothing
+printf '#!/bin/sh\necho "$*" >> "%s"\n' "$FX/logger.log" > "$FX/bin/logger"; chmod 0755 "$FX/bin/logger"
+LOGGED() { grep -c -- "$1" "$FX/logger.log" 2>/dev/null || true; }
+touch "$FX/unjoined"; rm -f "$FX/mroot/system.reg" "$FX/due" "$FX/logger.log"
+run_bg bg
+[ "$(LOGGED 'background: no refresh since boot; refreshing')" = 1 ] && [ "$(LOGGED 'refresh done; the next background refresh is due in')" = 1 ] || { cat "$FX/logger.log" "$FX/out.log"; fail 'background log: the first run'; }
+: > "$FX/logger.log"; run_bg bg
+[ "$(LOGGED 'background: not due yet (due in')" = 1 ] && [ "$(LOGGED 'refreshing')" = 0 ] || { cat "$FX/logger.log"; fail 'background log: a run before the due time'; }
+echo $(( $(date +%s) - 10 )) > "$FX/due"; : > "$FX/logger.log"; run_bg bg
+[ "$(LOGGED 'background: due; refreshing')" = 1 ] || { cat "$FX/logger.log"; fail 'background log: a run after the due time'; }
+write_hive "$BKDIS|DisableBkGndGroupPolicy|1"; echo $(( $(date +%s) - 10 )) > "$FX/due"; : > "$FX/logger.log"; run_bg bg
+[ "$(LOGGED 'background: turned off by policy')" = 1 ] || { cat "$FX/logger.log"; fail 'background log: the policy that turns it off'; }
+rm -f "$FX/bin/logger" "$FX/mroot/system.reg" "$FX/due"
+echo 'OK: wex-gpupdate.sh --background says its decision in the journal'

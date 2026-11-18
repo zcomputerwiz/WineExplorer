@@ -113,14 +113,21 @@ fi
 # (DisableBkGndGroupPolicy = 1) is enabled. A run does nothing until the time that the last run set (/run/wex-gpupdate.due, gone after a boot);
 # every run sets the next one. The requests of gpupdate, the logons and the first run after boot are not limited by it.
 DUE_FILE=${WEX_GPO_DUE:-/run/wex-gpupdate.due}   # in /run: a boot starts again, as Windows refreshes at startup
+# what the timer's run decided, in the journal (the unit's output) and under the tag wex-gpupdate
+bg_log() { echo "wex-gpupdate: --background: $*"; logger -t wex-gpupdate -- "background: $*" 2>/dev/null || true; }
 if [ "${1:-}" = --background ]; then
     due=$(tr -dc 0-9 < "$DUE_FILE" 2>/dev/null)
     # (the first run after a boot, with no due time yet, is the refresh at startup, which the policy does not turn off)
     if [ -n "$due" ] && [ "$(hive_dword 'Software\Microsoft\Windows\CurrentVersion\Policies\System' DisableBkGndGroupPolicy)" = 1 ]; then
-        echo "wex-gpupdate: --background: the background refresh is turned off by policy"
+        bg_log "turned off by policy (Turn off background refresh of Group Policy); no refresh"
         exit 0
     fi
-    if [ -n "$due" ] && [ "$(date +%s)" -lt "$due" ]; then exit 0; fi
+    if [ -n "$due" ] && [ "$(date +%s)" -lt "$due" ]; then
+        # a due time exists after a boot when another run (a logon, a gpupdate request, the first one) has refreshed already
+        bg_log "not due yet (due in $(( due - $(date +%s) )) s, set by the last refresh); no refresh"
+        exit 0
+    fi
+    if [ -n "$due" ]; then bg_log "due; refreshing"; else bg_log "no refresh since boot; refreshing"; fi
 fi
 # when the next background run is due: the interval and a random part of the offset after now
 schedule_background()
@@ -133,7 +140,9 @@ schedule_background()
     # (a time of 0 asks for a refresh about every 7 seconds on Windows, for tests: here every tick of the timer)
     [ "$interval" -ge 5 ] || interval=5
     add=$(( (RANDOM * 32768 + RANDOM) % (offset * 60 + 1) ))
-    echo $(( $(date +%s) + interval * 60 + add )) > "$DUE_FILE.new" && mv -f "$DUE_FILE.new" "$DUE_FILE"
+    echo $(( $(date +%s) + interval * 60 + add )) > "$DUE_FILE.new" && mv -f "$DUE_FILE.new" "$DUE_FILE" &&
+        logger -t wex-gpupdate -- "refresh done; the next background refresh is due in $(( interval * 60 + add )) s" 2>/dev/null
+    return 0
 }
 
 # wexpolicy's own exit status is the function's (not tr's): a failed apply or record is not lost
