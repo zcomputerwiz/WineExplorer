@@ -4208,8 +4208,8 @@ for b in 1; do
     nd query dc; [ "$NDRC" = 0 ] && grep -qx 'dc1.ad.wexlab.example' <<<"$NDOUT" && grep -qx 'dc2.ad.wexlab.example' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom query dc'; }
     nd query workstation; [ "$NDRC" = 50 ] && grep -q 'Only NETDOM QUERY DC' <<<"$NDOUT" || fail 'netdom query workstation'
 done
-# a standard user is refused with Windows' words
-NDOUT="$(as_wine "$STD" netdom join /domain:ad.wexlab.example /userd:a /passwordd:x)"
+# a standard user is refused with Windows' words (the status is the error: the pipeline of as_wine fails with it)
+NDOUT="$(as_wine "$STD" netdom join /domain:ad.wexlab.example /userd:a /passwordd:x)" || true
 grep -qi 'access is denied' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom: a standard user was not refused'; }
 # a standard user is not in the system group: access denied, nothing sent
 : > "$JREQ"
