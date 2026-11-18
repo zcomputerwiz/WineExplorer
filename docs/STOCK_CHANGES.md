@@ -674,6 +674,16 @@ Project changes:
 * `scripts/e1s13_hku_checks.h` and `scripts/test_e1s10_token.sh`: Extended with assertions that
   effective Alice token sees her profile path and variables, while peer sees Bob's.
 
+## services.exe, wine.inf: session 0 starts SamSs (B44, 2026-11-17)
+
+Wine branch `claude/b41-b42-acl`.
+
+* `programs/services/services.c`: `always_started`: the services.exe with the system role that does not forward
+  (session 0) starts SamSs (lsass) with the auto-start services, as Windows runs lsass from boot. Started on demand
+  (secur32's `start_samss`), a service that authenticates during its own start-up asked for it while the startup lock
+  was held for that start and failed after the lock's 3 s timeout. WineExplorer-specific (the system role).
+* `loader/wine.inf.in`: SamSs in `SafeBoot\Minimal` and `SafeBoot\Network` (lsass runs in Safe Mode on Windows).
+
 ## kernelbase, server: key descriptors at creation and inheritance; machine-root file DACLs (B41, B42, 2026-11-17)
 
 Wine branch `claude/b41-b42-acl` on `974f5a00`.
