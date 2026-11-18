@@ -64,6 +64,7 @@ static void read_membership(void)
     if (!NetGetJoinInformation(NULL, &name, &type) && name)
     {
         if (type == NetSetupDomainName || type == NetSetupWorkgroupName) lstrcpynW(g_member, name, ARRAY_SIZE(g_member));
+        if (type == NetSetupWorkgroupName) CharUpperW(g_member);   /* as Windows shows a workgroup */
         g_joined = type == NetSetupDomainName;
         NetApiBufferFree(name);
     }
