@@ -79,6 +79,11 @@ deletes the password again at the end) and the guest checks, by `docs/DOMAIN_LOG
   active `domain` record with the domain RID and Domain Users (513) in `domain-groups`;
 - `domain_token_and_name`: `whoami /user` gives `WEXLAB\wexuser1` and the domain SID;
   `domain_environment`: `USERDOMAIN=WEXLAB`, `USERPROFILE=C:\users\wexuser1`; `domain_profile_folder`;
+- `domain_user_policy_before_desktop` (2026-11-17): right after the first logon, with one read and no waiting, `UserLimit`
+  is 3 and the PAM step's journal line (`journalctl -t wex-domain-admit`, "policy step for USER: applied in N s", also
+  printed as `note policy_step`) says `applied`; a step that timed out (60 s), failed or found nothing is a reported
+  failure. Skipped with a note on an image without the `--logon` step (use `WEX_LAB_TREE_TOOLS=1
+  WEX_LAB_TREE_GPUPDATE=1`);
 - `domain_user_policy_at_logon`, `domain_user_policy_applied`, `gpresult_user_lists_domain_object`:
   `HKCU\Software\Policies\WexLab UserLimit` is 3 within two minutes of the logon with nobody starting
   `wex-gpupdate.service` (the session asks for a refresh once its shell is up), and `gpresult /scope user` lists

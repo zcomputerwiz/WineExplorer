@@ -722,10 +722,10 @@ expect_safeboot() {   # expect_safeboot 0|1|2|cmd: what Windows programs see, fr
         cmd) want=(cleanboot=1 option=1 shell=1 EventLog=running PlugPlay=running MountMgr=running NDIS=stopped nsiproxy=stopped "$refused" themed=0) ;;
     esac
     want+=("${elevated[@]}")
-    # an administrator's Safe Mode desktop (X11) runs with the system group, so that what it starts may write the
-    # machine root, as an elevated program may
+    # an administrator's Safe Mode desktop (X11 or Wayland) runs with the system group, so that what it starts may
+    # write the machine root, as an elevated program may
     if [ "${#elevated[@]}" -gt 0 ] && { [ "$1" = 1 ] || [ "$1" = 2 ]; }; then
-        out=$(gsh "pid=\$(pgrep -u '$USER_NAME' -f 'explorer.exe /desktop' | head -n 1); [ -n \"\$pid\" ] && echo egid=\$(awk '/^Gid:/ {print \$3}' /proc/\$pid/status) sys=\$(getent group wexsys | cut -d: -f3)" 30 2>/dev/null | grep '^egid=' | tail -n 1)
+        out=$(gsh "pid=\$(pgrep -u '$USER_NAME' -f 'explorer.exe .*/shell' | head -n 1); [ -n \"\$pid\" ] && echo egid=\$(awk '/^Gid:/ {print \$3}' /proc/\$pid/status) sys=\$(getent group wexsys | cut -d: -f3)" 30 2>/dev/null | grep '^egid=' | tail -n 1)
         echo "  desktop: $out"
         local egid=${out#egid=}; egid=${egid%% *}; local sys=${out##*sys=}
         [ -n "$egid" ] && [ "$egid" = "$sys" ] || fail "the administrator's Safe Mode desktop does not run elevated: $out"

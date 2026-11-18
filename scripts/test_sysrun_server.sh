@@ -342,7 +342,8 @@ set -e
 ok c2_launcher_refuses_replacement_server
 # safe-shell (an administrator's elevated desktop in Safe Mode, docs/SAFE_MODE_ELEVATED_DESKTOP.md): refused here, a
 # normal start and a standard user; and for sizes or arguments that are not two numbers in range
-for args in "safe-shell 800 600" "safe-shell 80 600" "safe-shell 800 x600" "safe-shell 800" "safe-shell 800 600 /x"; do
+for args in "safe-shell 800 600" "safe-shell 80 600" "safe-shell 800 x600" "safe-shell 800" "safe-shell 800 600 /x" \
+            "safe-shell-wayland" "safe-shell-wayland x"; do
     set +e
     OUT="$(run_as "$STD" "$SYSRUN" $args 2>&1 </dev/null)"; rc=$?
     set -e

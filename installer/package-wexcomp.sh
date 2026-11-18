@@ -10,6 +10,9 @@ out_dir="${OUT_DIR:-$ROOT_DIR/installer/live-build/config/packages.chroot}"
 test -f "$source_dir/meson.build" || { echo 'Initialize the wexcomp submodule first.' >&2; exit 1; }
 git -C "$source_dir" diff --quiet HEAD -- || { echo 'Compositor source has uncommitted changes.' >&2; exit 1; }
 revision=$(git -C "$source_dir" rev-parse HEAD)
+# the commit's time before its hash, so that a later commit always has the higher version (a hash alone does not sort);
+# "wex" sorts after the "git" of the older versions (0.8.3+git<hash>), so an installed one is upgraded
+commit_time=$(TZ=UTC git -C "$source_dir" log -1 --format=%cd --date=format-local:%Y%m%d%H%M%S HEAD)
 if [ ! -f "$build_dir/build.ninja" ]; then
     meson setup "$build_dir" "$source_dir" --prefix=/usr/local -Dxwayland=enabled -Dman-pages=disabled -Dtest=disabled
 fi
@@ -42,7 +45,7 @@ depends=$(cd "$stage" && dpkg-shlibdeps -O -e "$package_dir/usr/local/bin/wexcom
 depends=${depends#shlibs:Depends=}
 cat > "$package_dir/DEBIAN/control" <<EOF
 Package: wexcomp
-Version: 0.8.3+git${revision:0:12}-1
+Version: 0.8.3+wex${commit_time}.${revision:0:12}-1
 Architecture: $(dpkg --print-architecture)
 Section: x11
 Priority: optional
@@ -52,4 +55,4 @@ Description: WineExplorer Wayland compositor
  The project's pinned labwc fork, including its private shell socket and
  native window grouping. X11 remains the default WineExplorer session.
 EOF
-dpkg-deb --build --root-owner-group "$package_dir" "$out_dir/wexcomp_0.8.3+git${revision:0:12}-1_amd64.deb"
+dpkg-deb --build --root-owner-group "$package_dir" "$out_dir/wexcomp_0.8.3+wex${commit_time}.${revision:0:12}-1_amd64.deb"

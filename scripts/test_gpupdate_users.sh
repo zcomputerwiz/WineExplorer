@@ -318,3 +318,72 @@ EOF2
 done
 echo 'OK: wex-gpupdate.sh serves the request it began with and runs again for one that came in meanwhile'
 echo 'OK: wex-gpupdate.sh with the domain out of reach (the last list, nothing cleared, nothing touched without one) and a failing writer'
+# ---- --logon NAME (docs/GROUP_POLICY.md, "Policy before the desktop"): root's step of a logon applies only that user's
+# policy, and only on the user's first logon here (no archive of the user's policy) or when the computer asks to wait
+# (SyncForegroundPolicy); with nothing to apply, or at a later logon, it ends at once and does nothing
+run_logon()   # MAP NAME
+{
+    : > "$FX/wexpolicy.log"; : > "$FX/net.log"; : > "$FX/detail.log"; : > "$FX/ext.log"
+    chmod 666 "$FX/wexpolicy.log" "$FX/detail.log" "$FX/ext.log"
+    PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_ACCOUNTS_MAP="$1" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" \
+        bash "$SCRIPT" --logon "$2" > "$FX/out.log" 2>&1 || { cat "$FX/out.log"; fail "--logon $2 failed"; }
+}
+ARCH="$LG/Archive"; mkdir -p "$ARCH"
+SIDA=S-1-5-21-11-22-33-1001
+rm -f "$ARCH"/*.pol "$FX/mroot/system.reg"
+printf '#!/bin/sh\n[ "$1" = alice ]\n' > "$FX/bin/wex-is-admin"; chmod 0755 "$FX/bin/wex-is-admin"
+mkdir -p "$GU/S-1-5-32-544/User" "$GU/S-1-5-32-545/User" "$GU/$SIDA/User" "$LG/User"
+printf 'LOCALU' > "$LG/User/Registry.pol"; printf 'ADMINS' > "$GU/S-1-5-32-544/User/Registry.pol"; printf 'ALICE' > "$GU/$SIDA/User/Registry.pol"
+touch "$FX/unjoined"
+# the first logon of a user with policy: applied, for that user only, nothing of the computer, no answer to gpupdate
+run_logon "$FX/map3" alice
+grep -qx "apply /user:$SIDA" "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log" "$FX/out.log"; fail 'logon: the first logon was not applied'; }
+[ "$(grep -c . "$FX/wexpolicy.log")" = 2 ] && grep -qx "record /user:$SIDA" "$FX/wexpolicy.log" ||
+    { cat "$FX/wexpolicy.log"; fail 'logon: more than the user (apply and record) was done'; }
+detail "apply /user:$SIDA [LOCALU] [ADMINS] [ALICE]" 'logon: the same files, in the same order, as a refresh'
+# a later logon (the user has an archive): nothing, the session's own refresh does it
+: > "$ARCH/User-$SIDA.pol"
+run_logon "$FX/map3" alice
+[ ! -s "$FX/wexpolicy.log" ] || { cat "$FX/wexpolicy.log"; fail 'logon: a later logon applied policy'; }
+grep -q 'not a first logon' "$FX/out.log" || { cat "$FX/out.log"; fail 'logon: a later logon did not say so'; }
+# "Always wait for the network at computer startup and logon" (SyncForegroundPolicy = 1, in session 0's registry): every logon
+cat > "$FX/mroot/system.reg" <<'EOF2'
+WINE REGISTRY Version 2
+
+[Software\\Policies\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon] 1700000000
+"SyncForegroundPolicy"=dword:00000001
+
+[Software\\Other] 1700000001
+"x"=dword:00000001
+EOF2
+run_logon "$FX/map3" alice
+grep -qx "apply /user:$SIDA" "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log" "$FX/out.log"; fail 'logon: SyncForegroundPolicy = 1 did not make a later logon wait'; }
+# 0, another key's 1, and another value do not
+for body in '"SyncForegroundPolicy"=dword:00000000' '"SyncForegroundPolicyX"=dword:00000001'; do
+    printf 'WINE REGISTRY Version 2\n\n[Software\\\\Policies\\\\Microsoft\\\\Windows NT\\\\CurrentVersion\\\\Winlogon] 1\n%s\n' "$body" > "$FX/mroot/system.reg"
+    run_logon "$FX/map3" alice
+    [ ! -s "$FX/wexpolicy.log" ] || { cat "$FX/wexpolicy.log" "$FX/mroot/system.reg"; fail "logon: $body made a later logon wait"; }
+done
+printf 'WINE REGISTRY Version 2\n\n[Software\\\\Other] 1\n"SyncForegroundPolicy"=dword:00000001\n' > "$FX/mroot/system.reg"
+run_logon "$FX/map3" alice
+[ ! -s "$FX/wexpolicy.log" ] || fail 'logon: SyncForegroundPolicy under another key made a later logon wait'
+rm -f "$FX/mroot/system.reg"
+# nothing to apply (a local user without any local policy file): no run at all
+rm -f "$LG/User/Registry.pol" "$GU/S-1-5-32-544/User/Registry.pol" "$GU/S-1-5-32-545/User/Registry.pol" "$GU/$SIDA/User/Registry.pol"
+run_logon "$FX/map3" bob
+[ ! -s "$FX/wexpolicy.log" ] && grep -q 'no policy to apply' "$FX/out.log" || { cat "$FX/wexpolicy.log" "$FX/out.log"; fail 'logon: a user with no policy was run for'; }
+# a name that is not in the map, or not a name: nothing, and the logon is not failed (status 0)
+run_logon "$FX/map3" nobody-here
+run_logon "$FX/map3" 'bad;name'
+run_logon "$FX/map3" '-x'
+[ ! -s "$FX/wexpolicy.log" ] || fail 'logon: an unknown or invalid name was run for'
+# a domain user on a joined machine: the domain is asked for that user alone, and the policy applied under the domain SID
+rm -f "$FX/unjoined"
+run_logon "$FX/map3" 'WEXLAB\wexuser1'
+grep -qx 'apply /user:S-1-5-21-111-222-333-1104' "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log" "$FX/out.log"; fail 'logon: a domain user was not applied'; }
+[ "$(cat "$FX/net.log")" = 'gpo list wexuser1' ] || { cat "$FX/net.log"; fail 'logon: the domain was asked for more than the user'; }
+! grep -q 'machine' "$FX/wexpolicy.log" || fail 'logon: the computer policy was touched'
+# the plain name (winbind use default domain) finds the same record
+run_logon "$FX/map3" wexuser1
+grep -qx 'apply /user:S-1-5-21-111-222-333-1104' "$FX/wexpolicy.log" || fail 'logon: the plain name of a domain user did not find the record'
+echo 'OK: wex-gpupdate.sh --logon (a first logon only, or SyncForegroundPolicy; only with policy; only that user)'

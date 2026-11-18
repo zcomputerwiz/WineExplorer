@@ -233,6 +233,19 @@ if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; th
     fi
     if user_session; then ok domain_logon
     else notok domain_logon "sessions: $(loginctl list-sessions --no-legend | awk '{ print $3 }' | tr '\n' ' ')"; finish; fi
+    # the policy before the desktop (docs/GROUP_POLICY.md, "Policy before the desktop"): this was the user's first logon,
+    # so the PAM step applied the user's policy before the session started. One read, no waiting and no gpupdate: the value
+    # is there when the logon is, and the step's own line in the journal says what it did and how long it took (a step that
+    # timed out, after 60 s, is a reported failure here, and the session's refresh still delivers the value below)
+    pstep=$(journalctl --no-pager -b 0 -t wex-domain-admit 2>/dev/null | grep 'policy step for' | tail -1 | sed 's/^[^:]*: //')
+    echo "note policy_step: ${pstep:-none}"
+    if grep -q -- '--logon' /usr/local/bin/wex-gpupdate.sh 2>/dev/null && grep -q 'policy step for' /usr/local/sbin/wex-domain-admit-pam.sh 2>/dev/null; then
+        ul0=$(user_reg)
+        if [ "$ul0" = 0x3 ] && grep -qE ': applied in [0-9]+ s$' <<<"$pstep"; then ok domain_user_policy_before_desktop
+        else notok domain_user_policy_before_desktop "UserLimit [$ul0] right after the first logon; step [${pstep:-no line in the journal}]"; fi
+    else
+        echo "note domain_user_policy_before_desktop: skipped (this image has no --logon step; WEX_LAB_TREE_TOOLS=1 WEX_LAB_TREE_GPUPDATE=1 use this tree's)"
+    fi
     # admission: an active domain record and the recorded groups (Domain Users at least)
     rec=$(user_record)
     dsid=$(wbinfo -n "$DUSER" 2>/dev/null | awk '{ print $1 }')

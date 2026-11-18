@@ -99,4 +99,16 @@ wex_prepare_prefix || { echo 'Session setup failed.' >&2; exit 1; }
 # before starting Explorer as the shell; do not force a reinstall on every login.
 wex_stop_wine || true
 wex_refresh_policy_after_logon
+# Safe Mode, an administrator: the desktop runs elevated, as in the X11 session (docs/SAFE_MODE_ELEVATED_DESKTOP.md);
+# when the launcher refuses (77) or the desktop ends within 15 seconds, it starts as usual
+SYSRUN="${WEX_SYSRUN:-/usr/local/libexec/wineexplorer/wex-sysrun}"
+IS_ADMIN="${WEX_IS_ADMIN_HELPER:-/usr/local/libexec/wineexplorer/wex-is-admin}"
+if [ "$WEXMODE" != normal ] && [ -x "$SYSRUN" ] && [ -x "$IS_ADMIN" ] && "$IS_ADMIN" "$USER" >/dev/null 2>&1; then
+    echo "Safe Mode: the administrator's desktop runs elevated"
+    started=$SECONDS
+    "$SYSRUN" safe-shell-wayland
+    rc=$?
+    if [ "$rc" != 77 ] && [ $((SECONDS - started)) -ge 15 ]; then exit "$rc"; fi
+    echo "Safe Mode: no elevated desktop (status $rc); starting it as usual"
+fi
 "$WINE" explorer.exe /shell
