@@ -66,7 +66,7 @@ else
     { ./config.status --recheck && ./config.status; } > /root/configure-test-iso.log 2>&1 \
         || { tail -n 30 /root/configure-test-iso.log; exit 1; }
     start=$(date +%s)
-    make -j"$(nproc)" > /root/make-test-iso.log 2>&1 \
+    bash "$REPO/scripts/lab/wex-make.sh" -j"$(nproc)" > /root/make-test-iso.log 2>&1 \
         || { grep -E 'error:|Error [0-9]' /root/make-test-iso.log | head -n 30; exit 1; }
     echo "wine built in $(( ($(date +%s) - start) / 60 )) min"
     echo "$INPUTS" > "$STAMP"

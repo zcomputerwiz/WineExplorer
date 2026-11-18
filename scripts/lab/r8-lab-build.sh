@@ -10,6 +10,8 @@
 #   * wexelevate.exe and consent.exe with WEXELEVATE_E1S18, kept as *-e1s18.exe next to the normal ones.
 # Usage: bash scripts/lab/r8-lab-build.sh [MAIN_BUILD [LAB_ROOT]]
 set -e
+WEX_MAKE="$(cd "$(dirname "$0")" && pwd)/wex-make.sh"  # every build on the machine goes through it (one at a time)
+make() { bash "$WEX_MAKE" "$@"; }
 MAIN=${1:-/root/WE-prefetch/build/wow64}
 LABROOT=${2:-/root/owned-r8}
 LAB=$LABROOT/build/wow64

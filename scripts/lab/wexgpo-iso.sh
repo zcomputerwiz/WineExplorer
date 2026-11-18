@@ -14,6 +14,8 @@
 #   install  install-unattended.sh -> /root/vmtest-gpo/wex-gpo (the VM ends stopped)
 # package-wine.sh fetches third-party assets (agreed by the owner on 2026-11-09). About 1.5 hours.
 set -uo pipefail
+WEX_MAKE="$(cd "$(dirname "$0")" && pwd)/wex-make.sh"  # every build on the machine goes through it (one at a time)
+make() { bash "$WEX_MAKE" "$@"; }
 BRANCH=${1:?branch}
 R=/root/WE-iso
 B=/root/WE-iso/build/wow64
@@ -70,7 +72,7 @@ if [ ! -f "$B/Makefile" ]; then
     timeout 1800 ../../wine/configure --enable-archs=i386,x86_64 --prefix="$B/install" > $L-configure.log 2>&1 ||
         { echo "CONFIGURE FAILED"; tail -5 $L-configure.log; exit 1; }
 fi
-timeout 5400 make -j16 > $L-make.log 2>&1 || { echo "MAKE FAILED"; grep -m8 'error:' $L-make.log; exit 1; }
+timeout 5400 bash "$WEX_MAKE" -j16 > $L-make.log 2>&1 || { echo "MAKE FAILED"; grep -m8 'error:' $L-make.log; exit 1; }
 
 step package
 cd "$R" || exit 1
