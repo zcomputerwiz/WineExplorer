@@ -156,3 +156,19 @@ MIT code keeps its notice when reused.
   (`IWebAuthenticationCoreManagerInterop` is `F4B8E804-811E-4436-B69C-44CB67B72084`; `IAccountsSettingsPaneInterop`
   is `D3EE12AD-3865-4362-9746-B75A682DF0E6` with the order GetForWindow, ShowManageAccounts, ShowAddAccount), and so
   were the `WebTokenRequestStatus` values. Use [WAM_PLAN.md](WAM_PLAN.md)'s verified table, not the values above.
+
+### Third pass (2026-11-17, Integration): licences read from each repository, and what each could contribute
+
+Read through the GitHub API (LICENSE and REUSE files, file lists, public function signatures; nothing copied).
+
+| Project | Licence (from its files) | What it is | Use here |
+|---|---|---|---|
+| libhimmelblau (`himmelblau-idm/libhimmelblau`, mirror of the Samba team's repository) | LGPL-3.0 | Rust MSAL-style client: authorization code with PKCE, refresh token, device flow, MFA, and (beyond step 3) device enrolment, PRT, Hello for Business | Reference for the OAuth side of step 3 only. LGPL-3.0-only cannot go into a Wine module (LGPL-2.1-or-later); as a separate process it is a deliberate licence decision (`CLAUDE.md`). The PKCE and refresh flows are public OAuth, so writing them from the Microsoft identity platform documentation costs little |
+| `identity_dbus_broker` (`himmelblau-idm`) | LGPL-3.0 | Rust traits and a D-Bus server for Microsoft's Linux broker interface (`com.microsoft.identity.broker1`: `acquireTokenInteractively`, `acquireTokenSilently`, `getAccounts`, `removeAccount`, `acquirePrtSsoCookie`, `generateSignedHttpRequest`, `cancelInteractiveFlow`, `getLinuxBrokerVersion`). Interface and plumbing only | Not the WinRT API, so it does not complete our interface. It shows how that broker's methods line up with WAM's (request token, silent token, find accounts, remove account) |
+| Himmelblau (`himmelblau-idm/himmelblau`) | GPL-3.0 | Entra ID login for Linux (PAM, NSS, broker daemon, Intune) | Separate daemon only (step 4), as already decided |
+| sso-mib (`siemens/sso-mib`) | library LGPL-2.1-only; `sso-mib-tool` GPL-2.0-only; examples, README and `dbus/spec/com.microsoft.identity.broker1.xml` MIT | C client for that Linux broker's D-Bus interface | The MIT interface description is reusable with its notice, as a description of the Linux broker's methods. LGPL-2.1-only code stays out of Wine modules |
+| MSAL.NET (`AzureAD/microsoft-authentication-library-for-dotnet`) | MIT | Microsoft's client library; at this point its Windows broker path calls a native runtime, not the WinRT API | Reusable with notice; useful for the request property names programs send (for example `msal_request_type`, `instance_aware`, `msal_client_sku`) |
+
+None of them implements `Windows.Security.Authentication.Web.Core` or its desktop interop interface, so the WinRT surface
+(statics, `WebTokenRequest`/`Response`, accounts, monitors) still has to come from the interface descriptions and Wine's
+own IDL; the projects above can only inform the broker behind it.
