@@ -2605,7 +2605,7 @@ otherwise stock behavior. Project programs: `programs/wexelevate` (makes `WinSta
   replaced by the new rule: with a helper configured and no broker that approves, `ShellExecuteEx` fails and returns no handle.
 - `dlls/msi/custom.c`, `dlls/msi/msipriv.h`: `msi_install_through_broker()` starts `msiexec.exe /i <package> <UI switch> <properties>` once
   through the broker for a per-machine install by a limited administrator and returns the exit code of the elevated `msiexec`
-  (cancel becomes `ERROR_INSTALL_USEREXIT`); `msi_package_file_is_machine()` (reads ALLUSERS and the registered context from the package file, read-only) is in `package.c`. `get_admin_token()` (custom action
+  (cancel becomes `ERROR_INSTALL_USEREXIT`); the caller's log file (`gszLogFile`, set by `msiexec /l`) is passed on as `/l+*v <file>` so the elevated `msiexec` keeps writing the same log (it was lost before); `msi_package_file_is_machine()` (reads ALLUSERS and the registered context from the package file, read-only) is in `package.c`. `get_admin_token()` (custom action
   server) no longer returns a linked token while the helper is configured: a per-machine install runs wholly in the elevated
   `msiexec`, a per-user install does not elevate.
 - `dlls/msi/msi.c` (`MsiInstallProductW`), `dlls/msi/action.c` (`MSI_InstallPackage`): the two call sites. The first runs before the
