@@ -201,6 +201,11 @@ ensure_common_shell_dirs()
     mkdir -p "$MACHINE_ROOT/drive_c/users/Public/Music"
     mkdir -p "$MACHINE_ROOT/drive_c/users/Public/Pictures"
     mkdir -p "$MACHINE_ROOT/drive_c/users/Public/Videos"
+    # The machine user.reg is the setup prefix's, so session 0's HKCU\Environment puts TEMP and TMP under the setup
+    # account's profile. Without that directory no Wine program of the system group can make a temporary file:
+    # ole32's StgCreateDocfile(NULL) fails with STG_E_INSUFFICIENTMEMORY, and msiexec (it opens a transacted copy of
+    # the package) ends in its first action with 1627 and an empty log (KNOWN_BUGS B54).
+    mkdir -p "$MACHINE_ROOT/drive_c/users/wexsetup/AppData/Local/Temp"
 }
 
 WINE_BIN="${WEX_WINE_BIN:-/usr/local/bin/wine}"

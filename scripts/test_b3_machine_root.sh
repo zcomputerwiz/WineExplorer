@@ -225,6 +225,10 @@ BAD="$(find "$FIX2" ! -type l \( ! -user root -o ! -group "$GROUP2" \) -print)"
 ACLS="$(getfacl -R -p "$FIX2" 2>/dev/null)"
 case "$ACLS" in *sudo*) fail "migration left g:sudo ACL entries" ;; esac
 case "$ACLS" in *"default:group:$GROUP2:rwx"*) ;; *) fail "default ACL for $GROUP2 missing" ;; esac
+TEMPDIR="$FIX2/drive_c/users/wexsetup/AppData/Local/Temp"
+[ -d "$TEMPDIR" ] || fail "session 0's TEMP directory (users/wexsetup/AppData/Local/Temp) is missing"
+case "$(getfacl -p "$TEMPDIR" 2>/dev/null)" in *"group:$GROUP2:rwx"*) ;; *) fail "session 0's TEMP directory has no g:$GROUP2:rwx ACL" ;; esac
+echo "b3_session0_temp_directory=PASS"
 [ "$(stat -c '%a' "$FIX2/system.reg")" = "664" ] && [ "$(stat -c '%a' "$FIX2/userdef.reg")" = "664" ] ||
     fail "hive modes are not 664"
 [ "$(stat -c '%a' "$FIX2/user.reg")" = "664" ] || fail "session 0's user.reg is not 664 (its account cannot save it)"
