@@ -39,39 +39,23 @@
 #include <windows.h>
 
 #include "wexgpclient.h"
+#include "wexconsole.h"
 
 #define ELEVATION_KEY   L"Software\\WineExplorer\\Elevation"
 #define SYSTEM_KEY      L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
 #define LONGEST_MINUTES 99999
 
-static void out( const WCHAR *text )
-{
-    DWORD done;
-    HANDLE handle = GetStdHandle( STD_OUTPUT_HANDLE );
-
-    /* a console gets the text as it is; a pipe or file gets it in the console's code page */
-    if (!WriteConsoleW( handle, text, wcslen( text ), &done, NULL ))
-    {
-        int len = WideCharToMultiByte( GetConsoleOutputCP(), 0, text, -1, NULL, 0, NULL, NULL );
-        char *buf = malloc( len );
-        if (!buf) return;
-        WideCharToMultiByte( GetConsoleOutputCP(), 0, text, -1, buf, len, NULL, NULL );
-        WriteFile( handle, buf, len - 1, &done, NULL );
-        free( buf );
-    }
-}
-
 static void usage(void)
 {
-    out( L"The SECEDIT command configures and exports the security settings that apply to this computer.\n\n"
-         L"SECEDIT /export /cfg <filename> [/areas SECURITYPOLICY] [/log <filename>] [/quiet]\n"
-         L"SECEDIT /configure /cfg <filename> [/db <filename>] [/areas SECURITYPOLICY] [/overwrite]\n"
-         L"        [/log <filename>] [/quiet]\n\n"
-         L"    /export       Writes the account lockout policy and the security options as a template.\n"
-         L"    /configure    Makes the template the local security template and applies it.\n"
-         L"    /cfg          The template file (an INF file).\n"
-         L"    /db, /overwrite, /log, /quiet  Accepted; they do not change what is done here.\n"
-         L"    /areas        Only SECURITYPOLICY applies; the other areas are not applicable.\n" );
+    wex_console_write( L"The SECEDIT command configures and exports the security settings that apply to this computer.\n\n"
+                       L"SECEDIT /export /cfg <filename> [/areas SECURITYPOLICY] [/log <filename>] [/quiet]\n"
+                       L"SECEDIT /configure /cfg <filename> [/db <filename>] [/areas SECURITYPOLICY] [/overwrite]\n"
+                       L"        [/log <filename>] [/quiet]\n\n"
+                       L"    /export       Writes the account lockout policy and the security options as a template.\n"
+                       L"    /configure    Makes the template the local security template and applies it.\n"
+                       L"    /cfg          The template file (an INF file).\n"
+                       L"    /db, /overwrite, /log, /quiet  Accepted; they do not change what is done here.\n"
+                       L"    /areas        Only SECURITYPOLICY applies; the other areas are not applicable.\n" );
 }
 
 static void error_text( DWORD err )
@@ -82,7 +66,7 @@ static void error_text( DWORD err )
                          ARRAY_SIZE(msg), NULL ))
         swprintf( msg, ARRAY_SIZE(msg), L"%lu\n", err );
     swprintf( text, ARRAY_SIZE(text), L"Task is not completed.\n%s", msg );
-    out( text );
+    wex_console_write( text );
 }
 
 static DWORD read_dword( HKEY root, const WCHAR *key_name, const WCHAR *name, DWORD *value )
@@ -255,7 +239,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
             /* only the security policy applies; the other areas are not applicable here */
             for (i++; i < argc && argv[i][0] != '/' && argv[i][0] != '-'; i++)
                 if (_wcsicmp( argv[i], L"SECURITYPOLICY" ) && !quiet)
-                    out( L"The area is not applicable to this computer and is skipped.\n" );
+                    wex_console_write( L"The area is not applicable to this computer and is skipped.\n" );
             i--;
         }
         else { usage(); return 1; }
@@ -267,7 +251,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
         if (!make_template( &t )) { error_text( ERROR_NOT_ENOUGH_MEMORY ); return 1; }
         if (!write_utf16( cfg, t.data, t.len )) { error_text( GetLastError() ); free( t.data ); return 1; }
         free( t.data );
-        if (!quiet) out( L"The task has completed successfully.\n" );
+        if (!quiet) wex_console_write( L"The task has completed successfully.\n" );
         return 0;
     }
 
@@ -295,14 +279,14 @@ int __cdecl wmain( int argc, WCHAR **argv )
     if (err == ERROR_INVALID_DATA && message[0])
     {
         /* gpsvc refused the template: its reason */
-        out( L"Task is not completed.\n" );
-        out( message );
-        out( L"\n" );
+        wex_console_write( L"Task is not completed.\n" );
+        wex_console_write( message );
+        wex_console_write( L"\n" );
         return 1;
     }
     if (err == ERROR_TIMEOUT)
     {
-        out( L"Task is not completed.\nThe request was not taken or its refresh did not end: gpsvc is not running, "
+        wex_console_write( L"Task is not completed.\nThe request was not taken or its refresh did not end: gpsvc is not running, "
              L"or the local policy store is not set up for it.\n" );
         return 1;
     }
@@ -311,6 +295,6 @@ int __cdecl wmain( int argc, WCHAR **argv )
         error_text( err );
         return 1;
     }
-    if (!quiet) out( L"The task has completed successfully.\n" );
+    if (!quiet) wex_console_write( L"The task has completed successfully.\n" );
     return 0;
 }

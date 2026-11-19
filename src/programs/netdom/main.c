@@ -43,6 +43,8 @@
 #include <windows.h>
 #include <lm.h>
 
+#include "wexconsole.h"
+
 /* the flags of NetJoinDomain and NetUnjoinDomain (lmjoin.h of the Windows SDK) */
 #define NETSETUP_JOIN_DOMAIN 0x00000001
 #define NETSETUP_ACCT_CREATE 0x00000002
@@ -54,38 +56,17 @@
 NET_API_STATUS NET_API_FUNCTION NetJoinDomain( LPCWSTR server, LPCWSTR domain, LPCWSTR ou, LPCWSTR account, LPCWSTR password, DWORD flags );
 NET_API_STATUS NET_API_FUNCTION NetUnjoinDomain( LPCWSTR server, LPCWSTR account, LPCWSTR password, DWORD flags );
 
-static void out( const WCHAR *format, ... )
-{
-    WCHAR text[MAX_TEXT * 2];
-    va_list args;
-    DWORD done;
-    HANDLE handle = GetStdHandle( STD_OUTPUT_HANDLE );
-
-    va_start( args, format );
-    vswprintf( text, ARRAY_SIZE(text), format, args );
-    va_end( args );
-    if (!WriteConsoleW( handle, text, wcslen( text ), &done, NULL ))
-    {
-        int len = WideCharToMultiByte( GetConsoleOutputCP(), 0, text, -1, NULL, 0, NULL, NULL );
-        char *buf = malloc( len );
-        if (!buf) return;
-        WideCharToMultiByte( GetConsoleOutputCP(), 0, text, -1, buf, len, NULL, NULL );
-        WriteFile( handle, buf, len - 1, &done, NULL );
-        free( buf );
-    }
-}
-
 static void usage(void)
 {
-    out( L"The syntax of this command is:\n\n"
-         L"NETDOM JOIN [computer] /Domain:domain [/OU:ou path] /UserD:user [/PasswordD:{password|*}] [/REBoot]\n"
-         L"NETDOM REMOVE [computer] [/Domain:domain] [/UserD:user] [/PasswordD:{password|*}] [/Force] [/REBoot]\n"
-         L"NETDOM RENAMECOMPUTER [computer] /NewName:name [/UserD:user] [/PasswordD:{password|*}] [/Force] [/REBoot]\n"
-         L"NETDOM VERIFY [computer] [/Domain:domain]\n"
-         L"NETDOM RESET [computer] [/Domain:domain]\n"
-         L"NETDOM QUERY DC [/Domain:domain]\n"
-         L"NETDOM HELP\n\n"
-         L"The computer is this one. A password of * is asked for. No restart is needed or asked for: /REBoot does nothing.\n" );
+    wex_console_write( L"The syntax of this command is:\n\n"
+                       L"NETDOM JOIN [computer] /Domain:domain [/OU:ou path] /UserD:user [/PasswordD:{password|*}] [/REBoot]\n"
+                       L"NETDOM REMOVE [computer] [/Domain:domain] [/UserD:user] [/PasswordD:{password|*}] [/Force] [/REBoot]\n"
+                       L"NETDOM RENAMECOMPUTER [computer] /NewName:name [/UserD:user] [/PasswordD:{password|*}] [/Force] [/REBoot]\n"
+                       L"NETDOM VERIFY [computer] [/Domain:domain]\n"
+                       L"NETDOM RESET [computer] [/Domain:domain]\n"
+                       L"NETDOM QUERY DC [/Domain:domain]\n"
+                       L"NETDOM HELP\n\n"
+                       L"The computer is this one. A password of * is asked for. No restart is needed or asked for: /REBoot does nothing.\n" );
 }
 
 /* the commands that Windows has and this system does not */
@@ -160,7 +141,7 @@ static BOOL ask_password( const WCHAR *prompt, WCHAR *password, DWORD chars )
     WCHAR c;
     BOOL console = GetConsoleMode( in, &mode );
 
-    out( L"%ls", prompt );
+    wex_console_printf( L"%ls", prompt );
     if (console) SetConsoleMode( in, mode & ~ENABLE_ECHO_INPUT );
     while (n + 1 < chars)
     {
@@ -173,7 +154,7 @@ static BOOL ask_password( const WCHAR *prompt, WCHAR *password, DWORD chars )
         password[n++] = c;
     }
     password[n] = 0;
-    if (console) { SetConsoleMode( in, mode ); out( L"\n" ); }
+    if (console) { SetConsoleMode( in, mode ); wex_console_write( L"\n" ); }
     return n > 0;
 }
 
@@ -201,20 +182,20 @@ static int failed( DWORD status )
     for (end = system + wcslen( system ); end > system && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' '); end--) end[-1] = 0;
     if (system[0])
     {
-        out( L"%ls\n", system );
-        if (message[0] && _wcsicmp( message, system )) out( L"(%ls)\n", message );
+        wex_console_printf( L"%ls\n", system );
+        if (message[0] && _wcsicmp( message, system )) wex_console_printf( L"(%ls)\n", message );
     }
-    else if (message[0]) out( L"%ls\n", message );
-    else out( L"Error %lu.\n", status );
-    out( L"\nThe command failed to complete successfully.\n" );
+    else if (message[0]) wex_console_printf( L"%ls\n", message );
+    else wex_console_printf( L"Error %lu.\n", status );
+    wex_console_write( L"\nThe command failed to complete successfully.\n" );
     return status ? status : 1;
 }
 
 /* a wrong command line, as NETDOM says it */
 static int bad_parameters( const WCHAR *what )
 {
-    if (what && what[0]) out( L"%ls\n", what );
-    out( L"The parameter is incorrect.\nTry \"NetDom HELP\" for more information.\n\nThe command failed to complete successfully.\n" );
+    if (what && what[0]) wex_console_printf( L"%ls\n", what );
+    wex_console_write( L"The parameter is incorrect.\nTry \"NetDom HELP\" for more information.\n\nThe command failed to complete successfully.\n" );
     return ERROR_INVALID_PARAMETER;
 }
 
@@ -231,10 +212,10 @@ static int succeeded( void )
         for (line = message; line; line = next)
         {
             if ((next = wcsstr( line, L"||" ))) { *next = 0; next += 2; }
-            out( L"%ls\n", line );
+            wex_console_printf( L"%ls\n", line );
         }
     }
-    out( L"\nThe command completed successfully.\n" );
+    wex_console_write( L"\nThe command completed successfully.\n" );
     return 0;
 }
 
@@ -254,7 +235,7 @@ static BOOL credentials( struct options *o, WCHAR *password, DWORD chars, BOOL r
 {
     if (!o->user || !o->user[0])
     {
-        if (required) { out( L"The /UserD option is required: this computer has no logged-on domain account to use.\n" ); *failure = bad_parameters( NULL ); }
+        if (required) { wex_console_write( L"The /UserD option is required: this computer has no logged-on domain account to use.\n" ); *failure = bad_parameters( NULL ); }
         return !required;
     }
     if (o->password && wcscmp( o->password, L"*" ) && o->password[0]) { lstrcpynW( password, o->password, chars ); return TRUE; }
@@ -273,8 +254,8 @@ static int cmd_join( struct options *o )
     int failure = 1;
 
     if (!o->domain || !o->domain[0]) return bad_parameters( L"The /Domain option is required." );
-    if (!is_this_computer( o->computer )) { out( L"Joining another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
-    if (o->read_only || o->other_user) { out( L"The read-only join and the options for another computer's account are not supported.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
+    if (!is_this_computer( o->computer )) { wex_console_write( L"Joining another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
+    if (o->read_only || o->other_user) { wex_console_write( L"The read-only join and the options for another computer's account are not supported.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
     if (!credentials( o, password, ARRAY_SIZE(password), TRUE, &failure )) return failure;
     status = NetJoinDomain( NULL, o->domain, o->ou && o->ou[0] ? o->ou : NULL, o->user, password, NETSETUP_JOIN_DOMAIN | NETSETUP_ACCT_CREATE );
     memset( password, 0, sizeof(password) );
@@ -287,8 +268,8 @@ static int cmd_remove( struct options *o )
     DWORD status;
     int failure = 1;
 
-    if (!is_this_computer( o->computer )) { out( L"Removing another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
-    if (o->other_user) { out( L"The options for another computer's account are not supported.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
+    if (!is_this_computer( o->computer )) { wex_console_write( L"Removing another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
+    if (o->other_user) { wex_console_write( L"The options for another computer's account are not supported.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
     /* with /Force and no account only this computer's side is undone (the controller may be out of reach) */
     if (!(o->force && (!o->user || !o->user[0])) && !credentials( o, password, ARRAY_SIZE(password), TRUE, &failure )) return failure;
     if (o->user && o->user[0]) status = NetUnjoinDomain( NULL, o->user, password, NETSETUP_ACCT_DELETE );
@@ -303,7 +284,7 @@ static int cmd_channel( struct options *o, DWORD op )
     channel_fn channel;
     DWORD status;
 
-    if (!is_this_computer( o->computer )) { out( L"Another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
+    if (!is_this_computer( o->computer )) { wex_console_write( L"Another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
     if (!(module = LoadLibraryW( L"wexjoin.dll" )) || !(channel = (channel_fn)GetProcAddress( module, "WexJoinSecureChannel" )))
         return failed( ERROR_NOT_SUPPORTED );
     status = channel( op );
@@ -319,22 +300,22 @@ static int cmd_query( struct options *o )
 
     if (!o->query_type || _wcsicmp( o->query_type, L"DC" ))
     {
-        out( L"Only NETDOM QUERY DC is supported on this system.\n" );
+        wex_console_write( L"Only NETDOM QUERY DC is supported on this system.\n" );
         return failed( ERROR_NOT_SUPPORTED );
     }
     if (!(module = LoadLibraryW( L"wexjoin.dll" )) || !(channel = (channel_fn)GetProcAddress( module, "WexJoinSecureChannel" )))
         return failed( ERROR_NOT_SUPPORTED );
     if ((status = channel( 3 ))) return failed( status );
     last_message( list, ARRAY_SIZE(list) );
-    out( L"List of domain controllers with accounts in the domain:\n\n" );
+    wex_console_write( L"List of domain controllers with accounts in the domain:\n\n" );
     for (p = list; *p; p = end)
     {
         while (*p == ' ') p++;
         if (!*p) break;
         for (end = p; *end && *end != ' '; end++) {}
-        out( L"%.*ls\n", (int)(end - p), p );
+        wex_console_printf( L"%.*ls\n", (int)(end - p), p );
     }
-    out( L"\nThe command completed successfully.\n" );
+    wex_console_write( L"\nThe command completed successfully.\n" );
     return 0;
 }
 
@@ -352,12 +333,12 @@ int __cdecl wmain( int argc, WCHAR **argv )
     if (argc == 3 && (!_wcsicmp( argv[2], L"/?" ) || !_wcsicmp( argv[2], L"/HELP" ))) { usage(); return 0; }
     if (is_other_command( command ))
     {
-        out( L"NETDOM %ls is not supported on this system.\n", command );
+        wex_console_printf( L"NETDOM %ls is not supported on this system.\n", command );
         return failed( ERROR_NOT_SUPPORTED );
     }
     if ((bad = parse_options( argc, argv, &o, !_wcsicmp( command, L"QUERY" ) )))
     {
-        out( L"The option %ls is not valid for this command.\n", bad );
+        wex_console_printf( L"The option %ls is not valid for this command.\n", bad );
         return bad_parameters( NULL );
     }
     if (!_wcsicmp( command, L"JOIN" )) return cmd_join( &o );
@@ -368,9 +349,9 @@ int __cdecl wmain( int argc, WCHAR **argv )
     if (!_wcsicmp( command, L"RENAMECOMPUTER" ))
     {
         if (!o.new_name) return bad_parameters( L"The /NewName option is required." );
-        out( L"Renaming the computer in the domain is not supported yet on this system.\n" );
+        wex_console_write( L"Renaming the computer in the domain is not supported yet on this system.\n" );
         return failed( ERROR_NOT_SUPPORTED );
     }
-    out( L"The command %ls is not valid.\n", command );
+    wex_console_printf( L"The command %ls is not valid.\n", command );
     return bad_parameters( NULL );
 }

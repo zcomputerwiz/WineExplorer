@@ -34,39 +34,23 @@
 #include <windows.h>
 #include <winsvc.h>
 #include "wexgpclient.h"
+#include "wexconsole.h"
 
 #define GPSVC_CONTROL_REFRESH  128
 
-static void out( const WCHAR *text )
-{
-    DWORD done;
-    HANDLE handle = GetStdHandle( STD_OUTPUT_HANDLE );
-
-    /* a console gets the text as it is; a pipe or file gets it in the console's code page */
-    if (!WriteConsoleW( handle, text, wcslen( text ), &done, NULL ))
-    {
-        int len = WideCharToMultiByte( GetConsoleOutputCP(), 0, text, -1, NULL, 0, NULL, NULL );
-        char *buf = malloc( len );
-        if (!buf) return;
-        WideCharToMultiByte( GetConsoleOutputCP(), 0, text, -1, buf, len, NULL, NULL );
-        WriteFile( handle, buf, len - 1, &done, NULL );
-        free( buf );
-    }
-}
-
 static void usage(void)
 {
-    out( L"Refreshes local and Active Directory-based Group Policy settings, including security settings.\n\n"
-         L"GPUPDATE [/Target:{Computer | User}] [/Force] [/Wait:<value>] [/Logoff] [/Boot] [/Sync]\n\n"
-         L"Parameters:\n"
-         L"    /Target:{Computer | User}  Specifies that only Computer or User policy settings are refreshed.\n"
-         L"                               By default, both are refreshed.\n"
-         L"    /Force                     Reapplies all policy settings.\n"
-         L"    /Wait:{value}              Seconds to wait for the refresh to finish (default 600; 0: do not\n"
-         L"                               wait; -1: wait indefinitely).\n"
-         L"    /Logoff                    Logs off after the refresh if a setting needs it.\n"
-         L"    /Boot                      Restarts after the refresh if a setting needs it.\n"
-         L"    /Sync                      Applies the next policy at startup or logon synchronously.\n" );
+    wex_console_write( L"Refreshes local and Active Directory-based Group Policy settings, including security settings.\n\n"
+                       L"GPUPDATE [/Target:{Computer | User}] [/Force] [/Wait:<value>] [/Logoff] [/Boot] [/Sync]\n\n"
+                       L"Parameters:\n"
+                       L"    /Target:{Computer | User}  Specifies that only Computer or User policy settings are refreshed.\n"
+                       L"                               By default, both are refreshed.\n"
+                       L"    /Force                     Reapplies all policy settings.\n"
+                       L"    /Wait:{value}              Seconds to wait for the refresh to finish (default 600; 0: do not\n"
+                       L"                               wait; -1: wait indefinitely).\n"
+                       L"    /Logoff                    Logs off after the refresh if a setting needs it.\n"
+                       L"    /Boot                      Restarts after the refresh if a setting needs it.\n"
+                       L"    /Sync                      Applies the next policy at startup or logon synchronously.\n" );
 }
 
 int __cdecl wmain( int argc, WCHAR **argv )
@@ -97,7 +81,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
         else { usage(); return 1; }
     }
 
-    out( L"Refreshing Policy...\n\n" );
+    wex_console_write( L"Refreshing Policy...\n\n" );
     if (!(manager = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT ))) err = GetLastError();
     else
     {
@@ -115,7 +99,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
         if (!FormatMessageW( FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, err, 0, msg,
                              ARRAY_SIZE(msg), NULL )) swprintf( msg, ARRAY_SIZE(msg), L"%lu\n", err );
         swprintf( text, ARRAY_SIZE(text), L"Failed to refresh policy. Error - %ls", msg );
-        out( text );
+        wex_console_write( text );
         return 1;
     }
 
@@ -123,11 +107,11 @@ int __cdecl wmain( int argc, WCHAR **argv )
     if (!wait) return 0;
     if (!wex_gp_wait_served( wait, FALSE ))
     {
-        if (computer) out( L"Computer Policy update has not completed in the expected time. Exiting...\n" );
-        if (user) out( L"User Policy update has not completed in the expected time. Exiting...\n" );
+        if (computer) wex_console_write( L"Computer Policy update has not completed in the expected time. Exiting...\n" );
+        if (user) wex_console_write( L"User Policy update has not completed in the expected time. Exiting...\n" );
         return 0;
     }
-    if (user) out( L"User Policy Refresh has completed.\n" );
-    if (computer) out( L"Computer Policy Refresh has completed.\n" );
+    if (user) wex_console_write( L"User Policy Refresh has completed.\n" );
+    if (computer) wex_console_write( L"Computer Policy Refresh has completed.\n" );
     return 0;
 }

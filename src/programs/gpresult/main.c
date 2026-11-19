@@ -36,6 +36,8 @@
 #include <dsrole.h>
 #include <userenv.h>
 
+#include "wexconsole.h"
+
 static const struct { GUID guid; const WCHAR *name; } extensions[] =
 {
     { { 0x35378eac, 0x683f, 0x11d2, { 0xa8, 0x9a, 0x00, 0xc0, 0x4f, 0xbb, 0xcf, 0xa2 } }, L"Administrative Templates" },
@@ -50,41 +52,20 @@ struct applied
     unsigned int exts;     /* bit per entry of extensions[] */
 };
 
-static void out( const WCHAR *format, ... )
-{
-    WCHAR text[1024];
-    va_list args;
-    DWORD done;
-    HANDLE handle = GetStdHandle( STD_OUTPUT_HANDLE );
-
-    va_start( args, format );
-    vswprintf( text, ARRAY_SIZE(text), format, args );
-    va_end( args );
-    if (!WriteConsoleW( handle, text, wcslen( text ), &done, NULL ))
-    {
-        int len = WideCharToMultiByte( GetConsoleOutputCP(), 0, text, -1, NULL, 0, NULL, NULL );
-        char *buf = malloc( len );
-        if (!buf) return;
-        WideCharToMultiByte( GetConsoleOutputCP(), 0, text, -1, buf, len, NULL, NULL );
-        WriteFile( handle, buf, len - 1, &done, NULL );
-        free( buf );
-    }
-}
-
 static void usage(void)
 {
-    out( L"GPRESULT [/S system [/U username [/P [password]]]] [/SCOPE scope]\n"
-         L"         [/USER targetusername] [/V | /Z]\n\n"
-         L"Description:\n"
-         L"    Displays the Resultant Set of Policy (RSoP) information for a target user and computer.\n\n"
-         L"Parameter List:\n"
-         L"    /S    system           Specifies the remote system to connect to (not supported).\n"
-         L"    /SCOPE scope           Specifies whether the user or the computer settings are displayed.\n"
-         L"                           Valid values: \"USER\", \"COMPUTER\".\n"
-         L"    /USER targetusername   Specifies the user name for which the RSoP data is displayed.\n"
-         L"    /V                     Specifies that verbose information is displayed.\n"
-         L"    /Z                     Specifies that the super-verbose information is displayed.\n"
-         L"    /?                     Displays this help message.\n" );
+    wex_console_write( L"GPRESULT [/S system [/U username [/P [password]]]] [/SCOPE scope]\n"
+                       L"         [/USER targetusername] [/V | /Z]\n\n"
+                       L"Description:\n"
+                       L"    Displays the Resultant Set of Policy (RSoP) information for a target user and computer.\n\n"
+                       L"Parameter List:\n"
+                       L"    /S    system           Specifies the remote system to connect to (not supported).\n"
+                       L"    /SCOPE scope           Specifies whether the user or the computer settings are displayed.\n"
+                       L"                           Valid values: \"USER\", \"COMPUTER\".\n"
+                       L"    /USER targetusername   Specifies the user name for which the RSoP data is displayed.\n"
+                       L"    /V                     Specifies that verbose information is displayed.\n"
+                       L"    /Z                     Specifies that the super-verbose information is displayed.\n"
+                       L"    /?                     Displays this help message.\n" );
 }
 
 /* whether the caller may see the data of the user with this SID: the caller's own always, another user's only for an
@@ -148,20 +129,20 @@ static void section( const WCHAR *title, BOOL machine, PSID sid, BOOL verbose, c
     unsigned int count, i, e;
     size_t len = wcslen( title );
 
-    out( L"\n%ls\n", title );
-    for (i = 0; i < len; i++) out( L"-" );
-    out( L"\n" );
-    out( L"    Group Policy was applied from:      %ls\n", source ? source : L"N/A" );
-    out( L"\n    Applied Group Policy Objects\n    -----------------------------\n" );
+    wex_console_printf( L"\n%ls\n", title );
+    for (i = 0; i < len; i++) wex_console_write( L"-" );
+    wex_console_write( L"\n" );
+    wex_console_printf( L"    Group Policy was applied from:      %ls\n", source ? source : L"N/A" );
+    wex_console_write( L"\n    Applied Group Policy Objects\n    -----------------------------\n" );
     count = collect( machine, sid, list, ARRAY_SIZE(list) );
-    if (!count) out( L"        N/A\n" );
+    if (!count) wex_console_write( L"        N/A\n" );
     for (i = 0; i < count; i++)
     {
-        out( L"        %ls\n", list[i].display[0] ? list[i].display : list[i].name );
+        wex_console_printf( L"        %ls\n", list[i].display[0] ? list[i].display : list[i].name );
         if (!verbose) continue;
-        out( L"            GPO: %ls\n", list[i].name );
+        wex_console_printf( L"            GPO: %ls\n", list[i].name );
         for (e = 0; e < ARRAY_SIZE(extensions); e++)
-            if (list[i].exts & (1u << e)) out( L"            Applied for: %ls\n", extensions[e].name );
+            if (list[i].exts & (1u << e)) wex_console_printf( L"            Applied for: %ls\n", extensions[e].name );
     }
 }
 
@@ -194,7 +175,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
         else if (!_wcsicmp( arg, L"user" ) && i + 1 < argc) target = argv[++i];
         else if (!_wcsicmp( arg, L"s" ) && i + 1 < argc)
         {
-            out( L"ERROR: Connecting to another computer is not supported.\n" );
+            wex_console_write( L"ERROR: Connecting to another computer is not supported.\n" );
             return 1;
         }
         else { usage(); return 1; }
@@ -208,12 +189,12 @@ int __cdecl wmain( int argc, WCHAR **argv )
         dsize = ARRAY_SIZE(domain);
         if (!LookupAccountNameW( NULL, target, sid, &size, domain, &dsize, &use ))
         {
-            out( L"ERROR: The user \"%s\" does not have RSoP data.\n", target );
+            wex_console_printf( L"ERROR: The user \"%s\" does not have RSoP data.\n", target );
             return 1;
         }
         if (!may_show_user( sid ))
         {
-            out( L"ERROR: Access denied. You must be an administrator to display the data of another user.\n" );
+            wex_console_write( L"ERROR: Access denied. You must be an administrator to display the data of another user.\n" );
             return 1;
         }
         lstrcpynW( user, target, ARRAY_SIZE(user) );
@@ -227,7 +208,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
             !GetTokenInformation( token, TokenUser, buf, sizeof(buf), &size ) ||
             !CopySid( sizeof(sid_buf), sid, ((TOKEN_USER *)buf)->User.Sid ))
         {
-            out( L"ERROR: %lu\n", GetLastError() );
+            wex_console_printf( L"ERROR: %lu\n", GetLastError() );
             return 1;
         }
         CloseHandle( token );
@@ -243,9 +224,9 @@ int __cdecl wmain( int argc, WCHAR **argv )
     GetLocalTime( &now );
     GetDateFormatW( LOCALE_USER_DEFAULT, 0, &now, NULL, date, ARRAY_SIZE(date) );
     GetTimeFormatW( LOCALE_USER_DEFAULT, 0, &now, NULL, time, ARRAY_SIZE(time) );
-    out( L"\nGroup Policy Result tool v2.0\n\nCreated On %ls at %ls\n\n\n", date, time );
-    out( L"RSOP data for %ls\\%ls on %ls : Logging Mode\n", dom, user, computer );
-    out( L"------------------------------------------------------------\n\n" );
+    wex_console_printf( L"\nGroup Policy Result tool v2.0\n\nCreated On %ls at %ls\n\n\n", date, time );
+    wex_console_printf( L"RSOP data for %ls\\%ls on %ls : Logging Mode\n", dom, user, computer );
+    wex_console_write( L"------------------------------------------------------------\n\n" );
     product[0] = 0;
     if (!RegOpenKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows NT\\CurrentVersion", 0,
                         KEY_QUERY_VALUE | KEY_WOW64_64KEY, &key ))
@@ -255,14 +236,14 @@ int __cdecl wmain( int argc, WCHAR **argv )
         product[size / sizeof(WCHAR)] = 0;
         RegCloseKey( key );
     }
-    out( L"OS Type:                     %ls\n", product );
-    out( L"OS Configuration:            %ls\n", joined ? L"Member Workstation" : L"Standalone Workstation" );
-    out( L"OS Version:                  %u.%u.%u\n", (unsigned int)LOBYTE(LOWORD(version)),
+    wex_console_printf( L"OS Type:                     %ls\n", product );
+    wex_console_printf( L"OS Configuration:            %ls\n", joined ? L"Member Workstation" : L"Standalone Workstation" );
+    wex_console_printf( L"OS Version:                  %u.%u.%u\n", (unsigned int)LOBYTE(LOWORD(version)),
          (unsigned int)HIBYTE(LOWORD(version)), (unsigned int)(version < 0x80000000 ? HIWORD(version) : 0) );
-    out( L"Domain Name:                 %ls\n", joined ? info->DomainNameFlat : L"N/A" );
-    out( L"Domain Type:                 %ls\n", joined ? L"Windows 2000" : L"<Local Computer>" );
-    out( L"Site Name:                   N/A\n" );
-    out( L"Roaming Profile:             \n" );
+    wex_console_printf( L"Domain Name:                 %ls\n", joined ? info->DomainNameFlat : L"N/A" );
+    wex_console_printf( L"Domain Type:                 %ls\n", joined ? L"Windows 2000" : L"<Local Computer>" );
+    wex_console_write( L"Site Name:                   N/A\n" );
+    wex_console_write( L"Roaming Profile:             \n" );
     size = ARRAY_SIZE(profile);
     if (!target && OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token ))
     {
@@ -270,8 +251,8 @@ int __cdecl wmain( int argc, WCHAR **argv )
         CloseHandle( token );
     }
     else profile[0] = 0;
-    out( L"Local Profile:               %ls\n", profile );
-    out( L"Connected over a slow link?: No\n" );
+    wex_console_printf( L"Local Profile:               %ls\n", profile );
+    wex_console_write( L"Connected over a slow link?: No\n" );
 
     /* the domain, not one of its controllers: Samba picks the controller and does not record it */
     source = joined ? info->DomainNameDns : NULL;
