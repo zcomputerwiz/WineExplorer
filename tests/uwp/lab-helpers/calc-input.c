@@ -117,8 +117,8 @@ int main( int argc, char **argv )
         if (argc > 3)
         {
             click( 150, 160, "App theme" ); Sleep( 8000 );
-            click( 144, 282, "Dark" ); Sleep( 10000 );
-            click( 150, 300, "About" ); Sleep( 8000 );
+            click( 130, 267, "Dark" ); Sleep( 10000 );
+            Sleep( 8000 );
             click( 60, 22, "Settings header" ); Sleep( 12000 );
         }
     }

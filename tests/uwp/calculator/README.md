@@ -276,3 +276,32 @@ Uno's own converter path is not used (the converters are looked up by the applic
 The application also throws "Unrecognized custom TypeName" (E_INVALIDARG) many times while the page loads: a
 `GetXamlType(TypeName)` probe of the shim's. Next: find which `TypeName` it is (the kind and name are in
 `NativeObjects.ToTypeName`) and whether that probe is the one the bindings need.
+
+### 2026-11-18, Date calculation fixed (uno-uwp 9178f2efee)
+
+Root cause: not the app's x:Bind. XbfKit writes a `{Binding Path, Converter={StaticResource K}}` as
+`<Grid.Visibility><Binding Converter=... Path=.../></Grid.Visibility>`; Uno's reader resolves the StaticResource while the
+element is outside the tree and leaves `Converter` null, so the bool was used raw and both sub-layouts showed (no
+`put_Visibility` was expected: Uno's own binding sets the property). `XbfLoader.BindingAttributes` now writes such
+bindings as `ConverterBinding.Bindings`, whose `LazyConverter` looks the key up in the element's parents' resources and the
+application's when evaluated. A C++/CX converter returns a boxed `IReference<Visibility>`; `NativeObjects.Convert` unboxes
+framework enums through that interface (it also fixes the Calculator page's own negation converters). Quick run: only
+the difference layout shows, `AddSubtractDateGrid` Collapsed; all modes still open. Still open: Currency (E_NOTIMPL on a
+worker thread), dark theme cards.
+
+### 2026-11-18, Currency: E_NOTIMPL placed
+
+The currency page's SelectionChanged handler ended in E_NOTIMPL because it calls `ConnectionProfile::GetConnectionCost` (a stock Wine stub; the
+log line `connection_profile_GetConnectionCost ... stub!` sits right before the `RoOriginateLanguageException 0x80004001`). Wine branch
+`claude/uwp-connectioncost` (1fdd6ee0) implements it. Result: the page no longer shows the volume units; with no network the
+pickers are empty. Dark cards: the toolkit `Generic.xbf` whole-file parse still fails (`x:Object` unknown in `TryProcessStyle`);
+stripping the `BasedOn` of the styles does not help (it fails the same way), so the cause is another construct in that file.
+
+### 2026-11-18, XamlShim 0.3.2 (uno-uwp 7aa5935c84)
+
+Date calculation (converter bindings), dark toolkit cards and expander items, and the toolkit Generic.xbf as a whole: its merged
+dictionaries declare their own prefixes while Uno resolves a Style TargetType against the root's (hoisted now), and its theme
+aliases (`SettingsCardBackground` = `CardBackgroundFillColorDefaultBrush`) are looked up with Uno's ambient requested theme set to
+the dictionary's own, so Default (dark) and Light get their own values. `xamlshim-0.3.2-win-x64.zip`, 59811791 bytes, SHA-256
+7047f79a093a...; the `uwp-xaml` component pins it (17 component tests pass). Still open: in the dark theme the Settings page
+headings ("Settings", "Appearance", "About") are dim; `calc-input.c` clicks "Dark" at the real card layout now.
