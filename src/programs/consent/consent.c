@@ -646,7 +646,7 @@ static void describe_program(struct consent_data *data)
             /* the signature chain is valid, but the digest of an installer package is not checked against its
              * contents (no package digest in wintrust), so the dialog does not call this verified */
             data->is_verified = FALSE;
-            swprintf(data->publisher, ARRAY_SIZE(data->publisher), L"%ls (package contents not verified)",
+            swprintf(data->publisher, ARRAY_SIZE(data->publisher), L"%ls (unverified)",
                      signer[0] ? signer : L"signed package");
         }
         else if (status == ERROR_SUCCESS)
