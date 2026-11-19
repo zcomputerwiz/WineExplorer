@@ -592,7 +592,7 @@ static void describe_program(struct consent_data *data)
     {
         DWORD size = ARRAY_SIZE(data->progname);
         data->progname[0] = 0;
-        if (MsiGetProductInfoW(package, INSTALLPROPERTY_PRODUCTNAMEW, data->progname, &size)) data->progname[0] = 0;
+        if (MsiGetProductInfoW(package, L"ProductName", data->progname, &size)) data->progname[0] = 0;
         named = data->progname[0] != 0;
         is_package = FALSE;
     }
