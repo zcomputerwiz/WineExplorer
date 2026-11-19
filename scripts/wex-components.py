@@ -2215,6 +2215,7 @@ class MachineWine:
         self.run_dir = None
         self.w_cache = None
         self.started_ns = None
+        self.finished_ns = None
         socket_path = sysrun_value('session0_socket', conf)
         self.session0 = socket_path is not None
         if self.session0:
@@ -2349,8 +2350,13 @@ class MachineWine:
                 except subprocess.TimeoutExpired:
                     self.stop()
             return subprocess.run(self.command(argv, timeout=timeout, isolate=isolate), env=self.environment(), **kwargs)
-        return subprocess.run(self.command(argv, timeout=timeout, isolate=isolate),
-                              env={'PATH': self.PATH, 'LANG': 'C.UTF-8'}, timeout=timeout + 90, **kwargs)
+        try:
+            return subprocess.run(self.command(argv, timeout=timeout, isolate=isolate),
+                                  env={'PATH': self.PATH, 'LANG': 'C.UTF-8'}, timeout=timeout + 90, **kwargs)
+        finally:
+            # what this program changed is in session 0's server now: a save of system.reg after this moment holds
+            # it (the server saves between requests, so a save that ends later began after the program's last one)
+            self.finished_ns = time.time_ns()
 
     def reg(self, *args, check=False):
         argv = [self.WINE, 'reg.exe', *args]
@@ -2383,15 +2389,16 @@ class MachineWine:
 
     def wait_idle(self, timeout=120):
         """After Wine programs that changed the machine: their changes are in system.reg. Without session 0 root's
-        server has exited; with it session 0 has saved the hive since the first program of this run started (when
-        nothing changed it saves nothing: the verification that follows decides). Nothing to wait for when no
-        program ran."""
+        server has exited; with it session 0 has saved the hive since the last program of this run ended (when
+        nothing changed it saves nothing: the verification that follows decides). Not since the first one started:
+        session 0 saves during a long installer, and the writes after it (WebView2's update policy) would be missing
+        from the file the verification reads. Nothing to wait for when no program ran."""
         if self.started_ns is None:
             return
         if not self.session0:
             self._server('-w', timeout=timeout)
             return
-        wait_for_newer(self.machine, 'system.reg', self.started_ns, min(timeout, HIVE_SAVE_TIMEOUT))
+        wait_for_newer(self.machine, 'system.reg', self.finished_ns or self.started_ns, min(timeout, HIVE_SAVE_TIMEOUT))
 
     def stop(self, check=True):
         """End what is left of an install. Without session 0 root's whole server; with it nothing is left to end:

@@ -131,6 +131,22 @@ class Session0Tests(Fixture):
             self.assertEqual((run_dir.stat().st_uid, stat.S_IMODE(run_dir.stat().st_mode)), (0, 0o711))
         self.assertFalse(run_dir.exists())
 
+    def test_wait_idle_waits_for_a_save_after_the_last_program(self):
+        # a long installer during which session 0 saved the hive, then a short write (WebView2's policy): the wait is
+        # for a save after the write, not after the installer's start
+        self.session0()
+        with c.MachineWine(self.machine) as wine, \
+                patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
+                patch.object(c, 'wait_for_newer', return_value=True) as wait:
+            wine.run(['installer'], timeout=10)
+            first = wine.finished_ns
+            time.sleep(0.01)
+            wine.run(['reg', 'add'], timeout=10)
+            self.assertGreater(wine.finished_ns, first)
+            self.assertGreater(wine.finished_ns, wine.started_ns)
+            wine.wait_idle()
+            self.assertEqual(wait.call_args.args[:3], (self.machine, 'system.reg', wine.finished_ns))
+
     def test_session0_must_be_serving_and_no_earlier_install_running(self):
         socket_path = self.session0()
         wine = c.MachineWine(self.machine)
