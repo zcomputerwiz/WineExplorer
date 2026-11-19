@@ -1,6 +1,6 @@
 # Changes to stock Wine / third-party code
 
-## ntdll: AVL generic tables and RtlIsNameInExpression (B48, 2026-11-19)
+## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
 General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with
 `loader_init ... failed to initialize` while it imported the functions below. Code in `dlls/ntdll/rtl.c`, exports in
@@ -15,6 +15,11 @@ General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.
   `BOOLEAN *`, as on Windows (the stub returned nothing and took a `BOOL *`).
 - `RtlIsNameInExpression` (new): wildcard matching with `*`, `?` and the DOS characters (`<`, `>`, `"`), case folding
   when `ignore_case` is set (the expression must already be upper case, as on Windows).
+- Known limits, not blocking: the AVL tree is never rebalanced (sorted inserts make it a list, only slower); the `*` of
+  `RtlIsNameInExpression` backtracks recursively (O(n^k) for many stars, Windows uses a linear state machine);
+  `upcase_table` is ignored (`RtlUpcaseUnicodeChar` is used); the DOS wildcard test cases follow the documented
+  FsRtlIsNameInExpression rules and were not checked on Windows. `FsRtlIsNameInExpression` in ntoskrnl.exe is still a
+  stub that could call this function.
 
 ## server: inherited CREATOR OWNER / CREATOR GROUP ACEs of keys (B46, 2026-11-18)
 
