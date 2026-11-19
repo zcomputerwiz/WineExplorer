@@ -296,3 +296,12 @@ log line `connection_profile_GetConnectionCost ... stub!` sits right before the 
 `claude/uwp-connectioncost` (1fdd6ee0) implements it. Result: the page no longer shows the volume units; with no network the
 pickers are empty. Dark cards: the toolkit `Generic.xbf` whole-file parse still fails (`x:Object` unknown in `TryProcessStyle`);
 stripping the `BasedOn` of the styles does not help (it fails the same way), so the cause is another construct in that file.
+
+### 2026-11-18, XamlShim 0.3.2 (uno-uwp 7aa5935c84)
+
+Date calculation (converter bindings), dark toolkit cards and expander items, and the toolkit Generic.xbf as a whole: its merged
+dictionaries declare their own prefixes while Uno resolves a Style TargetType against the root's (hoisted now), and its theme
+aliases (`SettingsCardBackground` = `CardBackgroundFillColorDefaultBrush`) are looked up with Uno's ambient requested theme set to
+the dictionary's own, so Default (dark) and Light get their own values. `xamlshim-0.3.2-win-x64.zip`, 59811791 bytes, SHA-256
+7047f79a093a...; the `uwp-xaml` component pins it (17 component tests pass). Still open: in the dark theme the Settings page
+headings ("Settings", "Appearance", "About") are dim; `calc-input.c` clicks "Dark" at the real card layout now.
