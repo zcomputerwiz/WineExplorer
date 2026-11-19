@@ -107,12 +107,20 @@ if [ -s "$LAB/wexadmin1_password.txt" ] && [ "$DOMAIN_LOGON" = 1 ] && command -v
         "$REPO/scripts/system-tier-probe.c" -ladvapi32 -lntdll && install -m 0600 "$LAB/wexadmin1_password.txt" "$MNT/root/wexadmin1pw" ||
         echo "note domain_admin: not prepared (probe or password)"
 fi
-install -m 0700 "$HERE/machine-guest.sh" "$MNT/root/ad-guest.sh"
+# WEX_GUEST=NAME.sh: another guest script of this folder (join-guest.sh: the join from netdom, docs/DOMAIN_JOIN.md)
+GUEST=${WEX_GUEST:-machine-guest.sh}
+[ -f "$HERE/$GUEST" ] || fail "no guest script $HERE/$GUEST"
+install -m 0700 "$HERE/$GUEST" "$MNT/root/ad-guest.sh"
 # WEX_LAB_TREE_GPUPDATE=1: this tree's wex-gpupdate.sh in place of the image's (a script change tested without a
 # new image; docs/GPO_LAB.md)
 if [ "${WEX_LAB_TREE_GPUPDATE:-0}" = 1 ]; then
     install -m 0755 "$REPO/installer/scripts/wex-gpupdate.sh" "$MNT/usr/local/bin/wex-gpupdate.sh"
     echo "using this tree's wex-gpupdate.sh"
+fi
+# WEX_LAB_TREE_JOIN=1: this tree's join engine (wex-domain-join.sh) in place of the image's
+if [ "${WEX_LAB_TREE_JOIN:-0}" = 1 ]; then
+    install -m 0755 "$REPO/installer/scripts/wex-domain-join.sh" "$MNT/usr/local/sbin/wex-domain-join.sh"
+    echo "using this tree's wex-domain-join.sh"
 fi
 # WEX_LAB_TREE_TOOLS=1: this tree's wex-sysrun and wex-accounts (built as installer/package-wine.sh builds them) and
 # the PAM step's script and the session scripts in place of the image's, so that a change to any is tested without a
@@ -187,6 +195,8 @@ host_step() {   # NAME ARGS...: prints what goes into the done file (the last li
         consent)   # the User Account Control dialog of an elevation request: Continue
             "${V[@]}" wait "$TEST" "Account Control" --timeout 90 >/dev/null || { host_stuck consent "no User Account Control dialog"; return 0; }
             "${V[@]}" shot "$TEST" "$STATE/host-consent.png" >/dev/null 2>&1 || true
+            # (the pointer of an earlier click may sit on the button and hide its text from the reader: move it off)
+            "${V[@]}" click "$TEST" 640 300 >/dev/null 2>&1 || true
             if "${V[@]}" clicktext "$TEST" Continue --timeout 20 >/dev/null; then echo ok; else host_stuck consent "no Continue button"; fi ;;
         tile)
             "${V[@]}" wait "$TEST" "To begin" --timeout 300 >/dev/null || { host_stuck welcome "no Welcome screen"; return 0; }

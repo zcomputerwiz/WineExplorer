@@ -141,7 +141,7 @@ trap drop_ticket EXIT
 
 cmd_join()
 {
-    local domain=${1:-} user= workgroup= ou= stdin=0 realm kind netbios principal
+    local domain=${1:-} user= workgroup= ou= stdin=0 realm kind netbios principal guessed found joinout oupath ouparts i part
     [ -n "$domain" ] || usage
     take_lock
     shift
@@ -158,7 +158,8 @@ cmd_join()
     valid_user "$user" || fail 87 "--user: a user name is needed (letters, digits and . _ @ -)"
     [ "$stdin" = 1 ] || fail 87 "the password is read from standard input: give --password-stdin"
     realm=$(printf '%s' "$domain" | tr 'a-z' 'A-Z')
-    if [ -z "$workgroup" ]; then workgroup=$(printf '%s' "${domain%%.*}" | tr 'a-z' 'A-Z' | cut -c 1-15); fi
+    guessed=0
+    if [ -z "$workgroup" ]; then guessed=1; workgroup=$(printf '%s' "${domain%%.*}" | tr 'a-z' 'A-Z' | cut -c 1-15); fi
     # the computer's NetBIOS name is its host name, cut to 15 characters as Windows does
     netbios=$(printf '%s' "${WEX_JOIN_HOSTNAME:-$(hostname -s)}" | tr 'a-z' 'A-Z' | cut -c 1-15)
     [[ $netbios =~ ^[A-Z0-9]([A-Z0-9-]*[A-Z0-9])?$ ]] || fail 1210 "the host name '$netbios' cannot be a computer name (letters, digits and hyphens)"
@@ -166,6 +167,15 @@ cmd_join()
     valid_workgroup "$workgroup" || fail 87 "--workgroup: the NetBIOS name is 1 to 15 letters, digits and hyphens"
     [ -z "$ou" ] || valid_ou "$ou" || fail 87 "--ou: not a distinguished name"
     need_tools
+    # the domain's NetBIOS name is the controller's to say (a domain "corp.example.com" may be "CORPORATE"): asked with a
+    # CLDAP ping before the first label is trusted
+    if [ "$guessed" = 1 ]; then
+        found=$(net ads lookup -S "$domain" 2>/dev/null | sed -n 's/^Pre-Win2k Domain: *//p' | head -n 1 | tr 'a-z' 'A-Z')
+        if [ -n "$found" ] && valid_workgroup "$found"; then
+            workgroup=$found
+            [ "$netbios" != "$workgroup" ] || fail 1210 "the computer name and the domain's NetBIOS name are both $netbios: rename the computer"
+        fi
+    fi
     kind=$(join_kind)
     case $kind in
         "") ;;
@@ -188,10 +198,23 @@ cmd_join()
         undo_files
         fail 1326 "the controller did not accept $user@$realm (a wrong password, or the clock or DNS)"
     fi
-    if ! net ads join -k ${ou:+createcomputer="$ou"} >/dev/null 2>&1; then
-        drop_ticket; undo_files
-        die "net ads join failed (the account may not join computers, or $ou does not exist)"
+    # Windows takes the OU as a whole distinguished name (netdom /OU:"OU=X,DC=corp,DC=example"); Samba wants it without
+    # the domain's own DC= parts
+    # and as a path, the outermost container first, without the OU=: "OU=Laptops,OU=Staff" is "Staff/Laptops"
+    if [ -n "$ou" ]; then
+        ou=${ou%%,[Dd][Cc]=*}
+        oupath=
+        IFS=, read -r -a ouparts <<<"$ou"
+        for ((i = ${#ouparts[@]} - 1; i >= 0; i--)); do
+            part=${ouparts[i]#[Oo][Uu]=}; part=${part#[Cc][Nn]=}
+            oupath=${oupath:+$oupath/}$part
+        done
+        ou=$oupath
     fi
+    joinout=$(net ads join -k ${ou:+createcomputer="$ou"} 2>&1) || {
+        drop_ticket; undo_files
+        die "net ads join failed (the account may not join computers, or ${ou:-the OU} does not exist): $(tail -n 2 <<<"$joinout" | cut -c1-200)"
+    }
     drop_ticket
     # the machine account exists: from here the setup is finished, not undone
     nsswitch_add

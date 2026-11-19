@@ -20,6 +20,7 @@ case "\$*" in
     "ads join"*) exit \$(cat "$FX/join.rc" 2>/dev/null || echo 0) ;;
     "ads testjoin") exit \$(cat "$FX/testjoin.rc" 2>/dev/null || echo 0) ;;
     "ads leave"*) exit \$(cat "$FX/leave.rc" 2>/dev/null || echo 0) ;;
+    "ads lookup"*) [ -f "$FX/lookup" ] && cat "$FX/lookup"; exit 0 ;;
     "ads info") echo "LDAP server name: dc1.ad.wexlab.example"; exit 0 ;;
     "ads changetrustpw") exit \$(cat "$FX/ctp.rc" 2>/dev/null || echo 0) ;;
 esac
@@ -120,12 +121,23 @@ grep -q '^shadow:         files$' "$FX/etc/nsswitch.conf" || fail 'nsswitch: ano
 grep -q '^kinit Administrator@AD.WEXLAB.EXAMPLE ' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'kinit was not given user@REALM'; }
 [ "$(cat "$FX/kinit.stdin")" = 's3cret-pw' ] || fail 'kinit did not get the password on its standard input'
 ! grep -q 's3cret-pw' "$FX/calls.log" || fail 'the password is on a command line'
-grep -q '^net ads join -k createcomputer=OU=WexMachines,DC=ad,DC=wexlab,DC=example$' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'net ads join'; }
+grep -q '^net ads join -k createcomputer=WexMachines$' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'net ads join'; }
 grep -q '^host -t SRV _ldap._tcp.ad.wexlab.example' "$FX/calls.log" || fail 'no DNS check'
 grep -q '^pam-auth-update --enable winbind mkhomedir' "$FX/calls.log" && grep -q '^systemctl enable --now winbind' "$FX/calls.log" && grep -q '^net ads testjoin' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'the setup after the join'; }
 cc=$(sed 's/^FILE://' "$FX/kinit.cc"); [ ! -e "$cc" ] && [ ! -e "$(dirname "$cc")" ] || fail 'the ticket cache was not removed'
 grep -q '^kdestroy' "$FX/calls.log" || fail 'the ticket was not destroyed'
 echo 'OK: wex-domain-join.sh join (files, calls, the password only on standard input, the cache removed)'
+
+# the controller names the domain's NetBIOS name (a CLDAP ping), the first label is only the fallback
+reset_etc
+printf 'Domain: ad.wexlab.example
+Pre-Win2k Domain: WEXLAB
+' > "$FX/lookup"
+out=$(join ad.wexlab.example --user Administrator --password-stdin) || { echo "$out"; cat "$FX/calls.log"; fail 'the join with a lookup failed'; }
+sed 's/^ *//' "$FX/etc/samba/smb.conf" | grep -qx 'workgroup = WEXLAB' || { cat "$FX/etc/samba/smb.conf"; fail 'the NetBIOS name was not taken from the controller'; }
+grep -q '^net ads lookup -S ad.wexlab.example' "$FX/calls.log" || fail 'the controller was not asked'
+rm -f "$FX/lookup"
+reset_etc
 
 # ---- refusals
 refused 'not a domain name' x --user a --password-stdin
@@ -220,7 +232,7 @@ reset_etc
 expect 0 'a join' 'op=join' 'domain=ad.wexlab.example' 'user=Administrator' "password=$PWSPEC" 'ou=OU=WexMachines,DC=ad,DC=wexlab,DC=example' 'flags=3'
 [ "$(cat "$FX/kinit.stdin")" = "$PWSPEC" ] || fail 'serve: the password reached kinit changed'
 ! grep -qF 'p w' "$FX/calls.log" || fail 'serve: the password is on a command line'
-grep -q '^net ads join -k createcomputer=OU=WexMachines' "$FX/calls.log" || fail 'serve: the join did not run with the OU'
+grep -q '^net ads join -k createcomputer=WexMachines' "$FX/calls.log" || fail 'serve: the join did not run with the OU'
 out=$(serve op=join domain=ad.wexlab.example user=Administrator password=x); echo "$out" | grep -q 'message=' || fail 'serve: no message'
 # a user principal name is used as it is
 reset_etc; expect 0 'a join with a UPN' 'op=join' 'domain=ad.wexlab.example' 'user=admin@ad.wexlab.example' 'password=pw'
