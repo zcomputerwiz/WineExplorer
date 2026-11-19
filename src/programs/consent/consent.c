@@ -16,6 +16,8 @@
 #include <wincrypt.h>
 #include <msi.h>
 #include <msiquery.h>
+#include <msidefs.h>
+#include <wtypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -564,7 +566,7 @@ static void package_name(const WCHAR *package, WCHAR *name, DWORD len)
     UINT type, pid;
     INT value;
     FILETIME ft;
-    static const UINT pids[] = { PIDSI_SUBJECT, PIDSI_TITLE };
+    static const UINT pids[] = { PID_SUBJECT, PID_TITLE };
 
     name[0] = 0;
     if (MsiGetSummaryInformationW(0, package, 0, &summary)) return;
