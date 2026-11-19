@@ -92,6 +92,12 @@ struct request
     HANDLE lease_event;   /* set when the lease broke */
     BY_HANDLE_FILE_INFORMATION info;
     BYTE hash[32];
+    WCHAR *doc;           /* the package of an msiexec request, frozen like the image (NULL: none) */
+    HANDLE doc_file;      /* NULL when there is none */
+    UINT64 doc_lease;
+    HANDLE doc_event;
+    BY_HANDLE_FILE_INFORMATION doc_info;
+    BYTE doc_hash[32];
     int live;             /* in the table: the id can be used once */
     DWORD admitted_pid;   /* R12 per-caller admission, client PID of the pipe at accept */
 #ifdef WEXELEVATE_E1S18

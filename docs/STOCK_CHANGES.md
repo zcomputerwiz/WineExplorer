@@ -2608,6 +2608,13 @@ otherwise stock behavior. Project programs: `programs/wexelevate` (makes `WinSta
   (cancel becomes `ERROR_INSTALL_USEREXIT`); the caller's log file (`gszLogFile`, set by `msiexec /l`) is passed on as `/l+*v <file>` so the elevated `msiexec` keeps writing the same log (it was lost before); `msi_package_file_is_machine()` (reads ALLUSERS and the registered context from the package file, read-only) is in `package.c`. `get_admin_token()` (custom action
   server) no longer returns a linked token while the helper is configured: a per-machine install runs wholly in the elevated
   `msiexec`, a per-user install does not elevate.
+- `dlls/msisip/main.c` (`MsiSIPVerifyIndirectData`, `MsiSIPCreateIndirectData`, were stubs) and `dlls/wintrust/softpub.c`
+  (`SOFTPUB_VerifyImageHash`): the Authenticode digest of a Windows Installer package is now computed and checked
+  (`WinVerifyTrust` gives `TRUST_E_BAD_DIGEST` for a changed package; before it said success without looking at the
+  package, "Cannot verify hash ... 1.3.6.1.4.1.311.2.1.30"). The digest is the one Windows signs: a walk over the
+  compound file itself (directory order, stream contents, storage CLSIDs; `\5MsiDigitalSignatureEx`, a digest of the
+  names, sizes, times and flags, is checked too). Checked against four Microsoft-signed packages that Windows
+  reports as valid, and a one-byte change. The SIP is called through `pfVerify` for that one object id only.
 - `programs/msiexec/msiexec.c`: `/norestart` sets `REBOOT=ReallySuppress`, `/forcerestart` sets `REBOOT=Force`, `/promptrestart` is accepted (the default); before, `/forcerestart` was taken for the repair option `/f` and `/norestart` became a property, so a restart switch never reached the installer (nor the elevated `msiexec` of the broker).
 - `dlls/msi/msi.c` (`MsiInstallProductW`), `dlls/msi/action.c` (`MSI_InstallPackage`): the two call sites. The first runs before the
   package is opened, because opening copies the package into `C:\Windows\Installer`, which a limited token cannot write.

@@ -641,15 +641,7 @@ static void describe_program(struct consent_data *data)
         trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
         WinVerifyTrust(NULL, &action, &trust_data);
 
-        if (status == ERROR_SUCCESS && is_package)
-        {
-            /* the signature chain is valid, but the digest of an installer package is not checked against its
-             * contents (no package digest in wintrust), so the dialog does not call this verified */
-            data->is_verified = FALSE;
-            swprintf(data->publisher, ARRAY_SIZE(data->publisher), L"%ls (unverified)",
-                     signer[0] ? signer : L"signed package");
-        }
-        else if (status == ERROR_SUCCESS)
+        if (status == ERROR_SUCCESS)
         {
             data->is_verified = TRUE;
             lstrcpyW(data->publisher, signer[0] ? signer : L"Verified publisher");

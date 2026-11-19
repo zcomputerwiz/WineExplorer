@@ -127,7 +127,7 @@ static BOOL load_wexhost(void)
 }
 
 /* the lease lives as long as the elevated process: this thread gives it up when the process has exited */
-struct guard { UINT64 lease; HANDLE event, process; };
+struct guard { UINT64 lease, doc_lease; HANDLE event, doc_event, process; };
 
 static DWORD WINAPI guard_thread( void *param )
 {
@@ -136,6 +136,8 @@ static DWORD WINAPI guard_thread( void *param )
     WaitForSingleObject( g->process, INFINITE );
     pLeaseRelease( g->lease, NULL );
     CloseHandle( g->event );
+    if (g->doc_lease) pLeaseRelease( g->doc_lease, NULL );
+    if (g->doc_event) CloseHandle( g->doc_event );
     CloseHandle( g->process );
     free( g );
     return 0;
@@ -150,6 +152,8 @@ static BOOL start_guard( struct request *req, HANDLE process )
     if (!g) return FALSE;
     g->lease = req->lease;
     g->event = req->lease_event;
+    g->doc_lease = req->doc_lease;
+    g->doc_event = req->doc_event;
     g->process = process;
     if (!(thread = CreateThread( NULL, 0, guard_thread, g, 0, NULL )))
     {
@@ -159,6 +163,8 @@ static BOOL start_guard( struct request *req, HANDLE process )
     CloseHandle( thread );
     req->lease = 0;
     req->lease_event = NULL;
+    req->doc_lease = 0;
+    req->doc_event = NULL;
     return TRUE;
 }
 
@@ -246,6 +252,10 @@ static void free_request( struct request *req )
     if (req->lease) pLeaseRelease( req->lease, NULL );
     if (req->lease_event) CloseHandle( req->lease_event );
     if (req->image_file != INVALID_HANDLE_VALUE) CloseHandle( req->image_file );
+    if (req->doc_lease) pLeaseRelease( req->doc_lease, NULL );
+    if (req->doc_event) CloseHandle( req->doc_event );
+    if (req->doc_file) CloseHandle( req->doc_file );
+    free( req->doc );
     if (req->caller_token) CloseHandle( req->caller_token );
     if (req->caller) CloseHandle( req->caller );
     free( req->image );
@@ -674,6 +684,115 @@ static DWORD verify_image( struct request *req )
 }
 
 /* ---- approval ------------------------------------------------------------------------------------------------ */
+
+/* ---- the package of an msiexec request ------------------------------------------------------------------------ */
+
+/* The next argument of a command line, quotes removed; FALSE at the end. */
+static BOOL next_arg( const WCHAR **p, WCHAR *out, DWORD size )
+{
+    const WCHAR *s = *p;
+    BOOL quoted = FALSE;
+    DWORD n = 0;
+
+    while (*s == ' ' || *s == '\t') s++;
+    if (!*s) return FALSE;
+    for (; *s && (quoted || (*s != ' ' && *s != '\t')); s++)
+    {
+        if (*s == '"') { quoted = !quoted; continue; }
+        if (n + 1 < size) out[n++] = *s;
+    }
+    out[n] = 0;
+    *p = s;
+    return TRUE;
+}
+
+/* The package that msiexec is told to work on (the file after /i, /package, /p, /update, /a, /x or /f...), as an
+ * absolute path; NULL when the request is not such a command, or the argument is a product code. Like Windows, which
+ * caches the package before it runs it, the broker holds this file as it holds the image: it is what decides what the
+ * elevated msiexec runs, and the consent window shows what is in it. */
+static WCHAR *doc_of( const struct request *req )
+{
+    const WCHAR *b = req->image, *q, *p = req->cmdline;
+    WCHAR arg[MAX_PATH], *path;
+    BOOL want = FALSE;
+    DWORD len;
+
+    for (q = req->image; *q; q++) if (*q == '\\' || *q == '/') b = q + 1;
+    if (_wcsicmp( b, L"msiexec.exe" )) return NULL;
+    next_arg( &p, arg, MAX_PATH );   /* the program */
+    while (next_arg( &p, arg, MAX_PATH ))
+    {
+        if (arg[0] != '/' && arg[0] != '-')
+        {
+            if (!want) continue;
+            if (arg[0] == '{') return NULL;
+            if (arg[0] && arg[1] == ':' && (arg[2] == '\\' || arg[2] == '/'))
+                return _wcsdup( arg );
+            if (!req->cwd || !req->cwd[0]) return NULL;
+            len = lstrlenW( req->cwd ) + lstrlenW( arg ) + 2;
+            if (!(path = malloc( len * sizeof(WCHAR) ))) return NULL;
+            swprintf( path, len, L"%ls\\%ls", req->cwd, arg );
+            return path;
+        }
+        want = !_wcsicmp( arg + 1, L"i" ) || !_wcsicmp( arg + 1, L"package" ) || !_wcsicmp( arg + 1, L"p" ) ||
+               !_wcsicmp( arg + 1, L"update" ) || !_wcsicmp( arg + 1, L"a" ) || !_wcsicmp( arg + 1, L"x" ) ||
+               arg[1] == 'f' || arg[1] == 'F';
+    }
+    return NULL;
+}
+
+/* open the package (no write sharing), take the lease, record the hash; a file system that gives no leases is
+ * read-only media (UDF), where nobody can write: the hash then stands alone */
+static DWORD freeze_doc( struct request *req )
+{
+    DWORD err;
+
+    if (!(req->doc = doc_of( req ))) return ERROR_SUCCESS;
+    req->doc_file = CreateFileW( req->doc, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                                 FILE_ATTRIBUTE_NORMAL, NULL );
+    if (req->doc_file == INVALID_HANDLE_VALUE)
+    { err = GetLastError(); req->doc_file = NULL; E1S_AUDIT( "freeze-open-doc" ); return err; }
+    if (GetFileType( req->doc_file ) != FILE_TYPE_DISK || !GetFileInformationByHandle( req->doc_file, &req->doc_info ) ||
+        (req->doc_info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+    { E1S_AUDIT( "freeze-doc-info" ); return ERROR_FILE_NOT_FOUND; }
+    if (!pLeaseTake) { E1S_AUDIT( "freeze-doc-lease-export" ); return ERROR_FILE_SYSTEM_LIMITATION; }
+    if (!(req->doc_event = CreateEventW( NULL, TRUE, FALSE, NULL )))
+    { err = GetLastError(); E1S_AUDIT( "freeze-doc-event" ); return err; }
+    if ((err = pLeaseTake( req->doc_file, req->doc_event, &req->doc_lease )))
+    {
+        if (err != ERROR_NOT_SUPPORTED) { E1S_AUDIT( "freeze-doc-lease-take" ); return err; }
+        CloseHandle( req->doc_event );
+        req->doc_event = NULL;
+        req->doc_lease = 0;
+    }
+    if ((err = hash_file( req->doc_file, req->doc_hash ))) E1S_AUDIT( "freeze-doc-hash" );
+    return err;
+}
+
+/* at the launch: the path still leads to the file that was frozen, which has not changed */
+static DWORD verify_doc( struct request *req )
+{
+    BY_HANDLE_FILE_INFORMATION now, held;
+    BYTE hash[32];
+    HANDLE file;
+    DWORD err;
+
+    if (!req->doc_file) return ERROR_SUCCESS;
+    if (req->doc_event && WaitForSingleObject( req->doc_event, 0 ) != WAIT_TIMEOUT) return ERROR_FILE_CORRUPT;
+    file = CreateFileW( req->doc, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL, NULL );
+    if (file == INVALID_HANDLE_VALUE) return ERROR_FILE_CORRUPT;
+    if (!GetFileInformationByHandle( file, &now ) || !GetFileInformationByHandle( req->doc_file, &held ) ||
+        !same_file_info( &now, &req->doc_info ) || !same_file_info( &held, &req->doc_info ))
+    {
+        CloseHandle( file );
+        return ERROR_FILE_CORRUPT;
+    }
+    err = hash_file( file, hash );
+    CloseHandle( file );
+    if (err) return err;
+    return memcmp( hash, req->doc_hash, sizeof(hash) ) ? ERROR_FILE_CORRUPT : ERROR_SUCCESS;
+}
 
 #define POLICY_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
 
@@ -1376,6 +1495,11 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
             err = arm;
             goto fail;
         }
+        if (req->doc_lease && (arm = pLeaseArm( req->doc_lease, pi.dwProcessId )))
+        {
+            err = arm;
+            goto fail;
+        }
         /* Keep our own process handle through the new precommit checks. The
          * guard may observe lease-break death and close its handle at any time. */
         if (!DuplicateHandle( GetCurrentProcess(), pi.hProcess, GetCurrentProcess(), &guard_process,
@@ -1894,6 +2018,7 @@ static DWORD handle_request( struct request *req, BYTE *buf, DWORD size, struct 
     if ((err = parse_request( req, buf, size ))) { E1S_AUDIT( "request-parse" ); return err; }
     if ((err = table_add( req ))) { E1S_AUDIT( "request-table" ); return err; }
     if ((err = freeze_image( req ))) { E1S_AUDIT( "request-freeze-image" ); return err; }
+    if ((err = freeze_doc( req ))) { E1S_AUDIT( "request-freeze-doc" ); return err; }
 #ifdef WEXELEVATE_TEST_APPROVAL
     if (probe) return e1s_probe( req, probe, reply );
 #endif
@@ -1910,7 +2035,10 @@ static DWORD handle_request( struct request *req, BYTE *buf, DWORD size, struct 
     if (!table_consume( req )) return ERROR_CANCELLED;
     if (WaitForSingleObject( req->caller, 0 ) != WAIT_TIMEOUT) return ERROR_CANCELLED;
     if ((err = verify_image( req ))) return err;
+    if ((err = verify_doc( req ))) return err;
     if (req->lease && ((err = pLeaseArm( req->lease, 0 )) || WaitForSingleObject( req->lease_event, 0 ) != WAIT_TIMEOUT))
+        return err ? err : ERROR_FILE_CORRUPT;
+    if (req->doc_lease && ((err = pLeaseArm( req->doc_lease, 0 )) || WaitForSingleObject( req->doc_event, 0 ) != WAIT_TIMEOUT))
         return err ? err : ERROR_FILE_CORRUPT;
     if (WaitForSingleObject( stop_event, 0 ) != WAIT_TIMEOUT) return ERROR_CANCELLED;
     return launch( req, &reply->pid, &reply->tid, &reply->handle );
