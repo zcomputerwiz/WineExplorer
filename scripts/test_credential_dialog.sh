@@ -192,7 +192,7 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
             -o "$FIXTURE/wine_build/consent_test.exe" \
             "$REPO/src/programs/consent/consent.c" \
             "$FIXTURE/wine_build/consent.res.o" \
-            -luser32 -lgdi32 -ladvapi32 -lcomctl32 -lversion -lwintrust -lcrypt32 \
+            -luser32 -lgdi32 -ladvapi32 -lcomctl32 -lversion -lwintrust -lcrypt32 -lmsi \
             -mwindows -municode 2>"$FIXTURE/mingw.log" || {
                 cat "$FIXTURE/mingw.log"
                 echo "NOTE: MinGW compilation failed"
@@ -205,7 +205,7 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
             -o "$FIXTURE/wine_build/consent_prod.exe" \
             "$REPO/src/programs/consent/consent.c" \
             "$FIXTURE/wine_build/consent.res.o" \
-            -luser32 -lgdi32 -ladvapi32 -lcomctl32 -lversion -lwintrust -lcrypt32 \
+            -luser32 -lgdi32 -ladvapi32 -lcomctl32 -lversion -lwintrust -lcrypt32 -lmsi \
             -mwindows -municode 2>/dev/null || :
 
         if [ -f "$FIXTURE/wine_build/consent_prod.exe" ]; then
