@@ -14,6 +14,8 @@
 #include <wintrust.h>
 #include <softpub.h>
 #include <wincrypt.h>
+#include <msi.h>
+#include <msiquery.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -503,10 +505,88 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
     describe_program(data);
 }
 
-/* The friendly name and the publisher line of data->exepath. */
+/* msiexec /i "<package>": the package is what the user installs, so its name and signature are described
+ * instead of msiexec's own. Returns FALSE when the image is not msiexec or the command line names no package. */
+static BOOL msi_package_of(const struct consent_data *data, WCHAR *package)
+{
+    const WCHAR *base = wcsrchr(data->exepath, '\\'), *p = data->cmdline;
+    BOOL next = FALSE;
+
+    base = base ? base + 1 : data->exepath;
+    if (wcsicmp(base, L"msiexec.exe")) return FALSE;
+
+    while (*p)
+    {
+        WCHAR token[MAX_PATH], *dst = token;
+
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) break;
+        if (*p == '"')
+        {
+            p++;
+            while (*p && *p != '"') { if (dst < token + MAX_PATH - 1) *dst++ = *p; p++; }
+            if (*p == '"') p++;
+        }
+        else
+        {
+            while (*p && *p != ' ' && *p != '\t') { if (dst < token + MAX_PATH - 1) *dst++ = *p; p++; }
+        }
+        *dst = 0;
+
+        if (next)
+        {
+            lstrcpyW(package, token);
+            return package[0] != 0;
+        }
+        next = !wcsicmp(token, L"/i") || !wcsicmp(token, L"-i");
+    }
+    return FALSE;
+}
+
+/* The name of the first signer of a verified file (the subject of the signing certificate); empty when unknown. */
+static void signer_name(HANDLE state, WCHAR *name, DWORD len)
+{
+    CRYPT_PROVIDER_DATA *prov;
+    CRYPT_PROVIDER_SGNR *signer;
+    CRYPT_PROVIDER_CERT *cert;
+
+    name[0] = 0;
+    if (!(prov = WTHelperProvDataFromStateData(state))) return;
+    if (!(signer = WTHelperGetProvSignerFromChain(prov, 0, FALSE, 0))) return;
+    if (!(cert = WTHelperGetProvCertFromChain(signer, 0)) || !cert->pCert) return;
+    if (!CertGetNameStringW(cert->pCert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, NULL, name, len)) name[0] = 0;
+}
+
+/* The product name of an installer package (its summary information), empty when it cannot be read. */
+static void package_name(const WCHAR *package, WCHAR *name, DWORD len)
+{
+    MSIHANDLE summary;
+    UINT type, pid;
+    INT value;
+    FILETIME ft;
+    static const UINT pids[] = { PIDSI_SUBJECT, PIDSI_TITLE };
+
+    name[0] = 0;
+    if (MsiGetSummaryInformationW(0, package, 0, &summary)) return;
+    for (pid = 0; pid < ARRAY_SIZE(pids) && !name[0]; pid++)
+    {
+        DWORD size = len;
+        if (MsiSummaryInfoGetPropertyW(summary, pids[pid], &type, &value, &ft, name, &size) || type != VT_LPSTR)
+            name[0] = 0;
+    }
+    MsiCloseHandle(summary);
+}
+
+/* The friendly name and the publisher line of data->exepath (of the package, for msiexec /i). */
 static void describe_program(struct consent_data *data)
 {
+    WCHAR package[MAX_PATH], signer[256];
+    BOOL is_package = msi_package_of(data, package);
+    const WCHAR *subject = is_package ? package : data->exepath;
+
     /* Extract friendly program name */
+    if (is_package) package_name(package, data->progname, ARRAY_SIZE(data->progname));
+    if (!is_package || !data->progname[0])
     {
         DWORD ver_size, handle = 0;
         BOOL got_name = FALSE;
@@ -543,7 +623,7 @@ static void describe_program(struct consent_data *data)
 
     /* Verify Authenticode signature */
     {
-        WINTRUST_FILE_INFO file_info = { sizeof(file_info), data->exepath };
+        WINTRUST_FILE_INFO file_info = { sizeof(file_info), subject };
         WINTRUST_DATA trust_data = { sizeof(trust_data) };
         GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
         LONG status;
@@ -555,13 +635,22 @@ static void describe_program(struct consent_data *data)
         trust_data.dwStateAction = WTD_STATEACTION_VERIFY;
 
         status = WinVerifyTrust(NULL, &action, &trust_data);
+        if (status == ERROR_SUCCESS) signer_name(trust_data.hWVTStateData, signer, ARRAY_SIZE(signer));
         trust_data.dwStateAction = WTD_STATEACTION_CLOSE;
         WinVerifyTrust(NULL, &action, &trust_data);
 
-        if (status == ERROR_SUCCESS)
+        if (status == ERROR_SUCCESS && is_package)
+        {
+            /* the signature chain is valid, but the digest of an installer package is not checked against its
+             * contents (no package digest in wintrust), so the dialog does not call this verified */
+            data->is_verified = FALSE;
+            swprintf(data->publisher, ARRAY_SIZE(data->publisher), L"%ls (package contents not verified)",
+                     signer[0] ? signer : L"signed package");
+        }
+        else if (status == ERROR_SUCCESS)
         {
             data->is_verified = TRUE;
-            lstrcpyW(data->publisher, L"Verified publisher");
+            lstrcpyW(data->publisher, signer[0] ? signer : L"Verified publisher");
         }
         else
         {

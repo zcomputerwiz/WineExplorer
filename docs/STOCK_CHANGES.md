@@ -2608,6 +2608,7 @@ otherwise stock behavior. Project programs: `programs/wexelevate` (makes `WinSta
   (cancel becomes `ERROR_INSTALL_USEREXIT`); the caller's log file (`gszLogFile`, set by `msiexec /l`) is passed on as `/l+*v <file>` so the elevated `msiexec` keeps writing the same log (it was lost before); `msi_package_file_is_machine()` (reads ALLUSERS and the registered context from the package file, read-only) is in `package.c`. `get_admin_token()` (custom action
   server) no longer returns a linked token while the helper is configured: a per-machine install runs wholly in the elevated
   `msiexec`, a per-user install does not elevate.
+- `programs/msiexec/msiexec.c`: `/norestart` sets `REBOOT=ReallySuppress`, `/forcerestart` sets `REBOOT=Force`, `/promptrestart` is accepted (the default); before, `/forcerestart` was taken for the repair option `/f` and `/norestart` became a property, so a restart switch never reached the installer (nor the elevated `msiexec` of the broker).
 - `dlls/msi/msi.c` (`MsiInstallProductW`), `dlls/msi/action.c` (`MSI_InstallPackage`): the two call sites. The first runs before the
   package is opened, because opening copies the package into `C:\Windows\Installer`, which a limited token cannot write.
 - `programs/msiexec`: not changed.
