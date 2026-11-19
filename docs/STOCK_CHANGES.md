@@ -1,5 +1,21 @@
 # Changes to stock Wine / third-party code
 
+## ntdll: AVL generic tables and RtlIsNameInExpression (B48, 2026-11-19)
+
+General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with
+`loader_init ... failed to initialize` while it imported the functions below. Code in `dlls/ntdll/rtl.c`, exports in
+`ntdll.spec`, prototypes in `include/ddk/ntddk.h` and `include/winternl.h`, tests in `dlls/ntdll/tests/rtl.c`.
+
+- `RtlInitializeGenericTableAvl`, `RtlInsertElementGenericTableAvl`, `RtlLookupElementGenericTableAvl`,
+  `RtlEnumerateGenericTableWithoutSplayingAvl` and `RtlNumberGenericTableElementsAvl` were stubs that did nothing, and
+  `RtlDeleteElementGenericTableAvl`, `RtlEnumerateGenericTableAvl`, `RtlGetElementGenericTableAvl` and
+  `RtlIsGenericTableEmptyAvl` were missing. They now work on the `RTL_AVL_TABLE` layout of Windows (entries are an
+  `RTL_BALANCED_LINKS` header followed by the data; `BalancedRoot` is the parent of the root). The tree is ordered by the
+  compare routine and is not rebalanced. `RtlInsertElementGenericTableAvl` now returns the element and takes a
+  `BOOLEAN *`, as on Windows (the stub returned nothing and took a `BOOL *`).
+- `RtlIsNameInExpression` (new): wildcard matching with `*`, `?` and the DOS characters (`<`, `>`, `"`), case folding
+  when `ignore_case` is set (the expression must already be upper case, as on Windows).
+
 ## server: inherited CREATOR OWNER / CREATOR GROUP ACEs of keys (B46, 2026-11-18)
 
 Wine branch `claude/inherit-creator`, a fix to B42's key inheritance (`server/registry.c` `key_inherit_sd`,
