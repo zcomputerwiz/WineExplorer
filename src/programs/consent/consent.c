@@ -583,12 +583,24 @@ static void package_name(const WCHAR *package, WCHAR *name, DWORD len)
 static void describe_program(struct consent_data *data)
 {
     WCHAR package[MAX_PATH], signer[256];
-    BOOL is_package = msi_package_of(data, package);
-    const WCHAR *subject = is_package ? package : data->exepath;
+    BOOL is_package = msi_package_of(data, package), named = FALSE;
+    const WCHAR *subject;
+
+    /* msiexec /i {product code}: removal, repair or a patch of a registered product; the product's name, and
+     * msiexec itself is what runs */
+    if (is_package && package[0] == '{')
+    {
+        DWORD size = ARRAY_SIZE(data->progname);
+        data->progname[0] = 0;
+        if (MsiGetProductInfoW(package, INSTALLPROPERTY_PRODUCTNAMEW, data->progname, &size)) data->progname[0] = 0;
+        named = data->progname[0] != 0;
+        is_package = FALSE;
+    }
+    subject = is_package ? package : data->exepath;
 
     /* Extract friendly program name */
     if (is_package) package_name(package, data->progname, ARRAY_SIZE(data->progname));
-    if (!is_package || !data->progname[0])
+    if (!named && (!is_package || !data->progname[0]))
     {
         DWORD ver_size, handle = 0;
         BOOL got_name = FALSE;

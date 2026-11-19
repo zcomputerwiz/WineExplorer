@@ -2615,6 +2615,16 @@ otherwise stock behavior. Project programs: `programs/wexelevate` (makes `WinSta
   compound file itself (directory order, stream contents, storage CLSIDs; `\5MsiDigitalSignatureEx`, a digest of the
   names, sizes, times and flags, is checked too). Checked against four Microsoft-signed packages that Windows
   reports as valid, and a one-byte change. The SIP is called through `pfVerify` for that one object id only.
+- `dlls/msi/package.c` (`copy_is_frozen_file`, called after the two `CopyFileW` of the package into the Installer
+  cache): when the environment has `WEXELEVATE_DOC_PATH` and `WEXELEVATE_DOC_SHA256` (set by the elevation broker for
+  the package it froze) and the package being copied is that path, the copy must have that SHA-256, else
+  `ERROR_FILE_CORRUPT`. Nothing happens without those variables. This closes the gap between the broker's last
+  check and the copy (a path replaced meanwhile).
+- `dlls/msi/registry.c`: the Installer keys are opened with all access first, as before, and with read access when that
+  is denied (a limited administrator token), so that a per-machine product is found (`ERROR_UNKNOWN_PRODUCT` before).
+- `dlls/msi/msi.c` (`MsiConfigureProductExW`) and `dlls/msi/custom.c` (`msi_install_through_broker`): a limited
+  administrator who removes, repairs or patches a per-machine product by its product code (`msiexec /x {code}`,
+  `/p`) goes through the broker like a package install (`msiexec /i {code}` with the properties, `REMOVE=ALL` for removal).
 - `programs/msiexec/msiexec.c`: `/norestart` sets `REBOOT=ReallySuppress`, `/forcerestart` sets `REBOOT=Force`, `/promptrestart` is accepted (the default); before, `/forcerestart` was taken for the repair option `/f` and `/norestart` became a property, so a restart switch never reached the installer (nor the elevated `msiexec` of the broker).
 - `dlls/msi/msi.c` (`MsiInstallProductW`), `dlls/msi/action.c` (`MSI_InstallPackage`): the two call sites. The first runs before the
   package is opened, because opening copies the package into `C:\Windows\Installer`, which a limited token cannot write.

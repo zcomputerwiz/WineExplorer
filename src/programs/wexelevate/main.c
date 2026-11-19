@@ -706,39 +706,43 @@ static BOOL next_arg( const WCHAR **p, WCHAR *out, DWORD size )
     return TRUE;
 }
 
-/* The package that msiexec is told to work on (the file after /i, /package, /p, /update, /a, /x or /f...), as an
- * absolute path; NULL when the request is not such a command, or the argument is a product code. Like Windows, which
- * caches the package before it runs it, the broker holds this file as it holds the image: it is what decides what the
- * elevated msiexec runs, and the consent window shows what is in it. */
+/* The file that msiexec is told to work on: the package after /i, /package, /p, /update, /a, /x or /f, else the
+ * patch of the property PATCH= (msiexec /i {product-code} PATCH=file, which MsiApplyPatch makes), as an absolute
+ * path; NULL when there is none. Like Windows, which caches the package before it runs it, the broker holds this file
+ * as it holds the image: it is what decides what the elevated msiexec runs, and the consent window shows what is in it. */
 static WCHAR *doc_of( const struct request *req )
 {
-    const WCHAR *b = req->image, *q, *p = req->cmdline;
-    WCHAR arg[MAX_PATH], *path;
+    const WCHAR *b = req->image, *q, *p = req->cmdline, *found = NULL;
+    WCHAR arg[MAX_PATH], patch[MAX_PATH], *path;
     BOOL want = FALSE;
     DWORD len;
 
     for (q = req->image; *q; q++) if (*q == '\\' || *q == '/') b = q + 1;
     if (_wcsicmp( b, L"msiexec.exe" )) return NULL;
+    patch[0] = 0;
     next_arg( &p, arg, MAX_PATH );   /* the program */
     while (next_arg( &p, arg, MAX_PATH ))
     {
         if (arg[0] != '/' && arg[0] != '-')
         {
-            if (!want) continue;
-            if (arg[0] == '{') return NULL;
-            if (arg[0] && arg[1] == ':' && (arg[2] == '\\' || arg[2] == '/'))
-                return _wcsdup( arg );
-            if (!req->cwd || !req->cwd[0]) return NULL;
-            len = lstrlenW( req->cwd ) + lstrlenW( arg ) + 2;
-            if (!(path = malloc( len * sizeof(WCHAR) ))) return NULL;
-            swprintf( path, len, L"%ls\\%ls", req->cwd, arg );
-            return path;
+            if (want && arg[0] != '{') { found = arg; break; }
+            want = FALSE;
+            if (!patch[0] && !_wcsnicmp( arg, L"PATCH=", 6 ) && arg[6] && !wcschr( arg + 6, ';' ))
+                lstrcpyW( patch, arg + 6 );
+            continue;
         }
         want = !_wcsicmp( arg + 1, L"i" ) || !_wcsicmp( arg + 1, L"package" ) || !_wcsicmp( arg + 1, L"p" ) ||
                !_wcsicmp( arg + 1, L"update" ) || !_wcsicmp( arg + 1, L"a" ) || !_wcsicmp( arg + 1, L"x" ) ||
                arg[1] == 'f' || arg[1] == 'F';
     }
-    return NULL;
+    if (!found && patch[0]) found = patch;
+    if (!found) return NULL;
+    if (found[0] && found[1] == ':' && (found[2] == '\\' || found[2] == '/')) return _wcsdup( found );
+    if (!req->cwd || !req->cwd[0]) return NULL;
+    len = lstrlenW( req->cwd ) + lstrlenW( found ) + 2;
+    if (!(path = malloc( len * sizeof(WCHAR) ))) return NULL;
+    swprintf( path, len, L"%ls\\%ls", req->cwd, found );
+    return path;
 }
 
 /* open the package (no write sharing), take the lease, record the hash; a file system that gives no leases is
@@ -1325,6 +1329,34 @@ static const WCHAR *env_lookup( const WCHAR *block, const WCHAR *name )
     return NULL;
 }
 
+/* A copy of the environment block with WEXELEVATE_DOC_PATH and WEXELEVATE_DOC_SHA256 set to the document the broker
+ * froze (any such variable of the caller is dropped): the elevated msiexec compares the copy it makes of the package
+ * with this hash, so a path that was made to lead elsewhere after the freeze gets nowhere. */
+static WCHAR *env_with_doc( const WCHAR *env, const struct request *req )
+{
+    WCHAR *out, *p, hex[65];
+    const WCHAR *q;
+    SIZE_T size = 2, i;
+
+    for (q = env; *q; q += lstrlenW( q ) + 1) size += lstrlenW( q ) + 1;
+    size += lstrlenW( req->doc ) + 64 + 64;
+    if (!(out = malloc( size * sizeof(WCHAR) ))) return NULL;
+    p = out;
+    for (q = env; *q; q += lstrlenW( q ) + 1)
+    {
+        if (!_wcsnicmp( q, L"WEXELEVATE_DOC_", 15 )) continue;
+        lstrcpyW( p, q );
+        p += lstrlenW( p ) + 1;
+    }
+    for (i = 0; i < 32; i++) swprintf( hex + 2 * i, 3, L"%02x", req->doc_hash[i] );
+    swprintf( p, size - (p - out), L"WEXELEVATE_DOC_PATH=%ls", req->doc );
+    p += lstrlenW( p ) + 1;
+    swprintf( p, size - (p - out), L"WEXELEVATE_DOC_SHA256=%ls", hex );
+    p += lstrlenW( p ) + 1;
+    *p = 0;
+    return out;
+}
+
 /* An absolute path (a drive letter and a colon) with no .. component. */
 static BOOL temp_path_ok( const WCHAR *path )
 {
@@ -1368,6 +1400,7 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
     WCHAR *cmdline = NULL;
     void *default_env = NULL;
     void *env;
+    WCHAR *doc_env = NULL;
     BYTE user[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
     DWORD err = ERROR_SUCCESS, len, type, session;
 
@@ -1418,6 +1451,17 @@ static DWORD launch( struct request *req, DWORD *pid, DWORD *tid, ULONGLONG *han
         return err ? err : ERROR_ENVVAR_NOT_FOUND;
     }
     else env = default_env;
+
+    if (req->doc_file)
+    {
+        if (!(doc_env = env_with_doc( env ? (const WCHAR *)env : L"", req )))
+        {
+            if (default_env) DestroyEnvironmentBlock( default_env );
+            CloseHandle( linked );
+            return ERROR_NOT_ENOUGH_MEMORY;
+        }
+        env = doc_env;
+    }
 
     /* The elevated process runs in the machine root prefix, where the requesting user has no profile directory, so
      * TEMP and TMP point at a directory that does not exist and installers such as msiexec fail (GetTempFileNameW,
@@ -1548,6 +1592,7 @@ done:
         free( si.lpAttributeList );
     }
     if (default_env) DestroyEnvironmentBlock( default_env );
+    free( doc_env );
     free( cmdline );
     CloseHandle( linked );
     return err;
