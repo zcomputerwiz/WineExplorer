@@ -2619,7 +2619,9 @@ otherwise stock behavior. Project programs: `programs/wexelevate` (makes `WinSta
   cache): when the environment has `WEXELEVATE_DOC_PATH` and `WEXELEVATE_DOC_SHA256` (set by the elevation broker for
   the package it froze) and the package being copied is that path, the copy must have that SHA-256, else
   `ERROR_FILE_CORRUPT`. Nothing happens without those variables. This closes the gap between the broker's last
-  check and the copy (a path replaced meanwhile).
+  check and the copy (a path replaced meanwhile). The function is now `msi_copy_is_frozen_file` (declared in
+  `msipriv.h`); `publish_patches` (`action.c`) calls it after the copy of a patch package into the Installer cache,
+  same rule (`ERROR_FILE_CORRUPT`, the copy is deleted).
 - `dlls/msi/registry.c`: the Installer keys are opened with all access first, as before, and with read access when that
   is denied (a limited administrator token), so that a per-machine product is found (`ERROR_UNKNOWN_PRODUCT` before).
 - `dlls/msi/msi.c` (`MsiConfigureProductExW`) and `dlls/msi/custom.c` (`msi_install_through_broker`): a limited
