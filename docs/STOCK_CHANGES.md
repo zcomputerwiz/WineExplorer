@@ -3912,3 +3912,5 @@ Test `settings.c` (x64 and x86). **Unconditional**: new classes only.
 `ConnectionProfile::GetConnectionCost` (was E_NOTIMPL; the Store Calculator's currency page asks for it when it opens)
 returns a `ConnectionCost` of an unrestricted connection (`NetworkCostType_Unrestricted`, not roaming, not over or
 approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Unconditional**.
+
+2026-11-20 (Wine claude/msi-product-broker): `dlls/ntdll/unix/loadorder.c` `get_load_order`: outside the system directory a program (no `IMAGE_FILE_DLL`) mapped as a module is loaded native-first and skips the vendor heuristic, so a Microsoft `setup.exe` is not replaced by WineExplorer's builtin `setup.exe` when a program reads its version resource (`GetFileVersionInfoSize` gave 1812; Copilot's `copilot_setup.exe --uninstall` exited 1000000004). **Unconditional**; no new test yet (verified by the Copilot removal in the lab).
