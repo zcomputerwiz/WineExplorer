@@ -216,6 +216,19 @@ static void facts(FILE *out)
         free(n);
     }
     else fprintf(out, "var=absent\n");
+    /* the package of an msiexec request, which the broker froze and names to the elevated process */
+    if (GetEnvironmentVariableW(L"WEXELEVATE_DOC_PATH", var, 256))
+    {
+        char *n = narrow(var);
+        fprintf(out, "doc_path=%s\n", n);
+        free(n);
+    }
+    if (GetEnvironmentVariableW(L"WEXELEVATE_DOC_SHA256", var, 256))
+    {
+        char *n = narrow(var);
+        fprintf(out, "doc_sha=%s\n", n);
+        free(n);
+    }
     fflush(out);
 }
 
@@ -2634,9 +2647,141 @@ static void r8endorse_mode(const char *result_file)
 }
 #endif /* WEXELEVATE_TEST_APPROVAL */
 
+/* ---- the package of an msiexec request (the broker freezes it like the image) -------------------------------------
+ * image is a copy of this program named msiexec.exe, which is what makes the broker look for a package; the request
+ * is "<image> child <out> /i <package>" */
+
+static DWORD ask_doc(const char *image, const char *pkg, const char *out, HANDLE *process)
+{
+    WCHAR *wimage = widen(image), *cmd;
+    char *narrow_cmd = malloc(2 * strlen(image) + 2 * strlen(out) + strlen(pkg) + 64);
+    DWORD err;
+
+    sprintf(narrow_cmd, "\"%s\" child %s /i \"%s\"", image, out, pkg);
+    cmd = widen(narrow_cmd);
+    err = wexelevate_run(wimage, cmd, L"C:\\windows", NULL, 0, SW_SHOWNORMAL, WEXELEVATE_WANT_HANDLE, process, NULL);
+    free(wimage); free(narrow_cmd); free(cmd);
+    return err;
+}
+
+/* the SHA-256 of a file as 64 lowercase hex digits; FALSE when it cannot be read */
+static BOOL file_sha256(const char *path, char *hex)
+{
+    HCRYPTPROV prov;
+    HCRYPTHASH hash;
+    HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    BYTE buf[4096], digest[32];
+    DWORD got, len = sizeof(digest), i;
+    BOOL ok = FALSE;
+
+    if (f == INVALID_HANDLE_VALUE) return FALSE;
+    if (CryptAcquireContextW(&prov, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT))
+    {
+        if (CryptCreateHash(prov, CALG_SHA_256, 0, 0, &hash))
+        {
+            while (ReadFile(f, buf, sizeof(buf), &got, NULL) && got) CryptHashData(hash, buf, got, 0);
+            if (CryptGetHashParam(hash, HP_HASHVAL, digest, &len, 0))
+            {
+                for (i = 0; i < len; i++) sprintf(hex + 2 * i, "%02x", digest[i]);
+                ok = TRUE;
+            }
+            CryptDestroyHash(hash);
+        }
+        CryptReleaseContext(prov, 0);
+    }
+    CloseHandle(f);
+    return ok;
+}
+
+/* the elevated process gets the path and the SHA-256 of the package the broker froze */
+static void docrun_mode(const char *image, const char *pkg, const char *out)
+{
+    HANDLE process = NULL;
+    DWORD err = ask_doc(image, pkg, out, &process);
+    char want[65] = "", *text;
+
+    SetLastError(err);
+    check(err == 0, "the request with a package is served");
+    if (err) return;
+    check(wait_exit(process, 42), "the elevated process ran and exited");
+    CloseHandle(process);
+    check(file_sha256(pkg, want), "hashed the package");
+    text = read_text(out);
+    check(text != NULL, "the elevated process wrote its facts");
+    if (!text) return;
+    checkf(fact_is(text, "doc_sha", want), "the elevated process has the SHA-256 of the package",
+           fact(text, "doc_sha") ? fact(text, "doc_sha") : "none");
+    checkf(fact_is(text, "doc_path", pkg), "the elevated process has the path of the package",
+           fact(text, "doc_path") ? fact(text, "doc_path") : "none");
+    free(text);
+}
+
+/* a writer holds the package open when the request is made: the broker's read open fails */
+static void docwriter_mode(const char *image, const char *pkg, const char *out)
+{
+    HANDLE f = CreateFileA(pkg, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    HANDLE process = NULL;
+    DWORD err;
+
+    check(f != INVALID_HANDLE_VALUE, "the package opens for writing with another handle");
+    if (f == INVALID_HANDLE_VALUE) return;
+    err = ask_doc(image, pkg, out, &process);
+    CloseHandle(f);
+    SetLastError(err);
+    check(err == ERROR_SHARING_VIOLATION, "the broker denies a request with an existing writer on the package");
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the request started nothing");
+}
+
+struct docconc { const char *image, *pkg, *out; DWORD err; HANDLE process; };
+
+static DWORD WINAPI doc_thread(void *param)
+{
+    struct docconc *c = param;
+    int tries;
+
+    for (tries = 0; tries < 60; tries++)
+    {
+        c->err = ask_doc(c->image, c->pkg, c->out, &c->process);
+        if (c->err != ERROR_SERVICE_DATABASE_LOCKED) break;
+        Sleep(5000);
+    }
+    return 0;
+}
+
+/* the package is replaced while the consent is pending (the harness renames another file over it from Unix, after
+ * the probe writes docrace.ready, and writes docrace.done): the broker denies with ERROR_FILE_CORRUPT and starts
+ * nothing */
+static void docrace_mode(const char *image, const char *pkg, const char *out)
+{
+    struct docconc c = { image, pkg, out };
+    HANDLE t;
+    char name[MAX_PATH], path[2 * MAX_PATH], *base;
+    DWORD i;
+
+    DeleteFileA(POLICY_DIR "docrace.ready");
+    DeleteFileA(POLICY_DIR "docrace.done");
+    t = CreateThread(NULL, 0, doc_thread, &c, 0, NULL);
+    base = strrchr(image, '\\');
+    strncpy(name, base ? base + 1 : image, sizeof(name) - 1);
+    name[sizeof(name) - 1] = 0;
+    sprintf(path, POLICY_DIR "started.%s", name);
+    for (i = 0; i < 3000 && GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
+    check(GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES, "the consent is pending (the stub wrote started.<name>)");
+    write_whole(POLICY_DIR "docrace.ready", "x", 1);
+    for (i = 0; i < 600 && GetFileAttributesA(POLICY_DIR "docrace.done") == INVALID_FILE_ATTRIBUTES; i++) Sleep(100);
+    check(GetFileAttributesA(POLICY_DIR "docrace.done") != INVALID_FILE_ATTRIBUTES, "the harness replaced the package");
+    write_whole(POLICY_DIR "gate", "x", 1);
+    WaitForSingleObject(t, 120000);
+    CloseHandle(t);
+    SetLastError(c.err);
+    check(c.err == ERROR_FILE_CORRUPT, "the broker denies a request whose package was replaced while the consent was pending");
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the replaced package started nothing");
+}
+
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 ? argv[1] : "";
+
 
     if (!strcmp(mode, "child")) return child_mode(argc, argv);
     if (!strcmp(mode, "hold")) { Sleep(120000); return 0; }
@@ -2695,6 +2840,9 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "promptcrash") && argc > 3) promptcrash_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "imagerace") && argc > 3) imagerace_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "writerfirst") && argc > 3) writerfirst_mode(argv[2], argv[3]);
+    else if (!strcmp(mode, "docrun") && argc > 4) docrun_mode(argv[2], argv[3], argv[4]);
+    else if (!strcmp(mode, "docwriter") && argc > 4) docwriter_mode(argv[2], argv[3], argv[4]);
+    else if (!strcmp(mode, "docrace") && argc > 4) docrace_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "callerdeath") && argc > 4) callerdeath_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "attack") && argc > 4) attack_mode(argv[2], argv[3], argv[4]);
     else if (!strcmp(mode, "jobparent") && argc > 4) jobparent_mode(argv[2], argv[3], argv[4]);

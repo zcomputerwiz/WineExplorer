@@ -2610,6 +2610,27 @@ ok c4_image_replaced_while_consent_pending_is_denied_and_starts_nothing
 # an existing writer on the image when the request is made
 el_clean
 bp c4_existing_writer_on_the_image_is_denied "$ADM" 64 writerfirst "$IMG" "$(winpath $EL/out.writer)"
+
+# the package of an msiexec request is frozen like the image: msiexec.exe here is a copy of the probe (the name makes
+# the broker look for the package after /i), the package any file
+el_clean; touch "$EL/approve.all"
+run_as "$ADM" mkdir -p "/home/$ADM/wexel/msi"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/msi/msiexec.exe"
+run_as "$ADM" bash -c 'head -c 70000 /dev/urandom > "$1"' _ "/home/$ADM/wexel/msi/pkg.msi"
+MSIX="$(winpath /home/$ADM/wexel/msi/msiexec.exe)"; MSIPKG="$(winpath /home/$ADM/wexel/msi/pkg.msi)"
+bp c4_msiexec_package_path_and_hash_reach_the_elevated_process "$ADM" 64 docrun "$MSIX" "$MSIPKG" "$(winpath $EL/out.doc)"
+bp c4_existing_writer_on_the_package_is_denied "$ADM" 64 docwriter "$MSIX" "$MSIPKG" "$(winpath $EL/out.docw)"
+
+# the package replaced while the consent is pending: renamed over the path from Unix, as for the image
+el_clean; touch "$EL/wait-for-gate" "$EL/approve.msiexec.exe"
+bprobe "$ADM" 64 docrace "$MSIX" "$MSIPKG" "$(winpath $EL/out.docrace)" > "$ROOT/docrace.log" 2>&1 & DP=$!
+el_wait_file "$EL/docrace.ready"
+run_as "$ADM" bash -c 'cp "$1" "$1.new" && mv "$1.new" "$1"' _ "/home/$ADM/wexel/msi/pkg.msi"
+touch "$EL/docrace.done"
+wait "$DP" || { cat "$ROOT/docrace.log" >&2; fail "docrace"; }
+grep -q '^docrace=PASS' "$ROOT/docrace.log" || { cat "$ROOT/docrace.log" >&2; fail "docrace: no PASS"; }
+[ ! -e "$EL/out.docrace" ] || fail "the replaced package ran"
+ok c4_package_replaced_while_consent_pending_is_denied_and_starts_nothing
 el_down "$ADM"
 
 # -- 6. a standard user
