@@ -47,6 +47,7 @@ struct consent_data
     WCHAR cmdline[32768];
     WCHAR exepath[MAX_PATH];
     WCHAR image[MAX_PATH];     /* /image: the frozen image of the elevation broker, shown and checked instead of the first word of the command line */
+    WCHAR doc[MAX_PATH];       /* /doc: the package the broker froze for msiexec, as an absolute path; the only one described */
     WCHAR details[32768 + 2 * MAX_PATH];
     BOOL broker;               /* /broker: started by the elevation broker, which waits for the exit code */
     BOOL secure;               /* /secure: on the secure desktop, which the driver already covers and dims */
@@ -465,6 +466,19 @@ static void parse_command_line(const WCHAR *cmd, struct consent_data *data)
             }
             *dst = 0;
         }
+        else if (!wcsnicmp(p, L"/doc", 4))
+        {
+            p += 4;
+            while (*p == ' ' || *p == '\t') p++;
+            dst = data->doc;
+            if (*p == '"')
+            {
+                p++;
+                for (; *p && *p != '"'; p++) if (dst < data->doc + MAX_PATH - 1) *dst++ = *p;
+                if (*p == '"') p++;
+            }
+            *dst = 0;
+        }
         else if (!wcsnicmp(p, L"/cmd", 4) || !wcsnicmp(p, L"-cmd", 4))
         {
             p += 4;
@@ -516,6 +530,15 @@ static BOOL msi_package_of(const struct consent_data *data, WCHAR *package)
 
     base = base ? base + 1 : data->exepath;
     if (wcsicmp(base, L"msiexec.exe")) return FALSE;
+
+    /* From the broker, only the file it froze is described, by the absolute path it froze: the command line is the
+     * caller's, and a relative path or a second /i in it would name another file than the one that is installed. */
+    if (data->broker)
+    {
+        if (!data->doc[0]) return FALSE;
+        lstrcpyW(package, data->doc);
+        return TRUE;
+    }
 
     while (*p)
     {

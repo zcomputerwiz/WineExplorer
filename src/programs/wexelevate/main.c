@@ -733,15 +733,28 @@ static WCHAR *doc_of( const struct request *req )
         }
         want = !_wcsicmp( arg + 1, L"i" ) || !_wcsicmp( arg + 1, L"package" ) || !_wcsicmp( arg + 1, L"p" ) ||
                !_wcsicmp( arg + 1, L"update" ) || !_wcsicmp( arg + 1, L"a" ) || !_wcsicmp( arg + 1, L"x" ) ||
-               arg[1] == 'f' || arg[1] == 'F';
+               ((arg[1] == 'f' || arg[1] == 'F') && _wcsicmp( arg + 1, L"forcerestart" ));
     }
     if (!found && patch[0]) found = patch;
     if (!found) return NULL;
-    if (found[0] && found[1] == ':' && (found[2] == '\\' || found[2] == '/')) return _wcsdup( found );
-    if (!req->cwd || !req->cwd[0]) return NULL;
-    len = lstrlenW( req->cwd ) + lstrlenW( found ) + 2;
-    if (!(path = malloc( len * sizeof(WCHAR) ))) return NULL;
-    swprintf( path, len, L"%ls\\%ls", req->cwd, found );
+    if (found[0] && found[1] == ':' && (found[2] == '\\' || found[2] == '/')) path = _wcsdup( found );
+    else
+    {
+        if (!req->cwd || !req->cwd[0]) return NULL;
+        len = lstrlenW( req->cwd ) + lstrlenW( found ) + 2;
+        if (!(path = malloc( len * sizeof(WCHAR) ))) return NULL;
+        swprintf( path, len, L"%ls\\%ls", req->cwd, found );
+    }
+    /* without "." and "..": the consent window shows this path, and the elevated msiexec (in req->cwd) resolves the
+     * same one; msi refuses any other package or patch (WEXELEVATE_DOC_PATH) */
+    if (path)
+    {
+        WCHAR full[MAX_PATH];
+
+        len = GetFullPathNameW( path, MAX_PATH, full, NULL );
+        free( path );
+        path = len && len < MAX_PATH ? _wcsdup( full ) : NULL;
+    }
     return path;
 }
 
@@ -1191,8 +1204,10 @@ static DWORD approve_consent( struct request *req, BOOL secure )
 
     if (wcschr( req->image, '"' )) return ERROR_INVALID_PARAMETER;
     if (lstrlenW( req->image ) >= MAX_PATH) return ERROR_FILENAME_EXCED_RANGE;
+    if (req->doc && (wcschr( req->doc, '"' ) || lstrlenW( req->doc ) >= MAX_PATH)) return ERROR_INVALID_PARAMETER;
     if (!(len = GetSystemDirectoryW( dir, MAX_PATH )) || len >= MAX_PATH - 32) return ERROR_SERVICE_NOT_ACTIVE;
-    cmd_size = (len + lstrlenW( req->image ) + lstrlenW( req->cmdline ) + 160) * sizeof(WCHAR);
+    cmd_size = (len + lstrlenW( req->image ) + (req->doc ? lstrlenW( req->doc ) : 0) + lstrlenW( req->cmdline ) + 170) *
+               sizeof(WCHAR);
     if (cmd_size > 32000 * sizeof(WCHAR)) return ERROR_FILENAME_EXCED_RANGE;
     if (!(cmd = malloc( cmd_size ))) return ERROR_NOT_ENOUGH_MEMORY;
     lstrcpyW( cmd, L"\"" );
@@ -1205,7 +1220,15 @@ static DWORD approve_consent( struct request *req, BOOL secure )
     wsprintfW( cmd + lstrlenW( cmd ), L"/ppid %lu ", GetCurrentProcessId() );
     lstrcatW( cmd, L"/image \"" );
     lstrcatW( cmd, req->image );
-    lstrcatW( cmd, L"\" /cmd " );
+    lstrcatW( cmd, L"\" " );
+    if (req->doc)
+    {
+        /* the package the consent window describes is the one frozen here, never one it reads from the command line */
+        lstrcatW( cmd, L"/doc \"" );
+        lstrcatW( cmd, req->doc );
+        lstrcatW( cmd, L"\" " );
+    }
+    lstrcatW( cmd, L"/cmd " );
     lstrcatW( cmd, req->cmdline );
 
     /* the input goes to the secure desktop first; every way out below returns it */
