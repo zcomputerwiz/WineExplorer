@@ -305,3 +305,11 @@ aliases (`SettingsCardBackground` = `CardBackgroundFillColorDefaultBrush`) are l
 the dictionary's own, so Default (dark) and Light get their own values. `xamlshim-0.3.2-win-x64.zip`, 59811791 bytes, SHA-256
 7047f79a093a...; the `uwp-xaml` component pins it (17 component tests pass). Still open: in the dark theme the Settings page
 headings ("Settings", "Appearance", "About") are dim; `calc-input.c` clicks "Dark" at the real card layout now.
+
+### 2026-11-21, dim headings in the dark theme: cause narrowed
+
+Switching to Dark at run time leaves `TextBlock`s whose foreground comes from a style (`CategoryNameTextBlockStyle`, `BodyStrongTextBlockStyle`:
+based on WinUI's `SubtitleTextBlockStyle`/`BodyTextBlockStyle`, with `BasedOn` set by XamlShim after the load) at the light value
+(`#E4000000`), while controls with their own default style turn white. The popup content is in the Dark theme (`ActualTheme`); the
+base style's `{ThemeResource}` foreground is not re-resolved on the change. Cosmetic; a page built while the theme is already Dark
+was not tried (the lab prefix is rebuilt for every run). Keys, clicks, modes, date and settings flows pass on 0.3.2.
