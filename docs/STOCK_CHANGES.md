@@ -3925,3 +3925,16 @@ Same entry, later the same day: `dlls/sppc/sppc.c`, `Makefile.in` (`IMPORTS = ad
 2026-11-21 (Wine claude/service-profile-sd): `dlls/advapi32/security.c` `SetSecurityInfo` (and so `SetNamedSecurityInfo`): `SE_SERVICE` sets the DACL through `SetServiceObjectSecurity` (programs/services already kept it); it used to log "unimplemented type 2, returning success" and change nothing. Office's licensing service `osppsvc` is given its permissions this way by its installer (WiX secure objects), so after a restart a standard user could not start it (`SERVICE_START` denied, error 5) and `osppc` `SLOpen` failed with 0x80070005 (B56, found in the lab). Only the DACL is set; owner, group and SACL of a service are ignored with a FIXME. Test in `dlls/advapi32/tests/service.c`.
 
 2026-11-21 (Wine claude/service-profile-sd): `dlls/sppc/sppc.c`, `sppc.spec`: `SLRegisterPlugin` and `SLUnregisterPlugin` (were stubs, which ended Office's licensing MSI `CAInstallSppPlugin` with 0xc0000100 and 1603, B59). They take four pointer-sized parameters here (the real ones are undocumented), accept the call and log the values with a FIXME; no plugin is loaded. Not tested (unknown signature); a 32-bit caller that passes another count would unbalance its stack, the only known caller is the 64-bit action.
+
+2026-11-21 (Session 0, review fixes, Wine branch claude/sppc-ospp-path):
+- `dlls/sppc/sppc.c`: the OSPP client's folder is `CommonFilesDir` of the process's registry view (REG_SZ, absolute),
+  never the environment; it is loaded with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32`. The
+  `SPPWINE_OSPPC` test hook is removed (`dlls/slc/tests/slc.c` no longer sets it). An elevated installer gets the
+  environment of the limited user who started it.
+- `server/registry.c`: a service account's exception for creating its own profile key does not cover a link
+  (`REG_OPTION_CREATE_LINK`).
+- `dlls/msisip/main.c`, `msisip.spec`: the compound file's sizes cannot wrap (at most 2^24 sectors, the FAT takes
+  nsec * 4 bytes, a chain stops before 1 GiB): a package of 4 GiB or more overflowed a heap buffer in the consent
+  window's signature check (SYSTEM). `DllRegisterServer` and `DllUnregisterServer` are exported again.
+- `dlls/msi/package.c`, `patch.c`, `msipriv.h`: when the broker froze a file (`WEXELEVATE_DOC_PATH`), another package
+  (except the Installer cache's copy of an installed product), another patch, or a transform file is refused.
