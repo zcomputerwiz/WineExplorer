@@ -438,7 +438,7 @@ cmd_serve()
                else
                    JOIN_PW=$password
                    # a leave without ACCT_DELETE keeps the machine account (Windows disables it; Samba leaves it as it is)
-                   if [ -n "$flags" ] && [[ $flags =~ ^[0-9]+$ ]] && [ $(( flags & 4 )) = 0 ]; then
+                   if [ -n "$flags" ] && [[ $flags =~ ^[0-9]+$ ]] && [ $(( 10#$flags & 4 )) = 0 ]; then
                        cmd_leave --user "$user" --password-stdin --keep-account
                    else cmd_leave --user "$user" --password-stdin; fi
                fi ;;

@@ -276,6 +276,13 @@ grep -q '^net ads leave -k --keep-account' "$FX/calls.log" || { cat "$FX/calls.l
 reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
 expect 0 'a leave that deletes the account' 'op=leave' 'user=Administrator' 'password=pw' 'flags=4'
 ! grep -q 'keep-account' "$FX/calls.log" || fail 'serve: leave with ACCT_DELETE kept the account'
+# a number with a leading zero is a decimal one ("04" is 4, "08" is not an octal error that falls through to a delete)
+reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
+expect 0 'a leave with flags 08 keeps the account' 'op=leave' 'user=Administrator' 'password=pw' 'flags=08'
+grep -q 'keep-account' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'serve: flags=08 was not read as decimal'; }
+reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
+expect 0 'a leave with flags 04 deletes the account' 'op=leave' 'user=Administrator' 'password=pw' 'flags=04'
+! grep -q 'keep-account' "$FX/calls.log" || fail 'serve: flags=04 kept the account'
 touch "$FX/newnet"
 reset_etc; : > "$FX/calls.log"
 out=$(join ad.wexlab.example --user Administrator --password-stdin) || { echo "$out"; fail 'the join with a new Samba failed'; }
