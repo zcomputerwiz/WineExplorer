@@ -45,6 +45,15 @@
 #define IDD_COMPNAME_MORE   1009
 #define IDD_JOIN_CREDS      1010
 #define IDD_JOIN_ERROR      1011
+/* the Network Identification Wizard */
+#define IDD_NETID_WELCOME   1020
+#define IDD_NETID_USAGE     1021
+#define IDD_NETID_KIND      1022
+#define IDD_NETID_INFO      1023
+#define IDD_NETID_ACCOUNT   1024
+#define IDD_NETID_COMPDOM   1025
+#define IDD_NETID_WORKGROUP 1026
+#define IDD_NETID_DONE      1027
 
 /* Startup and Recovery strings */
 #define IDS_STARTREC_NO_DUMP     11
@@ -88,6 +97,24 @@
 #define IDC_ERR_DETAILS_BTN    2141
 #define IDC_ERR_DETAILS        2142
 #define IDC_ERR_ICON           2143
+#define IDC_NID_TITLE          2150
+#define IDC_NID_BUSINESS       2151
+#define IDC_NID_HOME           2152
+#define IDC_NID_DOMAIN_NET     2153
+#define IDC_NID_NO_DOMAIN_NET  2154
+#define IDC_NID_USER           2155
+#define IDC_NID_PASS           2156
+#define IDC_NID_DOMAIN         2157
+#define IDC_NID_COMP_TEXT      2158
+#define IDC_NID_COMP_NAME      2159
+#define IDC_NID_COMP_DOMAIN    2160
+#define IDC_NID_WORKGROUP      2161
+#define IDC_NID_DONE_TEXT      2162
+#define IDC_NID_B1             2163
+#define IDC_NID_B2             2164
+#define IDC_NID_B3             2165
+#define IDC_NID_B4             2166
+#define IDC_NID_B5             2167
 
 /* Hardware Controls */
 #define IDC_HW_DEVMGR_BTN      2201

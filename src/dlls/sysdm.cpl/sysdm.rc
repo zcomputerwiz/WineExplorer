@@ -130,6 +130,100 @@ BEGIN
     EDITTEXT        IDC_ERR_DETAILS, 8, 96, 290, 100, ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | NOT WS_VISIBLE
 END
 
+/* the Network Identification Wizard: the pages of the XP wizard (the first and the last, the "exterior" pages, have the
+ * picture on the left; the others the header) */
+IDD_NETID_WELCOME DIALOGEX 0, 0, 317, 193
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Network Identification Wizard"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Welcome to the Network Identification Wizard", IDC_NID_TITLE, 120, 8, 190, 40
+    LTEXT           "This wizard helps you connect your computer to a network.", -1, 120, 56, 190, 16
+    LTEXT           "To continue, click Next.", -1, 120, 80, 190, 10
+END
+
+IDD_NETID_USAGE DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Network Identification Wizard"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Select the option that best describes your computer:", -1, 21, 7, 287, 10
+    AUTORADIOBUTTON "This computer is part of a business network, and I use it to connect to other computers at work", IDC_NID_BUSINESS, 21, 24, 287, 18, BS_MULTILINE | WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "This computer is for home use and is not part of a business network", IDC_NID_HOME, 21, 46, 287, 10
+END
+
+IDD_NETID_KIND DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Network Identification Wizard"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Select the option that best describes your company network:", -1, 21, 7, 287, 10
+    AUTORADIOBUTTON "My company uses a network with a domain", IDC_NID_DOMAIN_NET, 21, 24, 287, 10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "My company uses a network without a domain", IDC_NID_NO_DOMAIN_NET, 21, 40, 287, 10
+END
+
+IDD_NETID_INFO DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Network Identification Wizard"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "To connect your computer to a Windows network, you need the following information:", -1, 21, 7, 287, 16
+    LTEXT           "User name", IDC_NID_B1, 28, 28, 200, 8
+    LTEXT           "Password", IDC_NID_B2, 28, 43, 200, 8
+    LTEXT           "User account domain", IDC_NID_B3, 28, 58, 200, 8
+    LTEXT           "You might also need:", -1, 21, 76, 287, 8
+    LTEXT           "Computer name", IDC_NID_B4, 28, 92, 200, 8
+    LTEXT           "Computer domain", IDC_NID_B5, 28, 107, 200, 8
+    LTEXT           "If you do not have this information, contact your network administrator before proceeding.", -1, 21, 125, 287, 16
+END
+
+IDD_NETID_ACCOUNT DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Network Identification Wizard"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Type your Windows user account and domain information. If you do not have this information, ask your network administrator.", -1, 21, 7, 287, 20
+    LTEXT           "&User name:", -1, 21, 40, 55, 8
+    EDITTEXT        IDC_NID_USER, 79, 38, 160, 14, ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "&Password:", -1, 21, 62, 55, 8
+    EDITTEXT        IDC_NID_PASS, 79, 60, 160, 14, ES_PASSWORD | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "&Domain:", -1, 21, 84, 55, 8
+    EDITTEXT        IDC_NID_DOMAIN, 79, 82, 160, 14, ES_AUTOHSCROLL | WS_TABSTOP
+END
+
+IDD_NETID_COMPDOM DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Network Identification Wizard"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "", IDC_NID_COMP_TEXT, 21, 7, 287, 10
+    LTEXT           "Type your computer name and computer domain. (The computer domain might not be the same as the user account domain to which you log on.)", -1, 21, 26, 287, 20
+    LTEXT           "Computer &name:", -1, 21, 58, 72, 8
+    EDITTEXT        IDC_NID_COMP_NAME, 96, 56, 160, 14, ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "Computer &domain:", -1, 21, 80, 72, 8
+    EDITTEXT        IDC_NID_COMP_DOMAIN, 96, 78, 160, 14, ES_AUTOHSCROLL | WS_TABSTOP
+END
+
+IDD_NETID_WORKGROUP DIALOGEX 0, 0, 317, 143
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Network Identification Wizard"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Type the name of the workgroup to which this computer belongs. Windows uses this name in My Network Places to show you other computers in your workgroup.", -1, 21, 7, 287, 20
+    LTEXT           "If you do not know the name of your workgroup, go to the next screen.", -1, 21, 34, 287, 10
+    LTEXT           "&Workgroup name:", -1, 21, 56, 65, 8
+    EDITTEXT        IDC_NID_WORKGROUP, 89, 54, 160, 14, ES_AUTOHSCROLL | ES_READONLY | WS_TABSTOP
+END
+
+IDD_NETID_DONE DIALOGEX 0, 0, 317, 193
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Network Identification Wizard"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    LTEXT           "Completing the Network Identification Wizard", IDC_NID_TITLE, 120, 8, 190, 40
+    LTEXT           "", IDC_NID_DONE_TEXT, 120, 56, 190, 60
+END
+
 IDD_COMPNAME DIALOGEX 0, 0, 256, 218
 STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
 CAPTION "Computer Name"

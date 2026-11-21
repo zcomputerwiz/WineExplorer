@@ -17,6 +17,7 @@ cat > "$FX/bin/net" <<EOF
 #!/bin/sh
 echo "net \$*" >> "$FX/calls.log"
 case "\$*" in
+    "--help") [ -f "$FX/newnet" ] && echo "  --use-kerberos=desired|required|off"; exit 0 ;;
     "ads join"*) exit \$(cat "$FX/join.rc" 2>/dev/null || echo 0) ;;
     "ads testjoin") exit \$(cat "$FX/testjoin.rc" 2>/dev/null || echo 0) ;;
     "ads leave"*) exit \$(cat "$FX/leave.rc" 2>/dev/null || echo 0) ;;
@@ -266,6 +267,21 @@ mv "$FX/bin/kinit.off" "$FX/bin/kinit"
 reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
 expect 0 'a leave with the administrator' 'op=leave' 'user=Administrator' 'password=pw'
 grep -q '^net ads leave -k' "$FX/calls.log" || fail 'serve: leave did not ask the controller'
+! grep -q 'keep-account' "$FX/calls.log" || fail 'serve: a leave without flags kept the account'
+# NETSETUP_ACCT_DELETE (4) absent: the account is kept; present: it goes. A Samba with --use-kerberos is given that
+# (-k is deprecated there)
+reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
+expect 0 'a leave that keeps the account' 'op=leave' 'user=Administrator' 'password=pw' 'flags=0'
+grep -q '^net ads leave -k --keep-account' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'serve: leave without ACCT_DELETE did not keep the account'; }
+reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
+expect 0 'a leave that deletes the account' 'op=leave' 'user=Administrator' 'password=pw' 'flags=4'
+! grep -q 'keep-account' "$FX/calls.log" || fail 'serve: leave with ACCT_DELETE kept the account'
+touch "$FX/newnet"
+reset_etc; : > "$FX/calls.log"
+out=$(join ad.wexlab.example --user Administrator --password-stdin) || { echo "$out"; fail 'the join with a new Samba failed'; }
+grep -q '^net ads join --use-kerberos=required' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'a new Samba was not given --use-kerberos'; }
+rm -f "$FX/newnet"
+reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
 reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
 expect 0 'a forced leave' 'op=leave' 'force=1'
 ! grep -q '^kinit\|^net ads leave' "$FX/calls.log" || fail 'serve: a forced leave asked the controller'
@@ -315,5 +331,46 @@ echo 1 > "$FX/ctp.rc"; expect 1789 'reset with a failing password change' op=res
 rm -f "$FX/ctp.rc"
 out=$(serve op=dclist); [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc1.ad.wexlab.example dc2.ad.wexlab.example *$' <<<"$out" || { echo "$out"; fail 'serve: dclist is not the sorted names without the trailing dot'; }
 : > "$FX/dc.none"; expect 1355 'no controllers' op=dclist
+# nltest's questions: the controller's own answer (dsgetdc), the secure channel's state (scquery)
+cat > "$FX/lookup" <<'LK'
+Information for Domain Controller: 10.71.0.10
+
+Response Type: LOGON_SAM_LOGON_RESPONSE_EX
+GUID: 0f2a204e-eb7a-4e88-9cf9-1504bb1b93d5
+Flags:
+	Is a PDC:                                   yes
+	Is a GC of the forest:                      yes
+	Is an LDAP server:                          yes
+	Supports DS:                                yes
+	Is running a KDC:                           yes
+	Is running time services:                   yes
+	Is the closest DC:                          yes
+	Is writable:                                yes
+	Has a hardware clock:                       yes
+	Is a non-domain NC serviced by LDAP server: no
+	Is NT6 DC that has some secrets:            no
+	Is NT6 DC that has all secrets:             yes
+	Runs Active Directory Web Services:         no
+	Runs on Windows 2012 or later:              no
+Forest: ad.wexlab.example
+Domain: ad.wexlab.example
+Domain Controller: dc1.ad.wexlab.example
+Pre-Win2k Domain: WEXLAB
+Pre-Win2k Hostname: DC1
+Server Site Name: Default-First-Site-Name
+Client Site Name: Default-First-Site-Name
+LK
+out=$(serve op=dsgetdc)
+[ "$(status_of "$out")" = 0 ] && grep -q '^message=dc=dc1.ad.wexlab.example||addr=10.71.0.10||guid=0f2a204e-eb7a-4e88-9cf9-1504bb1b93d5||domain=WEXLAB||dnsdomain=ad.wexlab.example||forest=ad.wexlab.example||dcsite=Default-First-Site-Name||oursite=Default-First-Site-Name||flags=e00013fd$' <<<"$out" || { echo "$out"; fail 'serve: dsgetdc'; }
+out=$(serve op=scquery)
+[ "$(status_of "$out")" = 0 ] && grep -q '^message=dc=dc1.ad.wexlab.example||status=0$' <<<"$out" || { echo "$out"; fail 'serve: scquery'; }
+echo 1 > "$FX/testjoin.rc"
+out=$(serve op=scquery); grep -q '||status=1722$' <<<"$out" || { echo "$out"; fail 'serve: scquery with a channel that does not work'; }
+rm -f "$FX/testjoin.rc"
+echo nowinbind > "$FX/kind"
+expect 2692 'dsgetdc when not joined with winbind' 'op=dsgetdc'
+expect 2692 'scquery when not joined with winbind' 'op=scquery'
+echo winbind > "$FX/kind"
+rm -f "$FX/lookup"
 echo 'OK: wex-domain-join.sh serve verify, reset and dclist'
 echo domain_join=PASS

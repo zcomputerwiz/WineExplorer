@@ -4139,6 +4139,8 @@ while True:
     if fields.get('op') == 'dclist': message = 'dc1.ad.wexlab.example dc2.ad.wexlab.example '
     if fields.get('op') == 'verify': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been verified.||The connection is with the machine dc1.ad.wexlab.example.'
     if fields.get('op') == 'reset': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been reset.'
+    if fields.get('op') == 'dsgetdc': message = 'dc=dc1.ad.wexlab.example||addr=10.71.0.10||guid=0f2a204e-eb7a-4e88-9cf9-1504bb1b93d5||domain=WEXLAB||dnsdomain=ad.wexlab.example||forest=ad.wexlab.example||dcsite=Default-First-Site-Name||oursite=Default-First-Site-Name||flags=e00013fd'
+    if fields.get('op') == 'scquery': message = 'dc=dc1.ad.wexlab.example||status=0'
     conn.sendall(('status=%d\nmessage=%s\n' % (status, message)).encode())
     conn.close()
 PYEOF
@@ -4229,6 +4231,39 @@ for b in 1; do
     nd query dc; [ "$NDRC" = 0 ] && grep -qx 'dc1.ad.wexlab.example' <<<"$NDOUT" && grep -qx 'dc2.ad.wexlab.example' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom query dc'; }
     nd query workstation; [ "$NDRC" = 50 ] && grep -q 'Only NETDOM QUERY DC' <<<"$NDOUT" || fail 'netdom query workstation'
 done
+# nltest.exe: the questions of Windows' NLTEST on the same API; the domain is the one in the join state
+s0_wine reg add 'HKLM\Software\WineExplorer\Domain' /v FlatName /d WEXLAB /f >/dev/null || fail "nltest: writing the join state"
+s0_wine reg add 'HKLM\Software\WineExplorer\Domain' /v Name /d ad.wexlab.example /f >/dev/null || fail "nltest: writing the join state"
+nt()   # ARGS...: nltest as session 0's account; standard output and error in $NTOUT, the status in $NTRC
+{
+    NTRC=0
+    # (s0_wine drops standard error, which is where nltest's failures go: the same call with it kept)
+    (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+        WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" nltest "$@" </dev/null >/tmp/nltest.out 2>&1) || NTRC=$?
+    NTOUT="$(tr -d '\r' </tmp/nltest.out)"
+}
+{
+    : > "$JREQ"
+    nt /dsgetdc:WEXLAB
+    [ "$NTRC" = 0 ] && grep -qx '           DC: \\\\dc1.ad.wexlab.example' <<<"$NTOUT" && grep -qx '      Address: \\\\10.71.0.10' <<<"$NTOUT" &&
+        grep -qx '     Dom Name: WEXLAB' <<<"$NTOUT" && grep -qx '  Forest Name: ad.wexlab.example' <<<"$NTOUT" &&
+        grep -qx ' Dc Site Name: Default-First-Site-Name' <<<"$NTOUT" && grep -qx '        Flags: PDC GC DS LDAP KDC TIMESERV CLOSE_SITE WRITABLE GOOD_TIMESERV FULL_SECRET DNS_DC DNS_DOMAIN DNS_FOREST ' <<<"$NTOUT" &&
+        grep -qx 'The command completed successfully' <<<"$NTOUT" || { echo "$NTOUT (rc $NTRC)" >&2; fail 'nltest /dsgetdc'; }
+    nt /dsgetdc:ad.wexlab.example /force /writable; [ "$NTRC" = 0 ] || fail 'nltest /dsgetdc with the DNS name and flags'
+    nt /dsgetdc:other.example; [ "$NTRC" = 1 ] && grep -qx 'Getting DC name failed: Status = 1355 0x54b ERROR_NO_SUCH_DOMAIN' <<<"$NTOUT" || { echo "$NTOUT (rc $NTRC)" >&2; fail 'nltest /dsgetdc of another domain'; }
+    nt /dsgetsite; [ "$NTRC" = 0 ] && grep -qx 'Default-First-Site-Name' <<<"$NTOUT" || { echo "$NTOUT" >&2; fail 'nltest /dsgetsite'; }
+    nt /dcname:WEXLAB; [ "$NTRC" = 0 ] && grep -qx 'PDC for Domain WEXLAB is \\\\dc1.ad.wexlab.example' <<<"$NTOUT" || { echo "$NTOUT" >&2; fail 'nltest /dcname'; }
+    nt /dclist:ad.wexlab.example; [ "$NTRC" = 0 ] && grep -qxF "Get list of DCs in domain 'ad.wexlab.example' from '\\\\dc1.ad.wexlab.example'." <<<"$NTOUT" && grep -qx '    dc2.ad.wexlab.example' <<<"$NTOUT" || { echo "$NTOUT" >&2; fail 'nltest /dclist'; }
+    nt /sc_query:WEXLAB; [ "$NTRC" = 0 ] && grep -qx 'Trusted DC Name \\\\dc1.ad.wexlab.example' <<<"$NTOUT" && grep -qx 'Trusted DC Connection Status Status = 0 0x0 NERR_Success' <<<"$NTOUT" || { echo "$NTOUT" >&2; fail 'nltest /sc_query'; }
+    nt /sc_verify:WEXLAB; [ "$NTRC" = 0 ] && grep -qx 'Trust Verification Status = 0 0x0 NERR_Success' <<<"$NTOUT" && grep -qx 'The command completed successfully' <<<"$NTOUT" || { echo "$NTOUT" >&2; fail 'nltest /sc_verify'; }
+    : > "$JREQ"
+    nt /sc_reset:WEXLAB; [ "$NTRC" = 0 ] && grep -qx 'op=reset' "$JREQ" || { echo "$NTOUT" >&2; fail 'nltest /sc_reset'; }
+    nt /query; [ "$NTRC" = 0 ] && grep -qx 'Connection Status = 0 0x0 NERR_Success' <<<"$NTOUT" || { echo "$NTOUT" >&2; fail 'nltest /query'; }
+    nt /server:OTHERPC /query; [ "$NTRC" = 1 ] && grep -q 'ERROR_NOT_SUPPORTED' <<<"$NTOUT" || { echo "$NTOUT" >&2; fail 'nltest /server of another computer'; }
+    nt /whowill:x y; [ "$NTRC" = 1 ] || fail 'nltest: an option that is not supported'
+    nt; [ "$NTRC" = 1 ] && grep -q 'Usage: nltest' <<<"$NTOUT" || fail 'nltest without options'
+}
+s0_wine reg delete 'HKLM\Software\WineExplorer\Domain' /f >/dev/null || true
 # a standard user is refused with Windows' words (the status is the error: the pipeline of as_wine fails with it)
 NDOUT="$(as_wine "$STD" netdom join /domain:ad.wexlab.example /userd:a /passwordd:x)" || true
 grep -qi 'access.*denied' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom: a standard user was not refused'; }

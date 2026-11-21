@@ -74,6 +74,13 @@ valid_user() { [[ $1 =~ ^[A-Za-z0-9._@-]{1,64}$ ]] && [[ $1 != -* ]]; }
 valid_workgroup() { [[ $1 =~ ^[A-Za-z0-9-]{1,15}$ ]] && [[ $1 != -* ]]; }
 valid_ou() { [[ $1 =~ ^[A-Za-z0-9=,._\ -]{1,255}$ ]] && [[ $1 != -* ]]; }
 
+# the option that tells net to use the ticket: --use-kerberos=required where this Samba has it (-k is deprecated there and
+# says so in every answer), else -k
+krb_opt()
+{
+    if net --help 2>&1 | grep -q -- '--use-kerberos'; then echo '--use-kerberos=required'; else echo '-k'; fi
+}
+
 need_tools()
 {
     local missing= t
@@ -211,7 +218,7 @@ cmd_join()
         done
         ou=$oupath
     fi
-    joinout=$(net ads join -k ${ou:+createcomputer="$ou"} 2>&1) || {
+    joinout=$(net ads join "$(krb_opt)" ${ou:+createcomputer="$ou"} 2>&1) || {
         drop_ticket; undo_files
         die "net ads join failed (the account may not join computers, or ${ou:-the OU} does not exist): $(tail -n 2 <<<"$joinout" | cut -c1-200)"
     }
@@ -234,13 +241,14 @@ undo_files()
 
 cmd_leave()
 {
-    local user= stdin=0 force=0 kind realm principal
+    local user= stdin=0 force=0 keep= kind realm principal
     take_lock
     while [ $# -gt 0 ]; do
         case $1 in
             --user) user=${2:-}; shift 2 || usage ;;
             --password-stdin) stdin=1; shift ;;
             --force) force=1; shift ;;
+            --keep-account) keep=1; shift ;;
             *) usage ;;
         esac
     done
@@ -254,7 +262,7 @@ cmd_leave()
         [ -n "$realm" ] || realm=$(sed -n 's/^[[:space:]]*realm[[:space:]]*=[[:space:]]*//p' "$ETC/samba/smb.conf" | head -n 1 | tr 'a-z' 'A-Z')
         principal=$user; [[ $user == *@* ]] || principal=$user@$realm
         get_ticket "$principal" || fail 1326 "the controller did not accept $principal"
-        net ads leave -k >/dev/null 2>&1 || { drop_ticket; die "net ads leave failed: nothing was changed (--force leaves on this machine only)"; }
+        net ads leave "$(krb_opt)" ${keep:+--keep-account} >/dev/null 2>&1 || { drop_ticket; die "net ads leave failed: nothing was changed (--force leaves on this machine only)"; }
         drop_ticket
     else
         note "leaving on this machine only: the machine account stays in the domain"
@@ -346,10 +354,65 @@ cmd_dclist()
     NOTES="$list"
 }
 
+# nltest /dsgetdc: what the controller says about itself (a CLDAP ping, net ads lookup); the answer is lines of
+# name=value separated by "||" (nltest prints them as DsGetDcName's fields; the flags are DS_..._FLAG as a hex number)
+cmd_dsgetdc()
+{
+    local kind realm out dc addr guid dom dnsdom forest dcsite oursite flags=0 line bit
+    kind=$(join_kind)
+    [ "$kind" = winbind ] || fail 2692 "this machine is not joined with Winbind (kind: ${kind:-none})"
+    command -v net >/dev/null 2>&1 || fail 50 "missing: net (on Debian: apt-get install $PACKAGES)"
+    realm=$("$STATE_TOOL" --print 2>/dev/null | awk '{ print $2 }')
+    out=$(net ads lookup -S "$realm" 2>/dev/null) || fail 1355 "no domain controller of $realm answered"
+    dc=$(sed -n 's/^Domain Controller: *//p' <<<"$out" | head -n 1)
+    addr=$(sed -n 's/^Information for Domain Controller: *//p' <<<"$out" | head -n 1)
+    guid=$(sed -n 's/^GUID: *//p' <<<"$out" | head -n 1)
+    dom=$(sed -n 's/^Pre-Win2k Domain: *//p' <<<"$out" | head -n 1)
+    forest=$(sed -n 's/^Forest: *//p' <<<"$out" | head -n 1)
+    dnsdom=$(sed -n 's/^Domain: *//p' <<<"$out" | head -n 1)
+    dcsite=$(sed -n 's/^Server Site Name: *//p' <<<"$out" | head -n 1)
+    oursite=$(sed -n 's/^Client Site Name: *//p' <<<"$out" | head -n 1)
+    [ -n "$dc" ] || fail 1355 "no domain controller of $realm answered"
+    while IFS= read -r line; do
+        case $line in
+            *"Is a PDC:"*yes) bit=0x1 ;;
+            *"Is a GC of the forest:"*yes) bit=0x4 ;;
+            *"Is an LDAP server:"*yes) bit=0x8 ;;
+            *"Supports DS:"*yes) bit=0x10 ;;
+            *"Is running a KDC:"*yes) bit=0x20 ;;
+            *"Is running time services:"*yes) bit=0x40 ;;
+            *"Is the closest DC:"*yes) bit=0x80 ;;
+            *"Is writable:"*yes) bit=0x100 ;;
+            *"Has a hardware clock:"*yes) bit=0x200 ;;
+            *"Is a non-domain NC serviced by LDAP server:"*yes) bit=0x400 ;;
+            *"Is NT6 DC that has some secrets:"*yes) bit=0x800 ;;
+            *"Is NT6 DC that has all secrets:"*yes) bit=0x1000 ;;
+            *"Runs Active Directory Web Services:"*yes) bit=0x2000 ;;
+            *"Runs on Windows 2012 or later:"*yes) bit=0x4000 ;;
+            *) bit=0 ;;
+        esac
+        flags=$(( flags | bit ))
+    done <<<"$out"
+    # a controller found by its DNS name answers with the DNS names
+    flags=$(( flags | 0xe0000000 ))
+    note "dc=$dc||addr=$addr||guid=$guid||domain=$dom||dnsdomain=$dnsdom||forest=$forest||dcsite=$dcsite||oursite=${oursite:-$dcsite}||flags=$(printf '%x' "$flags")"
+}
+# nltest /sc_query: the controller the secure channel is with, and whether the channel works
+cmd_sc_query()
+{
+    local kind dc status=0
+    kind=$(join_kind)
+    [ "$kind" = winbind ] || fail 2692 "this machine is not joined with Winbind (kind: ${kind:-none})"
+    command -v net >/dev/null 2>&1 || fail 50 "missing: net (on Debian: apt-get install $PACKAGES)"
+    dc=$(net ads info 2>/dev/null | sed -n 's/^LDAP server name: *//p' | head -n 1)
+    net ads testjoin >/dev/null 2>&1 || status=1722
+    note "dc=${dc:-}||status=$status"
+}
+
 # one request on standard input: lines of key=value ended by an empty line; the answer is status= and message=
 cmd_serve()
 {
-    local line key val n=0 op= domain= user= password= ou= workgroup= name= nametype= force= kind rc
+    local line key val n=0 op= domain= user= password= ou= workgroup= name= nametype= force= flags= kind rc
     SERVE=1
     while :; do
         # a client that connects and says nothing must not keep the service for ever
@@ -363,7 +426,7 @@ cmd_serve()
         [[ $val != *[[:cntrl:]]* ]] || fail 87 "a value holds a control character"
         case $key in
             op|domain|user|password|ou|workgroup|name|nametype|force) printf -v "$key" '%s' "$val" ;;
-            flags) ;;   # (the flags of the API are the caller's business: the engine does what the fields say)
+            flags) flags=$val ;;   # NETSETUP_ACCT_DELETE (4) of a leave: without it the account is kept
             *) fail 87 "unknown field" ;;
         esac
     done
@@ -372,11 +435,19 @@ cmd_serve()
     case $op in
         join) JOIN_PW=$password; cmd_join "$domain" --user "$user" --password-stdin ${workgroup:+--workgroup "$workgroup"} ${ou:+--ou "$ou"} ;;
         leave) if [ "$force" = 1 ]; then cmd_leave --force
-               else JOIN_PW=$password; cmd_leave --user "$user" --password-stdin; fi ;;
+               else
+                   JOIN_PW=$password
+                   # a leave without ACCT_DELETE keeps the machine account (Windows disables it; Samba leaves it as it is)
+                   if [ -n "$flags" ] && [[ $flags =~ ^[0-9]+$ ]] && [ $(( flags & 4 )) = 0 ]; then
+                       cmd_leave --user "$user" --password-stdin --keep-account
+                   else cmd_leave --user "$user" --password-stdin; fi
+               fi ;;
         validate) cmd_validate "$nametype" "$name" ;;
         verify) cmd_secure_channel verify ;;
         reset) cmd_secure_channel reset ;;
         dclist) cmd_dclist ;;
+        dsgetdc) cmd_dsgetdc ;;
+        scquery) cmd_sc_query ;;
         status) kind=$(join_kind); NOTES="kind=${kind:-none}" ;;
         *) fail 87 "unknown operation" ;;
     esac
@@ -390,6 +461,8 @@ case ${1:-} in
     verify) cmd_secure_channel verify ;;
     reset) cmd_secure_channel reset ;;
     dclist) cmd_dclist; echo "$NOTES" ;;
+    dsgetdc) cmd_dsgetdc; echo "$NOTES" ;;
+    scquery) cmd_sc_query; echo "$NOTES" ;;
     join) shift; cmd_join "$@" ;;
     leave) shift; cmd_leave "$@" ;;
     status) cmd_status ;;

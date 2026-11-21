@@ -48,13 +48,13 @@ NET_API_STATUS NET_API_FUNCTION NetValidateName( LPCWSTR server, LPCWSTR name, L
 
 static WEX_HOSTNAME g_host;
 static BOOL g_have_host;
-static WCHAR g_member[256];       /* the domain or workgroup the computer is in */
-static BOOL g_joined;             /* a domain */
-static BOOL g_reopen_elevated;    /* the Change dialog asked to open System Properties again as an administrator */
+WCHAR g_member[256];              /* the domain or workgroup the computer is in */
+BOOL g_joined;                    /* a domain */
+BOOL g_reopen_elevated;           /* the Change dialog or the wizard asked to open System Properties again as an administrator */
 
 /* ---------------------------------------------------------------------------------------------------- membership */
 
-static void read_membership(void)
+void read_membership(void)
 {
     WCHAR *name = NULL;
     NETSETUP_JOIN_STATUS type = NetSetupUnknownStatus;
@@ -73,7 +73,7 @@ static void read_membership(void)
 typedef DWORD (WINAPI *message_fn)(WCHAR *, DWORD);
 
 /* what the engine said about the last call: Samba's reason, or its own */
-static void engine_message(WCHAR *text, DWORD chars)
+void engine_message(WCHAR *text, DWORD chars)
 {
     HMODULE module = LoadLibraryW(L"wexjoin.dll");
     message_fn message = module ? (message_fn)GetProcAddress(module, "WexJoinLastMessage") : NULL;
@@ -150,6 +150,7 @@ static void account_name(const struct credentials *c, WCHAR *account, DWORD char
 
 struct join_error
 {
+    const WCHAR *caption;
     WCHAR text[1024], details[1024];
 };
 
@@ -162,6 +163,7 @@ static INT_PTR CALLBACK join_error_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
     case WM_INITDIALOG:
         e = (struct join_error *)lparam;
         SetWindowLongPtrW(hwnd, DWLP_USER, (LONG_PTR)e);
+        if (e->caption) SetWindowTextW(hwnd, e->caption);
         SendDlgItemMessageW(hwnd, IDC_ERR_ICON, STM_SETICON, (WPARAM)LoadIconW(NULL, (LPCWSTR)IDI_HAND), 0);
         SetDlgItemTextW(hwnd, IDC_ERR_TEXT, e->text);
         SetDlgItemTextW(hwnd, IDC_ERR_DETAILS, e->details);
@@ -190,11 +192,12 @@ static INT_PTR CALLBACK join_error_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
 
 /* The failure of a join or a validation: what Windows says when the controller is not found, else the error, with the
  * engine's reason under Details. */
-static void show_join_error(HWND owner, const WCHAR *domain, DWORD status, BOOL leaving)
+void show_join_error(HWND owner, const WCHAR *caption, const WCHAR *domain, DWORD status, BOOL leaving)
 {
     struct join_error e;
     WCHAR system[400] = { 0 }, engine[512];
 
+    e.caption = caption;
     engine_message(engine, ARRAY_SIZE(engine));
     if (status == ERROR_NO_SUCH_DOMAIN || status == ERROR_NO_LOGON_SERVERS)
         swprintf(e.text, ARRAY_SIZE(e.text), L"A domain controller for the domain %ls could not be contacted.\r\n\r\n"
@@ -218,13 +221,13 @@ static void show_join_error(HWND owner, const WCHAR *domain, DWORD status, BOOL 
 }
 
 /* a call that only an administrator's elevated process may make came back with access denied: offer to start again */
-static void offer_elevation(HWND owner)
+void offer_elevation(HWND owner, const WCHAR *caption)
 {
     WCHAR program[MAX_PATH];
     UINT n;
 
     if (MessageBoxW(owner, L"Changing the domain membership needs the rights of an administrator.\n\n"
-                           L"Open System Properties again as an administrator?", TITLE, MB_YESNO | MB_ICONQUESTION) != IDYES)
+                           L"Open System Properties again as an administrator?", caption, MB_YESNO | MB_ICONQUESTION) != IDYES)
         return;
     n = GetSystemDirectoryW(program, ARRAY_SIZE(program) - 16);
     if (!n) return;
@@ -244,15 +247,15 @@ static BOOL do_join(HWND dlg, const WCHAR *domain)
 
     /* (the check needs the same rights as the join: a standard user hears it before being asked for a password) */
     status = NetValidateName(NULL, domain, NULL, NULL, NAME_TYPE_DOMAIN);
-    if (status == ERROR_ACCESS_DENIED) { offer_elevation(dlg); return FALSE; }
-    if (status) { show_join_error(dlg, domain, status, FALSE); return FALSE; }
+    if (status == ERROR_ACCESS_DENIED) { offer_elevation(dlg, TITLE); return FALSE; }
+    if (status) { show_join_error(dlg, TITLE, domain, status, FALSE); return FALSE; }
     lstrcpynW(c.domain, domain, ARRAY_SIZE(c.domain));
     if (DialogBoxParamW(g_hInstance, MAKEINTRESOURCEW(IDD_JOIN_CREDS), dlg, credentials_proc, (LPARAM)&c) != IDOK) return FALSE;
     account_name(&c, account, ARRAY_SIZE(account));
     status = NetJoinDomain(NULL, domain, NULL, account, c.password, NETSETUP_JOIN_DOMAIN | NETSETUP_ACCT_CREATE);
     SecureZeroMemory(c.password, sizeof(c.password));
-    if (status == ERROR_ACCESS_DENIED) { offer_elevation(dlg); return FALSE; }
-    if (status) { show_join_error(dlg, domain, status, FALSE); return FALSE; }
+    if (status == ERROR_ACCESS_DENIED) { offer_elevation(dlg, TITLE); return FALSE; }
+    if (status) { show_join_error(dlg, TITLE, domain, status, FALSE); return FALSE; }
     read_membership();
     swprintf(text, ARRAY_SIZE(text), L"Welcome to the %ls domain.", domain);
     MessageBoxW(dlg, text, TITLE, MB_OK | MB_ICONINFORMATION);
@@ -260,7 +263,7 @@ static BOOL do_join(HWND dlg, const WCHAR *domain)
 }
 
 /* TRUE when the computer is out of the domain now */
-static BOOL do_leave(HWND dlg)
+BOOL do_leave(HWND dlg)
 {
     struct credentials c = { L"Enter the name and password of an account with permission to remove this computer from the domain." };
     WCHAR account[300], text[400];
@@ -271,8 +274,8 @@ static BOOL do_leave(HWND dlg)
     account_name(&c, account, ARRAY_SIZE(account));
     status = NetUnjoinDomain(NULL, account, c.password, NETSETUP_ACCT_DELETE);
     SecureZeroMemory(c.password, sizeof(c.password));
-    if (status == ERROR_ACCESS_DENIED) { offer_elevation(dlg); return FALSE; }
-    if (status) { show_join_error(dlg, g_member, status, TRUE); return FALSE; }
+    if (status == ERROR_ACCESS_DENIED) { offer_elevation(dlg, TITLE); return FALSE; }
+    if (status) { show_join_error(dlg, TITLE, g_member, status, TRUE); return FALSE; }
     read_membership();
     swprintf(text, ARRAY_SIZE(text), L"Welcome to the %ls workgroup.", g_member);
     MessageBoxW(dlg, text, TITLE, MB_OK | MB_ICONINFORMATION);
@@ -368,6 +371,25 @@ static INT_PTR CALLBACK change_name_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
             GetDlgItemTextW(hwnd, IDC_COMPCHG_DOMAIN, domain, ARRAY_SIZE(domain));
             if (!wname[0]) return TRUE;
             WideCharToMultiByte(CP_UTF8, 0, wname, -1, name, sizeof(name), NULL, NULL);
+            if (strcmp(name, g_host.static_name) && g_joined && domain_on)
+            {
+                /* the machine account is named for the computer: a rename that keeps it in the domain would break the
+                 * trust (the engine cannot rename the account yet: docs/DOMAIN_JOIN.md); leaving the domain first is allowed */
+                MessageBoxW(hwnd, L"The name of a computer in a domain cannot be changed here: the computer's account in "
+                                  L"the domain would no longer match. Remove the computer from the domain first.",
+                            TITLE, MB_OK | MB_ICONWARNING);
+                return TRUE;
+            }
+            if (!domain_on && g_joined)
+            {
+                /* leaving first: the account goes with the old name */
+                done = do_leave(hwnd);
+                if (!done)
+                {
+                    if (g_reopen_elevated) EndDialog(hwnd, IDCANCEL);
+                    return TRUE;
+                }
+            }
             if (strcmp(name, g_host.static_name))
             {
                 DWORD err = WexHostnameSet(hwnd, name, FALSE);
@@ -383,9 +405,6 @@ static INT_PTR CALLBACK change_name_proc(HWND hwnd, UINT msg, WPARAM wparam, LPA
                 renamed = TRUE;
             }
             if (domain_on && domain[0] && (!g_joined || _wcsicmp(domain, g_member))) done = do_join(hwnd, domain);
-            else if (!domain_on && g_joined) done = do_leave(hwnd);
-            if (renamed && done)
-                MessageBoxW(hwnd, L"You must restart this computer for the changes to take effect.", TITLE, MB_OK | MB_ICONINFORMATION);
             if (renamed || done)
             {
                 if (g_reopen_elevated) { EndDialog(hwnd, IDCANCEL); return TRUE; }
@@ -420,8 +439,6 @@ INT_PTR CALLBACK compname_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
             SetDlgItemTextW(hwnd, IDC_COMP_NAME_LABEL, comp_name);
         read_membership();
         show_member(hwnd);
-        /* the Network Identification Wizard is the same join in a wizard: not built yet (docs/DOMAIN_JOIN.md) */
-        EnableWindow(GetDlgItem(hwnd, IDC_COMP_NETID_BTN), FALSE);
 
         g_have_host = !WexHostnameGet(&g_host);
         if (g_have_host)
@@ -448,6 +465,14 @@ INT_PTR CALLBACK compname_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
             read_membership();
             show_member(hwnd);
             /* the administrator's System Properties is open: this one goes */
+            if (g_reopen_elevated) { g_reopen_elevated = FALSE; PostMessageW(GetParent(hwnd), WM_COMMAND, IDCANCEL, 0); }
+            return TRUE;
+        }
+        if (LOWORD(wparam) == IDC_COMP_NETID_BTN)
+        {
+            show_netid_wizard(hwnd);
+            read_membership();
+            show_member(hwnd);
             if (g_reopen_elevated) { g_reopen_elevated = FALSE; PostMessageW(GetParent(hwnd), WM_COMMAND, IDCANCEL, 0); }
             return TRUE;
         }
