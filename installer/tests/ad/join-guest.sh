@@ -99,6 +99,21 @@ echo rc=%ERRORLEVEL% >> %O%
 echo === querydc >> %O%
 netdom query dc >> %O% 2>&1
 echo rc=%ERRORLEVEL% >> %O%
+echo === dsgetdc >> %O%
+nltest /dsgetdc:WEXLAB >> %O% 2>&1
+echo rc=%ERRORLEVEL% >> %O%
+echo === scquery >> %O%
+nltest /sc_query:WEXLAB >> %O% 2>&1
+echo rc=%ERRORLEVEL% >> %O%
+echo === scverify >> %O%
+nltest /sc_verify:ad.wexlab.example >> %O% 2>&1
+echo rc=%ERRORLEVEL% >> %O%
+echo === dclist >> %O%
+nltest /dclist:WEXLAB >> %O% 2>&1
+echo rc=%ERRORLEVEL% >> %O%
+echo === wrongdomain >> %O%
+nltest /dsgetdc:other.example >> %O% 2>&1
+echo rc=%ERRORLEVEL% >> %O%
 echo === joined >> %O%
 BAT
 sed -i 's/$/\r/' /tmp/join-el.bat; chmod 644 /tmp/join-el.bat
@@ -113,6 +128,14 @@ if grep -qx 'rc=0' <<<"$J" && grep -q 'The command completed successfully' <<<"$
 else notok netdom_join "$J (runas: $(tr -d '\r' < /tmp/join-runas.out | tail -2 | tr '\n' ' '))"; fi
 if grep -qx 'rc=0' <<<"$V" && grep -q "has been verified" <<<"$V"; then ok netdom_verify; else notok netdom_verify "$V"; fi
 if grep -qx 'rc=0' <<<"$Q" && grep -qi 'dc1' <<<"$Q"; then ok netdom_query_dc; else notok netdom_query_dc "$Q"; fi
+D=$(section dsgetdc); SQ=$(section scquery); SV=$(section scverify); DL=$(section dclist); WD=$(section wrongdomain)
+if grep -qx 'rc=0' <<<"$D" && grep -qx 'DC: \\\\dc1.ad.wexlab.example' <<<"$(sed 's/^ *//' <<<"$D")" && grep -q 'Dom Name: WEXLAB' <<<"$D" &&
+   grep -q 'Forest Name: ad.wexlab.example' <<<"$D" && grep -q 'Flags: .*PDC.*DS' <<<"$D" && grep -q 'The command completed successfully' <<<"$D"; then ok nltest_dsgetdc
+else notok nltest_dsgetdc "$D"; fi
+if grep -qx 'rc=0' <<<"$SQ" && grep -q 'Trusted DC Name \\\\dc1' <<<"$SQ" && grep -q 'Status = 0 0x0 NERR_Success' <<<"$SQ"; then ok nltest_sc_query; else notok nltest_sc_query "$SQ"; fi
+if grep -qx 'rc=0' <<<"$SV" && grep -q 'Trust Verification Status = 0 0x0 NERR_Success' <<<"$SV"; then ok nltest_sc_verify; else notok nltest_sc_verify "$SV"; fi
+if grep -qx 'rc=0' <<<"$DL" && grep -q 'dc1.ad.wexlab.example' <<<"$DL"; then ok nltest_dclist; else notok nltest_dclist "$DL"; fi
+if grep -qx 'rc=1' <<<"$WD" && grep -q 'ERROR_NO_SUCH_DOMAIN' <<<"$WD"; then ok nltest_other_domain; else notok nltest_other_domain "$WD"; fi
 # the machine side
 net ads testjoin >/dev/null 2>&1 && ok samba_testjoin || notok samba_testjoin "$(net ads testjoin 2>&1)"
 det=$(bash /usr/local/bin/wex-domain-state.sh --print 2>&1)
@@ -160,6 +183,52 @@ if net ads testjoin >/dev/null 2>&1; then notok left_testjoin "still joined"; el
 if samba-tool computer show "$(hostname -s)" -H "ldap://dc1.$DOM" -U "Administrator%$PW" >/dev/null 2>&1; then
     echo "note account_after_remove: still in the directory (disabled or kept)"
 else echo "note account_after_remove: deleted"; fi
+
+# 7. the Network Identification Wizard (System Properties, Computer Name, Network ID) joins the domain: an elevated copy
+# of System Properties (consent dialog answered by the host), driven by keys with xdotool in the user's session; the
+# password comes from a file (xdotool type --file), not from a command line
+if apt-get install -y xdotool >> /root/ad-apt.log 2>&1 && command -v xdotool >/dev/null 2>&1; then
+    rm -f /tmp/join-pw.txt
+    printf '%s' "$PW" > /root/join-pw.src
+    install -m 0600 -o "$INSTALLED_USER" /root/join-pw.src /tmp/join-pw-raw.txt; rm -f /root/join-pw.src
+    xd() { su - "$INSTALLED_USER" -c "DISPLAY=:0 xdotool $*" >/dev/null 2>&1; sleep "${XDW:-1.5}"; }
+    su - "$INSTALLED_USER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 600 wine $PROBE runas rundll32.exe 'shell32.dll,Control_RunDLL sysdm.cpl,,1'" > /tmp/join-wiz.out 2>&1 &
+    if host_step consent; then
+        sleep 25
+        xd key alt+n; XDW=3 xd key alt+n          # Network ID; the wizard's Welcome page: Next
+        xd key alt+n; xd key alt+n; xd key alt+n  # business, with a domain, the information page
+        xd key alt+u; xd key ctrl+a; xd type Administrator
+        xd key alt+p; xd type --file /tmp/join-pw-raw.txt
+        xd key alt+d; xd key ctrl+a; xd type WEXLAB
+        XDW=8 xd key alt+n                        # the account's domain is checked: the Computer Domain page
+        xd key alt+d; xd type "$DOM"
+        XDW=40 xd key alt+n                       # the join
+        for i in $(seq 1 20); do net ads testjoin >/dev/null 2>&1 && break; sleep 3; done
+        if net ads testjoin >/dev/null 2>&1; then ok wizard_join; else notok wizard_join "not joined after the wizard: $(journalctl --no-pager -b 0 -t wex-domain-join 2>/dev/null | tail -3 | tr '\n' '|')"; fi
+        xd key Return                             # Finish
+    else notok wizard_consent "$HOST_ANSWER"; fi
+    shred -u /tmp/join-pw-raw.txt 2>/dev/null || rm -f /tmp/join-pw-raw.txt
+    # the wizard's join is removed again (the account goes), as netdom does it
+    cat > /tmp/join-el3.bat <<'BAT'
+@echo off
+set O=Z:\tmp\join-elevated3.out
+echo === remove >> %O%
+netdom remove /Domain:ad.wexlab.example /UserD:Administrator /PasswordD:* < Z:\tmp\join-pw.txt >> %O% 2>&1
+echo rc=%ERRORLEVEL% >> %O%
+echo === done >> %O%
+BAT
+    printf '%s\n' "$PW" > /root/join-pw.src
+    install -m 0600 -o "$INSTALLED_USER" /root/join-pw.src /tmp/join-pw.txt; rm -f /root/join-pw.src
+    EL3=/tmp/join-elevated3.out; rm -f "$EL3"; : > "$EL3"; chmod 666 "$EL3"
+    sed -i 's/$/\r/' /tmp/join-el3.bat; chmod 644 /tmp/join-el3.bat
+    su - "$INSTALLED_USER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 400 wine $PROBE runas cmd.exe '/c Z:\\tmp\\join-el3.bat'" > /tmp/join-runas3.out 2>&1 &
+    if host_step consent; then
+        for i in $(seq 1 120); do grep -q '^=== done' "$EL3" && break; sleep 3; done
+        if tr -d '\r' < "$EL3" | grep -qx 'rc=0 *'; then ok wizard_join_removed; else notok wizard_join_removed "$(tr -d '\r' < "$EL3" | tr '\n' '|')"; fi
+    else notok consent3 "$HOST_ANSWER"; fi
+else
+    echo "note wizard: skipped (no xdotool in the guest)"
+fi
 
 s0_reg reg delete 'HKLM\Software\Wine\Elevation' /v Helper /f >/dev/null
 finish
