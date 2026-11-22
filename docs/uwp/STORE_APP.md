@@ -79,6 +79,41 @@ So the missing piece is exactly app services between two processes of one packag
 (a background activation of the application, delivered as `BackgroundActivated` with `AppServiceTriggerDetails`) and a transport
 for `ValueSet`. Nothing smaller moves the Store.
 
+## What the Store takes from the system, and where each piece can come from (2026-11-22)
+
+Counted from the names in `WinStore.App.dll` and `Microsoft.Web.WebView2.Core.dll` (strings, both encodings), against the Wine
+modules and the optional components that exist. "Component" means the OOBE optional components (`wex-components`,
+`uwp-frameworks`, `webview2`).
+
+| The Store uses | In the package | Where it comes from | State |
+|---|---|---|---|
+| WinUI 2.8, VCLibs 140, .NET Native runtime and framework | no (dependencies) | downloads Microsoft publishes; the `uwp-frameworks` component | done |
+| WebView2 (`CoreWebView2Environment`, `...Controller`, `...CompositionController`; the projection `Microsoft.Web.WebView2.Core.dll` is in the package) | the projection only | the Evergreen WebView2 Runtime, the `webview2` component (pinned installer) | component done; the Store's way of hosting it is unverified (see below) |
+| `WebAuthenticationCoreManager`, `WebTokenRequest`, `WebAccountProvider`, `AccountsSettingsPane`, `Windows.Security.Authentication.OnlineId` | no | part of Windows; no download. Wine: `windows.security.authentication.web.core` and `...onlineid` (API and a diagnostic provider) and WineExplorer's `tokenbroker` (cache, OAuth, provider) | code exists; a real sign-in has only been tried by hand; `AccountsSettingsPane` is missing |
+| `Windows.ApplicationModel.AppService` (the link to the Desktop Extension), background activation | no | part of Windows | class stub only; the hosting is the blocker |
+| `Windows.ApplicationModel.Store.Preview.InstallControl` (`AppInstallManager`, `AppInstallItem`: install and update through the system's install service; `InstallServicePlugin.dll` in the package is a plug-in of that service) | plug-in only | part of Windows (the Store install service); no download | missing; `wexappx` could stand behind it |
+| `Windows.Services.Store.StoreContext`, licensing (`LicenseManager`) | no | part of Windows; needs the licensing service | missing (the licensing service is not to be run under Wine, see the SPP notes) |
+| `Windows.Management.Deployment` (`PackageManager`) | projection only | part of Windows | `appxdeploymentclient` and `wexappx` cover part |
+| `Windows.Networking.BackgroundTransfer.BackgroundDownloader` | no | part of Windows (BITS) | missing |
+| `Windows.Web.Http`, `Windows.Data.Json`, `Windows.UI.Notifications`, `Windows.Security.Cryptography` (`Core`) | no | part of Windows | Wine has `Windows.Web.Http`, `Windows.Data.Json` and notifications in part; `Cryptography.Core` is missing |
+
+**Nothing in the second and later rows is a download.** The implementations of the `Windows.*` Runtime classes are
+components of Windows itself. Microsoft publishes their *metadata and headers* (the Windows SDK, the
+`Microsoft.Windows.SDK.Contracts` package) and, in the Windows App SDK, new implementations under `Microsoft.Windows.*` names,
+not these. So they have to be written in Wine; only the frameworks and the WebView2 runtime are components.
+
+### Is WebView2 enough, is WAM?
+
+* **WebView2.** The runtime part is: the component installs the Evergreen runtime, registers it (the discovery keys), and
+  windowed hosting works in the lab (Windows 7 version for `msedgewebview2.exe` plus SwiftShader: `docs/WEBVIEW2.md`).
+  Not shown: the Store names both the windowed `CoreWebView2Controller` and the **composition** controller
+  (`CoreWebView2CompositionController`, visual hosting into XAML), and visual hosting needs `Windows.UI.Composition` and
+  DirectComposition, which Wine still answers `E_NOTIMPL` (`DCompositionCreateDevice`). Which of the two the Store uses is
+  not known from the strings; the Store's sign-in and the account control are the likely users.
+* **WAM.** The API and a broker exist, but only as far as `WAM_BROKER_DESIGN.md` says: a sign-in against the real service was
+  never done end to end (only the owner can do it, by hand). The Store also names `AccountsSettingsPane` (missing) and the
+  older `OnlineIdAuthenticator`. Enough for the Store to start and ask; not shown to be enough for it to sign in.
+
 ## What a real answer needs
 
 * **Application services as the system does them.** `OpenAsync` finds the provider declared in a catalog record
