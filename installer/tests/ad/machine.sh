@@ -128,7 +128,8 @@ fi
 # WEX_LAB_TREE_JOIN=1: this tree's join engine (wex-domain-join.sh) in place of the image's
 if [ "${WEX_LAB_TREE_JOIN:-0}" = 1 ]; then
     install -m 0755 "$REPO/installer/scripts/wex-domain-join.sh" "$MNT/usr/local/sbin/wex-domain-join.sh"
-    echo "using this tree's wex-domain-join.sh"
+    install -m 0755 "$REPO/installer/scripts/wex-domain-state.sh" "$MNT/usr/local/bin/wex-domain-state.sh"
+    echo "using this tree's wex-domain-join.sh and wex-domain-state.sh"
 fi
 # WEX_LAB_TREE_TOOLS=1: this tree's wex-sysrun and wex-accounts (built as installer/package-wine.sh builds them) and
 # the PAM step's script and the session scripts in place of the image's, so that a change to any is tested without a

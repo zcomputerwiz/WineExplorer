@@ -23,10 +23,15 @@ cmdlets work (2026-11-22, tried with 7.7.0, x64):
   in the domain (host name and account renamed), the way back, `Remove-Computer`, and the machine left. No password in
   the journal. Run it with `WEX_GUEST=join-ps-guest.sh WEX_LAB_EXTRA=DIR machine.sh` (DIR: the dlls of the build under
   test, the module, `join-ps.ps1`).
-- Seen in that run: the Wine session keeps the computer name it started with, so `Win32_ComputerSystem.Name` and
-  `Rename-Computer`'s "same name" check still show the old name after a rename (the host name and the directory have the
-  new one; a new session shows it). `Win32_ComputerSystem.Domain` is the NetBIOS name (`WEXLAB`), Windows gives the DNS
-  name. An image older than `mi.dll` needs the dll in each prefix's system32/syswow64 (the lab script does it).
+- Seen in that run: a running Wine session keeps the computer name it started with (its `ActiveComputerName` is
+  made when its server starts), so `Win32_ComputerSystem.Name` and `Rename-Computer`'s "same name" check show the old
+  name after a rename in the same session, as Windows does until a restart. The host name, the directory and the
+  machine registry (`wex-domain-state.sh` writes `ComputerName` and `ActiveComputerName` after a join, rename or leave)
+  have the new name; a session started later sees it. `Win32_ComputerSystem.Domain` is the DNS name of the domain,
+  read from `HKLM\Software\WineExplorer\Domain\Name` (the NetBIOS name when that is missing). An image older than
+  `mi.dll` needs the dll in each prefix's system32/syswow64 (the lab script does it).
+- The 32-bit PowerShell (`PowerShell-7.7.0-win-x86.zip`) does not start in this build: even `1+1` fails loading
+  `System.Runtime.dll` ("Module not found") before any CIM code runs. Not looked into; the component is the x64 one.
 - Outside a domain, `Rename` calls `SetComputerNameEx`, which in stock Wine takes effect after a restart (PowerShell
   says so). In a domain the engine renames at once. Routing the workgroup rename to the host name service (as System
   Properties does) would need a project change in `SetComputerNameEx`.
@@ -35,8 +40,8 @@ cmdlets work (2026-11-22, tried with 7.7.0, x64):
 - Only the entries of the MI tables that PowerShell calls are implemented (`src/dlls/mi/implemented.txt`); the others are
   tracing stubs (`MI_TRACE=<file>` writes what is called). No `Get-CimClass` (parent classes), no associations, no
   `Set-CimInstance`/`New-CimInstance`/`Remove-CimInstance`, no indications (`Register-CimIndicationEvent`).
-- Only the x64 PowerShell was tried. The i386 `mi.dll` builds; whether the 32-bit PowerShell package calls it with the
-  same calling convention is not checked (OMI's `MI.h` has `MI_CALL` empty).
+- Only the x64 PowerShell runs (see above). The i386 `mi.dll` builds; its calling convention is unchecked (OMI's
+  `MI.h` has `MI_CALL` empty).
 
 ## Running it
 

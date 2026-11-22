@@ -47,14 +47,11 @@ Step sc_after_reset { Test-ComputerSecureChannel -ErrorAction Stop }
 Stage joined
 
 Step rename { Rename-Computer -NewName pslab1 -DomainCredential $cred -Force -PassThru -ErrorAction Stop }
-# the process keeps the computer name it started with (as on Windows, where it is the restart that shows the new one): a
-# new PowerShell reads the new name
-$child = "$PSHOME\pwsh.exe"
-Step cim_renamed { & $child -NoProfile -Command 'Get-CimInstance Win32_ComputerSystem | ForEach-Object { "Name=$($_.Name) DNSHostName=$($_.DNSHostName) PartOfDomain=$($_.PartOfDomain)" }' }
+Step cim_renamed { Get-CimInstance Win32_ComputerSystem | ForEach-Object { "Name=$($_.Name) DNSHostName=$($_.DNSHostName) PartOfDomain=$($_.PartOfDomain)" } }
 Stage renamed
 
-# (Rename-Computer compares with the name this Wine session started with, which does not follow the host name: the
-# way back goes through the method itself)
+# (a running session keeps the name it started with, as Windows keeps the active name until a restart, so
+# Rename-Computer would find the old name equal to the one asked for: the way back goes through the method itself)
 Step rename_back {
     $plain = (Get-Content -Path 'Z:\tmp\join-pw.txt' -Raw).Trim()
     $r = Invoke-CimMethod -InputObject (Get-CimInstance Win32_ComputerSystem) -MethodName Rename -Arguments @{ Name = $orig; UserName = 'Administrator'; Password = $plain }

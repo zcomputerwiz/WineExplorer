@@ -86,6 +86,16 @@ if [ -n "$dns" ] && command -v wbinfo >/dev/null 2>&1; then
 fi
 
 WINE=${WINE:-/usr/local/bin/wine}
+# the computer name Windows programs see follows the host name (a running Wine server keeps the one it started with;
+# the join engine renames the host): ComputerName and ActiveComputerName, which GetComputerName reads
+host=$(hostname -s 2>/dev/null | tr 'a-z' 'A-Z' | cut -c 1-15)
+case "$host" in
+    ''|*[!A-Z0-9_-]*) ;;
+    *) for cn in ComputerName ActiveComputerName; do
+           "$WINE" reg add "HKLM\\System\\CurrentControlSet\\Control\\ComputerName\\$cn" /v ComputerName /d "$host" /f >/dev/null 2>&1 ||
+               echo "wex-domain-state: the computer name could not be written" >&2
+       done ;;
+esac
 KEY='HKLM\Software\WineExplorer\Domain'
 if [ -n "$dns" ]; then
     "$WINE" reg add "$KEY" /v FlatName /d "$flat" /f >/dev/null &&

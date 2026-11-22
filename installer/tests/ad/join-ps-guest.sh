@@ -143,8 +143,7 @@ if wait_stage joined; then
     det=$(bash /usr/local/bin/wex-domain-state.sh --print 2>&1)
     [ "$det" = "WEXLAB $DOM" ] && ok ps_join_detected || notok ps_join_detected "[$det]"
     case "$(comp_dn "$ORIG")" in *OU=WexMachines,*) ok ps_account_in_ou ;; *) notok ps_account_in_ou "[$(comp_dn "$ORIG")]" ;; esac
-    # (Win32_ComputerSystem.Domain is the NetBIOS name here; Windows gives the DNS name)
-    case "$(res cim_joined)" in *PartOfDomain=True*Domain=WEXLAB*|*PartOfDomain=True*Domain=$DOM*) ok ps_cim_joined ;; *) notok ps_cim_joined "$(res cim_joined)" ;; esac
+    case "$(res cim_joined)" in *PartOfDomain=True*Domain=$DOM*) ok ps_cim_joined ;; *) notok ps_cim_joined "$(res cim_joined)" ;; esac
     case "$(res sc_joined)" in "ok: True"*) ok ps_secure_channel ;; *) notok ps_secure_channel "$(res sc_joined)" ;; esac
     case "$(res add_again)" in "error: "*) ok ps_add_again_refused; echo "note ps_add_again: $(res add_again)" ;; *) notok ps_add_again_refused "$(res add_again)" ;; esac
     case "$(res reset_pw)" in "ok: "*) ok ps_reset_machine_password ;; *) notok ps_reset_machine_password "$(res reset_pw)" ;; esac
@@ -160,7 +159,10 @@ if wait_stage renamed; then
     if [ "$(hostname -s)" = pslab1 ] && [ -n "$(comp_dn PSLAB1)" ] && [ -z "$(comp_dn "$ORIG")" ]; then ok ps_rename_account
     else notok ps_rename_account "host [$(hostname -s)] new [$(comp_dn PSLAB1)] old [$(comp_dn "$ORIG")]"; fi
     net ads testjoin >/dev/null 2>&1 && ok ps_rename_testjoin || notok ps_rename_testjoin "$(net ads testjoin 2>&1)"
-    echo "note ps_cim_renamed (Wine keeps its start-up name): $(res cim_renamed)"
+    echo "note ps_cim_renamed (the running session keeps its start-up name): $(res cim_renamed)"
+    echo "note ps_regname: $(s0_reg reg query 'HKLM\System\CurrentControlSet\Control\ComputerName\ActiveComputerName' 2>&1 | tr -d '\r' | tr '\n' ' ')"
+    echo "note ps_state_tool: $(systemd-run --quiet --wait --collect --pipe -p User=wexsys -p WorkingDirectory=/ -p Environment=WINEPREFIX=/var/lib/wineexplorer/machine -p Environment=HOME=/var/lib/wineexplorer/machine -p Environment=WINEDEBUG=-all /usr/local/bin/wex-domain-state.sh 2>&1 | tr '\n' '|')"
+    echo "note ps_regname_after: $(s0_reg reg query 'HKLM\System\CurrentControlSet\Control\ComputerName\ActiveComputerName' 2>&1 | tr -d '\r' | tr '\n' ' ')"
     touch /tmp/ps-continue-renamed
 else notok ps_stage_renamed "the script did not reach the stage: $(tr -d '\r' < /tmp/ps-join.out | tail -5 | tr '\n' '|')"; fi
 
