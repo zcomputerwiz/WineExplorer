@@ -2808,6 +2808,36 @@ touch "${shown%.shown}.approve"
 wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "spoofcmd"; }
 ok c5_window_shows_the_frozen_image_not_the_command_line
 
+# the window describes the package of "wexappx install --all-users" by what the real wexappx.exe (next to consent, in
+# system32) reads from the frozen file: the name of the package, and a publisher line that tells signed by a publisher this
+# system does not trust, unsigned and invalid apart. The image the broker runs is the probe renamed wexappx.exe (the
+# broker freezes by that name); consent runs the real one for the description. The account that runs consent has not set
+# UwpCompatibility: the query has to work without it.
+[ -f "$SYS32/wexappx.exe" ] || install -m 775 -o root -g "$GRP" "$BUILD/programs/wexappx/x86_64-windows/wexappx.exe" "$SYS32/wexappx.exe"
+APXF="$ROOT/appxfix"; rm -rf "$APXF"; mkdir -p "$APXF"
+python3 -I "$SRC/tests/uwp/signature/tamper.py" "$SRC/tests/uwp/signature/fixtures/signed.appx" "$APXF" > /dev/null || fail "tamper.py"
+cp "$SRC/tests/uwp/signature/fixtures/signed.appx" "$SRC/tests/uwp/signature/fixtures/unsigned.appx" "$APXF/"
+chmod -R a+rX "$APXF"
+run_as "$ADM" mkdir -p "/home/$ADM/wexel/appx"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/appx/wexappx.exe"
+for f in signed unsigned bad-block; do run_as "$ADM" cp "$APXF/$f.appx" "/home/$ADM/wexel/appx/$f.appx"; done
+AXX="$(winpath /home/$ADM/wexel/appx/wexappx.exe)"
+consent_appx_case()   # name package expected-publisher
+{
+    local name="$1" pkg="$2" want="$3" shown
+    el_clean
+    bprobe "$ADM" 64 appxdoc "$AXX" "$(winpath /home/$ADM/wexel/appx/$pkg.appx)" "$(winpath $EL/out.appxc)" > "$ROOT/cs.log" 2>&1 & CSP=$!
+    shown="$(wait_shown)" || { cat "$ROOT/cs.log" >&2; fail "$name: no consent window"; }
+    grep -q '^program=Signature test$' "$shown" || { cat "$shown" >&2; fail "$name: the window does not name the package"; }
+    grep -qx "publisher=$want" "$shown" || { cat "$shown" >&2; fail "$name: the publisher line is not $want"; }
+    touch "${shown%.shown}.approve"
+    wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "$name: the approved request"; }
+    ok "$name"
+}
+consent_appx_case c5_appx_untrusted_publisher_is_unknown_publisher signed "Unknown publisher"
+consent_appx_case c5_appx_unsigned_is_unknown_publisher unsigned "Unknown publisher"
+consent_appx_case c5_appx_changed_package_is_invalid_signature bad-block "Invalid signature"
+
 # two requests: approving one does not approve the other
 el_clean
 run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/a.exe"
