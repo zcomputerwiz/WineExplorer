@@ -3646,6 +3646,7 @@ def powershell_unpack(archive, machine, module=None):
     tree = stage / 'tree'
     tree.mkdir(mode=0o700)
     files = {}
+    folded = set()
     try:
         with zipfile.ZipFile(archive) as package:
             members = package.infolist()
@@ -3656,9 +3657,10 @@ def powershell_unpack(archive, machine, module=None):
                 if member.is_dir():
                     continue
                 if (not POWERSHELL_MEMBER.match(relative) or any(part in ('.', '..') for part in relative.split('/')) or
-                        (member.external_attr >> 16) & 0o170000 == 0o120000 or relative in files or
-                        relative.startswith('Modules/WexComputer/')):
+                        (member.external_attr >> 16) & 0o170000 == 0o120000 or
+                        relative.casefold() in folded or relative.casefold().startswith('modules/wexcomputer/')):
                     raise ValueError('Unsafe PowerShell archive member: ' + relative)
+                folded.add(relative.casefold())   # Windows names do not tell A.dll from a.dll
                 target = tree / relative
                 target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 digest = hashlib.sha256()

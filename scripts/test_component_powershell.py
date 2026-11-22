@@ -89,6 +89,15 @@ class PowerShellTests(unittest.TestCase):
                 self.assertFalse((self.root / 'evil').exists())
                 self.assertFalse(self.target.exists())
 
+    def test_rejects_names_that_differ_only_by_case(self):
+        for name in ('PWSH.EXE', 'modules/wexcomputer/x.psm1', 'MODULES/WEXCOMPUTER/x.psm1'):
+            with self.subTest(name=name):
+                members = dict(BASE)
+                members[name] = b'x'
+                with self.assertRaises(ValueError):
+                    self.unpack(archive(self.root / 'case.zip', members))
+                self.assertFalse(self.target.exists())
+
     def test_rejects_symlink_member(self):
         with self.assertRaises(ValueError):
             self.unpack(archive(self.root / 'l.zip', symlink='link'))
