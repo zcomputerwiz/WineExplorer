@@ -98,7 +98,7 @@ its UI, how the caller is identified, and where accounts and tokens are stored.
   a second broker ends, idle exit after 10 minutes, never in session 0, the client's token user checked) and the
   client (`dlls/windows.security.authentication.web.core/broker.c`: switch `Broker`, the broker started on demand,
   its server checked, fallback to the answers without it). The broker answers as the diagnostic provider in step 1.
-- 2026-11-22, WAM provider session (branches `claude/wam-provider` of WineExplorer and Wine; Wine `bb59a2da` on
+- 2026-11-22, WAM provider session (branches `claude/wam-provider` of WineExplorer and Wine; Wine `c32f3fc3` on
   `17d2276c`):
   - **Step 2 done and tested.** Protocol version 2 (`wine/tokenbroker.h`: the request's account and properties; the
     reply's token, account and response properties; `FIND_ACCOUNTS`, `FIND_ACCOUNT`, `SIGN_OUT`). The client module
@@ -121,14 +121,19 @@ its UI, how the caller is identified, and where accounts and tokens are stored.
     (interaction required, the account dropped), an authority that is not a plain name, a provider not served
     (`login.windows.local`: AccountProviderNotAvailable), a non-local `TestAuthority` refused; the cache file gives
     others nothing. The tests without a broker (`test_manager`, `test_diagnostic_provider`) pass unchanged.
-  - **Step 4 written, not run.** The Microsoft provider's sign-in window (`webview.c`): a WebView2 control owned by
-    the caller's window (unowned if Wine refuses the cross-process owner), the authorize URL, `NavigationStarting`
-    and `LaunchingExternalUriScheme` both checked for the redirect, closing the window is UserCancel, 10 minutes is a
-    failure, the title names the calling program. It needs `WebView2Loader.dll` (configured path
-    `HKCU\Software\Wine\WebAuthentication` `WebView2Loader`, beside the broker, or the calling program's folder);
-    without one the request fails with ProviderError "no WebView2Loader.dll was found". Not tested on an image; the
-    real sign-in needs an account (the owner, by hand, step 5) and whether Microsoft's token endpoint redeems a code
-    for the broker redirect URI from a public client is still open (the design's open question).
+  - **Step 4: the window works against the test authority; the real authority is not tried.** The Microsoft
+    provider's sign-in window (`webview.c`): a WebView2 control owned by the caller's window (unowned if Wine
+    refuses the cross-process owner), the authorize URL, `NavigationStarting` and `LaunchingExternalUriScheme` both
+    checked for the redirect, closing the window is UserCancel, 10 minutes is a failure, the title names the calling
+    program. `tests/wam/run-window-test.sh` (the test provider with `TestWindow` = 1, 64-bit, the lab's WebView2
+    Fixed Version runtime 155 and the SDK's `WebView2Loader.dll` from `/root/webview2-lab`, Win7 AppDefaults and
+    SwiftShader as in docs/WEBVIEW2.md) passed on 2026-11-22: window opened, three navigations, the redirect caught,
+    code redeemed, Success. The owned window needs the caller's thread to keep pumping messages (a program's UI
+    thread does). The window needs `WebView2Loader.dll`: the configured path (`HKCU\Software\Wine\WebAuthentication`
+    `WebView2Loader`), beside the broker, or the calling program's folder; without one the request fails with
+    ProviderError "no WebView2Loader.dll was found" (how the image gets one is the owner's decision). Still open: the
+    real sign-in needs an account (the owner, by hand, step 5), and whether Microsoft's token endpoint redeems a code
+    for the broker redirect URI from a public client (the design's open question).
   - Not done (B72): the Secret Service for refresh tokens, `WebAccount.SignOutAsync`/`Properties`/picture, a pipe
     `cancel` message.
 

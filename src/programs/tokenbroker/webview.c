@@ -415,7 +415,12 @@ void signin_run_webview( struct signin *signin )
         fail( &ctx, L"out_of_memory", L"Out of memory." );
     else
     {
-        hr = create_environment( NULL, folder[0] ? folder : NULL, NULL, handler );
+        /* a fixed runtime named by WebView2's documented variable is passed on explicitly (the installed one else) */
+        WCHAR runtime[MAX_PATH];
+        DWORD len = GetEnvironmentVariableW( L"WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", runtime, ARRAY_SIZE(runtime) );
+
+        hr = create_environment( len && len < ARRAY_SIZE(runtime) ? runtime : NULL, folder[0] ? folder : NULL, NULL,
+                                 handler );
         handler_Release( handler );
         if (FAILED(hr))
         {

@@ -32,7 +32,7 @@ SID unchanged, which no token holds, so WebView2's setup was denied a key it had
 
 ## windows.security.authentication.web.core: token results, accounts and calls off the caller's thread (WAM plan steps 2-4, 2026-11-22)
 
-Wine branch `claude/wam-provider`, `bb59a2da` (docs/WAM_BROKER_PLAN.md, "Status"). Still off by default (`Broker` = 1 turns it on).
+Wine branch `claude/wam-provider`, `c32f3fc3` (docs/WAM_BROKER_PLAN.md, "Status"). Still off by default (`Broker` = 1 turns it on).
 
 * `include/wine/tokenbroker.h`: protocol version 2. Requests also carry the named account's id and the request's
   `Properties` (as NUL-separated pairs); replies carry the token, the account's id and user name, the response

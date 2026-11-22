@@ -9,7 +9,8 @@
  *    tenant, at https://login.microsoftonline.com. Its sign-in window is WebView2 (webview.c).
  *  - The test provider: https://login.wine.test, only while HKCU\Software\Wine\WebAuthentication "TestAuthority"
  *    names a test authority on this machine (http://127.0.0.1:PORT/ or http://localhost:PORT/; any other value is
- *    refused). Its sign-in is the test hook (signin_run_test). The Microsoft provider has no test switch.
+ *    refused). Its sign-in is the test hook (signin_run_test), or with "TestWindow" = 1 the WebView2 window, so that
+ *    the window is tested against the test authority. The Microsoft provider has no test switch.
  *
  * Both use the same OAuth code (oauth.c) and redirect URI, the broker's (ms-appx-web://Microsoft.AAD.BrokerPlugin/
  * {client id}, the owner's decision of 2026-11-16 in docs/WAM_PLAN.md). Statuses and error codes come from one table
@@ -39,6 +40,7 @@ struct provider
 {
     const WCHAR *id;
     BOOL test;
+    BOOL test_window;       /* the test provider signs in through the WebView2 window ("TestWindow" = 1) */
     WCHAR base[256];        /* the authority's URL, up to the authority itself */
 };
 
@@ -99,8 +101,12 @@ static BOOL find_provider( const struct request *req, struct provider *provider 
     }
     if (!wcscmp( id, TEST_PROVIDER_ID ) && test_authority( provider->base, ARRAY_SIZE(provider->base) ))
     {
+        DWORD value = 0, size = sizeof(value);
+
         provider->id = TEST_PROVIDER_ID;
         provider->test = TRUE;
+        provider->test_window = !RegGetValueW( HKEY_CURRENT_USER, L"Software\\Wine\\WebAuthentication", L"TestWindow",
+                                               RRF_RT_REG_DWORD, NULL, &value, &size ) && value == 1;
         return TRUE;
     }
     return FALSE;
@@ -383,7 +389,7 @@ static void request_token( const struct provider *provider, const struct request
         const WCHAR *name = wcsrchr( req->program_path, '\\' );
         signin.program_name = name ? name + 1 : req->program_path;
     }
-    if (provider->test) signin_run_test( &signin );
+    if (provider->test && !provider->test_window) signin_run_test( &signin );
     else signin_run_webview( &signin );
 
     if (signin.state == SIGNIN_CODE_RECEIVED)
