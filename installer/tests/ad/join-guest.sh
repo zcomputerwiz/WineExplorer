@@ -53,7 +53,7 @@ printf 'search %s\nnameserver %s\n' "$DOM" "$DC" > /etc/resolv.conf
 for i in $(seq 1 30); do getent hosts "dc1.$DOM" >/dev/null 2>&1 && break; sleep 2; done
 getent hosts "dc1.$DOM" >/dev/null 2>&1 && ok lab_network || { notok lab_network "the controller's name does not resolve"; finish; }
 apt-get update > /root/ad-apt.log 2>&1
-apt-get install -y samba winbind libnss-winbind libpam-winbind krb5-user dnsutils >> /root/ad-apt.log 2>&1
+apt-get install -y samba winbind libnss-winbind libpam-winbind krb5-user dnsutils ldap-utils libsasl2-modules-gssapi-mit >> /root/ad-apt.log 2>&1
 command -v net >/dev/null 2>&1 && ok packages_installed || { notok packages_installed "$(tail -3 /root/ad-apt.log)"; finish; }
 # the installation may put the old name server back
 lab_up
@@ -267,6 +267,68 @@ BAT
         for i in $(seq 1 120); do grep -q '^=== done' "$EL4" && break; sleep 3; done
         if tr -d '\r' < "$EL4" | grep -qx 'rc=0 *'; then ok dialog_join_removed; else notok dialog_join_removed "$(tr -d '\r' < "$EL4" | tr '\n' '|')"; fi
     else notok consent4 "$HOST_ANSWER"; fi
+fi
+
+# 9. the computer is renamed in the domain: the Change dialog (host name and account together), then NETDOM RENAMECOMPUTER
+# back to the first name; the account is looked for on the controller under each name
+if command -v xdotool >/dev/null 2>&1; then
+    ORIG=$(hostname -s | tr 'a-z' 'A-Z')
+    comp_dn() { samba-tool computer show "$1" -H "ldap://dc1.$DOM" -U "Administrator%$PW" --attributes=distinguishedName 2>/dev/null | sed -n 's/^distinguishedName: //p'; }
+    elevated_bat()   # NAME: run /tmp/NAME.bat elevated (the consent answered by the host); its output is /tmp/NAME.out
+    {
+        local n=$1 out=/tmp/$1.out
+        rm -f "$out"; : > "$out"; chmod 666 "$out"
+        sed -i 's/$/\r/' "/tmp/$n.bat"; chmod 644 "/tmp/$n.bat"
+        su - "$INSTALLED_USER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 400 wine $PROBE runas cmd.exe '/c Z:\\tmp\\$n.bat'" > "/tmp/$n.runas" 2>&1 &
+        host_step consent || return 1
+        for i in $(seq 1 120); do grep -q '^=== done' "$out" && break; sleep 3; done
+        return 0
+    }
+    printf '%s\n' "$PW" > /root/join-pw.src
+    install -m 0600 -o "$INSTALLED_USER" /root/join-pw.src /tmp/join-pw.txt; rm -f /root/join-pw.src
+    cat > /tmp/join-r1.bat <<'BAT'
+@echo off
+set O=Z:\tmp\join-r1.out
+netdom join /Domain:ad.wexlab.example /UserD:Administrator /PasswordD:* < Z:\tmp\join-pw.txt >> %O% 2>&1
+echo rc=%ERRORLEVEL% >> %O%
+echo === done >> %O%
+BAT
+    if elevated_bat join-r1 && tr -d '\r' < /tmp/join-r1.out | grep -qx 'rc=0 *'; then ok rename_prejoin; else notok rename_prejoin "$(tr -d '\r' < /tmp/join-r1.out | tr '\n' '|')"; fi
+    # the Change dialog
+    printf '%s' "$PW" > /root/join-pw.src
+    install -m 0600 -o "$INSTALLED_USER" /root/join-pw.src /tmp/join-pw-raw.txt; rm -f /root/join-pw.src
+    su - "$INSTALLED_USER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 600 wine $PROBE runas rundll32.exe 'shell32.dll,Control_RunDLL sysdm.cpl,,1'" > /tmp/join-rdlg.out 2>&1 &
+    if host_step consent; then
+        sleep 25
+        XDW=3 xd key alt+c                        # Change...
+        xd key ctrl+a; xd type renlab1            # the computer name
+        xd key Return                             # OK: the credentials are asked
+        xd key ctrl+a; xd type Administrator
+        xd key alt+p; xd type --file /tmp/join-pw-raw.txt
+        XDW=20 xd key Return                      # the rename
+        for i in $(seq 1 30); do [ "$(hostname -s)" = renlab1 ] && [ -n "$(comp_dn RENLAB1)" ] && break; sleep 3; done
+        if [ "$(hostname -s)" = renlab1 ] && [ -n "$(comp_dn RENLAB1)" ] && [ -z "$(comp_dn "$ORIG")" ]; then ok dialog_rename_account
+        else notok dialog_rename_account "host [$(hostname -s)] new [$(comp_dn RENLAB1)] old [$(comp_dn "$ORIG")] $(journalctl --no-pager -b 0 -t wex-domain-join 2>/dev/null | tail -6 | sed 's/.*request //; s/ domain=[^ ]*//; s/ user=[^ :]*//' | tr '\n' '|')"; fi
+        net ads testjoin >/dev/null 2>&1 && ok dialog_rename_testjoin || notok dialog_rename_testjoin "$(net ads testjoin 2>&1)"
+        klist -k /etc/krb5.keytab 2>/dev/null | grep -qi 'host/RENLAB1@' && ok dialog_rename_keytab || notok dialog_rename_keytab "$(klist -k /etc/krb5.keytab 2>&1 | head -4 | tr '\n' '|')"
+        grep -qi '^[[:space:]]*netbios name[[:space:]]*=[[:space:]]*RENLAB1' /etc/samba/smb.conf && ok dialog_rename_smbconf || notok dialog_rename_smbconf "$(grep -i netbios /etc/samba/smb.conf)"
+        wbinfo -t >/dev/null 2>&1 && ok dialog_rename_winbind || notok dialog_rename_winbind "$(wbinfo -t 2>&1)"
+        xd key Escape
+    else notok dialog_rename_consent "$HOST_ANSWER"; fi
+    shred -u /tmp/join-pw-raw.txt 2>/dev/null || rm -f /tmp/join-pw-raw.txt
+    # NETDOM RENAMECOMPUTER back to the first name, then the removal
+    cat > /tmp/join-r2.bat <<BAT
+@echo off
+set O=Z:\\tmp\\join-r2.out
+netdom renamecomputer /NewName:$ORIG /UserD:Administrator /PasswordD:* < Z:\\tmp\\join-pw.txt >> %O% 2>&1
+echo rc=%ERRORLEVEL% >> %O%
+netdom remove /Domain:ad.wexlab.example /UserD:Administrator /PasswordD:* < Z:\\tmp\\join-pw.txt >> %O% 2>&1
+echo rc=%ERRORLEVEL% >> %O%
+echo === done >> %O%
+BAT
+    if elevated_bat join-r2; then
+        tr -d '\r' < /tmp/join-r2.out | grep -c '^rc=0 *' | grep -qx 2 && ok netdom_rename_and_remove || notok netdom_rename_and_remove "$(tr -d '\r' < /tmp/join-r2.out | tr '\n' '|')"
+    else notok netdom_rename_consent "$HOST_ANSWER"; fi
 fi
 
 s0_reg reg delete 'HKLM\Software\Wine\Elevation' /v Helper /f >/dev/null

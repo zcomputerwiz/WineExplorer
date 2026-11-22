@@ -4209,7 +4209,8 @@ for b in 1; do
     nd frobnicate; [ "$NDRC" = 87 ] || fail 'netdom: an unknown command'
     nd join /nonsense; [ "$NDRC" = 87 ] && grep -q 'not valid' <<<"$NDOUT" || fail 'netdom: an unknown option'
     nd resetpwd /server:x; [ "$NDRC" = 50 ] && grep -q 'not supported' <<<"$NDOUT" || fail 'netdom resetpwd'
-    nd renamecomputer /newname:NEWNAME; [ "$NDRC" = 50 ] && grep -q 'not supported yet' <<<"$NDOUT" || fail 'netdom renamecomputer'
+    nd renamecomputer; [ "$NDRC" = 87 ] && grep -q '/NewName option is required' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom renamecomputer without a name'; }
+    nd renamecomputer OTHERPC /newname:NEWNAME /userd:a /passwordd:x; [ "$NDRC" = 50 ] && grep -q 'another computer is not supported' <<<"${NDOUT,,}" || { echo "$NDOUT" >&2; fail 'netdom renamecomputer of another computer'; }
     [ "$(reqs)" = "$n" ] || { cat "$JREQ" >&2; fail 'a refused netdom call reached the engine'; }
     nd help; [ "$NDRC" = 0 ] && grep -q 'NETDOM JOIN' <<<"$NDOUT" || fail 'netdom help'
     # the engine's refusal is shown, with Windows' closing line

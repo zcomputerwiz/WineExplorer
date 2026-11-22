@@ -1,5 +1,5 @@
 MODULE    = netdom.exe
-IMPORTS   = netapi32 advapi32
+IMPORTS   = netapi32 advapi32 wexhost
 
 EXTRADLLFLAGS = -mconsole -municode
 
