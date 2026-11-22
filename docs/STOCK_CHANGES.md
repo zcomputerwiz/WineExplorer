@@ -3961,12 +3961,17 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 
 2026-11-21 (Wine 401183d1): `programs/wscript/main.c`: the host loads its own type library with `LoadTypeLibEx(..., REGKIND_NONE)` instead of `LoadTypeLib`, which registers a library named without a path and so needs write access to HKCR; for a standard user (HKCR is the machine registry on WineExplorer) `wscript`/`cscript` ended with "Script initialization failed" and ran no script (B62). wscript tests 347/347 on both architectures; checked in the lab with Office's `ospp.vbs`.
 
-2026-11-22 (Wine 70ea3107): `dlls/crypt32/store.c` (`CRYPT_SysRegOpenStoreW`): a system store whose registry key cannot be
-written (`ERROR_ACCESS_DENIED` with `KEY_ALL_ACCESS`) is opened read-only (`KEY_READ`, `CERT_STORE_READONLY_FLAG`), as on
-Windows (not with CERT_STORE_CREATE_NEW_FLAG: a create-new request still fails). The machine registry is not writable for the desktop user, so the HKLM half of the Root store was never opened
-and no root certificate was trusted: every HTTPS request through winhttp failed with `ERROR_WINHTTP_SECURE_INVALID_CA`
-(12045, then 12157). The token broker's last sign-in step (redeeming the code at `login.microsoftonline.com`) failed
-because of it.
+2026-11-22 (Wine d6e9315e, branch `claude/crypt32-readonly-system-store`): `dlls/crypt32/store.c`
+(`CRYPT_SysOpenStoreW`): the local machine's part of the current user's system store (the user's collection of HKCU and
+HKLM) is opened read-only (`CERT_STORE_READONLY_FLAG`) and added to the collection without
+`CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG`, as on Windows: what a user adds goes to HKCU. It was opened read-write, which a
+limited user cannot do for the machine registry, so the HKLM half of the Root store was missing and no root certificate
+was trusted: every HTTPS request through winhttp failed with `ERROR_WINHTTP_SECURE_INVALID_CA` (12045, then 12157), and
+the token broker's last sign-in step (redeeming the code at `login.microsoftonline.com`) with it. Windows itself still
+answers a read-write open of the machine store with access denied (checked as a limited user on the Windows host by the
+environment session): that is unchanged. Test: `dlls/crypt32/tests/store.c` (`testUserStoreIncludesMachineStore`: the
+user's Root holds the machine Root's certificates). An earlier version of this change (a fallback to read-only in
+`CRYPT_SysRegOpenStoreW`, 70ea3107) was reverted in the same branch: Windows does not fall back there.
 2026-11-21 (UWP signature check; Wine branches `claude/wintrust-sha256-policy` 3d601306 and `claude/appxsip-registration` c1888008, both on development 401183d1, not merged):
 - `dlls/wintrust/softpub.c` (`SoftpubAuthenticode`): the signature hash of the signer certificate was read into 20 bytes
   to look it up in the Disallowed store. For a certificate signed with SHA-256 the call needs 32 bytes, failed, and
