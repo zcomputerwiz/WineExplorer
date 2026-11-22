@@ -1026,8 +1026,9 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
             case "$out" in *"Default operating system"*) ;; *) break 2 ;; esac
             case "$try$out" in 1*"password is incorrect"*) break ;; esac
         done
-        case "$try$out" in 1*"password is incorrect"*) ;; *) break ;; esac
-        echo "  (the prompt took the typed password as incorrect; typing it once more)"
+        # a lost key (the password's or Return) can also leave the prompt up with no message (UEFI, 2026-11-22)
+        case "$try$out" in 1*"password is incorrect"*|1*"type an administrator password"*) ;; *) break ;; esac
+        echo "  (the prompt took the typed password as incorrect or stayed up; typing it once more)"
         shot password-retyped
         prompt_focus
     done
