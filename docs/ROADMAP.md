@@ -379,3 +379,23 @@ X11 stays the installed default; the opt-in `wexcomp` session has passed L1/L2 o
 WAYLAND_L2.md). Conditions to revisit the default: L4 (global hotkeys, Win+L session lock, output management and
 multi-monitor, greeter decision), the `CS_DROPSHADOW` gap, restored live scaling at 150%, safe AUTO adoption of
 Wayland-native windows, and a passing run on physical hardware (Intel/AMD/Nvidia), not only VMs.
+
+## Future: PowerShell 7 as an OOBE component (added 2026-11-22, not started)
+
+Requested by the GPO and Domain session (the owner asked for it). An optional download in the component list that the
+OOBE offers (`scripts/wex-components.py`, like WebView2), never in the image.
+
+* **What:** the official PowerShell 7 (MIT), `PowerShell-7.x-win-x64.zip` from github.com/PowerShell/PowerShell/releases,
+  unpacked into the machine prefix. Tried with 7.7.0 x64 only, on our WoW64 build. It needs a console: with plain pipes
+  ConsoleHost fails silently; a pty or a console window works.
+* **Companion code (their branches, not merged when this was written):** `mi.dll` (`src/dlls/mi`, CIM over WMI);
+  `Win32_ComputerSystem` Rename, JoinDomainOrWorkgroup, UnjoinDomainOrWorkgroup and PartOfDomain, Workgroup and
+  DNSHostName in wbemprox (Wine branch `claude/wbemprox-compsys`); the `WexComputer` module (`src/powershell/WexComputer`:
+  Add-Computer, Remove-Computer, Test-ComputerSecureChannel, Reset-ComputerMachinePassword, which PowerShell 7 lacks).
+  Details: `docs/POWERSHELL.md` on `claude/mi-dll`. Not yet tried in a real join against the AD lab.
+* **Open points for the component entry:** the `WexComputer` folder must be installed where PowerShell finds modules
+  (a `Modules` folder in the install, or imported through its `.psd1`); pin the release and its SHA-256 like the other
+  entries; the licence text (MIT) goes through the same terms screen; a console launcher (a shortcut that opens a
+  console window) so users do not meet the silent pipe failure; test on a 32-bit-capable WoW64 image.
+* **Order:** after their branches merge and a join against the lab works; then the entry, the module install, a test in
+  the component harness.
