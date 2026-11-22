@@ -102,6 +102,29 @@ components of Windows itself. Microsoft publishes their *metadata and headers* (
 `Microsoft.Windows.SDK.Contracts` package) and, in the Windows App SDK, new implementations under `Microsoft.Windows.*` names,
 not these. So they have to be written in Wine; only the frameworks and the WebView2 runtime are components.
 
+### The Store's WebView2 hosting route (2026-11-22, from the code that names it)
+
+* The Store hosts WebView2 through **`Microsoft.UI.Xaml.Controls.WebView2`**, the control of WinUI 2.8 (named with its
+  `CanGoBack`, `CanGoForward`, `Source`, `CoreWebView2` properties and the `WebView2AutomationPeer`), wrapped by its own
+  `WebView2Wrapper` and `Store.Purchase.Controls.ReactPurchaseWebView`, with a `WebView2Checker` that looks for the runtime
+  first. The strings name `CoreWebView2CompositionController` as well as `CoreWebView2Controller`: the WinUI 2 control hosts
+  the browser by **visual hosting** (the browser draws into a composition visual that is put into the XAML tree with
+  `ElementCompositionPreview`), not into a child window.
+* Where it is used: the purchase flow (a React page in WebView2) and the account control (`Microsoft.Membership.MeControl`,
+  its offline page is in the package). The browse and product pages are XAML (`WinStore.UX.*`), not web content.
+  So the missing hosting route blocks purchase and sign-in, not the main pages.
+* Gap, checked against what exists: the lab's windowed hosting (Windows 7 version plus SwiftShader) does not apply, because
+  the control does not use a window. Visual hosting needs (1) `Windows.UI.Composition` (`Compositor`, `SpriteVisual`,
+  `ElementCompositionPreview`) as a Windows Runtime API: **Wine has no such module and XamlShim serves none of its 109 classes
+  (none is a Composition class)**; (2) the composition visual to be backed by something the browser's output can reach: Wine's
+  `dcomp` is now large (5,200 lines, surfaces, virtual surfaces, animations; the earlier `E_NOTIMPL` finding in
+  `WEBVIEW2.md` is historical) but is the DirectComposition API, not the Windows.UI.Composition one, and Chromium would have
+  to be given a DirectComposition visual made from the compositor. Uno has a managed compositor (`Uno.UI.Composition*`), a
+  possible source for (1) in the same way XamlShim serves XAML, but it draws with Skia and has no DirectComposition output.
+* So the WebView2 runtime component is enough as a *runtime*; what is missing is the host side: Windows.UI.Composition
+  plus its DirectComposition interop. That is the next track for WebView2-in-XAML (the Store's purchase and sign-in; WinUI 3
+  apps such as Copilot use the same visual hosting where they use the XAML control).
+
 ### Is WebView2 enough, is WAM?
 
 * **WebView2.** The runtime part is: the component installs the Evergreen runtime, registers it (the discovery keys), and
