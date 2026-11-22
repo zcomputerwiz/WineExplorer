@@ -48,6 +48,46 @@ def copy(source, target):
     target.chmod(0o644)
 
 
+# The WebView2 SDK's loader for the token broker's sign-in window (src/programs/tokenbroker/webview.c), with the
+# package's licence (BSD-3-Clause) and third-party notices. Only these members are taken, each pinned by its own hash;
+# the extracted copies are kept in the download cache so a build extracts them once.
+WEBVIEW2_SDK = '1.0.4258.31'
+WEBVIEW2_MEMBERS = (
+    ('build/native/x64/WebView2Loader.dll', 'x64/WebView2Loader.dll',
+     '3426dcc55fdfb8b5e7ac623cf33b4ccf283fbf68a0c5a65bddfdb4d749a8abee'),
+    ('build/native/x86/WebView2Loader.dll', 'x86/WebView2Loader.dll',
+     '87c61e2cae380112c60853e28178b8ea9a0d63739fc03cead680d4ad3fde6b7d'),
+    ('LICENSE.txt', 'LICENSE.txt', '0af8f1b807512aae39c2ac1aa4d0cae65cabecb6fd554b8439a5162a0d6eca55'),
+    ('NOTICE.txt', 'NOTICE.txt', '106423785c5b7eba0a8e61d1837f2132e9c828e20ad530f565d981c1df60dd90'),
+)
+
+
+def stage_webview2_loader(cache, package, target):
+    extracted = cache / f'webview2-{WEBVIEW2_SDK}'
+    archive = None
+    try:
+        for member, name, sha in WEBVIEW2_MEMBERS:
+            path = extracted / name
+            if not (path.is_file() and digest(path) == sha):
+                if archive is None:
+                    archive = zipfile.ZipFile(package)
+                data = archive.read(member)
+                if hashlib.sha256(data).hexdigest() != sha:
+                    raise ValueError(f'SHA256 mismatch for WebView2 SDK member {member}')
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # a name of its own: another packaging run may extract the same member at the same time
+                with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + '.', delete=False) as stream:
+                    stream.write(data)
+                os.replace(stream.name, path)
+            copy(path, target / name)
+    finally:
+        if archive is not None:
+            archive.close()
+    for arch in ('x64', 'x86'):
+        for name in ('LICENSE.txt', 'NOTICE.txt'):
+            copy(target / name, target / arch / name)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stage', type=Path, required=True)
@@ -109,6 +149,7 @@ def main():
             if result.returncode not in (0, 1, 2) or hashlib.sha256(result.stdout).hexdigest() != sha:
                 raise ValueError(f'Cannot verify embedded Gecko notice: {member}')
             (share / 'wine/gecko' / name).write_bytes(result.stdout)
+    stage_webview2_loader(args.cache, assets['microsoft.web.webview2.1.0.4258.31.nupkg'], share / 'wineexplorer/webview2')
     resource_dir = share / 'wineexplorer/fonts'
     for name in ('font-substitutes.reg', 'font-links.txt'):
         copy(HERE.parent / 'src/resources/fonts' / name, resource_dir / name)

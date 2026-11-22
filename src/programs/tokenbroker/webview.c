@@ -7,10 +7,17 @@
  * sign-in; after SIGNIN_TIMEOUT_MS it fails.
  *
  * WebView2 comes from the runtime that Edge and Copilot install, through its documented loader entry point
- * CreateCoreWebView2EnvironmentWithOptions in WebView2Loader.dll. Nothing of WebView2 ships with WineExplorer: the
- * loader is taken from HKLM\Software\Wine\WebAuthentication "WebView2Loader" (a full path), else from beside this
- * program; never from the calling program's folder (how the image gets one is still open). Without one the request
- * fails with a message that says so.
+ * CreateCoreWebView2EnvironmentWithOptions in WebView2Loader.dll. The runtime does not ship with WineExplorer; the
+ * loader does: the image installs the WebView2 SDK's loader (BSD-3-Clause, its licence and notices beside it) in
+ * WEBVIEW2_LOADER_DIR (installer/stage-runtime-assets.py). It is taken from HKLM\Software\Wine\WebAuthentication
+ * "WebView2Loader" (a full path), else from beside this program, else from WEBVIEW2_LOADER_DIR; never from the calling
+ * program's folder. Without one the request fails with a message that says so.
+ *
+ * Linking exception: as a special exception, the copyright holders of the token broker (src/programs/tokenbroker)
+ * give permission to load and use WebView2Loader.dll, Microsoft's WebView2 loader distributed under the BSD-3-Clause
+ * licence without source code, with this program, and to distribute the two together, without that library's source
+ * being required by the GNU General Public License. This exception covers only that library; if you modify this
+ * program you may extend the exception to your version, but you are not obliged to.
  *
  * The few interfaces used are called through their vtables by index; the interface IDs and method positions are
  * those of Microsoft's WebView2 SDK interface description (WebView2.idl, SDK 1.0.4258.31, BSD-3-Clause; nothing of
@@ -304,12 +311,21 @@ static LRESULT CALLBACK signin_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
     return DefWindowProcW( hwnd, msg, wparam, lparam );
 }
 
+/* where the image installs the loader (a Unix folder owned by root), one folder per architecture */
+#define WEBVIEW2_LOADER_DIR "/usr/local/share/wineexplorer/webview2/"
+#ifdef _WIN64
+#define WEBVIEW2_LOADER_ARCH "x64"
+#else
+#define WEBVIEW2_LOADER_ARCH "x86"
+#endif
+
 /* WebView2Loader.dll: the machine's configured one (HKLM only: a user's setting must not choose code that sees the
- * sign-in), else the one beside this program. Never the calling program's folder. A full path only, and only that
- * file: LoadLibraryExW with LOAD_WITH_ALTERED_SEARCH_PATH resolves its own imports from its folder. */
+ * sign-in), else the one beside this program, else the image's. Never the calling program's folder. A full path
+ * only, and only that file: LoadLibraryExW with LOAD_WITH_ALTERED_SEARCH_PATH resolves its own imports from its
+ * folder. */
 static HMODULE load_loader( void )
 {
-    WCHAR path[MAX_PATH], *p;
+    WCHAR path[MAX_PATH], *p, *image;
     DWORD size = sizeof(path);
     HMODULE module;
 
@@ -323,6 +339,14 @@ static HMODULE load_loader( void )
     {
         wcscpy( p + 1, L"WebView2Loader.dll" );
         if ((module = LoadLibraryExW( path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH ))) return module;
+    }
+    /* the image's copy: a DOS path for the Unix one (a drive letter where one maps it, else \\?\unix\) */
+    if ((image = wine_get_dos_file_name( WEBVIEW2_LOADER_DIR WEBVIEW2_LOADER_ARCH "/WebView2Loader.dll" )))
+    {
+        module = LoadLibraryExW( image, NULL, LOAD_WITH_ALTERED_SEARCH_PATH );
+        TRACE( "image loader %s: %p\n", debugstr_w( image ), module );
+        HeapFree( GetProcessHeap(), 0, image );
+        if (module) return module;
     }
     return NULL;
 }

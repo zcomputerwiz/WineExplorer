@@ -41,8 +41,19 @@ PORT=$(cat "$WORK/port")
 timeout 300 "$BUILD/wine" wineboot -i > "$WORK/wineboot.log" 2>&1 || { echo "FAIL wineboot"; exit 1; }
 W="$BUILD/wine"
 win_path() { "$W" winepath -w "$1" 2>/dev/null | tr -d '\r'; }
-# beside the broker (the web_core tests remove the WebAuthentication key before test_broker runs)
-cp "$LOADER" "$WINEPREFIX/drive_c/windows/system32/WebView2Loader.dll"
+# where the image installs it (installer/stage-runtime-assets.py), bound over that folder in this mount namespace
+# only; WEX_WAM_LOADER=beside puts it beside the broker instead (the web_core tests remove the WebAuthentication key
+# before test_broker runs, so the HKLM setting is not what is tested)
+if [ "${WEX_WAM_LOADER:-image}" = beside ]; then
+    cp "$LOADER" "$WINEPREFIX/drive_c/windows/system32/WebView2Loader.dll"
+else
+    IMAGE_DIR=/usr/local/share/wineexplorer/webview2
+    install -d -m 755 "$WORK/webview2/x64" && install -m 644 "$LOADER" "$WORK/webview2/x64/WebView2Loader.dll"
+    [ -d "$IMAGE_DIR" ] || install -d -m 755 "$IMAGE_DIR"
+    mount --bind "$WORK/webview2" "$IMAGE_DIR" || { echo "FAIL could not bind the loader folder"; exit 1; }
+    [ ! -e "$WINEPREFIX/drive_c/windows/system32/WebView2Loader.dll" ] || { echo "FAIL a loader is beside the broker"; exit 1; }
+    echo "loader: the image's folder $IMAGE_DIR/x64"
+fi
 # Chromium under Wine without DirectComposition (docs/WEBVIEW2.md, Proton's setting) and with software rendering
 "$W" reg add 'HKCU\Software\Wine\AppDefaults\msedgewebview2.exe' /v Version /t REG_SZ /d win7 /f > /dev/null 2>&1
 export WEBVIEW2_BROWSER_EXECUTABLE_FOLDER="$(win_path "$RUNTIME")"

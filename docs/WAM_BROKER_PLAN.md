@@ -131,8 +131,13 @@ its UI, how the caller is identified, and where accounts and tokens are stored.
     SwiftShader as in docs/WEBVIEW2.md) passed on 2026-11-22: window opened, three navigations, the redirect caught,
     code redeemed, Success. The owned window needs the caller's thread to keep pumping messages (a program's UI
     thread does). The window needs `WebView2Loader.dll`: the configured path (`HKLM\Software\Wine\WebAuthentication`
-    `WebView2Loader`) or beside the broker (the window test copies it there); without one the request fails with
-    ProviderError "no WebView2Loader.dll was found" (how the image gets one is the owner's decision). Still open: the
+    `WebView2Loader`), beside the broker, or the image's copy; without one the request fails with ProviderError "no
+    WebView2Loader.dll was found". The image ships the SDK's loader (owner's decision, 2026-11-22): the SDK package is
+    fetched by hash at image build (`installer/runtime-assets.json`, kept in the download cache, its two loaders
+    extracted once into the cache) and `installer/stage-runtime-assets.py` installs them in
+    `/usr/local/share/wineexplorer/webview2/{x64,x86}/` with the SDK's `LICENSE.txt` (BSD-3-Clause) and `NOTICE.txt`;
+    `webview.c` carries a linking exception for it. The window test binds the loader over that folder (2026-11-22:
+    PASS with no copy beside the broker; `WEX_WAM_LOADER=beside` tests the other place). Still open: the
     real sign-in needs an account (the owner, by hand, step 5), and whether Microsoft's token endpoint redeems a code
     for the broker redirect URI from a public client (the design's open question).
   - Security review of 2026-11-22, fixed on the same branches:
@@ -149,8 +154,9 @@ its UI, how the caller is identified, and where accounts and tokens are stored.
       enforced (`FSCTL_PIPE_IMPERSONATE`). So step 1's impersonation check proved nothing; the process token check
       above replaces it. Other Unix users have their own wineserver and never reach the pipe; a client of another
       session through session 0's bridge is checked against the descriptor (`pipe_bridge`). No Wine change made.
-    - `WebView2Loader.dll` only from `HKLM\Software\Wine\WebAuthentication` `WebView2Loader` (a full path) or beside
-      `tokenbroker.exe`, never the calling program's folder or a user's setting. How the image gets one is open.
+    - `WebView2Loader.dll` only from `HKLM\Software\Wine\WebAuthentication` `WebView2Loader` (a full path), beside
+      `tokenbroker.exe`, or the image's root-owned `/usr/local/share/wineexplorer/webview2/<arch>/`; never the calling
+      program's folder or a user's setting.
     - **Remaining gap:** a medium-integrity program of the user can still claim any client id and get that client's
       tokens (or start a sign-in for it). Windows binds tokens to the calling package; a proper fix binds program
       and client: the caller's package identity where it has one (packaged apps under Wine's UWP work), else a
