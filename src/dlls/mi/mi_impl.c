@@ -458,7 +458,7 @@ MI_Result MI_CALL impl_MI_SessionFT_GetApplication(const MI_Session *s, MI_Appli
 
 /* ------------------------------------------------------------ operations */
 
-enum kind { K_ENUM, K_QUERY, K_INVOKE, K_GET, K_NOOP };
+enum kind { K_ENUM, K_QUERY, K_INVOKE, K_GET, K_NOOP, K_GETCLASS, K_CREATE, K_MODIFY, K_DELETE };
 
 struct operation
 {
@@ -468,7 +468,9 @@ struct operation
     WCHAR *ns, *cls, *query, *method;
     struct inst *in_inst, *in_params;
     MI_OperationCallbacks cb;
-    BOOL have_cb;
+    BOOL have_cb, have_cls_cb;
+    MI_Class *clsres;               /* the class a GetClass found, until it is handed out */
+    BOOL cls_taken;
     CRITICAL_SECTION cs;
     HANDLE avail, ack, thread;
     struct inst **queue;
@@ -619,11 +621,69 @@ done:
     return hr;
 }
 
+#ifndef WBEM_FLAG_UPDATE_ONLY
+#define WBEM_FLAG_UPDATE_ONLY 0x1       /* Wine's wbemcli.h lacks the PutInstance flags */
+#define WBEM_FLAG_CREATE_ONLY 0x2
+#endif
+
+/* GetInstance: the instance named by the inbound instance's path (or by its keys) */
+static HRESULT run_get_instance(struct operation *o, IWbemServices *svc, struct inst **result)
+{
+    IWbemClassObject *obj = NULL;
+    BSTR path = SysAllocString(o->in_inst && o->in_inst->relpath ? o->in_inst->relpath : (o->in_inst ? o->in_inst->cls : L""));
+    HRESULT hr = IWbemServices_GetObject(svc, path, 0, NULL, &obj, NULL);
+
+    SysFreeString(path);
+    if (SUCCEEDED(hr) && obj) { *result = inst_from_wbem(obj, o->ns, NULL); IWbemClassObject_Release(obj); }
+    return hr;
+}
+
+/* CreateInstance and ModifyInstance: the properties of the inbound instance go into an instance of its class, which is
+ * put (what the class's provider does with it is wbemprox's: most of its classes are read-only and say so) */
+static HRESULT run_put_instance(struct operation *o, IWbemServices *svc, struct inst **result)
+{
+    IWbemClassObject *cls = NULL, *obj = NULL;
+    BSTR c;
+    HRESULT hr;
+    MI_Uint32 n;
+
+    if (!o->in_inst) return WBEM_E_INVALID_PARAMETER;
+    c = SysAllocString(o->in_inst->cls);
+    hr = IWbemServices_GetObject(svc, c, 0, NULL, &cls, NULL);
+    SysFreeString(c);
+    if (FAILED(hr)) return hr;
+    hr = IWbemClassObject_SpawnInstance(cls, 0, &obj);
+    IWbemClassObject_Release(cls);
+    if (FAILED(hr)) return hr;
+    for (n = 0; n < o->in_inst->count; n++)
+    {
+        VARIANT v;
+        if (o->in_inst->el[n].flags & MI_FLAG_NULL) continue;
+        variant_from_mi(o->in_inst->el[n].type, &o->in_inst->el[n].val, &v);
+        IWbemClassObject_Put(obj, o->in_inst->el[n].name, 0, &v, 0);
+        VariantClear(&v);
+    }
+    hr = IWbemServices_PutInstance(svc, obj, o->kind == K_CREATE ? WBEM_FLAG_CREATE_ONLY : WBEM_FLAG_UPDATE_ONLY, NULL, NULL);
+    IWbemClassObject_Release(obj);
+    if (SUCCEEDED(hr)) impl_MI_InstanceFT_Clone(&o->in_inst->base, (MI_Instance **)result);
+    return hr;
+}
+
+static HRESULT run_delete_instance(struct operation *o, IWbemServices *svc)
+{
+    BSTR path = SysAllocString(o->in_inst && o->in_inst->relpath ? o->in_inst->relpath : (o->in_inst ? o->in_inst->cls : L""));
+    HRESULT hr = IWbemServices_DeleteInstance(svc, path, 0, NULL, NULL);
+
+    SysFreeString(path);
+    return hr;
+}
+
 static void op_release(struct operation *o)
 {
     int n;
     if (InterlockedDecrement(&o->refs)) return;
     for (n = o->qhead; n < o->qn; n++) inst_free(o->queue[n]);
+    if (o->clsres) impl_MI_ClassFT_Delete(o->clsres);       /* (the operation owns what it handed out) */
     free(o->queue); free(o->ns); free(o->cls); free(o->query); free(o->method); free(o->errmsg);
     if (o->in_inst) inst_free(o->in_inst);
     if (o->in_params) inst_free(o->in_params);
@@ -664,6 +724,24 @@ static DWORD WINAPI op_thread(void *arg)
             hr = run_invoke(o, svc, &res);
             if (res) { if (o->have_cb) { op_deliver(o, res, MI_TRUE, MI_RESULT_OK, NULL); inst_free(res); } else op_push(o, res); }
         }
+        else if (o->kind == K_GET || o->kind == K_CREATE || o->kind == K_MODIFY)
+        {
+            struct inst *res = NULL;
+            hr = o->kind == K_GET ? run_get_instance(o, svc, &res) : run_put_instance(o, svc, &res);
+            if (res) { if (o->have_cb) { op_deliver(o, res, MI_TRUE, MI_RESULT_OK, NULL); inst_free(res); } else op_push(o, res); }
+        }
+        else if (o->kind == K_DELETE) hr = run_delete_instance(o, svc);
+        else if (o->kind == K_GETCLASS)
+        {
+            o->clsres = mi_class_load(o->cls, o->ns);
+            hr = o->clsres ? S_OK : WBEM_E_NOT_FOUND;
+            if (o->clsres && o->have_cls_cb)
+            {
+                ResetEvent(o->ack);
+                o->cb.classResult(o->handle, o->cb.callbackContext, o->clsres, MI_TRUE, MI_RESULT_OK, NULL, NULL, ack_fn);
+                WaitForSingleObject(o->ack, 60000);
+            }
+        }
         else hr = WBEM_E_NOT_SUPPORTED;
         if (en) IEnumWbemClassObject_Release(en);
         IWbemServices_Release(svc);
@@ -679,6 +757,12 @@ static DWORD WINAPI op_thread(void *arg)
     o->done = TRUE;
     SetEvent(o->avail);
     if (o->have_cb) op_deliver(o, NULL, MI_FALSE, o->result, o->errmsg);
+    else if (o->have_cls_cb)
+    {
+        ResetEvent(o->ack);
+        o->cb.classResult(o->handle, o->cb.callbackContext, NULL, MI_FALSE, o->result, o->errmsg, NULL, ack_fn);
+        WaitForSingleObject(o->ack, 60000);
+    }
     if (SUCCEEDED(init)) CoUninitialize();
     op_release(o);
     return 0;
@@ -699,7 +783,7 @@ static void start_op(MI_Session *s, enum kind kind, const MI_Char *ns, const MI_
     o->method = wdup(method);
     if (in_inst) impl_MI_InstanceFT_Clone(in_inst, (MI_Instance **)&o->in_inst);
     if (in_params) impl_MI_InstanceFT_Clone(in_params, (MI_Instance **)&o->in_params);
-    if (cb) { o->cb = *cb; o->have_cb = cb->instanceResult != NULL; }
+    if (cb) { o->cb = *cb; o->have_cb = cb->instanceResult != NULL; o->have_cls_cb = cb->classResult != NULL; }
     InitializeCriticalSection(&o->cs);
     o->avail = CreateEventW(NULL, FALSE, FALSE, NULL);
     o->ack = CreateEventW(NULL, FALSE, FALSE, NULL);
@@ -723,6 +807,49 @@ void MI_CALL impl_MI_SessionFT_Invoke(MI_Session *s, MI_Uint32 flags, MI_Operati
         const MI_Char *cls, const MI_Char *method, const MI_Instance *inst, const MI_Instance *params,
         MI_OperationCallbacks *cb, MI_Operation *op)
 { start_op(s, K_INVOKE, ns, cls, NULL, method, inst, params, cb, op); }
+
+void MI_CALL impl_MI_SessionFT_GetInstance(MI_Session *s, MI_Uint32 flags, MI_OperationOptions *opts, const MI_Char *ns,
+        const MI_Instance *inst, MI_OperationCallbacks *cb, MI_Operation *op)
+{ start_op(s, K_GET, ns, NULL, NULL, NULL, inst, NULL, cb, op); }
+
+void MI_CALL impl_MI_SessionFT_ModifyInstance(MI_Session *s, MI_Uint32 flags, MI_OperationOptions *opts, const MI_Char *ns,
+        const MI_Instance *inst, MI_OperationCallbacks *cb, MI_Operation *op)
+{ start_op(s, K_MODIFY, ns, NULL, NULL, NULL, inst, NULL, cb, op); }
+
+void MI_CALL impl_MI_SessionFT_CreateInstance(MI_Session *s, MI_Uint32 flags, MI_OperationOptions *opts, const MI_Char *ns,
+        const MI_Instance *inst, MI_OperationCallbacks *cb, MI_Operation *op)
+{ start_op(s, K_CREATE, ns, NULL, NULL, NULL, inst, NULL, cb, op); }
+
+void MI_CALL impl_MI_SessionFT_DeleteInstance(MI_Session *s, MI_Uint32 flags, MI_OperationOptions *opts, const MI_Char *ns,
+        const MI_Instance *inst, MI_OperationCallbacks *cb, MI_Operation *op)
+{ start_op(s, K_DELETE, ns, NULL, NULL, NULL, inst, NULL, cb, op); }
+
+void MI_CALL impl_MI_SessionFT_GetClass(MI_Session *s, MI_Uint32 flags, MI_OperationOptions *opts, const MI_Char *ns,
+        const MI_Char *cls, MI_OperationCallbacks *cb, MI_Operation *op)
+{ start_op(s, K_GETCLASS, ns, cls, NULL, NULL, NULL, NULL, cb, op); }
+
+MI_Result MI_CALL impl_MI_OperationFT_GetClass(MI_Operation *op, const MI_Class **classResult, MI_Boolean *more,
+        MI_Result *result, const MI_Char **errmsg, const MI_Instance **details)
+{
+    struct operation *o = (struct operation *)op->reserved2;
+    if (!o) return MI_RESULT_INVALID_PARAMETER;
+    while (!o->done) WaitForSingleObject(o->avail, 1000);
+    if (details) *details = NULL;
+    if (o->clsres && !o->cls_taken)
+    {
+        o->cls_taken = TRUE;
+        *classResult = o->clsres;
+        if (more) *more = MI_TRUE;
+        if (result) *result = MI_RESULT_OK;
+        if (errmsg) *errmsg = NULL;
+        return MI_RESULT_OK;
+    }
+    *classResult = NULL;
+    if (more) *more = MI_FALSE;
+    if (result) *result = o->result;
+    if (errmsg) *errmsg = o->errmsg;
+    return MI_RESULT_OK;
+}
 
 MI_Result MI_CALL impl_MI_OperationFT_Close(MI_Operation *op)
 {

@@ -24,7 +24,7 @@ PW=$(cat /root/adminpw)
 
 ok() { echo "ok $1"; }
 notok() { echo "not ok $1: $(printf '%s' "$2" | tr '\n' ' ' | cut -c1-300)"; }
-finish() { ip route del blackhole "$DC/32" 2>/dev/null; rm -f /root/adminpw /tmp/join-pw.txt; echo "AD-GUEST-DONE"; exit 0; }
+finish() { ip route del blackhole "$DC/32" 2>/dev/null; rm -f /root/adminpw /tmp/join-pw.txt /etc/polkit-1/rules.d/48-wex-lab-ps.rules; echo "AD-GUEST-DONE"; exit 0; }
 wine_cmd() { su - "$1" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout ${3:-120} $2" 2>&1; }
 host_step()
 {
@@ -107,6 +107,14 @@ if [ -z "$(bash /usr/local/bin/wex-domain-state.sh --print 2>&1)" ]; then ok not
 s0_reg reg add 'HKLM\Software\Wine\Elevation' /v Helper /t REG_SZ /d 'C:\windows\system32\consent.exe' /f >/dev/null
 sleep 5
 
+# The host name service asks polkit, which asks the desktop's authentication agent (a dialog the user answers); this lab
+# has nobody to answer it, so a rule for the lab user stands in (removed at the end)
+cat > /etc/polkit-1/rules.d/48-wex-lab-ps.rules <<RULE
+polkit.addRule(function(action, subject) {
+    if (subject.user === "$INSTALLED_USER" && action.id.indexOf("org.freedesktop.hostname1.") === 0) return polkit.Result.YES;
+});
+RULE
+
 # 3. the elevated batch: a console window for PowerShell (it needs one), join-ps.ps1 inside it
 ORIG=$(hostname -s | tr 'a-z' 'A-Z')
 comp_dn() { samba-tool computer show "$1" -H "ldap://dc1.$DOM" -U "Administrator%$PW" --attributes=distinguishedName 2>/dev/null | sed -n 's/^distinguishedName: //p'; }
@@ -130,6 +138,16 @@ wait_stage()   # NAME: the script's stage file, 4 minutes at most
     return 1
 }
 res() { tr -d '\r' < /tmp/ps-join.out | sed -n "s/^RESULT $1 //p" | head -1; }
+
+# stage "wgrename": Rename-Computer outside a domain (the polkit rule of the lab is written before the batch starts)
+if wait_stage wgrename; then
+    sleep 1
+    case "$(res ws_rename)" in "ok: "*) ok ps_workgroup_rename ;; *) notok ps_workgroup_rename "$(res ws_rename)" ;; esac
+    [ "$(hostname -s)" = wglab1 ] && ok ps_workgroup_rename_host || notok ps_workgroup_rename_host "host [$(hostname -s)] $(journalctl --no-pager -b 0 2>/dev/null | grep -i 'hostname\|polkit' | tail -3 | cut -c1-200 | tr '\n' '|')"
+    touch /tmp/ps-continue-wgrename
+    for i in $(seq 1 60); do [ "$(hostname -s | tr 'a-z' 'A-Z')" = "$ORIG" ] && break; sleep 2; done
+    [ "$(hostname -s | tr 'a-z' 'A-Z')" = "$ORIG" ] && ok ps_workgroup_rename_back || notok ps_workgroup_rename_back "host [$(hostname -s)] $(res ws_back)"
+else notok ps_stage_wgrename "the script did not reach the stage: $(tr -d '\r' < /tmp/ps-join.out | tail -5 | tr '\n' '|')"; finish; fi
 
 # stage "joined": Add-Computer, the channel, the reset
 if wait_stage joined; then

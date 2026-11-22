@@ -33,17 +33,17 @@ static MI_Result MI_CALL stub_MI_ApplicationFT_NewInstanceFromClass(_In_ MI_Appl
 static MI_Result MI_CALL stub_MI_ApplicationFT_NewClass(_In_ MI_Application *application, _In_ const MI_ClassDecl* classDecl, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *serverName, _Outptr_ MI_Class** classObject) { mi_trace("MI_ApplicationFT_NewClass"); return MI_RESULT_NOT_SUPPORTED; }
 MI_Result MI_CALL impl_MI_SessionFT_Close(_Inout_ MI_Session *session, _In_opt_ void *completionContext, _In_opt_ void (MI_CALL *completionCallback)(_In_opt_ void *completionContext));
 MI_Result MI_CALL impl_MI_SessionFT_GetApplication(_In_ MI_Session *session, _Out_ MI_Application *application);
-static void MI_CALL stub_MI_SessionFT_GetInstance(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *inboundInstance, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_GetInstance");  }
-static void MI_CALL stub_MI_SessionFT_ModifyInstance(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *inboundInstance, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_ModifyInstance");  }
-static void MI_CALL stub_MI_SessionFT_CreateInstance(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *inboundInstance, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_CreateInstance");  }
-static void MI_CALL stub_MI_SessionFT_DeleteInstance(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *inboundInstance, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_DeleteInstance");  }
+void MI_CALL impl_MI_SessionFT_GetInstance(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *inboundInstance, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
+void MI_CALL impl_MI_SessionFT_ModifyInstance(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *inboundInstance, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
+void MI_CALL impl_MI_SessionFT_CreateInstance(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *inboundInstance, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
+void MI_CALL impl_MI_SessionFT_DeleteInstance(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *inboundInstance, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 void MI_CALL impl_MI_SessionFT_Invoke(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *className, _In_z_ const MI_Char *methodName, _In_opt_ const MI_Instance *inboundInstance, _In_opt_ const MI_Instance *inboundProperties, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 void MI_CALL impl_MI_SessionFT_EnumerateInstances(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *className, MI_Boolean keysOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 void MI_CALL impl_MI_SessionFT_QueryInstances(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *queryDialect, _In_opt_z_ const MI_Char *queryExpression, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 static void MI_CALL stub_MI_SessionFT_AssociatorInstances(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *instanceKeys, _In_opt_z_ const MI_Char *assocClass, _In_opt_z_ const MI_Char *resultClass, _In_opt_z_ const MI_Char *role, _In_opt_z_ const MI_Char *resultRole, MI_Boolean keysOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_AssociatorInstances");  }
 static void MI_CALL stub_MI_SessionFT_ReferenceInstances(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *instanceKeys, _In_opt_z_ const MI_Char *resultClass, _In_opt_z_ const MI_Char *role, MI_Boolean keysOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_ReferenceInstances");  }
 static void MI_CALL stub_MI_SessionFT_Subscribe(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *queryDialect, _In_opt_z_ const MI_Char *queryExpression, _In_opt_ const MI_SubscriptionDeliveryOptions *deliverOptions, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_Subscribe");  }
-static void MI_CALL stub_MI_SessionFT_GetClass(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *className, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_GetClass");  }
+void MI_CALL impl_MI_SessionFT_GetClass(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *className, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 static void MI_CALL stub_MI_SessionFT_EnumerateClasses(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *className, MI_Boolean classNamesOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_EnumerateClasses");  }
 void MI_CALL impl_MI_SessionFT_TestConnection(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 MI_Result MI_CALL impl_MI_OperationFT_Close(_Inout_ MI_Operation *operation);
@@ -51,7 +51,7 @@ MI_Result MI_CALL impl_MI_OperationFT_Cancel(_Inout_ MI_Operation *operation, MI
 MI_Result MI_CALL impl_MI_OperationFT_GetSession(_In_ MI_Operation *operation, _Out_ MI_Session *session);
 MI_Result MI_CALL impl_MI_OperationFT_GetInstance(_In_ MI_Operation *operation, _Outptr_result_maybenull_ const MI_Instance **instance, _Out_opt_ MI_Boolean *moreResults, _Out_opt_ MI_Result *result, _Outptr_opt_result_maybenull_z_ const MI_Char **errorMessage, _Outptr_opt_result_maybenull_ const MI_Instance **completionDetails);
 static MI_Result MI_CALL stub_MI_OperationFT_GetIndication(_In_ MI_Operation *operation, _Outptr_result_maybenull_ const MI_Instance **instance, _Outptr_opt_result_maybenull_z_ const MI_Char **bookmark, _Outptr_opt_result_maybenull_z_ const MI_Char **machineID, _Out_opt_ MI_Boolean *moreResults, _Out_opt_ MI_Result *result, _Outptr_opt_result_maybenull_z_ const MI_Char **errorMessage, _Outptr_opt_result_maybenull_ const MI_Instance **completionDetails) { mi_trace("MI_OperationFT_GetIndication"); return MI_RESULT_NOT_SUPPORTED; }
-static MI_Result MI_CALL stub_MI_OperationFT_GetClass(_In_ MI_Operation *operation, _Outptr_result_maybenull_ const MI_Class **classResult, _Out_opt_ MI_Boolean *moreResults, _Out_opt_ MI_Result *result, _Outptr_opt_result_maybenull_z_ const MI_Char **errorMessage, _Outptr_opt_result_maybenull_ const MI_Instance **completionDetails) { mi_trace("MI_OperationFT_GetClass"); return MI_RESULT_NOT_SUPPORTED; }
+MI_Result MI_CALL impl_MI_OperationFT_GetClass(_In_ MI_Operation *operation, _Outptr_result_maybenull_ const MI_Class **classResult, _Out_opt_ MI_Boolean *moreResults, _Out_opt_ MI_Result *result, _Outptr_opt_result_maybenull_z_ const MI_Char **errorMessage, _Outptr_opt_result_maybenull_ const MI_Instance **completionDetails);
 static MI_Result MI_CALL stub_MI_HostedProviderFT_Close(_Inout_ MI_HostedProvider *hostedProvider) { mi_trace("MI_HostedProviderFT_Close"); return MI_RESULT_NOT_SUPPORTED; }
 static MI_Result MI_CALL stub_MI_HostedProviderFT_GetApplication(_In_ MI_HostedProvider *hostedProvider, _Out_ MI_Application *application) { mi_trace("MI_HostedProviderFT_GetApplication"); return MI_RESULT_NOT_SUPPORTED; }
 static MI_Result MI_CALL stub_MI_SerializerFT_Close(_Inout_ MI_Serializer *serializer) { mi_trace("MI_SerializerFT_Close"); return MI_RESULT_NOT_SUPPORTED; }
@@ -174,17 +174,17 @@ const MI_ApplicationFT mi_tbl_MI_ApplicationFT = {
 const MI_SessionFT mi_tbl_MI_SessionFT = {
     impl_MI_SessionFT_Close,
     impl_MI_SessionFT_GetApplication,
-    stub_MI_SessionFT_GetInstance,
-    stub_MI_SessionFT_ModifyInstance,
-    stub_MI_SessionFT_CreateInstance,
-    stub_MI_SessionFT_DeleteInstance,
+    impl_MI_SessionFT_GetInstance,
+    impl_MI_SessionFT_ModifyInstance,
+    impl_MI_SessionFT_CreateInstance,
+    impl_MI_SessionFT_DeleteInstance,
     impl_MI_SessionFT_Invoke,
     impl_MI_SessionFT_EnumerateInstances,
     impl_MI_SessionFT_QueryInstances,
     stub_MI_SessionFT_AssociatorInstances,
     stub_MI_SessionFT_ReferenceInstances,
     stub_MI_SessionFT_Subscribe,
-    stub_MI_SessionFT_GetClass,
+    impl_MI_SessionFT_GetClass,
     stub_MI_SessionFT_EnumerateClasses,
     impl_MI_SessionFT_TestConnection
 };
@@ -194,7 +194,7 @@ const MI_OperationFT mi_tbl_MI_OperationFT = {
     impl_MI_OperationFT_GetSession,
     impl_MI_OperationFT_GetInstance,
     stub_MI_OperationFT_GetIndication,
-    stub_MI_OperationFT_GetClass
+    impl_MI_OperationFT_GetClass
 };
 const MI_HostedProviderFT mi_tbl_MI_HostedProviderFT = {
     stub_MI_HostedProviderFT_Close,

@@ -26,6 +26,8 @@
 void mi_trace(const char *fmt, ...);
 IWbemServices *mi_connect_ns(const WCHAR *ns, HRESULT *hr);
 const WCHAR *mi_instance_class_name(const MI_Instance *self);
+MI_Class *mi_class_load(const WCHAR *name, const WCHAR *ns);
+MI_Result MI_CALL impl_MI_ClassFT_Delete(MI_Class *self);
 extern const MI_ParameterSetFT mi_tbl_MI_ParameterSetFT;
 extern const MI_QualifierSetFT mi_tbl_MI_QualifierSetFT;
 extern const MI_ApplicationFT mi_tbl_MI_ApplicationFT;

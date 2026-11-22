@@ -176,6 +176,12 @@ static struct cls *cls_load(const WCHAR *name, const WCHAR *ns)
     return c;
 }
 
+MI_Class *mi_class_load(const WCHAR *name, const WCHAR *ns)
+{
+    struct cls *c = cls_load(name, ns);
+    return c ? &c->base : NULL;
+}
+
 static void cls_free(struct cls *c)
 {
     MI_Uint32 i, j;

@@ -32,14 +32,20 @@ cmdlets work (2026-11-22, tried with 7.7.0, x64):
   `mi.dll` needs the dll in each prefix's system32/syswow64 (the lab script does it).
 - The 32-bit PowerShell (`PowerShell-7.7.0-win-x86.zip`) does not start in this build: even `1+1` fails loading
   `System.Runtime.dll` ("Module not found") before any CIM code runs. Not looked into; the component is the x64 one.
-- Outside a domain, `Rename` calls `SetComputerNameEx`, which in stock Wine takes effect after a restart (PowerShell
-  says so). In a domain the engine renames at once. Routing the workgroup rename to the host name service (as System
-  Properties does) would need a project change in `SetComputerNameEx`.
+- Outside a domain, `Rename` goes through the host name service (`wexhost.dll`, `WexHostnameSet`, loaded by name by
+  `wbemprox`, as System Properties does), so the host name changes at once; polkit decides, and asks the desktop's
+  authentication agent (a dialog) when the caller has no standing permission. Without `wexhost.dll` the stock
+  `SetComputerNameEx` is used (effective after a restart). In a domain the engine renames at once. Lab: stage
+  `wgrename` of `join-ps-guest.sh` (a polkit rule of the lab stands in for the dialog).
 - The join of a workgroup is not offered (`ERROR_NOT_SUPPORTED`), as in System Properties; `-WorkgroupName` says so.
 - `-Restart` is accepted and does nothing: no restart is needed.
 - Only the entries of the MI tables that PowerShell calls are implemented (`src/dlls/mi/implemented.txt`); the others are
-  tracing stubs (`MI_TRACE=<file>` writes what is called). No `Get-CimClass` (parent classes), no associations, no
-  `Set-CimInstance`/`New-CimInstance`/`Remove-CimInstance`, no indications (`Register-CimIndicationEvent`).
+  tracing stubs (`MI_TRACE=<file>` writes what is called). Implemented: enumerate, query, invoke, `Get-CimClass -ClassName`
+  (class, properties, methods; no parent class, `wbemprox` has none), `Get-CimInstance -InputObject` (refresh), and the
+  writes `New-`, `Set-` and `Remove-CimInstance`, which pass the call to WMI (`PutInstance`, `DeleteInstance`) and report
+  what `wbemprox` answers (it is read-only for its classes, so they fail with `FAILED` or `NOT_FOUND`). Not done:
+  wildcard `Get-CimClass` (`EnumerateClasses`), associations (`Get-CimAssociatedInstance`), indications
+  (`Register-CimIndicationEvent`).
 - Only the x64 PowerShell runs (see above). The i386 `mi.dll` builds; its calling convention is unchecked (OMI's
   `MI.h` has `MI_CALL` empty).
 

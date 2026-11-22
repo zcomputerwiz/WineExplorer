@@ -38,6 +38,13 @@ Step autoload { (Get-Command Add-Computer, Remove-Computer, Test-ComputerSecureC
 $orig = [Environment]::MachineName
 Step cim_before { Get-CimInstance Win32_ComputerSystem | ForEach-Object { "Name=$($_.Name) DNSHostName=$($_.DNSHostName) PartOfDomain=$($_.PartOfDomain) Domain=$($_.Domain) Workgroup=$($_.Workgroup)" } }
 Step sc_before { Test-ComputerSecureChannel -ErrorAction Stop }
+# a rename outside a domain goes through the host name service and takes effect at once; the way back through the method
+Step ws_rename { Rename-Computer -NewName wglab1 -Force -PassThru -ErrorAction Stop }
+Stage wgrename
+Step ws_back {
+    $r = Invoke-CimMethod -InputObject (Get-CimInstance Win32_ComputerSystem) -MethodName Rename -Arguments @{ Name = $orig }
+    "ReturnValue=$($r.ReturnValue)"
+}
 Step add { Add-Computer -DomainName $dom -Credential $cred -OUPath $ou -PassThru -ErrorAction Stop }
 Step cim_joined { Get-CimInstance Win32_ComputerSystem | ForEach-Object { "Name=$($_.Name) PartOfDomain=$($_.PartOfDomain) Domain=$($_.Domain)" } }
 Step sc_joined { Test-ComputerSecureChannel -ErrorAction Stop }
