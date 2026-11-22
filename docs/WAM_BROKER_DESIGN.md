@@ -170,6 +170,43 @@ program (Copilot, ...)                         per-user broker process (tokenbro
 
 Each step is a Wine change (listed in STOCK_CHANGES.md) plus its tests, reviewed and run before the next.
 
+## The shape of Windows' answer for a Microsoft account (measured 2026-11-22)
+
+Found while the owner's real sign-in in Copilot ended in the identity library's own error page (tag 9yzy9, code 0,
+shown after our broker had redeemed the code and returned a token). A small probe run by the owner on Windows
+printed the *shape* of the answer (names, kinds, lengths, character classes; never values, no account data) for the
+request Copilot sends: provider `https://login.microsoft.com`, authority `consumers`, prompt type 1, request
+properties `Client_uiflow=new_account`, `api-version=2.0`, `oauth2_batch=1`, `x-client-info=1`, `telemetry=MATS`,
+`x-client-SKU`, `x-client-Ver`, `mkt`, `nopa=2` (the library calls itself `MSAL.xplat.Win32`, closed source). The
+answer, as a `WebTokenRequestResult` with status Success and one `WebTokenResponse`:
+
+- **Token** is the token endpoint's answer as an URL-encoded form body, not the bare access token. The fields in this
+  order: `access_token` (a JWT-shaped string, 2130 characters for our scope), `token_type` (`Bearer`), `expires_in`
+  (seconds left, a number of 5 digits), `scope` (the granted scopes, space separated), `id_token` (a JWT), `client_info`
+  (base64 text, no padding, about 540 characters). No `refresh_token`.
+- **Response `Properties`** has one entry, `MATS`, a JSON text of 230 characters with the keys `ui_visible`,
+  `correlation_id`, `account_id`, `web_flow_result`, `silent_code`, `silent_bi_sub_code`, `silent_message`,
+  `silent_status`, `is_cached`. There are no `wamcompat_*` entries (those belong to the other consumers' request
+  shape: they are kept when `oauth2_batch` is not asked for).
+- **`WebAccount`**: `Id` is 16 upper-case hex digits (the account's `UID`), `UserName` the sign-in address,
+  `State` is `None` (not Connected), `WebAccountProvider` as asked. `WebAccount.Properties` has nine entries:
+  `IsRoamingEncryptionKeyAvailable` (`false`), `DisplayName`, `FirstName`, `LastName`, `CountryOrRegion` (2 letters),
+  `UserName`, `UID` (the same 16 digits as `Id`), `AgeGroup` (a one digit number) and `SafeCustomerId` (the customer id,
+  16 lower-case hex digits; it is the last 16 digits of the id token's object id `00000000-0000-0000-xxxx-xxxxxxxxxxxx`).
+- `FindAllAccountsAsync` for the provider and client id answers the same `WebAccount` shape (state `None`, the same
+  `Id` and properties).
+
+What the library did with our earlier answer (a bare JWT as Token, six `wamcompat_*` properties, a GUID `Id`, state
+Connected, no account properties): it read `ResponseStatus`, the response data, the account's `Id`, all response
+properties and the `Token`, and then showed its error page without reading anything else; so the cause is in the
+account `Id` form, the response properties or the `Token` form. The answer is built to the measured shape now
+(`src/programs/tokenbroker/provider.c`: `public_account_id`, `account_properties`, `telemetry_property`,
+`batch_token`; `dlls/windows.security.authentication.web.core`: `TOKENBROKER_REPLY_ACCOUNT_PROPERTIES`,
+`IWebAccount2::get_Properties`, state `None` for the `consumers` authority). Branches: superproject
+`claude/vintner-boot-integration` (commits 287bbd88 and 1d661628), Wine `claude/webaccount-properties`. Status: see
+the owner's retries in `docs/HANDOFF.md` once they have run; `AgeGroup` is not sent because the id token does not tell
+it and it is not made up, and neither is `CountryOrRegion` unless the id token has `ctry`.
+
 ## Open questions
 
 - Personal accounts and the redirect URI: whether Copilot's client takes its consumers tokens through the v2.0
