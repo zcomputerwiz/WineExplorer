@@ -263,31 +263,71 @@ static void telemetry_property( struct reply *reply, const struct request *req, 
     text_append_pair( &reply->field[TOKENBROKER_REPLY_PROPERTIES], L"MATS", json );
 }
 
+/* whether the request carries the property KEY with the value VALUE */
+static BOOL request_property_is( const struct request *req, const WCHAR *key, const WCHAR *value )
+{
+    unsigned int i;
+
+    for (i = 0; req && i < req->prop_count; i++)
+        if (!wcscmp( req->prop_key[i], key )) return !wcscmp( req->prop_value[i], value );
+    return FALSE;
+}
+
+/* With the request property oauth2_batch=1 (the Microsoft account library sends it with api-version 2.0), the answer's
+ * Token is not the bare access token but the token endpoint's answer as a form body, in this order: access_token,
+ * token_type, expires_in (seconds left), scope, id_token, client_info. Allocated, or NULL. */
+static WCHAR *batch_token( const WCHAR *token, const WCHAR *scope, const WCHAR *id_token, const WCHAR *client_info,
+                           LONGLONG expires_on )
+{
+    struct text body = {0};
+    WCHAR expires_in[32];
+    LONGLONG left = expires_on - unix_time();
+
+    swprintf( expires_in, ARRAY_SIZE(expires_in), L"%I64d", left > 0 ? left : 0 );
+    if (!url_append_param( &body, L"access_token", token ) || !url_append_param( &body, L"token_type", L"Bearer" ) ||
+        !url_append_param( &body, L"expires_in", expires_in ) ||
+        !url_append_param( &body, L"scope", scope ? scope : L"" ) ||
+        (id_token && *id_token && !url_append_param( &body, L"id_token", id_token )) ||
+        (client_info && *client_info && !url_append_param( &body, L"client_info", client_info )))
+    {
+        free( body.data );
+        return NULL;
+    }
+    return body.data;
+}
+
 static void reply_success( struct reply *reply, const struct request *req, BOOL interactive, const WCHAR *token,
                            const WCHAR *account_id, const WCHAR *user_name, const WCHAR *id_token,
                            const WCHAR *client_info, const WCHAR *scope, LONGLONG expires_on )
 {
     struct text *props = &reply->field[TOKENBROKER_REPLY_PROPERTIES];
-    WCHAR expires[32], *object_id;
+    WCHAR expires[32], *object_id, *batch = NULL;
 
     reply->status = STATUS_SUCCESS_;
     reply->code = 0;
-    reply_set( reply, TOKENBROKER_REPLY_TOKEN, token );
+    if (request_property_is( req, L"oauth2_batch", L"1" ))
+        batch = batch_token( token, scope, id_token, client_info, expires_on );
+    reply_set( reply, TOKENBROKER_REPLY_TOKEN, batch ? batch : token );
     reply_set( reply, TOKENBROKER_REPLY_ACCOUNT_ID, account_id );
     reply_set( reply, TOKENBROKER_REPLY_USER_NAME, user_name );
     swprintf( expires, ARRAY_SIZE(expires), L"%I64d", expires_on );
-    /* the properties MSAL reads from a WAM answer */
-    if (id_token && *id_token) text_append_pair( props, L"wamcompat_id_token", id_token );
-    if (client_info && *client_info) text_append_pair( props, L"wamcompat_client_info", client_info );
-    if (scope && *scope) text_append_pair( props, L"wamcompat_scopes", scope );
-    text_append_pair( props, L"wamcompat_expires_on", expires );
-    if (user_name && *user_name) text_append_pair( props, L"wamcompat_user_displayable_id", user_name );
-    if (account_id && *account_id && (object_id = object_account_id( account_id )))
+    if (!batch)
     {
-        text_append_pair( props, L"wamcompat_account_id", object_id );
-        free( object_id );
+        /* the properties MSAL reads from a WAM answer */
+        if (id_token && *id_token) text_append_pair( props, L"wamcompat_id_token", id_token );
+        if (client_info && *client_info) text_append_pair( props, L"wamcompat_client_info", client_info );
+        if (scope && *scope) text_append_pair( props, L"wamcompat_scopes", scope );
+        text_append_pair( props, L"wamcompat_expires_on", expires );
+        if (user_name && *user_name) text_append_pair( props, L"wamcompat_user_displayable_id", user_name );
+        if (account_id && *account_id && (object_id = object_account_id( account_id )))
+        {
+            text_append_pair( props, L"wamcompat_account_id", object_id );
+            free( object_id );
+        }
     }
-    telemetry_property( reply, req, account_id, interactive, !interactive );
+    free( batch );
+    if (request_property_is( req, L"telemetry", L"MATS" ))
+        telemetry_property( reply, req, account_id, interactive, !interactive );
     account_properties( reply, account_id, user_name, id_token );
 }
 
