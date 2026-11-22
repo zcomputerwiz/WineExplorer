@@ -159,6 +159,24 @@ in force at once, so no restart is asked for. In a domain a rename is refused ("
 the machine account is named for the computer and the engine cannot rename it yet (Samba's `net` has no rename; `netdom
 renamecomputer` stays "not supported yet"). Leaving the domain and renaming in one step works: it leaves first.
 
+## Renaming a computer that stays in a domain (design, not built)
+
+Windows renames the account and the computer together (`NetRenameMachineInDomain`: needs an account that may rename the
+computer object). Samba's `net` has no such command, so the engine would do what Windows does, with the tools that exist
+(`ldap-utils` and Kerberos are already needed by the join; nothing runs on the controller):
+
+1. Ticket for the admin (as the join does), then over LDAP with the Kerberos bind: rename the object (`modrdn` of the CN),
+   set `sAMAccountName` (`NEWNAME$`), `dNSHostName`, and the `HOST/` and `RestrictedKrbHost/` service principal names.
+2. Set the local name (the host's hostname service, as the Change dialog does) and `netbios name` in `smb.conf`.
+3. Flush and recreate the keytab (`net ads keytab flush`, then `net ads keytab create`) and change the machine password
+   (`net ads changetrustpw`), then restart Winbind; `net ads testjoin` must pass, or the old name is put back.
+
+Risks to settle before building it: the order of steps (a failure after step 1 leaves an account that matches no computer:
+step 1 is undone by the same LDAP calls), the permissions an ordinary domain admin has on the object, and DNS (the old
+host record stays until its scavenging; `net ads dns register` for the new one). Lab: rename in the AD lab, check
+`testjoin`, a domain logon and the account in the directory. Until then the Change dialog refuses (see above) and `netdom
+renamecomputer` says it is not supported.
+
 ## Samba options
 
 From Samba's `net` manual page: `createcomputer=` takes the OU as a path (outermost first, without `OU=`, separated by `/`),
