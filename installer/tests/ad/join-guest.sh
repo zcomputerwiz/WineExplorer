@@ -204,7 +204,7 @@ if apt-get install -y xdotool >> /root/ad-apt.log 2>&1 && command -v xdotool >/d
         xd key alt+d; xd type "$DOM"
         XDW=40 xd key alt+n                       # the join
         for i in $(seq 1 20); do net ads testjoin >/dev/null 2>&1 && break; sleep 3; done
-        if net ads testjoin >/dev/null 2>&1; then ok wizard_join; else notok wizard_join "not joined after the wizard: $(journalctl --no-pager -b 0 -t wex-domain-join 2>/dev/null | tail -3 | tr '\n' '|')"; fi
+        if net ads testjoin >/dev/null 2>&1; then ok wizard_join; else notok wizard_join "not joined after the wizard: $(journalctl --no-pager -b 0 -t wex-domain-join 2>/dev/null | tail -8 | sed 's/.*request //; s/ domain=[^ ]*//; s/ user=[^ :]*//' | tr '\n' '|')"; fi
         xd key Return                             # Finish
     else notok wizard_consent "$HOST_ANSWER"; fi
     shred -u /tmp/join-pw-raw.txt 2>/dev/null || rm -f /tmp/join-pw-raw.txt

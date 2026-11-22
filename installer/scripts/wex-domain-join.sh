@@ -91,6 +91,22 @@ need_tools()
 # the kind of the join now: winbind, sssd, other, or nothing
 join_kind() { "$STATE_TOOL" --kind 2>/dev/null; }
 
+# tell Windows programs (HKLM\Software\WineExplorer\Domain): the state tool runs as session 0's account in a unit of
+# its own, as it does when session 0's services start (wex-session0-services.service); the engine's own unit has a
+# private /tmp, in which the Wine server of session 0 is not to be found. A failure is a note, not a failed join
+refresh_state()
+{
+    local out=/tmp/wex-state-refresh.$$
+    [ -z "${WEX_NO_STATE_REFRESH:-}" ] || return 0
+    id -u wexsys >/dev/null 2>&1 && command -v systemd-run >/dev/null 2>&1 || return 0
+    timeout 90 systemd-run --quiet --wait --collect --pipe -p User=wexsys -p Group=wexsys -p WorkingDirectory=/ \
+        -p Environment=WINEPREFIX=/var/lib/wineexplorer/machine -p Environment=HOME=/var/lib/wineexplorer/machine \
+        -p Environment=WINEDEBUG=-all -p Environment=WINEDLLOVERRIDES=mscoree,mshtml=\;winemenubuilder.exe=d \
+        "$STATE_TOOL" > "$out" 2>&1 ||
+        note "warning: the state for Windows programs was not updated: $(tr '\n' ' ' < "$out" | cut -c1-300)"
+    rm -f "$out"
+}
+
 # one file's first version is kept once, and put back by "leave"
 keep_first() { [ -e "$1" ] && [ ! -e "$1.wex-pre-join" ] && cp -p "$1" "$1.wex-pre-join"; return 0; }
 restore_first() { [ -e "$1.wex-pre-join" ] && mv -f "$1.wex-pre-join" "$1"; return 0; }
@@ -229,7 +245,7 @@ cmd_join()
     install -d -m 0755 "/home/$workgroup"
     systemctl enable --now winbind >/dev/null 2>&1 || note "warning: winbind did not start"
     systemctl restart winbind >/dev/null 2>&1
-    if net ads testjoin >/dev/null 2>&1; then note "joined to $domain ($workgroup)"
+    if net ads testjoin >/dev/null 2>&1; then refresh_state; note "joined to $domain ($workgroup)"
     else fail 31 "joined, but net ads testjoin does not confirm it yet"; fi
 }
 
@@ -274,6 +290,7 @@ cmd_leave()
     if [ -e "$ETC/samba/smb.conf.wex-pre-join" ]; then restore_first "$ETC/samba/smb.conf"
     else printf '[global]\n    workgroup = WORKGROUP\n' > "$ETC/samba/smb.conf"; fi
     restore_first "$ETC/krb5.conf"
+    refresh_state
     note "left the domain"
 }
 
