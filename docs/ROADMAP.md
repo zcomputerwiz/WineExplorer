@@ -380,22 +380,29 @@ WAYLAND_L2.md). Conditions to revisit the default: L4 (global hotkeys, Win+L ses
 multi-monitor, greeter decision), the `CS_DROPSHADOW` gap, restored live scaling at 150%, safe AUTO adoption of
 Wayland-native windows, and a passing run on physical hardware (Intel/AMD/Nvidia), not only VMs.
 
-## Future: PowerShell 7 as an OOBE component (added 2026-11-22, not started)
+## PowerShell 7 as an OOBE component (added 2026-11-22; the component is in `scripts/wex-components.py`)
 
-Requested by the GPO and Domain session (the owner asked for it). An optional download in the component list that the
-OOBE offers (`scripts/wex-components.py`, like WebView2), never in the image.
+Requested by the GPO and Domain session (the owner asked for it). An optional download in the component list the OOBE
+offers, never in the image; an optional download rather than bundled, because the zip is 115 MB (256 MB unpacked, with
+its own .NET), ages inside an image, and has only been tried as x64 (an offline copy in the ISO build stays a later
+option).
 
-* **What:** the official PowerShell 7 (MIT), `PowerShell-7.x-win-x64.zip` from github.com/PowerShell/PowerShell/releases,
-  unpacked into the machine prefix. Tried with 7.7.0 x64 only, on our WoW64 build. It needs a console: with plain pipes
-  ConsoleHost fails silently; a pty or a console window works.
-* **Companion code (their branches, not merged when this was written):** `mi.dll` (`src/dlls/mi`, CIM over WMI);
-  `Win32_ComputerSystem` Rename, JoinDomainOrWorkgroup, UnjoinDomainOrWorkgroup and PartOfDomain, Workgroup and
-  DNSHostName in wbemprox (Wine branch `claude/wbemprox-compsys`); the `WexComputer` module (`src/powershell/WexComputer`:
-  Add-Computer, Remove-Computer, Test-ComputerSecureChannel, Reset-ComputerMachinePassword, which PowerShell 7 lacks).
-  Details: `docs/POWERSHELL.md` on `claude/mi-dll`. Not yet tried in a real join against the AD lab.
-* **Open points for the component entry:** the `WexComputer` folder must be installed where PowerShell finds modules
-  (a `Modules` folder in the install, or imported through its `.psd1`); pin the release and its SHA-256 like the other
-  entries; the licence text (MIT) goes through the same terms screen; a console launcher (a shortcut that opens a
-  console window) so users do not meet the silent pipe failure; test on a 32-bit-capable WoW64 image.
-* **Order:** after their branches merge and a join against the lab works; then the entry, the module install, a test in
-  the component harness.
+* **Component `powershell`** (policy `powershell-extract-v1`, like `uwp-xaml`): the official PowerShell 7.7.0
+  (MIT) `PowerShell-7.7.0-win-x64.zip`, pinned by size and SHA-256, downloaded after the terms (the MIT text, pinned by
+  its bytes) were accepted, checked member by member, unpacked into `C:\Program Files\PowerShell\7` in the machine
+  prefix (staged, published by one rename), with a receipt that lists every file and its digest. Uninstall removes the
+  directory and the receipt. No registry entries, no program run.
+* **WexComputer module:** the image carries `src/powershell/WexComputer` in
+  `/usr/local/share/wineexplorer/powershell/WexComputer/` (a root-owned directory with `WexComputer.psd1` and
+  `WexComputer.psm1`); the installer copies it to `Modules\WexComputer` next to PowerShell's own modules, where
+  PowerShell finds the four cmdlets (Add-Computer, Remove-Computer, Test-ComputerSecureChannel,
+  Reset-ComputerMachinePassword) without Import-Module (tested in the AD lab). When the image has no module, PowerShell
+  installs without it.
+* **Needs in the image** (the GPO and Domain session's branches, not merged when this was written: `mi.dll` and the
+  wbemprox changes, `docs/POWERSHELL.md` on `claude/mi-dll`) for the domain cmdlets. The packaging line that puts the
+  module under `/usr/local/share/wineexplorer/powershell/` goes in with that merge.
+* **Console:** `pwsh.exe` needs a console window: with plain pipes it exits without running anything. From Explorer
+  or Run it gets one. The lab's batch runs it with `start "pwsh" /wait`; a pty works too.
+* **Still open:** `pwsh` by name in Run and on PATH (App Paths or a PATH entry needs a registry step the component does
+  not have yet); a Start menu entry; 32-bit PowerShell (the x86 zip is untried); a bump of the pin for new releases
+  (size, SHA-256, licence URL, then `python3 scripts/test_component_powershell.py`).
