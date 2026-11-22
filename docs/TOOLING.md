@@ -102,6 +102,14 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     `wexcomp` submodule is cloned from the Windows checkout's `wexcomp` at the branch's gitlink. On 2026-11-09
     packaging plus `lb build` took 11 minutes, giving a 2.4 GB ISO. Delete `/root/iso-build` afterwards: the
     distro's disk is on C:.
+  - Package cache: `scripts/lab/apt-cache.sh setup` (once, as root in wexbuild; `status`, `purge`) runs apt-cacher-ng
+    on 127.0.0.1:3142, for this machine only. `build-iso.sh` uses it on its own whenever it answers (debootstrap and
+    the live system's apt; `WEX_APT_PROXY=URL` names another, `WEX_APT_PROXY=none` fetches directly), so every ISO
+    build, test or full, from any distro, downloads a Debian package once. All WSL distributions share the address
+    (wexgpo reaches it too), and QEMU guests with user networking reach it at 10.0.2.2:3142. The image keeps no trace
+    of the proxy. Test ISOs also keep live-build's own cache (`WEX_LB_CACHE=/root/lb-cache`); the proxy adds the
+    index files (about 28 MB, six times a build) and builds without that cache. Vintner Boot's recovery packages
+    still come over https from Debian.
   - Vintner Boot, the only loader since 2026-11-11 (`--grub` is gone): without `--vintner=DIR`, `build-iso.sh` builds
     its packages from the `vintner` submodule with `ci/package/build-debs.sh` (golang-go, debhelper, grub-pc-bin,
     systemd-boot-efi, python3-pefile, git, dpkg-dev, fakeroot). The submodule, like `wexcomp`, is cloned from the
