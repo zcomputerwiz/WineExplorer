@@ -202,6 +202,9 @@ host_step() {   # NAME ARGS...: prints what goes into the done file (the last li
             "${V[@]}" wait "$TEST" "To begin" --timeout 300 >/dev/null || { host_stuck welcome "no Welcome screen"; return 0; }
             "${V[@]}" shot "$TEST" "$STATE/host-tile.png" >/dev/null 2>&1 || true
             if "${V[@]}" wait "$TEST" "$*" --timeout 60 >/dev/null; then echo ok; else host_stuck tile "no tile with the text '$*'"; fi ;;
+        shot)   # shot LABEL: the screen as it is, kept as $STATE/shot-LABEL.png
+            [[ ${1:-} =~ ^[a-z0-9-]+$ ]] || { echo "fail: bad label"; return 0; }
+            "${V[@]}" shot "$TEST" "$STATE/shot-$1.png" >/dev/null 2>&1 && echo ok || echo "fail: no screenshot" ;;
         *) echo "fail: unknown host step $name" ;;
     esac
 }

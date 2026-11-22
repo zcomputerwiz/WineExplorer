@@ -4171,7 +4171,7 @@ for b in 64 32; do
     # refused before the engine: nothing is sent
     n=$(reqs)
     for case in "join - - - A p 1:87" "join - ad.wexlab.example - A p 0:50" "join - ad.wexlab.example - A p 0x41:50" "join - ad.wexlab.example - - p 1:1326" \
-                "join - ad.wexlab.example - A - 1:1326" "join \\\\\\\\other ad.wexlab.example - A p 1:50" "unjoin A p 2:1004" "rename NEW:50"; do
+                "join - ad.wexlab.example - A - 1:1326" "join \\\\\\\\other ad.wexlab.example - A p 1:50" "unjoin A p 2:1004" "rename NEW:1326"; do
         args=${case%:*}; want=${case##*:}
         OUT="$(jp $b $args)"; grep -qx "status=$want" <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: '$args' gave something other than $want"; }
     done
@@ -4209,7 +4209,8 @@ for b in 1; do
     nd frobnicate; [ "$NDRC" = 87 ] || fail 'netdom: an unknown command'
     nd join /nonsense; [ "$NDRC" = 87 ] && grep -q 'not valid' <<<"$NDOUT" || fail 'netdom: an unknown option'
     nd resetpwd /server:x; [ "$NDRC" = 50 ] && grep -q 'not supported' <<<"$NDOUT" || fail 'netdom resetpwd'
-    nd renamecomputer /newname:NEWNAME; [ "$NDRC" = 50 ] && grep -q 'not supported yet' <<<"$NDOUT" || fail 'netdom renamecomputer'
+    nd renamecomputer; [ "$NDRC" = 87 ] && grep -q '/NewName option is required' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom renamecomputer without a name'; }
+    nd renamecomputer OTHERPC /newname:NEWNAME /userd:a /passwordd:x; [ "$NDRC" = 50 ] && grep -q 'another computer is not supported' <<<"${NDOUT,,}" || { echo "$NDOUT" >&2; fail 'netdom renamecomputer of another computer'; }
     [ "$(reqs)" = "$n" ] || { cat "$JREQ" >&2; fail 'a refused netdom call reached the engine'; }
     nd help; [ "$NDRC" = 0 ] && grep -q 'NETDOM JOIN' <<<"$NDOUT" || fail 'netdom help'
     # the engine's refusal is shown, with Windows' closing line
