@@ -124,6 +124,10 @@ def main():
     def no_signature(copy):
         return [e for e in copy if e['name'] != 'AppxSignature.p7x']
 
+    def no_blockmap(copy):
+        # a signed package without its block map: an attacker could change the files and nothing would compare them
+        return [e for e in copy if e['name'] != 'AppxBlockMap.xml']
+
     def bad_p7x(copy):
         replace(copy, 'AppxSignature.p7x', lambda b: b[:-20] + bytes([b[-20] ^ 0xff]) + b[-19:])
 
@@ -138,6 +142,7 @@ def main():
     variant('other-publisher.appx', other_publisher)
     variant('extra-member.appx', extra_member)
     variant('no-signature.appx', no_signature)
+    variant('no-blockmap.appx', no_blockmap)
     variant('bad-p7x.appx', bad_p7x)
     variant('short-p7x.appx', short_p7x)
     variant('wrong-magic.appx', wrong_magic)

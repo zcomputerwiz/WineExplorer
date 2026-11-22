@@ -1046,7 +1046,13 @@ static int load_blockmap(void)
     unsigned int capacity = 0;
     int ret = 1;
 
-    if (!entry) return 0;
+    if (!entry)
+    {
+        /* the signature covers the block map: a signed package without one has been stripped of what would compare its
+         * files, and no flag makes that acceptable (an unsigned test package has no map and no signature) */
+        if (find_entry( L"AppxSignature.p7x" )) return fail( L"the package is signed but has no block map" );
+        return 0;
+    }
     have_blockmap = TRUE;
     if (entry->size > MAX_BLOCKMAP_SIZE) return fail( L"the block map is too large" );
     if (!(data = read_entry( entry ))) return 1;

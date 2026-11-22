@@ -87,7 +87,9 @@ system ignores share modes). The block map is covered by the signed digest, so `
 with it, as Windows does while it stages a package: the size and the SHA-256 of every block of 64 KiB (the `Size` attribute
 of a block is the compressed size and is not used). A file the map does not list is refused, except the members that no map
 lists (`[Content_Types].xml`, `AppxBlockMap.xml`, `AppxSignature.p7x`, `AppxMetadata\CodeIntegrity.cat`). A package that has
-no block map at all (the unsigned packages of the installer tests) is not compared. Because the check is on the extraction,
+no block map and no signature (the unsigned packages of the installer tests) is not compared; one that has a signature
+member and no block map is refused with every flag (`no-blockmap` in `tamper.py`: the signature covers the map, so stripping it
+would leave nothing to compare the files with; without `--development` the signature provider already rejects it). Because the check is on the extraction,
 it also holds for `--development`: `bad-block`, `other-publisher` (the manifest no longer fits the map) and `extra-member`
 are refused with it where they installed before (`wexappx-sig.sh`); the signed fixture, whose `data.bin` has four blocks,
 installs. The installer suites (59 and 64) pass as before.
