@@ -3954,3 +3954,12 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 2026-11-22 (Wine 9a4e20d2): `dlls/msi/custom.c` `msi_install_through_broker` (WineExplorer's own function): the package, the `/l` log file and the working directory go to the elevation broker by their Z: paths (`wine_get_unix_file_name`), because the elevated msiexec runs in the machine root, whose C: is not the limited user's; a package on the user's C: was refused with exit code 2 (B67).
 
 2026-11-22 (Wine 17d2276c): `server/registry.c`: the default descriptors of the user tree (`key_get_sd`, and those of hives session 0 loads) give RESTRICTED (S-1-5-12) KEY_READ with CONTAINER_INHERIT_ACE, as Windows' `HKU\<sid>` does, so a process with a restricted token (a sandbox) can read its user's settings (B71).
+
+2026-11-22 (UWP, Wine branch `claude/uwp-machine-apps`, from development 3b16984b): packages installed for every user (`wexappx install --all-users`, `docs/uwp/SIGNATURE_CHECK.md`).
+- `server/uwp_context.c` (`find_package`, `uwp_context_from_aumid`): the application of an AUMID is looked up in the user's
+  catalog, and when that has no package of the family, in the machine catalog (`C:\ProgramData\WineExplorer\appx-catalog`,
+  until now read only for the dependencies of a package); the record is read from the catalog that found it. The error of
+  the first lookup is cleared when the second finds the package. The machine catalog is written by administrators only.
+- `dlls/kernelbase/version.c` (`package_record_read`): a record of the machine catalog counts as a package (the `framework`
+  line was required and the applications of the record were dropped); the package APIs see packages installed for every
+  user in the same family and enumeration code as before.

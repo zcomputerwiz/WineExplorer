@@ -30,6 +30,13 @@ w() { local log=$1; shift; timeout --kill-after=10s 120s "$build/wine" "$@" > "$
 check() { if [ "$1" = 0 ]; then note "PASS $2"; else note "FAIL $2"; overall=1; fi; }
 store="$WINEPREFIX/drive_c/users/$USER/AppData/Local/WineExplorer/WindowsApps"
 catalog="$WINEPREFIX/appx-catalog"
+mflag=""
+if [ "${WEX_MACHINE:-}" = 1 ]; then
+  # packages for every user: Program Files\WindowsApps and the machine catalog (wexappx --all-users)
+  mflag="--all-users"
+  store="$WINEPREFIX/drive_c/Program Files/WindowsApps"
+  catalog="$WINEPREFIX/drive_c/ProgramData/WineExplorer/appx-catalog"
+fi
 leftovers() { { ls -A "$store" 2>/dev/null; ls -A "$catalog" 2>/dev/null; } | wc -l; }
 
 w "$run/wineboot.log" wineboot -i || { note "FAIL wineboot"; exit 1; }
@@ -54,24 +61,24 @@ z.close()' "$run/pkg/$arch-$case.appx")
 done
 
 # the gate is off: nothing is installed
-w "$run/gate-off.log" wexappx install --development "Z:$run/pkg/x64-positive.appx"; rc=$?
+w "$run/gate-off.log" wexappx install --development $mflag "Z:$run/pkg/x64-positive.appx"; rc=$?
 [ "$rc" != 0 ] && [ "$(leftovers)" = 0 ]; check $? "install refused while the gate is off"
 w "$run/reg.log" reg add 'HKCU\Software\WineExplorer\Shell' /v UwpCompatibility /t REG_DWORD /d 1 /f
 
 # --development is required
-w "$run/no-flag.log" wexappx install "Z:$run/pkg/x64-positive.appx"; rc=$?
+w "$run/no-flag.log" wexappx install $mflag "Z:$run/pkg/x64-positive.appx"; rc=$?
 [ "$rc" != 0 ] && [ "$(leftovers)" = 0 ]; check $? "install refused without --development"
 
 for arch in x64 x86; do
   : > "$run/$arch-actual.txt"; : > "$run/$arch-hresults.txt"
   for case in positive missing_class missing_dll; do
-    w "$run/$arch-$case-install.log" wexappx install --development "Z:$run/pkg/$arch-$case.appx"; rc=$?
+    w "$run/$arch-$case-install.log" wexappx install --development $mflag "Z:$run/pkg/$arch-$case.appx"; rc=$?
     full=$(tr -d '\r' < "$run/$arch-$case-install.log" | sed -n 's/^Installed //p')
     aumid=$(tr -d '\r' < "$run/$arch-$case-install.log" | sed -n 's/^Application: //p')
     if [ "$rc" != 0 ] || [ -z "$full" ] || [ -z "$aumid" ]; then note "FAIL $arch $case install (exit $rc)"; overall=1; continue; fi
     # a second install of the same package is refused and changes nothing
-    w "$run/$arch-$case-again.log" wexappx install --development "Z:$run/pkg/$arch-$case.appx"; [ $? != 0 ]; check $? "$arch $case second install refused"
-    w "$run/$arch-$case-list.log" wexappx list; tr -d '\r' < "$run/$arch-$case-list.log" | grep -q -x -F "$full"; check $? "$arch $case listed"
+    w "$run/$arch-$case-again.log" wexappx install --development $mflag "Z:$run/pkg/$arch-$case.appx"; [ $? != 0 ]; check $? "$arch $case second install refused"
+    w "$run/$arch-$case-list.log" wexappx list $mflag; tr -d '\r' < "$run/$arch-$case-list.log" | grep -q -x -F "$full"; check $? "$arch $case listed"
     [ -f "$store/$full/[Content_Types].xml" ] && [ -f "$store/$full/Assets/note.txt" ]; check $? "$arch $case files extracted"
     w "$run/$arch-$case-launch.log" "$fixture/$arch/launcher.exe" "$aumid" "$case" "C:\\u1out\\$arch-$case.txt" "$full"; rc=$?
     text="$WINEPREFIX/drive_c/u1out/$arch-$case.txt"
@@ -82,7 +89,7 @@ for arch in x64 x86; do
         echo "PASS $case" >> "$run/$arch-actual.txt"; grep -E "^HRESULT $case " "$run/$arch-$case.txt" >> "$run/$arch-hresults.txt"
       else echo "FAIL $case" >> "$run/$arch-actual.txt"; fi
     else echo "FAIL $case (no output, exit $rc)" >> "$run/$arch-actual.txt"; fi
-    w "$run/$arch-$case-uninstall.log" wexappx uninstall "$full"; rc=$?
+    w "$run/$arch-$case-uninstall.log" wexappx uninstall $mflag "$full"; rc=$?
     [ "$rc" = 0 ] && [ "$(leftovers)" = 0 ]; check $? "$arch $case uninstall leaves nothing"
     w "$run/$arch-$case-gone.log" "$fixture/$arch/launcher.exe" "$aumid" "$case" 'C:\u1out\never.txt' "$full"
     grep -q 'ActivateApplication: 0x80270254' "$run/$arch-$case-gone.log"; check $? "$arch $case not activatable after uninstall"
@@ -95,7 +102,7 @@ done
 # the U1.1 UWP view probe, when its directory is given (WEX_U11_DIR: AppxManifest.xml, expected-positive.txt and
 # x64/ x86/ with view.exe): a real archive, installed by wexappx, activated, uninstalled. The manifest's EntryPoint
 # has to reach Load through the catalog record.
-if [ -n "${WEX_U11_DIR:-}" ]; then
+if [ -n "${WEX_U11_DIR:-}" ] && [ -z "$mflag" ]; then
   u11=$(readlink -f "$WEX_U11_DIR")
   for arch in x64 x86; do
     stage="$run/pkg/u11-$arch"
@@ -107,7 +114,7 @@ for base,dirs,files in os.walk("."):
         p=os.path.relpath(os.path.join(base,f),".")
         z.write(p,p.replace(os.sep,"/"))
 z.close()' "$run/pkg/u11-$arch.appx")
-    w "$run/u11-$arch-install.log" wexappx install --development "Z:$run/pkg/u11-$arch.appx"; rc=$?
+    w "$run/u11-$arch-install.log" wexappx install --development $mflag "Z:$run/pkg/u11-$arch.appx"; rc=$?
     full=$(tr -d '\r' < "$run/u11-$arch-install.log" | sed -n 's/^Installed //p')
     family=$(tr -d '\r' < "$run/u11-$arch-install.log" | sed -n 's/^Application: \(.*\)!View$/\1/p')
     if [ "$rc" != 0 ] || [ -z "$full" ] || [ -z "$family" ]; then note "FAIL $arch u11 install (exit $rc)"; overall=1; continue; fi
@@ -116,8 +123,26 @@ z.close()' "$run/pkg/u11-$arch.appx")
     w "$run/u11-$arch-launch.log" "$fixture/$arch/launcher.exe" "$family!View" positive unused "$full"
     tr -d '\r' < "$out" 2> /dev/null | grep -E '^(PASS|FAIL) ' | LC_ALL=C sort > "$run/u11-$arch-checks.txt"
     grep -v -e '^#' -e '^$' "$u11/expected-positive.txt" | LC_ALL=C sort | diff -u - "$run/u11-$arch-checks.txt" > "$run/u11-$arch.diff"; check $? "$arch u11 view installed by wexappx: all checks, EntryPoint reaches Load"
-    w "$run/u11-$arch-uninstall.log" wexappx uninstall "$full"; [ $? = 0 ] && [ "$(leftovers)" = 0 ]; check $? "$arch u11 uninstall leaves nothing"
+    w "$run/u11-$arch-uninstall.log" wexappx uninstall $mflag "$full"; [ $? = 0 ] && [ "$(leftovers)" = 0 ]; check $? "$arch u11 uninstall leaves nothing"
   done
+fi
+
+# an install for every user that the elevation broker started for a frozen file installs that file only: the path and the
+# SHA-256 it froze (WEXELEVATE_DOC_PATH, WEXELEVATE_DOC_SHA256) have to be the package that is given
+if [ -n "$mflag" ]; then
+  pkg="Z:$run/pkg/x64-positive.appx"
+  sha=$(sha256sum "$run/pkg/x64-positive.appx" | cut -d' ' -f1)
+  WEXELEVATE_DOC_PATH="$pkg" WEXELEVATE_DOC_SHA256="$(printf '%064d' 0)" w "$run/doc-badsha.log" wexappx install --development $mflag "$pkg"
+  [ $? != 0 ] && [ "$(leftovers)" = 0 ]; check $? "a package whose hash is not the frozen one is refused"
+  WEXELEVATE_DOC_PATH="Z:$run/pkg/x64-missing_dll.appx" WEXELEVATE_DOC_SHA256="$sha" w "$run/doc-otherfile.log" wexappx install --development $mflag "$pkg"
+  [ $? != 0 ] && [ "$(leftovers)" = 0 ]; check $? "a package that is not the frozen file is refused"
+  WEXELEVATE_DOC_PATH="$pkg" w "$run/doc-nosha.log" wexappx install --development $mflag "$pkg"
+  [ $? != 0 ] && [ "$(leftovers)" = 0 ]; check $? "a frozen path without a hash is refused"
+  WEXELEVATE_DOC_PATH="$pkg" WEXELEVATE_DOC_SHA256="$sha" w "$run/doc-good.log" wexappx install --development $mflag "$pkg"; rc=$?
+  full=$(tr -d '\r' < "$run/doc-good.log" | sed -n 's/^Installed //p')
+  [ "$rc" = 0 ] && [ -n "$full" ]; check $? "the frozen package installs"
+  [ -n "$full" ] && w "$run/doc-good-un.log" wexappx uninstall $mflag "$full"
+  [ "$(leftovers)" = 0 ]; check $? "and leaves nothing after the removal"
 fi
 
 # malformed archives: refused, nothing left behind
@@ -170,7 +195,7 @@ open(os.path.join(out, 'garbage.appx'), 'wb').write(b'not an archive at all' * 1
 EOF
 for f in "$bad"/*.appx; do
   name=$(basename "$f" .appx)
-  w "$run/bad-$name.log" wexappx install --development "Z:$f"; rc=$?
+  w "$run/bad-$name.log" wexappx install --development $mflag "Z:$f"; rc=$?
   [ "$rc" != 0 ] && [ "$(leftovers)" = 0 ] && [ ! -e "$WINEPREFIX/drive_c/users/$USER/AppData/Local/WineExplorer/escape.txt" ]
   check $? "malformed archive refused: $name ($(tr -d '\r' < "$run/bad-$name.log" | head -1 | cut -c1-90))"
 done

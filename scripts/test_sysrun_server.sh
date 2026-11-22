@@ -2631,6 +2631,17 @@ wait "$DP" || { cat "$ROOT/docrace.log" >&2; fail "docrace"; }
 grep -q '^docrace=PASS' "$ROOT/docrace.log" || { cat "$ROOT/docrace.log" >&2; fail "docrace: no PASS"; }
 [ ! -e "$EL/out.docrace" ] || fail "the replaced package ran"
 ok c4_package_replaced_while_consent_pending_is_denied_and_starts_nothing
+
+# the package of "wexappx install --all-users" is frozen the same way (wexappx.exe here is a copy of the probe, which
+# the broker recognises by name): its path and SHA-256 reach the elevated process, and an install that names no file the
+# broker can hold is refused (it would run unchecked)
+el_clean; touch "$EL/approve.all"
+run_as "$ADM" mkdir -p "/home/$ADM/wexel/appx"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/appx/wexappx.exe"
+run_as "$ADM" bash -c 'head -c 70000 /dev/urandom > "$1"' _ "/home/$ADM/wexel/appx/pkg.appx"
+AXX="$(winpath /home/$ADM/wexel/appx/wexappx.exe)"; AXPKG="$(winpath /home/$ADM/wexel/appx/pkg.appx)"
+bp c4_wexappx_package_path_and_hash_reach_the_elevated_process "$ADM" 64 appxdoc "$AXX" "$AXPKG" "$(winpath $EL/out.appxdoc)"
+bp c4_wexappx_install_without_a_package_is_refused "$ADM" 64 appxnone "$AXX" "$(winpath $EL/out.appxnone)"
 el_down "$ADM"
 
 # -- 6. a standard user

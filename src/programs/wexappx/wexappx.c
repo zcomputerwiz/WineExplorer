@@ -34,8 +34,14 @@
  * The signature is checked through WinVerifyTrust (appxsip.dll answers for packages, as AppxSip.dll does on Windows):
  * a package that is not signed, is signed by a publisher this system does not trust or has a signature that is not valid
  * is refused unless --development is given. What this does not do, and says so: it resolves no dependency that is not
- * installed (a package that declares one is refused), installs nothing for other users or the machine, asks no consent
- * (the flag is the consent), and handles no bundle, encrypted package or licence.
+ * installed (a package that declares one is refused), asks no consent for a package of this user (the flag is the
+ * consent), and handles no bundle, encrypted package or licence.
+ *
+ * With --all-users the package goes to C:\Program Files\WindowsApps and the machine catalog
+ * (%ProgramData%\WineExplorer\appx-catalog), and every user can start it. That needs the full token of an
+ * administrator, as provisioning a package does on Windows ("requires elevation", before the file is read): a limited
+ * administrator's command is run again through the elevation broker, whose consent window describes the package, and
+ * the elevated copy installs only the file the broker froze.
  */
 
 #define COBJMACROS
@@ -747,29 +753,165 @@ static int get_full_name( const struct manifest *manifest, WCHAR full_name[PACKA
     return 0;
 }
 
-/* the catalog directory of the prefix, with a trailing backslash */
-static BOOL get_catalog_dir( WCHAR *path, unsigned int size )
+/* the catalog directory, with a trailing backslash: the prefix's (for this user), or with machine the machine's,
+ * %ProgramData%\WineExplorer\appx-catalog, which every user's server reads (only an administrator writes there) */
+static BOOL get_catalog_dir( WCHAR *path, unsigned int size, BOOL machine )
 {
-    const WCHAR *config = _wgetenv( L"WINECONFIGDIR" );
+    if (machine)
+    {
+        DWORD len = GetEnvironmentVariableW( L"ProgramData", path, size );
 
-    if (!config || wcsncmp( config, L"\\??\\", 4 ) || wcslen( config ) + 16 > size) return FALSE;
-    swprintf( path, size, L"\\\\?\\%s\\appx-catalog\\", config + 4 );
-    return TRUE;
+        if (!len || len + 40 > size || len < 3 || path[1] != ':' || path[2] != '\\') wcscpy( path, L"C:\\ProgramData" );
+        wcscat( path, L"\\WineExplorer" );
+        CreateDirectoryW( path, NULL );
+        wcscat( path, L"\\appx-catalog" );
+        CreateDirectoryW( path, NULL );
+        wcscat( path, L"\\" );
+        return GetFileAttributesW( path ) != INVALID_FILE_ATTRIBUTES;
+    }
+    else
+    {
+        const WCHAR *config = _wgetenv( L"WINECONFIGDIR" );
+
+        if (!config || wcsncmp( config, L"\\??\\", 4 ) || wcslen( config ) + 16 > size) return FALSE;
+        swprintf( path, size, L"\\\\?\\%s\\appx-catalog\\", config + 4 );
+        return TRUE;
+    }
 }
 
-/* the per-user package directory, with a trailing backslash; it has to be on drive C: */
-static BOOL get_store_dir( WCHAR *path, unsigned int size )
+/* the package directory, with a trailing backslash; it has to be on drive C: (the user's own, or with machine
+ * C:\Program Files\WindowsApps, where Windows keeps the packages of every user) */
+static BOOL get_store_dir( WCHAR *path, unsigned int size, BOOL machine )
 {
-    DWORD len = GetEnvironmentVariableW( L"LOCALAPPDATA", path, size );
+    DWORD len = GetEnvironmentVariableW( machine ? L"ProgramFiles" : L"LOCALAPPDATA", path, size );
 
     if (!len || len + 32 > size) return FALSE;
     if ((path[0] != 'C' && path[0] != 'c') || path[1] != ':' || path[2] != '\\') return FALSE;
-    wcscat( path, L"\\WineExplorer" );
-    CreateDirectoryW( path, NULL );
+    if (!machine)
+    {
+        wcscat( path, L"\\WineExplorer" );
+        CreateDirectoryW( path, NULL );
+    }
     wcscat( path, L"\\WindowsApps" );
     CreateDirectoryW( path, NULL );
     wcscat( path, L"\\" );
     return GetFileAttributesW( path ) != INVALID_FILE_ATTRIBUTES;
+}
+
+/*
+ * A package for every user needs the machine's directories, which only an administrator with the full token writes
+ * (Windows: provisioning a package, "requires elevation", before it reads the file). A limited administrator asks the
+ * elevation broker to run this same command line once: the consent window describes the package (consent.exe reads the
+ * file the broker froze, as it does for msiexec), and the elevated copy installs only that file (WEXELEVATE_DOC_*).
+ * Without the broker (a Wine without it, or no consent possible) nothing is installed.
+ */
+typedef DWORD (WINAPI *WexElevateRun_t)( const WCHAR *, const WCHAR *, const WCHAR *, const WCHAR *, DWORD, DWORD, DWORD,
+                                         HANDLE *, DWORD * );
+
+/* Is elevation enforced (HKLM\Software\Wine\Elevation\Helper names the broker's helper)? A Wine without one has no
+ * boundary between a limited and a full token: nothing to ask for, and the command goes on as before (msi does the same). */
+static BOOL elevation_enforced(void)
+{
+    WCHAR value[MAX_PATH];
+    DWORD type, size = sizeof(value) - sizeof(WCHAR);
+    HKEY key;
+    LSTATUS status;
+
+    status = RegOpenKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Wine\\Elevation", 0, KEY_READ | KEY_WOW64_64KEY, &key );
+    if (status == ERROR_FILE_NOT_FOUND) return FALSE;
+    if (status) return TRUE;                       /* unreadable: nothing is assumed */
+    value[0] = 0;
+    status = RegQueryValueExW( key, L"Helper", NULL, &type, (BYTE *)value, &size );
+    RegCloseKey( key );
+    if (status == ERROR_FILE_NOT_FOUND) return FALSE;
+    return !(status == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ) && !(size % sizeof(WCHAR)) &&
+             (!size || !value[0]));
+}
+
+/* the full token, or no enforcement at all: nothing to ask the broker for */
+static BOOL token_is_elevated(void)
+{
+    TOKEN_ELEVATION elevation;
+    DWORD size;
+    HANDLE token;
+    BOOL ret = FALSE;
+
+    if (!elevation_enforced()) return TRUE;
+    if (!OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token )) return FALSE;
+    if (GetTokenInformation( token, TokenElevation, &elevation, sizeof(elevation), &size )) ret = elevation.TokenIsElevated;
+    CloseHandle( token );
+    return ret;
+}
+
+/* ERROR_SUCCESS with *code the exit code of the elevated copy, or the reason it did not run */
+static DWORD run_elevated( DWORD *code )
+{
+    WCHAR image[MAX_PATH], cwd[MAX_PATH], *env, *p;
+    DWORD env_len = 0, err, pid;
+    WexElevateRun_t run;
+    HMODULE wexhost;
+    HANDLE process = NULL;
+
+    if (!GetModuleFileNameW( NULL, image, ARRAY_SIZE(image) ) || !GetCurrentDirectoryW( ARRAY_SIZE(cwd), cwd ))
+        return ERROR_INVALID_PARAMETER;
+    if (!(wexhost = LoadLibraryExW( L"wexhost.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32 )) ||
+        !(run = (WexElevateRun_t)GetProcAddress( wexhost, "WexElevateRun" )))
+    {
+        if (wexhost) FreeLibrary( wexhost );
+        return ERROR_NOT_SUPPORTED;
+    }
+    if ((env = GetEnvironmentStringsW()))
+    {
+        for (p = env; *p; p += wcslen( p ) + 1) ;
+        env_len = p + 1 - env;
+    }
+    err = run( image, GetCommandLineW(), cwd, env, env_len, SW_HIDE, 1 /* WEXELEVATE_WANT_HANDLE */, &process, &pid );
+    FreeLibrary( wexhost );
+    if (env) FreeEnvironmentStringsW( env );
+    if (err) return err;
+    WaitForSingleObject( process, INFINITE );
+    if (!GetExitCodeProcess( process, code )) err = GetLastError();
+    CloseHandle( process );
+    return err;
+}
+
+/* The elevated copy that the broker started for a frozen file installs that file only: the path in WEXELEVATE_DOC_PATH
+ * has to be this package, and the bytes held here (the ones that are checked and installed) have to have the SHA-256
+ * the broker computed when the user consented. TRUE when the broker froze nothing (a direct run by an elevated token). */
+static BOOL package_is_frozen_file( const WCHAR *package, const BYTE *bytes, ULONGLONG length )
+{
+    WCHAR want[MAX_PATH], full_want[MAX_PATH], full[MAX_PATH], expected[65], hex[65];
+    BYTE digest[32];
+    HCRYPTPROV prov;
+    HCRYPTHASH hash;
+    DWORD len, size = sizeof(digest), i;
+    ULONGLONG done;
+    BOOL ok = FALSE;
+
+    len = GetEnvironmentVariableW( L"WEXELEVATE_DOC_PATH", want, ARRAY_SIZE(want) );
+    if (!len && !GetEnvironmentVariableW( L"WEXELEVATE_DOC_SHA256", expected, ARRAY_SIZE(expected) )) return TRUE;
+    if (!len || len >= ARRAY_SIZE(want) || GetEnvironmentVariableW( L"WEXELEVATE_DOC_SHA256", expected, ARRAY_SIZE(expected) ) != 64)
+        return FALSE;
+    len = GetFullPathNameW( want, ARRAY_SIZE(full_want), full_want, NULL );
+    if (!len || len >= ARRAY_SIZE(full_want)) return FALSE;
+    len = GetFullPathNameW( package, ARRAY_SIZE(full), full, NULL );
+    if (!len || len >= ARRAY_SIZE(full) || wcsicmp( full, full_want )) return FALSE;
+
+    if (!CryptAcquireContextW( &prov, NULL, MS_ENH_RSA_AES_PROV_W, PROV_RSA_AES, CRYPT_VERIFYCONTEXT )) return FALSE;
+    if (CryptCreateHash( prov, CALG_SHA_256, 0, 0, &hash ))
+    {
+        for (done = 0, ok = TRUE; done < length && ok; done += 0x100000)
+            ok = CryptHashData( hash, bytes + done, (DWORD)(length - done < 0x100000 ? length - done : 0x100000), 0 );
+        if (ok && CryptGetHashParam( hash, HP_HASHVAL, digest, &size, 0 ) && size == sizeof(digest))
+        {
+            for (i = 0; i < size; i++) swprintf( hex + 2 * i, 3, L"%02x", digest[i] );
+            ok = !wcsicmp( hex, expected );
+        }
+        else ok = FALSE;
+        CryptDestroyHash( hash );
+    }
+    CryptReleaseContext( prov, 0 );
+    return ok;
 }
 
 /* remove a directory tree we created; links are removed, not followed */
@@ -1117,7 +1259,7 @@ static int query( const WCHAR *package, const WCHAR *result )
     return 0;
 }
 
-static int install( const WCHAR *package, BOOL development )
+static int install( const WCHAR *package, BOOL development, BOOL machine )
 {
     WCHAR full_name[PACKAGE_FULL_NAME_MAX_LENGTH + 1], store[MAX_PATH], catalog[MAX_PATH];
     WCHAR staging[MAX_PATH], target[MAX_PATH], record_path[MAX_PATH], temp_path[MAX_PATH], *record = NULL;
@@ -1148,6 +1290,8 @@ static int install( const WCHAR *package, BOOL development )
         return fail( L"cannot read %s (error %lu)", package, GetLastError() );
 
     /* everything is checked before anything is written */
+    if (machine && !package_is_frozen_file( package, archive, archive_size ))
+        return fail( L"%s is not the file the elevation broker froze when the consent was given", package );
     if (read_directory()) return 1;
     if (!(entry = find_entry( L"AppxManifest.xml" ))) return fail( L"the archive has no AppxManifest.xml" );
     if (entry->size > MAX_MANIFEST_SIZE) return fail( L"the manifest is too large" );
@@ -1162,9 +1306,20 @@ static int install( const WCHAR *package, BOOL development )
             return fail( L"the package depends on %s (version %s or later), which is not installed", manifest.deps[i].name,
                          manifest.deps[i].min_version );
 
-    if (!get_store_dir( store, ARRAY_SIZE(store) )) return fail( L"no per-user package directory on drive C:" );
-    if (!get_catalog_dir( catalog, ARRAY_SIZE(catalog) )) return fail( L"the prefix directory is not known" );
+    if (!get_store_dir( store, ARRAY_SIZE(store), machine ))
+        return fail( machine ? L"no package directory on drive C: (Program Files\\WindowsApps)" : L"no per-user package directory on drive C:" );
+    if (!get_catalog_dir( catalog, ARRAY_SIZE(catalog), machine ))
+        return fail( machine ? L"the machine catalog is not known" : L"the prefix directory is not known" );
     CreateDirectoryW( catalog, NULL );
+    /* a package for every user can use only what every user has: its dependencies are in the machine catalog too */
+    for (i = 0; machine && i < manifest.dep_count; i++)
+    {
+        WCHAR dep_record[MAX_PATH];
+
+        if (swprintf( dep_record, ARRAY_SIZE(dep_record), L"%s%s.wexappx", catalog, resolved[i] ) < 0 ||
+            GetFileAttributesW( dep_record ) == INVALID_FILE_ATTRIBUTES)
+            return fail( L"the package depends on %s, which is installed for this user only", resolved[i] );
+    }
     if (swprintf( target, ARRAY_SIZE(target), L"%s%s", store, full_name ) < 0 ||
         swprintf( staging, ARRAY_SIZE(staging), L"%s.staging-%lu-%lu", store, GetCurrentProcessId(), GetTickCount() ) < 0 ||
         swprintf( record_path, ARRAY_SIZE(record_path), L"%s%s.wexappx", catalog, full_name ) < 0 ||
@@ -1286,12 +1441,12 @@ static BOOL valid_full_name( const WCHAR *name )
     return underscores == 4;
 }
 
-static int uninstall( const WCHAR *full_name )
+static int uninstall( const WCHAR *full_name, BOOL machine )
 {
     WCHAR store[MAX_PATH], catalog[MAX_PATH], target[MAX_PATH], record_path[MAX_PATH];
 
     if (!valid_full_name( full_name )) return fail( L"%s is not a package full name", full_name );
-    if (!get_store_dir( store, ARRAY_SIZE(store) ) || !get_catalog_dir( catalog, ARRAY_SIZE(catalog) ))
+    if (!get_store_dir( store, ARRAY_SIZE(store), machine ) || !get_catalog_dir( catalog, ARRAY_SIZE(catalog), machine ))
         return fail( L"the package directories are not known" );
     if (swprintf( target, ARRAY_SIZE(target), L"%s%s", store, full_name ) < 0 ||
         swprintf( record_path, ARRAY_SIZE(record_path), L"%s%s.wexappx", catalog, full_name ) < 0)
@@ -1310,13 +1465,13 @@ static int uninstall( const WCHAR *full_name )
     return 0;
 }
 
-static int list(void)
+static int list( BOOL machine )
 {
     WCHAR catalog[MAX_PATH], pattern[MAX_PATH];
     WIN32_FIND_DATAW data;
     HANDLE find;
 
-    if (!get_catalog_dir( catalog, ARRAY_SIZE(catalog) )) return fail( L"the prefix directory is not known" );
+    if (!get_catalog_dir( catalog, ARRAY_SIZE(catalog), machine )) return fail( L"the catalog directory is not known" );
     swprintf( pattern, ARRAY_SIZE(pattern), L"%s*.wexappx", catalog );
     if ((find = FindFirstFileW( pattern, &data )) == INVALID_HANDLE_VALUE) return 0;
     do
@@ -1334,10 +1489,13 @@ static int list(void)
 static int usage(void)
 {
     fputws( L"Usage:\n"
-            L"  wexappx install [--development] PACKAGE   install an .appx or .msix package for this user\n"
+            L"  wexappx install [--development] [--all-users] PACKAGE\n"
+            L"                                            install an .appx or .msix package for this user, or for every user\n"
+            L"                                            (an administrator's consent through the elevation broker)\n"
             L"  wexappx query PACKAGE RESULT              write what the installer window shows (key=value, UTF-16)\n"
-            L"  wexappx uninstall PACKAGE_FULL_NAME       remove an installed package\n"
-            L"  wexappx list                              list the installed packages\n"
+            L"  wexappx uninstall [--all-users] PACKAGE_FULL_NAME\n"
+            L"                                            remove an installed package\n"
+            L"  wexappx list [--all-users]                list the installed packages\n"
             L"\n"
             L"The signature of the package is checked: a package that is not signed, whose publisher this system does not\n"
             L"trust, or whose signature is not valid is refused. --development installs it anyway (and says what the\n"
@@ -1355,11 +1513,30 @@ int __cdecl wmain( int argc, WCHAR **argv )
 
     if (!wcscmp( argv[1], L"install" ))
     {
-        BOOL development = argc == 4 && !wcscmp( argv[2], L"--development" );
+        BOOL development = FALSE, machine = FALSE;
+        int i;
 
-        if ((argc != 3 && !development) || argv[argc - 1][0] == '-') return usage();   /* a package path is never an option */
+        /* options, then the package: a package path is never an option */
+        for (i = 2; i < argc - 1; i++)
+        {
+            if (!wcscmp( argv[i], L"--development" ) && !development) development = TRUE;
+            else if (!wcscmp( argv[i], L"--all-users" ) && !machine) machine = TRUE;
+            else return usage();
+        }
+        if (argc < 3 || argv[argc - 1][0] == '-') return usage();
+        if (machine && !token_is_elevated())
+        {
+            DWORD code = 1, err = run_elevated( &code );
+
+            if (err == ERROR_CANCELLED) return fail( L"the installation for all users was not allowed" );
+            if (err == ERROR_NOT_SUPPORTED)
+                return fail( L"installing for all users requires elevation, which is not available here (an administrator, "
+                             L"and the elevation broker, are needed)" );
+            if (err) return fail( L"the installation for all users could not be started (error %lu)", err );
+            return code;
+        }
         if (FAILED(CoInitializeEx( NULL, COINIT_MULTITHREADED ))) return fail( L"COM is not available" );
-        ret = install( argv[argc - 1], development );
+        ret = install( argv[argc - 1], development, machine );
         CoUninitialize();
         return ret;
     }
@@ -1370,7 +1547,21 @@ int __cdecl wmain( int argc, WCHAR **argv )
         CoUninitialize();
         return ret;
     }
-    if (!wcscmp( argv[1], L"uninstall" ) && argc == 3) return uninstall( argv[2] );
-    if (!wcscmp( argv[1], L"list" ) && argc == 2) return list();
+    if (!wcscmp( argv[1], L"uninstall" ) && (argc == 3 || (argc == 4 && !wcscmp( argv[2], L"--all-users" ))))
+    {
+        BOOL machine = argc == 4;
+
+        if (machine && !token_is_elevated())
+        {
+            DWORD code = 1, err = run_elevated( &code );
+
+            if (err == ERROR_CANCELLED) return fail( L"the removal for all users was not allowed" );
+            if (err) return fail( L"the removal for all users could not be started (error %lu)", err );
+            return code;
+        }
+        return uninstall( argv[argc - 1], machine );
+    }
+    if (!wcscmp( argv[1], L"list" ) && (argc == 2 || (argc == 3 && !wcscmp( argv[2], L"--all-users" ))))
+        return list( argc == 3 );
     return usage();
 }

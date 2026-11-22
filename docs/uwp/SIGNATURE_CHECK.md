@@ -80,6 +80,46 @@ checks the whole chain for revocation: a revoked certificate refuses; no revocat
 passed (as far as measured: Windows asks for revocation online for a Microsoft-signed file and stops at the untrusted root
 for the test package; a chain with a revoked certificate was not measured, it needs a trusted test certificate on the host).
 
-Not done: the consent window for a per-machine install (the msiexec path of `consent.c` would be reused); a Store-signed
-package (Microsoft's chain, its root and the Store EKU) has not been through it; the per-file hashes of the block map are not
-compared at extraction (B68); countersignature time stamps are ignored; no logo or capabilities in the window yet.
+### Installing for every user (2026-11-22)
+
+What Windows does (measured on Windows 11, not elevated): provisioning a package for all users
+(`Add-AppxProvisionedPackage -Online`) answers "The requested operation requires elevation" for a good package, an unsigned
+one and a file that does not exist alike, so the elevation check comes first and the file is not read before it; the
+elevated process then judges the signature as for any package. `Add-AppxPackage` has no all-users switch there. The user's
+own install (App Installer, `Add-AppxPackage`) needs no elevation and no consent beyond its window. So the consent for an
+all-users install is the elevation prompt, and it has to describe the package.
+
+`wexappx install [--development] --all-users PACKAGE` (also `uninstall --all-users NAME`, `list --all-users`) does that:
+
+* The package goes to `C:\Program Files\WindowsApps\FullName`, its record to the machine catalog
+  (`%ProgramData%\WineExplorer\appx-catalog`), where every user's server finds it. A package for all users can depend only on
+  packages that are in the machine catalog too (the frameworks), else it is refused.
+* With elevation enforced (`HKLM\Software\Wine\Elevation\Helper` set) and a limited token, `wexappx` runs its own command
+  line again through the elevation broker (`WexElevateRun`, as `msiexec` does for a per-machine install). Nothing is asked of
+  the broker without a Helper (the command goes on as before); with one and no broker, or a standard user, nothing is
+  installed and the message says why. Cancelling the consent gives "not allowed".
+* The broker freezes the package like the file of an `msiexec` request (`doc_of` in `wexelevate/main.c`: held open, lease,
+  SHA-256) and hands the elevated copy `WEXELEVATE_DOC_PATH` and `WEXELEVATE_DOC_SHA256`; the elevated `wexappx` installs
+  only that file, hashing the very bytes it checks and extracts. A `wexappx install` request whose package the broker cannot
+  name is refused (`ERROR_INVALID_PARAMETER`), not run unchecked.
+* The consent window (`consent.c`) describes the frozen file by what `wexappx query` reads from it (the same reading as the
+  installer window): the display or identity name, the signer when the publisher is trusted, "Unknown publisher" for an
+  untrusted or unsigned one, "Invalid signature" for a package or signature that does not hold. A package that cannot be
+  read gets the plain description of `wexappx.exe`.
+* Wine (`claude/uwp-machine-apps`, `STOCK_CHANGES.md`): the server and `kernelbase` accept an application from the machine
+  catalog (they accepted only frameworks), after the user's own catalog.
+
+Tested: `test-wexappx.sh` with `WEX_MACHINE=1` (install, list, extract, launch the nine packaged checks, uninstall, per
+architecture, plus the frozen-file checks: a wrong hash, another file, a path without a hash are refused; the frozen
+file installs: 64 checks), and in the user mode as before (59). `consent.c` built with the test hook (`consent-test.sh` in the
+lab helpers) and run standalone on `wexappx install --all-users` of the fixtures shows the name "Signature test" and, as the
+publisher, the signer for a package from a trusted publisher, "Unknown publisher" for the unsigned one and "Invalid signature"
+for the one with a changed byte (the untrusted-publisher label is the same branch as the unsigned one; the prefix used had the
+test certificate trusted already). The broker side (`appxdoc`, `appxnone` in `wexelevate_probe.c`, `test_sysrun_server.sh`) is
+written and compiles with the suite's own compile lines; it runs in session 0's suite, as does the whole path through the
+broker (limited token, consent on the secure desktop, the elevated copy).
+
+Not done: a Store-signed package (Microsoft's chain, its root and the Store EKU) has not been through it; the per-file hashes
+of the block map are not compared at extraction (B68); countersignature time stamps are ignored; no logo or capabilities in
+the window yet; the installer window installs for the user only (App Installer has no all-users choice either); the consent
+window for an all-users install was not looked at on a screen (the text it shows was read from the test hook's file).
