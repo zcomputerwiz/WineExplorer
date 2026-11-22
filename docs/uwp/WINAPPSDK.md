@@ -60,3 +60,22 @@ A trap met on the way: after the generated files of a change are regenerated on 
   suspect, not a harmless log line.
 * Next: serve that class with an object that logs every interface asked for and every method called (the way `profapi` 114 gave up
   its signature), to learn what the runtime wants from the package state repository.
+
+### The StateRepository probe (2026-11-22, Wine branch `claude/staterepository`, on `claude/wait-completion`)
+
+`Windows.Internal.StateRepository.Package` is served by a logging stand-in (`staterepository.c`): the factory answers the interface
+the runtime asks for (`4408fb32-c420-41c5-b6c1-edce489bb84d`) with an object of 64 methods that log and fail. First result: the
+runtime calls **method 21 (vtable slot 27)** of it once, with three pointers to the stack frame of the caller:
+
+* arg 1 points to a small structure whose third word is a pointer to the package full name
+  (`Microsoft.WindowsNotepad_11.2609.11.0_x64__8wekyb3d8bbwe`) and whose first word holds the length of the name (0x38 = 56) in its
+  upper half: the input (a package identified by its full name);
+* args 2 and 3 point to neighbouring stack locations that are not initialised yet (outputs); a frame beside them holds the package
+  path string from an earlier call, which is stale data of the caller and not an argument.
+
+So the call looks like "give me the state-repository package for this full name", with results returned through the two output
+pointers. What a result has to hold (an object of this class, an interface of it, a path, the identity) is the next thing to find:
+return success with a zeroed output, then with a made-up object, and see what the caller dereferences. After the failed call the
+application neither crashed nor reported anything, and the second copy of Notepad still ends silently, so it is not proven that this
+call is the reason.
+
