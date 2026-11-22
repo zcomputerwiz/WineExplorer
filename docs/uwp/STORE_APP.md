@@ -89,7 +89,7 @@ modules and the optional components that exist. "Component" means the OOBE optio
 |---|---|---|---|
 | WinUI 2.8, VCLibs 140, .NET Native runtime and framework | no (dependencies) | downloads Microsoft publishes; the `uwp-frameworks` component | done |
 | WebView2 (`CoreWebView2Environment`, `...Controller`, `...CompositionController`; the projection `Microsoft.Web.WebView2.Core.dll` is in the package) | the projection only | the Evergreen WebView2 Runtime, the `webview2` component (pinned installer) | component done; the Store's way of hosting it is unverified (see below) |
-| `WebAuthenticationCoreManager`, `WebTokenRequest`, `WebAccountProvider`, `AccountsSettingsPane`, `Windows.Security.Authentication.OnlineId` | no | part of Windows; no download. Wine: `windows.security.authentication.web.core` and `...onlineid` (API and a diagnostic provider) and WineExplorer's `tokenbroker` (cache, OAuth, provider) | code exists; a real sign-in has only been tried by hand; `AccountsSettingsPane` is missing |
+| `WebAuthenticationCoreManager`, `WebTokenRequest`, `WebAccountProvider`, `AccountsSettingsPane`, `Windows.Security.Authentication.OnlineId` | no | part of Windows; no download. Wine: `windows.security.authentication.web.core` and `...onlineid` (API and a diagnostic provider) and WineExplorer's `tokenbroker` (cache, OAuth, provider) | code exists; a real sign-in has only been tried by hand; `AccountsSettingsPane` and its desktop interop interface now exist as an object model without a pane (2026-11-22) |
 | `Windows.ApplicationModel.AppService` (the link to the Desktop Extension), background activation | no | part of Windows | class stub only; the hosting is the blocker |
 | `Windows.ApplicationModel.Store.Preview.InstallControl` (`AppInstallManager`, `AppInstallItem`: install and update through the system's install service; `InstallServicePlugin.dll` in the package is a plug-in of that service) | plug-in only | part of Windows (the Store install service); no download | missing; `wexappx` could stand behind it |
 | `Windows.Services.Store.StoreContext`, licensing (`LicenseManager`) | no | part of Windows; needs the licensing service | missing (the licensing service is not to be run under Wine, see the SPP notes) |
@@ -134,7 +134,8 @@ not these. So they have to be written in Wine; only the frameworks and the WebVi
   DirectComposition, which Wine still answers `E_NOTIMPL` (`DCompositionCreateDevice`). Which of the two the Store uses is
   not known from the strings; the Store's sign-in and the account control are the likely users.
 * **WAM.** The API and a broker exist, but only as far as `WAM_BROKER_DESIGN.md` says: a sign-in against the real service was
-  never done end to end (only the owner can do it, by hand). The Store also names `AccountsSettingsPane` (missing) and the
+  never done end to end (only the owner can do it, by hand). The Store also names `AccountsSettingsPane` (now an object model: showing
+  it asks the handlers for the commands and completes, no pane is drawn, so the Store's sign-in list is still not on screen) and the
   older `OnlineIdAuthenticator`. Enough for the Store to start and ask; not shown to be enough for it to sign in.
 
 ## What a real answer needs
