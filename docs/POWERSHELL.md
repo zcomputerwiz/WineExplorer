@@ -30,8 +30,10 @@ cmdlets work (2026-11-22, tried with 7.7.0, x64):
   have the new name; a session started later sees it. `Win32_ComputerSystem.Domain` is the DNS name of the domain,
   read from `HKLM\Software\WineExplorer\Domain\Name` (the NetBIOS name when that is missing). An image older than
   `mi.dll` needs the dll in each prefix's system32/syswow64 (the lab script does it).
-- The 32-bit PowerShell (`PowerShell-7.7.0-win-x86.zip`) does not start in this build: even `1+1` fails loading
-  `System.Runtime.dll` ("Module not found") before any CIM code runs. Not looked into; the component is the x64 one.
+- The 32-bit PowerShell (`PowerShell-7.7.0-win-x86.zip`) starts and runs CIM (`Get-CimInstance`, a query, `Get-CimClass`; run by hand
+  from a prefix, not in the lab suite). An earlier failure loading `System.Runtime.dll` came from how it was launched
+  (an absolute `Z:` path and `WINEDLLOVERRIDES=mscoree,mshtml=`); run it as `wine pwsh.exe -NoProfile -NoLogo
+  -ExecutionPolicy Bypass -File x.ps1` from its folder and with a console (`script -qec`).
 - Outside a domain, `Rename` goes through the host name service (`wexhost.dll`, `WexHostnameSet`, loaded by name by
   `wbemprox`, as System Properties does), so the host name changes at once; polkit decides, and asks the desktop's
   authentication agent (a dialog) when the caller has no standing permission. Without `wexhost.dll` the stock
@@ -46,8 +48,10 @@ cmdlets work (2026-11-22, tried with 7.7.0, x64):
   what `wbemprox` answers (it is read-only for its classes, so they fail with `FAILED` or `NOT_FOUND`). Not done:
   wildcard `Get-CimClass` (`EnumerateClasses`), associations (`Get-CimAssociatedInstance`), indications
   (`Register-CimIndicationEvent`).
-- Only the x64 PowerShell runs (see above). The i386 `mi.dll` builds; its calling convention is unchecked (OMI's
-  `MI.h` has `MI_CALL` empty).
+- On i386 `MI_CALL` is `__stdcall` (`MI.h` of this tree; the Windows header does the same, and the managed MMI layer calls the
+  function tables that way). With it empty the tables were cdecl and the 32-bit PowerShell crashed in `inst_free` on the
+  first `Get-CimInstance` (the stack drifted by the arguments of each call). Stubs also clear their `_Outptr_` out
+  parameters now, so a caller that reads them after a failure sees NULL, not garbage.
 
 ## Running it
 

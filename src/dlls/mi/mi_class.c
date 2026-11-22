@@ -359,6 +359,8 @@ MI_Result MI_CALL impl_MI_ClassFT_GetMethod(const MI_Class *self, const MI_Char 
 
 MI_Result MI_CALL impl_MI_ClassFT_GetParentClassName(const MI_Class *self, const MI_Char **name)
 { *name = NULL; return MI_RESULT_NOT_FOUND; }
+MI_Result MI_CALL impl_MI_ClassFT_GetParentClass(const MI_Class *self, MI_Class **parent)
+{ *parent = NULL; return MI_RESULT_NOT_FOUND; }
 MI_Result MI_CALL impl_MI_ClassFT_Delete(MI_Class *self)
 { cls_free((struct cls *)self); return MI_RESULT_OK; }
 

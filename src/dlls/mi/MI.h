@@ -278,7 +278,13 @@
 **==============================================================================
 */
 
+/* WineExplorer: the Windows MI.h uses __stdcall on x86 (the managed MMI layer of PowerShell calls the function tables
+   that way); with an empty macro the 32-bit tables are cdecl and every call leaks its arguments off the stack. */
+#if defined(__i386__) || defined(_M_IX86)
+# define MI_CALL __stdcall
+#else
 # define MI_CALL /* empty */
+#endif
 
 /*
 **==============================================================================

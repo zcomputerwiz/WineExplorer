@@ -76,8 +76,10 @@ for st in structs:
                     dflt = 'MI_RESULT_OK'
                 elif name.startswith('Get'):
                     dflt = 'MI_RESULT_NOT_FOUND'
-            decl.append('static %s MI_CALL stub_%s(%s) { mi_trace("%s"); %s }' %
-                        (ret, key, params, key, ('return %s;' % dflt) if ret != 'void' else ''))
+            # a stub must leave no garbage in its out pointers: callers may read them even after a failure
+            zero = ''.join(' if (%s) *%s = 0;' % (n, n) for n in re.findall(r'_Outptr\w*\s+[\w ]+?\*\*\s*(\w+)', params))
+            decl.append('static %s MI_CALL stub_%s(%s) { mi_trace("%s");%s %s }' %
+                        (ret, key, params, key, zero, ('return %s;' % dflt) if ret != 'void' else ''))
             members.append('stub_' + key)
     tables.append('const %s mi_tbl_%s = {\n    %s\n};' % (st, st, ',\n    '.join(members)))
 out += decl + [''] + tables

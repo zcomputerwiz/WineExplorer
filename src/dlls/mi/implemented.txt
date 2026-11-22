@@ -41,6 +41,7 @@ MI_ClassFT_GetMethodCount
 MI_ClassFT_GetMethodAt
 MI_ClassFT_GetMethod
 MI_ClassFT_GetParentClassName
+MI_ClassFT_GetParentClass
 MI_ClassFT_Delete
 MI_ClassFT_Clone
 MI_ParameterSetFT_GetMethodReturnType
