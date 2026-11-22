@@ -164,7 +164,7 @@ static BOOL report(HWND page, const WCHAR *domain, DWORD status)
     }
     lstrcpynW(upper, domain, ARRAY_SIZE(upper));
     CharUpperW(upper);
-    show_join_error(page, CAPTION, upper, status, FALSE);
+    show_join_error(page, CAPTION, upper, status, 0);
     return TRUE;
 }
 

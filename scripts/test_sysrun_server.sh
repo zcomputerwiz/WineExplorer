@@ -119,6 +119,8 @@ cleanup()
     pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null; pkill -u "$CAR" 2>/dev/null; pkill -u "$SYS" 2>/dev/null   # includes winedevice.exe, which blocks userdel
     sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null; pkill -9 -u "$CAR" 2>/dev/null; pkill -9 -u "$SYS" 2>/dev/null
     [ -z "${XV_PID:-}" ] || kill "$XV_PID" 2>/dev/null
+    # the join case's fake engine (a failure between its start and its kill leaves it holding the fixture)
+    [ -z "${JENG_PID:-}" ] || kill "$JENG_PID" 2>/dev/null
     if [ "${WEX_C2_KEEP:-0}" = 1 ]; then
         echo "fixture kept: $ROOT, users $ADM $STD $CAR $SYS, group $GRP, $CONF, $LIBEXEC" >&2
         exit "$rc"
@@ -2631,6 +2633,44 @@ wait "$DP" || { cat "$ROOT/docrace.log" >&2; fail "docrace"; }
 grep -q '^docrace=PASS' "$ROOT/docrace.log" || { cat "$ROOT/docrace.log" >&2; fail "docrace: no PASS"; }
 [ ! -e "$EL/out.docrace" ] || fail "the replaced package ran"
 ok c4_package_replaced_while_consent_pending_is_denied_and_starts_nothing
+
+# the package of "wexappx install --all-users" is frozen the same way (wexappx.exe here is a copy of the probe, which
+# the broker recognises by name): its path and SHA-256 reach the elevated process, and an install that names no file the
+# broker can hold is refused (it would run unchecked)
+el_clean; touch "$EL/approve.all"
+run_as "$ADM" mkdir -p "/home/$ADM/wexel/appx"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/appx/wexappx.exe"
+run_as "$ADM" bash -c 'head -c 70000 /dev/urandom > "$1"' _ "/home/$ADM/wexel/appx/pkg.appx"
+AXX="$(winpath /home/$ADM/wexel/appx/wexappx.exe)"; AXPKG="$(winpath /home/$ADM/wexel/appx/pkg.appx)"
+bp c4_wexappx_package_path_and_hash_reach_the_elevated_process "$ADM" 64 appxdoc "$AXX" "$AXPKG" "$(winpath $EL/out.appxdoc)"
+bp c4_wexappx_install_without_a_package_is_refused "$ADM" 64 appxnone "$AXX" "$(winpath $EL/out.appxnone)"
+
+# the token broker (WAM) with elevation enforced: its client and the broker read each other's process token, which the
+# server gives only to a handle with the query right (server/token.c, open_token); with the limited right the client
+# refused the broker's pipe and Copilot used its own sign-in window. Wine's web_core tests, as the limited
+# administrator, against the local test authority (tests/wam/run-broker-tests.sh runs them without enforcement)
+python3 -I "$SRC/tests/wam/test_authority.py" "$ROOT/wam-port" 2> "$ROOT/wam-authority.log" &
+WAM_AUTH=$!
+for _ in $(seq 50); do [ -s "$ROOT/wam-port" ] && break; sleep 0.1; done
+[ -s "$ROOT/wam-port" ] || { kill "$WAM_AUTH" 2>/dev/null; fail "wam: the test authority did not start"; }
+for arch in x86_64 i386; do
+    install -m 755 "$BUILD/dlls/windows.security.authentication.web.core/tests/$arch-windows/windows.security.authentication.web.core_test.exe" \
+        "$ROOT/probes/web_core_$arch.exe" || { kill "$WAM_AUTH" 2>/dev/null; fail "wam $arch: no web_core test program"; }
+    rc=0
+    timeout 300 runuser -u "$ADM" -- env -i HOME="/home/$ADM" USER="$ADM" LOGNAME="$ADM" PATH=/usr/bin:/bin LANG=C \
+        DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' \
+        WEBCORE_TEST_AUTHORITY="http://127.0.0.1:$(cat "$ROOT/wam-port")/" \
+        "$BUILD/wine" "$ROOT/probes/web_core_$arch.exe" web_core > "$ROOT/wam-$arch.log" 2>&1 || rc=$?
+    if [ "$rc" != 0 ] || grep -q -e 'Test failed' -e 'skipped: the token broker' "$ROOT/wam-$arch.log" ||
+       ! grep -q 'tests executed' "$ROOT/wam-$arch.log"; then
+        grep -E 'Test failed|skipped|tests executed|unhandled' "$ROOT/wam-$arch.log" | head -20 >&2
+        kill "$WAM_AUTH" 2>/dev/null
+        fail "wam $arch: web_core with the broker as the limited administrator (exit $rc)"
+    fi
+    ok "c4_token_broker_web_core_tests_pass_as_the_limited_administrator_$arch"
+done
+kill "$WAM_AUTH" 2>/dev/null; wait "$WAM_AUTH" 2>/dev/null || true
+pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
 el_down "$ADM"
 
 # -- 6. a standard user
@@ -2796,6 +2836,36 @@ grep -qF "Program location: $(winpath /home/$ADM/wexel/cs.exe)" "$shown" && grep
 touch "${shown%.shown}.approve"
 wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "spoofcmd"; }
 ok c5_window_shows_the_frozen_image_not_the_command_line
+
+# the window describes the package of "wexappx install --all-users" by what the real wexappx.exe (next to consent, in
+# system32) reads from the frozen file: the name of the package, and a publisher line that tells signed by a publisher this
+# system does not trust, unsigned and invalid apart. The image the broker runs is the probe renamed wexappx.exe (the
+# broker freezes by that name); consent runs the real one for the description. The account that runs consent has not set
+# UwpCompatibility: the query has to work without it.
+[ -f "$SYS32/wexappx.exe" ] || install -m 775 -o root -g "$GRP" "$BUILD/programs/wexappx/x86_64-windows/wexappx.exe" "$SYS32/wexappx.exe"
+APXF="$ROOT/appxfix"; rm -rf "$APXF"; mkdir -p "$APXF"
+python3 -I "$SRC/tests/uwp/signature/tamper.py" "$SRC/tests/uwp/signature/fixtures/signed.appx" "$APXF" > /dev/null || fail "tamper.py"
+cp "$SRC/tests/uwp/signature/fixtures/signed.appx" "$SRC/tests/uwp/signature/fixtures/unsigned.appx" "$APXF/"
+chmod -R a+rX "$APXF"
+run_as "$ADM" mkdir -p "/home/$ADM/wexel/appx"
+run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/appx/wexappx.exe"
+for f in signed unsigned bad-block; do run_as "$ADM" cp "$APXF/$f.appx" "/home/$ADM/wexel/appx/$f.appx"; done
+AXX="$(winpath /home/$ADM/wexel/appx/wexappx.exe)"
+consent_appx_case()   # name package expected-publisher
+{
+    local name="$1" pkg="$2" want="$3" shown
+    el_clean
+    bprobe "$ADM" 64 appxdoc "$AXX" "$(winpath /home/$ADM/wexel/appx/$pkg.appx)" "$(winpath $EL/out.appxc)" > "$ROOT/cs.log" 2>&1 & CSP=$!
+    shown="$(wait_shown)" || { cat "$ROOT/cs.log" >&2; fail "$name: no consent window"; }
+    grep -q '^program=Signature test$' "$shown" || { cat "$shown" >&2; fail "$name: the window does not name the package"; }
+    grep -qx "publisher=$want" "$shown" || { cat "$shown" >&2; fail "$name: the publisher line is not $want"; }
+    touch "${shown%.shown}.approve"
+    wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "$name: the approved request"; }
+    ok "$name"
+}
+consent_appx_case c5_appx_untrusted_publisher_is_unknown_publisher signed "Unknown publisher"
+consent_appx_case c5_appx_unsigned_is_unknown_publisher unsigned "Unknown publisher"
+consent_appx_case c5_appx_changed_package_is_invalid_signature bad-block "Invalid signature"
 
 # two requests: approving one does not approve the other
 el_clean
@@ -4171,7 +4241,7 @@ for b in 64 32; do
     # refused before the engine: nothing is sent
     n=$(reqs)
     for case in "join - - - A p 1:87" "join - ad.wexlab.example - A p 0:50" "join - ad.wexlab.example - A p 0x41:50" "join - ad.wexlab.example - - p 1:1326" \
-                "join - ad.wexlab.example - A - 1:1326" "join \\\\\\\\other ad.wexlab.example - A p 1:50" "unjoin A p 2:1004" "rename NEW:50"; do
+                "join - ad.wexlab.example - A - 1:1326" "join \\\\\\\\other ad.wexlab.example - A p 1:50" "unjoin A p 2:1004" "rename NEW:1326"; do
         args=${case%:*}; want=${case##*:}
         OUT="$(jp $b $args)"; grep -qx "status=$want" <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: '$args' gave something other than $want"; }
     done
@@ -4209,7 +4279,8 @@ for b in 1; do
     nd frobnicate; [ "$NDRC" = 87 ] || fail 'netdom: an unknown command'
     nd join /nonsense; [ "$NDRC" = 87 ] && grep -q 'not valid' <<<"$NDOUT" || fail 'netdom: an unknown option'
     nd resetpwd /server:x; [ "$NDRC" = 50 ] && grep -q 'not supported' <<<"$NDOUT" || fail 'netdom resetpwd'
-    nd renamecomputer /newname:NEWNAME; [ "$NDRC" = 50 ] && grep -q 'not supported yet' <<<"$NDOUT" || fail 'netdom renamecomputer'
+    nd renamecomputer; [ "$NDRC" = 87 ] && grep -q '/NewName option is required' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom renamecomputer without a name'; }
+    nd renamecomputer OTHERPC /newname:NEWNAME /userd:a /passwordd:x; [ "$NDRC" = 50 ] && grep -q 'another computer is not supported' <<<"${NDOUT,,}" || { echo "$NDOUT" >&2; fail 'netdom renamecomputer of another computer'; }
     [ "$(reqs)" = "$n" ] || { cat "$JREQ" >&2; fail 'a refused netdom call reached the engine'; }
     nd help; [ "$NDRC" = 0 ] && grep -q 'NETDOM JOIN' <<<"$NDOUT" || fail 'netdom help'
     # the engine's refusal is shown, with Windows' closing line
@@ -4272,7 +4343,7 @@ grep -qi 'access.*denied' <<<"$NDOUT" && grep -q 'The command failed to complete
 OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" validate WEXBOX 1)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user was not refused"; }
 [ ! -s "$JREQ" ] || fail "join: a standard user's call reached the engine"
 # the engine is not there: the workstation service is not started
-kill "$JENG_PID" 2>/dev/null; wait "$JENG_PID" 2>/dev/null || true; rm -f "$JSOCK"
+kill "$JENG_PID" 2>/dev/null; wait "$JENG_PID" 2>/dev/null || true; JENG_PID=; rm -f "$JSOCK"
 OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=2138' <<<"$OUT" || { echo "$OUT" >&2; fail "join: no engine is not NERR_WkstaNotStarted"; }
 kill_servers
 ok st_join_api_reaches_the_engine_only_from_the_system_group

@@ -48,7 +48,7 @@ w "$run/gate-off.log" wexappx install --development "Z:$run/pkg/x64-positive.app
 [ "$rc" != 0 ] && [ "$(leftovers)" = 0 ]; check $? "install refused while the gate is off"
 w "$run/reg.log" reg add 'HKCU\Software\WineExplorer\Shell' /v UwpCompatibility /t REG_DWORD /d 1 /f
 
-# --development is required
+# an unsigned package is refused without --development
 w "$run/no-flag.log" wexappx install "Z:$run/pkg/x64-positive.appx"; rc=$?
 [ "$rc" != 0 ] && [ "$(leftovers)" = 0 ]; check $? "install refused without --development"
 

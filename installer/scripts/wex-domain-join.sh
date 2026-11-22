@@ -11,6 +11,8 @@
 #   wex-domain-join.sh leave --user NAME --password-stdin      the machine account is removed from the domain
 #   wex-domain-join.sh leave --force                           only this machine's side (the controller is out of
 #                                                              reach): the machine account stays in the domain
+#   wex-domain-join.sh rename NEWNAME --user NAME --password-stdin
+#                                                              the machine account takes the computer's new name
 #   wex-domain-join.sh status                                  what the machine is joined to and what is set up
 #   wex-domain-join.sh serve                                   one request on standard input (the socket unit)
 #
@@ -27,6 +29,7 @@ HERE=$(dirname -- "$(readlink -f -- "$0")")
 STATE_TOOL=${WEX_DOMAIN_STATE:-/usr/local/bin/wex-domain-state.sh}
 [ -e "$STATE_TOOL" ] || STATE_TOOL=$HERE/wex-domain-state.sh
 PACKAGES="samba winbind libnss-winbind libpam-winbind krb5-user"
+RENAME_PACKAGES="ldap-utils libsasl2-modules-gssapi-mit"
 
 # serve mode (a request on standard input from the socket, docs/DOMAIN_JOIN.md, "How the API reaches root") answers with
 # status=N (a Win32 error code) and message=TEXT; the command line says the text and ends with status 1
@@ -151,7 +154,7 @@ CCDIR=
 get_ticket()   # NAME@REALM
 {
     local pw
-    if [ -n "${JOIN_PW+x}" ]; then pw=$JOIN_PW; JOIN_PW=; else IFS= read -r pw || fail 87 "no password on standard input"; fi
+    if [ -n "${JOIN_PW+x}" ]; then pw=$JOIN_PW; JOIN_PW=; else IFS= read -r pw || [ -n "$pw" ] || fail 87 "no password on standard input"; fi
     [ -n "$pw" ] || fail 87 "an empty password"
     CCDIR=$(mktemp -d) || die "no temporary directory"
     chmod 0700 "$CCDIR"
@@ -164,7 +167,7 @@ trap drop_ticket EXIT
 
 cmd_join()
 {
-    local domain=${1:-} user= workgroup= ou= stdin=0 realm kind netbios principal guessed found joinout oupath ouparts i part
+    local domain=${1:-} user= workgroup= ou= stdin=0 realm kind netbios principal guessed found joinout oupath ouparts i part osver
     [ -n "$domain" ] || usage
     take_lock
     shift
@@ -234,7 +237,9 @@ cmd_join()
         done
         ou=$oupath
     fi
-    joinout=$(net ads join "$(krb_opt)" ${ou:+createcomputer="$ou"} 2>&1) || {
+    # the operating system the account tells the directory (AD Users and Computers shows it): this system's own name and version
+    osver=$(. "${WEX_OS_RELEASE:-/etc/os-release}" 2>/dev/null; printf '%s' "${VERSION_ID:-}")
+    joinout=$(net ads join "$(krb_opt)" ${ou:+createcomputer="$ou"} "osName=WineExplorer" "osVer=${osver:-1}" 2>&1) || {
         drop_ticket; undo_files
         die "net ads join failed (the account may not join computers, or ${ou:-the OU} does not exist): $(tail -n 2 <<<"$joinout" | cut -c1-200)"
     }
@@ -432,6 +437,163 @@ cmd_sc_query()
     note "dc=${dc:-}||status=$status"
 }
 
+# Renaming the computer in the domain (NetRenameMachineInDomain, netdom renamecomputer, the Change dialog): the account is
+# renamed over LDAP with the administrator's ticket, as Windows does (the object, sAMAccountName, dNSHostName, the service
+# principal names), then smb.conf takes the new NetBIOS name, the machine password is changed, the keytab is made again and
+# Winbind restarts. The caller has set the host name already. A failure puts the account and smb.conf back as they were.
+# The names come from the request: letters, digits and hyphens only (valid_workgroup), so they are safe in an LDIF.
+ldap_run()   # LDIF on standard input
+{
+    LDAPCONF="$LDAPCONF_FILE" ldapmodify -Y GSSAPI -H "ldap://$RN_DC" -Q >/dev/null 2>&1
+}
+ldap_find()   # NAME: the distinguished name of the computer account
+{
+    LDAPCONF="$LDAPCONF_FILE" ldapsearch -Y GSSAPI -H "ldap://$RN_DC" -Q -LLL -b "$RN_BASE" "(sAMAccountName=$1\$)" dn 2>/dev/null |
+        sed -n 's/^dn: //p' | head -n 1
+}
+# the attributes that carry the computer's name, set for NAME in the object that has the DN
+ldap_set_names()   # DN NAME
+{
+    ldap_run <<LDIF
+dn: $1
+changetype: modify
+replace: sAMAccountName
+sAMAccountName: $2\$
+-
+replace: dNSHostName
+dNSHostName: $(printf '%s' "$2" | tr 'A-Z' 'a-z').$RN_DNS
+LDIF
+}
+ldap_set_spns()   # DN NAME
+{
+    ldap_run <<LDIF
+dn: $1
+changetype: modify
+replace: servicePrincipalName
+servicePrincipalName: HOST/$2.$RN_DNS
+servicePrincipalName: RestrictedKrbHost/$2.$RN_DNS
+servicePrincipalName: HOST/$2
+servicePrincipalName: RestrictedKrbHost/$2
+LDIF
+}
+ldap_rdn()   # DN NAME
+{
+    ldap_run <<LDIF
+dn: $1
+changetype: modrdn
+newrdn: CN=$2
+deleteoldrdn: 1
+LDIF
+}
+set_netbios_name()   # NAME
+{
+    local tmp
+    tmp=$(mktemp "$ETC/samba/smb.conf.XXXXXX") || return 1
+    if grep -q '^[[:space:]]*netbios name[[:space:]]*=' "$ETC/samba/smb.conf"; then
+        sed "s/^\([[:space:]]*netbios name[[:space:]]*=\).*/\1 $1/" "$ETC/samba/smb.conf" > "$tmp"
+    else
+        sed "/^\[global\]/a\\    netbios name = $1" "$ETC/samba/smb.conf" > "$tmp"
+    fi
+    cat "$tmp" > "$ETC/samba/smb.conf"; rm -f "$tmp"
+}
+
+# net with the machine account's own credentials: a ticket cache of its own, so that the administrator's ticket stays
+mnet() { KRB5CCNAME="FILE:$CCDIR/machine" net "$@"; }
+
+cmd_rename()
+{
+    local new=${1:-} user= stdin=0 kind old realm principal olddn parent newdn workgroup step=0 t oldhost
+    [ -n "$new" ] || usage
+    take_lock
+    shift
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --user) user=${2:-}; shift 2 || usage ;;
+            --password-stdin) stdin=1; shift ;;
+            *) usage ;;
+        esac
+    done
+    new=$(printf '%s' "$new" | tr 'a-z' 'A-Z')
+    valid_workgroup "$new" || fail 87 "the new name: 1 to 15 letters, digits and hyphens"
+    [[ $new =~ ^[A-Z0-9]([A-Z0-9-]*[A-Z0-9])?$ ]] || fail 87 "the new name: letters, digits and hyphens, not at the ends"
+    valid_user "$user" || fail 87 "--user: a user name is needed (letters, digits and . _ @ -)"
+    [ "$stdin" = 1 ] || fail 87 "the password is read from standard input: give --password-stdin"
+    kind=$(join_kind)
+    [ "$kind" = winbind ] || fail 2692 "this machine is not joined with Winbind (kind: ${kind:-none})"
+    need_tools
+    for t in ldapmodify ldapsearch; do
+        command -v "$t" >/dev/null 2>&1 || fail 50 "missing: $t (on Debian: apt-get install $RENAME_PACKAGES)"
+    done
+    realm=$(testparm -s --parameter-name=realm 2>/dev/null | tr 'a-z' 'A-Z')
+    [ -n "$realm" ] || realm=$(sed -n 's/^[[:space:]]*realm[[:space:]]*=[[:space:]]*//p' "$ETC/samba/smb.conf" | head -n 1 | tr 'a-z' 'A-Z')
+    [ -n "$realm" ] || fail 2692 "the realm of the join is not in smb.conf"
+    workgroup=$(testparm -s --parameter-name=workgroup 2>/dev/null | tr 'a-z' 'A-Z')
+    [ "$new" != "$workgroup" ] || fail 1210 "the computer name cannot be the domain's NetBIOS name ($workgroup)"
+    old=$(testparm -s --parameter-name='netbios name' 2>/dev/null | tr 'a-z' 'A-Z')
+    [ -n "$old" ] || old=$(printf '%s' "$(hostname -s)" | tr 'a-z' 'A-Z' | cut -c 1-15)
+    [ "$new" != "$old" ] || fail 87 "the computer has this name already"
+    oldhost=$(hostname 2>/dev/null)
+    RN_DNS=$(printf '%s' "$realm" | tr 'A-Z' 'a-z')
+    RN_BASE=$(printf '%s' "$RN_DNS" | sed 's/\./,DC=/g; s/^/DC=/')
+    RN_DC=$(net ads info </dev/null 2>/dev/null | sed -n 's/^LDAP server name: *//p' | head -n 1)
+    [ -n "$RN_DC" ] || RN_DC=$RN_DNS
+    [[ $RN_DC =~ ^[A-Za-z0-9.-]+$ ]] || fail 1355 "no domain controller answered"
+    principal=$user; [[ $user == *@* ]] || principal=$user@$realm
+    get_ticket "$principal" || fail 1326 "the controller did not accept $user@$realm (a wrong password, or the clock or DNS)"
+    LDAPCONF_FILE=$(mktemp) || die "no temporary file"
+    printf 'SASL_NOCANON on\n' > "$LDAPCONF_FILE"
+    trap 'rm -f "$LDAPCONF_FILE"; drop_ticket' EXIT
+    olddn=$(ldap_find "$old")
+    [ -n "$olddn" ] || fail 1787 "the account of $old was not found in the domain (or $user may not read it)"
+    [ -z "$(ldap_find "$new")" ] || fail 52 "the domain has a computer named $new already"   # ERROR_DUP_NAME
+    parent=${olddn#*,}
+    newdn=CN=$new,$parent
+    ldap_rdn "$olddn" "$new" || fail 5 "$user may not rename the account of $old"
+    step=1
+    if ldap_set_names "$newdn" "$new"; then
+        step=2
+        cp -p "$ETC/samba/smb.conf" "$ETC/samba/smb.conf.wex-rename" 2>/dev/null
+        set_netbios_name "$new" && step=3
+    fi
+    if [ "$step" = 3 ]; then
+        # the machine password is changed with the machine's own credentials (the secret stays valid after the rename)
+        mnet ads changetrustpw >/dev/null 2>&1 && step=4
+    fi
+    if [ "$step" = 4 ]; then
+        # the keytab is flushed first (that takes the service principal names off the account too, as a password
+        # change does), then the names are set, then the keytab is made from them
+        mnet ads keytab flush "$(krb_opt)" >/dev/null 2>&1
+        if ldap_set_spns "$newdn" "$new"; then
+            mnet ads keytab create "$(krb_opt)" >/dev/null 2>&1 && step=5
+        fi
+    fi
+    if [ "$step" = 5 ]; then
+        systemctl restart winbind >/dev/null 2>&1
+        mnet ads testjoin >/dev/null 2>&1 && step=6
+    fi
+    if [ "$step" = 6 ]; then
+        # the host name follows the account (the engine runs as root: no second authorisation is asked of the user)
+        hostnamectl set-hostname "$(printf '%s' "$new" | tr 'A-Z' 'a-z')" >/dev/null 2>&1 && step=7
+    fi
+    if [ "$step" != 7 ]; then
+        # put it back: smb.conf, then the account under its old name, then the keytab
+        [ ! -e "$ETC/samba/smb.conf.wex-rename" ] || cat "$ETC/samba/smb.conf.wex-rename" > "$ETC/samba/smb.conf"
+        mnet ads keytab flush "$(krb_opt)" >/dev/null 2>&1
+        ldap_rdn "$newdn" "$old" && ldap_set_names "CN=$old,$parent" "$old" && ldap_set_spns "CN=$old,$parent" "$old"
+        mnet ads keytab create "$(krb_opt)" >/dev/null 2>&1
+        systemctl restart winbind >/dev/null 2>&1
+        [ -z "$oldhost" ] || [ "$(hostname 2>/dev/null)" = "$oldhost" ] || hostnamectl set-hostname "$oldhost" >/dev/null 2>&1
+        rm -f "$ETC/samba/smb.conf.wex-rename"
+        fail 31 "the account could not be renamed ($step of 7 steps done); it is back as $old"
+    fi
+    rm -f "$ETC/samba/smb.conf.wex-rename"
+    # the host record of the new name (best effort)
+    timeout 30 mnet ads dns register "$(printf '%s' "$new" | tr 'A-Z' 'a-z').$RN_DNS" >/dev/null 2>&1 || note "warning: the DNS record of $new was not updated"
+    drop_ticket
+    refresh_state
+    note "the computer account is $new now"
+}
+
 # one request on standard input: lines of key=value ended by an empty line; the answer is status= and message=
 cmd_serve()
 {
@@ -465,6 +627,7 @@ cmd_serve()
                        cmd_leave --user "$user" --password-stdin --keep-account
                    else cmd_leave --user "$user" --password-stdin; fi
                fi ;;
+        rename) JOIN_PW=$password; cmd_rename "$name" --user "$user" --password-stdin ;;
         validate) cmd_validate "$nametype" "$name" ;;
         verify) cmd_secure_channel verify ;;
         reset) cmd_secure_channel reset ;;
@@ -488,6 +651,7 @@ case ${1:-} in
     scquery) cmd_sc_query; echo "$NOTES" ;;
     join) shift; cmd_join "$@" ;;
     leave) shift; cmd_leave "$@" ;;
+    rename) shift; cmd_rename "$@" ;;
     status) cmd_status ;;
     *) usage ;;
 esac

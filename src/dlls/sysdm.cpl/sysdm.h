@@ -43,7 +43,7 @@ extern BOOL g_joined;
 extern BOOL g_reopen_elevated;
 void read_membership(void);
 void engine_message(WCHAR *text, DWORD chars);
-void show_join_error(HWND owner, const WCHAR *caption, const WCHAR *domain, DWORD status, BOOL leaving);
+void show_join_error(HWND owner, const WCHAR *caption, const WCHAR *domain, DWORD status, int what);
 void offer_elevation(HWND owner, const WCHAR *caption);
 void show_netid_wizard(HWND parent);
 

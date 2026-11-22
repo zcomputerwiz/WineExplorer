@@ -222,6 +222,17 @@ DWORD WINAPI WexJoinSecureChannel( DWORD op )
 DWORD WINAPI NetRenameMachineInDomain( const WCHAR *server, const WCHAR *new_name, const WCHAR *account, const WCHAR *password,
                                        DWORD flags )
 {
-    /* the account is renamed by the host name and Samba: not offered yet (docs/DOMAIN_JOIN.md) */
-    return ERROR_NOT_SUPPORTED;
+    struct request r = {0};
+
+    if (!is_local( server )) return ERROR_NOT_SUPPORTED;
+    if ((flags & ~(WEX_NETSETUP_ACCT_CREATE | WEX_NETSETUP_IGNORE_UNSUPPORTED_FLAGS)) && !(flags & WEX_NETSETUP_IGNORE_UNSUPPORTED_FLAGS))
+        return ERROR_INVALID_FLAGS;
+    if (!new_name || !new_name[0]) return ERROR_INVALID_PARAMETER;
+    /* the engine renames the account with the credentials of an account that may: "the caller's context" has none to give */
+    if (!account || !account[0] || !password) return ERROR_LOGON_FAILURE;
+    /* the engine renames the account, Samba's own name and the host name together */
+    add_text( &r, "op", "rename" );
+    add_field( &r, "name", new_name );
+    add_account( &r, account, password );
+    return ask( &r );
 }

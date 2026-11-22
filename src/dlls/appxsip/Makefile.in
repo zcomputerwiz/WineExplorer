@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+MODULE    = appxsip.dll
+IMPORTS   = $(ZLIB_PE_LIBS) crypt32 bcrypt advapi32
+EXTRAINCL = $(ZLIB_PE_CFLAGS)
+
+SOURCES = \
+	appxsip.c

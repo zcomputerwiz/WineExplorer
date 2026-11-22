@@ -718,6 +718,26 @@ static WCHAR *doc_of( const struct request *req )
     DWORD len;
 
     for (q = req->image; *q; q++) if (*q == '\\' || *q == '/') b = q + 1;
+    if (!_wcsicmp( b, L"wexappx.exe" ))
+    {
+        /* wexappx install [--development] [--all-users] PACKAGE: the last argument is the package, as wexappx reads it
+         * (an option never is); anything else it can be asked to do names no file */
+        BOOL install = FALSE;
+
+        next_arg( &p, arg, MAX_PATH );   /* the program */
+        if (!next_arg( &p, arg, MAX_PATH ) || wcscmp( arg, L"install" )) return NULL;
+        install = TRUE;
+        while (install && next_arg( &p, arg, MAX_PATH ))
+        {
+            if (arg[0] == '-') continue;
+            found = arg;
+            if (!next_arg( &p, patch, MAX_PATH )) break;   /* a second argument after the package: wexappx refuses it */
+            return NULL;
+        }
+        if (!found) return NULL;
+        patch[0] = 0;
+        goto absolute;
+    }
     if (_wcsicmp( b, L"msiexec.exe" )) return NULL;
     patch[0] = 0;
     next_arg( &p, arg, MAX_PATH );   /* the program */
@@ -737,6 +757,7 @@ static WCHAR *doc_of( const struct request *req )
     }
     if (!found && patch[0]) found = patch;
     if (!found) return NULL;
+absolute:
     if (found[0] && found[1] == ':' && (found[2] == '\\' || found[2] == '/')) path = _wcsdup( found );
     else
     {
@@ -758,13 +779,30 @@ static WCHAR *doc_of( const struct request *req )
     return path;
 }
 
+/* Is this a request to run "wexappx install ..."? (Whatever follows, it is an install of a package file.) */
+static BOOL wexappx_installs( const struct request *req )
+{
+    const WCHAR *b = req->image, *q, *p = req->cmdline;
+    WCHAR arg[MAX_PATH];
+
+    for (q = req->image; *q; q++) if (*q == '\\' || *q == '/') b = q + 1;
+    if (_wcsicmp( b, L"wexappx.exe" )) return FALSE;
+    next_arg( &p, arg, MAX_PATH );   /* the program */
+    return next_arg( &p, arg, MAX_PATH ) && !wcscmp( arg, L"install" );
+}
+
 /* open the package (no write sharing), take the lease, record the hash; a file system that gives no leases is
  * read-only media (UDF), where nobody can write: the hash then stands alone */
 static DWORD freeze_doc( struct request *req )
 {
     DWORD err;
 
-    if (!(req->doc = doc_of( req ))) return ERROR_SUCCESS;
+    if (!(req->doc = doc_of( req )))
+    {
+        /* a package install that names no file the broker can hold would run unchecked: refused */
+        if (wexappx_installs( req )) { E1S_AUDIT( "freeze-doc-wexappx" ); return ERROR_INVALID_PARAMETER; }
+        return ERROR_SUCCESS;
+    }
     req->doc_file = CreateFileW( req->doc, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
                                  FILE_ATTRIBUTE_NORMAL, NULL );
     if (req->doc_file == INVALID_HANDLE_VALUE)

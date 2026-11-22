@@ -157,6 +157,19 @@ echo "=== Step 2: Configuring live-build ==="
 # WEX_FAST_SQUASH=1: lz4 instead of the default xz (the build host kernel must mount it: zstd squashfs fails in the WSL kernel) for the root file system image (test ISOs only; several
 # times faster to build, a little larger).
 LB_EXTRA=()
+# The machine's package cache (scripts/lab/apt-cache.sh: apt-cacher-ng on 127.0.0.1:3142), when it answers: debootstrap
+# and the live system's apt fetch through it. WEX_APT_PROXY=URL names another, WEX_APT_PROXY=none fetches directly.
+# live-build hands the proxy to apt in the environment only, so the image keeps no trace of it. (Vintner Boot's
+# recovery packages come over https from its own mirror setting, and stay so.)
+APT_PROXY=${WEX_APT_PROXY:-}
+if [ -z "$APT_PROXY" ] && command -v curl >/dev/null 2>&1 &&
+    curl -fs -m 3 -o /dev/null http://127.0.0.1:3142/acng-report.html; then
+    APT_PROXY=http://127.0.0.1:3142
+fi
+if [ -n "$APT_PROXY" ] && [ "$APT_PROXY" != none ]; then
+    echo "=== Packages through $APT_PROXY ==="
+    LB_EXTRA+=(--apt-http-proxy "$APT_PROXY")
+fi
 if [ "${WEX_FAST_SQUASH:-0}" = 1 ]; then
     LB_EXTRA+=(--chroot-squashfs-compression-type lz4)
 fi

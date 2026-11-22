@@ -54,6 +54,7 @@ clean_fixture()
 {
     pkill -f '/var/lib/wexsys-c2/bin/' 2>/dev/null
     pkill -f 'e1s6-lab.py' 2>/dev/null
+    pkill -f 'fake-join-engine.py' 2>/dev/null
     sleep 1
     for u in wexadm wexstd wexcar wexdom wexdoma wexgreeter; do pkill -u "$u" 2>/dev/null; done
     sleep 2
@@ -136,7 +137,8 @@ sync_tree()
 
 # snapshot of what the suites read; wine stays a link (the suite's guard only greps build files there)
 rm -rf "$SNAP"; mkdir -p "$SNAP"
-for d in scripts tools src installer; do cp -a "$D/$d" "$SNAP/$d"; done
+# tests/ too: suite cases build fixtures from it (tests/uwp/signature)
+for d in scripts tools src installer tests; do cp -a "$D/$d" "$SNAP/$d"; done
 ln -s "$D/wine" "$SNAP/wine"
 echo "snapshot of $TREE in $SNAP"
 

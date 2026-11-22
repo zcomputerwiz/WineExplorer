@@ -30,6 +30,33 @@ keeps the creator SID for the keys below (generic rights mapped in the effective
 SID unchanged, which no token holds, so WebView2's setup was denied a key it had just created.
 `dlls/advapi32/tests/registry.c`: the CREATOR OWNER case in `test_reg_create_key_security`.
 
+## windows.security.authentication.web.core: token results, accounts and calls off the caller's thread (WAM plan steps 2-4, 2026-11-22)
+
+Wine branch `claude/wam-provider`, `8448c9bb` (docs/WAM_BROKER_PLAN.md, "Status"). Still off by default (`Broker` = 1 turns it on).
+
+* `include/wine/tokenbroker.h`: protocol version 2. Requests also carry the named account's id and the request's
+  `Properties` (as NUL-separated pairs); replies carry the token, the account's id and user name, the response
+  properties and, for the new kinds `FIND_ACCOUNTS`, `FIND_ACCOUNT` and `SIGN_OUT`, the accounts. Messages up to
+  256 KiB.
+* `include/windows.security.credentials.idl`: `IWebAccount2` (`Id`, `Properties`, `GetPictureAsync`, `SignOutAsync`,
+  `SignOutWithClientIdAsync`; interface ID and method order checked against the Windows SDK 10.0.26100 header, nothing
+  copied), and `WebAccount` lists it.
+* `dlls/windows.security.authentication.web.core/account.c` (new): `WebAccount` objects (`IWebAccount`, `IWebAccount2`
+  `Id`; `Properties`, the picture and sign-out are stubs).
+* `broker.c`: the client of protocol 2: token results with a `WebTokenResponse` (token, `WebAccount`, properties),
+  `FindAllAccountsAsync`/`FindAllAccountsWithClientIdAsync` and `FindAccountAsync` through the broker. The pipe is
+  opened with `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`; reply buffers that held a token are zeroed before
+  they are freed.
+* `manager.c`: with the broker on, token requests and account lookups run on a thread-pool thread and complete their
+  operation when the broker answers (an interactive request lasts as long as the sign-in); a provider lookup returns a
+  provider object for the id and authority; `...WithWebAccount...` requests pass the account. Without the broker
+  everything answers at once as before. `async.c`: `async_operation_inspectable_create` is no longer static.
+* `response.c`: the vector views hold items (`vector_view_*_create`), `webtokenresponse_create`. `map.c`:
+  `map_hstring_pairs`. `provider.c`: `provider_create` (the diagnostic provider uses it).
+* `tests/web_core.c`: `test_broker` and `test_broker_sandboxed` (children with a restricted and a low integrity
+  token), run only when `WEBCORE_TEST_AUTHORITY` names the local test authority (WineExplorer
+  `tests/wam/run-broker-tests.sh`; skipped otherwise; `WEBCORE_TEST_WINDOW` for `tests/wam/run-window-test.sh`).
+
 ## windows.security.authentication.web.core: the token broker's client (WAM step 3, plan step 1, 2026-11-18)
 
 Wine branch `claude/wam-broker` (docs/WAM_BROKER_PLAN.md). Off by default: nothing changes without
@@ -3940,3 +3967,38 @@ Windows. The machine registry is not writable for the desktop user, so the HKLM 
 and no root certificate was trusted: every HTTPS request through winhttp failed with `ERROR_WINHTTP_SECURE_INVALID_CA`
 (12045, then 12157). The token broker's last sign-in step (redeeming the code at `login.microsoftonline.com`) failed
 because of it.
+2026-11-21 (UWP signature check; Wine branches `claude/wintrust-sha256-policy` 3d601306 and `claude/appxsip-registration` c1888008, both on development 401183d1, not merged):
+- `dlls/wintrust/softpub.c` (`SoftpubAuthenticode`): the signature hash of the signer certificate was read into 20 bytes
+  to look it up in the Disallowed store. For a certificate signed with SHA-256 the call needs 32 bytes, failed, and
+  left the policy at FALSE with no error, so `WinVerifyTrust` returned success without judging the chain (a self-signed
+  certificate was not `CERT_E_UNTRUSTEDROOT`; the consent window called such a signer verified). The buffer is 64 bytes
+  and a certificate whose hash cannot be had is not on the list.
+- `dlls/wintrust/softpub.c` (`SOFTPUB_VerifyImageHash`, 698e3eb7 on the same Wine branch, found by session 0's security
+  review): the SIP of the subject was asked only for the SIP-information digest type, and every other type except PE
+  images returned success with a FIXME, so the PKCS #7 of any trusted signed file put into a package's signature file
+  verified. The SIP is asked for every subject that is not a PE image, and where none can be asked the digest is
+  rejected (`TRUST_E_BAD_DIGEST`). Two subjects keep passing unverified, as before (cb42677e, after the second
+  review): a cabinet with the cabinet digest type, and a catalog, told by their SIP GUID (their digests are not
+  implemented, B70; a catalog's content is a CTL, not indirect data). Every other subject is verified by its SIP or
+  rejected. Wine's wintrust tests (softpub, register, crypt, asn) pass.
+- `loader/wine.inf.in`: `appxsip.dll` (`src/dlls/appxsip`, the signature provider of `.appx` and `.msix` packages) is in
+  the registered DLLs, next to `msisip.dll`.
+
+2026-11-22 (Wine 9a4e20d2): `dlls/msi/custom.c` `msi_install_through_broker` (WineExplorer's own function): the package, the `/l` log file and the working directory go to the elevation broker by their Z: paths (`wine_get_unix_file_name`), because the elevated msiexec runs in the machine root, whose C: is not the limited user's; a package on the user's C: was refused with exit code 2 (B67).
+
+2026-11-22 (Wine 17d2276c): `server/registry.c`: the default descriptors of the user tree (`key_get_sd`, and those of hives session 0 loads) give RESTRICTED (S-1-5-12) KEY_READ with CONTAINER_INHERIT_ACE, as Windows' `HKU\<sid>` does, so a process with a restricted token (a sandbox) can read its user's settings (B71).
+
+2026-11-22 (UWP, Wine branch `claude/uwp-machine-apps`, from development 3b16984b): packages installed for every user (`wexappx install --all-users`, `docs/uwp/SIGNATURE_CHECK.md`).
+- `server/uwp_context.c` (`find_package`, `uwp_context_from_aumid`): the application of an AUMID is looked up in the user's
+  catalog, and when that has no package of the family, in the machine catalog (`C:\ProgramData\WineExplorer\appx-catalog`,
+  until now read only for the dependencies of a package); the record is read from the catalog that found it. The error of
+  the first lookup is cleared when the second finds the package. The machine catalog is written by administrators only.
+- `dlls/kernelbase/version.c` (`package_record_read`): a record of the machine catalog counts as a package (the `framework`
+  line was required and the applications of the record were dropped); the package APIs see packages installed for every
+  user in the same family and enumeration code as before.
+
+2026-11-22 (UWP, Wine branch `claude/uwp-machine-apps`, B70): `dlls/wintrust/crypt.c` (`CryptSIPVerifyIndirectData`, was a stub that failed for every subject; new `WINTRUST_VerifyCabDigest`) and `dlls/wintrust/softpub.c` (`SOFTPUB_VerifyImageHash`): the Authenticode digest of a cabinet is computed and compared. The algorithm was found by trying the signed cabinets of the host against their signatures: the hash of the file from its start up to the signature (the file must end there), without the four reserved bytes at 4, `cbCFHeader` (36) and the header reserve area (40, `cbCFHeader` bytes, which holds the offset and size of the signature). `softpub.c` no longer lets a cabinet pass unverified: the SIP of the subject is asked whatever the type of the data in the signature is. Catalogs still pass unverified (their content is a CTL). Fixtures: `tests/uwp/signature/fixtures-cab`, `tamper-cab.py`, `expected-cab-windows.txt` (signtool and `sigtest.exe` on Windows 11), `lab-helpers/cab-run.sh` (Wine x64 and x86 give the Windows answers; the one difference is that Wine does not name the signer of a bad digest, as for packages). Wine's wintrust tests (crypt, softpub, asn, register) pass.
+
+2026-11-22 (UWP, Wine branch `claude/uwp-machine-apps`): the compatibility gate is decided by the server too. `server/registry.c` (`uwp_compatibility_enabled`, new; reads `HKCU\Software\WineExplorer\Shell\UwpCompatibility` of the token user: exactly the DWORD 1 turns it on), `server/security.h` (declaration) and `server/token.c` (`set_token_package` answers `STATUS_NOT_SUPPORTED` while the gate is off). Until now only `twinapi.appcore` read the value, so a process that called `NtSetInformationToken(TokenWinePackage)` itself got a package context with the gate off. `tests/uwp/u1_0/context-negatives.c` has four checks more (wrong value, wrong type and absent value are refused by the server, and the refusals leave no context); the U1.0 fixture passes on x64 and x86 (18 context negatives). The value is read in the server that handles the request: right for a process of the user's own session; a token of another user asked through session 0 reads that user's hive as session 0 holds it.
+
+2026-11-22 (UWP, Wine branch `claude/uwp-machine-apps`): `Windows.ApplicationModel.AppService.AppServiceConnection` in `dlls/windows.applicationmodel` (`appservice.c`, new; `main.c`, `private.h`, `classes.idl`, `Makefile.in`) and `include/windows.applicationmodel.appservice.idl` (new, with `include/Makefile.in`): the class the Microsoft Store constructs at start. The properties, events and `Close` work; no provider is hosted, so `OpenAsync` answers `AppServiceUnavailable` and `SendMessageAsync` a response with the status `Failure` (both operations are complete when made). A test in `tests/model.c` (x64 and x86). `docs/uwp/STORE_APP.md` says what a real service needs.
