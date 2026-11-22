@@ -1,0 +1,14 @@
+bad-block.appx: 80096010 signer WineExplorer Signature Test
+bad-blockmap.appx: 80096010 signer WineExplorer Signature Test
+bad-p7x.appx: 80096010 signer WineExplorer Signature Test
+extra-member.appx: 80096010 signer WineExplorer Signature Test
+foreign-p7x.appx: 80096010 signer WineExplorer Signature Test
+no-signature.appx: 800b0003
+other-publisher.appx: 800b0003
+pe-hidden-zip.appx: 80096011 signer WineExplorer Signature Test
+pe-prefix.appx: 800b0100
+rewritten.appx: 800b0109 signer WineExplorer Signature Test
+short-p7x.appx: 800b0003
+signed.appx: 800b0109 signer WineExplorer Signature Test
+unsigned.appx: 800b0100
+wrong-magic.appx: 800b0003

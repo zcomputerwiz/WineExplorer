@@ -1,0 +1,8 @@
+@ stdcall AppxSipIsFileSupportedName(ptr ptr)
+@ stdcall AppxSipGetSignedDataMsg(ptr ptr long ptr ptr)
+@ stdcall AppxSipPutSignedDataMsg(ptr long ptr long ptr)
+@ stdcall AppxSipRemoveSignedDataMsg(ptr long)
+@ stdcall AppxSipCreateIndirectData(ptr ptr ptr)
+@ stdcall AppxSipVerifyIndirectData(ptr ptr)
+@ stdcall -private DllRegisterServer()
+@ stdcall -private DllUnregisterServer()

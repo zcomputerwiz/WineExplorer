@@ -3934,6 +3934,23 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 
 2026-11-21 (Wine 401183d1): `programs/wscript/main.c`: the host loads its own type library with `LoadTypeLibEx(..., REGKIND_NONE)` instead of `LoadTypeLib`, which registers a library named without a path and so needs write access to HKCR; for a standard user (HKCR is the machine registry on WineExplorer) `wscript`/`cscript` ended with "Script initialization failed" and ran no script (B62). wscript tests 347/347 on both architectures; checked in the lab with Office's `ospp.vbs`.
 
+2026-11-21 (UWP signature check; Wine branches `claude/wintrust-sha256-policy` 3d601306 and `claude/appxsip-registration` c1888008, both on development 401183d1, not merged):
+- `dlls/wintrust/softpub.c` (`SoftpubAuthenticode`): the signature hash of the signer certificate was read into 20 bytes
+  to look it up in the Disallowed store. For a certificate signed with SHA-256 the call needs 32 bytes, failed, and
+  left the policy at FALSE with no error, so `WinVerifyTrust` returned success without judging the chain (a self-signed
+  certificate was not `CERT_E_UNTRUSTEDROOT`; the consent window called such a signer verified). The buffer is 64 bytes
+  and a certificate whose hash cannot be had is not on the list.
+- `dlls/wintrust/softpub.c` (`SOFTPUB_VerifyImageHash`, 698e3eb7 on the same Wine branch, found by session 0's security
+  review): the SIP of the subject was asked only for the SIP-information digest type, and every other type except PE
+  images returned success with a FIXME, so the PKCS #7 of any trusted signed file put into a package's signature file
+  verified. The SIP is asked for every subject that is not a PE image, and where none can be asked the digest is
+  rejected (`TRUST_E_BAD_DIGEST`). Two subjects keep passing unverified, as before (cb42677e, after the second
+  review): a cabinet with the cabinet digest type, and a catalog, told by their SIP GUID (their digests are not
+  implemented, B70; a catalog's content is a CTL, not indirect data). Every other subject is verified by its SIP or
+  rejected. Wine's wintrust tests (softpub, register, crypt, asn) pass.
+- `loader/wine.inf.in`: `appxsip.dll` (`src/dlls/appxsip`, the signature provider of `.appx` and `.msix` packages) is in
+  the registered DLLs, next to `msisip.dll`.
+
 2026-11-22 (Wine 9a4e20d2): `dlls/msi/custom.c` `msi_install_through_broker` (WineExplorer's own function): the package, the `/l` log file and the working directory go to the elevation broker by their Z: paths (`wine_get_unix_file_name`), because the elevated msiexec runs in the machine root, whose C: is not the limited user's; a package on the user's C: was refused with exit code 2 (B67).
 
 2026-11-22 (Wine 17d2276c): `server/registry.c`: the default descriptors of the user tree (`key_get_sd`, and those of hives session 0 loads) give RESTRICTED (S-1-5-12) KEY_READ with CONTAINER_INHERIT_ACE, as Windows' `HKU\<sid>` does, so a process with a restricted token (a sandbox) can read its user's settings (B71).
