@@ -283,9 +283,13 @@ share of the CPU). A queue that keeps ready builds per commit for all sessions i
 - **While iterating:** the quickest check that covers the change: a module's own Wine tests (both architectures),
   the T1 lab (`wex-run.sh labt1`), one VM phase (`safe-mode.sh` with `diag=PHASE`, `installer/tests/quick-run.sh`
   onto an installed disk), or the app's own test.
-- **Before a merge:** the full suite (`wex-run.sh full`) every time, plus the VM stages the change touches.
-- **The whole chain** (an ISO, install and every stage on both firmwares; `wex-batch.sh`): for changes to the
-  installer, the image or a default, and once a feature is complete.
+- **Before a merge:** the full suite (`wex-run.sh full`) every time, plus the VM stages the change touches. A change
+  that cannot affect booting (a Wine module, a program, a test) gets the image smoke check: `WEX_BATCH_FWS=uefi
+  wex-batch.sh REV NAME rundialog` (an ISO, a fresh install on UEFI and the Run dialog on the desktop, beside the
+  suite). Rebuilding the image does not by itself make a change an image change (owner, 2026-11-22).
+- **The whole chain** (an ISO, install and every stage on both firmwares; `wex-batch.sh REV NAME`): for changes to
+  booting, the installer, the session, the greeter or logon, Vintner Boot, systemd units or a default, and at
+  milestones (a finished feature, an image the owner will install).
 
 ## Added 2026-11-18: Batches (the suite and the image side by side)
 
