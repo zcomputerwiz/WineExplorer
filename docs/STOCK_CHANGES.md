@@ -3933,3 +3933,5 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
   (except the Installer cache's copy of an installed product), another patch, or a transform file is refused.
 
 2026-11-21 (Wine 401183d1): `programs/wscript/main.c`: the host loads its own type library with `LoadTypeLibEx(..., REGKIND_NONE)` instead of `LoadTypeLib`, which registers a library named without a path and so needs write access to HKCR; for a standard user (HKCR is the machine registry on WineExplorer) `wscript`/`cscript` ended with "Script initialization failed" and ran no script (B62). wscript tests 347/347 on both architectures; checked in the lab with Office's `ospp.vbs`.
+
+2026-11-22 (Wine 9a4e20d2): `dlls/msi/custom.c` `msi_install_through_broker` (WineExplorer's own function): the package, the `/l` log file and the working directory go to the elevation broker by their Z: paths (`wine_get_unix_file_name`), because the elevated msiexec runs in the machine root, whose C: is not the limited user's; a package on the user's C: was refused with exit code 2 (B67).
