@@ -32,7 +32,20 @@ missing system libraries in one pass.
 | `PackageFamilyNameFromFullName` unimplemented | called at startup (it was a commented stub in kernelbase) | implemented from the existing family-name code |
 | `profapi.dll` ordinal 114 | `Microsoft.Internal.FrameworkUdk.dll` calls it right after `PackageFamilyNameFromFullName`; Wine's `profapi` had 17 nameless stubs | the signature was **found by logging what the caller passes** (no probe of Windows could call it: every guess crashed, the export wants something else): `(family name, 0, "ResourcesConfig", KEY_READ, &key)`, a Win32 error code returned; it opens a key of a package's registry settings and the caller then reads `UseSystemMetadataPath`. Wine's export logs the call and answers `ERROR_FILE_NOT_FOUND` (no package settings: the caller takes its default). It is an inference from one call, not a documentation |
 | `Windows.Internal.StateRepository.Package` not found | the runtime's deployment layer asks the system's package state repository | **open** (logged, not fatal so far); undocumented internal API |
-| **`ntdll.NtCreateWaitCompletionPacket`** | the next call after that: wait completion packets (a wait on an object that is delivered as a completion on an I/O completion port; the UI and messaging libraries use them) | **open**. Prior art: Wine merge request [6911](https://gitlab.winehq.org/wine/wine/-/merge_requests/6911) (Zhiyi Zhang, CodeWeavers, seven patches: `NtCreateWaitCompletionPacket`, `NtAssociateWaitCompletionPacket`, `NtCancelWaitCompletionPacket`, the server objects and tests). It does not apply to this tree as it is (`server/completion.c`, `ntdll/unix/sync.c` and the tests moved since); the next step is to merge it by hand |
+| `ntdll.NtCreateWaitCompletionPacket` | wait completion packets (a wait on an object delivered as a completion on an I/O completion port); the UI and messaging libraries use them | **done**: Wine merge request [6911](https://gitlab.winehq.org/wine/wine/-/merge_requests/6911) (Zhiyi Zhang, CodeWeavers; not merged upstream) ported by hand onto this tree (branch `claude/wait-completion`, d7fa3755): the three calls, the WaitCompletionPacket object and server objects, wow64 thunks, the regenerated protocol, request and syscall-table headers, and the ntdll tests (the `file` tests and the object type test pass on x64 and x86) |
 
 A scan of every PE file of the runtime package and of Notepad found **no other missing static import** than the two
 libraries above (and `winspool.drv`, which Wine has). Delay-loaded imports and classes activated at run time are not covered.
+
+## Where Notepad stands after that (2026-11-22, candidate u12 = this tree with the port)
+
+The application starts and keeps running (the launcher is still waiting after 50 s): it activates its own XAML application class
+(`NotepadXamlUI.App`), the resource manager and context, the globalization classes, asks `Windows.Internal.StateRepository.Package`
+(not found, not fatal), reads `ResourcesConfig` through `profapi` 114 and creates a window handle. **Not verified**: whether a
+window is shown or the process is idle or stuck (the Xvfb screenshot is black for these windows, and a thread listing was taken
+on a leftover process); the next step is to look at the process the way the Store's was looked at (a stack probe, `+relay` of
+the framework libraries). A new full build of the tree is `newcand-build.sh` (about 90 minutes on the guest); whole files of the
+worktree can then be copied in (`apply.sh`, with `CAND=u12 mk.sh`; touch the files, an extracted file older than its object is not rebuilt).
+
+A trap met on the way: after the generated files of a change are regenerated on the guest (`perl tools/make_requests`,
+`perl tools/make_specfiles`), they have to be copied back into the worktree and committed with the change.
