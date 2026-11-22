@@ -333,13 +333,13 @@ static void reply_success( struct reply *reply, const struct request *req, BOOL 
 
 /* keeps a token answer: the account with its refresh token, and the access token */
 static void store_result( const struct provider *provider, const struct request *req, const struct token_result *r,
-                          const WCHAR *account_id, const WCHAR *user_name )
+                          const WCHAR *account_id, const WCHAR *user_name, const WCHAR *token_client )
 {
     struct access_token t = {0};
     struct account a = {0};
 
     cache_lock();
-    if (r->refresh_token)
+    if (r->refresh_token && !token_client)
     {
         a.provider_id = (WCHAR *)provider->id;
         a.authority = req->field[TOKENBROKER_FIELD_AUTHORITY];
@@ -352,7 +352,7 @@ static void store_result( const struct provider *provider, const struct request 
     t.provider_id = (WCHAR *)provider->id;
     t.authority = req->field[TOKENBROKER_FIELD_AUTHORITY];
     t.account_id = (WCHAR *)account_id;
-    t.client_id = req->field[TOKENBROKER_FIELD_CLIENT_ID];
+    t.client_id = token_client ? (WCHAR *)token_client : req->field[TOKENBROKER_FIELD_CLIENT_ID];
     t.scope = req->field[TOKENBROKER_FIELD_SCOPE];
     t.expires_on = r->expires_on;
     t.token = r->access_token;
@@ -371,11 +371,16 @@ static void store_result( const struct provider *provider, const struct request 
 static void get_token_silent( const struct provider *provider, const struct request *req, struct reply *reply )
 {
     const WCHAR *hint = request_property( req, L"LoginHint" );
-    WCHAR *account_id = NULL, *user_name = NULL, *refresh = NULL;
+    /* Nested App Authentication: the token is for the child app, through the parent (the request's client) */
+    const WCHAR *child = request_property( req, L"child_client_id" );
+    const WCHAR *child_redirect = request_property( req, L"child_redirect_uri" );
+    WCHAR *account_id = NULL, *user_name = NULL, *refresh = NULL, *parent_redirect = NULL;
     struct account *account, **list;
     struct access_token *token;
     struct token_result r;
     unsigned int count;
+
+    if (!child || !*child || !child_redirect || !*child_redirect) child = child_redirect = NULL;
 
     if (!hint) hint = request_property( req, L"login_hint" );
     cache_lock();
@@ -398,7 +403,8 @@ static void get_token_silent( const struct provider *provider, const struct requ
         return;
     }
     if ((token = cache_find_token( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY], account->id,
-                                   req->field[TOKENBROKER_FIELD_CLIENT_ID], req->field[TOKENBROKER_FIELD_SCOPE],
+                                   child ? child : req->field[TOKENBROKER_FIELD_CLIENT_ID],
+                                   req->field[TOKENBROKER_FIELD_SCOPE],
                                    unix_time() + TOKEN_MARGIN )))
     {
         TRACE( "silent: from the cache\n" );
@@ -412,24 +418,37 @@ static void get_token_silent( const struct provider *provider, const struct requ
     refresh = strdupW( account->refresh_token );
     cache_unlock();
 
+    if (child)
+    {
+        unsigned int len = wcslen( REDIRECT_PREFIX ) + wcslen( req->field[TOKENBROKER_FIELD_CLIENT_ID] ) + 1;
+        if ((parent_redirect = malloc( len * sizeof(WCHAR) )))
+            swprintf( parent_redirect, len, L"%s%s", REDIRECT_PREFIX, req->field[TOKENBROKER_FIELD_CLIENT_ID] );
+    }
     if (!refresh || !*refresh) interaction_required( req, reply );
-    else if (!oauth_refresh( provider->base, req->field[TOKENBROKER_FIELD_AUTHORITY],
-                             req->field[TOKENBROKER_FIELD_CLIENT_ID], req->field[TOKENBROKER_FIELD_SCOPE], refresh, &r ))
+    else if (!(child ? (parent_redirect && oauth_refresh_nested( provider->base, req->field[TOKENBROKER_FIELD_AUTHORITY],
+                                                                req->field[TOKENBROKER_FIELD_CLIENT_ID], parent_redirect,
+                                                                child, child_redirect,
+                                                                req->field[TOKENBROKER_FIELD_SCOPE], refresh, &r ))
+                     : oauth_refresh( provider->base, req->field[TOKENBROKER_FIELD_AUTHORITY],
+                                      req->field[TOKENBROKER_FIELD_CLIENT_ID], req->field[TOKENBROKER_FIELD_SCOPE],
+                                      refresh, &r )))
         map_error( req, L"network", L"The authority could not be reached.", reply );
     else
     {
         if (r.access_token)
         {
-            TRACE( "silent: by refresh token\n" );
+            TRACE( "silent: by refresh token%s\n", child ? " (nested app)" : "" );
             if (!r.refresh_token) r.refresh_token = strdupW( refresh );
-            store_result( provider, req, &r, account_id, user_name );
+            store_result( provider, req, &r, account_id, user_name, child );
             reply_success( reply, req, FALSE, r.access_token, account_id, user_name, r.id_token, r.client_info, r.scope,
                            r.expires_on );
         }
         else
         {
-            TRACE( "silent: refresh refused (%s)\n", debugstr_w( r.error_code ) );
-            if (r.error_code && !wcscmp( r.error_code, L"invalid_grant" ))
+            WARN( "silent: refresh refused (%s)%s for scope %s\n", debugstr_w( r.error_code ), child ? " (nested app)" : "",
+                  debugstr_w( req->field[TOKENBROKER_FIELD_SCOPE] ) );
+            /* a nested app's refusal says nothing about the parent's refresh token */
+            if (!child && r.error_code && !wcscmp( r.error_code, L"invalid_grant" ))
             {
                 /* the refresh token is no good any more: the account needs the user again */
                 cache_lock();
@@ -443,6 +462,7 @@ static void get_token_silent( const struct provider *provider, const struct requ
     }
     if (refresh) SecureZeroMemory( refresh, wcslen( refresh ) * sizeof(WCHAR) );
     free( refresh );
+    free( parent_redirect );
     free( account_id );
     free( user_name );
 }
@@ -554,7 +574,7 @@ static void request_token( const struct provider *provider, const struct request
             }
             else
             {
-                store_result( provider, req, &r, account_id, user_name );
+                store_result( provider, req, &r, account_id, user_name, NULL );
                 signin_transition( &signin, SIGNIN_DONE );
             }
         }
