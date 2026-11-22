@@ -2778,11 +2778,75 @@ static void docrace_mode(const char *image, const char *pkg, const char *out)
     check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the replaced package started nothing");
 }
 
+/* ---- the package of a "wexappx install" request (frozen like msiexec's) ---------------------------------------------
+ * image is a copy of this program named wexappx.exe; the request is "<image> install --all-users --out=<out> <package>"
+ * (wexappx would refuse the --out option; the stub reads it). With pkg "-" there is no package: the broker refuses it,
+ * as a package install it cannot hold would run unchecked. */
+
+static DWORD ask_appx(const char *image, const char *pkg, const char *out, HANDLE *process)
+{
+    WCHAR *wimage = widen(image), *cmd;
+    char *narrow_cmd = malloc(2 * strlen(image) + 2 * strlen(out) + strlen(pkg) + 80);
+    DWORD err;
+
+    if (strcmp(pkg, "-")) sprintf(narrow_cmd, "\"%s\" install --all-users --out=%s \"%s\"", image, out, pkg);
+    else sprintf(narrow_cmd, "\"%s\" install --all-users --out=%s", image, out);
+    cmd = widen(narrow_cmd);
+    err = wexelevate_run(wimage, cmd, L"C:\\windows", NULL, 0, SW_SHOWNORMAL, WEXELEVATE_WANT_HANDLE, process, NULL);
+    free(wimage); free(narrow_cmd); free(cmd);
+    return err;
+}
+
+/* the elevated copy of a wexappx install request writes its facts to the file named by --out= */
+static int appx_child(int argc, char **argv)
+{
+    char *cargv[3] = { argv[0], (char *)"child", NULL };
+    int i;
+
+    for (i = 2; i < argc; i++) if (!strncmp(argv[i], "--out=", 6)) cargv[2] = argv[i] + 6;
+    return cargv[2] ? child_mode(3, cargv) : 1;
+}
+
+static void appxdoc_mode(const char *image, const char *pkg, const char *out)
+{
+    HANDLE process = NULL;
+    DWORD err = ask_appx(image, pkg, out, &process);
+    char want[65] = "", *text;
+
+    SetLastError(err);
+    check(err == 0, "the request of a package install is served");
+    if (err) return;
+    check(wait_exit(process, 42), "the elevated process ran and exited");
+    CloseHandle(process);
+    check(file_sha256(pkg, want), "hashed the package");
+    text = read_text(out);
+    check(text != NULL, "the elevated process wrote its facts");
+    if (!text) return;
+    checkf(fact_is(text, "doc_sha", want), "the elevated wexappx has the SHA-256 of the package",
+           fact(text, "doc_sha") ? fact(text, "doc_sha") : "none");
+    checkf(fact_is(text, "doc_path", pkg), "the elevated wexappx has the path of the package",
+           fact(text, "doc_path") ? fact(text, "doc_path") : "none");
+    free(text);
+}
+
+static void appxnone_mode(const char *image, const char *out)
+{
+    HANDLE process = NULL;
+    DWORD err = ask_appx(image, "-", out, &process);
+
+    SetLastError(err);
+    check(err == ERROR_INVALID_PARAMETER, "a package install without a package the broker can hold is refused");
+    check(GetFileAttributesA(out) == INVALID_FILE_ATTRIBUTES, "the request started nothing");
+}
+
 int main(int argc, char **argv)
 {
     const char *mode = argc > 1 ? argv[1] : "";
+    const char *self = strrchr(argv[0], '\\');
 
-
+    if (argc > 3 && !strcmp(mode, "install") && !_stricmp(self ? self + 1 : argv[0], "wexappx.exe")) return appx_child(argc, argv);
+    if (!strcmp(mode, "appxdoc") && argc > 4) { appxdoc_mode(argv[2], argv[3], argv[4]); printf("appxdoc=%s\n", failures ? "FAIL" : "PASS"); return failures ? 1 : 0; }
+    if (!strcmp(mode, "appxnone") && argc > 3) { appxnone_mode(argv[2], argv[3]); printf("appxnone=%s\n", failures ? "FAIL" : "PASS"); return failures ? 1 : 0; }
     if (!strcmp(mode, "child")) return child_mode(argc, argv);
     if (!strcmp(mode, "hold")) { Sleep(120000); return 0; }
 #ifdef WEXELEVATE_TEST_APPROVAL

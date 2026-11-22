@@ -602,12 +602,142 @@ static void package_name(const WCHAR *package, WCHAR *name, DWORD len)
     MsiCloseHandle(summary);
 }
 
+/* wexappx install [--development] [--all-users] "<package>": an application package for every user. As for msiexec, from
+ * the broker only the file it froze is described, by the absolute path it froze. Returns FALSE when the image is not
+ * wexappx or the command line is no install of a package. */
+static BOOL appx_package_of(const struct consent_data *data, WCHAR *package)
+{
+    const WCHAR *base = wcsrchr(data->exepath, '\\'), *slash = wcsrchr(data->exepath, '/'), *p = data->cmdline;
+    BOOL installing = FALSE, first = TRUE;
+
+    if (slash && (!base || slash > base)) base = slash;
+    base = base ? base + 1 : data->exepath;
+    if (wcsicmp(base, L"wexappx.exe")) return FALSE;
+    if (data->broker)
+    {
+        if (!data->doc[0]) return FALSE;
+        lstrcpyW(package, data->doc);
+        return TRUE;
+    }
+
+    package[0] = 0;
+    while (*p)
+    {
+        WCHAR token[MAX_PATH], *dst = token;
+
+        while (*p == ' ' || *p == '\t') p++;
+        if (!*p) break;
+        if (*p == '"')
+        {
+            p++;
+            while (*p && *p != '"') { if (dst < token + MAX_PATH - 1) *dst++ = *p; p++; }
+            if (*p == '"') p++;
+        }
+        else
+        {
+            while (*p && *p != ' ' && *p != '\t') { if (dst < token + MAX_PATH - 1) *dst++ = *p; p++; }
+        }
+        *dst = 0;
+
+        if (first) { first = FALSE; continue; }   /* the program */
+        if (!installing) { installing = !wcscmp(token, L"install"); if (!installing) return FALSE; continue; }
+        if (token[0] != '-') lstrcpyW(package, token);
+    }
+    return installing && package[0];
+}
+
+/* What "wexappx query" says about a package (the name, the publisher and how its signature came out), the same reading
+ * the installer window shows. The strings are the package's, so they only fill the fields of this window. */
+static BOOL appx_describe(struct consent_data *data, const WCHAR *package)
+{
+    WCHAR exe[MAX_PATH], result[MAX_PATH], temp[MAX_PATH], *cmd, *text, *line, *next, state[32] = L"", display[256] = L"",
+          name[256] = L"", signer[256] = L"";
+    STARTUPINFOW si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    HANDLE file;
+    DWORD size, got = 0, len;
+    BOOL ok = FALSE;
+
+    if (!(len = GetModuleFileNameW(NULL, exe, ARRAY_SIZE(exe))) || len >= ARRAY_SIZE(exe)) return FALSE;
+    while (len && exe[len - 1] != '\\') len--;
+    if (!len || len + 12 > ARRAY_SIZE(exe)) return FALSE;
+    lstrcpyW(exe + len, L"wexappx.exe");
+    if (!GetTempPathW(ARRAY_SIZE(temp), temp) || !GetTempFileNameW(temp, L"wxq", 0, result)) return FALSE;
+
+    size = lstrlenW(exe) + lstrlenW(package) + lstrlenW(result) + 32;
+    if (!(cmd = malloc(size * sizeof(WCHAR)))) { DeleteFileW(result); return FALSE; }
+    swprintf(cmd, size, L"\"%ls\" query \"%ls\" \"%ls\"", exe, package, result);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    if (CreateProcessW(exe, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+    {
+        if (WaitForSingleObject(pi.hProcess, 60000) == WAIT_TIMEOUT) TerminateProcess(pi.hProcess, 1);
+        else GetExitCodeProcess(pi.hProcess, &got), ok = !got;
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+    free(cmd);
+
+    if (ok && (file = CreateFileW(result, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL)) != INVALID_HANDLE_VALUE)
+    {
+        size = GetFileSize(file, NULL);
+        ok = FALSE;
+        if (size > 2 && size < 65536 && (text = malloc(size + sizeof(WCHAR))))
+        {
+            if (ReadFile(file, text, size, &got, NULL) && got == size && text[0] == 0xfeff)
+            {
+                text[size / sizeof(WCHAR)] = 0;
+                for (line = text + 1; *line; line = next)
+                {
+                    WCHAR *end = wcschr(line, '\n'), *eq;
+
+                    next = end ? end + 1 : line + lstrlenW(line);
+                    if (end) *end = 0;
+                    if (!(eq = wcschr(line, '='))) continue;
+                    *eq++ = 0;
+                    if (!wcscmp(line, L"state")) lstrcpynW(state, eq, ARRAY_SIZE(state));
+                    else if (!wcscmp(line, L"display")) lstrcpynW(display, eq, ARRAY_SIZE(display));
+                    else if (!wcscmp(line, L"name")) lstrcpynW(name, eq, ARRAY_SIZE(name));
+                    else if (!wcscmp(line, L"signer")) lstrcpynW(signer, eq, ARRAY_SIZE(signer));
+                }
+                ok = state[0] != 0;
+            }
+            free(text);
+        }
+        CloseHandle(file);
+    }
+    DeleteFileW(result);
+    if (!ok) return FALSE;
+
+    /* a display name that is a resource reference is no name to show: the identity name instead */
+    lstrcpynW(data->progname, display[0] && wcsncmp(display, L"ms-resource:", 12) ? display : name, ARRAY_SIZE(data->progname));
+    if (!wcscmp(state, L"trusted"))
+    {
+        data->is_verified = TRUE;
+        lstrcpyW(data->publisher, signer[0] ? signer : L"Verified publisher");
+    }
+    else
+    {
+        data->is_verified = FALSE;
+        /* signed by a publisher this system does not know is "unknown"; a signature that does not hold is said so */
+        lstrcpyW(data->publisher, !wcscmp(state, L"untrusted") || !wcscmp(state, L"unsigned") ? L"Unknown publisher"
+                                                                                               : L"Invalid signature");
+    }
+    return TRUE;
+}
+
 /* The friendly name and the publisher line of data->exepath (of the package, for msiexec /i). */
 static void describe_program(struct consent_data *data)
 {
     WCHAR package[MAX_PATH], signer[256];
-    BOOL is_package = msi_package_of(data, package), named = FALSE;
+    BOOL is_package, named = FALSE;
     const WCHAR *subject;
+
+    /* an application package: described by what the package installer reads from it; unreadable gives the plain
+     * "Unknown publisher" of any program below */
+    if (appx_package_of(data, package) && appx_describe(data, package)) return;
+
+    is_package = msi_package_of(data, package);
 
     /* msiexec /i {product code}: removal, repair or a patch of a registered product; the product's name, and
      * msiexec itself is what runs */
