@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+MODULE    = wexappinstall.exe
+IMPORTS   = user32 gdi32 shell32 kernel32
+
+EXTRADLLFLAGS = -mwindows -municode
+
+SOURCES = \
+	wexappinstall.c

@@ -58,7 +58,28 @@ the measurements), so that is what was built, not a check inside `wexappx`:
    signature and reported success for an untrusted root (Wine branch `claude/wintrust-sha256-policy`). The consent window
    used the same call.
 
-Not done: the consent window for packages (a per-machine install would reuse the msiexec path of `consent.c`); a
-Store-signed package (Microsoft's chain, its root and the Store EKU) has not been through it; the per-file hashes of the
-block map are not compared (the digests cover the whole archive); revocation is not checked; countersignature time stamps
-are ignored.
+### Security review (session 0, 2026-11-21) and what was done
+
+Found and fixed: `WinVerifyTrust` accepted a digest type it could not verify (B67: the signature of a signed cabinet in a
+package's signature file verified; Wine branch `claude/wintrust-sha256-policy`), the subject was guessed from the file
+(a signed program with an archive behind it passed for a package; now `wexappx` gives the subject, `appxsip` wants the first
+member at byte 0 and nothing but SIP information as signed data), an offset check wrapped (zip64 end record), and the signer
+was compared with the publisher as text (now as names, and a signer that cannot be read is refused). Fixtures for the
+attacks: `foreign-p7x`, `pe-prefix`, `pe-hidden-zip` (`tests/uwp/signature`).
+
+### The installer window and revocation
+
+What Windows shows when a package is opened (App Installer, measured 2026-11-21 with the untrusted fixture): the name,
+publisher ("Unknown" when not verified), version and source, and Install and Cancel; for a package whose publisher is not
+trusted the button is greyed out and the window says why. Windows has no way around it in that window (a developer's way is
+Developer Mode or trusting the certificate). The screenshot is kept local (`WineExplorer-local/uwp-oracle`).
+
+`src/programs/wexappinstall` is that window: it shows what `wexappx query` finds and runs `wexappx install` (never with
+`--development`) on Install; `.appx` and `.msix` open in it (Wine branch `claude/appxsip-registration`, `wine.inf`). `wexappx`
+checks the whole chain for revocation: a revoked certificate refuses; no revocation information or nobody to ask is said and
+passed (as far as measured: Windows asks for revocation online for a Microsoft-signed file and stops at the untrusted root
+for the test package; a chain with a revoked certificate was not measured, it needs a trusted test certificate on the host).
+
+Not done: the consent window for a per-machine install (the msiexec path of `consent.c` would be reused); a Store-signed
+package (Microsoft's chain, its root and the Store EKU) has not been through it; the per-file hashes of the block map are not
+compared at extraction (B68); countersignature time stamps are ignored; no logo or capabilities in the window yet.
