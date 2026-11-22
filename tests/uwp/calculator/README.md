@@ -306,7 +306,7 @@ the dictionary's own, so Default (dark) and Light get their own values. `xamlshi
 7047f79a093a...; the `uwp-xaml` component pins it (17 component tests pass). Still open: in the dark theme the Settings page
 headings ("Settings", "Appearance", "About") are dim; `calc-input.c` clicks "Dark" at the real card layout now.
 
-### 2026-11-21, dim headings in the dark theme: fixed on `wex/xamlshim` (not released yet)
+### 2026-11-21, dim headings in the dark theme: fixed in XamlShim 0.3.3
 
 The headings come from styles whose text brush was resolved in the light theme, and re-applying the style (also under Uno's
 dark theme scope) gives the same brush again. XamlShim now walks the tree and the open popups (the Settings page is in a
@@ -320,3 +320,8 @@ based on WinUI's `SubtitleTextBlockStyle`/`BodyTextBlockStyle`, with `BasedOn` s
 (`#E4000000`), while controls with their own default style turn white. The popup content is in the Dark theme (`ActualTheme`); the
 base style's `{ThemeResource}` foreground is not re-resolved on the change. Cosmetic; a page built while the theme is already Dark
 was not tried (the lab prefix is rebuilt for every run). Keys, clicks, modes, date and settings flows pass on 0.3.2.
+
+XamlShim 0.3.3 (`wex-xamlshim-v0.3.3`, 59813000 bytes, SHA-256 972a8c415eec...) is released and pinned (`uwp-xaml`; the terms differ from 0.3.2
+only by the version line, 17 component tests pass). Fresh run (`calc-run.sh`, release zip): component and frameworks install, the package
+installs through wexappx, OnLaunched is reached, no shim exceptions. `calc-run.sh` now sets the run directory to 0755: the component's
+staging area refuses a parent that others can write to.

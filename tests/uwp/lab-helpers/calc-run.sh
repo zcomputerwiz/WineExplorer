@@ -9,7 +9,7 @@ build=$root/build/candidates/u11-2/build
 c=$root/claude
 run=$root/build/candidates/u11-2/calc-run
 rm -rf "$root"/build/candidates/u11-2/cx-* "$root"/build/candidates/u11-2/calc-*
-mkdir -p "$run"; cd "$run"
+mkdir -p "$run"; chmod 0755 "$run"; cd "$run"   # the component insists on a parent that nobody else can write to
 export WINEPREFIX="$run/prefix" WINESERVER="$build/server/wineserver" WINEDEBUG=-all
 WINEDLLOVERRIDES=mscoree,mshtml= "$build/wine" wineboot -i > boot.log 2>&1; "$build/server/wineserver" -w
 "$build/wine" reg add 'HKCU\Software\WineExplorer\Shell' /v UwpCompatibility /t REG_DWORD /d 1 /f > reg.log 2>&1
