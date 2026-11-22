@@ -12,7 +12,7 @@ owned U1 guest. Wine code is on `codex/uwp-runtime`, merged to Wine `development
 
 | Item | State | Checks |
 |---|---|---|
-| U1.0 package identity, activation of a packaged component | done | fixture, 14 context negatives |
+| U1.0 package identity, activation of a packaged component | done | fixture, 18 context negatives |
 | U1.1 view lifecycle (`CoreApplication.Run`, `CoreWindow`, `CoreDispatcher`) | done | 32, 30, 3 |
 | U1.1b presentation and input (`CreateSwapChainForCoreWindow`, key and pointer events) | done | 29 |
 | U1.1c suspend and resume (`Suspending`, `Resuming`, `EnteredBackground`, `LeavingBackground`) | done | 25 |
@@ -24,7 +24,7 @@ owned U1 guest. Wine code is on `codex/uwp-runtime`, merged to Wine `development
 | U1.6 package resources (`resources.pri`, `ResourceLoader`, `ResourceManager`, `ResourceContext`, `ms-resource:`) | done | 43 |
 | Installer signature check (`appxsip`, `wexappx`) | done; two Wine branches not merged: `SIGNATURE_CHECK.md` | fixtures, x64 and x86 |
 | Install for every user (`wexappx install --all-users`: elevation broker, consent, machine catalog) | done in the lab; the path through the broker runs in session 0's suite: `SIGNATURE_CHECK.md` | 64, 59 |
-| Server-side compatibility gate | not started | |
+| Server-side compatibility gate (`set_token_package` asks the registry itself) | done | 18 context negatives |
 | `Windows.UI.Xaml` (U2) | plan only: `PLAN_XAML.md`, waits for the owner's decision | |
 
 Not done inside the finished items: thumbnails, file queries, `KnownFolders`, pickers, `GetParentAsync`,
