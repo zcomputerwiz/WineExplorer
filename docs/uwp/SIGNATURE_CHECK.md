@@ -40,11 +40,25 @@ catalog). The check is therefore ours:
 6. Report the signer name and the trust class; an untrusted or invalid package is refused or goes to consent, per the
    policy above.
 
-## Order
+## Status (2026-11-21)
 
-1. A test fixture. The Calculator's signature is Microsoft's (lab only, never in the repository). For the repository: a
-   self-signed package signed with a test certificate, plus tampered copies (changed block map, changed entry, wrong
-   publisher), each measured on Windows 11 first (`Add-AppxPackage`, `signtool verify`).
-2. The check in `wexappx`, with `--development` kept as the explicit way to skip it.
-3. The consent mode for packages (reuse of the msiexec path in `consent.c`), only for per-machine installs; per-user
-   installs show the result on the console.
+Windows does it in one module, `AppxSip.dll`, a signature provider that wintrust asks (`tests/uwp/signature/README.md` has
+the measurements), so that is what was built, not a check inside `wexappx`:
+
+1. **`src/dlls/appxsip`**: the provider for `.appx` and `.msix` (subject GUID `{0AC5DF4B-...}`). It recognises a package,
+   hands out the PKCS #7 of `AppxSignature.p7x`, and verifies the SHA-256 digests it holds (`AXPC`, `AXCD`, `AXCT`, `AXBM`,
+   `AXCI`). `wine.inf` registers it (one line, Wine branch `claude/appxsip-registration`). `WinVerifyTrust` on a package
+   gives on Wine, x64 and x86, what it gives on Windows, except two differences that are in wintrust (see the README).
+2. **`wexappx install`** asks `WinVerifyTrust` on the file handle it holds and compares the signer's subject with the
+   `Publisher` of the manifest: a trusted and matching package installs; one that is unsigned, untrusted, invalid or
+   inconsistent is refused, and `--development` installs it anyway and says which it was. It also reads genuine
+   `makeappx` packages now (zip64). Tested with the fixtures in both architectures, with the test certificate in the
+   root store of the prefix (installs without the flag) and without; both older installer suites pass (59 and 63 checks).
+3. **Found on the way**: stock Wine's `WinVerifyTrust` ended its policy silently for a certificate with a SHA-256
+   signature and reported success for an untrusted root (Wine branch `claude/wintrust-sha256-policy`). The consent window
+   used the same call.
+
+Not done: the consent window for packages (a per-machine install would reuse the msiexec path of `consent.c`); a
+Store-signed package (Microsoft's chain, its root and the Store EKU) has not been through it; the per-file hashes of the
+block map are not compared (the digests cover the whole archive); revocation is not checked; countersignature time stamps
+are ignored.

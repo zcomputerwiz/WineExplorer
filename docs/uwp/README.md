@@ -22,7 +22,8 @@ owned U1 guest. Wine code is on `codex/uwp-runtime`, merged to Wine `development
 | U1.5 `StorageFolder`, `StorageFile`, `FileIO`, `PathIO`, file streams, `DataReader`, `DataWriter` | done | 87 |
 | Package installer (`wexappx`) | done, without a signature check | 63, 59 |
 | U1.6 package resources (`resources.pri`, `ResourceLoader`, `ResourceManager`, `ResourceContext`, `ms-resource:`) | done | 43 |
-| Installer signature check, server-side compatibility gate | design: `SIGNATURE_CHECK.md` | |
+| Installer signature check (`appxsip`, `wexappx`) | done; two Wine branches not merged: `SIGNATURE_CHECK.md` | fixtures, x64 and x86 |
+| Server-side compatibility gate | not started | |
 | `Windows.UI.Xaml` (U2) | plan only: `PLAN_XAML.md`, waits for the owner's decision | |
 
 Not done inside the finished items: thumbnails, file queries, `KnownFolders`, pickers, `GetParentAsync`,

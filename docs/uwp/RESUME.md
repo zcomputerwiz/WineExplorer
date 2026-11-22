@@ -53,7 +53,7 @@ session), which is under the stream commit on `development`. Different DLLs, but
 
 ## Open decisions for the owner
 
-* Next piece (2026-11-21): MRT/PRI (U1.6) and suspend/resume (U1.1c) are done. Left: the installer signature check and the server-side compatibility gate (trust policy, owner decides), then the smaller storage gaps (thumbnails, file queries, `KnownFolders`, pickers, `GetParentAsync`). The XAML track runs on XamlShim 0.3.3 (Calculator flows pass); `tests/uwp/calculator/README.md` and `GAPS.md` are current.
+* Next piece (2026-11-21): MRT/PRI (U1.6), suspend/resume (U1.1c) and the installer signature check (`SIGNATURE_CHECK.md`: `appxsip`, `wexappx`; two Wine branches wait for a merge) are done. Left: the consent window for packages and the server-side compatibility gate, then the smaller storage gaps (thumbnails, file queries, `KnownFolders`, pickers, `GetParentAsync`). The XAML track runs on XamlShim 0.3.3 (Calculator flows pass); `tests/uwp/calculator/README.md` and `GAPS.md` are current.
 * XAML (`PLAN_XAML.md`): is the Calculator the first target and may the installed Store package be used as a test
   oracle; is a .NET dependency acceptable if the native route stalls; XAML before or after Copilot and Office.
 
