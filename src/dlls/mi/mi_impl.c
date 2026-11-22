@@ -770,9 +770,7 @@ static DWORD WINAPI op_thread(void *arg)
                 VariantInit(&v);
                 if (SUCCEEDED(IWbemClassObject_Get(obj, L"__CLASS", 0, &v, NULL, NULL)) && V_VT(&v) == VT_BSTR)
                 {
-                    /* wbemprox fills these two from the whole disk when it builds a class object: left out of a listing */
-                    MI_Class *c = (!wcsicmp(V_BSTR(&v), L"CIM_DataFile") || !wcsicmp(V_BSTR(&v), L"Win32_Directory"))
-                                  ? NULL : mi_class_load(V_BSTR(&v), o->ns);
+                    MI_Class *c = mi_class_load(V_BSTR(&v), o->ns);
                     if (c) op_class_out(o, c);
                 }
                 VariantClear(&v);
