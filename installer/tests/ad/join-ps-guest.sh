@@ -80,6 +80,19 @@ else notok pwsh_download "$(cat /root/pwsh-dl.err 2>&1)"; finish; fi
 rm -rf /opt/pwsh7; mkdir -p /opt/pwsh7; unzip -q /root/pwsh.zip -d /opt/pwsh7 && chmod -R a+rX /opt/pwsh7
 [ -f /opt/pwsh7/pwsh.exe ] && ok pwsh_unpacked || { notok pwsh_unpacked "no pwsh.exe"; finish; }
 mkdir -p /opt/pwsh7/Modules; cp -a /root/extra/WexComputer /opt/pwsh7/Modules/WexComputer; chmod -R a+rX /opt/pwsh7/Modules
+
+# the 32-bit PowerShell 7 (same release, own digest): a CIM check at the end, as the user (the 32-bit mi.dll is called stdcall)
+PS32_URL=https://github.com/PowerShell/PowerShell/releases/download/v7.7.0/PowerShell-7.7.0-win-x86.zip
+PS32_SHA=1723b1ef5ff7791a77638f05b48168331df84f51c19fbec7a1321fe924f3463b
+if ! curl -fsSL --retry 3 -o /root/pwsh32.zip "$PS32_URL" 2>/root/pwsh32-dl.err; then
+    printf 'nameserver 1.1.1.1\n' > /etc/resolv.conf
+    curl -fsSL --retry 3 -o /root/pwsh32.zip "$PS32_URL" 2>>/root/pwsh32-dl.err
+    printf 'search %s\nnameserver %s\n' "$DOM" "$DC" > /etc/resolv.conf
+fi
+PS32_OK=0
+if [ "$(sha256sum /root/pwsh32.zip 2>/dev/null | cut -d' ' -f1)" = "$PS32_SHA" ]; then
+    rm -rf /opt/pwsh7x86; mkdir -p /opt/pwsh7x86 && unzip -q /root/pwsh32.zip -d /opt/pwsh7x86 && chmod -R a+rX /opt/pwsh7x86 && PS32_OK=1
+fi
 WINELIB=$(dirname "$(find /usr/local /opt -name wbemprox.dll -path '*x86_64-windows*' 2>/dev/null | head -1)")
 WINELIB=${WINELIB%/x86_64-windows}
 if [ -d "$WINELIB/x86_64-windows" ]; then
@@ -196,6 +209,26 @@ case "$(res cim_after)" in *PartOfDomain=False*) ok ps_cim_after ;; *) notok ps_
 echo "note ps_sc_after: $(res sc_after)"
 if journalctl --no-pager -b 0 2>/dev/null | grep -qF -- "$PW"; then notok ps_journal_has_no_password "the password is in the journal"; else ok ps_journal_has_no_password; fi
 echo "note account_after_remove: $(comp_dn "$ORIG") $(comp_dn PSLAB1)"
+
+# the 32-bit PowerShell: starts, answers a CIM instance query and a class listing (not elevated, a console window as above)
+if [ "$PS32_OK" = 1 ]; then
+    cat > /tmp/ps32.ps1 <<'PS'
+$o = 'Z:\tmp\ps32.out'
+"bits=$([IntPtr]::Size)" | Set-Content $o
+try { (Get-CimInstance Win32_ComputerSystem | ForEach-Object { "Name=$($_.Name)" }) | Add-Content $o } catch { "error: $($_.Exception.Message)" | Add-Content $o }
+try { "classes=$(@(Get-CimClass -ClassName Win32_*).Count)" | Add-Content $o } catch { "error: $($_.Exception.Message)" | Add-Content $o }
+'=== done' | Add-Content $o
+PS
+    cat > /tmp/ps32.bat <<'BAT'
+@echo off
+start "pwsh32" /wait Z:\opt\pwsh7x86\pwsh.exe -NoProfile -ExecutionPolicy Bypass -File Z:\tmp\ps32.ps1
+BAT
+    sed -i 's/$/\r/' /tmp/ps32.bat; chmod 644 /tmp/ps32.bat /tmp/ps32.ps1
+    rm -f /tmp/ps32.out
+    wine_cmd "$INSTALLED_USER" 'wine cmd /c Z:\\tmp\\ps32.bat' 240 > /tmp/ps32-run.out
+    out=$(tr -d '\r' < /tmp/ps32.out 2>/dev/null)
+    case "$out" in *bits=4*Name=*classes=[1-9]*"=== done"*) ok ps32_cim ;; *) notok ps32_cim "$out $(tail -3 /tmp/ps32-run.out | tr '\n' '|')" ;; esac
+else notok ps32_download "$(cat /root/pwsh32-dl.err 2>&1)"; fi
 
 s0_reg reg delete 'HKLM\Software\Wine\Elevation' /v Helper /f >/dev/null
 finish

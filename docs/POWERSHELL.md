@@ -30,8 +30,8 @@ cmdlets work (2026-11-22, tried with 7.7.0, x64):
   have the new name; a session started later sees it. `Win32_ComputerSystem.Domain` is the DNS name of the domain,
   read from `HKLM\Software\WineExplorer\Domain\Name` (the NetBIOS name when that is missing). An image older than
   `mi.dll` needs the dll in each prefix's system32/syswow64 (the lab script does it).
-- The 32-bit PowerShell (`PowerShell-7.7.0-win-x86.zip`) starts and runs CIM (`Get-CimInstance`, a query, `Get-CimClass`; run by hand
-  from a prefix, not in the lab suite). An earlier failure loading `System.Runtime.dll` came from how it was launched
+- The 32-bit PowerShell (`PowerShell-7.7.0-win-x86.zip`) starts and runs CIM (`Get-CimInstance`, a query, `Get-CimClass`; check `ps32_cim` of the lab suite).
+  An earlier failure loading `System.Runtime.dll` came from how it was launched
   (an absolute `Z:` path and `WINEDLLOVERRIDES=mscoree,mshtml=`); run it as `wine pwsh.exe -NoProfile -NoLogo
   -ExecutionPolicy Bypass -File x.ps1` from its folder and with a console (`script -qec`).
 - Outside a domain, `Rename` goes through the host name service (`wexhost.dll`, `WexHostnameSet`, loaded by name by
