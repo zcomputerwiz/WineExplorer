@@ -67,6 +67,7 @@ COMPONENTS = {
     'xact': 'XACT audio libraries (optional)',
     'physx': 'NVIDIA PhysX (optional)',
     'webview2': 'Microsoft Edge WebView2 Runtime (optional)',
+    'powershell': 'PowerShell 7 (optional)',
     'uwp-xaml': 'UWP XAML support, Uno Platform (optional)',
     'uwp-frameworks': 'UWP application frameworks, Microsoft (optional)',
 }
@@ -245,6 +246,41 @@ COMPONENTS_METADATA = {
         'client_guid': '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
         'recipe_files': [],
     },
+    # Microsoft's open-source PowerShell (MIT), the release zip unpacked as it is; no installer program runs. The
+    # WexComputer module of the image (Add-Computer, Remove-Computer, Test-ComputerSecureChannel,
+    # Reset-ComputerMachinePassword, which PowerShell 7 lacks) is added under Modules/. Needs a console window:
+    # with plain pipes pwsh.exe exits without running anything.
+    'powershell': {
+        'title': 'PowerShell 7',
+        'publisher': 'Microsoft Corporation',
+        'description': 'Installs PowerShell 7, the command shell and scripting language, with the WexComputer module '
+                       '(Add-Computer, Remove-Computer, Test-ComputerSecureChannel, Reset-ComputerMachinePassword). '
+                       'It runs in a console window; the computer cmdlets need the image\'s domain join support. No '
+                       'installer program runs: the release archive is verified and unpacked.',
+        'size': '~110 MiB download, ~256 MiB installed (x64)',
+        'reboot': False,
+        'disabled': False,
+        'disabled_reason': '',
+        # the MIT licence of the release (the archive carries the same text and its third-party notices)
+        'terms_url': '',
+        'terms_documents': [
+            {'title': 'PowerShell (MIT License)', 'format': 'txt',
+             'url': 'https://raw.githubusercontent.com/PowerShell/PowerShell/v7.7.0/LICENSE.txt',
+             'sha256': '7c77a44a8acd9b41fdc209864a8016b3d430b5d0e09309818d5b7444336df744'},
+        ],
+        'terms_sha256': '42fd29451073f3d7c5bf0bc54c86770a63062e6f9a56a44e5b018019ac705673',
+        'terms_text_sha256': '77acdaad477970da4e2fdb5f3f59bbbfc5d6dfbba71f525ddd0c12be671f924e',
+        'release': '7.7.0',
+        'execution_policy': 'powershell-extract-v1',
+        'payloads': [
+            {'name': 'PowerShell-7.7.0-win-x64.zip', 'architecture': 'x64', 'size': 115330228,
+             'sha256': '7c74e03b20a75b59715847439d046a6214b1863ee79b187872980f139bb4a05f',
+             'url': 'https://github.com/PowerShell/PowerShell/releases/download/v7.7.0/PowerShell-7.7.0-win-x64.zip'},
+        ],
+        'recipe_files': [
+            ('PowerShell-7.7.0-win-x64.zip', '7c74e03b20a75b59715847439d046a6214b1863ee79b187872980f139bb4a05f'),
+        ],
+    },
     'uwp-xaml': {
         'title': 'UWP XAML support (Uno Platform)',
         'publisher': 'WineExplorer contributors and the Uno Platform',
@@ -391,7 +427,8 @@ def validate_winetricks_integrity(path=None):
 
 
 def validate_recipe_files(verb, path=None):
-    if COMPONENTS_METADATA.get(verb, {}).get('execution_policy') in (UWP_XAML_POLICY, UWP_FRAMEWORKS_POLICY):
+    if COMPONENTS_METADATA.get(verb, {}).get('execution_policy') in (UWP_XAML_POLICY, UWP_FRAMEWORKS_POLICY,
+                                                                      POWERSHELL_POLICY):
         return   # no winetricks recipe: the pinned payload is checked when it is downloaded and before it is used
     if verb == 'vcrun2022':
         approved_runtime_recipe(path)
@@ -1363,6 +1400,7 @@ class StaleTermsError(ValueError):
 TERMS_DOCUMENT_HOSTS = ('https://visualstudio.microsoft.com/', 'https://raw.githubusercontent.com/Microsoft/',
                         'https://raw.githubusercontent.com/microsoft/', 'https://api.nuget.org/v3-flatcontainer/',
                         'https://github.com/zcomputerwiz/uno-uwp/releases/download/',
+                        'https://raw.githubusercontent.com/PowerShell/PowerShell/',
                         'https://release-assets.githubusercontent.com/')
 
 
@@ -2625,6 +2663,14 @@ def is_installed(verb, accepted_digest=None, machine=None):
                     return False
                 verify_uwp_xaml(machine, data)
                 return True
+            if COMPONENTS_METADATA[verb].get('execution_policy') == POWERSHELL_POLICY:
+                if (data.get('verb') != verb or data.get('execution_policy') != POWERSHELL_POLICY or
+                        data.get('component_identity') != component_identity(verb) or
+                        data.get('payload_sha256') != powershell_payload(verb)['sha256'] or
+                        (accepted_digest is not None and data.get('terms_sha256') != accepted_digest)):
+                    return False
+                verify_powershell(machine, data)
+                return True
             if COMPONENTS_METADATA[verb].get('execution_policy') == UWP_FRAMEWORKS_POLICY:
                 if (data.get('verb') != verb or data.get('execution_policy') != UWP_FRAMEWORKS_POLICY or
                         data.get('component_identity') != component_identity(verb) or
@@ -3535,6 +3581,225 @@ def install_uwp_xaml(verb, accepted_digest):
 
 
 # ---------------------------------------------------------------------------
+# PowerShell 7 (execution policy powershell-extract-v1). Nothing runs and Wine is not started: the pinned release zip
+# (Microsoft's open-source PowerShell, MIT) is downloaded after the terms were accepted, its members are checked and
+# unpacked into the machine root's Program Files\PowerShell\7 (published by rename), together with the WexComputer
+# module, which the image carries (Add-Computer and its relatives, which PowerShell 7 lacks) and which goes to
+# <install>\Modules\WexComputer, where PowerShell finds it without Import-Module. The receipt lists every installed
+# file with its digest; uninstall removes the directory. No registry entries.
+# ---------------------------------------------------------------------------
+POWERSHELL_POLICY = 'powershell-extract-v1'
+POWERSHELL_PARENT = ('drive_c', 'Program Files', 'PowerShell')
+POWERSHELL_LEAF = '7'
+POWERSHELL_WINDOWS_ROOT = 'C:\\Program Files\\PowerShell\\7'
+POWERSHELL_MEMBER = re.compile(r'^[A-Za-z0-9._+-]+(/[A-Za-z0-9._+-]+)*$')
+POWERSHELL_REQUIRED = ('pwsh.exe', 'pwsh.dll', 'System.Management.Automation.dll', 'Microsoft.PowerShell.ConsoleHost.dll',
+                       'pwsh.runtimeconfig.json', 'LICENSE.txt', 'ThirdPartyNotices.txt',
+                       'Modules/CimCmdlets/CimCmdlets.psd1')
+POWERSHELL_REDIRECTS = ('https://github.com/PowerShell/PowerShell/releases/download/',
+                        'https://release-assets.githubusercontent.com/')
+POWERSHELL_MAX_MEMBERS = 2000
+POWERSHELL_MAX_BYTES = 512 * 1024 * 1024
+# the WexComputer module (src/powershell/WexComputer in this repository), as the image installs it
+POWERSHELL_MODULE_SOURCE = Path('/usr/local/share/wineexplorer/powershell/WexComputer')
+POWERSHELL_MODULE_FILES = ('WexComputer.psd1', 'WexComputer.psm1')
+POWERSHELL_MODULE_LIMIT = 1024 * 1024
+
+
+def powershell_payload(verb):
+    payloads = COMPONENTS_METADATA[verb]['payloads']
+    if len(payloads) != 1 or payloads[0]['architecture'] != 'x64':
+        raise ValueError('PowerShell: exactly one x64 payload is supported')
+    return payloads[0]
+
+
+def cache_powershell_payload(verb, cache):
+    """The pinned release zip in the root-owned cache; downloaded only after the terms were accepted."""
+    return cache_pinned_download(verb, powershell_payload(verb), cache, POWERSHELL_REDIRECTS, 'PowerShell')
+
+
+def powershell_module_files(source=None):
+    """{relative name under Modules/WexComputer: bytes} of the module the image carries, read without following links
+    from a root-owned directory; empty when the image has no module (PowerShell then installs without it)."""
+    source = POWERSHELL_MODULE_SOURCE if source is None else source
+    try:
+        info = source.lstat()
+    except FileNotFoundError:
+        return {}
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != UWP_XAML_OWNER or info.st_mode & 0o022:
+        raise ValueError(f'Untrusted WexComputer module directory: {source}')
+    files = {}
+    for name in POWERSHELL_MODULE_FILES:
+        data, _ = installed_wine_file(source / name, POWERSHELL_MODULE_LIMIT)
+        files[name] = data
+    return files
+
+
+def powershell_unpack(archive, machine, module=None):
+    """Check every member of the release zip and unpack into Program Files\\PowerShell\\7, with the WexComputer module
+    added under Modules/: staged in the root-only area, published by one rename.
+    Returns {member: [size, sha256]} for every file."""
+    gid = machine_admin_gid(machine)
+    area = machine_stage_area(machine)
+    stage = area / ('pwsh-' + uuid.uuid4().hex)
+    stage.mkdir(mode=0o700)
+    tree = stage / 'tree'
+    tree.mkdir(mode=0o700)
+    files = {}
+    try:
+        with zipfile.ZipFile(archive) as package:
+            members = package.infolist()
+            if len(members) > POWERSHELL_MAX_MEMBERS or sum(m.file_size for m in members) > POWERSHELL_MAX_BYTES:
+                raise ValueError('PowerShell archive exceeds its member limits')
+            for member in members:
+                relative = member.filename
+                if member.is_dir():
+                    continue
+                if (not POWERSHELL_MEMBER.match(relative) or any(part in ('.', '..') for part in relative.split('/')) or
+                        (member.external_attr >> 16) & 0o170000 == 0o120000 or relative in files or
+                        relative.startswith('Modules/WexComputer/')):
+                    raise ValueError('Unsafe PowerShell archive member: ' + relative)
+                target = tree / relative
+                target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                digest = hashlib.sha256()
+                size = 0
+                with package.open(member) as source, open(target, 'xb') as out:
+                    while chunk := source.read(1 << 20):
+                        size += len(chunk)
+                        if size > member.file_size:
+                            raise ValueError('PowerShell archive member larger than declared: ' + relative)
+                        digest.update(chunk)
+                        out.write(chunk)
+                    out.flush()
+                    os.fsync(out.fileno())
+                files[relative] = [size, digest.hexdigest()]
+        for required in POWERSHELL_REQUIRED:
+            if required not in files:
+                raise ValueError('PowerShell archive lacks ' + required)
+        for name, data in (powershell_module_files() if module is None else module).items():
+            relative = 'Modules/WexComputer/' + name
+            target = tree / relative
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            with open(target, 'xb') as out:
+                out.write(data)
+                out.flush()
+                os.fsync(out.fileno())
+            files[relative] = [len(data), hashlib.sha256(data).hexdigest()]
+        machine_stage_finalize(tree, gid)
+        directory = machine_open_path(machine, ('drive_c', 'Program Files'), gid, ('PowerShell',))
+        try:
+            machine_publish(tree, directory, POWERSHELL_LEAF, area)
+        finally:
+            os.close(directory)
+        return files
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def verify_powershell(machine, data, full=False):
+    """Files of the receipt present with their sizes (digests too when full)."""
+    files = data.get('files')
+    if data.get('payload_architecture') != 'x64' or not isinstance(files, dict):
+        raise ValueError('Malformed PowerShell receipt')
+    if any(required not in files for required in POWERSHELL_REQUIRED):
+        raise ValueError('PowerShell receipt lacks a required file')
+    try:
+        root = machine_open_for_reading(machine, POWERSHELL_PARENT + (POWERSHELL_LEAF,))
+    except ValueError:
+        raise ValueError('PowerShell directory missing') from None
+    try:
+        for relative, (size, digest) in files.items():
+            try:
+                fd = machine_open_regular(root, relative.split('/'))
+            except ValueError:
+                raise ValueError('PowerShell file missing or changed: ' + relative) from None
+            try:
+                if os.fstat(fd).st_size != size:
+                    raise ValueError('PowerShell file missing or changed: ' + relative)
+                if (full or relative in ('pwsh.exe', 'pwsh.dll', 'System.Management.Automation.dll') or
+                        relative.startswith('Modules/WexComputer/')) and machine_fd_sha256(fd) != digest:
+                    raise ValueError('PowerShell file changed: ' + relative)
+            finally:
+                os.close(fd)
+    finally:
+        os.close(root)
+
+
+def powershell_remove_directory(machine):
+    gid = machine_admin_gid(machine)
+    try:
+        directory = machine_open_path(machine, POWERSHELL_PARENT, gid)
+    except FileNotFoundError:
+        return
+    try:
+        machine_remove(directory, POWERSHELL_LEAF, machine_stage_area(machine))
+    finally:
+        os.close(directory)
+
+
+def install_powershell(verb, accepted_digest):
+    meta = COMPONENTS_METADATA[verb]
+    _, current = license_text(verb)
+    if current != accepted_digest:
+        raise ValueError('Terms changed; review and accept the current text')
+    with _machine_maintenance() as wine:
+        if is_installed(verb, accepted_digest, machine=MACHINE):
+            return
+        wine.require_idle()
+        if CACHE.is_symlink():
+            raise ValueError('Refusing symlinked component cache')
+        CACHE.mkdir(mode=0o700, exist_ok=True)
+        if CACHE.stat().st_uid != 0 or CACHE.stat().st_mode & 0o022:
+            raise ValueError('Component cache must be root-owned and not writable by others')
+        payload = powershell_payload(verb)
+        archive = cache_powershell_payload(verb, CACHE)
+        receipt_dir = MACHINE.parent / 'component-receipts'
+        module = powershell_module_files()
+        if not module:
+            print('PowerShell: the image has no WexComputer module; installing PowerShell without it', file=sys.stderr)
+        files = powershell_unpack(archive, MACHINE, module)
+        data = {
+            'verb': verb,
+            'title': meta.get('title', verb),
+            'sha256': current,
+            'terms_sha256': current,
+            'execution_policy': POWERSHELL_POLICY,
+            'component_identity': component_identity(verb),
+            'payload_sha256': payload['sha256'],
+            'payload_architecture': payload['architecture'],
+            'files': files,
+            'module': bool(module),
+            'installed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        }
+        try:
+            verify_powershell(MACHINE, data, full=True)
+        except BaseException:
+            # no receipt will name these files: take back what this attempt added, and an earlier receipt, which the
+            # unpack replaced the files of
+            try:
+                powershell_remove_directory(MACHINE)
+            except Exception as error:
+                print(f'PowerShell rollback: directory removal failed: {error}', file=sys.stderr)
+            try:
+                uwp_xaml_drop_receipt(receipt_dir, verb)
+            except OSError as error:
+                print(f'PowerShell rollback: receipt removal failed: {error}', file=sys.stderr)
+            raise
+        receipt = _uwp_xaml_receipt_dir()
+        atomic_json(receipt / (verb + '.json'), data, mode=0o644)
+        (receipt / (verb + '.sha256')).write_text(current + '\n', encoding='ascii')
+
+
+def uninstall_powershell(verb):
+    receipt = MACHINE.parent / 'component-receipts' / (verb + '.json')
+    if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_uid != 0:
+        raise ValueError(f'{verb} is not installed')
+    powershell_remove_directory(MACHINE)
+    receipt.unlink()
+    (receipt.parent / (verb + '.sha256')).unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
 # UWP application frameworks (uwp-frameworks-extract-register-v1): Microsoft's framework packages (.appx) taken out of
 # pinned containers (nuget.org packages, Visual Studio payload cabinets), unpacked for every user into
 # C:\Program Files\WindowsApps\<PackageFullName> and published by a record in the machine's package catalog,
@@ -4025,10 +4290,15 @@ def uninstall(verb):
     """Remove exactly what the receipt lists: the registered classes, ComponentPath, the directory, the receipt."""
     validate_verb(verb)
     policy = COMPONENTS_METADATA[verb].get('execution_policy')
-    if policy not in (UWP_XAML_POLICY, UWP_FRAMEWORKS_POLICY):
+    if policy not in (UWP_XAML_POLICY, UWP_FRAMEWORKS_POLICY, POWERSHELL_POLICY):
         raise ValueError(f'{verb} cannot be uninstalled by this tool')
     if os.getuid() != 0:
         raise ValueError('The installer backend requires authenticated elevation')
+    if policy == POWERSHELL_POLICY:
+        with _machine_maintenance() as wine:
+            wine.require_idle()
+            uninstall_powershell(verb)
+        return
     if policy == UWP_FRAMEWORKS_POLICY:
         with _machine_maintenance() as wine:
             wine.require_idle()
@@ -4051,11 +4321,14 @@ def uninstall(verb):
 
 def install(verb, accepted_digest):
     validate_verb(verb)
-    if COMPONENTS_METADATA.get(verb, {}).get('execution_policy') in (UWP_XAML_POLICY, UWP_FRAMEWORKS_POLICY):
+    if COMPONENTS_METADATA.get(verb, {}).get('execution_policy') in (UWP_XAML_POLICY, UWP_FRAMEWORKS_POLICY,
+                                                                      POWERSHELL_POLICY):
         if COMPONENTS_METADATA[verb].get('disabled'):
             raise ValueError(f'{verb} is disabled: {COMPONENTS_METADATA[verb].get("disabled_reason")}')
         if os.getuid() != 0:
             raise ValueError('The installer backend requires authenticated elevation')
+        if COMPONENTS_METADATA[verb]['execution_policy'] == POWERSHELL_POLICY:
+            return install_powershell(verb, accepted_digest)
         if COMPONENTS_METADATA[verb]['execution_policy'] == UWP_FRAMEWORKS_POLICY:
             return install_uwp_frameworks(verb, accepted_digest)
         return install_uwp_xaml(verb, accepted_digest)
