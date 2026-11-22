@@ -164,7 +164,8 @@ renamecomputer` stays "not supported yet"). Leaving the domain and renaming in o
 From Samba's `net` manual page: `createcomputer=` takes the OU as a path (outermost first, without `OU=`, separated by `/`),
 which the engine builds from the distinguished name Windows takes; `-k` is deprecated for `--use-kerberos=required` (used
 when `net --help` lists it); `net ads leave --keep-account` is used when a leave does not ask for `ACCT_DELETE` (Windows
-disables the account instead). Not used yet: `--no-dns-updates`, `dnshostname=`, `createupn=`, `machinepass=`, `osName=`/`osVer=`.
+disables the account instead). The join passes `osName=WineExplorer` and `osVer=` (Debian's `VERSION_ID`), so the account's operating system shows in the directory
+(lab check `account_os_name`). Not used yet: `--no-dns-updates`, `dnshostname=`, `createupn=`, `machinepass=`.
 
 ## The layers still to build (order)
 

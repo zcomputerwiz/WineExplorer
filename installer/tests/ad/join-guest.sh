@@ -142,6 +142,8 @@ det=$(bash /usr/local/bin/wex-domain-state.sh --print 2>&1)
 [ "$det" = "WEXLAB $DOM" ] && ok join_detected || notok join_detected "[$det]"
 ACCOUNT_DN=$(samba-tool computer show "$(hostname -s)" -H "ldap://dc1.$DOM" -U "Administrator%$PW" --attributes=distinguishedName 2>/dev/null | sed -n 's/^distinguishedName: //p')
 case "$ACCOUNT_DN" in *OU=WexMachines,*) ok account_in_ou ;; *) notok account_in_ou "[$ACCOUNT_DN]" ;; esac
+OSNAME=$(samba-tool computer show "$(hostname -s)" -H "ldap://dc1.$DOM" -U "Administrator%$PW" --attributes=operatingSystem 2>/dev/null | sed -n 's/^operatingSystem: //p')
+[ "$OSNAME" = WineExplorer ] && ok account_os_name || notok account_os_name "[$OSNAME]"
 wbinfo -t >/dev/null 2>&1 && ok winbind_trust || notok winbind_trust "$(wbinfo -t 2>&1)"
 getent passwd 'WEXLAB\wexuser1' >/dev/null 2>&1 && ok domain_user_resolves || notok domain_user_resolves "$(wbinfo -i 'WEXLAB\wexuser1' 2>&1)"
 # a second join is refused (2691)
