@@ -22,7 +22,8 @@
  *
  *   NETDOM JOIN [computer] /Domain:D [/OU:DN] /UserD:USER [/PasswordD:{PASSWORD|*}] [/REBoot]
  *   NETDOM REMOVE [computer] [/Domain:D] [/UserD:USER] [/PasswordD:{PASSWORD|*}] [/Force] [/REBoot]
- *   NETDOM RENAMECOMPUTER [computer] /NewName:NAME ...      (not supported yet)
+ *   NETDOM RENAMECOMPUTER [computer] /NewName:NAME /UserD:USER [/PasswordD:{PASSWORD|*}] [/Force] [/REBoot]
+ *                                                           the host name and, in a domain, the machine account
  *   NETDOM VERIFY [computer] [/Domain:D]                    the secure channel of the machine account
  *   NETDOM RESET [computer] [/Domain:D]                     the same, with a new machine password first
  *   NETDOM QUERY DC [/Domain:D]                             the domain controllers
@@ -44,10 +45,14 @@
 #include <lm.h>
 
 #include "wexconsole.h"
+#include "wexhost.h"
 
 /* the flags of NetJoinDomain and NetUnjoinDomain (lmjoin.h of the Windows SDK) */
 #define NETSETUP_JOIN_DOMAIN 0x00000001
 #define NETSETUP_ACCT_CREATE 0x00000002
+
+/* (Wine's lmjoin.h does not declare it; it is netapi32's, forwarded to wexjoin) */
+DWORD WINAPI NetRenameMachineInDomain( LPCWSTR server, LPCWSTR new_name, LPCWSTR account, LPCWSTR password, DWORD flags );
 #define NETSETUP_ACCT_DELETE 0x00000004
 
 #define MAX_TEXT 1024
@@ -278,6 +283,48 @@ static int cmd_remove( struct options *o )
     return status ? failed( status ) : succeeded();
 }
 
+/* the computer's new name: the host name first, then the machine account in the domain (put the host name back when the
+ * account cannot be renamed); a computer that is not in a domain only gets the host name */
+static int cmd_rename( struct options *o )
+{
+    WCHAR password[256], *joined = NULL;
+    char name[128], old[128];
+    NETSETUP_JOIN_STATUS type = NetSetupUnknownStatus;
+    WEX_HOSTNAME host;
+    DWORD status;
+    int failure = 1;
+    BOOL in_domain;
+
+    if (!o->new_name) return bad_parameters( L"The /NewName option is required." );
+    if (!is_this_computer( o->computer )) { wex_console_write( L"Renaming another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
+    if (o->other_user) { wex_console_write( L"The options for another computer's account are not supported.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
+    NetGetJoinInformation( NULL, &joined, &type );
+    if (joined) NetApiBufferFree( joined );
+    in_domain = type == NetSetupDomainName;
+    if (in_domain && !credentials( o, password, ARRAY_SIZE(password), TRUE, &failure )) return failure;
+    if (!WideCharToMultiByte( CP_UTF8, 0, o->new_name, -1, name, sizeof(name), NULL, NULL )) return bad_parameters( L"The new name is not valid." );
+    memset( &host, 0, sizeof(host) );
+    WexHostnameGet( &host );
+    lstrcpynA( old, host.static_name, sizeof(old) );
+    status = WexHostnameSet( NULL, name, FALSE );
+    if (status)
+    {
+        if (in_domain) memset( password, 0, sizeof(password) );
+        return failed( status == ERROR_CANCELLED ? ERROR_ACCESS_DENIED : status );
+    }
+    if (in_domain)
+    {
+        status = NetRenameMachineInDomain( NULL, o->new_name, o->user, password, NETSETUP_ACCT_CREATE );
+        memset( password, 0, sizeof(password) );
+        if (status)
+        {
+            if (old[0]) WexHostnameSet( NULL, old, FALSE );
+            return failed( status );
+        }
+    }
+    return succeeded();
+}
+
 static int cmd_channel( struct options *o, DWORD op )
 {
     HMODULE module;
@@ -348,9 +395,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
     if (!_wcsicmp( command, L"QUERY" )) return cmd_query( &o );
     if (!_wcsicmp( command, L"RENAMECOMPUTER" ))
     {
-        if (!o.new_name) return bad_parameters( L"The /NewName option is required." );
-        wex_console_write( L"Renaming the computer in the domain is not supported yet on this system.\n" );
-        return failed( ERROR_NOT_SUPPORTED );
+        return cmd_rename( &o );
     }
     wex_console_printf( L"The command %ls is not valid.\n", command );
     return bad_parameters( NULL );
