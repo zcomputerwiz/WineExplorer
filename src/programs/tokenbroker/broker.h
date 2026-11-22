@@ -40,6 +40,7 @@ struct request
     unsigned int kind;
     unsigned int prompt;
     unsigned int window;
+    unsigned int client_pid;    /* the calling process, from the pipe (for the client ids it has used) */
     WCHAR *field[TOKENBROKER_FIELD_COUNT];
     unsigned int prop_count;
     WCHAR **prop_key;

@@ -602,16 +602,57 @@ static void find_accounts( const struct provider *provider, const struct request
     reply->status = FIND_SUCCESS;
 }
 
-/* by id, for the request's client only: FindAccountAsync names no client, so it finds nothing (an empty client id is
- * never "every client") */
+/* The client ids each calling process has used, in memory only: FindAccountAsync names no client, and an empty client
+ * id is never "every client", so the accounts such a call may see are those of the client ids the same process has
+ * itself used in its other requests (a program finds the account it signed in, and no other program's). */
+#define USED_PROCESSES 16
+#define USED_CLIENTS   4
+static struct { unsigned int pid; unsigned int count; unsigned int next; WCHAR *client[USED_CLIENTS]; } used[USED_PROCESSES];
+static unsigned int used_next;
+
+/* the caller holds the cache lock */
+static void remember_client( unsigned int pid, const WCHAR *client_id )
+{
+    unsigned int i, j;
+
+    if (!pid || !client_id || !*client_id) return;
+    for (i = 0; i < USED_PROCESSES && used[i].pid != pid; i++) ;
+    if (i == USED_PROCESSES)
+    {
+        i = used_next++ % USED_PROCESSES;       /* the oldest process's entry is replaced */
+        for (j = 0; j < USED_CLIENTS; j++) { free( used[i].client[j] ); used[i].client[j] = NULL; }
+        used[i].pid = pid;
+        used[i].count = used[i].next = 0;
+    }
+    for (j = 0; j < used[i].count; j++) if (!wcscmp( used[i].client[j], client_id )) return;
+    j = used[i].next++ % USED_CLIENTS;
+    free( used[i].client[j] );
+    used[i].client[j] = strdupW( client_id );
+    if (used[i].count < USED_CLIENTS) used[i].count++;
+}
+
+/* by id, for the request's client; with no client id, for the clients the calling process has used */
 static void find_account( const struct provider *provider, const struct request *req, struct reply *reply )
 {
-    struct account *account;
+    struct account *account = NULL;
+    unsigned int i, j;
 
     cache_lock();
-    if ((account = cache_find_account( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY],
-                                       req->field[TOKENBROKER_FIELD_ACCOUNT_ID], NULL,
-                                       req->field[TOKENBROKER_FIELD_CLIENT_ID] )))
+    if (*req->field[TOKENBROKER_FIELD_CLIENT_ID] || !req->client_pid)
+        account = cache_find_account( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY],
+                                      req->field[TOKENBROKER_FIELD_ACCOUNT_ID], NULL,
+                                      req->field[TOKENBROKER_FIELD_CLIENT_ID] );
+    else
+    {
+        for (i = 0; i < USED_PROCESSES && !account; i++)
+        {
+            if (used[i].pid != req->client_pid) continue;
+            for (j = 0; j < used[i].count && !account; j++)
+                account = cache_find_account( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY],
+                                              req->field[TOKENBROKER_FIELD_ACCOUNT_ID], NULL, used[i].client[j] );
+        }
+    }
+    if (account)
     {
         reply_set( reply, TOKENBROKER_REPLY_ACCOUNT_ID, account->id );
         reply_set( reply, TOKENBROKER_REPLY_USER_NAME, account->user_name );
@@ -641,6 +682,9 @@ void provider_answer( const struct request *req, struct reply *reply )
 {
     struct provider provider;
 
+    cache_lock();
+    remember_client( req->client_pid, req->field[TOKENBROKER_FIELD_CLIENT_ID] );
+    cache_unlock();
     if (!find_provider( req, &provider ))
     {
         TRACE( "no provider for %s\n", debugstr_w( req->field[TOKENBROKER_FIELD_PROVIDER_ID] ) );

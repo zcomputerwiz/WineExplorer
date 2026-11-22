@@ -319,6 +319,10 @@ static DWORD WINAPI client_thread( void *arg )
             free_request( &req );
             break;
         }
+        {
+            ULONG client_pid = 0;
+            if (GetNamedPipeClientProcessId( pipe, &client_pid )) req.client_pid = client_pid;
+        }
         TRACE( "request %u kind %u, prompt type %u, window %#x\n", ((struct tokenbroker_request *)buffer)->hdr.request_id,
                req.kind, req.prompt, req.window );
         if (req.kind == TOKENBROKER_REQUEST_TOKEN) req.program_path = client_program( pipe );
