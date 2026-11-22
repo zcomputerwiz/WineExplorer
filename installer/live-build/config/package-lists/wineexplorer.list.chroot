@@ -80,6 +80,12 @@ nvme-cli
 # loader: live-build brings the ISO's own GRUB in for the binary stage only.
 grub-common
 
+# Boot splash (docs/VINTNER_BOOT.md decision D2, turned on 2026-11-22): plymouth, and plymouth-themes, which ships the
+# two-step.so plugin of Vintner's vintner-bgrt theme. With plymouth alone Debian's initramfs hook prints "plymouth module
+# (...two-step.so) missing, skipping plymouth" and builds an initramfs with no Plymouth at all.
+plymouth
+plymouth-themes
+
 # Terminal & Text UI
 xterm
 ncurses-bin

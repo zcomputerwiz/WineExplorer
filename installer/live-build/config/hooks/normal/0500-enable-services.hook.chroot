@@ -44,5 +44,8 @@ chmod 755 /setup/textsetup /usr/local/bin/wex-*.sh /usr/local/bin/*.exe 2>/dev/n
 # Ensure sudoers.d files have 0440 mode
 chmod 440 /etc/sudoers.d/* 2>/dev/null || true
 
-# Mask plymouth waiting services so they do not block headless or non-graphical boot
-systemctl mask plymouth-quit-wait.service plymouth-start.service plymouth.service 2>/dev/null || true
+# The boot splash is on (docs/VINTNER_BOOT.md D2): plymouth-start.service and plymouth.service are not masked.
+# plymouth-quit-wait.service stays masked: it only delays the end of boot until Plymouth has quit, and
+# wex-plymouth-quit.service (installer/systemd) is the hand-off that ends the splash before tty1 is used, so a headless
+# or non-graphical boot is not held up.
+systemctl mask plymouth-quit-wait.service 2>/dev/null || true
