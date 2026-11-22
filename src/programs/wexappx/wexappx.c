@@ -875,7 +875,7 @@ static const GUID appx_subject = { 0x0ac5df4b, 0xce07, 0x4de2, { 0xb7, 0x6e, 0x2
 #define SIPINFO_OBJID "1.3.6.1.4.1.311.2.1.30"
 
 /* two distinguished names are the same name: the same attributes in the same order, with the same text whatever string
- * type holds it (a certificate authority may use printable or UTF-8 strings), compared without regard to case */
+ * type holds it (a certificate authority may use printable or UTF-8 strings); the case counts */
 static BOOL names_equal( const CERT_NAME_BLOB *a, const CERT_NAME_BLOB *b )
 {
     CERT_NAME_INFO *x = NULL, *y = NULL;
@@ -899,7 +899,7 @@ static BOOL names_equal( const CERT_NAME_BLOB *a, const CERT_NAME_BLOB *b )
             len_p = CertRDNValueToStrW( p->dwValueType, &p->Value, text_p, ARRAY_SIZE(text_p) );
             len_q = CertRDNValueToStrW( q->dwValueType, &q->Value, text_q, ARRAY_SIZE(text_q) );
             if (len_p < 2 || len_q < 2 || len_p >= ARRAY_SIZE(text_p) || len_q >= ARRAY_SIZE(text_q) ||
-                len_p != len_q || wcsicmp( text_p, text_q ))
+                len_p != len_q || wcscmp( text_p, text_q ))
                 goto done;
         }
     }
@@ -1357,13 +1357,13 @@ int __cdecl wmain( int argc, WCHAR **argv )
     {
         BOOL development = argc == 4 && !wcscmp( argv[2], L"--development" );
 
-        if (argc != 3 && !development) return usage();
+        if ((argc != 3 && !development) || argv[argc - 1][0] == '-') return usage();   /* a package path is never an option */
         if (FAILED(CoInitializeEx( NULL, COINIT_MULTITHREADED ))) return fail( L"COM is not available" );
         ret = install( argv[argc - 1], development );
         CoUninitialize();
         return ret;
     }
-    if (!wcscmp( argv[1], L"query" ) && argc == 4)
+    if (!wcscmp( argv[1], L"query" ) && argc == 4 && argv[2][0] != '-')
     {
         if (FAILED(CoInitializeEx( NULL, COINIT_MULTITHREADED ))) return fail( L"COM is not available" );
         ret = query( argv[2], argv[3] );

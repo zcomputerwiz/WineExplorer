@@ -3944,8 +3944,9 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
   review): the SIP of the subject was asked only for the SIP-information digest type, and every other type except PE
   images returned success with a FIXME, so the PKCS #7 of any trusted signed file put into a package's signature file
   verified. The SIP is asked for every subject that is not a PE image, and where none can be asked the digest is
-  rejected (`TRUST_E_BAD_DIGEST`). Effect on other subjects: a signed cabinet or catalog-type digest used to pass
-  unchecked; it now passes only if the subject's SIP verifies it, and fails if no SIP is registered for the subject (the
-  SIP of a subject is loaded before this point, so a subject without one already failed earlier).
+  rejected (`TRUST_E_BAD_DIGEST`). Two subjects keep passing unverified, as before (cb42677e, after the second
+  review): a cabinet with the cabinet digest type, and a catalog, told by their SIP GUID (their digests are not
+  implemented, B70; a catalog's content is a CTL, not indirect data). Every other subject is verified by its SIP or
+  rejected. Wine's wintrust tests (softpub, register, crypt, asn) pass.
 - `loader/wine.inf.in`: `appxsip.dll` (`src/dlls/appxsip`, the signature provider of `.appx` and `.msix` packages) is in
   the registered DLLs, next to `msisip.dll`.

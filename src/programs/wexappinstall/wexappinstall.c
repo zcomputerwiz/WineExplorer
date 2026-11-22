@@ -343,7 +343,14 @@ int WINAPI wWinMain( HINSTANCE instance, HINSTANCE previous, WCHAR *command, int
         MessageBoxW( NULL, L"Usage: wexappinstall PACKAGE", L"App Installer", MB_OK | MB_ICONERROR );
         return 2;
     }
-    wcsncpy( package, argv[1], ARRAY_SIZE(package) - 1 );
+    /* the path goes into command lines of wexappx between quotes: one that has a quote, or that looks like an option, could
+     * make wexappx read something else than a file name (a Windows file name cannot hold a quote; this is a second wall) */
+    if (wcschr( argv[1], '"' ) || argv[1][0] == '-' || wcslen( argv[1] ) >= ARRAY_SIZE(package))
+    {
+        MessageBoxW( NULL, L"This is not a path of an app package.", L"App Installer", MB_OK | MB_ICONERROR );
+        return 2;
+    }
+    wcscpy( package, argv[1] );
     wc.lpfnWndProc = window_proc;
     wc.hInstance = instance;
     wc.hCursor = LoadCursorW( NULL, (LPCWSTR)IDC_ARROW );
