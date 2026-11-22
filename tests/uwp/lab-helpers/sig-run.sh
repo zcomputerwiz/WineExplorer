@@ -12,7 +12,7 @@ log=$root/claude/logs/sig-run.log
 exec > $log 2>&1
 rm -rf "$run"; mkdir -p "$run"; cd "$run"
 tar -xf $root/claude/sigtest.tar
-export WINEPREFIX="$run/prefix" WINESERVER="$build/server/wineserver" WINEDEBUG=-all
+export WINEPREFIX="$run/prefix" WINESERVER="$build/server/wineserver" WINEDEBUG=-all WINEDLLOVERRIDES=mscoree,mshtml=
 "$build/wine" wineboot -i > boot.log 2>&1; "$build/server/wineserver" -w
 echo "regsvr32: $("$build/wine" regsvr32 /s appxsip.dll > reg.log 2>&1; echo $?)"
 "$build/server/wineserver" -w
@@ -20,7 +20,7 @@ echo "regsvr32 (32-bit): $("$build/wine" 'C:\windows\syswow64\regsvr32.exe' /s a
 "$build/server/wineserver" -w
 mkdir fix
 cp signature/fixtures/signed.appx signature/fixtures/unsigned.appx fix/
-python3 signature/tamper.py fix/signed.appx fix
+python3 signature/tamper.py fix/signed.appx fix signature/fixtures/signed-tiny.exe
 for arch in x64 x86; do
   echo "== $arch"
   "$build/wine" signature/sigtest-$arch.exe $(cd fix && ls *.appx | sort | sed 's|^|fix/|') 2>&1 | tr -d '\r' > out-$arch.txt

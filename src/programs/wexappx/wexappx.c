@@ -47,6 +47,7 @@
 #include <wincrypt.h>
 #include <wintrust.h>
 #include <softpub.h>
+#include <mssip.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -124,6 +125,7 @@ struct manifest
     BOOL         framework;        /* Properties/Framework: a package other packages depend on */
     WCHAR        name[PACKAGE_NAME_MAX_LENGTH + 1];
     WCHAR        publisher[PACKAGE_PUBLISHER_MAX_LENGTH + 1];
+    WCHAR        display[256];     /* Properties/DisplayName, as written (it can be an ms-resource: reference) */
     WCHAR        resource[PACKAGE_RESOURCEID_MAX_LENGTH + 1];
     WCHAR        version[64];
     WCHAR        arch[32];
@@ -284,7 +286,7 @@ static int read_directory(void)
          * values here; only the ones that fit this reader are accepted */
         ULONGLONG record = get_qword( end - 12 );
 
-        if (record > pos - 76 || get_dword( archive + record ) != 0x06064b50)
+        if (pos < 76 || record > pos - 76 || get_dword( archive + record ) != 0x06064b50)
             return fail( L"damaged archive directory" );
         if (get_dword( archive + record + 16 ) || get_dword( archive + record + 20 ))
             return fail( L"multi-volume archives are not supported" );
@@ -479,7 +481,7 @@ static int parse_manifest( const BYTE *data, DWORD size, struct manifest *manife
     IStream *stream = NULL;
     XmlNodeType type;
     WCHAR server_path[MAX_REL_PATH + 1] = L"", category[128], value[256];
-    BOOL in_server = FALSE, in_path = FALSE, have_identity = FALSE, in_framework = FALSE;
+    BOOL in_server = FALSE, in_path = FALSE, have_identity = FALSE, in_framework = FALSE, in_display = FALSE;
     unsigned int first_class = 0, i;
     const WCHAR *name, *text;
     HGLOBAL global;
@@ -553,6 +555,7 @@ static int parse_manifest( const BYTE *data, DWORD size, struct manifest *manife
                 manifest->dep_count++;
             }
             else if (!wcscmp( name, L"Framework" )) in_framework = !empty;
+            else if (!wcscmp( name, L"DisplayName" )) in_display = !empty;
             else if (!wcscmp( name, L"Application" ))
             {
                 struct item *app = add_item( &manifest->apps, &manifest->app_count );
@@ -597,6 +600,14 @@ static int parse_manifest( const BYTE *data, DWORD size, struct manifest *manife
             if (FAILED(IXmlReader_GetValue( reader, &text, &len )) || len > 8) text = L"";
             manifest->framework = !wcscmp( text, L"true" ) || !wcscmp( text, L"1" );
         }
+        else if (type == XmlNodeType_Text && in_display)
+        {
+            UINT len;
+
+            /* shown to the person, so only plain printable text of a sensible length; anything else stays empty */
+            if (SUCCEEDED(IXmlReader_GetValue( reader, &text, &len )) && len < ARRAY_SIZE(manifest->display))
+                wcscpy( manifest->display, text );
+        }
         else if (type == XmlNodeType_Text && in_path)
         {
             UINT len;
@@ -613,6 +624,7 @@ static int parse_manifest( const BYTE *data, DWORD size, struct manifest *manife
             if (FAILED(IXmlReader_GetLocalName( reader, &name, NULL ))) break;
             if (!wcscmp( name, L"Path" )) in_path = FALSE;
             else if (!wcscmp( name, L"Framework" )) in_framework = FALSE;
+            else if (!wcscmp( name, L"DisplayName" )) in_display = FALSE;
             else if (!wcscmp( name, L"Extension" )) category[0] = 0;
             else if (in_server && !wcscmp( name, L"InProcessServer" ))
             {
@@ -845,7 +857,82 @@ static BOOL append_record( WCHAR *record, const WCHAR *format, ... )
  */
 static const WCHAR *signature_note = L"The signature of the package was not verified.";
 
-static LONG verify_package( HANDLE file, const WCHAR *path, WCHAR *signer, DWORD signer_len )
+/* revocation of the chain (as the package deployment on Windows asks for it): the answers that mean it could not be
+ * found out, not that the certificate is revoked */
+#define E_CERT_REVOKED            ((LONG)0x800b010c)
+#define E_CERT_REVOCATION_FAILURE ((LONG)0x800b010e)
+#define E_CRYPT_REVOKED           ((LONG)0x80092010)
+#define E_CRYPT_NO_REVOCATION     ((LONG)0x80092012)
+#define E_CRYPT_REVOCATION_OFFLINE ((LONG)0x80092013)
+
+static BOOL revocation_unknown( LONG status )
+{
+    return status == E_CERT_REVOCATION_FAILURE || status == E_CRYPT_NO_REVOCATION || status == E_CRYPT_REVOCATION_OFFLINE;
+}
+
+/* the subject of application packages (appxsip.dll), and the type of the signed data that belongs to it */
+static const GUID appx_subject = { 0x0ac5df4b, 0xce07, 0x4de2, { 0xb7, 0x6e, 0x23, 0xc8, 0x39, 0xa0, 0x9f, 0xd1 }};
+#define SIPINFO_OBJID "1.3.6.1.4.1.311.2.1.30"
+
+/* two distinguished names are the same name: the same attributes in the same order, with the same text whatever string
+ * type holds it (a certificate authority may use printable or UTF-8 strings), compared without regard to case */
+static BOOL names_equal( const CERT_NAME_BLOB *a, const CERT_NAME_BLOB *b )
+{
+    CERT_NAME_INFO *x = NULL, *y = NULL;
+    DWORD size, i, j;
+    BOOL ret = FALSE;
+
+    if (!CryptDecodeObjectEx( X509_ASN_ENCODING, X509_NAME, a->pbData, a->cbData, CRYPT_DECODE_ALLOC_FLAG, NULL, &x, &size ) ||
+        !CryptDecodeObjectEx( X509_ASN_ENCODING, X509_NAME, b->pbData, b->cbData, CRYPT_DECODE_ALLOC_FLAG, NULL, &y, &size ))
+        goto done;
+    if (!x->cRDN || x->cRDN != y->cRDN) goto done;
+    for (i = 0; i < x->cRDN; i++)
+    {
+        if (x->rgRDN[i].cRDNAttr != y->rgRDN[i].cRDNAttr) goto done;
+        for (j = 0; j < x->rgRDN[i].cRDNAttr; j++)
+        {
+            CERT_RDN_ATTR *p = &x->rgRDN[i].rgRDNAttr[j], *q = &y->rgRDN[i].rgRDNAttr[j];
+            WCHAR text_p[512], text_q[512];
+            DWORD len_p, len_q;
+
+            if (!p->pszObjId || !q->pszObjId || strcmp( p->pszObjId, q->pszObjId )) goto done;
+            len_p = CertRDNValueToStrW( p->dwValueType, &p->Value, text_p, ARRAY_SIZE(text_p) );
+            len_q = CertRDNValueToStrW( q->dwValueType, &q->Value, text_q, ARRAY_SIZE(text_q) );
+            if (len_p < 2 || len_q < 2 || len_p >= ARRAY_SIZE(text_p) || len_q >= ARRAY_SIZE(text_q) ||
+                len_p != len_q || wcsicmp( text_p, text_q ))
+                goto done;
+        }
+    }
+    ret = TRUE;
+
+done:
+    if (x) LocalFree( x );
+    if (y) LocalFree( y );
+    return ret;
+}
+
+/* whether the signer's subject is the publisher the manifest names (a text: it is made a name and the names compared, so a
+ * long text cannot match by its beginning, an embedded zero does not cut it short, and spacing and quoting do not matter) */
+static BOOL subject_is_publisher( const WCHAR *publisher, CERT_NAME_BLOB *subject )
+{
+    CERT_NAME_BLOB want = { 0 };
+    BOOL ret = FALSE;
+
+    if (!publisher[0] || !subject->cbData || wcslen( publisher ) >= PACKAGE_PUBLISHER_MAX_LENGTH) return FALSE;
+    if (!CertStrToNameW( X509_ASN_ENCODING, publisher, CERT_X500_NAME_STR, NULL, NULL, &want.cbData, NULL ) || !want.cbData ||
+        !(want.pbData = malloc( want.cbData )))
+        return FALSE;
+    if (CertStrToNameW( X509_ASN_ENCODING, publisher, CERT_X500_NAME_STR, NULL, want.pbData, &want.cbData, NULL ))
+        ret = names_equal( &want, subject );
+    free( want.pbData );
+    return ret;
+}
+
+/* WinVerifyTrust on the package, as a package (the subject is given, not guessed from the file: a signed program with an
+ * archive behind it must not pass for a package). *signed_by_publisher is TRUE when there is a signer and it is the
+ * publisher; signer is the signer's name for display ("" without one). */
+static LONG verify_package( HANDLE file, const WCHAR *path, WCHAR *signer, DWORD signer_len, BOOL revocation,
+                            const WCHAR *publisher, BOOL *signed_by_publisher )
 {
     GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
     WINTRUST_FILE_INFO info = { sizeof(info) };
@@ -854,13 +941,15 @@ static LONG verify_package( HANDLE file, const WCHAR *path, WCHAR *signer, DWORD
 
     info.pcwszFilePath = path;
     info.hFile = file;
+    info.pgKnownSubject = (GUID *)&appx_subject;
     data.dwUIChoice = WTD_UI_NONE;
-    data.fdwRevocationChecks = WTD_REVOKE_NONE;
+    data.fdwRevocationChecks = revocation ? WTD_REVOKE_WHOLECHAIN : WTD_REVOKE_NONE;
     data.dwUnionChoice = WTD_CHOICE_FILE;
     data.pFile = &info;
     data.dwStateAction = WTD_STATEACTION_VERIFY;
-    data.dwProvFlags = WTD_REVOCATION_CHECK_NONE;
+    data.dwProvFlags = revocation ? WTD_REVOCATION_CHECK_CHAIN : WTD_REVOCATION_CHECK_NONE;
     signer[0] = 0;
+    *signed_by_publisher = FALSE;
     status = WinVerifyTrust( INVALID_HANDLE_VALUE, &action, &data );
     if (data.hWVTStateData)
     {
@@ -869,56 +958,162 @@ static LONG verify_package( HANDLE file, const WCHAR *path, WCHAR *signer, DWORD
         CRYPT_PROVIDER_CERT *cert = signer_info ? WTHelperGetProvCertFromChain( signer_info, 0 ) : NULL;
 
         if (cert && cert->pCert)
-            CertNameToStrW( X509_ASN_ENCODING, &cert->pCert->pCertInfo->Subject, CERT_X500_NAME_STR, signer, signer_len );
+        {
+            if (!CertNameToStrW( X509_ASN_ENCODING, &cert->pCert->pCertInfo->Subject, CERT_X500_NAME_STR, signer, signer_len ))
+                signer[0] = 0;
+            *signed_by_publisher = subject_is_publisher( publisher, &cert->pCert->pCertInfo->Subject );
+        }
+        /* what was signed has to be the information of a package, however well the signature itself verifies */
+        if ((status == ERROR_SUCCESS || status == CERT_E_UNTRUSTEDROOT) &&
+            (!prov || !prov->pPDSip || !prov->pPDSip->psIndirectData || !prov->pPDSip->psIndirectData->Data.pszObjId ||
+             strcmp( prov->pPDSip->psIndirectData->Data.pszObjId, SIPINFO_OBJID )))
+            status = TRUST_E_SUBJECT_FORM_UNKNOWN;
         data.dwStateAction = WTD_STATEACTION_CLOSE;
         WinVerifyTrust( INVALID_HANDLE_VALUE, &action, &data );
     }
+    else if (status == ERROR_SUCCESS || status == CERT_E_UNTRUSTEDROOT)
+        status = TRUST_E_SUBJECT_FORM_UNKNOWN;
     return status;
 }
 
-/* 0 to go on, 1 when the package is refused (a message is printed); development goes on after a signature that is not
- * trusted or cannot be checked */
+
+/* what the signature comes to, for the install and for the installer window (query) */
+enum sig_class { SIG_TRUSTED, SIG_UNTRUSTED, SIG_UNSIGNED, SIG_INVALID, SIG_INCONSISTENT, SIG_MISMATCH, SIG_REVOKED };
+
+static const WCHAR *sig_class_name( enum sig_class sig )
+{
+    static const WCHAR *names[] = { L"trusted", L"untrusted", L"unsigned", L"invalid", L"inconsistent", L"mismatch", L"revoked" };
+    return names[sig];
+}
+
+static enum sig_class judge_signature( HANDLE file, const WCHAR *package, const struct manifest *manifest, WCHAR *signer,
+                                       DWORD signer_len, WCHAR *note, DWORD note_len, const WCHAR **problem )
+{
+    BOOL by_publisher;
+    LONG status = verify_package( file, package, signer, signer_len, TRUE, manifest->publisher, &by_publisher );
+    const WCHAR *revocation = L"";
+
+    if (revocation_unknown( status ))
+    {
+        /* no revocation information, or nobody to ask: judged without it, and said so */
+        revocation = L" Revocation could not be checked.";
+        status = verify_package( file, package, signer, signer_len, FALSE, manifest->publisher, &by_publisher );
+    }
+
+    if (status == TRUST_E_SUBJECT_FORM_UNKNOWN)
+    {
+        swprintf( note, note_len, L"Signature: not checked, the members, content types and block map of the package do not agree." );
+        *problem = L"the package is not consistent, its signature cannot be checked";
+        return SIG_INCONSISTENT;
+    }
+    if (status == ERROR_SUCCESS || status == CERT_E_UNTRUSTEDROOT)
+    {
+        if (!by_publisher)
+        {
+            swprintf( note, note_len, L"Signature: the signer %s is not the publisher %s of the manifest.", signer,
+                      manifest->publisher );
+            *problem = L"the signer is not the publisher of the package";
+            return SIG_MISMATCH;
+        }
+        if (status == ERROR_SUCCESS)
+        {
+            swprintf( note, note_len, L"Signature: valid, signed by %s (trusted).%s", signer, revocation );
+            return SIG_TRUSTED;
+        }
+        swprintf( note, note_len, L"Signature: valid, signed by %s, a publisher this system does not trust.%s", signer, revocation );
+        *problem = L"the publisher is not trusted";
+        return SIG_UNTRUSTED;
+    }
+    if (status == TRUST_E_NOSIGNATURE)
+    {
+        swprintf( note, note_len, L"Signature: none, the package is not signed." );
+        *problem = L"the package is not signed";
+        return SIG_UNSIGNED;
+    }
+    if (status == E_CERT_REVOKED || status == E_CRYPT_REVOKED)
+    {
+        swprintf( note, note_len, L"Signature: valid, but the certificate of %s was revoked.", signer );
+        *problem = L"the certificate of the publisher was revoked";
+        return SIG_REVOKED;
+    }
+    swprintf( note, note_len, L"Signature: invalid (%08lx), the package or its signature was changed.", (ULONG)status );
+    *problem = L"the signature is not valid";
+    return SIG_INVALID;
+}
+
 static int check_signature( HANDLE file, const WCHAR *package, const struct manifest *manifest, BOOL development )
 {
     static WCHAR note[512];
     WCHAR signer[256];
-    LONG status = verify_package( file, package, signer, ARRAY_SIZE(signer) );
     const WCHAR *problem = NULL;
 
-    if (status == TRUST_E_SUBJECT_FORM_UNKNOWN)
-    {
-        swprintf( note, ARRAY_SIZE(note), L"Signature: not checked, the members, content types and block map of the package do not agree." );
-        problem = L"the package is not consistent, its signature cannot be checked";
-    }
-    else if (status == ERROR_SUCCESS || status == CERT_E_UNTRUSTEDROOT)
-    {
-        if (signer[0] && wcscmp( signer, manifest->publisher ))
-        {
-            swprintf( note, ARRAY_SIZE(note), L"Signature: the signer %s is not the publisher %s of the manifest.", signer,
-                      manifest->publisher );
-            problem = L"the signer is not the publisher of the package";
-        }
-        else if (status == ERROR_SUCCESS)
-            swprintf( note, ARRAY_SIZE(note), L"Signature: valid, signed by %s (trusted).", signer );
-        else
-        {
-            swprintf( note, ARRAY_SIZE(note), L"Signature: valid, signed by %s, a publisher this system does not trust.", signer );
-            problem = L"the publisher is not trusted";
-        }
-    }
-    else if (status == TRUST_E_NOSIGNATURE)
-    {
-        swprintf( note, ARRAY_SIZE(note), L"Signature: none, the package is not signed." );
-        problem = L"the package is not signed";
-    }
-    else
-    {
-        swprintf( note, ARRAY_SIZE(note), L"Signature: invalid (%08lx), the package or its signature was changed.", (ULONG)status );
-        problem = L"the signature is not valid";
-    }
+    judge_signature( file, package, manifest, signer, ARRAY_SIZE(signer), note, ARRAY_SIZE(note), &problem );
     signature_note = note;
     if (problem && !development)
         return fail( L"%s: %s (--development installs it anyway)", package, problem );
+    return 0;
+}
+
+/* a line of the query file: one line, no control characters (the values come from an untrusted package) */
+static void query_line( HANDLE out, const WCHAR *key, const WCHAR *value )
+{
+    WCHAR line[1024];
+    DWORD written, n, i;
+
+    n = swprintf( line, ARRAY_SIZE(line) - 2, L"%s=%.600s", key, value );
+    for (i = 0; i < n; i++) if (line[i] < 0x20) line[i] = ' ';
+    line[n++] = '\n';
+    WriteFile( out, line, n * sizeof(WCHAR), &written, NULL );
+}
+
+/*
+ * wexappx query PACKAGE RESULT: what the installer window shows, written to the file RESULT as UTF-16 lines key=value
+ * (state: trusted, untrusted, unsigned, invalid, inconsistent, mismatch, revoked; name, display, publisher, signer,
+ * version, problem, note). Installs nothing and changes nothing but RESULT.
+ */
+static int query( const WCHAR *package, const WCHAR *result )
+{
+    WCHAR full_name[PACKAGE_FULL_NAME_MAX_LENGTH + 1], signer[256], note[512];
+    const WCHAR *problem = L"";
+    struct manifest manifest;
+    struct entry *entry;
+    LARGE_INTEGER size;
+    HANDLE file, mapping, out;
+    BYTE *data;
+    enum sig_class sig;
+    static const BYTE bom[2] = { 0xff, 0xfe };
+    DWORD written;
+
+    memset( &manifest, 0, sizeof(manifest) );
+    file = CreateFileW( package, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL );
+    if (file == INVALID_HANDLE_VALUE) return fail( L"cannot open %s (error %lu)", package, GetLastError() );
+    if (!GetFileSizeEx( file, &size ) || !size.QuadPart || size.QuadPart > MAX_ARCHIVE_SIZE)
+        return fail( L"%s is empty or too large", package );
+    archive_size = size.QuadPart;
+    mapping = CreateFileMappingW( file, NULL, PAGE_READONLY, 0, 0, NULL );
+    if (!mapping || !(archive = MapViewOfFile( mapping, FILE_MAP_READ, 0, 0, 0 )))
+        return fail( L"cannot read %s (error %lu)", package, GetLastError() );
+    if (read_directory()) return 1;
+    if (!(entry = find_entry( L"AppxManifest.xml" ))) return fail( L"the archive has no AppxManifest.xml" );
+    if (entry->size > MAX_MANIFEST_SIZE) return fail( L"the manifest is too large" );
+    if (!(data = read_entry( entry ))) return 1;
+    if (parse_manifest( data, entry->size, &manifest )) return 1;
+    free( data );
+    if (get_full_name( &manifest, full_name )) return 1;
+    sig = judge_signature( file, package, &manifest, signer, ARRAY_SIZE(signer), note, ARRAY_SIZE(note), &problem );
+
+    out = CreateFileW( result, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+    if (out == INVALID_HANDLE_VALUE) return fail( L"cannot write %s (error %lu)", result, GetLastError() );
+    WriteFile( out, bom, sizeof(bom), &written, NULL );
+    query_line( out, L"state", sig_class_name( sig ) );
+    query_line( out, L"name", manifest.name );
+    query_line( out, L"display", manifest.display );
+    query_line( out, L"publisher", manifest.publisher );
+    query_line( out, L"signer", signer );
+    query_line( out, L"version", manifest.version );
+    query_line( out, L"problem", problem );
+    query_line( out, L"note", note );
+    CloseHandle( out );
     return 0;
 }
 
@@ -946,7 +1141,9 @@ static int install( const WCHAR *package, BOOL development )
     }
     archive_size = size.QuadPart;
     mapping = CreateFileMappingW( file, NULL, PAGE_READONLY, 0, 0, NULL );
-    /* the file stays open (nobody can write to it) until the program ends: the signature is checked on this handle */
+    /* the file stays open until the program ends and the signature is checked on this handle. The share mode keeps other
+     * Windows programs from writing to it; a program of the host system ignores share modes, so the bytes behind the mapping
+     * can still change between the check and the extraction (KNOWN_BUGS B68: the block map's hashes are not yet compared). */
     if (!mapping || !(archive = MapViewOfFile( mapping, FILE_MAP_READ, 0, 0, 0 )))
         return fail( L"cannot read %s (error %lu)", package, GetLastError() );
 
@@ -1138,6 +1335,7 @@ static int usage(void)
 {
     fputws( L"Usage:\n"
             L"  wexappx install [--development] PACKAGE   install an .appx or .msix package for this user\n"
+            L"  wexappx query PACKAGE RESULT              write what the installer window shows (key=value, UTF-16)\n"
             L"  wexappx uninstall PACKAGE_FULL_NAME       remove an installed package\n"
             L"  wexappx list                              list the installed packages\n"
             L"\n"
@@ -1162,6 +1360,13 @@ int __cdecl wmain( int argc, WCHAR **argv )
         if (argc != 3 && !development) return usage();
         if (FAILED(CoInitializeEx( NULL, COINIT_MULTITHREADED ))) return fail( L"COM is not available" );
         ret = install( argv[argc - 1], development );
+        CoUninitialize();
+        return ret;
+    }
+    if (!wcscmp( argv[1], L"query" ) && argc == 4)
+    {
+        if (FAILED(CoInitializeEx( NULL, COINIT_MULTITHREADED ))) return fail( L"COM is not available" );
+        ret = query( argv[2], argv[3] );
         CoUninitialize();
         return ret;
     }

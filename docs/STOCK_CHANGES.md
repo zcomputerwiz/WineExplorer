@@ -3940,5 +3940,12 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
   left the policy at FALSE with no error, so `WinVerifyTrust` returned success without judging the chain (a self-signed
   certificate was not `CERT_E_UNTRUSTEDROOT`; the consent window called such a signer verified). The buffer is 64 bytes
   and a certificate whose hash cannot be had is not on the list.
+- `dlls/wintrust/softpub.c` (`SOFTPUB_VerifyImageHash`, 698e3eb7 on the same Wine branch, found by session 0's security
+  review): the SIP of the subject was asked only for the SIP-information digest type, and every other type except PE
+  images returned success with a FIXME, so the PKCS #7 of any trusted signed file put into a package's signature file
+  verified. The SIP is asked for every subject that is not a PE image, and where none can be asked the digest is
+  rejected (`TRUST_E_BAD_DIGEST`). Effect on other subjects: a signed cabinet or catalog-type digest used to pass
+  unchecked; it now passes only if the subject's SIP verifies it, and fails if no SIP is registered for the subject (the
+  SIP of a subject is loaded before this point, so a subject without one already failed earlier).
 - `loader/wine.inf.in`: `appxsip.dll` (`src/dlls/appxsip`, the signature provider of `.appx` and `.msix` packages) is in
   the registered DLLs, next to `msisip.dll`.

@@ -26,9 +26,10 @@ static const WCHAR *base_name( const WCHAR *path )
 int wmain( int argc, WCHAR **argv )
 {
     GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    BOOL revoke = argc > 1 && !wcscmp( argv[1], L"--revoke" );   /* check the whole chain for revocation */
     int i;
 
-    for (i = 1; i < argc; i++)
+    for (i = revoke ? 2 : 1; i < argc; i++)
     {
         WINTRUST_FILE_INFO file = { sizeof(file) };
         WINTRUST_DATA data = { sizeof(data) };
@@ -37,11 +38,11 @@ int wmain( int argc, WCHAR **argv )
 
         file.pcwszFilePath = argv[i];
         data.dwUIChoice = WTD_UI_NONE;
-        data.fdwRevocationChecks = WTD_REVOKE_NONE;
+        data.fdwRevocationChecks = revoke ? WTD_REVOKE_WHOLECHAIN : WTD_REVOKE_NONE;
         data.dwUnionChoice = WTD_CHOICE_FILE;
         data.pFile = &file;
         data.dwStateAction = WTD_STATEACTION_VERIFY;
-        data.dwProvFlags = WTD_REVOCATION_CHECK_NONE;
+        data.dwProvFlags = revoke ? WTD_REVOCATION_CHECK_CHAIN : WTD_REVOCATION_CHECK_NONE;
         status = WinVerifyTrust( INVALID_HANDLE_VALUE, &action, &data );
         if (data.hWVTStateData)
         {

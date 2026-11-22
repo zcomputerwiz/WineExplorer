@@ -49,99 +49,16 @@ try {
     Copy-Item -LiteralPath $signed -Destination (Join-Path $out 'unsigned.appx')
     & "$tools\signtool.exe" sign /fd SHA256 /sha1 $cert.Thumbprint $signed | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'SignTool failed' }
+    # a program signed with the same certificate: its signature is the material of the foreign-subject fixtures
+    Copy-Item -LiteralPath $Exe -Destination (Join-Path $out 'signed-tiny.exe')
+    & "$tools\signtool.exe" sign /fd SHA256 /sha1 $cert.Thumbprint (Join-Path $out 'signed-tiny.exe') | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'SignTool failed on the program' }
 } finally {
     Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)" -DeleteKey -ErrorAction Continue
 }
 
-# the variants: zip members are rewritten by hand so that exactly one thing differs from signed.appx
-Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-function Copy-Package($name, [scriptblock]$edit) {
-    $path = Join-Path $out $name
-    Copy-Item -LiteralPath $signed -Destination $path
-    & $edit $path
-}
-function Patch-Bytes($path, [scriptblock]$edit) {
-    $bytes = [IO.File]::ReadAllBytes($path)
-    & $edit $bytes
-    [IO.File]::WriteAllBytes($path, $bytes)
-}
-function Find-Bytes([byte[]]$haystack, [byte[]]$needle) {
-    for ($i = 0; $i -le $haystack.Length - $needle.Length; $i++) {
-        $ok = $true
-        for ($j = 0; $j -lt $needle.Length; $j++) { if ($haystack[$i + $j] -ne $needle[$j]) { $ok = $false; break } }
-        if ($ok) { return $i }
-    }
-    return -1
-}
-# tiny.exe changed inside its block: patch the stored/deflated bytes of the member (the .text of the exe is stored when
-# deflate does not help; read the member offset from the central directory by opening the zip)
-Copy-Package 'bad-block.appx' {
-    param($p)
-    Patch-Bytes $p { param($b)
-        # logo.png is stored: its eight bytes are in the archive as they are
-        $at = Find-Bytes $b ([byte[]](0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a))
-        if ($at -lt 0) { throw 'no stored logo.png in the package to change' }
-        $b[$at + 6] = [byte]0x1b
-    }
-}
-# the block map text changed (a hash digit): the signed digest of AppxBlockMap.xml no longer fits
-Copy-Package 'bad-blockmap.appx' {
-    param($p)
-    $zip = [IO.Compression.ZipFile]::Open($p, 'Update')
-    try {
-        $entry = $zip.GetEntry('AppxBlockMap.xml')
-        $reader = New-Object IO.StreamReader($entry.Open()); $text = $reader.ReadToEnd(); $reader.Close()
-        $entry.Delete()
-        $new = $zip.CreateEntry('AppxBlockMap.xml')
-        $writer = New-Object IO.StreamWriter($new.Open(), (New-Object Text.UTF8Encoding $false))
-        $writer.Write($text.Replace('Size="', 'Size ="')); $writer.Close()
-    } finally { $zip.Dispose() }
-}
-# a member added after signing (the central directory digest changes)
-Copy-Package 'extra-member.appx' {
-    param($p)
-    $zip = [IO.Compression.ZipFile]::Open($p, 'Update')
-    try { $e = $zip.CreateEntry('extra.txt'); $w = New-Object IO.StreamWriter($e.Open()); $w.Write('added after signing'); $w.Close() } finally { $zip.Dispose() }
-}
-# the manifest publisher changed (the identity no longer matches the signer)
-Copy-Package 'other-publisher.appx' {
-    param($p)
-    $zip = [IO.Compression.ZipFile]::Open($p, 'Update')
-    try {
-        $entry = $zip.GetEntry('AppxManifest.xml')
-        $reader = New-Object IO.StreamReader($entry.Open()); $text = $reader.ReadToEnd(); $reader.Close()
-        $entry.Delete()
-        $new = $zip.CreateEntry('AppxManifest.xml')
-        $writer = New-Object IO.StreamWriter($new.Open(), (New-Object Text.UTF8Encoding $false))
-        $writer.Write($text.Replace('CN=WineExplorer Signature Test', 'CN=Someone Else')); $writer.Close()
-    } finally { $zip.Dispose() }
-}
-# signature file removed
-Copy-Package 'no-signature.appx' {
-    param($p)
-    $zip = [IO.Compression.ZipFile]::Open($p, 'Update')
-    try { $zip.GetEntry('AppxSignature.p7x').Delete() } finally { $zip.Dispose() }
-}
-# the p7x damaged (one byte of the PKCS #7 changed)
-Copy-Package 'bad-p7x.appx' {
-    param($p)
-    $zip = [IO.Compression.ZipFile]::Open($p, 'Update')
-    try {
-        $entry = $zip.GetEntry('AppxSignature.p7x')
-        $s = $entry.Open(); $ms = New-Object IO.MemoryStream; $s.CopyTo($ms); $s.Close()
-        $bytes = $ms.ToArray(); $bytes[$bytes.Length - 20] = $bytes[$bytes.Length - 20] -bxor 0xff
-        $entry.Delete()
-        $new = $zip.CreateEntry('AppxSignature.p7x'); $w = $new.Open(); $w.Write($bytes, 0, $bytes.Length); $w.Close()
-    } finally { $zip.Dispose() }
-}
+# the variants that break the package in one way each are made from signed.appx by tamper.py, byte for byte; verify-fixtures.ps1
+# and sigtest.exe say what Windows thinks of them
 
-# what Windows says about each (the certificate is in no trust store, so the good one is "untrusted root")
-$report = @()
-foreach ($file in Get-ChildItem -LiteralPath $out -Filter *.appx | Sort-Object Name) {
-    $text = & "$tools\signtool.exe" verify /pa /v $file.FullName 2>&1 | Out-String
-    $report += "== $($file.Name) (exit $LASTEXITCODE)"
-    $report += ($text -split "`r?`n" | Where-Object { $_ -match 'Error|error|Successfully|SignTool|Issued|Hash|No signature' } | Select-Object -First 8)
-}
-$report | Set-Content -LiteralPath (Join-Path $out 'signtool-report.txt') -Encoding UTF8
 Remove-Item -LiteralPath $stage -Recurse -Force
 Get-ChildItem -LiteralPath $out | Select-Object Name, Length

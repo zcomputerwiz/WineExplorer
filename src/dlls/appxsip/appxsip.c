@@ -149,6 +149,10 @@ static BOOL package_open( struct package *pkg, const WCHAR *name, HANDLE handle 
     if (!(pkg->mapping = CreateFileMappingW( pkg->file, NULL, PAGE_READONLY, 0, 0, NULL ))) goto fail;
     if (!(pkg->base = MapViewOfFile( pkg->mapping, FILE_MAP_READ, 0, 0, 0 ))) goto fail;
 
+    /* a package starts with its first member: a file that has something else in front (a signed program with an archive in
+     * its certificate area) is not one, whatever its end holds */
+    if (rd32( pkg->base ) != 0x04034b50) goto fail;
+
     /* the end record, searched backwards over a possible comment */
     for (pos = pkg->length - 22; ; pos--)
     {
@@ -163,7 +167,9 @@ static BOOL package_open( struct package *pkg, const WCHAR *name, HANDLE handle 
     {
         ULONGLONG record = rd64( end - 12 );
 
-        if (record > pos - 56 || rd32( pkg->base + record ) != 0x06064b50) goto fail;
+        /* the zip64 end record (56 bytes) lies wholly before the locator (20 bytes) that lies before the end record: with
+         * less than 76 bytes in front of the end record the subtraction would wrap and any offset would pass */
+        if (pos < 76 || record > pos - 76 || rd32( pkg->base + record ) != 0x06064b50) goto fail;
         pkg->zip64 = TRUE;
         pkg->z64_record = record;
         if (rd64( pkg->base + record + 24 ) > MAX_ENTRIES) goto fail;
@@ -685,6 +691,13 @@ BOOL WINAPI AppxSipVerifyIndirectData( SIP_SUBJECTINFO *subject, SIP_INDIRECT_DA
     if (strcmp( indirect->DigestAlgorithm.pszObjId, szOID_NIST_sha256 ))
     {
         SetLastError( NTE_BAD_ALGID );
+        return FALSE;
+    }
+    /* the signed data must be the SIP information of a package: the signature of another kind of subject (a cabinet, a
+     * program) is not a signature of this package, however well it verifies */
+    if (!indirect->Data.pszObjId || strcmp( indirect->Data.pszObjId, "1.3.6.1.4.1.311.2.1.30" ))
+    {
+        SetLastError( TRUST_E_BAD_DIGEST );
         return FALSE;
     }
     if (!open_subject( &pkg, subject )) return FALSE;

@@ -36,6 +36,9 @@ already asks registered providers (`IsMyFileType2`), so an Appx SIP plugs in wit
 | `other-publisher.appx` (manifest changed, block map no longer fits) | `800b0003` | not recognised |
 | `short-p7x.appx`, `wrong-magic.appx` (p7x of 3 bytes, `PKCY` for `PKCX`) | `800b0003` | not recognised |
 | `rewritten.appx` (`signed.appx` through `tamper.py` unchanged) | `800b0109` | writer check: same as the original |
+| `foreign-p7x.appx` (the PKCS #7 of a program signed by the same certificate as the signature file) | `80096010` | bad digest: a signature of another kind of subject is not this package's |
+| `pe-prefix.appx` (a signed program, then the package; offsets shifted) | `800b0100` | no signature (read as a program, its table is damaged by the data behind it) |
+| `pe-hidden-zip.appx` (the same, with the certificate table enlarged to hold the package) | `80096011` | rejected as a program too |
 
 `makeappx` writes zip64 records even for a small package: the plain end record holds `0xffff` and `0xffffffff` (the disk
 numbers too), and every central directory entry has `0xffffffff` for its sizes and offset with the values in a zip64 extra
@@ -60,6 +63,14 @@ them the way Wine's wintrust is built, not the provider:
   signer information before it compares the digest, Wine's `SoftpubLoadMessage` stops first.
 * A damaged signature value (`bad-p7x`) is `80096004` (`TRUST_E_CERT_SIGNATURE`, the message's own verification) where
   Windows says `80096010`.
+
+Three more differences, in the files that have a program in front: `foreign-p7x` is `800b0100` on Wine (the signed data is of
+another type than Wine decodes, so it sees no signature) where Windows says bad digest; `pe-hidden-zip` is read as the signed
+program (`800b0109`, untrusted signer) because wintrust decides the kind of file by its first bytes. Neither can be taken for a
+package: `wexappx` hands wintrust the subject (a package) instead of letting it guess, the provider wants the first member at
+byte 0, and the signed data must be the package information (see `wexappx-sig.sh`, which refuses all three even with the
+signer's certificate trusted). Session 0's security review found that `WinVerifyTrust` accepted any digest type it could not
+verify, which is what the first fixture needs a fix for (KNOWN_BUGS B67).
 
 Found on the way and fixed on the Wine branch `claude/wintrust-sha256-policy`: `WinVerifyTrust` returned success for a
 self-signed certificate whose signature is SHA-256 (see `docs/STOCK_CHANGES.md`); `signed.appx` is `800b0109` only with

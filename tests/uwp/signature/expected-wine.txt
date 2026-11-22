@@ -2,8 +2,11 @@ bad-block.appx: 80096010
 bad-blockmap.appx: 80096010
 bad-p7x.appx: 80096004
 extra-member.appx: 80096010
+foreign-p7x.appx: 800b0100
 no-signature.appx: 800b0003
 other-publisher.appx: 800b0003
+pe-hidden-zip.appx: 800b0109 signer WineExplorer Signature Test
+pe-prefix.appx: 800b0100
 rewritten.appx: 800b0109 signer WineExplorer Signature Test
 short-p7x.appx: 800b0003
 signed.appx: 800b0109 signer WineExplorer Signature Test
