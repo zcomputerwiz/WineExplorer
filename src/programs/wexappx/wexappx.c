@@ -99,8 +99,8 @@ static BOOL load_package_family_functions(void)
 #define MAX_RATIO          200
 #define MAX_MANIFEST_SIZE  (1024 * 1024)
 #define MAX_REL_PATH       512
-#define MAX_RECORD_CHARS   32000
-#define MAX_ITEMS          1024
+#define MAX_RECORD_CHARS   200000
+#define MAX_ITEMS          4096
 
 struct entry
 {
