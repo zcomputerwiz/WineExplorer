@@ -3933,3 +3933,12 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
   (except the Installer cache's copy of an installed product), another patch, or a transform file is refused.
 
 2026-11-21 (Wine 401183d1): `programs/wscript/main.c`: the host loads its own type library with `LoadTypeLibEx(..., REGKIND_NONE)` instead of `LoadTypeLib`, which registers a library named without a path and so needs write access to HKCR; for a standard user (HKCR is the machine registry on WineExplorer) `wscript`/`cscript` ended with "Script initialization failed" and ran no script (B62). wscript tests 347/347 on both architectures; checked in the lab with Office's `ospp.vbs`.
+
+2026-11-21 (UWP signature check; Wine branches `claude/wintrust-sha256-policy` 3d601306 and `claude/appxsip-registration` c1888008, both on development 401183d1, not merged):
+- `dlls/wintrust/softpub.c` (`SoftpubAuthenticode`): the signature hash of the signer certificate was read into 20 bytes
+  to look it up in the Disallowed store. For a certificate signed with SHA-256 the call needs 32 bytes, failed, and
+  left the policy at FALSE with no error, so `WinVerifyTrust` returned success without judging the chain (a self-signed
+  certificate was not `CERT_E_UNTRUSTEDROOT`; the consent window called such a signer verified). The buffer is 64 bytes
+  and a certificate whose hash cannot be had is not on the list.
+- `loader/wine.inf.in`: `appxsip.dll` (`src/dlls/appxsip`, the signature provider of `.appx` and `.msix` packages) is in
+  the registered DLLs, next to `msisip.dll`.

@@ -49,3 +49,17 @@ in the plain end record), so a reader must understand zip64.
 * `verify-fixtures.ps1`: signtool's answers for a directory of packages.
 * `sigtest.c`: the same `WinVerifyTrust` call on every file given, with the signer name; built for x64 and x86 with mingw.
 * `tiny.c`: the do-nothing executable inside the package.
+
+## Wine (`appxsip.dll`, `src/dlls/appxsip`; `expected-wine.txt`, `lab-helpers/sig-run.sh`)
+
+The same file list through `sigtest.exe` on Wine, x64 and x86, gives the lines above except two differences, both of
+them the way Wine's wintrust is built, not the provider:
+
+* A package whose digest does not fit (`bad-block`, `bad-blockmap`, `bad-p7x`) gives no signer name: Windows builds the
+  signer information before it compares the digest, Wine's `SoftpubLoadMessage` stops first.
+* A damaged signature value (`bad-p7x`) is `80096004` (`TRUST_E_CERT_SIGNATURE`, the message's own verification) where
+  Windows says `80096010`.
+
+Found on the way and fixed on the Wine branch `claude/wintrust-sha256-policy`: `WinVerifyTrust` returned success for a
+self-signed certificate whose signature is SHA-256 (see `docs/STOCK_CHANGES.md`); `signed.appx` is `800b0109` only with
+that fix.
