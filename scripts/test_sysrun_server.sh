@@ -2644,6 +2644,33 @@ run_as "$ADM" bash -c 'head -c 70000 /dev/urandom > "$1"' _ "/home/$ADM/wexel/ap
 AXX="$(winpath /home/$ADM/wexel/appx/wexappx.exe)"; AXPKG="$(winpath /home/$ADM/wexel/appx/pkg.appx)"
 bp c4_wexappx_package_path_and_hash_reach_the_elevated_process "$ADM" 64 appxdoc "$AXX" "$AXPKG" "$(winpath $EL/out.appxdoc)"
 bp c4_wexappx_install_without_a_package_is_refused "$ADM" 64 appxnone "$AXX" "$(winpath $EL/out.appxnone)"
+
+# the token broker (WAM) with elevation enforced: its client and the broker read each other's process token, which the
+# server gives only to a handle with the query right (server/token.c, open_token); with the limited right the client
+# refused the broker's pipe and Copilot used its own sign-in window. Wine's web_core tests, as the limited
+# administrator, against the local test authority (tests/wam/run-broker-tests.sh runs them without enforcement)
+python3 -I "$SRC/tests/wam/test_authority.py" "$ROOT/wam-port" 2> "$ROOT/wam-authority.log" &
+WAM_AUTH=$!
+for _ in $(seq 50); do [ -s "$ROOT/wam-port" ] && break; sleep 0.1; done
+[ -s "$ROOT/wam-port" ] || { kill "$WAM_AUTH" 2>/dev/null; fail "wam: the test authority did not start"; }
+for arch in x86_64 i386; do
+    install -m 755 "$BUILD/dlls/windows.security.authentication.web.core/tests/$arch-windows/windows.security.authentication.web.core_test.exe" \
+        "$ROOT/probes/web_core_$arch.exe" || { kill "$WAM_AUTH" 2>/dev/null; fail "wam $arch: no web_core test program"; }
+    rc=0
+    timeout 300 runuser -u "$ADM" -- env -i HOME="/home/$ADM" USER="$ADM" LOGNAME="$ADM" PATH=/usr/bin:/bin LANG=C \
+        DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' \
+        WEBCORE_TEST_AUTHORITY="http://127.0.0.1:$(cat "$ROOT/wam-port")/" \
+        "$BUILD/wine" "$ROOT/probes/web_core_$arch.exe" web_core > "$ROOT/wam-$arch.log" 2>&1 || rc=$?
+    if [ "$rc" != 0 ] || grep -q -e 'Test failed' -e 'skipped: the token broker' "$ROOT/wam-$arch.log" ||
+       ! grep -q 'tests executed' "$ROOT/wam-$arch.log"; then
+        grep -E 'Test failed|skipped|tests executed|unhandled' "$ROOT/wam-$arch.log" | head -20 >&2
+        kill "$WAM_AUTH" 2>/dev/null
+        fail "wam $arch: web_core with the broker as the limited administrator (exit $rc)"
+    fi
+    ok "c4_token_broker_web_core_tests_pass_as_the_limited_administrator_$arch"
+done
+kill "$WAM_AUTH" 2>/dev/null; wait "$WAM_AUTH" 2>/dev/null || true
+pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
 el_down "$ADM"
 
 # -- 6. a standard user
