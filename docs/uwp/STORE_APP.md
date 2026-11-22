@@ -54,7 +54,7 @@ launch it again in that prefix with debug channels and look at its threads.
 
 ## The real wait (2026-11-22, found with a stack probe and the disassembly of the image)
 
-* **Where.** A probe that prints the code addresses on the main thread's stack (`tests/uwp/lab-helpers/appservice-probe.patch`,
+* **Where.** A probe that prints the code addresses on the main thread's stack (`tests/uwp/lab-helpers/appservice-probe.diff`,
   `WINEAPPSERVICE_STACK`; no debugger can attach: `winedbg` kills the process and an outside tool gets "access denied" on the
   threads of a packaged process) shows the main thread in the program's startup function (it reads the activation URI, the
   schemes `store` and `microsoftstore`, "This property must be accessed after calling 'BuildStartupServices'"), blocked in a
