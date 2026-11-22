@@ -3980,3 +3980,5 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 - `dlls/wintypes/guidhelper.c`, `include/windows.foundation.idl`: `Windows.Foundation.GuidHelper` (`IGuidHelperStatics`). A test in `tests/wintypes.c`.
 - `dlls/kernelbase/version.c`, `kernelbase.spec`, `kernel32.spec`: `PackageFamilyNameFromFullName` (was a stub); the catalog record size of the package APIs is 1 MiB (it was 256 KiB).
 - `server/uwp_context.h`: the largest catalog record is 512 KiB (64 KiB) and the largest class table of a context 1 MiB (256 KiB): the Windows App Runtime framework declares 1033 activatable classes.
+
+2026-11-22 (UWP, Wine branch `claude/uwp-machine-apps`): `dlls/profapi` (`main.c`, new; `profapi.spec`, `Makefile.in`): ordinal 114 has the signature `LONG (const WCHAR *family, void *reserved, const WCHAR *subkey, DWORD access, HKEY *key)`, deduced from a logged call of the Windows App Runtime, and answers `ERROR_FILE_NOT_FOUND` after logging its arguments. See `docs/uwp/WINAPPSDK.md`.
