@@ -22,7 +22,7 @@ case "\$*" in
     "ads testjoin") exit \$(cat "$FX/testjoin.rc" 2>/dev/null || echo 0) ;;
     "ads leave"*) exit \$(cat "$FX/leave.rc" 2>/dev/null || echo 0) ;;
     "ads lookup"*) [ -f "$FX/lookup" ] && cat "$FX/lookup"; exit 0 ;;
-    "ads info") echo "LDAP server name: dc1.ad.wexlab.example"; exit 0 ;;
+    "ads info") echo "LDAP server name: \$(cat "$FX/dcname" 2>/dev/null || echo dc1.ad.wexlab.example)"; exit 0 ;;
     "ads changetrustpw") exit \$(cat "$FX/ctp.rc" 2>/dev/null || echo 0) ;;
 esac
 exit 0
@@ -378,7 +378,9 @@ out=$(serve op=scquery)
 [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc=dc1.ad.wexlab.example||status=0$' <<<"$out" || { echo "$out"; fail 'serve: scquery'; }
 echo 1 > "$FX/testjoin.rc"
 out=$(serve op=scquery); grep -q '||status=1722$' <<<"$out" || { echo "$out"; fail 'serve: scquery with a channel that does not work'; }
-rm -f "$FX/testjoin.rc"
+echo 'x||status=0' > "$FX/dcname"
+out=$(serve op=scquery); grep -q '^message=dc=xstatus=0||status=1722$' <<<"$out" || { echo "$out"; fail 'serve: scquery lets the controller add a status'; }
+rm -f "$FX/testjoin.rc" "$FX/dcname"
 echo nowinbind > "$FX/kind"
 expect 2692 'dsgetdc when not joined with winbind' 'op=dsgetdc'
 expect 2692 'scquery when not joined with winbind' 'op=scquery'

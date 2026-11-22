@@ -427,6 +427,8 @@ cmd_sc_query()
     command -v net >/dev/null 2>&1 || fail 50 "missing: net (on Debian: apt-get install $PACKAGES)"
     dc=$(net ads info 2>/dev/null | sed -n 's/^LDAP server name: *//p' | head -n 1)
     net ads testjoin >/dev/null 2>&1 || status=1722
+    # the controller's own words: no separator and no control character may pass
+    dc=$(tr -d '|[:cntrl:]' <<<"$dc")
     note "dc=${dc:-}||status=$status"
 }
 
