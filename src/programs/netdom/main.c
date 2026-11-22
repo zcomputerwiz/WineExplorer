@@ -50,14 +50,12 @@
 /* the flags of NetJoinDomain and NetUnjoinDomain (lmjoin.h of the Windows SDK) */
 #define NETSETUP_JOIN_DOMAIN 0x00000001
 #define NETSETUP_ACCT_CREATE 0x00000002
-
-/* (Wine's lmjoin.h does not declare it; it is netapi32's, forwarded to wexjoin) */
-DWORD WINAPI NetRenameMachineInDomain( LPCWSTR server, LPCWSTR new_name, LPCWSTR account, LPCWSTR password, DWORD flags );
 #define NETSETUP_ACCT_DELETE 0x00000004
 
 #define MAX_TEXT 1024
 
 /* Wine's lmjoin.h has only NetGetJoinInformation; these are netapi32's (forwarded to wexjoin.dll) */
+DWORD WINAPI NetRenameMachineInDomain( LPCWSTR server, LPCWSTR new_name, LPCWSTR account, LPCWSTR password, DWORD flags );
 NET_API_STATUS NET_API_FUNCTION NetJoinDomain( LPCWSTR server, LPCWSTR domain, LPCWSTR ou, LPCWSTR account, LPCWSTR password, DWORD flags );
 NET_API_STATUS NET_API_FUNCTION NetUnjoinDomain( LPCWSTR server, LPCWSTR account, LPCWSTR password, DWORD flags );
 
