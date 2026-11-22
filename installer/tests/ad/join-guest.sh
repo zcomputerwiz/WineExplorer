@@ -301,11 +301,16 @@ BAT
     if host_step consent; then
         sleep 25
         XDW=3 xd key alt+c                        # Change...
-        xd key ctrl+a; xd type renlab1            # the computer name
+        host_step shot r1
+        xd key alt+c; xd key ctrl+a; xd type renlab1   # the computer name (its mnemonic is alt+c here)
+        host_step shot r2
         xd key Return                             # OK: the credentials are asked
+        host_step shot r3
         xd key ctrl+a; xd type Administrator
         xd key alt+p; xd type --file /tmp/join-pw-raw.txt
+        host_step shot r4
         XDW=20 xd key Return                      # the rename
+        host_step shot r5
         for i in $(seq 1 30); do [ "$(hostname -s)" = renlab1 ] && [ -n "$(comp_dn RENLAB1)" ] && break; sleep 3; done
         if [ "$(hostname -s)" = renlab1 ] && [ -n "$(comp_dn RENLAB1)" ] && [ -z "$(comp_dn "$ORIG")" ]; then ok dialog_rename_account
         else notok dialog_rename_account "host [$(hostname -s)] new [$(comp_dn RENLAB1)] old [$(comp_dn "$ORIG")] $(journalctl --no-pager -b 0 -t wex-domain-join 2>/dev/null | tail -6 | sed 's/.*request //; s/ domain=[^ ]*//; s/ user=[^ :]*//' | tr '\n' '|')"; fi

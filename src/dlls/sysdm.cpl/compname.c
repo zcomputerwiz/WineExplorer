@@ -266,33 +266,22 @@ static BOOL do_join(HWND dlg, const WCHAR *domain)
     return TRUE;
 }
 
-/* TRUE when the computer has the new name, in the domain and out of it: the host name is set first (the account's name
- * follows it), and put back when the account cannot be renamed */
+/* TRUE when the computer has the new name in the domain: the engine renames the account and sets the host name, and
+ * puts everything back when a step fails */
 static BOOL do_rename(HWND dlg, const WCHAR *wname, const char *name)
 {
     struct credentials c = { L"Enter the name and password of an account with permission to rename this computer in the domain." };
     WCHAR account[300];
-    char old[sizeof(g_host.static_name)];
-    DWORD err, status;
+    DWORD status;
 
     lstrcpynW(c.domain, g_member, ARRAY_SIZE(c.domain));
     if (DialogBoxParamW(g_hInstance, MAKEINTRESOURCEW(IDD_JOIN_CREDS), dlg, credentials_proc, (LPARAM)&c) != IDOK) return FALSE;
-    lstrcpynA(old, g_host.static_name, sizeof(old));
-    err = WexHostnameSet(dlg, name, FALSE);
-    if (err)
-    {
-        SecureZeroMemory(c.password, sizeof(c.password));
-        if (err != ERROR_CANCELLED)
-            MessageBoxW(dlg, err == ERROR_INVALID_PARAMETER ? L"The computer name is not valid." :
-                        L"You do not have permission to rename this computer.", TITLE, MB_OK | MB_ICONWARNING);
-        return FALSE;
-    }
+    /* the join engine renames the account and the host name together (it runs as root: no second authorisation) */
     account_name(&c, account, ARRAY_SIZE(account));
     status = NetRenameMachineInDomain(NULL, wname, account, c.password, NETSETUP_ACCT_CREATE);
     SecureZeroMemory(c.password, sizeof(c.password));
     if (status)
     {
-        WexHostnameSet(dlg, old, FALSE);
         if (status == ERROR_ACCESS_DENIED) offer_elevation(dlg, TITLE);
         else show_join_error(dlg, TITLE, g_member, status, 2);
         return FALSE;
