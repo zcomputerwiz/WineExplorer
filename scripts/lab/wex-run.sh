@@ -137,7 +137,8 @@ sync_tree()
 
 # snapshot of what the suites read; wine stays a link (the suite's guard only greps build files there)
 rm -rf "$SNAP"; mkdir -p "$SNAP"
-for d in scripts tools src installer; do cp -a "$D/$d" "$SNAP/$d"; done
+# tests/ too: suite cases build fixtures from it (tests/uwp/signature)
+for d in scripts tools src installer tests; do cp -a "$D/$d" "$SNAP/$d"; done
 ln -s "$D/wine" "$SNAP/wine"
 echo "snapshot of $TREE in $SNAP"
 
