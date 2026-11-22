@@ -161,23 +161,114 @@ static void map_error( const struct request *req, const WCHAR *error_code, const
 
 /* the account's id and sign-in name: the id token's object id (else its subject), its preferred_username (else email,
  * else the login hint) */
+/* A Microsoft account's object id is "00000000-0000-0000-" and the 16 hex digits of its customer id. WAM names such an
+ * account by 16 upper-case hex digits (its WebAccount.Id), and programs that parse the id expect that form: the
+ * cache, the answers and FindAllAccounts use it. Any other id is returned unchanged. Allocated. */
+static WCHAR *public_account_id( const WCHAR *oid )
+{
+    static const WCHAR zeros[] = L"00000000-0000-0000-";
+    WCHAR *id;
+    unsigned int i, n = 0;
+
+    if (!oid || wcslen( oid ) != 36 || wcsncmp( oid, zeros, 19 )) return strdupW( oid );
+    if (!(id = calloc( 17, sizeof(WCHAR) ))) return NULL;
+    for (i = 19; i < 36; i++)
+    {
+        if (oid[i] == '-') continue;
+        if (!iswxdigit( oid[i] ) || n >= 16) { free( id ); return strdupW( oid ); }
+        id[n++] = towupper( oid[i] );
+    }
+    if (n != 16) { free( id ); return strdupW( oid ); }
+    return id;
+}
+
+/* the object id form of a public account id (for the wamcompat_account_id property), or a copy of ID */
+static WCHAR *object_account_id( const WCHAR *id )
+{
+    WCHAR *out;
+    unsigned int i;
+
+    if (!id || wcslen( id ) != 16) return strdupW( id );
+    for (i = 0; i < 16; i++) if (!iswxdigit( id[i] )) return strdupW( id );
+    if (!(out = calloc( 37, sizeof(WCHAR) ))) return NULL;
+    swprintf( out, 37, L"00000000-0000-0000-%.4s-%.12s", id + 0, id + 4 );
+    for (i = 0; out[i]; i++) out[i] = towlower( out[i] );
+    return out;
+}
+
 static void account_names( const struct token_result *r, const WCHAR *hint, WCHAR **id, WCHAR **name )
 {
     char *claims = jwt_payload( r->id_token );
+    WCHAR *oid = json_string( claims, "oid" );
 
-    *id = json_string( claims, "oid" );
-    if (!*id) *id = json_string( claims, "sub" );
+    if (!oid) oid = json_string( claims, "sub" );
+    *id = oid ? public_account_id( oid ) : NULL;
+    free( oid );
     *name = json_string( claims, "preferred_username" );
     if (!*name) *name = json_string( claims, "email" );
     if (!*name) *name = strdupW( hint ? hint : L"" );
     free( claims );
 }
 
-static void reply_success( struct reply *reply, const WCHAR *token, const WCHAR *account_id, const WCHAR *user_name,
-                           const WCHAR *id_token, const WCHAR *client_info, const WCHAR *scope, LONGLONG expires_on )
+/* The answer's account properties, as WAM's answer for a Microsoft account has them (names, a customer id): only what
+ * the id token tells, nothing is made up. */
+static void account_properties( struct reply *reply, const WCHAR *account_id, const WCHAR *user_name,
+                                const WCHAR *id_token )
+{
+    struct text *props = &reply->field[TOKENBROKER_REPLY_ACCOUNT_PROPERTIES];
+    char *claims = jwt_payload( id_token );
+    WCHAR *name = json_string( claims, "name" ), *given = json_string( claims, "given_name" );
+    WCHAR *family = json_string( claims, "family_name" ), *country = json_string( claims, "ctry" );
+    WCHAR *space;
+    unsigned int i;
+
+    text_append_pair( props, L"IsRoamingEncryptionKeyAvailable", L"false" );
+    if (name && *name) text_append_pair( props, L"DisplayName", name );
+    if (!given && name && (space = wcsrchr( name, ' ' )) && space > name)
+    {
+        given = strdupW( name );
+        given[space - name] = 0;
+        if (!family) family = strdupW( space + 1 );
+    }
+    if (given && *given) text_append_pair( props, L"FirstName", given );
+    if (country && *country) text_append_pair( props, L"CountryOrRegion", country );
+    if (user_name && *user_name) text_append_pair( props, L"UserName", user_name );
+    if (account_id && *account_id) text_append_pair( props, L"UID", account_id );
+    if (family && *family) text_append_pair( props, L"LastName", family );
+    if (account_id && wcslen( account_id ) == 16)
+    {
+        WCHAR cid[17];
+
+        for (i = 0; i < 16; i++) cid[i] = towlower( account_id[i] );
+        cid[16] = 0;
+        text_append_pair( props, L"SafeCustomerId", cid );
+    }
+    free( name ); free( given ); free( family ); free( country ); free( claims );
+}
+
+/* the telemetry blob WAM returns in the answer's "MATS" property when the request asks for it (telemetry=MATS) */
+static void telemetry_property( struct reply *reply, const struct request *req, const WCHAR *account_id,
+                                BOOL interactive, BOOL cached )
+{
+    WCHAR json[512];
+    const WCHAR *correlation = req && req->field[TOKENBROKER_FIELD_CORRELATION_ID] ?
+                               req->field[TOKENBROKER_FIELD_CORRELATION_ID] : L"";
+
+    swprintf( json, ARRAY_SIZE(json),
+              L"{\"ui_visible\":%s,\"correlation_id\":\"%s\",\"account_id\":\"%s\",\"web_flow_result\":\"%s\","
+              L"\"silent_code\":0,\"silent_bi_sub_code\":0,\"silent_message\":\"\",\"silent_status\":0,"
+              L"\"is_cached\":%s}",
+              interactive ? L"true" : L"false", correlation, account_id ? account_id : L"",
+              interactive ? L"success" : L"none", cached ? L"true" : L"false" );
+    text_append_pair( &reply->field[TOKENBROKER_REPLY_PROPERTIES], L"MATS", json );
+}
+
+static void reply_success( struct reply *reply, const struct request *req, BOOL interactive, const WCHAR *token,
+                           const WCHAR *account_id, const WCHAR *user_name, const WCHAR *id_token,
+                           const WCHAR *client_info, const WCHAR *scope, LONGLONG expires_on )
 {
     struct text *props = &reply->field[TOKENBROKER_REPLY_PROPERTIES];
-    WCHAR expires[32];
+    WCHAR expires[32], *object_id;
 
     reply->status = STATUS_SUCCESS_;
     reply->code = 0;
@@ -191,7 +282,13 @@ static void reply_success( struct reply *reply, const WCHAR *token, const WCHAR 
     if (scope && *scope) text_append_pair( props, L"wamcompat_scopes", scope );
     text_append_pair( props, L"wamcompat_expires_on", expires );
     if (user_name && *user_name) text_append_pair( props, L"wamcompat_user_displayable_id", user_name );
-    if (account_id && *account_id) text_append_pair( props, L"wamcompat_account_id", account_id );
+    if (account_id && *account_id && (object_id = object_account_id( account_id )))
+    {
+        text_append_pair( props, L"wamcompat_account_id", object_id );
+        free( object_id );
+    }
+    telemetry_property( reply, req, account_id, interactive, !interactive );
+    account_properties( reply, account_id, user_name, id_token );
 }
 
 /* keeps a token answer: the account with its refresh token, and the access token */
@@ -265,7 +362,7 @@ static void get_token_silent( const struct provider *provider, const struct requ
                                    unix_time() + TOKEN_MARGIN )))
     {
         TRACE( "silent: from the cache\n" );
-        reply_success( reply, token->token, account->id, account->user_name, token->id_token, token->client_info,
+        reply_success( reply, req, FALSE, token->token, account->id, account->user_name, token->id_token, token->client_info,
                        token->granted_scope, token->expires_on );
         cache_unlock();
         return;
@@ -286,7 +383,7 @@ static void get_token_silent( const struct provider *provider, const struct requ
             TRACE( "silent: by refresh token\n" );
             if (!r.refresh_token) r.refresh_token = strdupW( refresh );
             store_result( provider, req, &r, account_id, user_name );
-            reply_success( reply, r.access_token, account_id, user_name, r.id_token, r.client_info, r.scope,
+            reply_success( reply, req, FALSE, r.access_token, account_id, user_name, r.id_token, r.client_info, r.scope,
                            r.expires_on );
         }
         else
@@ -426,7 +523,7 @@ static void request_token( const struct provider *provider, const struct request
     {
     case SIGNIN_DONE:
         TRACE( "interactive: signed in\n" );
-        reply_success( reply, r.access_token, account_id, user_name, r.id_token, r.client_info, r.scope, r.expires_on );
+        reply_success( reply, req, TRUE, r.access_token, account_id, user_name, r.id_token, r.client_info, r.scope, r.expires_on );
         break;
     case SIGNIN_CANCELLED:
         reply_error( reply, STATUS_USER_CANCEL, E_CANCELLED, signin.error ? signin.error : L"The user cancelled the sign-in." );
