@@ -23,7 +23,7 @@
 /*
  * Per-user, per-prefix installation of an application package (.appx, .msix):
  *
- *   wexappx install --development PACKAGE
+ *   wexappx install [--development] PACKAGE
  *   wexappx uninstall PACKAGE_FULL_NAME
  *   wexappx list
  *
@@ -31,9 +31,11 @@
  * published by a record in the catalog of the prefix (appx-catalog\PackageFullName.wexappx), which the
  * Wine server reads when an application is activated (wine/server/uwp_context.h).
  *
- * What this does not do, and says so: it verifies no signature (hence --development, which is required),
- * resolves no package dependency (a package that declares one is refused), installs nothing for other
- * users or the machine, and handles no bundle, encrypted package or licence.
+ * The signature is checked through WinVerifyTrust (appxsip.dll answers for packages, as AppxSip.dll does on Windows):
+ * a package that is not signed, is signed by a publisher this system does not trust or has a signature that is not valid
+ * is refused unless --development is given. What this does not do, and says so: it resolves no dependency that is not
+ * installed (a package that declares one is refused), installs nothing for other users or the machine, asks no consent
+ * (the flag is the consent), and handles no bundle, encrypted package or licence.
  */
 
 #define COBJMACROS
@@ -42,6 +44,9 @@
 #include <objbase.h>
 #include <initguid.h>
 #include <xmllite.h>
+#include <wincrypt.h>
+#include <wintrust.h>
+#include <softpub.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -145,6 +150,7 @@ static int fail( const WCHAR *format, ... )
 
 static WORD get_word( const BYTE *p ) { return p[0] | (p[1] << 8); }
 static DWORD get_dword( const BYTE *p ) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((DWORD)p[3] << 24); }
+static ULONGLONG get_qword( const BYTE *p ) { return get_dword( p ) | ((ULONGLONG)get_dword( p + 4 ) << 32); }
 
 /* the compatibility gate: exactly the DWORD 1 */
 static BOOL uwp_compatibility_enabled(void)
@@ -265,12 +271,32 @@ static int read_directory(void)
         if (!pos || archive_size - pos > 22 + 65535) return fail( L"not a package archive" );
     }
     end = archive + pos;
-    if (get_word( end + 4 ) || get_word( end + 6 ) || get_word( end + 8 ) != get_word( end + 10 ))
+    /* with zip64 end records the plain ones may hold 0xffff in every field, the disk numbers too (checked below) */
+    if (!(pos >= 20 && get_dword( end - 20 ) == 0x07064b50) &&
+        (get_word( end + 4 ) || get_word( end + 6 ) || get_word( end + 8 ) != get_word( end + 10 )))
         return fail( L"multi-volume archives are not supported" );
     count = get_word( end + 10 );
     dir_size = get_dword( end + 12 );
     dir_offset = get_dword( end + 16 );
-    if (count == 0xffff || dir_size == 0xffffffff || dir_offset == 0xffffffff)
+    if (pos >= 20 && get_dword( end - 20 ) == 0x07064b50)
+    {
+        /* the zip64 end records that a signing tool writes even for a small package: 0xffff and 0xffffffff above, the
+         * values here; only the ones that fit this reader are accepted */
+        ULONGLONG record = get_qword( end - 12 );
+
+        if (record > pos - 76 || get_dword( archive + record ) != 0x06064b50)
+            return fail( L"damaged archive directory" );
+        if (get_dword( archive + record + 16 ) || get_dword( archive + record + 20 ))
+            return fail( L"multi-volume archives are not supported" );
+        if (get_qword( archive + record + 24 ) != get_qword( archive + record + 32 ) ||
+            get_qword( archive + record + 32 ) > MAX_ENTRIES || get_qword( archive + record + 40 ) >= 0xffffffff ||
+            get_qword( archive + record + 48 ) >= 0xffffffff)
+            return fail( L"64-bit archives are not supported" );
+        count = (unsigned int)get_qword( archive + record + 32 );
+        dir_size = (DWORD)get_qword( archive + record + 40 );
+        dir_offset = (DWORD)get_qword( archive + record + 48 );
+    }
+    else if (count == 0xffff || dir_size == 0xffffffff || dir_offset == 0xffffffff)
         return fail( L"64-bit archives are not supported" );
     if (!count || count > MAX_ENTRIES) return fail( L"the archive has %u members (at most %u are accepted)", count, MAX_ENTRIES );
     if (dir_offset > pos || dir_size > pos - dir_offset) return fail( L"damaged archive directory" );
@@ -296,7 +322,34 @@ static int read_directory(void)
 
         if (flags & 0x2041) return fail( L"encrypted or patched archive members are not supported" );
         if (entry->comp_size == 0xffffffff || entry->size == 0xffffffff || entry->offset == 0xffffffff)
-            return fail( L"64-bit archives are not supported" );
+        {
+            /* a signing tool's package: the values are in the zip64 extra field (sizes, then the offset), in the order of
+             * the fields that hold 0xffffffff; only values that fit this reader are accepted */
+            ULONGLONG size = entry->size, csize = entry->comp_size, offset = entry->offset;
+            const BYTE *extra = dir + 46 + name_len, *extra_end = extra + extra_len;
+            BOOL found = FALSE;
+
+            while (!found && extra_end - extra >= 4)
+            {
+                unsigned int id = get_word( extra ), len = get_word( extra + 2 );
+                const BYTE *field = extra + 4;
+
+                if (len > extra_end - field) break;
+                if (id == 1)
+                {
+                    if (entry->size == 0xffffffff) { if (len < 8) break; size = get_qword( field ); field += 8; len -= 8; }
+                    if (entry->comp_size == 0xffffffff) { if (len < 8) break; csize = get_qword( field ); field += 8; len -= 8; }
+                    if (entry->offset == 0xffffffff) { if (len < 8) break; offset = get_qword( field ); }
+                    found = TRUE;
+                }
+                else extra += 4 + len;
+            }
+            if (!found || size >= 0xffffffff || csize >= 0xffffffff || offset >= 0xffffffff)
+                return fail( L"64-bit archives are not supported" );
+            entry->size = (DWORD)size;
+            entry->comp_size = (DWORD)csize;
+            entry->offset = (DWORD)offset;
+        }
         if (name_len && dir[46 + name_len - 1] == '/')
         {
             if (entry->size) return fail( L"damaged archive directory" );   /* a directory entry */
@@ -780,7 +833,96 @@ static BOOL append_record( WCHAR *record, const WCHAR *format, ... )
     return ret >= 0;
 }
 
-static int install( const WCHAR *package )
+/*
+ * The signature of the package is judged by WinVerifyTrust, as on Windows, where the module AppxSip.dll answers for
+ * packages (here appxsip.dll). The file is the handle held since the archive was mapped, so the bytes judged are the ones
+ * installed. What comes back:
+ *   success            signed, the chain ends in a trusted root
+ *   CERT_E_UNTRUSTEDROOT  signed, by a publisher this machine does not trust
+ *   TRUST_E_NOSIGNATURE   not signed
+ *   TRUST_E_BAD_DIGEST, TRUST_E_CERT_SIGNATURE ...  signed, but the package or the signature is not what was signed
+ *   TRUST_E_SUBJECT_FORM_UNKNOWN  not a consistent package
+ */
+static const WCHAR *signature_note = L"The signature of the package was not verified.";
+
+static LONG verify_package( HANDLE file, const WCHAR *path, WCHAR *signer, DWORD signer_len )
+{
+    GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    WINTRUST_FILE_INFO info = { sizeof(info) };
+    WINTRUST_DATA data = { sizeof(data) };
+    LONG status;
+
+    info.pcwszFilePath = path;
+    info.hFile = file;
+    data.dwUIChoice = WTD_UI_NONE;
+    data.fdwRevocationChecks = WTD_REVOKE_NONE;
+    data.dwUnionChoice = WTD_CHOICE_FILE;
+    data.pFile = &info;
+    data.dwStateAction = WTD_STATEACTION_VERIFY;
+    data.dwProvFlags = WTD_REVOCATION_CHECK_NONE;
+    signer[0] = 0;
+    status = WinVerifyTrust( INVALID_HANDLE_VALUE, &action, &data );
+    if (data.hWVTStateData)
+    {
+        CRYPT_PROVIDER_DATA *prov = WTHelperProvDataFromStateData( data.hWVTStateData );
+        CRYPT_PROVIDER_SGNR *signer_info = prov ? WTHelperGetProvSignerFromChain( prov, 0, FALSE, 0 ) : NULL;
+        CRYPT_PROVIDER_CERT *cert = signer_info ? WTHelperGetProvCertFromChain( signer_info, 0 ) : NULL;
+
+        if (cert && cert->pCert)
+            CertNameToStrW( X509_ASN_ENCODING, &cert->pCert->pCertInfo->Subject, CERT_X500_NAME_STR, signer, signer_len );
+        data.dwStateAction = WTD_STATEACTION_CLOSE;
+        WinVerifyTrust( INVALID_HANDLE_VALUE, &action, &data );
+    }
+    return status;
+}
+
+/* 0 to go on, 1 when the package is refused (a message is printed); development goes on after a signature that is not
+ * trusted or cannot be checked */
+static int check_signature( HANDLE file, const WCHAR *package, const struct manifest *manifest, BOOL development )
+{
+    static WCHAR note[512];
+    WCHAR signer[256];
+    LONG status = verify_package( file, package, signer, ARRAY_SIZE(signer) );
+    const WCHAR *problem = NULL;
+
+    if (status == TRUST_E_SUBJECT_FORM_UNKNOWN)
+    {
+        swprintf( note, ARRAY_SIZE(note), L"Signature: not checked, the members, content types and block map of the package do not agree." );
+        problem = L"the package is not consistent, its signature cannot be checked";
+    }
+    else if (status == ERROR_SUCCESS || status == CERT_E_UNTRUSTEDROOT)
+    {
+        if (signer[0] && wcscmp( signer, manifest->publisher ))
+        {
+            swprintf( note, ARRAY_SIZE(note), L"Signature: the signer %s is not the publisher %s of the manifest.", signer,
+                      manifest->publisher );
+            problem = L"the signer is not the publisher of the package";
+        }
+        else if (status == ERROR_SUCCESS)
+            swprintf( note, ARRAY_SIZE(note), L"Signature: valid, signed by %s (trusted).", signer );
+        else
+        {
+            swprintf( note, ARRAY_SIZE(note), L"Signature: valid, signed by %s, a publisher this system does not trust.", signer );
+            problem = L"the publisher is not trusted";
+        }
+    }
+    else if (status == TRUST_E_NOSIGNATURE)
+    {
+        swprintf( note, ARRAY_SIZE(note), L"Signature: none, the package is not signed." );
+        problem = L"the package is not signed";
+    }
+    else
+    {
+        swprintf( note, ARRAY_SIZE(note), L"Signature: invalid (%08lx), the package or its signature was changed.", (ULONG)status );
+        problem = L"the signature is not valid";
+    }
+    signature_note = note;
+    if (problem && !development)
+        return fail( L"%s: %s (--development installs it anyway)", package, problem );
+    return 0;
+}
+
+static int install( const WCHAR *package, BOOL development )
 {
     WCHAR full_name[PACKAGE_FULL_NAME_MAX_LENGTH + 1], store[MAX_PATH], catalog[MAX_PATH];
     WCHAR staging[MAX_PATH], target[MAX_PATH], record_path[MAX_PATH], temp_path[MAX_PATH], *record = NULL;
@@ -804,7 +946,7 @@ static int install( const WCHAR *package )
     }
     archive_size = size.QuadPart;
     mapping = CreateFileMappingW( file, NULL, PAGE_READONLY, 0, 0, NULL );
-    CloseHandle( file );
+    /* the file stays open (nobody can write to it) until the program ends: the signature is checked on this handle */
     if (!mapping || !(archive = MapViewOfFile( mapping, FILE_MAP_READ, 0, 0, 0 )))
         return fail( L"cannot read %s (error %lu)", package, GetLastError() );
 
@@ -816,6 +958,7 @@ static int install( const WCHAR *package )
     if (parse_manifest( data, entry->size, &manifest )) return 1;
     free( data );
     if (get_full_name( &manifest, full_name )) return 1;
+    if (check_signature( file, package, &manifest, development )) return 1;
     /* every dependency has to be installed (a framework package is installed before the packages that need it) */
     for (i = 0; i < manifest.dep_count; i++)
         if (!resolve_dependency( &manifest, &manifest.deps[i], resolved[i], ARRAY_SIZE(resolved[i]) ))
@@ -912,7 +1055,7 @@ static int install( const WCHAR *package )
     }
 
     wprintf( L"Installed %s\n", full_name );
-    wprintf( L"The signature of the package was not verified.\n" );
+    wprintf( L"%s\n", signature_note );
     for (i = 0; i < manifest.app_count; i++)
     {
         WCHAR family[PACKAGE_FAMILY_NAME_MAX_LENGTH + 1];
@@ -994,11 +1137,13 @@ static int list(void)
 static int usage(void)
 {
     fputws( L"Usage:\n"
-            L"  wexappx install --development PACKAGE     install an .appx or .msix package for this user\n"
+            L"  wexappx install [--development] PACKAGE   install an .appx or .msix package for this user\n"
             L"  wexappx uninstall PACKAGE_FULL_NAME       remove an installed package\n"
             L"  wexappx list                              list the installed packages\n"
             L"\n"
-            L"--development is required: the signature of the package is not verified.\n", stderr );
+            L"The signature of the package is checked: a package that is not signed, whose publisher this system does not\n"
+            L"trust, or whose signature is not valid is refused. --development installs it anyway (and says what the\n"
+            L"signature is).\n", stderr );
     return 2;
 }
 
@@ -1012,9 +1157,11 @@ int __cdecl wmain( int argc, WCHAR **argv )
 
     if (!wcscmp( argv[1], L"install" ))
     {
-        if (argc != 4 || wcscmp( argv[2], L"--development" )) return usage();
+        BOOL development = argc == 4 && !wcscmp( argv[2], L"--development" );
+
+        if (argc != 3 && !development) return usage();
         if (FAILED(CoInitializeEx( NULL, COINIT_MULTITHREADED ))) return fail( L"COM is not available" );
-        ret = install( argv[3] );
+        ret = install( argv[argc - 1], development );
         CoUninitialize();
         return ret;
     }

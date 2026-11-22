@@ -31,14 +31,15 @@ already asks registered providers (`IsMyFileType2`), so an Appx SIP plugs in wit
 | `bad-block.appx` (a stored byte of `logo.png` changed) | `80096010` | bad digest |
 | `bad-blockmap.appx` (`AppxBlockMap.xml` changed) | `80096010` | bad digest |
 | `bad-p7x.appx` (one byte of the PKCS #7 changed) | `80096010` | bad digest |
-| `extra-member.appx` (a member added after the signature) | `800b0003` | not a package of this subject |
+| `extra-member.appx` (a member added after the signature) | `80096010` | bad digest |
 | `no-signature.appx` (the p7x member removed from a signed package) | `800b0003` | not recognised |
 | `other-publisher.appx` (manifest changed, block map no longer fits) | `800b0003` | not recognised |
 | `short-p7x.appx`, `wrong-magic.appx` (p7x of 3 bytes, `PKCY` for `PKCX`) | `800b0003` | not recognised |
 | `rewritten.appx` (`signed.appx` through `tamper.py` unchanged) | `800b0109` | writer check: same as the original |
 
-`makeappx` writes the zip64 end records even for a small package (a package of a few members has `0xffff` and `0xffffffff`
-in the plain end record), so a reader must understand zip64.
+`makeappx` writes zip64 records even for a small package: the plain end record holds `0xffff` and `0xffffffff` (the disk
+numbers too), and every central directory entry has `0xffffffff` for its sizes and offset with the values in a zip64 extra
+field. `signtool` rewrites the package with plain entries but keeps the zip64 end records. A reader must understand both.
 
 ## Files
 
@@ -55,7 +56,7 @@ in the plain end record), so a reader must understand zip64.
 The same file list through `sigtest.exe` on Wine, x64 and x86, gives the lines above except two differences, both of
 them the way Wine's wintrust is built, not the provider:
 
-* A package whose digest does not fit (`bad-block`, `bad-blockmap`, `bad-p7x`) gives no signer name: Windows builds the
+* A package whose digest does not fit (`bad-block`, `bad-blockmap`, `bad-p7x`, `extra-member`) gives no signer name: Windows builds the
   signer information before it compares the digest, Wine's `SoftpubLoadMessage` stops first.
 * A damaged signature value (`bad-p7x`) is `80096004` (`TRUST_E_CERT_SIGNATURE`, the message's own verification) where
   Windows says `80096010`.

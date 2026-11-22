@@ -50,9 +50,11 @@ def stored(e, new):
     local = struct.pack('<IHHHHHIIIHH', 0x04034b50, 20, 0, 0, 0x6000, 0x5a21, crc, len(new), len(new), len(name), 0) + name
     e['raw'] = bytearray(local + new)
     e['method'], e['flags'], e['crc'], e['csize'], e['size'] = 0, 0, crc, len(new), len(new)
-    cd = bytearray(e['cd'])
+    # the central directory record again from its fixed part: this name, no extra field, no comment
+    cd = bytearray(e['cd'][:46]) + name
     struct.pack_into('<HHHHHH', cd, 6, 20, 20, 0, 0, 0x6000, 0x5a21)
     struct.pack_into('<III', cd, 16, crc, len(new), len(new))
+    struct.pack_into('<HHH', cd, 28, len(name), 0, 0)
     e['cd'] = cd
     return e
 

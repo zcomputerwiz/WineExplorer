@@ -36,9 +36,9 @@
  *   AXBM  AppxBlockMap.xml (uncompressed)
  *   AXCI  AppxMetadata/CodeIntegrity.cat (uncompressed), when the package has one
  *
- * Whether a file is a package of this subject at all follows what Windows answers: it must be a zip archive whose members
- * are all declared in [Content_Types].xml and listed in the block map with the size they have, and a signature must be its
- * last record and start with PKCX. Anything else is "not recognised" (TRUST_E_SUBJECT_FORM_UNKNOWN), a package without a
+ * Whether a file is a package of this subject at all follows what Windows answers: a zip archive with the manifest, the
+ * content types and the block map, whose content type overrides name members and whose block map files are there with the
+ * size they have, and a signature that starts with PKCX. Anything else is "not recognised" (TRUST_E_SUBJECT_FORM_UNKNOWN), a package without a
  * signature member is unsigned (TRUST_E_NOSIGNATURE), and a signature whose digests do not fit is TRUST_E_BAD_DIGEST.
  */
 
@@ -379,43 +379,19 @@ static BOOL is_metadata( const char *name )
 
 #define REJECT() do { TRACE( "rejected at line %d\n", __LINE__ ); goto done; } while (0)
 
-/* every member has a content type (an override of its part, or a default for its extension), and every override names a
- * member; the block map lists every other member with the size it has, and nothing else */
+/* what Windows needs to take a file for a package of this subject (measured, see the top): the three metadata members,
+ * every override of [Content_Types].xml names a member, and every file of the block map is there with the size it has.
+ * A member that the content types or the block map do not know is not a reason (it is a bad digest, not an unknown form). */
 static BOOL check_structure( const struct package *pkg )
 {
     int types = find_member( pkg, "[Content_Types].xml" ), map = find_member( pkg, "AppxBlockMap.xml" );
     BYTE *types_data = NULL, *map_data = NULL;
     SIZE_T types_size, map_size;
-    unsigned int i, listed = 0, files = 0;
     BOOL ret = FALSE;
 
     if (types < 0 || map < 0 || find_member( pkg, "AppxManifest.xml" ) < 0) return FALSE;
     if (!(types_data = member_data( pkg, types, &types_size )) || !(map_data = member_data( pkg, map, &map_size ))) REJECT();
 
-    for (i = 0; i < pkg->count; i++)
-    {
-        const struct entry *entry = &pkg->entries[i];
-        const char *pos = (char *)types_data, *end = pos + types_size, *tag, *tag_end;
-        const char *dot = strrchr( entry->name, '.' );
-        BOOL declared = FALSE;
-        char value[MAX_NAME];
-
-        if (!_stricmp( entry->name, "[Content_Types].xml" )) continue;
-        while (!declared && xml_next( &pos, end, "Override", &tag, &tag_end ))
-        {
-            if (xml_attribute( tag, tag_end, "PartName", value, sizeof(value) ))
-            {
-                char decoded[MAX_NAME];
-                unescape_name( (BYTE *)value, strlen( value ), decoded );
-                declared = !_stricmp( decoded[0] == '/' ? decoded + 1 : decoded, entry->name );
-            }
-        }
-        pos = (char *)types_data;
-        while (!declared && dot && xml_next( &pos, end, "Default", &tag, &tag_end ))
-            declared = xml_attribute( tag, tag_end, "Extension", value, sizeof(value) ) && !_stricmp( value, dot + 1 );
-        if (!declared) REJECT();
-        if (!is_metadata( entry->name )) files++;
-    }
     {
         const char *pos = (char *)types_data, *end = pos + types_size, *tag, *tag_end;
         char value[MAX_NAME];
@@ -442,11 +418,9 @@ static BOOL check_structure( const struct package *pkg )
             unescape_name( (BYTE *)name, strlen( name ), decoded );
             if ((index = find_member( pkg, decoded )) < 0 || is_metadata( decoded ) ||
                 pkg->entries[index].size != _strtoui64( size_text, NULL, 10)) REJECT();
-            listed++;
         }
     }
-    ret = listed == files;
-    if (!ret) TRACE( "the block map lists %u files, the package has %u\n", listed, files );
+    ret = TRUE;
 
 done:
     free( types_data );
@@ -454,22 +428,17 @@ done:
     return ret;
 }
 
-/* a package of this subject: the archive, its structure, and a signature (when there is one) that comes last and is a
- * PKCS #7 message in a PKCX envelope */
+/* a package of this subject: the archive, its structure, and a signature (when there is one) that is a PKCS #7 message in
+ * a PKCX envelope */
 static BOOL check_package( const struct package *pkg )
 {
-    unsigned int i;
-
     if (!check_structure( pkg )) return FALSE;
     if (pkg->signature >= 0)
     {
-        const struct entry *sig = &pkg->entries[pkg->signature];
         BYTE *data;
         SIZE_T size;
         BOOL ok;
 
-        for (i = 0; i < pkg->count; i++)
-            if (pkg->entries[i].offset > sig->offset) return FALSE;
         if (!(data = member_data( pkg, pkg->signature, &size ))) return FALSE;
         ok = size > 4 && !memcmp( data, "PKCX", 4 ) && data[4] == 0x30;
         free( data );
