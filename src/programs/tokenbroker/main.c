@@ -92,8 +92,10 @@ static enum caller_check check_caller( HANDLE pipe )
     HANDLE process, token;
     ULONG pid;
 
+    /* the query right, not only the limited one: with elevation enforced WineExplorer's server gives a process's token
+     * only to a handle with PROCESS_QUERY_INFORMATION (server/token.c, open_token) */
     if (!GetNamedPipeClientProcessId( pipe, &pid ) ||
-        !(process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid )))
+        !(process = OpenProcess( PROCESS_QUERY_INFORMATION, FALSE, pid )))
         return CALLER_OTHER_USER;
     if (!OpenProcessToken( process, TOKEN_QUERY, &token ))
     {
