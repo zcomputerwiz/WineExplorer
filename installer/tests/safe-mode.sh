@@ -166,7 +166,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|debugmode) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|debugmode|perf) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -959,6 +959,35 @@ prompt_focus() {   # the password prompt is Explorer's window (wexhost's polkit 
     sleep 1
 }
 
+phase_perf() {   # graphics performance, X11 session then the Wayland one (wexcomp): scripts/gfx-perf-probe.c (idle,
+                 # animation and resize frame times) beside scripts/gfx-perf-sample.sh (CPU per process). Numbers only,
+                 # nothing fails but a missing probe or a session that does not start; the results go to
+                 # $OUT/perf-SESSION-*.txt. Only when named; needs gfx-perf-probe64.exe in WEX_TEST_PROBES.
+    local session out
+    [ -f "$PROBE_DIR/gfx-perf-probe64.exe" ] || fail "no gfx-perf-probe64.exe in WEX_TEST_PROBES"
+    for session in x11 wayland; do
+        if [ "$session" = wayland ]; then
+            saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
+        fi
+        start_vm
+        desktop 600
+        if [ "$session" = wayland ]; then expect_compositor; fi
+        sleep 20   # the desktop settles: the first minute after logon is not what is measured
+        gsh "rm -f /tmp/gfx-s.log /tmp/gfx-p.log; (nohup sh $PROBES/gfx-perf-sample.sh 45 /tmp/gfx-s.log >/dev/null 2>&1 &) ; sleep 1; python3 $HELPER --user $USER_NAME --wait --log-file /tmp/gfx-p.log $PROBES/gfx-perf-probe64.exe >/dev/null; echo probe-rc=\$?" 180 \
+            | grep '^probe-rc=' | tail -n 1
+        sleep 25
+        gsh 'cat /tmp/gfx-p.log' 60 | tr -d '\r' | grep -E '^(composition|idle|animate|resize|done)' > "$OUT/perf-$session-frames.txt"
+        gsh 'cat /tmp/gfx-s.log' 60 | tr -d '\r' | grep -E '^(t=|SAMPLEDONE)' > "$OUT/perf-$session-cpu.txt"
+        echo "  $session:"
+        sed 's/^/    /' "$OUT/perf-$session-frames.txt"
+        shot "perf-$session"
+        grep -q '^animate ' "$OUT/perf-$session-frames.txt" || fail "the $session session's probe printed no animation numbers"
+        shutdown_vm
+        wait_off 60 || fail "the VM did not power off"
+        if [ "$session" = wayland ]; then saved_session restore || fail "cannot put the saved session back"; fi
+    done
+}
+
 phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the header
     local out options saved= crashdir= id try
     attach ro || fail "cannot mount the overlay"
@@ -1026,8 +1055,9 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
             case "$out" in *"Default operating system"*) ;; *) break 2 ;; esac
             case "$try$out" in 1*"password is incorrect"*) break ;; esac
         done
-        case "$try$out" in 1*"password is incorrect"*) ;; *) break ;; esac
-        echo "  (the prompt took the typed password as incorrect; typing it once more)"
+        # a lost key (the password's or Return) can also leave the prompt up with no message (UEFI, 2026-11-22)
+        case "$try$out" in 1*"password is incorrect"*|1*"type an administrator password"*) ;; *) break ;; esac
+        echo "  (the prompt took the typed password as incorrect or stayed up; typing it once more)"
         shot password-retyped
         prompt_focus
     done
@@ -2004,7 +2034,11 @@ if [ -n "$PROBE_DIR" ]; then
         if [ -f "$PROBE_DIR/display-probe$bits.exe" ]; then
             install -m 755 "$PROBE_DIR/display-probe$bits.exe" "$MNT$PROBES/" || die "cannot install the display probe"
         fi
+        if [ -f "$PROBE_DIR/gfx-perf-probe$bits.exe" ]; then   # the perf phase's frame-time probe
+            install -m 755 "$PROBE_DIR/gfx-perf-probe$bits.exe" "$MNT$PROBES/" || die "cannot install the perf probe"
+        fi
     done
+    install -m 755 "$REPO/scripts/gfx-perf-sample.sh" "$MNT$PROBES/" || die "cannot install the perf sampler"
 fi
 ADMIN_PWFILE=$OUT/admin-password
 STEP=
