@@ -502,7 +502,7 @@ mnet() { KRB5CCNAME="FILE:$CCDIR/machine" net "$@"; }
 
 cmd_rename()
 {
-    local new=${1:-} user= stdin=0 kind old realm principal olddn parent newdn workgroup step=0 t
+    local new=${1:-} user= stdin=0 kind old realm principal olddn parent newdn workgroup step=0 t oldhost
     [ -n "$new" ] || usage
     take_lock
     shift
@@ -532,6 +532,7 @@ cmd_rename()
     old=$(testparm -s --parameter-name='netbios name' 2>/dev/null | tr 'a-z' 'A-Z')
     [ -n "$old" ] || old=$(printf '%s' "$(hostname -s)" | tr 'a-z' 'A-Z' | cut -c 1-15)
     [ "$new" != "$old" ] || fail 87 "the computer has this name already"
+    oldhost=$(hostname 2>/dev/null)
     RN_DNS=$(printf '%s' "$realm" | tr 'A-Z' 'a-z')
     RN_BASE=$(printf '%s' "$RN_DNS" | sed 's/\./,DC=/g; s/^/DC=/')
     RN_DC=$(net ads info </dev/null 2>/dev/null | sed -n 's/^LDAP server name: *//p' | head -n 1)
@@ -570,18 +571,23 @@ cmd_rename()
         systemctl restart winbind >/dev/null 2>&1
         mnet ads testjoin >/dev/null 2>&1 && step=6
     fi
-    if [ "$step" != 6 ]; then
+    if [ "$step" = 6 ]; then
+        # the host name follows the account (the engine runs as root: no second authorisation is asked of the user)
+        hostnamectl set-hostname "$(printf '%s' "$new" | tr 'A-Z' 'a-z')" >/dev/null 2>&1 && step=7
+    fi
+    if [ "$step" != 7 ]; then
         # put it back: smb.conf, then the account under its old name, then the keytab
         [ ! -e "$ETC/samba/smb.conf.wex-rename" ] || cat "$ETC/samba/smb.conf.wex-rename" > "$ETC/samba/smb.conf"
         mnet ads keytab flush "$(krb_opt)" >/dev/null 2>&1
         ldap_rdn "$newdn" "$old" && ldap_set_names "CN=$old,$parent" "$old" && ldap_set_spns "CN=$old,$parent" "$old"
         mnet ads keytab create "$(krb_opt)" >/dev/null 2>&1
         systemctl restart winbind >/dev/null 2>&1
+        [ -z "$oldhost" ] || [ "$(hostname 2>/dev/null)" = "$oldhost" ] || hostnamectl set-hostname "$oldhost" >/dev/null 2>&1
         rm -f "$ETC/samba/smb.conf.wex-rename"
-        fail 31 "the account could not be renamed ($step of 6 steps done); it is back as $old"
+        fail 31 "the account could not be renamed ($step of 7 steps done); it is back as $old"
     fi
     rm -f "$ETC/samba/smb.conf.wex-rename"
-    # the host record of the new name (best effort: the host name is the caller's to have set already)
+    # the host record of the new name (best effort)
     timeout 30 mnet ads dns register "$(printf '%s' "$new" | tr 'A-Z' 'a-z').$RN_DNS" >/dev/null 2>&1 || note "warning: the DNS record of $new was not updated"
     drop_ticket
     refresh_state

@@ -283,14 +283,13 @@ static int cmd_remove( struct options *o )
     return status ? failed( status ) : succeeded();
 }
 
-/* the computer's new name: the host name first, then the machine account in the domain (put the host name back when the
- * account cannot be renamed); a computer that is not in a domain only gets the host name */
+/* the computer's new name: in a domain the engine renames the machine account and the host name together; a computer
+ * that is not in a domain only gets the host name */
 static int cmd_rename( struct options *o )
 {
     WCHAR password[256], *joined = NULL;
-    char name[128], old[128];
+    char name[128];
     NETSETUP_JOIN_STATUS type = NetSetupUnknownStatus;
-    WEX_HOSTNAME host;
     DWORD status;
     int failure = 1;
     BOOL in_domain;
@@ -303,25 +302,15 @@ static int cmd_rename( struct options *o )
     in_domain = type == NetSetupDomainName;
     if (in_domain && !credentials( o, password, ARRAY_SIZE(password), TRUE, &failure )) return failure;
     if (!WideCharToMultiByte( CP_UTF8, 0, o->new_name, -1, name, sizeof(name), NULL, NULL )) return bad_parameters( L"The new name is not valid." );
-    memset( &host, 0, sizeof(host) );
-    WexHostnameGet( &host );
-    lstrcpynA( old, host.static_name, sizeof(old) );
-    status = WexHostnameSet( NULL, name, FALSE );
-    if (status)
-    {
-        if (in_domain) memset( password, 0, sizeof(password) );
-        return failed( status == ERROR_CANCELLED ? ERROR_ACCESS_DENIED : status );
-    }
     if (in_domain)
     {
+        /* the join engine renames the account and the host name together */
         status = NetRenameMachineInDomain( NULL, o->new_name, o->user, password, NETSETUP_ACCT_CREATE );
         memset( password, 0, sizeof(password) );
-        if (status)
-        {
-            if (old[0]) WexHostnameSet( NULL, old, FALSE );
-            return failed( status );
-        }
+        return status ? failed( status ) : succeeded();
     }
+    status = WexHostnameSet( NULL, name, FALSE );
+    if (status) return failed( status == ERROR_CANCELLED ? ERROR_ACCESS_DENIED : status );
     return succeeded();
 }
 

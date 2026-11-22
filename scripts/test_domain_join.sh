@@ -82,6 +82,11 @@ case "\$*" in
 esac
 exit 0
 EOF
+cat > "$FX/bin/hostnamectl" <<EOF
+#!/bin/sh
+echo "hostnamectl \$*" >> "$FX/calls.log"
+exit \$(cat "$FX/hn.rc" 2>/dev/null || echo 0)
+EOF
 cat > "$FX/bin/ldapmodify" <<EOF
 #!/bin/sh
 echo "ldapmodify \$*" >> "$FX/calls.log"
@@ -421,6 +426,7 @@ grep -q 'netbios name = NEWBOX' "$FX/etc/samba/smb.conf" || { cat "$FX/etc/samba
 grep -q '^dn: CN=WEXBOX,CN=Computers,DC=ad,DC=wexlab,DC=example' "$FX/ldif.log" && grep -q '^newrdn: CN=NEWBOX$' "$FX/ldif.log" || { cat "$FX/ldif.log"; fail 'rename: the object was not renamed'; }
 grep -q '^sAMAccountName: NEWBOX\$' "$FX/ldif.log" && grep -q '^dNSHostName: newbox.ad.wexlab.example$' "$FX/ldif.log" && grep -q '^servicePrincipalName: HOST/NEWBOX.ad.wexlab.example$' "$FX/ldif.log" || { cat "$FX/ldif.log"; fail 'rename: the names of the account'; }
 [ "$(cat "$FX/kinit.stdin")" = "$PWSPEC" ] || fail 'rename: the password reached kinit changed'
+grep -q '^hostnamectl set-hostname newbox$' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'rename: the host name was not set'; }
 ! grep -qF 'p w' "$FX/calls.log" "$FX/ldif.log" || fail 'rename: the password is on a command line or in the LDIF'
 # the order: password, then the keytab flushed (it takes the names off), the names set, the keytab made
 a=$(grep -n '^net ads changetrustpw' "$FX/calls.log" | head -n 1 | cut -d: -f1)
@@ -447,6 +453,12 @@ echo 1 > "$FX/kc.rc"
 expect 31 'a rename whose keytab fails' 'op=rename' 'name=newbox' 'user=Administrator' 'password=x'
 grep -q 'netbios name = WEXBOX' "$FX/etc/samba/smb.conf" && ! grep -q NEWBOX "$FX/etc/samba/smb.conf" || { cat "$FX/etc/samba/smb.conf"; fail 'rename: smb.conf was not put back'; }
 grep -q '^newrdn: CN=WEXBOX$' "$FX/ldif.log" || { cat "$FX/ldif.log"; fail 'rename: the account was not put back'; }
+! grep -q '^hostnamectl set-hostname newbox$' "$FX/calls.log" || fail 'rename: the host name was set after a failed keytab'
+: > "$FX/calls.log"; rm -f "$FX/ldif.log" "$FX/kc.rc"
+echo 1 > "$FX/hn.rc"
+expect 31 'a rename whose host name cannot be set' 'op=rename' 'name=newbox' 'user=Administrator' 'password=x'
+rm -f "$FX/hn.rc"
+grep -q 'netbios name = WEXBOX' "$FX/etc/samba/smb.conf" && ! grep -q NEWBOX "$FX/etc/samba/smb.conf" || { cat "$FX/etc/samba/smb.conf"; fail 'rename: smb.conf was not put back after a host name failure'; }
 rm -f "$FX/kc.rc" "$FX/ldif.log"
 echo 'OK: wex-domain-join.sh serve rename'
 echo domain_join=PASS
