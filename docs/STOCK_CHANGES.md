@@ -3933,3 +3933,10 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
   (except the Installer cache's copy of an installed product), another patch, or a transform file is refused.
 
 2026-11-21 (Wine 401183d1): `programs/wscript/main.c`: the host loads its own type library with `LoadTypeLibEx(..., REGKIND_NONE)` instead of `LoadTypeLib`, which registers a library named without a path and so needs write access to HKCR; for a standard user (HKCR is the machine registry on WineExplorer) `wscript`/`cscript` ended with "Script initialization failed" and ran no script (B62). wscript tests 347/347 on both architectures; checked in the lab with Office's `ospp.vbs`.
+
+2026-11-22 (Wine eee2e888): `dlls/crypt32/store.c` (`CRYPT_SysRegOpenStoreW`): a system store whose registry key cannot be
+written (`ERROR_ACCESS_DENIED` with `KEY_ALL_ACCESS`) is opened read-only (`KEY_READ`, `CERT_STORE_READONLY_FLAG`), as on
+Windows. The machine registry is not writable for the desktop user, so the HKLM half of the Root store was never opened
+and no root certificate was trusted: every HTTPS request through winhttp failed with `ERROR_WINHTTP_SECURE_INVALID_CA`
+(12045, then 12157). The token broker's last sign-in step (redeeming the code at `login.microsoftonline.com`) failed
+because of it.
