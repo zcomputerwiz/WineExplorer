@@ -4007,3 +4007,19 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 - `dlls/wintypes/guidhelper.c`, `include/windows.foundation.idl`: `Windows.Foundation.GuidHelper` (`IGuidHelperStatics`). A test in `tests/wintypes.c`.
 - `dlls/kernelbase/version.c`, `kernelbase.spec`, `kernel32.spec`: `PackageFamilyNameFromFullName` (was a stub); the catalog record size of the package APIs is 1 MiB (it was 256 KiB).
 - `server/uwp_context.h`: the largest catalog record is 512 KiB (64 KiB) and the largest class table of a context 1 MiB (256 KiB): the Windows App Runtime framework declares 1033 activatable classes.
+
+2026-11-22 (Wine 5959d2d0, branch `claude/wintrust-catalog-v2` 83c1540a; B74):
+- `dlls/wintrust/crypt.c`: version 2 (SHA256) catalogs. A catalog is version 2 when its member list algorithm is
+  `szOID_CATALOG_LIST_MEMBER2` (1.3.6.1.4.1.311.12.1.3), whatever `dwPublicVersion` `CryptCATOpen` is given.
+  `CryptCATStoreFromHandle` (a stub that aborted the process) returns the catalog's `CRYPTCATSTORE`.
+  `CryptCATEnumerateMember` handles version 2 members: the member info (`CAT_MEMBERINFO2`, 1.3.6.1.4.1.311.12.2.3) is
+  a context-specific tag whose number selects the subject's SIP ([0] PE image, [1] cabinet, [2] flat file,
+  [3] catalog, [4] CTL), the reference tag is the hash in hexadecimal, and a SHA1 tag without indirect data gets the
+  indirect data of a flat file with that hash. Member info and indirect data are decoded with wintrust's own
+  decoders, not through the registered ones. The reference tag of a version 1 member is its subject identifier string,
+  as on Windows. `CryptCATEnumerateCatAttr` and `CryptCATGetCatAttrInfo` (stubs) return the catalog attributes, the
+  name-value extensions of the trust list. `CryptCATAdminEnumCatalogFromHash` skips members without indirect data.
+  Observed black-box on Windows (x64 and x86) with an Office catalog and hand-built catalogs; new test
+  `test_catalog_versions`; Wine's wintrust tests (crypt, softpub, asn, register) pass on x64 and x86.
+- `include/mscat.h` (`CRYPTCATSTORE`, `CryptCATStoreFromHandle`), `include/wintrust.h` (`CAT_MEMBERINFO2`,
+  `CAT_MEMBERINFO2_OBJID`), `include/wincrypt.h` (`szOID_CATALOG_LIST`, `_MEMBER`, `_MEMBER2`).
