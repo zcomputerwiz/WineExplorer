@@ -163,7 +163,8 @@ the engine runs as root, so there is no second authorisation prompt. `netdom ren
 
 Windows renames the account and the computer together (`NetRenameMachineInDomain`). Samba's `net` has no such command, so
 the engine does what Windows does with the tools that exist (it needs `ldap-utils` and `libsasl2-modules-gssapi-mit`,
-which are in the image; `wex-domain-join.sh rename` answers 50 when they are missing). Nothing runs on the controller.
+which are not in the image, like Samba and Winbind: install them with `apt-get install ldap-utils
+libsasl2-modules-gssapi-mit`; `wex-domain-join.sh rename` answers 50 and names them when they are missing). Nothing runs on the controller.
 
 1. Ticket for the admin (as the join does), then over LDAP with the Kerberos bind (`ldapmodify`, `ldapsearch -Y GSSAPI`,
    `SASL_NOCANON`): the new name must be free (52), the object is renamed (`modrdn` of the CN), and `sAMAccountName`
