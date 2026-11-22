@@ -9,6 +9,7 @@ SOURCES = \
 	envvar.c \
 	general.c \
 	hardware.c \
+	netid.c \
 	performance.c \
 	startrec.c \
 	sysdm.c \

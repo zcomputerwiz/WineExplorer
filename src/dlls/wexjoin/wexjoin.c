@@ -211,7 +211,7 @@ DWORD WINAPI NetValidateName( const WCHAR *server, const WCHAR *name, const WCHA
  * Samba and Winbind. The answer's message is the text to show (WexJoinLastMessage), for the controllers the names. */
 DWORD WINAPI WexJoinSecureChannel( DWORD op )
 {
-    static const char * const ops[] = { NULL, "verify", "reset", "dclist" };
+    static const char * const ops[] = { NULL, "verify", "reset", "dclist", "dsgetdc", "scquery" };
     struct request r = {0};
 
     if (!op || op >= ARRAY_SIZE(ops)) return ERROR_INVALID_PARAMETER;

@@ -37,4 +37,14 @@ void show_performance_dialog(HWND parent);
 void show_envvars_dialog(HWND parent);
 void show_startrec_dialog(HWND parent);
 
+/* the Computer Name page's join (compname.c) and the Network Identification Wizard (netid.c), which shares it */
+extern WCHAR g_member[256];
+extern BOOL g_joined;
+extern BOOL g_reopen_elevated;
+void read_membership(void);
+void engine_message(WCHAR *text, DWORD chars);
+void show_join_error(HWND owner, const WCHAR *caption, const WCHAR *domain, DWORD status, BOOL leaving);
+void offer_elevation(HWND owner, const WCHAR *caption);
+void show_netid_wizard(HWND parent);
+
 #endif /* __WINE_SYSDM_H */

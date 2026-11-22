@@ -67,7 +67,8 @@ names are 15 characters for NetBIOS (up to 63 for DNS): letters, digits and hyph
 | `NetJoinDomain`, `NetUnjoinDomain`, `NetValidateName` | done (2026-11-18): `src/dlls/wexjoin`, forwarded from wkscli and netapi32 (stock change in `STOCK_CHANGES.md`); `NetRenameMachineInDomain` answers "not supported" |
 | A workstation service | none: the engine's socket takes its place (see "How the API reaches root") |
 | `netdom.exe` | done: `join`, `remove`, `verify`, `reset`, `query DC`; `renamecomputer` is "not supported yet" (see below) |
-| `nltest`, PowerShell cmdlets | none (Wine has `net`, `whoami`, `powershell`, `wmic` stubs) |
+| `nltest.exe` | done (2026-11-21): `/dsgetdc`, `/dcname`, `/dclist`, `/dsgetsite`, `/query`, `/sc_query`, `/sc_verify`, `/sc_reset`, `/sc_change_pwd` (see below) |
+| PowerShell cmdlets | none (Wine has `net`, `whoami`, `powershell`, `wmic` stubs) |
 | System Properties > Computer Name | renames the host through wexhost (hostnamed); no domain choice |
 | Join engine (root) | `installer/scripts/wex-domain-join.sh` (this change): `join`, `leave`, `status` with Winbind, tested with fakes (`scripts/test_domain_join.sh`) |
 | Logon with `DOMAIN\user`, groups, Group Policy | built (`DOMAIN_LOGON.md`, `GROUP_POLICY.md`) |
@@ -122,6 +123,48 @@ restart is asked for: the join takes effect at once. Leaving uses `NetUnjoinDoma
 controller that cannot be found says so, as Windows does. A standard user is offered an elevated copy of the page.
 Checked under Xvfb against a fake engine (validation error, credentials, logon failure). Not done: the Network ID wizard
 (the button is disabled), and a real join from the dialog (the AD lab).
+
+## `nltest.exe` (2026-11-21)
+
+The options of Windows' `NLTEST` that make sense for one computer joined with Winbind, with its syntax (`/OPTION:value`):
+`/DSGETDC:domain` (DC, address, GUID, domain, forest, sites, flags), `/DCNAME`, `/DCLIST`, `/DSGETSITE`, `/QUERY`,
+`/SC_QUERY`, `/SC_VERIFY`, `/SC_RESET`, `/SC_CHANGE_PWD`, `/SERVER:` (this computer only); the flags of `/DSGETDC` are
+accepted and ignored; every other option says it is not supported. The domain must be the one the computer is joined to
+(NetBIOS or DNS name; none means that one), else "Status = 1355 0x54b ERROR_NO_SUCH_DOMAIN". The engine answers two
+questions for it: `dsgetdc` (what the controller says about itself, `net ads lookup`: name, address, GUID, domain, DNS domain,
+forest, sites, DS_..._FLAG as hex) and `scquery` (the controller of the secure channel and `net ads testjoin`).
+
+The format was taken from running the Windows tool on a machine that is not in a domain: results on standard output, failures
+as "Getting DC name failed: Status = N 0xN NAME" or "I_NetLogonControl failed: Status = N 0xN NAME" on standard error with
+exit status 1, a success ends with "The command completed successfully" (no full stop), and `/DCLIST`'s failure exits with 0.
+Not checked against Windows, because only a joined machine shows them: the exact lines of a successful `/DSGETDC` (the
+labels are from memory of the tool), the names and order of the flags, the lines of `/SC_RESET` and `/DCLIST`.
+
+## The Network Identification Wizard (2026-11-21)
+
+The Network ID button of the Computer Name tab opens the XP wizard (`src/dlls/sysdm.cpl/netid.c`), pages and texts from the
+XP VM: Welcome; "Connecting to the Network" (business or home); "What kind of network do you use?" (with or without a
+domain); Network Information; User Account and Domain Information (user, password, domain; the defaults are the user and
+the computer's name); Computer Domain (when no account for the computer is found: its name and domain; Next waits for a
+domain); Workgroup; Completing. The join is the Change dialog's (`NetValidateName`, then `NetJoinDomain`, the error dialog
+with Details, the offer of an elevated System Properties), and so is leaving ("without a domain" on a joined computer asks
+for the account and leaves). Not built, because they do not apply: the pages that create a local user account (a domain user
+is admitted at the first logon, `DOMAIN_LOGON.md`), and a workgroup's name (Samba's setting: shown, not changed). No restart
+is asked for. The pictures on the first and last pages are drawn in the code (a network of nodes), not taken from Windows.
+
+## Computer name
+
+The Change dialog renames the computer through the host's hostname service (polkit, as on any desktop) and the new name is
+in force at once, so no restart is asked for. In a domain a rename is refused ("Remove the computer from the domain first"):
+the machine account is named for the computer and the engine cannot rename it yet (Samba's `net` has no rename; `netdom
+renamecomputer` stays "not supported yet"). Leaving the domain and renaming in one step works: it leaves first.
+
+## Samba options
+
+From Samba's `net` manual page: `createcomputer=` takes the OU as a path (outermost first, without `OU=`, separated by `/`),
+which the engine builds from the distinguished name Windows takes; `-k` is deprecated for `--use-kerberos=required` (used
+when `net --help` lists it); `net ads leave --keep-account` is used when a leave does not ask for `ACCT_DELETE` (Windows
+disables the account instead). Not used yet: `--no-dns-updates`, `dnshostname=`, `createupn=`, `machinepass=`, `osName=`/`osVer=`.
 
 ## The layers still to build (order)
 
