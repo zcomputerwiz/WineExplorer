@@ -230,7 +230,7 @@ DWORD WINAPI NetRenameMachineInDomain( const WCHAR *server, const WCHAR *new_nam
     if (!new_name || !new_name[0]) return ERROR_INVALID_PARAMETER;
     /* the engine renames the account with the credentials of an account that may: "the caller's context" has none to give */
     if (!account || !account[0] || !password) return ERROR_LOGON_FAILURE;
-    /* the host name is the caller's (the Change dialog, NETDOM): the engine renames the account and Samba's own name */
+    /* the engine renames the account, Samba's own name and the host name together */
     add_text( &r, "op", "rename" );
     add_field( &r, "name", new_name );
     add_account( &r, account, password );

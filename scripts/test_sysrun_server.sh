@@ -4171,7 +4171,7 @@ for b in 64 32; do
     # refused before the engine: nothing is sent
     n=$(reqs)
     for case in "join - - - A p 1:87" "join - ad.wexlab.example - A p 0:50" "join - ad.wexlab.example - A p 0x41:50" "join - ad.wexlab.example - - p 1:1326" \
-                "join - ad.wexlab.example - A - 1:1326" "join \\\\\\\\other ad.wexlab.example - A p 1:50" "unjoin A p 2:1004" "rename NEW:50"; do
+                "join - ad.wexlab.example - A - 1:1326" "join \\\\\\\\other ad.wexlab.example - A p 1:50" "unjoin A p 2:1004" "rename NEW:1326"; do
         args=${case%:*}; want=${case##*:}
         OUT="$(jp $b $args)"; grep -qx "status=$want" <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: '$args' gave something other than $want"; }
     done
