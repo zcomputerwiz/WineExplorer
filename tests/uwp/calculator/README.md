@@ -306,7 +306,14 @@ the dictionary's own, so Default (dark) and Light get their own values. `xamlshi
 7047f79a093a...; the `uwp-xaml` component pins it (17 component tests pass). Still open: in the dark theme the Settings page
 headings ("Settings", "Appearance", "About") are dim; `calc-input.c` clicks "Dark" at the real card layout now.
 
-### 2026-11-21, dim headings in the dark theme: cause narrowed
+### 2026-11-21, dim headings in the dark theme: fixed on `wex/xamlshim` (not released yet)
+
+The headings come from styles whose text brush was resolved in the light theme, and re-applying the style (also under Uno's
+dark theme scope) gives the same brush again. XamlShim now walks the tree and the open popups (the Settings page is in a
+popup) after a theme change and swaps a `TextFillColor*` brush for the same key of the element's own theme. The quick run
+shows white headings; the clicks flow still gives 7 + 5 = 12. A page built while the theme is already Dark was not tried.
+
+Earlier notes, cause narrowed:
 
 Switching to Dark at run time leaves `TextBlock`s whose foreground comes from a style (`CategoryNameTextBlockStyle`, `BodyStrongTextBlockStyle`:
 based on WinUI's `SubtitleTextBlockStyle`/`BodyTextBlockStyle`, with `BasedOn` set by XamlShim after the load) at the light value
