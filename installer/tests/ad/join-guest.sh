@@ -230,5 +230,42 @@ else
     echo "note wizard: skipped (no xdotool in the guest)"
 fi
 
+# 8. the Computer Name page's own Change... dialog joins the domain (Domain radio button, credentials, "Welcome to the
+# domain"); then the join is removed again
+if command -v xdotool >/dev/null 2>&1; then
+    printf '%s' "$PW" > /root/join-pw.src
+    install -m 0600 -o "$INSTALLED_USER" /root/join-pw.src /tmp/join-pw-raw.txt; rm -f /root/join-pw.src
+    su - "$INSTALLED_USER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 600 wine $PROBE runas rundll32.exe 'shell32.dll,Control_RunDLL sysdm.cpl,,1'" > /tmp/join-dlg.out 2>&1 &
+    if host_step consent; then
+        sleep 25
+        XDW=3 xd key alt+c                        # Change...
+        xd key alt+d; xd type "$DOM"              # Member of: Domain
+        xd key Return                             # OK: the domain is checked, the credentials are asked
+        xd key ctrl+a; xd type Administrator
+        xd key alt+p; xd type --file /tmp/join-pw-raw.txt
+        XDW=40 xd key Return                      # the join
+        for i in $(seq 1 20); do net ads testjoin >/dev/null 2>&1 && break; sleep 3; done
+        if net ads testjoin >/dev/null 2>&1; then ok dialog_join; else notok dialog_join "not joined after the Change dialog: $(journalctl --no-pager -b 0 -t wex-domain-join 2>/dev/null | tail -8 | sed 's/.*request //; s/ domain=[^ ]*//; s/ user=[^ :]*//' | tr '\n' '|')"; fi
+        xd key Return                             # "Welcome to the domain"
+        xd key Escape
+    else notok dialog_consent "$HOST_ANSWER"; fi
+    shred -u /tmp/join-pw-raw.txt 2>/dev/null || rm -f /tmp/join-pw-raw.txt
+    cat > /tmp/join-el4.bat <<'BAT'
+@echo off
+set O=Z:\tmp\join-elevated4.out
+echo === remove >> %O%
+netdom remove /Domain:ad.wexlab.example /UserD:Administrator /PasswordD:* < Z:\tmp\join-pw.txt >> %O% 2>&1
+echo rc=%ERRORLEVEL% >> %O%
+echo === done >> %O%
+BAT
+    EL4=/tmp/join-elevated4.out; rm -f "$EL4"; : > "$EL4"; chmod 666 "$EL4"
+    sed -i 's/$/\r/' /tmp/join-el4.bat; chmod 644 /tmp/join-el4.bat
+    su - "$INSTALLED_USER" -c "cd /tmp; DISPLAY=:0 WINEDEBUG=-all timeout 400 wine $PROBE runas cmd.exe '/c Z:\tmp\join-el4.bat'" > /tmp/join-runas4.out 2>&1 &
+    if host_step consent; then
+        for i in $(seq 1 120); do grep -q '^=== done' "$EL4" && break; sleep 3; done
+        if tr -d '\r' < "$EL4" | grep -qx 'rc=0 *'; then ok dialog_join_removed; else notok dialog_join_removed "$(tr -d '\r' < "$EL4" | tr '\n' '|')"; fi
+    else notok consent4 "$HOST_ANSWER"; fi
+fi
+
 s0_reg reg delete 'HKLM\Software\Wine\Elevation' /v Helper /f >/dev/null
 finish
