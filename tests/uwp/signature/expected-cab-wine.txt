@@ -1,0 +1,9 @@
+bad-data.cab: 80096010
+bad-flags.cab: 80096010
+bad-name.cab: 80096010
+bad-setid.cab: 80096010
+bad-version.cab: 80096010
+no-signature.cab: 800b0100
+signed.cab: 800b0109 signer WineExplorer Signature Test
+trailing.cab: 80096010
+unsigned.cab: 800b0100

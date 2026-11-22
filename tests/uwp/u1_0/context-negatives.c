@@ -149,6 +149,26 @@ int wmain( int argc, WCHAR **argv )
     status = NtQueryInformationToken( token, TOKEN_WINE_PACKAGE, &info, sizeof(info), &size );
     check( status == (NTSTATUS)0xc0000225, "failed_attempts_leave_no_context", "status %#lx", status );
 
+    /* the server decides the compatibility gate too: with it off (a wrong value, a wrong type, no value) a process that asks the
+     * server itself gets no context, however good the application is */
+    {
+        static const WCHAR key[] = L"Software\\WineExplorer\\Shell", value[] = L"UwpCompatibility";
+        DWORD off = 2, on = 1;
+
+        RegSetKeyValueW( HKEY_CURRENT_USER, key, value, REG_DWORD, &off, sizeof(off) );
+        status = set_package( token, argv[1] );
+        check( status == (NTSTATUS)0xc00000bb, "gate_wrong_value_refused_by_server", "status %#lx", status );
+        RegSetKeyValueW( HKEY_CURRENT_USER, key, value, REG_SZ, L"1", 4 );
+        status = set_package( token, argv[1] );
+        check( status == (NTSTATUS)0xc00000bb, "gate_wrong_type_refused_by_server", "status %#lx", status );
+        RegDeleteKeyValueW( HKEY_CURRENT_USER, key, value );
+        status = set_package( token, argv[1] );
+        check( status == (NTSTATUS)0xc00000bb, "gate_absent_refused_by_server", "status %#lx", status );
+        RegSetKeyValueW( HKEY_CURRENT_USER, key, value, REG_DWORD, &on, sizeof(on) );
+        status = NtQueryInformationToken( token, TOKEN_WINE_PACKAGE, &info, sizeof(info), &size );
+        check( status == (NTSTATUS)0xc0000225, "gate_refusals_leave_no_context", "status %#lx", status );
+    }
+
     /* the real application: the context comes from the catalog and cannot be replaced */
     status = set_package( token, argv[1] );
     check( !status, "registered_application", "status %#lx", status );

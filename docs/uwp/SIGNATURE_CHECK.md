@@ -80,6 +80,15 @@ checks the whole chain for revocation: a revoked certificate refuses; no revocat
 passed (as far as measured: Windows asks for revocation online for a Microsoft-signed file and stops at the untrusted root
 for the test package; a chain with a revoked certificate was not measured, it needs a trusted test certificate on the host).
 
+### Cabinets (2026-11-22, B70)
+
+Windows computes the Authenticode digest of a cabinet; Wine did not (its SIP was a stub and `softpub` let cabinets pass). It is now
+computed in `CryptSIPVerifyIndirectData`: SHA-256 (the algorithm of the signature) of the file from its start to the signature,
+which must end the file, leaving out the reserved bytes at 4, `cbCFHeader` at 36 and the header reserve area at 40 (it holds the
+offset and size of the signature). Found by trying that on signed cabinets against their signatures. A signed cabinet made with
+`makecab` and `signtool` and seven copies that break it (a data byte, a file name, flags, version, set id, a byte behind the
+signature, and the signature taken off) give the same `WinVerifyTrust` results on Windows and on Wine x64 and x86 (`tests/uwp/signature`).
+
 ### The block map at extraction (2026-11-22, B68)
 
 The bytes behind the mapping of a package can change between the signature check and the extraction (a program of the host
