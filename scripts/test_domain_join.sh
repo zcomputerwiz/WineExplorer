@@ -122,7 +122,7 @@ grep -q '^shadow:         files$' "$FX/etc/nsswitch.conf" || fail 'nsswitch: ano
 grep -q '^kinit Administrator@AD.WEXLAB.EXAMPLE ' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'kinit was not given user@REALM'; }
 [ "$(cat "$FX/kinit.stdin")" = 's3cret-pw' ] || fail 'kinit did not get the password on its standard input'
 ! grep -q 's3cret-pw' "$FX/calls.log" || fail 'the password is on a command line'
-grep -q '^net ads join -k createcomputer=WexMachines$' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'net ads join'; }
+grep -q '^net ads join -k createcomputer=WexMachines osName=WineExplorer osVer=[^ ]*$' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'net ads join'; }
 grep -q '^host -t SRV _ldap._tcp.ad.wexlab.example' "$FX/calls.log" || fail 'no DNS check'
 grep -q '^pam-auth-update --enable winbind mkhomedir' "$FX/calls.log" && grep -q '^systemctl enable --now winbind' "$FX/calls.log" && grep -q '^net ads testjoin' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'the setup after the join'; }
 cc=$(sed 's/^FILE://' "$FX/kinit.cc"); [ ! -e "$cc" ] && [ ! -e "$(dirname "$cc")" ] || fail 'the ticket cache was not removed'

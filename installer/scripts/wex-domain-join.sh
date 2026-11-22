@@ -164,7 +164,7 @@ trap drop_ticket EXIT
 
 cmd_join()
 {
-    local domain=${1:-} user= workgroup= ou= stdin=0 realm kind netbios principal guessed found joinout oupath ouparts i part
+    local domain=${1:-} user= workgroup= ou= stdin=0 realm kind netbios principal guessed found joinout oupath ouparts i part osver
     [ -n "$domain" ] || usage
     take_lock
     shift
@@ -234,7 +234,9 @@ cmd_join()
         done
         ou=$oupath
     fi
-    joinout=$(net ads join "$(krb_opt)" ${ou:+createcomputer="$ou"} 2>&1) || {
+    # the operating system the account tells the directory (AD Users and Computers shows it): this system's own name and version
+    osver=$(. "${WEX_OS_RELEASE:-/etc/os-release}" 2>/dev/null; printf '%s' "${VERSION_ID:-}")
+    joinout=$(net ads join "$(krb_opt)" ${ou:+createcomputer="$ou"} "osName=WineExplorer" "osVer=${osver:-1}" 2>&1) || {
         drop_ticket; undo_files
         die "net ads join failed (the account may not join computers, or ${ou:-the OU} does not exist): $(tail -n 2 <<<"$joinout" | cut -c1-200)"
     }
