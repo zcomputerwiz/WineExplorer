@@ -9,8 +9,10 @@
  * cache and the sign-in (steps 2 to 4) are in provider.c, cache.c, oauth.c, signin.c and webview.c.
  *
  *  - The pipe is TOKENBROKER_PIPE_PREFIX and the user's SID; its descriptor admits that user only, the first instance
- *    is created with FILE_FLAG_FIRST_PIPE_INSTANCE (a second broker of the user ends at once), and every client's
- *    token user must be the broker's own.
+ *    is created with FILE_FLAG_FIRST_PIPE_INSTANCE (a second broker of the user ends at once, saying so), and every
+ *    client's token user must be the broker's own: its process's primary token, as Wine does not check the pipe's
+ *    descriptor when a client opens it and impersonates the client only while elevation is enforced.
+ *  - Callers with a restricted token, below medium integrity or in an AppContainer are refused with an error.
  *  - Never in session 0: tokens are the user's, never the machine's.
  *  - Nothing secret is logged, also not at trace level.
  */
@@ -43,25 +45,95 @@ static SID *token_user( HANDLE token )
     return sid;
 }
 
-/* is the client at the other end of the pipe a process of this broker's user? */
-static BOOL client_is_own_user( HANDLE pipe )
+/* What a caller's token allows: CALLER_OK, CALLER_OTHER_USER (the connection is dropped), or a refusal that every
+ * request of the connection is answered with (a restricted token, an integrity level below medium, an AppContainer:
+ * sandboxed code that must not get the user's tokens). */
+enum caller_check
 {
-    HANDLE token;
-    SID *sid;
-    BOOL ret = FALSE;
+    CALLER_OK,
+    CALLER_OTHER_USER,
+    CALLER_RESTRICTED,
+    CALLER_LOW_INTEGRITY,
+    CALLER_APPCONTAINER,
+};
 
-    if (!ImpersonateNamedPipeClient( pipe )) return FALSE;
+static enum caller_check check_token( HANDLE token )
+{
+    char buffer[sizeof(TOKEN_MANDATORY_LABEL) + SECURITY_MAX_SID_SIZE];
+    TOKEN_MANDATORY_LABEL *label = (TOKEN_MANDATORY_LABEL *)buffer;
+    DWORD len, app_container = 0, rid;
+    BOOL same;
+    SID *sid;
+
+    if (!(sid = token_user( token ))) return CALLER_OTHER_USER;
+    same = EqualSid( sid, own_sid );
+    free( sid );
+    if (!same) return CALLER_OTHER_USER;
+    if (IsTokenRestricted( token )) return CALLER_RESTRICTED;
+    /* an integrity level that cannot be read counts as low: the check fails closed */
+    if (!GetTokenInformation( token, TokenIntegrityLevel, buffer, sizeof(buffer), &len ) ||
+        !*GetSidSubAuthorityCount( label->Label.Sid ))
+        return CALLER_LOW_INTEGRITY;
+    rid = *GetSidSubAuthority( label->Label.Sid, *GetSidSubAuthorityCount( label->Label.Sid ) - 1 );
+    if (rid < SECURITY_MANDATORY_MEDIUM_RID) return CALLER_LOW_INTEGRITY;
+    if (GetTokenInformation( token, TokenIsAppContainer, &app_container, sizeof(app_container), &len ) &&
+        app_container)
+        return CALLER_APPCONTAINER;
+    return CALLER_OK;
+}
+
+/* The caller at the other end of the pipe. Its process's primary token is checked always: without elevation
+ * enforcement Wine's ImpersonateNamedPipeClient gives the server its own token (server/named_pipe.c,
+ * FSCTL_PIPE_IMPERSONATE), so the impersonation token alone proves nothing. Where impersonation does give the client's
+ * token (the client's thread, possibly impersonating someone else), that one is checked as well. */
+static enum caller_check check_caller( HANDLE pipe )
+{
+    enum caller_check ret;
+    HANDLE process, token;
+    ULONG pid;
+
+    if (!GetNamedPipeClientProcessId( pipe, &pid ) ||
+        !(process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid )))
+        return CALLER_OTHER_USER;
+    if (!OpenProcessToken( process, TOKEN_QUERY, &token ))
+    {
+        CloseHandle( process );
+        return CALLER_OTHER_USER;
+    }
+    CloseHandle( process );
+    ret = check_token( token );
+    CloseHandle( token );
+    if (ret != CALLER_OK) return ret;
+
+    if (!ImpersonateNamedPipeClient( pipe )) return CALLER_OTHER_USER;
     if (OpenThreadToken( GetCurrentThread(), TOKEN_QUERY, TRUE, &token ))
     {
-        if ((sid = token_user( token )))
-        {
-            ret = EqualSid( sid, own_sid );
-            free( sid );
-        }
+        ret = check_token( token );
         CloseHandle( token );
     }
+    else ret = CALLER_OTHER_USER;
     RevertToSelf();
     return ret;
+}
+
+/* the answer to every request of a caller that is refused */
+static void refuse( const struct request *req, enum caller_check check, struct reply *reply )
+{
+    static const WCHAR *messages[] =
+    {
+        NULL, NULL,
+        L"Wine's token broker does not serve programs with a restricted token.",
+        L"Wine's token broker does not serve programs below medium integrity.",
+        L"Wine's token broker does not serve AppContainer programs.",
+    };
+
+    if (req->kind == TOKENBROKER_FIND_ACCOUNTS)
+        reply_error( reply, FIND_PROVIDER_ERROR, E_ACCESSDENIED, messages[check] );
+    else if (req->kind == TOKENBROKER_FIND_ACCOUNT)
+    {
+        reply_error( reply, 1, E_ACCESSDENIED, messages[check] );
+    }
+    else reply_error( reply, STATUS_PROVIDER_ERROR, E_ACCESSDENIED, messages[check] );
 }
 
 /* the request's fields as NUL-terminated strings, its properties as pairs */
@@ -219,6 +291,7 @@ static DWORD WINAPI client_thread( void *arg )
     char *buffer, *out;
     DWORD size, done, out_size;
     HANDLE event;
+    enum caller_check check = CALLER_OK;
     BOOL checked = FALSE, ok;
 
     buffer = malloc( TOKENBROKER_MAX_MESSAGE );
@@ -228,10 +301,15 @@ static DWORD WINAPI client_thread( void *arg )
     while (pipe_io( pipe, FALSE, buffer, TOKENBROKER_MAX_MESSAGE, &size, event ))
     {
         /* the client can be impersonated once something was read from it */
-        if (!checked && !(checked = client_is_own_user( pipe )))
+        if (!checked)
         {
-            WARN( "a client of another user was refused\n" );
-            break;
+            checked = TRUE;
+            if ((check = check_caller( pipe )) == CALLER_OTHER_USER)
+            {
+                WARN( "a client of another user was refused\n" );
+                break;
+            }
+            if (check != CALLER_OK) WARN( "a sandboxed client is refused (%u)\n", check );
         }
         if (!parse_request( buffer, size, &req ))
         {
@@ -243,7 +321,8 @@ static DWORD WINAPI client_thread( void *arg )
                req.kind, req.prompt, req.window );
         if (req.kind == TOKENBROKER_REQUEST_TOKEN) req.program_path = client_program( pipe );
         memset( &reply, 0, sizeof(reply) );
-        answer( &req, &reply );
+        if (check != CALLER_OK && req.kind != TOKENBROKER_HELLO) refuse( &req, check, &reply );
+        else answer( &req, &reply );
         ok = build_reply( (struct tokenbroker_request *)buffer, &reply, out, &out_size );
         if (!ok)
         {
@@ -307,8 +386,14 @@ int __cdecl wmain( int argc, WCHAR *argv[] )
     {
         if ((pipe = create_instance( name, &sa, first )) == INVALID_HANDLE_VALUE)
         {
-            /* another broker of the user has the pipe: this one is not needed */
-            if (first && GetLastError() == ERROR_ACCESS_DENIED) return 0;
+            /* the first instance could not be ours: another broker of the user has the pipe, or another process
+             * took its name; this broker is not the one clients reach */
+            if (first)
+            {
+                ERR( "the token broker's pipe %s is held by another process (error %lu): this broker exits\n",
+                     debugstr_w( name ), GetLastError() );
+                return 0;
+            }
             ERR( "cannot create the pipe: %lu\n", GetLastError() );
             return 1;
         }

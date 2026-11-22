@@ -465,13 +465,16 @@ static void find_accounts( const struct provider *provider, const struct request
     reply->status = FIND_SUCCESS;
 }
 
+/* by id, for the request's client only: FindAccountAsync names no client, so it finds nothing (an empty client id is
+ * never "every client") */
 static void find_account( const struct provider *provider, const struct request *req, struct reply *reply )
 {
     struct account *account;
 
     cache_lock();
     if ((account = cache_find_account( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY],
-                                       req->field[TOKENBROKER_FIELD_ACCOUNT_ID], NULL, NULL )))
+                                       req->field[TOKENBROKER_FIELD_ACCOUNT_ID], NULL,
+                                       req->field[TOKENBROKER_FIELD_CLIENT_ID] )))
     {
         reply_set( reply, TOKENBROKER_REPLY_ACCOUNT_ID, account->id );
         reply_set( reply, TOKENBROKER_REPLY_USER_NAME, account->user_name );
@@ -483,6 +486,12 @@ static void find_account( const struct provider *provider, const struct request 
 
 static void sign_out( const struct provider *provider, const struct request *req, struct reply *reply )
 {
+    /* only one client's tokens, never every client's */
+    if (!*req->field[TOKENBROKER_FIELD_CLIENT_ID])
+    {
+        reply_error( reply, STATUS_PROVIDER_ERROR, E_PROVIDER_FAILED, L"A sign-out names a client id." );
+        return;
+    }
     cache_lock();
     cache_remove_account( provider->id, req->field[TOKENBROKER_FIELD_ACCOUNT_ID], req->field[TOKENBROKER_FIELD_CLIENT_ID] );
     cache_unlock();

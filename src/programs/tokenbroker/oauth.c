@@ -171,7 +171,12 @@ static BOOL token_post( const WCHAR *base, const WCHAR *authority, const struct 
         r->id_token = json_string( response.body, "id_token" );
         r->client_info = json_string( response.body, "client_info" );
         r->scope = json_string( response.body, "scope" );
-        json_number( response.body, "expires_in", &expires_in );
+        /* a lifetime outside a second to a day is not believed: the usual hour instead */
+        if (!json_number( response.body, "expires_in", &expires_in ) || expires_in < 1 || expires_in > 86400)
+        {
+            WARN( "the token's lifetime is missing or out of range\n" );
+            expires_in = 3600;
+        }
         r->expires_on = unix_time() + expires_in;
         TRACE( "token endpoint: access token of %u characters, expires in %d s, refresh token %s\n",
                (unsigned int)wcslen( r->access_token ), (int)expires_in, r->refresh_token ? "given" : "not given" );

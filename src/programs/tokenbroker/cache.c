@@ -161,7 +161,10 @@ static WCHAR *cache_dir( void )
             CreateDirectoryW( path, wex ? &sa : NULL );
             *p = '\\';
         }
-        CreateDirectoryW( path, &sa );
+        /* the cache's own folder gets the descriptor also when it is already there (its mode follows it; the shared
+         * wineexplorer folder above is left as it is) */
+        if (!CreateDirectoryW( path, &sa ))
+            SetFileSecurityW( path, DACL_SECURITY_INFORMATION, sa.lpSecurityDescriptor );
         free( path );
     }
     LocalFree( sa.lpSecurityDescriptor );
@@ -301,7 +304,9 @@ BOOL cache_save( void )
     LocalFree( sid_string );
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW( sddl, SDDL_REVISION_1, &sa.lpSecurityDescriptor, NULL ))
         goto done;
-    file = CreateFileW( temp, GENERIC_WRITE, 0, &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+    /* a leftover temporary file would keep its own mode: it goes first, and the new one is created anew */
+    DeleteFileW( temp );
+    file = CreateFileW( temp, GENERIC_WRITE, 0, &sa, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL );
     LocalFree( sa.lpSecurityDescriptor );
     if (file == INVALID_HANDLE_VALUE) goto done;
     ret = WriteFile( file, bytes, strlen( bytes ), &written, NULL ) && written == strlen( bytes );
@@ -321,8 +326,8 @@ done:
     return ret;
 }
 
-/* an account by id, or else by user name (case-insensitive), for the provider and authority (and the client, when
- * given); the caller holds the lock */
+/* an account by id, or else by user name (case-insensitive), for the provider and authority, of exactly this client
+ * (an empty client id matches only an empty one, never every client); the caller holds the lock */
 struct account *cache_find_account( const WCHAR *provider_id, const WCHAR *authority, const WCHAR *id,
                                     const WCHAR *user_name, const WCHAR *client_id )
 {
@@ -333,15 +338,15 @@ struct account *cache_find_account( const WCHAR *provider_id, const WCHAR *autho
         struct account *a = accounts[i];
         if (!same( a->provider_id, provider_id )) continue;
         if (authority && *authority && !same( a->authority, authority )) continue;
-        if (client_id && *client_id && !same( a->client_id, client_id )) continue;
+        if (!same( a->client_id, client_id )) continue;
         if (id && *id && same( a->id, id )) return a;
         if ((!id || !*id) && user_name && *user_name && !wcsicmp( a->user_name, user_name )) return a;
     }
     return NULL;
 }
 
-/* the accounts of a provider and authority (each once, whatever the client, unless client_id is given); the array is
- * the caller's to free, the accounts stay the cache's; the caller holds the lock */
+/* the accounts of a provider and authority for exactly this client (an empty client id matches only an empty one,
+ * never every client), each once; the array is the caller's to free, the accounts stay the cache's; the caller holds the lock */
 unsigned int cache_list_accounts( const WCHAR *provider_id, const WCHAR *authority, const WCHAR *client_id,
                                   struct account ***out )
 {
@@ -354,7 +359,7 @@ unsigned int cache_list_accounts( const WCHAR *provider_id, const WCHAR *authori
         struct account *a = accounts[i];
         if (!same( a->provider_id, provider_id )) continue;
         if (authority && *authority && !same( a->authority, authority )) continue;
-        if (client_id && *client_id && !same( a->client_id, client_id )) continue;
+        if (!same( a->client_id, client_id )) continue;
         for (j = 0; j < n; j++) if (same( (*out)[j]->id, a->id )) break;
         if (j == n) (*out)[n++] = a;
     }
@@ -411,7 +416,7 @@ BOOL cache_store_account( const struct account *src )
     return TRUE;
 }
 
-/* removes the account's refresh tokens and access tokens (only the client's, when given); the caller holds the lock */
+/* removes the account's refresh tokens and access tokens of exactly this client; the caller holds the lock */
 void cache_remove_account( const WCHAR *provider_id, const WCHAR *id, const WCHAR *client_id )
 {
     unsigned int i, j;
@@ -420,7 +425,7 @@ void cache_remove_account( const WCHAR *provider_id, const WCHAR *id, const WCHA
     {
         struct account *a = accounts[i];
         if (same( a->provider_id, provider_id ) && same( a->id, id ) &&
-            (!client_id || !*client_id || same( a->client_id, client_id )))
+            same( a->client_id, client_id ))
             account_free( a );
         else accounts[j++] = a;
     }
@@ -429,7 +434,7 @@ void cache_remove_account( const WCHAR *provider_id, const WCHAR *id, const WCHA
     {
         struct access_token *t = tokens[i];
         if (same( t->provider_id, provider_id ) && same( t->account_id, id ) &&
-            (!client_id || !*client_id || same( t->client_id, client_id )))
+            same( t->client_id, client_id ))
             token_free( t );
         else tokens[j++] = t;
     }

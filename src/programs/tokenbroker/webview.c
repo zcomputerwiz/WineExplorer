@@ -8,8 +8,9 @@
  *
  * WebView2 comes from the runtime that Edge and Copilot install, through its documented loader entry point
  * CreateCoreWebView2EnvironmentWithOptions in WebView2Loader.dll. Nothing of WebView2 ships with WineExplorer: the
- * loader is taken from HKCU\Software\Wine\WebAuthentication "WebView2Loader" (a full path), else from beside this
- * program, else from the calling program's folder. Without one the request fails with a message that says so.
+ * loader is taken from HKLM\Software\Wine\WebAuthentication "WebView2Loader" (a full path), else from beside this
+ * program; never from the calling program's folder (how the image gets one is still open). Without one the request
+ * fails with a message that says so.
  *
  * The few interfaces used are called through their vtables by index; the interface IDs and method positions are
  * those of Microsoft's WebView2 SDK interface description (WebView2.idl, SDK 1.0.4258.31, BSD-3-Clause; nothing of
@@ -303,30 +304,25 @@ static LRESULT CALLBACK signin_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
     return DefWindowProcW( hwnd, msg, wparam, lparam );
 }
 
-/* WebView2Loader.dll: the configured one, ours, or the calling program's */
-static HMODULE load_loader( const WCHAR *program_path )
+/* WebView2Loader.dll: the machine's configured one (HKLM only: a user's setting must not choose code that sees the
+ * sign-in), else the one beside this program. Never the calling program's folder. A full path only, and only that
+ * file: LoadLibraryExW with LOAD_WITH_ALTERED_SEARCH_PATH resolves its own imports from its folder. */
+static HMODULE load_loader( void )
 {
     WCHAR path[MAX_PATH], *p;
     DWORD size = sizeof(path);
     HMODULE module;
 
-    if (!RegGetValueW( HKEY_CURRENT_USER, L"Software\\Wine\\WebAuthentication", L"WebView2Loader", RRF_RT_REG_SZ,
-                       NULL, path, &size ) && (module = LoadLibraryW( path )))
+    if (!RegGetValueW( HKEY_LOCAL_MACHINE, L"Software\\Wine\\WebAuthentication", L"WebView2Loader", RRF_RT_REG_SZ,
+                       NULL, path, &size ) &&
+        ((path[0] && path[1] == ':' && path[2] == '\\') || (path[0] == '\\' && path[1] == '\\')) &&
+        (module = LoadLibraryExW( path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH )))
         return module;
     if (GetModuleFileNameW( NULL, path, MAX_PATH ) && (p = wcsrchr( path, '\\' )) &&
         p + 20 < path + MAX_PATH)
     {
         wcscpy( p + 1, L"WebView2Loader.dll" );
-        if ((module = LoadLibraryW( path ))) return module;
-    }
-    if (program_path && wcslen( program_path ) < MAX_PATH - 20)
-    {
-        wcscpy( path, program_path );
-        if ((p = wcsrchr( path, '\\' )))
-        {
-            wcscpy( p + 1, L"WebView2Loader.dll" );
-            if ((module = LoadLibraryW( path ))) return module;
-        }
+        if ((module = LoadLibraryExW( path, NULL, LOAD_WITH_ALTERED_SEARCH_PATH ))) return module;
     }
     return NULL;
 }
@@ -361,7 +357,7 @@ void signin_run_webview( struct signin *signin )
     MSG msg;
     int width = 520, height = 680, x, y;
 
-    if (!(loader = load_loader( signin->program_path )) ||
+    if (!(loader = load_loader()) ||
         !(create_environment = (void *)GetProcAddress( loader, "CreateCoreWebView2EnvironmentWithOptions" )))
     {
         WARN( "no WebView2 loader\n" );
