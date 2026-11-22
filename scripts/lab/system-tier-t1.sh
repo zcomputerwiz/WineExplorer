@@ -48,8 +48,10 @@ WINEPREFIX=$W/s0 ./wine reg add "$K" /v where /d session0 /f >/dev/null 2>&1; WI
 start_s0() {
     rm -f "$SOCK"
     (WINEPREFIX=$W/s0 WEX_SESSION0_SOCKET=$SOCK WEX_SESSION0_DEV=1 ./server/wineserver --session0 -f >"$W/s0.log" 2>&1 &)
-    for i in $(seq 1 50); do [ -S "$SOCK" ] && return 0; sleep 0.1; done
-    echo "FAIL session 0 did not start"; cat "$W/s0.log"; exit 1
+    # up to 60 s: with chain VMs and a build on the machine, the server has taken more than 5 s to make its socket
+    for i in $(seq 1 600); do [ -S "$SOCK" ] && return 0; sleep 0.1; done
+    echo "FAIL session 0 did not start within 60 s"; cat "$W/s0.log"
+    WINEPREFIX=$W/s0 ./server/wineserver -k 2>/dev/null; exit 1
 }
 s0() { WINEPREFIX=$W/s0 timeout 60 ./wine "$@" 2>/dev/null; }
 start_s0
