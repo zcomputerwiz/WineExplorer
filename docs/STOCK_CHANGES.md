@@ -4025,3 +4025,12 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
   `CAT_MEMBERINFO2_OBJID`), `include/wincrypt.h` (`szOID_CATALOG_LIST`, `_MEMBER`, `_MEMBER2`).
 
 2026-11-22 (Wine, branch claude/wbemprox-compsys): `dlls/wbemprox` (`builtin.c`, `compsys.c`, `wbemprox_private.h`, `Makefile.in`): `Win32_ComputerSystem` gets `DNSHostName`, `PartOfDomain`, `Workgroup`, `Name` as its key, `Domain` (the DNS name from HKLM\Software\WineExplorer\Domain\Name, else the NetBIOS name) and `DomainRole` from `NetGetJoinInformation` (they were fixed: `WORKGROUP`, 0), and the methods `Rename`, `JoinDomainOrWorkgroup` and `UnjoinDomainOrWorkgroup` (the new `compsys.c`), which call `NetRenameMachineInDomain`, `NetJoinDomain` and `NetUnjoinDomain`; `wbemprox` imports `netapi32` for it. Without the join engine behind those functions they answer as before (not supported); for a rename outside a domain `compsys.c` loads `wexhost.dll` from system32 only (`LOAD_LIBRARY_SEARCH_SYSTEM32`) and calls its `WexHostnameSet` (the host name service, as System Properties does), and falls back to `SetComputerNameEx` when that dll is absent. `IWbemServices::CreateClassEnum` is implemented (`class.c`: a second enumerator that lists the class names of the namespace, `table.c`: `get_table_names`, `services.c`); with a superclass it lists nothing, as the classes have no hierarchy; the class objects it returns answer `Get("__CLASS")` only. Docs: docs/POWERSHELL.md. The new `mi.dll` (`src/dlls/mi`) is a project module, not a change to stock Wine.
+
+2026-11-22 (Wine aeb4419c, branch `claude/crypt32-readonly-system-store` d6e9315e; B75): `dlls/crypt32/store.c`
+`CRYPT_SysOpenStoreW`: the machine's part of a user's system store (a `CERT_SYSTEM_STORE_CURRENT_USER` open, which
+also returns the `LOCAL_MACHINE` store of that name) is opened with `CERT_STORE_READONLY_FLAG` and added to the
+collection without `CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG`: a limited user, who cannot write the machine registry, still
+gets the machine's trusted roots, and what a user adds goes to the user's store. Before, the machine part was opened
+read-write, failed for a limited user and was left out, so HTTPS failed in the machine prefix. An explicit read-write
+open of the machine store is still refused (error 5), as on Windows. Observed black-box on Windows as a non-elevated
+user (`scripts/rootstore-probe.c`). Test `testUserStoreIncludesMachineStore` in crypt32's store tests (x64 and x86).
