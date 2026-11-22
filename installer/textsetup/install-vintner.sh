@@ -93,7 +93,9 @@ dpkg-deb -x "$TARGET$WORK/vintner-platform.deb" "$TARGET$WORK/platform"
 # 3. The kernel options of every generation (vintner install adds root=, ro and vintner.bootstorage=).
 mkdir -p "$TARGET/etc/kernel"
 if [ ! -s "$TARGET/etc/kernel/cmdline" ]; then
-    echo "quiet" > "$TARGET/etc/kernel/cmdline"
+    # "splash" starts Plymouth (docs/VINTNER_BOOT.md D2). plymouth.ignore-serial-consoles keeps the splash on the screen when
+    # a serial console is also on the command line (virtual machines, lab boards); without it Plymouth falls back to text.
+    echo "quiet splash vt.global_cursor_default=0 plymouth.ignore-serial-consoles" > "$TARGET/etc/kernel/cmdline"
 fi
 echo "--- kernel options: $(cat "$TARGET/etc/kernel/cmdline")"
 

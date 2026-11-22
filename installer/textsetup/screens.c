@@ -1937,7 +1937,7 @@ SetupStage screen_init(SetupState *state)
         system("umount /target/run /target/sys /target/proc /target/dev/pts /target/dev 2>/dev/null || true");
         return screen_start_files_failed(state);
     }
-    system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl mask plymouth-quit-wait.service plymouth-start.service plymouth.service 2>/dev/null || true");
+    system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl mask plymouth-quit-wait.service 2>/dev/null || true");
     if (has_serial_console) {
         system("chroot /target /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/systemctl enable serial-getty@ttyS0.service 2>/dev/null || true");
     }

@@ -492,6 +492,17 @@ count or state. For the rest the owner set the goal of a Windows-familiar experi
   Vintner's `vintner-bgrt` (the PC maker's firmware logo, as Windows 8 and later show). Unmask Plymouth in
   `installer/live-build/config/hooks/normal/0500-enable-services.hook.chroot:48` and `screens.c:1631`; setup and
   OOBE already run `plymouth --quit` before starting their own Xorg.
+  **Done on the Integration branch, 2026-11-22 (owner: go ahead; to be tested on a fresh image):** `plymouth` and
+  `plymouth-themes` (which ships `two-step.so`) are in the image's package list; `/etc/kernel/cmdline` gets
+  `quiet splash vt.global_cursor_default=0 plymouth.ignore-serial-consoles`; the hook and `screens.c` now mask only
+  `plymouth-quit-wait.service` (`wex-plymouth-quit.service` stays the hand-off before tty1 is used); the vintner pin
+  moved to 1538fc5 (PR 100), so `vintner install` selects the default theme `vintner-bgrt`, sets `ShowDelay=0` and
+  rebuilds the initramfs. Open: the stand-in theme shows the firmware logo until original art exists; with a serial
+  console the splash needs `plymouth.ignore-serial-consoles` (set); the 1-in-16 tty1 race of 2026-11-10 (plymouthd
+  reading tty1) is why the safe-mode chain is run on the first image with the splash. `install-vintner.sh` writes the
+  new command line only when `/etc/kernel/cmdline` is empty, as before: an existing installation keeps its `quiet`
+  and gets no splash on upgrade (intended for now; an upgrade path is a later decision). If `wex-plymouth-quit.service`
+  ever failed to run, plymouthd would keep tty1; the classic and console stages of the chain watch for that.
 - **D3. Health check (recommended): pass at the logon screen** (section 4.4).
 - **D4. RAID roots (recommended): allow them.** XP installed onto RAID volumes. Put the ESP and boot storage on the
   first disk and say on the partition screen that the start-up partitions are not mirrored.
