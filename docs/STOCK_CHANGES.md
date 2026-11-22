@@ -4034,3 +4034,9 @@ gets the machine's trusted roots, and what a user adds goes to the user's store.
 read-write, failed for a limited user and was left out, so HTTPS failed in the machine prefix. An explicit read-write
 open of the machine store is still refused (error 5), as on Windows. Observed black-box on Windows as a non-elevated
 user (`scripts/rootstore-probe.c`). Test `testUserStoreIncludesMachineStore` in crypt32's store tests (x64 and x86).
+
+2026-11-22 (Wine e3cc91ee, branch `claude/crypt32-shared-certs` 81518812; B79): `dlls/crypt32/store.c`
+(`CRYPT_SysRegOpenStoreW`, the system store enumeration) and `dlls/crypt32/rootstore.c` (the root sync) open
+`Software\Microsoft\SystemCertificates` with `KEY_WOW64_64KEY`: the stores are shared between the 32-bit and 64-bit
+registry views, as on Windows. Redirected, a 32-bit program had a copy of its own that only a 32-bit process able to
+write the machine registry filled, so a limited user's 32-bit programs trusted no root on the system tier.
