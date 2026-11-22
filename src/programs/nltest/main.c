@@ -49,29 +49,16 @@
 #include <windows.h>
 #include <lm.h>
 
+#include "wexconsole.h"
+
 #define MAX_TEXT 1024
-
-static void put( HANDLE handle, const WCHAR *text )
-{
-    DWORD done;
-
-    if (!WriteConsoleW( handle, text, wcslen( text ), &done, NULL ))
-    {
-        int len = WideCharToMultiByte( GetConsoleOutputCP(), 0, text, -1, NULL, 0, NULL, NULL );
-        char *buf = malloc( len );
-        if (!buf) return;
-        WideCharToMultiByte( GetConsoleOutputCP(), 0, text, -1, buf, len, NULL, NULL );
-        WriteFile( handle, buf, len - 1, &done, NULL );
-        free( buf );
-    }
-}
 
 static void print( HANDLE handle, const WCHAR *format, va_list args )
 {
     WCHAR text[MAX_TEXT * 2];
 
     vswprintf( text, ARRAY_SIZE(text), format, args );
-    put( handle, text );
+    wex_console_write_to( handle, text );
 }
 
 static void out( const WCHAR *format, ... )

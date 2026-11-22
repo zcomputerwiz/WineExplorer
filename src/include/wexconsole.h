@@ -29,14 +29,11 @@
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
 
-static inline void wex_console_write( const WCHAR *text )
+static inline void wex_console_write_to( HANDLE handle, const WCHAR *text )
 {
     DWORD done;
-    HANDLE handle;
 
     if (!text) return;
-
-    handle = GetStdHandle( STD_OUTPUT_HANDLE );
 
     /* a console gets the text as it is; a pipe or file gets it in the console's code page */
     if (!WriteConsoleW( handle, text, wcslen( text ), &done, NULL ))
@@ -48,6 +45,11 @@ static inline void wex_console_write( const WCHAR *text )
         WriteFile( handle, buf, len - 1, &done, NULL );
         free( buf );
     }
+}
+
+static inline void wex_console_write( const WCHAR *text )
+{
+    wex_console_write_to( GetStdHandle( STD_OUTPUT_HANDLE ), text );
 }
 
 /* formats into a local buffer of at most 2048 WCHARs; no call in gpresult or netdom formats more than this */
