@@ -111,6 +111,14 @@ fi
 GUEST=${WEX_GUEST:-machine-guest.sh}
 [ -f "$HERE/$GUEST" ] || fail "no guest script $HERE/$GUEST"
 install -m 0700 "$HERE/$GUEST" "$MNT/root/ad-guest.sh"
+# WEX_LAB_EXTRA=DIR: a folder copied into the guest as /root/extra (files a guest script needs: dlls of a build under
+# test, a module; join-ps-guest.sh)
+if [ -n "${WEX_LAB_EXTRA:-}" ]; then
+    [ -d "$WEX_LAB_EXTRA" ] || fail "no folder $WEX_LAB_EXTRA"
+    rm -rf "$MNT/root/extra"
+    cp -a "$WEX_LAB_EXTRA" "$MNT/root/extra" || fail "cannot copy $WEX_LAB_EXTRA"
+    echo "extra files from $WEX_LAB_EXTRA in /root/extra"
+fi
 # WEX_LAB_TREE_GPUPDATE=1: this tree's wex-gpupdate.sh in place of the image's (a script change tested without a
 # new image; docs/GPO_LAB.md)
 if [ "${WEX_LAB_TREE_GPUPDATE:-0}" = 1 ]; then
@@ -120,7 +128,8 @@ fi
 # WEX_LAB_TREE_JOIN=1: this tree's join engine (wex-domain-join.sh) in place of the image's
 if [ "${WEX_LAB_TREE_JOIN:-0}" = 1 ]; then
     install -m 0755 "$REPO/installer/scripts/wex-domain-join.sh" "$MNT/usr/local/sbin/wex-domain-join.sh"
-    echo "using this tree's wex-domain-join.sh"
+    install -m 0755 "$REPO/installer/scripts/wex-domain-state.sh" "$MNT/usr/local/bin/wex-domain-state.sh"
+    echo "using this tree's wex-domain-join.sh and wex-domain-state.sh"
 fi
 # WEX_LAB_TREE_TOOLS=1: this tree's wex-sysrun and wex-accounts (built as installer/package-wine.sh builds them) and
 # the PAM step's script and the session scripts in place of the image's, so that a change to any is tested without a

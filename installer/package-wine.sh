@@ -74,6 +74,12 @@ fi
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes"
 install -m644 "$ROOT_DIR/src/resources/themes/"*.theme "$STAGE_WINE/usr/local/share/wineexplorer/themes/"
 
+# The WexComputer PowerShell module (Add-Computer, Remove-Computer, Test-ComputerSecureChannel,
+# Reset-ComputerMachinePassword; docs/POWERSHELL.md). The PowerShell 7 component copies it into its Modules folder.
+install -d -m 0755 "$STAGE_WINE/usr/local/share/wineexplorer/powershell/WexComputer"
+install -m 0644 "$ROOT_DIR/src/powershell/WexComputer/WexComputer.psd1" "$ROOT_DIR/src/powershell/WexComputer/WexComputer.psm1" \
+    "$STAGE_WINE/usr/local/share/wineexplorer/powershell/WexComputer/"
+
 # Build open Luna visual style
 echo "Building open Luna theme package..."
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes/Luna"
