@@ -45,9 +45,12 @@ cmdlets work (2026-11-22, tried with 7.7.0, x64):
   tracing stubs (`MI_TRACE=<file>` writes what is called). Implemented: enumerate, query, invoke, `Get-CimClass -ClassName`
   (class, properties, methods; no parent class, `wbemprox` has none), `Get-CimInstance -InputObject` (refresh), and the
   writes `New-`, `Set-` and `Remove-CimInstance`, which pass the call to WMI (`PutInstance`, `DeleteInstance`) and report
-  what `wbemprox` answers (it is read-only for its classes, so they fail with `FAILED` or `NOT_FOUND`). Not done:
-  wildcard `Get-CimClass` (`EnumerateClasses`), associations (`Get-CimAssociatedInstance`), indications
-  (`Register-CimIndicationEvent`).
+  what `wbemprox` answers (it is read-only for its classes, so they fail with `FAILED` or `NOT_FOUND`). Also implemented:
+  `EnumerateClasses` (wildcard `Get-CimClass`; it lists the classes `wbemprox` has, 31 in `root\cimv2`, without `CIM_DataFile` and
+  `Win32_Directory`, because `wbemprox` walks the whole disk to build a class object of those two, which also makes
+  `Get-CimClass -ClassName CIM_DataFile` hang). Associations (`Get-CimAssociatedInstance`) and indications
+  (`Register-CimIndicationEvent`) are not offered: the operation ends at once with `NOT_SUPPORTED`, so the cmdlet reports an
+  error and does not wait. Class results are not waited on for PowerShell's acknowledgement (it gives none).
 - On i386 `MI_CALL` is `__stdcall` (`MI.h` of this tree; the Windows header does the same, and the managed MMI layer calls the
   function tables that way). With it empty the tables were cdecl and the 32-bit PowerShell crashed in `inst_free` on the
   first `Get-CimInstance` (the stack drifted by the arguments of each call). Stubs also clear their `_Outptr_` out

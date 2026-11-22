@@ -57,3 +57,7 @@ MI_SessionFT_CreateInstance
 MI_SessionFT_DeleteInstance
 MI_SessionFT_GetClass
 MI_OperationFT_GetClass
+MI_SessionFT_EnumerateClasses
+MI_SessionFT_AssociatorInstances
+MI_SessionFT_ReferenceInstances
+MI_SessionFT_Subscribe

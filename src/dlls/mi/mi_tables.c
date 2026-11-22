@@ -40,11 +40,11 @@ void MI_CALL impl_MI_SessionFT_DeleteInstance(_In_ MI_Session *session, MI_Uint3
 void MI_CALL impl_MI_SessionFT_Invoke(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *className, _In_z_ const MI_Char *methodName, _In_opt_ const MI_Instance *inboundInstance, _In_opt_ const MI_Instance *inboundProperties, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 void MI_CALL impl_MI_SessionFT_EnumerateInstances(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *className, MI_Boolean keysOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 void MI_CALL impl_MI_SessionFT_QueryInstances(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *queryDialect, _In_opt_z_ const MI_Char *queryExpression, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
-static void MI_CALL stub_MI_SessionFT_AssociatorInstances(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *instanceKeys, _In_opt_z_ const MI_Char *assocClass, _In_opt_z_ const MI_Char *resultClass, _In_opt_z_ const MI_Char *role, _In_opt_z_ const MI_Char *resultRole, MI_Boolean keysOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_AssociatorInstances");  }
-static void MI_CALL stub_MI_SessionFT_ReferenceInstances(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *instanceKeys, _In_opt_z_ const MI_Char *resultClass, _In_opt_z_ const MI_Char *role, MI_Boolean keysOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_ReferenceInstances");  }
-static void MI_CALL stub_MI_SessionFT_Subscribe(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *queryDialect, _In_opt_z_ const MI_Char *queryExpression, _In_opt_ const MI_SubscriptionDeliveryOptions *deliverOptions, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_Subscribe");  }
+void MI_CALL impl_MI_SessionFT_AssociatorInstances(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *instanceKeys, _In_opt_z_ const MI_Char *assocClass, _In_opt_z_ const MI_Char *resultClass, _In_opt_z_ const MI_Char *role, _In_opt_z_ const MI_Char *resultRole, MI_Boolean keysOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
+void MI_CALL impl_MI_SessionFT_ReferenceInstances(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_ const MI_Instance *instanceKeys, _In_opt_z_ const MI_Char *resultClass, _In_opt_z_ const MI_Char *role, MI_Boolean keysOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
+void MI_CALL impl_MI_SessionFT_Subscribe(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *queryDialect, _In_opt_z_ const MI_Char *queryExpression, _In_opt_ const MI_SubscriptionDeliveryOptions *deliverOptions, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 void MI_CALL impl_MI_SessionFT_GetClass(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *className, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
-static void MI_CALL stub_MI_SessionFT_EnumerateClasses(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *className, MI_Boolean classNamesOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation) { mi_trace("MI_SessionFT_EnumerateClasses");  }
+void MI_CALL impl_MI_SessionFT_EnumerateClasses(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationOptions *options, _In_opt_z_ const MI_Char *namespaceName, _In_opt_z_ const MI_Char *className, MI_Boolean classNamesOnly, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 void MI_CALL impl_MI_SessionFT_TestConnection(_In_ MI_Session *session, MI_Uint32 flags, _In_opt_ MI_OperationCallbacks *callbacks, _Out_ MI_Operation *operation);
 MI_Result MI_CALL impl_MI_OperationFT_Close(_Inout_ MI_Operation *operation);
 MI_Result MI_CALL impl_MI_OperationFT_Cancel(_Inout_ MI_Operation *operation, MI_CancellationReason reason);
@@ -181,11 +181,11 @@ const MI_SessionFT mi_tbl_MI_SessionFT = {
     impl_MI_SessionFT_Invoke,
     impl_MI_SessionFT_EnumerateInstances,
     impl_MI_SessionFT_QueryInstances,
-    stub_MI_SessionFT_AssociatorInstances,
-    stub_MI_SessionFT_ReferenceInstances,
-    stub_MI_SessionFT_Subscribe,
+    impl_MI_SessionFT_AssociatorInstances,
+    impl_MI_SessionFT_ReferenceInstances,
+    impl_MI_SessionFT_Subscribe,
     impl_MI_SessionFT_GetClass,
-    stub_MI_SessionFT_EnumerateClasses,
+    impl_MI_SessionFT_EnumerateClasses,
     impl_MI_SessionFT_TestConnection
 };
 const MI_OperationFT mi_tbl_MI_OperationFT = {

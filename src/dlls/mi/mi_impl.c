@@ -458,7 +458,7 @@ MI_Result MI_CALL impl_MI_SessionFT_GetApplication(const MI_Session *s, MI_Appli
 
 /* ------------------------------------------------------------ operations */
 
-enum kind { K_ENUM, K_QUERY, K_INVOKE, K_GET, K_NOOP, K_GETCLASS, K_CREATE, K_MODIFY, K_DELETE };
+enum kind { K_ENUM, K_QUERY, K_INVOKE, K_GET, K_NOOP, K_GETCLASS, K_CREATE, K_MODIFY, K_DELETE, K_ENUMCLASSES, K_UNSUPPORTED };
 
 struct operation
 {
@@ -468,9 +468,9 @@ struct operation
     WCHAR *ns, *cls, *query, *method;
     struct inst *in_inst, *in_params;
     MI_OperationCallbacks cb;
-    BOOL have_cb, have_cls_cb;
-    MI_Class *clsres;               /* the class a GetClass found, until it is handed out */
-    BOOL cls_taken;
+    BOOL have_cb, have_cls_cb, have_ind_cb;
+    MI_Class **clsq;                /* the classes found, until they are handed out */
+    int clsn, clsh;
     CRITICAL_SECTION cs;
     HANDLE avail, ack, thread;
     struct inst **queue;
@@ -496,6 +496,22 @@ static MI_Result MI_CALL ack_fn(MI_Operation *op)
     struct operation *o = (struct operation *)op->reserved2;
     if (o) SetEvent(o->ack);
     return MI_RESULT_OK;
+}
+
+/* a class found: kept by the operation (it owns what it hands out), and given to the callback or held for the pull call */
+static void op_class_out(struct operation *o, MI_Class *c)
+{
+    EnterCriticalSection(&o->cs);
+    o->clsq = realloc(o->clsq, (o->clsn + 1) * sizeof(*o->clsq));
+    o->clsq[o->clsn++] = c;
+    LeaveCriticalSection(&o->cs);
+    if (o->have_cls_cb)
+    {
+        o->clsh = o->clsn;
+        o->cb.classResult(o->handle, o->cb.callbackContext, c, MI_TRUE, MI_RESULT_OK, NULL, NULL, ack_fn);
+        /* (no wait for the acknowledgement: PowerShell gives it late or never for classes, and the operation owns the class until it ends) */
+    }
+    else SetEvent(o->avail);
 }
 
 static void op_deliver(struct operation *o, struct inst *i, BOOL more, MI_Result rc, const WCHAR *err)
@@ -683,7 +699,8 @@ static void op_release(struct operation *o)
     int n;
     if (InterlockedDecrement(&o->refs)) return;
     for (n = o->qhead; n < o->qn; n++) inst_free(o->queue[n]);
-    if (o->clsres) impl_MI_ClassFT_Delete(o->clsres);       /* (the operation owns what it handed out) */
+    for (n = 0; n < o->clsn; n++) impl_MI_ClassFT_Delete(o->clsq[n]);   /* (the operation owns what it handed out) */
+    free(o->clsq);
     free(o->queue); free(o->ns); free(o->cls); free(o->query); free(o->method); free(o->errmsg);
     if (o->in_inst) inst_free(o->in_inst);
     if (o->in_params) inst_free(o->in_params);
@@ -733,14 +750,35 @@ static DWORD WINAPI op_thread(void *arg)
         else if (o->kind == K_DELETE) hr = run_delete_instance(o, svc);
         else if (o->kind == K_GETCLASS)
         {
-            o->clsres = mi_class_load(o->cls, o->ns);
-            hr = o->clsres ? S_OK : WBEM_E_NOT_FOUND;
-            if (o->clsres && o->have_cls_cb)
+            MI_Class *c = mi_class_load(o->cls, o->ns);
+            hr = c ? S_OK : WBEM_E_NOT_FOUND;
+            if (c) op_class_out(o, c);
+        }
+        else if (o->kind == K_ENUMCLASSES)
+        {
+            IEnumWbemClassObject *ce = NULL;
+            a = o->cls ? SysAllocString(o->cls) : NULL;
+            hr = IWbemServices_CreateClassEnum(svc, a, WBEM_FLAG_FORWARD_ONLY, NULL, &ce);
+            SysFreeString(a);
+            mi_trace("CreateClassEnum hr=%08lx", (unsigned long)hr);
+            while (SUCCEEDED(hr) && !o->cancel)
             {
-                ResetEvent(o->ack);
-                o->cb.classResult(o->handle, o->cb.callbackContext, o->clsres, MI_TRUE, MI_RESULT_OK, NULL, NULL, ack_fn);
-                WaitForSingleObject(o->ack, 60000);
+                IWbemClassObject *obj;
+                ULONG got = 0;
+                VARIANT v;
+                if (IEnumWbemClassObject_Next(ce, WBEM_INFINITE, 1, &obj, &got) != S_OK || !got) break;
+                VariantInit(&v);
+                if (SUCCEEDED(IWbemClassObject_Get(obj, L"__CLASS", 0, &v, NULL, NULL)) && V_VT(&v) == VT_BSTR)
+                {
+                    /* wbemprox fills these two from the whole disk when it builds a class object: left out of a listing */
+                    MI_Class *c = (!wcsicmp(V_BSTR(&v), L"CIM_DataFile") || !wcsicmp(V_BSTR(&v), L"Win32_Directory"))
+                                  ? NULL : mi_class_load(V_BSTR(&v), o->ns);
+                    if (c) op_class_out(o, c);
+                }
+                VariantClear(&v);
+                IWbemClassObject_Release(obj);
             }
+            if (ce) IEnumWbemClassObject_Release(ce);
         }
         else hr = WBEM_E_NOT_SUPPORTED;
         if (en) IEnumWbemClassObject_Release(en);
@@ -763,6 +801,12 @@ static DWORD WINAPI op_thread(void *arg)
         o->cb.classResult(o->handle, o->cb.callbackContext, NULL, MI_FALSE, o->result, o->errmsg, NULL, ack_fn);
         WaitForSingleObject(o->ack, 60000);
     }
+    else if (o->have_ind_cb)    /* a subscription that is not offered ends here, with its error */
+    {
+        ResetEvent(o->ack);
+        o->cb.indicationResult(o->handle, o->cb.callbackContext, NULL, NULL, NULL, MI_FALSE, o->result, o->errmsg, NULL, ack_fn);
+        WaitForSingleObject(o->ack, 5000);
+    }
     if (SUCCEEDED(init)) CoUninitialize();
     op_release(o);
     return 0;
@@ -783,7 +827,7 @@ static void start_op(MI_Session *s, enum kind kind, const MI_Char *ns, const MI_
     o->method = wdup(method);
     if (in_inst) impl_MI_InstanceFT_Clone(in_inst, (MI_Instance **)&o->in_inst);
     if (in_params) impl_MI_InstanceFT_Clone(in_params, (MI_Instance **)&o->in_params);
-    if (cb) { o->cb = *cb; o->have_cb = cb->instanceResult != NULL; o->have_cls_cb = cb->classResult != NULL; }
+    if (cb) { o->cb = *cb; o->have_cb = cb->instanceResult != NULL; o->have_cls_cb = cb->classResult != NULL; o->have_ind_cb = cb->indicationResult != NULL; }
     InitializeCriticalSection(&o->cs);
     o->avail = CreateEventW(NULL, FALSE, FALSE, NULL);
     o->ack = CreateEventW(NULL, FALSE, FALSE, NULL);
@@ -828,6 +872,27 @@ void MI_CALL impl_MI_SessionFT_GetClass(MI_Session *s, MI_Uint32 flags, MI_Opera
         const MI_Char *cls, MI_OperationCallbacks *cb, MI_Operation *op)
 { start_op(s, K_GETCLASS, ns, cls, NULL, NULL, NULL, NULL, cb, op); }
 
+void MI_CALL impl_MI_SessionFT_EnumerateClasses(MI_Session *s, MI_Uint32 flags, MI_OperationOptions *opts, const MI_Char *ns,
+        const MI_Char *cls, MI_Boolean namesOnly, MI_OperationCallbacks *cb, MI_Operation *op)
+{ start_op(s, K_ENUMCLASSES, ns, cls, NULL, NULL, NULL, NULL, cb, op); }
+
+/* not offered (wbemprox has no association or event provider here): the operation ends at once with NOT_SUPPORTED,
+   so the caller gets an error instead of waiting on an operation that never started */
+void MI_CALL impl_MI_SessionFT_AssociatorInstances(MI_Session *s, MI_Uint32 flags, MI_OperationOptions *opts, const MI_Char *ns,
+        const MI_Instance *keys, const MI_Char *assoc, const MI_Char *resultClass, const MI_Char *role,
+        const MI_Char *resultRole, MI_Boolean keysOnly, MI_OperationCallbacks *cb, MI_Operation *op)
+{ start_op(s, K_UNSUPPORTED, ns, NULL, NULL, NULL, NULL, NULL, cb, op); }
+
+void MI_CALL impl_MI_SessionFT_ReferenceInstances(MI_Session *s, MI_Uint32 flags, MI_OperationOptions *opts, const MI_Char *ns,
+        const MI_Instance *keys, const MI_Char *resultClass, const MI_Char *role, MI_Boolean keysOnly,
+        MI_OperationCallbacks *cb, MI_Operation *op)
+{ start_op(s, K_UNSUPPORTED, ns, NULL, NULL, NULL, NULL, NULL, cb, op); }
+
+void MI_CALL impl_MI_SessionFT_Subscribe(MI_Session *s, MI_Uint32 flags, MI_OperationOptions *opts, const MI_Char *ns,
+        const MI_Char *dialect, const MI_Char *query, const MI_SubscriptionDeliveryOptions *deliver,
+        MI_OperationCallbacks *cb, MI_Operation *op)
+{ start_op(s, K_UNSUPPORTED, ns, NULL, NULL, NULL, NULL, NULL, cb, op); }
+
 MI_Result MI_CALL impl_MI_OperationFT_GetClass(MI_Operation *op, const MI_Class **classResult, MI_Boolean *more,
         MI_Result *result, const MI_Char **errmsg, const MI_Instance **details)
 {
@@ -835,10 +900,9 @@ MI_Result MI_CALL impl_MI_OperationFT_GetClass(MI_Operation *op, const MI_Class 
     if (!o) return MI_RESULT_INVALID_PARAMETER;
     while (!o->done) WaitForSingleObject(o->avail, 1000);
     if (details) *details = NULL;
-    if (o->clsres && !o->cls_taken)
+    if (o->clsh < o->clsn)
     {
-        o->cls_taken = TRUE;
-        *classResult = o->clsres;
+        *classResult = o->clsq[o->clsh++];
         if (more) *more = MI_TRUE;
         if (result) *result = MI_RESULT_OK;
         if (errmsg) *errmsg = NULL;
