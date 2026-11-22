@@ -49,3 +49,14 @@ worktree can then be copied in (`apply.sh`, with `CAND=u12 mk.sh`; touch the fil
 
 A trap met on the way: after the generated files of a change are regenerated on the guest (`perl tools/make_requests`,
 `perl tools/make_specfiles`), they have to be copied back into the worktree and committed with the change.
+
+### What Notepad does (2026-11-22, probes `wasdk-win.sh`, `wasdk-peek.sh`, `enumwin.c`)
+
+* `Notepad.exe` starts a **second copy of itself** (a `CreateProcess` of its own image from its main thread, which then waits on the
+  child in three-second slices). The child is the one that loads the Windows App Runtime and walks its activation table.
+* With a relay trace the child is alive and busy for the whole 40 s (it was slowed by the trace); **without a trace only the parent
+  is left after 40 s** (three threads, waiting) and the desktop has **no top-level window** (`enumwin`), so the child ends early and
+  silently, after `Windows.Internal.StateRepository.Package` was asked for and not found. That undocumented class is now the first
+  suspect, not a harmless log line.
+* Next: serve that class with an object that logs every interface asked for and every method called (the way `profapi` 114 gave up
+  its signature), to learn what the runtime wants from the package state repository.

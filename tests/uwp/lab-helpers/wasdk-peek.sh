@@ -16,7 +16,7 @@ export WINEDEBUG="${1:-err+all}" XAMLSHIM_TRACE=1 XAMLSHIM_CALLS=1
 ( timeout --kill-after=10s 70s "$build/wine" $c/applaunch.exe "$family!App" > peek.log 2>&1 & )
 sleep 25
 {
-  pid=$(pgrep -f 'Notepad.exe' | head -1)
+  pid=$(ps -eo pid,stat,cmd | grep 'WindowsApps' | grep 'Notepad.exe' | grep -v grep | awk '$2 !~ /Z/ {print $1}' | head -1)
   echo "pid $pid"
   for t in /proc/$pid/task/*; do
     echo "$(basename $t) $(cat $t/comm) wchan=$(cat $t/wchan 2>/dev/null) $(awk '{print "utime="$14" stime="$15}' $t/stat)"
@@ -24,7 +24,7 @@ sleep 25
   echo "--- processes"
   ps -eo pid,ppid,etime,pcpu,cmd | grep -E 'wine|\.exe' | grep -v grep | cut -c1-140
   echo "--- windows"
-  xwininfo -root -tree -display "$DISPLAY" 2>/dev/null | head -20
+  x86_64-w64-mingw32-gcc -O2 -o enumwin.exe $c/enumwin.c -luser32 2>&1 | head -3; "$build/wine" enumwin.exe 2>&1 | head -60
 } > peek.txt 2>&1
 sleep 5
 "$build/server/wineserver" -k
