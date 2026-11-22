@@ -369,6 +369,11 @@ Client Site Name: Default-First-Site-Name
 LK
 out=$(serve op=dsgetdc)
 [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc=dc1.ad.wexlab.example||addr=10.71.0.10||guid=0f2a204e-eb7a-4e88-9cf9-1504bb1b93d5||domain=WEXLAB||dnsdomain=ad.wexlab.example||forest=ad.wexlab.example||dcsite=Default-First-Site-Name||oursite=Default-First-Site-Name||flags=e00013fd$' <<<"$out" || { echo "$out"; fail 'serve: dsgetdc'; }
+cp "$FX/lookup" "$FX/lookup.orig"
+sed -i 's/^Domain Controller: .*/Domain Controller: dc1||flags=0/' "$FX/lookup"
+out=$(serve op=dsgetdc)
+grep -q '^message=dc=dc1flags=0||addr=' <<<"$out" && grep -q '||flags=e00013fd$' <<<"$out" || { echo "$out"; fail 'serve: dsgetdc lets the controller add a field'; }
+mv "$FX/lookup.orig" "$FX/lookup"
 out=$(serve op=scquery)
 [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc=dc1.ad.wexlab.example||status=0$' <<<"$out" || { echo "$out"; fail 'serve: scquery'; }
 echo 1 > "$FX/testjoin.rc"

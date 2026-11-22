@@ -389,6 +389,10 @@ cmd_dsgetdc()
     dnsdom=$(sed -n 's/^Domain: *//p' <<<"$out" | head -n 1)
     dcsite=$(sed -n 's/^Server Site Name: *//p' <<<"$out" | head -n 1)
     oursite=$(sed -n 's/^Client Site Name: *//p' <<<"$out" | head -n 1)
+    # the controller's own words go into a "||"-separated answer: no separator and no control character may pass
+    dc=$(tr -d '|[:cntrl:]' <<<"$dc"); addr=$(tr -d '|[:cntrl:]' <<<"$addr"); guid=$(tr -d '|[:cntrl:]' <<<"$guid")
+    dom=$(tr -d '|[:cntrl:]' <<<"$dom"); forest=$(tr -d '|[:cntrl:]' <<<"$forest"); dnsdom=$(tr -d '|[:cntrl:]' <<<"$dnsdom")
+    dcsite=$(tr -d '|[:cntrl:]' <<<"$dcsite"); oursite=$(tr -d '|[:cntrl:]' <<<"$oursite")
     [ -n "$dc" ] || fail 1355 "no domain controller of $realm answered"
     while IFS= read -r line; do
         case $line in
