@@ -206,6 +206,9 @@ SRC_DISK=$VMTEST_DIR/$SOURCE/disk.qcow2
 STATE=$VMTEST_DIR/$TEST
 OUT=$STATE/safe-mode
 MNT=$STATE/root
+# what the serial console showed whenever a serial logon did not answer (vmtest.py serial; B78: wait_serial failed in
+# the vfailed phase on BIOS with nothing to show for it)
+export VMTEST_SERIAL_LOG=$OUT/serial-transcript.log
 USER_NAME=${WEX_TEST_USER:-wineuser}
 HELPER=/usr/local/libexec/wex-tests/session-run.py
 PROBES=/usr/local/libexec/wex-tests
@@ -349,6 +352,17 @@ fail() {
     if running "$STATE/disk.qcow2"; then
         "${V[@]}" key "$TEST" alt-sysrq-w >/dev/null 2>&1 && sleep 2
         "${V[@]}" key "$TEST" alt-sysrq-s >/dev/null 2>&1 && sleep 3
+    fi
+    # the failed boot's journal, saved with the other evidence (the VM is stopped, so the disk can be read): the
+    # serial getty's and the boot's lines are what B78 needed
+    if [ "${SAVE_JOURNAL_ON_FAIL:-1}" = 1 ] && [ -e "$STATE/disk.qcow2" ]; then
+        "${V[@]}" stop "$TEST" >/dev/null 2>&1; sleep 2
+        if attach ro >/dev/null 2>&1; then
+            journalctl --directory="$MNT/var/log/journal" -b 0 --no-pager -o short-monotonic \
+                > "$OUT/$PHASE-journal.txt" 2>&1 || true
+            echo "  the guest's journal of this boot: $OUT/$PHASE-journal.txt ($(wc -l < "$OUT/$PHASE-journal.txt") lines)"
+            detach
+        fi
     fi
     exit 1
 }
@@ -637,6 +651,11 @@ wait_serial() {   # wait_serial TIMEOUT: until the serial console answers; vmtes
         gsh 'echo serial=up' 10 2>/dev/null | grep -q '^serial=up' && return 0
         sleep 3
     done
+    # what the guest writes to the port when nothing is sent (a getty that prints its prompt late shows here), then
+    # the screen; fail() saves the guest's journal
+    echo "  the serial console did not answer; listening for 8 seconds"
+    "${V[@]}" listen "$TEST" 8 2>&1 | tail -n 20 > "$OUT/$PHASE-serial-listen.txt" || true
+    shot serial-silent 2>/dev/null || true
     return 1
 }
 
