@@ -79,3 +79,23 @@ return success with a zeroed output, then with a made-up object, and see what th
 application neither crashed nor reported anything, and the second copy of Notepad still ends silently, so it is not proven that this
 call is the reason.
 
+
+## Experiments with method 21, and the server crash behind the silent end (2026-11-22)
+
+Method 21 was answered six ways (`WEX_SR_MODE` 0 to 5: not implemented, success with zeroed outputs, a made-up object in one or both
+outputs, plain success). Every mode behaved the same: only method 21 is ever called, no other method, no new error line, no window.
+So the StateRepository call is not what decides the start of Notepad; the experiment code was dropped again.
+
+The silent end had another cause. Every run ended with "wineserver crashed", and a gdb attach to the server
+(`GDB_WS=1 tests/uwp/lab-helpers/wasdk-win.sh`) showed a real crash in the wait completion code (the port of Wine MR 6911):
+
+* the packet object was never initialised after allocation, so the handle close of a packet that was not associated yet removed a
+  garbage list entry (`cancel_completion_packet`);
+* the packet held only the target, not the sync object whose queue it is on, and the wake loop was not safe against removal;
+* a target without a `signaled` operation crashed `is_obj_signaled` (now `STATUS_INVALID_PARAMETER_3`).
+
+Fixed in Wine 0e5c3352. With the server alive Notepad now gets further: it activates `Microsoft.UI.Dispatching.DispatcherQueueController`,
+which connects to `\BaseNamedObjects\CoreMessagingRegistrar-<pid>:...` through `NtAlpcConnectPort` (a stub in Wine) and sends a message
+(`NtAlpcSendWaitReceivePort`, also a stub); the next thing seen is a fail-fast (`e0464645`, then `c0000602`). So WinUI 3 needs the
+CoreMessaging service for its dispatcher queue: either an ALPC implementation good enough for that protocol, or a stand-in for the
+dispatcher queue below it. That is the next gap for Notepad and for every WinUI 3 application.
