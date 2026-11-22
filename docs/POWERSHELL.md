@@ -15,8 +15,18 @@ cmdlets work (2026-11-22, tried with 7.7.0, x64):
 - Tried in the dev build (`/root/WE-prefetch`, WoW64) with a throwaway prefix: `Get-CimInstance Win32_ComputerSystem`,
   `Win32_OperatingSystem`, a WQL query, `New-CimSession` + `QueryInstances`, `Invoke-CimMethod ... Rename`,
   `Rename-Computer` (returns without error), the four `WexComputer` cmdlets answering the engine's status (50, "request not
-  supported", where no engine runs). **Not tried against the domain controller of the AD lab** (`installer/tests/ad`):
-  `Add-Computer`, `Remove-Computer` and `Test-ComputerSecureChannel` in a real join are the next test.
+  supported", where no engine runs).
+- **Real join in the AD lab (2026-11-22, `installer/tests/ad/join-ps-guest.sh`, 29 checks pass):** PowerShell 7.7.0 from
+  the release zip (digest checked), the module found without `Import-Module` (it sits in `$PSHOME\Modules`), then
+  `Add-Computer` with `-OUPath` (account in the OU, `net ads testjoin`, winbind trust), a second `Add-Computer` refused,
+  `Test-ComputerSecureChannel` True, `Reset-ComputerMachinePassword` and the channel still True, `Rename-Computer`
+  in the domain (host name and account renamed), the way back, `Remove-Computer`, and the machine left. No password in
+  the journal. Run it with `WEX_GUEST=join-ps-guest.sh WEX_LAB_EXTRA=DIR machine.sh` (DIR: the dlls of the build under
+  test, the module, `join-ps.ps1`).
+- Seen in that run: the Wine session keeps the computer name it started with, so `Win32_ComputerSystem.Name` and
+  `Rename-Computer`'s "same name" check still show the old name after a rename (the host name and the directory have the
+  new one; a new session shows it). `Win32_ComputerSystem.Domain` is the NetBIOS name (`WEXLAB`), Windows gives the DNS
+  name. An image older than `mi.dll` needs the dll in each prefix's system32/syswow64 (the lab script does it).
 - Outside a domain, `Rename` calls `SetComputerNameEx`, which in stock Wine takes effect after a restart (PowerShell
   says so). In a domain the engine renames at once. Routing the workgroup rename to the host name service (as System
   Properties does) would need a project change in `SetComputerNameEx`.

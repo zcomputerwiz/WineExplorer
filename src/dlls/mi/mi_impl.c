@@ -572,7 +572,7 @@ static void variant_from_mi(MI_Type type, const MI_Value *v, VARIANT *out)
     case MI_SINT8: V_VT(out) = VT_I1; V_I1(out) = v->sint8; break;
     case MI_UINT16: V_VT(out) = VT_I4; V_I4(out) = v->uint16; break;
     case MI_SINT16: V_VT(out) = VT_I2; V_I2(out) = v->sint16; break;
-    case MI_UINT32: V_VT(out) = VT_I4; V_I4(out) = (LONG)v->uint32; break;
+    case MI_UINT32: V_VT(out) = VT_UI4; V_UI4(out) = v->uint32; break;    /* wbemprox's Put refuses VT_I4 for a uint32 */
     case MI_SINT32: V_VT(out) = VT_I4; V_I4(out) = v->sint32; break;
     case MI_STRING: V_VT(out) = VT_BSTR; V_BSTR(out) = SysAllocString(v->string); break;
     default: break;
