@@ -1,0 +1,10 @@
+MODULE    = mi.dll
+IMPORTS   = ole32 oleaut32 uuid
+
+EXTRADEFS = -DMI_CHAR_TYPE=2
+
+SOURCES = \
+	mi_class.c \
+	mi_impl.c \
+	mi_main.c \
+	mi_tables.c

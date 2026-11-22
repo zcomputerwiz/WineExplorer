@@ -19,6 +19,7 @@ The tree combines code under several compatible licenses. Every file keeps the n
 | Wine Gecko 2.47.4, offline runtime | MPL 2.0 and upstream third-party licenses | Complete embedded `license.html` and OpenH264 notice copied beside both MSI files. |
 | Wine Mono 11.3.0, offline runtime | MIT, LGPL, GPL and dependency-specific open licenses | Upstream COPYING, Mono's complete LICENSE and full copyleft terms installed beside the MSI. Audit dependency notices before distribution. |
 | DXVK 2.4.1 and vkd3d-proton 2.13, optional separate runtime DLLs | zlib/libpng and LGPL-2.1-or-later respectively | Full pinned upstream notices shipped beside the DLLs; off by default. |
+| `src/dlls/mi/MI.h`, the layout of the function tables of `mi.dll` (OMI, Open Management Infrastructure, Microsoft) | MIT (`src/dlls/mi/LICENSE-omi`) | Copyright (c) Microsoft Corporation. Compatible with GPL-2.0-or-later. |
 | Code and skins ported from Open-Shell (`src/dlls/wexshell/startskin.*`, `src/resources/startskins/`) | MIT (`src/resources/startskins/LICENSE`) | Copyright (c) 2009-2017 Ivo Beltchev, Copyright (c) 2017-2018 Open-Shell Team. Compatible with GPL-2.0-or-later. |
 
 A module that contains GPL code (for example `explorer.exe`, because of `alttab.c`) is distributed under the GPL as a
