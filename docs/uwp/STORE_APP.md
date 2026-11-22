@@ -52,6 +52,33 @@ launch it again in that prefix with debug channels and look at its threads.
   lets the start go on: the likely shape is an in-process service of the Store itself, delivered to the Store's own
   background-activated handler, which the main thread then waits for.
 
+## The real wait (2026-11-22, found with a stack probe and the disassembly of the image)
+
+* **Where.** A probe that prints the code addresses on the main thread's stack (`tests/uwp/lab-helpers/appservice-probe.patch`,
+  `WINEAPPSERVICE_STACK`; no debugger can attach: `winedbg` kills the process and an outside tool gets "access denied" on the
+  threads of a packaged process) shows the main thread in the program's startup function (it reads the activation URI, the
+  schemes `store` and `microsoftstore`, "This property must be accessed after calling 'BuildStartupServices'"), blocked in a
+  synchronous wait (`Task.Wait`) on the asynchronous start of the application's services. The stack below it is the async state
+  machine of that start, which is where the connection to `StoreDesktopExtension-AppService` is made.
+* **What it waits for.** With the connection answered `Success` and a first request sent by the lab patch (`WINEAPPSERVICE_HELLO`:
+  an empty `ValueSet` after 1.5 s), the Store answers it, so it is serving requests on that connection: the answer is a
+  `ValueSet` with `__status` (an Int32, an error for an empty request). The message keys of its generated remote-call layer,
+  from the image: `__endpoint`, `__args`, `__global__`, `__value`, `__status`, `__reason`, `__progressKey`, `__progressValue`,
+  `__cancellationKey`. After that one request the Store goes on waiting: what it waits for is **the Desktop Extension
+  process**, which is the other end of that remote-call layer (the extension offers methods such as `RunProcessAsync` and
+  `LaunchWordFromExecutableAsync`, and the Store logs "The Store has been background activated for an AppServices response from
+  the Desktop Extension").
+* **The extension is a client of the same service name**: started alone (`applaunch ...!StoreDesktopExtension`), it constructs
+  an `AppServiceConnection` for the same family and name, adds `RequestReceived` and opens, exactly as the Store does. So both
+  processes run the same pairing code, and on Windows the system connects them: the extension opens the service of the Store's
+  package, the system starts the Store in the background for it (`OnBackgroundActivated`, an `AppServiceTriggerDetails` with the
+  server end of the connection) and the two exchange `ValueSet`s.
+* **Windows**: `WinStore.App.exe` and, two seconds later, `StoreDesktopExtension.exe`.
+
+So the missing piece is exactly app services between two processes of one package, with the system activating the provider
+(a background activation of the application, delivered as `BackgroundActivated` with `AppServiceTriggerDetails`) and a transport
+for `ValueSet`. Nothing smaller moves the Store.
+
 ## What a real answer needs
 
 * **Application services as the system does them.** `OpenAsync` finds the provider declared in a catalog record
