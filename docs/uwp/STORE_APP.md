@@ -36,6 +36,22 @@ launch it again in that prefix with debug channels and look at its threads.
    wait one step further and no more. What it waits for is a message or a connection from the provider side: the real
    service has to be hosted.
 
+## Prior art, and what was measured on Windows (2026-11-22)
+
+* **Prior art for app services:** none open. A web search found no Wine, Uno or other open implementation of
+  `AppServiceConnection` (Uno's generated class is a not-implemented stub); the only open pieces are Microsoft's API
+  documentation and the Windows Community Toolkit's wrapper library (a client of the API). `ValueSet` is built on what Wine
+  already has: the `wintypes` `PropertySet` (upstream, over its `multi_threaded_map`), which now also serves `ValueSet`.
+* **Black box on the Windows host** (the Store launched from the shell, then stopped): two processes, `WinStore.App.exe`
+  (71 threads) and, two seconds after it, `StoreDesktopExtension.exe` (9 threads). The Store starts its full-trust companion
+  itself (`FullTrustProcessLauncher` is among the names in `WinStore.App.dll`).
+* **Names in `WinStore.App.dll`** (strings only): `StoreDesktopExtension-AppService` next to `GeneratedAppServiceHostAttribute`
+  and `WinStore_DesktopExtension2VtableClasses`: the Store talks to the companion through a generated remote-call layer over
+  an app service; the app side is the *host* of the connection. On Wine the Store opens that connection before it ever asks
+  for the companion (no `FullTrustProcessLauncher` activation is seen), so on Windows the open must complete in a way that
+  lets the start go on: the likely shape is an in-process service of the Store itself, delivered to the Store's own
+  background-activated handler, which the main thread then waits for.
+
 ## What a real answer needs
 
 * **Application services as the system does them.** `OpenAsync` finds the provider declared in a catalog record
@@ -44,8 +60,8 @@ launch it again in that prefix with debug channels and look at its threads.
   in the background-activated event; messages are `ValueSet`s sent both ways (`SendMessageAsync`, `RequestReceived`,
   `SendResponseAsync`, deferrals), a closed end raises `ServiceClosed`. The catalog records do not carry the app service
   declarations yet (`wexappx` keeps only applications, activatable classes and dependencies).
-* **`Windows.Foundation.Collections.ValueSet`** (declared in the IDL, no implementation) and a transport for it between
-  processes.
+* **`Windows.Foundation.Collections.ValueSet`**: done (2026-11-22, `wintypes`, 13 checks in its test; the kinds of value a
+  message may carry are not restricted yet) and a transport for it between processes (not done).
 * The names of what the binaries name and Wine lacks (the classes that start with `Windows.` in the Store's binaries and are
   neither in a Wine module nor served by XamlShim are listed by the scratch script used for this note; most are the
   Composition and media types of the projection tables, not calls). The ones that matter first: `ValueSet`,
