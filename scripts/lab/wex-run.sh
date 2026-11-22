@@ -54,6 +54,7 @@ clean_fixture()
 {
     pkill -f '/var/lib/wexsys-c2/bin/' 2>/dev/null
     pkill -f 'e1s6-lab.py' 2>/dev/null
+    pkill -f 'fake-join-engine.py' 2>/dev/null
     sleep 1
     for u in wexadm wexstd wexcar wexdom wexdoma wexgreeter; do pkill -u "$u" 2>/dev/null; done
     sleep 2
