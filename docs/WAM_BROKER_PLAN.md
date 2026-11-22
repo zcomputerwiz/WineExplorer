@@ -98,6 +98,71 @@ its UI, how the caller is identified, and where accounts and tokens are stored.
   a second broker ends, idle exit after 10 minutes, never in session 0, the client's token user checked) and the
   client (`dlls/windows.security.authentication.web.core/broker.c`: switch `Broker`, the broker started on demand,
   its server checked, fallback to the answers without it). The broker answers as the diagnostic provider in step 1.
+- 2026-11-22, WAM provider session (branches `claude/wam-provider` of WineExplorer and Wine; Wine `8448c9bb` on
+  `17d2276c`):
+  - **Step 2 done and tested.** Protocol version 2 (`wine/tokenbroker.h`: the request's account and properties; the
+    reply's token, account and response properties; `FIND_ACCOUNTS`, `FIND_ACCOUNT`, `SIGN_OUT`). The client module
+    returns `WebTokenResponse`s with a `WebAccount` (`IWebAccount2.Id`) and the `wamcompat_*` properties, lists and
+    finds accounts through the broker, and runs every broker call on a thread-pool thread (an interactive request no
+    longer blocks the caller). The broker (`src/programs/tokenbroker`) has the provider interface and registry
+    (`provider.c`: silent, interactive, find accounts, find account, sign out; unknown kinds "not supported"; the
+    status table `map_error`), the cache (`cache.c`), the OAuth code (`oauth.c`: PKCE S256, state, nonce,
+    `client_info=1`, code redemption, refresh), the Microsoft account provider (`https://login.microsoft.com`,
+    authorities consumers/organizations/common/tenant at `login.microsoftonline.com`) and the test provider
+    (`https://login.wine.test`, only while `TestAuthority` names `http://127.0.0.1:PORT/` or `localhost`).
+  - **Step 3 done and tested.** The interactive state machine (`signin.c`: created, window_open, code_received,
+    redeemed, done; cancelled and failed), the redirect caught only on an exact scheme/host/path match with the sent
+    state, one sign-in per calling window, the test hook as the test provider's window.
+  - Tests: `tests/wam/run-broker-tests.sh` (wexbuild, root; a WoW64 build with the broker assembled) runs Wine's
+    `web_core` tests 64-bit and 32-bit with the local test authority `tests/wam/test_authority.py`: 328 checks each,
+    0 failures (after the security fixes below). Cases: no account (UserInteractionRequired, 0x80860006), interactive
+    sign-in through one hop, the account listed (not found by `FindAccountAsync`, which names no client), sandboxed
+    callers refused, silent from the cache, silent by refresh token with a `WebAccount`, cancel (a page left
+    to the user; `access_denied`), a wrong state and a redirect to another host refused, a refused refresh
+    (interaction required, the account dropped), an authority that is not a plain name, a provider not served
+    (`login.windows.local`: AccountProviderNotAvailable), a non-local `TestAuthority` refused; the cache file gives
+    others nothing. The tests without a broker (`test_manager`, `test_diagnostic_provider`) pass unchanged.
+  - **Step 4: the window works against the test authority; the real authority is not tried.** The Microsoft
+    provider's sign-in window (`webview.c`): a WebView2 control owned by the caller's window (unowned if Wine
+    refuses the cross-process owner), the authorize URL, `NavigationStarting` and `LaunchingExternalUriScheme` both
+    checked for the redirect, closing the window is UserCancel, 10 minutes is a failure, the title names the calling
+    program. `tests/wam/run-window-test.sh` (the test provider with `TestWindow` = 1, 64-bit, the lab's WebView2
+    Fixed Version runtime 155 and the SDK's `WebView2Loader.dll` from `/root/webview2-lab`, Win7 AppDefaults and
+    SwiftShader as in docs/WEBVIEW2.md) passed on 2026-11-22: window opened, three navigations, the redirect caught,
+    code redeemed, Success. The owned window needs the caller's thread to keep pumping messages (a program's UI
+    thread does). The window needs `WebView2Loader.dll`: the configured path (`HKLM\Software\Wine\WebAuthentication`
+    `WebView2Loader`), beside the broker, or the image's copy; without one the request fails with ProviderError "no
+    WebView2Loader.dll was found". The image ships the SDK's loader (owner's decision, 2026-11-22): the SDK package is
+    fetched by hash at image build (`installer/runtime-assets.json`, kept in the download cache, its two loaders
+    extracted once into the cache) and `installer/stage-runtime-assets.py` installs them in
+    `/usr/local/share/wineexplorer/webview2/{x64,x86}/` with the SDK's `LICENSE.txt` (BSD-3-Clause) and `NOTICE.txt`;
+    `webview.c` carries a linking exception for it. The window test binds the loader over that folder (2026-11-22:
+    PASS with no copy beside the broker; `WEX_WAM_LOADER=beside` tests the other place). Still open: the
+    real sign-in needs an account (the owner, by hand, step 5), and whether Microsoft's token endpoint redeems a code
+    for the broker redirect URI from a public client (the design's open question).
+  - Security review of 2026-11-22, fixed on the same branches:
+    - Callers: the broker checks the pipe client's process token (user, then restricted, integrity, AppContainer),
+      and its thread's token where Wine impersonates. A restricted token, an integrity level below medium (or one
+      that cannot be read) and an AppContainer are refused with ProviderError `E_ACCESSDENIED` and a message saying
+      which; `test_broker_sandboxed` runs a child with a restricted token and one with a low integrity token (both
+      refused) and one with the user's own token (served).
+    - An empty client id never means "every client": accounts, account lookups and sign-out match the client id
+      exactly; a sign-out without one is refused. `FindAccountAsync` names no client, so it finds nothing now.
+    - Wine and the pipe's descriptor (I2): Wine does not check a named pipe's descriptor when a client opens it
+      (`open_file_object` checks the new client end, whose own descriptor is empty; `pipe_end_get_sd` is not used by
+      `check_object_access`), and `ImpersonateNamedPipeClient` gives the server its own token unless elevation is
+      enforced (`FSCTL_PIPE_IMPERSONATE`). So step 1's impersonation check proved nothing; the process token check
+      above replaces it. Other Unix users have their own wineserver and never reach the pipe; a client of another
+      session through session 0's bridge is checked against the descriptor (`pipe_bridge`). No Wine change made.
+    - `WebView2Loader.dll` only from `HKLM\Software\Wine\WebAuthentication` `WebView2Loader` (a full path), beside
+      `tokenbroker.exe`, or the image's root-owned `/usr/local/share/wineexplorer/webview2/<arch>/`; never the calling
+      program's folder or a user's setting.
+    - **Remaining gap:** a medium-integrity program of the user can still claim any client id and get that client's
+      tokens (or start a sign-in for it). Windows binds tokens to the calling package; a proper fix binds program
+      and client: the caller's package identity where it has one (packaged apps under Wine's UWP work), else a
+      record of which executable first signed in for a client id, confirmed by the user. Future work.
+  - Not done (B72): the Secret Service for refresh tokens, `WebAccount.SignOutAsync`/`Properties`/picture, a pipe
+    `cancel` message.
 
 ## Order of work
 

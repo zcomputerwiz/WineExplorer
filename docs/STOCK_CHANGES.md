@@ -30,6 +30,33 @@ keeps the creator SID for the keys below (generic rights mapped in the effective
 SID unchanged, which no token holds, so WebView2's setup was denied a key it had just created.
 `dlls/advapi32/tests/registry.c`: the CREATOR OWNER case in `test_reg_create_key_security`.
 
+## windows.security.authentication.web.core: token results, accounts and calls off the caller's thread (WAM plan steps 2-4, 2026-11-22)
+
+Wine branch `claude/wam-provider`, `8448c9bb` (docs/WAM_BROKER_PLAN.md, "Status"). Still off by default (`Broker` = 1 turns it on).
+
+* `include/wine/tokenbroker.h`: protocol version 2. Requests also carry the named account's id and the request's
+  `Properties` (as NUL-separated pairs); replies carry the token, the account's id and user name, the response
+  properties and, for the new kinds `FIND_ACCOUNTS`, `FIND_ACCOUNT` and `SIGN_OUT`, the accounts. Messages up to
+  256 KiB.
+* `include/windows.security.credentials.idl`: `IWebAccount2` (`Id`, `Properties`, `GetPictureAsync`, `SignOutAsync`,
+  `SignOutWithClientIdAsync`; interface ID and method order checked against the Windows SDK 10.0.26100 header, nothing
+  copied), and `WebAccount` lists it.
+* `dlls/windows.security.authentication.web.core/account.c` (new): `WebAccount` objects (`IWebAccount`, `IWebAccount2`
+  `Id`; `Properties`, the picture and sign-out are stubs).
+* `broker.c`: the client of protocol 2: token results with a `WebTokenResponse` (token, `WebAccount`, properties),
+  `FindAllAccountsAsync`/`FindAllAccountsWithClientIdAsync` and `FindAccountAsync` through the broker. The pipe is
+  opened with `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`; reply buffers that held a token are zeroed before
+  they are freed.
+* `manager.c`: with the broker on, token requests and account lookups run on a thread-pool thread and complete their
+  operation when the broker answers (an interactive request lasts as long as the sign-in); a provider lookup returns a
+  provider object for the id and authority; `...WithWebAccount...` requests pass the account. Without the broker
+  everything answers at once as before. `async.c`: `async_operation_inspectable_create` is no longer static.
+* `response.c`: the vector views hold items (`vector_view_*_create`), `webtokenresponse_create`. `map.c`:
+  `map_hstring_pairs`. `provider.c`: `provider_create` (the diagnostic provider uses it).
+* `tests/web_core.c`: `test_broker` and `test_broker_sandboxed` (children with a restricted and a low integrity
+  token), run only when `WEBCORE_TEST_AUTHORITY` names the local test authority (WineExplorer
+  `tests/wam/run-broker-tests.sh`; skipped otherwise; `WEBCORE_TEST_WINDOW` for `tests/wam/run-window-test.sh`).
+
 ## windows.security.authentication.web.core: the token broker's client (WAM step 3, plan step 1, 2026-11-18)
 
 Wine branch `claude/wam-broker` (docs/WAM_BROKER_PLAN.md). Off by default: nothing changes without
