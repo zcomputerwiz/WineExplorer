@@ -40,7 +40,7 @@ check() {   # check NAME ARGS...
   [ -n "$full" ] && "$build/wine" "$exe" uninstall "$full" > /dev/null 2>&1
   "$build/server/wineserver" -w
 }
-for f in signed unsigned bad-block bad-blockmap other-publisher extra-member no-signature bad-p7x foreign-p7x pe-prefix pe-hidden-zip; do
+for f in signed unsigned bad-block bad-blockmap other-publisher extra-member no-signature no-blockmap bad-p7x foreign-p7x pe-prefix pe-hidden-zip; do
   check "$f" "Z:$run/fix/$f.appx"
   check "$f --development" --development "Z:$run/fix/$f.appx"
 done
@@ -50,6 +50,8 @@ done
 check "signed, certificate trusted" "Z:$run/fix/signed.appx"
 check "other-publisher, certificate trusted" "Z:$run/fix/other-publisher.appx"
 check "bad-block, certificate trusted" "Z:$run/fix/bad-block.appx"
+check "no-blockmap, certificate trusted" "Z:$run/fix/no-blockmap.appx"
+check "no-blockmap --development, certificate trusted" --development "Z:$run/fix/no-blockmap.appx"
 # the signature of another kind of subject, a signed program with an archive behind it: refused even for a trusted signer
 check "foreign-p7x, certificate trusted" "Z:$run/fix/foreign-p7x.appx"
 check "pe-prefix, certificate trusted" "Z:$run/fix/pe-prefix.appx"
