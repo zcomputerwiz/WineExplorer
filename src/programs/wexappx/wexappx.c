@@ -1508,6 +1508,15 @@ int __cdecl wmain( int argc, WCHAR **argv )
     int ret;
 
     if (argc < 2) return usage();
+    /* query only reads a package and writes the file it is given: the consent window and the installer window ask it
+     * from accounts (session 0's, the elevation broker's child) that have not set the gate */
+    if (!wcscmp( argv[1], L"query" ) && argc == 4 && argv[2][0] != '-')
+    {
+        if (FAILED(CoInitializeEx( NULL, COINIT_MULTITHREADED ))) return fail( L"COM is not available" );
+        ret = query( argv[2], argv[3] );
+        CoUninitialize();
+        return ret;
+    }
     if (!uwp_compatibility_enabled())
         return fail( L"UWP compatibility is not enabled (HKCU\\Software\\WineExplorer\\Shell, UwpCompatibility = 1)" );
 
@@ -1537,13 +1546,6 @@ int __cdecl wmain( int argc, WCHAR **argv )
         }
         if (FAILED(CoInitializeEx( NULL, COINIT_MULTITHREADED ))) return fail( L"COM is not available" );
         ret = install( argv[argc - 1], development, machine );
-        CoUninitialize();
-        return ret;
-    }
-    if (!wcscmp( argv[1], L"query" ) && argc == 4 && argv[2][0] != '-')
-    {
-        if (FAILED(CoInitializeEx( NULL, COINIT_MULTITHREADED ))) return fail( L"COM is not available" );
-        ret = query( argv[2], argv[3] );
         CoUninitialize();
         return ret;
     }

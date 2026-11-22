@@ -13,7 +13,8 @@ x86_64-w64-mingw32-windres -I$CS -o $out/consent_rc.o $CS/consent.rc
 x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -DWEXCONSENT_TEST_HOOK -I$out/shim -I$CS -o $out/consent_test.exe $CS/consent.c $out/consent_rc.o -lcomctl32 -lversion -lwintrust -lcrypt32 -lmsi -luser32 -lgdi32 -ladvapi32 || exit 1
 cp $b/programs/wexappx/x86_64-windows/wexappx.exe $out/wexappx.exe
 export WINEPREFIX=$run/prefix WINESERVER=$b/server/wineserver WINEDLLOVERRIDES=mscoree,mshtml= WINEDEBUG=-all DISPLAY=:99
-$b/wine reg add 'HKCU\Software\WineExplorer\Shell' /v UwpCompatibility /t REG_DWORD /d 1 /f > /dev/null 2>&1
+# the gate is off for this account (consent runs in an account that never set it): query has to work anyway
+$b/wine reg delete 'HKCU\Software\WineExplorer\Shell' /v UwpCompatibility /f > /dev/null 2>&1
 try() {
   # name, package
   rm -f /tmp/wexelev/consent.a1.*
