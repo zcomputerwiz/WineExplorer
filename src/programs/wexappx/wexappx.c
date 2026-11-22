@@ -945,6 +945,213 @@ static void remove_tree( const WCHAR *dir )
 }
 
 /* write one member below the staging directory, creating its directories */
+/*
+ * The block map (AppxBlockMap.xml): for every file of the package its size and the SHA-256 of each block of 64 KiB of its
+ * content. Windows compares the files with it while it stages a package; so does this. The block map itself is covered by
+ * the signature (the AXBM digest), so a file that agrees with it is the file that was signed, whatever the archive held
+ * when the signature was checked (KNOWN_BUGS B68: the bytes behind the mapping can change in between).
+ */
+#define BLOCK_SIZE        65536
+#define MAX_BLOCKMAP_SIZE (8u * 1024 * 1024)
+#define MAX_BLOCKS        (1u << 17)
+
+struct block_file
+{
+    WCHAR name[MAX_REL_PATH + 1];
+    ULONGLONG size;
+    BYTE (*hashes)[32];
+    unsigned int blocks;
+};
+
+static struct block_file *block_files;
+static unsigned int block_file_count, block_total;
+static BOOL have_blockmap;
+
+static HCRYPTPROV hash_prov;
+
+static BOOL sha256( const BYTE *data, DWORD len, BYTE out[32] )
+{
+    HCRYPTHASH hash;
+    DWORD size = 32;
+    BOOL ok = FALSE;
+
+    if (!hash_prov && !CryptAcquireContextW( &hash_prov, NULL, MS_ENH_RSA_AES_PROV_W, PROV_RSA_AES, CRYPT_VERIFYCONTEXT ))
+        return FALSE;
+    if (CryptCreateHash( hash_prov, CALG_SHA_256, 0, 0, &hash ))
+    {
+        ok = CryptHashData( hash, data, len, 0 ) && CryptGetHashParam( hash, HP_HASHVAL, out, &size, 0 ) && size == 32;
+        CryptDestroyHash( hash );
+    }
+    return ok;
+}
+
+/* the name of a block map file: backslashes as they are, percent escapes decoded; FALSE for a name that is no path */
+static BOOL block_name( const WCHAR *text, WCHAR *name )
+{
+    unsigned int i, pos = 0;
+
+    for (i = 0; text[i]; i++)
+    {
+        WCHAR ch = text[i];
+
+        if (ch == '%')
+        {
+            unsigned int j, value = 0;
+
+            for (j = 1; j <= 2; j++)
+            {
+                WCHAR digit = text[i + j];
+                if (digit >= '0' && digit <= '9') value = value * 16 + digit - '0';
+                else if (digit >= 'a' && digit <= 'f') value = value * 16 + digit - 'a' + 10;
+                else if (digit >= 'A' && digit <= 'F') value = value * 16 + digit - 'A' + 10;
+                else return FALSE;
+            }
+            ch = value;
+            i += 2;
+            if (ch == '/' || ch == '\\' || !ch) return FALSE;
+        }
+        else if (ch == '/') return FALSE;
+        if (pos >= MAX_REL_PATH) return FALSE;
+        name[pos++] = ch;
+    }
+    name[pos] = 0;
+    return pos != 0;
+}
+
+static struct block_file *find_block_file( const WCHAR *name )
+{
+    unsigned int i;
+
+    for (i = 0; i < block_file_count; i++) if (!wcsicmp( block_files[i].name, name )) return &block_files[i];
+    return NULL;
+}
+
+/* members that are not in the block map, by their rules (the signature, and the files that describe the package) */
+static BOOL is_unlisted_member( const WCHAR *name )
+{
+    return !wcsicmp( name, L"[Content_Types].xml" ) || !wcsicmp( name, L"AppxBlockMap.xml" ) ||
+           !wcsicmp( name, L"AppxSignature.p7x" ) || !wcsicmp( name, L"AppxMetadata\\CodeIntegrity.cat" );
+}
+
+/* reads the block map of the package (when it has one); a malformed one is an error */
+static int load_blockmap(void)
+{
+    struct entry *entry = find_entry( L"AppxBlockMap.xml" );
+    IXmlReader *reader = NULL;
+    IStream *stream = NULL;
+    HGLOBAL global;
+    BYTE *data = NULL;
+    XmlNodeType type;
+    struct block_file *current = NULL;
+    unsigned int capacity = 0;
+    int ret = 1;
+
+    if (!entry) return 0;
+    have_blockmap = TRUE;
+    if (entry->size > MAX_BLOCKMAP_SIZE) return fail( L"the block map is too large" );
+    if (!(data = read_entry( entry ))) return 1;
+    if (!(global = GlobalAlloc( GMEM_MOVEABLE, entry->size ))) { free( data ); return fail( L"out of memory" ); }
+    memcpy( GlobalLock( global ), data, entry->size );
+    GlobalUnlock( global );
+    free( data );
+    if (FAILED(CreateStreamOnHGlobal( global, TRUE, &stream ))) { GlobalFree( global ); return fail( L"out of memory" ); }
+    if (FAILED(CreateXmlReader( &IID_IXmlReader, (void **)&reader, NULL )) ||
+        FAILED(IXmlReader_SetProperty( reader, XmlReaderProperty_DtdProcessing, DtdProcessing_Prohibit )) ||
+        FAILED(IXmlReader_SetProperty( reader, XmlReaderProperty_MaxElementDepth, 8 )) ||
+        FAILED(IXmlReader_SetInput( reader, (IUnknown *)stream )))
+    {
+        fail( L"cannot read the block map" );
+        goto done;
+    }
+    while (IXmlReader_Read( reader, &type ) == S_OK)
+    {
+        const WCHAR *name;
+        WCHAR text[MAX_REL_PATH * 3 + 1], decoded[MAX_REL_PATH + 1];
+
+        if (type != XmlNodeType_Element || FAILED(IXmlReader_GetLocalName( reader, &name, NULL ))) continue;
+        if (!wcscmp( name, L"File" ))
+        {
+            WCHAR size_text[32], *end;
+
+            if (!get_attribute( reader, L"Name", text, ARRAY_SIZE(text) ) || !block_name( text, decoded ) ||
+                !get_attribute( reader, L"Size", size_text, ARRAY_SIZE(size_text) ))
+            {
+                fail( L"the block map has a file without a usable name or size" );
+                goto done;
+            }
+            if (find_block_file( decoded ) || block_file_count >= MAX_ITEMS * 16)
+            {
+                fail( L"the block map lists a file twice, or too many files" );
+                goto done;
+            }
+            if (block_file_count == capacity)
+            {
+                void *tmp = realloc( block_files, (capacity = capacity ? capacity * 2 : 64) * sizeof(*block_files) );
+                if (!tmp) { fail( L"out of memory" ); goto done; }
+                block_files = tmp;
+            }
+            current = &block_files[block_file_count++];
+            memset( current, 0, sizeof(*current) );
+            wcscpy( current->name, decoded );
+            current->size = _wcstoui64( size_text, &end, 10 );
+            if (!size_text[0] || *end)
+            {
+                fail( L"the block map has a file without a usable size" );
+                goto done;
+            }
+        }
+        else if (!wcscmp( name, L"Block" ))
+        {
+            BYTE hash[32];
+            DWORD len = sizeof(hash);
+            void *tmp;
+
+            if (!current || !get_attribute( reader, L"Hash", text, ARRAY_SIZE(text) ) ||
+                !CryptStringToBinaryW( text, 0, CRYPT_STRING_BASE64, hash, &len, NULL, NULL ) || len != sizeof(hash) ||
+                block_total >= MAX_BLOCKS)
+            {
+                fail( L"the block map has a block that is not usable" );
+                goto done;
+            }
+            if (!(tmp = realloc( current->hashes, (current->blocks + 1) * sizeof(*current->hashes) )))
+            {
+                fail( L"out of memory" );
+                goto done;
+            }
+            current->hashes = tmp;
+            memcpy( current->hashes[current->blocks++], hash, sizeof(hash) );
+            block_total++;
+        }
+    }
+    ret = 0;
+
+done:
+    if (reader) IXmlReader_Release( reader );
+    if (stream) IStream_Release( stream );
+    return ret;
+}
+
+/* the content of a file of the package is what the block map says: its size and the hash of each block */
+static int check_blocks( const struct entry *entry, const BYTE *data )
+{
+    const struct block_file *file;
+    unsigned int i;
+
+    if (!have_blockmap || is_unlisted_member( entry->name )) return 0;
+    if (!(file = find_block_file( entry->name ))) return fail( L"%s is not in the block map of the package", entry->name );
+    if (file->size != entry->size || file->blocks != (entry->size + BLOCK_SIZE - 1) / BLOCK_SIZE)
+        return fail( L"%s does not agree with the block map of the package (size)", entry->name );
+    for (i = 0; i < file->blocks; i++)
+    {
+        BYTE hash[32];
+        DWORD len = (DWORD)(entry->size - (ULONGLONG)i * BLOCK_SIZE < BLOCK_SIZE ? entry->size - (ULONGLONG)i * BLOCK_SIZE : BLOCK_SIZE);
+
+        if (!sha256( data + (ULONGLONG)i * BLOCK_SIZE, len, hash ) || memcmp( hash, file->hashes[i], 32 ))
+            return fail( L"%s does not agree with the block map of the package (block %u): the package changed", entry->name, i );
+    }
+    return 0;
+}
+
 static int extract_entry( const WCHAR *staging, const struct entry *entry )
 {
     WCHAR path[MAX_PATH * 2], *p;
@@ -963,6 +1170,11 @@ static int extract_entry( const WCHAR *staging, const struct entry *entry )
         *p = '\\';
     }
     if (!(data = read_entry( entry ))) return 1;
+    if (check_blocks( entry, data ))
+    {
+        free( data );
+        return 1;
+    }
     file = CreateFileW( path, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL );
     if (file == INVALID_HANDLE_VALUE) ret = fail( L"cannot create %s (error %lu)", path, GetLastError() );
     else
@@ -1293,6 +1505,7 @@ static int install( const WCHAR *package, BOOL development, BOOL machine )
     if (machine && !package_is_frozen_file( package, archive, archive_size ))
         return fail( L"%s is not the file the elevation broker froze when the consent was given", package );
     if (read_directory()) return 1;
+    if (load_blockmap()) return 1;   /* a package without one (an unsigned test package) is not compared */
     if (!(entry = find_entry( L"AppxManifest.xml" ))) return fail( L"the archive has no AppxManifest.xml" );
     if (entry->size > MAX_MANIFEST_SIZE) return fail( L"the manifest is too large" );
     if (!(data = read_entry( entry ))) return 1;

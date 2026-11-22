@@ -80,6 +80,18 @@ checks the whole chain for revocation: a revoked certificate refuses; no revocat
 passed (as far as measured: Windows asks for revocation online for a Microsoft-signed file and stops at the untrusted root
 for the test package; a chain with a revoked certificate was not measured, it needs a trusted test certificate on the host).
 
+### The block map at extraction (2026-11-22, B68)
+
+The bytes behind the mapping of a package can change between the signature check and the extraction (a program of the host
+system ignores share modes). The block map is covered by the signed digest, so `wexappx` now compares each file it extracts
+with it, as Windows does while it stages a package: the size and the SHA-256 of every block of 64 KiB (the `Size` attribute
+of a block is the compressed size and is not used). A file the map does not list is refused, except the members that no map
+lists (`[Content_Types].xml`, `AppxBlockMap.xml`, `AppxSignature.p7x`, `AppxMetadata\CodeIntegrity.cat`). A package that has
+no block map at all (the unsigned packages of the installer tests) is not compared. Because the check is on the extraction,
+it also holds for `--development`: `bad-block`, `other-publisher` (the manifest no longer fits the map) and `extra-member`
+are refused with it where they installed before (`wexappx-sig.sh`); the signed fixture, whose `data.bin` has four blocks,
+installs. The installer suites (59 and 64) pass as before.
+
 ### Installing for every user (2026-11-22)
 
 What Windows does (measured on Windows 11, not elevated): provisioning a package for all users
@@ -119,7 +131,6 @@ test certificate trusted already). The broker side (`appxdoc`, `appxnone` in `we
 written and compiles with the suite's own compile lines; it runs in session 0's suite, as does the whole path through the
 broker (limited token, consent on the secure desktop, the elevated copy).
 
-Not done: a Store-signed package (Microsoft's chain, its root and the Store EKU) has not been through it; the per-file hashes
-of the block map are not compared at extraction (B68); countersignature time stamps are ignored; no logo or capabilities in
+Not done: a Store-signed package (Microsoft's chain, its root and the Store EKU) has not been through it; countersignature time stamps are ignored; no logo or capabilities in
 the window yet; the installer window installs for the user only (App Installer has no all-users choice either); the consent
 window for an all-users install was not looked at on a screen (the text it shows was read from the test hook's file).
