@@ -3656,6 +3656,30 @@ for b in 64 32; do
 done
 kill_servers
 ok st_session0_runs_its_service_manager_and_sessions_reach_it
+# crypt32: a limited user's Root store includes the machine's trusted roots, read-only (it cannot write the machine
+# registry). When it lost them, no root was trusted and every HTTPS client of the machine prefix failed (winhttp
+# 12045/12157, the token broker's redeem). As on Windows (scripts/rootstore-probe.c): the machine store opened read-write
+# is refused (5), read-only it opens with session 0's certificates, and the user's Root holds at least those. Session 0
+# opens it first (and fills it where crypt32 does); 64-bit and 32-bit.
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/rootstore64.exe" "$SRC/scripts/rootstore-probe.c" -lcrypt32 ||
+    fail "rootstore: cannot build the probe (64)"
+i686-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/rootstore32.exe" "$SRC/scripts/rootstore-probe.c" -lcrypt32 ||
+    fail "rootstore: cannot build the probe (32)"
+SYSROOT="$(s0_wine "$ROOT/probes/rootstore64.exe" | tr -d '\r' | sed -n 's/^machine_root=//p')"
+case "$SYSROOT" in "open count="*) ;; *) fail "rootstore: session 0 cannot open the machine's root store ($SYSROOT)" ;; esac
+echo "rootstore: session 0's machine Root: $SYSROOT"
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/rootstore$b.exe")"
+    grep -qx 'machine_root=error 5' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "rootstore: the standard user opened the machine's root store read-write, $b-bit"; }
+    grep -qx "machine_root_ro=$SYSROOT" <<<"$OUT" ||
+        { echo "session 0: machine_root=$SYSROOT" >&2; echo "$OUT" >&2; fail "rootstore: the standard user cannot read the machine's root store, $b-bit"; }
+    USERN="$(sed -n 's/^user_root=open count=//p' <<<"$OUT")"
+    [ -n "$USERN" ] && [ "$USERN" -ge "${SYSROOT#open count=}" ] ||
+        { echo "session 0: machine_root=$SYSROOT" >&2; echo "$OUT" >&2; fail "rootstore: the standard user's Root lacks the machine's roots, $b-bit"; }
+done
+kill_servers
+ok st_limited_user_reads_the_machine_root_store
 # T5.4: a service that is not a session's own runs once, in session 0, as its account; a standard user's session sees
 # its state through its own services.exe, and cannot stop it (session 0 checks the user's own token)
 s0_wine sc start wuauserv >/dev/null || true
