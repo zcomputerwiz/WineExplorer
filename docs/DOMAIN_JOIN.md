@@ -29,7 +29,7 @@ XP VM, which is the reference for parity (`CLAUDE.md`).
   contacted), logon failure (1326), account exists (2224), already joined (2691), not joined (2692), the join hardening's
   account re-use block (2732).
 - `NetUnjoinDomain(server, account, password, flags)` leaves; the only option disables (does not delete) the account.
-  `NetRenameMachineInDomain` renames and updates the account. `NetValidateName` checks a computer name (valid NetBIOS
+  `NetRenameMachineInDomain` renames the account and the host name together. `NetValidateName` checks a computer name (valid NetBIOS
   name, not in use), a workgroup, a domain (exists) or a DNS name. `NetGetJoinInformation` answers unjoined, workgroup or
   domain with the name; that is the only one implemented here.
 
@@ -64,12 +64,12 @@ names are 15 characters for NetBIOS (up to 63 for DNS): letters, digits and hyph
 | Part | State |
 |---|---|
 | `NetGetJoinInformation` (wkscli, stock Wine semi-stub) | reads `HKLM\Software\WineExplorer\Domain`, written by `wex-domain-state.sh` |
-| `NetJoinDomain`, `NetUnjoinDomain`, `NetValidateName` | done (2026-11-18): `src/dlls/wexjoin`, forwarded from wkscli and netapi32 (stock change in `STOCK_CHANGES.md`); `NetRenameMachineInDomain` answers "not supported" |
+| `NetJoinDomain`, `NetUnjoinDomain`, `NetValidateName` | done (2026-11-18): `src/dlls/wexjoin`, forwarded from wkscli and netapi32 (stock change in `STOCK_CHANGES.md`); `NetRenameMachineInDomain` renames in the domain (2026-11-22) |
 | A workstation service | none: the engine's socket takes its place (see "How the API reaches root") |
-| `netdom.exe` | done: `join`, `remove`, `verify`, `reset`, `query DC`; `renamecomputer` is "not supported yet" (see below) |
+| `netdom.exe` | done: `join`, `remove`, `verify`, `reset`, `query DC`; `renamecomputer` (in a domain it renames the account and the host name) |
 | `nltest.exe` | done (2026-11-21): `/dsgetdc`, `/dcname`, `/dclist`, `/dsgetsite`, `/query`, `/sc_query`, `/sc_verify`, `/sc_reset`, `/sc_change_pwd` (see below) |
 | PowerShell cmdlets | none (Wine has `net`, `whoami`, `powershell`, `wmic` stubs) |
-| System Properties > Computer Name | renames the host through wexhost (hostnamed); no domain choice |
+| System Properties > Computer Name | renames the host through wexhost (hostnamed); in a domain the engine renames the account and the host name |
 | Join engine (root) | `installer/scripts/wex-domain-join.sh` (this change): `join`, `leave`, `status` with Winbind, tested with fakes (`scripts/test_domain_join.sh`) |
 | Logon with `DOMAIN\user`, groups, Group Policy | built (`DOMAIN_LOGON.md`, `GROUP_POLICY.md`) |
 
@@ -90,8 +90,7 @@ Windows-side state (`wex-domain-state.sh`).
 
 The syntax of Windows' `NETDOM` (from Microsoft's pages for each command and from transcripts in forum threads), for this
 computer only (another computer is refused with "not supported"): `join [computer] /Domain /UserD /PasswordD /OU`, `remove
-[computer] [/Domain] /UserD /PasswordD /Force`, `verify`, `reset`, `query DC`, `renamecomputer` (the engine cannot rename the
-machine account yet), `help`. Options may be given as `/Name:value` or `-Name:value`, abbreviated as Windows does
+[computer] [/Domain] /UserD /PasswordD /Force`, `verify`, `reset`, `query DC`, `renamecomputer`, `help`. Options may be given as `/Name:value` or `-Name:value`, abbreviated as Windows does
 (`/UD`, `/PD`, `/UO`, `/PO`, `/PM`, `/RO`, `/REB`, `/SPP`); `/REBoot`, `/SecurePasswordPrompt`, `/Verbose`, `/Server`, `/Verify`
 are accepted and change nothing; `/UserO`, `/PasswordO`, `/UserF`, `/PasswordF`, `/ReadOnly` and `/PasswordM` are refused as
 not supported. A password of `*`, or none with a user, is asked for ("Type the password associated with the domain user:",
@@ -155,27 +154,33 @@ is asked for. The pictures on the first and last pages are drawn in the code (a 
 ## Computer name
 
 The Change dialog renames the computer through the host's hostname service (polkit, as on any desktop) and the new name is
-in force at once, so no restart is asked for. In a domain a rename is refused ("Remove the computer from the domain first"):
-the machine account is named for the computer and the engine cannot rename it yet (Samba's `net` has no rename; `netdom
-renamecomputer` stays "not supported yet"). Leaving the domain and renaming in one step works: it leaves first.
+in force at once, so no restart is asked for. In a domain the rename goes to the join engine (`op=rename`), which does
+the account and the host name together; the credentials of an account that may rename the computer object are asked, and
+the engine runs as root, so there is no second authorisation prompt. `netdom renamecomputer /NewName:N /UserD:U
+/PasswordD:*` does the same. Leaving the domain and renaming in one step also works: it leaves first.
 
-## Renaming a computer that stays in a domain (design, not built)
+## Renaming a computer that stays in a domain
 
-Windows renames the account and the computer together (`NetRenameMachineInDomain`: needs an account that may rename the
-computer object). Samba's `net` has no such command, so the engine would do what Windows does, with the tools that exist
-(`ldap-utils` and Kerberos are already needed by the join; nothing runs on the controller):
+Windows renames the account and the computer together (`NetRenameMachineInDomain`). Samba's `net` has no such command, so
+the engine does what Windows does with the tools that exist (it needs `ldap-utils` and `libsasl2-modules-gssapi-mit`,
+which are in the image; `wex-domain-join.sh rename` answers 50 when they are missing). Nothing runs on the controller.
 
-1. Ticket for the admin (as the join does), then over LDAP with the Kerberos bind: rename the object (`modrdn` of the CN),
-   set `sAMAccountName` (`NEWNAME$`), `dNSHostName`, and the `HOST/` and `RestrictedKrbHost/` service principal names.
-2. Set the local name (the host's hostname service, as the Change dialog does) and `netbios name` in `smb.conf`.
-3. Flush and recreate the keytab (`net ads keytab flush`, then `net ads keytab create`) and change the machine password
-   (`net ads changetrustpw`), then restart Winbind; `net ads testjoin` must pass, or the old name is put back.
+1. Ticket for the admin (as the join does), then over LDAP with the Kerberos bind (`ldapmodify`, `ldapsearch -Y GSSAPI`,
+   `SASL_NOCANON`): the new name must be free (52), the object is renamed (`modrdn` of the CN), and `sAMAccountName`
+   (`NEWNAME$`) and `dNSHostName` are set.
+2. `netbios name` in `smb.conf`, then the machine password is changed with the machine's own credentials
+   (`net ads changetrustpw`, a ticket cache of its own, so the administrator's ticket stays).
+3. The keytab is flushed (that takes the service principal names off the account), the `HOST/` and `RestrictedKrbHost/`
+   names are set, the keytab is created again, Winbind is restarted and `net ads testjoin` must pass.
+4. The host name is set (`hostnamectl`, as root).
 
-Risks to settle before building it: the order of steps (a failure after step 1 leaves an account that matches no computer:
-step 1 is undone by the same LDAP calls), the permissions an ordinary domain admin has on the object, and DNS (the old
-host record stays until its scavenging; `net ads dns register` for the new one). Lab: rename in the AD lab, check
-`testjoin`, a domain logon and the account in the directory. Until then the Change dialog refuses (see above) and `netdom
-renamecomputer` says it is not supported.
+When a step fails, the engine puts back the host name, `smb.conf` and the account under its old name and answers 31.
+The DNS record of the new name is updated best effort (`net ads dns register` with a 30 second limit; in the lab it
+does not complete, which only gives a warning); the old record stays until the controller scavenges it.
+
+Tested: `scripts/test_domain_join.sh` (order of the steps, the refusals 52, 87, 1210, 1326, 2692, the roll-back) and the
+AD lab (`installer/tests/ad/join-guest.sh`, stage 9: the Change dialog renames to a new name, then `netdom
+renamecomputer` back, with the account looked up on the controller, `testjoin`, the keytab, `smb.conf` and Winbind).
 
 ## Samba options
 
