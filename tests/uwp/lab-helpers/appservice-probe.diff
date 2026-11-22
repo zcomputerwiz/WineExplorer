@@ -1,0 +1,540 @@
+--- a/dlls/windows.applicationmodel/appservice.c
++++ b/dlls/windows.applicationmodel/appservice.c
+@@ -23,6 +23,7 @@
+ 
+ #include "private.h"
+ #include "asyncinfo.h"
++#include "roapi.h"
+ #include "wine/debug.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(model);
+@@ -219,6 +220,371 @@
+                             L"Windows.Foundation.IAsyncOperation`1<Windows.ApplicationModel.AppService.AppServiceResponse>",
+                             response_operation_create )
+ 
++DEFINE_COMPLETED_OPERATION( response_status_operation, IAsyncOperation_AppServiceResponseStatus,
++                            IAsyncOperationCompletedHandler_AppServiceResponseStatus, AppServiceResponseStatus,
++                            COPY_VALUE, NO_RELEASE,
++                            L"Windows.Foundation.IAsyncOperation`1<Windows.ApplicationModel.AppService.AppServiceResponseStatus>",
++                            response_status_operation_create )
++
++/* What a message holds, for the debug log: the keys and the values of a ValueSet. */
++static void dump_message( const char *what, IPropertySet *message )
++{
++    IIterable_IKeyValuePair_HSTRING_IInspectable *iterable;
++    IIterator_IKeyValuePair_HSTRING_IInspectable *iterator;
++    BOOLEAN has;
++
++    if (!TRACE_ON(model)) return;
++    if (!message) { TRACE( "%s: no message\n", what ); return; }
++    if (FAILED(IPropertySet_QueryInterface( message, &IID_IIterable_IKeyValuePair_HSTRING_IInspectable, (void **)&iterable )))
++        return;
++    if (SUCCEEDED(IIterable_IKeyValuePair_HSTRING_IInspectable_First( iterable, &iterator )))
++    {
++        TRACE( "%s:\n", what );
++        while (SUCCEEDED(IIterator_IKeyValuePair_HSTRING_IInspectable_get_HasCurrent( iterator, &has )) && has)
++        {
++            IKeyValuePair_HSTRING_IInspectable *pair;
++            HSTRING key = NULL, text = NULL;
++            IInspectable *value = NULL;
++            IPropertyValue *property;
++            PropertyType type = 0;
++
++            if (SUCCEEDED(IIterator_IKeyValuePair_HSTRING_IInspectable_get_Current( iterator, &pair )))
++            {
++                IKeyValuePair_HSTRING_IInspectable_get_Key( pair, &key );
++                IKeyValuePair_HSTRING_IInspectable_get_Value( pair, &value );
++                if (value && SUCCEEDED(IInspectable_QueryInterface( value, &IID_IPropertyValue, (void **)&property )))
++                {
++                    IPropertyValue_get_Type( property, &type );
++                    if (type == PropertyType_String) IPropertyValue_GetString( property, &text );
++                    TRACE( "  %s = type %d %s\n", debugstr_hstring( key ), type, text ? debugstr_hstring( text ) : "" );
++                    WindowsDeleteString( text );
++                    IPropertyValue_Release( property );
++                }
++                else TRACE( "  %s = %p\n", debugstr_hstring( key ), value );
++                if (value) IInspectable_Release( value );
++                WindowsDeleteString( key );
++                IKeyValuePair_HSTRING_IInspectable_Release( pair );
++            }
++            if (FAILED(IIterator_IKeyValuePair_HSTRING_IInspectable_MoveNext( iterator, &has ))) break;
++        }
++        IIterator_IKeyValuePair_HSTRING_IInspectable_Release( iterator );
++    }
++    IIterable_IKeyValuePair_HSTRING_IInspectable_Release( iterable );
++}
++
++static IPropertySet *new_value_set(void)
++{
++    HSTRING name;
++    IInspectable *object;
++    IPropertySet *set = NULL;
++
++    if (FAILED(WindowsCreateString( L"Windows.Foundation.Collections.ValueSet",
++                                    ARRAY_SIZE(L"Windows.Foundation.Collections.ValueSet") - 1, &name ))) return NULL;
++    if (SUCCEEDED(RoActivateInstance( name, &object )))
++    {
++        IInspectable_QueryInterface( object, &IID_IPropertySet, (void **)&set );
++        IInspectable_Release( object );
++    }
++    WindowsDeleteString( name );
++    return set;
++}
++
++/* AppServiceRequest, AppServiceRequestReceivedEventArgs and AppServiceDeferral */
++
++struct request
++{
++    IAppServiceRequest IAppServiceRequest_iface;
++    LONG ref;
++    IPropertySet *message;
++};
++
++static inline struct request *impl_from_IAppServiceRequest( IAppServiceRequest *iface )
++{
++    return CONTAINING_RECORD( iface, struct request, IAppServiceRequest_iface );
++}
++
++static HRESULT WINAPI request_QueryInterface( IAppServiceRequest *iface, REFIID iid, void **out )
++{
++    if (IsEqualGUID( iid, &IID_IUnknown ) || IsEqualGUID( iid, &IID_IInspectable ) ||
++        IsEqualGUID( iid, &IID_IAgileObject ) || IsEqualGUID( iid, &IID_IAppServiceRequest ))
++    {
++        *out = iface;
++        IUnknown_AddRef( (IUnknown *)*out );
++        return S_OK;
++    }
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG WINAPI request_AddRef( IAppServiceRequest *iface )
++{
++    return InterlockedIncrement( &impl_from_IAppServiceRequest( iface )->ref );
++}
++
++static ULONG WINAPI request_Release( IAppServiceRequest *iface )
++{
++    struct request *impl = impl_from_IAppServiceRequest( iface );
++    ULONG ref = InterlockedDecrement( &impl->ref );
++
++    if (!ref)
++    {
++        if (impl->message) IPropertySet_Release( impl->message );
++        free( impl );
++    }
++    return ref;
++}
++
++static HRESULT WINAPI request_GetIids( IAppServiceRequest *iface, ULONG *count, IID **iids )
++{
++    IID *list;
++
++    if (!(list = CoTaskMemAlloc( sizeof(*list) ))) return E_OUTOFMEMORY;
++    *list = IID_IAppServiceRequest;
++    *count = 1;
++    *iids = list;
++    return S_OK;
++}
++
++static HRESULT WINAPI request_GetRuntimeClassName( IAppServiceRequest *iface, HSTRING *name )
++{
++    return WindowsCreateString( L"Windows.ApplicationModel.AppService.AppServiceRequest",
++                                ARRAY_SIZE(L"Windows.ApplicationModel.AppService.AppServiceRequest") - 1, name );
++}
++
++static HRESULT WINAPI request_GetTrustLevel( IAppServiceRequest *iface, TrustLevel *level )
++{
++    *level = BaseTrust;
++    return S_OK;
++}
++
++static HRESULT WINAPI request_get_Message( IAppServiceRequest *iface, IPropertySet **value )
++{
++    struct request *impl = impl_from_IAppServiceRequest( iface );
++
++    TRACE( "iface %p, value %p.\n", iface, value );
++    if ((*value = impl->message)) IPropertySet_AddRef( *value );
++    return S_OK;
++}
++
++static HRESULT WINAPI request_SendResponseAsync( IAppServiceRequest *iface, IPropertySet *message,
++                                                 IAsyncOperation_AppServiceResponseStatus **operation )
++{
++    TRACE( "iface %p, message %p, operation %p.\n", iface, message, operation );
++    dump_message( "response to a request", message );
++    return response_status_operation_create( AppServiceResponseStatus_Success, operation );
++}
++
++static const struct IAppServiceRequestVtbl request_vtbl =
++{
++    request_QueryInterface,
++    request_AddRef,
++    request_Release,
++    request_GetIids,
++    request_GetRuntimeClassName,
++    request_GetTrustLevel,
++    request_get_Message,
++    request_SendResponseAsync,
++};
++
++struct deferral
++{
++    IAppServiceDeferral IAppServiceDeferral_iface;
++    LONG ref;
++};
++
++static inline struct deferral *impl_from_IAppServiceDeferral( IAppServiceDeferral *iface )
++{
++    return CONTAINING_RECORD( iface, struct deferral, IAppServiceDeferral_iface );
++}
++
++static HRESULT WINAPI deferral_QueryInterface( IAppServiceDeferral *iface, REFIID iid, void **out )
++{
++    if (IsEqualGUID( iid, &IID_IUnknown ) || IsEqualGUID( iid, &IID_IInspectable ) ||
++        IsEqualGUID( iid, &IID_IAgileObject ) || IsEqualGUID( iid, &IID_IAppServiceDeferral ))
++    {
++        *out = iface;
++        IUnknown_AddRef( (IUnknown *)*out );
++        return S_OK;
++    }
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG WINAPI deferral_AddRef( IAppServiceDeferral *iface )
++{
++    return InterlockedIncrement( &impl_from_IAppServiceDeferral( iface )->ref );
++}
++
++static ULONG WINAPI deferral_Release( IAppServiceDeferral *iface )
++{
++    struct deferral *impl = impl_from_IAppServiceDeferral( iface );
++    ULONG ref = InterlockedDecrement( &impl->ref );
++
++    if (!ref) free( impl );
++    return ref;
++}
++
++static HRESULT WINAPI deferral_GetIids( IAppServiceDeferral *iface, ULONG *count, IID **iids )
++{
++    IID *list;
++
++    if (!(list = CoTaskMemAlloc( sizeof(*list) ))) return E_OUTOFMEMORY;
++    *list = IID_IAppServiceDeferral;
++    *count = 1;
++    *iids = list;
++    return S_OK;
++}
++
++static HRESULT WINAPI deferral_GetRuntimeClassName( IAppServiceDeferral *iface, HSTRING *name )
++{
++    return WindowsCreateString( L"Windows.ApplicationModel.AppService.AppServiceDeferral",
++                                ARRAY_SIZE(L"Windows.ApplicationModel.AppService.AppServiceDeferral") - 1, name );
++}
++
++static HRESULT WINAPI deferral_GetTrustLevel( IAppServiceDeferral *iface, TrustLevel *level )
++{
++    *level = BaseTrust;
++    return S_OK;
++}
++
++static HRESULT WINAPI deferral_Complete( IAppServiceDeferral *iface )
++{
++    TRACE( "iface %p.\n", iface );
++    return S_OK;
++}
++
++static const struct IAppServiceDeferralVtbl deferral_vtbl =
++{
++    deferral_QueryInterface,
++    deferral_AddRef,
++    deferral_Release,
++    deferral_GetIids,
++    deferral_GetRuntimeClassName,
++    deferral_GetTrustLevel,
++    deferral_Complete,
++};
++
++struct received_args
++{
++    IAppServiceRequestReceivedEventArgs IAppServiceRequestReceivedEventArgs_iface;
++    LONG ref;
++    IAppServiceRequest *request;
++};
++
++static inline struct received_args *impl_from_IAppServiceRequestReceivedEventArgs( IAppServiceRequestReceivedEventArgs *iface )
++{
++    return CONTAINING_RECORD( iface, struct received_args, IAppServiceRequestReceivedEventArgs_iface );
++}
++
++static HRESULT WINAPI received_args_QueryInterface( IAppServiceRequestReceivedEventArgs *iface, REFIID iid, void **out )
++{
++    if (IsEqualGUID( iid, &IID_IUnknown ) || IsEqualGUID( iid, &IID_IInspectable ) ||
++        IsEqualGUID( iid, &IID_IAgileObject ) || IsEqualGUID( iid, &IID_IAppServiceRequestReceivedEventArgs ))
++    {
++        *out = iface;
++        IUnknown_AddRef( (IUnknown *)*out );
++        return S_OK;
++    }
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG WINAPI received_args_AddRef( IAppServiceRequestReceivedEventArgs *iface )
++{
++    return InterlockedIncrement( &impl_from_IAppServiceRequestReceivedEventArgs( iface )->ref );
++}
++
++static ULONG WINAPI received_args_Release( IAppServiceRequestReceivedEventArgs *iface )
++{
++    struct received_args *impl = impl_from_IAppServiceRequestReceivedEventArgs( iface );
++    ULONG ref = InterlockedDecrement( &impl->ref );
++
++    if (!ref)
++    {
++        if (impl->request) IAppServiceRequest_Release( impl->request );
++        free( impl );
++    }
++    return ref;
++}
++
++static HRESULT WINAPI received_args_GetIids( IAppServiceRequestReceivedEventArgs *iface, ULONG *count, IID **iids )
++{
++    IID *list;
++
++    if (!(list = CoTaskMemAlloc( sizeof(*list) ))) return E_OUTOFMEMORY;
++    *list = IID_IAppServiceRequestReceivedEventArgs;
++    *count = 1;
++    *iids = list;
++    return S_OK;
++}
++
++static HRESULT WINAPI received_args_GetRuntimeClassName( IAppServiceRequestReceivedEventArgs *iface, HSTRING *name )
++{
++    return WindowsCreateString( L"Windows.ApplicationModel.AppService.AppServiceRequestReceivedEventArgs",
++                                ARRAY_SIZE(L"Windows.ApplicationModel.AppService.AppServiceRequestReceivedEventArgs") - 1, name );
++}
++
++static HRESULT WINAPI received_args_GetTrustLevel( IAppServiceRequestReceivedEventArgs *iface, TrustLevel *level )
++{
++    *level = BaseTrust;
++    return S_OK;
++}
++
++static HRESULT WINAPI received_args_get_Request( IAppServiceRequestReceivedEventArgs *iface, IAppServiceRequest **value )
++{
++    struct received_args *impl = impl_from_IAppServiceRequestReceivedEventArgs( iface );
++
++    TRACE( "iface %p, value %p.\n", iface, value );
++    if ((*value = impl->request)) IAppServiceRequest_AddRef( *value );
++    return S_OK;
++}
++
++static HRESULT WINAPI received_args_GetDeferral( IAppServiceRequestReceivedEventArgs *iface, IAppServiceDeferral **result )
++{
++    struct deferral *impl;
++
++    TRACE( "iface %p, result %p.\n", iface, result );
++    *result = NULL;
++    if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
++    impl->IAppServiceDeferral_iface.lpVtbl = &deferral_vtbl;
++    impl->ref = 1;
++    *result = &impl->IAppServiceDeferral_iface;
++    return S_OK;
++}
++
++static const struct IAppServiceRequestReceivedEventArgsVtbl received_args_vtbl =
++{
++    received_args_QueryInterface,
++    received_args_AddRef,
++    received_args_Release,
++    received_args_GetIids,
++    received_args_GetRuntimeClassName,
++    received_args_GetTrustLevel,
++    received_args_get_Request,
++    received_args_GetDeferral,
++};
++
++static HRESULT received_args_create( IPropertySet *message, IAppServiceRequestReceivedEventArgs **out )
++{
++    struct received_args *args;
++    struct request *request;
++
++    if (!(args = calloc( 1, sizeof(*args) ))) return E_OUTOFMEMORY;
++    if (!(request = calloc( 1, sizeof(*request) )))
++    {
++        free( args );
++        return E_OUTOFMEMORY;
++    }
++    request->IAppServiceRequest_iface.lpVtbl = &request_vtbl;
++    request->ref = 1;
++    if ((request->message = message)) IPropertySet_AddRef( message );
++    args->IAppServiceRequestReceivedEventArgs_iface.lpVtbl = &received_args_vtbl;
++    args->ref = 1;
++    args->request = &request->IAppServiceRequest_iface;
++    *out = &args->IAppServiceRequestReceivedEventArgs_iface;
++    return S_OK;
++}
++
+ /* AppServiceResponse */
+ 
+ struct response
+@@ -330,6 +696,7 @@
+     IClosable IClosable_iface;
+     LONG ref;
+     LONG next_token;
++    ITypedEventHandler_AppServiceConnection_AppServiceRequestReceivedEventArgs *request_handler;
+     HSTRING service_name;
+     HSTRING family_name;
+ };
+@@ -377,6 +744,7 @@
+ 
+     if (!ref)
+     {
++        if (impl->request_handler) IUnknown_Release( (IUnknown *)impl->request_handler );
+         WindowsDeleteString( impl->service_name );
+         WindowsDeleteString( impl->family_name );
+         free( impl );
+@@ -450,9 +818,45 @@
+     return S_OK;
+ }
+ 
++static BOOL probe_enabled(void)
++{
++    return GetEnvironmentVariableW( L"WINEAPPSERVICE_HELLO", NULL, 0 ) != 0;
++}
++
++static DWORD CALLBACK hello_thread( void *param )
++{
++    IAppServiceConnection *iface = param;
++    struct connection *impl = impl_from_IAppServiceConnection( iface );
++    IAppServiceRequestReceivedEventArgs *args;
++    IPropertySet *message;
++
++    Sleep( 1500 );
++    TRACE( "probe: sending the first request, handler %p.\n", impl->request_handler );
++    if (impl->request_handler && (message = new_value_set()))
++    {
++        if (SUCCEEDED(received_args_create( message, &args )))
++        {
++            ITypedEventHandler_AppServiceConnection_AppServiceRequestReceivedEventArgs_Invoke( impl->request_handler, iface, args );
++            IAppServiceRequestReceivedEventArgs_Release( args );
++        }
++        IPropertySet_Release( message );
++    }
++    IAppServiceConnection_Release( iface );
++    return 0;
++}
++
+ static HRESULT WINAPI connection_OpenAsync( IAppServiceConnection *iface, IAsyncOperation_AppServiceConnectionStatus **operation )
+ {
+     TRACE( "iface %p, operation %p.\n", iface, operation );
++    if (probe_enabled())
++    {
++        HANDLE thread;
++
++        IAppServiceConnection_AddRef( iface );
++        if ((thread = CreateThread( NULL, 0, hello_thread, iface, 0, NULL ))) CloseHandle( thread );
++        else IAppServiceConnection_Release( iface );
++        return status_operation_create( AppServiceConnectionStatus_Success, operation );
++    }
+     /* no provider is hosted: the service is not available (the name and the family are not even looked at) */
+     return status_operation_create( AppServiceConnectionStatus_AppServiceUnavailable, operation );
+ }
+@@ -464,7 +868,8 @@
+     HRESULT hr;
+ 
+     TRACE( "iface %p, message %p, operation %p.\n", iface, message, operation );
+-    if (FAILED(hr = response_create( AppServiceResponseStatus_Failure, &response ))) return hr;
++    dump_message( "message sent", message );
++    if (FAILED(hr = response_create( probe_enabled() ? AppServiceResponseStatus_Success : AppServiceResponseStatus_Failure, &response ))) return hr;
+     hr = response_operation_create( response, operation );
+     IAppServiceResponse_Release( response );
+     return hr;
+@@ -477,6 +882,11 @@
+ 
+     TRACE( "iface %p, handler %p, token %p.\n", iface, handler, token );
+     token->value = InterlockedIncrement( &impl->next_token );
++    if (!impl->request_handler && handler)
++    {
++        impl->request_handler = handler;
++        IUnknown_AddRef( (IUnknown *)handler );
++    }
+     return S_OK;
+ }
+ 
+@@ -625,12 +1035,73 @@
+     return S_OK;
+ }
+ 
++/* debugging aid (WINEAPPSERVICE_STACK=seconds): after that time, print the code addresses on the stack of the thread that
++ * made the first connection, as module+offset, to find what a program without symbols waits for */
++#ifndef __x86_64__
++static DWORD CALLBACK stack_thread( void *param ) { return 0; }
++#else
++static DWORD CALLBACK stack_thread( void *param )
++{
++    HANDLE main_thread = param;
++    DWORD tid = GetThreadId( main_thread );
++    WCHAR text[16];
++    DWORD seconds = 20;
++    HANDLE thread;
++    CONTEXT context = { 0 };
++
++    if (GetEnvironmentVariableW( L"WINEAPPSERVICE_STACK", text, ARRAY_SIZE(text) )) seconds = wcstoul( text, NULL, 10 );
++    Sleep( seconds * 1000 );
++    thread = main_thread;
++    if (SuspendThread( thread ) != (DWORD)-1)
++    {
++        context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
++        if (GetThreadContext( thread, &context ))
++        {
++            ULONG_PTR *stack = (ULONG_PTR *)context.Rsp;
++            MEMORY_BASIC_INFORMATION info;
++            SIZE_T i, count = 16384;
++            int shown = 0;
++
++            ERR( "stack of thread %04lx: rip %p rsp %p\n", tid, (void *)context.Rip, stack );
++            for (i = 0; i < count && shown < 64; i++)
++            {
++                if (!VirtualQuery( stack + i, &info, sizeof(info) ) || info.State != MEM_COMMIT) break;
++                if (VirtualQuery( (void *)stack[i], &info, sizeof(info) ) && info.Type == MEM_IMAGE &&
++                    (info.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE)))
++                {
++                    WCHAR name[MAX_PATH];
++                    if (GetModuleFileNameW( info.AllocationBase, name, ARRAY_SIZE(name) ) && wcsstr( name, L"WinStore" ))
++                    {
++                        ERR( "  +%04Ix  WinStore.App+%#Ix\n", i * 8, (SIZE_T)((char *)stack[i] - (char *)info.AllocationBase) );
++                        shown++;
++                    }
++                }
++            }
++        }
++        ResumeThread( thread );
++    }
++    CloseHandle( thread );
++    return 0;
++}
++#endif
++
+ static HRESULT WINAPI factory_ActivateInstance( IActivationFactory *iface, IInspectable **instance )
+ {
++    static LONG stack_started;
++
+     struct connection *impl;
+ 
+     TRACE( "iface %p, instance %p.\n", iface, instance );
+ 
++    if (GetEnvironmentVariableW( L"WINEAPPSERVICE_STACK", NULL, 0 ) && !InterlockedExchange( &stack_started, 1 ))
++    {
++        HANDLE thread, main_thread;
++
++        DuplicateHandle( GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &main_thread, THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, 0 );
++        thread = CreateThread( NULL, 0, stack_thread, main_thread, 0, NULL );
++        if (thread) CloseHandle( thread );
++    }
++
+     *instance = NULL;
+     if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
+     impl->IAppServiceConnection_iface.lpVtbl = &connection_vtbl;

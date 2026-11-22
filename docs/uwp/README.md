@@ -26,6 +26,7 @@ owned U1 guest. Wine code is on `codex/uwp-runtime`, merged to Wine `development
 | Install for every user (`wexappx install --all-users`: elevation broker, consent, machine catalog) | done in the lab; the path through the broker runs in session 0's suite: `SIGNATURE_CHECK.md` | 64, 59 |
 | Server-side compatibility gate (`set_token_package` asks the registry itself) | done | 18 context negatives |
 | Microsoft Store app (lab copy) | installs and starts; stops waiting for its own app service: `STORE_APP.md` | |
+| Windows App SDK applications (lab copy of Notepad on runtime 2.7) | install and start; stop at `profapi` ordinal 114: `WINAPPSDK.md` | |
 | `Windows.UI.Xaml` (U2) | plan only: `PLAN_XAML.md`, waits for the owner's decision | |
 
 Not done inside the finished items: thumbnails, file queries, `KnownFolders`, pickers, `GetParentAsync`,
