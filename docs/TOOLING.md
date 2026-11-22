@@ -445,3 +445,13 @@ Measured on the test machine (WSL wexbuild, 16 CPUs; the numbers are minutes):
   Not done: package maintainer scripts (enabling units, rewriting configuration), files the new version dropped,
   and packages other than Wine, the session and the compositor (Vintner Boot, Debian's): when the packaging or a
   unit changes, build an ISO. Do not run it while a `build-test-iso.sh` of another commit uses the wexbuild clone.
+
+## Added 2026-11-22: offline component payloads for test images
+
+- `scripts/seed-component-cache.sh IMAGE_ROOT [HOST_CACHE]` copies pinned component payloads from a host-side cache
+  (`D:\WSL\wex-iso\component-cache\VERB\FILE`, WSL `/mnt/d/WSL/wex-iso/component-cache`, or
+  `WEX_COMPONENT_HOST_CACHE`) into a mounted test image's root-owned `/var/cache/winetricks/VERB/` (directory 0700,
+  file 0600), where `cache_pinned_download` in `scripts/wex-components.py` looks first. A run then installs the
+  component without downloading it. The backend still checks size and SHA-256 against its pin, and the terms are
+  still accepted as usual; only the download is skipped. Today the cache holds `powershell/PowerShell-7.7.0-win-x64.zip`
+  (115330228 bytes). After a pin bump, put the new file there and delete the old one.
