@@ -33,7 +33,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(consent);
 #include "../wexelevate/cred_dialog.h"
 #include "../wexelevate/cred_dialog.c"
 #ifdef WEXELEVATE_E1S18
-#include "../wexelevate/e1r8_codec.h"
+#include "e1r8_codec.h"
 #include "e1s6_protocol.h"
 #endif
 

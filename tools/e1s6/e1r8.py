@@ -6,7 +6,7 @@
 Standard-library-only (struct) byte codec for the E1-S18e R8 attempt-tuple
 messages, the S7 version 2 PROMPT and the secret password answer, per the
 frozen contract docs/E1_S18E_R8_SPEC.md (v5.1) sections 1, 2, 4, 5, 6, 7 and
-11. It mirrors the reviewed C codec src/programs/wexelevate/e1r8_codec.h
+11. It mirrors the reviewed C codec src/include/e1r8_codec.h
 (WO-18) exactly: the same header, tuple, enum, type and string rules, the
 same offsets and the same rejections.
 
@@ -53,6 +53,9 @@ TYPE_PROMPT_RELEASE = 24
 TYPE_RELEASE = 25
 TYPE_RELEASED = 26
 TYPE_W_SETUP = 27
+# R10: the verifier's receipt to the server, on the control socket it retained at endorsement.
+TYPE_RECEIPT = 30
+EVIDENCE_SIZE = 220
 # R9 (docs/E1_S18E_R9_SPEC.md): the grant held by V, and the A<->B0 channel.
 TYPE_GRANT = 32
 TYPE_GRANTED = 33
@@ -235,6 +238,13 @@ class WSetup:
     tuple: E1R8Tuple
     pid: int
     uid: int
+
+
+@dataclass
+class Receipt:
+    evidence_ref: bytes
+    evidence: bytes
+    account: bytes
 
 
 #
@@ -1187,6 +1197,33 @@ def decode_w_setup(data, expected):
     check_tuple_tail(data, 76, expected)
     pid, uid = struct.unpack_from("<II", data, 236)
     return WSetup(tuple=expected, pid=pid, uid=uid)
+
+
+def encode_receipt(t, evidence_ref, evidence, account):
+    """Type 30, RECEIPT (V->S, R10): evidence_ref:16 (not zero), the evidence record:220, account:str."""
+    if len(evidence_ref) != 16 or not any(evidence_ref):
+        raise E1R8Error("receipt evidence_ref")
+    if len(evidence) != EVIDENCE_SIZE:
+        raise E1R8Error("receipt evidence")
+    if not valid_account_name(account):
+        raise E1R8Error("receipt account")
+    total = HEADER_SIZE + 16 + EVIDENCE_SIZE + 4 + len(account)
+    return _put_header(TYPE_RECEIPT, total, t) + evidence_ref + evidence + _put_string(account)
+
+
+def decode_receipt(data, expected):
+    if len(data) < 317 or len(data) > 379:
+        raise E1R8Error("receipt length")
+    _get_header(data, TYPE_RECEIPT, expected)
+    ref = data[76:92]
+    if not any(ref):
+        raise E1R8Error("receipt evidence_ref")
+    account, off = _get_string(data, 312)
+    if not valid_account_name(account):
+        raise E1R8Error("receipt account")
+    if off != len(data):
+        raise E1R8Error("receipt trailing")
+    return Receipt(evidence_ref=ref, evidence=data[92:312], account=account)
 
 
 #

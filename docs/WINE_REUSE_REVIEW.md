@@ -54,7 +54,7 @@ with reserved words): it stays separate and should be renamed `valid_account_nam
 a shared walker with a callback per entry. *Risk:* medium (security code; both have their own tests). Lower priority.
 
 **S7. Little-endian field helpers.** Four sets: `wex_token_put32/64` (`include/wine/wex_token.h`), `e1s6_put32/64` and
-`e1s6_u32/u64` (`src/include/e1s6_protocol.h`), `e1r8_put_u32/...` (`src/programs/wexelevate/e1r8_codec.h`),
+`e1s6_u32/u64` (`src/include/e1s6_protocol.h`), `e1r8_put_u32/...` (`src/include/e1r8_codec.h`),
 `put32/put64` (`tools/e1s7/pam-worker.c`), and hand-written shifts in `named_pipe.c` (10 places) and `sysrun.c`
 (3). *Change:* the server and the DLLs use `wex_token.h`'s; `src/` code one header. Small saving, fewer mistakes.
 

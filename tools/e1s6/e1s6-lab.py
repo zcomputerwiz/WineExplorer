@@ -454,11 +454,10 @@ def r9_handle_redeem(rec, channel_kind, redeem_ref, now, control_sock=None, r9_e
 
     name = rec["account"]
     name = name if isinstance(name, bytes) else str(name).encode("ascii")
-    receipt = (e1r8._put_header(30, 316 + len(name), t) + ref + record +
-               struct.pack("<I", len(name)) + name)
     reply_29 = e1r8._put_header(29, 296, t) + record
 
     if control_sock is not None and os.environ.get("WEX_E1S6_LAB_NO_RECEIPT") != "1":
+        receipt = e1r8.encode_receipt(t, ref, record, name)
         control_sock.sendmsg([receipt], [(
             socket.SOL_SOCKET, socket.SCM_CREDENTIALS,
             struct.pack("3i", os.getpid(), os.getuid(), os.getgid()))])
@@ -1238,8 +1237,7 @@ def service(server_path, system_group, pam_paths=None):
                                     # the consumed record from it; the broker's copy below installs nothing.
                                     name = rec["account"]
                                     name = name if isinstance(name, bytes) else str(name).encode("ascii")
-                                    receipt = (e1r8._put_header(30, 316 + len(name), t) + ref + record +
-                                               struct.pack("<I", len(name)) + name)
+                                    receipt = e1r8.encode_receipt(t, ref, record, name)
                                     # Lab negative only (this script is the lab verifier): withhold the receipt
                                     # to show that the broker's copy alone gets no token.
                                     require(os.environ.get("WEX_E1S6_LAB_NO_RECEIPT") == "1" or
