@@ -39,7 +39,8 @@ INT_PTR CALLBACK hardware_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         }
         else if (LOWORD(wparam) == IDC_HW_PROFILES_BTN)
         {
-            MessageBoxW(hwnd, L"Hardware Profiles are managed automatically by the display manager session.",
+            MessageBoxW(hwnd, L"Hardware profiles do not apply to this system. The computer has one hardware configuration; devices are detected "
+                        L"when they appear (udev), so there is nothing to store or switch between.",
                         L"Hardware Profiles", MB_OK | MB_ICONINFORMATION);
             return TRUE;
         }

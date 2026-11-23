@@ -112,7 +112,6 @@ static void refresh(HWND hwnd)
     SendDlgItemMessageW(hwnd,IDC_SET_BPP_COMBO,CB_ADDSTRING,0,(LPARAM)name);
     SendDlgItemMessageW(hwnd,IDC_SET_BPP_COMBO,CB_SETCURSEL,0,0);
     EnableWindow(GetDlgItem(hwnd,IDC_SET_BPP_COMBO),FALSE);
-    EnableWindow(GetDlgItem(hwnd,IDC_SET_ADVANCED),FALSE);
     preview_init_data(&preview); preview_update(GetDlgItem(hwnd,IDC_SET_MONITOR_IMG),&preview);
     label(hwnd);
 }
@@ -209,6 +208,16 @@ INT_PTR CALLBACK settings_page_proc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp)
     switch(msg)
     {
     case WM_INITDIALOG: dirty=FALSE; refresh(hwnd); return TRUE;
+    case WM_COMMAND:
+        if(LOWORD(wp)==IDC_SET_ADVANCED)
+        {
+            MessageBoxW(hwnd,L"The adapter, monitor, color management and troubleshooting settings do not apply here: the "
+                        L"graphics driver and the compositor of this system decide them. The color quality is the one the "
+                        L"system uses, and only the screen resolution can be changed.",
+                        L"Display Properties",MB_OK|MB_ICONINFORMATION);
+            return TRUE;
+        }
+        break;
     case WM_HSCROLL:
         if((HWND)lp==GetDlgItem(hwnd,IDC_SET_RES_SLIDER))
         { selected=SendDlgItemMessageW(hwnd,IDC_SET_RES_SLIDER,TBM_GETPOS,0,0); label(hwnd); dirty=TRUE; SendMessageW(GetParent(hwnd),PSM_CHANGED,(WPARAM)hwnd,0); }
