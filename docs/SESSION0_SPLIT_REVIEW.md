@@ -239,6 +239,14 @@ All four are decided (2026-11-23).
      server has ended. Windows keeps ids below 2^26 and a multiple of 4; the blocks must keep both.
    - **First step:** a design note (the block size, the ids Wine reserves, what ntdll and the bridge do with a
      foreign id, the migration), then the change. Option (b) stays in reserve for objects other than processes.
+   - **B76's per-session Click-to-Run split is a workaround to retire.** It exists only because ids are per server:
+     App-V's VIRTMAN interface (d99d2add) passes the client's PID to the Click-to-Run service. With ids agreed
+     through session 0, ClickToRunSvc can go back to one instance in session 0. Ask the orchestrator before changing
+     its placement: the B76 lab VM (c2r-split) depends on it.
+
+   R4's upgrade step (session 0 turned on for old installs) goes through `setup-machine-root.sh --update`, which
+   already changes the machine registry through session 0 since B81 (1a7bdfa2); it builds on that, and B81's test
+   (an installed image, the old and the fixed script) is the model for its test.
 
    Before the decision, the two options were:
    - **(a) Machine-unique process ids.** Each server allocates PIDs in a range derived from its session id, and
