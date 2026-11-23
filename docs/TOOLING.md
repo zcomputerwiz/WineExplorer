@@ -428,7 +428,10 @@ check at minute 4); now:
   this way; the full suite runs on the batch.
 - **A test of the restore:** `WEX_SECTION_FORCE_FAIL=NAME[:N|:end][,...]` makes section NAME fail after its Nth check
   (default 1) or after its whole body, so that the restore, the dependants' skips and the later sections can be seen
-  on the real fixture. The run fails by design: never set it in a merge run.
+  on the real fixture. The run fails by design: never set it in a merge run. Rerun this check whenever the snapshot or
+  restore code changes (2026-11-23: `WEX_SUITE_ONLY=c4_r8,s0_hive,own_prefix WEX_SECTION_FORCE_FAIL=c4_r8:1,s0_base:end
+  wex-run.sh normalsuite`, about 3 minutes; expect c4_r8 and s0_base FAIL with "shared state restored", s0_hive SKIP,
+  own_prefix PASS, exit 1). Its first run found a restore that gave the restored folders the snapshot's owner and mode.
 - **What a section defines is handed back** to the suite's shell (functions and variables, through a file). After
   a failure only the names that are new are handed back, so the suite's state stays that of the restored snapshot.
   Writing a new section: keep setup that later sections need between sections (outside `if section ...`), put a
