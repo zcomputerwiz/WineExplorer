@@ -30,8 +30,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(consent);
 #define WARN(...) do {} while (0)
 #define ERR(...) do {} while (0)
 #endif
-#include "../wexelevate/cred_dialog.h"
-#include "../wexelevate/cred_dialog.c"
+#include "../wexelevate/cred_record.h"
 #ifdef WEXELEVATE_E1S18
 #include "../wexelevate/e1r8_codec.h"
 #include "e1s6_protocol.h"
