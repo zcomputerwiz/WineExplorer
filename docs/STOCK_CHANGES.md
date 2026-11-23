@@ -3997,3 +3997,5 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 - `dlls/coremessaging/coreui.c` (new, `coremessaging.spec`, `Makefile.in`): `CoreUICreate` and the interfaces behind it (semi-stubs that log), measured on Windows 11 (`tests/uwp/alpc/coreui-probe.c`).
 - `dlls/bcp47mrm/main.c`, `bcp47mrm.spec`, test: `GetDistanceOfClosestLanguageInList`.
 - `dlls/windows.storage.applicationdata/appdatapaths.c` (new), `classes.idl`, `main.c`, `private.h`, `Makefile.in` (shell32 delay import), `tests/data.c`, `include/windows.storage.idl`: `Windows.Storage.AppDataPaths` (IAppDataPaths, IAppDataPathsStatics).
+
+2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`): `dlls/kernelbase/version.c`, `kernelbase.spec`, `dlls/apisetschema/apisetschema.spec`, `dlls/kernelbase/tests/process.c`: `IsDeveloperModeEnabled` and the API set `api-ms-win-appmodel-unlock-l1-1-0` (Wine 467e205d).

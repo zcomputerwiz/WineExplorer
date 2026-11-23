@@ -237,3 +237,26 @@ Further gaps found on the way, in the order Notepad hit them (all done, Wine 599
 State: Notepad creates its XAML objects (Uri, AcrylicBrush ...), DirectX adapter enumeration and window handles run, and then a C++/WinRT
 `hresult_no_interface` (again) propagates out of a `noexcept` function after a run of failed `QueryInterface` probes on a boxed value and
 on a `Uri` ({0c881986-86e1-40b3-9642-9e5090a8a6b0}, {4bd682dd-...} = IPropertyValue). Next: find which object is unboxed as which type.
+
+## Notepad reaches the compositor (2026-11-23)
+
+What the std::runtime_error of Notepad was (found with the stack dump and the string xref): `Notepad.exe` throws
+`std::runtime_error("E22E2A8B-...")` from a start-up function when `LoadCursorW(NULL, IDC_WAIT)` returns null. In the lab prefix **every**
+system cursor failed (error 6): not a product bug but a stale build of the lab candidate. After the server protocol changed (the ALPC requests
+sit in the middle of it), only the server and ntdll had been rebuilt; `win32u` still sent the old request numbers (the trace showed
+`set_fd_eof_info` where a cursor request was meant). A full `make` of the candidate (about 45 minutes) fixed it:
+**after a protocol change rebuild everything** (`tests/uwp/lab-helpers/full-build.sh`).
+
+Then, in the order Notepad hit them: `api-ms-win-appmodel-unlock-l1-1-0` (`IsDeveloperModeEnabled`, imported by `dcompi.dll`; measured on Windows 11,
+see STOCK_CHANGES), and now:
+
+* `Windows.UI.Composition.Compositor` is not available (`Failed to find library`), then the C++/WinRT exception of the activation.
+  `Microsoft.UI.Xaml.Hosting.DesktopWindowXamlSource` and the XAML controls (TabView ...) are created before it, `dcompi.dll` (the
+  runtime's own DirectComposition) now loads. This is the hosting-route gap: WinUI 3 in a desktop window (and the Store's WebView2 visual
+  hosting) needs the **operating system compositor**, `Windows.UI.Composition` (Compositor, visuals, brushes, animations, the
+  `ICompositorInterop` and `ICompositionDrawingSurfaceInterop` that tie it to DirectComposition and D3D). Wine has `dcomp` and the staging
+  dcomp port in the fork, no WinRT compositor.
+
+Everything the application asks for before that point is now answered (CoreUI session, AppDataPaths, bcp47mrm, the developer-mode import).
+The compositor is the next piece and a big one; the Microsoft.UI.Composition of the runtime (`dcompi.dll`) may carry most of the logic
+(it is what WinUI 3 uses), so a first step is to see how much of `Windows.UI.Composition` it really needs from the system.
