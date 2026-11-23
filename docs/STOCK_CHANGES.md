@@ -63,6 +63,25 @@ without a scene were not counted against that limit and a failed commit keeps th
 than 32 such targets overflowed the array. Same set of producers revoked as before; dcomp tests 1119/0 failures on both
 architectures. The rest of the review (`docs/COMPOSITOR_REVIEW.md`) is not applied yet.
 
+## server, ntdll, launcher: one library under the session 0 links (R2 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
+
+No change of the link protocol (version 5), and none of behaviour but one tightening: a user's server now ignores
+a hive message from session 0 that was cut or came with more than one descriptor (before, it wrote the last
+descriptor it got). The copies became one (Codex review: no other difference).
+
+- `server/sysrun.c` (`sysrun_process_is_tcb_system`): the system role's authority, a process started over the
+  system role connection with SYSTEM's primary token and SeTcbPrivilege. It replaces the hand-written test in
+  `create_service_token`, the E1 broker test and `create_linked_token` (`token.c`) and the pipe binding
+  (`named_pipe.c`). The lab endorsement in `sysrun.c` keeps its own test, one audit label per condition.
+- `include/wine/wex_sysrun_peer.h` (new): is a socket's peer a process that the setgid launcher started? One
+  `/proc/<pid>/status` test with a rule per caller, used by session 0's listener (`session0.c`, another user's
+  `wineserver`), ntdll's check of a launcher-started server (`dlls/ntdll/unix/sysrun.c`) and the launcher
+  (`tools/wex-sysrun`). The pid is pinned through `SO_PEERPIDFD` in all three; before, only session 0 pinned it.
+- `server/session0.c`: `link_send`, `link_receive` and `link_request` replace four hand-built `sendmsg` calls and
+  two receive loops. A link has an explicit kind (request, session, hive).
+- `include/wine/wex_session0.h`: the request header's last word is a union named by message type (`machine`,
+  `saved`, `name_size`, `session_id`); the same word on the wire.
+
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
 General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with
