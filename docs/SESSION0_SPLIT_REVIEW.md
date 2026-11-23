@@ -152,6 +152,12 @@ This is the one finding that cannot be fixed by moving code; it needs a design d
   `registry.c`, 470 of `token.c` and 320 of `sysrun.c`. The R8 frame format is coded three times: the C codec, the
   Python mirror, and a hand decoder in `named_pipe.c` 2106-2155. R9's broker repeats R8's steps
   (`e1r9_broker0.c` 230), and both are `#include`d into `wexelevate/main.c`.
+- **The brokers' pipe code is copied too** (found 2026-11-23, reviewing the DWM broker's move to a pipe). The token
+  broker (`tokenbroker/main.c`: `create_instance`, `pipe_io`, `check_caller`) and `wexelevate` (`main.c`
+  `create_instance`, the client in `wexelevate.h`) each write their own pipe server and client; the DWM broker would
+  be the third. What differs per broker is only the caller policy (the token broker refuses AppContainer callers; the
+  DWM broker must accept them) and the name. None of the clients checks that the pipe's server is the broker's image:
+  the token broker's client checks only the server's user, which an AppContainer process of that user also has.
 - **Docs have drifted from the code.**
   - `SYSTEM_TIER_T5_SERVICES.md` still describes the relay that was not built.
   - `SYSTEM_TIER_WORK_ORDERS.md` 395 and 427 are out of date: the bridge allows more than `svcctl`, and service
@@ -173,7 +179,7 @@ the hooks, each listed in [STOCK_CHANGES.md](STOCK_CHANGES.md).
 | R4 | **Hive storage back ends:** <br>- `save_branch_info` gets an explicit storage kind (stock, session 0 owner, remote user hive, lab profile) with operations per kind; <br>- ST-14 finished: a user's server gets its start-up values over the session link and stops loading machine hives and its own `user.reg`; <br>- merge-on-save and the in-place save retired as multi-user mechanisms if decision 2 is taken | about 650 lines of merge machinery, the stale copies, the two sources of the elevation switch | 2-4 weeks; medium to high |
 | R5 | **Lab code out of stock files and one elevation engine:** <br>- the E1 lab blocks move to their own files behind thin hooks; <br>- one authorization state machine with a local (R8) and an agent (R9) transport; <br>- R8's runtime selection removed once R9 ships | about 2,600 lab lines inside stock files; two broker flows | 2-4 weeks; medium |
 | R6 | **Identity across servers:** a design note first, then the change (decision 4) | the per-service workarounds (PID 0, excluded pipes, PIDs leaking into sessions) | 4-8 weeks or more; high |
-| R7 | **Small:** one shell helper for the prefix link list; drop or wire `forward.c`'s four unused wrappers; one helper for the `forward_mode` checks in `rpc.c` | copied link lists, dead code | days; low |
+| R7 | **Small:** one shell helper for the prefix link list; drop or wire `forward.c`'s four unused wrappers; one helper for the `forward_mode` checks in `rpc.c`; one static-inline pipe header (`wine/include/wine/wex_pipe.h`: server instance, client connect, transact with a timeout, a check of the server's image) used by the DWM broker first, then the token broker and `wexelevate`, each keeping its own caller policy | copied link lists, dead code, three copies of the broker pipe code | days; low |
 
 R0 and R1 give the most for the least, and R1 also removes the cause of the next B76-like surprise. R2 and R3 are
 independent of each other and can run in parallel. R4 waits for decision 2. R6 waits for decision 4 and should not
@@ -229,3 +235,4 @@ Wine `claude/r1-policy-tables` (on `claude/session-services`, with B85 merged).
 | A launcher-started server that falls back to its own machine hive drops the stored `#sd` key permissions when it saves | checked in the code |
 | `elevation_enforced()` reads the switch from the user server's machine snapshot, ntdll reads it from session 0 | checked in the code |
 | `QueryServiceStatusEx` and service enumeration report session 0's process ids to programs in a session | checked in the code |
+| The token broker's pipe can be taken by an AppContainer process of the user before the broker starts (it starts on the first request); the client checks only the server's user, so it would send its requests there and take forged replies | checked in the code (`broker.c` `server_is_own_user`, `connect_broker`) |
