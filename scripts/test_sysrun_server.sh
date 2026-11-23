@@ -572,8 +572,9 @@ cleanup()
     pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null; pkill -u "$CAR" 2>/dev/null; pkill -u "$SYS" 2>/dev/null   # includes winedevice.exe, which blocks userdel
     sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null; pkill -9 -u "$CAR" 2>/dev/null; pkill -9 -u "$SYS" 2>/dev/null
     [ -z "${XV_PID:-}" ] || kill "$XV_PID" 2>/dev/null
-    # the join case's fake engine (a failure between its start and its kill leaves it holding the fixture)
+    # the join case's fake engines (a failure between their start and their kill leaves them holding the fixture)
     [ -z "${JENG_PID:-}" ] || kill "$JENG_PID" 2>/dev/null
+    [ -z "${QENG_PID:-}" ] || { kill "$QENG_PID" 2>/dev/null; rm -f /run/wex-domain-query.sock; }
     if [ "${WEX_C2_KEEP:-0}" = 1 ]; then
         echo "fixture kept: $ROOT, users $ADM $STD $CAR $SYS, group $GRP, $CONF, $LIBEXEC" >&2
         exit "$rc"
@@ -4547,12 +4548,18 @@ TNAME=sec.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO
     'MinimumPasswordLength = 8' 'LockoutBadCount = 5' 'LockoutDuration = -1' 'ResetLockoutCount = 15' '[Registry Values]' \
     'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3' \
     'MACHINE\Software\Policies\WexPol\Banner=1,"Hello there"' \
-    'MACHINE\System\CurrentControlSet\Control\Lsa\WexNotPolicy=4,1' '[Privilege Rights]' 'SeDenyNetworkLogonRight = *S-1-5-32-546'
+    'MACHINE\System\CurrentControlSet\Control\Lsa\WexNotPolicy=4,1' \
+    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\PromptOnSecureDesktop=1,"0"' \
+    '[Privilege Rights]' 'SeDenyNetworkLogonRight = *S-1-5-32-546'
 TNAME=bad.inf gpttmpl '[System Access]' 'LockoutBadCount = 2'
 OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/bad.inf")" | tr -d '\r')" || true
 grep -q 'status=[1-9]\|error' <<<"$OUT" || { echo "$OUT" >&2; fail "security: a template without a signature was taken"; }
 OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/sec.inf")" | tr -d '\r')" || true
-grep -q 'security set=5 not-applicable=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "security: apply"; }
+grep -q 'security set=5 not-applicable=3 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "security: apply"; }
+# a template-owned option of another type than REG_DWORD is left out, and said (the elevation service reads a DWORD)
+grep -q 'PromptOnSecureDesktop: only a REG_DWORD' <<<"$OUT" || { echo "$OUT" >&2; fail "security: a string PromptOnSecureDesktop was not reported"; }
+[ -z "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v PromptOnSecureDesktop | val PromptOnSecureDesktop)" ] ||
+    fail "security: a string PromptOnSecureDesktop was written"
 E='HKLM\Software\WineExplorer\Elevation'
 [ "$(as_wine "$STD" reg query "$E" /v LockoutBadCount | val LockoutBadCount)" = 0x5 ] || fail "security: LockoutBadCount"
 [ "$(as_wine "$STD" reg query "$E" /v LockoutDuration | val LockoutDuration)" = 0x1869f ] || fail "security: LockoutDuration -1 is not the longest"
@@ -4589,9 +4596,13 @@ grep -qx 'LockoutBadCount = 4' <<<"$TXT" && grep -qx '\[System Access\]' <<<"$TX
     { echo "$TXT" >&2; fail "secedit: the exported template misses the lockout policy or the consent option"; }
 LSE="$LGP/Machine/Microsoft/Windows NT/SecEdit"
 gp_tree
-TNAME=cfg.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
-    'LockoutBadCount = 6' 'ResetLockoutCount = 20' '[Registry Values]' \
-    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3'
+# the template to configure is UTF-8 with a byte order mark (as Local Security Settings and other editors may save it):
+# secedit reads it as UTF-8, so the stored UTF-16 template starts with [Unicode] and keeps a letter outside ASCII
+{ printf '\xef\xbb\xbf'
+  printf '%s\r\n' '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
+      'LockoutBadCount = 6' 'ResetLockoutCount = 20' '[Registry Values]' \
+      'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3'
+  printf '; caf\xc3\xa9\r\n'; } > "$POL/cfg.inf"
 chmod 0644 "$POL/cfg.inf"
 OUT="$(as_wine "$STD" secedit /configure /cfg "$(winpath "$POL/cfg.inf")" || true)"
 grep -q 'Task is not completed' <<<"$OUT" && [ ! -e "$LSE/GptTmpl.inf" ] ||
@@ -4612,6 +4623,9 @@ for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
 [ -s "$REQ" ] || { cat "$POL/secedit.out" >&2; fail "secedit: /configure did not ask for a refresh"; }
 [ -f "$LSE/GptTmpl.inf" ] || fail "secedit: /configure did not store the template"
 [ "$(head -c 2 "$LSE/GptTmpl.inf" | od -An -tx1 | tr -d ' \n')" = fffe ] || fail "secedit: the stored template has no byte order mark"
+STORED="$(iconv -f UTF-16LE -t UTF-8 "$LSE/GptTmpl.inf" | tr -d '\r' | sed '1s/^\xef\xbb\xbf//')"
+[ "$(head -n 1 <<<"$STORED")" = '[Unicode]' ] && grep -qx '; café' <<<"$STORED" ||
+    { head -c 120 <<<"$STORED" | od -c | head -4 >&2; fail "secedit: a UTF-8 template was not read as UTF-8"; }
 # installed by gpsvc: the store file is session 0's own, readable by everyone, and no request or error is left behind
 [ "$(stat -c '%U:%a' "$LSE/GptTmpl.inf")" = "$S0U:644" ] || fail "secedit: the stored template is $(stat -c '%U:%a' "$LSE/GptTmpl.inf")"
 [ -z "$(ls -A "$LGP/Spool")" ] || fail "secedit: the spool is not empty: $(ls -A "$LGP/Spool")"
@@ -4883,7 +4897,8 @@ for variant in "$CK${BS}ConsentPromptBehaviorAdmin=4,0" "$CK${BS}${BS}ConsentPro
     s0_wine reg delete "$SYSK" /v PromptOnSecureDesktop /f >/dev/null 2>&1 || true
     BEFORE="$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)"   # (whatever an earlier check left)
     OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/consent0.inf")" | tr -d '\r')" || true
-    grep -q 'security set=1 not-applicable=1 status=0' <<<"$OUT" && grep -q 'only the values 2 and 5' <<<"$OUT" ||
+    # (a value of another type is left out by the type's rule: the two template options are REG_DWORD only)
+    grep -q 'security set=1 not-applicable=1 status=0' <<<"$OUT" && grep -qE 'only the values 2 and 5|only a REG_DWORD \(4\)' <<<"$OUT" ||
         { echo "$OUT" >&2; fail "secpol: the prompt behavior line was not left out alone ($variant)"; }
     [ "$(as_wine "$STD" reg query "$SYSK" /v PromptOnSecureDesktop | val PromptOnSecureDesktop)" = 0x0 ] ||
         fail "secpol: the rest of the template was not applied ($variant)"
@@ -4962,11 +4977,13 @@ JREQ="$POL/join-requests.log"
 cat > "$POL/fake-join-engine.py" <<'PYEOF'
 import os, socket, sys
 path, log = sys.argv[1], sys.argv[2]
+# "query": the users' socket (wex-domain-join.sh serve-query): every user connects, only the questions are answered
+query = len(sys.argv) > 4 and sys.argv[4] == 'query'
 if os.path.exists(path): os.unlink(path)
 srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 srv.bind(path)
-os.chmod(path, 0o660)
-os.chown(path, 0, int(sys.argv[3]))
+os.chmod(path, 0o666 if query else 0o660)
+os.chown(path, 0, 0 if query else int(sys.argv[3]))
 srv.listen(4)
 while True:
     conn, _ = srv.accept()
@@ -4975,15 +4992,19 @@ while True:
         chunk = conn.recv(4096)
         if not chunk: break
         data += chunk
-    with open(log, 'ab') as f: f.write(data + b'--\n')
+    with open(log, 'ab') as f: f.write(data + (b'socket=query\n' if query else b'socket=change\n') + b'--\n')
     text = data.decode('utf-8', 'replace')
     fields = dict(l.split('=', 1) for l in text.split('\n') if '=' in l)
     status, message = 0, 'ok'
+    if query and (fields.get('op') not in ('validate', 'dsgetdc', 'dclist', 'scquery', 'status') or 'password' in fields):
+        conn.sendall(b'status=5\nmessage=changing the domain membership needs an administrator\n')
+        conn.close()
+        continue
     if fields.get('op') == 'validate' and fields.get('nametype') == 'machine' and '_' in fields.get('name', ''):
         status, message = 1210, 'not a valid computer name'
     if fields.get('op') == 'join' and fields.get('password') == 'wrong':
         status, message = 1326, 'the controller did not accept the account'
-    if fields.get('op') == 'dclist': message = 'dc1.ad.wexlab.example dc2.ad.wexlab.example '
+    if fields.get('op') == 'dclist': message = 'dc1.ad.wexlab.example||dc2.ad.wexlab.example'
     if fields.get('op') == 'verify': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been verified.||The connection is with the machine dc1.ad.wexlab.example.'
     if fields.get('op') == 'reset': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been reset.'
     if fields.get('op') == 'dsgetdc': message = 'dc=dc1.ad.wexlab.example||addr=10.71.0.10||guid=0f2a204e-eb7a-4e88-9cf9-1504bb1b93d5||domain=WEXLAB||dnsdomain=ad.wexlab.example||forest=ad.wexlab.example||dcsite=Default-First-Site-Name||oursite=Default-First-Site-Name||flags=e00013fd'
@@ -4994,8 +5015,12 @@ PYEOF
 rm -f "$JREQ"
 python3 -I "$POL/fake-join-engine.py" "$JSOCK" "$JREQ" "$(getent group "$GRP" | cut -d: -f3)" &
 JENG_PID=$!
-for i in $(seq 1 20); do [ -S "$JSOCK" ] && break; sleep 0.25; done
-[ -S "$JSOCK" ] || fail "join: the fake engine did not start"
+# the questions' socket, which every user reaches (wex-domain-query.socket)
+QSOCK=/run/wex-domain-query.sock
+python3 -I "$POL/fake-join-engine.py" "$QSOCK" "$JREQ" 0 query &
+QENG_PID=$!
+for i in $(seq 1 20); do [ -S "$JSOCK" ] && [ -S "$QSOCK" ] && break; sleep 0.25; done
+[ -S "$JSOCK" ] && [ -S "$QSOCK" ] || fail "join: the fake engines did not start"
 jp()   # ARCH ARGS... as session 0's account (the system group); prints the probe's lines
 {
     local b=$1; shift
@@ -5005,11 +5030,12 @@ reqs() { grep -c '^--$' "$JREQ" 2>/dev/null || true; }
 for b in 64 32; do
     : > "$JREQ"
     OUT="$(jp $b validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'message=ok' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: a valid computer name"; }
-    grep -qx 'op=validate' "$JREQ" && grep -qx 'nametype=machine' "$JREQ" && grep -qx 'name=WEXBOX' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the validate request"; }
+    grep -qx 'op=validate' "$JREQ" && grep -qx 'nametype=machine' "$JREQ" && grep -qx 'name=WEXBOX' "$JREQ" && grep -qx 'socket=query' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the validate request (a question: the users' socket)"; }
     OUT="$(jp $b validate bad_name 1)"; grep -qx 'status=1210' <<<"$OUT" && grep -qx 'message=not a valid computer name' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: the engine's error and message"; }
     : > "$JREQ"
     OUT="$(jp $b join - 'ad.wexlab.example\dc1' 'OU=WexMachines,DC=ad,DC=wexlab,DC=example' 'WEXLAB\Administrator' 'p w$d' 1)"
     grep -qx 'status=0' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: NetJoinDomain"; }
+    grep -qx 'socket=change' "$JREQ" && ! grep -qx 'socket=query' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the join did not go to the system group's socket"; }
     grep -qx 'op=join' "$JREQ" && grep -qx 'domain=ad.wexlab.example' "$JREQ" && grep -qx 'user=Administrator' "$JREQ" && grep -qxF 'password=p w$d' "$JREQ" &&
         grep -qx 'ou=OU=WexMachines,DC=ad,DC=wexlab,DC=example' "$JREQ" && grep -qx 'flags=1' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the join request (domain without the controller, user without the domain, the password as it is)"; }
     OUT="$(jp $b join - ad.wexlab.example - 'admin@ad.wexlab.example' wrong 3)"
@@ -5115,10 +5141,21 @@ s0_wine reg delete 'HKLM\Software\WineExplorer\Domain' /f >/dev/null || true
 # a standard user is refused with Windows' words (the status is the error: the pipeline of as_wine fails with it)
 NDOUT="$(as_wine "$STD" netdom join /domain:ad.wexlab.example /userd:a /passwordd:x)" || true
 grep -qi 'access.*denied' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom: a standard user was not refused'; }
-# a standard user is not in the system group: access denied, nothing sent
+# a standard user asks the questions, as on Windows (NetValidateName, netdom query dc), through the users' socket
 : > "$JREQ"
-OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" validate WEXBOX 1)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user was not refused"; }
-[ ! -s "$JREQ" ] || fail "join: a standard user's call reached the engine"
+OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user's NetValidateName"; }
+grep -qx 'socket=query' "$JREQ" && ! grep -qx 'socket=change' "$JREQ" || { cat "$JREQ" >&2; fail "join: a standard user's question did not go to the users' socket"; }
+NDOUT="$(as_wine "$STD" netdom query dc | tr -d '\r')" || true
+grep -qx 'dc1.ad.wexlab.example' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom query dc as a standard user'; }
+# but a change is refused: the system group's socket is not the standard user's (access denied, nothing sent)
+: > "$JREQ"
+OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" join - ad.wexlab.example - 'WEXLAB\Administrator' pw 1)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user's join was not refused"; }
+OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" unjoin - - 0)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user's leave was not refused"; }
+[ ! -s "$JREQ" ] || { cat "$JREQ" >&2; fail "join: a standard user's change reached an engine"; }
+# an installation from before the users' socket: the questions go to the system group's socket
+kill "$QENG_PID" 2>/dev/null; wait "$QENG_PID" 2>/dev/null || true; QENG_PID=; rm -f "$QSOCK"
+: > "$JREQ"
+OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'socket=change' "$JREQ" || { echo "$OUT" >&2; cat "$JREQ" >&2; fail "join: without the users' socket, a question did not fall back"; }
 # the engine is not there: the workstation service is not started
 kill "$JENG_PID" 2>/dev/null; wait "$JENG_PID" 2>/dev/null || true; JENG_PID=; rm -f "$JSOCK"
 OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=2138' <<<"$OUT" || { echo "$OUT" >&2; fail "join: no engine is not NERR_WkstaNotStarted"; }

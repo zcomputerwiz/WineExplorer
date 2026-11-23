@@ -90,8 +90,9 @@ static void add_text( struct request *r, const char *key, const char *value )
     r->length += sprintf( r->text + r->length, "%s=%s\n", key, value );
 }
 
-/* the request to the engine; the engine's status (or the error of reaching it) */
-static DWORD ask( struct request *r )
+/* the request to the engine; the engine's status (or the error of reaching it). A question (query) goes to the socket
+ * every user reaches; a change to the system group's, which only an elevated administrator's process reaches. */
+static DWORD ask( struct request *r, BOOL query )
 {
     struct request_params params = {0};
     char reply[WEX_JOIN_REPLY_MAX];
@@ -106,6 +107,7 @@ static DWORD ask( struct request *r )
     params.request_length = r->length;
     params.reply = (ULONG_PTR)reply;
     params.reply_size = sizeof(reply);
+    params.query = query;
     WEXJOIN_CALL( join_request, &params );
     SecureZeroMemory( r->text, sizeof(r->text) );    /* the password does not stay in memory */
     if (params.err) return params.err;
@@ -180,7 +182,7 @@ DWORD WINAPI NetJoinDomain( const WCHAR *server, const WCHAR *domain, const WCHA
     if (ou && ou[0]) add_field( &r, "ou", ou );
     sprintf( text, "%lu", (unsigned long)flags );
     add_text( &r, "flags", text );
-    return ask( &r );
+    return ask( &r, FALSE );
 }
 
 DWORD WINAPI NetUnjoinDomain( const WCHAR *server, const WCHAR *account, const WCHAR *password, DWORD flags )
@@ -201,9 +203,10 @@ DWORD WINAPI NetUnjoinDomain( const WCHAR *server, const WCHAR *account, const W
     }
     sprintf( text, "%lu", (unsigned long)flags );
     add_text( &r, "flags", text );
-    return ask( &r );
+    return ask( &r, FALSE );
 }
 
+/* any user may ask (as on Windows): the account and password are not needed for the engine's checks and are not sent */
 DWORD WINAPI NetValidateName( const WCHAR *server, const WCHAR *name, const WCHAR *account, const WCHAR *password, DWORD type )
 {
     static const char * const types[] = { NULL, "machine", "workgroup", "domain", "nonexistentdomain", "dnsmachine" };
@@ -214,19 +217,22 @@ DWORD WINAPI NetValidateName( const WCHAR *server, const WCHAR *name, const WCHA
     add_text( &r, "op", "validate" );
     add_text( &r, "nametype", types[type] );
     add_field( &r, "name", name );
-    return ask( &r );
+    return ask( &r, TRUE );
 }
 
 /* The secure channel of the machine account and the controllers (netdom verify, reset and query DC; nltest): the engine asks
- * Samba and Winbind. The answer's message is the text to show (WexJoinLastMessage), for the controllers the names. */
+ * Samba and Winbind. The answer's message is the text to show (WexJoinLastMessage), for the controllers the names.
+ * The controllers and the channel's state are questions any user may ask; verify and reset need an administrator, as
+ * I_NetLogonControl2's codes other than the query do on Windows. CANCHANGE is the status asked on the change socket:
+ * success when this process may change the membership. */
 DWORD WINAPI WexJoinSecureChannel( DWORD op )
 {
-    static const char * const ops[] = { NULL, "verify", "reset", "dclist", "dsgetdc", "scquery" };
+    static const char * const ops[] = { NULL, "verify", "reset", "dclist", "dsgetdc", "scquery", "status" };
     struct request r = {0};
 
     if (!op || op >= ARRAY_SIZE(ops)) return ERROR_INVALID_PARAMETER;
     add_text( &r, "op", ops[op] );
-    return ask( &r );
+    return ask( &r, op == WEX_JOIN_OP_DCLIST || op == WEX_JOIN_OP_DSGETDC || op == WEX_JOIN_OP_SCQUERY );
 }
 
 DWORD WINAPI NetRenameMachineInDomain( const WCHAR *server, const WCHAR *new_name, const WCHAR *account, const WCHAR *password,
@@ -244,5 +250,5 @@ DWORD WINAPI NetRenameMachineInDomain( const WCHAR *server, const WCHAR *new_nam
     add_text( &r, "op", "rename" );
     add_field( &r, "name", new_name );
     add_account( &r, account, password );
-    return ask( &r );
+    return ask( &r, FALSE );
 }

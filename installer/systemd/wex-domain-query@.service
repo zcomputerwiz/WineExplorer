@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: one question to the domain join engine (docs/DOMAIN_JOIN.md), started by wex-domain-query.socket for each
+# connection of any local user. The engine runs as serve-query: the questions only (validate, dsgetdc, dclist, scquery,
+# status), no password. Not as root: every question works for any user (DNS, a CLDAP ping, Winbind's NETLOGON ping, the
+# state tool reading smb.conf), so the unit runs it as a user of its own that exists only while it runs (DynamicUser),
+# with no capability and nothing of the system it can write. A fault in the engine's reading of a request from this
+# socket, which every local user reaches, runs as nobody in particular.
+#
+# Slots: the socket starts at most 8 at a time (MaxConnections) and each ends within RuntimeMaxSec. One user can hold
+# all 8 for that time (a connection that says nothing waits 30 seconds for its question, then is told ERROR_TIMEOUT),
+# which delays other users' questions by as much and nothing else: the changes have a socket of their own. Accepted.
+
+[Unit]
+Description=WineExplorer domain question (one request)
+
+[Service]
+ExecStart=/usr/local/sbin/wex-domain-join.sh serve-query
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+# the engine waits 30 seconds for the question; DNS, a CLDAP ping and the NETLOGON ping take seconds
+RuntimeMaxSec=60
+DynamicUser=true
+ProtectSystem=strict
+ProtectHome=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native

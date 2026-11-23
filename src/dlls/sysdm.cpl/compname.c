@@ -232,9 +232,10 @@ static BOOL do_join(HWND dlg, const WCHAR *domain)
     WCHAR account[300], text[400];
     DWORD status;
 
-    /* (the check needs the same rights as the join: a standard user hears it before being asked for a password) */
-    status = NetValidateName(NULL, domain, NULL, NULL, WEX_NETSETUP_NAME_DOMAIN);
+    /* a standard user hears it before being asked for a password (the name's check is open to every user) */
+    status = wex_join_secure_channel(WEX_JOIN_OP_CANCHANGE);
     if (status == ERROR_ACCESS_DENIED) { offer_elevation(dlg, TITLE); return FALSE; }
+    status = NetValidateName(NULL, domain, NULL, NULL, WEX_NETSETUP_NAME_DOMAIN);
     if (status) { show_join_error(dlg, TITLE, domain, status, 0); return FALSE; }
     lstrcpynW(c.domain, domain, ARRAY_SIZE(c.domain));
     if (DialogBoxParamW(g_hInstance, MAKEINTRESOURCEW(IDD_JOIN_CREDS), dlg, credentials_proc, (LPARAM)&c) != IDOK) return FALSE;

@@ -7,7 +7,7 @@ set -euo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
-cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -o "$OUT/model-test" "$SRC/scripts/secpol-model-test.c" \
+cc -O1 -g -Wall -Wextra -fsanitize=address,undefined -I "$SRC/src/include" -o "$OUT/model-test" "$SRC/scripts/secpol-model-test.c" \
     "$SRC/src/dlls/secpol/template.c" "$SRC/src/dlls/secpol/settings.c" || { echo "FAIL: cannot build"; exit 1; }
 "$OUT/model-test"
 echo "secpol_model_and_table=PASS"
