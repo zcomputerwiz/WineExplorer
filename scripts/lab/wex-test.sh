@@ -148,7 +148,9 @@ done
 # step 5: the suites, on that build
 for c in t1suite normalsuite; do
     [ -n "${checks[$c]:-}" ] || continue
-    WEX_ANY_BUILD=1 bash "$D/scripts/lab/wex-run.sh" "$c" | grep -v '^NOTE: WEX_ANY_BUILD' || rc=1
+    # the suite's own status decides, not grep's (a failed suite once read as a pass through the pipe; Codex review)
+    WEX_ANY_BUILD=1 bash "$D/scripts/lab/wex-run.sh" "$c" | grep -v '^NOTE: WEX_ANY_BUILD'
+    [ "${PIPESTATUS[0]}" = 0 ] || rc=1
 done
 if [ -n "${checks[lab]:-}" ]; then bash "$D/scripts/lab/wex-run.sh" lab || rc=1; fi
 
