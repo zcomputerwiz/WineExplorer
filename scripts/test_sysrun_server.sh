@@ -476,7 +476,11 @@ sec_kill_all()   # every process of the test accounts and of the fixture's helpe
     for i in $(seq 1 100); do
         busy=""
         for sec_u in $(sec_users); do sec_live "$sec_u" && { busy="$busy $sec_u"; pkill -9 -u "$sec_u" 2>/dev/null; }; done
-        [ -n "$busy" ] || return 0
+        if [ -z "$busy" ]; then
+            # the old session fully gone before a new one starts: its zombies reaped too (at most 5 s more)
+            for i in $(seq 1 50); do [ -z "$(for sec_u in $(sec_users); do pgrep -u "$sec_u"; done)" ] && break; sleep 0.1; done
+            return 0
+        fi
         sleep 0.1
     done
     echo "processes of$busy are still running" >&2
@@ -515,6 +519,19 @@ sec_fix_links()   # the users' prefixes link their machine hives into the machin
         done
     done
 }
+sec_broker_roundtrip()   # an approved request of the administrator through the test broker; 1 if three tries fail
+{
+    local i out
+    for i in 1 2 3; do
+        el_clean; touch "$EL/approve.all"
+        out="$(bprobe "$ADM" 64 run "$(winpath "/home/$ADM/wexel/p64.exe")" 0 "$(winpath "$EL/out.restore")" - 2>&1)"
+        if grep -q '^run=PASS' <<<"$out"; then el_clean; echo "--- restore: the broker served a request (try $i)"; return 0; fi
+        echo "--- restore: broker request $i failed:" >&2; tail -5 <<<"$out" >&2
+        sleep 5
+    done
+    el_clean
+    return 1
+}
 section_restore()   # NAME of the failed section: puts back the shared state; 1 when it does not compare equal
 {
     local sec_n="$1" sec_left="" sec_u
@@ -542,6 +559,12 @@ section_restore()   # NAME of the failed section: puts back the shared state; 1 
     [ "$SEC_E1S6" != 1 ] || e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
     [ "$SEC_S0" != 1 ] || s0_start
     [ -z "$SEC_EL" ] || el_up "$SEC_EL"
+    # The session brought back must serve the broker before the next section (b1124b: the first section after a
+    # restore found it unusable): one approved request with the test broker, up to three tries while it starts.
+    if [ "$SEC_EL" = "$ADM" ] && [ -n "${BROKER_ORIG:-}" ] && ! sec_broker_roundtrip; then
+        echo "restore after $sec_n: the broker does not serve the administrator's session that was brought back" >&2
+        return 1
+    fi
     echo "--- section $sec_n: shared state restored"
 }
 
@@ -1620,7 +1643,7 @@ alpc_pair()   # name level mode(limited|elevated): runs the server as the limite
         grep -q '^sent' "$cl" || rc=1
     fi
     if [ $rc != 0 ]; then
-        kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null || true
+        kill "$sp" 2>/dev/null || true; wait "$sp" 2>/dev/null || true
         head -5 "$cl" 2>/dev/null | tr '\n' ' ' > "$ROOT/alpc-skip"   # a subshell: the reason goes through a file
         return 1
     fi
@@ -1690,7 +1713,14 @@ if section c4_ab; then set +e; ( section_enter
 el_clean; touch "$EL/wait-for-gate" "$EL/approve.a.exe"
 bprobe "$ADM" 64 concurrent "$(winpath /home/$ADM/wexel/a.exe)" "$(winpath /home/$ADM/wexel/b.exe)" "$(winpath $EL/out.a)" "$(winpath $EL/out.b)" \
     > "$ROOT/conc.log" 2>&1 & CPID=$!
-el_wait_file "$EL/started.a.exe"; el_wait_file "$EL/started.b.exe"
+# both requests reach the stub (90 s at most); a probe that gives up before shows what it got from the broker
+for _ in $(seq 1 90); do
+    [ -e "$EL/started.a.exe" ] && [ -e "$EL/started.b.exe" ] && break
+    kill -0 "$CPID" 2>/dev/null || { cat "$ROOT/conc.log" >&2; fail "concurrent: the probe ended before both requests reached the consent stub"; }
+    sleep 1
+done
+[ -e "$EL/started.a.exe" ] && [ -e "$EL/started.b.exe" ] ||
+    { cat "$ROOT/conc.log" >&2; ps -u "$ADM" -o pid,stat,etimes,args >&2; fail "concurrent: the requests did not reach the consent stub in 90 s"; }
 [ "$(head -1 "$EL/started.a.exe")" != "$(head -1 "$EL/started.b.exe")" ] || fail "two requests have the same id"
 touch "$EL/gate"
 wait "$CPID" || { cat "$ROOT/conc.log" >&2; fail "concurrent"; }
@@ -2797,7 +2827,7 @@ EOF
         agent_pid="$(el_proc "$STD" wexelevate)"
         [ -n "$agent_pid" ] || agent_pid="$(pgrep -u "$STD" -f 'wexelevate' | head -1)"
         [ -n "$agent_pid" ] || fail "r9_agent_killed_frees_broker: agent process not found"
-        kill -9 "$agent_pid"
+        kill -9 "$agent_pid" || fail "r9_agent_killed_frees_broker: the agent was gone before it could be killed"
         for _ in $(seq 1 600); do
             wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
             grep -q 'r9b: end' <<<"$wine_new_log" && break
@@ -2956,7 +2986,7 @@ EOF
               fail "r9_broker_killed_denies_and_recovers: the attempt did not reach the worker"; }
         b0_pid="$(pgrep -u "$S0U" -f wexelevate | head -1 || true)"
         [ -n "$b0_pid" ] || fail "r9_broker_killed_denies_and_recovers: session 0 wexelevate process not found"
-        kill -9 "$b0_pid"
+        kill -9 "$b0_pid" || fail "r9_broker_killed_denies_and_recovers: the broker was gone before it could be killed"
         probe_ended=0
         for _ in $(seq 1 600); do
             if ! kill -0 "$PROBE_PID" 2>/dev/null; then
@@ -3251,10 +3281,10 @@ if section c4_wam; then set +e; ( section_enter
 python3 -I "$SRC/tests/wam/test_authority.py" "$ROOT/wam-port" 2> "$ROOT/wam-authority.log" &
 WAM_AUTH=$!
 for _ in $(seq 50); do [ -s "$ROOT/wam-port" ] && break; sleep 0.1; done
-[ -s "$ROOT/wam-port" ] || { kill "$WAM_AUTH" 2>/dev/null; fail "wam: the test authority did not start"; }
+[ -s "$ROOT/wam-port" ] || { kill "$WAM_AUTH" 2>/dev/null || true; fail "wam: the test authority did not start"; }
 for arch in x86_64 i386; do
     install -m 755 "$BUILD/dlls/windows.security.authentication.web.core/tests/$arch-windows/windows.security.authentication.web.core_test.exe" \
-        "$ROOT/probes/web_core_$arch.exe" || { kill "$WAM_AUTH" 2>/dev/null; fail "wam $arch: no web_core test program"; }
+        "$ROOT/probes/web_core_$arch.exe" || { kill "$WAM_AUTH" 2>/dev/null || true; fail "wam $arch: no web_core test program"; }
     # each architecture starts from no accounts, as in tests/wam/run-broker-tests.sh: the broker keeps its accounts and
     # tokens (process and cache), and the tests expect none at the start
     pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
@@ -3279,12 +3309,12 @@ for arch in x86_64 i386; do
     if [ "$rc" != 0 ] || [ -n "$b86" ] || grep -q -e 'Test failed' -e 'skipped: the token broker' "$ROOT/wam-$arch.log" ||
        ! grep -q 'tests executed' "$ROOT/wam-$arch.log"; then
         grep -E 'Test failed|skipped|tests executed|unhandled' "$ROOT/wam-$arch.log" | head -20 >&2
-        kill "$WAM_AUTH" 2>/dev/null
+        kill "$WAM_AUTH" 2>/dev/null || true
         fail "wam $arch: web_core with the broker as the limited administrator (exit $rc)"
     fi
     ok "c4_token_broker_web_core_tests_pass_as_the_limited_administrator_$arch"
 done
-kill "$WAM_AUTH" 2>/dev/null; wait "$WAM_AUTH" 2>/dev/null || true
+kill "$WAM_AUTH" 2>/dev/null || true; wait "$WAM_AUTH" 2>/dev/null || true
 pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
 true; ); section_leave $?; fi
 
@@ -3326,7 +3356,7 @@ for arch in x86_64 i386; do
         done
         # end that desktop's explorer (dwm.exe follows its parent), at most 10 s
         pkill -u "$ADM" -f "desktop=$desk" 2>/dev/null || true
-        kill "$launcher" 2>/dev/null; wait "$launcher" 2>/dev/null || true
+        kill "$launcher" 2>/dev/null || true; wait "$launcher" 2>/dev/null || true
         for _ in $(seq 1 100); do pgrep -u "$ADM" -f "desktop=$desk" >/dev/null || break; sleep 0.1; done
         log="$(tr -d '\r' < "$out" 2>/dev/null || true)"
         grep -E "tests executed|Test failed|Tests skipped|timed out" <<<"$log" | sed "s/^/c4_dwm $t $arch: /" || true
@@ -3613,7 +3643,7 @@ bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 1223 "$(winpath $EL/o
 for _ in $(seq 1 60); do consent_alive 'system32.consent[.]exe' && CW=1 || CW=""; [ -z "$CW" ] || break; sleep 1; done
 [ -n "$CW" ] || { cat "$ROOT/cs.log" >&2; fail "the shipping broker started no consent.exe"; }
 ok c5_shipping_broker_starts_the_real_consent_window
-kill "$CSP" 2>/dev/null; pkill -u "$ADM" -f "wexelevate_probe64.exe run" 2>/dev/null || true
+kill "$CSP" 2>/dev/null || true; pkill -u "$ADM" -f "wexelevate_probe64.exe run" 2>/dev/null || true
 for _ in $(seq 1 30); do consent_alive 'system32.consent[.]exe' || break; sleep 1; done
 ! consent_alive 'system32.consent[.]exe' || fail "the consent window outlived the caller"
 [ ! -e "$EL/out.ship" ] || fail "a process ran without Continue"
@@ -3717,14 +3747,14 @@ ok sd_host_pointer_reaches_the_secure_dialog_and_continue_launches
 
 # -- the other exit paths: caller exit (above), consent crash, broker crash
 sd_request 1062
-kill -9 "$(consent_unix_pid)"
+CPIDU="$(consent_unix_pid)"; [ -n "$CPIDU" ] && kill -9 "$CPIDU" || fail "the consent window was gone before it could be crashed"
 sd_done "consent crash"
 [ ! -e "$EL/out.sd" ] || fail "a crashed consent window launched the program"
 ok sd_consent_crash_returns_to_default
 sd_request 1223
 BPID="$(pgrep -f 'system32.wexelevate[.]exe' | head -1)"
 [ -n "$BPID" ] || fail "no broker process"
-kill -9 "$BPID"
+kill -9 "$BPID" || fail "the broker was gone before it could be crashed"
 wait_input_default || fail "broker crash: the server did not return the input"
 wait_no_consent || fail "broker crash: the consent window outlived the broker"
 x11_free || fail "broker crash: the display is still grabbed"
@@ -5177,7 +5207,7 @@ kill "$QENG_PID" 2>/dev/null; wait "$QENG_PID" 2>/dev/null || true; QENG_PID=; r
 : > "$JREQ"
 OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'socket=change' "$JREQ" || { echo "$OUT" >&2; cat "$JREQ" >&2; fail "join: without the users' socket, a question did not fall back"; }
 # the engine is not there: the workstation service is not started
-kill "$JENG_PID" 2>/dev/null; wait "$JENG_PID" 2>/dev/null || true; JENG_PID=; rm -f "$JSOCK"
+kill "$JENG_PID" 2>/dev/null || true; wait "$JENG_PID" 2>/dev/null || true; JENG_PID=; rm -f "$JSOCK"
 OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=2138' <<<"$OUT" || { echo "$OUT" >&2; fail "join: no engine is not NERR_WkstaNotStarted"; }
 kill_servers
 ok st_join_api_reaches_the_engine_only_from_the_system_group
