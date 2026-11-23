@@ -34,9 +34,9 @@
  *    the verifier (the agent's channel loss ends the attempt there, and the verifier tells B0).
  */
 
-#include "broker_internal.h"
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)   /* first: a shipping build compiles nothing of this unit */
 
-#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+#include "broker_internal.h"
 
 #include <stdio.h>
 #include <sddl.h>

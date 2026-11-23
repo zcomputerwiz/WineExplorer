@@ -22,10 +22,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#ifdef WEXELEVATE_E1S18   /* first: a shipping build compiles nothing of this unit */
+
 #include "broker_internal.h"
-
-#ifdef WEXELEVATE_E1S18
-
 #include <stdio.h>
 #include "decision.h"
 

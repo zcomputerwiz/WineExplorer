@@ -14,6 +14,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef _WIN32
+/* NTSTATUS: Wine's windows.h leaves it to winternl.h or bcrypt.h (MinGW's defines it). This header used to be read
+ * only inside main.c, after its bcrypt.h; the units include it first. */
+#include <windows.h>
+#include <bcrypt.h>
+#endif
+
 #include "wexelevate_request.h"
 #include "cred_dialog.h"
 #include "e1s6_protocol.h"
