@@ -17,8 +17,8 @@ and `WEX_R8_SERVER_TEST`, about 2,600 lines) moved into WineExplorer files; the 
   RECEIPT (type 30) with `e1r8_codec.h`, the codec wexelevate and consent use (moved to `src/include`, assembled
   into Wine's `include/`); the hand-written decoder and encoder are gone. The receipt's account name now follows the
   codec's account rule (the S4 grammar) instead of "printable ASCII"; the verifier only ever sends canonical names.
-  A malformed receipt keeps its audit labels (`receipt-frame`, `receipt-name`), except that a frame with both a bad
-  name and a bad evidence record now reports the name.
+  A malformed receipt keeps its audit labels and their order (`receipt-frame`, the evidence labels, then
+  `receipt-name`).
 - `registry.c` (about 820 before, 15 now) and `token.c` (about 470 before, 40 now): the lab hives and the S10 token
   context work on the files' own structures (`struct key`, `struct token`) and static helpers, so the code moved
   into `wex_e1lab_registry.h` and `wex_e1lab_token.h`, which hold code and are included once, at the place the
