@@ -322,7 +322,7 @@ snapshot() {   # snapshot FILE: the configuration record, and FILE.ntbtlog with 
     (
         cd "$MNT" || exit 1
         find etc var/lib/AccountsService home -xdev \( -path 'home/*/*' -a ! -name .dmrc \) -prune -o -type f -print0 \
-            | sort -z | xargs -0 -r sha256sum
+            | sort -z | xargs -0 -r sha256sum 2> "$1.unreadable"
         find etc var/lib/AccountsService -xdev -type l -printf '%p -> %l\n' | sort
         # each account's saved session, X11 or Wayland, which no Safe Mode logon may change: compared in every
         # phase, also where the files' checksums are left out (on images that keep it, wex-session-choice)
@@ -716,11 +716,18 @@ window_gone() {   # window_gone REGEX TIMEOUT: no viewable window's title matche
 
 desktop() {   # desktop TIMEOUT [USER]: the Explorer desktop of USER's session (default the test account): its desktop
               # view and its taskbar are up (window probe); "Recycle Bin" by OCR on an image without xwininfo
-    local user=${2:-$USER_NAME} end=$((SECONDS + $1)) left out=
+    local user=${2:-$USER_NAME} start=$SECONDS end=$((SECONDS + $1)) left out=
     # first the serial console, with short calls (vmtest.py sends nothing until the getty's prompt shows); a long
-    # probe sent while the machine starts would wait behind the login
+    # probe sent while the machine starts would wait behind the login. A console that gives no prompt for a minute
+    # (B78: silent after a warm reboot) does not fail the stage: the desktop is then looked for by OCR, as before the
+    # window probes, and the log says so.
     while [ "$SECONDS" -lt "$end" ]; do
         gsh 'echo serial=up' 20 2>/dev/null | grep -q '^serial=up' && break
+        if [ $((SECONDS - start)) -ge 60 ] && wait_text "Recycle Bin" 5; then
+            echo "  (the serial console gave no prompt for $((SECONDS - start)) seconds: the desktop found by OCR, not by the window probe)"
+            shot desktop
+            return 0
+        fi
         sleep 5
     done
     while left=$((end - SECONDS)); [ "$left" -gt 0 ]; do
@@ -733,8 +740,15 @@ desktop() {   # desktop TIMEOUT [USER]: the Explorer desktop of USER's session (
                 return 0 ;;
             *desktop=none*) break ;;
         esac
-        sleep 5   # no answer on the serial console yet: the machine is still starting
+        # no answer on the serial console: still starting, or gone silent (B78); OCR meanwhile
+        if wait_text "Recycle Bin" 5; then
+            echo "  (no answer from the window probe over the serial console: the desktop found by OCR)"
+            shot desktop
+            return 0
+        fi
+        sleep 5
     done
+    [ -n "$out" ] || out="(the serial console gave no answer; OCR did not find \"Recycle Bin\" either)"
     sed 's/^/  | /' <<< "$out" | tail -n 25
     fail "no Explorer desktop for $user after $1 seconds (window probe)"
 }
@@ -1283,6 +1297,21 @@ startrec_restarts() {   # startrec_restarts panic|crash: with the package's defa
     esac
 }
 
+startrec_restore() {   # the files the phase's settings changed, back as they were, on the stopped disk (its state in
+                       # $OUT/startrec-restore, written before the first change; removed once they are back)
+    local state saved= crashdir=
+    state=$(cat "$OUT/startrec-restore" 2>/dev/null) || return 0
+    case " $state " in *" saved=1 "*) saved=1 ;; esac
+    case " $state " in *" crashdir=1 "*) crashdir=1 ;; esac
+    attach rw || return 1
+    rm -f "$MNT/etc/wineexplorer/boot.conf" "$MNT/etc/sysctl.d/90-wineexplorer-recovery.conf" \
+        "$MNT/etc/systemd/system.conf.d/90-wineexplorer-recovery.conf"
+    [ -n "$crashdir" ] || rmdir "$MNT/etc/systemd/system.conf.d" 2>/dev/null
+    if [ -n "$saved" ]; then cp -p "$OUT/startrec-cmdline" "$MNT/etc/kernel/cmdline"; else rm -f "$MNT/etc/kernel/cmdline"; fi
+    detach
+    rm -f "$OUT/startrec-restore"
+}
+
 phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the header. The checks are subresults; the
                      # changes the phase makes (as root, on the stopped disk) and their restoration are not: a failure
                      # there ends the phase, since it would leave the boot storage or /etc changed.
@@ -1306,6 +1335,9 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     subresult refused startrec_refused
     # as root: a 5-second menu, a 7-second countdown, Automatically restart off, and a kernel option
     as_root 'id -u' | grep -qx 0 || fail "sudo does not work for $USER_NAME"
+    # from here until startrec_restore the phase's own changes are on the disk: a failure in between leaves them to
+    # the main loop, which puts them back on the stopped disk before comparing /etc
+    printf 'saved=%s crashdir=%s\n' "$saved" "$crashdir" > "$OUT/startrec-restore"
     as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 5 true 7 false false" >/dev/null
     out=$(as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 SetOptions sb '$options wextest.d5=1' false" 600 \
         | grep '^bu ' | tail -n 1)
@@ -1332,12 +1364,7 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     expect_settings MenuTimeout=0 RecoveryEnabled=True RecoveryTimeout=30 AutoRestart=True
     shutdown_vm
     wait_off 60 || fail "the VM did not power off"
-    attach rw || fail "cannot mount the overlay"
-    rm -f "$MNT/etc/wineexplorer/boot.conf" "$MNT/etc/sysctl.d/90-wineexplorer-recovery.conf" \
-        "$MNT/etc/systemd/system.conf.d/90-wineexplorer-recovery.conf"
-    [ -n "$crashdir" ] || rmdir "$MNT/etc/systemd/system.conf.d" 2>/dev/null
-    if [ -n "$saved" ]; then cp -p "$OUT/startrec-cmdline" "$MNT/etc/kernel/cmdline"; else rm -f "$MNT/etc/kernel/cmdline"; fi
-    detach
+    startrec_restore || fail "cannot mount the overlay"
     # the restored generation starts without the menu, and counts
     start_vm
     subresult no-menu startrec_no_menu
@@ -2122,7 +2149,9 @@ phase_classic() {   # the classic "Log On to Windows" dialog (work order C4): se
     shot classic
     # wait_text also reads with a threshold: the plain pass loses the small labels on 1280 x 800
     wait_text "User name" 10 || fail "the classic dialog has no User name box"
-    wait_text "Administrator" 10 || fail "the classic dialog does not fill in the last user, Administrator"
+    # the name comes in after the dialog shows (b1124a on UEFI: still empty at 10 seconds; the window probe now
+    # finds the desktop sooner than OCR of "Recycle Bin" did, so the logon screen comes up on a busier machine)
+    wait_text "Administrator" 30 || fail "the classic dialog does not fill in the last user, Administrator"
     echo "  normal start: the dialog fills in Administrator"
     # Luna's blue caption, as XP's themed logon desktop has (wex-greeter.sh), not Wine's white Light one: the dialog
     # (417 x 241) is centred across, its top where a 411-pixel template would be centred (msgina's logon.c)
@@ -2511,6 +2540,11 @@ for PHASE in "${PHASES[@]}"; do
     if [ "$PHASE" = nowine ]; then hide_wine off || die "cannot put /usr/local/bin/wine back"; fi
     case "$PHASE" in vfailed|vlasttry|vgafailed) delay_logon off || die "cannot remove the logon delay" ;; esac
     if [ "$PHASE" = waylandfallback ]; then break_compositor off || die "cannot put wexcomp back"; fi
+    # startrec failed between its changes and their restoration: what it changed is its own, not the boot's
+    if [ "$PHASE" = startrec ] && [ -f "$OUT/startrec-restore" ]; then
+        startrec_restore || die "cannot put startrec's changes back"
+        echo "  startrec stopped before putting its settings back: put back on the stopped disk"
+    fi
     # a phase that saved the test account's session and failed before putting it back
     case "$PHASE" in waylandauto|waylanddisplay|waylandshellkeys|waylandlogon|waylandfallback|waylandxlock) saved_session restore || die "cannot put the saved session back" ;; esac
     snapshot "$OUT/after-$PHASE.txt" || die "cannot record the configuration after $PHASE"
@@ -2533,6 +2567,19 @@ for PHASE in "${PHASES[@]}"; do
                 rc=1
             fi ;;
     esac
+    # a file that could not be read on the stopped disk is reported as such, not as a change: its line is left out
+    # of both records
+    unreadable=$(cat "$OUT/before-$PHASE.txt.unreadable" "$OUT/after-$PHASE.txt.unreadable" 2>/dev/null \
+        | sed -n "s/^sha256sum: \(.*\): [^:]*\$/\1/p" | sort -u)
+    if [ -n "$unreadable" ]; then
+        echo "FAIL ($PHASE): could not read on the stopped disk (not compared):"
+        sed 's/^/  /' <<< "$unreadable" | head -n 20
+        for f in "${compare[@]}"; do
+            grep -vF -f <(sed 's/^/  /' <<< "$unreadable") "$f" > "$f.readable"
+        done
+        compare=("${compare[0]}.readable" "${compare[1]}.readable")
+        rc=1
+    fi
     if ! diff -u "${compare[@]}" > "$OUT/$PHASE-changes.diff"; then
         echo "FAIL ($PHASE): the boot changed files under /etc, /var/lib/AccountsService or a .dmrc:"
         grep '^[-+][^-+]' "$OUT/$PHASE-changes.diff" | head -n 20
