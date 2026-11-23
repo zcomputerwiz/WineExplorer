@@ -120,19 +120,28 @@ static struct attr_entry *find_attr( uint32_t hwnd, uint32_t attribute )
     return NULL;
 }
 
+/* A dead window's entries become holes (hwnd 0), reused by later entries: no entry moves, so a snapshot paged by
+ * index (DWM_POLL_SNAPSHOT) neither skips nor repeats one. attr_count is the high-water mark. */
 static void sweep_attrs(void)
 {
-    unsigned int i = 0;
+    unsigned int i;
 
-    while (i < attr_count)
+    for (i = 0; i < attr_count; i++)
     {
-        if (IsWindow( UlongToHandle( attrs[i].hwnd ) )) i++;
-        else
-        {
-            log_change( attrs[i].hwnd, 0, 0 );  /* attribute 0, value 0: the window is gone */
-            attrs[i] = attrs[--attr_count];
-        }
+        if (!attrs[i].hwnd || IsWindow( UlongToHandle( attrs[i].hwnd ) )) continue;
+        log_change( attrs[i].hwnd, 0, 0 );  /* attribute 0, value 0: the window is gone */
+        memset( &attrs[i], 0, sizeof(attrs[i]) );
     }
+    while (attr_count && !attrs[attr_count - 1].hwnd) attr_count--;
+}
+
+static struct attr_entry *new_attr(void)
+{
+    unsigned int i;
+
+    for (i = 0; i < attr_count; i++) if (!attrs[i].hwnd) return &attrs[i];
+    if (attr_count == MAX_ATTRS) return NULL;
+    return &attrs[attr_count++];
 }
 
 /* live thumbnails (docs/DWM_ARCHITECTURE.md, P8): keyed by the server-stamped sender process and the
@@ -203,9 +212,11 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         if (!hdr->window_token || !valid_attribute( set.attribute )) return STATUS_INVALID_PARAMETER;
         if (!(entry = find_attr( hdr->window_token, set.attribute )))
         {
-            if (attr_count == MAX_ATTRS) sweep_attrs();
-            if (attr_count == MAX_ATTRS) return STATUS_QUOTA_EXCEEDED;
-            entry = &attrs[attr_count++];
+            if (!(entry = new_attr()))
+            {
+                sweep_attrs();
+                if (!(entry = new_attr())) return STATUS_QUOTA_EXCEEDED;
+            }
             entry->hwnd      = hdr->window_token;
             entry->attribute = set.attribute;
             entry->value     = set.value;
@@ -254,7 +265,9 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         }
         else if (poll.since_revision == 0 || (log_count && poll.since_revision < change_log[log_head].revision))
         {
-            /* the log overflowed, or the client wants the whole table: page through the attribute table */
+            /* the log overflowed, or the client wants the whole table: page through the attribute table, holes
+             * included (attribute 0 records, which the client ignores) so that the client's cursor stays an index.
+             * The client resumes the log from the first page's revision, which covers changes made meanwhile. */
             uint32_t start = poll.cursor < attr_count ? poll.cursor : attr_count;
 
             while (count < DWM_POLL_MAX_CHANGES && start + count < attr_count)

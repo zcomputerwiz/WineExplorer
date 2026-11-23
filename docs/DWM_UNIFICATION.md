@@ -182,6 +182,10 @@ The pre-existing dirty wine/ worktree and unrelated untracked files are preserve
   slot is an ERROR_NOT_SUPPORTED stub; corner/backdrop/thumbnails/Peek retain
   their internal implementations used directly by the X11 backend, and the
   shared generation wait remains live. No slot is deleted or reused.
+  Superseded 2026-11-23 (`COMPOSITOR_REVIEW.md`): wexhost.dll and wexhost.so are always built together, so the ten
+  slots nobody called (wm_start, the composition corner/backdrop/thumbs/peek/clock/clock_wait slots, wm_effects,
+  wm_thumbnails, wm_peek) and the exports WexWmSetEffects, WexWmGetEffectScale, WexWmSetThumbnails and WexWmSetPeek
+  are deleted (each table now has 87 entries).
 
 ### Review findings left open
 

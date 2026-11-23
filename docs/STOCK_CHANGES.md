@@ -26,6 +26,43 @@ merged). No new stock file; the session 0 changes below replace earlier ones of 
 - Test: `scripts/lab/system-tier-t1.sh`, `session_service_value_*` (a service created from session A with
   `WexSessionService`=1 runs in A, not in session 0, and session B has its own stopped copy).
 
+## dwmapi, dcomp, dxgi, explorer: compositor review fixes and dead target path (2026-11-23)
+
+Wine branch `claude/compositor-review` after `df606ddd` (`docs/COMPOSITOR_REVIEW.md` bugs 5-7, 11, 13 and the dcomp/DXGI
+dead code):
+
+- `218bea9a` `dlls/dwmapi`:
+  - A process's own windows are answered from its attribute table, so caption painting makes no broker calls.
+  - Without `DwmService` the broker is never asked.
+  - The first call that reaches a new broker (a new desktop epoch) re-sends the process's attributes and
+    thumbnails.
+  - `DwmSetWindowAttribute` writes the table before its side effects, and a call that fails sends nothing.
+  - The materials gate honours high contrast and `EnableTransparency=0`, as the shell bridge does.
+  - New `dwm_attr` case: a killed broker gets the attributes back.
+- `e7bcaab0` `programs/explorer/dwmhost.c`: when the dwm.exe supervisor does not stop in time, it keeps its handles
+  instead of closing them under the still-running thread.
+- `49215d78` dcomp and dxgi:
+  - `dcomp_surface_resize` holds the device lock throughout.
+  - The window-message target path is removed: `IWineDCompSwapChain::set_target`, `WM_WINE_DCOMP_SET_TARGET` and
+    the other unused messages, the placement fields and helpers in dxgi, `struct wine_dcomp_layer_params`, and the
+    write-only desktop-window property. Present passes no rectangles.
+
+Tests on both architectures:
+- dcomp: 1119 tests, 0 failures.
+- dwmapi, plain prefix: 0 failures. The tests that need a broker skip.
+- dwmapi on a shell desktop with a broker: `dwm_attr` 19 tests, `dwm_thumb` 19 tests, 0 failures.
+- dxgi: 35 failures, all display-mode or fullscreen checks that Xvfb's single mode cannot satisfy. These were not
+  compared against an unchanged build.
+
+## dcomp: auxiliary producers revoked from the target list (compositor review, 2026-11-23)
+
+Wine branch `claude/compositor-review`, `df606ddd` (on the 11.22 WAM head `97ee37a3`), `dlls/dcomp/device.c`
+`dcomp_device_internal_commit`: a successful commit revokes every target's auxiliary producer that is not among the
+commit's bindings, instead of collecting the targets in a stack array of `WINE_DCOMP_MAX_CONTENTS` entries. Targets
+without a scene were not counted against that limit and a failed commit keeps the auxiliary producers it made, so more
+than 32 such targets overflowed the array. Same set of producers revoked as before; dcomp tests 1119/0 failures on both
+architectures. The rest of the review (`docs/COMPOSITOR_REVIEW.md`) is not applied yet.
+
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
 General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with

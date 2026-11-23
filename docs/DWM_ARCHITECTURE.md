@@ -30,7 +30,99 @@ Rules from `CLAUDE.md` remain: combined WoW64 (`--enable-archs=i386,x86_64`), op
 
 ## 2. Transport decision
 
-**Use a small wineserver-mediated, desktop-bound control channel; use existing sections/events for snapshots and completion.** No pixels, visual-tree traversal or rendering algorithms in wineserver.
+### 2.0 Revised 2026-11-23: a named pipe per desktop (owner decision; not implemented yet)
+
+The owner chose to replace the wineserver channel below with a named pipe per ordinary desktop, like the token
+broker's. The data is cosmetic, and the channel costs about 1,350 lines of stock Wine change: `server/dwm.c`, its
+`protocol.def` requests, `ProcessWineDwmChannel` and the winternl/WoW64 entries, plus `dwm_cleanup_process`,
+`dwm_revoke_desktop` and the `struct desktop` fields. All of these go away, and each is marked reverted in
+`STOCK_CHANGES.md`. Nothing in Session 0, elevation or sysrun depends on them; the Session 0 reviewer checked this
+on 2026-11-23. The frame clock and change event stay per-desktop named objects. The design was agreed with the
+Session 0 reviewer. Sections 2.1-2.2 describe the channel being replaced.
+
+The 2026-11-02 objection was that a pid does not name a multithreaded caller's desktop. The answer is to route
+requests by the target window, not the calling thread, and to have the broker check every window token:
+
+- **Endpoint.** `\\.\pipe\WineExplorer\Dwm\<session>\<winsta>\<desktop>`: message mode, `PIPE_REJECT_REMOTE_CLIENTS`,
+  created by dwm.exe with `FILE_FLAG_FIRST_PIPE_INSTANCE`; a broker that cannot take the first instance exits.
+  - The name is built by one helper in `dwm_protocol.h`, which also builds the frame-clock and event names.
+  - It stays outside the `\pipe\WexSession0\` prefix, so the Session 0 bridge never forwards it.
+  - There is no broker on Winlogon, Screen-saver or `__wineservice_winstation`.
+- **DACL** `D:P(A;;GA;;;<owner>)(A;;GRGW;;;SY)(A;;GRGW;;;<logon SID, or IU>)(A;;GRGW;;;AC)S:(ML;;NW;;;LW)`.
+  - It admits everyone who can own a window on the desktop: over-the-shoulder elevation's administrator token, the
+    sysrun SYSTEM role and AppContainer (UWP) windows.
+  - Only processes of this user's wineserver can reach the namespace at all.
+  - The per-message checks below are the real authorization.
+  - The token broker's user-only DACL and its `check_caller` are not copied: they refuse AppContainer and need
+    `PROCESS_QUERY_INFORMATION`.
+- **Broker checks, per message.**
+  - (a) The window lies on the broker's desktop: the parent of its root window is the broker's `GetDesktopWindow()`.
+  - (b) For SET_ATTR and THUMB_SET/DEL, the window (for a thumbnail, its destination) belongs to the caller:
+    `GetWindowThreadProcessId == GetNamedPipeClientProcessId`. A client pid of 0, which is what a bridged client
+    has, is refused explicitly.
+  - A process with windows on two desktops holds two connections.
+  - Reads (GET_ATTR, for example DWMWA_HAS_ICONIC_BITMAP) are allowed for any window on the desktop when sysrun
+    enforcement is off. When it is on, they are allowed only if the caller owns a window on that desktop; the answer
+    is cached per connection and rechecked when a check fails. This keeps what `cross_desktop_denied` gave.
+- **Broker authenticity.**
+  - Squatting the name before dwm.exe starts, or between a crash and the restart, is the risk; a low-integrity,
+    AppContainer or restricted process could do it.
+  - Once per connection, the client opens `GetNamedPipeServerProcessId` with
+    `PROCESS_QUERY_LIMITED_INFORMATION` and checks two things:
+    - its image (`QueryFullProcessImageNameW`) is the machine's `system32\dwm.exe`;
+    - its token is an ordinary one: not an AppContainer, not restricted, integrity at least Medium.
+
+    A failed query counts as a refusal. The image alone is not enough, because a sandboxed process can start the
+    real dwm.exe suspended and write its own code into it, and the child keeps the sandbox's token.
+
+    This costs a few calls per connection and none per message. Under the prefix split the user cannot write the
+    machine's system32. The helper lives in `wex_pipe.h` and is shared with the token broker. It is defence in
+    depth, since Wine's sandboxes run as the same Unix user.
+  - A parent-pid check would prove nothing, because applications started from the Start menu share dwm.exe's
+    parent, explorer.
+  - A failed check counts as "no broker" (the failure cache).
+  - The client never trusts a broker's answer about one of its own windows over its own table.
+  - The first version may ship with only the first instance and the DACL, provided the squat window is documented.
+- **Lifetime.**
+  - The client's pipe handle is not inheritable, so process death closes it. The broker then drops that
+    connection's thumbnails; its records are keyed by connection, local handle and generation.
+  - A window's death shows in the broker's IsWindow sweep. Wine HWNDs carry a generation, so a stale token fails.
+- **Broker restart.**
+  - Each reply carries the broker's generation, a random 64-bit value chosen at start, which replaces the server
+    epoch.
+  - On a broken pipe or a new generation, the client re-sends its table of attributes and thumbnails. dwmapi does
+    this already with the server epoch (2026-11-23).
+  - An attribute cannot outlive its setter, because a window dies with its process.
+- **Cost.**
+  - dwmapi answers its own windows from its table, so caption painting makes no broker calls.
+  - Without `DwmService` it opens nothing.
+  - It connects lazily, only for operations the table cannot serve. This matters because Edge/Chromium runs many
+    processes; test restricted-token clients in the Chromium lab.
+  - A missing pipe is one failed CreateFile; failures are cached for 50 ms per desktop.
+  - Calls are synchronous with 2 s timeouts, through overlapped I/O and CancelIoEx.
+- **Wire.**
+  - A 16-byte header: opcode, length, window as UINT32, and generation in the reply.
+  - The opcodes are unchanged.
+  - The format is fixed-width and the same for both architectures, so a 32-bit explorer reaches the native broker.
+  - A ping opcode remains for `dlls/dwmapi/tests`. The negative tests of `dwm_channel.c` (spoofed owner, other
+    desktop, pid 0, quota) move to the pipe.
+- **Shared transport.** One static-inline header, `wine/include/wine/wex_pipe.h`. It lives in the Wine tree because
+  dwmapi is there. It provides:
+  - a server instance (name, SDDL, first-instance flag, message size, reject-remote);
+  - a client connect that waits with a timeout;
+  - an overlapped transact with a timeout and CancelIoEx;
+  - the server image check.
+
+  Caller policy and naming stay with each broker. DWM is its first user; moving the token broker and wexelevate to
+  it is in the Session 0 review's R7 list. The token broker has the same squatting gap, and its data is not
+  cosmetic. The Session 0 reviewer reported it to the Orchestrator (fix B86; `claude/session0-split-review`
+  `26d2ade0`). Caller policy stays out of the header, so those brokers can move onto it without changing their
+  rules.
+- **Out of scope for now.** The per-desktop event and frame-clock names can be squatted the same way.
+
+**The 2026-11-02 decision (being replaced):** use a small wineserver-mediated, desktop-bound control channel, with
+existing sections/events for snapshots and completion. No pixels, visual-tree traversal or rendering algorithms in
+wineserver.
 
 | Candidate | Benefit | Decision / cost |
 | --- | --- | --- |
