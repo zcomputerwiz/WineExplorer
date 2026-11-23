@@ -279,3 +279,17 @@ owner's real sign-ins (no tokens kept) and, for the shapes, from the Windows pro
 - Open: Edge's first-run Sign in button does nothing in the VM (no interactive request reaches the broker; only
   `FindAllAccounts` finds nothing, and `Windows.System.UserProfile.FirstSignInSettings` is requested and missing). The
   profile menu's sign-in works, and its window now stays in front (the broker's window is topmost while open).
+
+### Edge's first run, resolved (2026-11-23)
+
+- Edge's first-run "Sign in" button did nothing, and a profile reset still came up signed in, because of a shared
+  account store outside the profile and outside the broker's cache: `%LOCALAPPDATA%\Microsoft\OneAuth` and
+  `...\IdentityCache` (Microsoft's identity library, shared by Edge and Copilot; Edge signs a fresh profile in from
+  it, "implicit sign-in"). With both folders moved aside, a natural first run (no `--force-first-run`) shows Edge's own
+  "Sign in" window, then the broker's interactive sign-in (window in front, the broker's window is topmost), and the
+  account and its sync come up (profile, extensions). Test recipe: stop Edge and Copilot, move `OneAuth`,
+  `IdentityCache` and Edge's `User Data` aside, start Edge. Copilot needs to sign in again afterwards.
+- The first-run flow ends in a "One more step: check the notification on your device" page that does not finish (its
+  arrow does not skip it); restarting Edge completes the setup. Not looked into further: it likely waits for a Windows
+  notification or the internal `Windows.Internal.Security.WebAuthentication.AuthenticationManager`, which is missing.
+- `--force-first-run` is not a fair test: with the shared store present the flow behaves differently.
