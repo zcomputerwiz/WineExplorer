@@ -462,6 +462,34 @@ Notes:
 * On OVMF the held F8 sometimes misses systemd-boot's menu (the test tries twice); a stage that fails that way
   passes when run again on its own: `run-chain.sh --fws uefi NAME defaults`.
 
+## Added 2026-11-23: the chain's rework (the owner's test efficiency review)
+
+* **One provisioning per firmware.** `run-chain.sh` first makes `NAME-base-bios` and `NAME-base-uefi`
+  (`safe-mode.sh` with `WEX_SAFEMODE_BASELINE=make`: the overlay, the test accounts and prefixes, the provisioning
+  boot and its checks, then the disk read-only with a record of the inputs), and every stage's overlay is forked
+  from it (`WEX_SAFEMODE_BASELINE=use`, with the baseline's UEFI variable store and passwords): two provisioning
+  boots per chain instead of twelve. The stages start from the disk the provisioning boot left, so Vintner Boot's
+  counts and generation are what they were before (the start blessed, generation 1). Other inputs (Wine tarball,
+  probes, the provisioning part of `safe-mode.sh`, the installed disk) are refused: make the baseline again.
+  `WEX_CHAIN_BASELINE=0` provisions each overlay itself, as before. A single stage by hand:
+  `WEX_SAFEMODE_BASELINE=use safe-mode.sh NAME-base-uefi NAME-mine-uefi PHASE`.
+* **A failed install or baseline** leaves that firmware out; the other firmware's stages still run, and the chain
+  still fails.
+* **Readiness from windows, not OCR.** The desktop is up when the session's X server (XWayland in the Wayland
+  session) shows the shell's screen-sized desktop view and its taskbar (`session-run.py --wait-desktop`, read over
+  the serial console); Notepad, the Run dialog's windows, System Properties, Startup and Recovery and the Safe Mode
+  box ("Desktop") by their titles (`--wait-window`, `--gone-window`; `--windows` lists them, for debugging:
+  `vmtest.py sh VM wineuser PWFILE 'python3 /usr/local/libexec/wex-tests/session-run.py --user wineuser --windows'`).
+  OCR stays for images without `xwininfo`, the loader's and the Advanced Options menus (no X there), and the
+  deliberate appearance checks (which tab shows, a dialog's text, colours and sizes by pixel). Screenshots are taken
+  as before.
+* **Named subresults.** `startrec` and `rundialog` report each check (`PASS startrec/dialog`, `FAIL
+  rundialog/folder`, `SKIP startrec/password (needs dialog)`) under the phase in the summary, and a failure no
+  longer hides the rest; each has its screenshot `PHASE-NAME-fail.png`. What the phase changes (as root, on the
+  stopped disk) and puts back stays fatal. After closing a window the test waits for it to go (bounded) instead of
+  fixed sleeps.
+* A provisioning boot that does not power off leaves `provision-fail.png` and `provision-journal.txt`.
+
 ## Added 2026-11-15: quicker builds and a quick path that copies only what changed
 
 Measured on the test machine (WSL wexbuild, 16 CPUs; the numbers are minutes):
