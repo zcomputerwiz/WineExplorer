@@ -380,7 +380,7 @@ static void apply_change( const struct dwm_change *change )
 static DWORD WINAPI bridge_proc( void *arg )
 {
     unsigned char buf[sizeof(struct dwm_poll_reply) + DWM_POLL_MAX_CHANGES * sizeof(struct dwm_change)];
-    UINT64 revision = 0;
+    UINT64 revision = 0, snapshot_revision = 0;
     DWORD cursor = 0;
     DWORD wait = 0, last_retry = GetTickCount();
     HANDLE objs[2] = { bridge_stop, NULL };
@@ -451,6 +451,9 @@ static DWORD WINAPI bridge_proc( void *arg )
         sync_thumbnails( TRUE );
         if (reply->count) TRACE( "poll: %lu changes, revision %I64u\n", (DWORD)reply->count, (UINT64)reply->revision );
         for (i = 0; i < reply->count; i++) apply_change( &changes[i] );
+        /* a snapshot's pages are read while the table changes: the log is resumed from its first page's
+         * revision, so what changed in pages already read comes again */
+        if ((reply->flags & DWM_POLL_SNAPSHOT) && !cursor) snapshot_revision = reply->revision;
         if (reply->flags & DWM_POLL_MORE)
         {
             if (reply->flags & DWM_POLL_SNAPSHOT) cursor += reply->count;
@@ -459,7 +462,7 @@ static DWORD WINAPI bridge_proc( void *arg )
         }
         else
         {
-            revision = reply->revision;
+            revision = (reply->flags & DWM_POLL_SNAPSHOT) ? snapshot_revision : reply->revision;
             cursor = 0;
             /* a window without an identity yet is retried soon, not at the next poll */
             if (pending_waiting()) wait = DWM_BRIDGE_RETRY_MS;
