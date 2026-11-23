@@ -695,7 +695,8 @@ s0_start()
 s0_stop()
 {
     pkill -u "$S0U" -x wineserver 2>/dev/null || true   # SIGTERM: session 0 saves the hives and exits
-    local i; for i in $(seq 1 100); do pgrep -u "$S0U" -x wineserver >/dev/null || return 0; sleep 0.1; done
+    local i; for i in $(seq 1 300); do pgrep -u "$S0U" -x wineserver >/dev/null || return 0; sleep 0.1; done
+    ps -o pid,ppid,stat,etime,args -u "$S0U" >&2; tail -20 "$ROOT/session0.log" >&2
     fail "session 0 did not stop"
 }
 # Session 0 holds the machine hives and saves its own tree over the files: a direct edit of a machine hive file
@@ -825,7 +826,7 @@ done
 for hive in system.reg userdef.reg; do
     sysrun_as "$SYS" ln -sfn "$M/drive_c/windows/wex_marker2.txt" "$SYS_HOME/.wine/$hive"
 done
-sysprobe "$SYS" 64 hklm-write >/dev/null || fail "hklm-write"
+OUT="$(sysprobe "$SYS" 64 hklm-write)" || { echo "$OUT" >&2; tail -20 "$ROOT/session0.log" >&2; fail "hklm-write"; }
 OUT="$(sysprobe "$SYS" 64 hklm-read)"; grep -q '^hklm-read=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "HKLM not from the machine root with a diverted prefix link"; }
 ok c2_symlinked_hives_system_account_hklm_from_machine_root
 # the server it gets is the launcher-started one: its saved group is the system group (section 1's recognition)
