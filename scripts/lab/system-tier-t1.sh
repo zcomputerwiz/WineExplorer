@@ -209,6 +209,19 @@ check created_from_a_in_session0 "$(s0 sc query WexT5Probe | state)" 1
 check b_sees_service_created_by_a "$(B sc query WexT5Probe | state)" 1
 A sc delete WexT5Probe >/dev/null 2>&1
 check deleted_from_a_in_session0 "$(s0 sc query WexT5Probe | state)" ""
+# R1b: a service whose own key says WexSessionService=1 is every session's: A starts its own copy (session 0's stays
+# stopped) once A's service manager has loaded the value (a restart of A's server)
+A sc create WexT5Session binPath= 'C:\windows\system32\wuauserv.exe' >/dev/null 2>&1
+s0 reg add 'HKLM\System\CurrentControlSet\Services\WexT5Session' /v WexSessionService /t REG_DWORD /d 1 /f >/dev/null 2>&1
+WINEPREFIX=$W/a ./server/wineserver -k 2>/dev/null; sleep 1
+A sc start WexT5Session >/dev/null 2>&1
+for i in $(seq 1 20); do [ "$(A sc query WexT5Session | state)" = 4 ] && break; sleep 0.5; done
+check session_service_value_runs_in_a "$(A sc query WexT5Session | state)" 4
+check session_service_value_not_in_session0 "$(s0 sc query WexT5Session | state)" 1
+check session_service_value_b_has_own_copy "$(B sc query WexT5Session | state)" 1
+A sc stop WexT5Session >/dev/null 2>&1
+for i in $(seq 1 20); do [ "$(A sc query WexT5Session | state)" = 1 ] && break; sleep 0.5; done
+s0 sc delete WexT5Session >/dev/null 2>&1
 check a_lists_session0_service "$(A "$W/p64.exe" enumsvc wuauserv | field count)" 1
 check a_lists_own_plugplay_once "$(A "$W/p64.exe" enumsvc PlugPlay | field count)" 1
 check a32_lists_session0_service "$(A "$W/p32.exe" enumsvc wuauserv | field count)" 1

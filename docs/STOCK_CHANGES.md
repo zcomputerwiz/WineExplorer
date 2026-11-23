@@ -1,5 +1,31 @@
 # Changes to stock Wine / third-party code
 
+## server, ntdll, services.exe: one table per placement rule (R1 of SESSION0_SPLIT_REVIEW.md, B82, 2026-11-23)
+
+Wine branch `claude/r1-policy-tables` (on `claude/session-services` 6a6c7536, with B85's `claude/b85-service-pids`
+merged). No new stock file; the session 0 changes below replace earlier ones of the same files.
+
+- **One list of the keys of each session (R1a, B82).** `server/registry.c`'s merge-on-save list
+  (`hklm_ephemeral_prefixes`, `hku_default_ephemeral_prefixes`) now comes from `WEX_SESSION_MACHINE_KEYS` and
+  `WEX_SESSION_DEFAULT_USER_KEYS` in `include/wine/wex_session0.h`, the list ntdll routes by. The server's own copy
+  lacked `Hardware`, both `ServiceCurrent` keys and both `SafeBoot\Option` keys, so a server that shares a machine hive
+  file merged its copy of them into that file. The case-insensitive "prefix up to a backslash" matcher, written three
+  times (`match_ascii_prefix_ci`, ntdll's `regsrv_match` and `regvirt_match`), is `wex_session_key_match` in that
+  header.
+- **A service's own value places it (R1b).** `programs/services`: `WexSessionService` (REG_DWORD) in a service's key, 1 =
+  every session runs it itself, 0 = session 0 only; without it the built-in defaults decide as before (drivers and
+  `Winedevice*` always the session's, then the named services of `default_session_service`). Read when the service
+  manager loads the service (`load_session_service`); a session's manager sees a new value after its restart. Replaces
+  6a6c7536's `HKLM\Software\Wine\Services\SessionServices` list, which no default set (B76's lab VM used it for
+  `ClickToRunSvc`). `is_session_service` takes the value; `service_is_session_service` (an entry) and
+  `is_session_service_name` (session 0's part of an enumeration: this session's entry of that name decides) wrap it.
+- **One table of the machine root's trusted images (R1c).** `server/sysrun.c`: `machine_images` with the roles
+  `IMAGE_SYSTEM`, `IMAGE_BROKER`, `IMAGE_DIALOG`, `IMAGE_SAFE_SHELL` and one `machine_image_roles()` replace four lists
+  and five copies of the device-and-inode loop. No image changes role (the 32-bit `wexelevate.exe` stays a broker image
+  only). The lab-only broker lists under `WEX_E1S6_TRANSPORT_TEST` are left for R5.
+- Test: `scripts/lab/system-tier-t1.sh`, `session_service_value_*` (a service created from session A with
+  `WexSessionService`=1 runs in A, not in session 0, and session B has its own stopped copy).
+
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
 General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with
