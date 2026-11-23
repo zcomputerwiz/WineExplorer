@@ -106,6 +106,12 @@ check a_reads_own_hkcu "$(A reg query 'HKCU\Software\WexTier' /v user | value us
 # handles: duplicate, object name, security descriptor (64-bit and 32-bit)
 check dup64 "$(A "$W/p64.exe" dup 'Software\WexTier' where | field dup)" session0
 check dup32 "$(A "$W/p32.exe" dup 'Software\WexTier' where | field dup)" session0-32bit-view
+# R3: a session 0 key's handle duplicated into another process, pushed by the program or pulled by the other one;
+# the other process opens the key again with its own token, in the program's registry view
+check xdup64_push "$(A "$W/p64.exe" xdup 'Software\WexTier' where push | field xget)" session0
+check xdup64_pull "$(A "$W/p64.exe" xdup 'Software\WexTier' where pull | field xget)" session0
+check xdup32_push "$(A "$W/p32.exe" xdup 'Software\WexTier' where push | field xget)" session0-32bit-view
+check xdup32_pull "$(A "$W/p32.exe" xdup 'Software\WexTier' where pull | field xget)" session0-32bit-view
 # T6.1: session 0 gives each logon (each user's server) a session id of its own
 SA="$(A "$W/p64.exe" whoami | field session)"; SB="$(B "$W/p64.exe" whoami | field session)"
 check sessions_differ "$([ -n "$SA" ] && [ -n "$SB" ] && [ "$SA" != "$SB" ] && [ "$SA" -ge 1 ] && [ "$SB" -ge 1 ] && echo yes)" yes

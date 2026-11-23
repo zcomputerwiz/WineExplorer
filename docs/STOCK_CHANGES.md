@@ -1,5 +1,47 @@
 # Changes to stock Wine / third-party code
 
+## ntdll, server: one table of the registry handles of session 0 and the virtual store (R3 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
+
+Wine branch `claude/r3-registry-handles` (on `claude/r1-policy-tables` 2a2b2946, with development's WAM head d5e17250
+merged for the token broker's header). New WineExplorer file
+`dlls/ntdll/unix/wex_regkey.c` (in `dlls/ntdll/Makefile.in`); the stock files keep hooks.
+
+- **One handle table.** The session 0 keys (`regsrv_*`, T1) and the virtual store keys (`regvirt_*`, T2b) were two
+  tables, one in `server.c` and one in `registry.c`. They are one table in `wex_regkey.c` (handles
+  `0x40000000 + index * 4`), with the channel to session 0, the routing of paths and the virtual store moved there
+  unchanged. A key of this process's own server ("local") is not in it. `unix_private.h` has the interface
+  (`wexkey_*`, `struct wexkey_target`); `get_unix_tid` in `server.c` is no longer static. The older T1, T4a and T2b
+  entries below that name `regsrv_*` and `regvirt_*` describe the code before this move.
+- **Hooks in the stock files.** `registry.c`: create and open ask `wexkey_target_init` where a key goes,
+  `wexkey_virtualize` after a session 0 answer, and the `wexkey_virtual_*` calls for a virtual key; every other key call
+  goes through `wexkey_server_call` (session 0 for a session 0 key, this process's server for any other), which replaces
+  the `regsrv_is_handle ? regsrv_call : wine_server_call` pattern there and in `file.c` (`NtQueryObject`) and
+  `security.c` (`NtQuerySecurityObject`, `NtSetSecurityObject`). `NtOpenKeyEx` is one function again (the `open_key`
+  split of T2b is gone: the virtual store opens a real key through the table). `server.c`: `NtClose` and
+  `NtDuplicateObject` give every handle of the table's range to `wexkey_close` and `wexkey_duplicate`.
+- **One builder of the user's key path.** `wexkey_user_key_path` ("\Registry\User\S-...") replaces three copies:
+  session 0's user prefix, the virtual store's path, and stock `open_hkcu_key` in `registry.c`.
+- **Duplication.** A virtual store key can be duplicated (it was refused with `STATUS_NOT_SUPPORTED`): the copy gets
+  its own handles of the real and the store key. Both kinds can be duplicated into another process and from another
+  process (they were refused). Into another: the source writes a record of the entry (kind, access, absolute path) into
+  a section and queues a new system APC, `APC_WEX_REGKEY` (`server/protocol.def`: the `wex_regkey` members of
+  `union apc_call` and `union apc_result`; `server/thread.c` `queue_apc`: `PROCESS_DUP_HANDLE` on the target and the
+  section duplicated into it, as for `APC_MAP_VIEW`; `server.c` `invoke_system_apc` calls `wexkey_receive`). The
+  target accepts only a path that session 0 holds for it, and opens the key with its own token on its own channel at
+  the first use, as after a new channel; a virtual key's store key is the target user's own. The record's section must
+  be a data section (not an image or file mapping), and only the record's size is mapped. A duplicate with an access of
+  its own gets real and store handles of that access. So the target's token
+  decides, not the source's grant. From another process: `APC_DUP_HANDLE` to the source, which then sends it. A
+  duplicate keeps the source's registry view (`KEY_WOW64_*`), so that a reopen after a lost channel finds the same key
+  (before, a duplicate within the process lost it). `include/wine/server_protocol.h` regenerated (protocol 987).
+- Not done (comment at the top of `wex_regkey.c`): inheritance into a child process (the child's loader takes entries
+  before anything from the parent could arrive, and the startup information has no room for the table), and
+  `NtSaveKey`/`NtLoadKey`/`NtUnloadKey` on a session 0 key.
+- Tests: `scripts/lab/system-tier-t1.sh` `xdup64_push`, `xdup64_pull`, `xdup32_push`, `xdup32_pull` (a session 0 key
+  into and from a child process, the 32-bit one in its own view); `scripts/test_sysrun_server.sh`
+  `st_virtual_key_handles_duplicate_within_and_across_processes`; the probe's `xdup` and `xget` modes
+  (`scripts/system-tier-probe.c`).
+
 ## server, ntdll, services.exe: one table per placement rule (R1 of SESSION0_SPLIT_REVIEW.md, B82, 2026-11-23)
 
 Wine branch `claude/r1-policy-tables` (on `claude/session-services` 6a6c7536, with B85's `claude/b85-service-pids`
