@@ -207,6 +207,44 @@ account `Id` form, the response properties or the `Token` form. The answer is bu
 the owner's retries in `docs/HANDOFF.md` once they have run; `AgeGroup` is not sent because the id token does not tell
 it and it is not made up, and neither is `CountryOrRegion` unless the id token has `ctry`.
 
+## What the owner's sign-ins in Copilot and Edge showed (2026-11-22/23)
+
+Copilot signs in and chats on an image with the following broker behaviour; each item was found from the logs of the
+owner's real sign-ins (no tokens kept) and, for the shapes, from the Windows probes above.
+
+- **The answer's shape** is the one measured above (batch form body, `MATS`, hex16 `Id`, state `None`, nine account
+  properties). The library only accepted the answer once the Token, the account Id and the properties all had that form
+  (error tags 9yzy9, then 53u4r: `wininet` refused `INTERNET_OPTION_LISTEN_TIMEOUT`, Wine branch
+  `claude/wininet-listen-timeout`, see STOCK_CHANGES.md).
+- **FindAccountAsync** names no client id. A process may find the accounts of the client ids it has itself used
+  (`remember_client`, `find_account`: an in-memory table of 16 processes with 4 client ids each); another process's
+  accounts stay invisible. Without it Copilot kept asking and its window stayed black.
+- **Nested App Authentication.** Copilot's silent requests carry `child_client_id` and `child_redirect_uri` (the web
+  app inside it, with `brk-multihub://m365.cloud.microsoft`) and `is_scope_request`. The token is for the child: the
+  refresh names the child as `client_id` and `redirect_uri` and the parent as `brk_client_id` and `brk_redirect_uri`
+  (`oauth_refresh_nested`); the token is cached under the child's client id and the parent's refresh token stays the
+  account's. Without it Copilot rejected every silent answer (`Silent token acquisition FAILED ... is_naa=1`) and the
+  chat never started.
+- **Windows keeps the account for the user, not per client id** (second probe, `winprobe` outside the repository,
+  Edge's requests): with one account, silent requests succeed for Edge's client id `82864fa0-...`, for MSN's
+  `f3222e55-...` and for OneService's `d7b530a4-...`, and for the legacy scopes `service::ssl.live.com::MBI_SSL_SHORT`,
+  `service::substrate.office.com::MBI_SSL`, `service::www.msn.com::mbi_ssl` and
+  `service::http://Passport.NET/purpose::PURPOSE_GETKEYDATA_ANAHEIM`. All answers have the batch form body (access
+  token, `token_type`, `expires_in`, `scope`, `id_token`, `client_info`; for `service::` scopes the access token is an
+  opaque base64-like string, not a JWT, and `scope` is the requested scope); the silent `MATS` has 22 keys
+  (`wam_account_on_end`, `perf`, `correlation_id`, `wam_blob_version`, `client_id`, `scope`, `authority`, `provider_id`,
+  `client_binary_version`, `broker_version`, `wam_account_on_start`, `prompt_behavior`, `api_error_code`, `ui_visible`,
+  `ui_allowed`, `server_error_code`, `account_id`, `silent_code`, `silent_bi_sub_code`, `silent_message`,
+  `silent_status`, `is_cached`; the interactive one has the nine listed above). The broker sends the nine in both cases.
+- **Other client ids.** The broker kept accounts per client id, so Edge's requests under its other client ids were all
+  refused ("no account": 41 of them in one run). A silent request whose client id has no account now uses the account of
+  another client id the same process has used and asks for the token as the requested client through it (a brokered
+  refresh, `account_of_used_client`); whether the token endpoint accepts that for every first-party client id is
+  to be seen. A process still never sees another process's accounts.
+- **Edge** (157.0.4341.60 from the enterprise MSI) installs and runs in the machine prefix; its sign-in works, and its
+  profile showed "Verify it's you" while those requests were refused. Its window is black with GPU rendering on (the
+  default) and draws with `--disable-gpu`.
+
 ## Open questions
 
 - Personal accounts and the redirect URI: whether Copilot's client takes its consumers tokens through the v2.0
