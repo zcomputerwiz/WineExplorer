@@ -51,6 +51,7 @@
 #include <wchar.h>
 
 #include "wexelevate.h"
+#include "wexpreg.h"
 
 #ifndef NT_SUCCESS
 #define NT_SUCCESS(s) ((LONG)(s) >= 0)
@@ -872,7 +873,7 @@ static BOOL click_consent_selected( BOOL *absent )
     *absent = err == ERROR_FILE_NOT_FOUND;
     if (*absent) return TRUE;
     if (err) return FALSE;   /* a value of another type: not a policy we know */
-    return value == 2 || value == 5;
+    return WEX_CONSENT_ADMIN_SUPPORTED( value );
 }
 
 /* PromptOnSecureDesktop: 1 when absent. Only a DWORD 0 puts the prompt on the user's desktop. */
