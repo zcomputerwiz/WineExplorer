@@ -99,3 +99,29 @@ which connects to `\BaseNamedObjects\CoreMessagingRegistrar-<pid>:...` through `
 (`NtAlpcSendWaitReceivePort`, also a stub); the next thing seen is a fail-fast (`e0464645`, then `c0000602`). So WinUI 3 needs the
 CoreMessaging service for its dispatcher queue: either an ALPC implementation good enough for that protocol, or a stand-in for the
 dispatcher queue below it. That is the next gap for Notepad and for every WinUI 3 application.
+
+## CoreMessaging, ALPC and the dispatcher queue (2026-11-23)
+
+The fail-fast after `Microsoft.UI.Dispatching.DispatcherQueueController` was the next gap in the list. What was found, in order:
+
+* The runtime ships its own CoreMessaging (`CoreMessagingXP.dll`, a complete copy including the server side). It hosts the registrar in the
+  process: one thread creates the ALPC port `\BaseNamedObjects\CoreMessagingRegistrar-<id>`, another connects to it (synchronous
+  connection with data), the server impersonates the client, accepts, receives a synchronous request and answers it. Wine had only
+  `NtAlpcCreatePort`; every other `NtAlpc*` function was a stub.
+* ALPC is implemented now (Wine abf3d5e1). No prior art: the Wine merge request "LPC: Implement proper LPC system" (MR 10611) is classic
+  LPC and does not touch `NtAlpc*`. The behaviour was measured on the Windows host with `tests/uwp/alpc/alpc-probe.c` and then fixed in
+  `dlls/ntdll/tests/alpc.c`, which gives the same result on Windows 11 and Wine (x64 and x86). What Windows does, found that way:
+  a connection request reaches the server as type `0x200a` and the answer as type `0xb`; requests and datagrams both arrive as
+  `0x2001`; a reply is a message sent with flag `0x10000` and the message id of the request (the flag is "release", not "reply"); the
+  same flag with id 0 on a connection port is a datagram to the port itself (CoreMessaging uses that); a connection with a too small
+  buffer for the answer fails with `STATUS_BUFFER_TOO_SMALL` and is closed again (the server then sees a port closed message, type 5,
+  8 bytes); the handle is left alone when a connect fails; the connection ports of Windows live in `\RPC Control`.
+* Next gap: C++/WinRT asks `CoreApplication` for `IStaticLifetime` (IID `17b0e613-...`, not in the public metadata, its collection is an
+  `IMap<HSTRING, IInspectable>`); the throw was `winrt::hresult_no_interface`, read from the throw info of the exception in
+  `Microsoft.Internal.FrameworkUdk.dll` (`tests/uwp/lab-helpers/throwtype.py`). Done in twinapi.appcore (Wine 372efb0c).
+
+State after that: Notepad creates its windows and runs XAML code. The access violations in the log are `IsBadReadPtr` probes (handled);
+the real stop is a call through a null function pointer in the main thread, right after the activation of
+`Microsoft.UI.Dispatching.DispatcherQueue` and the `IStaticLifetime` query. Not yet traced: winedbg cannot attach to a packaged
+process, and a gdb attach to the first process missed the right one. The answer of the StateRepository stand-in does not matter
+(modes 0, 1 and 5 behave the same).
