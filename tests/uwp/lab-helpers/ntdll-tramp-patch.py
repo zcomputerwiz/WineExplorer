@@ -2,8 +2,8 @@
 # Copyright 2026 WineExplorer contributors
 # lab: generates exception-tramp.c from the clean dlls/ntdll/exception.c of a candidate: ud2 trampolines (log the counters of an object and the
 # caller, restore the bytes, single-step, patch again) at the entries and inline sites in sites.txt (see sites.py) of the INSTALLED lab copy of
-# Microsoft.UI.Input.dll (patch that copy with mkpatch3.py); at a failing Begin it also logs the stack as LABSTK lines (mapstk.py). Run in a
-# directory with exception-clean.c and sites.txt.
+# Microsoft.UI.Input.dll (patch that copy with mkpatch3.py); at a failing Begin, and at the window procedure of Microsoft.UI.Windowing.Core
+# (RVA 0x33e70) for WM_NCHITTEST, it also logs the stack as LABSTK lines (mapstk.py). Run in a directory with exception-clean.c and sites.txt.
 src = open('exception-clean.c', newline='').read()
 anchor = '''NTSTATUS WINAPI dispatch_exception( EXCEPTION_RECORD *rec, CONTEXT *context )
 {
@@ -27,6 +27,7 @@ block = r'''
             { 0x2ab3f, { 0x89, 0x47 }, "I2ab3f", 1 }, { 0x2acc5, { 0x89, 0x43 }, "I2acc5", 2 },
             { 0x2b68d, { 0x89, 0x47 }, "I2b68d", 1 }, { 0x2b04e, { 0x89, 0x43 }, "I2b04e", 2 },
             { 0x2b08e, { 0x44, 0x8b }, "AfterDec", 0 },
+            { 0x33e70, { 0x48, 0x89 }, "WndProc", 0 },
 @GENERATED@
         };
         static ULONG_PTR lab_pending[64];
@@ -74,7 +75,7 @@ block = r'''
                                  labfn[k].name, (unsigned long)HandleToULong( NtCurrentTeb()->ClientId.UniqueThread ), obj, v40, v44, v48,
                                  v58, v5c, obj2, w40, (void *)ret, cbase, cbase ? (unsigned long)(ret - (ULONG_PTR)cbase) : 0 );
                         }
-                        if (k == 0 && v40 != v44 + v48)
+                        if ((k == 0 && v40 != v44 + v48) || (labfn[k].rva == 0x33e70 && context->Rdx == 0x84))
                         {
                             unsigned int n;
                             for (n = 0; n < 600; n++)

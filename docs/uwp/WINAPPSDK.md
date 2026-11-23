@@ -420,7 +420,16 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    No C++ exception is thrown in between. So the difference is a message that Wine delivers (synchronously, from inside a user32 call
    of the window code) and Windows does not, or not yet: the next step is to find which call (SetWindowPos, ShowWindow, SetCursor or a
    hit test on a hidden window) makes win32u send `WM_NCHITTEST`, and what Windows does there (a hidden window gets no hit test).
-   Tools added: `bytepatch.py`, `bytesat.py`, `mapstk.py`, `cxxbefore.py`, `ntdll-tramp-cxx.py`, `fnstart.py`, `sites.py`, `ntdll-tramp-patch.py`, `tramp-guest.sh`, `modcalls.py`, `findptr.py`, `exports.py`, `ordthunk` idea (host), probes `factory-iid-probe.c`,
+   **Message comparison (the test).** Windows (tracer on the window procedure of `Microsoft.UI.Windowing.Core`, RVA 0x33e70, 107 calls in
+   25 s): the Notepad window gets WM_WINDOWPOSCHANGING/GETMINMAXINFO/NCCALCSIZE/SHOWWINDOW/ACTIVATE/ERASEBKGND/PAINT/GETICON/SETTEXT and
+   **never a WM_NCHITTEST or WM_SETCURSOR** (the pointer was elsewhere). Wine sends WM_NCHITTEST "from self" to the same window five times,
+   with the fixed points (9,9) and (9,39): moving the lab pointer to (1800,1000) before the start changes nothing (`cursor-exp.sh`), so it is
+   not pointer driven. At the first delivery the stack's immediate caller of win32u's message call is `NotepadXamlUI.dll` (+0xc87f): Notepad's
+   own title-bar code probes the window with these points, on a path that depends on an answer of an earlier API call that differs in Wine
+   (a hit test on the caption area; Windows does not reach it in the recorded phase). `DwmDefWindowProc` is not the sender (it is a stub that
+   returns FALSE). Next: read the function around NotepadXamlUI+0xc87f (what condition guards the probe, and which API it asked first:
+   DwmGetWindowAttribute(CAPTION_BUTTON_BOUNDS), GetSystemMetrics, UISettings, a theme/DPI value) and compare that API's answer on Windows.
+   Tools added: `bytepatch.py`, `bytesat.py`, `mapstk.py`, `setcursor.c`, `cursor-exp.sh`, `cxxbefore.py`, `ntdll-tramp-cxx.py`, `fnstart.py`, `sites.py`, `ntdll-tramp-patch.py`, `tramp-guest.sh`, `modcalls.py`, `findptr.py`, `exports.py`, `ordthunk` idea (host), probes `factory-iid-probe.c`,
    `windowband-probe.c`, `user32-ordinal-probe.c`.
    (Older text of this section, kept for the record:) read the default `OpenSharedDCompositionObject` of FrameworkUdk (table id 7 or 6 of `GetFunctionTableById`) to see which private
    slot of the device it calls, and give Wine's dcomp device that method (open a shared visual from the handle of export 1040) and a visual

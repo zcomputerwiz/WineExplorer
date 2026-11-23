@@ -6,6 +6,7 @@ run=$g/build/candidates/u12/wasdk-run
 inst="$run/prefix/drive_c/Program Files/WindowsApps/Microsoft.WindowsAppRuntime.2_2.7.0.0_x64__8wekyb3d8bbwe/Microsoft.UI.Input.dll"
 CAND=u12 bash $g/claude/wasdk-run.sh '' 'err+all' > /dev/null 2>&1
 cd $g/claude && python3 mkpatch3.py "$inst" 2b020 2b080 2b210 2b2b0 2a44a 2aa87 2ab3f 2acc5 2b08e $(cat $g/claude/rvas.txt) | tail -3
+python3 mkpatch3.py "${inst%Microsoft.UI.Input.dll}Microsoft.UI.Windowing.Core.dll" 33e70 | tail -1
 cd $run
 export WINEPREFIX=$run/prefix WINESERVER=$b/server/wineserver DISPLAY=:99 WINEDEBUG=err+all,+loaddll
 timeout --kill-after=10s 70s $b/wine $g/claude/applaunch.exe 'Microsoft.WindowsNotepad_8wekyb3d8bbwe!App' > tramp.log 2>&1
