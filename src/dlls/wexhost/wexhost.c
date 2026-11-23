@@ -405,6 +405,45 @@ DWORD WINAPI WexBootSet( HWND owner, DWORD menu_timeout, BOOL recovery_enabled, 
     return params.err;
 }
 
+DWORD WINAPI WexTimeSyncGet( char *servers, DWORD size )
+{
+    struct timesync_get_params *params;
+    DWORD err;
+
+    if (servers && size) servers[0] = 0;
+    if (!unix_ready || !servers || !size) return ERROR_NOT_SUPPORTED;
+    if (!(params = calloc( 1, sizeof(*params) ))) return ERROR_NOT_ENOUGH_MEMORY;
+    WEXHOST_CALL( timesync_get, params );
+    if (!(err = params->err)) lstrcpynA( servers, params->servers, size );
+    free( params );
+    return err;
+}
+
+DWORD WINAPI WexTimeSyncSetServers( HWND owner, const char *servers )
+{
+    struct timesync_set_params *params;
+    DWORD err;
+
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    if (!servers) return ERROR_INVALID_PARAMETER;
+    if (strlen( servers ) > WEX_TIMESYNC_SERVERS_MAX) return ERROR_FILENAME_EXCED_RANGE;
+    if (!(params = calloc( 1, sizeof(*params) ))) return ERROR_NOT_ENOUGH_MEMORY;
+    lstrcpynA( params->servers, servers, sizeof(params->servers) );
+    run_pumped( owner, unix_timesync_set, params );
+    err = params->err;
+    free( params );
+    return err;
+}
+
+DWORD WINAPI WexTimeSyncNow( HWND owner )
+{
+    struct timesync_now_params params = { 0 };
+
+    if (!unix_ready) return ERROR_NOT_SUPPORTED;
+    run_pumped( owner, unix_timesync_now, &params );
+    return params.err;
+}
+
 DWORD WINAPI WexBootSetOptions( HWND owner, const char *text, DWORD *generation, char *message, DWORD message_size )
 {
     struct boot_set_options_params *params;

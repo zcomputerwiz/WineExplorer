@@ -254,6 +254,11 @@ install -D -m644 "$ROOT_DIR/scripts/wexcommon.py" "$STAGE_SESSION/usr/local/lib/
 install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.Boot1.conf" "$STAGE_SESSION/usr/share/dbus-1/system.d/org.wineexplorer.Boot1.conf"
 install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.Boot1.service" "$STAGE_SESSION/usr/share/dbus-1/system-services/org.wineexplorer.Boot1.service"
 install -D -m644 "$SCRIPT_DIR/polkit/org.wineexplorer.boot1.policy" "$STAGE_SESSION/usr/share/polkit-1/actions/org.wineexplorer.boot1.policy"
+# Date and Time's Internet Time servers (timedate.cpl): a D-Bus activated root service, polkit-checked
+cp "$ROOT_DIR/scripts/wex-timesync1.py" "$STAGE_SESSION/usr/local/sbin/wex-timesync1"
+install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.TimeSync1.conf" "$STAGE_SESSION/usr/share/dbus-1/system.d/org.wineexplorer.TimeSync1.conf"
+install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.TimeSync1.service" "$STAGE_SESSION/usr/share/dbus-1/system-services/org.wineexplorer.TimeSync1.service"
+install -D -m644 "$SCRIPT_DIR/polkit/org.wineexplorer.timesync1.policy" "$STAGE_SESSION/usr/share/polkit-1/actions/org.wineexplorer.timesync1.policy"
 cp "$ROOT_DIR/scripts/wex-bootlog.sh" "$STAGE_SESSION/usr/local/sbin/wex-bootlog"
 cp "$ROOT_DIR/scripts/wex-startup-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-startup-check"
 cp "$ROOT_DIR/scripts/wex-lastgood.sh" "$STAGE_SESSION/usr/local/sbin/wex-lastgood"
@@ -317,7 +322,7 @@ cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
 for unit in wex-advanced-options.target wex-advanced-options.service wex-safemode.target wex-safenet.target \
             wex-bootlog.service wex-startup-check.service wex-bootmode-record.service \
             wex-failure-check.service wex-failure-screen.service wex-plymouth-quit.service wex-session-choice.service \
-            wex-locale-gen.service wex-boot1.service; do
+            wex-locale-gen.service wex-boot1.service wex-timesync1.service; do
     cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"

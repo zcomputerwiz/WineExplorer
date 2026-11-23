@@ -70,6 +70,9 @@ struct boot_get_params { WEX_BOOT info; DWORD err; };
 struct boot_set_params { DWORD menu_timeout; BOOL recovery_enabled; DWORD recovery_timeout; BOOL auto_restart;
                          char message[512]; DWORD err; };
 struct boot_set_options_params { char text[WEX_BOOT_OPTIONS_MAX]; DWORD generation; char message[512]; DWORD err; };
+struct timesync_get_params { char servers[WEX_TIMESYNC_SERVERS_MAX + 64]; DWORD err; };
+struct timesync_set_params { char servers[WEX_TIMESYNC_SERVERS_MAX + 64]; DWORD err; };
+struct timesync_now_params { DWORD err; };
 struct user_get_params { WEX_USER info; DWORD err; };
 
 struct net_get_status_params { WEX_NET_STATUS status; DWORD err; };
@@ -424,6 +427,9 @@ enum wexhost_funcs
     unix_boot_get,
     unix_boot_set,
     unix_boot_set_options,
+    unix_timesync_get,
+    unix_timesync_set,
+    unix_timesync_now,
     unix_host_watch_start,
     unix_host_watch_next,
     unix_host_watch_stop,

@@ -51,3 +51,14 @@ The applet icon matches the ReactOS resource and is cataloged in the asset manif
 
 The built Regional Options applet was launched in the VM and displayed the current locale's number,
 currency, time, and date samples. Its controls were closed without applying changes.
+
+## Date and Time: Internet Time (2026-11-22)
+
+The Internet Time tab shows what the time service does and opens "Change settings..." (the dialog of Windows 7 and later):
+the check box is timedated's SetNTP (`WexTimedateSetNtp`), the server box writes `/etc/systemd/timesyncd.conf.d/90-wineexplorer.conf`
+through the root service `org.wineexplorer.TimeSync1` (`scripts/wex-timesync1.py`, D-Bus activated, polkit action
+`org.wineexplorer.timesync1.set-servers`, `auth_admin_keep`, as timedate1's own changes), and Update now restarts
+`systemd-timesyncd`, which synchronises when it starts. A computer without timedated or timesyncd shows the tab with the
+controls gray and says the time service is missing. Tests: `scripts/test_timesync1.py`; end to end with a fake
+PolicyKit1 and timedate1 on the system bus (2026-11-22, dev build): check box, server list, drop-in and service restart
+all took effect, and the tab showed the new state.

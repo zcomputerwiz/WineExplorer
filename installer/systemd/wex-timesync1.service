@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+# org.wineexplorer.TimeSync1: Date and Time's Internet Time servers (scripts/wex-timesync1.py). Started by D-Bus
+# activation (org.wineexplorer.TimeSync1.service in dbus-1/system-services); it ends by itself after a minute without calls.
+[Unit]
+Description=WineExplorer Internet Time servers
+
+[Service]
+Type=dbus
+BusName=org.wineexplorer.TimeSync1
+ExecStart=/usr/local/sbin/wex-timesync1

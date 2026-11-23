@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!-- Copyright 2026 WineExplorer contributors -->
+<!-- Internet Time (scripts/wex-timesync1.py): the same rule as timedate1's changes (auth_admin_keep), so whoever may
+     change the clock may change its servers. -->
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>WineExplorer</vendor>
+  <action id="org.wineexplorer.timesync1.set-servers">
+    <description>Change the Internet time servers</description>
+    <message>Authentication is required to change the Internet time servers or to synchronize the clock now.</message>
+    <defaults>
+      <allow_any>auth_admin_keep</allow_any>
+      <allow_inactive>auth_admin_keep</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

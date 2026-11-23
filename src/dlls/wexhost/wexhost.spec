@@ -84,3 +84,6 @@
 @ stdcall WexBootGet(ptr)
 @ stdcall WexBootSet(long long long long long ptr long)
 @ stdcall WexBootSetOptions(long str ptr ptr long)
+@ stdcall WexTimeSyncGet(ptr long)
+@ stdcall WexTimeSyncSetServers(long str)
+@ stdcall WexTimeSyncNow(long)

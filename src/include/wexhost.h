@@ -124,6 +124,18 @@ DWORD WINAPI WexBootSet( HWND owner, DWORD menu_timeout, BOOL recovery_enabled, 
  * (vintner cmdline set), which falls back by itself if it does not start. */
 DWORD WINAPI WexBootSetOptions( HWND owner, const char *text, DWORD *generation, char *message, DWORD message_size );
 
+/* Internet Time's servers (timedate.cpl): org.wineexplorer.TimeSync1, scripts/wex-timesync1.py. Turning network time
+ * on or off is WexTimedateSetNtp; these name the servers and ask for a synchronisation now. polkit asks for an
+ * administrator's password. */
+#define WEX_TIMESYNC_SERVERS_MAX 1024
+/* The servers in effect, separated by spaces; empty: the distribution's defaults. */
+DWORD WINAPI WexTimeSyncGet( char *servers, DWORD size );
+/* servers: space separated host names or addresses (at most 8); empty removes the setting. Restarts the time service,
+ * so the clock is synchronised against the new servers at once. */
+DWORD WINAPI WexTimeSyncSetServers( HWND owner, const char *servers );
+/* Synchronise the clock now (restarts the time service). */
+DWORD WINAPI WexTimeSyncNow( HWND owner );
+
 /* network: NetworkManager */
 #define WEX_NET_ETHERNET 1
 #define WEX_NET_WIFI     2

@@ -144,6 +144,10 @@ static DWORD map_error( DBusError *err )
     if (p_dbus_error_has_name( err, "org.wineexplorer.Boot1.Error.NotAuthorized" )) return ERROR_ACCESS_DENIED;
     if (p_dbus_error_has_name( err, "org.wineexplorer.Boot1.Error.Cancelled" )) return ERROR_CANCELLED;
     if (p_dbus_error_has_name( err, "org.wineexplorer.Boot1.Error.InvalidArgs" )) return ERROR_INVALID_PARAMETER;
+    /* org.wineexplorer.TimeSync1 (scripts/wex-timesync1.py) */
+    if (p_dbus_error_has_name( err, "org.wineexplorer.TimeSync1.Error.NotAuthorized" )) return ERROR_ACCESS_DENIED;
+    if (p_dbus_error_has_name( err, "org.wineexplorer.TimeSync1.Error.Cancelled" )) return ERROR_CANCELLED;
+    if (p_dbus_error_has_name( err, "org.wineexplorer.TimeSync1.Error.InvalidArgs" )) return ERROR_INVALID_PARAMETER;
     if (p_dbus_error_has_name( err, DBUS_ERROR_SERVICE_UNKNOWN ) || p_dbus_error_has_name( err, DBUS_ERROR_NAME_HAS_NO_OWNER ) ||
         p_dbus_error_has_name( err, DBUS_ERROR_NO_SERVER ) || p_dbus_error_has_name( err, DBUS_ERROR_DISCONNECTED ) ||
         p_dbus_error_has_name( err, DBUS_ERROR_FILE_NOT_FOUND ) || p_dbus_error_has_name( err, DBUS_ERROR_UNKNOWN_METHOD ))
@@ -773,6 +777,53 @@ static NTSTATUS boot_set_options( void *args )
         if (published) params->generation = generation;
         p_dbus_message_unref( reply );
     }
+    return STATUS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ Internet Time: org.wineexplorer.TimeSync1 */
+
+#define TS_DEST  "org.wineexplorer.TimeSync1"
+#define TS_PATH  "/org/wineexplorer/TimeSync1"
+#define TS_IFACE "org.wineexplorer.TimeSync1"
+
+static NTSTATUS timesync_get( void *args )
+{
+    struct timesync_get_params *params = args;
+    struct prop props[] = { { "Servers", DBUS_TYPE_STRING, params->servers, WEX_TIMESYNC_SERVERS_MAX + 1 } };
+
+    memset( params->servers, 0, sizeof(params->servers) );
+    params->err = get_properties( TS_DEST, TS_PATH, TS_IFACE, props, ARRAYSIZE(props) );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS timesync_set( void *args )
+{
+    struct timesync_set_params *params = args;
+    DBusMessage *msg;
+    const char *servers = params->servers;
+    dbus_bool_t interactive = TRUE;
+    char message[128];
+
+    params->servers[sizeof(params->servers) - 1] = 0;
+    msg = load_dbus() ? p_dbus_message_new_method_call( TS_DEST, TS_PATH, TS_IFACE, "SetServers" ) : NULL;
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &servers, DBUS_TYPE_BOOLEAN, &interactive,
+                                         DBUS_TYPE_INVALID );
+    params->err = call_boot( msg, NULL, message, sizeof(message) );
+    if (msg) p_dbus_message_unref( msg );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS timesync_now( void *args )
+{
+    struct timesync_now_params *params = args;
+    DBusMessage *msg;
+    dbus_bool_t interactive = TRUE;
+    char message[128];
+
+    msg = load_dbus() ? p_dbus_message_new_method_call( TS_DEST, TS_PATH, TS_IFACE, "SyncNow" ) : NULL;
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_BOOLEAN, &interactive, DBUS_TYPE_INVALID );
+    params->err = call_boot( msg, NULL, message, sizeof(message) );
+    if (msg) p_dbus_message_unref( msg );
     return STATUS_SUCCESS;
 }
 
@@ -1876,6 +1927,9 @@ STUB( hostname_set, struct hostname_set_params )
 STUB( boot_get, struct boot_get_params )
 STUB( boot_set, struct boot_set_params )
 STUB( boot_set_options, struct boot_set_options_params )
+STUB( timesync_get, struct timesync_get_params )
+STUB( timesync_set, struct timesync_set_params )
+STUB( timesync_now, struct timesync_now_params )
 STUB( user_get, struct user_get_params )
 STUB( net_get_status, struct net_get_status_params )
 STUB( net_scan_wifi, struct net_scan_wifi_params )
@@ -2955,6 +3009,9 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     boot_get,
     boot_set,
     boot_set_options,
+    timesync_get,
+    timesync_set,
+    timesync_now,
     host_watch_start,
     host_watch_next,
     host_watch_stop,
@@ -3061,6 +3118,9 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     boot_get,
     boot_set,
     boot_set_options,
+    timesync_get,
+    timesync_set,
+    timesync_now,
     host_watch_start,
     host_watch_next,
     host_watch_stop,
