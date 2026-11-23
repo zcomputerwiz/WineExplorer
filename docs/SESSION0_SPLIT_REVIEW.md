@@ -186,6 +186,22 @@ Not recommended:
 - **Merging configuration parsers again:** the C readers already share `wex_sysrun_conf.h`. The remaining parsers are
   test and lab scripts, plus one setup script that runs after the C reader has validated the file.
 
+## Progress
+
+The owner approved R0 and R1 on 2026-11-23. The fixes in R0 that are bugs (B81, B83, B84, B85) went to the
+orchestrator; B82 is part of R1a.
+
+| Item | State |
+|---|---|
+| R0 docs | done: T5 design marked superseded as built; bridge allowlist and service status notifications in `SYSTEM_TIER_WORK_ORDERS.md`; the copy-on-write note in `PREFIX_SPLIT.md` |
+| R1a | done (Wine 9df8f18d, B82): one list of the keys of each session, used by ntdll's routing and the server's persistence; one path matcher instead of three. A table with separate routing and persistence flags turned out not to be needed: once the server's missing entries were added, every entry needs both |
+| R1b | done (Wine 3a1fb8ba): `WexSessionService` in a service's own key places it; it replaces the `SessionServices` list. The built-in names stay as the defaults in C: moving them to `wine.inf` would only take effect when `wine.inf` is applied again, and a service of the session placed in session 0 in the meantime (RpcSs, PlugPlay) breaks the session. What a service needs (processes, handles, desktop) is not recorded: one value covers the case met so far (B76) |
+| R1c | done for the trusted images (Wine 2a2b2946: one table with roles). Not done for the bridge's pipe names: the server writes them as WCHAR arrays, `services.exe` and `wexelevate` as `L""` strings, so one shared definition would need a macro per name for little gain |
+| R1d | not done, on purpose: `session0_init` already decides the role once at start and refuses impossible combinations with a fatal error. What remains are the fallback modes, which R4 retires; renaming about 50 flag checks before that would be churn |
+
+Branches: WineExplorer `claude/session0-split-review` (docs and the T1 test, Wine pinned to `claude/r1-policy-tables`),
+Wine `claude/r1-policy-tables` (on `claude/session-services`, with B85 merged).
+
 ## Decisions for the owner
 
 1. **Targeted refactor (R0 to R7) rather than a rewrite.** Recommended.
