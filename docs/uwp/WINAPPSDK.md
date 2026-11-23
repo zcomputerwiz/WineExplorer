@@ -325,7 +325,23 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    compositor (`dcompi.dll`) never created, most likely because its engine (command stream to the system compositor) is not there.
    Tools: `mapav2.py` (Nth stack dump of a thread, with the +loaddll bases), `readguid.py`, `findguid.py`, `impcalls.py`.
 
+7. **Where the NULL visual comes from (found 2026-11-23).** It is not a `dcompi.dll` object that was never created, and not the Compositor
+   stubs. `Microsoft.UI.Input.dll` creates its visual with `DCompPrivates_CreateSharedVisual`; FrameworkUdk implements the `DCompPrivates_*`
+   functions itself (a table by id from `Microsoft.Internal.FrameworkUdk.System.dll`, a Windows system DLL that Wine does not have; without
+   it FrameworkUdk uses its built-in default tables) and chooses its "UDK helper" class by the highest `Windows.Foundation.UniversalApiContract`
+   major the system claims (`IsApiContractPresentByMajor`, from 17 down; Wine answers up to 10, Windows 11 up to 19, measured). The class for 10
+   asks the CoreUI session (`CoreUICreate`, our `coreui.c`) for an item, registers a callback (session slot 12), then queries an object for
+   {37a94c05-1aa6-4cea-9049-083bba055cec} (answered by the *generic* object of `coreui.c`) and calls its slot 5 with (an out pointer, 0, 2, the
+   object): that call is where the visual comes from. The generic stub answers S_OK and leaves the out pointer NULL, so Input goes on with a NULL
+   visual. Proof: with slot 5 returning E_NOTIMPL the NULL read is gone and XAML fails fast with 0x80004001 right there.
+   With the contract claimed up to 19 (an experiment, not committed) FrameworkUdk takes the newest class and calls session **slot 13** instead
+   (also E_NOTIMPL in `coreui.c`), also early: both generations of the helper ask the CoreUI session for the visual.
+   So what is missing is `ICoreUIItem`/{37a94c05} of CoreMessaging: a factory for the visual that the system compositor shares with the
+   process, which FrameworkUdk then queries for {2c4eef28} (`dcompi.dll`'s private visual interface) and sizes with `SetVisualRelativeSize`.
+   Tools: `readguid.py`, `readstr.py`, `readptrs.py` (tables in .rdata), `impcalls.py`, `findguid.py`.
+
 The step after is design, not a stub: what the runtime's compositor hands to the system compositor (the command stream, shared visual handles,
 the island and HWND hosting of `DesktopWindowXamlSource`) must be answered by Wine's own dcomp (about 5000 lines in the fork). Next: find which
 call of `dcompi.dll` hands `Microsoft.UI.Input.dll` the NULL visual (relay of the `Microsoft.UI.Composition` activation factories and of the
 visual creation calls), then what it needs from the engine.
+Next: the interface {37a94c05-...} of CoreMessaging (slot 5 of the version-10 helper, slot 13 of the newest): probe it on Windows 11 (CoreUICreate -> slot 8 -> QueryInterface), then give it a real body that hands FrameworkUdk a visual on Wine's dcomp.
