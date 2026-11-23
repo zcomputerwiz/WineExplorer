@@ -33,6 +33,7 @@ void clock_unregister_class(HINSTANCE hinst);
 
 INT_PTR CALLBACK dateandtime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 INT_PTR CALLBACK timezone_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+INT_PTR CALLBACK internettime_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
 
 #define CLM_STOPCLOCK  (WM_USER + 1)

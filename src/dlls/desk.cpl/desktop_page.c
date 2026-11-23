@@ -212,7 +212,8 @@ INT_PTR CALLBACK desktop_page_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         }
 
         case IDC_BG_CUSTDESK:
-            DialogBoxW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(IDD_CUSTDESKTOP), hwnd, custdesktop_dlg_proc);
+            /* the template is in this dll, not in the host exe (control.exe, rundll32): the page was created from it */
+            DialogBoxW((HINSTANCE)GetWindowLongPtrW(hwnd, GWLP_HINSTANCE), MAKEINTRESOURCEW(IDD_CUSTDESKTOP), hwnd, custdesktop_dlg_proc);
             break;
         }
         break;

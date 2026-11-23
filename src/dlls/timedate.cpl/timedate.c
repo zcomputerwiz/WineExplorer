@@ -33,7 +33,7 @@ static void show_timedate_dialog(HWND hwndParent)
         .dwSize = sizeof(INITCOMMONCONTROLSEX),
         .dwICC = ICC_DATE_CLASSES | ICC_UPDOWN_CLASS | ICC_TAB_CLASSES
     };
-    PROPSHEETPAGEW pages[2];
+    PROPSHEETPAGEW pages[3];
     PROPSHEETHEADERW psh;
     ACTCTXW context_desc = {
         .cbSize = sizeof(ACTCTXW),
@@ -67,6 +67,13 @@ static void show_timedate_dialog(HWND hwndParent)
     pages[1].hInstance = g_hInstance;
     pages[1].pszTemplate = MAKEINTRESOURCEW(IDD_TIMEZONE);
     pages[1].pfnDlgProc = timezone_page_proc;
+
+    /* Internet Time page */
+    pages[2].dwSize = sizeof(PROPSHEETPAGEW);
+    pages[2].dwFlags = PSP_DEFAULT;
+    pages[2].hInstance = g_hInstance;
+    pages[2].pszTemplate = MAKEINTRESOURCEW(IDD_INTERNETTIME);
+    pages[2].pfnDlgProc = internettime_page_proc;
 
     memset(&psh, 0, sizeof(psh));
     psh.dwSize = sizeof(PROPSHEETHEADERW);

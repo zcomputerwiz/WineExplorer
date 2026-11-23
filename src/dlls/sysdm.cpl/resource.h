@@ -142,6 +142,11 @@
 #define IDC_ENV_SYS_NEW        2506
 #define IDC_ENV_SYS_EDIT       2507
 #define IDC_ENV_SYS_DEL        2508
+/* New/Edit User (System) Variable */
+#define IDD_ENVVAR_EDIT        1030
+#define IDC_ENVE_NAME          2511
+#define IDC_ENVE_VALUE         2512
+#define IDC_ENV_USER_GROUP     2513
 
 /* Startup and Recovery Controls (after ReactOS's sysdm IDD_STARTUPRECOVERY) */
 #define IDC_STRECOSCOMBO       2601
