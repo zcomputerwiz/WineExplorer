@@ -415,6 +415,18 @@ static int test_length_errors( void )
         CHECK( e1r8_decode_ack( buf, 155, &t, &a ) != E1R8_OK, "ACK one short" );
         buf[156] = 0;
         CHECK( e1r8_decode_ack( buf, 157, &t, &a ) != E1R8_OK, "ACK one long" );
+        /* R5: the dialog's ACK must carry the tuple's digests and dialog id (moved from the broker test's
+         * R8 INIT/ACK case; B0 checks the ACK with this decoder) */
+        buf[76] ^= 0xff;
+        CHECK( e1r8_decode_ack( buf, 156, &t, &a ) == E1R8_ERR_TUPLE, "ACK wrong binding_digest" );
+        buf[76] ^= 0xff;
+        buf[108] ^= 0xff;
+        CHECK( e1r8_decode_ack( buf, 156, &t, &a ) == E1R8_ERR_TUPLE, "ACK wrong request_digest" );
+        buf[108] ^= 0xff;
+        buf[140] ^= 0xff;
+        CHECK( e1r8_decode_ack( buf, 156, &t, &a ) == E1R8_ERR_TUPLE, "ACK wrong dialog_id" );
+        buf[140] ^= 0xff;
+        CHECK( e1r8_decode_ack( buf, 156, &t, &a ) == E1R8_OK, "ACK restored" );
     }
 
     /* SELECT: 81..143. */
