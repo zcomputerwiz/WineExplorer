@@ -359,10 +359,12 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    `ud2` over the entry of the creation function (RVA 0xaa770) and of its four callers (0x9bf60, 0x9c080, 0x9c180, 0xa37c0) is not hit either:
    no creation call is made at all. The first three and 0x9c280 are the slots 3-6 of one vtable (RVA 0x130460 of Input: virtual methods of the
    visual class), so something that owns such a visual is expected to call one of them (initialize it, with or without a handle), and in Wine
-   that call is never made, while the later update (`SetVisualRelativeSize`) is. Where that call comes from is the open question. The likeliest
-   source is event delivery: FrameworkUdk registers a callback (its RVA 0xbd10, which forwards (rcx, rdx, r8d) to a handler table the Windows
-   App Runtime fills) with `ICoreUISession` slot 12/13 together with a 35-byte message record, and Wine's CoreUI never calls it back. Not
-   verified: the same `ud2` trick on the handlers behind 0xbd10 would show whether any of them runs on Windows' paths.
+   that call is never made, while the later update (`SetVisualRelativeSize`) is. Where that call comes from is the open question.
+   (The vtable is a COM-style interface table, QI/AddRef/Release then the four methods; it has no RTTI, so the class name is unknown.)
+   **Not the CoreUI callback.** I suspected event delivery (FrameworkUdk registers its RVA 0xbd10 with `ICoreUISession` slot 12/13) and
+   dumped the 35-byte record that goes with it (slot 5 of the {37a94c05} object): it is the UTF-16 string `WinUIVisualDiagCon...` (the
+   WinUI visual diagnostics connection, Live Visual Tree), so that registration is the diagnostics endpoint and has nothing to do with
+   creating the visual. Slot 12/13's callback may be the same endpoint's.
    The visual has to be a `dcompi.dll` object, i.e. made by the lifted compositor from the shared-visual handle (our event from export 1040)
    through its command engine, not a visual of Wine's dcomp.
    The NULL visual itself is still not located: `DCompPrivates_CreateSharedVisual` (default table id 6, slot 1 -> the singleton's slot 14)
