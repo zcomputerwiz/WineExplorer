@@ -215,3 +215,25 @@ This is a blind walk down a chain of undocumented interfaces of the CoreUI sessi
 system). Each step costs one probe on Windows and one run; how deep it goes is not known. Alternatives: (a) find out what makes
 `WindowsXamlManager` call `CoreWindowIntegration` (a version or feature check that can be answered the other way, which would skip the
 whole chain); (b) implement the session for real (needs the window system side: the `Windows.UI.Composition` / DWM piece).
+
+## The trigger was a set of registrations; Notepad now reaches XAML object creation (2026-11-23)
+
+What makes `Microsoft.Internal.FrameworkUdk.dll` ask the operating system's CoreMessaging for a CoreUI session is not one feature check: its
+exports `FinalUnhandledErrorDetected_RegisterHandler`, `WindowPositionChanged_RegisterListener`, `BackButtonIntegration_*`,
+`FrameworkInputView_*`, `InputPaneFramework_*` and similar register listeners with the CoreUI session, and Xaml calls them at start-up.
+So the chain is bounded (one registration object per kind) and there is no switch to turn it off. Instead of one probe per interface, an
+interface of the item that is not known is answered with a generic object whose 32 methods succeed and log (`dlls/coremessaging/coreui.c`,
+the arguments are in the log). With that the registrations pass and Notepad goes on, no fail-fast from the session any more.
+
+Further gaps found on the way, in the order Notepad hit them (all done, Wine 599b86ef):
+
+* `Windows.Storage.AppDataPaths` (new in `windows.storage.applicationdata`): the prefix has to be updated for a new class (`wineboot -u`, or a
+  fresh prefix; the registration is made from the module). On Windows the properties need a package identity (`APPMODEL_ERROR_NO_PACKAGE`
+  otherwise, even for a null argument): the test checks it on both.
+* `bcp47mrm.GetDistanceOfClosestLanguageInList` (a stub of my own module): a similarity score, measured with
+  `tests/uwp/alpc/bcp47-probe.c` (1 same tag, 0.98 region missing, 0.975/0.976 other region, 0.96 for "und", 0.1 less per list position,
+  `ERROR_NO_MATCH` for no match, `E_POINTER` for null).
+
+State: Notepad creates its XAML objects (Uri, AcrylicBrush ...), DirectX adapter enumeration and window handles run, and then a C++/WinRT
+`hresult_no_interface` (again) propagates out of a `noexcept` function after a run of failed `QueryInterface` probes on a boxed value and
+on a `Uri` ({0c881986-86e1-40b3-9642-9e5090a8a6b0}, {4bd682dd-...} = IPropertyValue). Next: find which object is unboxed as which type.

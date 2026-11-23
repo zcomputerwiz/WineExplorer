@@ -3992,3 +3992,8 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 - `dlls/twinapi.appcore/static_lifetime.c` (new), `core_application.c`, `private.h`, `Makefile.in`: `IStaticLifetime` of `Windows.ApplicationModel.Core.CoreApplication` and its collection, the process-wide map of the factories of C++/WinRT classes with static lifetime (Wine 372efb0c).
 
 2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`): ALPC security (`server/alpc.c`, `dlls/ntdll/unix/alpc.c`, `dlls/ntdll/alpc.c`, `ntdll.spec`, `include/winternl.h`, protocol): the connect right is checked against the DACL of the port; impersonation needs the flag of the connection port, takes the token of the sender at send time (only for a message sent with a security attribute) and uses the named pipes helper `token_impersonation_level`; `NtAlpcCreateSecurityContext` and `NtAlpcDeleteSecurityContext` are semi-stubs. The Windows measurements are in docs/uwp/WINAPPSDK.md.
+
+2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`, found by running Notepad of the Windows App SDK, `docs/uwp/WINAPPSDK.md`):
+- `dlls/coremessaging/coreui.c` (new, `coremessaging.spec`, `Makefile.in`): `CoreUICreate` and the interfaces behind it (semi-stubs that log), measured on Windows 11 (`tests/uwp/alpc/coreui-probe.c`).
+- `dlls/bcp47mrm/main.c`, `bcp47mrm.spec`, test: `GetDistanceOfClosestLanguageInList`.
+- `dlls/windows.storage.applicationdata/appdatapaths.c` (new), `classes.idl`, `main.c`, `private.h`, `Makefile.in` (shell32 delay import), `tests/data.c`, `include/windows.storage.idl`: `Windows.Storage.AppDataPaths` (IAppDataPaths, IAppDataPathsStatics).
