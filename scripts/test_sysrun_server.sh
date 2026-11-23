@@ -142,6 +142,7 @@ c4_writer        c4_build           n   c4
 c4_msi_doc       c4_build           n   c4
 c4_appx_doc      c4_build           n   c4
 c4_wam           c4_build           n   c4
+c4_dwm           c4_build           n   c4
 c4_std           c4_build           n   c4
 c4_noleases      c4_build           n   c4
 c5_build         c4_build           nl  c5
@@ -267,12 +268,15 @@ section()   # NAME: 0 when the section runs now (its body follows in a subshell)
         return 1
     fi
     echo "--- section $sec_n"
-    mkdir -p "$SEC_DIR"; rm -f "$SEC_DIR/fatal" "$SEC_DIR/state.vars" "$SEC_DIR/state.funcs"
+    mkdir -p "$SEC_DIR"; rm -f "$SEC_DIR/fatal" "$SEC_DIR/skip" "$SEC_DIR/state.vars" "$SEC_DIR/state.funcs"
     snap_take || fatal "the snapshot before section $sec_n failed"
     compgen -v > "$SEC_DIR/vars.before"
     SEC_CUR="$sec_n"; SEC_T0=$SECONDS
 }
 section_enter() { set -e; SEC_IN=1; SEC_PID=$BASHPID; trap section_dump EXIT; }
+# a section that finds, before it changes anything, that what it tests is not there (a build without the program):
+# SKIP with the reason, not PASS
+section_skip() { echo "$*" > "$SEC_DIR/skip"; exit 0; }
 section_dump()   # the section's EXIT trap: hands its functions and variables to the suite's shell
 {
     local sec_rc=$? sec_names
@@ -294,6 +298,10 @@ section_leave()   # STATUS of the section's subshell
     [ ! -s "$SEC_DIR/state.vars" ] || source "$SEC_DIR/state.vars"
     rm -f "$SEC_DIR/state.funcs" "$SEC_DIR/state.vars"
     SEC_CUR=""
+    if [ "$sec_rc" = 0 ] && [ -s "$SEC_DIR/skip" ]; then
+        SEC_RES[$sec_n]=SKIP; SEC_WHY[$sec_n]="$(cat "$SEC_DIR/skip")"; rm -f "$SEC_DIR/skip"
+        echo "--- section $sec_n: SKIP (${SEC_WHY[$sec_n]})"; return 0
+    fi
     if [ "$sec_rc" = 0 ]; then SEC_RES[$sec_n]=PASS; echo "--- section $sec_n: PASS ($sec_t s)"; return 0; fi
     SEC_RES[$sec_n]=FAIL; SEC_FAILED="$SEC_FAILED $sec_n"
     echo "--- section $sec_n: FAIL ($sec_t s, status $sec_rc)"; echo "FAIL: section $sec_n" >&2
@@ -341,8 +349,10 @@ watch_hold()
     fail "wex-accounts.service is still running after it was stopped"
 }
 watch_release() { local sec_u; for sec_u in $WATCH_UNITS; do systemctl start "$sec_u" >/dev/null 2>&1 || true; done; WATCH_UNITS=""; }
-# the snapshot: whole trees, the machine root's files, and in system32/syswow64 the names and the programs the
-# sections replace (Wine itself rewrites other files there, wineboot for one)
+# the snapshot: whole trees, the files (not the folders) of the machine root and of the users' own prefixes (their
+# user.reg holds HKCU), and in system32/syswow64 the names and the programs the sections replace (Wine itself rewrites
+# other files there, wineboot for one)
+snap_filedirs() { local sec_u; echo "$M"; for sec_u in "$STD" "$ADM" "$CAR"; do [ ! -d "/home/$sec_u/.wine" ] || echo "/home/$sec_u/.wine"; done; }
 snap_trees() { printf '%s\n' /etc/wineexplorer "$LIBEXEC" "$M/drive_c/windows/system32/GroupPolicy" "$M/drive_c/windows/system32/GroupPolicyUsers"; }
 SNAP_WATCH='winedevice.exe wexelevate.exe wexelevate_test.exe wexelevate_stub.exe consent.exe consent_test.exe leaseprobe.exe wexappx.exe'
 snap_sig()   # DIR [DEPTH]: names, types, modes, owners, link targets and contents (the S6 service's files left out)
@@ -362,7 +372,7 @@ snap_one()   # FILE: type, mode, owners and the link target or the contents
 snap_take()
 {
     local i=0 d f sub
-    rm -rf "$SNAP" && mkdir -p "$SNAP/top" "$SNAP/system32" "$SNAP/syswow64" || return 1
+    rm -rf "$SNAP" && mkdir -p "$SNAP/system32" "$SNAP/syswow64" || return 1
     while read -r d; do
         i=$((i + 1))
         if [ -e "$d" ]; then
@@ -370,7 +380,12 @@ snap_take()
             rm -f "$SNAP/tree$i/e1s6-lab.py" "$SNAP/tree$i/e1r8.py" "$SNAP/tree$i/evidence.py"
         else : > "$SNAP/tree$i.absent"; fi
     done < <(snap_trees)
-    find "$M" -mindepth 1 -maxdepth 1 -type f -print0 | xargs -0r cp -a -t "$SNAP/top/" || return 1
+    snap_filedirs > "$SNAP/filedirs"
+    i=0
+    while read -r d; do
+        i=$((i + 1)); mkdir -p "$SNAP/files$i"
+        find "$d" -mindepth 1 -maxdepth 1 -type f -print0 | xargs -0r cp -a -t "$SNAP/files$i/" || return 1
+    done < "$SNAP/filedirs"
     for sub in system32 syswow64; do
         d="$M/drive_c/windows/$sub"
         ls -A "$d" | LC_ALL=C sort > "$SNAP/$sub.names" && [ -s "$SNAP/$sub.names" ] || return 1
@@ -385,7 +400,11 @@ snap_diffs()   # what differs from the snapshot; nothing when all is as it was
         if [ -e "$SNAP/tree$i.absent" ]; then [ ! -e "$d" ] || echo "$d exists, it did not before"
         else diff -q <(snap_sig "$d") <(snap_sig "$SNAP/tree$i") >/dev/null || echo "$d differs"; fi
     done < <(snap_trees)
-    diff -q <(snap_sig "$M" 1) <(snap_sig "$SNAP/top" 1) >/dev/null || echo "the files of $M differ"
+    i=0
+    while read -r d; do
+        i=$((i + 1))
+        diff -q <(snap_sig "$d" 1) <(snap_sig "$SNAP/files$i" 1) >/dev/null || echo "the files of $d differ"
+    done < "$SNAP/filedirs"
     for sub in system32 syswow64; do
         d="$M/drive_c/windows/$sub"
         diff -q <(ls -A "$d" | LC_ALL=C sort) "$SNAP/$sub.names" >/dev/null || echo "the names in $d differ"
@@ -400,8 +419,12 @@ snap_restore()
         if [ -e "$SNAP/tree$i.absent" ]; then rm -rf "$d"
         elif ! diff -q <(snap_sig "$d") <(snap_sig "$SNAP/tree$i") >/dev/null; then rm -rf "$d"; cp -a "$SNAP/tree$i" "$d"; fi
     done < <(snap_trees)
-    for f in $(find "$M" -mindepth 1 -maxdepth 1 -type f -printf '%f\n'); do [ -e "$SNAP/top/$f" ] || rm -f "$M/$f"; done
-    cp -a --remove-destination "$SNAP/top/." "$M/"
+    i=0
+    while read -r d; do
+        i=$((i + 1))
+        for f in $(find "$d" -mindepth 1 -maxdepth 1 -type f -printf '%f\n'); do [ -e "$SNAP/files$i/$f" ] || rm -f "$d/$f"; done
+        cp -a --remove-destination "$SNAP/files$i/." "$d/"
+    done < "$SNAP/filedirs"
     for sub in system32 syswow64; do
         d="$M/drive_c/windows/$sub"
         for f in $(ls -A "$d" | LC_ALL=C sort | comm -23 - "$SNAP/$sub.names"); do
@@ -3221,6 +3244,53 @@ for arch in x86_64 i386; do
 done
 kill "$WAM_AUTH" 2>/dev/null; wait "$WAM_AUTH" 2>/dev/null || true
 pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
+true; ); section_leave $?; fi
+
+# -- the desktop window manager with elevation enforced (Integration's recipe, 2026-11-23): dwmapi's own tests as the
+# limited administrator on a shell desktop of their own, where the desktop manager starts dwm.exe (HKCU DwmService=1).
+# Passing: dwm_channel, dwm_attr and dwm_thumb, both architectures, "N tests executed (..., 0 failures), 0 skipped"
+# with N > 0; a skip ("needs a desktop with a DWM broker") is a failure. test_low_integrity_client's "exit code 1": no
+# pipe (DACL or the no-write-up label); "2": the server refused the limited query (Wine's token-read-limited missing, or
+# dwm.exe's token is not an ordinary one). Needs Wine's dwm-pipe and token-read-limited and the superproject's dwm.exe:
+# SKIP (with the reason) while the build has no dwmapi tests or the machine root no dwm.exe. The keys it adds are
+# removed at its end; after a failure the snapshot puts the administrator's user.reg back.
+if section c4_dwm; then set +e; ( section_enter
+DWMT="$BUILD/dlls/dwmapi/tests"
+ls "$DWMT"/*-windows/dwmapi_test.exe >/dev/null 2>&1 || section_skip "the build has no dwmapi tests ($DWMT/*-windows/dwmapi_test.exe)"
+[ -e "$SYS32/dwm.exe" ] || section_skip "the machine root has no dwm.exe"
+DWMOUT="$ROOT/c4dwm"; rm -rf "$DWMOUT"; install -d -m 1777 "$DWMOUT"
+DWMKEY='HKCU\Software\WineExplorer\Shell'
+wine_as "$ADM" reg add "$DWMKEY" /v DwmService /t REG_DWORD /d 1 /f >/dev/null 2>&1 || fail "dwm: HKCU DwmService"
+dwm_fail=""
+for arch in x86_64 i386; do
+    desk="c4dwm$arch"
+    # a shell desktop (EnableShell=1): a plain /desktop=NAME closes a second after only its manager's threads remain
+    wine_as "$ADM" reg add "HKCU\Software\Wine\Explorer\Desktops\\$desk" /v EnableShell /t REG_DWORD /d 1 /f >/dev/null 2>&1 ||
+        fail "dwm: the EnableShell key of $desk"
+    for t in dwm_channel dwm_attr dwm_thumb; do
+        out="$DWMOUT/$t-$arch.txt"; rm -f "$out" "$out.done"
+        # explorer starts dwm.exe, then the command; explorer does not exit afterwards: the .done marker ends the wait
+        run_as "$ADM" timeout 120 "$BUILD/wine" explorer.exe "/desktop=$desk,800x600" cmd /c \
+            "$(winpath "$DWMT/$arch-windows/dwmapi_test.exe") $t > $(winpath "$out") 2>&1 & echo done > $(winpath "$out.done")" \
+            >/dev/null 2>&1 &
+        launcher=$!
+        for _ in $(seq 1 110); do [ -e "$out.done" ] && break; sleep 1; done
+        # end that desktop's explorer (dwm.exe follows its parent), at most 10 s
+        pkill -u "$ADM" -f "desktop=$desk" 2>/dev/null || true
+        kill "$launcher" 2>/dev/null; wait "$launcher" 2>/dev/null || true
+        for _ in $(seq 1 100); do pgrep -u "$ADM" -f "desktop=$desk" >/dev/null || break; sleep 0.1; done
+        log="$(tr -d '\r' < "$out" 2>/dev/null || true)"
+        grep -E "tests executed|Test failed|Tests skipped|timed out" <<<"$log" | sed "s/^/c4_dwm $t $arch: /" || true
+        if grep -qE "^[0-9a-f]+:$t: [1-9][0-9]* tests executed \([0-9]+ marked as todo, [0-9]+ as flaky, 0 failures\), 0 skipped" <<<"$log"; then
+            ok "c4_dwm_${t}_tests_pass_as_the_limited_administrator_$arch"
+        else
+            echo "c4_dwm $t $arch: FAIL" >&2; dwm_fail="$dwm_fail $t/$arch"
+        fi
+    done
+    wine_as "$ADM" reg delete "HKCU\Software\Wine\Explorer\Desktops\\$desk" /f >/dev/null 2>&1 || true
+done
+wine_as "$ADM" reg delete "$DWMKEY" /v DwmService /f >/dev/null 2>&1 || true
+[ -z "$dwm_fail" ] || fail "dwm: dwmapi's tests failed or were skipped as the limited administrator:$dwm_fail"
 true; ); section_leave $?; fi
 amb_down "$ADM"
 
