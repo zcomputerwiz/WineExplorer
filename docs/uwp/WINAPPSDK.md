@@ -343,6 +343,18 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    - {37a94c05} is also implemented by the lifted `CoreMessagingXP.dll` (twice in its data), so it is a CoreMessaging interface in general.
    - Slot 5 of the real object faults with a C++ exception for the shapes I tried (a zeroed buffer, NULL or small values): the record has to be
      valid (35 bytes of a layout not yet known).
+   **Run-time trace (2026-11-23, third pass).** The ntdll exception patch (stack dump, plus the fields of the object Input hands to
+   `SetVisualRelativeSize`) shows: the object is Input's `WinCompVisual` (source file names in the binary: `LiftedIXP\input\inputv2\InputHost\inside\
+   lifted\WinCompVisual.cpp`, `DCompVisual.cpp`, `DCompDevice.cpp`); its field +0x48, the visual, is NULL, and the fields +0x30/+0x38 hold 0x1f
+   and 0x2b0 (not pointers). The code that fills +0x48 (Input RVA 0xaa7c7 and on) creates the visual with `DCompPrivates_CreateSharedVisual` or
+   through a vtable call of the shared resource object, then queries it for {bcb4ad45-7609-4550-934f-16002a68fded}, an interface that
+   `dcompi.dll` (and wuceffectsi.dll) implement, and on any failure logs through WIL (WinCompVisual.cpp lines 42, 50, 55: Input creates its
+   `WilError_03` mutex right after our `DCompositionCreateSharedVisualHandle` returns, which is that log) and returns the error to a caller that
+   ignores it, so the NULL stays. Claiming `UniversalApiContract` 19 (FrameworkUdk's newest helper, `coreui.c` slot 13 made a success) ends at
+   the very same NULL read and the same generic {37a94c05} slot-5 call, so the version of the helper is not the cause. gdb attached to the
+   packaged process never saw the SIGSEGV (it does not stop at Wine's page faults here), so the exception patch is the tool.
+   Open question: which of the failing calls it is. The visual has to be a `dcompi.dll` object, i.e. made by the lifted compositor from the
+   shared-visual handle (our event from export 1040) through its command engine, not a visual of Wine's dcomp.
    The NULL visual itself is still not located: `DCompPrivates_CreateSharedVisual` (default table id 6, slot 1 -> the singleton's slot 14)
    queries its first argument for {4ba72ec1}, which no object I can reach answers, and Wine's run shows no failure there, so the call may not
    be where Input's `visual` is set. Next: trace the stores to Input's `this+0x48` at run time (a data breakpoint through the exception
