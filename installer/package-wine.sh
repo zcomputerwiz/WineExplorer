@@ -273,6 +273,8 @@ install -m 0644 "$SCRIPT_DIR/scripts/wex-setup-common.sh" "$STAGE_SESSION/usr/lo
 install -m 0755 "$SCRIPT_DIR/scripts/wex-domain-state.sh" "$STAGE_SESSION/usr/local/bin/wex-domain-state.sh"
 install -m 0755 "$SCRIPT_DIR/scripts/wex-domain-join.sh" "$STAGE_SESSION/usr/local/sbin/wex-domain-join.sh"
 cp "$SCRIPT_DIR/systemd/wex-domain-join.socket" "$SCRIPT_DIR/systemd/wex-domain-join@.service" "$STAGE_SESSION/lib/systemd/system/"
+# the questions any user may ask (NetValidateName, DsGetDcName, nltest /dclist and /sc_query): read only
+cp "$SCRIPT_DIR/systemd/wex-domain-query.socket" "$SCRIPT_DIR/systemd/wex-domain-query@.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$ROOT_DIR/scripts/wex-greeter.sh" "$STAGE_SESSION/usr/local/bin/wex-greeter.sh"
 cp "$ROOT_DIR/scripts/setup-machine-root.sh" "$STAGE_SESSION/usr/local/bin/wex-setup-machine.sh"
 cp "$ROOT_DIR/scripts/migrate-prefix-split.sh" "$STAGE_SESSION/usr/local/bin/wex-migrate-prefix.sh"

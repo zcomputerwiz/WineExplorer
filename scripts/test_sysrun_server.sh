@@ -298,10 +298,12 @@ section_enter() { set -e; SEC_IN=1; SEC_PID=$BASHPID; trap section_dump EXIT; }
 section_skip() { echo "$*" > "$SEC_DIR/skip"; exit 0; }
 section_dump()   # the section's EXIT trap: hands its functions and variables to the suite's shell
 {
-    local sec_rc=$? sec_names
+    local sec_rc=$? sec_cmd="$BASH_COMMAND" sec_names
     set +e
     trap - EXIT
     [ "$BASHPID" = "$SEC_PID" ] || exit "$sec_rc"
+    # a section that set -e ended at a failing command says which one (fail() and fatal() say why themselves)
+    case "$sec_rc:$sec_cmd" in 0:*|*:exit*) ;; *) echo "FAIL: section $SEC_CUR ended at a failing command: $sec_cmd" >&2 ;; esac
     if [ "$sec_rc" = 0 ] && [ "$(sec_forced)" = end ] && [ ! -s "$SEC_DIR/skip" ]; then
         echo "FAIL: forced after the body of section $SEC_CUR (WEX_SECTION_FORCE_FAIL, a test of the restore)" >&2; sec_rc=1
     fi
@@ -474,7 +476,11 @@ sec_kill_all()   # every process of the test accounts and of the fixture's helpe
     for i in $(seq 1 100); do
         busy=""
         for sec_u in $(sec_users); do sec_live "$sec_u" && { busy="$busy $sec_u"; pkill -9 -u "$sec_u" 2>/dev/null; }; done
-        [ -n "$busy" ] || return 0
+        if [ -z "$busy" ]; then
+            # the old session fully gone before a new one starts: its zombies reaped too (at most 5 s more)
+            for i in $(seq 1 50); do [ -z "$(for sec_u in $(sec_users); do pgrep -u "$sec_u"; done)" ] && break; sleep 0.1; done
+            return 0
+        fi
         sleep 0.1
     done
     echo "processes of$busy are still running" >&2
@@ -513,6 +519,19 @@ sec_fix_links()   # the users' prefixes link their machine hives into the machin
         done
     done
 }
+sec_broker_roundtrip()   # an approved request of the administrator through the test broker; 1 if three tries fail
+{
+    local i out
+    for i in 1 2 3; do
+        el_clean; touch "$EL/approve.all"
+        out="$(bprobe "$ADM" 64 run "$(winpath "/home/$ADM/wexel/p64.exe")" 0 "$(winpath "$EL/out.restore")" - 2>&1)"
+        if grep -q '^run=PASS' <<<"$out"; then el_clean; echo "--- restore: the broker served a request (try $i)"; return 0; fi
+        echo "--- restore: broker request $i failed:" >&2; tail -5 <<<"$out" >&2
+        sleep 5
+    done
+    el_clean
+    return 1
+}
 section_restore()   # NAME of the failed section: puts back the shared state; 1 when it does not compare equal
 {
     local sec_n="$1" sec_left="" sec_u
@@ -540,6 +559,12 @@ section_restore()   # NAME of the failed section: puts back the shared state; 1 
     [ "$SEC_E1S6" != 1 ] || e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
     [ "$SEC_S0" != 1 ] || s0_start
     [ -z "$SEC_EL" ] || el_up "$SEC_EL"
+    # The session brought back must serve the broker before the next section (b1124b: the first section after a
+    # restore found it unusable): one approved request with the test broker, up to three tries while it starts.
+    if [ "$SEC_EL" = "$ADM" ] && [ -n "${BROKER_ORIG:-}" ] && ! sec_broker_roundtrip; then
+        echo "restore after $sec_n: the broker does not serve the administrator's session that was brought back" >&2
+        return 1
+    fi
     echo "--- section $sec_n: shared state restored"
 }
 
@@ -572,8 +597,9 @@ cleanup()
     pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null; pkill -u "$CAR" 2>/dev/null; pkill -u "$SYS" 2>/dev/null   # includes winedevice.exe, which blocks userdel
     sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null; pkill -9 -u "$CAR" 2>/dev/null; pkill -9 -u "$SYS" 2>/dev/null
     [ -z "${XV_PID:-}" ] || kill "$XV_PID" 2>/dev/null
-    # the join case's fake engine (a failure between its start and its kill leaves it holding the fixture)
+    # the join case's fake engines (a failure between their start and their kill leaves them holding the fixture)
     [ -z "${JENG_PID:-}" ] || kill "$JENG_PID" 2>/dev/null
+    [ -z "${QENG_PID:-}" ] || { kill "$QENG_PID" 2>/dev/null; rm -f /run/wex-domain-query.sock; }
     if [ "${WEX_C2_KEEP:-0}" = 1 ]; then
         echo "fixture kept: $ROOT, users $ADM $STD $CAR $SYS, group $GRP, $CONF, $LIBEXEC" >&2
         exit "$rc"
@@ -1251,6 +1277,9 @@ for u in $C3_USERS; do
         expect_rpass "c3_${u}_scm_create_and_reconfigure_denied_$arch" "$u" "$arch" scm-denied WexSvcSys
         expect_rpass "c3_${u}_scm_create_and_reconfigure_denied_ns_$arch" "$u" "$arch" scm-denied WexSvcNs   # WexSvcLs got a descriptor above
         expect_rpass "c3_${u}_cannot_create_tokens_$arch" "$u" "$arch" token-denied
+        # the limited query opens a token for reading only (server/token.c, open_token): a Low integrity program reads
+        # a normal program's token, as on Windows, but cannot duplicate or use it
+        expect_rpass "c3_${u}_low_integrity_reads_but_cannot_copy_a_token_$arch" "$u" "$arch" low-token
         expect_rpass "c3_${u}_scm_connect_and_enumerate_work_$arch" "$u" "$arch" scm-allowed
         expect_rpass "c3_${u}_boot_state_grants_are_gone_$arch" "$u" "$arch" grants denied
     done
@@ -1323,7 +1352,13 @@ el_down()
         sleep 0.1
     done
 }
-el_wait_file() { local i; for i in $(seq 1 90); do [ -e "$1" ] && return 0; sleep 1; done; fail "no $1"; }
+el_wait_file()
+{
+    local i
+    for i in $(seq 1 90); do [ -e "$1" ] && return 0; sleep 1; done
+    { echo "--- no $1 after 90 s; the processes of $ADM and $STD:"; ps -u "$ADM","$STD" -o user,pid,stat,etimes,args; } >&2 2>/dev/null || true
+    fail "no $1"
+}
 el_proc() { local p; for p in $(pgrep -u "$1" -f "$2"); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || { echo "$p"; return; }; done; }
 el_fact() { grep -m1 "^$2=" "$1" | cut -d= -f2- | tr -d '\r'; }
 SYS32="$M/drive_c/windows/system32"
@@ -1663,7 +1698,7 @@ alpc_pair()   # name level mode(limited|elevated): runs the server as the limite
         grep -q '^sent' "$cl" || rc=1
     fi
     if [ $rc != 0 ]; then
-        kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null || true
+        kill "$sp" 2>/dev/null || true; wait "$sp" 2>/dev/null || true
         head -5 "$cl" 2>/dev/null | tr '\n' ' ' > "$ROOT/alpc-skip"   # a subshell: the reason goes through a file
         return 1
     fi
@@ -1709,9 +1744,10 @@ if command -v mkudffs >/dev/null 2>&1; then
     else
         fstype="$(stat -f -c %T "$UDMMNT")"
         grep -qi '^udf' <<<"$fstype" || { umount "$UDMMNT"; fail "the mounted file system is not UDF: $fstype"; }
-        UDFLINE="$(grep 'define WEXELEVATE_E_NO_IMAGE_LEASE' "$SRC/src/include/wexelevate.h")"
-        UDFHEX="$(printf '%s' "$UDFLINE" | grep -oE '0x[0-9a-fA-F]+' | head -1)"
-        [ -n "$UDFHEX" ] || { umount "$UDMMNT"; fail "WEXELEVATE_E_NO_IMAGE_LEASE is not in wexelevate.h"; }
+        # (wexelevate_proto.h since 80b65c87; a missing define is reported below, not ended at by set -e)
+        UDFLINE="$(grep -h 'define WEXELEVATE_E_NO_IMAGE_LEASE' "$SRC"/src/include/wexelevate*.h || true)"
+        UDFHEX="$(printf '%s' "$UDFLINE" | grep -oE '0x[0-9a-fA-F]+' | head -1 || true)"
+        [ -n "$UDFHEX" ] || { umount "$UDMMNT"; fail "WEXELEVATE_E_NO_IMAGE_LEASE is not defined in src/include/wexelevate*.h"; }
         UDFERR="$(printf '%d' "$UDFHEX")"
         WUDF="$(winpath "$UDMMNT/udf.exe")"
         bp c4_udf_image_is_refused_with_the_brokers_own_error "$ADM" 64 run "$WUDF" "$UDFERR" "$(winpath $EL/out.udf)" -
@@ -1732,7 +1768,14 @@ if section c4_ab; then set +e; ( section_enter
 el_clean; touch "$EL/wait-for-gate" "$EL/approve.a.exe"
 bprobe "$ADM" 64 concurrent "$(winpath /home/$ADM/wexel/a.exe)" "$(winpath /home/$ADM/wexel/b.exe)" "$(winpath $EL/out.a)" "$(winpath $EL/out.b)" \
     > "$ROOT/conc.log" 2>&1 & CPID=$!
-el_wait_file "$EL/started.a.exe"; el_wait_file "$EL/started.b.exe"
+# both requests reach the stub (90 s at most); a probe that gives up before shows what it got from the broker
+for _ in $(seq 1 90); do
+    [ -e "$EL/started.a.exe" ] && [ -e "$EL/started.b.exe" ] && break
+    kill -0 "$CPID" 2>/dev/null || { cat "$ROOT/conc.log" >&2; fail "concurrent: the probe ended before both requests reached the consent stub"; }
+    sleep 1
+done
+[ -e "$EL/started.a.exe" ] && [ -e "$EL/started.b.exe" ] ||
+    { cat "$ROOT/conc.log" >&2; ps -u "$ADM" -o pid,stat,etimes,args >&2; fail "concurrent: the requests did not reach the consent stub in 90 s"; }
 [ "$(head -1 "$EL/started.a.exe")" != "$(head -1 "$EL/started.b.exe")" ] || fail "two requests have the same id"
 touch "$EL/gate"
 wait "$CPID" || { cat "$ROOT/conc.log" >&2; fail "concurrent"; }
@@ -2843,7 +2886,7 @@ EOF
         agent_pid="$(el_proc "$STD" wexelevate)"
         [ -n "$agent_pid" ] || agent_pid="$(pgrep -u "$STD" -f 'wexelevate' | head -1)"
         [ -n "$agent_pid" ] || fail "r9_agent_killed_frees_broker: agent process not found"
-        kill -9 "$agent_pid"
+        kill -9 "$agent_pid" || fail "r9_agent_killed_frees_broker: the agent was gone before it could be killed"
         for _ in $(seq 1 600); do
             wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
             grep -q 'r9b: end' <<<"$wine_new_log" && break
@@ -3002,7 +3045,7 @@ EOF
               fail "r9_broker_killed_denies_and_recovers: the attempt did not reach the worker"; }
         b0_pid="$(pgrep -u "$S0U" -f wexelevate | head -1 || true)"
         [ -n "$b0_pid" ] || fail "r9_broker_killed_denies_and_recovers: session 0 wexelevate process not found"
-        kill -9 "$b0_pid"
+        kill -9 "$b0_pid" || fail "r9_broker_killed_denies_and_recovers: the broker was gone before it could be killed"
         probe_ended=0
         for _ in $(seq 1 600); do
             if ! kill -0 "$PROBE_PID" 2>/dev/null; then
@@ -3299,10 +3342,10 @@ if section c4_wam; then set +e; ( section_enter
 python3 -I "$SRC/tests/wam/test_authority.py" "$ROOT/wam-port" 2> "$ROOT/wam-authority.log" &
 WAM_AUTH=$!
 for _ in $(seq 50); do [ -s "$ROOT/wam-port" ] && break; sleep 0.1; done
-[ -s "$ROOT/wam-port" ] || { kill "$WAM_AUTH" 2>/dev/null; fail "wam: the test authority did not start"; }
+[ -s "$ROOT/wam-port" ] || { kill "$WAM_AUTH" 2>/dev/null || true; fail "wam: the test authority did not start"; }
 for arch in x86_64 i386; do
     install -m 755 "$BUILD/dlls/windows.security.authentication.web.core/tests/$arch-windows/windows.security.authentication.web.core_test.exe" \
-        "$ROOT/probes/web_core_$arch.exe" || { kill "$WAM_AUTH" 2>/dev/null; fail "wam $arch: no web_core test program"; }
+        "$ROOT/probes/web_core_$arch.exe" || { kill "$WAM_AUTH" 2>/dev/null || true; fail "wam $arch: no web_core test program"; }
     # each architecture starts from no accounts, as in tests/wam/run-broker-tests.sh: the broker keeps its accounts and
     # tokens (process and cache), and the tests expect none at the start
     pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
@@ -3327,12 +3370,12 @@ for arch in x86_64 i386; do
     if [ "$rc" != 0 ] || [ -n "$b86" ] || grep -q -e 'Test failed' -e 'skipped: the token broker' "$ROOT/wam-$arch.log" ||
        ! grep -q 'tests executed' "$ROOT/wam-$arch.log"; then
         grep -E 'Test failed|skipped|tests executed|unhandled' "$ROOT/wam-$arch.log" | head -20 >&2
-        kill "$WAM_AUTH" 2>/dev/null
+        kill "$WAM_AUTH" 2>/dev/null || true
         fail "wam $arch: web_core with the broker as the limited administrator (exit $rc)"
     fi
     ok "c4_token_broker_web_core_tests_pass_as_the_limited_administrator_$arch"
 done
-kill "$WAM_AUTH" 2>/dev/null; wait "$WAM_AUTH" 2>/dev/null || true
+kill "$WAM_AUTH" 2>/dev/null || true; wait "$WAM_AUTH" 2>/dev/null || true
 pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
 true; ); section_leave $?; fi
 
@@ -3360,14 +3403,21 @@ for arch in x86_64 i386; do
     for t in dwm_channel dwm_attr dwm_thumb; do
         out="$DWMOUT/$t-$arch.txt"; rm -f "$out" "$out.done"
         # explorer starts dwm.exe, then the command; explorer does not exit afterwards: the .done marker ends the wait
-        run_as "$ADM" timeout 120 "$BUILD/wine" explorer.exe "/desktop=$desk,800x600" cmd /c \
+        # Wine's errors and explorer's warnings go to a log of their own (shown when the test does not pass)
+        run_as "$ADM" env WINEDEBUG=err+all,warn+explorer timeout 120 "$BUILD/wine" explorer.exe "/desktop=$desk,800x600" cmd /c \
             "$(winpath "$DWMT/$arch-windows/dwmapi_test.exe") $t > $(winpath "$out") 2>&1 & echo done > $(winpath "$out.done")" \
-            >/dev/null 2>&1 &
+            >"$out.wine" 2>&1 &
         launcher=$!
-        for _ in $(seq 1 110); do [ -e "$out.done" ] && break; sleep 1; done
+        dwm_seen=""
+        for i in $(seq 1 110); do
+            [ -e "$out.done" ] && break
+            # the processes while the test waits for its broker (it gives it 5 s): is dwm.exe there, and on which desktop
+            [ "$i" != 4 ] || dwm_seen="$(ps -u "$ADM" -o pid,stat,etimes,args | grep -E 'dwm\.exe|explorer\.exe|dwmapi_test' | grep -v grep || true)"
+            sleep 1
+        done
         # end that desktop's explorer (dwm.exe follows its parent), at most 10 s
         pkill -u "$ADM" -f "desktop=$desk" 2>/dev/null || true
-        kill "$launcher" 2>/dev/null; wait "$launcher" 2>/dev/null || true
+        kill "$launcher" 2>/dev/null || true; wait "$launcher" 2>/dev/null || true
         for _ in $(seq 1 100); do pgrep -u "$ADM" -f "desktop=$desk" >/dev/null || break; sleep 0.1; done
         log="$(tr -d '\r' < "$out" 2>/dev/null || true)"
         grep -E "tests executed|Test failed|Tests skipped|timed out" <<<"$log" | sed "s/^/c4_dwm $t $arch: /" || true
@@ -3375,6 +3425,8 @@ for arch in x86_64 i386; do
             ok "c4_dwm_${t}_tests_pass_as_the_limited_administrator_$arch"
         else
             echo "c4_dwm $t $arch: FAIL" >&2; dwm_fail="$dwm_fail $t/$arch"
+            { echo "--- c4_dwm $t $arch: processes after 4 s:"; echo "${dwm_seen:-(none of dwm.exe, explorer.exe, dwmapi_test)}"
+              echo "--- c4_dwm $t $arch: Wine's errors:"; tr -d '\r' < "$out.wine" | grep -v '^$' | tail -25; } >&2 || true
         fi
     done
     wine_as "$ADM" reg delete "HKCU\Software\Wine\Explorer\Desktops\\$desk" /f >/dev/null 2>&1 || true
@@ -3443,7 +3495,7 @@ has_str "$ROOT/probes/consent_test.exe" '/testid' || fail "the test consent prog
 ! has_str "$ROOT/consent_ship.exe" '/testid' || fail "a consent program built without the macro contains the hook"
 ! has_str "$ROOT/consent_ship.exe" 'wexelev' || fail "a consent program built without the macro names the hook directory"
 for f in "$BUILD"/programs/consent/*-windows/consent.exe; do
-    # Debug information carries source paths (consent.c includes ../wexelevate/cred_dialog.c): scan the loadable image only.
+    # Debug information carries source paths (consent.c includes ../wexelevate/cred_record.h): scan the loadable image only.
     case "$f" in *i386-windows*) strip_tool=i686-w64-mingw32-strip ;; *) strip_tool=x86_64-w64-mingw32-strip ;; esac
     "$strip_tool" --strip-debug -o "$ROOT/consent_installed_stripped.exe" "$f" || fail "cannot strip $f for the hook check"
     ! has_str "$ROOT/consent_installed_stripped.exe" '/testid' && ! has_str "$ROOT/consent_installed_stripped.exe" 'wexelev' || fail "the installed program $f contains the hook"
@@ -3652,7 +3704,7 @@ bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 1223 "$(winpath $EL/o
 for _ in $(seq 1 60); do consent_alive 'system32.consent[.]exe' && CW=1 || CW=""; [ -z "$CW" ] || break; sleep 1; done
 [ -n "$CW" ] || { cat "$ROOT/cs.log" >&2; fail "the shipping broker started no consent.exe"; }
 ok c5_shipping_broker_starts_the_real_consent_window
-kill "$CSP" 2>/dev/null; pkill -u "$ADM" -f "wexelevate_probe64.exe run" 2>/dev/null || true
+kill "$CSP" 2>/dev/null || true; pkill -u "$ADM" -f "wexelevate_probe64.exe run" 2>/dev/null || true
 for _ in $(seq 1 30); do consent_alive 'system32.consent[.]exe' || break; sleep 1; done
 ! consent_alive 'system32.consent[.]exe' || fail "the consent window outlived the caller"
 [ ! -e "$EL/out.ship" ] || fail "a process ran without Continue"
@@ -3756,14 +3808,14 @@ ok sd_host_pointer_reaches_the_secure_dialog_and_continue_launches
 
 # -- the other exit paths: caller exit (above), consent crash, broker crash
 sd_request 1062
-kill -9 "$(consent_unix_pid)"
+CPIDU="$(consent_unix_pid)"; [ -n "$CPIDU" ] && kill -9 "$CPIDU" || fail "the consent window was gone before it could be crashed"
 sd_done "consent crash"
 [ ! -e "$EL/out.sd" ] || fail "a crashed consent window launched the program"
 ok sd_consent_crash_returns_to_default
 sd_request 1223
 BPID="$(pgrep -f 'system32.wexelevate[.]exe' | head -1)"
 [ -n "$BPID" ] || fail "no broker process"
-kill -9 "$BPID"
+kill -9 "$BPID" || fail "the broker was gone before it could be crashed"
 wait_input_default || fail "broker crash: the server did not return the input"
 wait_no_consent || fail "broker crash: the consent window outlived the broker"
 x11_free || fail "broker crash: the display is still grabbed"
@@ -4255,6 +4307,21 @@ v32 add 'HKLM\Software\Microsoft\Windows\WexVirtX' /v v /d x /f >/dev/null 2>&1 
 v32 add 'HKLM\Software\WexVirtMerge' /v mine /d user /f >/dev/null || fail "T2b: write under an existing machine key"
 OUT="$(v32 query 'HKLM\Software\WexVirtMerge')"
 [ "$(val real <<<"$OUT")" = machine ] && [ "$(val mine <<<"$OUT")" = user ] || { echo "$OUT" >&2; fail "T2b: no merged view"; }
+# R3: a virtual key's handle can be duplicated, within the program and into another process (pushed or pulled);
+# the copy sees the store's value and the real key's
+TP32="$ROOT/probes/tierprobe32.exe"
+[ -f "$TP32" ] || i686-w64-mingw32-gcc -O2 -Wall -municode -o "$TP32" "$SRC/scripts/system-tier-probe.c" -ladvapi32 -lntdll ||
+    fail "R3: cannot build the 32-bit tier probe"
+fld() { sed -n "s/^$1=//p" | head -1; }
+OUT="$(as_wine "$STD" "$TP32" dup 'Software\WexVirtMerge' mine | fld dup)"
+[ "$OUT" = user ] || fail "R3: a virtual key's duplicate does not read the store's value: [$OUT]"
+OUT="$(as_wine "$STD" "$TP32" dup 'Software\WexVirtMerge' real | fld dup)"
+[ "$OUT" = machine ] || fail "R3: a virtual key's duplicate does not read the real key's value: [$OUT]"
+OUT="$(as_wine "$STD" "$TP32" xdup 'Software\WexVirtMerge' mine push | fld xget)"
+[ "$OUT" = user ] || fail "R3: a virtual key pushed into another process: [$OUT]"
+OUT="$(as_wine "$STD" "$TP32" xdup 'Software\WexVirtMerge' real pull | fld xget)"
+[ "$OUT" = machine ] || fail "R3: a virtual key pulled by another process: [$OUT]"
+ok st_virtual_key_handles_duplicate_within_and_across_processes
 el_down "$STD"
 sleep 6   # session 0's lazy flush
 ! grep -q '^"v"="store"\|^"mine"="user"' "$M/system.reg" || fail "T2b: a virtualized write is in the machine hive"
@@ -4558,12 +4625,18 @@ TNAME=sec.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO
     'MinimumPasswordLength = 8' 'LockoutBadCount = 5' 'LockoutDuration = -1' 'ResetLockoutCount = 15' '[Registry Values]' \
     'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3' \
     'MACHINE\Software\Policies\WexPol\Banner=1,"Hello there"' \
-    'MACHINE\System\CurrentControlSet\Control\Lsa\WexNotPolicy=4,1' '[Privilege Rights]' 'SeDenyNetworkLogonRight = *S-1-5-32-546'
+    'MACHINE\System\CurrentControlSet\Control\Lsa\WexNotPolicy=4,1' \
+    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\PromptOnSecureDesktop=1,"0"' \
+    '[Privilege Rights]' 'SeDenyNetworkLogonRight = *S-1-5-32-546'
 TNAME=bad.inf gpttmpl '[System Access]' 'LockoutBadCount = 2'
 OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/bad.inf")" | tr -d '\r')" || true
 grep -q 'status=[1-9]\|error' <<<"$OUT" || { echo "$OUT" >&2; fail "security: a template without a signature was taken"; }
 OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/sec.inf")" | tr -d '\r')" || true
-grep -q 'security set=5 not-applicable=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "security: apply"; }
+grep -q 'security set=5 not-applicable=3 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "security: apply"; }
+# a template-owned option of another type than REG_DWORD is left out, and said (the elevation service reads a DWORD)
+grep -q 'PromptOnSecureDesktop: only a REG_DWORD' <<<"$OUT" || { echo "$OUT" >&2; fail "security: a string PromptOnSecureDesktop was not reported"; }
+[ -z "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v PromptOnSecureDesktop | val PromptOnSecureDesktop)" ] ||
+    fail "security: a string PromptOnSecureDesktop was written"
 E='HKLM\Software\WineExplorer\Elevation'
 [ "$(as_wine "$STD" reg query "$E" /v LockoutBadCount | val LockoutBadCount)" = 0x5 ] || fail "security: LockoutBadCount"
 [ "$(as_wine "$STD" reg query "$E" /v LockoutDuration | val LockoutDuration)" = 0x1869f ] || fail "security: LockoutDuration -1 is not the longest"
@@ -4600,9 +4673,13 @@ grep -qx 'LockoutBadCount = 4' <<<"$TXT" && grep -qx '\[System Access\]' <<<"$TX
     { echo "$TXT" >&2; fail "secedit: the exported template misses the lockout policy or the consent option"; }
 LSE="$LGP/Machine/Microsoft/Windows NT/SecEdit"
 gp_tree
-TNAME=cfg.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
-    'LockoutBadCount = 6' 'ResetLockoutCount = 20' '[Registry Values]' \
-    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3'
+# the template to configure is UTF-8 with a byte order mark (as Local Security Settings and other editors may save it):
+# secedit reads it as UTF-8, so the stored UTF-16 template starts with [Unicode] and keeps a letter outside ASCII
+{ printf '\xef\xbb\xbf'
+  printf '%s\r\n' '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
+      'LockoutBadCount = 6' 'ResetLockoutCount = 20' '[Registry Values]' \
+      'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3'
+  printf '; caf\xc3\xa9\r\n'; } > "$POL/cfg.inf"
 chmod 0644 "$POL/cfg.inf"
 OUT="$(as_wine "$STD" secedit /configure /cfg "$(winpath "$POL/cfg.inf")" || true)"
 grep -q 'Task is not completed' <<<"$OUT" && [ ! -e "$LSE/GptTmpl.inf" ] ||
@@ -4623,6 +4700,9 @@ for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
 [ -s "$REQ" ] || { cat "$POL/secedit.out" >&2; fail "secedit: /configure did not ask for a refresh"; }
 [ -f "$LSE/GptTmpl.inf" ] || fail "secedit: /configure did not store the template"
 [ "$(head -c 2 "$LSE/GptTmpl.inf" | od -An -tx1 | tr -d ' \n')" = fffe ] || fail "secedit: the stored template has no byte order mark"
+STORED="$(iconv -f UTF-16LE -t UTF-8 "$LSE/GptTmpl.inf" | tr -d '\r' | sed '1s/^\xef\xbb\xbf//')"
+[ "$(head -n 1 <<<"$STORED")" = '[Unicode]' ] && grep -qx '; café' <<<"$STORED" ||
+    { head -c 120 <<<"$STORED" | od -c | head -4 >&2; fail "secedit: a UTF-8 template was not read as UTF-8"; }
 # installed by gpsvc: the store file is session 0's own, readable by everyone, and no request or error is left behind
 [ "$(stat -c '%U:%a' "$LSE/GptTmpl.inf")" = "$S0U:644" ] || fail "secedit: the stored template is $(stat -c '%U:%a' "$LSE/GptTmpl.inf")"
 [ -z "$(ls -A "$LGP/Spool")" ] || fail "secedit: the spool is not empty: $(ls -A "$LGP/Spool")"
@@ -4894,7 +4974,8 @@ for variant in "$CK${BS}ConsentPromptBehaviorAdmin=4,0" "$CK${BS}${BS}ConsentPro
     s0_wine reg delete "$SYSK" /v PromptOnSecureDesktop /f >/dev/null 2>&1 || true
     BEFORE="$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)"   # (whatever an earlier check left)
     OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/consent0.inf")" | tr -d '\r')" || true
-    grep -q 'security set=1 not-applicable=1 status=0' <<<"$OUT" && grep -q 'only the values 2 and 5' <<<"$OUT" ||
+    # (a value of another type is left out by the type's rule: the two template options are REG_DWORD only)
+    grep -q 'security set=1 not-applicable=1 status=0' <<<"$OUT" && grep -qE 'only the values 2 and 5|only a REG_DWORD \(4\)' <<<"$OUT" ||
         { echo "$OUT" >&2; fail "secpol: the prompt behavior line was not left out alone ($variant)"; }
     [ "$(as_wine "$STD" reg query "$SYSK" /v PromptOnSecureDesktop | val PromptOnSecureDesktop)" = 0x0 ] ||
         fail "secpol: the rest of the template was not applied ($variant)"
@@ -4973,11 +5054,13 @@ JREQ="$POL/join-requests.log"
 cat > "$POL/fake-join-engine.py" <<'PYEOF'
 import os, socket, sys
 path, log = sys.argv[1], sys.argv[2]
+# "query": the users' socket (wex-domain-join.sh serve-query): every user connects, only the questions are answered
+query = len(sys.argv) > 4 and sys.argv[4] == 'query'
 if os.path.exists(path): os.unlink(path)
 srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 srv.bind(path)
-os.chmod(path, 0o660)
-os.chown(path, 0, int(sys.argv[3]))
+os.chmod(path, 0o666 if query else 0o660)
+os.chown(path, 0, 0 if query else int(sys.argv[3]))
 srv.listen(4)
 while True:
     conn, _ = srv.accept()
@@ -4986,15 +5069,19 @@ while True:
         chunk = conn.recv(4096)
         if not chunk: break
         data += chunk
-    with open(log, 'ab') as f: f.write(data + b'--\n')
+    with open(log, 'ab') as f: f.write(data + (b'socket=query\n' if query else b'socket=change\n') + b'--\n')
     text = data.decode('utf-8', 'replace')
     fields = dict(l.split('=', 1) for l in text.split('\n') if '=' in l)
     status, message = 0, 'ok'
+    if query and (fields.get('op') not in ('validate', 'dsgetdc', 'dclist', 'scquery', 'status') or 'password' in fields):
+        conn.sendall(b'status=5\nmessage=changing the domain membership needs an administrator\n')
+        conn.close()
+        continue
     if fields.get('op') == 'validate' and fields.get('nametype') == 'machine' and '_' in fields.get('name', ''):
         status, message = 1210, 'not a valid computer name'
     if fields.get('op') == 'join' and fields.get('password') == 'wrong':
         status, message = 1326, 'the controller did not accept the account'
-    if fields.get('op') == 'dclist': message = 'dc1.ad.wexlab.example dc2.ad.wexlab.example '
+    if fields.get('op') == 'dclist': message = 'dc1.ad.wexlab.example||dc2.ad.wexlab.example'
     if fields.get('op') == 'verify': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been verified.||The connection is with the machine dc1.ad.wexlab.example.'
     if fields.get('op') == 'reset': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been reset.'
     if fields.get('op') == 'dsgetdc': message = 'dc=dc1.ad.wexlab.example||addr=10.71.0.10||guid=0f2a204e-eb7a-4e88-9cf9-1504bb1b93d5||domain=WEXLAB||dnsdomain=ad.wexlab.example||forest=ad.wexlab.example||dcsite=Default-First-Site-Name||oursite=Default-First-Site-Name||flags=e00013fd'
@@ -5005,8 +5092,12 @@ PYEOF
 rm -f "$JREQ"
 python3 -I "$POL/fake-join-engine.py" "$JSOCK" "$JREQ" "$(getent group "$GRP" | cut -d: -f3)" &
 JENG_PID=$!
-for i in $(seq 1 20); do [ -S "$JSOCK" ] && break; sleep 0.25; done
-[ -S "$JSOCK" ] || fail "join: the fake engine did not start"
+# the questions' socket, which every user reaches (wex-domain-query.socket)
+QSOCK=/run/wex-domain-query.sock
+python3 -I "$POL/fake-join-engine.py" "$QSOCK" "$JREQ" 0 query &
+QENG_PID=$!
+for i in $(seq 1 20); do [ -S "$JSOCK" ] && [ -S "$QSOCK" ] && break; sleep 0.25; done
+[ -S "$JSOCK" ] && [ -S "$QSOCK" ] || fail "join: the fake engines did not start"
 jp()   # ARCH ARGS... as session 0's account (the system group); prints the probe's lines
 {
     local b=$1; shift
@@ -5016,11 +5107,12 @@ reqs() { grep -c '^--$' "$JREQ" 2>/dev/null || true; }
 for b in 64 32; do
     : > "$JREQ"
     OUT="$(jp $b validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'message=ok' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: a valid computer name"; }
-    grep -qx 'op=validate' "$JREQ" && grep -qx 'nametype=machine' "$JREQ" && grep -qx 'name=WEXBOX' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the validate request"; }
+    grep -qx 'op=validate' "$JREQ" && grep -qx 'nametype=machine' "$JREQ" && grep -qx 'name=WEXBOX' "$JREQ" && grep -qx 'socket=query' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the validate request (a question: the users' socket)"; }
     OUT="$(jp $b validate bad_name 1)"; grep -qx 'status=1210' <<<"$OUT" && grep -qx 'message=not a valid computer name' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: the engine's error and message"; }
     : > "$JREQ"
     OUT="$(jp $b join - 'ad.wexlab.example\dc1' 'OU=WexMachines,DC=ad,DC=wexlab,DC=example' 'WEXLAB\Administrator' 'p w$d' 1)"
     grep -qx 'status=0' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: NetJoinDomain"; }
+    grep -qx 'socket=change' "$JREQ" && ! grep -qx 'socket=query' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the join did not go to the system group's socket"; }
     grep -qx 'op=join' "$JREQ" && grep -qx 'domain=ad.wexlab.example' "$JREQ" && grep -qx 'user=Administrator' "$JREQ" && grep -qxF 'password=p w$d' "$JREQ" &&
         grep -qx 'ou=OU=WexMachines,DC=ad,DC=wexlab,DC=example' "$JREQ" && grep -qx 'flags=1' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the join request (domain without the controller, user without the domain, the password as it is)"; }
     OUT="$(jp $b join - ad.wexlab.example - 'admin@ad.wexlab.example' wrong 3)"
@@ -5126,12 +5218,23 @@ s0_wine reg delete 'HKLM\Software\WineExplorer\Domain' /f >/dev/null || true
 # a standard user is refused with Windows' words (the status is the error: the pipeline of as_wine fails with it)
 NDOUT="$(as_wine "$STD" netdom join /domain:ad.wexlab.example /userd:a /passwordd:x)" || true
 grep -qi 'access.*denied' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom: a standard user was not refused'; }
-# a standard user is not in the system group: access denied, nothing sent
+# a standard user asks the questions, as on Windows (NetValidateName, netdom query dc), through the users' socket
 : > "$JREQ"
-OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" validate WEXBOX 1)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user was not refused"; }
-[ ! -s "$JREQ" ] || fail "join: a standard user's call reached the engine"
+OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user's NetValidateName"; }
+grep -qx 'socket=query' "$JREQ" && ! grep -qx 'socket=change' "$JREQ" || { cat "$JREQ" >&2; fail "join: a standard user's question did not go to the users' socket"; }
+NDOUT="$(as_wine "$STD" netdom query dc | tr -d '\r')" || true
+grep -qx 'dc1.ad.wexlab.example' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom query dc as a standard user'; }
+# but a change is refused: the system group's socket is not the standard user's (access denied, nothing sent)
+: > "$JREQ"
+OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" join - ad.wexlab.example - 'WEXLAB\Administrator' pw 1)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user's join was not refused"; }
+OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" unjoin - - 0)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user's leave was not refused"; }
+[ ! -s "$JREQ" ] || { cat "$JREQ" >&2; fail "join: a standard user's change reached an engine"; }
+# an installation from before the users' socket: the questions go to the system group's socket
+kill "$QENG_PID" 2>/dev/null; wait "$QENG_PID" 2>/dev/null || true; QENG_PID=; rm -f "$QSOCK"
+: > "$JREQ"
+OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'socket=change' "$JREQ" || { echo "$OUT" >&2; cat "$JREQ" >&2; fail "join: without the users' socket, a question did not fall back"; }
 # the engine is not there: the workstation service is not started
-kill "$JENG_PID" 2>/dev/null; wait "$JENG_PID" 2>/dev/null || true; JENG_PID=; rm -f "$JSOCK"
+kill "$JENG_PID" 2>/dev/null || true; wait "$JENG_PID" 2>/dev/null || true; JENG_PID=; rm -f "$JSOCK"
 OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=2138' <<<"$OUT" || { echo "$OUT" >&2; fail "join: no engine is not NERR_WkstaNotStarted"; }
 kill_servers
 ok st_join_api_reaches_the_engine_only_from_the_system_group

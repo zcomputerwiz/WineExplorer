@@ -1,5 +1,47 @@
 # Changes to stock Wine / third-party code
 
+## ntdll, server: one table of the registry handles of session 0 and the virtual store (R3 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
+
+Wine branch `claude/r3-registry-handles` (on `claude/r1-policy-tables` 2a2b2946, with development's WAM head d5e17250
+merged for the token broker's header). New WineExplorer file
+`dlls/ntdll/unix/wex_regkey.c` (in `dlls/ntdll/Makefile.in`); the stock files keep hooks.
+
+- **One handle table.** The session 0 keys (`regsrv_*`, T1) and the virtual store keys (`regvirt_*`, T2b) were two
+  tables, one in `server.c` and one in `registry.c`. They are one table in `wex_regkey.c` (handles
+  `0x40000000 + index * 4`), with the channel to session 0, the routing of paths and the virtual store moved there
+  unchanged. A key of this process's own server ("local") is not in it. `unix_private.h` has the interface
+  (`wexkey_*`, `struct wexkey_target`); `get_unix_tid` in `server.c` is no longer static. The older T1, T4a and T2b
+  entries below that name `regsrv_*` and `regvirt_*` describe the code before this move.
+- **Hooks in the stock files.** `registry.c`: create and open ask `wexkey_target_init` where a key goes,
+  `wexkey_virtualize` after a session 0 answer, and the `wexkey_virtual_*` calls for a virtual key; every other key call
+  goes through `wexkey_server_call` (session 0 for a session 0 key, this process's server for any other), which replaces
+  the `regsrv_is_handle ? regsrv_call : wine_server_call` pattern there and in `file.c` (`NtQueryObject`) and
+  `security.c` (`NtQuerySecurityObject`, `NtSetSecurityObject`). `NtOpenKeyEx` is one function again (the `open_key`
+  split of T2b is gone: the virtual store opens a real key through the table). `server.c`: `NtClose` and
+  `NtDuplicateObject` give every handle of the table's range to `wexkey_close` and `wexkey_duplicate`.
+- **One builder of the user's key path.** `wexkey_user_key_path` ("\Registry\User\S-...") replaces three copies:
+  session 0's user prefix, the virtual store's path, and stock `open_hkcu_key` in `registry.c`.
+- **Duplication.** A virtual store key can be duplicated (it was refused with `STATUS_NOT_SUPPORTED`): the copy gets
+  its own handles of the real and the store key. Both kinds can be duplicated into another process and from another
+  process (they were refused). Into another: the source writes a record of the entry (kind, access, absolute path) into
+  a section and queues a new system APC, `APC_WEX_REGKEY` (`server/protocol.def`: the `wex_regkey` members of
+  `union apc_call` and `union apc_result`; `server/thread.c` `queue_apc`: `PROCESS_DUP_HANDLE` on the target and the
+  section duplicated into it, as for `APC_MAP_VIEW`; `server.c` `invoke_system_apc` calls `wexkey_receive`). The
+  target accepts only a path that session 0 holds for it, and opens the key with its own token on its own channel at
+  the first use, as after a new channel; a virtual key's store key is the target user's own. The record's section must
+  be a data section (not an image or file mapping), and only the record's size is mapped. A duplicate with an access of
+  its own gets real and store handles of that access. So the target's token
+  decides, not the source's grant. From another process: `APC_DUP_HANDLE` to the source, which then sends it. A
+  duplicate keeps the source's registry view (`KEY_WOW64_*`), so that a reopen after a lost channel finds the same key
+  (before, a duplicate within the process lost it). `include/wine/server_protocol.h` regenerated (protocol 987).
+- Not done (comment at the top of `wex_regkey.c`): inheritance into a child process (the child's loader takes entries
+  before anything from the parent could arrive, and the startup information has no room for the table), and
+  `NtSaveKey`/`NtLoadKey`/`NtUnloadKey` on a session 0 key.
+- Tests: `scripts/lab/system-tier-t1.sh` `xdup64_push`, `xdup64_pull`, `xdup32_push`, `xdup32_pull` (a session 0 key
+  into and from a child process, the 32-bit one in its own view); `scripts/test_sysrun_server.sh`
+  `st_virtual_key_handles_duplicate_within_and_across_processes`; the probe's `xdup` and `xget` modes
+  (`scripts/system-tier-probe.c`).
+
 ## server, ntdll, services.exe: one table per placement rule (R1 of SESSION0_SPLIT_REVIEW.md, B82, 2026-11-23)
 
 Wine branch `claude/r1-policy-tables` (on `claude/session-services` 6a6c7536, with B85's `claude/b85-service-pids`
@@ -25,6 +67,36 @@ merged). No new stock file; the session 0 changes below replace earlier ones of 
   only). The lab-only broker lists under `WEX_E1S6_TRANSPORT_TEST` are left for R5.
 - Test: `scripts/lab/system-tier-t1.sh`, `session_service_value_*` (a service created from session A with
   `WexSessionService`=1 runs in A, not in session 0, and session B has its own stopped copy).
+
+## DWM broker over a named pipe (2026-11-23)
+
+Wine branch `claude/dwm-pipe`, on `claude/compositor-review` `49215d78`. Owner decision; the design is in
+`DWM_ARCHITECTURE.md` section 2.0, agreed with the Session 0 reviewer.
+
+The wineserver DWM channel is removed. That reverts "DWM control channel" (2026-11-02) and the server and capability
+parts of "explorer starts and supervises the DWM broker".
+
+Server and system:
+- `server/dwm.c` is deleted.
+- Removed: the `dwm_*` requests in `protocol.def` and the regenerated protocol files; the desktop fields in
+  `server/user.h`; the hooks in `winstation.c` and `process.c`; `ProcessWineDwmChannel` in
+  `dlls/ntdll/unix/process.c`, `dlls/wow64/process.c` and `include/winternl.h`; `get_window_desktop`.
+- `window_desktop_denied` is static again.
+
+New, project files in the Wine tree:
+- `include/wine/wex_pipe.h`, listed in `include/Makefile.in`: the shared pipe transport (instance, connect,
+  overlapped transact with timeouts), the server check (image plus ordinary token), and the AppContainer grant a
+  broker gives itself.
+- `include/wine/dwm_protocol.h`: the 16-byte request and reply headers, the pipe name and descriptor, and one helper
+  for the per-desktop object names.
+
+Changed:
+- `dlls/dwmapi/dwm_client.c` connects lazily to the pipe of the window's desktop, checks the server, and re-sends its
+  state when the broker's generation changes.
+- `programs/explorer/dwmhost.c` starts dwm.exe without a capability.
+- `dlls/dwmapi/tests/dwm_channel.c` tests the pipe against the real broker: echo sizes, concurrency, the server
+  check and an impostor, foreign and other-desktop windows, malformed requests, thumbnails dropped with their
+  connection, a Low-integrity client, and handle leaks.
 
 ## dwmapi, dcomp, dxgi, explorer: compositor review fixes and dead target path (2026-11-23)
 
@@ -62,6 +134,47 @@ commit's bindings, instead of collecting the targets in a stack array of `WINE_D
 without a scene were not counted against that limit and a failed commit keeps the auxiliary producers it made, so more
 than 32 such targets overflowed the array. Same set of producers revoked as before; dcomp tests 1119/0 failures on both
 architectures. The rest of the review (`docs/COMPOSITOR_REVIEW.md`) is not applied yet.
+
+## server: the limited query right opens a token for reading (2026-11-23)
+
+`server/token.c` (`open_token`). With the system role active and elevation enforced, opening another process's or
+thread's token needed `PROCESS_QUERY_INFORMATION` (`THREAD_QUERY_INFORMATION`) for any access. On Windows
+`PROCESS_QUERY_LIMITED_INFORMATION` is enough (measured on the Windows 11 host: a Low integrity program opens a Medium
+one's token for `TOKEN_QUERY`), so Low integrity clients could not check a pipe server's token (the token broker's
+client, B86; the planned DWM pipe, `DWM_ARCHITECTURE.md` 2.0).
+
+- Now the limited right is enough when the asked access, after generic mapping, is only `TOKEN_QUERY`,
+  `TOKEN_QUERY_SOURCE` and `READ_CONTROL`. `MAXIMUM_ALLOWED`, `GENERIC_READ` (it includes `TOKEN_DUPLICATE`) and any
+  right that duplicates, impersonates, assigns or adjusts still need the full query right.
+- Why not the full Windows rule: on Windows the token's own descriptor keeps users from copying a SYSTEM token. Here
+  the tokens of the system role (`token_create_service`) have no DACL, and users have the limited query on those
+  processes (`sysrun.c`, `protect_object`, for task managers), so the full query right on the process is what stops
+  a user duplicating a SYSTEM token. Giving those tokens a Windows-like descriptor would allow the plain Windows rule
+  (`SESSION0_SPLIT_REVIEW.md`, R7).
+- Known divergence: a user can read (`TOKEN_QUERY`) a SYSTEM-role token, which Windows' descriptor refuses.
+- Tests (`scripts/sysrun_roles_probe.c`, run by `test_sysrun_server.sh` section c3 for both architectures):
+  `low-token` (a Low integrity copy reads its Medium parent's token and cannot open it for duplicate, impersonate,
+  assign or `MAXIMUM_ALLOWED`), and `proc-denied` now also checks that the limited query opens no copying, using or
+  adjusting right on the tokens of services.exe, winedevice.exe and a service process.
+
+## server, ntdll, launcher: one library under the session 0 links (R2 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
+
+No change of the link protocol (version 5), and none of behaviour but one tightening: a user's server now ignores
+a hive message from session 0 that was cut or came with more than one descriptor (before, it wrote the last
+descriptor it got). The copies became one (Codex review: no other difference).
+
+- `server/sysrun.c` (`sysrun_process_is_tcb_system`): the system role's authority, a process started over the
+  system role connection with SYSTEM's primary token and SeTcbPrivilege. It replaces the hand-written test in
+  `create_service_token`, the E1 broker test and `create_linked_token` (`token.c`) and the pipe binding
+  (`named_pipe.c`). The lab endorsement in `sysrun.c` keeps its own test, one audit label per condition.
+- `include/wine/wex_sysrun_peer.h` (new): is a socket's peer a process that the setgid launcher started? One
+  `/proc/<pid>/status` test with a rule per caller, used by session 0's listener (`session0.c`, another user's
+  `wineserver`), ntdll's check of a launcher-started server (`dlls/ntdll/unix/sysrun.c`) and the launcher
+  (`tools/wex-sysrun`). The pid is pinned through `SO_PEERPIDFD` in all three; before, only session 0 pinned it.
+- `server/session0.c`: `link_send`, `link_receive` and `link_request` replace four hand-built `sendmsg` calls and
+  two receive loops. A link has an explicit kind (request, session, hive).
+- `include/wine/wex_session0.h`: the request header's last word is a union named by message type (`machine`,
+  `saved`, `name_size`, `session_id`); the same word on the wire.
 
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
@@ -2625,9 +2738,9 @@ elevation is enforced; otherwise stock behavior (the build files and the service
   Administrators only. Any other new process whose connection has the system group loses the raised file access
   (`peer_gid` cleared): its Unix process dropped the group.
 - `server/token.c` (`open_token`): while the system role is active and elevation is enforced, opening the token of
-  another process needs `PROCESS_QUERY_INFORMATION` (a thread: `THREAD_QUERY_INFORMATION`), as on Windows. Stock Wine
-  asks for no right at all, so a limited process could open the full token of an elevated process of its user and
-  impersonate it.
+  another process needs `PROCESS_QUERY_INFORMATION` (a thread: `THREAD_QUERY_INFORMATION`). Stock Wine asks for no
+  right at all, so a limited process could open the full token of an elevated process of its user and impersonate it.
+  Since 2026-11-23 an open that only reads the token needs just the limited query right (see the entry at the top).
 - `server/sysrun.c` (`system_images`): `drive_c/windows/system32/wexelevate.exe` may be the main image of a system
   group root process (B1). Dormant until the launcher accepts the broker as a mode; the broker is started by
   services.exe as a LocalSystem service and does not need it.
@@ -3132,7 +3245,13 @@ per-window attributes (write-only attributes read back `E_INVALIDARG`, computed 
 stream hint, and composition timing rates as counter frequency over refresh period. Nothing is drawn yet; a DWM service
 (`docs/DWM_PLAN.md` 1.0) is to take over the state. The conformance test passes on Windows 11 and on Wine, 32-bit and 64-bit.
 
-## DWM control channel: wineserver endpoint and `ProcessWineDwmChannel` (2026-11-02)
+## DWM control channel: wineserver endpoint and `ProcessWineDwmChannel` (2026-11-02) — reverted 2026-11-23
+
+**Reverted** by the per-desktop broker pipe (entry "DWM broker over a named pipe", Wine `claude/dwm-pipe`):
+- `server/dwm.c` and its six requests are gone, along with the `user.h` fields, the `winstation.c` and `process.c` hooks, `ProcessWineDwmChannel` in ntdll, WoW64 and `winternl.h`, and the two `server/window.c` accessors.
+- `window_desktop_denied` is static again.
+
+What this entry described:
 
 New `server/dwm.c` (requests `dwm_connect`, `dwm_get_broker_capability`, `dwm_broker_register`, `dwm_send`, `dwm_recv`, `dwm_reply`),
 `include/wine/dwm_protocol.h`, `dlls/dwmapi/dwm_client.c`; small hooks in `server/protocol.def`, `server/user.h` (per-desktop endpoint and
@@ -3146,7 +3265,8 @@ carries no identity. The broker registers with a one-use capability minted only 
 ## explorer starts and supervises the DWM broker (2026-11-02)
 
 `programs/explorer/dwmhost.c` (new), `desktop.c` (`start_dwm_broker()` after the desktop window exists, `stop_dwm_broker()` at exit), `explorer_private.h`,
-`Makefile.in`. Off unless `HKCU\Software\WineExplorer\Shell\DwmService` is non-zero. The desktop manager mints a one-use broker capability for its desktop
+`Makefile.in`. (Since 2026-11-23, Wine `claude/dwm-pipe`: no capability. dwm.exe is started on the desktop and
+creates that desktop's pipe itself, and it ends when explorer exits.) Off unless `HKCU\Software\WineExplorer\Shell\DwmService` is non-zero. The desktop manager mints a one-use broker capability for its desktop
 and starts `src/programs/dwm` (`dwm.exe /parent=<pid>`, the capability goes through its stdin) on that desktop; a worker thread restarts it after a crash (250 ms, 1 s, 4 s) and gives up
 after three failures in a minute. `dwm.exe` ends when the channel is revoked or explorer exits. No broker is started for Winlogon or other desktops without a manager.
 
@@ -4203,3 +4323,17 @@ an empty client id means the client ids the calling process has used); `Invalida
 - `dlls/twinapi.appcore/static_lifetime.c` (new), `core_application.c`, `private.h`, `Makefile.in`: `IStaticLifetime` of `Windows.ApplicationModel.Core.CoreApplication` and its collection, the process-wide map of the factories of C++/WinRT classes with static lifetime (Wine 372efb0c).
 
 2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`): ALPC security (`server/alpc.c`, `dlls/ntdll/unix/alpc.c`, `dlls/ntdll/alpc.c`, `ntdll.spec`, `include/winternl.h`, protocol): the connect right is checked against the DACL of the port; impersonation needs the flag of the connection port, takes the token of the sender at send time (only for a message sent with a security attribute) and uses the named pipes helper `token_impersonation_level`; `NtAlpcCreateSecurityContext` and `NtAlpcDeleteSecurityContext` are semi-stubs. The Windows measurements are in docs/uwp/WINAPPSDK.md.
+
+2026-11-23 (Wine d77d8065, 1c7939e1, tests 2458bf14 and 7b49b5fe, branch `claude/wam-broker-pipe-check`, B86):
+`dlls/windows.security.authentication.web.core/broker.c`: the client accepts the token broker's pipe only from a server
+that runs `tokenbroker.exe` from system32 or syswow64 (`QueryFullProcessImageNameW`), not in an AppContainer, with a
+normal user's token (medium integrity or above, not restricted); a failed query refuses. Before, the user's SID alone was
+checked, and a sandboxed process of the user could create the pipe before the broker. Defence in depth: the image check
+means something only where the machine tree belongs to wexsys, and Wine's sandboxes share the Unix user. Tests:
+`tests/web_core.c` (`test_broker_impostor`: a low integrity impostor that reads the request, and the real broker started
+with a low integrity token; the suite requires the client's warning for the second).
+
+2026-11-23 (Wine 37c2f716, test bcc5cdda, branch `claude/netapi32-lockout-forever`, B88): `dlls/netapi32/netapi32.c`
+(`NetUserModalsGet` level 3): a stored lockout duration of 99999 minutes or more (a security template's
+`LockoutDuration = -1`) reads back as forever (`0xffffffff`), as 0 already did. Test: `tests/access.c`
+(`test_lockout_forever`, Wine only: the key is WineExplorer's).

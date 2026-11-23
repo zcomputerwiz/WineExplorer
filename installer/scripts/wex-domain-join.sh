@@ -17,6 +17,8 @@
 #                                                              the machine account takes the computer's new name
 #   wex-domain-join.sh status                                  what the machine is joined to and what is set up
 #   wex-domain-join.sh serve                                   one request on standard input (the socket unit)
+#   wex-domain-join.sh serve-query                             one question on standard input (the users' socket unit):
+#                                                              validate, dsgetdc, dclist, scquery and status only
 #
 # The administrator's password is read from standard input only, never from the command line (which every user can
 # read in the process list), and is given to kinit; the join itself uses the ticket (net ads join -k), whose cache is a
@@ -71,8 +73,11 @@ fail()   # CODE MESSAGE
     exit 1
 }
 die() { fail 31 "$*"; }   # ERROR_GEN_FAILURE
-note() { if [ "$SERVE" = 1 ]; then NOTES="$NOTES$* "; else echo "wex-domain-join: $*"; fi; }
-[ "${WEX_JOIN_NOROOT:-0}" = 1 ] || [ "$(id -u)" -eq 0 ] || fail 5 "run as root"
+# The answer's message (docs/DOMAIN_JOIN.md, "The answer"): items separated by "||", each a line of text, a field
+# name=value (dsgetdc, scquery) or a name (dclist, one controller each); in serve mode a note is an item of its own
+note() { if [ "$SERVE" = 1 ]; then NOTES="${NOTES:+$NOTES||}$*"; else echo "wex-domain-join: $*"; fi; }
+# the questions (serve-query) need no root: their unit runs them as a user of its own (wex-domain-query@.service)
+[ "${WEX_JOIN_NOROOT:-0}" = 1 ] || [ "${1:-}" = serve-query ] || [ "$(id -u)" -eq 0 ] || fail 5 "run as root"
 
 usage()
 {
@@ -469,14 +474,15 @@ cmd_secure_channel()   # verify|reset
     fi
 }
 
-# the domain controllers that DNS lists for the joined domain
+# the domain controllers that DNS lists for the joined domain, one item each (DNS's words: no separator passes)
 cmd_dclist()
 {
     local realm list
     require_winbind
     realm=$(join_realm)
     command -v host >/dev/null 2>&1 || fail 50 "missing: host (on Debian: apt-get install dnsutils)"
-    list=$(host -t SRV "_ldap._tcp.dc._msdcs.$realm" 2>/dev/null | awk '/has SRV record/ { sub(/\.$/, "", $NF); print $NF }' | sort -u | tr '\n' ' ')
+    list=$(host -t SRV "_ldap._tcp.dc._msdcs.$realm" 2>/dev/null | awk '/has SRV record/ { sub(/\.$/, "", $NF); print $NF }' |
+           tr -d '|' | sort -u | awk 'NF { printf "%s%s", (n++ ? "||" : ""), $0 }')
     [ -n "$list" ] || fail 1355 "no domain controller of $realm is listed in DNS"
     NOTES="$list"
 }
@@ -527,14 +533,16 @@ cmd_dsgetdc()
     flags=$(( flags | 0xe0000000 ))
     note "dc=$dc||addr=$addr||guid=$guid||domain=$dom||dnsdomain=$dnsdom||forest=$forest||dcsite=$dcsite||oursite=${oursite:-$dcsite}||flags=$(printf '%x' "$flags")"
 }
-# nltest /sc_query: the controller the secure channel is with, and whether the channel works
+# nltest /sc_query: the controller the secure channel is with, and whether the channel works. The channel is Winbind's
+# NETLOGON connection with the machine account, which wbinfo --ping-dc tries and any user may ask (testjoin would read
+# the machine secret, root's file): so the question needs no root, as on Windows
 cmd_sc_query()
 {
     local dc status=0
     require_winbind
-    command -v net >/dev/null 2>&1 || fail 50 "missing: net (on Debian: apt-get install $PACKAGES)"
+    command -v net >/dev/null 2>&1 && command -v wbinfo >/dev/null 2>&1 || fail 50 "missing: net or wbinfo (on Debian: apt-get install $PACKAGES)"
     dc=$(dc_name)   # the controller's own words: dc_name lets no separator and no control character pass
-    net ads testjoin >/dev/null 2>&1 || status=1722
+    wbinfo --ping-dc >/dev/null 2>&1 || status=1722
     note "dc=${dc:-}||status=$status"
 }
 
@@ -716,10 +724,19 @@ cmd_rename()
     note "the computer account is $new now"
 }
 
-# one request on standard input: lines of key=value ended by an empty line; the answer is status= and message=
-cmd_serve()
+# The questions that any user may ask, as on Windows (NetValidateName, DsGetDcName, nltest /dclist and /sc_query need no
+# rights there): they read and change nothing. They come through a second socket (wex-domain-query.socket), which every
+# local user can reach; its unit runs the engine as a user of its own, not root. Everything else (a join, a leave, a
+# rename, verify and reset, whose I_NetLogonControl2 codes need an administrator on Windows) stays on the system group's
+# socket.
+QUERY_OPS="validate dsgetdc dclist scquery status"
+
+# one request on standard input: lines of key=value ended by an empty line; the answer is status= and message=.
+# With "query" (serve-query, the users' socket): only the questions, and no password field.
+cmd_serve()   # [query]
 {
     local line key val n=0 op= domain= user= userdomain= password= ou= workgroup= name= nametype= force= flags= kind rc
+    local query=${1:-}
     SERVE=1
     while :; do
         # a client that connects and says nothing must not keep the service for ever
@@ -738,6 +755,12 @@ cmd_serve()
         esac
     done
     REQ_LOG="op=${op:-?} domain=${domain:-} user=${userdomain:+$userdomain\\}${user:-}"
+    if [ -n "$query" ]; then
+        REQ_LOG="query $REQ_LOG"
+        # a change through the users' socket: Windows' "access denied" for a caller who is not an administrator
+        [[ " $QUERY_OPS " == *" $op "* ]] || fail 5 "changing the domain membership needs an administrator"
+        [ -z "$password" ] || fail 87 "a question takes no password"
+    fi
     logger -t wex-domain-join "request $REQ_LOG" 2>/dev/null || true
     # the password goes to get_ticket (JOIN_PW, which it empties) and is not kept here
     JOIN_PW=$password; password=
@@ -768,6 +791,7 @@ cmd_serve()
 
 case ${1:-} in
     serve) cmd_serve ;;
+    serve-query) cmd_serve query ;;
     verify) cmd_secure_channel verify ;;
     reset) cmd_secure_channel reset ;;
     dclist) cmd_dclist; echo "$NOTES" ;;

@@ -216,6 +216,28 @@ int main(void)
         }
     }
 
+    /* the same comparison on UTF-8 (the security template editor's text) */
+    {
+        static const struct { const char *name; int is; } names[] =
+        {
+            { "MACHINE\\Software\\Policies\\X", 1 },
+            { "machine\\software\\policies\\x", 1 },
+            { "MACHINE\\\\Software\\\\\\Policies\\X", 1 },
+            { "MACHINE\\Software\\Pol\xc4\xb1" "cies\\X", 1 },     /* a dotless i */
+            { "MACHINE\\\xc5\xbf" "oftware\\Policies\\X", 1 },     /* a long s */
+            { "MACHINE\\Software\\Policies\\X\\", 0 },
+            { "MACHINE\\Software\\Policies\\XY", 0 },
+            { "MACHINE\\Software\\Policies", 0 },
+            { "MACHINE\\Software\\Pol\xc4" "icies\\X", 0 },        /* half a character */
+            { "MACHINE\\Software\\Pol\xc3\xad" "cies\\X", 0 },     /* another accented letter is not i */
+        };
+        unsigned int i;
+
+        for (i = 0; i < sizeof(names) / sizeof(names[0]); i++)
+            CHECK( preg_utf8_name_is( names[i].name, strlen( names[i].name ), "machine\\software\\policies\\x" ) == names[i].is,
+                   names[i].name );
+    }
+
     printf( "PREG checks=%d failures=%d\n", checks, failures );
     return failures != 0;
 }

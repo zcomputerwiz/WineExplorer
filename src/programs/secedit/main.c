@@ -40,10 +40,10 @@
 
 #include "wexgpclient.h"
 #include "wexconsole.h"
+#include "wexsectmpl.h"
 
-#define ELEVATION_KEY   L"Software\\WineExplorer\\Elevation"
-#define SYSTEM_KEY      L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
-#define LONGEST_MINUTES 99999
+#define ELEVATION_KEY   L"" WEX_ELEVATION_KEY
+#define SYSTEM_KEY      L"" WEX_SYSTEM_POLICY_KEY
 
 static void usage(void)
 {
@@ -115,24 +115,24 @@ static BOOL make_template( struct text *t )
 {
     static const WCHAR *consent[] = { L"ConsentPromptBehaviorAdmin", L"ConsentPromptBehaviorUser", L"EnableLUA",
                                       L"PromptOnSecureDesktop", L"EnableInstallerDetection" };
-    DWORD bad = 0, duration = 30, reset = 30, value;
+    static const WCHAR * const lockout[WEX_LOCKOUT_COUNT] =
+        { L"" WEX_LOCKOUT_BADCOUNT_NAME, L"" WEX_LOCKOUT_DURATION_NAME, L"" WEX_LOCKOUT_RESET_NAME };
+    DWORD value;
     BOOL ok;
     int i;
 
-    read_dword( HKEY_LOCAL_MACHINE, ELEVATION_KEY, L"LockoutBadCount", &bad );
-    read_dword( HKEY_LOCAL_MACHINE, ELEVATION_KEY, L"LockoutDuration", &duration );
-    read_dword( HKEY_LOCAL_MACHINE, ELEVATION_KEY, L"ResetLockoutCount", &reset );
-    ok = add( t, L"[Unicode]\r\nUnicode=yes\r\n[System Access]\r\n" ) &&
-         add( t, L"LockoutBadCount = %lu\r\n", bad ) &&
-         add( t, L"ResetLockoutCount = %lu\r\n", reset );
-    /* "forever" is -1 in a template and the longest time (99999 minutes) in the registry */
-    if (ok && duration >= LONGEST_MINUTES) ok = add( t, L"LockoutDuration = -1\r\n" );
-    else if (ok) ok = add( t, L"LockoutDuration = %lu\r\n", duration );
+    ok = add( t, L"%s", L"" WEX_SECTMPL_UNICODE "[System Access]\r\n" );
+    /* each value as the registry keeps it, or the default in force; "for ever" is -1 in a template (wexsectmpl.h) */
+    for (i = 0; ok && i < WEX_LOCKOUT_COUNT; i++)
+    {
+        if (read_dword( HKEY_LOCAL_MACHINE, ELEVATION_KEY, lockout[i], &value )) value = wex_lockout_values[i].def;
+        ok = add( t, L"%s = %ld\r\n", lockout[i], wex_lockout_to_template( i, value ) );
+    }
     if (ok) ok = add( t, L"[Registry Values]\r\n" );
     for (i = 0; ok && i < ARRAY_SIZE(consent); i++)
         if (!read_dword( HKEY_LOCAL_MACHINE, SYSTEM_KEY, consent[i], &value ))
             ok = add( t, L"MACHINE\\%s\\%s=4,%lu\r\n", SYSTEM_KEY, consent[i], value );
-    if (ok) ok = add( t, L"[Version]\r\nsignature=\"$CHICAGO$\"\r\nRevision=1\r\n" );
+    if (ok) ok = add( t, L"%s", L"" WEX_SECTMPL_VERSION );
     return ok;
 }
 
@@ -156,7 +156,7 @@ static BOOL write_utf16( const WCHAR *path, const WCHAR *text, size_t len )
     return CloseHandle( file );
 }
 
-/* a template file read as text: UTF-16LE (a byte order mark) or the ANSI code page; at most 1 MB */
+/* a template file read as text: UTF-16LE or UTF-8 (by their byte order marks), else the ANSI code page; at most 1 MB */
 static WCHAR *read_template( const WCHAR *path, size_t *len, DWORD *err )
 {
     HANDLE file = CreateFileW( path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
@@ -190,9 +190,15 @@ static WCHAR *read_template( const WCHAR *path, size_t *len, DWORD *err )
     }
     else
     {
-        int n = MultiByteToWideChar( CP_ACP, 0, (char *)bytes, size, NULL, 0 );
+        /* a UTF-8 file (what Local Security Settings reads too) is not ANSI: its mark would become three characters */
+        BOOL utf8 = size >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf;
+        const char *start = (char *)bytes + (utf8 ? 3 : 0);
+        DWORD count = size - (utf8 ? 3 : 0);
+        int n = count ? MultiByteToWideChar( utf8 ? CP_UTF8 : CP_ACP, utf8 ? MB_ERR_INVALID_CHARS : 0, start, count, NULL, 0 ) : 0;
+
         text = n ? malloc( (n + 1) * sizeof(WCHAR) ) : NULL;
-        if (text) { MultiByteToWideChar( CP_ACP, 0, (char *)bytes, size, text, n ); text[n] = 0; *len = n; }
+        if (text) { MultiByteToWideChar( utf8 ? CP_UTF8 : CP_ACP, utf8 ? MB_ERR_INVALID_CHARS : 0, start, count, text, n ); text[n] = 0; *len = n; }
+        else if (!n) { free( bytes ); *err = ERROR_BAD_FORMAT; return NULL; }
     }
     free( bytes );
     if (!text) *err = ERROR_NOT_ENOUGH_MEMORY;

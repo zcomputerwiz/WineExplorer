@@ -1,10 +1,12 @@
 /*
- * Desktop Window Manager broker (docs/DWM_ARCHITECTURE.md section 3, phase P2).
+ * Desktop Window Manager broker (docs/DWM_ARCHITECTURE.md sections 2.0 and 3).
  *
  * One instance per ordinary desktop, started by explorer's desktop manager with
- *   dwm.exe /parent=<explorer pid>   (the one-use broker capability, 16 hex digits, arrives on stdin)
- * on the desktop it serves. It registers as the broker of that desktop's control channel and answers requests.
- * It owns no display connection and draws nothing. It ends when the channel is revoked or the parent exits.
+ *   dwm.exe /parent=<explorer pid>
+ * on the desktop it serves. It creates that desktop's pipe (dwm_pipe_name; it exits when another process holds the
+ * name) and answers requests, one thread per client. Every message's window is checked here: it must be on this
+ * desktop, and only its owner may change it. It owns no display connection and draws nothing. It ends when the
+ * parent exits.
  *
  * Copyright 2026 WineExplorer Desktop Environment Project
  *
@@ -39,13 +41,25 @@
 #include "wingdi.h"
 #include "winuser.h"
 #include "winternl.h"
+#include "ntsecapi.h"
+#include "sddl.h"
 #include "dwmapi.h"
 #include "wine/dwm_protocol.h"
+#include "wine/wex_pipe.h"
 
-static NTSTATUS channel_call( struct dwm_channel_call *call )
+/* the broker's state: attributes, change log, thumbnails; the client threads and the sweep take it */
+static CRITICAL_SECTION state_cs;
+
+/* a pipe client; the pid of a pipe's client is fixed for the connection (0 for a client bridged from elsewhere) */
+struct client
 {
-    return NtSetInformationProcess( GetCurrentProcess(), ProcessWineDwmChannel, call, sizeof(*call) );
-}
+    HANDLE pipe;
+    ULONG pid;
+    uint32_t id;
+    BOOL has_window;   /* seen owning a window on this desktop (the read rule under enforcement) */
+};
+
+static uint64_t generation;
 
 /* the broker serves the desktop it was started on */
 static BOOL use_startup_desktop(void)
@@ -84,12 +98,10 @@ static void notify_change(void)
 {
     if (!change_event)
     {
-        WCHAR desk_name[MAX_PATH], name[MAX_PATH + 64];
-        HDESK desk = GetThreadDesktop( GetCurrentThreadId() );
+        WCHAR name[MAX_PATH + 64];
 
-        if (!desk || !GetUserObjectInformationW( desk, UOI_NAME, desk_name, ARRAY_SIZE( desk_name ), NULL )) return;
-        lstrcpynW( name, DWM_CHANGE_EVENT_NAME, ARRAY_SIZE( name ) );
-        lstrcatW( name, desk_name );
+        if (!dwm_desktop_object_name( GetThreadDesktop( GetCurrentThreadId() ), DWM_CHANGE_EVENT_NAME, name,
+                                      ARRAY_SIZE(name) )) return;
         if (!(change_event = CreateEventW( NULL, FALSE, FALSE, name ))) return;
     }
     SetEvent( change_event );
@@ -144,21 +156,39 @@ static struct attr_entry *new_attr(void)
     return &attrs[attr_count++];
 }
 
-/* live thumbnails (docs/DWM_ARCHITECTURE.md, P8): keyed by the server-stamped sender process and the
- * HTHUMBNAIL value (handles are per process, so two processes both have handle 1); entries of destroyed
- * windows are dropped by the sweep, which also covers a process that exited */
-struct thumb_entry { uint32_t pid; uint32_t handle; struct dwm_thumb thumb; BOOL used; };
+/* live thumbnails (docs/DWM_ARCHITECTURE.md, P8): keyed by the connection that set them and the HTHUMBNAIL value
+ * (handles are per process, so two processes both have handle 1); a closed connection drops its thumbnails, the
+ * sweep those of destroyed windows */
+struct thumb_entry { uint32_t client; uint32_t handle; struct dwm_thumb thumb; BOOL used; };
 
 static struct thumb_entry thumbs[DWM_THUMB_MAX];
 static uint64_t thumb_revision = 1;
 
-static struct thumb_entry *find_thumb( uint32_t pid, uint32_t handle )
+static struct thumb_entry *find_thumb( uint32_t client, uint32_t handle )
 {
     unsigned int i;
 
     for (i = 0; i < DWM_THUMB_MAX; i++)
-        if (thumbs[i].used && thumbs[i].pid == pid && thumbs[i].handle == handle) return &thumbs[i];
+        if (thumbs[i].used && thumbs[i].client == client && thumbs[i].handle == handle) return &thumbs[i];
     return NULL;
+}
+
+static void drop_client_thumbs( uint32_t client )
+{
+    unsigned int i;
+    BOOL dropped = FALSE;
+
+    for (i = 0; i < DWM_THUMB_MAX; i++)
+    {
+        if (!thumbs[i].used || thumbs[i].client != client) continue;
+        thumbs[i].used = FALSE;
+        dropped = TRUE;
+    }
+    if (dropped)
+    {
+        thumb_revision++;
+        notify_change();
+    }
 }
 
 static void sweep_thumbs(void)
@@ -187,63 +217,112 @@ static BOOL valid_attribute( uint32_t attribute )
                               (attribute >= DWM_ATTR_WINE_BLUR && attribute <= DWM_ATTR_WINE_LAST));
 }
 
-/* buf holds a request (header and payload); on success it holds the reply and *reply_size its size */
-static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t sender_pid, uint32_t *reply_size )
+/* The window lies on this broker's desktop: the parent of its root window is this desktop's window. */
+static BOOL on_this_desktop( uint32_t window )
 {
-    struct dwm_msg_header *hdr = (struct dwm_msg_header *)buf;
-    unsigned char *payload = buf + sizeof(*hdr);
+    HWND hwnd = UlongToHandle( window ), root;
+
+    if (!window || !(root = GetAncestor( hwnd, GA_ROOT ))) return FALSE;
+    return GetAncestor( root, GA_PARENT ) == GetDesktopWindow();
+}
+
+/* Only a window's own process changes its attributes and thumbnails; a client without a pid owns nothing. */
+static BOOL owned_by( uint32_t window, const struct client *client )
+{
+    DWORD pid = 0;
+
+    if (!client->pid || !GetWindowThreadProcessId( UlongToHandle( window ), &pid )) return FALSE;
+    return pid == client->pid;
+}
+
+static BOOL CALLBACK find_client_window( HWND hwnd, LPARAM param )
+{
+    struct client *client = (struct client *)param;
+    DWORD pid = 0;
+
+    GetWindowThreadProcessId( hwnd, &pid );
+    if (pid != client->pid) return TRUE;
+    client->has_window = TRUE;
+    return FALSE;
+}
+
+/* May the client read this desktop's state? Only a process with a window here: the pipe's name is not scoped to a
+ * desktop, and the server's desktop separation (sysrun) cannot be seen from user mode, so the rule always applies.
+ * A process without windows cannot read other processes' DWM attributes (on Windows it can; none is known to).
+ * A yes is kept for the connection, a no is checked again. */
+static BOOL may_read( struct client *client )
+{
+    if (client->has_window) return TRUE;
+    if (client->pid) EnumWindows( find_client_window, (LPARAM)client );
+    return client->has_window;
+}
+
+/* buf holds a request (header and payload); on success it holds the reply's payload after the reply header's
+ * place and *reply_length its length. Called with state_cs held. */
+static NTSTATUS handle_request( unsigned char *buf, uint32_t size, struct client *client, uint32_t *reply_length )
+{
+    struct dwm_request req;
+    unsigned char *payload = buf + sizeof(req);
     struct dwm_attr_reply *rep;
     struct attr_entry *entry;
 
-    if (size < sizeof(*hdr) || hdr->length != size - sizeof(*hdr)) return STATUS_INVALID_PARAMETER;
+    if (size < sizeof(req)) return STATUS_INVALID_PARAMETER;
+    memcpy( &req, buf, sizeof(req) );
+    if (req.length != size - sizeof(req)) return STATUS_INVALID_PARAMETER;
+    if (req.version != DWM_PROTOCOL_VERSION) return STATUS_REVISION_MISMATCH;
+    *reply_length = 0;
 
-    switch (hdr->opcode)
+    switch (req.opcode)
     {
     case DWM_OP_ECHO:
-        *reply_size = size;
+        *reply_length = req.length;
         return STATUS_SUCCESS;
 
     case DWM_OP_SET_ATTR:
     {
         struct dwm_attr_set set;
 
-        if (hdr->length != sizeof(set)) return STATUS_INVALID_PARAMETER;
+        if (req.length != sizeof(set)) return STATUS_INVALID_PARAMETER;
         memcpy( &set, payload, sizeof(set) );
-        if (!hdr->window_token || !valid_attribute( set.attribute )) return STATUS_INVALID_PARAMETER;
-        if (!(entry = find_attr( hdr->window_token, set.attribute )))
+        if (!req.window || !valid_attribute( set.attribute )) return STATUS_INVALID_PARAMETER;
+        if (!on_this_desktop( req.window ) || !owned_by( req.window, client )) return STATUS_ACCESS_DENIED;
+        if (!(entry = find_attr( req.window, set.attribute )))
         {
             if (!(entry = new_attr()))
             {
                 sweep_attrs();
                 if (!(entry = new_attr())) return STATUS_QUOTA_EXCEEDED;
             }
-            entry->hwnd      = hdr->window_token;
+            entry->hwnd      = req.window;
             entry->attribute = set.attribute;
             entry->value     = set.value;
-            log_change( hdr->window_token, set.attribute, set.value );
+            log_change( req.window, set.attribute, set.value );
         }
         else if (entry->value != set.value)
         {
             entry->value = set.value;
-            log_change( hdr->window_token, set.attribute, set.value );
+            log_change( req.window, set.attribute, set.value );
         }
         rep = (struct dwm_attr_reply *)payload;
         rep->found = 1;
         rep->value = set.value;
-        break;
+        *reply_length = sizeof(*rep);
+        return STATUS_SUCCESS;
     }
 
     case DWM_OP_GET_ATTR:
     {
         struct dwm_attr_get get;
 
-        if (hdr->length != sizeof(get)) return STATUS_INVALID_PARAMETER;
+        if (req.length != sizeof(get)) return STATUS_INVALID_PARAMETER;
         memcpy( &get, payload, sizeof(get) );
-        entry = hdr->window_token ? find_attr( hdr->window_token, get.attribute ) : NULL;
+        if (!on_this_desktop( req.window ) || !may_read( client )) return STATUS_ACCESS_DENIED;
+        entry = find_attr( req.window, get.attribute );
         rep = (struct dwm_attr_reply *)payload;
         rep->found = entry != NULL;
         rep->value = entry ? entry->value : 0;
-        break;
+        *reply_length = sizeof(*rep);
+        return STATUS_SUCCESS;
     }
 
     case DWM_OP_POLL:
@@ -254,7 +333,8 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         uint32_t count = 0, flags = 0, i;
         uint64_t reply_revision;
 
-        if (hdr->length != sizeof(poll)) return STATUS_INVALID_PARAMETER;
+        if (req.length != sizeof(poll)) return STATUS_INVALID_PARAMETER;
+        if (!may_read( client )) return STATUS_ACCESS_DENIED;
         memcpy( &poll, payload, sizeof(poll) );
         prep    = (struct dwm_poll_reply *)payload;
         changes = (struct dwm_change *)(payload + sizeof(*prep));
@@ -315,8 +395,7 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         prep->revision = reply_revision;
         prep->count    = count;
         prep->flags    = flags;
-        hdr->length    = sizeof(*prep) + count * sizeof(*changes);
-        *reply_size    = sizeof(*hdr) + hdr->length;
+        *reply_length  = sizeof(*prep) + count * sizeof(*changes);
         return STATUS_SUCCESS;
     }
 
@@ -326,24 +405,27 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         struct thumb_entry *tentry;
         unsigned int i;
 
-        if (hdr->length != sizeof(set)) return STATUS_INVALID_PARAMETER;
+        if (req.length != sizeof(set)) return STATUS_INVALID_PARAMETER;
         memcpy( &set, payload, sizeof(set) );
-        if (!hdr->window_token || !set.src) return STATUS_INVALID_PARAMETER;
+        if (!req.window || !set.src) return STATUS_INVALID_PARAMETER;
         if (set.flags & ~(DWM_THUMB_VISIBLE | DWM_THUMB_CLIENT_ONLY | DWM_THUMB_HAS_SOURCE))
             return STATUS_INVALID_PARAMETER;
         if (set.opacity > 255) return STATUS_INVALID_PARAMETER;
         if (set.dest[2] < set.dest[0] || set.dest[3] < set.dest[1]) return STATUS_INVALID_PARAMETER;
-        if (!(tentry = find_thumb( sender_pid, set.handle )))
+        /* the destination is the caller's; the source may be another process's window, of this desktop too */
+        if (!on_this_desktop( req.window ) || !owned_by( req.window, client ) || !on_this_desktop( set.src ))
+            return STATUS_ACCESS_DENIED;
+        if (!(tentry = find_thumb( client->id, set.handle )))
         {
             for (i = 0; i < DWM_THUMB_MAX; i++)
                 if (!thumbs[i].used) break;
             if (i == DWM_THUMB_MAX) return STATUS_QUOTA_EXCEEDED;
             tentry = &thumbs[i];
-            tentry->pid    = sender_pid;
+            tentry->client = client->id;
             tentry->handle = set.handle;
             tentry->used   = TRUE;
         }
-        tentry->thumb.dest    = (uint32_t)hdr->window_token;
+        tentry->thumb.dest    = req.window;
         tentry->thumb.src     = set.src;
         tentry->thumb.flags   = set.flags;
         tentry->thumb.opacity = set.opacity;
@@ -351,8 +433,6 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         memcpy( tentry->thumb.source, set.source, sizeof(set.source) );
         thumb_revision++;
         notify_change();
-        hdr->length  = 0;
-        *reply_size  = sizeof(*hdr);
         return STATUS_SUCCESS;
     }
 
@@ -361,14 +441,12 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         struct dwm_thumb_del del;
         struct thumb_entry *tentry;
 
-        if (hdr->length != sizeof(del)) return STATUS_INVALID_PARAMETER;
+        if (req.length != sizeof(del)) return STATUS_INVALID_PARAMETER;
         memcpy( &del, payload, sizeof(del) );
-        if (!(tentry = find_thumb( sender_pid, del.handle ))) return STATUS_NOT_FOUND;
+        if (!(tentry = find_thumb( client->id, del.handle ))) return STATUS_NOT_FOUND;
         tentry->used = FALSE;
         thumb_revision++;
         notify_change();
-        hdr->length  = 0;
-        *reply_size  = sizeof(*hdr);
         return STATUS_SUCCESS;
     }
 
@@ -379,7 +457,8 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         struct dwm_thumb *entries;
         uint32_t count = 0, i;
 
-        if (hdr->length != sizeof(list)) return STATUS_INVALID_PARAMETER;
+        if (req.length != sizeof(list)) return STATUS_INVALID_PARAMETER;
+        if (!may_read( client )) return STATUS_ACCESS_DENIED;
         memcpy( &list, payload, sizeof(list) );
         lrep    = (struct dwm_thumb_list_reply *)payload;
         entries = (struct dwm_thumb *)(payload + sizeof(*lrep));
@@ -394,73 +473,205 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, uint32_t send
         lrep->revision = thumb_revision;
         lrep->count    = count;
         lrep->pad      = 0;
-        hdr->length    = sizeof(*lrep) + count * sizeof(*entries);
-        *reply_size    = sizeof(*hdr) + hdr->length;
+        *reply_length  = sizeof(*lrep) + count * sizeof(*entries);
         return STATUS_SUCCESS;
     }
 
     default:
         return STATUS_NOT_IMPLEMENTED;
     }
-
-    hdr->length = sizeof(*rep);
-    *reply_size = sizeof(*hdr) + sizeof(*rep);
-    return STATUS_SUCCESS;
 }
 
-static void serve( HANDLE broker, HANDLE parent )
-{
-    unsigned char buf[sizeof(struct dwm_msg_header) + DWM_MAX_MESSAGE_SIZE];
-    struct dwm_channel_call call;
-    NTSTATUS status;
-    DWORD last_sweep = GetTickCount();
+/* Connections hold a thread each, so they are capped: per process (a client with pid 0 has nothing to send: one)
+ * and in total; over a cap the connection is closed at once. Under state_cs. */
+#define MAX_CLIENTS          512
+#define MAX_CLIENTS_PER_PID  8
 
+static struct client *clients[MAX_CLIENTS];
+
+static BOOL add_client( struct client *client )
+{
+    unsigned int i, same = 0, slot = MAX_CLIENTS;
+
+    for (i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (!clients[i]) { if (slot == MAX_CLIENTS) slot = i; }
+        else if (clients[i]->pid == client->pid) same++;
+    }
+    if (slot == MAX_CLIENTS || same >= (client->pid ? MAX_CLIENTS_PER_PID : 1)) return FALSE;
+    clients[slot] = client;
+    return TRUE;
+}
+
+static void remove_client( struct client *client )
+{
+    unsigned int i;
+
+    for (i = 0; i < MAX_CLIENTS; i++) if (clients[i] == client) clients[i] = NULL;
+}
+
+/* one thread per client: requests in, replies out, until the client goes away */
+static DWORD WINAPI client_thread( void *arg )
+{
+    struct client *client = arg;
+    unsigned char *buf = malloc( sizeof(struct dwm_request) + DWM_MAX_MESSAGE_SIZE );
+    HANDLE event = CreateEventW( NULL, TRUE, FALSE, NULL );
+    struct dwm_reply rep;
+    DWORD size, done;
+
+    while (buf && event &&
+           !wex_pipe_io( client->pipe, FALSE, buf, sizeof(struct dwm_request) + DWM_MAX_MESSAGE_SIZE, &size, event,
+                         INFINITE ))
+    {
+        uint32_t length = 0;
+
+        EnterCriticalSection( &state_cs );
+        rep.status = handle_request( buf, size, client, &length );
+        LeaveCriticalSection( &state_cs );
+        if (rep.status) length = 0;
+        /* the payload stays where the request's was: both headers are 16 bytes */
+        rep.length     = length;
+        rep.generation = generation;
+        memcpy( buf, &rep, sizeof(rep) );
+        if (wex_pipe_io( client->pipe, TRUE, buf, sizeof(rep) + length, &done, event, 5000 ) ||
+            done != sizeof(rep) + length) break;
+    }
+    EnterCriticalSection( &state_cs );
+    drop_client_thumbs( client->id );
+    remove_client( client );
+    LeaveCriticalSection( &state_cs );
+    if (event) CloseHandle( event );
+    free( buf );
+    DisconnectNamedPipe( client->pipe );
+    CloseHandle( client->pipe );
+    free( client );
+    return 0;
+}
+
+/* the pipe's descriptor names this broker's user */
+static BOOL make_sddl( WCHAR *sddl, DWORD size )
+{
+    BYTE buffer[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
+    TOKEN_USER *user = (TOKEN_USER *)buffer;
+    WCHAR *sid_text;
+    HANDLE token;
+    DWORD len;
+    BOOL ret;
+
+    if (!OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token )) return FALSE;
+    ret = GetTokenInformation( token, TokenUser, buffer, sizeof(buffer), &len ) &&
+          ConvertSidToStringSidW( user->User.Sid, &sid_text );
+    CloseHandle( token );
+    if (!ret) return FALSE;
+    ret = _snwprintf( sddl, size, DWM_PIPE_SDDL_FMT, sid_text ) > 0;
+    LocalFree( sid_text );
+    return ret;
+}
+
+static int serve( const WCHAR *name, const WCHAR *sddl, HANDLE parent )
+{
+    OVERLAPPED ov = { 0 };
+    DWORD last_sweep = GetTickCount();
+    uint32_t next_id = 1;
+    BOOL first = TRUE;
+
+    if (!(ov.hEvent = CreateEventW( NULL, TRUE, FALSE, NULL ))) return 1;
     for (;;)
     {
-        /* by elapsed time: the shell's bridge polls regularly, so the broker is rarely idle */
-        if (GetTickCount() - last_sweep >= 5000)
+        HANDLE pipe = wex_pipe_create( name, sddl, first, sizeof(struct dwm_request) + DWM_MAX_MESSAGE_SIZE );
+        HANDLE objs[2] = { ov.hEvent, parent };
+        BOOL connected = FALSE;
+
+        if (pipe == INVALID_HANDLE_VALUE)
         {
-            sweep_attrs();
-            sweep_thumbs();
-            last_sweep = GetTickCount();
-        }
-        memset( &call, 0, sizeof(call) );
-        call.op      = DWM_CHANNEL_OP_RECV;
-        call.handle  = HandleToUlong( broker );
-        call.out_ptr = (uintptr_t)buf;
-        call.out_len = sizeof(buf);
-        status = channel_call( &call );
-        if (status == STATUS_PENDING)
-        {
-            HANDLE objs[2] = { broker, parent };
-            DWORD count = parent ? 2 : 1;
-            DWORD wait = WaitForMultipleObjects( count, objs, FALSE, 5000 );
-            if (wait == WAIT_OBJECT_0 + 1) return;
+            /* the first instance could not be ours: another broker serves this desktop, or another process took the
+             * name (clients check the server and refuse it) */
+            fprintf( stderr, "dwm: cannot create %ls (error %lu)\n", name, GetLastError() );
+            if (first) return 3;
+            Sleep( 100 );
             continue;
         }
-        if (status != STATUS_SUCCESS) return;  /* revoked, closed or the desktop is gone */
+        first = FALSE;
+        ResetEvent( ov.hEvent );
+        if (ConnectNamedPipe( pipe, &ov )) connected = TRUE;
+        else if (GetLastError() == ERROR_PIPE_CONNECTED) connected = TRUE;
+        else if (GetLastError() != ERROR_IO_PENDING)
         {
-            uint32_t id = call.request_id, size = call.out_len, reply_size = 0;
-            NTSTATUS result = handle_request( buf, size, call.sender_pid, &reply_size );
+            CloseHandle( pipe );
+            continue;
+        }
+        while (!connected)
+        {
+            DWORD wait = WaitForMultipleObjects( parent ? 2 : 1, objs, FALSE, 5000 ), done;
 
-            memset( &call, 0, sizeof(call) );
-            call.op         = DWM_CHANNEL_OP_REPLY;
-            call.handle     = HandleToUlong( broker );
-            call.request_id = id;
-            call.status     = result;
-            call.in_ptr     = result ? 0 : (uintptr_t)buf;
-            call.in_len     = result ? 0 : reply_size;
-            channel_call( &call );
+            if (wait == WAIT_OBJECT_0 + 1)
+            {
+                CancelIoEx( pipe, &ov );
+                CloseHandle( pipe );
+                return 0;
+            }
+            if (wait == WAIT_OBJECT_0)
+            {
+                connected = GetOverlappedResult( pipe, &ov, &done, FALSE );
+                break;
+            }
+            /* idle: drop the state of destroyed windows */
+            if (GetTickCount() - last_sweep >= 5000)
+            {
+                EnterCriticalSection( &state_cs );
+                sweep_attrs();
+                sweep_thumbs();
+                LeaveCriticalSection( &state_cs );
+                last_sweep = GetTickCount();
+            }
+        }
+        if (connected)
+        {
+            struct client *client = calloc( 1, sizeof(*client) );
+            HANDLE thread = NULL;
+            BOOL added = FALSE;
+
+            if (client)
+            {
+                client->pipe = pipe;
+                client->id = next_id++;
+                if (!GetNamedPipeClientProcessId( pipe, &client->pid )) client->pid = 0;
+                EnterCriticalSection( &state_cs );
+                added = add_client( client );
+                LeaveCriticalSection( &state_cs );
+                if (added) thread = CreateThread( NULL, 0, client_thread, client, 0, NULL );
+                else fprintf( stderr, "dwm: too many connections (pid %04lx)\n", client->pid );
+            }
+            if (thread) CloseHandle( thread );
+            else
+            {
+                if (added)
+                {
+                    EnterCriticalSection( &state_cs );
+                    remove_client( client );
+                    LeaveCriticalSection( &state_cs );
+                }
+                free( client );
+                DisconnectNamedPipe( pipe );
+                CloseHandle( pipe );
+            }
+        }
+        else CloseHandle( pipe );
+        if (GetTickCount() - last_sweep >= 5000)
+        {
+            EnterCriticalSection( &state_cs );
+            sweep_attrs();
+            sweep_thumbs();
+            LeaveCriticalSection( &state_cs );
+            last_sweep = GetTickCount();
         }
     }
 }
 
 int __cdecl wmain( int argc, WCHAR **argv )
 {
-    struct dwm_channel_call call;
+    WCHAR name[MAX_PATH * 2 + 64], sddl[512];
     HANDLE parent = NULL;
-    uint64_t capability = 0;
-    NTSTATUS status;
     int i;
 
     for (i = 1; i < argc; i++)
@@ -468,35 +679,19 @@ int __cdecl wmain( int argc, WCHAR **argv )
         if (!wcsncmp( argv[i], L"/parent=", 8 ))
             parent = OpenProcess( SYNCHRONIZE, FALSE, wcstoul( argv[i] + 8, NULL, 10 ) );
     }
-    {
-        /* the capability comes through stdin so that it is not on a command line other processes can read */
-        char text[17] = { 0 };
-        DWORD read = 0;
-
-        if (!ReadFile( GetStdHandle( STD_INPUT_HANDLE ), text, 16, &read, NULL ) || read != 16)
-        {
-            fprintf( stderr, "dwm: no capability on stdin (error %lu)\n", GetLastError() );
-            return 2;
-        }
-        capability = strtoull( text, NULL, 16 );
-    }
-    if (!capability) return 2;
-
-    if (!use_startup_desktop())
+    if (!use_startup_desktop() || !dwm_pipe_name( GetThreadDesktop( GetCurrentThreadId() ), name, ARRAY_SIZE(name) ))
     {
         fprintf( stderr, "dwm: cannot use the startup desktop (error %lu)\n", GetLastError() );
         return 4;
     }
-
-    memset( &call, 0, sizeof(call) );
-    call.op         = DWM_CHANNEL_OP_BROKER_REGISTER;
-    call.capability = capability;
-    if ((status = channel_call( &call )))
+    if (!make_sddl( sddl, ARRAY_SIZE(sddl) ))
     {
-        fprintf( stderr, "dwm: broker register failed %08lx\n", status );
-        return 3;
+        fprintf( stderr, "dwm: no pipe descriptor (error %lu)\n", GetLastError() );
+        return 2;
     }
-
-    serve( UlongToHandle( call.handle ), parent );
-    return 0;
+    /* a new generation tells clients that this broker holds none of their state yet */
+    while (!generation) if (!RtlGenRandom( &generation, sizeof(generation) )) generation = GetTickCount64();
+    InitializeCriticalSection( &state_cs );
+    wex_pipe_grant_appcontainers();
+    return serve( name, sddl, parent );
 }
