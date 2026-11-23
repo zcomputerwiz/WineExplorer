@@ -416,10 +416,13 @@ BOOL cache_store_account( const struct account *src )
     return TRUE;
 }
 
-/* removes the account's refresh tokens and access tokens of exactly this client; the caller holds the lock */
+/* removes the account's refresh tokens and access tokens of exactly this client; once no refresh token of the account
+ * is left for any client, the access tokens of the account's other clients (nested apps, brokered client ids, which
+ * were got through that refresh token) go too; the caller holds the lock */
 void cache_remove_account( const WCHAR *provider_id, const WCHAR *id, const WCHAR *client_id )
 {
     unsigned int i, j;
+    BOOL others = FALSE;
 
     for (i = j = 0; i < account_count; i++)
     {
@@ -430,11 +433,13 @@ void cache_remove_account( const WCHAR *provider_id, const WCHAR *id, const WCHA
         else accounts[j++] = a;
     }
     account_count = j;
+    for (i = 0; i < account_count; i++)
+        if (same( accounts[i]->provider_id, provider_id ) && same( accounts[i]->id, id )) others = TRUE;
     for (i = j = 0; i < token_count; i++)
     {
         struct access_token *t = tokens[i];
         if (same( t->provider_id, provider_id ) && same( t->account_id, id ) &&
-            same( t->client_id, client_id ))
+            (!others || same( t->client_id, client_id )))
             token_free( t );
         else tokens[j++] = t;
     }

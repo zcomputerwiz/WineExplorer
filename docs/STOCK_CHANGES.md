@@ -4014,8 +4014,9 @@ of failing with `ERROR_INTERNET_INVALID_OPTION` (12009) after "Option 11 STUB". 
 account's answer and then shows its error page with that code (tag 53u4r). Test: `dlls/wininet/tests/internet.c`
 (`test_listen_timeout_option`).
 
-2026-11-23 (Wine 0ea11056 and 9ab267df on claude/merge-11.22, branch `claude/wam-answer-shape`):
-`dlls/windows.security.authentication.web.core` (`account.c`, `broker.c`, `private.h`) and `include/wine/tokenbroker.h`
+2026-11-23 (Wine 0ea11056, 9ab267df and df980993 on claude/merge-11.22, branch `claude/wam-answer-shape`):
+`dlls/windows.security.authentication.web.core` (`account.c`, `broker.c`, `map.c`, `private.h`; `map.c`: the string map's
+`GetView` returns a read-only `IMapView` of the same map, it was `E_NOTIMPL`) and `include/wine/tokenbroker.h`
 (a WineExplorer DLL, listed for the stock tree's sake): the token broker's answer carries the response WebAccount's
 Properties (a new reply field, `TOKENBROKER_REPLY_ACCOUNT_PROPERTIES`, as pairs); `IWebAccount2::get_Properties` returns
 them (it was `E_NOTIMPL`); the account's state is `WebAccountState_None` for the `consumers` authority and `Connected`
