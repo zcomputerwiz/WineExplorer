@@ -2669,10 +2669,18 @@ for arch in x86_64 i386; do
     rm -rf "/home/$ADM/.local/share/wineexplorer/tokenbroker"
     rc=0
     timeout 300 runuser -u "$ADM" -- env -i HOME="/home/$ADM" USER="$ADM" LOGNAME="$ADM" PATH=/usr/bin:/bin LANG=C \
-        DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' \
+        DISPLAY=":$DNUM" WINEDEBUG=-all,warn+webcore WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' \
         WEBCORE_TEST_AUTHORITY="http://127.0.0.1:$(cat "$ROOT/wam-port")/" \
         "$BUILD/wine" "$ROOT/probes/web_core_$arch.exe" web_core > "$ROOT/wam-$arch.log" 2>&1 || rc=$?
-    if [ "$rc" != 0 ] || grep -q -e 'Test failed' -e 'skipped: the token broker' "$ROOT/wam-$arch.log" ||
+    # B86: when the test ran the real broker with a low integrity token, the client must have refused it for the token
+    # (only that check refuses the real image); "not served" alone could have other causes
+    b86=
+    if grep -q 'B86: the low integrity token broker runs' "$ROOT/wam-$arch.log" &&
+       ! sed -n '/B86: the low integrity token broker runs/,$p' "$ROOT/wam-$arch.log" | grep -q "with a sandbox's token"; then
+        b86=1
+        echo "wam $arch: the low integrity broker was not refused for its token" >&2
+    fi
+    if [ "$rc" != 0 ] || [ -n "$b86" ] || grep -q -e 'Test failed' -e 'skipped: the token broker' "$ROOT/wam-$arch.log" ||
        ! grep -q 'tests executed' "$ROOT/wam-$arch.log"; then
         grep -E 'Test failed|skipped|tests executed|unhandled' "$ROOT/wam-$arch.log" | head -20 >&2
         kill "$WAM_AUTH" 2>/dev/null
