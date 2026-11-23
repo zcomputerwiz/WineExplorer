@@ -12,8 +12,11 @@ Wine branch `claude/taskmgr-xp-parity`, `66d8330d` (ntdll, server), `b1ae33c1` a
   from `Cached`. Test: `dlls/ntdll/tests/info.c` `test_query_process_io`.
 * `programs/taskmgr`: XP's caption, defaults, strings and layout. Additions:
   * User Name column.
-  * Processes from other sessions only with "Show processes from all users". With an Elevation helper and a limited
-    token that is not elevated (TokenIsElevated: an administrator's filtered token or a standard user), this is Vista's shield button, which restarts Task Manager elevated with `/showall`; other users' processes are listed only when elevated. `get_process_io_counters` needs `PROCESS_QUERY_LIMITED_INFORMATION`, as the VM counters do. The shield picture itself is not drawn: comctl32 has no `BCM_SETSHIELD` yet.
+  * Processes from other sessions only with "Show processes from all users". With an Elevation helper and a token
+    that is not elevated (`TokenIsElevated`: an administrator's filtered token or a standard user), this is Vista's
+    shield button, which restarts Task Manager elevated with `/showall`, so other users' processes are listed only when
+    elevated. `get_process_io_counters` needs `PROCESS_QUERY_LIMITED_INFORMATION`, as the VM counters do. The shield
+    picture is not drawn yet: comctl32 has no `BCM_SETSHIELD`.
   * Column sorting and the selection kept across refreshes. End Process Tree ends the children.
   * Shut Down menu through `wexhost` `WexPowerCan`/`WexPowerDo`, falling back to `ExitWindowsEx` (items the host can't
     do are greyed).
