@@ -205,6 +205,9 @@ orchestrator; B82 is part of R1a.
 | R1c | done for the trusted images (Wine 2a2b2946: one table with roles). Not done for the bridge's pipe names: the server writes them as WCHAR arrays, `services.exe` and `wexelevate` as `L""` strings, so one shared definition would need a macro per name for little gain |
 | R1d | not done, on purpose: `session0_init` already decides the role once at start and refuses impossible combinations with a fatal error. What remains are the fallback modes, which R4 retires; renaming about 50 flag checks before that would be churn |
 
+| R2 | done (approved 2026-11-23; Wine `claude/r2-session0-link` f19545fe, WineExplorer acccd7ef; full suite passed, Codex review): R2a one check of the system role's authority (`sysrun_process_is_tcb_system`, four copies replaced; the lab endorsement keeps its per-condition audit labels); R2b one launcher-started peer test (`include/wine/wex_sysrun_peer.h`) for session 0, ntdll and the launcher, now all with the pidfd pin; R2c one exchange in `session0.c` (`link_send`, `link_receive`, `link_request`), typed request fields (a union, the same wire word, protocol 5), explicit link kinds. One tightening: a cut hive message is ignored |
+| R3 | in progress in its own session (Wine and WineExplorer `claude/r3-registry-handles`) |
+
 Branches: WineExplorer `claude/session0-split-review` (docs and the T1 test, Wine pinned to `claude/r1-policy-tables`),
 Wine `claude/r1-policy-tables` (on `claude/session-services`, with B85 merged).
 
