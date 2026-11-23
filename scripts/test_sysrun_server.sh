@@ -4268,7 +4268,7 @@ while True:
         status, message = 1210, 'not a valid computer name'
     if fields.get('op') == 'join' and fields.get('password') == 'wrong':
         status, message = 1326, 'the controller did not accept the account'
-    if fields.get('op') == 'dclist': message = 'dc1.ad.wexlab.example dc2.ad.wexlab.example '
+    if fields.get('op') == 'dclist': message = 'dc1.ad.wexlab.example||dc2.ad.wexlab.example'
     if fields.get('op') == 'verify': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been verified.||The connection is with the machine dc1.ad.wexlab.example.'
     if fields.get('op') == 'reset': message = 'The secure channel from WEXBOX to the domain AD.WEXLAB.EXAMPLE has been reset.'
     if fields.get('op') == 'dsgetdc': message = 'dc=dc1.ad.wexlab.example||addr=10.71.0.10||guid=0f2a204e-eb7a-4e88-9cf9-1504bb1b93d5||domain=WEXLAB||dnsdomain=ad.wexlab.example||forest=ad.wexlab.example||dcsite=Default-First-Site-Name||oursite=Default-First-Site-Name||flags=e00013fd'

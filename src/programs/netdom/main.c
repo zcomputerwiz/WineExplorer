@@ -182,20 +182,13 @@ static int bad_parameters( const WCHAR *what )
 
 static int succeeded( void )
 {
-    WCHAR message[MAX_TEXT];
+    WCHAR message[MAX_TEXT], line[MAX_TEXT];
+    const WCHAR *p = message;
 
     wex_join_last_message( message, ARRAY_SIZE(message) );
-    if (message[0] && wcscmp( message, L"ok" ))
-    {
-        WCHAR *line, *next;
-
-        /* "||" ends a line of the engine's message */
-        for (line = message; line; line = next)
-        {
-            if ((next = wcsstr( line, L"||" ))) { *next = 0; next += 2; }
-            wex_console_printf( L"%ls\n", line );
-        }
-    }
+    /* the engine's message, a line for each item */
+    if (wcscmp( message, L"ok" ))
+        while (wex_join_item( &p, line, ARRAY_SIZE(line) )) wex_console_printf( L"%ls\n", line );
     wex_console_write( L"\nThe command completed successfully.\n" );
     return 0;
 }
@@ -302,7 +295,8 @@ static int cmd_channel( struct options *o, DWORD op )
 static int cmd_query( struct options *o )
 {
     DWORD status;
-    WCHAR list[MAX_TEXT], *p, *end;
+    WCHAR list[MAX_TEXT], dc[256];
+    const WCHAR *p = list;
 
     if (!o->query_type || _wcsicmp( o->query_type, L"DC" ))
     {
@@ -312,13 +306,7 @@ static int cmd_query( struct options *o )
     if ((status = wex_join_secure_channel( WEX_JOIN_OP_DCLIST ))) return failed( status );
     wex_join_last_message( list, ARRAY_SIZE(list) );
     wex_console_write( L"List of domain controllers with accounts in the domain:\n\n" );
-    for (p = list; *p; p = end)
-    {
-        while (*p == ' ') p++;
-        if (!*p) break;
-        for (end = p; *end && *end != ' '; end++) {}
-        wex_console_printf( L"%.*ls\n", (int)(end - p), p );
-    }
+    while (wex_join_item( &p, dc, ARRAY_SIZE(dc) )) if (dc[0]) wex_console_printf( L"%ls\n", dc );
     wex_console_write( L"\nThe command completed successfully.\n" );
     return 0;
 }

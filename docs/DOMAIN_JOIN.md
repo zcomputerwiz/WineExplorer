@@ -225,7 +225,12 @@ unit that starts `wex-domain-join@.service`, which runs `wex-domain-join.sh serv
 A process outside the group cannot connect: that is Windows' "access denied for a caller who is not an administrator".
 The request is lines of `key=value` ended by an empty line (`op`, `domain`, `user`, `userdomain`, `password`, `ou`,
 `workgroup`, `name`, `nametype`, `force`, `flags`); the answer is `status=N` (a Win32 or network error code of the table
-above) and `message=TEXT`. The client is wexjoin.dll: its unix side connects to the socket (`src/dlls/wexjoin/unixlib.c`),
+above) and `message=TEXT`. The message has one form for every operation (2026-11-23): items separated by `||`. A
+change's items are lines of text (verify and reset, and each note of a join, a leave or a rename is an item of its
+own); a question's are fields `name=value` (`dsgetdc`, `scquery`) or names (`dclist`, one controller each); a
+failure's message is one item, the reason. What comes from outside (a controller's or DNS's words) is cut of `|` and
+control characters before it goes in. `wexjoin.h` reads it for netdom and nltest (`wex_join_item`, `wex_join_field`),
+which print an item as a line. The client is wexjoin.dll: its unix side connects to the socket (`src/dlls/wexjoin/unixlib.c`),
 and `src/include/wexjoin.h` declares the API, the `NETSETUP_` flags and the operations of `WexJoinSecureChannel` for
 `netdom`, `nltest` and System Properties, with `wex_join_secure_channel` and `wex_join_last_message`, which load
 wexjoin.dll when asked.

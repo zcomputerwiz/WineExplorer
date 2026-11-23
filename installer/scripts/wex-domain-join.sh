@@ -73,7 +73,9 @@ fail()   # CODE MESSAGE
     exit 1
 }
 die() { fail 31 "$*"; }   # ERROR_GEN_FAILURE
-note() { if [ "$SERVE" = 1 ]; then NOTES="$NOTES$* "; else echo "wex-domain-join: $*"; fi; }
+# The answer's message (docs/DOMAIN_JOIN.md, "The answer"): items separated by "||", each a line of text, a field
+# name=value (dsgetdc, scquery) or a name (dclist, one controller each); in serve mode a note is an item of its own
+note() { if [ "$SERVE" = 1 ]; then NOTES="${NOTES:+$NOTES||}$*"; else echo "wex-domain-join: $*"; fi; }
 # the questions (serve-query) need no root: their unit runs them as a user of its own (wex-domain-query@.service)
 [ "${WEX_JOIN_NOROOT:-0}" = 1 ] || [ "${1:-}" = serve-query ] || [ "$(id -u)" -eq 0 ] || fail 5 "run as root"
 
@@ -472,14 +474,15 @@ cmd_secure_channel()   # verify|reset
     fi
 }
 
-# the domain controllers that DNS lists for the joined domain
+# the domain controllers that DNS lists for the joined domain, one item each (DNS's words: no separator passes)
 cmd_dclist()
 {
     local realm list
     require_winbind
     realm=$(join_realm)
     command -v host >/dev/null 2>&1 || fail 50 "missing: host (on Debian: apt-get install dnsutils)"
-    list=$(host -t SRV "_ldap._tcp.dc._msdcs.$realm" 2>/dev/null | awk '/has SRV record/ { sub(/\.$/, "", $NF); print $NF }' | sort -u | tr '\n' ' ')
+    list=$(host -t SRV "_ldap._tcp.dc._msdcs.$realm" 2>/dev/null | awk '/has SRV record/ { sub(/\.$/, "", $NF); print $NF }' |
+           tr -d '|' | sort -u | awk 'NF { printf "%s%s", (n++ ? "||" : ""), $0 }')
     [ -n "$list" ] || fail 1355 "no domain controller of $realm is listed in DNS"
     NOTES="$list"
 }

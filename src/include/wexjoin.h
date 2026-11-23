@@ -89,6 +89,41 @@ static inline DWORD wex_join_secure_channel( DWORD op )
     return channel ? channel( op ) : ERROR_NOT_SUPPORTED;
 }
 
+/* The engine's message (WexJoinLastMessage): items separated by "||". A change's message is lines of text (verify,
+ * reset, the notes of a join or a leave); a question's are fields name=value (DSGETDC, SCQUERY) or names (DCLIST, one
+ * controller each). A failure's message is one item, the reason. wex_join_item gives the item at *p and moves *p past
+ * it; FALSE at the end. */
+static inline BOOL wex_join_item( const WCHAR **p, WCHAR *item, DWORD chars )
+{
+    const WCHAR *end;
+    size_t len;
+
+    if (!*p || !**p || !chars) return FALSE;
+    end = wcsstr( *p, L"||" );
+    len = end ? (size_t)(end - *p) : wcslen( *p );
+    if (len >= chars) len = chars - 1;
+    memcpy( item, *p, len * sizeof(WCHAR) );
+    item[len] = 0;
+    *p = end ? end + 2 : *p + wcslen( *p );
+    return TRUE;
+}
+
+/* the value of the field name=value in a message (FALSE, and an empty value, when there is none) */
+static inline BOOL wex_join_field( const WCHAR *message, const WCHAR *name, WCHAR *value, DWORD chars )
+{
+    WCHAR item[512];
+    size_t n = wcslen( name );
+
+    if (chars) value[0] = 0;
+    while (wex_join_item( &message, item, sizeof(item) / sizeof(item[0]) ))
+        if (!wcsncmp( item, name, n ) && item[n] == '=')
+        {
+            lstrcpynW( value, item + n + 1, chars );
+            return TRUE;
+        }
+    return FALSE;
+}
+
 /* the engine's message about the last call (Samba's reason, its own, or an operation's answer); empty when none */
 static inline void wex_join_last_message( WCHAR *text, DWORD chars )
 {

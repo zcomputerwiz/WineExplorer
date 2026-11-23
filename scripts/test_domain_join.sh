@@ -399,6 +399,11 @@ reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/nu
 reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
 expect 0 'a forced leave' 'op=leave' 'force=1'
 ! grep -q '^kinit\|^net ads leave' "$FX/calls.log" || fail 'serve: a forced leave asked the controller'
+# each note is an item of the message ("||" between them), which netdom prints as a line
+reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"
+out=$(serve op=leave force=1)
+grep -q '^message=leaving on this machine only: the machine account stays in the domain||left the domain$' <<<"$out" ||
+    { echo "$out"; fail 'serve: the notes are not items of the message'; }
 reset_etc; expect 2692 'a leave when not joined' 'op=leave' 'force=1'
 reset_etc; echo winbind > "$FX/kind"; echo 1 > "$FX/kinit.rc"; expect 1326 'a leave with a wrong password' 'op=leave' 'user=a' 'password=p'
 # validate
@@ -465,7 +470,7 @@ out=$(serve op=reset); [ "$(status_of "$out")" = 0 ] && grep -q 'to the domain A
 [ "$(grep -n 'changetrustpw' "$FX/calls.log" | head -1 | cut -d: -f1)" -lt "$(grep -n 'testjoin' "$FX/calls.log" | head -1 | cut -d: -f1)" ] || fail 'serve: reset did not change the password before it verified'
 echo 1 > "$FX/ctp.rc"; expect 1789 'reset with a failing password change' op=reset
 rm -f "$FX/ctp.rc"
-out=$(serve op=dclist); [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc1.ad.wexlab.example dc2.ad.wexlab.example *$' <<<"$out" || { echo "$out"; fail 'serve: dclist is not the sorted names without the trailing dot'; }
+out=$(serve op=dclist); [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc1.ad.wexlab.example||dc2.ad.wexlab.example$' <<<"$out" || { echo "$out"; fail 'serve: dclist is not the sorted names, one item each, without the trailing dot'; }
 : > "$FX/dc.none"; expect 1355 'no controllers' op=dclist
 # nltest's questions: the controller's own answer (dsgetdc), the secure channel's state (scquery)
 cat > "$FX/lookup" <<'LK'
