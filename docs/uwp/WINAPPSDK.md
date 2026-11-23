@@ -429,6 +429,14 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    (a hit test on the caption area; Windows does not reach it in the recorded phase). `DwmDefWindowProc` is not the sender (it is a stub that
    returns FALSE). Next: read the function around NotepadXamlUI+0xc87f (what condition guards the probe, and which API it asked first:
    DwmGetWindowAttribute(CAPTION_BUTTON_BOUNDS), GetSystemMetrics, UISettings, a theme/DPI value) and compare that API's answer on Windows.
+   **Cause found and fixed (Wine a183cdc3).** A real unwind of the stack at the WM_NCHITTEST delivery (the ntdll trampoline now walks the
+   `.pdata`) gives the chain: Notepad.exe+0xbb293 (its `SetWindowPos(hwnd, NULL, x, y, w, h, SWP_NOZORDER | SHOW/HIDE)` import call, the
+   positions (10,10) and (10,40)) -> win32u -> Wine's `apply_window_pos`, which looked for "any window below the top left corner" (here
+   (9,9) and (9,39)) with `NtUserWindowFromPoint`, and that sends WM_NCHITTEST to the application from inside SetWindowPos. The window
+   procedure of `Microsoft.UI.Windowing.Core` handled it by calling into `Microsoft.UI.Input`, whose ContextSession region was open.
+   (My earlier `NotepadXamlUI+0xc87f` was a stale stack word, not a caller.) With `window_from_point(..., FALSE)` there is no
+   WM_NCHITTEST, the fail-fast is gone, and **Notepad shows its first window** (a white client area, no title bar or text yet), then a
+   `noexcept` function propagates a C++ exception in the editor thread (`NotepadTextBox` window just created); not yet analysed.
    Tools added: `bytepatch.py`, `bytesat.py`, `mapstk.py`, `setcursor.c`, `cursor-exp.sh`, `cxxbefore.py`, `ntdll-tramp-cxx.py`, `fnstart.py`, `sites.py`, `ntdll-tramp-patch.py`, `tramp-guest.sh`, `modcalls.py`, `findptr.py`, `exports.py`, `ordthunk` idea (host), probes `factory-iid-probe.c`,
    `windowband-probe.c`, `user32-ordinal-probe.c`.
    (Older text of this section, kept for the record:) read the default `OpenSharedDCompositionObject` of FrameworkUdk (table id 7 or 6 of `GetFunctionTableById`) to see which private
