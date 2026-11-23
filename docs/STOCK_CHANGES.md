@@ -4236,3 +4236,7 @@ an empty client id means the client ids the calling process has used); `Invalida
 
 2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`, Windows App SDK / Notepad):
 - `dlls/win32u/window.c` (`apply_window_pos`): the owner hint "any window below the top left corner" is found with `window_from_point( ..., FALSE )` instead of `NtUserWindowFromPoint`, so no WM_NCHITTEST is sent to the application from inside SetWindowPos (Windows does not; it re-entered Microsoft.UI.Input and failed fast).
+
+2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`, Windows App SDK / Notepad):
+- new `dlls/msspellcheckingfacility` (registered in `configure.ac`, `loader/wine.inf.in`) and `include/spellcheck.idl`: the spell checker factory (CLSID_SpellCheckerFactory); it supports no language (IsSupported FALSE, CreateSpellChecker E_INVALIDARG). Notepad asks for it and failed fast with "class not registered".
+- `dlls/bcp47langs`: `GetApplicationLanguages` (the languages of the user) and `LanguageListAsMuiForm` (the list unchanged) replace stubs; the Windows App Runtime calls both at startup.

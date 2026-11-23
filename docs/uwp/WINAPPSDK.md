@@ -452,3 +452,23 @@ The step after is design, not a stub: what the runtime's compositor hands to the
 the island and HWND hosting of `DesktopWindowXamlSource`) must be answered by Wine's own dcomp (about 5000 lines in the fork). Next: find which
 call of `dcompi.dll` hands `Microsoft.UI.Input.dll` the NULL visual (relay of the `Microsoft.UI.Composition` activation factories and of the
 visual creation calls), then what it needs from the engine.
+
+## 2026-11-23: the `noexcept` exception of Notepad editor thread, and the two walls behind it
+
+* Cause: the editor creates its window class `RichEditD2DPT` ("failed to create an edit window. error 1411", thrown from a `noexcept`
+  function). That class is registered by the package own Windows 11 `Notepad\riched20.dll`, but Wine loads its builtin `riched20` even
+  when the package copy is named by full path (default load order `builtin,native`).
+* Test: `HKCU\Software\Wine\DllOverrides\riched20 = native,builtin` in the prefix (lab script `ovr-exp.sh`): the package copy loads as native
+  and the class is registered. Not a Wine change yet: the clean fix is for `wexappx` to write the per-application override
+  (`HKCU\Software\Wine\AppDefaults\Notepad.exe\DllOverrides`) for the DLLs a package carries under the names of Wine builtins.
+* Next wall: `CLSID_SpellCheckerFactory` {7ab36653-1796-484b-bdfa-e74f1db7c1dc} (`MsSpellCheckingFacility.dll` on Windows) was not registered
+  (error 0x80040154, turned into the `noexcept` abort). Wine had no spell checking API: new `dlls/msspellcheckingfacility` with
+  `include/spellcheck.idl`, a factory that supports no language (IsSupported FALSE). Notepad asks `IsSupported(L"en-US")` and goes on.
+* Next: `bcp47langs.GetApplicationLanguages` (stub abort, raised through `kernelbase!RaiseException`, so the real caller is the module that
+  imports it: `Microsoft.Internal.FrameworkUdk.dll`, one call site at RVA 0x19fe9, arguments (NULL, L';', HSTRING *)), followed by
+  `LanguageListAsMuiForm(L';', HSTRING, 0, HSTRING *)`. Both are implemented in `dlls/bcp47langs`.
+* Result: Notepad stays up (no fail-fast in 60 s): window frame, icon, the gray editor surface and the status bar are drawn; the title bar
+  text and the editor text are not. Next: why no text (DirectWrite, the font set of the Windows App Runtime) and the black title bar.
+* Lab trap: a pushed whole file of `configure.ac`, `loader/wine.inf.in` or `include/Makefile.in` replaces the assembled version of the guest
+  (the guest source is older than the branch and carries the assembled modules). `guest-fix-configure.py` repairs `configure.ac` (drops the
+  modules the guest lacks, adds the programs); push only the lines you add.
