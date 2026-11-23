@@ -386,7 +386,7 @@ S="$FIX/setup"; mkdir -p "$S/m/drive_c/windows/system32"
 setup_run()
 {
     env -u WEX_SYSRUN_ENABLE WEX_MACHINE_ROOT="$S/m" WEX_SKEL_PFX="$S/skel" WEX_BACKUP_DIR="$S/bk" WEX_MACHINE_GROUP="$GRP" \
-        WEX_SKIP_WINEBOOT=1 WEX_SYSRUN_DIR="$S/lib" WEX_SYSRUN_CONF="$S/etc/sysrun.conf" "$@" \
+        WEX_SKIP_WINEBOOT=1 WEX_SYSRUN_DIR="$S/lib" WEX_SYSRUN_CONF="$S/etc/sysrun.conf" WEX_SESSION0=0 WEX_ELEVATION=0 "$@" \
         bash "$SRC_DIR/../../scripts/setup-machine-root.sh" --update >/dev/null 2>&1
 }
 setup_run || fail "setup failed"

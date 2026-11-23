@@ -13,7 +13,7 @@ in these orders.
 * No commits, no pushes, no VM, no `/etc/wineexplorer`. Run tests only in WSL distro `wexbuild`.
 * Every behaviour change gets a test that fails before the change and passes after it.
 * Never make a check pass by relaxing it, adding a default value, or guessing an identity.
-  Never regenerate or edit the production-object baselines (`/tmp/main_prod*_baseline.o`): if the
+  Never regenerate or edit the production-object baselines (`/tmp/wex-baseline/<worktree>/main_prod*_baseline.o`, one set per worktree since 2026-11-23): if the
   byte-identical check fails, your change touched the shipping broker (often a field added to
   `struct request` outside `#ifdef WEXELEVATE_E1S18`); fix the change and report it.
   If something cannot be done as written, stop and say so in the report.
