@@ -286,6 +286,11 @@ sysrun_as() { local u="$1"; shift; (cd /tmp && runuser -u "$u" -- env -i HOME="$
     DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' "$@"); }
 sysprefix_env() { sysrun_as "$1" env WINEPREFIX="$SYS_HOME/.wine" "$BUILD/server/wineserver" "${@:2}"; }
 sysprobe() { local u="$1" arch="$2" mode="$3"; shift 3; sysrun_as "$u" "$BUILD/wine" "$ROOT/probes/probe$arch.exe" "$mode" "$WINM" "$@" 2>&1; }
+# wex-accounts sync maps every local account, system ones included; the account watcher (wex-accounts.path) syncs
+# at every change of /etc/passwd and would map this one as soon as it exists (the check below then lost a race), so
+# it is held while the section runs, as in the domain section
+SYS_WATCH=; systemctl is-active --quiet wex-accounts.path 2>/dev/null && SYS_WATCH=1
+systemctl stop wex-accounts.path wex-accounts.timer >/dev/null 2>&1 || true
 if ! id "$SYS" >/dev/null 2>&1; then
     useradd --system -d "$SYS_HOME" -s /usr/sbin/nologin "$SYS"
     SYS_CREATED=1
@@ -330,6 +335,7 @@ for hive in system.reg userdef.reg; do
     sysrun_as "$SYS" ln -sfn "$M/$hive" "$SYS_HOME/.wine/$hive"
 done
 ok c2_symlinked_hives_system_account_prefix_links_left_alone
+[ -z "$SYS_WATCH" ] || systemctl start wex-accounts.path >/dev/null 2>&1 || true
 
 # ---- 4. (ii) a replacement server ------------------------------------------------------------------------------
 echo "--- replacement server (ii)"
