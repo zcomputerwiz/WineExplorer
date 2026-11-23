@@ -74,7 +74,8 @@ fail()   # CODE MESSAGE
 }
 die() { fail 31 "$*"; }   # ERROR_GEN_FAILURE
 note() { if [ "$SERVE" = 1 ]; then NOTES="$NOTES$* "; else echo "wex-domain-join: $*"; fi; }
-[ "${WEX_JOIN_NOROOT:-0}" = 1 ] || [ "$(id -u)" -eq 0 ] || fail 5 "run as root"
+# the questions (serve-query) need no root: their unit runs them as a user of its own (wex-domain-query@.service)
+[ "${WEX_JOIN_NOROOT:-0}" = 1 ] || [ "${1:-}" = serve-query ] || [ "$(id -u)" -eq 0 ] || fail 5 "run as root"
 
 usage()
 {
@@ -529,14 +530,16 @@ cmd_dsgetdc()
     flags=$(( flags | 0xe0000000 ))
     note "dc=$dc||addr=$addr||guid=$guid||domain=$dom||dnsdomain=$dnsdom||forest=$forest||dcsite=$dcsite||oursite=${oursite:-$dcsite}||flags=$(printf '%x' "$flags")"
 }
-# nltest /sc_query: the controller the secure channel is with, and whether the channel works
+# nltest /sc_query: the controller the secure channel is with, and whether the channel works. The channel is Winbind's
+# NETLOGON connection with the machine account, which wbinfo --ping-dc tries and any user may ask (testjoin would read
+# the machine secret, root's file): so the question needs no root, as on Windows
 cmd_sc_query()
 {
     local dc status=0
     require_winbind
-    command -v net >/dev/null 2>&1 || fail 50 "missing: net (on Debian: apt-get install $PACKAGES)"
+    command -v net >/dev/null 2>&1 && command -v wbinfo >/dev/null 2>&1 || fail 50 "missing: net or wbinfo (on Debian: apt-get install $PACKAGES)"
     dc=$(dc_name)   # the controller's own words: dc_name lets no separator and no control character pass
-    net ads testjoin >/dev/null 2>&1 || status=1722
+    wbinfo --ping-dc >/dev/null 2>&1 || status=1722
     note "dc=${dc:-}||status=$status"
 }
 
@@ -720,8 +723,9 @@ cmd_rename()
 
 # The questions that any user may ask, as on Windows (NetValidateName, DsGetDcName, nltest /dclist and /sc_query need no
 # rights there): they read and change nothing. They come through a second socket (wex-domain-query.socket), which every
-# local user can reach; its unit cannot write /etc. Everything else (a join, a leave, a rename, verify and reset, whose
-# I_NetLogonControl2 codes need an administrator on Windows) stays on the system group's socket.
+# local user can reach; its unit runs the engine as a user of its own, not root. Everything else (a join, a leave, a
+# rename, verify and reset, whose I_NetLogonControl2 codes need an administrator on Windows) stays on the system group's
+# socket.
 QUERY_OPS="validate dsgetdc dclist scquery status"
 
 # one request on standard input: lines of key=value ended by an empty line; the answer is status= and message=.

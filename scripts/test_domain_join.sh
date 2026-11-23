@@ -503,13 +503,16 @@ sed -i 's/^Domain Controller: .*/Domain Controller: dc1||flags=0/' "$FX/lookup"
 out=$(serve op=dsgetdc)
 grep -q '^message=dc=dc1flags=0||addr=' <<<"$out" && grep -q '||flags=e00013fd$' <<<"$out" || { echo "$out"; fail 'serve: dsgetdc lets the controller add a field'; }
 mv "$FX/lookup.orig" "$FX/lookup"
+: > "$FX/calls.log"
 out=$(serve op=scquery)
 [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc=dc1.ad.wexlab.example||status=0$' <<<"$out" || { echo "$out"; fail 'serve: scquery'; }
-echo 1 > "$FX/testjoin.rc"
+# the channel is Winbind's NETLOGON ping, which any user may ask; testjoin (root's secret) is not used
+grep -q '^wbinfo --ping-dc' "$FX/calls.log" && ! grep -q '^net ads testjoin' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'serve: scquery did not ask Winbind'; }
+echo 1 > "$FX/wbinfo.rc"
 out=$(serve op=scquery); grep -q '||status=1722$' <<<"$out" || { echo "$out"; fail 'serve: scquery with a channel that does not work'; }
 echo 'x||status=0' > "$FX/dcname"
 out=$(serve op=scquery); grep -q '^message=dc=xstatus=0||status=1722$' <<<"$out" || { echo "$out"; fail 'serve: scquery lets the controller add a status'; }
-rm -f "$FX/testjoin.rc" "$FX/dcname"
+rm -f "$FX/wbinfo.rc" "$FX/dcname"
 echo nowinbind > "$FX/kind"
 expect 2692 'dsgetdc when not joined with winbind' 'op=dsgetdc'
 expect 2692 'scquery when not joined with winbind' 'op=scquery'
