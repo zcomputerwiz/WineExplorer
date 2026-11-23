@@ -116,6 +116,15 @@ cat > "$FX/bin/systemd-run" <<EOF
 echo "systemd-run" >> "$FX/calls.log"
 exit 0
 EOF
+# the keytab: the fake file holds one principal a line, and klist -k lists them as MIT klist does
+cat > "$FX/bin/klist" <<EOF
+#!/bin/sh
+[ "\$1" = -k ] && [ -r "\$2" ] || exit 1
+echo "Keytab name: FILE:\$2"
+echo "KVNO Principal"
+echo "---- --------------------------------------------------------------------------"
+sed 's/^/   1 /' "\$2"
+EOF
 chmod 0755 "$FX/bin/"* "$FX/state"
 
 ORIG_SMB=$'[global]\n    workgroup = HOME\n'
@@ -127,7 +136,7 @@ reset_etc()
     printf '%s' "$ORIG_KRB" > "$FX/etc/krb5.conf"
     printf '%s' "$ORIG_NSS" > "$FX/etc/nsswitch.conf"
     rm -f "$FX/etc/samba/smb.conf.wex-pre-join" "$FX/etc/krb5.conf.wex-pre-join" "$FX/etc/nsswitch.conf.wex-pre-join" \
-          "$FX"/*.rc "$FX/kind" "$FX/calls.log" "$FX/kinit.stdin" "$FX/kinit.cc"
+          "$FX"/*.rc "$FX/kind" "$FX/calls.log" "$FX/kinit.stdin" "$FX/kinit.cc" "$FX/etc/krb5.keytab"
     : > "$FX/calls.log"
 }
 # runs the tool: the password on standard input, the fakes first in PATH
@@ -226,7 +235,13 @@ echo 'OK: wex-domain-join.sh a failing kinit or join leaves smb.conf, krb5.conf 
 reset_etc
 join ad.wexlab.example --user Administrator --password-stdin >/dev/null || fail 'the join before the leave'
 echo winbind > "$FX/kind"; : > "$FX/calls.log"
+printf '%s\n' 'WEXBOX$@AD.WEXLAB.EXAMPLE' host/WEXBOX@AD.WEXLAB.EXAMPLE host/wexbox.ad.wexlab.example@AD.WEXLAB.EXAMPLE \
+    restrictedkrbhost/WEXBOX@AD.WEXLAB.EXAMPLE > "$FX/etc/krb5.keytab"
 out=$(leave --user Administrator --password-stdin) || { echo "$out"; cat "$FX/calls.log"; fail 'the leave failed'; }
+# the machine's keys go on this machine (net ads keytab flush would need the deleted account)
+[ ! -e "$FX/etc/krb5.keytab" ] || fail 'the leave kept the machine keytab'
+! grep -q 'keytab' <<<"$out" || { echo "$out"; fail 'the leave warned about the keytab'; }
+! grep -q '^net ads keytab' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'the leave asked the controller to flush the keytab'; }
 grep -q '^net ads leave -k' "$FX/calls.log" && grep -q '^kinit Administrator@AD.WEXLAB.EXAMPLE' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'the leave did not use the administrator'; }
 ! grep -q '^passwd:.*winbind' "$FX/etc/nsswitch.conf" && ! grep -q '^group:.*winbind' "$FX/etc/nsswitch.conf" || { cat "$FX/etc/nsswitch.conf"; fail 'nsswitch still has winbind'; }
 grep -q '^shadow:         files$' "$FX/etc/nsswitch.conf" && grep -q '^passwd:         files systemd$' "$FX/etc/nsswitch.conf" || { cat "$FX/etc/nsswitch.conf"; fail 'nsswitch is not as it was'; }
@@ -254,8 +269,11 @@ reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/nu
 out=$(leave --user Administrator --password-stdin) && fail 'a failing net ads leave was not an error'; grep -q -- '--force' <<<"$out" || fail 'the --force hint'
 grep -q '^passwd:.*winbind' "$FX/etc/nsswitch.conf" || fail 'a failed leave changed nsswitch'
 : > "$FX/calls.log"
+# a keytab with a key that is not the machine's stays, with a warning
+printf '%s\n' 'WEXBOX$@AD.WEXLAB.EXAMPLE' nfs/wexbox.ad.wexlab.example@AD.WEXLAB.EXAMPLE > "$FX/etc/krb5.keytab"
 out=$(leave --force) || { echo "$out"; fail 'leave --force failed'; }
-! grep -q '^kinit\|^net ads leave' "$FX/calls.log" || fail '--force asked the controller'
+! grep -q '^kinit\|^net ads' "$FX/calls.log" || { cat "$FX/calls.log"; fail '--force asked the controller'; }
+[ -e "$FX/etc/krb5.keytab" ] && grep -q 'krb5.keytab stays' <<<"$out" || { echo "$out"; fail 'a keytab with another key was removed, or no warning'; }
 ! grep -q '^passwd:.*winbind' "$FX/etc/nsswitch.conf" || fail '--force did not take winbind out'
 grep -q 'machine account stays' <<<"$out" || fail '--force did not say the account stays'
 # not joined with Winbind: nothing to leave

@@ -250,7 +250,11 @@ What the join changes, the leave takes back (2026-11-23). `smb.conf` and `krb5.c
 file (their mode kept), never written in place, so Samba, Kerberos, the state tool and Group Policy never read half a
 file. The join writes down the PAM profiles it turned on (`/etc/wineexplorer/domain-join-added`: `winbind`, and
 `mkhomedir` when it was off); the leave turns off those and no others, removes `winbind` from `nsswitch.conf` and
-drops the join's first copy of it, so a later failed join cannot put back a file from before the first one. Once the
+drops the join's first copy of it, so a later failed join cannot put back a file from before the first one. The
+machine's keys go too, on this machine: `/etc/krb5.keytab` is removed when every key in it is one the join made
+(`NAME$`, `host/`, `RestrictedKrbHost/`), and kept with a warning when it holds anything else. `net ads keytab flush`
+cannot do it after the leave (it needs the deleted account), and it would change the account in the domain, which
+`leave --force` must not do. Once the
 host's configuration has changed, Windows programs are told (`wex-domain-state.sh`, `HKLM\Software\WineExplorer\Domain`)
 on every way out, a failure included: a join that `net ads testjoin` does not confirm yet is still a join, and the
 dialogs read it as one.

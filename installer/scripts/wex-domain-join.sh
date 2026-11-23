@@ -327,6 +327,28 @@ cmd_join()
     note "joined to $domain ($workgroup)"
 }
 
+# The machine's keys in the system keytab ("kerberos method = secrets and keytab" keeps them in /etc/krb5.keytab) are
+# no use after a leave. "net ads keytab flush" cannot take them out then: it needs the machine account, which the leave
+# has deleted, and it takes the names off the account in the domain, which a leave on this machine only must not do.
+# So they go here, on this machine: the file is removed when every key in it is one the join made (NAME$,
+# host/NAME[.dns], restrictedkrbhost/NAME[.dns]); a key of anything else keeps the file, and the caller warns.
+clear_keytab()   # NETBIOSNAME
+{
+    local kt=$ETC/krb5.keytab name=$1 list p inst
+    [ -e "$kt" ] || return 0
+    command -v klist >/dev/null 2>&1 || return 1
+    list=$(klist -k "$kt" 2>/dev/null) || return 1
+    while read -r p; do
+        p=${p%@*}; p=${p^^}
+        case $p in
+            "$name\$") ;;
+            HOST/*|RESTRICTEDKRBHOST/*) inst=${p#*/}; [ "${inst%%.*}" = "$name" ] || return 1 ;;
+            *) return 1 ;;
+        esac
+    done < <(awk 'f { print $2 } /^-+ -+/ { f = 1 }' <<<"$list")
+    rm -f "$kt"
+}
+
 # put the files back as they were before this run changed them
 undo_files()
 {
@@ -335,7 +357,7 @@ undo_files()
 
 cmd_leave()
 {
-    local user= udom= stdin=0 force=0 keep= realm flat profiles
+    local user= udom= stdin=0 force=0 keep= realm flat profiles nb
     take_lock
     while [ $# -gt 0 ]; do
         case $1 in
@@ -364,7 +386,9 @@ cmd_leave()
     fi
     # from here the machine is leaving: what the join set up is taken out, and Windows programs are told on every way out
     STATE_DIRTY=1
-    net ads keytab flush >/dev/null 2>&1 || note "warning: the machine's keytab was not emptied"
+    nb=$(sed -n 's/^[[:space:]]*netbios name[[:space:]]*=[[:space:]]*//p' "$ETC/samba/smb.conf" 2>/dev/null | head -n 1 | tr -d ' \t' | tr 'a-z' 'A-Z')
+    [ -n "$nb" ] || nb=$(printf '%s' "${WEX_JOIN_HOSTNAME:-$(hostname -s)}" | tr 'a-z' 'A-Z' | cut -c 1-15)
+    clear_keytab "$nb" || note "warning: $ETC/krb5.keytab stays: it holds keys other than this machine's, or klist cannot read it"
     nsswitch_remove || note "warning: nsswitch.conf still names winbind"
     rm -f "$ETC/nsswitch.conf.wex-pre-join"
     # the profiles the join turned on (winbind, and mkhomedir when it was off before); a join of an older engine
