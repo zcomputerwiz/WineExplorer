@@ -235,29 +235,6 @@ static BOOL owned_by( uint32_t window, const struct client *client )
     return pid == client->pid;
 }
 
-/* Elevation enforced (the broker runs with a split, limited token): desktops are separated, so reads need a
- * client with a window here. Without enforcement any client of the desktop may read, as on Windows. */
-static BOOL desktops_separated(void)
-{
-    static int separated = -1;
-
-    if (separated < 0)
-    {
-        TOKEN_ELEVATION_TYPE type = TokenElevationTypeDefault;
-        HANDLE token;
-        DWORD len;
-
-        separated = 0;
-        if (OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token ))
-        {
-            if (GetTokenInformation( token, TokenElevationType, &type, sizeof(type), &len ))
-                separated = type == TokenElevationTypeLimited;
-            CloseHandle( token );
-        }
-    }
-    return separated;
-}
-
 static BOOL CALLBACK find_client_window( HWND hwnd, LPARAM param )
 {
     struct client *client = (struct client *)param;
@@ -269,10 +246,13 @@ static BOOL CALLBACK find_client_window( HWND hwnd, LPARAM param )
     return FALSE;
 }
 
-/* may the client read this desktop's state? (a yes is kept for the connection, a no is checked again) */
+/* May the client read this desktop's state? Only a process with a window here: the pipe's name is not scoped to a
+ * desktop, and the server's desktop separation (sysrun) cannot be seen from user mode, so the rule always applies.
+ * A process without windows cannot read other processes' DWM attributes (on Windows it can; none is known to).
+ * A yes is kept for the connection, a no is checked again. */
 static BOOL may_read( struct client *client )
 {
-    if (!desktops_separated() || client->has_window) return TRUE;
+    if (client->has_window) return TRUE;
     if (client->pid) EnumWindows( find_client_window, (LPARAM)client );
     return client->has_window;
 }
@@ -502,6 +482,34 @@ static NTSTATUS handle_request( unsigned char *buf, uint32_t size, struct client
     }
 }
 
+/* Connections hold a thread each, so they are capped: per process (a client with pid 0 has nothing to send: one)
+ * and in total; over a cap the connection is closed at once. Under state_cs. */
+#define MAX_CLIENTS          512
+#define MAX_CLIENTS_PER_PID  8
+
+static struct client *clients[MAX_CLIENTS];
+
+static BOOL add_client( struct client *client )
+{
+    unsigned int i, same = 0, slot = MAX_CLIENTS;
+
+    for (i = 0; i < MAX_CLIENTS; i++)
+    {
+        if (!clients[i]) { if (slot == MAX_CLIENTS) slot = i; }
+        else if (clients[i]->pid == client->pid) same++;
+    }
+    if (slot == MAX_CLIENTS || same >= (client->pid ? MAX_CLIENTS_PER_PID : 1)) return FALSE;
+    clients[slot] = client;
+    return TRUE;
+}
+
+static void remove_client( struct client *client )
+{
+    unsigned int i;
+
+    for (i = 0; i < MAX_CLIENTS; i++) if (clients[i] == client) clients[i] = NULL;
+}
+
 /* one thread per client: requests in, replies out, until the client goes away */
 static DWORD WINAPI client_thread( void *arg )
 {
@@ -511,7 +519,6 @@ static DWORD WINAPI client_thread( void *arg )
     struct dwm_reply rep;
     DWORD size, done;
 
-    if (!GetNamedPipeClientProcessId( client->pipe, &client->pid )) client->pid = 0;
     while (buf && event &&
            !wex_pipe_io( client->pipe, FALSE, buf, sizeof(struct dwm_request) + DWM_MAX_MESSAGE_SIZE, &size, event,
                          INFINITE ))
@@ -531,6 +538,7 @@ static DWORD WINAPI client_thread( void *arg )
     }
     EnterCriticalSection( &state_cs );
     drop_client_thumbs( client->id );
+    remove_client( client );
     LeaveCriticalSection( &state_cs );
     if (event) CloseHandle( event );
     free( buf );
@@ -621,16 +629,28 @@ static int serve( const WCHAR *name, const WCHAR *sddl, HANDLE parent )
         {
             struct client *client = calloc( 1, sizeof(*client) );
             HANDLE thread = NULL;
+            BOOL added = FALSE;
 
             if (client)
             {
                 client->pipe = pipe;
                 client->id = next_id++;
-                thread = CreateThread( NULL, 0, client_thread, client, 0, NULL );
+                if (!GetNamedPipeClientProcessId( pipe, &client->pid )) client->pid = 0;
+                EnterCriticalSection( &state_cs );
+                added = add_client( client );
+                LeaveCriticalSection( &state_cs );
+                if (added) thread = CreateThread( NULL, 0, client_thread, client, 0, NULL );
+                else fprintf( stderr, "dwm: too many connections (pid %04lx)\n", client->pid );
             }
             if (thread) CloseHandle( thread );
             else
             {
+                if (added)
+                {
+                    EnterCriticalSection( &state_cs );
+                    remove_client( client );
+                    LeaveCriticalSection( &state_cs );
+                }
                 free( client );
                 DisconnectNamedPipe( pipe );
                 CloseHandle( pipe );
