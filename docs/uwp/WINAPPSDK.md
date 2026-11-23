@@ -365,8 +365,24 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    dumped the 35-byte record that goes with it (slot 5 of the {37a94c05} object): it is the UTF-16 string `WinUIVisualDiagCon...` (the
    WinUI visual diagnostics connection, Live Visual Tree), so that registration is the diagnostics endpoint and has nothing to do with
    creating the visual. Slot 12/13's callback may be the same endpoint's.
-   The visual has to be a `dcompi.dll` object, i.e. made by the lifted compositor from the shared-visual handle (our event from export 1040)
-   through its command engine, not a visual of Wine's dcomp.
+   **Ground truth from Windows 11 (fifth pass; `wintrace.c`, a black-box debugger trace of the inbox Notepad, same Windows App Runtime
+   2.7.0.0).** The creation functions I chased (0xaa770 and its callers) are not run on Windows either, nor is `DCompPrivates_CreateSharedVisual`
+   or the CoreUI callback and registration. Notepad (the packaged process relaunches itself once; the tracer follows it) takes this path:
+   1. `DCompPrivates_CreateSharedVisualHandle(&handle, ctx, flags*, ...)` from Input's `DCompVisual` code returns S_OK and a *real kernel
+      handle* (value 0x988 and so on);
+   2. `DCompPrivates_OpenSharedDCompositionObject(device, handle, &iid, &out)` with `device` = the **system dcomp.dll's IDCompositionDevice**
+      (the very interface pointer `DCompositionCreateDevice3` hands out) returns S_OK and an object in `out` that is a **visual of the
+      system dcomp.dll** (two IIDs are asked in turn: for the visual, and for a second interface of the same handle);
+   3. `DCompPrivates_SetVisualRelativeSize(visual, ...)` is then called with that non-NULL visual (the NULL of Wine's run).
+   So on Windows these FrameworkUdk functions are served by `Microsoft.Internal.FrameworkUdk.System.dll` (loaded at start; its
+   `GetFunctionTableById`/`GetVersionInformation` give the function tables) on top of the system dcomp.dll, whose device has methods beyond
+   the public ones that open a shared object from a handle. In Wine FrameworkUdk falls back to its built-in default tables (no such DLL), and
+   its default `OpenSharedDCompositionObject` ends with S_OK and no object. The visual therefore has to be an object of **Wine's dcomp**
+   that answers {2c4eef28-...} and the other private visual IIDs the Windows App Runtime asks (not a `dcompi.dll` object as I first
+   thought: `dcompi.dll` is the lifted copy for the Microsoft.UI.Composition API, Input uses the system one).
+   Next: read the default `OpenSharedDCompositionObject` of FrameworkUdk (table id 7 or 6 of `GetFunctionTableById`) to see which private
+   slot of the device it calls, and give Wine's dcomp device that method (open a shared visual from the handle of export 1040) and a visual
+   with the private interface.
    The NULL visual itself is still not located: `DCompPrivates_CreateSharedVisual` (default table id 6, slot 1 -> the singleton's slot 14)
    queries its first argument for {4ba72ec1}, which no object I can reach answers, and Wine's run shows no failure there, so the call may not
    be where Input's `visual` is set. Next: trace the stores to Input's `this+0x48` at run time (a data breakpoint through the exception
