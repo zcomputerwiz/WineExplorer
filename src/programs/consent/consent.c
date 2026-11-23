@@ -841,7 +841,9 @@ static BOOL is_credentials_mode_required(void)
             return TRUE;
     }
     else if (status != ERROR_FILE_NOT_FOUND) return TRUE;
-    return (mode == 1 || mode == 3);
+    /* Click consent only for the values the broker accepts (2 and 5, as in its click_consent_selected); every other
+     * value, 0 and 4 included, asks for credentials, which the shipping dialog refuses (fails closed). */
+    return !(mode == 2 || mode == 5);
 }
 
 #define HOOK_DIR L"Z:\\tmp\\wexelev\\"
