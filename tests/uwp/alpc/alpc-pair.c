@@ -114,7 +114,9 @@ static int server(const char *name, int wait_seconds)
 
     st = pImpersonate(port, m, NULL);
     if (st) { printf("impersonate=%08lx\n", (ULONG)st); return 1; }
-    if (!OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, FALSE, &token))
+    /* OpenAsSelf: at identification level the impersonated token may not open objects, its own token included
+     * (ERROR_BAD_IMPERSONATION_LEVEL on Windows and Wine) */
+    if (!OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token))
         printf("notoken (error %lu)\n", GetLastError());
     else
     {
