@@ -189,6 +189,11 @@ run_job() {   # run_job STAGE FW
     for f in "$VMTEST_DIR/$test"/safe-mode/*-fail.png; do
         [ -f "$f" ] && cp "$f" "$OUT/$name-$fw-$(basename "$f")"
     done
+    if [ "$rc" != 0 ]; then   # and what the guest said: its journal of the failed boot, the serial console's record
+        for f in "$VMTEST_DIR/$test"/safe-mode/*-journal.txt "$VMTEST_DIR/$test"/safe-mode/serial-transcript.log; do
+            [ -f "$f" ] && cp "$f" "$OUT/$name-$fw-$(basename "$f")"
+        done
+    fi
     echo "$rc $(( ($(date +%s) - t0) / 60 ))" > "$OUT/$name-$fw.rc"
     # WSL keeps the page cache (the job's disk reads) from Windows until it is dropped; clean pages only
     sync
