@@ -77,6 +77,11 @@ def probe(account, args):
             _, raw = desktop_session(account)
             environment = {os.fsdecode(k): os.fsdecode(v) for k, v in raw.items()}
             environment.setdefault("HOME", account.pw_dir)
+            if not environment.get("DISPLAY"):
+                # the Wayland session: its shell runs without DISPLAY, so Wine draws through its Wayland driver
+                # (WEX_WAYLAND_NATIVE_WINDOWS) and no X server sees its windows; the caller falls back to OCR
+                print("probe=unavailable (a Wayland session: no X windows)")
+                return 3
             windows = parse_tree(x_query(environment, "-root", "-tree"))
         except SystemExit:      # no Explorer session yet
             environment, windows = None, []

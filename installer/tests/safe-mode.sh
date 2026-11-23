@@ -742,19 +742,17 @@ desktop() {   # desktop TIMEOUT [USER]: the Explorer desktop of USER's session (
 safe_desktop() {   # safe_desktop TIMEOUT [USER]: after a Safe Mode logon the message box (work order C2, titled
                    # "Desktop"), answered with Enter (Yes, the default), then the desktop, which shows no taskbar
                    # until the box is answered. WEX_TEST_SAFE_BOX=required fails when there is no box.
-    local end=$((SECONDS + $1)) screen seen= user=${2:-$USER_NAME} out
-    out=$(session_probe "$user" 40 "--windows")
-    if [ -n "$out" ] && ! grep -q 'probe=unavailable' <<< "$out"; then
-        while [ "$SECONDS" -lt "$end" ]; do
-            out=$(session_probe "$user" 60 "--wait-window '^Desktop\$' --timeout 10")
-            case "$out" in
-                *"window=Desktop"*) seen=1; shot box; "${V[@]}" key "$TEST" ret >/dev/null; break ;;
-            esac
-            out=$(session_probe "$user" 40 "--wait-desktop")
-            case "$out" in *desktop=ready*) break ;; esac
-        done
-    else
-        # an image without the probe: OCR
+    local end=$((SECONDS + $1)) screen seen= user=${2:-$USER_NAME} out ocr=
+    while [ "$SECONDS" -lt "$end" ]; do
+        out=$(session_probe "$user" 60 "--wait-window '^Desktop\$' --timeout 10")
+        case "$out" in
+            *probe=unavailable*|'') ocr=1; break ;;   # no xwininfo, a Wayland session, or no answer: OCR
+            *"window=Desktop"*) seen=1; shot box; "${V[@]}" key "$TEST" ret >/dev/null; break ;;
+        esac
+        out=$(session_probe "$user" 40 "--wait-desktop")
+        case "$out" in *desktop=ready*) break ;; esac
+    done
+    if [ -n "$ocr" ]; then
         while [ "$SECONDS" -lt "$end" ]; do
             # The box is drawn classic (no visual style in Safe Mode): Tesseract's own threshold reads none of its
             # text beside the blue caption, the explicit one (--white) reads it whole
