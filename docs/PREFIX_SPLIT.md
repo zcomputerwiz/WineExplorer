@@ -210,6 +210,13 @@ Wine's Win32 API implementation of `CreateSymbolicLinkW` (`dlls/kernelbase/file.
 - WinSxS assembly delayed copies (`delay_copy_files()`) resolve canonical targets and create direct symlinks into `/usr/local/lib/wine/` assemblies.
 
 #### 4. Client-Side Copy-on-Write (COW) in NTDLL (`dlls/ntdll/unix/file.c`)
+
+> **Since S2 (note of 2026-11-23):** a user's `C:\windows` is the machine root's (the folder is linked), so a
+> copy-on-write break no longer makes a per-user copy: it replaces the link inside the shared machine `system32` and
+> succeeds only for a writer of the machine root (the system group). It is still needed while fake DLLs are links;
+> without it such a write would reach the root-owned package files. `check_cow_break_symlink` runs on every
+> `NtCreateFile` and has no switch. See [SESSION0_SPLIT_REVIEW.md](SESSION0_SPLIT_REVIEW.md), finding 5.
+
 To ensure application installers or updaters can overwrite, supersede, or truncate a built-in library (e.g. replacing `msvcp140.dll` with an application-specific version) without mutating the read-only package tree (`/usr/local/lib/wine/`):
 - **Client-Side Location:** Implemented in `check_cow_break_symlink()` called from `NtCreateFile()`.
 - **Target Gating (`is_in_wine_dll_dirs`):** Only symlinks whose canonical resolved target resides inside Wine's DLL directories (`dll_paths`, `system_dll_paths`, or `build_dir`) are broken. Ordinary symlinks elsewhere (e.g. user symlinks under `Z:\...` or inside `/tmp`) write through untouched.
