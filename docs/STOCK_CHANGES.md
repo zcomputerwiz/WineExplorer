@@ -1,5 +1,33 @@
 # Changes to stock Wine / third-party code
 
+## dwmapi, dcomp, dxgi, explorer: compositor review fixes and dead target path (2026-11-23)
+
+Wine branch `claude/compositor-review` after `df606ddd` (`docs/COMPOSITOR_REVIEW.md` bugs 5-7, 11, 13 and the dcomp/DXGI
+dead code):
+
+- `218bea9a` `dlls/dwmapi`:
+  - A process's own windows are answered from its attribute table, so caption painting makes no broker calls.
+  - Without `DwmService` the broker is never asked.
+  - The first call that reaches a new broker (a new desktop epoch) re-sends the process's attributes and
+    thumbnails.
+  - `DwmSetWindowAttribute` writes the table before its side effects, and a call that fails sends nothing.
+  - The materials gate honours high contrast and `EnableTransparency=0`, as the shell bridge does.
+  - New `dwm_attr` case: a killed broker gets the attributes back.
+- `e7bcaab0` `programs/explorer/dwmhost.c`: when the dwm.exe supervisor does not stop in time, it keeps its handles
+  instead of closing them under the still-running thread.
+- `49215d78` dcomp and dxgi:
+  - `dcomp_surface_resize` holds the device lock throughout.
+  - The window-message target path is removed: `IWineDCompSwapChain::set_target`, `WM_WINE_DCOMP_SET_TARGET` and
+    the other unused messages, the placement fields and helpers in dxgi, `struct wine_dcomp_layer_params`, and the
+    write-only desktop-window property. Present passes no rectangles.
+
+Tests on both architectures:
+- dcomp: 1119 tests, 0 failures.
+- dwmapi, plain prefix: 0 failures. The tests that need a broker skip.
+- dwmapi on a shell desktop with a broker: `dwm_attr` 19 tests, `dwm_thumb` 19 tests, 0 failures.
+- dxgi: 35 failures, all display-mode or fullscreen checks that Xvfb's single mode cannot satisfy. These were not
+  compared against an unchanged build.
+
 ## dcomp: auxiliary producers revoked from the target list (compositor review, 2026-11-23)
 
 Wine branch `claude/compositor-review`, `df606ddd` (on the 11.22 WAM head `97ee37a3`), `dlls/dcomp/device.c`

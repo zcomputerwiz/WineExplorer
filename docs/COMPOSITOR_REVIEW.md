@@ -24,17 +24,29 @@ UWP session expects to take it after its package-manager work (`docs/uwp/WINAPPS
 | 2 | same | A window without an identity got its full retry budget back on every pass, so it was retried every 50 ms forever and the bridge never went back to waiting without a timeout. | **fixed**: only completed windows are re-armed; a waiting window keeps the retries it has left |
 | 3 | same, `apply_change` | The table of windows with effects had 64 slots, and applied windows stay in it until destroyed: the 65th window's effects were silently dropped. | **fixed**: the table grows |
 | 4 | `wine/dlls/dcomp/device.c` commit | Stack array overflow with more than 32 targets holding an auxiliary producer (failed commits keep theirs). | **fixed**, Wine `df606ddd` |
-| 5 | `dlls/dwmapi/dwm_client.c:118-289`, `uxtheme/window.c:598` | Every caption paint makes several synchronous broker calls under one process-wide lock with a 2 s timeout; with `DwmService=0` each call still costs three server requests whenever the 50 ms failure cache runs out. | open: skip the broker when the gate is off; answer from the process table first |
-| 6 | `dwmapi_main.c:103-123` | After a broker restart a process's attributes come back only when that process reads them again; `cached_epoch` is stored, never used. | open: re-send the process table when the epoch changes |
-| 7 | `dwmapi_main.c:440-491` | `DwmSetWindowAttribute` runs side effects (`set_glass`) before writing the process table, so they see the old value; on a full table the broker keeps a value the call reported as failed. | open |
-| 8 | `dwm_bridge.c:180-201` vs `dwmapi_main.c:201` | The materials gate differs: the bridge also honours high contrast and `EnableTransparency=0`, dwmapi does not, so a window can be made transparent with no backdrop drawn behind it. | open |
-| 9 | `src/programs/dwm/dwm.c:133` | Snapshot paging uses an array index while `sweep_attrs` reorders the array: entries can be skipped or repeated. | open (goes away with refactor W4) |
-| 10 | `src/dlls/wexhost/x11wm.c:955-960`; `waylandwm.c:470-487` | `end_call` writes the wake pipe after unlocking while stop closes it; `wayland_start` sets `running/manager/display` without `wl_mutex`. | open |
-| 11 | `dcomp/device.c:916-967` | `dcomp_surface_resize` swaps `physical_surface` outside the lock while the committing thread reads it. | open |
-| 12 | `wexcomp`: `seat.c:423`, `xx-zones.c:27`, `wex-window.c:381,1365,2144` | Every session advertises pointer and keyboard (headless backend always present); zone handles fall back to `rand()`; unchecked `wl_resource_create`; NULL dereference in `wex_window_update_effects(NULL)`; unbounded stack array of thumbnail layouts. | open |
-| 13 | `programs/explorer/dwmhost.c:162` | `stop_dwm_broker` closes the supervisor thread handle after a timeout although the thread may still run. | open |
+| 5 | `dlls/dwmapi/dwm_client.c:118-289`, `uxtheme/window.c:598` | Every caption paint makes several synchronous broker calls under one process-wide lock with a 2 s timeout; with `DwmService=0` each call still costs three server requests whenever the 50 ms failure cache runs out. | **fixed**, Wine `218bea9a`: own windows answered from the process table; no broker calls without `DwmService` |
+| 6 | `dwmapi_main.c:103-123` | After a broker restart a process's attributes come back only when that process reads them again; `cached_epoch` is stored, never used. | **fixed**, `218bea9a`: the first call that reaches a new broker re-sends the attributes and thumbnails (`dwm_attr` test) |
+| 7 | `dwmapi_main.c:440-491` | `DwmSetWindowAttribute` runs side effects (`set_glass`) before writing the process table, so they see the old value; on a full table the broker keeps a value the call reported as failed. | **fixed**, `218bea9a` |
+| 8 | `dwm_bridge.c:180-201` vs `dwmapi_main.c:201` | The materials gate differs: the bridge also honours high contrast and `EnableTransparency=0`, dwmapi does not, so a window can be made transparent with no backdrop drawn behind it. | **fixed**, `218bea9a` (dwmapi follows the bridge) |
+| 9 | `src/programs/dwm/dwm.c:133` | Snapshot paging uses an array index while `sweep_attrs` reorders the array: entries can be skipped or repeated. | **fixed**: a dead window's entries become holes, so nothing moves; the bridge resumes the log from the snapshot's first revision, which also brings back changes made while it paged |
+| 10 | `src/dlls/wexhost/x11wm.c:955-960`; `waylandwm.c:470-487` | `end_call` writes the wake pipe after unlocking while stop closes it; `wayland_start` sets `running/manager/display` without `wl_mutex`. | **fixed**: wake and close under `x_mutex`; `wayland_start` holds `wl_mutex` until the reader runs (built, not run) |
+| 11 | `dcomp/device.c:916-967` | `dcomp_surface_resize` swaps `physical_surface` outside the lock while the committing thread reads it. | **fixed**, Wine `49215d78` |
+| 12 | `wexcomp`: `seat.c:423`, `xx-zones.c:27`, `wex-window.c:381,1365,2144` | Every session advertises pointer and keyboard (headless backend always present); zone handles fall back to `rand()`; unchecked `wl_resource_create`; NULL dereference in `wex_window_update_effects(NULL)`; unbounded stack array of thumbnail layouts. | **fixed**, wexcomp `claude/compositor-review` `1bedb4be`..`b75b9aed`. The fallback pointer and keyboard stay for headless-only sessions, because the tests need them. Suite 63/63. Still open: unchecked `wl_resource_create` in `xx-zones.c` `get_zone`, `get_zone_from_handle` and `get_zone_item`, and `get_zone` without an output never sets an implementation. |
+| 13 | `programs/explorer/dwmhost.c:162` | `stop_dwm_broker` closes the supervisor thread handle after a timeout although the thread may still run. | **fixed**, Wine `e7bcaab0` |
+
+The DWM transport itself is being replaced by a named pipe per desktop (owner decision 2026-11-23, design in
+`DWM_ARCHITECTURE.md` section 2.0). That makes W1-W3 and the DWM header dead code below part of that change.
 
 ## Dead code
+
+Removed on 2026-11-23:
+- the dcomp/DXGI target path (Wine `49215d78`);
+- the four wexhost exports and the ten Unix call slots, together with `wm_start`, the `composition_clock` stub and
+  the `wm_effects` dispatcher. The clock event handle is still passed.
+- `wex_window_apply_corner_radius`, and the test scripts' socket variable (wexcomp `7b9f40d4`, `b75b9aed`).
+
+Left for later: WineD3D's non-scene `PRESENT_CLEAR` branches (still to check whether they are reachable), the
+layer description's unused fields, the `active` state, and the DWM items, which go with the pipe transport.
 
 - **dcomp/DXGI, the old window-message target path (~200 lines).** `dcomp_bind_content` is only ever called with no
   target, and nothing sends `WM_WINE_DCOMP_SET_TARGET` (its one sender reads `last_comp_wnd`, which is never set).
