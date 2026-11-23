@@ -62,7 +62,7 @@ make -j16 "${PROFILE_DLLS[@]}" >> "$LOG" 2>&1
 echo "lab profile DLLs ok"
 
 echo "=== 5. lab wexelevate and consent ==="
-rm -f programs/wexelevate/*-windows/main.o programs/wexelevate/*-windows/wexelevate.exe
+rm -f programs/wexelevate/*-windows/*.o programs/wexelevate/*-windows/wexelevate.exe
 rm -f programs/consent/*-windows/consent.o programs/consent/*-windows/consent.exe
 # WEX_E1_TEST_HOOKS: the hooks that must never ship even when WEXELEVATE_E1S18 does (the dialog's
 # ElevationTest values that type the password); docs/E1_PRODUCTION_PLAN.md
@@ -74,7 +74,7 @@ for a in x86_64 i386; do
     cp programs/wexelevate/$a-windows/wexelevate.exe programs/wexelevate/$a-windows/wexelevate-e1s18.exe
     cp programs/consent/$a-windows/consent.exe programs/consent/$a-windows/consent-e1s18.exe
 done
-rm -f programs/wexelevate/*-windows/main.o programs/wexelevate/*-windows/wexelevate.exe
+rm -f programs/wexelevate/*-windows/*.o programs/wexelevate/*-windows/wexelevate.exe
 rm -f programs/consent/*-windows/consent.o programs/consent/*-windows/consent.exe
 make -j16 programs/wexelevate/all programs/consent/all >> "$LOG" 2>&1
 echo "lab wexelevate and consent ok"

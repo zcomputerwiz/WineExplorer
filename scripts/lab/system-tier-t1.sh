@@ -54,6 +54,16 @@ start_s0() {
     WINEPREFIX=$W/s0 ./server/wineserver -k 2>/dev/null; exit 1
 }
 s0() { WINEPREFIX=$W/s0 timeout 60 ./wine "$@" 2>/dev/null; }
+# the pid of this run's server of a prefix (another run's session 0 may be on the machine too)
+prefix_server_pid() {
+    local p
+    for p in $(pgrep -x wineserver); do
+        tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -qx "WINEPREFIX=$1" && { echo "$p"; return 0; }
+    done
+    return 1
+}
+# waits up to 5 s for a prefix's server to end
+server_gone() { local i; for i in $(seq 1 50); do prefix_server_pid "$1" > /dev/null || return 0; sleep 0.1; done; return 1; }
 start_s0
 check s0_socket_mode "$(stat -c %a "$SOCK")" 666
 
@@ -63,7 +73,8 @@ A() { WINEPREFIX=$W/a timeout 60 ./wine "$@" 2>/dev/null; }
 B() { WINEPREFIX=$W/b timeout 60 ./wine "$@" 2>/dev/null; }
 (WINEPREFIX=$W/a timeout 300 ./wine cmd /c "ping -n 290 127.0.0.1 >nul" >/dev/null 2>&1 &)
 (WINEPREFIX=$W/b timeout 300 ./wine cmd /c "ping -n 290 127.0.0.1 >nul" >/dev/null 2>&1 &)
-sleep 3
+# both sessions' servers up (up to 15 s), instead of a fixed wait
+for i in $(seq 1 150); do prefix_server_pid "$W/a" > /dev/null && prefix_server_pid "$W/b" > /dev/null && break; sleep 0.1; done
 
 check a_reads_session0_64 "$(A reg query "$K" /v where | value where)" session0
 check a_reads_session0_32 "$(A "$R32" query "$K" /v where /reg:64 | value where)" session0
@@ -106,6 +117,12 @@ check a_reads_own_hkcu "$(A reg query 'HKCU\Software\WexTier' /v user | value us
 # handles: duplicate, object name, security descriptor (64-bit and 32-bit)
 check dup64 "$(A "$W/p64.exe" dup 'Software\WexTier' where | field dup)" session0
 check dup32 "$(A "$W/p32.exe" dup 'Software\WexTier' where | field dup)" session0-32bit-view
+# R3: a session 0 key's handle duplicated into another process, pushed by the program or pulled by the other one;
+# the other process opens the key again with its own token, in the program's registry view
+check xdup64_push "$(A "$W/p64.exe" xdup 'Software\WexTier' where push | field xget)" session0
+check xdup64_pull "$(A "$W/p64.exe" xdup 'Software\WexTier' where pull | field xget)" session0
+check xdup32_push "$(A "$W/p32.exe" xdup 'Software\WexTier' where push | field xget)" session0-32bit-view
+check xdup32_pull "$(A "$W/p32.exe" xdup 'Software\WexTier' where pull | field xget)" session0-32bit-view
 # T6.1: session 0 gives each logon (each user's server) a session id of its own
 SA="$(A "$W/p64.exe" whoami | field session)"; SB="$(B "$W/p64.exe" whoami | field session)"
 check sessions_differ "$([ -n "$SA" ] && [ -n "$SB" ] && [ "$SA" != "$SB" ] && [ "$SA" -ge 1 ] && [ "$SB" -ge 1 ] && echo yes)" yes
@@ -114,10 +131,12 @@ for s in "$SA" "$SB"; do
     check "session_${s}_answers_orders" "$(grep -a -c "^session0: session $s (.*) answers on its link: session id $s\$" "$W/s0.log")" 1
 done
 # and session 0 drops a session's link when its server ends
-WINEPREFIX=$W/b ./server/wineserver -k; sleep 1
+WINEPREFIX=$W/b ./server/wineserver -k
+for i in $(seq 1 50); do grep -aq "^session0: session $SB (server pid [0-9]*) ended\$" "$W/s0.log" && break; sleep 0.1; done
 check s0_sees_session_end "$(grep -a -c "^session0: session $SB (server pid [0-9]*) ended\$" "$W/s0.log")" 1
-check name64 "$(A "$W/p64.exe" name 'Software\WexTier' | field name)" '\REGISTRY\Machine\Software\WexTier'
-check sd_present "$(A "$W/p64.exe" name 'Software\WexTier' | field sd | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
+NAME_OUT="$(A "$W/p64.exe" name 'Software\WexTier')"   # one probe run, both of its fields checked
+check name64 "$(field name <<<"$NAME_OUT")" '\REGISTRY\Machine\Software\WexTier'
+check sd_present "$(field sd <<<"$NAME_OUT" | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 
 # a key's own permissions are kept by session 0 across a restart (T2a); set here, checked after the restart below
 A reg add "$K\\Perm" /f >/dev/null
@@ -127,9 +146,11 @@ PERM_BEFORE="$(A "$W/p64.exe" getdacl 'Software\WexTier\Perm' | field dacl)"
 
 # a program keeps its key handle while session 0 restarts: the key is reopened on the new channel
 rm -f "$W/marker"
-(WINEPREFIX=$W/a timeout 120 ./wine "$W/p64.exe" hold 'Software\WexTier' where 'Z:\root\st-t1\marker' >"$W/hold.out" 2>/dev/null &)
+# the marker's Windows path follows $W (WORK), not a fixed /root/st-t1
+MARKER_WIN="Z:$(printf '%s' "$W/marker" | tr '/' '\\')"
+(WINEPREFIX=$W/a timeout 120 ./wine "$W/p64.exe" hold 'Software\WexTier' where "$MARKER_WIN" >"$W/hold.out" 2>/dev/null &)
 for i in $(seq 1 100); do grep -q '^first=' "$W/hold.out" 2>/dev/null && break; sleep 0.2; done
-WINEPREFIX=$W/s0 ./server/wineserver -k; sleep 1
+WINEPREFIX=$W/s0 ./server/wineserver -k; server_gone "$W/s0"   # it saves the hives as it ends
 check s0_saved_b_write "$(grep -a -c '"b32"="written-in-b32"' "$W/s0/system.reg")" 1
 start_s0
 s0 reg add "$K" /v where /d session0-restarted /f >/dev/null
@@ -143,7 +164,7 @@ for i in $(seq 1 30); do grep -aq ' linked again$' "$W/s0.log" && break; sleep 0
 check a_linked_again "$(grep -a -c '^session0: session [0-9]* (server pid [0-9]*, uid 0) linked again$' "$W/s0.log" | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 check s0_keeps_next_id "$([ -s "$W/s0/session0.ids" ] && echo yes)" yes
 # empty messages that carry descriptors do not leak them in session 0: 200 on new links, 40 on session links
-S0PID="$(pgrep -f -- 'wineserver --session0' | head -1)"
+S0PID="$(prefix_server_pid "$W/s0")"   # this run's session 0, not another run's on the machine
 FD_BEFORE="$(ls "/proc/$S0PID/fd" | wc -l)"
 python3 -I - "$SOCK" <<'PY'
 import array, socket, struct, sys
@@ -169,10 +190,11 @@ check empty_messages_leak_no_fds "$([ "$FD_AFTER" -le $((FD_BEFORE + 8)) ] && ec
 
 # T5.2: a session's program reaches session 0's service manager through \pipe\WexSession0\svcctl (64- and 32-bit)
 s0 sc query PlugPlay >/dev/null 2>&1   # session 0's own services.exe runs
-check s0_programs_in_session_0 "$(s0 "$W/p64.exe" whoami | field session)" 0
-check s0_programs_run_as_localsystem "$(s0 "$W/p64.exe" whoami | field user)" S-1-5-18
-check pipe64_bridged "$(A "$W/p64.exe" rpcbind 'WexSession0\svcctl' | field pipe)" open
-check bind64_through_bridge "$(A "$W/p64.exe" rpcbind 'WexSession0\svcctl' | field bind | cut -d' ' -f1)" 12
+S0_WHO="$(s0 "$W/p64.exe" whoami)"; BIND64="$(A "$W/p64.exe" rpcbind 'WexSession0\svcctl')"   # one run each
+check s0_programs_in_session_0 "$(field session <<<"$S0_WHO")" 0
+check s0_programs_run_as_localsystem "$(field user <<<"$S0_WHO")" S-1-5-18
+check pipe64_bridged "$(field pipe <<<"$BIND64")" open
+check bind64_through_bridge "$(field bind <<<"$BIND64" | cut -d' ' -f1)" 12
 check bind32_through_bridge "$(A "$W/p32.exe" rpcbind 'WexSession0\svcctl' | field bind | cut -d' ' -f1)" 12
 check bridge_refuses_unlisted_pipe "$(A "$W/p64.exe" rpcbind 'WexSession0\lsarpc' | field pipe)" error5
 check session_cannot_serve_session0_pipe "$(A "$W/p64.exe" pipecreate 'WexSession0\svcctl' | field create)" error5
@@ -180,8 +202,10 @@ check session_cannot_serve_session0_pipe "$(A "$W/p64.exe" pipecreate 'WexSessio
 # T5.4: the sessions' service managers forward the services that are not a session's own (here wuauserv) to session
 # 0's, and keep their own (PlugPlay). Their servers start now, with session 0's service manager up.
 state() { tr -d '\r' | awk '/STATE/ { print $3; exit }'; }
-WINEPREFIX=$W/a ./server/wineserver -k 2>/dev/null; WINEPREFIX=$W/b ./server/wineserver -k 2>/dev/null; sleep 1
-s0 sc stop wuauserv >/dev/null 2>&1; sleep 1
+WINEPREFIX=$W/a ./server/wineserver -k 2>/dev/null; WINEPREFIX=$W/b ./server/wineserver -k 2>/dev/null
+server_gone "$W/a"; server_gone "$W/b"
+s0 sc stop wuauserv >/dev/null 2>&1
+for i in $(seq 1 20); do [ "$(s0 sc query wuauserv | state)" = 1 ] && break; sleep 0.5; done
 check s0_wuauserv_stopped "$(s0 sc query wuauserv | state)" 1
 A sc start wuauserv >/dev/null 2>&1
 for i in $(seq 1 20); do [ "$(s0 sc query wuauserv | state)" = 4 ] && break; sleep 0.5; done
@@ -245,8 +269,9 @@ serve_s0 'lrpc\WexT1Endpoint' lrpc.out
 # a wait finds session 0's endpoint; for one that exists nowhere it fails with error 2 at once, as on Windows (an RPC
 # client's connect loop spun for ever when the wait succeeded and the open failed: Office's setup)
 check lrpc_wait_finds_session0_endpoint "$(A "$W/p64.exe" pipewait 'lrpc\WexT1Endpoint' | field wait)" ok
-check lrpc_wait_missing_endpoint "$(A "$W/p64.exe" pipewait 'lrpc\WexT1Missing' | field wait)" error2
-check lrpc_wait_missing_is_immediate "$(A "$W/p64.exe" pipewait 'lrpc\WexT1Missing' | field wait_ms | awk '{print ($1 < 1500) ? "yes" : "no"}')" yes
+MISSING="$(A "$W/p64.exe" pipewait 'lrpc\WexT1Missing')"   # one run, both fields
+check lrpc_wait_missing_endpoint "$(field wait <<<"$MISSING")" error2
+check lrpc_wait_missing_is_immediate "$(field wait_ms <<<"$MISSING" | awk '{print ($1 < 1500) ? "yes" : "no"}')" yes
 check lrpc_endpoint_from_session "$(A "$W/p64.exe" pipesay 'lrpc\WexT1Endpoint' hello | field say)" ok
 for i in $(seq 1 40); do grep -q '^message=' "$W/lrpc.out" 2>/dev/null && break; sleep 0.5; done
 check lrpc_message_crossed "$(field message < "$W/lrpc.out")" hello

@@ -2,7 +2,7 @@
  * Copyright 2026 WineExplorer contributors
  *
  * Elevation Broker Request Structure definition.
- * Shared between main.c and e1s18_broker.h/.c.
+ * Shared between main.c and the standard-user units (broker_internal.h).
  */
 #ifndef WEXELEVATE_REQUEST_H
 #define WEXELEVATE_REQUEST_H

@@ -759,7 +759,10 @@ static int run_main(int sys)
 int main(int argc, char **argv)
 {
     if (argc < 2) return 2;
-    if (!strcmp(argv[1], "hold")) { GetProcessWindowStation(); GetThreadDesktop(GetCurrentThreadId()); Sleep(600000); return 0; }
+    if (!strcmp(argv[1], "hold")) {   /* el_up in test_sysrun_server.sh waits for the ready line */
+        GetProcessWindowStation(); GetThreadDesktop(GetCurrentThreadId());
+        printf("hold=ready\n"); fflush(stdout);
+        Sleep(600000); return 0; }
     if (!strcmp(argv[1], "query")) { char dn[64], tn[64], p[MAX_PATH]; FILE *f; input_desktop_name(dn, sizeof(dn)); thread_desktop_name(tn, sizeof(tn));
         if (argc > 2) { snprintf(p, sizeof(p), "%s\\query.out", argv[2]); f = fopen(p, "a"); fprintf(f, "input=%s thread=%s\n", dn, tn); fclose(f); }
         else printf("%s\n", dn);

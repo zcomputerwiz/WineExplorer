@@ -6,16 +6,20 @@
  * capability enforcement, single guarded resume, and disabled-by-default behavior.
  */
 
-#include "e1s18_broker.h"
+#include "standard.h"
+#include "token_checks.h"
 #ifdef WEXELEVATE_E1S18
 /* WO-14: the golden-vector test uses the shared S1 encoder directly. */
 #include "e1s_encode.h"
+#include "e1s_digest.h"
 /* WO-20: the R8 INIT/ACK test uses the codec directly; only a subset of the
  * codec's static helpers is used, so suppress the unused-function warnings. */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
 #include "e1r8_codec.h"
 #pragma GCC diagnostic pop
+/* design review, finding 2: the shared decision sequence and attempt loop */
+#include "decision.h"
 #endif
 #include "../../../wine/include/wine/wex_token.h"
 #include "../../../wine/include/wine/wex_profile.h"
@@ -25,7 +29,7 @@
 #include <string.h>
 #include <assert.h>
 
-/* R15 policy-value decision, exported from e1s18_broker.c for native testing. */
+/* R15 policy-value decision, exported from standard.c for native testing. */
 extern BOOL e1s18_policy_value_enabled( DWORD val );
 
 /* WO-14: sets a fully valid S1 endorsed-identity context (defined below). */
@@ -100,6 +104,11 @@ struct test_tracker
     int omit_stage2_account_name;
     int omit_stage2_account_key;
     int omit_stage2_map_gen;
+
+    /* Design review, finding 1: the post-approval commit (fake_commit_request) */
+    int commit_calls;
+    int commit_at_order;   /* g_track.order_count when the commit ran */
+    int doc_changed;       /* the frozen document changed: the commit refuses */
 };
 
 static struct test_tracker g_track;
@@ -383,6 +392,22 @@ static void fake_free_buffer( void *ptr )
     g_track.buffers_freed++;
 }
 
+/*
+ * Design review, finding 1: models main.c commit_approved for the native tests. The request is used once (as
+ * table_consume: req->live is cleared, a second commit of the same request is refused), and a changed document
+ * (verify_doc) is refused with ERROR_FILE_CORRUPT. Not part of the 1..14 stage order; commit_at_order records where
+ * it ran.
+ */
+static DWORD fake_commit_request( struct request *req )
+{
+    g_track.commit_calls++;
+    g_track.commit_at_order = g_track.order_count;
+    if (!req->live) return ERROR_CANCELLED;
+    req->live = 0;
+    if (g_track.doc_changed) return ERROR_FILE_CORRUPT;
+    return ERROR_SUCCESS;
+}
+
 static struct e1s18_ops s_fake_ops = {
     fake_get_capabilities,
     fake_is_policy_enabled,
@@ -411,13 +436,18 @@ static struct e1s18_ops s_fake_ops = {
     NULL, /* r8_endorse */
     NULL, /* r8_recheck */
     NULL, /* r8_close */
-    NULL  /* r8_start */
+    NULL, /* r8_start */
+    fake_commit_request
 };
+
+static WCHAR s_dummy_image[] = { 'C', ':', '\\', 'w', 'i', 'n', 'd', 'o', 'w', 's', '\\', 'c', 'm', 'd', '.', 'e', 'x', 'e', 0 };
+static WCHAR s_dummy_cmdline[] = { 'c', 'm', 'd', '.', 'e', 'x', 'e', 0 };
 
 static void init_dummy_request( struct request *req )
 {
     memset( req, 0, sizeof(*req) );
     req->id = 0x1234567890abcdefULL;
+    req->live = 1;   /* admitted to the table: usable once (finding 1) */
     req->caller_pid = 1000;
     req->caller_session = 1;
     req->caller = (HANDLE)(intptr_t)0x8008;
@@ -426,6 +456,10 @@ static void init_dummy_request( struct request *req )
     req->show = 1;
     req->lease = 1;
     memset( req->hash, 0x33, sizeof(req->hash) );
+    /* the broker always sends an image and a command line; the S1 record refuses a missing one (finding 3). Static
+     * strings: wo20_set_wchar_field leaves them alone when a test replaces them, and nothing else frees them. */
+    req->image = s_dummy_image;
+    req->cmdline = s_dummy_cmdline;
 #ifdef WEXELEVATE_E1S18
     req->is_standard_user = TRUE;
     req->caller_stats.AuthenticationId.HighPart = 0x1111;
@@ -1421,6 +1455,7 @@ static int test_export_boundary_pipeline_integration( void )
     /* Hybrid ops: keep default issue_token, load_profile, prep_launch, transfer_lease, unload_profile;
      * provide fakes for stages requiring service plumbing or win32 kernel objects */
     hybrid_ops = *default_ops;
+    hybrid_ops.commit_request = fake_commit_request;
     hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
     hybrid_ops.get_capabilities = fake_get_capabilities;
     hybrid_ops.prompt_dialog = fake_prompt_dialog;
@@ -2232,6 +2267,7 @@ static int test_transport_boundary_fields_populated_and_secrets_wiped( void )
 
     default_ops = e1s18_get_ops();
     hybrid_ops = *default_ops;
+    hybrid_ops.commit_request = fake_commit_request;
     hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
     hybrid_ops.get_capabilities = fake_get_capabilities;
     hybrid_ops.prompt_dialog = default_ops->prompt_dialog;
@@ -2911,6 +2947,7 @@ static int test_rng_failure_denies_no_dialog( void )
     e1s18_reset_ops();
     default_ops = e1s18_get_ops();
     hybrid_ops = *default_ops;
+    hybrid_ops.commit_request = fake_commit_request;
     hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
     hybrid_ops.get_capabilities = fake_get_capabilities;
     hybrid_ops.prompt_dialog = default_ops->prompt_dialog; /* default: would spawn a dialog */
@@ -2953,6 +2990,7 @@ static int test_random_nonce_and_channel_differ( void )
     e1s18_reset_ops();
     default_ops = e1s18_get_ops();
     hybrid_ops = *default_ops;
+    hybrid_ops.commit_request = fake_commit_request;
     hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
     hybrid_ops.get_capabilities = fake_get_capabilities;
     hybrid_ops.prompt_dialog = default_ops->prompt_dialog; /* default: generates the channel id */
@@ -3193,7 +3231,8 @@ static struct e1s18_ops s_wo15_ops = {
     NULL, /* r8_endorse */
     NULL, /* r8_recheck */
     NULL, /* r8_close */
-    NULL  /* r8_start */
+    NULL, /* r8_start */
+    fake_commit_request
 };
 
 struct wo15_worker_arg
@@ -3547,6 +3586,7 @@ static int test_wo16_admission_deadline( void )
     /* Hybrid ops: keep the default prompt_dialog and redeem_evidence (which
      * use req->deadline); provide fakes for the other stages. */
     hybrid_ops = *default_ops;
+    hybrid_ops.commit_request = fake_commit_request;
     hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
     hybrid_ops.get_capabilities = fake_get_capabilities;
     hybrid_ops.issue_token = fake_issue_token;
@@ -3629,7 +3669,7 @@ static void wo20_set_wchar_field( WCHAR **field, const char *ascii )
     size_t len = strlen( ascii ) + 1;
     WCHAR *buf = malloc( len * sizeof(WCHAR) );
     size_t i;
-    free( *field );
+    if (*field != s_dummy_image && *field != s_dummy_cmdline) free( *field );
     for (i = 0; i < len; i++) buf[i] = (WCHAR)(unsigned char)ascii[i];
     *field = buf;
 }
@@ -4194,6 +4234,588 @@ static int test_wo28_r8_start_op( void )
 
 #endif /* WEXELEVATE_E1S18 */
 
+#ifdef WEXELEVATE_E1S18
+/*
+ * Design review, finding 4: a TokenUser answer is checked against the bytes the call wrote, and an empty or absent
+ * SID never matches (token_checks.c).
+ */
+static int test_review4_token_user_layout( void )
+{
+    uint64_t store[16];   /* aligned like the buffer GetTokenInformation fills */
+    uint8_t *buf = (uint8_t *)store;
+    const size_t hdr = sizeof(wex_sid_and_attributes);
+    uint8_t *sid = buf + hdr;
+    const BYTE *out_sid = NULL;
+    DWORD out_len = 0;
+    void *ptr;
+    uint8_t other[16];
+
+    memset( store, 0, sizeof(store) );
+    ptr = sid;
+    memcpy( buf + offsetof( wex_sid_and_attributes, Sid ), &ptr, sizeof(ptr) );
+    sid[0] = 1; sid[1] = 2; sid[7] = 5;               /* S-1-5-21-555 */
+    wex_token_put32( sid + 8, 21 );
+    wex_token_put32( sid + 12, 555 );
+
+    CHECK( wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)(hdr + 16), &out_sid, &out_len ),
+           "a whole TokenUser answer is accepted" );
+    CHECK( out_sid == sid && out_len == 16, "the SID is the one the header points to, 16 bytes" );
+
+    /* short answers: the header itself, the SID header, the subauthorities */
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr - 1), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "an answer shorter than TOKEN_USER is refused" );
+    CHECK( out_sid == NULL && out_len == 0, "a refused answer names no SID" );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 7), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "an answer that cuts the SID header is refused" );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 12), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "an answer that cuts the subauthorities is refused" );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)(hdr + 8), &out_sid, &out_len ),
+           "a length beyond the buffer is refused" );
+
+    /* the SID pointer: past the answer, before the buffer, over the header */
+    ptr = buf + 100;
+    memcpy( buf + offsetof( wex_sid_and_attributes, Sid ), &ptr, sizeof(ptr) );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "a SID pointer past the answer is refused" );
+    ptr = (void *)((uintptr_t)buf - 16);
+    memcpy( buf + offsetof( wex_sid_and_attributes, Sid ), &ptr, sizeof(ptr) );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "a SID pointer before the buffer is refused" );
+    ptr = buf;
+    memcpy( buf + offsetof( wex_sid_and_attributes, Sid ), &ptr, sizeof(ptr) );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "a SID pointer over the header is refused" );
+    ptr = sid;
+    memcpy( buf + offsetof( wex_sid_and_attributes, Sid ), &ptr, sizeof(ptr) );
+
+    /* malformed SIDs */
+    sid[1] = 16;
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)sizeof(store), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "more than 15 subauthorities is refused" );
+    sid[1] = 2; sid[0] = 2;
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)(hdr + 16), &out_sid, &out_len ),
+           "a SID of another revision is refused" );
+    sid[0] = 1;
+    CHECK( !wex_sid_and_attributes_layout( NULL, 64, 64, &out_sid, &out_len ), "no buffer is refused" );
+
+    /* SID comparison: an empty or absent expected SID never matches */
+    memcpy( other, sid, 16 );
+    CHECK( wex_sid_equal( sid, 16, other, 16 ), "equal SIDs match" );
+    CHECK( !wex_sid_equal( sid, 16, other, 0 ), "an empty expected SID never matches" );
+    CHECK( !wex_sid_equal( sid, 16, NULL, 16 ), "an absent expected SID never matches" );
+    CHECK( !wex_sid_equal( sid, 0, other, 0 ), "two empty SIDs do not match" );
+    other[15] ^= 1;
+    CHECK( !wex_sid_equal( sid, 16, other, 16 ), "different SIDs do not match" );
+    CHECK( !wex_sid_equal( sid, 16, sid, 12 ), "a cut SID does not match" );
+    return TEST_PASS;
+}
+
+/* Finding 4: the issued token is refused when the caller has no frozen SID to tell the new account apart from, or
+ * when the issued SID is malformed (the check used to be skipped for a zero length). */
+static int test_review4_issue_token_empty_sid( void )
+{
+    struct request req;
+    HANDLE token = NULL;
+    DWORD err;
+    uint8_t account_key[16], evidence_ref[16], nonce[32], binding_digest[32], request_digest[32];
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    memcpy( account_key, req.account_key, 16 );
+    memset( evidence_ref, 0x77, sizeof(evidence_ref) );
+    memset( nonce, 0xa5, sizeof(nonce) );
+    memset( binding_digest, 0x11, sizeof(binding_digest) );
+    memset( request_digest, 0x22, sizeof(request_digest) );
+    reset_export_state();
+    e1s18_reset_ops();
+    e1s18_set_export_table( &s_fake_export_table );
+    ops = e1s18_get_ops();
+
+    req.caller_sid_len = 0;
+    err = ops->issue_token( &req, account_key, evidence_ref, nonce, binding_digest, request_digest, &token );
+    CHECK( err != ERROR_SUCCESS, "a caller with an empty frozen SID must not get a token" );
+    CHECK( token == NULL, "no token on refusal" );
+    CHECK( req.alice_sid_len == 0, "no issued SID kept on refusal" );
+
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    req.caller_sid[0] = 0;   /* not a SID: revision 0 */
+    reset_export_state();
+    err = ops->issue_token( &req, account_key, evidence_ref, nonce, binding_digest, request_digest, &token );
+    CHECK( err != ERROR_SUCCESS, "a caller with a malformed frozen SID must not get a token" );
+
+    e1s18_reset_export_table();
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+#endif
+
+#ifdef WEXELEVATE_E1S18
+/*
+ * Design review, finding 3: a request whose S1 record cannot be encoded (here a command line longer than the
+ * encoder takes) is denied before any dialog; the digests used to be taken over the partial record.
+ */
+static int test_review3_digest_failure_denies( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    WCHAR *long_cmd;
+    size_t i, n = 40000;
+    DWORD err;
+    uint8_t digest[32];
+
+    long_cmd = calloc( n + 1, sizeof(WCHAR) );
+    CHECK( long_cmd != NULL, "allocation" );
+    for (i = 0; i < n; i++) long_cmd[i] = 'x';
+
+    init_dummy_request( &req );
+    req.cmdline = long_cmd;
+    reset_tracker();
+    e1s18_set_ops( &s_fake_ops );
+    memset( &reply, 0, sizeof(reply) );
+    err = e1s18_handle_standard_request( &req, &reply );
+    free( long_cmd );
+    CHECK( err != ERROR_SUCCESS, "an unencodable request must be denied" );
+    CHECK_EQ( g_track.order_count, 0, "no stage (no dialog) may run after a digest failure" );
+    CHECK_EQ( reply.pid, 0, "no child on a digest failure" );
+    e1s18_reset_ops();
+
+    /* the record digest refuses a failed or empty encoding instead of hashing it */
+    {
+        uint8_t data[4] = { 1, 2, 3, 4 };
+        struct e1s_bytes b = { data, sizeof(data), sizeof(data), 0 };
+        CHECK( e1s_digest_record( "E1S1-REQ", sizeof("E1S1-REQ"), &b, digest ), "a whole record is hashed" );
+        b.failed = 1;
+        memset( digest, 0xff, sizeof(digest) );
+        CHECK( !e1s_digest_record( "E1S1-REQ", sizeof("E1S1-REQ"), &b, digest ), "a failed encoding is refused" );
+        for (i = 0; i < 32; i++) CHECK( digest[i] == 0, "a refused digest is zeroed, never left over" );
+        b.failed = 0; b.data = NULL;
+        CHECK( !e1s_digest_record( "E1S1-REQ", sizeof("E1S1-REQ"), &b, digest ), "no buffer (OOM) is refused" );
+    }
+    return TEST_PASS;
+}
+#endif
+
+#ifdef WEXELEVATE_E1S18
+/* standard.c: the single-use answer list (declared for the units in broker_internal.h) */
+BOOL e1s18_is_answer_replayed( uint64_t request_id, const uint8_t nonce[32] );
+BOOL e1s18_record_answer( uint64_t request_id, const uint8_t nonce[32] );
+
+/*
+ * Design review, finding 1: the standard path runs the post-approval commit the administrator path runs, right
+ * after the evidence is redeemed. A changed document is refused there, before any token, profile or process.
+ */
+static int test_review1_commit_changed_document( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    DWORD err;
+    int i;
+
+    init_dummy_request( &req );
+    reset_tracker();
+    e1s18_reset_answers();
+    e1s18_reset_burned_evidence();
+    g_track.doc_changed = 1;
+    e1s18_set_ops( &s_fake_ops );
+    memset( &reply, 0, sizeof(reply) );
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, (DWORD)ERROR_FILE_CORRUPT, "a changed document must be refused at the commit" );
+    CHECK_EQ( g_track.commit_calls, 1, "the commit runs once" );
+    CHECK_EQ( g_track.commit_at_order, 2, "the commit runs right after the dialog and the redemption" );
+    for (i = 0; i < g_track.order_count; i++)
+        CHECK( g_track.order[i] < 3, "no token, profile or process after a refused commit" );
+    CHECK_EQ( g_track.resume_count, 0, "no child is resumed" );
+    CHECK_EQ( reply.pid, 0, "no child in the reply" );
+    CHECK_EQ( req.live, 0, "the request is used even though the commit refused it" );
+
+    /* an ops table without the commit denies (fail closed) */
+    {
+        struct e1s18_ops ops = s_fake_ops;
+        ops.commit_request = NULL;
+        init_dummy_request( &req );
+        reset_tracker();
+        e1s18_set_ops( &ops );
+        err = e1s18_handle_standard_request( &req, &reply );
+        CHECK_EQ( err, (DWORD)ERROR_NOT_SUPPORTED, "no commit: no launch" );
+        for (i = 0; i < g_track.order_count; i++)
+            CHECK( g_track.order[i] < 3, "no token without the commit" );
+    }
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+
+/*
+ * Design review, finding 1: a request is used once on the standard path as on the administrator path. Handling the
+ * same request again is refused at the commit and never reaches a token or a second child.
+ */
+static int test_review1_replayed_request( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    DWORD err;
+    int i, before;
+
+    init_dummy_request( &req );
+    reset_tracker();
+    e1s18_reset_answers();
+    e1s18_reset_burned_evidence();
+    e1s18_set_ops( &s_fake_ops );
+    memset( &reply, 0, sizeof(reply) );
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, (DWORD)ERROR_SUCCESS, "the first use succeeds" );
+    CHECK_EQ( g_track.resume_count, 1, "one child" );
+
+    before = g_track.order_count;
+    memset( &reply, 0, sizeof(reply) );
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK( err != ERROR_SUCCESS, "a replayed request must be refused" );
+    CHECK_EQ( g_track.commit_calls, 2, "the replay reaches the commit, which refuses it" );
+    for (i = before; i < g_track.order_count; i++)
+        CHECK( g_track.order[i] < 3, "a replay gets no token, profile or process" );
+    CHECK_EQ( g_track.resume_count, 1, "still one child" );
+    CHECK_EQ( reply.pid, 0, "no child in the replay's reply" );
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+
+/*
+ * Design review, finding 1: the single-use answer list no longer stops recording after 64 answers. Every answer is
+ * still recognised as used after hundreds, and a full list refuses to record (the caller then denies).
+ */
+static int test_review1_used_lists_grow( void )
+{
+    uint8_t nonce[32];
+    uint64_t i;
+
+    e1s18_reset_answers();
+    memset( nonce, 0x5a, sizeof(nonce) );
+    for (i = 1; i <= 300; i++)
+    {
+        memcpy( nonce, &i, sizeof(i) );
+        CHECK( !e1s18_is_answer_replayed( 1000 + i, nonce ), "a new answer is not yet used" );
+        CHECK( e1s18_record_answer( 1000 + i, nonce ), "a new answer is recorded" );
+    }
+    CHECK_EQ( e1s18_test_used_count( 0 ), (size_t)300, "every answer is kept" );
+    for (i = 1; i <= 300; i++)
+    {
+        memcpy( nonce, &i, sizeof(i) );
+        CHECK( e1s18_is_answer_replayed( 1000 + i, nonce ), "answer 65 and later are still known as used" );
+    }
+
+    /* a full list refuses (fail closed), and the refused answer is not counted as kept */
+    e1s18_set_test_used_cap( 300 );
+    i = 301;
+    memcpy( nonce, &i, sizeof(i) );
+    CHECK( !e1s18_record_answer( 1000 + i, nonce ), "a full list must refuse to record" );
+    CHECK_EQ( e1s18_test_used_count( 0 ), (size_t)300, "the refused answer is not kept" );
+    e1s18_set_test_used_cap( 0 );
+    CHECK( e1s18_record_answer( 1000 + i, nonce ), "the real cap is far above any run" );
+
+    e1s18_reset_answers();
+    CHECK_EQ( e1s18_test_used_count( 0 ), (size_t)0, "reset empties the list" );
+    return TEST_PASS;
+}
+#endif
+
+#ifdef WEXELEVATE_E1S18
+/*
+ * Design review, finding 2: the one R8 decision sequence (decision.c), driven natively by a fake dialog and a fake
+ * verifier over the link both brokers use.
+ */
+struct fake_r8
+{
+    struct r8_link link;              /* first */
+    struct e1r8_tuple t;
+    const char *account;              /* the account the dialog selects */
+    uint32_t verdict;                 /* the verifier's RESULT status */
+    uint8_t vkey[16];                 /* the key the verifier reports */
+    int locked;                       /* the verifier answers START with LOCKED */
+    uint32_t recheck_fail;            /* this recheck step fails (0: none) */
+    int answer;                       /* 0 Confirm, 1 Cancel, 2 Confirm of another challenge */
+    int vrecv;                        /* verifier frames handed out */
+    int to_d;                         /* frames to the dialog */
+    uint16_t last_type;               /* the type of the last frame to the dialog */
+    uint8_t challenge[32];            /* from the last authenticated RESULT */
+};
+
+static DWORD fake_r8_to_d( struct r8_link *link, const uint8_t *frame, uint32_t len )
+{
+    struct fake_r8 *f = (struct fake_r8 *)link;
+    f->to_d++;
+    f->last_type = e1r8_get_u16( frame + 6 );
+    if (f->last_type == E1R8_TYPE_RESULT && len > 116 && e1r8_get_u32( frame + 76 ) == E1R8_RESULT_AUTHENTICATED)
+        memcpy( f->challenge, frame + 80 + 4 + e1r8_get_u32( frame + 80 ), 32 );
+    return ERROR_SUCCESS;
+}
+
+static DWORD fake_r8_from_d( struct r8_link *link, uint16_t type, uint8_t *frame, uint32_t max, uint32_t *len )
+{
+    struct fake_r8 *f = (struct fake_r8 *)link;
+    static const uint8_t zero[32];
+    uint8_t challenge[32];
+
+    if (type == E1R8_TYPE_SELECT)
+    {
+        *len = (uint32_t)(E1R8_HEADER_SIZE + 4 + strlen( f->account ));
+        if (*len > max) return ERROR_INVALID_DATA;
+        return e1r8_encode_select( frame, *len, &f->t, (const uint8_t *)f->account, (uint32_t)strlen( f->account ) )
+               ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+    }
+    if (type == E1R8_TYPE_ANSWER)
+    {
+        *len = 264;
+        memcpy( challenge, f->challenge, 32 );
+        if (f->answer == 2) challenge[0] ^= 1;
+        if (f->answer == 1)
+            return e1r8_encode_answer( frame, 264, &f->t, zero, E1R8_S1_ANSWER_CANCEL, 0, 0, E1S1_ALL_REQUIRED_CAPS )
+                   ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+        return e1r8_encode_answer( frame, 264, &f->t, challenge, E1R8_S1_ANSWER_CONFIRM, 2, 0, E1S1_ALL_REQUIRED_CAPS )
+               ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+    }
+    return ERROR_INVALID_PARAMETER;
+}
+
+static DWORD fake_r8_recheck( struct r8_link *link, uint32_t step )
+{
+    struct fake_r8 *f = (struct fake_r8 *)link;
+    return f->recheck_fail && f->recheck_fail == step ? ERROR_ACCESS_DENIED : ERROR_SUCCESS;
+}
+
+static DWORD fake_r8_v_start( struct r8_link *link, const uint8_t *start, size_t len, uint8_t ready[76] )
+{
+    struct fake_r8 *f = (struct fake_r8 *)link;
+    (void)start; (void)len;
+    if (f->locked) return e1r8_put_header( ready, 76, E1R8_TYPE_LOCKED, 76, &f->t ) ? ERROR_INVALID_DATA : 0;
+    return e1r8_encode_worker_ready( ready, 76, &f->t ) ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+}
+
+static DWORD fake_r8_v_recv( struct r8_link *link, uint8_t frame[E1S6_R8_FRAME_MAX], size_t *len )
+{
+    struct fake_r8 *f = (struct fake_r8 *)link;
+    static const uint8_t zero[16];
+    uint8_t ref[16];
+
+    if (f->vrecv++ == 0)
+    {
+        *len = 76;
+        return e1r8_encode_delegated( frame, 76, &f->t ) ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+    }
+    if (f->verdict != E1R8_RESULT_AUTHENTICATED)
+    {
+        *len = 116;
+        return e1r8_encode_result_v( frame, 116, &f->t, E1R8_RESULT_REFUSED, zero, (const uint8_t *)"", 0, zero )
+               ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+    }
+    memset( ref, 0x77, sizeof(ref) );
+    *len = 76 + 4 + 16 + 4 + strlen( f->account ) + 16;
+    return e1r8_encode_result_v( frame, *len, &f->t, E1R8_RESULT_AUTHENTICATED, f->vkey, (const uint8_t *)f->account,
+                                 (uint32_t)strlen( f->account ), ref ) ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+}
+
+static const char *s_fake_r8_map = "/tmp/test_r8_decide_accounts.map";
+static const uint8_t s_fake_r8_admin_key[16] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+
+static void fake_r8_init( struct fake_r8 *f )
+{
+    memset( f, 0, sizeof(*f) );
+    f->link.who = "r8";
+    f->link.t = &f->t;
+    f->link.to_d = fake_r8_to_d;
+    f->link.from_d = fake_r8_from_d;
+    f->link.recheck = fake_r8_recheck;
+    f->link.v_start = fake_r8_v_start;
+    f->link.v_recv = fake_r8_v_recv;
+    f->t.request_id = 0x4242;
+    f->t.attempt = 1;
+    memset( f->t.nonce, 0x11, 32 );
+    memset( f->t.channel_id, 0x22, 16 );
+    memset( f->t.binding_digest, 0x33, 32 );
+    memset( f->t.request_digest, 0x44, 32 );
+    memset( f->t.dialog_id, 0x55, 16 );
+    f->account = "admin";
+    f->verdict = E1R8_RESULT_AUTHENTICATED;
+    memcpy( f->vkey, s_fake_r8_admin_key, 16 );
+}
+
+static int fake_r8_map( BOOL install )
+{
+    FILE *m;
+    if (!install)
+    {
+        e1s18_set_test_accounts_map( NULL );
+        remove( s_fake_r8_map );
+        return 1;
+    }
+    if (!(m = fopen( s_fake_r8_map, "w" ))) return 0;
+    fprintf( m, "WEXACCOUNTS 1 42 1002 1 2 3\n" );
+    fprintf( m, "admin 1000 0102030405060708090a0b0c0d0e0f10 active 21 1 2 3 500\n" );
+    fclose( m );
+    e1s18_set_test_accounts_map( s_fake_r8_map );
+    return 1;
+}
+
+/* The confirmed path, and the answer of that attempt cannot be used again. */
+static int test_review2_decide_confirmed( void )
+{
+    struct fake_r8 f;
+    char account[64];
+    uint8_t key[16], ref[16];
+    BOOL started;
+    DWORD err;
+
+    CHECK( fake_r8_map( TRUE ), "accounts map" );
+    e1s18_reset_answers();
+    fake_r8_init( &f );
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_CONFIRMED, "confirmed" );
+    CHECK_EQ( err, (DWORD)ERROR_SUCCESS, "no error" );
+    CHECK( !strcmp( account, "admin" ), "the selected account" );
+    CHECK( !memcmp( key, s_fake_r8_admin_key, 16 ), "its key" );
+    CHECK( ref[0] == 0x77 && ref[15] == 0x77, "the verifier's evidence reference" );
+    CHECK( started, "the verifier holds a worker" );
+    CHECK( e1s18_is_answer_replayed( f.t.request_id, f.t.nonce ), "the answer is recorded as used" );
+
+    /* the same attempt again: its answer is used */
+    fake_r8_init( &f );
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED, "a replayed answer fails" );
+    CHECK( !memcmp( key, (uint8_t[16]){0}, 16 ) && !ref[0], "no key or reference after a failure" );
+    e1s18_reset_answers();
+    fake_r8_map( FALSE );
+    return TEST_PASS;
+}
+
+/* Refused, locked, and the failures that must not confirm. */
+static int test_review2_decide_refusals( void )
+{
+    struct fake_r8 f;
+    char account[64];
+    uint8_t key[16], ref[16];
+    BOOL started;
+    DWORD err;
+
+    CHECK( fake_r8_map( TRUE ), "accounts map" );
+
+    e1s18_reset_answers();
+    fake_r8_init( &f );
+    f.verdict = E1R8_RESULT_REFUSED;
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_REFUSED, "refused" );
+    CHECK_EQ( err, (DWORD)ERROR_LOGON_FAILURE, "a refused password" );
+    CHECK_EQ( f.last_type, E1R8_TYPE_RESULT, "the dialog has the refusal" );
+    CHECK( started, "the worker is to be released" );
+
+    fake_r8_init( &f );
+    f.locked = 1;
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_LOCKED, "locked" );
+    CHECK_EQ( err, (DWORD)ERROR_ACCOUNT_LOCKED_OUT, "locked out" );
+    CHECK_EQ( f.last_type, E1R8_TYPE_LOCKED, "the dialog has the notice" );
+    CHECK( !started, "no worker to release" );
+
+    fake_r8_init( &f );
+    f.answer = 1;
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED, "a Cancel does not confirm" );
+    CHECK_EQ( err, (DWORD)ERROR_CANCELLED, "cancelled" );
+
+    fake_r8_init( &f );
+    f.answer = 2;
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED,
+              "a Confirm of another challenge fails" );
+
+    fake_r8_init( &f );
+    f.vkey[0] ^= 1;
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED,
+              "an authenticated key other than the selected account's fails" );
+
+    fake_r8_init( &f );
+    f.account = "nobody";   /* the decoy: zero key, which no password authenticates */
+    memset( f.vkey, 0, 16 );
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED, "the decoy never confirms" );
+
+    {
+        static const uint32_t steps[] = { E1R8_RECHECK_STEP_READY, E1R8_RECHECK_STEP_RESULT, E1R8_RECHECK_STEP_CONFIRM };
+        size_t i;
+        for (i = 0; i < 3; i++)
+        {
+            e1s18_reset_answers();
+            fake_r8_init( &f );
+            f.recheck_fail = steps[i];
+            CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED,
+                      "a failed recheck stops the decision" );
+            CHECK_EQ( err, (DWORD)ERROR_ACCESS_DENIED, "denied" );
+        }
+    }
+    e1s18_reset_answers();
+    fake_r8_map( FALSE );
+    return TEST_PASS;
+}
+
+/* The one attempt loop: at most 3, only after a refusal, a fresh channel id each time, only while 10 s are left. */
+struct fake_attempts
+{
+    struct r8_attempts a;   /* first */
+    DWORD results[4];
+    uint32_t calls, furthers;
+    DWORD left;
+    uint8_t ids[4][16];
+};
+
+static DWORD fake_attempts_attempt( struct r8_attempts *a, uint32_t n )
+{
+    struct fake_attempts *f = (struct fake_attempts *)a;
+    f->calls++;
+    return n <= 3 ? f->results[n - 1] : ERROR_GEN_FAILURE;
+}
+
+static DWORD fake_attempts_further( struct r8_attempts *a, uint32_t n, const uint8_t id[16] )
+{
+    struct fake_attempts *f = (struct fake_attempts *)a;
+    f->furthers++;
+    if (n < 2 || n > 3) return ERROR_GEN_FAILURE;
+    memcpy( f->ids[n], id, 16 );
+    return ERROR_SUCCESS;
+}
+
+static DWORD fake_attempts_remaining( struct r8_attempts *a )
+{
+    return ((struct fake_attempts *)a)->left;
+}
+
+static int test_review2_attempt_loop( void )
+{
+    struct fake_attempts f;
+
+    memset( &f, 0, sizeof(f) );
+    f.a.who = "r8";
+    f.a.attempt = fake_attempts_attempt;
+    f.a.further = fake_attempts_further;
+    f.a.remaining = fake_attempts_remaining;
+    f.left = 60000;
+    f.results[0] = f.results[1] = f.results[2] = ERROR_LOGON_FAILURE;
+    CHECK_EQ( r8_attempt_loop( &f.a ), (DWORD)ERROR_LOGON_FAILURE, "three refusals end refused" );
+    CHECK_EQ( f.calls, 3u, "at most three attempts" );
+    CHECK_EQ( f.furthers, 2u, "two further attempts" );
+    CHECK( memcmp( f.ids[2], f.ids[3], 16 ) && memcmp( f.ids[2], (uint8_t[16]){0}, 16 ), "a fresh channel id each" );
+
+    memset( f.ids, 0, sizeof(f.ids) );
+    f.calls = f.furthers = 0;
+    f.results[1] = ERROR_SUCCESS;
+    CHECK_EQ( r8_attempt_loop( &f.a ), (DWORD)ERROR_SUCCESS, "the second attempt succeeds" );
+    CHECK_EQ( f.calls, 2u, "no attempt after a success" );
+
+    f.calls = f.furthers = 0;
+    f.results[0] = ERROR_ACCOUNT_LOCKED_OUT;
+    CHECK_EQ( r8_attempt_loop( &f.a ), (DWORD)ERROR_ACCOUNT_LOCKED_OUT, "a lockout ends the request" );
+    CHECK_EQ( f.calls, 1u, "only a refusal leads to another attempt" );
+
+    f.calls = f.furthers = 0;
+    f.results[0] = ERROR_LOGON_FAILURE;
+    f.left = 9999;
+    CHECK_EQ( r8_attempt_loop( &f.a ), (DWORD)ERROR_LOGON_FAILURE, "no time for another" );
+    CHECK_EQ( f.calls, 1u, "less than 10 s left: no further attempt" );
+    return TEST_PASS;
+}
+#endif
+
 int main( int argc, char **argv )
 {
     int ret = 0;
@@ -4395,6 +5017,33 @@ int main( int argc, char **argv )
 
     printf("62. Testing WO-28 R8 start op in boundary table (fail closed, mock)...\n");
     if (test_wo28_r8_start_op() != TEST_PASS) ret = 1;
+
+    printf("63. Testing review finding 4: TokenUser answers are bounds-checked, empty SIDs never match...\n");
+    if (test_review4_token_user_layout() != TEST_PASS) ret = 1;
+
+    printf("64. Testing review finding 4: an empty or malformed caller SID gets no token...\n");
+    if (test_review4_issue_token_empty_sid() != TEST_PASS) ret = 1;
+
+    printf("65. Testing review finding 3: a failed S1 encoding or digest denies before any dialog...\n");
+    if (test_review3_digest_failure_denies() != TEST_PASS) ret = 1;
+
+    printf("66. Testing review finding 1: a changed document is refused at the shared commit...\n");
+    if (test_review1_commit_changed_document() != TEST_PASS) ret = 1;
+
+    printf("67. Testing review finding 1: a replayed request is refused on the standard path...\n");
+    if (test_review1_replayed_request() != TEST_PASS) ret = 1;
+
+    printf("68. Testing review finding 1: single-use lists grow and fail closed when full...\n");
+    if (test_review1_used_lists_grow() != TEST_PASS) ret = 1;
+
+    printf("69. Testing review finding 2: the shared decision sequence confirms once...\n");
+    if (test_review2_decide_confirmed() != TEST_PASS) ret = 1;
+
+    printf("70. Testing review finding 2: refused, locked and failed decisions never confirm...\n");
+    if (test_review2_decide_refusals() != TEST_PASS) ret = 1;
+
+    printf("71. Testing review finding 2: the shared attempt loop...\n");
+    if (test_review2_attempt_loop() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

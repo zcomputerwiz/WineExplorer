@@ -285,6 +285,30 @@ static inline int preg_name_is( const uint8_t *name, uint32_t len, const char *w
     return 1;
 }
 
+/* The same comparison for a name held as UTF-8 (len bytes), such as a [Registry Values] line of a security template
+ * in the Local Security Settings editor ("MACHINE\path\value"): without case, U+0131 and U+017F as i and s, repeated
+ * backslashes as one. want is ASCII, lower case, with single backslashes. So the editor finds the line that
+ * wexpolicy applies (sectmpl.c compares with preg_key_is and preg_name_is) and does not add a second one. */
+static inline int preg_utf8_name_is( const char *name, size_t len, const char *want )
+{
+    size_t i = 0, n = 0, wlen = strlen( want );
+    unsigned char last = 0;
+
+    while (i < len)
+    {
+        unsigned char c = (unsigned char)name[i];
+
+        if (c == 0xc4 && i + 1 < len && (unsigned char)name[i + 1] == 0xb1) { c = 'i'; i += 2; }
+        else if (c == 0xc5 && i + 1 < len && (unsigned char)name[i + 1] == 0xbf) { c = 's'; i += 2; }
+        else { if (c >= 'A' && c <= 'Z') c += 'a' - 'A'; i++; }
+        if (c == '\\' && last == '\\') continue;
+        if (n >= wlen || c != (unsigned char)want[n]) return 0;
+        n++;
+        last = c;
+    }
+    return n == wlen;
+}
+
 /*
  * The security options whose one source is the security template (GptTmpl.inf [Registry Values], applied by wexpolicy
  * security, edited in Local Security Settings): the elevation service's two settings. As on Windows they are not

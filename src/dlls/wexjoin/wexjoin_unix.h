@@ -30,7 +30,9 @@
 /* The call returns STATUS_SUCCESS; the Win32 outcome of reaching the engine is in err (0: the answer is in reply, and the
  * engine's own status is in it). The 64-bit pointers come first so that the structure has the same layout for a 32-bit
  * caller. */
-struct request_params { ULONG64 request; ULONG64 reply; DWORD request_length; DWORD reply_size; DWORD reply_length; DWORD err; };
+/* query: a question, sent to the users' socket (WEX_JOIN_QUERY_SOCKET) */
+struct request_params { ULONG64 request; ULONG64 reply; DWORD request_length; DWORD reply_size; DWORD reply_length; DWORD err;
+                        DWORD query; };
 
 enum wexjoin_funcs
 {

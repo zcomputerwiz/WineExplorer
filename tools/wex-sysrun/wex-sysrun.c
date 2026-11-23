@@ -64,6 +64,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include "../../wine/include/wine/wex_sysrun_conf.h"
+#include "../../wine/include/wine/wex_sysrun_peer.h"
 
 #ifndef SYSRUN_CONF
 #define SYSRUN_CONF "/etc/wineexplorer/sysrun.conf"
@@ -240,28 +241,9 @@ static int safe_account_name(const char *v)
  * cannot be compared. */
 static int server_ok(int fd, uid_t uid, gid_t rgid, gid_t sys_gid)
 {
-    unsigned int ruid, euid, suid, fuid, r, e, sg, f;
-    int got_uid = 0, got_gid = 0, sfd;
-    struct ucred cred;
-    socklen_t len = sizeof(cred);
-    char path[64], buf[8192], *p;
-    ssize_t n;
+    struct wex_sysrun_peer_rule rule = { uid, rgid, sys_gid, 0 };
 
-    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) || cred.pid <= 0 || cred.uid != uid) return 0;
-    snprintf(path, sizeof(path), "/proc/%d/status", (int)cred.pid);
-    if ((sfd = open(path, O_RDONLY | O_CLOEXEC)) < 0) return 0;
-    n = read(sfd, buf, sizeof(buf) - 1);
-    close(sfd);
-    if (n <= 0) return 0;
-    buf[n] = 0;
-    for (p = buf; p; p = strchr(p, '\n'))
-    {
-        if (*p == '\n') p++;
-        if (!strncmp(p, "Uid:", 4)) got_uid = sscanf(p + 4, "%u %u %u %u", &ruid, &euid, &suid, &fuid) == 4;
-        else if (!strncmp(p, "Gid:", 4)) got_gid = sscanf(p + 4, "%u %u %u %u", &r, &e, &sg, &f) == 4;
-    }
-    return got_uid && got_gid && ruid == uid && euid == uid && suid == uid && fuid == uid &&
-           r == rgid && sg == sys_gid && (e == rgid || e == sys_gid);
+    return wex_sysrun_peer_ok(fd, &rule);
 }
 
 /* Connect to the socket of the server of the user's own prefix and check the server. The directory name is what

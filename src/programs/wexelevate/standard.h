@@ -14,6 +14,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef _WIN32
+/* NTSTATUS: Wine's windows.h leaves it to winternl.h or bcrypt.h (MinGW's defines it). This header used to be read
+ * only inside main.c, after its bcrypt.h; the units include it first. */
+#include <windows.h>
+#include <bcrypt.h>
+#endif
+
 #include "wexelevate_request.h"
 #include "cred_dialog.h"
 #include "e1s6_protocol.h"
@@ -41,6 +48,7 @@ typedef struct _PROCESS_INFORMATION
 #define ERROR_SUCCESS                     0
 #define ERROR_FILE_NOT_FOUND              2
 #define ERROR_ACCESS_DENIED               5
+#define ERROR_NOT_ENOUGH_MEMORY           8
 #define ERROR_INVALID_DATA                13
 #define ERROR_GEN_FAILURE                 31
 #define ERROR_NOT_SUPPORTED               50
@@ -50,25 +58,16 @@ typedef struct _PROCESS_INFORMATION
 #define ERROR_OPERATION_ABORTED           995
 #define ERROR_SERVICE_NOT_ACTIVE          1062
 #define ERROR_CANCELLED                   1223
+#define ERROR_LOGON_FAILURE               1326
 #define ERROR_FILE_CORRUPT                1392
+#define ERROR_ACCOUNT_LOCKED_OUT          1909
 #define ERROR_TIMEOUT                     1460
 
 #define SYNCHRONIZE                       0x00100000
 #define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
 #define DUPLICATE_CLOSE_SOURCE            0x00000001
 
-#define WEXELEVATE_WANT_HANDLE            0x1
-#define WEXELEVATE_ENV_INHERIT            0x2
-#define WEXELEVATE_FLAGS_MASK             0x3
-
-struct wexelevate_reply
-{
-    DWORD magic;
-    DWORD error;
-    DWORD pid;
-    DWORD tid;
-    ULONGLONG handle;
-};
+#include "wexelevate_proto.h"
 #endif
 
 #ifdef __cplusplus
@@ -342,6 +341,10 @@ void e1s18_set_test_clock_fail( BOOL fail );
  * RNG to fail so the fail-closed denial path can be exercised. */
 void e1s18_set_test_random( const uint8_t *bytes, size_t len );
 void e1s18_set_test_random_fail( BOOL fail );
+/* Design review, finding 1: entries in a single-use list (0 answers, 1 evidence), and a lower cap (0 restores the
+ * real one) so a full list can be shown to deny. */
+size_t e1s18_test_used_count( int which );
+void e1s18_set_test_used_cap( size_t cap );
 #endif /* WEX_E1_TEST_HOOKS */
 /* WO-14: test hooks for the S1 endorsed-identity context. The context is
  * zero in production (the request denies); tests set it here. */
@@ -485,6 +488,13 @@ struct e1s18_ops
     DWORD (*r8_close)( struct request *req, UINT64 channel );
     DWORD (*r8_start)( struct request *req, UINT64 channel, const unsigned char *start_pkt, size_t start_len,
                        unsigned char ready_pkt[76] );
+
+    /* Design review, finding 1: the post-approval commit both paths share (main.c commit_approved): the caller
+     * binding again, the request table's single use, the caller still alive, the image and the document unchanged,
+     * both leases armed, the broker not stopping. Runs once after the evidence is redeemed and before any token,
+     * profile or process exists. Win32 lab default: commit_approved; native default: ERROR_NOT_SUPPORTED. A table
+     * without it denies. */
+    DWORD (*commit_request)( struct request *req );
 };
 
 /* Core Broker Integration APIs */

@@ -24,6 +24,9 @@
  * group can connect. A request is lines of key=value ended by an empty line, the answer status=N (a Win32 or network
  * error code) and message=TEXT. */
 #define WEX_JOIN_SOCKET        "/run/wex-domain-join.sock"
+/* the questions any user may ask (NetValidateName, DsGetDcName, nltest /dclist and /sc_query): every local user can
+ * connect here, and the engine answers only those (installer/systemd/wex-domain-query.socket) */
+#define WEX_JOIN_QUERY_SOCKET  "/run/wex-domain-query.sock"
 #define WEX_JOIN_REQUEST_MAX   4096
 #define WEX_JOIN_REPLY_MAX     2048
 /* a join takes a minute or two (the controller, the account, winbind); the engine's unit runs at most 300 seconds
@@ -60,6 +63,10 @@
 #define WEX_JOIN_OP_DCLIST   3    /* the controllers DNS lists, separated by spaces */
 #define WEX_JOIN_OP_DSGETDC  4    /* name=value fields separated by "||" */
 #define WEX_JOIN_OP_SCQUERY  5    /* dc= and status= separated by "||" */
+/* whether this process may change the membership: the join's status, asked on the change socket, so it needs the same
+ * rights as a join (ERROR_ACCESS_DENIED for a process that is not an elevated administrator's). The dialogs ask it
+ * before the password, since the questions themselves (NetValidateName) are open to every user. */
+#define WEX_JOIN_OP_CANCHANGE 6
 
 #if !defined(WINE_UNIX_LIB) && defined(WINAPI)
 
@@ -80,6 +87,41 @@ static inline DWORD wex_join_secure_channel( DWORD op )
     DWORD (WINAPI *channel)( DWORD ) = module ? (void *)GetProcAddress( module, "WexJoinSecureChannel" ) : NULL;
 
     return channel ? channel( op ) : ERROR_NOT_SUPPORTED;
+}
+
+/* The engine's message (WexJoinLastMessage): items separated by "||". A change's message is lines of text (verify,
+ * reset, the notes of a join or a leave); a question's are fields name=value (DSGETDC, SCQUERY) or names (DCLIST, one
+ * controller each). A failure's message is one item, the reason. wex_join_item gives the item at *p and moves *p past
+ * it; FALSE at the end. */
+static inline BOOL wex_join_item( const WCHAR **p, WCHAR *item, DWORD chars )
+{
+    const WCHAR *end;
+    size_t len;
+
+    if (!*p || !**p || !chars) return FALSE;
+    end = wcsstr( *p, L"||" );
+    len = end ? (size_t)(end - *p) : wcslen( *p );
+    if (len >= chars) len = chars - 1;
+    memcpy( item, *p, len * sizeof(WCHAR) );
+    item[len] = 0;
+    *p = end ? end + 2 : *p + wcslen( *p );
+    return TRUE;
+}
+
+/* the value of the field name=value in a message (FALSE, and an empty value, when there is none) */
+static inline BOOL wex_join_field( const WCHAR *message, const WCHAR *name, WCHAR *value, DWORD chars )
+{
+    WCHAR item[512];
+    size_t n = wcslen( name );
+
+    if (chars) value[0] = 0;
+    while (wex_join_item( &message, item, sizeof(item) / sizeof(item[0]) ))
+        if (!wcsncmp( item, name, n ) && item[n] == '=')
+        {
+            lstrcpynW( value, item + n + 1, chars );
+            return TRUE;
+        }
+    return FALSE;
 }
 
 /* the engine's message about the last call (Samba's reason, its own, or an operation's answer); empty when none */

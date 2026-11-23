@@ -140,29 +140,8 @@ static DWORD channel_call( DWORD op, WCHAR *message, DWORD chars )
     return status;
 }
 
-/* the value of "name=" in the engine's "a=1||b=2" answer, copied into value */
-static BOOL field( const WCHAR *message, const WCHAR *name, WCHAR *value, DWORD chars )
-{
-    size_t n = wcslen( name );
-    const WCHAR *p = message, *end;
-
-    value[0] = 0;
-    while (*p)
-    {
-        end = wcsstr( p, L"||" );
-        if (!end) end = p + wcslen( p );
-        if (!wcsncmp( p, name, n ) && p[n] == '=')
-        {
-            size_t len = end - (p + n + 1);
-            if (len >= chars) len = chars - 1;
-            memcpy( value, p + n + 1, len * sizeof(WCHAR) );
-            value[len] = 0;
-            return TRUE;
-        }
-        p = *end ? end + 2 : end;
-    }
-    return FALSE;
-}
+/* a field of the engine's answer (wexjoin.h: items separated by "||") */
+#define field wex_join_field
 
 /* the domain of this computer, by its NetBIOS and DNS names: the registry that session 0's services keep */
 static BOOL our_domain( WCHAR *flat, WCHAR *dns, DWORD chars )
@@ -295,20 +274,16 @@ static int sc_show( const WCHAR *domain, DWORD op, BOOL verify_line )
 
 static int cmd_dclist( const WCHAR *domain )
 {
-    WCHAR message[MAX_TEXT], dc[256], dom[100], *p, *end;
+    WCHAR message[MAX_TEXT], dc[256], dom[100], name[256];
+    const WCHAR *p = message;
     DWORD status;
     int rc;
 
     if ((rc = dsgetdc( FALSE, domain, dc, NULL, dom )) >= 0) { return 0; }   /* NLTEST's exit status after this failure is 0 */
     if ((status = channel_call( WEX_JOIN_OP_DCLIST, message, ARRAY_SIZE(message) ))) { failed( L"Cannot find DC to get DC list from.", status ); return 0; }
     out( L"Get list of DCs in domain '%ls' from '\\\\%ls'.\n", domain && domain[0] ? domain : dom, dc );
-    for (p = message; *p; p = end)
-    {
-        while (*p == ' ') p++;
-        if (!*p) break;
-        for (end = p; *end && *end != ' '; end++) {}
-        out( L"    %.*ls\n", (int)(end - p), p );
-    }
+    /* one controller for each item of the answer */
+    while (wex_join_item( &p, name, ARRAY_SIZE(name) )) if (name[0]) out( L"    %ls\n", name );
     return done();
 }
 

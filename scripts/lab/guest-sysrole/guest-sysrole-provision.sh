@@ -16,7 +16,8 @@ unset DISPLAY WAYLAND_DISPLAY
 mkdir -p /run/user/0 && chmod 700 /run/user/0
 export XDG_RUNTIME_DIR=/run/user/0
 echo "== setup-machine-root"
-bash $SRC/scripts/setup-machine-root.sh 2>&1 | tail -25
+# the lab guest's system role without session 0 and enforcement, as before setup made them the default (2026-11-23)
+WEX_SESSION0=0 WEX_ELEVATION=0 bash $SRC/scripts/setup-machine-root.sh 2>&1 | tail -25
 echo "== state"
 getent group wexsys
 ls -la /var/lib/wineexplorer/machine | head -12
