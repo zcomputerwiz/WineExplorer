@@ -56,25 +56,64 @@ class TempDirTest(unittest.TestCase):
 
 class TestSyntax(unittest.TestCase):
     def test_shell_scripts_parse(self):
+        # each script on its own (subTest): one that does not parse leaves the others' results standing
         for script in (BOOTMODE, GENERATOR, PAM_CHECK, STARTUP_CHECK, SCRIPTS / "wex-bootlog.sh", LASTGOOD,
                        SCRIPTS / "wex-session-choice.sh"):
-            result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+            with self.subTest(script=script.name):
+                result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         for script in (SCRIPTS / "wex-greeter.sh", SCRIPTS / "setup-greeter.sh", SCRIPTS / "wine-explorer-session.sh",
                        SCRIPTS / "wine-explorer-wayland-session.sh", SCRIPTS / "wine-explorer-session-common.sh",
                        SCRIPTS / "wex-safe-terminal.sh", PACKAGE, VM_TEST):
-            result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
-        session_run = VM_TEST.with_name("session-run.py")
-        compile(session_run.read_text(encoding="utf-8"), str(session_run), "exec")
+            with self.subTest(script=script.name):
+                result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+        for helper in ("session-run.py", "highlight-row.py", "taskbar-check.py", "screen-pixel.py"):
+            with self.subTest(script=helper):
+                path = VM_TEST.with_name(helper)
+                compile(path.read_text(encoding="utf-8"), str(path), "exec")
+
+    def test_window_probe(self):
+        """session-run.py's window probe (the VM test's readiness signal instead of OCR, review 2026-11-23): the
+        desktop is the shell's screen-sized view plus its taskbar, not Wine's virtual desktop window alone."""
+        spec = importlib.util.spec_from_file_location("session_run", VM_TEST.with_name("session-run.py"))
+        probe = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(probe)
+        tree = '\n'.join([
+            'xwininfo: Window id: 0x1e3 (the root window) (has no name)',
+            '  Root window id: 0x1e3 (the root window) (has no name)',
+            '     0x1c00001 "shell - Wine desktop": ("explorer.exe" "Explorer.exe")  1280x800+0+0  +0+0',
+            '        0x1c00004 (has no name): ("explorer.exe" "Explorer.exe")  1280x800+0+0  +0+0',
+            '        0x1c00007 (has no name): ("explorer.exe" "Explorer.exe")  1280x30+0+770  +0+770',
+            '        0x2200001 "wex-notepad64.txt - Notepad": ("notepad.exe" "Notepad.exe")  640x480+5+5  +5+5',
+            '     0x400001 (has no name): ()  1x1+-1+-1  +-1+-1'])
+        windows = probe.parse_tree(tree)
+        self.assertEqual([w["id"] for w in windows], ["0x1c00001", "0x1c00004", "0x1c00007", "0x2200001", "0x400001"])
+        self.assertEqual(windows[3]["name"], "wex-notepad64.txt - Notepad")
+        self.assertEqual((windows[2]["y"], windows[4]["x"]), (770, -1))
+        self.assertEqual(probe.root_size("  Width: 1280\n  Height: 800\n"), (1280, 800))
+        found = probe.desktop_windows(windows, (1280, 800), lambda ident: True)
+        self.assertEqual((found[0]["id"], found[1]["id"]), ("0x1c00004", "0x1c00007"))
+        # no taskbar yet (Safe Mode's message box unanswered), or nothing mapped: not up
+        self.assertIsNone(probe.desktop_windows(windows[:2], (1280, 800), lambda ident: True))
+        self.assertIsNone(probe.desktop_windows(windows, (1280, 800), lambda ident: False))
+        # the virtual desktop window alone does not count, by either name (the shell's session calls it "Wine Desktop")
+        self.assertIsNone(probe.desktop_windows([windows[0], windows[2]], (1280, 800), lambda ident: True))
+        shell = [dict(windows[0], name="Wine Desktop")] + windows[1:]
+        self.assertEqual(probe.desktop_windows(shell, (1280, 800), lambda ident: True)[0]["id"], "0x1c00004")
+        self.assertIsNone(probe.desktop_windows([shell[0], shell[2]], (1280, 800), lambda ident: True))
+        # vmtest.py types no command into a login prompt that has not shown
+        vmtest = (SCRIPTS / "vmtest.py").read_text(encoding="utf-8")
+        self.assertIn('note("no login or shell prompt within 30 s; the command was not sent")\n        return 124', vmtest)
 
     def test_chain_harness(self):
         # installer/tests/run-chain.sh runs stages and firmwares side by side; build-test-iso.sh skips an unchanged
         # Wine; both tests that connect a disk take the NBD device under one lock (nbd-connect.sh)
         tests = VM_TEST.parent
         for script in ("run-chain.sh", "build-test-iso.sh", "nbd-connect.sh", "install-unattended.sh"):
-            result = subprocess.run(["bash", "-n", str(tests / script)], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+            with self.subTest(script=script):
+                result = subprocess.run(["bash", "-n", str(tests / script)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         helper = (tests / "nbd-connect.sh").read_text(encoding="utf-8")
         self.assertLess(helper.index('flock -w 300 "$lock"'), helper.index("qemu-nbd --read-only --connect"))
         self.assertLess(helper.index("qemu-nbd --connect"), helper.index('flock -u "$lock"'))
@@ -95,6 +134,26 @@ class TestSyntax(unittest.TestCase):
                         chain.index('WEX_CHAIN_COPY=$SRC exec bash "$SRC/installer/tests/run-chain.sh"'))
         self.assertLess(chain.index('WEX_CHAIN_COPY=$SRC exec bash'), chain.index("total=$(awk"))
         self.assertIn('while [ "$(jobs -rp | wc -l)" -ge "$LANES" ]; do wait -n; done', chain)
+        # one provisioned baseline per firmware, made before the stages, which fork from it (review 2026-11-23 #2)
+        self.assertLess(chain.index("WEX_SAFEMODE_BASELINE=make"), chain.index('log "stages on $FWS'))
+        self.assertIn('source=$NAME-base-$fw mode=use', chain)
+        # a firmware whose install or baseline failed is left out; the overall result stays a failure
+        self.assertIn('FWS=${installed# }', chain)
+        self.assertIn('FWS=${based# }', chain)
+        vm = VM_TEST.read_text(encoding="utf-8")
+        use = vm.index('if [ "$BASELINE" = use ]; then\n    # the baseline')
+        provisioning = vm.index('echo "=== provisioning boot')
+        self.assertLess(use, vm.index('else   # the provisioning'))
+        self.assertLess(vm.index('else   # the provisioning'), provisioning)
+        self.assertLess(provisioning, vm.index('fi   # the provisioning'))
+        self.assertLess(vm.index('fi   # the provisioning'), vm.index('if [ "$BASELINE" = make ]; then\n    # Immutable'))
+        self.assertLess(vm.index('if [ "$BASELINE" = make ]; then\n    # Immutable'), vm.index("\n# ---- the phases ----\n"))
+        # the stage's overlay gets the baseline's UEFI variable store and passwords; other inputs are refused
+        self.assertIn('cp "$VMTEST_DIR/$SOURCE/efivars.fd" "$STATE/efivars.fd"', vm)
+        self.assertIn("was provisioned from other inputs", vm)
+        self.assertIn('chmod 444 "$STATE/disk.qcow2"', vm)
+        # Vintner Boot counts the provisioning start, which the baseline's disk keeps for every stage
+        self.assertIn('/usr/sbin/vintner bless; echo "bless=$?"', vm)
         iso = (tests / "build-test-iso.sh").read_text(encoding="utf-8")
         self.assertIn('INPUTS="$WREV $(rev_of src) $(rev_of scripts/assemble.py) $(rev_of scripts/assemble.sh)"', iso)
         self.assertLess(iso.index('rm -f "$STAMP"'), iso.index('wex-make.sh" -j'))
@@ -544,10 +603,22 @@ class TestStartupCheck(TempDirTest):
         self.assertEqual(self.check(cmdline=cmdline, processes=[self.WELCOME])[:2], (0, True))
 
     def test_the_failure_flag_is_gone(self):
-        """GRUB's wexfailed=1 and wex_boot_pending (removed 2026-11-11) mean nothing to the check."""
-        script = STARTUP_CHECK.read_text(encoding="utf-8")
-        for word in ("wexfailed", "wex_boot_pending", "grub"):
-            self.assertNotIn(word, script.lower())
+        """GRUB's wexfailed=1 and wex_boot_pending (removed 2026-11-11) mean nothing to the check: the same verdict
+        with them on the command line, and GRUB's environment is never written (a recording grub-editenv on PATH).
+        A behaviour check, not a word ban: a comment may name GRUB (review 2026-11-23 #10)."""
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        editenv_log = self.tmp / "grub-editenv.log"
+        for tool in ("grub-editenv", "grub-reboot", "grub-set-default"):
+            (bin_dir / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{editenv_log}"\n', encoding="ascii")
+            (bin_dir / tool).chmod(0o755)
+        flags = " wexfailed=1 wex_boot_pending=1"
+        for cmdline, processes in (("root=UUID=x ro quiet", [self.WELCOME]), ("root=UUID=x ro quiet", []),
+                                   (self.VARIANT, [self.WELCOME])):
+            with self.subTest(cmdline=cmdline, logon_screen=bool(processes)):
+                plain = self.check(cmdline=cmdline, processes=processes)[:2]
+                self.assertEqual(self.check(cmdline=cmdline + flags, processes=processes)[:2], plain)
+        self.assertFalse(editenv_log.exists(), "the check ran a GRUB tool")
 
     def saved_lastgood(self):
         return self.lastgood_log.exists() and self.lastgood_log.read_text() == "save\n"
@@ -1228,11 +1299,24 @@ class TestMenu(TempDirTest):
         self.assertEqual((self.tmp / "run" / "bootmode").read_text(), "normal\n")
 
     def test_the_menu_ignores_the_grub_failure_flag(self):
-        """GRUB's wexfailed=1 (removed 2026-11-11) no longer turns the menu into the failure screen."""
+        """GRUB's wexfailed=1 (removed 2026-11-11) no longer turns the menu into the failure screen: on a start whose
+        command line has it but whose generation has no failed start, the check starts no screen and the menu opens
+        as usual (a behaviour check; a comment may name GRUB, review 2026-11-23 #10)."""
         self.assertFalse(hasattr(self.menu, "start_failed"))
-        source = (SCRIPTS / "wex-advanced-options.py").read_text(encoding="utf-8")
-        self.assertNotIn("wexfailed", source)
-        self.assertNotIn("grub", source.lower())
+        self.with_vintner(0, self.failing(0))
+        (self.tmp / "cmdline").write_text("BOOT_IMAGE=x root=UUID=1 vintner.bootstorage=PARTUUID=2 quiet wexfailed=1\n",
+                                          encoding="ascii")
+        calls = []
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.menu.failure_check(run=self.recording_run(calls)), 0)
+        self.assertEqual(calls, [[self.menu.VINTNER, "status", "--json"]])
+        self.assertEqual(self.run_keys(10), self.run_keys_plain(10))
+
+    def run_keys_plain(self, *keys):
+        """run_keys on a start without GRUB's flag, for comparison"""
+        (self.tmp / "cmdline").write_text("BOOT_IMAGE=x root=UUID=1 vintner.bootstorage=PARTUUID=2 quiet\n",
+                                          encoding="ascii")
+        return self.run_keys(*keys)
 
     def drawn(self, method, *args, rows=25, cols=80):
         """What Screen.METHOD(*ARGS) writes, as {row: (column, text, attribute)}, on a ROWSxCOLS console."""
@@ -1530,11 +1614,23 @@ class TestSessionAndGreeter(unittest.TestCase):
         vm = VM_TEST.read_text(encoding="utf-8")
         self.assertIn("|waylandxlock|startrec|classic|rundialog|", vm)
         self.assertIn("#   startrec ", vm)
-        phase = vm[vm.index("phase_startrec() {"):]
-        phase = phase[:phase.index("\n}\n")]
+        # the phase and its parts (startrec_*, subresults): from the first part to the phase's end
+        phase = vm[vm.index("startrec_defaults() {"):]
+        phase = phase[:phase.index("\n}\n", phase.index("phase_startrec() {"))]
+        body = phase[phase.index("phase_startrec() {"):]
         # opened by the shell (Win+Pause): polkit asks the agent of the caller's logind session, and the serial
         # console's has none
         self.assertNotIn("$HELPER", phase)
+        # named subresults (review 2026-11-23): the checks go on after one fails; what changes the machine does not
+        for name in ("defaults", "dialog", "refused", "panic-waits", "menu-timeout", "option", "no-menu",
+                     "option-gone", "panic-restarts", "crash-restarts"):
+            self.assertRegex(body, rf"subresult {name} startrec_")
+        self.assertIn("needs password dialog && subresult password startrec_password", body)
+        self.assertTrue(body.rstrip().endswith("subresults_end"))
+        for change in ("Apply ububb 5 true 7 false false\" >/dev/null", "Apply ububb 0 true 30 true false",
+                       'cp -p "$OUT/startrec-cmdline"'):
+            line = next(l for l in body.splitlines() if change in l)
+            self.assertNotIn("subresult", line)
         self.assertLess(phase.index("meta_l-pause"), phase.index("ctrl-tab ctrl-tab ctrl-tab"))
         systray = (REPO_ROOT / "src" / "dlls" / "wexshell" / "systray.c").read_text(encoding="utf-8")
         self.assertIn("{ IDHK_SYS_PROPERTIES, MOD_WIN, VK_PAUSE }", systray)
@@ -1550,10 +1646,11 @@ class TestSessionAndGreeter(unittest.TestCase):
                        "echo c > /proc/sysrq-trigger", "kill -SEGV 1", "90-wineexplorer-recovery.conf"):
             self.assertIn(needle, phase)
         # the refusal comes before root's change, and the restore before the stopped disk is cleaned
-        self.assertLess(phase.index("NotAuthorized"), phase.index("as_root 'id -u'"))
-        self.assertLess(phase.index("Apply ububb 0 true 30 true false"), phase.index("attach rw"))
+        self.assertLess(body.index("subresult refused"), body.index("as_root 'id -u'"))
+        self.assertLess(body.index("Apply ububb 0 true 30 true false"), body.index("attach rw"))
         # the panic that must wait comes with Automatically restart off; the restarts after the defaults are back
-        self.assertLess(phase.index("restarted \"$id\" 75 &&"), phase.index("Apply ububb 0 true 30 true false"))
+        self.assertLess(body.index("subresult panic-waits"), body.index("Apply ububb 0 true 30 true false"))
+        self.assertIn("restarted \"$id\" 75 &&", phase)
         # the prompt (Explorer's window) is clicked before each key meant for it
         self.assertEqual(phase.count("    prompt_focus\n"), 3)
         self.assertLess(phase.index("prompt_focus"), phase.index('"${V[@]}" key "$TEST" esc'))
@@ -1564,7 +1661,7 @@ class TestSessionAndGreeter(unittest.TestCase):
                       '*) break ;; esac', phase)
         # a hardware watchdog the firmware left running (OVMF's TCO) is stopped before it: its restart is not ours
         self.assertLess(phase.index("printf V > \\$w"), phase.index("echo c > /proc/sysrq-trigger"))
-        self.assertLess(phase.index("attach rw"), phase.index("kill -SEGV 1"))
+        self.assertLess(body.index("attach rw"), body.index("startrec_restarts crash"))
         for line in phase.splitlines():   # commands sent over the serial console must be one line
             if "gsh '" in line:
                 self.assertEqual(line.count("'") % 2, 0, line)
@@ -1627,19 +1724,28 @@ class TestSessionAndGreeter(unittest.TestCase):
         vm = VM_TEST.read_text(encoding="utf-8")
         self.assertIn("|startrec|classic|rundialog|", vm)
         self.assertIn("#   rundialog ", vm)
-        phase = vm[vm.index("phase_rundialog() {"):]
-        phase = phase[:phase.index("\n}\n")]
-        for needle in ("run_command 'control sysdm.cpl,,3' \"Environment Variables\"",
-                       "run_command 'sysdm.cpl' \"Computer Name\"",
+        # the phase and its variants (run_*), from run_command to the phase's end
+        phase = vm[vm.index("run_command() {"):]
+        phase = phase[:phase.index("\n}\n", phase.index("phase_rundialog() {"))]
+        body = phase[phase.index("phase_rundialog() {"):]
+        for needle in ("run_command 'control sysdm.cpl,,3' '^System Properties$' sysdm-advanced \"Environment Variables\"",
+                       'wait_text "Environment Variables" 30',
+                       "run_command 'sysdm.cpl' '^System Properties$' sysdm \"Computer Name\"",
                        "run_command 'notepad %USERPROFILE%\\runtest.txt'",
-                       "run_command \"\\\"$wordpad\\\" %USERPROFILE%\\\\runtest.txt\"",
-                       "run_command \"$wordpad %USERPROFILE%\\\\runtest2.txt\" \"runtest2.txt -\"",
-                       "run_command '%USERPROFILE%\\Run Test\\read me.txt' \"read me.txt -\"",
+                       "run_command \"\\\"$RUNDIALOG_WORDPAD\\\" %USERPROFILE%\\\\runtest.txt\"",
+                       "run_command \"$RUNDIALOG_WORDPAD %USERPROFILE%\\\\runtest2.txt\" '^runtest2[.]txt - '",
+                       "run_command '%USERPROFILE%\\Run Test\\read me.txt' '^read me[.]txt - '",
                        # a folder: no "DDE failure." once explorer.exe "%1" has opened it (shlexec.c)
-                       "run_command 'C:\\Program Files\\Common Files' \"Common Files\" folder",
+                       "run_command 'C:\\Program Files\\Common Files' 'Common Files' folder",
                        '! wait_text "DDE failure" 10 ||',
                        'wait_text "not found" 30', 'fail "Run closed after the error"'):
             self.assertIn(needle, phase)
+        # each variant a named subresult; its window closed with a bounded wait, no fixed sleep (review 2026-11-23)
+        for name in ("parameters", "cpl", "environment", "wordpad-quoted", "wordpad-spaces", "spaces", "folder",
+                     "missing"):
+            self.assertRegex(body, rf"subresult {name} run_\w+; +close_window ")
+        self.assertNotIn("sleep", body)
+        self.assertTrue(body.rstrip().endswith("subresults_end"))
         for line in phase.splitlines():   # commands sent over the serial console must be one line
             if "gsh '" in line:
                 self.assertEqual(line.count("'") % 2, 0, line)

@@ -20,6 +20,13 @@ Status column: what has been done since.
 | 9 | `tests/wam/run-broker-tests.sh:55`, 33, 16–23 | cache checks after both architectures (the first one's cache is gone); logs deleted on cleanup; fixed X display | check per architecture, keep logs on failure, own display | fixed, 5a3d8068 |
 | 10 | `scripts/test_safemode.py:546`, 1230 | word bans from the GRUB removal (2eb9f72f) fail on comments | semantic checks; keep `check-vintner.py:121` | session vm-chain-rework |
 
+| 5 | `installer/tests/run-chain.sh:121` | one failed firmware install aborts the other firmware's stages | continue on the firmware that installed; keep the overall failure | fixed, 18fe3efb (also a failed baseline) |
+| 6 | `scripts/lab/system-tier-t1.sh:119`, 172–175, 235 | four probes run twice | capture once, check fields together | open |
+| 7 | `test_sysrun_server.sh:781` (4 s per `el_up`), `system-tier-t1.sh:66` (13 s), `safe-mode.sh:1978` (up to 14 s per firmware) | fixed sleeps | bounded readiness waits | `safe-mode.sh`: fixed, 244731fa (a closed window is waited for); the others open |
+| 8 | `system-tier-t1.sh:146`, 28/130 | picks the first session 0 server on the host; a marker path ignores `WORK` | the script's own server PID; path from `$W` | open |
+| 9 | `tests/wam/run-broker-tests.sh:55`, 33, 16–23 | cache checks after both architectures (the first one's cache is gone); logs deleted on cleanup; fixed X display | check per architecture, keep logs on failure, own display | open |
+| 10 | `scripts/test_safemode.py:546`, 1230 | word bans from the GRUB removal (2eb9f72f) fail on comments | semantic checks; keep `check-vintner.py:121` | fixed, 18fe3efb: the check and the menu run with GRUB's flags and must act as without (no GRUB tool run) |
+
 ## Needs a decision (owner, 2026-11-23: do them; #1 and #3 in session suite-sections, #2 and #4 in session vm-chain-rework)
 
 | # | Where | Finding | Change | Risk | Status |
@@ -28,6 +35,11 @@ Status column: what has been done since.
 | 2 | `run-chain.sh:59`, `safe-mode.sh:2033`, 2098–2149 | each of 12 stage jobs provisions accounts and prefixes and boots once | one baseline per firmware, stage overlays forked from it | cold provisioning must stay covered once; Vintner counters (`safe-mode.sh:2131`) | open |
 | 3 | `test_sysrun_server.sh:73`, 87; `safe-mode.sh:1010`, 1971; `test_safemode.py:58` | the first failure ends the whole suite (b1123a lost most of both suites at minute 4) | sections with verified restoration, named results, skips for dependants; `subTest` in the static tests | damaged shared state must stay fatal | done for `test_sysrun_server.sh`/`test_e1s6_transport.sh`, ee10b849 (75 sections, snapshot restore compared, setup and unverifiable restores fatal; the same full run: normal 21 min, 377 checks, 73 sections PASS); Safe Mode and `test_safemode.py` open (VM chain session) |
 | 4 | `safe-mode.sh:619`, 1039–1046; `vmtest.py:184` | OCR of "Recycle Bin" is the only desktop readiness signal (600 s timeouts); b1123a's lastgood failed on a misread title | structured window or probe readiness; keep screenshots | the visible interface needs some appearance checks | open |
+
+| 1 | `test_e1s6_transport.sh:9`, `wex-run.sh:223` | the lab suite reruns most of the normal suite (~11 min per full run, measured 2026-11-14) | lab prerequisites apart, lab checks, a small common smoke set | lab flags changing ordinary behaviour would go unseen | open |
+| 2 | `run-chain.sh:59`, `safe-mode.sh:2033`, 2098–2149 | each of 12 stage jobs provisions accounts and prefixes and boots once | one baseline per firmware, stage overlays forked from it | cold provisioning must stay covered once; Vintner counters (`safe-mode.sh:2131`) | VM side done (branch claude/vm-chain-rework): `NAME-base-FW` provisioned once and read-only, inputs recorded; stages fork from the disk it left (counts and generation unchanged) |
+| 3 | `test_sysrun_server.sh:73`, 87; `safe-mode.sh:1010`, 1971; `test_safemode.py:58` | the first failure ends the whole suite (b1123a lost most of both suites at minute 4) | sections with verified restoration, named results, skips for dependants; `subTest` in the static tests | damaged shared state must stay fatal | VM side done (claude/vm-chain-rework): startrec and rundialog subresults, changes and restoration fatal; `subTest` in `test_safemode.py`. Suites: open |
+| 4 | `safe-mode.sh:619`, 1039–1046; `vmtest.py:184` | OCR of "Recycle Bin" is the only desktop readiness signal (600 s timeouts); b1123a's lastgood failed on a misread title | structured window or probe readiness; keep screenshots | the visible interface needs some appearance checks | done (claude/vm-chain-rework): window probes over the serial console (`session-run.py --wait-desktop`, titles); OCR for images without them and for appearance checks |
 
 ## Not obsolete
 

@@ -148,6 +148,15 @@
 #   WEX_TEST_PASSWORD_FILE        its password (default: empty)
 #   WEX_TEST_TILE                 its name on the Welcome screen (default: WEX_TEST_USER), clicked; Enter (the first
 #                                 tile) when OCR cannot find it
+#   WEX_SAFEMODE_BASELINE         one provisioning for many tests (installer/tests/run-chain.sh, review 2026-11-23):
+#                   make          TEST_VM becomes a provisioned baseline of SOURCE_VM: the overlay, the provisioning
+#                                 boot and its checks, no phases; then its disk is made read-only, with a record of
+#                                 the inputs (the variables above, the probes, the Wine tarball, this script's
+#                                 provisioning part, the installed disk)
+#                   use           SOURCE_VM is such a baseline: TEST_VM is an overlay of it, with its UEFI variable
+#                                 store and passwords, and no provisioning boot of its own. Refused when the inputs
+#                                 differ. The disk is the one the provisioning boot left, so Vintner Boot's counts and
+#                                 generations are as after a test's own provisioning (blessed, generation 1).
 # Requires root, QEMU/KVM, qemu-nbd, Tesseract and ImageMagick (scripts/vmtest.py). Every VM ends stopped.
 # Screenshots, logs and the configuration records go to $VMTEST_DIR/TEST_VM/safe-mode/.
 set -uo pipefail
@@ -157,8 +166,14 @@ SOURCE=${1:?$usage}
 TEST=${2:?$usage}
 shift 2
 PHASES=("$@")
+BASELINE=${WEX_SAFEMODE_BASELINE:-}
+case "$BASELINE" in
+    ''|use) ;;
+    make) [ ${#PHASES[@]} -eq 0 ] || { echo "WEX_SAFEMODE_BASELINE=make runs no phases"; exit 2; } ;;
+    *) echo "Invalid WEX_SAFEMODE_BASELINE: $BASELINE"; exit 2 ;;
+esac
 # lastgoodgen last: it leaves generation 2 on boot storage, which later starts would boot
-[ ${#PHASES[@]} -gt 0 ] \
+[ ${#PHASES[@]} -gt 0 ] || [ "$BASELINE" = make ] \
     || PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal lastgood vfailed lastgoodgen)
 for name in "$SOURCE" "$TEST"; do
     [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name: $name"; exit 2; }
@@ -343,6 +358,11 @@ driver_lines() {   # driver_lines FILE: ntbtlog.txt's "Loaded driver" lines; UTF
 # ---- one boot per phase; fail() ends the phase (each phase runs in a subshell) ----
 
 fail() {
+    if [ -n "${SUB:-}" ]; then   # inside a subresult (subresult below): only that part ends; the phase goes on
+        echo "FAIL ($PHASE/$SUB): $*"
+        "${V[@]}" shot "$TEST" "$OUT/$PHASE-$SUB-fail.png" >/dev/null 2>&1
+        exit 1
+    fi
     echo "FAIL ($PHASE): $*"
     "${V[@]}" shot "$TEST" "$OUT/$PHASE-fail.png" >/dev/null 2>&1
     "${V[@]}" text "$TEST" 2>/dev/null | head -n 30
@@ -366,6 +386,42 @@ fail() {
     fi
     exit 1
 }
+# Named subresults (review 2026-11-23, "Needs a decision" #3): a phase whose checks are independent of each other
+# (Startup and Recovery, the Run dialog's variants) runs each as a subresult, so that one failure does not hide the
+# others' results and costs no extra boot. A subresult's fail() ends only it (a screenshot PHASE-NAME-fail.png); the
+# phase fails at its end when any did. What later parts depend on (the VM's power, a state the phase changed and
+# must put back) stays outside subresults, where fail() ends the phase as before; a part that needs one that
+# failed is skipped (needs).
+SUBRESULTS_FAILED=
+subresult() {   # subresult NAME COMMAND...: run COMMAND (a function) as the subresult NAME
+    local name=$1 rc
+    shift
+    ( SUB=$name; "$@" )
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "  PASS $PHASE/$name"
+        echo "PASS $PHASE/$name" >> "$OUT/subresults.txt"
+    else
+        echo "FAIL $PHASE/$name" >> "$OUT/subresults.txt"
+        SUBRESULTS_FAILED="$SUBRESULTS_FAILED $name"
+    fi
+    return "$rc"
+}
+needs() {   # needs NAME PART...: skip NAME (recorded) when one of the parts it depends on failed
+    local name=$1 part
+    shift
+    for part in "$@"; do
+        case " $SUBRESULTS_FAILED " in
+            *" $part "*) echo "  SKIP $PHASE/$name (needs $part)"; echo "SKIP $PHASE/$name" >> "$OUT/subresults.txt"; return 1 ;;
+        esac
+    done
+}
+subresults_end() {   # at a phase's end: the phase fails when a subresult did
+    [ -z "$SUBRESULTS_FAILED" ] && return 0
+    echo "FAIL ($PHASE): subresults failed:$SUBRESULTS_FAILED"
+    exit 1
+}
+
 gsh() { "${V[@]}" sh "$TEST" "$USER_NAME" "$PWFILE" "$1" --timeout "${2:-60}"; }
 start_vm() { "${V[@]}" start "$TEST" "${START_ARGS[@]}" >/dev/null || fail "QEMU did not start"; }
 shot() { "${V[@]}" shot "$TEST" "$OUT/$PHASE-$1.png" >/dev/null; }
@@ -616,25 +672,99 @@ expect_session_mode() {   # the logged-on Explorer session's WEXMODE
     echo "  session WEXMODE=$1"
 }
 
-desktop() {   # desktop TIMEOUT
-    wait_text "Recycle Bin" "$1" || fail "no Explorer desktop"
-    shot desktop
+# ---- what the session shows: window probes (session-run.py), OCR only where the image has no xwininfo ----
+# The functional checks wait for windows (their titles, the desktop view and the taskbar) read from the session's X
+# server over the serial console, not for OCR of a screenshot: OCR missed a desktop that was up (classic, 2026-11-23)
+# and read the 64-bit Notepad's title as "f wex-notepad64.bct - Notepad slele4" (lastgood, batch b1123a). Screenshots
+# are still taken, and the deliberate appearance checks (colours, sizes, text inside dialogs) stay OCR or pixels.
+
+session_probe() {   # session_probe USER SERIAL_TIMEOUT ARGS: session-run.py's probe in USER's session; another
+                    # account's (Administrator, wexhidden) through sudo, since its X authority is not the test user's
+    local user=$1 timeout=$2
+    shift 2
+    if [ "$user" = "$USER_NAME" ]; then
+        gsh "python3 $HELPER --user $user $*" "$timeout" 2>/dev/null
+    else
+        as_root "python3 $HELPER --user $user $*" "$timeout" 2>/dev/null
+    fi
 }
 
-safe_desktop() {   # safe_desktop TIMEOUT: after a Safe Mode logon the message box (work order C2), answered with Enter
-                   # (Yes, the default), then the desktop. WEX_TEST_SAFE_BOX=required fails when there is no box.
-    local end=$((SECONDS + $1)) screen seen=
+wait_window() {   # wait_window REGEX TIMEOUT [OCR_TEXT [USER]]: a viewable window whose title matches REGEX (no single
+                  # quotes in it); OCR of OCR_TEXT (default REGEX) on an image without xwininfo or without an answer
+    local out
+    out=$(session_probe "${4:-$USER_NAME}" $(($2 + 40)) "--wait-window '$1' --timeout $2")
+    case "$out" in
+        *"window=none"*) return 1 ;;
+        *"window="*) return 0 ;;
+    esac
+    [ -n "$out" ] || echo "  (no answer from the window probe; OCR for '${3:-$1}')"
+    wait_text "${3:-$1}" "$2"
+}
+
+window_gone() {   # window_gone REGEX TIMEOUT: no viewable window's title matches REGEX any more (a bounded wait after
+                  # closing one, instead of a fixed sleep): 0, or 1 while it is open; 2 (after 2 seconds) on an image
+                  # without the probe
+    local out
+    out=$(session_probe "$USER_NAME" $(($2 + 40)) "--gone-window '$1' --timeout $2")
+    case "$out" in
+        *"window=gone"*) return 0 ;;
+        *"window=still-open"*) return 1 ;;
+    esac
+    sleep 2
+    return 2
+}
+
+desktop() {   # desktop TIMEOUT [USER]: the Explorer desktop of USER's session (default the test account): its desktop
+              # view and its taskbar are up (window probe); "Recycle Bin" by OCR on an image without xwininfo
+    local user=${2:-$USER_NAME} end=$((SECONDS + $1)) left out=
+    # first the serial console, with short calls (vmtest.py sends nothing until the getty's prompt shows); a long
+    # probe sent while the machine starts would wait behind the login
     while [ "$SECONDS" -lt "$end" ]; do
-        # The box is drawn classic (no visual style in Safe Mode): Tesseract's own threshold reads none of its text
-        # beside the blue caption, the explicit one (--white) reads it whole
-        screen=$({ "${V[@]}" text "$TEST"; "${V[@]}" text "$TEST" --white; } 2>/dev/null | tr '\n' ' ')
-        case "$screen" in
-            # OCR reads the first line whole, or else the last ("To keep working in Safe Mode, click Yes. To log off")
-            *"running in Safe Mode"*|*"click Yes. To log"*) seen=1; shot box; "${V[@]}" key "$TEST" ret >/dev/null; break ;;
-            *"Recycle Bin"*) break ;;
-        esac
-        sleep 3
+        gsh 'echo serial=up' 20 2>/dev/null | grep -q '^serial=up' && break
+        sleep 5
     done
+    while left=$((end - SECONDS)); [ "$left" -gt 0 ]; do
+        out=$(session_probe "$user" $((left + 40)) "--wait-desktop --timeout $left")
+        case "$out" in
+            *desktop=ready*) echo "  $(grep -m1 -o 'desktop=ready.*' <<< "$out")"; shot desktop; return 0 ;;
+            *probe=unavailable*)
+                wait_text "Recycle Bin" "$((end - SECONDS))" || fail "no Explorer desktop (OCR)"
+                shot desktop
+                return 0 ;;
+            *desktop=none*) break ;;
+        esac
+        sleep 5   # no answer on the serial console yet: the machine is still starting
+    done
+    sed 's/^/  | /' <<< "$out" | tail -n 25
+    fail "no Explorer desktop for $user after $1 seconds (window probe)"
+}
+
+safe_desktop() {   # safe_desktop TIMEOUT [USER]: after a Safe Mode logon the message box (work order C2, titled
+                   # "Desktop"), answered with Enter (Yes, the default), then the desktop, which shows no taskbar
+                   # until the box is answered. WEX_TEST_SAFE_BOX=required fails when there is no box.
+    local end=$((SECONDS + $1)) screen seen= user=${2:-$USER_NAME} out ocr=
+    while [ "$SECONDS" -lt "$end" ]; do
+        out=$(session_probe "$user" 60 "--wait-window '^Desktop\$' --timeout 10")
+        case "$out" in
+            *probe=unavailable*|'') ocr=1; break ;;   # no xwininfo, a Wayland session, or no answer: OCR
+            *"window=Desktop"*) seen=1; shot box; "${V[@]}" key "$TEST" ret >/dev/null; break ;;
+        esac
+        out=$(session_probe "$user" 40 "--wait-desktop")
+        case "$out" in *desktop=ready*) break ;; esac
+    done
+    if [ -n "$ocr" ]; then
+        while [ "$SECONDS" -lt "$end" ]; do
+            # The box is drawn classic (no visual style in Safe Mode): Tesseract's own threshold reads none of its
+            # text beside the blue caption, the explicit one (--white) reads it whole
+            screen=$({ "${V[@]}" text "$TEST"; "${V[@]}" text "$TEST" --white; } 2>/dev/null | tr '\n' ' ')
+            case "$screen" in
+                # OCR reads the first line whole, or else the last ("To keep working in Safe Mode, click Yes. To log")
+                *"running in Safe Mode"*|*"click Yes. To log"*) seen=1; shot box; "${V[@]}" key "$TEST" ret >/dev/null; break ;;
+                *"Recycle Bin"*) break ;;
+            esac
+            sleep 3
+        done
+    fi
     if [ -n "$seen" ]; then
         echo "  Safe Mode message box answered with Yes"
     elif [ "$SAFE_BOX" = required ]; then
@@ -642,7 +772,7 @@ safe_desktop() {   # safe_desktop TIMEOUT: after a Safe Mode logon the message b
     else
         echo "  (no Safe Mode message box)"
     fi
-    desktop 120
+    desktop 120 "$user"
 }
 
 wait_serial() {   # wait_serial TIMEOUT: until the serial console answers; vmtest.py sh waits 15 s for a login prompt
@@ -712,7 +842,7 @@ programs_32_64() {   # the regression check: Wine's 32-bit (syswow64) and 64-bit
         if [ "$bits" = 32 ]; then dir=syswow64; else dir=system32; fi
         gsh "echo $bits-bit Notepad > /tmp/wex-notepad$bits.txt; python3 $HELPER --user $USER_NAME C:/windows/$dir/notepad.exe Z:/tmp/wex-notepad$bits.txt" >/dev/null \
             || fail "could not start the $bits-bit Notepad"
-        wait_text "wex-notepad$bits" 60 || fail "the $bits-bit Notepad did not open"
+        wait_window "wex-notepad$bits[.]txt - Notepad" 60 "wex-notepad$bits" || fail "the $bits-bit Notepad did not open"
         shot "notepad$bits"
         echo "  $bits-bit Notepad open"
     done
@@ -1007,55 +1137,60 @@ phase_perf() {   # graphics performance, X11 session then the Wayland one (wexco
     done
 }
 
-phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the header
-    local out options saved= crashdir= id try
-    attach ro || fail "cannot mount the overlay"
-    if [ -f "$MNT/etc/kernel/cmdline" ]; then cp -p "$MNT/etc/kernel/cmdline" "$OUT/startrec-cmdline"; saved=1; fi
-    [ -d "$MNT/etc/systemd/system.conf.d" ] && crashdir=1
-    [ -x "$MNT/usr/local/sbin/wex-boot1" ] || { detach; fail "this image has no wex-boot1 (Startup and Recovery)"; }
-    [ -f "$MNT/usr/lib/sysctl.d/90-wineexplorer-recovery.conf" ] \
-        || { detach; fail "this image has no default for Automatically restart"; }
-    detach
-    start_vm
-    desktop 600
-    # the defaults: Automatically restart on, as on XP (the package's sysctl.d and system.conf.d files)
+startrec_defaults() {   # the defaults: Automatically restart on, as on XP (the package's sysctl.d and system.conf.d files)
+    local out
     expect_settings HasLoader=True HasOptions=True MenuTimeout=0 RecoveryEnabled=True RecoveryTimeout=30 AutoRestart=True \
         OperatingSystem=WineExplorer
     out=$(gsh 'echo panic=$(cat /proc/sys/kernel/panic)' | grep '^panic=' | tail -n 1)
     [ "$out" = "panic=10" ] || fail "kernel.panic is not 10 by default: ${out:-no answer}"
-    options=$(boot1_settings | sed -n 's/.* Options=\([^ ]*\).*/\1/p' | tr '+' ' ')
-    # the dialog: System Properties on its Advanced tab, then Settings under Startup and Recovery (Sett&ings).
-    # Started by the shell, as a user would: polkit asks the agent of the caller's logind session, and a program the
-    # serial console starts (session-run.py) belongs to the console's session, which has none. Win+Pause (Explorer's
-    # hot key, as on XP) opens System Properties on General; Ctrl+Tab goes on to Computer Name, Hardware and Advanced.
-    # (Wine's Run before 68ab2d5dab3 could not: it took what is typed as one file name, so "control sysdm.cpl,,3" was
-    # not found, and it had no verb for a .cpl file. Win+Pause also works on older images.)
+}
+
+startrec_dialog() {   # the dialog: System Properties on its Advanced tab, then Settings under Startup and Recovery
+    # (Sett&ings). Started by the shell, as a user would: polkit asks the agent of the caller's logind session, and a
+    # program the serial console starts (session-run.py) belongs to the console's session, which has none. Win+Pause
+    # (Explorer's hot key, as on XP) opens System Properties on General; Ctrl+Tab goes on to Computer Name, Hardware
+    # and Advanced. (Wine's Run before 68ab2d5dab3 could not: it took what is typed as one file name, so "control
+    # sysdm.cpl,,3" was not found, and it had no verb for a .cpl file. Win+Pause also works on older images.)
+    # The windows by their titles (window probe); which tab shows, and what the dialog holds, by OCR.
+    local out
     "${V[@]}" key "$TEST" meta_l-pause >/dev/null
-    wait_text "Computer Name" 60 || { shot no-sysdm; fail "Win+Pause did not open System Properties"; }
-    sleep 2
+    wait_window '^System Properties$' 60 "Computer Name" || { shot no-sysdm; fail "Win+Pause did not open System Properties"; }
+    wait_text "Computer Name" 20 || { shot no-sysdm; fail "System Properties did not draw its tabs"; }
     "${V[@]}" key "$TEST" ctrl-tab ctrl-tab ctrl-tab >/dev/null
     wait_text "Environment Variables" 30 || { shot no-advanced; fail "Ctrl+Tab did not reach System Properties' Advanced tab"; }
     "${V[@]}" key "$TEST" alt-i >/dev/null
-    wait_text "Default operating system" 30 || { shot no-startrec; fail "the Startup and Recovery dialog did not open"; }
-    sleep 2
+    wait_window '^Startup and Recovery$' 30 "Default operating system" \
+        || { shot no-startrec; fail "the Startup and Recovery dialog did not open"; }
+    # the group boxes' frame lines cut their titles for OCR ("tem startup"), so check what is inside them; both
+    # thresholds, three tries, before a line counts as missing
+    local try want missing
+    for try in 1 2 3; do
+        out=$({ "${V[@]}" text "$TEST"; "${V[@]}" text "$TEST" --white; } 2>/dev/null | tr '\n' ' ')
+        missing=
+        for want in "recovery options when needed" "Automatically restart" "Write debugging information"; do
+            case "$out" in *"$want"*) ;; *) missing="$missing, $want" ;; esac
+        done
+        [ -z "$missing" ] && break
+        sleep 2
+    done
     shot dialog
-    # the group boxes' frame lines cut their titles for OCR ("tem startup"), so check what is inside them
-    out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
-    case "$out" in *"recovery options when needed"*) ;; *) fail "the dialog has no recovery options box" ;; esac
-    case "$out" in *"Automatically restart"*) ;; *) fail "the dialog has no Automatically restart" ;; esac
-    case "$out" in *"Write debugging information"*) ;; *) fail "the dialog has no System failure group" ;; esac
+    [ -z "$missing" ] || fail "the dialog's text lacks${missing#,} (OCR)"
     echo "  dialog: System startup, System failure, Automatically restart"
-    # OK with a change asks for an administrator's password (wexhost's polkit agent). Cancelled, the dialog stays
-    # open with no message (Boot1's Cancelled); the Administrator's password then saves the change.
+}
+
+startrec_password() {   # OK with a change asks for an administrator's password (wexhost's polkit agent). Cancelled,
+                        # the dialog stays open with no message (Boot1's Cancelled); the Administrator's password then
+                        # saves the change.
+    local out try
     "${V[@]}" key "$TEST" alt-t >/dev/null   # Time to display list of operating systems: on, 30 seconds
     "${V[@]}" key "$TEST" ret >/dev/null
     wait_text "type an administrator password" 60 || { shot no-password; fail "OK did not ask for an administrator's password"; }
     shot password
     prompt_focus
     "${V[@]}" key "$TEST" esc >/dev/null
-    sleep 3
+    wait_window '^Startup and Recovery$' 10 "Default operating system" \
+        || { shot cancelled; fail "cancelling the password closed Startup and Recovery"; }
     out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
-    case "$out" in *"Default operating system"*) ;; *) shot cancelled; fail "cancelling the password closed Startup and Recovery" ;; esac
     case "$out" in *"not authorized"*|*"denied"*|*"could not"*) shot cancelled; fail "cancelling the password showed an error: $out" ;; esac
     echo "  password cancelled: the dialog stays open, with no message"
     "${V[@]}" key "$TEST" ret >/dev/null
@@ -1068,26 +1203,107 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
                          # incorrect, keeping the account and emptying its password box: typed once more
         "${V[@]}" type "$TEST" "$(cat "$ADMIN_PWFILE")"
         "${V[@]}" key "$TEST" ret >/dev/null
-        for _ in 1 2 3 4 5 6; do   # PAM, then the change; both close
-            sleep 5
-            out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
-            case "$out" in *"Default operating system"*) ;; *) break 2 ;; esac
-            case "$try$out" in 1*"password is incorrect"*) break ;; esac
-        done
+        # PAM, then the change; both close: the dialog's window goes (window probe), or the prompt says why not
+        window_gone '^Startup and Recovery$' 30
+        case $? in
+            0) out=closed; break ;;
+            2) sleep 10   # an image without the probe: OCR, as before
+               out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
+               case "$out" in *"Default operating system"*) ;; *) out=closed; break ;; esac ;;
+        esac
+        out=$("${V[@]}" text "$TEST" | tr '\n' ' ')
         # a lost key (the password's or Return) can also leave the prompt up with no message (UEFI, 2026-11-22)
         case "$try$out" in 1*"password is incorrect"*|1*"type an administrator password"*) ;; *) break ;; esac
         echo "  (the prompt took the typed password as incorrect or stayed up; typing it once more)"
         shot password-retyped
         prompt_focus
     done
-    case "$out" in *"Default operating system"*) shot still-open; fail "Startup and Recovery stayed open after the password" ;; esac
+    [ "$out" = closed ] || { shot still-open; fail "Startup and Recovery stayed open after the password"; }
     expect_settings MenuTimeout=30 AutoRestart=True
     echo "  the Administrator's password saved a 30-second menu"
-    "${V[@]}" key "$TEST" esc >/dev/null   # System Properties
-    # anyone reads the settings; a change without a password is refused (polkit, auth_admin_keep)
+}
+
+startrec_refused() {   # anyone reads the settings; a change without a password is refused (polkit, auth_admin_keep)
+    local out
     out=$(gsh "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 5 true 7 false false 2>&1; echo rc=\$?" | tr '\n' ' ')
     echo "  without a password: $out"
     case "$out" in *NotAuthorized*rc=[1-9]*|*"not authorized"*rc=[1-9]*) ;; *) fail "a change without a password was not refused: $out" ;; esac
+}
+
+startrec_panic_waits() {   # Automatically restart off: a kernel panic waits (no new start in 75 seconds).
+    # The firmware may leave a hardware watchdog running, which the kernel feeds until it panics: OVMF leaves the q35
+    # chipset's TCO counting, and it restarted the computer 45 to 60 seconds after a panic whatever kernel.panic said
+    # (2026-11-12; with the watchdog stopped the panic waited). That restart is the platform's, so it is stopped first
+    # (a magic close: "V", then close).
+    local id
+    as_root "sh -c 'for w in /dev/watchdog[0-9]*; do [ -c \$w ] && printf V > \$w; done; true'" >/dev/null 2>&1
+    id=$(boot_id)
+    [ -n "$id" ] || fail "no boot ID"
+    as_root "sh -c 'echo c > /proc/sysrq-trigger'" 10 >/dev/null 2>&1
+    restarted "$id" 75 && { shot panic-restarted; fail "a kernel panic restarted the computer with Automatically restart off"; }
+    shot panic-waits
+    echo "  Automatically restart off: a kernel panic waited"
+}
+
+startrec_menu_shows() {   # the loader's menu without a key (its own screen, OCR)
+    wait_text "Advanced Options" 60 || { shot no-menu; fail "Vintner Boot's menu did not show by itself"; }
+    shot menu-timeout
+    echo "  the boot menu showed without a key"
+}
+
+startrec_option() {   # startrec_option yes|no: /proc/cmdline has the published kernel option, or not
+    if gsh 'cat /proc/cmdline' | grep -q 'wextest.d5=1'; then
+        [ "$1" = yes ] || fail "the kernel option is still there"
+        echo "  /proc/cmdline has wextest.d5=1"
+    else
+        [ "$1" = no ] || fail "the new generation does not have the kernel option"
+    fi
+}
+
+startrec_no_menu() {   # the restored generation starts without the menu
+    ! wait_text "Advanced Options" 25 || { shot menu-left; fail "the boot menu still shows after the timeout went back to 0"; }
+}
+
+startrec_restarts() {   # startrec_restarts panic|crash: with the package's defaults (Automatically restart on), Linux's
+                        # two system failures restart the computer
+    local id
+    id=$(boot_id)
+    [ -n "$id" ] || fail "no boot ID"
+    if [ "$1" = panic ]; then
+        as_root "sh -c 'echo c > /proc/sysrq-trigger'" 10 >/dev/null 2>&1
+        restarted "$id" 600 || { shot panic-no-restart; fail "a kernel panic did not restart the computer"; }
+    else
+        as_root 'kill -SEGV 1' 10 >/dev/null 2>&1
+        restarted "$id" 600 || { shot crash-no-restart; fail "a crash of systemd did not restart the computer"; }
+    fi
+    desktop 600
+    case "$1" in
+        panic) echo "  a kernel panic restarted the computer" ;;
+        crash) echo "  a crash of systemd (PID 1) restarted the computer" ;;
+    esac
+}
+
+phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the header. The checks are subresults; the
+                     # changes the phase makes (as root, on the stopped disk) and their restoration are not: a failure
+                     # there ends the phase, since it would leave the boot storage or /etc changed.
+    local out options saved= crashdir=
+    attach ro || fail "cannot mount the overlay"
+    if [ -f "$MNT/etc/kernel/cmdline" ]; then cp -p "$MNT/etc/kernel/cmdline" "$OUT/startrec-cmdline"; saved=1; fi
+    [ -d "$MNT/etc/systemd/system.conf.d" ] && crashdir=1
+    [ -x "$MNT/usr/local/sbin/wex-boot1" ] || { detach; fail "this image has no wex-boot1 (Startup and Recovery)"; }
+    [ -f "$MNT/usr/lib/sysctl.d/90-wineexplorer-recovery.conf" ] \
+        || { detach; fail "this image has no default for Automatically restart"; }
+    detach
+    start_vm
+    desktop 600
+    subresult defaults startrec_defaults
+    options=$(boot1_settings | sed -n 's/.* Options=\([^ ]*\).*/\1/p' | tr '+' ' ')
+    subresult dialog startrec_dialog
+    needs password dialog && subresult password startrec_password
+    # whatever is left open: the dialog, the prompt, System Properties
+    close_window esc '^Startup and Recovery$'
+    close_window esc '^System Properties$'
+    subresult refused startrec_refused
     # as root: a 5-second menu, a 7-second countdown, Automatically restart off, and a kernel option
     as_root 'id -u' | grep -qx 0 || fail "sudo does not work for $USER_NAME"
     as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 5 true 7 false false" >/dev/null
@@ -1100,28 +1316,14 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
         | grep '^files:' | tail -n 1)
     echo "  $out"
     [ "$out" = "files: recovery_timeout=7 panic=0 CrashAction=freeze" ] || fail "boot.conf, kernel.panic or CrashAction not as set: $out"
-    # Automatically restart off: a kernel panic waits (no new start in 75 seconds); then the power is cut.
-    # The firmware may leave a hardware watchdog running, which the kernel feeds until it panics: OVMF leaves the q35
-    # chipset's TCO counting, and it restarted the computer 45 to 60 seconds after a panic whatever kernel.panic said
-    # (2026-11-12; with the watchdog stopped the panic waited). That restart is the platform's, so it is stopped first
-    # (a magic close: "V", then close).
-    as_root "sh -c 'for w in /dev/watchdog[0-9]*; do [ -c \$w ] && printf V > \$w; done; true'" >/dev/null 2>&1
-    id=$(boot_id)
-    [ -n "$id" ] || fail "no boot ID"
-    as_root "sh -c 'echo c > /proc/sysrq-trigger'" 10 >/dev/null 2>&1
-    restarted "$id" 75 && { shot panic-restarted; fail "a kernel panic restarted the computer with Automatically restart off"; }
-    shot panic-waits
-    echo "  Automatically restart off: a kernel panic waited"
+    subresult panic-waits startrec_panic_waits
     "${V[@]}" stop "$TEST" >/dev/null 2>&1
     wait_off 60 || fail "the VM did not power off"
     # the next start: the loader's menu without a key, then the default after five seconds, with the option
     start_vm
-    wait_text "Advanced Options" 60 || { shot no-menu; fail "Vintner Boot's menu did not show by itself"; }
-    shot menu-timeout
-    echo "  the boot menu showed without a key"
+    subresult menu-timeout startrec_menu_shows
     desktop 600
-    gsh 'cat /proc/cmdline' | grep -q 'wextest.d5=1' || fail "the new generation does not have the kernel option"
-    echo "  /proc/cmdline has wextest.d5=1"
+    subresult option startrec_option yes
     # back as it was
     as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 Apply ububb 0 true 30 true false" >/dev/null
     out=$(as_root "busctl --system call $BOOT1 org.wineexplorer.Boot1 SetOptions sb '$options' false" 600 \
@@ -1138,22 +1340,21 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
     detach
     # the restored generation starts without the menu, and counts
     start_vm
-    ! wait_text "Advanced Options" 25 || { shot menu-left; fail "the boot menu still shows after the timeout went back to 0"; }
+    subresult no-menu startrec_no_menu
     desktop 600
-    gsh 'cat /proc/cmdline' | grep -q 'wextest.d5=1' && fail "the kernel option is still there"
-    # with the package's defaults (Automatically restart on), Linux's two system failures restart the computer
-    expect_settings AutoRestart=True
-    id=$(boot_id)
-    as_root "sh -c 'echo c > /proc/sysrq-trigger'" 10 >/dev/null 2>&1
-    restarted "$id" 600 || { shot panic-no-restart; fail "a kernel panic did not restart the computer"; }
-    desktop 600
-    echo "  a kernel panic restarted the computer"
-    id=$(boot_id)
-    as_root 'kill -SEGV 1' 10 >/dev/null 2>&1
-    restarted "$id" 600 || { shot crash-no-restart; fail "a crash of systemd did not restart the computer"; }
-    desktop 600
-    echo "  a crash of systemd (PID 1) restarted the computer"
-    shutdown_vm
+    subresult option-gone startrec_option no
+    subresult autorestart startrec_defaults
+    if subresult panic-restarts startrec_restarts panic; then
+        subresult crash-restarts startrec_restarts crash
+    else
+        needs crash-restarts panic-restarts
+    fi
+    if [ -z "$SUBRESULTS_FAILED" ]; then
+        shutdown_vm
+    else   # a failed restart can leave the machine hung
+        "${V[@]}" shutdown "$TEST" --timeout 120 >/dev/null 2>&1 || "${V[@]}" stop "$TEST" >/dev/null 2>&1
+    fi
+    subresults_end
 }
 
 shell_keys_check() {   # shell_keys_check x11|wayland|xwayland: with a Linux program on the keyboard, the shell's keys
@@ -1568,8 +1769,8 @@ expect_taskbar() {   # the taskbar is painted and lists Notepad. It stayed black
     local out
     gsh "python3 $HELPER --user $USER_NAME notepad.exe >/dev/null; echo started" 30 | grep -q '^started' \
         || fail "cannot start Notepad"
-    wait_text "Notepad" 60 || { shot no-notepad; fail "Notepad did not appear"; }
-    sleep 3
+    wait_window " - Notepad$" 60 Notepad || { shot no-notepad; fail "Notepad did not appear"; }
+    sleep 3   # its taskbar button is painted
     "${V[@]}" shot "$TEST" >/dev/null 2>&1
     shot taskbar
     out=$(python3 "$HERE/taskbar-check.py" "$STATE/screen.ppm") || fail "the taskbar is not painted ($out)"
@@ -1848,7 +2049,7 @@ phase_accounts() {   # provisioning gave Administrator a test password and hid w
     shot tiles-safe
     echo "  Safe Mode Welcome screen: Administrator and $USER_NAME shown, Hidden Test not"
     logon Administrator "$ADMIN_PWFILE"
-    safe_desktop 400
+    safe_desktop 400 administrator   # its session, read as root
     out=$(gsh 'loginctl list-sessions --no-legend | awk "{ print \$3 }" | sort -u | tr "\n" " "' | tail -n 1)
     echo "  sessions: $out"
     grep -qw administrator <<< "$out" || fail "Administrator did not log on"
@@ -1907,7 +2108,7 @@ phase_classic() {   # the classic "Log On to Windows" dialog (work order C4): se
     shot classic-safe
     echo "  Safe Mode: the first Ctrl+Alt+Delete changes nothing, the second shows the dialog with Safe Mode around it"
     classic_logon Administrator "$(cat "$ADMIN_PWFILE")"
-    safe_desktop 400
+    safe_desktop 400 administrator
     out=$(classic_sessions)
     echo "  sessions: $out"
     grep -qw administrator <<< "$out" || fail "Administrator did not log on through the classic dialog"
@@ -1950,7 +2151,7 @@ phase_classic() {   # the classic "Log On to Windows" dialog (work order C4): se
     logon_refused "a password for an account without one"
     echo "  Logon Message: a wrong password, root, a password typed for an account without one"
     classic_logon WexHidden ""
-    desktop 600
+    desktop 600 wexhidden
     out=$(classic_sessions)
     echo "  sessions: $out"
     grep -qw wexhidden <<< "$out" || fail "the hidden account did not log on as WexHidden"
@@ -1958,65 +2159,86 @@ phase_classic() {   # the classic "Log On to Windows" dialog (work order C4): se
     shutdown_vm
 }
 
-run_command() {   # run_command TEXT WINDOW_TEXT SHOT: Win+R, TEXT and Enter, then WINDOW_TEXT on the screen
+run_command() {   # run_command TEXT WINDOW SHOT [OCR_TEXT]: Win+R, TEXT and Enter, then a window titled WINDOW (a
+                  # regular expression; OCR of OCR_TEXT, default WINDOW, on an image without the window probe)
     "${V[@]}" key "$TEST" meta_l-r >/dev/null
-    wait_text "Type the name" 20 || { shot "no-run-$3"; fail "Win+R did not open Run (before $1)"; }
+    wait_window '^Run$' 20 "Type the name" || { shot "no-run-$3"; fail "Win+R did not open Run (before $1)"; }
     "${V[@]}" type "$TEST" "$1"
     "${V[@]}" key "$TEST" ret >/dev/null
-    wait_text "$2" 60 || { shot "no-$3"; fail "Run did not run $1"; }
+    wait_window "$2" 60 "${4:-$2}" || { shot "no-$3"; fail "Run did not run $1"; }
     shot "$3"
     echo "  Run: $1"
 }
 
-phase_rundialog() {   # Run (Win+R) runs what XP's runs: see the header
-    local wordpad='C:\Program Files\Windows NT\Accessories\wordpad.exe'
-    start_vm
-    desktop 600
-    gsh 'cd "$HOME/.wine/drive_c/users/$USER" && printf "Run test\r\n" > runtest.txt && printf "Run test 2\r\n" > runtest2.txt && mkdir -p "Run Test" && printf "Run test 3\r\n" > "Run Test/read me.txt" && echo made' \
-        | grep -q '^made' || fail "cannot make the test files"
-    # a program and its parameters, which Wine's Run took as one file name
-    run_command 'control sysdm.cpl,,3' "Environment Variables" sysdm-advanced
-    "${V[@]}" key "$TEST" esc >/dev/null
-    sleep 2
-    # a Control Panel file: cplfile has one verb, cplopen, and no default
-    run_command 'sysdm.cpl' "Computer Name" sysdm
-    "${V[@]}" key "$TEST" esc >/dev/null
-    sleep 2
-    run_command 'notepad %USERPROFILE%\runtest.txt' "runtest.txt - Notepad" notepad
-    "${V[@]}" key "$TEST" alt-f4 >/dev/null
-    sleep 2
-    # WordPad's title is Wine's ("runtest.txt - Wine Wordpad"), so the file's name is what counts; each has its own
-    run_command "\"$wordpad\" %USERPROFILE%\\runtest.txt" "runtest.txt -" wordpad-quoted
-    "${V[@]}" key "$TEST" alt-f4 >/dev/null
-    sleep 2
-    run_command "$wordpad %USERPROFILE%\\runtest2.txt" "runtest2.txt -" wordpad-spaces
-    "${V[@]}" key "$TEST" alt-f4 >/dev/null
-    sleep 2
-    # the whole line is still one name first: a document whose path has spaces opens
-    run_command '%USERPROFILE%\Run Test\read me.txt' "read me.txt -" spaces
-    "${V[@]}" key "$TEST" alt-f4 >/dev/null
-    sleep 2
-    # and a folder whose name has spaces, with no "DDE failure.": the folder class's DDE conversation is not taken by
-    # shell32's DDE server, so ShellExecute starts its command (explorer.exe "%1"), which opens the folder; that
-    # counts as done (Wine 1d6c6a65acf; before, it reported the failure once the folder was open)
-    run_command 'C:\Program Files\Common Files' "Common Files" folder
+close_window() {   # close_window KEY REGEX: KEY (esc, alt-f4) closes the window titled REGEX; a bounded wait for it to
+                   # go (review 2026-11-23 #7: fixed sleeps after closing windows), pressed once more if it stays.
+                   # Also after a failed subresult, so the next one starts from the desktop.
+    local rc
+    window_gone "$2" 0
+    [ $? = 0 ] && return 0   # not open (closed already, or never opened)
+    "${V[@]}" key "$TEST" "$1" >/dev/null
+    window_gone "$2" 10
+    rc=$?
+    [ "$rc" = 1 ] || return 0   # gone, or an image without the probe (2 seconds waited, as before)
+    "${V[@]}" key "$TEST" "$1" >/dev/null
+    window_gone "$2" 10 || echo "  WARNING: the window '$2' is still open"
+}
+
+RUNDIALOG_WORDPAD='C:\Program Files\Windows NT\Accessories\wordpad.exe'
+run_sysdm_advanced() {   # a program and its parameters, which Wine's Run took as one file name; the tab by OCR
+    run_command 'control sysdm.cpl,,3' '^System Properties$' sysdm-advanced "Environment Variables"
+    wait_text "Environment Variables" 30 || fail "control sysdm.cpl,,3 did not open System Properties on Advanced"
+}
+run_cpl() {   # a Control Panel file: cplfile has one verb, cplopen, and no default
+    run_command 'sysdm.cpl' '^System Properties$' sysdm "Computer Name"
+}
+run_notepad() { run_command 'notepad %USERPROFILE%\runtest.txt' '^runtest[.]txt - Notepad$' notepad "runtest.txt - Notepad"; }
+# WordPad's title is Wine's ("runtest.txt - Wine Wordpad"), so the file's name is what counts; each has its own
+run_wordpad_quoted() { run_command "\"$RUNDIALOG_WORDPAD\" %USERPROFILE%\\runtest.txt" '^runtest[.]txt - ' wordpad-quoted "runtest.txt -"; }
+run_wordpad_spaces() { run_command "$RUNDIALOG_WORDPAD %USERPROFILE%\\runtest2.txt" '^runtest2[.]txt - ' wordpad-spaces "runtest2.txt -"; }
+# the whole line is still one name first: a document whose path has spaces opens
+run_spaces() { run_command '%USERPROFILE%\Run Test\read me.txt' '^read me[.]txt - ' spaces "read me.txt -"; }
+run_folder() {   # a folder whose name has spaces, with no "DDE failure.": the folder class's DDE conversation is not
+                 # taken by shell32's DDE server, so ShellExecute starts its command (explorer.exe "%1"), which opens
+                 # the folder; that counts as done (Wine 1d6c6a65acf; before, it reported the failure once it was open)
+    run_command 'C:\Program Files\Common Files' 'Common Files' folder
     ! wait_text "DDE failure" 10 || { shot folder-dde; fail "opening a folder reported a DDE failure"; }
-    ! wait_text "Type the name" 3 || { shot folder-run; fail "Run stayed open after opening a folder"; }
-    "${V[@]}" key "$TEST" alt-f4 >/dev/null
-    sleep 2
-    # nothing by that name: the error, and Run stays open with the line
+    window_gone '^Run$' 5
+    case $? in
+        1) shot folder-run; fail "Run stayed open after opening a folder" ;;
+        2) ! wait_text "Type the name" 3 || { shot folder-run; fail "Run stayed open after opening a folder"; } ;;
+    esac
+}
+run_missing() {   # nothing by that name: the error (its text by OCR), and Run stays open with the line
     "${V[@]}" key "$TEST" meta_l-r >/dev/null
-    wait_text "Type the name" 20 || fail "Win+R did not open Run (before the missing program)"
+    wait_window '^Run$' 20 "Type the name" || fail "Win+R did not open Run (before the missing program)"
     "${V[@]}" type "$TEST" "wexnosuchprogram /x"
     "${V[@]}" key "$TEST" ret >/dev/null
     wait_text "not found" 30 || { shot no-error; fail "Run did not report a program that does not exist"; }
     shot error
     "${V[@]}" key "$TEST" ret >/dev/null
-    wait_text "Type the name" 15 || { shot run-closed; fail "Run closed after the error"; }
-    "${V[@]}" key "$TEST" esc >/dev/null
+    wait_window '^Run$' 15 "Type the name" || { shot run-closed; fail "Run closed after the error"; }
     echo "  Run: a missing program gets the error, and Run stays open"
+}
+
+phase_rundialog() {   # Run (Win+R) runs what XP's runs: see the header. Each variant is a subresult; after each, its
+                      # window is closed and waited for, so a failed one leaves the next a clean desktop.
+    start_vm
+    desktop 600
+    gsh 'cd "$HOME/.wine/drive_c/users/$USER" && printf "Run test\r\n" > runtest.txt && printf "Run test 2\r\n" > runtest2.txt && mkdir -p "Run Test" && printf "Run test 3\r\n" > "Run Test/read me.txt" && echo made' \
+        | grep -q '^made' || fail "cannot make the test files"
+    subresult parameters run_sysdm_advanced;  close_window esc '^System Properties$'
+    subresult cpl run_cpl;                    close_window esc '^System Properties$'
+    subresult environment run_notepad;        close_window alt-f4 '^runtest[.]txt - Notepad$'
+    subresult wordpad-quoted run_wordpad_quoted; close_window alt-f4 '^runtest[.]txt - '
+    subresult wordpad-spaces run_wordpad_spaces; close_window alt-f4 '^runtest2[.]txt - '
+    subresult spaces run_spaces;              close_window alt-f4 '^read me[.]txt - '
+    subresult folder run_folder;              close_window alt-f4 'Common Files'
+    close_window esc '^Run$'   # left open by a failed variant
+    subresult missing run_missing;            close_window esc '^Run$'
     gsh 'cd "$HOME/.wine/drive_c/users/$USER" && rm -rf runtest.txt runtest2.txt "Run Test"' >/dev/null
     shutdown_vm
+    subresults_end
 }
 
 # ---- the overlay ----
@@ -2025,10 +2247,34 @@ command -v qemu-nbd >/dev/null || die "qemu-nbd is missing"
 [ -f "$SRC_DISK" ] || die "no disk $SRC_DISK"
 running "$SRC_DISK" && die "$SOURCE is running; stop it first"
 if [ -e "$STATE/disk.qcow2" ]; then
-    qemu-img info "$STATE/disk.qcow2" 2>/dev/null | grep -qx "backing file: $SRC_DISK" \
+    # an overlay of SOURCE_VM, or (a stage run before baselines) of the installed disk the baseline was made from
+    backing=$(qemu-img info "$STATE/disk.qcow2" 2>/dev/null | sed -n 's/^backing file: //p')
+    [ -n "$backing" ] && { [ "$backing" = "$SRC_DISK" ] \
+        || [ "$backing" = "$(cat "$VMTEST_DIR/$SOURCE/baseline.source" 2>/dev/null)" ]; } \
         || die "$STATE/disk.qcow2 exists and is not an overlay of $SOURCE; choose another TEST_VM"
     "${V[@]}" stop "$TEST" >/dev/null 2>&1 || true
     wait_off 30 || die "$TEST is still running"
+fi
+inputs_stamp() {   # inputs_stamp INSTALLED_DISK: what the provisioning depends on, as one checksum
+    {
+        echo "firmware=$FIRMWARE files=$FILES user=$USER_NAME password=${WEX_TEST_PASSWORD_FILE:-}"
+        if [ -n "$WINE_TAR" ]; then sha256sum < "$WINE_TAR"; fi
+        if [ -n "$PROBE_DIR" ]; then (cd "$PROBE_DIR" && sha256sum -- *.exe 2>/dev/null); fi
+        sha256sum < "$HERE/session-run.py"
+        sha256sum < "$REPO/scripts/gfx-perf-sample.sh" 2>/dev/null
+        [ "$FILES" = branch ] && for entry in "${SAFE_MODE_FILES[@]}"; do
+            read -r _ src _ <<< "$entry"; sha256sum < "$REPO/$src"
+        done
+        sed -n '/^# ---- the overlay ----$/,/^# ---- the phases ----$/p' "$HERE/safe-mode.sh" | sha256sum
+        stat -L -c '%s %Y %i' "$1"
+    } | sha256sum | cut -c1-64
+}
+
+if [ "$BASELINE" = use ]; then
+    [ -f "$VMTEST_DIR/$SOURCE/baseline.stamp" ] && [ "$(stat -c %a "$SRC_DISK")" = 444 ] \
+        || die "$SOURCE is not a provisioned baseline (WEX_SAFEMODE_BASELINE=make)"
+    [ "$(inputs_stamp "$(cat "$VMTEST_DIR/$SOURCE/baseline.source")")" = "$(cat "$VMTEST_DIR/$SOURCE/baseline.stamp")" ] \
+        || die "the baseline $SOURCE was provisioned from other inputs; make it again"
 fi
 rm -rf -- "$STATE"
 mkdir -p "$OUT"
@@ -2039,6 +2285,17 @@ else
     PWFILE=$OUT/password
     : > "$PWFILE"
 fi
+ADMIN_PWFILE=$OUT/admin-password
+
+if [ "$BASELINE" = use ]; then
+    # the baseline's provisioning is this overlay's: its variable store (UEFI) as the provisioning boot left it, the
+    # Administrator's password it set, and its log
+    echo "=== $TEST: overlay of the provisioned baseline $SOURCE, $FIRMWARE, Safe Mode files: $FILES"
+    [ ! -f "$VMTEST_DIR/$SOURCE/efivars.fd" ] || cp "$VMTEST_DIR/$SOURCE/efivars.fd" "$STATE/efivars.fd" \
+        || die "cannot copy the baseline's variable store"
+    cp "$VMTEST_DIR/$SOURCE/safe-mode/admin-password" "$ADMIN_PWFILE" || die "the baseline has no Administrator password"
+    cp "$VMTEST_DIR/$SOURCE/safe-mode/provision.log" "$OUT/provision.log" 2>/dev/null
+else   # the provisioning, to "---- the phases ----" (not indented)
 echo "=== $TEST: overlay of $SOURCE, $FIRMWARE, Safe Mode files: $FILES"
 
 attach rw || die "cannot mount the overlay"
@@ -2059,7 +2316,6 @@ if [ -n "$PROBE_DIR" ]; then
     done
     install -m 755 "$REPO/scripts/gfx-perf-sample.sh" "$MNT$PROBES/" || die "cannot install the perf sampler"
 fi
-ADMIN_PWFILE=$OUT/admin-password
 STEP=
 if [ "$FILES" = branch ]; then
     for entry in "${SAFE_MODE_FILES[@]}"; do
@@ -2146,7 +2402,18 @@ detach
 
 echo "=== provisioning boot ($(date +%T))"
 "${V[@]}" start "$TEST" "${START_ARGS[@]}" >/dev/null || die "QEMU did not start"
-wait_off 1500 || die "the provisioning boot did not power off"
+if ! wait_off 1500; then   # what it was doing (b1123a's startrec on BIOS, a loaded host): the screen and its journal
+    "${V[@]}" shot "$TEST" "$OUT/provision-fail.png" >/dev/null 2>&1
+    "${V[@]}" key "$TEST" alt-sysrq-w >/dev/null 2>&1 && sleep 2
+    "${V[@]}" key "$TEST" alt-sysrq-s >/dev/null 2>&1 && sleep 3
+    "${V[@]}" stop "$TEST" >/dev/null 2>&1; sleep 2
+    if attach ro >/dev/null 2>&1; then
+        journalctl --directory="$MNT/var/log/journal" -b 0 --no-pager -o short-monotonic > "$OUT/provision-journal.txt" 2>&1
+        cp "$MNT/root/wex-test-provision.log" "$OUT/provision.log" 2>/dev/null
+        detach
+    fi
+    die "the provisioning boot did not power off (provision-fail.png, provision-journal.txt, provision.log in $OUT)"
+fi
 attach ro || die "cannot mount the overlay"
 cp "$MNT/root/wex-test-provision.log" "$OUT/provision.log" 2>/dev/null
 provisioned() {   # provisioned LINE MESSAGE: the provisioning log has LINE, or the test ends with MESSAGE
@@ -2170,6 +2437,18 @@ grep -q 'wex-safemode-pam-check.sh autologin' "$MNT/etc/pam.d/lightdm-autologin"
 [ -L "$MNT/etc/systemd/system/multi-user.target.wants/wex-startup-check.service" ] \
     || { detach; die "wex-startup-check.service is not enabled"; }
 detach
+fi   # the provisioning
+
+if [ "$BASELINE" = make ]; then
+    # Immutable from now on: overlays of it are its only users (QEMU opens a backing file read-only), and the inputs
+    # are recorded, so a test with others is refused
+    "${V[@]}" stop "$TEST" >/dev/null 2>&1
+    inputs_stamp "$SRC_DISK" > "$STATE/baseline.stamp" && echo "$SRC_DISK" > "$STATE/baseline.source" \
+        && chmod 444 "$STATE/disk.qcow2" || die "cannot record the baseline"
+    echo "PASS: provisioned baseline $TEST of $SOURCE ($FIRMWARE); stages use it with WEX_SAFEMODE_BASELINE=use"
+    trap - EXIT
+    exit 0
+fi
 
 # ---- the phases ----
 
@@ -2260,6 +2539,10 @@ for PHASE in "${PHASES[@]}"; do
         rc=1
     fi
     if [ "$rc" -eq 0 ]; then summary+=("PASS $PHASE"); else summary+=("FAIL $PHASE"); overall=1; fi
+    # the phase's named subresults, under it
+    while read -r verdict part; do
+        case "$part" in "$PHASE"/*) summary+=("  $verdict $part") ;; esac
+    done < <(cat "$OUT/subresults.txt" 2>/dev/null)
 done
 
 # The Welcome screen ran (any Safe Mode phase): its prefix is now lightdm's ~/.wine, moved from ~/.wine-logon if

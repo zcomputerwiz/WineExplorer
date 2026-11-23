@@ -332,7 +332,15 @@ def serial(name, user, pwfile, command, timeout):
     send("")
     m = until(rb"login: $|[#$] $", 15)
     if not m:
-        note("no login or shell prompt within 15 s")
+        # Once more (a getty left at "Password:" by an earlier call answers an empty line with "Login incorrect" and a
+        # new prompt); then give up without typing the command. Typed into a login prompt it became the user name,
+        # left the getty at "Password:", and a long call then waited for nothing (2026-11-23, a desktop probe made
+        # while the machine was starting).
+        send("")
+        m = until(rb"login: $|[#$] $", 15)
+    if not m:
+        note("no login or shell prompt within 30 s; the command was not sent")
+        return 124
     if m and m.group(0).startswith(b"login"):
         send(user)
         until(rb"Password: $", 10)
