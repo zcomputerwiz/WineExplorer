@@ -380,7 +380,19 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    its default `OpenSharedDCompositionObject` ends with S_OK and no object. The visual therefore has to be an object of **Wine's dcomp**
    that answers {2c4eef28-...} and the other private visual IIDs the Windows App Runtime asks (not a `dcompi.dll` object as I first
    thought: `dcompi.dll` is the lifted copy for the Microsoft.UI.Composition API, Input uses the system one).
-   Next: read the default `OpenSharedDCompositionObject` of FrameworkUdk (table id 7 or 6 of `GetFunctionTableById`) to see which private
+   **Done (2026-11-23, Wine 34b11e77, a3492424).** FrameworkUdk's default `OpenSharedDCompositionObject` calls a private method of the
+   device, slot 29 of the vtable of `IDCompositionDesktopDevice` (after its 27 public slots, 0-26; (handle, IID, out); IIDs asked are
+   IDCompositionVisual and IDCompositionTarget). Wine's dcomp now has that method (a visual per handle value, a windowless target) and
+   the private slots 27-47 behind it, and its visuals answer {2c4eef28-...}. Notepad no longer reads through a NULL visual: the private
+   methods 40 and 41 are called, as in the Windows trace, and the main window and the XAML bridge window (`Microsoft.UI.Content.
+   DesktopChildSiteBridge`) are created (hidden). Two private user32 functions then aborted the process and are answered now
+   (`GetWindowBand`, export 2574; both measured with probes). Method 46 of the device is called once with (ptr, ptr, 0xFFFF7FFF) and is
+   still a stub.
+   **The wall now:** XAML builds the UI (UISettings, ApiInformation, `NotepadXamlUI` types), asks `Windows.ApplicationModel.UserActivities.
+   UserActivityRequestManager` for a factory interface {dd69f876-9699-4715-9095-e37ea30dfa1b} that Wine's twinapi lacks (E_NOINTERFACE),
+   a C++ exception then propagates out of a `noexcept` function and the process ends. `Windows.Security.EnterpriseData.
+   ProtectionPolicyManager` has no library either, and USP10 forwards `gdi32.ScriptSubstituteSingleGlyph`, which is missing.
+   (Older text of this section, kept for the record:) read the default `OpenSharedDCompositionObject` of FrameworkUdk (table id 7 or 6 of `GetFunctionTableById`) to see which private
    slot of the device it calls, and give Wine's dcomp device that method (open a shared visual from the handle of export 1040) and a visual
    with the private interface.
    The NULL visual itself is still not located: `DCompPrivates_CreateSharedVisual` (default table id 6, slot 1 -> the singleton's slot 14)
