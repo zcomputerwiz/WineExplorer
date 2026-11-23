@@ -33,6 +33,8 @@
  *   svc-sd-set <name>          give Authenticated Users SERVICE_START through SetServiceObjectSecurity
  *   scm-allowed                can connect to the SCM and enumerate (positive control)
  *   token-denied               cannot create a token or a service token
+ *   low-token                  a Low integrity copy (low-child <pid>) can read this process's token with the limited
+ *                              query, but not duplicate, impersonate or assign it
  *   grants <expect>            write Control\ServiceCurrent and ComputerName\ActiveComputerName; expect is "denied" or "allowed"
  *   hold                       sleep 120 seconds
  * Prints "ok ..." / "FAIL ..." lines and "<mode>=PASS" or "<mode>=FAIL"; exit status 0 only if everything passed.
@@ -296,6 +298,13 @@ static void proc_denied_pid(const char *image, DWORD pid)
         { THREAD_SUSPEND_RESUME, "THREAD_SUSPEND_RESUME" }, { THREAD_SET_INFORMATION, "THREAD_SET_INFORMATION" },
         { THREAD_TERMINATE, "THREAD_TERMINATE" }, { THREAD_ALL_ACCESS, "THREAD_ALL_ACCESS" },
     };
+    static const struct { DWORD access; const char *name; } token_rights[] =
+    {
+        { TOKEN_DUPLICATE, "TOKEN_DUPLICATE" }, { TOKEN_IMPERSONATE, "TOKEN_IMPERSONATE" },
+        { TOKEN_ASSIGN_PRIMARY, "TOKEN_ASSIGN_PRIMARY" }, { TOKEN_ADJUST_PRIVILEGES, "TOKEN_ADJUST_PRIVILEGES" },
+        { TOKEN_QUERY | TOKEN_DUPLICATE, "TOKEN_QUERY | TOKEN_DUPLICATE" }, { GENERIC_READ, "GENERIC_READ" },
+        { MAXIMUM_ALLOWED, "MAXIMUM_ALLOWED" }, { TOKEN_ALL_ACCESS, "TOKEN_ALL_ACCESS" },
+    };
     NTSTATUS (WINAPI *get_next)(HANDLE, ACCESS_MASK, ULONG, ULONG, HANDLE *);
     DWORD tid, err;
     HANDLE h, next, last;
@@ -316,6 +325,19 @@ static void proc_denied_pid(const char *image, DWORD pid)
     h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
     snprintf(what, sizeof(what), "OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE) of %s %lu works (error %lu)", image, pid, GetLastError());
     check(h != NULL, what);
+    /* the limited query opens a token for reading only: never a right that copies, uses or changes a SYSTEM token */
+    for (i = 0; h && i < sizeof(token_rights) / sizeof(token_rights[0]); i++)
+    {
+        HANDLE token = NULL;
+
+        SetLastError(0);
+        if (OpenProcessToken(h, token_rights[i].access, &token)) err = 0;
+        else err = GetLastError();
+        snprintf(what, sizeof(what), "OpenProcessToken(%s) of %s %lu with the limited query is denied (error %lu)",
+                 token_rights[i].name, image, pid, err);
+        check(err == ERROR_ACCESS_DENIED, what);
+        if (token) CloseHandle(token);
+    }
     if (h) CloseHandle(h);
     tid = find_tid(pid);
     if (tid)
@@ -608,6 +630,105 @@ static void scm_allowed(void)
     if (scm) CloseServiceHandle(scm);
 }
 
+/* ---- a Low integrity program and the token of a normal one ---------------------------------------------- */
+
+static DWORD token_integrity(HANDLE token)
+{
+    BYTE buf[sizeof(TOKEN_MANDATORY_LABEL) + SECURITY_MAX_SID_SIZE];
+    DWORD len;
+    SID *sid;
+
+    if (!GetTokenInformation(token, TokenIntegrityLevel, buf, sizeof(buf), &len)) return 0;
+    sid = ((TOKEN_MANDATORY_LABEL *)buf)->Label.Sid;
+    return sid->SubAuthority[sid->SubAuthorityCount - 1];
+}
+
+/* in the Low integrity child: as on Windows, the limited query opens the parent's token for reading (what a client
+ * needs to check a pipe's server), but not for copying or using it */
+static void low_child(DWORD parent)
+{
+    static const struct { DWORD access; const char *name; } denied[] =
+    {
+        { TOKEN_DUPLICATE, "TOKEN_DUPLICATE" }, { TOKEN_IMPERSONATE, "TOKEN_IMPERSONATE" },
+        { TOKEN_ASSIGN_PRIMARY, "TOKEN_ASSIGN_PRIMARY" }, { TOKEN_QUERY | TOKEN_DUPLICATE, "TOKEN_QUERY | TOKEN_DUPLICATE" },
+        { MAXIMUM_ALLOWED, "MAXIMUM_ALLOWED" },
+    };
+    HANDLE own, process, token;
+    char what[160];
+    DWORD err, value, len;
+    unsigned int i;
+
+    check(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &own) && token_integrity(own) == SECURITY_MANDATORY_LOW_RID,
+          "the child runs at Low integrity");
+    process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, parent);
+    check(process != NULL, "a Low integrity program opens a normal one with PROCESS_QUERY_LIMITED_INFORMATION");
+    if (!process) return;
+    if (OpenProcessToken(process, TOKEN_QUERY, &token))
+    {
+        check(token_integrity(token) == SECURITY_MANDATORY_MEDIUM_RID, "it reads the normal program's token: Medium integrity");
+        check(GetTokenInformation(token, TokenIsAppContainer, &value, sizeof(value), &len) && !value &&
+              GetTokenInformation(token, TokenIsRestricted, &value, sizeof(value), &len) && !value,
+              "it reads whether that token is an AppContainer or restricted one");
+        CloseHandle(token);
+    }
+    else check(0, "OpenProcessToken(TOKEN_QUERY) of the normal program from Low integrity works");
+    for (i = 0; i < sizeof(denied) / sizeof(denied[0]); i++)
+    {
+        token = NULL;
+        SetLastError(0);
+        if (OpenProcessToken(process, denied[i].access, &token)) err = 0;
+        else err = GetLastError();
+        snprintf(what, sizeof(what), "OpenProcessToken(%s) of the normal program from Low integrity is denied (error %lu)",
+                 denied[i].name, err);
+        check(err == ERROR_ACCESS_DENIED, what);
+        if (token) CloseHandle(token);
+    }
+    CloseHandle(process);
+}
+
+/* start a copy of this program with the own token lowered to Low integrity; it checks the token of this process */
+static void low_token(void)
+{
+    SID_IDENTIFIER_AUTHORITY label = { SECURITY_MANDATORY_LABEL_AUTHORITY };
+    TOKEN_MANDATORY_LABEL tml = { { 0, SE_GROUP_INTEGRITY } };
+    STARTUPINFOA si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    char path[MAX_PATH], cmd[MAX_PATH + 64], what[128];
+    HANDLE own, low;
+    DWORD code = 1;
+    PSID sid;
+
+    check(OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY, &own) &&
+          token_integrity(own) == SECURITY_MANDATORY_MEDIUM_RID, "this program runs at Medium integrity");
+    if (!DuplicateTokenEx(own, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenPrimary, &low))
+    {
+        check(0, "duplicate the own token");
+        return;
+    }
+    AllocateAndInitializeSid(&label, 1, SECURITY_MANDATORY_LOW_RID, 0, 0, 0, 0, 0, 0, 0, &sid);
+    tml.Label.Sid = sid;
+    check(SetTokenInformation(low, TokenIntegrityLevel, &tml, sizeof(tml)), "lower the duplicate to Low");
+    FreeSid(sid);
+    GetModuleFileNameA(NULL, path, sizeof(path));
+    snprintf(cmd, sizeof(cmd), "\"%s\" low-child %lu", path, GetCurrentProcessId());
+    fflush(stdout);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    if (CreateProcessAsUserA(low, NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
+    {
+        check(!WaitForSingleObject(pi.hProcess, 60000), "the Low integrity child finishes");
+        GetExitCodeProcess(pi.hProcess, &code);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+    snprintf(what, sizeof(what), "the Low integrity child ran and passed (exit code %lu)", code);
+    check(code == 0, what);
+    CloseHandle(low);
+    CloseHandle(own);
+}
+
 static void token_denied(void)
 {
     NTSTATUS (WINAPI *create)(HANDLE *, ACCESS_MASK, OBJECT_ATTRIBUTES *, TOKEN_TYPE, LUID *, LARGE_INTEGER *,
@@ -737,6 +858,8 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "svc-sd-set")) svc_sd_set(arg);
     else if (!strcmp(mode, "start-service") && argc > 3) start_service(argv[2], atoi(argv[3]));
     else if (!strcmp(mode, "token-denied")) token_denied();
+    else if (!strcmp(mode, "low-token")) low_token();
+    else if (!strcmp(mode, "low-child")) low_child(strtoul(arg, NULL, 10));
     else if (!strcmp(mode, "grants")) grants(arg);
     else if (!strcmp(mode, "hold")) Sleep(120000);
     else { printf("usage: probe <mode> [arguments]\n"); return 2; }

@@ -727,6 +727,9 @@ for u in $C3_USERS; do
         expect_rpass "c3_${u}_scm_create_and_reconfigure_denied_$arch" "$u" "$arch" scm-denied WexSvcSys
         expect_rpass "c3_${u}_scm_create_and_reconfigure_denied_ns_$arch" "$u" "$arch" scm-denied WexSvcNs   # WexSvcLs got a descriptor above
         expect_rpass "c3_${u}_cannot_create_tokens_$arch" "$u" "$arch" token-denied
+        # the limited query opens a token for reading only (server/token.c, open_token): a Low integrity program reads
+        # a normal program's token, as on Windows, but cannot duplicate or use it
+        expect_rpass "c3_${u}_low_integrity_reads_but_cannot_copy_a_token_$arch" "$u" "$arch" low-token
         expect_rpass "c3_${u}_scm_connect_and_enumerate_work_$arch" "$u" "$arch" scm-allowed
         expect_rpass "c3_${u}_boot_state_grants_are_gone_$arch" "$u" "$arch" grants denied
     done
