@@ -298,10 +298,12 @@ section_enter() { set -e; SEC_IN=1; SEC_PID=$BASHPID; trap section_dump EXIT; }
 section_skip() { echo "$*" > "$SEC_DIR/skip"; exit 0; }
 section_dump()   # the section's EXIT trap: hands its functions and variables to the suite's shell
 {
-    local sec_rc=$? sec_names
+    local sec_rc=$? sec_cmd="$BASH_COMMAND" sec_names
     set +e
     trap - EXIT
     [ "$BASHPID" = "$SEC_PID" ] || exit "$sec_rc"
+    # a section that set -e ended at a failing command says which one (fail() and fatal() say why themselves)
+    case "$sec_rc:$sec_cmd" in 0:*|*:exit*) ;; *) echo "FAIL: section $SEC_CUR ended at a failing command: $sec_cmd" >&2 ;; esac
     if [ "$sec_rc" = 0 ] && [ "$(sec_forced)" = end ] && [ ! -s "$SEC_DIR/skip" ]; then
         echo "FAIL: forced after the body of section $SEC_CUR (WEX_SECTION_FORCE_FAIL, a test of the restore)" >&2; sec_rc=1
     fi
@@ -1268,7 +1270,13 @@ el_down()
         sleep 0.1
     done
 }
-el_wait_file() { local i; for i in $(seq 1 90); do [ -e "$1" ] && return 0; sleep 1; done; fail "no $1"; }
+el_wait_file()
+{
+    local i
+    for i in $(seq 1 90); do [ -e "$1" ] && return 0; sleep 1; done
+    { echo "--- no $1 after 90 s; the processes of $ADM and $STD:"; ps -u "$ADM","$STD" -o user,pid,stat,etimes,args; } >&2 2>/dev/null || true
+    fail "no $1"
+}
 el_proc() { local p; for p in $(pgrep -u "$1" -f "$2"); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || { echo "$p"; return; }; done; }
 el_fact() { grep -m1 "^$2=" "$1" | cut -d= -f2- | tr -d '\r'; }
 SYS32="$M/drive_c/windows/system32"
@@ -1654,9 +1662,10 @@ if command -v mkudffs >/dev/null 2>&1; then
     else
         fstype="$(stat -f -c %T "$UDMMNT")"
         grep -qi '^udf' <<<"$fstype" || { umount "$UDMMNT"; fail "the mounted file system is not UDF: $fstype"; }
-        UDFLINE="$(grep 'define WEXELEVATE_E_NO_IMAGE_LEASE' "$SRC/src/include/wexelevate.h")"
-        UDFHEX="$(printf '%s' "$UDFLINE" | grep -oE '0x[0-9a-fA-F]+' | head -1)"
-        [ -n "$UDFHEX" ] || { umount "$UDMMNT"; fail "WEXELEVATE_E_NO_IMAGE_LEASE is not in wexelevate.h"; }
+        # (wexelevate_proto.h since 80b65c87; a missing define is reported below, not ended at by set -e)
+        UDFLINE="$(grep -h 'define WEXELEVATE_E_NO_IMAGE_LEASE' "$SRC"/src/include/wexelevate*.h || true)"
+        UDFHEX="$(printf '%s' "$UDFLINE" | grep -oE '0x[0-9a-fA-F]+' | head -1 || true)"
+        [ -n "$UDFHEX" ] || { umount "$UDMMNT"; fail "WEXELEVATE_E_NO_IMAGE_LEASE is not defined in src/include/wexelevate*.h"; }
         UDFERR="$(printf '%d' "$UDFHEX")"
         WUDF="$(winpath "$UDMMNT/udf.exe")"
         bp c4_udf_image_is_refused_with_the_brokers_own_error "$ADM" 64 run "$WUDF" "$UDFERR" "$(winpath $EL/out.udf)" -
@@ -3299,11 +3308,18 @@ for arch in x86_64 i386; do
     for t in dwm_channel dwm_attr dwm_thumb; do
         out="$DWMOUT/$t-$arch.txt"; rm -f "$out" "$out.done"
         # explorer starts dwm.exe, then the command; explorer does not exit afterwards: the .done marker ends the wait
-        run_as "$ADM" timeout 120 "$BUILD/wine" explorer.exe "/desktop=$desk,800x600" cmd /c \
+        # Wine's errors and explorer's warnings go to a log of their own (shown when the test does not pass)
+        run_as "$ADM" env WINEDEBUG=err+all,warn+explorer timeout 120 "$BUILD/wine" explorer.exe "/desktop=$desk,800x600" cmd /c \
             "$(winpath "$DWMT/$arch-windows/dwmapi_test.exe") $t > $(winpath "$out") 2>&1 & echo done > $(winpath "$out.done")" \
-            >/dev/null 2>&1 &
+            >"$out.wine" 2>&1 &
         launcher=$!
-        for _ in $(seq 1 110); do [ -e "$out.done" ] && break; sleep 1; done
+        dwm_seen=""
+        for i in $(seq 1 110); do
+            [ -e "$out.done" ] && break
+            # the processes while the test waits for its broker (it gives it 5 s): is dwm.exe there, and on which desktop
+            [ "$i" != 4 ] || dwm_seen="$(ps -u "$ADM" -o pid,stat,etimes,args | grep -E 'dwm\.exe|explorer\.exe|dwmapi_test' | grep -v grep || true)"
+            sleep 1
+        done
         # end that desktop's explorer (dwm.exe follows its parent), at most 10 s
         pkill -u "$ADM" -f "desktop=$desk" 2>/dev/null || true
         kill "$launcher" 2>/dev/null; wait "$launcher" 2>/dev/null || true
@@ -3314,6 +3330,8 @@ for arch in x86_64 i386; do
             ok "c4_dwm_${t}_tests_pass_as_the_limited_administrator_$arch"
         else
             echo "c4_dwm $t $arch: FAIL" >&2; dwm_fail="$dwm_fail $t/$arch"
+            { echo "--- c4_dwm $t $arch: processes after 4 s:"; echo "${dwm_seen:-(none of dwm.exe, explorer.exe, dwmapi_test)}"
+              echo "--- c4_dwm $t $arch: Wine's errors:"; tr -d '\r' < "$out.wine" | grep -v '^$' | tail -25; } >&2 || true
         fi
     done
     wine_as "$ADM" reg delete "HKCU\Software\Wine\Explorer\Desktops\\$desk" /f >/dev/null 2>&1 || true
