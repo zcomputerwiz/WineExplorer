@@ -267,3 +267,15 @@ owner's real sign-ins (no tokens kept) and, for the shapes, from the Windows pro
   if it does and that parameter is not public, the broker stops there.
 - Where `tokenbroker.exe` starts from: on demand by the WinRT side (simplest), or as a per-session service that
   wexhost starts.
+
+### Edge's first-run "Sign in" page, and `login.windows.local` (2026-11-23)
+
+- On a PC with a local account, a probe on Windows measured: `FindAccountProviderAsync("https://login.windows.local")`
+  answers null, `FirstSignInSettings.GetDefault()` is an empty map, and the user has no account name. Edge on that PC
+  still signs a fresh profile in at once (an implicit sign-in from another source; not the default account).
+- Tried in Wine: the same null answer for `login.windows.local` with the broker. Copilot then took a different path and
+  showed a Microsoft error page ("Something went wrong [4otqj]") although the broker had signed it in; with the
+  provider served again Copilot loads signed in. The null answer was reverted: keep serving the provider.
+- Open: Edge's first-run Sign in button does nothing in the VM (no interactive request reaches the broker; only
+  `FindAllAccounts` finds nothing, and `Windows.System.UserProfile.FirstSignInSettings` is requested and missing). The
+  profile menu's sign-in works, and its window now stays in front (the broker's window is topmost while open).
