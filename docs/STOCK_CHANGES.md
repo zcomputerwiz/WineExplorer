@@ -4040,3 +4040,44 @@ user (`scripts/rootstore-probe.c`). Test `testUserStoreIncludesMachineStore` in 
 `Software\Microsoft\SystemCertificates` with `KEY_WOW64_64KEY`: the stores are shared between the 32-bit and 64-bit
 registry views, as on Windows. Redirected, a 32-bit program had a copy of its own that only a 32-bit process able to
 write the machine registry filled, so a limited user's 32-bit programs trusted no root on the system tier.
+
+## Wine 11.22 merged into development (2026-11-22)
+
+Wine 9f8c4ae4 (Release 11.22) merged into development (base 86e2f5af), branch `claude/merge-11.22`: merge aaf13667 and
+fix-up 0fed4aa9, then later upstream picks (the Tahoma bitmap strike series 2520107a..f2ba6fa4, 3832d550 and 7f5ecb95
+foreground loss, 77bf09aa key repeats, f90e1feb display mode invalidation, d87fb2f5 relocated PE image info; head
+1c1bac3d). Conflicts and how they were resolved:
+- `server/protocol.def`, generated headers: upstream's `set_file_info` replaces `set_named_pipe_info`, `set_fd_eof_info`,
+  `set_mailslot_info` and `set_fd_completion_mode`; our `get_pipe_caller_binding` kept; headers regenerated with
+  `tools/make_requests` (protocol 986).
+- `server/named_pipe.c`: FilePipeInformation goes through `pipe_end_set_file_info`. Bridged pipes (WexSession0) answer it
+  as before, because both sides hold ordinary pipe ends. The bridge object has no handle and refuses with
+  OBJECT_TYPE_MISMATCH. The client end now also needs FILE_WRITE_ATTRIBUTES (upstream).
+- `server/fd.c`: upstream's disposition-based `open_fd` and `open_file_or_dir` (no Unix write access needed for
+  attributes), opening through `sysrun_open` / `sysrun_mkdir`. The e1s profile parent and descriptor checks are kept, and
+  so is replacing a link on EACCES (FILE_OVERWRITE_IF, or FILE_SUPERSEDE with write-data access).
+- `server/mapping.c` (d87fb2f5): the PE image info's base is the mapped base, set before our `sysrun_main_image`.
+- `dlls/dxgi/swapchain.c`: wined3d reports minimised windows (upstream af38a86c); dxgi still checks a minimised
+  composition target itself.
+- `dlls/msi/custom.c`: the elevation broker path kept, plus x86_64 emulation for custom action servers (a1e2ee08).
+  `dlls/msi/package.c`: `msi_package_file_is_machine` kept, unused `get_product_version` removed.
+- `dlls/shell32/shellpath.c`, `dlls/userenv/userenv_main.c`: upstream's service-account profiles; our E1S13
+  managed-profile branches kept under `WEX_E1S13_HKU_TEST`.
+- `dlls/shell32/shlview.c`: our keyboard verbs kept; upstream's duplicate clipboard key handler dropped.
+- `programs/services/tests/service.c`: includes merged.
+- Fix-up: upstream's `SystemTimeToTzSpecificLocalTimeEx` / `TzSpecificLocalTimeToSystemTimeEx` replace ours (B13), our
+  test kept as `test_TzSpecificLocalTimeEx_dynamic`; a duplicate `hr` in `wined3d_swapchain_present` removed.
+
+ASLR: 11.22 randomizes dll and exe bases and virtual allocations (04e28911, e3b2abfe, 8eb8dd99, 0c1230b9, 5ab6d627).
+Nothing in WineExplorer assumes fixed bases (broker and dialog recognition use the file's device and inode; the PE cache
+and prefetch work on file content and relocate after mapping). Each wineserver picks its own dll base, so session 0 and
+user sessions differ.
+
+2026-11-22 (Wine 0857cc04, branch `claude/samss-first` efb328b7; B76): `programs/services/services.c`
+(`compare_service`): the services that always run (`always_started`: SamSs, a demand-start service, B44) sort before the
+auto-start services, so lsass runs before a service whose start-up loads a security package. Sorted by start type, SamSs
+came after the automatic services, and Office Click-to-Run, registering NTLM for its RPC server, asked for it while the
+auto-start list held the startup lock, waited out the 3-second lock timeout and went without NTLM (no API endpoint, so
+Word's App-V layer failed). `programs/services/rpc.c` (`svcctl_StartServiceW`): a service that runs is answered with
+ERROR_SERVICE_ALREADY_RUNNING without waiting for the startup lock, as on Windows. Wine's advapi32 service tests pass
+(x64 777, x86 795 checks).
