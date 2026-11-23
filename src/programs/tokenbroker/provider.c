@@ -368,13 +368,20 @@ static void store_result( const struct provider *provider, const struct request 
  * The operations
  */
 
+static struct account *account_of_used_client( const struct provider *provider, const struct request *req,
+                                               const WCHAR *hint, WCHAR **client );
+
 static void get_token_silent( const struct provider *provider, const struct request *req, struct reply *reply )
 {
     const WCHAR *hint = request_property( req, L"LoginHint" );
     /* Nested App Authentication: the token is for the child app, through the parent (the request's client) */
     const WCHAR *child = request_property( req, L"child_client_id" );
     const WCHAR *child_redirect = request_property( req, L"child_redirect_uri" );
+    /* The client id whose account and refresh token are used: the request's own, or (below) another one that the
+     * same process has used, when the request's has no account */
+    const WCHAR *parent = req->field[TOKENBROKER_FIELD_CLIENT_ID];
     WCHAR *account_id = NULL, *user_name = NULL, *refresh = NULL, *parent_redirect = NULL;
+    WCHAR *other_client = NULL, *other_redirect = NULL;
     struct account *account, **list;
     struct access_token *token;
     struct token_result r;
@@ -395,11 +402,30 @@ static void get_token_silent( const struct provider *provider, const struct requ
         if (count == 1) account = list[0];
         free( list );
     }
+    /* Windows keeps a Microsoft account for the user, not per client id: any client id gets its token silently for it.
+     * Here a request whose client id has no account uses the account of another client id the same process has used,
+     * and the token is asked for as the request's client through that one (a brokered refresh, as for a nested app). */
+    if (!account && !child && (account = account_of_used_client( provider, req, hint, &other_client )))
+    {
+        size_t len = wcslen( REDIRECT_PREFIX ) + wcslen( req->field[TOKENBROKER_FIELD_CLIENT_ID] ) + 1;
+        if ((other_redirect = malloc( len * sizeof(WCHAR) )))
+        {
+            swprintf( other_redirect, len, L"%s%s", REDIRECT_PREFIX, req->field[TOKENBROKER_FIELD_CLIENT_ID] );
+            parent = other_client;
+            child = req->field[TOKENBROKER_FIELD_CLIENT_ID];
+            child_redirect = other_redirect;
+        }
+        else account = NULL;
+    }
     if (!account)
     {
         cache_unlock();
-        TRACE( "silent: no account\n" );
+        TRACE( "silent: no account (client %s, account id %s, hint %s)\n",
+               debugstr_w( req->field[TOKENBROKER_FIELD_CLIENT_ID] ),
+               debugstr_w( req->field[TOKENBROKER_FIELD_ACCOUNT_ID] ), hint && *hint ? "given" : "none" );
         interaction_required( req, reply );
+        free( other_client );
+        free( other_redirect );
         return;
     }
     if ((token = cache_find_token( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY], account->id,
@@ -411,6 +437,8 @@ static void get_token_silent( const struct provider *provider, const struct requ
         reply_success( reply, req, FALSE, token->token, account->id, account->user_name, token->id_token, token->client_info,
                        token->granted_scope, token->expires_on );
         cache_unlock();
+        free( other_client );
+        free( other_redirect );
         return;
     }
     account_id = strdupW( account->id );
@@ -420,13 +448,13 @@ static void get_token_silent( const struct provider *provider, const struct requ
 
     if (child)
     {
-        unsigned int len = wcslen( REDIRECT_PREFIX ) + wcslen( req->field[TOKENBROKER_FIELD_CLIENT_ID] ) + 1;
+        unsigned int len = wcslen( REDIRECT_PREFIX ) + wcslen( parent ) + 1;
         if ((parent_redirect = malloc( len * sizeof(WCHAR) )))
-            swprintf( parent_redirect, len, L"%s%s", REDIRECT_PREFIX, req->field[TOKENBROKER_FIELD_CLIENT_ID] );
+            swprintf( parent_redirect, len, L"%s%s", REDIRECT_PREFIX, parent );
     }
     if (!refresh || !*refresh) interaction_required( req, reply );
     else if (!(child ? (parent_redirect && oauth_refresh_nested( provider->base, req->field[TOKENBROKER_FIELD_AUTHORITY],
-                                                                req->field[TOKENBROKER_FIELD_CLIENT_ID], parent_redirect,
+                                                                parent, parent_redirect,
                                                                 child, child_redirect,
                                                                 req->field[TOKENBROKER_FIELD_SCOPE], refresh, &r ))
                      : oauth_refresh( provider->base, req->field[TOKENBROKER_FIELD_AUTHORITY],
@@ -463,6 +491,8 @@ static void get_token_silent( const struct provider *provider, const struct requ
     if (refresh) SecureZeroMemory( refresh, wcslen( refresh ) * sizeof(WCHAR) );
     free( refresh );
     free( parent_redirect );
+    free( other_client );
+    free( other_redirect );
     free( account_id );
     free( user_name );
 }
@@ -649,6 +679,37 @@ static void remember_client( unsigned int pid, const WCHAR *client_id )
     free( used[i].client[j] );
     used[i].client[j] = strdupW( client_id );
     if (used[i].count < USED_CLIENTS) used[i].count++;
+}
+
+/* An account that the request's process holds under another client id it has used, and that client id (allocated);
+ * the caller holds the cache lock. */
+static struct account *account_of_used_client( const struct provider *provider, const struct request *req,
+                                               const WCHAR *hint, WCHAR **client )
+{
+    struct account *account = NULL, **list;
+    unsigned int i, j, count;
+
+    *client = NULL;
+    for (i = 0; req->client_pid && i < USED_PROCESSES && !account; i++)
+    {
+        if (used[i].pid != req->client_pid) continue;
+        for (j = 0; j < used[i].count && !account; j++)
+        {
+            const WCHAR *other = used[i].client[j];
+
+            if (!other || !wcscmp( other, req->field[TOKENBROKER_FIELD_CLIENT_ID] )) continue;
+            account = cache_find_account( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY],
+                                          req->field[TOKENBROKER_FIELD_ACCOUNT_ID], hint, other );
+            if (!account && !*req->field[TOKENBROKER_FIELD_ACCOUNT_ID] && (!hint || !*hint))
+            {
+                count = cache_list_accounts( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY], other, &list );
+                if (count == 1) account = list[0];
+                free( list );
+            }
+            if (account) *client = strdupW( other );
+        }
+    }
+    return account;
 }
 
 /* by id, for the request's client; with no client id, for the clients the calling process has used */
