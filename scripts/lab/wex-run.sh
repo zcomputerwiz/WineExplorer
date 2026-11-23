@@ -9,6 +9,8 @@
 #
 # MODE, the cheapest that covers the change:
 #   labsuite  lab suite only, no builds      (lab scripts, verifier, worker or suite script changed)
+#             (the lab suite runs the lab's sections and a smoke set of ordinary ones with the lab build, not the
+#             normal suite again; WEX_LAB_FULL=1 runs every section there)
 #   normalsuite  normal suite and broker test on the existing build, no sync or build
 #   t1suite   T1 on the existing build, no sync or build
 #             (the suite-only modes refuse a build that was not made from this worktree's wine commit and src: a
@@ -221,7 +223,7 @@ if [ "$MODE" = full ] || [ "$MODE" = labt1 ] || [ "$MODE" = t1suite ]; then
 fi
 if [ "$MODE" = normal ] || [ "$MODE" = full ] || [ "$MODE" = normalsuite ]; then
     suite "$MAIN" scripts/test_sysrun_server.sh $LOGS/normal.log && stage "normal: $(passed $LOGS/normal.log)$PARTIAL" ok ||
-        { stage normal FAILED; grep -m3 '^FAIL' $LOGS/normal.log; }
+        { stage normal FAILED; grep -m3 '^FAIL' $LOGS/normal.log; grep '^SECTION [^ ]* *FAIL' $LOGS/normal.log; }
     ( cd "$SNAP" && bash scripts/test_broker_e1s18.sh ) > $LOGS/broker.log 2>&1 && stage broker ok ||
         { stage broker FAILED; tail -3 $LOGS/broker.log; }
 fi
@@ -231,7 +233,7 @@ if [ "$MODE" = lab ] || [ "$MODE" = full ] || [ "$MODE" = labt1 ]; then
 fi
 if [ "$MODE" = labsuite ] || [ "$MODE" = lab ] || [ "$MODE" = full ] || [ "$MODE" = labt1 ]; then
     suite "$LAB" scripts/test_e1s6_transport.sh $LOGS/lab.log && stage "lab: $(passed $LOGS/lab.log)" ok ||
-        { stage lab FAILED; grep -m3 '^FAIL' $LOGS/lab.log; }
+        { stage lab FAILED; grep -m3 '^FAIL' $LOGS/lab.log; grep '^SECTION [^ ]* *FAIL' $LOGS/lab.log; }
 fi
 echo "ALL $([ $RC = 0 ] && echo PASS || echo FAILED) $MODE $TREE ($(( (SECONDS - T0 + 30) / 60 )) min)$PARTIAL"
 exit $RC
