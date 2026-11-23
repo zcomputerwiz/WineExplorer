@@ -108,6 +108,12 @@ program (Copilot, ...)                         per-user broker process (tokenbro
   used, the sign-in pages need a current engine.
 - **Accounts and tokens**: `WebAccount` objects (`Id` = the account's object id, `UserName` = its sign-in name,
   `WebAccountProvider`), `FindAllAccountsAsync` from the cache, `GetTokenSilentlyAsync` by refresh token.
+- **The broker's sources** (`src/programs/tokenbroker`): `main.c` the process, pipe, caller checks and protocol;
+  `provider.c` the providers and operations; `answer.c` the answer's shape (WAM's for a Microsoft account);
+  `oauth.c` the OAuth flows (one refresh function, optionally through a broker client); `signin.c` the sign-in
+  state machine and test hook; `webview.c` the WebView2 window; `cache.c` accounts and tokens; `util.c` strings,
+  JSON, HTTP and the shared helpers (`user_only_descriptor`, `scope_has`, `request_login_hint`, `reply_failure`).
+  The status of a `FIND_ACCOUNT` reply is `TOKENBROKER_ACCOUNT_FOUND` or `_NONE` (`wine/tokenbroker.h`).
 
 ## Flows
 
@@ -200,8 +206,8 @@ What the library did with our earlier answer (a bare JWT as Token, six `wamcompa
 Connected, no account properties): it read `ResponseStatus`, the response data, the account's `Id`, all response
 properties and the `Token`, and then showed its error page without reading anything else; so the cause is in the
 account `Id` form, the response properties or the `Token` form. The answer is built to the measured shape now
-(`src/programs/tokenbroker/provider.c`: `public_account_id`, `account_properties`, `telemetry_property`,
-`batch_token`; `dlls/windows.security.authentication.web.core`: `TOKENBROKER_REPLY_ACCOUNT_PROPERTIES`,
+(`src/programs/tokenbroker/answer.c`, until 2026-11-23 in `provider.c`: `public_account_id`, `account_properties`,
+`telemetry_property`, `batch_token`; `dlls/windows.security.authentication.web.core`: `TOKENBROKER_REPLY_ACCOUNT_PROPERTIES`,
 `IWebAccount2::get_Properties`, state `None` for the `consumers` authority). Branches: superproject
 `claude/vintner-boot-integration` (commits 287bbd88 and 1d661628), Wine `claude/webaccount-properties`. Status: see
 the owner's retries in `docs/HANDOFF.md` once they have run; `AgeGroup` is not sent because the id token does not tell
@@ -250,11 +256,11 @@ owner's real sign-ins (no tokens kept) and, for the shapes, from the Windows pro
 - Brokered requests for other first-party client ids (MSN `f3222e55-...`, OneService `d7b530a4-...`, the Bing scope)
   are answered HTTP 400 `invalid_request` by the token endpoint; the broker logs only the code, not the text. Edge's sync
   works without them.
-- **The sign-in window opens behind other windows**: behind Edge's full-screen first-run page and Edge's own "Sign in"
-  popup (for Copilot it was on top). It has to be raised by hand (`xdotool windowraise`). Next: `SetForegroundWindow`
-  plus the owner window (`webview.c`).
+- ~~The sign-in window opens behind other windows~~: fixed, the broker's window is topmost while open (see "Edge and GPU
+  rendering").
 - Edge's window stays black with GPU rendering (the default) in the QEMU test VM (no GPU: software GL, `llvmpipe`); with
-  `--disable-gpu` it draws. Not looked at yet.
+  `--disable-gpu` it draws. A try in WSL with the GPU is in "Edge and GPU rendering" (no result).
+- Edge's first-run "One more step" page does not finish (see "Edge's first run, resolved").
 - A Copilot VM needs about 7 GB resident at idle on software GL (16 Chromium processes, 3 GPU processes, no leak): a 4 GB
   VM is killed by the OOM killer.
 - The silent answer's `MATS` has 22 keys on Windows; the broker sends the nine of the interactive answer.
@@ -293,3 +299,29 @@ owner's real sign-ins (no tokens kept) and, for the shapes, from the Windows pro
   arrow does not skip it); restarting Edge completes the setup. Not looked into further: it likely waits for a Windows
   notification or the internal `Windows.Internal.Security.WebAuthentication.AuthenticationManager`, which is missing.
 - `--force-first-run` is not a fair test: with the shared store present the flow behaves differently.
+
+### Edge and GPU rendering (2026-11-23)
+
+- **The sign-in window is no longer behind Edge.** It is created unowned (Edge's request has window handle 0) and
+  Edge's full-screen first-run page is topmost, so the broker's window is kept `HWND_TOPMOST` while it is open and
+  raised (`ShowWindow`, `SetForegroundWindow`) at creation and when the browser control is ready (`webview.c`,
+  `raise_window`). A non-topmost raise was not enough.
+- **Edge's black or white window is not a broker or sign-in problem.** In the QEMU test VM (software GL, `llvmpipe`) the
+  window is black with GPU rendering on and draws with `--disable-gpu`. Not investigated further.
+- **GPU in WSL (tried, does not work yet).** WSL2 has `/dev/dxg` and Mesa's `d3d12` driver: with
+  `GALLIUM_DRIVER=d3d12`, `glxinfo` reports "D3D12 (Intel(R) UHD Graphics)", OpenGL 4.1. A WoW64 Wine build from
+  `/root/WE-integ` with Edge installed in a bare prefix gave:
+
+  | Wine display driver | Edge flags | Result |
+  |---|---|---|
+  | x11 (XWayland) | GPU on | Edge crashes: Mesa "Failed to attach to x11 shm" |
+  | wayland | GPU on | window shows but stays white (title is right) |
+  | wayland | `--disable-gpu` | the same white window |
+  | x11 (XWayland) | `--disable-gpu` | `about:gpu` draws, but the window takes no input (processes busy, not hung) |
+
+  So acceleration is blocked by both display paths in WSLg, and Wine's Wayland driver does not paint Edge's window at
+  all (not specific to the GPU). Not pursued: a Hyper-V VM with GPU paravirtualisation is the way to try real
+  acceleration later; the QEMU VM stays the test bed (software rendering). Recipe for a retry: unset `DISPLAY`, set
+  `WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir GALLIUM_DRIVER=d3d12`, start `msedge.exe
+  --user-data-dir=C:\gpu-edge --no-first-run about:gpu`. Note `pkill -f msedge` inside a `bash -c '...msedge...'` kills
+  the calling shell; start such tests from a script file.

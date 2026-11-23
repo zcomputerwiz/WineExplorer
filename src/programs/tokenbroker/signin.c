@@ -51,7 +51,8 @@ BOOL signin_transition( struct signin *signin, enum signin_state to )
     return TRUE;
 }
 
-static void signin_fail( struct signin *signin, enum signin_state to, const WCHAR *code, const WCHAR *message )
+/* to cancelled or failed, with the error */
+void signin_fail( struct signin *signin, enum signin_state to, const WCHAR *code, const WCHAR *message )
 {
     if (!signin_transition( signin, to )) return;
     free( signin->error );
@@ -107,22 +108,25 @@ BOOL signin_redirect( struct signin *signin, const WCHAR *url )
     }
     else signin_fail( signin, SIGNIN_FAILED, L"invalid_response", L"The sign-in answer has no code." );
     free( state );
-    if (code) SecureZeroMemory( code, wcslen( code ) * sizeof(WCHAR) );
-    free( code );
+    wipe_free( code );
     free( error );
     free( description );
     return TRUE;
 }
 
+/* the length of a URL's scheme and host (its origin), 0 for no scheme */
+static size_t url_origin_len( const WCHAR *url )
+{
+    const WCHAR *scheme_end = wcsstr( url, L"://" );
+
+    return scheme_end ? (scheme_end + 3 - url) + wcscspn( scheme_end + 3, L"/?#" ) : 0;
+}
+
 static BOOL same_origin( const WCHAR *a, const WCHAR *b )
 {
-    const WCHAR *ea = wcsstr( a, L"://" ), *eb = wcsstr( b, L"://" );
-    size_t la, lb;
+    size_t la = url_origin_len( a ), lb = url_origin_len( b );
 
-    if (!ea || !eb) return FALSE;
-    la = wcscspn( ea + 3, L"/?#" ) + (ea + 3 - a);
-    lb = wcscspn( eb + 3, L"/?#" ) + (eb + 3 - b);
-    return la == lb && !wcsnicmp( a, b, la );
+    return la && la == lb && !wcsnicmp( a, b, la );
 }
 
 /* The test hook: the "window" is a chain of HTTP requests that follows the test authority's redirects. A page that
@@ -147,8 +151,7 @@ void signin_run_test( struct signin *signin )
         if (response.status >= 300 && response.status < 400 && response.location && response.location[0] == '/')
         {
             /* a path on the same origin (RFC 9110 allows a relative Location) */
-            const WCHAR *scheme_end = wcsstr( url, L"://" );
-            size_t origin = scheme_end ? (scheme_end + 3 - url) + wcscspn( scheme_end + 3, L"/?#" ) : 0;
+            size_t origin = url_origin_len( url );
             struct text full = {0};
 
             if (!origin || !text_append( &full, url, origin ) || !text_append_str( &full, response.location ))
