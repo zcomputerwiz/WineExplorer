@@ -142,3 +142,34 @@ The log of a run with `+relay` is the other lesson: the null call was reached th
 State after that: no crash of the application any more; Notepad runs its window procedures and creates windows, but still throws
 in them: access violations in `user_callback_handler` (8 per run) and one divide by zero (`c0000094`), and no window of Notepad is
 shown. Next step: find the first of those exceptions (the same stack-dump trick, now for these exceptions).
+
+## ALPC impersonation, as measured on Windows 11 (2026-11-23)
+
+`tests/uwp/alpc/alpc-imp.c` (a server thread or a restricted-token server child, a client process or thread) gave:
+
+* Impersonation needs `ALPC_PORTFLG_ALLOWIMPERSONATION` in the attributes of the **connection port** (the server's
+  `NtAlpcCreatePort`); the flags of the client's attributes do not matter. Without it: `STATUS_ACCESS_DENIED`. The message is looked up
+  first: an id that was never received gives `STATUS_INVALID_MESSAGE` whatever the flag says. The client id of the message header is not
+  used (a changed one gives the same result).
+* Impersonation only has an effect when the **message was sent with a security attribute** (`ALPC_MESSAGE_SECURITY_ATTRIBUTE`, with a
+  context made by `NtAlpcCreateSecurityContext` and a quality of service). Without it the call succeeds and the thread gets no token, for
+  a connection request as well (the connect has no such attribute in `CoreMessagingXP`). The level of the token is the one in the attribute:
+  1 gives an identification token, 2 an impersonation token, 3 stays 3 (not copied by Wine, it is capped to 2), 0 gives an anonymous
+  token (`OpenThreadToken` fails with `ERROR_CANT_OPEN_ANONYMOUS_TOKEN`; Wine gives a level 0 copy).
+* A server without privileges that is less trusted than the client (low integrity server, medium client, the same user) gets an
+  identification-level token; with the same integrity it gets the level of the attribute. This is the rule of the named pipes
+  (`token_impersonation_level`: `SeImpersonatePrivilege`, or the same user and not less trusted and not less elevated); the server
+  uses the same helper for ALPC.
+* A port whose security descriptor does not allow the connect right (bit 1) refuses `NtAlpcConnectPort` with `STATUS_ACCESS_DENIED`; the
+  creator gets its handle whatever the descriptor says.
+
+What the server does (Wine): the token of the sending thread is taken **when the message is sent** (only with a security attribute) and kept
+with the pending message; impersonation duplicates exactly that token, at the lowest of the attribute's level and the level the helper
+allows. Thread and process ids play no part. `ntdll/tests/alpc.c` has the tests that can be observed inside one process (a client that
+changes its token after sending; levels 1 and 2; no attribute); the downgrade for a less trusted server needs two processes and is only in
+the probe (`SRVLOW=1 SRVFLAGS=10000 alpc-imp 10000 2 secattr srvrestricted`).
+
+`\RPC Control` is a plain root directory without a security descriptor, like `NLS`: anyone can create ports in it, the first creator of a
+name wins (a second create of the name opens the same port, there is no replace). Names that our own services use have to be created when
+the service starts (services.exe starts first); there is no reserved-names list. A client that must be sure it talks to the service checks
+the process or the token of the server, not the name.

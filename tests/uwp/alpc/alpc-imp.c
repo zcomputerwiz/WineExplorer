@@ -50,10 +50,12 @@ static NTSTATUS (WINAPI *pAcceptConnectPort)(HANDLE *, HANDLE, ULONG, OBJATTR *,
 static NTSTATUS (WINAPI *pSendWaitReceive)(HANDLE, ULONG, APMSG *, AMATTR *, APMSG *, SIZE_T *, AMATTR *, LARGE_INTEGER *);
 static NTSTATUS (WINAPI *pImpersonate)(HANDLE, APMSG *, void *);
 static void (WINAPI *pInitUstr)(USTR *, const WCHAR *);
+static NTSTATUS (WINAPI *pInitAttr)(ULONG, AMATTR *, SIZE_T, SIZE_T *);
+static NTSTATUS (WINAPI *pCreateCtx)(HANDLE, ULONG, void *);
 
 static const WCHAR port_name[] = L"\\RPC Control\\WexAlpcImp";
 static HANDLE conn_port;
-static int forge;
+static int forge, secattr, srv_restricted;
 
 static void report_token(const char *what)
 {
@@ -167,7 +169,30 @@ static int client(ULONG pflags, int qos)
         memcpy(m + 1, "req", 3);
         m->DataLength = 3;
         m->TotalLength = sizeof(APMSG) + 3;
-        st = pSendWaitReceive(client, 0, m, NULL, NULL, NULL, NULL, NULL);
+        if (secattr)
+        {
+            char ab[128];
+            AMATTR *a = (AMATTR *)ab;
+            SIZE_T req;
+            SECURITY_QUALITY_OF_SERVICE sqos = { sizeof(sqos), qos < 0 ? 0 : qos, 0, 1 };
+            struct { ULONG Flags; void *QoS; HANDLE Ctx; } *sa;
+
+            pInitAttr(0x80000000, a, sizeof(ab), &req);
+            sa = (void *)(a + 1);
+            sa->Flags = 0;
+            sa->QoS = &sqos;
+            sa->Ctx = NULL;
+            if (pCreateCtx)
+            {
+                NTSTATUS cst = pCreateCtx(client, 0, sa);
+
+                printf("create security context: %08lx, handle %s\n", (ULONG)cst, sa->Ctx ? "set" : "null");
+            }
+            a->ValidAttributes = 0x80000000;
+            st = pSendWaitReceive(client, 0, m, a, NULL, NULL, NULL, NULL);
+        }
+        else
+            st = pSendWaitReceive(client, 0, m, NULL, NULL, NULL, NULL, NULL);
         printf("send request: %08lx\n", (ULONG)st);
         Sleep(1500);
         CloseHandle(client);
@@ -192,13 +217,50 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "forge")) forge = 1;
         if (!strcmp(argv[i], "deny")) deny = 1;
         if (!strcmp(argv[i], "inproc")) in_process = 1;
+        if (!strcmp(argv[i], "secattr")) secattr = 1;
+        if (!strcmp(argv[i], "srvrestricted")) srv_restricted = 1;
     }
 #define GET(n, f) *(FARPROC *)&f = GetProcAddress(nt, n)
     GET("NtAlpcCreatePort", pCreatePort); GET("NtAlpcConnectPort", pConnectPort);
     GET("NtAlpcAcceptConnectPort", pAcceptConnectPort); GET("NtAlpcSendWaitReceivePort", pSendWaitReceive);
-    GET("NtAlpcImpersonateClientOfPort", pImpersonate); GET("RtlInitUnicodeString", pInitUstr);
+    GET("NtAlpcImpersonateClientOfPort", pImpersonate); GET("RtlInitUnicodeString", pInitUstr); GET("AlpcInitializeMessageAttribute", pInitAttr); GET("NtAlpcCreateSecurityContext", pCreateCtx);
 
+    if (argc > 1 && !strcmp(argv[1], "serverchild")) in_process = 2;
+    if (argc > 4 && !strcmp(argv[1], "client")) secattr = !strcmp(argv[4], "secattr");
     if (argc > 3 && !strcmp(argv[1], "client")) return client(strtoul(argv[2], NULL, 16), atoi(argv[3]));
+
+    if (srv_restricted && in_process != 2)
+    {
+        /* the server is a child with a restricted token (no privileges); this process, with its full token, is the client */
+        char cmd[MAX_PATH + 64];
+        STARTUPINFOA si = { sizeof(si) };
+        PROCESS_INFORMATION pi;
+        HANDLE self = NULL, restricted = NULL;
+
+        sprintf(cmd, "\"%s\" serverchild 0 0", argv[0]);
+        OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY, &self);
+        CreateRestrictedToken(self, DISABLE_MAX_PRIVILEGE, 0, NULL, 0, NULL, 0, NULL, &restricted);
+        if (getenv("SRVLOW"))
+        {
+            /* the server runs at low integrity: the client (medium) is more trusted than it */
+            TOKEN_MANDATORY_LABEL label = { { NULL, SE_GROUP_INTEGRITY } };
+            HANDLE dup = NULL;
+
+            DuplicateTokenEx(restricted, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenPrimary, &dup);
+            if (dup) { CloseHandle(restricted); restricted = dup; }
+
+            ConvertStringSidToSidA("S-1-16-4096", &label.Label.Sid);
+            if (!SetTokenInformation(restricted, TokenIntegrityLevel, &label, sizeof(label) + GetLengthSid(label.Label.Sid)))
+                printf("SetTokenInformation error %lu\n", GetLastError());
+        }
+        if (!CreateProcessAsUserA(restricted, NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
+            printf("CreateProcessAsUser error %lu\n", GetLastError());
+        Sleep(1500);
+        pInitUstr(&us, port_name);
+        client(pflags, qos);
+        WaitForSingleObject(pi.hProcess, 8000);
+        return 0;
+    }
 
     pInitUstr(&us, port_name);
     oa.ObjectName = &us;
@@ -216,7 +278,9 @@ int main(int argc, char **argv)
     if (st) return 1;
 
     th = CreateThread(NULL, 0, server, NULL, 0, NULL);
-    if (in_process)
+    if (in_process == 2)
+        ;  /* the server child: the parent connects */
+    else if (in_process == 1)
         client(pflags, qos);
     else
     {
@@ -227,7 +291,7 @@ int main(int argc, char **argv)
         HANDLE self = NULL, restricted = NULL;
         BOOL ok;
 
-        sprintf(cmd, "\"%s\" client %lx %d", argv[0], pflags, qos);
+        sprintf(cmd, "\"%s\" client %lx %d %s", argv[0], pflags, qos, secattr ? "secattr" : "plain");
         /* the client runs with a restricted copy of the token: a different token than the server's */
         OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY, &self);
         if (!CreateRestrictedToken(self, DISABLE_MAX_PRIVILEGE, 0, NULL, 0, NULL, 0, NULL, &restricted))
