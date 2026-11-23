@@ -426,6 +426,9 @@ check at minute 4); now:
 - **Reruns:** `WEX_SUITE_ONLY=NAME[,NAME...]` takes section names and group names (`c2 reg c3 c4 c5 sd c7 s0 gp
   lab own`) and also runs the sections they need. PARTIAL, never a merge check. Rerun the failed sections of a batch
   this way; the full suite runs on the batch.
+- **A test of the restore:** `WEX_SECTION_FORCE_FAIL=NAME[:N|:end][,...]` makes section NAME fail after its Nth check
+  (default 1) or after its whole body, so that the restore, the dependants' skips and the later sections can be seen
+  on the real fixture. The run fails by design: never set it in a merge run.
 - **What a section defines is handed back** to the suite's shell (functions and variables, through a file). After
   a failure only the names that are new are handed back, so the suite's state stays that of the restored snapshot.
   Writing a new section: keep setup that later sections need between sections (outside `if section ...`), put a

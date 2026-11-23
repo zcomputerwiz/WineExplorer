@@ -85,7 +85,26 @@ fail()
 }
 # each check prints the seconds since the previous one, so the slow parts of the suite show in its log
 OK_LAST=$SECONDS
-ok() { echo "$1=PASS +$((SECONDS - OK_LAST))s"; OK_LAST=$SECONDS; PASS=$((PASS + 1)); }
+ok()
+{
+    echo "$1=PASS +$((SECONDS - OK_LAST))s"; OK_LAST=$SECONDS; PASS=$((PASS + 1))
+    [ -z "${SEC_IN:-}" ] || [ "$(sec_forced)" != "$((PASS - SEC_PASS0))" ] ||
+        fail "forced after check $((PASS - SEC_PASS0)) of section $SEC_CUR (WEX_SECTION_FORCE_FAIL, a test of the restore)"
+}
+# WEX_SECTION_FORCE_FAIL=NAME[:N|:end][,...]: a TEST OF THE RESTORE ONLY, never set in a merge run (the run fails by
+# design): section NAME fails after its Nth check (default 1) or after its whole body (end), so that its restore, the
+# skips of its dependants and the later sections can be seen on the real fixture. The suite says so at the start.
+sec_forced()   # what WEX_SECTION_FORCE_FAIL asks of the running section: a check number, end, or nothing
+{
+    local sec_t
+    for sec_t in $(tr , " " <<<"${WEX_SECTION_FORCE_FAIL:-}"); do
+        [ "${sec_t%%:*}" = "${SEC_CUR:-}" ] || continue
+        [ "$sec_t" = "${sec_t%%:*}" ] && echo 1 || echo "${sec_t#*:}"
+        return
+    done
+}
+[ -z "${WEX_SECTION_FORCE_FAIL:-}" ] ||
+    echo "NOTE: WEX_SECTION_FORCE_FAIL=$WEX_SECTION_FORCE_FAIL: these sections fail on purpose (a test of the restore, never a merge check)"
 fatal()   # a failure that ends the suite even inside a section (shared state that cannot be trusted any more)
 {
     echo "FATAL: $*" >&2
@@ -271,7 +290,7 @@ section()   # NAME: 0 when the section runs now (its body follows in a subshell)
     mkdir -p "$SEC_DIR"; rm -f "$SEC_DIR/fatal" "$SEC_DIR/skip" "$SEC_DIR/state.vars" "$SEC_DIR/state.funcs"
     snap_take || fatal "the snapshot before section $sec_n failed"
     compgen -v > "$SEC_DIR/vars.before"
-    SEC_CUR="$sec_n"; SEC_T0=$SECONDS
+    SEC_CUR="$sec_n"; SEC_T0=$SECONDS; SEC_PASS0=$PASS
 }
 section_enter() { set -e; SEC_IN=1; SEC_PID=$BASHPID; trap section_dump EXIT; }
 # a section that finds, before it changes anything, that what it tests is not there (a build without the program):
@@ -283,6 +302,9 @@ section_dump()   # the section's EXIT trap: hands its functions and variables to
     set +e
     trap - EXIT
     [ "$BASHPID" = "$SEC_PID" ] || exit "$sec_rc"
+    if [ "$sec_rc" = 0 ] && [ "$(sec_forced)" = end ] && [ ! -s "$SEC_DIR/skip" ]; then
+        echo "FAIL: forced after the body of section $SEC_CUR (WEX_SECTION_FORCE_FAIL, a test of the restore)" >&2; sec_rc=1
+    fi
     sec_names="$(compgen -v | grep -vxE "$SEC_NOVARS")"
     [ "$sec_rc" = 0 ] || sec_names="$(grep -vxFf "$SEC_DIR/vars.before" <<<"$sec_names"; printf '%s\n' $SEC_KEEP)"
     sec_names="$(echo $sec_names)"
