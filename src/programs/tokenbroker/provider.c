@@ -565,16 +565,28 @@ static void find_account( const struct provider *provider, const struct request 
     cache_unlock();
 }
 
+/* the account's tokens for the request's client; with no client id (WebAccount.SignOutAsync), for the clients the
+ * calling process has used, never every client's */
 static void sign_out( const struct provider *provider, const struct request *req, struct reply *reply )
 {
-    /* only one client's tokens, never every client's */
-    if (!*req->field[TOKENBROKER_FIELD_CLIENT_ID])
+    const WCHAR *id = req->field[TOKENBROKER_FIELD_ACCOUNT_ID];
+    struct used_clients *entry;
+    unsigned int j;
+
+    cache_lock();
+    if (*req->field[TOKENBROKER_FIELD_CLIENT_ID])
+        cache_remove_account( provider->id, id, req->field[TOKENBROKER_FIELD_CLIENT_ID] );
+    else if ((entry = used_clients( req->client_pid )))
     {
-        reply_error( reply, STATUS_PROVIDER_ERROR, E_PROVIDER_FAILED, L"A sign-out names a client id." );
+        for (j = 0; j < entry->count; j++) cache_remove_account( provider->id, id, entry->client[j] );
+    }
+    else
+    {
+        cache_unlock();
+        reply_error( reply, STATUS_PROVIDER_ERROR, E_PROVIDER_FAILED,
+                     L"A sign-out names a client id, or comes from a program that has used one." );
         return;
     }
-    cache_lock();
-    cache_remove_account( provider->id, req->field[TOKENBROKER_FIELD_ACCOUNT_ID], req->field[TOKENBROKER_FIELD_CLIENT_ID] );
     cache_unlock();
     cache_save();
     reply->status = STATUS_SUCCESS_;
