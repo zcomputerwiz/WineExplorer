@@ -273,6 +273,8 @@ install -m 0644 "$SCRIPT_DIR/scripts/wex-setup-common.sh" "$STAGE_SESSION/usr/lo
 install -m 0755 "$SCRIPT_DIR/scripts/wex-domain-state.sh" "$STAGE_SESSION/usr/local/bin/wex-domain-state.sh"
 install -m 0755 "$SCRIPT_DIR/scripts/wex-domain-join.sh" "$STAGE_SESSION/usr/local/sbin/wex-domain-join.sh"
 cp "$SCRIPT_DIR/systemd/wex-domain-join.socket" "$SCRIPT_DIR/systemd/wex-domain-join@.service" "$STAGE_SESSION/lib/systemd/system/"
+# the questions any user may ask (NetValidateName, DsGetDcName, nltest /dclist and /sc_query): read only
+cp "$SCRIPT_DIR/systemd/wex-domain-query.socket" "$SCRIPT_DIR/systemd/wex-domain-query@.service" "$STAGE_SESSION/lib/systemd/system/"
 cp "$ROOT_DIR/scripts/wex-greeter.sh" "$STAGE_SESSION/usr/local/bin/wex-greeter.sh"
 cp "$ROOT_DIR/scripts/setup-machine-root.sh" "$STAGE_SESSION/usr/local/bin/wex-setup-machine.sh"
 cp "$ROOT_DIR/scripts/migrate-prefix-split.sh" "$STAGE_SESSION/usr/local/bin/wex-migrate-prefix.sh"
@@ -338,10 +340,11 @@ cp "$SCRIPT_DIR/systemd/wex-gpupdate.service" "$SCRIPT_DIR/systemd/wex-gpupdate-
 install -m 0755 "$SCRIPT_DIR/scripts/wex-gpupdate.sh" "$STAGE_SESSION/usr/local/bin/wex-gpupdate.sh"
 # Session 0 and enforced elevation are on by default for new installs (owner, 2026-11-18): the package carries a
 # marker for each, and the installed system's first setup (wex-gui-setup.sh) runs the machine root setup with
-# WEX_SESSION0=1 and WEX_ELEVATION=1. An existing install keeps its own setting: the package's upgrade runs
-# wex-setup-machine.sh --update, which reads session 0 from the existing sysrun.conf and never removes the elevation
-# helper, and does not look at the markers. WEX_SESSION0=0 / WEX_ELEVATION=0 at packaging time leave a marker out
-# (an image without them, for comparison).
+# WEX_SESSION0=1 and WEX_ELEVATION=1. The package's upgrade runs wex-setup-machine.sh --update, which does not look at
+# the markers: it never removes the elevation helper, and since 2026-11-23 its defaults are session 0 and enforced
+# elevation for every install (decision 2 of docs/SESSION0_SPLIT_REVIEW.md: the launcher without session 0 is
+# retired). WEX_SESSION0=0 / WEX_ELEVATION=0 at packaging time leave a marker out (a test image without them, for
+# comparison; its first upgrade turns both on).
 case "${WEX_SESSION0:-1}" in 0|1) ;; *) echo "WEX_SESSION0 must be 0 or 1" >&2; exit 1 ;; esac
 case "${WEX_ELEVATION:-1}" in 0|1) ;; *) echo "WEX_ELEVATION must be 0 or 1" >&2; exit 1 ;; esac
 if [ "${WEX_SESSION0:-1}" = 1 ]; then

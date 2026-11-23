@@ -290,10 +290,10 @@ rm -f "$FX/kind"; out=$(status); grep -qx 'kind=none' <<<"$out" || fail 'status:
 echo 'OK: wex-domain-join.sh status'
 
 # ---- serve: one request on standard input (the socket unit), the answer is status= (a Win32 error code) and message=
-serve()   # request lines...; the empty line that ends the request is added
+serve()   # request lines...; the empty line that ends the request is added. SERVE_MODE=serve-query: the users' socket
 {
     { printf '%s\n' "$@"; echo; } | PATH="$FX/bin:$PATH" WEX_JOIN_NOROOT=1 WEX_JOIN_ETC="$FX/etc" WEX_DOMAIN_STATE="$FX/state" \
-        WEX_JOIN_HOSTNAME=wexbox WEX_JOIN_LOCK="$FX/lock" bash "$SCRIPT" serve 2>&1
+        WEX_JOIN_HOSTNAME=wexbox WEX_JOIN_LOCK="$FX/lock" bash "$SCRIPT" "${SERVE_MODE:-serve}" 2>&1
 }
 status_of() { sed -n 's/^status=//p' <<<"$1" | head -n 1; }
 expect()   # CODE WHAT request lines...
@@ -399,6 +399,11 @@ reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/nu
 reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; : > "$FX/calls.log"
 expect 0 'a forced leave' 'op=leave' 'force=1'
 ! grep -q '^kinit\|^net ads leave' "$FX/calls.log" || fail 'serve: a forced leave asked the controller'
+# each note is an item of the message ("||" between them), which netdom prints as a line
+reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"
+out=$(serve op=leave force=1)
+grep -q '^message=leaving on this machine only: the machine account stays in the domain||left the domain$' <<<"$out" ||
+    { echo "$out"; fail 'serve: the notes are not items of the message'; }
 reset_etc; expect 2692 'a leave when not joined' 'op=leave' 'force=1'
 reset_etc; echo winbind > "$FX/kind"; echo 1 > "$FX/kinit.rc"; expect 1326 'a leave with a wrong password' 'op=leave' 'user=a' 'password=p'
 # validate
@@ -427,6 +432,28 @@ out=$( { sleep 40; } | PATH="$FX/bin:$PATH" WEX_JOIN_NOROOT=1 WEX_JOIN_ETC="$FX/
 out=$(serve op=join domain=); [ "$(status_of "$out")" = 87 ] || { echo "$out"; fail 'serve: an empty domain is not 87'; }
 echo 'OK: wex-domain-join.sh serve (a request, the answer, the codes, a password that reaches kinit unchanged and nothing else)'
 
+# ---- serve-query, the socket every user reaches: the questions only, no password, nothing changed
+reset_etc; echo winbind > "$FX/kind"
+printf '[global]\n    workgroup = WEXLAB\n    realm = AD.WEXLAB.EXAMPLE\n    netbios name = WEXBOX\n' > "$FX/etc/samba/smb.conf"
+before=$(cat "$FX/etc/samba/smb.conf" "$FX/etc/krb5.conf" "$FX/etc/nsswitch.conf" | md5sum)
+export SERVE_MODE=serve-query
+: > "$FX/calls.log"
+expect 0 'a question: a computer name' 'op=validate' 'nametype=machine' 'name=newbox'
+expect 1210 'a question: a bad computer name' 'op=validate' 'nametype=machine' 'name=12345'
+expect 0 'a question: the controllers' 'op=dclist'
+expect 0 'a question: the channel' 'op=scquery'
+expect 0 'a question: the status' 'op=status'
+for op in join leave rename verify reset; do
+    expect 5 "a change through the users' socket ($op)" "op=$op" 'domain=ad.wexlab.example' 'user=Administrator' 'name=newbox' 'force=1'
+done
+expect 87 'a question with a password' 'op=validate' 'nametype=machine' 'name=newbox' 'password=x'
+expect 87 'an unknown field' 'op=status' 'evil=1'
+! grep -qE '^(kinit|net ads (join|leave|changetrustpw)|pam-auth-update|systemctl|hostnamectl)' "$FX/calls.log" ||
+    { cat "$FX/calls.log"; fail "serve-query: a question changed something"; }
+[ "$(cat "$FX/etc/samba/smb.conf" "$FX/etc/krb5.conf" "$FX/etc/nsswitch.conf" | md5sum)" = "$before" ] || fail 'serve-query: a file changed'
+unset SERVE_MODE
+echo "OK: wex-domain-join.sh serve-query (the questions answer; changes are access denied; no password; nothing changed)"
+
 # ---- the secure channel and the controllers (netdom verify and reset, nltest /sc_verify and /sc_reset)
 reset_etc; rm -f "$FX/dc.none"
 expect 2692 'verify when not joined' 'op=verify'
@@ -443,7 +470,7 @@ out=$(serve op=reset); [ "$(status_of "$out")" = 0 ] && grep -q 'to the domain A
 [ "$(grep -n 'changetrustpw' "$FX/calls.log" | head -1 | cut -d: -f1)" -lt "$(grep -n 'testjoin' "$FX/calls.log" | head -1 | cut -d: -f1)" ] || fail 'serve: reset did not change the password before it verified'
 echo 1 > "$FX/ctp.rc"; expect 1789 'reset with a failing password change' op=reset
 rm -f "$FX/ctp.rc"
-out=$(serve op=dclist); [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc1.ad.wexlab.example dc2.ad.wexlab.example *$' <<<"$out" || { echo "$out"; fail 'serve: dclist is not the sorted names without the trailing dot'; }
+out=$(serve op=dclist); [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc1.ad.wexlab.example||dc2.ad.wexlab.example$' <<<"$out" || { echo "$out"; fail 'serve: dclist is not the sorted names, one item each, without the trailing dot'; }
 : > "$FX/dc.none"; expect 1355 'no controllers' op=dclist
 # nltest's questions: the controller's own answer (dsgetdc), the secure channel's state (scquery)
 cat > "$FX/lookup" <<'LK'
@@ -481,13 +508,16 @@ sed -i 's/^Domain Controller: .*/Domain Controller: dc1||flags=0/' "$FX/lookup"
 out=$(serve op=dsgetdc)
 grep -q '^message=dc=dc1flags=0||addr=' <<<"$out" && grep -q '||flags=e00013fd$' <<<"$out" || { echo "$out"; fail 'serve: dsgetdc lets the controller add a field'; }
 mv "$FX/lookup.orig" "$FX/lookup"
+: > "$FX/calls.log"
 out=$(serve op=scquery)
 [ "$(status_of "$out")" = 0 ] && grep -q '^message=dc=dc1.ad.wexlab.example||status=0$' <<<"$out" || { echo "$out"; fail 'serve: scquery'; }
-echo 1 > "$FX/testjoin.rc"
+# the channel is Winbind's NETLOGON ping, which any user may ask; testjoin (root's secret) is not used
+grep -q '^wbinfo --ping-dc' "$FX/calls.log" && ! grep -q '^net ads testjoin' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'serve: scquery did not ask Winbind'; }
+echo 1 > "$FX/wbinfo.rc"
 out=$(serve op=scquery); grep -q '||status=1722$' <<<"$out" || { echo "$out"; fail 'serve: scquery with a channel that does not work'; }
 echo 'x||status=0' > "$FX/dcname"
 out=$(serve op=scquery); grep -q '^message=dc=xstatus=0||status=1722$' <<<"$out" || { echo "$out"; fail 'serve: scquery lets the controller add a status'; }
-rm -f "$FX/testjoin.rc" "$FX/dcname"
+rm -f "$FX/wbinfo.rc" "$FX/dcname"
 echo nowinbind > "$FX/kind"
 expect 2692 'dsgetdc when not joined with winbind' 'op=dsgetdc'
 expect 2692 'scquery when not joined with winbind' 'op=scquery'

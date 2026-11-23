@@ -325,6 +325,21 @@ to the computer.
   `preg_is_template_option`: without case, repeated backslashes as one, U+0131 and U+017F as I and S). gpedit lists
   them grayed with a pointer to Local Security Settings (secpol.msc), which writes the template. A value that an older
   gpedit put in the local Registry.pol is removed by the next refresh (the archive names it) and not written again.
+  Both are taken as `REG_DWORD` only, the type the elevation service reads: a line of another type is left out and
+  said (2026-11-23).
+
+One reading of the file for the three programs that use it (2026-11-23). wexpolicy applies the template, Local
+Security Settings edits the local one (`src/dlls/secpol`) and secedit exports and configures one; they read it the
+same way through `src/include/wexsectmpl.h`: the three lockout names, their ranges and defaults, the conversion of a
+template's number to the registry's (`wex_lockout_from_template`: -1 and 0 are the longest, 99999) and back
+(`wex_lockout_to_template`: the longest, and netapi32's 0, are -1), the Elevation and System keys and the text of an
+empty template. The editor reads a value as setup does (quotes dropped, the blanks around a field cut, a number out
+of range not taken, as wexpolicy refuses it), and finds a `[Registry Values]` line by the registry's comparison of
+names (`preg_utf8_name_is`, the UTF-8 form of `preg_key_is`), so a line that wexpolicy applies is the one it shows
+and changes, not a second one beside it. secedit `/configure` takes a UTF-8 file with a byte order mark as UTF-8 (it
+was read as ANSI). What the readers still do differently, on purpose: the editor shows the local template's value
+(the local policy, as Windows' secpol.msc does), `secedit /export` and `net accounts` the registry's, which on a
+domain member is the domain's.
 
 Which objects count. On Windows the lockout policy of domain accounts comes only from GPOs linked at the domain;
 an OU-linked GPO's lockout policy applies to the local accounts of the computers in the OU (MS-GPSB; Microsoft

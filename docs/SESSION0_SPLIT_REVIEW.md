@@ -206,18 +206,52 @@ orchestrator; B82 is part of R1a.
 | R1d | not done, on purpose: `session0_init` already decides the role once at start and refuses impossible combinations with a fatal error. What remains are the fallback modes, which R4 retires; renaming about 50 flag checks before that would be churn |
 | R3 | done (Wine 6e143950 on `claude/r3-registry-handles`, WineExplorer `claude/r3-registry-handles`): one table of the session 0 and virtual store key handles in `dlls/ntdll/unix/wex_regkey.c`, stock files keep hooks; one builder of the user's key path. Both kinds now duplicate within a process (virtual keys were refused) and into and from another process (new system APC `APC_WEX_REGKEY`: the target opens the key again with its own token). Not done: inheritance into a child process (the child's loader takes entries before anything from the parent can arrive; it needs a part of the startup information, read before the loader), and NtSaveKey/NtLoadKey/NtUnloadKey on a session 0 key. Codex review: two fixes taken (a received record must be a data section; a duplicate with its own access gets inner handles of that access). `full` passed on wexgpo (T1 with `xdup*`, normal 374, lab 448) |
 
+| R2 | done (approved 2026-11-23; Wine `claude/r2-session0-link` f19545fe, WineExplorer acccd7ef; full suite passed, Codex review): R2a one check of the system role's authority (`sysrun_process_is_tcb_system`, four copies replaced; the lab endorsement keeps its per-condition audit labels); R2b one launcher-started peer test (`include/wine/wex_sysrun_peer.h`) for session 0, ntdll and the launcher, now all with the pidfd pin; R2c one exchange in `session0.c` (`link_send`, `link_receive`, `link_request`), typed request fields (a union, the same wire word, protocol 5), explicit link kinds. One tightening: a cut hive message is ignored |
+R0 and R1 are on master and development since 2026-11-23 (WineExplorer 434a20cd, Wine development c82a1353); R2, R3
+and the token-read change (R7's first step on `open_token`, owner-approved) are in the next batch with the whole chain.
+
 Branches: WineExplorer `claude/session0-split-review` (docs and the T1 test, Wine pinned to `claude/r1-policy-tables`),
 Wine `claude/r1-policy-tables` (on `claude/session-services`, with B85 merged).
 
 ## Decisions for the owner
 
-1. **Targeted refactor (R0 to R7) rather than a rewrite.** Recommended.
-2. **Retire the launcher mode without session 0 for installed systems:** an upgrade turns session 0 on for an install
-   from before 2026-11-18, after which merge-on-save is no longer a multi-user mechanism (R4). Plain prefixes and the
-   setup account keep stock behaviour. Recommended. The cost is one migration on upgrade.
-3. **R9 as the only elevation flow** once the production verifier exists, with R8's runtime selection removed (R5).
-   Recommended. Until then both stay.
-4. **How identity crosses servers (R6).** Two options; I recommend (a), with (b) used only where (a) is not enough.
+All four are decided (2026-11-23).
+
+1. **Targeted refactor (R0 to R7) rather than a rewrite.** Taken: the owner approved R0 to R3.
+2. **Retire the launcher mode without session 0 for installed systems.** **Taken.** An upgrade turns session 0 on for
+   an install from before 2026-11-18, after which merge-on-save is no longer a multi-user mechanism (R4). Plain
+   prefixes and the setup account keep stock behaviour. The cost is one migration on upgrade.
+3. **R9 as the only elevation flow,** with R8's runtime selection removed (R5). **Taken.** The owner's words: one
+   authorization engine is the goal, and the R8/R9 split was only an intermediate step for ease of implementation.
+4. **How identity crosses servers (R6).** **Taken: session 0 manages the process ids.** The owner's reasoning:
+   session 0 always exists and already holds what needs agreement across the machine. This is option (a) below,
+   with session 0 as the authority over the ranges:
+   - **Blocks, not single ids.** Session 0 gives each server a block of ids when it links (with its session id), and
+     another block when the server runs out. A server still allocates its own process and thread ids inside its
+     blocks (Wine's `alloc_ptid` keeps its table, indexed from the block's base), so creating a process or thread
+     costs no round trip to session 0, and a server keeps working if session 0 restarts. Session 0's own programs
+     use a block of its own.
+   - **Session 0 knows who owns an id.** It can answer, or ask the owning server over its session link about, a
+     process (image, session, token user) without holding a handle to it. Bridged clients then get their real id
+     instead of 0, and the per-service workarounds (excluded pipes, B85's zeroed ids, B76's move into the session)
+     can go one by one.
+   - **Restart and reuse.** Blocks are recorded like session ids (a server that links again after a session 0
+     restart asks for its own blocks back, as for its session id), and a freed block is not reused before its
+     server has ended. Windows keeps ids below 2^26 and a multiple of 4; the blocks must keep both.
+   - **First step:** a design note, then the change. The note is
+     [SESSION0_PROCESS_IDS.md](SESSION0_PROCESS_IDS.md) (2026-11-23): blocks leased by session 0, exact questions to
+     the owning server, the machine-wide list on demand, and no pushed list until something needs one. Option (b)
+     stays in reserve for objects other than processes.
+   - **B76's per-session Click-to-Run split is a workaround to retire.** It exists only because ids are per server:
+     App-V's VIRTMAN interface (d99d2add) passes the client's PID to the Click-to-Run service. With ids agreed
+     through session 0, ClickToRunSvc can go back to one instance in session 0. Ask the orchestrator before changing
+     its placement: the B76 lab VM (c2r-split) depends on it.
+
+   R4's upgrade step (session 0 turned on for old installs) goes through `setup-machine-root.sh --update`, which
+   already changes the machine registry through session 0 since B81 (1a7bdfa2); it builds on that, and B81's test
+   (an installed image, the old and the fixed script) is the model for its test.
+
+   Before the decision, the two options were:
    - **(a) Machine-unique process ids.** Each server allocates PIDs in a range derived from its session id, and
      session 0 can ask the owning server, over the session link, about a process (image, session, token user)
      without holding a handle to it.

@@ -24,6 +24,8 @@
 #include <string.h>
 
 #include "template.h"
+#include "wexpreg.h"
+#include "wexsectmpl.h"
 
 struct tmpl
 {
@@ -161,10 +163,31 @@ struct scan
     int found;
 };
 
+/* whether the name of a line (length bytes) is name: without case; in [Registry Values] as the registry reads the
+ * path (wexpreg.h, as wexpolicy applies it), so a doubled backslash or a dotless i is the same line */
+static int same_name( const char *section, const char *line_name, size_t length, const char *name )
+{
+    char want[512];
+    size_t i, n = strlen( name );
+
+    if (icmp( section, "Registry Values", (size_t)-1 ) || n >= sizeof(want))
+        return length == n && !icmp( line_name, name, n );
+    /* the canonical form: lower case, single backslashes */
+    for (i = 0, n = 0; name[i]; i++)
+    {
+        char c = name[i];
+        if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+        if (c == '\\' && n && want[n - 1] == '\\') continue;
+        want[n++] = c;
+    }
+    want[n] = 0;
+    return preg_utf8_name_is( line_name, length, want );
+}
+
 static void scan_lines( const struct tmpl *t, const char *section, const char *name, struct scan *s )
 {
     char current[128];
-    size_t i, n = strlen( name ), start, length;
+    size_t i, start, length;
     const char *value;
     int in = 0;
 
@@ -181,7 +204,7 @@ static void scan_lines( const struct tmpl *t, const char *section, const char *n
         }
         if (!in) continue;
         if (*skip_blanks( t->line[i] )) s->after = i + 1;
-        if (split_line( t->line[i], &start, &length, &value ) && length == n && !icmp( t->line[i] + start, name, n ))
+        if (split_line( t->line[i], &start, &length, &value ) && same_name( section, t->line[i] + start, length, name ))
         {
             if (s->first < 0) s->first = (long)i;
             s->last = (long)i;
@@ -214,7 +237,7 @@ int tmpl_get( const struct tmpl *t, const char *section, const char *name, char 
 }
 
 /* what a template with nothing in it is: setup reads a file without a [Version] as no template */
-static const char empty_template[] = "[Unicode]\r\nUnicode=yes\r\n[Version]\r\nsignature=\"$CHICAGO$\"\r\nRevision=1\r\n";
+static const char empty_template[] = WEX_SECTMPL_EMPTY;
 
 int tmpl_set( struct tmpl *t, const char *section, const char *name, const char *value )
 {
@@ -235,7 +258,7 @@ int tmpl_set( struct tmpl *t, const char *section, const char *name, const char 
         for (i = 0; i < t->count; i++)
         {
             if (section_of( t->line[i], current, sizeof(current) )) { in = !icmp( current, section, (size_t)-1 ); continue; }
-            if (!in || !split_line( t->line[i], &start, &length, &v ) || length != n || icmp( t->line[i] + start, name, n )) continue;
+            if (!in || !split_line( t->line[i], &start, &length, &v ) || !same_name( section, t->line[i] + start, length, name )) continue;
             if (!(text = malloc( length + strlen( value ) + 4 ))) return -1;
             sprintf( text, "%.*s = %s", (int)length, t->line[i] + start, value );
             free( t->line[i] );

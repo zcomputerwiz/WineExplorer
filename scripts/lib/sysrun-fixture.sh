@@ -13,7 +13,7 @@ wex_fixture_machine()
 {
     "$@" env WEX_MACHINE_GROUP="$GRP" WEX_MACHINE_ROOT="$M" WEX_SKEL_PFX="$ROOT/skel/.wine" WEX_BACKUP_DIR="$ROOT/backup" \
         WEX_WINE_BIN="$BUILD/wine" WEX_WINESERVER_BIN="$BUILD/server/wineserver" WEX_NTDLL="$BUILD/dlls/ntdll/ntdll.so" \
-        WEX_SYSRUN_ENABLE=1 WINEDEBUG=-all \
+        WEX_SYSRUN_ENABLE=1 WEX_SESSION0=0 WEX_ELEVATION=0 WINEDEBUG=-all \
         bash "$SRC/scripts/setup-machine-root.sh" > "$ROOT/setup.log" 2>&1
 }
 

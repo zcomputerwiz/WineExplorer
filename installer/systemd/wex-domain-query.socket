@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: the domain join engine's questions (docs/DOMAIN_JOIN.md, "How the API reaches root"). Any local user's
+# process connects and asks one question: NetValidateName, DsGetDcName, nltest /dclist and /sc_query, the join's status,
+# which need no rights on Windows either. A change sent here is refused with "access denied" (the engine's serve-query);
+# changes go to wex-domain-join.socket, which only the system group reaches. Enabled with session 0, beside that socket.
+
+[Unit]
+Description=WineExplorer domain questions (socket)
+
+[Socket]
+ListenStream=/run/wex-domain-query.sock
+SocketUser=root
+SocketGroup=root
+SocketMode=0666
+Accept=yes
+# a question takes a few seconds (DNS, a CLDAP ping, testjoin): eight at a time is plenty, and a user cannot start more
+MaxConnections=8
+
+[Install]
+WantedBy=sockets.target
