@@ -343,7 +343,7 @@ answers `BUSY` when a suite or build is running.
 
 | Mode | Does | When | Minutes (2026-11-14) |
 |---|---|---|---|
-| `labsuite` | lab suite only | lab scripts, verifier, worker or the suite script changed | about 16 |
+| `labsuite` | lab suite only (its own sections and a smoke set since 2026-11-23) | lab scripts, verifier, worker or the suite script changed | about 16 (before 2026-11-23) |
 | `normalsuite` | normal suite and broker test on the recorded build | a rerun after a fix to the normal suite's script | about 23 |
 | `t1suite` | T1 on the recorded build | a rerun of T1 | about 2 |
 | `lab` | sync, build, lab build, lab suite | only code behind the lab build flags changed | about 20 |
@@ -364,7 +364,8 @@ answers `BUSY` when a suite or build is running.
 - Each check prints the seconds since the previous one (`name=PASS +12s`). Measured 2026-11-14: the normal suite is
   1,042 s over 347 checks with no hot spot (the slowest is 37 s, the top 15 a third of the time); in the lab suite
   about 257 s are the lab-only checks and the rest repeats the normal checks. A lab-only mode would save about 11
-  minutes per `full` run but needs the suite's setup separated from its checks first.
+  minutes per `full` run but needs the suite's setup separated from its checks first. (Done 2026-11-23: the lab
+  suite now runs its own sections and a smoke set, "Sections of the system tier suites" below.)
 - What exists only on the build machine and how to recreate it: `/root/WE-prefetch` is a WoW64 build (see "Repository"
   and the snapshot reference above); `/root/owned-r8` is made by `r8-lab-build.sh`; `/root/wex-snap` is temporary.
 - Logs are in `/var/tmp/wex-run/` (since 2026-11-15; `/tmp` is a tmpfs on the Debian 13 build machines, emptied when
@@ -377,12 +378,10 @@ answers `BUSY` when a suite or build is running.
 - **A full run on two machines at once:** `scripts/lab/wex-run-split.sh [A [B]]` (defaults `wexgpo`, `wexgpo2`) runs
   `normal` on A and the new mode `labt1` (sync, build, T1, lab build, lab suite) on B at the same time and prints
   one ALL PASS or FAILED line; about half of a `full` run on one machine.
-- **Part of the normal suite while working on one area:** `WEX_SUITE_ONLY=NAME[,NAME...]` (for example
-  `wsl.exe -d wexgpo -u root --exec env WEX_SUITE_ONLY=st bash .../wex-run.sh normal`) leaves out three groups of
-  checks that nothing later needs, unless listed: `c2` (sections 1 to 6, the launcher and the machine root),
-  `sd` (the secure desktop) and `c7` (the callers of the broker). The fixture, C3, the broker, consent, session 0
-  with Group Policy and the own prefix always run, with all setup. Such a run prints PARTIAL in its stage line and
-  its last line.
+- **Part of a suite while working on one area:** `WEX_SUITE_ONLY=NAME[,NAME...]` (for example
+  `wsl.exe -d wexgpo -u root --exec env WEX_SUITE_ONLY=gp,c4_frozen bash .../wex-run.sh normal`) runs only the named
+  sections or groups and the sections they need (since 2026-11-23, "Sections of the system tier suites" below; an
+  unknown name stops the run with the list). Such a run prints PARTIAL in its stage line and its last line.
 - **Rule: the full suite runs before every merge** (since 2026-11-23: on every batch of merges, "Targeted runs") (`full`, or `wex-run-split.sh`, without `WEX_SUITE_ONLY`). A
   partial run is for working on one area only.
 - Measured on wexgpo, 2026-11-15 (normal suite 1,142 s): c2 341 s, of which one check,
@@ -401,6 +400,47 @@ answers `BUSY` when a suite or build is running.
   `wineboot --init` (the launcher's environment cannot carry `WINEDLLOVERRIDES=mscoree=`, by design) opens Mono's
   download dialog and the normal suite's `c2_wineboot_init_with_system_group_writes_machine_root` takes 300 s, the
   end of `start_wineboot`'s wait, instead of seconds. A check that suddenly takes 300 s means a dialog nobody sees.
+
+### Sections of the system tier suites (2026-11-23)
+
+`scripts/test_sysrun_server.sh` (the normal suite, and the lab suite through `test_e1s6_transport.sh`) runs its
+checks in named sections (`SEC_TABLE` at the top of the script: name, the sections it needs, the suites it is in,
+its group). Before 2026-11-23 the first failed check ended the whole run (b1123a lost most of both suites to one
+check at minute 4); now:
+
+- **A failed check ends its section, not the suite.** Each section runs in a subshell. When it fails, the suite
+  kills every process of the test accounts and the fixture's helpers, puts back the kernel settings
+  (`suid_dumpable`, `leases-enable`), mounts, the account watcher and the R8 case's build-tree files, restores
+  from the snapshot taken before the section the machine root's files (hives), `/etc/wineexplorer`, the
+  launcher's directory, the local policy stores, the names in system32/syswow64 and the test programs the sections
+  replace there, and the users' prefix links, compares everything with the snapshot, starts again what runs
+  between sections (session 0, the lab's S6 service, a user's session) and goes on with the next section.
+- **Dependants are skipped** with the reason (`needs c5_build: FAIL`).
+- **Fatal stays fatal:** the fixture, every setup step between sections (they are what later sections rely on:
+  the enforcement switch, the test broker's install, session 0's start, ...) and a restore that does not compare
+  equal end the suite: damaged shared state must never give passes. `fatal()` in a section does the same.
+- **The summary** (`=== sections ===`, one `SECTION name RESULT (why)` line each) lists every section, skipped and
+  not reached included; the last line is `=== sysrun server: N checks passed; sections failed: ... ===` and the exit
+  status is 1 when a section failed. `wex-run.sh` shows the failed sections in its stage line.
+- **Reruns:** `WEX_SUITE_ONLY=NAME[,NAME...]` takes section names and group names (`c2 reg c3 c4 c5 sd c7 s0 gp
+  lab own`) and also runs the sections they need. PARTIAL, never a merge check. Rerun the failed sections of a batch
+  this way; the full suite runs on the batch.
+- **What a section defines is handed back** to the suite's shell (functions and variables, through a file). After
+  a failure only the names that are new are handed back, so the suite's state stays that of the restored snapshot.
+  Writing a new section: keep setup that later sections need between sections (outside `if section ...`), put a
+  section's own temporary changes inside it, and end it with the state it found (sessions down, files back).
+- **Lab suite (review decision 1):** `WEX_E1S6_LAB=1` runs the lab's sections (`c4_lab`, `r8e2e`, the R8 cases in
+  `c4_r8`) and a smoke set of ordinary sections with the lab build, instead of the whole normal suite again: the
+  lab build changes the server (registry, token, process, file, fd, named pipe), wexhost, the profile DLLs of both
+  ABIs and the broker and consent, so the smoke set is `reg_hku` (HKU profiles through the S13 DLLs, 64 and 32 bit),
+  `c3_std` (tokens and the system role), `c4_build` to `c4_frozen` (the broker path, leases), `c4_r8`, `c5_build`,
+  `c5_click` (the consent window), `s0_base`, `s0_token`, `s0_hive` (session 0 and the user's hive). Lab flags
+  changing ordinary behaviour show there; the rest of the ordinary checks run once, in the normal suite.
+  `WEX_LAB_FULL=1` runs every section with the lab build (the lab suite as it was).
+- **Readiness instead of sleeps:** `el_up` waits for the WinSta0 holder's `hold=ready` line (at most 60 s) instead of
+  a fixed 4 s. The account watcher hold (`watch_hold`) stops `wex-accounts.path`, `.timer` and a running
+  `wex-accounts.service`, waits until the sync has ended, and `watch_release` (also on a failure) starts again what
+  ran.
 
 ## Added 2026-11-05: lessons that cost hours (do not rediscover)
 
