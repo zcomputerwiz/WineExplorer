@@ -74,6 +74,12 @@ fi
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes"
 install -m644 "$ROOT_DIR/src/resources/themes/"*.theme "$STAGE_WINE/usr/local/share/wineexplorer/themes/"
 
+# The WexComputer PowerShell module (Add-Computer, Remove-Computer, Test-ComputerSecureChannel,
+# Reset-ComputerMachinePassword; docs/POWERSHELL.md). The PowerShell 7 component copies it into its Modules folder.
+install -d -m 0755 "$STAGE_WINE/usr/local/share/wineexplorer/powershell/WexComputer"
+install -m 0644 "$ROOT_DIR/src/powershell/WexComputer/WexComputer.psd1" "$ROOT_DIR/src/powershell/WexComputer/WexComputer.psm1" \
+    "$STAGE_WINE/usr/local/share/wineexplorer/powershell/WexComputer/"
+
 # Build open Luna visual style
 echo "Building open Luna theme package..."
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes/Luna"
@@ -245,9 +251,16 @@ cp "$ROOT_DIR/scripts/wex-advanced-options.py" "$STAGE_SESSION/usr/local/sbin/we
 # Startup and Recovery's settings (sysdm.cpl; Safe Mode work order D5): a D-Bus activated root service, polkit-checked
 cp "$ROOT_DIR/scripts/wex-boot1.py" "$STAGE_SESSION/usr/local/sbin/wex-boot1"
 install -D -m644 "$ROOT_DIR/scripts/wexcommon.py" "$STAGE_SESSION/usr/local/lib/wineexplorer/python/wexcommon.py"
+# the frame of the root services (Boot1, TimeSync1): errors, polkit, properties, idle exit
+install -D -m644 "$ROOT_DIR/scripts/wexrootsvc.py" "$STAGE_SESSION/usr/local/lib/wineexplorer/python/wexrootsvc.py"
 install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.Boot1.conf" "$STAGE_SESSION/usr/share/dbus-1/system.d/org.wineexplorer.Boot1.conf"
 install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.Boot1.service" "$STAGE_SESSION/usr/share/dbus-1/system-services/org.wineexplorer.Boot1.service"
 install -D -m644 "$SCRIPT_DIR/polkit/org.wineexplorer.boot1.policy" "$STAGE_SESSION/usr/share/polkit-1/actions/org.wineexplorer.boot1.policy"
+# Date and Time's Internet Time servers (timedate.cpl): a D-Bus activated root service, polkit-checked
+cp "$ROOT_DIR/scripts/wex-timesync1.py" "$STAGE_SESSION/usr/local/sbin/wex-timesync1"
+install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.TimeSync1.conf" "$STAGE_SESSION/usr/share/dbus-1/system.d/org.wineexplorer.TimeSync1.conf"
+install -D -m644 "$SCRIPT_DIR/dbus/org.wineexplorer.TimeSync1.service" "$STAGE_SESSION/usr/share/dbus-1/system-services/org.wineexplorer.TimeSync1.service"
+install -D -m644 "$SCRIPT_DIR/polkit/org.wineexplorer.timesync1.policy" "$STAGE_SESSION/usr/share/polkit-1/actions/org.wineexplorer.timesync1.policy"
 cp "$ROOT_DIR/scripts/wex-bootlog.sh" "$STAGE_SESSION/usr/local/sbin/wex-bootlog"
 cp "$ROOT_DIR/scripts/wex-startup-check.sh" "$STAGE_SESSION/usr/local/sbin/wex-startup-check"
 cp "$ROOT_DIR/scripts/wex-lastgood.sh" "$STAGE_SESSION/usr/local/sbin/wex-lastgood"
@@ -311,7 +324,7 @@ cp "$SCRIPT_DIR/systemd/wex-oobe.service" "$STAGE_SESSION/lib/systemd/system/"
 for unit in wex-advanced-options.target wex-advanced-options.service wex-safemode.target wex-safenet.target \
             wex-bootlog.service wex-startup-check.service wex-bootmode-record.service \
             wex-failure-check.service wex-failure-screen.service wex-plymouth-quit.service wex-session-choice.service \
-            wex-locale-gen.service wex-boot1.service; do
+            wex-locale-gen.service wex-boot1.service wex-timesync1.service; do
     cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"

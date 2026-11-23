@@ -15,7 +15,9 @@ SocketUser=root
 SocketGroup=wexsys
 SocketMode=0660
 Accept=yes
-MaxConnections=2
+# one change at a time is the engine's lock (a second one is told ERROR_BUSY); the questions (nltest, NetValidateName,
+# the status) run beside it
+MaxConnections=8
 
 [Install]
 WantedBy=sockets.target

@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# Which checks a changed path calls for (scripts/lab/wex-test.sh; docs/TOOLING.md, "Targeted runs").
+# One rule per line: a glob (bash pattern on the path; "wine:" before it for a path in the Wine tree), then the checks,
+# comma separated. The first rule a path matches decides (specific rules go before general ones). Checks:
+#   none          nothing beyond what wex-test.sh does anyway (documentation)
+#   normalsuite   the normal suite and the broker test (wex-run.sh normalsuite)
+#   t1suite       the T1 lab (wex-run.sh t1suite)
+#   lab           the lab build and the lab suite (wex-run.sh lab)
+#   image         the VM image smoke check: WEX_BATCH_FWS=uefi wex-batch.sh REV NAME rundialog (printed, not run)
+#   chain         the whole chain on both firmwares: wex-batch.sh REV NAME (printed, not run)
+#   py:FILE       a static test: python3 FILE from the worktree (seconds; needs no build)
+# A Wine module with a tests folder (dlls/X, programs/X, and WineExplorer's own under src/) always gets its own
+# Wine tests, both architectures, without a rule. A path no rule matches gets normalsuite and a note: add a rule.
+
+docs/*                                  none
+*.md                                    none
+assets/*                                none
+unsloth-tmp/*                           none
+
+# the suites themselves
+scripts/test_sysrun_server.sh           normalsuite
+scripts/test_broker_e1s18.sh            normalsuite
+scripts/test_e1s6_transport.sh          lab
+scripts/lab/system-tier-t1.sh           t1suite
+scripts/lab/r8-lab-build.sh             lab
+scripts/lab/wex-run.sh                  none
+scripts/lab/wex-test.sh                 none
+scripts/lab/test-map.txt                none
+scripts/lab/wex-batch.sh                none
+scripts/lab/wex-make.sh                 none
+tests/wam/*                             normalsuite
+tests/uwp/*                             normalsuite
+
+# the system tier: server, accounts, registry, services, elevation
+wine:server/*                           normalsuite,t1suite,lab
+wine:include/wine/server_protocol.h     normalsuite,t1suite,lab
+wine:dlls/ntdll/*                       normalsuite,t1suite
+wine:dlls/kernelbase/*                  normalsuite
+wine:dlls/advapi32/*                    normalsuite
+wine:dlls/userenv/*                     normalsuite
+wine:dlls/sechost/*                     normalsuite
+wine:programs/services/*                normalsuite
+wine:programs/wineboot/*                normalsuite,image
+wine:dlls/windows.security.authentication.web.core/*  normalsuite
+wine:include/wine/tokenbroker.h         normalsuite
+tools/wex-accounts/*                    normalsuite
+src/dlls/wexhost/*                      normalsuite,lab
+src/programs/wexelevate/*               normalsuite,lab
+src/programs/consent/*                  normalsuite,lab
+src/programs/tokenbroker/*              normalsuite
+src/programs/wexappx/*                  normalsuite
+
+# the Safe Mode and greeter code, and its static test (which reads the VM harness too)
+scripts/test_safemode.py                py:scripts/test_safemode.py
+installer/tests/*                       py:scripts/test_safemode.py
+scripts/wex-greeter.sh                  py:scripts/test_safemode.py,chain
+scripts/lib/wex-common.sh               py:scripts/test_safemode.py,normalsuite,chain
+scripts/vmtest.py                       py:scripts/test_safemode.py
+
+# what the image installs and boots
+installer/systemd/*                     chain
+installer/lightdm/*                     chain
+installer/live-build/*                  chain
+installer/polkit/*                      chain
+installer/dbus/*                        chain
+installer/*                             image
+vintner/*                               chain
+scripts/setup-machine-root.sh           normalsuite,chain
+scripts/wex-boot1.py                    chain
+scripts/wex-bootmode.sh                 chain
+scripts/wex-startup-check.sh            chain
+
+# the rest of the product: programs and shell modules are covered by their own Wine tests and the image smoke check
+src/*                                   image
+wine:dlls/*                             image
+wine:programs/*                         image
+scripts/*                               normalsuite

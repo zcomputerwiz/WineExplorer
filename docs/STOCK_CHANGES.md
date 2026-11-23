@@ -1,5 +1,68 @@
 # Changes to stock Wine / third-party code
 
+## server, ntdll, services.exe: one table per placement rule (R1 of SESSION0_SPLIT_REVIEW.md, B82, 2026-11-23)
+
+Wine branch `claude/r1-policy-tables` (on `claude/session-services` 6a6c7536, with B85's `claude/b85-service-pids`
+merged). No new stock file; the session 0 changes below replace earlier ones of the same files.
+
+- **One list of the keys of each session (R1a, B82).** `server/registry.c`'s merge-on-save list
+  (`hklm_ephemeral_prefixes`, `hku_default_ephemeral_prefixes`) now comes from `WEX_SESSION_MACHINE_KEYS` and
+  `WEX_SESSION_DEFAULT_USER_KEYS` in `include/wine/wex_session0.h`, the list ntdll routes by. The server's own copy
+  lacked `Hardware`, both `ServiceCurrent` keys and both `SafeBoot\Option` keys, so a server that shares a machine hive
+  file merged its copy of them into that file. The case-insensitive "prefix up to a backslash" matcher, written three
+  times (`match_ascii_prefix_ci`, ntdll's `regsrv_match` and `regvirt_match`), is `wex_session_key_match` in that
+  header.
+- **A service's own value places it (R1b).** `programs/services`: `WexSessionService` (REG_DWORD) in a service's key, 1 =
+  every session runs it itself, 0 = session 0 only; without it the built-in defaults decide as before (drivers and
+  `Winedevice*` always the session's, then the named services of `default_session_service`). Read when the service
+  manager loads the service (`load_session_service`); a session's manager sees a new value after its restart. Replaces
+  6a6c7536's `HKLM\Software\Wine\Services\SessionServices` list, which no default set (B76's lab VM used it for
+  `ClickToRunSvc`). `is_session_service` takes the value; `service_is_session_service` (an entry) and
+  `is_session_service_name` (session 0's part of an enumeration: this session's entry of that name decides) wrap it.
+- **One table of the machine root's trusted images (R1c).** `server/sysrun.c`: `machine_images` with the roles
+  `IMAGE_SYSTEM`, `IMAGE_BROKER`, `IMAGE_DIALOG`, `IMAGE_SAFE_SHELL` and one `machine_image_roles()` replace four lists
+  and five copies of the device-and-inode loop. No image changes role (the 32-bit `wexelevate.exe` stays a broker image
+  only). The lab-only broker lists under `WEX_E1S6_TRANSPORT_TEST` are left for R5.
+- Test: `scripts/lab/system-tier-t1.sh`, `session_service_value_*` (a service created from session A with
+  `WexSessionService`=1 runs in A, not in session 0, and session B has its own stopped copy).
+
+## dwmapi, dcomp, dxgi, explorer: compositor review fixes and dead target path (2026-11-23)
+
+Wine branch `claude/compositor-review` after `df606ddd` (`docs/COMPOSITOR_REVIEW.md` bugs 5-7, 11, 13 and the dcomp/DXGI
+dead code):
+
+- `218bea9a` `dlls/dwmapi`:
+  - A process's own windows are answered from its attribute table, so caption painting makes no broker calls.
+  - Without `DwmService` the broker is never asked.
+  - The first call that reaches a new broker (a new desktop epoch) re-sends the process's attributes and
+    thumbnails.
+  - `DwmSetWindowAttribute` writes the table before its side effects, and a call that fails sends nothing.
+  - The materials gate honours high contrast and `EnableTransparency=0`, as the shell bridge does.
+  - New `dwm_attr` case: a killed broker gets the attributes back.
+- `e7bcaab0` `programs/explorer/dwmhost.c`: when the dwm.exe supervisor does not stop in time, it keeps its handles
+  instead of closing them under the still-running thread.
+- `49215d78` dcomp and dxgi:
+  - `dcomp_surface_resize` holds the device lock throughout.
+  - The window-message target path is removed: `IWineDCompSwapChain::set_target`, `WM_WINE_DCOMP_SET_TARGET` and
+    the other unused messages, the placement fields and helpers in dxgi, `struct wine_dcomp_layer_params`, and the
+    write-only desktop-window property. Present passes no rectangles.
+
+Tests on both architectures:
+- dcomp: 1119 tests, 0 failures.
+- dwmapi, plain prefix: 0 failures. The tests that need a broker skip.
+- dwmapi on a shell desktop with a broker: `dwm_attr` 19 tests, `dwm_thumb` 19 tests, 0 failures.
+- dxgi: 35 failures, all display-mode or fullscreen checks that Xvfb's single mode cannot satisfy. These were not
+  compared against an unchanged build.
+
+## dcomp: auxiliary producers revoked from the target list (compositor review, 2026-11-23)
+
+Wine branch `claude/compositor-review`, `df606ddd` (on the 11.22 WAM head `97ee37a3`), `dlls/dcomp/device.c`
+`dcomp_device_internal_commit`: a successful commit revokes every target's auxiliary producer that is not among the
+commit's bindings, instead of collecting the targets in a stack array of `WINE_DCOMP_MAX_CONTENTS` entries. Targets
+without a scene were not counted against that limit and a failed commit keeps the auxiliary producers it made, so more
+than 32 such targets overflowed the array. Same set of producers revoked as before; dcomp tests 1119/0 failures on both
+architectures. The rest of the review (`docs/COMPOSITOR_REVIEW.md`) is not applied yet.
+
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
 General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with
@@ -29,6 +92,33 @@ GROUP (S-1-3-1) ACE gets the key's owner or primary group in place of the creato
 keeps the creator SID for the keys below (generic rights mapped in the effective ACE), as on Windows. B42 copied the
 SID unchanged, which no token holds, so WebView2's setup was denied a key it had just created.
 `dlls/advapi32/tests/registry.c`: the CREATOR OWNER case in `test_reg_create_key_security`.
+
+## windows.security.authentication.web.core: token results, accounts and calls off the caller's thread (WAM plan steps 2-4, 2026-11-22)
+
+Wine branch `claude/wam-provider`, `8448c9bb` (docs/WAM_BROKER_PLAN.md, "Status"). Still off by default (`Broker` = 1 turns it on).
+
+* `include/wine/tokenbroker.h`: protocol version 2. Requests also carry the named account's id and the request's
+  `Properties` (as NUL-separated pairs); replies carry the token, the account's id and user name, the response
+  properties and, for the new kinds `FIND_ACCOUNTS`, `FIND_ACCOUNT` and `SIGN_OUT`, the accounts. Messages up to
+  256 KiB.
+* `include/windows.security.credentials.idl`: `IWebAccount2` (`Id`, `Properties`, `GetPictureAsync`, `SignOutAsync`,
+  `SignOutWithClientIdAsync`; interface ID and method order checked against the Windows SDK 10.0.26100 header, nothing
+  copied), and `WebAccount` lists it.
+* `dlls/windows.security.authentication.web.core/account.c` (new): `WebAccount` objects (`IWebAccount`, `IWebAccount2`
+  `Id`; `Properties`, the picture and sign-out are stubs).
+* `broker.c`: the client of protocol 2: token results with a `WebTokenResponse` (token, `WebAccount`, properties),
+  `FindAllAccountsAsync`/`FindAllAccountsWithClientIdAsync` and `FindAccountAsync` through the broker. The pipe is
+  opened with `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`; reply buffers that held a token are zeroed before
+  they are freed.
+* `manager.c`: with the broker on, token requests and account lookups run on a thread-pool thread and complete their
+  operation when the broker answers (an interactive request lasts as long as the sign-in); a provider lookup returns a
+  provider object for the id and authority; `...WithWebAccount...` requests pass the account. Without the broker
+  everything answers at once as before. `async.c`: `async_operation_inspectable_create` is no longer static.
+* `response.c`: the vector views hold items (`vector_view_*_create`), `webtokenresponse_create`. `map.c`:
+  `map_hstring_pairs`. `provider.c`: `provider_create` (the diagnostic provider uses it).
+* `tests/web_core.c`: `test_broker` and `test_broker_sandboxed` (children with a restricted and a low integrity
+  token), run only when `WEBCORE_TEST_AUTHORITY` names the local test authority (WineExplorer
+  `tests/wam/run-broker-tests.sh`; skipped otherwise; `WEBCORE_TEST_WINDOW` for `tests/wam/run-window-test.sh`).
 
 ## windows.security.authentication.web.core: the token broker's client (WAM step 3, plan step 1, 2026-11-18)
 
@@ -3934,6 +4024,17 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 
 2026-11-21 (Wine 401183d1): `programs/wscript/main.c`: the host loads its own type library with `LoadTypeLibEx(..., REGKIND_NONE)` instead of `LoadTypeLib`, which registers a library named without a path and so needs write access to HKCR; for a standard user (HKCR is the machine registry on WineExplorer) `wscript`/`cscript` ended with "Script initialization failed" and ran no script (B62). wscript tests 347/347 on both architectures; checked in the lab with Office's `ospp.vbs`.
 
+2026-11-22 (Wine d6e9315e, branch `claude/crypt32-readonly-system-store`): `dlls/crypt32/store.c`
+(`CRYPT_SysOpenStoreW`): the local machine's part of the current user's system store (the user's collection of HKCU and
+HKLM) is opened read-only (`CERT_STORE_READONLY_FLAG`) and added to the collection without
+`CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG`, as on Windows: what a user adds goes to HKCU. It was opened read-write, which a
+limited user cannot do for the machine registry, so the HKLM half of the Root store was missing and no root certificate
+was trusted: every HTTPS request through winhttp failed with `ERROR_WINHTTP_SECURE_INVALID_CA` (12045, then 12157), and
+the token broker's last sign-in step (redeeming the code at `login.microsoftonline.com`) with it. Windows itself still
+answers a read-write open of the machine store with access denied (checked as a limited user on the Windows host by the
+environment session): that is unchanged. Test: `dlls/crypt32/tests/store.c` (`testUserStoreIncludesMachineStore`: the
+user's Root holds the machine Root's certificates). An earlier version of this change (a fallback to read-only in
+`CRYPT_SysRegOpenStoreW`, 70ea3107) was reverted in the same branch: Windows does not fall back there.
 2026-11-21 (UWP signature check; Wine branches `claude/wintrust-sha256-policy` 3d601306 and `claude/appxsip-registration` c1888008, both on development 401183d1, not merged):
 - `dlls/wintrust/softpub.c` (`SoftpubAuthenticode`): the signature hash of the signer certificate was read into 20 bytes
   to look it up in the Disallowed store. For a certificate signed with SHA-256 the call needs 32 bytes, failed, and
@@ -3980,6 +4081,116 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 - `dlls/wintypes/guidhelper.c`, `include/windows.foundation.idl`: `Windows.Foundation.GuidHelper` (`IGuidHelperStatics`). A test in `tests/wintypes.c`.
 - `dlls/kernelbase/version.c`, `kernelbase.spec`, `kernel32.spec`: `PackageFamilyNameFromFullName` (was a stub); the catalog record size of the package APIs is 1 MiB (it was 256 KiB).
 - `server/uwp_context.h`: the largest catalog record is 512 KiB (64 KiB) and the largest class table of a context 1 MiB (256 KiB): the Windows App Runtime framework declares 1033 activatable classes.
+
+2026-11-22 (Wine 5959d2d0, branch `claude/wintrust-catalog-v2` 83c1540a; B74):
+- `dlls/wintrust/crypt.c`: version 2 (SHA256) catalogs. A catalog is version 2 when its member list algorithm is
+  `szOID_CATALOG_LIST_MEMBER2` (1.3.6.1.4.1.311.12.1.3), whatever `dwPublicVersion` `CryptCATOpen` is given.
+  `CryptCATStoreFromHandle` (a stub that aborted the process) returns the catalog's `CRYPTCATSTORE`.
+  `CryptCATEnumerateMember` handles version 2 members: the member info (`CAT_MEMBERINFO2`, 1.3.6.1.4.1.311.12.2.3) is
+  a context-specific tag whose number selects the subject's SIP ([0] PE image, [1] cabinet, [2] flat file,
+  [3] catalog, [4] CTL), the reference tag is the hash in hexadecimal, and a SHA1 tag without indirect data gets the
+  indirect data of a flat file with that hash. Member info and indirect data are decoded with wintrust's own
+  decoders, not through the registered ones. The reference tag of a version 1 member is its subject identifier string,
+  as on Windows. `CryptCATEnumerateCatAttr` and `CryptCATGetCatAttrInfo` (stubs) return the catalog attributes, the
+  name-value extensions of the trust list. `CryptCATAdminEnumCatalogFromHash` skips members without indirect data.
+  Observed black-box on Windows (x64 and x86) with an Office catalog and hand-built catalogs; new test
+  `test_catalog_versions`; Wine's wintrust tests (crypt, softpub, asn, register) pass on x64 and x86.
+- `include/mscat.h` (`CRYPTCATSTORE`, `CryptCATStoreFromHandle`), `include/wintrust.h` (`CAT_MEMBERINFO2`,
+  `CAT_MEMBERINFO2_OBJID`), `include/wincrypt.h` (`szOID_CATALOG_LIST`, `_MEMBER`, `_MEMBER2`).
+
+2026-11-22 (Wine, branch claude/wbemprox-compsys): `dlls/wbemprox` (`builtin.c`, `compsys.c`, `wbemprox_private.h`, `Makefile.in`): `Win32_ComputerSystem` gets `DNSHostName`, `PartOfDomain`, `Workgroup`, `Name` as its key, `Domain` (the DNS name from HKLM\Software\WineExplorer\Domain\Name, else the NetBIOS name) and `DomainRole` from `NetGetJoinInformation` (they were fixed: `WORKGROUP`, 0), and the methods `Rename`, `JoinDomainOrWorkgroup` and `UnjoinDomainOrWorkgroup` (the new `compsys.c`), which call `NetRenameMachineInDomain`, `NetJoinDomain` and `NetUnjoinDomain`; `wbemprox` imports `netapi32` for it. Without the join engine behind those functions they answer as before (not supported); for a rename outside a domain `compsys.c` loads `wexhost.dll` from system32 only (`LOAD_LIBRARY_SEARCH_SYSTEM32`) and calls its `WexHostnameSet` (the host name service, as System Properties does), and falls back to `SetComputerNameEx` when that dll is absent. `IWbemServices::CreateClassEnum` is implemented (`class.c`: a second enumerator that lists the class names of the namespace, `table.c`: `get_table_names`, `services.c`); with a superclass it lists nothing, as the classes have no hierarchy; the class objects it returns answer `Get("__CLASS")` only. `GetObject` of a class path (no key) no longer runs the whole query for a table flagged `TABLE_FLAG_SLOW_FILL` (`CIM_DataFile`, `Win32_Directory`, whose `fill` walks every fixed drive): `exec_class_query` builds the class object on one blank row (`query.c`, `table.c`, `services.c`, `builtin.c`), so `GetObject("CIM_DataFile")` returns at once instead of after a disk walk; instance queries are unchanged. Docs: docs/POWERSHELL.md. The new `mi.dll` (`src/dlls/mi`) is a project module, not a change to stock Wine.
+
+2026-11-22 (Wine aeb4419c, branch `claude/crypt32-readonly-system-store` d6e9315e; B75): `dlls/crypt32/store.c`
+`CRYPT_SysOpenStoreW`: the machine's part of a user's system store (a `CERT_SYSTEM_STORE_CURRENT_USER` open, which
+also returns the `LOCAL_MACHINE` store of that name) is opened with `CERT_STORE_READONLY_FLAG` and added to the
+collection without `CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG`: a limited user, who cannot write the machine registry, still
+gets the machine's trusted roots, and what a user adds goes to the user's store. Before, the machine part was opened
+read-write, failed for a limited user and was left out, so HTTPS failed in the machine prefix. An explicit read-write
+open of the machine store is still refused (error 5), as on Windows. Observed black-box on Windows as a non-elevated
+user (`scripts/rootstore-probe.c`). Test `testUserStoreIncludesMachineStore` in crypt32's store tests (x64 and x86).
+
+2026-11-22 (Wine e3cc91ee, branch `claude/crypt32-shared-certs` 81518812; B79): `dlls/crypt32/store.c`
+(`CRYPT_SysRegOpenStoreW`, the system store enumeration) and `dlls/crypt32/rootstore.c` (the root sync) open
+`Software\Microsoft\SystemCertificates` with `KEY_WOW64_64KEY`: the stores are shared between the 32-bit and 64-bit
+registry views, as on Windows. Redirected, a 32-bit program had a copy of its own that only a 32-bit process able to
+write the machine registry filled, so a limited user's 32-bit programs trusted no root on the system tier.
+
+## Wine 11.22 merged into development (2026-11-22)
+
+Wine 9f8c4ae4 (Release 11.22) merged into development (base 86e2f5af), branch `claude/merge-11.22`: merge aaf13667 and
+fix-up 0fed4aa9, then later upstream picks (the Tahoma bitmap strike series 2520107a..f2ba6fa4, 3832d550 and 7f5ecb95
+foreground loss, 77bf09aa key repeats, f90e1feb display mode invalidation, d87fb2f5 relocated PE image info; head
+1c1bac3d). Conflicts and how they were resolved:
+- `server/protocol.def`, generated headers: upstream's `set_file_info` replaces `set_named_pipe_info`, `set_fd_eof_info`,
+  `set_mailslot_info` and `set_fd_completion_mode`; our `get_pipe_caller_binding` kept; headers regenerated with
+  `tools/make_requests` (protocol 986).
+- `server/named_pipe.c`: FilePipeInformation goes through `pipe_end_set_file_info`. Bridged pipes (WexSession0) answer it
+  as before, because both sides hold ordinary pipe ends. The bridge object has no handle and refuses with
+  OBJECT_TYPE_MISMATCH. The client end now also needs FILE_WRITE_ATTRIBUTES (upstream).
+- `server/fd.c`: upstream's disposition-based `open_fd` and `open_file_or_dir` (no Unix write access needed for
+  attributes), opening through `sysrun_open` / `sysrun_mkdir`. The e1s profile parent and descriptor checks are kept, and
+  so is replacing a link on EACCES (FILE_OVERWRITE_IF, or FILE_SUPERSEDE with write-data access).
+- `server/mapping.c` (d87fb2f5): the PE image info's base is the mapped base, set before our `sysrun_main_image`.
+- `dlls/dxgi/swapchain.c`: wined3d reports minimised windows (upstream af38a86c); dxgi still checks a minimised
+  composition target itself.
+- `dlls/msi/custom.c`: the elevation broker path kept, plus x86_64 emulation for custom action servers (a1e2ee08).
+  `dlls/msi/package.c`: `msi_package_file_is_machine` kept, unused `get_product_version` removed.
+- `dlls/shell32/shellpath.c`, `dlls/userenv/userenv_main.c`: upstream's service-account profiles; our E1S13
+  managed-profile branches kept under `WEX_E1S13_HKU_TEST`.
+- `dlls/shell32/shlview.c`: our keyboard verbs kept; upstream's duplicate clipboard key handler dropped.
+- `programs/services/tests/service.c`: includes merged.
+- Fix-up: upstream's `SystemTimeToTzSpecificLocalTimeEx` / `TzSpecificLocalTimeToSystemTimeEx` replace ours (B13), our
+  test kept as `test_TzSpecificLocalTimeEx_dynamic`; a duplicate `hr` in `wined3d_swapchain_present` removed.
+
+ASLR: 11.22 randomizes dll and exe bases and virtual allocations (04e28911, e3b2abfe, 8eb8dd99, 0c1230b9, 5ab6d627).
+Nothing in WineExplorer assumes fixed bases (broker and dialog recognition use the file's device and inode; the PE cache
+and prefetch work on file content and relocate after mapping). Each wineserver picks its own dll base, so session 0 and
+user sessions differ.
+
+2026-11-22 (Wine 0857cc04, branch `claude/samss-first` efb328b7; B76): `programs/services/services.c`
+(`compare_service`): the services that always run (`always_started`: SamSs, a demand-start service, B44) sort before the
+auto-start services, so lsass runs before a service whose start-up loads a security package. Sorted by start type, SamSs
+came after the automatic services, and Office Click-to-Run, registering NTLM for its RPC server, asked for it while the
+auto-start list held the startup lock, waited out the 3-second lock timeout and went without NTLM (no API endpoint, so
+Word's App-V layer failed). `programs/services/rpc.c` (`svcctl_StartServiceW`): a service that runs is answered with
+ERROR_SERVICE_ALREADY_RUNNING without waiting for the startup lock, as on Windows. Wine's advapi32 service tests pass
+(x64 777, x86 795 checks).
+
+2026-11-22 (Wine f51530f4, branch `claude/wininet-listen-timeout`): `dlls/wininet/internet.c`: `INTERNET_OPTION_LISTEN_TIMEOUT` (11) is
+accepted by `InternetSetOption` on a handle (the value is checked for its size and not used) and without a handle, instead
+of failing with `ERROR_INTERNET_INVALID_OPTION` (12009) after "Option 11 STUB". Copilot's sign-in library sets it after the
+account's answer and then shows its error page with that code (tag 53u4r). Test: `dlls/wininet/tests/internet.c`
+(`test_listen_timeout_option`).
+
+2026-11-23 (Wine 0ea11056, 9ab267df and df980993 on claude/merge-11.22, branch `claude/wam-answer-shape`):
+`dlls/windows.security.authentication.web.core` (`account.c`, `broker.c`, `map.c`, `private.h`; `map.c`: the string map's
+`GetView` returns a read-only `IMapView` of the same map, it was `E_NOTIMPL`) and `include/wine/tokenbroker.h`
+(a WineExplorer DLL, listed for the stock tree's sake): the token broker's answer carries the response WebAccount's
+Properties (a new reply field, `TOKENBROKER_REPLY_ACCOUNT_PROPERTIES`, as pairs); `IWebAccount2::get_Properties` returns
+them (it was `E_NOTIMPL`); the account's state is `WebAccountState_None` for the `consumers` authority and `Connected`
+for any other, as Windows answers for a Microsoft account (measured with a probe on Windows, docs/WAM_BROKER_DESIGN.md).
+Tests: `tests/web_core.c` (the broker's test provider, run by `tests/wam/run-broker-tests.sh`): the account id, state
+and properties, the batch form body, `MATS`, process-scoped `FindAccountAsync`, a brokered request for another client id
+and Nested App Authentication.
+
+2026-11-23 (Wine 5261fa8c on df980993, branch `claude/wam-answer-shape`): a review of the same DLL, no new behaviour
+for programs except the first item. HSTRINGs made from string literals no longer count the terminator (the provider
+error's `ErrorMessage` had an embedded NUL; a test checks its length); the string map has a lock (the broker client
+reads a request's maps on a thread-pool thread) and lazily made maps go through `map_hstring_get`; the private
+`hstring_copy` functions give way to `WindowsDuplicateString`; `WebTokenRequest` uses `DEFINE_IINSPECTABLE`; one
+`consumers` check (`authority_is_consumers`, `provider_is_consumers`); the broker client gives up at once when
+`tokenbroker.exe` cannot start and range-checks the reply's status; `wine/tokenbroker.h` names the `FIND_ACCOUNT`
+statuses (`TOKENBROKER_ACCOUNT_FOUND`, `_NONE`); the tests put back the user's `HKCU\Software\Wine\WebAuthentication`
+values instead of deleting the key.
+
+2026-11-23 (Wine 1c45c251 on 5261fa8c, branch `claude/wam-answer-shape`): the same DLL. The result lists are views of
+Wine's generic `IVector<IInspectable *>` (`vector.c`, copied from `windows.devices.enumeration`) and so are `IIterable`;
+`include/windows.security.authentication.web.core.idl` declares `IVector<WebTokenResponse *>` and
+`IVector<WebAccount *>`. A token request is read into the broker's message when the call is made; the pipe is
+overlapped, with a limit of a minute (silent) or eleven minutes (interactive). `WebAccount.SignOutAsync` and
+`SignOutWithClientIdAsync` go to the broker (`IAsyncAction` from `windows.media.speech`'s `async.c`; `wine/tokenbroker.h`:
+an empty client id means the client ids the calling process has used); `InvalidateCacheAsync` is a completed action
+(the cached token is not dropped). `DEFINE_IINSPECTABLE` for the remaining forwarding interfaces.
 
 2026-11-22 (UWP, Wine branch `claude/uwp-machine-apps`): `dlls/profapi` (`main.c`, new; `profapi.spec`, `Makefile.in`): ordinal 114 has the signature `LONG (const WCHAR *family, void *reserved, const WCHAR *subkey, DWORD access, HKEY *key)`, deduced from a logged call of the Windows App Runtime, and answers `ERROR_FILE_NOT_FOUND` after logging its arguments. See `docs/uwp/WINAPPSDK.md`.
 

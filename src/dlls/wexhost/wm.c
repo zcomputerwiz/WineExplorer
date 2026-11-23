@@ -67,15 +67,6 @@ NTSTATUS wm_start_ex(void *args)
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wm_start(void *args)
-{
-    struct wm_start_params *params = args;
-    struct wm_start_ex_params extended = {params->desktop, WEX_WM_BACKEND_AUTO};
-    wm_start_ex(&extended);
-    params->err = extended.err;
-    return STATUS_SUCCESS;
-}
-
 NTSTATUS wm_capabilities(void *args)
 {
     struct wm_capabilities_params *params = args;
@@ -122,7 +113,6 @@ NTSTATUS name(void *args) \
     ((params_type *)args)->err = ops ? ERROR_NOT_SUPPORTED : ERROR_NOT_READY; \
     return STATUS_SUCCESS; \
 }
-OPTIONAL_DISPATCH(wm_effects, struct wm_effects_params, effects)
 OPTIONAL_DISPATCH(wm_thumbnails, struct wm_thumbnails_params, thumbnails)
 OPTIONAL_DISPATCH(wm_peek, struct wm_peek_params, peek)
 OPTIONAL_DISPATCH(wm_clock, struct wm_clock_params, clock)

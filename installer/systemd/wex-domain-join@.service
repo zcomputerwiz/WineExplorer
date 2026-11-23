@@ -5,6 +5,11 @@
 # connection: the request is on standard input, the answer goes to standard output. A join takes up to a minute or two
 # (the controller, the account, winbind), hence the long time out. Root: the engine writes smb.conf, krb5.conf,
 # nsswitch.conf and PAM, and joins.
+#
+# The times fit together: the engine waits 5 seconds for another request's lock (then ERROR_BUSY), runs at most
+# RuntimeMaxSec, and when stopped it has TimeoutStopSec to put a rename back and answer. The caller (wexjoin's unix
+# side) waits WEX_JOIN_WAIT_SECONDS (wexjoin.h, 420), more than the two together, so that it never reports a time out
+# for a request that then succeeds.
 
 [Unit]
 Description=WineExplorer domain join (one request)
@@ -14,8 +19,8 @@ ExecStart=/usr/local/sbin/wex-domain-join.sh serve
 StandardInput=socket
 StandardOutput=socket
 StandardError=journal
-TimeoutStartSec=300
-RuntimeMaxSec=600
+RuntimeMaxSec=300
+TimeoutStopSec=90
 # the engine is the one place that changes the machine's authentication: nothing else of the system is its business
 PrivateTmp=true
 NoNewPrivileges=true

@@ -479,6 +479,32 @@ static void run_mode(const char *image, DWORD expect, const char *out, const cha
     CloseHandle(process);
 }
 
+/* runcmd IMAGE "ARGUMENTS" EXPECTED_EXIT_CODE: the broker starts IMAGE with these arguments (any program, not a "child" of this probe)
+ * elevated, and the handle that comes back waits for it; used for ALPC impersonation across the elevation boundary */
+static void runcmd_mode(const char *image, const char *tail, DWORD expect_exit)
+{
+    WCHAR *wimage = widen(image), *cmd;
+    char *narrow_cmd = malloc(2 * strlen(image) + strlen(tail) + 16);
+    HANDLE process = NULL;
+    DWORD err, code = 0xdeadbeef;
+    char what[96];
+
+    sprintf(narrow_cmd, "\"%s\" %s", image, tail);
+    cmd = widen(narrow_cmd);
+    err = wexelevate_run(wimage, cmd, L"C:\\windows", NULL, 0, SW_SHOWNORMAL, WEXELEVATE_WANT_HANDLE, &process, NULL);
+    SetLastError(err);
+    check(err == 0, "the broker serves the request");
+    if (!err)
+    {
+        check(process != NULL && WaitForSingleObject(process, 60000) == WAIT_OBJECT_0, "the handle waits for the process");
+        GetExitCodeProcess(process, &code);
+        sprintf(what, "the process exits with %lu (got %lu)", expect_exit, code);
+        check(code == expect_exit, what);
+        CloseHandle(process);
+    }
+    free(wimage); free(narrow_cmd); free(cmd);
+}
+
 static void args_mode(const char *image, const char *out)
 {
     static const WCHAR tail[] = L" \"quoted arg with spaces\" \"with \\\"embedded\\\" quotes\" caf\u00e9 \u4e2d\u6587 \U0001F600 back\\\\slash"
@@ -2888,6 +2914,7 @@ int main(int argc, char **argv)
     }
     else if (!strcmp(mode, "run") && argc > 4) run_mode(argv[2], atoi(argv[3]), argv[4], argc > 5 ? argv[5] : NULL, argc > 6 ? argv[6] : NULL);
     else if (!strcmp(mode, "args") && argc > 3) args_mode(argv[2], argv[3]);
+    else if (!strcmp(mode, "runcmd") && argc > 4) runcmd_mode(argv[2], argv[3], atoi(argv[4]));
     else if (!strcmp(mode, "concurrent") && argc > 5) concurrent_mode(argv[2], argv[3], argv[4], argv[5]);
     else if (!strcmp(mode, "forge") && argc > 3) forge_mode(argv[2], argv[3]);
     else if (!strcmp(mode, "impersonate") && argc > 3) impersonate_mode(argv[2], argv[3]);

@@ -1,7 +1,14 @@
 MODULE    = tokenbroker.exe
-IMPORTS   = advapi32
+IMPORTS   = uuid advapi32 crypt32 bcrypt winhttp ole32 user32
 
 EXTRADLLFLAGS = -mwindows -municode
 
 SOURCES = \
-	main.c
+	answer.c \
+	cache.c \
+	main.c \
+	oauth.c \
+	provider.c \
+	signin.c \
+	util.c \
+	webview.c

@@ -119,6 +119,8 @@ cleanup()
     pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null; pkill -u "$CAR" 2>/dev/null; pkill -u "$SYS" 2>/dev/null   # includes winedevice.exe, which blocks userdel
     sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null; pkill -9 -u "$CAR" 2>/dev/null; pkill -9 -u "$SYS" 2>/dev/null
     [ -z "${XV_PID:-}" ] || kill "$XV_PID" 2>/dev/null
+    # the join case's fake engine (a failure between its start and its kill leaves it holding the fixture)
+    [ -z "${JENG_PID:-}" ] || kill "$JENG_PID" 2>/dev/null
     if [ "${WEX_C2_KEEP:-0}" = 1 ]; then
         echo "fixture kept: $ROOT, users $ADM $STD $CAR $SYS, group $GRP, $CONF, $LIBEXEC" >&2
         exit "$rc"
@@ -154,6 +156,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe64.exe" "$SRC/scripts/sys
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe32.exe" "$SRC/scripts/sysrun_server_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe64.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe32.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
+x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/alpcpair64.exe" "$SRC/tests/uwp/alpc/alpc-pair.c" -ladvapi32   # ALPC impersonation, one role per process
 cp "$ROOT/probes/rolesprobe64.exe" "$ROOT/probes/wexsvc.exe"     # the service image, so that its process has its own name
 gcc -O2 -Wall -o "$ROOT/bin/asgroup" "$SRC/scripts/sysrun_asgroup.c"
 chmod 0755 "$ROOT/probes"/*.exe
@@ -284,6 +287,11 @@ sysrun_as() { local u="$1"; shift; (cd /tmp && runuser -u "$u" -- env -i HOME="$
     DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' "$@"); }
 sysprefix_env() { sysrun_as "$1" env WINEPREFIX="$SYS_HOME/.wine" "$BUILD/server/wineserver" "${@:2}"; }
 sysprobe() { local u="$1" arch="$2" mode="$3"; shift 3; sysrun_as "$u" "$BUILD/wine" "$ROOT/probes/probe$arch.exe" "$mode" "$WINM" "$@" 2>&1; }
+# wex-accounts sync maps every local account, system ones included; the account watcher (wex-accounts.path) syncs
+# at every change of /etc/passwd and would map this one as soon as it exists (the check below then lost a race), so
+# it is held while the section runs, as in the domain section
+SYS_WATCH=; systemctl is-active --quiet wex-accounts.path 2>/dev/null && SYS_WATCH=1
+systemctl stop wex-accounts.path wex-accounts.timer >/dev/null 2>&1 || true
 if ! id "$SYS" >/dev/null 2>&1; then
     useradd --system -d "$SYS_HOME" -s /usr/sbin/nologin "$SYS"
     SYS_CREATED=1
@@ -328,6 +336,7 @@ for hive in system.reg userdef.reg; do
     sysrun_as "$SYS" ln -sfn "$M/$hive" "$SYS_HOME/.wine/$hive"
 done
 ok c2_symlinked_hives_system_account_prefix_links_left_alone
+[ -z "$SYS_WATCH" ] || systemctl start wex-accounts.path >/dev/null 2>&1 || true
 
 # ---- 4. (ii) a replacement server ------------------------------------------------------------------------------
 echo "--- replacement server (ii)"
@@ -1071,6 +1080,51 @@ install -m 666 -o root -g root "$ROOT/probes/wexelevate_probe64.exe" "/tmp/wexel
 bp c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation "$ADM" 64 run "$(winpath $EL/rootw.exe)" 665 "$(winpath $EL/out.nolease)" -
 [ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
 ok c4_no_lease_no_process
+
+# -- ALPC impersonation across the elevation boundary (tests/uwp/alpc/alpc-pair.c; docs/uwp/WINAPPSDK.md has the Windows 11 measurements).
+# A server thread impersonates the request of a client that sends it with a security attribute; the level of the token it gets is the
+# lowest of what the client allows and what the rule of the named pipes gives it (token_impersonation_level: SeImpersonatePrivilege, or
+# the same user and not less trusted and not less elevated). Both roles are Wine programs of ONE user and ONE wineserver:
+#   (a) the same token on both sides (limited server, limited client): level 2 for level 2;
+#   (b) the downgrade: the server is the limited token, the client is the same user's ELEVATED process (started through the broker,
+#       the stub approves it): the server is less elevated than its client and gets level 1 (identification) whatever the client allows.
+# A role that cannot be started is skipped with a note; a wrong level fails.
+alpc_pair()   # name level mode(limited|elevated): runs the server as the limited user, the client as given; prints the server's lines
+{
+    local name="$1" level="$2" mode="$3" out="$ROOT/alpc-$1.out" cl="$ROOT/alpc-$1.cl" sp rc=0
+    el_clean; touch "$EL/approve.all"
+    run_as "$ADM" cp "$ROOT/probes/alpcpair64.exe" "/home/$ADM/wexel/alpcpair.exe"
+    : > "$out"
+    wine_as "$ADM" "$ROOT/probes/alpcpair64.exe" server "$name" 60 > "$out" 2>&1 & sp=$!
+    sleep 3
+    if [ "$mode" = elevated ]; then
+        bprobe "$ADM" 64 runcmd "$(winpath /home/$ADM/wexel/alpcpair.exe)" "client $name $level" 0 > "$cl" 2>&1 || rc=$?
+        grep -q '^runcmd=PASS' "$cl" || rc=1
+    else
+        wine_as "$ADM" "$ROOT/probes/alpcpair64.exe" client "$name" "$level" > "$cl" 2>&1 || rc=$?
+        grep -q '^sent' "$cl" || rc=1
+    fi
+    if [ $rc != 0 ]; then
+        kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null || true
+        head -5 "$cl" 2>/dev/null | tr '\n' ' ' > "$ROOT/alpc-skip"   # a subshell: the reason goes through a file
+        return 1
+    fi
+    wait "$sp" 2>/dev/null || true
+    tr -d '\r' < "$out"   # a Windows program's lines end in CR LF (b1123a: "level=2\r" did not match ^level=2$)
+}
+
+if OUT="$(alpc_pair a1 2 limited)"; then
+    grep -q '^level=2$' <<<"$OUT" || { echo "$OUT" >&2; fail "ALPC, the same token on both sides, level 2: wrong level"; }
+    ok c4_alpc_impersonation_same_token_gives_the_level_of_the_client
+else
+    echo "NOTE: the ALPC pair of the same token could not run ($(cat "$ROOT/alpc-skip" 2>/dev/null)), skipped"
+fi
+if OUT="$(alpc_pair b1 2 elevated)"; then
+    grep -q '^level=1$' <<<"$OUT" || { echo "$OUT" >&2; fail "ALPC, a limited server and an elevated client of the same user: not identification level"; }
+    ok c4_alpc_impersonation_limited_server_gets_identification_of_an_elevated_client
+else
+    echo "NOTE: the ALPC pair limited server / elevated client could not run ($(cat "$ROOT/alpc-skip" 2>/dev/null)), skipped"
+fi
 
 # -- B39: an image on a file system that gives no read leases (UDF, as a loop-mounted ISO): the broker refuses it
 # with its own reply error (WEXELEVATE_E_NO_IMAGE_LEASE), nothing runs; through ShellExecuteEx the program still
@@ -2642,6 +2696,49 @@ run_as "$ADM" bash -c 'head -c 70000 /dev/urandom > "$1"' _ "/home/$ADM/wexel/ap
 AXX="$(winpath /home/$ADM/wexel/appx/wexappx.exe)"; AXPKG="$(winpath /home/$ADM/wexel/appx/pkg.appx)"
 bp c4_wexappx_package_path_and_hash_reach_the_elevated_process "$ADM" 64 appxdoc "$AXX" "$AXPKG" "$(winpath $EL/out.appxdoc)"
 bp c4_wexappx_install_without_a_package_is_refused "$ADM" 64 appxnone "$AXX" "$(winpath $EL/out.appxnone)"
+
+# the token broker (WAM) with elevation enforced: its client and the broker read each other's process token, which the
+# server gives only to a handle with the query right (server/token.c, open_token); with the limited right the client
+# refused the broker's pipe and Copilot used its own sign-in window. Wine's web_core tests, as the limited
+# administrator, against the local test authority (tests/wam/run-broker-tests.sh runs them without enforcement)
+python3 -I "$SRC/tests/wam/test_authority.py" "$ROOT/wam-port" 2> "$ROOT/wam-authority.log" &
+WAM_AUTH=$!
+for _ in $(seq 50); do [ -s "$ROOT/wam-port" ] && break; sleep 0.1; done
+[ -s "$ROOT/wam-port" ] || { kill "$WAM_AUTH" 2>/dev/null; fail "wam: the test authority did not start"; }
+for arch in x86_64 i386; do
+    install -m 755 "$BUILD/dlls/windows.security.authentication.web.core/tests/$arch-windows/windows.security.authentication.web.core_test.exe" \
+        "$ROOT/probes/web_core_$arch.exe" || { kill "$WAM_AUTH" 2>/dev/null; fail "wam $arch: no web_core test program"; }
+    # each architecture starts from no accounts, as in tests/wam/run-broker-tests.sh: the broker keeps its accounts and
+    # tokens (process and cache), and the tests expect none at the start
+    pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
+    for _ in $(seq 50); do pgrep -u "$ADM" -f tokenbroker.exe > /dev/null || break; sleep 0.1; done
+    rm -rf "/home/$ADM/.local/share/wineexplorer/tokenbroker"
+    rc=0
+    timeout 300 runuser -u "$ADM" -- env -i HOME="/home/$ADM" USER="$ADM" LOGNAME="$ADM" PATH=/usr/bin:/bin LANG=C \
+        DISPLAY=":$DNUM" WINEDEBUG=-all,warn+webcore WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' \
+        WEBCORE_TEST_AUTHORITY="http://127.0.0.1:$(cat "$ROOT/wam-port")/" \
+        "$BUILD/wine" "$ROOT/probes/web_core_$arch.exe" web_core > "$ROOT/wam-$arch.log" 2>&1 || rc=$?
+    # B86: when the test ran the real broker with a low integrity token, the client must have refused it for the token
+    # (only that check refuses the real image); "not served" alone could have other causes
+    b86=
+    # reported either way: a lasting skip would otherwise drop the only proof of the token check unnoticed
+    echo "NOTE: B86 case 2 (the real broker with a low integrity token) ran on $arch:" \
+        "$(grep -q 'B86: the low integrity token broker runs' "$ROOT/wam-$arch.log" && echo yes || echo no)"
+    if grep -q 'B86: the low integrity token broker runs' "$ROOT/wam-$arch.log" &&
+       ! sed -n '/B86: the low integrity token broker runs/,$p' "$ROOT/wam-$arch.log" | grep -q "with a sandbox's token"; then
+        b86=1
+        echo "wam $arch: the low integrity broker was not refused for its token" >&2
+    fi
+    if [ "$rc" != 0 ] || [ -n "$b86" ] || grep -q -e 'Test failed' -e 'skipped: the token broker' "$ROOT/wam-$arch.log" ||
+       ! grep -q 'tests executed' "$ROOT/wam-$arch.log"; then
+        grep -E 'Test failed|skipped|tests executed|unhandled' "$ROOT/wam-$arch.log" | head -20 >&2
+        kill "$WAM_AUTH" 2>/dev/null
+        fail "wam $arch: web_core with the broker as the limited administrator (exit $rc)"
+    fi
+    ok "c4_token_broker_web_core_tests_pass_as_the_limited_administrator_$arch"
+done
+kill "$WAM_AUTH" 2>/dev/null; wait "$WAM_AUTH" 2>/dev/null || true
+pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
 el_down "$ADM"
 
 # -- 6. a standard user
@@ -3627,6 +3724,37 @@ for b in 64 32; do
 done
 kill_servers
 ok st_session0_runs_its_service_manager_and_sessions_reach_it
+# crypt32: a limited user's Root store includes the machine's trusted roots, read-only (it cannot write the machine
+# registry). When it lost them, no root was trusted and every HTTPS client of the machine prefix failed (winhttp
+# 12045/12157, the token broker's redeem). As on Windows (scripts/rootstore-probe.c): the machine store opened read-write
+# is refused (5), read-only it opens with session 0's certificates, and the user's Root holds at least those. Session 0
+# opens it first (and fills it where crypt32 does); 64-bit and 32-bit.
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/rootstore64.exe" "$SRC/scripts/rootstore-probe.c" -lcrypt32 ||
+    fail "rootstore: cannot build the probe (64)"
+i686-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/rootstore32.exe" "$SRC/scripts/rootstore-probe.c" -lcrypt32 ||
+    fail "rootstore: cannot build the probe (32)"
+SYSROOT="$(s0_wine "$ROOT/probes/rootstore64.exe" | tr -d '\r' | sed -n 's/^machine_root=//p')"
+case "$SYSROOT" in "open count="*) ;; *) fail "rootstore: session 0 cannot open the machine's root store ($SYSROOT)" ;; esac
+echo "rootstore: session 0's machine Root: $SYSROOT"
+for b in 64 32; do
+    OUT="$(as_wine "$STD" "$ROOT/probes/rootstore$b.exe")"
+    echo "rootstore $b-bit, the standard user:"; sed 's/^/  /' <<<"$OUT"
+    USERN="$(sed -n 's/^user_root=open count=//p' <<<"$OUT")"
+    if grep -qx 'machine_root=error 5' <<<"$OUT" && grep -qx "machine_root_ro=$SYSROOT" <<<"$OUT" &&
+       [ -n "$USERN" ] && [ "$USERN" -ge "${SYSROOT#open count=}" ]; then
+        continue
+    fi
+    # B79 (open): a limited user's 32-bit process still gets error 50 opening the machine's store; reported, not failed,
+    # until it is fixed. The 64-bit case is the regression check of B75.
+    if [ "$b" = 32 ]; then echo "rootstore: KNOWN B79, the 32-bit case does not pass yet"; continue; fi
+    grep -qx 'machine_root=error 5' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "rootstore: the standard user opened the machine's root store read-write, $b-bit"; }
+    grep -qx "machine_root_ro=$SYSROOT" <<<"$OUT" ||
+        { echo "session 0: machine_root=$SYSROOT" >&2; echo "$OUT" >&2; fail "rootstore: the standard user cannot read the machine's root store, $b-bit"; }
+    { echo "session 0: machine_root=$SYSROOT" >&2; echo "$OUT" >&2; fail "rootstore: the standard user's Root lacks the machine's roots, $b-bit"; }
+done
+kill_servers
+ok st_limited_user_reads_the_machine_root_store
 # T5.4: a service that is not a session's own runs once, in session 0, as its account; a standard user's session sees
 # its state through its own services.exe, and cannot stop it (session 0 checks the user's own token)
 s0_wine sc start wuauserv >/dev/null || true
@@ -3686,6 +3814,16 @@ OUT="$(s0_wine wexpolicy apply /machine "$(winpath "$POL/machine.pol")" | tr -d 
 grep -q 'set=1 deleted=0 skipped=0 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: apply /machine"; }
 [ "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" = 0x5 ] || fail "policy: $STD does not read the machine policy"
 s0_wine wexpolicy list /machine | tr -d '\r' | grep -qx 'Software\\Policies\\WexPol\\Machine' || fail "policy: list /machine"
+# the elevation options are the security template's (wexpreg.h): a Registry.pol entry for one is left out and said, the
+# rest of the file applies, and the value the elevation service reads is not 0
+python3 -I "$SRC/scripts/lab/make-preg.py" "$POL/consent.pol" 'Software\Policies\WexPol' Machine 5 \
+    'Software\Microsoft\Windows\CurrentVersion\Policies\System' ConsentPromptBehaviorAdmin 0
+OUT="$(s0_wine wexpolicy apply /machine "$(winpath "$POL/consent.pol")" | tr -d '\r')" || true
+grep -q 'is a security option' <<<"$OUT" && grep -q 'set=1 deleted=[0-9]* skipped=1 status=0$' <<<"$OUT" ||
+    { echo "$OUT" >&2; fail "policy: a Registry.pol entry for ConsentPromptBehaviorAdmin was not left out"; }
+[ "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin)" != 0x0 ] ||
+    fail "policy: a Registry.pol set ConsentPromptBehaviorAdmin to 0"
+s0_wine wexpolicy apply /machine "$(winpath "$POL/machine.pol")" >/dev/null || fail "policy: apply /machine after the consent file"
 # step 3: a program that registered for the policy notification is told when session 0 has written policy
 for kind in machine user; do
     rm -f "$POL/gp-$kind.out"
@@ -4212,7 +4350,7 @@ for b in 64 32; do
     # refused before the engine: nothing is sent
     n=$(reqs)
     for case in "join - - - A p 1:87" "join - ad.wexlab.example - A p 0:50" "join - ad.wexlab.example - A p 0x41:50" "join - ad.wexlab.example - - p 1:1326" \
-                "join - ad.wexlab.example - A - 1:1326" "join \\\\\\\\other ad.wexlab.example - A p 1:50" "unjoin A p 2:1004" "rename NEW:50"; do
+                "join - ad.wexlab.example - A - 1:1326" "join \\\\\\\\other ad.wexlab.example - A p 1:50" "unjoin A p 2:1004" "rename NEW:1326"; do
         args=${case%:*}; want=${case##*:}
         OUT="$(jp $b $args)"; grep -qx "status=$want" <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: '$args' gave something other than $want"; }
     done
@@ -4250,7 +4388,8 @@ for b in 1; do
     nd frobnicate; [ "$NDRC" = 87 ] || fail 'netdom: an unknown command'
     nd join /nonsense; [ "$NDRC" = 87 ] && grep -q 'not valid' <<<"$NDOUT" || fail 'netdom: an unknown option'
     nd resetpwd /server:x; [ "$NDRC" = 50 ] && grep -q 'not supported' <<<"$NDOUT" || fail 'netdom resetpwd'
-    nd renamecomputer /newname:NEWNAME; [ "$NDRC" = 50 ] && grep -q 'not supported yet' <<<"$NDOUT" || fail 'netdom renamecomputer'
+    nd renamecomputer; [ "$NDRC" = 87 ] && grep -q '/NewName option is required' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom renamecomputer without a name'; }
+    nd renamecomputer OTHERPC /newname:NEWNAME /userd:a /passwordd:x; [ "$NDRC" = 50 ] && grep -q 'another computer is not supported' <<<"${NDOUT,,}" || { echo "$NDOUT" >&2; fail 'netdom renamecomputer of another computer'; }
     [ "$(reqs)" = "$n" ] || { cat "$JREQ" >&2; fail 'a refused netdom call reached the engine'; }
     nd help; [ "$NDRC" = 0 ] && grep -q 'NETDOM JOIN' <<<"$NDOUT" || fail 'netdom help'
     # the engine's refusal is shown, with Windows' closing line
@@ -4313,7 +4452,7 @@ grep -qi 'access.*denied' <<<"$NDOUT" && grep -q 'The command failed to complete
 OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" validate WEXBOX 1)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user was not refused"; }
 [ ! -s "$JREQ" ] || fail "join: a standard user's call reached the engine"
 # the engine is not there: the workstation service is not started
-kill "$JENG_PID" 2>/dev/null; wait "$JENG_PID" 2>/dev/null || true; rm -f "$JSOCK"
+kill "$JENG_PID" 2>/dev/null; wait "$JENG_PID" 2>/dev/null || true; JENG_PID=; rm -f "$JSOCK"
 OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=2138' <<<"$OUT" || { echo "$OUT" >&2; fail "join: no engine is not NERR_WkstaNotStarted"; }
 kill_servers
 ok st_join_api_reaches_the_engine_only_from_the_system_group

@@ -166,7 +166,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|debugmode) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|debugmode|perf) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -206,6 +206,9 @@ SRC_DISK=$VMTEST_DIR/$SOURCE/disk.qcow2
 STATE=$VMTEST_DIR/$TEST
 OUT=$STATE/safe-mode
 MNT=$STATE/root
+# what the serial console showed whenever a serial logon did not answer (vmtest.py serial; B78: wait_serial failed in
+# the vfailed phase on BIOS with nothing to show for it)
+export VMTEST_SERIAL_LOG=$OUT/serial-transcript.log
 USER_NAME=${WEX_TEST_USER:-wineuser}
 HELPER=/usr/local/libexec/wex-tests/session-run.py
 PROBES=/usr/local/libexec/wex-tests
@@ -349,6 +352,17 @@ fail() {
     if running "$STATE/disk.qcow2"; then
         "${V[@]}" key "$TEST" alt-sysrq-w >/dev/null 2>&1 && sleep 2
         "${V[@]}" key "$TEST" alt-sysrq-s >/dev/null 2>&1 && sleep 3
+    fi
+    # the failed boot's journal, saved with the other evidence (the VM is stopped, so the disk can be read): the
+    # serial getty's and the boot's lines are what B78 needed
+    if [ "${SAVE_JOURNAL_ON_FAIL:-1}" = 1 ] && [ -e "$STATE/disk.qcow2" ]; then
+        "${V[@]}" stop "$TEST" >/dev/null 2>&1; sleep 2
+        if attach ro >/dev/null 2>&1; then
+            journalctl --directory="$MNT/var/log/journal" -b 0 --no-pager -o short-monotonic \
+                > "$OUT/$PHASE-journal.txt" 2>&1 || true
+            echo "  the guest's journal of this boot: $OUT/$PHASE-journal.txt ($(wc -l < "$OUT/$PHASE-journal.txt") lines)"
+            detach
+        fi
     fi
     exit 1
 }
@@ -637,6 +651,11 @@ wait_serial() {   # wait_serial TIMEOUT: until the serial console answers; vmtes
         gsh 'echo serial=up' 10 2>/dev/null | grep -q '^serial=up' && return 0
         sleep 3
     done
+    # what the guest writes to the port when nothing is sent (a getty that prints its prompt late shows here), then
+    # the screen; fail() saves the guest's journal
+    echo "  the serial console did not answer; listening for 8 seconds"
+    "${V[@]}" listen "$TEST" 8 2>&1 | tail -n 20 > "$OUT/$PHASE-serial-listen.txt" || true
+    shot serial-silent 2>/dev/null || true
     return 1
 }
 
@@ -959,6 +978,35 @@ prompt_focus() {   # the password prompt is Explorer's window (wexhost's polkit 
     sleep 1
 }
 
+phase_perf() {   # graphics performance, X11 session then the Wayland one (wexcomp): scripts/gfx-perf-probe.c (idle,
+                 # animation and resize frame times) beside scripts/gfx-perf-sample.sh (CPU per process). Numbers only,
+                 # nothing fails but a missing probe or a session that does not start; the results go to
+                 # $OUT/perf-SESSION-*.txt. Only when named; needs gfx-perf-probe64.exe in WEX_TEST_PROBES.
+    local session out
+    [ -f "$PROBE_DIR/gfx-perf-probe64.exe" ] || fail "no gfx-perf-probe64.exe in WEX_TEST_PROBES"
+    for session in x11 wayland; do
+        if [ "$session" = wayland ]; then
+            saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
+        fi
+        start_vm
+        desktop 600
+        if [ "$session" = wayland ]; then expect_compositor; fi
+        sleep 20   # the desktop settles: the first minute after logon is not what is measured
+        gsh "rm -f /tmp/gfx-s.log /tmp/gfx-p.log; (nohup sh $PROBES/gfx-perf-sample.sh 45 /tmp/gfx-s.log >/dev/null 2>&1 &) ; sleep 1; python3 $HELPER --user $USER_NAME --wait --log-file /tmp/gfx-p.log $PROBES/gfx-perf-probe64.exe >/dev/null; echo probe-rc=\$?" 180 \
+            | grep '^probe-rc=' | tail -n 1
+        sleep 25
+        gsh 'cat /tmp/gfx-p.log' 60 | tr -d '\r' | grep -E '^(composition|idle|animate|resize|done)' > "$OUT/perf-$session-frames.txt"
+        gsh 'cat /tmp/gfx-s.log' 60 | tr -d '\r' | grep -E '^(t=|SAMPLEDONE)' > "$OUT/perf-$session-cpu.txt"
+        echo "  $session:"
+        sed 's/^/    /' "$OUT/perf-$session-frames.txt"
+        shot "perf-$session"
+        grep -q '^animate ' "$OUT/perf-$session-frames.txt" || fail "the $session session's probe printed no animation numbers"
+        shutdown_vm
+        wait_off 60 || fail "the VM did not power off"
+        if [ "$session" = wayland ]; then saved_session restore || fail "cannot put the saved session back"; fi
+    done
+}
+
 phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the header
     local out options saved= crashdir= id try
     attach ro || fail "cannot mount the overlay"
@@ -1026,8 +1074,9 @@ phase_startrec() {   # Startup and Recovery (sysdm.cpl, work order D5): see the 
             case "$out" in *"Default operating system"*) ;; *) break 2 ;; esac
             case "$try$out" in 1*"password is incorrect"*) break ;; esac
         done
-        case "$try$out" in 1*"password is incorrect"*) ;; *) break ;; esac
-        echo "  (the prompt took the typed password as incorrect; typing it once more)"
+        # a lost key (the password's or Return) can also leave the prompt up with no message (UEFI, 2026-11-22)
+        case "$try$out" in 1*"password is incorrect"*|1*"type an administrator password"*) ;; *) break ;; esac
+        echo "  (the prompt took the typed password as incorrect or stayed up; typing it once more)"
         shot password-retyped
         prompt_focus
     done
@@ -2004,7 +2053,11 @@ if [ -n "$PROBE_DIR" ]; then
         if [ -f "$PROBE_DIR/display-probe$bits.exe" ]; then
             install -m 755 "$PROBE_DIR/display-probe$bits.exe" "$MNT$PROBES/" || die "cannot install the display probe"
         fi
+        if [ -f "$PROBE_DIR/gfx-perf-probe$bits.exe" ]; then   # the perf phase's frame-time probe
+            install -m 755 "$PROBE_DIR/gfx-perf-probe$bits.exe" "$MNT$PROBES/" || die "cannot install the perf probe"
+        fi
     done
+    install -m 755 "$REPO/scripts/gfx-perf-sample.sh" "$MNT$PROBES/" || die "cannot install the perf sampler"
 fi
 ADMIN_PWFILE=$OUT/admin-password
 STEP=

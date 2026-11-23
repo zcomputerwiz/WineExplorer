@@ -22,7 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../../programs/wexpolicy/preg.h"
+#include "wexpreg.h"
 #include "model.h"
 
 #define REG_DWORD_TYPE 4

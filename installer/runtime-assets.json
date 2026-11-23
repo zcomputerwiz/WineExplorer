@@ -7,6 +7,7 @@
     ["wine-mono-11.3.0-x86.msi", "https://dl.winehq.org/wine/wine-mono/11.3.0/wine-mono-11.3.0-x86.msi", "df2dfc1665c2511882e7cabd56eafd0c0a3d94e5a7e86f969277f6c189d418d3"],
     ["dxvk-2.4.1.tar.gz", "https://github.com/doitsujin/dxvk/releases/download/v2.4.1/dxvk-2.4.1.tar.gz", "7b23db4e1386b5d9a3ec0d83daa8b06096b758639185c11a673373a5ae478d54"],
     ["vkd3d-proton-2.13.tar.zst", "https://github.com/HansKristian-Work/vkd3d-proton/releases/download/v2.13/vkd3d-proton-2.13.tar.zst", "f7163187a69e19b7c57d4e2f10ed627e75d6e93eef52d119378572d26a9ce33a"],
+    ["microsoft.web.webview2.1.0.4258.31.nupkg", "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4258.31/microsoft.web.webview2.1.0.4258.31.nupkg", "56f7f4b8bf9aee4b8efefbbdd4f67d5f74ebd1b100ed0806da71bf76af481aa9"],
     ["LICENSE-selawik", "https://raw.githubusercontent.com/microsoft/Selawik/b65ff9ce7c4673e75ec5c622924a6b6f61f2f876/LICENSE.txt", "77b7c2506d4efb22e09c8ccf10159f4956eab3ef7c007fef95de136bcf45300c"],
     ["LICENSE-dxvk", "https://raw.githubusercontent.com/doitsujin/dxvk/v2.4.1/LICENSE", "a5cb1a6ded7d2d7e92d550ba28edd21be2d1d4044662b399887351023e30ce64"],
     ["LICENSE-vkd3d", "https://raw.githubusercontent.com/HansKristian-Work/vkd3d-proton/v2.13/LICENSE", "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"],

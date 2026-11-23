@@ -51,3 +51,35 @@ The applet icon matches the ReactOS resource and is cataloged in the asset manif
 
 The built Regional Options applet was launched in the VM and displayed the current locale's number,
 currency, time, and date samples. Its controls were closed without applying changes.
+
+## Date and Time: Internet Time (2026-11-22)
+
+The Internet Time tab shows what the time service does and opens "Change settings..." (the dialog of Windows 7 and later):
+the check box is timedated's SetNTP (`WexTimedateSetNtp`), the server box writes `/etc/systemd/timesyncd.conf.d/90-wineexplorer.conf`
+through the root service `org.wineexplorer.TimeSync1` (`scripts/wex-timesync1.py`, D-Bus activated, polkit action
+`org.wineexplorer.timesync1.set-servers`, `auth_admin_keep`, as timedate1's own changes), and Update now restarts
+`systemd-timesyncd`, which synchronises when it starts. A computer without timedated or timesyncd shows the tab with the
+controls gray and says the time service is missing. Tests: `scripts/test_timesync1.py`; end to end with a fake
+PolicyKit1 and timedate1 on the system bus (2026-11-22, dev build): check box, server list, drop-in and service restart
+all took effect, and the tab showed the new state.
+
+## Root services on the system bus (2026-11-23)
+
+Settings that belong to root and have no systemd service of their own go through a D-Bus activated root service of
+ours: `org.wineexplorer.Boot1` (Startup and Recovery) and `org.wineexplorer.TimeSync1` (Internet Time). What they have
+in common is one module, `scripts/wexrootsvc.py` (installed in `/usr/local/lib/wineexplorer/python`); a service holds
+only its methods and properties:
+
+- errors: `Refused` is `org.wineexplorer.NAME.Error.InvalidArgs`, `Failed` is `.Failed` with the service's message,
+  and polkit's no is `.NotAuthorized`, or `.Cancelled` when the password dialog was dismissed;
+- a change (`Service.change`) checks its arguments first, so a value the service would refuse is answered before a
+  password is asked, then polkit's action for the caller (`auth_admin_keep`, as hostname1 and timedate1: no second
+  notion of administrator), then does the work; reading (`Get`, `GetAll` from `properties()`) needs nothing;
+- the service ends after a minute without calls, never while a change waits for polkit.
+
+The client is wexhost's unix side (`src/dlls/wexhost/unixlib.c`): every call goes through `call_bus`, whose
+`call_timeout` decides the time a call may take (reads of our services two and a half minutes, because Boot1 asks
+vintner; their changes no limit of ours, because they wait for the password dialog and bound their own work; other
+reads five seconds, other changes two minutes), and `map_error` maps the four error kinds the same way for every name
+under `org.wineexplorer.`. A new root service needs a bus name there, a polkit action and its D-Bus and systemd files.
+Tests: `scripts/test_wexrootsvc.py` (the frame, and TimeSync1 on a private bus with a polkit of its own).

@@ -952,11 +952,12 @@ static BOOL begin_call( DWORD *err )
     return TRUE;
 }
 
+/* the loop is woken under the lock: stop closes the wake pipe under it */
 static void end_call(void)
 {
     pXFlush( display );
-    pthread_mutex_unlock( &x_mutex );
     wake_loop();
+    pthread_mutex_unlock( &x_mutex );
 }
 
 NTSTATUS composition_set( void *args )
@@ -1320,11 +1321,13 @@ NTSTATUS x11_wm_stop( void *args )
     pthread_cond_broadcast( &queue_cond );
     pthread_mutex_unlock( &queue_mutex );
 
+    pthread_mutex_lock( &x_mutex );
     pXCloseDisplay( display );
     display = NULL;
     close( wake_pipe[0] );
     close( wake_pipe[1] );
     wake_pipe[0] = wake_pipe[1] = -1;
+    pthread_mutex_unlock( &x_mutex );
     return STATUS_SUCCESS;
 }
 
@@ -1368,12 +1371,6 @@ NTSTATUS x11_wm_next_event( void *args )
 
 #endif
 
-/* Retired PE export: reserve its Unixlib index in both tables. */
-NTSTATUS composition_clock( void *args )
-{
-    ((struct composition_clock_params *)args)->err = ERROR_NOT_SUPPORTED;
-    return STATUS_SUCCESS;
-}
 
 /* Compatibility exports and selected backend ops share the original locked
  * implementation. Tagged X11 input never masquerades as a Wayland handle. */

@@ -11,6 +11,8 @@ SCRIPT="$HERE/../installer/scripts/wex-domain-join.sh"
 FX="$(mktemp -d)"
 trap 'rm -rf -- "$FX"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
+# no session 0 here: the state for Windows programs is not refreshed
+export WEX_NO_STATE_REFRESH=1
 
 mkdir -p "$FX/bin" "$FX/etc/samba" "$FX/home"
 cat > "$FX/bin/net" <<EOF
@@ -22,6 +24,8 @@ case "\$*" in
     "ads testjoin") exit \$(cat "$FX/testjoin.rc" 2>/dev/null || echo 0) ;;
     "ads leave"*) exit \$(cat "$FX/leave.rc" 2>/dev/null || echo 0) ;;
     "ads lookup"*) [ -f "$FX/lookup" ] && cat "$FX/lookup"; exit 0 ;;
+    "ads keytab create"*) [ -e "$FX/kc.sleep" ] && { rm -f "$FX/kc.sleep"; touch "$FX/kc.started"; sleep 3; }
+                          exit \$(cat "$FX/kc.rc" 2>/dev/null || echo 0) ;;
     "ads info") echo "LDAP server name: \$(cat "$FX/dcname" 2>/dev/null || echo dc1.ad.wexlab.example)"; exit 0 ;;
     "ads changetrustpw") exit \$(cat "$FX/ctp.rc" 2>/dev/null || echo 0) ;;
 esac
@@ -63,7 +67,33 @@ exit \$(cat "$FX/wbinfo.rc" 2>/dev/null || echo 0)
 EOF
 cat > "$FX/bin/testparm" <<'EOF'
 #!/bin/sh
-echo ad.wexlab.example
+case "$*" in
+    *workgroup*) echo WEXLAB ;;
+    *netbios*) echo WEXBOX ;;
+    *) echo ad.wexlab.example ;;
+esac
+EOF
+cat > "$FX/bin/ldapsearch" <<EOF
+#!/bin/sh
+# the computer accounts: WEXBOX exists, and NEWBOX only when the file "dup" says so
+echo "ldapsearch \$*" >> "$FX/calls.log"
+case "\$*" in
+    *'sAMAccountName=WEXBOX$'*) [ -e "$FX/renamed" ] || echo "dn: CN=WEXBOX,CN=Computers,DC=ad,DC=wexlab,DC=example" ;;
+    *'sAMAccountName=NEWBOX$'*) [ -e "$FX/dup" ] && echo "dn: CN=NEWBOX,CN=Computers,DC=ad,DC=wexlab,DC=example" ;;
+esac
+exit 0
+EOF
+cat > "$FX/bin/hostnamectl" <<EOF
+#!/bin/sh
+echo "hostnamectl \$*" >> "$FX/calls.log"
+exit \$(cat "$FX/hn.rc" 2>/dev/null || echo 0)
+EOF
+cat > "$FX/bin/ldapmodify" <<EOF
+#!/bin/sh
+echo "ldapmodify \$*" >> "$FX/calls.log"
+cat >> "$FX/ldif.log"
+echo >> "$FX/ldif.log"
+exit \$(cat "$FX/ldap.rc" 2>/dev/null || echo 0)
 EOF
 cat > "$FX/state" <<EOF
 #!/bin/sh
@@ -73,6 +103,27 @@ case "\$1" in
     --print) [ -s "$FX/kind" ] && echo "WEXLAB ad.wexlab.example" ;;
 esac
 exit 0
+EOF
+# the state refresh (refresh_state), seen only where a case turns it on (WEX_NO_STATE_REFRESH= ): session 0's account
+# exists, and systemd-run is written down instead of run
+cat > "$FX/bin/id" <<EOF
+#!/bin/sh
+[ "\$*" = "-u wexsys" ] && { echo 999; exit 0; }
+exec /usr/bin/id "\$@"
+EOF
+cat > "$FX/bin/systemd-run" <<EOF
+#!/bin/sh
+echo "systemd-run" >> "$FX/calls.log"
+exit 0
+EOF
+# the keytab: the fake file holds one principal a line, and klist -k lists them as MIT klist does
+cat > "$FX/bin/klist" <<EOF
+#!/bin/sh
+[ "\$1" = -k ] && [ -r "\$2" ] || exit 1
+echo "Keytab name: FILE:\$2"
+echo "KVNO Principal"
+echo "---- --------------------------------------------------------------------------"
+sed 's/^/   1 /' "\$2"
 EOF
 chmod 0755 "$FX/bin/"* "$FX/state"
 
@@ -85,7 +136,7 @@ reset_etc()
     printf '%s' "$ORIG_KRB" > "$FX/etc/krb5.conf"
     printf '%s' "$ORIG_NSS" > "$FX/etc/nsswitch.conf"
     rm -f "$FX/etc/samba/smb.conf.wex-pre-join" "$FX/etc/krb5.conf.wex-pre-join" "$FX/etc/nsswitch.conf.wex-pre-join" \
-          "$FX"/*.rc "$FX/kind" "$FX/calls.log" "$FX/kinit.stdin" "$FX/kinit.cc"
+          "$FX"/*.rc "$FX/kind" "$FX/calls.log" "$FX/kinit.stdin" "$FX/kinit.cc" "$FX/etc/krb5.keytab"
     : > "$FX/calls.log"
 }
 # runs the tool: the password on standard input, the fakes first in PATH
@@ -122,7 +173,7 @@ grep -q '^shadow:         files$' "$FX/etc/nsswitch.conf" || fail 'nsswitch: ano
 grep -q '^kinit Administrator@AD.WEXLAB.EXAMPLE ' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'kinit was not given user@REALM'; }
 [ "$(cat "$FX/kinit.stdin")" = 's3cret-pw' ] || fail 'kinit did not get the password on its standard input'
 ! grep -q 's3cret-pw' "$FX/calls.log" || fail 'the password is on a command line'
-grep -q '^net ads join -k createcomputer=WexMachines$' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'net ads join'; }
+grep -q '^net ads join -k createcomputer=WexMachines osName=WineExplorer osVer=[^ ]*$' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'net ads join'; }
 grep -q '^host -t SRV _ldap._tcp.ad.wexlab.example' "$FX/calls.log" || fail 'no DNS check'
 grep -q '^pam-auth-update --enable winbind mkhomedir' "$FX/calls.log" && grep -q '^systemctl enable --now winbind' "$FX/calls.log" && grep -q '^net ads testjoin' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'the setup after the join'; }
 cc=$(sed 's/^FILE://' "$FX/kinit.cc"); [ ! -e "$cc" ] && [ ! -e "$(dirname "$cc")" ] || fail 'the ticket cache was not removed'
@@ -184,20 +235,45 @@ echo 'OK: wex-domain-join.sh a failing kinit or join leaves smb.conf, krb5.conf 
 reset_etc
 join ad.wexlab.example --user Administrator --password-stdin >/dev/null || fail 'the join before the leave'
 echo winbind > "$FX/kind"; : > "$FX/calls.log"
+printf '%s\n' 'WEXBOX$@AD.WEXLAB.EXAMPLE' host/WEXBOX@AD.WEXLAB.EXAMPLE host/wexbox.ad.wexlab.example@AD.WEXLAB.EXAMPLE \
+    restrictedkrbhost/WEXBOX@AD.WEXLAB.EXAMPLE > "$FX/etc/krb5.keytab"
 out=$(leave --user Administrator --password-stdin) || { echo "$out"; cat "$FX/calls.log"; fail 'the leave failed'; }
+# the machine's keys go on this machine (net ads keytab flush would need the deleted account)
+[ ! -e "$FX/etc/krb5.keytab" ] || fail 'the leave kept the machine keytab'
+! grep -q 'keytab' <<<"$out" || { echo "$out"; fail 'the leave warned about the keytab'; }
+! grep -q '^net ads keytab' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'the leave asked the controller to flush the keytab'; }
 grep -q '^net ads leave -k' "$FX/calls.log" && grep -q '^kinit Administrator@AD.WEXLAB.EXAMPLE' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'the leave did not use the administrator'; }
 ! grep -q '^passwd:.*winbind' "$FX/etc/nsswitch.conf" && ! grep -q '^group:.*winbind' "$FX/etc/nsswitch.conf" || { cat "$FX/etc/nsswitch.conf"; fail 'nsswitch still has winbind'; }
 grep -q '^shadow:         files$' "$FX/etc/nsswitch.conf" && grep -q '^passwd:         files systemd$' "$FX/etc/nsswitch.conf" || { cat "$FX/etc/nsswitch.conf"; fail 'nsswitch is not as it was'; }
 grep -q '^pam-auth-update --remove winbind' "$FX/calls.log" && grep -q '^systemctl disable --now winbind' "$FX/calls.log" || fail 'winbind was not taken out'
 [ "$(cat "$FX/etc/samba/smb.conf")" = "${ORIG_SMB%$'\n'}" ] && [ ! -e "$FX/etc/samba/smb.conf.wex-pre-join" ] || fail 'smb.conf was not put back'
 [ "$(cat "$FX/etc/krb5.conf")" = "${ORIG_KRB%$'\n'}" ] || fail 'krb5.conf was not put back'
+# the leave takes out what the join put in: mkhomedir too, and the join's first nsswitch.conf is not left for a later
+# failed join to put back
+grep -q '^pam-auth-update --remove winbind mkhomedir' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'the leave did not take out mkhomedir'; }
+[ ! -e "$FX/etc/nsswitch.conf.wex-pre-join" ] && [ ! -e "$FX/etc/wineexplorer/domain-join-added" ] || fail 'the leave left the join records'
+# mkhomedir that was on before the join (for local users) stays on
+reset_etc; mkdir -p "$FX/etc/pam.d"; echo 'session optional pam_mkhomedir.so' > "$FX/etc/pam.d/common-session"
+join ad.wexlab.example --user Administrator --password-stdin >/dev/null || fail 'the join with mkhomedir on'
+echo winbind > "$FX/kind"; : > "$FX/calls.log"
+leave --user Administrator --password-stdin >/dev/null || fail 'the leave with mkhomedir on'
+grep -qx 'pam-auth-update --remove winbind' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'the leave took out a mkhomedir the join did not turn on'; }
+rm -rf "$FX/etc/pam.d"
+# the files are replaced, not written in place: the mode stays
+reset_etc; chmod 0640 "$FX/etc/krb5.conf"
+join ad.wexlab.example --user Administrator --password-stdin >/dev/null || fail 'the join for the mode'
+[ "$(stat -c %a "$FX/etc/krb5.conf")" = 640 ] && [ "$(stat -c %a "$FX/etc/samba/smb.conf")" = 644 ] || { stat -c '%a %n' "$FX/etc/krb5.conf" "$FX/etc/samba/smb.conf"; fail 'a replaced file has another mode'; }
+! ls "$FX/etc/samba/" | grep -q 'smb.conf\.[A-Za-z0-9]\{6\}$' || fail 'a temporary file was left'
 # a controller that does not answer: nothing is changed without --force
 reset_etc; join ad.wexlab.example --user Administrator --password-stdin >/dev/null; echo winbind > "$FX/kind"; echo 1 > "$FX/leave.rc"; : > "$FX/calls.log"
 out=$(leave --user Administrator --password-stdin) && fail 'a failing net ads leave was not an error'; grep -q -- '--force' <<<"$out" || fail 'the --force hint'
 grep -q '^passwd:.*winbind' "$FX/etc/nsswitch.conf" || fail 'a failed leave changed nsswitch'
 : > "$FX/calls.log"
+# a keytab with a key that is not the machine's stays, with a warning
+printf '%s\n' 'WEXBOX$@AD.WEXLAB.EXAMPLE' nfs/wexbox.ad.wexlab.example@AD.WEXLAB.EXAMPLE > "$FX/etc/krb5.keytab"
 out=$(leave --force) || { echo "$out"; fail 'leave --force failed'; }
-! grep -q '^kinit\|^net ads leave' "$FX/calls.log" || fail '--force asked the controller'
+! grep -q '^kinit\|^net ads' "$FX/calls.log" || { cat "$FX/calls.log"; fail '--force asked the controller'; }
+[ -e "$FX/etc/krb5.keytab" ] && grep -q 'krb5.keytab stays' <<<"$out" || { echo "$out"; fail 'a keytab with another key was removed, or no warning'; }
 ! grep -q '^passwd:.*winbind' "$FX/etc/nsswitch.conf" || fail '--force did not take winbind out'
 grep -q 'machine account stays' <<<"$out" || fail '--force did not say the account stays'
 # not joined with Winbind: nothing to leave
@@ -235,9 +311,40 @@ expect 0 'a join' 'op=join' 'domain=ad.wexlab.example' 'user=Administrator' "pas
 ! grep -qF 'p w' "$FX/calls.log" || fail 'serve: the password is on a command line'
 grep -q '^net ads join -k createcomputer=WexMachines' "$FX/calls.log" || fail 'serve: the join did not run with the OU'
 out=$(serve op=join domain=ad.wexlab.example user=Administrator password=x); echo "$out" | grep -q 'message=' || fail 'serve: no message'
-# a user principal name is used as it is
+# a user principal name is used as it is, as an enterprise name (the controller resolves its case and suffix)
 reset_etc; expect 0 'a join with a UPN' 'op=join' 'domain=ad.wexlab.example' 'user=admin@ad.wexlab.example' 'password=pw'
-grep -q '^kinit admin@ad.wexlab.example ' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'serve: the UPN was changed'; }
+grep -q '^kinit -E admin@ad.wexlab.example ' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'serve: the UPN was changed'; }
+# the user's own domain (DOMAIN\user): the joined domain's names are the realm; another DNS domain is that realm; another
+# NetBIOS name is refused before anything is written (the engine cannot find its realm)
+reset_etc; expect 0 'a user of the domain by its NetBIOS name' 'op=join' 'domain=ad.wexlab.example' 'user=admin' 'userdomain=ad' 'password=pw'
+grep -q '^kinit admin@AD.WEXLAB.EXAMPLE ' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'serve: DOMAIN\\user of the joined domain'; }
+reset_etc; expect 0 'a user of another DNS domain' 'op=join' 'domain=ad.wexlab.example' 'user=admin' 'userdomain=root.wexlab.example' 'password=pw'
+grep -q '^kinit admin@ROOT.WEXLAB.EXAMPLE ' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'serve: DOMAIN\\user of another DNS domain'; }
+reset_etc; expect 1355 'a user of another NetBIOS domain' 'op=join' 'domain=ad.wexlab.example' 'user=admin' 'userdomain=OTHER' 'password=pw'
+! grep -q '^kinit' "$FX/calls.log" && [ "$(cat "$FX/etc/samba/smb.conf")" = "${ORIG_SMB%$'\n'}" ] || fail 'serve: another NetBIOS domain reached kinit or changed smb.conf'
+# another change in progress: ERROR_BUSY at once, not a queue the caller's wait does not cover
+reset_etc
+( flock 8; sleep 5 ) 8>"$FX/lock" & holder=$!
+sleep 0.5
+out=$(WEX_JOIN_LOCK_WAIT=1 serve op=join domain=ad.wexlab.example user=a password=p)
+[ "$(status_of "$out")" = 170 ] || { echo "$out"; fail 'serve: a held lock is not ERROR_BUSY'; }
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null || true
+# without flock nothing is changed
+reset_etc; mkdir -p "$FX/noflock"
+for t in bash sh cat sed tr cut head awk grep mktemp dirname readlink logger printf id; do
+    p=$(command -v "$t" 2>/dev/null) && [ -x "$p" ] && ln -sf "$p" "$FX/noflock/$t"
+done
+out=$({ printf '%s\n' op=join domain=ad.wexlab.example user=a password=p; echo; } | PATH="$FX/bin:$FX/noflock" WEX_JOIN_NOROOT=1 WEX_JOIN_ETC="$FX/etc" WEX_DOMAIN_STATE="$FX/state" WEX_JOIN_HOSTNAME=wexbox WEX_JOIN_LOCK="$FX/lock" "$FX/noflock/bash" "$SCRIPT" serve 2>&1)
+[ "$(status_of "$out")" = 50 ] && grep -q flock <<<"$out" || { echo "$out"; fail 'serve: a missing flock did not stop the change'; }
+! grep -q '^kinit' "$FX/calls.log" || fail 'serve: without flock the join went on'
+# a join that testjoin does not confirm is still a join: Windows programs are told (the state refresh runs)
+reset_etc; echo 1 > "$FX/testjoin.rc"
+WEX_NO_STATE_REFRESH= expect 31 'a testjoin that does not confirm, state told' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p'
+grep -q '^systemd-run' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'serve: an unconfirmed join did not refresh the state'; }
+# a refused join changes nothing on the host: no refresh
+reset_etc; echo 1 > "$FX/kinit.rc"
+WEX_NO_STATE_REFRESH= expect 1326 'a wrong password, no state change' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p'
+! grep -q '^systemd-run' "$FX/calls.log" || fail 'serve: a refused join refreshed the state'
 # bad requests
 reset_etc
 expect 87 'an unknown field' 'op=join' 'domain=ad.wexlab.example' 'user=a' 'password=p' 'evil=1'
@@ -387,4 +494,65 @@ expect 2692 'scquery when not joined with winbind' 'op=scquery'
 echo winbind > "$FX/kind"
 rm -f "$FX/lookup"
 echo 'OK: wex-domain-join.sh serve verify, reset and dclist'
+
+# the rename of the computer in the domain: the account over LDAP, smb.conf, the password, the keytab
+printf '[global]\n    workgroup = WEXLAB\n    realm = AD.WEXLAB.EXAMPLE\n    netbios name = WEXBOX\n' > "$FX/etc/samba/smb.conf"
+: > "$FX/calls.log"; rm -f "$FX/ldif.log" "$FX/renamed" "$FX/dup" "$FX/kc.rc" "$FX/ldap.rc"
+echo winbind > "$FX/kind"
+expect 0 'a rename' 'op=rename' 'name=newbox' 'user=Administrator' "password=$PWSPEC"
+grep -q 'netbios name = NEWBOX' "$FX/etc/samba/smb.conf" || { cat "$FX/etc/samba/smb.conf"; fail 'rename: smb.conf has not the new name'; }
+grep -q '^dn: CN=WEXBOX,CN=Computers,DC=ad,DC=wexlab,DC=example' "$FX/ldif.log" && grep -q '^newrdn: CN=NEWBOX$' "$FX/ldif.log" || { cat "$FX/ldif.log"; fail 'rename: the object was not renamed'; }
+grep -q '^sAMAccountName: NEWBOX\$' "$FX/ldif.log" && grep -q '^dNSHostName: newbox.ad.wexlab.example$' "$FX/ldif.log" && grep -q '^servicePrincipalName: HOST/NEWBOX.ad.wexlab.example$' "$FX/ldif.log" || { cat "$FX/ldif.log"; fail 'rename: the names of the account'; }
+[ "$(cat "$FX/kinit.stdin")" = "$PWSPEC" ] || fail 'rename: the password reached kinit changed'
+grep -q '^hostnamectl set-hostname newbox$' "$FX/calls.log" || { cat "$FX/calls.log"; fail 'rename: the host name was not set'; }
+! grep -qF 'p w' "$FX/calls.log" "$FX/ldif.log" || fail 'rename: the password is on a command line or in the LDIF'
+# the order: password, then the keytab flushed (it takes the names off), the names set, the keytab made
+a=$(grep -n '^net ads changetrustpw' "$FX/calls.log" | head -n 1 | cut -d: -f1)
+b=$(grep -n '^net ads keytab flush' "$FX/calls.log" | tail -n 1 | cut -d: -f1)
+c=$(grep -n '^net ads keytab create' "$FX/calls.log" | tail -n 1 | cut -d: -f1)
+[ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ] || { cat "$FX/calls.log"; fail 'rename: the order of the password and the keytab'; }
+# a name that is taken, a bad name, the same name, not joined, a refused ticket
+printf '[global]\n    workgroup = WEXLAB\n    realm = AD.WEXLAB.EXAMPLE\n    netbios name = WEXBOX\n' > "$FX/etc/samba/smb.conf"
+touch "$FX/dup"
+expect 52 'a rename to a name that is taken' 'op=rename' 'name=newbox' 'user=Administrator' 'password=x'
+rm -f "$FX/dup"
+expect 87 'a rename to a bad name' 'op=rename' 'name=bad_name' 'user=Administrator' 'password=x'
+expect 87 'a rename to the same name' 'op=rename' 'name=wexbox' 'user=Administrator' 'password=x'
+expect 1210 'a rename to the domain name' 'op=rename' 'name=wexlab' 'user=Administrator' 'password=x'
+echo 1 > "$FX/kinit.rc"
+expect 1326 'a rename with a wrong password' 'op=rename' 'name=newbox' 'user=Administrator' 'password=x'
+rm -f "$FX/kinit.rc"
+echo nowinbind > "$FX/kind"
+expect 2692 'a rename when not joined with winbind' 'op=rename' 'name=newbox' 'user=Administrator' 'password=x'
+echo winbind > "$FX/kind"
+# a keytab that cannot be made: the account and smb.conf are put back
+: > "$FX/calls.log"; rm -f "$FX/ldif.log"
+echo 1 > "$FX/kc.rc"
+expect 31 'a rename whose keytab fails' 'op=rename' 'name=newbox' 'user=Administrator' 'password=x'
+grep -q 'netbios name = WEXBOX' "$FX/etc/samba/smb.conf" && ! grep -q NEWBOX "$FX/etc/samba/smb.conf" || { cat "$FX/etc/samba/smb.conf"; fail 'rename: smb.conf was not put back'; }
+grep -q '^newrdn: CN=WEXBOX$' "$FX/ldif.log" || { cat "$FX/ldif.log"; fail 'rename: the account was not put back'; }
+! grep -q '^hostnamectl set-hostname newbox$' "$FX/calls.log" || fail 'rename: the host name was set after a failed keytab'
+: > "$FX/calls.log"; rm -f "$FX/ldif.log" "$FX/kc.rc"
+echo 1 > "$FX/hn.rc"
+expect 31 'a rename whose host name cannot be set' 'op=rename' 'name=newbox' 'user=Administrator' 'password=x'
+rm -f "$FX/hn.rc"
+grep -q 'netbios name = WEXBOX' "$FX/etc/samba/smb.conf" && ! grep -q NEWBOX "$FX/etc/samba/smb.conf" || { cat "$FX/etc/samba/smb.conf"; fail 'rename: smb.conf was not put back after a host name failure'; }
+rm -f "$FX/kc.rc" "$FX/ldif.log"
+expect 87 'a rename to a name of digits only' 'op=rename' 'name=12345' 'user=Administrator' 'password=x'
+# a rename stopped part-way (RuntimeMaxSec, systemctl stop): SIGTERM puts the account and smb.conf back, and the answer
+# says so
+: > "$FX/calls.log"; rm -f "$FX/ldif.log" "$FX/kc.started"; touch "$FX/kc.sleep"
+{ printf '%s\n' op=rename name=newbox user=Administrator password=x; echo; } | PATH="$FX/bin:$PATH" WEX_JOIN_NOROOT=1 \
+    WEX_JOIN_ETC="$FX/etc" WEX_DOMAIN_STATE="$FX/state" WEX_JOIN_HOSTNAME=wexbox WEX_JOIN_LOCK="$FX/lock" \
+    bash "$SCRIPT" serve > "$FX/stopped.out" 2>&1 & engine=$!
+for _ in $(seq 1 50); do [ -e "$FX/kc.started" ] && break; sleep 0.1; done
+[ -e "$FX/kc.started" ] || fail 'rename: the stop case did not reach the keytab'
+pkill -TERM -f "$SCRIPT serve" 2>/dev/null || kill -TERM "$engine"
+wait "$engine" 2>/dev/null || true
+[ "$(status_of "$(cat "$FX/stopped.out")")" = 1460 ] || { cat "$FX/stopped.out" "$FX/calls.log"; fail 'rename: a stopped rename is not ERROR_TIMEOUT'; }
+grep -q 'netbios name = WEXBOX' "$FX/etc/samba/smb.conf" && ! grep -q NEWBOX "$FX/etc/samba/smb.conf" || { cat "$FX/etc/samba/smb.conf"; fail 'rename: smb.conf was not put back after a stop'; }
+grep -q '^newrdn: CN=WEXBOX$' "$FX/ldif.log" || { cat "$FX/ldif.log"; fail 'rename: the account was not put back after a stop'; }
+[ ! -e "$FX/etc/samba/smb.conf.wex-rename" ] || fail 'rename: the copy of smb.conf was left after a stop'
+rm -f "$FX/kc.started" "$FX/ldif.log"
+echo 'OK: wex-domain-join.sh serve rename'
 echo domain_join=PASS

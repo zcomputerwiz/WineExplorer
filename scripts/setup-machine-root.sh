@@ -211,6 +211,50 @@ ensure_common_shell_dirs()
 WINE_BIN="${WEX_WINE_BIN:-/usr/local/bin/wine}"
 WINESERVER_BIN="${WEX_WINESERVER_BIN:-/usr/local/bin/wineserver}"
 
+# KNOWN_BUGS B81: an update (the package postinst) changes the machine registry below (wineboot -u, the .reg imports, the
+# elevation value). While session 0 runs, its server holds that hive: a second server of root's on the same root wrote
+# the file behind it, session 0 merged the file once at most and then saved its own tree over the changes (measured:
+# the update's EnablePrefetcher=3 was gone after session 0's next save). Root's own server also cannot open the
+# machine keys at all once session 0 has given them their descriptors. So on a machine where session 0 runs, it is
+# restarted first (it saves the hive when it stops, and runs the new Wine afterwards: an upgraded Wine client cannot
+# talk to the old server) and every Wine step of the update runs as session 0's account, as a client of session 0,
+# as component installs do (MachineWine in wex-components). Its changes are then in session 0's own tree, which saves
+# them. Sessions that are logged in need a new logon after a Wine upgrade anyway.
+S0_CLIENT=0
+S0_WINE_ACCOUNT="${WEX_SESSION0_USER:-wexsys}"
+if [ -d "$MACHINE_ROOT/drive_c/windows/system32" ] && [ -d /run/systemd/system ] &&
+   systemctl is-active --quiet wex-session0.service 2>/dev/null; then
+    id "$S0_WINE_ACCOUNT" >/dev/null 2>&1 || die "session 0 runs, but its account $S0_WINE_ACCOUNT does not exist"
+    echo "Restarting session 0 for the update; the machine registry is changed through it..."
+    systemctl restart wex-session0.service || die "session 0 did not restart"
+    systemctl start wex-session0-services.service || die "session 0's services did not start"
+    S0_CLIENT=1
+    # a home of its own for the account's Wine steps: caches (Mesa's shader cache, ...) must not land in the machine
+    # root, whose owners the permission pass checks below
+    S0_WINE_HOME="$(mktemp -d /tmp/wex-update-home.XXXXXX)"
+    chown "$S0_WINE_ACCOUNT": "$S0_WINE_HOME"
+    trap 'rm -rf "$S0_WINE_HOME"' EXIT
+fi
+
+# machine_wine [VAR=VALUE...] PROGRAM [ARGS...]: Wine on the machine root, through session 0 when it runs
+machine_wine()
+{
+    local vars=()
+    while [ $# -gt 0 ] && [[ "$1" == *=* ]]; do vars+=("$1"); shift; done
+    if [ "$S0_CLIENT" = 1 ]; then
+        runuser -u "$S0_WINE_ACCOUNT" -- env -i HOME="$S0_WINE_HOME" WINEPREFIX="$MACHINE_ROOT" PATH=/usr/local/bin:/usr/bin:/bin \
+            LANG=C.UTF-8 WINEDEBUG=-all WINEDLLOVERRIDES=winemenubuilder.exe=d "${vars[@]}" "$WINE_BIN" "$@"
+    else
+        env WINEPREFIX="$MACHINE_ROOT" WINEDLLOVERRIDES=winemenubuilder.exe=d "${vars[@]}" "$WINE_BIN" "$@"
+    fi
+}
+
+# machine_wine_wait: until the Wine steps are done (root's own server ends; session 0's never does, its clients have)
+machine_wine_wait()
+{
+    [ "$S0_CLIENT" = 1 ] || WINEPREFIX="$MACHINE_ROOT" "$WINESERVER_BIN" -w
+}
+
 # 1. Initialize or update machine root
 if [ ! -d "$MACHINE_ROOT/drive_c/windows/system32" ]; then
     if [ -d "$SKEL_PFX/drive_c/windows" ] && [ ! -L "$SKEL_PFX/drive_c/windows" ]; then
@@ -251,9 +295,9 @@ else
     echo "Updating existing machine root at $MACHINE_ROOT..."
     ensure_machine_prefix_links
     if [ "${WEX_SKIP_WINEBOOT:-0}" != "1" ]; then
-        WINELINKFAKEDLLS=1 WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
-            WINEPREFIX="$MACHINE_ROOT" "$WINE_BIN" wineboot.exe -u
-        WINEPREFIX="$MACHINE_ROOT" "$WINESERVER_BIN" -w
+        machine_wine WINELINKFAKEDLLS=1 "WINEDLLOVERRIDES=mscoree,mshtml=;winemenubuilder.exe=d" WINEDEBUG=-all \
+            wineboot.exe -u
+        machine_wine_wait
     fi
     ensure_common_shell_dirs
 fi
@@ -293,9 +337,8 @@ fi
     exit 1
 }
 if [ "${WEX_SKIP_WINEBOOT:-0}" != "1" ]; then
-    WINEPREFIX="$MACHINE_ROOT" WINEDLLOVERRIDES=winemenubuilder.exe=d \
-        "$WINE_BIN" regedit.exe /S "$FONT_RES_DIR/font-substitutes.reg"
-    WINEPREFIX="$MACHINE_ROOT" "$WINESERVER_BIN" -w
+    machine_wine regedit.exe /S "$FONT_RES_DIR/font-substitutes.reg"
+    machine_wine_wait
 fi
 mkdir -p "$MACHINE_ROOT/drive_c/windows/Fonts"
 while read -r font_name font_target; do
@@ -324,9 +367,9 @@ Windows Registry Editor Version 5.00
 [HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters]
 "EnablePrefetcher"=dword:00000003
 PFREG
-    WINEPREFIX="$MACHINE_ROOT" WINEDLLOVERRIDES=winemenubuilder.exe=d \
-        "$WINE_BIN" regedit.exe /S "$PREFETCH_REG"
-    WINEPREFIX="$MACHINE_ROOT" "$WINESERVER_BIN" -w
+    chmod 644 "$PREFETCH_REG"   # session 0's account reads it (it holds nothing secret)
+    machine_wine regedit.exe /S "$PREFETCH_REG"
+    machine_wine_wait
     rm -f "$PREFETCH_REG"
 fi
 if [ -f /usr/share/applications/wex-components.desktop ]; then
@@ -352,12 +395,18 @@ for f in system.reg userdef.reg user.reg; do
     [ ! -L "$MACHINE_ROOT/$f" ] || die "$MACHINE_ROOT/$f is a symbolic link"
 done
 if [ -f "$MACHINE_ROOT/system.reg" ]; then
-    sed -i 's/\\\\users\\\\root\\\\Favorites/\\\\users\\\\Public\\\\Favorites/g' "$MACHINE_ROOT/system.reg"
+    # (an old migration of root's profile path: only while no server holds the hive, B81; session 0 machines are newer)
+    [ "$S0_CLIENT" = 1 ] ||
+        sed -i 's/\\\\users\\\\root\\\\Favorites/\\\\users\\\\Public\\\\Favorites/g' "$MACHINE_ROOT/system.reg"
     # Enforced elevation: the helper's name in the machine hive is the switch (the servers and ntdll read
     # HKLM\Software\Wine\Elevation, value Helper). The hive file is written only while no server has it: at
     # the first setup none runs yet; later, session 0 holds it and the value is set through session 0 instead.
     if [ "$ELEVATION_ENABLE" = 1 ] && ! grep -q '^\[Software\\\\Wine\\\\Elevation\]' "$MACHINE_ROOT/system.reg"; then
-        if pgrep -f 'wineserver --session0' >/dev/null 2>&1; then
+        if [ "$S0_CLIENT" = 1 ]; then
+            # B81: through session 0, which holds the hive
+            machine_wine reg.exe add 'HKLM\Software\Wine\Elevation' /v Helper /t REG_SZ \
+                /d 'C:\windows\system32\consent.exe' /f > /dev/null || die "the elevation value was not set through session 0"
+        elif pgrep -f 'wineserver --session0' >/dev/null 2>&1; then
             echo "NOTE: session 0 is running; set HKLM\\Software\\Wine\\Elevation\\Helper through it to enforce elevation" >&2
         else
             cat >> "$MACHINE_ROOT/system.reg" <<'ELEVATION_EOF'

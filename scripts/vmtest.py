@@ -322,13 +322,23 @@ def serial(name, user, pwfile, command, timeout):
     def send(text):
         s.sendall(text.encode() + b"\r")
 
+    def note(what):
+        # VMTEST_SERIAL_LOG=FILE: what the serial console showed when it did not answer (the bytes read so far)
+        path = os.environ.get("VMTEST_SERIAL_LOG")
+        if path:
+            with open(path, "a") as f:
+                f.write("%s %s (%s): %s\n    read so far: %r\n" % (time.strftime("%H:%M:%S"), name, command[:40], what, buf[-1500:]))
+
     send("")
     m = until(rb"login: $|[#$] $", 15)
+    if not m:
+        note("no login or shell prompt within 15 s")
     if m and m.group(0).startswith(b"login"):
         send(user)
         until(rb"Password: $", 10)
         send(password)
         if not until(rb"[#$] $", 20):
+            note("login failed")
             sys.exit("login failed")
     buf = b""
     send("stty -echo cols 250; export PAGER=cat SYSTEMD_PAGER= TERM=dumb")
@@ -337,6 +347,8 @@ def serial(name, user, pwfile, command, timeout):
     tag = secrets.token_hex(4)
     send(f"echo B{tag}; {command}; echo E{tag} $?")
     m = until(rb"E" + tag.encode() + rb" (\d+)", timeout)
+    if not m:
+        note("the command did not finish within %s s" % timeout)
     out = buf.decode(errors="replace").replace("\r", "")
     out = out.split(f"B{tag}\n", 1)[-1].split(f"E{tag}")[0]
     print(out, end="")

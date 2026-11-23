@@ -63,6 +63,8 @@ D=$(dirname "$0")
 [ "$1" = wexpolicy ] || exit 0
 shift
 echo "$1 $2" >> "$D/wexpolicy.log"
+# an apply that fails (the file "apply.fail"): wexpolicy changes nothing and says so with its exit status
+[ "$1" = apply ] && [ -e "$D/apply.fail" ] && exit 87
 cmd=$1; target=$2; shift 2
 out="$cmd $target"
 case $cmd in
@@ -147,6 +149,15 @@ detail 'apply /machine [LOCALM] [DOMAINM]' 'joined: the local object first, then
 detail 'record /machine <LocalGPO,Local Group Policy;'"$GUID"',WexLab Domain;>' 'joined: the computer'"'"'s applied list'
 detail 'apply /user:S-1-5-21-111-222-333-1104 [LOCALU] [DOMAINU]' 'joined: a domain user: local, then domain'
 detail 'apply /user:S-1-5-21-11-22-33-1002 [LOCALU]' 'joined: a local user keeps the local policy only'
+# an apply that fails changes nothing, so the applied list of the last run stays: it is not recorded again, and the run
+# ends with an error
+touch "$FX/apply.fail"; : > "$FX/wexpolicy.log"; : > "$FX/detail.log"
+if PATH="$FX/bin:$PATH" WEX_KEYTAB="$FX/keytab" WEX_GPO_STATE="$FX/state" WEX_GPO_LOCK="$FX/lock" WEX_GPO_DUE="$FX/due" \
+    WEX_ACCOUNTS_MAP="$FX/map3" WINE="$FX/wine" WEX_SESSION0_USER=nobody WEX_MACHINE_ROOT="$FX/mroot" \
+    bash "$SCRIPT" > "$FX/out.log" 2>&1; then cat "$FX/out.log"; fail 'a failed apply: the run did not end with an error'; fi
+rm -f "$FX/apply.fail"
+grep -q '^apply /machine' "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log"; fail 'a failed apply: the apply was not tried'; }
+! grep -q '^record' "$FX/wexpolicy.log" || { cat "$FX/wexpolicy.log"; fail 'a failed apply: the applied list was recorded'; }
 # the local security template (the lockout and the security options): where Windows' local Group Policy keeps it; the
 # local object's first, the domain's after it, and the object's list of applied objects names the security extension
 SECDIR="$LG/Machine/Microsoft/Windows NT/SecEdit"

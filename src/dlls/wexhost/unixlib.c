@@ -135,15 +135,27 @@ static BOOL load_dbus( void )
     return dbus_loaded;
 }
 
+/* the bus names of our own root services (Boot1, TimeSync1: scripts/wexrootsvc.py) */
+#define WEX_SERVICE_PREFIX "org.wineexplorer."
+
 static DWORD map_error( DBusError *err )
 {
     if (p_dbus_error_has_name( err, DBUS_ERROR_ACCESS_DENIED ) ||
         p_dbus_error_has_name( err, "org.freedesktop.PolicyKit1.Error.NotAuthorized" )) return ERROR_ACCESS_DENIED;
     if (p_dbus_error_has_name( err, "org.freedesktop.PolicyKit1.Error.Cancelled" )) return ERROR_CANCELLED;
-    /* org.wineexplorer.Boot1 (scripts/wex-boot1.py) */
-    if (p_dbus_error_has_name( err, "org.wineexplorer.Boot1.Error.NotAuthorized" )) return ERROR_ACCESS_DENIED;
-    if (p_dbus_error_has_name( err, "org.wineexplorer.Boot1.Error.Cancelled" )) return ERROR_CANCELLED;
-    if (p_dbus_error_has_name( err, "org.wineexplorer.Boot1.Error.InvalidArgs" )) return ERROR_INVALID_PARAMETER;
+    /* our root services (scripts/wexrootsvc.py): org.wineexplorer.NAME.Error.KIND, the same kinds for all */
+    if (err->name && !strncmp( err->name, WEX_SERVICE_PREFIX, strlen( WEX_SERVICE_PREFIX ) ))
+    {
+        const char *kind = strstr( err->name, ".Error." );
+
+        if (kind)
+        {
+            kind += strlen( ".Error." );
+            if (!strcmp( kind, "NotAuthorized" )) return ERROR_ACCESS_DENIED;
+            if (!strcmp( kind, "Cancelled" )) return ERROR_CANCELLED;
+            if (!strcmp( kind, "InvalidArgs" )) return ERROR_INVALID_PARAMETER;
+        }
+    }
     if (p_dbus_error_has_name( err, DBUS_ERROR_SERVICE_UNKNOWN ) || p_dbus_error_has_name( err, DBUS_ERROR_NAME_HAS_NO_OWNER ) ||
         p_dbus_error_has_name( err, DBUS_ERROR_NO_SERVER ) || p_dbus_error_has_name( err, DBUS_ERROR_DISCONNECTED ) ||
         p_dbus_error_has_name( err, DBUS_ERROR_FILE_NOT_FOUND ) || p_dbus_error_has_name( err, DBUS_ERROR_UNKNOWN_METHOD ))
@@ -186,17 +198,33 @@ static DBusConnection *get_system_bus( void )
     return bus;
 }
 
-/* Bound reads and NetworkManager calls to five seconds. Other mutating methods get two minutes for polkit's
- * password dialog; neither a service failure nor user input can wait forever. */
-static DWORD call_system( DBusMessage *msg, DBusMessage **reply_out )
+/* How long a call may take, in milliseconds:
+ * - reads (Get, List, Can) and NetworkManager: five seconds, except the reads of our own services, which may run a
+ *   tool (Boot1's GetAll asks vintner twice, up to a minute each): two and a half minutes;
+ * - changes of our own services: no limit of ours. They wait for polkit's password dialog and then do the work, which
+ *   the service bounds itself (Boot1 publishes a generation, up to ten minutes);
+ * - other changes: two minutes for polkit's password dialog. Neither a service failure nor user input can wait forever. */
+static int call_timeout( DBusMessage *msg )
+{
+    const char *member = p_dbus_message_get_member( msg ), *destination = p_dbus_message_get_destination( msg );
+    BOOL ours = destination && !strncmp( destination, WEX_SERVICE_PREFIX, strlen( WEX_SERVICE_PREFIX ) );
+    BOOL read = member && (!strncmp( member, "Get", 3 ) || !strncmp( member, "List", 4 ) || !strncmp( member, "Can", 3 ));
+
+    if (ours) return read ? 150000 : DBUS_TIMEOUT_INFINITE;
+    if (read || (destination && !strcmp( destination, "org.freedesktop.NetworkManager" ))) return 5000;
+    return 120000;
+}
+
+/* A method call on the system bus: the reply (when asked for) and a Win32 code. message, when given, receives the
+ * service's own text for an error (empty on success), for the dialog that shows it. */
+static DWORD call_bus( DBusMessage *msg, DBusMessage **reply_out, char *message, size_t size )
 {
     DBusConnection *bus = get_system_bus();
     DBusMessage *reply;
     DBusError err;
     DWORD ret = ERROR_SUCCESS;
-    const char *member, *destination;
-    int timeout;
 
+    if (message && size) message[0] = 0;
     if (!bus || !msg)
     {
         if (bus) p_dbus_connection_unref( bus );
@@ -204,16 +232,21 @@ static DWORD call_system( DBusMessage *msg, DBusMessage **reply_out )
         return ERROR_NOT_SUPPORTED;
     }
     p_dbus_error_init( &err );
-    member = p_dbus_message_get_member( msg );
-    destination = p_dbus_message_get_destination( msg );
-    timeout = (destination && !strcmp( destination, "org.freedesktop.NetworkManager" )) ||
-              (member && (!strncmp( member, "Get", 3 ) || !strncmp( member, "List", 4 ) ||
-                          !strncmp( member, "Can", 3 ))) ? 5000 : 120000;
-    reply = p_dbus_connection_send_with_reply_and_block( bus, msg, timeout, &err );
-    if (!reply) { ret = map_error( &err ); p_dbus_error_free( &err ); }
+    reply = p_dbus_connection_send_with_reply_and_block( bus, msg, call_timeout( msg ), &err );
+    if (!reply)
+    {
+        ret = map_error( &err );
+        if (message && size && err.message) snprintf( message, size, "%s", err.message );
+        p_dbus_error_free( &err );
+    }
     if (reply_out) *reply_out = reply; else if (reply) p_dbus_message_unref( reply );
     p_dbus_connection_unref( bus );
     return ret;
+}
+
+static DWORD call_system( DBusMessage *msg, DBusMessage **reply_out )
+{
+    return call_bus( msg, reply_out, NULL, 0 );
 }
 
 /* A single signal connection, independent of synchronous method calls, serves
@@ -702,34 +735,6 @@ static NTSTATUS boot_get( void *args )
     return STATUS_SUCCESS;
 }
 
-/* A call that may wait on polkit, keeping the service's message for the dialog. */
-static DWORD call_boot( DBusMessage *msg, DBusMessage **reply_out, char *message, size_t size )
-{
-    DBusConnection *bus = get_system_bus();
-    DBusMessage *reply;
-    DBusError err;
-    DWORD ret = ERROR_SUCCESS;
-
-    if (size) message[0] = 0;
-    if (!bus || !msg)
-    {
-        if (bus) p_dbus_connection_unref( bus );
-        if (reply_out) *reply_out = NULL;
-        return ERROR_NOT_SUPPORTED;
-    }
-    p_dbus_error_init( &err );
-    reply = p_dbus_connection_send_with_reply_and_block( bus, msg, DBUS_TIMEOUT_INFINITE, &err );
-    if (!reply)
-    {
-        ret = map_error( &err );
-        if (size && err.message) snprintf( message, size, "%s", err.message );
-        p_dbus_error_free( &err );
-    }
-    if (reply_out) *reply_out = reply; else if (reply) p_dbus_message_unref( reply );
-    p_dbus_connection_unref( bus );
-    return ret;
-}
-
 static NTSTATUS boot_set( void *args )
 {
     struct boot_set_params *params = args;
@@ -741,7 +746,7 @@ static NTSTATUS boot_set( void *args )
     if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_UINT32, &menu, DBUS_TYPE_BOOLEAN, &recovery_on,
                                          DBUS_TYPE_UINT32, &recovery, DBUS_TYPE_BOOLEAN, &restart,
                                          DBUS_TYPE_BOOLEAN, &interactive, DBUS_TYPE_INVALID );
-    params->err = call_boot( msg, NULL, params->message, sizeof(params->message) );
+    params->err = call_bus( msg, NULL, params->message, sizeof(params->message) );
     if (msg) p_dbus_message_unref( msg );
     return STATUS_SUCCESS;
 }
@@ -759,7 +764,7 @@ static NTSTATUS boot_set_options( void *args )
     msg = load_dbus() ? p_dbus_message_new_method_call( BOOT_DEST, BOOT_PATH, BOOT_IFACE, "SetOptions" ) : NULL;
     if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &text, DBUS_TYPE_BOOLEAN, &interactive,
                                          DBUS_TYPE_INVALID );
-    params->err = call_boot( msg, &reply, params->message, sizeof(params->message) );
+    params->err = call_bus( msg, &reply, params->message, sizeof(params->message) );
     if (msg) p_dbus_message_unref( msg );
     if (reply)
     {
@@ -773,6 +778,51 @@ static NTSTATUS boot_set_options( void *args )
         if (published) params->generation = generation;
         p_dbus_message_unref( reply );
     }
+    return STATUS_SUCCESS;
+}
+
+/* ------------------------------------------------------------------ Internet Time: org.wineexplorer.TimeSync1 */
+
+#define TS_DEST  "org.wineexplorer.TimeSync1"
+#define TS_PATH  "/org/wineexplorer/TimeSync1"
+#define TS_IFACE "org.wineexplorer.TimeSync1"
+
+static NTSTATUS timesync_get( void *args )
+{
+    struct timesync_get_params *params = args;
+    struct prop props[] = { { "Servers", DBUS_TYPE_STRING, params->servers, WEX_TIMESYNC_SERVERS_MAX + 1 } };
+
+    memset( params->servers, 0, sizeof(params->servers) );
+    params->err = get_properties( TS_DEST, TS_PATH, TS_IFACE, props, ARRAYSIZE(props) );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS timesync_set( void *args )
+{
+    struct timesync_set_params *params = args;
+    DBusMessage *msg;
+    const char *servers = params->servers;
+    dbus_bool_t interactive = TRUE;
+
+    params->servers[sizeof(params->servers) - 1] = 0;
+    msg = load_dbus() ? p_dbus_message_new_method_call( TS_DEST, TS_PATH, TS_IFACE, "SetServers" ) : NULL;
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_STRING, &servers, DBUS_TYPE_BOOLEAN, &interactive,
+                                         DBUS_TYPE_INVALID );
+    params->err = call_system( msg, NULL );
+    if (msg) p_dbus_message_unref( msg );
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS timesync_now( void *args )
+{
+    struct timesync_now_params *params = args;
+    DBusMessage *msg;
+    dbus_bool_t interactive = TRUE;
+
+    msg = load_dbus() ? p_dbus_message_new_method_call( TS_DEST, TS_PATH, TS_IFACE, "SyncNow" ) : NULL;
+    if (msg) p_dbus_message_append_args( msg, DBUS_TYPE_BOOLEAN, &interactive, DBUS_TYPE_INVALID );
+    params->err = call_system( msg, NULL );
+    if (msg) p_dbus_message_unref( msg );
     return STATUS_SUCCESS;
 }
 
@@ -1876,6 +1926,9 @@ STUB( hostname_set, struct hostname_set_params )
 STUB( boot_get, struct boot_get_params )
 STUB( boot_set, struct boot_set_params )
 STUB( boot_set_options, struct boot_set_options_params )
+STUB( timesync_get, struct timesync_get_params )
+STUB( timesync_set, struct timesync_set_params )
+STUB( timesync_now, struct timesync_now_params )
 STUB( user_get, struct user_get_params )
 STUB( net_get_status, struct net_get_status_params )
 STUB( net_scan_wifi, struct net_scan_wifi_params )
@@ -2886,7 +2939,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     net_enable,
     display_get,
     display_set,
-    wm_start,
     wm_next_event,
     wm_manage,
     wm_configure,
@@ -2910,11 +2962,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     composition_set,
     composition_get,
     composition_shadow,
-    composition_corner,
-    composition_clock, /* retired export; reserved stub, do not shift indices */
-    composition_clock_wait,
-    composition_thumbs,
-    composition_peek,
     locale_set,
     root_pass_set,
     user_create,
@@ -2941,10 +2988,6 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     oobe_review_start,
     oobe_review_query,
     oobe_review_cancel,
-    composition_backdrop,
-    wm_effects,
-    wm_thumbnails,
-    wm_peek,
     wm_apply_effects,
     wm_backend_thumbnails,
     wm_backend_peek,
@@ -2955,6 +2998,9 @@ const unixlib_entry_t __wine_unix_call_funcs[] =
     boot_get,
     boot_set,
     boot_set_options,
+    timesync_get,
+    timesync_set,
+    timesync_now,
     host_watch_start,
     host_watch_next,
     host_watch_stop,
@@ -2992,7 +3038,6 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     net_enable,
     display_get,
     display_set,
-    wm_start,
     wm_next_event,
     wm_manage,
     wm_configure,
@@ -3016,11 +3061,6 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     composition_set,
     composition_get,
     composition_shadow,
-    composition_corner,
-    composition_clock, /* retired export; reserved stub, do not shift indices */
-    composition_clock_wait,
-    composition_thumbs,
-    composition_peek,
     locale_set,
     root_pass_set,
     user_create,
@@ -3047,10 +3087,6 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     oobe_review_start,
     oobe_review_query,
     oobe_review_cancel,
-    composition_backdrop,
-    wm_effects,
-    wm_thumbnails,
-    wm_peek,
     wm_apply_effects,
     wm_backend_thumbnails,
     wm_backend_peek,
@@ -3061,6 +3097,9 @@ const unixlib_entry_t __wine_unix_call_wow64_funcs[] =
     boot_get,
     boot_set,
     boot_set_options,
+    timesync_get,
+    timesync_set,
+    timesync_now,
     host_watch_start,
     host_watch_next,
     host_watch_stop,

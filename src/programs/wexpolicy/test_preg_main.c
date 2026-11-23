@@ -1,5 +1,5 @@
 /*
- * Native test of the Registry.pol reader and writer (preg.h)
+ * Native test of the Registry.pol reader and writer (wexpreg.h)
  *
  * Copyright 2026 WineExplorer contributors
  *
@@ -19,7 +19,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include "preg.h"
+#include "wexpreg.h"
 
 static int failures, checks;
 #define CHECK(cond, name) do { checks++; if (!(cond)) { failures++; printf( "FAIL: %s (line %d)\n", name, __LINE__ ); } } while (0)
@@ -170,6 +170,50 @@ int main(void)
         };
         for (i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
             CHECK( preg_key_in_policy_tree( w, wide( w, keys[i].key ) ) == keys[i].in, keys[i].key );
+    }
+
+    /* the whole file: a good one is PREG_END, a damaged one its error */
+    len = preg_put_header( buf );
+    len += add( buf + len, "Software\\Policies\\A", "B", 4, &dword, 4 );
+    CHECK( preg_validate( buf, len ) == PREG_END, "validate: a good file" );
+    CHECK( preg_validate( buf, len - 1 ) == PREG_ERR_TRUNCATED, "validate: a cut file" );
+    CHECK( preg_validate( buf, 4 ) == PREG_ERR_HEADER, "validate: no header" );
+
+    /* the security template's options, named as the registry reads names: without case, a doubled backslash is one,
+     * one at either end is none, and U+0131 and U+017F are I and S (the registry upper-cases); another key or value
+     * name is not one of them */
+    {
+        static const struct { const char *key, *value; int is; } opts[] =
+        {
+            { "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", "ConsentPromptBehaviorAdmin", 1 },
+            { "SOFTWARE\\MICROSOFT\\WINDOWS\\CURRENTVERSION\\POLICIES\\SYSTEM", "consentpromptbehavioradmin", 1 },
+            { "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", "PromptOnSecureDesktop", 1 },
+            { "Software\\Microsoft\\Windows\\\\CurrentVersion\\Policies\\System\\", "PromptOnSecureDesktop", 1 },
+            { "\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\\\", "ConsentPromptBehaviorAdmin", 1 },
+            { "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", "ConsentPromptBehaviorUser", 0 },
+            { "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System", "ConsentPromptBehaviorAdminX", 0 },
+            { "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\SystemX", "ConsentPromptBehaviorAdmin", 0 },
+            { "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Sub", "ConsentPromptBehaviorAdmin", 0 },
+            { "Software\\Policies\\Microsoft\\Windows\\System", "ConsentPromptBehaviorAdmin", 0 },
+        };
+        uint8_t v[256];
+
+        for (i = 0; i < sizeof(opts) / sizeof(opts[0]); i++)
+        {
+            uint32_t kl = wide( w, opts[i].key ), vl = wide( v, opts[i].value );
+            CHECK( preg_is_template_option( w, kl, v, vl ) == opts[i].is, opts[i].value );
+        }
+        /* "...\\Policies\\Sy<U+017F>tem" and "Con<U+017F>entPromptBehav<U+0131>orAdmin" are the same names */
+        {
+            uint32_t kl = wide( w, "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Sy" );
+            uint32_t vl = wide( v, "ConsentPromptBehaviorAdmin" );
+
+            preg_put_u16( w + 2 * kl, 0x017f ); kl++;   /* "Sy", a long s, "tem" */
+            kl += wide( w + 2 * kl, "tem" );
+            preg_put_u16( v + 2 * 3, 0x017f );          /* "Con", a long s, "entPromptBehav"... */
+            preg_put_u16( v + 2 * 18, 0x0131 );         /* ..."Behav", a dotless i, "orAdmin" */
+            CHECK( preg_is_template_option( w, kl, v, vl ), "long s and dotless i are S and I" );
+        }
     }
 
     printf( "PREG checks=%d failures=%d\n", checks, failures );

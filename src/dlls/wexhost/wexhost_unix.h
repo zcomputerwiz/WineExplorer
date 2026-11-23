@@ -70,6 +70,9 @@ struct boot_get_params { WEX_BOOT info; DWORD err; };
 struct boot_set_params { DWORD menu_timeout; BOOL recovery_enabled; DWORD recovery_timeout; BOOL auto_restart;
                          char message[512]; DWORD err; };
 struct boot_set_options_params { char text[WEX_BOOT_OPTIONS_MAX]; DWORD generation; char message[512]; DWORD err; };
+struct timesync_get_params { char servers[WEX_TIMESYNC_SERVERS_MAX + 64]; DWORD err; };
+struct timesync_set_params { char servers[WEX_TIMESYNC_SERVERS_MAX + 64]; DWORD err; };
+struct timesync_now_params { DWORD err; };
 struct user_get_params { WEX_USER info; DWORD err; };
 
 struct net_get_status_params { WEX_NET_STATUS status; DWORD err; };
@@ -146,7 +149,6 @@ struct wm_native_info_params { UINT64 window; WEX_NATIVE_WINDOW info; DWORD err;
 struct wm_binding_params { UINT64 window; char token[33], controller[33]; DWORD err; };
 /* DWM effects of a Wayland window by its shared handle (wex_window_manager_v1.set_effects, protocol v13) */
 struct wm_effects_params { char handle[33]; DWORD radius, backdrop, flags, tint; INT region[4]; DWORD err; };
-extern NTSTATUS wm_effects(void *args);
 /* New neutral effects call. Identity is resolved on the PE side, XID first as
  * in the original bridge. No HWNDs or native pointers cross this transport.
  * Wayland region is already offset to window coordinates, still in Wine pixels. */
@@ -228,7 +230,6 @@ extern NTSTATUS wm_binding(void *args);
 extern NTSTATUS wm_native_info(void *args);
 extern NTSTATUS wm_start_ex(void *args);
 extern NTSTATUS wm_capabilities(void *args);
-extern NTSTATUS wm_start(void *args);
 extern NTSTATUS wm_next_event(void *args);
 extern NTSTATUS wm_manage(void *args);
 extern NTSTATUS wm_configure(void *args);
@@ -270,10 +271,6 @@ struct composition_thumbs_params { UINT64 thumbs; DWORD count; DWORD err; };
 extern NTSTATUS composition_thumbs(void *args);
 struct composition_peek_params { UINT64 target; UINT64 keep; DWORD count; DWORD err; };
 extern NTSTATUS composition_peek(void *args);
-/* Retired clock transport, retained for its reserved Unixlib slot. New callers
- * use wm_clock_params and detach before releasing their mapped page. */
-struct composition_clock_params { UINT64 page; UINT64 event; DWORD err; };
-extern NTSTATUS composition_clock(void *args);
 struct composition_clock_wait_params { UINT64 generation; DWORD timeout_ms; };
 extern NTSTATUS composition_clock_wait(void *args);
 /* x11wm calls these with x_mutex held; Display/XEvent stay on the Unix side. */
@@ -355,7 +352,6 @@ enum wexhost_funcs
     unix_net_enable,
     unix_display_get,
     unix_display_set,
-    unix_wm_start,
     unix_wm_next_event,
     unix_wm_manage,
     unix_wm_configure,
@@ -379,11 +375,6 @@ enum wexhost_funcs
     unix_composition_set,
     unix_composition_get,
     unix_composition_shadow,
-    unix_composition_corner,
-    unix_composition_clock,
-    unix_composition_clock_wait,
-    unix_composition_thumbs,
-    unix_composition_peek,
     unix_locale_set,
     unix_root_pass_set,
     unix_user_create,
@@ -410,10 +401,6 @@ enum wexhost_funcs
     unix_oobe_review_start,
     unix_oobe_review_query,
     unix_oobe_review_cancel,
-    unix_composition_backdrop,
-    unix_wm_effects,
-    unix_wm_thumbnails,
-    unix_wm_peek,
     unix_wm_apply_effects,
     unix_wm_backend_thumbnails,
     unix_wm_backend_peek,
@@ -424,6 +411,9 @@ enum wexhost_funcs
     unix_boot_get,
     unix_boot_set,
     unix_boot_set_options,
+    unix_timesync_get,
+    unix_timesync_set,
+    unix_timesync_now,
     unix_host_watch_start,
     unix_host_watch_next,
     unix_host_watch_stop,

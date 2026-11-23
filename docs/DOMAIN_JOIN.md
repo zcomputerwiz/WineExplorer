@@ -29,7 +29,7 @@ XP VM, which is the reference for parity (`CLAUDE.md`).
   contacted), logon failure (1326), account exists (2224), already joined (2691), not joined (2692), the join hardening's
   account re-use block (2732).
 - `NetUnjoinDomain(server, account, password, flags)` leaves; the only option disables (does not delete) the account.
-  `NetRenameMachineInDomain` renames and updates the account. `NetValidateName` checks a computer name (valid NetBIOS
+  `NetRenameMachineInDomain` renames the account and the host name together. `NetValidateName` checks a computer name (valid NetBIOS
   name, not in use), a workgroup, a domain (exists) or a DNS name. `NetGetJoinInformation` answers unjoined, workgroup or
   domain with the name; that is the only one implemented here.
 
@@ -64,12 +64,12 @@ names are 15 characters for NetBIOS (up to 63 for DNS): letters, digits and hyph
 | Part | State |
 |---|---|
 | `NetGetJoinInformation` (wkscli, stock Wine semi-stub) | reads `HKLM\Software\WineExplorer\Domain`, written by `wex-domain-state.sh` |
-| `NetJoinDomain`, `NetUnjoinDomain`, `NetValidateName` | done (2026-11-18): `src/dlls/wexjoin`, forwarded from wkscli and netapi32 (stock change in `STOCK_CHANGES.md`); `NetRenameMachineInDomain` answers "not supported" |
+| `NetJoinDomain`, `NetUnjoinDomain`, `NetValidateName` | done (2026-11-18): `src/dlls/wexjoin`, forwarded from wkscli and netapi32 (stock change in `STOCK_CHANGES.md`); `NetRenameMachineInDomain` renames in the domain (2026-11-22) |
 | A workstation service | none: the engine's socket takes its place (see "How the API reaches root") |
-| `netdom.exe` | done: `join`, `remove`, `verify`, `reset`, `query DC`; `renamecomputer` is "not supported yet" (see below) |
+| `netdom.exe` | done: `join`, `remove`, `verify`, `reset`, `query DC`; `renamecomputer` (in a domain it renames the account and the host name) |
 | `nltest.exe` | done (2026-11-21): `/dsgetdc`, `/dcname`, `/dclist`, `/dsgetsite`, `/query`, `/sc_query`, `/sc_verify`, `/sc_reset`, `/sc_change_pwd` (see below) |
-| PowerShell cmdlets | none (Wine has `net`, `whoami`, `powershell`, `wmic` stubs) |
-| System Properties > Computer Name | renames the host through wexhost (hostnamed); no domain choice |
+| PowerShell cmdlets | done in part (2026-11-22, docs/POWERSHELL.md): the official PowerShell 7.7.0 runs on the WoW64 build with a console; `mi.dll` (new, `src/dlls/mi`) and `Win32_ComputerSystem` (`Rename`, `JoinDomainOrWorkgroup`, `UnjoinDomainOrWorkgroup`, `PartOfDomain`, `Workgroup`) in `wbemprox` make `Get-CimInstance`, `Invoke-CimMethod` and `Rename-Computer` work; the `WexComputer` module supplies `Add-Computer`, `Remove-Computer`, `Test-ComputerSecureChannel` and `Reset-ComputerMachinePassword`, which PowerShell 7 does not have. Joined, renamed, left and secure-channel-checked from PowerShell against the AD lab (29 checks, join-ps-guest.sh) |
+| System Properties > Computer Name | renames the host through wexhost (hostnamed); in a domain the engine renames the account and the host name |
 | Join engine (root) | `installer/scripts/wex-domain-join.sh` (this change): `join`, `leave`, `status` with Winbind, tested with fakes (`scripts/test_domain_join.sh`) |
 | Logon with `DOMAIN\user`, groups, Group Policy | built (`DOMAIN_LOGON.md`, `GROUP_POLICY.md`) |
 
@@ -90,8 +90,7 @@ Windows-side state (`wex-domain-state.sh`).
 
 The syntax of Windows' `NETDOM` (from Microsoft's pages for each command and from transcripts in forum threads), for this
 computer only (another computer is refused with "not supported"): `join [computer] /Domain /UserD /PasswordD /OU`, `remove
-[computer] [/Domain] /UserD /PasswordD /Force`, `verify`, `reset`, `query DC`, `renamecomputer` (the engine cannot rename the
-machine account yet), `help`. Options may be given as `/Name:value` or `-Name:value`, abbreviated as Windows does
+[computer] [/Domain] /UserD /PasswordD /Force`, `verify`, `reset`, `query DC`, `renamecomputer`, `help`. Options may be given as `/Name:value` or `-Name:value`, abbreviated as Windows does
 (`/UD`, `/PD`, `/UO`, `/PO`, `/PM`, `/RO`, `/REB`, `/SPP`); `/REBoot`, `/SecurePasswordPrompt`, `/Verbose`, `/Server`, `/Verify`
 are accepted and change nothing; `/UserO`, `/PasswordO`, `/UserF`, `/PasswordF`, `/ReadOnly` and `/PasswordM` are refused as
 not supported. A password of `*`, or none with a user, is asked for ("Type the password associated with the domain user:",
@@ -155,29 +154,50 @@ is asked for. The pictures on the first and last pages are drawn in the code (a 
 ## Computer name
 
 The Change dialog renames the computer through the host's hostname service (polkit, as on any desktop) and the new name is
-in force at once, so no restart is asked for. In a domain a rename is refused ("Remove the computer from the domain first"):
-the machine account is named for the computer and the engine cannot rename it yet (Samba's `net` has no rename; `netdom
-renamecomputer` stays "not supported yet"). Leaving the domain and renaming in one step works: it leaves first.
+in force at once, so no restart is asked for. In a domain the rename goes to the join engine (`op=rename`), which does
+the account and the host name together; the credentials of an account that may rename the computer object are asked, and
+the engine runs as root, so there is no second authorisation prompt. `netdom renamecomputer /NewName:N /UserD:U
+/PasswordD:*` does the same. Leaving the domain and renaming in one step also works: it leaves first.
+
+## Renaming a computer that stays in a domain
+
+Windows renames the account and the computer together (`NetRenameMachineInDomain`). Samba's `net` has no such command, so
+the engine does what Windows does with the tools that exist (it needs `ldap-utils` and `libsasl2-modules-gssapi-mit`,
+which are not in the image, like Samba and Winbind: install them with `apt-get install ldap-utils
+libsasl2-modules-gssapi-mit`; `wex-domain-join.sh rename` answers 50 and names them when they are missing). Nothing runs on the controller.
+
+1. Ticket for the admin (as the join does), then over LDAP with the Kerberos bind (`ldapmodify`, `ldapsearch -Y GSSAPI`,
+   `SASL_NOCANON`): the new name must be free (52), the object is renamed (`modrdn` of the CN), and `sAMAccountName`
+   (`NEWNAME$`) and `dNSHostName` are set.
+2. `netbios name` in `smb.conf`, then the machine password is changed with the machine's own credentials
+   (`net ads changetrustpw`, a ticket cache of its own, so the administrator's ticket stays).
+3. The keytab is flushed (that takes the service principal names off the account), the `HOST/` and `RestrictedKrbHost/`
+   names are set, the keytab is created again, Winbind is restarted and `net ads testjoin` must pass.
+4. The host name is set (`hostnamectl`, as root).
+
+When a step fails, the engine puts back the host name, `smb.conf` and the account under its old name and answers 31.
+The DNS record of the new name is updated best effort (`net ads dns register` with a 30 second limit; in the lab it
+does not complete, which only gives a warning); the old record stays until the controller scavenges it.
+
+Tested: `scripts/test_domain_join.sh` (order of the steps, the refusals 52, 87, 1210, 1326, 2692, the roll-back) and the
+AD lab (`installer/tests/ad/join-guest.sh`, stage 9: the Change dialog renames to a new name, then `netdom
+renamecomputer` back, with the account looked up on the controller, `testjoin`, the keytab, `smb.conf` and Winbind).
 
 ## Samba options
 
 From Samba's `net` manual page: `createcomputer=` takes the OU as a path (outermost first, without `OU=`, separated by `/`),
 which the engine builds from the distinguished name Windows takes; `-k` is deprecated for `--use-kerberos=required` (used
 when `net --help` lists it); `net ads leave --keep-account` is used when a leave does not ask for `ACCT_DELETE` (Windows
-disables the account instead). Not used yet: `--no-dns-updates`, `dnshostname=`, `createupn=`, `machinepass=`, `osName=`/`osVer=`.
+disables the account instead). The join passes `osName=WineExplorer` and `osVer=` (Debian's `VERSION_ID`), so the account's operating system shows in the directory
+(lab check `account_os_name`). Not used yet: `--no-dns-updates`, `dnshostname=`, `createupn=`, `machinepass=`.
 
 ## The layers still to build (order)
 
-1. **A privileged service and the API (done, see above).** `NetJoinDomain` and the others in wkscli call a WineExplorer workstation service in
-   session 0 (local RPC, our own interface: nothing else speaks MS-WKST here), which checks the caller as Windows does
-   (local Administrators: an elevated administrator; the consent prompt is the elevation), maps the flags (join,
-   create account, `DOMAIN_JOIN_IF_JOINED`, unsecured join with the machine password through `net ads join` with a
-   pre-made account, `JOIN_WITH_NEW_NAME` through the host name, `DEFER_SPN_SET`), and hands the request to root through
-   a D-Bus method of a small root helper that only session 0's account may call (a policy file), because the engine is
-   root's work and the password must not touch a file or a command line. The error codes of the API are the ones above.
-   The stock-Wine part is the stub replacement in wkscli and the exports in netapi32, listed in `STOCK_CHANGES.md`.
-   `NetValidateName` answers from DNS and Samba (`net ads` / `host`), `NetRenameMachineInDomain` from `net ads` and the
-   host name.
+1. **A privileged service and the API (done; "How the API reaches root" below is what was built).** `NetJoinDomain`
+   and the others are wexjoin.dll's (netapi32 and wkscli forward to it), which sends the request to the engine's socket.
+   The planned session 0 workstation service and D-Bus helper were not built: the socket's group is the check.
+   The stock-Wine part is the exports in netapi32 and wkscli, listed in `STOCK_CHANGES.md`. `NetValidateName` answers
+   from DNS and Samba (`net ads` / `host`), `NetRenameMachineInDomain` from `net ads` and the host name.
 2. **Tools.** `netdom.exe` (done), `nltest.exe` (`/dsgetdc`, `/sc_query`, `/sc_verify`, `/sc_reset` over `net ads` and `wbinfo`),
    the PowerShell cmdlets when the project's `powershell` can host them, `whoami /fqdn /upn`, `net config workstation`.
 3. **The window.** The Computer Name page of System Properties gets Change..., "Computer Name Changes" (name, Domain or
@@ -203,7 +223,38 @@ spool (`GROUP_POLICY.md`), the process that asks is an elevated administrator's 
 on a Unix socket, `/run/wex-domain-join.sock`, owned by root with the system group and mode 0660 (a `wex-domain-join.socket`
 unit that starts `wex-domain-join@.service`, which runs `wex-domain-join.sh serve` on the connection, one request each).
 A process outside the group cannot connect: that is Windows' "access denied for a caller who is not an administrator".
-The request is lines of `key=value` ended by an empty line (`op`, `domain`, `user`, `password`, `ou`, `workgroup`, `flags`);
-the answer is `status=N` (a Win32 or network error code of the table above) and `message=TEXT`. The client is a header
-(`src/include/wexjoinclient.h`) that `wkscli` (NetJoinDomain and the others) and the tools include; it connects with
-winsock's `AF_UNIX` where the build of Wine supports it (probed first, 2026-11-18).
+The request is lines of `key=value` ended by an empty line (`op`, `domain`, `user`, `userdomain`, `password`, `ou`,
+`workgroup`, `name`, `nametype`, `force`, `flags`); the answer is `status=N` (a Win32 or network error code of the table
+above) and `message=TEXT`. The client is wexjoin.dll: its unix side connects to the socket (`src/dlls/wexjoin/unixlib.c`),
+and `src/include/wexjoin.h` declares the API, the `NETSETUP_` flags and the operations of `WexJoinSecureChannel` for
+`netdom`, `nltest` and System Properties, with `wex_join_secure_channel` and `wex_join_last_message`, which load
+wexjoin.dll when asked.
+
+The account (2026-11-23). `DOMAIN\user` is sent as `user` and `userdomain`. The engine takes the user in the realm of
+the domain being joined when `userdomain` is that domain (its NetBIOS or DNS name); a user of another domain given by its
+DNS name is taken in that realm (a trust); one given by another NetBIOS name is refused (1355), as the engine cannot know
+its realm: such a user gives `user@dns.name`. A `user@suffix` name is a user principal name, given to `kinit -E` (an
+enterprise name, which the controller resolves whatever the case of the suffix and for an alternative UPN suffix).
+
+Times and order (2026-11-23). One change of the machine's authentication at a time: `join`, `leave`, `rename` and
+`reset` take the engine's lock (`flock`, `/run/wex-domain-join.lock`; without `flock` nothing is changed, error 50).
+A request from the socket waits 5 seconds for it and is then answered `ERROR_BUSY` (170): it does not queue behind
+another join that its caller's wait would not cover. The questions (`validate`, `status`, `dclist`, `dsgetdc`,
+`scquery`, `verify`) take no lock, and the socket serves up to 8 connections, so they run beside a join. The unit runs a
+request at most 300 seconds (`RuntimeMaxSec`) and then has 90 (`TimeoutStopSec`) to answer: a rename stopped part-way
+(by that limit or by `systemctl stop`) puts the account, smb.conf and the host name back in its `SIGTERM` trap and
+answers 1460. The caller waits `WEX_JOIN_WAIT_SECONDS` (420, `wexjoin.h`), more than both, so a time out it reports
+is never a request that then succeeded.
+
+What the join changes, the leave takes back (2026-11-23). `smb.conf` and `krb5.conf` are replaced by a rename of a new
+file (their mode kept), never written in place, so Samba, Kerberos, the state tool and Group Policy never read half a
+file. The join writes down the PAM profiles it turned on (`/etc/wineexplorer/domain-join-added`: `winbind`, and
+`mkhomedir` when it was off); the leave turns off those and no others, removes `winbind` from `nsswitch.conf` and
+drops the join's first copy of it, so a later failed join cannot put back a file from before the first one. The
+machine's keys go too, on this machine: `/etc/krb5.keytab` is removed when every key in it is one the join made
+(`NAME$`, `host/`, `RestrictedKrbHost/`), and kept with a warning when it holds anything else. `net ads keytab flush`
+cannot do it after the leave (it needs the deleted account), and it would change the account in the domain, which
+`leave --force` must not do. Once the
+host's configuration has changed, Windows programs are told (`wex-domain-state.sh`, `HKLM\Software\WineExplorer\Domain`)
+on every way out, a failure included: a join that `net ads testjoin` does not confirm yet is still a join, and the
+dialogs read it as one.

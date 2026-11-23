@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <wexhost.h>
+#include <wexjoin.h>
 
 #include "sysdm.h"
 
@@ -41,21 +42,18 @@
 #define PSH_WIZARD97 PSH_WIZARD97_NEW
 #endif
 
-NET_API_STATUS NET_API_FUNCTION NetJoinDomain( LPCWSTR server, LPCWSTR domain, LPCWSTR ou, LPCWSTR account, LPCWSTR password, DWORD flags );
-NET_API_STATUS NET_API_FUNCTION NetValidateName( LPCWSTR server, LPCWSTR name, LPCWSTR account, LPCWSTR password, DWORD type );
 BOOL do_leave(HWND dlg);
 
-#define NETSETUP_JOIN_DOMAIN 0x1
-#define NETSETUP_ACCT_CREATE 0x2
-#define NAME_TYPE_DOMAIN     3
 #define CAPTION              L"Network Identification Wizard"
+#define WIZ_PASS_CHARS       128
 
 static struct
 {
     HWND sheet;
+    HWND account_page;   /* the password stays in its box: read for the join only, into a buffer wiped after it */
     HFONT title_font;
     BOOL business, domain_net, account_filled;
-    WCHAR user[128], pass[128], acct_domain[256], comp_name[64], comp_domain[256];
+    WCHAR user[128], acct_domain[256], comp_name[64], comp_domain[256];
     int history[16], depth;
     WCHAR done_text[512];
 } W;
@@ -164,7 +162,7 @@ static BOOL report(HWND page, const WCHAR *domain, DWORD status)
     }
     lstrcpynW(upper, domain, ARRAY_SIZE(upper));
     CharUpperW(upper);
-    show_join_error(page, CAPTION, upper, status, FALSE);
+    show_join_error(page, CAPTION, upper, status, 0);
     return TRUE;
 }
 
@@ -173,6 +171,7 @@ static void fill_account_page(HWND page)
     WCHAR name[MAX_COMPUTERNAME_LENGTH + 1], user[128];
     DWORD size;
 
+    W.account_page = page;
     if (W.account_filled) return;
     W.account_filled = TRUE;
     size = ARRAY_SIZE(user);
@@ -180,7 +179,7 @@ static void fill_account_page(HWND page)
     size = ARRAY_SIZE(name);
     if (GetComputerNameW(name, &size)) SetDlgItemTextW(page, IDC_NID_DOMAIN, name);
     SendDlgItemMessageW(page, IDC_NID_USER, EM_SETSEL, 0, -1);
-    SendDlgItemMessageW(page, IDC_NID_PASS, EM_LIMITTEXT, ARRAY_SIZE(W.pass) - 1, 0);
+    SendDlgItemMessageW(page, IDC_NID_PASS, EM_LIMITTEXT, WIZ_PASS_CHARS - 1, 0);
 }
 
 static void comp_domain_buttons(HWND page)
@@ -194,7 +193,7 @@ static void comp_domain_buttons(HWND page)
 /* the join: the computer's name (when changed), then NetJoinDomain; TRUE when the page may be left */
 static BOOL do_wizard_join(HWND page)
 {
-    WCHAR account[300], text[300];
+    WCHAR account[300], text[300], pass[WIZ_PASS_CHARS];
     WEX_HOSTNAME host;
     char name[128];
     DWORD status;
@@ -220,9 +219,11 @@ static BOOL do_wizard_join(HWND page)
         }
     }
     account_for_api(account, ARRAY_SIZE(account));
-    status = NetJoinDomain(NULL, W.comp_domain, NULL, account, W.pass, NETSETUP_JOIN_DOMAIN | NETSETUP_ACCT_CREATE);
+    pass[0] = 0;
+    if (W.account_page) GetDlgItemTextW(W.account_page, IDC_NID_PASS, pass, ARRAY_SIZE(pass));
+    status = NetJoinDomain(NULL, W.comp_domain, NULL, account, pass, WEX_NETSETUP_JOIN_DOMAIN | WEX_NETSETUP_ACCT_CREATE);
+    SecureZeroMemory(pass, sizeof(pass));
     if (report(page, W.comp_domain, status)) return FALSE;
-    SecureZeroMemory(W.pass, sizeof(W.pass));
     read_membership();
     CharUpperW(W.comp_domain);
     swprintf(text, ARRAY_SIZE(text), L"This computer is now a member of the %ls domain.", W.comp_domain);
@@ -331,7 +332,6 @@ static INT_PTR CALLBACK page_proc(HWND page, UINT msg, WPARAM wparam, LPARAM lpa
                 DWORD status;
 
                 GetDlgItemTextW(page, IDC_NID_USER, W.user, ARRAY_SIZE(W.user));
-                GetDlgItemTextW(page, IDC_NID_PASS, W.pass, ARRAY_SIZE(W.pass));
                 GetDlgItemTextW(page, IDC_NID_DOMAIN, W.acct_domain, ARRAY_SIZE(W.acct_domain));
                 if (!W.user[0] || !W.acct_domain[0])
                 {
@@ -349,7 +349,7 @@ static INT_PTR CALLBACK page_proc(HWND page, UINT msg, WPARAM wparam, LPARAM lpa
                     go(page, id, IDD_NETID_DONE);
                     break;
                 }
-                status = NetValidateName(NULL, W.acct_domain, NULL, NULL, NAME_TYPE_DOMAIN);
+                status = NetValidateName(NULL, W.acct_domain, NULL, NULL, WEX_NETSETUP_NAME_DOMAIN);
                 if (report(page, W.acct_domain, status)) { stay(page); break; }
                 go(page, id, IDD_NETID_COMPDOM);
                 break;
@@ -443,7 +443,6 @@ void show_netid_wizard(HWND parent)
     psh.hbmHeader = header;
     PropertySheetW(&psh);
 
-    SecureZeroMemory(W.pass, sizeof(W.pass));
     DeleteObject(W.title_font);
     DeleteObject(watermark);
     DeleteObject(header);
