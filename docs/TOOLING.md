@@ -490,6 +490,12 @@ Notes:
   stopped disk) and puts back stays fatal. After closing a window the test waits for it to go (bounded) instead of
   fixed sleeps.
 * A provisioning boot that does not power off leaves `provision-fail.png` and `provision-journal.txt`.
+* `vmtest.py sh` sends nothing until the getty's prompt shows (exit 124 after 30 s): a command typed into the login
+  prompt became the user name and left the getty at "Password:", so every later call timed out. Probe the serial
+  console with short calls (`echo serial=up`, 20 s) while the machine starts, then make the long one.
+* Checked 2026-11-23 on b1123a-uefi: baseline (provisioning boot 40-50 s), then rundialog, classic, lastgood and
+  startrec on overlays of it, all subresults passing. In the shell's X11 session the virtual desktop window is
+  "Wine Desktop"; the desktop view (screen-sized) and the taskbar are its children, class explorer.exe.
 
 ## Added 2026-11-15: quicker builds and a quick path that copies only what changed
 
