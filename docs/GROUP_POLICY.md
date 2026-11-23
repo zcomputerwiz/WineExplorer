@@ -316,6 +316,15 @@ to the computer.
   not read.
 - Security settings stay when no GPO sets them any more, as on Windows ("tattooing"); nothing is undone.
 - A template with a fault (no `[Version]` signature, a value out of range) changes nothing.
+- The elevation prompt's two settings, `ConsentPromptBehaviorAdmin` (2 or 5; absent is 5) and `PromptOnSecureDesktop`
+  (absent is 1), are security options whose one source is the template (2026-11-23), as on Windows, where they are
+  not Administrative Templates. A Registry.pol entry that sets or deletes them (`**del.`, `**DeleteValues`, `**DelVals.`
+  of the System key, `**DeleteKeys` of the System key itself) is left out and said (`wexpolicy apply`), so the two kinds
+  of file cannot undo each other and a domain's Registry.pol cannot store a value that makes the elevation service
+  refuse every request. Names are compared as the registry compares them (`src/include/wexpreg.h`,
+  `preg_is_template_option`: without case, repeated backslashes as one, U+0131 and U+017F as I and S). gpedit lists
+  them grayed with a pointer to Local Security Settings (secpol.msc), which writes the template. A value that an older
+  gpedit put in the local Registry.pol is removed by the next refresh (the archive names it) and not written again.
 
 Which objects count. On Windows the lockout policy of domain accounts comes only from GPOs linked at the domain;
 an OU-linked GPO's lockout policy applies to the local accounts of the computers in the OU (MS-GPSB; Microsoft
@@ -329,7 +338,10 @@ signature refused, a standard user refused. Not tested: a template made by `samb
 
 ## Step 6: the applied GPO list (2026-11-14)
 
-`wexpolicy record /machine|/user:SID LIST` (`gpolist.c`) records which objects were applied, and Wine's `userenv`
+`wexpolicy record /machine|/user:SID LIST` (`gpolist.c`) records which objects were applied. `wex-gpupdate.sh` records
+a target's list only after its `wexpolicy apply` (or `clear`) succeeded (2026-11-23): a failed apply changes nothing,
+so the list of the last run is still the true one. One apply takes at most 32 MiB of Registry.pol files together and
+20000 entries (a file is not read when it would not fit in what the files before it left). Wine's `userenv`
 answers `GetAppliedGPOListA/W` from it (`FreeGPOListA/W` added; stock change). As on Windows the list is kept per
 client-side extension, in application order: `HKLM\Software\Microsoft\Windows\CurrentVersion\Group Policy\History\{extension}\<n>`
 for the machine, with the values `GPOName`, `DisplayName`, `FileSysPath`, `DSPath`, `Link`, `Extensions`,

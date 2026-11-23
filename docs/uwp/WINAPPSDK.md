@@ -30,8 +30,188 @@ missing system libraries in one pass.
 | the framework's classes not found | the runtime had been installed into the user catalog | installed for every user (see above) |
 | `bcp47mrm.dll` not found | the runtime's resource library imports `IsWellFormedTag` | new module `bcp47mrm`: `IsWellFormedTag` (RFC 5646 syntax as Windows 11 applies it, 113 checks taken from Windows) |
 | `PackageFamilyNameFromFullName` unimplemented | called at startup (it was a commented stub in kernelbase) | implemented from the existing family-name code |
-| **`profapi.dll` ordinal 114** | `Microsoft.Internal.FrameworkUdk.dll` calls it right after `PackageFamilyNameFromFullName` gave `Microsoft.WindowsNotepad_8wekyb3d8bbwe`; Wine's `profapi` has 17 nameless stubs | **open**: an undocumented export; its signature is not known. A black-box probe of the Windows host library could not be run from the tool shell (LoadLibrary failed), so it is left for a probe that can |
+| `profapi.dll` ordinal 114 | `Microsoft.Internal.FrameworkUdk.dll` calls it right after `PackageFamilyNameFromFullName`; Wine's `profapi` had 17 nameless stubs | the signature was **found by logging what the caller passes** (no probe of Windows could call it: every guess crashed, the export wants something else): `(family name, 0, "ResourcesConfig", KEY_READ, &key)`, a Win32 error code returned; it opens a key of a package's registry settings and the caller then reads `UseSystemMetadataPath`. Wine's export logs the call and answers `ERROR_FILE_NOT_FOUND` (no package settings: the caller takes its default). It is an inference from one call, not a documentation |
 | `Windows.Internal.StateRepository.Package` not found | the runtime's deployment layer asks the system's package state repository | **open** (logged, not fatal so far); undocumented internal API |
+| `ntdll.NtCreateWaitCompletionPacket` | wait completion packets (a wait on an object delivered as a completion on an I/O completion port); the UI and messaging libraries use them | **done**: Wine merge request [6911](https://gitlab.winehq.org/wine/wine/-/merge_requests/6911) (Zhiyi Zhang, CodeWeavers; not merged upstream) ported by hand onto this tree (branch `claude/wait-completion`, d7fa3755): the three calls, the WaitCompletionPacket object and server objects, wow64 thunks, the regenerated protocol, request and syscall-table headers, and the ntdll tests (the `file` tests and the object type test pass on x64 and x86) |
 
 A scan of every PE file of the runtime package and of Notepad found **no other missing static import** than the two
 libraries above (and `winspool.drv`, which Wine has). Delay-loaded imports and classes activated at run time are not covered.
+
+## Where Notepad stands after that (2026-11-22, candidate u12 = this tree with the port)
+
+The application starts and keeps running (the launcher is still waiting after 50 s): it activates its own XAML application class
+(`NotepadXamlUI.App`), the resource manager and context, the globalization classes, asks `Windows.Internal.StateRepository.Package`
+(not found, not fatal), reads `ResourcesConfig` through `profapi` 114 and creates a window handle. **Not verified**: whether a
+window is shown or the process is idle or stuck (the Xvfb screenshot is black for these windows, and a thread listing was taken
+on a leftover process); the next step is to look at the process the way the Store's was looked at (a stack probe, `+relay` of
+the framework libraries). A new full build of the tree is `newcand-build.sh` (about 90 minutes on the guest); whole files of the
+worktree can then be copied in (`apply.sh`, with `CAND=u12 mk.sh`; touch the files, an extracted file older than its object is not rebuilt).
+
+A trap met on the way: after the generated files of a change are regenerated on the guest (`perl tools/make_requests`,
+`perl tools/make_specfiles`), they have to be copied back into the worktree and committed with the change.
+
+### What Notepad does (2026-11-22, probes `wasdk-win.sh`, `wasdk-peek.sh`, `enumwin.c`)
+
+* `Notepad.exe` starts a **second copy of itself** (a `CreateProcess` of its own image from its main thread, which then waits on the
+  child in three-second slices). The child is the one that loads the Windows App Runtime and walks its activation table.
+* With a relay trace the child is alive and busy for the whole 40 s (it was slowed by the trace); **without a trace only the parent
+  is left after 40 s** (three threads, waiting) and the desktop has **no top-level window** (`enumwin`), so the child ends early and
+  silently, after `Windows.Internal.StateRepository.Package` was asked for and not found. That undocumented class is now the first
+  suspect, not a harmless log line.
+* Next: serve that class with an object that logs every interface asked for and every method called (the way `profapi` 114 gave up
+  its signature), to learn what the runtime wants from the package state repository.
+
+### The StateRepository probe (2026-11-22, Wine branch `claude/staterepository`, on `claude/wait-completion`)
+
+`Windows.Internal.StateRepository.Package` is served by a logging stand-in (`staterepository.c`): the factory answers the interface
+the runtime asks for (`4408fb32-c420-41c5-b6c1-edce489bb84d`) with an object of 64 methods that log and fail. First result: the
+runtime calls **method 21 (vtable slot 27)** of it once, with three pointers to the stack frame of the caller:
+
+* arg 1 points to a small structure whose third word is a pointer to the package full name
+  (`Microsoft.WindowsNotepad_11.2609.11.0_x64__8wekyb3d8bbwe`) and whose first word holds the length of the name (0x38 = 56) in its
+  upper half: the input (a package identified by its full name);
+* args 2 and 3 point to neighbouring stack locations that are not initialised yet (outputs); a frame beside them holds the package
+  path string from an earlier call, which is stale data of the caller and not an argument.
+
+So the call looks like "give me the state-repository package for this full name", with results returned through the two output
+pointers. What a result has to hold (an object of this class, an interface of it, a path, the identity) is the next thing to find:
+return success with a zeroed output, then with a made-up object, and see what the caller dereferences. After the failed call the
+application neither crashed nor reported anything, and the second copy of Notepad still ends silently, so it is not proven that this
+call is the reason.
+
+
+## Experiments with method 21, and the server crash behind the silent end (2026-11-22)
+
+Method 21 was answered six ways (`WEX_SR_MODE` 0 to 5: not implemented, success with zeroed outputs, a made-up object in one or both
+outputs, plain success). Every mode behaved the same: only method 21 is ever called, no other method, no new error line, no window.
+So the StateRepository call is not what decides the start of Notepad; the experiment code was dropped again.
+
+The silent end had another cause. Every run ended with "wineserver crashed", and a gdb attach to the server
+(`GDB_WS=1 tests/uwp/lab-helpers/wasdk-win.sh`) showed a real crash in the wait completion code (the port of Wine MR 6911):
+
+* the packet object was never initialised after allocation, so the handle close of a packet that was not associated yet removed a
+  garbage list entry (`cancel_completion_packet`);
+* the packet held only the target, not the sync object whose queue it is on, and the wake loop was not safe against removal;
+* a target without a `signaled` operation crashed `is_obj_signaled` (now `STATUS_INVALID_PARAMETER_3`).
+
+Fixed in Wine 0e5c3352. With the server alive Notepad now gets further: it activates `Microsoft.UI.Dispatching.DispatcherQueueController`,
+which connects to `\BaseNamedObjects\CoreMessagingRegistrar-<pid>:...` through `NtAlpcConnectPort` (a stub in Wine) and sends a message
+(`NtAlpcSendWaitReceivePort`, also a stub); the next thing seen is a fail-fast (`e0464645`, then `c0000602`). So WinUI 3 needs the
+CoreMessaging service for its dispatcher queue: either an ALPC implementation good enough for that protocol, or a stand-in for the
+dispatcher queue below it. That is the next gap for Notepad and for every WinUI 3 application.
+
+## CoreMessaging, ALPC and the dispatcher queue (2026-11-23)
+
+The fail-fast after `Microsoft.UI.Dispatching.DispatcherQueueController` was the next gap in the list. What was found, in order:
+
+* The runtime ships its own CoreMessaging (`CoreMessagingXP.dll`, a complete copy including the server side). It hosts the registrar in the
+  process: one thread creates the ALPC port `\BaseNamedObjects\CoreMessagingRegistrar-<id>`, another connects to it (synchronous
+  connection with data), the server impersonates the client, accepts, receives a synchronous request and answers it. Wine had only
+  `NtAlpcCreatePort`; every other `NtAlpc*` function was a stub.
+* ALPC is implemented now (Wine abf3d5e1). No prior art: the Wine merge request "LPC: Implement proper LPC system" (MR 10611) is classic
+  LPC and does not touch `NtAlpc*`. The behaviour was measured on the Windows host with `tests/uwp/alpc/alpc-probe.c` and then fixed in
+  `dlls/ntdll/tests/alpc.c`, which gives the same result on Windows 11 and Wine (x64 and x86). What Windows does, found that way:
+  a connection request reaches the server as type `0x200a` and the answer as type `0xb`; requests and datagrams both arrive as
+  `0x2001`; a reply is a message sent with flag `0x10000` and the message id of the request (the flag is "release", not "reply"); the
+  same flag with id 0 on a connection port is a datagram to the port itself (CoreMessaging uses that); a connection with a too small
+  buffer for the answer fails with `STATUS_BUFFER_TOO_SMALL` and is closed again (the server then sees a port closed message, type 5,
+  8 bytes); the handle is left alone when a connect fails; the connection ports of Windows live in `\RPC Control`.
+* Next gap: C++/WinRT asks `CoreApplication` for `IStaticLifetime` (IID `17b0e613-...`, not in the public metadata, its collection is an
+  `IMap<HSTRING, IInspectable>`); the throw was `winrt::hresult_no_interface`, read from the throw info of the exception in
+  `Microsoft.Internal.FrameworkUdk.dll` (`tests/uwp/lab-helpers/throwtype.py`). Done in twinapi.appcore (Wine 372efb0c).
+
+State after that: Notepad creates its windows and runs XAML code. The access violations in the log are `IsBadReadPtr` probes (handled);
+the real stop is a call through a null function pointer in the main thread, right after the activation of
+`Microsoft.UI.Dispatching.DispatcherQueue` and the `IStaticLifetime` query. Not yet traced: winedbg cannot attach to a packaged
+process, and a gdb attach to the first process missed the right one. The answer of the StateRepository stand-in does not matter
+(modes 0, 1 and 5 behave the same).
+
+## The null call (2026-11-23)
+
+The "page fault on execute access to 0" was traced without a debugger: a temporary dump in `dispatch_exception` printed the stack
+words that point into modules (`RtlPcToFileHeader`), the top one was `Microsoft.Internal.FrameworkUdk.dll` + 0x188df. The code there
+(`objdump`) is `RoGetActivationFactory("Windows.ApplicationModel.Core.CoreApplication", 17b0e613-..., &obj)` followed by a call of
+**vtable slot 11 of that object** with six arguments. So the interface with the IID C++/WinRT calls `IStaticLifetime` has more
+methods than C++/WinRT declares (it uses slots 6 and 7 only). The slots of our object beyond 7 were null. Logging the arguments
+showed the source file of the caller, `LiftedIXP\framework\UnhandledErrorDetected.cpp`, and a line number. Slots 8 to 12 now answer
+with success (and log); what the method really does is not known.
+
+The log of a run with `+relay` is the other lesson: the null call was reached through C++ `terminate`/unwinding noise at first
+(a `noexcept` function propagating `hresult_no_interface`), and the real cause only showed once that was fixed.
+
+State after that: no crash of the application any more; Notepad runs its window procedures and creates windows, but still throws
+in them: access violations in `user_callback_handler` (8 per run) and one divide by zero (`c0000094`), and no window of Notepad is
+shown. Next step: find the first of those exceptions (the same stack-dump trick, now for these exceptions).
+
+## ALPC impersonation, as measured on Windows 11 (2026-11-23)
+
+`tests/uwp/alpc/alpc-imp.c` (a server thread or a restricted-token server child, a client process or thread) gave:
+
+* Impersonation needs `ALPC_PORTFLG_ALLOWIMPERSONATION` in the attributes of the **connection port** (the server's
+  `NtAlpcCreatePort`); the flags of the client's attributes do not matter. Without it: `STATUS_ACCESS_DENIED`. The message is looked up
+  first: an id that was never received gives `STATUS_INVALID_MESSAGE` whatever the flag says. The client id of the message header is not
+  used (a changed one gives the same result).
+* Impersonation only has an effect when the **message was sent with a security attribute** (`ALPC_MESSAGE_SECURITY_ATTRIBUTE`, with a
+  context made by `NtAlpcCreateSecurityContext` and a quality of service). Without it the call succeeds and the thread gets no token, for
+  a connection request as well (the connect has no such attribute in `CoreMessagingXP`). The level of the token is the one in the attribute:
+  1 gives an identification token, 2 an impersonation token, 3 stays 3 (not copied by Wine, it is capped to 2), 0 gives an anonymous
+  token (`OpenThreadToken` fails with `ERROR_CANT_OPEN_ANONYMOUS_TOKEN`; Wine gives a level 0 copy).
+* A server without privileges that is less trusted than the client (low integrity server, medium client, the same user) gets an
+  identification-level token; with the same integrity it gets the level of the attribute. This is the rule of the named pipes
+  (`token_impersonation_level`: `SeImpersonatePrivilege`, or the same user and not less trusted and not less elevated); the server
+  uses the same helper for ALPC.
+* A port whose security descriptor does not allow the connect right (bit 1) refuses `NtAlpcConnectPort` with `STATUS_ACCESS_DENIED`; the
+  creator gets its handle whatever the descriptor says.
+
+What the server does (Wine): the token of the sending thread is taken **when the message is sent** (only with a security attribute) and kept
+with the pending message; impersonation duplicates exactly that token, at the lowest of the attribute's level and the level the helper
+allows. Thread and process ids play no part. `ntdll/tests/alpc.c` has the tests that can be observed inside one process (a client that
+changes its token after sending; levels 1 and 2; no attribute); the downgrade for a less trusted server needs two processes and is only in
+the probe (`SRVLOW=1 SRVFLAGS=10000 alpc-imp 10000 2 secattr srvrestricted`).
+
+`\RPC Control` is a plain root directory without a security descriptor, like `NLS`: anyone can create ports in it, the first creator of a
+name wins (a second create of the name opens the same port, there is no replace). Names that our own services use have to be created when
+the service starts (services.exe starts first); there is no reserved-names list. A client that must be sure it talks to the service checks
+the process or the token of the server, not the name.
+
+## The window-procedure exceptions were the crash dialog, and the next gap is CoreUICreate (2026-11-23)
+
+The access violations and the divide by zero that were counted per run (`user_callback_handler ignoring exception ...`) are in the
+threads of the winedbg crash dialog ("A program on your system has crashed"), not in Notepad. `IsBadReadPtr` probes (kernel32) are the
+other access violations; they are handled. So the real state of Notepad after the IStaticLifetime fix is a single stop:
+
+* `Microsoft.Internal.FrameworkUdk.dll` (`LiftedIXP\frameworkudk\CoreWindowIntegration.cpp`) loads the **system** `CoreMessaging.dll` and
+  calls `CoreUICreate` in it; Wine's `coremessaging.dll` has it as a stub (`wine: Unimplemented function coremessaging.dll.CoreUICreate`),
+  and the caller treats a failure as fatal (fail-fast `c0000602` from `Microsoft.ui.xaml.dll`).
+* The runtime's own `CoreMessagingXP.dll` is not a stand-in for it: it exports the other API of that generation (`CoreMsgCreateSession`,
+  `CoreMsgGetExistingSession`, `WinUICreateDispatcherQueueController`, the `CoreUICall*` and `Msg*` functions, `CoreUICreateAnonymousStream`),
+  and no `CoreUICreate`. `Microsoft.UI.Input`, `Microsoft.UI.Windowing.Core`, `InputStateManager`, `dcompi` and `dwmcorei` use the XP one
+  (`CoreMsgCreateSession`); only `CoreWindowIntegration` asks the operating system. Forwarding the stubs to the XP library was tried and
+  dropped (it only turns the abort into a fail-fast).
+* `CoreWindowIntegration` is reached from `Microsoft.UI.Xaml.Hosting.WindowsXamlManager` (the activation just before the stop). What the
+  operating system's `CoreUICreate` does (the arguments and the result are not documented) is the CoreUI conversation with the window
+  system; it belongs to the `Windows.UI.Composition` / DWM side of the hosting route (docs/uwp/STORE_APP.md), so this is the same gap
+  as for the Store's WebView2 visual hosting.
+
+Next: find out what `CoreWindowIntegration` does with the result (the function is a delay-load wrapper at FrameworkUdk RVA 0x73d0 that
+tail-calls the OS function with its own arguments), probe the real `CoreUICreate` on the Windows host (black-box: arguments, result,
+which interface comes back), and decide between a small implementation and avoiding the integration.
+
+## CoreUICreate probed on Windows 11 and the first layers implemented (2026-11-23)
+
+`tests/uwp/alpc/coreui-probe.c` (Windows host, black box): `CoreUICreate(void **object)` returns S_OK with a **process-wide object**
+(the same pointer on every call), E_POINTER for null; the object's IUnknown is another pointer than the object itself; it implements a
+**session interface `{4b2edab9-129b-4733-be15-356853d55ace}`** (at least 24 methods; the vtable is the object's own) and slot 8 of it,
+called with a null argument, gives an **item object** with IUnknown and `{fcd9d50d-0902-4a2d-ac94-b95c3316f6a0}` (the item itself, a
+vtable of 4 methods after IUnknown).
+
+The FrameworkUdk side (`Microsoft.Internal.FrameworkUdk.dll`, wrappers around 0xf350..0xf4a0 and 0x13a1c..): ask an object for the
+session interface, call one method of it (slot 3: creates something into an out pointer; slot 8: `(argument, out)`), ask the result for
+IUnknown. Slot 12 is called with a function of FrameworkUdk, a context, a pointer to the object and a pointer (a handler
+registration). `dlls/coremessaging/coreui.c` implements what is asked, in that order: the object, the session interface, the item. It gets
+Notepad past three layers, then it asks the item for `{37a94c05-1aa6-4cea-9049-083bba055cec}`.
+
+This is a blind walk down a chain of undocumented interfaces of the CoreUI session (the conversation of the application with the window
+system). Each step costs one probe on Windows and one run; how deep it goes is not known. Alternatives: (a) find out what makes
+`WindowsXamlManager` call `CoreWindowIntegration` (a version or feature check that can be answered the other way, which would skip the
+whole chain); (b) implement the session for real (needs the window system side: the `Windows.UI.Composition` / DWM piece).

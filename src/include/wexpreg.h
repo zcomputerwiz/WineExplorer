@@ -22,7 +22,7 @@
  *     [ key NUL ; value NUL ; type ; size ; data ]
  * where the brackets, the semicolons, the key and the value name are UTF-16LE, type and size are 32-bit little
  * endian and data is size bytes. Portable C with no Windows types, so that the parser is tested natively
- * (test_preg_main.c); the file comes from a domain's SYSVOL and is not trusted.
+ * (src/programs/wexpolicy/test_preg_main.c); the file comes from a domain's SYSVOL and is not trusted.
  */
 
 #ifndef WEXPOLICY_PREG_H
@@ -224,6 +224,86 @@ static inline int preg_key_in_policy_tree( const uint8_t *key, uint32_t len )
         if (len == n || preg_u16( key + 2 * n ) == '\\') return 1;
     }
     return 0;
+}
+
+/* The whole file is well formed: PREG_END, else the first error. Nothing is applied from a file with a fault in it
+ * (wexpolicy apply, and the spool before it installs a file). */
+static inline int preg_validate( const uint8_t *buf, size_t len )
+{
+    struct preg_entry e;
+    size_t off;
+    int ret;
+
+    if ((ret = preg_begin( buf, len, &off )) != PREG_OK) return ret;
+    while ((ret = preg_next( buf, len, &off, &e )) == PREG_OK) {}
+    return ret;
+}
+
+/* a character as the registry compares names: without case. The registry upper-cases, and two characters outside
+ * ASCII become ASCII letters that way (U+0131 dotless i is I, U+017F long s is S): they are those letters here too,
+ * or a name written with them would be another name to this check and the same one to the registry. */
+static inline uint16_t preg_fold( uint16_t ch )
+{
+    if (ch >= 'A' && ch <= 'Z') return ch + ('a' - 'A');
+    if (ch == 0x0131) return 'i';
+    if (ch == 0x017f) return 's';
+    return ch;
+}
+
+/* a key (UTF-16LE, len characters) is the key path want (ASCII, lower case) as the registry reads it: without case,
+ * repeated backslashes count as one, and one at either end is no part of the name */
+static inline int preg_key_is( const uint8_t *key, uint32_t len, const char *want )
+{
+    uint32_t i, n = 0, wlen = (uint32_t)strlen( want );
+    uint16_t last = '\\';
+
+    for (i = 0; i < len; i++)
+    {
+        uint16_t ch = preg_fold( preg_u16( key + 2 * i ) );
+        if (ch == '\\' && last == '\\') continue;
+        if (ch == '\\' && i + 1 < len)
+        {
+            /* a backslash that only trailing backslashes follow ends the name */
+            uint32_t j = i + 1;
+            while (j < len && preg_u16( key + 2 * j ) == '\\') j++;
+            if (j == len) break;
+        }
+        else if (ch == '\\') break;
+        if (n >= wlen || ch != (uint16_t)(unsigned char)want[n]) return 0;
+        n++;
+        last = ch;
+    }
+    return n == wlen;
+}
+
+static inline int preg_name_is( const uint8_t *name, uint32_t len, const char *want )
+{
+    uint32_t i;
+
+    if (len != strlen( want )) return 0;
+    for (i = 0; i < len; i++) if (preg_fold( preg_u16( name + 2 * i ) ) != (uint16_t)(unsigned char)want[i]) return 0;
+    return 1;
+}
+
+/*
+ * The security options whose one source is the security template (GptTmpl.inf [Registry Values], applied by wexpolicy
+ * security, edited in Local Security Settings): the elevation service's two settings. As on Windows they are not
+ * Administrative Templates: a Registry.pol does not set or delete them (wexpolicy apply leaves such an entry out), so
+ * the two kinds of policy file cannot undo each other, and gpedit shows them grayed with a pointer to secpol.
+ *
+ *   ConsentPromptBehaviorAdmin  REG_DWORD 2 or 5 (others: the elevation service refuses every request); absent is 5
+ *   PromptOnSecureDesktop       REG_DWORD; absent is 1, only 0 turns the secure desktop off
+ */
+#define PREG_SYSTEM_POLICY_KEY  "software\\microsoft\\windows\\currentversion\\policies\\system"
+#define WEX_CONSENT_ADMIN_DEFAULT       5
+#define WEX_SECURE_DESKTOP_DEFAULT      1
+#define WEX_CONSENT_ADMIN_SUPPORTED(v)  ((v) == 2 || (v) == 5)
+
+static inline int preg_is_template_option( const uint8_t *key, uint32_t key_len, const uint8_t *value, uint32_t value_len )
+{
+    return preg_key_is( key, key_len, PREG_SYSTEM_POLICY_KEY ) &&
+           (preg_name_is( value, value_len, "consentpromptbehavioradmin" ) ||
+            preg_name_is( value, value_len, "promptonsecuredesktop" ));
 }
 
 #endif /* WEXPOLICY_PREG_H */

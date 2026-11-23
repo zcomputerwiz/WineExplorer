@@ -33,20 +33,14 @@
 #include <stdlib.h>
 #include <windows.h>
 
-#include "preg.h"
+#include "wexpreg.h"
 #include "wexgpstore.h"
 #include "wexpolicy.h"
 
 /* a registry policy file: the signature, the version and every entry, as "wexpolicy apply" reads it */
 static DWORD check_preg( const BYTE *data, DWORD size )
 {
-    struct preg_entry e;
-    size_t off;
-    int ret;
-
-    if (preg_begin( data, size, &off ) != PREG_OK) return ERROR_BAD_FORMAT;
-    while ((ret = preg_next( data, size, &off, &e )) == PREG_OK) {}
-    return ret == PREG_END ? ERROR_SUCCESS : ERROR_BAD_FORMAT;
+    return preg_validate( data, size ) == PREG_END ? ERROR_SUCCESS : ERROR_BAD_FORMAT;
 }
 
 /* a security template: UTF-16LE with a byte order mark, and what "wexpolicy security" checks before it writes. The

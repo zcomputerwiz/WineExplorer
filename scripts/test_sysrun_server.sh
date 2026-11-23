@@ -128,6 +128,7 @@ c4_elevated      c4_build           nl  c4
 c4_unix          c4_build           nl  c4
 c4_frozen        c4_build           nl  c4
 c4_lease         c4_build           n   c4
+c4_alpc          c4_build           n   c4
 c4_udf           c4_build           n   c4
 c4_ab            c4_build           n   c4
 c4_args          c4_build           n   c4
@@ -558,6 +559,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe64.exe" "$SRC/scripts/sys
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe32.exe" "$SRC/scripts/sysrun_server_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe64.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe32.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
+x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/alpcpair64.exe" "$SRC/tests/uwp/alpc/alpc-pair.c" -ladvapi32   # ALPC impersonation, one role per process
 cp "$ROOT/probes/rolesprobe64.exe" "$ROOT/probes/wexsvc.exe"     # the service image, so that its process has its own name
 gcc -O2 -Wall -o "$ROOT/bin/asgroup" "$SRC/scripts/sysrun_asgroup.c"
 chmod 0755 "$ROOT/probes"/*.exe
@@ -1527,6 +1529,53 @@ install -m 666 -o root -g root "$ROOT/probes/wexelevate_probe64.exe" "/tmp/wexel
 bp c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation "$ADM" 64 run "$(winpath $EL/rootw.exe)" 665 "$(winpath $EL/out.nolease)" -
 [ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
 ok c4_no_lease_no_process
+true; ); section_leave $?; fi
+
+if section c4_alpc; then set +e; ( section_enter
+# -- ALPC impersonation across the elevation boundary (tests/uwp/alpc/alpc-pair.c; docs/uwp/WINAPPSDK.md has the Windows 11 measurements).
+# A server thread impersonates the request of a client that sends it with a security attribute; the level of the token it gets is the
+# lowest of what the client allows and what the rule of the named pipes gives it (token_impersonation_level: SeImpersonatePrivilege, or
+# the same user and not less trusted and not less elevated). Both roles are Wine programs of ONE user and ONE wineserver:
+#   (a) the same token on both sides (limited server, limited client): level 2 for level 2;
+#   (b) the downgrade: the server is the limited token, the client is the same user's ELEVATED process (started through the broker,
+#       the stub approves it): the server is less elevated than its client and gets level 1 (identification) whatever the client allows.
+# A role that cannot be started is skipped with a note; a wrong level fails.
+alpc_pair()   # name level mode(limited|elevated): runs the server as the limited user, the client as given; prints the server's lines
+{
+    local name="$1" level="$2" mode="$3" out="$ROOT/alpc-$1.out" cl="$ROOT/alpc-$1.cl" sp rc=0
+    el_clean; touch "$EL/approve.all"
+    run_as "$ADM" cp "$ROOT/probes/alpcpair64.exe" "/home/$ADM/wexel/alpcpair.exe"
+    : > "$out"
+    wine_as "$ADM" "$ROOT/probes/alpcpair64.exe" server "$name" 60 > "$out" 2>&1 & sp=$!
+    sleep 3
+    if [ "$mode" = elevated ]; then
+        bprobe "$ADM" 64 runcmd "$(winpath /home/$ADM/wexel/alpcpair.exe)" "client $name $level" 0 > "$cl" 2>&1 || rc=$?
+        grep -q '^runcmd=PASS' "$cl" || rc=1
+    else
+        wine_as "$ADM" "$ROOT/probes/alpcpair64.exe" client "$name" "$level" > "$cl" 2>&1 || rc=$?
+        grep -q '^sent' "$cl" || rc=1
+    fi
+    if [ $rc != 0 ]; then
+        kill "$sp" 2>/dev/null; wait "$sp" 2>/dev/null || true
+        head -5 "$cl" 2>/dev/null | tr '\n' ' ' > "$ROOT/alpc-skip"   # a subshell: the reason goes through a file
+        return 1
+    fi
+    wait "$sp" 2>/dev/null || true
+    tr -d '\r' < "$out"   # a Windows program's lines end in CR LF (b1123a: "level=2\r" did not match ^level=2$)
+}
+
+if OUT="$(alpc_pair a1 2 limited)"; then
+    grep -q '^level=2$' <<<"$OUT" || { echo "$OUT" >&2; fail "ALPC, the same token on both sides, level 2: wrong level"; }
+    ok c4_alpc_impersonation_same_token_gives_the_level_of_the_client
+else
+    echo "NOTE: the ALPC pair of the same token could not run ($(cat "$ROOT/alpc-skip" 2>/dev/null)), skipped"
+fi
+if OUT="$(alpc_pair b1 2 elevated)"; then
+    grep -q '^level=1$' <<<"$OUT" || { echo "$OUT" >&2; fail "ALPC, a limited server and an elevated client of the same user: not identification level"; }
+    ok c4_alpc_impersonation_limited_server_gets_identification_of_an_elevated_client
+else
+    echo "NOTE: the ALPC pair limited server / elevated client could not run ($(cat "$ROOT/alpc-skip" 2>/dev/null)), skipped"
+fi
 true; ); section_leave $?; fi
 
 if section c4_udf; then set +e; ( section_enter
@@ -4313,6 +4362,16 @@ OUT="$(s0_wine wexpolicy apply /machine "$(winpath "$POL/machine.pol")" | tr -d 
 grep -q 'set=1 deleted=0 skipped=0 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: apply /machine"; }
 [ "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" = 0x5 ] || fail "policy: $STD does not read the machine policy"
 s0_wine wexpolicy list /machine | tr -d '\r' | grep -qx 'Software\\Policies\\WexPol\\Machine' || fail "policy: list /machine"
+# the elevation options are the security template's (wexpreg.h): a Registry.pol entry for one is left out and said, the
+# rest of the file applies, and the value the elevation service reads is not 0
+python3 -I "$SRC/scripts/lab/make-preg.py" "$POL/consent.pol" 'Software\Policies\WexPol' Machine 5 \
+    'Software\Microsoft\Windows\CurrentVersion\Policies\System' ConsentPromptBehaviorAdmin 0
+OUT="$(s0_wine wexpolicy apply /machine "$(winpath "$POL/consent.pol")" | tr -d '\r')" || true
+grep -q 'is a security option' <<<"$OUT" && grep -q 'set=1 deleted=[0-9]* skipped=1 status=0$' <<<"$OUT" ||
+    { echo "$OUT" >&2; fail "policy: a Registry.pol entry for ConsentPromptBehaviorAdmin was not left out"; }
+[ "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin)" != 0x0 ] ||
+    fail "policy: a Registry.pol set ConsentPromptBehaviorAdmin to 0"
+s0_wine wexpolicy apply /machine "$(winpath "$POL/machine.pol")" >/dev/null || fail "policy: apply /machine after the consent file"
 # step 3: a program that registered for the policy notification is told when session 0 has written policy
 for kind in machine user; do
     rm -f "$POL/gp-$kind.out"

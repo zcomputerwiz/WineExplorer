@@ -1,5 +1,68 @@
 # Changes to stock Wine / third-party code
 
+## server, ntdll, services.exe: one table per placement rule (R1 of SESSION0_SPLIT_REVIEW.md, B82, 2026-11-23)
+
+Wine branch `claude/r1-policy-tables` (on `claude/session-services` 6a6c7536, with B85's `claude/b85-service-pids`
+merged). No new stock file; the session 0 changes below replace earlier ones of the same files.
+
+- **One list of the keys of each session (R1a, B82).** `server/registry.c`'s merge-on-save list
+  (`hklm_ephemeral_prefixes`, `hku_default_ephemeral_prefixes`) now comes from `WEX_SESSION_MACHINE_KEYS` and
+  `WEX_SESSION_DEFAULT_USER_KEYS` in `include/wine/wex_session0.h`, the list ntdll routes by. The server's own copy
+  lacked `Hardware`, both `ServiceCurrent` keys and both `SafeBoot\Option` keys, so a server that shares a machine hive
+  file merged its copy of them into that file. The case-insensitive "prefix up to a backslash" matcher, written three
+  times (`match_ascii_prefix_ci`, ntdll's `regsrv_match` and `regvirt_match`), is `wex_session_key_match` in that
+  header.
+- **A service's own value places it (R1b).** `programs/services`: `WexSessionService` (REG_DWORD) in a service's key, 1 =
+  every session runs it itself, 0 = session 0 only; without it the built-in defaults decide as before (drivers and
+  `Winedevice*` always the session's, then the named services of `default_session_service`). Read when the service
+  manager loads the service (`load_session_service`); a session's manager sees a new value after its restart. Replaces
+  6a6c7536's `HKLM\Software\Wine\Services\SessionServices` list, which no default set (B76's lab VM used it for
+  `ClickToRunSvc`). `is_session_service` takes the value; `service_is_session_service` (an entry) and
+  `is_session_service_name` (session 0's part of an enumeration: this session's entry of that name decides) wrap it.
+- **One table of the machine root's trusted images (R1c).** `server/sysrun.c`: `machine_images` with the roles
+  `IMAGE_SYSTEM`, `IMAGE_BROKER`, `IMAGE_DIALOG`, `IMAGE_SAFE_SHELL` and one `machine_image_roles()` replace four lists
+  and five copies of the device-and-inode loop. No image changes role (the 32-bit `wexelevate.exe` stays a broker image
+  only). The lab-only broker lists under `WEX_E1S6_TRANSPORT_TEST` are left for R5.
+- Test: `scripts/lab/system-tier-t1.sh`, `session_service_value_*` (a service created from session A with
+  `WexSessionService`=1 runs in A, not in session 0, and session B has its own stopped copy).
+
+## dwmapi, dcomp, dxgi, explorer: compositor review fixes and dead target path (2026-11-23)
+
+Wine branch `claude/compositor-review` after `df606ddd` (`docs/COMPOSITOR_REVIEW.md` bugs 5-7, 11, 13 and the dcomp/DXGI
+dead code):
+
+- `218bea9a` `dlls/dwmapi`:
+  - A process's own windows are answered from its attribute table, so caption painting makes no broker calls.
+  - Without `DwmService` the broker is never asked.
+  - The first call that reaches a new broker (a new desktop epoch) re-sends the process's attributes and
+    thumbnails.
+  - `DwmSetWindowAttribute` writes the table before its side effects, and a call that fails sends nothing.
+  - The materials gate honours high contrast and `EnableTransparency=0`, as the shell bridge does.
+  - New `dwm_attr` case: a killed broker gets the attributes back.
+- `e7bcaab0` `programs/explorer/dwmhost.c`: when the dwm.exe supervisor does not stop in time, it keeps its handles
+  instead of closing them under the still-running thread.
+- `49215d78` dcomp and dxgi:
+  - `dcomp_surface_resize` holds the device lock throughout.
+  - The window-message target path is removed: `IWineDCompSwapChain::set_target`, `WM_WINE_DCOMP_SET_TARGET` and
+    the other unused messages, the placement fields and helpers in dxgi, `struct wine_dcomp_layer_params`, and the
+    write-only desktop-window property. Present passes no rectangles.
+
+Tests on both architectures:
+- dcomp: 1119 tests, 0 failures.
+- dwmapi, plain prefix: 0 failures. The tests that need a broker skip.
+- dwmapi on a shell desktop with a broker: `dwm_attr` 19 tests, `dwm_thumb` 19 tests, 0 failures.
+- dxgi: 35 failures, all display-mode or fullscreen checks that Xvfb's single mode cannot satisfy. These were not
+  compared against an unchanged build.
+
+## dcomp: auxiliary producers revoked from the target list (compositor review, 2026-11-23)
+
+Wine branch `claude/compositor-review`, `df606ddd` (on the 11.22 WAM head `97ee37a3`), `dlls/dcomp/device.c`
+`dcomp_device_internal_commit`: a successful commit revokes every target's auxiliary producer that is not among the
+commit's bindings, instead of collecting the targets in a stack array of `WINE_DCOMP_MAX_CONTENTS` entries. Targets
+without a scene were not counted against that limit and a failed commit keeps the auxiliary producers it made, so more
+than 32 such targets overflowed the array. Same set of producers revoked as before; dcomp tests 1119/0 failures on both
+architectures. The rest of the review (`docs/COMPOSITOR_REVIEW.md`) is not applied yet.
+
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
 General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with
@@ -4119,3 +4182,24 @@ reads a request's maps on a thread-pool thread) and lazily made maps go through 
 `tokenbroker.exe` cannot start and range-checks the reply's status; `wine/tokenbroker.h` names the `FIND_ACCOUNT`
 statuses (`TOKENBROKER_ACCOUNT_FOUND`, `_NONE`); the tests put back the user's `HKCU\Software\Wine\WebAuthentication`
 values instead of deleting the key.
+
+2026-11-23 (Wine 1c45c251 on 5261fa8c, branch `claude/wam-answer-shape`): the same DLL. The result lists are views of
+Wine's generic `IVector<IInspectable *>` (`vector.c`, copied from `windows.devices.enumeration`) and so are `IIterable`;
+`include/windows.security.authentication.web.core.idl` declares `IVector<WebTokenResponse *>` and
+`IVector<WebAccount *>`. A token request is read into the broker's message when the call is made; the pipe is
+overlapped, with a limit of a minute (silent) or eleven minutes (interactive). `WebAccount.SignOutAsync` and
+`SignOutWithClientIdAsync` go to the broker (`IAsyncAction` from `windows.media.speech`'s `async.c`; `wine/tokenbroker.h`:
+an empty client id means the client ids the calling process has used); `InvalidateCacheAsync` is a completed action
+(the cached token is not dropped). `DEFINE_IINSPECTABLE` for the remaining forwarding interfaces.
+
+2026-11-22 (UWP, Wine branch `claude/uwp-machine-apps`): `dlls/profapi` (`main.c`, new; `profapi.spec`, `Makefile.in`): ordinal 114 has the signature `LONG (const WCHAR *family, void *reserved, const WCHAR *subkey, DWORD access, HKEY *key)`, deduced from a logged call of the Windows App Runtime, and answers `ERROR_FILE_NOT_FOUND` after logging its arguments. See `docs/uwp/WINAPPSDK.md`.
+
+2026-11-22 (UWP, Wine branch `claude/wait-completion`, from `claude/uwp-machine-apps`): `NtCreateWaitCompletionPacket`, `NtAssociateWaitCompletionPacket`, `NtCancelWaitCompletionPacket`: a hand merge of Wine merge request 6911 (Zhiyi Zhang, CodeWeavers, LGPL-2.1+, seven patches, not merged upstream): `server/completion.c` (the packet object, queue and wake-up), `server/protocol.def` and the generated `include/wine/server_protocol.h`, `server/request_trace.h`, `server/request_handlers.h`, `server/{async,directory,fd,file,object,process,thread}.[ch]`, `dlls/ntdll/unix/sync.c`, `dlls/ntdll/ntdll.spec`, `signal_arm64ec.c`, the regenerated `ntsyscalls.h`, `dlls/wow64/sync.c`, `include/winternl.h` and the ntdll tests. Adapted to this tree: `object_params`, designated `object_ops` and `wine_server_alloc_object_attributes`. The Windows App Runtime's UI libraries call these. See `docs/uwp/PRIOR_ART.md`.
+
+2026-11-23 (UWP, Wine branch `claude/staterepository`, found by running Notepad of the Windows App SDK, `docs/uwp/WINAPPSDK.md`):
+- `server/completion.c`, `server/thread.c`: fixes to the wait completion packets (the port of merge request 6911): the packet is initialised after allocation, it holds the sync object whose queue it is on, the wake loop is safe against removal, an object without a wait state is refused (`STATUS_INVALID_PARAMETER_3`). Wine 0e5c3352.
+- ALPC (`server/alpc.c`, `server/protocol.def` with the generated `include/wine/server_protocol.h`, `server/request_handlers.h`, `server/request_trace.h`, `dlls/ntdll/unix/alpc.c`, `dlls/wow64/syscall.c`, `server/directory.c`): `NtAlpcConnectPort`, `NtAlpcAcceptConnectPort`, `NtAlpcSendWaitReceivePort`, `NtAlpcDisconnectPort` and `NtAlpcImpersonateClientOfPort` were stubs. The server now keeps the message queues of a connection port and of the two communication ports of each connection; requests, replies, datagrams, the connection request and answer, the port closed message and the context attribute follow what Windows 11 does (test `dlls/ntdll/tests/alpc.c`, 0 failures on Windows 11 and on Wine, x64 and x86; `tests/uwp/alpc/alpc-probe.c` prints the raw behaviour). `\RPC Control`, the directory of the connection ports of Windows, is a new root directory. Server protocol version 987. Not implemented: views, handle and security attributes of messages, completion lists. Wine abf3d5e1. `CoreMessagingXP.dll` of the Windows App Runtime hosts its registrar in the process and needs this.
+- `dlls/ntdll/alpc.c`, `ntdll.spec`, `include/winternl.h`: `NtAlpcQueryInformation`, the basic information class only (Wine 41b441a5).
+- `dlls/twinapi.appcore/static_lifetime.c` (new), `core_application.c`, `private.h`, `Makefile.in`: `IStaticLifetime` of `Windows.ApplicationModel.Core.CoreApplication` and its collection, the process-wide map of the factories of C++/WinRT classes with static lifetime (Wine 372efb0c).
+
+2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`): ALPC security (`server/alpc.c`, `dlls/ntdll/unix/alpc.c`, `dlls/ntdll/alpc.c`, `ntdll.spec`, `include/winternl.h`, protocol): the connect right is checked against the DACL of the port; impersonation needs the flag of the connection port, takes the token of the sender at send time (only for a message sent with a security attribute) and uses the named pipes helper `token_impersonation_level`; `NtAlpcCreateSecurityContext` and `NtAlpcDeleteSecurityContext` are semi-stubs. The Windows measurements are in docs/uwp/WINAPPSDK.md.

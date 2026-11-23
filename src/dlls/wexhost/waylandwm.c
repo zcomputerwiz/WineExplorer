@@ -473,7 +473,9 @@ static NTSTATUS wayland_start(void *args)
     struct wm_stop_params stop;
     unsigned i;
     params->err = ERROR_NOT_SUPPORTED;
-    if (!(display = wl_display_connect(NULL))) return STATUS_SUCCESS;
+    /* the state the other calls read under wl_mutex is set up under it too; the reader takes it once started */
+    pthread_mutex_lock(&wl_mutex);
+    if (!(display = wl_display_connect(NULL))) { pthread_mutex_unlock(&wl_mutex); return STATUS_SUCCESS; }
     running = TRUE;
     queue_stopped = FALSE;
     registry = wl_display_get_registry(display);
@@ -486,8 +488,10 @@ static NTSTATUS wayland_start(void *args)
     if (pthread_create(&reader,NULL,read_events,NULL)) { params->err = ERROR_NOT_ENOUGH_MEMORY; goto failed; }
     reader_started = TRUE;
     params->err = ERROR_SUCCESS;
+    pthread_mutex_unlock(&wl_mutex);
     return STATUS_SUCCESS;
 failed:
+    pthread_mutex_unlock(&wl_mutex);
     wayland_stop(&stop);
     return STATUS_SUCCESS;
 }

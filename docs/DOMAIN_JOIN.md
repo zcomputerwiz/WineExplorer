@@ -193,16 +193,11 @@ disables the account instead). The join passes `osName=WineExplorer` and `osVer=
 
 ## The layers still to build (order)
 
-1. **A privileged service and the API (done, see above).** `NetJoinDomain` and the others in wkscli call a WineExplorer workstation service in
-   session 0 (local RPC, our own interface: nothing else speaks MS-WKST here), which checks the caller as Windows does
-   (local Administrators: an elevated administrator; the consent prompt is the elevation), maps the flags (join,
-   create account, `DOMAIN_JOIN_IF_JOINED`, unsecured join with the machine password through `net ads join` with a
-   pre-made account, `JOIN_WITH_NEW_NAME` through the host name, `DEFER_SPN_SET`), and hands the request to root through
-   a D-Bus method of a small root helper that only session 0's account may call (a policy file), because the engine is
-   root's work and the password must not touch a file or a command line. The error codes of the API are the ones above.
-   The stock-Wine part is the stub replacement in wkscli and the exports in netapi32, listed in `STOCK_CHANGES.md`.
-   `NetValidateName` answers from DNS and Samba (`net ads` / `host`), `NetRenameMachineInDomain` from `net ads` and the
-   host name.
+1. **A privileged service and the API (done; "How the API reaches root" below is what was built).** `NetJoinDomain`
+   and the others are wexjoin.dll's (netapi32 and wkscli forward to it), which sends the request to the engine's socket.
+   The planned session 0 workstation service and D-Bus helper were not built: the socket's group is the check.
+   The stock-Wine part is the exports in netapi32 and wkscli, listed in `STOCK_CHANGES.md`. `NetValidateName` answers
+   from DNS and Samba (`net ads` / `host`), `NetRenameMachineInDomain` from `net ads` and the host name.
 2. **Tools.** `netdom.exe` (done), `nltest.exe` (`/dsgetdc`, `/sc_query`, `/sc_verify`, `/sc_reset` over `net ads` and `wbinfo`),
    the PowerShell cmdlets when the project's `powershell` can host them, `whoami /fqdn /upn`, `net config workstation`.
 3. **The window.** The Computer Name page of System Properties gets Change..., "Computer Name Changes" (name, Domain or
@@ -228,7 +223,38 @@ spool (`GROUP_POLICY.md`), the process that asks is an elevated administrator's 
 on a Unix socket, `/run/wex-domain-join.sock`, owned by root with the system group and mode 0660 (a `wex-domain-join.socket`
 unit that starts `wex-domain-join@.service`, which runs `wex-domain-join.sh serve` on the connection, one request each).
 A process outside the group cannot connect: that is Windows' "access denied for a caller who is not an administrator".
-The request is lines of `key=value` ended by an empty line (`op`, `domain`, `user`, `password`, `ou`, `workgroup`, `flags`);
-the answer is `status=N` (a Win32 or network error code of the table above) and `message=TEXT`. The client is a header
-(`src/include/wexjoinclient.h`) that `wkscli` (NetJoinDomain and the others) and the tools include; it connects with
-winsock's `AF_UNIX` where the build of Wine supports it (probed first, 2026-11-18).
+The request is lines of `key=value` ended by an empty line (`op`, `domain`, `user`, `userdomain`, `password`, `ou`,
+`workgroup`, `name`, `nametype`, `force`, `flags`); the answer is `status=N` (a Win32 or network error code of the table
+above) and `message=TEXT`. The client is wexjoin.dll: its unix side connects to the socket (`src/dlls/wexjoin/unixlib.c`),
+and `src/include/wexjoin.h` declares the API, the `NETSETUP_` flags and the operations of `WexJoinSecureChannel` for
+`netdom`, `nltest` and System Properties, with `wex_join_secure_channel` and `wex_join_last_message`, which load
+wexjoin.dll when asked.
+
+The account (2026-11-23). `DOMAIN\user` is sent as `user` and `userdomain`. The engine takes the user in the realm of
+the domain being joined when `userdomain` is that domain (its NetBIOS or DNS name); a user of another domain given by its
+DNS name is taken in that realm (a trust); one given by another NetBIOS name is refused (1355), as the engine cannot know
+its realm: such a user gives `user@dns.name`. A `user@suffix` name is a user principal name, given to `kinit -E` (an
+enterprise name, which the controller resolves whatever the case of the suffix and for an alternative UPN suffix).
+
+Times and order (2026-11-23). One change of the machine's authentication at a time: `join`, `leave`, `rename` and
+`reset` take the engine's lock (`flock`, `/run/wex-domain-join.lock`; without `flock` nothing is changed, error 50).
+A request from the socket waits 5 seconds for it and is then answered `ERROR_BUSY` (170): it does not queue behind
+another join that its caller's wait would not cover. The questions (`validate`, `status`, `dclist`, `dsgetdc`,
+`scquery`, `verify`) take no lock, and the socket serves up to 8 connections, so they run beside a join. The unit runs a
+request at most 300 seconds (`RuntimeMaxSec`) and then has 90 (`TimeoutStopSec`) to answer: a rename stopped part-way
+(by that limit or by `systemctl stop`) puts the account, smb.conf and the host name back in its `SIGTERM` trap and
+answers 1460. The caller waits `WEX_JOIN_WAIT_SECONDS` (420, `wexjoin.h`), more than both, so a time out it reports
+is never a request that then succeeded.
+
+What the join changes, the leave takes back (2026-11-23). `smb.conf` and `krb5.conf` are replaced by a rename of a new
+file (their mode kept), never written in place, so Samba, Kerberos, the state tool and Group Policy never read half a
+file. The join writes down the PAM profiles it turned on (`/etc/wineexplorer/domain-join-added`: `winbind`, and
+`mkhomedir` when it was off); the leave turns off those and no others, removes `winbind` from `nsswitch.conf` and
+drops the join's first copy of it, so a later failed join cannot put back a file from before the first one. The
+machine's keys go too, on this machine: `/etc/krb5.keytab` is removed when every key in it is one the join made
+(`NAME$`, `host/`, `RestrictedKrbHost/`), and kept with a warning when it holds anything else. `net ads keytab flush`
+cannot do it after the leave (it needs the deleted account), and it would change the account in the domain, which
+`leave --force` must not do. Once the
+host's configuration has changed, Windows programs are told (`wex-domain-state.sh`, `HKLM\Software\WineExplorer\Domain`)
+on every way out, a failure included: a join that `net ads testjoin` does not confirm yet is still a join, and the
+dialogs read it as one.

@@ -957,14 +957,7 @@ static BOOL effect_identity( HWND hwnd, DWORD backend, struct wm_apply_effects_p
     return TRUE;
 }
 
-/* Use the same XID-first identity as application, so a completed entry can
- * detect a backend change without continually refreshing X11 at Wayland scale. */
-DWORD WINAPI WexWmGetEffectScale( HWND hwnd )
-{
-    struct wm_apply_effects_params params = { 0 };
-    return effect_identity( hwnd, WEX_WM_BACKEND_AUTO, &params ) ? params.scale : 0;
-}
-
+/* The XID-first identity effects are applied to, so a completed entry can detect a backend or scale change. */
 DWORD WINAPI WexWmGetEffectIdentity( HWND hwnd, WEX_WM_IDENTITY *identity )
 {
     struct wm_apply_effects_params params = { 0 };
@@ -974,6 +967,7 @@ DWORD WINAPI WexWmGetEffectIdentity( HWND hwnd, WEX_WM_IDENTITY *identity )
     identity->backend = params.backend;
     identity->window = params.window;
     memcpy( identity->handle, params.handle, sizeof(identity->handle) );
+    identity->scale = params.scale;
     return ERROR_SUCCESS;
 }
 
@@ -1168,46 +1162,6 @@ DWORD WINAPI WexWmPeekWindow( HWND target, HWND picture )
     if (peek.params.count) peek.params.x11_keep = (UINT64)(ULONG_PTR)peek.windows;
     WEXHOST_CALL( wm_backend_peek, &peek.params );
     return peek.params.err;
-}
-
-DWORD WINAPI WexWmSetEffects( const char *handle, DWORD radius, DWORD backdrop, DWORD flags, DWORD tint,
-                              const RECT *region )
-{
-    struct wm_effects_params params = { { 0 }, radius, backdrop, flags, tint };
-    if (!handle || strlen( handle ) != 32) return ERROR_INVALID_PARAMETER;
-    if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    memcpy( params.handle, handle, 32 );
-    if (region)
-    {
-        params.region[0] = region->left;
-        params.region[1] = region->top;
-        params.region[2] = region->right;
-        params.region[3] = region->bottom;
-    }
-    WEXHOST_CALL( wm_effects, &params );
-    return params.err;
-}
-
-DWORD WINAPI WexWmSetThumbnails( const WEX_WM_THUMB *records, DWORD count )
-{
-    struct wm_thumbnails_params params = { count };
-    if (count > 80 || (count && !records)) return ERROR_INVALID_PARAMETER;
-    if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    C_ASSERT( sizeof(WEX_WM_THUMB) == 104 );
-    memcpy( params.records, records, count * sizeof(*records) );
-    WEXHOST_CALL( wm_thumbnails, &params );
-    return params.err;
-}
-
-DWORD WINAPI WexWmSetPeek( const char *target, const char (*keep)[32], DWORD count )
-{
-    struct wm_peek_params params = { { 0 }, count };
-    if (count > 64 || (count && !keep) || (target && target[0] && strlen( target ) != 32)) return ERROR_INVALID_PARAMETER;
-    if (!unix_ready) return ERROR_NOT_SUPPORTED;
-    if (target) memcpy( params.target, target, strlen( target ) );
-    memcpy( params.keep, keep, count * 32 );
-    WEXHOST_CALL( wm_peek, &params );
-    return params.err;
 }
 
 DWORD WINAPI WexWmFocus( UINT64 window )

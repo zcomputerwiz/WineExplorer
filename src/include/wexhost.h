@@ -335,8 +335,6 @@ DWORD WINAPI WexWmFocus( UINT64 window );
 #define WEX_WM_EFFECT_DARK       0x2
 #define WEX_WM_EFFECT_TINT       0x4
 #define WEX_WM_EFFECT_REGION     0x8
-DWORD WINAPI WexWmSetEffects( const char *handle, DWORD radius, DWORD backdrop, DWORD flags, DWORD tint,
-                              const RECT *region );
 /* Neutral DWM policy in Wine pixels, client coordinates and ABGR. The explicit
  * square sentinel is retained; materials FALSE skips X11 backdrop writes but
  * still clears the Wayland backdrop. This does not enable composition. */
@@ -353,10 +351,9 @@ typedef struct
 /* scale is zero for X11/missing identity, otherwise Wayland thousandths.
  * retry preserves X11's any-error and Wayland's NOT_READY-only retry policy. */
 typedef struct { DWORD scale; BOOL retry; } WEX_WM_EFFECT_RESULT;
-typedef struct { DWORD backend; UINT64 window; char handle[33]; } WEX_WM_IDENTITY;
+/* scale as in WEX_WM_EFFECT_RESULT: a new scale needs the effects again, like a new surface. */
+typedef struct { DWORD backend; UINT64 window; char handle[33]; DWORD scale; } WEX_WM_IDENTITY;
 DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result );
-/* Current AUTO identity's scale: zero for X11/missing, Wayland thousandths otherwise. */
-DWORD WINAPI WexWmGetEffectScale( HWND hwnd );
 DWORD WINAPI WexWmGetEffectIdentity( HWND hwnd, WEX_WM_IDENTITY *identity );
 /* PE-only HWND input; geometry stays in Wine pixels until host adaptation.
  * Calls are serialized by the shell bridge. NULL/0 forces a clear and invalidates
@@ -376,16 +373,11 @@ DWORD WINAPI WexWmPeekWindow( HWND target, HWND picture );
  * detach; only the Wine-side wait thread pulses Win32 events. */
 DWORD WINAPI WexWmSetClock( void *page, HANDLE event );
 DWORD WINAPI WexWmWaitFrame( UINT64 *generation, DWORD timeout_ms );
-/* Live thumbnails (DwmRegisterThumbnail) of a Wayland session, the whole list replaced on each call (compositor
- * protocol v14). dest and src are shared handles (32 hex digits, no NUL), rectangles left, top, right, bottom in each
- * window's coordinates; flags WEX_WM_THUMB_*. At most 80 records. */
+/* A Wayland thumbnail record as the Unix side sends it (compositor protocol v14): dest and src are shared handles
+ * (32 hex digits, no NUL), rectangles left, top, right, bottom in each window's coordinates; flags WEX_WM_THUMB_*. */
 #define WEX_WM_THUMB_VISIBLE     0x1
 #define WEX_WM_THUMB_HAS_SOURCE  0x4
 typedef struct { char dest[32]; char src[32]; DWORD flags; DWORD opacity; INT dest_rect[4]; INT source_rect[4]; } WEX_WM_THUMB;
-DWORD WINAPI WexWmSetThumbnails( const WEX_WM_THUMB *records, DWORD count );
-/* Aero Peek of a Wayland session: only target (a shared handle, NULL or empty ends the peek) and the keep list of
- * handles (32 digits each, at most 64) are drawn. */
-DWORD WINAPI WexWmSetPeek( const char *target, const char (*keep)[32], DWORD count );
 
 /* Optional X11 composition, off by default. Requires WexWmStart's connection.
  * Set returns ERROR_NOT_SUPPORTED for missing extensions, ERROR_ALREADY_EXISTS
