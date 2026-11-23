@@ -713,15 +713,22 @@ s0_conf_off()   # back to the machine without session 0 (session 0 is stopped)
 }
 s0_start()
 {
+    # the socket of the last session 0 may still be there: wait for the new server's own
+    rm -f "$S0RUN/session0"
     (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin \
         "$BUILD/server/wineserver" --session0 -f >>"$ROOT/session0.log" 2>&1 &)
-    local i; for i in $(seq 1 50); do [ -S "$S0RUN/session0" ] && return 0; sleep 0.1; done
+    local i; for i in $(seq 1 50); do [ -S "$S0RUN/session0" ] && pgrep -u "$S0U" -x wineserver >/dev/null && return 0; sleep 0.1; done
     cat "$ROOT/session0.log" >&2; fail "session 0 did not start"
 }
 s0_stop()
 {
-    pkill -u "$S0U" -x wineserver 2>/dev/null || true   # SIGTERM: session 0 saves the hives and exits
-    local i; for i in $(seq 1 300); do pgrep -u "$S0U" -x wineserver >/dev/null || return 0; sleep 0.1; done
+    # SIGTERM: session 0 saves the hives and exits; sent again each second, for a server that was still starting
+    local i
+    for i in $(seq 1 300); do
+        [ $((i % 10)) != 1 ] || pkill -u "$S0U" -x wineserver 2>/dev/null || true
+        pgrep -u "$S0U" -x wineserver >/dev/null || return 0
+        sleep 0.1
+    done
     ps -o pid,ppid,stat,etime,args -u "$S0U" >&2; tail -20 "$ROOT/session0.log" >&2
     fail "session 0 did not stop"
 }
