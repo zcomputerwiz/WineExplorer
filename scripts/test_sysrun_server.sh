@@ -4208,7 +4208,9 @@ wine_as "$STD" reg add 'HKCU\Software\WexT4' /v v /d std-hkcu /f >/dev/null 2>&1
     fail "T4a: the HKCU value does not read back"
 [ "$(wine_as "$STD" "$ROOT/probes/tierprobe64.exe" whoami 2>/dev/null | tr -d '\r' | sed -n 's/^user=//p')" != S-1-5-21-0-0-0-1000 ] ||
     fail "T4a: the standard user has the fixed SID"
-! grep -q '"v"="std-hkcu"' "/home/$STD/.wine/user.reg" 2>/dev/null || fail "T4a: the user's server wrote its own copy"
+# (no check that user.reg lacks the value here: session 0 sends its changes within 5 s, its lazy flush, so the value
+# may already be written, by session 0's send and not by a copy of the user's server; that check was a race. The one
+# below covers it: the server's exit must not save its own stale copy over what session 0 sent)
 el_down "$STD"   # the server's exit: session 0 sends the last changes and drops the hive
 grep -q '^"v"="std-hkcu"' "/home/$STD/.wine/user.reg" || fail "T4a: user.reg does not have the value session 0 held"
 [ "$(stat -c %U "/home/$STD/.wine/user.reg")" = "$STD" ] || fail "T4a: user.reg is not the user's own file"
