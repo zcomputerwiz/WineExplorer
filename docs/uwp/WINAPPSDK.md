@@ -260,3 +260,29 @@ see STOCK_CHANGES), and now:
 Everything the application asks for before that point is now answered (CoreUI session, AppDataPaths, bcp47mrm, the developer-mode import).
 The compositor is the next piece and a big one; the Microsoft.UI.Composition of the runtime (`dcompi.dll`) may carry most of the logic
 (it is what WinUI 3 uses), so a first step is to see how much of `Windows.UI.Composition` it really needs from the system.
+
+### What dcompi.dll needs from the system (scoped 2026-11-23)
+
+Found with a `+relay` run whose `RelayInclude` is `combase.RoGetActivationFactory` (`wasdk-run.sh`, `RELAY_INCLUDE=...`; the `ret=` address
+names the caller, `dcalls.py` lists the calls a module makes before a message), the PE's imports, and disassembly:
+
+* The runtime package registers `Microsoft.UI.Composition.*` (the lifted compositor) with **`dcompi.dll`** as the server (manifest, about 60
+  classes). `dcompi.dll` imports only `DCompositionCreateDevice3` (plus one by ordinal) from the system `dcomp.dll`, `d2d1`, `d3d11`, `dxgi`,
+  and the runtime's own `wuceffectsi.dll`, `marshal.dll`, `Microsoft.UI.Composition.OSSupport.dll` (52 KB, only a thin OS-support layer).
+  So the engine is the runtime's, not the system's. These all load in Wine already.
+* The failing call is **inside dcompi's `DllGetActivationFactory`** (its C++/WinRT `get_activation_factory`, which falls back to loading a
+  library named after the class when `RoGetActivationFactory` fails; that is the `Failed to find library` message). The factory of any
+  class except three (`Compositor`, `CompositionCapabilities`, `CompositionEngine`; the first one asked for here was
+  `CompositionEasingFunction`) first runs a lazy once-only initialisation (`InitOnce`, the first thing after a `HKLM\Software\Microsoft\Windows\Dwm`
+  key probe): it activates the factory of a class of the system (the second failure of the same run,
+  `WindowsUdk.Foundation.Metadata.ApiInformation`, belongs to the same chain), queries it for interface
+  {5e03ab98-c7e0-4449-8518-568d62e9b396} and calls its first method with a BOOLEAN out parameter (a "supported?" probe), then activates
+  `Windows.UI.Composition.Compositor` of the system (`IActivationFactory` slot 6, `ActivateInstance`) and queries the instance for two
+  interfaces. A failure of that chain is the exception that ends Notepad.
+* So the minimum that moves Notepad on is **not** a whole compositor: it is (1) `WindowsUdk.Foundation.Metadata.ApiInformation`
+  answering the probe, and (2) a `Windows.UI.Composition.Compositor` whose instance answers the two queried interfaces. What dcompi calls
+  on that instance afterwards is the open question; the experiment is a stub class that logs every slot called, then fills in what is
+  needed (a real compositor is only needed if dcompi forwards drawing to it, which the imports of `dcomp`/`d2d1` suggest it does not).
+
+Helper scripts (`tests/uwp/lab-helpers`): `wxref.py` (wide-string and RVA cross references with the containing function), `callers.py` (call
+graph upwards), `dcalls.py` (calls from one module before a log line).

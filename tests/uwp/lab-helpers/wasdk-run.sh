@@ -16,6 +16,8 @@ WINEDLLOVERRIDES=mscoree,mshtml= "$build/wine" wineboot -i > boot.log 2>&1; "$bu
 "$build/wine" reg add 'HKCU\Software\WineExplorer\Shell' /v UwpCompatibility /t REG_DWORD /d 1 /f > reg.log 2>&1
 # RELAY_FROM=Microsoft.Internal.FrameworkUdk.dll with WINEDEBUG +relay: only the calls that module makes
 [ -n "$RELAY_FROM" ] && "$build/wine" reg add 'HKCU\Software\Wine\Debug' /v RelayFromInclude /t REG_SZ /d "$RELAY_FROM" /f >> reg.log 2>&1
+# RELAY_INCLUDE=combase.RoGetActivationFactory with +relay: only the calls of those functions (the ret= address names the caller; +loaddll maps it)
+[ -n "$RELAY_INCLUDE" ] && "$build/wine" reg add 'HKCU\Software\Wine\Debug' /v RelayInclude /t REG_SZ /d "$RELAY_INCLUDE" /f >> reg.log 2>&1
 "$build/server/wineserver" -w
 python3 $c/fw/lab-frameworks.py install $c/fw/wex-components.py "$WINEPREFIX" $c/fw-downloads > summary 2>&1
 cat > zipdir.py <<'PYEOF'
