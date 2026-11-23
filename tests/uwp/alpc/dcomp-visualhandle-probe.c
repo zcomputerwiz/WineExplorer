@@ -38,6 +38,15 @@ int main(void)
     HRESULT hr;
 
     printf("ordinal 1040 %p, surface %p\n", shared, surface);
+
+    /* the shape dcompi.dll uses (the caller at RVA 0xe0170 passes only rcx = &local handle, initialised to NULL) */
+    {
+        typedef HRESULT (WINAPI *one_t)(HANDLE *out);
+        HANDLE o = NULL;
+        hr = ((one_t)shared)(&o);
+        printf("shared(&h): hr %08lx handle %p\n", hr, o);
+        if (!hr && o) { describe("shared", o); CloseHandle(o); }
+    }
     hr = surface(0x3 /* COMPOSITIONOBJECT_READ | WRITE */, NULL, &h);
     printf("DCompositionCreateSurfaceHandle(all, NULL, &h): hr %08lx\n", hr);
     if (!hr) describe("surface", h);
