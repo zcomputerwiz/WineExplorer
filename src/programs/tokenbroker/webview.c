@@ -176,13 +176,13 @@ static void resize( struct webview *ctx )
 static const void *navigation_starting_vtbl[4];
 static const void *launching_external_vtbl[4];
 
-/* The window of the program asking can be a full-screen page that would hide this one (Edge's sign-in showed "not
- * responding" behind it): a topmost flip lifts the window over the other windows and leaves it an ordinary one */
+/* The program asking is often Edge, whose full-screen page is a topmost window, and it sends no window handle (the
+ * request's window is 0), so the sign-in window is unowned: it stays topmost while it is open, or the page hides it
+ * (Edge's sign-in showed "not responding" behind it) */
 static void raise_window( HWND hwnd )
 {
     ShowWindow( hwnd, SW_SHOW );
     SetWindowPos( hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE );
-    SetWindowPos( hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE );
     BringWindowToTop( hwnd );
     SetForegroundWindow( hwnd );
 }
