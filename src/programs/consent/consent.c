@@ -821,7 +821,7 @@ static void describe_program(struct consent_data *data)
 static BOOL is_credentials_mode_required(void)
 {
     TOKEN_ELEVATION_TYPE type;
-    DWORD size, mode = 2, value_type;
+    DWORD size, mode = 5, value_type;   /* ConsentPromptBehaviorAdmin absent: 5, as in Windows and the broker */
     LSTATUS status;
     HKEY hkey;
 
