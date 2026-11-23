@@ -6,7 +6,7 @@
 # programs/wexappx and programs/wexappinstall (Makefile.in and the source).
 # usage: programs-build.sh      log: logs/programs-build.log
 root=/home/debian/uwp-u1-20261111
-c=$root/build/candidates/u11-2
+c=$root/build/candidates/${CAND:-u11-2}
 log=$root/claude/logs/programs-build.log
 exec > $log 2>&1
 set -x
