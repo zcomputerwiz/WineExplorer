@@ -108,6 +108,12 @@ program (Copilot, ...)                         per-user broker process (tokenbro
   used, the sign-in pages need a current engine.
 - **Accounts and tokens**: `WebAccount` objects (`Id` = the account's object id, `UserName` = its sign-in name,
   `WebAccountProvider`), `FindAllAccountsAsync` from the cache, `GetTokenSilentlyAsync` by refresh token.
+- **The broker's sources** (`src/programs/tokenbroker`): `main.c` the process, pipe, caller checks and protocol;
+  `provider.c` the providers and operations; `answer.c` the answer's shape (WAM's for a Microsoft account);
+  `oauth.c` the OAuth flows (one refresh function, optionally through a broker client); `signin.c` the sign-in
+  state machine and test hook; `webview.c` the WebView2 window; `cache.c` accounts and tokens; `util.c` strings,
+  JSON, HTTP and the shared helpers (`user_only_descriptor`, `scope_has`, `request_login_hint`, `reply_failure`).
+  The status of a `FIND_ACCOUNT` reply is `TOKENBROKER_ACCOUNT_FOUND` or `_NONE` (`wine/tokenbroker.h`).
 
 ## Flows
 
@@ -200,8 +206,8 @@ What the library did with our earlier answer (a bare JWT as Token, six `wamcompa
 Connected, no account properties): it read `ResponseStatus`, the response data, the account's `Id`, all response
 properties and the `Token`, and then showed its error page without reading anything else; so the cause is in the
 account `Id` form, the response properties or the `Token` form. The answer is built to the measured shape now
-(`src/programs/tokenbroker/provider.c`: `public_account_id`, `account_properties`, `telemetry_property`,
-`batch_token`; `dlls/windows.security.authentication.web.core`: `TOKENBROKER_REPLY_ACCOUNT_PROPERTIES`,
+(`src/programs/tokenbroker/answer.c`, until 2026-11-23 in `provider.c`: `public_account_id`, `account_properties`,
+`telemetry_property`, `batch_token`; `dlls/windows.security.authentication.web.core`: `TOKENBROKER_REPLY_ACCOUNT_PROPERTIES`,
 `IWebAccount2::get_Properties`, state `None` for the `consumers` authority). Branches: superproject
 `claude/vintner-boot-integration` (commits 287bbd88 and 1d661628), Wine `claude/webaccount-properties`. Status: see
 the owner's retries in `docs/HANDOFF.md` once they have run; `AgeGroup` is not sent because the id token does not tell

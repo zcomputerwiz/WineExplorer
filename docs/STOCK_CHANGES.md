@@ -4024,3 +4024,13 @@ for any other, as Windows answers for a Microsoft account (measured with a probe
 Tests: `tests/web_core.c` (the broker's test provider, run by `tests/wam/run-broker-tests.sh`): the account id, state
 and properties, the batch form body, `MATS`, process-scoped `FindAccountAsync`, a brokered request for another client id
 and Nested App Authentication.
+
+2026-11-23 (Wine 5261fa8c on df980993, branch `claude/wam-answer-shape`): a review of the same DLL, no new behaviour
+for programs except the first item. HSTRINGs made from string literals no longer count the terminator (the provider
+error's `ErrorMessage` had an embedded NUL; a test checks its length); the string map has a lock (the broker client
+reads a request's maps on a thread-pool thread) and lazily made maps go through `map_hstring_get`; the private
+`hstring_copy` functions give way to `WindowsDuplicateString`; `WebTokenRequest` uses `DEFINE_IINSPECTABLE`; one
+`consumers` check (`authority_is_consumers`, `provider_is_consumers`); the broker client gives up at once when
+`tokenbroker.exe` cannot start and range-checks the reply's status; `wine/tokenbroker.h` names the `FIND_ACCOUNT`
+statuses (`TOKENBROKER_ACCOUNT_FOUND`, `_NONE`); the tests put back the user's `HKCU\Software\Wine\WebAuthentication`
+values instead of deleting the key.

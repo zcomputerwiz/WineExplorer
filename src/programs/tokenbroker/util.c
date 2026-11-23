@@ -10,6 +10,7 @@
 #include <wincrypt.h>
 #include <bcrypt.h>
 #include <winhttp.h>
+#include <sddl.h>
 
 #include "wine/debug.h"
 
@@ -85,10 +86,52 @@ BOOL text_append_pair( struct text *text, const WCHAR *key, const WCHAR *value )
     return text_append( text, key, wcslen( key ) + 1 ) && text_append( text, value, wcslen( value ) + 1 );
 }
 
+/* a JSON string: the quotes, and the escapes RFC 8259 requires */
+BOOL text_append_json_string( struct text *text, const WCHAR *str )
+{
+    static const WCHAR hex[] = L"0123456789abcdef";
+    const WCHAR *p;
+    WCHAR buf[6];
+
+    if (!text_append( text, L"\"", 1 )) return FALSE;
+    for (p = str ? str : L""; *p; p++)
+    {
+        if (*p == '"' || *p == '\\')
+        {
+            buf[0] = '\\';
+            buf[1] = *p;
+            if (!text_append( text, buf, 2 )) return FALSE;
+        }
+        else if (*p < 0x20)
+        {
+            buf[0] = '\\'; buf[1] = 'u'; buf[2] = '0'; buf[3] = '0';
+            buf[4] = hex[*p >> 4];
+            buf[5] = hex[*p & 15];
+            if (!text_append( text, buf, 6 )) return FALSE;
+        }
+        else if (!text_append( text, p, 1 )) return FALSE;
+    }
+    return text_append( text, L"\"", 1 );
+}
+
 void text_free( struct text *text )
 {
     free( text->data );
     memset( text, 0, sizeof(*text) );
+}
+
+/* text_free for text that held a secret */
+void text_wipe( struct text *text )
+{
+    if (text->data) SecureZeroMemory( text->data, text->size * sizeof(WCHAR) );
+    text_free( text );
+}
+
+/* free for a string that held a secret */
+void wipe_free( WCHAR *str )
+{
+    if (str) SecureZeroMemory( str, wcslen( str ) * sizeof(WCHAR) );
+    free( str );
 }
 
 /* a request property by name (case-insensitive, as programs differ in case), or NULL */
@@ -96,9 +139,83 @@ const WCHAR *request_property( const struct request *req, const WCHAR *key )
 {
     unsigned int i;
 
-    for (i = 0; i < req->prop_count; i++)
+    for (i = 0; req && i < req->prop_count; i++)
         if (!wcsicmp( req->prop_key[i], key )) return req->prop_value[i];
     return NULL;
+}
+
+/* whether the request carries the property KEY with the value VALUE */
+BOOL request_property_is( const struct request *req, const WCHAR *key, const WCHAR *value )
+{
+    const WCHAR *v = request_property( req, key );
+    return v && !wcscmp( v, value );
+}
+
+/* the account the request names by sign-in name, or NULL (MSAL sends LoginHint, others login_hint) */
+const WCHAR *request_login_hint( const struct request *req )
+{
+    const WCHAR *hint = request_property( req, L"LoginHint" );
+    return hint ? hint : request_property( req, L"login_hint" );
+}
+
+/* whether a space-separated scope set holds WORD */
+BOOL scope_has( const WCHAR *scope, const WCHAR *word )
+{
+    size_t len = wcslen( word );
+    const WCHAR *p = scope;
+
+    if (!len) return FALSE;
+    while (p && (p = wcsstr( p, word )))
+    {
+        if ((p == scope || p[-1] == ' ') && (!p[len] || p[len] == ' ')) return TRUE;
+        p += len;
+    }
+    return FALSE;
+}
+
+/* the token's user, allocated */
+SID *token_user_sid( HANDLE token )
+{
+    char buffer[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
+    TOKEN_USER *user = (TOKEN_USER *)buffer;
+    DWORD len;
+    SID *sid;
+
+    if (!GetTokenInformation( token, TokenUser, buffer, sizeof(buffer), &len )) return NULL;
+    len = GetLengthSid( user->User.Sid );
+    if (!(sid = malloc( len ))) return NULL;
+    CopySid( len, sid, user->User.Sid );
+    return sid;
+}
+
+/* A descriptor that admits this process's user only, with RIGHTS (SDDL) and the ACE flags given; Wine's server turns
+ * it into the owner's mode bits for files and folders. sa->lpSecurityDescriptor is LocalFree'd by the caller. */
+BOOL user_only_descriptor( const WCHAR *ace_flags, const WCHAR *rights, SECURITY_ATTRIBUTES *sa )
+{
+    WCHAR sddl[256], *sid_string = NULL;
+    HANDLE token;
+    SID *sid = NULL;
+    BOOL ret;
+
+    sa->nLength = sizeof(*sa);
+    sa->bInheritHandle = FALSE;
+    sa->lpSecurityDescriptor = NULL;
+    if (OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token ))
+    {
+        sid = token_user_sid( token );
+        CloseHandle( token );
+    }
+    if (!sid || !ConvertSidToStringSidW( sid, &sid_string ))
+    {
+        free( sid );
+        return FALSE;
+    }
+    free( sid );
+    swprintf( sddl, ARRAY_SIZE(sddl), L"D:P(A;%s;%s;;;%s)", ace_flags, rights, sid_string );
+    LocalFree( sid_string );
+    ret = ConvertStringSecurityDescriptorToSecurityDescriptorW( sddl, SDDL_REVISION_1, &sa->lpSecurityDescriptor,
+                                                                NULL );
+    return ret;
 }
 
 BOOL reply_set( struct reply *reply, enum tokenbroker_reply_field field, const WCHAR *str )
@@ -112,6 +229,20 @@ void reply_error( struct reply *reply, int status, unsigned int code, const WCHA
     reply->status = status;
     reply->code = code;
     reply_set( reply, TOKENBROKER_REPLY_MESSAGE, message );
+}
+
+/* a failed request of any kind, with the status its kind uses for a provider error */
+void reply_failure( struct reply *reply, unsigned int kind, unsigned int code, const WCHAR *message )
+{
+    int status;
+
+    switch (kind)
+    {
+    case TOKENBROKER_FIND_ACCOUNTS: status = FIND_PROVIDER_ERROR; break;
+    case TOKENBROKER_FIND_ACCOUNT:  status = TOKENBROKER_ACCOUNT_NONE; break;
+    default:                        status = STATUS_PROVIDER_ERROR; break;
+    }
+    reply_error( reply, status, code, message );
 }
 
 /* RFC 3986 unreserved characters stay, everything else is percent-encoded UTF-8 */

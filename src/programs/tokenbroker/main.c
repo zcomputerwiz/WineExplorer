@@ -30,21 +30,6 @@ WINE_DEFAULT_DEBUG_CHANNEL(tokenbroker);
 static SID *own_sid;
 static LONG active_clients;
 
-/* the process token's user, allocated */
-static SID *token_user( HANDLE token )
-{
-    char buffer[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
-    TOKEN_USER *user = (TOKEN_USER *)buffer;
-    DWORD len;
-    SID *sid;
-
-    if (!GetTokenInformation( token, TokenUser, buffer, sizeof(buffer), &len )) return NULL;
-    len = GetLengthSid( user->User.Sid );
-    if (!(sid = malloc( len ))) return NULL;
-    CopySid( len, sid, user->User.Sid );
-    return sid;
-}
-
 /* What a caller's token allows: CALLER_OK, CALLER_OTHER_USER (the connection is dropped), or a refusal that every
  * request of the connection is answered with (a restricted token, an integrity level below medium, an AppContainer:
  * sandboxed code that must not get the user's tokens). */
@@ -65,7 +50,7 @@ static enum caller_check check_token( HANDLE token )
     BOOL same;
     SID *sid;
 
-    if (!(sid = token_user( token ))) return CALLER_OTHER_USER;
+    if (!(sid = token_user_sid( token ))) return CALLER_OTHER_USER;
     same = EqualSid( sid, own_sid );
     free( sid );
     if (!same) return CALLER_OTHER_USER;
@@ -86,16 +71,14 @@ static enum caller_check check_token( HANDLE token )
  * enforcement Wine's ImpersonateNamedPipeClient gives the server its own token (server/named_pipe.c,
  * FSCTL_PIPE_IMPERSONATE), so the impersonation token alone proves nothing. Where impersonation does give the client's
  * token (the client's thread, possibly impersonating someone else), that one is checked as well. */
-static enum caller_check check_caller( HANDLE pipe )
+static enum caller_check check_caller( HANDLE pipe, ULONG pid )
 {
     enum caller_check ret;
     HANDLE process, token;
-    ULONG pid;
 
     /* the query right, not only the limited one: with elevation enforced WineExplorer's server gives a process's token
      * only to a handle with PROCESS_QUERY_INFORMATION (server/token.c, open_token) */
-    if (!GetNamedPipeClientProcessId( pipe, &pid ) ||
-        !(process = OpenProcess( PROCESS_QUERY_INFORMATION, FALSE, pid )))
+    if (!pid || !(process = OpenProcess( PROCESS_QUERY_INFORMATION, FALSE, pid )))
         return CALLER_OTHER_USER;
     if (!OpenProcessToken( process, TOKEN_QUERY, &token ))
     {
@@ -129,13 +112,7 @@ static void refuse( const struct request *req, enum caller_check check, struct r
         L"Wine's token broker does not serve AppContainer programs.",
     };
 
-    if (req->kind == TOKENBROKER_FIND_ACCOUNTS)
-        reply_error( reply, FIND_PROVIDER_ERROR, E_ACCESSDENIED, messages[check] );
-    else if (req->kind == TOKENBROKER_FIND_ACCOUNT)
-    {
-        reply_error( reply, 1, E_ACCESSDENIED, messages[check] );
-    }
-    else reply_error( reply, STATUS_PROVIDER_ERROR, E_ACCESSDENIED, messages[check] );
+    reply_failure( reply, req->kind, E_ACCESSDENIED, messages[check] );
 }
 
 /* the request's fields as NUL-terminated strings, its properties as pairs */
@@ -251,23 +228,21 @@ static void answer( const struct request *req, struct reply *reply )
     }
     if (req->kind < TOKENBROKER_GET_TOKEN_SILENT || req->kind > TOKENBROKER_SIGN_OUT)
     {
-        reply_error( reply, STATUS_PROVIDER_ERROR, 0x80004001, L"Unknown request." );
+        reply_error( reply, STATUS_PROVIDER_ERROR, E_NOTIMPL, L"Unknown request." );
         return;
     }
     provider_answer( req, reply );
 }
 
-/* the executable of the pipe's client (allocated), or NULL */
-static WCHAR *client_program( HANDLE pipe )
+/* the executable of the pipe's client process (allocated), or NULL */
+static WCHAR *client_program( ULONG pid )
 {
     WCHAR path[MAX_PATH];
     DWORD len = ARRAY_SIZE(path);
     HANDLE process;
-    ULONG pid;
     BOOL ok;
 
-    if (!GetNamedPipeClientProcessId( pipe, &pid )) return NULL;
-    if (!(process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid ))) return NULL;
+    if (!pid || !(process = OpenProcess( PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid ))) return NULL;
     ok = QueryFullProcessImageNameW( process, 0, path, &len );
     CloseHandle( process );
     return ok ? strdupW( path ) : NULL;
@@ -295,7 +270,10 @@ static DWORD WINAPI client_thread( void *arg )
     HANDLE event;
     enum caller_check check = CALLER_OK;
     BOOL checked = FALSE, ok;
+    ULONG pid = 0;
 
+    /* a pipe's client process is fixed for the connection */
+    if (!GetNamedPipeClientProcessId( pipe, &pid )) pid = 0;
     buffer = malloc( TOKENBROKER_MAX_MESSAGE );
     out = malloc( TOKENBROKER_MAX_MESSAGE );
     event = CreateEventW( NULL, TRUE, FALSE, NULL );
@@ -306,7 +284,7 @@ static DWORD WINAPI client_thread( void *arg )
         if (!checked)
         {
             checked = TRUE;
-            if ((check = check_caller( pipe )) == CALLER_OTHER_USER)
+            if ((check = check_caller( pipe, pid )) == CALLER_OTHER_USER)
             {
                 WARN( "a client of another user was refused\n" );
                 break;
@@ -319,13 +297,10 @@ static DWORD WINAPI client_thread( void *arg )
             free_request( &req );
             break;
         }
-        {
-            ULONG client_pid = 0;
-            if (GetNamedPipeClientProcessId( pipe, &client_pid )) req.client_pid = client_pid;
-        }
+        req.client_pid = pid;
         TRACE( "request %u kind %u, prompt type %u, window %#x\n", ((struct tokenbroker_request *)buffer)->hdr.request_id,
                req.kind, req.prompt, req.window );
-        if (req.kind == TOKENBROKER_REQUEST_TOKEN) req.program_path = client_program( pipe );
+        if (req.kind == TOKENBROKER_REQUEST_TOKEN) req.program_path = client_program( pid );
         memset( &reply, 0, sizeof(reply) );
         if (check != CALLER_OK && req.kind != TOKENBROKER_HELLO) refuse( &req, check, &reply );
         else answer( &req, &reply );
@@ -335,7 +310,7 @@ static DWORD WINAPI client_thread( void *arg )
             /* too large for a message: an error instead */
             free_reply( &reply );
             memset( &reply, 0, sizeof(reply) );
-            reply_error( &reply, STATUS_PROVIDER_ERROR, 0x8007007a, L"The answer is too large." );
+            reply_failure( &reply, req.kind, E_TOO_LARGE, L"The answer is too large." );
             ok = build_reply( (struct tokenbroker_request *)buffer, &reply, out, &out_size );
         }
         free_reply( &reply );
@@ -363,8 +338,8 @@ static HANDLE create_instance( const WCHAR *name, SECURITY_ATTRIBUTES *sa, BOOL 
 
 int __cdecl wmain( int argc, WCHAR *argv[] )
 {
-    WCHAR name[256], sddl[256], *sid_string;
-    SECURITY_ATTRIBUTES sa = { sizeof(sa) };
+    WCHAR name[256], *sid_string;
+    SECURITY_ATTRIBUTES sa;
     OVERLAPPED ov = {0};
     HANDLE token, pipe, thread;
     DWORD session = 0, wait;
@@ -376,15 +351,13 @@ int __cdecl wmain( int argc, WCHAR *argv[] )
         return 1;
     }
     if (!OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token )) return 1;
-    own_sid = token_user( token );
+    own_sid = token_user_sid( token );
     CloseHandle( token );
     if (!own_sid || !ConvertSidToStringSidW( own_sid, &sid_string )) return 1;
     swprintf( name, ARRAY_SIZE(name), L"%s%s", TOKENBROKER_PIPE_PREFIX, sid_string );
-    /* the user only: full control for the user's SID, nothing for anyone else */
-    swprintf( sddl, ARRAY_SIZE(sddl), L"D:P(A;;GA;;;%s)", sid_string );
     LocalFree( sid_string );
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW( sddl, SDDL_REVISION_1, &sa.lpSecurityDescriptor, NULL ))
-        return 1;
+    /* the user only: full control for the user's SID, nothing for anyone else */
+    if (!user_only_descriptor( L"", L"GA", &sa )) return 1;
     if (!(ov.hEvent = CreateEventW( NULL, TRUE, FALSE, NULL ))) return 1;
     cache_load();
 

@@ -21,22 +21,28 @@ WCHAR *oauth_scope( const WCHAR *requested )
     struct text out = {0};
     unsigned int i;
 
-    text_append_str( &out, requested ? requested : L"" );
+    if (!text_append_str( &out, requested ? requested : L"" )) return NULL;
     for (i = 0; i < ARRAY_SIZE(extra); i++)
     {
-        const WCHAR *p = out.data;
-        size_t len = wcslen( extra[i] );
-        BOOL found = FALSE;
-        while (p && (p = wcsstr( p, extra[i] )))
+        if (scope_has( out.data, extra[i] )) continue;
+        if ((out.len && !text_append( &out, L" ", 1 )) || !text_append_str( &out, extra[i] ))
         {
-            if ((p == out.data || p[-1] == ' ') && (!p[len] || p[len] == ' ')) { found = TRUE; break; }
-            p += len;
+            text_free( &out );
+            return NULL;
         }
-        if (found) continue;
-        if (out.len) text_append( &out, L" ", 1 );
-        text_append_str( &out, extra[i] );
     }
-    return out.data ? out.data : strdupW( L"" );
+    return out.data;
+}
+
+/* the broker's redirect URI for a client id (the owner's decision of 2026-11-16 in docs/WAM_PLAN.md), allocated */
+WCHAR *oauth_redirect_uri( const WCHAR *client_id )
+{
+    static const WCHAR prefix[] = L"ms-appx-web://Microsoft.AAD.BrokerPlugin/";
+    size_t len = ARRAY_SIZE(prefix) + wcslen( client_id );
+    WCHAR *ret = malloc( len * sizeof(WCHAR) );
+
+    if (ret) swprintf( ret, len, L"%s%s", prefix, client_id );
+    return ret;
 }
 
 static WCHAR *random_string( unsigned int bytes )
@@ -71,7 +77,7 @@ static WCHAR *endpoint( const WCHAR *base, const WCHAR *authority, const WCHAR *
 /* the authorize URL of an interactive request, with a new verifier, state and nonce */
 BOOL oauth_begin( const WCHAR *base, const struct request *req, const WCHAR *redirect_uri, struct oauth_flow *flow )
 {
-    const WCHAR *hint = request_property( req, L"LoginHint" );
+    const WCHAR *hint = request_login_hint( req );
     WCHAR *nonce = NULL, *challenge = NULL;
     struct text url = {0};
     BYTE hash[32];
@@ -79,7 +85,6 @@ BOOL oauth_begin( const WCHAR *base, const struct request *req, const WCHAR *red
     BOOL ret = FALSE;
 
     memset( flow, 0, sizeof(*flow) );
-    if (!hint) hint = request_property( req, L"login_hint" );
     if (!(flow->redirect_uri = strdupW( redirect_uri )) || !(flow->state = random_string( 24 )) ||
         !(nonce = random_string( 24 )) || !(flow->verifier = random_string( 48 )) ||
         !(flow->scope = oauth_scope( req->field[TOKENBROKER_FIELD_SCOPE] )))
@@ -124,18 +129,15 @@ void oauth_flow_free( struct oauth_flow *flow )
     free( flow->authorize_url );
     free( flow->redirect_uri );
     free( flow->state );
-    if (flow->verifier) SecureZeroMemory( flow->verifier, wcslen( flow->verifier ) * sizeof(WCHAR) );
-    free( flow->verifier );
+    wipe_free( flow->verifier );
     free( flow->scope );
     memset( flow, 0, sizeof(*flow) );
 }
 
 void token_result_free( struct token_result *r )
 {
-    if (r->access_token) SecureZeroMemory( r->access_token, wcslen( r->access_token ) * sizeof(WCHAR) );
-    if (r->refresh_token) SecureZeroMemory( r->refresh_token, wcslen( r->refresh_token ) * sizeof(WCHAR) );
-    free( r->access_token );
-    free( r->refresh_token );
+    wipe_free( r->access_token );
+    wipe_free( r->refresh_token );
     free( r->id_token );
     free( r->client_info );
     free( r->scope );
@@ -144,19 +146,24 @@ void token_result_free( struct token_result *r )
     memset( r, 0, sizeof(*r) );
 }
 
-/* POST a form to the token endpoint and read its answer; FALSE only when the server was not reached */
-static BOOL token_post( const WCHAR *base, const WCHAR *authority, const struct text *form, struct token_result *r )
+/* POST a form to the token endpoint and read its answer; FALSE only when the server was not reached or a part of the
+ * form could not be built (BUILT FALSE). The form holds secrets: it is wiped and freed here. */
+static BOOL token_post( const WCHAR *base, const WCHAR *authority, struct text *form, BOOL built,
+                        struct token_result *r )
 {
     struct http_response response;
-    WCHAR *url = endpoint( base, authority, L"token" ), *description;
-    char *body;
+    WCHAR *url = NULL, *description;
+    char *body = NULL;
     LONGLONG expires_in = 3600;
     BOOL ret;
 
     memset( r, 0, sizeof(*r) );
-    if (!url || !(body = strdup_utf8( form->data ? form->data : L"" )))
+    if (built) body = strdup_utf8( form->data ? form->data : L"" );
+    text_wipe( form );
+    if (!body || !(url = endpoint( base, authority, L"token" )))
     {
-        free( url );
+        if (body) SecureZeroMemory( body, strlen( body ) );
+        free( body );
         return FALSE;
     }
     ret = http_request( url, body, &response );
@@ -212,67 +219,40 @@ BOOL oauth_redeem( const WCHAR *base, const struct request *req, const struct oa
                    struct token_result *result )
 {
     struct text form = {0};
-    BOOL ret;
+    BOOL built;
 
-    ret = url_append_param( &form, L"client_id", req->field[TOKENBROKER_FIELD_CLIENT_ID] ) &&
-          url_append_param( &form, L"grant_type", L"authorization_code" ) &&
-          url_append_param( &form, L"code", code ) &&
-          url_append_param( &form, L"redirect_uri", flow->redirect_uri ) &&
-          url_append_param( &form, L"code_verifier", flow->verifier ) &&
-          url_append_param( &form, L"scope", flow->scope ) &&
-          url_append_param( &form, L"client_info", L"1" ) &&
-          token_post( base, req->field[TOKENBROKER_FIELD_AUTHORITY], &form, result );
-    if (form.data) SecureZeroMemory( form.data, form.len * sizeof(WCHAR) );
-    text_free( &form );
-    return ret;
+    built = url_append_param( &form, L"client_id", req->field[TOKENBROKER_FIELD_CLIENT_ID] ) &&
+            url_append_param( &form, L"grant_type", L"authorization_code" ) &&
+            url_append_param( &form, L"code", code ) &&
+            url_append_param( &form, L"redirect_uri", flow->redirect_uri ) &&
+            url_append_param( &form, L"code_verifier", flow->verifier ) &&
+            url_append_param( &form, L"scope", flow->scope ) &&
+            url_append_param( &form, L"client_info", L"1" );
+    return token_post( base, req->field[TOKENBROKER_FIELD_AUTHORITY], &form, built, result );
 }
 
-/* A token for a nested app (Nested App Authentication: the request names a child client id and the child's redirect
- * URI) from the parent's refresh token. The token endpoint is asked as the child, with the parent named as the
- * broker (brk_client_id, brk_redirect_uri), as MSAL's brokered requests do. The parent's refresh token stays the
- * account's; a refresh token in the answer is not kept by the caller. */
-BOOL oauth_refresh_nested( const WCHAR *base, const WCHAR *authority, const WCHAR *parent_client_id,
-                           const WCHAR *parent_redirect_uri, const WCHAR *child_client_id,
-                           const WCHAR *child_redirect_uri, const WCHAR *scope, const WCHAR *refresh_token,
-                           struct token_result *result )
-{
-    WCHAR *full_scope = oauth_scope( scope );
-    struct text form = {0};
-    BOOL ret;
-
-    ret = full_scope &&
-          url_append_param( &form, L"client_id", child_client_id ) &&
-          url_append_param( &form, L"grant_type", L"refresh_token" ) &&
-          url_append_param( &form, L"refresh_token", refresh_token ) &&
-          url_append_param( &form, L"scope", full_scope ) &&
-          url_append_param( &form, L"redirect_uri", child_redirect_uri ) &&
-          url_append_param( &form, L"brk_client_id", parent_client_id ) &&
-          url_append_param( &form, L"brk_redirect_uri", parent_redirect_uri ) &&
-          url_append_param( &form, L"client_info", L"1" ) &&
-          token_post( base, authority, &form, result );
-    if (form.data) SecureZeroMemory( form.data, form.len * sizeof(WCHAR) );
-    text_free( &form );
-    free( full_scope );
-    return ret;
-}
-
-/* a new access token from a refresh token */
+/* A new access token for CLIENT_ID from a refresh token. With BROKER, the refresh token is the broker client's and the
+ * token is for CLIENT_ID through it (Nested App Authentication, or another client id of the same program): the token
+ * endpoint is asked as CLIENT_ID with its redirect URI, the broker client named as brk_client_id and
+ * brk_redirect_uri, as MSAL's brokered requests do. The broker client's refresh token stays the account's; a refresh
+ * token in such an answer is not kept by the caller. */
 BOOL oauth_refresh( const WCHAR *base, const WCHAR *authority, const WCHAR *client_id, const WCHAR *scope,
-                    const WCHAR *refresh_token, struct token_result *result )
+                    const WCHAR *refresh_token, const struct oauth_broker *broker, struct token_result *result )
 {
     WCHAR *full_scope = oauth_scope( scope );
     struct text form = {0};
-    BOOL ret;
+    BOOL built, ret;
 
-    ret = full_scope &&
-          url_append_param( &form, L"client_id", client_id ) &&
-          url_append_param( &form, L"grant_type", L"refresh_token" ) &&
-          url_append_param( &form, L"refresh_token", refresh_token ) &&
-          url_append_param( &form, L"scope", full_scope ) &&
-          url_append_param( &form, L"client_info", L"1" ) &&
-          token_post( base, authority, &form, result );
-    if (form.data) SecureZeroMemory( form.data, form.len * sizeof(WCHAR) );
-    text_free( &form );
+    built = full_scope &&
+            url_append_param( &form, L"client_id", client_id ) &&
+            url_append_param( &form, L"grant_type", L"refresh_token" ) &&
+            url_append_param( &form, L"refresh_token", refresh_token ) &&
+            url_append_param( &form, L"scope", full_scope ) &&
+            (!broker || (url_append_param( &form, L"redirect_uri", broker->child_redirect_uri ) &&
+                         url_append_param( &form, L"brk_client_id", broker->client_id ) &&
+                         url_append_param( &form, L"brk_redirect_uri", broker->redirect_uri ))) &&
+            url_append_param( &form, L"client_info", L"1" );
+    ret = token_post( base, authority, &form, built, result );
     free( full_scope );
     return ret;
 }

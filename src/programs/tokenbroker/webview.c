@@ -120,15 +120,7 @@ static void finish( struct webview *ctx )
 
 static void fail( struct webview *ctx, const WCHAR *code, const WCHAR *message )
 {
-    struct signin *signin = ctx->signin;
-
-    if (signin_transition( signin, SIGNIN_FAILED ))
-    {
-        free( signin->error_code );
-        free( signin->error );
-        signin->error_code = strdupW( code );
-        signin->error = strdupW( message );
-    }
+    signin_fail( ctx->signin, SIGNIN_FAILED, code, message );
     finish( ctx );
 }
 
@@ -312,10 +304,9 @@ static LRESULT CALLBACK signin_wndproc( HWND hwnd, UINT msg, WPARAM wparam, LPAR
         return 0;
     case WM_CLOSE:
         /* the user closed the window before the sign-in finished */
-        if (ctx && !ctx->finished && signin_transition( ctx->signin, SIGNIN_CANCELLED ))
+        if (ctx && !ctx->finished && ctx->signin->state < SIGNIN_DONE)
         {
-            ctx->signin->error_code = strdupW( L"user_cancel" );
-            ctx->signin->error = strdupW( L"The sign-in window was closed." );
+            signin_fail( ctx->signin, SIGNIN_CANCELLED, L"user_cancel", L"The sign-in window was closed." );
             finish( ctx );
         }
         return 0;
@@ -398,11 +389,8 @@ void signin_run_webview( struct signin *signin )
     {
         WARN( "no WebView2 loader\n" );
         if (loader) FreeLibrary( loader );
-        if (signin_transition( signin, SIGNIN_FAILED ))
-        {
-            signin->error_code = strdupW( L"no_webview" );
-            signin->error = strdupW( L"The sign-in window needs WebView2: no WebView2Loader.dll was found." );
-        }
+        signin_fail( signin, SIGNIN_FAILED, L"no_webview",
+                     L"The sign-in window needs WebView2: no WebView2Loader.dll was found." );
         return;
     }
     com = CoInitializeEx( NULL, COINIT_APARTMENTTHREADED );
@@ -432,11 +420,7 @@ void signin_run_webview( struct signin *signin )
     }
     if (!ctx.hwnd || !signin_transition( signin, SIGNIN_WINDOW_OPEN ))
     {
-        if (signin_transition( signin, SIGNIN_FAILED ))
-        {
-            signin->error_code = strdupW( L"no_window" );
-            signin->error = strdupW( L"The sign-in window could not be opened." );
-        }
+        signin_fail( signin, SIGNIN_FAILED, L"no_window", L"The sign-in window could not be opened." );
         goto done;
     }
     raise_window( ctx.hwnd );
