@@ -344,7 +344,7 @@ answers `BUSY` when a suite or build is running.
 
 | Mode | Does | When | Minutes (2026-11-14) |
 |---|---|---|---|
-| `labsuite` | lab suite only (its own sections and a smoke set since 2026-11-23) | lab scripts, verifier, worker or the suite script changed | about 16 (before 2026-11-23) |
+| `labsuite` | lab suite only (its own sections and a smoke set since 2026-11-23) | lab scripts, verifier, worker or the suite script changed | about 16 before 2026-11-23, 7 after |
 | `normalsuite` | normal suite and broker test on the recorded build | a rerun after a fix to the normal suite's script | about 23 |
 | `t1suite` | T1 on the recorded build | a rerun of T1 | about 2 |
 | `lab` | sync, build, lab build, lab suite | only code behind the lab build flags changed | about 20 |
@@ -438,6 +438,10 @@ check at minute 4); now:
   `c5_click` (the consent window), `s0_base`, `s0_token`, `s0_hive` (session 0 and the user's hive). Lab flags
   changing ordinary behaviour show there; the rest of the ordinary checks run once, in the normal suite.
   `WEX_LAB_FULL=1` runs every section with the lab build (the lab suite as it was).
+- **Measured 2026-11-23** (`wex-run.sh full` on wexbuild, Wine c82a1353, against b1123c on the same Wine): sync 6,
+  build 0, T1 2, normal 21 (377 checks, was 23), lab build 0, lab 7 (249 checks in 16 sections, was 25 and 451),
+  37 minutes in all (was 57). The slowest normal sections: gp_secpol 132 s, gp_template 82 s, s0_token, gp_list
+  62 s; in the lab suite r8e2e 127 s and s0_token 59 s.
 - **Readiness instead of sleeps:** `el_up` waits for the WinSta0 holder's `hold=ready` line (at most 60 s) instead of
   a fixed 4 s. The account watcher hold (`watch_hold`) stops `wex-accounts.path`, `.timer` and a running
   `wex-accounts.service`, waits until the sync has ended, and `watch_release` (also on a failure) starts again what
