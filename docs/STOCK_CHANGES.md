@@ -1,5 +1,22 @@
 # Changes to stock Wine / third-party code
 
+## server, ntdll, launcher: one library under the session 0 links (R2 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
+
+No change of behaviour or of the link protocol (version 5); the copies became one.
+
+- `server/sysrun.c` (`sysrun_process_is_tcb_system`): the system role's authority, a process started over the
+  system role connection with SYSTEM's primary token and SeTcbPrivilege. It replaces the hand-written test in
+  `create_service_token`, the E1 broker test and `create_linked_token` (`token.c`) and the pipe binding
+  (`named_pipe.c`). The lab endorsement in `sysrun.c` keeps its own test, one audit label per condition.
+- `include/wine/wex_sysrun_peer.h` (new): is a socket's peer a process that the setgid launcher started? One
+  `/proc/<pid>/status` test with a rule per caller, used by session 0's listener (`session0.c`, another user's
+  `wineserver`), ntdll's check of a launcher-started server (`dlls/ntdll/unix/sysrun.c`) and the launcher
+  (`tools/wex-sysrun`). The pid is pinned through `SO_PEERPIDFD` in all three; before, only session 0 pinned it.
+- `server/session0.c`: `link_send`, `link_receive` and `link_request` replace four hand-built `sendmsg` calls and
+  two receive loops. A link has an explicit kind (request, session, hive).
+- `include/wine/wex_session0.h`: the request header's last word is a union named by message type (`machine`,
+  `saved`, `name_size`, `session_id`); the same word on the wire.
+
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
 General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with
