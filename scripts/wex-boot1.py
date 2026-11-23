@@ -46,6 +46,8 @@ from wexcommon import (
     read_boot_conf,
     set_boot_conf_value,
 )
+import wexrootsvc
+from wexrootsvc import Failed, Refused, refusal  # noqa: F401 (refusal: the tests read it here)
 
 BUS_NAME = "org.wineexplorer.Boot1"
 OBJECT_PATH = "/org/wineexplorer/Boot1"
@@ -62,16 +64,7 @@ PRODUCT_CONF = os.environ.get("WEX_PRODUCT_CONF", "/etc/vintner/product.conf")
 RECOVERY_DEFAULT = 30    # seconds, as XP
 TIMEOUT_MAX = COUNTDOWN_MAX        # the dialog's range, as XP's
 PANIC_RESTART = 10       # seconds from a kernel panic to the restart, when Automatically restart is on
-IDLE_SECONDS = 60
 VINTNER_SECONDS = 600    # a publish (Options) copies a kernel and an initramfs
-
-
-class Refused(Exception):
-    """A value the service does not take (D-Bus error InvalidArgs)."""
-
-
-class Failed(Exception):
-    """A change that did not happen (D-Bus error Failed); the message says why."""
 
 
 read_conf = read_boot_conf
@@ -270,100 +263,31 @@ def apply(menu, recovery_on, recovery, restart, run=None):
         set_auto_restart(bool(restart), run=run)
 
 
-def refusal(result):
-    """The D-Bus error for a CheckAuthorization result (authorized, challenge, details) that is not authorized:
-    Cancelled when the password dialog was dismissed (polkit.dismissed), so that Startup and Recovery stays open
-    without an error message; otherwise NotAuthorized."""
-    details = result[2] if len(result) > 2 else {}
-    return "Cancelled" if str(details.get("polkit.dismissed", "")) == "true" else "NotAuthorized"
+def define(dbus, base, service):
+    """The service's object (wexrootsvc.serve): its methods and properties. A dismissed password dialog is Cancelled,
+    which keeps Startup and Recovery open without an error message."""
+    def change_options(text):
+        published, generation = set_options(text)
+        return dbus.Boolean(published), dbus.UInt32(generation)
 
-
-def serve():
-    import dbus
-    import dbus.mainloop.glib
-    import dbus.service
-    from gi.repository import GLib
-    import time
-
-    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-    bus = dbus.SystemBus()
-    name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)
-    loop = GLib.MainLoop()
-    state = {"busy": 0, "last": time.monotonic()}
-
-    def error(kind, message):
-        return dbus.exceptions.DBusException(str(message), name=f"{INTERFACE}.Error.{kind}")
-
-    def as_dbus(exc):
-        if isinstance(exc, dbus.exceptions.DBusException):
-            return exc
-        if isinstance(exc, Refused):
-            return error("InvalidArgs", exc)
-        return error("Failed", exc)
-
-    class Boot1(dbus.service.Object):
-        def authorized(self, sender, interactive, then, fail):
-            """polkit's CheckAuthorization for the caller, without blocking the loop while the password dialog waits."""
-            state["busy"] += 1
-
-            def done(result):
-                state["busy"] -= 1
-                state["last"] = time.monotonic()
-                if not result[0]:
-                    fail(error(refusal(result), "not authorized to change the startup settings"))
-                    return
-                try:
-                    then()
-                except Exception as exc:  # report it to the caller; the service goes on
-                    fail(as_dbus(exc))
-
-            def failed(exc):
-                state["busy"] -= 1
-                state["last"] = time.monotonic()
-                fail(as_dbus(exc))
-
-            authority = bus.get_object("org.freedesktop.PolicyKit1", "/org/freedesktop/PolicyKit1/Authority")
-            subject = dbus.Struct((dbus.String("system-bus-name"),
-                                   dbus.Dictionary({"name": dbus.String(sender, variant_level=1)}, signature="sv")),
-                                  signature="sa{sv}")
-            authority.CheckAuthorization(subject, ACTION, dbus.Dictionary({}, signature="ss"),
-                                         dbus.UInt32(1 if interactive else 0), "",
-                                         dbus_interface="org.freedesktop.PolicyKit1.Authority", timeout=24 * 3600,
-                                         reply_handler=done, error_handler=failed)
-
+    class Boot1(base):
         @dbus.service.method(INTERFACE, in_signature="ububb", out_signature="", sender_keyword="sender",
                              async_callbacks=("ok", "fail"))
         def Apply(self, menu, recovery_on, recovery, restart, interactive, sender=None, ok=None, fail=None):
-            try:
-                check_timeout(int(menu))
-                check_timeout(int(recovery))
-            except Refused as exc:
-                fail(as_dbus(exc))
-                return
-            self.authorized(sender, interactive,
-                            lambda: (apply(int(menu), bool(recovery_on), int(recovery), bool(restart)), ok()), fail)
+            menu, recovery_on, recovery, restart = int(menu), bool(recovery_on), int(recovery), bool(restart)
+            service.change(sender, interactive, ok, fail, lambda: apply(menu, recovery_on, recovery, restart),
+                           check=lambda: (check_timeout(menu), check_timeout(recovery)))
 
         @dbus.service.method(INTERFACE, in_signature="sb", out_signature="bu", sender_keyword="sender",
                              async_callbacks=("ok", "fail"))
         def SetOptions(self, text, interactive, sender=None, ok=None, fail=None):
-            try:
-                parse_options(str(text))
-            except Refused as exc:
-                fail(as_dbus(exc))
-                return
+            text = str(text)
+            service.change(sender, interactive, ok, fail, lambda: change_options(text),
+                           check=lambda: parse_options(text))
 
-            def change():
-                published, generation = set_options(str(text))
-                ok(dbus.Boolean(published), dbus.UInt32(generation))
-            self.authorized(sender, interactive, change, fail)
-
-        @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="s", out_signature="a{sv}")
-        def GetAll(self, interface):
-            state["last"] = time.monotonic()
-            if interface not in (INTERFACE, ""):
-                raise error("InvalidArgs", f"no interface {interface}")
+        def properties(self):
             values = settings()
-            return dbus.Dictionary({
+            return {
                 "OperatingSystem": dbus.String(values["OperatingSystem"]),
                 "HasLoader": dbus.Boolean(values["HasLoader"]),
                 "MenuTimeout": dbus.UInt32(values["MenuTimeout"]),
@@ -372,27 +296,13 @@ def serve():
                 "AutoRestart": dbus.Boolean(values["AutoRestart"]),
                 "HasOptions": dbus.Boolean(values["HasOptions"]),
                 "Options": dbus.String(values["Options"]),
-            }, signature="sv")
+            }
 
-        @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="ss", out_signature="v")
-        def Get(self, interface, prop):
-            values = self.GetAll(interface)
-            if prop not in values:
-                raise error("InvalidArgs", f"no property {prop}")
-            return values[prop]
+    return Boot1
 
-    Boot1(bus, OBJECT_PATH)
 
-    def idle():
-        if not state["busy"] and time.monotonic() - state["last"] >= IDLE_SECONDS:
-            loop.quit()
-            return False
-        return True
-
-    GLib.timeout_add_seconds(10, idle)
-    loop.run()
-    del name
-    return 0
+def serve():
+    return wexrootsvc.serve(BUS_NAME, OBJECT_PATH, ACTION, "not authorized to change the startup settings", define)
 
 
 def main(argv=None):

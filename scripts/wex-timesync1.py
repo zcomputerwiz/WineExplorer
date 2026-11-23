@@ -31,6 +31,8 @@ for _dir in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/wineex
         sys.path.insert(0, _dir)
 
 from wexcommon import atomic_write
+import wexrootsvc
+from wexrootsvc import Failed, Refused, refusal  # noqa: F401 (refusal: the tests read it here)
 
 BUS_NAME = "org.wineexplorer.TimeSync1"
 OBJECT_PATH = "/org/wineexplorer/TimeSync1"
@@ -41,19 +43,10 @@ SYSTEMCTL = os.environ.get("WEX_SYSTEMCTL", "systemctl")
 DROPIN = "timesyncd.conf.d/90-wineexplorer.conf"
 UNIT = "systemd-timesyncd.service"
 MAX_SERVERS = 8
-IDLE_SECONDS = 60
 # a host name (labels of letters, digits and hyphens) or an address
 _LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 _HOST = re.compile(r"^" + _LABEL + r"(?:\." + _LABEL + r")*\.?$")
 _IPV6 = re.compile(r"^[0-9A-Fa-f:.]{2,45}$")
-
-
-class Refused(Exception):
-    """A value the service does not take (D-Bus error InvalidArgs)."""
-
-
-class Failed(Exception):
-    """A change that did not happen (D-Bus error Failed)."""
 
 
 def check_servers(text):
@@ -146,111 +139,33 @@ def sync_now(run=None):
     run_systemctl("try-restart", UNIT, run=run)
 
 
-def refusal(result):
-    """Cancelled when the password dialog was dismissed (polkit.dismissed), else NotAuthorized."""
-    details = result[2] if len(result) > 2 else {}
-    return "Cancelled" if str(details.get("polkit.dismissed", "")) == "true" else "NotAuthorized"
+def define(dbus, base, service):
+    """The service's object (wexrootsvc.serve): its methods and properties."""
+    def change_servers(text):
+        set_servers(text)
+        reload_servers()   # a running timesyncd reads its files when it starts
 
-
-def serve():
-    import dbus
-    import dbus.mainloop.glib
-    import dbus.service
-    from gi.repository import GLib
-    import time
-
-    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-    bus = dbus.SystemBus()
-    name = dbus.service.BusName(BUS_NAME, bus, do_not_queue=True)
-    loop = GLib.MainLoop()
-    state = {"busy": 0, "last": time.monotonic()}
-
-    def error(kind, message):
-        return dbus.exceptions.DBusException(str(message), name=f"{INTERFACE}.Error.{kind}")
-
-    def as_dbus(exc):
-        if isinstance(exc, dbus.exceptions.DBusException):
-            return exc
-        if isinstance(exc, Refused):
-            return error("InvalidArgs", exc)
-        return error("Failed", exc)
-
-    class TimeSync1(dbus.service.Object):
-        def authorized(self, sender, interactive, then, fail):
-            """polkit's CheckAuthorization for the caller, without blocking the loop while the password dialog waits."""
-            state["busy"] += 1
-
-            def done(result):
-                state["busy"] -= 1
-                state["last"] = time.monotonic()
-                if not result[0]:
-                    fail(error(refusal(result), "not authorized to change the time servers"))
-                    return
-                try:
-                    then()
-                except Exception as exc:  # report it to the caller; the service goes on
-                    fail(as_dbus(exc))
-
-            def failed(exc):
-                state["busy"] -= 1
-                state["last"] = time.monotonic()
-                fail(as_dbus(exc))
-
-            authority = bus.get_object("org.freedesktop.PolicyKit1", "/org/freedesktop/PolicyKit1/Authority")
-            subject = dbus.Struct((dbus.String("system-bus-name"),
-                                   dbus.Dictionary({"name": dbus.String(sender, variant_level=1)}, signature="sv")),
-                                  signature="sa{sv}")
-            authority.CheckAuthorization(subject, ACTION, dbus.Dictionary({}, signature="ss"),
-                                         dbus.UInt32(1 if interactive else 0), "",
-                                         dbus_interface="org.freedesktop.PolicyKit1.Authority", timeout=24 * 3600,
-                                         reply_handler=done, error_handler=failed)
-
+    class TimeSync1(base):
         @dbus.service.method(INTERFACE, in_signature="sb", out_signature="", sender_keyword="sender",
                              async_callbacks=("ok", "fail"))
         def SetServers(self, text, interactive, sender=None, ok=None, fail=None):
-            try:
-                check_servers(str(text))
-            except Refused as exc:
-                fail(as_dbus(exc))
-                return
-
-            def change():
-                set_servers(str(text))
-                reload_servers()   # a running timesyncd reads its files when it starts
-                ok()
-            self.authorized(sender, interactive, change, fail)
+            text = str(text)
+            service.change(sender, interactive, ok, fail, lambda: change_servers(text),
+                           check=lambda: check_servers(text))
 
         @dbus.service.method(INTERFACE, in_signature="b", out_signature="", sender_keyword="sender",
                              async_callbacks=("ok", "fail"))
         def SyncNow(self, interactive, sender=None, ok=None, fail=None):
-            self.authorized(sender, interactive, lambda: (sync_now(), ok()), fail)
+            service.change(sender, interactive, ok, fail, lambda: sync_now())
 
-        @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="s", out_signature="a{sv}")
-        def GetAll(self, interface):
-            state["last"] = time.monotonic()
-            if interface not in (INTERFACE, ""):
-                raise error("InvalidArgs", f"no interface {interface}")
-            return dbus.Dictionary({"Servers": dbus.String(servers())}, signature="sv")
+        def properties(self):
+            return {"Servers": dbus.String(servers())}
 
-        @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="ss", out_signature="v")
-        def Get(self, interface, prop):
-            values = self.GetAll(interface)
-            if prop not in values:
-                raise error("InvalidArgs", f"no property {prop}")
-            return values[prop]
+    return TimeSync1
 
-    TimeSync1(bus, OBJECT_PATH)
 
-    def idle():
-        if not state["busy"] and time.monotonic() - state["last"] >= IDLE_SECONDS:
-            loop.quit()
-            return False
-        return True
-
-    GLib.timeout_add_seconds(10, idle)
-    loop.run()
-    del name
-    return 0
+def serve():
+    return wexrootsvc.serve(BUS_NAME, OBJECT_PATH, ACTION, "not authorized to change the time servers", define)
 
 
 def main(argv=None):
