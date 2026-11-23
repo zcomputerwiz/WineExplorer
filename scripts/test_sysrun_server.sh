@@ -706,7 +706,11 @@ hive_flush() { [ "$SEC_S0" != 1 ] || { s0_stop; s0_start; }; }
 hive_put_file() { cat "$1" > "$M/system.reg"; }
 hive_put() { hive_edit hive_put_file "$1"; }   # FILE: the machine system.reg gets FILE's content
 hive_copy() { hive_flush; cat "$M/system.reg" > "$1"; }   # FILE: a copy of the machine system.reg as saved
-eval "reg_append_file$(declare -f reg_append | tail -n +2)"   # the fixture library's plain append
+reg_append_file()   # file section line...: the fixture library's plain append (scripts/lib/sysrun-fixture.sh)
+{
+    local file="$1" section="$2"; shift 2
+    { printf '\n[%s] 1700000000\n#time=1d9a0000000000\n' "$section"; printf '%s\n' "$@"; } >> "$file"
+}
 reg_append() { hive_edit reg_append_file "$@"; }
 if [ "${WEX_SKIP_SESSION0:-0}" != 1 ]; then
     echo "--- system tier: session 0 for the whole suite"
