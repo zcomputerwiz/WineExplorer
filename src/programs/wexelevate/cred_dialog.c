@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /* Copyright 2026 WineExplorer contributors */
 
+/* A lab unit (broker_internal.h): empty in a shipping Wine build. */
+#if defined(WEXELEVATE_E1S18) || !defined(__WINE_PE_BUILD)
+
 #include "cred_dialog.h"
 
 #include <errno.h>
@@ -590,3 +593,7 @@ int wex_prompt_queue_check_deadlines( struct wex_prompt_queue *q, uint64_t now )
     queue_unlock( q );
     return count;
 }
+
+#else
+typedef int wexelevate_lab_unit_empty;   /* ISO C: no empty translation unit */
+#endif /* WEXELEVATE_E1S18 || !__WINE_PE_BUILD */

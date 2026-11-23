@@ -6,7 +6,7 @@
  * capability enforcement, single guarded resume, and disabled-by-default behavior.
  */
 
-#include "e1s18_broker.h"
+#include "standard.h"
 #ifdef WEXELEVATE_E1S18
 /* WO-14: the golden-vector test uses the shared S1 encoder directly. */
 #include "e1s_encode.h"
@@ -25,7 +25,7 @@
 #include <string.h>
 #include <assert.h>
 
-/* R15 policy-value decision, exported from e1s18_broker.c for native testing. */
+/* R15 policy-value decision, exported from standard.c for native testing. */
 extern BOOL e1s18_policy_value_enabled( DWORD val );
 
 /* WO-14: sets a fully valid S1 endorsed-identity context (defined below). */

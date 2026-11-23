@@ -3,5 +3,11 @@ IMPORTS   = advapi32 userenv bcrypt user32
 
 EXTRADLLFLAGS = -mconsole -municode
 
+# main.c is the broker. The other units are the standard-user path (lab only): they compile to nothing in a
+# shipping build (broker_internal.h).
 SOURCES = \
-	main.c
+	broker0.c \
+	cred_dialog.c \
+	launch_prep.c \
+	main.c \
+	standard.c

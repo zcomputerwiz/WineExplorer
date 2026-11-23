@@ -57,18 +57,7 @@ typedef struct _PROCESS_INFORMATION
 #define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
 #define DUPLICATE_CLOSE_SOURCE            0x00000001
 
-#define WEXELEVATE_WANT_HANDLE            0x1
-#define WEXELEVATE_ENV_INHERIT            0x2
-#define WEXELEVATE_FLAGS_MASK             0x3
-
-struct wexelevate_reply
-{
-    DWORD magic;
-    DWORD error;
-    DWORD pid;
-    DWORD tid;
-    ULONGLONG handle;
-};
+#include "wexelevate_proto.h"
 #endif
 
 #ifdef __cplusplus

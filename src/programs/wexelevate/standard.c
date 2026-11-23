@@ -18,18 +18,10 @@
  * - Explicit rollback / cleanup on failure at every stage
  */
 
-#include "e1s18_broker.h"
-#include "cred_dialog.h"
-#include "launch_prep.h"
-#ifdef __WINE_PE_BUILD
-#include "cred_dialog.c"
-#include "launch_prep.c"
-#endif
-#include "e1s6_protocol.h"
-#include "e1s_encode.h"
-#ifdef WEXELEVATE_E1S18
-#include "e1r8_codec.h"
-#endif
+/* A lab unit (broker_internal.h): empty in a shipping Wine build. */
+#if defined(WEXELEVATE_E1S18) || !defined(__WINE_PE_BUILD)
+
+#include "broker_internal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -178,13 +170,6 @@ static void sha256_final( struct sha256_ctx *ctx, uint8_t out[32] )
         out[i * 4 + 2] = (uint8_t)(ctx->state[i] >> 8);
         out[i * 4 + 3] = (uint8_t)(ctx->state[i]);
     }
-}
-
-/* Secure wipe primitive */
-static inline void e1s18_wipe( void *ptr, size_t size )
-{
-    volatile unsigned char *p = (volatile unsigned char *)ptr;
-    while (size--) *p++ = 0;
 }
 
 /*
@@ -390,7 +375,7 @@ void e1s18_set_test_clock_fail( BOOL fail )
 }
 #endif /* WEX_E1_TEST_HOOKS */
 
-static uint64_t e1s18_get_monotonic_time( void )
+uint64_t e1s18_get_monotonic_time( void )
 {
 #ifdef WEX_E1_TEST_HOOKS
     /* Test hook, compiled only with WEX_E1_TEST_HOOKS: the deterministic clock
@@ -460,7 +445,7 @@ void e1s18_set_test_random_fail( BOOL fail )
 }
 #endif /* WEX_E1_TEST_HOOKS */
 
-static BOOL e1s18_fill_random( uint8_t *buf, size_t len )
+BOOL e1s18_fill_random( uint8_t *buf, size_t len )
 {
 #ifdef WEX_E1_TEST_HOOKS
     size_t i;
@@ -482,7 +467,7 @@ static BOOL e1s18_fill_random( uint8_t *buf, size_t len )
 #endif
 }
 
-static BOOL e1s18_is_all_zero( const uint8_t *buf, size_t len )
+BOOL e1s18_is_all_zero( const uint8_t *buf, size_t len )
 {
     size_t i;
     for (i = 0; i < len; i++)
@@ -764,7 +749,7 @@ int e1s18_verify_r8_ack( const uint8_t *buf, size_t len,
 static BOOL s_r8_skip_prepare = FALSE;
 #endif /* WEX_E1_TEST_HOOKS */
 /* WO-25: the S6 channel of the attempt in flight (single in flight, WO-15). */
-static UINT64 s_r8_channel;
+UINT64 s_r8_channel;
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
 static HANDLE s_r9_pipe = INVALID_HANDLE_VALUE;
 static struct e1r8_tuple s_r9_tuple;
@@ -782,19 +767,19 @@ void e1s18_set_r8_skip_prepare( BOOL skip )
 /* The r8_trace lines on stderr are for the lab suite only (docs/E1_PRODUCTION_PLAN.md, "Test hooks that must never
  * ship"): without WEX_E1_TEST_HOOKS they print nothing. A product log belongs to the audit record (decision 3). */
 #ifndef WEX_E1_TEST_HOOKS
-static void r8_trace_line( const char *msg )
+void r8_trace_line( const char *msg )
 {
     (void)msg;
 }
 
-static void r8_trace_err( const char *step, unsigned long err )
+void r8_trace_err( const char *step, unsigned long err )
 {
     (void)step; (void)err;
 }
 #elif defined(_WIN32)
 typedef int (__cdecl *e1s18_pfn_wine_dbg_output)( const char * );
 
-static void r8_trace_line( const char *msg )
+void r8_trace_line( const char *msg )
 {
     char buf[256];
     HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" );
@@ -808,7 +793,7 @@ static void r8_trace_line( const char *msg )
     fflush( stderr );
 }
 
-static void r8_trace_err( const char *step, unsigned long err )
+void r8_trace_err( const char *step, unsigned long err )
 {
     char buf[256];
     HMODULE ntdll = GetModuleHandleW( L"ntdll.dll" );
@@ -822,13 +807,13 @@ static void r8_trace_err( const char *step, unsigned long err )
     fflush( stderr );
 }
 #else
-static void r8_trace_line( const char *msg )
+void r8_trace_line( const char *msg )
 {
     fprintf( stderr, "%s\n", msg );
     fflush( stderr );
 }
 
-static void r8_trace_err( const char *step, unsigned long err )
+void r8_trace_err( const char *step, unsigned long err )
 {
     fprintf( stderr, "r8: %s failed %lu\n", step, err );
     fflush( stderr );
@@ -1026,7 +1011,7 @@ static struct {
 } s_consumed_answers[E1S18_MAX_REPLAY_TRACK];
 static size_t s_consumed_answers_count = 0;
 
-static BOOL e1s18_is_answer_replayed( uint64_t request_id, const uint8_t nonce[32] )
+BOOL e1s18_is_answer_replayed( uint64_t request_id, const uint8_t nonce[32] )
 {
     size_t i;
     for (i = 0; i < s_consumed_answers_count; i++)
@@ -1038,7 +1023,7 @@ static BOOL e1s18_is_answer_replayed( uint64_t request_id, const uint8_t nonce[3
     return FALSE;
 }
 
-static void e1s18_record_answer( uint64_t request_id, const uint8_t nonce[32] )
+void e1s18_record_answer( uint64_t request_id, const uint8_t nonce[32] )
 {
     if (s_consumed_answers_count < E1S18_MAX_REPLAY_TRACK)
     {
@@ -1305,7 +1290,7 @@ static DWORD WINAPI r8_io_thread( void *param )
 }
 
 /* Milliseconds left until the attempt's admission deadline (0 when it has passed or the clock fails). */
-static DWORD r8_remaining( const struct request *req )
+DWORD r8_remaining( const struct request *req )
 {
     uint64_t now = e1s18_get_monotonic_time(), deadline = E1S18_DEADLINE( req );
     if (!now || deadline <= now) return 0;
@@ -1363,7 +1348,7 @@ static r8_pfn_transport r8_transport( void )
     return wexhost ? (r8_pfn_transport)(void *)GetProcAddress( wexhost, "WexE1s6Transport" ) : NULL;
 }
 
-static DWORD r8_v_send( struct request *req, uint8_t *frame, size_t len )
+DWORD r8_v_send( struct request *req, uint8_t *frame, size_t len )
 {
     r8_pfn_transport transport = r8_transport();
     UINT64 channel = s_r8_channel;
@@ -1371,7 +1356,7 @@ static DWORD r8_v_send( struct request *req, uint8_t *frame, size_t len )
     return transport( req->pipe, E1S6_R8_SEND, frame, (DWORD)len, &channel );
 }
 
-static DWORD r8_v_recv( struct request *req, uint8_t frame[E1S6_R8_FRAME_MAX], size_t *len, DWORD timeout )
+DWORD r8_v_recv( struct request *req, uint8_t frame[E1S6_R8_FRAME_MAX], size_t *len, DWORD timeout )
 {
     r8_pfn_transport transport = r8_transport();
     UINT64 channel = s_r8_channel;
@@ -1478,7 +1463,9 @@ static DWORD r8_dialog_create( struct request *req, struct e1r8_tuple *tuple, ui
 
     lstrcpyW( cmd, L"\"" );
     lstrcatW( cmd, dir );
-    lstrcatW( cmd, L"\\" CONSENT_EXE L"\" /broker /credentials " );
+    lstrcatW( cmd, L"\\" );
+    lstrcatW( cmd, wexelevate_consent_exe );
+    lstrcatW( cmd, L"\" /broker /credentials " );
     wsprintfW( cmd + lstrlenW( cmd ), L"/ppid %lu ", GetCurrentProcessId() );
     wsprintfW( cmd + lstrlenW( cmd ), L"/request %08lx%08lx ", (DWORD)(request_id >> 32), (DWORD)request_id );
     wsprintfW( cmd + lstrlenW( cmd ), L"/token %s ", token_hex );
@@ -4915,3 +4902,7 @@ DWORD e1s18_handle_standard_request( struct request *req, struct wexelevate_repl
     e1s18_standard_slot_release();
     return result;
 }
+
+#else
+typedef int wexelevate_lab_unit_empty;   /* ISO C: no empty translation unit */
+#endif /* WEXELEVATE_E1S18 || !__WINE_PE_BUILD */

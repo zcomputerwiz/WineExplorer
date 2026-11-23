@@ -5,7 +5,7 @@
  *
  * Pure byte encoding of the S1 caller-binding record (kind 1) and the frozen
  * request record, shared by the S5 broker (e1s.h) and the S18 standard-user
- * branch (e1s18_broker.c). No hashing, no Win32 calls, and no allocation the
+ * branch (standard.c). No hashing, no Win32 calls, and no allocation the
  * caller cannot see: the caller supplies the output buffer and performs the
  * SHA-256 and the SID validation. The field order is the one
  * docs/E1_S1_CONTRACTS.md "Encoding and negotiation" specifies; any different

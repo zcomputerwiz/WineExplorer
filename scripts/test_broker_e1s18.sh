@@ -31,7 +31,7 @@ cc -O2 -Wall -Wextra -Werror -lpthread \
     -o "$FIXTURE/production" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
-    "$REPO/src/programs/wexelevate/e1s18_broker.c" \
+    "$REPO/src/programs/wexelevate/standard.c" \
     "$REPO/src/programs/wexelevate/test_broker_e1s18_main.c"
 
 # 2. Compile lab build (with -DWEXELEVATE_E1S18 -DWEX_E1S15_LAUNCH_PREP_TEST)
@@ -44,7 +44,7 @@ cc -O2 -Wall -Wextra -Werror -lpthread \
     -o "$FIXTURE/lab" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
-    "$REPO/src/programs/wexelevate/e1s18_broker.c" \
+    "$REPO/src/programs/wexelevate/standard.c" \
     "$REPO/src/programs/wexelevate/test_broker_e1s18_main.c"
 
 # 3. Production build checks: disabled by default
@@ -68,7 +68,7 @@ cc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit
     -I"$REPO/src/include" -I"$REPO/src/programs/wexelevate" -o "$FIXTURE/lab-asan" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
-    "$REPO/src/programs/wexelevate/e1s18_broker.c" \
+    "$REPO/src/programs/wexelevate/standard.c" \
     "$REPO/src/programs/wexelevate/test_broker_e1s18_main.c" -lpthread
 "$FIXTURE/lab-asan" > "$FIXTURE/lab-asan.log" 2>&1 || { tail -n 40 "$FIXTURE/lab-asan.log"; fail "sanitizer run"; }
 
@@ -79,6 +79,8 @@ x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -I"$REPO/src/include" \
     -o "$FIXTURE/wexelevate_lab64.exe" \
     "$REPO/src/programs/wexelevate/main.c" \
+    "$REPO/src/programs/wexelevate/standard.c" \
+    "$REPO/src/programs/wexelevate/broker0.c" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
     -ladvapi32 -luserenv -lbcrypt
@@ -88,9 +90,25 @@ i686-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -I"$REPO/src/include" \
     -o "$FIXTURE/wexelevate_lab32.exe" \
     "$REPO/src/programs/wexelevate/main.c" \
+    "$REPO/src/programs/wexelevate/standard.c" \
+    "$REPO/src/programs/wexelevate/broker0.c" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
     -ladvapi32 -luserenv -lbcrypt
+
+# 6b. Makefile.in lists the standard-user units beside main.c; a shipping Wine build (__WINE_PE_BUILD without
+# WEXELEVATE_E1S18) must compile each of them to nothing (broker_internal.h).
+echo "==> Checking that the standard-user units are empty in a shipping build (both ABIs)"
+for unit in $(sed -n 's/^\t\([a-z0-9_]*\.c\).*/\1/p' "$REPO/src/programs/wexelevate/Makefile.in"); do
+    [ "$unit" = main.c ] && continue
+    for cc_pe in x86_64-w64-mingw32 i686-w64-mingw32; do
+        "$cc_pe-gcc" -O2 -Wall -Werror -municode -D__WINE_PE_BUILD -I"$REPO/src/include" \
+            -I"$REPO/src/programs/wexelevate" -c "$REPO/src/programs/wexelevate/$unit" -o "$FIXTURE/ship-$unit.o"
+        ! "$cc_pe-nm" --defined-only "$FIXTURE/ship-$unit.o" | grep -q ' [TDBR] ' \
+            || fail "$unit defines symbols in a shipping build ($cc_pe)"
+    done
+done
+echo "PASS standard-user units empty in a shipping build"
 
 # 7. Production objects byte-for-byte unchanged check (cmp). The baseline is the
 # last reviewed production main.c (since S18e: with the R12 bounded-reply fix,

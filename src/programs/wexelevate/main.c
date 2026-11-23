@@ -66,10 +66,11 @@
 #endif
 
 #ifdef WEXELEVATE_E1S18
-#include "e1s18_broker.h"
-/* E1 R9 (lab): the broker role in session 0 (e1r9_broker0.c, included at the end). */
-static BOOL e1r9_is_session0(void);
-static void e1r9_broker0_serve(void);
+/* The standard-user path (lab): its units share these services of main.c (broker_internal.h). */
+#include "broker_internal.h"
+#define BROKER_SHARED
+#else
+#define BROKER_SHARED static
 #endif
 
 #define MAX_REQUESTS      32   /* pending at once */
@@ -90,10 +91,14 @@ static void e1r9_broker0_serve(void);
 
 #include "wexelevate_request.h"
 
+#ifdef WEXELEVATE_E1S18
+const WCHAR wexelevate_consent_exe[] = CONSENT_EXE;
+#endif
+
 static SERVICE_STATUS_HANDLE status_handle;
-static HANDLE stop_event;
+BROKER_SHARED HANDLE stop_event;
 static BOOL system_role;  /* running as SYSTEM with SeTcbPrivilege enabled */
-static CRITICAL_SECTION table_cs;
+BROKER_SHARED CRITICAL_SECTION table_cs;
 static struct request *table[MAX_REQUESTS];
 static LONG active_threads;
 
@@ -108,7 +113,7 @@ static BOOL secure_failed;                     /* the desktop could not be made 
 /* ---- the read lease on the image (wexhost's Unix side) ---------------------------------------------------------- */
 
 static DWORD (WINAPI *pLeaseTake)( HANDLE, HANDLE, UINT64 * );
-static DWORD (WINAPI *pLeaseArm)( UINT64, DWORD );
+BROKER_SHARED DWORD (WINAPI *pLeaseArm)( UINT64, DWORD );
 static DWORD (WINAPI *pLeaseRelease)( UINT64, BOOL * );
 
 static BOOL load_wexhost(void)
@@ -144,7 +149,7 @@ static DWORD WINAPI guard_thread( void *param )
 }
 
 /* the guard takes over the lease and the process handle; on failure the caller still owns them */
-static BOOL start_guard( struct request *req, HANDLE process )
+BROKER_SHARED BOOL start_guard( struct request *req, HANDLE process )
 {
     struct guard *g = malloc( sizeof(*g) );
     HANDLE thread;
@@ -267,7 +272,7 @@ static void free_request( struct request *req )
 
 /* ---- pipe I/O with a timeout --------------------------------------------------------------------------------- */
 
-static DWORD pipe_io( HANDLE pipe, void *buf, DWORD size, BOOL write, DWORD timeout, DWORD *done )
+BROKER_SHARED DWORD pipe_io( HANDLE pipe, void *buf, DWORD size, BOOL write, DWORD timeout, DWORD *done )
 {
     OVERLAPPED ov = { 0 };
     HANDLE events[2];
@@ -309,7 +314,7 @@ static DWORD pipe_io( HANDLE pipe, void *buf, DWORD size, BOOL write, DWORD time
 
 /* ---- the caller ---------------------------------------------------------------------------------------------- */
 
-static BOOL token_user_sid( HANDLE token, BYTE *buf, DWORD size )
+BROKER_SHARED BOOL token_user_sid( HANDLE token, BYTE *buf, DWORD size )
 {
     DWORD len;
     ULONG_PTR offset;
@@ -393,7 +398,7 @@ static BOOL same_luid( LUID a, LUID b )
 
 /* capture only once, after consuming the one request message. Every later call
  * queries that same retained opener AND consumed writer; never a fresh read. */
-static DWORD check_binding( struct request *req, DWORD pid, HANDLE pipe_token, BOOL capture )
+BROKER_SHARED DWORD check_binding( struct request *req, DWORD pid, HANDLE pipe_token, BOOL capture )
 {
     struct pipe_caller_binding binding = { .Size = sizeof(binding) };
     TOKEN_STATISTICS primary, pipe;
@@ -661,7 +666,7 @@ static DWORD freeze_image( struct request *req )
 }
 
 /* at the launch: the path leads to the file that was frozen, and it has not changed */
-static DWORD verify_image( struct request *req )
+BROKER_SHARED DWORD verify_image( struct request *req )
 {
     BY_HANDLE_FILE_INFORMATION now, held;
     BYTE hash[32];
@@ -1166,7 +1171,7 @@ static DWORD create_secure_desktop(void)
 }
 
 /* switch to the secure desktop for a consent window (the first one switches), and back when the last one is gone */
-static DWORD secure_enter(void)
+BROKER_SHARED DWORD secure_enter(void)
 {
     DWORD err = ERROR_SUCCESS;
 
@@ -1208,14 +1213,14 @@ static void return_input(void)
     saved_input = NULL;
 }
 
-static void secure_leave(void)
+BROKER_SHARED void secure_leave(void)
 {
     EnterCriticalSection( &secure_cs );
     if (secure_users && !--secure_users) return_input();
     LeaveCriticalSection( &secure_cs );
 }
 
-static DWORD consent_timeout(void)
+BROKER_SHARED DWORD consent_timeout(void)
 {
 #ifdef WEXELEVATE_TEST_APPROVAL
     DWORD value = 0, size = sizeof(value);
@@ -2246,7 +2251,7 @@ static HANDLE create_instance( BOOL first )
     return pipe;
 }
 
-static void report( DWORD state, DWORD error )
+BROKER_SHARED void report( DWORD state, DWORD error )
 {
     SERVICE_STATUS status = { SERVICE_WIN32_OWN_PROCESS, state, state == SERVICE_RUNNING ? SERVICE_ACCEPT_STOP : 0, error };
 
@@ -2399,7 +2404,3 @@ int wmain( int argc, WCHAR **argv )
     return 0;
 }
 
-#ifdef WEXELEVATE_E1S18
-#include "e1s18_broker.c"
-#include "e1r9_broker0.c"
-#endif

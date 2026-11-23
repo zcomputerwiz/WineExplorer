@@ -24,7 +24,7 @@
  * from START to RELEASE on its own S6 channel and gives the grant. It never touches an object of a session: the
  * agent A creates the dialog, relays the frames, asks its server for the rechecks, redeems and launches.
  *
- * Included at the end of main.c, after e1s18_broker.c, whose helpers it uses.
+ * A unit of its own (broker_internal.h); it uses standard.c's R8 helpers and main.c's services.
  *
  * Limits of this version (stated in the spec, section 12):
  *  - one request is served at a time; a second session's request gets DECISION deny (busy);
@@ -33,7 +33,12 @@
  *    the verifier (the agent's channel loss ends the attempt there, and the verifier tells B0).
  */
 
+#include "broker_internal.h"
+
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+
+#include <stdio.h>
+#include <sddl.h>
 
 #define R9B_PIPE_NAME   L"\\\\.\\pipe\\wexelevate.r9"
 #define R9B_INSTANCES   8
@@ -577,7 +582,7 @@ static HANDLE r9b_create_instance( BOOL first )
 }
 
 /* The service's main loop in session 0, in place of serve(). */
-static void e1r9_broker0_serve(void)
+void e1r9_broker0_serve( void )
 {
     HANDLE pipe = r9b_create_instance( TRUE );
     OVERLAPPED ov = { 0 };
@@ -637,10 +642,12 @@ static void e1r9_broker0_serve(void)
 }
 
 /* B0 is the role of this image in session 0. */
-static BOOL e1r9_is_session0(void)
+BOOL e1r9_is_session0( void )
 {
     DWORD session = 1;
     return ProcessIdToSessionId( GetCurrentProcessId(), &session ) && !session;
 }
 
+#else
+typedef int wexelevate_lab_unit_empty;   /* ISO C: no empty translation unit */
 #endif /* _WIN32 && WEXELEVATE_E1S18 */
