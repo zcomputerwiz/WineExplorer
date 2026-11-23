@@ -2,7 +2,7 @@
 
 ## taskmgr: Windows XP's Task Manager; ntdll and server: process I/O counters and memory figures (2026-11-23)
 
-Wine branch `claude/taskmgr-xp-parity`, `66d8330d` (ntdll, server) and `b1ae33c1` (taskmgr), on `d5e17250`.
+Wine branch `claude/taskmgr-xp-parity`, `66d8330d` (ntdll, server), `b1ae33c1` and `c002806a` (taskmgr), on `d5e17250`.
 
 * `server/protocol.def`, `server/process.c`: new request `get_process_io_counters`, read from `/proc/<pid>/io`
   (`rchar`, `wchar`, `syscr`, `syscw`). Request numbers shift: rebuild everything after taking it.
@@ -13,7 +13,7 @@ Wine branch `claude/taskmgr-xp-parity`, `66d8330d` (ntdll, server) and `b1ae33c1
 * `programs/taskmgr`: XP's caption, defaults, strings and layout. Additions:
   * User Name column.
   * Processes from other sessions only with "Show processes from all users". With an Elevation helper and a limited
-    token, this is Vista's shield button, which restarts Task Manager elevated with `/showall`.
+    token that is not elevated (TokenIsElevated: an administrator's filtered token or a standard user), this is Vista's shield button, which restarts Task Manager elevated with `/showall`; other users' processes are listed only when elevated. `get_process_io_counters` needs `PROCESS_QUERY_LIMITED_INFORMATION`, as the VM counters do. The shield picture itself is not drawn: comctl32 has no `BCM_SETSHIELD` yet.
   * Column sorting and the selection kept across refreshes. End Process Tree ends the children.
   * Shut Down menu through `wexhost` `WexPowerCan`/`WexPowerDo`, falling back to `ExitWindowsEx` (items the host can't
     do are greyed).
