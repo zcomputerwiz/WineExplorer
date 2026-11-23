@@ -37,8 +37,12 @@ Status: implemented as described below.
   grants AppContainers the limited query right on its process and TOKEN_QUERY on its token. The client opens with
   the limited right, and retries with `PROCESS_QUERY_INFORMATION` until Wine's `token.c` accepts the limited right
   for query-only token access (the Session 0 reviewer's change, pending the owner).
-- The read rule's "enforcement" is the broker's own token being a split, limited one, because user mode cannot see
-  the server's switch.
+- The read rule (below, under per-message checks) always applies. User mode cannot see the server's
+  desktop-separation switch, and a token's elevation type is not that switch.
+- Client ACEs are `0x12018b`, not GRGW: GW's `FILE_APPEND_DATA` bit is `FILE_CREATE_PIPE_INSTANCE`, so only the
+  broker's user creates instances.
+- Connections are capped: 8 per process, 1 for pid 0, and 512 in total. A connection over the cap is closed at
+  once.
 - AppContainer clients are not tested yet: packaged apps on Wine currently get ordinary Medium tokens (UWP agent,
   2026-11-23).
 
@@ -58,7 +62,7 @@ requests by the target window, not the calling thread, and to have the broker ch
   - The name is built by one helper in `dwm_protocol.h`, which also builds the frame-clock and event names.
   - It stays outside the `\pipe\WexSession0\` prefix, so the Session 0 bridge never forwards it.
   - There is no broker on Winlogon, Screen-saver or `__wineservice_winstation`.
-- **DACL** `D:P(A;;GA;;;<owner>)(A;;GRGW;;;SY)(A;;GRGW;;;IU)(A;;GRGW;;;AC)S:(ML;;NW;;;LW)`.
+- **DACL** `D:P(A;;GA;;;<user>)(A;;0x12018b;;;SY)(A;;0x12018b;;;IU)(A;;0x12018b;;;AC)S:(ML;;NW;;;LW)`.
   - IU (interactive users), not the desktop's logon SID: E1-S gives the administrator's token its own logon id, so a
     logon SID would lock out over-the-shoulder windows. This has to be checked against the over-the-shoulder token
     once E1-S exists; today that path fails closed with ERROR_NOT_SUPPORTED.
@@ -74,9 +78,11 @@ requests by the target window, not the calling thread, and to have the broker ch
     `GetWindowThreadProcessId == GetNamedPipeClientProcessId`. A client pid of 0, which is what a bridged client
     has, is refused explicitly.
   - A process with windows on two desktops holds two connections.
-  - Reads (GET_ATTR, for example DWMWA_HAS_ICONIC_BITMAP) are allowed for any window on the desktop when sysrun
-    enforcement is off. When it is on, they are allowed only if the caller owns a window on that desktop; the answer
-    is cached per connection and rechecked when a check fails. This keeps what `cross_desktop_denied` gave.
+  - Reads (GET_ATTR, for example DWMWA_HAS_ICONIC_BITMAP, plus POLL and THUMB_LIST) are allowed only if the caller
+    owns a window on that desktop. The answer is cached per connection and rechecked when a check fails. This keeps
+    what `cross_desktop_denied` gave. It applies always, because user mode cannot tell whether the server separates
+    desktops. Cost: a process without windows cannot read another process's attributes (Windows allows it; no known
+    program needs it).
 - **Broker authenticity.**
   - Squatting the name before dwm.exe starts, or between a crash and the restart, is the risk; a low-integrity,
     AppContainer or restricted process could do it.
