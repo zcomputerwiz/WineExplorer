@@ -12,6 +12,7 @@
  * e1s_string, and the binding/request field order) lives in e1s_encode.h,
  * shared with the S18 standard-user branch. BCrypt and IsValidSid stay here. */
 #include "e1s_encode.h"
+#include "e1s_digest.h"   /* e1s_sha256, e1s_digest_record: the one checked digest path */
 
 #define E1S_PROBE_MAGIC 0x35533145u
 #define E1S_MAX_RECORD (1024 * 1024)
@@ -113,21 +114,6 @@ static BOOL e1s_nonzero( const BYTE *p, DWORD len )
     return v != 0;
 }
 
-static BOOL e1s_sha256( const char *tag, DWORD tag_len, const BYTE *data, DWORD len, BYTE out[32] )
-{
-    BCRYPT_ALG_HANDLE alg = NULL;
-    BCRYPT_HASH_HANDLE hash = NULL;
-    BOOL ok = FALSE;
-    if (NT_SUCCESS(BCryptOpenAlgorithmProvider( &alg, BCRYPT_SHA256_ALGORITHM, NULL, 0 )) &&
-        NT_SUCCESS(BCryptCreateHash( alg, &hash, NULL, 0, NULL, 0, 0 )) &&
-        NT_SUCCESS(BCryptHashData( hash, (BYTE *)tag, tag_len, 0 )) &&
-        NT_SUCCESS(BCryptHashData( hash, (BYTE *)data, len, 0 )) &&
-        NT_SUCCESS(BCryptFinishHash( hash, out, 32, 0 ))) ok = TRUE;
-    if (hash) BCryptDestroyHash( hash );
-    if (alg) BCryptCloseAlgorithmProvider( alg, 0 );
-    return ok;
-}
-
 static BOOL e1s_generations_valid( const struct e1s_generations *g )
 {
     return g->root && g->server && g->broker && g->verifier && g->map && g->policy;
@@ -165,7 +151,7 @@ static BOOL e1s_binding_digest( const struct e1s_context *c, const struct e1s_bi
         s->session,
         s->sid, s->sid_len,
         c->desktop );
-    return !b.failed && e1s_sha256( "E1S1-BIND", sizeof("E1S1-BIND"), data, b.length, out );
+    return e1s_digest_record( "E1S1-BIND", sizeof("E1S1-BIND"), &b, out );
 }
 
 static BOOL e1s_absolute( const WCHAR *s )
@@ -180,7 +166,6 @@ static BOOL e1s_freeze( struct e1s_frozen *f, UINT64 id, UINT64 now, UINT64 dead
                         const WCHAR *image, const WCHAR *cmd, const WCHAR *cwd, DWORD show, DWORD flags )
 {
     struct e1s_bytes b;
-    BYTE env_policy[4] = { 1, 0, 0, 0 };
     memset( f, 0, sizeof(*f) );
     if (!id || !now || now >= deadline || !e1s_absolute( image ) || !e1s_absolute( cwd ) ||
         (flags & ~WEXELEVATE_FLAGS_MASK) || (flags & WEXELEVATE_ENV_INHERIT) ||
@@ -195,8 +180,8 @@ static BOOL e1s_freeze( struct e1s_frozen *f, UINT64 id, UINT64 now, UINT64 dead
         image_hash,
         image, cmd, cwd,
         1, show, flags, deadline );
-    if (b.failed || !e1s_sha256( "E1S1-REQ", sizeof("E1S1-REQ"), b.data, b.length, f->request_digest ) ||
-        !e1s_sha256( "E1S1-ENV", sizeof("E1S1-ENV"), env_policy, sizeof(env_policy), f->environment_digest ))
+    if (!e1s_digest_record( "E1S1-REQ", sizeof("E1S1-REQ"), &b, f->request_digest ) ||
+        !e1s_env_digest( 1, f->environment_digest ))
     { free( b.data ); return FALSE; }
     f->id = id; f->deadline = deadline; f->bytes = b.data; f->length = b.length;
     return TRUE;
