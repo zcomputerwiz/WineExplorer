@@ -75,10 +75,16 @@ that, it is option (b) of the review (references naming the owning server), kept
 2. **B85's zeroing is removed:** a session 0 service's id is unique, so a session may see it.
 3. **`LRPC<pid>` and `OLE_<oxid>` pipes can be bridged** where that is wanted, since the name no longer collides.
    Each is decided separately with the ALPC and COM owners. lsass stays local: it reads its callers' memory.
-4. **B76: Click-to-Run back to one service in session 0.** First, black-box check whether the service only reads the
-   client's identity from the PID (DESCRIBE_PROCESS is enough) or opens the process for more (then it needs option
-   (b), and the split stays). Ask the orchestrator before changing ClickToRunSvc's placement: the B76 lab VM
-   (c2r-split) depends on it.
+4. **B76: Click-to-Run back to one service in session 0.** Ask the orchestrator before changing ClickToRunSvc's
+   placement: the B76 lab VM (c2r-split) depends on it.
+   - What is known (the orchestrator, 2026-11-23): before the split, the service answered App-V's d99d2add call with
+     E_INVALIDARG when the PID belonged to another server's process. The error went away once the service ran in the
+     client's server. So it validates the PID against a real process, at least by opening it.
+   - Open: whether it also reads the token or image, or uses the handle for more. The orchestrator's B76 lab VM
+     answers that black-box when R6 reaches this step.
+   - If it only opens and queries, a limited handle to a foreign process is enough. The owning server would answer
+     `PROCESS_QUERY_LIMITED_INFORMATION` queries through DESCRIBE_PROCESS. Anything more needs option (b), and the
+     split stays.
 
 ### 4. A list of every session's processes: on demand, not pushed
 
