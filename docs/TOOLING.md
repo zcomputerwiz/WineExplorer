@@ -283,13 +283,39 @@ share of the CPU). A queue that keeps ready builds per commit for all sessions i
 - **While iterating:** the quickest check that covers the change: a module's own Wine tests (both architectures),
   the T1 lab (`wex-run.sh labt1`), one VM phase (`safe-mode.sh` with `diag=PHASE`, `installer/tests/quick-run.sh`
   onto an installed disk), or the app's own test.
-- **Before a merge:** the full suite (`wex-run.sh full`) every time, plus the VM stages the change touches. A change
+- **Before a merge:** (since 2026-11-23: per batch of changes, not per change; see "Targeted runs" above) the full
+  suite (`wex-run.sh full`), plus the VM stages the change touches. A change
   that cannot affect booting (a Wine module, a program, a test) gets the image smoke check: `WEX_BATCH_FWS=uefi
   wex-batch.sh REV NAME rundialog` (an ISO, a fresh install on UEFI and the Run dialog on the desktop, beside the
   suite). Rebuilding the image does not by itself make a change an image change (owner, 2026-11-22).
 - **The whole chain** (an ISO, install and every stage on both firmwares; `wex-batch.sh REV NAME`): for changes to
   booting, the installer, the session, the greeter or logon, Vintner Boot, systemd units or a default, and at
   milestones (a finished feature, an image the owner will install).
+
+## Added 2026-11-23: Targeted runs, reruns, and the full suite on batches (owner's rule)
+
+The owner, 2026-11-23: test what changed, quickly; run the full suite and the image on large batches of changes.
+
+- **Each change (a branch, a fix): the targeted run.** `scripts/lab/wex-test.sh [BASE]` (wexbuild, root, from the
+  worktree; BASE defaults to `origin/master`) takes the paths changed since BASE in both trees (committed,
+  uncommitted, untracked), looks each up in `scripts/lab/test-map.txt`, builds incrementally, runs the own Wine tests
+  of every changed module that has tests (both architectures), then the suites the map names (`t1suite`,
+  `normalsuite`, `lab`), each once. VM checks are printed as the command to run (`image`: the UEFI smoke check or
+  `installer/tests/quick-run.sh` onto an installed disk; `chain`: the whole chain). `WEX_TEST_PLAN=1` prints the
+  plan only. A path no rule matches gets the normal suite and a note: add a rule. A targeted pass is what a branch
+  needs to join a batch; it is never a merge to master by itself.
+- **Batches: the full suite and the image.** Branches with a targeted pass are merged together onto one head; that
+  head gets `wex-batch.sh` (the full suite and the UEFI smoke check, or the whole chain when a branch of the batch
+  calls for it) before it goes to master and development. A batch should hold several changes, not one.
+- **Reruns: the part that failed, not the batch.** `WEX_BATCH_PARTS=suite` or `image` runs one part of a batch;
+  `WEX_BATCH_SUITE=normalsuite` (or `t1suite`, `labsuite`) runs only that suite, on the build the batch made
+  (`wex-run.sh` refuses a build that does not match the worktree's Wine commit and `src`, recorded in
+  `build/wow64/.wex-built`). A rerun after a fix to a test script needs only the failed suite; a fix to product code
+  needs the targeted run of that fix and the failed part again.
+- **Builds are incremental:** `wex-run.sh` runs autoconf and configure only when `configure.ac` or `aclocal.m4`
+  changed (`WEX_RECONFIGURE=1` forces it; a configure run made most of the tree rebuild, about 25 minutes, even for
+  a few changed files), and `make_requests` only when `server/protocol.def` changed. The lab tree is updated with
+  rsync instead of copied whole (`R8_LAB_FRESH=1` copies it whole).
 
 ## Added 2026-11-18: Batches (the suite and the image side by side)
 
@@ -318,6 +344,8 @@ answers `BUSY` when a suite or build is running.
 | Mode | Does | When | Minutes (2026-11-14) |
 |---|---|---|---|
 | `labsuite` | lab suite only | lab scripts, verifier, worker or the suite script changed | about 16 |
+| `normalsuite` | normal suite and broker test on the recorded build | a rerun after a fix to the normal suite's script | about 23 |
+| `t1suite` | T1 on the recorded build | a rerun of T1 | about 2 |
 | `lab` | sync, build, lab build, lab suite | only code behind the lab build flags changed | about 20 |
 | `normal` | sync, build, normal suite, broker test | product code, lab suite not needed | about 20 |
 | `full` | sync, build, T1, normal suite, broker test, lab build, lab suite | product code changed | about 37 |
@@ -355,7 +383,7 @@ answers `BUSY` when a suite or build is running.
   `sd` (the secure desktop) and `c7` (the callers of the broker). The fixture, C3, the broker, consent, session 0
   with Group Policy and the own prefix always run, with all setup. Such a run prints PARTIAL in its stage line and
   its last line.
-- **Rule: the full suite runs before every merge** (`full`, or `wex-run-split.sh`, without `WEX_SUITE_ONLY`). A
+- **Rule: the full suite runs before every merge** (since 2026-11-23: on every batch of merges, "Targeted runs") (`full`, or `wex-run-split.sh`, without `WEX_SUITE_ONLY`). A
   partial run is for working on one area only.
 - Measured on wexgpo, 2026-11-15 (normal suite 1,142 s): c2 341 s, of which one check,
   `c2_wineboot_init_with_system_group_writes_machine_root`, takes 301 s, the launcher's 5-minute wait for the

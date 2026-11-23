@@ -15,6 +15,9 @@
 # Run as root in wexbuild: wsl.exe -d wexbuild -u root --exec bash /mnt/d/.../<worktree>/scripts/lab/wex-batch.sh
 # REV NAME [STAGE...]. REV is a full commit id. Environment: WEX_BATCH_LANES (VMs at once, default 3),
 # WEX_BATCH_FWS (default "bios uefi"); WEX_SESSION0 / WEX_ELEVATION pass through to the packaging (default on).
+# WEX_BATCH_PARTS (default "suite image") runs one part only, to rerun the part that failed (suite or image);
+# WEX_BATCH_SUITE (default full) is the wex-run.sh mode of the suite part (normalsuite, t1suite or labsuite rerun
+# only those suites on the build the batch made; docs/TOOLING.md, "Reruns").
 # Output: one line per part and its result; logs in /var/tmp/wex-batch/NAME-{suite,iso,chain}.log. The exit status is
 # 0 when both parts passed.
 set -u
@@ -43,9 +46,14 @@ head=$("${WG[@]}" rev-parse HEAD 2>/dev/null)
 [ -z "$("${WG[@]}" status --porcelain --untracked-files=no --ignore-submodules=dirty 2>/dev/null)" ] ||
     { echo "the worktree has changes; commit them (the suite runs the worktree, the ISO REV)"; exit 2; }
 
-part "suite: wex-run.sh full"
-( bash "$D/scripts/lab/wex-run.sh" full > "$LOGS/$NAME-suite.log" 2>&1 ) &
-suite_pid=$!
+PARTS=" ${WEX_BATCH_PARTS:-suite image} "
+SUITE_MODE=${WEX_BATCH_SUITE:-full}
+suite_pid= image_pid=
+if [[ $PARTS == *" suite "* ]]; then
+    part "suite: wex-run.sh $SUITE_MODE"
+    ( bash "$D/scripts/lab/wex-run.sh" "$SUITE_MODE" > "$LOGS/$NAME-suite.log" 2>&1 ) &
+    suite_pid=$!
+fi
 
 image() {
     local SRC=/root/wex-isosrc SHARED=/mnt/d/DeepThought/Projects/WineExplorer/.git REPO ISO a cc
@@ -72,22 +80,31 @@ image() {
         -j "${WEX_BATCH_LANES:-3}" --fws "${WEX_BATCH_FWS:-bios uefi}" --iso "$ISO" "$NAME" "$@" \
         > "$LOGS/$NAME-chain.log" 2>&1
 }
-image "$@" &
-image_pid=$!
-
-wait "$suite_pid"; suite=$?
-part "suite: $(grep -E '^(ALL PASS|ALL FAILED)' "$LOGS/$NAME-suite.log" | tail -1 || echo "status $suite")"
-wait "$image_pid"; chain=$?
-summary=/var/tmp/wex-chain/$NAME/summary.txt
-if [ -f "$summary" ]; then
-    grep -E 'PASS|FAIL' "$summary" | sed 's/^/  /'
-else
-    tail -n 5 "$LOGS/$NAME-iso.log" "$LOGS/$NAME-chain.log" 2>/dev/null | sed 's/^/  /'
+if [[ $PARTS == *" image "* ]]; then
+    image "$@" &
+    image_pid=$!
 fi
-part "image: $([ "$chain" = 0 ] && echo PASS || echo "FAILED ($chain)")"
+
+suite=0 chain=0
+if [ -n "$suite_pid" ]; then
+    wait "$suite_pid"; suite=$?
+    part "suite: $(grep -E '^(ALL PASS|ALL FAILED)' "$LOGS/$NAME-suite.log" | tail -1 || echo "status $suite")"
+fi
+if [ -n "$image_pid" ]; then
+    wait "$image_pid"; chain=$?
+    summary=/var/tmp/wex-chain/$NAME/summary.txt
+    if [ -f "$summary" ]; then
+        grep -E 'PASS|FAIL' "$summary" | sed 's/^/  /'
+    else
+        tail -n 5 "$LOGS/$NAME-iso.log" "$LOGS/$NAME-chain.log" 2>/dev/null | sed 's/^/  /'
+    fi
+    part "image: $([ "$chain" = 0 ] && echo PASS || echo "FAILED ($chain)")"
+fi
+ONLY=
+[ "$PARTS" = " suite image " ] && [ "$SUITE_MODE" = full ] || ONLY=" (parts:$PARTS suite mode $SUITE_MODE)"
 if [ "$suite" = 0 ] && [ "$chain" = 0 ]; then
-    echo "ALL PASS batch $NAME ($(( (SECONDS - T0 + 30) / 60 )) min)"
+    echo "ALL PASS batch $NAME ($(( (SECONDS - T0 + 30) / 60 )) min)$ONLY"
     exit 0
 fi
-echo "ALL FAILED batch $NAME ($(( (SECONDS - T0 + 30) / 60 )) min)"
+echo "ALL FAILED batch $NAME ($(( (SECONDS - T0 + 30) / 60 )) min)$ONLY"
 exit 1

@@ -104,6 +104,13 @@ else
     GD=$D/wine
     WGIT=(git -C "$D/wine")
 fi
+# the same for the superproject when it is a worktree
+if [ -f "$D/.git" ]; then
+    SGD=$(sed -n 's/^gitdir: //p' "$D/.git" | tr -d '\r' | sed 's#^\([A-Za-z]\):#/mnt/\L\1#')
+    SGIT=(git -C "$D" --git-dir="$SGD" --work-tree="$D")
+else
+    SGIT=(git -C "$D")
+fi
 
 # Wine: the clone checks out the worktree's commit, then takes its changed and new files; src is copied over.
 sync_tree()
@@ -184,9 +191,9 @@ built_from()
 {
     local w s d=
     w=$("${WGIT[@]}" rev-parse HEAD 2>/dev/null) || return 1
-    s=$(git -C "$D" rev-parse HEAD:src 2>/dev/null) || return 1
+    s=$("${SGIT[@]}" rev-parse HEAD:src 2>/dev/null) || return 1
     [ -z "$("${WGIT[@]}" status --porcelain --untracked-files=no 2>/dev/null)" ] || d=" wine-dirty"
-    [ -z "$(git -C "$D" status --porcelain --untracked-files=no -- src 2>/dev/null)" ] || d="$d src-dirty"
+    [ -z "$("${SGIT[@]}" status --porcelain --untracked-files=no -- src 2>/dev/null)" ] || d="$d src-dirty"
     echo "wine $w src $s$d"
 }
 case $MODE in
