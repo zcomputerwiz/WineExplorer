@@ -1,5 +1,37 @@
 # Changes to stock Wine / third-party code
 
+## server: the E1 lab code out of the stock files, behind hooks (R5 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
+
+Wine branch `claude/r5-elevation-engine` (development c82a1353 with R2 f19545fe, the token-read change 3dd91565 and R3
+6e143950 merged). No change of behaviour in either build: a normal build preprocesses `registry.c`, `token.c` and
+`sysrun.c` exactly as before, and `named_pipe.c` up to one pair of braces. The lab code (the switches
+`WEX_E1S6_TRANSPORT_TEST`, `WEX_E1S10_TOKEN_TEST`, `WEX_E1S13_HKU_TEST`, `WEX_E1_TEST_HOOKS`, `WEX_E1S14_CRASH_TEST`
+and `WEX_R8_SERVER_TEST`, about 2,600 lines) moved into WineExplorer files; the hooks it left behind:
+
+- `named_pipe.c` (about 990 lab lines before, 20 now). The R8 binding of a server end and its four E1R8 operations
+  are `wex_e1lab_pipe.c`, a file of its own. Hooks: the `binding` pointer of `struct pipe_end` and the `desktop` of
+  `struct pipe_writer` (as before), `e1lab_pipe_binding_free` where the binding was cleared,
+  `e1lab_pipe_e1r8_op` for an E1R8 request in `get_pipe_caller_binding`, `e1lab_pipe_session0_endorse` for R9's
+  broker in session 0. `E1S6_BINDING_AUDIT` moved to `wex_e1lab.h`.
+- **One E1R8 codec.** `wex_e1lab_pipe.c` decodes the broker's tuple, encodes ENDORSED and decodes the verifier's
+  RECEIPT (type 30) with `e1r8_codec.h`, the codec wexelevate and consent use (moved to `src/include`, assembled
+  into Wine's `include/`); the hand-written decoder and encoder are gone. The receipt's account name now follows the
+  codec's account rule (the S4 grammar) instead of "printable ASCII"; the verifier only ever sends canonical names.
+  A malformed receipt keeps its audit labels (`receipt-frame`, `receipt-name`), except that a frame with both a bad
+  name and a bad evidence record now reports the name.
+- `registry.c` (about 820 before, 15 now) and `token.c` (about 470 before, 40 now): the lab hives and the S10 token
+  context work on the files' own structures (`struct key`, `struct token`) and static helpers, so the code moved
+  into `wex_e1lab_registry.h` and `wex_e1lab_token.h`, which hold code and are included once, at the place the
+  code was, with the switches only (a separate file would need those structures and helpers exported). Hooks: the
+  two includes; `load_e1s_profile` and `create_e1s_account_token` call `e1lab_load_e1s_profile` and
+  `e1lab_create_e1s_account_token`; each function of `e1s_token.h` with a lab body calls its `e1lab_*` body; the
+  stubs without the switches are unchanged.
+- `sysrun.c` (WineExplorer's file; about 320 before, 10 now): the S6 endorsement, the lab generations and the lab's
+  broker images are `wex_e1lab_sysrun.c`, a file of its own. Hooks: `e1lab_sysrun_main_image` in
+  `sysrun_main_image`, `e1lab_sysrun_e1s6_endorse` in `sysrun_e1s6_endorse`. `SYSRUN_CONF` moved to `sysrun.h`.
+- `server/Makefile.in` lists the new files; `scripts/lab/r8-lab-build.sh` rebuilds the two new objects with the
+  lab switches.
+
 ## ntdll, server: one table of the registry handles of session 0 and the virtual store (R3 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
 
 Wine branch `claude/r3-registry-handles` (on `claude/r1-policy-tables` 2a2b2946, with development's WAM head d5e17250
