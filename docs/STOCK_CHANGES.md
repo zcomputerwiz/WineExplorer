@@ -4013,3 +4013,13 @@ accepted by `InternetSetOption` on a handle (the value is checked for its size a
 of failing with `ERROR_INTERNET_INVALID_OPTION` (12009) after "Option 11 STUB". Copilot's sign-in library sets it after the
 account's answer and then shows its error page with that code (tag 53u4r). Test: `dlls/wininet/tests/internet.c`
 (`test_listen_timeout_option`).
+
+2026-11-23 (Wine 0ea11056 and 9ab267df on claude/merge-11.22, branch `claude/wam-answer-shape`):
+`dlls/windows.security.authentication.web.core` (`account.c`, `broker.c`, `private.h`) and `include/wine/tokenbroker.h`
+(a WineExplorer DLL, listed for the stock tree's sake): the token broker's answer carries the response WebAccount's
+Properties (a new reply field, `TOKENBROKER_REPLY_ACCOUNT_PROPERTIES`, as pairs); `IWebAccount2::get_Properties` returns
+them (it was `E_NOTIMPL`); the account's state is `WebAccountState_None` for the `consumers` authority and `Connected`
+for any other, as Windows answers for a Microsoft account (measured with a probe on Windows, docs/WAM_BROKER_DESIGN.md).
+Tests: `tests/web_core.c` (the broker's test provider, run by `tests/wam/run-broker-tests.sh`): the account id, state
+and properties, the batch form body, `MATS`, process-scoped `FindAccountAsync`, a brokered request for another client id
+and Nested App Authentication.

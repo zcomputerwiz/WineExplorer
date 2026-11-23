@@ -245,6 +245,20 @@ owner's real sign-ins (no tokens kept) and, for the shapes, from the Windows pro
   profile showed "Verify it's you" while those requests were refused. Its window is black with GPU rendering on (the
   default) and draws with `--disable-gpu`.
 
+### Known open after the sign-ins (2026-11-23)
+
+- Brokered requests for other first-party client ids (MSN `f3222e55-...`, OneService `d7b530a4-...`, the Bing scope)
+  are answered HTTP 400 `invalid_request` by the token endpoint; the broker logs only the code, not the text. Edge's sync
+  works without them.
+- **The sign-in window opens behind other windows**: behind Edge's full-screen first-run page and Edge's own "Sign in"
+  popup (for Copilot it was on top). It has to be raised by hand (`xdotool windowraise`). Next: `SetForegroundWindow`
+  plus the owner window (`webview.c`).
+- Edge's window stays black with GPU rendering (the default) in the QEMU test VM (no GPU: software GL, `llvmpipe`); with
+  `--disable-gpu` it draws. Not looked at yet.
+- A Copilot VM needs about 7 GB resident at idle on software GL (16 Chromium processes, 3 GPU processes, no leak): a 4 GB
+  VM is killed by the OOM killer.
+- The silent answer's `MATS` has 22 keys on Windows; the broker sends the nine of the interactive answer.
+
 ## Open questions
 
 - Personal accounts and the redirect URI: whether Copilot's client takes its consumers tokens through the v2.0
