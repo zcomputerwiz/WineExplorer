@@ -286,3 +286,31 @@ names the caller, `dcalls.py` lists the calls a module makes before a message), 
 
 Helper scripts (`tests/uwp/lab-helpers`): `wxref.py` (wide-string and RVA cross references with the containing function), `callers.py` (call
 graph upwards), `dcalls.py` (calls from one module before a log line).
+
+### Notepad runs on into the compositor's hosting (2026-11-23)
+
+With logging stubs for what the start-up asked the system for, Notepad now goes much further. The chain, in the order it was hit (each found
+with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`, `lastcalls.py`, `wasdk-report.sh`):
+
+1. `Windows.UI.Composition.Compositor` and `WindowsUdk.Foundation.Metadata.ApiInformation`: logging stubs in `windows.ui`. The ApiInformation
+   statics are asked one thing at start, slot 6 with (a pointer, 1, a pointer, 0xCA) (`IsApiContractPresent`-like); the Compositor instance gets
+   slot 6 with an out pointer. Both succeed with the out values untouched, and the runtime goes on.
+2. `dwmcorei.dll` (loaded by `Microsoft.UI.Input.dll`) did not load: its imports `NtQueryWnfStateData`, `RtlSubscribeWnfStateChangeNotification`
+   and `RtlUnsubscribeWnfStateChangeNotification` were missing from ntdll (no WNF at all in Wine): stubs. Then its DllMain failed on
+   `D2D1CreateFactory` followed by a QueryInterface of the factory for {6f72c0a2-6db7-46e9-9b62-b58a23f4928b}: a private interface that Windows 11
+   answers with a separate object (`d2dqi-probe.c`) and Wine refused: an object with logging methods now (its slot 6 is called with 0).
+3. A NULL read in `CoreMessagingXP.dll` at the call of `NtAlpcImpersonateClientOfPort` (our ALPC server side): the second connection request of
+   the self-hosted registrar was received with a stale context attribute whose port context was a port handle. Cause: a datagram a server
+   sends to its own connection port was delivered with the context attribute marked valid and the port handle as port context. Windows 11
+   delivers it with ValidAttributes 0 and a null context (`alpc-selfdg.c`). Fixed in the server, the unix side and the 32-bit conversion (wow64
+   copied the structure only when valid); test added (run on Wine only, both architectures).
+4. `dcompi.dll` imports `dcomp.dll` by ordinal 1040, which is **`DCompositionCreateSharedVisualHandle`** (a named export of the real dcomp.dll,
+   found with `dcomp-exports-probe.c`; Wine's dcomp had a stub by ordinal). It is the next wall: the lifted compositor creates a handle for a
+   visual that is shared with the system compositor, called with (a stack pointer, a heap pointer, 0x2DB1C01, 0). Windows 11 answers E_INVALIDARG
+   to the shape of `DCompositionCreateSurfaceHandle` (`dcomp-visualhandle-probe.c`), so the signature is something else. With E_NOTIMPL the
+   XAML start-up fails fast (`RoFailFastWithErrorContextInternal2 0x80004001`). An earlier run also ended in a fail-fast of a CoreMessagingXP
+   thread (c0000602) that did not come back in the next runs: a race, not followed.
+
+The step after is design, not a stub: what the runtime's compositor hands to the system compositor (shared visual handles, the island and HWND
+hosting of `DesktopWindowXamlSource`) must be answered by Wine's own dcomp (about 5000 lines in the fork), and the signature has to be found
+first: the arguments are logged, and either a Windows 11 probe with the right shape or the runtime's own call site will give it.

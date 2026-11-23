@@ -3999,3 +3999,10 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 - `dlls/windows.storage.applicationdata/appdatapaths.c` (new), `classes.idl`, `main.c`, `private.h`, `Makefile.in` (shell32 delay import), `tests/data.c`, `include/windows.storage.idl`: `Windows.Storage.AppDataPaths` (IAppDataPaths, IAppDataPathsStatics).
 
 2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`): `dlls/kernelbase/version.c`, `kernelbase.spec`, `dlls/apisetschema/apisetschema.spec`, `dlls/kernelbase/tests/process.c`: `IsDeveloperModeEnabled` and the API set `api-ms-win-appmodel-unlock-l1-1-0` (Wine 467e205d).
+
+2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`, Notepad of the Windows App SDK, `docs/uwp/WINAPPSDK.md`):
+- `dlls/windows.ui/compositor_stub.c` (new), `classes.idl`, `main.c`, `private.h`, `Makefile.in`: logging stubs of `Windows.UI.Composition.Compositor` and `WindowsUdk.Foundation.Metadata.ApiInformation` (Wine cb1807e8).
+- `dlls/ntdll/rtl.c`, `ntdll.spec`: `NtQueryWnfStateData`, `RtlSubscribeWnfStateChangeNotification`, `RtlUnsubscribeWnfStateChangeNotification` stubs; every state reads as never published (8b238aa3).
+- `dlls/d2d1/factory.c`, `d2d1_private.h`: the factory answers {6f72c0a2-6db7-46e9-9b62-b58a23f4928b} with an object of logging methods; Windows 11 answers it (`tests/uwp/alpc/d2dqi-probe.c`) (c12abecc).
+- `server/alpc.c`, `dlls/ntdll/unix/alpc.c`, `dlls/wow64/wow64_private.h`, `dlls/ntdll/tests/alpc.c`: a datagram a server sends to its own connection port arrives without the context attribute (ValidAttributes 0, null port context), as on Windows 11 (`tests/uwp/alpc/alpc-selfdg.c`); the 32-bit conversion copies the context structure when it is allocated (b0e6fed4).
+- `dlls/dcomp/device.c`, `dcomp.spec`: export 1040, `DCompositionCreateSharedVisualHandle`, a logging stub that returns E_NOTIMPL (acd1d672).
