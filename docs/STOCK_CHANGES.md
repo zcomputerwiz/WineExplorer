@@ -4034,3 +4034,12 @@ reads a request's maps on a thread-pool thread) and lazily made maps go through 
 `tokenbroker.exe` cannot start and range-checks the reply's status; `wine/tokenbroker.h` names the `FIND_ACCOUNT`
 statuses (`TOKENBROKER_ACCOUNT_FOUND`, `_NONE`); the tests put back the user's `HKCU\Software\Wine\WebAuthentication`
 values instead of deleting the key.
+
+2026-11-23 (Wine 1c45c251 on 5261fa8c, branch `claude/wam-answer-shape`): the same DLL. The result lists are views of
+Wine's generic `IVector<IInspectable *>` (`vector.c`, copied from `windows.devices.enumeration`) and so are `IIterable`;
+`include/windows.security.authentication.web.core.idl` declares `IVector<WebTokenResponse *>` and
+`IVector<WebAccount *>`. A token request is read into the broker's message when the call is made; the pipe is
+overlapped, with a limit of a minute (silent) or eleven minutes (interactive). `WebAccount.SignOutAsync` and
+`SignOutWithClientIdAsync` go to the broker (`IAsyncAction` from `windows.media.speech`'s `async.c`; `wine/tokenbroker.h`:
+an empty client id means the client ids the calling process has used); `InvalidateCacheAsync` is a completed action
+(the cached token is not dropped). `DEFINE_IINSPECTABLE` for the remaining forwarding interfaces.
