@@ -105,6 +105,14 @@ class TestSyntax(unittest.TestCase):
         # vmtest.py types no command into a login prompt that has not shown
         vmtest = (SCRIPTS / "vmtest.py").read_text(encoding="utf-8")
         self.assertIn('note("no login or shell prompt within 30 s; the command was not sent")\n        return 124', vmtest)
+        # a serial console that gives no prompt (B78, silent after a warm reboot) does not fail the desktop: OCR
+        # finds it, and the log says so (batch b1124a's startrec on BIOS)
+        vm = VM_TEST.read_text(encoding="utf-8")
+        desktop = vm[vm.index("\ndesktop() {"):]
+        desktop = desktop[:desktop.index("\n}\n")]
+        self.assertLess(desktop.index("gsh 'echo serial=up' 20"), desktop.index('wait_text "Recycle Bin" 5; then'))
+        self.assertIn("the serial console gave no prompt for", desktop)
+        self.assertIn("no answer from the window probe over the serial console: the desktop found by OCR", desktop)
 
     def test_chain_harness(self):
         # installer/tests/run-chain.sh runs stages and firmwares side by side; build-test-iso.sh skips an unchanged
@@ -1628,9 +1636,18 @@ class TestSessionAndGreeter(unittest.TestCase):
         self.assertIn("needs password dialog && subresult password startrec_password", body)
         self.assertTrue(body.rstrip().endswith("subresults_end"))
         for change in ("Apply ububb 5 true 7 false false\" >/dev/null", "Apply ububb 0 true 30 true false",
-                       'cp -p "$OUT/startrec-cmdline"'):
+                       "startrec_restore ||", "> \"$OUT/startrec-restore\""):
             line = next(l for l in body.splitlines() if change in l)
             self.assertNotIn("subresult", line)
+        # the phase's changes are recorded before the first one; a failure before their restoration leaves them to
+        # the main loop, which puts them back on the stopped disk before /etc is compared (batch b1124a)
+        self.assertLess(body.index("> \"$OUT/startrec-restore\""), body.index("Apply ububb 5 true 7 false false"))
+        loop = vm[vm.index("for PHASE in \"${PHASES[@]}\"; do"):]
+        self.assertLess(loop.index("[ -f \"$OUT/startrec-restore\" ]"), loop.index("snapshot \"$OUT/after-$PHASE.txt\""))
+        # a file that cannot be read on the stopped disk is reported as that, not as a change
+        self.assertIn("xargs -0 -r sha256sum 2> \"$1.unreadable\"", vm)
+        self.assertIn("could not read on the stopped disk", loop)
+        self.assertLess(loop.index("could not read on the stopped disk"), loop.index("diff -u \"${compare[@]}\""))
         self.assertLess(phase.index("meta_l-pause"), phase.index("ctrl-tab ctrl-tab ctrl-tab"))
         systray = (REPO_ROOT / "src" / "dlls" / "wexshell" / "systray.c").read_text(encoding="utf-8")
         self.assertIn("{ IDHK_SYS_PROPERTIES, MOD_WIN, VK_PAUSE }", systray)
@@ -1647,7 +1664,7 @@ class TestSessionAndGreeter(unittest.TestCase):
             self.assertIn(needle, phase)
         # the refusal comes before root's change, and the restore before the stopped disk is cleaned
         self.assertLess(body.index("subresult refused"), body.index("as_root 'id -u'"))
-        self.assertLess(body.index("Apply ububb 0 true 30 true false"), body.index("attach rw"))
+        self.assertLess(body.index("Apply ububb 0 true 30 true false"), body.index("startrec_restore ||"))
         # the panic that must wait comes with Automatically restart off; the restarts after the defaults are back
         self.assertLess(body.index("subresult panic-waits"), body.index("Apply ububb 0 true 30 true false"))
         self.assertIn("restarted \"$id\" 75 &&", phase)
@@ -1661,7 +1678,7 @@ class TestSessionAndGreeter(unittest.TestCase):
                       '*) break ;; esac', phase)
         # a hardware watchdog the firmware left running (OVMF's TCO) is stopped before it: its restart is not ours
         self.assertLess(phase.index("printf V > \\$w"), phase.index("echo c > /proc/sysrq-trigger"))
-        self.assertLess(body.index("attach rw"), body.index("startrec_restarts crash"))
+        self.assertLess(body.index("startrec_restore ||"), body.index("startrec_restarts crash"))
         for line in phase.splitlines():   # commands sent over the serial console must be one line
             if "gsh '" in line:
                 self.assertEqual(line.count("'") % 2, 0, line)
@@ -1697,7 +1714,7 @@ class TestSessionAndGreeter(unittest.TestCase):
         phase = vm[vm.index("phase_classic() {"):]
         phase = phase[:phase.index("\n}\n")]
         for needle in ('wait_text "Log On to Windows" 3 &&', 'wait_text "Safe Mode" 10',
-                       'classic_logon Administrator "$(cat "$ADMIN_PWFILE")"', 'wait_text "Administrator" 10',
+                       'classic_logon Administrator "$(cat "$ADMIN_PWFILE")"', 'wait_text "Administrator" 30',
                        'wait_text "User name" 10', 'wait_text "Shut Down" 10', 'logon_refused "root"',
                        'classic_logon WexHidden ""', "grep -qw wexhidden",
                        # Luna's caption on the themed logon desktop (wex-greeter.sh), sampled right of the title
