@@ -4233,3 +4233,6 @@ an empty client id means the client ids the calling process has used); `Invalida
 
 2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`, Windows App SDK / Notepad):
 - `dlls/twinapi.appcore/user_activities.c`, `tests/activities.c`: the factory of `UserActivityRequestManager` answers IUserActivityRequestManagerInterop (GetForWindow); new test.
+
+2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`, Windows App SDK / Notepad):
+- `dlls/win32u/window.c` (`apply_window_pos`): the owner hint "any window below the top left corner" is found with `window_from_point( ..., FALSE )` instead of `NtUserWindowFromPoint`, so no WM_NCHITTEST is sent to the application from inside SetWindowPos (Windows does not; it re-entered Microsoft.UI.Input and failed fast).
