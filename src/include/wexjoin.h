@@ -24,6 +24,9 @@
  * group can connect. A request is lines of key=value ended by an empty line, the answer status=N (a Win32 or network
  * error code) and message=TEXT. */
 #define WEX_JOIN_SOCKET        "/run/wex-domain-join.sock"
+/* the questions any user may ask (NetValidateName, DsGetDcName, nltest /dclist and /sc_query): every local user can
+ * connect here, and the engine answers only those (installer/systemd/wex-domain-query.socket) */
+#define WEX_JOIN_QUERY_SOCKET  "/run/wex-domain-query.sock"
 #define WEX_JOIN_REQUEST_MAX   4096
 #define WEX_JOIN_REPLY_MAX     2048
 /* a join takes a minute or two (the controller, the account, winbind); the engine's unit runs at most 300 seconds
@@ -60,6 +63,10 @@
 #define WEX_JOIN_OP_DCLIST   3    /* the controllers DNS lists, separated by spaces */
 #define WEX_JOIN_OP_DSGETDC  4    /* name=value fields separated by "||" */
 #define WEX_JOIN_OP_SCQUERY  5    /* dc= and status= separated by "||" */
+/* whether this process may change the membership: the join's status, asked on the change socket, so it needs the same
+ * rights as a join (ERROR_ACCESS_DENIED for a process that is not an elevated administrator's). The dialogs ask it
+ * before the password, since the questions themselves (NetValidateName) are open to every user. */
+#define WEX_JOIN_OP_CANCHANGE 6
 
 #if !defined(WINE_UNIX_LIB) && defined(WINAPI)
 

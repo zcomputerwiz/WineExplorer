@@ -17,6 +17,8 @@
 #                                                              the machine account takes the computer's new name
 #   wex-domain-join.sh status                                  what the machine is joined to and what is set up
 #   wex-domain-join.sh serve                                   one request on standard input (the socket unit)
+#   wex-domain-join.sh serve-query                             one question on standard input (the users' socket unit):
+#                                                              validate, dsgetdc, dclist, scquery and status only
 #
 # The administrator's password is read from standard input only, never from the command line (which every user can
 # read in the process list), and is given to kinit; the join itself uses the ticket (net ads join -k), whose cache is a
@@ -716,10 +718,18 @@ cmd_rename()
     note "the computer account is $new now"
 }
 
-# one request on standard input: lines of key=value ended by an empty line; the answer is status= and message=
-cmd_serve()
+# The questions that any user may ask, as on Windows (NetValidateName, DsGetDcName, nltest /dclist and /sc_query need no
+# rights there): they read and change nothing. They come through a second socket (wex-domain-query.socket), which every
+# local user can reach; its unit cannot write /etc. Everything else (a join, a leave, a rename, verify and reset, whose
+# I_NetLogonControl2 codes need an administrator on Windows) stays on the system group's socket.
+QUERY_OPS="validate dsgetdc dclist scquery status"
+
+# one request on standard input: lines of key=value ended by an empty line; the answer is status= and message=.
+# With "query" (serve-query, the users' socket): only the questions, and no password field.
+cmd_serve()   # [query]
 {
     local line key val n=0 op= domain= user= userdomain= password= ou= workgroup= name= nametype= force= flags= kind rc
+    local query=${1:-}
     SERVE=1
     while :; do
         # a client that connects and says nothing must not keep the service for ever
@@ -738,6 +748,12 @@ cmd_serve()
         esac
     done
     REQ_LOG="op=${op:-?} domain=${domain:-} user=${userdomain:+$userdomain\\}${user:-}"
+    if [ -n "$query" ]; then
+        REQ_LOG="query $REQ_LOG"
+        # a change through the users' socket: Windows' "access denied" for a caller who is not an administrator
+        [[ " $QUERY_OPS " == *" $op "* ]] || fail 5 "changing the domain membership needs an administrator"
+        [ -z "$password" ] || fail 87 "a question takes no password"
+    fi
     logger -t wex-domain-join "request $REQ_LOG" 2>/dev/null || true
     # the password goes to get_ticket (JOIN_PW, which it empties) and is not kept here
     JOIN_PW=$password; password=
@@ -768,6 +784,7 @@ cmd_serve()
 
 case ${1:-} in
     serve) cmd_serve ;;
+    serve-query) cmd_serve query ;;
     verify) cmd_secure_channel verify ;;
     reset) cmd_secure_channel reset ;;
     dclist) cmd_dclist; echo "$NOTES" ;;

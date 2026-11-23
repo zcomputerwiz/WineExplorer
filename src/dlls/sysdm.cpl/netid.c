@@ -349,6 +349,9 @@ static INT_PTR CALLBACK page_proc(HWND page, UINT msg, WPARAM wparam, LPARAM lpa
                     go(page, id, IDD_NETID_DONE);
                     break;
                 }
+                /* a standard user hears it here, before the computer's page (the name's check is open to every user) */
+                status = wex_join_secure_channel(WEX_JOIN_OP_CANCHANGE);
+                if (status == ERROR_ACCESS_DENIED && report(page, W.acct_domain, status)) { stay(page); break; }
                 status = NetValidateName(NULL, W.acct_domain, NULL, NULL, WEX_NETSETUP_NAME_DOMAIN);
                 if (report(page, W.acct_domain, status)) { stay(page); break; }
                 go(page, id, IDD_NETID_COMPDOM);

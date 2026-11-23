@@ -230,6 +230,23 @@ and `src/include/wexjoin.h` declares the API, the `NETSETUP_` flags and the oper
 `netdom`, `nltest` and System Properties, with `wex_join_secure_channel` and `wex_join_last_message`, which load
 wexjoin.dll when asked.
 
+The questions (2026-11-23). On Windows any user may call `NetValidateName` and `DsGetDcName`, list the controllers and
+query the secure channel (`nltest /sc_query`); only verify and reset, `I_NetLogonControl2`'s other codes, need an
+administrator. So the questions have a socket of their own that every local user reaches, `/run/wex-domain-query.sock`
+(mode 0666, `wex-domain-query.socket`, enabled beside the change socket). Its `wex-domain-query@.service` runs
+`wex-domain-join.sh serve-query`: the engine answers `validate`, `dsgetdc`, `dclist`, `scquery` and `status` there,
+refuses every other operation with 5 (access denied) and any request with a password with 87, and logs the request as
+a `query`. It runs as root, because `testjoin` reads the machine account's secret, but it changes nothing, and its
+unit says so: `ProtectSystem=full` (no writing `/etc` or `/usr`), no capabilities, `NoNewPrivileges`. wexjoin sends
+`NetValidateName` and `WexJoinSecureChannel`'s `DCLIST`, `DSGETDC` and `SCQUERY` there, and everything else to the
+change socket; a computer without the query socket (installed before it) answers the questions on the change socket.
+Since a name's check no longer tells whether the caller may change the membership, the Change dialog and the Network
+Identification Wizard ask that first, `WEX_JOIN_OP_CANCHANGE`, the status asked on the change socket, so a standard user
+is offered the elevated copy before typing a password, as before. Checked on the lab member under systemd (a user who
+is not root: the questions answered, `testjoin` under the hardening, changes and passwords refused, `/etc` unchanged)
+and by `test_domain_join.sh` and `test_sysrun_server.sh` (a standard user's `NetValidateName` and `netdom query dc`
+answered, its join and leave refused, the fallback).
+
 The account (2026-11-23). `DOMAIN\user` is sent as `user` and `userdomain`. The engine takes the user in the realm of
 the domain being joined when `userdomain` is that domain (its NetBIOS or DNS name); a user of another domain given by its
 DNS name is taken in that realm (a trust); one given by another NetBIOS name is refused (1355), as the engine cannot know

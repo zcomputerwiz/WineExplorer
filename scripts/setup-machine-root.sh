@@ -907,6 +907,10 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
                 fi
                 systemctl enable --now wex-domain-join.socket || true
             fi
+            # and its questions, which any user may ask (read only)
+            if [ -f /lib/systemd/system/wex-domain-query.socket ]; then
+                systemctl enable --now wex-domain-query.socket || true
+            fi
         fi
     fi
 fi

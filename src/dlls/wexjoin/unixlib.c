@@ -63,6 +63,22 @@ static long long now_ms(void)
     return (long long)t.tv_sec * 1000 + t.tv_nsec / 1000000;
 }
 
+/* a connected socket to path, or -errno */
+static int connect_to( const char *path )
+{
+    struct sockaddr_un addr;
+    int fd, e;
+
+    if ((fd = socket( AF_UNIX, SOCK_STREAM, 0 )) < 0) return -EIO;
+    memset( &addr, 0, sizeof(addr) );
+    addr.sun_family = AF_UNIX;
+    strcpy( addr.sun_path, path );
+    if (!connect( fd, (struct sockaddr *)&addr, sizeof(addr) )) return fd;
+    e = errno;
+    close( fd );
+    return -e;
+}
+
 /* The request to the engine and its answer (until the engine closes the connection). The engine may take minutes: the
  * wait is bounded by WEX_JOIN_WAIT_SECONDS for the whole call. */
 static NTSTATUS join_request( void *args )
@@ -70,7 +86,6 @@ static NTSTATUS join_request( void *args )
     struct request_params *params = args;
     const char *request = (const char *)(ULONG_PTR)params->request;
     char *reply = (char *)(ULONG_PTR)params->reply;
-    struct sockaddr_un addr;
     size_t sent = 0, got = 0;
     long long deadline = now_ms() + WEX_JOIN_WAIT_SECONDS * 1000LL;
     int fd;
@@ -78,16 +93,10 @@ static NTSTATUS join_request( void *args )
     params->reply_length = 0;
     params->err = ERROR_SUCCESS;
     if (!params->reply_size || params->request_length > WEX_JOIN_REQUEST_MAX) { params->err = ERROR_INVALID_PARAMETER; return STATUS_SUCCESS; }
-    if ((fd = socket( AF_UNIX, SOCK_STREAM, 0 )) < 0) { params->err = ERROR_IO_DEVICE; return STATUS_SUCCESS; }
-    memset( &addr, 0, sizeof(addr) );
-    addr.sun_family = AF_UNIX;
-    strcpy( addr.sun_path, WEX_JOIN_SOCKET );
-    if (connect( fd, (struct sockaddr *)&addr, sizeof(addr) ))
-    {
-        params->err = connect_error( errno );
-        close( fd );
-        return STATUS_SUCCESS;
-    }
+    fd = connect_to( params->query ? WEX_JOIN_QUERY_SOCKET : WEX_JOIN_SOCKET );
+    /* an installation from before the users' socket: the system group's socket answers the questions too */
+    if (params->query && (fd == -ENOENT || fd == -ECONNREFUSED)) fd = connect_to( WEX_JOIN_SOCKET );
+    if (fd < 0) { params->err = connect_error( -fd ); return STATUS_SUCCESS; }
     while (sent < params->request_length)
     {
         ssize_t n = send( fd, request + sent, params->request_length - sent, MSG_NOSIGNAL );

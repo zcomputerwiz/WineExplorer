@@ -290,10 +290,10 @@ rm -f "$FX/kind"; out=$(status); grep -qx 'kind=none' <<<"$out" || fail 'status:
 echo 'OK: wex-domain-join.sh status'
 
 # ---- serve: one request on standard input (the socket unit), the answer is status= (a Win32 error code) and message=
-serve()   # request lines...; the empty line that ends the request is added
+serve()   # request lines...; the empty line that ends the request is added. SERVE_MODE=serve-query: the users' socket
 {
     { printf '%s\n' "$@"; echo; } | PATH="$FX/bin:$PATH" WEX_JOIN_NOROOT=1 WEX_JOIN_ETC="$FX/etc" WEX_DOMAIN_STATE="$FX/state" \
-        WEX_JOIN_HOSTNAME=wexbox WEX_JOIN_LOCK="$FX/lock" bash "$SCRIPT" serve 2>&1
+        WEX_JOIN_HOSTNAME=wexbox WEX_JOIN_LOCK="$FX/lock" bash "$SCRIPT" "${SERVE_MODE:-serve}" 2>&1
 }
 status_of() { sed -n 's/^status=//p' <<<"$1" | head -n 1; }
 expect()   # CODE WHAT request lines...
@@ -426,6 +426,28 @@ out=$( { sleep 40; } | PATH="$FX/bin:$PATH" WEX_JOIN_NOROOT=1 WEX_JOIN_ETC="$FX/
 [ "$(status_of "$out")" = 1460 ] || { echo "$out"; fail 'serve: a silent client did not get 1460'; }
 out=$(serve op=join domain=); [ "$(status_of "$out")" = 87 ] || { echo "$out"; fail 'serve: an empty domain is not 87'; }
 echo 'OK: wex-domain-join.sh serve (a request, the answer, the codes, a password that reaches kinit unchanged and nothing else)'
+
+# ---- serve-query, the socket every user reaches: the questions only, no password, nothing changed
+reset_etc; echo winbind > "$FX/kind"
+printf '[global]\n    workgroup = WEXLAB\n    realm = AD.WEXLAB.EXAMPLE\n    netbios name = WEXBOX\n' > "$FX/etc/samba/smb.conf"
+before=$(cat "$FX/etc/samba/smb.conf" "$FX/etc/krb5.conf" "$FX/etc/nsswitch.conf" | md5sum)
+export SERVE_MODE=serve-query
+: > "$FX/calls.log"
+expect 0 'a question: a computer name' 'op=validate' 'nametype=machine' 'name=newbox'
+expect 1210 'a question: a bad computer name' 'op=validate' 'nametype=machine' 'name=12345'
+expect 0 'a question: the controllers' 'op=dclist'
+expect 0 'a question: the channel' 'op=scquery'
+expect 0 'a question: the status' 'op=status'
+for op in join leave rename verify reset; do
+    expect 5 "a change through the users' socket ($op)" "op=$op" 'domain=ad.wexlab.example' 'user=Administrator' 'name=newbox' 'force=1'
+done
+expect 87 'a question with a password' 'op=validate' 'nametype=machine' 'name=newbox' 'password=x'
+expect 87 'an unknown field' 'op=status' 'evil=1'
+! grep -qE '^(kinit|net ads (join|leave|changetrustpw)|pam-auth-update|systemctl|hostnamectl)' "$FX/calls.log" ||
+    { cat "$FX/calls.log"; fail "serve-query: a question changed something"; }
+[ "$(cat "$FX/etc/samba/smb.conf" "$FX/etc/krb5.conf" "$FX/etc/nsswitch.conf" | md5sum)" = "$before" ] || fail 'serve-query: a file changed'
+unset SERVE_MODE
+echo "OK: wex-domain-join.sh serve-query (the questions answer; changes are access denied; no password; nothing changed)"
 
 # ---- the secure channel and the controllers (netdom verify and reset, nltest /sc_verify and /sc_reset)
 reset_etc; rm -f "$FX/dc.none"

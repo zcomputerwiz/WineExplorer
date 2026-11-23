@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: one question to the domain join engine (docs/DOMAIN_JOIN.md), started by wex-domain-query.socket for each
+# connection of any local user. The engine runs as serve-query: the questions only (validate, dsgetdc, dclist, scquery,
+# status), no password. Root, because testjoin reads the machine account's secret; but it changes nothing, so the unit
+# cannot write /etc (smb.conf, krb5.conf, nsswitch.conf, PAM) or /usr, and gets no capability: root's own files (Samba's
+# secrets and caches) are all it needs.
+
+[Unit]
+Description=WineExplorer domain question (one request)
+
+[Service]
+ExecStart=/usr/local/sbin/wex-domain-join.sh serve-query
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+# the engine waits 30 seconds for the question; DNS, a CLDAP ping and testjoin take seconds
+RuntimeMaxSec=90
+ProtectSystem=full
+ProtectHome=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native

@@ -119,8 +119,9 @@ cleanup()
     pkill -u "$ADM" 2>/dev/null; pkill -u "$STD" 2>/dev/null; pkill -u "$CAR" 2>/dev/null; pkill -u "$SYS" 2>/dev/null   # includes winedevice.exe, which blocks userdel
     sleep 1; pkill -9 -u "$ADM" 2>/dev/null; pkill -9 -u "$STD" 2>/dev/null; pkill -9 -u "$CAR" 2>/dev/null; pkill -9 -u "$SYS" 2>/dev/null
     [ -z "${XV_PID:-}" ] || kill "$XV_PID" 2>/dev/null
-    # the join case's fake engine (a failure between its start and its kill leaves it holding the fixture)
+    # the join case's fake engines (a failure between their start and their kill leaves them holding the fixture)
     [ -z "${JENG_PID:-}" ] || kill "$JENG_PID" 2>/dev/null
+    [ -z "${QENG_PID:-}" ] || { kill "$QENG_PID" 2>/dev/null; rm -f /run/wex-domain-query.sock; }
     if [ "${WEX_C2_KEEP:-0}" = 1 ]; then
         echo "fixture kept: $ROOT, users $ADM $STD $CAR $SYS, group $GRP, $CONF, $LIBEXEC" >&2
         exit "$rc"
@@ -4226,11 +4227,13 @@ JREQ="$POL/join-requests.log"
 cat > "$POL/fake-join-engine.py" <<'PYEOF'
 import os, socket, sys
 path, log = sys.argv[1], sys.argv[2]
+# "query": the users' socket (wex-domain-join.sh serve-query): every user connects, only the questions are answered
+query = len(sys.argv) > 4 and sys.argv[4] == 'query'
 if os.path.exists(path): os.unlink(path)
 srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 srv.bind(path)
-os.chmod(path, 0o660)
-os.chown(path, 0, int(sys.argv[3]))
+os.chmod(path, 0o666 if query else 0o660)
+os.chown(path, 0, 0 if query else int(sys.argv[3]))
 srv.listen(4)
 while True:
     conn, _ = srv.accept()
@@ -4239,10 +4242,14 @@ while True:
         chunk = conn.recv(4096)
         if not chunk: break
         data += chunk
-    with open(log, 'ab') as f: f.write(data + b'--\n')
+    with open(log, 'ab') as f: f.write(data + (b'socket=query\n' if query else b'socket=change\n') + b'--\n')
     text = data.decode('utf-8', 'replace')
     fields = dict(l.split('=', 1) for l in text.split('\n') if '=' in l)
     status, message = 0, 'ok'
+    if query and (fields.get('op') not in ('validate', 'dsgetdc', 'dclist', 'scquery', 'status') or 'password' in fields):
+        conn.sendall(b'status=5\nmessage=changing the domain membership needs an administrator\n')
+        conn.close()
+        continue
     if fields.get('op') == 'validate' and fields.get('nametype') == 'machine' and '_' in fields.get('name', ''):
         status, message = 1210, 'not a valid computer name'
     if fields.get('op') == 'join' and fields.get('password') == 'wrong':
@@ -4258,8 +4265,12 @@ PYEOF
 rm -f "$JREQ"
 python3 -I "$POL/fake-join-engine.py" "$JSOCK" "$JREQ" "$(getent group "$GRP" | cut -d: -f3)" &
 JENG_PID=$!
-for i in $(seq 1 20); do [ -S "$JSOCK" ] && break; sleep 0.25; done
-[ -S "$JSOCK" ] || fail "join: the fake engine did not start"
+# the questions' socket, which every user reaches (wex-domain-query.socket)
+QSOCK=/run/wex-domain-query.sock
+python3 -I "$POL/fake-join-engine.py" "$QSOCK" "$JREQ" 0 query &
+QENG_PID=$!
+for i in $(seq 1 20); do [ -S "$JSOCK" ] && [ -S "$QSOCK" ] && break; sleep 0.25; done
+[ -S "$JSOCK" ] && [ -S "$QSOCK" ] || fail "join: the fake engines did not start"
 jp()   # ARCH ARGS... as session 0's account (the system group); prints the probe's lines
 {
     local b=$1; shift
@@ -4269,11 +4280,12 @@ reqs() { grep -c '^--$' "$JREQ" 2>/dev/null || true; }
 for b in 64 32; do
     : > "$JREQ"
     OUT="$(jp $b validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'message=ok' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: a valid computer name"; }
-    grep -qx 'op=validate' "$JREQ" && grep -qx 'nametype=machine' "$JREQ" && grep -qx 'name=WEXBOX' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the validate request"; }
+    grep -qx 'op=validate' "$JREQ" && grep -qx 'nametype=machine' "$JREQ" && grep -qx 'name=WEXBOX' "$JREQ" && grep -qx 'socket=query' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the validate request (a question: the users' socket)"; }
     OUT="$(jp $b validate bad_name 1)"; grep -qx 'status=1210' <<<"$OUT" && grep -qx 'message=not a valid computer name' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: the engine's error and message"; }
     : > "$JREQ"
     OUT="$(jp $b join - 'ad.wexlab.example\dc1' 'OU=WexMachines,DC=ad,DC=wexlab,DC=example' 'WEXLAB\Administrator' 'p w$d' 1)"
     grep -qx 'status=0' <<<"$OUT" || { echo "$OUT" >&2; fail "join $b: NetJoinDomain"; }
+    grep -qx 'socket=change' "$JREQ" && ! grep -qx 'socket=query' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the join did not go to the system group's socket"; }
     grep -qx 'op=join' "$JREQ" && grep -qx 'domain=ad.wexlab.example' "$JREQ" && grep -qx 'user=Administrator' "$JREQ" && grep -qxF 'password=p w$d' "$JREQ" &&
         grep -qx 'ou=OU=WexMachines,DC=ad,DC=wexlab,DC=example' "$JREQ" && grep -qx 'flags=1' "$JREQ" || { cat "$JREQ" >&2; fail "join $b: the join request (domain without the controller, user without the domain, the password as it is)"; }
     OUT="$(jp $b join - ad.wexlab.example - 'admin@ad.wexlab.example' wrong 3)"
@@ -4379,10 +4391,21 @@ s0_wine reg delete 'HKLM\Software\WineExplorer\Domain' /f >/dev/null || true
 # a standard user is refused with Windows' words (the status is the error: the pipeline of as_wine fails with it)
 NDOUT="$(as_wine "$STD" netdom join /domain:ad.wexlab.example /userd:a /passwordd:x)" || true
 grep -qi 'access.*denied' <<<"$NDOUT" && grep -q 'The command failed to complete successfully.' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom: a standard user was not refused'; }
-# a standard user is not in the system group: access denied, nothing sent
+# a standard user asks the questions, as on Windows (NetValidateName, netdom query dc), through the users' socket
 : > "$JREQ"
-OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" validate WEXBOX 1)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user was not refused"; }
-[ ! -s "$JREQ" ] || fail "join: a standard user's call reached the engine"
+OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user's NetValidateName"; }
+grep -qx 'socket=query' "$JREQ" && ! grep -qx 'socket=change' "$JREQ" || { cat "$JREQ" >&2; fail "join: a standard user's question did not go to the users' socket"; }
+NDOUT="$(as_wine "$STD" netdom query dc | tr -d '\r')" || true
+grep -qx 'dc1.ad.wexlab.example' <<<"$NDOUT" || { echo "$NDOUT" >&2; fail 'netdom query dc as a standard user'; }
+# but a change is refused: the system group's socket is not the standard user's (access denied, nothing sent)
+: > "$JREQ"
+OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" join - ad.wexlab.example - 'WEXLAB\Administrator' pw 1)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user's join was not refused"; }
+OUT="$(as_wine "$STD" "$ROOT/probes/joinprobe64.exe" unjoin - - 0)"; grep -qx 'status=5' <<<"$OUT" || { echo "$OUT" >&2; fail "join: a standard user's leave was not refused"; }
+[ ! -s "$JREQ" ] || { cat "$JREQ" >&2; fail "join: a standard user's change reached an engine"; }
+# an installation from before the users' socket: the questions go to the system group's socket
+kill "$QENG_PID" 2>/dev/null; wait "$QENG_PID" 2>/dev/null || true; QENG_PID=; rm -f "$QSOCK"
+: > "$JREQ"
+OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=0' <<<"$OUT" && grep -qx 'socket=change' "$JREQ" || { echo "$OUT" >&2; cat "$JREQ" >&2; fail "join: without the users' socket, a question did not fall back"; }
 # the engine is not there: the workstation service is not started
 kill "$JENG_PID" 2>/dev/null; wait "$JENG_PID" 2>/dev/null || true; JENG_PID=; rm -f "$JSOCK"
 OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=2138' <<<"$OUT" || { echo "$OUT" >&2; fail "join: no engine is not NERR_WkstaNotStarted"; }
