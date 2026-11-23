@@ -400,7 +400,18 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    out only moves the failure to a sibling check (RVA 0x2b208), so an earlier Begin without its End is the cause; the caller chain is
    Microsoft.UI.Windowing -> Input. Not found yet which early return (a failing stub inside a begin/end region) unbalances it.
    Tracing it from inside Wine with `wintrace.exe` does not work (the process fails fast sooner under a debugger and no breakpoint hits).
-   Tools added: `bytepatch.py`, `modcalls.py`, `findptr.py`, `exports.py`, `ordthunk` idea (host), probes `factory-iid-probe.c`,
+   **Located (same day, after installing WinDbg/TTD and an in-process trampoline).** A ud2 trampoline in the lab ntdll (`ntdll-tramp-patch.py`,
+   logging the counters of the ContextSession object at the entries and at all 344 inlined begin sites of Input) shows, for the last Begin of
+   the failing run (caller Input+0xe8d44, the function at 0xe8cf0), that the counter was raised by an *inlined begin at Input+0x622b3*
+   (the function at 0x62286, which tests [this+0x30] & 2 and then runs its main path) and that no end (EndA/EndB, which raise +44 and +48)
+   ran before the nested Begin. On Windows the same nesting happens with an EndA in between (`Begin +40=1 +44=1` 12 times), and the function
+   at 0xe8cf0 never even starts a region (traced: Begin from 0xe8d44 is not seen; EndA is called from 0xe8ca7 etc.). So Wine takes a
+   different path inside the region begun at 0x622b3: something returns a different answer, probably a failing stub, and the first
+   place to look is what that function (and its callers in Microsoft.UI.Windowing) does after the begin. Windows-side, the full path
+   needs a Time Travel Debugging trace: TTD (official, from the WinDbg package; cdb and TTD.exe are extracted in
+   `WineExplorer-local/windbg`) refuses without administrator rights, `ttd-record-notepad.ps1` there records both Notepad processes
+   when run from an elevated PowerShell.
+   Tools added: `bytepatch.py`, `bytesat.py`, `fnstart.py`, `sites.py`, `ntdll-tramp-patch.py`, `tramp-guest.sh`, `modcalls.py`, `findptr.py`, `exports.py`, `ordthunk` idea (host), probes `factory-iid-probe.c`,
    `windowband-probe.c`, `user32-ordinal-probe.c`.
    (Older text of this section, kept for the record:) read the default `OpenSharedDCompositionObject` of FrameworkUdk (table id 7 or 6 of `GetFunctionTableById`) to see which private
    slot of the device it calls, and give Wine's dcomp device that method (open a shared visual from the handle of export 1040) and a visual
