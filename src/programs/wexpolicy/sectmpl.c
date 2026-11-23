@@ -43,12 +43,11 @@
 #include <windows.h>
 #include <setupapi.h>
 
-#include "preg.h"
+#include "wexpreg.h"
 #include "wexpolicy.h"
 
 #define ELEVATION_KEY  L"Software\\WineExplorer\\Elevation"
 #define MAX_TEXT       4096
-#define CONSENT_KEY    L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
 #define LONGEST_MINUTES 99999
 
 static unsigned int count_set, count_not_applicable;
@@ -135,24 +134,13 @@ static DWORD registry_data( INFCONTEXT *ctx, DWORD type, BYTE *data, DWORD room 
     }
 }
 
-/* whether a line of [Registry Values] names the value ConsentPromptBehaviorAdmin of the System policy key: the key is
- * compared as the registry reads it (case-insensitive, repeated backslashes count as one, one at either end is no part
- * of the name), so that a doubled backslash does not make another key of it */
+/* whether a line of [Registry Values] names the value ConsentPromptBehaviorAdmin of the System policy key, compared as
+ * the registry reads names (wexpreg.h: without case, repeated backslashes as one), so that a doubled backslash or a
+ * long s does not make another key of it */
 static BOOL is_consent_value( const WCHAR *key, size_t length, const WCHAR *value )
 {
-    WCHAR collapsed[MAX_TEXT];
-    size_t i, n = 0;
-
-    /* (names compare as the registry server compares them, in upper case: _wcsicmp lower-cases, and a few characters
-     * differ, such as U+017F and U+0131) */
-    if (CompareStringOrdinal( value, -1, L"ConsentPromptBehaviorAdmin", -1, TRUE ) != CSTR_EQUAL) return FALSE;
-    for (i = 0; i < length && n + 1 < ARRAY_SIZE(collapsed); i++)
-    {
-        if (key[i] == '\\' && (!n || collapsed[n - 1] == '\\')) continue;
-        collapsed[n++] = key[i];
-    }
-    if (n && collapsed[n - 1] == '\\') n--;
-    return n == ARRAY_SIZE(CONSENT_KEY) - 1 && CompareStringOrdinal( collapsed, n, CONSENT_KEY, n, TRUE ) == CSTR_EQUAL;
+    return preg_key_is( (const uint8_t *)key, length, PREG_SYSTEM_POLICY_KEY ) &&
+           preg_name_is( (const uint8_t *)value, wcslen( value ), "consentpromptbehavioradmin" );
 }
 
 /* [Registry Values]: security options in the policy trees */
@@ -187,7 +175,7 @@ static DWORD registry_values( HINF inf, BOOL write )
 
             if (type != REG_DWORD || !registry_data( &ctx, type, data, sizeof(data) )) behavior = 0;
             else memcpy( &behavior, data, sizeof(behavior) );
-            if (behavior != 2 && behavior != 5)
+            if (!WEX_CONSENT_ADMIN_SUPPORTED( behavior ))
             {
                 if (write)
                 {

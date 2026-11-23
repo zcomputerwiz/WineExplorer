@@ -52,7 +52,7 @@
 #include <winsvc.h>
 #include <sddl.h>
 
-#include "preg.h"
+#include "wexpreg.h"
 #include "wexgpstore.h"
 #include "wexpolicy.h"
 #define MAX_FILE_SIZE  (32 * 1024 * 1024)
@@ -110,7 +110,8 @@ static BOOL is_local_system(void)
     return ret;
 }
 
-static DWORD read_file( const WCHAR *path, struct file *file )
+/* a file of at most limit bytes (the files of one apply share MAX_FILE_SIZE: the size is looked at before reading) */
+static DWORD read_file_limit( const WCHAR *path, struct file *file, LONGLONG limit )
 {
     HANDLE handle = CreateFileW( path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL );
     LARGE_INTEGER size;
@@ -120,7 +121,7 @@ static DWORD read_file( const WCHAR *path, struct file *file )
     file->size = 0;
     if (handle == INVALID_HANDLE_VALUE) return GetLastError();
     if (!GetFileSizeEx( handle, &size )) err = GetLastError();
-    else if (size.QuadPart > MAX_FILE_SIZE) err = ERROR_FILE_TOO_LARGE;
+    else if (size.QuadPart > limit) err = ERROR_FILE_TOO_LARGE;
     else if (!(file->data = malloc( size.QuadPart ? size.QuadPart : 1 ))) err = ERROR_NOT_ENOUGH_MEMORY;
     else if (!ReadFile( handle, file->data, size.QuadPart, &done, NULL )) err = GetLastError();
     else if (done != size.QuadPart) err = ERROR_READ_FAULT;
@@ -130,16 +131,29 @@ static DWORD read_file( const WCHAR *path, struct file *file )
     return err;
 }
 
+static DWORD read_file( const WCHAR *path, struct file *file )
+{
+    return read_file_limit( path, file, MAX_FILE_SIZE );
+}
+
 /* the whole file is well formed: nothing is applied from a file with a fault in it */
 static DWORD check_file( const struct file *file )
 {
-    struct preg_entry e;
-    size_t off;
-    int ret;
+    return preg_validate( file->data, file->size ) == PREG_END ? ERROR_SUCCESS : ERROR_BAD_FORMAT;
+}
 
-    if (preg_begin( file->data, file->size, &off ) != PREG_OK) return ERROR_BAD_FORMAT;
-    while ((ret = preg_next( file->data, file->size, &off, &e )) == PREG_OK) {}
-    return ret == PREG_END ? ERROR_SUCCESS : ERROR_BAD_FORMAT;
+/* The entries of one apply, all files together. The list of what the policy sets is searched for each entry, so the
+ * work grows with the square of this; real policy sets a few thousand values. */
+#define MAX_ENTRIES 20000
+
+static size_t count_entries( const struct file *file )
+{
+    struct preg_entry e;
+    size_t off, n = 0;
+
+    if (preg_begin( file->data, file->size, &off ) != PREG_OK) return 0;
+    while (preg_next( file->data, file->size, &off, &e ) == PREG_OK) n++;
+    return n;
 }
 
 /* a name of the file (UTF-16LE bytes, not aligned) as a string; the caller frees it */
@@ -256,15 +270,44 @@ static void for_each_name( const struct preg_entry *e, HKEY key, const WCHAR *ke
     free( list );
 }
 
+/* A value of the security template (wexpreg.h, preg_is_template_option): a Registry.pol neither sets nor deletes it,
+ * so that the two kinds of policy file cannot undo each other; the entry is left out and said. */
+static BOOL template_option( const WCHAR *key_name, const WCHAR *name )
+{
+    if (!preg_is_template_option( (const uint8_t *)key_name, wcslen( key_name ), (const uint8_t *)name, wcslen( name ) ))
+        return FALSE;
+    count_skipped++;
+    say( "wexpolicy: %ls\\%ls is a security option: the security template sets it, a Registry.pol entry for it is left out\n",
+         key_name, name );
+    return TRUE;
+}
+
 /* key is NULL when the user is not logged on: then only the list of what the policy sets changes */
 static void delete_value( HKEY key, const WCHAR *key_name, const WCHAR *name )
 {
+    if (template_option( key_name, name )) return;
     items_remove_values( key_name, name );
     if (key && !RegDeleteValueW( key, name )) count_deleted++;
 }
 
 static void delete_subkey( HKEY key, const WCHAR *key_name, const WCHAR *name )
 {
+    size_t len = wcslen( key_name ) + 1 + wcslen( name );
+    WCHAR *path = malloc( (len + 1) * sizeof(WCHAR) );
+
+    /* the System policy key holds the security template's options: it is not deleted as a whole */
+    if (path)
+    {
+        swprintf( path, len + 1, L"%ls\\%ls", key_name, name );
+        if (preg_key_is( (const uint8_t *)path, len, PREG_SYSTEM_POLICY_KEY ))
+        {
+            count_skipped++;
+            say( "wexpolicy: %ls holds security options: **DeleteKeys of it is left out\n", path );
+            free( path );
+            return;
+        }
+        free( path );
+    }
     items_remove_tree( key_name, name );
     if (key && !RegDeleteTreeW( key, name ))
     {
@@ -273,15 +316,21 @@ static void delete_subkey( HKEY key, const WCHAR *key_name, const WCHAR *name )
     }
 }
 
-static void delete_all_values( HKEY key )
+/* **DelVals.: every value of the key, but the security template's */
+static void delete_all_values( HKEY key, const WCHAR *key_name )
 {
     WCHAR name[16384];
-    DWORD len;
+    DWORD len, index = 0;
 
     for (;;)
     {
         len = ARRAY_SIZE(name);
-        if (RegEnumValueW( key, 0, name, &len, NULL, NULL, NULL, NULL )) break;
+        if (RegEnumValueW( key, index, name, &len, NULL, NULL, NULL, NULL )) break;
+        if (preg_is_template_option( (const uint8_t *)key_name, wcslen( key_name ), (const uint8_t *)name, len ))
+        {
+            index++;
+            continue;
+        }
         if (RegDeleteValueW( key, name )) break;
         count_deleted++;
     }
@@ -326,6 +375,7 @@ static DWORD apply_entry( HKEY root, const struct preg_entry *e )
             err = ERROR_NOT_ENOUGH_MEMORY;
             break;
         }
+        if (template_option( key_name, value_name )) break;
         if (action == PREG_SOFT_SET)   /* a value that exists is left alone */
         {
             if (item_find( key_name, value_name )) break;
@@ -347,7 +397,7 @@ static DWORD apply_entry( HKEY root, const struct preg_entry *e )
         break;
     case PREG_DELETE_ALL_VALUES:
         items_remove_values( key_name, NULL );
-        if (key) delete_all_values( key );
+        if (key) delete_all_values( key, key_name );
         break;
     case PREG_DELETE_KEYS:
         for_each_name( e, key, key_name, delete_subkey );
@@ -444,7 +494,9 @@ static DWORD restore_archive( HKEY root, const WCHAR *archive_path )
         WCHAR *key_name, *value_name;
         HKEY key;
 
-        if (!preg_key_in_policy_tree( e.key, e.key_len )) continue;
+        /* (an archive written before the security options left Registry.pol may name them: not written again) */
+        if (!preg_key_in_policy_tree( e.key, e.key_len ) ||
+            preg_is_template_option( e.key, e.key_len, e.value, e.value_len )) continue;
         key_name = name_string( e.key, e.key_len );
         value_name = name_string( e.value, e.value_len );
         if (!key_name || !value_name) err = ERROR_NOT_ENOUGH_MEMORY;
@@ -901,11 +953,16 @@ int __cdecl wmain( int argc, WCHAR **argv )
         return err;
     }
 
-    /* every file is read and checked before anything changes */
+    /* every file is read and checked before anything changes; together they are at most MAX_FILE_SIZE (below), and a
+     * file is not read when it would not fit in what the files before it left */
     memset( files, 0, sizeof(files) );
     for (i = 0; i < count; i++)
     {
-        if (!(err = read_file( argv[3 + i], &files[i] ))) err = check_file( &files[i] );
+        LONGLONG room = MAX_FILE_SIZE - PREG_HEADER_SIZE;
+        int j;
+
+        for (j = 0; j < i; j++) room -= files[j].size;
+        if (!(err = read_file_limit( argv[3 + i], &files[i], room > 0 ? room : 0 ))) err = check_file( &files[i] );
         if (err)
         {
             say( "wexpolicy: %ls: error %lu\n", argv[3 + i], err );
@@ -916,13 +973,18 @@ int __cdecl wmain( int argc, WCHAR **argv )
     /* what is written has to be recorded in the archive (it is what the next apply undoes): a set that could not be
      * is refused now, not after the registry has been changed (the archive is never larger than the files) */
     {
-        size_t total = PREG_HEADER_SIZE;
+        size_t total = PREG_HEADER_SIZE, entries = 0;
 
-        for (i = 0; i < count; i++) total += files[i].size;
-        if (total > MAX_FILE_SIZE)
+        for (i = 0; i < count; i++)
+        {
+            total += files[i].size;
+            entries += count_entries( &files[i] );
+        }
+        if (total > MAX_FILE_SIZE || entries > MAX_ENTRIES)
         {
             err = ERROR_FILE_TOO_LARGE;
-            say( "wexpolicy: the files are too large together: error %lu; nothing changed\n", err );
+            say( "wexpolicy: the files are too large together (%lu bytes, %lu entries; at most %u entries): error %lu; "
+                 "nothing changed\n", (unsigned long)total, (unsigned long)entries, MAX_ENTRIES, err );
             goto done;
         }
     }
