@@ -124,6 +124,28 @@ descriptor it got). The copies became one (Codex review: no other difference).
 - `include/wine/wex_session0.h`: the request header's last word is a union named by message type (`machine`,
   `saved`, `name_size`, `session_id`); the same word on the wire.
 
+## server: the limited query right opens a token for reading (2026-11-23)
+
+`server/token.c` (`open_token`). With the system role active and elevation enforced, opening another process's or
+thread's token needed `PROCESS_QUERY_INFORMATION` (`THREAD_QUERY_INFORMATION`) for any access. On Windows
+`PROCESS_QUERY_LIMITED_INFORMATION` is enough (measured on the Windows 11 host: a Low integrity program opens a Medium
+one's token for `TOKEN_QUERY`), so Low integrity clients could not check a pipe server's token (the token broker's
+client, B86; the planned DWM pipe, `DWM_ARCHITECTURE.md` 2.0).
+
+- Now the limited right is enough when the asked access, after generic mapping, is only `TOKEN_QUERY`,
+  `TOKEN_QUERY_SOURCE` and `READ_CONTROL`. `MAXIMUM_ALLOWED`, `GENERIC_READ` (it includes `TOKEN_DUPLICATE`) and any
+  right that duplicates, impersonates, assigns or adjusts still need the full query right.
+- Why not the full Windows rule: on Windows the token's own descriptor keeps users from copying a SYSTEM token. Here
+  the tokens of the system role (`token_create_service`) have no DACL, and users have the limited query on those
+  processes (`sysrun.c`, `protect_object`, for task managers), so the full query right on the process is what stops
+  a user duplicating a SYSTEM token. Giving those tokens a Windows-like descriptor would allow the plain Windows rule
+  (`SESSION0_SPLIT_REVIEW.md`, R7).
+- Known divergence: a user can read (`TOKEN_QUERY`) a SYSTEM-role token, which Windows' descriptor refuses.
+- Tests (`scripts/sysrun_roles_probe.c`, run by `test_sysrun_server.sh` section c3 for both architectures):
+  `low-token` (a Low integrity copy reads its Medium parent's token and cannot open it for duplicate, impersonate,
+  assign or `MAXIMUM_ALLOWED`), and `proc-denied` now also checks that the limited query opens no copying, using or
+  adjusting right on the tokens of services.exe, winedevice.exe and a service process.
+
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
 General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with
@@ -2686,9 +2708,9 @@ elevation is enforced; otherwise stock behavior (the build files and the service
   Administrators only. Any other new process whose connection has the system group loses the raised file access
   (`peer_gid` cleared): its Unix process dropped the group.
 - `server/token.c` (`open_token`): while the system role is active and elevation is enforced, opening the token of
-  another process needs `PROCESS_QUERY_INFORMATION` (a thread: `THREAD_QUERY_INFORMATION`), as on Windows. Stock Wine
-  asks for no right at all, so a limited process could open the full token of an elevated process of its user and
-  impersonate it.
+  another process needs `PROCESS_QUERY_INFORMATION` (a thread: `THREAD_QUERY_INFORMATION`). Stock Wine asks for no
+  right at all, so a limited process could open the full token of an elevated process of its user and impersonate it.
+  Since 2026-11-23 an open that only reads the token needs just the limited query right (see the entry at the top).
 - `server/sysrun.c` (`system_images`): `drive_c/windows/system32/wexelevate.exe` may be the main image of a system
   group root process (B1). Dormant until the launcher accepts the broker as a mode; the broker is started by
   services.exe as a LocalSystem service and does not need it.
