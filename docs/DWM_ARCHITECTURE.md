@@ -48,7 +48,10 @@ requests by the target window, not the calling thread, and to have the broker ch
   - The name is built by one helper in `dwm_protocol.h`, which also builds the frame-clock and event names.
   - It stays outside the `\pipe\WexSession0\` prefix, so the Session 0 bridge never forwards it.
   - There is no broker on Winlogon, Screen-saver or `__wineservice_winstation`.
-- **DACL** `D:P(A;;GA;;;<owner>)(A;;GRGW;;;SY)(A;;GRGW;;;<logon SID, or IU>)(A;;GRGW;;;AC)S:(ML;;NW;;;LW)`.
+- **DACL** `D:P(A;;GA;;;<owner>)(A;;GRGW;;;SY)(A;;GRGW;;;IU)(A;;GRGW;;;AC)S:(ML;;NW;;;LW)`.
+  - IU (interactive users), not the desktop's logon SID: E1-S gives the administrator's token its own logon id, so a
+    logon SID would lock out over-the-shoulder windows. This has to be checked against the over-the-shoulder token
+    once E1-S exists; today that path fails closed with ERROR_NOT_SUPPORTED.
   - It admits everyone who can own a window on the desktop: over-the-shoulder elevation's administrator token, the
     sysrun SYSTEM role and AppContainer (UWP) windows.
   - Only processes of this user's wineserver can reach the namespace at all.
@@ -67,8 +70,9 @@ requests by the target window, not the calling thread, and to have the broker ch
 - **Broker authenticity.**
   - Squatting the name before dwm.exe starts, or between a crash and the restart, is the risk; a low-integrity,
     AppContainer or restricted process could do it.
-  - Once per connection, the client opens `GetNamedPipeServerProcessId` with
-    `PROCESS_QUERY_LIMITED_INFORMATION` and checks two things:
+  - Once per connection, the client opens `GetNamedPipeServerProcessId` with `PROCESS_QUERY_INFORMATION` and checks
+    two things. `PROCESS_QUERY_LIMITED_INFORMATION` is not enough: with elevation enforced, `OpenProcessToken` needs
+    the full right (`server/token.c`).
     - its image (`QueryFullProcessImageNameW`) is the machine's `system32\dwm.exe`;
     - its token is an ordinary one: not an AppContainer, not restricted, integrity at least Medium.
 
@@ -78,6 +82,11 @@ requests by the target window, not the calling thread, and to have the broker ch
     This costs a few calls per connection and none per message. Under the prefix split the user cannot write the
     machine's system32. The helper lives in `wex_pipe.h` and is shared with the token broker. It is defence in
     depth, since Wine's sandboxes run as the same Unix user.
+
+    **Open, to settle before coding:** whether a Low-integrity or AppContainer client (UWP) gets
+    `PROCESS_QUERY_INFORMATION` on a Medium dwm.exe. That depends on the process object's descriptor and label. If
+    it does not, UWP windows silently lose DWM. The dwmapi tests get a UWP-client case, and the design has to say
+    what a sandboxed client does when it cannot query.
   - A parent-pid check would prove nothing, because applications started from the Start menu share dwm.exe's
     parent, explorer.
   - A failed check counts as "no broker" (the failure cache).
@@ -111,12 +120,13 @@ requests by the target window, not the calling thread, and to have the broker ch
   - a server instance (name, SDDL, first-instance flag, message size, reject-remote);
   - a client connect that waits with a timeout;
   - an overlapped transact with a timeout and CancelIoEx;
-  - the server image check.
+  - the server check (image plus ordinary token).
 
   Caller policy and naming stay with each broker. DWM is its first user; moving the token broker and wexelevate to
   it is in the Session 0 review's R7 list. The token broker has the same squatting gap, and its data is not
-  cosmetic. The Session 0 reviewer reported it to the Orchestrator (fix B86; `claude/session0-split-review`
-  `26d2ade0`). Caller policy stays out of the header, so those brokers can move onto it without changing their
+  cosmetic. It was reported by the Session 0 reviewer (review `26d2ade0`) and fixed as B86 on Wine
+  `claude/wam-broker-pipe-check` (`d77d8065` image, `1c7939e1` ordinary token, `b2f0aa26`/`2458bf14`/`7b49b5fe`
+  tests). Caller policy stays out of the header, so those brokers can move onto it without changing their
   rules.
 - **Out of scope for now.** The per-desktop event and frame-clock names can be squatted the same way.
 
