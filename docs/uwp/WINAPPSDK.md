@@ -196,3 +196,22 @@ other access violations; they are handled. So the real state of Notepad after th
 Next: find out what `CoreWindowIntegration` does with the result (the function is a delay-load wrapper at FrameworkUdk RVA 0x73d0 that
 tail-calls the OS function with its own arguments), probe the real `CoreUICreate` on the Windows host (black-box: arguments, result,
 which interface comes back), and decide between a small implementation and avoiding the integration.
+
+## CoreUICreate probed on Windows 11 and the first layers implemented (2026-11-23)
+
+`tests/uwp/alpc/coreui-probe.c` (Windows host, black box): `CoreUICreate(void **object)` returns S_OK with a **process-wide object**
+(the same pointer on every call), E_POINTER for null; the object's IUnknown is another pointer than the object itself; it implements a
+**session interface `{4b2edab9-129b-4733-be15-356853d55ace}`** (at least 24 methods; the vtable is the object's own) and slot 8 of it,
+called with a null argument, gives an **item object** with IUnknown and `{fcd9d50d-0902-4a2d-ac94-b95c3316f6a0}` (the item itself, a
+vtable of 4 methods after IUnknown).
+
+The FrameworkUdk side (`Microsoft.Internal.FrameworkUdk.dll`, wrappers around 0xf350..0xf4a0 and 0x13a1c..): ask an object for the
+session interface, call one method of it (slot 3: creates something into an out pointer; slot 8: `(argument, out)`), ask the result for
+IUnknown. Slot 12 is called with a function of FrameworkUdk, a context, a pointer to the object and a pointer (a handler
+registration). `dlls/coremessaging/coreui.c` implements what is asked, in that order: the object, the session interface, the item. It gets
+Notepad past three layers, then it asks the item for `{37a94c05-1aa6-4cea-9049-083bba055cec}`.
+
+This is a blind walk down a chain of undocumented interfaces of the CoreUI session (the conversation of the application with the window
+system). Each step costs one probe on Windows and one run; how deep it goes is not known. Alternatives: (a) find out what makes
+`WindowsXamlManager` call `CoreWindowIntegration` (a version or feature check that can be answered the other way, which would skip the
+whole chain); (b) implement the session for real (needs the window system side: the `Windows.UI.Composition` / DWM piece).
