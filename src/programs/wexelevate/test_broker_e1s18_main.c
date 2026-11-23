@@ -11,6 +11,7 @@
 #ifdef WEXELEVATE_E1S18
 /* WO-14: the golden-vector test uses the shared S1 encoder directly. */
 #include "e1s_encode.h"
+#include "e1s_digest.h"
 /* WO-20: the R8 INIT/ACK test uses the codec directly; only a subset of the
  * codec's static helpers is used, so suppress the unused-function warnings. */
 #pragma GCC diagnostic push
@@ -415,6 +416,9 @@ static struct e1s18_ops s_fake_ops = {
     NULL  /* r8_start */
 };
 
+static WCHAR s_dummy_image[] = { 'C', ':', '\\', 'w', 'i', 'n', 'd', 'o', 'w', 's', '\\', 'c', 'm', 'd', '.', 'e', 'x', 'e', 0 };
+static WCHAR s_dummy_cmdline[] = { 'c', 'm', 'd', '.', 'e', 'x', 'e', 0 };
+
 static void init_dummy_request( struct request *req )
 {
     memset( req, 0, sizeof(*req) );
@@ -427,6 +431,10 @@ static void init_dummy_request( struct request *req )
     req->show = 1;
     req->lease = 1;
     memset( req->hash, 0x33, sizeof(req->hash) );
+    /* the broker always sends an image and a command line; the S1 record refuses a missing one (finding 3). Static
+     * strings: wo20_set_wchar_field leaves them alone when a test replaces them, and nothing else frees them. */
+    req->image = s_dummy_image;
+    req->cmdline = s_dummy_cmdline;
 #ifdef WEXELEVATE_E1S18
     req->is_standard_user = TRUE;
     req->caller_stats.AuthenticationId.HighPart = 0x1111;
@@ -3630,7 +3638,7 @@ static void wo20_set_wchar_field( WCHAR **field, const char *ascii )
     size_t len = strlen( ascii ) + 1;
     WCHAR *buf = malloc( len * sizeof(WCHAR) );
     size_t i;
-    free( *field );
+    if (*field != s_dummy_image && *field != s_dummy_cmdline) free( *field );
     for (i = 0; i < len; i++) buf[i] = (WCHAR)(unsigned char)ascii[i];
     *field = buf;
 }
@@ -4312,6 +4320,52 @@ static int test_review4_issue_token_empty_sid( void )
 }
 #endif
 
+#ifdef WEXELEVATE_E1S18
+/*
+ * Design review, finding 3: a request whose S1 record cannot be encoded (here a command line longer than the
+ * encoder takes) is denied before any dialog; the digests used to be taken over the partial record.
+ */
+static int test_review3_digest_failure_denies( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    WCHAR *long_cmd;
+    size_t i, n = 40000;
+    DWORD err;
+    uint8_t digest[32];
+
+    long_cmd = calloc( n + 1, sizeof(WCHAR) );
+    CHECK( long_cmd != NULL, "allocation" );
+    for (i = 0; i < n; i++) long_cmd[i] = 'x';
+
+    init_dummy_request( &req );
+    req.cmdline = long_cmd;
+    reset_tracker();
+    e1s18_set_ops( &s_fake_ops );
+    memset( &reply, 0, sizeof(reply) );
+    err = e1s18_handle_standard_request( &req, &reply );
+    free( long_cmd );
+    CHECK( err != ERROR_SUCCESS, "an unencodable request must be denied" );
+    CHECK_EQ( g_track.order_count, 0, "no stage (no dialog) may run after a digest failure" );
+    CHECK_EQ( reply.pid, 0, "no child on a digest failure" );
+    e1s18_reset_ops();
+
+    /* the record digest refuses a failed or empty encoding instead of hashing it */
+    {
+        uint8_t data[4] = { 1, 2, 3, 4 };
+        struct e1s_bytes b = { data, sizeof(data), sizeof(data), 0 };
+        CHECK( e1s_digest_record( "E1S1-REQ", sizeof("E1S1-REQ"), &b, digest ), "a whole record is hashed" );
+        b.failed = 1;
+        memset( digest, 0xff, sizeof(digest) );
+        CHECK( !e1s_digest_record( "E1S1-REQ", sizeof("E1S1-REQ"), &b, digest ), "a failed encoding is refused" );
+        for (i = 0; i < 32; i++) CHECK( digest[i] == 0, "a refused digest is zeroed, never left over" );
+        b.failed = 0; b.data = NULL;
+        CHECK( !e1s_digest_record( "E1S1-REQ", sizeof("E1S1-REQ"), &b, digest ), "no buffer (OOM) is refused" );
+    }
+    return TEST_PASS;
+}
+#endif
+
 int main( int argc, char **argv )
 {
     int ret = 0;
@@ -4519,6 +4573,9 @@ int main( int argc, char **argv )
 
     printf("64. Testing review finding 4: an empty or malformed caller SID gets no token...\n");
     if (test_review4_issue_token_empty_sid() != TEST_PASS) ret = 1;
+
+    printf("65. Testing review finding 3: a failed S1 encoding or digest denies before any dialog...\n");
+    if (test_review3_digest_failure_denies() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

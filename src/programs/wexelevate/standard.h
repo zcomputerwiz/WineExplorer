@@ -41,6 +41,7 @@ typedef struct _PROCESS_INFORMATION
 #define ERROR_SUCCESS                     0
 #define ERROR_FILE_NOT_FOUND              2
 #define ERROR_ACCESS_DENIED               5
+#define ERROR_NOT_ENOUGH_MEMORY           8
 #define ERROR_INVALID_DATA                13
 #define ERROR_GEN_FAILURE                 31
 #define ERROR_NOT_SUPPORTED               50

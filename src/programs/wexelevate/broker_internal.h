@@ -40,6 +40,7 @@
 #include "token_checks.h"
 #include "e1s6_protocol.h"
 #include "e1s_encode.h"
+#include "e1s_digest.h"
 #ifdef WEXELEVATE_E1S18
 #include "e1r8_codec.h"
 #endif
