@@ -40,6 +40,59 @@ static void release(void *obj)
     if (obj) ((ULONG (WINAPI *)(void *))SLOT(obj, 2))(obj);
 }
 
+/* install FILE_URI [development]: IPackageManager::StagePackageAsync on a real package, wait for the operation, print what it says */
+static int do_install(const WCHAR *uri_text, int development)
+{
+    static const GUID IID_IUriFactory = {0x44a9796f, 0x723e, 0x4fdf, {0xa2, 0x18, 0x03, 0x3e, 0x75, 0xb0, 0xc0, 0x84}};
+    static const GUID IID_IAsyncInfo_ = {0x00000036, 0, 0, {0xc0, 0, 0, 0, 0, 0, 0, 0x46}};
+    typedef const WCHAR *(WINAPI *RawBuffer_t)(HSTRING_, UINT32 *);
+    RawBuffer_t pRaw = (RawBuffer_t)GetProcAddress(GetModuleHandleA("combase.dll"), "WindowsGetStringRawBuffer");
+    void *ufactory = NULL, *uri = NULL, *pm = NULL, *pm1 = NULL, *pm2 = NULL, *op = NULL, *info = NULL, *res = NULL;
+    int status = -1, i;
+    HRESULT hr, code = 0;
+
+    hr = pGetFactory(hs(L"Windows.Foundation.Uri"), &IID_IUriFactory, &ufactory);
+    printf("Uri factory: hr=%08lx\n", hr);
+    if (hr) return 1;
+    hr = CALL(ufactory, 6, HRESULT (WINAPI *)(void *, HSTRING_, void **), hs(uri_text), &uri);
+    printf("CreateUri: hr=%08lx\n", hr);
+    if (hr) return 1;
+    hr = pGetFactory(hs(L"Windows.Management.Deployment.PackageManager"), &IID_IActivationFactory_, &pm);
+    hr = CALL(pm, 6, HRESULT (WINAPI *)(void *, void **), &pm1);
+    if (hr) return 1;
+    if (development)
+    {
+        static const GUID IID_IPackageManager2 = {0xf7aad08d, 0x0840, 0x46f2, {0xb5, 0xd8, 0xca, 0xd4, 0x76, 0x93, 0xa0, 0x95}};
+        ((HRESULT (WINAPI *)(void *, const GUID *, void **))SLOT(pm1, 0))(pm1, &IID_IPackageManager2, &pm2);
+        /* StagePackageWithOptionsAsync(uri, dependencies, options = DevelopmentMode 2): slot 7 */
+        hr = CALL(pm2, 7, HRESULT (WINAPI *)(void *, void *, void *, int, void **), uri, NULL, 2, &op);
+    }
+    else
+        hr = CALL(pm1, 9, HRESULT (WINAPI *)(void *, void *, void *, void **), uri, NULL, &op);   /* StagePackageAsync */
+    printf("StagePackageAsync: hr=%08lx op=%s\n", hr, op ? "set" : "null");
+    if (hr || !op) return 1;
+    ((HRESULT (WINAPI *)(void *, const GUID *, void **))SLOT(op, 0))(op, &IID_IAsyncInfo_, &info);
+    for (i = 0; i < 600 && info; i++)
+    {
+        hr = CALL(info, 7, HRESULT (WINAPI *)(void *, int *), &status);   /* get_Status: 0 started, 1 completed, 2 canceled, 3 error */
+        if (status != 0) break;
+        Sleep(100);
+    }
+    CALL(info, 8, HRESULT (WINAPI *)(void *, HRESULT *), &code);
+    printf("operation status %d, error code %08lx\n", status, code);
+    hr = CALL(op, 10, HRESULT (WINAPI *)(void *, void **), &res);   /* GetResults */
+    printf("GetResults: hr=%08lx result=%s\n", hr, res ? "set" : "null");
+    if (res)
+    {
+        HSTRING_ text = NULL;
+        HRESULT ext = 0;
+        CALL(res, 6, HRESULT (WINAPI *)(void *, HSTRING_ *), &text);
+        CALL(res, 8, HRESULT (WINAPI *)(void *, HRESULT *), &ext);
+        printf("  ExtendedErrorCode %08lx, ErrorText: %ls\n", ext, text ? pRaw(text, NULL) : L"(null)");
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     HMODULE combase = LoadLibraryA("combase.dll");
@@ -53,6 +106,13 @@ int main(int argc, char **argv)
     pGetFactory = (RoGetActivationFactory_t)GetProcAddress(combase, "RoGetActivationFactory");
     pCreate = (WindowsCreateString_t)GetProcAddress(combase, "WindowsCreateString");
     ((RoInitialize_t)GetProcAddress(combase, "RoInitialize"))(1 /* RO_INIT_MULTITHREADED */);
+
+    if (argc > 2 && !strcmp(argv[1], "install"))
+    {
+        WCHAR uri[1024];
+        MultiByteToWideChar(CP_UTF8, 0, argv[2], -1, uri, 1024);
+        return do_install(uri, argc > 3 && !strcmp(argv[3], "development"));
+    }
 
     hr = pGetFactory(hs(L"Windows.Management.Deployment.PackageManager"), &IID_IActivationFactory_, &factory);
     printf("PackageManager factory: hr=%08lx\n", hr);
