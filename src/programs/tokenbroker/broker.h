@@ -40,6 +40,7 @@ struct request
     unsigned int kind;
     unsigned int prompt;
     unsigned int window;
+    unsigned int client_pid;    /* the calling process, from the pipe (for the client ids it has used) */
     WCHAR *field[TOKENBROKER_FIELD_COUNT];
     unsigned int prop_count;
     WCHAR **prop_key;
@@ -162,6 +163,10 @@ BOOL oauth_redeem( const WCHAR *base, const struct request *req, const struct oa
                    struct token_result *result );
 BOOL oauth_refresh( const WCHAR *base, const WCHAR *authority, const WCHAR *client_id, const WCHAR *scope,
                     const WCHAR *refresh_token, struct token_result *result );
+BOOL oauth_refresh_nested( const WCHAR *base, const WCHAR *authority, const WCHAR *parent_client_id,
+                           const WCHAR *parent_redirect_uri, const WCHAR *child_client_id,
+                           const WCHAR *child_redirect_uri, const WCHAR *scope, const WCHAR *refresh_token,
+                           struct token_result *result );
 void token_result_free( struct token_result *result );
 WCHAR *oauth_scope( const WCHAR *requested );
 

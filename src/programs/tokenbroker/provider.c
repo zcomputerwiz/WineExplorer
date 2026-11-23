@@ -161,48 +161,185 @@ static void map_error( const struct request *req, const WCHAR *error_code, const
 
 /* the account's id and sign-in name: the id token's object id (else its subject), its preferred_username (else email,
  * else the login hint) */
+/* A Microsoft account's object id is "00000000-0000-0000-" and the 16 hex digits of its customer id. WAM names such an
+ * account by 16 upper-case hex digits (its WebAccount.Id), and programs that parse the id expect that form: the
+ * cache, the answers and FindAllAccounts use it. Any other id is returned unchanged. Allocated. */
+static WCHAR *public_account_id( const WCHAR *oid )
+{
+    static const WCHAR zeros[] = L"00000000-0000-0000-";
+    WCHAR *id;
+    unsigned int i, n = 0;
+
+    if (!oid || wcslen( oid ) != 36 || wcsncmp( oid, zeros, 19 )) return strdupW( oid );
+    if (!(id = calloc( 17, sizeof(WCHAR) ))) return NULL;
+    for (i = 19; i < 36; i++)
+    {
+        if (oid[i] == '-') continue;
+        if (!iswxdigit( oid[i] ) || n >= 16) { free( id ); return strdupW( oid ); }
+        id[n++] = towupper( oid[i] );
+    }
+    if (n != 16) { free( id ); return strdupW( oid ); }
+    return id;
+}
+
+/* the object id form of a public account id (for the wamcompat_account_id property), or a copy of ID */
+static WCHAR *object_account_id( const WCHAR *id )
+{
+    WCHAR *out;
+    unsigned int i;
+
+    if (!id || wcslen( id ) != 16) return strdupW( id );
+    for (i = 0; i < 16; i++) if (!iswxdigit( id[i] )) return strdupW( id );
+    if (!(out = calloc( 37, sizeof(WCHAR) ))) return NULL;
+    swprintf( out, 37, L"00000000-0000-0000-%.4s-%.12s", id + 0, id + 4 );
+    for (i = 0; out[i]; i++) out[i] = towlower( out[i] );
+    return out;
+}
+
 static void account_names( const struct token_result *r, const WCHAR *hint, WCHAR **id, WCHAR **name )
 {
     char *claims = jwt_payload( r->id_token );
+    WCHAR *oid = json_string( claims, "oid" );
 
-    *id = json_string( claims, "oid" );
-    if (!*id) *id = json_string( claims, "sub" );
+    if (!oid) oid = json_string( claims, "sub" );
+    *id = oid ? public_account_id( oid ) : NULL;
+    free( oid );
     *name = json_string( claims, "preferred_username" );
     if (!*name) *name = json_string( claims, "email" );
     if (!*name) *name = strdupW( hint ? hint : L"" );
     free( claims );
 }
 
-static void reply_success( struct reply *reply, const WCHAR *token, const WCHAR *account_id, const WCHAR *user_name,
-                           const WCHAR *id_token, const WCHAR *client_info, const WCHAR *scope, LONGLONG expires_on )
+/* The answer's account properties, as WAM's answer for a Microsoft account has them (names, a customer id): only what
+ * the id token tells, nothing is made up. */
+static void account_properties( struct reply *reply, const WCHAR *account_id, const WCHAR *user_name,
+                                const WCHAR *id_token )
+{
+    struct text *props = &reply->field[TOKENBROKER_REPLY_ACCOUNT_PROPERTIES];
+    char *claims = jwt_payload( id_token );
+    WCHAR *name = json_string( claims, "name" ), *given = json_string( claims, "given_name" );
+    WCHAR *family = json_string( claims, "family_name" ), *country = json_string( claims, "ctry" );
+    WCHAR *space;
+    unsigned int i;
+
+    text_append_pair( props, L"IsRoamingEncryptionKeyAvailable", L"false" );
+    if (name && *name) text_append_pair( props, L"DisplayName", name );
+    if (!given && name && (space = wcsrchr( name, ' ' )) && space > name)
+    {
+        given = strdupW( name );
+        given[space - name] = 0;
+        if (!family) family = strdupW( space + 1 );
+    }
+    if (given && *given) text_append_pair( props, L"FirstName", given );
+    if (country && *country) text_append_pair( props, L"CountryOrRegion", country );
+    if (user_name && *user_name) text_append_pair( props, L"UserName", user_name );
+    if (account_id && *account_id) text_append_pair( props, L"UID", account_id );
+    if (family && *family) text_append_pair( props, L"LastName", family );
+    if (account_id && wcslen( account_id ) == 16)
+    {
+        WCHAR cid[17];
+
+        for (i = 0; i < 16; i++) cid[i] = towlower( account_id[i] );
+        cid[16] = 0;
+        text_append_pair( props, L"SafeCustomerId", cid );
+    }
+    free( name ); free( given ); free( family ); free( country ); free( claims );
+}
+
+/* the telemetry blob WAM returns in the answer's "MATS" property when the request asks for it (telemetry=MATS) */
+static void telemetry_property( struct reply *reply, const struct request *req, const WCHAR *account_id,
+                                BOOL interactive, BOOL cached )
+{
+    WCHAR json[512];
+    const WCHAR *correlation = req && req->field[TOKENBROKER_FIELD_CORRELATION_ID] ?
+                               req->field[TOKENBROKER_FIELD_CORRELATION_ID] : L"";
+
+    swprintf( json, ARRAY_SIZE(json),
+              L"{\"ui_visible\":%s,\"correlation_id\":\"%s\",\"account_id\":\"%s\",\"web_flow_result\":\"%s\","
+              L"\"silent_code\":0,\"silent_bi_sub_code\":0,\"silent_message\":\"\",\"silent_status\":0,"
+              L"\"is_cached\":%s}",
+              interactive ? L"true" : L"false", correlation, account_id ? account_id : L"",
+              interactive ? L"success" : L"none", cached ? L"true" : L"false" );
+    text_append_pair( &reply->field[TOKENBROKER_REPLY_PROPERTIES], L"MATS", json );
+}
+
+/* whether the request carries the property KEY with the value VALUE */
+static BOOL request_property_is( const struct request *req, const WCHAR *key, const WCHAR *value )
+{
+    unsigned int i;
+
+    for (i = 0; req && i < req->prop_count; i++)
+        if (!wcscmp( req->prop_key[i], key )) return !wcscmp( req->prop_value[i], value );
+    return FALSE;
+}
+
+/* With the request property oauth2_batch=1 (the Microsoft account library sends it with api-version 2.0), the answer's
+ * Token is not the bare access token but the token endpoint's answer as a form body, in this order: access_token,
+ * token_type, expires_in (seconds left), scope, id_token, client_info. Allocated, or NULL. */
+static WCHAR *batch_token( const WCHAR *token, const WCHAR *scope, const WCHAR *id_token, const WCHAR *client_info,
+                           LONGLONG expires_on )
+{
+    struct text body = {0};
+    WCHAR expires_in[32];
+    LONGLONG left = expires_on - unix_time();
+
+    swprintf( expires_in, ARRAY_SIZE(expires_in), L"%I64d", left > 0 ? left : 0 );
+    if (!url_append_param( &body, L"access_token", token ) || !url_append_param( &body, L"token_type", L"Bearer" ) ||
+        !url_append_param( &body, L"expires_in", expires_in ) ||
+        !url_append_param( &body, L"scope", scope ? scope : L"" ) ||
+        (id_token && *id_token && !url_append_param( &body, L"id_token", id_token )) ||
+        (client_info && *client_info && !url_append_param( &body, L"client_info", client_info )))
+    {
+        free( body.data );
+        return NULL;
+    }
+    return body.data;
+}
+
+static void reply_success( struct reply *reply, const struct request *req, BOOL interactive, const WCHAR *token,
+                           const WCHAR *account_id, const WCHAR *user_name, const WCHAR *id_token,
+                           const WCHAR *client_info, const WCHAR *scope, LONGLONG expires_on )
 {
     struct text *props = &reply->field[TOKENBROKER_REPLY_PROPERTIES];
-    WCHAR expires[32];
+    WCHAR expires[32], *object_id, *batch = NULL;
 
     reply->status = STATUS_SUCCESS_;
     reply->code = 0;
-    reply_set( reply, TOKENBROKER_REPLY_TOKEN, token );
+    if (request_property_is( req, L"oauth2_batch", L"1" ))
+        batch = batch_token( token, scope, id_token, client_info, expires_on );
+    reply_set( reply, TOKENBROKER_REPLY_TOKEN, batch ? batch : token );
     reply_set( reply, TOKENBROKER_REPLY_ACCOUNT_ID, account_id );
     reply_set( reply, TOKENBROKER_REPLY_USER_NAME, user_name );
     swprintf( expires, ARRAY_SIZE(expires), L"%I64d", expires_on );
-    /* the properties MSAL reads from a WAM answer */
-    if (id_token && *id_token) text_append_pair( props, L"wamcompat_id_token", id_token );
-    if (client_info && *client_info) text_append_pair( props, L"wamcompat_client_info", client_info );
-    if (scope && *scope) text_append_pair( props, L"wamcompat_scopes", scope );
-    text_append_pair( props, L"wamcompat_expires_on", expires );
-    if (user_name && *user_name) text_append_pair( props, L"wamcompat_user_displayable_id", user_name );
-    if (account_id && *account_id) text_append_pair( props, L"wamcompat_account_id", account_id );
+    if (!batch)
+    {
+        /* the properties MSAL reads from a WAM answer */
+        if (id_token && *id_token) text_append_pair( props, L"wamcompat_id_token", id_token );
+        if (client_info && *client_info) text_append_pair( props, L"wamcompat_client_info", client_info );
+        if (scope && *scope) text_append_pair( props, L"wamcompat_scopes", scope );
+        text_append_pair( props, L"wamcompat_expires_on", expires );
+        if (user_name && *user_name) text_append_pair( props, L"wamcompat_user_displayable_id", user_name );
+        if (account_id && *account_id && (object_id = object_account_id( account_id )))
+        {
+            text_append_pair( props, L"wamcompat_account_id", object_id );
+            free( object_id );
+        }
+    }
+    free( batch );
+    if (request_property_is( req, L"telemetry", L"MATS" ))
+        telemetry_property( reply, req, account_id, interactive, !interactive );
+    account_properties( reply, account_id, user_name, id_token );
 }
 
 /* keeps a token answer: the account with its refresh token, and the access token */
 static void store_result( const struct provider *provider, const struct request *req, const struct token_result *r,
-                          const WCHAR *account_id, const WCHAR *user_name )
+                          const WCHAR *account_id, const WCHAR *user_name, const WCHAR *token_client )
 {
     struct access_token t = {0};
     struct account a = {0};
 
     cache_lock();
-    if (r->refresh_token)
+    if (r->refresh_token && !token_client)
     {
         a.provider_id = (WCHAR *)provider->id;
         a.authority = req->field[TOKENBROKER_FIELD_AUTHORITY];
@@ -215,7 +352,7 @@ static void store_result( const struct provider *provider, const struct request 
     t.provider_id = (WCHAR *)provider->id;
     t.authority = req->field[TOKENBROKER_FIELD_AUTHORITY];
     t.account_id = (WCHAR *)account_id;
-    t.client_id = req->field[TOKENBROKER_FIELD_CLIENT_ID];
+    t.client_id = token_client ? (WCHAR *)token_client : req->field[TOKENBROKER_FIELD_CLIENT_ID];
     t.scope = req->field[TOKENBROKER_FIELD_SCOPE];
     t.expires_on = r->expires_on;
     t.token = r->access_token;
@@ -231,14 +368,26 @@ static void store_result( const struct provider *provider, const struct request 
  * The operations
  */
 
+static struct account *account_of_used_client( const struct provider *provider, const struct request *req,
+                                               const WCHAR *hint, WCHAR **client );
+
 static void get_token_silent( const struct provider *provider, const struct request *req, struct reply *reply )
 {
     const WCHAR *hint = request_property( req, L"LoginHint" );
-    WCHAR *account_id = NULL, *user_name = NULL, *refresh = NULL;
+    /* Nested App Authentication: the token is for the child app, through the parent (the request's client) */
+    const WCHAR *child = request_property( req, L"child_client_id" );
+    const WCHAR *child_redirect = request_property( req, L"child_redirect_uri" );
+    /* The client id whose account and refresh token are used: the request's own, or (below) another one that the
+     * same process has used, when the request's has no account */
+    const WCHAR *parent = req->field[TOKENBROKER_FIELD_CLIENT_ID];
+    WCHAR *account_id = NULL, *user_name = NULL, *refresh = NULL, *parent_redirect = NULL;
+    WCHAR *other_client = NULL, *other_redirect = NULL;
     struct account *account, **list;
     struct access_token *token;
     struct token_result r;
     unsigned int count;
+
+    if (!child || !*child || !child_redirect || !*child_redirect) child = child_redirect = NULL;
 
     if (!hint) hint = request_property( req, L"login_hint" );
     cache_lock();
@@ -253,21 +402,43 @@ static void get_token_silent( const struct provider *provider, const struct requ
         if (count == 1) account = list[0];
         free( list );
     }
+    /* Windows keeps a Microsoft account for the user, not per client id: any client id gets its token silently for it.
+     * Here a request whose client id has no account uses the account of another client id the same process has used,
+     * and the token is asked for as the request's client through that one (a brokered refresh, as for a nested app). */
+    if (!account && !child && (account = account_of_used_client( provider, req, hint, &other_client )))
+    {
+        size_t len = wcslen( REDIRECT_PREFIX ) + wcslen( req->field[TOKENBROKER_FIELD_CLIENT_ID] ) + 1;
+        if ((other_redirect = malloc( len * sizeof(WCHAR) )))
+        {
+            swprintf( other_redirect, len, L"%s%s", REDIRECT_PREFIX, req->field[TOKENBROKER_FIELD_CLIENT_ID] );
+            parent = other_client;
+            child = req->field[TOKENBROKER_FIELD_CLIENT_ID];
+            child_redirect = other_redirect;
+        }
+        else account = NULL;
+    }
     if (!account)
     {
         cache_unlock();
-        TRACE( "silent: no account\n" );
+        TRACE( "silent: no account (client %s, account id %s, hint %s)\n",
+               debugstr_w( req->field[TOKENBROKER_FIELD_CLIENT_ID] ),
+               debugstr_w( req->field[TOKENBROKER_FIELD_ACCOUNT_ID] ), hint && *hint ? "given" : "none" );
         interaction_required( req, reply );
+        free( other_client );
+        free( other_redirect );
         return;
     }
     if ((token = cache_find_token( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY], account->id,
-                                   req->field[TOKENBROKER_FIELD_CLIENT_ID], req->field[TOKENBROKER_FIELD_SCOPE],
+                                   child ? child : req->field[TOKENBROKER_FIELD_CLIENT_ID],
+                                   req->field[TOKENBROKER_FIELD_SCOPE],
                                    unix_time() + TOKEN_MARGIN )))
     {
         TRACE( "silent: from the cache\n" );
-        reply_success( reply, token->token, account->id, account->user_name, token->id_token, token->client_info,
+        reply_success( reply, req, FALSE, token->token, account->id, account->user_name, token->id_token, token->client_info,
                        token->granted_scope, token->expires_on );
         cache_unlock();
+        free( other_client );
+        free( other_redirect );
         return;
     }
     account_id = strdupW( account->id );
@@ -275,24 +446,37 @@ static void get_token_silent( const struct provider *provider, const struct requ
     refresh = strdupW( account->refresh_token );
     cache_unlock();
 
+    if (child)
+    {
+        unsigned int len = wcslen( REDIRECT_PREFIX ) + wcslen( parent ) + 1;
+        if ((parent_redirect = malloc( len * sizeof(WCHAR) )))
+            swprintf( parent_redirect, len, L"%s%s", REDIRECT_PREFIX, parent );
+    }
     if (!refresh || !*refresh) interaction_required( req, reply );
-    else if (!oauth_refresh( provider->base, req->field[TOKENBROKER_FIELD_AUTHORITY],
-                             req->field[TOKENBROKER_FIELD_CLIENT_ID], req->field[TOKENBROKER_FIELD_SCOPE], refresh, &r ))
+    else if (!(child ? (parent_redirect && oauth_refresh_nested( provider->base, req->field[TOKENBROKER_FIELD_AUTHORITY],
+                                                                parent, parent_redirect,
+                                                                child, child_redirect,
+                                                                req->field[TOKENBROKER_FIELD_SCOPE], refresh, &r ))
+                     : oauth_refresh( provider->base, req->field[TOKENBROKER_FIELD_AUTHORITY],
+                                      req->field[TOKENBROKER_FIELD_CLIENT_ID], req->field[TOKENBROKER_FIELD_SCOPE],
+                                      refresh, &r )))
         map_error( req, L"network", L"The authority could not be reached.", reply );
     else
     {
         if (r.access_token)
         {
-            TRACE( "silent: by refresh token\n" );
+            TRACE( "silent: by refresh token%s\n", child ? " (nested app)" : "" );
             if (!r.refresh_token) r.refresh_token = strdupW( refresh );
-            store_result( provider, req, &r, account_id, user_name );
-            reply_success( reply, r.access_token, account_id, user_name, r.id_token, r.client_info, r.scope,
+            store_result( provider, req, &r, account_id, user_name, child );
+            reply_success( reply, req, FALSE, r.access_token, account_id, user_name, r.id_token, r.client_info, r.scope,
                            r.expires_on );
         }
         else
         {
-            TRACE( "silent: refresh refused (%s)\n", debugstr_w( r.error_code ) );
-            if (r.error_code && !wcscmp( r.error_code, L"invalid_grant" ))
+            WARN( "silent: refresh refused (%s)%s for scope %s\n", debugstr_w( r.error_code ), child ? " (nested app)" : "",
+                  debugstr_w( req->field[TOKENBROKER_FIELD_SCOPE] ) );
+            /* a nested app's refusal says nothing about the parent's refresh token */
+            if (!child && r.error_code && !wcscmp( r.error_code, L"invalid_grant" ))
             {
                 /* the refresh token is no good any more: the account needs the user again */
                 cache_lock();
@@ -306,6 +490,9 @@ static void get_token_silent( const struct provider *provider, const struct requ
     }
     if (refresh) SecureZeroMemory( refresh, wcslen( refresh ) * sizeof(WCHAR) );
     free( refresh );
+    free( parent_redirect );
+    free( other_client );
+    free( other_redirect );
     free( account_id );
     free( user_name );
 }
@@ -417,7 +604,7 @@ static void request_token( const struct provider *provider, const struct request
             }
             else
             {
-                store_result( provider, req, &r, account_id, user_name );
+                store_result( provider, req, &r, account_id, user_name, NULL );
                 signin_transition( &signin, SIGNIN_DONE );
             }
         }
@@ -426,7 +613,7 @@ static void request_token( const struct provider *provider, const struct request
     {
     case SIGNIN_DONE:
         TRACE( "interactive: signed in\n" );
-        reply_success( reply, r.access_token, account_id, user_name, r.id_token, r.client_info, r.scope, r.expires_on );
+        reply_success( reply, req, TRUE, r.access_token, account_id, user_name, r.id_token, r.client_info, r.scope, r.expires_on );
         break;
     case SIGNIN_CANCELLED:
         reply_error( reply, STATUS_USER_CANCEL, E_CANCELLED, signin.error ? signin.error : L"The user cancelled the sign-in." );
@@ -465,16 +652,88 @@ static void find_accounts( const struct provider *provider, const struct request
     reply->status = FIND_SUCCESS;
 }
 
-/* by id, for the request's client only: FindAccountAsync names no client, so it finds nothing (an empty client id is
- * never "every client") */
+/* The client ids each calling process has used, in memory only: FindAccountAsync names no client, and an empty client
+ * id is never "every client", so the accounts such a call may see are those of the client ids the same process has
+ * itself used in its other requests (a program finds the account it signed in, and no other program's). */
+#define USED_PROCESSES 16
+#define USED_CLIENTS   4
+static struct { unsigned int pid; unsigned int count; unsigned int next; WCHAR *client[USED_CLIENTS]; } used[USED_PROCESSES];
+static unsigned int used_next;
+
+/* the caller holds the cache lock */
+static void remember_client( unsigned int pid, const WCHAR *client_id )
+{
+    unsigned int i, j;
+
+    if (!pid || !client_id || !*client_id) return;
+    for (i = 0; i < USED_PROCESSES && used[i].pid != pid; i++) ;
+    if (i == USED_PROCESSES)
+    {
+        i = used_next++ % USED_PROCESSES;       /* the oldest process's entry is replaced */
+        for (j = 0; j < USED_CLIENTS; j++) { free( used[i].client[j] ); used[i].client[j] = NULL; }
+        used[i].pid = pid;
+        used[i].count = used[i].next = 0;
+    }
+    for (j = 0; j < used[i].count; j++) if (!wcscmp( used[i].client[j], client_id )) return;
+    j = used[i].next++ % USED_CLIENTS;
+    free( used[i].client[j] );
+    used[i].client[j] = strdupW( client_id );
+    if (used[i].count < USED_CLIENTS) used[i].count++;
+}
+
+/* An account that the request's process holds under another client id it has used, and that client id (allocated);
+ * the caller holds the cache lock. */
+static struct account *account_of_used_client( const struct provider *provider, const struct request *req,
+                                               const WCHAR *hint, WCHAR **client )
+{
+    struct account *account = NULL, **list;
+    unsigned int i, j, count;
+
+    *client = NULL;
+    for (i = 0; req->client_pid && i < USED_PROCESSES && !account; i++)
+    {
+        if (used[i].pid != req->client_pid) continue;
+        for (j = 0; j < used[i].count && !account; j++)
+        {
+            const WCHAR *other = used[i].client[j];
+
+            if (!other || !wcscmp( other, req->field[TOKENBROKER_FIELD_CLIENT_ID] )) continue;
+            account = cache_find_account( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY],
+                                          req->field[TOKENBROKER_FIELD_ACCOUNT_ID], hint, other );
+            if (!account && !*req->field[TOKENBROKER_FIELD_ACCOUNT_ID] && (!hint || !*hint))
+            {
+                count = cache_list_accounts( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY], other, &list );
+                if (count == 1) account = list[0];
+                free( list );
+            }
+            if (account) *client = strdupW( other );
+        }
+    }
+    return account;
+}
+
+/* by id, for the request's client; with no client id, for the clients the calling process has used */
 static void find_account( const struct provider *provider, const struct request *req, struct reply *reply )
 {
-    struct account *account;
+    struct account *account = NULL;
+    unsigned int i, j;
 
     cache_lock();
-    if ((account = cache_find_account( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY],
-                                       req->field[TOKENBROKER_FIELD_ACCOUNT_ID], NULL,
-                                       req->field[TOKENBROKER_FIELD_CLIENT_ID] )))
+    if (*req->field[TOKENBROKER_FIELD_CLIENT_ID] || !req->client_pid)
+        account = cache_find_account( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY],
+                                      req->field[TOKENBROKER_FIELD_ACCOUNT_ID], NULL,
+                                      req->field[TOKENBROKER_FIELD_CLIENT_ID] );
+    else
+    {
+        for (i = 0; i < USED_PROCESSES && !account; i++)
+        {
+            if (used[i].pid != req->client_pid) continue;
+            for (j = 0; j < used[i].count && !account; j++)
+                account = cache_find_account( provider->id, req->field[TOKENBROKER_FIELD_AUTHORITY],
+                                              req->field[TOKENBROKER_FIELD_ACCOUNT_ID], NULL, used[i].client[j] );
+        }
+    }
+    if (account)
     {
         reply_set( reply, TOKENBROKER_REPLY_ACCOUNT_ID, account->id );
         reply_set( reply, TOKENBROKER_REPLY_USER_NAME, account->user_name );
@@ -504,6 +763,9 @@ void provider_answer( const struct request *req, struct reply *reply )
 {
     struct provider provider;
 
+    cache_lock();
+    remember_client( req->client_pid, req->field[TOKENBROKER_FIELD_CLIENT_ID] );
+    cache_unlock();
     if (!find_provider( req, &provider ))
     {
         TRACE( "no provider for %s\n", debugstr_w( req->field[TOKENBROKER_FIELD_PROVIDER_ID] ) );

@@ -50,6 +50,9 @@ T=dlls/windows.security.authentication.web.core/tests
 for arch in x86_64 i386; do
     exe=$BUILD/$T/$arch-windows/windows.security.authentication.web.core_test.exe
     [ -f "$exe" ] || { fail "web_core $arch: no test program"; continue; }
+    # each architecture starts from no accounts (the account is machine-wide, and the broker keeps its cache)
+    "$BUILD/server/wineserver" -k 2>/dev/null
+    rm -rf "$HOME/.local/share/wineexplorer/tokenbroker"
     timeout 300 "$BUILD/wine" "$exe" web_core > "$WORK/web_core-$arch.log" 2>&1
     rc=$?
     summary=$(grep -E 'tests executed' "$WORK/web_core-$arch.log" | tail -1)
@@ -69,7 +72,9 @@ if [ -f "$CACHE" ]; then
     # Wine's server gives a user's ACE to the user and group bits (sd_to_mode); others get nothing (B72)
     case $mode in 600|640|660) pass "cache file mode $mode, nothing for others" ;; *) fail "cache file mode $mode" ;; esac
     case $dmode in 700|750|770) pass "cache folder mode $dmode, nothing for others" ;; *) fail "cache folder mode $dmode" ;; esac
-    grep -q 'at-' "$CACHE" && fail "the cache still holds the signed-out account's tokens" || pass "cache emptied by the refused refresh"
+    # the test refuses the refresh token of ok@wine.test (oid-ok): its account and tokens of every client id are gone,
+    # while the accounts signed in afterwards (msa, org) are cached
+    grep -q 'oid-ok' "$CACHE" && fail "the cache still holds the signed-out account's tokens" || pass "cache emptied of the account by the refused refresh"
 else
     fail "no cache file"
 fi

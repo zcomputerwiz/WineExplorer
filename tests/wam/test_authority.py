@@ -12,9 +12,15 @@ the login hint, so that each test case can ask for one behaviour:
     denied@...    redirects with error=access_denied (UserCancel)
     badstate@...  redirects with a state that is not the one sent (refused)
     hostile@...   redirects to another host with the redirect URI's path (refused)
+    msa@...       signs in at once as a Microsoft account: its object id is 00000000-0000-0000-e659-dc1079e4a963 (the
+                  customer id behind the zeros), so the broker names the account by the 16 digits, as WAM does
 
 The token endpoint redeems a code once, with the verifier, client id and redirect URI of its authorize request, and
-takes refresh tokens; a refresh whose scope names "refuse" is answered invalid_grant. GET /stats gives the counters.
+takes refresh tokens; a refresh whose scope names "refuse" is answered invalid_grant. A refresh that names a broker
+(brk_client_id and brk_redirect_uri: Nested App Authentication, or a brokered request for another client id) is
+accepted when its refresh token was issued to the broker's client and the broker's redirect URI is the broker plugin's
+for it; it gets a token for the client in client_id (named "nat-N", with no refresh token), and the refresh token stays
+valid. GET /stats gives the counters.
 
 Usage: test_authority.py PORT_FILE   (listens on 127.0.0.1, an ephemeral port written to PORT_FILE)
 """
@@ -32,7 +38,7 @@ REDIRECT_PREFIX = 'ms-appx-web://Microsoft.AAD.BrokerPlugin/'
 lock = threading.Lock()
 codes = {}           # code -> request parameters
 refresh_tokens = {}  # refresh token -> (client id, account)
-stats = {'authorize': 0, 'token_code': 0, 'token_refresh': 0, 'refused': 0, 'issued': 0}
+stats = {'authorize': 0, 'token_code': 0, 'token_refresh': 0, 'refused': 0, 'issued': 0, 'nested': 0}
 
 
 def b64url(data):
@@ -42,6 +48,9 @@ def b64url(data):
 def account_for(hint):
     name = hint or 'ok@wine.test'
     local = name.split('@')[0]
+    if local == 'msa':
+        return {'oid': '00000000-0000-0000-e659-dc1079e4a963', 'sub': 'sub-msa', 'preferred_username': name,
+                'tid': '9188040d-6c67-4c5b-b112-36a304b66dad', 'name': 'Test msa'}
     return {'oid': 'oid-' + local, 'sub': 'sub-' + local, 'preferred_username': name,
             'tid': '9188040d-6c67-4c5b-b112-36a304b66dad', 'name': 'Test ' + local}
 
@@ -60,6 +69,16 @@ def issue(client_id, account, scope, nonce=None):
         refresh_tokens[refresh] = (client_id, account)
     return {'token_type': 'Bearer', 'access_token': 'at-%d' % n, 'refresh_token': refresh, 'expires_in': 3600,
             'scope': scope, 'id_token': id_token(account, client_id, nonce),
+            'client_info': b64url(json.dumps({'uid': account['oid'], 'utid': account['tid']}).encode())}
+
+
+def issue_nested(client_id, account, scope):
+    """A token for a nested app or another client id, through a broker: no refresh token of its own"""
+    with lock:
+        stats['nested'] += 1
+        n = stats['nested']
+    return {'token_type': 'Bearer', 'access_token': 'nat-%d' % n, 'expires_in': 3600, 'scope': scope,
+            'id_token': id_token(account, client_id, None),
             'client_info': b64url(json.dumps({'uid': account['oid'], 'utid': account['tid']}).encode())}
 
 
@@ -159,6 +178,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with lock:
                 stats['token_refresh'] += 1
                 known = refresh_tokens.get(f.get('refresh_token', ''))
+            if f.get('brk_client_id'):
+                # brokered: the refresh token belongs to the broker's client; the token is for client_id
+                if not known or known[0] != f['brk_client_id']:
+                    return self.error(400, 'invalid_grant', 'unknown refresh token for this broker')
+                if (f.get('brk_redirect_uri') != REDIRECT_PREFIX + f['brk_client_id'] or not f.get('redirect_uri') or
+                        not f.get('client_id')):
+                    return self.error(400, 'invalid_request', 'brokered request without the redirect URIs')
+                return self.reply(200, json.dumps(issue_nested(f['client_id'], known[1], f.get('scope', ''))).encode())
             if not known or known[0] != f.get('client_id'):
                 return self.error(400, 'invalid_grant', 'unknown refresh token')
             if 'refuse' in f.get('scope', '').split():

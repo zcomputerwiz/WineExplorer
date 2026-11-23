@@ -176,6 +176,17 @@ static void resize( struct webview *ctx )
 static const void *navigation_starting_vtbl[4];
 static const void *launching_external_vtbl[4];
 
+/* The program asking is often Edge, whose full-screen page is a topmost window, and it sends no window handle (the
+ * request's window is 0), so the sign-in window is unowned: it stays topmost while it is open, or the page hides it
+ * (Edge's sign-in showed "not responding" behind it) */
+static void raise_window( HWND hwnd )
+{
+    ShowWindow( hwnd, SW_SHOW );
+    SetWindowPos( hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE );
+    BringWindowToTop( hwnd );
+    SetForegroundWindow( hwnd );
+}
+
 static HRESULT STDMETHODCALLTYPE controller_completed_Invoke( struct handler *h, HRESULT result, void *controller )
 {
     struct webview *ctx = h->ctx;
@@ -202,6 +213,7 @@ static HRESULT STDMETHODCALLTYPE controller_completed_Invoke( struct handler *h,
     }
     resize( ctx );
     ((HRESULT (STDMETHODCALLTYPE *)( void *, BOOL ))VTBL( controller )[CONTROLLER_PUT_ISVISIBLE])( controller, TRUE );
+    raise_window( ctx->hwnd );
 
     if ((nav = handler_create( navigation_starting_vtbl, &IID_NavigationStartingHandler, ctx )))
     {
@@ -427,7 +439,7 @@ void signin_run_webview( struct signin *signin )
         }
         goto done;
     }
-    SetForegroundWindow( ctx.hwnd );
+    raise_window( ctx.hwnd );
     SetTimer( ctx.hwnd, TIMER_TIMEOUT, SIGNIN_TIMEOUT_MS, NULL );
 
     if (!user_data_folder( folder, ARRAY_SIZE(folder) )) folder[0] = 0;
