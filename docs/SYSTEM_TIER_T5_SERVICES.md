@@ -2,8 +2,11 @@
 <!-- Copyright 2026 WineExplorer contributors -->
 # System tier T5: services in session 0 (design)
 
-Date: 2026-11-12. Status: design, not implemented; implementation starts after the Safe Mode and Vintner Boot
-branches are merged (they change `programs/services`). Context: [SYSTEM_TIER_DESIGN.md](SYSTEM_TIER_DESIGN.md),
+Date: 2026-11-12. Status: **superseded as built.** The relay program and the "pipe" client kind below were not
+built: the server bridges the pipe (T5.2) and the front is each session's own `services.exe`, which forwards
+(`programs/services/forward.c`, T5.4). What was built, and why it changed, is in
+[SYSTEM_TIER_WORK_ORDERS.md](SYSTEM_TIER_WORK_ORDERS.md), "T5: services in session 0 — plan as built"; the structure
+is reviewed in [SESSION0_SPLIT_REVIEW.md](SESSION0_SPLIT_REVIEW.md). This note is kept for the design reasoning. Context: [SYSTEM_TIER_DESIGN.md](SYSTEM_TIER_DESIGN.md),
 [SYSTEM_TIER_WORK_ORDERS.md](SYSTEM_TIER_WORK_ORDERS.md).
 
 ## Goal
