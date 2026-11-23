@@ -17,7 +17,9 @@ import time
 #      0x1c00004 "runtest.txt - Notepad": ("notepad.exe" "Notepad")  640x480+0+0  +10+30
 TREE_LINE = re.compile(r'^\s*(0x[0-9a-fA-F]+) (?:"(.*)"|\(has no name\)): \((.*)\)\s+(\d+)x(\d+)[+-]-?\d+[+-]-?\d+'
                        r'\s+([+-]-?\d+)([+-]-?\d+)\s*$')
-WINE_DESKTOP = re.compile(r" - Wine desktop$")   # the X11 session's virtual desktop window (/desktop=Name,WxH)
+# the X11 session's virtual desktop window (/desktop=Name,WxH): "Wine Desktop" in the shell's session (seen
+# 2026-11-23), "Name - Wine desktop" in stock Wine
+WINE_DESKTOP = re.compile(r"(^| - )Wine desktop$", re.I)
 
 
 def parse_tree(text):

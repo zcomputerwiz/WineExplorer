@@ -717,6 +717,12 @@ window_gone() {   # window_gone REGEX TIMEOUT: no viewable window's title matche
 desktop() {   # desktop TIMEOUT [USER]: the Explorer desktop of USER's session (default the test account): its desktop
               # view and its taskbar are up (window probe); "Recycle Bin" by OCR on an image without xwininfo
     local user=${2:-$USER_NAME} end=$((SECONDS + $1)) left out=
+    # first the serial console, with short calls (vmtest.py sends nothing until the getty's prompt shows); a long
+    # probe sent while the machine starts would wait behind the login
+    while [ "$SECONDS" -lt "$end" ]; do
+        gsh 'echo serial=up' 20 2>/dev/null | grep -q '^serial=up' && break
+        sleep 5
+    done
     while left=$((end - SECONDS)); [ "$left" -gt 0 ]; do
         out=$(session_probe "$user" $((left + 40)) "--wait-desktop --timeout $left")
         case "$out" in

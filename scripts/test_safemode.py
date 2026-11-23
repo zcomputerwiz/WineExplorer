@@ -97,8 +97,14 @@ class TestSyntax(unittest.TestCase):
         # no taskbar yet (Safe Mode's message box unanswered), or nothing mapped: not up
         self.assertIsNone(probe.desktop_windows(windows[:2], (1280, 800), lambda ident: True))
         self.assertIsNone(probe.desktop_windows(windows, (1280, 800), lambda ident: False))
-        # the virtual desktop window alone does not count
+        # the virtual desktop window alone does not count, by either name (the shell's session calls it "Wine Desktop")
         self.assertIsNone(probe.desktop_windows([windows[0], windows[2]], (1280, 800), lambda ident: True))
+        shell = [dict(windows[0], name="Wine Desktop")] + windows[1:]
+        self.assertEqual(probe.desktop_windows(shell, (1280, 800), lambda ident: True)[0]["id"], "0x1c00004")
+        self.assertIsNone(probe.desktop_windows([shell[0], shell[2]], (1280, 800), lambda ident: True))
+        # vmtest.py types no command into a login prompt that has not shown
+        vmtest = (SCRIPTS / "vmtest.py").read_text(encoding="utf-8")
+        self.assertIn('note("no login or shell prompt within 30 s; the command was not sent")\n        return 124', vmtest)
 
     def test_chain_harness(self):
         # installer/tests/run-chain.sh runs stages and firmwares side by side; build-test-iso.sh skips an unchanged
