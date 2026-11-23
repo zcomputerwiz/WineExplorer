@@ -3528,6 +3528,21 @@ v32 add 'HKLM\Software\Microsoft\Windows\WexVirtX' /v v /d x /f >/dev/null 2>&1 
 v32 add 'HKLM\Software\WexVirtMerge' /v mine /d user /f >/dev/null || fail "T2b: write under an existing machine key"
 OUT="$(v32 query 'HKLM\Software\WexVirtMerge')"
 [ "$(val real <<<"$OUT")" = machine ] && [ "$(val mine <<<"$OUT")" = user ] || { echo "$OUT" >&2; fail "T2b: no merged view"; }
+# R3: a virtual key's handle can be duplicated, within the program and into another process (pushed or pulled);
+# the copy sees the store's value and the real key's
+TP32="$ROOT/probes/tierprobe32.exe"
+[ -f "$TP32" ] || i686-w64-mingw32-gcc -O2 -Wall -municode -o "$TP32" "$SRC/scripts/system-tier-probe.c" -ladvapi32 -lntdll ||
+    fail "R3: cannot build the 32-bit tier probe"
+fld() { sed -n "s/^$1=//p" | head -1; }
+OUT="$(as_wine "$STD" "$TP32" dup 'Software\WexVirtMerge' mine | fld dup)"
+[ "$OUT" = user ] || fail "R3: a virtual key's duplicate does not read the store's value: [$OUT]"
+OUT="$(as_wine "$STD" "$TP32" dup 'Software\WexVirtMerge' real | fld dup)"
+[ "$OUT" = machine ] || fail "R3: a virtual key's duplicate does not read the real key's value: [$OUT]"
+OUT="$(as_wine "$STD" "$TP32" xdup 'Software\WexVirtMerge' mine push | fld xget)"
+[ "$OUT" = user ] || fail "R3: a virtual key pushed into another process: [$OUT]"
+OUT="$(as_wine "$STD" "$TP32" xdup 'Software\WexVirtMerge' real pull | fld xget)"
+[ "$OUT" = machine ] || fail "R3: a virtual key pulled by another process: [$OUT]"
+ok st_virtual_key_handles_duplicate_within_and_across_processes
 el_down "$STD"
 sleep 6   # session 0's lazy flush
 ! grep -q '^"v"="store"\|^"mine"="user"' "$M/system.reg" || fail "T2b: a virtualized write is in the machine hive"
