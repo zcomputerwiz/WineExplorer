@@ -54,7 +54,7 @@ if [ -x /usr/local/bin/wex-setup-machine.sh ]; then
     # setup turns session 0 on by itself (decision 2, 2026-11-23); only a test image packaged without the marker
     # (WEX_SESSION0=0, for comparison) asks for a machine without it
     if [ -f /usr/local/share/wineexplorer/session0.enable ]; then WEX_SETUP_ENV+=(WEX_SESSION0=1); else WEX_SETUP_ENV+=(WEX_SESSION0=0); fi
-    [ ! -f /usr/local/share/wineexplorer/elevation.enable ] || WEX_SETUP_ENV+=(WEX_ELEVATION=1)
+    if [ -f /usr/local/share/wineexplorer/elevation.enable ]; then WEX_SETUP_ENV+=(WEX_ELEVATION=1); else WEX_SETUP_ENV+=(WEX_ELEVATION=0); fi
     env "${WEX_SETUP_ENV[@]}" /usr/local/bin/wex-setup-machine.sh || echo "Machine root setup failed"
 fi
 

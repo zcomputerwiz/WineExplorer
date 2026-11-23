@@ -28,16 +28,19 @@ ACCOUNTS_AUTOSYNC=${WEX_ACCOUNTS_AUTOSYNC:-1}
 case "$ACCOUNTS_AUTOSYNC" in 0|1) ;; *) die 'WEX_ACCOUNTS_AUTOSYNC must be 0 or 1' ;; esac
 
 # System tier (session 0): dedicated wineserver for the machine registry. On for every installed system (the owner's
-# decision 2 of docs/SESSION0_SPLIT_REVIEW.md, 2026-11-23): the launcher without session 0 is retired, so an update
-# of an install from before 2026-11-18 turns session 0 on as a new install does. WEX_SESSION0=0 is for test fixtures
-# only (a machine root without the launcher's session 0 lines).
+# decision 2 of docs/SESSION0_SPLIT_REVIEW.md, 2026-11-23): the launcher without session 0 is retired. An install
+# from before 2026-11-18 is not migrated by a dedicated step (there are no such installs in use; owner, 2026-11-23):
+# its next update simply applies the defaults, session 0 and enforced elevation, as for a new install.
+# WEX_SESSION0=0 is for test fixtures only (a machine root without the launcher's session 0 lines).
 SESSION0_ENABLE=${WEX_SESSION0:-1}
 case "$SESSION0_ENABLE" in 0|1) ;; *) die 'WEX_SESSION0 must be 0 or 1' ;; esac
 
-# Enforced elevation (docs/SYSTEM_TIER_WORK_ORDERS.md, "Enforced elevation on an installed machine"): opt-in,
-# default off. WEX_ELEVATION=1 names the consent helper in the machine hive; with it the servers give limited
-# tokens and refuse a limited token's writes to machine state.
-ELEVATION_ENABLE=${WEX_ELEVATION:-0}
+# Enforced elevation (docs/SYSTEM_TIER_WORK_ORDERS.md, "Enforced elevation on an installed machine"): on for every
+# installed system, with session 0 (2026-11-23). The consent helper's name in the machine hive is the switch; with
+# it the servers give limited tokens and refuse a limited token's writes to machine state. Session 0 without it
+# would make HKLM writable and shared for every user, so the two go together. WEX_ELEVATION=0 is for test fixtures
+# only.
+ELEVATION_ENABLE=${WEX_ELEVATION:-1}
 case "$ELEVATION_ENABLE" in 0|1) ;; *) die 'WEX_ELEVATION must be 0 or 1' ;; esac
 
 case "$ACTION" in
