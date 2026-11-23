@@ -125,3 +125,20 @@ the real stop is a call through a null function pointer in the main thread, righ
 `Microsoft.UI.Dispatching.DispatcherQueue` and the `IStaticLifetime` query. Not yet traced: winedbg cannot attach to a packaged
 process, and a gdb attach to the first process missed the right one. The answer of the StateRepository stand-in does not matter
 (modes 0, 1 and 5 behave the same).
+
+## The null call (2026-11-23)
+
+The "page fault on execute access to 0" was traced without a debugger: a temporary dump in `dispatch_exception` printed the stack
+words that point into modules (`RtlPcToFileHeader`), the top one was `Microsoft.Internal.FrameworkUdk.dll` + 0x188df. The code there
+(`objdump`) is `RoGetActivationFactory("Windows.ApplicationModel.Core.CoreApplication", 17b0e613-..., &obj)` followed by a call of
+**vtable slot 11 of that object** with six arguments. So the interface with the IID C++/WinRT calls `IStaticLifetime` has more
+methods than C++/WinRT declares (it uses slots 6 and 7 only). The slots of our object beyond 7 were null. Logging the arguments
+showed the source file of the caller, `LiftedIXP\framework\UnhandledErrorDetected.cpp`, and a line number. Slots 8 to 12 now answer
+with success (and log); what the method really does is not known.
+
+The log of a run with `+relay` is the other lesson: the null call was reached through C++ `terminate`/unwinding noise at first
+(a `noexcept` function propagating `hresult_no_interface`), and the real cause only showed once that was fixed.
+
+State after that: no crash of the application any more; Notepad runs its window procedures and creates windows, but still throws
+in them: access violations in `user_callback_handler` (8 per run) and one divide by zero (`c0000094`), and no window of Notepad is
+shown. Next step: find the first of those exceptions (the same stack-dump trick, now for these exceptions).
