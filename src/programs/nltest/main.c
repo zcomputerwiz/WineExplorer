@@ -50,6 +50,7 @@
 #include <lm.h>
 
 #include "wexconsole.h"
+#include "wexjoin.h"
 
 #define MAX_TEXT 1024
 
@@ -76,16 +77,6 @@ static void err( const WCHAR *format, ... )
     print( GetStdHandle( STD_ERROR_HANDLE ), format, args );
     va_end( args );
 }
-
-typedef DWORD (WINAPI *message_fn)( WCHAR *, DWORD );
-typedef DWORD (WINAPI *channel_fn)( DWORD );
-
-/* the operations of WexJoinSecureChannel (wexjoin.c) */
-#define OP_VERIFY  1
-#define OP_RESET   2
-#define OP_DCLIST  3
-#define OP_DSGETDC 4
-#define OP_SCQUERY 5
 
 /* the names of the status codes that NLTEST prints next to a number */
 static const struct { DWORD code; const WCHAR *name; } status_names[] =
@@ -143,15 +134,9 @@ static void usage(void)
 
 static DWORD channel_call( DWORD op, WCHAR *message, DWORD chars )
 {
-    HMODULE module = LoadLibraryW( L"wexjoin.dll" );
-    channel_fn channel = module ? (channel_fn)GetProcAddress( module, "WexJoinSecureChannel" ) : NULL;
-    message_fn last = module ? (message_fn)GetProcAddress( module, "WexJoinLastMessage" ) : NULL;
-    DWORD status;
+    DWORD status = wex_join_secure_channel( op );
 
-    message[0] = 0;
-    if (!channel) return ERROR_NOT_SUPPORTED;
-    status = channel( op );
-    if (last) last( message, chars );
+    wex_join_last_message( message, chars );
     return status;
 }
 
@@ -242,7 +227,7 @@ static int dsgetdc( BOOL show, const WCHAR *domain, WCHAR *dc_out, WCHAR *site_o
     DWORD status, bits;
 
     if (!domain_is_ours( domain )) return failed( L"Getting DC name failed", ERROR_NO_SUCH_DOMAIN );
-    if ((status = channel_call( OP_DSGETDC, message, ARRAY_SIZE(message) ))) return failed( L"Getting DC name failed", status );
+    if ((status = channel_call( WEX_JOIN_OP_DSGETDC, message, ARRAY_SIZE(message) ))) return failed( L"Getting DC name failed", status );
     field( message, L"dc", dc, ARRAY_SIZE(dc) );
     field( message, L"addr", addr, ARRAY_SIZE(addr) );
     field( message, L"guid", guid, ARRAY_SIZE(guid) );
@@ -277,15 +262,15 @@ static int sc_show( const WCHAR *domain, DWORD op, BOOL verify_line )
     DWORD status, conn;
 
     if (!domain_is_ours( domain )) return failed( L"I_NetLogonControl failed", ERROR_NO_SUCH_DOMAIN );
-    if (op == OP_RESET || op == OP_VERIFY)
+    if (op == WEX_JOIN_OP_RESET || op == WEX_JOIN_OP_VERIFY)
     {
         status = channel_call( op, message, ARRAY_SIZE(message) );
-        if (status && op == OP_RESET) return failed( L"I_NetLogonControl failed", status );
-        if (status && op == OP_VERIFY)
+        if (status && op == WEX_JOIN_OP_RESET) return failed( L"I_NetLogonControl failed", status );
+        if (status && op == WEX_JOIN_OP_VERIFY)
         {
             /* the controller is still named; the verification is what failed */
             WCHAR q[MAX_TEXT];
-            if (channel_call( OP_SCQUERY, q, ARRAY_SIZE(q) ) || !field( q, L"dc", dc, ARRAY_SIZE(dc) )) return failed( L"I_NetLogonControl failed", status );
+            if (channel_call( WEX_JOIN_OP_SCQUERY, q, ARRAY_SIZE(q) ) || !field( q, L"dc", dc, ARRAY_SIZE(dc) )) return failed( L"I_NetLogonControl failed", status );
             out( L"Flags: b0 HAS_IP  HAS_TIMESERV\n" );
             out( L"Trusted DC Name \\\\%ls\n", dc );
             out( L"Trusted DC Connection Status Status = 0 0x0 NERR_Success\n" );
@@ -295,7 +280,7 @@ static int sc_show( const WCHAR *domain, DWORD op, BOOL verify_line )
             return 1;
         }
     }
-    status = channel_call( OP_SCQUERY, message, ARRAY_SIZE(message) );
+    status = channel_call( WEX_JOIN_OP_SCQUERY, message, ARRAY_SIZE(message) );
     if (status) return failed( L"I_NetLogonControl failed", status );
     field( message, L"dc", dc, ARRAY_SIZE(dc) );
     field( message, L"status", st, ARRAY_SIZE(st) );
@@ -315,7 +300,7 @@ static int cmd_dclist( const WCHAR *domain )
     int rc;
 
     if ((rc = dsgetdc( FALSE, domain, dc, NULL, dom )) >= 0) { return 0; }   /* NLTEST's exit status after this failure is 0 */
-    if ((status = channel_call( OP_DCLIST, message, ARRAY_SIZE(message) ))) { failed( L"Cannot find DC to get DC list from.", status ); return 0; }
+    if ((status = channel_call( WEX_JOIN_OP_DCLIST, message, ARRAY_SIZE(message) ))) { failed( L"Cannot find DC to get DC list from.", status ); return 0; }
     out( L"Get list of DCs in domain '%ls' from '\\\\%ls'.\n", domain && domain[0] ? domain : dom, dc );
     for (p = message; *p; p = end)
     {
@@ -379,17 +364,17 @@ int __cdecl wmain( int argc, WCHAR **argv )
         return done();
     }
     if (!_wcsicmp( action, L"dclist" )) return cmd_dclist( action_value );
-    if (!_wcsicmp( action, L"sc_query" )) return sc_show( action_value, OP_SCQUERY, FALSE );
-    if (!_wcsicmp( action, L"sc_verify" )) return sc_show( action_value, OP_VERIFY, TRUE );
+    if (!_wcsicmp( action, L"sc_query" )) return sc_show( action_value, WEX_JOIN_OP_SCQUERY, FALSE );
+    if (!_wcsicmp( action, L"sc_verify" )) return sc_show( action_value, WEX_JOIN_OP_VERIFY, TRUE );
     if (!_wcsicmp( action, L"sc_reset" ) || !_wcsicmp( action, L"sc_change_pwd" ))
     {
         WCHAR *backslash = action_value ? wcschr( action_value, '\\' ) : NULL;
         if (backslash) *backslash = 0;     /* /SC_RESET:domain\dc: the controller is Winbind's to choose */
-        return sc_show( action_value, OP_RESET, FALSE );
+        return sc_show( action_value, WEX_JOIN_OP_RESET, FALSE );
     }
     if (!_wcsicmp( action, L"query" ))
     {
-        DWORD status = channel_call( OP_SCQUERY, message, ARRAY_SIZE(message) );
+        DWORD status = channel_call( WEX_JOIN_OP_SCQUERY, message, ARRAY_SIZE(message) );
 
         if (status) return failed( L"I_NetLogonControl failed", status );
         field( message, L"status", st, ARRAY_SIZE(st) );

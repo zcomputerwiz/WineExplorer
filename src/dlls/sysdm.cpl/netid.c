@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <wexhost.h>
+#include <wexjoin.h>
 
 #include "sysdm.h"
 
@@ -41,13 +42,8 @@
 #define PSH_WIZARD97 PSH_WIZARD97_NEW
 #endif
 
-NET_API_STATUS NET_API_FUNCTION NetJoinDomain( LPCWSTR server, LPCWSTR domain, LPCWSTR ou, LPCWSTR account, LPCWSTR password, DWORD flags );
-NET_API_STATUS NET_API_FUNCTION NetValidateName( LPCWSTR server, LPCWSTR name, LPCWSTR account, LPCWSTR password, DWORD type );
 BOOL do_leave(HWND dlg);
 
-#define NETSETUP_JOIN_DOMAIN 0x1
-#define NETSETUP_ACCT_CREATE 0x2
-#define NAME_TYPE_DOMAIN     3
 #define CAPTION              L"Network Identification Wizard"
 
 static struct
@@ -220,7 +216,7 @@ static BOOL do_wizard_join(HWND page)
         }
     }
     account_for_api(account, ARRAY_SIZE(account));
-    status = NetJoinDomain(NULL, W.comp_domain, NULL, account, W.pass, NETSETUP_JOIN_DOMAIN | NETSETUP_ACCT_CREATE);
+    status = NetJoinDomain(NULL, W.comp_domain, NULL, account, W.pass, WEX_NETSETUP_JOIN_DOMAIN | WEX_NETSETUP_ACCT_CREATE);
     if (report(page, W.comp_domain, status)) return FALSE;
     SecureZeroMemory(W.pass, sizeof(W.pass));
     read_membership();
@@ -349,7 +345,7 @@ static INT_PTR CALLBACK page_proc(HWND page, UINT msg, WPARAM wparam, LPARAM lpa
                     go(page, id, IDD_NETID_DONE);
                     break;
                 }
-                status = NetValidateName(NULL, W.acct_domain, NULL, NULL, NAME_TYPE_DOMAIN);
+                status = NetValidateName(NULL, W.acct_domain, NULL, NULL, WEX_NETSETUP_NAME_DOMAIN);
                 if (report(page, W.acct_domain, status)) { stay(page); break; }
                 go(page, id, IDD_NETID_COMPDOM);
                 break;

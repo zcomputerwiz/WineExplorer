@@ -77,10 +77,11 @@ static void add_field( struct request *r, const char *key, const WCHAR *value )
 
     if (!value) return;
     n = WideCharToMultiByte( CP_UTF8, 0, value, -1, utf8, sizeof(utf8), NULL, NULL );
-    if (!n || n - 1 > 512) { r->bad = TRUE; return; }
-    for (i = 0; i < n - 1; i++) if ((unsigned char)utf8[i] < 0x20 || utf8[i] == 0x7f) { r->bad = TRUE; return; }
-    if (r->length + strlen( key ) + n + 2 >= sizeof(r->text)) { r->bad = TRUE; return; }
-    r->length += sprintf( r->text + r->length, "%s=%s\n", key, utf8 );
+    if (!n || n - 1 > 512) r->bad = TRUE;
+    for (i = 0; !r->bad && i < n - 1; i++) if ((unsigned char)utf8[i] < 0x20 || utf8[i] == 0x7f) r->bad = TRUE;
+    if (!r->bad && r->length + strlen( key ) + n + 2 >= sizeof(r->text)) r->bad = TRUE;
+    if (!r->bad) r->length += sprintf( r->text + r->length, "%s=%s\n", key, utf8 );
+    SecureZeroMemory( utf8, sizeof(utf8) );   /* a field may be the password */
 }
 
 static void add_text( struct request *r, const char *key, const char *value )
@@ -106,7 +107,7 @@ static DWORD ask( struct request *r )
     params.reply = (ULONG_PTR)reply;
     params.reply_size = sizeof(reply);
     WEXJOIN_CALL( join_request, &params );
-    memset( r->text, 0, sizeof(r->text) );    /* the password does not stay in memory */
+    SecureZeroMemory( r->text, sizeof(r->text) );    /* the password does not stay in memory */
     if (params.err) return params.err;
     for (line = reply; line && *line; line = end ? end + 1 : NULL)
     {
@@ -132,11 +133,20 @@ static BOOL is_local( const WCHAR *server )
     return GetComputerNameW( name, &size ) && !wcsicmp( server, name );
 }
 
-/* an account as "DOMAIN\user" or a user principal name: the engine takes the user, or the principal; the password too */
+/* an account as "DOMAIN\user" or a user principal name: the engine takes the user and the user's own domain (it checks
+ * that domain against the realm, and refuses one whose realm it cannot know), or the principal; the password too */
 static void add_account( struct request *r, const WCHAR *account, const WCHAR *password )
 {
-    const WCHAR *slash = account ? wcsrchr( account, '\\' ) : NULL;
+    const WCHAR *slash = account ? wcschr( account, '\\' ) : NULL;
+    WCHAR domain[256];
 
+    if (slash && slash > account)
+    {
+        if (slash - account >= ARRAY_SIZE(domain)) { r->bad = TRUE; return; }
+        memcpy( domain, account, (slash - account) * sizeof(WCHAR) );
+        domain[slash - account] = 0;
+        add_field( r, "userdomain", domain );
+    }
     add_field( r, "user", slash ? slash + 1 : account );
     add_field( r, "password", password );
 }

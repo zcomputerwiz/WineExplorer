@@ -26,7 +26,10 @@
 #define WEX_JOIN_SOCKET        "/run/wex-domain-join.sock"
 #define WEX_JOIN_REQUEST_MAX   4096
 #define WEX_JOIN_REPLY_MAX     2048
-#define WEX_JOIN_WAIT_SECONDS  300     /* a join takes a minute or two: the controller, the account, winbind */
+/* a join takes a minute or two (the controller, the account, winbind); the engine's unit runs at most 300 seconds
+ * (RuntimeMaxSec) and then has 90 to put a rename back (TimeoutStopSec): the caller waits longer than both, so that
+ * the answer it gets is the engine's (installer/systemd/wex-domain-join@.service) */
+#define WEX_JOIN_WAIT_SECONDS  420
 
 /* the NETSETUP_ flags of NetJoinDomain and NetUnjoinDomain (lmjoin.h of the Windows SDK; Wine's header lacks them) */
 #define WEX_NETSETUP_JOIN_DOMAIN             0x00000001
@@ -50,5 +53,46 @@
 #define WEX_NETSETUP_NAME_DOMAIN             3
 #define WEX_NETSETUP_NAME_NONEXISTENT_DOMAIN 4
 #define WEX_NETSETUP_NAME_DNS_MACHINE        5
+
+/* the operations of WexJoinSecureChannel: their answer is WexJoinLastMessage's text */
+#define WEX_JOIN_OP_VERIFY   1    /* netdom verify, nltest /sc_verify */
+#define WEX_JOIN_OP_RESET    2    /* netdom reset, nltest /sc_reset */
+#define WEX_JOIN_OP_DCLIST   3    /* the controllers DNS lists, separated by spaces */
+#define WEX_JOIN_OP_DSGETDC  4    /* name=value fields separated by "||" */
+#define WEX_JOIN_OP_SCQUERY  5    /* dc= and status= separated by "||" */
+
+#if !defined(WINE_UNIX_LIB) && defined(WINAPI)
+
+/* netapi32's join functions (forwarded to wexjoin.dll): Wine's lmjoin.h declares only NetGetJoinInformation */
+DWORD WINAPI NetJoinDomain( const WCHAR *server, const WCHAR *domain, const WCHAR *ou, const WCHAR *account,
+                            const WCHAR *password, DWORD flags );
+DWORD WINAPI NetUnjoinDomain( const WCHAR *server, const WCHAR *account, const WCHAR *password, DWORD flags );
+DWORD WINAPI NetValidateName( const WCHAR *server, const WCHAR *name, const WCHAR *account, const WCHAR *password,
+                              DWORD type );
+DWORD WINAPI NetRenameMachineInDomain( const WCHAR *server, const WCHAR *new_name, const WCHAR *account,
+                                       const WCHAR *password, DWORD flags );
+
+/* wexjoin's own exports, for the tools and the dialogs: wexjoin.dll is loaded when asked for, so that a program that
+ * only shows the membership does not need it */
+static inline DWORD wex_join_secure_channel( DWORD op )
+{
+    HMODULE module = LoadLibraryW( L"wexjoin.dll" );
+    DWORD (WINAPI *channel)( DWORD ) = module ? (void *)GetProcAddress( module, "WexJoinSecureChannel" ) : NULL;
+
+    return channel ? channel( op ) : ERROR_NOT_SUPPORTED;
+}
+
+/* the engine's message about the last call (Samba's reason, its own, or an operation's answer); empty when none */
+static inline void wex_join_last_message( WCHAR *text, DWORD chars )
+{
+    HMODULE module = LoadLibraryW( L"wexjoin.dll" );
+    DWORD (WINAPI *message)( WCHAR *, DWORD ) = module ? (void *)GetProcAddress( module, "WexJoinLastMessage" ) : NULL;
+
+    if (!chars) return;
+    text[0] = 0;
+    if (message) message( text, chars );
+}
+
+#endif
 
 #endif
