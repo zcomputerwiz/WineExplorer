@@ -472,3 +472,18 @@ visual creation calls), then what it needs from the engine.
 * Lab trap: a pushed whole file of `configure.ac`, `loader/wine.inf.in` or `include/Makefile.in` replaces the assembled version of the guest
   (the guest source is older than the branch and carries the assembled modules). `guest-fix-configure.py` repairs `configure.ac` (drops the
   modules the guest lacks, adds the programs); push only the lines you add.
+
+## 2026-11-23, later: why Notepad draws no text yet (first findings)
+
+* Fonts are not the cause: no font errors, DejaVu answers the Segoe UI request, `dwrite` lays text out (`layout_compute`,
+  `GetTextAtPosition`), and `d2d` receives glyph runs (`d2d_text_renderer_DrawGlyphRun`, glyph outlines as path geometries, a few solid
+  brushes and bitmaps). Text is produced and drawn into D2D surfaces; what is missing is the step after: the Windows App Runtime compositor
+  presents those surfaces through its own dcomp visual tree (`DCompositionCreateSharedVisualHandle`, `OpenSharedObject`, `CreateTargetForHwnd`,
+  `SetRoot` all seen in `+dcomp`), and Wine dcomp keeps the tree but does not draw it. The gray editor area and the frame come from other
+  paths. So the missing piece is composition of the visual tree into the window, not text.
+* Intermittent crash (about one run in four, in thread of the compositor): Wine dwrite, text layout creation or font fallback
+  (`layout_compute` -> `layout_map_run_characters` -> `fontfallback_MapCharacters` -> `create_matching_font` -> `FindFamilyName` ->
+  `collection_find_family` calls a method of a dangling `familyname`; with heap free checking (GlobalFlag 0x30) the fault moved to an AddRef of
+  an object field of the text format in `create_textlayout`/`init_textlayout`). Both point at a font collection or fallback object released
+  while still referenced (app-provided custom fallback or collection). Not solved. Tools: lab `stk4.sh`-style run with the ntdll exception
+  tracer, `ovr-exp.sh` with `GF=0x30` (Image File Execution Options GlobalFlag) in a loop.
