@@ -341,7 +341,8 @@ typedef struct
 /* scale is zero for X11/missing identity, otherwise Wayland thousandths.
  * retry preserves X11's any-error and Wayland's NOT_READY-only retry policy. */
 typedef struct { DWORD scale; BOOL retry; } WEX_WM_EFFECT_RESULT;
-typedef struct { DWORD backend; UINT64 window; char handle[33]; } WEX_WM_IDENTITY;
+/* scale as in WEX_WM_EFFECT_RESULT: a new scale needs the effects again, like a new surface. */
+typedef struct { DWORD backend; UINT64 window; char handle[33]; DWORD scale; } WEX_WM_IDENTITY;
 DWORD WINAPI WexWmApplyEffects( HWND hwnd, const WEX_WINDOW_EFFECT *effect, WEX_WM_EFFECT_RESULT *result );
 /* Current AUTO identity's scale: zero for X11/missing, Wayland thousandths otherwise. */
 DWORD WINAPI WexWmGetEffectScale( HWND hwnd );

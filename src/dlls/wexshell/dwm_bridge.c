@@ -26,6 +26,7 @@
 
 #include <stdarg.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <windows.h>
@@ -37,7 +38,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(wexshell);
 
 #define DWM_BRIDGE_RETRY_MS   50     /* while a window waits for its X window or wex handle */
 #define DWM_BRIDGE_IDLE_MS    1000   /* no broker */
-#define DWM_BRIDGE_PENDING    64
+#define DWM_BRIDGE_PENDING    64     /* first size of the table of windows with effects */
 #define DWM_BRIDGE_RETRIES    200    /* retry passes (DWM_BRIDGE_RETRY_MS apart) for a window without an identity yet */
 
 #ifndef DWMWA_WINDOW_CORNER_PREFERENCE
@@ -67,8 +68,7 @@ struct pending
     DWORD tint;   /* DWM_ATTR_WINE_TINT */
     DWORD rgn[2]; /* DWM_ATTR_WINE_RGN_LT, _RB */
     DWORD frame;  /* DWM_ATTR_WINE_FRAME: 0 none, 1 Windows 10/11, 2 Aero, 3 flat8 */
-    DWORD scale;  /* last applied Wayland scale, in thousandths */
-    WEX_WM_IDENTITY identity;
+    WEX_WM_IDENTITY identity;  /* the surface and scale the effects were applied to */
     BOOL identity_valid;
     int tries;
 };
@@ -136,7 +136,9 @@ static void sync_thumbnails( BOOL have_broker )
 
 static HANDLE bridge_thread, bridge_stop;
 static HDESK bridge_desktop;
-static struct pending pending[DWM_BRIDGE_PENDING];
+/* Every window with effects, applied or waiting; grown as needed, a gone window's slot is reused. */
+static struct pending *pending;
+static unsigned int pending_count;
 static BOOL materials_on;
 /* Only the bridge thread and its out-of-context WinEvent callback use this. */
 static BOOL windows_changed;
@@ -154,7 +156,9 @@ static void CALLBACK bridge_window_event( HWINEVENTHOOK hook, DWORD event, HWND 
 static void reset_bridge_state(void)
 {
     DWORD err;
-    memset( pending, 0, sizeof(pending) );
+    free( pending );
+    pending = NULL;
+    pending_count = 0;
     thumb_list_count = 0;
     thumb_revision = 0;
     thumbs_waiting = FALSE;
@@ -251,31 +255,40 @@ static int apply_window( HWND hwnd, struct pending *p )
     WexWmApplyEffects( hwnd, &effect, &result );
     if (!result.retry)
     {
-        p->scale = result.scale;
         p->identity = identity;
         p->identity_valid = TRUE;
     }
     return !result.retry;
 }
 
+static BOOL same_identity( const WEX_WM_IDENTITY *a, const WEX_WM_IDENTITY *b )
+{
+    return a->backend == b->backend && a->window == b->window && a->scale == b->scale &&
+           !strcmp( a->handle, b->handle );
+}
+
+/* Whether a window whose effects were applied has a new X window, Wayland surface or Wayland scale since;
+ * none of these changes the broker revision. A window without an identity at the moment has not moved yet. */
+static BOOL effects_moved( const struct pending *p )
+{
+    WEX_WM_IDENTITY identity;
+
+    if (WexWmGetEffectIdentity( p->hwnd, &identity )) return FALSE;
+    return !p->identity_valid || !same_identity( &identity, &p->identity );
+}
+
 static void retry_pending(void)
 {
-    int i;
+    unsigned int i;
 
-    for (i = 0; i < DWM_BRIDGE_PENDING; i++)
+    for (i = 0; i < pending_count; i++)
     {
         int r;
         if (!pending[i].hwnd) continue;
         if (!IsWindow( pending[i].hwnd )) { pending[i].hwnd = NULL; continue; }
-        /* Identity changes do not change the broker revision. The broker
-         * carries the complete 32-bit HWND, including Wine generation bits. */
-        {
-            WEX_WM_IDENTITY identity;
-            BOOL changed = WexWmGetEffectIdentity( pending[i].hwnd, &identity ) != ERROR_SUCCESS;
-            if (!changed) changed = !pending[i].identity_valid ||
-                memcmp( &identity, &pending[i].identity, sizeof(identity) ) != 0;
-            if (changed) pending[i].tries = DWM_BRIDGE_RETRIES;
-        }
+        /* A window still waiting keeps the retries it has left, so one that never gets an identity is
+         * given up on. The broker carries the complete 32-bit HWND, including Wine generation bits. */
+        if (!pending[i].tries && effects_moved( &pending[i] )) pending[i].tries = DWM_BRIDGE_RETRIES;
         if (!pending[i].tries) continue;
         r = apply_window( pending[i].hwnd, &pending[i] );
         if (r < 0) pending[i].hwnd = NULL;
@@ -287,9 +300,9 @@ static void retry_pending(void)
 /* Whether effects or thumbnails are still waiting for their backend. */
 static BOOL pending_waiting(void)
 {
-    int i;
+    unsigned int i;
 
-    for (i = 0; i < DWM_BRIDGE_PENDING; i++)
+    for (i = 0; i < pending_count; i++)
         if (pending[i].hwnd && pending[i].tries) return TRUE;
     return thumbs_waiting;
 }
@@ -298,7 +311,8 @@ static void apply_change( const struct dwm_change *change )
 {
     HWND hwnd = UlongToHandle( change->hwnd );
     struct pending *p = NULL;
-    int i, free_slot = -1;
+    unsigned int i;
+    int free_slot = -1;
 
     if (change->attribute != DWMWA_WINDOW_CORNER_PREFERENCE &&
         change->attribute != DWMWA_USE_IMMERSIVE_DARK_MODE &&
@@ -306,14 +320,24 @@ static void apply_change( const struct dwm_change *change )
         change->attribute != DWMWA_MICA_EFFECT &&
         (change->attribute < DWM_ATTR_WINE_BLUR || change->attribute > DWM_ATTR_WINE_LAST))
         return;
-    for (i = 0; i < DWM_BRIDGE_PENDING; i++)
+    for (i = 0; i < pending_count; i++)
     {
         if (pending[i].hwnd == hwnd) { p = &pending[i]; break; }
         if (!pending[i].hwnd && free_slot < 0) free_slot = i;
     }
+    if (!p && free_slot < 0)
+    {
+        unsigned int count = max( pending_count * 2, DWM_BRIDGE_PENDING );
+        struct pending *grown = realloc( pending, count * sizeof(*grown) );
+
+        if (!grown) { ERR( "no memory for the effects of %p\n", hwnd ); return; }
+        memset( grown + pending_count, 0, (count - pending_count) * sizeof(*grown) );
+        free_slot = pending_count;
+        pending = grown;
+        pending_count = count;
+    }
     if (!p)
     {
-        if (free_slot < 0) return;  /* table full */
         p = &pending[free_slot];
         *p = (struct pending){ .hwnd = hwnd };
     }

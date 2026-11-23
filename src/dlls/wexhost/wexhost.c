@@ -935,6 +935,7 @@ DWORD WINAPI WexWmGetEffectIdentity( HWND hwnd, WEX_WM_IDENTITY *identity )
     identity->backend = params.backend;
     identity->window = params.window;
     memcpy( identity->handle, params.handle, sizeof(identity->handle) );
+    identity->scale = params.scale;
     return ERROR_SUCCESS;
 }
 

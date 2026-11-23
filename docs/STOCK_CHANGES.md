@@ -1,5 +1,14 @@
 # Changes to stock Wine / third-party code
 
+## dcomp: auxiliary producers revoked from the target list (compositor review, 2026-11-23)
+
+Wine branch `claude/compositor-review`, `df606ddd` (on the 11.22 WAM head `97ee37a3`), `dlls/dcomp/device.c`
+`dcomp_device_internal_commit`: a successful commit revokes every target's auxiliary producer that is not among the
+commit's bindings, instead of collecting the targets in a stack array of `WINE_DCOMP_MAX_CONTENTS` entries. Targets
+without a scene were not counted against that limit and a failed commit keeps the auxiliary producers it made, so more
+than 32 such targets overflowed the array. Same set of producers revoked as before; dcomp tests 1119/0 failures on both
+architectures. The rest of the review (`docs/COMPOSITOR_REVIEW.md`) is not applied yet.
+
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
 General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with
