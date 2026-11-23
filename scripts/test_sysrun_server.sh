@@ -465,6 +465,8 @@ sec_kill_all()   # every process of the test accounts and of the fixture's helpe
 {
     local sec_u i busy=""
     pkill -9 -f "$ROOT/" 2>/dev/null
+    pkill -9 -f "${EL:-/tmp/wexelev}" 2>/dev/null   # the broker cases' programs (an R8 dialog child can run as root)
+    pkill -9 -f "/tmp/wexsvc" 2>/dev/null
     [ "${WEX_E1S6_LAB:-0}" != 1 ] || pkill -9 -f "$E1S6_CHILD" 2>/dev/null
     for i in $(seq 1 100); do
         busy=""
@@ -1248,6 +1250,8 @@ el_up()
     # ready when the WinSta0 holder has its window station and desktop (it prints hold=ready then: the session's
     # wineboot has run by the time its main() does); a fixed 4 s before
     for i in $(seq 1 600); do grep -q '^hold=ready' "$ready" 2>/dev/null && return 0; sleep 0.1; done
+    { echo "--- el_up $1: the holder printed:"; cat "$ready"; echo "--- processes of $1:"; ps -u "$1" -o pid,stat,etimes,args
+      [ "$log" = /dev/null ] || { echo "--- $log:"; tail -40 "$log"; }; } >&2 2>/dev/null || true
     fail "el_up $1: the WinSta0 holder did not get ready in 60 s"
 }
 el_down()
