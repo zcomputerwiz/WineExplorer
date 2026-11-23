@@ -110,20 +110,34 @@ if [ -n "$ISO" ]; then   # the installs, both firmwares at once
     done
     wait "${pids[@]}"
     rm -rf "$W"
+    # A firmware whose install failed is left out; the stages still run on the other one (an install failure on BIOS
+    # cost the UEFI results too, review 2026-11-23 #5). The overall result stays a failure.
+    installed=
     for fw in $FWS; do
-        if [ "$(cat "$OUT/install-$fw.rc")" = 0 ] && grep -q '^PASS: zero-input install' "$OUT/install-$fw.log"; then
+        if [ "$(cat "$OUT/install-$fw.rc" 2>/dev/null)" = 0 ] && grep -q '^PASS: zero-input install' "$OUT/install-$fw.log"; then
             log "PASS install $fw"
+            installed="$installed $fw"
         else
             log "FAIL install $fw: $(grep -m1 '^FAIL' "$OUT/install-$fw.log")"
             overall=1
         fi
     done
-    [ "$overall" = 0 ] || { log "the install failed; no stages run"; exit 1; }
+    FWS=${installed# }
+    [ -n "$FWS" ] || { log "no firmware installed; no stages run"; exit 1; }
+    [ "$overall" = 0 ] || log "stages only on $FWS"
 fi
 
+present=
 for fw in $FWS; do
-    [ -f "$VMTEST_DIR/$NAME-$fw/disk.qcow2" ] || { log "FAIL: no installed disk $NAME-$fw"; exit 1; }
+    if [ -f "$VMTEST_DIR/$NAME-$fw/disk.qcow2" ]; then
+        present="$present $fw"
+    else
+        log "FAIL: no installed disk $NAME-$fw"
+        overall=1
+    fi
 done
+FWS=${present# }
+[ -n "$FWS" ] || exit 1
 
 run_job() {   # run_job STAGE FW
     local stage=$1 fw=$2 name test rc t0

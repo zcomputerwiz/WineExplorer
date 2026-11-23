@@ -56,25 +56,31 @@ class TempDirTest(unittest.TestCase):
 
 class TestSyntax(unittest.TestCase):
     def test_shell_scripts_parse(self):
+        # each script on its own (subTest): one that does not parse leaves the others' results standing
         for script in (BOOTMODE, GENERATOR, PAM_CHECK, STARTUP_CHECK, SCRIPTS / "wex-bootlog.sh", LASTGOOD,
                        SCRIPTS / "wex-session-choice.sh"):
-            result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+            with self.subTest(script=script.name):
+                result = subprocess.run(["sh", "-n", str(script)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         for script in (SCRIPTS / "wex-greeter.sh", SCRIPTS / "setup-greeter.sh", SCRIPTS / "wine-explorer-session.sh",
                        SCRIPTS / "wine-explorer-wayland-session.sh", SCRIPTS / "wine-explorer-session-common.sh",
                        SCRIPTS / "wex-safe-terminal.sh", PACKAGE, VM_TEST):
-            result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
-        session_run = VM_TEST.with_name("session-run.py")
-        compile(session_run.read_text(encoding="utf-8"), str(session_run), "exec")
+            with self.subTest(script=script.name):
+                result = subprocess.run(["bash", "-n", str(script)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+        for helper in ("session-run.py", "highlight-row.py", "taskbar-check.py", "screen-pixel.py"):
+            with self.subTest(script=helper):
+                path = VM_TEST.with_name(helper)
+                compile(path.read_text(encoding="utf-8"), str(path), "exec")
 
     def test_chain_harness(self):
         # installer/tests/run-chain.sh runs stages and firmwares side by side; build-test-iso.sh skips an unchanged
         # Wine; both tests that connect a disk take the NBD device under one lock (nbd-connect.sh)
         tests = VM_TEST.parent
         for script in ("run-chain.sh", "build-test-iso.sh", "nbd-connect.sh", "install-unattended.sh"):
-            result = subprocess.run(["bash", "-n", str(tests / script)], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
+            with self.subTest(script=script):
+                result = subprocess.run(["bash", "-n", str(tests / script)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{script}: {result.stderr}")
         helper = (tests / "nbd-connect.sh").read_text(encoding="utf-8")
         self.assertLess(helper.index('flock -w 300 "$lock"'), helper.index("qemu-nbd --read-only --connect"))
         self.assertLess(helper.index("qemu-nbd --connect"), helper.index('flock -u "$lock"'))
@@ -544,10 +550,22 @@ class TestStartupCheck(TempDirTest):
         self.assertEqual(self.check(cmdline=cmdline, processes=[self.WELCOME])[:2], (0, True))
 
     def test_the_failure_flag_is_gone(self):
-        """GRUB's wexfailed=1 and wex_boot_pending (removed 2026-11-11) mean nothing to the check."""
-        script = STARTUP_CHECK.read_text(encoding="utf-8")
-        for word in ("wexfailed", "wex_boot_pending", "grub"):
-            self.assertNotIn(word, script.lower())
+        """GRUB's wexfailed=1 and wex_boot_pending (removed 2026-11-11) mean nothing to the check: the same verdict
+        with them on the command line, and GRUB's environment is never written (a recording grub-editenv on PATH).
+        A behaviour check, not a word ban: a comment may name GRUB (review 2026-11-23 #10)."""
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        editenv_log = self.tmp / "grub-editenv.log"
+        for tool in ("grub-editenv", "grub-reboot", "grub-set-default"):
+            (bin_dir / tool).write_text(f'#!/bin/sh\necho "{tool} $*" >> "{editenv_log}"\n', encoding="ascii")
+            (bin_dir / tool).chmod(0o755)
+        flags = " wexfailed=1 wex_boot_pending=1"
+        for cmdline, processes in (("root=UUID=x ro quiet", [self.WELCOME]), ("root=UUID=x ro quiet", []),
+                                   (self.VARIANT, [self.WELCOME])):
+            with self.subTest(cmdline=cmdline, logon_screen=bool(processes)):
+                plain = self.check(cmdline=cmdline, processes=processes)[:2]
+                self.assertEqual(self.check(cmdline=cmdline + flags, processes=processes)[:2], plain)
+        self.assertFalse(editenv_log.exists(), "the check ran a GRUB tool")
 
     def saved_lastgood(self):
         return self.lastgood_log.exists() and self.lastgood_log.read_text() == "save\n"
@@ -1228,11 +1246,24 @@ class TestMenu(TempDirTest):
         self.assertEqual((self.tmp / "run" / "bootmode").read_text(), "normal\n")
 
     def test_the_menu_ignores_the_grub_failure_flag(self):
-        """GRUB's wexfailed=1 (removed 2026-11-11) no longer turns the menu into the failure screen."""
+        """GRUB's wexfailed=1 (removed 2026-11-11) no longer turns the menu into the failure screen: on a start whose
+        command line has it but whose generation has no failed start, the check starts no screen and the menu opens
+        as usual (a behaviour check; a comment may name GRUB, review 2026-11-23 #10)."""
         self.assertFalse(hasattr(self.menu, "start_failed"))
-        source = (SCRIPTS / "wex-advanced-options.py").read_text(encoding="utf-8")
-        self.assertNotIn("wexfailed", source)
-        self.assertNotIn("grub", source.lower())
+        self.with_vintner(0, self.failing(0))
+        (self.tmp / "cmdline").write_text("BOOT_IMAGE=x root=UUID=1 vintner.bootstorage=PARTUUID=2 quiet wexfailed=1\n",
+                                          encoding="ascii")
+        calls = []
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(self.menu.failure_check(run=self.recording_run(calls)), 0)
+        self.assertEqual(calls, [[self.menu.VINTNER, "status", "--json"]])
+        self.assertEqual(self.run_keys(10), self.run_keys_plain(10))
+
+    def run_keys_plain(self, *keys):
+        """run_keys on a start without GRUB's flag, for comparison"""
+        (self.tmp / "cmdline").write_text("BOOT_IMAGE=x root=UUID=1 vintner.bootstorage=PARTUUID=2 quiet\n",
+                                          encoding="ascii")
+        return self.run_keys(*keys)
 
     def drawn(self, method, *args, rows=25, cols=80):
         """What Screen.METHOD(*ARGS) writes, as {row: (column, text, attribute)}, on a ROWSxCOLS console."""
