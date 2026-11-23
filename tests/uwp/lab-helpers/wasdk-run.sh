@@ -5,9 +5,9 @@
 # Windows App Runtime 2.x framework package and the application through wexappx, launch, trace. The packages are in claude/wasdk
 # (wasdk.tar). usage: wasdk-run.sh [APP_DIR [WINEDEBUG]]       (APP_DIR defaults to the Notepad package folder)
 root=/home/debian/uwp-u1-20261111
-build=$root/build/candidates/u11-2/build
+build=$root/build/candidates/${CAND:-u11-2}/build
 c=$root/claude
-run=$root/build/candidates/u11-2/wasdk-run
+run=$root/build/candidates/${CAND:-u11-2}/wasdk-run
 fw=Microsoft.WindowsAppRuntime.2_2.7.0.0_x64__8wekyb3d8bbwe
 app=${1:-Microsoft.WindowsNotepad_11.2609.11.0_x64__8wekyb3d8bbwe}
 rm -rf "$run"; mkdir -p "$run"; chmod 0755 "$run"; cd "$run"
