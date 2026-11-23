@@ -1110,7 +1110,7 @@ alpc_pair()   # name level mode(limited|elevated): runs the server as the limite
         return 1
     fi
     wait "$sp" 2>/dev/null || true
-    cat "$out"
+    tr -d '\r' < "$out"   # a Windows program's lines end in CR LF (b1123a: "level=2\r" did not match ^level=2$)
 }
 
 if OUT="$(alpc_pair a1 2 limited)"; then
