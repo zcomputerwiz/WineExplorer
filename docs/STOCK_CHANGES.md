@@ -2,7 +2,8 @@
 
 ## ntdll, server: one table of the registry handles of session 0 and the virtual store (R3 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
 
-Wine branch `claude/r3-registry-handles` (on `claude/r1-policy-tables` 2a2b2946). New WineExplorer file
+Wine branch `claude/r3-registry-handles` (on `claude/r1-policy-tables` 2a2b2946, with development's WAM head d5e17250
+merged for the token broker's header). New WineExplorer file
 `dlls/ntdll/unix/wex_regkey.c` (in `dlls/ntdll/Makefile.in`); the stock files keep hooks.
 
 - **One handle table.** The session 0 keys (`regsrv_*`, T1) and the virtual store keys (`regvirt_*`, T2b) were two
@@ -27,7 +28,9 @@ Wine branch `claude/r3-registry-handles` (on `claude/r1-policy-tables` 2a2b2946)
   `union apc_call` and `union apc_result`; `server/thread.c` `queue_apc`: `PROCESS_DUP_HANDLE` on the target and the
   section duplicated into it, as for `APC_MAP_VIEW`; `server.c` `invoke_system_apc` calls `wexkey_receive`). The
   target accepts only a path that session 0 holds for it, and opens the key with its own token on its own channel at
-  the first use, as after a new channel; a virtual key's store key is the target user's own. So the target's token
+  the first use, as after a new channel; a virtual key's store key is the target user's own. The record's section must
+  be a data section (not an image or file mapping), and only the record's size is mapped. A duplicate with an access of
+  its own gets real and store handles of that access. So the target's token
   decides, not the source's grant. From another process: `APC_DUP_HANDLE` to the source, which then sends it. A
   duplicate keeps the source's registry view (`KEY_WOW64_*`), so that a reopen after a lost channel finds the same key
   (before, a duplicate within the process lost it). `include/wine/server_protocol.h` regenerated (protocol 987).
