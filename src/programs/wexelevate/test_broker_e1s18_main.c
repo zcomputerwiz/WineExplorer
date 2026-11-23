@@ -18,6 +18,8 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #include "e1r8_codec.h"
 #pragma GCC diagnostic pop
+/* design review, finding 2: the shared decision sequence and attempt loop */
+#include "decision.h"
 #endif
 #include "../../../wine/include/wine/wex_token.h"
 #include "../../../wine/include/wine/wex_profile.h"
@@ -4517,6 +4519,303 @@ static int test_review1_used_lists_grow( void )
 }
 #endif
 
+#ifdef WEXELEVATE_E1S18
+/*
+ * Design review, finding 2: the one R8 decision sequence (decision.c), driven natively by a fake dialog and a fake
+ * verifier over the link both brokers use.
+ */
+struct fake_r8
+{
+    struct r8_link link;              /* first */
+    struct e1r8_tuple t;
+    const char *account;              /* the account the dialog selects */
+    uint32_t verdict;                 /* the verifier's RESULT status */
+    uint8_t vkey[16];                 /* the key the verifier reports */
+    int locked;                       /* the verifier answers START with LOCKED */
+    uint32_t recheck_fail;            /* this recheck step fails (0: none) */
+    int answer;                       /* 0 Confirm, 1 Cancel, 2 Confirm of another challenge */
+    int vrecv;                        /* verifier frames handed out */
+    int to_d;                         /* frames to the dialog */
+    uint16_t last_type;               /* the type of the last frame to the dialog */
+    uint8_t challenge[32];            /* from the last authenticated RESULT */
+};
+
+static DWORD fake_r8_to_d( struct r8_link *link, const uint8_t *frame, uint32_t len )
+{
+    struct fake_r8 *f = (struct fake_r8 *)link;
+    f->to_d++;
+    f->last_type = e1r8_get_u16( frame + 6 );
+    if (f->last_type == E1R8_TYPE_RESULT && len > 116 && e1r8_get_u32( frame + 76 ) == E1R8_RESULT_AUTHENTICATED)
+        memcpy( f->challenge, frame + 80 + 4 + e1r8_get_u32( frame + 80 ), 32 );
+    return ERROR_SUCCESS;
+}
+
+static DWORD fake_r8_from_d( struct r8_link *link, uint16_t type, uint8_t *frame, uint32_t max, uint32_t *len )
+{
+    struct fake_r8 *f = (struct fake_r8 *)link;
+    static const uint8_t zero[32];
+    uint8_t challenge[32];
+
+    if (type == E1R8_TYPE_SELECT)
+    {
+        *len = (uint32_t)(E1R8_HEADER_SIZE + 4 + strlen( f->account ));
+        if (*len > max) return ERROR_INVALID_DATA;
+        return e1r8_encode_select( frame, *len, &f->t, (const uint8_t *)f->account, (uint32_t)strlen( f->account ) )
+               ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+    }
+    if (type == E1R8_TYPE_ANSWER)
+    {
+        *len = 264;
+        memcpy( challenge, f->challenge, 32 );
+        if (f->answer == 2) challenge[0] ^= 1;
+        if (f->answer == 1)
+            return e1r8_encode_answer( frame, 264, &f->t, zero, E1R8_S1_ANSWER_CANCEL, 0, 0, E1S1_ALL_REQUIRED_CAPS )
+                   ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+        return e1r8_encode_answer( frame, 264, &f->t, challenge, E1R8_S1_ANSWER_CONFIRM, 2, 0, E1S1_ALL_REQUIRED_CAPS )
+               ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+    }
+    return ERROR_INVALID_PARAMETER;
+}
+
+static DWORD fake_r8_recheck( struct r8_link *link, uint32_t step )
+{
+    struct fake_r8 *f = (struct fake_r8 *)link;
+    return f->recheck_fail && f->recheck_fail == step ? ERROR_ACCESS_DENIED : ERROR_SUCCESS;
+}
+
+static DWORD fake_r8_v_start( struct r8_link *link, const uint8_t *start, size_t len, uint8_t ready[76] )
+{
+    struct fake_r8 *f = (struct fake_r8 *)link;
+    (void)start; (void)len;
+    if (f->locked) return e1r8_put_header( ready, 76, E1R8_TYPE_LOCKED, 76, &f->t ) ? ERROR_INVALID_DATA : 0;
+    return e1r8_encode_worker_ready( ready, 76, &f->t ) ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+}
+
+static DWORD fake_r8_v_recv( struct r8_link *link, uint8_t frame[E1S6_R8_FRAME_MAX], size_t *len )
+{
+    struct fake_r8 *f = (struct fake_r8 *)link;
+    static const uint8_t zero[16];
+    uint8_t ref[16];
+
+    if (f->vrecv++ == 0)
+    {
+        *len = 76;
+        return e1r8_encode_delegated( frame, 76, &f->t ) ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+    }
+    if (f->verdict != E1R8_RESULT_AUTHENTICATED)
+    {
+        *len = 116;
+        return e1r8_encode_result_v( frame, 116, &f->t, E1R8_RESULT_REFUSED, zero, (const uint8_t *)"", 0, zero )
+               ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+    }
+    memset( ref, 0x77, sizeof(ref) );
+    *len = 76 + 4 + 16 + 4 + strlen( f->account ) + 16;
+    return e1r8_encode_result_v( frame, *len, &f->t, E1R8_RESULT_AUTHENTICATED, f->vkey, (const uint8_t *)f->account,
+                                 (uint32_t)strlen( f->account ), ref ) ? ERROR_INVALID_DATA : ERROR_SUCCESS;
+}
+
+static const char *s_fake_r8_map = "/tmp/test_r8_decide_accounts.map";
+static const uint8_t s_fake_r8_admin_key[16] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+
+static void fake_r8_init( struct fake_r8 *f )
+{
+    memset( f, 0, sizeof(*f) );
+    f->link.who = "r8";
+    f->link.t = &f->t;
+    f->link.to_d = fake_r8_to_d;
+    f->link.from_d = fake_r8_from_d;
+    f->link.recheck = fake_r8_recheck;
+    f->link.v_start = fake_r8_v_start;
+    f->link.v_recv = fake_r8_v_recv;
+    f->t.request_id = 0x4242;
+    f->t.attempt = 1;
+    memset( f->t.nonce, 0x11, 32 );
+    memset( f->t.channel_id, 0x22, 16 );
+    memset( f->t.binding_digest, 0x33, 32 );
+    memset( f->t.request_digest, 0x44, 32 );
+    memset( f->t.dialog_id, 0x55, 16 );
+    f->account = "admin";
+    f->verdict = E1R8_RESULT_AUTHENTICATED;
+    memcpy( f->vkey, s_fake_r8_admin_key, 16 );
+}
+
+static int fake_r8_map( BOOL install )
+{
+    FILE *m;
+    if (!install)
+    {
+        e1s18_set_test_accounts_map( NULL );
+        remove( s_fake_r8_map );
+        return 1;
+    }
+    if (!(m = fopen( s_fake_r8_map, "w" ))) return 0;
+    fprintf( m, "WEXACCOUNTS 1 42 1002 1 2 3\n" );
+    fprintf( m, "admin 1000 0102030405060708090a0b0c0d0e0f10 active 21 1 2 3 500\n" );
+    fclose( m );
+    e1s18_set_test_accounts_map( s_fake_r8_map );
+    return 1;
+}
+
+/* The confirmed path, and the answer of that attempt cannot be used again. */
+static int test_review2_decide_confirmed( void )
+{
+    struct fake_r8 f;
+    char account[64];
+    uint8_t key[16], ref[16];
+    BOOL started;
+    DWORD err;
+
+    CHECK( fake_r8_map( TRUE ), "accounts map" );
+    e1s18_reset_answers();
+    fake_r8_init( &f );
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_CONFIRMED, "confirmed" );
+    CHECK_EQ( err, (DWORD)ERROR_SUCCESS, "no error" );
+    CHECK( !strcmp( account, "admin" ), "the selected account" );
+    CHECK( !memcmp( key, s_fake_r8_admin_key, 16 ), "its key" );
+    CHECK( ref[0] == 0x77 && ref[15] == 0x77, "the verifier's evidence reference" );
+    CHECK( started, "the verifier holds a worker" );
+    CHECK( e1s18_is_answer_replayed( f.t.request_id, f.t.nonce ), "the answer is recorded as used" );
+
+    /* the same attempt again: its answer is used */
+    fake_r8_init( &f );
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED, "a replayed answer fails" );
+    CHECK( !memcmp( key, (uint8_t[16]){0}, 16 ) && !ref[0], "no key or reference after a failure" );
+    e1s18_reset_answers();
+    fake_r8_map( FALSE );
+    return TEST_PASS;
+}
+
+/* Refused, locked, and the failures that must not confirm. */
+static int test_review2_decide_refusals( void )
+{
+    struct fake_r8 f;
+    char account[64];
+    uint8_t key[16], ref[16];
+    BOOL started;
+    DWORD err;
+
+    CHECK( fake_r8_map( TRUE ), "accounts map" );
+
+    e1s18_reset_answers();
+    fake_r8_init( &f );
+    f.verdict = E1R8_RESULT_REFUSED;
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_REFUSED, "refused" );
+    CHECK_EQ( err, (DWORD)ERROR_LOGON_FAILURE, "a refused password" );
+    CHECK_EQ( f.last_type, E1R8_TYPE_RESULT, "the dialog has the refusal" );
+    CHECK( started, "the worker is to be released" );
+
+    fake_r8_init( &f );
+    f.locked = 1;
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_LOCKED, "locked" );
+    CHECK_EQ( err, (DWORD)ERROR_ACCOUNT_LOCKED_OUT, "locked out" );
+    CHECK_EQ( f.last_type, E1R8_TYPE_LOCKED, "the dialog has the notice" );
+    CHECK( !started, "no worker to release" );
+
+    fake_r8_init( &f );
+    f.answer = 1;
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED, "a Cancel does not confirm" );
+    CHECK_EQ( err, (DWORD)ERROR_CANCELLED, "cancelled" );
+
+    fake_r8_init( &f );
+    f.answer = 2;
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED,
+              "a Confirm of another challenge fails" );
+
+    fake_r8_init( &f );
+    f.vkey[0] ^= 1;
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED,
+              "an authenticated key other than the selected account's fails" );
+
+    fake_r8_init( &f );
+    f.account = "nobody";   /* the decoy: zero key, which no password authenticates */
+    memset( f.vkey, 0, 16 );
+    CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED, "the decoy never confirms" );
+
+    {
+        static const uint32_t steps[] = { E1R8_RECHECK_STEP_READY, E1R8_RECHECK_STEP_RESULT, E1R8_RECHECK_STEP_CONFIRM };
+        size_t i;
+        for (i = 0; i < 3; i++)
+        {
+            e1s18_reset_answers();
+            fake_r8_init( &f );
+            f.recheck_fail = steps[i];
+            CHECK_EQ( r8_decide( &f.link, account, key, ref, &started, &err ), R8_DECISION_FAILED,
+                      "a failed recheck stops the decision" );
+            CHECK_EQ( err, (DWORD)ERROR_ACCESS_DENIED, "denied" );
+        }
+    }
+    e1s18_reset_answers();
+    fake_r8_map( FALSE );
+    return TEST_PASS;
+}
+
+/* The one attempt loop: at most 3, only after a refusal, a fresh channel id each time, only while 10 s are left. */
+struct fake_attempts
+{
+    struct r8_attempts a;   /* first */
+    DWORD results[4];
+    uint32_t calls, furthers;
+    DWORD left;
+    uint8_t ids[4][16];
+};
+
+static DWORD fake_attempts_attempt( struct r8_attempts *a, uint32_t n )
+{
+    struct fake_attempts *f = (struct fake_attempts *)a;
+    f->calls++;
+    return n <= 3 ? f->results[n - 1] : ERROR_GEN_FAILURE;
+}
+
+static DWORD fake_attempts_further( struct r8_attempts *a, uint32_t n, const uint8_t id[16] )
+{
+    struct fake_attempts *f = (struct fake_attempts *)a;
+    f->furthers++;
+    if (n < 2 || n > 3) return ERROR_GEN_FAILURE;
+    memcpy( f->ids[n], id, 16 );
+    return ERROR_SUCCESS;
+}
+
+static DWORD fake_attempts_remaining( struct r8_attempts *a )
+{
+    return ((struct fake_attempts *)a)->left;
+}
+
+static int test_review2_attempt_loop( void )
+{
+    struct fake_attempts f;
+
+    memset( &f, 0, sizeof(f) );
+    f.a.who = "r8";
+    f.a.attempt = fake_attempts_attempt;
+    f.a.further = fake_attempts_further;
+    f.a.remaining = fake_attempts_remaining;
+    f.left = 60000;
+    f.results[0] = f.results[1] = f.results[2] = ERROR_LOGON_FAILURE;
+    CHECK_EQ( r8_attempt_loop( &f.a ), (DWORD)ERROR_LOGON_FAILURE, "three refusals end refused" );
+    CHECK_EQ( f.calls, 3u, "at most three attempts" );
+    CHECK_EQ( f.furthers, 2u, "two further attempts" );
+    CHECK( memcmp( f.ids[2], f.ids[3], 16 ) && memcmp( f.ids[2], (uint8_t[16]){0}, 16 ), "a fresh channel id each" );
+
+    memset( f.ids, 0, sizeof(f.ids) );
+    f.calls = f.furthers = 0;
+    f.results[1] = ERROR_SUCCESS;
+    CHECK_EQ( r8_attempt_loop( &f.a ), (DWORD)ERROR_SUCCESS, "the second attempt succeeds" );
+    CHECK_EQ( f.calls, 2u, "no attempt after a success" );
+
+    f.calls = f.furthers = 0;
+    f.results[0] = ERROR_ACCOUNT_LOCKED_OUT;
+    CHECK_EQ( r8_attempt_loop( &f.a ), (DWORD)ERROR_ACCOUNT_LOCKED_OUT, "a lockout ends the request" );
+    CHECK_EQ( f.calls, 1u, "only a refusal leads to another attempt" );
+
+    f.calls = f.furthers = 0;
+    f.results[0] = ERROR_LOGON_FAILURE;
+    f.left = 9999;
+    CHECK_EQ( r8_attempt_loop( &f.a ), (DWORD)ERROR_LOGON_FAILURE, "no time for another" );
+    CHECK_EQ( f.calls, 1u, "less than 10 s left: no further attempt" );
+    return TEST_PASS;
+}
+#endif
+
 int main( int argc, char **argv )
 {
     int ret = 0;
@@ -4736,6 +5035,15 @@ int main( int argc, char **argv )
 
     printf("68. Testing review finding 1: single-use lists grow and fail closed when full...\n");
     if (test_review1_used_lists_grow() != TEST_PASS) ret = 1;
+
+    printf("69. Testing review finding 2: the shared decision sequence confirms once...\n");
+    if (test_review2_decide_confirmed() != TEST_PASS) ret = 1;
+
+    printf("70. Testing review finding 2: refused, locked and failed decisions never confirm...\n");
+    if (test_review2_decide_refusals() != TEST_PASS) ret = 1;
+
+    printf("71. Testing review finding 2: the shared attempt loop...\n");
+    if (test_review2_attempt_loop() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

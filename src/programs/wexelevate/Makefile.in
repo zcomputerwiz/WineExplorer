@@ -8,6 +8,7 @@ EXTRADLLFLAGS = -mconsole -municode
 SOURCES = \
 	broker0.c \
 	cred_dialog.c \
+	decision.c \
 	launch_prep.c \
 	main.c \
 	standard.c \

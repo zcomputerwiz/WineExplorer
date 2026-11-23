@@ -43,6 +43,7 @@
 #include "e1s_digest.h"
 #ifdef WEXELEVATE_E1S18
 #include "e1r8_codec.h"
+#include "decision.h"
 #endif
 
 /* Wipe a secret; never elided. */

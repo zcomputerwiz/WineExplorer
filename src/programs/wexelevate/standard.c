@@ -1083,88 +1083,6 @@ static DWORD WINAPI r8_worker_thread( void *param )
     return 0;
 }
 
-/* WO-28: worker-thread context for SELECT_OK / SELECT exchange. */
-struct r8_select_worker_ctx
-{
-    HANDLE to_d_write;
-    HANDLE from_d_read;
-    uint8_t select_ok_buf[76];
-    uint8_t select_buf[143];
-    size_t select_len;
-    int write_ok;
-    int read_ok;
-};
-
-static DWORD WINAPI r8_select_worker_thread( void *param )
-{
-    struct r8_select_worker_ctx *ctx = (struct r8_select_worker_ctx *)param;
-    size_t off;
-    DWORD got;
-    uint32_t total;
-
-    off = 0;
-    while (off < 76)
-    {
-        if (!WriteFile( ctx->to_d_write, ctx->select_ok_buf + off,
-                        (DWORD)(76 - off), &got, NULL ) || !got)
-            break;
-        off += got;
-    }
-    ctx->write_ok = (off == 76);
-    if (!ctx->write_ok) return 0;
-
-    off = 0;
-    while (off < 76)
-    {
-        if (!ReadFile( ctx->from_d_read, ctx->select_buf + off,
-                       (DWORD)(76 - off), &got, NULL ) || !got)
-            break;
-        off += got;
-    }
-    if (off != 76) return 0;
-
-    total = e1r8_get_u32( ctx->select_buf + 8 );
-    if (total < 81 || total > 143) return 0;
-
-    while (off < total)
-    {
-        if (!ReadFile( ctx->from_d_read, ctx->select_buf + off,
-                       (DWORD)(total - off), &got, NULL ) || !got)
-            break;
-        off += got;
-    }
-    if (off == total)
-    {
-        ctx->select_len = total;
-        ctx->read_ok = 1;
-    }
-    return 0;
-}
-
-/* WO-28: worker-thread context for writing ATTACH_OK. */
-struct r8_attach_worker_ctx
-{
-    HANDLE to_d_write;
-    uint8_t attach_buf[76];
-    int write_ok;
-};
-
-static DWORD WINAPI r8_attach_worker_thread( void *param )
-{
-    struct r8_attach_worker_ctx *ctx = (struct r8_attach_worker_ctx *)param;
-    size_t off = 0;
-    DWORD got = 0;
-    while (off < 76)
-    {
-        if (!WriteFile( ctx->to_d_write, ctx->attach_buf + off,
-                        (DWORD)(76 - off), &got, NULL ) || !got)
-            break;
-        off += got;
-    }
-    ctx->write_ok = (off == 76);
-    return 0;
-}
-
 /* R8 steps 5-8 (lab): one pipe transfer to or from D in a worker, so the wait can also see D, the caller,
  * broker stop and a lease break. A read takes one frame of minimum..maximum bytes. */
 struct r8_io_ctx
@@ -1297,6 +1215,86 @@ struct r8_dialog
     HANDLE  from_d_read;
     uint8_t dialog_id[16];
 };
+
+/*
+ * Design review, finding 2: the R8 broker's link for the shared decision sequence (decision.c). Every frame goes over
+ * D's two pipes through r8_pipe_transfer, which also watches D, the caller, broker stop and a lease break. The steps
+ * before the worker (SELECT_OK, SELECT, ATTACH_OK or the lockout notice) run on the consent timeout from the dialog's
+ * start, as INIT/ACK; the rest on the attempt's admission deadline (the password check alone may take two seconds:
+ * the fixed release time of a refusal).
+ */
+struct r8_local_link
+{
+    struct r8_link link;        /* first: the callbacks get the whole link back */
+    struct request *req;
+    HANDLE process, to_d_write, from_d_read;
+    ULONGLONG dialog_start;
+    DWORD consent;
+    BOOL stuck;                 /* a pipe worker could not be joined: its pipe handles are kept */
+};
+
+static DWORD r8_local_timeout( struct r8_local_link *ll, uint16_t type )
+{
+    if (type == E1R8_TYPE_SELECT_OK || type == E1R8_TYPE_SELECT || type == E1R8_TYPE_ATTACH_OK ||
+        type == E1R8_TYPE_LOCKED)
+        return r8_left( ll->dialog_start, ll->consent );
+    return r8_remaining( ll->req );
+}
+
+static DWORD r8_local_to_d( struct r8_link *link, const uint8_t *frame, uint32_t len )
+{
+    struct r8_local_link *ll = (struct r8_local_link *)link;
+    size_t n = len;
+
+    if (ll->stuck) return ERROR_CANCELLED;
+    if (len < E1R8_HEADER_SIZE) return ERROR_INVALID_DATA;
+    return r8_pipe_transfer( ll->req, ll->process, ll->to_d_write, TRUE, (uint8_t *)frame, &n, 0, 0, GetTickCount64(),
+                             r8_local_timeout( ll, e1r8_get_u16( frame + 6 ) ), &ll->stuck );
+}
+
+static DWORD r8_local_from_d( struct r8_link *link, uint16_t type, uint8_t *frame, uint32_t max, uint32_t *len )
+{
+    struct r8_local_link *ll = (struct r8_local_link *)link;
+    uint32_t minimum, maximum;
+    size_t n = 0;
+    DWORD err;
+
+    if (ll->stuck) return ERROR_CANCELLED;
+    if (type == E1R8_TYPE_SELECT) { minimum = 81; maximum = 143; }
+    else if (type == E1R8_TYPE_ANSWER) { minimum = maximum = 264; }
+    else return ERROR_INVALID_PARAMETER;
+    if (maximum > max) return ERROR_INVALID_PARAMETER;
+    if ((err = r8_pipe_transfer( ll->req, ll->process, ll->from_d_read, FALSE, frame, &n, minimum, maximum,
+                                 GetTickCount64(), r8_local_timeout( ll, type ), &ll->stuck ))) return err;
+    *len = (uint32_t)n;
+    return ERROR_SUCCESS;
+}
+
+/* The server rechecks D (its rechecks are not per step). */
+static DWORD r8_local_recheck( struct r8_link *link, uint32_t step )
+{
+    struct r8_local_link *ll = (struct r8_local_link *)link;
+    const struct e1s18_ops *ops = e1s18_get_ops();
+
+    (void)step;
+    if (!ops->r8_recheck || ops->r8_recheck( ll->req, link->t->dialog_id )) return ERROR_ACCESS_DENIED;
+    return ERROR_SUCCESS;
+}
+
+static DWORD r8_local_v_start( struct r8_link *link, const uint8_t *start, size_t len, uint8_t ready[76] )
+{
+    struct r8_local_link *ll = (struct r8_local_link *)link;
+    const struct e1s18_ops *ops = e1s18_get_ops();
+
+    if (!ops->r8_start) return ERROR_NOT_SUPPORTED;
+    return ops->r8_start( ll->req, s_r8_channel, start, len, ready );
+}
+
+static DWORD r8_local_v_recv( struct r8_link *link, uint8_t frame[E1S6_R8_FRAME_MAX], size_t *len )
+{
+    struct r8_local_link *ll = (struct r8_local_link *)link;
+    return r8_v_recv( ll->req, frame, len, r8_remaining( ll->req ) );
+}
 
 /* Create D suspended on the desktop the tuple's mode asks for, with exactly its two pipe ends inherited, and
  * have the server endorse it; the dialog id goes into the tuple and the R8 context. On failure nothing is left
@@ -1515,7 +1513,7 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
     size_t init_len;
     HANDLE worker_thread = NULL;
     struct r8_worker_ctx *wc;
-    ULONGLONG start, elapsed;
+    ULONGLONG start;
     DWORD timeout;
     const struct e1s18_ops *ops = e1s18_get_ops();
 
@@ -1659,325 +1657,80 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
         if (secure) secure_leave();
         return ERROR_ACCESS_DENIED;
     }
-#ifdef WEXELEVATE_E1S18
     r8_trace_line( "r8: recheck ok" );
 
-    /* WO-28: after recheck ok:
-     * 1. Send SELECT_OK (76 bytes) to D, read SELECT (81..143 bytes) from D. */
+    /* R8 steps 4-8 (docs/E1_S18E_R8_SPEC.md sections 6-9, lab): the shared decision sequence (decision.c) over D's
+     * pipes, then what the R8 broker does with its outcome. From here every failure ends D. */
     {
-        struct r8_select_worker_ctx *sc = malloc( sizeof(*sc) );
-        char sel_account[64] = {0};
-        size_t sel_account_len = 0;
-        struct e1r8_select decoded_sel;
-        uint8_t sel_key[16];
-        uint8_t start_pkt[159];
-        size_t start_pkt_len = 0;
-        uint8_t ready_pkt[76];
-        BOOL locked = FALSE;
-        struct r8_attach_worker_ctx *ac;
-        HANDLE attach_thread;
+        struct r8_local_link ll;
+        enum r8_decision decision;
+        uint8_t frame[E1S6_R8_FRAME_MAX], out[80], sel_key[16], ref[16];
+        char sel_account[64];
+        size_t flen = 0;
+        BOOL started = FALSE;
+        const char *step = "decision";
 
-        if (!sc)
-        {
-            TerminateProcess( pi.hProcess, 1 );
-            WaitForSingleObject( pi.hProcess, 5000 );
-            CloseHandle( pi.hProcess );
-            CloseHandle( to_d_write );
-            CloseHandle( from_d_read );
-            if (secure) secure_leave();
-            return ERROR_NOT_ENOUGH_MEMORY;
-        }
-        memset( sc, 0, sizeof(*sc) );
-        sc->to_d_write = to_d_write;
-        sc->from_d_read = from_d_read;
-        e1r8_encode_select_ok( sc->select_ok_buf, sizeof(sc->select_ok_buf), &tuple );
+        memset( &ll, 0, sizeof(ll) );
+        ll.link.who = "r8";
+        ll.link.t = &tuple;
+        ll.link.to_d = r8_local_to_d;
+        ll.link.from_d = r8_local_from_d;
+        ll.link.recheck = r8_local_recheck;
+        ll.link.v_start = r8_local_v_start;
+        ll.link.v_recv = r8_local_v_recv;
+        ll.req = req;
+        ll.process = pi.hProcess;
+        ll.to_d_write = to_d_write;
+        ll.from_d_read = from_d_read;
+        ll.dialog_start = start;
+        ll.consent = timeout;
 
-        if (!(worker_thread = CreateThread( NULL, 0, r8_select_worker_thread, sc, 0, NULL )))
+        /* No record of an earlier attempt survives into this one. */
+        s_r8_evidence_set = FALSE;
+        e1s18_wipe( s_r8_evidence, sizeof(s_r8_evidence) );
+        e1s18_wipe( s_r8_evidence_ref, sizeof(s_r8_evidence_ref) );
+
+        decision = r8_decide( &ll.link, sel_account, sel_key, ref, &started, &err );
+        if (sel_account[0])
         {
-            free( sc );
-            TerminateProcess( pi.hProcess, 1 );
-            WaitForSingleObject( pi.hProcess, 5000 );
-            CloseHandle( pi.hProcess );
-            CloseHandle( to_d_write );
-            CloseHandle( from_d_read );
-            if (secure) secure_leave();
-            return ERROR_NOT_ENOUGH_MEMORY;
+            lstrcpynA( req->account_name, sel_account, sizeof(req->account_name) );
+            memcpy( req->account_key, sel_key, 16 );
+            if (out_account && account_max) lstrcpynA( out_account, sel_account, (int)account_max );
         }
 
-        elapsed = GetTickCount64() - start;
-        handles[0] = worker_thread;
-        handles[1] = pi.hProcess;
-        handles[2] = req->caller;
-        handles[3] = stop_event;
-        handles[4] = req->lease_event;
-        ret = WaitForMultipleObjects( 5, handles, FALSE, elapsed >= timeout ? 0 : (DWORD)(timeout - elapsed) );
-
-        if (ret != WAIT_OBJECT_0 || !sc->write_ok || !sc->read_ok ||
-            e1r8_decode_select( sc->select_buf, sc->select_len, &tuple, &decoded_sel ) != 0)
-        {
-            BOOL joined = TRUE;
-            r8_trace_err( "select", (DWORD)ERROR_CANCELLED );
-            if (ret == WAIT_OBJECT_0)
-            {
-                TerminateProcess( pi.hProcess, 1 );
-                WaitForSingleObject( pi.hProcess, 5000 );
-            }
-            else joined = r8_stop_worker( worker_thread, pi.hProcess );
-            CloseHandle( pi.hProcess );
-            if (joined)
-            {
-                CloseHandle( worker_thread );
-                free( sc );
-                CloseHandle( to_d_write );
-                CloseHandle( from_d_read );
-            }
-            if (secure) secure_leave();
-            if (ret == WAIT_TIMEOUT) return ERROR_TIMEOUT;
-            if (ret == WAIT_OBJECT_0 + 4) return ERROR_FILE_CORRUPT;
-            return ERROR_CANCELLED;
-        }
-        CloseHandle( worker_thread );
-        free( sc );
-
-        sel_account_len = decoded_sel.account_len < sizeof(sel_account) - 1 ? decoded_sel.account_len : sizeof(sel_account) - 1;
-        memcpy( sel_account, decoded_sel.account, sel_account_len );
-        sel_account[sel_account_len] = '\0';
-
-        r8_trace_line( "r8: select ok" );
-        lstrcpynA( req->account_name, sel_account, sizeof(req->account_name) );
-        if (out_account && account_max)
-            lstrcpynA( out_account, sel_account, (int)account_max );
-
-        /* 2. Resolve account key through S4 (unknown name -> zero key decoy) */
-        e1s18_resolve_account_s4( sel_account, sel_key );
-        memcpy( req->account_key, sel_key, 16 );
-        r8_trace_line( e1s18_is_all_zero( sel_key, 16 ) ? "r8: account decoy" : "r8: account known" );
-
-        /* 3. Send START on open S6 channel */
-        start_pkt_len = 96 + sel_account_len;
-        if (e1r8_encode_start( start_pkt, start_pkt_len, &tuple,
-                               (const uint8_t *)sel_account, (uint32_t)sel_account_len, sel_key ) != 0)
-        {
-            TerminateProcess( pi.hProcess, 1 );
-            WaitForSingleObject( pi.hProcess, 5000 );
-            CloseHandle( pi.hProcess );
-            CloseHandle( to_d_write );
-            CloseHandle( from_d_read );
-            if (secure) secure_leave();
-            return ERROR_INVALID_DATA;
-        }
-        r8_trace_line( "r8: start sent" );
-
-        /* 4. Wait for WORKER_READY from verifier */
-        if (!ops->r8_start ||
-            ops->r8_start( req, s_r8_channel, start_pkt, (size_t)start_pkt_len, ready_pkt ) != ERROR_SUCCESS)
-            memset( ready_pkt, 0, sizeof(ready_pkt) );
-        /* The lockout policy closed the account: no worker. D is told in place of ATTACH_OK below. */
-        locked = !e1r8_get_header( ready_pkt, sizeof(ready_pkt), E1R8_TYPE_LOCKED, &tuple, NULL );
-        if (!locked && e1r8_decode_worker_ready( ready_pkt, sizeof(ready_pkt), &tuple ) != 0)
-        {
-            r8_trace_err( "worker ready", (DWORD)ERROR_ACCESS_DENIED );
-            TerminateProcess( pi.hProcess, 1 );
-            WaitForSingleObject( pi.hProcess, 5000 );
-            CloseHandle( pi.hProcess );
-            CloseHandle( to_d_write );
-            CloseHandle( from_d_read );
-            if (secure) secure_leave();
-            return ERROR_ACCESS_DENIED;
-        }
-        r8_trace_line( locked ? "r8: account locked" : "r8: worker ready" );
-
-        /* 5. Send ATTACH_OK (76 bytes) to D */
-        ac = malloc( sizeof(*ac) );
-        if (!ac)
-        {
-            TerminateProcess( pi.hProcess, 1 );
-            WaitForSingleObject( pi.hProcess, 5000 );
-            CloseHandle( pi.hProcess );
-            CloseHandle( to_d_write );
-            CloseHandle( from_d_read );
-            if (secure) secure_leave();
-            return ERROR_NOT_ENOUGH_MEMORY;
-        }
-        memset( ac, 0, sizeof(*ac) );
-        ac->to_d_write = to_d_write;
-        if (locked) e1r8_put_header( ac->attach_buf, sizeof(ac->attach_buf), E1R8_TYPE_LOCKED, 76, &tuple );
-        else e1r8_encode_attach_ok( ac->attach_buf, sizeof(ac->attach_buf), &tuple );
-        if (!(attach_thread = CreateThread( NULL, 0, r8_attach_worker_thread, ac, 0, NULL )))
-        {
-            free( ac );
-            TerminateProcess( pi.hProcess, 1 );
-            WaitForSingleObject( pi.hProcess, 5000 );
-            CloseHandle( pi.hProcess );
-            CloseHandle( to_d_write );
-            CloseHandle( from_d_read );
-            if (secure) secure_leave();
-            return ERROR_NOT_ENOUGH_MEMORY;
-        }
-
-        elapsed = GetTickCount64() - start;
-        handles[0] = attach_thread;
-        handles[1] = pi.hProcess;
-        handles[2] = req->caller;
-        handles[3] = stop_event;
-        handles[4] = req->lease_event;
-        ret = WaitForMultipleObjects( 5, handles, FALSE, elapsed >= timeout ? 0 : (DWORD)(timeout - elapsed) );
-        /* A dialog that took the lockout frame may be gone before the writer thread has ended. */
-        if (locked && ret == WAIT_OBJECT_0 + 1 && WaitForSingleObject( attach_thread, 2000 ) == WAIT_OBJECT_0)
-            ret = WAIT_OBJECT_0;
-
-        if (ret != WAIT_OBJECT_0 || !ac->write_ok)
-        {
-            BOOL joined = TRUE;
-            if (ret == WAIT_OBJECT_0)
-            {
-                TerminateProcess( pi.hProcess, 1 );
-                WaitForSingleObject( pi.hProcess, 5000 );
-            }
-            else joined = r8_stop_worker( attach_thread, pi.hProcess );
-            CloseHandle( pi.hProcess );
-            if (joined)
-            {
-                CloseHandle( attach_thread );
-                free( ac );
-                CloseHandle( to_d_write );
-                CloseHandle( from_d_read );
-            }
-            if (secure) secure_leave();
-            if (ret == WAIT_TIMEOUT) return ERROR_TIMEOUT;
-            if (ret == WAIT_OBJECT_0 + 4) return ERROR_FILE_CORRUPT;
-            return ERROR_CANCELLED;
-        }
-        CloseHandle( attach_thread );
-        free( ac );
-
-        if (locked)
+        if (decision == R8_DECISION_LOCKED)
         {
             /* D tells the person and leaves by itself; the request ends, there is no further attempt. */
-            r8_trace_line( "r8: locked sent" );
             WaitForSingleObject( pi.hProcess, 10000 );
-            TerminateProcess( pi.hProcess, 1 );
-            WaitForSingleObject( pi.hProcess, 5000 );
-            CloseHandle( pi.hProcess );
-            CloseHandle( to_d_write );
-            CloseHandle( from_d_read );
-            if (secure) secure_leave();
-            return ERROR_ACCOUNT_LOCKED_OUT;
         }
-
-        r8_trace_line( "r8: attach_ok sent" );
-
-        /* R8 steps 5-8 (docs/E1_S18E_R8_SPEC.md sections 7-9, lab). From here every failure ends D. The
-         * password never passes through this process: it goes from D to the worker on their own socket. */
+        else if (decision == R8_DECISION_REFUSED)
         {
-            uint8_t frame[E1S6_R8_FRAME_MAX], out[264], challenge[32], fresh_key[16], ref[16];
-            static const uint8_t zero32[32];
-            struct e1r8_result_v vres;
-            struct e1r8_answer ans;
-            size_t flen = 0;
-            /* These steps run on the attempt's admission deadline, not the click-consent timeout: the
-             * password check alone may take two seconds (the fixed release time of a refusal). */
-            ULONGLONG r8_start = GetTickCount64();
-            DWORD r8_timeout = r8_remaining( req );
-            BOOL stuck = FALSE, refused = FALSE;
-            const char *step;
-
-            err = ERROR_ACCESS_DENIED;
-            /* No record of an earlier attempt survives into this one. */
-            s_r8_evidence_set = FALSE;
-            e1s18_wipe( s_r8_evidence, sizeof(s_r8_evidence) );
-            e1s18_wipe( s_r8_evidence_ref, sizeof(s_r8_evidence_ref) );
-
-            /* DELEGATED: the endorsed dialog attached and the worker acknowledged it. */
-            step = "delegated";
-            if (r8_v_recv( req, frame, &flen, r8_left( r8_start, r8_timeout ) ) ||
-                e1r8_decode_delegated( frame, flen, &tuple )) goto r8_fail;
-            r8_trace_line( "r8: delegated" );
-
-            /* READY after a server recheck of D. */
-            step = "ready";
-            if (!ops->r8_recheck || ops->r8_recheck( req, tuple.dialog_id )) goto r8_fail;
-            flen = 76;
-            if (e1r8_encode_ready( out, 76, &tuple )) goto r8_fail;
-            if ((err = r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck )))
-                goto r8_fail;
-            err = ERROR_ACCESS_DENIED;
-            r8_trace_line( "r8: ready sent" );
-
-            /* The verifier's RESULT after the worker's PAM conversation. */
-            step = "verifier result";
-            if (r8_v_recv( req, frame, &flen, r8_left( r8_start, r8_timeout ) ) ||
-                e1r8_decode_result_v( frame, flen, &tuple, &vres )) goto r8_fail;
-            if (vres.status != E1R8_RESULT_AUTHENTICATED)
-            {
-                r8_trace_line( "r8: result refused" );
-                refused = TRUE;
-                err = ERROR_LOGON_FAILURE;
-                step = "refused result";
-                flen = 116;
-                /* A refusal that cannot be told to the dialog (it is gone) ends the request: only a
-                 * dialog that took the refusal leads to a further attempt. */
-                if (e1r8_encode_result( out, 116, &tuple, E1R8_RESULT_REFUSED, (const uint8_t *)"", 0, zero32 ) ||
-                    r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck ))
-                { refused = FALSE; err = ERROR_CANCELLED; goto r8_fail; }
-                flen = 80;
-                if (e1r8_encode_done( out, 80, &tuple, E1R8_DONE_CANCELLED ) ||
-                    r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck ))
-                { refused = FALSE; err = ERROR_CANCELLED; goto r8_fail; }
-                /* D tells the person and leaves by itself (bounded by the attempt deadline). */
-                WaitForSingleObject( pi.hProcess, r8_left( r8_start, r8_timeout ) );
-                goto r8_fail;
-            }
-            memcpy( ref, vres.evidence_ref, 16 );
-
-            /* Section 8: the authenticated account is the selected one, resolved again. */
-            step = "final account";
-            if (vres.account_len != sel_account_len || memcmp( vres.account, sel_account, sel_account_len ) ||
-                e1s18_is_all_zero( sel_key, 16 ) || memcmp( vres.account_key, sel_key, 16 )) goto r8_fail;
-            e1s18_resolve_account_s4( sel_account, fresh_key );
-            if (memcmp( fresh_key, sel_key, 16 )) goto r8_fail;
-            if (!ops->r8_recheck || ops->r8_recheck( req, tuple.dialog_id )) goto r8_fail;
-
-            /* RESULT with a one-use challenge, then D's Confirm for exactly that challenge. */
-            step = "result";
-            if (!e1s18_fill_random( challenge, 32 ) || e1s18_is_all_zero( challenge, 32 )) goto r8_fail;
-            flen = 116 + sel_account_len;
-            if (e1r8_encode_result( out, flen, &tuple, E1R8_RESULT_AUTHENTICATED,
-                                    (const uint8_t *)sel_account, (uint32_t)sel_account_len, challenge )) goto r8_fail;
-            if ((err = r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck )))
-                goto r8_fail;
-            r8_trace_line( "r8: result sent" );
-            step = "confirm";
-            flen = 0;
-            if ((err = r8_pipe_transfer( req, pi.hProcess, from_d_read, FALSE, out, &flen, 264, 264, r8_start, r8_timeout, &stuck )))
-                goto r8_fail;
-            err = ERROR_ACCESS_DENIED;
-            if (e1r8_decode_answer( out, flen, &tuple, E1S1_ALL_REQUIRED_CAPS, &ans )) goto r8_fail;
-            if (ans.answer_kind != E1R8_S1_ANSWER_CONFIRM) { err = ERROR_CANCELLED; goto r8_fail; }
-            if (memcmp( ans.challenge, challenge, 32 ) || e1s18_is_answer_replayed( request_id, nonce )) goto r8_fail;
-            if (!e1s18_record_answer( request_id, nonce )) goto r8_fail;
-            if (!ops->r8_recheck || ops->r8_recheck( req, tuple.dialog_id )) goto r8_fail;
-            r8_trace_line( "r8: confirm ok" );
-
+            /* DONE; D tells the person and leaves by itself (bounded by the attempt deadline). A refusal that cannot
+             * be finished ends the request: only a dialog that took it leads to a further attempt. */
+            step = "refused done";
+            if (e1r8_encode_done( out, 80, &tuple, E1R8_DONE_CANCELLED ) || r8_local_to_d( &ll.link, out, 80 ))
+                err = ERROR_CANCELLED;
+            else WaitForSingleObject( pi.hProcess, r8_remaining( req ) );
+        }
+        else if (decision == R8_DECISION_CONFIRMED)
+        {
             /* Redemption (lab frames 28/29): the verifier hands over the evidence record once. */
             step = "redeem";
-            if (e1r8_put_header( frame, sizeof(frame), 28, 92, &tuple )) goto r8_fail;
+            err = ERROR_ACCESS_DENIED;
+            if (e1r8_put_header( frame, sizeof(frame), 28, 92, &tuple )) goto r8_end;
             memcpy( frame + 76, ref, 16 );
-            if (r8_v_send( req, frame, 92 ) ||
-                r8_v_recv( req, frame, &flen, r8_left( r8_start, r8_timeout ) ) ||
-                flen != 296 || e1r8_get_header( frame, 296, 29, &tuple, NULL )) goto r8_fail;
+            if (r8_v_send( req, frame, 92 ) || r8_v_recv( req, frame, &flen, r8_remaining( req ) ) ||
+                flen != 296 || e1r8_get_header( frame, 296, 29, &tuple, NULL )) goto r8_end;
             memcpy( s_r8_evidence, frame + 76, sizeof(s_r8_evidence) );
             memcpy( s_r8_evidence_ref, ref, 16 );
             s_r8_evidence_set = TRUE;
             s_r8_attempt = attempt;
             r8_trace_line( "r8: redeemed" );
 
-            /* DONE: D leaves; then RELEASE retires the attempt at the verifier. (Lab order: DONE is written
-             * before the launch commit, so the secure desktop is free while the program starts.) */
+            /* DONE: D leaves; then RELEASE retires the attempt at the verifier. (Lab order: DONE is written before
+             * the launch commit, so the secure desktop is free while the program starts.) */
             step = "done";
-            flen = 80;
-            if (e1r8_encode_done( out, 80, &tuple, E1R8_DONE_COMPLETED ) ||
-                (err = r8_pipe_transfer( req, pi.hProcess, to_d_write, TRUE, out, &flen, 0, 0, r8_start, r8_timeout, &stuck )))
+            if (e1r8_encode_done( out, 80, &tuple, E1R8_DONE_COMPLETED ) || (err = r8_local_to_d( &ll.link, out, 80 )))
             {
                 DWORD code = 0;
                 char text[64];
@@ -1985,36 +1738,73 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
                 snprintf( text, sizeof(text), "r8: done: dialog exit code %lu", (unsigned long)code );
                 r8_trace_line( text );
                 if (!err) err = ERROR_ACCESS_DENIED;
-                s_r8_evidence_set = FALSE; e1s18_wipe( s_r8_evidence, sizeof(s_r8_evidence) ); goto r8_fail;
+                s_r8_evidence_set = FALSE;
+                e1s18_wipe( s_r8_evidence, sizeof(s_r8_evidence) );
+                goto r8_end;
             }
             WaitForSingleObject( pi.hProcess, 10000 );
             err = ERROR_SUCCESS;
             r8_trace_line( "r8: done sent" );
-
-        r8_fail:
-            if (err && !refused) r8_trace_err( step, err );
-            /* RELEASE is best effort: closing the channel retires the attempt as well. */
-            if ((!err || refused) && !e1r8_encode_release( frame, 80, &tuple, err ? E1R8_RELEASE_CANCELLED
-                                                                                 : E1R8_RELEASE_COMPLETED ) &&
-                !r8_v_send( req, frame, 80 ) && !r8_v_recv( req, frame, &flen, 5000 ) &&
-                !e1r8_decode_released( frame, flen, &tuple ))
-                r8_trace_line( "r8: released" );
-            TerminateProcess( pi.hProcess, 1 );
-            WaitForSingleObject( pi.hProcess, 5000 );
-            CloseHandle( pi.hProcess );
-            if (!stuck)
-            {
-                CloseHandle( to_d_write );
-                CloseHandle( from_d_read );
-            }
-            if (secure) secure_leave();
-            e1s18_wipe( frame, sizeof(frame) );
-            e1s18_wipe( out, sizeof(out) );
-            e1s18_wipe( challenge, sizeof(challenge) );
-            return err;
         }
+
+    r8_end:
+        /* the decision traced its own failures */
+        if (err && decision == R8_DECISION_CONFIRMED) r8_trace_err( step, err );
+        if (decision == R8_DECISION_REFUSED && err != ERROR_LOGON_FAILURE) r8_trace_err( step, err );
+        /* RELEASE is best effort: closing the channel retires the attempt as well. */
+        if (started && (!err || err == ERROR_LOGON_FAILURE) &&
+            !e1r8_encode_release( frame, 80, &tuple, err ? E1R8_RELEASE_CANCELLED : E1R8_RELEASE_COMPLETED ) &&
+            !r8_v_send( req, frame, 80 ) && !r8_v_recv( req, frame, &flen, 5000 ) &&
+            !e1r8_decode_released( frame, flen, &tuple ))
+            r8_trace_line( "r8: released" );
+        TerminateProcess( pi.hProcess, 1 );
+        WaitForSingleObject( pi.hProcess, 5000 );
+        CloseHandle( pi.hProcess );
+        if (!ll.stuck)
+        {
+            CloseHandle( to_d_write );
+            CloseHandle( from_d_read );
+        }
+        if (secure) secure_leave();
+        e1s18_wipe( frame, sizeof(frame) );
+        e1s18_wipe( out, sizeof(out) );
+        e1s18_wipe( sel_key, sizeof(sel_key) );
+        e1s18_wipe( ref, sizeof(ref) );
+        e1s18_wipe( sel_account, sizeof(sel_account) );
+        return err;
     }
-#endif
+}
+
+/* Design review, finding 2: the R8 broker's attempts for the shared attempt loop; each attempt a fresh dialog. */
+struct r8_local_attempts
+{
+    struct r8_attempts a;       /* first: the callbacks get the whole context back */
+    struct request *req;
+    const uint8_t *nonce, *binding_digest, *request_digest;
+    uint8_t *channel_token;
+    BOOL secure;
+    char *out_account;
+    size_t account_max;
+};
+
+static DWORD r8_local_attempt( struct r8_attempts *a, uint32_t n )
+{
+    struct r8_local_attempts *la = (struct r8_local_attempts *)a;
+    return e1s18_spawn_consent_dialog( la->req, la->req->id, n, la->nonce, la->binding_digest, la->request_digest,
+                                       la->channel_token, la->secure, la->out_account, la->account_max );
+}
+
+static DWORD r8_local_further( struct r8_attempts *a, uint32_t n, const uint8_t channel_id[16] )
+{
+    struct r8_local_attempts *la = (struct r8_local_attempts *)a;
+    (void)n;
+    memcpy( la->channel_token, channel_id, 16 );
+    return ERROR_SUCCESS;
+}
+
+static DWORD r8_local_remaining( struct r8_attempts *a )
+{
+    return r8_remaining( ((struct r8_local_attempts *)a)->req );
 }
 #endif
 
@@ -3087,18 +2877,21 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
         }
         else
         {
-            /* Spec section 1: attempts 1..3 per request, each with a fresh dialog and channel id; a
-             * refused password is the only outcome that leads to a further attempt, and the admission
-             * deadline is never extended. */
-            uint32_t attempt;
-            for (attempt = 1; ; attempt++)
-            {
-                err = e1s18_spawn_consent_dialog( req, req->id, attempt, nonce, binding_digest, request_digest,
-                                                  channel_token, secure, out_account, account_max );
-                if (err != ERROR_LOGON_FAILURE || attempt >= 3 || r8_remaining( req ) < 10000) break;
-                if (!e1s18_fill_random( channel_token, 16 ) || e1s18_is_all_zero( channel_token, 16 )) break;
-                r8_trace_line( "r8: further attempt" );
-            }
+            /* Spec section 1, the shared attempt loop (decision.c): each attempt a fresh dialog. */
+            struct r8_local_attempts la;
+            la.a.who = "r8";
+            la.a.attempt = r8_local_attempt;
+            la.a.further = r8_local_further;
+            la.a.remaining = r8_local_remaining;
+            la.req = req;
+            la.nonce = nonce;
+            la.binding_digest = binding_digest;
+            la.request_digest = request_digest;
+            la.channel_token = channel_token;
+            la.secure = secure;
+            la.out_account = out_account;
+            la.account_max = account_max;
+            err = r8_attempt_loop( &la.a );
         }
     }
 #else

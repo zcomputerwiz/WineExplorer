@@ -51,7 +51,9 @@ typedef struct _PROCESS_INFORMATION
 #define ERROR_OPERATION_ABORTED           995
 #define ERROR_SERVICE_NOT_ACTIVE          1062
 #define ERROR_CANCELLED                   1223
+#define ERROR_LOGON_FAILURE               1326
 #define ERROR_FILE_CORRUPT                1392
+#define ERROR_ACCOUNT_LOCKED_OUT          1909
 #define ERROR_TIMEOUT                     1460
 
 #define SYNCHRONIZE                       0x00100000
