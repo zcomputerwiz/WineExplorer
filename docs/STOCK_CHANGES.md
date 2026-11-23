@@ -4323,3 +4323,17 @@ an empty client id means the client ids the calling process has used); `Invalida
 - `dlls/twinapi.appcore/static_lifetime.c` (new), `core_application.c`, `private.h`, `Makefile.in`: `IStaticLifetime` of `Windows.ApplicationModel.Core.CoreApplication` and its collection, the process-wide map of the factories of C++/WinRT classes with static lifetime (Wine 372efb0c).
 
 2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`): ALPC security (`server/alpc.c`, `dlls/ntdll/unix/alpc.c`, `dlls/ntdll/alpc.c`, `ntdll.spec`, `include/winternl.h`, protocol): the connect right is checked against the DACL of the port; impersonation needs the flag of the connection port, takes the token of the sender at send time (only for a message sent with a security attribute) and uses the named pipes helper `token_impersonation_level`; `NtAlpcCreateSecurityContext` and `NtAlpcDeleteSecurityContext` are semi-stubs. The Windows measurements are in docs/uwp/WINAPPSDK.md.
+
+2026-11-23 (Wine d77d8065, 1c7939e1, tests 2458bf14 and 7b49b5fe, branch `claude/wam-broker-pipe-check`, B86):
+`dlls/windows.security.authentication.web.core/broker.c`: the client accepts the token broker's pipe only from a server
+that runs `tokenbroker.exe` from system32 or syswow64 (`QueryFullProcessImageNameW`), not in an AppContainer, with a
+normal user's token (medium integrity or above, not restricted); a failed query refuses. Before, the user's SID alone was
+checked, and a sandboxed process of the user could create the pipe before the broker. Defence in depth: the image check
+means something only where the machine tree belongs to wexsys, and Wine's sandboxes share the Unix user. Tests:
+`tests/web_core.c` (`test_broker_impostor`: a low integrity impostor that reads the request, and the real broker started
+with a low integrity token; the suite requires the client's warning for the second).
+
+2026-11-23 (Wine 37c2f716, test bcc5cdda, branch `claude/netapi32-lockout-forever`, B88): `dlls/netapi32/netapi32.c`
+(`NetUserModalsGet` level 3): a stored lockout duration of 99999 minutes or more (a security template's
+`LockoutDuration = -1`) reads back as forever (`0xffffffff`), as 0 already did. Test: `tests/access.c`
+(`test_lockout_forever`, Wine only: the key is WineExplorer's).
