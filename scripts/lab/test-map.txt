@@ -10,6 +10,7 @@
 #   lab           the lab build and the lab suite (wex-run.sh lab)
 #   image         the VM image smoke check: WEX_BATCH_FWS=uefi wex-batch.sh REV NAME rundialog (printed, not run)
 #   chain         the whole chain on both firmwares: wex-batch.sh REV NAME (printed, not run)
+#   py:FILE       a static test: python3 FILE from the worktree (seconds; needs no build)
 # A Wine module with a tests folder (dlls/X, programs/X, and WineExplorer's own under src/) always gets its own
 # Wine tests, both architectures, without a rule. A path no rule matches gets normalsuite and a note: add a rule.
 
@@ -50,6 +51,13 @@ src/programs/wexelevate/*               normalsuite,lab
 src/programs/consent/*                  normalsuite,lab
 src/programs/tokenbroker/*              normalsuite
 src/programs/wexappx/*                  normalsuite
+
+# the Safe Mode and greeter code, and its static test (which reads the VM harness too)
+scripts/test_safemode.py                py:scripts/test_safemode.py
+installer/tests/*                       py:scripts/test_safemode.py
+scripts/wex-greeter.sh                  py:scripts/test_safemode.py,chain
+scripts/lib/wex-common.sh               py:scripts/test_safemode.py,normalsuite,chain
+scripts/vmtest.py                       py:scripts/test_safemode.py
 
 # what the image installs and boots
 installer/systemd/*                     chain

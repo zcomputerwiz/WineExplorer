@@ -97,8 +97,8 @@ class TestSyntax(unittest.TestCase):
         self.assertIn('while [ "$(jobs -rp | wc -l)" -ge "$LANES" ]; do wait -n; done', chain)
         iso = (tests / "build-test-iso.sh").read_text(encoding="utf-8")
         self.assertIn('INPUTS="$WREV $(rev_of src) $(rev_of scripts/assemble.py) $(rev_of scripts/assemble.sh)"', iso)
-        self.assertLess(iso.index('rm -f "$STAMP"'), iso.index("make -j"))
-        self.assertLess(iso.index("make -j"), iso.index('echo "$INPUTS" > "$STAMP"'))
+        self.assertLess(iso.index('rm -f "$STAMP"'), iso.index('wex-make.sh" -j'))
+        self.assertLess(iso.index('wex-make.sh" -j'), iso.index('echo "$INPUTS" > "$STAMP"'))
         self.assertTrue(iso.rstrip().endswith('echo "ISO DONE"'))
 
     def test_old_implementation_is_gone(self):
@@ -1557,9 +1557,11 @@ class TestSessionAndGreeter(unittest.TestCase):
         # the prompt (Explorer's window) is clicked before each key meant for it
         self.assertEqual(phase.count("    prompt_focus\n"), 3)
         self.assertLess(phase.index("prompt_focus"), phase.index('"${V[@]}" key "$TEST" esc'))
-        # a password the prompt calls incorrect (a lost key) is typed once more, and only once
+        # a password the prompt calls incorrect, or a prompt left up with no message (a lost key), is typed once more,
+        # and only once
         self.assertIn("for try in 1 2; do", phase)
-        self.assertIn('case "$try$out" in 1*"password is incorrect"*) ;; *) break ;; esac', phase)
+        self.assertIn('case "$try$out" in 1*"password is incorrect"*|1*"type an administrator password"*) ;; '
+                      '*) break ;; esac', phase)
         # a hardware watchdog the firmware left running (OVMF's TCO) is stopped before it: its restart is not ours
         self.assertLess(phase.index("printf V > \\$w"), phase.index("echo c > /proc/sysrq-trigger"))
         self.assertLess(phase.index("attach rw"), phase.index("kill -SEGV 1"))
@@ -1609,7 +1611,7 @@ class TestSessionAndGreeter(unittest.TestCase):
         # work order D4: the journal on the first serial port, read without logging on (it takes the port over);
         # the next start sends nothing there and the serial logon works
         vm = VM_TEST.read_text(encoding="utf-8")
-        self.assertIn("|rundialog|debugmode) ;;", vm)
+        self.assertIn("|rundialog|debugmode|", vm)
         self.assertIn("#   debugmode ", vm)
         phase = vm[vm.index("phase_debugmode() {"):]
         phase = phase[:phase.index("\n}\n")]
@@ -1960,7 +1962,9 @@ class TestGreeter(TempDirTest):
                "WEX_BOOTMODE_HELPER": self.fake_helper(mode, option=option), "WEX_GTK_GREETER": str(gtk),
                "FAKE_CMD": str(cmd_status), "FAKE_EXPLORER": str(explorer_status),
                # not the build machine's installed Wine: its ntdll would look newer than every test prefix
-               "WEX_NTDLL": str(self.tmp / "no-ntdll.so"), **(extra_env or {})}
+               "WEX_NTDLL": str(self.tmp / "no-ntdll.so"),
+               # nor the machine's machine root (a suite's fixture in /etc/wineexplorer names one with a newer stamp)
+               "WEX_MACHINE_ROOT": str(self.tmp / "no-machine-root"), **(extra_env or {})}
         if home is None:
             prefix = self.tmp / "prefix"
             prefix.mkdir(exist_ok=True)

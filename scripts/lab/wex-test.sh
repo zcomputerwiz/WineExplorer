@@ -13,9 +13,10 @@
 #   2. Unless only documentation changed: an incremental sync and build (wex-run.sh build).
 #   3. Every changed Wine module that has tests (dlls/X, programs/X, src/dlls/X, src/programs/X) runs its own Wine
 #      tests, both architectures (make MODULE/tests/check, in a prefix of its own under /var/tmp/wex-test).
-#   4. The suites the map names, each once: t1suite, normalsuite, lab (wex-run.sh on the build of step 2).
-#   5. VM checks (image, chain) are printed as the batch command to run, not run.
-# WEX_TEST_PLAN=1 prints the plan (steps 1, 3 and 5) without building or running anything.
+#   4. The static tests the map names (py:FILE).
+#   5. The suites the map names, each once: t1suite, normalsuite, lab (wex-run.sh on the build of step 2).
+#   6. VM checks (image, chain) are printed as the batch command to run, not run.
+# WEX_TEST_PLAN=1 prints the plan (steps 1 and 6) without building or running anything.
 #
 # A targeted run is for iterating; it is never a merge check: before a merge the full suite and the batch run
 # (docs/TOOLING.md, "Which checks when").
@@ -102,8 +103,13 @@ fi
 
 local rc=0 t0=$SECONDS xvfb=()
 command -v xvfb-run > /dev/null && xvfb=(xvfb-run -a)
-# step 2: the build
-bash "$D/scripts/lab/wex-run.sh" build || { echo "TARGETED FAILED: build"; exit 1; }
+# step 2: the build, when anything below needs one (static tests and printed VM checks do not)
+local need_build=
+[ ${#modules[@]} = 0 ] || need_build=1
+for c in t1suite normalsuite lab; do [ -z "${checks[$c]:-}" ] || need_build=1; done
+if [ -n "$need_build" ]; then
+    bash "$D/scripts/lab/wex-run.sh" build || { echo "TARGETED FAILED: build"; exit 1; }
+fi
 
 # step 3: each module's own Wine tests (make runs only the test files whose programs changed since their last pass)
 for m in "${!modules[@]}"; do
@@ -119,14 +125,26 @@ for m in "${!modules[@]}"; do
     fi
 done
 
-# step 4: the suites, on that build
+# step 4: the static tests the map names (py:FILE: python3 FILE, from the worktree)
+for c in "${!checks[@]}"; do
+    [[ $c == py:* ]] || continue
+    if (cd "$D" && timeout 900 python3 "${c#py:}") > "$LOGS/$(basename "${c#py:}").log" 2>&1; then
+        echo "${c#py:} ok"
+    else
+        echo "${c#py:} FAILED ($LOGS/$(basename "${c#py:}").log):"
+        grep -E '^(FAIL|ERROR):' "$LOGS/$(basename "${c#py:}").log" | head -8
+        rc=1
+    fi
+done
+
+# step 5: the suites, on that build
 for c in t1suite normalsuite; do
     [ -n "${checks[$c]:-}" ] || continue
     WEX_ANY_BUILD=1 bash "$D/scripts/lab/wex-run.sh" "$c" | grep -v '^NOTE: WEX_ANY_BUILD' || rc=1
 done
 if [ -n "${checks[lab]:-}" ]; then bash "$D/scripts/lab/wex-run.sh" lab || rc=1; fi
 
-# step 5: the VM checks, printed
+# step 6: the VM checks, printed
 print_vm
 echo "TARGETED $([ $rc = 0 ] && echo PASS || echo FAILED) ($(( (SECONDS - t0 + 30) / 60 )) min; not a merge check)"
 exit $rc
