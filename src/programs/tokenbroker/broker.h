@@ -18,7 +18,7 @@
 
 #include "wine/tokenbroker.h"
 
-/* WebTokenRequestStatus */
+/* WebTokenRequestStatus (STATUS_SUCCESS_: windows.h has an NTSTATUS of that name) */
 #define STATUS_SUCCESS_                  0
 #define STATUS_USER_CANCEL               1
 #define STATUS_USER_INTERACTION_REQUIRED 3
@@ -33,6 +33,13 @@
 /* WebTokenRequestPromptType */
 #define PROMPT_DEFAULT                   0
 #define PROMPT_FORCE_AUTHENTICATION      1
+
+/* provider error codes (HRESULTs) */
+#define E_PROVIDER_FAILED   E_FAIL
+#define E_NOT_FOUND         HRESULT_FROM_WIN32(ERROR_NOT_FOUND)
+#define E_CANCELLED         HRESULT_FROM_WIN32(ERROR_CANCELLED)
+#define E_NO_NETWORK        0x80072efd  /* HRESULT_FROM_WIN32(ERROR_WINHTTP_CANNOT_CONNECT) */
+#define E_TOO_LARGE         HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER)
 
 /* a request as the client sent it; the strings are allocated and NUL-terminated */
 struct request
@@ -73,8 +80,17 @@ BOOL text_append( struct text *text, const WCHAR *str, unsigned int len );
 BOOL text_append_str( struct text *text, const WCHAR *str );
 BOOL text_append_pair( struct text *text, const WCHAR *key, const WCHAR *value );
 void text_free( struct text *text );
+BOOL text_append_json_string( struct text *text, const WCHAR *str );
+void text_wipe( struct text *text );
+void wipe_free( WCHAR *str );
 const WCHAR *request_property( const struct request *req, const WCHAR *key );
+BOOL request_property_is( const struct request *req, const WCHAR *key, const WCHAR *value );
+const WCHAR *request_login_hint( const struct request *req );
 void reply_error( struct reply *reply, int status, unsigned int code, const WCHAR *message );
+void reply_failure( struct reply *reply, unsigned int kind, unsigned int code, const WCHAR *message );
+BOOL scope_has( const WCHAR *scope, const WCHAR *word );
+SID *token_user_sid( HANDLE token );
+BOOL user_only_descriptor( const WCHAR *ace_flags, const WCHAR *rights, SECURITY_ATTRIBUTES *sa );
 BOOL reply_set( struct reply *reply, enum tokenbroker_reply_field field, const WCHAR *str );
 BOOL url_append_param( struct text *url, const WCHAR *name, const WCHAR *value );
 WCHAR *url_query_param( const WCHAR *url, const WCHAR *name );
@@ -161,14 +177,25 @@ BOOL oauth_begin( const WCHAR *base, const struct request *req, const WCHAR *red
 void oauth_flow_free( struct oauth_flow *flow );
 BOOL oauth_redeem( const WCHAR *base, const struct request *req, const struct oauth_flow *flow, const WCHAR *code,
                    struct token_result *result );
+/* a refresh for another client through the broker's own (nested apps, brokered client ids) */
+struct oauth_broker
+{
+    const WCHAR *client_id;     /* the broker client, whose refresh token is used */
+    const WCHAR *redirect_uri;  /* its redirect URI */
+    const WCHAR *child_redirect_uri;
+};
+
 BOOL oauth_refresh( const WCHAR *base, const WCHAR *authority, const WCHAR *client_id, const WCHAR *scope,
-                    const WCHAR *refresh_token, struct token_result *result );
-BOOL oauth_refresh_nested( const WCHAR *base, const WCHAR *authority, const WCHAR *parent_client_id,
-                           const WCHAR *parent_redirect_uri, const WCHAR *child_client_id,
-                           const WCHAR *child_redirect_uri, const WCHAR *scope, const WCHAR *refresh_token,
-                           struct token_result *result );
+                    const WCHAR *refresh_token, const struct oauth_broker *broker, struct token_result *result );
 void token_result_free( struct token_result *result );
 WCHAR *oauth_scope( const WCHAR *requested );
+WCHAR *oauth_redirect_uri( const WCHAR *client_id );
+
+/* answer.c: the answer's shape, as WAM gives it for a Microsoft account */
+void account_names( const struct token_result *r, const WCHAR *hint, WCHAR **id, WCHAR **name );
+void reply_success( struct reply *reply, const struct request *req, BOOL interactive, BOOL cached,
+                    const WCHAR *token, const WCHAR *account_id, const WCHAR *user_name, const WCHAR *id_token,
+                    const WCHAR *client_info, const WCHAR *scope, LONGLONG expires_on );
 
 /* provider.c */
 void provider_answer( const struct request *req, struct reply *reply );
@@ -198,6 +225,7 @@ struct signin
 };
 
 BOOL signin_transition( struct signin *signin, enum signin_state to );
+void signin_fail( struct signin *signin, enum signin_state to, const WCHAR *code, const WCHAR *message );
 BOOL signin_redirect( struct signin *signin, const WCHAR *url );
 void signin_run_test( struct signin *signin );
 void signin_run_webview( struct signin *signin );

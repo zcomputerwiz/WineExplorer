@@ -64,8 +64,7 @@ static void account_free( struct account *a )
     free( a->id );
     free( a->user_name );
     free( a->client_id );
-    if (a->refresh_token) SecureZeroMemory( a->refresh_token, wcslen( a->refresh_token ) * sizeof(WCHAR) );
-    free( a->refresh_token );
+    wipe_free( a->refresh_token );
     free( a );
 }
 
@@ -77,80 +76,61 @@ static void token_free( struct access_token *t )
     free( t->account_id );
     free( t->client_id );
     free( t->scope );
-    free( t->token );
+    wipe_free( t->token );
     free( t->id_token );
     free( t->client_info );
     free( t->granted_scope );
     free( t );
 }
 
-/* the same scope set: the same words in any order */
-static BOOL same_scope( const WCHAR *a, const WCHAR *b )
+static WCHAR *dup_or_empty( const WCHAR *str )
 {
-    WCHAR *copy, *word, *ctx;
-    unsigned int na = 0, nb = 0;
-    BOOL ret = TRUE;
-
-    if (!(copy = strdupW( a ? a : L"" ))) return FALSE;
-    for (word = wcstok_s( copy, L" ", &ctx ); word && ret; word = wcstok_s( NULL, L" ", &ctx ))
-    {
-        const WCHAR *p = b ? b : L"";
-        size_t len = wcslen( word );
-        BOOL found = FALSE;
-        na++;
-        while ((p = wcsstr( p, word )))
-        {
-            if ((p == b || p[-1] == ' ') && (!p[len] || p[len] == ' ')) { found = TRUE; break; }
-            p += len;
-        }
-        ret = found;
-    }
-    free( copy );
-    if (!ret) return FALSE;
-    if (!(copy = strdupW( b ? b : L"" ))) return FALSE;
-    for (word = wcstok_s( copy, L" ", &ctx ); word; word = wcstok_s( NULL, L" ", &ctx )) nb++;
-    free( copy );
-    return na == nb;
+    return strdupW( str ? str : L"" );
 }
 
-/* ~/.local/share/wineexplorer/tokenbroker, as a DOS path (allocated), its folders made */
-static WCHAR *cache_dir( void )
+/* the same scope set: the same words in any order (each word of one is in the other) */
+static BOOL same_scope( const WCHAR *a, const WCHAR *b )
 {
-    static WCHAR *(CDECL *get_dos_name)( const char * );
-    SECURITY_ATTRIBUTES sa = { sizeof(sa) };
-    WCHAR *dir = NULL, *path = NULL, *sid_string = NULL;
-    char home[MAX_PATH * 2], unix_path[MAX_PATH * 2];
-    WCHAR sddl[256];
-    HANDLE token;
-    char buffer[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
-    TOKEN_USER *user = (TOKEN_USER *)buffer;
-    DWORD len;
+    const WCHAR *sets[2] = { a ? a : L"", b ? b : L"" };
+    WCHAR *copy, *word, *ctx;
+    unsigned int i;
+    BOOL ret = TRUE;
 
-    if (!get_dos_name)
-        get_dos_name = (void *)GetProcAddress( GetModuleHandleW( L"kernel32.dll" ), "wine_get_dos_file_name" );
-    if (!get_dos_name) return NULL;
+    for (i = 0; i < 2 && ret; i++)
+    {
+        if (!(copy = strdupW( sets[i] ))) return FALSE;
+        for (word = wcstok_s( copy, L" ", &ctx ); word && ret; word = wcstok_s( NULL, L" ", &ctx ))
+            ret = scope_has( sets[!i], word );
+        free( copy );
+    }
+    return ret;
+}
+
+/* ~/.local/share/wineexplorer/tokenbroker, as a DOS path, its folders made: found once, the cache's own */
+static const WCHAR *cache_dir( void )
+{
+    static WCHAR *dir;
+    SECURITY_ATTRIBUTES sa;
+    WCHAR *path, *found;
+    char home[MAX_PATH * 2], unix_path[MAX_PATH * 2];
+
+    if (dir) return dir;
     /* Wine keeps the Unix HOME as WINE_HOST_HOME (ntdll's is_special_env_var) */
     if (!GetEnvironmentVariableA( "WINE_HOST_HOME", home, sizeof(home) ) &&
         !GetEnvironmentVariableA( "HOME", home, sizeof(home) ))
         return NULL;
     if (home[0] != '/') return NULL;
     snprintf( unix_path, sizeof(unix_path), "%s/.local/share/wineexplorer/tokenbroker", home );
-    if (!(dir = get_dos_name( unix_path ))) return NULL;
+    if (!(found = wine_get_dos_file_name( unix_path ))) return NULL;
 
     /* the user only: the folder becomes 0700 */
-    if (OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token ))
+    if (!user_only_descriptor( L"OICI", L"FA", &sa ) || !(path = strdupW( found )))
     {
-        if (GetTokenInformation( token, TokenUser, buffer, sizeof(buffer), &len ))
-            ConvertSidToStringSidW( user->User.Sid, &sid_string );
-        CloseHandle( token );
+        LocalFree( sa.lpSecurityDescriptor );
+        HeapFree( GetProcessHeap(), 0, found );
+        return NULL;
     }
-    if (!sid_string) goto fail;
-    swprintf( sddl, ARRAY_SIZE(sddl), L"D:P(A;OICI;FA;;;%s)", sid_string );
-    LocalFree( sid_string );
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW( sddl, SDDL_REVISION_1, &sa.lpSecurityDescriptor, NULL ))
-        goto fail;
     /* the parents as usual, the last two folders with the descriptor */
-    if ((path = strdupW( dir )))
     {
         WCHAR *p, *wex = NULL;
         for (p = path + 3; *p; p++)
@@ -165,25 +145,23 @@ static WCHAR *cache_dir( void )
          * wineexplorer folder above is left as it is) */
         if (!CreateDirectoryW( path, &sa ))
             SetFileSecurityW( path, DACL_SECURITY_INFORMATION, sa.lpSecurityDescriptor );
-        free( path );
     }
     LocalFree( sa.lpSecurityDescriptor );
+    HeapFree( GetProcessHeap(), 0, found );
+    /* two threads may get here at once: the first one's path is kept */
+    if (InterlockedCompareExchangePointer( (void **)&dir, path, NULL )) free( path );
     return dir;
-
-fail:
-    HeapFree( GetProcessHeap(), 0, dir );
-    return NULL;
 }
 
 static WCHAR *cache_file( const WCHAR *name )
 {
-    WCHAR *dir = cache_dir(), *ret;
+    const WCHAR *dir = cache_dir();
+    WCHAR *ret;
     size_t len;
 
     if (!dir) return NULL;
     len = wcslen( dir ) + wcslen( name ) + 2;
     if ((ret = malloc( len * sizeof(WCHAR) ))) swprintf( ret, len, L"%s\\%s", dir, name );
-    HeapFree( GetProcessHeap(), 0, dir );
     return ret;
 }
 
@@ -260,14 +238,12 @@ static BOOL write_fields( struct text *out, const WCHAR **fields, unsigned int c
 
 BOOL cache_save( void )
 {
-    SECURITY_ATTRIBUTES sa = { sizeof(sa) };
-    WCHAR *path = NULL, *temp = NULL, expires[32], *sid_string = NULL, sddl[256];
+    SECURITY_ATTRIBUTES sa;
+    WCHAR *path = NULL, *temp = NULL, expires[32];
     struct text out = {0};
     char *bytes = NULL;
-    HANDLE file = INVALID_HANDLE_VALUE, token;
-    char buffer[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
-    TOKEN_USER *user = (TOKEN_USER *)buffer;
-    DWORD len, written;
+    HANDLE file = INVALID_HANDLE_VALUE;
+    DWORD written;
     BOOL ret = FALSE;
     unsigned int i;
     LONGLONG now = unix_time();
@@ -293,17 +269,7 @@ BOOL cache_save( void )
 
     if (!(path = cache_file( L"cache" )) || !(temp = cache_file( L"cache.new" ))) goto done;
     /* the user only: the file becomes 0600 */
-    if (OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token ))
-    {
-        if (GetTokenInformation( token, TokenUser, buffer, sizeof(buffer), &len ))
-            ConvertSidToStringSidW( user->User.Sid, &sid_string );
-        CloseHandle( token );
-    }
-    if (!sid_string) goto done;
-    swprintf( sddl, ARRAY_SIZE(sddl), L"D:P(A;;FRFW;;;%s)", sid_string );
-    LocalFree( sid_string );
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW( sddl, SDDL_REVISION_1, &sa.lpSecurityDescriptor, NULL ))
-        goto done;
+    if (!user_only_descriptor( L"", L"FRFW", &sa )) goto done;
     /* a leftover temporary file would keep its own mode: it goes first, and the new one is created anew */
     DeleteFileW( temp );
     file = CreateFileW( temp, GENERIC_WRITE, 0, &sa, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL );
@@ -319,15 +285,23 @@ done:
     if (!ret) WARN( "the cache was not written: %lu\n", GetLastError() );
     if (bytes) SecureZeroMemory( bytes, strlen( bytes ) );
     free( bytes );
-    if (out.data) SecureZeroMemory( out.data, out.len * sizeof(WCHAR) );
-    text_free( &out );
+    text_wipe( &out );
     free( path );
     free( temp );
     return ret;
 }
 
-/* an account by id, or else by user name (case-insensitive), for the provider and authority, of exactly this client
- * (an empty client id matches only an empty one, never every client); the caller holds the lock */
+/* an account of the provider, the authority (when one is given) and exactly this client (an empty client id matches
+ * only an empty one, never every client) */
+static BOOL account_of( const struct account *a, const WCHAR *provider_id, const WCHAR *authority,
+                        const WCHAR *client_id )
+{
+    return same( a->provider_id, provider_id ) && (!authority || !*authority || same( a->authority, authority )) &&
+           same( a->client_id, client_id );
+}
+
+/* an account by id, or else by user name (case-insensitive), for the provider and authority, of exactly this client;
+ * the caller holds the lock */
 struct account *cache_find_account( const WCHAR *provider_id, const WCHAR *authority, const WCHAR *id,
                                     const WCHAR *user_name, const WCHAR *client_id )
 {
@@ -336,9 +310,7 @@ struct account *cache_find_account( const WCHAR *provider_id, const WCHAR *autho
     for (i = 0; i < account_count; i++)
     {
         struct account *a = accounts[i];
-        if (!same( a->provider_id, provider_id )) continue;
-        if (authority && *authority && !same( a->authority, authority )) continue;
-        if (!same( a->client_id, client_id )) continue;
+        if (!account_of( a, provider_id, authority, client_id )) continue;
         if (id && *id && same( a->id, id )) return a;
         if ((!id || !*id) && user_name && *user_name && !wcsicmp( a->user_name, user_name )) return a;
     }
@@ -357,9 +329,7 @@ unsigned int cache_list_accounts( const WCHAR *provider_id, const WCHAR *authori
     for (i = 0; i < account_count; i++)
     {
         struct account *a = accounts[i];
-        if (!same( a->provider_id, provider_id )) continue;
-        if (authority && *authority && !same( a->authority, authority )) continue;
-        if (!same( a->client_id, client_id )) continue;
+        if (!account_of( a, provider_id, authority, client_id )) continue;
         for (j = 0; j < n; j++) if (same( (*out)[j]->id, a->id )) break;
         if (j == n) (*out)[n++] = a;
     }
@@ -371,12 +341,12 @@ static struct account *account_copy( const struct account *src )
     struct account *a = calloc( 1, sizeof(*a) );
 
     if (!a) return NULL;
-    a->provider_id = strdupW( src->provider_id ? src->provider_id : L"" );
-    a->authority = strdupW( src->authority ? src->authority : L"" );
-    a->id = strdupW( src->id ? src->id : L"" );
-    a->user_name = strdupW( src->user_name ? src->user_name : L"" );
-    a->client_id = strdupW( src->client_id ? src->client_id : L"" );
-    a->refresh_token = strdupW( src->refresh_token ? src->refresh_token : L"" );
+    a->provider_id = dup_or_empty( src->provider_id );
+    a->authority = dup_or_empty( src->authority );
+    a->id = dup_or_empty( src->id );
+    a->user_name = dup_or_empty( src->user_name );
+    a->client_id = dup_or_empty( src->client_id );
+    a->refresh_token = dup_or_empty( src->refresh_token );
     if (!a->provider_id || !a->authority || !a->id || !a->user_name || !a->client_id || !a->refresh_token)
     {
         account_free( a );
@@ -446,6 +416,14 @@ void cache_remove_account( const WCHAR *provider_id, const WCHAR *id, const WCHA
     token_count = j;
 }
 
+/* an access token's key: provider, authority, account, client and scope set */
+static BOOL token_is( const struct access_token *t, const WCHAR *provider_id, const WCHAR *authority,
+                      const WCHAR *account_id, const WCHAR *client_id, const WCHAR *scope )
+{
+    return same( t->provider_id, provider_id ) && same( t->authority, authority ) &&
+           same( t->account_id, account_id ) && same( t->client_id, client_id ) && same_scope( t->scope, scope );
+}
+
 /* an access token of the account for the client and scope set that is valid after valid_until; the caller holds the
  * lock */
 struct access_token *cache_find_token( const WCHAR *provider_id, const WCHAR *authority, const WCHAR *account_id,
@@ -456,9 +434,7 @@ struct access_token *cache_find_token( const WCHAR *provider_id, const WCHAR *au
     for (i = 0; i < token_count; i++)
     {
         struct access_token *t = tokens[i];
-        if (same( t->provider_id, provider_id ) && same( t->authority, authority ) &&
-            same( t->account_id, account_id ) && same( t->client_id, client_id ) && same_scope( t->scope, scope ) &&
-            t->expires_on > valid_until)
+        if (token_is( t, provider_id, authority, account_id, client_id, scope ) && t->expires_on > valid_until)
             return t;
     }
     return NULL;
@@ -475,16 +451,16 @@ BOOL cache_store_token( const struct access_token *src )
         !storable( src->id_token ) || !storable( src->client_info ) || !storable( src->granted_scope ))
         return FALSE;
     if (!(t = calloc( 1, sizeof(*t) ))) return FALSE;
-    t->provider_id = strdupW( src->provider_id ? src->provider_id : L"" );
-    t->authority = strdupW( src->authority ? src->authority : L"" );
-    t->account_id = strdupW( src->account_id ? src->account_id : L"" );
-    t->client_id = strdupW( src->client_id ? src->client_id : L"" );
-    t->scope = strdupW( src->scope ? src->scope : L"" );
+    t->provider_id = dup_or_empty( src->provider_id );
+    t->authority = dup_or_empty( src->authority );
+    t->account_id = dup_or_empty( src->account_id );
+    t->client_id = dup_or_empty( src->client_id );
+    t->scope = dup_or_empty( src->scope );
     t->expires_on = src->expires_on;
-    t->token = strdupW( src->token ? src->token : L"" );
-    t->id_token = strdupW( src->id_token ? src->id_token : L"" );
-    t->client_info = strdupW( src->client_info ? src->client_info : L"" );
-    t->granted_scope = strdupW( src->granted_scope ? src->granted_scope : L"" );
+    t->token = dup_or_empty( src->token );
+    t->id_token = dup_or_empty( src->id_token );
+    t->client_info = dup_or_empty( src->client_info );
+    t->granted_scope = dup_or_empty( src->granted_scope );
     if (!t->provider_id || !t->authority || !t->account_id || !t->client_id || !t->scope || !t->token ||
         !t->id_token || !t->client_info || !t->granted_scope)
     {
@@ -494,8 +470,7 @@ BOOL cache_store_token( const struct access_token *src )
     for (i = 0; i < token_count; i++)
     {
         struct access_token *o = tokens[i];
-        if (same( o->provider_id, t->provider_id ) && same( o->authority, t->authority ) &&
-            same( o->account_id, t->account_id ) && same( o->client_id, t->client_id ) && same_scope( o->scope, t->scope ))
+        if (token_is( o, t->provider_id, t->authority, t->account_id, t->client_id, t->scope ))
         {
             token_free( o );
             tokens[i] = t;
