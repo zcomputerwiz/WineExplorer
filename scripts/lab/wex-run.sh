@@ -141,25 +141,12 @@ sync_tree()
         while IFS= read -r -d '' f; do
             cmp -s "$D/src/$f" "$P/src/$f" || { mkdir -p "$(dirname "$P/src/$f")"; cp "$D/src/$f" "$P/src/$f"; }
         done
-    # regenerate: assemble the wex modules into the wine tree, then autoconf and configure, and make_requests, only when
-    # their inputs changed since the last run (a configure run touches files that make most of the tree rebuild);
-    # WEX_RECONFIGURE=1 forces them
-    ( cd "$P" && python3 scripts/assemble.py --wine-root wine ) || return 1
-    local cstamp rstamp
-    cstamp=$(cd "$CL" && cat configure.ac aclocal.m4 2>/dev/null | sha256sum | cut -c1-16)
-    rstamp=$(cd "$CL" && sha256sum < server/protocol.def | cut -c1-16)
-    if [ "${WEX_RECONFIGURE:-0}" = 1 ] || [ "$cstamp" != "$(cat "$MAIN/.wex-configure-stamp" 2>/dev/null)" ] ||
-       [ ! -f "$MAIN/config.status" ]; then
-        echo "configure: inputs changed, running autoconf and configure"
-        ( cd "$CL" && autoconf -f ) && ( cd "$MAIN" && ./config.status --recheck && ./config.status ) || return 1
-        echo "$cstamp" > "$MAIN/.wex-configure-stamp"
-    else
-        echo "configure: inputs unchanged, skipped"
-    fi
-    if [ "${WEX_RECONFIGURE:-0}" = 1 ] || [ "$rstamp" != "$(cat "$MAIN/.wex-requests-stamp" 2>/dev/null)" ]; then
-        ( cd "$CL" && perl tools/make_requests ) || return 1
-        echo "$rstamp" > "$MAIN/.wex-requests-stamp"
-    fi
+    # regenerate: assemble the wex modules into the wine tree, autoconf, configure, make_requests, every time. A skip
+    # when configure.ac was unchanged (2026-11-23) broke b1123c: Wine commits its generated configure, a checkout of
+    # another tree's commit restores the stock one without the wex modules, and make then reran config.status from it
+    # (themeui not found)
+    ( cd "$P" && python3 scripts/assemble.py --wine-root wine ) && ( cd "$CL" && autoconf -f ) &&
+        ( cd "$MAIN" && ./config.status --recheck && ./config.status ) && ( cd "$CL" && perl tools/make_requests )
 }
 
 # snapshot of what the suites read; wine stays a link (the suite's guard only greps build files there)
