@@ -2,7 +2,8 @@
 # Copyright 2026 WineExplorer contributors
 # lab: generates exception-tramp.c from the clean dlls/ntdll/exception.c of a candidate: ud2 trampolines (log the counters of an object and the
 # caller, restore the bytes, single-step, patch again) at the entries and inline sites in sites.txt (see sites.py) of the INSTALLED lab copy of
-# Microsoft.UI.Input.dll (patch that copy with mkpatch3.py). Run in a directory with exception-clean.c and sites.txt.
+# Microsoft.UI.Input.dll (patch that copy with mkpatch3.py); at a failing Begin it also logs the stack as LABSTK lines (mapstk.py). Run in a
+# directory with exception-clean.c and sites.txt.
 src = open('exception-clean.c', newline='').read()
 anchor = '''NTSTATUS WINAPI dispatch_exception( EXCEPTION_RECORD *rec, CONTEXT *context )
 {
@@ -72,6 +73,16 @@ block = r'''
                             ERR( "LABTRAMP %s tid %04lx obj %p +40=%d +44=%d +48=%d +58=%#x +5c=%#x rdx %p rdx+40=%d caller %p (module %p +%lx)\n",
                                  labfn[k].name, (unsigned long)HandleToULong( NtCurrentTeb()->ClientId.UniqueThread ), obj, v40, v44, v48,
                                  v58, v5c, obj2, w40, (void *)ret, cbase, cbase ? (unsigned long)(ret - (ULONG_PTR)cbase) : 0 );
+                        }
+                        if (k == 0 && v40 != v44 + v48)
+                        {
+                            unsigned int n;
+                            for (n = 0; n < 600; n++)
+                            {
+                                void *mb = NULL;
+                                if (sp[n] > 0x10000 && RtlPcToFileHeader( (void *)sp[n], &mb ) && mb)
+                                    ERR( "LABSTK %u module %p +%lx\n", n, mb, (unsigned long)(sp[n] - (ULONG_PTR)mb) );
+                            }
                         }
                         if (NtProtectVirtualMemory( NtCurrentProcess(), &addr, &size, PAGE_EXECUTE_READWRITE, &old )) break;
                         memcpy( (void *)rip, labfn[k].orig, 2 );

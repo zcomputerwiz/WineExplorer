@@ -411,7 +411,16 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    needs a Time Travel Debugging trace: TTD (official, from the WinDbg package; cdb and TTD.exe are extracted in
    `WineExplorer-local/windbg`) refuses without administrator rights, `ttd-record-notepad.ps1` there records both Notepad processes
    when run from an elevated PowerShell.
-   Tools added: `bytepatch.py`, `bytesat.py`, `fnstart.py`, `sites.py`, `ntdll-tramp-patch.py`, `tramp-guest.sh`, `modcalls.py`, `findptr.py`, `exports.py`, `ordthunk` idea (host), probes `factory-iid-probe.c`,
+   **TTD worked (elevated run by the owner) and the cause is now visible.** TTD records Notepad (`cdb -z trace.run`, `dx @$cursession.TTD.Memory(...)`
+   lists every write to the object's counters with the instruction that made it). Windows: the function at Input 0x62267 (flags
+   [this+0x30] = 0x11f, bit 2 set, so its main path) takes its begin and the region is closed later by a plain End; no nested Begin
+   happens inside it. Wine: the same function begins the region, returns with the counter at 1 and, before it is closed, a window message is
+   handled: the last message in Wine's log is `WM_NCHITTEST` sent from self to the "Notepad" window (lParam 0x90009), the stack shows three
+   nested window procedures of `Microsoft.UI.Windowing.Core` reaching `Microsoft.UI.Input` 0xe8cf0, whose Begin finds the counter at 1.
+   No C++ exception is thrown in between. So the difference is a message that Wine delivers (synchronously, from inside a user32 call
+   of the window code) and Windows does not, or not yet: the next step is to find which call (SetWindowPos, ShowWindow, SetCursor or a
+   hit test on a hidden window) makes win32u send `WM_NCHITTEST`, and what Windows does there (a hidden window gets no hit test).
+   Tools added: `bytepatch.py`, `bytesat.py`, `mapstk.py`, `cxxbefore.py`, `ntdll-tramp-cxx.py`, `fnstart.py`, `sites.py`, `ntdll-tramp-patch.py`, `tramp-guest.sh`, `modcalls.py`, `findptr.py`, `exports.py`, `ordthunk` idea (host), probes `factory-iid-probe.c`,
    `windowband-probe.c`, `user32-ordinal-probe.c`.
    (Older text of this section, kept for the record:) read the default `OpenSharedDCompositionObject` of FrameworkUdk (table id 7 or 6 of `GetFunctionTableById`) to see which private
    slot of the device it calls, and give Wine's dcomp device that method (open a shared visual from the handle of export 1040) and a visual
