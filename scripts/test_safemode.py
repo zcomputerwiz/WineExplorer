@@ -73,6 +73,33 @@ class TestSyntax(unittest.TestCase):
                 path = VM_TEST.with_name(helper)
                 compile(path.read_text(encoding="utf-8"), str(path), "exec")
 
+    def test_window_probe(self):
+        """session-run.py's window probe (the VM test's readiness signal instead of OCR, review 2026-11-23): the
+        desktop is the shell's screen-sized view plus its taskbar, not Wine's virtual desktop window alone."""
+        spec = importlib.util.spec_from_file_location("session_run", VM_TEST.with_name("session-run.py"))
+        probe = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(probe)
+        tree = '\n'.join([
+            'xwininfo: Window id: 0x1e3 (the root window) (has no name)',
+            '  Root window id: 0x1e3 (the root window) (has no name)',
+            '     0x1c00001 "shell - Wine desktop": ("explorer.exe" "Explorer.exe")  1280x800+0+0  +0+0',
+            '        0x1c00004 (has no name): ("explorer.exe" "Explorer.exe")  1280x800+0+0  +0+0',
+            '        0x1c00007 (has no name): ("explorer.exe" "Explorer.exe")  1280x30+0+770  +0+770',
+            '        0x2200001 "wex-notepad64.txt - Notepad": ("notepad.exe" "Notepad.exe")  640x480+5+5  +5+5',
+            '     0x400001 (has no name): ()  1x1+-1+-1  +-1+-1'])
+        windows = probe.parse_tree(tree)
+        self.assertEqual([w["id"] for w in windows], ["0x1c00001", "0x1c00004", "0x1c00007", "0x2200001", "0x400001"])
+        self.assertEqual(windows[3]["name"], "wex-notepad64.txt - Notepad")
+        self.assertEqual((windows[2]["y"], windows[4]["x"]), (770, -1))
+        self.assertEqual(probe.root_size("  Width: 1280\n  Height: 800\n"), (1280, 800))
+        found = probe.desktop_windows(windows, (1280, 800), lambda ident: True)
+        self.assertEqual((found[0]["id"], found[1]["id"]), ("0x1c00004", "0x1c00007"))
+        # no taskbar yet (Safe Mode's message box unanswered), or nothing mapped: not up
+        self.assertIsNone(probe.desktop_windows(windows[:2], (1280, 800), lambda ident: True))
+        self.assertIsNone(probe.desktop_windows(windows, (1280, 800), lambda ident: False))
+        # the virtual desktop window alone does not count
+        self.assertIsNone(probe.desktop_windows([windows[0], windows[2]], (1280, 800), lambda ident: True))
+
     def test_chain_harness(self):
         # installer/tests/run-chain.sh runs stages and firmwares side by side; build-test-iso.sh skips an unchanged
         # Wine; both tests that connect a disk take the NBD device under one lock (nbd-connect.sh)
@@ -1561,11 +1588,23 @@ class TestSessionAndGreeter(unittest.TestCase):
         vm = VM_TEST.read_text(encoding="utf-8")
         self.assertIn("|waylandxlock|startrec|classic|rundialog|", vm)
         self.assertIn("#   startrec ", vm)
-        phase = vm[vm.index("phase_startrec() {"):]
-        phase = phase[:phase.index("\n}\n")]
+        # the phase and its parts (startrec_*, subresults): from the first part to the phase's end
+        phase = vm[vm.index("startrec_defaults() {"):]
+        phase = phase[:phase.index("\n}\n", phase.index("phase_startrec() {"))]
+        body = phase[phase.index("phase_startrec() {"):]
         # opened by the shell (Win+Pause): polkit asks the agent of the caller's logind session, and the serial
         # console's has none
         self.assertNotIn("$HELPER", phase)
+        # named subresults (review 2026-11-23): the checks go on after one fails; what changes the machine does not
+        for name in ("defaults", "dialog", "refused", "panic-waits", "menu-timeout", "option", "no-menu",
+                     "option-gone", "panic-restarts", "crash-restarts"):
+            self.assertRegex(body, rf"subresult {name} startrec_")
+        self.assertIn("needs password dialog && subresult password startrec_password", body)
+        self.assertTrue(body.rstrip().endswith("subresults_end"))
+        for change in ("Apply ububb 5 true 7 false false\" >/dev/null", "Apply ububb 0 true 30 true false",
+                       'cp -p "$OUT/startrec-cmdline"'):
+            line = next(l for l in body.splitlines() if change in l)
+            self.assertNotIn("subresult", line)
         self.assertLess(phase.index("meta_l-pause"), phase.index("ctrl-tab ctrl-tab ctrl-tab"))
         systray = (REPO_ROOT / "src" / "dlls" / "wexshell" / "systray.c").read_text(encoding="utf-8")
         self.assertIn("{ IDHK_SYS_PROPERTIES, MOD_WIN, VK_PAUSE }", systray)
@@ -1581,10 +1620,11 @@ class TestSessionAndGreeter(unittest.TestCase):
                        "echo c > /proc/sysrq-trigger", "kill -SEGV 1", "90-wineexplorer-recovery.conf"):
             self.assertIn(needle, phase)
         # the refusal comes before root's change, and the restore before the stopped disk is cleaned
-        self.assertLess(phase.index("NotAuthorized"), phase.index("as_root 'id -u'"))
-        self.assertLess(phase.index("Apply ububb 0 true 30 true false"), phase.index("attach rw"))
+        self.assertLess(body.index("subresult refused"), body.index("as_root 'id -u'"))
+        self.assertLess(body.index("Apply ububb 0 true 30 true false"), body.index("attach rw"))
         # the panic that must wait comes with Automatically restart off; the restarts after the defaults are back
-        self.assertLess(phase.index("restarted \"$id\" 75 &&"), phase.index("Apply ububb 0 true 30 true false"))
+        self.assertLess(body.index("subresult panic-waits"), body.index("Apply ububb 0 true 30 true false"))
+        self.assertIn("restarted \"$id\" 75 &&", phase)
         # the prompt (Explorer's window) is clicked before each key meant for it
         self.assertEqual(phase.count("    prompt_focus\n"), 3)
         self.assertLess(phase.index("prompt_focus"), phase.index('"${V[@]}" key "$TEST" esc'))
@@ -1595,7 +1635,7 @@ class TestSessionAndGreeter(unittest.TestCase):
                       '*) break ;; esac', phase)
         # a hardware watchdog the firmware left running (OVMF's TCO) is stopped before it: its restart is not ours
         self.assertLess(phase.index("printf V > \\$w"), phase.index("echo c > /proc/sysrq-trigger"))
-        self.assertLess(phase.index("attach rw"), phase.index("kill -SEGV 1"))
+        self.assertLess(body.index("attach rw"), body.index("startrec_restarts crash"))
         for line in phase.splitlines():   # commands sent over the serial console must be one line
             if "gsh '" in line:
                 self.assertEqual(line.count("'") % 2, 0, line)
@@ -1658,19 +1698,28 @@ class TestSessionAndGreeter(unittest.TestCase):
         vm = VM_TEST.read_text(encoding="utf-8")
         self.assertIn("|startrec|classic|rundialog|", vm)
         self.assertIn("#   rundialog ", vm)
-        phase = vm[vm.index("phase_rundialog() {"):]
-        phase = phase[:phase.index("\n}\n")]
-        for needle in ("run_command 'control sysdm.cpl,,3' \"Environment Variables\"",
-                       "run_command 'sysdm.cpl' \"Computer Name\"",
+        # the phase and its variants (run_*), from run_command to the phase's end
+        phase = vm[vm.index("run_command() {"):]
+        phase = phase[:phase.index("\n}\n", phase.index("phase_rundialog() {"))]
+        body = phase[phase.index("phase_rundialog() {"):]
+        for needle in ("run_command 'control sysdm.cpl,,3' '^System Properties$' sysdm-advanced \"Environment Variables\"",
+                       'wait_text "Environment Variables" 30',
+                       "run_command 'sysdm.cpl' '^System Properties$' sysdm \"Computer Name\"",
                        "run_command 'notepad %USERPROFILE%\\runtest.txt'",
-                       "run_command \"\\\"$wordpad\\\" %USERPROFILE%\\\\runtest.txt\"",
-                       "run_command \"$wordpad %USERPROFILE%\\\\runtest2.txt\" \"runtest2.txt -\"",
-                       "run_command '%USERPROFILE%\\Run Test\\read me.txt' \"read me.txt -\"",
+                       "run_command \"\\\"$RUNDIALOG_WORDPAD\\\" %USERPROFILE%\\\\runtest.txt\"",
+                       "run_command \"$RUNDIALOG_WORDPAD %USERPROFILE%\\\\runtest2.txt\" '^runtest2[.]txt - '",
+                       "run_command '%USERPROFILE%\\Run Test\\read me.txt' '^read me[.]txt - '",
                        # a folder: no "DDE failure." once explorer.exe "%1" has opened it (shlexec.c)
-                       "run_command 'C:\\Program Files\\Common Files' \"Common Files\" folder",
+                       "run_command 'C:\\Program Files\\Common Files' 'Common Files' folder",
                        '! wait_text "DDE failure" 10 ||',
                        'wait_text "not found" 30', 'fail "Run closed after the error"'):
             self.assertIn(needle, phase)
+        # each variant a named subresult; its window closed with a bounded wait, no fixed sleep (review 2026-11-23)
+        for name in ("parameters", "cpl", "environment", "wordpad-quoted", "wordpad-spaces", "spaces", "folder",
+                     "missing"):
+            self.assertRegex(body, rf"subresult {name} run_\w+; +close_window ")
+        self.assertNotIn("sleep", body)
+        self.assertTrue(body.rstrip().endswith("subresults_end"))
         for line in phase.splitlines():   # commands sent over the serial console must be one line
             if "gsh '" in line:
                 self.assertEqual(line.count("'") % 2, 0, line)
