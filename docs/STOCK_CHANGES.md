@@ -4015,3 +4015,7 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 
 2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`, Windows App SDK):
 - `dlls/dcomp/device.c`, `dcomp.spec`: `DCompositionCreateSharedVisualHandle` (export 1040) is `HRESULT (HANDLE *)` and returns an event handle (0364a748); the device answers {d14b6158-...} and {28d6ad3d-...} with the IDCompositionDesktopDevice interface, as Windows 11 does.
+
+2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`, Windows App SDK / Notepad):
+- `dlls/dcomp/device.c`, `dlls/dcomp/tests/dcomp.c`: the vtable of IDCompositionDesktopDevice carries private slots 27-47 (29 opens a shared-visual handle as a visual or a windowless target, the rest log and return E_NOTIMPL); the visuals answer the private interface {2c4eef28-...} with an object of logging methods that succeed; new test `test_shared_visual`.
+- `dlls/user32/misc.c`, `user32.spec`: `GetWindowBand` (band 1 for every window) and the export 2574 (a BOOL for a window handle, FALSE), both measured on Windows 11.

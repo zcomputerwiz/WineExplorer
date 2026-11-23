@@ -11,6 +11,8 @@ mods = {}
 for l in lines:
     m = re.search(r'Loaded (?:L)?"([^"]+)" at ([0-9A-Fa-f]+)', l)
     if m: mods[int(m.group(2), 16)] = m.group(1).split('\\')[-1]
+hits = [i for i, l in enumerate(lines) if l.startswith(tid + ':') and 'LAB av' in l]
+if nth < 0 and hits: nth = len(hits) + 1 + nth   # -1 is the last one
 count = 0
 for i, l in enumerate(lines):
     if l.startswith(tid + ':') and 'LAB av' in l:
