@@ -4012,3 +4012,6 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 
 2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`, Office Click-to-Run, `tests/uwp/alpc/pm-probe.c`):
 - `dlls/appxdeploymentclient` (`stage.c`, `package.c`, `private.h`, `Makefile.in` now imports advapi32): `IPackageManager6::ProvisionPackageForAllUsersAsync` runs `wexappx install --all-users` on the package file the family was installed from (remembered in `HKCU\Software\WineExplorer\Appx\SourcePackages` by the Uri calls); the broker's consent and the signature check stay wexappx's, development mode is never passed; an unknown family or a missing file ends in `ERROR_NOT_FOUND`, a package already installed for all users is success.
+
+2026-11-23 (UWP, Wine branch `claude/staterepository-11.22`, Windows App SDK):
+- `dlls/dcomp/device.c`, `dcomp.spec`: `DCompositionCreateSharedVisualHandle` (export 1040) is `HRESULT (HANDLE *)` and returns an event handle (0364a748); the device answers {d14b6158-...} and {28d6ad3d-...} with the IDCompositionDesktopDevice interface, as Windows 11 does.

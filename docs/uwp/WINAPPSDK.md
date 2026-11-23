@@ -310,7 +310,22 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    to the shape of `DCompositionCreateSurfaceHandle` (`dcomp-visualhandle-probe.c`), so the signature is something else. With E_NOTIMPL the
    XAML start-up fails fast (`RoFailFastWithErrorContextInternal2 0x80004001`). An earlier run also ended in a fail-fast of a CoreMessagingXP
    thread (c0000602) that did not come back in the next runs: a race, not followed.
+   **Solved (2026-11-23):** the signature is `HRESULT DCompositionCreateSharedVisualHandle(HANDLE *out)`. The four logged values were stale
+   registers: the only caller in `dcompi.dll` (RVA 0xe0170, found with `impcalls.py` and `callers.py`) passes just `&local`, initialised to
+   NULL, and keeps the handle to set it as a property (0xb4) of a visual. Windows 11 (`dcomp-visualhandle-probe.c`, "shared(&h)"): NULL out is
+   E_INVALIDARG, otherwise a handle to an object of type `Composition`. Wine returns an anonymous event.
+5. The device of `DCompositionCreateDevice3` is then asked for {d14b6158-c3fa-4bce-9c1f-b61d8665eab0} (and the one of `CreateDevice2` for
+   {28d6ad3d-ee2a-4bcd-9419-7d54800435b1}). Windows 11 answers both with the pointer and vtable of `IDCompositionDesktopDevice`
+   (`dcomp-privqi-probe.c`); Wine does the same (aliases in `dcomp_device_QueryInterface`).
+6. **The wall now** is a NULL read in `Microsoft.Internal.FrameworkUdk.dll`, `DCompPrivates_SetVisualRelativeSize(visual, float, float)`
+   (export 0x18, RVA 0x16120 -> 0x1f180 -> the DComp-privates singleton's slot 22 at 0xd450): the function queries the visual for
+   {2c4eef28-1bc0-4736-b7dd-b62692f9bd67}, an interface that `dcompi.dll` implements for its visuals, and the visual `Microsoft.UI.Input.dll`
+   passes is NULL. The chain reaches it from `Microsoft.UI.Input.dll` after `DispatcherQueue` is activated, before any window is shown. The
+   stubs of `Windows.UI.Composition.Compositor` log only the start-up call, so the NULL does not come from them: it is a visual that the lifted
+   compositor (`dcompi.dll`) never created, most likely because its engine (command stream to the system compositor) is not there.
+   Tools: `mapav2.py` (Nth stack dump of a thread, with the +loaddll bases), `readguid.py`, `findguid.py`, `impcalls.py`.
 
-The step after is design, not a stub: what the runtime's compositor hands to the system compositor (shared visual handles, the island and HWND
-hosting of `DesktopWindowXamlSource`) must be answered by Wine's own dcomp (about 5000 lines in the fork), and the signature has to be found
-first: the arguments are logged, and either a Windows 11 probe with the right shape or the runtime's own call site will give it.
+The step after is design, not a stub: what the runtime's compositor hands to the system compositor (the command stream, shared visual handles,
+the island and HWND hosting of `DesktopWindowXamlSource`) must be answered by Wine's own dcomp (about 5000 lines in the fork). Next: find which
+call of `dcompi.dll` hands `Microsoft.UI.Input.dll` the NULL visual (relay of the `Microsoft.UI.Composition` activation factories and of the
+visual creation calls), then what it needs from the engine.
