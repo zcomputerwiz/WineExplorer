@@ -46,18 +46,9 @@
 
 #include "wexconsole.h"
 #include "wexhost.h"
-
-/* the flags of NetJoinDomain and NetUnjoinDomain (lmjoin.h of the Windows SDK) */
-#define NETSETUP_JOIN_DOMAIN 0x00000001
-#define NETSETUP_ACCT_CREATE 0x00000002
-#define NETSETUP_ACCT_DELETE 0x00000004
+#include "wexjoin.h"
 
 #define MAX_TEXT 1024
-
-/* Wine's lmjoin.h has only NetGetJoinInformation; these are netapi32's (forwarded to wexjoin.dll) */
-DWORD WINAPI NetRenameMachineInDomain( LPCWSTR server, LPCWSTR new_name, LPCWSTR account, LPCWSTR password, DWORD flags );
-NET_API_STATUS NET_API_FUNCTION NetJoinDomain( LPCWSTR server, LPCWSTR domain, LPCWSTR ou, LPCWSTR account, LPCWSTR password, DWORD flags );
-NET_API_STATUS NET_API_FUNCTION NetUnjoinDomain( LPCWSTR server, LPCWSTR account, LPCWSTR password, DWORD flags );
 
 static void usage(void)
 {
@@ -161,26 +152,13 @@ static BOOL ask_password( const WCHAR *prompt, WCHAR *password, DWORD chars )
     return n > 0;
 }
 
-typedef DWORD (WINAPI *message_fn)( WCHAR *, DWORD );
-typedef DWORD (WINAPI *channel_fn)( DWORD );
-
-/* the message of the last call of wexjoin (the engine's reason, or Samba's), empty when there is none */
-static void last_message( WCHAR *text, DWORD chars )
-{
-    HMODULE module = LoadLibraryW( L"wexjoin.dll" );
-    message_fn message = module ? (message_fn)GetProcAddress( module, "WexJoinLastMessage" ) : NULL;
-
-    text[0] = 0;
-    if (message) message( text, chars );
-}
-
 /* the failure: the system's text for the code (as NETDOM prints it), else the engine's; the engine's reason is added when
  * the two differ (Samba's or the engine's own words); then Windows' closing line. The exit status is the error code. */
 static int failed( DWORD status )
 {
     WCHAR message[MAX_TEXT] = { 0 }, system[400] = { 0 }, *end;
 
-    last_message( message, ARRAY_SIZE(message) );
+    wex_join_last_message( message, ARRAY_SIZE(message) );
     FormatMessageW( FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, status, 0, system, ARRAY_SIZE(system), NULL );
     for (end = system + wcslen( system ); end > system && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' '); end--) end[-1] = 0;
     if (system[0])
@@ -206,7 +184,7 @@ static int succeeded( void )
 {
     WCHAR message[MAX_TEXT];
 
-    last_message( message, ARRAY_SIZE(message) );
+    wex_join_last_message( message, ARRAY_SIZE(message) );
     if (message[0] && wcscmp( message, L"ok" ))
     {
         WCHAR *line, *next;
@@ -260,7 +238,7 @@ static int cmd_join( struct options *o )
     if (!is_this_computer( o->computer )) { wex_console_write( L"Joining another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
     if (o->read_only || o->other_user) { wex_console_write( L"The read-only join and the options for another computer's account are not supported.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
     if (!credentials( o, password, ARRAY_SIZE(password), TRUE, &failure )) return failure;
-    status = NetJoinDomain( NULL, o->domain, o->ou && o->ou[0] ? o->ou : NULL, o->user, password, NETSETUP_JOIN_DOMAIN | NETSETUP_ACCT_CREATE );
+    status = NetJoinDomain( NULL, o->domain, o->ou && o->ou[0] ? o->ou : NULL, o->user, password, WEX_NETSETUP_JOIN_DOMAIN | WEX_NETSETUP_ACCT_CREATE );
     memset( password, 0, sizeof(password) );
     return status ? failed( status ) : succeeded();
 }
@@ -275,7 +253,7 @@ static int cmd_remove( struct options *o )
     if (o->other_user) { wex_console_write( L"The options for another computer's account are not supported.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
     /* with /Force and no account only this computer's side is undone (the controller may be out of reach) */
     if (!(o->force && (!o->user || !o->user[0])) && !credentials( o, password, ARRAY_SIZE(password), TRUE, &failure )) return failure;
-    if (o->user && o->user[0]) status = NetUnjoinDomain( NULL, o->user, password, NETSETUP_ACCT_DELETE );
+    if (o->user && o->user[0]) status = NetUnjoinDomain( NULL, o->user, password, WEX_NETSETUP_ACCT_DELETE );
     else status = NetUnjoinDomain( NULL, NULL, NULL, 0 );
     memset( password, 0, sizeof(password) );
     return status ? failed( status ) : succeeded();
@@ -303,7 +281,7 @@ static int cmd_rename( struct options *o )
     if (in_domain)
     {
         /* the join engine renames the account and the host name together */
-        status = NetRenameMachineInDomain( NULL, o->new_name, o->user, password, NETSETUP_ACCT_CREATE );
+        status = NetRenameMachineInDomain( NULL, o->new_name, o->user, password, WEX_NETSETUP_ACCT_CREATE );
         memset( password, 0, sizeof(password) );
         return status ? failed( status ) : succeeded();
     }
@@ -314,21 +292,15 @@ static int cmd_rename( struct options *o )
 
 static int cmd_channel( struct options *o, DWORD op )
 {
-    HMODULE module;
-    channel_fn channel;
     DWORD status;
 
     if (!is_this_computer( o->computer )) { wex_console_write( L"Another computer is not supported: run NETDOM on the computer.\n" ); return failed( ERROR_NOT_SUPPORTED ); }
-    if (!(module = LoadLibraryW( L"wexjoin.dll" )) || !(channel = (channel_fn)GetProcAddress( module, "WexJoinSecureChannel" )))
-        return failed( ERROR_NOT_SUPPORTED );
-    status = channel( op );
+    status = wex_join_secure_channel( op );
     return status ? failed( status ) : succeeded();
 }
 
 static int cmd_query( struct options *o )
 {
-    HMODULE module;
-    channel_fn channel;
     DWORD status;
     WCHAR list[MAX_TEXT], *p, *end;
 
@@ -337,10 +309,8 @@ static int cmd_query( struct options *o )
         wex_console_write( L"Only NETDOM QUERY DC is supported on this system.\n" );
         return failed( ERROR_NOT_SUPPORTED );
     }
-    if (!(module = LoadLibraryW( L"wexjoin.dll" )) || !(channel = (channel_fn)GetProcAddress( module, "WexJoinSecureChannel" )))
-        return failed( ERROR_NOT_SUPPORTED );
-    if ((status = channel( 3 ))) return failed( status );
-    last_message( list, ARRAY_SIZE(list) );
+    if ((status = wex_join_secure_channel( WEX_JOIN_OP_DCLIST ))) return failed( status );
+    wex_join_last_message( list, ARRAY_SIZE(list) );
     wex_console_write( L"List of domain controllers with accounts in the domain:\n\n" );
     for (p = list; *p; p = end)
     {

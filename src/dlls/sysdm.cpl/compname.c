@@ -32,21 +32,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <wexhost.h>
+#include <wexjoin.h>
 
 #include "sysdm.h"
 
-/* Wine's lmjoin.h has only NetGetJoinInformation; these are netapi32's (wexjoin.dll answers them) */
-NET_API_STATUS NET_API_FUNCTION NetJoinDomain( LPCWSTR server, LPCWSTR domain, LPCWSTR ou, LPCWSTR account, LPCWSTR password, DWORD flags );
-NET_API_STATUS NET_API_FUNCTION NetUnjoinDomain( LPCWSTR server, LPCWSTR account, LPCWSTR password, DWORD flags );
-NET_API_STATUS NET_API_FUNCTION NetValidateName( LPCWSTR server, LPCWSTR name, LPCWSTR account, LPCWSTR password, DWORD type );
-
-#define NETSETUP_JOIN_DOMAIN 0x1
-#define NETSETUP_ACCT_CREATE 0x2
-
-/* (Wine's lmjoin.h does not declare it; it is netapi32's, forwarded to wexjoin) */
-DWORD WINAPI NetRenameMachineInDomain( LPCWSTR server, LPCWSTR new_name, LPCWSTR account, LPCWSTR password, DWORD flags );
-#define NETSETUP_ACCT_DELETE 0x4
-#define NAME_TYPE_DOMAIN     3
 #define TITLE                L"Computer Name Changes"
 
 static WEX_HOSTNAME g_host;
@@ -73,16 +62,10 @@ void read_membership(void)
     }
 }
 
-typedef DWORD (WINAPI *message_fn)(WCHAR *, DWORD);
-
 /* what the engine said about the last call: Samba's reason, or its own */
 void engine_message(WCHAR *text, DWORD chars)
 {
-    HMODULE module = LoadLibraryW(L"wexjoin.dll");
-    message_fn message = module ? (message_fn)GetProcAddress(module, "WexJoinLastMessage") : NULL;
-
-    text[0] = 0;
-    if (message) message(text, chars);
+    wex_join_last_message(text, chars);
 }
 
 static void show_member(HWND hwnd)
@@ -250,13 +233,13 @@ static BOOL do_join(HWND dlg, const WCHAR *domain)
     DWORD status;
 
     /* (the check needs the same rights as the join: a standard user hears it before being asked for a password) */
-    status = NetValidateName(NULL, domain, NULL, NULL, NAME_TYPE_DOMAIN);
+    status = NetValidateName(NULL, domain, NULL, NULL, WEX_NETSETUP_NAME_DOMAIN);
     if (status == ERROR_ACCESS_DENIED) { offer_elevation(dlg, TITLE); return FALSE; }
     if (status) { show_join_error(dlg, TITLE, domain, status, 0); return FALSE; }
     lstrcpynW(c.domain, domain, ARRAY_SIZE(c.domain));
     if (DialogBoxParamW(g_hInstance, MAKEINTRESOURCEW(IDD_JOIN_CREDS), dlg, credentials_proc, (LPARAM)&c) != IDOK) return FALSE;
     account_name(&c, account, ARRAY_SIZE(account));
-    status = NetJoinDomain(NULL, domain, NULL, account, c.password, NETSETUP_JOIN_DOMAIN | NETSETUP_ACCT_CREATE);
+    status = NetJoinDomain(NULL, domain, NULL, account, c.password, WEX_NETSETUP_JOIN_DOMAIN | WEX_NETSETUP_ACCT_CREATE);
     SecureZeroMemory(c.password, sizeof(c.password));
     if (status == ERROR_ACCESS_DENIED) { offer_elevation(dlg, TITLE); return FALSE; }
     if (status) { show_join_error(dlg, TITLE, domain, status, 0); return FALSE; }
@@ -278,7 +261,7 @@ static BOOL do_rename(HWND dlg, const WCHAR *wname, const char *name)
     if (DialogBoxParamW(g_hInstance, MAKEINTRESOURCEW(IDD_JOIN_CREDS), dlg, credentials_proc, (LPARAM)&c) != IDOK) return FALSE;
     /* the join engine renames the account and the host name together (it runs as root: no second authorisation) */
     account_name(&c, account, ARRAY_SIZE(account));
-    status = NetRenameMachineInDomain(NULL, wname, account, c.password, NETSETUP_ACCT_CREATE);
+    status = NetRenameMachineInDomain(NULL, wname, account, c.password, WEX_NETSETUP_ACCT_CREATE);
     SecureZeroMemory(c.password, sizeof(c.password));
     if (status)
     {
@@ -300,7 +283,7 @@ BOOL do_leave(HWND dlg)
     lstrcpynW(c.domain, g_member, ARRAY_SIZE(c.domain));
     if (DialogBoxParamW(g_hInstance, MAKEINTRESOURCEW(IDD_JOIN_CREDS), dlg, credentials_proc, (LPARAM)&c) != IDOK) return FALSE;
     account_name(&c, account, ARRAY_SIZE(account));
-    status = NetUnjoinDomain(NULL, account, c.password, NETSETUP_ACCT_DELETE);
+    status = NetUnjoinDomain(NULL, account, c.password, WEX_NETSETUP_ACCT_DELETE);
     SecureZeroMemory(c.password, sizeof(c.password));
     if (status == ERROR_ACCESS_DENIED) { offer_elevation(dlg, TITLE); return FALSE; }
     if (status) { show_join_error(dlg, TITLE, g_member, status, 1); return FALSE; }

@@ -451,8 +451,10 @@ apply()
         n=$((n + 1))
         args+=("Z:${copy//\//\\}")
     done
-    if [ "$n" -gt 0 ]; then s0_wexpolicy apply "$target" "${args[@]}" || wexpolicy_failed apply "$target"
-    else s0_wexpolicy clear "$target" >/dev/null || wexpolicy_failed clear "$target"; echo "wexpolicy: $target has no domain policy"; fi
+    # 1 when wexpolicy did not apply: it changes nothing then (every file is checked first), so the applied list of the
+    # last run is still the true one and is not replaced (the caller records only after a 0)
+    if [ "$n" -gt 0 ]; then s0_wexpolicy apply "$target" "${args[@]}" || { wexpolicy_failed apply "$target"; return 1; }
+    else s0_wexpolicy clear "$target" >/dev/null || { wexpolicy_failed clear "$target"; return 1; }; echo "wexpolicy: $target has no domain policy"; fi
 }
 
 HOST=$(hostname -s | tr 'a-z' 'A-Z')
@@ -491,8 +493,7 @@ else
     if [ "$MACHINE_UNKNOWN" = 1 ] && has_archive Machine; then
         echo "wex-gpupdate: the domain's computer policy is not known: what was applied stays"
     elif [ "${#MACHINE_FILES[@]}" -gt 0 ] || [ -n "$LOCAL_TEMPLATE" ] || [ "$JOINED" = 1 ] || has_archive Machine; then
-        apply /machine machine "${MACHINE_FILES[@]}"
-        record /machine "$LISTS/machine.list"
+        apply /machine machine "${MACHINE_FILES[@]}" && record /machine "$LISTS/machine.list"
     fi
     # security settings stay when an object no longer sets them, as on Windows: no template, nothing to do
     args=(); n=0
@@ -564,8 +565,7 @@ awk 'NR == 1 { v = $2; next }
     elif [ "$USER_UNKNOWN" = 1 ] && has_archive "User-$sid"; then
         echo "wex-gpupdate: $acct: the domain's user policy is not known: what was applied stays"
     elif [ "${#USER_FILES[@]}" -gt 0 ] || [ "$domain_user" = 1 ] || has_archive "User-$sid"; then
-        apply "/user:$sid" "user-$sid" "${USER_FILES[@]}"
-        record "/user:$sid" "$LISTS/user-$sid.list"
+        apply "/user:$sid" "user-$sid" "${USER_FILES[@]}" && record "/user:$sid" "$LISTS/user-$sid.list"
     fi
 done
 [ ! -e "$LISTS/failed" ]; exit

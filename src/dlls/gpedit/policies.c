@@ -69,15 +69,19 @@ const struct policy policies[] =
           "No document opened by any user is added to the Recent Documents list.", EXPLORER, "NoRecentDocsHistory" ),
     FLAG( "user:NoPlacesBar", POLICY_USER, POLICY_APPLIES, EXPLORER_CAT, "Hide the Places Bar in Open and Save dialogs",
           "Removes the bar of shortcuts at the left of the common Open and Save dialogs.", COMDLG32, "NoPlacesBar" ),
-    { "computer:ConsentPromptBehaviorAdmin", POLICY_COMPUTER, POLICY_NUMBER, POLICY_APPLIES, SECURITY_CAT,
+    /* The elevation prompt's two settings are security options, as on Windows: their one source is the security template,
+     * which Local Security Settings edits; a Registry.pol does not set them (wexpreg.h, preg_is_template_option), so they
+     * are listed here grayed, with where to set them. */
+    { "computer:ConsentPromptBehaviorAdmin", POLICY_COMPUTER, POLICY_NUMBER, POLICY_NOT_APPLICABLE, SECURITY_CAT,
       "Behavior of the elevation prompt for administrators",
       "How an administrator is asked before a program runs with full rights. 2: always ask for consent; 5: ask "
-      "for consent for changes to the computer (the default). Other values are not supported here.", SYSTEM,
-      "ConsentPromptBehaviorAdmin", 5, 0, NULL, "2,5" },
-    FLAG( "computer:PromptOnSecureDesktop", POLICY_COMPUTER, POLICY_APPLIES, SECURITY_CAT,
-          "Show the elevation prompt on the secure desktop",
-          "Enabled (the default): the prompt appears on the secure desktop, where other programs cannot reach it. "
-          "Disabled: it appears on the user's own desktop.", SYSTEM, "PromptOnSecureDesktop" ),
+      "for consent for changes to the computer (the default).", SYSTEM, "ConsentPromptBehaviorAdmin", 5, 0,
+      "a security option: set it in Local Security Settings (secpol.msc), Local Policies, Security Options", "2,5" },
+    { "computer:PromptOnSecureDesktop", POLICY_COMPUTER, POLICY_FLAG, POLICY_NOT_APPLICABLE, SECURITY_CAT,
+      "Show the elevation prompt on the secure desktop",
+      "Enabled (the default): the prompt appears on the secure desktop, where other programs cannot reach it. "
+      "Disabled: it appears on the user's own desktop.", SYSTEM, "PromptOnSecureDesktop", 1, 0,
+      "a security option: set it in Local Security Settings (secpol.msc), Local Policies, Security Options", NULL },
 
     /* ---- shell restrictions, carried out by the shell programs (wexshell restrictions.c, startmenu_view.c, the folder
      window in wexbrowse, msgina at logoff, shell32's Open With dialog) ---- */

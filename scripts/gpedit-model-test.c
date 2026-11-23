@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../src/programs/wexpolicy/preg.h"
+#include "../src/include/wexpreg.h"
 #include "../src/dlls/gpedit/model.h"
 
 static int failures;
@@ -107,7 +107,7 @@ static void table_is_sane(void)
 
 int main(void)
 {
-    const struct policy *run = by_id( "user:NoRun" ), *secure = by_id( "computer:PromptOnSecureDesktop" );
+    const struct policy *run = by_id( "user:NoRun" ), *secure = by_id( "computer:DisableBkGndGroupPolicy" );
     const struct policy *drives = by_id( "user:NoDrives" ), *tray = by_id( "user:NoTrayItemsDisplay" );
     struct model *m = model_new(), *r;
     enum setting_state state;
@@ -128,10 +128,10 @@ int main(void)
     CHECK( state == SETTING_ENABLED && number == 1, "NoRun enabled: %d %u", state, number );
     CHECK( !model_set( m, secure, SETTING_DISABLED, 0 ), "set" );
     model_get( m, secure, &state, &number );
-    CHECK( state == SETTING_DISABLED && number == 0, "PromptOnSecureDesktop disabled: %d %u", state, number );
+    CHECK( state == SETTING_DISABLED && number == 0, "DisableBkGndGroupPolicy disabled: %d %u", state, number );
     CHECK( !model_set( m, secure, SETTING_ENABLED, 0 ), "set" );
     model_get( m, secure, &state, &number );
-    CHECK( state == SETTING_ENABLED && number == 1, "PromptOnSecureDesktop enabled again: %d %u", state, number );
+    CHECK( state == SETTING_ENABLED && number == 1, "DisableBkGndGroupPolicy enabled again: %d %u", state, number );
     CHECK( model_entries( m ) == 2, "entries %zu", model_entries( m ) );
     /* a number policy takes the number */
     CHECK( !model_set( m, drives, SETTING_ENABLED, 0x0c ), "set" );
@@ -141,7 +141,7 @@ int main(void)
     model_get( r, drives, &state, &number );
     CHECK( state == SETTING_ENABLED && number == 0x0c, "NoDrives after a round trip: %d %u", state, number );
     model_get( r, secure, &state, &number );
-    CHECK( state == SETTING_ENABLED && number == 1, "PromptOnSecureDesktop after a round trip" );
+    CHECK( state == SETTING_ENABLED && number == 1, "DisableBkGndGroupPolicy after a round trip" );
     CHECK( model_entries( r ) == 3, "entries after a round trip %zu", model_entries( r ) );
     model_free( r );
 

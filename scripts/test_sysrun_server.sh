@@ -3814,6 +3814,16 @@ OUT="$(s0_wine wexpolicy apply /machine "$(winpath "$POL/machine.pol")" | tr -d 
 grep -q 'set=1 deleted=0 skipped=0 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: apply /machine"; }
 [ "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" = 0x5 ] || fail "policy: $STD does not read the machine policy"
 s0_wine wexpolicy list /machine | tr -d '\r' | grep -qx 'Software\\Policies\\WexPol\\Machine' || fail "policy: list /machine"
+# the elevation options are the security template's (wexpreg.h): a Registry.pol entry for one is left out and said, the
+# rest of the file applies, and the value the elevation service reads is not 0
+python3 -I "$SRC/scripts/lab/make-preg.py" "$POL/consent.pol" 'Software\Policies\WexPol' Machine 5 \
+    'Software\Microsoft\Windows\CurrentVersion\Policies\System' ConsentPromptBehaviorAdmin 0
+OUT="$(s0_wine wexpolicy apply /machine "$(winpath "$POL/consent.pol")" | tr -d '\r')" || true
+grep -q 'is a security option' <<<"$OUT" && grep -q 'set=1 deleted=[0-9]* skipped=1 status=0$' <<<"$OUT" ||
+    { echo "$OUT" >&2; fail "policy: a Registry.pol entry for ConsentPromptBehaviorAdmin was not left out"; }
+[ "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin)" != 0x0 ] ||
+    fail "policy: a Registry.pol set ConsentPromptBehaviorAdmin to 0"
+s0_wine wexpolicy apply /machine "$(winpath "$POL/machine.pol")" >/dev/null || fail "policy: apply /machine after the consent file"
 # step 3: a program that registered for the policy notification is told when session 0 has written policy
 for kind in machine user; do
     rm -f "$POL/gp-$kind.out"

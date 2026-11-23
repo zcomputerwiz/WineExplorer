@@ -2583,9 +2583,12 @@ class TestBoot1(TempDirTest):
         self.assertEqual(self.boot.refusal((False, False, {})), "NotAuthorized")
         self.assertEqual(self.boot.refusal((False, True, {"polkit.retains_authorization_after_challenge": "1"})),
                          "NotAuthorized")
-        # wexhost maps Boot1's Cancelled to ERROR_CANCELLED, which keeps Startup and Recovery open without a message
+        # wexhost maps Boot1's Cancelled (as every root service's: org.wineexplorer.NAME.Error.Cancelled) to
+        # ERROR_CANCELLED, which keeps Startup and Recovery open without a message
+        self.assertTrue(self.boot.BUS_NAME.startswith("org.wineexplorer."))
         unixlib = (REPO_ROOT / "src" / "dlls" / "wexhost" / "unixlib.c").read_text(encoding="utf-8")
-        self.assertIn('"org.wineexplorer.Boot1.Error.Cancelled" )) return ERROR_CANCELLED', unixlib)
+        self.assertIn('#define WEX_SERVICE_PREFIX "org.wineexplorer."', unixlib)
+        self.assertIn('if (!strcmp( kind, "Cancelled" )) return ERROR_CANCELLED;', unixlib)
         startrec = (REPO_ROOT / "src" / "dlls" / "sysdm.cpl" / "startrec.c").read_text(encoding="utf-8")
         self.assertIn("if (err == ERROR_CANCELLED) return FALSE;", startrec)
 
@@ -2660,7 +2663,7 @@ class TestBoot1(TempDirTest):
         # the same rule as hostname1 and timedate1: no second notion of administrator
         self.assertEqual(re.findall(r"<allow_\w+>(\w+)</allow_\w+>", action), ["auth_admin_keep"] * 3)
         package = PACKAGE.read_text(encoding="utf-8")
-        for needle in ("scripts/wex-boot1.py", "org.wineexplorer.Boot1.conf", "org.wineexplorer.Boot1.service",
+        for needle in ("scripts/wex-boot1.py", "scripts/wexrootsvc.py", "org.wineexplorer.Boot1.conf", "org.wineexplorer.Boot1.service",
                        "org.wineexplorer.boot1.policy", "wex-boot1.service"):
             self.assertIn(needle, package)
 
