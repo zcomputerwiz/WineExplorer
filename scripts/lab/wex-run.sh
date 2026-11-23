@@ -9,6 +9,10 @@
 #
 # MODE, the cheapest that covers the change:
 #   labsuite  lab suite only, no builds      (lab scripts, verifier, worker or suite script changed)
+#   normalsuite  normal suite and broker test on the existing build, no sync or build
+#   t1suite   T1 on the existing build, no sync or build
+#             (the suite-only modes refuse a build that was not made from this worktree's wine commit and src: a
+#             rerun after a fix to a test script; WEX_ANY_BUILD=1 overrides)
 #   lab       sync, builds, lab suite        (only code behind the lab build flags changed)
 #   normal    sync, build, normal suite, broker test
 #   full      sync, builds, T1, normal suite, broker test, lab suite (product code changed)
@@ -29,7 +33,7 @@ set -u
 # The whole script is one function, called at the end: bash reads it completely before running, so editing this
 # file during a run cannot change the run.
 main() {
-MODE=${1:?labsuite|lab|normal|full|labt1|build|clean}
+MODE=${1:?labsuite|normalsuite|t1suite|lab|normal|full|labt1|build|clean}
 D=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 TREE=$(basename "$D")
 SNAP=/root/wex-snap/$TREE
@@ -73,7 +77,7 @@ clean_fixture()
 }
 
 case $MODE in
-    labsuite|lab|normal|full|labt1|build) ;;
+    labsuite|normalsuite|t1suite|lab|normal|full|labt1|build) ;;
     clean) clean_fixture; echo "fixture removed"; exit 0 ;;
     *) echo "unknown mode $MODE"; exit 2 ;;
 esac
@@ -130,9 +134,25 @@ sync_tree()
         while IFS= read -r -d '' f; do
             cmp -s "$D/src/$f" "$P/src/$f" || { mkdir -p "$(dirname "$P/src/$f")"; cp "$D/src/$f" "$P/src/$f"; }
         done
-    # regenerate: assemble the wex modules into the wine tree, autoconf, configure
-    ( cd "$P" && python3 scripts/assemble.py --wine-root wine ) && ( cd "$CL" && autoconf -f ) &&
-        ( cd "$MAIN" && ./config.status --recheck && ./config.status ) && ( cd "$CL" && perl tools/make_requests )
+    # regenerate: assemble the wex modules into the wine tree, then autoconf and configure, and make_requests, only when
+    # their inputs changed since the last run (a configure run touches files that make most of the tree rebuild);
+    # WEX_RECONFIGURE=1 forces them
+    ( cd "$P" && python3 scripts/assemble.py --wine-root wine ) || return 1
+    local cstamp rstamp
+    cstamp=$(cd "$CL" && cat configure.ac aclocal.m4 2>/dev/null | sha256sum | cut -c1-16)
+    rstamp=$(cd "$CL" && sha256sum < server/protocol.def | cut -c1-16)
+    if [ "${WEX_RECONFIGURE:-0}" = 1 ] || [ "$cstamp" != "$(cat "$MAIN/.wex-configure-stamp" 2>/dev/null)" ] ||
+       [ ! -f "$MAIN/config.status" ]; then
+        echo "configure: inputs changed, running autoconf and configure"
+        ( cd "$CL" && autoconf -f ) && ( cd "$MAIN" && ./config.status --recheck && ./config.status ) || return 1
+        echo "$cstamp" > "$MAIN/.wex-configure-stamp"
+    else
+        echo "configure: inputs unchanged, skipped"
+    fi
+    if [ "${WEX_RECONFIGURE:-0}" = 1 ] || [ "$rstamp" != "$(cat "$MAIN/.wex-requests-stamp" 2>/dev/null)" ]; then
+        ( cd "$CL" && perl tools/make_requests ) || return 1
+        echo "$rstamp" > "$MAIN/.wex-requests-stamp"
+    fi
 }
 
 # snapshot of what the suites read; wine stays a link (the suite's guard only greps build files there)
@@ -159,20 +179,40 @@ suite()  # build dir, script, log
 }
 passed() { grep -o '[0-9]* checks passed' "$1" | tail -1; }
 
-if [ "$MODE" != labsuite ]; then
-    sync_tree > $LOGS/sync.log 2>&1 && stage sync ok || { stage sync FAILED; tail -5 $LOGS/sync.log; exit 1; }
-    bash "$SNAP/scripts/lab/wex-make.sh" -C "$MAIN" -j16 > $LOGS/make.log 2>&1 && stage build ok ||
-        { stage build FAILED; grep -m5 'error:' $LOGS/make.log; exit 1; }
-fi
+# what a build was made from: the wine commit, the superproject's src tree, and whether either had local changes
+built_from()
+{
+    local w s d=
+    w=$("${WGIT[@]}" rev-parse HEAD 2>/dev/null) || return 1
+    s=$(git -C "$D" rev-parse HEAD:src 2>/dev/null) || return 1
+    [ -z "$("${WGIT[@]}" status --porcelain --untracked-files=no 2>/dev/null)" ] || d=" wine-dirty"
+    [ -z "$(git -C "$D" status --porcelain --untracked-files=no -- src 2>/dev/null)" ] || d="$d src-dirty"
+    echo "wine $w src $s$d"
+}
+case $MODE in
+    labsuite|normalsuite|t1suite)
+        want=$(built_from) have=$(cat "$MAIN/.wex-built" 2>/dev/null)
+        if [ "$want" != "$have" ] || [[ "$want" == *dirty* ]]; then
+            if [ "${WEX_ANY_BUILD:-0}" = 1 ]; then echo "NOTE: WEX_ANY_BUILD=1: the build is from: ${have:-unknown}"
+            else echo "the build is not from this worktree: built ${have:-unknown}, here $want (run a building mode)"; exit 2; fi
+        fi
+        echo "build of $have" ;;
+    *)
+        rm -f "$MAIN/.wex-built"
+        sync_tree > $LOGS/sync.log 2>&1 && stage sync ok || { stage sync FAILED; tail -5 $LOGS/sync.log; exit 1; }
+        bash "$SNAP/scripts/lab/wex-make.sh" -C "$MAIN" -j16 > $LOGS/make.log 2>&1 && stage build ok ||
+            { stage build FAILED; grep -m5 'error:' $LOGS/make.log; exit 1; }
+        built_from > "$MAIN/.wex-built" ;;
+esac
 if [ "$MODE" = build ]; then
     echo "ALL PASS build $TREE ($(( (SECONDS - T0 + 30) / 60 )) min)"
     exit 0
 fi
-if [ "$MODE" = full ] || [ "$MODE" = labt1 ]; then
+if [ "$MODE" = full ] || [ "$MODE" = labt1 ] || [ "$MODE" = t1suite ]; then
     ( cd "$SNAP" && BUILD=$MAIN bash scripts/lab/system-tier-t1.sh ) > $LOGS/t1.log 2>&1
     grep -q '^FAILS=0' $LOGS/t1.log && stage t1 ok || stage t1 FAILED
 fi
-if [ "$MODE" = normal ] || [ "$MODE" = full ]; then
+if [ "$MODE" = normal ] || [ "$MODE" = full ] || [ "$MODE" = normalsuite ]; then
     suite "$MAIN" scripts/test_sysrun_server.sh $LOGS/normal.log && stage "normal: $(passed $LOGS/normal.log)$PARTIAL" ok ||
         { stage normal FAILED; grep -m3 '^FAIL' $LOGS/normal.log; }
     ( cd "$SNAP" && bash scripts/test_broker_e1s18.sh ) > $LOGS/broker.log 2>&1 && stage broker ok ||
@@ -182,7 +222,7 @@ if [ "$MODE" = lab ] || [ "$MODE" = full ] || [ "$MODE" = labt1 ]; then
     ( cd "$SNAP" && R8_LAB_LOG=$LOGS/lab-build.log bash scripts/lab/r8-lab-build.sh ) > $LOGS/lab-build.out 2>&1 &&
         stage lab-build ok || { stage lab-build FAILED; tail -3 $LOGS/lab-build.out; exit 1; }
 fi
-if [ "$MODE" != normal ]; then
+if [ "$MODE" = labsuite ] || [ "$MODE" = lab ] || [ "$MODE" = full ] || [ "$MODE" = labt1 ]; then
     suite "$LAB" scripts/test_e1s6_transport.sh $LOGS/lab.log && stage "lab: $(passed $LOGS/lab.log)" ok ||
         { stage lab FAILED; grep -m3 '^FAIL' $LOGS/lab.log; }
 fi

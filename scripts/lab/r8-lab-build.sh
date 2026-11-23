@@ -23,7 +23,14 @@ SERVER_OBJECTS=(server/named_pipe.o server/sysrun.o server/accounts.o server/reg
                 server/wex_profile_storage.o server/file.o server/fd.o)
 
 echo "=== 1. prepare lab tree ==="
-rm -rf "$LAB" && mkdir -p "$LABROOT/build" && cp -a "$MAIN" "$LAB"
+# an incremental copy (the same tree as a fresh cp -a: --delete, times kept): only what the main build changed is
+# copied, and the lab objects below are rebuilt from it every time; R8_LAB_FRESH=1 copies the whole tree again
+mkdir -p "$LABROOT/build"
+if [ "${R8_LAB_FRESH:-0}" = 1 ] || ! command -v rsync > /dev/null; then
+    rm -rf "$LAB" && cp -a "$MAIN" "$LAB"
+else
+    rsync -a --delete "$MAIN/" "$LAB/"
+fi
 ln -sfn "$WINE_SRC" "$LABROOT/wine"
 : > "$LOG"
 
