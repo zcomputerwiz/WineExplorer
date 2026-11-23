@@ -487,3 +487,23 @@ visual creation calls), then what it needs from the engine.
   an object field of the text format in `create_textlayout`/`init_textlayout`). Both point at a font collection or fallback object released
   while still referenced (app-provided custom fallback or collection). Not solved. Tools: lab `stk4.sh`-style run with the ntdll exception
   tracer, `ovr-exp.sh` with `GF=0x30` (Image File Execution Options GlobalFlag) in a loop.
+
+## 2026-11-23, later still: how the Windows App Runtime compositor reaches the screen (what dcomp has to answer)
+
+Measured on the lab run (`+dcomp,+dxgi,+loaddll`) and in the package files; Integration confirmed that nothing else owns `dlls/dcomp/device.c`
+or `dxgi` `dcomp_binding_target_scene`, and that dwm.exe and the DWM pipe do not use dcomp.
+
+* `dcompi.dll` (the lifted compositor, `Src\Components\LiftedIXP\dcomp\WinRTNested\...`) does not render. It imports from `dcomp.dll` only
+  `DCompositionCreateDevice3` and ordinal 1040 (`DCompositionCreateSharedVisualHandle`), plus d3d11/dxgi/d2d1 for its own surfaces
+  (`WrtCompositionDrawingSurface`, `WrtCompositionSwapChain`, `LM_PresentCompositionBuffers`). `DwmSceneI.dll` (also in the package; it has both
+  `CreateSwapChainForComposition` and `CreateSwapChainForHwnd`) is never loaded in a Wine run, and no DXGI swapchain is ever created.
+  `CreatePresentationFactory` and `DCompositionCreateSurfaceHandle` do not occur in any file of the package: not the path.
+* What the lifted compositor does call on Wine's dcomp (6 visuals, 3 targets in the run): `DCompositionCreateSharedVisualHandle`,
+  `OpenSharedObject` (device private slot 29) per visual, `CreateTargetForHwnd`, `SetRoot`, **visual private methods 40 and 41 (once per
+  visual, today "semi-stub")** and **desktop device private method 46 (once; arguments two pointers and 0xFFFF7FFF; stub)**. No public
+  `SetContent`, `SetOffset` or `SetTransform` ever happens. So the properties and contents of the XAML tree (offsets, sizes, surfaces,
+  swapchains, effects) travel in a private command stream; the visual and device methods above are the doors it goes through.
+* Consequence: the frame cannot reach the screen until those private methods are implemented. This is new API surface (private slots of
+  the visual and the desktop device), not a change to the shared behavior Chromium and the DWM tests rely on.
+* Next: find out on Windows what private methods 40, 41 and 46 do (black-box: `wintrace` on dcomp.dll's private device and visual vtables
+  while Notepad runs; the buffers they pass), then implement them on top of Wine's existing visuals, surfaces and swapchains.
