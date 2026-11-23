@@ -187,6 +187,31 @@ static void test_template(void)
     tmpl_free( t );
 }
 
+/* a [Registry Values] name is the registry's: a doubled backslash, another case or a dotless i (U+0131, UTF-8 C4 B1)
+ * is the same line to wexpolicy (preg_key_is), so the editor reads it and changes it in place */
+static void test_registry_names(void)
+{
+    static const char text[] = "[Unicode]\r\nUnicode=yes\r\n[Registry Values]\r\n"
+        "MACHINE\\Software\\\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\\\consentpromptbehaviorAdm\xc4\xb1" "n=4,2\r\n"
+        "[Version]\r\nsignature=\"$CHICAGO$\"\r\nRevision=1\r\n";
+    struct tmpl *t = tmpl_new();
+    char value[64], *out;
+    size_t length;
+
+    CHECK( !tmpl_load( t, text, strlen( text ) ), "load" );
+    CHECK( tmpl_get( t, "Registry Values", SYSTEM "ConsentPromptBehaviorAdmin", value, sizeof(value) ) && !strcmp( value, "4,2" ),
+           "the name as the registry reads it: '%s'", value );
+    CHECK( !tmpl_set( t, "Registry Values", SYSTEM "ConsentPromptBehaviorAdmin", "4,5" ), "set" );
+    CHECK( !tmpl_save( t, &out, &length ), "save" );
+    CHECK( !strstr( out, "=4,2" ) && strstr( out, "consentpromptbehaviorAdm\xc4\xb1" "n = 4,5\r\n" ), "changed in place: %s", out );
+    CHECK( !strstr( out, "\r\nMACHINE\\Software\\Microsoft" ), "no second line: %s", out );
+    free( out );
+    /* another value is another line */
+    CHECK( !tmpl_get( t, "Registry Values", SYSTEM "PromptOnSecureDesktop", value, sizeof(value) ), "another value" );
+    CHECK( !tmpl_get( t, "Registry Values", SYSTEM "ConsentPromptBehaviorAdmin\\x", value, sizeof(value) ), "a longer name" );
+    tmpl_free( t );
+}
+
 static void test_settings(void)
 {
     const struct sec_setting *bad = by_key( "LockoutBadCount" ), *duration = by_key( "LockoutDuration" ), *reset = by_key( "ResetLockoutCount" );
@@ -213,6 +238,20 @@ static void test_settings(void)
     CHECK( !ok, "text" );
     sec_from_template( bad, "", &ok );
     CHECK( !ok, "empty" );
+    /* as setup reads the fields (wexpolicy applies them): quotes dropped, blanks around a field cut */
+    CHECK( sec_from_template( bad, "\"5\"", &ok ) == 5 && ok, "a quoted number" );
+    CHECK( sec_from_template( admin, "4, 2", &ok ) == 2 && ok, "a blank after the comma" );
+    CHECK( sec_from_template( admin, "\"4\",\"5\"", &ok ) == 5 && ok, "quoted fields" );
+    sec_from_template( admin, "4,5,6", &ok );
+    CHECK( !ok, "a third field" );
+    /* the template's range (wexsectmpl.h): wexpolicy refuses such a template, so it is not what is in force */
+    sec_from_template( bad, "1000", &ok );
+    CHECK( !ok, "a threshold over 999" );
+    sec_from_template( duration, "100000", &ok );
+    CHECK( !ok, "a time over 99999" );
+    sec_from_template( reset, "-2", &ok );
+    CHECK( !ok, "a time under -1" );
+    CHECK( sec_from_template( duration, "0", &ok ) == 0 && ok, "a duration of 0 is for ever" );
     CHECK( sec_from_registry( duration, 99999 ) == 0 && sec_from_registry( duration, 10 ) == 10 && sec_from_registry( bad, 99999 ) == 99999, "registry" );
     sec_to_template( duration, 0, out, sizeof(out) );
     CHECK( !strcmp( out, "-1" ), "forever to the template: %s", out );
@@ -247,6 +286,7 @@ static void test_settings(void)
 int main(void)
 {
     test_template();
+    test_registry_names();
     test_settings();
     if (failures) { printf( "%d failure(s)\n", failures ); return 1; }
     printf( "ok\n" );

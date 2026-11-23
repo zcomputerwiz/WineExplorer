@@ -44,11 +44,11 @@
 #include <setupapi.h>
 
 #include "wexpreg.h"
+#include "wexsectmpl.h"
 #include "wexpolicy.h"
 
-#define ELEVATION_KEY  L"Software\\WineExplorer\\Elevation"
+#define ELEVATION_KEY  L"" WEX_ELEVATION_KEY
 #define MAX_TEXT       4096
-#define LONGEST_MINUTES 99999
 
 static unsigned int count_set, count_not_applicable;
 
@@ -65,13 +65,15 @@ static BOOL int_field( INFCONTEXT *ctx, DWORD index, LONG *value )
     return TRUE;
 }
 
-/* [System Access]: the three lockout values; anything else is the host's and the domain's */
+/* [System Access]: the three lockout values (wexsectmpl.h); anything else is the host's and the domain's */
 static DWORD system_access( HINF inf, BOOL write )
 {
-    static const WCHAR * const names[] = { L"LockoutBadCount", L"LockoutDuration", L"ResetLockoutCount" };
     INFCONTEXT ctx;
-    WCHAR name[64];
+    WCHAR name[64], wide[32];
+    char ascii[64];
     LONG value;
+    uint32_t registry;
+    enum wex_lockout which;
     DWORD i, err = ERROR_SUCCESS;
     HKEY key = NULL;
     BOOL more;
@@ -79,21 +81,24 @@ static DWORD system_access( HINF inf, BOOL write )
     for (more = SetupFindFirstLineW( inf, L"System Access", NULL, &ctx ); more; more = SetupFindNextLine( &ctx, &ctx ))
     {
         if (!SetupGetStringFieldW( &ctx, 0, name, ARRAY_SIZE(name), NULL )) continue;
-        for (i = 0; i < ARRAY_SIZE(names); i++) if (!_wcsicmp( name, names[i] )) break;
-        if (i == ARRAY_SIZE(names))
+        /* the name in ASCII: one that is not ASCII is none of the three */
+        for (i = 0; name[i] && name[i] < 0x80 && i + 1 < ARRAY_SIZE(ascii); i++) ascii[i] = (char)name[i];
+        ascii[i] = 0;
+        which = name[i] ? WEX_LOCKOUT_COUNT : wex_lockout_of( ascii );
+        if (which == WEX_LOCKOUT_COUNT)
         {
             if (write) count_not_applicable++;
             continue;
         }
         if (!int_field( &ctx, 1, &value )) return ERROR_BAD_FORMAT;
-        /* the threshold is 0..999; a time of -1 (until an administrator unlocks) or 0 is the longest */
-        if (i == 0 && (value < 0 || value > 999)) return ERROR_BAD_FORMAT;
-        if (i > 0 && (value < -1 || value > LONGEST_MINUTES)) return ERROR_BAD_FORMAT;
-        if (i > 0 && value <= 0) value = LONGEST_MINUTES;
+        /* the template's range; a time of -1 (until an administrator unlocks) or 0 is the longest */
+        if (!wex_lockout_from_template( which, value, &registry )) return ERROR_BAD_FORMAT;
         if (!write) continue;
         if (!key && (err = RegCreateKeyExW( HKEY_LOCAL_MACHINE, ELEVATION_KEY, 0, NULL, 0, KEY_SET_VALUE | KEY_WOW64_64KEY,
                                             NULL, &key, NULL ))) return err;
-        if ((err = RegSetValueExW( key, names[i], 0, REG_DWORD, (const BYTE *)&value, sizeof(DWORD) ))) break;
+        for (i = 0; wex_lockout_values[which].name[i] && i + 1 < ARRAY_SIZE(wide); i++) wide[i] = wex_lockout_values[which].name[i];
+        wide[i] = 0;
+        if ((err = RegSetValueExW( key, wide, 0, REG_DWORD, (const BYTE *)&registry, sizeof(DWORD) ))) break;
         count_set++;
     }
     if (key) RegCloseKey( key );
@@ -143,6 +148,12 @@ static BOOL is_consent_value( const WCHAR *key, size_t length, const WCHAR *valu
            preg_name_is( (const uint8_t *)value, wcslen( value ), "consentpromptbehavioradmin" );
 }
 
+/* either of the two options that only the template sets (wexpreg.h): the elevation service reads them as REG_DWORD */
+static BOOL is_template_option( const WCHAR *key, size_t length, const WCHAR *value )
+{
+    return preg_is_template_option( (const uint8_t *)key, length, (const uint8_t *)value, wcslen( value ) );
+}
+
 /* [Registry Values]: security options in the policy trees */
 static DWORD registry_values( HINF inf, BOOL write )
 {
@@ -166,9 +177,20 @@ static DWORD registry_values( HINF inf, BOOL write )
             if (write) count_not_applicable++;
             continue;
         }
+        /* The elevation service reads its two options as REG_DWORD (another type is no value to it): a line of another
+         * type is left out as not applicable, and said, so that the rest of the template still applies. */
+        if (type != REG_DWORD && is_template_option( path + 8, name - (path + 8), name + 1 ))
+        {
+            if (write)
+            {
+                count_not_applicable++;
+                say( "wexpolicy: [Registry Values] %ls: only a REG_DWORD (4) is taken, the line is left out\n", name + 1 );
+            }
+            continue;
+        }
         /* The elevation service reads ConsentPromptBehaviorAdmin and fails closed for any other number than the two it
-         * implements (2 and 5): a line that would store another value, or a value of another type (0 asks for no prompt at
-         * all), is left out as not applicable, and said, so that the rest of the template still applies. */
+         * implements (2 and 5): a line that would store another value (0 asks for no prompt at all) is left out as not
+         * applicable, and said. */
         if (is_consent_value( path + 8, name - (path + 8), name + 1 ))
         {
             DWORD behavior = 0;

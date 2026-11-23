@@ -24,10 +24,11 @@
 #include <string.h>
 
 #include "settings.h"
+#include "wexsectmpl.h"
 
-#define ELEVATION  "Software\\WineExplorer\\Elevation"
-#define SYSTEM     "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
-#define LONGEST    99999
+#define ELEVATION  WEX_ELEVATION_KEY
+#define SYSTEM     WEX_SYSTEM_POLICY_KEY
+#define LONGEST    WEX_LOCKOUT_LONGEST
 
 #define LOCKOUT    "Account Policies\\Account Lockout Policy"
 #define PASSWORD   "Account Policies\\Password Policy"
@@ -122,27 +123,66 @@ const struct sec_setting sec_settings[] =
 
 const unsigned int sec_setting_count = sizeof(sec_settings) / sizeof(sec_settings[0]);
 
-/* "5", "-1" or "4,5" (a registry value: its type, a comma, the data) */
-uint32_t sec_from_template( const struct sec_setting *s, const char *value, int *ok )
+/* a field of a line as setup reads it: the quotes dropped, the blanks around it cut; the rest of the line after the
+ * comma that ends it (outside quotes) in *next, or NULL */
+static void field_of( const char *value, char *out, size_t room, const char **next )
+{
+    size_t n = 0;
+    int quoted = 0;
+
+    *next = NULL;
+    while (*value == ' ' || *value == '\t') value++;
+    for (; *value; value++)
+    {
+        if (*value == '"') { quoted = !quoted; continue; }
+        if (*value == ',' && !quoted) { *next = value + 1; break; }
+        if (n + 1 < room) out[n++] = *value;
+    }
+    while (n && (out[n - 1] == ' ' || out[n - 1] == '\t')) n--;
+    out[n] = 0;
+}
+
+static int number_of( const char *text, long *n )
 {
     char *end;
+
+    if (!*text) return 0;
+    *n = strtol( text, &end, 10 );
+    return !*end;
+}
+
+/* "5", "-1" or "4,5" (a registry value: its type, a comma, the data), as wexpolicy applies it (sectmpl.c): what the
+ * template sets is what is in force, so the value is read as the registry will keep it */
+uint32_t sec_from_template( const struct sec_setting *s, const char *value, int *ok )
+{
+    char field[64];
+    const char *next;
+    enum wex_lockout which;
+    uint32_t registry;
     long n;
 
     *ok = 0;
+    field_of( value, field, sizeof(field), &next );
     if (s->kind != SEC_NUMBER)
     {
-        if (strncmp( value, "4,", 2 )) return 0;   /* REG_DWORD only */
-        value += 2;
+        /* REG_DWORD only, the one type of the two options (wexpolicy leaves another type out) */
+        if (!number_of( field, &n ) || n != 4 || !next) return 0;
+        field_of( next, field, sizeof(field), &next );
+        if (next || !number_of( field, &n ) || n < 0 || n > 0xfffffffeL) return 0;
+        *ok = 1;
+        return (uint32_t)n;
     }
-    if (!*value) return 0;
-    n = strtol( value, &end, 10 );
-    if (*end) return 0;
-    if (s->forever && (n < 0 || n >= LONGEST)) n = 0;
-    /* the writer applies a time of 0 or less as the longest (sectmpl.c): that is what is in force */
-    else if (s->kind == SEC_NUMBER && s->min && n < (long)s->min && s->max == LONGEST) n = LONGEST;
-    if (n < 0 || n > 0xfffffffeL) return 0;
+    if (next || !number_of( field, &n )) return 0;
+    /* the lockout values: the template's range, and a time of -1 or 0 kept as the longest (wexsectmpl.h) */
+    if ((which = wex_lockout_of( s->key )) == WEX_LOCKOUT_COUNT)
+    {
+        if (n < 0 || n > 0xfffffffeL) return 0;
+        *ok = 1;
+        return (uint32_t)n;
+    }
+    if (!wex_lockout_from_template( which, n, &registry )) return 0;
     *ok = 1;
-    return (uint32_t)n;
+    return sec_from_registry( s, registry );
 }
 
 uint32_t sec_from_registry( const struct sec_setting *s, uint32_t dword )

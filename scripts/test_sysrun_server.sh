@@ -3824,12 +3824,18 @@ TNAME=sec.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO
     'MinimumPasswordLength = 8' 'LockoutBadCount = 5' 'LockoutDuration = -1' 'ResetLockoutCount = 15' '[Registry Values]' \
     'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3' \
     'MACHINE\Software\Policies\WexPol\Banner=1,"Hello there"' \
-    'MACHINE\System\CurrentControlSet\Control\Lsa\WexNotPolicy=4,1' '[Privilege Rights]' 'SeDenyNetworkLogonRight = *S-1-5-32-546'
+    'MACHINE\System\CurrentControlSet\Control\Lsa\WexNotPolicy=4,1' \
+    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\PromptOnSecureDesktop=1,"0"' \
+    '[Privilege Rights]' 'SeDenyNetworkLogonRight = *S-1-5-32-546'
 TNAME=bad.inf gpttmpl '[System Access]' 'LockoutBadCount = 2'
 OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/bad.inf")" | tr -d '\r')" || true
 grep -q 'status=[1-9]\|error' <<<"$OUT" || { echo "$OUT" >&2; fail "security: a template without a signature was taken"; }
 OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/sec.inf")" | tr -d '\r')" || true
-grep -q 'security set=5 not-applicable=2 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "security: apply"; }
+grep -q 'security set=5 not-applicable=3 status=0$' <<<"$OUT" || { echo "$OUT" >&2; fail "security: apply"; }
+# a template-owned option of another type than REG_DWORD is left out, and said (the elevation service reads a DWORD)
+grep -q 'PromptOnSecureDesktop: only a REG_DWORD' <<<"$OUT" || { echo "$OUT" >&2; fail "security: a string PromptOnSecureDesktop was not reported"; }
+[ -z "$(as_wine "$STD" reg query 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System' /v PromptOnSecureDesktop | val PromptOnSecureDesktop)" ] ||
+    fail "security: a string PromptOnSecureDesktop was written"
 E='HKLM\Software\WineExplorer\Elevation'
 [ "$(as_wine "$STD" reg query "$E" /v LockoutBadCount | val LockoutBadCount)" = 0x5 ] || fail "security: LockoutBadCount"
 [ "$(as_wine "$STD" reg query "$E" /v LockoutDuration | val LockoutDuration)" = 0x1869f ] || fail "security: LockoutDuration -1 is not the longest"
@@ -4150,7 +4156,8 @@ for variant in "$CK${BS}ConsentPromptBehaviorAdmin=4,0" "$CK${BS}${BS}ConsentPro
     s0_wine reg delete "$SYSK" /v PromptOnSecureDesktop /f >/dev/null 2>&1 || true
     BEFORE="$(as_wine "$STD" reg query "$SYSK" /v ConsentPromptBehaviorAdmin | val ConsentPromptBehaviorAdmin || true)"   # (whatever an earlier check left)
     OUT="$(s0_wine wexpolicy security /machine "$(winpath "$POL/consent0.inf")" | tr -d '\r')" || true
-    grep -q 'security set=1 not-applicable=1 status=0' <<<"$OUT" && grep -q 'only the values 2 and 5' <<<"$OUT" ||
+    # (a value of another type is left out by the type's rule: the two template options are REG_DWORD only)
+    grep -q 'security set=1 not-applicable=1 status=0' <<<"$OUT" && grep -qE 'only the values 2 and 5|only a REG_DWORD \(4\)' <<<"$OUT" ||
         { echo "$OUT" >&2; fail "secpol: the prompt behavior line was not left out alone ($variant)"; }
     [ "$(as_wine "$STD" reg query "$SYSK" /v PromptOnSecureDesktop | val PromptOnSecureDesktop)" = 0x0 ] ||
         fail "secpol: the rest of the template was not applied ($variant)"
