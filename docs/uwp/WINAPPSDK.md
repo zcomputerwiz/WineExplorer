@@ -392,6 +392,16 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    UserActivityRequestManager` for a factory interface {dd69f876-9699-4715-9095-e37ea30dfa1b} that Wine's twinapi lacks (E_NOINTERFACE),
    a C++ exception then propagates out of a `noexcept` function and the process ends. `Windows.Security.EnterpriseData.
    ProtectionPolicyManager` has no library either, and USP10 forwards `gdi32.ScriptSubstituteSingleGlyph`, which is missing.
+   **Next steps (same day).** {dd69f876-...} is the public `IUserActivityRequestManagerInterop` (`GetForWindow(HWND, REFIID, void **)`); the
+   Windows trace showed Notepad calling it once with its window and IID_IUserActivityRequestManager. Wine's twinapi has it now (Wine
+   `claude/staterepository-11.22`, test added). Notepad then runs into the next wall, a fail-fast in `Microsoft.UI.Input.dll`:
+   `ContextSession begin counts` (a begin counter that does not equal the sum of two others, in the function at RVA 0x2b020, on the
+   one process-wide ContextSession object; on Windows its counters stay 0 at all of the 217 calls seen in 25 s). Patching that check
+   out only moves the failure to a sibling check (RVA 0x2b208), so an earlier Begin without its End is the cause; the caller chain is
+   Microsoft.UI.Windowing -> Input. Not found yet which early return (a failing stub inside a begin/end region) unbalances it.
+   Tracing it from inside Wine with `wintrace.exe` does not work (the process fails fast sooner under a debugger and no breakpoint hits).
+   Tools added: `bytepatch.py`, `modcalls.py`, `findptr.py`, `exports.py`, `ordthunk` idea (host), probes `factory-iid-probe.c`,
+   `windowband-probe.c`, `user32-ordinal-probe.c`.
    (Older text of this section, kept for the record:) read the default `OpenSharedDCompositionObject` of FrameworkUdk (table id 7 or 6 of `GetFunctionTableById`) to see which private
    slot of the device it calls, and give Wine's dcomp device that method (open a shared visual from the handle of export 1040) and a visual
    with the private interface.

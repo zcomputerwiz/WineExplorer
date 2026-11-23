@@ -17,7 +17,8 @@
 #include <string.h>
 #include <stdlib.h>
 
-struct bp { char mod[80]; DWORD rva; char label[64]; int hits, max; BYTE orig; ULONG_PTR addr; int active, wantret; };
+struct bp { char mod[80]; DWORD rva; char label[64]; int hits, max; BYTE orig; ULONG_PTR addr; int active, wantret;
+            DWORD vt_rva; ULONG_PTR base; };   /* vt_rva: count only the calls whose object (rcx) has the vtable at module base + vt_rva */
 /* a one-shot breakpoint at the return address of a hit (option R): logs rax and what the four argument registers point to */
 struct ret { ULONG_PTR addr; DWORD tid; int bp, used, n; BYTE orig; ULONG_PTR args[4]; };
 static struct ret rets[64];
@@ -86,12 +87,16 @@ static void add_module(HANDLE file, LPVOID base)
             BYTE cc = 0xcc;
 
             bps[i].addr = m->base + bps[i].rva;
+            bps[i].base = m->base;
             if (ReadProcessMemory(proc, (void *)bps[i].addr, &bps[i].orig, 1, &got) &&
                 WriteProcessMemory(proc, (void *)bps[i].addr, &cc, 1, &got))
             {
                 FlushInstructionCache(proc, (void *)bps[i].addr, 1);
+                BYTE now = 0;
+
                 bps[i].active = 1;
-                log_line("  breakpoint %s at %s+%#lx", bps[i].label, m->name, (unsigned long)bps[i].rva);
+                ReadProcessMemory(proc, (void *)bps[i].addr, &now, 1, &got);
+                log_line("  breakpoint %s at %s+%#lx (byte was %02x, now %02x)", bps[i].label, m->name, (unsigned long)bps[i].rva, bps[i].orig, now);
             }
             else log_line("  breakpoint %s FAILED (error %lu)", bps[i].label, GetLastError());
         }
@@ -119,11 +124,37 @@ static void hit(struct bp *b, DWORD tid)
     memset(&ctx, 0, sizeof(ctx));
     ctx.ContextFlags = CONTEXT_FULL;
     GetThreadContext(th, &ctx);
+    if (b->vt_rva)
+    {
+        ULONG_PTR vt = 0;
+
+        /* not the object of interest: let it run without a count (the breakpoint is stepped over as usual) */
+        if (!ReadProcessMemory(proc, (void *)ctx.Rcx, &vt, sizeof(vt), &got) || vt != b->base + b->vt_rva)
+        {
+            restore(b, b->orig);
+            ctx.Rip = b->addr;
+            ctx.EFlags |= 0x100;
+            SetThreadContext(th, &ctx);
+            CloseHandle(th);
+            pending[tid & 0xffff] = (int)(b - bps) + 1;
+            return;
+        }
+    }
     b->hits++;
     if (b->hits <= b->max)
     {
         log_line("HIT %s #%d tid %lu rcx %#llx rdx %#llx r8 %#llx r9 %#llx", b->label, b->hits, (unsigned long)tid,
                  (unsigned long long)ctx.Rcx, (unsigned long long)ctx.Rdx, (unsigned long long)ctx.R8, (unsigned long long)ctx.R9);
+        if (strstr(b->label, "_D"))   /* a label ending in _D: the 32 qwords at rcx (the object) */
+        {
+            ULONG_PTR obj[32];
+            SIZE_T n = 0;
+
+            if (ReadProcessMemory(proc, (void *)ctx.Rcx, obj, sizeof(obj), &n))
+                for (i = 0; i < (int)(n / 8); i += 4)
+                    log_line("    obj+%#02x: %016llx %016llx %016llx %016llx", i * 8, (unsigned long long)obj[i], (unsigned long long)obj[i + 1],
+                             (unsigned long long)obj[i + 2], (unsigned long long)obj[i + 3]);
+        }
         ReadProcessMemory(proc, (void *)ctx.Rsp, stack, sizeof(stack), &got);
         for (i = 0; i < (int)(got / 8) && shown < 12; i++)
             if (resolve(stack[i], buf, sizeof(buf))) { log_line("    [rsp+%#x] %s", i * 8, buf); shown++; }
@@ -241,6 +272,11 @@ int main(int argc, char **argv)
 
         if (!a || !r || !l) continue;
         bps[nbps].wantret = w && *w == 'R';
+        {
+            char *v = strtok(NULL, ":");   /* sixth field: the vtable RVA the object has to have */
+
+            bps[nbps].vt_rva = v ? (DWORD)strtoul(v, NULL, 16) : 0;
+        }
         snprintf(bps[nbps].mod, sizeof(bps[nbps].mod), "%s", a);
         bps[nbps].rva = (DWORD)strtoul(r, NULL, 16);
         snprintf(bps[nbps].label, sizeof(bps[nbps].label), "%s", l);
@@ -298,6 +334,8 @@ int main(int argc, char **argv)
                 pending[ev.dwThreadId & 0xffff] = 0;
                 found = 1;
             }
+            if (!found && code == EXCEPTION_BREAKPOINT && nmods > 40)
+                log_line("breakpoint exception at %p tid %lu not one of ours", (void *)a, (unsigned long)ev.dwThreadId);
             if (!found && code != EXCEPTION_BREAKPOINT)
             {
                 if (ev.u.Exception.dwFirstChance) log_line("exception %08lx at %p tid %lu", (unsigned long)code, (void *)a, (unsigned long)ev.dwThreadId);
