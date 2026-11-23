@@ -173,3 +173,26 @@ the probe (`SRVLOW=1 SRVFLAGS=10000 alpc-imp 10000 2 secattr srvrestricted`).
 name wins (a second create of the name opens the same port, there is no replace). Names that our own services use have to be created when
 the service starts (services.exe starts first); there is no reserved-names list. A client that must be sure it talks to the service checks
 the process or the token of the server, not the name.
+
+## The window-procedure exceptions were the crash dialog, and the next gap is CoreUICreate (2026-11-23)
+
+The access violations and the divide by zero that were counted per run (`user_callback_handler ignoring exception ...`) are in the
+threads of the winedbg crash dialog ("A program on your system has crashed"), not in Notepad. `IsBadReadPtr` probes (kernel32) are the
+other access violations; they are handled. So the real state of Notepad after the IStaticLifetime fix is a single stop:
+
+* `Microsoft.Internal.FrameworkUdk.dll` (`LiftedIXP\frameworkudk\CoreWindowIntegration.cpp`) loads the **system** `CoreMessaging.dll` and
+  calls `CoreUICreate` in it; Wine's `coremessaging.dll` has it as a stub (`wine: Unimplemented function coremessaging.dll.CoreUICreate`),
+  and the caller treats a failure as fatal (fail-fast `c0000602` from `Microsoft.ui.xaml.dll`).
+* The runtime's own `CoreMessagingXP.dll` is not a stand-in for it: it exports the other API of that generation (`CoreMsgCreateSession`,
+  `CoreMsgGetExistingSession`, `WinUICreateDispatcherQueueController`, the `CoreUICall*` and `Msg*` functions, `CoreUICreateAnonymousStream`),
+  and no `CoreUICreate`. `Microsoft.UI.Input`, `Microsoft.UI.Windowing.Core`, `InputStateManager`, `dcompi` and `dwmcorei` use the XP one
+  (`CoreMsgCreateSession`); only `CoreWindowIntegration` asks the operating system. Forwarding the stubs to the XP library was tried and
+  dropped (it only turns the abort into a fail-fast).
+* `CoreWindowIntegration` is reached from `Microsoft.UI.Xaml.Hosting.WindowsXamlManager` (the activation just before the stop). What the
+  operating system's `CoreUICreate` does (the arguments and the result are not documented) is the CoreUI conversation with the window
+  system; it belongs to the `Windows.UI.Composition` / DWM side of the hosting route (docs/uwp/STORE_APP.md), so this is the same gap
+  as for the Store's WebView2 visual hosting.
+
+Next: find out what `CoreWindowIntegration` does with the result (the function is a delay-load wrapper at FrameworkUdk RVA 0x73d0 that
+tail-calls the OS function with its own arguments), probe the real `CoreUICreate` on the Windows host (black-box: arguments, result,
+which interface comes back), and decide between a small implementation and avoiding the integration.
