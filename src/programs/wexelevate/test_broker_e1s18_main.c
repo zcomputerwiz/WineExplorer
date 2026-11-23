@@ -7,6 +7,7 @@
  */
 
 #include "standard.h"
+#include "token_checks.h"
 #ifdef WEXELEVATE_E1S18
 /* WO-14: the golden-vector test uses the shared S1 encoder directly. */
 #include "e1s_encode.h"
@@ -4194,6 +4195,123 @@ static int test_wo28_r8_start_op( void )
 
 #endif /* WEXELEVATE_E1S18 */
 
+#ifdef WEXELEVATE_E1S18
+/*
+ * Design review, finding 4: a TokenUser answer is checked against the bytes the call wrote, and an empty or absent
+ * SID never matches (token_checks.c).
+ */
+static int test_review4_token_user_layout( void )
+{
+    uint64_t store[16];   /* aligned like the buffer GetTokenInformation fills */
+    uint8_t *buf = (uint8_t *)store;
+    const size_t hdr = sizeof(wex_sid_and_attributes);
+    uint8_t *sid = buf + hdr;
+    const BYTE *out_sid = NULL;
+    DWORD out_len = 0;
+    void *ptr;
+    uint8_t other[16];
+
+    memset( store, 0, sizeof(store) );
+    ptr = sid;
+    memcpy( buf + offsetof( wex_sid_and_attributes, Sid ), &ptr, sizeof(ptr) );
+    sid[0] = 1; sid[1] = 2; sid[7] = 5;               /* S-1-5-21-555 */
+    wex_token_put32( sid + 8, 21 );
+    wex_token_put32( sid + 12, 555 );
+
+    CHECK( wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)(hdr + 16), &out_sid, &out_len ),
+           "a whole TokenUser answer is accepted" );
+    CHECK( out_sid == sid && out_len == 16, "the SID is the one the header points to, 16 bytes" );
+
+    /* short answers: the header itself, the SID header, the subauthorities */
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr - 1), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "an answer shorter than TOKEN_USER is refused" );
+    CHECK( out_sid == NULL && out_len == 0, "a refused answer names no SID" );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 7), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "an answer that cuts the SID header is refused" );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 12), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "an answer that cuts the subauthorities is refused" );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)(hdr + 8), &out_sid, &out_len ),
+           "a length beyond the buffer is refused" );
+
+    /* the SID pointer: past the answer, before the buffer, over the header */
+    ptr = buf + 100;
+    memcpy( buf + offsetof( wex_sid_and_attributes, Sid ), &ptr, sizeof(ptr) );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "a SID pointer past the answer is refused" );
+    ptr = (void *)((uintptr_t)buf - 16);
+    memcpy( buf + offsetof( wex_sid_and_attributes, Sid ), &ptr, sizeof(ptr) );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "a SID pointer before the buffer is refused" );
+    ptr = buf;
+    memcpy( buf + offsetof( wex_sid_and_attributes, Sid ), &ptr, sizeof(ptr) );
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "a SID pointer over the header is refused" );
+    ptr = sid;
+    memcpy( buf + offsetof( wex_sid_and_attributes, Sid ), &ptr, sizeof(ptr) );
+
+    /* malformed SIDs */
+    sid[1] = 16;
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)sizeof(store), (DWORD)sizeof(store), &out_sid, &out_len ),
+           "more than 15 subauthorities is refused" );
+    sid[1] = 2; sid[0] = 2;
+    CHECK( !wex_sid_and_attributes_layout( buf, (DWORD)(hdr + 16), (DWORD)(hdr + 16), &out_sid, &out_len ),
+           "a SID of another revision is refused" );
+    sid[0] = 1;
+    CHECK( !wex_sid_and_attributes_layout( NULL, 64, 64, &out_sid, &out_len ), "no buffer is refused" );
+
+    /* SID comparison: an empty or absent expected SID never matches */
+    memcpy( other, sid, 16 );
+    CHECK( wex_sid_equal( sid, 16, other, 16 ), "equal SIDs match" );
+    CHECK( !wex_sid_equal( sid, 16, other, 0 ), "an empty expected SID never matches" );
+    CHECK( !wex_sid_equal( sid, 16, NULL, 16 ), "an absent expected SID never matches" );
+    CHECK( !wex_sid_equal( sid, 0, other, 0 ), "two empty SIDs do not match" );
+    other[15] ^= 1;
+    CHECK( !wex_sid_equal( sid, 16, other, 16 ), "different SIDs do not match" );
+    CHECK( !wex_sid_equal( sid, 16, sid, 12 ), "a cut SID does not match" );
+    return TEST_PASS;
+}
+
+/* Finding 4: the issued token is refused when the caller has no frozen SID to tell the new account apart from, or
+ * when the issued SID is malformed (the check used to be skipped for a zero length). */
+static int test_review4_issue_token_empty_sid( void )
+{
+    struct request req;
+    HANDLE token = NULL;
+    DWORD err;
+    uint8_t account_key[16], evidence_ref[16], nonce[32], binding_digest[32], request_digest[32];
+    const struct e1s18_ops *ops;
+
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    memcpy( account_key, req.account_key, 16 );
+    memset( evidence_ref, 0x77, sizeof(evidence_ref) );
+    memset( nonce, 0xa5, sizeof(nonce) );
+    memset( binding_digest, 0x11, sizeof(binding_digest) );
+    memset( request_digest, 0x22, sizeof(request_digest) );
+    reset_export_state();
+    e1s18_reset_ops();
+    e1s18_set_export_table( &s_fake_export_table );
+    ops = e1s18_get_ops();
+
+    req.caller_sid_len = 0;
+    err = ops->issue_token( &req, account_key, evidence_ref, nonce, binding_digest, request_digest, &token );
+    CHECK( err != ERROR_SUCCESS, "a caller with an empty frozen SID must not get a token" );
+    CHECK( token == NULL, "no token on refusal" );
+    CHECK( req.alice_sid_len == 0, "no issued SID kept on refusal" );
+
+    init_dummy_request( &req );
+    set_dummy_stage2_fields( &req );
+    req.caller_sid[0] = 0;   /* not a SID: revision 0 */
+    reset_export_state();
+    err = ops->issue_token( &req, account_key, evidence_ref, nonce, binding_digest, request_digest, &token );
+    CHECK( err != ERROR_SUCCESS, "a caller with a malformed frozen SID must not get a token" );
+
+    e1s18_reset_export_table();
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+#endif
+
 int main( int argc, char **argv )
 {
     int ret = 0;
@@ -4395,6 +4513,12 @@ int main( int argc, char **argv )
 
     printf("62. Testing WO-28 R8 start op in boundary table (fail closed, mock)...\n");
     if (test_wo28_r8_start_op() != TEST_PASS) ret = 1;
+
+    printf("63. Testing review finding 4: TokenUser answers are bounds-checked, empty SIDs never match...\n");
+    if (test_review4_token_user_layout() != TEST_PASS) ret = 1;
+
+    printf("64. Testing review finding 4: an empty or malformed caller SID gets no token...\n");
+    if (test_review4_issue_token_empty_sid() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

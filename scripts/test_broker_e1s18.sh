@@ -32,6 +32,7 @@ cc -O2 -Wall -Wextra -Werror -lpthread \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
     "$REPO/src/programs/wexelevate/standard.c" \
+    "$REPO/src/programs/wexelevate/token_checks.c" \
     "$REPO/src/programs/wexelevate/test_broker_e1s18_main.c"
 
 # 2. Compile lab build (with -DWEXELEVATE_E1S18 -DWEX_E1S15_LAUNCH_PREP_TEST)
@@ -45,6 +46,7 @@ cc -O2 -Wall -Wextra -Werror -lpthread \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
     "$REPO/src/programs/wexelevate/standard.c" \
+    "$REPO/src/programs/wexelevate/token_checks.c" \
     "$REPO/src/programs/wexelevate/test_broker_e1s18_main.c"
 
 # 3. Production build checks: disabled by default
@@ -69,6 +71,7 @@ cc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
     "$REPO/src/programs/wexelevate/standard.c" \
+    "$REPO/src/programs/wexelevate/token_checks.c" \
     "$REPO/src/programs/wexelevate/test_broker_e1s18_main.c" -lpthread
 "$FIXTURE/lab-asan" > "$FIXTURE/lab-asan.log" 2>&1 || { tail -n 40 "$FIXTURE/lab-asan.log"; fail "sanitizer run"; }
 
@@ -80,6 +83,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -o "$FIXTURE/wexelevate_lab64.exe" \
     "$REPO/src/programs/wexelevate/main.c" \
     "$REPO/src/programs/wexelevate/standard.c" \
+    "$REPO/src/programs/wexelevate/token_checks.c" \
     "$REPO/src/programs/wexelevate/broker0.c" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \
@@ -91,6 +95,7 @@ i686-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -o "$FIXTURE/wexelevate_lab32.exe" \
     "$REPO/src/programs/wexelevate/main.c" \
     "$REPO/src/programs/wexelevate/standard.c" \
+    "$REPO/src/programs/wexelevate/token_checks.c" \
     "$REPO/src/programs/wexelevate/broker0.c" \
     "$REPO/src/programs/wexelevate/launch_prep.c" \
     "$REPO/src/programs/wexelevate/cred_dialog.c" \

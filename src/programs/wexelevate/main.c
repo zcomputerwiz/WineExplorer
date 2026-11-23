@@ -314,7 +314,7 @@ BROKER_SHARED DWORD pipe_io( HANDLE pipe, void *buf, DWORD size, BOOL write, DWO
 
 /* ---- the caller ---------------------------------------------------------------------------------------------- */
 
-BROKER_SHARED BOOL token_user_sid( HANDLE token, BYTE *buf, DWORD size )
+static BOOL token_user_sid( HANDLE token, BYTE *buf, DWORD size )
 {
     DWORD len;
     ULONG_PTR offset;

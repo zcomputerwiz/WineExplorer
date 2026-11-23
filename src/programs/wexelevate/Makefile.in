@@ -10,4 +10,5 @@ SOURCES = \
 	cred_dialog.c \
 	launch_prep.c \
 	main.c \
-	standard.c
+	standard.c \
+	token_checks.c

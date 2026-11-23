@@ -3541,20 +3541,17 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
     }
 
     /* Verify Alice's mapped SID: exactly the fixed 28-byte mapped-SID size the
-     * ntdll wrapper enforces (wine/dlls/ntdll/sec.c), and a valid SID on Wine.
-     * Native builds check the length only. */
+     * ntdll wrapper enforces (wine/dlls/ntdll/sec.c), and a well-formed SID
+     * (token_checks.c; on Wine also IsValidSid). */
     sid_len = wex_token_u32( out + 72 );
-    if (sid_len != 28)
+    if (sid_len != 28 || !wex_sid_well_formed( out + 76, sid_len ))
     {
         goto verify_fail;
     }
-#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
-    if (!IsValidSid( (PSID)(out + 76) ))
-        goto verify_fail;
-#endif
-    /* Alice SID must not match caller's Bob SID */
-    if (req->caller_sid_len > 0 && sid_len == req->caller_sid_len &&
-        memcmp( out + 76, req->caller_sid, sid_len ) == 0)
+    /* Alice SID must not match caller's Bob SID; a caller without a frozen SID
+     * cannot be told apart from her, so it is refused too. */
+    if (!wex_sid_well_formed( req->caller_sid, req->caller_sid_len ) ||
+        wex_sid_equal( out + 76, sid_len, req->caller_sid, req->caller_sid_len ))
     {
         goto verify_fail;
     }
@@ -3564,20 +3561,16 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
     {
         TOKEN_TYPE t_type = 0;
         TOKEN_ELEVATION_TYPE t_elev = 0;
-        BYTE label_buf[256] = {0};
-        TOKEN_MANDATORY_LABEL *t_label = (TOKEN_MANDATORY_LABEL *)label_buf;
         DWORD t_session = ~0u;
         TOKEN_STATISTICS t_stats;
-        BYTE user_buf[256] = {0};
-        TOKEN_USER *t_user = (TOKEN_USER *)user_buf;
         DWORD len = 0;
 
         if (!GetTokenInformation( token, TokenType, &t_type, sizeof(t_type), &len ) || t_type != TokenPrimary)
             goto verify_fail;
         if (!GetTokenInformation( token, TokenElevationType, &t_elev, sizeof(t_elev), &len ) || t_elev != TokenElevationTypeFull)
             goto verify_fail;
-        if (!GetTokenInformation( token, TokenIntegrityLevel, label_buf, sizeof(label_buf), &len ) ||
-            *GetSidSubAuthority( t_label->Label.Sid, *GetSidSubAuthorityCount( t_label->Label.Sid ) - 1 ) < 0x3000)
+        /* token_checks.c: the label and the user are read at their real size and their SIDs bounds-checked. */
+        if (!wex_token_integrity_at_least( token, 0x3000 /* SECURITY_MANDATORY_HIGH_RID */ ))
             goto verify_fail;
         if (!GetTokenInformation( token, TokenSessionId, &t_session, sizeof(t_session), &len ) || t_session != req->caller_session)
             goto verify_fail;
@@ -3587,8 +3580,7 @@ static DWORD default_issue_token( struct request *req, const uint8_t account_key
             (t_stats.AuthenticationId.LowPart == req->caller_stats.AuthenticationId.LowPart &&
              t_stats.AuthenticationId.HighPart == req->caller_stats.AuthenticationId.HighPart))
             goto verify_fail;
-        if (!GetTokenInformation( token, TokenUser, user_buf, sizeof(user_buf), &len ) ||
-            !EqualSid( t_user->User.Sid, (PSID)(out + 76) ))
+        if (!wex_token_user_is( token, out + 76, sid_len ))
             goto verify_fail;
     }
 #endif
@@ -3989,15 +3981,10 @@ static DWORD default_verify_child( struct request *req, HANDLE token, const PROC
     {
         err = ERROR_ACCESS_DENIED;
     }
-    else if (req->alice_sid_len > 0)
+    /* The child runs as the issued account: an unset (empty) SID is a refusal, never a skipped check. */
+    else if (!wex_token_user_is( child_token, req->alice_sid, req->alice_sid_len ))
     {
-        BYTE user_buf[256] = {0};
-        TOKEN_USER *t_user = (TOKEN_USER *)user_buf;
-        if (!GetTokenInformation( child_token, TokenUser, user_buf, sizeof(user_buf), &len ) ||
-            !EqualSid( t_user->User.Sid, (PSID)req->alice_sid ))
-        {
-            err = ERROR_ACCESS_DENIED;
-        }
+        err = ERROR_ACCESS_DENIED;
     }
     CloseHandle( child_token );
     return err;

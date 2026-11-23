@@ -210,7 +210,6 @@ static void r9b_release( struct r9b *b, uint32_t outcome )
  * account), and session 0's server names the session it came from. */
 static BOOL r9b_client_ok( HANDLE pipe, DWORD *session )
 {
-    BYTE user[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE];
     PSID system_sid = NULL;
     HANDLE token = NULL;
     BOOL ok = FALSE;
@@ -218,11 +217,11 @@ static BOOL r9b_client_ok( HANDLE pipe, DWORD *session )
     *session = 0;
     if (!ImpersonateNamedPipeClient( pipe )) return FALSE;
     if (!OpenThreadToken( GetCurrentThread(), TOKEN_QUERY, TRUE, &token )) token = NULL;
-    RevertToSelf();
+    wex_revert_to_self();   /* returns only when this thread is itself again; else the process ends */
     if (!token) return FALSE;
     if (ConvertStringSidToSidW( L"S-1-5-18", &system_sid ))
     {
-        ok = token_user_sid( token, user, sizeof(user) ) && EqualSid( ((TOKEN_USER *)user)->User.Sid, system_sid );
+        ok = wex_token_user_is( token, system_sid, GetLengthSid( system_sid ) );
         LocalFree( system_sid );
     }
     CloseHandle( token );

@@ -3,7 +3,7 @@
  *
  * The units are main.c (the broker; the shipping build is main.c alone), standard.c (the standard-user request:
  * policy, S1 digests, dialog, redemption, token, profile, launch), broker0.c (B0, the broker in session 0, R9),
- * cred_dialog.c (the prompt queue) and launch_prep.c (S15).
+ * token_checks.c (the token and SID checks), cred_dialog.c (the prompt queue) and launch_prep.c (S15).
  *
  * Every unit but main.c is listed in Makefile.in and compiles to nothing in a shipping Wine build: each one starts
  * with "#if defined(WEXELEVATE_E1S18) || !defined(__WINE_PE_BUILD)", so its body exists only in a lab build or a
@@ -37,6 +37,7 @@
 #include "standard.h"
 #include "cred_dialog.h"
 #include "launch_prep.h"
+#include "token_checks.h"
 #include "e1s6_protocol.h"
 #include "e1s_encode.h"
 #ifdef WEXELEVATE_E1S18
@@ -93,8 +94,6 @@ DWORD secure_enter( void );
 void secure_leave( void );
 DWORD consent_timeout( void );
 void report( DWORD state, DWORD error );
-/* TokenUser into buf, checked: the SID lies inside what the call wrote and is valid. */
-BOOL token_user_sid( HANDLE token, BYTE *buf, DWORD size );
 
 /* ---- broker0.c -------------------------------------------------------------------------------------------- */
 
