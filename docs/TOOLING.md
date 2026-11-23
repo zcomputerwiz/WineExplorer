@@ -312,10 +312,11 @@ The owner, 2026-11-23: test what changed, quickly; run the full suite and the im
   (`wex-run.sh` refuses a build that does not match the worktree's Wine commit and `src`, recorded in
   `build/wow64/.wex-built`). A rerun after a fix to a test script needs only the failed suite; a fix to product code
   needs the targeted run of that fix and the failed part again.
-- **Builds are incremental:** `wex-run.sh` runs autoconf and configure only when `configure.ac` or `aclocal.m4`
-  changed (`WEX_RECONFIGURE=1` forces it; a configure run made most of the tree rebuild, about 25 minutes, even for
-  a few changed files), and `make_requests` only when `server/protocol.def` changed. The lab tree is updated with
-  rsync instead of copied whole (`R8_LAB_FRESH=1` copies it whole).
+- **Builds:** `wex-run.sh` runs autoconf, configure and `make_requests` at every sync. Skipping them when
+  `configure.ac` was unchanged was tried on 2026-11-23 and broke a build: Wine commits its generated `configure`, so
+  a checkout of another tree's commit (another session's run on the same machine) restores the stock one without the
+  WineExplorer modules, and make reruns config.status from it ("library themeui not found"). The lab tree is updated
+  with rsync instead of copied whole (`R8_LAB_FRESH=1` copies it whole).
 
 ## Added 2026-11-18: Batches (the suite and the image side by side)
 
