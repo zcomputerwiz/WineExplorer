@@ -148,6 +148,15 @@
 #   WEX_TEST_PASSWORD_FILE        its password (default: empty)
 #   WEX_TEST_TILE                 its name on the Welcome screen (default: WEX_TEST_USER), clicked; Enter (the first
 #                                 tile) when OCR cannot find it
+#   WEX_SAFEMODE_BASELINE         one provisioning for many tests (installer/tests/run-chain.sh, review 2026-11-23):
+#                   make          TEST_VM becomes a provisioned baseline of SOURCE_VM: the overlay, the provisioning
+#                                 boot and its checks, no phases; then its disk is made read-only, with a record of
+#                                 the inputs (the variables above, the probes, the Wine tarball, this script's
+#                                 provisioning part, the installed disk)
+#                   use           SOURCE_VM is such a baseline: TEST_VM is an overlay of it, with its UEFI variable
+#                                 store and passwords, and no provisioning boot of its own. Refused when the inputs
+#                                 differ. The disk is the one the provisioning boot left, so Vintner Boot's counts and
+#                                 generations are as after a test's own provisioning (blessed, generation 1).
 # Requires root, QEMU/KVM, qemu-nbd, Tesseract and ImageMagick (scripts/vmtest.py). Every VM ends stopped.
 # Screenshots, logs and the configuration records go to $VMTEST_DIR/TEST_VM/safe-mode/.
 set -uo pipefail
@@ -157,8 +166,14 @@ SOURCE=${1:?$usage}
 TEST=${2:?$usage}
 shift 2
 PHASES=("$@")
+BASELINE=${WEX_SAFEMODE_BASELINE:-}
+case "$BASELINE" in
+    ''|use) ;;
+    make) [ ${#PHASES[@]} -eq 0 ] || { echo "WEX_SAFEMODE_BASELINE=make runs no phases"; exit 2; } ;;
+    *) echo "Invalid WEX_SAFEMODE_BASELINE: $BASELINE"; exit 2 ;;
+esac
 # lastgoodgen last: it leaves generation 2 on boot storage, which later starts would boot
-[ ${#PHASES[@]} -gt 0 ] \
+[ ${#PHASES[@]} -gt 0 ] || [ "$BASELINE" = make ] \
     || PHASES=(safe safenet safecmd nowine bootlog startnormal oschoices normal lastgood vfailed lastgoodgen)
 for name in "$SOURCE" "$TEST"; do
     [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name: $name"; exit 2; }
@@ -2228,10 +2243,34 @@ command -v qemu-nbd >/dev/null || die "qemu-nbd is missing"
 [ -f "$SRC_DISK" ] || die "no disk $SRC_DISK"
 running "$SRC_DISK" && die "$SOURCE is running; stop it first"
 if [ -e "$STATE/disk.qcow2" ]; then
-    qemu-img info "$STATE/disk.qcow2" 2>/dev/null | grep -qx "backing file: $SRC_DISK" \
+    # an overlay of SOURCE_VM, or (a stage run before baselines) of the installed disk the baseline was made from
+    backing=$(qemu-img info "$STATE/disk.qcow2" 2>/dev/null | sed -n 's/^backing file: //p')
+    [ -n "$backing" ] && { [ "$backing" = "$SRC_DISK" ] \
+        || [ "$backing" = "$(cat "$VMTEST_DIR/$SOURCE/baseline.source" 2>/dev/null)" ]; } \
         || die "$STATE/disk.qcow2 exists and is not an overlay of $SOURCE; choose another TEST_VM"
     "${V[@]}" stop "$TEST" >/dev/null 2>&1 || true
     wait_off 30 || die "$TEST is still running"
+fi
+inputs_stamp() {   # inputs_stamp INSTALLED_DISK: what the provisioning depends on, as one checksum
+    {
+        echo "firmware=$FIRMWARE files=$FILES user=$USER_NAME password=${WEX_TEST_PASSWORD_FILE:-}"
+        if [ -n "$WINE_TAR" ]; then sha256sum < "$WINE_TAR"; fi
+        if [ -n "$PROBE_DIR" ]; then (cd "$PROBE_DIR" && sha256sum -- *.exe 2>/dev/null); fi
+        sha256sum < "$HERE/session-run.py"
+        sha256sum < "$REPO/scripts/gfx-perf-sample.sh" 2>/dev/null
+        [ "$FILES" = branch ] && for entry in "${SAFE_MODE_FILES[@]}"; do
+            read -r _ src _ <<< "$entry"; sha256sum < "$REPO/$src"
+        done
+        sed -n '/^# ---- the overlay ----$/,/^# ---- the phases ----$/p' "$HERE/safe-mode.sh" | sha256sum
+        stat -L -c '%s %Y %i' "$1"
+    } | sha256sum | cut -c1-64
+}
+
+if [ "$BASELINE" = use ]; then
+    [ -f "$VMTEST_DIR/$SOURCE/baseline.stamp" ] && [ "$(stat -c %a "$SRC_DISK")" = 444 ] \
+        || die "$SOURCE is not a provisioned baseline (WEX_SAFEMODE_BASELINE=make)"
+    [ "$(inputs_stamp "$(cat "$VMTEST_DIR/$SOURCE/baseline.source")")" = "$(cat "$VMTEST_DIR/$SOURCE/baseline.stamp")" ] \
+        || die "the baseline $SOURCE was provisioned from other inputs; make it again"
 fi
 rm -rf -- "$STATE"
 mkdir -p "$OUT"
@@ -2242,6 +2281,17 @@ else
     PWFILE=$OUT/password
     : > "$PWFILE"
 fi
+ADMIN_PWFILE=$OUT/admin-password
+
+if [ "$BASELINE" = use ]; then
+    # the baseline's provisioning is this overlay's: its variable store (UEFI) as the provisioning boot left it, the
+    # Administrator's password it set, and its log
+    echo "=== $TEST: overlay of the provisioned baseline $SOURCE, $FIRMWARE, Safe Mode files: $FILES"
+    [ ! -f "$VMTEST_DIR/$SOURCE/efivars.fd" ] || cp "$VMTEST_DIR/$SOURCE/efivars.fd" "$STATE/efivars.fd" \
+        || die "cannot copy the baseline's variable store"
+    cp "$VMTEST_DIR/$SOURCE/safe-mode/admin-password" "$ADMIN_PWFILE" || die "the baseline has no Administrator password"
+    cp "$VMTEST_DIR/$SOURCE/safe-mode/provision.log" "$OUT/provision.log" 2>/dev/null
+else   # the provisioning, to "---- the phases ----" (not indented)
 echo "=== $TEST: overlay of $SOURCE, $FIRMWARE, Safe Mode files: $FILES"
 
 attach rw || die "cannot mount the overlay"
@@ -2262,7 +2312,6 @@ if [ -n "$PROBE_DIR" ]; then
     done
     install -m 755 "$REPO/scripts/gfx-perf-sample.sh" "$MNT$PROBES/" || die "cannot install the perf sampler"
 fi
-ADMIN_PWFILE=$OUT/admin-password
 STEP=
 if [ "$FILES" = branch ]; then
     for entry in "${SAFE_MODE_FILES[@]}"; do
@@ -2349,7 +2398,18 @@ detach
 
 echo "=== provisioning boot ($(date +%T))"
 "${V[@]}" start "$TEST" "${START_ARGS[@]}" >/dev/null || die "QEMU did not start"
-wait_off 1500 || die "the provisioning boot did not power off"
+if ! wait_off 1500; then   # what it was doing (b1123a's startrec on BIOS, a loaded host): the screen and its journal
+    "${V[@]}" shot "$TEST" "$OUT/provision-fail.png" >/dev/null 2>&1
+    "${V[@]}" key "$TEST" alt-sysrq-w >/dev/null 2>&1 && sleep 2
+    "${V[@]}" key "$TEST" alt-sysrq-s >/dev/null 2>&1 && sleep 3
+    "${V[@]}" stop "$TEST" >/dev/null 2>&1; sleep 2
+    if attach ro >/dev/null 2>&1; then
+        journalctl --directory="$MNT/var/log/journal" -b 0 --no-pager -o short-monotonic > "$OUT/provision-journal.txt" 2>&1
+        cp "$MNT/root/wex-test-provision.log" "$OUT/provision.log" 2>/dev/null
+        detach
+    fi
+    die "the provisioning boot did not power off (provision-fail.png, provision-journal.txt, provision.log in $OUT)"
+fi
 attach ro || die "cannot mount the overlay"
 cp "$MNT/root/wex-test-provision.log" "$OUT/provision.log" 2>/dev/null
 provisioned() {   # provisioned LINE MESSAGE: the provisioning log has LINE, or the test ends with MESSAGE
@@ -2373,6 +2433,18 @@ grep -q 'wex-safemode-pam-check.sh autologin' "$MNT/etc/pam.d/lightdm-autologin"
 [ -L "$MNT/etc/systemd/system/multi-user.target.wants/wex-startup-check.service" ] \
     || { detach; die "wex-startup-check.service is not enabled"; }
 detach
+fi   # the provisioning
+
+if [ "$BASELINE" = make ]; then
+    # Immutable from now on: overlays of it are its only users (QEMU opens a backing file read-only), and the inputs
+    # are recorded, so a test with others is refused
+    "${V[@]}" stop "$TEST" >/dev/null 2>&1
+    inputs_stamp "$SRC_DISK" > "$STATE/baseline.stamp" && echo "$SRC_DISK" > "$STATE/baseline.source" \
+        && chmod 444 "$STATE/disk.qcow2" || die "cannot record the baseline"
+    echo "PASS: provisioned baseline $TEST of $SOURCE ($FIRMWARE); stages use it with WEX_SAFEMODE_BASELINE=use"
+    trap - EXIT
+    exit 0
+fi
 
 # ---- the phases ----
 

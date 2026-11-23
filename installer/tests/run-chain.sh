@@ -13,15 +13,17 @@
 #             both firmwares at once, through Vintner Boot (install-unattended.sh, check-vintner.py)
 #   STAGE     defaults accounts classic rundialog wayland startrec (all when none is named), or NAME=PHASE,PHASE
 #             for other phases of safe-mode.sh. Each stage on each firmware is one job on its own overlay
-#             (NAME-STAGE-FW), so jobs do not share a disk.
+#             (NAME-STAGE-FW), so jobs do not share a disk. The overlays are forked from one provisioned baseline
+#             per firmware (NAME-base-FW: the test accounts and the provisioning boot, once; WEX_CHAIN_BASELINE=0
+#             provisions each overlay itself instead).
 #   -j        jobs at once (default 3). Each VM has 4 GB and 2 CPUs; WSL's memory (15 GB on the test machine) is the
 #             limit, not the CPUs.
 #
 # Environment passed on to safe-mode.sh: WEX_TEST_PROBES, WEX_TEST_WINE, WEX_SAFEMODE_FILES (default installed).
 # Results: /var/tmp/wex-chain/NAME/ (one log per job, the failure screenshots, summary.txt); the exit status is 0
-# when every job passed.
+# when every job passed. A firmware whose install or baseline failed is left out, and the others' stages still run.
 set -u
-usage() { sed -n '7,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '7,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 LANES=3
 FWS="bios uefi"
@@ -139,14 +141,50 @@ done
 FWS=${present# }
 [ -n "$FWS" ] || exit 1
 
+# One provisioned baseline per firmware (review 2026-11-23, "Needs a decision" #2): the overlay, the test accounts
+# and prefixes and the provisioning boot once (NAME-base-FW, safe-mode.sh WEX_SAFEMODE_BASELINE=make), and every
+# stage's overlay forked from it, instead of twelve provisioning boots. The cold provisioning is still run, and
+# checked, once per firmware; the stages start from the disk it left (Vintner Boot's counts and generation as after
+# a provisioning boot of their own). WEX_CHAIN_BASELINE=0: each stage provisions its own overlay, as before.
+BASELINE=${WEX_CHAIN_BASELINE:-1}
+if [ "$BASELINE" = 1 ]; then
+    log "provisioned baselines on $FWS"
+    for fw in $FWS; do
+        while [ "$(jobs -rp | wc -l)" -ge "$LANES" ]; do wait -n; done
+        ( t0=$(date +%s)
+          WEX_TEST_FIRMWARE=$fw WEX_SAFEMODE_BASELINE=make bash "$SRC/installer/tests/safe-mode.sh" "$NAME-$fw" \
+              "$NAME-base-$fw" > "$OUT/baseline-$fw.log" 2>&1
+          echo "$? $(( ($(date +%s) - t0) / 60 ))" > "$OUT/baseline-$fw.rc" ) &
+        sleep 20   # the two provisioning boots' starts apart
+    done
+    wait
+    based=
+    for fw in $FWS; do
+        read -r rc minutes < "$OUT/baseline-$fw.rc" 2>/dev/null || { rc=x minutes='?'; }
+        if [ "$rc" = 0 ]; then
+            log "PASS baseline $fw ($minutes min)"
+            based="$based $fw"
+        else
+            log "FAIL baseline $fw ($minutes min): $(grep '^FAIL' "$OUT/baseline-$fw.log" | head -n 2 | tr '\n' ' ')"
+            for f in "$VMTEST_DIR/$NAME-base-$fw"/safe-mode/provision-fail.png; do
+                [ -f "$f" ] && cp "$f" "$OUT/baseline-$fw-provision-fail.png"
+            done
+            overall=1
+        fi
+    done
+    FWS=${based# }
+    [ -n "$FWS" ] || { log "no baseline; no stages run"; exit 1; }
+fi
+
 run_job() {   # run_job STAGE FW
-    local stage=$1 fw=$2 name test rc t0
+    local stage=$1 fw=$2 name test rc t0 source=$NAME-$fw mode=
     name=$(stage_name "$stage")
     test=$NAME-$name-$fw
+    if [ "$BASELINE" = 1 ]; then source=$NAME-base-$fw mode=use; fi
     t0=$(date +%s)
     # shellcheck disable=SC2046   # the phases are words
-    WEX_TEST_FIRMWARE=$fw bash "$SRC/installer/tests/safe-mode.sh" "$NAME-$fw" "$test" $(phases_of "$stage") \
-        > "$OUT/$name-$fw.log" 2>&1
+    WEX_TEST_FIRMWARE=$fw WEX_SAFEMODE_BASELINE=$mode bash "$SRC/installer/tests/safe-mode.sh" "$source" "$test" \
+        $(phases_of "$stage") > "$OUT/$name-$fw.log" 2>&1
     rc=$?
     for f in "$VMTEST_DIR/$test"/safe-mode/*-fail.png; do
         [ -f "$f" ] && cp "$f" "$OUT/$name-$fw-$(basename "$f")"
@@ -163,7 +201,8 @@ for stage in "${STAGES[@]}"; do
         while [ "$(jobs -rp | wc -l)" -ge "$LANES" ]; do wait -n; done
         log "start $(stage_name "$stage") $fw"
         run_job "$stage" "$fw" &
-        sleep 20   # QEMU starts and the overlays' provisioning boots apart
+        # QEMU starts (and, without baselines, the overlays' provisioning boots) apart
+        if [ "$BASELINE" = 1 ]; then sleep 5; else sleep 20; fi
     done
 done
 wait
