@@ -8,6 +8,9 @@
  * Does not launch any process; no credential launches enabled.
  */
 
+/* A lab unit (broker_internal.h): empty in a shipping Wine build. */
+#if defined(WEXELEVATE_E1S18) || !defined(__WINE_PE_BUILD)
+
 #include "launch_prep.h"
 
 #include <stdio.h>
@@ -879,3 +882,7 @@ void wex_launch_prep_result_free( struct wex_launch_prep_result *result )
 }
 
 #endif /* WEX_E1S15_LAUNCH_PREP_TEST */
+
+#else
+typedef int wexelevate_lab_unit_empty;   /* ISO C: no empty translation unit */
+#endif /* WEXELEVATE_E1S18 || !__WINE_PE_BUILD */
