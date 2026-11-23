@@ -338,10 +338,11 @@ cp "$SCRIPT_DIR/systemd/wex-gpupdate.service" "$SCRIPT_DIR/systemd/wex-gpupdate-
 install -m 0755 "$SCRIPT_DIR/scripts/wex-gpupdate.sh" "$STAGE_SESSION/usr/local/bin/wex-gpupdate.sh"
 # Session 0 and enforced elevation are on by default for new installs (owner, 2026-11-18): the package carries a
 # marker for each, and the installed system's first setup (wex-gui-setup.sh) runs the machine root setup with
-# WEX_SESSION0=1 and WEX_ELEVATION=1. An existing install keeps its own setting: the package's upgrade runs
-# wex-setup-machine.sh --update, which reads session 0 from the existing sysrun.conf and never removes the elevation
-# helper, and does not look at the markers. WEX_SESSION0=0 / WEX_ELEVATION=0 at packaging time leave a marker out
-# (an image without them, for comparison).
+# WEX_SESSION0=1 and WEX_ELEVATION=1. The package's upgrade runs wex-setup-machine.sh --update, which does not look at
+# the markers: it never removes the elevation helper, and since 2026-11-23 it turns session 0 on for an install that
+# does not have it yet (decision 2 of docs/SESSION0_SPLIT_REVIEW.md: the launcher without session 0 is retired).
+# WEX_SESSION0=0 / WEX_ELEVATION=0 at packaging time leave a marker out (a test image without them, for comparison;
+# the first upgrade of such an image turns session 0 on).
 case "${WEX_SESSION0:-1}" in 0|1) ;; *) echo "WEX_SESSION0 must be 0 or 1" >&2; exit 1 ;; esac
 case "${WEX_ELEVATION:-1}" in 0|1) ;; *) echo "WEX_ELEVATION must be 0 or 1" >&2; exit 1 ;; esac
 if [ "${WEX_SESSION0:-1}" = 1 ]; then

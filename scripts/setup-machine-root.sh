@@ -27,9 +27,11 @@ die()
 ACCOUNTS_AUTOSYNC=${WEX_ACCOUNTS_AUTOSYNC:-1}
 case "$ACCOUNTS_AUTOSYNC" in 0|1) ;; *) die 'WEX_ACCOUNTS_AUTOSYNC must be 0 or 1' ;; esac
 
-# System tier (session 0): dedicated wineserver for the machine registry.
-# Opt-in during T1; default off. WEX_SESSION0=1 enables.
-SESSION0_ENABLE=${WEX_SESSION0:-0}
+# System tier (session 0): dedicated wineserver for the machine registry. On for every installed system (the owner's
+# decision 2 of docs/SESSION0_SPLIT_REVIEW.md, 2026-11-23): the launcher without session 0 is retired, so an update
+# of an install from before 2026-11-18 turns session 0 on as a new install does. WEX_SESSION0=0 is for test fixtures
+# only (a machine root without the launcher's session 0 lines).
+SESSION0_ENABLE=${WEX_SESSION0:-1}
 case "$SESSION0_ENABLE" in 0|1) ;; *) die 'WEX_SESSION0 must be 0 or 1' ;; esac
 
 # Enforced elevation (docs/SYSTEM_TIER_WORK_ORDERS.md, "Enforced elevation on an installed machine"): opt-in,
@@ -654,11 +656,11 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
             existing_admin_group=$("$SYSRUN_DIR/wex-is-admin" --print-group "$SYSRUN_CONF") ||
                 die "invalid or unprotected sysrun config"
             [ -n "${WEX_ADMIN_GROUP:-}" ] || ADMIN_GROUP="$existing_admin_group"
-            # The shared reader has validated every line and refused all duplicate keys.
+            # The shared reader has validated every line and refused all duplicate keys. Session 0 is not taken from
+            # the old file: it is on for every install (an old file without its lines gets them now, decision 2).
             while IFS= read -r config_line; do
                 case "$config_line" in
                     builtin_administrator=*) [ -n "${WEX_BUILTIN_ADMINISTRATOR:-}" ] || BUILTIN_ADMIN="${config_line#builtin_administrator=}" ;;
-                    session0_socket=*) [ -n "${WEX_SESSION0:-}" ] || SESSION0_ENABLE=1 ;;
                 esac
             done < "$SYSRUN_CONF"
         fi
