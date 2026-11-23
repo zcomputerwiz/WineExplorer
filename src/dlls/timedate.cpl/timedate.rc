@@ -60,6 +60,18 @@ BEGIN
     AUTOCHECKBOX    "Automatically adjust clock for daylight saving changes", IDC_TIMEZONE_AUTO, 7, 155, 238, 10
 END
 
+IDD_INTERNETTIME DIALOGEX 0, 0, 252, 218
+STYLE WS_CHILD | WS_CAPTION | WS_DISABLED
+CAPTION "Internet Time"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    AUTOCHECKBOX    "&Automatically synchronize with an Internet time server", IDC_INET_AUTO, 7, 10, 238, 10
+    LTEXT           "&Server:", IDC_STATIC, 20, 31, 28, 8
+    COMBOBOX        IDC_INET_SERVER, 50, 29, 130, 60, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "&Update Now", IDC_INET_UPDATE, 186, 28, 59, 14
+    LTEXT           "", IDC_INET_STATUS, 20, 52, 225, 44
+END
+
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 
 /* @makedep: timedate.manifest */

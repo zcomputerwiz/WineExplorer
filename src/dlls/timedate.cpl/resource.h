@@ -35,6 +35,7 @@
 /* Dialogs */
 #define IDD_DATEANDTIME     1001
 #define IDD_TIMEZONE        1002
+#define IDD_INTERNETTIME    1003
 
 /* Controls: Common */
 #define IDC_STATIC          -1
@@ -49,6 +50,12 @@
 #define IDC_TIMEZONE_LIST   2101
 #define IDC_TIMEZONE_AUTO   2102
 #define IDC_TIMEZONE_MAP    2103
+
+/* Internet Time Page */
+#define IDC_INET_AUTO       2201
+#define IDC_INET_SERVER     2202
+#define IDC_INET_UPDATE     2203
+#define IDC_INET_STATUS     2204
 
 
 #endif /* __WINE_TIMEDATE_RESOURCE_H */

@@ -6,6 +6,7 @@ VER_FILEDESCRIPTION_STR = "Date and Time Control Panel"
 SOURCES = \
 	clock.c \
 	dateandtime.c \
+	internettime.c \
 	timedate.c \
 	timedate.rc \
 	timezone.c
