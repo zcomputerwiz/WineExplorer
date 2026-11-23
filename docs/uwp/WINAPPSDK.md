@@ -353,8 +353,18 @@ with `+relay`, `+module`, a stack dump patch of `dispatch_exception`, `mapav.py`
    ignores it, so the NULL stays. Claiming `UniversalApiContract` 19 (FrameworkUdk's newest helper, `coreui.c` slot 13 made a success) ends at
    the very same NULL read and the same generic {37a94c05} slot-5 call, so the version of the helper is not the cause. gdb attached to the
    packaged process never saw the SIGSEGV (it does not stop at Wine's page faults here), so the exception patch is the tool.
-   Open question: which of the failing calls it is. The visual has to be a `dcompi.dll` object, i.e. made by the lifted compositor from the
-   shared-visual handle (our event from export 1040) through its command engine, not a visual of Wine's dcomp.
+   **Correction after the next pass (fourth, 2026-11-23): nothing fails, the creation never runs.** `ud2` written over the entry of Input's
+   WIL logging function (RVA 0x6120, in the installed copy: wexappx compares the block map, so the package copy cannot be patched) is not hit
+   before the NULL read, so no error is logged by WinCompVisual (the `WilError_03` mutex I took for that log is made by the earlier dcompi path).
+   `ud2` over the entry of the creation function (RVA 0xaa770) and of its four callers (0x9bf60, 0x9c080, 0x9c180, 0xa37c0) is not hit either:
+   no creation call is made at all. The first three and 0x9c280 are the slots 3-6 of one vtable (RVA 0x130460 of Input: virtual methods of the
+   visual class), so something that owns such a visual is expected to call one of them (initialize it, with or without a handle), and in Wine
+   that call is never made, while the later update (`SetVisualRelativeSize`) is. Where that call comes from is the open question. The likeliest
+   source is event delivery: FrameworkUdk registers a callback (its RVA 0xbd10, which forwards (rcx, rdx, r8d) to a handler table the Windows
+   App Runtime fills) with `ICoreUISession` slot 12/13 together with a 35-byte message record, and Wine's CoreUI never calls it back. Not
+   verified: the same `ud2` trick on the handlers behind 0xbd10 would show whether any of them runs on Windows' paths.
+   The visual has to be a `dcompi.dll` object, i.e. made by the lifted compositor from the shared-visual handle (our event from export 1040)
+   through its command engine, not a visual of Wine's dcomp.
    The NULL visual itself is still not located: `DCompPrivates_CreateSharedVisual` (default table id 6, slot 1 -> the singleton's slot 14)
    queries its first argument for {4ba72ec1}, which no object I can reach answers, and Wine's run shows no failure there, so the call may not
    be where Input's `visual` is set. Next: trace the stores to Input's `this+0x48` at run time (a data breakpoint through the exception
