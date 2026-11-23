@@ -209,6 +209,34 @@ descriptor it got). The copies became one (Codex review: no other difference).
 - `include/wine/wex_session0.h`: the request header's last word is a union named by message type (`machine`,
   `saved`, `name_size`, `session_id`); the same word on the wire.
 
+## taskmgr: Windows XP's Task Manager; ntdll and server: process I/O counters and memory figures (2026-11-23)
+
+Wine branch `claude/taskmgr-xp-parity`, `66d8330d` (ntdll, server), `b1ae33c1` and `c002806a` (taskmgr), on `d5e17250`.
+
+* `server/protocol.def`, `server/process.c`: new request `get_process_io_counters`, read from `/proc/<pid>/io`
+  (`rchar`, `wchar`, `syscr`, `syscw`). Request numbers shift: rebuild everything after taking it.
+* `dlls/ntdll/unix/process.c`: `ProcessIoCounters` uses it (it returned zeros).
+* `dlls/ntdll/unix/system.c`: `SystemPerformanceInformation` paged pool from `SReclaimable`, non-paged pool from
+  `SUnreclaim` + `KernelStack` + `PageTables`, a peak commit charge; `SystemFileCacheInformation` current and peak size
+  from `Cached`. Test: `dlls/ntdll/tests/info.c` `test_query_process_io`.
+* `programs/taskmgr`: XP's caption, defaults, strings and layout. Additions:
+  * User Name column.
+  * Processes from other sessions only with "Show processes from all users". With an Elevation helper and a token
+    that is not elevated (`TokenIsElevated`: an administrator's filtered token or a standard user), this is Vista's
+    shield button, which restarts Task Manager elevated with `/showall`, so other users' processes are listed only when
+    elevated. `get_process_io_counters` needs `PROCESS_QUERY_LIMITED_INFORMATION`, as the VM counters do. The shield
+    picture is not drawn yet: comctl32 has no `BCM_SETSHIELD`.
+  * Column sorting and the selection kept across refreshes. End Process Tree ends the children.
+  * Shut Down menu through `wexhost` `WexPowerCan`/`WexPowerDo`, falling back to `ExitWindowsEx` (items the host can't
+    do are greyed).
+  * Networking page (`GetIfTable2`, graphs, the 26 columns, history options).
+  * Users page: one console session; Disconnect and Send Message are greyed.
+  * Vista's "Access is denied" message.
+  * New files: `netpage.c`, `shutdown.c`, `userpage.c`. `iphlpapi` imported.
+* Not done:
+  * `GetGuiResources` is still a stub, so the USER Objects and GDI Objects columns are greyed.
+  * Skipped on purpose: the UAC Virtualization column, a Services tab, and Open File Location / Properties.
+
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
 General ntdll gaps found by Office 2024's App-V subsystem (`AppVIsvSubsystems32.dll`), whose initialisation failed with
