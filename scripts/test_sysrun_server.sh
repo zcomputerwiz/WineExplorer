@@ -380,7 +380,8 @@ SNAP_WATCH='winedevice.exe wexelevate.exe wexelevate_test.exe wexelevate_stub.ex
 snap_sig()   # DIR [DEPTH]: names, types, modes, owners, link targets and contents (the S6 service's files left out)
 {
     [ -e "$1" ] || { echo absent; return 0; }
-    (cd "$1" && find . -mindepth 1 ${2:+-maxdepth $2} \( -name e1s6-lab.py -o -name e1r8.py -o -name evidence.py \) -prune -o \
+    # a whole tree: its folder's own owner and mode count too ("."); the files of one folder (DEPTH) are compared alone
+    (cd "$1" && { [ -n "${2:-}" ] || stat -c '. %a %U %G' .; } && find . -mindepth 1 ${2:+-maxdepth $2} \( -name e1s6-lab.py -o -name e1r8.py -o -name evidence.py \) -prune -o \
             ${2:+-type f} -printf '%p %y %m %U %G %l\n' | LC_ALL=C sort &&
         find . -mindepth 1 ${2:+-maxdepth $2} \( -name e1s6-lab.py -o -name e1r8.py -o -name evidence.py \) -prune -o -type f -print0 |
             LC_ALL=C sort -z | xargs -0r md5sum)
@@ -406,6 +407,7 @@ snap_take()
     i=0
     while read -r d; do
         i=$((i + 1)); mkdir -p "$SNAP/files$i"
+        stat -c '%a %U %G' "$d" > "$SNAP/files$i.dir" || return 1
         find "$d" -mindepth 1 -maxdepth 1 -type f -print0 | xargs -0r cp -a -t "$SNAP/files$i/" || return 1
     done < "$SNAP/filedirs"
     for sub in system32 syswow64; do
@@ -426,6 +428,7 @@ snap_diffs()   # what differs from the snapshot; nothing when all is as it was
     while read -r d; do
         i=$((i + 1))
         diff -q <(snap_sig "$d" 1) <(snap_sig "$SNAP/files$i" 1) >/dev/null || echo "the files of $d differ"
+        [ "$(stat -c '%a %U %G' "$d")" = "$(cat "$SNAP/files$i.dir")" ] || echo "the owner or mode of $d differs"
     done < "$SNAP/filedirs"
     for sub in system32 syswow64; do
         d="$M/drive_c/windows/$sub"
@@ -445,7 +448,7 @@ snap_restore()
     while read -r d; do
         i=$((i + 1))
         for f in $(find "$d" -mindepth 1 -maxdepth 1 -type f -printf '%f\n'); do [ -e "$SNAP/files$i/$f" ] || rm -f "$d/$f"; done
-        cp -a --remove-destination "$SNAP/files$i/." "$d/"
+        find "$SNAP/files$i" -mindepth 1 -maxdepth 1 -exec cp -a --remove-destination -t "$d/" {} +
     done < "$SNAP/filedirs"
     for sub in system32 syswow64; do
         d="$M/drive_c/windows/$sub"
