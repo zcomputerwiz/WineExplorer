@@ -227,6 +227,35 @@ BOOL oauth_redeem( const WCHAR *base, const struct request *req, const struct oa
     return ret;
 }
 
+/* A token for a nested app (Nested App Authentication: the request names a child client id and the child's redirect
+ * URI) from the parent's refresh token. The token endpoint is asked as the child, with the parent named as the
+ * broker (brk_client_id, brk_redirect_uri), as MSAL's brokered requests do. The parent's refresh token stays the
+ * account's; a refresh token in the answer is not kept by the caller. */
+BOOL oauth_refresh_nested( const WCHAR *base, const WCHAR *authority, const WCHAR *parent_client_id,
+                           const WCHAR *parent_redirect_uri, const WCHAR *child_client_id,
+                           const WCHAR *child_redirect_uri, const WCHAR *scope, const WCHAR *refresh_token,
+                           struct token_result *result )
+{
+    WCHAR *full_scope = oauth_scope( scope );
+    struct text form = {0};
+    BOOL ret;
+
+    ret = full_scope &&
+          url_append_param( &form, L"client_id", child_client_id ) &&
+          url_append_param( &form, L"grant_type", L"refresh_token" ) &&
+          url_append_param( &form, L"refresh_token", refresh_token ) &&
+          url_append_param( &form, L"scope", full_scope ) &&
+          url_append_param( &form, L"redirect_uri", child_redirect_uri ) &&
+          url_append_param( &form, L"brk_client_id", parent_client_id ) &&
+          url_append_param( &form, L"brk_redirect_uri", parent_redirect_uri ) &&
+          url_append_param( &form, L"client_info", L"1" ) &&
+          token_post( base, authority, &form, result );
+    if (form.data) SecureZeroMemory( form.data, form.len * sizeof(WCHAR) );
+    text_free( &form );
+    free( full_scope );
+    return ret;
+}
+
 /* a new access token from a refresh token */
 BOOL oauth_refresh( const WCHAR *base, const WCHAR *authority, const WCHAR *client_id, const WCHAR *scope,
                     const WCHAR *refresh_token, struct token_result *result )

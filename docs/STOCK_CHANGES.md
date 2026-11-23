@@ -3961,6 +3961,17 @@ approaching a data limit). Test in `tests/connectivity.c` (x64 and x86). **Uncon
 
 2026-11-21 (Wine 401183d1): `programs/wscript/main.c`: the host loads its own type library with `LoadTypeLibEx(..., REGKIND_NONE)` instead of `LoadTypeLib`, which registers a library named without a path and so needs write access to HKCR; for a standard user (HKCR is the machine registry on WineExplorer) `wscript`/`cscript` ended with "Script initialization failed" and ran no script (B62). wscript tests 347/347 on both architectures; checked in the lab with Office's `ospp.vbs`.
 
+2026-11-22 (Wine d6e9315e, branch `claude/crypt32-readonly-system-store`): `dlls/crypt32/store.c`
+(`CRYPT_SysOpenStoreW`): the local machine's part of the current user's system store (the user's collection of HKCU and
+HKLM) is opened read-only (`CERT_STORE_READONLY_FLAG`) and added to the collection without
+`CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG`, as on Windows: what a user adds goes to HKCU. It was opened read-write, which a
+limited user cannot do for the machine registry, so the HKLM half of the Root store was missing and no root certificate
+was trusted: every HTTPS request through winhttp failed with `ERROR_WINHTTP_SECURE_INVALID_CA` (12045, then 12157), and
+the token broker's last sign-in step (redeeming the code at `login.microsoftonline.com`) with it. Windows itself still
+answers a read-write open of the machine store with access denied (checked as a limited user on the Windows host by the
+environment session): that is unchanged. Test: `dlls/crypt32/tests/store.c` (`testUserStoreIncludesMachineStore`: the
+user's Root holds the machine Root's certificates). An earlier version of this change (a fallback to read-only in
+`CRYPT_SysRegOpenStoreW`, 70ea3107) was reverted in the same branch: Windows does not fall back there.
 2026-11-21 (UWP signature check; Wine branches `claude/wintrust-sha256-policy` 3d601306 and `claude/appxsip-registration` c1888008, both on development 401183d1, not merged):
 - `dlls/wintrust/softpub.c` (`SoftpubAuthenticode`): the signature hash of the signer certificate was read into 20 bytes
   to look it up in the Disallowed store. For a certificate signed with SHA-256 the call needs 32 bytes, failed, and
@@ -4081,3 +4092,20 @@ auto-start list held the startup lock, waited out the 3-second lock timeout and 
 Word's App-V layer failed). `programs/services/rpc.c` (`svcctl_StartServiceW`): a service that runs is answered with
 ERROR_SERVICE_ALREADY_RUNNING without waiting for the startup lock, as on Windows. Wine's advapi32 service tests pass
 (x64 777, x86 795 checks).
+
+2026-11-22 (Wine f51530f4, branch `claude/wininet-listen-timeout`): `dlls/wininet/internet.c`: `INTERNET_OPTION_LISTEN_TIMEOUT` (11) is
+accepted by `InternetSetOption` on a handle (the value is checked for its size and not used) and without a handle, instead
+of failing with `ERROR_INTERNET_INVALID_OPTION` (12009) after "Option 11 STUB". Copilot's sign-in library sets it after the
+account's answer and then shows its error page with that code (tag 53u4r). Test: `dlls/wininet/tests/internet.c`
+(`test_listen_timeout_option`).
+
+2026-11-23 (Wine 0ea11056, 9ab267df and df980993 on claude/merge-11.22, branch `claude/wam-answer-shape`):
+`dlls/windows.security.authentication.web.core` (`account.c`, `broker.c`, `map.c`, `private.h`; `map.c`: the string map's
+`GetView` returns a read-only `IMapView` of the same map, it was `E_NOTIMPL`) and `include/wine/tokenbroker.h`
+(a WineExplorer DLL, listed for the stock tree's sake): the token broker's answer carries the response WebAccount's
+Properties (a new reply field, `TOKENBROKER_REPLY_ACCOUNT_PROPERTIES`, as pairs); `IWebAccount2::get_Properties` returns
+them (it was `E_NOTIMPL`); the account's state is `WebAccountState_None` for the `consumers` authority and `Connected`
+for any other, as Windows answers for a Microsoft account (measured with a probe on Windows, docs/WAM_BROKER_DESIGN.md).
+Tests: `tests/web_core.c` (the broker's test provider, run by `tests/wam/run-broker-tests.sh`): the account id, state
+and properties, the batch form body, `MATS`, process-scoped `FindAccountAsync`, a brokered request for another client id
+and Nested App Authentication.

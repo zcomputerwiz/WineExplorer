@@ -2656,6 +2656,11 @@ for _ in $(seq 50); do [ -s "$ROOT/wam-port" ] && break; sleep 0.1; done
 for arch in x86_64 i386; do
     install -m 755 "$BUILD/dlls/windows.security.authentication.web.core/tests/$arch-windows/windows.security.authentication.web.core_test.exe" \
         "$ROOT/probes/web_core_$arch.exe" || { kill "$WAM_AUTH" 2>/dev/null; fail "wam $arch: no web_core test program"; }
+    # each architecture starts from no accounts, as in tests/wam/run-broker-tests.sh: the broker keeps its accounts and
+    # tokens (process and cache), and the tests expect none at the start
+    pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
+    for _ in $(seq 50); do pgrep -u "$ADM" -f tokenbroker.exe > /dev/null || break; sleep 0.1; done
+    rm -rf "/home/$ADM/.local/share/wineexplorer/tokenbroker"
     rc=0
     timeout 300 runuser -u "$ADM" -- env -i HOME="/home/$ADM" USER="$ADM" LOGNAME="$ADM" PATH=/usr/bin:/bin LANG=C \
         DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' \

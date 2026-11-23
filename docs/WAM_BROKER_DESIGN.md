@@ -170,6 +170,95 @@ program (Copilot, ...)                         per-user broker process (tokenbro
 
 Each step is a Wine change (listed in STOCK_CHANGES.md) plus its tests, reviewed and run before the next.
 
+## The shape of Windows' answer for a Microsoft account (measured 2026-11-22)
+
+Found while the owner's real sign-in in Copilot ended in the identity library's own error page (tag 9yzy9, code 0,
+shown after our broker had redeemed the code and returned a token). A small probe run by the owner on Windows
+printed the *shape* of the answer (names, kinds, lengths, character classes; never values, no account data) for the
+request Copilot sends: provider `https://login.microsoft.com`, authority `consumers`, prompt type 1, request
+properties `Client_uiflow=new_account`, `api-version=2.0`, `oauth2_batch=1`, `x-client-info=1`, `telemetry=MATS`,
+`x-client-SKU`, `x-client-Ver`, `mkt`, `nopa=2` (the library calls itself `MSAL.xplat.Win32`, closed source). The
+answer, as a `WebTokenRequestResult` with status Success and one `WebTokenResponse`:
+
+- **Token** is the token endpoint's answer as an URL-encoded form body, not the bare access token. The fields in this
+  order: `access_token` (a JWT-shaped string, 2130 characters for our scope), `token_type` (`Bearer`), `expires_in`
+  (seconds left, a number of 5 digits), `scope` (the granted scopes, space separated), `id_token` (a JWT), `client_info`
+  (base64 text, no padding, about 540 characters). No `refresh_token`.
+- **Response `Properties`** has one entry, `MATS`, a JSON text of 230 characters with the keys `ui_visible`,
+  `correlation_id`, `account_id`, `web_flow_result`, `silent_code`, `silent_bi_sub_code`, `silent_message`,
+  `silent_status`, `is_cached`. There are no `wamcompat_*` entries (those belong to the other consumers' request
+  shape: they are kept when `oauth2_batch` is not asked for).
+- **`WebAccount`**: `Id` is 16 upper-case hex digits (the account's `UID`), `UserName` the sign-in address,
+  `State` is `None` (not Connected), `WebAccountProvider` as asked. `WebAccount.Properties` has nine entries:
+  `IsRoamingEncryptionKeyAvailable` (`false`), `DisplayName`, `FirstName`, `LastName`, `CountryOrRegion` (2 letters),
+  `UserName`, `UID` (the same 16 digits as `Id`), `AgeGroup` (a one digit number) and `SafeCustomerId` (the customer id,
+  16 lower-case hex digits; it is the last 16 digits of the id token's object id `00000000-0000-0000-xxxx-xxxxxxxxxxxx`).
+- `FindAllAccountsAsync` for the provider and client id answers the same `WebAccount` shape (state `None`, the same
+  `Id` and properties).
+
+What the library did with our earlier answer (a bare JWT as Token, six `wamcompat_*` properties, a GUID `Id`, state
+Connected, no account properties): it read `ResponseStatus`, the response data, the account's `Id`, all response
+properties and the `Token`, and then showed its error page without reading anything else; so the cause is in the
+account `Id` form, the response properties or the `Token` form. The answer is built to the measured shape now
+(`src/programs/tokenbroker/provider.c`: `public_account_id`, `account_properties`, `telemetry_property`,
+`batch_token`; `dlls/windows.security.authentication.web.core`: `TOKENBROKER_REPLY_ACCOUNT_PROPERTIES`,
+`IWebAccount2::get_Properties`, state `None` for the `consumers` authority). Branches: superproject
+`claude/vintner-boot-integration` (commits 287bbd88 and 1d661628), Wine `claude/webaccount-properties`. Status: see
+the owner's retries in `docs/HANDOFF.md` once they have run; `AgeGroup` is not sent because the id token does not tell
+it and it is not made up, and neither is `CountryOrRegion` unless the id token has `ctry`.
+
+## What the owner's sign-ins in Copilot and Edge showed (2026-11-22/23)
+
+Copilot signs in and chats on an image with the following broker behaviour; each item was found from the logs of the
+owner's real sign-ins (no tokens kept) and, for the shapes, from the Windows probes above.
+
+- **The answer's shape** is the one measured above (batch form body, `MATS`, hex16 `Id`, state `None`, nine account
+  properties). The library only accepted the answer once the Token, the account Id and the properties all had that form
+  (error tags 9yzy9, then 53u4r: `wininet` refused `INTERNET_OPTION_LISTEN_TIMEOUT`, Wine branch
+  `claude/wininet-listen-timeout`, see STOCK_CHANGES.md).
+- **FindAccountAsync** names no client id. A process may find the accounts of the client ids it has itself used
+  (`remember_client`, `find_account`: an in-memory table of 16 processes with 4 client ids each); another process's
+  accounts stay invisible. Without it Copilot kept asking and its window stayed black.
+- **Nested App Authentication.** Copilot's silent requests carry `child_client_id` and `child_redirect_uri` (the web
+  app inside it, with `brk-multihub://m365.cloud.microsoft`) and `is_scope_request`. The token is for the child: the
+  refresh names the child as `client_id` and `redirect_uri` and the parent as `brk_client_id` and `brk_redirect_uri`
+  (`oauth_refresh_nested`); the token is cached under the child's client id and the parent's refresh token stays the
+  account's. Without it Copilot rejected every silent answer (`Silent token acquisition FAILED ... is_naa=1`) and the
+  chat never started.
+- **Windows keeps the account for the user, not per client id** (second probe, `winprobe` outside the repository,
+  Edge's requests): with one account, silent requests succeed for Edge's client id `82864fa0-...`, for MSN's
+  `f3222e55-...` and for OneService's `d7b530a4-...`, and for the legacy scopes `service::ssl.live.com::MBI_SSL_SHORT`,
+  `service::substrate.office.com::MBI_SSL`, `service::www.msn.com::mbi_ssl` and
+  `service::http://Passport.NET/purpose::PURPOSE_GETKEYDATA_ANAHEIM`. All answers have the batch form body (access
+  token, `token_type`, `expires_in`, `scope`, `id_token`, `client_info`; for `service::` scopes the access token is an
+  opaque base64-like string, not a JWT, and `scope` is the requested scope); the silent `MATS` has 22 keys
+  (`wam_account_on_end`, `perf`, `correlation_id`, `wam_blob_version`, `client_id`, `scope`, `authority`, `provider_id`,
+  `client_binary_version`, `broker_version`, `wam_account_on_start`, `prompt_behavior`, `api_error_code`, `ui_visible`,
+  `ui_allowed`, `server_error_code`, `account_id`, `silent_code`, `silent_bi_sub_code`, `silent_message`,
+  `silent_status`, `is_cached`; the interactive one has the nine listed above). The broker sends the nine in both cases.
+- **Other client ids.** The broker kept accounts per client id, so Edge's requests under its other client ids were all
+  refused ("no account": 41 of them in one run). A silent request whose client id has no account now uses the account of
+  another client id the same process has used and asks for the token as the requested client through it (a brokered
+  refresh, `account_of_used_client`); whether the token endpoint accepts that for every first-party client id is
+  to be seen. A process still never sees another process's accounts.
+- **Edge** (157.0.4341.60 from the enterprise MSI) installs and runs in the machine prefix; its sign-in works, and its
+  profile showed "Verify it's you" while those requests were refused. Its window is black with GPU rendering on (the
+  default) and draws with `--disable-gpu`.
+
+### Known open after the sign-ins (2026-11-23)
+
+- Brokered requests for other first-party client ids (MSN `f3222e55-...`, OneService `d7b530a4-...`, the Bing scope)
+  are answered HTTP 400 `invalid_request` by the token endpoint; the broker logs only the code, not the text. Edge's sync
+  works without them.
+- **The sign-in window opens behind other windows**: behind Edge's full-screen first-run page and Edge's own "Sign in"
+  popup (for Copilot it was on top). It has to be raised by hand (`xdotool windowraise`). Next: `SetForegroundWindow`
+  plus the owner window (`webview.c`).
+- Edge's window stays black with GPU rendering (the default) in the QEMU test VM (no GPU: software GL, `llvmpipe`); with
+  `--disable-gpu` it draws. Not looked at yet.
+- A Copilot VM needs about 7 GB resident at idle on software GL (16 Chromium processes, 3 GPU processes, no leak): a 4 GB
+  VM is killed by the OOM killer.
+- The silent answer's `MATS` has 22 keys on Windows; the broker sends the nine of the interactive answer.
+
 ## Open questions
 
 - Personal accounts and the redirect URI: whether Copilot's client takes its consumers tokens through the v2.0
@@ -178,3 +267,29 @@ Each step is a Wine change (listed in STOCK_CHANGES.md) plus its tests, reviewed
   if it does and that parameter is not public, the broker stops there.
 - Where `tokenbroker.exe` starts from: on demand by the WinRT side (simplest), or as a per-session service that
   wexhost starts.
+
+### Edge's first-run "Sign in" page, and `login.windows.local` (2026-11-23)
+
+- On a PC with a local account, a probe on Windows measured: `FindAccountProviderAsync("https://login.windows.local")`
+  answers null, `FirstSignInSettings.GetDefault()` is an empty map, and the user has no account name. Edge on that PC
+  still signs a fresh profile in at once (an implicit sign-in from another source; not the default account).
+- Tried in Wine: the same null answer for `login.windows.local` with the broker. Copilot then took a different path and
+  showed a Microsoft error page ("Something went wrong [4otqj]") although the broker had signed it in; with the
+  provider served again Copilot loads signed in. The null answer was reverted: keep serving the provider.
+- Open: Edge's first-run Sign in button does nothing in the VM (no interactive request reaches the broker; only
+  `FindAllAccounts` finds nothing, and `Windows.System.UserProfile.FirstSignInSettings` is requested and missing). The
+  profile menu's sign-in works, and its window now stays in front (the broker's window is topmost while open).
+
+### Edge's first run, resolved (2026-11-23)
+
+- Edge's first-run "Sign in" button did nothing, and a profile reset still came up signed in, because of a shared
+  account store outside the profile and outside the broker's cache: `%LOCALAPPDATA%\Microsoft\OneAuth` and
+  `...\IdentityCache` (Microsoft's identity library, shared by Edge and Copilot; Edge signs a fresh profile in from
+  it, "implicit sign-in"). With both folders moved aside, a natural first run (no `--force-first-run`) shows Edge's own
+  "Sign in" window, then the broker's interactive sign-in (window in front, the broker's window is topmost), and the
+  account and its sync come up (profile, extensions). Test recipe: stop Edge and Copilot, move `OneAuth`,
+  `IdentityCache` and Edge's `User Data` aside, start Edge. Copilot needs to sign in again afterwards.
+- The first-run flow ends in a "One more step: check the notification on your device" page that does not finish (its
+  arrow does not skip it); restarting Edge completes the setup. Not looked into further: it likely waits for a Windows
+  notification or the internal `Windows.Internal.Security.WebAuthentication.AuthenticationManager`, which is missing.
+- `--force-first-run` is not a fair test: with the shared store present the flow behaves differently.
