@@ -13,9 +13,10 @@ set -u
 BUILD=${1:-/root/WE-wamprov/build/wow64}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 if [ -z "${WEX_WAM_NS:-}" ]; then
-    install -d -m 1777 /var/tmp/wex-wam-x
-    exec env WEX_WAM_NS=1 unshare --mount --propagation private sh -c \
-        "mount --bind /var/tmp/wex-wam-x /tmp/.X11-unix && exec bash '$0' '$BUILD'"
+    # an X socket folder of this run's own (a shared one let two runs at once meet on display :97)
+    XDIR=$(mktemp -d /var/tmp/wex-wam-x.XXXXXX) && chmod 1777 "$XDIR" || exit 1
+    exec env WEX_WAM_NS=1 WEX_WAM_XDIR="$XDIR" unshare --mount --propagation private sh -c \
+        "mount --bind '$XDIR' /tmp/.X11-unix && exec bash '$0' '$BUILD'"
 fi
 
 WORK=$(mktemp -d /var/tmp/wex-wam-test.XXXXXX)
@@ -30,12 +31,21 @@ cleanup()
     "$BUILD/server/wineserver" -k 2>/dev/null
     [ -n "${AUTH_PID:-}" ] && kill "$AUTH_PID" 2>/dev/null
     [ -n "${X_PID:-}" ] && kill "$X_PID" 2>/dev/null
+    # a failed run keeps its logs (the prefix is left out: it is large and made again by the next run)
+    if [ "$FAILS" != 0 ] || [ -n "${WEX_WAM_KEEP:-}" ]; then
+        rm -rf /var/tmp/wex-wam-last; mkdir -p /var/tmp/wex-wam-last
+        cp "$WORK"/*.log /var/tmp/wex-wam-last/ 2>/dev/null
+        echo "logs kept in /var/tmp/wex-wam-last"
+    fi
     rm -rf "$WORK"
+    [ -n "${WEX_WAM_XDIR:-}" ] && rm -rf "$WEX_WAM_XDIR"
 }
 trap cleanup EXIT
 
 Xvfb :97 -screen 0 1024x768x24 -nolisten tcp > "$WORK/xvfb.log" 2>&1 &
 X_PID=$!
+for _ in $(seq 100); do [ -S /tmp/.X11-unix/X97 ] && break; sleep 0.1; done
+[ -S /tmp/.X11-unix/X97 ] || { fail "Xvfb did not start"; cat "$WORK/xvfb.log"; exit 1; }
 python3 "$HERE/test_authority.py" "$WORK/port" 2> "$WORK/authority.log" &
 AUTH_PID=$!
 for _ in $(seq 50); do [ -s "$WORK/port" ] && break; sleep 0.1; done
@@ -45,6 +55,24 @@ PORT=$(cat "$WORK/port")
 timeout 300 "$BUILD/wine" wineboot -i > "$WORK/wineboot.log" 2>&1 || { fail wineboot; tail -5 "$WORK/wineboot.log"; exit 1; }
 # test_broker sets Broker and TestAuthority for its own run (the other tests check the path without a broker)
 export WEBCORE_TEST_AUTHORITY="http://127.0.0.1:$PORT/"
+
+CACHE=$HOME/.local/share/wineexplorer/tokenbroker/cache
+check_cache()   # arch
+{
+    if [ -f "$CACHE" ]; then
+        mode=$(stat -c %a "$CACHE")
+        dmode=$(stat -c %a "$(dirname "$CACHE")")
+        # Wine's server gives a user's ACE to the user and group bits (sd_to_mode); others get nothing (B72)
+        case $mode in 600|640|660) pass "$1: cache file mode $mode, nothing for others" ;; *) fail "$1: cache file mode $mode" ;; esac
+        case $dmode in 700|750|770) pass "$1: cache folder mode $dmode, nothing for others" ;; *) fail "$1: cache folder mode $dmode" ;; esac
+        # the test refuses the refresh token of ok@wine.test (oid-ok): its account and tokens of every client id are
+        # gone, while the accounts signed in afterwards (msa, org) are cached
+        grep -q 'oid-ok' "$CACHE" && fail "$1: the cache still holds the signed-out account's tokens" ||
+            pass "$1: cache emptied of the account by the refused refresh"
+    else
+        fail "$1: no cache file"
+    fi
+}
 
 T=dlls/windows.security.authentication.web.core/tests
 for arch in x86_64 i386; do
@@ -63,23 +91,9 @@ for arch in x86_64 i386; do
         grep -E 'Test failed|Test succeeded inside todo|unhandled' "$WORK/web_core-$arch.log" | head -20
     fi
     grep -q 'skipped: the token broker' "$WORK/web_core-$arch.log" && fail "web_core $arch: the broker tests were skipped"
+    check_cache "$arch"   # before the next architecture removes it (the 64-bit cache was never checked)
 done
-
-CACHE=$HOME/.local/share/wineexplorer/tokenbroker/cache
-if [ -f "$CACHE" ]; then
-    mode=$(stat -c %a "$CACHE")
-    dmode=$(stat -c %a "$(dirname "$CACHE")")
-    # Wine's server gives a user's ACE to the user and group bits (sd_to_mode); others get nothing (B72)
-    case $mode in 600|640|660) pass "cache file mode $mode, nothing for others" ;; *) fail "cache file mode $mode" ;; esac
-    case $dmode in 700|750|770) pass "cache folder mode $dmode, nothing for others" ;; *) fail "cache folder mode $dmode" ;; esac
-    # the test refuses the refresh token of ok@wine.test (oid-ok): its account and tokens of every client id are gone,
-    # while the accounts signed in afterwards (msa, org) are cached
-    grep -q 'oid-ok' "$CACHE" && fail "the cache still holds the signed-out account's tokens" || pass "cache emptied of the account by the refused refresh"
-else
-    fail "no cache file"
-fi
 grep -c '"POST /' "$WORK/authority.log" > /dev/null
 echo "authority: $(curl -s "http://127.0.0.1:$PORT/stats" 2>/dev/null)"
-[ "${WEX_WAM_KEEP:-}" ] && { cp -r "$WORK" /var/tmp/wex-wam-last; echo "kept in /var/tmp/wex-wam-last"; }
 [ $FAILS = 0 ] && echo "ALL PASS" || echo "FAILED $FAILS"
 exit $FAILS

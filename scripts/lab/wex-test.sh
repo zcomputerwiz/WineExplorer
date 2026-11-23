@@ -50,7 +50,10 @@ fi
 
 # the changed paths: superproject ones as they are, Wine's as "wine:PATH"
 local super wine old changed=() p
-super=$( { "${SGIT[@]}" diff --name-only "$BASE" -- . ':!wine'; "${SGIT[@]}" ls-files --others --exclude-standard; } | sort -u)
+# untracked files only in the project's folders: a scan of the whole worktree over /mnt/d (other agents' scratch
+# folders included) took most of a minute
+super=$( { "${SGIT[@]}" diff --name-only "$BASE" -- . ':!wine';
+           "${SGIT[@]}" ls-files --others --exclude-standard -- src scripts installer tools tests docs vintner; } | sort -u)
 old=$("${SGIT[@]}" rev-parse "$BASE:wine" 2>/dev/null)
 if [ -n "$old" ] && "${WGIT[@]}" rev-parse -q --verify "$old^{commit}" > /dev/null 2>&1; then
     wine=$( { "${WGIT[@]}" diff --name-only "$old"; "${WGIT[@]}" ls-files --others --exclude-standard; } | sort -u)
@@ -65,18 +68,22 @@ echo "base $BASE (Wine ${old:0:12}); ${#changed[@]} changed paths"
 
 # step 1: the map
 local -A checks=() modules=()
-local line glob list matched c m unmapped=0
+local glob list matched c m i unmapped=0 globs=() lists=()
+# the map is read once (a batch changes hundreds of paths)
+while read -r glob list; do
+    case $glob in ''|'#'*) continue ;; esac
+    globs+=("$glob"); lists+=("$list")
+done < "$MAP"
 for p in "${changed[@]}"; do
     matched=
-    while read -r glob list; do
-        case $glob in ''|'#'*) continue ;; esac
+    for i in "${!globs[@]}"; do
         # shellcheck disable=SC2053
-        [[ $p == $glob ]] || continue
+        [[ $p == ${globs[i]} ]] || continue
         matched=1
-        IFS=, read -ra cs <<< "$list"
+        IFS=, read -ra cs <<< "${lists[i]}"
         for c in "${cs[@]}"; do [ "$c" = none ] || checks[$c]=1; done
         break   # the first matching rule decides (the map lists specific rules before general ones)
-    done < "$MAP"
+    done
     if [ -z "$matched" ]; then
         checks[normalsuite]=1; unmapped=$((unmapped + 1))
         echo "NOTE: no rule for $p (normalsuite; add a rule to scripts/lab/test-map.txt)"
@@ -84,9 +91,10 @@ for p in "${changed[@]}"; do
     # the Wine module the path belongs to
     m=
     case $p in
-        wine:dlls/*/*|wine:programs/*/*) m=${p#wine:}; m=${m%%/*}/$(echo "$m" | cut -d/ -f2) ;;
-        src/dlls/*/*|src/programs/*/*) m=${p#src/}; m=${m%%/*}/$(echo "$m" | cut -d/ -f2) ;;
+        wine:dlls/*/*|wine:programs/*/*) m=${p#wine:} ;;
+        src/dlls/*/*|src/programs/*/*) m=${p#src/} ;;
     esac
+    if [ -n "$m" ]; then local top=${m%%/*} rest=${m#*/}; m=$top/${rest%%/*}; fi
     [ -z "$m" ] || modules[$m]=1
 done
 echo "modules: ${!modules[*]}"
@@ -140,7 +148,9 @@ done
 # step 5: the suites, on that build
 for c in t1suite normalsuite; do
     [ -n "${checks[$c]:-}" ] || continue
-    WEX_ANY_BUILD=1 bash "$D/scripts/lab/wex-run.sh" "$c" | grep -v '^NOTE: WEX_ANY_BUILD' || rc=1
+    # the suite's own status decides, not grep's (a failed suite once read as a pass through the pipe; Codex review)
+    WEX_ANY_BUILD=1 bash "$D/scripts/lab/wex-run.sh" "$c" | grep -v '^NOTE: WEX_ANY_BUILD'
+    [ "${PIPESTATUS[0]}" = 0 ] || rc=1
 done
 if [ -n "${checks[lab]:-}" ]; then bash "$D/scripts/lab/wex-run.sh" lab || rc=1; fi
 
