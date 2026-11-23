@@ -136,7 +136,8 @@ static INT_PTR CALLBACK settings_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
         SetWindowTextW(combo, servers[0] ? servers : DEFAULT_ENTRY);
         /* without the service (or without time synchronization at all) there is nothing to name or to ask for */
         EnableWindow(combo, st.have_servers && st.info.can_ntp);
-        EnableWindow(GetDlgItem(hwnd, IDC_INET_UPDATE), st.have_servers && st.have_info && st.info.can_ntp);
+        /* the service refuses while network time is off, so Update now waits for it to be on (applied, not only ticked) */
+        EnableWindow(GetDlgItem(hwnd, IDC_INET_UPDATE), st.have_servers && st.have_info && st.info.can_ntp && st.info.ntp_enabled);
         dialog_status(hwnd, &st);
         return TRUE;
     }
@@ -154,6 +155,17 @@ static INT_PTR CALLBACK settings_dlg_proc(HWND hwnd, UINT msg, WPARAM wparam, LP
     case WM_COMMAND:
         switch (LOWORD(wparam))
         {
+        case IDC_INET_AUTO:
+            if (HIWORD(wparam) == BN_CLICKED)
+            {
+                struct inet_state st;
+                read_state(&st);
+                /* Update now follows the state that is applied: turning the box on takes effect with OK */
+                EnableWindow(GetDlgItem(hwnd, IDC_INET_UPDATE), st.have_servers && st.have_info && st.info.can_ntp &&
+                             st.info.ntp_enabled && IsDlgButtonChecked(hwnd, IDC_INET_AUTO) == BST_CHECKED);
+            }
+            return TRUE;
+
         case IDC_INET_UPDATE:
         {
             DWORD err = WexTimeSyncNow(hwnd);

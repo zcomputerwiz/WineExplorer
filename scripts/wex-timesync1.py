@@ -6,13 +6,14 @@ bus, as root.
 
 timedated can turn network time on and off (SetNTP) but cannot name a server, and systemd-timesyncd reads its servers
 from files. This service writes the drop-in /etc/systemd/timesyncd.conf.d/90-wineexplorer.conf (NTP=) and restarts
-systemd-timesyncd, which synchronises at once when it starts: that is also "Update Now".
+systemd-timesyncd when it runs (try-restart: a stopped one stays stopped), which synchronises at once when it
+starts: that is also "Update Now", refused while network time is off.
 
 - Servers (property): the servers in effect, as a space separated string: ours when set, else the NTP= of the system's
   timesyncd.conf and its drop-ins; empty means the distribution's defaults (FallbackNTP).
 - SetServers(servers, interactive): servers is a space separated list of host names or addresses, at most 8; an empty
   string removes our drop-in (the system's defaults apply again).
-- SyncNow(interactive): restart systemd-timesyncd.
+- SyncNow(interactive): restart systemd-timesyncd; an error while network time is off.
 
 Reading needs nothing. Changing needs polkit's org.wineexplorer.timesync1.set-servers (auth_admin_keep), the rule of
 timedate1's own changes. D-Bus activated (wex-timesync1.service); it ends after a minute without calls. Installed as
@@ -126,8 +127,23 @@ def run_systemctl(*args, run=None):
         raise Failed((r.stderr or r.stdout or f"systemctl exited {r.returncode}").strip())
 
 
+def reload_servers(run=None):
+    """Make a running timesyncd read the new servers. try-restart: a stopped unit stays stopped, because timedated's
+    SetNTP(false) stopped it on purpose and the servers can be edited while synchronisation is off."""
+    run_systemctl("try-restart", UNIT, run=run)
+
+
 def sync_now(run=None):
-    run_systemctl("restart", UNIT, run=run)
+    """Synchronise now: a running timesyncd is restarted (it synchronises when it starts). Refused while network time
+    is off: starting the unit would run it against the user's setting."""
+    run = run or subprocess.run
+    try:
+        r = run([SYSTEMCTL, "is-active", "--quiet", UNIT], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise Failed(f"systemctl: {exc}")
+    if r.returncode != 0:
+        raise Failed("network time synchronization is turned off")
+    run_systemctl("try-restart", UNIT, run=run)
 
 
 def refusal(result):
@@ -200,7 +216,7 @@ def serve():
 
             def change():
                 set_servers(str(text))
-                sync_now()   # timesyncd reads its files when it starts
+                reload_servers()   # a running timesyncd reads its files when it starts
                 ok()
             self.authorized(sender, interactive, change, fail)
 

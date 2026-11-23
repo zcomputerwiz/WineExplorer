@@ -9,3 +9,6 @@ Description=WineExplorer Internet Time servers
 Type=dbus
 BusName=org.wineexplorer.TimeSync1
 ExecStart=/usr/local/sbin/wex-timesync1
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes

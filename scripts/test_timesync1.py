@@ -40,13 +40,43 @@ class TimeSyncTest(unittest.TestCase):
             ts.set_servers("good.example bad;host", self.dir)
         self.assertFalse(os.path.exists(os.path.join(self.dir, ts.DROPIN)))
 
-    def test_sync_now_reports_a_failing_systemctl(self):
+    @staticmethod
+    def fake_systemctl(active, log):
+        class R:
+            def __init__(self, code):
+                self.returncode = code
+                self.stderr = ""
+                self.stdout = ""
+
+        def run(argv, **kw):
+            log.append(argv[1:])
+            return R(0 if (argv[1] != "is-active" or active) else 3)
+        return run
+
+    def test_reload_uses_try_restart_so_a_stopped_unit_stays_stopped(self):
+        log = []
+        ts.reload_servers(run=self.fake_systemctl(False, log))
+        self.assertEqual(log, [["try-restart", ts.UNIT]])
+        self.assertFalse(any(v[0] in ("restart", "start") for v in log))
+
+    def test_sync_now_restarts_a_running_unit_only(self):
+        log = []
+        ts.sync_now(run=self.fake_systemctl(True, log))
+        self.assertEqual([v[0] for v in log], ["is-active", "try-restart"])
+
+    def test_sync_now_is_refused_while_network_time_is_off(self):
+        log = []
+        with self.assertRaises(ts.Failed):
+            ts.sync_now(run=self.fake_systemctl(False, log))
+        self.assertEqual([v[0] for v in log], ["is-active"])   # nothing was started or restarted
+
+    def test_a_failing_systemctl_is_reported(self):
         class R:
             returncode = 1
             stderr = "Unit not found"
             stdout = ""
         with self.assertRaises(ts.Failed):
-            ts.sync_now(run=lambda *a, **k: R())
+            ts.reload_servers(run=lambda *a, **k: R())
 
 
 if __name__ == "__main__":
