@@ -3872,9 +3872,13 @@ grep -qx 'LockoutBadCount = 4' <<<"$TXT" && grep -qx '\[System Access\]' <<<"$TX
     { echo "$TXT" >&2; fail "secedit: the exported template misses the lockout policy or the consent option"; }
 LSE="$LGP/Machine/Microsoft/Windows NT/SecEdit"
 gp_tree
-TNAME=cfg.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
-    'LockoutBadCount = 6' 'ResetLockoutCount = 20' '[Registry Values]' \
-    'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3'
+# the template to configure is UTF-8 with a byte order mark (as Local Security Settings and other editors may save it):
+# secedit reads it as UTF-8, so the stored UTF-16 template starts with [Unicode] and keeps a letter outside ASCII
+{ printf '\xef\xbb\xbf'
+  printf '%s\r\n' '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
+      'LockoutBadCount = 6' 'ResetLockoutCount = 20' '[Registry Values]' \
+      'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3'
+  printf '; caf\xc3\xa9\r\n'; } > "$POL/cfg.inf"
 chmod 0644 "$POL/cfg.inf"
 OUT="$(as_wine "$STD" secedit /configure /cfg "$(winpath "$POL/cfg.inf")" || true)"
 grep -q 'Task is not completed' <<<"$OUT" && [ ! -e "$LSE/GptTmpl.inf" ] ||
@@ -3895,6 +3899,9 @@ for i in $(seq 1 60); do [ -s "$REQ" ] && break; sleep 0.5; done
 [ -s "$REQ" ] || { cat "$POL/secedit.out" >&2; fail "secedit: /configure did not ask for a refresh"; }
 [ -f "$LSE/GptTmpl.inf" ] || fail "secedit: /configure did not store the template"
 [ "$(head -c 2 "$LSE/GptTmpl.inf" | od -An -tx1 | tr -d ' \n')" = fffe ] || fail "secedit: the stored template has no byte order mark"
+STORED="$(iconv -f UTF-16LE -t UTF-8 "$LSE/GptTmpl.inf" | tr -d '\r' | sed '1s/^\xef\xbb\xbf//')"
+[ "$(head -n 1 <<<"$STORED")" = '[Unicode]' ] && grep -qx '; café' <<<"$STORED" ||
+    { head -c 120 <<<"$STORED" | od -c | head -4 >&2; fail "secedit: a UTF-8 template was not read as UTF-8"; }
 # installed by gpsvc: the store file is session 0's own, readable by everyone, and no request or error is left behind
 [ "$(stat -c '%U:%a' "$LSE/GptTmpl.inf")" = "$S0U:644" ] || fail "secedit: the stored template is $(stat -c '%U:%a' "$LSE/GptTmpl.inf")"
 [ -z "$(ls -A "$LGP/Spool")" ] || fail "secedit: the spool is not empty: $(ls -A "$LGP/Spool")"
