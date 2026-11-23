@@ -123,23 +123,30 @@ echo "PASS standard-user units empty in a shipping build"
 # 7. Production objects byte-for-byte unchanged check (cmp). The baseline is the
 # last reviewed production main.c (since S18e: with the R12 bounded-reply fix,
 # docs/E1_S18E_REMEDIATION.md); regenerate it only after reviewing a main.c change.
-echo "==> Verifying production objects are byte-for-byte identical (cmp)"
+# One baseline per worktree (/tmp/wex-baseline/<worktree>/): a single /tmp file was
+# rewritten by other sessions' worktrees on the same machine (GPO, 2026-11-23).
+BASELINE_DIR=/tmp/wex-baseline/$(basename "$REPO")
+echo "==> Verifying production objects are byte-for-byte identical (cmp, $BASELINE_DIR)"
 x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -I"$REPO/src/include" \
     -c "$REPO/src/programs/wexelevate/main.c" \
     -o "$FIXTURE/main_prod64.o"
-if [ -f /tmp/main_prod64_baseline.o ]; then
-    cmp /tmp/main_prod64_baseline.o "$FIXTURE/main_prod64.o" || fail "production main_prod64.o modified"
+if [ -f "$BASELINE_DIR/main_prod64_baseline.o" ]; then
+    cmp "$BASELINE_DIR/main_prod64_baseline.o" "$FIXTURE/main_prod64.o" || fail "production main_prod64.o modified"
+else
+    echo "NOTE: no reviewed 64-bit baseline in $BASELINE_DIR: not compared"
 fi
 
 i686-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -I"$REPO/src/include" \
     -c "$REPO/src/programs/wexelevate/main.c" \
     -o "$FIXTURE/main_prod32.o"
-if [ -f /tmp/main_prod32_baseline.o ]; then
-    cmp /tmp/main_prod32_baseline.o "$FIXTURE/main_prod32.o" || fail "production main_prod32.o modified"
+if [ -f "$BASELINE_DIR/main_prod32_baseline.o" ]; then
+    cmp "$BASELINE_DIR/main_prod32_baseline.o" "$FIXTURE/main_prod32.o" || fail "production main_prod32.o modified"
+else
+    echo "NOTE: no reviewed 32-bit baseline in $BASELINE_DIR: not compared"
 fi
-echo "PASS production objects byte-for-byte identical to baseline"
+echo "PASS production objects byte-for-byte identical to baseline (where one exists)"
 
 # 8. WO-18: build and run the E1R8 codec test natively.
 echo "==> Building and running E1R8 codec test (native)"

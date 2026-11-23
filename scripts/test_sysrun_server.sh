@@ -79,19 +79,469 @@ fail()
             [ ! -f "$log" ] || { echo "--- $log" >&2; tail -120 "$log" >&2; }
         done
     fi
+    # inside a section this ends the section; outside (the fixture, a setup step between sections) the suite
+    [ -n "${SEC_IN:-}" ] || SEC_FATAL="${SEC_FATAL:-a setup step after section ${SEC_LAST:-(none yet)}}"
     exit 1
 }
 # each check prints the seconds since the previous one, so the slow parts of the suite show in its log
 OK_LAST=$SECONDS
-ok() { echo "$1=PASS +$((SECONDS - OK_LAST))s"; OK_LAST=$SECONDS; PASS=$((PASS + 1)); }
-# WEX_SUITE_ONLY=NAME[,NAME...]: a quicker run while working on one area (docs/TOOLING.md, "wex-run"). Three groups of
-# checks that nothing later needs can be left out: c2 (sections 1 to 6, the launcher and machine root, about six
-# minutes, five of them one full wineboot update), sd (the secure desktop, about a minute and a half) and c7 (the
-# callers of the broker, about a minute and a half). Listing one of them keeps it; everything else (the fixture,
-# C3, the broker, consent, session 0 with Group Policy, the own prefix) always runs, setup included. Unset: all.
-# The full suite runs before every merge.
-want() { [ -z "${WEX_SUITE_ONLY:-}" ] || [[ ",$WEX_SUITE_ONLY," == *",$1,"* ]]; }
-[ -z "${WEX_SUITE_ONLY:-}" ] || echo "NOTE: WEX_SUITE_ONLY=$WEX_SUITE_ONLY: c2, sd and c7 run only when listed"
+ok()
+{
+    echo "$1=PASS +$((SECONDS - OK_LAST))s"; OK_LAST=$SECONDS; PASS=$((PASS + 1))
+    [ -z "${SEC_IN:-}" ] || [ "$(sec_forced)" != "$((PASS - SEC_PASS0))" ] ||
+        fail "forced after check $((PASS - SEC_PASS0)) of section $SEC_CUR (WEX_SECTION_FORCE_FAIL, a test of the restore)"
+}
+# WEX_SECTION_FORCE_FAIL=NAME[:N|:end][,...]: a TEST OF THE RESTORE ONLY, never set in a merge run (the run fails by
+# design): section NAME fails after its Nth check (default 1) or after its whole body (end), so that its restore, the
+# skips of its dependants and the later sections can be seen on the real fixture. The suite says so at the start.
+sec_forced()   # what WEX_SECTION_FORCE_FAIL asks of the running section: a check number, end, or nothing
+{
+    local sec_t
+    for sec_t in $(tr , " " <<<"${WEX_SECTION_FORCE_FAIL:-}"); do
+        [ "${sec_t%%:*}" = "${SEC_CUR:-}" ] || continue
+        [ "$sec_t" = "${sec_t%%:*}" ] && echo 1 || echo "${sec_t#*:}"
+        return
+    done
+}
+[ -z "${WEX_SECTION_FORCE_FAIL:-}" ] ||
+    echo "NOTE: WEX_SECTION_FORCE_FAIL=$WEX_SECTION_FORCE_FAIL: these sections fail on purpose (a test of the restore, never a merge check)"
+fatal()   # a failure that ends the suite even inside a section (shared state that cannot be trusted any more)
+{
+    echo "FATAL: $*" >&2
+    if [ -n "${SEC_IN:-}" ]; then : > "$SEC_DIR/fatal"; else SEC_FATAL="${SEC_FATAL:-$*}"; fi
+    exit 1
+}
+
+# ---- sections (docs/TOOLING.md, "Sections of the system tier suites") ------------------------------------------
+# The checks run in named sections, each in a subshell of its own. A failed check ends its section, not the suite:
+# the section is reported FAIL, the shared state it may have changed is put back from the snapshot taken before it
+# (the machine root's hive files, the test programs in system32 and syswow64, /etc/wineexplorer, the launcher's
+# directory, the local policy stores, the users' prefix links, processes, kernel settings, mounts, the account
+# watcher) and compared with that snapshot, and the next section runs. A section that needs a failed or skipped one
+# is skipped and says why. A failure outside the sections (the fixture, and the setup steps between sections, which
+# later sections rely on) ends the suite, and so does a restoration that does not compare equal: damaged shared
+# state must never give passes. The summary lists every section with PASS, FAIL or SKIP; the exit status is 1 when
+# a section failed. What a section defines (functions, variables) is handed back to the suite's shell afterwards;
+# after a failure only the names that are new, so the suite's own state stays that of the restored snapshot.
+# The table: the name, the sections it needs (- for none), the suites it belongs to (n the normal suite, l the lab
+# suite; the lab suite runs its own sections and a smoke set of ordinary ones with the lab build, chosen to cover
+# what the lab build's flags change: the server's registry, token, process and file paths, wexhost, the profile
+# DLLs of both ABIs, the broker, consent and session 0; WEX_LAB_FULL=1 runs every section there), and its group.
+# WEX_SUITE_ONLY=NAME[,NAME...] takes section and group names and runs those sections and the ones they need: a
+# PARTIAL run for working on one area, never a merge check (the full suite runs on every batch of merges).
+SEC_TABLE='
+c2_launcher      -                  n   c2
+c2_hives         -                  n   c2
+c2_sysacct       -                  n   c2
+c2_replace       -                  n   c2
+c2_wineboot      -                  n   c2
+c2_ptrace        -                  n   c2
+reg_hku          -                  nl  reg
+reg_admin_group  -                  n   reg
+c3_std           -                  nl  c3
+c3_adm           -                  n   c3
+c4_build         -                  nl  c4
+c4_shipping      c4_build           nl  c4
+c4_control       c4_build           nl  c4
+c4_elevated      c4_build           nl  c4
+c4_unix          c4_build           nl  c4
+c4_frozen        c4_build           nl  c4
+c4_lease         c4_build           n   c4
+c4_alpc          c4_build           n   c4
+c4_udf           c4_build           n   c4
+c4_ab            c4_build           n   c4
+c4_args          c4_build           n   c4
+c4_r13           c4_build           n   c4
+c4_r8            c4_build           nl  c4
+c4_e1s5          c4_build           n   c4
+c4_lab           c4_build           l   lab
+c4_bad           c4_build           n   c4
+c4_race          c4_build           n   c4
+c4_writer        c4_build           n   c4
+c4_msi_doc       c4_build           n   c4
+c4_appx_doc      c4_build           n   c4
+c4_wam           c4_build           n   c4
+c4_dwm           c4_build           n   c4
+c4_std           c4_build           n   c4
+c4_noleases      c4_build           n   c4
+c5_build         c4_build           nl  c5
+c5_click         c5_build           nl  c5
+c5_appx          c5_build           n   c5
+c5_concurrent    c5_build           n   c5
+c5_writer        c5_build           n   c5
+c5_missing       c5_build           n   c5
+c5_std           c5_build           n   c5
+c5_shipping      c4_build           n   c5
+sd_desktop       c4_build           n   sd
+sd_policy        c4_build           n   sd
+sd_bad_desktop   c5_build           n   sd
+c7_build         c4_build           n   c7
+c7_policy0       c4_build           n   c7
+c7_shexec        c7_build,c5_build  n   c7
+c7_installers    c5_build           n   c7
+c7_msi           c5_build           n   c7
+c7_s4            c5_build           n   c7
+c7_s2            c5_build           n   c7
+c7_s3            c5_build           n   c7
+s0_base          -                  nl  s0
+s0_token         s0_base,c5_build   nl  s0
+s0_hive          s0_base            nl  s0
+s0_virt          s0_base            n   s0
+s0_link          s0_base            n   s0
+s0_link2         s0_base            n   s0
+s0_programs      s0_base            n   s0
+s0_service       s0_base            n   s0
+gp_registry      s0_base            n   gp
+gp_local         s0_base            n   gp
+gp_template      s0_base            n   gp
+gp_netaccounts   s0_base            n   gp
+gp_spool         s0_base            n   gp
+gp_edit          s0_base            n   gp
+gp_users         s0_base            n   gp
+gp_secpol        s0_base            n   gp
+gp_join          s0_base            n   gp
+gp_list          s0_base            n   gp
+gp_domain        s0_base            n   gp
+dom_logon        s0_base            n   gp
+s0_save          s0_token           n   s0
+r8e2e            c4_build           l   lab
+own_prefix       -                  n   own
+own_broker       c4_build           n   own
+'
+declare -A SEC_DEPS=() SEC_SUITES=() SEC_GRP=() SEC_RES=() SEC_WHY=() SEC_SEL=()
+SEC_ORDER=()
+while read -r sec_n sec_d sec_s sec_g; do
+    [ -n "$sec_n" ] || continue
+    SEC_ORDER+=("$sec_n"); SEC_SUITES[$sec_n]="$sec_s"; SEC_GRP[$sec_n]="$sec_g"
+    SEC_DEPS[$sec_n]=""; [ "$sec_d" = - ] || SEC_DEPS[$sec_n]="${sec_d//,/ }"
+done <<<"$SEC_TABLE"
+SEC_SUITE=n
+if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then SEC_SUITE=l; [ "${WEX_LAB_FULL:-0}" != 1 ] || SEC_SUITE=nl; fi
+SEC_DIR="$ROOT/sections"; SNAP="$ROOT/snapshot"
+SEC_FAILED=""; SEC_FATAL=""; SEC_LAST=""; SEC_CUR=""
+SEC_EL=""      # the user whose session (el_up) is up between sections: a restore brings it back
+SEC_S0=0       # session 0 runs between sections
+SEC_E1S6=0     # the lab's S6 service runs between sections
+WATCH_UNITS="" # the account watcher's units held by watch_hold
+# not handed back from a section: the shell's own, the framework's, and the suite's inputs (WEX_*)
+SEC_NOVARS='BASH.*|BASHOPTS|BASHPID|COMP_.*|COLUMNS|COPROC.*|DIRSTACK|EPOCHREALTIME|EPOCHSECONDS|EUID|FUNCNAME|GROUPS|HIST.*|HOSTNAME|HOSTTYPE|IFS|LINENO|LINES|MACHTYPE|MAPFILE|OLDPWD|OPTARG|OPTERR|OPTIND|OSTYPE|PIPESTATUS|PPID|PS[0-9]|PWD|RANDOM|READLINE_.*|REPLY|SECONDS|SHELLOPTS|SHLVL|SRANDOM|UID|_|XV|XV_PID|SEC_.*|sec_.*|WEX_.*|E1S6_LOCK'
+# handed back after a failure too: the count of checks, and what the restore must put back
+SEC_KEEP='PASS OK_LAST DUMPABLE_SAVED LEASES_SAVED WATCH_UNITS'
+
+sec_select() { local sec_d; [ -z "${SEC_SEL[$1]:-}" ] || return 0; SEC_SEL[$1]=1; for sec_d in ${SEC_DEPS[$1]}; do sec_select "$sec_d"; done; }
+if [ -n "${WEX_SUITE_ONLY:-}" ]; then
+    for sec_t in ${WEX_SUITE_ONLY//,/ }; do
+        sec_hit=
+        for sec_n in "${SEC_ORDER[@]}"; do
+            [ "$sec_n" = "$sec_t" ] || [ "${SEC_GRP[$sec_n]}" = "$sec_t" ] || continue
+            sec_select "$sec_n"; sec_hit=1
+        done
+        [ -n "$sec_hit" ] || { echo "WEX_SUITE_ONLY: no section or group '$sec_t'. Sections: ${SEC_ORDER[*]}." \
+            "Groups: $(printf '%s\n' "${SEC_GRP[@]}" | sort -u | tr '\n' ' ')" >&2; exit 2; }
+    done
+    echo "NOTE: WEX_SUITE_ONLY=$WEX_SUITE_ONLY: only these sections and the ones they need run (PARTIAL, not a merge check)"
+fi
+sec_in_groups() { local sec_n sec_g; for sec_n in "${SEC_ORDER[@]}"; do for sec_g; do [ "${SEC_GRP[$sec_n]}" != "$sec_g" ] || echo "$sec_n"; done; done; }
+sec_ok() { [ "${SEC_RES[$1]:-}" = PASS ]; }
+sec_static_skip()   # NAME: why the section does not run in this run (suite, switches, selection); nothing when it does
+{
+    local n="$1"
+    case "$SEC_SUITE" in
+        n) [[ "${SEC_SUITES[$n]}" == *n* ]] || { echo "lab suite only"; return; } ;;
+        l) [[ "${SEC_SUITES[$n]}" == *l* ]] || { echo "normal suite only; the lab suite runs its own sections and a smoke set"; return; } ;;
+    esac
+    case "${SEC_GRP[$n]}" in
+        c2) [ "${WEX_C3_ONLY:-0}" != 1 ] || { echo "WEX_C3_ONLY=1"; return; } ;;
+        own) [ "${WEX_C3_NO_OWN:-0}" != 1 ] || { echo "WEX_C3_NO_OWN=1"; return; } ;;
+    esac
+    case "${SEC_GRP[$n]}:$n" in
+        c4:*|c5:*|sd:*|c7:*|s0:*|gp:*|lab:*|own:own_broker) [ "${WEX_C4_SKIP:-0}" != 1 ] || { echo "WEX_C4_SKIP=1"; return; } ;;
+    esac
+    case "${SEC_GRP[$n]}" in s0|gp) [ "${WEX_SKIP_SESSION0:-0}" != 1 ] || { echo "WEX_SKIP_SESSION0=1"; return; } ;; esac
+    [ "$n" != r8e2e ] || [ "${WEX_SKIP_R8_E2E:-0}" != 1 ] || { echo "WEX_SKIP_R8_E2E=1"; return; }
+    [ -z "${WEX_SUITE_ONLY:-}" ] || [ -n "${SEC_SEL[$n]:-}" ] || { echo "not selected (WEX_SUITE_ONLY)"; return; }
+}
+sec_planned()   # NAME: the section has passed, or will run as far as is known now
+{
+    local sec_d
+    [ -z "$(sec_static_skip "$1")" ] || return 1
+    case "${SEC_RES[$1]:-}" in PASS) return 0 ;; FAIL|SKIP) return 1 ;; esac
+    for sec_d in ${SEC_DEPS[$1]}; do sec_planned "$sec_d" || return 1; done
+}
+sec_planned_any() { local sec_n; for sec_n; do [ -n "${SEC_RES[$sec_n]:-}" ] || ! sec_planned "$sec_n" || return 0; done; return 1; }
+
+section()   # NAME: 0 when the section runs now (its body follows in a subshell), 1 when it is skipped
+{
+    local sec_n="$1" sec_why="" sec_d
+    [ -n "${SEC_SUITES[$sec_n]+x}" ] || fatal "section $sec_n is not in SEC_TABLE"
+    sec_why="$(sec_static_skip "$sec_n")"
+    if [ -z "$sec_why" ]; then
+        for sec_d in ${SEC_DEPS[$sec_n]}; do
+            sec_ok "$sec_d" || { sec_why="needs $sec_d: ${SEC_RES[$sec_d]:-not run}"; break; }
+        done
+    fi
+    SEC_LAST="$sec_n"
+    if [ -n "$sec_why" ]; then
+        SEC_RES[$sec_n]=SKIP; SEC_WHY[$sec_n]="$sec_why"
+        echo "--- section $sec_n: SKIP ($sec_why)"
+        return 1
+    fi
+    echo "--- section $sec_n"
+    mkdir -p "$SEC_DIR"; rm -f "$SEC_DIR/fatal" "$SEC_DIR/skip" "$SEC_DIR/state.vars" "$SEC_DIR/state.funcs"
+    snap_take || fatal "the snapshot before section $sec_n failed"
+    compgen -v > "$SEC_DIR/vars.before"
+    SEC_CUR="$sec_n"; SEC_T0=$SECONDS; SEC_PASS0=$PASS
+}
+section_enter() { set -e; SEC_IN=1; SEC_PID=$BASHPID; trap section_dump EXIT; }
+# a section that finds, before it changes anything, that what it tests is not there (a build without the program):
+# SKIP with the reason, not PASS
+section_skip() { echo "$*" > "$SEC_DIR/skip"; exit 0; }
+section_dump()   # the section's EXIT trap: hands its functions and variables to the suite's shell
+{
+    local sec_rc=$? sec_names
+    set +e
+    trap - EXIT
+    [ "$BASHPID" = "$SEC_PID" ] || exit "$sec_rc"
+    if [ "$sec_rc" = 0 ] && [ "$(sec_forced)" = end ] && [ ! -s "$SEC_DIR/skip" ]; then
+        echo "FAIL: forced after the body of section $SEC_CUR (WEX_SECTION_FORCE_FAIL, a test of the restore)" >&2; sec_rc=1
+    fi
+    sec_names="$(compgen -v | grep -vxE "$SEC_NOVARS")"
+    [ "$sec_rc" = 0 ] || sec_names="$(grep -vxFf "$SEC_DIR/vars.before" <<<"$sec_names"; printf '%s\n' $SEC_KEEP)"
+    sec_names="$(echo $sec_names)"
+    [ -z "$sec_names" ] || declare -p $sec_names 2>/dev/null | sed 's/^declare /declare -g /' > "$SEC_DIR/state.vars"
+    declare -f $(compgen -A function | grep -vE '^(section|sec_|snap_)') > "$SEC_DIR/state.funcs"
+    exit "$sec_rc"
+}
+section_leave()   # STATUS of the section's subshell
+{
+    local sec_rc="$1" sec_n="$SEC_CUR" sec_t=$((SECONDS - SEC_T0))
+    set -e
+    [ ! -s "$SEC_DIR/state.funcs" ] || source "$SEC_DIR/state.funcs"
+    [ ! -s "$SEC_DIR/state.vars" ] || source "$SEC_DIR/state.vars"
+    rm -f "$SEC_DIR/state.funcs" "$SEC_DIR/state.vars"
+    SEC_CUR=""
+    if [ "$sec_rc" = 0 ] && [ -s "$SEC_DIR/skip" ]; then
+        SEC_RES[$sec_n]=SKIP; SEC_WHY[$sec_n]="$(cat "$SEC_DIR/skip")"; rm -f "$SEC_DIR/skip"
+        echo "--- section $sec_n: SKIP (${SEC_WHY[$sec_n]})"; return 0
+    fi
+    if [ "$sec_rc" = 0 ]; then SEC_RES[$sec_n]=PASS; echo "--- section $sec_n: PASS ($sec_t s)"; return 0; fi
+    SEC_RES[$sec_n]=FAIL; SEC_FAILED="$SEC_FAILED $sec_n"
+    echo "--- section $sec_n: FAIL ($sec_t s, status $sec_rc)"; echo "FAIL: section $sec_n" >&2
+    if [ -e "$SEC_DIR/fatal" ]; then SEC_FATAL="$sec_n"; SEC_WHY[$sec_n]="fatal"; exit 1; fi
+    if ! section_restore "$sec_n"; then
+        SEC_FATAL="$sec_n"; SEC_WHY[$sec_n]="its changes to the shared state could not be undone"
+        echo "FATAL: the shared state after section $sec_n does not match the snapshot taken before it" >&2
+        exit 1
+    fi
+}
+section_summary()
+{
+    local sec_n sec_r sec_w
+    [ -z "${SEC_SUMMARY_DONE:-}" ] || return 0
+    SEC_SUMMARY_DONE=1
+    echo "=== sections ==="
+    for sec_n in "${SEC_ORDER[@]}"; do
+        sec_r="${SEC_RES[$sec_n]:-}" sec_w="${SEC_WHY[$sec_n]:-}"
+        if [ -z "$sec_r" ]; then
+            sec_r=SKIP; sec_w="$(sec_static_skip "$sec_n")"
+            [ -n "$sec_w" ] || [ -z "$SEC_FATAL" ] || sec_w="not reached: the suite ended at $SEC_FATAL"
+            [ -n "$sec_w" ] || sec_w="not run in this configuration"
+        fi
+        printf 'SECTION %-16s %s%s\n' "$sec_n" "$sec_r" "${sec_w:+ ($sec_w)}"
+    done
+}
+
+# -- what a section may change, and putting it back after a failure
+amb_up() { sec_ok c4_build || return 0; el_up "$1"; SEC_EL="$1"; }   # a session between sections (el_up needs c4_build's probes)
+amb_down() { sec_ok c4_build || return 0; el_down "$1"; SEC_EL=""; }
+# The account watcher (wex-accounts.path) syncs at every change of /etc/passwd, and its timer syncs too; a section that
+# makes accounts the map must not show holds both, stops a sync that is running (it could still publish a map) and
+# waits until it has ended. watch_release starts again what was running; a restore does too.
+watch_hold()
+{
+    local sec_u i
+    WATCH_UNITS=""
+    for sec_u in wex-accounts.path wex-accounts.timer; do
+        systemctl is-active --quiet "$sec_u" 2>/dev/null && WATCH_UNITS="$WATCH_UNITS $sec_u"
+    done
+    systemctl stop wex-accounts.path wex-accounts.timer wex-accounts.service >/dev/null 2>&1 || true
+    for i in $(seq 1 100); do
+        case "$(systemctl is-active wex-accounts.service 2>/dev/null)" in active|activating|deactivating|reloading) sleep 0.1 ;; *) return 0 ;; esac
+    done
+    fail "wex-accounts.service is still running after it was stopped"
+}
+watch_release() { local sec_u; for sec_u in $WATCH_UNITS; do systemctl start "$sec_u" >/dev/null 2>&1 || true; done; WATCH_UNITS=""; }
+# the snapshot: whole trees, the files (not the folders) of the machine root and of the users' own prefixes (their
+# user.reg holds HKCU), and in system32/syswow64 the names and the programs the sections replace (Wine itself rewrites
+# other files there, wineboot for one)
+snap_filedirs() { local sec_u; echo "$M"; for sec_u in "$STD" "$ADM" "$CAR"; do [ ! -d "/home/$sec_u/.wine" ] || echo "/home/$sec_u/.wine"; done; }
+snap_trees() { printf '%s\n' /etc/wineexplorer "$LIBEXEC" "$M/drive_c/windows/system32/GroupPolicy" "$M/drive_c/windows/system32/GroupPolicyUsers"; }
+SNAP_WATCH='winedevice.exe wexelevate.exe wexelevate_test.exe wexelevate_stub.exe consent.exe consent_test.exe leaseprobe.exe wexappx.exe'
+snap_sig()   # DIR [DEPTH]: names, types, modes, owners, link targets and contents (the S6 service's files left out)
+{
+    [ -e "$1" ] || { echo absent; return 0; }
+    # a whole tree: its folder's own owner and mode count too ("."); the files of one folder (DEPTH) are compared alone
+    (cd "$1" && { [ -n "${2:-}" ] || stat -c '. %a %U %G' .; } && find . -mindepth 1 ${2:+-maxdepth $2} \( -name e1s6-lab.py -o -name e1r8.py -o -name evidence.py \) -prune -o \
+            ${2:+-type f} -printf '%p %y %m %U %G %l\n' | LC_ALL=C sort &&
+        find . -mindepth 1 ${2:+-maxdepth $2} \( -name e1s6-lab.py -o -name e1r8.py -o -name evidence.py \) -prune -o -type f -print0 |
+            LC_ALL=C sort -z | xargs -0r md5sum)
+}
+snap_one()   # FILE: type, mode, owners and the link target or the contents
+{
+    [ -e "$1" ] || [ -L "$1" ] || { echo absent; return 0; }
+    stat -c '%F|%a|%U|%G' "$1"
+    if [ -L "$1" ]; then readlink "$1"; else md5sum < "$1"; fi
+}
+snap_take()
+{
+    local i=0 d f sub
+    rm -rf "$SNAP" && mkdir -p "$SNAP/system32" "$SNAP/syswow64" || return 1
+    while read -r d; do
+        i=$((i + 1))
+        if [ -e "$d" ]; then
+            cp -a "$d" "$SNAP/tree$i" || return 1
+            rm -f "$SNAP/tree$i/e1s6-lab.py" "$SNAP/tree$i/e1r8.py" "$SNAP/tree$i/evidence.py"
+        else : > "$SNAP/tree$i.absent"; fi
+    done < <(snap_trees)
+    snap_filedirs > "$SNAP/filedirs"
+    i=0
+    while read -r d; do
+        i=$((i + 1)); mkdir -p "$SNAP/files$i"
+        stat -c '%a %U %G' "$d" > "$SNAP/files$i.dir" || return 1
+        find "$d" -mindepth 1 -maxdepth 1 -type f -print0 | xargs -0r cp -a -t "$SNAP/files$i/" || return 1
+    done < "$SNAP/filedirs"
+    for sub in system32 syswow64; do
+        d="$M/drive_c/windows/$sub"
+        ls -A "$d" | LC_ALL=C sort > "$SNAP/$sub.names" && [ -s "$SNAP/$sub.names" ] || return 1
+        for f in $SNAP_WATCH; do [ ! -e "$d/$f" ] && [ ! -L "$d/$f" ] || cp -a "$d/$f" "$SNAP/$sub/$f" || return 1; done
+    done
+}
+snap_diffs()   # what differs from the snapshot; nothing when all is as it was
+{
+    local i=0 d f sub
+    while read -r d; do
+        i=$((i + 1))
+        if [ -e "$SNAP/tree$i.absent" ]; then [ ! -e "$d" ] || echo "$d exists, it did not before"
+        else diff -q <(snap_sig "$d") <(snap_sig "$SNAP/tree$i") >/dev/null || echo "$d differs"; fi
+    done < <(snap_trees)
+    i=0
+    while read -r d; do
+        i=$((i + 1))
+        diff -q <(snap_sig "$d" 1) <(snap_sig "$SNAP/files$i" 1) >/dev/null || echo "the files of $d differ"
+        [ "$(stat -c '%a %U %G' "$d")" = "$(cat "$SNAP/files$i.dir")" ] || echo "the owner or mode of $d differs"
+    done < "$SNAP/filedirs"
+    for sub in system32 syswow64; do
+        d="$M/drive_c/windows/$sub"
+        diff -q <(ls -A "$d" | LC_ALL=C sort) "$SNAP/$sub.names" >/dev/null || echo "the names in $d differ"
+        for f in $SNAP_WATCH; do [ "$(snap_one "$d/$f")" = "$(snap_one "$SNAP/$sub/$f")" ] || echo "$d/$f differs"; done
+    done
+}
+snap_restore()
+{
+    local i=0 d f sub
+    while read -r d; do
+        i=$((i + 1))
+        if [ -e "$SNAP/tree$i.absent" ]; then rm -rf "$d"
+        elif ! diff -q <(snap_sig "$d") <(snap_sig "$SNAP/tree$i") >/dev/null; then rm -rf "$d"; cp -a "$SNAP/tree$i" "$d"; fi
+    done < <(snap_trees)
+    i=0
+    while read -r d; do
+        i=$((i + 1))
+        for f in $(find "$d" -mindepth 1 -maxdepth 1 -type f -printf '%f\n'); do [ -e "$SNAP/files$i/$f" ] || rm -f "$d/$f"; done
+        find "$SNAP/files$i" -mindepth 1 -maxdepth 1 -exec cp -a --remove-destination -t "$d/" {} +
+    done < "$SNAP/filedirs"
+    for sub in system32 syswow64; do
+        d="$M/drive_c/windows/$sub"
+        for f in $(ls -A "$d" | LC_ALL=C sort | comm -23 - "$SNAP/$sub.names"); do
+            case "$f" in GroupPolicy|GroupPolicyUsers) ;; *) rm -rf "${d:?}/$f" ;; esac
+        done
+        for f in $SNAP_WATCH; do
+            [ "$(snap_one "$d/$f")" != "$(snap_one "$SNAP/$sub/$f")" ] || continue
+            rm -rf "${d:?}/$f"
+            [ ! -e "$SNAP/$sub/$f" ] && [ ! -L "$SNAP/$sub/$f" ] || cp -a "$SNAP/$sub/$f" "$d/$f"
+        done
+    done
+}
+sec_users() { local sec_u; for sec_u in "$ADM" "$STD" "$CAR" "$SYS" "$DOM" "$DOMA" "$S0U"; do id "$sec_u" >/dev/null 2>&1 && echo "$sec_u"; done; return 0; }
+sec_live() { local p; for p in $(pgrep -u "$1" 2>/dev/null); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || return 0; done; return 1; }
+sec_kill_all()   # every process of the test accounts and of the fixture's helpers; 1 if one stays
+{
+    local sec_u i busy=""
+    pkill -9 -f "$ROOT/" 2>/dev/null
+    pkill -9 -f "${EL:-/tmp/wexelev}" 2>/dev/null   # the broker cases' programs (an R8 dialog child can run as root)
+    pkill -9 -f "/tmp/wexsvc" 2>/dev/null
+    [ "${WEX_E1S6_LAB:-0}" != 1 ] || pkill -9 -f "$E1S6_CHILD" 2>/dev/null
+    for i in $(seq 1 100); do
+        busy=""
+        for sec_u in $(sec_users); do sec_live "$sec_u" && { busy="$busy $sec_u"; pkill -9 -u "$sec_u" 2>/dev/null; }; done
+        [ -n "$busy" ] || return 0
+        sleep 0.1
+    done
+    echo "processes of$busy are still running" >&2
+    return 1
+}
+r8e2e_restore()   # what the R8 end-to-end case changes outside the fixture, if it ended early (the restore and cleanup)
+{
+    local a exe pair dir tag sys32="$M/drive_c/windows/system32"
+    [ -d "$ROOT/r8e2e-saved" ] || return 0
+    for a in x86_64 i386; do
+        for exe in wexelevate consent; do
+            [ ! -f "$ROOT/r8e2e-saved/$a-$exe.exe" ] || cat "$ROOT/r8e2e-saved/$a-$exe.exe" > "$BUILD/programs/$exe/$a-windows/$exe.exe"
+        done
+    done
+    for pair in "$sys32:system32" "$M/drive_c/windows/syswow64:syswow64"; do
+        dir="${pair%:*}"; tag="${pair##*:}"
+        for exe in wexelevate consent; do
+            if [ -L "$dir/$exe.exe" ]; then rm -f "$dir/$exe.exe"; fi
+            if [ -e "$ROOT/r8e2e-saved/root/$tag-$exe.exe" ] || [ -L "$ROOT/r8e2e-saved/root/$tag-$exe.exe" ]; then
+                cp -a "$ROOT/r8e2e-saved/root/$tag-$exe.exe" "$dir/$exe.exe"
+            fi
+        done
+    done
+    rm -rf "$ROOT/r8e2e-saved"
+    rm -f /etc/pam.d/wex-r8-lab
+    passwd -l "$ADM" >/dev/null 2>&1 || true
+}
+sec_fix_links()   # the users' prefixes link their machine hives into the machine root (c2_hives diverts them)
+{
+    local sec_u home hive
+    for sec_u in "$STD" "$ADM" "$CAR" "$SYS"; do
+        home="/home/$sec_u"; [ "$sec_u" != "$SYS" ] || home="$SYS_HOME"
+        for hive in system.reg userdef.reg; do
+            [ -L "$home/.wine/$hive" ] && [ "$(readlink "$home/.wine/$hive")" != "$M/$hive" ] || continue
+            ln -sfn "$M/$hive" "$home/.wine/$hive"; chown -h "$sec_u:" "$home/.wine/$hive"
+        done
+    done
+}
+section_restore()   # NAME of the failed section: puts back the shared state; 1 when it does not compare equal
+{
+    local sec_n="$1" sec_left="" sec_u
+    echo "--- section $sec_n: restoring the shared state from the snapshot taken before it"
+    set +e
+    sec_kill_all || sec_left="processes"
+    [ -z "${DUMPABLE_SAVED:-}" ] || { echo "$DUMPABLE_SAVED" > /proc/sys/fs/suid_dumpable; DUMPABLE_SAVED=""; }
+    [ -z "${LEASES_SAVED:-}" ] || { echo "$LEASES_SAVED" > /proc/sys/fs/leases-enable; LEASES_SAVED=""; }
+    ! mountpoint -q "$ROOT/udfmnt" 2>/dev/null || umount "$ROOT/udfmnt"
+    rm -f /run/wex-domain-join.sock
+    for sec_u in "$DOM" "$DOMA"; do ! id "$sec_u" >/dev/null 2>&1 || userdel -r "$sec_u" 2>/dev/null; done
+    r8e2e_restore
+    if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then   # the S6 service's own files; it is started again below
+        rm -f "$E1S6_CHILD" "$(dirname "$E1S6_CHILD")/e1r8.py" "$(dirname "$E1S6_CHILD")/evidence.py" "$E1S6_POLICY"
+        E1S6_PID=""; E1S6_CHILD_ID=""; E1S6_POLICY_ID=""
+        e1s6_reload 2>/dev/null
+    fi
+    snap_restore
+    sec_fix_links
+    sec_left="$sec_left$(snap_diffs)"
+    watch_release
+    set -e
+    [ -z "$sec_left" ] || { echo "restore after $sec_n: $sec_left" >&2; return 1; }
+    # what runs between sections
+    [ "$SEC_E1S6" != 1 ] || e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+    [ "$SEC_S0" != 1 ] || s0_start
+    [ -z "$SEC_EL" ] || el_up "$SEC_EL"
+    echo "--- section $sec_n: shared state restored"
+}
 
 kill_servers()
 {
@@ -110,6 +560,9 @@ cleanup()
     # Only the suite's own shell cleans up: a forked copy of it (a background function, a command substitution)
     # that ends early must never remove the fixture under the running suite. It says so and leaves.
     if [ "$BASHPID" != "$$" ]; then echo "cleanup skipped in subshell $BASHPID (rc=$rc, $BASH_COMMAND)" >&2; exit "$rc"; fi
+    section_summary   # (once: a suite that ended early lists what it did not reach)
+    watch_release
+    r8e2e_restore     # the build tree's broker and consent, if the R8 end-to-end case ended early
     ! type e1s6_stop >/dev/null 2>&1 || e1s6_stop
     ! type standin_off >/dev/null 2>&1 || standin_off
     rm -f /etc/pam.d/wex-r8-lab   # the R8 end-to-end case's own PAM service
@@ -210,7 +663,8 @@ expect_pass()   # name user arch mode
     ok "$name"
 }
 
-if [ "${WEX_C3_ONLY:-0}" != 1 ] && want c2; then   # WEX_C3_ONLY=1 runs only the system role checks (sections 7 and 8)
+# ---- sections 1 to 6: the launcher and the machine root (group c2; WEX_C3_ONLY=1 leaves them out) --------------
+if section c2_launcher; then set +e; ( section_enter
 # ---- 1. the server starts through the launcher ----------------------------------------------------------------
 echo "--- launcher-started server"
 hold_start   # the first wine start of the user starts the server through the launcher
@@ -243,7 +697,9 @@ for arch in 64 32; do
     grep -q '^files-allowed=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "files-allowed $arch: no PASS"; }
     ok "c2_system_group_client_can_write_machine_root_$arch"
 done
+true; ); section_leave $?; fi
 
+if section c2_hives; then set +e; ( section_enter
 # ---- 3. (iii) a system.reg symlink into the machine root ------------------------------------------------------
 echo "--- symlinked hives (iii)"
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
@@ -277,7 +733,9 @@ for u in "$STD" "$ADM"; do
     ! grep -q 'WexUnenforced' "$M/system.reg" || fail "an HKLM write of $u reached the machine system.reg without enforced elevation"
     ok "c2_unenforced_hklm_write_not_persisted_$u"
 done
+true; ); section_leave $?; fi
 
+if section c2_sysacct; then set +e; ( section_enter
 # ---- 3b. (iii) a system.reg symlink into the machine root, for an unmapped system account (Safe Mode C7) ----
 # The greeter runs as a system account that is not in the accounts map. Give it the same skeleton prefix the
 # harness gives desktop users and run the 3(iii) checks as it: the machine file behind the prefix symlink is
@@ -290,8 +748,7 @@ sysprobe() { local u="$1" arch="$2" mode="$3"; shift 3; sysrun_as "$u" "$BUILD/w
 # wex-accounts sync maps every local account, system ones included; the account watcher (wex-accounts.path) syncs
 # at every change of /etc/passwd and would map this one as soon as it exists (the check below then lost a race), so
 # it is held while the section runs, as in the domain section
-SYS_WATCH=; systemctl is-active --quiet wex-accounts.path 2>/dev/null && SYS_WATCH=1
-systemctl stop wex-accounts.path wex-accounts.timer >/dev/null 2>&1 || true
+watch_hold
 if ! id "$SYS" >/dev/null 2>&1; then
     useradd --system -d "$SYS_HOME" -s /usr/sbin/nologin "$SYS"
     SYS_CREATED=1
@@ -336,8 +793,10 @@ for hive in system.reg userdef.reg; do
     sysrun_as "$SYS" ln -sfn "$M/$hive" "$SYS_HOME/.wine/$hive"
 done
 ok c2_symlinked_hives_system_account_prefix_links_left_alone
-[ -z "$SYS_WATCH" ] || systemctl start wex-accounts.path >/dev/null 2>&1 || true
+watch_release
+true; ); section_leave $?; fi
 
+if section c2_replace; then set +e; ( section_enter
 # ---- 4. (ii) a replacement server ------------------------------------------------------------------------------
 echo "--- replacement server (ii)"
 prefix_server_env "$STD" -p                # a plain server, no launcher: egid = gid = the user's
@@ -372,7 +831,9 @@ ok c2_system_group_client_refuses_replacement_server
 probe "$STD" 64 hklm-read >/dev/null 2>&1 || true
 expect_pass c2_limited_files_denied_on_replacement_server "$STD" 64 files-denied
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
+true; ); section_leave $?; fi
 
+if section c2_wineboot; then set +e; ( section_enter
 # ---- 5. wineboot --init runs with the system group and writes the machine root through the server --------------
 echo "--- wineboot --init through the launcher"
 rm -f "$M/.update-timestamp"
@@ -382,7 +843,9 @@ OUT="$(probe "$STD" 64 hklm-read)" || fail "start after removing .update-timesta
 [ "$(stat -c '%u:%G' "$M/.update-timestamp")" = "$STD_UID:$GRP" ] || fail ".update-timestamp owner or group: $(stat -c '%u:%G' "$M/.update-timestamp")"
 ok c2_wineboot_init_with_system_group_writes_machine_root
 hold_stop
+true; ); section_leave $?; fi
 
+if section c2_ptrace; then set +e; ( section_enter
 # ---- 6. (v) not ptraceable, non-dumpable after the setegid round trips ---------------------------------------
 echo "--- ptrace and dumpable (v)"
 cat > "$ROOT/ptrace_try.py" <<'EOF'
@@ -457,14 +920,15 @@ else
     DUMPABLE_SAVED=""
 fi
 hold_stop
+true; ); section_leave $?; fi
 
-fi   # WEX_C3_ONLY
 
 # ---- 7. (iv) HKU well-known profiles, with elevation enforced -------------------------------------------------
 echo "--- registry (iv), elevation enforced"
 # the machine hive as it is before the enforcement and the test services are added (a reused fixture starts from it)
 if [ "$REUSE" = 1 ]; then cat "$ROOT/system.reg.pre" > "$M/system.reg"; else cp "$M/system.reg" "$ROOT/system.reg.pre"; fi
 reg_append "$M/system.reg" 'Software\\Wine\\Elevation' '"Helper"="C:\\windows\\system32\\consent.exe"'
+if section reg_hku; then set +e; ( section_enter
 for u in "$STD" "$ADM"; do
     [ "${WEX_C3_ONLY:-0}" != 1 ] || [ "${WEX_C3_SKIP7:-0}" != 1 ] || continue
     for arch in 64 32; do
@@ -479,7 +943,9 @@ wine_as "$STD" reg add 'HKLM\Software\WexEnforced' /v std /d 1 /f >/dev/null 2>&
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
 ! grep -q 'WexEnforced' "$M/system.reg" || fail "a denied HKLM write of $STD reached the machine system.reg"
 ok c2_enforced_standard_user_hklm_write_denied_and_not_persisted
+true; ); section_leave $?; fi
 
+if section reg_admin_group; then set +e; ( section_enter
 # -- the admin_group= override: a repeated line makes the configuration invalid, so even a member of the named
 # group gets the standard (non-administrator) token shape (same rule as read_policy in accounts.c)
 echo "--- admin_group= override: a repeated line is an invalid configuration"
@@ -503,6 +969,7 @@ grep -q '^admins=absent$' <<<"$OUT" && grep -q '^elevation=1$' <<<"$OUT" && grep
 ok c2_unsafe_sysrun_config_gives_standard_token_shape
 chmod 0644 "$CONF"
 prefix_server_env "$ADM" -k || true; prefix_server_env "$ADM" -w
+true; ); section_leave $?; fi
 
 # ---- 8. the system role (C3), elevation enforced --------------------------------------------------------------
 # services.exe, winedevice.exe and the LocalSystem service report SYSTEM; the LocalService and NetworkService
@@ -582,6 +1049,8 @@ expect_spass()   # name user arch mode args...
 
 C3_USERS="${WEX_C3_USERS:-$STD $ADM}"; [ "$C3_USERS" != - ] || C3_USERS=""   # WEX_C3_USERS restricts the users (development)
 for u in $C3_USERS; do
+    case "$u" in "$STD") C3_SEC=c3_std ;; *) C3_SEC=c3_adm ;; esac
+    if section "$C3_SEC"; then set +e; ( section_enter
     rm -rf "$SVCDIR"; install -d -m 1777 "$SVCDIR"
     echo "--- system role: $u"
     probe "$u" 64 hold >/dev/null 2>&1 & HOLD=$!
@@ -750,6 +1219,7 @@ for u in $C3_USERS; do
         expect_rpass c3_other_services_still_have_the_default_after_a_restart "$u" 64 svc-start WexSvcNs denied
     fi
     prefix_server_env "$u" -k || true; prefix_server_env "$u" -w; wait "$HOLD" 2>/dev/null || true
+    true; ); section_leave $?; fi
 done
 
 # ---- 9. the elevation broker (plan step 4), elevation enforced -------------------------------------------------
@@ -759,7 +1229,6 @@ done
 # the system group, its parent is the caller and the caller's handle waits; frozen requests, A/B, arguments, forged
 # ids; a standard user and a prefix without the launcher get ERROR_NOT_SUPPORTED; a limited process of the same user
 # cannot open the elevated process or its threads; the stub is not in the shipping build.
-if [ "${WEX_C4_SKIP:-0}" != 1 ]; then
 echo "--- elevation broker (step 4)"
 EL=/tmp/wexelev
 BROKER_ORIG=""
@@ -780,11 +1249,28 @@ el_up()
     local log=/dev/null
     [ "${WEX_E1S6_LAB:-0}" != 1 ] || log="$ROOT/e1s6-wine.log"
     [ -z "${WEX_EL_LOG:-}" ] || log="$WEX_EL_LOG"   # diagnostics: keep server/service stderr of a normal run
+    local ready="$ROOT/el_hold.$1" i
     probe "$1" 64 hold >>"$log" 2>&1 & EL_HOLD=$!
-    wine_as "$1" "$ROOT/probes/sdprobe64.exe" hold >>"$log" 2>&1 &
-    sleep 4
+    rm -f "$ready"
+    wine_as "$1" "$ROOT/probes/sdprobe64.exe" hold >"$ready" 2>>"$log" &
+    # ready when the WinSta0 holder has its window station and desktop (it prints hold=ready then: the session's
+    # wineboot has run by the time its main() does); a fixed 4 s before
+    for i in $(seq 1 600); do grep -q '^hold=ready' "$ready" 2>/dev/null && return 0; sleep 0.1; done
+    { echo "--- el_up $1: the holder printed:"; cat "$ready"; echo "--- processes of $1:"; ps -u "$1" -o pid,stat,etimes,args
+      [ "$log" = /dev/null ] || { echo "--- $log:"; tail -40 "$log"; }; } >&2 2>/dev/null || true
+    fail "el_up $1: the WinSta0 holder did not get ready in 60 s"
 }
-el_down() { prefix_server_env "$1" -k || true; prefix_server_env "$1" -w; wait "$EL_HOLD" 2>/dev/null || true; }
+el_down()
+{
+    local i
+    prefix_server_env "$1" -k || true; prefix_server_env "$1" -w
+    wait "$EL_HOLD" 2>/dev/null || true
+    # a hold started outside this section's subshell is no child of it: wait until it has gone (or is a zombie)
+    for i in $(seq 1 50); do
+        [ -d "/proc/$EL_HOLD" ] && ! grep -q '^State:.*Z' "/proc/$EL_HOLD/status" 2>/dev/null || break
+        sleep 0.1
+    done
+}
 el_wait_file() { local i; for i in $(seq 1 90); do [ -e "$1" ] && return 0; sleep 1; done; fail "no $1"; }
 el_proc() { local p; for p in $(pgrep -u "$1" -f "$2"); do grep -q '^State:.*Z' "/proc/$p/status" 2>/dev/null || { echo "$p"; return; }; done; }
 el_fact() { grep -m1 "^$2=" "$1" | cut -d= -f2- | tr -d '\r'; }
@@ -820,6 +1306,7 @@ data = open(sys.argv[1], 'rb').read()
 sys.exit(0 if sys.argv[2].encode('utf-16-le') in data or sys.argv[2].encode() in data else 1)
 EOF
 has_str() { python3 -I "$ROOT/has_str.py" "$1" "$2"; }   # the string as ASCII or UTF-16
+if section c4_build; then set +e; ( section_enter
 x86_64-w64-mingw32-gcc -O2 -Wall -municode -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_ship.exe" \
     "$SRC/src/programs/wexelevate/main.c" -ladvapi32 -luserenv -lbcrypt
 x86_64-w64-mingw32-gcc -O2 -Wall -municode -DWEXELEVATE_TEST_APPROVAL -DWEX_E1_TEST_HOOKS -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_test.exe" \
@@ -875,7 +1362,9 @@ for u in "$ADM" "$STD"; do
         run_as "$u" cp "$ROOT/probes/wexelevate_probe$arch.exe" "/home/$u/wexel/$img.exe"
     done
 done
+true; ); section_leave $?; fi
 
+if section c4_shipping; then set +e; ( section_enter
 # -- the shipping broker with a policy that selects no prompt (0: elevate without asking) fails closed; a standard user is not served
 set_val "$POLSEC" ConsentPromptBehaviorAdmin 0
 el_clean
@@ -891,25 +1380,31 @@ el_down "$STD"
 ok c4_nothing_started_without_consent
 
 set_val "$POLSEC" ConsentPromptBehaviorAdmin none
+true; ); section_leave $?; fi
 # -- the test broker and its stub. Wine loads a program of system32 that has a builtin twin from the builtin
 # directory whatever the file is, so the test broker has another name and the service points to it.
+if sec_ok c4_build; then
 cat "$M/system.reg" > "$ROOT/system.reg.c4"
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexelevate_test.exe"
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
 reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe"'
 BROKER_ORIG=1
+fi
 el_restore_broker() { [ -z "$BROKER_ORIG" ] || { cat "$ROOT/system.reg.c4" > "$M/system.reg"; rm -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate_stub.exe" "$SYS32/consent_test.exe"; BROKER_ORIG=""; }; }
 
-el_up "$ADM"
+amb_up "$ADM"
 IMG="$(winpath /home/$ADM/wexel/p64.exe)"
 
+if section c4_control; then set +e; ( section_enter
 # the control: a limited process has neither the token nor the folder
 el_clean
 bp c4_control_limited_process_facts "$ADM" 64 facts "$(winpath $EL/out.limited)"
 [ "$(el_fact "$EL/out.limited" elevation)" = 3 ] && [ "$(el_fact "$EL/out.limited" admins)" = denyonly ] &&
     [ "$(el_fact "$EL/out.limited" program_files)" != writable ] || { cat "$EL/out.limited" >&2; fail "the limited control is not limited"; }
 ok c4_control_limited_process_is_limited
+true; ); section_leave $?; fi
 
+if section c4_elevated; then set +e; ( section_enter
 # -- 1. the elevated process
 for arch in 64 32; do
     el_clean; touch "$EL/approve.all"
@@ -939,7 +1434,9 @@ done
 [ -z "$(ls -A "$B28DIR")" ] || { ls -la "$B28DIR" >&2; fail "B28: files left in the group-only directory"; }
 rm -rf "$B28DIR"
 ok c4_elevated_process_renames_in_a_group_only_directory
+true; ); section_leave $?; fi
 
+if section c4_unix; then set +e; ( section_enter
 # -- 2. the Unix side of the elevated process, and a limited process of the same user against it (B7, B8)
 el_clean; touch "$EL/approve.all"
 bprobe "$ADM" 64 attack "$IMG" "$(winpath $EL/out.attack)" t1 > "$ROOT/attack.log" 2>&1 & APID=$!
@@ -954,6 +1451,7 @@ touch "$EL/continue.t1"
 wait "$APID" || { cat "$ROOT/attack.log" >&2; fail "the attack probe"; }
 grep -q '^attack=PASS' "$ROOT/attack.log" || { cat "$ROOT/attack.log" >&2; fail "the attack probe: no PASS"; }
 ok c4_limited_process_cannot_open_the_elevated_process_or_its_threads
+true; ); section_leave $?; fi
 
 # -- 3. frozen requests
 # A writer from Unix (the broker holds a read lease on the frozen image): it blocks until the broker has reacted,
@@ -981,6 +1479,7 @@ lease_writer()   # variant file: run the writer; the file must have changed afte
     after="$(md5sum < "$2")"
     [ "$before" != "$after" ]
 }
+if section c4_frozen; then set +e; ( section_enter
 frozen()   # name variant expected-error
 {
     el_clean; touch "$EL/wait-for-gate" "$EL/approve.victim.exe"
@@ -1008,7 +1507,9 @@ frozen c4_writer_with_a_shared_writable_mapping_fails_the_request mmap 1392
 [ ! -e "$EL/out.frozen" ] || fail "the modified image ran"
 wait_no_lease "/home/$ADM/wexel/victim.exe" || fail "the lease outlived a failed request"
 ok c4_lease_is_given_up_when_the_request_fails
+true; ); section_leave $?; fi
 
+if section c4_lease; then set +e; ( section_enter
 # -- 3b. the read lease on the image while the elevated program runs (consent work order, Part A)
 lease_running()   # name variant
 {
@@ -1083,7 +1584,9 @@ install -m 666 -o root -g root "$ROOT/probes/wexelevate_probe64.exe" "/tmp/wexel
 bp c4_image_writable_by_the_user_but_not_owned_fails_with_file_system_limitation "$ADM" 64 run "$(winpath $EL/rootw.exe)" 665 "$(winpath $EL/out.nolease)" -
 [ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
 ok c4_no_lease_no_process
+true; ); section_leave $?; fi
 
+if section c4_alpc; then set +e; ( section_enter
 # -- ALPC impersonation across the elevation boundary (tests/uwp/alpc/alpc-pair.c; docs/uwp/WINAPPSDK.md has the Windows 11 measurements).
 # A server thread impersonates the request of a client that sends it with a security attribute; the level of the token it gets is the
 # lowest of what the client allows and what the rule of the named pipes gives it (token_impersonation_level: SeImpersonatePrivilege, or
@@ -1128,7 +1631,9 @@ if OUT="$(alpc_pair b1 2 elevated)"; then
 else
     echo "NOTE: the ALPC pair limited server / elevated client could not run ($(cat "$ROOT/alpc-skip" 2>/dev/null)), skipped"
 fi
+true; ); section_leave $?; fi
 
+if section c4_udf; then set +e; ( section_enter
 # -- B39: an image on a file system that gives no read leases (UDF, as a loop-mounted ISO): the broker refuses it
 # with its own reply error (WEXELEVATE_E_NO_IMAGE_LEASE), nothing runs; through ShellExecuteEx the program still
 # sees ERROR_NOT_SUPPORTED (no box with SEE_MASK_FLAG_NO_UI); shell32's dialog tells the user to copy it to a disk
@@ -1168,7 +1673,9 @@ if command -v mkudffs >/dev/null 2>&1; then
 else
     echo "NOTE: mkudffs (udftools) is not installed, the UDF refusal case (B39) was not run"
 fi
+true; ); section_leave $?; fi
 
+if section c4_ab; then set +e; ( section_enter
 # -- 4. A/B concurrency: approving A does not approve B
 el_clean; touch "$EL/wait-for-gate" "$EL/approve.a.exe"
 bprobe "$ADM" 64 concurrent "$(winpath /home/$ADM/wexel/a.exe)" "$(winpath /home/$ADM/wexel/b.exe)" "$(winpath $EL/out.a)" "$(winpath $EL/out.b)" \
@@ -1179,7 +1686,9 @@ touch "$EL/gate"
 wait "$CPID" || { cat "$ROOT/conc.log" >&2; fail "concurrent"; }
 grep -q '^concurrent=PASS' "$ROOT/conc.log" || { cat "$ROOT/conc.log" >&2; fail "concurrent: no PASS"; }
 ok c4_approving_a_does_not_approve_b
+true; ); section_leave $?; fi
 
+if section c4_args; then set +e; ( section_enter
 # -- 5. arguments, a refusal, bad requests, a forged id
 el_clean; touch "$EL/approve.all"
 bp c4_long_unicode_and_quoted_arguments_survive "$ADM" 64 args "$IMG" "$(winpath $EL/out.args)"
@@ -1201,14 +1710,18 @@ for arch in 64 32; do
     done
 done
 bp c4_caller_death_leaves_no_child "$ADM" 64 callerdeath "$IMG" "$(winpath $EL/out.death)" "$TAGCD"
+true; ); section_leave $?; fi
 # R13: the caller's job and debugger do not reach the elevated process (both ABIs). These cases run against the
 # production broker recognition, not the lab alias: the canonical system32/wexelevate.exe becomes the test broker's
 # inode (a hard link) and the session restarts, so the broker image is recognised afresh at its first mapping.
-el_down "$ADM"
+amb_down "$ADM"
 R13_ORIG=""
+if sec_ok c4_build; then
 if [ -e "$SYS32/wexelevate.exe" ]; then R13_ORIG="$ROOT/wexelevate.exe.r13"; cp -p "$SYS32/wexelevate.exe" "$R13_ORIG"; fi
 ln -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate.exe"
-el_up "$ADM"
+fi
+amb_up "$ADM"
+if section c4_r13; then set +e; ( section_enter
 for arch in 64 32; do
     pimage="$(winpath /home/$ADM/wexel/p$arch.exe)"
     TAGJ="wexjob-$$-$arch"
@@ -1221,9 +1734,12 @@ for arch in 64 32; do
     TAGD="wexdbg-$$-$arch"
     bp "c4_caller_debugger_not_inherited_$arch" "$ADM" "$arch" debugparent "$pimage" "$(winpath $EL/out.dbg.$arch)" "$TAGD"
 done
+true; ); section_leave $?; fi
+amb_down "$ADM"   # each R8 case starts its own session
+regpath() { echo "Z:${1//\//\\\\}"; }
+if section c4_r8; then set +e; ( section_enter
 # R8 step 3: dialog protection, loader pin, dialog image
 cat "$M/system.reg" > "$ROOT/system.reg.r8"
-regpath() { echo "Z:${1//\//\\\\}"; }
 
 for arch in 64 32; do
     # protected: mode 1, image probe r8child; openpid gets error 5
@@ -1354,9 +1870,13 @@ fi
 el_down "$ADM"
 cat "$ROOT/system.reg.r8" > "$M/system.reg"
 rm -f "$ROOT/system.reg.r8"
+true; ); section_leave $?; fi
+if sec_ok c4_build; then
 rm -f "$SYS32/wexelevate.exe"
 [ -z "$R13_ORIG" ] || mv "$R13_ORIG" "$SYS32/wexelevate.exe"
-el_up "$ADM"
+fi
+amb_up "$ADM"
+if section c4_e1s5; then set +e; ( section_enter
 # E1-S5: broker-owned disabled records, actual H2/S3 consumed message binding.
 # Endpoint/account identities, verifier and clock are fixtures; no credentials
 # or administrator token are issued. Both client ABIs use the same lab envelope.
@@ -1369,8 +1889,10 @@ for arch in 64 32; do
         [ ! -e "$EL/started.p$arch.exe" ] || fail "E1-S5 fixture reached consent: $record_case/$arch"
     done
 done
+true; ); section_leave $?; fi
 if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
-    e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+    e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"; SEC_E1S6=1   # from here on for the rest of the run
+    if section c4_lab; then set +e; ( section_enter
     for arch in 64 32; do
         pimage="$(winpath /home/$ADM/wexel/p$arch.exe)"
         for transport_case in accept stale replay late owner disconnect cancel child-impostor; do
@@ -1549,6 +2071,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     grep -q 'site=endorsement-gid ' <<<"$native_case" ||
         fail 'bus impostor was not rejected at its actual sender credentials'
     ok c4_e1s6_same_uid_bus_impostor
+    true; ); section_leave $?; fi
 
     # WO-28: R8 end-to-end standard-user elevation. Defined here, run at the end of the C4 section (the call
     # before el_restore_broker; WEX_SKIP_R8_E2E=1 skips it): the cases after it fail when it runs earlier
@@ -2644,13 +3167,16 @@ EOF
     el_up "$ADM"
     }
 fi
+if section c4_bad; then set +e; ( section_enter
 bp c4_relative_image_path_is_rejected "$ADM" 64 run p64.exe 87 "$(winpath $EL/out.bad)" -
 bp c4_missing_image_is_reported "$ADM" 64 run "$(winpath $EL/missing.exe)" 2 "$(winpath $EL/out.bad)" -
 rm -f "$EL/approve.all"
 bp c4_refused_consent_is_error_cancelled "$ADM" 64 run "$IMG" 1223 "$(winpath $EL/out.refused)" -
 [ ! -e "$EL/out.refused" ] || fail "a refused request started a process"
 ok c4_refused_request_started_nothing
+true; ); section_leave $?; fi
 
+if section c4_race; then set +e; ( section_enter
 # the image replaced while the consent is pending: the harness renames a different file over the path from Unix
 # (the broker's read handle blocks a rename from Windows), after the probe signals imgrace.ready
 el_clean; touch "$EL/wait-for-gate" "$EL/approve.imgrace.exe"
@@ -2663,11 +3189,15 @@ wait "$IP" || { cat "$ROOT/imgrace.log" >&2; fail "imagerace"; }
 grep -q '^imagerace=PASS' "$ROOT/imgrace.log" || { cat "$ROOT/imgrace.log" >&2; fail "imagerace: no PASS"; }
 [ ! -e "$EL/out.imgrace" ] || fail "the replaced image ran"
 ok c4_image_replaced_while_consent_pending_is_denied_and_starts_nothing
+true; ); section_leave $?; fi
 
+if section c4_writer; then set +e; ( section_enter
 # an existing writer on the image when the request is made
 el_clean
 bp c4_existing_writer_on_the_image_is_denied "$ADM" 64 writerfirst "$IMG" "$(winpath $EL/out.writer)"
+true; ); section_leave $?; fi
 
+if section c4_msi_doc; then set +e; ( section_enter
 # the package of an msiexec request is frozen like the image: msiexec.exe here is a copy of the probe (the name makes
 # the broker look for the package after /i), the package any file
 el_clean; touch "$EL/approve.all"
@@ -2688,7 +3218,9 @@ wait "$DP" || { cat "$ROOT/docrace.log" >&2; fail "docrace"; }
 grep -q '^docrace=PASS' "$ROOT/docrace.log" || { cat "$ROOT/docrace.log" >&2; fail "docrace: no PASS"; }
 [ ! -e "$EL/out.docrace" ] || fail "the replaced package ran"
 ok c4_package_replaced_while_consent_pending_is_denied_and_starts_nothing
+true; ); section_leave $?; fi
 
+if section c4_appx_doc; then set +e; ( section_enter
 # the package of "wexappx install --all-users" is frozen the same way (wexappx.exe here is a copy of the probe, which
 # the broker recognises by name): its path and SHA-256 reach the elevated process, and an install that names no file the
 # broker can hold is refused (it would run unchecked)
@@ -2699,7 +3231,9 @@ run_as "$ADM" bash -c 'head -c 70000 /dev/urandom > "$1"' _ "/home/$ADM/wexel/ap
 AXX="$(winpath /home/$ADM/wexel/appx/wexappx.exe)"; AXPKG="$(winpath /home/$ADM/wexel/appx/pkg.appx)"
 bp c4_wexappx_package_path_and_hash_reach_the_elevated_process "$ADM" 64 appxdoc "$AXX" "$AXPKG" "$(winpath $EL/out.appxdoc)"
 bp c4_wexappx_install_without_a_package_is_refused "$ADM" 64 appxnone "$AXX" "$(winpath $EL/out.appxnone)"
+true; ); section_leave $?; fi
 
+if section c4_wam; then set +e; ( section_enter
 # the token broker (WAM) with elevation enforced: its client and the broker read each other's process token, which the
 # server gives only to a handle with the query right (server/token.c, open_token); with the limited right the client
 # refused the broker's pipe and Copilot used its own sign-in window. Wine's web_core tests, as the limited
@@ -2742,8 +3276,57 @@ for arch in x86_64 i386; do
 done
 kill "$WAM_AUTH" 2>/dev/null; wait "$WAM_AUTH" 2>/dev/null || true
 pkill -u "$ADM" -f tokenbroker.exe 2>/dev/null || true
-el_down "$ADM"
+true; ); section_leave $?; fi
 
+# -- the desktop window manager with elevation enforced (Integration's recipe, 2026-11-23): dwmapi's own tests as the
+# limited administrator on a shell desktop of their own, where the desktop manager starts dwm.exe (HKCU DwmService=1).
+# Passing: dwm_channel, dwm_attr and dwm_thumb, both architectures, "N tests executed (..., 0 failures), 0 skipped"
+# with N > 0; a skip ("needs a desktop with a DWM broker") is a failure. test_low_integrity_client's "exit code 1": no
+# pipe (DACL or the no-write-up label); "2": the server refused the limited query (Wine's token-read-limited missing, or
+# dwm.exe's token is not an ordinary one). Needs Wine's dwm-pipe and token-read-limited and the superproject's dwm.exe:
+# SKIP (with the reason) while the build has no dwmapi tests or the machine root no dwm.exe. The keys it adds are
+# removed at its end; after a failure the snapshot puts the administrator's user.reg back.
+if section c4_dwm; then set +e; ( section_enter
+DWMT="$BUILD/dlls/dwmapi/tests"
+ls "$DWMT"/*-windows/dwmapi_test.exe >/dev/null 2>&1 || section_skip "the build has no dwmapi tests ($DWMT/*-windows/dwmapi_test.exe)"
+[ -e "$SYS32/dwm.exe" ] || section_skip "the machine root has no dwm.exe"
+DWMOUT="$ROOT/c4dwm"; rm -rf "$DWMOUT"; install -d -m 1777 "$DWMOUT"
+DWMKEY='HKCU\Software\WineExplorer\Shell'
+wine_as "$ADM" reg add "$DWMKEY" /v DwmService /t REG_DWORD /d 1 /f >/dev/null 2>&1 || fail "dwm: HKCU DwmService"
+dwm_fail=""
+for arch in x86_64 i386; do
+    desk="c4dwm$arch"
+    # a shell desktop (EnableShell=1): a plain /desktop=NAME closes a second after only its manager's threads remain
+    wine_as "$ADM" reg add "HKCU\Software\Wine\Explorer\Desktops\\$desk" /v EnableShell /t REG_DWORD /d 1 /f >/dev/null 2>&1 ||
+        fail "dwm: the EnableShell key of $desk"
+    for t in dwm_channel dwm_attr dwm_thumb; do
+        out="$DWMOUT/$t-$arch.txt"; rm -f "$out" "$out.done"
+        # explorer starts dwm.exe, then the command; explorer does not exit afterwards: the .done marker ends the wait
+        run_as "$ADM" timeout 120 "$BUILD/wine" explorer.exe "/desktop=$desk,800x600" cmd /c \
+            "$(winpath "$DWMT/$arch-windows/dwmapi_test.exe") $t > $(winpath "$out") 2>&1 & echo done > $(winpath "$out.done")" \
+            >/dev/null 2>&1 &
+        launcher=$!
+        for _ in $(seq 1 110); do [ -e "$out.done" ] && break; sleep 1; done
+        # end that desktop's explorer (dwm.exe follows its parent), at most 10 s
+        pkill -u "$ADM" -f "desktop=$desk" 2>/dev/null || true
+        kill "$launcher" 2>/dev/null; wait "$launcher" 2>/dev/null || true
+        for _ in $(seq 1 100); do pgrep -u "$ADM" -f "desktop=$desk" >/dev/null || break; sleep 0.1; done
+        log="$(tr -d '\r' < "$out" 2>/dev/null || true)"
+        grep -E "tests executed|Test failed|Tests skipped|timed out" <<<"$log" | sed "s/^/c4_dwm $t $arch: /" || true
+        if grep -qE "^[0-9a-f]+:$t: [1-9][0-9]* tests executed \([0-9]+ marked as todo, [0-9]+ as flaky, 0 failures\), 0 skipped" <<<"$log"; then
+            ok "c4_dwm_${t}_tests_pass_as_the_limited_administrator_$arch"
+        else
+            echo "c4_dwm $t $arch: FAIL" >&2; dwm_fail="$dwm_fail $t/$arch"
+        fi
+    done
+    wine_as "$ADM" reg delete "HKCU\Software\Wine\Explorer\Desktops\\$desk" /f >/dev/null 2>&1 || true
+done
+wine_as "$ADM" reg delete "$DWMKEY" /v DwmService /f >/dev/null 2>&1 || true
+[ -z "$dwm_fail" ] || fail "dwm: dwmapi's tests failed or were skipped as the limited administrator:$dwm_fail"
+true; ); section_leave $?; fi
+amb_down "$ADM"
+
+if section c4_std; then set +e; ( section_enter
 # -- 6. a standard user
 el_clean; touch "$EL/approve.all"
 el_up "$STD"
@@ -2753,7 +3336,9 @@ done
 [ ! -e "$EL/out.std" ] || fail "a standard user's request started a process"
 ok c4_standard_user_started_nothing
 el_down "$STD"
+true; ); section_leave $?; fi
 
+if section c4_noleases; then set +e; ( section_enter
 # -- 7. no lease support: with fs.leases-enable=0 the kernel refuses F_SETLEASE with EINVAL, as a file system without
 # lease support does; the request fails with the distinct error and nothing runs, no fallback copy
 el_clean; touch "$EL/approve.all"
@@ -2774,11 +3359,13 @@ fi
 [ ! -e "$EL/out.nolease" ] || fail "a request without a lease started a process"
 bp c4_control_with_leases_enabled_again_runs "$ADM" 64 run "$(winpath /home/$ADM/wexel/lv.exe)" 0 "$(winpath $EL/out.nolease)" -
 el_down "$ADM"
+true; ); section_leave $?; fi
 
 # -- 8. click consent (plan step 6, Part B): the broker starts the consent window as its own SYSTEM child, with the
 # frozen image and command line; only Continue launches. consent_test.exe is consent.c compiled with the harness hook
 # (WEXCONSENT_TEST_HOOK, defined by no build file), installed under another name for the same reason as the test broker.
 echo "--- click consent (step 6, part B)"
+if section c5_build; then set +e; ( section_enter
 mkdir -p "$ROOT/shim/wine"
 cat > "$ROOT/shim/wine/debug.h" <<'EOF'
 #define WINE_DEFAULT_DEBUG_CHANNEL(x)
@@ -2810,6 +3397,7 @@ has_str "$ROOT/probes/wexelevate_test.exe" consent_test || fail "the test broker
     --include='*.sh' --include='*.py' >/dev/null 2>&1 || fail "a build file defines WEXCONSENT_TEST_HOOK"
 [ -z "$(find "$M" "$BUILD/programs" "$BUILD/dlls" -name 'consent_test*' -print -quit)" ] || fail "the test consent program is in the installed tree"
 ok c5_consent_hook_absent_from_shipping_build
+true; ); section_leave $?; fi
 
 cat > "$ROOT/setpolicy.py" <<'EOF'
 import sys
@@ -2828,8 +3416,10 @@ for line in lines:
 open(path, 'w', encoding='latin-1').write('\n'.join(out))
 EOF
 set_policy() { python3 -I "$ROOT/setpolicy.py" "$M/system.reg" "$1"; [ "$(grep -c ConsentPromptBehaviorAdmin "$M/system.reg")" = "$2" ]; }
+if sec_ok c5_build; then
 install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent_test.exe"
 reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' '"ConsentTimeoutMs"=dword:00004e20'
+fi
 set_policy 2 1 || fail "the policy value was not set"
 
 sdp() { local arch="$1"; shift; wine_as "$ADM" "$ROOT/probes/sdprobe$arch.exe" "$@" 2>&1 | tr -d '\r'; }
@@ -2869,7 +3459,8 @@ consent_case()   # name expect-error action(approve|cancel|none)
     wait_input_default || fail "$name: the input did not return to Default"
 }
 
-el_up "$ADM"
+amb_up "$ADM"
+if section c5_click; then set +e; ( section_enter
 consent_case c5_continue_launches_exactly_one_target 0 approve
 [ "$(ls "$EL"/out.c5 2>/dev/null | wc -l)" = 1 ] && [ "$(grep -c '^pid=' "$EL/out.c5")" = 1 ] || fail "not exactly one target"
 for _ in $(seq 1 20); do consent_alive 'system32.consent[_]test' || break; sleep 0.5; done
@@ -2907,7 +3498,9 @@ grep -qF "Program location: $(winpath /home/$ADM/wexel/cs.exe)" "$shown" && grep
 touch "${shown%.shown}.approve"
 wait "$CSP" || { cat "$ROOT/cs.log" >&2; fail "spoofcmd"; }
 ok c5_window_shows_the_frozen_image_not_the_command_line
+true; ); section_leave $?; fi
 
+if section c5_appx; then set +e; ( section_enter
 # the window describes the package of "wexappx install --all-users" by what the real wexappx.exe (next to consent, in
 # system32) reads from the frozen file: the name of the package, and a publisher line that tells signed by a publisher this
 # system does not trust, unsigned and invalid apart. The image the broker runs is the probe renamed wexappx.exe (the
@@ -2937,7 +3530,9 @@ consent_appx_case()   # name package expected-publisher
 consent_appx_case c5_appx_untrusted_publisher_is_unknown_publisher signed "Unknown publisher"
 consent_appx_case c5_appx_unsigned_is_unknown_publisher unsigned "Unknown publisher"
 consent_appx_case c5_appx_changed_package_is_invalid_signature bad-block "Invalid signature"
+true; ); section_leave $?; fi
 
+if section c5_concurrent; then set +e; ( section_enter
 # two requests: approving one does not approve the other
 el_clean
 run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/a.exe"
@@ -2952,7 +3547,9 @@ done
 wait "$CSP" || { cat "$ROOT/conc.log" >&2; fail "concurrent consent"; }
 grep -q '^concurrent=PASS' "$ROOT/conc.log" || { cat "$ROOT/conc.log" >&2; fail "concurrent consent: no PASS"; }
 ok c5_approving_one_request_does_not_approve_the_other
+true; ); section_leave $?; fi
 
+if section c5_writer; then set +e; ( section_enter
 # a writer while the window waits: the request fails (1392) and the window goes
 el_clean
 run_as "$ADM" cp "$ROOT/probes/wexelevate_probe64.exe" "/home/$ADM/wexel/cs.exe"
@@ -2964,7 +3561,9 @@ for _ in $(seq 1 20); do consent_alive 'system32.consent[_]test' || break; sleep
 ! consent_alive 'system32.consent[_]test' || fail "the consent window outlived the request"
 [ ! -e "$EL/out.c5" ] || fail "the changed image ran"
 ok c5_writer_during_consent_fails_the_request_and_closes_the_window
+true; ); section_leave $?; fi
 
+if section c5_missing; then set +e; ( section_enter
 # the consent program cannot start: 1062, nothing runs
 el_clean
 mv "$SYS32/consent_test.exe" "$ROOT/consent_test.hidden"
@@ -2972,8 +3571,10 @@ bp c5_consent_program_missing_is_error_service_not_active "$ADM" 64 run "$(winpa
 mv "$ROOT/consent_test.hidden" "$SYS32/consent_test.exe"
 [ ! -e "$EL/out.c5" ] || fail "a request without a consent window started a process"
 ok c5_no_consent_window_launches_nothing
-el_down "$ADM"
+true; ); section_leave $?; fi
+amb_down "$ADM"
 
+if section c5_std; then set +e; ( section_enter
 # a standard user is still refused before any window
 el_clean
 el_up "$STD"
@@ -2981,10 +3582,12 @@ bp c5_standard_user_gets_not_supported_with_click_consent "$STD" 64 run "$(winpa
 ! consent_alive 'system32.consent[_]test' && [ ! -e "$EL/out.std" ] || fail "a standard user got a window or a process"
 ok c5_standard_user_gets_no_window
 el_down "$STD"
+true; ); section_leave $?; fi
 
 # the shipping broker and the shipping consent.exe, policy 2: the real window starts as the broker's child; the caller going away ends it
 el_restore_broker
 set_policy 2 1 || fail "the policy value was not set"
+if section c5_shipping; then set +e; ( section_enter
 el_up "$ADM"
 el_clean
 bprobe "$ADM" 64 run "$(winpath /home/$ADM/wexel/p64.exe)" 1223 "$(winpath $EL/out.ship)" - > "$ROOT/cs.log" 2>&1 & CSP=$!
@@ -2997,6 +3600,7 @@ for _ in $(seq 1 30); do consent_alive 'system32.consent[.]exe' || break; sleep 
 [ ! -e "$EL/out.ship" ] || fail "a process ran without Continue"
 ok c5_caller_exit_destroys_the_request_and_closes_the_window
 el_down "$ADM"
+true; ); section_leave $?; fi
 # ---- 10. the secure desktop (plan step 5): docs/ELEVATION_SECURE_DESKTOP_WORKORDER.md ---------------------------------
 # The shipping broker and the real consent.exe on WinSta0\Winlogon (created by the broker, SYSTEM only). A limited process
 # of the user attacks the window; xdotool on Xvfb stands in for the real keyboard and mouse (it acts as the X server's
@@ -3024,7 +3628,7 @@ sd_done()      # name: the request ended with the expected code, the window is g
     x11_free || fail "$1: the display is still grabbed"
 }
 
-if want sd; then   # the checks of the secure desktop (WEX_SUITE_ONLY); the installs after them always run
+if section sd_desktop; then set +e; ( section_enter
 set_policy 2 1 || fail "the policy value was not set"
 set_val "$POLSEC" PromptOnSecureDesktop none
 el_up "$ADM"
@@ -3108,7 +3712,9 @@ x11_free || fail "broker crash: the display is still grabbed"
 kill "$CSP" 2>/dev/null || true; wait "$CSP" 2>/dev/null || true
 ok sd_broker_crash_returns_to_default_and_ends_the_window
 el_down "$ADM"
+true; ); section_leave $?; fi
 
+if section sd_policy; then set +e; ( section_enter
 # -- the policy: absent is 5 (click consent), 0 and unknown values are refused, PromptOnSecureDesktop 0 stays on Default
 set_val "$POLSEC" ConsentPromptBehaviorAdmin none
 el_up "$ADM"
@@ -3136,16 +3742,18 @@ sd_done "PromptOnSecureDesktop 0"
 ok sd_prompt_on_secure_desktop_0_stays_on_default
 el_down "$ADM"
 set_val "$POLSEC" PromptOnSecureDesktop none
-fi   # want sd
+true; ); section_leave $?; fi
 
 # -- the test broker: a Winlogon that existed first (1), or one that reads back wider than SYSTEM only (2), is refused (21)
+if sec_ok c5_build; then
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexelevate_test.exe"
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
 install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent_test.exe"
 reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe"'
 BROKER_ORIG=1
+fi
 set_policy 2 1 || fail "the policy value was not set"
-if want sd; then
+if section sd_bad_desktop; then set +e; ( section_enter
 for t in 1 2; do
     set_val 'Software\\WineExplorer\\ElevationTest' SecureDesktopTest "$t"
     el_up "$ADM"
@@ -3155,12 +3763,13 @@ for t in 1 2; do
     el_down "$ADM"
 done
 set_val 'Software\\WineExplorer\\ElevationTest' SecureDesktopTest none
-fi   # want sd
+true; ); section_leave $?; fi
 # ---- 11. callers use the broker (plan step 7): docs/ELEVATION_CALLERS_WORKORDER.md ---------------------------------
 # shell32 (runas, requireAdministrator, highestAvailable) and msi (a per-machine install by a limited administrator)
 # hand the launch to the broker through wexhost.dll, with the helper set. Consent is driven through the test hook of
 # consent_test.exe (Approve, Cancel); no input is injected. The test broker and the hook are installed as in section 10.
 echo "--- callers use the broker (step 7)"
+if section c7_build; then set +e; ( section_enter
 # programs with a manifest that asks for administrator rights, or for the highest available: the probe, twice more
 for lvl in admin highest; do
     case $lvl in admin) LEVEL=requireAdministrator;; highest) LEVEL=highestAvailable;; esac
@@ -3182,6 +3791,7 @@ chmod 0755 "$ROOT/probes"/*.exe
 for u in "$ADM" "$STD"; do
     for img in admin64 admin32 highest64 highest32; do run_as "$u" cp "$ROOT/probes/$img.exe" "/home/$u/wexel/$img.exe"; done
 done
+true; ); section_leave $?; fi
 
 bprobe_f() { local out="$1" u="$2" arch="$3"; shift 3; wine_as "$u" "$ROOT/probes/wexelevate_probe$arch.exe" "$@" > "$out.raw" 2>&1; local rc=$?; tr -d '\r' < "$out.raw" > "$out"; return $rc; }   # to a file: a program the probe starts can keep explorer.exe, which inherits the descriptor, alive, and a pipe would never end
 cp_case()   # name user probe-arch verb image expect action(approve|cancel|none) elevation|- [extra]
@@ -3205,7 +3815,7 @@ cp_case()   # name user probe-arch verb image expect action(approve|cancel|none)
 }
 
 # -- the shipping broker with a policy that selects no prompt (0): 21 for ShellExecuteEx, nothing runs
-if want c7; then   # checks of the callers (WEX_SUITE_ONLY)
+if section c7_policy0; then set +e; ( section_enter
 el_restore_broker
 set_policy 0 1 || fail "policy 0"
 el_up "$ADM"
@@ -3213,8 +3823,8 @@ cp_case c7_policy_without_prompt_is_error_not_ready "$ADM" 64 runas "/home/$ADM/
 [ ! -e "$EL/out.cp" ] || fail "a program ran with the no-prompt policy"
 el_down "$ADM"
 set_policy none 0 || fail "policy none"
-fi   # want c7
-if [ -z "$BROKER_ORIG" ]; then
+true; ); section_leave $?; fi
+if [ -z "$BROKER_ORIG" ] && sec_ok c5_build; then
     install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexelevate_test.exe"
     install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
     install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent_test.exe"
@@ -3232,7 +3842,7 @@ cp_create()   # name user image expected-error: CreateProcess alone (E3, no Shel
     [ -z "$(ls "$EL"/consent.*.shown 2>/dev/null)" ] || fail "$name: CreateProcess asked for consent"
     ok "$name"
 }
-if want c7; then   # checks of the callers (WEX_SUITE_ONLY)
+if section c7_shexec; then set +e; ( section_enter
 el_up "$ADM"
 # -- a filtered administrator: elevates after Approve, 32 and 64 bit callers and targets
 for pa in 64 32; do
@@ -3273,12 +3883,13 @@ cp_case c7_standard_user_highest_available_runs_limited "$STD" 64 - "/home/$STD/
 cp_create c7_create_process_require_administrator_740_for_a_standard_user "$STD" admin64 740
 cp_create c7_create_process_highest_available_runs_for_a_standard_user "$STD" highest64 0
 el_down "$STD"
-fi   # want c7
+true; ); section_leave $?; fi
 
 # -- real, freely licensed installers that require administrator rights (WEX_INSTALLER_DIR: 7z-x64.exe, 7z-x86.exe,
 # npp-x64.exe, npp-x86.exe; downloaded by hand, never committed). They install into the machine root's Program Files
 # after Approve; another user sees the files and can run the program.
 if [ -n "${WEX_INSTALLER_DIR:-}" ]; then
+if section c7_installers; then set +e; ( section_enter
 echo "--- installers"
 el_up "$ADM"
 inst_case()   # name installer expected-file-under-machine-root silent-parameters
@@ -3302,11 +3913,12 @@ OUT="$(wine_as "$STD" "$M/drive_c/Program Files/7-Zip/7z.exe" 2>&1 | head -3)"
 grep -q '7-Zip' <<<"$OUT" || { echo "$OUT" >&2; fail "another user cannot run the installed 7-Zip"; }
 ok c7_installed_program_runs_for_another_user
 el_down "$STD"
+true; ); section_leave $?; fi
 fi
 
 # -- a per-machine MSI by a limited administrator is relaunched once through the broker (one consent) and its deferred
 # custom action runs with the full token; a per-user MSI does not elevate
-if want c7; then   # checks of the callers (WEX_SUITE_ONLY)
+if section c7_msi; then set +e; ( section_enter
 if command -v wixl >/dev/null && command -v msibuild >/dev/null; then
 echo "--- msi"
 MS="$ROOT/msi"; install -d -m 755 "$MS"
@@ -3376,7 +3988,7 @@ el_down "$ADM"
 else
 echo "NOTE: wixl or msibuild missing, the MSI checks were not run"
 fi
-fi   # want c7
+true; ); section_leave $?; fi
 
 # -- the S2, S3 and S4 assertions that waited for the broker, as far as this fixture can run them: an administrator's own
 # (limited) session cannot write the machine root, so the install runs elevated through the broker after Approve
@@ -3411,7 +4023,7 @@ as_wine()   # user args: a Wine program of a user's own (limited) session, outpu
     wine_as "$u" "$@" 2>/dev/null | tr -d '\r'
 }
 
-if want c7; then   # checks of the callers (WEX_SUITE_ONLY)
+if section c7_s4; then set +e; ( section_enter
 # S4 Case 5: the administrator's own session installs a shared tool; a standard user runs it and cannot write
 el_up "$ADM"
 as_wine "$ADM" cmd.exe /c 'mkdir "C:\Program Files\SharedToolDenied"' >/dev/null || true
@@ -3428,7 +4040,9 @@ as_wine "$STD" cmd.exe /c 'echo x > "C:\Program Files\SharedTool\bob.txt"' >/dev
 [ ! -e "$PF/SharedTool/bob.txt" ] || fail "S4: Bob wrote the machine root"
 ok c7_s4_bob_runs_the_shared_tool_and_cannot_write_the_machine_root
 el_down "$STD"
+true; ); section_leave $?; fi
 
+if section c7_s2; then set +e; ( section_enter
 # S2 Test 1 and 1b: Alice installs AliceApp, Carol (a second administrator) modifies Alice's settings
 el_up "$ADM"
 el_cmd c7_s2_alice_installs_aliceapp "$ADM" 'mkdir "C:\Program Files\AliceApp" && copy /Y Z:\var\lib\wexsys-c2\probes\wexelevate_probe64.exe "C:\Program Files\AliceApp\app64.exe" && copy /Y Z:\var\lib\wexsys-c2\probes\wexelevate_probe32.exe "C:\Program Files\AliceApp\app32.exe" && copy /Y Z:\home\wexadm\wexel\alice_cfg.ini "C:\Program Files\AliceApp\settings.ini"'
@@ -3450,7 +4064,9 @@ OUT="$(as_wine "$STD" 'C:\Program Files\AliceApp\app32.exe' facts 'Z:\tmp\wexele
 grep -q '^facts=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "S2: Bob cannot run the 32-bit AliceApp"; }
 ok c7_s2_bob_runs_both_programs_alice_installed
 el_down "$STD"
+true; ); section_leave $?; fi
 
+if section c7_s3; then set +e; ( section_enter
 # S3 Case 1 and Case 3: administrator sessions register in HKLM through the broker, the keys persist in the machine hive
 # (two administrators, each with a server of their own), and a standard user sees both
 CLS='HKLM\Software\Classes\CLSID\{A11CE000-0000-0000-0000-000000000001}'
@@ -3473,11 +4089,11 @@ as_wine "$STD" reg add "$UNI\\BobApp" /v DisplayName /d "Bob" /f >/dev/null || t
 el_down "$STD"
 ! grep -q 'BobApp' "$M/system.reg" || fail "S3: a standard user wrote HKLM"
 ok c7_s3_standard_user_sees_the_registrations_and_cannot_write_hklm
-fi   # want c7
+true; ); section_leave $?; fi
 
 # System tier T1 (docs/SYSTEM_TIER_WORK_ORDERS.md): session 0 holds the machine registry. It runs as an account
 # of its own; the users' launcher-started servers send their programs' machine-registry calls there.
-if [ "${WEX_SKIP_SESSION0:-0}" != 1 ]; then
+if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && sec_planned_any $(sec_in_groups s0 gp) r8e2e; then
 echo "--- system tier: session 0"
 S0RUN="$ROOT/run"
 id "$S0U" >/dev/null 2>&1 && fail "user $S0U exists"
@@ -3518,11 +4134,35 @@ s0_stop()
 }
 s0q() { as_wine "$1" reg query 'HKLM\Software\WexTier' /v "$2" | awk -v n="$2" '$1 == n { print $NF }'; }
 s0_start
+SEC_S0=1   # session 0 runs until the end of the session 0 sections
+R32='C:\windows\syswow64\reg.exe'
+v32() { as_wine "$STD" "$R32" "$@"; }
+val() { awk -v n="$1" '$1 == n { print $NF }'; }
+s0_wine() { (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+    WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" "$@" </dev/null 2>/dev/null); }
+POL="$ROOT/policy"; mkdir -p "$POL"; chmod 755 "$POL"
+LGP="$M/drive_c/windows/system32/GroupPolicy"
+# the store as setup-machine-root.sh makes it: session 0's account owns it and nobody else may write it, except the
+# spool, where the system group leaves requests for gpsvc (docs/GROUP_POLICY.md, "Writing the local files: the spool")
+gp_tree()
+{
+    rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
+    install -d -m 2755 -o "$S0U" -g "$GRP" "$LGP" "$LGP/Machine" "$LGP/User"
+    install -d -m 2770 -o "$S0U" -g "$GRP" "$LGP/Spool"
+    chown "$S0U:$GRP" "$LGP"; chmod 2755 "$LGP"
+    setfacl -R -b "$LGP" 2>/dev/null || true
+}
+local_gpupdate() { WEX_MACHINE_ROOT="$M" WINE="$BUILD/wine" WEX_SESSION0_USER="$S0U" bash "$SRC/installer/scripts/wex-gpupdate.sh" 2>&1; }
+gpttmpl() { { printf '\xff\xfe'; printf '%s\r\n' "$@" | iconv -f UTF-8 -t UTF-16LE; } > "$POL/$TNAME"; }
+if section s0_base; then set +e; ( section_enter
 [ "$(stat -c '%U %a' "$S0RUN/session0")" = "$S0U 666" ] || fail "session 0 socket: $(stat -c '%U %a' "$S0RUN/session0")"
 ok st_session0_runs_as_its_own_account
 # T4-0: with session 0 each user's logon token has the user's own SID from the accounts map
 "$LIBEXEC/wex-accounts" --directory /etc/wineexplorer sync >/dev/null || fail "accounts sync"
 x86_64-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/tierprobe64.exe" "$SRC/scripts/system-tier-probe.c" -ladvapi32 -lntdll
+i686-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/tierprobe32.exe" "$SRC/scripts/system-tier-probe.c" -ladvapi32 -lntdll
+true; ); section_leave $?; fi
+if section s0_token; then set +e; ( section_enter
 for u in "$STD" "$ADM"; do
     want="S-1-5-21-$(awk -v n="$u" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
     got="$(wine_as "$u" "$ROOT/probes/tierprobe64.exe" whoami 2>/dev/null | tr -d '\r' | sed -n 's/^user=//p')"
@@ -3559,6 +4199,8 @@ el_down "$ADM"
 [ -z "$(s0q "$STD" std)" ] && [ -z "$(s0q "$STD" admlimited)" ] || fail "a refused write is in session 0"
 ok st_standard_user_sees_the_elevated_write_without_a_restart
 el_down "$STD"
+true; ); section_leave $?; fi
+if section s0_hive; then set +e; ( section_enter
 # T4a: session 0 holds the user's own hive and sends it back to the user's server, which writes user.reg
 wine_as "$STD" reg add 'HKCU\Software\WexT4' /v v /d std-hkcu /f >/dev/null 2>&1 || fail "T4a: a standard user's HKCU write"
 [ "$(as_wine "$STD" reg query 'HKCU\Software\WexT4' /v v | awk '$1 == "v" { print $NF }')" = std-hkcu ] ||
@@ -3573,11 +4215,10 @@ grep -q '^"v"="std-hkcu"' "/home/$STD/.wine/user.reg" || fail "T4a: user.reg doe
     fail "T4a: the value is not there in the next session"
 el_down "$STD"
 ok st_user_hive_held_by_session0_and_written_to_user_reg
+true; ); section_leave $?; fi
+if section s0_virt; then set +e; ( section_enter
 # T2b: the virtual store. A 32-bit program of a standard user writes under HKLM\Software: the write goes to the
 # user's VirtualStore and is read back merged; 64-bit programs and the excluded keys are not virtualized.
-R32='C:\windows\syswow64\reg.exe'
-v32() { as_wine "$STD" "$R32" "$@"; }
-val() { awk -v n="$1" '$1 == n { print $NF }'; }
 v32 add 'HKLM\Software\WexVirt' /v v /d store /f >/dev/null || fail "T2b: a 32-bit program's virtualized write failed"
 [ "$(v32 query 'HKLM\Software\WexVirt' /v v | val v)" = store ] || fail "T2b: the 32-bit program does not read its write"
 [ -z "$(as_wine "$STD" reg query 'HKLM\Software\Wow6432Node\WexVirt' /v v | val v)" ] || fail "T2b: the write reached the machine key"
@@ -3607,6 +4248,8 @@ el_down "$STD"
 sleep 6   # session 0's lazy flush
 ! grep -q '^"v"="store"\|^"mine"="user"' "$M/system.reg" || fail "T2b: a virtualized write is in the machine hive"
 ok st_virtual_store_for_32_bit_programs_of_a_standard_user
+true; ); section_leave $?; fi
+if section s0_link; then set +e; ( section_enter
 # A link in the user's own user.reg does not carry session 0's load of the hive into the machine registry: the
 # link names an existing machine key, and a later section names a key beneath the link.
 UREG="/home/$STD/.wine/user.reg"
@@ -3672,6 +4315,8 @@ OUT="$(wine_as "$STD" reg query 'HKLM\Software\WexTier' /v FromSession0 2>/dev/n
     fail "session 0 registered a server started without the launcher"
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
 ok st_server_started_without_the_launcher_does_not_use_session0
+true; ); section_leave $?; fi
+if section s0_link2; then set +e; ( section_enter
 # T6.2: each launcher-started server keeps a session link and answers session 0's orders on it
 for u in "$STD" "$ADM"; do
     grep -aq "^session0: session [0-9]* (server pid [0-9]*, uid $(id -u "$u")) answers on its link: session id [0-9]*\$" "$ROOT/session0.log" ||
@@ -3725,17 +4370,16 @@ read -r FAKEACC FAKEGOT < "$FAKE/got" || true   # no final newline
 [ "$FAKEGOT" = 0 ] || fail "T6.2: a server sent $FAKEGOT messages to a socket of another account"
 rm -rf "$FAKE"
 ok st_user_server_ignores_a_socket_of_another_account
+true; ); section_leave $?; fi
+if section s0_programs; then set +e; ( section_enter
 # T5.3: session 0's account runs programs on the machine root through session 0 (its own services.exe, in session
 # 0); T5.2: a standard user's 64-bit and 32-bit programs reach that service manager through \pipe\WexSession0\svcctl
-s0_wine() { (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
-    WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" "$@" </dev/null 2>/dev/null); }
 s0_wine sc query PlugPlay >/dev/null || true
 pgrep -u "$S0U" -f 'services.exe' >/dev/null || fail "T5.3: session 0 runs no services.exe"
 [ "$(s0_wine "$ROOT/probes/tierprobe64.exe" whoami | tr -d '\r' | sed -n 's/^session=//p')" = 0 ] ||
     fail "T5.3: session 0's programs are not in session 0"
 [ "$(s0_wine "$ROOT/probes/tierprobe64.exe" whoami | tr -d '\r' | sed -n 's/^user=//p')" = S-1-5-18 ] ||
     fail "T5.4: session 0's programs do not run as LocalSystem"
-i686-w64-mingw32-gcc -O2 -Wall -municode -o "$ROOT/probes/tierprobe32.exe" "$SRC/scripts/system-tier-probe.c" -ladvapi32 -lntdll
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" rpcbind 'WexSession0\svcctl')"
     grep -q '^bind=12 ' <<<"$OUT" || { echo "$OUT" >&2; fail "T5.2: a $b-bit program of $STD gets no bind_ack from session 0's svcctl"; }
@@ -3773,6 +4417,8 @@ for b in 64 32; do
 done
 kill_servers
 ok st_limited_user_reads_the_machine_root_store
+true; ); section_leave $?; fi
+if section s0_service; then set +e; ( section_enter
 # T5.4: a service that is not a session's own runs once, in session 0, as its account; a standard user's session sees
 # its state through its own services.exe, and cannot stop it (session 0 checks the user's own token)
 s0_wine sc start wuauserv >/dev/null || true
@@ -3797,13 +4443,14 @@ pgrep -u "$S0U" -f wuauserv >/dev/null || fail "T5.4: a standard user stopped se
 s0_wine sc stop wuauserv >/dev/null || true
 kill_servers
 ok st_services_run_once_in_session0_and_users_cannot_stop_them
+true; ); section_leave $?; fi
+STD_SID="S-1-5-21-$(awk -v n="$STD" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
+if section gp_registry; then set +e; ( section_enter
 # Group Policy step 1 (docs/GROUP_POLICY.md): session 0's writer applies registry policy; a user's policy is kept
 # for the logon, is written into the hive by the service, and the user can change it neither in the registry nor
 # in the hive file.
-POL="$ROOT/policy"; mkdir -p "$POL"; chmod 755 "$POL"
 python3 -I "$SRC/scripts/lab/make-preg.py" "$POL/user.pol" 'Software\Policies\WexPol' Limit 7 'Software\WexNotPolicy' x 1
 python3 -I "$SRC/scripts/lab/make-preg.py" "$POL/machine.pol" 'Software\Policies\WexPol' Machine 5
-STD_SID="S-1-5-21-$(awk -v n="$STD" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
 pol_user() { local i v=; for i in $(seq 1 20); do v="$(v32 query 'HKCU\Software\Policies\WexPol' /v Limit | val Limit)"; [ "$v" = "$1" ] && break; sleep 0.5; done; echo "$v"; }
 s0_wine sc start gpsvc >/dev/null || true
 for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
@@ -3863,23 +4510,13 @@ OUT="$(as_wine "$STD" wexpolicy clear /machine || true)"   # the writer's own ex
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "policy: $STD ran the writer"; }
 kill_servers
 ok st_machine_policy_and_clear_and_only_the_system_writes
+true; ); section_leave $?; fi
+if section gp_local; then set +e; ( section_enter
 # Local policy without a domain (docs/GROUP_POLICY.md, "Local policy"): the Registry.pol files of the local object in
 # session 0's root apply to the computer and to every person when wex-gpupdate.sh runs (this machine is not joined),
 # the applied list names "Local Group Policy", and removing the files takes the values away again
-LGP="$M/drive_c/windows/system32/GroupPolicy"
-# the store as setup-machine-root.sh makes it: session 0's account owns it and nobody else may write it, except the
-# spool, where the system group leaves requests for gpsvc (docs/GROUP_POLICY.md, "Writing the local files: the spool")
-gp_tree()
-{
-    rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
-    install -d -m 2755 -o "$S0U" -g "$GRP" "$LGP" "$LGP/Machine" "$LGP/User"
-    install -d -m 2770 -o "$S0U" -g "$GRP" "$LGP/Spool"
-    chown "$S0U:$GRP" "$LGP"; chmod 2755 "$LGP"
-    setfacl -R -b "$LGP" 2>/dev/null || true
-}
 gp_tree
 cp "$POL/machine.pol" "$LGP/Machine/Registry.pol"; cp "$POL/user.pol" "$LGP/User/Registry.pol"
-local_gpupdate() { WEX_MACHINE_ROOT="$M" WINE="$BUILD/wine" WEX_SESSION0_USER="$S0U" bash "$SRC/installer/scripts/wex-gpupdate.sh" 2>&1; }
 OUT="$(local_gpupdate)" || { echo "$OUT" >&2; fail "local policy: wex-gpupdate.sh failed"; }
 grep -q 'local policy only' <<<"$OUT" || { echo "$OUT" >&2; fail "local policy: the run did not say it is local only (is this machine joined?)"; }
 [ "$(as_wine "$STD" reg query 'HKLM\Software\Policies\WexPol' /v Machine | val Machine)" = 0x5 ] ||
@@ -3901,10 +4538,11 @@ OUT="$(local_gpupdate)" || { echo "$OUT" >&2; fail "local policy: wex-gpupdate.s
     fail "local policy: the applied list kept the local object"
 kill_servers
 ok st_local_policy_without_a_domain_applies_and_is_undone
+true; ); section_leave $?; fi
+if section gp_template; then set +e; ( section_enter
 # Group Policy step 5: the security template (GptTmpl.inf, UTF-16LE): the lockout policy goes where net accounts
 # and the verifier keep it, security options in the policy trees are written, the rest is not applicable; a
 # damaged template changes nothing
-gpttmpl() { { printf '\xff\xfe'; printf '%s\r\n' "$@" | iconv -f UTF-8 -t UTF-16LE; } > "$POL/$TNAME"; }
 TNAME=sec.inf gpttmpl '[Unicode]' 'Unicode=yes' '[Version]' 'signature="$CHICAGO$"' 'Revision=1' '[System Access]' \
     'MinimumPasswordLength = 8' 'LockoutBadCount = 5' 'LockoutDuration = -1' 'ResetLockoutCount = 15' '[Registry Values]' \
     'MACHINE\Software\Microsoft\Windows\CurrentVersion\Policies\System\WexSecOption=4,3' \
@@ -3998,6 +4636,8 @@ s0_wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Syst
 s0_wine wexpolicy record /machine "$(winpath "$POL/empty.list")" >/dev/null 2>&1 || true
 kill_servers
 ok st_secedit_exports_and_configures_the_local_security_template
+true; ); section_leave $?; fi
+if section gp_netaccounts; then set +e; ( section_enter
 # net accounts and NetUserModals levels 0 and 1 (docs/GROUP_POLICY.md, local policy 3b): the password policy is kept
 # and shown, with Windows's defaults when nothing is set; the system sets it, a standard user is refused, and values
 # out of range are refused
@@ -4030,6 +4670,8 @@ if s0_wine net accounts /minpwage:40 /maxpwage:30 >/dev/null 2>&1; then fail "ne
 for v in MinPasswordLength MaxPasswordAge MinPasswordAge ForceLogoff PasswordHistoryLength; do s0_wine reg delete "$E" /v $v /f >/dev/null 2>&1 || true; done
 kill_servers
 ok st_net_accounts_password_policy_is_kept_and_shown
+true; ); section_leave $?; fi
+if section gp_spool; then set +e; ( section_enter
 # gpsvc and the spool (docs/GROUP_POLICY.md, "Writing the local files: the spool"): requests that the system group
 # left are checked and installed by session 0's account, or refused with NAME.error; control code 129 may be sent by
 # any user and only makes gpsvc look at the spool. Root stands in for an elevated administrator's process (the
@@ -4105,6 +4747,8 @@ OUT="$(ctl129)"; [ "$OUT" = 'svcctl=0' ] && cmp -s "$POL/machine.pol" "$LGP/Mach
 rm -rf "$LGP/Machine" "$LGP/User" "$SP"
 kill_servers
 ok st_gpsvc_spool_installs_good_requests_and_refuses_hostile_ones
+true; ); section_leave $?; fi
+if section gp_edit; then set +e; ( section_enter
 # the policy editor's save path end to end (docs/GROUP_POLICY.md, "Local policy"): GpEdit_SetPolicyW, which the window's
 # Properties sheet also ends in, makes the file, leaves it in the spool, asks gpsvc, and waits for the refresh; when
 # the refresh has run the setting is in the registry, and "Not Configured" takes it away again
@@ -4138,6 +4782,8 @@ OUT="$(s0_wine "$ROOT/probes/tierprobe64.exe" gpset computer:NoSuchThing 1 0 | t
 rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
 kill_servers
 ok st_gpedit_setting_goes_through_the_spool_and_applies
+true; ); section_leave $?; fi
+if section gp_users; then set +e; ( section_enter
 # the same for the local objects of the users (docs/GROUP_POLICY.md, "The local objects of the users"): the editor's save
 # for the Non-Administrators and for one person goes through the spool to GroupPolicyUsers/SID/User, and the refresh
 # applies them in order to the standard user
@@ -4187,6 +4833,8 @@ local_gpupdate >/dev/null 2>&1 || fail "gpedit users: wex-gpupdate.sh after Not 
 rm -rf "$GUSERS" "$LGP/Machine" "$LGP/User" "$LGP/Spool"
 kill_servers
 ok st_gpedit_objects_of_the_users_go_through_the_spool_and_apply_in_order
+true; ); section_leave $?; fi
+if section gp_secpol; then set +e; ( section_enter
 # the local security settings editor's save (secpol.dll, SecPol_SetW; docs/GROUP_POLICY.md, "The local security settings
 # editor"): a setting goes into the local template through the spool, the refresh applies it, and a second setting keeps
 # the first one's line
@@ -4302,6 +4950,8 @@ wait "$SPS_PID" 2>/dev/null || true
 rm -rf "$LGP/Machine" "$LGP/User" "$LGP/Spool"
 kill_servers
 ok st_secpol_window_offers_a_standard_user_elevation
+true; ); section_leave $?; fi
+if section gp_join; then set +e; ( section_enter
 # the domain join API (docs/DOMAIN_JOIN.md): NetJoinDomain, NetUnjoinDomain and NetValidateName reach the engine through its
 # socket, which only the system group may connect to; a fake engine stands in for wex-domain-join.sh (serve) and records
 # each request. A process of the system group (session 0's account) is the elevated administrator; a standard user is refused.
@@ -4474,6 +5124,8 @@ kill "$JENG_PID" 2>/dev/null; wait "$JENG_PID" 2>/dev/null || true; JENG_PID=; r
 OUT="$(jp 64 validate WEXBOX 1)"; grep -qx 'status=2138' <<<"$OUT" || { echo "$OUT" >&2; fail "join: no engine is not NERR_WkstaNotStarted"; }
 kill_servers
 ok st_join_api_reaches_the_engine_only_from_the_system_group
+true; ); section_leave $?; fi
+if section gp_list; then set +e; ( section_enter
 # Group Policy step 6: the list of applied objects that session 0 records is what GetAppliedGPOList returns, per
 # extension, for the machine and for the user
 REGEXT='{35378EAC-683F-11D2-A89A-00C04FBBCFA2}'; SECEXT='{827D319E-6EAC-11D2-A4EA-00C04F79F83A}'
@@ -4568,6 +5220,8 @@ OUT="$(as_wine "$STD" wexpolicy refreshed || true)"
 grep -q 'only the system writes policy' <<<"$OUT" || { echo "$OUT" >&2; fail "gpupdate: $STD said a refresh was done"; }
 kill_servers
 ok st_gpupdate_asks_session0_and_waits_for_the_refresh
+true; ); section_leave $?; fi
+if section gp_domain; then set +e; ( section_enter
 # Group Policy step 2: the domain join that session 0's registry states is what Windows programs are told
 for b in 64 32; do
     OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" join)"
@@ -4583,6 +5237,8 @@ done
 s0_wine reg delete 'HKLM\Software\WineExplorer\Domain' /f >/dev/null || true
 kill_servers
 ok st_programs_are_told_the_domain_join_from_session0
+true; ); section_leave $?; fi
+if section dom_logon; then set +e; ( section_enter
 # Domain logon WO 2 (docs/DOMAIN_LOGON.md): a domain account of the map gets the domain's SID, the domain's Domain
 # Users as primary group, the domain groups recorded by root, and DOMAIN\user as its name; a member of Domain Admins
 # gets the limited token of an administrator; the domain's RID 500 is no built-in Administrator. The records are
@@ -4590,8 +5246,7 @@ ok st_programs_are_told_the_domain_join_from_session0
 # Real domain accounts are not in /etc/passwd; these test users are, so the account watcher (wex-accounts.path,
 # which syncs at every change of /etc/passwd) is stopped while they exist, and any local record for them is left out.
 [ "${WEX_TRACE_DOMAIN:-0}" != 1 ] || set -x
-WATCH=; systemctl is-active --quiet wex-accounts.path 2>/dev/null && WATCH=1
-systemctl stop wex-accounts.path wex-accounts.timer >/dev/null 2>&1 || true
+watch_hold
 for u in "$DOM" "$DOMA"; do id "$u" >/dev/null 2>&1 || useradd -m -k "$ROOT/skel" -s /bin/bash "$u"; done
 AMAP=/etc/wineexplorer/accounts.map
 cp -p "$AMAP" "$ROOT/accounts.map.pre-domain"
@@ -4675,9 +5330,11 @@ cat "$ROOT/accounts.map.pre-domain" > "$AMAP"; rm -f /etc/wineexplorer/domain-gr
 s0_wine reg delete 'HKLM\Software\WineExplorer\Domain' /f >/dev/null 2>&1 || true
 for u in "$DOM" "$DOMA"; do pkill -u "$u" 2>/dev/null || true; userdel -r "$u" 2>/dev/null || true; done
 set +x
-[ -z "$WATCH" ] || systemctl start wex-accounts.path >/dev/null 2>&1 || true
+watch_release
 kill_servers
 ok st_domain_accounts_token_names_and_domain_admins_limited
+true; ); section_leave $?; fi
+if section s0_save; then set +e; ( section_enter
 # session 0 saves the hive as its own account; the users' servers accept it, and the write survives a restart
 s0_stop
 grep -q '^"fromadm"="elevated"' "$M/system.reg" || fail "session 0 did not save the elevated write"
@@ -4687,19 +5344,24 @@ s0_start
 [ "$(s0q "$STD" fromadm)" = elevated ] || fail "the write did not survive a restart of session 0"
 el_down "$STD"
 ok st_session0_saves_the_hive_and_user_servers_accept_it
+true; ); section_leave $?; fi
 # back to the machine without session 0
 s0_stop
 s0_conf_off
+SEC_S0=0
 fi
 
 # WO-27 R8 end to end (lab only), last in the section; see r8_e2e_case
-if [ "${WEX_E1S6_LAB:-0}" = 1 ] && [ "${WEX_SKIP_R8_E2E:-0}" != 1 ]; then r8_e2e_case; fi
+if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
+if section r8e2e; then set +e; ( section_enter
+r8_e2e_case
+true; ); section_leave $?; fi
+fi
 
 el_restore_broker
 rm -rf "$EL"
-fi   # WEX_C4_SKIP
 
-if [ "${WEX_C3_NO_OWN:-0}" != 1 ]; then
+if section own_prefix; then set +e; ( section_enter
 echo "--- no launcher: a prefix of the user's own"
 UP="/home/$STD/.wine-own"
 rm -rf "$UP"
@@ -4734,7 +5396,8 @@ for arch in 64 32; do
     ok "c3_own_prefix_boot_state_grants_present_$arch"
 done
 own_server -k || true; own_server -w; wait "$HOLD" 2>/dev/null || true
-if [ "${WEX_C4_SKIP:-0}" != 1 ]; then
+true; ); section_leave $?; fi
+if section own_broker; then set +e; ( section_enter
     # no launcher: the broker runs on the user's token, so even an administrator's request is refused
     echo "--- broker without the launcher: a prefix of the administrator's own"
     UPA="/home/$ADM/.wine-own"
@@ -4754,8 +5417,12 @@ if [ "${WEX_C4_SKIP:-0}" != 1 ]; then
     ok c4_without_the_launcher_every_request_gets_not_supported
     own_server_a -k || true; own_server_a -w; wait "$HOLD" 2>/dev/null || true
     rm -rf "$UPA" "$EL"
-fi
-fi
+true; ); section_leave $?; fi
 standin_off
 
-echo "=== sysrun server: $PASS checks passed ==="
+section_summary
+if [ -n "$SEC_FAILED" ]; then
+    echo "=== sysrun server: $PASS checks passed; sections failed:$SEC_FAILED ==="
+    exit 1
+fi
+echo "=== sysrun server: $PASS checks passed${WEX_SUITE_ONLY:+ (PARTIAL: WEX_SUITE_ONLY=$WEX_SUITE_ONLY, not a merge check)} ==="
