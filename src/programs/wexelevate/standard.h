@@ -332,6 +332,10 @@ void e1s18_set_test_clock_fail( BOOL fail );
  * RNG to fail so the fail-closed denial path can be exercised. */
 void e1s18_set_test_random( const uint8_t *bytes, size_t len );
 void e1s18_set_test_random_fail( BOOL fail );
+/* Design review, finding 1: entries in a single-use list (0 answers, 1 evidence), and a lower cap (0 restores the
+ * real one) so a full list can be shown to deny. */
+size_t e1s18_test_used_count( int which );
+void e1s18_set_test_used_cap( size_t cap );
 #endif /* WEX_E1_TEST_HOOKS */
 /* WO-14: test hooks for the S1 endorsed-identity context. The context is
  * zero in production (the request denies); tests set it here. */
@@ -475,6 +479,13 @@ struct e1s18_ops
     DWORD (*r8_close)( struct request *req, UINT64 channel );
     DWORD (*r8_start)( struct request *req, UINT64 channel, const unsigned char *start_pkt, size_t start_len,
                        unsigned char ready_pkt[76] );
+
+    /* Design review, finding 1: the post-approval commit both paths share (main.c commit_approved): the caller
+     * binding again, the request table's single use, the caller still alive, the image and the document unchanged,
+     * both leases armed, the broker not stopping. Runs once after the evidence is redeemed and before any token,
+     * profile or process exists. Win32 lab default: commit_approved; native default: ERROR_NOT_SUPPORTED. A table
+     * without it denies. */
+    DWORD (*commit_request)( struct request *req );
 };
 
 /* Core Broker Integration APIs */

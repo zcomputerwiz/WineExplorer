@@ -877,74 +877,111 @@ void e1s18_test_sha256( const char *tag, size_t tag_len, const uint8_t *data, si
 #endif
 
 /*
- * Answer Replay Tracking (Stage 1)
+ * Single-use lists: consumed answers (stage 1) and burned evidence (stage 2).
+ *
+ * Design review, finding 1: the lists used to stop recording after 64 entries, after which every answer and every
+ * evidence record could be used again (fail open). They now grow, up to a cap far beyond any broker lifetime; a
+ * record that cannot be kept (cap reached, no memory) denies the request that wanted it (fail closed).
  */
-#define E1S18_MAX_REPLAY_TRACK 64
-static struct {
-    uint64_t request_id;
-    uint8_t  nonce[32];
-} s_consumed_answers[E1S18_MAX_REPLAY_TRACK];
-static size_t s_consumed_answers_count = 0;
+#define E1S18_USED_LIST_MAX (1u << 20)
+static size_t s_used_list_max = E1S18_USED_LIST_MAX;   /* lowered only by a test hook */
 
-BOOL e1s18_is_answer_replayed( uint64_t request_id, const uint8_t nonce[32] )
+struct e1s18_used_list
+{
+    uint8_t *entries;
+    size_t count, capacity, size;
+};
+
+static BOOL e1s18_used_contains( const struct e1s18_used_list *l, const uint8_t *key )
 {
     size_t i;
-    for (i = 0; i < s_consumed_answers_count; i++)
-    {
-        if (s_consumed_answers[i].request_id == request_id &&
-            memcmp( s_consumed_answers[i].nonce, nonce, 32 ) == 0)
-            return TRUE;
-    }
+    for (i = 0; i < l->count; i++)
+        if (!memcmp( l->entries + i * l->size, key, l->size )) return TRUE;
     return FALSE;
 }
 
-void e1s18_record_answer( uint64_t request_id, const uint8_t nonce[32] )
+static BOOL e1s18_used_add( struct e1s18_used_list *l, const uint8_t *key )
 {
-    if (s_consumed_answers_count < E1S18_MAX_REPLAY_TRACK)
+    if (l->count >= s_used_list_max) return FALSE;
+    if (l->count == l->capacity)
     {
-        s_consumed_answers[s_consumed_answers_count].request_id = request_id;
-        memcpy( s_consumed_answers[s_consumed_answers_count].nonce, nonce, 32 );
-        s_consumed_answers_count++;
+        size_t capacity = l->capacity ? l->capacity * 2 : 64;
+        uint8_t *grown;
+        if (capacity > E1S18_USED_LIST_MAX) capacity = E1S18_USED_LIST_MAX;
+        if (!(grown = realloc( l->entries, capacity * l->size ))) return FALSE;
+        l->entries = grown;
+        l->capacity = capacity;
     }
+    memcpy( l->entries + l->count * l->size, key, l->size );
+    l->count++;
+    return TRUE;
+}
+
+static void e1s18_used_reset( struct e1s18_used_list *l )
+{
+    if (l->entries) e1s18_wipe( l->entries, l->capacity * l->size );
+    free( l->entries );
+    l->entries = NULL;
+    l->count = l->capacity = 0;
+}
+
+static struct e1s18_used_list s_consumed_answers = { NULL, 0, 0, 8 + 32 };   /* request id, nonce */
+static struct e1s18_used_list s_burned_evidence = { NULL, 0, 0, 16 };        /* evidence reference */
+
+static void e1s18_answer_key( uint8_t key[40], uint64_t request_id, const uint8_t nonce[32] )
+{
+    memcpy( key, &request_id, 8 );
+    memcpy( key + 8, nonce, 32 );
+}
+
+BOOL e1s18_is_answer_replayed( uint64_t request_id, const uint8_t nonce[32] )
+{
+    uint8_t key[40];
+    e1s18_answer_key( key, request_id, nonce );
+    return e1s18_used_contains( &s_consumed_answers, key );
+}
+
+/* FALSE when the answer could not be recorded: the caller denies (fail closed). */
+BOOL e1s18_record_answer( uint64_t request_id, const uint8_t nonce[32] )
+{
+    uint8_t key[40];
+    e1s18_answer_key( key, request_id, nonce );
+    return e1s18_used_add( &s_consumed_answers, key );
 }
 
 void e1s18_reset_answers( void )
 {
-    s_consumed_answers_count = 0;
-    memset( s_consumed_answers, 0, sizeof(s_consumed_answers) );
+    e1s18_used_reset( &s_consumed_answers );
 }
-
-/*
- * Evidence Single-Use Burn Tracking (Stage 2)
- */
-static uint8_t s_burned_evidence[E1S18_MAX_REPLAY_TRACK][16];
-static size_t s_burned_evidence_count = 0;
 
 BOOL e1s18_is_evidence_burned( const uint8_t ref[16] )
 {
-    size_t i;
-    for (i = 0; i < s_burned_evidence_count; i++)
-    {
-        if (memcmp( s_burned_evidence[i], ref, 16 ) == 0)
-            return TRUE;
-    }
-    return FALSE;
+    return e1s18_used_contains( &s_burned_evidence, ref );
 }
 
-static void e1s18_burn_evidence( const uint8_t ref[16] )
+/* FALSE when the reference could not be recorded: the caller denies (fail closed). */
+static BOOL e1s18_burn_evidence( const uint8_t ref[16] )
 {
-    if (s_burned_evidence_count < E1S18_MAX_REPLAY_TRACK)
-    {
-        memcpy( s_burned_evidence[s_burned_evidence_count], ref, 16 );
-        s_burned_evidence_count++;
-    }
+    return e1s18_used_add( &s_burned_evidence, ref );
 }
 
 void e1s18_reset_burned_evidence( void )
 {
-    s_burned_evidence_count = 0;
-    memset( s_burned_evidence, 0, sizeof(s_burned_evidence) );
+    e1s18_used_reset( &s_burned_evidence );
 }
+
+#ifdef WEX_E1_TEST_HOOKS
+/* Test hook: how many entries a single-use list holds (0 answers, 1 evidence). */
+size_t e1s18_test_used_count( int which )
+{
+    return which ? s_burned_evidence.count : s_consumed_answers.count;
+}
+
+void e1s18_set_test_used_cap( size_t cap )
+{
+    s_used_list_max = (cap && cap < E1S18_USED_LIST_MAX) ? cap : E1S18_USED_LIST_MAX;
+}
+#endif
 
 /*
  * Prompt Queue State (H3b Serialized Queue)
@@ -1918,7 +1955,7 @@ static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_i
             if (e1r8_decode_answer( out, flen, &tuple, E1S1_ALL_REQUIRED_CAPS, &ans )) goto r8_fail;
             if (ans.answer_kind != E1R8_S1_ANSWER_CONFIRM) { err = ERROR_CANCELLED; goto r8_fail; }
             if (memcmp( ans.challenge, challenge, 32 ) || e1s18_is_answer_replayed( request_id, nonce )) goto r8_fail;
-            e1s18_record_answer( request_id, nonce );
+            if (!e1s18_record_answer( request_id, nonce )) goto r8_fail;
             if (!ops->r8_recheck || ops->r8_recheck( req, tuple.dialog_id )) goto r8_fail;
             r8_trace_line( "r8: confirm ok" );
 
@@ -3018,13 +3055,12 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
                 }
                 else
                 {
-                    if (e1s18_is_answer_replayed( req->id, nonce ))
+                    if (e1s18_is_answer_replayed( req->id, nonce ) || !e1s18_record_answer( req->id, nonce ))
                     {
                         err = ERROR_ACCESS_DENIED;
                     }
                     else
                     {
-                        e1s18_record_answer( req->id, nonce );
                         if (!wex_valid_account_name( out_account ))
                         {
                             err = ERROR_ACCESS_DENIED;
@@ -3223,12 +3259,11 @@ static DWORD default_redeem_evidence( struct request *req, const char *account_n
     }
 
     /* Single-use burn verification */
-    if (e1s18_is_evidence_burned( evidence_ref ))
+    if (e1s18_is_evidence_burned( evidence_ref ) || !e1s18_burn_evidence( evidence_ref ))
     {
         e1s18_wipe( evidence_buf, sizeof(evidence_buf) );
         return ERROR_ACCESS_DENIED;
     }
-    e1s18_burn_evidence( evidence_ref );
 
     /* Populate struct request fields */
 #ifdef WEXELEVATE_E1S18
@@ -3665,15 +3700,20 @@ static DWORD default_prep_launch( struct request *req, HANDLE token,
         size_t size;
         char *copy;
 
+        /* design review, finding 1: the working directory the child gets is the one handed out here (exact UTF-8
+         * of the request's; none when the request names none), and create_process_suspended uses exactly that */
+        if (req->cwd && wex_utf16le_to_utf8( (const uint16_t *)req->cwd, cwd_buf, sizeof(cwd_buf) ) != 0)
+            return ERROR_ACCESS_DENIED;
         if (!CreateEnvironmentBlock( &block, token, FALSE )) return GetLastError() ? GetLastError() : ERROR_ACCESS_DENIED;
         for (p = block; *p; p += lstrlenW( p ) + 1) ;
         size = (size_t)((const char *)(p + 1) - (const char *)block);
         if (!(copy = malloc( size ))) { DestroyEnvironmentBlock( block ); return ERROR_NOT_ENOUGH_MEMORY; }
         memcpy( copy, block, size );
         DestroyEnvironmentBlock( block );
+        if (req->cwd && out_cwd && !(*out_cwd = strdup( cwd_buf ))) { free( copy ); return ERROR_NOT_ENOUGH_MEMORY; }
         if (out_win_env) *out_win_env = copy; else free( copy );
         if (out_win_env_sz) *out_win_env_sz = size;
-        (void)params; (void)result; (void)st; (void)cwd_buf; (void)tmp_fd;
+        (void)params; (void)result; (void)st; (void)tmp_fd;
         return ERROR_SUCCESS;
     }
 #endif
@@ -3799,13 +3839,23 @@ static DWORD default_create_process_suspended( struct request *req, HANDLE token
 {
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
     STARTUPINFOW si;
-    WCHAR *cmdline = NULL;
+    WCHAR *cmdline = NULL, *wcwd = NULL;
     DWORD err = ERROR_SUCCESS;
 
     (void)win_env_sz;
-    (void)cwd;
     if (!out_pi) return ERROR_INVALID_PARAMETER;
     memset( out_pi, 0, sizeof(*out_pi) );
+    /* the prepared working directory (design review, finding 1), converted exactly; none: the default */
+    if (cwd)
+    {
+        int n = MultiByteToWideChar( CP_UTF8, MB_ERR_INVALID_CHARS, cwd, -1, NULL, 0 );
+        if (n <= 1 || !(wcwd = malloc( n * sizeof(WCHAR) ))) return n <= 1 ? ERROR_INVALID_DATA : ERROR_NOT_ENOUGH_MEMORY;
+        if (MultiByteToWideChar( CP_UTF8, MB_ERR_INVALID_CHARS, cwd, -1, wcwd, n ) != n)
+        {
+            free( wcwd );
+            return ERROR_INVALID_DATA;
+        }
+    }
     memset( &si, 0, sizeof(si) );
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESHOWWINDOW;
@@ -3814,6 +3864,7 @@ static DWORD default_create_process_suspended( struct request *req, HANDLE token
     cmdline = (WCHAR *)malloc( (lstrlenW( req->cmdline ) + 1) * sizeof(WCHAR) );
     if (!cmdline)
     {
+        free( wcwd );
         return ERROR_NOT_ENOUGH_MEMORY;
     }
     lstrcpyW( cmdline, req->cmdline );
@@ -3826,12 +3877,13 @@ static DWORD default_create_process_suspended( struct request *req, HANDLE token
      */
     if (!CreateProcessAsUserW( token, req->image, cmdline, NULL, NULL, FALSE,
                                CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE | CREATE_SUSPENDED,
-                               (void *)win_env, req->cwd, &si, out_pi ))
+                               (void *)win_env, wcwd, &si, out_pi ))
     {
         err = GetLastError();
     }
 
     free( cmdline );
+    free( wcwd );
     return err;
 #else
     (void)req; (void)token; (void)win_env; (void)win_env_sz; (void)cwd; (void)out_pi;
@@ -4242,6 +4294,17 @@ static DWORD default_r8_start( struct request *req, UINT64 channel, const unsign
 #endif
 }
 
+/* Design review, finding 1: the one post-approval commit, shared with the administrator path (main.c). */
+static DWORD default_commit_request( struct request *req )
+{
+#if defined(_WIN32) && defined(WEXELEVATE_E1S18)
+    return commit_approved( req );
+#else
+    (void)req;
+    return ERROR_NOT_SUPPORTED;
+#endif
+}
+
 static struct e1s18_ops s_default_ops = {
     default_get_capabilities,
     default_is_policy_enabled,
@@ -4270,7 +4333,8 @@ static struct e1s18_ops s_default_ops = {
     default_r8_endorse,
     default_r8_recheck,
     default_r8_close,
-    default_r8_start
+    default_r8_start,
+    default_commit_request
 };
 
 static const struct e1s18_ops *s_active_ops = &s_default_ops;
@@ -4529,6 +4593,13 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
     err = ops->redeem_evidence( req, account_name, nonce, binding_digest, request_digest, account_key, evidence_ref );
     if (err) goto fail;
 
+    /* Step 2b (design review, finding 1): the post-approval commit the administrator path runs too. The request
+     * is consumed here (a replay of it is refused), and a changed image or document, a broken lease or a caller
+     * that is gone denies before any token, profile or process exists. */
+    stage = "commit_request";
+    err = ops->commit_request ? ops->commit_request( req ) : ERROR_NOT_SUPPORTED;
+    if (err) goto fail;
+
 #ifdef WEXELEVATE_E1S18
     /* Step 3: Server-issued account token (S10) */
     stage = "issue_token";
@@ -4587,6 +4658,13 @@ static DWORD e1s18_handle_standard_request_locked( struct request *req, struct w
         stage = "arm_lease";
         err = ops->arm_lease( req->lease, pi.dwProcessId );
         if (err) goto fail;
+        /* the document (a package the child opens) is held for the child too, as in the administrator path */
+        if (req->doc_lease)
+        {
+            stage = "arm_doc_lease";
+            err = ops->arm_lease( req->doc_lease, pi.dwProcessId );
+            if (err) goto fail;
+        }
 #if defined(_WIN32)
         /* R6 remediation: keep image protection until TARGET process exits by transferring ownership to guard thread */
         {

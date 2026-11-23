@@ -102,6 +102,11 @@ struct test_tracker
     int omit_stage2_account_name;
     int omit_stage2_account_key;
     int omit_stage2_map_gen;
+
+    /* Design review, finding 1: the post-approval commit (fake_commit_request) */
+    int commit_calls;
+    int commit_at_order;   /* g_track.order_count when the commit ran */
+    int doc_changed;       /* the frozen document changed: the commit refuses */
 };
 
 static struct test_tracker g_track;
@@ -385,6 +390,22 @@ static void fake_free_buffer( void *ptr )
     g_track.buffers_freed++;
 }
 
+/*
+ * Design review, finding 1: models main.c commit_approved for the native tests. The request is used once (as
+ * table_consume: req->live is cleared, a second commit of the same request is refused), and a changed document
+ * (verify_doc) is refused with ERROR_FILE_CORRUPT. Not part of the 1..14 stage order; commit_at_order records where
+ * it ran.
+ */
+static DWORD fake_commit_request( struct request *req )
+{
+    g_track.commit_calls++;
+    g_track.commit_at_order = g_track.order_count;
+    if (!req->live) return ERROR_CANCELLED;
+    req->live = 0;
+    if (g_track.doc_changed) return ERROR_FILE_CORRUPT;
+    return ERROR_SUCCESS;
+}
+
 static struct e1s18_ops s_fake_ops = {
     fake_get_capabilities,
     fake_is_policy_enabled,
@@ -413,7 +434,8 @@ static struct e1s18_ops s_fake_ops = {
     NULL, /* r8_endorse */
     NULL, /* r8_recheck */
     NULL, /* r8_close */
-    NULL  /* r8_start */
+    NULL, /* r8_start */
+    fake_commit_request
 };
 
 static WCHAR s_dummy_image[] = { 'C', ':', '\\', 'w', 'i', 'n', 'd', 'o', 'w', 's', '\\', 'c', 'm', 'd', '.', 'e', 'x', 'e', 0 };
@@ -423,6 +445,7 @@ static void init_dummy_request( struct request *req )
 {
     memset( req, 0, sizeof(*req) );
     req->id = 0x1234567890abcdefULL;
+    req->live = 1;   /* admitted to the table: usable once (finding 1) */
     req->caller_pid = 1000;
     req->caller_session = 1;
     req->caller = (HANDLE)(intptr_t)0x8008;
@@ -1430,6 +1453,7 @@ static int test_export_boundary_pipeline_integration( void )
     /* Hybrid ops: keep default issue_token, load_profile, prep_launch, transfer_lease, unload_profile;
      * provide fakes for stages requiring service plumbing or win32 kernel objects */
     hybrid_ops = *default_ops;
+    hybrid_ops.commit_request = fake_commit_request;
     hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
     hybrid_ops.get_capabilities = fake_get_capabilities;
     hybrid_ops.prompt_dialog = fake_prompt_dialog;
@@ -2241,6 +2265,7 @@ static int test_transport_boundary_fields_populated_and_secrets_wiped( void )
 
     default_ops = e1s18_get_ops();
     hybrid_ops = *default_ops;
+    hybrid_ops.commit_request = fake_commit_request;
     hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
     hybrid_ops.get_capabilities = fake_get_capabilities;
     hybrid_ops.prompt_dialog = default_ops->prompt_dialog;
@@ -2920,6 +2945,7 @@ static int test_rng_failure_denies_no_dialog( void )
     e1s18_reset_ops();
     default_ops = e1s18_get_ops();
     hybrid_ops = *default_ops;
+    hybrid_ops.commit_request = fake_commit_request;
     hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
     hybrid_ops.get_capabilities = fake_get_capabilities;
     hybrid_ops.prompt_dialog = default_ops->prompt_dialog; /* default: would spawn a dialog */
@@ -2962,6 +2988,7 @@ static int test_random_nonce_and_channel_differ( void )
     e1s18_reset_ops();
     default_ops = e1s18_get_ops();
     hybrid_ops = *default_ops;
+    hybrid_ops.commit_request = fake_commit_request;
     hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
     hybrid_ops.get_capabilities = fake_get_capabilities;
     hybrid_ops.prompt_dialog = default_ops->prompt_dialog; /* default: generates the channel id */
@@ -3202,7 +3229,8 @@ static struct e1s18_ops s_wo15_ops = {
     NULL, /* r8_endorse */
     NULL, /* r8_recheck */
     NULL, /* r8_close */
-    NULL  /* r8_start */
+    NULL, /* r8_start */
+    fake_commit_request
 };
 
 struct wo15_worker_arg
@@ -3556,6 +3584,7 @@ static int test_wo16_admission_deadline( void )
     /* Hybrid ops: keep the default prompt_dialog and redeem_evidence (which
      * use req->deadline); provide fakes for the other stages. */
     hybrid_ops = *default_ops;
+    hybrid_ops.commit_request = fake_commit_request;
     hybrid_ops.is_policy_enabled = fake_is_policy_enabled;
     hybrid_ops.get_capabilities = fake_get_capabilities;
     hybrid_ops.issue_token = fake_issue_token;
@@ -4366,6 +4395,128 @@ static int test_review3_digest_failure_denies( void )
 }
 #endif
 
+#ifdef WEXELEVATE_E1S18
+/* standard.c: the single-use answer list (declared for the units in broker_internal.h) */
+BOOL e1s18_is_answer_replayed( uint64_t request_id, const uint8_t nonce[32] );
+BOOL e1s18_record_answer( uint64_t request_id, const uint8_t nonce[32] );
+
+/*
+ * Design review, finding 1: the standard path runs the post-approval commit the administrator path runs, right
+ * after the evidence is redeemed. A changed document is refused there, before any token, profile or process.
+ */
+static int test_review1_commit_changed_document( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    DWORD err;
+    int i;
+
+    init_dummy_request( &req );
+    reset_tracker();
+    e1s18_reset_answers();
+    e1s18_reset_burned_evidence();
+    g_track.doc_changed = 1;
+    e1s18_set_ops( &s_fake_ops );
+    memset( &reply, 0, sizeof(reply) );
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, (DWORD)ERROR_FILE_CORRUPT, "a changed document must be refused at the commit" );
+    CHECK_EQ( g_track.commit_calls, 1, "the commit runs once" );
+    CHECK_EQ( g_track.commit_at_order, 2, "the commit runs right after the dialog and the redemption" );
+    for (i = 0; i < g_track.order_count; i++)
+        CHECK( g_track.order[i] < 3, "no token, profile or process after a refused commit" );
+    CHECK_EQ( g_track.resume_count, 0, "no child is resumed" );
+    CHECK_EQ( reply.pid, 0, "no child in the reply" );
+    CHECK_EQ( req.live, 0, "the request is used even though the commit refused it" );
+
+    /* an ops table without the commit denies (fail closed) */
+    {
+        struct e1s18_ops ops = s_fake_ops;
+        ops.commit_request = NULL;
+        init_dummy_request( &req );
+        reset_tracker();
+        e1s18_set_ops( &ops );
+        err = e1s18_handle_standard_request( &req, &reply );
+        CHECK_EQ( err, (DWORD)ERROR_NOT_SUPPORTED, "no commit: no launch" );
+        for (i = 0; i < g_track.order_count; i++)
+            CHECK( g_track.order[i] < 3, "no token without the commit" );
+    }
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+
+/*
+ * Design review, finding 1: a request is used once on the standard path as on the administrator path. Handling the
+ * same request again is refused at the commit and never reaches a token or a second child.
+ */
+static int test_review1_replayed_request( void )
+{
+    struct request req;
+    struct wexelevate_reply reply;
+    DWORD err;
+    int i, before;
+
+    init_dummy_request( &req );
+    reset_tracker();
+    e1s18_reset_answers();
+    e1s18_reset_burned_evidence();
+    e1s18_set_ops( &s_fake_ops );
+    memset( &reply, 0, sizeof(reply) );
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK_EQ( err, (DWORD)ERROR_SUCCESS, "the first use succeeds" );
+    CHECK_EQ( g_track.resume_count, 1, "one child" );
+
+    before = g_track.order_count;
+    memset( &reply, 0, sizeof(reply) );
+    err = e1s18_handle_standard_request( &req, &reply );
+    CHECK( err != ERROR_SUCCESS, "a replayed request must be refused" );
+    CHECK_EQ( g_track.commit_calls, 2, "the replay reaches the commit, which refuses it" );
+    for (i = before; i < g_track.order_count; i++)
+        CHECK( g_track.order[i] < 3, "a replay gets no token, profile or process" );
+    CHECK_EQ( g_track.resume_count, 1, "still one child" );
+    CHECK_EQ( reply.pid, 0, "no child in the replay's reply" );
+    e1s18_reset_ops();
+    return TEST_PASS;
+}
+
+/*
+ * Design review, finding 1: the single-use answer list no longer stops recording after 64 answers. Every answer is
+ * still recognised as used after hundreds, and a full list refuses to record (the caller then denies).
+ */
+static int test_review1_used_lists_grow( void )
+{
+    uint8_t nonce[32];
+    uint64_t i;
+
+    e1s18_reset_answers();
+    memset( nonce, 0x5a, sizeof(nonce) );
+    for (i = 1; i <= 300; i++)
+    {
+        memcpy( nonce, &i, sizeof(i) );
+        CHECK( !e1s18_is_answer_replayed( 1000 + i, nonce ), "a new answer is not yet used" );
+        CHECK( e1s18_record_answer( 1000 + i, nonce ), "a new answer is recorded" );
+    }
+    CHECK_EQ( e1s18_test_used_count( 0 ), (size_t)300, "every answer is kept" );
+    for (i = 1; i <= 300; i++)
+    {
+        memcpy( nonce, &i, sizeof(i) );
+        CHECK( e1s18_is_answer_replayed( 1000 + i, nonce ), "answer 65 and later are still known as used" );
+    }
+
+    /* a full list refuses (fail closed), and the refused answer is not counted as kept */
+    e1s18_set_test_used_cap( 300 );
+    i = 301;
+    memcpy( nonce, &i, sizeof(i) );
+    CHECK( !e1s18_record_answer( 1000 + i, nonce ), "a full list must refuse to record" );
+    CHECK_EQ( e1s18_test_used_count( 0 ), (size_t)300, "the refused answer is not kept" );
+    e1s18_set_test_used_cap( 0 );
+    CHECK( e1s18_record_answer( 1000 + i, nonce ), "the real cap is far above any run" );
+
+    e1s18_reset_answers();
+    CHECK_EQ( e1s18_test_used_count( 0 ), (size_t)0, "reset empties the list" );
+    return TEST_PASS;
+}
+#endif
+
 int main( int argc, char **argv )
 {
     int ret = 0;
@@ -4576,6 +4727,15 @@ int main( int argc, char **argv )
 
     printf("65. Testing review finding 3: a failed S1 encoding or digest denies before any dialog...\n");
     if (test_review3_digest_failure_denies() != TEST_PASS) ret = 1;
+
+    printf("66. Testing review finding 1: a changed document is refused at the shared commit...\n");
+    if (test_review1_commit_changed_document() != TEST_PASS) ret = 1;
+
+    printf("67. Testing review finding 1: a replayed request is refused on the standard path...\n");
+    if (test_review1_replayed_request() != TEST_PASS) ret = 1;
+
+    printf("68. Testing review finding 1: single-use lists grow and fail closed when full...\n");
+    if (test_review1_used_lists_grow() != TEST_PASS) ret = 1;
 #endif
 
     if (ret == 0 && g_failed == 0)

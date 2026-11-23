@@ -374,7 +374,7 @@ static enum r9b_result r9b_attempt( struct r9b *b, char account[64], uint8_t key
     if (e1r8_decode_answer( from, inner_len, &b->t, E1S1_ALL_REQUIRED_CAPS, &ans )) goto fail;
     if (ans.answer_kind != E1R8_S1_ANSWER_CONFIRM) { err = ERROR_CANCELLED; goto fail; }
     if (memcmp( ans.challenge, challenge, 32 ) || e1s18_is_answer_replayed( b->t.request_id, b->t.nonce )) goto fail;
-    e1s18_record_answer( b->t.request_id, b->t.nonce );
+    if (!e1s18_record_answer( b->t.request_id, b->t.nonce )) goto fail;
     step = "recheck confirm";
     if ((err = r9b_recheck( b, E1R8_RECHECK_STEP_CONFIRM ))) goto fail;
     r9b_trace( "confirm ok" );

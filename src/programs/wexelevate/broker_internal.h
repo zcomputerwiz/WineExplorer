@@ -61,7 +61,7 @@ BOOL e1s18_is_all_zero( const uint8_t *buf, size_t len );
 
 /* The answers (request id, nonce) the broker has acted on, so that none is acted on twice. */
 BOOL e1s18_is_answer_replayed( uint64_t request_id, const uint8_t nonce[32] );
-void e1s18_record_answer( uint64_t request_id, const uint8_t nonce[32] );
+BOOL e1s18_record_answer( uint64_t request_id, const uint8_t nonce[32] );   /* FALSE: not recorded, deny */
 
 void r8_trace_line( const char *msg );
 void r8_trace_err( const char *step, unsigned long err );
@@ -95,6 +95,8 @@ DWORD secure_enter( void );
 void secure_leave( void );
 DWORD consent_timeout( void );
 void report( DWORD state, DWORD error );
+/* the post-approval commit both paths share (design review, finding 1) */
+DWORD commit_approved( struct request *req );
 
 /* ---- broker0.c -------------------------------------------------------------------------------------------- */
 

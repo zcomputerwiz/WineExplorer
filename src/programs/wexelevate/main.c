@@ -69,8 +69,11 @@
 /* The standard-user path (lab): its units share these services of main.c (broker_internal.h). */
 #include "broker_internal.h"
 #define BROKER_SHARED
+#define BROKER_SHARED_INLINE
 #else
 #define BROKER_SHARED static
+/* a helper the shipping build has at one call site: inlined there, as the code stood before it was shared */
+#define BROKER_SHARED_INLINE static inline __attribute__((always_inline))
 #endif
 
 #define MAX_REQUESTS      32   /* pending at once */
@@ -2110,6 +2113,28 @@ done:
 }
 #endif
 
+/* Everything between an approval and the launch, for the administrator path and the standard-user path alike
+ * (design review, finding 1): the caller binding is still the one approved, the request is used once (from here
+ * on it cannot be replayed), the caller is alive, the image and the document are the ones frozen, both leases are
+ * armed with nothing broken, and the broker is not stopping. */
+BROKER_SHARED_INLINE DWORD commit_approved( struct request *req )
+{
+    DWORD err;
+
+    if ((err = check_binding( req, req->caller_pid, NULL, FALSE ))) return err;
+    /* from here on the request is used: once */
+    if (!table_consume( req )) return ERROR_CANCELLED;
+    if (WaitForSingleObject( req->caller, 0 ) != WAIT_TIMEOUT) return ERROR_CANCELLED;
+    if ((err = verify_image( req ))) return err;
+    if ((err = verify_doc( req ))) return err;
+    if (req->lease && ((err = pLeaseArm( req->lease, 0 )) || WaitForSingleObject( req->lease_event, 0 ) != WAIT_TIMEOUT))
+        return err ? err : ERROR_FILE_CORRUPT;
+    if (req->doc_lease && ((err = pLeaseArm( req->doc_lease, 0 )) || WaitForSingleObject( req->doc_event, 0 ) != WAIT_TIMEOUT))
+        return err ? err : ERROR_FILE_CORRUPT;
+    if (WaitForSingleObject( stop_event, 0 ) != WAIT_TIMEOUT) return ERROR_CANCELLED;
+    return ERROR_SUCCESS;
+}
+
 static DWORD handle_request( struct request *req, BYTE *buf, DWORD size, struct wexelevate_reply *reply )
 {
     DWORD err;
@@ -2141,17 +2166,7 @@ static DWORD handle_request( struct request *req, BYTE *buf, DWORD size, struct 
 #endif
     if ((err = check_binding( req, req->caller_pid, NULL, FALSE ))) return err;
     if ((err = approve( req ))) return err;
-    if ((err = check_binding( req, req->caller_pid, NULL, FALSE ))) return err;
-    /* from here on the request is used: once */
-    if (!table_consume( req )) return ERROR_CANCELLED;
-    if (WaitForSingleObject( req->caller, 0 ) != WAIT_TIMEOUT) return ERROR_CANCELLED;
-    if ((err = verify_image( req ))) return err;
-    if ((err = verify_doc( req ))) return err;
-    if (req->lease && ((err = pLeaseArm( req->lease, 0 )) || WaitForSingleObject( req->lease_event, 0 ) != WAIT_TIMEOUT))
-        return err ? err : ERROR_FILE_CORRUPT;
-    if (req->doc_lease && ((err = pLeaseArm( req->doc_lease, 0 )) || WaitForSingleObject( req->doc_event, 0 ) != WAIT_TIMEOUT))
-        return err ? err : ERROR_FILE_CORRUPT;
-    if (WaitForSingleObject( stop_event, 0 ) != WAIT_TIMEOUT) return ERROR_CANCELLED;
+    if ((err = commit_approved( req ))) return err;
     return launch( req, &reply->pid, &reply->tid, &reply->handle );
 }
 
