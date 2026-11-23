@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright 2026 WineExplorer contributors
 # lab: run tests/uwp/alpc/pm-probe.c (compiled here) on the Wine build of candidate u12 in a fresh prefix (the classes are registered
-# by wineboot). usage: pm-run.sh [stage]
+# by wineboot). usage: pm-run.sh [stage | install URI [development] | provision FAMILY]
 root=/home/debian/uwp-u1-20261111
 b=$root/build/candidates/u12/build
 p=$root/build/candidates/u12/pm-prefix

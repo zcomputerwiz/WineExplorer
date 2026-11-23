@@ -3,7 +3,8 @@
  *
  * Probe of Windows.Management.Deployment.PackageManager as Office Click-to-Run uses it: the factory and agility, an empty
  * FindPackagesByPackageFamilyName, StagePackageOptions (activation, property round trip, the same list object twice),
- * QueryInterface of the manager for IPackageManager6 and, on Wine only (argument "stage"), the staging call of that interface.
+ * QueryInterface of the manager for IPackageManager6 and, on Wine only (argument "stage"), the staging call of that interface;
+ * "install URI [development]" and "provision FAMILY" run the real calls and print the result.
  * Raw vtable slots, so it builds with a bare mingw: x86_64-w64-mingw32-gcc -O2 -o pm-probe.exe pm-probe.c -lole32 -loleaut32
  * (add -lcombase with Wine; on Windows combase is reached through the import library of mingw: -lruntimeobject).
  */
@@ -40,16 +41,31 @@ static void release(void *obj)
     if (obj) ((ULONG (WINAPI *)(void *))SLOT(obj, 2))(obj);
 }
 
+static int wait_and_print( void *op );
+
+/* provision FAMILY: IPackageManager6::ProvisionPackageForAllUsersAsync (slot 6) */
+static int do_provision( const WCHAR *family )
+{
+    void *pm = NULL, *pm1 = NULL, *pm6 = NULL, *op = NULL;
+    HRESULT hr;
+
+    hr = pGetFactory(hs(L"Windows.Management.Deployment.PackageManager"), &IID_IActivationFactory_, &pm);
+    if (hr || FAILED(hr = CALL(pm, 6, HRESULT (WINAPI *)(void *, void **), &pm1))) return 1;
+    hr = ((HRESULT (WINAPI *)(void *, const GUID *, void **))SLOT(pm1, 0))(pm1, &IID_IPackageManager6, &pm6);
+    printf("QI IPackageManager6: hr=%08lx\n", hr);
+    if (hr) return 1;
+    hr = CALL(pm6, 6, HRESULT (WINAPI *)(void *, HSTRING_, void **), hs(family), &op);
+    printf("ProvisionPackageForAllUsersAsync: hr=%08lx op=%s\n", hr, op ? "set" : "null");
+    if (hr || !op) return 1;
+    return wait_and_print( op );
+}
+
 /* install FILE_URI [development]: IPackageManager::StagePackageAsync on a real package, wait for the operation, print what it says */
 static int do_install(const WCHAR *uri_text, int development)
 {
     static const GUID IID_IUriFactory = {0x44a9796f, 0x723e, 0x4fdf, {0xa2, 0x18, 0x03, 0x3e, 0x75, 0xb0, 0xc0, 0x84}};
-    static const GUID IID_IAsyncInfo_ = {0x00000036, 0, 0, {0xc0, 0, 0, 0, 0, 0, 0, 0x46}};
-    typedef const WCHAR *(WINAPI *RawBuffer_t)(HSTRING_, UINT32 *);
-    RawBuffer_t pRaw = (RawBuffer_t)GetProcAddress(GetModuleHandleA("combase.dll"), "WindowsGetStringRawBuffer");
-    void *ufactory = NULL, *uri = NULL, *pm = NULL, *pm1 = NULL, *pm2 = NULL, *op = NULL, *info = NULL, *res = NULL;
-    int status = -1, i;
-    HRESULT hr, code = 0;
+    void *ufactory = NULL, *uri = NULL, *pm = NULL, *pm1 = NULL, *pm2 = NULL, *op = NULL;
+    HRESULT hr;
 
     hr = pGetFactory(hs(L"Windows.Foundation.Uri"), &IID_IUriFactory, &ufactory);
     printf("Uri factory: hr=%08lx\n", hr);
@@ -71,6 +87,19 @@ static int do_install(const WCHAR *uri_text, int development)
         hr = CALL(pm1, 9, HRESULT (WINAPI *)(void *, void *, void *, void **), uri, NULL, &op);   /* StagePackageAsync */
     printf("StagePackageAsync: hr=%08lx op=%s\n", hr, op ? "set" : "null");
     if (hr || !op) return 1;
+    return wait_and_print( op );
+}
+
+/* wait for an IAsyncOperationWithProgress<DeploymentResult, DeploymentProgress> and print the status and the result */
+static int wait_and_print( void *op )
+{
+    static const GUID IID_IAsyncInfo_ = {0x00000036, 0, 0, {0xc0, 0, 0, 0, 0, 0, 0, 0x46}};
+    typedef const WCHAR *(WINAPI *RawBuffer_t)(HSTRING_, UINT32 *);
+    RawBuffer_t pRaw = (RawBuffer_t)GetProcAddress(GetModuleHandleA("combase.dll"), "WindowsGetStringRawBuffer");
+    void *info = NULL, *res = NULL;
+    int status = -1, i;
+    HRESULT hr, code = 0;
+
     ((HRESULT (WINAPI *)(void *, const GUID *, void **))SLOT(op, 0))(op, &IID_IAsyncInfo_, &info);
     for (i = 0; i < 600 && info; i++)
     {
@@ -112,6 +141,13 @@ int main(int argc, char **argv)
         WCHAR uri[1024];
         MultiByteToWideChar(CP_UTF8, 0, argv[2], -1, uri, 1024);
         return do_install(uri, argc > 3 && !strcmp(argv[3], "development"));
+    }
+
+    if (argc > 2 && !strcmp(argv[1], "provision"))
+    {
+        WCHAR family[256];
+        MultiByteToWideChar(CP_UTF8, 0, argv[2], -1, family, 256);
+        return do_provision(family);
     }
 
     hr = pGetFactory(hs(L"Windows.Management.Deployment.PackageManager"), &IID_IActivationFactory_, &factory);
