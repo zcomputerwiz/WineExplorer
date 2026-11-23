@@ -2,7 +2,9 @@
 
 ## server, ntdll, launcher: one library under the session 0 links (R2 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
 
-No change of behaviour or of the link protocol (version 5); the copies became one.
+No change of the link protocol (version 5), and none of behaviour but one tightening: a user's server now ignores
+a hive message from session 0 that was cut or came with more than one descriptor (before, it wrote the last
+descriptor it got). The copies became one (Codex review: no other difference).
 
 - `server/sysrun.c` (`sysrun_process_is_tcb_system`): the system role's authority, a process started over the
   system role connection with SYSTEM's primary token and SeTcbPrivilege. It replaces the hand-written test in
