@@ -1,5 +1,35 @@
 # Changes to stock Wine / third-party code
 
+## DWM broker over a named pipe (2026-11-23)
+
+Wine branch `claude/dwm-pipe`, on `claude/compositor-review` `49215d78`. Owner decision; the design is in
+`DWM_ARCHITECTURE.md` section 2.0, agreed with the Session 0 reviewer.
+
+The wineserver DWM channel is removed. That reverts "DWM control channel" (2026-11-02) and the server and capability
+parts of "explorer starts and supervises the DWM broker".
+
+Server and system:
+- `server/dwm.c` is deleted.
+- Removed: the `dwm_*` requests in `protocol.def` and the regenerated protocol files; the desktop fields in
+  `server/user.h`; the hooks in `winstation.c` and `process.c`; `ProcessWineDwmChannel` in
+  `dlls/ntdll/unix/process.c`, `dlls/wow64/process.c` and `include/winternl.h`; `get_window_desktop`.
+- `window_desktop_denied` is static again.
+
+New, project files in the Wine tree:
+- `include/wine/wex_pipe.h`, listed in `include/Makefile.in`: the shared pipe transport (instance, connect,
+  overlapped transact with timeouts), the server check (image plus ordinary token), and the AppContainer grant a
+  broker gives itself.
+- `include/wine/dwm_protocol.h`: the 16-byte request and reply headers, the pipe name and descriptor, and one helper
+  for the per-desktop object names.
+
+Changed:
+- `dlls/dwmapi/dwm_client.c` connects lazily to the pipe of the window's desktop, checks the server, and re-sends its
+  state when the broker's generation changes.
+- `programs/explorer/dwmhost.c` starts dwm.exe without a capability.
+- `dlls/dwmapi/tests/dwm_channel.c` tests the pipe against the real broker: echo sizes, concurrency, the server
+  check and an impostor, foreign and other-desktop windows, malformed requests, thumbnails dropped with their
+  connection, a Low-integrity client, and handle leaks.
+
 ## dwmapi, dcomp, dxgi, explorer: compositor review fixes and dead target path (2026-11-23)
 
 Wine branch `claude/compositor-review` after `df606ddd` (`docs/COMPOSITOR_REVIEW.md` bugs 5-7, 11, 13 and the dcomp/DXGI
@@ -3106,7 +3136,13 @@ per-window attributes (write-only attributes read back `E_INVALIDARG`, computed 
 stream hint, and composition timing rates as counter frequency over refresh period. Nothing is drawn yet; a DWM service
 (`docs/DWM_PLAN.md` 1.0) is to take over the state. The conformance test passes on Windows 11 and on Wine, 32-bit and 64-bit.
 
-## DWM control channel: wineserver endpoint and `ProcessWineDwmChannel` (2026-11-02)
+## DWM control channel: wineserver endpoint and `ProcessWineDwmChannel` (2026-11-02) — reverted 2026-11-23
+
+**Reverted** by the per-desktop broker pipe (entry "DWM broker over a named pipe", Wine `claude/dwm-pipe`):
+- `server/dwm.c` and its six requests are gone, along with the `user.h` fields, the `winstation.c` and `process.c` hooks, `ProcessWineDwmChannel` in ntdll, WoW64 and `winternl.h`, and the two `server/window.c` accessors.
+- `window_desktop_denied` is static again.
+
+What this entry described:
 
 New `server/dwm.c` (requests `dwm_connect`, `dwm_get_broker_capability`, `dwm_broker_register`, `dwm_send`, `dwm_recv`, `dwm_reply`),
 `include/wine/dwm_protocol.h`, `dlls/dwmapi/dwm_client.c`; small hooks in `server/protocol.def`, `server/user.h` (per-desktop endpoint and
@@ -3120,7 +3156,8 @@ carries no identity. The broker registers with a one-use capability minted only 
 ## explorer starts and supervises the DWM broker (2026-11-02)
 
 `programs/explorer/dwmhost.c` (new), `desktop.c` (`start_dwm_broker()` after the desktop window exists, `stop_dwm_broker()` at exit), `explorer_private.h`,
-`Makefile.in`. Off unless `HKCU\Software\WineExplorer\Shell\DwmService` is non-zero. The desktop manager mints a one-use broker capability for its desktop
+`Makefile.in`. (Since 2026-11-23, Wine `claude/dwm-pipe`: no capability. dwm.exe is started on the desktop and
+creates that desktop's pipe itself, and it ends when explorer exits.) Off unless `HKCU\Software\WineExplorer\Shell\DwmService` is non-zero. The desktop manager mints a one-use broker capability for its desktop
 and starts `src/programs/dwm` (`dwm.exe /parent=<pid>`, the capability goes through its stdin) on that desktop; a worker thread restarts it after a crash (250 ms, 1 s, 4 s) and gives up
 after three failures in a minute. `dwm.exe` ends when the channel is revoked or explorer exits. No broker is started for Winlogon or other desktops without a manager.
 

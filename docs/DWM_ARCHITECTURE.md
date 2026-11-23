@@ -30,7 +30,17 @@ Rules from `CLAUDE.md` remain: combined WoW64 (`--enable-archs=i386,x86_64`), op
 
 ## 2. Transport decision
 
-### 2.0 Revised 2026-11-23: a named pipe per desktop (owner decision; not implemented yet)
+### 2.0 Revised 2026-11-23: a named pipe per desktop (owner decision; implemented on Wine and superproject `claude/dwm-pipe`)
+
+Status: implemented as described below.
+- The open question about Low-integrity and AppContainer clients is settled by measurement on Windows 11. The broker
+  grants AppContainers the limited query right on its process and TOKEN_QUERY on its token. The client opens with
+  the limited right, and retries with `PROCESS_QUERY_INFORMATION` until Wine's `token.c` accepts the limited right
+  for query-only token access (the Session 0 reviewer's change, pending the owner).
+- The read rule's "enforcement" is the broker's own token being a split, limited one, because user mode cannot see
+  the server's switch.
+- AppContainer clients are not tested yet: packaged apps on Wine currently get ordinary Medium tokens (UWP agent,
+  2026-11-23).
 
 The owner chose to replace the wineserver channel below with a named pipe per ordinary desktop, like the token
 broker's. The data is cosmetic, and the channel costs about 1,350 lines of stock Wine change: `server/dwm.c`, its
