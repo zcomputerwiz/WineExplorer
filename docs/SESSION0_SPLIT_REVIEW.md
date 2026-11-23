@@ -237,8 +237,10 @@ All four are decided (2026-11-23).
    - **Restart and reuse.** Blocks are recorded like session ids (a server that links again after a session 0
      restart asks for its own blocks back, as for its session id), and a freed block is not reused before its
      server has ended. Windows keeps ids below 2^26 and a multiple of 4; the blocks must keep both.
-   - **First step:** a design note (the block size, the ids Wine reserves, what ntdll and the bridge do with a
-     foreign id, the migration), then the change. Option (b) stays in reserve for objects other than processes.
+   - **First step:** a design note, then the change. The note is
+     [SESSION0_PROCESS_IDS.md](SESSION0_PROCESS_IDS.md) (2026-11-23): blocks leased by session 0, exact questions to
+     the owning server, the machine-wide list on demand, and no pushed list until something needs one. Option (b)
+     stays in reserve for objects other than processes.
    - **B76's per-session Click-to-Run split is a workaround to retire.** It exists only because ids are per server:
      App-V's VIRTMAN interface (d99d2add) passes the client's PID to the Click-to-Run service. With ids agreed
      through session 0, ClickToRunSvc can go back to one instance in session 0. Ask the orchestrator before changing
