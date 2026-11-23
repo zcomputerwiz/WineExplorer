@@ -24,6 +24,11 @@
  *   probe hold KEY VALUE MARKER   reads VALUE, waits until the file MARKER exists, reads VALUE again through the
  *                                 same handle and creates the subkey "Held" under it; prints first=, second=, sub=
  *   probe dup KEY VALUE           reads VALUE through a duplicate of the key handle; prints dup=
+ *   probe xdup KEY VALUE push|pull  starts this probe again as a child process that reads VALUE through a duplicate of
+ *                                 the key handle: pushed by this process (DuplicateHandle into the child) or pulled
+ *                                 by the child (DuplicateHandle from this process); the child prints xget=, this
+ *                                 process xdup=ok when the child has ended (or xdup=error<n>, xdup=timeout)
+ *   probe xget VALUE              the child of xdup: reads "PID HANDLE" (hex) from stdin; PID 0: the handle was pushed
  *   probe name KEY                prints name= (NtQueryObject) and sd= (size of the key's security descriptor)
  *   probe notify KEY MS           waits up to MS ms for a change below KEY; prints notify=changed or notify=timeout
  *   probe setdacl KEY SDDL        sets the key's DACL from an SDDL string; prints setdacl=<error code>
@@ -711,6 +716,39 @@ int __cdecl wmain( int argc, WCHAR **argv )
         }
         return 0;
     }
+    if (argc == 3 && !lstrcmpW( argv[1], L"xget" ))
+    {
+        char line[64];
+        DWORD got = 0;
+        unsigned long pid = 0, value = 0;
+        HANDLE copy, process;
+
+        if (!ReadFile( GetStdHandle( STD_INPUT_HANDLE ), line, sizeof(line) - 1, &got, NULL ) || !got)
+        {
+            printf( "xget=error-read%lu\n", GetLastError() );
+            return 1;
+        }
+        line[got] = 0;
+        if (sscanf( line, "%lx %lx", &pid, &value ) != 2)
+        {
+            printf( "xget=error-parse\n" );
+            return 1;
+        }
+        copy = (HANDLE)(ULONG_PTR)value;
+        if (pid)
+        {
+            if (!(process = OpenProcess( PROCESS_DUP_HANDLE, FALSE, pid )) ||
+                !DuplicateHandle( process, copy, GetCurrentProcess(), &copy, 0, FALSE, DUPLICATE_SAME_ACCESS ))
+            {
+                printf( "xget=error%lu\n", GetLastError() );
+                return 1;
+            }
+            CloseHandle( process );
+        }
+        print_value( "xget", (HKEY)copy, argv[2] );
+        RegCloseKey( (HKEY)copy );
+        return 0;
+    }
     if (argc < 3) return 2;
     if ((ret = RegOpenKeyExW( HKEY_LOCAL_MACHINE, argv[2], 0, KEY_ALL_ACCESS & ~WRITE_DAC & ~WRITE_OWNER, &key )) &&
         (ret = RegOpenKeyExW( HKEY_LOCAL_MACHINE, argv[2], 0, KEY_READ | KEY_NOTIFY, &key )))
@@ -739,6 +777,54 @@ int __cdecl wmain( int argc, WCHAR **argv )
             print_value( "dup", (HKEY)copy, argv[3] );
             RegCloseKey( (HKEY)copy );
         }
+    }
+    else if (!lstrcmpW( argv[1], L"xdup" ) && argc == 5)
+    {
+        SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, TRUE };
+        STARTUPINFOW si = { sizeof(si) };
+        PROCESS_INFORMATION pi;
+        WCHAR self[MAX_PATH], cmd[MAX_PATH + 300];
+        HANDLE read_end, write_end, copy = key;
+        unsigned long pid = GetCurrentProcessId();
+        char line[64];
+        DWORD written;
+
+        GetModuleFileNameW( NULL, self, MAX_PATH );
+        _snwprintf( cmd, ARRAYSIZE(cmd) - 1, L"\"%s\" xget %s", self, argv[3] );
+        cmd[ARRAYSIZE(cmd) - 1] = 0;
+        if (!CreatePipe( &read_end, &write_end, &sa, 0 ))
+        {
+            printf( "xdup=error%lu\n", GetLastError() );
+            return 1;
+        }
+        SetHandleInformation( write_end, HANDLE_FLAG_INHERIT, 0 );
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = read_end;
+        si.hStdOutput = GetStdHandle( STD_OUTPUT_HANDLE );
+        si.hStdError = GetStdHandle( STD_ERROR_HANDLE );
+        fflush( stdout );
+        if (!CreateProcessW( self, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi ))
+        {
+            printf( "xdup=error%lu\n", GetLastError() );
+            return 1;
+        }
+        CloseHandle( read_end );
+        if (!lstrcmpW( argv[4], L"push" ))
+        {
+            pid = 0;
+            if (!DuplicateHandle( GetCurrentProcess(), key, pi.hProcess, &copy, 0, FALSE, DUPLICATE_SAME_ACCESS ))
+            {
+                printf( "xdup=error%lu\n", GetLastError() );
+                TerminateProcess( pi.hProcess, 1 );
+                return 1;
+            }
+        }
+        sprintf( line, "%lx %lx\n", pid, (unsigned long)(ULONG_PTR)copy );
+        WriteFile( write_end, line, strlen( line ), &written, NULL );
+        CloseHandle( write_end );
+        printf( "xdup=%s\n", WaitForSingleObject( pi.hProcess, 30000 ) == WAIT_OBJECT_0 ? "ok" : "timeout" );
+        CloseHandle( pi.hThread );
+        CloseHandle( pi.hProcess );
     }
     else if (!lstrcmpW( argv[1], L"name" ))
     {
