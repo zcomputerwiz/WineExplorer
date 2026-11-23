@@ -2675,6 +2675,9 @@ for arch in x86_64 i386; do
     # B86: when the test ran the real broker with a low integrity token, the client must have refused it for the token
     # (only that check refuses the real image); "not served" alone could have other causes
     b86=
+    # reported either way: a lasting skip would otherwise drop the only proof of the token check unnoticed
+    echo "NOTE: B86 case 2 (the real broker with a low integrity token) ran on $arch:" \
+        "$(grep -q 'B86: the low integrity token broker runs' "$ROOT/wam-$arch.log" && echo yes || echo no)"
     if grep -q 'B86: the low integrity token broker runs' "$ROOT/wam-$arch.log" &&
        ! sed -n '/B86: the low integrity token broker runs/,$p' "$ROOT/wam-$arch.log" | grep -q "with a sandbox's token"; then
         b86=1
