@@ -869,7 +869,7 @@ done
 # HKLM handle is invalid
 if [ "$SEC_S0" = 1 ]; then
     OUT="$(sysprobe "$SYS" 64 hklm-write)" && { echo "$OUT" >&2; fail "an unmapped account's server wrote HKLM through session 0"; }
-    grep -q 'RegCreateKeyExW(HKLM\\Software\\WexProbe) returned 6$' <<<"$OUT" ||
+    tr -d '\r' <<<"$OUT" | grep -q 'RegCreateKeyExW(HKLM\\Software\\WexProbe) returned 6$' ||
         { echo "$OUT" >&2; fail "an unmapped account's HKLM create did not fail with ERROR_INVALID_HANDLE"; }
     ok c2_unmapped_system_account_gets_no_registry_channel
     # an installed system maps every passwd account, system ones included (wex-accounts sync, the account watcher):
