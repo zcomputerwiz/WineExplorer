@@ -2225,7 +2225,11 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
             -o "$ROOT/probes/e1s10_$arch.exe" "$SRC/scripts/e1s10_issue_probe.c" -ladvapi32 || fail "e1s10: probe $arch"
     done
     chmod 0755 "$ROOT/probes"/e1s10_*.exe
-    # a tombstoned account: made, mapped, retired and removed from passwd; the map keeps its key as a tombstone
+    # a tombstoned account: made, mapped, retired and removed from passwd; the map keeps its key as a tombstone.
+    # The account watcher is held for the whole section: its sync after the userdel below raised the map's generation
+    # after the section had read it, and the control issue (with the old generation) was refused (two full lab runs,
+    # 2026-11-29: the control denied, the "stale" generation + 1 accepted).
+    watch_hold
     cp -p /etc/wineexplorer/accounts.map "$ROOT/accounts.map.e1s10"
     ! id "$TOMB" >/dev/null 2>&1 || userdel -r "$TOMB" 2>/dev/null
     useradd -m -s /bin/bash "$TOMB" || fail "e1s10: useradd $TOMB"
@@ -2265,12 +2269,16 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
               fail "e1s10_$arch: the peer ended with $peer_rc and the broker wrote nothing (did the service start?)"; }
         [ -s "$res" ] || { cat "$ROOT/e1s10_peer_$arch.log" >&2; tail -20 "$ROOT/e1s10-wine-$arch.log" >&2; fail "e1s10_$arch: the broker wrote no result"; }
         tr -d '\r' < "$res" > "$res.txt" && mv "$res.txt" "$res"
-        grep -q '^e1s10_accept_control=PASS$' "$res" || { cat "$res" >&2; fail "e1s10_$arch: the control issue failed (no refusal below counts)"; }
+        # every case is reported on its own; the section fails after all of them, with each failure's lines
+        e1s10_failed=""
         while IFS='=' read -r case_name case_res; do
             case "$case_name" in e1s10_*) ;; *) continue ;; esac
-            [ "$case_res" = PASS ] || { grep -E "^(FAIL|NOTE) case=$case_name " "$res" >&2; fail "${case_name}_$arch"; }
-            ok "${case_name}_$arch"
+            if [ "$case_res" = PASS ]; then ok "${case_name}_$arch"
+            else echo "FAIL: ${case_name}_$arch" >&2; grep -E "^(FAIL|NOTE) case=$case_name " "$res" >&2; e1s10_failed="$e1s10_failed ${case_name}_$arch"; fi
         done < "$res"
+        grep -q '^e1s10_accept_control=PASS$' "$res" ||
+            echo "NOTE: the control was refused; the map's generation now is $(awk 'NR == 1 { print $3 }' /etc/wineexplorer/accounts.map), the broker was given $map_gen" >&2
+        [ -z "$e1s10_failed" ] || fail "e1s10_$arch:$e1s10_failed"
         [ "$(grep -c '^e1s10_.*=PASS$' "$res")" = 13 ] || { cat "$res" >&2; fail "e1s10_$arch: not every case ran"; }
         grep -qx 'e1s10=PASS' "$res" && [ "$peer_rc" = 0 ] || { cat "$res" "$ROOT/e1s10_peer_$arch.log" >&2; fail "e1s10_$arch: the broker or its peer failed"; }
         # processes that are not the endorsed broker: a standard user's, an administrator's limited one (with the
@@ -2290,6 +2298,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     if [ -f "$ROOT/wexelevate_test.exe.e1s10.32" ]; then mv "$ROOT/wexelevate_test.exe.e1s10.32" "$WOW/wexelevate_test.exe"
     else rm -f "$WOW/wexelevate_test.exe"; fi
     cp -p "$ROOT/accounts.map.e1s10" /etc/wineexplorer/accounts.map; rm -f "$ROOT/accounts.map.e1s10"
+    watch_release
     true; ); section_leave $?; fi
 
     # WO-28: R8 end-to-end standard-user elevation. Defined here, run at the end of the C4 section (the call
