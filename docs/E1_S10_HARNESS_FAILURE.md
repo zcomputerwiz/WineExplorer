@@ -2,6 +2,11 @@
 <!-- Copyright 2026 WineExplorer contributors -->
 # E1-S10/S11 token harness failure of 2026-11-07 09:35 (input for the fix task)
 
+> **Retired 2026-11-24.** The S10/S11/S13/S14 harness named below (`test_e1s10_token.sh`, `test_hku_load.sh`,
+> `lib/e1s13-fixture.sh`, the probes) and `WEX_E1S14_CRASH_TEST` are removed; the last tree with them is
+> fb28c5d9. The S13 profile code stays in the lab build and is tested by the R9 end-to-end cases of
+> `scripts/test_sysrun_server.sh`'s lab suite. See [STOCK_CHANGES](STOCK_CHANGES.md). What follows is history.
+
 State: `scripts/test_e1s6_transport.sh` now passes (E1S6_TRANSPORT OK, 302 PASS, twice in a row). The S10/S11 harness
 `scripts/test_e1s10_token.sh` (run as root in clean wexbuild with WINE_BUILD_DIR=/root/owned-e1s6/build/wow64 and
 WINE_NORMAL_BUILD_DIR=/root/owned-e1s11/build/normal-wow64) gets through: probe builds for both ABIs, the lab build with the

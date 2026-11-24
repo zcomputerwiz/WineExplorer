@@ -2,6 +2,11 @@
 <!-- Copyright 2026 WineExplorer contributors -->
 # E1-S11 token test prerequisites and runnable matrix
 
+> **Retired 2026-11-24.** The S10/S11/S13/S14 harness named below (`test_e1s10_token.sh`, `test_hku_load.sh`,
+> `lib/e1s13-fixture.sh`, the probes) and `WEX_E1S14_CRASH_TEST` are removed; the last tree with them is
+> fb28c5d9. The S13 profile code stays in the lab build and is tested by the R9 end-to-end cases of
+> `scripts/test_sysrun_server.sh`'s lab suite. See [STOCK_CHANGES](STOCK_CHANGES.md). What follows is history.
+
 2026-11-07. Implementation and **static review only** in this change. No Linux
 build, protocol generator, Wine, WSL, VM or matrix execution was performed.
 S6's accepted runtime evidence is recorded in the last S6 status bullet of

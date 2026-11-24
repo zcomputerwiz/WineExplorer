@@ -1,5 +1,10 @@
 # E1-S13 lab failure (first run of the S13 harness)
 
+> **Retired 2026-11-24.** The S10/S11/S13/S14 harness named below (`test_e1s10_token.sh`, `test_hku_load.sh`,
+> `lib/e1s13-fixture.sh`, the probes) and `WEX_E1S14_CRASH_TEST` are removed; the last tree with them is
+> fb28c5d9. The S13 profile code stays in the lab build and is tested by the R9 end-to-end cases of
+> `scripts/test_sysrun_server.sh`'s lab suite. See [STOCK_CHANGES](STOCK_CHANGES.md). What follows is history.
+
 Status 2026-11-07. The S10/S11 harness passes (E1S10_TOKEN OK, 52 PASS lines, both ABIs), S6 passes (302 checks), S12
 passes (scripts/test_profile_storage.sh), the main and normal Wine builds pass. The S13 harness
 (scripts/test_hku_load.sh, run in the clean wexbuild as root with WINE_BUILD_DIR=/root/owned-e1s6/build/wow64 and
