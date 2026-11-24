@@ -695,6 +695,77 @@ expect_pass()   # name user arch mode
     ok "$name"
 }
 
+# ---- session 0 for the whole suite (R4b of docs/SESSION0_SPLIT_REVIEW.md) ---------------------------------------
+# The launcher without session 0 is retired for installed systems (the owner's decision 2, 2026-11-23), so every
+# section runs on a machine whose session 0 holds the machine registry. Session 0 runs as an account of its own; the
+# users' launcher-started servers send their programs' machine-registry calls there. WEX_SKIP_SESSION0=1 keeps the
+# old machine without it (until R4c removes that mode from the server).
+S0RUN="$ROOT/run"
+s0_conf_on()   # the machine with session 0: its two lines in the launcher's configuration
+{
+    cp "$CONF" "$ROOT/sysrun.conf.pre-s0"
+    printf 'session0_socket=%s\nsession0_user=%s\n' "$S0RUN/session0" "$S0U" >> "$CONF"
+    kill_servers
+    S0_MODES="$(stat -c '%a %n' "$M"/*.reg)"   # session 0 saves its own files; restored by s0_conf_off
+}
+s0_conf_off()   # back to the machine without session 0 (session 0 is stopped)
+{
+    local mode file f
+    cat "$ROOT/sysrun.conf.pre-s0" > "$CONF"
+    while read -r mode file; do chown root "$file"; chmod "$mode" "$file"; done <<<"$S0_MODES"
+    for f in "$M"/*.reg; do [ "$(stat -c %U "$f")" != "$S0U" ] || rm -f "$f"; done   # files only session 0 made
+    rm -f "$M/session0.ids" "$M/session0.owners"
+    kill_servers
+}
+s0_start()
+{
+    # the socket of the last session 0 may still be there: wait for the new server's own
+    rm -f "$S0RUN/session0"
+    (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin \
+        "$BUILD/server/wineserver" --session0 -f >>"$ROOT/session0.log" 2>&1 &)
+    local i; for i in $(seq 1 50); do [ -S "$S0RUN/session0" ] && pgrep -u "$S0U" -x wineserver >/dev/null && return 0; sleep 0.1; done
+    cat "$ROOT/session0.log" >&2; fail "session 0 did not start"
+}
+s0_stop()
+{
+    # SIGTERM: session 0 saves the hives and exits; sent again each second, for a server that was still starting
+    local i
+    for i in $(seq 1 300); do
+        [ $((i % 10)) != 1 ] || pkill -u "$S0U" -x wineserver 2>/dev/null || true
+        pgrep -u "$S0U" -x wineserver >/dev/null || return 0
+        sleep 0.1
+    done
+    ps -o pid,ppid,stat,etime,args -u "$S0U" >&2; tail -20 "$ROOT/session0.log" >&2
+    fail "session 0 did not stop"
+}
+# Session 0 holds the machine hives and saves its own tree over the files: a direct edit of a machine hive file
+# takes effect only while it is stopped (hive_edit COMMAND...), and a check that reads the files lets it save first
+# (hive_flush). Without session 0 both just run the command.
+hive_edit() { local rc; [ "$SEC_S0" != 1 ] || s0_stop; "$@"; rc=$?; [ "$SEC_S0" != 1 ] || s0_start; return $rc; }
+hive_flush() { [ "$SEC_S0" != 1 ] || { s0_stop; s0_start; }; }
+hive_put_file() { cat "$1" > "$M/system.reg"; }
+hive_put() { hive_edit hive_put_file "$1"; }   # FILE: the machine system.reg gets FILE's content
+hive_copy() { hive_flush; cat "$M/system.reg" > "$1"; }   # FILE: a copy of the machine system.reg as saved
+reg_append_file()   # file section line...: the fixture library's plain append (scripts/lib/sysrun-fixture.sh)
+{
+    local file="$1" section="$2"; shift 2
+    { printf '\n[%s] 1700000000\n#time=1d9a0000000000\n' "$section"; printf '%s\n' "$@"; } >> "$file"
+}
+reg_append() { hive_edit reg_append_file "$@"; }
+s0_bootstrap()   # session 0's account, its two configuration lines, and session 0 itself, from here on
+{
+    echo "--- system tier: session 0 from here on"
+    id "$S0U" >/dev/null 2>&1 && fail "user $S0U exists"
+    useradd --system -g "$GRP" -M -d "$M" -s /usr/sbin/nologin "$S0U"; S0_CREATED=1
+    install -d -m 0755 -o "$S0U" -g "$GRP" "$S0RUN"
+    s0_conf_on
+    s0_start
+    SEC_S0=1
+}
+# The lab suite starts session 0 after its lab-only elevation cases instead (the order before R4b): with session 0
+# run and stopped before them, the S6 owner case lost its broker's D-Bus name (seen on wexgpo2; R4c looks at it)
+if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && [ "${WEX_E1S6_LAB:-0}" != 1 ]; then s0_bootstrap; fi
+
 # ---- sections 1 to 6: the launcher and the machine root (group c2; WEX_C3_ONLY=1 leaves them out) --------------
 if section c2_launcher; then set +e; ( section_enter
 # ---- 1. the server starts through the launcher ----------------------------------------------------------------
@@ -747,32 +818,28 @@ ok c2_hklm_from_machine_root_with_diverted_symlink
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
 [ "$(cat "$M/drive_c/windows/wex_marker2.txt")" = MARKER2 ] || fail "the machine-root file behind the prefix symlink was overwritten"
 ok c2_symlink_target_not_overwritten
-# Without an elevation helper nobody may persist machine hive changes: the server saves them only with the real
-# user's own rights (stock rule), and the machine hives belong to root and the system group.
-! grep -q '"Written"="yes"' "$M/system.reg" || fail "the machine hive was saved without enforced elevation"
-ok c2_machine_hive_not_saved_without_enforcement
-[ "$(stat -c '%U:%G' "$M/system.reg" "$M/userdef.reg" | sort -u)" = "root:$GRP" ] ||
-    fail "a saved machine hive is not root:$GRP any more (its owner could change it): $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
-ok c2_machine_hives_stay_root_owned_after_save
+# With session 0 the user's server never writes the machine hives: session 0 holds them and saves them as its own
+# account (R4b; the checks of the retired machine without session 0, where the user's server saved them with the stock
+# rule, are gone). Without WEX_SKIP_SESSION0 the owner is session 0's account or root, never the user.
+hive_flush
+[ -z "$(stat -c '%U' "$M/system.reg" "$M/userdef.reg" | grep -vxE "root|$S0U")" ] ||
+    fail "a machine hive was written by someone other than session 0: $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
+ok c2_machine_hives_written_only_by_session0
 for hive in system.reg userdef.reg; do
     [ "$(readlink "/home/$STD/.wine/$hive")" = "$M/drive_c/windows/wex_marker2.txt" ] || fail "the prefix link $hive was replaced"
     run_as "$STD" ln -sfn "$M/$hive" "/home/$STD/.wine/$hive"
 done
 ok c2_prefix_links_left_alone
-for u in "$STD" "$ADM"; do
-    wine_as "$u" reg add 'HKLM\Software\WexUnenforced' /v "$u" /d 1 /f >/dev/null 2>&1 || fail "reg add HKLM as $u (the write must work in memory)"
-    prefix_server_env "$u" -k || true; prefix_server_env "$u" -w
-    ! grep -q 'WexUnenforced' "$M/system.reg" || fail "an HKLM write of $u reached the machine system.reg without enforced elevation"
-    ok "c2_unenforced_hklm_write_not_persisted_$u"
-done
 true; ); section_leave $?; fi
 
 if section c2_sysacct; then set +e; ( section_enter
-# ---- 3b. (iii) a system.reg symlink into the machine root, for an unmapped system account (Safe Mode C7) ----
-# The greeter runs as a system account that is not in the accounts map. Give it the same skeleton prefix the
-# harness gives desktop users and run the 3(iii) checks as it: the machine file behind the prefix symlink is
-# never overwritten, HKLM still comes from the machine root, and the server it gets is the launcher-started one.
-echo "--- symlinked hives (iii), unmapped system account"
+# ---- 3b. (iii) a system.reg symlink into the machine root, for a system account (Safe Mode C7) ---------------
+# The greeter runs as a system account. Created here it is not in the accounts map yet: with session 0 its server
+# first fails closed (no registry channel, B97). Then it is mapped, as wex-accounts maps every passwd account on an
+# installed system, and given the same skeleton prefix the harness gives desktop users, and the 3(iii) checks run as
+# it: the machine file behind the prefix symlink is never overwritten, HKLM still comes from the machine root, and
+# the server it gets is the launcher-started one.
+echo "--- symlinked hives (iii), system account"
 sysrun_as() { local u="$1"; shift; (cd /tmp && runuser -u "$u" -- env -i HOME="$SYS_HOME" USER="$u" LOGNAME="$u" PATH=/usr/bin:/bin LANG=C \
     DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' "$@"); }
 sysprefix_env() { sysrun_as "$1" env WINEPREFIX="$SYS_HOME/.wine" "$BUILD/server/wineserver" "${@:2}"; }
@@ -804,10 +871,27 @@ done
 for hive in system.reg userdef.reg; do
     sysrun_as "$SYS" ln -sfn "$M/drive_c/windows/wex_marker2.txt" "$SYS_HOME/.wine/$hive"
 done
-sysprobe "$SYS" 64 hklm-write >/dev/null || fail "hklm-write"
+# With session 0 an account outside the accounts map fails closed (KNOWN_BUGS B97, by design): session 0 binds a
+# described token only to its account's mapped SID, so its launcher-started server gets no registry channel and every
+# HKLM handle is invalid
+if [ "$SEC_S0" = 1 ]; then
+    OUT="$(sysprobe "$SYS" 64 hklm-write)" && { echo "$OUT" >&2; fail "an unmapped account's server wrote HKLM through session 0"; }
+    tr -d '\r' <<<"$OUT" | grep -q 'RegCreateKeyExW(HKLM\\Software\\WexProbe) returned 6$' ||
+        { echo "$OUT" >&2; fail "an unmapped account's HKLM create did not fail with ERROR_INVALID_HANDLE"; }
+    ok c2_unmapped_system_account_gets_no_registry_channel
+    # an installed system maps every passwd account, system ones included (wex-accounts sync, the account watcher):
+    # map this one, as the watcher would, and run the checks with a new server
+    sysprefix_env "$SYS" -k || true; sysprefix_env "$SYS" -w
+    "$LIBEXEC/wex-accounts" --directory /etc/wineexplorer sync >/dev/null || fail "accounts sync"
+    grep -q "^$SYS " /etc/wineexplorer/accounts.map || fail "the system account is not in the accounts map after a sync"
+fi
+OUT="$(sysprobe "$SYS" 64 hklm-write)" || { echo "$OUT" >&2; tail -20 "$ROOT/session0.log" >&2; fail "hklm-write"; }
 OUT="$(sysprobe "$SYS" 64 hklm-read)"; grep -q '^hklm-read=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "HKLM not from the machine root with a diverted prefix link"; }
 ok c2_symlinked_hives_system_account_hklm_from_machine_root
-# the server it gets is the launcher-started one: its saved group is the system group (section 1's recognition)
+# the server it gets is the launcher-started one: its saved group is the system group (section 1's recognition); a
+# client holds it while it is looked at (the server ends with its last program; the -k below ends both)
+sysprobe "$SYS" 64 hold >/dev/null 2>&1 &
+sleep 4
 SPID="$(server_pid "$SYS")"; [ -n "$SPID" ] || fail "no server of $SYS"
 IDS="$(awk '/^Uid:/ { u = $2 "/" $3 "/" $4 } /^Gid:/ { print u, $2, $3, $4 }' "/proc/$SPID/status")"
 [ "$IDS" = "$SYS_UID/$SYS_UID/$SYS_UID $SYS_GID $SYS_GID $GRP_GID" ] || fail "server ids are not (user, user, saved $GRP): $IDS"
@@ -815,11 +899,10 @@ ok c2_symlinked_hives_system_account_server_started_by_launcher
 sysprefix_env "$SYS" -k || true; sysprefix_env "$SYS" -w
 [ "$(cat "$M/drive_c/windows/wex_marker2.txt")" = MARKER2 ] || fail "the machine-root file behind the prefix symlink was overwritten"
 ok c2_symlinked_hives_system_account_target_not_overwritten
-! grep -q '"Written"="yes"' "$M/system.reg" || fail "the machine hive was saved without enforced elevation"
-ok c2_symlinked_hives_system_account_hive_not_saved_without_enforcement
-[ "$(stat -c '%U:%G' "$M/system.reg" "$M/userdef.reg" | sort -u)" = "root:$GRP" ] ||
-    fail "a saved machine hive is not root:$GRP any more: $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
-ok c2_symlinked_hives_system_account_hives_stay_root_owned
+hive_flush
+[ -z "$(stat -c '%U' "$M/system.reg" "$M/userdef.reg" | grep -vxE "root|$S0U")" ] ||
+    fail "a machine hive was written by someone other than session 0: $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
+ok c2_symlinked_hives_system_account_hives_written_only_by_session0
 for hive in system.reg userdef.reg; do
     [ "$(readlink "$SYS_HOME/.wine/$hive")" = "$M/drive_c/windows/wex_marker2.txt" ] || fail "the prefix link $hive was replaced"
     sysrun_as "$SYS" ln -sfn "$M/$hive" "$SYS_HOME/.wine/$hive"
@@ -958,7 +1041,7 @@ true; ); section_leave $?; fi
 # ---- 7. (iv) HKU well-known profiles, with elevation enforced -------------------------------------------------
 echo "--- registry (iv), elevation enforced"
 # the machine hive as it is before the enforcement and the test services are added (a reused fixture starts from it)
-if [ "$REUSE" = 1 ]; then cat "$ROOT/system.reg.pre" > "$M/system.reg"; else cp "$M/system.reg" "$ROOT/system.reg.pre"; fi
+if [ "$REUSE" = 1 ]; then hive_put "$ROOT/system.reg.pre"; else hive_copy "$ROOT/system.reg.pre"; fi
 reg_append "$M/system.reg" 'Software\\Wine\\Elevation' '"Helper"="C:\\windows\\system32\\consent.exe"'
 if section reg_hku; then set +e; ( section_enter
 for u in "$STD" "$ADM"; do
@@ -973,6 +1056,7 @@ done
 echo "--- machine hive writes, elevation enforced"
 wine_as "$STD" reg add 'HKLM\Software\WexEnforced' /v std /d 1 /f >/dev/null 2>&1 && fail "a standard user could write HKLM with enforced elevation"
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
+hive_flush
 ! grep -q 'WexEnforced' "$M/system.reg" || fail "a denied HKLM write of $STD reached the machine system.reg"
 ok c2_enforced_standard_user_hklm_write_denied_and_not_persisted
 true; ); section_leave $?; fi
@@ -1239,6 +1323,7 @@ for u in $C3_USERS; do
     if [ "$u" = "$STD" ]; then
         # the descriptor was saved with the machine hive and is read again by the next services.exe
         prefix_server_env "$u" -k || true; prefix_server_env "$u" -w; wait "$HOLD" 2>/dev/null || true
+        hive_flush
         # wine.inf gives the broker service a descriptor of its own (WexElevate), so the count is not 1 any more
         [ "$(awk '/^\[/ { in_ls = ($0 ~ /Services.*WexSvcLs\]/) } in_ls && /^"Security"=hex/ { n++ } END { print n + 0 }' "$M/system.reg")" = 1 ] &&
             [ "$(grep -c '^"Security"=hex' "$M/system.reg")" = 2 ] || fail "the service descriptor was not saved in the machine hive"
@@ -1335,7 +1420,8 @@ if not done and value != 'none':
     out.append('\n%s 1700000000\n#time=1d9a0000000000\n"%s"=dword:%08x' % (head, name, int(value)))
 open(path, 'w', encoding='latin-1').write('\n'.join(out))
 PYEOF
-set_val() { python3 -I "$ROOT/setval.py" "$M/system.reg" "$1" "$2" "$3"; }   # section name dword|none
+set_val_file() { python3 -I "$ROOT/setval.py" "$M/system.reg" "$1" "$2" "$3"; }   # the file only, session 0 running
+set_val() { hive_edit set_val_file "$@"; }   # section name dword|none
 POLSEC='Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System'
 
 # the stub is not in a shipping build: the macro is not defined by any Makefile, and the installed program and the
@@ -1423,13 +1509,13 @@ true; ); section_leave $?; fi
 # -- the test broker and its stub. Wine loads a program of system32 that has a builtin twin from the builtin
 # directory whatever the file is, so the test broker has another name and the service points to it.
 if sec_ok c4_build; then
-cat "$M/system.reg" > "$ROOT/system.reg.c4"
+hive_copy "$ROOT/system.reg.c4"
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexelevate_test.exe"
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
 reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe"'
 BROKER_ORIG=1
 fi
-el_restore_broker() { [ -z "$BROKER_ORIG" ] || { cat "$ROOT/system.reg.c4" > "$M/system.reg"; rm -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate_stub.exe" "$SYS32/consent_test.exe"; BROKER_ORIG=""; }; }
+el_restore_broker() { [ -z "$BROKER_ORIG" ] || { hive_put "$ROOT/system.reg.c4"; rm -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate_stub.exe" "$SYS32/consent_test.exe"; BROKER_ORIG=""; }; }
 
 amb_up "$ADM"
 IMG="$(winpath /home/$ADM/wexel/p64.exe)"
@@ -1786,13 +1872,13 @@ amb_down "$ADM"   # each R8 case starts its own session
 regpath() { echo "Z:${1//\//\\\\}"; }
 if section c4_r8; then set +e; ( section_enter
 # R8 step 3: dialog protection, loader pin, dialog image
-cat "$M/system.reg" > "$ROOT/system.reg.r8"
+hive_copy "$ROOT/system.reg.r8"
 
 for arch in 64 32; do
     # protected: mode 1, image probe r8child; openpid gets error 5
     el_down "$ADM"
     el_clean
-    cat "$ROOT/system.reg.r8" > "$M/system.reg"
+    hive_put "$ROOT/system.reg.r8"
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
         '"Start"=dword:00000002'
     reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
@@ -1851,7 +1937,7 @@ for arch in 64 32; do
     # control: mode 3, same image; openpid gets error 0
     el_down "$ADM"
     el_clean
-    cat "$ROOT/system.reg.r8" > "$M/system.reg"
+    hive_put "$ROOT/system.reg.r8"
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
         '"Start"=dword:00000002'
     reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
@@ -1874,7 +1960,7 @@ done
 # bad rights: mode 2; create_error=5, pid=0, no child process
 el_down "$ADM"
 el_clean
-cat "$ROOT/system.reg.r8" > "$M/system.reg"
+hive_put "$ROOT/system.reg.r8"
 reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
     '"Start"=dword:00000002'
 reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
@@ -1897,7 +1983,7 @@ if has_str "$BUILD/server/wineserver" "wex-r8:"; then
     # further mode 1 run with consent.exe
     el_down "$ADM"
     el_clean
-    cat "$ROOT/system.reg.r8" > "$M/system.reg"
+    hive_put "$ROOT/system.reg.r8"
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
         '"Start"=dword:00000002'
     reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
@@ -1915,7 +2001,7 @@ if has_str "$BUILD/server/wineserver" "wex-r8:"; then
 fi
 
 el_down "$ADM"
-cat "$ROOT/system.reg.r8" > "$M/system.reg"
+hive_put "$ROOT/system.reg.r8"
 rm -f "$ROOT/system.reg.r8"
 true; ); section_leave $?; fi
 if sec_ok c4_build; then
@@ -3136,6 +3222,11 @@ EOF
     sleep 2
     el_up "$ADM"
     }
+    # the lab suite's session 0 from here on (see s0_bootstrap)
+    if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && [ "$SEC_S0" != 1 ]; then
+        s0_bootstrap
+        [ -z "${SEC_EL:-}" ] || el_up "$SEC_EL"
+    fi
 fi
 if section c4_bad; then set +e; ( section_enter
 bp c4_relative_image_path_is_rejected "$ADM" 64 run p64.exe 87 "$(winpath $EL/out.bad)" -
@@ -3394,7 +3485,7 @@ for line in lines:
         out.append('"ConsentPromptBehaviorAdmin"=dword:%08x' % int(value))
 open(path, 'w', encoding='latin-1').write('\n'.join(out))
 EOF
-set_policy() { python3 -I "$ROOT/setpolicy.py" "$M/system.reg" "$1"; [ "$(grep -c ConsentPromptBehaviorAdmin "$M/system.reg")" = "$2" ]; }
+set_policy() { hive_edit python3 -I "$ROOT/setpolicy.py" "$M/system.reg" "$1"; [ "$(grep -c ConsentPromptBehaviorAdmin "$M/system.reg")" = "$2" ]; }
 if sec_ok c5_build; then
 install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent_test.exe"
 reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' '"ConsentTimeoutMs"=dword:00004e20'
@@ -4056,6 +4147,7 @@ el_down "$ADM"
 el_up "$CAR"
 el_cmd c7_s3_carol_registers_her_own_key "$CAR" "reg add \"$UNI\\CarolApp\" /v DisplayName /d \"Carol Application 1.0\" /f"
 el_down "$CAR"
+hive_flush
 for k in 'Alice COM Server' 'Alice Application 1.0' 'Carol Application 1.0'; do
     grep -qF "$k" "$M/system.reg" || { grep -c . "$M/system.reg" >&2; fail "S3: '$k' is not in the machine hive"; }
 done
@@ -4066,54 +4158,19 @@ grep -q 'Alice Application 1.0' <<<"$OUT" && grep -q 'Carol Application 1.0' <<<
     { echo "$OUT" >&2; fail "S3: a standard user does not see the registrations"; }
 as_wine "$STD" reg add "$UNI\\BobApp" /v DisplayName /d "Bob" /f >/dev/null || true
 el_down "$STD"
+hive_flush
 ! grep -q 'BobApp' "$M/system.reg" || fail "S3: a standard user wrote HKLM"
 ok c7_s3_standard_user_sees_the_registrations_and_cannot_write_hklm
 true; ); section_leave $?; fi
 
 # System tier T1 (docs/SYSTEM_TIER_WORK_ORDERS.md): session 0 holds the machine registry. It runs as an account
 # of its own; the users' launcher-started servers send their programs' machine-registry calls there.
-if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && sec_planned_any $(sec_in_groups s0 gp) r8e2e; then
-echo "--- system tier: session 0"
-S0RUN="$ROOT/run"
-id "$S0U" >/dev/null 2>&1 && fail "user $S0U exists"
-useradd --system -g "$GRP" -M -d "$M" -s /usr/sbin/nologin "$S0U"; S0_CREATED=1
-install -d -m 0755 -o "$S0U" -g "$GRP" "$S0RUN"
-s0_conf_on()   # the machine with session 0: its two lines in the launcher's configuration
-{
-    cp "$CONF" "$ROOT/sysrun.conf.pre-s0"
-    printf 'session0_socket=%s\nsession0_user=%s\n' "$S0RUN/session0" "$S0U" >> "$CONF"
-    kill_servers
-    S0_MODES="$(stat -c '%a %n' "$M"/*.reg)"   # session 0 saves its own files; restored by s0_conf_off
-}
-s0_conf_off()   # back to the machine without session 0 (session 0 is stopped)
-{
-    local mode file f
-    cat "$ROOT/sysrun.conf.pre-s0" > "$CONF"
-    while read -r mode file; do chown root "$file"; chmod "$mode" "$file"; done <<<"$S0_MODES"
-    for f in "$M"/*.reg; do [ "$(stat -c %U "$f")" != "$S0U" ] || rm -f "$f"; done   # files only session 0 made
-    rm -f "$M/session0.ids" "$M/session0.owners"
-    kill_servers
-}
-s0_conf_on
+if [ "$SEC_S0" = 1 ] && sec_planned_any $(sec_in_groups s0 gp) r8e2e; then
+echo "--- system tier: session 0's own sections"
 set_val 'Software\\WexTier' FromSession0 1
 reg_append "$M/system.reg" 'Software\\Wow6432Node\\WexVirtMerge' '"real"="machine"'   # for the T2b merged view
 reg_append "$M/system.reg" 'Software\\Wow6432Node\\WexProbe' '"FromMachine"="machine"'  # what a 32-bit program's view sees
-s0_start()
-{
-    (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin \
-        "$BUILD/server/wineserver" --session0 -f >>"$ROOT/session0.log" 2>&1 &)
-    local i; for i in $(seq 1 50); do [ -S "$S0RUN/session0" ] && return 0; sleep 0.1; done
-    cat "$ROOT/session0.log" >&2; fail "session 0 did not start"
-}
-s0_stop()
-{
-    pkill -u "$S0U" -x wineserver 2>/dev/null || true   # SIGTERM: session 0 saves the hives and exits
-    local i; for i in $(seq 1 100); do pgrep -u "$S0U" -x wineserver >/dev/null || return 0; sleep 0.1; done
-    fail "session 0 did not stop"
-}
 s0q() { as_wine "$1" reg query 'HKLM\Software\WexTier' /v "$2" | awk -v n="$2" '$1 == n { print $NF }'; }
-s0_start
-SEC_S0=1   # session 0 runs until the end of the session 0 sections
 R32='C:\windows\syswow64\reg.exe'
 v32() { as_wine "$STD" "$R32" "$@"; }
 val() { awk -v n="$1" '$1 == n { print $NF }'; }
@@ -4157,9 +4214,11 @@ for u in "$STD" "$ADM"; do
     [ "$OUT" = "name=$u profile=C:\\users\\$u" ] || fail "T4-0: $u's name and profile with session 0: [$OUT]"
 done
 ok st_users_keep_their_name_and_profile_path_with_session0
-# the hive file now differs from session 0's copy: a value read from session 0 is 1, from a snapshot 2
-set_val 'Software\\WexTier' FromSession0 2
+# the hive file now differs from session 0's copy: a value read from session 0 is 1, from a snapshot 2 (the file is
+# changed behind the running session 0 on purpose)
+set_val_file 'Software\\WexTier' FromSession0 2
 [ "$(s0q "$STD" FromSession0)" = 0x1 ] || fail "a standard user's program did not read HKLM from session 0: [$(s0q "$STD" FromSession0)]"
+set_val_file 'Software\\WexTier' FromSession0 1   # the file as session 0 has it again: a later restart loads 1 (s0_link)
 ok st_standard_user_reads_hklm_from_session0
 for arch in 64 32; do
     [ "$(wine_as "$STD" "$ROOT/probes/probe$arch.exe" hklm-read "$WINM" 2>&1 | grep -c '^hklm-read=PASS')" = 1 ] ||
@@ -5364,10 +5423,13 @@ s0_start
 el_down "$STD"
 ok st_session0_saves_the_hive_and_user_servers_accept_it
 true; ); section_leave $?; fi
-# back to the machine without session 0
-s0_stop
-s0_conf_off
-SEC_S0=0
+fi
+# back to the machine without session 0: only the R8 end-to-end case below needs it (its local broker; R5 moves it to
+# R9 and session 0), and the cleanup after it
+if [ "$SEC_S0" = 1 ]; then
+    s0_stop
+    s0_conf_off
+    SEC_S0=0
 fi
 
 # WO-27 R8 end to end (lab only), last in the section; see r8_e2e_case
