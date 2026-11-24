@@ -55,6 +55,8 @@ if [ -x /usr/local/bin/wex-setup-machine.sh ]; then
     # there is no machine without it any more, whatever the package's markers say
     WEX_SETUP_ENV+=(WEX_SESSION0=1)
     if [ -f /usr/local/share/wineexplorer/elevation.enable ]; then WEX_SETUP_ENV+=(WEX_ELEVATION=1); else WEX_SETUP_ENV+=(WEX_ELEVATION=0); fi
+    # a test image (WEX_DWM_COMPOSITION=1 at packaging): new accounts get desktop composition on
+    [ ! -f /usr/local/share/wineexplorer/dwm-composition.enable ] || WEX_SETUP_ENV+=(WEX_DWM_COMPOSITION=1)
     env "${WEX_SETUP_ENV[@]}" /usr/local/bin/wex-setup-machine.sh || echo "Machine root setup failed"
 fi
 

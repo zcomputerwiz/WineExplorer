@@ -358,6 +358,14 @@ if [ "${WEX_ELEVATION:-1}" = 1 ]; then
     install -d -m 0755 "$STAGE_SESSION/usr/local/share/wineexplorer"
     echo 1 > "$STAGE_SESSION/usr/local/share/wineexplorer/elevation.enable"
 fi
+# Desktop composition for test images only, off by default (the product default stays Composition=0 until the owner
+# decides; docs/DWM_ARCHITECTURE.md): WEX_DWM_COMPOSITION=1 adds a marker, and the first setup (wex-gui-setup.sh) then
+# runs the machine root setup with WEX_DWM_COMPOSITION=1, which turns composition on in the template prefix
+case "${WEX_DWM_COMPOSITION:-0}" in 0|1) ;; *) echo "WEX_DWM_COMPOSITION must be 0 or 1" >&2; exit 1 ;; esac
+if [ "${WEX_DWM_COMPOSITION:-0}" = 1 ]; then
+    install -d -m 0755 "$STAGE_SESSION/usr/local/share/wineexplorer"
+    echo 1 > "$STAGE_SESSION/usr/local/share/wineexplorer/dwm-composition.enable"
+fi
 # the session and everything it starts become candidates for kernel samepage merging (wexksmtuned decides when it runs)
 install -D -m644 "$SCRIPT_DIR/systemd/wex-ksm.conf" "$STAGE_SESSION/lib/systemd/system/lightdm.service.d/wex-ksm.conf"
 

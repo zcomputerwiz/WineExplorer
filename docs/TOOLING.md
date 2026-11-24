@@ -337,6 +337,13 @@ meanwhile, a test ISO from REV, the probes and the VM chain on it (install and t
 `wsl.exe -d wexbuild -u root --exec bash /mnt/d/DeepThought/Projects/<worktree>/scripts/lab/wex-batch.sh REV NAME`.
 Logs in `/var/tmp/wex-batch/NAME-{suite,iso,chain}.log`; the chain's summary in `/var/tmp/wex-chain/NAME/summary.txt`.
 
+Desktop composition on, for a comparison run only (added 2026-11-24): `WEX_DWM_COMPOSITION=1` in the batch's
+environment. The packaging puts the marker `dwm-composition.enable` in the image, and its first setup runs
+`setup-machine-root.sh` with the switch. The suite's fixtures run that script with the caller's environment. Either
+way the template prefix gets `Composition`, `DwmService` and `DwmAlpha` = 1 in `HKCU\Software\WineExplorer\Shell`, so
+every account made from it, the chain's and the suite's, has composition on. Off by default: the product default
+stays `Composition=0` until the owner decides.
+
 UEFI test VMs (`vmtest.py start --efi`) have a variable store of their own (`STATE/efivars.fd`, OVMF's split
 `OVMF_CODE_4M.fd`/`OVMF_VARS_4M.fd`), and `vmtest.py loader-timeout NAME SECONDS` writes systemd-boot's
 `LoaderConfigTimeoutOneShot` into it while the VM is off (`virt-fw-vars`, package python3-virt-firmware): the Vintner

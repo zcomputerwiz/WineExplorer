@@ -51,6 +51,13 @@ case "$SESSION0_ENABLE" in 0|1) ;; *) die 'WEX_SESSION0 must be 0 or 1' ;; esac
 ELEVATION_ENABLE=${WEX_ELEVATION:-1}
 case "$ELEVATION_ENABLE" in 0|1) ;; *) die 'WEX_ELEVATION must be 0 or 1' ;; esac
 
+# Desktop composition for test runs only, off by default: the product default stays Composition=0 until the owner
+# decides (docs/DWM_ARCHITECTURE.md). WEX_DWM_COMPOSITION=1 gives the template prefix, so every account made from it,
+# Composition, DwmService and DwmAlpha in HKCU\Software\WineExplorer\Shell (a package with the marker
+# dwm-composition.enable passes it; package-wine.sh). The suite's fixture accounts come from the same template.
+DWM_COMPOSITION=${WEX_DWM_COMPOSITION:-0}
+case "$DWM_COMPOSITION" in 0|1) ;; *) die 'WEX_DWM_COMPOSITION must be 0 or 1' ;; esac
+
 case "$ACTION" in
     apply|update|--update) ACTION=apply ;;  # the package postinst passes --update
     rollback|--rollback) ;;
@@ -879,6 +886,18 @@ if [ ! -f "$SKEL_PFX/user.reg" ] && [ -f "$MACHINE_ROOT/user.reg" ]; then
 fi
 if [ -f "$MACHINE_ROOT/.update-timestamp" ]; then
     cp -a "$MACHINE_ROOT/.update-timestamp" "$SKEL_PFX/.update-timestamp"
+fi
+# the test switch WEX_DWM_COMPOSITION (above): a section of its own at the end of the hive, which Wine merges into the
+# key when it loads the hive (later values win); written once
+if [ "$DWM_COMPOSITION" = 1 ] && [ "$ACTION" = apply ]; then
+    if [ ! -f "$SKEL_PFX/user.reg" ]; then
+        echo "Warning: no $SKEL_PFX/user.reg, so no desktop composition for new accounts (WEX_DWM_COMPOSITION)" >&2
+    elif ! grep -qF ';wex-dwm-composition-test' "$SKEL_PFX/user.reg"; then
+        printf '\n[%s] 1700000000\n#time=1d9a0000000000\n;wex-dwm-composition-test\n%s\n%s\n%s\n' \
+            'Software\\WineExplorer\\Shell' '"Composition"=dword:00000001' '"DwmAlpha"=dword:00000001' \
+            '"DwmService"=dword:00000001' >> "$SKEL_PFX/user.reg"
+        echo "Template prefix: desktop composition on (WEX_DWM_COMPOSITION=1, a test setting)"
+    fi
 fi
 
 # Clean up any leftover profile folders
