@@ -4,7 +4,18 @@
 
 Status: design, 2026-11-23. This is R6 of [SESSION0_SPLIT_REVIEW.md](SESSION0_SPLIT_REVIEW.md), as the owner decided
 it (decision 4): session 0 manages the ids, because it always exists and already holds what needs agreement across
-the machine. No code yet.
+the machine. Steps 1 and 2 are built (2026-11-24, `claude/r6-id-blocks`, `claude/r6-bridge-pids`).
+
+**Step 3 waits for a consumer (2026-11-24).** After step 2, nothing in the tree needs DESCRIBE_PROCESS:
+
+- the R9 broker in session 0 (B0) identifies its caller by the pipe's session id and token, not by the id;
+- `wexelevate`'s and the token broker's id checks open the process locally, so they fail closed for a foreign id,
+  as they did for 0;
+- lsass's pipe is not bridged, and DWM is per session.
+
+The only known candidate is B76 (step 4): what Click-to-Run does with App-V's id once it has opened it. Step 3 is
+built when the orchestrator's B76 lab VM shows that DESCRIBE_PROCESS (or a limited foreign handle on top of it) is
+enough, or when another service needs to check a caller from a session.
 
 ## The problem
 
