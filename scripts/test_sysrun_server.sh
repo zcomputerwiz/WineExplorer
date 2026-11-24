@@ -4260,6 +4260,9 @@ s0_wine() { (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=
     WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" "$@" </dev/null 2>/dev/null); }
 POL="$ROOT/policy"; mkdir -p "$POL"; chmod 755 "$POL"
 LGP="$M/drive_c/windows/system32/GroupPolicy"
+# the refresh request gpsvc leaves for wex-gpupdate.path; every gp section that waits for a refresh reads it, so it is
+# set here, outside them (gp_secpol and gp_users run alone found it unset under set -u: B101)
+REQ="$LGP/Refresh"
 # the store as setup-machine-root.sh makes it: session 0's account owns it and nobody else may write it, except the
 # spool, where the system group leaves requests for gpsvc (docs/GROUP_POLICY.md, "Writing the local files: the spool")
 gp_tree()
@@ -4736,7 +4739,6 @@ printf 'not a template' > "$POL/text.inf"; chmod 0644 "$POL/text.inf"
 OUT="$(s0_wine secedit /configure /cfg "$(winpath "$POL/text.inf")" || true)"
 grep -q 'Task is not completed' <<<"$OUT" && [ ! -e "$LSE/GptTmpl.inf" ] || { echo "$OUT" >&2; fail "secedit: a file that is no template was taken"; }
 # the system configures: the template is stored, gpupdate is asked, and when the refresh has run the values apply
-REQ="$M/drive_c/windows/system32/GroupPolicy/Refresh"
 rm -f "$REQ" "$POL/secedit.out"
 s0_wine sc start gpsvc >/dev/null 2>&1 || true
 for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
@@ -4892,7 +4894,6 @@ if section gp_edit; then set +e; ( section_enter
 gp_tree
 EXPL='HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'
 s0_wine reg delete "$EXPL" /v NoRecentDocsHistory /f >/dev/null 2>&1 || true
-REQ="$LGP/Refresh"
 for state in 1 0; do
     rm -f "$REQ" "$POL/gpset.out"
     s0_wine sc start gpsvc >/dev/null 2>&1 || true
@@ -5357,7 +5358,6 @@ kill_servers
 ok st_applied_gpo_list_per_extension_for_machine_and_user
 # gpupdate: a standard user's gpupdate asks session 0's gpsvc, which leaves the request for root's
 # wex-gpupdate.path in session 0's root; gpupdate waits until the refresh run says it is done (wexpolicy refreshed)
-REQ="$M/drive_c/windows/system32/GroupPolicy/Refresh"
 rm -f "$REQ"
 s0_wine sc start gpsvc >/dev/null 2>&1 || true
 for i in $(seq 1 20); do pgrep -u "$S0U" -f wexpolicy >/dev/null && break; sleep 0.5; done
