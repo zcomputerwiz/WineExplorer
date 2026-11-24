@@ -749,15 +749,19 @@ reg_append_file()   # file section line...: the fixture library's plain append (
     { printf '\n[%s] 1700000000\n#time=1d9a0000000000\n' "$section"; printf '%s\n' "$@"; } >> "$file"
 }
 reg_append() { hive_edit reg_append_file "$@"; }
-if [ "${WEX_SKIP_SESSION0:-0}" != 1 ]; then
-    echo "--- system tier: session 0 for the whole suite"
+s0_bootstrap()   # session 0's account, its two configuration lines, and session 0 itself, from here on
+{
+    echo "--- system tier: session 0 from here on"
     id "$S0U" >/dev/null 2>&1 && fail "user $S0U exists"
     useradd --system -g "$GRP" -M -d "$M" -s /usr/sbin/nologin "$S0U"; S0_CREATED=1
     install -d -m 0755 -o "$S0U" -g "$GRP" "$S0RUN"
     s0_conf_on
     s0_start
     SEC_S0=1
-fi
+}
+# The lab suite starts session 0 after its lab-only elevation cases instead (the order before R4b): with session 0
+# run and stopped before them, the S6 owner case lost its broker's D-Bus name (seen on wexgpo2; R4c looks at it)
+if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && [ "${WEX_E1S6_LAB:-0}" != 1 ]; then s0_bootstrap; fi
 
 # ---- sections 1 to 6: the launcher and the machine root (group c2; WEX_C3_ONLY=1 leaves them out) --------------
 if section c2_launcher; then set +e; ( section_enter
@@ -2013,10 +2017,6 @@ for arch in 64 32; do
 done
 true; ); section_leave $?; fi
 if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
-    # the lab's R8 cases run on the machine without session 0 (their local broker; the R9 block below starts session 0
-    # itself); R5 moves them to R9 and session 0
-    LAB_S0_OFF=0
-    if [ "$SEC_S0" = 1 ]; then s0_stop; s0_conf_off; SEC_S0=0; LAB_S0_OFF=1; fi
     e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"; SEC_E1S6=1   # from here on for the rest of the run
     if section c4_lab; then set +e; ( section_enter
     for arch in 64 32; do
@@ -3213,10 +3213,13 @@ EOF
     pkill -u "$STD" 2>/dev/null || true
     rm -rf "/home/$STD/.wine/drive_c/users/.e1s"
     sleep 2
-    if [ "$LAB_S0_OFF" = 1 ]; then s0_conf_on; s0_start; SEC_S0=1; LAB_S0_OFF=0; fi
     el_up "$ADM"
     }
-    if [ "$LAB_S0_OFF" = 1 ]; then s0_conf_on; s0_start; SEC_S0=1; fi
+    # the lab suite's session 0 from here on (see s0_bootstrap)
+    if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && [ "$SEC_S0" != 1 ]; then
+        s0_bootstrap
+        [ -z "${SEC_EL:-}" ] || el_up "$SEC_EL"
+    fi
 fi
 if section c4_bad; then set +e; ( section_enter
 bp c4_relative_image_path_is_rejected "$ADM" 64 run p64.exe 87 "$(winpath $EL/out.bad)" -
