@@ -427,12 +427,20 @@ done:
 
 static int peer( const char *pipe_name )
 {
-    HANDLE pipe;
+    HANDLE pipe = INVALID_HANDLE_VALUE;
     BYTE marker = 0x5a;
-    DWORD n;
-    if (!WaitNamedPipeA(pipe_name, 60000)) { printf("peer: no pipe %lu\n", (unsigned long)GetLastError()); return 2; }
-    pipe = CreateFileA(pipe_name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
-    if (pipe == INVALID_HANDLE_VALUE) { printf("peer: open %lu\n", (unsigned long)GetLastError()); return 2; }
+    DWORD n, start = GetTickCount(), error = 0;
+    /* the broker is a service its user's server starts: its pipe may not exist yet (WaitNamedPipe does not wait
+     * for a pipe that does not exist) */
+    while (GetTickCount() - start < 60000)
+    {
+        pipe = CreateFileA(pipe_name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (pipe != INVALID_HANDLE_VALUE) break;
+        error = GetLastError();
+        if (error == ERROR_PIPE_BUSY) WaitNamedPipeA(pipe_name, 1000);
+        else Sleep(200);
+    }
+    if (pipe == INVALID_HANDLE_VALUE) { printf("peer: no pipe %s error=%lu\n", pipe_name, (unsigned long)error); return 2; }
     if (!WriteFile(pipe, &marker, 1, &n, NULL) || !ReadFile(pipe, &marker, 1, &n, NULL) || n != 1)
     {
         printf("peer: exchange %lu\n", (unsigned long)GetLastError());

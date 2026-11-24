@@ -2223,7 +2223,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     [ -n "$tomb_key" ] || fail "e1s10: $TOMB is not in the accounts map"
     "$LIBEXEC/wex-accounts" --directory /etc/wineexplorer retire "$TOMB" >/dev/null || fail "e1s10: retire $TOMB"
     grep -q "^$TOMB .* $tomb_key tombstone " /etc/wineexplorer/accounts.map || fail "e1s10: no tombstone kept for $TOMB"
-    userdel -r "$TOMB" 2>/dev/null
+    userdel -r "$TOMB" 2>/dev/null || true
     map_gen="$(awk 'NR == 1 { print $3 }' /etc/wineexplorer/accounts.map)"
     read -r adm_key adm_sid <<<"$(awk -v n="$ADM" '$1 == n && $4 == "active" { print $3, "S-1-5-21-" $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
     [ -n "$adm_key" ] && [ -n "$adm_sid" ] || fail "e1s10: $ADM is not in the accounts map"
@@ -2245,9 +2245,12 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
             '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe broker '"$(regpath "$res")"' \\\\.\\pipe\\'"$pipe $ADM $adm_key $map_gen $adm_sid $TOMB $tomb_key"'"'
         # the standard user's server starts the broker as its session's SYSTEM service; the peer is its caller
         WEX_EL_LOG="$ROOT/e1s10-wine-$arch.log" el_up "$STD"
-        wine_as "$STD" "$ROOT/probes/e1s10_64.exe" peer '\\.\pipe\'"$pipe" >"$ROOT/e1s10_peer_$arch.log" 2>&1
-        peer_rc=$?
+        peer_rc=0
+        wine_as "$STD" "$ROOT/probes/e1s10_64.exe" peer '\\.\pipe\'"$pipe" >"$ROOT/e1s10_peer_$arch.log" 2>&1 || peer_rc=$?
         for _ in $(seq 1 30); do grep -q '^e1s10=' "$res" 2>/dev/null && break; sleep 1; done
+        [ "$peer_rc" = 0 ] || [ -s "$res" ] ||
+            { cat "$ROOT/e1s10_peer_$arch.log" >&2; tail -30 "$ROOT/e1s10-wine-$arch.log" >&2
+              fail "e1s10_$arch: the peer ended with $peer_rc and the broker wrote nothing (did the service start?)"; }
         [ -s "$res" ] || { cat "$ROOT/e1s10_peer_$arch.log" >&2; tail -20 "$ROOT/e1s10-wine-$arch.log" >&2; fail "e1s10_$arch: the broker wrote no result"; }
         tr -d '\r' < "$res" > "$res.txt" && mv "$res.txt" "$res"
         grep -q '^e1s10_accept_control=PASS$' "$res" || { cat "$res" >&2; fail "e1s10_$arch: the control issue failed (no refusal below counts)"; }
@@ -2263,7 +2266,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         el_down "$STD"
         hive_put "$ROOT/system.reg.e1s10"
         for u in "$STD" "$ADM"; do
-            out="$(wine_as "$u" "$ROOT/probes/e1s10_$arch.exe" denied 2>&1 | tr -d '\r')"
+            out="$(wine_as "$u" "$ROOT/probes/e1s10_$arch.exe" denied 2>&1 | tr -d '\r' || true)"
             grep -qx 'denied=PASS' <<<"$out" || { echo "$out" >&2; fail "e1s10_not_the_broker_refused_${u}_$arch"; }
             ok "e1s10_not_the_broker_refused_${u}_$arch"
         done
