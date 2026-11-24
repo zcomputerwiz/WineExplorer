@@ -2228,6 +2228,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     read -r adm_key adm_sid <<<"$(awk -v n="$ADM" '$1 == n && $4 == "active" { print $3, "S-1-5-21-" $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
     [ -n "$adm_key" ] && [ -n "$adm_sid" ] || fail "e1s10: $ADM is not in the accounts map"
     hive_copy "$ROOT/system.reg.e1s10"
+    [ -d "$EL" ] || install -d -m 1777 "$EL"   # the broker's result file (a section run alone has no $EL yet)
     WOW="$M/drive_c/windows/syswow64"
     [ ! -f "$SYS32/wexelevate_test.exe" ] || cp -p "$SYS32/wexelevate_test.exe" "$ROOT/wexelevate_test.exe.e1s10"
     [ ! -f "$WOW/wexelevate_test.exe" ] || cp -p "$WOW/wexelevate_test.exe" "$ROOT/wexelevate_test.exe.e1s10.32"
@@ -2249,7 +2250,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         wine_as "$STD" "$ROOT/probes/e1s10_64.exe" peer '\\.\pipe\'"$pipe" >"$ROOT/e1s10_peer_$arch.log" 2>&1 || peer_rc=$?
         for _ in $(seq 1 30); do grep -q '^e1s10=' "$res" 2>/dev/null && break; sleep 1; done
         [ "$peer_rc" = 0 ] || [ -s "$res" ] ||
-            { cat "$ROOT/e1s10_peer_$arch.log" >&2; tail -30 "$ROOT/e1s10-wine-$arch.log" >&2
+            { cat "$ROOT/e1s10_peer_$arch.log" >&2; grep -E 'e1s10|wexelevate|err:' "$ROOT/e1s10-wine-$arch.log" | tail -30 >&2
               fail "e1s10_$arch: the peer ended with $peer_rc and the broker wrote nothing (did the service start?)"; }
         [ -s "$res" ] || { cat "$ROOT/e1s10_peer_$arch.log" >&2; tail -20 "$ROOT/e1s10-wine-$arch.log" >&2; fail "e1s10_$arch: the broker wrote no result"; }
         tr -d '\r' < "$res" > "$res.txt" && mv "$res.txt" "$res"

@@ -20,6 +20,7 @@
  * E1S10_ISSUE_REQ; the layout it relies on (header 12 bytes, operation, context, caller, caps at 24) is checked by
  * the suite against include/wine/server_protocol.h before it builds this file.
  */
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -367,7 +368,11 @@ static int broker( char **argv )
     BOOL opened = FALSE, greeted = FALSE;
 
     memset(&ic, 0, sizeof(ic));
-    if (!(out = fopen(result, "w"))) return 2;
+    if (!(out = fopen(result, "w")))
+    {
+        fprintf(stderr, "e1s10 broker: cannot write %s (errno %d)\n", result, errno);
+        return 2;
+    }
     current = "setup";
     report("e1s10 broker abi=%u\n", (unsigned int)(8 * sizeof(void *)));
     ic.generation = _strtoui64(argv[6], NULL, 10);
@@ -487,13 +492,45 @@ static int copied_child( const char *mapping_text )
     return failures ? 1 : 0;
 }
 
+/* the broker runs as the wexelevate service: it tells the service manager it runs, and that it stopped */
+static char **broker_argv;
+static SERVICE_STATUS_HANDLE service_handle;
+
+static void service_state( DWORD state, DWORD code )
+{
+    SERVICE_STATUS status = {SERVICE_WIN32_OWN_PROCESS, state, 0, code, 0, 0, 0};
+    if (service_handle) SetServiceStatus(service_handle, &status);
+}
+
+static DWORD WINAPI service_control( DWORD control, DWORD type, void *data, void *context )
+{
+    (void)type; (void)data; (void)context;
+    return control == SERVICE_CONTROL_INTERROGATE ? NO_ERROR : ERROR_CALL_NOT_IMPLEMENTED;
+}
+
+static void WINAPI service_main( DWORD argc, char **argv )
+{
+    int rc;
+    (void)argc; (void)argv;
+    service_handle = RegisterServiceCtrlHandlerExA("wexelevate", service_control, NULL);
+    service_state(SERVICE_RUNNING, NO_ERROR);
+    rc = broker(broker_argv);
+    service_state(SERVICE_STOPPED, rc ? ERROR_SERVICE_SPECIFIC_ERROR : NO_ERROR);
+}
+
 int main( int argc, char **argv )
 {
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
     create_export = (create_fn)(void *)GetProcAddress(ntdll, "NtCreateWexAccountToken");
     server_call = (server_call_fn)(void *)GetProcAddress(ntdll, "wine_server_call");
     if (!create_export || !server_call) { printf("missing ntdll exports\n"); return 2; }
-    if (argc == 10 && !strcmp(argv[1], "broker")) return broker(argv);
+    if (argc == 10 && !strcmp(argv[1], "broker"))
+    {
+        SERVICE_TABLE_ENTRYA table[] = {{(char *)"wexelevate", service_main}, {NULL, NULL}};
+        broker_argv = argv;
+        if (StartServiceCtrlDispatcherA(table)) return 0;
+        return broker(argv); /* not started by the service manager */
+    }
     if (argc == 3 && !strcmp(argv[1], "peer")) return peer(argv[2]);
     if (argc == 2 && !strcmp(argv[1], "denied")) return denied();
     if (argc == 3 && !strcmp(argv[1], "copied")) return copied_child(argv[2]);
