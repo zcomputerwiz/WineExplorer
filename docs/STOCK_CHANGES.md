@@ -9,9 +9,10 @@ handle the same way with `DuplicateHandle`, and make a `SecurityImpersonation` c
 and `ImpersonateLoggedOnUser` with the primary token, give its thread an identification-level token. An AppContainer
 process cannot open the Medium process at all.
 
-- `server/token.c` (`security_set_thread_token`): without `SeImpersonatePrivilege`, a token of higher integrity than
-  the thread's process, or an elevated token while the process is not elevated, goes to the thread as an
-  identification-level copy. This is the integrity part of `SeTokenCanImpersonate`, as pipe servers already get it
+- `server/token.c` (`security_set_thread_token`): a token of higher integrity than the thread's process goes to the
+  thread as an identification-level copy, also when the process holds `SeImpersonatePrivilege`. So does an elevated
+  token while the process is not elevated, when the process lacks that privilege. On Windows 10 a Low copy of an
+  elevated administrator's token (privilege enabled) also got only identification from its High parent. This is the integrity part of `SeTokenCanImpersonate`, as pipe servers already get it
   (`token_impersonation_level`). Before, a Low integrity process (a sandbox) could impersonate its user's Medium
   token. The other-user part is left to the pipe servers, since Windows lets a process impersonate a token it got
   from `LogonUser`.
