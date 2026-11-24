@@ -1,5 +1,27 @@
 # Changes to stock Wine / third-party code
 
+## comctl32: BCM_SETSHIELD; win32u: menu short cut gap; taskmgr: nothing clipped (2026-11-23)
+
+Wine branch `claude/taskmgr-labels-shield`, on `70c5ce49`: `d8a22517` (comctl32), `45716a41` (win32u), `cea7e751`
+(taskmgr). A follow-up to the Task Manager section below.
+
+* `dlls/comctl32_v6/button.c`: `BCM_SETSHIELD` (was unhandled).
+  * It returns 1 and keeps user32's shared small `IDI_SHIELD` (Wine's own shield art, `OIC_SHIELD`).
+  * The shield is drawn as the button's image when no `BM_SETIMAGE` image or image list is set: beside the text and
+    centred with it, with a gap of two edges. It is drawn themed and unthemed and is counted in `BCM_GETIDEALSIZE`.
+  * A command link shows it in place of its arrow. `BM_GETIMAGE` doesn't return it.
+  * This also gives the task dialog's elevation buttons their shield.
+  * Test: `dlls/comctl32/tests/button.c` `test_shield`.
+* `dlls/win32u/menu.c` (popup menu layout): the space reserved for a tab now goes before the short cut text instead of
+  after it, so a short cut no longer touches the widest label (taskmgr's "Lock Computer WinKey+L" at 120 DPI). Item
+  widths are unchanged; user32's menu tests pass.
+* `programs/taskmgr`: nothing clipped under the stock theme or Open Luna, at 96 and 120 DPI.
+  * List columns are at least as wide as their heading in the header's font, including a visual style's content
+    margins (`uxtheme` delay-imported).
+  * The first two status bar parts are as wide as their text, at least XP's 100 and 110 pixels. They give up their
+    spare room when Commit Charge and the size grip would not fit.
+  * The all-users check box and button are wider.
+
 ## server: the E1 lab code out of the stock files, behind hooks (R5 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
 
 Wine branch `claude/r5-elevation-engine` (on development c8f1bb13, which has R2, R3 and the token-read change). No change of behaviour in either build: a normal build preprocesses `registry.c`, `token.c` and
@@ -225,7 +247,7 @@ Wine branch `claude/taskmgr-xp-parity`, `66d8330d` (ntdll, server), `b1ae33c1` a
     that is not elevated (`TokenIsElevated`: an administrator's filtered token or a standard user), this is Vista's
     shield button, which restarts Task Manager elevated with `/showall`, so other users' processes are listed only when
     elevated. `get_process_io_counters` needs `PROCESS_QUERY_LIMITED_INFORMATION`, as the VM counters do. The shield
-    picture is not drawn yet: comctl32 has no `BCM_SETSHIELD`.
+    picture comes from comctl32's `BCM_SETSHIELD` (see "comctl32: BCM_SETSHIELD" above).
   * Column sorting and the selection kept across refreshes. End Process Tree ends the children.
   * Shut Down menu through `wexhost` `WexPowerCan`/`WexPowerDo`, falling back to `ExitWindowsEx` (items the host can't
     do are greyed).
