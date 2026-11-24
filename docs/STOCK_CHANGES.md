@@ -23,6 +23,12 @@
   instead of 4096 (replies are small). Its audit sites `pipe-start-io` and `pipe-io-result` are one, `pipe-io`. The
   lab agent's connect to B0 (`standard.c`) keeps its own open: `wex_pipe_connect` would add identification-level
   impersonation and a wait for a busy pipe, which that path was not built for.
+- `wex_pipe_connect`: a pipe that goes away while the client waits for a free instance now fails with
+  `ERROR_FILE_NOT_FOUND` instead of `ERROR_PIPE_BUSY`, so the WAM client starts a new broker as it did before R7
+  (Codex review), and DWM's client reports a disconnected port instead of a timeout.
+- Codex review of R7: three findings, fixed. The scripts take the repository's `wex-common.sh` when the installed one
+  predates `wex_machine_links`, and stop before any change when neither has it (the list is read before the loop, so
+  a failure stops them); `wexdev.sh` uploads the library for the guest setup too; the connect error above.
 
 ## server: process and thread ids from blocks leased by session 0 (R6 step 1 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
