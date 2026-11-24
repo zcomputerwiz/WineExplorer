@@ -94,6 +94,7 @@
 #endif
 
 #include "wexelevate_request.h"
+#include "wine/wex_pipe.h"
 
 #ifdef WEXELEVATE_E1S18
 const WCHAR wexelevate_consent_exe[] = CONSENT_EXE;
@@ -276,43 +277,19 @@ static void free_request( struct request *req )
 
 /* ---- pipe I/O with a timeout --------------------------------------------------------------------------------- */
 
+/* wex_pipe.h's I/O, ended by the service's stop as well; a timeout gives ERROR_TIMEOUT, a stop
+ * ERROR_OPERATION_ABORTED, any other failure is audited (pipe-io) */
 BROKER_SHARED DWORD pipe_io( HANDLE pipe, void *buf, DWORD size, BOOL write, DWORD timeout, DWORD *done )
 {
-    OVERLAPPED ov = { 0 };
-    HANDLE events[2];
-    DWORD err = ERROR_SUCCESS, ret;
+    HANDLE event;
+    DWORD err;
 
     *done = 0;
-    if (!(ov.hEvent = CreateEventW( NULL, TRUE, FALSE, NULL )))
+    if (!(event = CreateEventW( NULL, TRUE, FALSE, NULL )))
     { err = GetLastError(); E1S_AUDIT( "pipe-create-event" ); return err; }
-    if (!(write ? WriteFile( pipe, buf, size, NULL, &ov ) : ReadFile( pipe, buf, size, NULL, &ov )))
-    {
-        err = GetLastError();
-        if (err == ERROR_IO_PENDING)
-        {
-            events[0] = ov.hEvent;
-            events[1] = stop_event;
-            ret = WaitForMultipleObjects( 2, events, FALSE, timeout );
-            if (ret != WAIT_OBJECT_0)
-            {
-                CancelIo( pipe );
-                GetOverlappedResult( pipe, &ov, done, TRUE );
-                CloseHandle( ov.hEvent );
-                *done = 0;
-                return ret == WAIT_TIMEOUT ? ERROR_TIMEOUT : ERROR_OPERATION_ABORTED;
-            }
-            err = ERROR_SUCCESS;
-        }
-        else
-        {
-            E1S_AUDIT( "pipe-start-io" );
-            CloseHandle( ov.hEvent );
-            return err;
-        }
-    }
-    if (!GetOverlappedResult( pipe, &ov, done, TRUE ))
-    { err = GetLastError(); E1S_AUDIT( "pipe-io-result" ); }
-    CloseHandle( ov.hEvent );
+    err = wex_pipe_io_until( pipe, write, buf, size, done, event, timeout, stop_event );
+    if (err && err != ERROR_TIMEOUT && err != ERROR_OPERATION_ABORTED) E1S_AUDIT( "pipe-io" );
+    CloseHandle( event );
     return err;
 }
 
@@ -2253,18 +2230,9 @@ done:
 
 static HANDLE create_instance( BOOL first )
 {
-    SECURITY_ATTRIBUTES sa = { sizeof(sa) };
-    HANDLE pipe;
-
     /* SYSTEM and administrators everything, authenticated users read and write (connect) */
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW( L"D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)", SDDL_REVISION_1,
-                                                              &sa.lpSecurityDescriptor, NULL )) return INVALID_HANDLE_VALUE;
-    pipe = CreateNamedPipeW( WEXELEVATE_PIPE_NAME, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED |
-                             (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
-                             PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                             PIPE_UNLIMITED_INSTANCES, 4096, WEXELEVATE_MAX_REQUEST, 0, &sa );
-    LocalFree( sa.lpSecurityDescriptor );
-    return pipe;
+    return wex_pipe_create( WEXELEVATE_PIPE_NAME, L"D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)", first,
+                            WEXELEVATE_MAX_REQUEST );
 }
 
 BROKER_SHARED void report( DWORD state, DWORD error )

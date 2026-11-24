@@ -40,6 +40,7 @@
 
 #include <stdio.h>
 #include <sddl.h>
+#include "wine/wex_pipe.h"
 
 #define R9B_PIPE_NAME   L"\\\\.\\pipe\\wexelevate.r9"
 #define R9B_INSTANCES   8
@@ -535,18 +536,8 @@ static DWORD WINAPI r9b_client_thread( void *param )
 
 static HANDLE r9b_create_instance( BOOL first )
 {
-    SECURITY_ATTRIBUTES sa = { sizeof(sa) };
-    HANDLE pipe;
-
     /* SYSTEM only: a session's agent (its token described over the bridge) and nothing else. */
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW( L"D:P(A;;GA;;;SY)", SDDL_REVISION_1,
-                                                              &sa.lpSecurityDescriptor, NULL )) return INVALID_HANDLE_VALUE;
-    pipe = CreateNamedPipeW( R9B_PIPE_NAME, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED |
-                             (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
-                             PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                             R9B_INSTANCES, R9B_FRAME_MAX, R9B_FRAME_MAX, 0, &sa );
-    LocalFree( sa.lpSecurityDescriptor );
-    return pipe;
+    return wex_pipe_create_instances( R9B_PIPE_NAME, L"D:P(A;;GA;;;SY)", first, R9B_FRAME_MAX, R9B_INSTANCES );
 }
 
 /* The service's main loop in session 0, in place of serve(). */
