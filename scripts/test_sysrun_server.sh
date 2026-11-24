@@ -1290,9 +1290,11 @@ for u in $C3_USERS; do
             expect_spass "c3_administrator_can_open_${img%.exe}" "$u" 64 admin-open "$img"
         done
         # -- R7: the tokens of the system role carry Windows' descriptors, and the limited query right on the process
-        # opens a token as far as its descriptor allows: an administrator may query a service's token only (the
-        # WexSvc* services), and assign, duplicate, impersonate and query services.exe's (a system process, not a service)
-        expect_spass c3_administrator_queries_only_a_service_token "$u" 64 admin-token-rights wexsvc.exe service
+        # opens a token as far as its descriptor allows: an administrator may query a service's token only (PlugPlay,
+        # a service of the session: the WexSvc* services run in session 0), and assign, duplicate, impersonate and
+        # query services.exe's (a system process, not a service)
+        wine_as "$ADM" "$ROOT/probes/rolesprobe64.exe" start-service PlugPlay 0 >/dev/null 2>&1 || true
+        expect_spass c3_administrator_queries_only_a_service_token "$u" 64 admin-token-rights plugplay.exe service
         expect_spass c3_administrator_may_duplicate_the_services_exe_token "$u" 64 admin-token-rights services.exe system
     fi
 
@@ -1308,7 +1310,7 @@ for u in $C3_USERS; do
         # a normal program's token, as on Windows, but cannot duplicate or use it
         expect_rpass "c3_${u}_low_integrity_reads_but_cannot_copy_a_token_$arch" "$u" "$arch" low-token
         # R7: users get nothing on the system role's tokens, also not TOKEN_QUERY (no ACE for them, as on Windows)
-        for img in services.exe wexsvc.exe; do
+        for img in services.exe plugplay.exe; do
             expect_rpass "c3_${u}_cannot_open_the_${img%.exe}_token_$arch" "$u" "$arch" token-rights "$img" none
         done
         expect_rpass "c3_${u}_scm_connect_and_enumerate_work_$arch" "$u" "$arch" scm-allowed

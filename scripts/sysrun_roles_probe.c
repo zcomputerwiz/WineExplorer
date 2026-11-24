@@ -747,6 +747,7 @@ static void token_rights(const char *image, const char *expect)
         { READ_CONTROL, "READ_CONTROL", 0, 1 },
         { TOKEN_DUPLICATE, "TOKEN_DUPLICATE", 0, 1 },
         { TOKEN_IMPERSONATE, "TOKEN_IMPERSONATE", 0, 1 },
+        { TOKEN_ASSIGN_PRIMARY, "TOKEN_ASSIGN_PRIMARY", 0, 1 },
         { TOKEN_ADJUST_PRIVILEGES, "TOKEN_ADJUST_PRIVILEGES", 0, 0 },
         { TOKEN_ADJUST_DEFAULT, "TOKEN_ADJUST_DEFAULT", 0, 0 },
         { WRITE_DAC, "WRITE_DAC", 0, 0 },
@@ -760,8 +761,10 @@ static void token_rights(const char *image, const char *expect)
     check(n > 0, what);
     for (i = 0; i < n; i++)
     {
-        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pids[i]), token;
+        HANDLE process, token;
 
+        if (pids[i] == GetCurrentProcessId()) continue;  /* the stand-in itself may have the image's name */
+        process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pids[i]);
         snprintf(what, sizeof(what), "open %s %lu with the limited query right", image, pids[i]);
         check(process != NULL, what);
         if (!process) continue;
