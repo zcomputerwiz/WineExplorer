@@ -2189,6 +2189,30 @@ class TestGreeter(TempDirTest):
                                          encoding="ascii")
         self.assertEqual(self.run_greeter("normal")[1], [logon])
 
+    def test_a_server_that_does_not_end_is_ended(self):
+        """B100: a process left behind kept the logon prefix's server up, and the greeter waited for it for ever (no
+        Welcome screen). It waits a bounded time, ends the server, says so in the journal and shows the logon screen."""
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        (bin_dir / "logger").write_text('#!/bin/sh\necho "logger $*" >> "$LOG"\n', encoding="ascii")
+        (bin_dir / "logger").chmod(0o755)
+        server = self.tmp / "wineserver"
+        # -w never ends until -k ran
+        server.write_text('#!/bin/sh\necho "wineserver $*" >> "$LOG"\n'
+                          'case "$1" in\n    -k) touch "$LOG.killed" ;;\n'
+                          '    -w) while [ ! -e "$LOG.killed" ]; do sleep 0.2; done ;;\nesac\n', encoding="ascii")
+        server.chmod(0o755)
+        home = self.tmp / "lightdm"
+        (home / ".wine").mkdir(parents=True)   # no user.reg: the prefix is updated (wineboot -u), then waited for
+        (self.tmp / "calls.log.killed").unlink(missing_ok=True)
+        status, calls = self.run_greeter("normal", home=home, extra_env={
+            "WEX_GREETER_SERVER_WAIT": "1", "PATH": f"{bin_dir}:{os.environ['PATH']}"})
+        self.assertTrue(calls[0].startswith("wine wineboot.exe -u"), calls)
+        self.assertEqual(calls[1], "wineserver -w", calls)
+        self.assertTrue(calls[2].startswith("logger -t wex-greeter") and "did not end within 1 s" in calls[2], calls)
+        self.assertEqual(calls[3:], ["wineserver -k", "wineserver -w",
+                                     "wine explorer.exe /desktop=Logon,1024x768 logonui.exe"], calls)
+
     def test_the_logon_prefix_gets_luna_copied_in(self):
         """The logon prefix's C:\\windows is its own, without the themes the machine root has (seen on the VM,
         2026-11-12): Luna is copied in from the package's theme directory, as the session script does."""
