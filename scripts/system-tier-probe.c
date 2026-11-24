@@ -547,8 +547,18 @@ int __cdecl wmain( int argc, WCHAR **argv )
             if (ControlService( service, SERVICE_CONTROL_STOP, &status )) printf( "stop=0\n" );
             else printf( "stop=error%lu\n", GetLastError() );
         }
-        else if (QueryServiceStatus( service, &status )) printf( "state=%lu\n", status.dwCurrentState );
-        else printf( "state=error%lu\n", GetLastError() );
+        else
+        {
+            SERVICE_STATUS_PROCESS process;
+            DWORD size;
+
+            if (QueryServiceStatus( service, &status )) printf( "state=%lu\n", status.dwCurrentState );
+            else printf( "state=error%lu\n", GetLastError() );
+            /* R6: the service's process id, unique across servers */
+            if (QueryServiceStatusEx( service, SC_STATUS_PROCESS_INFO, (BYTE *)&process, sizeof(process), &size ))
+                printf( "pid=%lu\n", process.dwProcessId );
+            else printf( "pid=error%lu\n", GetLastError() );
+        }
         CloseServiceHandle( service );
         CloseServiceHandle( manager );
         return 0;
@@ -582,6 +592,8 @@ int __cdecl wmain( int argc, WCHAR **argv )
         }
         if (!GetNamedPipeClientSessionId( pipe, &session )) printf( "clientsession=error%lu\n", GetLastError() );
         else printf( "clientsession=%lu\n", session );
+        if (!GetNamedPipeClientProcessId( pipe, &session )) printf( "clientpid=error%lu\n", GetLastError() );
+        else printf( "clientpid=%lu\n", session );
         ResetEvent( ov.hEvent );
         if (!ReadFile( pipe, text, sizeof(text) - 1, NULL, &ov ) && GetLastError() == ERROR_IO_PENDING)
             WaitForSingleObject( ov.hEvent, 10000 );
@@ -630,6 +642,7 @@ int __cdecl wmain( int argc, WCHAR **argv )
         SetNamedPipeHandleState( pipe, &mode, NULL, NULL );
         if (len > 1 && WriteFile( pipe, text, len - 1, &done, NULL )) printf( "say=ok\n" );
         else printf( "say=error%lu\n", GetLastError() );
+        printf( "self=%lu\n", GetCurrentProcessId() );
         Sleep( 500 );
         CloseHandle( pipe );
         return 0;

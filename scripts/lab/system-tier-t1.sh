@@ -251,6 +251,12 @@ check notify_session0_registered "$(field notify < "$W/notify.out")" registered
 s0 sc start wuauserv >/dev/null 2>&1
 for i in $(seq 1 50); do grep -q '^fired=' "$W/notify.out" 2>/dev/null && break; sleep 0.5; done
 check notify_session0_change "$(field fired < "$W/notify.out")" 4
+# R6 step 2: A reads the process id of session 0's service as session 0 does (it was 0 before ids were unique), and
+# the id is in session 0's block (block 0: ids below 16384)
+S0_SVC_PID="$(s0 "$W/p64.exe" svcstate wuauserv | field pid)"
+A_SVC_PID="$(A "$W/p64.exe" svcstate wuauserv | field pid)"
+check a_sees_session0_service_pid "$A_SVC_PID" "$S0_SVC_PID"
+check session0_service_pid_in_block_0 "$(awk '{ print ($1 > 0 && $1 < 16384) ? "yes" : "no: " $1 }' <<<"$S0_SVC_PID")" yes
 s0 sc stop wuauserv >/dev/null 2>&1
 for i in $(seq 1 20); do [ "$(s0 sc query wuauserv | state)" = 1 ] && break; sleep 0.5; done
 check a_keeps_own_plugplay "$(A sc query PlugPlay | state)" 4
@@ -282,9 +288,12 @@ SA_NOW="$(A "$W/p64.exe" whoami | field session)"
 rm -f "$W/serve.out"
 (s0 "$W/p64.exe" pipeserve wexelevate.r9 >"$W/serve.out" &)
 for i in $(seq 1 60); do grep -q '^listening' "$W/serve.out" 2>/dev/null && break; sleep 0.5; done
-check r9_pipe_from_session "$(A "$W/p64.exe" pipesay 'WexSession0\wexelevate.r9' hello | field say)" ok
+SAY="$(A "$W/p64.exe" pipesay 'WexSession0\wexelevate.r9' hello)"   # one run, both fields
+check r9_pipe_from_session "$(field say <<<"$SAY")" ok
 for i in $(seq 1 40); do grep -q '^message=' "$W/serve.out" 2>/dev/null && break; sleep 0.5; done
 check r9_client_session_is_the_session "$(field clientsession < "$W/serve.out")" "$SA_NOW"
+# R6 step 2: the server in session 0 reads the opener's own process id (ids are unique across servers)
+check r9_client_pid_is_the_opener "$(field clientpid < "$W/serve.out")" "$(field self <<<"$SAY")"
 check r9_message_crossed "$(field message < "$W/serve.out")" hello
 
 # B17: a service's ncalrpc endpoint (\pipe\lrpc\NAME) in session 0 is reached from a session that has no such pipe;
