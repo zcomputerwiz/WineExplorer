@@ -3350,10 +3350,10 @@ cat > "$ROOT/shim/wine/debug.h" <<'EOF'
 EOF
 CS="$SRC/src/programs/consent"
 x86_64-w64-mingw32-windres -I"$CS" -o "$ROOT/consent_rc.o" "$CS/consent.rc"
-x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -DWEXCONSENT_TEST_HOOK -I"$ROOT/shim" -I"$CS" -o "$ROOT/probes/consent_test.exe" \
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -DWEXCONSENT_TEST_HOOK -I"$ROOT/shim" -I"$CS" -I"$SRC/src/include" -o "$ROOT/probes/consent_test.exe" \
     "$CS/consent.c" "$ROOT/consent_rc.o" -lcomctl32 -lversion -lwintrust -lcrypt32 -lmsi -luser32 -lgdi32 -ladvapi32
 chmod 0755 "$ROOT/probes/consent_test.exe"
-x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -I"$CS" -I"$ROOT/shim" -o "$ROOT/consent_ship.exe" \
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -I"$CS" -I"$ROOT/shim" -I"$SRC/src/include" -o "$ROOT/consent_ship.exe" \
     "$CS/consent.c" "$ROOT/consent_rc.o" -lcomctl32 -lversion -lwintrust -lcrypt32 -lmsi -luser32 -lgdi32 -ladvapi32
 has_str "$ROOT/probes/consent_test.exe" 'consent.' || fail "the test consent program has no hook (control)"
 has_str "$ROOT/probes/consent_test.exe" '/testid' || fail "the test consent program has no /testid (control)"
