@@ -507,3 +507,28 @@ or `dxgi` `dcomp_binding_target_scene`, and that dwm.exe and the DWM pipe do not
   the visual and the desktop device), not a change to the shared behavior Chromium and the DWM tests rely on.
 * Next: find out on Windows what private methods 40, 41 and 46 do (black-box: `wintrace` on dcomp.dll's private device and visual vtables
   while Notepad runs; the buffers they pass), then implement them on top of Wine's existing visuals, surfaces and swapchains.
+
+## 2026-11-24: the composition engine (dwmcorei.dll) and what stops it (corrects the entry above)
+
+Research on the web found nothing about `dcompi`, `dwmcorei` or the private dcomp methods (Microsoft documents only that the Microsoft.UI.Composition
+compositor "runs entirely within" the app; the staging DirectComposition series of Wine, already analysed in `DCOMP_STAGING_PLAN.md`, is the only prior
+art, and it has no private interfaces). So the findings below are measurements (Wine `+relay` from the module, Windows `wintrace` of one method).
+
+* Correction: methods 40/41 of the visual and the shared visual handles are Microsoft.UI.Input's (system dcomp); the XAML content is NOT in a private
+  command stream through them. The rendering engine of the lifted compositor is `dwmcorei.dll` (the package copy of the DWM core, loaded by
+  `dcompi.dll`), which draws in process.
+* On Wine `dwmcorei.dll` starts its engine thread (named mutex and semaphore, a shared section, DXGI factory, the "Composition Token Thread"), asks
+  `DCompositionCreateDevice2(NULL, IDCompositionDesktopDevice)`, queries {28d6ad3d-...} on it and calls **private method 46** of the device with
+  (two descriptor structs, 0xFFFF7FFF). The stub fails, WIL logs the failure (the `WilError` mutex and semaphore) and the engine shuts down: no D3D11
+  device, no swapchain, `DwmSceneI.dll` never loaded, no `SetContent`. That is why nothing is drawn.
+* `dxgi` `RegisterAdaptersChangedEvent` was another E_NOTIMPL on that path (fixed, STOCK_CHANGES); alone it changes nothing.
+* Windows (black-box, `wintrace` at the entry and return of slot 46 = `dcomp.dll+0x109fe0` on this build, found by reading the vtable the system hands out,
+  `dcomp-vtable-probe.c`): dwmcorei also runs in Notepad there and reaches slot 46 through `Microsoft.Internal.FrameworkUdk.System.dll` (a FrameworkUdk
+  DCompPrivates function), five times, always S_OK, with (this, ptr, ptr or 0, small code 1, 2 or 3). On Wine FrameworkUdk uses its built-in fallback table (no
+  `.System.dll`), which calls the same slot with the code 0xFFFF7FFF and gets E_NOTIMPL.
+* Tried (lab only, reverted): method 46 returning S_OK: the engine still shuts down right after, with no further external call (it checks what the method
+  was to fill in). `UniversalApiContract` 19 (as Windows 11 reports; Wine says 10): the runtime then takes its newer path and fails fast on CoreMessaging
+  session slot 13.
+* Two ways on, both need the black-box method (record the outputs of the five slot-46 calls on Windows, entry and return dumps of the two structs):
+  (A) behave like Windows: contract 19 plus the CoreMessaging session methods the newer path needs, so FrameworkUdk calls slot 46 with the small codes;
+  (B) stay on the fallback table and make slot 46 fill what the engine expects for code 0xFFFF7FFF.

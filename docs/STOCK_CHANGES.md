@@ -4374,3 +4374,6 @@ with a low integrity token; the suite requires the client's warning for the seco
 (`NetUserModalsGet` level 3): a stored lockout duration of 99999 minutes or more (a security template's
 `LockoutDuration = -1`) reads back as forever (`0xffffffff`), as 0 already did. Test: `tests/access.c`
 (`test_lockout_forever`, Wine only: the key is WineExplorer's).
+
+2026-11-24 (UWP, Wine branch `claude/staterepository-11.22`, Windows App SDK / Notepad):
+- `dlls/dxgi/factory.c`: `RegisterAdaptersChangedEvent` hands out a cookie and succeeds (the event is never signaled: the adapters do not change) and `UnregisterAdaptersChangedEvent` succeeds, instead of E_NOTIMPL. The composition engine of the Windows App Runtime logs a failure here.
