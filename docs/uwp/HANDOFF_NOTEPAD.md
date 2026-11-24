@@ -40,8 +40,14 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
    * then every draw failed: Direct2D refused the surface the compositor gets from `IDXGIResource1::CreateSubresourceSurface`
      (Wine's d2d asked it for `ID3D11Texture2D`, which Windows' subresource surfaces do not answer either; Windows' d2d reaches
      the texture through `IDXGISurface2::GetResource`). Fixed in Wine 01af4686: the draws succeed now (0 refusals).
-   * After its draws the compositor thread still goes idle and never calls `Commit` (on Windows it commits about every 2 s, from
-     `dwmcorei.dll`, after private method 46). Wine's composition surface is asked for
+   * The compositor called slot 7 of the Direct2D context's private interface `{2ea67ed7}`, a stub that ended the process; slot 7
+     is a private SetTarget (measured, `tests/uwp/alpc/d2d-ctx-slot7-probe.cpp`) and slot 15 succeeds (Wine 65a01349). The draws now
+     succeed. Per frame on Windows: method 46, three times (BeginDraw, slot 7, sometimes slot 15, EndDraw), Commit, method 45, the
+     clock wait. The compositor does commit under Wine too: Commit was simply not traced (Wine 13a303b3 traces it; methods 45/46
+     count the Commits). With the lab bypass, Notepad's window now shows: frame, icon and the light text area; the compositor's
+     surfaces (title/tab strip 1428x33, status bar) are black — the next problem.
+   * (Earlier note, superseded:) After its draws the compositor thread still goes idle and never calls `Commit` (on Windows it
+     commits about every 2 s, from `dwmcorei.dll`, after private method 46). Wine's composition surface is asked for
      `{790a45f7-0d42-4876-983a-0a55cfe6f4aa}` three times: that is the public `IDXGISwapChain1`, and Windows 11 refuses it on
      both surface kinds too (`tests/uwp/alpc/dcomp-surface-qi-probe.cpp`), so it is a type check, not the cause. The probe
      found `IDCompositionDevice::CreateSurface` stubbed in Wine (fixed in Wine 2c72ac3a). The last run also ended early (2176
@@ -124,7 +130,9 @@ the lab helpers below and these docs.
 ## Open work, in order
 
 1. Done (2026-11-24): `{790a45f7-...}` is `IDXGISwapChain1`, refused on Windows too; not the cause.
-2. Why it does not commit: trace the compositor thread after its draws with `+d3d11,+d2d,+dxgi,+dcomp,+sync` (the bypass run)
+2. Done (2026-11-24): it commits (see above). Next: why the compositor's surfaces are black on screen (format R8G8B8A8
+   premultiplied; d2d draws through slot 7 onto the subresource surface's bitmap; Wine's dcomp composes at Commit).
+   Earlier plan, kept for the record: trace the compositor thread after its draws with `+d3d11,+d2d,+dxgi,+dcomp,+sync` (the bypass run)
    and compare with a Windows trace at `dcomp.dll!desktop[3]` (Commit), `[45]`, `[46]`. On Windows the order is 46, Commit, 45.
 3. When it commits: Wine's dcomp composes a target's surface layers through an auxiliary producer per target and refuses several
    cases with E_NOTIMPL (formats other than B8G8R8A8/R8G8B8A8, two targets on one window, content of two devices in one scene,

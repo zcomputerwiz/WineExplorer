@@ -56,6 +56,9 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
 - `dlls/dcomp/device.c` (2c72ac3a, branch claude/notepad-commit): IDCompositionDevice::CreateSurface makes a surface
   through the implementation the other device interfaces share (it was a stub); test in `test_surface_suspend_scroll_virtual` (dcomp.c), which
   also checks that a surface refuses IDXGISwapChain1, as on Windows 11.
+- `dlls/d2d1/device.c` (65a01349, claude/notepad-commit): slot 7 of the context's private interface {2ea67ed7} sets the
+  target (measured), slot 15 succeeds; test in `test_device_private`. `dlls/dcomp/device.c` (13a303b3): Commit is traced;
+  private methods 45/46 count the device's Commits (0 on a fresh device, as measured).
 
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
