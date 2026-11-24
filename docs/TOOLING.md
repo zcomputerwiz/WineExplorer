@@ -247,6 +247,10 @@ Antigravity: user-reported operational guidance is `agy_run`, `mode: edit` for w
 * Never pass C escapes or backslashes through heredocs, `sed`, or `python -c`; inspect edited lines. Windows Python text mode can rewrite LF to CRLF: use `newline=''` when editing Wine text and inspect `git diff --stat` and the actual diff.
 * Several legacy harnesses kill wineserver, services.exe or Xvfb globally, delete fixed prefixes, and overwrite logs. Only one agent may use such a distro at a time. An owned prefix alone does not protect other processes from `pkill`.
 * Guest disks fill: remove only confirmed superseded, owned prefixes after coordinating with their owner. VM B can auto-stop (`WEX_VMB_SECONDS`); check its configured lifetime against the test.
+* Never fetch the Wine submodule recursively over master's whole history (`git fetch --recurse-submodules=yes`): 146
+  older pins (2026-10-05..13, and three local test merges of 2026-11-15) point at Wine commits that no longer exist
+  anywhere, so such a fetch always fails. Fetch only the pin of the commit you build (`git ls-tree HEAD wine`). Before
+  pushing a superproject commit, check that its Wine pin is on a pushed Wine branch.
 * On the Windows host, execute only our own test executables. A compile, window-DC sample or screenshot alone does not establish presented-pixel correctness; validate visible screen pixels and fresh-prefix guest behavior when required.
 
 ## Added 2026-11-10: R8 lab chain
