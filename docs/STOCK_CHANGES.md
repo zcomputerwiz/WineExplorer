@@ -19,12 +19,17 @@ Changes:
   SID's ACE: a LocalService service may open another LocalService service's token. OWNER RIGHTS is left out, since the
   account has all rights already. The launcher's system programs (`services.exe`, `wineboot`, `wexelevate` and
   `winedevice` as roots) and session 0's own programs get the second kind. The mandatory label is kept.
-- `server/token.c` (`token_duplicate`, `token_keep_descriptor`): a copy of a token that has Windows' descriptor (the mark
-  `windows_sd`) keeps its owner, group, DACL and mark, as the label already was, unless the caller gave a descriptor of
-  its own. So a service's process keeps its service descriptor. An elevated client's impersonation copy in a pipe
-  server keeps SYSTEM plus Administrators, instead of the default DACL that grants the user's limited token everything:
-  before, a limited process could open that copy for `TOKEN_QUERY` and then duplicate the handle into
-  `TOKEN_IMPERSONATE` (Codex review).
+- `server/process.c`, `server/token.c` (`token_keep_descriptor`): a new process's primary token keeps the owner, group,
+  DACL and mark of the token it was made from, when that token has Windows' descriptor (the mark `windows_sd`). So a
+  service's process keeps its service descriptor. Other copies (impersonation copies, `DuplicateTokenEx`) keep the
+  default DACL that comes with their label, as before. An attempt to give every copy the descriptor broke T1 (session
+  0 did not start), ALPC (a limited server could no longer read its elevated client's identification token) and the
+  lab's token issue. On Windows an elevated token's DACL also gives the logon SID read and impersonate rights.
+- Open, from the Codex review (B99 route 1): a limited process can open an elevated client's impersonation copy in a
+  SYSTEM service for `TOKEN_QUERY` and upgrade the handle with `DuplicateHandle`, since the copy's DACL grants its user
+  everything. Windows grants such rights too, and stops the misuse at impersonation: a thread gets only an
+  identification token of a token that is elevated while its process is not. That cap is B99 route 2's fix
+  (`security_set_thread_token`, branch `claude/b99-impersonation-cap`), which closes route 1 too.
 - `server/token.c` (`open_token`): while elevation is enforced, the limited query right on the process or thread opens
   a token marked `windows_sd` (the system role's, and elevated primary tokens, `token_protect_elevated`), and its DACL
   decides, as on Windows. Every other token keeps the rule from before: the limited right opens it for reading only.
