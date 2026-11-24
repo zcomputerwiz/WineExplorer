@@ -1389,7 +1389,8 @@ if not done and value != 'none':
     out.append('\n%s 1700000000\n#time=1d9a0000000000\n"%s"=dword:%08x' % (head, name, int(value)))
 open(path, 'w', encoding='latin-1').write('\n'.join(out))
 PYEOF
-set_val() { hive_edit python3 -I "$ROOT/setval.py" "$M/system.reg" "$1" "$2" "$3"; }   # section name dword|none
+set_val_file() { python3 -I "$ROOT/setval.py" "$M/system.reg" "$1" "$2" "$3"; }   # the file only, session 0 running
+set_val() { hive_edit set_val_file "$@"; }   # section name dword|none
 POLSEC='Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System'
 
 # the stub is not in a shipping build: the macro is not defined by any Makefile, and the installed program and the
@@ -4261,8 +4262,9 @@ for u in "$STD" "$ADM"; do
     [ "$OUT" = "name=$u profile=C:\\users\\$u" ] || fail "T4-0: $u's name and profile with session 0: [$OUT]"
 done
 ok st_users_keep_their_name_and_profile_path_with_session0
-# the hive file now differs from session 0's copy: a value read from session 0 is 1, from a snapshot 2
-set_val 'Software\\WexTier' FromSession0 2
+# the hive file now differs from session 0's copy: a value read from session 0 is 1, from a snapshot 2 (the file is
+# changed behind the running session 0 on purpose)
+set_val_file 'Software\\WexTier' FromSession0 2
 [ "$(s0q "$STD" FromSession0)" = 0x1 ] || fail "a standard user's program did not read HKLM from session 0: [$(s0q "$STD" FromSession0)]"
 ok st_standard_user_reads_hklm_from_session0
 for arch in 64 32; do

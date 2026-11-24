@@ -215,6 +215,7 @@ static void hklm_write(void)
     DWORD disp;
     LONG ret = RegCreateKeyExW(HKEY_LOCAL_MACHINE, L"Software\\WexProbe", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &key, &disp);
 
+    if (ret) printf("RegCreateKeyExW(HKLM\\Software\\WexProbe) returned %ld\n", ret);
     check(!ret, "HKLM\\Software\\WexProbe opens for write");
     if (ret) return;
     check(!RegSetValueExW(key, L"Written", 0, REG_SZ, (const BYTE *)L"yes", 8), "HKLM value written");
