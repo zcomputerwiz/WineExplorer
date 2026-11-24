@@ -654,3 +654,11 @@ Black-box only from here (no disassembly of any Microsoft binary). Corrections o
   (`dcomp-dslot32b.cpp`): there the runtime goes through a system-side module. The slot is implemented for FrameworkUdk's helper for the older
   releases, which is what runs on Wine; "Windows answers S_OK" in the earlier text is withdrawn.
 * Failed Commit: it cannot be measured through slot 8 on this Windows; the event is signaled for every Commit so no waiter hangs.
+
+## 2026-11-24: the composition input sinks (win32u)
+
+`NtCreateCompositionInputSink` was the stop after the commit-event interface. Measured on Windows 11 (black box, `sink-probe.c`, `sink-probe2.c`,
+`sink-pops32.cpp`): the register traces show four arguments, but 32-bit Windows removes 8 bytes for Create and QueryLuid and 4 for Close, so the real
+signatures are `(block, &handle)`, `(handle, &luid)` and `(handle)`; the block is 0xe8 bytes (a size that is not checked, four entries of 0x38 bytes with a
+kind 0..2 and a window of this process). Implemented in win32u (Wine see STOCK_CHANGES); with them Notepad goes on past that point, to a crash on a call
+through a heap address on the thread of the D3D11 device (intermittent before, steady now), the next thing to track. `DwmSceneI.dll` is still not loaded.
