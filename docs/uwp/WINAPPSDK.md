@@ -639,3 +639,18 @@ method 46 (the submit calls that return the batch ids, the objects it creates ne
   implementation; and sink creation alone is not known to unlock `DwmSceneI.dll`: trace the first failure or wait after it.
 * Next: implement Create/QueryLuid/Close as semi-stubs in win32u (syscall table entries, WOW64 thunks, STOCK_CHANGES, tests), after the black-box
   validation probes on Windows; this is a stock-Wine change that Session 0 reviews.
+
+## 2026-11-24 (review fixes): what the Windows measurements say, and corrections
+
+Black-box only from here (no disassembly of any Microsoft binary). Corrections of earlier statements in this file:
+* The private interface of the visuals is the visual itself: QueryInterface for `{2c4eef28-...}` returns the same pointer as IUnknown and
+  IDCompositionVisual2, with the visual's reference count, on version-1 and version-2 devices (`dcomp-visualpriv-probe.cpp`). Slots 40 and 41
+  take one pointer argument each (32-bit Windows removes 8 bytes, `dcomp-vslot32.cpp`); called directly they return S_OK, write nothing and do
+  not change the reference count. The earlier "called with a float each" was a reading of the runtime's code, not a measurement, and is wrong.
+* Desktop device method 46 takes one pointer (8 bytes removed on 32-bit Windows) and stores the newest completed batch id (0 on a fresh device,
+  `dcomp-dslot32.cpp`). The "session open with a descriptor block" form described earlier came from registers of an x64 trace that are not
+  arguments; it is gone. Method 29 removes 16 bytes (three arguments), as implemented.
+* The `{6b556968}` interface exists on Windows 11, but its slot 8 removes 12 bytes and returns E_INVALIDARG for an event handle
+  (`dcomp-dslot32b.cpp`): there the runtime goes through a system-side module. The slot is implemented for FrameworkUdk's helper for the older
+  releases, which is what runs on Wine; "Windows answers S_OK" in the earlier text is withdrawn.
+* Failed Commit: it cannot be measured through slot 8 on this Windows; the event is signaled for every Commit so no waiter hangs.
