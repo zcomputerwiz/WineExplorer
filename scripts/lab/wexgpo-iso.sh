@@ -40,7 +40,11 @@ step clone
 if [ -d "$R/.git" ]; then
     {
         git -C "$R" remote set-url origin https://github.com/zcomputerwiz/WineExplorer.git &&
-        git -C "$R" fetch -q --recurse-submodules=yes origin "$BRANCH" &&
+        # No submodule recursion here, for good: it asks for the Wine commit of every fetched superproject commit, and
+        # master's history pins Wine commits that exist nowhere any more (146 of them: early October 2026 and three
+        # local test merges of 2026-11-15; session 0's scan, 2026-11-24), so a recursive fetch of it can never succeed.
+        # submodule update below fetches only the one the head pins.
+        git -C "$R" fetch -q --recurse-submodules=no origin "$BRANCH" &&
         git -C "$R" checkout -q -f -B "$BRANCH" FETCH_HEAD &&
         git -C "$R" submodule update -q --init --recursive --force &&
         # untracked files of the clone go, the build folder stays; the wine folder's generated files stay too (the
