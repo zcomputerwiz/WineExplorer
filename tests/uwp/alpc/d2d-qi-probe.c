@@ -72,6 +72,7 @@ int main(void)
     IDWriteTextFormat *format;
     HRESULT hr;
 
+    setvbuf(stdout, NULL, _IONBF, 0);   /* a crash of a call keeps what was printed before it */
     hr = D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, D3D11_CREATE_DEVICE_BGRA_SUPPORT, NULL, 0, D3D11_SDK_VERSION,
                            &d3d, NULL, NULL);
     if (FAILED(hr)) { printf("D3D11CreateDevice %08lx\n", hr); return 1; }
@@ -139,17 +140,23 @@ int main(void)
         SHOW("ID2D1RectangleGeometry", rect);
 #undef SHOW
 
-        /* Slot 12 of the private interface, as traced in Notepad: (iface, ID2D1Bitmap1 *, a pixel format {65 (A8_UNORM), 1}, out
-         * ID2D1Bitmap1 *). Called here on bitmaps of this program, to see what it returns. */
+        /* Slot 12 of the private interface, as traced in Notepad: (iface, ID2D1Bitmap1 *, D2D1_BITMAP_PROPERTIES1 * {A8_UNORM,
+         * premultiplied, 96, 96, TARGET, NULL}, out ID2D1Bitmap1 *). Called here on bitmaps of this program, to see what it returns. */
         if (surfbitmap)
         {
-            typedef HRESULT (STDMETHODCALLTYPE *m12_t)(void *, void *, const D2D1_PIXEL_FORMAT *, void **);
-            static const D2D1_PIXEL_FORMAT formats[] =
+            typedef HRESULT (STDMETHODCALLTYPE *m12_t)(void *, void *, const D2D1_BITMAP_PROPERTIES1 *, void **);
+            static const D2D1_BITMAP_PROPERTIES1 formats[] =
             {
-                {DXGI_FORMAT_A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED},
-                {DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED},
-                {DXGI_FORMAT_R8_UNORM, D2D1_ALPHA_MODE_IGNORE},
-                {DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE},
+                {{DXGI_FORMAT_A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED}, 96.0f, 96.0f, D2D1_BITMAP_OPTIONS_TARGET, NULL},
+                {{DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED}, 96.0f, 96.0f, D2D1_BITMAP_OPTIONS_TARGET, NULL},
+                {{DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED}, 192.0f, 192.0f, D2D1_BITMAP_OPTIONS_TARGET, NULL},
+                {{DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE}, 96.0f, 96.0f, D2D1_BITMAP_OPTIONS_NONE, NULL},
+                {{DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED}, 96.0f, 96.0f, D2D1_BITMAP_OPTIONS_TARGET, NULL},
+                {{DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE}, 96.0f, 96.0f, D2D1_BITMAP_OPTIONS_TARGET, NULL},
+                {{DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED}, 96.0f, 96.0f, D2D1_BITMAP_OPTIONS_NONE, NULL},
+                {{DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_UNKNOWN}, 0.0f, 0.0f, D2D1_BITMAP_OPTIONS_TARGET, NULL},
+                {{DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED}, 96.0f, 96.0f,
+                 D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW, NULL},
             };
             void *priv = NULL;
             unsigned int i;
@@ -160,8 +167,9 @@ int main(void)
                 ID2D1Bitmap1 *out = NULL;
                 HRESULT hr12 = ((m12_t)(*(void ***)priv)[12])(priv, surfbitmap, &formats[i], (void **)&out);
 
-                printf("slot 12 on a B8G8R8A8 surface bitmap, format %u alpha %u: hr %08lx out %p", formats[i].format,
-                       formats[i].alphaMode, hr12, out);
+                printf("slot 12 on a B8G8R8A8 surface bitmap, format %u alpha %u dpi %g options %#x: hr %08lx out %p",
+                       formats[i].pixelFormat.format, formats[i].pixelFormat.alphaMode, formats[i].dpiX, formats[i].bitmapOptions,
+                       hr12, out);
                 if (SUCCEEDED(hr12) && out)
                 {
                     D2D1_PIXEL_FORMAT pf;
@@ -176,9 +184,9 @@ int main(void)
                     ID2D1Bitmap1_GetSurface(out, &s1);
                     ID2D1Bitmap1_GetSurface(surfbitmap, &s2);
                     where(*(void **)out, a, sizeof(a), NULL);
-                    printf(" -> %s the source; vtable %s; format %u alpha %u; %ux%u; options %#x; surface %p (source %p)",
+                    printf(" -> %s the source; vtable %s; format %u alpha %u; %ux%u; options %#x; %s surface",
                            (void *)out == (void *)surfbitmap ? "is" : "is not", a, pf.format, pf.alphaMode, ps.width, ps.height,
-                           o, s1, s2);
+                           o, !s1 ? "no" : s1 == s2 ? "the same" : "another");
                     if (s1 && s2)
                     {
                         DXGI_SURFACE_DESC d1, d2;
@@ -190,6 +198,28 @@ int main(void)
                     IUnknown_Release((IUnknown *)out);
                 }
                 printf("\n");
+                {
+                    /* the public call with the same properties on the surface of the source, for comparison */
+                    ID2D1Bitmap1 *pub = NULL;
+                    HRESULT hrp = ID2D1DeviceContext_CreateBitmapFromDxgiSurface(context, surface, &formats[i], &pub);
+
+                    printf("    CreateBitmapFromDxgiSurface with the same properties: hr %08lx\n", hrp);
+                    if (pub) IUnknown_Release((IUnknown *)pub);
+                }
+            }
+            if (priv)
+            {
+                /* a NULL source, NULL properties, NULL output */
+                typedef HRESULT (STDMETHODCALLTYPE *m12_t2)(void *, void *, const D2D1_BITMAP_PROPERTIES1 *, void **);
+                ID2D1Bitmap1 *out = NULL;
+                HRESULT h;
+
+                h = ((m12_t2)(*(void ***)priv)[12])(priv, surfbitmap, NULL, (void **)&out);
+                printf("slot 12 with NULL properties: hr %08lx out %p\n", h, out);
+                if (out) IUnknown_Release((IUnknown *)out);
+                out = (void *)0xdead;
+                h = ((m12_t2)(*(void ***)priv)[12])(priv, NULL, &formats[1], (void **)&out);
+                printf("slot 12 with a NULL source: hr %08lx out %p\n", h, out);
             }
         }
     }
