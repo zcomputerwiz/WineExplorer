@@ -230,13 +230,11 @@ void e1s18_set_r8_context( const struct e1s18_r8_context *ctx );
 void e1s18_reset_r8_context( void );
 #endif /* WEX_E1_TEST_HOOKS */
 
-/* WO-20: portable R8 INIT/ACK helpers (lab branch). The tuple is built from
- * the request, the in-flight attempt and the R8 context; the INIT is encoded
- * with the request's validated display strings; the ACK is decoded and checked
- * against the tuple. e1s18_build_r8_tuple returns 0 on success, -1 if the R8
- * context is incomplete. e1s18_encode_r8_init returns the encoded length on
- * success, 0 on denial. e1s18_verify_r8_ack returns 0 on success, negative on
- * any rejection. */
+/* WO-20, R9: portable helpers of the agent (lab branch). The tuple is built from
+ * the request, the attempt and the R8 context; the REQUEST to B0 is encoded with
+ * the request's validated display strings. e1s18_build_r8_tuple returns 0 on
+ * success, -1 if the R8 context is incomplete. e1s18_encode_r9_request returns
+ * the encoded length on success, 0 on denial. */
 int e1s18_build_r8_tuple( const struct request *req,
                           uint64_t request_id,
                           uint32_t attempt,
@@ -246,11 +244,9 @@ int e1s18_build_r8_tuple( const struct request *req,
                           const uint8_t request_digest[32],
                           BOOL secure,
                           struct e1r8_tuple *out );
-size_t e1s18_encode_r8_init( const struct request *req,
-                             const struct e1r8_tuple *t,
-                             uint8_t *buf, size_t buf_len );
-int e1s18_verify_r8_ack( const uint8_t *buf, size_t len,
-                         const struct e1r8_tuple *t );
+size_t e1s18_encode_r9_request( const struct request *req,
+                                const struct e1r8_tuple *t,
+                                uint8_t *buf, size_t buf_len );
 
 /* WO-25: fill the R8 context from live inputs (the S6 OPEN record, the
  * BINDING reply and the verifier owner) instead of relying on a preset

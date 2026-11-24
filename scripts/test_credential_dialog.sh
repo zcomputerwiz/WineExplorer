@@ -189,6 +189,7 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
             -DWEX_CRED_DIALOG_TEST_HOOK \
             -I"$REPO/src/programs/consent" \
             -I"$REPO/src/programs/wexelevate" \
+            -I"$REPO/src/include" \
             -o "$FIXTURE/wine_build/consent_test.exe" \
             "$REPO/src/programs/consent/consent.c" \
             "$FIXTURE/wine_build/consent.res.o" \
@@ -202,6 +203,7 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
         x86_64-w64-mingw32-gcc -O2 -Wall \
             -I"$REPO/src/programs/consent" \
             -I"$REPO/src/programs/wexelevate" \
+            -I"$REPO/src/include" \
             -o "$FIXTURE/wine_build/consent_prod.exe" \
             "$REPO/src/programs/consent/consent.c" \
             "$FIXTURE/wine_build/consent.res.o" \
@@ -219,6 +221,7 @@ if command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && command -v x86_64-w64-mi
         # Compile probe test driver
         x86_64-w64-mingw32-gcc -O2 -Wall \
             -I"$REPO/src/programs/wexelevate" \
+            -I"$REPO/src/include" \
             -o "$FIXTURE/wine_build/cred_dialog_probe.exe" \
             "$REPO/scripts/cred_dialog_probe.c" 2>"$FIXTURE/probe_mingw.log" || {
                 cat "$FIXTURE/probe_mingw.log"

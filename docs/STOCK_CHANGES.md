@@ -1,5 +1,38 @@
 # Changes to stock Wine / third-party code
 
+## server: the E1 lab code out of the stock files, behind hooks (R5 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
+
+Wine branch `claude/r5-elevation-engine` (on development c8f1bb13, which has R2, R3 and the token-read change). No change of behaviour in either build: a normal build preprocesses `registry.c`, `token.c` and
+`sysrun.c` exactly as before, and `named_pipe.c` up to one pair of braces. The lab code (the switches
+`WEX_E1S6_TRANSPORT_TEST`, `WEX_E1S10_TOKEN_TEST`, `WEX_E1S13_HKU_TEST`, `WEX_E1_TEST_HOOKS`, `WEX_E1S14_CRASH_TEST`
+and `WEX_R8_SERVER_TEST`, about 2,600 lines) moved into WineExplorer files; the hooks it left behind:
+
+- `named_pipe.c` (about 990 lab lines before, 20 now). The R8 binding of a server end and its four E1R8 operations
+  are `wex_e1lab_pipe.c`, a file of its own. Hooks: the `binding` pointer of `struct pipe_end` and the `desktop` of
+  `struct pipe_writer` (as before), `e1lab_pipe_binding_free` where the binding was cleared,
+  `e1lab_pipe_e1r8_op` for an E1R8 request in `get_pipe_caller_binding`, `e1lab_pipe_session0_endorse` for R9's
+  broker in session 0. `E1S6_BINDING_AUDIT` moved to `wex_e1lab.h`.
+- **One E1R8 codec.** `wex_e1lab_pipe.c` decodes the broker's tuple, encodes ENDORSED and decodes the verifier's
+  RECEIPT (type 30) with `e1r8_codec.h`, the codec wexelevate and consent use (moved to `src/include`, assembled
+  into Wine's `include/`); the hand-written decoder and encoder are gone. The receipt's account name now follows the
+  codec's account rule (the S4 grammar) instead of "printable ASCII"; the verifier only ever sends canonical names.
+  A malformed receipt keeps its audit labels and their order (`receipt-frame`, the evidence labels, then
+  `receipt-name`).
+- `registry.c` (about 820 before, 15 now) and `token.c` (about 470 before, 40 now): the lab hives and the S10 token
+  context work on the files' own structures (`struct key`, `struct token`) and static helpers, so the code moved
+  into `wex_e1lab_registry.h` and `wex_e1lab_token.h`, which hold code and are included once, at the place the
+  code was, with the switches only (a separate file would need those structures and helpers exported). Hooks: the
+  two includes; `load_e1s_profile` and `create_e1s_account_token` call `e1lab_load_e1s_profile` and
+  `e1lab_create_e1s_account_token`; each function of `e1s_token.h` with a lab body calls its `e1lab_*` body; the
+  stubs without the switches are unchanged.
+- `sysrun.c` (WineExplorer's file; about 320 before, 10 now): the S6 endorsement, the lab generations and the lab's
+  broker images are `wex_e1lab_sysrun.c`, a file of its own. Hooks: `e1lab_sysrun_main_image` in
+  `sysrun_main_image`, `e1lab_sysrun_e1s6_endorse` in `sysrun_e1s6_endorse`. `SYSRUN_CONF` moved to `sysrun.h`.
+- `server/Makefile.in` lists the new files; `scripts/lab/r8-lab-build.sh` rebuilds the two new objects with the
+  lab switches.
+- `tools/make_requests` also reads `server/wex_e1lab_*.h` for the status names of `request_trace.h` (it read only
+  `server/*.c`), so the table stays as it was before the code moved.
+
 ## ntdll, server: one table of the registry handles of session 0 and the virtual store (R3 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
 
 Wine branch `claude/r3-registry-handles` (on `claude/r1-policy-tables` 2a2b2946, with development's WAM head d5e17250
@@ -175,6 +208,34 @@ descriptor it got). The copies became one (Codex review: no other difference).
   two receive loops. A link has an explicit kind (request, session, hive).
 - `include/wine/wex_session0.h`: the request header's last word is a union named by message type (`machine`,
   `saved`, `name_size`, `session_id`); the same word on the wire.
+
+## taskmgr: Windows XP's Task Manager; ntdll and server: process I/O counters and memory figures (2026-11-23)
+
+Wine branch `claude/taskmgr-xp-parity`, `66d8330d` (ntdll, server), `b1ae33c1` and `c002806a` (taskmgr), on `d5e17250`.
+
+* `server/protocol.def`, `server/process.c`: new request `get_process_io_counters`, read from `/proc/<pid>/io`
+  (`rchar`, `wchar`, `syscr`, `syscw`). Request numbers shift: rebuild everything after taking it.
+* `dlls/ntdll/unix/process.c`: `ProcessIoCounters` uses it (it returned zeros).
+* `dlls/ntdll/unix/system.c`: `SystemPerformanceInformation` paged pool from `SReclaimable`, non-paged pool from
+  `SUnreclaim` + `KernelStack` + `PageTables`, a peak commit charge; `SystemFileCacheInformation` current and peak size
+  from `Cached`. Test: `dlls/ntdll/tests/info.c` `test_query_process_io`.
+* `programs/taskmgr`: XP's caption, defaults, strings and layout. Additions:
+  * User Name column.
+  * Processes from other sessions only with "Show processes from all users". With an Elevation helper and a token
+    that is not elevated (`TokenIsElevated`: an administrator's filtered token or a standard user), this is Vista's
+    shield button, which restarts Task Manager elevated with `/showall`, so other users' processes are listed only when
+    elevated. `get_process_io_counters` needs `PROCESS_QUERY_LIMITED_INFORMATION`, as the VM counters do. The shield
+    picture is not drawn yet: comctl32 has no `BCM_SETSHIELD`.
+  * Column sorting and the selection kept across refreshes. End Process Tree ends the children.
+  * Shut Down menu through `wexhost` `WexPowerCan`/`WexPowerDo`, falling back to `ExitWindowsEx` (items the host can't
+    do are greyed).
+  * Networking page (`GetIfTable2`, graphs, the 26 columns, history options).
+  * Users page: one console session; Disconnect and Send Message are greyed.
+  * Vista's "Access is denied" message.
+  * New files: `netpage.c`, `shutdown.c`, `userpage.c`. `iphlpapi` imported.
+* Not done:
+  * `GetGuiResources` is still a stub, so the USER Objects and GDI Objects columns are greyed.
+  * Skipped on purpose: the UAC Virtualization column, a Services tab, and Open File Location / Properties.
 
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 

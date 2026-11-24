@@ -928,6 +928,31 @@ class E1R8Tests(unittest.TestCase):
         data[92:108] = zero16  # zero the evidence_ref
         self.deny(e.decode_grant, bytes(data), t)
 
+    def test_receipt(self):
+        """R10 RECEIPT (type 30): the frame the lab server decodes with the C codec."""
+        t = golden_tuple()
+        ref = bytes(range(0xb0, 0xc0))
+        ev = bytes(range(220))
+        data = e.encode_receipt(t, ref, ev, b"a")
+        self.assertEqual(len(data), 317)
+        self.assertEqual(data[76:92], ref)
+        self.assertEqual(data[92:312], ev)
+        self.assertEqual(data[312:], b"\x01\x00\x00\x00a")
+        r = e.decode_receipt(data, t)
+        self.assertEqual((r.evidence_ref, r.evidence, r.account), (ref, ev, b"a"))
+        self.assertEqual(len(e.encode_receipt(t, ref, ev, acct63())), 379)
+        self.deny(e.decode_receipt, data[:-1], t)
+        self.deny(e.decode_receipt, data + b"\x00", t)
+        self.deny(e.encode_receipt, t, bytes(16), ev, b"a")
+        self.deny(e.encode_receipt, t, ref, ev[:-1], b"a")
+        self.deny(e.encode_receipt, t, ref, ev, b" ")
+        self.deny(e.decode_receipt, data[:76] + bytes(16) + data[92:], t)
+        self.deny(e.decode_receipt, data[:316] + b" ", t)
+        self.deny(e.decode_receipt, data[:312] + b"\x02\x00\x00\x00a", t)
+        other = golden_tuple()
+        other.attempt = 2
+        self.deny(e.decode_receipt, data, other)
+
     def test_golden(self):
         golden_path = os.environ.get("E1R8_GOLDEN")
         if not golden_path:
@@ -1085,6 +1110,12 @@ class E1R8Tests(unittest.TestCase):
             na = e.decode_next_attempt(data, t2)
             self.assertEqual(na.tuple, t2)
 
+        def check_receipt(data):
+            r = e.decode_receipt(data, t)
+            self.assertEqual(r.evidence_ref, ev)
+            self.assertEqual(r.evidence, bytes(range(220)))
+            self.assertEqual(r.account, b"admin")
+
         cases = [
             ("1", lambda: e.encode_init(t, b":1.42", req, img, b""), check_init),
             ("2", lambda: e.encode_ack(t), check_ack),
@@ -1141,6 +1172,7 @@ class E1R8Tests(unittest.TestCase):
             ("50", lambda: e.encode_end(t, 1),
              lambda d: self.assertEqual(e.decode_end(d, t).outcome, 1)),
             ("51", lambda: e.encode_next_attempt(t2), check_next_attempt),
+            ("30", lambda: e.encode_receipt(t, ev, bytes(range(220)), b"admin"), check_receipt),
         ]
 
         with open(golden_path, "r") as f:

@@ -31,8 +31,9 @@ WINE_DEFAULT_DEBUG_CHANNEL(consent);
 #define ERR(...) do {} while (0)
 #endif
 #include "../wexelevate/cred_record.h"
+#include "wexpreg.h"
 #ifdef WEXELEVATE_E1S18
-#include "../wexelevate/e1r8_codec.h"
+#include "e1r8_codec.h"
 #include "e1s6_protocol.h"
 #endif
 
@@ -821,7 +822,7 @@ static void describe_program(struct consent_data *data)
 static BOOL is_credentials_mode_required(void)
 {
     TOKEN_ELEVATION_TYPE type;
-    DWORD size, mode = 5, value_type;   /* ConsentPromptBehaviorAdmin absent: 5, as in Windows and the broker */
+    DWORD size, mode = WEX_CONSENT_ADMIN_DEFAULT, value_type;   /* ConsentPromptBehaviorAdmin absent, as in the broker */
     LSTATUS status;
     HKEY hkey;
 
@@ -841,9 +842,10 @@ static BOOL is_credentials_mode_required(void)
             return TRUE;
     }
     else if (status != ERROR_FILE_NOT_FOUND) return TRUE;
-    /* Click consent only for the values the broker accepts (2 and 5, as in its click_consent_selected); every other
-     * value, 0 and 4 included, asks for credentials, which the shipping dialog refuses (fails closed). */
-    return !(mode == 2 || mode == 5);
+    /* Click consent only for the values the broker accepts (WEX_CONSENT_ADMIN_SUPPORTED, as in its
+     * click_consent_selected); every other value, 0 and 4 included, asks for credentials, which the shipping dialog
+     * refuses (fails closed). */
+    return !WEX_CONSENT_ADMIN_SUPPORTED( mode );
 }
 
 #define HOOK_DIR L"Z:\\tmp\\wexelev\\"

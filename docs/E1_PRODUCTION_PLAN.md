@@ -26,8 +26,8 @@ Line numbers are those of 2026-11-13 (WineExplorer 09f5c938, Wine 2ebf65d5).
 | Server | S6, S10, S13 code under `WEX_E1S6_TRANSPORT_TEST`, `WEX_E1S10_TOKEN_TEST`, `WEX_E1S13_HKU_TEST` | the same code without the flags, minus the hooks named below |
 | `wexhost` | `src/dlls/wexhost/e1s6.c` under `WEX_E1S6_TRANSPORT_TEST` | the transport without the flag and with the product bus name |
 | Profile paths in client DLLs | kernelbase, ntdll, userenv, shell32 under `WEX_E1S13_HKU_TEST` | the same without the flag |
-| Broker and dialog | `WEXELEVATE_E1S18` (`e1s18_broker.c`, `e1r9_broker0.c`, the R8 part of `consent.c`) | the same without the flag, minus the hooks named below |
-| Switches | registry values `EnableStandardUserElevation`, `R9`, written by the test | set by setup on an image that opts in |
+| Broker and dialog | `WEXELEVATE_E1S18` (`standard.c`, `broker0.c`, `decision.c`, the R8 part of `consent.c`; R9 is the one flow since R5) | the same without the flag, minus the hooks named below |
+| Switches | registry value `EnableStandardUserElevation`, written by the test (the `R9` value is gone: R9 is the one flow since R5) | set by setup on an image that opts in |
 
 ## Test hooks that must never ship
 
@@ -97,7 +97,7 @@ Each step leaves the normal build and the lab suite passing, and nothing is enab
    around the same code. The password worker and the provisioning helper built without their lab flags and
    installed by setup.
 4. **Opt-in image**: a packaging switch like `WEX_ELEVATION`, on top of it, that installs the service and sets
-   `EnableStandardUserElevation` and `R9`. One elevation by a standard user on an installed machine, with the
+   `EnableStandardUserElevation`. One elevation by a standard user on an installed machine, with the
    password typed on the screen.
 5. **The open deviations and the reviews** (R10 points, R14, the whole-chain review), then the owner's decision
    on the gate, then the default.
