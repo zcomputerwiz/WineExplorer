@@ -826,11 +826,13 @@ ok c2_prefix_links_left_alone
 true; ); section_leave $?; fi
 
 if section c2_sysacct; then set +e; ( section_enter
-# ---- 3b. (iii) a system.reg symlink into the machine root, for an unmapped system account (Safe Mode C7) ----
-# The greeter runs as a system account that is not in the accounts map. Give it the same skeleton prefix the
-# harness gives desktop users and run the 3(iii) checks as it: the machine file behind the prefix symlink is
-# never overwritten, HKLM still comes from the machine root, and the server it gets is the launcher-started one.
-echo "--- symlinked hives (iii), unmapped system account"
+# ---- 3b. (iii) a system.reg symlink into the machine root, for a system account (Safe Mode C7) ---------------
+# The greeter runs as a system account. Created here it is not in the accounts map yet: with session 0 its server
+# first fails closed (no registry channel, B97). Then it is mapped, as wex-accounts maps every passwd account on an
+# installed system, and given the same skeleton prefix the harness gives desktop users, and the 3(iii) checks run as
+# it: the machine file behind the prefix symlink is never overwritten, HKLM still comes from the machine root, and
+# the server it gets is the launcher-started one.
+echo "--- symlinked hives (iii), system account"
 sysrun_as() { local u="$1"; shift; (cd /tmp && runuser -u "$u" -- env -i HOME="$SYS_HOME" USER="$u" LOGNAME="$u" PATH=/usr/bin:/bin LANG=C \
     DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' "$@"); }
 sysprefix_env() { sysrun_as "$1" env WINEPREFIX="$SYS_HOME/.wine" "$BUILD/server/wineserver" "${@:2}"; }
@@ -862,6 +864,20 @@ done
 for hive in system.reg userdef.reg; do
     sysrun_as "$SYS" ln -sfn "$M/drive_c/windows/wex_marker2.txt" "$SYS_HOME/.wine/$hive"
 done
+# With session 0 an account outside the accounts map fails closed (KNOWN_BUGS B97, by design): session 0 binds a
+# described token only to its account's mapped SID, so its launcher-started server gets no registry channel and every
+# HKLM handle is invalid
+if [ "$SEC_S0" = 1 ]; then
+    OUT="$(sysprobe "$SYS" 64 hklm-write)" && { echo "$OUT" >&2; fail "an unmapped account's server wrote HKLM through session 0"; }
+    grep -q 'RegCreateKeyExW(HKLM\\Software\\WexProbe) returned 6$' <<<"$OUT" ||
+        { echo "$OUT" >&2; fail "an unmapped account's HKLM create did not fail with ERROR_INVALID_HANDLE"; }
+    ok c2_unmapped_system_account_gets_no_registry_channel
+    # an installed system maps every passwd account, system ones included (wex-accounts sync, the account watcher):
+    # map this one, as the watcher would, and run the checks with a new server
+    sysprefix_env "$SYS" -k || true; sysprefix_env "$SYS" -w
+    "$LIBEXEC/wex-accounts" --directory /etc/wineexplorer sync >/dev/null || fail "accounts sync"
+    grep -q "^$SYS " /etc/wineexplorer/accounts.map || fail "the system account is not in the accounts map after a sync"
+fi
 OUT="$(sysprobe "$SYS" 64 hklm-write)" || { echo "$OUT" >&2; tail -20 "$ROOT/session0.log" >&2; fail "hklm-write"; }
 OUT="$(sysprobe "$SYS" 64 hklm-read)"; grep -q '^hklm-read=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "HKLM not from the machine root with a diverted prefix link"; }
 ok c2_symlinked_hives_system_account_hklm_from_machine_root
