@@ -96,6 +96,18 @@ check b_sees_a_write_at_once "$(B reg query "$K" /v froma | value froma)" writte
 check s0_has_a_write "$(s0 reg query "$K" /v froma | value froma)" written-in-a
 B "$R32" add "$K\\FromB" /v b32 /d written-in-b32 /f /reg:64 >/dev/null; check b_write32_exit $? 0
 check a_enum_sees_b_subkey "$(A reg query "$K" | tr -d '\r' | grep -c 'WexTier.FromB$')" 1
+
+# R6 (docs/SESSION0_PROCESS_IDS.md): the process and thread ids of A's, B's and session 0's servers come from
+# blocks that session 0 leases to each (4096 indices, ids are indices * 4: an id's block is id / 16384), so they
+# never meet; session 0's own are in block 0, and session 0 records the blocks of A's server
+id_blocks() { tr -d '\r' | grep -aE '^(pid|tid)=' | cut -d= -f2 | awk '{ print int($1 / 16384) }' | sort -un | tr '\n' ' '; }
+A_BLOCKS="$(A "$W/p64.exe" pids | id_blocks)"
+B_BLOCKS="$(B "$W/p64.exe" pids | id_blocks)"
+S0_BLOCKS="$(s0 "$W/p64.exe" pids | id_blocks)"
+check a_and_b_have_id_blocks "$([ -n "$A_BLOCKS" ] && [ -n "$B_BLOCKS" ] && echo yes)" yes
+check ids_of_a_b_and_session0_never_meet "$(printf '%s\n' $A_BLOCKS $B_BLOCKS $S0_BLOCKS | sort | uniq -d | wc -l)" 0
+check session0_ids_in_block_0 "$S0_BLOCKS" "0 "
+check session0_records_a_blocks "$(for b in $A_BLOCKS; do grep -ac "^$b " "$W/s0/session0.blocks"; done | sort -u | tr -d '\n')" 1
 A reg delete "$K" /v froma /f >/dev/null; check a_delete_exit $? 0
 check b_sees_delete "$(B reg query "$K" /v froma | value froma)" ""
 
@@ -173,6 +185,10 @@ check hold_create_subkey "$(field sub < "$W/hold.out")" 0
 for i in $(seq 1 30); do grep -aq ' linked again$' "$W/s0.log" && break; sleep 0.5; done
 check a_linked_again "$(grep -a -c '^session0: session [0-9]* (server pid [0-9]*, uid 0) linked again$' "$W/s0.log" | awk '{print ($1 > 0) ? "yes" : "no"}')" yes
 check s0_keeps_next_id "$([ -s "$W/s0/session0.ids" ] && echo yes)" yes
+# R6: A's server, linked again, holds its blocks of ids still; a new program of A gets an id from them
+A_SELF_BLOCK="$(A "$W/p64.exe" pids | field self | awk '{ print int($1 / 16384) }')"
+check a_keeps_its_id_blocks_after_restart "$(case " $A_BLOCKS" in *" $A_SELF_BLOCK "*) echo yes ;; *) echo "no ($A_SELF_BLOCK; $A_BLOCKS)" ;; esac)" yes
+check session0_records_a_blocks_after_restart "$(for b in $A_BLOCKS; do grep -ac "^$b " "$W/s0/session0.blocks"; done | sort -u | tr -d '\n')" 1
 # empty messages that carry descriptors do not leak them in session 0: 200 on new links, 40 on session links
 S0PID="$(prefix_server_pid "$W/s0")"   # this run's session 0, not another run's on the machine
 FD_BEFORE="$(ls "/proc/$S0PID/fd" | wc -l)"

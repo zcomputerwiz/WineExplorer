@@ -78,6 +78,7 @@
 #include <winternl.h>
 #include <sddl.h>
 #include <shellapi.h>
+#include <tlhelp32.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -107,6 +108,21 @@ int __cdecl wmain( int argc, WCHAR **argv )
 {
     HKEY key, sub;
     LSTATUS ret;
+
+    /* R6: this process's id and every process and thread id its server knows (one per line) */
+    if (argc == 2 && !lstrcmpW( argv[1], L"pids" ))
+    {
+        PROCESSENTRY32W pe = { sizeof(pe) };
+        THREADENTRY32 te = { sizeof(te) };
+        HANDLE snap = CreateToolhelp32Snapshot( TH32CS_SNAPPROCESS | TH32CS_SNAPTHREAD, 0 );
+
+        printf( "self=%lu\n", GetCurrentProcessId() );
+        if (snap == INVALID_HANDLE_VALUE) return 1;
+        if (Process32FirstW( snap, &pe )) do printf( "pid=%lu\n", pe.th32ProcessID ); while (Process32NextW( snap, &pe ));
+        if (Thread32First( snap, &te )) do printf( "tid=%lu\n", te.th32ThreadID ); while (Thread32Next( snap, &te ));
+        CloseHandle( snap );
+        return 0;
+    }
 
     if (argc == 2 && !lstrcmpW( argv[1], L"whoami" ))
     {

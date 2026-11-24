@@ -1,5 +1,25 @@
 # Changes to stock Wine / third-party code
 
+## server: process and thread ids from blocks leased by session 0 (R6 step 1 of SESSION0_PROCESS_IDS.md, 2026-11-24)
+
+- `server/process.c` (`alloc_ptid`, `free_ptid`, `get_ptid_entry`): the id table is indexed by slot. Without
+  session 0 a slot's index is slot + `PTID_OFFSET`, as in stock Wine. With session 0 a slot maps into the blocks
+  the server holds (`ptid_add_block`, `ptid_block`): index = block * `WEX_ID_BLOCK_SIZE` + slot % that size. When
+  the blocks are full, the server asks session 0 for another (`session0_new_id_block`). The free list holds slots + 1.
+- `server/session0.c`: block 0 is session 0's own. A `BLOCK` request (`include/wine/wex_session0.h`, protocol version
+  6) gives a linked server a new block or one it held before session 0 restarted. A server gets its first block with
+  its session id, and a launcher-started server does not start without one.
+  - The table is kept in `session0.blocks`: block, account, session, the server's Unix pid and its start time.
+  - A block goes to another server only once its server process has ended (pid and start time; a `/proc` entry that
+    cannot be read for another reason counts as alive); there are at most 64 blocks per server. A block is given only
+    once the table is on disk.
+  - The request does not block on its connect; at start a server tries for up to 15 replies. When no new block can be
+    had, a freed id is reused sooner than the usual 256-entry delay. A grant whose reply is lost stays counted for
+    its server until that server ends.
+  - A server that links again asks for each of its blocks back.
+- Test: `scripts/lab/system-tier-t1.sh` checks that the ids of sessions A, B and session 0 are in different blocks,
+  that session 0's are in block 0, and that A keeps its blocks across a session 0 restart (probe mode `pids`).
+
 ## server: only session 0 writes the machine hives; merge-on-save and the launcher without session 0 removed (R4c of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
 
 The owner's decision 2 retired the launcher without session 0. This removes code from stock files; what stays is
