@@ -1,5 +1,51 @@
 # Changes to stock Wine / third-party code
 
+## server: Windows' descriptors on the system role's tokens, and Windows' rule for opening a token (R7 of SESSION0_SPLIT_REVIEW.md, 2026-11-24)
+
+Measured black box on Windows 10 (the lab VM, 2026-11-24): `OpenProcessToken` for each right from an elevated
+administrator, and the tokens' descriptors read as SYSTEM.
+
+- A service's token (svchost as SYSTEM, LocalService or NetworkService; spoolsv): `O:<account>G:<account>`, SYSTEM all,
+  OWNER RIGHTS read control, the service's own SID (S-1-5-80-...) all, Administrators `TOKEN_QUERY` only.
+- The token of a system process that is not a service (wininit, services, lsass, winlogon, smss, csrss): `O:BAG:SY`,
+  SYSTEM all, Administrators assign, duplicate, impersonate, query, query source and read control.
+- A user's token: the user and SYSTEM all, the logon SID assign, duplicate, impersonate, query, query source and read
+  control, Administrators `TOKEN_QUERY`. On Windows 11 a standard user cannot open a service's process at all.
+
+Changes:
+- `server/token.c` (`token_protect_system`, `create_service_token`), `server/process.c`, `server/sysrun.c`: the tokens
+  of the system role get these descriptors. Services get the first kind: `services.exe` asks `create_service_token` for
+  each service, LocalSystem ones too. Wine's tokens have no per-service SIDs, so the account itself has the service
+  SID's ACE: a LocalService service may open another LocalService service's token. OWNER RIGHTS is left out, since the
+  account has all rights already. The launcher's system programs (`services.exe`, `wineboot`, `wexelevate` and
+  `winedevice` as roots) and session 0's own programs get the second kind. The mandatory label is kept.
+- `server/process.c`, `server/token.c` (`token_keep_descriptor`): a new process's primary token keeps the owner, group,
+  DACL and mark of the token it was made from, when that token has Windows' descriptor (the mark `windows_sd`). So a
+  service's process keeps its service descriptor. Other copies (impersonation copies, `DuplicateTokenEx`) keep the
+  default DACL that comes with their label, as before. An attempt to give every copy the descriptor broke T1 (session
+  0 did not start), ALPC (a limited server could no longer read its elevated client's identification token) and the
+  lab's token issue. On Windows an elevated token's DACL also gives the logon SID read and impersonate rights.
+- Open, from the Codex review (B99 route 1): a limited process can open an elevated client's impersonation copy in a
+  SYSTEM service for `TOKEN_QUERY` and upgrade the handle with `DuplicateHandle`, since the copy's DACL grants its user
+  everything. Windows grants such rights too, and stops the misuse at impersonation: a thread gets only an
+  identification token of a token that is elevated while its process is not. That cap is B99 route 2's fix
+  (`security_set_thread_token`, branch `claude/b99-impersonation-cap`), which closes route 1 too.
+- `server/token.c` (`open_token`): while elevation is enforced, the limited query right on the process or thread opens
+  a token marked `windows_sd` (the system role's, and elevated primary tokens, `token_protect_elevated`), and its DACL
+  decides, as on Windows. Every other token keeps the rule from before: the limited right opens it for reading only.
+  That includes tokens with a DACL. Most tokens have the default DACL that came with their label, which gives their
+  user full control, and an elevated client's impersonation copy has one too. Codex review: an earlier version relaxed
+  the rule for any token with a DACL, which let a limited process take an elevated client's impersonation token from a
+  thread of a SYSTEM service.
+- Effect: users can no longer query the system role's tokens (Windows gives them nothing either). An administrator can
+  query a service's token only (before: anything, with the full query right), and can still duplicate
+  `services.exe`'s, as on Windows.
+- Effect on Task Manager: a standard user's Task Manager no longer shows the user names of the system role's processes.
+  It reads them with `TOKEN_QUERY` (`programs/taskmgr/perfdata.c`).
+- Not done: Windows' descriptor on users' own tokens. They keep the old rule.
+- Tests: `scripts/test_sysrun_server.sh` c3, with the roles probe's new modes `token-rights` and `admin-token-rights`.
+  The service token checked is PlugPlay's, a service of the session; the WexSvc* test services run in session 0.
+
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
 - `server/session0.c` (`pipe_request`, `session0_open_pipe`, the `PIPE` handler): a `PIPE` request carries the
