@@ -79,24 +79,18 @@ fi
 # copies them into the machine root (C:\Program Files) and imports their keys from the backed-up system.reg.
 echo "Moving the old machine folders to $BACKUP_DIR and linking the shared ones..."
 mkdir -p "$BACKUP_DIR/drive_c/users"
-link_machine_dir()
-{
-    local rel="$1"
-    if [ -e "$TARGET_PFX/drive_c/$rel" ] && [ ! -L "$TARGET_PFX/drive_c/$rel" ]; then
-        mv "$TARGET_PFX/drive_c/$rel" "$BACKUP_DIR/drive_c/$rel"
-    fi
-    ln -sfn "$MACHINE_ROOT/drive_c/$rel" "$TARGET_PFX/drive_c/$rel"
-}
-link_machine_dir "windows"
-link_machine_dir "Program Files"
-[ -d "$MACHINE_ROOT/drive_c/Program Files (x86)" ] && link_machine_dir "Program Files (x86)"
-link_machine_dir "ProgramData"
-link_machine_dir "users/Public"
-
-# Convert shared hives (system.reg and userdef.reg) to symlinks
-echo "Linking shared machine registry hives..."
-ln -sfn "$MACHINE_ROOT/system.reg" "$TARGET_PFX/system.reg"
-ln -sfn "$MACHINE_ROOT/userdef.reg" "$TARGET_PFX/userdef.reg"
+# the machine links of a split prefix (wex_machine_links): a folder is moved to the backup first (the hives were
+# copied there above); a part the machine root lacks is left as it is
+while IFS= read -r rel; do
+    [ -e "$MACHINE_ROOT/$rel" ] || continue
+    case "$rel" in
+        drive_c/*)
+            if [ -e "$TARGET_PFX/$rel" ] && [ ! -L "$TARGET_PFX/$rel" ]; then
+                mv "$TARGET_PFX/$rel" "$BACKUP_DIR/$rel"
+            fi ;;
+    esac
+    ln -sfn "$MACHINE_ROOT/$rel" "$TARGET_PFX/$rel"
+done < <(wex_machine_links)
 
 # Synchronize .update-timestamp
 if [ -f "$MACHINE_ROOT/.update-timestamp" ]; then

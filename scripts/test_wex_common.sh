@@ -273,6 +273,14 @@ else
     pass "wex_prefix_needs_update: prefix newer than both -> up to date"
 fi
 
+# 3f. wex_machine_links: the five machine folders, then the two shared hives (one list for setup and migration)
+res=$(wex_machine_links | tr '\n' '|')
+if [ "$res" = "drive_c/windows|drive_c/Program Files|drive_c/Program Files (x86)|drive_c/ProgramData|drive_c/users/Public|system.reg|userdef.reg|" ]; then
+    pass "wex_machine_links: folders and hives"
+else
+    fail "wex_machine_links: got '$res'"
+fi
+
 
 # ==============================================================================
 # 4. Domain-join detection: wex-domain-state.sh --joined
