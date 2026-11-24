@@ -7,9 +7,7 @@ Copyright 2026 WineExplorer contributors
 A static list, made without the package's code: the open-source Calculator (MIT) at the commit of its 11.2607 version
 (9f186049, "Increment minor version from 2606 to 2607"; C++ view models in CalcViewModel, a C# UI, C# application view
 model) was scanned for the Windows Runtime classes it constructs or calls statics of, against every runtime class of the
-Windows SDK 10.0.26100 metadata (`winrt-uses.py`). The strings of the package's own metadata (`CalculatorApp.ViewModel.winmd`,
-`GraphControl.winmd`, `TraceLogging.winmd`, read in the lab) name 14 SDK classes, all found by the source scan, so the
-source matches the Store build. `gap-list.py` compares the list with the classes Wine registers (its modules'
+Windows SDK 10.0.26100 metadata (`winrt-uses.py`). `gap-list.py` compares the list with the classes Wine registers (its modules'
 `classes.idl`) and those XamlShim serves (its generated ABI). Classes only named or reached through other objects are not
 counted (their instances come from APIs that are). A static list finds missing classes; a class that exists but has
 stub methods (E_NOTIMPL) or behaves differently shows only at run time.
