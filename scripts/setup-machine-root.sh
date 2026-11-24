@@ -6,9 +6,11 @@
 set -euo pipefail
 
 # the shared library (scripts/lib/wex-common.sh): installed, else next to this script in the repository
-for wex_lib in "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"; do [ -r "$wex_lib" ] && break; done
-[ -r "$wex_lib" ] || { echo "Error: wex-common.sh not found (WEX_LIB_DIR)" >&2; exit 1; }
-. "$wex_lib"
+# (an installed copy older than this script lacks wex_machine_links: the repository's is taken then)
+for wex_lib in "${WEX_LIB_DIR:-/usr/local/lib/wineexplorer}/wex-common.sh" "$(dirname -- "$(readlink -f -- "$0")")/lib/wex-common.sh"; do
+    [ -r "$wex_lib" ] && . "$wex_lib" && declare -F wex_machine_links >/dev/null && break
+done
+declare -F wex_machine_links >/dev/null || { echo "Error: no wex-common.sh with wex_machine_links (WEX_LIB_DIR)" >&2; exit 1; }
 
 MACHINE_ROOT="${WEX_MACHINE_ROOT:-/var/lib/wineexplorer/machine}"
 SKEL_PFX="${WEX_SKEL_PFX:-/etc/skel/.wine}"
@@ -865,10 +867,11 @@ ln -s / "$SKEL_PFX/dosdevices/z:"
 
 # Link the machine folders and the shared hives (S3 shared HKLM/HKU.DEFAULT) into the template prefix
 # (wex_machine_links): every folder, a hive only once the machine root has it
+MACHINE_LINKS="$(wex_machine_links)"   # a failure stops the setup here (set -e), not silently in the loop
 while IFS= read -r rel; do
     case "$rel" in *.reg) [ -f "$MACHINE_ROOT/$rel" ] || continue ;; esac
     ln -sfn "$MACHINE_ROOT/$rel" "$SKEL_PFX/$rel"
-done < <(wex_machine_links)
+done <<< "$MACHINE_LINKS"
 if [ ! -f "$SKEL_PFX/user.reg" ] && [ -f "$MACHINE_ROOT/user.reg" ]; then
     cp "$MACHINE_ROOT/user.reg" "$SKEL_PFX/user.reg"
     sed -i -e 's/\\\\users\\\\root\\\\/\\\\users\\\\wexsetup\\\\/g' \
