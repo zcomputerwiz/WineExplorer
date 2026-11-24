@@ -4,7 +4,7 @@
 
 Status: design, 2026-11-23. This is R6 of [SESSION0_SPLIT_REVIEW.md](SESSION0_SPLIT_REVIEW.md), as the owner decided
 it (decision 4): session 0 manages the ids, because it always exists and already holds what needs agreement across
-the machine. Steps 1 and 2 are built (2026-11-24, `claude/r6-id-blocks`, `claude/r6-bridge-pids`).
+the machine. Steps 1 and 2 are built and merged (2026-11-24, `claude/r6-id-blocks`, `claude/r6-bridge-pids`).
 
 **Step 3 waits for a consumer (2026-11-24).** After step 2, nothing in the tree needs DESCRIBE_PROCESS:
 
@@ -16,6 +16,24 @@ the machine. Steps 1 and 2 are built (2026-11-24, `claude/r6-id-blocks`, `claude
 The only known candidate is B76 (step 4): what Click-to-Run does with App-V's id once it has opened it. Step 3 is
 built when the orchestrator's B76 lab VM shows that DESCRIBE_PROCESS (or a limited foreign handle on top of it) is
 enough, or when another service needs to check a caller from a session.
+
+**B76 answered (2026-11-24): not enough, so step 3 is not built and Click-to-Run keeps one service per session.**
+The orchestrator traced the user's Click-to-Run service over one Word start (server requests, black box, current
+tree with the msxml fix). For Word's id it:
+
+- opens the process 24 times for query (id, parent, session, PEB), 3 times for limited query, once with SYNCHRONIZE
+  (it waits on Word), and once with VM_READ (and VM_OPERATION, VM_WRITE: never used);
+- reads Word's PEB, its process parameters and its command line (6 reads), the usual way to get another process's
+  command line;
+- opens Word's primary token for query and duplicate, duplicates it and reads its groups, SID and information (4
+  times), then makes an RPC call, very likely with that token or its identity;
+- opens Word's main thread for query and its thread token (none).
+
+A service in session 0 would therefore need a real handle to a process of another server: waits, memory reads and
+its token. That is option (b) of the review (references that name the owning server), which stays in reserve: it is
+a large change (handles, waits, memory and tokens forwarded across servers), and the split works. DESCRIBE_PROCESS
+alone would not let Click-to-Run move. R6 ends with steps 1 and 2; step 4's other items (bridging `LRPC<pid>` pipes,
+the machine-wide list) are taken up only when something needs them.
 
 ## The problem
 
