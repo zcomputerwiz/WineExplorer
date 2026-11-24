@@ -35,6 +35,10 @@
  *   token-denied               cannot create a token or a service token
  *   low-token                  a Low integrity copy (low-child <pid>) can read this process's token with the limited
  *                              query, but not duplicate, impersonate or assign it
+ *   token-rights <img> <expect> (R7) the token rights this caller gets on <img>'s processes opened with the limited query:
+ *                              "none", "service" (TOKEN_QUERY only) or "system" (assign, duplicate, impersonate, query,
+ *                              query source, read control)
+ *   admin-token-rights <img> <expect>  the same with an administrator token (a system role process turns its own)
  *   grants <expect>            write Control\ServiceCurrent and ComputerName\ActiveComputerName; expect is "denied" or "allowed"
  *   hold                       sleep 120 seconds
  * Prints "ok ..." / "FAIL ..." lines and "<mode>=PASS" or "<mode>=FAIL"; exit status 0 only if everything passed.
@@ -729,6 +733,65 @@ static void low_token(void)
     CloseHandle(own);
 }
 
+/* R7: the token rights this caller gets on the tokens of an image's processes, opened with the limited query right
+ * only (Windows' rule: the token's descriptor decides). expect: "none" (nothing, also not TOKEN_QUERY), "service"
+ * (TOKEN_QUERY only: an administrator and a service's token) or "system" (assign, duplicate, impersonate, query, query
+ * source and read control, not adjust or WRITE_DAC: an administrator and the token of a system process that is not a
+ * service), as measured on Windows 10 */
+static void token_rights(const char *image, const char *expect)
+{
+    static const struct { DWORD right; const char *name; int service, system; } rights[] =
+    {
+        { TOKEN_QUERY, "TOKEN_QUERY", 1, 1 },
+        { TOKEN_QUERY_SOURCE, "TOKEN_QUERY_SOURCE", 0, 1 },
+        { READ_CONTROL, "READ_CONTROL", 0, 1 },
+        { TOKEN_DUPLICATE, "TOKEN_DUPLICATE", 0, 1 },
+        { TOKEN_IMPERSONATE, "TOKEN_IMPERSONATE", 0, 1 },
+        { TOKEN_ADJUST_PRIVILEGES, "TOKEN_ADJUST_PRIVILEGES", 0, 0 },
+        { TOKEN_ADJUST_DEFAULT, "TOKEN_ADJUST_DEFAULT", 0, 0 },
+        { WRITE_DAC, "WRITE_DAC", 0, 0 },
+    };
+    int service = !strcmp(expect, "service"), system = !strcmp(expect, "system");
+    DWORD pids[16];
+    int i, j, n = find_pids(image, pids, 16);
+    char what[160];
+
+    snprintf(what, sizeof(what), "%s is in the process list (%d found)", image, n);
+    check(n > 0, what);
+    for (i = 0; i < n; i++)
+    {
+        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pids[i]), token;
+
+        snprintf(what, sizeof(what), "open %s %lu with the limited query right", image, pids[i]);
+        check(process != NULL, what);
+        if (!process) continue;
+        for (j = 0; j < sizeof(rights) / sizeof(rights[0]); j++)
+        {
+            int want = service ? rights[j].service : system ? rights[j].system : 0;
+            BOOL ok;
+
+            SetLastError(0);
+            ok = OpenProcessToken(process, rights[j].right, &token);
+            snprintf(what, sizeof(what), "the token of %s %lu %s with %s (error %lu)", image, pids[i],
+                     want ? "opens" : "does not open", rights[j].name, ok ? 0 : GetLastError());
+            check(want ? ok : !ok && GetLastError() == ERROR_ACCESS_DENIED, what);
+            if (ok) CloseHandle(token);
+        }
+        CloseHandle(process);
+    }
+}
+
+/* the same, with an administrator token (a system role process turns its own into one, as admin-open does) */
+static void admin_token_rights(const char *image, const char *expect)
+{
+    NTSTATUS (WINAPI *set_info)(HANDLE, ULONG, void *, ULONG) =
+        (void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtSetInformationProcess");
+
+    check(!set_info(GetCurrentProcess(), 1002 /* ProcessWineGrantAdminToken */, NULL, 0),
+          "the system role process turns its token into an administrator token");
+    token_rights(image, expect);
+}
+
 static void token_denied(void)
 {
     NTSTATUS (WINAPI *create)(HANDLE *, ACCESS_MASK, OBJECT_ATTRIBUTES *, TOKEN_TYPE, LUID *, LARGE_INTEGER *,
@@ -859,6 +922,8 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "start-service") && argc > 3) start_service(argv[2], atoi(argv[3]));
     else if (!strcmp(mode, "token-denied")) token_denied();
     else if (!strcmp(mode, "low-token")) low_token();
+    else if (!strcmp(mode, "token-rights") && argc > 3) token_rights(argv[2], argv[3]);
+    else if (!strcmp(mode, "admin-token-rights") && argc > 3) admin_token_rights(argv[2], argv[3]);
     else if (!strcmp(mode, "low-child")) low_child(strtoul(arg, NULL, 10));
     else if (!strcmp(mode, "grants")) grants(arg);
     else if (!strcmp(mode, "hold")) Sleep(120000);

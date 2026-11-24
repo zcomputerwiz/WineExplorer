@@ -1289,6 +1289,11 @@ for u in $C3_USERS; do
         for img in services.exe winedevice.exe wexsvc.exe; do
             expect_spass "c3_administrator_can_open_${img%.exe}" "$u" 64 admin-open "$img"
         done
+        # -- R7: the tokens of the system role carry Windows' descriptors, and the limited query right on the process
+        # opens a token as far as its descriptor allows: an administrator may query a service's token only (the
+        # WexSvc* services), and assign, duplicate, impersonate and query services.exe's (a system process, not a service)
+        expect_spass c3_administrator_queries_only_a_service_token "$u" 64 admin-token-rights wexsvc.exe service
+        expect_spass c3_administrator_may_duplicate_the_services_exe_token "$u" 64 admin-token-rights services.exe system
     fi
 
     # -- the limited and the standard user
@@ -1302,6 +1307,10 @@ for u in $C3_USERS; do
         # the limited query opens a token for reading only (server/token.c, open_token): a Low integrity program reads
         # a normal program's token, as on Windows, but cannot duplicate or use it
         expect_rpass "c3_${u}_low_integrity_reads_but_cannot_copy_a_token_$arch" "$u" "$arch" low-token
+        # R7: users get nothing on the system role's tokens, also not TOKEN_QUERY (no ACE for them, as on Windows)
+        for img in services.exe wexsvc.exe; do
+            expect_rpass "c3_${u}_cannot_open_the_${img%.exe}_token_$arch" "$u" "$arch" token-rights "$img" none
+        done
         expect_rpass "c3_${u}_scm_connect_and_enumerate_work_$arch" "$u" "$arch" scm-allowed
         expect_rpass "c3_${u}_boot_state_grants_are_gone_$arch" "$u" "$arch" grants denied
     done
