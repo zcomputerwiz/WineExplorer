@@ -1,5 +1,15 @@
 # Changes to stock Wine / third-party code
 
+## services: one check for "a service of session 0"; four unused forward wrappers removed (R7 of SESSION0_SPLIT_REVIEW.md, 2026-11-24)
+
+- `programs/services/services.c`, `services.h` (`service_is_session0s`): the test "this session forwards, and the
+  service is not its own or not known here" is one function, used by `rpc.c`'s GetServiceDisplayNameW,
+  GetServiceKeyNameW and OpenServiceW, and by the start of the auto-start services. CreateServiceW keeps its own test
+  (a new service, known by name and type only).
+- `programs/services/forward.c`, `forward.h`: the wrappers for QueryServiceConfigEx, QueryServiceStatus,
+  ControlServiceExW and EnumDependentServicesW are gone. Nothing called them: Wine's service manager does not
+  implement those calls (session 0's neither), and sechost does not use them.
+
 ## server: process and thread ids from blocks leased by session 0 (R6 step 1 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
 - `server/process.c` (`alloc_ptid`, `free_ptid`, `get_ptid_entry`): the id table is indexed by slot. Without
