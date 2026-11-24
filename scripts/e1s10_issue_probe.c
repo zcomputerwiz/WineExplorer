@@ -217,7 +217,8 @@ static void case_accept( struct issue_case *ic, const char *name, PSID expected 
     ULONG size = sizeof(reply);
     TOKEN_ELEVATION_TYPE elevation = 0;
     DWORD needed;
-    NTSTATUS status;
+    NTSTATUS status = (NTSTATUS)0xc0000001; /* STATUS_UNSUCCESSFUL: no issue attempted */
+    BOOL issued = FALSE;
 
     begin("e1s10_accept_control");
     if ((context = installed(ic, in, name, ic->key, ic->generation)))
@@ -227,6 +228,7 @@ static void case_accept( struct issue_case *ic, const char *name, PSID expected 
             report("NOTE case=%s issue status=%08lx\n", current, (unsigned long)status);
         if (token)
         {
+            issued = TRUE;
             check(GetTokenInformation(token, TokenUser, user_buf, sizeof(user_buf), &needed) &&
                   EqualSid(((TOKEN_USER *)user_buf)->User.Sid, expected));
             check(GetTokenInformation(token, TokenElevationType, &elevation, sizeof(elevation), &needed) &&
@@ -234,8 +236,14 @@ static void case_accept( struct issue_case *ic, const char *name, PSID expected 
             CloseHandle(token);
         }
         end();
+        /* a replay needs an accepted issue: without one the context is merely spent, which proves nothing */
         begin("e1s10_replay_refused");
-        issue_denied(context, in);
+        if (issued) issue_denied(context, in);
+        else
+        {
+            report("NOTE case=%s no accepted issue to replay (the control's status %08lx)\n", current, (unsigned long)status);
+            check(issued);
+        }
         CloseHandle(context);
     }
     else { end(); begin("e1s10_replay_refused"); check(!"no context"); }
@@ -376,7 +384,7 @@ static int broker( char **argv )
     current = "setup";
     report("e1s10 broker abi=%u\n", (unsigned int)(8 * sizeof(void *)));
     ic.generation = _strtoui64(argv[6], NULL, 10);
-    if (!test(ic.generation && unhex(argv[5], ic.key) && unhex(argv[9], tomb_key) &&
+    if (!test(ic.generation > 1 && unhex(argv[5], ic.key) && unhex(argv[9], tomb_key) &&
               ConvertStringSidToSidA(argv[7], &expected))) goto done;
     memset(unknown_key, 0x5a, sizeof(unknown_key));
     if (!test((host = LoadLibraryW(L"wexhost.dll")) &&
@@ -402,7 +410,9 @@ static int broker( char **argv )
     report("e1s10 s6 opened\n");
 
     case_accept(&ic, name, expected);
-    case_identity(&ic, "e1s10_stale_generation_refused", name, ic.key, ic.generation + 1);
+    /* an older generation: stale whatever the map does meanwhile (generations only rise; a newer one could become
+     * the current one if the map changes during the run) */
+    case_identity(&ic, "e1s10_stale_generation_refused", name, ic.key, ic.generation - 1);
     case_identity(&ic, "e1s10_tombstoned_account_refused", tomb, tomb_key, ic.generation);
     case_identity(&ic, "e1s10_unknown_account_refused", "wexs10absent", unknown_key, ic.generation);
     case_identity(&ic, "e1s10_wrong_incarnation_refused", name, unknown_key, ic.generation);
