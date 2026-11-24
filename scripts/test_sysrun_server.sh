@@ -885,7 +885,10 @@ fi
 OUT="$(sysprobe "$SYS" 64 hklm-write)" || { echo "$OUT" >&2; tail -20 "$ROOT/session0.log" >&2; fail "hklm-write"; }
 OUT="$(sysprobe "$SYS" 64 hklm-read)"; grep -q '^hklm-read=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "HKLM not from the machine root with a diverted prefix link"; }
 ok c2_symlinked_hives_system_account_hklm_from_machine_root
-# the server it gets is the launcher-started one: its saved group is the system group (section 1's recognition)
+# the server it gets is the launcher-started one: its saved group is the system group (section 1's recognition); a
+# client holds it while it is looked at (the server ends with its last program; the -k below ends both)
+sysprobe "$SYS" 64 hold >/dev/null 2>&1 &
+sleep 4
 SPID="$(server_pid "$SYS")"; [ -n "$SPID" ] || fail "no server of $SYS"
 IDS="$(awk '/^Uid:/ { u = $2 "/" $3 "/" $4 } /^Gid:/ { print u, $2, $3, $4 }' "/proc/$SPID/status")"
 [ "$IDS" = "$SYS_UID/$SYS_UID/$SYS_UID $SYS_GID $SYS_GID $GRP_GID" ] || fail "server ids are not (user, user, saved $GRP): $IDS"
