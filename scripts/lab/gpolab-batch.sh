@@ -9,14 +9,15 @@
 #   2. join-ps's extra files (mi and wbemprox dlls, the WexComputer module, join-ps.ps1) taken from that clone and build;
 #   3. the three installed-machine guests on a base disk of it (gpo-lab.sh machines).
 # Log /var/tmp/gpolab-batch.log; the result lines are printed at the end. About 40 minutes with a warm ccache.
+# SHA that is only a docs-only ancestor of the clone: WEX_BATCH_SKIP_ISO=1 reuses the last ISO, clone and install (30 min).
 BRANCH=${1:-master} WANT=${2:-}
 T=${WEX_GPO_TREE:-/mnt/d/DeepThought/Projects/WineExplorer-gpo}
 L=/var/tmp/gpolab-batch.log
 echo "started $(date +%T) $BRANCH $WANT" > $L
 # the scripts run from an LF copy (a Windows checkout has CRLF)
 rm -rf /root/wexgpo-lab && cp -a "$T/scripts/lab" /root/wexgpo-lab && find /root/wexgpo-lab -type f -exec sed -i 's/\r$//' {} +
-bash /root/wexgpo-lab/wexgpo-iso.sh "$BRANCH" >> $L 2>&1
-rc=$?
+# WEX_BATCH_SKIP_ISO=1: the clone and installed disk of an earlier run are reused (a head that moved on by documentation only)
+if [ -n "$WEX_BATCH_SKIP_ISO" ]; then rc=0; else bash /root/wexgpo-lab/wexgpo-iso.sh "$BRANCH" >> $L 2>&1; rc=$?; fi
 HEAD=$(git -C /root/WE-iso rev-parse HEAD)
 echo "iso rc=$rc clone=$HEAD $(date +%T)" >> $L
 [ $rc = 0 ] || { echo "ISO FAILED"; tail -15 $L; exit 1; }
