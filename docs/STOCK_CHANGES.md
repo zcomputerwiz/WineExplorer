@@ -3,15 +3,21 @@
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
 - `server/session0.c` (`pipe_request`, `session0_open_pipe`, the `PIPE` handler): a `PIPE` request carries the
-  opener's process id after the pipe's name. Session 0 keeps it only when it lies in a block it leased to the server
-  at the other end of the link (`id_of_peer`: the block's recorded Unix pid and account), else 0 as before.
-- `server/named_pipe.c` (`pipe_bridge_accept`): the bridged pipe's client process id is that id, so a server in
-  session 0 reads the opener's real id (`GetNamedPipeClientProcessId`), as on Windows.
+  opener's process id after the pipe's name (`include/wine/wex_session0.h`, protocol version 7). Session 0 keeps it
+  only when it lies in a block it leased to the server at the other end of the link (`id_of_peer`: the block's
+  recorded Unix pid, account and start time), else 0 as before. Each lease has a serial (in memory only).
+- `server/named_pipe.c` (`pipe_bridge_accept`, `pipe_end_get_connection_attribute`): the bridged pipe's client
+  process id is that id, so a server in session 0 reads the opener's real id (`GetNamedPipeClientProcessId`), as on
+  Windows. The pipe keeps the lease's serial; once the block has gone to another server
+  (`session0_id_lease_current`), the id reads 0, so it never names a later process that got the same id.
 - `programs/services/rpc.c` (`svcctl_QueryServiceStatusEx`, `enum_merged`): B85's zeroing of session 0's service
   process ids is removed; an id of session 0's is unique across servers now and is reported as it is.
 - Test: `scripts/lab/system-tier-t1.sh` checks that A reads the same process id for a service of session 0 as session
   0 does, in block 0, and that a pipe server in session 0 reads the opener's own id (probe: `svcstate` prints `pid=`,
-  `pipeserve` `clientpid=`, `pipesay` `self=`).
+  `pipeserve` `clientpid=`, `pipesay` `self=`). The descriptor-leak check now sends the build's protocol version and
+  counts its 40 session links (it sent version 5 and so made none since step 1).
+- Codex review: the four findings (an id kept after its block's lease ended, no start-time check, the layout change
+  without a new version, the leak check's old version) are fixed; malformed trailers and lease reuse have no T1 case.
 
 ## server: process and thread ids from blocks leased by session 0 (R6 step 1 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
