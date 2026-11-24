@@ -599,3 +599,11 @@ before it is committed:
    naming the lowest working value.
 7. **Review.** Session 0 reviews the table and the override before it merges (it changes what every WinRT app sees), Integration reviews the dcomp
    side of method 46.
+
+## 2026-11-23 (end): contract 19 is not needed
+
+With dcomp private method 46 committed (Wine 150cd1b1) and the CoreUI session slots 12 and 13 succeeding, Notepad reaches the same state at
+`UniversalApiContract` 19, 17, 14 and at the default 10 (same log length within a few lines, identical frame: light content area, title and status
+areas, no text, `DwmSceneI.dll` not loaded). The newer path only calls slot 13 instead of slot 12. So the contract change of the plan above is dropped:
+`wintypes` stays at 10, nothing to make data driven or per application for this. The remaining gap is what the engine asks for after
+method 46 (the submit calls that return the batch ids, the objects it creates next); trace them with `+relay` from `dwmcorei.dll` on the next run.
