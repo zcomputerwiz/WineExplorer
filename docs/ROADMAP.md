@@ -365,7 +365,9 @@ comparison found no reason to rework the design in `DWM_ARCHITECTURE.md`). Both 
   visual over the program's own GDI content (Chromium's shape), present the two as separate layers that the
   compositor stacks, instead of reading the underlay back: on Wayland the swapchain is already its own surface
   (`wex_render_surface_v1`), so the GDI content would become a second layer above or below it with per-pixel alpha;
-  on X11 the equivalent is the ARGB window surface over the GL client window. Open points: order and alpha when GDI
+  on X11 the equivalent is the ARGB window surface over the GL client window (since 2026-11-24 a child-window target
+  in a `DwmAlpha` window has a 32-bit client window with GL and Vulkan, so its alpha reaches the compositor; the
+  composition itself is still the CPU one, `DWM_ARCHITECTURE.md` P7b slice 2). Open points: order and alpha when GDI
   content is above the swapchain, rounded clips across layers, thumbnails and Peek sampling the combined result,
   and falling back to the current CPU path for scenes that are not this simple.
 * **Stretching a stale-size swapchain during resize (Wayland).** While a window is resized, the last presented GPU
