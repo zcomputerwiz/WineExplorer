@@ -4623,6 +4623,27 @@ lost the context 3 times, 10 after it none, as the baseline). Verified with scre
 bubble redrawn after the menu closes, the main window under a closed menu redrawn, DwmAlpha mode no longer crashing.
 Not done: soft shadows (they need the child target's alpha in the window, P7b), the Vulkan renderer.
 
+2026-11-24 (Wine c48e53b7 and 72243d62, branch `claude/dcomp-argb`): soft shadows of DirectComposition popups with
+composition on (`Composition`, `DwmService`, `DwmAlpha`), with the GL and the Vulkan renderer. The popup's target is a
+child window whose GL or Vulkan client window had the 24-bit visual, so the compositor never saw the frame's alpha and
+the popup was shaped instead. X11 toolkits make transparent GL and Vulkan windows the same way (a 32-bit visual, the
+compositing manager blends it; GLFW's transparent framebuffer, Mesa's X11 WSI); Wayland buffers carry alpha anyway.
+- `dlls/winex11.drv/init.c` (`client_surface_wants_argb`), `opengl.c` (`egl_argb_config_for_format`), `x11drv.h`: the
+  client window of a DComp target (it has dxgi's repaint sink) in a window with `DwmAlpha` gets the 32-bit visual; for
+  GL also an EGL config with that visual and the pixel format's sizes (EGL contexts are made without a config, so they
+  draw into either), else the 24-bit visual stays. Such a window gets the property `__wine_dcomp_argb`.
+- `dlls/wined3d/swapchain.c` (`dcomp_argb_target`, `dcomp_gl_make_opaque`, `dcomp_shape_root`,
+  `wined3d_swapchain_vk_create_vulkan_swapchain`, `swapchain_vk_present`): GL clears what no layer covers to transparent
+  and makes opaque layers (`DXGI_ALPHA_MODE_IGNORE`) opaque; Vulkan asks for `VK_COMPOSITE_ALPHA_PRE_MULTIPLIED` (the CPU
+  composition is premultiplied; Mesa offers no opaque mode on a 32-bit window), else opaque as before, then inherit.
+  Such targets are not shaped. The Vulkan renderer now shapes the others as GL does.
+Without `DwmAlpha` nothing changes. Tests: dcomp, dwmapi and opengl32 0 failures, dxgi the same 35 failures (display
+mode tests on Xvfb) as before, x86_64 and i386.
+Chromium and Edge browser checks pass with composition on (GL: no context loss, no X error), Chromium also with the
+Vulkan renderer (lavapipe) with composition on and off. The restore bubble's shadow measured below it: (219,116,11) at
+1 px, (244,123,2) at 3 px, page orange at 6 px, the same with GL and Vulkan; without composition shaped as before.
+Composition popup runs: one GPU context loss in 8 with GL, none in 1 with Vulkan (without composition none).
+
 2026-11-24 (Wine 92674a54, branch `claude/msxml-string-compare`): `dlls/msxml3/xpath.c`, the XPath extension function
 `ms:string-compare(string1, string2[, language[, options]])` in namespace `urn:schemas-microsoft-com:xslt`, registered
 for MSXML 4.0 and later only (MSXML 3.0 refuses it, also with XPath as its selection language; measured on Windows 11).
