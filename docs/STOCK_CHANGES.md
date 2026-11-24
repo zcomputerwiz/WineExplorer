@@ -1,5 +1,27 @@
 # Changes to stock Wine / third-party code
 
+## ntdll, server, wow64: ProcessCommandLineInformation (B104, 2026-11-24)
+
+Wine 0ec8719014e (branch `claude/edge-signin-stacking`). Upstreamable.
+
+- `server/process.c`, `process.h`, `protocol.def` (new request `get_process_command_line`, protocol 994): a process
+  keeps the command line of the startup data it was created with (`cmdline`, `cmdlinelen`); the request answers it
+  with `PROCESS_QUERY_LIMITED_INFORMATION`, as Windows 8.1 and later do, and reads it from the PEB (PEB64,
+  `RTL_USER_PROCESS_PARAMETERS64`) for a process started without startup data. Reading the memory is not enough
+  alone: a limited handle has no `PROCESS_VM_READ`, and the system role's setgid launcher makes a session's elevated
+  processes not dumpable, so their own server cannot read them.
+- `dlls/ntdll/unix/process.c` (`NtQueryInformationProcess`, `ProcessCommandLineInformation`): UNICODE_STRING plus
+  the string, `STATUS_INFO_LENGTH_MISMATCH` with the needed size; `dlls/wow64/process.c` converts it as for the
+  image name.
+- Test: `dlls/ntdll/tests/info.c` (`test_query_process_command_line`: the own command line, a suspended child opened
+  with the limited right, a too small buffer, a handle without query rights); `ntdll:info` passes 64-bit and 32-bit.
+- Effect (B104): the Edge enterprise MSI installed as SYSTEM in session 0 (the components' way) on a clean image no
+  longer makes Edge Update uninstall itself; it did before. A program that runs the MSI itself, elevated, still does
+  (the install chain is the user's there, the updater's service SYSTEM in session 0).
+- Building: a new request renumbers the later ones, so every module that calls the server needs rebuilding (a
+  partial rebuild left win32u on the old numbers: no desktop, and each program started another explorer.exe until
+  WSL ran out, 2026-11-24).
+
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
 - `server/session0.c` (`pipe_request`, `session0_open_pipe`, the `PIPE` handler): a `PIPE` request carries the
