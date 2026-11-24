@@ -58,6 +58,18 @@ These are source-derived commands for a later coordinated run, not tested by thi
 
 See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and acceptance plan. Defaults are build `/root/WE-prefetch/build/wow64`, clone `/root/WE-prefetch/wine`, state `/root/wexdev`, timeout 120 seconds per bounded operation, 2 MiB log cap and a shared lock. Build has no overall make timeout. Prefixes are under state; sysrole creates `/var/lib/wexdev-sys` and fixed system configuration and must refuse foreign setup. `svc` restores the hive on cleanup, retaining a backup if restoration fails. Guest push retains `.bak-wexdev`, checks MD5 and can leave earlier files replaced on failure. Once accepted, its build supplies a status-checked interface over sync (not a replacement for the still-called sync helper); test replaces ordinary p6 module-test use, but not its composited desktop; run/prefix can replace generic dc setup, but not dc2's screen-color capture. Preserve those visual fixtures until equivalent evidence exists.
 
+### GPO lab runners (wexgpo; docs/GPO_LAB.md, "Everyday commands on wexgpo")
+
+* `scripts/lab/gpolab-batch.sh [BRANCH [SHA]]` (root, wexgpo; about 40 min warm): ISO of BRANCH (`wexgpo-iso.sh`),
+  clone checked at SHA, then `gpo-lab.sh machines wex-gpo` with the build's own `join-ps` files. Log
+  `/var/tmp/gpolab-batch.log`. The `gpolab` check of a batch head.
+* `scripts/lab/gpolab-machines.sh [GUEST...]` (root, wexgpo): the installed-machine guests on the disk already there,
+  with this tree's tools and gpupdate script in the overlays. Log `/var/tmp/gpolab-machines.log`.
+* `scripts/lab/wex-suite-only.sh SECTIONS` (root, wexgpo): build, then `WEX_SUITE_ONLY=SECTIONS wex-run.sh normal`
+  (partial, never a merge check); the section results are printed.
+* `installer/tests/ad/gpo-lab.sh machines SOURCE_VM [GUEST...]` (the three above call it), `machine.sh`
+  (`WEX_AD_BASELINE=make|use|check`) and `base-guest.sh`: the base disk and the guests.
+
 ### Repository
 
 * `scripts/run-isolated-graphics.py`: `python3 scripts/run-isolated-graphics.py --socket-root /var/tmp/owned-lab/sockets -- python3 scripts/check-g3-correctness.py --wine-build BUILD --output-dir OUT --g4-correctness`. Requires privileged Linux namespace/mount support and an absolute owned socket root. Creates private mount and network namespaces and a temporary filesystem X socket directory; `--private-loopback` verifies a fresh network namespace and brings up only its loopback. The child must bound and clean its own Wine/Xvfb. Empty generated socket directory is removed; nonempty directory is retained. Runtime is that of the nested command. Interrupt forwards SIGINT then, after 30 seconds, SIGKILL to its process group.

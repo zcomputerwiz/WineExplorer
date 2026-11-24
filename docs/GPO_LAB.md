@@ -171,6 +171,45 @@ First result (2026-11-14, `claude/group-policy` 33731fd3 and later): normal suit
 test passed, as on wexbuild. The lab build (`lab`, `full`) needs `/root/owned-r8` (`scripts/lab/r8-lab-build.sh`), not set up yet. The
 installed-machine disks and ISOs are not there either; an image is the next thing to make there.
 
+### Everyday commands on wexgpo (2026-11-24)
+
+All run as root in wexgpo, from the GPO worktree on D: (`WEX_GPO_TREE` names another), through
+`wsl.exe -d wexgpo -u root --exec bash ...`; the scripts copy themselves to LF first (a Windows checkout has CRLF)
+and never edit the worktree. Do not run two of them at once: they share the one controller, the lab address and
+the build lock.
+
+| What | Command | About |
+|---|---|---|
+| The controller and the fixtures | `gpo-lab-run.sh up` (above) | once; `status`, `check`, `down` |
+| **Checking a batch head** (the `gpolab` check) | `scripts/lab/gpolab-batch.sh master SHA` | 40 min warm (1 h 20 cold) |
+| The guests on the disk that is there | `scripts/lab/gpolab-machines.sh [machine\|join\|join-ps]` | 4 to 12 min each |
+| Only some suite sections | `scripts/lab/wex-suite-only.sh gp_secpol,gp_users` (names or groups: `gp`) | build 3 min + sections |
+| The static tests | `bash scripts/test_domain_join.sh`, `test_preg.sh`, `test_secpol_model.sh`, `test_gpedit_model.sh`, `test_gpupdate_users.sh` | seconds |
+
+**Checking a batch head** is what session 0 asks for after a batch merges (the token, registry, setup and domain
+code are what the lab inspects). `gpolab-batch.sh` builds an ISO of the branch with `wexgpo-iso.sh`, checks that its
+clone is at `SHA`, takes `join-ps`'s dlls and module from that build, and runs `gpo-lab.sh machines`. The result is
+`PASS gpolab/machine|join|join-ps` lines with the check counts (41, 38, 33 on 2026-11-24); report them to session 0
+with the head and the Wine commit. The lab's Domain Admins checks (limited and full token) are the ones a token change
+breaks. Logs: `/var/tmp/gpolab-batch.log`, `/var/tmp/wex-gpo-lab/*.log`, the overlays' screenshots in
+`/root/vmtest-gpo/wex-gpo-ad-*/`.
+
+Traps found on the way:
+
+- **`wexgpo-iso.sh` fetches the clone without submodule recursion, for good.** Master's history pins 146 Wine commits
+  that exist nowhere any more (early October 2026, three local test merges of 2026-11-15), so a recursive fetch can
+  never succeed; `submodule update` fetches the one pin the head needs.
+- **The lab copy needs the launcher headers** (`gpo-lab-run.sh` copies `wex_sysrun_conf.h` and `wex_sysrun_peer.h`):
+  `WEX_LAB_TREE_TOOLS=1` builds `wex-sysrun` and `wex-accounts` from them.
+- **A new install makes a new base disk** (`machine.sh` `WEX_AD_BASELINE=check` compares the installed disk's size,
+  time and inode); a changed `base-guest.sh` or PowerShell release line does too.
+- **A suite section run alone sees only what its own table row lists** (B101: `$REQ` was set by a section it did not
+  list). A new gp section is run with `wex-suite-only.sh NAME` before it is trusted.
+- **Shell here-documents mangle quotes and escapes**: scripts are written with the editor tool, not echoed
+  (`CLAUDE.md`, "Editing").
+- **One build at a time** on the machine (`wex-make.sh`'s lock in `/mnt/wsl`, shared with wexbuild); wexbuild belongs
+  to session 0: ask before using it.
+
 ## State (2026-11-14)
 
 - `machines wex-gpo` passed on 2026-11-23 on wexgpo with the base disk: `machine` 41 checks (12 min, the domain
