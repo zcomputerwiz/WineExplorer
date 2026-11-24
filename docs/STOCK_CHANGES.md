@@ -19,6 +19,36 @@
 - Codex review: the four findings (an id kept after its block's lease ended, no start-time check, the layout change
   without a new version, the leak check's old version) are fixed; malformed trailers and lease reuse have no T1 case.
 
+## services: one check for "a service of session 0"; four unused forward wrappers removed (R7 of SESSION0_SPLIT_REVIEW.md, 2026-11-24)
+
+- `programs/services/services.c`, `services.h` (`service_is_session0s`): the test "this session forwards, and the
+  service is not its own or not known here" is one function, used by `rpc.c`'s GetServiceDisplayNameW,
+  GetServiceKeyNameW and OpenServiceW, and by the start of the auto-start services. CreateServiceW keeps its own test
+  (a new service, known by name and type only).
+- `programs/services/forward.c`, `forward.h`: the wrappers for QueryServiceConfigEx, QueryServiceStatus,
+  ControlServiceExW and EnumDependentServicesW are gone. Nothing called them: Wine's service manager does not
+  implement those calls (session 0's neither), and sechost does not use them.
+- `dlls/windows.security.authentication.web.core/broker.c` and the token broker (`src/programs/tokenbroker/main.c`):
+  the pipe code is `wine/wex_pipe.h`'s, as DWM's already is. The client connects with `wex_pipe_connect`, checks the
+  server with `wex_pipe_server_is( pipe, L"tokenbroker.exe" )` plus its own check that the server runs as the same
+  user, and sends with `wex_pipe_transact`; the broker creates its instances with `wex_pipe_create` (the user-only
+  descriptor as SDDL) and reads and writes with `wex_pipe_io`. The server check now opens the broker with
+  `PROCESS_QUERY_LIMITED_INFORMATION`, the Windows rule, which the token-read change allows under enforcement.
+  Caller policy (`check_caller`) is unchanged.
+- `include/wine/wex_pipe.h`: `wex_pipe_create_instances` (a limit on instances; `wex_pipe_create` is it without one)
+  and `wex_pipe_io_until` (also ended by a stop event; `wex_pipe_io` is it without one; an ended I/O reports 0
+  bytes). `wexelevate` uses them: its `pipe_io` (bounded, ended by the service's stop) and both pipe servers
+  (`\pipe\wexelevate`, and B0's `\pipe\wexelevate.r9` with its 8 instances). Its out buffer is now the request size
+  instead of 4096 (replies are small). Its audit sites `pipe-start-io` and `pipe-io-result` are one, `pipe-io`. The
+  lab agent's connect to B0 (`standard.c`) keeps its own open: `wex_pipe_connect` would add identification-level
+  impersonation and a wait for a busy pipe, which that path was not built for.
+- `wex_pipe_connect`: a pipe that goes away while the client waits for a free instance now fails with
+  `ERROR_FILE_NOT_FOUND` instead of `ERROR_PIPE_BUSY`, so the WAM client starts a new broker as it did before R7
+  (Codex review), and DWM's client reports a disconnected port instead of a timeout.
+- Codex review of R7: three findings, fixed. The scripts take the repository's `wex-common.sh` when the installed one
+  predates `wex_machine_links`, and stop before any change when neither has it (the list is read before the loop, so
+  a failure stops them); `wexdev.sh` uploads the library for the guest setup too; the connect error above.
+
 ## server: process and thread ids from blocks leased by session 0 (R6 step 1 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
 - `server/process.c` (`alloc_ptid`, `free_ptid`, `get_ptid_entry`): the id table is indexed by slot. Without

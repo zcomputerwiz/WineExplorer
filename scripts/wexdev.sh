@@ -551,7 +551,7 @@ guest()
     {
         local local_file=$1 remote_file=$2
         base64 "$local_file" | timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" \
-            "mkdir -p /tmp/gsr /tmp/gsr-out /tmp/gsr/repo/scripts /tmp/gsr/repo/src/resources; base64 -d > '$remote_file'" ||
+            "mkdir -p /tmp/gsr /tmp/gsr-out /tmp/gsr/repo/scripts/lib /tmp/gsr/repo/src/resources; base64 -d > '$remote_file'" ||
             fail "guest upload failed: $remote_file"
     }
     # ssh joins its arguments with spaces and the remote shell re-parses them (backslashes of
@@ -574,6 +574,7 @@ guest()
             guest_send "$SRC/$f" "/tmp/gsr/$(basename "$f")"
         done
         guest_send "$SRC/scripts/setup-machine-root.sh" /tmp/gsr/repo/scripts/setup-machine-root.sh
+        guest_send "$SRC/scripts/lib/wex-common.sh" /tmp/gsr/repo/scripts/lib/wex-common.sh   # sourced by the setup
         tar -C "$SRC/src/resources" -cf - fonts | base64 | timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" \
             'base64 -d | tar -xf - -C /tmp/gsr/repo/src/resources' || fail 'guest font upload failed'
         timeout "$TIMEOUT" "${ssh_command[@]}" -p "$port" "$destination" chmod +x /tmp/gsr/*.sh || fail 'guest staging chmod failed'

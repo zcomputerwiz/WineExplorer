@@ -119,6 +119,14 @@ wex_low_resolution() {
     xrandr --output "$output" --mode 640x480 2>/dev/null || echo "$output offers no 640x480 mode"
 }
 
+# Prints the parts of a user's prefix that are links into the machine root (docs/PREFIX_SPLIT.md), one per line,
+# relative to both: the machine folders under drive_c, then the shared hives. Setup's template prefix and the
+# migration of an old prefix both link these; each caller decides what to do with a part the machine root lacks.
+wex_machine_links() {
+    printf '%s\n' "drive_c/windows" "drive_c/Program Files" "drive_c/Program Files (x86)" "drive_c/ProgramData" \
+        "drive_c/users/Public" "system.reg" "userdef.reg"
+}
+
 # Returns 0 if prefix needs wineboot -u update, 1 otherwise.
 # Checks WEX_NTDLL (or default /usr/local/lib/wine/x86_64-unix/ntdll.so) and
 # MACHINE_ROOT/.update-timestamp against PREFIX/.update-timestamp.

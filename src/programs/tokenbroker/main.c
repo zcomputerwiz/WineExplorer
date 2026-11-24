@@ -22,6 +22,7 @@
 #include <sddl.h>
 
 #include "wine/debug.h"
+#include "wine/wex_pipe.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(tokenbroker);
 
@@ -248,18 +249,6 @@ static WCHAR *client_program( ULONG pid )
     return ok ? strdupW( path ) : NULL;
 }
 
-/* one read or write on the pipe (an overlapped handle: the accept loop waits with a timeout), waited for */
-static BOOL pipe_io( HANDLE pipe, BOOL write, void *buffer, DWORD size, DWORD *done, HANDLE event )
-{
-    OVERLAPPED ov = { .hEvent = event };
-    BOOL ret;
-
-    ResetEvent( event );
-    ret = write ? WriteFile( pipe, buffer, size, done, &ov ) : ReadFile( pipe, buffer, size, done, &ov );
-    if (!ret && GetLastError() == ERROR_IO_PENDING) ret = GetOverlappedResult( pipe, &ov, done, TRUE );
-    return ret;
-}
-
 static DWORD WINAPI client_thread( void *arg )
 {
     HANDLE pipe = arg;
@@ -278,7 +267,8 @@ static DWORD WINAPI client_thread( void *arg )
     out = malloc( TOKENBROKER_MAX_MESSAGE );
     event = CreateEventW( NULL, TRUE, FALSE, NULL );
     if (!buffer || !out || !event) goto done;
-    while (pipe_io( pipe, FALSE, buffer, TOKENBROKER_MAX_MESSAGE, &size, event ))
+    /* a client may stay connected between requests: the read waits as long as it does */
+    while (!wex_pipe_io( pipe, FALSE, buffer, TOKENBROKER_MAX_MESSAGE, &size, event, INFINITE ))
     {
         /* the client can be impersonated once something was read from it */
         if (!checked)
@@ -315,7 +305,7 @@ static DWORD WINAPI client_thread( void *arg )
         }
         free_reply( &reply );
         free_request( &req );
-        ok = ok && pipe_io( pipe, TRUE, out, out_size, &done, event ) && done == out_size;
+        ok = ok && !wex_pipe_io( pipe, TRUE, out, out_size, &done, event, INFINITE ) && done == out_size;
         SecureZeroMemory( out, out_size );
         if (!ok) break;
     }
@@ -329,17 +319,9 @@ done:
     return 0;
 }
 
-static HANDLE create_instance( const WCHAR *name, SECURITY_ATTRIBUTES *sa, BOOL first )
-{
-    return CreateNamedPipeW( name, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | (first ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
-                             PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                             PIPE_UNLIMITED_INSTANCES, TOKENBROKER_MAX_MESSAGE, TOKENBROKER_MAX_MESSAGE, 0, sa );
-}
-
 int __cdecl wmain( int argc, WCHAR *argv[] )
 {
-    WCHAR name[256], *sid_string;
-    SECURITY_ATTRIBUTES sa;
+    WCHAR name[256], sddl[256], *sid_string;
     OVERLAPPED ov = {0};
     HANDLE token, pipe, thread;
     DWORD session = 0, wait;
@@ -355,15 +337,15 @@ int __cdecl wmain( int argc, WCHAR *argv[] )
     CloseHandle( token );
     if (!own_sid || !ConvertSidToStringSidW( own_sid, &sid_string )) return 1;
     swprintf( name, ARRAY_SIZE(name), L"%s%s", TOKENBROKER_PIPE_PREFIX, sid_string );
-    LocalFree( sid_string );
     /* the user only: full control for the user's SID, nothing for anyone else */
-    if (!user_only_descriptor( L"", L"GA", &sa )) return 1;
+    swprintf( sddl, ARRAY_SIZE(sddl), L"D:P(A;;GA;;;%s)", sid_string );
+    LocalFree( sid_string );
     if (!(ov.hEvent = CreateEventW( NULL, TRUE, FALSE, NULL ))) return 1;
     cache_load();
 
     for (;;)
     {
-        if ((pipe = create_instance( name, &sa, first )) == INVALID_HANDLE_VALUE)
+        if ((pipe = wex_pipe_create( name, sddl, first, TOKENBROKER_MAX_MESSAGE )) == INVALID_HANDLE_VALUE)
         {
             /* the first instance could not be ours: another broker of the user has the pipe, or another process
              * took its name; this broker is not the one clients reach */
