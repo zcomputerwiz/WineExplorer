@@ -45,6 +45,7 @@ wine:programs/services/*                normalsuite
 wine:programs/wineboot/*                normalsuite,image
 wine:dlls/windows.security.authentication.web.core/*  normalsuite
 wine:include/wine/tokenbroker.h         normalsuite
+wine:include/wine/wex_profile.h         normalsuite,lab
 tools/wex-accounts/*                    normalsuite
 src/dlls/wexhost/*                      normalsuite,lab
 src/programs/wexelevate/*               normalsuite,lab
