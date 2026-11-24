@@ -2485,9 +2485,11 @@ LOGON_DELAY=usr/lib/systemd/system/lightdm.service.d/wex-test-delay.conf
 delay_logon() {   # delay_logon on|off: LightDM starts 90 seconds late for the vfailed phase (outside the records)
     attach rw || return 1
     if [ "$1" = on ]; then
+        # the start limit is raised with the delay: LightDM's is systemd's default of 90 s, which a 90 s sleep alone
+        # can reach, so the unit failed and restarted with no logon screen (b1130b, b1130c)
         mkdir -p "$(dirname "$MNT/$LOGON_DELAY")" &&
             printf '%s\n' '# installer/tests/safe-mode.sh, vfailed phase only' '[Service]' 'ExecStartPre=/bin/sleep 90' \
-                > "$MNT/$LOGON_DELAY"
+                'TimeoutStartSec=180' > "$MNT/$LOGON_DELAY"
     else
         rm -f "$MNT/$LOGON_DELAY"
     fi
