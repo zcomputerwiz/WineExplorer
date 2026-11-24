@@ -257,8 +257,8 @@ sec_static_skip()   # NAME: why the section does not run in this run (suite, swi
     case "${SEC_GRP[$n]}:$n" in
         c4:*|c5:*|sd:*|c7:*|s0:*|gp:*|lab:*|own:own_broker) [ "${WEX_C4_SKIP:-0}" != 1 ] || { echo "WEX_C4_SKIP=1"; return; } ;;
     esac
-    case "${SEC_GRP[$n]}" in s0|gp) [ "${WEX_SKIP_SESSION0:-0}" != 1 ] || { echo "WEX_SKIP_SESSION0=1"; return; } ;; esac
     [ "$n" != r8e2e ] || [ "${WEX_SKIP_R8_E2E:-0}" != 1 ] || { echo "WEX_SKIP_R8_E2E=1"; return; }
+    [ "$n" != r8e2e ] || [ "${WEX_SKIP_R9_E2E:-0}" != 1 ] || { echo "WEX_SKIP_R9_E2E=1"; return; }
     [ -z "${WEX_SUITE_ONLY:-}" ] || [ -n "${SEC_SEL[$n]:-}" ] || { echo "not selected (WEX_SUITE_ONLY)"; return; }
 }
 sec_planned()   # NAME: the section has passed, or will run as far as is known now
@@ -636,6 +636,9 @@ i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe32.exe" "$SRC/scripts/sysru
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe64.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe32.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/alpcpair64.exe" "$SRC/tests/uwp/alpc/alpc-pair.c" -ladvapi32   # ALPC impersonation, one role per process
+# the WinSta0 holder of el_up, which sections of every group use (built here, not in c4_build, so a section run alone has it)
+x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/sdprobe64.exe" "$SRC/scripts/secure_desktop_probe.c" -ladvapi32 2>/dev/null
+i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/sdprobe32.exe" "$SRC/scripts/secure_desktop_probe.c" -ladvapi32 2>/dev/null
 cp "$ROOT/probes/rolesprobe64.exe" "$ROOT/probes/wexsvc.exe"     # the service image, so that its process has its own name
 gcc -O2 -Wall -o "$ROOT/bin/asgroup" "$SRC/scripts/sysrun_asgroup.c"
 chmod 0755 "$ROOT/probes"/*.exe
@@ -689,6 +692,64 @@ expect_pass()   # name user arch mode
     ok "$name"
 }
 
+# ---- session 0 for the whole suite (R4b of docs/SESSION0_SPLIT_REVIEW.md) ---------------------------------------
+# The launcher without session 0 is retired for installed systems (the owner's decision 2, 2026-11-23), so every
+# section runs on a machine whose session 0 holds the machine registry. Session 0 runs as an account of its own; the
+# users' launcher-started servers send their programs' machine-registry calls there. A launcher-started server does
+# not start without session 0 (R4c), so session 0 is set up before any section runs.
+S0RUN="$ROOT/run"
+s0_conf_on()   # the machine with session 0: its two lines in the launcher's configuration
+{
+    printf 'session0_socket=%s\nsession0_user=%s\n' "$S0RUN/session0" "$S0U" >> "$CONF"
+    kill_servers
+}
+s0_start()
+{
+    # the socket of the last session 0 may still be there: wait for the new server's own
+    rm -f "$S0RUN/session0"
+    (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin \
+        "$BUILD/server/wineserver" --session0 -f >>"$ROOT/session0.log" 2>&1 &)
+    local i; for i in $(seq 1 50); do [ -S "$S0RUN/session0" ] && pgrep -u "$S0U" -x wineserver >/dev/null && return 0; sleep 0.1; done
+    cat "$ROOT/session0.log" >&2; fail "session 0 did not start"
+}
+s0_stop()
+{
+    # SIGTERM: session 0 saves the hives and exits; sent again each second, for a server that was still starting
+    local i
+    for i in $(seq 1 300); do
+        [ $((i % 10)) != 1 ] || pkill -u "$S0U" -x wineserver 2>/dev/null || true
+        pgrep -u "$S0U" -x wineserver >/dev/null || return 0
+        sleep 0.1
+    done
+    ps -o pid,ppid,stat,etime,args -u "$S0U" >&2; tail -20 "$ROOT/session0.log" >&2
+    fail "session 0 did not stop"
+}
+# Session 0 holds the machine hives and saves its own tree over the files: a direct edit of a machine hive file
+# takes effect only while it is stopped (hive_edit COMMAND...), and a check that reads the files lets it save first
+# (hive_flush). Without session 0 both just run the command.
+hive_edit() { local rc; [ "$SEC_S0" != 1 ] || s0_stop; "$@"; rc=$?; [ "$SEC_S0" != 1 ] || s0_start; return $rc; }
+hive_flush() { [ "$SEC_S0" != 1 ] || { s0_stop; s0_start; }; }
+hive_put_file() { cat "$1" > "$M/system.reg"; }
+hive_put() { hive_edit hive_put_file "$1"; }   # FILE: the machine system.reg gets FILE's content
+hive_copy() { hive_flush; cat "$M/system.reg" > "$1"; }   # FILE: a copy of the machine system.reg as saved
+reg_append_file()   # file section line...: the fixture library's plain append (scripts/lib/sysrun-fixture.sh)
+{
+    local file="$1" section="$2"; shift 2
+    { printf '\n[%s] 1700000000\n#time=1d9a0000000000\n' "$section"; printf '%s\n' "$@"; } >> "$file"
+}
+reg_append() { hive_edit reg_append_file "$@"; }
+s0_bootstrap()   # session 0's account, its two configuration lines, and session 0 itself, from here on
+{
+    echo "--- system tier: session 0 from here on"
+    id "$S0U" >/dev/null 2>&1 && fail "user $S0U exists"
+    useradd --system -g "$GRP" -M -d "$M" -s /usr/sbin/nologin "$S0U"; S0_CREATED=1
+    install -d -m 0755 -o "$S0U" -g "$GRP" "$S0RUN"
+    s0_conf_on
+    s0_start
+    SEC_S0=1
+}
+s0_bootstrap
+
 # ---- sections 1 to 6: the launcher and the machine root (group c2; WEX_C3_ONLY=1 leaves them out) --------------
 if section c2_launcher; then set +e; ( section_enter
 # ---- 1. the server starts through the launcher ----------------------------------------------------------------
@@ -741,32 +802,28 @@ ok c2_hklm_from_machine_root_with_diverted_symlink
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
 [ "$(cat "$M/drive_c/windows/wex_marker2.txt")" = MARKER2 ] || fail "the machine-root file behind the prefix symlink was overwritten"
 ok c2_symlink_target_not_overwritten
-# Without an elevation helper nobody may persist machine hive changes: the server saves them only with the real
-# user's own rights (stock rule), and the machine hives belong to root and the system group.
-! grep -q '"Written"="yes"' "$M/system.reg" || fail "the machine hive was saved without enforced elevation"
-ok c2_machine_hive_not_saved_without_enforcement
-[ "$(stat -c '%U:%G' "$M/system.reg" "$M/userdef.reg" | sort -u)" = "root:$GRP" ] ||
-    fail "a saved machine hive is not root:$GRP any more (its owner could change it): $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
-ok c2_machine_hives_stay_root_owned_after_save
+# With session 0 the user's server never writes the machine hives: session 0 holds them and saves them as its own
+# account (R4b; the checks of the retired machine without session 0, where the user's server saved them with the stock
+# rule, are gone). The owner is session 0's account or root, never the user.
+hive_flush
+[ -z "$(stat -c '%U' "$M/system.reg" "$M/userdef.reg" | grep -vxE "root|$S0U")" ] ||
+    fail "a machine hive was written by someone other than session 0: $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
+ok c2_machine_hives_written_only_by_session0
 for hive in system.reg userdef.reg; do
     [ "$(readlink "/home/$STD/.wine/$hive")" = "$M/drive_c/windows/wex_marker2.txt" ] || fail "the prefix link $hive was replaced"
     run_as "$STD" ln -sfn "$M/$hive" "/home/$STD/.wine/$hive"
 done
 ok c2_prefix_links_left_alone
-for u in "$STD" "$ADM"; do
-    wine_as "$u" reg add 'HKLM\Software\WexUnenforced' /v "$u" /d 1 /f >/dev/null 2>&1 || fail "reg add HKLM as $u (the write must work in memory)"
-    prefix_server_env "$u" -k || true; prefix_server_env "$u" -w
-    ! grep -q 'WexUnenforced' "$M/system.reg" || fail "an HKLM write of $u reached the machine system.reg without enforced elevation"
-    ok "c2_unenforced_hklm_write_not_persisted_$u"
-done
 true; ); section_leave $?; fi
 
 if section c2_sysacct; then set +e; ( section_enter
-# ---- 3b. (iii) a system.reg symlink into the machine root, for an unmapped system account (Safe Mode C7) ----
-# The greeter runs as a system account that is not in the accounts map. Give it the same skeleton prefix the
-# harness gives desktop users and run the 3(iii) checks as it: the machine file behind the prefix symlink is
-# never overwritten, HKLM still comes from the machine root, and the server it gets is the launcher-started one.
-echo "--- symlinked hives (iii), unmapped system account"
+# ---- 3b. (iii) a system.reg symlink into the machine root, for a system account (Safe Mode C7) ---------------
+# The greeter runs as a system account. Created here it is not in the accounts map yet: with session 0 its server
+# first fails closed (no registry channel, B97). Then it is mapped, as wex-accounts maps every passwd account on an
+# installed system, and given the same skeleton prefix the harness gives desktop users, and the 3(iii) checks run as
+# it: the machine file behind the prefix symlink is never overwritten, HKLM still comes from the machine root, and
+# the server it gets is the launcher-started one.
+echo "--- symlinked hives (iii), system account"
 sysrun_as() { local u="$1"; shift; (cd /tmp && runuser -u "$u" -- env -i HOME="$SYS_HOME" USER="$u" LOGNAME="$u" PATH=/usr/bin:/bin LANG=C \
     DISPLAY=":$DNUM" WINEDEBUG=-all WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' "$@"); }
 sysprefix_env() { sysrun_as "$1" env WINEPREFIX="$SYS_HOME/.wine" "$BUILD/server/wineserver" "${@:2}"; }
@@ -798,10 +855,27 @@ done
 for hive in system.reg userdef.reg; do
     sysrun_as "$SYS" ln -sfn "$M/drive_c/windows/wex_marker2.txt" "$SYS_HOME/.wine/$hive"
 done
-sysprobe "$SYS" 64 hklm-write >/dev/null || fail "hklm-write"
+# With session 0 an account outside the accounts map fails closed (KNOWN_BUGS B97, by design): session 0 binds a
+# described token only to its account's mapped SID, so its launcher-started server gets no registry channel and every
+# HKLM handle is invalid
+if [ "$SEC_S0" = 1 ]; then
+    OUT="$(sysprobe "$SYS" 64 hklm-write)" && { echo "$OUT" >&2; fail "an unmapped account's server wrote HKLM through session 0"; }
+    tr -d '\r' <<<"$OUT" | grep -q 'RegCreateKeyExW(HKLM\\Software\\WexProbe) returned 6$' ||
+        { echo "$OUT" >&2; fail "an unmapped account's HKLM create did not fail with ERROR_INVALID_HANDLE"; }
+    ok c2_unmapped_system_account_gets_no_registry_channel
+    # an installed system maps every passwd account, system ones included (wex-accounts sync, the account watcher):
+    # map this one, as the watcher would, and run the checks with a new server
+    sysprefix_env "$SYS" -k || true; sysprefix_env "$SYS" -w
+    "$LIBEXEC/wex-accounts" --directory /etc/wineexplorer sync >/dev/null || fail "accounts sync"
+    grep -q "^$SYS " /etc/wineexplorer/accounts.map || fail "the system account is not in the accounts map after a sync"
+fi
+OUT="$(sysprobe "$SYS" 64 hklm-write)" || { echo "$OUT" >&2; tail -20 "$ROOT/session0.log" >&2; fail "hklm-write"; }
 OUT="$(sysprobe "$SYS" 64 hklm-read)"; grep -q '^hklm-read=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "HKLM not from the machine root with a diverted prefix link"; }
 ok c2_symlinked_hives_system_account_hklm_from_machine_root
-# the server it gets is the launcher-started one: its saved group is the system group (section 1's recognition)
+# the server it gets is the launcher-started one: its saved group is the system group (section 1's recognition); a
+# client holds it while it is looked at (the server ends with its last program; the -k below ends both)
+sysprobe "$SYS" 64 hold >/dev/null 2>&1 &
+sleep 4
 SPID="$(server_pid "$SYS")"; [ -n "$SPID" ] || fail "no server of $SYS"
 IDS="$(awk '/^Uid:/ { u = $2 "/" $3 "/" $4 } /^Gid:/ { print u, $2, $3, $4 }' "/proc/$SPID/status")"
 [ "$IDS" = "$SYS_UID/$SYS_UID/$SYS_UID $SYS_GID $SYS_GID $GRP_GID" ] || fail "server ids are not (user, user, saved $GRP): $IDS"
@@ -809,11 +883,10 @@ ok c2_symlinked_hives_system_account_server_started_by_launcher
 sysprefix_env "$SYS" -k || true; sysprefix_env "$SYS" -w
 [ "$(cat "$M/drive_c/windows/wex_marker2.txt")" = MARKER2 ] || fail "the machine-root file behind the prefix symlink was overwritten"
 ok c2_symlinked_hives_system_account_target_not_overwritten
-! grep -q '"Written"="yes"' "$M/system.reg" || fail "the machine hive was saved without enforced elevation"
-ok c2_symlinked_hives_system_account_hive_not_saved_without_enforcement
-[ "$(stat -c '%U:%G' "$M/system.reg" "$M/userdef.reg" | sort -u)" = "root:$GRP" ] ||
-    fail "a saved machine hive is not root:$GRP any more: $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
-ok c2_symlinked_hives_system_account_hives_stay_root_owned
+hive_flush
+[ -z "$(stat -c '%U' "$M/system.reg" "$M/userdef.reg" | grep -vxE "root|$S0U")" ] ||
+    fail "a machine hive was written by someone other than session 0: $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
+ok c2_symlinked_hives_system_account_hives_written_only_by_session0
 for hive in system.reg userdef.reg; do
     [ "$(readlink "$SYS_HOME/.wine/$hive")" = "$M/drive_c/windows/wex_marker2.txt" ] || fail "the prefix link $hive was replaced"
     sysrun_as "$SYS" ln -sfn "$M/$hive" "$SYS_HOME/.wine/$hive"
@@ -952,7 +1025,7 @@ true; ); section_leave $?; fi
 # ---- 7. (iv) HKU well-known profiles, with elevation enforced -------------------------------------------------
 echo "--- registry (iv), elevation enforced"
 # the machine hive as it is before the enforcement and the test services are added (a reused fixture starts from it)
-if [ "$REUSE" = 1 ]; then cat "$ROOT/system.reg.pre" > "$M/system.reg"; else cp "$M/system.reg" "$ROOT/system.reg.pre"; fi
+if [ "$REUSE" = 1 ]; then hive_put "$ROOT/system.reg.pre"; else hive_copy "$ROOT/system.reg.pre"; fi
 reg_append "$M/system.reg" 'Software\\Wine\\Elevation' '"Helper"="C:\\windows\\system32\\consent.exe"'
 if section reg_hku; then set +e; ( section_enter
 for u in "$STD" "$ADM"; do
@@ -967,6 +1040,7 @@ done
 echo "--- machine hive writes, elevation enforced"
 wine_as "$STD" reg add 'HKLM\Software\WexEnforced' /v std /d 1 /f >/dev/null 2>&1 && fail "a standard user could write HKLM with enforced elevation"
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
+hive_flush
 ! grep -q 'WexEnforced' "$M/system.reg" || fail "a denied HKLM write of $STD reached the machine system.reg"
 ok c2_enforced_standard_user_hklm_write_denied_and_not_persisted
 true; ); section_leave $?; fi
@@ -1233,6 +1307,7 @@ for u in $C3_USERS; do
     if [ "$u" = "$STD" ]; then
         # the descriptor was saved with the machine hive and is read again by the next services.exe
         prefix_server_env "$u" -k || true; prefix_server_env "$u" -w; wait "$HOLD" 2>/dev/null || true
+        hive_flush
         # wine.inf gives the broker service a descriptor of its own (WexElevate), so the count is not 1 any more
         [ "$(awk '/^\[/ { in_ls = ($0 ~ /Services.*WexSvcLs\]/) } in_ls && /^"Security"=hex/ { n++ } END { print n + 0 }' "$M/system.reg")" = 1 ] &&
             [ "$(grep -c '^"Security"=hex' "$M/system.reg")" = 2 ] || fail "the service descriptor was not saved in the machine hive"
@@ -1290,6 +1365,8 @@ el_down()
 {
     local i
     prefix_server_env "$1" -k || true; prefix_server_env "$1" -w
+    # a section that ran no el_up (s0_link run alone) has no holder: its servers were started by other commands
+    [ -n "${EL_HOLD:-}" ] || return 0
     wait "$EL_HOLD" 2>/dev/null || true
     # a hold started outside this section's subshell is no child of it: wait until it has gone (or is a zombie)
     for i in $(seq 1 50); do
@@ -1327,7 +1404,8 @@ if not done and value != 'none':
     out.append('\n%s 1700000000\n#time=1d9a0000000000\n"%s"=dword:%08x' % (head, name, int(value)))
 open(path, 'w', encoding='latin-1').write('\n'.join(out))
 PYEOF
-set_val() { python3 -I "$ROOT/setval.py" "$M/system.reg" "$1" "$2" "$3"; }   # section name dword|none
+set_val_file() { python3 -I "$ROOT/setval.py" "$M/system.reg" "$1" "$2" "$3"; }   # the file only, session 0 running
+set_val() { hive_edit set_val_file "$@"; }   # section name dword|none
 POLSEC='Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System'
 
 # the stub is not in a shipping build: the macro is not defined by any Makefile, and the installed program and the
@@ -1347,7 +1425,6 @@ x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/wexelevate_stub.exe" "$SRC/scr
 for arch in 64 32; do
     cc=x86_64-w64-mingw32-gcc; [ $arch = 32 ] && cc=i686-w64-mingw32-gcc
     $cc -O2 -Wall -DWEXELEVATE_TEST_APPROVAL -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_probe$arch.exe" "$SRC/scripts/wexelevate_probe.c" -ladvapi32 -lshell32 -lmsi
-    $cc -O2 -Wall -o "$ROOT/probes/sdprobe$arch.exe" "$SRC/scripts/secure_desktop_probe.c" -ladvapi32 2>/dev/null
 done
 gcc -O2 -Wall -o "$ROOT/bin/x11probe" "$SRC/scripts/x11_grab_probe.c" -lX11
 chmod 0755 "$ROOT/probes"/*.exe
@@ -1416,13 +1493,13 @@ true; ); section_leave $?; fi
 # -- the test broker and its stub. Wine loads a program of system32 that has a builtin twin from the builtin
 # directory whatever the file is, so the test broker has another name and the service points to it.
 if sec_ok c4_build; then
-cat "$M/system.reg" > "$ROOT/system.reg.c4"
+hive_copy "$ROOT/system.reg.c4"
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_test.exe" "$SYS32/wexelevate_test.exe"
 install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_stub.exe" "$SYS32/wexelevate_stub.exe"
 reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe"'
 BROKER_ORIG=1
 fi
-el_restore_broker() { [ -z "$BROKER_ORIG" ] || { cat "$ROOT/system.reg.c4" > "$M/system.reg"; rm -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate_stub.exe" "$SYS32/consent_test.exe"; BROKER_ORIG=""; }; }
+el_restore_broker() { [ -z "$BROKER_ORIG" ] || { hive_put "$ROOT/system.reg.c4"; rm -f "$SYS32/wexelevate_test.exe" "$SYS32/wexelevate_stub.exe" "$SYS32/consent_test.exe"; BROKER_ORIG=""; }; }
 
 amb_up "$ADM"
 IMG="$(winpath /home/$ADM/wexel/p64.exe)"
@@ -1779,13 +1856,13 @@ amb_down "$ADM"   # each R8 case starts its own session
 regpath() { echo "Z:${1//\//\\\\}"; }
 if section c4_r8; then set +e; ( section_enter
 # R8 step 3: dialog protection, loader pin, dialog image
-cat "$M/system.reg" > "$ROOT/system.reg.r8"
+hive_copy "$ROOT/system.reg.r8"
 
 for arch in 64 32; do
     # protected: mode 1, image probe r8child; openpid gets error 5
     el_down "$ADM"
     el_clean
-    cat "$ROOT/system.reg.r8" > "$M/system.reg"
+    hive_put "$ROOT/system.reg.r8"
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
         '"Start"=dword:00000002'
     reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
@@ -1844,7 +1921,7 @@ for arch in 64 32; do
     # control: mode 3, same image; openpid gets error 0
     el_down "$ADM"
     el_clean
-    cat "$ROOT/system.reg.r8" > "$M/system.reg"
+    hive_put "$ROOT/system.reg.r8"
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
         '"Start"=dword:00000002'
     reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
@@ -1867,7 +1944,7 @@ done
 # bad rights: mode 2; create_error=5, pid=0, no child process
 el_down "$ADM"
 el_clean
-cat "$ROOT/system.reg.r8" > "$M/system.reg"
+hive_put "$ROOT/system.reg.r8"
 reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
     '"Start"=dword:00000002'
 reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
@@ -1890,7 +1967,7 @@ if has_str "$BUILD/server/wineserver" "wex-r8:"; then
     # further mode 1 run with consent.exe
     el_down "$ADM"
     el_clean
-    cat "$ROOT/system.reg.r8" > "$M/system.reg"
+    hive_put "$ROOT/system.reg.r8"
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
         '"Start"=dword:00000002'
     reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
@@ -1908,7 +1985,7 @@ if has_str "$BUILD/server/wineserver" "wex-r8:"; then
 fi
 
 el_down "$ADM"
-cat "$ROOT/system.reg.r8" > "$M/system.reg"
+hive_put "$ROOT/system.reg.r8"
 rm -f "$ROOT/system.reg.r8"
 true; ); section_leave $?; fi
 if sec_ok c4_build; then
@@ -1978,7 +2055,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
             [ ! -f "$M/drive_c/windows/syswow64/wexelevate_test.exe" ] || cp -p "$M/drive_c/windows/syswow64/wexelevate_test.exe" "$ROOT/wexelevate_test.exe.r8bak32"
             install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_probe$arch.exe" "$M/drive_c/windows/syswow64/wexelevate_test.exe"
         fi
-        cat "$M/system.reg" > "$ROOT/system.reg.r8b"
+        hive_copy "$ROOT/system.reg.r8b"
         reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
             '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8binding '"$(regpath "$EL/r8_bind1_${arch}.txt")"'"'
         r8_log="/tmp/wex_r8_b1_${arch}.log"
@@ -2017,7 +2094,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         touch /etc/wineexplorer/sysrun.conf
 
         el_down "$ADM"
-        cat "$ROOT/system.reg.r8b" > "$M/system.reg"
+        hive_put "$ROOT/system.reg.r8b"
         reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
             '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8binding '"$(regpath "$EL/r8_bind2_${arch}.txt")"'"'
         rm -f "$EL/r8_bind2_${arch}.txt"
@@ -2042,7 +2119,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
 
         # WO-24: verified broker ENDORSE_DIALOG (op 2) and RECHECK (op 3) tests
         el_down "$ADM"
-        cat "$ROOT/system.reg.r8b" > "$M/system.reg"
+        hive_put "$ROOT/system.reg.r8b"
         reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
             '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8endorse '"$(regpath "$EL/r8_end1_${arch}.txt")"'"'
         r8_log="/tmp/wex_r8_e1_${arch}.log"
@@ -2093,7 +2170,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
 
         # Restore broker
         el_down "$ADM"
-        cat "$ROOT/system.reg.r8b" > "$M/system.reg"
+        hive_put "$ROOT/system.reg.r8b"
         rm -f "$ROOT/system.reg.r8b"
         mv "$ROOT/wexelevate_test.exe.r8bak" "$SYS32/wexelevate_test.exe"
         if [ -f "$ROOT/wexelevate_test.exe.r8bak32" ]; then
@@ -2117,9 +2194,11 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     # before el_restore_broker; WEX_SKIP_R8_E2E=1 skips it): the cases after it fail when it runs earlier
     # (refused consent times out, error 1460): a lab fixture leftover; in a live VM B session refused consent
     # still ends with 1223 (docs/E1_S18E_WORK_ORDERS.md, WO-27 result).
+    # Since R5 the R8 decision sequence runs only as R9 (broker B0 in session 0, the user's broker its agent A):
+    # every end-to-end case below runs in r9_e2e_block (WEX_SKIP_R9_E2E=1 skips the section).
     r8_e2e_case() {
     el_down "$ADM"
-    cat "$M/system.reg" > "$ROOT/system.reg.r8e2e"
+    hive_copy "$ROOT/system.reg.r8e2e"
     reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
         '"EnableStandardUserElevation"=dword:00000001'
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
@@ -2192,401 +2271,24 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         done
     done
 
-    for arch in 64 32; do
+    # E1 R9 (docs/E1_S18E_R9_SPEC.md, lab): the elevation with the broker in session 0 (B0) and the agent in
+    # the user's session (A), the one flow of the standard-user path (R5). Session 0 runs for these cases only;
+    # the verifier is told its account and holds the grant. WEX_SKIP_R9_E2E=1 skips the r8e2e section.
+    r9_e2e_block() {
+        local m
         el_down "$STD"
         el_clean
-        rm -f "$EL/r8_e2e_res_${arch}.txt"
-        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
-        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
-        el_up "$STD"
-
-        wine_as "$STD" "$ROOT/probes/wexelevate_probe$arch.exe" runinteractive \
-            "$(winpath /home/$STD/wexel/p$arch.exe)" 0 "$(winpath "$EL/r8_e2e_res_${arch}.txt")" - \
-            >"$ROOT/r8_e2e_probe_$arch.log" 2>&1 &
-        PROBE_PID=$!
-
-        # the whole chain: dialog, password check (padded to about 4 s), token, profile, launch
-        for _ in $(seq 1 450); do
-            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-            grep -qE 'r8: launched|r8: .* failed' <<<"$wine_new_log" && break
-            sleep 0.1
-        done
-
-        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-
-        grep -q 'r8: prepare ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: prepare ok missing"; }
-        grep -q 'r8: endorse ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: endorse ok missing"; }
-        grep -q 'r8: ack ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: ack ok missing"; }
-        grep -q 'r8: recheck ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: recheck ok missing"; }
-        grep -q 'r8: select ok' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: select ok missing"; }
-        grep -q 'r8: start sent' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: start sent missing"; }
-        grep -q 'r8: worker ready' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: worker ready missing"; }
-        grep -q 'r8: attach_ok sent' <<<"$wine_new_log" || { echo "$wine_new_log" >&2; fail "r8_e2e_attach_ok_$arch: attach_ok sent missing"; }
-
-        order_check="$(grep -E 'r8: (prepare|endorse|ack|recheck|select|start|worker|attach_ok)' <<<"$wine_new_log" | tr '\n' ' ')"
-        [[ "$order_check" =~ prepare.*endorse.*ack.*recheck.*select.*start.*worker.*attach_ok ]] || fail "r8_e2e_attach_ok_$arch: milestones not in order"
-
-        consent_unix_pid="$(grep 'wex-r8: dialog [0-9a-fA-F]* pin pid=' <<<"$wine_new_log" | head -1 | sed -n 's/.*pin pid=\([0-9]*\).*/\1/p')"
-        [ -n "$consent_unix_pid" ] || fail "r8_e2e_attach_ok_$arch: consent unix pid not found in wine log"
-        grep -q "^E1R8_ENDORSED ok .*pid=$consent_unix_pid\$" <<<"$e1s6_new_log" || fail "r8_e2e_attach_ok_$arch: E1R8_ENDORSED ok pid mismatch"
-        grep -q "E1R8_WORKER_READY request=" <<<"$e1s6_new_log" || fail "r8_e2e_attach_ok_$arch: E1R8_WORKER_READY missing in verifier log"
-        grep -q 'r8: account known' <<<"$wine_new_log" || fail "r8_e2e_attach_ok_$arch: the administrator account was not resolved (decoy key)"
-        ok "r8_e2e_attach_ok_$arch"
-
-        # R8 steps 5-8 and the launch: the first failing milestone is reported with the log
-        for m in 'r8: delegated' 'r8: ready sent' 'r8: result sent' 'r8: confirm ok' 'r8: redeemed' 'r8: done sent' \
-                 'wex-r8: receipt installed' 'r8: receipt installed' 'r8: launched'; do
-            grep -q "$m" <<<"$wine_new_log" || { echo "$wine_new_log" | grep -E 'r8: |E1S6_|err:|fixme:wex' | tail -40 >&2
-                echo "$e1s6_new_log" | tail -20 >&2; fail "r8_e2e_elevated_$arch: '$m' missing"; }
-        done
-        grep -q 'E1R8_RESULT request=.* authenticated=1' <<<"$e1s6_new_log" || fail "r8_e2e_elevated_$arch: no authenticated result at the verifier"
-        # first use creates the administrator's profile, the second elevation finds and keeps it
-        [ "$arch" = 64 ] && r8_reused=0 || r8_reused=1
-        grep -q "E1R8_PROFILE request=.* rc=0 status=0 reused=$r8_reused " <<<"$e1s6_new_log" ||
-            { grep E1R8_PROFILE <<<"$e1s6_new_log" >&2; fail "r8_e2e_elevated_$arch: profile provisioning (expected reused=$r8_reused)"; }
-        wait "$PROBE_PID" 2>/dev/null || true
-        [ "$(el_fact "$EL/r8_e2e_res_${arch}.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r8_e2e_res_${arch}.txt" integrity)" = 12288 ] ||
-            { cat "$EL/r8_e2e_res_${arch}.txt" "$ROOT/r8_e2e_probe_$arch.log" >&2; fail "r8_e2e_elevated_$arch: the program did not run elevated"; }
-        [ "$(el_fact "$EL/r8_e2e_res_${arch}.txt" user)" = "S-1-5-21-$r8_a-$r8_b-$r8_c-$r8_rid" ] ||
-            { cat "$EL/r8_e2e_res_${arch}.txt" >&2; fail "r8_e2e_elevated_$arch: the program does not run as the administrator account"; }
-        ! pgrep -f 'system32.consent[.]exe' >/dev/null || fail "r8_e2e_elevated_$arch: the dialog is still running"
-        ok "r8_e2e_elevated_$arch"
-    done
-
-    # Review R14: a second elevation while the first elevated program still runs. The profile is
-    # loaded; the second logon takes its own lease on it instead of being refused.
-    el_down "$STD"
-    el_clean
-    rm -f "$EL/r8_two_a.txt" "$EL/r8_two_b.txt" "$EL/release.r14"
-    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
-    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
-    el_up "$STD"
-    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-        "$(winpath /home/$STD/wexel/p64.exe)" 42 "$(winpath "$EL/r8_two_a.txt")" - "hold r14" \
-        >"$ROOT/r8_two_a.log" 2>&1 &
-    R8_TWO_A=$!
-    for _ in $(seq 1 450); do grep -q 'ready=1' "$EL/r8_two_a.txt" 2>/dev/null && break; sleep 0.1; done
-    grep -q 'ready=1' "$EL/r8_two_a.txt" 2>/dev/null ||
-        { tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" | grep -E 'r8: |E1S14|E1S6_' | tail -30 >&2; fail "r8_second_elevation_while_first_runs: the first program did not start"; }
-    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-        "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r8_two_b.txt")" - \
-        >"$ROOT/r8_two_b.log" 2>&1 &
-    R8_TWO_B=$!
-    for _ in $(seq 1 300); do
-        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-        [ "$(grep -c 'r8: launched' <<<"$wine_new_log")" -ge 2 ] && break
-        [ "$(grep -cE 'r8: .* failed' <<<"$wine_new_log")" -ge 1 ] && break
-        sleep 0.1
-    done
-    wait "$R8_TWO_B" 2>/dev/null || true
-    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-    [ "$(grep -c 'r8: launched' <<<"$wine_new_log")" = 2 ] ||
-        { grep -E 'r8: |E1S14|E1S6_|err:' <<<"$wine_new_log" | tail -40 >&2; grep -E 'E1R8_PROFILE|DENY' <<<"$e1s6_new_log" >&2
-          touch "$EL/release.r14"; fail "r8_second_elevation_while_first_runs: the second program was not launched"; }
-    grep -q 'E1S14 join lease' <<<"$wine_new_log" || { touch "$EL/release.r14"; fail "r8_second_elevation_while_first_runs: no second lease on the loaded profile"; }
-    [ "$(el_fact "$EL/r8_two_b.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r8_two_b.txt" user)" = "S-1-5-21-$r8_a-$r8_b-$r8_c-$r8_rid" ] ||
-        { cat "$EL/r8_two_b.txt" >&2; touch "$EL/release.r14"; fail "r8_second_elevation_while_first_runs: the second program is not the elevated administrator"; }
-    grep -q 'ready=1' "$EL/r8_two_a.txt" || fail "r8_second_elevation_while_first_runs: the first program's report changed"
-    touch "$EL/release.r14"
-    wait "$R8_TWO_A" 2>/dev/null || true
-    rm -f "$EL/release.r14"
-    ok r8_second_elevation_while_first_runs
-
-    # A wrong password, then the right one: the request gets a fresh dialog (attempt 2) and the program starts
-    el_down "$STD"
-    el_clean
-    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
-    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
-        '"EnableStandardUserElevation"=dword:00000001'
-    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
-        '"Start"=dword:00000002' \
-        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
-    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
-        '"R8AutoSelect"="'"$ADM"'"' \
-        '"R8AutoPassword"="not-'"$R8PW"'"' \
-        '"R8AutoPassword2"="'"$R8PW"'"'
-    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
-    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
-    el_up "$STD"
-    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-        "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r8_retry.txt")" - >"$ROOT/r8_retry.log" 2>&1 || true
-    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-    [ "$(grep -c 'r8: result refused' <<<"$wine_new_log")" = 1 ] && grep -q 'r8: further attempt' <<<"$wine_new_log" ||
-        { grep -E 'r8: |E1S6_' <<<"$wine_new_log" | tail -30 >&2; fail "r8_retry_after_wrong_password: no refusal followed by a further attempt"; }
-    grep -q 'r8: launched' <<<"$wine_new_log" ||
-        { grep -E 'r8: |E1S6_' <<<"$wine_new_log" | tail -30 >&2; grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -20 >&2
-          fail "r8_retry_after_wrong_password: the second attempt did not launch"; }
-    [ "$(grep -c 'E1R8_REDEEMED' <<<"$e1s6_new_log")" = 1 ] || fail "r8_retry_after_wrong_password: not exactly one redemption"
-    [ "$(el_fact "$EL/r8_retry.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r8_retry.txt" user)" = "S-1-5-21-$r8_a-$r8_b-$r8_c-$r8_rid" ] ||
-        { cat "$EL/r8_retry.txt" >&2; fail "r8_retry_after_wrong_password: the program is not the elevated administrator"; }
-    ok r8_retry_after_wrong_password
-
-    # The real window, driven by the host keyboard (xdotool on Xvfb), no lab hook: a wrong password,
-    # then the right password in the fresh dialog (which shows the error). Screenshots go to $WEX_R8_SHOTS when set.
-    r8_shot() { [ -n "${WEX_R8_SHOTS:-}" ] || return 0; DISPLAY=":$DNUM" xwd -root -silent 2>/dev/null | convert xwd:- "$WEX_R8_SHOTS/$1.png" 2>/dev/null || true; }
-    r8_wait_log() {   # pattern count: waits up to 60 s for that many matching lines of the broker trace
-        local i
-        for i in $(seq 1 600); do
-            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-            [ "$(grep -cE "$1" <<<"$wine_new_log")" -ge "$2" ] && return 0
-            sleep 0.1
-        done
-        return 1
-    }
-    el_down "$STD"
-    el_clean
-    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
-    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
-        '"EnableStandardUserElevation"=dword:00000001'
-    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
-        '"Start"=dword:00000002' \
-        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
-    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
-    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
-    el_up "$STD"
-    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-        "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r8_typed.txt")" - >"$ROOT/r8_typed.log" 2>&1 &
-    R8_TYPED=$!
-    r8_typed_fail() { grep -E 'r8: |E1S6_' <<<"$wine_new_log" | tail -30 >&2; r8_shot r8_typed_fail; kill "$R8_TYPED" 2>/dev/null || true; fail "r8_typed_by_keyboard: $1"; }
-    r8_wait_log 'r8: recheck ok' 1 || r8_typed_fail "the first dialog did not open"
-    sleep 3; r8_shot r8_typed_1_dialog
-    XD type --delay 40 "$ADM"; XD key Tab; XD type --delay 40 "not-$R8PW"; sleep 0.5; r8_shot r8_typed_2_filled; XD key Return
-    r8_wait_log 'r8: result refused' 1 || r8_typed_fail "the wrong password was not refused"
-    r8_wait_log 'r8: recheck ok' 2 || r8_typed_fail "no fresh dialog after the refusal"
-    sleep 3; r8_shot r8_typed_4_again
-    XD type --delay 40 "$ADM"; XD key Tab; XD type --delay 40 "$R8PW"; XD key Return
-    r8_wait_log 'r8: launched|r8: .* failed' 1 || r8_typed_fail "the second attempt did not finish"
-    wait "$R8_TYPED" 2>/dev/null || true
-    grep -q 'r8: launched' <<<"$wine_new_log" || r8_typed_fail "the typed password did not launch the program"
-    [ "$(el_fact "$EL/r8_typed.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r8_typed.txt" user)" = "S-1-5-21-$r8_a-$r8_b-$r8_c-$r8_rid" ] ||
-        { cat "$EL/r8_typed.txt" >&2; fail "r8_typed_by_keyboard: the program is not the elevated administrator"; }
-    sleep 1; r8_shot r8_typed_5_after
-    ok r8_typed_by_keyboard
-
-    # Negative: the right account with a wrong password is refused three times and nothing starts
-    el_down "$STD"
-    el_clean
-    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
-    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
-        '"EnableStandardUserElevation"=dword:00000001'
-    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
-        '"Start"=dword:00000002' \
-        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
-    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
-        '"R8AutoSelect"="'"$ADM"'"' \
-        '"R8AutoPassword"="not-'"$R8PW"'"'
-    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
-    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
-    el_up "$STD"
-    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-        "$(winpath /home/$STD/wexel/p64.exe)" 1326 "$(winpath "$EL/r8_e2e_res_wrongpw.txt")" - >/dev/null 2>&1 || true
-    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-    [ "$(grep -c 'r8: result refused' <<<"$wine_new_log")" = 3 ] && [ "$(grep -c 'r8: prepare ok' <<<"$wine_new_log")" = 1 ] ||
-        { echo "$wine_new_log" | grep 'r8: ' >&2; fail "r8_wrong_password_refused: not exactly three refused attempts in one request"; }
-    grep -q 'E1R8_RESULT request=.* authenticated=0' <<<"$e1s6_new_log" || fail "r8_wrong_password_refused: the verifier did not refuse"
-    ! grep -qE 'r8: redeemed|r8: launched|E1R8_REDEEMED' <<<"$wine_new_log$e1s6_new_log" || fail "r8_wrong_password_refused: evidence or a launch after a refusal"
-    [ ! -e "$EL/r8_e2e_res_wrongpw.txt" ] || fail "r8_wrong_password_refused: a program started"
-    ok r8_wrong_password_refused
-
-    # one request as $STD with the lab hook typing the given password; sets wine_new_log and e1s6_new_log
-    r8_pw_request()  # password, result file name, [lockout threshold]
-    {
-        el_down "$STD"
-        el_clean
-        cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
-        reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
-            '"EnableStandardUserElevation"=dword:00000001' \
-            ${3:+"\"LockoutBadCount\"=dword:0000000$3"}
-        reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
-            '"Start"=dword:00000002' \
-            '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
-        reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
-            '"R8AutoSelect"="'"$ADM"'"' \
-            '"R8AutoPassword"="'"$1"'"'
-        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
-        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
-        el_up "$STD"
-        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/$2")" - >/dev/null 2>&1 || true
-        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-    }
-
-    # No lockout by default (the Windows XP / Server 2003 default, lockout threshold 0): after those three
-    # refusals the right password in a new request starts the program.
-    r8_pw_request "$R8PW" r8_nolockout.txt
-    grep -q 'r8: launched' <<<"$wine_new_log" && ! grep -q 'r8-throttle' <<<"$e1s6_new_log" ||
-        { grep -E 'r8: ' <<<"$wine_new_log" | tail -20 >&2; grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2
-          fail "r8_no_lockout_by_default: the right password after three refusals did not launch"; }
-    [ "$(el_fact "$EL/r8_nolockout.txt" elevation)" = 2 ] || fail "r8_no_lockout_by_default: the program is not elevated"
-    ok r8_no_lockout_by_default
-
-    # With the lockout policy in the machine registry (LockoutBadCount=3): three refusals close the account,
-    # across requests: the RIGHT password in a new request gets no worker, no password check and no program.
-    r8_pw_request "not-$R8PW" r8_throttled_wrong.txt 3
-    grep -q 'E1R8_LOCKOUT threshold=3 minutes=30' <<<"$e1s6_new_log" ||
-        { grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2; fail "r8_throttled_after_three_refusals: the verifier did not read the policy"; }
-    [ "$(grep -c 'r8: result refused' <<<"$wine_new_log")" = 3 ] ||
-        { grep 'r8: ' <<<"$wine_new_log" >&2; fail "r8_throttled_after_three_refusals: not three refusals first"; }
-    r8_pw_request "$R8PW" r8_throttled.txt 3
-    grep -q 'E1R8_LOCKED' <<<"$e1s6_new_log" ||
-        { grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2; fail "r8_throttled_after_three_refusals: the verifier did not throttle the account"; }
-    # the broker passes the lockout on to the dialog (which shows the system's message) and ends the request
-    grep -q 'r8: locked sent' <<<"$wine_new_log" && ! grep -q 'r8: further attempt' <<<"$wine_new_log" ||
-        { grep 'r8: ' <<<"$wine_new_log" | tail -20 >&2; fail "r8_throttled_after_three_refusals: the dialog was not told about the lockout"; }
-    ! grep -qE 'E1R8_WORKER_READY|E1R8_RESULT|E1R8_REDEEMED|r8: launched' <<<"$wine_new_log$e1s6_new_log" ||
-        fail "r8_throttled_after_three_refusals: a worker, a result or a launch while throttled"
-    [ ! -e "$EL/r8_throttled.txt" ] || fail "r8_throttled_after_three_refusals: a program started"
-    ok r8_throttled_after_three_refusals
-
-    # The policy removed again: the verifier follows the registry at once, the account is open
-    r8_pw_request "$R8PW" r8_lockout_off.txt
-    grep -q 'E1R8_LOCKOUT threshold=0' <<<"$e1s6_new_log" && grep -q 'r8: launched' <<<"$wine_new_log" ||
-        { grep -E 'r8: ' <<<"$wine_new_log" | tail -20 >&2; grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2
-          fail "r8_lockout_policy_removed: the right password did not launch after the policy was removed"; }
-    ok r8_lockout_policy_removed
-
-    # Negative test 2: unknown account name still yields WORKER_READY with a decoy (zero key) and no evidence
-    el_down "$STD"
-    el_clean
-    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
-    reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
-        '"EnableStandardUserElevation"=dword:00000001'
-    reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
-        '"Start"=dword:00000002' \
-        '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
-    reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
-        '"R8AutoSelect"="decoyuser"' \
-        '"R8AutoPassword"="'"$R8PW"'"'
-    e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
-    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
-    el_up "$STD"
-    # an unknown name gets the same conversation and the same refusal as a wrong password
-    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-        "$(winpath /home/$STD/wexel/p64.exe)" 1326 "$(winpath "$EL/r8_e2e_res_decoy.txt")" - >/dev/null 2>&1 || true
-    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-    grep -q 'r8: attach_ok sent' <<<"$wine_new_log" || fail "r8_select_unknown_account_is_decoy: attach_ok sent missing"
-    grep -q 'E1R8_WORKER_READY' <<<"$e1s6_new_log" || fail "r8_select_unknown_account_is_decoy: E1R8_WORKER_READY missing"
-    grep -q 'r8: account decoy' <<<"$wine_new_log" || fail "r8_select_unknown_account_is_decoy: the unknown account did not get the zero key"
-    grep -q 'r8: result refused' <<<"$wine_new_log" || fail "r8_select_unknown_account_is_decoy: the decoy was not refused"
-    ! grep -qE 'r8: redeemed|r8: launched|E1R8_REDEEMED' <<<"$wine_new_log$e1s6_new_log" || fail "r8_select_unknown_account_is_decoy: evidence or a launch for a decoy"
-    [ ! -e "$EL/r8_e2e_res_decoy.txt" ] || fail "r8_select_unknown_account_is_decoy: a program started"
-    ok r8_select_unknown_account_is_decoy
-
-    # Whole-chain review negatives (WO-30). $1: the password the lab dialog types ("" = it shows its window
-    # and waits). Starts the request in the background and waits until the dialog holds ATTACH_OK.
-    r8_neg_start() {
-        el_down "$STD"
-        el_clean
+        e1s6_stop
+        # session 0 is stopped while the block sets up its machine hive, and the block starts it after the verifier
+        s0_stop; SEC_S0=0
         cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
         reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
             '"EnableStandardUserElevation"=dword:00000001'
         reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
             '"Start"=dword:00000002' \
             '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
-        if [ -n "$1" ]; then
-            reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
-                '"R8AutoSelect"="'"$ADM"'"' '"R8AutoPassword"="'"$1"'"'
-        else
-            reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' '"R8AutoSelect"="'"$ADM"'"'
-        fi
-        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
-        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
-        el_up "$STD"
-        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r8_neg_res.txt")" - >/dev/null 2>&1 &
-        PROBE_PID=$!
-        for _ in $(seq 1 200); do
-            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-            grep -qE 'r8: attach_ok sent|r8: .* failed' <<<"$wine_new_log" && break
-            sleep 0.1
-        done
-        grep -q 'r8: attach_ok sent' <<<"$wine_new_log" || { grep 'r8: ' <<<"$wine_new_log" >&2; fail "$2: the dialog did not get ATTACH_OK"; }
-        consent_unix_pid="$(grep 'wex-r8: dialog [0-9a-fA-F]* pin pid=' <<<"$wine_new_log" | head -1 | sed -n 's/.*pin pid=\([0-9]*\).*/\1/p')"
-        # $3 = done-ok: the dialog may have finished already (a right password is answered at once)
-        [ "${3:-}" = done-ok ] || { [ -n "$consent_unix_pid" ] && [ -d "/proc/$consent_unix_pid" ]; } || fail "$2: no live dialog process"
-    }
-    # Kills the dialog, waits for the broker to give up, and requires that nothing was issued or started.
-    r8_neg_end() {
-        kill -9 "$consent_unix_pid" 2>/dev/null || true
-        for _ in $(seq 1 300); do
-            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-            grep -qE 'r8: launched|r8: .* failed' <<<"$wine_new_log" && break
-            sleep 0.1
-        done
-        wait "$PROBE_PID" 2>/dev/null || true
-        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-        grep -q 'r8: .* failed' <<<"$wine_new_log" || { grep 'r8: ' <<<"$wine_new_log" >&2; fail "$1: the broker did not end the request"; }
-        ! grep -qE 'r8: redeemed|r8: launched|E1R8_REDEEMED|authenticated=1' <<<"$wine_new_log$e1s6_new_log" ||
-            { grep 'r8: ' <<<"$wine_new_log" >&2; fail "$1: evidence or a launch without the dialog"; }
-        [ ! -e "$EL/r8_neg_res.txt" ] || fail "$1: a program started"
-    }
-
-    # Negative: another process of the same user asks the verifier for the dialog's password socket, with the
-    # live request's id. It is refused for who it is, nothing changes for the attempt, and the dialog stays.
-    r8_neg_start "" r8_foreign_attach_denied
-    r8_rid="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" | sed -n 's/^E1R8_ENDORSED ok request=\([0-9a-f]*\) .*/\1/p' | head -1)"
-    [ -n "$r8_rid" ] || fail "r8_foreign_attach_denied: no endorsed request id"
-    cat > "$ROOT/r8-foreign-attach.py" <<'EOF'
-import sys, dbus
-bus = dbus.SystemBus()
-obj = bus.get_object("org.wineexplorer.E1S6Lab", "/org/wineexplorer/E1S6Lab", introspect=False)
-try:
-    obj.DialogAttach(dbus.UInt64(int(sys.argv[1], 16)), dbus.UInt32(1), dbus.ByteArray(bytes(32)),
-                     dbus.ByteArray(bytes(16)), dbus.ByteArray(bytes(16)),
-                     dbus_interface="org.wineexplorer.E1S6Lab", signature="tuayayay")
-    print("ATTACHED")
-except dbus.exceptions.DBusException as exc:
-    print("DENIED" if exc.get_dbus_name() == "org.wineexplorer.E1S6Lab.Denied" else "ERROR " + exc.get_dbus_name())
-EOF
-    chmod 0644 "$ROOT/r8-foreign-attach.py"
-    r8_foreign="$(run_as "$STD" python3 "$ROOT/r8-foreign-attach.py" "$r8_rid" 2>/dev/null || true)"
-    [ "$r8_foreign" = DENIED ] || fail "r8_foreign_attach_denied: got '$r8_foreign'"
-    sleep 1
-    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")"
-    grep -q 'site=attach-sender-pid ' <<<"$e1s6_new_log" || { tail -8 <<<"$e1s6_new_log" >&2; fail "r8_foreign_attach_denied: not refused for the caller's identity"; }
-    ! grep -q 'E1R8_ATTACH ok' <<<"$e1s6_new_log" || fail "r8_foreign_attach_denied: the verifier attached someone"
-    [ -d "/proc/$consent_unix_pid" ] || fail "r8_foreign_attach_denied: the refused call ended the dialog"
-    r8_neg_end r8_foreign_attach_denied
-    rm -f "$ROOT/r8-foreign-attach.py"
-    ok r8_foreign_attach_denied
-
-    # Negative: the dialog dies while the worker holds its answer (a refusal is held for 2 s; a success is
-    # released at once and leaves no such window): no evidence, no token, no program, and no further attempt.
-    r8_neg_start "not-$R8PW" r8_dialog_killed_no_launch
-    for _ in $(seq 1 100); do
-        grep -q 'E1R8_DELEGATED' <<<"$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")" && break
-        sleep 0.1
-    done
-    grep -q 'E1R8_DELEGATED' <<<"$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")" ||
-        fail "r8_dialog_killed_no_launch: the password conversation did not start"
-    sleep 0.5   # the password is with the worker; its answer is held back until 2 s after it arrived
-    r8_neg_end r8_dialog_killed_no_launch
-    ! grep -q 'r8: further attempt' <<<"$wine_new_log" || fail "r8_dialog_killed_no_launch: a further attempt after the dialog died"
-    ok r8_dialog_killed_no_launch
-
-    # E1 R9 (docs/E1_S18E_R9_SPEC.md, lab): the same elevation with the broker in session 0 (B0) and the agent in
-    # the user's session (A). Session 0 runs for this case only; the verifier is told its account and holds the
-    # grant. WEX_SKIP_R9_E2E=1 skips it.
-    r9_e2e_block() {
-        local m
-        el_down "$STD"
-        el_clean
-        e1s6_stop
-        cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
-        reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
-            '"EnableStandardUserElevation"=dword:00000001' '"R9"=dword:00000001'
-        reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
-            '"Start"=dword:00000002' \
-            '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
         reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
             '"R8AutoSelect"="'"$ADM"'"' '"R8AutoPassword"="'"$R8PW"'"'
-        s0_conf_on
         export WEX_E1S6_LAB_R9=1 WEX_E1S6_LAB_S0_USER="$S0U"
         e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
         s0_start
@@ -2604,6 +2306,93 @@ EOF
         grep -q 'r9b: serving' <<<"$wine_new_log" ||
             { tail -30 <<<"$wine_new_log" >&2; tail -10 "$ROOT/session0.log" >&2; fail "r9_e2e: the broker does not serve in session 0"; }
         r9_sid="S-1-5-21-$(awk -v n="$ADM" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
+
+        # What the lab dialog types: account, password (session 0 holds the machine registry while it runs).
+        r9_auto() {
+            s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoSelect /d "$1" /f >/dev/null || true
+            s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "$2" /f >/dev/null || true
+            s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword2 /f >/dev/null 2>&1 || true
+        }
+        # One request as $STD (result file, the error the probe expects); waits for B0's END and sets wine_new_log
+        # and e1s6_new_log.
+        r9_request() {
+            el_down "$STD"
+            el_clean
+            rm -f "$EL/$1"
+            e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+            wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+            el_up "$STD"
+            wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+                "$(winpath /home/$STD/wexel/p64.exe)" "$2" "$(winpath "$EL/$1")" - >"$ROOT/${1%.txt}.log" 2>&1 || true
+            for _ in $(seq 1 300); do
+                wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+                grep -q 'r9b: end ' <<<"$wine_new_log" && break
+                sleep 0.1
+            done
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+        }
+        # Whole-chain review negatives (WO-30). $1: the password the lab dialog types ("" = it shows its window and
+        # waits). Starts the request in the background and waits until B0 sent the dialog ATTACH_OK.
+        r9_neg_start() {
+            if [ -n "$1" ]; then
+                r9_auto "$ADM" "$1"
+            else
+                s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoSelect /d "$ADM" /f >/dev/null || true
+                s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /f >/dev/null 2>&1 || true
+                s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword2 /f >/dev/null 2>&1 || true
+            fi
+            el_down "$STD"
+            el_clean
+            rm -f "$EL/r9_neg_res.txt"
+            e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+            wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+            el_up "$STD"
+            wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+                "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r9_neg_res.txt")" - >/dev/null 2>&1 &
+            PROBE_PID=$!
+            for _ in $(seq 1 300); do
+                wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+                grep -qE 'r9b: attach_ok sent|r9b: .* failed|r8: .* failed' <<<"$wine_new_log" && break
+                sleep 0.1
+            done
+            grep -q 'r9b: attach_ok sent' <<<"$wine_new_log" ||
+                { grep -E 'r8: |r9a: |r9b: ' <<<"$wine_new_log" >&2; fail "$2: the dialog did not get ATTACH_OK"; }
+            consent_unix_pid="$(grep 'wex-r8: dialog [0-9a-fA-F]* pin pid=' <<<"$wine_new_log" | head -1 | sed -n 's/.*pin pid=\([0-9]*\).*/\1/p')"
+            # $3 = done-ok: the dialog may have finished already (a right password is answered at once)
+            [ "${3:-}" = done-ok ] || { [ -n "$consent_unix_pid" ] && [ -d "/proc/$consent_unix_pid" ]; } || fail "$2: no live dialog process"
+        }
+        # Kills the dialog, waits for B0 to end the request, and requires that nothing was issued or started.
+        r9_neg_end() {
+            kill -9 "$consent_unix_pid" 2>/dev/null || true
+            for _ in $(seq 1 300); do
+                wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+                grep -q 'r9b: end ' <<<"$wine_new_log" && break
+                sleep 0.1
+            done
+            wait "$PROBE_PID" 2>/dev/null || true
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+            grep -qE 'r9b: .* failed' <<<"$wine_new_log" && grep -q 'r9b: end cancelled' <<<"$wine_new_log" ||
+                { grep -E 'r8: |r9a: |r9b: ' <<<"$wine_new_log" >&2; fail "$1: the broker did not end the request"; }
+            ! grep -qE 'r9a: redeemed|r8: launched|E1R8_GRANTED|E1R8_REDEEMED|authenticated=1' <<<"$wine_new_log$e1s6_new_log" ||
+                { grep -E 'r8: |r9a: |r9b: ' <<<"$wine_new_log" >&2; fail "$1: evidence or a launch without the dialog"; }
+            [ ! -e "$EL/r9_neg_res.txt" ] || fail "$1: a program started"
+        }
+        # Session 0 restarted: its services start again, wexelevate there is B0 (its trace goes to the case's log).
+        r9_b0_serving() {
+            wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+            (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+                WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" sc query wexelevate \
+                </dev/null >>"$ROOT/e1s6-wine.log" 2>&1) || true
+            for _ in $(seq 1 300); do
+                wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+                grep -q 'r9b: serving' <<<"$wine_new_log" && break
+                sleep 0.1
+            done
+            grep -q 'r9b: serving' <<<"$wine_new_log" ||
+                { tail -30 <<<"$wine_new_log" >&2; tail -10 "$ROOT/session0.log" >&2; fail "$1: the broker does not serve in session 0"; }
+        }
 
         # 1. r9_e2e_elevated_32: parameterise the existing case over 64 and 32
         for arch in 64 32; do
@@ -2626,15 +2415,34 @@ EOF
             wait "$PROBE_PID" 2>/dev/null || true
             wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
             e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+            # r9_e2e_attach_ok: the agent's prepare and endorsement, then B0's decision sequence up to ATTACH_OK, in
+            # order; the dialog the server pinned is the one the verifier endorsed, and it got a worker
+            for m in 'r8: prepare ok' 'r8: endorse ok' 'r9b: select ok' 'r9b: start sent' 'r9b: attach_ok sent'; do
+                grep -q "$m" <<<"$wine_new_log" || { grep -E 'r8: |r9a: |r9b: |E1S6_' <<<"$wine_new_log" | tail -40 >&2
+                    fail "r9_e2e_attach_ok_$arch: '$m' missing"; }
+            done
+            order_check="$(grep -E 'r8: (prepare|endorse) ok|r9b: (endorsed|ack ok|select ok|start sent|worker ready|attach_ok sent)' <<<"$wine_new_log" | tr '\n' ' ')"
+            r9_order='prepare ok.*endorse ok.*r9b: endorsed.*r9b: ack ok.*r9b: select ok.*r9b: start sent.*r9b: worker ready.*r9b: attach_ok sent'
+            [[ "$order_check" =~ $r9_order ]] || { echo "$order_check" >&2; fail "r9_e2e_attach_ok_$arch: milestones not in order"; }
+            consent_unix_pid="$(grep 'wex-r8: dialog [0-9a-fA-F]* pin pid=' <<<"$wine_new_log" | head -1 | sed -n 's/.*pin pid=\([0-9]*\).*/\1/p')"
+            [ -n "$consent_unix_pid" ] || fail "r9_e2e_attach_ok_$arch: consent unix pid not found in wine log"
+            grep -q "^E1R8_ENDORSED ok .*pid=$consent_unix_pid\$" <<<"$e1s6_new_log" || fail "r9_e2e_attach_ok_$arch: E1R8_ENDORSED ok pid mismatch"
+            grep -q "E1R8_WORKER_READY request=" <<<"$e1s6_new_log" || fail "r9_e2e_attach_ok_$arch: E1R8_WORKER_READY missing in verifier log"
+            ok "r9_e2e_attach_ok_$arch"
             for m in 'r9a: request sent' 'r9b: request' 'r9b: decision prompt' 'r9b: endorsed' 'r9b: ack ok' \
                      'r9b: account known' 'r9b: worker ready' 'r9b: ready sent' 'r9b: result sent' 'r9b: confirm ok' \
-                     'r9b: granted' 'r9b: launch sent' 'r9a: redeemed' 'r8: launched' 'r9b: launched' 'r9b: end completed'; do
+                     'r9b: granted' 'r9b: launch sent' 'r9a: redeemed' 'wex-r8: receipt installed' 'r8: receipt installed' \
+                     'r8: launched' 'r9b: launched' 'r9b: end completed'; do
                 grep -q "$m" <<<"$wine_new_log" || { grep -E 'r8: |r9a: |r9b: |E1S6_|err:|fixme:wex' <<<"$wine_new_log" | tail -60 >&2
                     tail -25 <<<"$e1s6_new_log" >&2; tail -10 "$ROOT/session0.log" >&2; fail "r9_e2e_elevated_$arch: '$m' missing"; }
             done
-            for m in 'E1R8_GRANTED request=' 'E1R8_REDEEMED request=' 'E1R8_RELEASED request='; do
+            for m in 'E1R8_RESULT request=.* authenticated=1' 'E1R8_GRANTED request=' 'E1R8_REDEEMED request=' 'E1R8_RELEASED request='; do
                 grep -q "$m" <<<"$e1s6_new_log" || { tail -25 <<<"$e1s6_new_log" >&2; fail "r9_e2e_elevated_$arch: the verifier has no '$m'"; }
             done
+            # first use creates the administrator's profile, the second elevation finds and keeps it
+            [ "$arch" = 64 ] && r9_reused=0 || r9_reused=1
+            grep -q "E1R8_PROFILE request=.* rc=0 status=0 reused=$r9_reused " <<<"$e1s6_new_log" ||
+                { grep E1R8_PROFILE <<<"$e1s6_new_log" >&2; fail "r9_e2e_elevated_$arch: profile provisioning (expected reused=$r9_reused)"; }
             [ "$(el_fact "$EL/r9_e2e_res_${arch}.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r9_e2e_res_${arch}.txt" integrity)" = 12288 ] ||
                 { cat "$EL/r9_e2e_res_${arch}.txt" "$ROOT/r9_e2e_probe_$arch.log" >&2; fail "r9_e2e_elevated_$arch: the program did not run elevated"; }
             [ "$(el_fact "$EL/r9_e2e_res_${arch}.txt" user)" = "$r9_sid" ] ||
@@ -2643,6 +2451,58 @@ EOF
             ! pgrep -f 'system32.consent[.]exe' >/dev/null || fail "r9_e2e_elevated_$arch: the dialog is still running"
             [ "$arch" = 64 ] && ok r9_e2e_elevated_through_session0 || ok r9_e2e_elevated_32
         done
+
+        # r9_second_elevation_while_first_runs (review R14): a second elevation while the first elevated program
+        # still runs. B0 serves one request at a time, but the first request has ended once its program started.
+        # The profile is loaded; the second logon takes its own lease on it instead of being refused.
+        el_down "$STD"
+        el_clean
+        rm -f "$EL/r9_two_a.txt" "$EL/r9_two_b.txt" "$EL/release.r14"
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 42 "$(winpath "$EL/r9_two_a.txt")" - "hold r14" \
+            >"$ROOT/r9_two_a.log" 2>&1 &
+        R9_TWO_A=$!
+        for _ in $(seq 1 600); do grep -q 'ready=1' "$EL/r9_two_a.txt" 2>/dev/null && break; sleep 0.1; done
+        grep -q 'ready=1' "$EL/r9_two_a.txt" 2>/dev/null ||
+            { tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" | grep -E 'r8: |r9a: |r9b: |E1S14|E1S6_' | tail -30 >&2
+              touch "$EL/release.r14"; fail "r9_second_elevation_while_first_runs: the first program did not start"; }
+        # the first request is over at B0 (and at the agent) before the second one starts
+        for _ in $(seq 1 100); do
+            grep -q 'r9b: end completed' <<<"$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)" && break
+            sleep 0.1
+        done
+        sleep 1
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r9_two_b.txt")" - \
+            >"$ROOT/r9_two_b.log" 2>&1 &
+        R9_TWO_B=$!
+        for _ in $(seq 1 600); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            [ "$(grep -c 'r8: launched' <<<"$wine_new_log")" -ge 2 ] && break
+            grep -qE 'r8: .* failed|r9b: .* failed|r9b: deny (busy|policy)' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        wait "$R9_TWO_B" 2>/dev/null || true
+        for _ in $(seq 1 100); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            [ "$(grep -c 'r9b: end ' <<<"$wine_new_log")" -ge 2 ] && break
+            sleep 0.1
+        done
+        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+        [ "$(grep -c 'r8: launched' <<<"$wine_new_log")" = 2 ] && [ "$(grep -c 'r9b: end completed' <<<"$wine_new_log")" = 2 ] ||
+            { grep -E 'r8: |r9a: |r9b: |E1S14|E1S6_|err:' <<<"$wine_new_log" | tail -40 >&2; grep -E 'E1R8_PROFILE|DENY' <<<"$e1s6_new_log" >&2
+              touch "$EL/release.r14"; fail "r9_second_elevation_while_first_runs: the second program was not launched"; }
+        grep -q 'E1S14 join lease' <<<"$wine_new_log" || { touch "$EL/release.r14"; fail "r9_second_elevation_while_first_runs: no second lease on the loaded profile"; }
+        [ "$(el_fact "$EL/r9_two_b.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r9_two_b.txt" user)" = "$r9_sid" ] ||
+            { cat "$EL/r9_two_b.txt" >&2; touch "$EL/release.r14"; fail "r9_second_elevation_while_first_runs: the second program is not the elevated administrator"; }
+        grep -q 'ready=1' "$EL/r9_two_a.txt" || { touch "$EL/release.r14"; fail "r9_second_elevation_while_first_runs: the first program's report changed"; }
+        touch "$EL/release.r14"
+        wait "$R9_TWO_A" 2>/dev/null || true
+        rm -f "$EL/release.r14"
+        ok r9_second_elevation_while_first_runs
 
         # 2. r9_retry_after_wrong_password: first password wrong, second right
         s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "not-$R8PW" /f
@@ -2701,14 +2561,26 @@ EOF
         wait "$PROBE_PID" 2>/dev/null || true
         wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
         e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-        [ "$(grep -c 'r9b: result refused' <<<"$wine_new_log")" = 3 ] ||
-            { grep -E 'r9b: ' <<<"$wine_new_log" >&2; fail "r9_wrong_password_refused: not exactly three refused attempts"; }
+        [ "$(grep -c 'r9b: result refused' <<<"$wine_new_log")" = 3 ] && [ "$(grep -c 'r9b: request' <<<"$wine_new_log")" = 1 ] ||
+            { grep -E 'r9b: ' <<<"$wine_new_log" >&2; fail "r9_wrong_password_refused: not exactly three refused attempts in one request"; }
+        grep -q 'E1R8_RESULT request=.* authenticated=0' <<<"$e1s6_new_log" || fail "r9_wrong_password_refused: the verifier did not refuse"
         grep -q 'r9b: end cancelled' <<<"$wine_new_log" || fail "r9_wrong_password_refused: 'r9b: end cancelled' missing"
         ! grep -qE 'r9a: redeemed|r8: launched|E1R8_GRANTED|E1R8_REDEEMED' <<<"$wine_new_log$e1s6_new_log" ||
             fail "r9_wrong_password_refused: evidence, redeem or launch occurred"
         [ ! -e "$EL/r9_wrongpw.txt" ] || fail "r9_wrong_password_refused: program output file exists"
         ! pgrep -f 'system32.consent[.]exe' >/dev/null || fail "r9_wrong_password_refused: dialog is still running"
         ok r9_wrong_password_refused
+
+        # r9_no_lockout_by_default (the Windows XP / Server 2003 default, lockout threshold 0): after those three
+        # refusals the right password in a new request starts the program.
+        r9_auto "$ADM" "$R8PW"
+        r9_request r9_nolockout.txt 0
+        grep -q 'r8: launched' <<<"$wine_new_log" && grep -q 'r9b: end completed' <<<"$wine_new_log" &&
+            ! grep -q 'E1R8_LOCKED' <<<"$e1s6_new_log" ||
+            { grep -E 'r8: |r9a: |r9b: ' <<<"$wine_new_log" | tail -20 >&2; grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2
+              fail "r9_no_lockout_by_default: the right password after three refusals did not launch"; }
+        [ "$(el_fact "$EL/r9_nolockout.txt" elevation)" = 2 ] || fail "r9_no_lockout_by_default: the program is not elevated"
+        ok r9_no_lockout_by_default
 
         # 4. r9_dialog_killed_no_launch: kill dialog while worker holds password
         s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "not-$R8PW" /f
@@ -2745,9 +2617,10 @@ EOF
         e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
         grep -qE 'r9b: .* failed' <<<"$wine_new_log" || fail "r9_dialog_killed_no_launch: broker did not report failure"
         grep -q 'r9b: end cancelled' <<<"$wine_new_log" || fail "r9_dialog_killed_no_launch: broker did not end cancelled"
-        ! grep -qE 'r9a: redeemed|r8: launched|E1R8_GRANTED|E1R8_REDEEMED' <<<"$wine_new_log$e1s6_new_log" ||
+        ! grep -qE 'r9a: redeemed|r8: launched|E1R8_GRANTED|E1R8_REDEEMED|authenticated=1' <<<"$wine_new_log$e1s6_new_log" ||
             fail "r9_dialog_killed_no_launch: evidence, redeem or launch occurred"
         [ ! -e "$EL/r9_dialog_killed_res.txt" ] || fail "r9_dialog_killed_no_launch: program started"
+        ! grep -q 'r9b: further attempt' <<<"$wine_new_log" || fail "r9_dialog_killed_no_launch: a further attempt after the dialog died"
         # B0 must not stay busy: recovery normal elevation succeeds
         s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "$R8PW" /f
         el_down "$STD"
@@ -2870,6 +2743,95 @@ EOF
         grep -q 'session0: pipe open refused' <<<"$(tail -n +"$((s0_log_before + 1))" "$ROOT/session0.log")" ||
             fail "r9_idle_clients_do_not_hold_broker: 'session0: pipe open refused' missing from session0.log"
         ok r9_idle_clients_do_not_hold_broker
+
+        # r9_typed_by_keyboard: the real window, driven by the host keyboard (xdotool on Xvfb), no lab hook: a wrong
+        # password, then the right password in the fresh dialog (which shows the error). Screenshots go to
+        # $WEX_R8_SHOTS when set.
+        r9_shot() { [ -n "${WEX_R8_SHOTS:-}" ] || return 0; DISPLAY=":$DNUM" xwd -root -silent 2>/dev/null | convert xwd:- "$WEX_R8_SHOTS/$1.png" 2>/dev/null || true; }
+        r9_wait_log() {   # pattern count: waits up to 60 s for that many matching lines of the brokers' trace
+            local i
+            for i in $(seq 1 600); do
+                wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+                [ "$(grep -cE "$1" <<<"$wine_new_log")" -ge "$2" ] && return 0
+                sleep 0.1
+            done
+            return 1
+        }
+        s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoSelect /f >/dev/null 2>&1 || true
+        s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /f >/dev/null 2>&1 || true
+        s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword2 /f >/dev/null 2>&1 || true
+        el_down "$STD"
+        el_clean
+        rm -f "$EL/r9_typed.txt"
+        e1s6_line_before=$(wc -l < "$ROOT/e1s6-service.log")
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 0 "$(winpath "$EL/r9_typed.txt")" - >"$ROOT/r9_typed.log" 2>&1 &
+        R9_TYPED=$!
+        r9_typed_fail() { grep -E 'r8: |r9a: |r9b: |E1S6_' <<<"$wine_new_log" | tail -30 >&2; r9_shot r9_typed_fail; kill "$R9_TYPED" 2>/dev/null || true; fail "r9_typed_by_keyboard: $1"; }
+        r9_wait_log 'r9b: ack ok' 1 || r9_typed_fail "the first dialog did not open"
+        sleep 3; r9_shot r9_typed_1_dialog
+        XD type --delay 40 "$ADM"; XD key Tab; XD type --delay 40 "not-$R8PW"; sleep 0.5; r9_shot r9_typed_2_filled; XD key Return
+        r9_wait_log 'r9b: result refused' 1 || r9_typed_fail "the wrong password was not refused"
+        r9_wait_log 'r9b: ack ok' 2 || r9_typed_fail "no fresh dialog after the refusal"
+        sleep 3; r9_shot r9_typed_4_again
+        XD type --delay 40 "$ADM"; XD key Tab; XD type --delay 40 "$R8PW"; XD key Return
+        r9_wait_log 'r9b: end ' 1 || r9_typed_fail "the second attempt did not finish"
+        wait "$R9_TYPED" 2>/dev/null || true
+        grep -q 'r8: launched' <<<"$wine_new_log" || r9_typed_fail "the typed password did not launch the program"
+        [ "$(el_fact "$EL/r9_typed.txt" elevation)" = 2 ] && [ "$(el_fact "$EL/r9_typed.txt" user)" = "$r9_sid" ] ||
+            { cat "$EL/r9_typed.txt" >&2; fail "r9_typed_by_keyboard: the program is not the elevated administrator"; }
+        sleep 1; r9_shot r9_typed_5_after
+        ok r9_typed_by_keyboard
+
+        # r9_select_unknown_account_is_decoy: an unknown account name still gets a worker, with the decoy (zero)
+        # key, the same conversation and the same refusal as a wrong password, and no evidence
+        r9_auto decoyuser "$R8PW"
+        r9_request r9_decoy.txt 1326
+        grep -q 'r9b: attach_ok sent' <<<"$wine_new_log" || fail "r9_select_unknown_account_is_decoy: 'r9b: attach_ok sent' missing"
+        grep -q 'E1R8_WORKER_READY' <<<"$e1s6_new_log" || fail "r9_select_unknown_account_is_decoy: E1R8_WORKER_READY missing"
+        grep -q 'r9b: account decoy' <<<"$wine_new_log" || fail "r9_select_unknown_account_is_decoy: the unknown account did not get the zero key"
+        grep -q 'r9b: result refused' <<<"$wine_new_log" || fail "r9_select_unknown_account_is_decoy: the decoy was not refused"
+        ! grep -qE 'r9a: redeemed|r8: launched|E1R8_GRANTED|E1R8_REDEEMED' <<<"$wine_new_log$e1s6_new_log" ||
+            fail "r9_select_unknown_account_is_decoy: evidence or a launch for a decoy"
+        [ ! -e "$EL/r9_decoy.txt" ] || fail "r9_select_unknown_account_is_decoy: a program started"
+        ok r9_select_unknown_account_is_decoy
+
+        # r9_throttled_after_three_refusals: with the lockout policy in the machine registry (LockoutBadCount=3),
+        # three refusals close the account across requests: the RIGHT password in a new request gets no worker, no
+        # password check and no program. The verifier reads the policy from the saved hive; session 0 saves within 5 s.
+        s0_wine reg add 'HKLM\Software\WineExplorer\Elevation' /v LockoutBadCount /t REG_DWORD /d 3 /f >/dev/null || true
+        for _ in $(seq 1 100); do grep -qi 'LockoutBadCount' "$M/system.reg" && break; sleep 0.1; done
+        grep -qi 'LockoutBadCount' "$M/system.reg" || fail "r9_throttled_after_three_refusals: LockoutBadCount not written to system.reg"
+        r9_auto "$ADM" "not-$R8PW"
+        r9_request r9_throttled_wrong.txt 1326
+        grep -q 'E1R8_LOCKOUT threshold=3 minutes=30' <<<"$e1s6_new_log" ||
+            { grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2; fail "r9_throttled_after_three_refusals: the verifier did not read the policy"; }
+        [ "$(grep -c 'r9b: result refused' <<<"$wine_new_log")" = 3 ] ||
+            { grep 'r9b: ' <<<"$wine_new_log" >&2; fail "r9_throttled_after_three_refusals: not three refusals first"; }
+        r9_auto "$ADM" "$R8PW"
+        r9_request r9_throttled.txt 1909
+        grep -q 'E1R8_LOCKED' <<<"$e1s6_new_log" ||
+            { grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2; fail "r9_throttled_after_three_refusals: the verifier did not throttle the account"; }
+        # B0 passes the lockout on to the dialog (which shows the system's message) and ends the request
+        grep -q 'r9b: locked sent' <<<"$wine_new_log" && ! grep -q 'r9b: further attempt' <<<"$wine_new_log" ||
+            { grep 'r9b: ' <<<"$wine_new_log" | tail -20 >&2; fail "r9_throttled_after_three_refusals: the dialog was not told about the lockout"; }
+        ! grep -qE 'E1R8_WORKER_READY|E1R8_RESULT|E1R8_REDEEMED|r8: launched' <<<"$wine_new_log$e1s6_new_log" ||
+            fail "r9_throttled_after_three_refusals: a worker, a result or a launch while throttled"
+        [ ! -e "$EL/r9_throttled.txt" ] || fail "r9_throttled_after_three_refusals: a program started"
+        ok r9_throttled_after_three_refusals
+
+        # r9_lockout_policy_removed: the policy removed again; the verifier follows the registry at once, the account
+        # is open (and r9_lockout_notice below starts from a fresh count)
+        s0_wine reg delete 'HKLM\Software\WineExplorer\Elevation' /v LockoutBadCount /f >/dev/null 2>&1 || true
+        for _ in $(seq 1 100); do grep -qi 'LockoutBadCount' "$M/system.reg" || break; sleep 0.1; done
+        ! grep -qi 'LockoutBadCount' "$M/system.reg" || fail "r9_lockout_policy_removed: LockoutBadCount not removed from system.reg"
+        r9_request r9_lockout_off.txt 0
+        grep -q 'E1R8_LOCKOUT threshold=0' <<<"$e1s6_new_log" && grep -q 'r8: launched' <<<"$wine_new_log" ||
+            { grep -E 'r8: |r9a: |r9b: ' <<<"$wine_new_log" | tail -20 >&2; grep -E 'E1R8_|DENY' <<<"$e1s6_new_log" | tail -10 >&2
+              fail "r9_lockout_policy_removed: the right password did not launch after the policy was removed"; }
+        ok r9_lockout_policy_removed
 
         # 8. r9_lockout_notice: account locked after three refusals, notice relayed, no elevation
         s0_wine reg add 'HKLM\Software\WineExplorer\Elevation' /v LockoutBadCount /t REG_DWORD /d 3 /f
@@ -3129,52 +3091,91 @@ EOF
             fail "r9_two_requests_second_is_busy: recovery program was not elevated"
         ok r9_two_requests_second_is_busy
 
+        # r9_foreign_attach_denied: another process of the same user asks the verifier for the dialog's password
+        # socket, with the live request's id. It is refused for who it is, nothing changes for the attempt, and the
+        # dialog stays.
+        r9_neg_start "" r9_foreign_attach_denied
+        r9_req="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" | sed -n 's/^E1R8_ENDORSED ok request=\([0-9a-f]*\) .*/\1/p' | head -1)"
+        [ -n "$r9_req" ] || fail "r9_foreign_attach_denied: no endorsed request id"
+        cat > "$ROOT/r9-foreign-attach.py" <<'EOF'
+import sys, dbus
+bus = dbus.SystemBus()
+obj = bus.get_object("org.wineexplorer.E1S6Lab", "/org/wineexplorer/E1S6Lab", introspect=False)
+try:
+    obj.DialogAttach(dbus.UInt64(int(sys.argv[1], 16)), dbus.UInt32(1), dbus.ByteArray(bytes(32)),
+                     dbus.ByteArray(bytes(16)), dbus.ByteArray(bytes(16)),
+                     dbus_interface="org.wineexplorer.E1S6Lab", signature="tuayayay")
+    print("ATTACHED")
+except dbus.exceptions.DBusException as exc:
+    print("DENIED" if exc.get_dbus_name() == "org.wineexplorer.E1S6Lab.Denied" else "ERROR " + exc.get_dbus_name())
+EOF
+        chmod 0644 "$ROOT/r9-foreign-attach.py"
+        r9_foreign="$(run_as "$STD" python3 "$ROOT/r9-foreign-attach.py" "$r9_req" 2>/dev/null || true)"
+        [ "$r9_foreign" = DENIED ] || fail "r9_foreign_attach_denied: got '$r9_foreign'"
+        sleep 1
+        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log")"
+        grep -q 'site=attach-sender-pid ' <<<"$e1s6_new_log" || { tail -8 <<<"$e1s6_new_log" >&2; fail "r9_foreign_attach_denied: not refused for the caller's identity"; }
+        ! grep -q 'E1R8_ATTACH ok' <<<"$e1s6_new_log" || fail "r9_foreign_attach_denied: the verifier attached someone"
+        [ -d "/proc/$consent_unix_pid" ] || fail "r9_foreign_attach_denied: the refused call ended the dialog"
+        r9_neg_end r9_foreign_attach_denied
+        rm -f "$ROOT/r9-foreign-attach.py"
+        ok r9_foreign_attach_denied
+
+        # r9_no_receipt_no_token (R10): the verifier authenticates and hands the evidence to the agent but sends the
+        # server no receipt. The agent's copy alone gets no token: the server refuses and nothing starts. The
+        # verifier restarts without the receipt; session 0 is stopped around it and started after it, as above.
+        s0_stop
+        e1s6_stop
+        WEX_E1S6_LAB_NO_RECEIPT=1 e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+        s0_start
+        r9_b0_serving r9_no_receipt_no_token
+        r9_neg_start "$R8PW" r9_no_receipt_no_token done-ok
+        for _ in $(seq 1 300); do
+            wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+            grep -q 'r9b: end ' <<<"$wine_new_log" && break
+            sleep 0.1
+        done
+        wait "$PROBE_PID" 2>/dev/null || true
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
+        grep -q 'E1R8_REDEEMED' <<<"$e1s6_new_log" && grep -q 'r9a: redeemed' <<<"$wine_new_log" ||
+            { grep -E 'r8: |r9a: |r9b: ' <<<"$wine_new_log" >&2; fail "r9_no_receipt_no_token: the agent did not get its evidence copy"; }
+        grep -q 'site=receipt-receive' <<<"$wine_new_log" || { grep -E 'r8: |r9a: |receipt' <<<"$wine_new_log" >&2; fail "r9_no_receipt_no_token: the server did not refuse for the missing receipt"; }
+        grep -q 'r8: issue_token failed' <<<"$wine_new_log" || fail "r9_no_receipt_no_token: token issue did not fail"
+        ! grep -qE 'receipt installed|r8: launched' <<<"$wine_new_log" || fail "r9_no_receipt_no_token: a record was installed or a program launched"
+        grep -q 'r9b: not launched' <<<"$wine_new_log" || fail "r9_no_receipt_no_token: B0 was not told that nothing started"
+        [ ! -e "$EL/r9_neg_res.txt" ] || fail "r9_no_receipt_no_token: a program started"
+        ok r9_no_receipt_no_token
+
+        # r9_e2e_no_verifier_denied: with the verifier stopped the agent's prepare fails: the request is denied before
+        # it reaches B0, and no dialog is created
+        e1s6_stop
+        el_down "$STD"
+        el_clean
+        wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
+        el_up "$STD"
+        wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
+            "$(winpath /home/$STD/wexel/p64.exe)" 5 "$(winpath "$EL/out.neg")" - >/dev/null 2>&1 || true
+        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
+        grep -q 'r8: prepare failed' <<<"$wine_new_log" || fail "r9_e2e_no_verifier_denied: prepare failure missing"
+        ! grep -q 'r9a: request sent' <<<"$wine_new_log" || fail "r9_e2e_no_verifier_denied: the request reached session 0's broker"
+        [ ! -e "$EL/out.neg" ] || fail "r9_e2e_no_verifier_denied: child process started"
+        ! pgrep -f 'consent' >/dev/null || fail "r9_e2e_no_verifier_denied: consent created"
+        ok r9_e2e_no_verifier_denied
+
         s0_wine reg delete 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword2 /f >/dev/null 2>&1 || true
         s0_wine reg add 'HKLM\Software\WineExplorer\ElevationTest' /v R8AutoPassword /d "$R8PW" /f >/dev/null 2>&1 || true
 
+        # the verifier stays stopped: the caller starts it again without this case's worker
         el_down "$STD"
         pkill -u "$STD" 2>/dev/null || true
         s0_stop
         e1s6_stop
         unset WEX_E1S6_LAB_R9 WEX_E1S6_LAB_S0_USER
-        s0_conf_off
-        e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
+        s0_start; SEC_S0=1   # session 0 again, for the rest of the run
     }
-    if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && [ "${WEX_SKIP_R9_E2E:-0}" != 1 ]; then r9_e2e_block; fi
+    r9_e2e_block
 
-    # Negative (R10): the verifier authenticates and hands the evidence to the broker but sends the server no
-    # receipt. The broker's copy alone gets no token: the server refuses and nothing starts.
-    e1s6_stop
-    WEX_E1S6_LAB_NO_RECEIPT=1 e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
-    r8_neg_start "$R8PW" r8_no_receipt_no_token done-ok
-    for _ in $(seq 1 300); do
-        wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-        grep -qE 'r8: launched|r8: .* failed' <<<"$wine_new_log" && break
-        sleep 0.1
-    done
-    wait "$PROBE_PID" 2>/dev/null || true
-    e1s6_new_log="$(tail -n +"$((e1s6_line_before + 1))" "$ROOT/e1s6-service.log" 2>/dev/null || true)"
-    grep -q 'E1R8_REDEEMED' <<<"$e1s6_new_log" && grep -q 'r8: redeemed' <<<"$wine_new_log" ||
-        { grep 'r8: ' <<<"$wine_new_log" >&2; fail "r8_no_receipt_no_token: the broker did not get its evidence copy"; }
-    grep -q 'site=receipt-receive' <<<"$wine_new_log" || { grep -E 'r8: |receipt' <<<"$wine_new_log" >&2; fail "r8_no_receipt_no_token: the server did not refuse for the missing receipt"; }
-    grep -q 'r8: issue_token failed' <<<"$wine_new_log" || fail "r8_no_receipt_no_token: token issue did not fail"
-    ! grep -qE 'receipt installed|r8: launched' <<<"$wine_new_log" || fail "r8_no_receipt_no_token: a record was installed or a program launched"
-    [ ! -e "$EL/r8_neg_res.txt" ] || fail "r8_no_receipt_no_token: a program started"
-    ok r8_no_receipt_no_token
-
-    # Negative test: with verifier stopped, request is denied and no consent created
-    e1s6_stop
-    el_down "$STD"
-    el_clean
-    wine_line_before=$(wc -l < "$ROOT/e1s6-wine.log")
-    el_up "$STD"
-    wine_as "$STD" "$ROOT/probes/wexelevate_probe64.exe" runinteractive \
-        "$(winpath /home/$STD/wexel/p64.exe)" 5 "$(winpath "$EL/out.neg")" - >/dev/null 2>&1 || true
-    wine_new_log="$(tail -n +"$((wine_line_before + 1))" "$ROOT/e1s6-wine.log" 2>/dev/null || true)"
-    grep -q 'r8: prepare failed' <<<"$wine_new_log" || fail "r8_e2e_no_verifier_denied: prepare failure missing"
-    [ ! -e "$EL/out.neg" ] || fail "r8_e2e_no_verifier_denied: child process started"
-    ! pgrep -f 'consent' >/dev/null || fail "r8_e2e_no_verifier_denied: consent created"
-    ok r8_e2e_no_verifier_denied
     # the later lab cases need the verifier again, without the worker this case installed (only its own files
     # are removed: the launcher and the verifier live in the same directory)
     rm -f "$LIBEXEC/supervisor.py" "$LIBEXEC/pam-worker" "$LIBEXEC/pam-audit.log" /etc/pam.d/wex-r8-lab \
@@ -3183,7 +3184,7 @@ EOF
     e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
 
     # Restore fixture state
-    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"; rm -f "$ROOT/system.reg.r8e2e"
+    hive_put "$ROOT/system.reg.r8e2e"; rm -f "$ROOT/system.reg.r8e2e"
     el_down "$STD"
     for a in x86_64 i386; do
         for exe in wexelevate consent; do
@@ -3424,10 +3425,10 @@ cat > "$ROOT/shim/wine/debug.h" <<'EOF'
 EOF
 CS="$SRC/src/programs/consent"
 x86_64-w64-mingw32-windres -I"$CS" -o "$ROOT/consent_rc.o" "$CS/consent.rc"
-x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -DWEXCONSENT_TEST_HOOK -I"$ROOT/shim" -I"$CS" -o "$ROOT/probes/consent_test.exe" \
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -DWEXCONSENT_TEST_HOOK -I"$ROOT/shim" -I"$CS" -I"$SRC/src/include" -o "$ROOT/probes/consent_test.exe" \
     "$CS/consent.c" "$ROOT/consent_rc.o" -lcomctl32 -lversion -lwintrust -lcrypt32 -lmsi -luser32 -lgdi32 -ladvapi32
 chmod 0755 "$ROOT/probes/consent_test.exe"
-x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -I"$CS" -I"$ROOT/shim" -o "$ROOT/consent_ship.exe" \
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -mwindows -I"$CS" -I"$ROOT/shim" -I"$SRC/src/include" -o "$ROOT/consent_ship.exe" \
     "$CS/consent.c" "$ROOT/consent_rc.o" -lcomctl32 -lversion -lwintrust -lcrypt32 -lmsi -luser32 -lgdi32 -ladvapi32
 has_str "$ROOT/probes/consent_test.exe" 'consent.' || fail "the test consent program has no hook (control)"
 has_str "$ROOT/probes/consent_test.exe" '/testid' || fail "the test consent program has no /testid (control)"
@@ -3464,7 +3465,7 @@ for line in lines:
         out.append('"ConsentPromptBehaviorAdmin"=dword:%08x' % int(value))
 open(path, 'w', encoding='latin-1').write('\n'.join(out))
 EOF
-set_policy() { python3 -I "$ROOT/setpolicy.py" "$M/system.reg" "$1"; [ "$(grep -c ConsentPromptBehaviorAdmin "$M/system.reg")" = "$2" ]; }
+set_policy() { hive_edit python3 -I "$ROOT/setpolicy.py" "$M/system.reg" "$1"; [ "$(grep -c ConsentPromptBehaviorAdmin "$M/system.reg")" = "$2" ]; }
 if sec_ok c5_build; then
 install -m 775 -o root -g "$GRP" "$ROOT/probes/consent_test.exe" "$SYS32/consent_test.exe"
 reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' '"ConsentTimeoutMs"=dword:00004e20'
@@ -4126,6 +4127,7 @@ el_down "$ADM"
 el_up "$CAR"
 el_cmd c7_s3_carol_registers_her_own_key "$CAR" "reg add \"$UNI\\CarolApp\" /v DisplayName /d \"Carol Application 1.0\" /f"
 el_down "$CAR"
+hive_flush
 for k in 'Alice COM Server' 'Alice Application 1.0' 'Carol Application 1.0'; do
     grep -qF "$k" "$M/system.reg" || { grep -c . "$M/system.reg" >&2; fail "S3: '$k' is not in the machine hive"; }
 done
@@ -4136,54 +4138,19 @@ grep -q 'Alice Application 1.0' <<<"$OUT" && grep -q 'Carol Application 1.0' <<<
     { echo "$OUT" >&2; fail "S3: a standard user does not see the registrations"; }
 as_wine "$STD" reg add "$UNI\\BobApp" /v DisplayName /d "Bob" /f >/dev/null || true
 el_down "$STD"
+hive_flush
 ! grep -q 'BobApp' "$M/system.reg" || fail "S3: a standard user wrote HKLM"
 ok c7_s3_standard_user_sees_the_registrations_and_cannot_write_hklm
 true; ); section_leave $?; fi
 
 # System tier T1 (docs/SYSTEM_TIER_WORK_ORDERS.md): session 0 holds the machine registry. It runs as an account
 # of its own; the users' launcher-started servers send their programs' machine-registry calls there.
-if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && sec_planned_any $(sec_in_groups s0 gp) r8e2e; then
-echo "--- system tier: session 0"
-S0RUN="$ROOT/run"
-id "$S0U" >/dev/null 2>&1 && fail "user $S0U exists"
-useradd --system -g "$GRP" -M -d "$M" -s /usr/sbin/nologin "$S0U"; S0_CREATED=1
-install -d -m 0755 -o "$S0U" -g "$GRP" "$S0RUN"
-s0_conf_on()   # the machine with session 0: its two lines in the launcher's configuration
-{
-    cp "$CONF" "$ROOT/sysrun.conf.pre-s0"
-    printf 'session0_socket=%s\nsession0_user=%s\n' "$S0RUN/session0" "$S0U" >> "$CONF"
-    kill_servers
-    S0_MODES="$(stat -c '%a %n' "$M"/*.reg)"   # session 0 saves its own files; restored by s0_conf_off
-}
-s0_conf_off()   # back to the machine without session 0 (session 0 is stopped)
-{
-    local mode file f
-    cat "$ROOT/sysrun.conf.pre-s0" > "$CONF"
-    while read -r mode file; do chown root "$file"; chmod "$mode" "$file"; done <<<"$S0_MODES"
-    for f in "$M"/*.reg; do [ "$(stat -c %U "$f")" != "$S0U" ] || rm -f "$f"; done   # files only session 0 made
-    rm -f "$M/session0.ids" "$M/session0.owners"
-    kill_servers
-}
-s0_conf_on
+if [ "$SEC_S0" = 1 ] && sec_planned_any $(sec_in_groups s0 gp) r8e2e; then
+echo "--- system tier: session 0's own sections"
 set_val 'Software\\WexTier' FromSession0 1
 reg_append "$M/system.reg" 'Software\\Wow6432Node\\WexVirtMerge' '"real"="machine"'   # for the T2b merged view
 reg_append "$M/system.reg" 'Software\\Wow6432Node\\WexProbe' '"FromMachine"="machine"'  # what a 32-bit program's view sees
-s0_start()
-{
-    (cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin \
-        "$BUILD/server/wineserver" --session0 -f >>"$ROOT/session0.log" 2>&1 &)
-    local i; for i in $(seq 1 50); do [ -S "$S0RUN/session0" ] && return 0; sleep 0.1; done
-    cat "$ROOT/session0.log" >&2; fail "session 0 did not start"
-}
-s0_stop()
-{
-    pkill -u "$S0U" -x wineserver 2>/dev/null || true   # SIGTERM: session 0 saves the hives and exits
-    local i; for i in $(seq 1 100); do pgrep -u "$S0U" -x wineserver >/dev/null || return 0; sleep 0.1; done
-    fail "session 0 did not stop"
-}
 s0q() { as_wine "$1" reg query 'HKLM\Software\WexTier' /v "$2" | awk -v n="$2" '$1 == n { print $NF }'; }
-s0_start
-SEC_S0=1   # session 0 runs until the end of the session 0 sections
 R32='C:\windows\syswow64\reg.exe'
 v32() { as_wine "$STD" "$R32" "$@"; }
 val() { awk -v n="$1" '$1 == n { print $NF }'; }
@@ -4227,9 +4194,11 @@ for u in "$STD" "$ADM"; do
     [ "$OUT" = "name=$u profile=C:\\users\\$u" ] || fail "T4-0: $u's name and profile with session 0: [$OUT]"
 done
 ok st_users_keep_their_name_and_profile_path_with_session0
-# the hive file now differs from session 0's copy: a value read from session 0 is 1, from a snapshot 2
-set_val 'Software\\WexTier' FromSession0 2
+# the hive file now differs from session 0's copy: a value read from session 0 is 1, from a snapshot 2 (the file is
+# changed behind the running session 0 on purpose)
+set_val_file 'Software\\WexTier' FromSession0 2
 [ "$(s0q "$STD" FromSession0)" = 0x1 ] || fail "a standard user's program did not read HKLM from session 0: [$(s0q "$STD" FromSession0)]"
+set_val_file 'Software\\WexTier' FromSession0 1   # the file as session 0 has it again: a later restart loads 1 (s0_link)
 ok st_standard_user_reads_hklm_from_session0
 for arch in 64 32; do
     [ "$(wine_as "$STD" "$ROOT/probes/probe$arch.exe" hklm-read "$WINM" 2>&1 | grep -c '^hklm-read=PASS')" = 1 ] ||
@@ -4331,7 +4300,9 @@ HOLDER=$!
 sleep 3
 FDS="$(ls "/proc/$S0PID/fd" | wc -l)"
 [ "$FDS" -lt 100 ] || fail "session 0 holds $FDS descriptors while a user holds 300 idle connections"
-[ "$(s0q "$ADM" fromadm)" = elevated ] || fail "session 0 does not serve while a user holds idle connections"
+# FromSession0 is set before session 0 starts (s0_token's fromadm is not there when only s0_base ran before)
+[ "$(s0q "$ADM" FromSession0)" = 0x1 ] ||
+    fail "session 0 does not serve while a user holds idle connections: [$(s0q "$ADM" FromSession0)]"
 wait "$HOLDER" || fail "the idle connections could not be made"
 el_down "$ADM"
 ok st_idle_connections_do_not_hold_session0
@@ -5432,10 +5403,6 @@ s0_start
 el_down "$STD"
 ok st_session0_saves_the_hive_and_user_servers_accept_it
 true; ); section_leave $?; fi
-# back to the machine without session 0
-s0_stop
-s0_conf_off
-SEC_S0=0
 fi
 
 # WO-27 R8 end to end (lab only), last in the section; see r8_e2e_case

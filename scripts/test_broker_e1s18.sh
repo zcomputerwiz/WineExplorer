@@ -151,7 +151,7 @@ echo "PASS production objects byte-for-byte identical to baseline (where one exi
 # 8. WO-18: build and run the E1R8 codec test natively.
 echo "==> Building and running E1R8 codec test (native)"
 cc -O2 -Wall -Wextra -Werror \
-    -I"$REPO/src/programs/wexelevate" \
+    -I"$REPO/src/include" -I"$REPO/src/programs/wexelevate" \
     -o "$FIXTURE/e1r8_codec_test" \
     "$REPO/src/programs/wexelevate/test_e1r8_codec_main.c"
 "$FIXTURE/e1r8_codec_test"
@@ -160,7 +160,7 @@ cc -O2 -Wall -Wextra -Werror \
 echo "==> Building and running E1R8 codec test (ASan/UBSan)"
 cc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer \
     -Wall -Wextra -Werror \
-    -I"$REPO/src/programs/wexelevate" \
+    -I"$REPO/src/include" -I"$REPO/src/programs/wexelevate" \
     -o "$FIXTURE/e1r8_codec_test-asan" \
     "$REPO/src/programs/wexelevate/test_e1r8_codec_main.c"
 "$FIXTURE/e1r8_codec_test-asan" > "$FIXTURE/e1r8_codec_test-asan.log" 2>&1 \
@@ -170,7 +170,7 @@ cc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit
 # 32-bit size_t, where the string-length checks must not wrap).
 echo "==> Compiling the E1R8 codec test for x86_64 and i686 MinGW (-Wall -Wextra -Werror)"
 for cc_pe in x86_64-w64-mingw32-gcc i686-w64-mingw32-gcc; do
-    "$cc_pe" -O2 -Wall -Wextra -Werror -I"$REPO/src/programs/wexelevate" \
+    "$cc_pe" -O2 -Wall -Wextra -Werror -I"$REPO/src/include" -I"$REPO/src/programs/wexelevate" \
         -c "$REPO/src/programs/wexelevate/test_e1r8_codec_main.c" -o "$FIXTURE/e1r8_codec_test_$cc_pe.o"
 done
 

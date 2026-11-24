@@ -31,7 +31,8 @@ case "$ACCOUNTS_AUTOSYNC" in 0|1) ;; *) die 'WEX_ACCOUNTS_AUTOSYNC must be 0 or 
 # decision 2 of docs/SESSION0_SPLIT_REVIEW.md, 2026-11-23): the launcher without session 0 is retired. An install
 # from before 2026-11-18 is not migrated by a dedicated step (there are no such installs in use; owner, 2026-11-23):
 # its next update simply applies the defaults, session 0 and enforced elevation, as for a new install.
-# WEX_SESSION0=0 is for test fixtures only (a machine root without the launcher's session 0 lines).
+# WEX_SESSION0=0 is for test fixtures only (a machine root without the launcher's session 0 lines): since R4c a
+# launcher-started server does not start without session 0, so such a fixture sets session 0 up itself.
 SESSION0_ENABLE=${WEX_SESSION0:-1}
 case "$SESSION0_ENABLE" in 0|1) ;; *) die 'WEX_SESSION0 must be 0 or 1' ;; esac
 

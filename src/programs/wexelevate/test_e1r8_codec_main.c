@@ -415,6 +415,18 @@ static int test_length_errors( void )
         CHECK( e1r8_decode_ack( buf, 155, &t, &a ) != E1R8_OK, "ACK one short" );
         buf[156] = 0;
         CHECK( e1r8_decode_ack( buf, 157, &t, &a ) != E1R8_OK, "ACK one long" );
+        /* R5: the dialog's ACK must carry the tuple's digests and dialog id (moved from the broker test's
+         * R8 INIT/ACK case; B0 checks the ACK with this decoder) */
+        buf[76] ^= 0xff;
+        CHECK( e1r8_decode_ack( buf, 156, &t, &a ) == E1R8_ERR_TUPLE, "ACK wrong binding_digest" );
+        buf[76] ^= 0xff;
+        buf[108] ^= 0xff;
+        CHECK( e1r8_decode_ack( buf, 156, &t, &a ) == E1R8_ERR_TUPLE, "ACK wrong request_digest" );
+        buf[108] ^= 0xff;
+        buf[140] ^= 0xff;
+        CHECK( e1r8_decode_ack( buf, 156, &t, &a ) == E1R8_ERR_TUPLE, "ACK wrong dialog_id" );
+        buf[140] ^= 0xff;
+        CHECK( e1r8_decode_ack( buf, 156, &t, &a ) == E1R8_OK, "ACK restored" );
     }
 
     /* SELECT: 81..143. */
@@ -1401,6 +1413,63 @@ static int test_r9_errors( void )
 /*
  * Golden output: one line per message type, "<type> <hex>".
  */
+/*
+ * R10 RECEIPT (type 30): what the lab server decodes (R5: it used to parse the frame by hand). Layout: header,
+ * evidence_ref:16 at 76, evidence:220 at 92, account:str at 312; 317..379 bytes.
+ */
+static int test_receipt( void )
+{
+    struct e1r8_tuple t, other;
+    struct e1r8_receipt r;
+    uint8_t buf[400], ref[16], ev[E1R8_EVIDENCE_SIZE], zero[16];
+    static const uint8_t acct63[] = "a12345678901234567890123456789012345678901234567890123456789012";
+    int i;
+
+    fill_golden_tuple( &t );
+    for (i = 0; i < 16; i++) ref[i] = (uint8_t)(0xb0 + i);
+    for (i = 0; i < E1R8_EVIDENCE_SIZE; i++) ev[i] = (uint8_t)i;
+    memset( zero, 0, sizeof(zero) );
+
+    CHECK( e1r8_encode_receipt( buf, 317, &t, ref, ev, (const uint8_t *)"a", 1 ) == E1R8_OK, "RECEIPT encode min" );
+    CHECK( e1r8_get_u16( buf + 6 ) == E1R8_TYPE_RECEIPT && e1r8_get_u32( buf + 8 ) == 317, "RECEIPT header" );
+    CHECK( !memcmp( buf + 76, ref, 16 ) && !memcmp( buf + 92, ev, sizeof(ev) ), "RECEIPT body offsets" );
+    CHECK( e1r8_get_u32( buf + 312 ) == 1 && buf[316] == 'a', "RECEIPT account offset" );
+    CHECK( e1r8_decode_receipt( buf, 317, &t, &r ) == E1R8_OK, "RECEIPT decode min" );
+    CHECK( !memcmp( r.evidence_ref, ref, 16 ) && r.evidence == buf + 92 && r.account_len == 1 &&
+           r.account == buf + 316, "RECEIPT decoded fields" );
+    CHECK( e1r8_decode_receipt( buf, 316, &t, &r ) == E1R8_ERR_LONG, "RECEIPT one byte short" );
+    CHECK( e1r8_decode_receipt( buf, 318, &t, &r ) == E1R8_ERR_LENGTH, "RECEIPT trailing byte" );
+
+    CHECK( e1r8_encode_receipt( buf, 379, &t, ref, ev, acct63, 63 ) == E1R8_OK, "RECEIPT encode max" );
+    CHECK( e1r8_decode_receipt( buf, 379, &t, &r ) == E1R8_OK && r.account_len == 63, "RECEIPT decode max" );
+    CHECK( e1r8_decode_receipt( buf, 380, &t, &r ) == E1R8_ERR_LONG, "RECEIPT one byte long" );
+
+    CHECK( e1r8_encode_receipt( buf, 317, &t, zero, ev, (const uint8_t *)"a", 1 ) == E1R8_ERR_ID, "RECEIPT zero ref encode" );
+    CHECK( e1r8_encode_receipt( buf, 317, &t, ref, ev, (const uint8_t *)" ", 1 ) == E1R8_ERR_STRING, "RECEIPT bad name encode" );
+    CHECK( e1r8_encode_receipt( buf, 318, &t, ref, ev, (const uint8_t *)"a", 1 ) == E1R8_ERR_LONG, "RECEIPT wrong length" );
+
+    CHECK( e1r8_encode_receipt( buf, 317, &t, ref, ev, (const uint8_t *)"a", 1 ) == E1R8_OK, "RECEIPT re-encode" );
+    memset( buf + 76, 0, 16 );
+    CHECK( e1r8_decode_receipt( buf, 317, &t, &r ) == E1R8_ERR_ID, "RECEIPT zero ref decode" );
+    CHECK( e1r8_encode_receipt( buf, 317, &t, ref, ev, (const uint8_t *)"a", 1 ) == E1R8_OK, "RECEIPT re-encode 2" );
+    buf[316] = ' ';
+    CHECK( e1r8_decode_receipt( buf, 317, &t, &r ) == E1R8_ERR_STRING, "RECEIPT bad name decode" );
+    CHECK( e1r8_encode_receipt( buf, 317, &t, ref, ev, (const uint8_t *)"a", 1 ) == E1R8_OK, "RECEIPT re-encode 3" );
+    e1r8_put_u32( buf + 312, 2 );
+    CHECK( e1r8_decode_receipt( buf, 317, &t, &r ) == E1R8_ERR_SHORT, "RECEIPT name past the end" );
+    CHECK( e1r8_encode_receipt( buf, 317, &t, ref, ev, (const uint8_t *)"a", 1 ) == E1R8_OK, "RECEIPT re-encode 4" );
+    e1r8_put_u16( buf + 6, E1R8_TYPE_W_SETUP );
+    CHECK( e1r8_decode_receipt( buf, 317, &t, &r ) == E1R8_ERR_TYPE, "RECEIPT wrong type" );
+    CHECK( e1r8_encode_receipt( buf, 317, &t, ref, ev, (const uint8_t *)"a", 1 ) == E1R8_OK, "RECEIPT re-encode 5" );
+    other = t;
+    other.attempt++;
+    CHECK( e1r8_decode_receipt( buf, 317, &other, &r ) == E1R8_ERR_ID, "RECEIPT other attempt" );
+    other = t;
+    other.nonce[31] ^= 1;
+    CHECK( e1r8_decode_receipt( buf, 317, &other, &r ) == E1R8_ERR_ID, "RECEIPT other nonce" );
+    return 0;
+}
+
 static int golden_output( void )
 {
     struct e1r8_tuple t, t2;
@@ -1619,6 +1688,11 @@ static int golden_output( void )
     if (e1r8_encode_next_attempt( buf, 280, &t2 )) return 1;
     printf( "51 " ); print_hex( buf, 280 );
 
+    /* Type 30: RECEIPT (R10), evidence 0..219, account "admin" */
+    for (i = 0; i < E1R8_EVIDENCE_SIZE; i++) emb[i] = (uint8_t)i;
+    if (e1r8_encode_receipt( buf, 321, &t, ev, emb, (const uint8_t *)"admin", 5 )) return 1;
+    printf( "30 " ); print_hex( buf, 321 );
+
     (void)err;
     return 0;
 }
@@ -1716,6 +1790,9 @@ int main( int argc, char **argv )
 
     printf( "12. R9 length, header, enum, string, embedded and id errors...\n" );
     if (test_r9_errors()) return 1;
+
+    printf( "13. R10 RECEIPT round trips and errors...\n" );
+    if (test_receipt()) return 1;
 
     if (g_failed == 0)
     {

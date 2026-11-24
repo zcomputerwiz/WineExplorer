@@ -1,5 +1,80 @@
 # Changes to stock Wine / third-party code
 
+## server: only session 0 writes the machine hives; merge-on-save and the launcher without session 0 removed (R4c of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
+
+The owner's decision 2 retired the launcher without session 0. This removes code from stock files; what stays is
+closer to stock Wine.
+
+- `server/session0.c` (`session0_init`): a launcher-started server (`sysrun_active`) whose configuration names no
+  session 0 does not start (`fatal_error`). Plain prefixes, the setup account and development mode are unchanged.
+- `server/registry.c`: `save_branch_info` has an explicit storage kind (`HIVE_FILE`, `HIVE_MACHINE_COPY`,
+  `HIVE_AGENT`, `HIVE_MANAGED`) and `save_branch` switches on it. A machine hive of the launcher's machine root, or a
+  prefix's link into the machine root, is `HIVE_MACHINE_COPY` and is never written by the server that loaded it.
+- Removed from `server/registry.c` (about 680 lines): the S3 merge-on-save (the `.reg.lock`, loading the file into a
+  temporary tree, replaying tombstones and dirty keys and values by `mod_seq`, `in_merge`), the per-session keys and
+  values of a shared hive (`is_per_session_key`, `is_per_session_value`, `has_ephemeral_mods`), the in-place save
+  of a machine hive with the raised group (`save_hive_in_place`, `hive_access`, `machine_hive_saved`), and the
+  `mod_seq` fields of keys and values. A branch of the server's own (`HIVE_FILE`) is saved as stock Wine saves it,
+  plus an `fsync`.
+- `include/wine/wex_session0.h`: the per-session key list is ntdll's routing list only.
+- Tests: `test_sysrun_server.sh` sets session 0 up before any section, in the lab suite too; `WEX_SKIP_SESSION0` and
+  `s0_conf_off` are gone; the lab's R9 block stops and starts session 0 instead of reconfiguring the launcher.
+
+## comctl32: BCM_SETSHIELD; win32u: menu short cut gap; taskmgr: nothing clipped (2026-11-23)
+
+Wine branch `claude/taskmgr-labels-shield`, on `70c5ce49`: `d8a22517` (comctl32), `45716a41` (win32u), `cea7e751`
+(taskmgr). A follow-up to the Task Manager section below.
+
+* `dlls/comctl32_v6/button.c`: `BCM_SETSHIELD` (was unhandled).
+  * It returns 1 and keeps user32's shared small `IDI_SHIELD` (Wine's own shield art, `OIC_SHIELD`).
+  * The shield is drawn as the button's image when no `BM_SETIMAGE` image or image list is set: beside the text and
+    centred with it, with a gap of two edges. It is drawn themed and unthemed and is counted in `BCM_GETIDEALSIZE`.
+  * A command link shows it in place of its arrow. `BM_GETIMAGE` doesn't return it.
+  * This also gives the task dialog's elevation buttons their shield.
+  * Test: `dlls/comctl32/tests/button.c` `test_shield`.
+* `dlls/win32u/menu.c` (popup menu layout): the space reserved for a tab now goes before the short cut text instead of
+  after it, so a short cut no longer touches the widest label (taskmgr's "Lock Computer WinKey+L" at 120 DPI). Item
+  widths are unchanged; user32's menu tests pass.
+* `programs/taskmgr`: nothing clipped under the stock theme or Open Luna, at 96 and 120 DPI.
+  * List columns are at least as wide as their heading in the header's font, including a visual style's content
+    margins (`uxtheme` delay-imported).
+  * The first two status bar parts are as wide as their text, at least XP's 100 and 110 pixels. They give up their
+    spare room when Commit Charge and the size grip would not fit.
+  * The all-users check box and button are wider.
+
+## server: the E1 lab code out of the stock files, behind hooks (R5 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
+
+Wine branch `claude/r5-elevation-engine` (on development c8f1bb13, which has R2, R3 and the token-read change). No change of behaviour in either build: a normal build preprocesses `registry.c`, `token.c` and
+`sysrun.c` exactly as before, and `named_pipe.c` up to one pair of braces. The lab code (the switches
+`WEX_E1S6_TRANSPORT_TEST`, `WEX_E1S10_TOKEN_TEST`, `WEX_E1S13_HKU_TEST`, `WEX_E1_TEST_HOOKS`, `WEX_E1S14_CRASH_TEST`
+and `WEX_R8_SERVER_TEST`, about 2,600 lines) moved into WineExplorer files; the hooks it left behind:
+
+- `named_pipe.c` (about 990 lab lines before, 20 now). The R8 binding of a server end and its four E1R8 operations
+  are `wex_e1lab_pipe.c`, a file of its own. Hooks: the `binding` pointer of `struct pipe_end` and the `desktop` of
+  `struct pipe_writer` (as before), `e1lab_pipe_binding_free` where the binding was cleared,
+  `e1lab_pipe_e1r8_op` for an E1R8 request in `get_pipe_caller_binding`, `e1lab_pipe_session0_endorse` for R9's
+  broker in session 0. `E1S6_BINDING_AUDIT` moved to `wex_e1lab.h`.
+- **One E1R8 codec.** `wex_e1lab_pipe.c` decodes the broker's tuple, encodes ENDORSED and decodes the verifier's
+  RECEIPT (type 30) with `e1r8_codec.h`, the codec wexelevate and consent use (moved to `src/include`, assembled
+  into Wine's `include/`); the hand-written decoder and encoder are gone. The receipt's account name now follows the
+  codec's account rule (the S4 grammar) instead of "printable ASCII"; the verifier only ever sends canonical names.
+  A malformed receipt keeps its audit labels and their order (`receipt-frame`, the evidence labels, then
+  `receipt-name`).
+- `registry.c` (about 820 before, 15 now) and `token.c` (about 470 before, 40 now): the lab hives and the S10 token
+  context work on the files' own structures (`struct key`, `struct token`) and static helpers, so the code moved
+  into `wex_e1lab_registry.h` and `wex_e1lab_token.h`, which hold code and are included once, at the place the
+  code was, with the switches only (a separate file would need those structures and helpers exported). Hooks: the
+  two includes; `load_e1s_profile` and `create_e1s_account_token` call `e1lab_load_e1s_profile` and
+  `e1lab_create_e1s_account_token`; each function of `e1s_token.h` with a lab body calls its `e1lab_*` body; the
+  stubs without the switches are unchanged.
+- `sysrun.c` (WineExplorer's file; about 320 before, 10 now): the S6 endorsement, the lab generations and the lab's
+  broker images are `wex_e1lab_sysrun.c`, a file of its own. Hooks: `e1lab_sysrun_main_image` in
+  `sysrun_main_image`, `e1lab_sysrun_e1s6_endorse` in `sysrun_e1s6_endorse`. `SYSRUN_CONF` moved to `sysrun.h`.
+- `server/Makefile.in` lists the new files; `scripts/lab/r8-lab-build.sh` rebuilds the two new objects with the
+  lab switches.
+- `tools/make_requests` also reads `server/wex_e1lab_*.h` for the status names of `request_trace.h` (it read only
+  `server/*.c`), so the table stays as it was before the code moved.
+
 ## ntdll, server: one table of the registry handles of session 0 and the virtual store (R3 of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
 
 Wine branch `claude/r3-registry-handles` (on `claude/r1-policy-tables` 2a2b2946, with development's WAM head d5e17250
@@ -175,6 +250,34 @@ descriptor it got). The copies became one (Codex review: no other difference).
   two receive loops. A link has an explicit kind (request, session, hive).
 - `include/wine/wex_session0.h`: the request header's last word is a union named by message type (`machine`,
   `saved`, `name_size`, `session_id`); the same word on the wire.
+
+## taskmgr: Windows XP's Task Manager; ntdll and server: process I/O counters and memory figures (2026-11-23)
+
+Wine branch `claude/taskmgr-xp-parity`, `66d8330d` (ntdll, server), `b1ae33c1` and `c002806a` (taskmgr), on `d5e17250`.
+
+* `server/protocol.def`, `server/process.c`: new request `get_process_io_counters`, read from `/proc/<pid>/io`
+  (`rchar`, `wchar`, `syscr`, `syscw`). Request numbers shift: rebuild everything after taking it.
+* `dlls/ntdll/unix/process.c`: `ProcessIoCounters` uses it (it returned zeros).
+* `dlls/ntdll/unix/system.c`: `SystemPerformanceInformation` paged pool from `SReclaimable`, non-paged pool from
+  `SUnreclaim` + `KernelStack` + `PageTables`, a peak commit charge; `SystemFileCacheInformation` current and peak size
+  from `Cached`. Test: `dlls/ntdll/tests/info.c` `test_query_process_io`.
+* `programs/taskmgr`: XP's caption, defaults, strings and layout. Additions:
+  * User Name column.
+  * Processes from other sessions only with "Show processes from all users". With an Elevation helper and a token
+    that is not elevated (`TokenIsElevated`: an administrator's filtered token or a standard user), this is Vista's
+    shield button, which restarts Task Manager elevated with `/showall`, so other users' processes are listed only when
+    elevated. `get_process_io_counters` needs `PROCESS_QUERY_LIMITED_INFORMATION`, as the VM counters do. The shield
+    picture comes from comctl32's `BCM_SETSHIELD` (see "comctl32: BCM_SETSHIELD" above).
+  * Column sorting and the selection kept across refreshes. End Process Tree ends the children.
+  * Shut Down menu through `wexhost` `WexPowerCan`/`WexPowerDo`, falling back to `ExitWindowsEx` (items the host can't
+    do are greyed).
+  * Networking page (`GetIfTable2`, graphs, the 26 columns, history options).
+  * Users page: one console session; Disconnect and Send Message are greyed.
+  * Vista's "Access is denied" message.
+  * New files: `netpage.c`, `shutdown.c`, `userpage.c`. `iphlpapi` imported.
+* Not done:
+  * `GetGuiResources` is still a stub, so the USER Objects and GDI Objects columns are greyed.
+  * Skipped on purpose: the UAC Virtualization column, a Services tab, and Open File Location / Properties.
 
 ## ntdll: AVL generic tables and RtlIsNameInExpression (B49, 2026-11-19)
 
@@ -2608,8 +2711,9 @@ changes. The launcher is installed by default (since 2026-10-23; `WEX_SYSRUN_ENA
   and `fchmod` on an already opened descriptor, runs with the user's group.
 - `server/registry.c`: the machine hives (`system.reg`, `userdef.reg`) come from the fixed machine root of the
   configuration, not from the prefix: `O_NOFOLLOW` on the open, `fstat` must show a regular file of root and the
-  system group that others cannot write, else the server refuses to start. They are saved with the raised group
-  (`faccessat(AT_EACCESS)` only there) into the existing file, in place (`save_hive_in_place`; a new file would belong
+  system group that others cannot write, else the server refuses to start. (Since R4c, 2026-11-23, they are never
+  saved by such a server: session 0 writes them; the rest of this point is history.) They are saved with the raised
+  group (`faccessat(AT_EACCESS)` only there) into the existing file, in place (`save_hive_in_place`; a new file would belong
   to the user's uid); a symlink at the hive is never followed on save; a missing file is not created.
   The group is raised for the save only if elevation was enforced by the machine hive loaded at start
   (`machine_hive_saved`, not the live helper value, which a user could set in memory); otherwise the hive keeps the
@@ -2913,7 +3017,7 @@ Project modules: `dlls/wexhost` (`elevate.c`, export `WexElevateRun`, imports `a
 | `dlls/setupapi` (`fakedll.c`) | symlinked fake DLL generation replacing copied fake DLLs with symlinks to Wine's installation tree while preserving native DLLs and WinSxS assemblies; WOW64 path redirection in `get_real_link_dest()` | `WINELINKFAKEDLLS=1` env var or `HKLM\Software\Wine\LinkFakeDlls` (DWORD 1) |
 | `server/fd.c` | leaf symlink preservation in `dup_fd_name` / `open_fd()`: ensures `fd->unix_name` retains the leaf symbolic link when opening a symlink, so closing with `FILE_DELETE_ON_CLOSE` unlinks the link rather than the package target | symlinks opened with delete-on-close |
 | `loader/wine.inf.in`, `programs/wineboot/wineboot.c` | `[UserInstall]` section (`UserRegisterDlls` for `shell32.dll`, `UserRegistry` for 19 per-user `HKCU` settings, and `ThemeManager`) in `wine.inf.in`; when `C:\windows` is a reparse point (`FILE_ATTRIBUTE_REPARSE_POINT`) pointing to a shared machine root, `update_wineprefix()` runs only `[UserInstall]` and `update_user_profile()` so per-user `wineboot --init` / `wineboot -u` skips machine-level DLL creation and `HKLM` device installation | only when `C:\windows` has `FILE_ATTRIBUTE_REPARSE_POINT` |
-| `server/registry.c` | Phase S3 shared machine hive handling: (1) `save_branch()` checks target write permissions (`EACCES`/`EROFS`), clearing dirty state, resetting `mod_seq` and freeing tombstones, returning success without modifying the file or replacing symlinks (Option a1 in-memory writes for limited users); (2) saves to temporary `reg<pid><count>.tmp` in target hive's directory, fsyncs, and executes atomic `rename()` over realpath target; (3) Administrator merge-on-save under `flock(LOCK_EX)` on `<target_dir>/.reg.lock` replaying session dirty keys/values (`mod_seq > 0`) and tombstones (`reg_tombstone` deleted nodes) onto on-disk hive base loaded into `tmp_root` without resurrecting deleted keys; (4) resets branch `mod_seq` and frees tombstones after each successful save so past mutations are not replayed indefinitely; (5) limits per-session filtering and merge strictly to branches loaded as symbolic links into the shared machine root (`info->is_shared_machine`), preserving stock Wine behavior for ordinary unlinked prefixes; (6) limits `OBJ_OPENLINK` in `create_key_recursive()` strictly to merge operations (`in_merge`) | shared machine registry hives (`system.reg`, `userdef.reg`) |
+| `server/registry.c` | **Removed by R4c (2026-11-23; the entry at the top): no server but session 0 writes a machine hive any more.** Phase S3 shared machine hive handling: (1) `save_branch()` checks target write permissions (`EACCES`/`EROFS`), clearing dirty state, resetting `mod_seq` and freeing tombstones, returning success without modifying the file or replacing symlinks (Option a1 in-memory writes for limited users); (2) saves to temporary `reg<pid><count>.tmp` in target hive's directory, fsyncs, and executes atomic `rename()` over realpath target; (3) Administrator merge-on-save under `flock(LOCK_EX)` on `<target_dir>/.reg.lock` replaying session dirty keys/values (`mod_seq > 0`) and tombstones (`reg_tombstone` deleted nodes) onto on-disk hive base loaded into `tmp_root` without resurrecting deleted keys; (4) resets branch `mod_seq` and frees tombstones after each successful save so past mutations are not replayed indefinitely; (5) limits per-session filtering and merge strictly to branches loaded as symbolic links into the shared machine root (`info->is_shared_machine`), preserving stock Wine behavior for ordinary unlinked prefixes; (6) limits `OBJ_OPENLINK` in `create_key_recursive()` strictly to merge operations (`in_merge`) | shared machine registry hives (`system.reg`, `userdef.reg`) |
 | `dlls/advapi32/security.c` (`SetNamedSecurityInfoW`, `GetNamedSecurityInfoW`), `dlls/advapi32/tests/security.c` | an object is opened with `WRITE_OWNER` (set) or `READ_CONTROL` (get) also when only `LABEL_SECURITY_INFORMATION` is asked for, as Windows does; stock Wine asked for those rights only for the owner, group and DACL, so setting a label failed with `ERROR_ACCESS_DENIED` (the server's `set_security_object` needs `WRITE_OWNER` for a label). Chromium's AppContainer profile creation calls `SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL \| LABEL \| UNPROTECTED_DACL)` on its profile directory; in a prefix without the AppContainer registration that failed, Chromium rolled the profile back and restarted the network service without its sandbox, and the fixture page never reached the network stack. New conformance test `test_named_security_info_label` fails without the change (x86_64 and i386); Wine keeps no label on files, so the read-back is `todo_wine`; see `docs/CHROMIUM_APPCONTAINER_LABEL_20261101.md` | always (bug fix, upstreamable; upstream master has the same conditions) |
 
 ## D2 compositor effects and capture

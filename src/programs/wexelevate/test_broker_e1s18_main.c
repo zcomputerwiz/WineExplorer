@@ -3686,8 +3686,8 @@ static int test_wo20_r8_init_ack( void )
     struct request req;
     struct e1r8_tuple t;
     uint8_t nonce[32], channel[16], binding[32], request_digest[32];
-    uint8_t init_buf[2067], ack_buf[156];
-    size_t i, init_len;
+    uint8_t request_buf[1792];
+    size_t i, request_len;
 
     for (i = 0; i < 32; i++) nonce[i] = (uint8_t)(0x10 + i);
     for (i = 0; i < 16; i++) channel[i] = (uint8_t)(0x30 + i);
@@ -3717,58 +3717,43 @@ static int test_wo20_r8_init_ack( void )
               0, "Full R8 context must build the tuple (insecure)" );
     CHECK_EQ( t.desktop_mode, E1R8_DESKTOP_MODE_INSECURE, "insecure must map to desktop_mode 2" );
 
-    /* INIT encoding: the image is the request's image; requester and publisher
-     * are empty (no stand-ins such as the command line or working directory). */
+    /* R9 (R5): the agent's REQUEST to B0, from which B0 makes the dialog's INIT. The image is the request's
+     * image; requester and publisher are empty (no stand-ins such as the command line or working directory).
+     * (The dialog's ACK checks moved to the codec test: B0 checks the ACK with e1r8_decode_ack.) */
     wo20_set_wchar_field( &req.cmdline, "cmd.exe /c dir" );
     wo20_set_wchar_field( &req.image, "C:\\Windows\\System32\\cmd.exe" );
     wo20_set_wchar_field( &req.cwd, "C:\\Windows" );
-    init_len = e1s18_encode_r8_init( &req, &t, init_buf, sizeof(init_buf) );
-    CHECK( init_len > 0, "INIT must encode with a full context and a valid image" );
+    CHECK_EQ( e1s18_build_r8_tuple( &req, req.id, 0, nonce, channel, binding, request_digest, TRUE, &t ),
+              0, "the agent's tuple builds" );
+    request_len = e1s18_encode_r9_request( &req, &t, request_buf, sizeof(request_buf) );
+    CHECK( request_len > 0, "REQUEST must encode with a full context and a valid image" );
     {
-        struct e1r8_init in;
-        CHECK_EQ( e1r8_decode_init( init_buf, init_len, &t, &in ), 0, "Encoded INIT must decode" );
-        CHECK_EQ( in.requester_len, 0, "requester must be empty" );
-        CHECK_EQ( in.image_len, (uint32_t)(strlen("C:\\Windows\\System32\\cmd.exe") * 2), "image must be the image" );
-        CHECK( !memcmp( in.image, req.image, in.image_len ), "image bytes must be the request's image" );
-        CHECK_EQ( in.publisher_len, 0, "publisher must be empty" );
-        CHECK( !memcmp( in.verifier_owner, ctx.verifier_owner, in.verifier_owner_len ) &&
-               in.verifier_owner_len == strlen( ctx.verifier_owner ), "verifier owner from the context" );
+        struct e1r8_request rq;
+        CHECK_EQ( e1r8_decode_request( request_buf, request_len, &t, &rq ), 0, "Encoded REQUEST must decode" );
+        CHECK_EQ( rq.kind, E1R8_REQUEST_KIND_RUNAS, "a run-as request" );
+        CHECK_EQ( rq.secure_desktop, 1, "on the secure desktop" );
+        CHECK_EQ( rq.requester_len, 0, "requester must be empty" );
+        CHECK_EQ( rq.image_len, (uint32_t)(strlen("C:\\Windows\\System32\\cmd.exe") * 2), "image must be the image" );
+        CHECK( !memcmp( rq.image, req.image, rq.image_len ), "image bytes must be the request's image" );
+        CHECK_EQ( rq.publisher_len, 0, "publisher must be empty" );
+        CHECK( !memcmp( rq.binding_digest, binding, 32 ) && !memcmp( rq.request_digest, request_digest, 32 ),
+               "the request's digests" );
+        CHECK_EQ( rq.root_gen, ctx.root_gen, "generations from the R8 context" );
     }
 
-    /* An oversized or missing image denies the INIT. */
+    /* An oversized or missing image denies the REQUEST. */
     {
         char big[600];
         memset( big, 'a', sizeof(big) - 1 );
         big[sizeof(big) - 1] = 0;
         wo20_set_wchar_field( &req.image, big );
-        CHECK_EQ( e1s18_encode_r8_init( &req, &t, init_buf, sizeof(init_buf) ), 0,
-                  "An oversized image must deny the INIT" );
+        CHECK_EQ( e1s18_encode_r9_request( &req, &t, request_buf, sizeof(request_buf) ), 0,
+                  "An oversized image must deny the REQUEST" );
         wo20_set_wchar_field( &req.image, "" );
-        CHECK_EQ( e1s18_encode_r8_init( &req, &t, init_buf, sizeof(init_buf) ), 0,
-                  "An empty image must deny the INIT" );
+        CHECK_EQ( e1s18_encode_r9_request( &req, &t, request_buf, sizeof(request_buf) ), 0,
+                  "An empty image must deny the REQUEST" );
         wo20_set_wchar_field( &req.image, "C:\\Windows\\System32\\cmd.exe" );
-    }
-
-    /* ACK verification: a valid ACK passes. */
-    CHECK_EQ( e1r8_encode_ack( ack_buf, sizeof(ack_buf), &t ), 0, "ACK must encode" );
-    CHECK_EQ( e1s18_verify_r8_ack( ack_buf, sizeof(ack_buf), &t ), 0, "A valid ACK must verify" );
-
-    /* ACK short (155 bytes) and long (157 bytes) deny. */
-    CHECK( e1s18_verify_r8_ack( ack_buf, 155, &t ) < 0, "A short ACK must deny" );
-    CHECK( e1s18_verify_r8_ack( ack_buf, 157, &t ) < 0, "A long ACK must deny" );
-
-    /* ACK with a wrong binding_digest / request_digest / dialog_id denies. */
-    {
-        uint8_t bad[156];
-        memcpy( bad, ack_buf, 156 );
-        bad[76] ^= 0xff;
-        CHECK( e1s18_verify_r8_ack( bad, 156, &t ) < 0, "An ACK with a wrong binding_digest must deny" );
-        memcpy( bad, ack_buf, 156 );
-        bad[108] ^= 0xff;
-        CHECK( e1s18_verify_r8_ack( bad, 156, &t ) < 0, "An ACK with a wrong request_digest must deny" );
-        memcpy( bad, ack_buf, 156 );
-        bad[140] ^= 0xff;
-        CHECK( e1s18_verify_r8_ack( bad, 156, &t ) < 0, "An ACK with a wrong dialog_id must deny" );
+        CHECK_EQ( e1s18_encode_r9_request( &req, &t, request_buf, 233 ), 0, "A short buffer must deny the REQUEST" );
     }
 
     free( req.cmdline );
@@ -4997,7 +4982,7 @@ int main( int argc, char **argv )
     printf("55. Testing WO-16 prompt and evidence steps see the admission deadline, not a later one...\n");
     if (test_wo16_admission_deadline() != TEST_PASS) ret = 1;
 
-    printf("56. Testing WO-20 R8 INIT/ACK portable logic (zero context denies, tuple, INIT, ACK)...\n");
+    printf("56. Testing WO-20 and R9 portable logic (zero context denies, tuple, the agent's REQUEST)...\n");
     if (test_wo20_r8_init_ack() != TEST_PASS) ret = 1;
 
     printf("57. Testing WO-25 R8 prepare fills the context from OPEN/BINDING/owner and closes the channel...\n");

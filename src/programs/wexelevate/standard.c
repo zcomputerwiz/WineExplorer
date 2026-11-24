@@ -582,43 +582,25 @@ static int e1s18_display_string_len( const WCHAR *s, uint32_t *out_len )
 }
 
 /*
- * WO-20: Encode the R8 INIT message (type 1) for the dialog. The image is the
- * request's validated image path; the verifier owner comes from the R8
- * context. The request carries no requester name and the broker checks no
- * publisher yet, so both are sent empty (never a stand-in such as the command
- * line or working directory); filling them is R8 step 8. Returns the encoded
- * length on success, 0 on denial (incomplete context or an invalid string).
+ * R9 (docs/E1_S18E_R9_SPEC.md section 4): the agent's REQUEST (type 40) to B0, a run-as request on the secure
+ * desktop. The image is the request's validated image path. The request carries no requester name and the broker
+ * checks no publisher yet, so both are sent empty (never a stand-in such as the command line or working directory);
+ * B0 puts the same strings into the dialog's INIT. Returns the encoded length on success, 0 on denial (an invalid
+ * or missing image, a short buffer).
  */
-size_t e1s18_encode_r8_init( const struct request *req,
-                             const struct e1r8_tuple *t,
-                             uint8_t *buf, size_t buf_len )
+size_t e1s18_encode_r9_request( const struct request *req,
+                                const struct e1r8_tuple *t,
+                                uint8_t *buf, size_t buf_len )
 {
-    const struct e1s18_r8_context *c = &s_r8_context;
-    uint32_t vo_len, img_len, total;
+    uint32_t img_len, total;
     if (!req->image || !req->image[0]) return 0;
     if (e1s18_display_string_len( req->image, &img_len )) return 0;
-    vo_len = (uint32_t)strlen( c->verifier_owner );
-    total = E1R8_HEADER_SIZE + E1R8_TAIL_SIZE + (4 + vo_len) + 4 + (4 + img_len) + 4;
+    total = 232 + img_len;
     if (total > buf_len) return 0;
-    if (e1r8_encode_init( buf, total, t,
-                          (const uint8_t *)c->verifier_owner, vo_len,
-                          NULL, 0,
-                          (const uint8_t *)req->image, img_len,
-                          NULL, 0 ))
+    if (e1r8_encode_request( buf, total, t, E1R8_REQUEST_KIND_RUNAS, 1,
+                             NULL, 0, (const uint8_t *)req->image, img_len, NULL, 0 ))
         return 0;
     return total;
-}
-
-/*
- * WO-20: Decode and verify the R8 ACK (type 2) from the dialog. The ACK must
- * be exactly 156 bytes and carry the tuple's binding_digest, request_digest
- * and dialog_id. Returns 0 on success, negative on any rejection.
- */
-int e1s18_verify_r8_ack( const uint8_t *buf, size_t len,
-                         const struct e1r8_tuple *t )
-{
-    struct e1r8_ack ack;
-    return e1r8_decode_ack( buf, len, t, &ack );
 }
 
 /* WO-25: test flag: a preset complete context skips prepare only when this is
@@ -1026,25 +1008,6 @@ struct wex_prompt_queue *e1s18_get_prompt_queue( void )
 }
 
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
-/*
- * WO-20: worker-thread context for the R8 INIT/ACK exchange. The worker
- * writes the INIT to to_d and reads the 156-byte ACK from from_d, each with an
- * exact-length WriteFile/ReadFile loop, then exits. The context (with both
- * buffers) is on the heap: if the worker cannot be joined after cancellation,
- * the broker keeps it (and the two pipe handles) instead of freeing memory the
- * worker may still touch.
- */
-struct r8_worker_ctx
-{
-    HANDLE to_d_write;
-    HANDLE from_d_read;
-    size_t init_len;
-    uint8_t init_buf[2067];
-    uint8_t ack_buf[156];
-    int write_ok;
-    int read_ok;
-};
-
 /* Cancel the worker's blocking I/O, terminate D (which breaks both pipes),
  * then join the worker. FALSE: the worker did not exit within 5 s. */
 static BOOL r8_stop_worker( HANDLE worker, HANDLE process )
@@ -1053,34 +1016,6 @@ static BOOL r8_stop_worker( HANDLE worker, HANDLE process )
     TerminateProcess( process, 1 );
     WaitForSingleObject( process, 5000 );
     return WaitForSingleObject( worker, 5000 ) == WAIT_OBJECT_0;
-}
-
-static DWORD WINAPI r8_worker_thread( void *param )
-{
-    struct r8_worker_ctx *ctx = (struct r8_worker_ctx *)param;
-    size_t off;
-    DWORD got;
-
-    off = 0;
-    while (off < ctx->init_len)
-    {
-        if (!WriteFile( ctx->to_d_write, ctx->init_buf + off,
-                        (DWORD)(ctx->init_len - off), &got, NULL ) || !got)
-            break;
-        off += got;
-    }
-    ctx->write_ok = (off == ctx->init_len);
-
-    off = 0;
-    while (off < 156)
-    {
-        if (!ReadFile( ctx->from_d_read, ctx->ack_buf + off,
-                       (DWORD)(156 - off), &got, NULL ) || !got)
-            break;
-        off += got;
-    }
-    ctx->read_ok = (off == 156);
-    return 0;
 }
 
 /* R8 steps 5-8 (lab): one pipe transfer to or from D in a worker, so the wait can also see D, the caller,
@@ -1215,86 +1150,6 @@ struct r8_dialog
     HANDLE  from_d_read;
     uint8_t dialog_id[16];
 };
-
-/*
- * Design review, finding 2: the R8 broker's link for the shared decision sequence (decision.c). Every frame goes over
- * D's two pipes through r8_pipe_transfer, which also watches D, the caller, broker stop and a lease break. The steps
- * before the worker (SELECT_OK, SELECT, ATTACH_OK or the lockout notice) run on the consent timeout from the dialog's
- * start, as INIT/ACK; the rest on the attempt's admission deadline (the password check alone may take two seconds:
- * the fixed release time of a refusal).
- */
-struct r8_local_link
-{
-    struct r8_link link;        /* first: the callbacks get the whole link back */
-    struct request *req;
-    HANDLE process, to_d_write, from_d_read;
-    ULONGLONG dialog_start;
-    DWORD consent;
-    BOOL stuck;                 /* a pipe worker could not be joined: its pipe handles are kept */
-};
-
-static DWORD r8_local_timeout( struct r8_local_link *ll, uint16_t type )
-{
-    if (type == E1R8_TYPE_SELECT_OK || type == E1R8_TYPE_SELECT || type == E1R8_TYPE_ATTACH_OK ||
-        type == E1R8_TYPE_LOCKED)
-        return r8_left( ll->dialog_start, ll->consent );
-    return r8_remaining( ll->req );
-}
-
-static DWORD r8_local_to_d( struct r8_link *link, const uint8_t *frame, uint32_t len )
-{
-    struct r8_local_link *ll = (struct r8_local_link *)link;
-    size_t n = len;
-
-    if (ll->stuck) return ERROR_CANCELLED;
-    if (len < E1R8_HEADER_SIZE) return ERROR_INVALID_DATA;
-    return r8_pipe_transfer( ll->req, ll->process, ll->to_d_write, TRUE, (uint8_t *)frame, &n, 0, 0, GetTickCount64(),
-                             r8_local_timeout( ll, e1r8_get_u16( frame + 6 ) ), &ll->stuck );
-}
-
-static DWORD r8_local_from_d( struct r8_link *link, uint16_t type, uint8_t *frame, uint32_t max, uint32_t *len )
-{
-    struct r8_local_link *ll = (struct r8_local_link *)link;
-    uint32_t minimum, maximum;
-    size_t n = 0;
-    DWORD err;
-
-    if (ll->stuck) return ERROR_CANCELLED;
-    if (type == E1R8_TYPE_SELECT) { minimum = 81; maximum = 143; }
-    else if (type == E1R8_TYPE_ANSWER) { minimum = maximum = 264; }
-    else return ERROR_INVALID_PARAMETER;
-    if (maximum > max) return ERROR_INVALID_PARAMETER;
-    if ((err = r8_pipe_transfer( ll->req, ll->process, ll->from_d_read, FALSE, frame, &n, minimum, maximum,
-                                 GetTickCount64(), r8_local_timeout( ll, type ), &ll->stuck ))) return err;
-    *len = (uint32_t)n;
-    return ERROR_SUCCESS;
-}
-
-/* The server rechecks D (its rechecks are not per step). */
-static DWORD r8_local_recheck( struct r8_link *link, uint32_t step )
-{
-    struct r8_local_link *ll = (struct r8_local_link *)link;
-    const struct e1s18_ops *ops = e1s18_get_ops();
-
-    (void)step;
-    if (!ops->r8_recheck || ops->r8_recheck( ll->req, link->t->dialog_id )) return ERROR_ACCESS_DENIED;
-    return ERROR_SUCCESS;
-}
-
-static DWORD r8_local_v_start( struct r8_link *link, const uint8_t *start, size_t len, uint8_t ready[76] )
-{
-    struct r8_local_link *ll = (struct r8_local_link *)link;
-    const struct e1s18_ops *ops = e1s18_get_ops();
-
-    if (!ops->r8_start) return ERROR_NOT_SUPPORTED;
-    return ops->r8_start( ll->req, s_r8_channel, start, len, ready );
-}
-
-static DWORD r8_local_v_recv( struct r8_link *link, uint8_t frame[E1S6_R8_FRAME_MAX], size_t *len )
-{
-    struct r8_local_link *ll = (struct r8_local_link *)link;
-    return r8_v_recv( ll->req, frame, len, r8_remaining( ll->req ) );
-}
 
 /* Create D suspended on the desktop the tuple's mode asks for, with exactly its two pipe ends inherited, and
  * have the server endorse it; the dialog id goes into the tuple and the R8 context. On failure nothing is left
@@ -1495,317 +1350,6 @@ static DWORD r8_dialog_create( struct request *req, struct e1r8_tuple *tuple, ui
     return ERROR_SUCCESS;
 }
 
-static DWORD e1s18_spawn_consent_dialog( struct request *req, uint64_t request_id, uint32_t attempt,
-                                         const uint8_t nonce[32],
-                                         const uint8_t binding_digest[32],
-                                         const uint8_t request_digest[32],
-                                         const uint8_t channel_token[16],
-                                         BOOL secure, char *out_account, size_t account_max )
-{
-    PROCESS_INFORMATION pi;
-    struct r8_dialog dlg = { NULL, NULL, NULL, NULL, { 0 } };
-    HANDLE handles[5];
-    HANDLE to_d_write = INVALID_HANDLE_VALUE, from_d_read = INVALID_HANDLE_VALUE;
-    DWORD ret;
-    uint8_t init_buf[2067];
-    DWORD err = ERROR_SUCCESS;
-    struct e1r8_tuple tuple;
-    size_t init_len;
-    HANDLE worker_thread = NULL;
-    struct r8_worker_ctx *wc;
-    ULONGLONG start;
-    DWORD timeout;
-    const struct e1s18_ops *ops = e1s18_get_ops();
-
-    /* WO-25 / WO-27: reuse open channel and context if already prepared, or prepare now. */
-    if (!s_r8_channel)
-    {
-        if ((err = e1s18_r8_prepare( req )))
-            return err;
-    }
-
-    /* WO-20: the R8 context must be complete; a zero required input denies
-     * with ERROR_NOT_SUPPORTED before any pipe or process is created. The
-     * pre-endorsement tuple carries no dialog_id (the server assigns it at
-     * endorsement). */
-    if (e1s18_build_r8_tuple( req, request_id, attempt, nonce, channel_token,
-                              binding_digest, request_digest, secure, &tuple ))
-        return ERROR_NOT_SUPPORTED;
-
-    /* R9-4a: the pipes, the suspended dialog and its endorsement (r8_dialog_create); the tuple is sealed with
-     * the dialog id on return. */
-    if ((err = r8_dialog_create( req, &tuple, request_id, attempt, channel_token, secure, &dlg )))
-        return err;
-    pi.hProcess = dlg.process;
-    pi.hThread = dlg.thread;
-    to_d_write = dlg.to_d_write;
-    from_d_read = dlg.from_d_read;
-    /* Encode the INIT from the sealed tuple; an invalid display string or an
-     * undersized buffer terminates D and denies. */
-    init_len = e1s18_encode_r8_init( req, &tuple, init_buf, sizeof(init_buf) );
-    if (!init_len)
-    {
-        TerminateProcess( pi.hProcess, 1 );
-        WaitForSingleObject( pi.hProcess, 5000 );
-        CloseHandle( pi.hProcess );
-        CloseHandle( pi.hThread );
-        CloseHandle( to_d_write );
-        CloseHandle( from_d_read );
-        if (secure) secure_leave();
-        return ERROR_NOT_SUPPORTED;
-    }
-    /* Resume D and close the thread handle only after resuming; D is never
-     * left suspended. */
-    if (ResumeThread( pi.hThread ) == (DWORD)-1)
-    {
-        TerminateProcess( pi.hProcess, 1 );
-        WaitForSingleObject( pi.hProcess, 5000 );
-        CloseHandle( pi.hProcess );
-        CloseHandle( pi.hThread );
-        CloseHandle( to_d_write );
-        CloseHandle( from_d_read );
-        if (secure) secure_leave();
-        return ERROR_ACCESS_DENIED;
-    }
-    CloseHandle( pi.hThread );
-
-    if (!(wc = calloc( 1, sizeof(*wc) )))
-    {
-        TerminateProcess( pi.hProcess, 1 );
-        WaitForSingleObject( pi.hProcess, 5000 );
-        CloseHandle( pi.hProcess );
-        CloseHandle( to_d_write );
-        CloseHandle( from_d_read );
-        if (secure) secure_leave();
-        return ERROR_NOT_ENOUGH_MEMORY;
-    }
-    wc->to_d_write = to_d_write;
-    wc->from_d_read = from_d_read;
-    wc->init_len = init_len;
-    memcpy( wc->init_buf, init_buf, init_len );
-    if (!(worker_thread = CreateThread( NULL, 0, r8_worker_thread, wc, 0, NULL )))
-    {
-        free( wc );
-        TerminateProcess( pi.hProcess, 1 );
-        WaitForSingleObject( pi.hProcess, 5000 );
-        CloseHandle( pi.hProcess );
-        CloseHandle( to_d_write );
-        CloseHandle( from_d_read );
-        if (secure) secure_leave();
-        return ERROR_NOT_ENOUGH_MEMORY;
-    }
-
-    /* One consent deadline covers the INIT/ACK exchange and the dialog. */
-    timeout = consent_timeout();
-    start = GetTickCount64();
-    handles[0] = worker_thread;
-    handles[1] = pi.hProcess;
-    handles[2] = req->caller;
-    handles[3] = stop_event;
-    handles[4] = req->lease_event;
-    ret = WaitForMultipleObjects( 5, handles, FALSE, timeout );
-
-    /* The ACK must have been written and read in full and decode with the
-     * tuple's digests and dialog_id; anything else cancels. */
-    if (ret != WAIT_OBJECT_0 || !wc->write_ok || !wc->read_ok ||
-        e1s18_verify_r8_ack( wc->ack_buf, sizeof(wc->ack_buf), &tuple ))
-    {
-        BOOL joined = TRUE;
-
-#ifdef WEXELEVATE_E1S18
-        r8_trace_err( "ack", (DWORD)ERROR_CANCELLED );
-#endif
-        if (ret == WAIT_OBJECT_0)
-        {
-            TerminateProcess( pi.hProcess, 1 );
-            WaitForSingleObject( pi.hProcess, 5000 );
-        }
-        else joined = r8_stop_worker( worker_thread, pi.hProcess );
-        CloseHandle( pi.hProcess );
-        if (joined)
-        {
-            CloseHandle( worker_thread );
-            free( wc );
-            CloseHandle( to_d_write );
-            CloseHandle( from_d_read );
-        }
-        /* else: the worker did not exit; its context and the two pipe handles
-         * are deliberately kept, since it may still touch them. */
-        if (secure) secure_leave();
-        if (ret == WAIT_TIMEOUT) return ERROR_TIMEOUT;
-        if (ret == WAIT_OBJECT_0 + 4) return ERROR_FILE_CORRUPT;
-        return ERROR_CANCELLED;
-    }
-    CloseHandle( worker_thread );
-    free( wc );
-#ifdef WEXELEVATE_E1S18
-    r8_trace_line( "r8: ack ok" );
-#endif
-
-    /* WO-25: after a valid ACK, recheck the dialog with the server. A failed
-     * recheck terminates D and denies. */
-    if (!ops->r8_recheck || ops->r8_recheck( req, tuple.dialog_id ))
-    {
-#ifdef WEXELEVATE_E1S18
-        r8_trace_err( "recheck", (DWORD)ERROR_ACCESS_DENIED );
-#endif
-        TerminateProcess( pi.hProcess, 1 );
-        WaitForSingleObject( pi.hProcess, 5000 );
-        CloseHandle( pi.hProcess );
-        CloseHandle( to_d_write );
-        CloseHandle( from_d_read );
-        if (secure) secure_leave();
-        return ERROR_ACCESS_DENIED;
-    }
-    r8_trace_line( "r8: recheck ok" );
-
-    /* R8 steps 4-8 (docs/E1_S18E_R8_SPEC.md sections 6-9, lab): the shared decision sequence (decision.c) over D's
-     * pipes, then what the R8 broker does with its outcome. From here every failure ends D. */
-    {
-        struct r8_local_link ll;
-        enum r8_decision decision;
-        uint8_t frame[E1S6_R8_FRAME_MAX], out[80], sel_key[16], ref[16];
-        char sel_account[64];
-        size_t flen = 0;
-        BOOL started = FALSE;
-        const char *step = "decision";
-
-        memset( &ll, 0, sizeof(ll) );
-        ll.link.who = "r8";
-        ll.link.t = &tuple;
-        ll.link.to_d = r8_local_to_d;
-        ll.link.from_d = r8_local_from_d;
-        ll.link.recheck = r8_local_recheck;
-        ll.link.v_start = r8_local_v_start;
-        ll.link.v_recv = r8_local_v_recv;
-        ll.req = req;
-        ll.process = pi.hProcess;
-        ll.to_d_write = to_d_write;
-        ll.from_d_read = from_d_read;
-        ll.dialog_start = start;
-        ll.consent = timeout;
-
-        /* No record of an earlier attempt survives into this one. */
-        s_r8_evidence_set = FALSE;
-        e1s18_wipe( s_r8_evidence, sizeof(s_r8_evidence) );
-        e1s18_wipe( s_r8_evidence_ref, sizeof(s_r8_evidence_ref) );
-
-        decision = r8_decide( &ll.link, sel_account, sel_key, ref, &started, &err );
-        if (sel_account[0])
-        {
-            lstrcpynA( req->account_name, sel_account, sizeof(req->account_name) );
-            memcpy( req->account_key, sel_key, 16 );
-            if (out_account && account_max) lstrcpynA( out_account, sel_account, (int)account_max );
-        }
-
-        if (decision == R8_DECISION_LOCKED)
-        {
-            /* D tells the person and leaves by itself; the request ends, there is no further attempt. */
-            WaitForSingleObject( pi.hProcess, 10000 );
-        }
-        else if (decision == R8_DECISION_REFUSED)
-        {
-            /* DONE; D tells the person and leaves by itself (bounded by the attempt deadline). A refusal that cannot
-             * be finished ends the request: only a dialog that took it leads to a further attempt. */
-            step = "refused done";
-            if (e1r8_encode_done( out, 80, &tuple, E1R8_DONE_CANCELLED ) || r8_local_to_d( &ll.link, out, 80 ))
-                err = ERROR_CANCELLED;
-            else WaitForSingleObject( pi.hProcess, r8_remaining( req ) );
-        }
-        else if (decision == R8_DECISION_CONFIRMED)
-        {
-            /* Redemption (lab frames 28/29): the verifier hands over the evidence record once. */
-            step = "redeem";
-            err = ERROR_ACCESS_DENIED;
-            if (e1r8_put_header( frame, sizeof(frame), 28, 92, &tuple )) goto r8_end;
-            memcpy( frame + 76, ref, 16 );
-            if (r8_v_send( req, frame, 92 ) || r8_v_recv( req, frame, &flen, r8_remaining( req ) ) ||
-                flen != 296 || e1r8_get_header( frame, 296, 29, &tuple, NULL )) goto r8_end;
-            memcpy( s_r8_evidence, frame + 76, sizeof(s_r8_evidence) );
-            memcpy( s_r8_evidence_ref, ref, 16 );
-            s_r8_evidence_set = TRUE;
-            s_r8_attempt = attempt;
-            r8_trace_line( "r8: redeemed" );
-
-            /* DONE: D leaves; then RELEASE retires the attempt at the verifier. (Lab order: DONE is written before
-             * the launch commit, so the secure desktop is free while the program starts.) */
-            step = "done";
-            if (e1r8_encode_done( out, 80, &tuple, E1R8_DONE_COMPLETED ) || (err = r8_local_to_d( &ll.link, out, 80 )))
-            {
-                DWORD code = 0;
-                char text[64];
-                GetExitCodeProcess( pi.hProcess, &code );
-                snprintf( text, sizeof(text), "r8: done: dialog exit code %lu", (unsigned long)code );
-                r8_trace_line( text );
-                if (!err) err = ERROR_ACCESS_DENIED;
-                s_r8_evidence_set = FALSE;
-                e1s18_wipe( s_r8_evidence, sizeof(s_r8_evidence) );
-                goto r8_end;
-            }
-            WaitForSingleObject( pi.hProcess, 10000 );
-            err = ERROR_SUCCESS;
-            r8_trace_line( "r8: done sent" );
-        }
-
-    r8_end:
-        /* the decision traced its own failures */
-        if (err && decision == R8_DECISION_CONFIRMED) r8_trace_err( step, err );
-        if (decision == R8_DECISION_REFUSED && err != ERROR_LOGON_FAILURE) r8_trace_err( step, err );
-        /* RELEASE is best effort: closing the channel retires the attempt as well. */
-        if (started && (!err || err == ERROR_LOGON_FAILURE) &&
-            !e1r8_encode_release( frame, 80, &tuple, err ? E1R8_RELEASE_CANCELLED : E1R8_RELEASE_COMPLETED ) &&
-            !r8_v_send( req, frame, 80 ) && !r8_v_recv( req, frame, &flen, 5000 ) &&
-            !e1r8_decode_released( frame, flen, &tuple ))
-            r8_trace_line( "r8: released" );
-        TerminateProcess( pi.hProcess, 1 );
-        WaitForSingleObject( pi.hProcess, 5000 );
-        CloseHandle( pi.hProcess );
-        if (!ll.stuck)
-        {
-            CloseHandle( to_d_write );
-            CloseHandle( from_d_read );
-        }
-        if (secure) secure_leave();
-        e1s18_wipe( frame, sizeof(frame) );
-        e1s18_wipe( out, sizeof(out) );
-        e1s18_wipe( sel_key, sizeof(sel_key) );
-        e1s18_wipe( ref, sizeof(ref) );
-        e1s18_wipe( sel_account, sizeof(sel_account) );
-        return err;
-    }
-}
-
-/* Design review, finding 2: the R8 broker's attempts for the shared attempt loop; each attempt a fresh dialog. */
-struct r8_local_attempts
-{
-    struct r8_attempts a;       /* first: the callbacks get the whole context back */
-    struct request *req;
-    const uint8_t *nonce, *binding_digest, *request_digest;
-    uint8_t *channel_token;
-    BOOL secure;
-    char *out_account;
-    size_t account_max;
-};
-
-static DWORD r8_local_attempt( struct r8_attempts *a, uint32_t n )
-{
-    struct r8_local_attempts *la = (struct r8_local_attempts *)a;
-    return e1s18_spawn_consent_dialog( la->req, la->req->id, n, la->nonce, la->binding_digest, la->request_digest,
-                                       la->channel_token, la->secure, la->out_account, la->account_max );
-}
-
-static DWORD r8_local_further( struct r8_attempts *a, uint32_t n, const uint8_t channel_id[16] )
-{
-    struct r8_local_attempts *la = (struct r8_local_attempts *)a;
-    (void)n;
-    memcpy( la->channel_token, channel_id, 16 );
-    return ERROR_SUCCESS;
-}
-
-static DWORD r8_local_remaining( struct r8_attempts *a )
-{
-    return r8_remaining( ((struct r8_local_attempts *)a)->req );
-}
 #endif
 
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
@@ -1888,8 +1432,8 @@ DWORD e1s18_transport_redeem_live( struct request *req,
         return ERROR_INVALID_PARAMETER;
 
 #if defined(_WIN32)
-    /* R8: the one redemption happened inside the dialog step, on the attempt's retained S6 channel
-     * (frames 28/29 in e1s18_spawn_consent_dialog); a second OPEN would replace the broker generation.
+    /* R9: the one redemption happened inside the dialog step, on the agent's retained S6 channel
+     * (frames 28/29 in e1r9_agent_dialog, after B0's GRANT); a second OPEN would replace the broker generation.
      * Hand that record over exactly once. The S12 storage generation is not produced here; the broker
      * asks the server for it via WEX_HKU_STORAGE_QUERY (op 12) after S10 issuance. */
     if (!s_r8_evidence_set || *out_evidence_len < sizeof(s_r8_evidence)) return ERROR_ACCESS_DENIED;
@@ -1909,22 +1453,6 @@ DWORD e1s18_transport_redeem_live( struct request *req,
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
 
 #define R9A_FRAME_MAX   2400
-
-static BOOL e1r9_is_enabled( void )
-{
-    HKEY key;
-    DWORD val = 0, sz = sizeof(val), type = 0;
-    if (RegOpenKeyExW( HKEY_LOCAL_MACHINE, L"Software\\WineExplorer\\Elevation", 0, KEY_READ, &key ) == ERROR_SUCCESS)
-    {
-        if (RegQueryValueExW( key, L"R9", NULL, &type, (BYTE *)&val, &sz ) == ERROR_SUCCESS && type == REG_DWORD)
-        {
-            RegCloseKey( key );
-            return val == 1;
-        }
-        RegCloseKey( key );
-    }
-    return FALSE;
-}
 
 static void r9_send_cancel( HANDLE pipe, const struct e1r8_tuple *t, uint32_t reason )
 {
@@ -2006,9 +1534,9 @@ DWORD e1r9_agent_dialog( struct request *req,
     OVERLAPPED ov_b0;
     struct e1r8_tuple mine, tuple;
     struct r8_dialog dlg;
+    static const uint8_t zero_channel[16];
     uint8_t req_buf[1792];
     uint8_t b0_buf[R9A_FRAME_MAX];
-    uint32_t img_len = 0;
     size_t req_total = 0;
     DWORD mode, done = 0, err = ERROR_ACCESS_DENIED;
     BOOL b0_pending = FALSE;
@@ -2059,35 +1587,10 @@ DWORD e1r9_agent_dialog( struct request *req,
         return ERROR_NOT_ENOUGH_MEMORY;
     }
 
-    /* Fill "mine" tuple */
-    memset( &mine, 0, sizeof(mine) );
-    mine.request_id = req->id;
-    mine.attempt = 0;
-    memcpy( mine.nonce, nonce, 32 );
-    memcpy( mine.binding_digest, binding_digest, 32 );
-    memcpy( mine.request_digest, request_digest, 32 );
-    mine.deadline = E1S18_DEADLINE( req );
-    mine.root_gen = s_r8_context.root_gen;
-    mine.server_gen = s_r8_context.server_gen;
-    mine.broker_gen = s_r8_context.broker_gen;
-    mine.verifier_gen = s_r8_context.verifier_gen;
-    mine.map_gen = s_r8_context.map_gen;
-    mine.policy_gen = s_r8_context.policy_gen;
-    mine.caller_session = s_r8_context.caller_session;
-    memcpy( mine.desktop_route, s_r8_context.desktop_route, 16 );
-    mine.desktop_mode = E1R8_DESKTOP_MODE_SECURE;
-
-    if (!req->image || !req->image[0] || e1s18_display_string_len( req->image, &img_len ))
-    {
-        CloseHandle( b0_event );
-        CloseHandle( hpipe );
-        return ERROR_ACCESS_DENIED;
-    }
-
-    req_total = 232 + img_len;
-    if (req_total > sizeof(req_buf) ||
-        e1r8_encode_request( req_buf, req_total, &mine, E1R8_REQUEST_KIND_RUNAS, 1,
-                             NULL, 0, (const uint8_t *)req->image, img_len, NULL, 0 ))
+    /* The request's own tuple (attempt 0, no channel yet: B0 makes each attempt's) and its REQUEST, on the
+     * secure desktop; built by the same helpers the native tests drive. */
+    if (e1s18_build_r8_tuple( req, req->id, 0, nonce, zero_channel, binding_digest, request_digest, TRUE, &mine ) ||
+        !(req_total = e1s18_encode_r9_request( req, &mine, req_buf, sizeof(req_buf) )))
     {
         r8_trace_err( "r9a encode request", ERROR_INVALID_DATA );
         CloseHandle( b0_event );
@@ -2871,28 +2374,9 @@ static DWORD default_prompt_dialog( struct request *req, const uint8_t nonce[32]
 #if defined(_WIN32) && defined(WEXELEVATE_E1S18)
     else
     {
-        if (e1r9_is_enabled())
-        {
-            err = e1r9_agent_dialog( req, nonce, binding_digest, request_digest, out_account, account_max );
-        }
-        else
-        {
-            /* Spec section 1, the shared attempt loop (decision.c): each attempt a fresh dialog. */
-            struct r8_local_attempts la;
-            la.a.who = "r8";
-            la.a.attempt = r8_local_attempt;
-            la.a.further = r8_local_further;
-            la.a.remaining = r8_local_remaining;
-            la.req = req;
-            la.nonce = nonce;
-            la.binding_digest = binding_digest;
-            la.request_digest = request_digest;
-            la.channel_token = channel_token;
-            la.secure = secure;
-            la.out_account = out_account;
-            la.account_max = account_max;
-            err = r8_attempt_loop( &la.a );
-        }
+        /* R9, the one flow (R5, owner decision 3): this broker is the agent A; session 0's broker B0 decides and
+         * runs the attempts (the shared decision sequence and attempt loop, decision.c, over this agent). */
+        err = e1r9_agent_dialog( req, nonce, binding_digest, request_digest, out_account, account_max );
     }
 #else
     else

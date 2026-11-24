@@ -31,6 +31,7 @@
 #define E1R8_SEALED_SIZE            220
 #define E1R8_S1_RECORD_SIZE         156
 #define E1R8_S7_PROMPT_SIZE         178
+#define E1R8_EVIDENCE_SIZE          220     /* the verifier's evidence record (RECEIPT) */
 
 /*
  * Message type constants, per spec sections 5 and 6.
@@ -56,6 +57,8 @@
 #define E1R8_TYPE_RELEASE           25
 #define E1R8_TYPE_RELEASED          26
 #define E1R8_TYPE_W_SETUP           27
+/* R10: the verifier's receipt to the server, on the control socket it retained at endorsement. */
+#define E1R8_TYPE_RECEIPT           30
 /* Lab frame, header only: the verifier's answer to START, passed on to the dialog in place of ATTACH_OK,
  * when the account lockout policy has closed the account. No worker exists and the request ends. */
 #define E1R8_TYPE_LOCKED            31
@@ -286,6 +289,14 @@ struct e1r8_w_setup
     struct e1r8_tuple tuple;
     uint32_t pid;
     uint32_t uid;
+};
+
+struct e1r8_receipt
+{
+    uint8_t evidence_ref[16];
+    const uint8_t *evidence;    /* E1R8_EVIDENCE_SIZE bytes */
+    const uint8_t *account;
+    uint32_t account_len;
 };
 
 /*
@@ -1559,6 +1570,51 @@ static inline int e1r8_decode_w_setup( const uint8_t *buf, size_t len,
     out->tuple = *expected;
     out->pid = e1r8_get_u32( buf + 236 );
     out->uid = e1r8_get_u32( buf + 240 );
+    return 0;
+}
+
+/*
+ * Type 30: RECEIPT (V->S control socket, R10). Body: evidence_ref:16 (not
+ * zero), the evidence record:220 (its content is checked by the server, not
+ * here), canonical account:str. Total 317..379.
+ */
+static inline int e1r8_encode_receipt( uint8_t *buf, size_t len, const struct e1r8_tuple *t,
+                                const uint8_t evidence_ref[16],
+                                const uint8_t evidence[E1R8_EVIDENCE_SIZE],
+                                const uint8_t *account, uint32_t acct_len )
+{
+    uint32_t total;
+    int err, i, bits = 0;
+    for (i = 0; i < 16; ++i) bits |= evidence_ref[i];
+    if (!bits) return E1R8_ERR_ID;
+    if (!e1r8_valid_account_name( account, acct_len )) return E1R8_ERR_STRING;
+    total = E1R8_HEADER_SIZE + 16 + E1R8_EVIDENCE_SIZE + 4 + acct_len;
+    if (len != total) return E1R8_ERR_LONG;
+    err = e1r8_put_header( buf, len, E1R8_TYPE_RECEIPT, total, t );
+    if (err) return err;
+    memcpy( buf + 76, evidence_ref, 16 );
+    memcpy( buf + 92, evidence, E1R8_EVIDENCE_SIZE );
+    e1r8_put_string( buf + 312, account, acct_len );
+    return 0;
+}
+
+static inline int e1r8_decode_receipt( const uint8_t *buf, size_t len,
+                                const struct e1r8_tuple *expected,
+                                struct e1r8_receipt *out )
+{
+    size_t off = 312;
+    int err, i, bits = 0;
+    if (len < 317 || len > 379) return E1R8_ERR_LONG;
+    err = e1r8_get_header( buf, len, E1R8_TYPE_RECEIPT, expected, NULL );
+    if (err) return err;
+    for (i = 0; i < 16; ++i) bits |= buf[76 + i];
+    if (!bits) return E1R8_ERR_ID;
+    memcpy( out->evidence_ref, buf + 76, 16 );
+    out->evidence = buf + 92;
+    err = e1r8_get_string( buf, len, &off, &out->account, &out->account_len );
+    if (err) return err;
+    if (!e1r8_valid_account_name( out->account, out->account_len )) return E1R8_ERR_STRING;
+    if (off != len) return E1R8_ERR_LONG;
     return 0;
 }
 
