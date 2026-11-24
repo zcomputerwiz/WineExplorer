@@ -71,6 +71,7 @@ static void log_line(const char *fmt, ...)
     fflush(out);
 }
 
+/* the module an address of the traced process lies in (by name only: no offsets are logged, Session 0 review) */
 static const char *resolve(ULONG_PTR a, char *buf, size_t n)
 {
     int i;
@@ -78,7 +79,7 @@ static const char *resolve(ULONG_PTR a, char *buf, size_t n)
     for (i = 0; i < nmods; i++)
         if (a >= mods[i].base && a < mods[i].base + mods[i].size)
         {
-            snprintf(buf, n, "%s+%#lx", mods[i].name, (unsigned long)(a - mods[i].base));
+            snprintf(buf, n, "%s", mods[i].name);
             return buf;
         }
     return NULL;
