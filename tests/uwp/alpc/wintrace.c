@@ -18,8 +18,9 @@
  *   d3d11.dll!device@{IID}[N]    slot N of the vtable of the interface IID of a Direct3D 11 device (hardware, BGRA) that this program creates
  *   dwrite.dll!analyzer@{IID}[N] slot N of the vtable of the interface IID of a DirectWrite text analyzer that this program creates
  *   d2d1.dll!context@{IID}[N]    slot N of the vtable of the interface IID of a Direct2D device context that this program creates
+ *   d2d1.dll!d2ddevice@{IID}[N]  slot N of the vtable of the interface IID of a Direct2D device that this program creates
  *   d2d1.dll!factory@{IID}[N]    slot N of the vtable of the interface IID of a Direct2D factory that this program creates
- * For the last four, only calls on an object with that vtable are counted (the slots may share code with other objects).
+ * For the last five, only calls on an object with that vtable are counted (the slots may share code with other objects).
  * The label may end in _D (the 32 qwords at rcx), _E (48 qwords at rdx and r8, at entry and at return) or _F (the low float and double of
  * xmm0 to xmm3); the fifth field R logs the return value and what the argument registers point to.
  * The load of every module is logged too (with the load order), so the order of events can be compared with a Wine run.
@@ -444,9 +445,10 @@ static int resolve_target(const char *target, char *mod, size_t modsize, DWORD *
     }
 
     /* d2d1.dll!context@{IID}[N]: slot N of the interface IID of a Direct2D device context, on a hardware Direct3D 11 device with BGRA
-     * support, that this program creates */
-    if (!_stricmp(spec, "d2d1.dll") && !strncmp(bang, "context@", 8) && slot >= 0)
+     * support, that this program creates; d2d1.dll!d2ddevice@{IID}[N]: the same for the Direct2D device (of a multithreaded factory) */
+    if (!_stricmp(spec, "d2d1.dll") && (!strncmp(bang, "context@", 8) || !strncmp(bang, "d2ddevice@", 10)) && slot >= 0)
     {
+        int on_device = !strncmp(bang, "d2ddevice@", 10);
         static const GUID iid_dxgi_device = {0x54ec77fa, 0x1377, 0x44e6, {0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c}};
         static const GUID iid_factory1 = {0xbb12d362, 0xdaee, 0x4b9a, {0xaa, 0x1d, 0x14, 0xba, 0x40, 0x1c, 0xfa, 0x1f}};
         typedef HRESULT (WINAPI *d3d_create_t)(void *, int, HMODULE, UINT, const void *, UINT, UINT, void **, void *, void **);
@@ -461,15 +463,17 @@ static int resolve_target(const char *target, char *mod, size_t modsize, DWORD *
         char vmod[80];
         DWORD vrva;
 
-        MultiByteToWideChar(CP_UTF8, 0, bang + 8, -1, iidw, 64);
+        MultiByteToWideChar(CP_UTF8, 0, bang + (on_device ? 10 : 8), -1, iidw, 64);
         if (!d3d_create || !d2d_create || FAILED(IIDFromString(iidw, &iid))) return 0;
         if (FAILED(d3d_create(NULL, 1, NULL, 0x20, NULL, 0, 7, &d3d, NULL, NULL)) || !d3d) return 0;
         if (FAILED(((qi_t)(*(void ***)d3d)[0])(d3d, &iid_dxgi_device, &dxgi)) || !dxgi) return 0;
-        if (FAILED(d2d_create(0 /* D2D1_FACTORY_TYPE_SINGLE_THREADED */, &iid_factory1, NULL, &factory)) || !factory) return 0;
+        /* D2D1_FACTORY_TYPE_SINGLE_THREADED for a context, MULTI_THREADED (as the lifted compositor uses) for a device */
+        if (FAILED(d2d_create(on_device, &iid_factory1, NULL, &factory)) || !factory) return 0;
         /* ID2D1Factory1::CreateDevice is slot 17, ID2D1Device::CreateDeviceContext slot 4 */
         if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, void *, void **))(*(void ***)factory)[17])(factory, dxgi, &device)) || !device)
             return 0;
-        if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, int, void **))(*(void ***)device)[4])(device, 0, &context)) || !context)
+        if (on_device) context = device;
+        else if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, int, void **))(*(void ***)device)[4])(device, 0, &context)) || !context)
             return 0;
         if (FAILED(((qi_t)(*(void ***)context)[0])(context, &iid, &obj)) || !obj) return 0;
         if (rva_of(*(void **)obj, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "d2d1.dll")) resolved_vt_rva = vrva;
