@@ -278,3 +278,13 @@ was therefore taken again on 2026-11-24 with the rule's targets, and gave the sa
 `../WineExplorer-local`): slot 29 (ten calls, a handle as first argument), method 46 (low dword rising 1, 1, 2), slots 40 and 41 (pairs, the
 private IID as the argument of 40), `GetForWindow` (the window and the IID), the sink calls (five creates with the 0xe8-byte block, seven LUID
 queries). The traces of FrameworkUdk exports and of the system-side module that were taken with typed RVAs support no statement here any more.
+
+## 2026-11-24: the crash on the Direct3D device thread was a race in Wine's DWrite
+
+The intermittent crash (an execute-access page fault on a heap address, thread of the D3D11 device, `create_system_fontfallback` and
+`fontfallback_MapCharacters` just before) was a use after free in Wine's own `dwrite`, not a missing piece of the compositor. Basis: Wine log
+(`+dwrite,+seh`: the collection used at the crash was released to 0 earlier by another thread) and a lab-only stack capture on `Release` of
+font collections (Wine's own code, symbolised with the build tree's debug info), which named `gdiinterop1_CreateFontFromLOGFONT` (called by
+riched20) and `factory_get_system_collection`. The fix and its test (`test_system_fontcollection_threads`) are in the Wine branch
+`claude/dwrite-collection-race`. After it Notepad did not crash in 6 of 6 runs (before it, most runs). `DwmSceneI.dll` is still not loaded
+and no text is drawn.
