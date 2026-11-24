@@ -617,3 +617,25 @@ method 46 (the submit calls that return the batch ids, the objects it creates ne
 * The engine does not ask for a submit method: the "submit batch" calls Windows makes (the ones that return ids 3, 4, ...) are not reached, so
   the stubs Integration mentioned are not the next gap. The next probe is what the engine threads wait on (thread states and stacks at 25 s;
   the peek script picked the wrong process, a Notepad launcher with three threads, so it needs the real process id).
+
+## 2026-11-24 (late): the engine now stops at win32u.NtCreateCompositionInputSink
+
+* The failure after method 46 was not in the engine: `+relay` of the engine thread shows `CreateEventW`, then `DCompPrivates_SetCommitCompletionEvent`
+  of FrameworkUdk, whose fallback calls `device->QueryInterface({6b556968-2d25-11e2-99f6-8bc36088709b})`; Wine answered E_NOINTERFACE, WIL
+  logged the failure and the engine shut down. A logging probe object showed that FrameworkUdk then calls slot 8 with the event handle (Windows
+  answers S_OK). The device now answers that IID with its own vtable (slot 8 duplicates the event, `Commit` signals it, other slots E_NOTIMPL;
+  Wine ccd07768, test on both architectures).
+* With that, Notepad (default contract 10) goes on until Wine aborts on `win32u.NtCreateCompositionInputSink` (win32u exports exist as unimplemented
+  stubs: Close/Create/CreateImplicit/Duplicate/Query/QueryLuid/QueryViewId and two `NtUser...FromPoint`).
+* Windows 11, black box (wintrace on the win32u stubs while Notepad starts; raw capture in `../WineExplorer-local/uwp-captures/wt-sink.txt`):
+  `NtCreateCompositionInputSink(const void *params, HANDLE *out, ULONG_PTR flags, ULONG id)` is called 5 times by `Microsoft.InputStateManager.dll`,
+  returns 0 and writes a handle (0x930, 0x93c, 0xb78, 0xf24, 0xf4c); `params` points at a block whose first qword is 0xe8; `flags` is
+  0x7ffffffffffffffc every time; `id` counts 0x57, 0x59, 0x5a, 0x6a, 0x6b. `NtQueryCompositionInputSinkLuid(HANDLE sink, LUID *luid, const GUID *kind,
+  void *out2)` is called 7 times, returns 0, writes a LUID (0x89be83b5, 0 for 0x930) and 0 into `out2`; the same handle asked twice (0xf24, 0xf4c) is
+  asked for the same kind. Close, Duplicate, Implicit and the `FromPoint` calls are not made while Notepad starts.
+* Second opinion (Codex, read-only): the family is old (Windows 8.1 tables), no prior art in ReactOS or Wine, role most likely input routing for
+  composition visuals; an arbitrary event handle is not a justified stand-in; a typed win32u syscall with an owned opaque sink identity, matching
+  destruction, WOW64 marshaling and measured validation (null, inaccessible, misaligned pointers, stale and wrong-type handles) is the safe
+  implementation; and sink creation alone is not known to unlock `DwmSceneI.dll`: trace the first failure or wait after it.
+* Next: implement Create/QueryLuid/Close as semi-stubs in win32u (syscall table entries, WOW64 thunks, STOCK_CHANGES, tests), after the black-box
+  validation probes on Windows; this is a stock-Wine change that Session 0 reviews.
