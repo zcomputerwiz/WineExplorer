@@ -548,3 +548,54 @@ contract: the table is filled from `Microsoft.Internal.FrameworkUdk.System.dll` 
 module. Route A is therefore a Wine module of that name that implements the exports FrameworkUdk asks for, starting with the DCompPrivates
 group (15 exports, `DCompPrivates_*`), on top of dcomp methods that Wine implements (slot 46 with the small codes, measured: five calls, S_OK,
 outputs 0 / pointer, 1, 2, 0x3f00000002, 0x3f00000003).
+
+## 2026-11-23 (later): what the system-side FrameworkUdk module is, and what method 46 really is
+
+Measured on the Windows host (black box; `tests/uwp/alpc/fudk-sys-probe.c` calls its exports and reads vtable data only; raw captures stay in
+`../WineExplorer-local/uwp-captures`).
+
+* The module `Microsoft.Internal.FrameworkUdk.System.dll` has one export that matters, `GetFunctionTableById(id, &size, &version)`
+  (`GetVersionInformation` is not exported; FrameworkUdk tolerates that). Tables the package uses: id 0 = 456 bytes, version 5 (57 slots);
+  1 = 8, v0; 2 = 192, v0 (24 slots: PowerNotifications and `DCompPrivates_CreateCompositionBatchQuery` in slot 23); 3 = 32, v0
+  (`DCompPrivates_CreateSharedVisualHandle`, `OpenSharedDCompositionObject`, `DxPrivates_SwapChainPartnerFromDxgiSwapChain`,
+  `ResizeDCompositionSurface`); 4 = 88, v0; 5 = 56, v1. FrameworkUdk checks size >= the table's and the exact version, and uses its own fallback
+  table when the module or an id is missing.
+* The fallback is chosen by a **level** that FrameworkUdk derives by asking `IsApiContractPresentByMajor` for 17, 16, ..., 8, 7 in turn (the first
+  present wins; these are the three calls in the Wine log). Each level has its own helper class; levels 12 to 17 share one whose
+  `CreateCompositionBatchQuery` is: `device->QueryInterface({28d6ad3d-ee2a-4bcd-9419-7d54800435b1}, &q)` wrapped in a forwarding object. So with
+  contract >= 17 the engine calls the methods of *whatever dcomp returns for that IID*, directly (the wrapper tail-jumps, which is why no
+  FrameworkUdk frame is on the stack). On Windows 11 the system module returns its own batch-query object whose slot 4 forwards unchanged to the
+  device's private method 46.
+* Private method 46 therefore is `(this, block_a, block_b, code)` of the batch-query interface, and the engine uses it 13 times in the first
+  seconds. On Windows the first call changes exactly one thing: the first qword of `block_a` becomes 1; later calls (code 1, 2, 3 ...) return
+  1, 2, `0xe100000002`, ... in the first qword of a small block. `block_b` is not written. The layout of `block_a` is a header plus 0x30-byte
+  entries; `block_b` starts with a flags qword and has a 0x30-byte entry per argument.
+* Lab result (not committed): method 46 that writes 1 into `block_a[0]` and returns S_OK keeps the engine alive on the merged build with contract 19
+  and CoreMessaging slot 13 (D3D11 and D2D contexts are created, the XAML frame is drawn); one run in three then crashed on a call through a heap
+  address (the intermittent crash tracked below). `DwmSceneI.dll` is still not loaded: the later calls (codes 1..7) and the objects the engine
+  asks for next are the following steps.
+* Consequence for the plan: a Wine module of that name is **not** needed to stay on the Windows protocol: with contract >= 17 FrameworkUdk's own
+  helper calls the IID `{28d6ad3d-...}` interface of dcomp, so Wine's dcomp has to implement that interface (own vtable and IID, per the
+  conditions in the dcomp memory note). The module remains the route if a version without the fallback shows up, and the table facts above are
+  all it would need.
+
+## Contract 19 to production
+
+What the lab patch does: `wintypes` answers `IsApiContractPresentByMajor(UniversalApiContract, n)` true up to 19 instead of 10. What has to change
+before it is committed:
+
+1. **Honest version.** The contract number is what apps and the runtime feature-gate on, so it has to follow what is implemented, not what one app
+   needs. Make `wintypes` data driven: one table of contract name -> highest major Wine implements (UniversalApiContract 10 today), and raise
+   only the contracts whose new types and methods are present. Do not raise the shared default to 19.
+2. **Per application.** Where an app (the lifted Windows App Runtime) needs more than the default, set it per package: `wexappx` writes
+   `HKCU\Software\Wine\AppDefaults\<exe>\UniversalApiContract` at registration (same mechanism as the planned `riched20` override), and `wintypes`
+   reads it for the calling process. Unpackaged programs keep the default.
+3. **Find the smallest value.** FrameworkUdk probes 17 down to 7 and CoreMessaging's newer path starts at 18 or 19: test 17 first (it may
+   avoid the slot-13 path), then 18, 19; commit the lowest that works.
+4. **Everything the newer path calls must exist.** Session slot 13 (done, committed); keep the generic objects of `coreui.c` logging, and add a
+   test (`dlls/coremessaging/tests`) for CoreUICreate, the session slot 3/8/12/13 results and the item, on both architectures.
+5. **Tests.** `dlls/wintypes/tests`: the table, the per-process override, a missing key, a value above the maximum; run on x86_64 and i386.
+6. **Documentation.** `STOCK_CHANGES.md` entry (what the contract claims, where the override is, why), and a line in `docs/uwp/WINAPPSDK.md`
+   naming the lowest working value.
+7. **Review.** Session 0 reviews the table and the override before it merges (it changes what every WinRT app sees), Integration reviews the dcomp
+   side of method 46.
