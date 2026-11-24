@@ -4557,3 +4557,38 @@ split before this change).
 - `dlls/win32u/input.c`, `win32u.spec`, `win32syscalls.h`, `dlls/wow64win/user.c`, `include/ntuser.h`, `dlls/win32u/tests/win32u.c`: `NtCreateCompositionInputSink(block, &sink)`, `NtQueryCompositionInputSinkLuid(sink, &luid)` and `NtCloseCompositionInputSink(sink)`, the per-window input sinks of the Windows App Runtime (Microsoft.InputStateManager.dll), implemented from Windows 11 measurements (`tests/uwp/alpc/sink-probe.c`, `sink-probe2.c`, `sink-probe3.c`, `sink-pops32.cpp`; the block sizes 0xe8 and 0x38 come from `sink-probe3.c`: a buffer ending at an inaccessible page fails for 0xe7 bytes and works for 0xe8, and the windows have to sit at offsets 16, 0x48, 0x80 and 0xb8): 8, 8 and 4 bytes of arguments on 32-bit Windows; a 0xe8-byte block of a size (not checked) and four entries of kind (0..2) and window; the windows must be windows of this process (not NULL, destroyed or the desktop window: STATUS_INVALID_PARAMETER; another process: STATUS_ACCESS_DENIED); a stable LUID per sink; STATUS_INVALID_HANDLE and STATUS_OBJECT_TYPE_MISMATCH for bad handles; the handle is INVALID_HANDLE_VALUE after a failed create. What a sink does in the window system is not known: a sink is an event object here (NtQueryObject says "Event", Windows says "Composition"), remembered in a list so the other calls know it; a handle closed with NtClose instead of the close call stays in the list until its value is reused. 32-bit callers get STATUS_NOT_IMPLEMENTED (the layout of their block is not known). Without the syscalls the Windows App Runtime aborts at start-up.
 
 2026-11-24 (UWP, Wine branch `claude/staterepository-clean`, on development 3ca6a4b7, review by Session 0 and Integration; WineExplorer branch `claude/uwp-clean`): the Windows App Runtime (Notepad) work in ten commits: dxgi adapters-changed events (69b8d591), the spell checker factory and bcp47langs (78fa2d6c), user32 GetWindowBand and ordinal 2574 (751f3645), twinapi.appcore GetForWindow interop (b9ea1e06), the win32u owner hint (5cfe525a), dcomp private interfaces, shared visuals, method 46 and the commit-event interface (192a5b5e), CoreUI session slot 13 (bba34727), the composition input sink syscalls (1f1edefb, with the basis of the block sizes in fe5760b6) the review fixes (e322b315) and the test that is the basis of the owner hint change (2d6f4a0c). The entries above (the ones that name no hash of their own) describe these commits.
+
+2026-11-24 (Wine 7c95637d, branch `claude/dcomp-glass-shape-2`): translucent DirectComposition popups. Chromium 159 and
+Edge 157 draw their popups (the restore bubble, the app menu) as glass sheets (`DwmExtendFrameIntoClientArea` with -1
+margins) whose child window is a DirectComposition target with premultiplied alpha. Nothing blended that alpha, so they
+showed a black box around themselves, and a popup that another one had covered stayed blank.
+- `dlls/dwmapi/dwmapi_main.c`: a top-level window given a negative margin gets the property `__wine_dwm_sheet` (removed
+  by non-negative margins), with or without `DwmAlpha`; the margins are traced.
+- `dlls/wined3d/swapchain.c` (`dcomp_update_shape`, `dcomp_shape_region`, `dcomp_queue_shape`, `dcomp_shape_worker`;
+  `dcomp_prepare_layers` split out of `swapchain_composite_layers`), `wined3d_private.h` (`dcomp_shape`): at each
+  present of a target scene (also at Commit), a target in a sheet whose alpha nothing blends (without `DwmAlpha`, or a
+  child-window target, whose GL output has no alpha) gives the sheet a window region from its composed pixels with
+  alpha at least one half (rows with equal runs merged; unchanged regions not set again; an empty one never given, nor
+  one over a region the application set). A thread pool worker applies the newest region per window without redraw
+  (`SetWindowRgn` on another process's window waits for its thread) and asks for the target's frames again. Soft
+  shadows are cut; edge pixels are not blended.
+- `dlls/dxgi/factory.c`, `swapchain.c`, `dxgi_private.h`: the repaint sink of a composition target is a message-only
+  window (`WineDCompRepaintSink`) on a thread of dxgi's own with a message loop (`wine_dxgi_dcomp`), because the
+  swapchain's thread (Chromium's compositor thread) handles no messages; the composition window stays with that thread.
+  The newest target bound in a top-level window gives it its sink too, so the window's surface flushes (an expose, a
+  region change) ask for the frames again. A repaint from the sink thread only copies the target's kept frame
+  (`NtUserCallHwnd_PresentClientSurfaces`) and never uses the device: D3D11's immediate context has no lock, and
+  presenting from that thread lost Chromium's GPU context. Without the thread, the composition window is its own sink and
+  its thread presents the retained frames as before.
+- `dlls/win32u/window.c`, `include/ntuser.h` (`NtUserCallHwnd_PresentClientSurfaces`, last in the enum so the other
+  values stay): copies the kept last frame of a window's offscreen client surfaces to the window again, under the
+  surfaces lock, without the renderer.
+- `dlls/winex11.drv/init.c`, `window.c`, `x11drv.h` (`get_x_window_visual`): a DC of another process's window
+  (`X11DRV_GetDC`, the old FIXME) and the offscreen client-surface present use the drawable's real visual, so a copy
+  between depths converts through XRender: copying Chromium's 24-bit GL client window into a 32-bit glass window was an
+  X `BadMatch` that killed its GPU process under `DwmAlpha` (three restarts, then software compositing).
+Tests: dcomp and dwmapi 0 failures, dxgi the same 35 failures (display mode tests on Xvfb) with and without the change,
+x86_64 and i386. Chromium and Edge browser checks pass with no GPU context loss (22 popup runs before the sink rework
+lost the context 3 times, 10 after it none, as the baseline). Verified with screenshots: bubble and menu shaped, the
+bubble redrawn after the menu closes, the main window under a closed menu redrawn, DwmAlpha mode no longer crashing.
+Not done: soft shadows (they need the child target's alpha in the window, P7b), the Vulkan renderer.
