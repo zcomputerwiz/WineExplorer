@@ -46,6 +46,27 @@ Changes:
 - Tests: `scripts/test_sysrun_server.sh` c3, with the roles probe's new modes `token-rights` and `admin-token-rights`.
   The service token checked is PlugPlay's, a service of the session; the WexSvc* test services run in session 0.
 
+## server: a thread cannot impersonate a token of higher integrity (B99 route 2, 2026-11-24)
+
+Measured black box on Windows 11 with our own program, at Low integrity, against a Medium process of the same user. The
+Low process may open the process with the limited query right and its token with `TOKEN_QUERY`, `TOKEN_DUPLICATE`,
+`TOKEN_IMPERSONATE` and `TOKEN_ASSIGN_PRIMARY`, but not `TOKEN_ADJUST_DEFAULT`. It may also upgrade a `TOKEN_QUERY`
+handle the same way with `DuplicateHandle`, and make a `SecurityImpersonation` copy. But `SetThreadToken` with the copy,
+and `ImpersonateLoggedOnUser` with the primary token, give its thread an identification-level token. An AppContainer
+process cannot open the Medium process at all.
+
+- `server/token.c` (`security_set_thread_token`): a token of higher integrity than the thread's process goes to the
+  thread as an identification-level copy, also when the process holds `SeImpersonatePrivilege`. So does an elevated
+  token while the process is not elevated, when the process lacks that privilege. On Windows 10 a Low copy of an
+  elevated administrator's token (privilege enabled) also got only identification from its High parent. This is the integrity part of `SeTokenCanImpersonate`, as pipe servers already get it
+  (`token_impersonation_level`). Before, a Low integrity process (a sandbox) could impersonate its user's Medium
+  token. The other-user part is left to the pipe servers, since Windows lets a process impersonate a token it got
+  from `LogonUser`.
+- Not changed: the token rights (Windows grants them too) and AppContainer process isolation (Wine's process objects
+  have no descriptor; a known gap).
+- Test: `dlls/advapi32/tests/security.c` (`test_impersonation_cap`): a Low integrity child of the test opens its
+  parent's token and checks that both ways of impersonating it give an identification token.
+
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
 - `server/session0.c` (`pipe_request`, `session0_open_pipe`, the `PIPE` handler): a `PIPE` request carries the
