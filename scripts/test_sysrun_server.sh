@@ -4257,7 +4257,9 @@ HOLDER=$!
 sleep 3
 FDS="$(ls "/proc/$S0PID/fd" | wc -l)"
 [ "$FDS" -lt 100 ] || fail "session 0 holds $FDS descriptors while a user holds 300 idle connections"
-[ "$(s0q "$ADM" fromadm)" = elevated ] || fail "session 0 does not serve while a user holds idle connections"
+# FromSession0 is set before session 0 starts (s0_token's fromadm is not there when only s0_base ran before)
+[ "$(s0q "$ADM" FromSession0)" = 0x1 ] ||
+    fail "session 0 does not serve while a user holds idle connections: [$(s0q "$ADM" FromSession0)]"
 wait "$HOLDER" || fail "the idle connections could not be made"
 el_down "$ADM"
 ok st_idle_connections_do_not_hold_session0
