@@ -554,9 +554,8 @@ Notes:
   `WEX_SAFEMODE_BASELINE=use safe-mode.sh NAME-base-uefi NAME-mine-uefi PHASE`.
 * **A failed install or baseline** leaves that firmware out; the other firmware's stages still run, and the chain
   still fails.
-* **Readiness from windows, not OCR.** The desktop is up when the session's X server (XWayland in the Wayland
-  session) shows the shell's screen-sized desktop view and its taskbar (`session-run.py --wait-desktop`, read over
-  the serial console); Notepad, the Run dialog's windows, System Properties, Startup and Recovery and the Safe Mode
+* **Readiness from windows, not OCR.** The desktop is up when the X11 session's X server shows the shell's
+  screen-sized desktop view and its taskbar (`session-run.py --wait-desktop`, read over the serial console); Notepad, the Run dialog's windows, System Properties, Startup and Recovery and the Safe Mode
   box ("Desktop") by their titles (`--wait-window`, `--gone-window`; `--windows` lists them, for debugging:
   `vmtest.py sh VM wineuser PWFILE 'python3 /usr/local/libexec/wex-tests/session-run.py --user wineuser --windows'`).
   OCR stays for images without `xwininfo`, the loader's and the Advanced Options menus (no X there), and the
@@ -574,6 +573,22 @@ Notes:
 * Checked 2026-11-23 on b1123a-uefi: baseline (provisioning boot 40-50 s), then rundialog, classic, lastgood and
   startrec on overlays of it, all subresults passing. In the shell's X11 session the virtual desktop window is
   "Wine Desktop"; the desktop view (screen-sized) and the taskbar are its children, class explorer.exe.
+* **Where the probe cannot answer, OCR.** The Wayland session's shell runs without `DISPLAY` (Wine's Wayland
+  driver), so no X server sees its windows: the probe prints `probe=unavailable` (exit 3) and the Wayland phases use
+  OCR of "Recycle Bin" as before. A structured readiness signal there (from the compositor) is open in the review.
+  A serial console that gives no prompt for 60 s, or a probe with no answer (B78: silent after a warm reboot), also
+  falls back to OCR for the desktop, and the log says so; later checks that need the console still fail.
+* **startrec's own changes after a failure.** It records `$OUT/startrec-restore` before its first change; if it
+  fails before putting them back, the main loop restores them on the stopped disk (`startrec_restore`) before the
+  /etc comparison, which then shows only the boot's changes. A file the comparison cannot read on the stopped disk
+  is reported as "could not read", not as a change (batch b1124a).
+* **Traps.** Run the stages with `WEX_TEST_PROBES=/var/tmp/wex-probes` (wex-batch sets it): without it the wayland
+  stage fails "no display probe". A failed chain job leaves its guest journal (`*-journal.txt`) and
+  `serial-transcript.log` beside its screenshots in the chain's log directory. The classic dialog fills in the last
+  user up to ~10 s after it shows; the test waits 30. Base disks: `NAME-base-FW` is read-only (mode 444, with
+  `baseline.stamp` and `baseline.source` beside its disk); a stage's overlay `NAME-STAGE-FW` backs onto it,
+  all under `VMTEST_DIR` (the chain uses `/var/tmp/vmtest-gpt`). Never write to a base; fork your own overlay
+  (`qemu-img create -f qcow2 -F qcow2 -b BASE/disk.qcow2`) under your own `VMTEST_DIR`.
 
 ## Added 2026-11-15: quicker builds and a quick path that copies only what changed
 
