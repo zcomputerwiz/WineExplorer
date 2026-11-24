@@ -15,7 +15,15 @@
  *   dcomp.dll!desktop[N]         slot N of the vtable of a live IDCompositionDesktopDevice that this program creates
  *   dcomp.dll!visual[N]          slot N of the vtable of a live IDCompositionVisual that this program creates
  *   winrt!Class.Name@{IID}[N]    slot N of the vtable of the interface IID of the activation factory of the class (RoGetActivationFactory)
- * The label may end in _D (the 32 qwords at rcx), _E (48 qwords at rdx and r8, at entry and at return) or _F (the low float and double of
+ *   d3d11.dll!device@{IID}[N]    slot N of the vtable of the interface IID of a Direct3D 11 device (hardware, BGRA) that this program creates
+ *   dwrite.dll!analyzer@{IID}[N] slot N of the vtable of the interface IID of a DirectWrite text analyzer that this program creates
+ *   d2d1.dll!context@{IID}[N]    slot N of the vtable of the interface IID of a Direct2D device context that this program creates
+ *   d2d1.dll!d2ddevice@{IID}[N]  slot N of the vtable of the interface IID of a Direct2D device that this program creates
+ *   d2d1.dll!factory@{IID}[N]    slot N of the vtable of the interface IID of a Direct2D factory that this program creates
+ *   d3dcompiler_47.dll!flg[N] / linker[N] / module[N] / instance[N]   slot N of a function linking graph, linker, shader-library module or
+ *                                module instance that this program creates (from a one-line library of its own)
+ * For the last six, only calls on an object with that vtable are counted (the slots may share code with other objects).
+ * The label may end in _S (rdx, r8, r9 as C strings), _P (rdx: an array of r8 D3D11_PARAMETER_DESC), _D (the 32 qwords at rcx), _H (rcx is a WinRT string, such as a class name: its text), _E (48 qwords at rdx and r8, at entry and at return) or _F (the low float and double of
  * xmm0 to xmm3); the fifth field R logs the return value and what the argument registers point to.
  * The load of every module is logged too (with the load order), so the order of events can be compared with a Wine run.
  * Build (mingw): x86_64-w64-mingw32-gcc -O2 -o wintrace.exe wintrace.c -lole32 -luuid
@@ -44,6 +52,7 @@ static FILE *out;
 static DWORD t0;
 static HANDLE proc;
 static int pending[65536];
+static DWORD event_tid;   /* thread of the debug event being handled (logged with module loads) */
 
 static const char *base_name(const char *path)
 {
@@ -62,6 +71,7 @@ static void log_line(const char *fmt, ...)
     fflush(out);
 }
 
+/* the module an address of the traced process lies in (by name only: no offsets are logged, Session 0 review) */
 static const char *resolve(ULONG_PTR a, char *buf, size_t n)
 {
     int i;
@@ -69,7 +79,7 @@ static const char *resolve(ULONG_PTR a, char *buf, size_t n)
     for (i = 0; i < nmods; i++)
         if (a >= mods[i].base && a < mods[i].base + mods[i].size)
         {
-            snprintf(buf, n, "%s+%#lx", mods[i].name, (unsigned long)(a - mods[i].base));
+            snprintf(buf, n, "%s", mods[i].name);
             return buf;
         }
     return NULL;
@@ -92,7 +102,7 @@ static void add_module(HANDLE file, LPVOID base)
         ReadProcessMemory(proc, (char *)base + dos.e_lfanew, &nt, sizeof(nt), &got))
         m->size = nt.OptionalHeader.SizeOfImage;
     snprintf(m->name, sizeof(m->name), "%s", base_name(path));
-    log_line("load %s at %p size %#lx", m->name, base, (unsigned long)m->size);
+    log_line("load %s at %p size %#lx tid %lu", m->name, base, (unsigned long)m->size, (unsigned long)event_tid);
     for (i = 0; i < nbps; i++)
         if (!bps[i].active && !_stricmp(bps[i].mod, m->name))
         {
@@ -109,7 +119,7 @@ static void add_module(HANDLE file, LPVOID base)
                 bps[i].active = 1;
                 ReadProcessMemory(proc, (void *)bps[i].addr, &now, 1, &got);
                 (void)now;
-                log_line("  breakpoint %s set at %s+%#lx", bps[i].label, m->name, (unsigned long)bps[i].rva);
+                log_line("  breakpoint %s set in %s", bps[i].label, m->name);
             }
             else log_line("  breakpoint %s FAILED (error %lu)", bps[i].label, GetLastError());
         }
@@ -176,6 +186,63 @@ static void hit(struct bp *b, DWORD tid)
                 for (i = 0; i < (int)(n / 8); i += 4)
                     log_line("    obj+%#02x: %016llx %016llx %016llx %016llx", i * 8, (unsigned long long)obj[i], (unsigned long long)obj[i + 1],
                              (unsigned long long)obj[i + 2], (unsigned long long)obj[i + 3]);
+        }
+        if (strstr(b->label, "_H") && ctx.Rcx)   /* _H: rcx is a WinRT string (a class name): its text */
+        {
+            /* the string handle points to a header: flags and length (UINT32 each), two UINT32 of padding, the buffer pointer */
+            struct { UINT32 flags, length, pad1, pad2; ULONG_PTR buffer; } hdr;
+            WCHAR text[160];
+            SIZE_T n = 0;
+
+            if (ReadProcessMemory(proc, (void *)ctx.Rcx, &hdr, sizeof(hdr), &n) && n == sizeof(hdr) && hdr.length < ARRAYSIZE(text)
+                    && ReadProcessMemory(proc, (void *)hdr.buffer, text, hdr.length * sizeof(WCHAR), &n))
+            {
+                GUID g;
+
+                text[hdr.length] = 0;
+                /* for RoGetActivationFactory, rdx is the interface id asked for */
+                if (ctx.Rdx && ReadProcessMemory(proc, (void *)ctx.Rdx, &g, sizeof(g), &n) && n == sizeof(g))
+                    log_line("    string \"%ls\" rdx {%08lx-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}", text, (unsigned long)g.Data1,
+                             g.Data2, g.Data3, g.Data4[0], g.Data4[1], g.Data4[2], g.Data4[3], g.Data4[4], g.Data4[5], g.Data4[6], g.Data4[7]);
+                else
+                    log_line("    string \"%ls\"", text);
+            }
+        }
+        if (strstr(b->label, "_S"))   /* _S: rdx, r8 and r9 as C strings where they point to printable text */
+        {
+            ULONG_PTR regs[3] = {ctx.Rdx, ctx.R8, ctx.R9};
+            static const char *names[3] = {"rdx", "r8", "r9"};
+            int r;
+
+            for (r = 0; r < 3; r++)
+            {
+                char s[96];
+                SIZE_T n = 0;
+                int k, ok = 1;
+
+                if (regs[r] < 0x10000 || !ReadProcessMemory(proc, (void *)regs[r], s, sizeof(s) - 1, &n) || !n) continue;
+                s[n] = 0;
+                for (k = 0; s[k] && ok; k++) ok = s[k] >= 32 && s[k] < 127;
+                if (ok && k > 0) log_line("    %s \"%s\"", names[r], s);
+            }
+        }
+        if (strstr(b->label, "_P") && ctx.Rdx && ctx.R8 && ctx.R8 < 32)
+        {
+            /* _P: rdx is an array of r8 D3D11_PARAMETER_DESC (two string pointers and ten UINTs each) */
+            struct { ULONG_PTR name, semantic; UINT type, cls, rows, cols, interp, flags, in_reg, in_comp, out_reg, out_comp; } d;
+            UINT k;
+
+            for (k = 0; k < (UINT)ctx.R8; k++)
+            {
+                char nm[64] = "", sem[64] = "";
+                SIZE_T n = 0;
+
+                if (!ReadProcessMemory(proc, (char *)ctx.Rdx + k * sizeof(d), &d, sizeof(d), &n) || n != sizeof(d)) break;
+                if (d.name) { ReadProcessMemory(proc, (void *)d.name, nm, sizeof(nm) - 1, &n); nm[sizeof(nm) - 1] = 0; }
+                if (d.semantic) { ReadProcessMemory(proc, (void *)d.semantic, sem, sizeof(sem) - 1, &n); sem[sizeof(sem) - 1] = 0; }
+                log_line("    param %u '%s' '%s' type %u class %u %ux%u interp %u flags %#x in %d.%d out %d.%d", k, nm, sem, d.type,
+                         d.cls, d.rows, d.cols, d.interp, d.flags, (int)d.in_reg, (int)d.in_comp, (int)d.out_reg, (int)d.out_comp);
+            }
         }
         if (strstr(b->label, "_E"))   /* _E: 48 qwords at rdx and r8 */
         {
@@ -315,6 +382,9 @@ typedef HRESULT (WINAPI *ro_init_t)(int);
 typedef HRESULT (WINAPI *ro_factory_t)(void *, REFIID, void **);
 typedef HRESULT (WINAPI *ws_create_t)(const WCHAR *, UINT32, void **);
 
+/* the RVA of the vtable of the object of the last target resolved, when only calls on such objects are to be counted (0: all) */
+static DWORD resolved_vt_rva;
+
 /* turns a target of the command line into module and RVA, as the usage text says; 0 when it cannot be found */
 static int resolve_target(const char *target, char *mod, size_t modsize, DWORD *rva)
 {
@@ -351,6 +421,164 @@ static int resolve_target(const char *target, char *mod, size_t modsize, DWORD *
         if (FAILED(ws_create(cls, (UINT32)wcslen(cls), &hs))) return 0;
         if (FAILED(ro_factory(hs, &iid, &obj)) || !obj) return 0;
         return rva_of((*(void ***)obj)[slot], mod, modsize, rva);
+    }
+
+    /* d3d11.dll!device@{IID}[N]: slot N of the interface IID of a hardware device with BGRA support that this program creates */
+    if (!_stricmp(spec, "d3d11.dll") && !strncmp(bang, "device@", 7) && slot >= 0)
+    {
+        typedef HRESULT (WINAPI *create_t)(void *, int, HMODULE, UINT, const void *, UINT, UINT, void **, void *, void **);
+        HMODULE d3d = LoadLibraryA("d3d11.dll");
+        create_t create = d3d ? (create_t)GetProcAddress(d3d, "D3D11CreateDevice") : NULL;
+        WCHAR iidw[64];
+        GUID iid;
+        void *device = NULL, *obj = NULL;
+
+        MultiByteToWideChar(CP_UTF8, 0, bang + 7, -1, iidw, 64);
+        if (!create || FAILED(IIDFromString(iidw, &iid))) return 0;
+        /* D3D_DRIVER_TYPE_HARDWARE, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION */
+        if (FAILED(create(NULL, 1, NULL, 0x20, NULL, 0, 7, &device, NULL, NULL)) || !device) return 0;
+        if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, const GUID *, void **))(*(void ***)device)[0])(device, &iid, &obj)) || !obj)
+            return 0;
+        {
+            /* the slots may share code with other objects of d3d11: count only calls on an object with this vtable */
+            char vmod[80];
+            DWORD vrva;
+
+            if (rva_of(*(void **)obj, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "d3d11.dll")) resolved_vt_rva = vrva;
+        }
+        if (!rva_of((*(void ***)obj)[slot], mod, modsize, rva)) return 0;
+        if (_stricmp(mod, "d3d11.dll")) resolved_vt_rva = 0;   /* the filter compares with the base of the module of the slot */
+        return 1;
+    }
+
+    /* dwrite.dll!analyzer@{IID}[N]: slot N of the interface IID of a text analyzer of a shared DirectWrite factory that this program
+     * creates */
+    if (!_stricmp(spec, "dwrite.dll") && !strncmp(bang, "analyzer@", 9) && slot >= 0)
+    {
+        static const GUID iid_factory = {0xb859ee5a, 0xd838, 0x4b5b, {0xa2, 0xe8, 0x1a, 0xdc, 0x7d, 0x93, 0xdb, 0x48}};
+        typedef HRESULT (WINAPI *dw_create_t)(int, const GUID *, void **);
+        HMODULE dw = LoadLibraryA("dwrite.dll");
+        dw_create_t dw_create = dw ? (dw_create_t)GetProcAddress(dw, "DWriteCreateFactory") : NULL;
+        WCHAR iidw[64];
+        GUID iid;
+        void *factory = NULL, *analyzer = NULL, *obj = NULL;
+        char vmod[80];
+        DWORD vrva;
+
+        MultiByteToWideChar(CP_UTF8, 0, bang + 9, -1, iidw, 64);
+        if (!dw_create || FAILED(IIDFromString(iidw, &iid))) return 0;
+        if (FAILED(dw_create(0 /* DWRITE_FACTORY_TYPE_SHARED */, &iid_factory, &factory)) || !factory) return 0;
+        /* CreateTextAnalyzer is slot 21 of IDWriteFactory */
+        if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, void **))(*(void ***)factory)[21])(factory, &analyzer)) || !analyzer) return 0;
+        if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, const GUID *, void **))(*(void ***)analyzer)[0])(analyzer, &iid, &obj)) || !obj)
+            return 0;
+        if (rva_of(*(void **)obj, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "dwrite.dll")) resolved_vt_rva = vrva;
+        if (!rva_of((*(void ***)obj)[slot], mod, modsize, rva)) return 0;
+        if (_stricmp(mod, "dwrite.dll")) resolved_vt_rva = 0;
+        return 1;
+    }
+
+    /* d2d1.dll!factory@{IID}[N] / factorymt@{IID}[N]: slot N of the interface IID of a single-threaded / multithreaded Direct2D
+     * factory that this program creates */
+    if (!_stricmp(spec, "d2d1.dll") && (!strncmp(bang, "factory@", 8) || !strncmp(bang, "factorymt@", 10)) && slot >= 0)
+    {
+        int mt = !strncmp(bang, "factorymt@", 10);
+        static const GUID iid_factory1 = {0xbb12d362, 0xdaee, 0x4b9a, {0xaa, 0x1d, 0x14, 0xba, 0x40, 0x1c, 0xfa, 0x1f}};
+        typedef HRESULT (WINAPI *d2d_create_t)(int, const GUID *, const void *, void **);
+        HMODULE d2dm = LoadLibraryA("d2d1.dll");
+        d2d_create_t d2d_create = d2dm ? (d2d_create_t)GetProcAddress(d2dm, "D2D1CreateFactory") : NULL;
+        void *factory = NULL, *obj = NULL;
+        WCHAR iidw[64];
+        GUID iid;
+        char vmod[80];
+        DWORD vrva;
+
+        MultiByteToWideChar(CP_UTF8, 0, bang + (mt ? 10 : 8), -1, iidw, 64);
+        if (!d2d_create || FAILED(IIDFromString(iidw, &iid))) return 0;
+        if (FAILED(d2d_create(mt, &iid_factory1, NULL, &factory)) || !factory) return 0;
+        if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, const GUID *, void **))(*(void ***)factory)[0])(factory, &iid, &obj)) || !obj)
+            return 0;
+        if (rva_of(*(void **)obj, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "d2d1.dll")) resolved_vt_rva = vrva;
+        if (!rva_of((*(void ***)obj)[slot], mod, modsize, rva)) return 0;
+        if (_stricmp(mod, "d2d1.dll")) resolved_vt_rva = 0;
+        return 1;
+    }
+
+    /* d2d1.dll!context@{IID}[N]: slot N of the interface IID of a Direct2D device context, on a hardware Direct3D 11 device with BGRA
+     * support, that this program creates; d2d1.dll!d2ddevice@{IID}[N]: the same for the Direct2D device (of a multithreaded factory) */
+    if (!_stricmp(spec, "d2d1.dll") && (!strncmp(bang, "context@", 8) || !strncmp(bang, "d2ddevice@", 10)) && slot >= 0)
+    {
+        int on_device = !strncmp(bang, "d2ddevice@", 10);
+        static const GUID iid_dxgi_device = {0x54ec77fa, 0x1377, 0x44e6, {0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c}};
+        static const GUID iid_factory1 = {0xbb12d362, 0xdaee, 0x4b9a, {0xaa, 0x1d, 0x14, 0xba, 0x40, 0x1c, 0xfa, 0x1f}};
+        typedef HRESULT (WINAPI *d3d_create_t)(void *, int, HMODULE, UINT, const void *, UINT, UINT, void **, void *, void **);
+        typedef HRESULT (WINAPI *d2d_create_t)(int, const GUID *, const void *, void **);
+        typedef HRESULT (STDMETHODCALLTYPE *qi_t)(void *, const GUID *, void **);
+        HMODULE d3dm = LoadLibraryA("d3d11.dll"), d2dm = LoadLibraryA("d2d1.dll");
+        d3d_create_t d3d_create = d3dm ? (d3d_create_t)GetProcAddress(d3dm, "D3D11CreateDevice") : NULL;
+        d2d_create_t d2d_create = d2dm ? (d2d_create_t)GetProcAddress(d2dm, "D2D1CreateFactory") : NULL;
+        void *d3d = NULL, *dxgi = NULL, *factory = NULL, *device = NULL, *context = NULL, *obj = NULL;
+        WCHAR iidw[64];
+        GUID iid;
+        char vmod[80];
+        DWORD vrva;
+
+        MultiByteToWideChar(CP_UTF8, 0, bang + (on_device ? 10 : 8), -1, iidw, 64);
+        if (!d3d_create || !d2d_create || FAILED(IIDFromString(iidw, &iid))) return 0;
+        if (FAILED(d3d_create(NULL, 1, NULL, 0x20, NULL, 0, 7, &d3d, NULL, NULL)) || !d3d) return 0;
+        if (FAILED(((qi_t)(*(void ***)d3d)[0])(d3d, &iid_dxgi_device, &dxgi)) || !dxgi) return 0;
+        /* D2D1_FACTORY_TYPE_SINGLE_THREADED for a context, MULTI_THREADED (as the lifted compositor uses) for a device */
+        if (FAILED(d2d_create(on_device, &iid_factory1, NULL, &factory)) || !factory) return 0;
+        /* ID2D1Factory1::CreateDevice is slot 17, ID2D1Device::CreateDeviceContext slot 4 */
+        if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, void *, void **))(*(void ***)factory)[17])(factory, dxgi, &device)) || !device)
+            return 0;
+        if (on_device) context = device;
+        else if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, int, void **))(*(void ***)device)[4])(device, 0, &context)) || !context)
+            return 0;
+        if (FAILED(((qi_t)(*(void ***)context)[0])(context, &iid, &obj)) || !obj) return 0;
+        if (rva_of(*(void **)obj, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "d2d1.dll")) resolved_vt_rva = vrva;
+        if (!rva_of((*(void ***)obj)[slot], mod, modsize, rva)) return 0;
+        if (_stricmp(mod, "d2d1.dll")) resolved_vt_rva = 0;
+        return 1;
+    }
+
+    /* d3dcompiler_47.dll!flg[N] / linker[N] / module[N] / instance[N]: slot N of a function linking graph, a linker, a module or a
+     * module instance that this program creates (the module from a one-line library of its own, compiled with D3DCompile) */
+    if (!_stricmp(spec, "d3dcompiler_47.dll") && slot >= 0 && (!strcmp(bang, "flg") || !strcmp(bang, "linker") || !strcmp(bang, "module")
+            || !strcmp(bang, "instance")))
+    {
+        typedef HRESULT (WINAPI *compile_t)(const void *, SIZE_T, const char *, const void *, void *, const char *, const char *, UINT, UINT,
+                                            void **, void **);
+        typedef HRESULT (WINAPI *create1_t)(void **);
+        typedef HRESULT (WINAPI *create_flg_t)(UINT, void **);
+        typedef HRESULT (WINAPI *load_t)(const void *, SIZE_T, void **);
+        static const char src[] = "export float4 F(float4 a) { return a; }";
+        HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
+        compile_t compile = dc ? (compile_t)GetProcAddress(dc, "D3DCompile") : NULL;
+        create1_t create_linker = dc ? (create1_t)GetProcAddress(dc, "D3DCreateLinker") : NULL;
+        create_flg_t create_flg = dc ? (create_flg_t)GetProcAddress(dc, "D3DCreateFunctionLinkingGraph") : NULL;
+        load_t load = dc ? (load_t)GetProcAddress(dc, "D3DLoadModule") : NULL;
+        void *obj = NULL, *blob = NULL, *module = NULL;
+        char vmod[80];
+        DWORD vrva;
+
+        if (!compile || !create_linker || !create_flg || !load) return 0;
+        if (!strcmp(bang, "flg")) create_flg(0, &obj);
+        else if (!strcmp(bang, "linker")) create_linker(&obj);
+        else
+        {
+            /* ID3DBlob: GetBufferPointer is slot 3, GetBufferSize slot 4; ID3D11Module::CreateInstance slot 3 */
+            if (FAILED(compile(src, sizeof(src) - 1, "t", NULL, NULL, NULL, "lib_5_0", 0, 0, &blob, NULL)) || !blob) return 0;
+            if (FAILED(load(((void *(STDMETHODCALLTYPE *)(void *))(*(void ***)blob)[3])(blob),
+                            ((SIZE_T (STDMETHODCALLTYPE *)(void *))(*(void ***)blob)[4])(blob), &module)) || !module) return 0;
+            if (!strcmp(bang, "module")) obj = module;
+            else ((HRESULT (STDMETHODCALLTYPE *)(void *, const char *, void **))(*(void ***)module)[3])(module, "", &obj);
+        }
+        if (!obj) return 0;
+        if (rva_of(*(void **)obj, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "d3dcompiler_47.dll")) resolved_vt_rva = vrva;
+        if (!rva_of((*(void ***)obj)[slot], mod, modsize, rva)) return 0;
+        if (_stricmp(mod, "d3dcompiler_47.dll")) resolved_vt_rva = 0;
+        return 1;
     }
 
     if (!_stricmp(spec, "dcomp.dll") && (!strcmp(bang, "desktop") || !strcmp(bang, "visual")) && slot >= 0)
@@ -396,13 +624,16 @@ int main(int argc, char **argv)
 
         if (!a || !l) continue;
         bps[nbps].wantret = w && *w == 'R';
+        resolved_vt_rva = 0;
         if (!resolve_target(a, bps[nbps].mod, sizeof(bps[nbps].mod), &bps[nbps].rva))
         {
             fprintf(stderr, "target %s: not an entry point that can be found at run time (a raw RVA is not accepted)\n", a);
             fprintf(out, "target %s: not found\n", a);
             return 2;
         }
-        fprintf(out, "target %s -> %s+%#lx\n", a, bps[nbps].mod, (unsigned long)bps[nbps].rva);
+        bps[nbps].vt_rva = resolved_vt_rva;
+        /* the target is logged by its spec only, not by where it resolved to */
+        fprintf(out, "target %s in %s%s\n", a, bps[nbps].mod, resolved_vt_rva ? " (calls on objects of this vtable only)" : "");
         snprintf(bps[nbps].label, sizeof(bps[nbps].label), "%s", l);
         bps[nbps].max = m ? atoi(m) : 30;
         nbps++;
@@ -422,8 +653,15 @@ int main(int argc, char **argv)
         DWORD cont = DBG_CONTINUE;
 
         if (!WaitForDebugEvent(&ev, 10)) { attach_new(&pid, watch); continue; }
+        event_tid = ev.dwThreadId;
         switch (ev.dwDebugEventCode)
         {
+        case CREATE_THREAD_DEBUG_EVENT:
+            log_line("thread %lu created", (unsigned long)ev.dwThreadId);
+            break;
+        case EXIT_THREAD_DEBUG_EVENT:
+            log_line("thread %lu exited, code %lu", (unsigned long)ev.dwThreadId, (unsigned long)ev.u.ExitThread.dwExitCode);
+            break;
         case CREATE_PROCESS_DEBUG_EVENT:
         {
             int k;

@@ -87,6 +87,54 @@ process cannot open the Medium process at all.
 - Test: `dlls/advapi32/tests/security.c` (`test_impersonation_cap`): a Low integrity child of the test opens its
   parent's token and checks that both ways of impersonating it give an identification token.
 
+## Wine branch `claude/notepad-text`: what Notepad (Windows App SDK) needs for its text and its compositor (UWP, 2026-11-24)
+
+From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private interface: black-box measurement on Windows 11
+([WINAPPSDK.md](uwp/WINAPPSDK.md), [HANDOFF_NOTEPAD.md](uwp/HANDOFF_NOTEPAD.md)); private interfaces are 64-bit only where
+32-bit is not measured. Wine tests named per commit.
+
+- `dlls/kernelbase/loader.c` (769c742f): FindResourceExW falls back to the MUI satellite (`<dir>\<lang>\<file>.mui`) of a
+  language-neutral module; LoadResource reads from the satellite (a cache keyed on module, timestamp and size).
+- `dlls/d3d11` (f9d6992b): GetCreationFlags returns the device's flags; the private compositor interface `{26c5dc23-...}`
+  (slots 3, 6, 7, 8, 12 return S_OK; others raise the stub exception).
+- `dlls/uxtheme`, `include/uxtheme.h` (6c858440): GetThemeAnimationProperty, GetThemeAnimationTransform,
+  GetThemeTimingFunction.
+- `dlls/dwrite` (fd3073ea, d3c68238): per-range font axis values in layouts, AddMappings, MapCharacters with axes, a
+  private analyzer interface; a slant of 10 degrees or more counts as oblique (DWriteCore specification, MIT).
+- `dlls/d2d1` (baf1ba39, 2c99cebe, 538ed9bc, d93082c0): the device context's private interface `{2ea67ed7-...}` (slot 12
+  makes a bitmap on a source's surface); CombineWithGeometry for all geometries (new `combine.c`, test
+  `test_combine_geometry`); the factory's private slot 15 creates a device; the device's private interface
+  `{46fdbfea-...}` (slot 5; test `test_device_private`).
+- `dlls/dxgi` (bf95d1e0, b7d45af7): IDXGIDevice3 EnqueueSetEvent; occlusion status events (set at once, cookies from 1).
+- `dlls/dcomp` (7222bb3d, 8eccd313): visual private slot 35, desktop device private method 45;
+  DCompositionWaitForCompositorClock (a 60 Hz clock), DCompositionGetFrameId, DCompositionBoostCompositorClock.
+- `dlls/win32u` (5d85732a, aea4289c): NtGdiDdDDIQueryAdapterInfo answers KMTQAITYPE_ADAPTERTYPE (render and display);
+  NtUserEnableMouseInPointerForThread turns pointer messages on for the calling thread.
+- `dlls/msctf` (8f66f34e): RegisterHandwritingInputRoutingCallback.
+- `include/d3d11shader.h` (28805e76): D3D_RETURN_PARAMETER_INDEX.
+- `dlls/d3dcompiler_43` (0ab90a38): new `library.c` with D3DLoadModule (shader libraries: LIBF/LFS0/LIBH, measured on
+  libraries of our own), module instances, function linking graphs and ID3D11Linker::Link (inlines the library functions;
+  ISGN/OSGN/SHEX through vkd3d's DXBC writer); `linker.c` calls it; D3DLoadModule moves out of `compiler.c`;
+  `library.c` added to the d3dcompiler_43 and _47 makefiles. Test `test_linker` (hlsl_d3d11.c, with a render check),
+  0 failures on Windows 11 and on Wine (64- and 32-bit). Gaps: one immediate constant buffer per linked shader, no RDEF
+  in linked shaders, AddClipPlaneFromCBuffer, D3DReflectLibrary.
+- `dlls/d2d1/bitmap.c` (01af4686): a surface made by IDXGIResource1::CreateSubresourceSurface reaches its texture through
+  IDXGISurface2::GetResource (test `test_subresource_surface`).
+- Review fixes (Session 0 review, on top of 01af4686): `dlls/d3dcompiler_43/library.c` (3e935e19) hardened against bad
+  libraries and graphs (test `test_linker_invalid`); `dlls/d2d1` (bdccafd9) factory slot 15 x86_64 only, CombineWithGeometry
+  classifies against the split outlines and gives D2DERR_BAD_NUMBER for NaN, infinite or huge coordinates, subresource
+  surfaces other than index 0 fail, slot 12 checks; `dlls/dxgi` (d87184fd) event handle checks (codes measured) and a
+  bounded EnqueueSetEvent wait (test `test_occlusion_status`); `dlls/dwrite` (12926f81) NULL checks;
+  `dlls/kernel32/tests/resource.c` (651198ff) the test of the MUI satellite fallback of 769c742f, whose message still
+  says "not yet tested" (history not rewritten).
+- Re-check fixes (on top of 651198ff): `dlls/d3dcompiler_43/library.c` (a7274fb5) constant buffer declarations need
+  their four tokens before merging, function checksums are checked as on Windows (test `test_linker_malformed`, the
+  DXBC checksum after vkd3d-shader's checksum.c); `dlls/d2d1` (9a2ac97d) **stock code**: `geometry.c`
+  `d2d_geometry_flatten_cubic` ends on a NaN deviation and at a depth of 16 (it recursed without end on NaN control
+  points), CombineWithGeometry checks the transform and bounds before Simplify and limits the pieces, the private
+  factory interface {6f72c0a2} only on x86_64; `dlls/dxgi` (59703e4c) EnqueueSetEvent returns
+  DXGI_ERROR_DEVICE_REMOVED without waiting after a query that never completed.
+
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
 - `server/session0.c` (`pipe_request`, `session0_open_pipe`, the `PIPE` handler): a `PIPE` request carries the

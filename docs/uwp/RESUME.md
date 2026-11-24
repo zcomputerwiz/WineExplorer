@@ -7,6 +7,10 @@ Copyright 2026 WineExplorer contributors
 Read this first when the UWP work is picked up again. The status table is in `README.md` of this folder; the measured
 behaviour is in `tests/uwp/u1_1/README.md` and `tests/uwp/u1_3/README.md`.
 
+**Windows App SDK / Notepad (2026-11-24):** the current state, branches, lab configuration (candidate u13, the lab-only
+fail-fast bypass), tooling and open work are in [HANDOFF_NOTEPAD.md](HANDOFF_NOTEPAD.md); findings and their basis in
+[WINAPPSDK.md](WINAPPSDK.md).
+
 ## Where everything is
 
 | What | Where | Commit |
