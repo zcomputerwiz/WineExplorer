@@ -43,16 +43,11 @@ launch it again in that prefix with debug channels and look at its threads.
   documentation and the Windows Community Toolkit's wrapper library (a client of the API). `ValueSet` is built on what Wine
   already has: the `wintypes` `PropertySet` (upstream, over its `multi_threaded_map`), which now also serves `ValueSet`.
 * **Black box on the Windows host** (the Store launched from the shell, then stopped): two processes, `WinStore.App.exe`
-  (71 threads) and, two seconds after it, `StoreDesktopExtension.exe` (9 threads). The Store starts its full-trust companion
-  itself (`FullTrustProcessLauncher` is among the names in `WinStore.App.dll`).
-* **Names in `WinStore.App.dll`** (strings only): `StoreDesktopExtension-AppService` next to `GeneratedAppServiceHostAttribute`
-  and `WinStore_DesktopExtension2VtableClasses`: the Store talks to the companion through a generated remote-call layer over
-  an app service; the app side is the *host* of the connection. On Wine the Store opens that connection before it ever asks
-  for the companion (no `FullTrustProcessLauncher` activation is seen), so on Windows the open must complete in a way that
-  lets the start go on: the likely shape is an in-process service of the Store itself, delivered to the Store's own
-  background-activated handler, which the main thread then waits for.
+  (71 threads) and, two seconds after it, `StoreDesktopExtension.exe` (9 threads): the Store starts its full-trust companion itself.
+* On Wine the Store opens an app-service connection to the name `StoreDesktopExtension-AppService` (the manifest's app service) before the
+  companion is started (seen in the Wine log), so on Windows the open must complete in a way that lets the start go on.
 
-## The real wait (2026-11-22, found with a stack probe and the disassembly of the image)
+## The real wait (2026-11-22, found with a stack probe)
 
 * **Where.** A probe that prints the code addresses on the main thread's stack (`tests/uwp/lab-helpers/appservice-probe.diff`,
   `WINEAPPSERVICE_STACK`; no debugger can attach: `winedbg` kills the process and an outside tool gets "access denied" on the
@@ -62,9 +57,7 @@ launch it again in that prefix with debug channels and look at its threads.
   machine of that start, which is where the connection to `StoreDesktopExtension-AppService` is made.
 * **What it waits for.** With the connection answered `Success` and a first request sent by the lab patch (`WINEAPPSERVICE_HELLO`:
   an empty `ValueSet` after 1.5 s), the Store answers it, so it is serving requests on that connection: the answer is a
-  `ValueSet` with `__status` (an Int32, an error for an empty request). The message keys of its generated remote-call layer,
-  from the image: `__endpoint`, `__args`, `__global__`, `__value`, `__status`, `__reason`, `__progressKey`, `__progressValue`,
-  `__cancellationKey`. After that one request the Store goes on waiting: what it waits for is **the Desktop Extension
+  `ValueSet` with `__status` (an Int32, an error for an empty request). After that one request the Store goes on waiting: what it waits for is **the Desktop Extension
   process**, which is the other end of that remote-call layer (the extension offers methods such as `RunProcessAsync` and
   `LaunchWordFromExecutableAsync`, and the Store logs "The Store has been background activated for an AppServices response from
   the Desktop Extension").
@@ -79,62 +72,34 @@ So the missing piece is exactly app services between two processes of one packag
 (a background activation of the application, delivered as `BackgroundActivated` with `AppServiceTriggerDetails`) and a transport
 for `ValueSet`. Nothing smaller moves the Store.
 
-## What the Store takes from the system, and where each piece can come from (2026-11-22)
+## Where missing pieces come from
 
-Counted from the names in `WinStore.App.dll` and `Microsoft.Web.WebView2.Core.dll` (strings, both encodings), against the Wine
-modules and the optional components that exist. "Component" means the OOBE optional components (`wex-components`,
-`uwp-frameworks`, `webview2`).
+(An inventory of what the Store takes from the system was removed: it was counted from strings of the package's binaries, which the owner's
+rule for this work does not allow. The manifest, the public API documentation and runs on Wine are the sources now.)
 
-| The Store uses | In the package | Where it comes from | State |
-|---|---|---|---|
-| WinUI 2.8, VCLibs 140, .NET Native runtime and framework | no (dependencies) | downloads Microsoft publishes; the `uwp-frameworks` component | done |
-| WebView2 (`CoreWebView2Environment`, `...Controller`, `...CompositionController`; the projection `Microsoft.Web.WebView2.Core.dll` is in the package) | the projection only | the Evergreen WebView2 Runtime, the `webview2` component (pinned installer) | component done; the Store's way of hosting it is unverified (see below) |
-| `WebAuthenticationCoreManager`, `WebTokenRequest`, `WebAccountProvider`, `AccountsSettingsPane`, `Windows.Security.Authentication.OnlineId` | no | part of Windows; no download. Wine: `windows.security.authentication.web.core` and `...onlineid` (API and a diagnostic provider) and WineExplorer's `tokenbroker` (cache, OAuth, provider) | code exists; a real sign-in has only been tried by hand; `AccountsSettingsPane` and its desktop interop interface now exist as an object model without a pane (2026-11-22) |
-| `Windows.ApplicationModel.AppService` (the link to the Desktop Extension), background activation | no | part of Windows | class stub only; the hosting is the blocker |
-| `Windows.ApplicationModel.Store.Preview.InstallControl` (`AppInstallManager`, `AppInstallItem`: install and update through the system's install service; `InstallServicePlugin.dll` in the package is a plug-in of that service) | plug-in only | part of Windows (the Store install service); no download | missing; `wexappx` could stand behind it |
-| `Windows.Services.Store.StoreContext`, licensing (`LicenseManager`) | no | part of Windows; needs the licensing service | missing (the licensing service is not to be run under Wine, see the SPP notes) |
-| `Windows.Management.Deployment` (`PackageManager`) | projection only | part of Windows | `appxdeploymentclient` and `wexappx` cover part |
-| `Windows.Networking.BackgroundTransfer.BackgroundDownloader` | no | part of Windows (BITS) | missing |
-| `Windows.Web.Http`, `Windows.Data.Json`, `Windows.UI.Notifications`, `Windows.Security.Cryptography` (`Core`) | no | part of Windows | Wine has `Windows.Web.Http`, `Windows.Data.Json` and notifications in part; `Cryptography.Core` is missing |
-
-**Nothing in the second and later rows is a download.** The implementations of the `Windows.*` Runtime classes are
+**Nothing of the `Windows.*` Runtime classes is a download.** The implementations of the `Windows.*` Runtime classes are
 components of Windows itself. Microsoft publishes their *metadata and headers* (the Windows SDK, the
 `Microsoft.Windows.SDK.Contracts` package) and, in the Windows App SDK, new implementations under `Microsoft.Windows.*` names,
 not these. So they have to be written in Wine; only the frameworks and the WebView2 runtime are components.
 
-### The Store's WebView2 hosting route (2026-11-22, from the code that names it)
+### WebView2 hosting in XAML (general)
 
-* The Store hosts WebView2 through **`Microsoft.UI.Xaml.Controls.WebView2`**, the control of WinUI 2.8 (named with its
-  `CanGoBack`, `CanGoForward`, `Source`, `CoreWebView2` properties and the `WebView2AutomationPeer`), wrapped by its own
-  `WebView2Wrapper` and `Store.Purchase.Controls.ReactPurchaseWebView`, with a `WebView2Checker` that looks for the runtime
-  first. The strings name `CoreWebView2CompositionController` as well as `CoreWebView2Controller`: the WinUI 2 control hosts
-  the browser by **visual hosting** (the browser draws into a composition visual that is put into the XAML tree with
-  `ElementCompositionPreview`), not into a child window.
-* Where it is used: the purchase flow (a React page in WebView2) and the account control (`Microsoft.Membership.MeControl`,
-  its offline page is in the package). The browse and product pages are XAML (`WinStore.UX.*`), not web content.
-  So the missing hosting route blocks purchase and sign-in, not the main pages.
-* Gap, checked against what exists: the lab's windowed hosting (Windows 7 version plus SwiftShader) does not apply, because
-  the control does not use a window. Visual hosting needs (1) `Windows.UI.Composition` (`Compositor`, `SpriteVisual`,
-  `ElementCompositionPreview`) as a Windows Runtime API: **Wine has no such module and XamlShim serves none of its 109 classes
-  (none is a Composition class)**; (2) the composition visual to be backed by something the browser's output can reach: Wine's
-  `dcomp` is now large (5,200 lines, surfaces, virtual surfaces, animations; the earlier `E_NOTIMPL` finding in
-  `WEBVIEW2.md` is historical) but is the DirectComposition API, not the Windows.UI.Composition one, and Chromium would have
-  to be given a DirectComposition visual made from the compositor. Uno has a managed compositor (`Uno.UI.Composition*`), a
-  possible source for (1) in the same way XamlShim serves XAML, but it draws with Skia and has no DirectComposition output.
-* So the WebView2 runtime component is enough as a *runtime*; what is missing is the host side: Windows.UI.Composition
-  plus its DirectComposition interop. That is the next track for WebView2-in-XAML (the Store's purchase and sign-in; WinUI 3
-  apps such as Copilot use the same visual hosting where they use the XAML control).
+How the Store hosts WebView2 (windowed or by visual hosting) is not established here: the earlier reading of the Store's names was removed
+(strings of a shipped binary). What is general and public: the WinUI 2.8 WebView2 control can host the browser by **visual hosting** (the browser
+draws into a composition visual that is put into the XAML tree with `ElementCompositionPreview`), which needs (1) `Windows.UI.Composition`
+(`Compositor`, `SpriteVisual`, `ElementCompositionPreview`) as a Windows Runtime API, which Wine does not have, and (2) a composition visual backed
+by something the browser's output can reach: Wine's `dcomp` is the DirectComposition API, not the Windows.UI.Composition one. The lab's windowed
+hosting (Windows 7 version plus SwiftShader) does not cover visual hosting. The WebView2 runtime component is enough as a *runtime*; the host
+side is the open track for WebView2 in XAML and for WinUI 3 applications that use the same visual hosting.
 
 ### Is WebView2 enough, is WAM?
 
 * **WebView2.** The runtime part is: the component installs the Evergreen runtime, registers it (the discovery keys), and
   windowed hosting works in the lab (Windows 7 version for `msedgewebview2.exe` plus SwiftShader: `docs/WEBVIEW2.md`).
-  Not shown: the Store names both the windowed `CoreWebView2Controller` and the **composition** controller
-  (`CoreWebView2CompositionController`, visual hosting into XAML), and visual hosting needs `Windows.UI.Composition` and
-  DirectComposition, which Wine still answers `E_NOTIMPL` (`DCompositionCreateDevice`). Which of the two the Store uses is
-  not known from the strings; the Store's sign-in and the account control are the likely users.
+  Not shown: visual hosting into XAML needs `Windows.UI.Composition` and DirectComposition, which Wine still answers `E_NOTIMPL`
+  (`DCompositionCreateDevice`); which hosting the Store uses is not established here.
 * **WAM.** The API and a broker exist, but only as far as `WAM_BROKER_DESIGN.md` says: a sign-in against the real service was
-  never done end to end (only the owner can do it, by hand). The Store also names `AccountsSettingsPane` (now an object model: showing
+  never done end to end (only the owner can do it, by hand). Wine also has `AccountsSettingsPane` (now an object model: showing
   it asks the handlers for the commands and completes, no pane is drawn, so the Store's sign-in list is still not on screen) and the
   older `OnlineIdAuthenticator`. Enough for the Store to start and ask; not shown to be enough for it to sign in.
 
@@ -148,12 +113,7 @@ not these. So they have to be written in Wine; only the frameworks and the WebVi
   declarations yet (`wexappx` keeps only applications, activatable classes and dependencies).
 * **`Windows.Foundation.Collections.ValueSet`**: done (2026-11-22, `wintypes`, 13 checks in its test; the kinds of value a
   message may carry are not restricted yet) and a transport for it between processes (not done).
-* The names of what the binaries name and Wine lacks (the classes that start with `Windows.` in the Store's binaries and are
-  neither in a Wine module nor served by XamlShim are listed by the scratch script used for this note; most are the
-  Composition and media types of the projection tables, not calls). The ones that matter first: `ValueSet`,
-  `Windows.UI.Notifications.*` (badges, toasts), `Windows.Management.Deployment.*` (`AddPackageOptions`,
-  `DeploymentResult`), `Windows.Services.Store.StoreContext`, `Windows.Security.Cryptography.Core.*`,
-  `Windows.Web.Http.*`, `Windows.Networking.BackgroundTransfer.*`, `Windows.UI.Popups.*`, `Windows.System.Profile.*`.
+* More classes will show up as runs of the Store on Wine ask for them (an earlier list taken from strings of the package's binaries was removed).
 * After that the window itself (WinUI 2.8 on XamlShim, as the Calculator) and the WebView2 content, which needs an Edge
   WebView2 runtime that Wine does not have (the Chromium lab work may supply one).
 

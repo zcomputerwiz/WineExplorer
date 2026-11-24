@@ -29,10 +29,8 @@ returns `E_NOINTERFACE`. Nothing is drawn yet. Also seen, not fatal so far: `Win
 
 ## Size of what is left (lower bound)
 
-Type names in the binaries' strings (UTF-16 and ASCII; names only, no code is looked at): the Calculator's
-`CalculatorApp.dll`, `CalcViewModel.dll` and `GraphControl.dll` name 82 `Windows.UI.Xaml` types; WinUI 2.8's
-`Microsoft.UI.Xaml.dll` names 165 `Windows.UI.Xaml`/`Windows.UI.Composition` types (16 of them Composition); 193 distinct
-together. XamlShim 0.2.0 serves about 30. The Calculator's include: `DependencyObject`/`DependencyProperty`/
+(The count that stood here came from strings of the package's binaries and was removed; the open-source scan in `GAPS.md` is the basis.)
+XamlShim 0.2.0 serves about 30 of the `Windows.UI.Xaml` types. The Calculator's (open-source) code uses, among others: `DependencyObject`/`DependencyProperty`/
 `PropertyMetadata`/`PropertyPath`, `Style`/`Setter`/`ResourceDictionary`, `Binding`/`XamlBindingHelper`/
 `XamlMarkupHelper`, `VisualStateManager`/`StateTriggerBase`, `Flyout`/`FlyoutBase`/`Popup`/`ContentDialog`/`ToolTip`,
 `AutoSuggestBox`, `RichEditBox`/`RichTextBlock`, `Slider`, `ToggleSwitch`, `RadioButton`, `Viewbox`, `Canvas`,
