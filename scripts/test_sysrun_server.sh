@@ -4266,6 +4266,7 @@ ok st_users_keep_their_name_and_profile_path_with_session0
 # changed behind the running session 0 on purpose)
 set_val_file 'Software\\WexTier' FromSession0 2
 [ "$(s0q "$STD" FromSession0)" = 0x1 ] || fail "a standard user's program did not read HKLM from session 0: [$(s0q "$STD" FromSession0)]"
+set_val_file 'Software\\WexTier' FromSession0 1   # the file as session 0 has it again: a later restart loads 1 (s0_link)
 ok st_standard_user_reads_hklm_from_session0
 for arch in 64 32; do
     [ "$(wine_as "$STD" "$ROOT/probes/probe$arch.exe" hklm-read "$WINM" 2>&1 | grep -c '^hklm-read=PASS')" = 1 ] ||
@@ -4367,7 +4368,9 @@ HOLDER=$!
 sleep 3
 FDS="$(ls "/proc/$S0PID/fd" | wc -l)"
 [ "$FDS" -lt 100 ] || fail "session 0 holds $FDS descriptors while a user holds 300 idle connections"
-[ "$(s0q "$ADM" fromadm)" = elevated ] || fail "session 0 does not serve while a user holds idle connections"
+# FromSession0 is set before session 0 starts (s0_token's fromadm is not there when only s0_base ran before)
+[ "$(s0q "$ADM" FromSession0)" = 0x1 ] ||
+    fail "session 0 does not serve while a user holds idle connections: [$(s0q "$ADM" FromSession0)]"
 wait "$HOLDER" || fail "the idle connections could not be made"
 el_down "$ADM"
 ok st_idle_connections_do_not_hold_session0
