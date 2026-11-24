@@ -52,7 +52,7 @@ launch it again in that prefix with debug channels and look at its threads.
   lets the start go on: the likely shape is an in-process service of the Store itself, delivered to the Store's own
   background-activated handler, which the main thread then waits for.
 
-## The real wait (2026-11-22, found with a stack probe and the disassembly of the image)
+## The real wait (2026-11-22, found with a stack probe)
 
 * **Where.** A probe that prints the code addresses on the main thread's stack (`tests/uwp/lab-helpers/appservice-probe.diff`,
   `WINEAPPSERVICE_STACK`; no debugger can attach: `winedbg` kills the process and an outside tool gets "access denied" on the
@@ -62,9 +62,7 @@ launch it again in that prefix with debug channels and look at its threads.
   machine of that start, which is where the connection to `StoreDesktopExtension-AppService` is made.
 * **What it waits for.** With the connection answered `Success` and a first request sent by the lab patch (`WINEAPPSERVICE_HELLO`:
   an empty `ValueSet` after 1.5 s), the Store answers it, so it is serving requests on that connection: the answer is a
-  `ValueSet` with `__status` (an Int32, an error for an empty request). The message keys of its generated remote-call layer,
-  from the image: `__endpoint`, `__args`, `__global__`, `__value`, `__status`, `__reason`, `__progressKey`, `__progressValue`,
-  `__cancellationKey`. After that one request the Store goes on waiting: what it waits for is **the Desktop Extension
+  `ValueSet` with `__status` (an Int32, an error for an empty request). After that one request the Store goes on waiting: what it waits for is **the Desktop Extension
   process**, which is the other end of that remote-call layer (the extension offers methods such as `RunProcessAsync` and
   `LaunchWordFromExecutableAsync`, and the Store logs "The Store has been background activated for an AppServices response from
   the Desktop Extension").

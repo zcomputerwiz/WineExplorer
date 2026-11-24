@@ -13,8 +13,8 @@ export MSYS_NO_PATHCONV=1
 ctl=/mnt/d/DeepThought/Projects/WineExplorer/scripts/lab/uwp/owned-lab.py
 pad_win="/c/Users/Owner/AppData/Local/Temp/claude/f10dd599a76cdd8a/cc6dd05f-7e73-49f2-be6b-aa4119777252/scratchpad"
 pad_wsl="/mnt/c/Users/Owner/AppData/Local/Temp/claude/f10dd599a76cdd8a/cc6dd05f-7e73-49f2-be6b-aa4119777252/scratchpad"
-ws=/home/debian/uwp-u1-20261111
-wt="C:/Users/Owner/.codex/worktrees/uwp-runtime/wine"
+ws=${UWP_WS:-/home/debian/uwp-u1-20261111}
+wt="D:/DeepThought/Projects/wine-uwp"
 lab() { wsl.exe --distribution Debian --user root --exec python3 "$ctl" "$@"; }
 case "$1" in
 ssh) lab ssh "$2" ;;

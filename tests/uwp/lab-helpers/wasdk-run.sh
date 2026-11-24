@@ -4,7 +4,9 @@
 # lab: a Windows App SDK application (lab copy, never in a repository) on Wine: fresh prefix, the framework components, the
 # Windows App Runtime 2.x framework package and the application through wexappx, launch, trace. The packages are in claude/wasdk
 # (wasdk.tar). usage: wasdk-run.sh [APP_DIR [WINEDEBUG]]       (APP_DIR defaults to the Notepad package folder)
-root=/home/debian/uwp-u1-20261111
+# the workspace of the lab guest (override with UWP_WS)
+UWP_WS=${UWP_WS:-/home/debian/uwp-u1-20261111}
+root=${UWP_WS}
 build=$root/build/candidates/${CAND:-u11-2}/build
 c=$root/claude
 run=$root/build/candidates/${CAND:-u11-2}/wasdk-run
@@ -16,6 +18,8 @@ WINEDLLOVERRIDES=mscoree,mshtml= "$build/wine" wineboot -i > boot.log 2>&1; "$bu
 "$build/wine" reg add 'HKCU\Software\WineExplorer\Shell' /v UwpCompatibility /t REG_DWORD /d 1 /f > reg.log 2>&1
 # RELAY_FROM=Microsoft.Internal.FrameworkUdk.dll with WINEDEBUG +relay: only the calls that module makes
 [ -n "$RELAY_FROM" ] && "$build/wine" reg add 'HKCU\Software\Wine\Debug' /v RelayFromInclude /t REG_SZ /d "$RELAY_FROM" /f >> reg.log 2>&1
+# RELAY_INCLUDE=combase.RoGetActivationFactory with +relay: only the calls of those functions (the ret= address names the caller; +loaddll maps it)
+[ -n "$RELAY_INCLUDE" ] && "$build/wine" reg add 'HKCU\Software\Wine\Debug' /v RelayInclude /t REG_SZ /d "$RELAY_INCLUDE" /f >> reg.log 2>&1
 "$build/server/wineserver" -w
 python3 $c/fw/lab-frameworks.py install $c/fw/wex-components.py "$WINEPREFIX" $c/fw-downloads > summary 2>&1
 cat > zipdir.py <<'PYEOF'
