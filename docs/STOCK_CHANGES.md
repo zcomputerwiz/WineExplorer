@@ -9,6 +9,13 @@
 - `programs/services/forward.c`, `forward.h`: the wrappers for QueryServiceConfigEx, QueryServiceStatus,
   ControlServiceExW and EnumDependentServicesW are gone. Nothing called them: Wine's service manager does not
   implement those calls (session 0's neither), and sechost does not use them.
+- `dlls/windows.security.authentication.web.core/broker.c` and the token broker (`src/programs/tokenbroker/main.c`):
+  the pipe code is `wine/wex_pipe.h`'s, as DWM's already is. The client connects with `wex_pipe_connect`, checks the
+  server with `wex_pipe_server_is( pipe, L"tokenbroker.exe" )` plus its own check that the server runs as the same
+  user, and sends with `wex_pipe_transact`; the broker creates its instances with `wex_pipe_create` (the user-only
+  descriptor as SDDL) and reads and writes with `wex_pipe_io`. The server check now opens the broker with
+  `PROCESS_QUERY_LIMITED_INFORMATION`, the Windows rule, which the token-read change allows under enforcement.
+  Caller policy (`check_caller`) is unchanged.
 
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
