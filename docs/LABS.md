@@ -63,7 +63,8 @@ Long-lived lab machines. Chain runs in `/var/tmp/vmtest-gpt` are covered by the 
 | `wex-gpo` and its guests | wexgpo `/root/vmtest-gpo` | base disk, guests as overlays | 14 GB | GPO | the GPO lab's life | `docs/GPO_LAB.md` |
 | VM B (ChromiumLab guest) | Debian distribution | qcow2 overlay | | Chromium lab | the lab's life | `docs/TOOLING.md`, "Lab disk hygiene (VM B and WSL)"; `D:\DeepThought\ChromiumLab` |
 | UWP U1 guest | Debian distribution, `/home/debian/uwp-u1-*` | | | UWP agent | the UWP track's life | `docs/uwp/RESUME.md`, `docs/uwp/HANDOFF_NOTEPAD.md` |
-| `Copilot-Win10-B` | VirtualBox on the Windows host | snapshots (`bb-office-cold` the standard one) | | SPP black-box oracle (session archived 2026-11-24) | while Windows comparisons may be needed | `D:\DeepThought\SPP\blackbox\LAB.md` |
+| `Copilot-Win10-B` | VirtualBox on the Windows host (`D:\VirtualBox_VMs`) | snapshots (`bb-office-cold` the standard one) | 50 GB | SPP black-box oracle (session archived 2026-11-24); also the session 0 split review's Windows 10 oracle (token descriptors and B99 measured there on 2026-11-24; its probes `tokensd-admin.ps1`, `tokensd-sys.ps1` and `lowtok.exe` and their outputs are in `C:\Users\lab`) | while Windows comparisons may be needed | `D:\DeepThought\SPP\blackbox\LAB.md`; elevated runs: start from the console session's Run box and answer the VM's own UAC prompt (guest control gets the limited token) |
+| wexgpo2 | WSL distribution | none: a build and test machine only (the spare runner of `wex-run.sh`: build tree `/root/WE-prefetch`, snapshots `/root/wex-snap`, logs `/var/tmp/wex-run`, about 9 GB) | | the session 0 split review lends it out run by run | the project's life | `docs/TOOLING.md`, "Two build machines" |
 | `SPP-Win10` | VirtualBox on the Windows host | | | **not ours: never touch** | | |
 
 The `spp-lab*` disks are standalone copies of similar installs (9.8 to 34 GB each). Rebuilt as overlays on one base
