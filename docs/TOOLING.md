@@ -58,6 +58,18 @@ These are source-derived commands for a later coordinated run, not tested by thi
 
 See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and acceptance plan. Defaults are build `/root/WE-prefetch/build/wow64`, clone `/root/WE-prefetch/wine`, state `/root/wexdev`, timeout 120 seconds per bounded operation, 2 MiB log cap and a shared lock. Build has no overall make timeout. Prefixes are under state; sysrole creates `/var/lib/wexdev-sys` and fixed system configuration and must refuse foreign setup. `svc` restores the hive on cleanup, retaining a backup if restoration fails. Guest push retains `.bak-wexdev`, checks MD5 and can leave earlier files replaced on failure. Once accepted, its build supplies a status-checked interface over sync (not a replacement for the still-called sync helper); test replaces ordinary p6 module-test use, but not its composited desktop; run/prefix can replace generic dc setup, but not dc2's screen-color capture. Preserve those visual fixtures until equivalent evidence exists.
 
+### GPO lab runners (wexgpo; docs/GPO_LAB.md, "Everyday commands on wexgpo")
+
+* `scripts/lab/gpolab-batch.sh [BRANCH [SHA]]` (root, wexgpo; about 40 min warm): ISO of BRANCH (`wexgpo-iso.sh`),
+  clone checked at SHA, then `gpo-lab.sh machines wex-gpo` with the build's own `join-ps` files. Log
+  `/var/tmp/gpolab-batch.log`. The `gpolab` check of a batch head.
+* `scripts/lab/gpolab-machines.sh [GUEST...]` (root, wexgpo): the installed-machine guests on the disk already there,
+  with this tree's tools and gpupdate script in the overlays. Log `/var/tmp/gpolab-machines.log`.
+* `scripts/lab/wex-suite-only.sh SECTIONS` (root, wexgpo): build, then `WEX_SUITE_ONLY=SECTIONS wex-run.sh normal`
+  (partial, never a merge check); the section results are printed.
+* `installer/tests/ad/gpo-lab.sh machines SOURCE_VM [GUEST...]` (the three above call it), `machine.sh`
+  (`WEX_AD_BASELINE=make|use|check`) and `base-guest.sh`: the base disk and the guests.
+
 ### Repository
 
 * `scripts/run-isolated-graphics.py`: `python3 scripts/run-isolated-graphics.py --socket-root /var/tmp/owned-lab/sockets -- python3 scripts/check-g3-correctness.py --wine-build BUILD --output-dir OUT --g4-correctness`. Requires privileged Linux namespace/mount support and an absolute owned socket root. Creates private mount and network namespaces and a temporary filesystem X socket directory; `--private-loopback` verifies a fresh network namespace and brings up only its loopback. The child must bound and clean its own Wine/Xvfb. Empty generated socket directory is removed; nonempty directory is retained. Runtime is that of the nested command. Interrupt forwards SIGINT then, after 30 seconds, SIGKILL to its process group.
@@ -230,6 +242,14 @@ The README's launch pattern is `wsl -d Debian -u root --exec unshare --mount --p
 `chromium-installer-20261105/summ.sh` reads `chromium-2/result.json` on the guest and prints selected status fields; numbered `summ*.sh` are one-off result readers and must be read before reuse. `pull*.sh` copy historical results; inspect destination and overwrite behavior individually. `msi-fixval-20261105/deploy.sh` pushes both architecture combase DLLs to VM A and invokes `deploy-combase.sh`, which overwrites the runtime DLLs after making one dated backup per architecture. `msi-svc-r4-20261105/deploy-svc.sh` similarly replaces VM A's 64-bit services.exe with a one-time backup. These and the numbered Chromium deploy/pull scripts are experiment-specific, not general deployment commands; inspect exact paths before running.
 
 For A tracing, `msi-fixval-20261105/push-scripts.sh`, then `bash "$LAB/g.sh" 'bash /tmp/launch.sh'`, launches `run-trace.sh`; poll with `bash "$LAB/g.sh" 'bash /tmp/poll.sh'`. It deletes `/home/debian/msi-fixval-20261105`, creates a fresh prefix, runs the local Chrome enterprise MSI (wineboot 180s, MSI 900s), writes trace and registry logs and ends with `ALL_DONE`. Round 4's corresponding `push-scripts.sh`, `launch-r4.sh`, `poll-r4.sh`, `run-trace-r4.sh` add service tracing and forensics (MSI 700s). These launch detached and can outlast an SSH session. Their fixed A output directories are destructive on rerun; traces can consume many gigabytes. `forensics-r4.sh OUT`, `getlog.sh` and the pull scripts inspect or collect that specific run. `run-trace-r6.sh` is a later dated experiment; inspect before reuse.
+
+### Lab machines, disk layers and retention (docs/LABS.md)
+
+`docs/LABS.md` lists every long-lived lab machine with its owner, base disk and how long it is kept, and the layering
+(base, lab disk as an overlay, scratch overlay per spike). A session that makes a lab machine adds it there.
+`scripts/lab/vm-prune.sh` (root, wexbuild) deletes the disk images and ISOs of old install-chain runs, keeping the
+newest two batches, runs named in `/var/tmp/vmtest-gpt/.keep`, recent runs, running ones and every base of a kept disk;
+logs and screenshots stay. It is a dry run unless given `--apply`. The orchestrator runs it after each pushed batch.
 
 ### Lab disk hygiene (VM B and WSL)
 
@@ -542,9 +562,8 @@ Notes:
   `WEX_SAFEMODE_BASELINE=use safe-mode.sh NAME-base-uefi NAME-mine-uefi PHASE`.
 * **A failed install or baseline** leaves that firmware out; the other firmware's stages still run, and the chain
   still fails.
-* **Readiness from windows, not OCR.** The desktop is up when the session's X server (XWayland in the Wayland
-  session) shows the shell's screen-sized desktop view and its taskbar (`session-run.py --wait-desktop`, read over
-  the serial console); Notepad, the Run dialog's windows, System Properties, Startup and Recovery and the Safe Mode
+* **Readiness from windows, not OCR.** The desktop is up when the X11 session's X server shows the shell's
+  screen-sized desktop view and its taskbar (`session-run.py --wait-desktop`, read over the serial console); Notepad, the Run dialog's windows, System Properties, Startup and Recovery and the Safe Mode
   box ("Desktop") by their titles (`--wait-window`, `--gone-window`; `--windows` lists them, for debugging:
   `vmtest.py sh VM wineuser PWFILE 'python3 /usr/local/libexec/wex-tests/session-run.py --user wineuser --windows'`).
   OCR stays for images without `xwininfo`, the loader's and the Advanced Options menus (no X there), and the
@@ -562,6 +581,22 @@ Notes:
 * Checked 2026-11-23 on b1123a-uefi: baseline (provisioning boot 40-50 s), then rundialog, classic, lastgood and
   startrec on overlays of it, all subresults passing. In the shell's X11 session the virtual desktop window is
   "Wine Desktop"; the desktop view (screen-sized) and the taskbar are its children, class explorer.exe.
+* **Where the probe cannot answer, OCR.** The Wayland session's shell runs without `DISPLAY` (Wine's Wayland
+  driver), so no X server sees its windows: the probe prints `probe=unavailable` (exit 3) and the Wayland phases use
+  OCR of "Recycle Bin" as before. A structured readiness signal there (from the compositor) is open in the review.
+  A serial console that gives no prompt for 60 s, or a probe with no answer (B78: silent after a warm reboot), also
+  falls back to OCR for the desktop, and the log says so; later checks that need the console still fail.
+* **startrec's own changes after a failure.** It records `$OUT/startrec-restore` before its first change; if it
+  fails before putting them back, the main loop restores them on the stopped disk (`startrec_restore`) before the
+  /etc comparison, which then shows only the boot's changes. A file the comparison cannot read on the stopped disk
+  is reported as "could not read", not as a change (batch b1124a).
+* **Traps.** Run the stages with `WEX_TEST_PROBES=/var/tmp/wex-probes` (wex-batch sets it): without it the wayland
+  stage fails "no display probe". A failed chain job leaves its guest journal (`*-journal.txt`) and
+  `serial-transcript.log` beside its screenshots in the chain's log directory. The classic dialog fills in the last
+  user up to ~10 s after it shows; the test waits 30. Base disks: `NAME-base-FW` is read-only (mode 444, with
+  `baseline.stamp` and `baseline.source` beside its disk); a stage's overlay `NAME-STAGE-FW` backs onto it,
+  all under `VMTEST_DIR` (the chain uses `/var/tmp/vmtest-gpt`). Never write to a base; fork your own overlay
+  (`qemu-img create -f qcow2 -F qcow2 -b BASE/disk.qcow2`) under your own `VMTEST_DIR`.
 
 ## Added 2026-11-15: quicker builds and a quick path that copies only what changed
 
