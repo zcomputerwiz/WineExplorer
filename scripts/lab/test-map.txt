@@ -25,6 +25,7 @@ unsloth-tmp/*                           none
 scripts/test_sysrun_server.sh           normalsuite
 scripts/test_broker_e1s18.sh            normalsuite
 scripts/test_e1s6_transport.sh          lab
+scripts/e1s10_issue_probe.c             lab
 scripts/lab/system-tier-t1.sh           t1suite
 scripts/lab/r8-lab-build.sh             lab
 scripts/lab/wex-run.sh                  none

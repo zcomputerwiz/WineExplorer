@@ -34,6 +34,7 @@ STD=wexstd
 CAR=wexcar   # a second administrator, made by the callers section (step 7)
 DOM=wexdom   # domain accounts (docs/DOMAIN_LOGON.md, WO 2), made by the session 0 part: RID 500, not in Domain Admins
 DOMA=wexdoma   # and a member of Domain Admins
+TOMB=wexs10ret   # an account mapped then retired (a tombstone in the map), made and removed by section e1s10_issue
 SYS=wexgreeter   # an unmapped system account, made by the symlinked-hives section (3b)
 SYS_HOME=/var/lib/$SYS
 SYS_CREATED=0
@@ -155,6 +156,7 @@ c4_r13           c4_build           n   c4
 c4_r8            c4_build           nl  c4
 c4_e1s5          c4_build           n   c4
 c4_lab           c4_build           l   lab
+e1s10_issue      c4_build           l   lab
 c4_bad           c4_build           n   c4
 c4_race          c4_build           n   c4
 c4_writer        c4_build           n   c4
@@ -604,7 +606,7 @@ cleanup()
         echo "fixture kept: $ROOT, users $ADM $STD $CAR $SYS, group $GRP, $CONF, $LIBEXEC" >&2
         exit "$rc"
     fi
-    for u in "$ADM" "$STD" "$CAR" "$DOM" "$DOMA"; do
+    for u in "$ADM" "$STD" "$CAR" "$DOM" "$DOMA" "$TOMB"; do
         uid="$(id -u "$u" 2>/dev/null)"
         userdel -r "$u" 2>/dev/null
         [ -z "$uid" ] || rm -rf "/tmp/.wine-$uid"
@@ -2188,6 +2190,95 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     grep -q 'site=endorsement-gid ' <<<"$native_case" ||
         fail 'bus impostor was not rejected at its actual sender credentials'
     ok c4_e1s6_same_uid_bus_impostor
+    true; ); section_leave $?; fi
+
+    # E1-S10: the security-relevant refusals of token issuance (the lab's create_e1s_account_token), made by an
+    # S6-endorsed test broker in the standard user's session against a real caller (scripts/e1s10_issue_probe.c):
+    # replay, a stale map generation, a tombstoned, an unknown and a re-created account, a request changed after its
+    # install, the context used by another thread or process, raw requests of wrong length or with an out-of-range
+    # field, and processes that are not the broker. One accepted issue is the control. They replace the harness
+    # retired on 2026-11-24 (test_e1s10_token.sh, docs/STOCK_CHANGES.md), without its cases of the old layout.
+    if section e1s10_issue; then set +e; ( section_enter
+    # the raw requests need the request's number and the layout the probe writes (header, operation, context,
+    # caller, caps at 24): read from and checked against the Wine tree that was built
+    PSP="$SRC/wine/include/wine/server_protocol.h"
+    E1S10_REQ="$(awk '/^enum request$/ { f = 1; n = 0; next } f && /REQ_/ { if ($1 ~ /^REQ_create_e1s_account_token,?$/) print n; n++ } f && /^};/ { f = 0 }' "$PSP")"
+    [ -n "$E1S10_REQ" ] || fail "e1s10: create_e1s_account_token is not in $PSP"
+    E1S10_LAYOUT="$(sed -n '/^struct create_e1s_account_token_request$/,/^};/p' "$PSP" | awk 'NF { $1 = $1; print }' | paste -sd ' ')"
+    [ "$E1S10_LAYOUT" = 'struct create_e1s_account_token_request { struct request_header __header; unsigned int operation; obj_handle_t context; obj_handle_t caller; unsigned __int64 caps; /* VARARG(record,e1s_token); */ };' ] ||
+        fail "e1s10: the request's layout changed: [$E1S10_LAYOUT]"
+    grep -q 'int pad\[22\];' "$PSP" || fail "e1s10: the fixed request size changed"
+    for arch in 64 32; do
+        cc=x86_64-w64-mingw32-gcc; [ $arch = 32 ] && cc=i686-w64-mingw32-gcc
+        $cc -O2 -Wall -Wextra -Werror -DE1S10_ISSUE_REQ="$E1S10_REQ" -I"$SRC/src/include" \
+            -o "$ROOT/probes/e1s10_$arch.exe" "$SRC/scripts/e1s10_issue_probe.c" -ladvapi32 || fail "e1s10: probe $arch"
+    done
+    chmod 0755 "$ROOT/probes"/e1s10_*.exe
+    # a tombstoned account: made, mapped, retired and removed from passwd; the map keeps its key as a tombstone
+    cp -p /etc/wineexplorer/accounts.map "$ROOT/accounts.map.e1s10"
+    ! id "$TOMB" >/dev/null 2>&1 || userdel -r "$TOMB" 2>/dev/null
+    useradd -m -s /bin/bash "$TOMB" || fail "e1s10: useradd $TOMB"
+    "$LIBEXEC/wex-accounts" --directory /etc/wineexplorer sync >/dev/null || fail "e1s10: accounts sync"
+    tomb_key="$(awk -v n="$TOMB" '$1 == n && $4 == "active" { print $3 }' /etc/wineexplorer/accounts.map)"
+    [ -n "$tomb_key" ] || fail "e1s10: $TOMB is not in the accounts map"
+    "$LIBEXEC/wex-accounts" --directory /etc/wineexplorer retire "$TOMB" >/dev/null || fail "e1s10: retire $TOMB"
+    grep -q "^$TOMB .* $tomb_key tombstone " /etc/wineexplorer/accounts.map || fail "e1s10: no tombstone kept for $TOMB"
+    userdel -r "$TOMB" 2>/dev/null || true
+    map_gen="$(awk 'NR == 1 { print $3 }' /etc/wineexplorer/accounts.map)"
+    read -r adm_key adm_sid <<<"$(awk -v n="$ADM" '$1 == n && $4 == "active" { print $3, "S-1-5-21-" $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
+    [ -n "$adm_key" ] && [ -n "$adm_sid" ] || fail "e1s10: $ADM is not in the accounts map"
+    hive_copy "$ROOT/system.reg.e1s10"
+    [ -d "$EL" ] || install -d -m 1777 "$EL"   # the broker's result file (a section run alone has no $EL yet)
+    WOW="$M/drive_c/windows/syswow64"
+    [ ! -f "$SYS32/wexelevate_test.exe" ] || cp -p "$SYS32/wexelevate_test.exe" "$ROOT/wexelevate_test.exe.e1s10"
+    [ ! -f "$WOW/wexelevate_test.exe" ] || cp -p "$WOW/wexelevate_test.exe" "$ROOT/wexelevate_test.exe.e1s10.32"
+    for arch in 64 32; do
+        el_down "$STD"
+        install -m 775 -o root -g "$GRP" "$ROOT/probes/e1s10_$arch.exe" "$SYS32/wexelevate_test.exe"
+        [ "$arch" != 32 ] || [ ! -d "$WOW" ] ||
+            install -m 775 -o root -g "$GRP" "$ROOT/probes/e1s10_$arch.exe" "$WOW/wexelevate_test.exe"
+        res="$EL/e1s10_$arch.txt"; pipe="e1s10-$$-$arch"
+        rm -f "$res"
+        hive_put "$ROOT/system.reg.e1s10"
+        reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' '"EnableStandardUserElevation"=dword:00000001'
+        reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
+            '"Start"=dword:00000002' \
+            '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe broker '"$(regpath "$res")"' \\\\.\\pipe\\'"$pipe $ADM $adm_key $map_gen $adm_sid $TOMB $tomb_key"'"'
+        # the standard user's server starts the broker as its session's SYSTEM service; the peer is its caller
+        WEX_EL_LOG="$ROOT/e1s10-wine-$arch.log" el_up "$STD"
+        peer_rc=0
+        wine_as "$STD" "$ROOT/probes/e1s10_64.exe" peer '\\.\pipe\'"$pipe" >"$ROOT/e1s10_peer_$arch.log" 2>&1 || peer_rc=$?
+        for _ in $(seq 1 30); do grep -q '^e1s10=' "$res" 2>/dev/null && break; sleep 1; done
+        [ "$peer_rc" = 0 ] || [ -s "$res" ] ||
+            { cat "$ROOT/e1s10_peer_$arch.log" >&2; grep -E 'e1s10|wexelevate|err:' "$ROOT/e1s10-wine-$arch.log" | tail -30 >&2
+              fail "e1s10_$arch: the peer ended with $peer_rc and the broker wrote nothing (did the service start?)"; }
+        [ -s "$res" ] || { cat "$ROOT/e1s10_peer_$arch.log" >&2; tail -20 "$ROOT/e1s10-wine-$arch.log" >&2; fail "e1s10_$arch: the broker wrote no result"; }
+        tr -d '\r' < "$res" > "$res.txt" && mv "$res.txt" "$res"
+        grep -q '^e1s10_accept_control=PASS$' "$res" || { cat "$res" >&2; fail "e1s10_$arch: the control issue failed (no refusal below counts)"; }
+        while IFS='=' read -r case_name case_res; do
+            case "$case_name" in e1s10_*) ;; *) continue ;; esac
+            [ "$case_res" = PASS ] || { grep -E "^(FAIL|NOTE) case=$case_name " "$res" >&2; fail "${case_name}_$arch"; }
+            ok "${case_name}_$arch"
+        done < "$res"
+        [ "$(grep -c '^e1s10_.*=PASS$' "$res")" = 13 ] || { cat "$res" >&2; fail "e1s10_$arch: not every case ran"; }
+        grep -qx 'e1s10=PASS' "$res" && [ "$peer_rc" = 0 ] || { cat "$res" "$ROOT/e1s10_peer_$arch.log" >&2; fail "e1s10_$arch: the broker or its peer failed"; }
+        # processes that are not the endorsed broker: a standard user's, an administrator's limited one (with the
+        # machine hive of before, so that no server starts the test broker again)
+        el_down "$STD"
+        hive_put "$ROOT/system.reg.e1s10"
+        for u in "$STD" "$ADM"; do
+            out="$(wine_as "$u" "$ROOT/probes/e1s10_$arch.exe" denied 2>&1 | tr -d '\r' || true)"
+            grep -qx 'denied=PASS' <<<"$out" || { echo "$out" >&2; fail "e1s10_not_the_broker_refused_${u}_$arch"; }
+            ok "e1s10_not_the_broker_refused_${u}_$arch"
+        done
+    done
+    el_down "$STD"; el_down "$ADM"
+    hive_put "$ROOT/system.reg.e1s10"; rm -f "$ROOT/system.reg.e1s10"
+    if [ -f "$ROOT/wexelevate_test.exe.e1s10" ]; then mv "$ROOT/wexelevate_test.exe.e1s10" "$SYS32/wexelevate_test.exe"
+    else rm -f "$SYS32/wexelevate_test.exe"; fi
+    if [ -f "$ROOT/wexelevate_test.exe.e1s10.32" ]; then mv "$ROOT/wexelevate_test.exe.e1s10.32" "$WOW/wexelevate_test.exe"
+    else rm -f "$WOW/wexelevate_test.exe"; fi
+    cp -p "$ROOT/accounts.map.e1s10" /etc/wineexplorer/accounts.map; rm -f "$ROOT/accounts.map.e1s10"
     true; ); section_leave $?; fi
 
     # WO-28: R8 end-to-end standard-user elevation. Defined here, run at the end of the C4 section (the call
