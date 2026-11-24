@@ -607,3 +607,13 @@ With dcomp private method 46 committed (Wine 150cd1b1) and the CoreUI session sl
 areas, no text, `DwmSceneI.dll` not loaded). The newer path only calls slot 13 instead of slot 12. So the contract change of the plan above is dropped:
 `wintypes` stays at 10, nothing to make data driven or per application for this. The remaining gap is what the engine asks for after
 method 46 (the submit calls that return the batch ids, the objects it creates next); trace them with `+relay` from `dwmcorei.dll` on the next run.
+
+## 2026-11-23 (end): after method 46 (trace on the merged build, default contract 10)
+
+* No further private dcomp call after method 46 and the last visual methods 40/41 (6 calls each, semi-stubs); `DwmSceneI.dll` is not loaded, no
+  swapchain `SetContent`. The log goes silent about 3 s after start (the run lasts 60 s), so the threads wait for something rather than fail.
+* The last error before the silence, `RoOriginateErrorW 0x80070715` (resource type not found), is a `LdrFindResource` miss for an RT_STRING block
+  (id 0x84) in a data-file module for lang 0, 0409 and neutral; it looks benign (a WinRT error that is caught).
+* The engine does not ask for a submit method: the "submit batch" calls Windows makes (the ones that return ids 3, 4, ...) are not reached, so
+  the stubs Integration mentioned are not the next gap. The next probe is what the engine threads wait on (thread states and stacks at 25 s;
+  the peek script picked the wrong process, a Notepad launcher with three threads, so it needs the real process id).
