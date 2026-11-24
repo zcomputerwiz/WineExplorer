@@ -118,7 +118,7 @@ static void add_module(HANDLE file, LPVOID base)
                 bps[i].active = 1;
                 ReadProcessMemory(proc, (void *)bps[i].addr, &now, 1, &got);
                 (void)now;
-                log_line("  breakpoint %s set at %s+%#lx", bps[i].label, m->name, (unsigned long)bps[i].rva);
+                log_line("  breakpoint %s set in %s", bps[i].label, m->name);
             }
             else log_line("  breakpoint %s FAILED (error %lu)", bps[i].label, GetLastError());
         }
@@ -631,8 +631,8 @@ int main(int argc, char **argv)
             return 2;
         }
         bps[nbps].vt_rva = resolved_vt_rva;
-        fprintf(out, "target %s -> %s+%#lx%s\n", a, bps[nbps].mod, (unsigned long)bps[nbps].rva,
-                resolved_vt_rva ? " (calls on objects of this vtable only)" : "");
+        /* the target is logged by its spec only, not by where it resolved to */
+        fprintf(out, "target %s in %s%s\n", a, bps[nbps].mod, resolved_vt_rva ? " (calls on objects of this vtable only)" : "");
         snprintf(bps[nbps].label, sizeof(bps[nbps].label), "%s", l);
         bps[nbps].max = m ? atoi(m) : 30;
         nbps++;
