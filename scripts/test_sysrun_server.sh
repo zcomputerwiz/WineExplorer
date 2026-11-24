@@ -639,6 +639,9 @@ i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe32.exe" "$SRC/scripts/sysru
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe64.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe32.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/alpcpair64.exe" "$SRC/tests/uwp/alpc/alpc-pair.c" -ladvapi32   # ALPC impersonation, one role per process
+# the WinSta0 holder of el_up, which sections of every group use (built here, not in c4_build, so a section run alone has it)
+x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/sdprobe64.exe" "$SRC/scripts/secure_desktop_probe.c" -ladvapi32 2>/dev/null
+i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/sdprobe32.exe" "$SRC/scripts/secure_desktop_probe.c" -ladvapi32 2>/dev/null
 cp "$ROOT/probes/rolesprobe64.exe" "$ROOT/probes/wexsvc.exe"     # the service image, so that its process has its own name
 gcc -O2 -Wall -o "$ROOT/bin/asgroup" "$SRC/scripts/sysrun_asgroup.c"
 chmod 0755 "$ROOT/probes"/*.exe
@@ -1352,7 +1355,6 @@ x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/wexelevate_stub.exe" "$SRC/scr
 for arch in 64 32; do
     cc=x86_64-w64-mingw32-gcc; [ $arch = 32 ] && cc=i686-w64-mingw32-gcc
     $cc -O2 -Wall -DWEXELEVATE_TEST_APPROVAL -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_probe$arch.exe" "$SRC/scripts/wexelevate_probe.c" -ladvapi32 -lshell32 -lmsi
-    $cc -O2 -Wall -o "$ROOT/probes/sdprobe$arch.exe" "$SRC/scripts/secure_desktop_probe.c" -ladvapi32 2>/dev/null
 done
 gcc -O2 -Wall -o "$ROOT/bin/x11probe" "$SRC/scripts/x11_grab_probe.c" -lX11
 chmod 0755 "$ROOT/probes"/*.exe
