@@ -687,6 +687,67 @@ static void low_child(DWORD parent)
         check(err == ERROR_ACCESS_DENIED, what);
         if (token) CloseHandle(token);
     }
+
+    /* B99: a TOKEN_QUERY handle upgraded with DuplicateHandle (Windows grants that, and these rights directly) is no
+     * way up: impersonating the copy gives an identification token (route 2), and neither a new process nor this
+     * process may get it as primary token (route 3: Windows refuses with ERROR_PRIVILEGE_NOT_HELD) */
+    if (OpenProcessToken(process, TOKEN_QUERY, &own))
+    {
+        NTSTATUS (WINAPI *set_info)(HANDLE, ULONG, void *, ULONG) =
+            (void *)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtSetInformationProcess");
+        HANDLE up = NULL, copy, thread_token;
+        SECURITY_IMPERSONATION_LEVEL level = -1;
+
+        if (DuplicateHandle(GetCurrentProcess(), own, GetCurrentProcess(), &up,
+                            TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY, FALSE, 0))
+        {
+            if (DuplicateTokenEx(up, TOKEN_QUERY | TOKEN_IMPERSONATE, NULL, SecurityImpersonation, TokenImpersonation, &copy))
+            {
+                check(SetThreadToken(NULL, copy), "SetThreadToken with a copy of the normal program's token works");
+                if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &thread_token))
+                {
+                    GetTokenInformation(thread_token, TokenImpersonationLevel, &level, sizeof(level), &len);
+                    CloseHandle(thread_token);
+                }
+                snprintf(what, sizeof(what), "but its thread gets an identification token only (level %d)", (int)level);
+                check(level == SecurityIdentification, what);
+                RevertToSelf();
+                CloseHandle(copy);
+            }
+            else check(0, "DuplicateTokenEx(SecurityImpersonation) of the upgraded handle works");
+            if (DuplicateTokenEx(up, TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT |
+                                 TOKEN_ADJUST_SESSIONID, NULL, SecurityImpersonation, TokenPrimary, &copy))
+            {
+                STARTUPINFOA si = { sizeof(si) };
+                PROCESS_INFORMATION pi;
+                char cmd[] = "cmd.exe /c exit 0";
+                struct { HANDLE token, thread; } pat = { copy, NULL };  /* PROCESS_ACCESS_TOKEN (not in MinGW's headers) */
+                NTSTATUS status;
+
+                SetLastError(0);
+                if (CreateProcessAsUserA(copy, NULL, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+                {
+                    TerminateProcess(pi.hProcess, 0);
+                    CloseHandle(pi.hThread);
+                    CloseHandle(pi.hProcess);
+                    err = 0;
+                }
+                else err = GetLastError();
+                snprintf(what, sizeof(what), "CreateProcessAsUser with a primary copy of the normal program's token is "
+                         "refused with ERROR_PRIVILEGE_NOT_HELD (error %lu)", err);
+                check(err == ERROR_PRIVILEGE_NOT_HELD, what);
+                status = set_info ? set_info(GetCurrentProcess(), 9 /* ProcessAccessToken */, &pat, sizeof(pat)) : 1;
+                snprintf(what, sizeof(what), "NtSetInformationProcess(ProcessAccessToken) with it is refused with "
+                         "STATUS_PRIVILEGE_NOT_HELD (0x%lx)", (unsigned long)status);
+                check(status == 0xC0000061, what);
+                CloseHandle(copy);
+            }
+            else check(0, "DuplicateTokenEx(TokenPrimary) of the upgraded handle works");
+            CloseHandle(up);
+        }
+        else printf("note: the TOKEN_QUERY handle could not be upgraded (error %lu): nothing more to check\n", GetLastError());
+        CloseHandle(own);
+    }
     CloseHandle(process);
 }
 
