@@ -192,26 +192,37 @@ check session0_records_a_blocks_after_restart "$(for b in $A_BLOCKS; do grep -ac
 # empty messages that carry descriptors do not leak them in session 0: 200 on new links, 40 on session links
 S0PID="$(prefix_server_pid "$W/s0")"   # this run's session 0, not another run's on the machine
 FD_BEFORE="$(ls "/proc/$S0PID/fd" | wc -l)"
-python3 -I - "$SOCK" <<'PY'
+# (the protocol version is the build's own, so that the 40 links are session links, which the count checks)
+S0_VERSION="$(awk '$2 == "WEX_SESSION0_VERSION" { print $3 }' "$SRC/wine/include/wine/wex_session0.h")"
+LINKED="$(python3 -I - "$SOCK" "$S0_VERSION" <<'PY'
 import array, socket, struct, sys
 fds = array.array('i', [sys.stdin.fileno()] * 4)
 anc = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, fds.tobytes())]
+linked = 0
 for i in range(240):
     c = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     c.connect(sys.argv[1])
     if i >= 200:   # a session link first: SESSION_ID, its answer and the PING order
-        c.send(struct.pack('<5I', 0x30535857, 5, 0, 4, 0))   # protocol version 5
-        c.settimeout(2); c.recv(64); c.recv(64)
-    c.sendmsg([b''], anc)
-    c.settimeout(2)
+        c.send(struct.pack('<5I', 0x30535857, int(sys.argv[2]), 0, 4, 0))
+        c.settimeout(2)
+        try:
+            if c.recv(64) and c.recv(64):
+                linked += 1
+        except OSError:
+            pass
     try:
+        c.sendmsg([b''], anc)
+        c.settimeout(2)
         c.recv(64)
     except OSError:
         pass
     c.close()
+print(linked)
 PY
+)"
 sleep 1
 FD_AFTER="$(ls "/proc/$S0PID/fd" | wc -l)"
+check empty_messages_session_links_made "$LINKED" 40
 check empty_messages_leak_no_fds "$([ "$FD_AFTER" -le $((FD_BEFORE + 8)) ] && echo yes || echo "no: $FD_BEFORE -> $FD_AFTER")" yes
 
 # T5.2: a session's program reaches session 0's service manager through \pipe\WexSession0\svcctl (64- and 32-bit)
