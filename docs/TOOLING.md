@@ -126,6 +126,12 @@ See [WEXDEV.md](WEXDEV.md) for exact commands, overrides, dependencies and accep
     - WSLg mounts `/tmp/.X11-unix` read-only without the sticky bit, so XWayland, and with it the compositor, cannot
       start. `run.sh` remounts it; do the same for a compositor started by hand.
     - Keep `tests/wex/output` in the copy: `check-handles.py` writes there.
+* `tests/uwp/lab-helpers/` (the UWP / Windows App SDK lab in the owned U1 guest): `lab.sh` drives the guest from the host
+  (`push`, `wait`; put anything with `$`, quotes or `;` in a pushed script, not inline), `notepad-run.sh` and
+  `notepad-bypass-run.sh` run Notepad on a candidate build (the bypass is lab-only and restored by the script),
+  `candidate-diff.sh` checks a changed Wine file against the candidate's older tree before copying it in.
+  `tests/uwp/alpc/wintrace.c` traces a packaged app on the Windows host at run-time entry points only; set
+  `WINTRACE_WATCH=Notepad.exe` for Notepad. Details: [uwp/HANDOFF_NOTEPAD.md](uwp/HANDOFF_NOTEPAD.md).
 * `installer/tests/ad/gpo-lab.sh` (the GPO VM lab, [GPO_LAB.md](GPO_LAB.md)): one entry point for the lab domain
   below: `up`, `fixtures` (an OU, a domain user, a domain-linked and an OU-linked test object with a security
   template), `check`, `member`, `machine`, `status`, `down`. On this host run it through
