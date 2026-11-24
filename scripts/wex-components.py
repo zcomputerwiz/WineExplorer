@@ -67,6 +67,8 @@ COMPONENTS = {
     'xact': 'XACT audio libraries (optional)',
     'physx': 'NVIDIA PhysX (optional)',
     'webview2': 'Microsoft Edge WebView2 Runtime (optional)',
+    'edge': 'Microsoft Edge (optional, needs the WebView2 Runtime)',
+    'copilot': 'Microsoft Copilot (optional, needs the WebView2 Runtime)',
     'powershell': 'PowerShell 7 (optional)',
     'uwp-xaml': 'UWP XAML support, Uno Platform (optional)',
     'uwp-frameworks': 'UWP application frameworks, Microsoft (optional)',
@@ -244,6 +246,64 @@ COMPONENTS_METADATA = {
              'url': 'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/52cfd0a8-f256-48d4-9b18-467f2b3cda78/MicrosoftEdgeWebView2RuntimeInstallerX64.exe'},
         ],
         'client_guid': '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+        'recipe_files': [],
+    },
+    # Microsoft's enterprise MSIs, installed machine-wide by msiexec as session 0's account (SYSTEM), as Windows runs
+    # their DoInstall chain (docs/KNOWN_BUGS.md B104). WebView2 goes first: the Copilot app embeds it, and with it
+    # installed Edge Update already has an app when the MSI's updater registers the browser. Their terms are web
+    # pages: only the text of the page's main element, from terms_start on, is pinned (the markup around it changes).
+    'edge': {
+        'title': 'Microsoft Edge',
+        'publisher': 'Microsoft Corporation',
+        'description': 'Installs the Microsoft Edge web browser for all users from Microsoft\'s enterprise package. '
+                       'Needs the WebView2 Runtime component.',
+        'size': '~206 MiB',
+        'reboot': False,
+        'disabled': False,
+        'disabled_reason': '',
+        'terms_url': 'https://explore.microsoft.com/en-us/edge/terms',
+        'terms_format': 'html',
+        'terms_start': 'MICROSOFT SOFTWARE LICENSE TERMS',
+        'terms_sha256': '1acc9dbc7f011f9bbf49e24705ac7beb56e70031e7cbe2e8babd85cef2f1c7ff',
+        'terms_text_sha256': '1acc9dbc7f011f9bbf49e24705ac7beb56e70031e7cbe2e8babd85cef2f1c7ff',
+        'release': '157.0.4341.60',
+        'execution_policy': 'edgeupdate-msi-machine-v1',
+        'payloads': [
+            {'name': 'MicrosoftEdgeEnterpriseX64.msi', 'architecture': 'x64', 'size': 215552000,
+             'sha256': 'b86b238035c47673e1c70589a28f2e0961e8cabdd3ff25edbb1e52239d7ecd76',
+             'host': 'msedge.sf.dl.delivery.mp.microsoft.com',
+             'url': 'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/277044fc-f1ea-4102-a313-b58e7fc47c6c/MicrosoftEdgeEnterpriseX64.msi'},
+        ],
+        'client_guid': '{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}',
+        'artifacts': ['Edge/Application/msedge.exe', 'Edge/Application/{release}/msedge.dll'],
+        'requires': ['webview2'],
+        'recipe_files': [],
+    },
+    'copilot': {
+        'title': 'Microsoft Copilot',
+        'publisher': 'Microsoft Corporation',
+        'description': 'Installs the Microsoft Copilot app for all users from Microsoft\'s enterprise package. '
+                       'Needs the WebView2 Runtime component; signing in uses the Microsoft account broker.',
+        'size': '~406 MiB',
+        'reboot': False,
+        'disabled': False,
+        'disabled_reason': '',
+        'terms_url': 'https://www.microsoft.com/en-us/microsoft-copilot/for-individuals/termsofuse',
+        'terms_format': 'html',
+        'terms_start': 'Microsoft Copilot Supplemental Terms of Use',
+        'terms_sha256': '4ff50cf1129b8db34fc1162383c10904f73d1d60dd655b6e2dcd19ff7f636cb5',
+        'terms_text_sha256': '4ff50cf1129b8db34fc1162383c10904f73d1d60dd655b6e2dcd19ff7f636cb5',
+        'release': '158.0.4370.33',
+        'execution_policy': 'edgeupdate-msi-machine-v1',
+        'payloads': [
+            {'name': 'CopilotStableEnterpriseX64.msi', 'architecture': 'x64', 'size': 425648128,
+             'sha256': '565b5cb202c22dee664193a77300d09063c9a754640f2d27f4ae43fb71eff4db',
+             'host': 'msedge.sf.dl.delivery.mp.microsoft.com',
+             'url': 'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/e314a6b7-611f-4d3a-b9c8-955a623605e8/CopilotStableEnterpriseX64.msi'},
+        ],
+        'client_guid': '{C50565E9-CCCF-44B4-BA15-5AC5C6569197}',
+        'artifacts': ['Copilot/Application/copilotapp.exe', 'Copilot/Application/{release}/Installer/setup.exe'],
+        'requires': ['webview2'],
         'recipe_files': [],
     },
     # Microsoft's open-source PowerShell (MIT), the release zip unpacked as it is; no installer program runs. The
@@ -436,7 +496,7 @@ def validate_recipe_files(verb, path=None):
     if verb == 'd3dcompiler_47':
         approved_d3dcompiler_recipe(path)
         return
-    if verb == 'webview2':
+    if verb in EDGEUPDATE_APPS:
         return  # no winetricks recipe: one pinned installer, verified before it runs
     winetricks = path or WINETRICKS_PATH
     meta = COMPONENTS_METADATA.get(verb, {})
@@ -848,6 +908,27 @@ def cache_webview2_payload(cache):
 WEBVIEW2_POLICY_KEY = r'HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate'
 WEBVIEW2_POLICY = (('UpdateDefault', 0), ('Update{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 0),
                    ('AutoUpdateCheckPeriodMinutes', 0))
+# The apps of Microsoft's updater (Edge Update) installed by their own installers; WebView2 first (COMPONENTS order).
+EDGEUPDATE_APPS = ('webview2', 'edge', 'copilot')
+EDGEUPDATE_MSI_POLICY = 'edgeupdate-msi-machine-v1'
+
+
+def edgeupdate_policy(verb):
+    """The EdgeUpdate policies an app's install sets: updates off, for that app as well."""
+    if verb == 'webview2':
+        return WEBVIEW2_POLICY
+    return (('UpdateDefault', 0), ('Update' + COMPONENTS_METADATA[verb]['client_guid'], 0),
+            ('AutoUpdateCheckPeriodMinutes', 0))
+
+
+def msi_dos_path(machine, path):
+    """PATH as msiexec of the machine prefix sees it: its Z: drive (msiexec would read a Unix path as an option)."""
+    try:
+        if os.readlink(Path(machine) / 'dosdevices' / 'z:') != '/':
+            raise OSError
+    except OSError:
+        raise ValueError('The machine prefix has no Z: drive for the root directory') from None
+    return 'Z:' + str(path).replace('/', '\\')
 
 
 def registry_section(lines, header):
@@ -866,16 +947,20 @@ def registry_section(lines, header):
     return None
 
 
-def verify_webview2_artifacts(machine):
-    """The runtime folder and the EdgeUpdate registration the installer must leave."""
-    meta = COMPONENTS_METADATA['webview2']
+def verify_webview2_artifacts(machine, verb='webview2'):
+    """The program folder and the EdgeUpdate registration the installer of VERB (an EDGEUPDATE_APPS one) must leave."""
+    meta = COMPONENTS_METADATA[verb]
     version = meta['release']
-    base = machine / 'drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application' / version
+    title = 'WebView2' if verb == 'webview2' else meta['title']
+    label = 'WebView2 runtime' if verb == 'webview2' else title
+    base = machine / 'drive_c/Program Files (x86)/Microsoft'
+    artifacts = meta.get('artifacts', ['EdgeWebView/Application/{release}/msedgewebview2.exe',
+                                       'EdgeWebView/Application/{release}/msedge.dll'])
     # Read only, through descriptors (a link, a FIFO or a device in a name is refused, never followed or waited on).
     root = machine_open_for_reading(machine)
     try:
-        for name in ('msedgewebview2.exe', 'msedge.dll'):
-            path = base / name
+        for name in artifacts:
+            path = base / name.format(release=version)
             try:
                 fd = machine_open_regular(root, list(path.relative_to(machine).parts))
                 try:
@@ -885,7 +970,7 @@ def verify_webview2_artifacts(machine):
             except ValueError:
                 size = 0
             if size < 1024 * 1024:
-                raise ValueError('WebView2 runtime file missing: ' + str(path))
+                raise ValueError(label + ' file missing: ' + str(path))
         try:
             raw = machine_read_regular(root, ['system.reg'], MAX_MACHINE_HIVE_BYTES)
         except ValueError:
@@ -897,15 +982,15 @@ def verify_webview2_artifacts(machine):
     lines = text.split('\n')
     section = registry_section(lines, key)
     if section is None or ('"pv"="' + version + '"') not in section:
-        raise ValueError('WebView2 is not registered in the machine registry')
+        raise ValueError(title + ' is not registered in the machine registry')
     # Wine shares HKLM\SOFTWARE\Policies between the 32- and 64-bit views.
     for hive in (r'[Software\\Policies\\Microsoft\\EdgeUpdate]',):
         block = registry_section(lines, hive)
         if block is None:
-            raise ValueError('WebView2 update policy missing: ' + hive)
-        for name, data in WEBVIEW2_POLICY:
+            raise ValueError(title + ' update policy missing: ' + hive)
+        for name, data in edgeupdate_policy(verb):
             if f'"{name}"=dword:{data:08x}' not in block:
-                raise ValueError(f'WebView2 update policy {name} not set in {hive}')
+                raise ValueError(f'{title} update policy {name} not set in {hive}')
 
 
 def cache_corefonts_payloads(cache, review_cache=None):
@@ -1172,6 +1257,8 @@ def component_identity(verb):
         record['d3dcompiler_artifacts'] = D3DCOMPILER_47_ARTIFACTS
     elif verb == 'webview2':
         record['webview2_policy'] = [WEBVIEW2_POLICY_KEY, WEBVIEW2_POLICY]
+    elif verb in EDGEUPDATE_APPS:
+        record['edgeupdate_policy'] = [WEBVIEW2_POLICY_KEY, edgeupdate_policy(verb)]
     return hashlib.sha256(json.dumps(record, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -1357,29 +1444,50 @@ def extract_webview2_terms(data):
     and shows them in its licence dialog. Only text nodes are kept; nothing in
     the document is interpreted or fetched.
     """
-    import html.parser
     record = json.loads(data.decode('utf-8'))
     markup = record.get('evergreenHtml')
     if not isinstance(markup, str):
         raise ValueError('WebView2 terms document has no evergreenHtml')
+    text = html_text(markup)
+    if 'MICROSOFT EDGE WEBVIEW2 RUNTIME' not in text or 'FIXED VERSION' in text:
+        raise ValueError('Terms document is not the WebView2 Evergreen Runtime agreement')
+    return text
+
+
+def html_text(markup, main_only=False):
+    """The text nodes of MARKUP as paragraphs (one per block element); nothing in it is interpreted or fetched. With
+    MAIN_ONLY the text of the page's <main> element only, without scripts and styles (a vendor's terms web page)."""
+    import html.parser
 
     class Text(html.parser.HTMLParser):
         BLOCKS = {'p', 'div', 'h1', 'h2', 'h3', 'h4', 'li', 'br', 'hr'}
+        SKIP = {'script', 'style', 'noscript', 'template', 'svg'} if main_only else set()
 
         def __init__(self):
             super().__init__(convert_charrefs=True)
             self.parts = ['']
+            self.skip = 0
+            self.main = 0 if main_only else 1
 
         def handle_starttag(self, tag, attrs):
+            if main_only and tag == 'main':
+                self.main += 1
+            if tag in self.SKIP:
+                self.skip += 1
             if tag in self.BLOCKS:
                 self.parts.append('')
 
         def handle_endtag(self, tag):
+            if main_only and tag == 'main':
+                self.main = max(self.main - 1, 0)
+            if tag in self.SKIP:
+                self.skip = max(self.skip - 1, 0)
             if tag in self.BLOCKS:
                 self.parts.append('')
 
         def handle_data(self, text):
-            self.parts[-1] += text
+            if self.main and not self.skip:
+                self.parts[-1] += text
 
     parser = Text()
     parser.feed(markup)
@@ -1388,8 +1496,18 @@ def extract_webview2_terms(data):
     text = '\n\n'.join(part for part in paragraphs if part) + '\n'
     if len(text.strip()) < 500 or len(text.encode('utf-8')) > MAX_TERMS_BYTES or '\x00' in text:
         raise ValueError('Incomplete or oversized extracted terms')
-    if 'MICROSOFT EDGE WEBVIEW2 RUNTIME' not in text or 'FIXED VERSION' in text:
-        raise ValueError('Terms document is not the WebView2 Evergreen Runtime agreement')
+    return text
+
+
+def extract_html_terms(data, start):
+    """The terms on a vendor's web page: the text of its main element from the paragraph that begins with START."""
+    text = html_text(data.decode('utf-8'), main_only=True)
+    index = text.find('\n' + start)
+    if not start or (index < 0 and not text.startswith(start)):
+        raise ValueError('Terms page does not contain the reviewed agreement')
+    text = text[index + 1:] if index >= 0 else text
+    if len(text.strip()) < 500:
+        raise ValueError('Incomplete extracted terms')
     return text
 
 
@@ -1459,11 +1577,22 @@ def terms_document_text(verb, document, approved_hosts=None):
                 if info.file_size > MAX_TERMS_BYTES:
                     raise ValueError('Oversized vendor document')
                 data = package.read(info)
+        elif document['format'] == 'html':
+            # Microsoft's web servers refuse Wget's name; this one is honest about what fetches the page
+            data, _ = _terms_download(url, {'User-Agent': 'WineExplorer-components/1.0'}, approved_hosts)
         else:
             data, _ = _terms_download(url, approved_hosts=approved_hosts)
     except urllib.error.URLError as err:
         raise ConnectionError(f'Failed to retrieve vendor terms for {verb} from {url}: {err.reason}')
-    if len(data) > MAX_TERMS_BYTES or hashlib.sha256(data).hexdigest() != document['sha256']:
+    if len(data) > MAX_TERMS_BYTES:
+        raise ValueError('Vendor document exceeded its size limit; review required')
+    if document['format'] == 'html':
+        # the page's markup changes with every site build: the extracted agreement is what is pinned
+        text = extract_html_terms(data, document.get('start', ''))
+        if hashlib.sha256(text.encode()).hexdigest() != document['sha256']:
+            raise ValueError('Vendor terms changed; review required')
+        return text
+    if hashlib.sha256(data).hexdigest() != document['sha256']:
         raise ValueError('Vendor document changed or exceeded its size limit; review required')
     if document['format'] == 'webview2-json':
         return extract_webview2_terms(data)
@@ -1510,7 +1639,9 @@ def fetch_vendor_terms(verb, directory=None):
         if not terms_url.startswith('https://') or not meta.get('terms_sha256') or not meta.get('terms_text_sha256'):
             raise ValueError('No reviewed document and extraction identity for ' + verb)
         text = terms_document_text(verb, {'url': terms_url, 'sha256': meta['terms_sha256'],
-                                          'format': 'webview2-json' if meta.get('terms_format') == 'webview2-json' else
+                                          'start': meta.get('terms_start', ''),
+                                          'format': meta['terms_format'] if meta.get('terms_format') in
+                                          ('webview2-json', 'html') else
                                           'docx' if terms_url.endswith('.docx') else
                                           'txt' if terms_url.endswith('.txt') and
                                           meta.get('execution_policy') == UWP_XAML_POLICY else 'unreviewed'})
@@ -2701,10 +2832,10 @@ def is_installed(verb, accepted_digest=None, machine=None):
                     if data.get('execution_recipe_sha256') != hashlib.sha256(approved_d3dcompiler_recipe()).hexdigest():
                         return False
                     verify_d3dcompiler_artifacts(machine)
-                elif verb == 'webview2':
+                elif verb in EDGEUPDATE_APPS:
                     if data.get('component_identity') != component_identity(verb):
                         return False
-                    verify_webview2_artifacts(machine)
+                    verify_webview2_artifacts(machine, verb)
                 return True
         except Exception:
             pass
@@ -2898,9 +3029,10 @@ def cache_uwp_xaml_payload(verb, cache):
     return cache_pinned_download(verb, uwp_xaml_payload(verb), cache, UWP_XAML_REDIRECTS, 'UWP XAML')
 
 
-def cache_pinned_download(verb, payload, cache, redirects, label):
+def cache_pinned_download(verb, payload, cache, redirects, label, deadline=600):
     """PAYLOAD ({name, url, size, sha256}) in the root-owned cache directory of VERB, downloaded over https from the
-    approved hosts REDIRECTS when it is not there yet, and checked against its size and hash either way."""
+    approved hosts REDIRECTS within DEADLINE seconds when it is not there yet, and checked against its size and hash
+    either way."""
     destination = cache / verb
     if destination.is_symlink():
         raise ValueError(f'Refusing symlinked {label} cache')
@@ -2925,7 +3057,7 @@ def cache_pinned_download(verb, payload, cache, redirects, label):
             with tempfile.NamedTemporaryFile(dir=destination, prefix='.download-', delete=False) as out:
                 temporary = Path(out.name)
                 total, digest = 0, hashlib.sha256()
-                deadline = time.monotonic() + 600
+                deadline = time.monotonic() + deadline
                 while True:
                     chunk = response.read(65536)
                     if not chunk:
@@ -4351,6 +4483,9 @@ def install(verb, accepted_digest):
     with _machine_maintenance() as wine:
         if is_installed(verb, accepted_digest, machine=MACHINE):
             return
+        for need in meta.get('requires', ()):
+            if not is_installed(need, machine=MACHINE):
+                raise ValueError(f'{meta["title"]} needs {COMPONENTS_METADATA[need]["title"]}: install it first')
         # Do not kill somebody else's maintenance client or wait for a desktop.
         wine.require_idle()
         cache = CACHE
@@ -4392,6 +4527,14 @@ def install(verb, accepted_digest):
                  COMPONENTS_METADATA['webview2']['payloads'][0]['sha256']).encode()).hexdigest()
             installer = wine.stage(cache / verb) / installer.relative_to(cache)
             argv = ['/usr/bin/xvfb-run', '-a', wine.WINE, str(installer), '/silent', '/install']
+        elif verb in EDGEUPDATE_APPS:
+            payload = meta['payloads'][0]
+            installer = cache_pinned_download(verb, payload, cache, ('https://' + payload['host'] + '/',),
+                                              meta['title'], deadline=1800)
+            execution_digest = hashlib.sha256((meta['execution_policy'] + ' ' + payload['sha256']).encode()).hexdigest()
+            installer = wine.stage(cache / verb) / installer.relative_to(cache)
+            argv = ['/usr/bin/xvfb-run', '-a', wine.WINE, 'msiexec', '/i', msi_dos_path(MACHINE, installer),
+                    '/qn', '/norestart']
         else:
             # winetricks' own recipe, which downloads (only for components enabled without a pinned one)
             isolate = False
@@ -4408,11 +4551,11 @@ def install(verb, accepted_digest):
             # Without a network; the lock and builtin snapshots stay until Wine has also stopped.
             result = wine.run(argv, timeout=1800, isolate=isolate)
             try:
-                if verb == 'webview2' and result.returncode == 0:
+                if verb in EDGEUPDATE_APPS and result.returncode == 0:
                     # Keep the runtime on the version we verified: no machine-wide
                     # self-update from a system-level updater (see WEBVIEW2_POLICY).
                     try:
-                        for name, data in WEBVIEW2_POLICY:
+                        for name, data in edgeupdate_policy(verb):
                             wine.run(['/usr/bin/xvfb-run', '-a', wine.WINE, 'reg', 'add', WEBVIEW2_POLICY_KEY,
                                       '/v', name, '/t', 'REG_DWORD', '/d', str(data), '/f'],
                                      timeout=120, check=True, stdout=subprocess.DEVNULL)
@@ -4422,10 +4565,11 @@ def install(verb, accepted_digest):
                         wine.stop(check=False)
                         if recovery is not None:
                             recovery['safe_to_restore'] = True
-                        raise ValueError('WebView2 installed but its update policy could not be set; machine-prefix Wine stopped')
+                        raise ValueError(f'{meta["title"]} installed but its update policy could not be set; '
+                                         'machine-prefix Wine stopped')
                 # Microsoft's installer leaves its update service running: stop what is
                 # left once the installer succeeded, and after a deadline.
-                if result.returncode in (124, 137) or (verb == 'webview2' and result.returncode == 0):
+                if result.returncode in (124, 137) or (verb in EDGEUPDATE_APPS and result.returncode == 0):
                     wine.stop()
                 wine.wait_idle()
             except subprocess.TimeoutExpired:
@@ -4450,8 +4594,8 @@ def install(verb, accepted_digest):
             verify_corefonts_artifacts(MACHINE)
         elif verb == 'd3dcompiler_47':
             verify_d3dcompiler_artifacts(MACHINE)
-        elif verb == 'webview2':
-            verify_webview2_artifacts(MACHINE)
+        elif verb in EDGEUPDATE_APPS:
+            verify_webview2_artifacts(MACHINE, verb)
         receipt = MACHINE.parent / 'component-receipts'
         receipt.mkdir(mode=0o755, exist_ok=True)
         if receipt.is_symlink() or receipt.stat().st_uid != 0 or receipt.stat().st_mode & 0o022:
@@ -4603,6 +4747,17 @@ def consent(verb, gui):
     return sha if input(f'Accept these terms for {verb}? Type yes: ').strip() == 'yes' else None
 
 
+def with_prerequisites(verbs, installed=None):
+    """VERBS with the components they need that are not installed yet, each after what it needs (COMPONENTS order,
+    which lists a prerequisite first). Every added one still asks for its own acceptance of terms."""
+    installed = get_installed_receipts() if installed is None else installed
+    wanted = set(verbs)
+    for verb in verbs:
+        wanted.update(need for need in COMPONENTS_METADATA[validate_verb(verb)].get('requires', ())
+                      if need not in installed)
+    return [verb for verb in COMPONENTS if verb in wanted]
+
+
 def frontend(verbs, gui):
     if not is_admin():
         raise ValueError('Windows Components is available to administrators only')
@@ -4651,6 +4806,7 @@ def frontend(verbs, gui):
             review_result = subprocess.run(review_command, capture_output=True, text=True)
             if not review_result.returncode and review_result.stdout.strip():
                 review_verbs = [verb for verb in review_result.stdout.strip().split('|') if verb]
+    verbs = with_prerequisites(verbs)
     for verb in verbs:
         validate_verb(verb)
         meta = COMPONENTS_METADATA.get(verb, {})
