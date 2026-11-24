@@ -64,6 +64,16 @@ prefix_server_pid() {
 }
 # waits up to 5 s for a prefix's server to end
 server_gone() { local i; for i in $(seq 1 50); do prefix_server_pid "$1" > /dev/null || return 0; sleep 0.1; done; return 1; }
+# stops session 0 as systemd does (wex-session0.service): SIGTERM saves the hives at once and ends the server. Not
+# wineserver -k: its SIGINT shuts the server down first and saves at the end, and after about 10 s -k sends SIGKILL,
+# which under load (chain VMs on the machine) came before the save (b1126a: s0_saved_key_dacl, dacl_survives_restart)
+stop_s0() {
+    local p i
+    p="$(prefix_server_pid "$W/s0")" || return 0
+    kill -TERM "$p"
+    for i in $(seq 1 600); do kill -0 "$p" 2>/dev/null || return 0; sleep 0.1; done
+    echo "FAIL session 0 did not end within 60 s of SIGTERM"; return 1
+}
 start_s0
 check s0_socket_mode "$(stat -c %a "$SOCK")" 666
 
@@ -162,7 +172,7 @@ rm -f "$W/marker"
 MARKER_WIN="Z:$(printf '%s' "$W/marker" | tr '/' '\\')"
 (WINEPREFIX=$W/a timeout 120 ./wine "$W/p64.exe" hold 'Software\WexTier' where "$MARKER_WIN" >"$W/hold.out" 2>/dev/null &)
 for i in $(seq 1 100); do grep -q '^first=' "$W/hold.out" 2>/dev/null && break; sleep 0.2; done
-WINEPREFIX=$W/s0 ./server/wineserver -k; server_gone "$W/s0"   # it saves the hives as it ends
+stop_s0 || fails=$((fails+1))   # it saves the hives as it ends
 check s0_saved_b_write "$(grep -a -c '"b32"="written-in-b32"' "$W/s0/system.reg")" 1
 start_s0
 s0 reg add "$K" /v where /d session0-restarted /f >/dev/null
