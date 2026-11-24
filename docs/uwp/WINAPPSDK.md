@@ -116,8 +116,7 @@ The fail-fast after `Microsoft.UI.Dispatching.DispatcherQueueController` was the
   buffer for the answer fails with `STATUS_BUFFER_TOO_SMALL` and is closed again (the server then sees a port closed message, type 5,
   8 bytes); the handle is left alone when a connect fails; the connection ports of Windows live in `\RPC Control`.
 * Next gap: C++/WinRT asks `CoreApplication` for `IStaticLifetime` (IID `17b0e613-...`, not in the public metadata); the throw was
-  `winrt::hresult_no_interface`, seen in the Wine log and in the type of the C++ exception that was thrown (`tests/uwp/lab-helpers/throwtype.py`
-  reads the type name of a thrown exception at run time). Done in twinapi.appcore (Wine 372efb0c).
+  `winrt::hresult_no_interface`, seen in the Wine log (the C++ exception that was thrown). Done in twinapi.appcore (Wine 372efb0c).
 
 State after that: Notepad creates its windows and runs XAML code. The access violations in the log are `IsBadReadPtr` probes (handled);
 the real stop is a call through a null function pointer in the main thread, right after the activation of
@@ -241,16 +240,17 @@ The default `UniversalApiContract` of 10 is enough: runs with 14, 17 and 19 beha
 |---|---|
 | The lifted compositor is hosted by `dcompi.dll` (Microsoft.UI.Composition.*); `dwmcorei.dll` is loaded right after it (`+loaddll`) | MIT source (`xcpcore.cpp`, `corep.h`, above) for `dcompi`; the load order is in the Wine log |
 | The device answers `{d14b6158-...}` and `{28d6ad3d-...}` with the very interface of `IDCompositionDesktopDevice` | black box: `tests/uwp/alpc/dcomp-privqi-probe.c` (Windows 11); the asking is in the Wine `+dcomp` log |
-| `DCompositionCreateSharedVisualHandle` (export 1040) is `HRESULT (HANDLE *)`; a NULL out is E_INVALIDARG; the handle has the type "Composition" | black box: `dcomp-exports-probe.c`, `dcomp-visualhandle-probe.c` |
-| Slot 29 of the desktop-device interface opens a shared handle as a visual or a target | black box: `wintrace.c` at the vtable entry while Notepad starts on Windows 11; pops 16 bytes on 32-bit Windows (`dcomp-dslot32.cpp`) |
-| The private interface `{2c4eef28-...}` of a visual is the visual itself (same pointer as IUnknown and IDCompositionVisual2, shared reference count, on version-1 and version-2 devices); slots 40 and 41 take one pointer and return S_OK with no visible effect | black box: `dcomp-visualpriv-probe.cpp`, `dcomp-vslot32.cpp` (8 bytes popped on 32-bit Windows); the call pair is seen with `wintrace.c` |
-| Desktop-device method 46 takes one pointer and stores the newest completed batch id (0 on a fresh device); a trace of Notepad shows it rise 1, 1, 2, 3, 3, 4, 4 | black box: `dcomp-dslot32.cpp` (8 bytes popped), `wintrace.c` |
+| `DCompositionCreateSharedVisualHandle` (export 1040) is `HRESULT (HANDLE *)`; a NULL out is E_INVALIDARG; the handle has the type "Composition" | black box: `dcomp-exports-probe.c` (a GetProcAddress sweep finds ordinal 1040, and the name resolves to the same address), `dcomp-visualhandle-probe.c`; that the runtime asks for the ordinal is the Wine loader's message for the missing import |
+| Slot 29 of the desktop-device interface opens a shared handle as a visual or a target | black box: `wintrace.c` at the target `dcomp.dll!desktop[29]` (slot 29 of a live device's vtable) while Notepad starts on Windows 11; pops 16 bytes on 32-bit Windows (`dcomp-dslot32.cpp`) |
+| The private interface `{2c4eef28-...}` of a visual is the visual itself (same pointer as IUnknown and IDCompositionVisual2, shared reference count, on version-1 and version-2 devices); slots 40 and 41 take one pointer and return S_OK with no visible effect | black box: `dcomp-visualpriv-probe.cpp`, `dcomp-vslot32.cpp` (8 bytes popped on 32-bit Windows); the call pair is seen with `wintrace.c` at `dcomp.dll!visual[40]` and `dcomp.dll!visual[41]` |
+| Desktop-device method 46 takes one pointer and stores the newest completed batch id (0 on a fresh device); a trace of Notepad shows it rise 1, 1, 2, 3, 3, 4, 4 | black box: `dcomp-dslot32.cpp` (8 bytes popped), `wintrace.c` at `dcomp.dll!desktop[46]` |
 | The device answers `{6b556968-...}` on Windows 11 too, but its slot 8 there is a different method (12 bytes, E_INVALIDARG for an event handle) | black box: `dcomp-dslot32b.cpp`. On Wine the runtime calls slot 8 with the commit event (event handle, 0, 0, a pointer): seen with a logging object. Implemented for that caller, not measured on Windows 11 |
 | Without the `{6b556968}` interface the composition engine logs a failure and shuts down right after method 46 | Wine `+relay` log of the engine thread (calls and return values only) |
-| `NtCreateCompositionInputSink(block, &handle)`, `NtQueryCompositionInputSinkLuid(handle, &luid)`, `NtCloseCompositionInputSink(handle)`: argument bytes, the 0xe8-byte block, validation, statuses | black box: `sink-probe.c`, `sink-probe2.c`, `sink-pops32.cpp`, `wintrace.c` (the block as Notepad passes it). The sizes 0xe8 and 0x38: `sink-probe3.c` (a buffer ending at an inaccessible page: 0xe7 bytes fail with an access violation, 0xe8 work; clearing the window of any entry, or a stride of 0x30, is STATUS_INVALID_PARAMETER) |
+| `NtCreateCompositionInputSink(block, &handle)`, `NtQueryCompositionInputSinkLuid(handle, &luid)`, `NtCloseCompositionInputSink(handle)`: argument bytes, the 0xe8-byte block, validation, statuses | black box: `sink-probe.c`, `sink-probe2.c`, `sink-pops32.cpp`, `wintrace.c` at `win32u.dll!NtCreateCompositionInputSink` and `win32u.dll!NtQueryCompositionInputSinkLuid` (the block as Notepad passes it). The sizes 0xe8 and 0x38: `sink-probe3.c` (a buffer ending at an inaccessible page: 0xe7 bytes fail with an access violation, 0xe8 work; clearing the window of any entry, or a stride of 0x30, is STATUS_INVALID_PARAMETER) |
 | The runtime's CoreUI session slot 13 is called like slot 12 under contract 19 | Wine log (our logging implementation) |
 | FrameworkUdk's system-side tables: `GetFunctionTableById(id)` returns tables of fixed size and version (ids 0 to 5: 456/5, 8/0, 192/0, 32/0, 88/0, 56/1 bytes/version) | black box: `fudk-sys-probe.c` calls the export; informational, no code depends on it |
-| The owner hint: Windows sends no WM_NCHITTEST to the application while a window is positioned; Wine's `apply_window_pos` did and Notepad failed fast | black box: a trace of Notepad on Windows 11 (no such message), Wine run log (the fail-fast); the Wine change is in `win32u/window.c` |
+| `IUserActivityRequestManagerInterop::GetForWindow` is called on the factory of `UserActivityRequestManager` with the window and `IID_IUserActivityRequestManager` | black box: `wintrace.c` at `winrt!Windows.ApplicationModel.UserActivities.UserActivityRequestManager@{dd69f876-...}[6]`, `factory-iid-probe.c` |
+| The owner hint: Windows sends no WM_NCHITTEST to the application while a window is positioned; Wine's `apply_window_pos` did and Notepad failed fast | black box: `nchittest-probe.c` on Windows 11 (a window under the corner of another window's new position gets no WM_NCHITTEST during SetWindowPos: count 0), reproduced by the Wine test `test_position_sends_no_nchittest`; the Wine log shows Notepad's fail-fast. The earlier statement that rested on a trace of a window procedure of Microsoft.UI.Windowing.Core (a typed RVA) is withdrawn |
 | Spell checker factory missing (REGDB_E_CLASSNOTREG, fail-fast); `bcp47langs` functions called at startup | Wine log; `bcp47-probe.c` for the distance function |
 | `RegisterAdaptersChangedEvent` behaviour | black box, measured by the Wine Explorer Integration session on Windows 11 |
 | Thread states of the running Notepad (all idle at 25 s, one briefly busy) | `wasdk-threads.sh` (`/proc`, gdb registers on our own Wine process) |
@@ -262,5 +262,19 @@ The default `UniversalApiContract` of 10 is enough: runs with 14, 17 and 19 beha
   not arguments); the 32-bit measurement above replaces it.
 * "Slots 40 and 41 are called with a float each": wrong, they take one pointer (measured).
 * "Windows answers S_OK for slot 8 of `{6b556968}`": withdrawn, see the table.
-* The helper tools that read offsets and bytes of `Microsoft.UI.Input.dll` and other package binaries (trampoline patches, byte patchers, PE
-  string and pointer readers, call-graph scripts) are not in this branch.
+* The helper tools that read offsets, bytes, strings, section tables or exception-type data of `Microsoft.UI.Input.dll` and other package binaries
+  (trampoline patches, byte patchers, PE string, pointer and cross-reference readers such as `pe-xref.py`, call-graph scripts, `throwtype.py`) are
+  not in this branch. The first revision of this branch (commit 2c06fb86) still carried `pe-xref.py` and `throwtype.py` although its message said
+  otherwise; they are removed, and the claim in that message is corrected here.
+
+### Tracing rule (Session 0 ruling, 2026-11-24)
+
+`tests/uwp/alpc/wintrace.c` traces at call boundaries only, and only at entry points it finds at run time: `module!export` or `module!#ordinal`
+(GetProcAddress by name or ordinal), or a slot of the vtable of a live object that the tracer creates itself (`dcomp.dll!desktop[N]`,
+`dcomp.dll!visual[N]`, `winrt!Class@{IID}[N]`). A raw RVA on the command line is refused, no code bytes are logged, and the one byte a breakpoint
+replaces is only kept in memory to be put back. Earlier traces typed RVAs (taken from export tables, from vtables of live objects and, for
+some Microsoft.UI.Input traces, from a disassembly, which is why nothing from those is used). Every finding of this branch that cites a trace
+was therefore taken again on 2026-11-24 with the rule's targets, and gave the same result (capture `uwp-captures/wt-clean.txt` in
+`../WineExplorer-local`): slot 29 (ten calls, a handle as first argument), method 46 (low dword rising 1, 1, 2), slots 40 and 41 (pairs, the
+private IID as the argument of 40), `GetForWindow` (the window and the IID), the sink calls (five creates with the 0xe8-byte block, seven LUID
+queries). The traces of FrameworkUdk exports and of the system-side module that were taken with typed RVAs support no statement here any more.

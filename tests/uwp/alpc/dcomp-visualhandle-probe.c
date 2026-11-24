@@ -39,7 +39,7 @@ int main(void)
 
     printf("ordinal 1040 %p, surface %p\n", shared, surface);
 
-    /* the shape dcompi.dll uses (the caller at RVA 0xe0170 passes only rcx = &local handle, initialised to NULL) */
+    /* one argument: a pointer to the handle, set to NULL first (32-bit and 64-bit callers pass nothing else, see dcomp-dslot32.cpp for the method) */
     {
         typedef HRESULT (WINAPI *one_t)(HANDLE *out);
         HANDLE o = NULL;

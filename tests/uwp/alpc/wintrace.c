@@ -2,11 +2,22 @@
  * Copyright 2026 WineExplorer contributors
  *
  * Black-box tracer for a packaged application on Windows: activate it by its application user model id, attach as a debugger, put
- * int3 breakpoints at module!RVA addresses as the modules load, and log each hit (time, thread, registers, and the return addresses
+ * int3 breakpoints at real entry points as the modules load, and log each hit (time, thread, registers, and the return addresses
  * on the stack resolved to module+offset). Observation of a local program from outside; nothing of it is copied.
  *
- *   wintrace.exe AUMID SECONDS OUTFILE MODULE.DLL:RVA_HEX:LABEL[:MAXHITS] ...
- *   the load of every module is logged too (with the load order), so the order of events can be compared with a Wine run.
+ *   wintrace.exe AUMID SECONDS OUTFILE TARGET:LABEL[:MAXHITS[:R]] ...
+ *
+ * A target is an entry point that this program finds at run time, in its own process, from the same module the application loads. A raw
+ * address or RVA is not accepted, and no code bytes are logged or stored (the one byte that the breakpoint replaces is only kept in memory
+ * to be put back):
+ *   MODULE.DLL!ExportName        an export, by GetProcAddress by name
+ *   MODULE.DLL!#ORDINAL          an export, by GetProcAddress by ordinal
+ *   dcomp.dll!desktop[N]         slot N of the vtable of a live IDCompositionDesktopDevice that this program creates
+ *   dcomp.dll!visual[N]          slot N of the vtable of a live IDCompositionVisual that this program creates
+ *   winrt!Class.Name@{IID}[N]    slot N of the vtable of the interface IID of the activation factory of the class (RoGetActivationFactory)
+ * The label may end in _D (the 32 qwords at rcx), _E (48 qwords at rdx and r8, at entry and at return) or _F (the low float and double of
+ * xmm0 to xmm3); the fifth field R logs the return value and what the argument registers point to.
+ * The load of every module is logged too (with the load order), so the order of events can be compared with a Wine run.
  * Build (mingw): x86_64-w64-mingw32-gcc -O2 -o wintrace.exe wintrace.c -lole32 -luuid
  */
 #define COBJMACROS
@@ -97,7 +108,8 @@ static void add_module(HANDLE file, LPVOID base)
 
                 bps[i].active = 1;
                 ReadProcessMemory(proc, (void *)bps[i].addr, &now, 1, &got);
-                log_line("  breakpoint %s at %s+%#lx (byte was %02x, now %02x)", bps[i].label, m->name, (unsigned long)bps[i].rva, bps[i].orig, now);
+                (void)now;
+                log_line("  breakpoint %s set at %s+%#lx", bps[i].label, m->name, (unsigned long)bps[i].rva);
             }
             else log_line("  breakpoint %s FAILED (error %lu)", bps[i].label, GetLastError());
         }
@@ -285,6 +297,86 @@ static void attach_new(DWORD *first, const char *name)
     CloseHandle(snap);
 }
 
+/* the module and RVA of an address of this process (the same file is loaded in the application) */
+static int rva_of(void *addr, char *mod, size_t modsize, DWORD *rva)
+{
+    HMODULE hm = NULL;
+    char path[MAX_PATH];
+
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)addr, &hm) || !hm) return 0;
+    if (!GetModuleFileNameA(hm, path, sizeof(path))) return 0;
+    snprintf(mod, modsize, "%s", base_name(path));
+    *rva = (DWORD)((char *)addr - (char *)hm);
+    return 1;
+}
+
+typedef HRESULT (WINAPI *create3_t)(IUnknown *, REFIID, void **);
+typedef HRESULT (WINAPI *ro_init_t)(int);
+typedef HRESULT (WINAPI *ro_factory_t)(void *, REFIID, void **);
+typedef HRESULT (WINAPI *ws_create_t)(const WCHAR *, UINT32, void **);
+
+/* turns a target of the command line into module and RVA, as the usage text says; 0 when it cannot be found */
+static int resolve_target(const char *target, char *mod, size_t modsize, DWORD *rva)
+{
+    static const GUID iid_desktop = {0x5f4633fe, 0x1e08, 0x4cb8, {0x8c, 0x75, 0xce, 0x24, 0x33, 0x3f, 0x56, 0x02}};
+    char spec[300], *bang, *br;
+    int slot = -1;
+
+    snprintf(spec, sizeof(spec), "%s", target);
+    if (!(bang = strchr(spec, '!'))) return 0;
+    *bang++ = 0;
+    if ((br = strchr(bang, '[')))
+    {
+        slot = atoi(br + 1);
+        *br = 0;
+    }
+
+    if (!_stricmp(spec, "winrt"))
+    {
+        HMODULE combase = LoadLibraryA("combase.dll");
+        ro_init_t ro_init = combase ? (ro_init_t)GetProcAddress(combase, "RoInitialize") : NULL;
+        ro_factory_t ro_factory = combase ? (ro_factory_t)GetProcAddress(combase, "RoGetActivationFactory") : NULL;
+        ws_create_t ws_create = combase ? (ws_create_t)GetProcAddress(combase, "WindowsCreateString") : NULL;
+        char *at = strchr(bang, '@');
+        WCHAR cls[256], iidw[64];
+        GUID iid;
+        void *hs = NULL, *obj = NULL;
+
+        if (!ro_init || !ro_factory || !ws_create || !at || slot < 0) return 0;
+        *at++ = 0;
+        MultiByteToWideChar(CP_UTF8, 0, bang, -1, cls, 256);
+        MultiByteToWideChar(CP_UTF8, 0, at, -1, iidw, 64);
+        if (FAILED(IIDFromString(iidw, &iid))) return 0;
+        ro_init(1);   /* RO_INIT_MULTITHREADED */
+        if (FAILED(ws_create(cls, (UINT32)wcslen(cls), &hs))) return 0;
+        if (FAILED(ro_factory(hs, &iid, &obj)) || !obj) return 0;
+        return rva_of((*(void ***)obj)[slot], mod, modsize, rva);
+    }
+
+    if (!_stricmp(spec, "dcomp.dll") && (!strcmp(bang, "desktop") || !strcmp(bang, "visual")) && slot >= 0)
+    {
+        HMODULE dc = LoadLibraryA("dcomp.dll");
+        create3_t create3 = dc ? (create3_t)GetProcAddress(dc, "DCompositionCreateDevice3") : NULL;
+        void *desktop = NULL, *visual = NULL;
+
+        if (!create3 || FAILED(create3(NULL, &iid_desktop, &desktop)) || !desktop) return 0;
+        if (!strcmp(bang, "desktop")) return rva_of((*(void ***)desktop)[slot], mod, modsize, rva);
+        /* CreateVisual is slot 6 of IDCompositionDesktopDevice */
+        if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, void **))(*(void ***)desktop)[6])(desktop, &visual)) || !visual) return 0;
+        return rva_of((*(void ***)visual)[slot], mod, modsize, rva);
+    }
+
+    {
+        HMODULE hm = LoadLibraryA(spec);
+        FARPROC p;
+
+        if (!hm) return 0;
+        p = bang[0] == '#' ? GetProcAddress(hm, MAKEINTRESOURCEA(atoi(bang + 1))) : GetProcAddress(hm, bang);
+        if (!p) return 0;
+        return rva_of((void *)p, mod, modsize, rva);
+    }
+}
+
 int main(int argc, char **argv)
 {
     const char *watch = getenv("WINTRACE_WATCH");   /* image name of processes to attach to as they appear, e.g. Notepad.exe */
@@ -294,23 +386,23 @@ int main(int argc, char **argv)
     HRESULT hr;
     DEBUG_EVENT ev;
 
-    if (argc < 5) { fprintf(stderr, "usage: wintrace AUMID SECONDS OUTFILE MODULE:RVA:LABEL[:MAX]...\n"); return 2; }
+    if (argc < 5) { fprintf(stderr, "usage: wintrace AUMID SECONDS OUTFILE TARGET:LABEL[:MAX[:R]]... (targets: see the header of wintrace.c)\n"); return 2; }
     out = fopen(argv[3], "w");
     if (!out) return 2;
     limit = (DWORD)atoi(argv[2]) * 1000;
     for (i = 4; i < (DWORD)argc && nbps < 128; i++)
     {
-        char *a = strtok(argv[i], ":"), *r = strtok(NULL, ":"), *l = strtok(NULL, ":"), *m = strtok(NULL, ":"), *w = strtok(NULL, ":");
+        char *a = strtok(argv[i], ":"), *l = strtok(NULL, ":"), *m = strtok(NULL, ":"), *w = strtok(NULL, ":");
 
-        if (!a || !r || !l) continue;
+        if (!a || !l) continue;
         bps[nbps].wantret = w && *w == 'R';
+        if (!resolve_target(a, bps[nbps].mod, sizeof(bps[nbps].mod), &bps[nbps].rva))
         {
-            char *v = strtok(NULL, ":");   /* sixth field: the vtable RVA the object has to have */
-
-            bps[nbps].vt_rva = v ? (DWORD)strtoul(v, NULL, 16) : 0;
+            fprintf(stderr, "target %s: not an entry point that can be found at run time (a raw RVA is not accepted)\n", a);
+            fprintf(out, "target %s: not found\n", a);
+            return 2;
         }
-        snprintf(bps[nbps].mod, sizeof(bps[nbps].mod), "%s", a);
-        bps[nbps].rva = (DWORD)strtoul(r, NULL, 16);
+        fprintf(out, "target %s -> %s+%#lx\n", a, bps[nbps].mod, (unsigned long)bps[nbps].rva);
         snprintf(bps[nbps].label, sizeof(bps[nbps].label), "%s", l);
         bps[nbps].max = m ? atoi(m) : 30;
         nbps++;

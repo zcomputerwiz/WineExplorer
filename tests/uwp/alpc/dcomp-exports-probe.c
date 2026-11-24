@@ -1,9 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
  * Copyright 2026 WineExplorer contributors
  *
- * Black-box probe: the exported names and ordinals of a system DLL, read from its export directory in memory
- * (dcomp.dll by default): which exports are named, and which ordinals have no name. dcompi.dll of the Windows App Runtime imports
- * dcomp.dll by ordinal (1040).
+ * Black-box probe: which ordinals of a system DLL resolve with GetProcAddress (dcomp.dll by default), swept from 1 to 4096, and whether a
+ * name given on the command line resolves to the address of an ordinal. Only GetProcAddress is used, the file is not read.
+ *   dcomp-exports-probe [DLL [NAME ...]]
+ * With no names it checks DCompositionCreateSharedVisualHandle, the name that Wine gives to ordinal 1040 (the Wine log shows the Windows App
+ * Runtime asking dcomp.dll for that ordinal).
  * Build: x86_64-w64-mingw32-gcc -O2 -o dcomp-exports-probe.exe dcomp-exports-probe.c
  */
 #include <stdio.h>
@@ -12,26 +14,31 @@
 int main(int argc, char **argv)
 {
     HMODULE mod = LoadLibraryA(argc > 1 ? argv[1] : "dcomp.dll");
-    BYTE *base = (BYTE *)mod;
-    IMAGE_NT_HEADERS *nt;
-    IMAGE_EXPORT_DIRECTORY *exp;
-    DWORD *names, *funcs, i, j;
-    WORD *ords;
+    const char *default_names[] = {"DCompositionCreateSharedVisualHandle"};
+    const char **names = argc > 2 ? (const char **)&argv[2] : default_names;
+    int nnames = argc > 2 ? argc - 2 : 1;
+    void *by_ordinal[4097] = {0};
+    unsigned int n, count = 0;
+    int i;
 
     if (!mod) { printf("load failed %lu\n", GetLastError()); return 1; }
-    nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
-    exp = (IMAGE_EXPORT_DIRECTORY *)(base + nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
-    names = (DWORD *)(base + exp->AddressOfNames);
-    funcs = (DWORD *)(base + exp->AddressOfFunctions);
-    ords = (WORD *)(base + exp->AddressOfNameOrdinals);
-    printf("base ordinal %lu, %lu functions, %lu names\n", exp->Base, exp->NumberOfFunctions, exp->NumberOfNames);
-    for (i = 0; i < exp->NumberOfFunctions; i++)
+    for (n = 1; n <= 4096; n++)
     {
-        const char *name = NULL;
-        if (!funcs[i]) continue;
-        for (j = 0; j < exp->NumberOfNames; j++)
-            if (ords[j] == i) { name = (const char *)(base + names[j]); break; }
-        printf("%lu rva %08lx %s\n", exp->Base + i, funcs[i], name ? name : "(unnamed)");
+        by_ordinal[n] = (void *)GetProcAddress(mod, MAKEINTRESOURCEA(n));
+        if (by_ordinal[n]) count++;
+    }
+    printf("%u ordinals between 1 and 4096 resolve\n", count);
+    for (n = 1; n <= 4096; n++)
+        if (by_ordinal[n]) printf("ordinal %u\n", n);
+
+    for (i = 0; i < nnames; i++)
+    {
+        void *p = (void *)GetProcAddress(mod, names[i]);
+        printf("name %s: %p", names[i], p);
+        if (p)
+            for (n = 1; n <= 4096; n++)
+                if (by_ordinal[n] == p) printf(" = ordinal %u", n);
+        printf("\n");
     }
     return 0;
 }
