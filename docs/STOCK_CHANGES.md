@@ -10,8 +10,12 @@
   6) gives a linked server a new block or one it held before session 0 restarted. A server gets its first block with
   its session id, and a launcher-started server does not start without one.
   - The table is kept in `session0.blocks`: block, account, session, the server's Unix pid and its start time.
-  - A block goes to another server only once its server process has ended (pid and start time); there are at most
-    64 blocks per server.
+  - A block goes to another server only once its server process has ended (pid and start time; a `/proc` entry that
+    cannot be read for another reason counts as alive); there are at most 64 blocks per server. A block is given only
+    once the table is on disk.
+  - The request does not block on its connect; at start a server tries for up to 15 replies. When no new block can be
+    had, a freed id is reused sooner than the usual 256-entry delay. A grant whose reply is lost stays counted for
+    its server until that server ends.
   - A server that links again asks for each of its blocks back.
 - Test: `scripts/lab/system-tier-t1.sh` checks that the ids of sessions A, B and session 0 are in different blocks,
   that session 0's are in block 0, and that A keeps its blocks across a session 0 restart (probe mode `pids`).
