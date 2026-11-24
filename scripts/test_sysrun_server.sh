@@ -257,10 +257,7 @@ sec_static_skip()   # NAME: why the section does not run in this run (suite, swi
     case "${SEC_GRP[$n]}:$n" in
         c4:*|c5:*|sd:*|c7:*|s0:*|gp:*|lab:*|own:own_broker) [ "${WEX_C4_SKIP:-0}" != 1 ] || { echo "WEX_C4_SKIP=1"; return; } ;;
     esac
-    case "${SEC_GRP[$n]}" in s0|gp) [ "${WEX_SKIP_SESSION0:-0}" != 1 ] || { echo "WEX_SKIP_SESSION0=1"; return; } ;; esac
     [ "$n" != r8e2e ] || [ "${WEX_SKIP_R8_E2E:-0}" != 1 ] || { echo "WEX_SKIP_R8_E2E=1"; return; }
-    # the standard-user elevation runs only through session 0's broker (R9, the one flow)
-    [ "$n" != r8e2e ] || [ "${WEX_SKIP_SESSION0:-0}" != 1 ] || { echo "WEX_SKIP_SESSION0=1"; return; }
     [ "$n" != r8e2e ] || [ "${WEX_SKIP_R9_E2E:-0}" != 1 ] || { echo "WEX_SKIP_R9_E2E=1"; return; }
     [ -z "${WEX_SUITE_ONLY:-}" ] || [ -n "${SEC_SEL[$n]:-}" ] || { echo "not selected (WEX_SUITE_ONLY)"; return; }
 }
@@ -698,23 +695,12 @@ expect_pass()   # name user arch mode
 # ---- session 0 for the whole suite (R4b of docs/SESSION0_SPLIT_REVIEW.md) ---------------------------------------
 # The launcher without session 0 is retired for installed systems (the owner's decision 2, 2026-11-23), so every
 # section runs on a machine whose session 0 holds the machine registry. Session 0 runs as an account of its own; the
-# users' launcher-started servers send their programs' machine-registry calls there. WEX_SKIP_SESSION0=1 keeps the
-# old machine without it (until R4c removes that mode from the server).
+# users' launcher-started servers send their programs' machine-registry calls there. A launcher-started server does
+# not start without session 0 (R4c), so session 0 is set up before any section runs.
 S0RUN="$ROOT/run"
 s0_conf_on()   # the machine with session 0: its two lines in the launcher's configuration
 {
-    cp "$CONF" "$ROOT/sysrun.conf.pre-s0"
     printf 'session0_socket=%s\nsession0_user=%s\n' "$S0RUN/session0" "$S0U" >> "$CONF"
-    kill_servers
-    S0_MODES="$(stat -c '%a %n' "$M"/*.reg)"   # session 0 saves its own files; restored by s0_conf_off
-}
-s0_conf_off()   # back to the machine without session 0 (session 0 is stopped)
-{
-    local mode file f
-    cat "$ROOT/sysrun.conf.pre-s0" > "$CONF"
-    while read -r mode file; do chown root "$file"; chmod "$mode" "$file"; done <<<"$S0_MODES"
-    for f in "$M"/*.reg; do [ "$(stat -c %U "$f")" != "$S0U" ] || rm -f "$f"; done   # files only session 0 made
-    rm -f "$M/session0.ids" "$M/session0.owners"
     kill_servers
 }
 s0_start()
@@ -762,9 +748,7 @@ s0_bootstrap()   # session 0's account, its two configuration lines, and session
     s0_start
     SEC_S0=1
 }
-# The lab suite starts session 0 after its lab-only elevation cases instead (the order before R4b): with session 0
-# run and stopped before them, the S6 owner case lost its broker's D-Bus name (seen on wexgpo2; R4c looks at it)
-if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && [ "${WEX_E1S6_LAB:-0}" != 1 ]; then s0_bootstrap; fi
+s0_bootstrap
 
 # ---- sections 1 to 6: the launcher and the machine root (group c2; WEX_C3_ONLY=1 leaves them out) --------------
 if section c2_launcher; then set +e; ( section_enter
@@ -820,7 +804,7 @@ prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
 ok c2_symlink_target_not_overwritten
 # With session 0 the user's server never writes the machine hives: session 0 holds them and saves them as its own
 # account (R4b; the checks of the retired machine without session 0, where the user's server saved them with the stock
-# rule, are gone). Without WEX_SKIP_SESSION0 the owner is session 0's account or root, never the user.
+# rule, are gone). The owner is session 0's account or root, never the user.
 hive_flush
 [ -z "$(stat -c '%U' "$M/system.reg" "$M/userdef.reg" | grep -vxE "root|$S0U")" ] ||
     fail "a machine hive was written by someone other than session 0: $(stat -c '%U:%G %n' "$M/system.reg" "$M/userdef.reg")"
@@ -2071,7 +2055,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
             [ ! -f "$M/drive_c/windows/syswow64/wexelevate_test.exe" ] || cp -p "$M/drive_c/windows/syswow64/wexelevate_test.exe" "$ROOT/wexelevate_test.exe.r8bak32"
             install -m 775 -o root -g "$GRP" "$ROOT/probes/wexelevate_probe$arch.exe" "$M/drive_c/windows/syswow64/wexelevate_test.exe"
         fi
-        cat "$M/system.reg" > "$ROOT/system.reg.r8b"
+        hive_copy "$ROOT/system.reg.r8b"
         reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
             '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8binding '"$(regpath "$EL/r8_bind1_${arch}.txt")"'"'
         r8_log="/tmp/wex_r8_b1_${arch}.log"
@@ -2110,7 +2094,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         touch /etc/wineexplorer/sysrun.conf
 
         el_down "$ADM"
-        cat "$ROOT/system.reg.r8b" > "$M/system.reg"
+        hive_put "$ROOT/system.reg.r8b"
         reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
             '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8binding '"$(regpath "$EL/r8_bind2_${arch}.txt")"'"'
         rm -f "$EL/r8_bind2_${arch}.txt"
@@ -2135,7 +2119,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
 
         # WO-24: verified broker ENDORSE_DIALOG (op 2) and RECHECK (op 3) tests
         el_down "$ADM"
-        cat "$ROOT/system.reg.r8b" > "$M/system.reg"
+        hive_put "$ROOT/system.reg.r8b"
         reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
             '"ImagePath"="C:\\windows\\system32\\wexelevate_test.exe r8endorse '"$(regpath "$EL/r8_end1_${arch}.txt")"'"'
         r8_log="/tmp/wex_r8_e1_${arch}.log"
@@ -2186,7 +2170,7 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
 
         # Restore broker
         el_down "$ADM"
-        cat "$ROOT/system.reg.r8b" > "$M/system.reg"
+        hive_put "$ROOT/system.reg.r8b"
         rm -f "$ROOT/system.reg.r8b"
         mv "$ROOT/wexelevate_test.exe.r8bak" "$SYS32/wexelevate_test.exe"
         if [ -f "$ROOT/wexelevate_test.exe.r8bak32" ]; then
@@ -2211,10 +2195,10 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
     # (refused consent times out, error 1460): a lab fixture leftover; in a live VM B session refused consent
     # still ends with 1223 (docs/E1_S18E_WORK_ORDERS.md, WO-27 result).
     # Since R5 the R8 decision sequence runs only as R9 (broker B0 in session 0, the user's broker its agent A):
-    # every end-to-end case below runs in r9_e2e_block (WEX_SKIP_SESSION0=1 or WEX_SKIP_R9_E2E=1 skip the section).
+    # every end-to-end case below runs in r9_e2e_block (WEX_SKIP_R9_E2E=1 skips the section).
     r8_e2e_case() {
     el_down "$ADM"
-    cat "$M/system.reg" > "$ROOT/system.reg.r8e2e"
+    hive_copy "$ROOT/system.reg.r8e2e"
     reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
         '"EnableStandardUserElevation"=dword:00000001'
     reg_append "$M/system.reg" 'System\\ControlSet001\\Services\\wexelevate' \
@@ -2295,6 +2279,8 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
         el_down "$STD"
         el_clean
         e1s6_stop
+        # session 0 is stopped while the block sets up its machine hive, and the block starts it after the verifier
+        s0_stop; SEC_S0=0
         cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"
         reg_append "$M/system.reg" 'Software\\WineExplorer\\Elevation' \
             '"EnableStandardUserElevation"=dword:00000001'
@@ -2303,7 +2289,6 @@ if [ "${WEX_E1S6_LAB:-0}" = 1 ]; then
             '"ImagePath"="C:\\windows\\system32\\wexelevate.exe"'
         reg_append "$M/system.reg" 'Software\\WineExplorer\\ElevationTest' \
             '"R8AutoSelect"="'"$ADM"'"' '"R8AutoPassword"="'"$R8PW"'"'
-        s0_conf_on
         export WEX_E1S6_LAB_R9=1 WEX_E1S6_LAB_S0_USER="$S0U"
         e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
         s0_start
@@ -3187,7 +3172,7 @@ EOF
         s0_stop
         e1s6_stop
         unset WEX_E1S6_LAB_R9 WEX_E1S6_LAB_S0_USER
-        s0_conf_off
+        s0_start; SEC_S0=1   # session 0 again, for the rest of the run
     }
     r9_e2e_block
 
@@ -3199,7 +3184,7 @@ EOF
     e1s6_start "$BUILD/server/wineserver" "$GRP" "$ROOT"
 
     # Restore fixture state
-    cat "$ROOT/system.reg.r8e2e" > "$M/system.reg"; rm -f "$ROOT/system.reg.r8e2e"
+    hive_put "$ROOT/system.reg.r8e2e"; rm -f "$ROOT/system.reg.r8e2e"
     el_down "$STD"
     for a in x86_64 i386; do
         for exe in wexelevate consent; do
@@ -3222,11 +3207,6 @@ EOF
     sleep 2
     el_up "$ADM"
     }
-    # the lab suite's session 0 from here on (see s0_bootstrap)
-    if [ "${WEX_SKIP_SESSION0:-0}" != 1 ] && [ "$SEC_S0" != 1 ]; then
-        s0_bootstrap
-        [ -z "${SEC_EL:-}" ] || el_up "$SEC_EL"
-    fi
 fi
 if section c4_bad; then set +e; ( section_enter
 bp c4_relative_image_path_is_rejected "$ADM" 64 run p64.exe 87 "$(winpath $EL/out.bad)" -
@@ -5423,13 +5403,6 @@ s0_start
 el_down "$STD"
 ok st_session0_saves_the_hive_and_user_servers_accept_it
 true; ); section_leave $?; fi
-fi
-# back to the machine without session 0: only the R8 end-to-end case below needs it (its local broker; R5 moves it to
-# R9 and session 0), and the cleanup after it
-if [ "$SEC_S0" = 1 ]; then
-    s0_stop
-    s0_conf_off
-    SEC_S0=0
 fi
 
 # WO-27 R8 end to end (lab only), last in the section; see r8_e2e_case

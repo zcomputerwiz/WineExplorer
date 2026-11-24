@@ -343,8 +343,9 @@ install -m 0755 "$SCRIPT_DIR/scripts/wex-gpupdate.sh" "$STAGE_SESSION/usr/local/
 # WEX_SESSION0=1 and WEX_ELEVATION=1. The package's upgrade runs wex-setup-machine.sh --update, which does not look at
 # the markers: it never removes the elevation helper, and since 2026-11-23 its defaults are session 0 and enforced
 # elevation for every install (decision 2 of docs/SESSION0_SPLIT_REVIEW.md: the launcher without session 0 is
-# retired). WEX_SESSION0=0 / WEX_ELEVATION=0 at packaging time leave a marker out (a test image without them, for
-# comparison; its first upgrade turns both on).
+# retired). WEX_ELEVATION=0 at packaging time leaves its marker out (a test image without enforcement, for
+# comparison; its first upgrade turns it on). WEX_SESSION0=0 no longer gives a machine without session 0: since R4c a
+# launcher-started server needs it, and the first setup turns it on regardless.
 case "${WEX_SESSION0:-1}" in 0|1) ;; *) echo "WEX_SESSION0 must be 0 or 1" >&2; exit 1 ;; esac
 case "${WEX_ELEVATION:-1}" in 0|1) ;; *) echo "WEX_ELEVATION must be 0 or 1" >&2; exit 1 ;; esac
 if [ "${WEX_SESSION0:-1}" = 1 ]; then

@@ -1,5 +1,25 @@
 # Changes to stock Wine / third-party code
 
+## server: only session 0 writes the machine hives; merge-on-save and the launcher without session 0 removed (R4c of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
+
+The owner's decision 2 retired the launcher without session 0. This removes code from stock files; what stays is
+closer to stock Wine.
+
+- `server/session0.c` (`session0_init`): a launcher-started server (`sysrun_active`) whose configuration names no
+  session 0 does not start (`fatal_error`). Plain prefixes, the setup account and development mode are unchanged.
+- `server/registry.c`: `save_branch_info` has an explicit storage kind (`HIVE_FILE`, `HIVE_MACHINE_COPY`,
+  `HIVE_AGENT`, `HIVE_MANAGED`) and `save_branch` switches on it. A machine hive of the launcher's machine root, or a
+  prefix's link into the machine root, is `HIVE_MACHINE_COPY` and is never written by the server that loaded it.
+- Removed from `server/registry.c` (about 680 lines): the S3 merge-on-save (the `.reg.lock`, loading the file into a
+  temporary tree, replaying tombstones and dirty keys and values by `mod_seq`, `in_merge`), the per-session keys and
+  values of a shared hive (`is_per_session_key`, `is_per_session_value`, `has_ephemeral_mods`), the in-place save
+  of a machine hive with the raised group (`save_hive_in_place`, `hive_access`, `machine_hive_saved`), and the
+  `mod_seq` fields of keys and values. A branch of the server's own (`HIVE_FILE`) is saved as stock Wine saves it,
+  plus an `fsync`.
+- `include/wine/wex_session0.h`: the per-session key list is ntdll's routing list only.
+- Tests: `test_sysrun_server.sh` sets session 0 up before any section, in the lab suite too; `WEX_SKIP_SESSION0` and
+  `s0_conf_off` are gone; the lab's R9 block stops and starts session 0 instead of reconfiguring the launcher.
+
 ## comctl32: BCM_SETSHIELD; win32u: menu short cut gap; taskmgr: nothing clipped (2026-11-23)
 
 Wine branch `claude/taskmgr-labels-shield`, on `70c5ce49`: `d8a22517` (comctl32), `45716a41` (win32u), `cea7e751`
@@ -2691,8 +2711,9 @@ changes. The launcher is installed by default (since 2026-10-23; `WEX_SYSRUN_ENA
   and `fchmod` on an already opened descriptor, runs with the user's group.
 - `server/registry.c`: the machine hives (`system.reg`, `userdef.reg`) come from the fixed machine root of the
   configuration, not from the prefix: `O_NOFOLLOW` on the open, `fstat` must show a regular file of root and the
-  system group that others cannot write, else the server refuses to start. They are saved with the raised group
-  (`faccessat(AT_EACCESS)` only there) into the existing file, in place (`save_hive_in_place`; a new file would belong
+  system group that others cannot write, else the server refuses to start. (Since R4c, 2026-11-23, they are never
+  saved by such a server: session 0 writes them; the rest of this point is history.) They are saved with the raised
+  group (`faccessat(AT_EACCESS)` only there) into the existing file, in place (`save_hive_in_place`; a new file would belong
   to the user's uid); a symlink at the hive is never followed on save; a missing file is not created.
   The group is raised for the save only if elevation was enforced by the machine hive loaded at start
   (`machine_hive_saved`, not the live helper value, which a user could set in memory); otherwise the hive keeps the
@@ -2996,7 +3017,7 @@ Project modules: `dlls/wexhost` (`elevate.c`, export `WexElevateRun`, imports `a
 | `dlls/setupapi` (`fakedll.c`) | symlinked fake DLL generation replacing copied fake DLLs with symlinks to Wine's installation tree while preserving native DLLs and WinSxS assemblies; WOW64 path redirection in `get_real_link_dest()` | `WINELINKFAKEDLLS=1` env var or `HKLM\Software\Wine\LinkFakeDlls` (DWORD 1) |
 | `server/fd.c` | leaf symlink preservation in `dup_fd_name` / `open_fd()`: ensures `fd->unix_name` retains the leaf symbolic link when opening a symlink, so closing with `FILE_DELETE_ON_CLOSE` unlinks the link rather than the package target | symlinks opened with delete-on-close |
 | `loader/wine.inf.in`, `programs/wineboot/wineboot.c` | `[UserInstall]` section (`UserRegisterDlls` for `shell32.dll`, `UserRegistry` for 19 per-user `HKCU` settings, and `ThemeManager`) in `wine.inf.in`; when `C:\windows` is a reparse point (`FILE_ATTRIBUTE_REPARSE_POINT`) pointing to a shared machine root, `update_wineprefix()` runs only `[UserInstall]` and `update_user_profile()` so per-user `wineboot --init` / `wineboot -u` skips machine-level DLL creation and `HKLM` device installation | only when `C:\windows` has `FILE_ATTRIBUTE_REPARSE_POINT` |
-| `server/registry.c` | Phase S3 shared machine hive handling: (1) `save_branch()` checks target write permissions (`EACCES`/`EROFS`), clearing dirty state, resetting `mod_seq` and freeing tombstones, returning success without modifying the file or replacing symlinks (Option a1 in-memory writes for limited users); (2) saves to temporary `reg<pid><count>.tmp` in target hive's directory, fsyncs, and executes atomic `rename()` over realpath target; (3) Administrator merge-on-save under `flock(LOCK_EX)` on `<target_dir>/.reg.lock` replaying session dirty keys/values (`mod_seq > 0`) and tombstones (`reg_tombstone` deleted nodes) onto on-disk hive base loaded into `tmp_root` without resurrecting deleted keys; (4) resets branch `mod_seq` and frees tombstones after each successful save so past mutations are not replayed indefinitely; (5) limits per-session filtering and merge strictly to branches loaded as symbolic links into the shared machine root (`info->is_shared_machine`), preserving stock Wine behavior for ordinary unlinked prefixes; (6) limits `OBJ_OPENLINK` in `create_key_recursive()` strictly to merge operations (`in_merge`) | shared machine registry hives (`system.reg`, `userdef.reg`) |
+| `server/registry.c` | **Removed by R4c (2026-11-23; the entry at the top): no server but session 0 writes a machine hive any more.** Phase S3 shared machine hive handling: (1) `save_branch()` checks target write permissions (`EACCES`/`EROFS`), clearing dirty state, resetting `mod_seq` and freeing tombstones, returning success without modifying the file or replacing symlinks (Option a1 in-memory writes for limited users); (2) saves to temporary `reg<pid><count>.tmp` in target hive's directory, fsyncs, and executes atomic `rename()` over realpath target; (3) Administrator merge-on-save under `flock(LOCK_EX)` on `<target_dir>/.reg.lock` replaying session dirty keys/values (`mod_seq > 0`) and tombstones (`reg_tombstone` deleted nodes) onto on-disk hive base loaded into `tmp_root` without resurrecting deleted keys; (4) resets branch `mod_seq` and frees tombstones after each successful save so past mutations are not replayed indefinitely; (5) limits per-session filtering and merge strictly to branches loaded as symbolic links into the shared machine root (`info->is_shared_machine`), preserving stock Wine behavior for ordinary unlinked prefixes; (6) limits `OBJ_OPENLINK` in `create_key_recursive()` strictly to merge operations (`in_merge`) | shared machine registry hives (`system.reg`, `userdef.reg`) |
 | `dlls/advapi32/security.c` (`SetNamedSecurityInfoW`, `GetNamedSecurityInfoW`), `dlls/advapi32/tests/security.c` | an object is opened with `WRITE_OWNER` (set) or `READ_CONTROL` (get) also when only `LABEL_SECURITY_INFORMATION` is asked for, as Windows does; stock Wine asked for those rights only for the owner, group and DACL, so setting a label failed with `ERROR_ACCESS_DENIED` (the server's `set_security_object` needs `WRITE_OWNER` for a label). Chromium's AppContainer profile creation calls `SetNamedSecurityInfoW(dir, SE_FILE_OBJECT, DACL \| LABEL \| UNPROTECTED_DACL)` on its profile directory; in a prefix without the AppContainer registration that failed, Chromium rolled the profile back and restarted the network service without its sandbox, and the fixture page never reached the network stack. New conformance test `test_named_security_info_label` fails without the change (x86_64 and i386); Wine keeps no label on files, so the read-back is `todo_wine`; see `docs/CHROMIUM_APPCONTAINER_LABEL_20261101.md` | always (bug fix, upstreamable; upstream master has the same conditions) |
 
 ## D2 compositor effects and capture

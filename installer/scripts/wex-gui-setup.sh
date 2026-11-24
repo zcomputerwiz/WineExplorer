@@ -51,9 +51,9 @@ if [ -x /usr/local/bin/wex-setup-machine.sh ]; then
     # the package's markers (present by default since 2026-11-18; package-wine.sh) turn the system tier's session 0 on
     # (docs/SYSTEM_TIER_WORK_ORDERS.md) and enforce elevation ("Enforced elevation on an installed machine")
     WEX_SETUP_ENV=()
-    # setup turns session 0 on by itself (decision 2, 2026-11-23); only a test image packaged without the marker
-    # (WEX_SESSION0=0, for comparison) asks for a machine without it
-    if [ -f /usr/local/share/wineexplorer/session0.enable ]; then WEX_SETUP_ENV+=(WEX_SESSION0=1); else WEX_SETUP_ENV+=(WEX_SESSION0=0); fi
+    # setup turns session 0 on by itself (decision 2, 2026-11-23); since R4c a launcher-started server needs it, so
+    # there is no machine without it any more, whatever the package's markers say
+    WEX_SETUP_ENV+=(WEX_SESSION0=1)
     if [ -f /usr/local/share/wineexplorer/elevation.enable ]; then WEX_SETUP_ENV+=(WEX_ELEVATION=1); else WEX_SETUP_ENV+=(WEX_ELEVATION=0); fi
     env "${WEX_SETUP_ENV[@]}" /usr/local/bin/wex-setup-machine.sh || echo "Machine root setup failed"
 fi
