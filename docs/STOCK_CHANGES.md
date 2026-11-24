@@ -31,7 +31,7 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   `library.c` added to the d3dcompiler_43 and _47 makefiles. Test `test_linker` (hlsl_d3d11.c, with a render check),
   0 failures on Windows 11 and on Wine (64- and 32-bit). Gaps: one immediate constant buffer per linked shader, no RDEF
   in linked shaders, AddClipPlaneFromCBuffer, D3DReflectLibrary.
-- `dlls/d2d1/bitmap.c` (next commit): a surface made by IDXGIResource1::CreateSubresourceSurface reaches its texture through
+- `dlls/d2d1/bitmap.c` (01af4686): a surface made by IDXGIResource1::CreateSubresourceSurface reaches its texture through
   IDXGISurface2::GetResource (test `test_subresource_surface`).
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 

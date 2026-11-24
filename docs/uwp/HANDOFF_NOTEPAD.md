@@ -39,9 +39,11 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
      the three links succeed;
    * then every draw failed: Direct2D refused the surface the compositor gets from `IDXGIResource1::CreateSubresourceSurface`
      (Wine's d2d asked it for `ID3D11Texture2D`, which Windows' subresource surfaces do not answer either; Windows' d2d reaches
-     the texture through `IDXGISurface2::GetResource`). Fix uncommitted at the time of writing, see "Open work".
-   * After the last draw the compositor thread goes idle and never calls `Commit` (on Windows it commits about every 2 s, from
-     `dwmcorei.dll`, after private method 46). Whether the d2d fix is enough for the commit is the next measurement.
+     the texture through `IDXGISurface2::GetResource`). Fixed in Wine 01af4686: the draws succeed now (0 refusals).
+   * After its draws the compositor thread still goes idle and never calls `Commit` (on Windows it commits about every 2 s, from
+     `dwmcorei.dll`, after private method 46). New in the last run: Wine's composition surface is asked for
+     `{790a45f7-0d42-4876-983a-0a55cfe6f4aa}` (`dcomp_surface_QueryInterface`: unsupported, three times), the first lead; and that
+     run ended early (2176 log lines, no screenshot), to be looked at.
 
 ## Branches and commits (local state of 2026-11-24)
 
@@ -67,7 +69,7 @@ Wine worktree `D:\DeepThought\Projects\wine-uwp`, branch `claude/notepad-text` (
 | d93082c0 | d2d1: private device interface `{46fdbfea-...}` (x64) |
 | 28805e76 | include: D3D_RETURN_PARAMETER_INDEX |
 | 0ab90a38 | d3dcompiler: shader libraries, function linking graphs and the linker (new `library.c`) |
-| (next) | d2d1: surfaces made by CreateSubresourceSurface (see "Open work") |
+| 01af4686 | d2d1: surfaces made by CreateSubresourceSurface (test `test_subresource_surface`) |
 
 WineExplorer worktree `D:\DeepThought\Projects\WineExplorer-uwp`, branch `claude/uwp-notepad-text` (from 37af31f7): probes, wintrace,
 the lab helpers below and these docs.
@@ -119,8 +121,8 @@ the lab helpers below and these docs.
 
 ## Open work, in order
 
-1. **Commit the d2d1 subresource-surface change** (`dlls/d2d1/bitmap.c`: `d2d_get_surface_resource`; test
-   `test_subresource_surface` in `dlls/d2d1/tests/d2d1.c`) once its lab run is in, and see whether the compositor commits.
+1. Measure `{790a45f7-...}` on Windows: does a composition surface (`IDCompositionSurfaceFactory::CreateSurface`) answer it, with
+   which methods (a wintrace target on a surface the tracer creates), and does the compositor commit once Wine answers it.
 2. If it still does not commit: trace the compositor thread after its draws with `+d3d11,+d2d,+dxgi,+dcomp,+sync` (the bypass run)
    and compare with a Windows trace at `dcomp.dll!desktop[3]` (Commit), `[45]`, `[46]`. On Windows the order is 46, Commit, 45.
 3. When it commits: Wine's dcomp composes a target's surface layers through an auxiliary producer per target and refuses several
