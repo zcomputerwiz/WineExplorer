@@ -377,7 +377,7 @@ Per the `libyal/libscca` specification (*Windows Prefetch File (PF) format*, GFD
 
 ## 10. Open Questions and Unverified Items
 
-1. **Renderer ~350 MB RW anonymous region (`UNVERIFIED`)**: Each Edge renderer still holds a ~350 MB resident RW anonymous mapping (`docs/EDGE_DEVELOPMENT_RUN_20261101.md`). Its exact composition (V8 pointer-compression cage vs PartitionAlloc) and the exact MB saved by `MemoryKSM=yes` on that region are **UNVERIFIED** until measured on the guest.
+1. **Renderer ~350 MB RW anonymous region (resolved 2026-11-23)**: Each Edge renderer held a ~350 MB resident RW anonymous mapping (`docs/EDGE_DEVELOPMENT_RUN_20261101.md`). It was neither V8 nor PartitionAlloc but Wine's own page protection table (`pages_vprot` in `dlls/ntdll/unix/virtual.c`, one byte per page): the renderer reserves about 1.3 TB (the V8 sandbox and its guards), and writing zeros into that table made about 340 MB of it resident, all zero pages, invisible to `VirtualQuery`. Fixed in Wine 3a6d3f8d (`docs/STOCK_CHANGES.md`): renderers went from about 430 MB to about 40 MB of anonymous memory, Chromium 159 with three tabs from about 7 GB to 1.75 GB PSS, Edge 157 from 5.0 GB to 1.5 GB.
 2. **Direct `ntdll.so` D-Bus connection vs `wexhost`/unix socket (`UNVERIFIED`)**: Whether opening a private D-Bus connection per process in `ntdll.so` adds measurable startup latency compared to caching the bus connection per process or routing through `wineserver` is **UNVERIFIED** and will be benchmarked in P2.
 3. **Live `EnablePrefetcher` reload**: `system.reg` is flushed by `wineserver`; `wexprefetchd` can watch `/var/lib/wineexplorer/machine/system.reg` with `inotify` or accept a property update from `wexhost` when the registry value changes.
 

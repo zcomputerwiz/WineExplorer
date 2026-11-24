@@ -4441,3 +4441,14 @@ with a low integrity token; the suite requires the client's warning for the seco
 (`NetUserModalsGet` level 3): a stored lockout duration of 99999 minutes or more (a security template's
 `LockoutDuration = -1`) reads back as forever (`0xffffffff`), as 0 already did. Test: `tests/access.c`
 (`test_lockout_forever`, Wine only: the key is WineExplorer's).
+
+2026-11-23 (Wine 3a6d3f8d, branch `claude/vprot-sparse`): `dlls/ntdll/unix/virtual.c` (`fill_page_vprot`, new, used
+by `set_page_vprot` on 64-bit): when a range of the page protection table is set to 0, its whole host pages are given
+back with `madvise(MADV_DONTNEED)` instead of being written with zeros (Linux, ranges of at least 16 pages of table,
+that is 256 MB of address space; otherwise, and if `madvise` fails, `memset` as before). The table holds one byte per
+page, so a 1 TB reservation needs 256 MB of it: every Chromium and Edge renderer reserves about 1.3 TB (the V8 sandbox)
+and kept about 340 MB of zero-filled table resident, which a release wrote again. Renderers now hold about 40 MB of
+anonymous memory instead of about 430 MB (`docs/PREFETCH_SERVICE.md`, section 10). Test: `dlls/ntdll/tests/virtual.c`
+(`test_large_reservation`: 64 GB reserved, pages committed across 4 GB table blocks, decommitted, released and reserved
+again; measured on Windows 11, one `todo_wine` for the region size after a full decommit, which Wine already reported
+split before this change).
