@@ -1293,6 +1293,8 @@ el_down()
 {
     local i
     prefix_server_env "$1" -k || true; prefix_server_env "$1" -w
+    # a section that ran no el_up (s0_link run alone) has no holder: its servers were started by other commands
+    [ -n "${EL_HOLD:-}" ] || return 0
     wait "$EL_HOLD" 2>/dev/null || true
     # a hold started outside this section's subshell is no child of it: wait until it has gone (or is a zombie)
     for i in $(seq 1 50); do
