@@ -4472,3 +4472,27 @@ anonymous memory instead of about 430 MB (`docs/PREFETCH_SERVICE.md`, section 10
 (`test_large_reservation`: 64 GB reserved, pages committed across 4 GB table blocks, decommitted, released and reserved
 again; measured on Windows 11, one `todo_wine` for the region size after a full decommit, which Wine already reported
 split before this change).
+
+2026-11-24 (Wine 852d8968, branch `claude/dcomp-glass-shape`): translucent DirectComposition popups without DwmAlpha.
+Chromium 159 and Edge 157 draw their popups (the restore bubble, the app menu) as glass sheets
+(`DwmExtendFrameIntoClientArea` with -1 margins) whose child window is a DirectComposition target with premultiplied
+alpha; without `DwmAlpha` nothing blended that alpha and they showed a black box around themselves.
+- `dlls/dwmapi/dwmapi_main.c`: without `DwmAlpha`, a top-level window given a negative margin gets the property
+  `__wine_dwm_sheet` (removed by non-negative margins); the margins are traced.
+- `dlls/wined3d/swapchain.c` (`dcomp_update_shape`, `dcomp_shape_region`, `dcomp_queue_shape`, `dcomp_shape_worker`;
+  `dcomp_prepare_layers` split out of `swapchain_composite_layers`), `wined3d_private.h` (`dcomp_shape`): at each
+  present of a target scene (also at Commit), a target whose top-level window is such a sheet gets that window's region
+  from its composed pixels with alpha at least one half (rows with equal runs merged; unchanged regions not set again;
+  an empty one never given, nor one replacing a region the application set). A thread pool worker applies the newest
+  region per window without redraw (`SetWindowRgn` on another process's window waits for its thread) and asks for the
+  target's retained frames again. Shadows are cut; pixels at the edge are not blended.
+- `dlls/dxgi/factory.c`, `swapchain.c`, `dxgi_private.h`: composition windows (`WineDCompSwapchain`) are created and
+  destroyed on a thread of dxgi's own with a message loop (`wine_dxgi_dcomp`; a synchronous request, `WM_CLOSE` to
+  destroy), so `WM_WINE_DCOMP_REPAINT` reaches them while the swapchain's creating thread handles no messages (Chromium's
+  compositor thread). A target's top-level window gets the target's repaint sink unless it has its own, so its surface
+  flushes (a region change, a window above going away) redraw the retained frames: before, the part of Chromium's main
+  window under a closed menu stayed white until its next frame. Without the thread, windows are created as before.
+Tests: dcomp and dwmapi 0 failures, dxgi the same 35 failures (display mode tests on Xvfb) with and without the change,
+x86_64 and i386. Verified with screenshots of Chromium and Edge (`chrome-check`). Not done: soft shadows (they need
+DwmAlpha and a compositor), a translucent popup that another popup covered stays blank until it draws again (no expose
+reaches it), the Vulkan renderer.
