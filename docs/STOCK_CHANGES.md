@@ -4592,3 +4592,13 @@ x86_64 and i386. Chromium and Edge browser checks pass with no GPU context loss 
 lost the context 3 times, 10 after it none, as the baseline). Verified with screenshots: bubble and menu shaped, the
 bubble redrawn after the menu closes, the main window under a closed menu redrawn, DwmAlpha mode no longer crashing.
 Not done: soft shadows (they need the child target's alpha in the window, P7b), the Vulkan renderer.
+
+2026-11-24 (Wine 92674a54, branch `claude/msxml-string-compare`): `dlls/msxml3/xpath.c`, the XPath extension function
+`ms:string-compare(string1, string2[, language[, options]])` in namespace `urn:schemas-microsoft-com:xslt`, registered
+for MSXML 4.0 and later only (MSXML 3.0 refuses it, also with XPath as its selection language; measured on Windows 11).
+It answers -1, 0 or 1 through `CompareStringEx` in the language (the user's locale when empty or absent); option "i"
+ignores case, "u" sorts upper case first. Also: `xpath_compile_path_expr` reads a prefixed name (`prefix:local`) as one
+name, so a prefixed function call compiles (before, `ms:string-compare(` became the path step `ms`);
+`xpath_lookup_function` no longer compares a NULL namespace; `xpath_eval` traces the error code of a failed
+expression. Test `test_ms_string_compare` in `dlls/msxml3/tests/domdoc.c`, its 16 cases checked on Windows. Why: Office's
+App-V filters its file system metadata with this function, and its failure was B76's E_FAIL.
