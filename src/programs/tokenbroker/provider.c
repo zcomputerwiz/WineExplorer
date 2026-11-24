@@ -30,10 +30,15 @@ WINE_DEFAULT_DEBUG_CHANNEL(tokenbroker);
 /* leave a cached access token alone when it expires within this time */
 #define TOKEN_MARGIN        300
 
-/* the errors of a request that needs the user, as Windows 11's Microsoft account provider gives them (Wine's
- * diagnostic provider has the same) */
+/* the errors of a request that needs the user, as Windows 11's Microsoft account provider gives them (for consumers
+ * measured only with an unregistered client id; Wine's diagnostic provider gives E_MSA_NO_ACCOUNT below since
+ * 2026-11-24) */
 #define E_MSA_INTERACTION_REQUIRED  0x80860006  /* consumers: "Error" */
 #define E_AAD_INTERACTION_REQUIRED  0xcaa10001  /* other authorities: "Need user interaction to continue." */
+/* a silent request for consumers that names no account while the provider has none for it: HRESULT_FROM_WIN32(
+ * ERROR_NO_SUCH_USER), "Error" (measured 2026-11-24 on Windows 11 26300 with no Microsoft account in WAM and with one,
+ * for registered and unregistered client ids; Edge's first-run silent request gets it) */
+#define E_MSA_NO_ACCOUNT            0x80070525
 
 struct provider
 {
@@ -323,7 +328,10 @@ static void get_token_silent( const struct provider *provider, const struct requ
         cache_unlock();
         TRACE( "silent: no account (client %s, account id %s, hint %s)\n", debugstr_w( client ),
                debugstr_w( req->field[TOKENBROKER_FIELD_ACCOUNT_ID] ), hint && *hint ? "given" : "none" );
-        interaction_required( req, reply );
+        if (!wcscmp( authority, L"consumers" ) && !*req->field[TOKENBROKER_FIELD_ACCOUNT_ID])
+            reply_error( reply, STATUS_USER_INTERACTION_REQUIRED, E_MSA_NO_ACCOUNT, L"Error" );
+        else
+            interaction_required( req, reply );
         goto done;
     }
     if ((token = cache_find_token( provider->id, authority, account->id, child ? child : client, scope,

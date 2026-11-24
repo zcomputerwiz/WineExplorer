@@ -71,7 +71,8 @@ notice; Himmelblau only as a separate process. Wine modules stay LGPL-2.1-or-lat
   object; token requests are written to the log and fail. A silent request that needs the user gets
   `UserInteractionRequired` with the error Windows 11's Microsoft account provider gives (checked on the owner's
   machine with a client id that is not registered, so no token could be issued): `0x80860006` "Error" for
-  `consumers`, `0xCAA10001` "Need user interaction to continue." for `organizations`. The error object is always
+  `consumers` (rechecked 2026-11-24 on Windows 11 26300: a silent request that names no account gets `0x80070525`,
+  ERROR_NO_SUCH_USER, "Error", for any client id; the provider gives that now), `0xCAA10001` "Need user interaction to continue." for `organizations`. The error object is always
   there (OneAuth dereferences it without a check). The request and response property maps answer
   `IIterable<IKeyValuePair<HSTRING, HSTRING>>` (Wine 46065162).
 - What Microsoft Copilot (OneAuth, MSAL.xplat 11.2.2) does with it: at start, provider lookups for

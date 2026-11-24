@@ -115,7 +115,7 @@ its UI, how the caller is identified, and where accounts and tokens are stored.
     state, one sign-in per calling window, the test hook as the test provider's window.
   - Tests: `tests/wam/run-broker-tests.sh` (wexbuild, root; a WoW64 build with the broker assembled) runs Wine's
     `web_core` tests 64-bit and 32-bit with the local test authority `tests/wam/test_authority.py`: 328 checks each,
-    0 failures (after the security fixes below). Cases: no account (UserInteractionRequired, 0x80860006), interactive
+    0 failures (after the security fixes below). Cases: no account (UserInteractionRequired, 0x80860006; 0x80070525 since 2026-11-24), interactive
     sign-in through one hop, the account listed (not found by `FindAccountAsync`, which names no client), sandboxed
     callers refused, silent from the cache, silent by refresh token with a `WebAccount`, cancel (a page left
     to the user; `access_denied`), a wrong state and a redirect to another host refused, a refused refresh
