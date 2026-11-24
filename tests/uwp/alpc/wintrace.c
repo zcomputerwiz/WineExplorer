@@ -21,7 +21,7 @@
  *   d2d1.dll!d2ddevice@{IID}[N]  slot N of the vtable of the interface IID of a Direct2D device that this program creates
  *   d2d1.dll!factory@{IID}[N]    slot N of the vtable of the interface IID of a Direct2D factory that this program creates
  * For the last five, only calls on an object with that vtable are counted (the slots may share code with other objects).
- * The label may end in _D (the 32 qwords at rcx), _E (48 qwords at rdx and r8, at entry and at return) or _F (the low float and double of
+ * The label may end in _D (the 32 qwords at rcx), _H (rcx is a WinRT string, such as a class name: its text), _E (48 qwords at rdx and r8, at entry and at return) or _F (the low float and double of
  * xmm0 to xmm3); the fifth field R logs the return value and what the argument registers point to.
  * The load of every module is logged too (with the load order), so the order of events can be compared with a Wine run.
  * Build (mingw): x86_64-w64-mingw32-gcc -O2 -o wintrace.exe wintrace.c -lole32 -luuid
@@ -183,6 +183,27 @@ static void hit(struct bp *b, DWORD tid)
                 for (i = 0; i < (int)(n / 8); i += 4)
                     log_line("    obj+%#02x: %016llx %016llx %016llx %016llx", i * 8, (unsigned long long)obj[i], (unsigned long long)obj[i + 1],
                              (unsigned long long)obj[i + 2], (unsigned long long)obj[i + 3]);
+        }
+        if (strstr(b->label, "_H") && ctx.Rcx)   /* _H: rcx is a WinRT string (a class name): its text */
+        {
+            /* the string handle points to a header: flags and length (UINT32 each), two UINT32 of padding, the buffer pointer */
+            struct { UINT32 flags, length, pad1, pad2; ULONG_PTR buffer; } hdr;
+            WCHAR text[160];
+            SIZE_T n = 0;
+
+            if (ReadProcessMemory(proc, (void *)ctx.Rcx, &hdr, sizeof(hdr), &n) && n == sizeof(hdr) && hdr.length < ARRAYSIZE(text)
+                    && ReadProcessMemory(proc, (void *)hdr.buffer, text, hdr.length * sizeof(WCHAR), &n))
+            {
+                GUID g;
+
+                text[hdr.length] = 0;
+                /* for RoGetActivationFactory, rdx is the interface id asked for */
+                if (ctx.Rdx && ReadProcessMemory(proc, (void *)ctx.Rdx, &g, sizeof(g), &n) && n == sizeof(g))
+                    log_line("    string \"%ls\" rdx {%08lx-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}", text, (unsigned long)g.Data1,
+                             g.Data2, g.Data3, g.Data4[0], g.Data4[1], g.Data4[2], g.Data4[3], g.Data4[4], g.Data4[5], g.Data4[6], g.Data4[7]);
+                else
+                    log_line("    string \"%ls\"", text);
+            }
         }
         if (strstr(b->label, "_E"))   /* _E: 48 qwords at rdx and r8 */
         {
