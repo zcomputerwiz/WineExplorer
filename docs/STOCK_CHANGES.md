@@ -33,7 +33,13 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   in linked shaders, AddClipPlaneFromCBuffer, D3DReflectLibrary.
 - `dlls/d2d1/bitmap.c` (01af4686): a surface made by IDXGIResource1::CreateSubresourceSurface reaches its texture through
   IDXGISurface2::GetResource (test `test_subresource_surface`).
-## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
+- Review fixes (Session 0 review, on top of 01af4686): `dlls/d3dcompiler_43/library.c` (3e935e19) hardened against bad
+  libraries and graphs (test `test_linker_invalid`); `dlls/d2d1` (bdccafd9) factory slot 15 x86_64 only, CombineWithGeometry
+  classifies against the split outlines and gives D2DERR_BAD_NUMBER for NaN, infinite or huge coordinates, subresource
+  surfaces other than index 0 fail, slot 12 checks; `dlls/dxgi` (d87184fd) event handle checks (codes measured) and a
+  bounded EnqueueSetEvent wait (test `test_occlusion_status`); `dlls/dwrite` (12926f81) NULL checks;
+  `dlls/kernel32/tests/resource.c` (651198ff) the test of the MUI satellite fallback of 769c742f, whose message still
+  says "not yet tested" (history not rewritten).## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
 - `server/session0.c` (`pipe_request`, `session0_open_pipe`, the `PIPE` handler): a `PIPE` request carries the
   opener's process id after the pipe's name (`include/wine/wex_session0.h`, protocol version 7). Session 0 keeps it
