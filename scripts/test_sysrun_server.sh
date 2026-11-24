@@ -1417,9 +1417,9 @@ sys.exit(0 if sys.argv[2].encode('utf-16-le') in data or sys.argv[2].encode() in
 EOF
 has_str() { python3 -I "$ROOT/has_str.py" "$1" "$2"; }   # the string as ASCII or UTF-16
 if section c4_build; then set +e; ( section_enter
-x86_64-w64-mingw32-gcc -O2 -Wall -municode -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_ship.exe" \
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -I"$SRC/src/include" -idirafter "$SRC/wine/include" -o "$ROOT/probes/wexelevate_ship.exe" \
     "$SRC/src/programs/wexelevate/main.c" -ladvapi32 -luserenv -lbcrypt
-x86_64-w64-mingw32-gcc -O2 -Wall -municode -DWEXELEVATE_TEST_APPROVAL -DWEX_E1_TEST_HOOKS -I"$SRC/src/include" -o "$ROOT/probes/wexelevate_test.exe" \
+x86_64-w64-mingw32-gcc -O2 -Wall -municode -DWEXELEVATE_TEST_APPROVAL -DWEX_E1_TEST_HOOKS -I"$SRC/src/include" -idirafter "$SRC/wine/include" -o "$ROOT/probes/wexelevate_test.exe" \
     "$SRC/src/programs/wexelevate/main.c" -ladvapi32 -luserenv -lbcrypt
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/wexelevate_stub.exe" "$SRC/scripts/wexelevate_stub.c"
 for arch in 64 32; do
