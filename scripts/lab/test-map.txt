@@ -44,6 +44,7 @@ scripts/lab/make-preg.py                gpolab
 scripts/lab/wexgpo-*                    none
 scripts/lab/gpolab-*                    none
 scripts/lab/wex-suite-only.sh           none
+scripts/lab/vm-prune.sh                 none
 scripts/test_domain_join.sh             sh:scripts/test_domain_join.sh
 scripts/test_preg.sh                    sh:scripts/test_preg.sh
 scripts/test_secpol_model.sh            sh:scripts/test_secpol_model.sh

@@ -243,6 +243,14 @@ The README's launch pattern is `wsl -d Debian -u root --exec unshare --mount --p
 
 For A tracing, `msi-fixval-20261105/push-scripts.sh`, then `bash "$LAB/g.sh" 'bash /tmp/launch.sh'`, launches `run-trace.sh`; poll with `bash "$LAB/g.sh" 'bash /tmp/poll.sh'`. It deletes `/home/debian/msi-fixval-20261105`, creates a fresh prefix, runs the local Chrome enterprise MSI (wineboot 180s, MSI 900s), writes trace and registry logs and ends with `ALL_DONE`. Round 4's corresponding `push-scripts.sh`, `launch-r4.sh`, `poll-r4.sh`, `run-trace-r4.sh` add service tracing and forensics (MSI 700s). These launch detached and can outlast an SSH session. Their fixed A output directories are destructive on rerun; traces can consume many gigabytes. `forensics-r4.sh OUT`, `getlog.sh` and the pull scripts inspect or collect that specific run. `run-trace-r6.sh` is a later dated experiment; inspect before reuse.
 
+### Lab machines, disk layers and retention (docs/LABS.md)
+
+`docs/LABS.md` lists every long-lived lab machine with its owner, base disk and how long it is kept, and the layering
+(base, lab disk as an overlay, scratch overlay per spike). A session that makes a lab machine adds it there.
+`scripts/lab/vm-prune.sh` (root, wexbuild) deletes the disk images and ISOs of old install-chain runs, keeping the
+newest two batches, runs named in `/var/tmp/vmtest-gpt/.keep`, recent runs, running ones and every base of a kept disk;
+logs and screenshots stay. It is a dry run unless given `--apply`. The orchestrator runs it after each pushed batch.
+
 ### Lab disk hygiene (VM B and WSL)
 
 Run `bash D:/DeepThought/ChromiumLab/guest-sysrole/guest-cleanup.sh dry` (through `wsl -d Debian --exec bash /mnt/d/...`) to list stale clutter in VM B and without `dry` to remove it: dated validation and replay copies, finished Chromium test prefixes, old repair sources, apt cache and journal. It keeps `/opt/wex-rt2`, the machine root, the fixture accounts, the non-replay entries of `/home/debian/wex-g4` and `/tmp/gsr*`, and skips while a validation run is active. `guest-trim.sh` then runs `fstrim` so the qcow2 overlay can give the space back (discard works on VM B). `disk-survey.sh` and `wsl-survey.sh` only report sizes. Run the cleanup when the guest passes 80 percent use, after each job that made a prefix or a runtime copy, and before pushing a runtime tarball; jobs delete their own prefixes and temporary trees when they finish. VM B had 94 percent use on 2026-11-06 and 40 percent after the first cleanup (71 GB to 30 GB). The WSL distros have far more room (about 1 TB each); the old multi-hundred-gigabyte trees under Debian `/var/tmp` belong to earlier work and are not touched by these scripts.
