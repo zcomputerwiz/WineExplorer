@@ -18,7 +18,8 @@
  *   d3d11.dll!device@{IID}[N]    slot N of the vtable of the interface IID of a Direct3D 11 device (hardware, BGRA) that this program creates
  *   dwrite.dll!analyzer@{IID}[N] slot N of the vtable of the interface IID of a DirectWrite text analyzer that this program creates
  *   d2d1.dll!context@{IID}[N]    slot N of the vtable of the interface IID of a Direct2D device context that this program creates
- * For the last three, only calls on an object with that vtable are counted (the slots may share code with other objects).
+ *   d2d1.dll!factory@{IID}[N]    slot N of the vtable of the interface IID of a Direct2D factory that this program creates
+ * For the last four, only calls on an object with that vtable are counted (the slots may share code with other objects).
  * The label may end in _D (the 32 qwords at rcx), _E (48 qwords at rdx and r8, at entry and at return) or _F (the low float and double of
  * xmm0 to xmm3); the fifth field R logs the return value and what the argument registers point to.
  * The load of every module is logged too (with the load order), so the order of events can be compared with a Wine run.
@@ -413,6 +414,32 @@ static int resolve_target(const char *target, char *mod, size_t modsize, DWORD *
         if (rva_of(*(void **)obj, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "dwrite.dll")) resolved_vt_rva = vrva;
         if (!rva_of((*(void ***)obj)[slot], mod, modsize, rva)) return 0;
         if (_stricmp(mod, "dwrite.dll")) resolved_vt_rva = 0;
+        return 1;
+    }
+
+    /* d2d1.dll!factory@{IID}[N] / factorymt@{IID}[N]: slot N of the interface IID of a single-threaded / multithreaded Direct2D
+     * factory that this program creates */
+    if (!_stricmp(spec, "d2d1.dll") && (!strncmp(bang, "factory@", 8) || !strncmp(bang, "factorymt@", 10)) && slot >= 0)
+    {
+        int mt = !strncmp(bang, "factorymt@", 10);
+        static const GUID iid_factory1 = {0xbb12d362, 0xdaee, 0x4b9a, {0xaa, 0x1d, 0x14, 0xba, 0x40, 0x1c, 0xfa, 0x1f}};
+        typedef HRESULT (WINAPI *d2d_create_t)(int, const GUID *, const void *, void **);
+        HMODULE d2dm = LoadLibraryA("d2d1.dll");
+        d2d_create_t d2d_create = d2dm ? (d2d_create_t)GetProcAddress(d2dm, "D2D1CreateFactory") : NULL;
+        void *factory = NULL, *obj = NULL;
+        WCHAR iidw[64];
+        GUID iid;
+        char vmod[80];
+        DWORD vrva;
+
+        MultiByteToWideChar(CP_UTF8, 0, bang + (mt ? 10 : 8), -1, iidw, 64);
+        if (!d2d_create || FAILED(IIDFromString(iidw, &iid))) return 0;
+        if (FAILED(d2d_create(mt, &iid_factory1, NULL, &factory)) || !factory) return 0;
+        if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, const GUID *, void **))(*(void ***)factory)[0])(factory, &iid, &obj)) || !obj)
+            return 0;
+        if (rva_of(*(void **)obj, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "d2d1.dll")) resolved_vt_rva = vrva;
+        if (!rva_of((*(void ***)obj)[slot], mod, modsize, rva)) return 0;
+        if (_stricmp(mod, "d2d1.dll")) resolved_vt_rva = 0;
         return 1;
     }
 
