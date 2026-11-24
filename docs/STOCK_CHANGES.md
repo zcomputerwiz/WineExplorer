@@ -4642,7 +4642,8 @@ mode tests on Xvfb) as before, x86_64 and i386.
 Chromium and Edge browser checks pass with composition on (GL: no context loss, no X error), Chromium also with the
 Vulkan renderer (lavapipe) with composition on and off. The restore bubble's shadow measured below it: (219,116,11) at
 1 px, (244,123,2) at 3 px, page orange at 6 px, the same with GL and Vulkan; without composition shaped as before.
-Composition popup runs: one GPU context loss in 8 with GL, none in 1 with Vulkan (without composition none).
+Composition popup runs: one GPU context loss in 18 with GL (Chromium restarted its GPU process and went on; the later 15
+runs with Wine's errors logged had none), none in 1 with Vulkan (without composition none).
 
 2026-11-24 (Wine 92674a54, branch `claude/msxml-string-compare`): `dlls/msxml3/xpath.c`, the XPath extension function
 `ms:string-compare(string1, string2[, language[, options]])` in namespace `urn:schemas-microsoft-com:xslt`, registered
