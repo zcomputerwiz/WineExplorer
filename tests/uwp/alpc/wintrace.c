@@ -20,8 +20,10 @@
  *   d2d1.dll!context@{IID}[N]    slot N of the vtable of the interface IID of a Direct2D device context that this program creates
  *   d2d1.dll!d2ddevice@{IID}[N]  slot N of the vtable of the interface IID of a Direct2D device that this program creates
  *   d2d1.dll!factory@{IID}[N]    slot N of the vtable of the interface IID of a Direct2D factory that this program creates
- * For the last five, only calls on an object with that vtable are counted (the slots may share code with other objects).
- * The label may end in _D (the 32 qwords at rcx), _H (rcx is a WinRT string, such as a class name: its text), _E (48 qwords at rdx and r8, at entry and at return) or _F (the low float and double of
+ *   d3dcompiler_47.dll!flg[N] / linker[N] / module[N] / instance[N]   slot N of a function linking graph, linker, shader-library module or
+ *                                module instance that this program creates (from a one-line library of its own)
+ * For the last six, only calls on an object with that vtable are counted (the slots may share code with other objects).
+ * The label may end in _S (rdx, r8, r9 as C strings), _P (rdx: an array of r8 D3D11_PARAMETER_DESC), _D (the 32 qwords at rcx), _H (rcx is a WinRT string, such as a class name: its text), _E (48 qwords at rdx and r8, at entry and at return) or _F (the low float and double of
  * xmm0 to xmm3); the fifth field R logs the return value and what the argument registers point to.
  * The load of every module is logged too (with the load order), so the order of events can be compared with a Wine run.
  * Build (mingw): x86_64-w64-mingw32-gcc -O2 -o wintrace.exe wintrace.c -lole32 -luuid
@@ -203,6 +205,42 @@ static void hit(struct bp *b, DWORD tid)
                              g.Data2, g.Data3, g.Data4[0], g.Data4[1], g.Data4[2], g.Data4[3], g.Data4[4], g.Data4[5], g.Data4[6], g.Data4[7]);
                 else
                     log_line("    string \"%ls\"", text);
+            }
+        }
+        if (strstr(b->label, "_S"))   /* _S: rdx, r8 and r9 as C strings where they point to printable text */
+        {
+            ULONG_PTR regs[3] = {ctx.Rdx, ctx.R8, ctx.R9};
+            static const char *names[3] = {"rdx", "r8", "r9"};
+            int r;
+
+            for (r = 0; r < 3; r++)
+            {
+                char s[96];
+                SIZE_T n = 0;
+                int k, ok = 1;
+
+                if (regs[r] < 0x10000 || !ReadProcessMemory(proc, (void *)regs[r], s, sizeof(s) - 1, &n) || !n) continue;
+                s[n] = 0;
+                for (k = 0; s[k] && ok; k++) ok = s[k] >= 32 && s[k] < 127;
+                if (ok && k > 0) log_line("    %s \"%s\"", names[r], s);
+            }
+        }
+        if (strstr(b->label, "_P") && ctx.Rdx && ctx.R8 && ctx.R8 < 32)
+        {
+            /* _P: rdx is an array of r8 D3D11_PARAMETER_DESC (two string pointers and ten UINTs each) */
+            struct { ULONG_PTR name, semantic; UINT type, cls, rows, cols, interp, flags, in_reg, in_comp, out_reg, out_comp; } d;
+            UINT k;
+
+            for (k = 0; k < (UINT)ctx.R8; k++)
+            {
+                char nm[64] = "", sem[64] = "";
+                SIZE_T n = 0;
+
+                if (!ReadProcessMemory(proc, (char *)ctx.Rdx + k * sizeof(d), &d, sizeof(d), &n) || n != sizeof(d)) break;
+                if (d.name) { ReadProcessMemory(proc, (void *)d.name, nm, sizeof(nm) - 1, &n); nm[sizeof(nm) - 1] = 0; }
+                if (d.semantic) { ReadProcessMemory(proc, (void *)d.semantic, sem, sizeof(sem) - 1, &n); sem[sizeof(sem) - 1] = 0; }
+                log_line("    param %u '%s' '%s' type %u class %u %ux%u interp %u flags %#x in %d.%d out %d.%d", k, nm, sem, d.type,
+                         d.cls, d.rows, d.cols, d.interp, d.flags, (int)d.in_reg, (int)d.in_comp, (int)d.out_reg, (int)d.out_comp);
             }
         }
         if (strstr(b->label, "_E"))   /* _E: 48 qwords at rdx and r8 */
@@ -500,6 +538,45 @@ static int resolve_target(const char *target, char *mod, size_t modsize, DWORD *
         if (rva_of(*(void **)obj, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "d2d1.dll")) resolved_vt_rva = vrva;
         if (!rva_of((*(void ***)obj)[slot], mod, modsize, rva)) return 0;
         if (_stricmp(mod, "d2d1.dll")) resolved_vt_rva = 0;
+        return 1;
+    }
+
+    /* d3dcompiler_47.dll!flg[N] / linker[N] / module[N] / instance[N]: slot N of a function linking graph, a linker, a module or a
+     * module instance that this program creates (the module from a one-line library of its own, compiled with D3DCompile) */
+    if (!_stricmp(spec, "d3dcompiler_47.dll") && slot >= 0 && (!strcmp(bang, "flg") || !strcmp(bang, "linker") || !strcmp(bang, "module")
+            || !strcmp(bang, "instance")))
+    {
+        typedef HRESULT (WINAPI *compile_t)(const void *, SIZE_T, const char *, const void *, void *, const char *, const char *, UINT, UINT,
+                                            void **, void **);
+        typedef HRESULT (WINAPI *create1_t)(void **);
+        typedef HRESULT (WINAPI *create_flg_t)(UINT, void **);
+        typedef HRESULT (WINAPI *load_t)(const void *, SIZE_T, void **);
+        static const char src[] = "export float4 F(float4 a) { return a; }";
+        HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
+        compile_t compile = dc ? (compile_t)GetProcAddress(dc, "D3DCompile") : NULL;
+        create1_t create_linker = dc ? (create1_t)GetProcAddress(dc, "D3DCreateLinker") : NULL;
+        create_flg_t create_flg = dc ? (create_flg_t)GetProcAddress(dc, "D3DCreateFunctionLinkingGraph") : NULL;
+        load_t load = dc ? (load_t)GetProcAddress(dc, "D3DLoadModule") : NULL;
+        void *obj = NULL, *blob = NULL, *module = NULL;
+        char vmod[80];
+        DWORD vrva;
+
+        if (!compile || !create_linker || !create_flg || !load) return 0;
+        if (!strcmp(bang, "flg")) create_flg(0, &obj);
+        else if (!strcmp(bang, "linker")) create_linker(&obj);
+        else
+        {
+            /* ID3DBlob: GetBufferPointer is slot 3, GetBufferSize slot 4; ID3D11Module::CreateInstance slot 3 */
+            if (FAILED(compile(src, sizeof(src) - 1, "t", NULL, NULL, NULL, "lib_5_0", 0, 0, &blob, NULL)) || !blob) return 0;
+            if (FAILED(load(((void *(STDMETHODCALLTYPE *)(void *))(*(void ***)blob)[3])(blob),
+                            ((SIZE_T (STDMETHODCALLTYPE *)(void *))(*(void ***)blob)[4])(blob), &module)) || !module) return 0;
+            if (!strcmp(bang, "module")) obj = module;
+            else ((HRESULT (STDMETHODCALLTYPE *)(void *, const char *, void **))(*(void ***)module)[3])(module, "", &obj);
+        }
+        if (!obj) return 0;
+        if (rva_of(*(void **)obj, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "d3dcompiler_47.dll")) resolved_vt_rva = vrva;
+        if (!rva_of((*(void ***)obj)[slot], mod, modsize, rva)) return 0;
+        if (_stricmp(mod, "d3dcompiler_47.dll")) resolved_vt_rva = 0;
         return 1;
     }
 
