@@ -50,6 +50,9 @@
 /* the broker's state: attributes, change log, thumbnails; the client threads and the sweep take it */
 static CRITICAL_SECTION state_cs;
 
+/* signaled by Wine's server when only system processes are left (wmain) */
+static HANDLE shutdown_event;
+
 /* a pipe client; the pid of a pipe's client is fixed for the connection (0 for a client bridged from elsewhere) */
 struct client
 {
@@ -579,8 +582,12 @@ static int serve( const WCHAR *name, const WCHAR *sddl, HANDLE parent )
     for (;;)
     {
         HANDLE pipe = wex_pipe_create( name, sddl, first, sizeof(struct dwm_request) + DWM_MAX_MESSAGE_SIZE );
-        HANDLE objs[2] = { ov.hEvent, parent };
+        HANDLE objs[3] = { ov.hEvent };
+        DWORD count = 1;
         BOOL connected = FALSE;
+
+        if (parent) objs[count++] = parent;
+        if (shutdown_event) objs[count++] = shutdown_event;
 
         if (pipe == INVALID_HANDLE_VALUE)
         {
@@ -602,9 +609,10 @@ static int serve( const WCHAR *name, const WCHAR *sddl, HANDLE parent )
         }
         while (!connected)
         {
-            DWORD wait = WaitForMultipleObjects( parent ? 2 : 1, objs, FALSE, 5000 ), done;
+            DWORD wait = WaitForMultipleObjects( count, objs, FALSE, 5000 ), done;
 
-            if (wait == WAIT_OBJECT_0 + 1)
+            /* the parent exited, or Wine's server is shutting down (only system processes are left) */
+            if (wait > WAIT_OBJECT_0 && wait < WAIT_OBJECT_0 + count)
             {
                 CancelIoEx( pipe, &ov );
                 CloseHandle( pipe );
@@ -673,6 +681,14 @@ int __cdecl wmain( int argc, WCHAR **argv )
     WCHAR name[MAX_PATH * 2 + 64], sddl[512];
     HANDLE parent = NULL;
     int i;
+
+    /* A system process, as services.exe is: it does not count as a user of the desktop it serves. Otherwise a desktop
+     * without a shell (a program started on its own, with DwmService on) never closed: its explorer waited for the
+     * broker to leave the desktop, the broker for its parent explorer to exit, and Wine's server never ended. The
+     * thread stays on the desktop; the server signals shutdown_event when only system processes are left. (For the
+     * same reason the broker is a GUI program: as a console program started without a window it had a hidden
+     * conhost.exe, an ordinary process on the desktop.) */
+    NtSetInformationProcess( GetCurrentProcess(), ProcessWineMakeProcessSystem, &shutdown_event, sizeof(HANDLE *) );
 
     for (i = 1; i < argc; i++)
     {
