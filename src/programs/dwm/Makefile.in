@@ -1,7 +1,7 @@
 MODULE    = dwm.exe
 IMPORTS   = user32 advapi32
 
-EXTRADLLFLAGS = -mconsole -municode
+EXTRADLLFLAGS = -mwindows -municode
 
 VER_FILEDESCRIPTION_STR = "Desktop Window Manager broker"
 
