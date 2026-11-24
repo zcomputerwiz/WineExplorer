@@ -13,9 +13,9 @@
 #   2. Unless only documentation changed: an incremental sync and build (wex-run.sh build).
 #   3. Every changed Wine module that has tests (dlls/X, programs/X, src/dlls/X, src/programs/X) runs its own Wine
 #      tests, both architectures (make MODULE/tests/check, in a prefix of its own under /var/tmp/wex-test).
-#   4. The static tests the map names (py:FILE).
+#   4. The static tests the map names (py:FILE, sh:FILE).
 #   5. The suites the map names, each once: t1suite, normalsuite, lab (wex-run.sh on the build of step 2).
-#   6. VM checks (image, chain) are printed as the batch command to run, not run.
+#   6. VM checks (image, chain, gpolab) are printed as the command to run, not run.
 # WEX_TEST_PLAN=1 prints the plan (steps 1 and 6) without building or running anything.
 #
 # A targeted run is for iterating; it is never a merge check: before a merge the full suite and the batch run
@@ -133,14 +133,22 @@ for m in "${!modules[@]}"; do
     fi
 done
 
-# step 4: the static tests the map names (py:FILE: python3 FILE, from the worktree)
+# step 4: the static tests the map names (py:FILE: python3 FILE; sh:FILE: bash FILE; from the worktree, whose scripts
+# have LF line ends: .gitattributes)
+local f
 for c in "${!checks[@]}"; do
-    [[ $c == py:* ]] || continue
-    if (cd "$D" && timeout 900 python3 "${c#py:}") > "$LOGS/$(basename "${c#py:}").log" 2>&1; then
-        echo "${c#py:} ok"
+    case $c in
+        py:*) f=${c#py:}
+              (cd "$D" && timeout 900 python3 "$f") > "$LOGS/$(basename "$f").log" 2>&1 ;;
+        sh:*) f=${c#sh:}
+              (cd "$D" && timeout 900 bash "$f") > "$LOGS/$(basename "$f").log" 2>&1 ;;
+        *) continue ;;
+    esac
+    if [ $? = 0 ]; then
+        echo "$f ok"
     else
-        echo "${c#py:} FAILED ($LOGS/$(basename "${c#py:}").log):"
-        grep -E '^(FAIL|ERROR):' "$LOGS/$(basename "${c#py:}").log" | head -8
+        echo "$f FAILED ($LOGS/$(basename "$f").log):"
+        grep -E '^(FAIL|ERROR|not ok)' "$LOGS/$(basename "$f").log" | head -8
         rc=1
     fi
 done
@@ -168,6 +176,10 @@ print_vm()
         echo "VM: the whole chain (wex-batch.sh $rev NAME), or one stage onto an installed disk with installer/tests/quick-run.sh"
     elif [ -n "${checks[image]:-}" ]; then
         echo "VM: the image smoke check (WEX_BATCH_FWS=uefi wex-batch.sh $rev NAME rundialog), or installer/tests/quick-run.sh"
+    fi
+    if [ -n "${checks[gpolab]:-}" ]; then
+        echo "VM: the GPO lab's installed-machine guests on wexgpo (docs/GPO_LAB.md): gpo-lab-run.sh machines SOURCE_VM [GUEST...]," \
+             "with WEX_LAB_TREE_* for scripts tested without a new image"
     fi
 }
 

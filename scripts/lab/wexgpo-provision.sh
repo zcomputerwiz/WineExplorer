@@ -26,6 +26,14 @@ if ! apt-get install -y -q "${PKGS[@]}" perl samba-common-bin > /root/provision-
     done
 fi
 git config --global --add safe.directory '*'
+# ccache with wexbuild's settings (docs/TOOLING.md, "Builds"; scripts/lab/wex-make.sh uses it when installed): one
+# cache for the machine's trees under /root, which share entries across trees (base_dir, hash_dir) and survive a
+# fresh checkout's new file times (sloppiness)
+apt-get install -y -q ccache >> /root/provision-apt.log 2>&1 || echo "not installed: ccache"
+install -d -m 0755 /var/cache/wex-ccache
+[ -s /var/cache/wex-ccache/ccache.conf ] ||
+    printf 'max_size = 40G\nbase_dir = /root\nhash_dir = false\nsloppiness = include_file_mtime,include_file_ctime\n' \
+        > /var/cache/wex-ccache/ccache.conf
 # Wine Mono and Gecko where the /usr/local build finds them; without them a machine-root wineboot --init waits 5
 # minutes on the Mono download dialog (found by the system tier session, 2026-11-15)
 REPO=$(cd "$(dirname "$LIST")/../.." 2>/dev/null && pwd)

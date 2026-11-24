@@ -52,8 +52,13 @@ rm -f /etc/resolv.conf
 printf 'search %s\nnameserver %s\n' "$DOM" "$DC" > /etc/resolv.conf
 for i in $(seq 1 30); do getent hosts "dc1.$DOM" >/dev/null 2>&1 && break; sleep 2; done
 getent hosts "dc1.$DOM" >/dev/null 2>&1 && ok lab_network || { notok lab_network "the controller's name does not resolve"; finish; }
-apt-get update > /root/ad-apt.log 2>&1
-apt-get install -y samba winbind libnss-winbind libpam-winbind krb5-user dnsutils ldap-utils libsasl2-modules-gssapi-mit >> /root/ad-apt.log 2>&1
+# install what is missing (an overlay of the lab's base disk has it all: base-guest.sh)
+ensure_pkgs() {
+    local p m=()
+    for p; do dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'ok installed' || m+=("$p"); done
+    [ ${#m[@]} = 0 ] || { apt-get update && apt-get install -y "${m[@]}"; }
+}
+ensure_pkgs samba winbind libnss-winbind libpam-winbind krb5-user dnsutils ldap-utils libsasl2-modules-gssapi-mit > /root/ad-apt.log 2>&1
 command -v net >/dev/null 2>&1 && ok packages_installed || { notok packages_installed "$(tail -3 /root/ad-apt.log)"; finish; }
 # the installation may put the old name server back
 lab_up
@@ -189,7 +194,7 @@ else echo "note account_after_remove: deleted"; fi
 # 7. the Network Identification Wizard (System Properties, Computer Name, Network ID) joins the domain: an elevated copy
 # of System Properties (consent dialog answered by the host), driven by keys with xdotool in the user's session; the
 # password comes from a file (xdotool type --file), not from a command line
-if apt-get install -y xdotool >> /root/ad-apt.log 2>&1 && command -v xdotool >/dev/null 2>&1; then
+if ensure_pkgs xdotool >> /root/ad-apt.log 2>&1 && command -v xdotool >/dev/null 2>&1; then
     rm -f /tmp/join-pw.txt
     printf '%s' "$PW" > /root/join-pw.src
     install -m 0600 -o "$INSTALLED_USER" /root/join-pw.src /tmp/join-pw-raw.txt; rm -f /root/join-pw.src

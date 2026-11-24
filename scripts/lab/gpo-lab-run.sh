@@ -19,13 +19,16 @@ cp -a "$D/installer/tests/ad" "$C/installer/tests/ad"
 cp -a "$D/installer/scripts" "$C/installer/scripts"
 cp -a "$D/scripts/lab" "$C/scripts/lab"
 cp -a "$D/scripts/vmtest.py" "$C/scripts/vmtest.py"   # machine.sh drives the installed VM with it
+cp -a "$D/installer/tests/session-run.py" "$C/installer/tests/session-run.py"   # (and waits for desktops with it)
 cp -a "$D/scripts/wex-domain-admit-pam.sh" "$C/scripts/wex-domain-admit-pam.sh"   # (the PAM step's script, likewise)
 cp -a "$D/scripts/system-tier-probe.c" "$C/scripts/system-tier-probe.c"           # (the token probe machine.sh builds)
 cp -a "$D/scripts/wine-explorer-session.sh" "$D/scripts/wine-explorer-session-common.sh" \
       "$D/scripts/wine-explorer-wayland-session.sh" "$C/scripts/"                 # (the session scripts, likewise)
 mkdir -p "$C/tools"
 cp -a "$D/tools/wex-sysrun" "$D/tools/wex-accounts" "$C/tools/"   # machine.sh with WEX_LAB_TREE_TOOLS=1 builds them
-mkdir -p "$C/wine/server"                                         # (wex-accounts includes the server's account code)
+mkdir -p "$C/wine/server" "$C/wine/include/wine"                  # (wex-accounts includes the server's account code)
 cp -a "$D/wine/server/accounts.c" "$D/wine/server/accounts.h" "$D/wine/server/sysrun.h" "$C/wine/server/"
+# (and both include the launcher's configuration and peer headers)
+cp -a "$D/wine/include/wine/wex_sysrun_conf.h" "$D/wine/include/wine/wex_sysrun_peer.h" "$C/wine/include/wine/"
 find "$C" -type f \( -name '*.sh' -o -name '*.py' \) -exec sed -i 's/\r$//' {} +
 exec bash "$C/installer/tests/ad/gpo-lab.sh" "$@"

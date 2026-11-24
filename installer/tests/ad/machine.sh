@@ -19,6 +19,18 @@
 # controller runs in another WSL distribution, copy that one file over first).
 #
 # Requires root, QEMU/KVM, qemu-nbd, Tesseract and ImageMagick (scripts/vmtest.py). The VM ends stopped.
+#
+# WEX_AD_BASELINE (docs/GPO_LAB.md, "The lab's base disk"), one provisioning for many guests:
+#   make   TEST_VM becomes the base: base-guest.sh installs the guests' packages and the PowerShell archives, the
+#          machine shuts down, and its disk is made read-only with a record of the inputs (SOURCE_VM's disk,
+#          base-guest.sh, join-ps-guest.sh's release lines). No guest, no admin password needed.
+#   use    SOURCE_VM is such a base: refused when its inputs changed (make it again). The guest then finds its
+#          packages and archives present and skips the downloads.
+#   check  only says (exit status) whether TEST_VM is a current base of SOURCE_VM; nothing is started or changed.
+# gpo-lab.sh machines runs the guests this way, each on its own overlay of the base.
+#
+# The desktop is waited for by its windows (installer/tests/session-run.py over the serial console, as the chain does:
+# docs/TOOLING.md, "the chain's rework"), with OCR of "My Documents" when the console or the probe gives no answer.
 set -euo pipefail
 
 usage="usage: machine.sh SOURCE_VM [TEST_VM]"
@@ -28,6 +40,8 @@ for name in "$SOURCE" "$TEST"; do
     [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "Invalid test VM name: $name"; exit 2; }
 done
 if [ "$SOURCE" = "$TEST" ]; then echo "TEST_VM must differ from SOURCE_VM"; exit 2; fi
+BASELINE=${WEX_AD_BASELINE:-}
+case "$BASELINE" in ''|make|use|check) ;; *) echo "Invalid WEX_AD_BASELINE: $BASELINE"; exit 2 ;; esac
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
@@ -35,6 +49,7 @@ LAB=${WEX_AD_LAB:-/var/tmp/wex-ad-lab}
 export VMTEST_DIR=${VMTEST_DIR:-/tmp/vmtest}
 export VMTEST_QEMU_EXTRA="-netdev socket,id=lab,mcast=230.0.0.71:17071 -device virtio-net-pci,netdev=lab,mac=52:54:00:71:00:30"
 V=(python3 "$REPO/scripts/vmtest.py")
+HELPER=/usr/local/libexec/wex-tests/session-run.py
 SRC_DISK=$VMTEST_DIR/$SOURCE/disk.qcow2
 STATE=$VMTEST_DIR/$TEST
 MNT=$STATE/root
@@ -52,14 +67,35 @@ cleanup() { detach; "${V[@]}" stop "$TEST" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 
-[ -s "$LAB/admin_password.txt" ] || fail "no $LAB/admin_password.txt (the lab domain's Administrator password)"
 [ -f "$SRC_DISK" ] || fail "no disk $SRC_DISK"
+inputs_stamp() {   # inputs_stamp INSTALLED_DISK: what the base depends on, as one checksum
+    {
+        sha256sum < "$HERE/base-guest.sh"
+        grep -E '^PS(32)?_(URL|SHA)=' "$HERE/join-ps-guest.sh"
+        stat -L -c '%s %Y %i' "$1"
+    } | sha256sum | cut -c1-64
+}
+if [ "$BASELINE" = check ]; then   # is TEST_VM a current base of SOURCE_VM? (gpo-lab.sh machines asks)
+    trap - EXIT
+    [ -f "$STATE/baseline.stamp" ] && [ "$(cat "$STATE/baseline.source" 2>/dev/null)" = "$SRC_DISK" ] &&
+        [ "$(stat -c %a "$STATE/disk.qcow2" 2>/dev/null)" = 444 ] &&
+        [ "$(inputs_stamp "$SRC_DISK")" = "$(cat "$STATE/baseline.stamp")" ]
+    exit $?
+fi
+[ "$BASELINE" = make ] || [ -s "$LAB/admin_password.txt" ] ||
+    fail "no $LAB/admin_password.txt (the lab domain's Administrator password)"
 if running "$SRC_DISK"; then fail "$SOURCE is running; stop it first"; fi
 if [ -e "$STATE/disk.qcow2" ]; then
     qemu-img info "$STATE/disk.qcow2" 2>/dev/null | grep -qx "backing file: $SRC_DISK" ||
         fail "$STATE/disk.qcow2 exists and is not an overlay of $SOURCE; choose another TEST_VM"
     "${V[@]}" stop "$TEST" >/dev/null 2>&1 || true
     for _ in $(seq 1 30); do running "$STATE/disk.qcow2" || break; sleep 1; done
+fi
+if [ "$BASELINE" = use ]; then
+    [ -f "$VMTEST_DIR/$SOURCE/baseline.stamp" ] && [ "$(stat -c %a "$SRC_DISK")" = 444 ] ||
+        fail "$SOURCE is not a base disk (WEX_AD_BASELINE=make)"
+    [ "$(inputs_stamp "$(cat "$VMTEST_DIR/$SOURCE/baseline.source")")" = "$(cat "$VMTEST_DIR/$SOURCE/baseline.stamp")" ] ||
+        fail "the base $SOURCE was made from other inputs (a new install or a changed base-guest.sh); make it again"
 fi
 rm -rf -- "$STATE"
 mkdir -p "$STATE"
@@ -91,6 +127,61 @@ mount "$rootdev" "$MNT" || fail "cannot mount the overlay"
 [ -f "$MNT/usr/local/share/wineexplorer/session0.enable" ] || fail "the source was not installed from a session 0 image"
 [ -f "$MNT/usr/local/bin/wex-gpupdate.sh" ] || fail "the source has no wex-gpupdate.sh (an image older than Group Policy step 4)"
 printf 'root:%s\n' "$(cat "$PWFILE")" | chroot "$MNT" chpasswd || fail "cannot set the root password"
+# the window probe of the desktop (as the chain installs it)
+install -D -m 0755 "$REPO/installer/tests/session-run.py" "$MNT$HELPER" || fail "cannot install the window probe"
+
+gsh() { "${V[@]}" sh "$TEST" root "$PWFILE" "$1" --timeout "$2"; }   # gsh COMMAND TIMEOUT: as root, serial console
+desktop() {   # desktop TIMEOUT [USER]: USER's Explorer desktop (default the installed user) by its windows, else OCR
+    local user=${2:-wineuser} end=$((SECONDS + $1)) left out
+    # short calls first: a long one sent while the machine starts would wait behind the getty (docs/TOOLING.md)
+    while [ "$SECONDS" -lt "$end" ]; do
+        gsh 'echo serial=up' 20 2>/dev/null | grep -q '^serial=up' && break
+        if "${V[@]}" wait "$TEST" "My Documents" --timeout 5 >/dev/null 2>&1; then
+            echo "note desktop: found by OCR (the serial console gave no prompt)"; return 0
+        fi
+        sleep 5
+    done
+    while left=$((end - SECONDS)); [ "$left" -gt 0 ]; do
+        out=$(gsh "python3 $HELPER --user '$user' --wait-desktop --timeout $left" $((left + 40)) 2>/dev/null) || true
+        case "$out" in
+            *desktop=ready*) echo "note desktop: $(grep -m1 -o 'desktop=ready.*' <<< "$out" | tr -d '\r') ($user)"; return 0 ;;
+            *probe=unavailable*)
+                "${V[@]}" wait "$TEST" "My Documents" --timeout "$((end - SECONDS))" >/dev/null 2>&1 && return 0
+                return 1 ;;
+            *desktop=none*) printf '%s\n' "$out" | tr -d '\r' | tail -8 | sed 's/^/  | /'; return 1 ;;
+        esac
+        if "${V[@]}" wait "$TEST" "My Documents" --timeout 5 >/dev/null 2>&1; then
+            echo "note desktop: found by OCR (no answer from the window probe)"; return 0
+        fi
+        sleep 5
+    done
+    return 1
+}
+
+if [ "$BASELINE" = make ]; then
+    # the base: the guests' packages and archives, then read-only (see the top)
+    install -m 0700 "$HERE/base-guest.sh" "$MNT/root/ad-base.sh"
+    install -m 0600 "$HERE/join-ps-guest.sh" "$MNT/root/ad-base-ps.sh"
+    detach
+    echo "=== $TEST: the lab's base disk, from $SOURCE"
+    T0=$SECONDS
+    "${V[@]}" start "$TEST" >/dev/null || fail "QEMU did not start"
+    desktop 300 || fail "no desktop after boot"
+    echo "note boot: $((SECONDS - T0)) s"
+    OUT=$(gsh "bash /root/ad-base.sh 2>&1; rm -f /root/ad-base.sh" 1500 2>/dev/null) || true
+    printf '%s\n' "$OUT" | tr -d '\r' | grep -E '^(ok|not ok|note) |AD-BASE-DONE'
+    "${V[@]}" shutdown "$TEST" --timeout 120 >/dev/null 2>&1 || true
+    for _ in $(seq 1 60); do running "$STATE/disk.qcow2" || break; sleep 1; done
+    running "$STATE/disk.qcow2" && fail "the base did not shut down"
+    grep -q 'AD-BASE-DONE' <<< "$OUT" || fail "the base's provisioning did not finish"
+    ! grep -q '^not ok packages_installed' <<< "$OUT" || fail "the base's packages did not install"
+    # (an archive that did not download is fetched by join-ps-guest.sh itself, as before)
+    inputs_stamp "$SRC_DISK" > "$STATE/baseline.stamp" && echo "$SRC_DISK" > "$STATE/baseline.source" &&
+        chmod 444 "$STATE/disk.qcow2" || fail "cannot record the base"
+    trap - EXIT
+    echo "PASS: base disk $TEST of $SOURCE ($((SECONDS - T0)) s); guests use it with WEX_AD_BASELINE=use"
+    exit 0
+fi
 install -m 0600 "$LAB/admin_password.txt" "$MNT/root/adminpw"
 # the domain user of the fixtures (gpo-lab.sh fixtures): the guest then has a domain user log on (WO 4)
 DOMAIN_LOGON=0
@@ -156,8 +247,10 @@ if [ "${WEX_LAB_TREE_TOOLS:-0}" = 1 ]; then
 fi
 detach
 
+T0=$SECONDS
 "${V[@]}" start "$TEST" >/dev/null || fail "QEMU did not start"
-"${V[@]}" wait "$TEST" "My Documents" --timeout 300 || fail "no desktop after boot"
+desktop 300 || fail "no desktop after boot"
+echo "note boot: $((SECONDS - T0)) s"
 
 "${V[@]}" sh "$TEST" root "$PWFILE" "rm -f /root/ad.out; (bash /root/ad-guest.sh > /root/ad.out 2>&1 &)" --timeout 30 >/dev/null
 
@@ -192,7 +285,10 @@ host_step() {   # NAME ARGS...: prints what goes into the done file (the last li
             [[ $who =~ ^WEXLAB\\[a-z0-9]+$ ]] || { echo "fail: not a lab user: $who"; return 0; }
             host_classic || return 0
             host_type_credentials "$who" "$(cat "$LAB/${who#WEXLAB\\}_password.txt")"
-            "${V[@]}" wait "$TEST" "My Documents" --timeout 300 >/dev/null || { host_stuck desktop "no desktop after the logon"; return 0; }
+            # (how the desktop was found goes to the run's log at the end: the step's own output is its answer)
+            local how
+            how=$(desktop 300 "$who") || { printf '%s\n' "$how" >> "$STATE/host-notes.txt"; host_stuck desktop "no desktop after the logon"; return 0; }
+            printf '%s\n' "$how" >> "$STATE/host-notes.txt"
             echo ok ;;
         logon-bad)
             host_classic || return 0
@@ -243,12 +339,17 @@ while :; do
 done
 GUEST_OUT=$("${V[@]}" sh "$TEST" root "$PWFILE" "cat /root/ad.out" --timeout 60 2>/dev/null) || true
 printf '%s\n' "$GUEST_OUT"
+[ ! -s "$STATE/host-notes.txt" ] || cat "$STATE/host-notes.txt"   # the host steps' desktops (window probe or OCR)
 "${V[@]}" sh "$TEST" root "$PWFILE" "rm -f /root/adminpw" --timeout 30 >/dev/null 2>&1 || true
 "${V[@]}" shutdown "$TEST" --timeout 120 >/dev/null 2>&1 || true
 
-[ "$done_seen" -eq 1 ] || { echo "FAIL: Group Policy on the installed machine (the guest did not finish)"; exit 1; }
-NOTOK=$(grep '^not ok ' <<<"$GUEST_OUT" || true)
-if [ -n "$NOTOK" ]; then echo "FAIL: Group Policy on the installed machine:"; printf '%s\n' "$NOTOK"; exit 1; fi
+MIN="$(( (SECONDS - T0 + 30) / 60 )) min"
 OKCOUNT=$(grep -c '^ok ' <<<"$GUEST_OUT" || true)
+[ "$done_seen" -eq 1 ] || { echo "FAIL: Group Policy on the installed machine (the guest did not finish; $OKCOUNT checks passed, $MIN)"; exit 1; }
+NOTOK=$(grep '^not ok ' <<<"$GUEST_OUT" || true)
+if [ -n "$NOTOK" ]; then
+    echo "FAIL: Group Policy on the installed machine ($(grep -c . <<<"$NOTOK") failed, $OKCOUNT passed, $MIN):"
+    printf '%s\n' "$NOTOK"; exit 1
+fi
 [ "$OKCOUNT" -gt 0 ] || { echo "FAIL: Group Policy on the installed machine (no checks reported)"; exit 1; }
-echo "PASS: Group Policy on the installed machine ($OKCOUNT checks)"
+echo "PASS: Group Policy on the installed machine ($OKCOUNT checks, $MIN)"

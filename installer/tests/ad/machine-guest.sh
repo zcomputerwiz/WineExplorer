@@ -55,8 +55,13 @@ done
 if [ -n "$found" ]; then ok lab_network; else notok lab_network "the controller's name does not resolve"; finish; fi
 
 # 2. Samba and the join
-apt-get update > /root/ad-apt.log 2>&1
-apt-get install -y samba winbind krb5-user >> /root/ad-apt.log 2>&1
+# install what is missing (an overlay of the lab's base disk has it all: base-guest.sh)
+ensure_pkgs() {
+    local p m=()
+    for p; do dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'ok installed' || m+=("$p"); done
+    [ ${#m[@]} = 0 ] || { apt-get update && apt-get install -y "${m[@]}"; }
+}
+ensure_pkgs samba winbind krb5-user > /root/ad-apt.log 2>&1
 if ! command -v net >/dev/null 2>&1 || ! command -v samba-gpupdate >/dev/null 2>&1; then
     notok samba_installed "$(tail -3 /root/ad-apt.log)"; finish
 fi
@@ -201,7 +206,7 @@ user_record() { awk -v n="$DUSER" 'NR > 1 && tolower($1) == tolower(n)' /etc/win
 cached_users() { busctl --system call org.freedesktop.Accounts /org/freedesktop/Accounts org.freedesktop.Accounts ListCachedUsers 2>/dev/null; }
 
 if [ -s /root/wexuser1pw ] && [ -x /usr/local/sbin/wex-domain-admit-pam.sh ]; then
-    apt-get install -y libpam-winbind libnss-winbind >> /root/ad-apt.log 2>&1
+    ensure_pkgs libpam-winbind libnss-winbind >> /root/ad-apt.log 2>&1
     sed -i -E '/^(passwd|group):/ { /winbind/! s/$/ winbind/ }' /etc/nsswitch.conf
     pam-auth-update --enable winbind mkhomedir >> /root/ad-apt.log 2>&1 || pam-auth-update --enable winbind >> /root/ad-apt.log 2>&1
     systemctl restart winbind 2>/dev/null

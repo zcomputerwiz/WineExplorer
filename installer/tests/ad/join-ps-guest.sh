@@ -52,8 +52,13 @@ rm -f /etc/resolv.conf
 printf 'search %s\nnameserver %s\n' "$DOM" "$DC" > /etc/resolv.conf
 for i in $(seq 1 30); do getent hosts "dc1.$DOM" >/dev/null 2>&1 && break; sleep 2; done
 getent hosts "dc1.$DOM" >/dev/null 2>&1 && ok lab_network || { notok lab_network "the controller's name does not resolve"; finish; }
-apt-get update > /root/ad-apt.log 2>&1
-apt-get install -y samba winbind libnss-winbind libpam-winbind krb5-user dnsutils ldap-utils libsasl2-modules-gssapi-mit >> /root/ad-apt.log 2>&1
+# install what is missing (an overlay of the lab's base disk has it all: base-guest.sh)
+ensure_pkgs() {
+    local p m=()
+    for p; do dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'ok installed' || m+=("$p"); done
+    [ ${#m[@]} = 0 ] || { apt-get update && apt-get install -y "${m[@]}"; }
+}
+ensure_pkgs samba winbind libnss-winbind libpam-winbind krb5-user dnsutils ldap-utils libsasl2-modules-gssapi-mit > /root/ad-apt.log 2>&1
 command -v net >/dev/null 2>&1 && ok packages_installed || { notok packages_installed "$(tail -3 /root/ad-apt.log)"; finish; }
 # the installation may put the old name server back
 lab_up
@@ -64,12 +69,15 @@ grep -q "dc1.$DOM" /etc/hosts || echo "$DC dc1.$DOM dc1" >> /etc/hosts
 # 1. PowerShell 7 (the release from GitHub, checked against its published digest), the module and the dlls under test
 PS_URL=https://github.com/PowerShell/PowerShell/releases/download/v7.7.0/PowerShell-7.7.0-win-x64.zip
 PS_SHA=7c74e03b20a75b59715847439d046a6214b1863ee79b187872980f139bb4a05f
-apt-get install -y unzip curl >> /root/ad-apt.log 2>&1
+ensure_pkgs unzip curl >> /root/ad-apt.log 2>&1
 lab_up
 rm -f /etc/resolv.conf
 printf 'search %s\nnameserver %s\n' "$DOM" "$DC" > /etc/resolv.conf
+# the lab's base disk keeps both archives (base-guest.sh reads the URLs and digests here); else they are downloaded
 # (the download goes over the machine's own network: the lab network has no route out)
-if ! curl -fsSL --retry 3 -o /root/pwsh.zip "$PS_URL" 2>/root/pwsh-dl.err; then
+digest_is() { [ "$(sha256sum "$1" 2>/dev/null | cut -d' ' -f1)" = "$2" ]; }
+if digest_is /root/pwsh.zip "$PS_SHA"; then echo "note pwsh_download: the base disk's archive"
+elif ! curl -fsSL --retry 3 -o /root/pwsh.zip "$PS_URL" 2>/root/pwsh-dl.err; then
     # the name server of the lab does not resolve github.com: use a public one for the download
     printf 'nameserver 1.1.1.1\n' > /etc/resolv.conf
     curl -fsSL --retry 3 -o /root/pwsh.zip "$PS_URL" 2>>/root/pwsh-dl.err
@@ -84,7 +92,8 @@ mkdir -p /opt/pwsh7/Modules; cp -a /root/extra/WexComputer /opt/pwsh7/Modules/We
 # the 32-bit PowerShell 7 (same release, own digest): a CIM check at the end, as the user (the 32-bit mi.dll is called stdcall)
 PS32_URL=https://github.com/PowerShell/PowerShell/releases/download/v7.7.0/PowerShell-7.7.0-win-x86.zip
 PS32_SHA=1723b1ef5ff7791a77638f05b48168331df84f51c19fbec7a1321fe924f3463b
-if ! curl -fsSL --retry 3 -o /root/pwsh32.zip "$PS32_URL" 2>/root/pwsh32-dl.err; then
+if digest_is /root/pwsh32.zip "$PS32_SHA"; then :
+elif ! curl -fsSL --retry 3 -o /root/pwsh32.zip "$PS32_URL" 2>/root/pwsh32-dl.err; then
     printf 'nameserver 1.1.1.1\n' > /etc/resolv.conf
     curl -fsSL --retry 3 -o /root/pwsh32.zip "$PS32_URL" 2>>/root/pwsh32-dl.err
     printf 'search %s\nnameserver %s\n' "$DOM" "$DC" > /etc/resolv.conf

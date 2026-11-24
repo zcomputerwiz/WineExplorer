@@ -301,7 +301,9 @@ The owner, 2026-11-23: test what changed, quickly; run the full suite and the im
   uncommitted, untracked), looks each up in `scripts/lab/test-map.txt`, builds incrementally, runs the own Wine tests
   of every changed module that has tests (both architectures), then the suites the map names (`t1suite`,
   `normalsuite`, `lab`), each once. VM checks are printed as the command to run (`image`: the UEFI smoke check or
-  `installer/tests/quick-run.sh` onto an installed disk; `chain`: the whole chain). `WEX_TEST_PLAN=1` prints the
+  `installer/tests/quick-run.sh` onto an installed disk; `chain`: the whole chain; `gpolab`: the GPO lab's
+  installed-machine guests on wexgpo, docs/GPO_LAB.md). Static tests: `py:FILE` and `sh:FILE` (since 2026-11-23, the
+  Group Policy and domain tests). `WEX_TEST_PLAN=1` prints the
   plan only. A path no rule matches gets the normal suite and a note: add a rule. A targeted pass is what a branch
   needs to join a batch; it is never a merge to master by itself.
 - **Batches: the full suite and the image.** Branches with a targeted pass are merged together onto one head; that

@@ -11,6 +11,8 @@
 #   image         the VM image smoke check: WEX_BATCH_FWS=uefi wex-batch.sh REV NAME rundialog (printed, not run)
 #   chain         the whole chain on both firmwares: wex-batch.sh REV NAME (printed, not run)
 #   py:FILE       a static test: python3 FILE from the worktree (seconds; needs no build)
+#   sh:FILE       a static test: bash FILE from the worktree (seconds; needs no build)
+#   gpolab        the GPO lab's installed-machine guests on wexgpo: gpo-lab-run.sh machines (printed, not run)
 # A Wine module with a tests folder (dlls/X, programs/X, and WineExplorer's own under src/) always gets its own
 # Wine tests, both architectures, without a rule. A path no rule matches gets normalsuite and a note: add a rule.
 
@@ -32,6 +34,41 @@ scripts/lab/wex-batch.sh                none
 scripts/lab/wex-make.sh                 none
 tests/wam/*                             normalsuite
 tests/uwp/*                             normalsuite
+
+# Group Policy and the domain (docs/GROUP_POLICY.md, DOMAIN_JOIN.md, GPO_LAB.md): their static tests, the normal
+# suite (its gp sections), and the GPO lab's guests on an installed machine
+installer/tests/ad/*                    gpolab
+scripts/lab/gpo-lab-run.sh              gpolab
+scripts/lab/make-preg.py                gpolab
+scripts/lab/wexgpo-*                    none
+scripts/test_domain_join.sh             sh:scripts/test_domain_join.sh
+scripts/test_preg.sh                    sh:scripts/test_preg.sh
+scripts/test_secpol_model.sh            sh:scripts/test_secpol_model.sh
+scripts/secpol-model-test.c             sh:scripts/test_secpol_model.sh
+scripts/test_gpedit_model.sh            sh:scripts/test_gpedit_model.sh
+scripts/gpedit-model-test.c             sh:scripts/test_gpedit_model.sh
+scripts/test_gpupdate_users.sh          sh:scripts/test_gpupdate_users.sh
+installer/scripts/wex-domain-join.sh    sh:scripts/test_domain_join.sh,normalsuite,gpolab
+installer/scripts/wex-domain-state.sh   normalsuite,gpolab
+installer/scripts/wex-gpupdate.sh       sh:scripts/test_gpupdate_users.sh,normalsuite,gpolab
+scripts/wex-domain-admit-pam.sh         gpolab
+installer/systemd/wex-domain-*          normalsuite,gpolab
+installer/systemd/wex-gpupdate*         gpolab
+src/include/wexpreg.h                   sh:scripts/test_preg.sh,sh:scripts/test_secpol_model.sh,normalsuite
+src/include/wexsectmpl.h                sh:scripts/test_secpol_model.sh,normalsuite
+src/include/wexjoin.h                   normalsuite,gpolab
+src/programs/wexpolicy/test_preg_main.c sh:scripts/test_preg.sh
+src/programs/wexpolicy/*                sh:scripts/test_preg.sh,normalsuite,gpolab
+src/programs/gpupdate/*                 normalsuite,gpolab
+src/programs/gpresult/*                 normalsuite,gpolab
+src/programs/netdom/*                   normalsuite,gpolab
+src/programs/nltest/*                   normalsuite,gpolab
+src/programs/secedit/*                  normalsuite,gpolab
+src/dlls/secpol/*                       sh:scripts/test_secpol_model.sh,normalsuite
+src/dlls/gpedit/*                       sh:scripts/test_gpedit_model.sh,normalsuite,gpolab
+src/dlls/wexgpstore/*                   normalsuite,gpolab
+src/dlls/wexjoin/*                      normalsuite,gpolab
+src/dlls/sysdm.cpl/*                    normalsuite,image,gpolab
 
 # the system tier: server, accounts, registry, services, elevation
 wine:server/*                           normalsuite,t1suite,lab

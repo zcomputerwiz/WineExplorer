@@ -11,6 +11,9 @@
 #   gpo-lab.sh machine SOURCE_VM [TEST_VM]
 #                                 Group Policy end to end on an installed WineExplorer machine (machine.sh; run
 #                                 where the installed disks are, with VMTEST_DIR)
+#   gpo-lab.sh machines SOURCE_VM [machine|join|join-ps ...]
+#                                 the guests (default all three) on overlays of one base disk, made once per installed
+#                                 disk (machine.sh WEX_AD_BASELINE); one result line each
 #   gpo-lab.sh status             which lab guests run, and the objects in the domain
 #   gpo-lab.sh down               stop the lab guests of this distribution
 #   gpo-lab.sh ssh CMD            a command on the controller
@@ -71,6 +74,51 @@ parse)
 machine)
     shift
     bash "$HERE/machine.sh" "$@" ;;
+machines)
+    # the installed-machine guests on one base disk (docs/GPO_LAB.md, "The lab's base disk"): SOURCE_VM-adbase is made
+    # when it is missing or its inputs changed, then each guest runs on an overlay of it, one after the other (they
+    # share the lab address and the machine's account in the domain); one result line each, and a failed guest is
+    # rerun alone by naming it
+    shift
+    SRC=${1:?usage: gpo-lab.sh machines SOURCE_VM [machine|join|join-ps ...]}; shift
+    GUESTS=("$@"); [ ${#GUESTS[@]} -gt 0 ] || GUESTS=(machine join join-ps)
+    BASE=$SRC-adbase
+    LOGS=/var/tmp/wex-gpo-lab; mkdir -p "$LOGS"
+    RESULTS=() rc=0 t0=$SECONDS
+    if WEX_AD_BASELINE=check bash "$HERE/machine.sh" "$SRC" "$BASE" >/dev/null 2>&1; then
+        echo "=== base $BASE is current"
+    else
+        echo "=== base $BASE: making it (log $LOGS/$BASE.log)"
+        if ! WEX_AD_BASELINE=make bash "$HERE/machine.sh" "$SRC" "$BASE" > "$LOGS/$BASE.log" 2>&1; then
+            grep -E '^(ok|not ok|note) |FAIL' "$LOGS/$BASE.log" | tail -20 || true
+            echo "FAIL gpolab/base ($LOGS/$BASE.log)"; exit 1
+        fi
+        grep -E '^(ok|not ok|note) |PASS' "$LOGS/$BASE.log" || true
+    fi
+    for g in "${GUESTS[@]}"; do
+        case $g in
+            machine) script=machine-guest.sh ;;
+            join) script=join-guest.sh ;;
+            join-ps) script=join-ps-guest.sh
+                if [ -z "${WEX_LAB_EXTRA:-}" ]; then
+                    RESULTS+=("SKIP gpolab/join-ps (needs WEX_LAB_EXTRA: the dlls, the module and join-ps.ps1)"); continue
+                fi ;;
+            *) echo "unknown guest $g (machine, join, join-ps)"; exit 2 ;;
+        esac
+        echo "=== $g: $SRC-ad-$g (log $LOGS/$SRC-ad-$g.log)"
+        t=$SECONDS s=0
+        WEX_AD_BASELINE=use WEX_GUEST=$script bash "$HERE/machine.sh" "$BASE" "$SRC-ad-$g" > "$LOGS/$SRC-ad-$g.log" 2>&1 || s=$?
+        line=$(grep -E '^(PASS|FAIL): ' "$LOGS/$SRC-ad-$g.log" | tail -1 || true)
+        if [ "$s" = 0 ]; then RESULTS+=("PASS gpolab/$g ($(( (SECONDS - t + 30) / 60 )) min) ${line#PASS: }")
+        else
+            rc=1
+            RESULTS+=("FAIL gpolab/$g ($(( (SECONDS - t + 30) / 60 )) min) ${line:-machine.sh exit $s}")
+            grep -E '^not ok ' "$LOGS/$SRC-ad-$g.log" | head -10 | sed 's/^/    /' || true
+        fi
+    done
+    echo "=== results ($(( (SECONDS - t0 + 30) / 60 )) min; rerun one: gpo-lab.sh machines $SRC NAME)"
+    printf '%s\n' "${RESULTS[@]}"
+    exit $rc ;;
 status)
     for g in dc1 member1; do
         if pid_running "$LAB/$g.pid"; then echo "$g running"; else echo "$g stopped"; fi

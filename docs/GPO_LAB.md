@@ -54,6 +54,7 @@ wsl.exe -d Debian -u root --exec bash -c 'T=/mnt/d/DeepThought/Projects/<worktre
 | `member` | the plain Debian member: joins and checks the join detection |
 | `parse` | on the member: `wex-gpupdate.sh`'s reading of the real `net ads gpo list` (`parse-guest.sh`), for the machine and for `wexuser1` |
 | `machine SOURCE_VM [TEST_VM]` | Group Policy end to end on an installed machine (`machine.sh`), in the distribution with the disk |
+| `machines SOURCE_VM [GUEST...]` | the installed-machine guests on overlays of one base disk, one result line each ("The lab's base disk" below) |
 | `status`, `down`, `ssh CMD` | which guests run and what the domain holds; stop them; a command on the controller |
 
 `machine` needs `/var/tmp/wex-ad-lab/admin_password.txt` in its own distribution (copy that one file from Debian)
@@ -115,6 +116,41 @@ them.
 `WEX_LAB_TREE_GPUPDATE=1` puts this tree's `wex-gpupdate.sh` into the overlay in place of the image's, so a
 change to the script is tested without a new image.
 
+### The lab's base disk (2026-11-23, after the chain's rework)
+
+`machines SOURCE_VM [machine|join|join-ps ...]` runs the installed-machine guests (`machine-guest.sh`,
+`join-guest.sh`, `join-ps-guest.sh`; default all three) the way the VM chain runs its stages (docs/TOOLING.md, "the
+chain's rework"):
+
+- **One provisioning per installed disk.** `SOURCE_VM-adbase` is an overlay of the installed disk on which
+  `base-guest.sh` installed the three guests' packages (Samba, Winbind, Kerberos, the LDAP and DNS tools, xdotool,
+  unzip, curl) and fetched the PowerShell 7 archives of `join-ps-guest.sh` (checked against the digests in that
+  script). The machine then shuts down, the disk is made read-only, and the inputs are recorded (the installed
+  disk's size, time and inode, `base-guest.sh`, the release lines of `join-ps-guest.sh`). `machines` makes it when
+  it is missing or its inputs changed (`machine.sh` with `WEX_AD_BASELINE=check`, then `=make`) and otherwise reuses
+  it. By hand: `WEX_AD_BASELINE=make machine.sh SOURCE_VM BASE`, then `WEX_AD_BASELINE=use WEX_GUEST=...
+  machine.sh BASE TEST_VM`.
+- **Each guest on its own overlay of the base** (`SOURCE_VM-ad-GUEST`, kept for inspection). The guests install
+  only what is missing (`ensure_pkgs`), so on the base they skip apt and the downloads; without a base they work as
+  before. They run one after the other: they share the lab address 10.71.0.30 and the machine's account in the
+  domain.
+- **The desktop by its windows**, not OCR: `machine.sh` installs `installer/tests/session-run.py` into the overlay
+  and waits for the Explorer desktop (desktop view and taskbar) over the serial console, after the boot and after a
+  domain user's logon (`--user 'WEXLAB\wexuser1'`), with OCR of "My Documents" when the console or the probe does
+  not answer. The greeter's steps (the Welcome screen, the classic dialog, the Logon Message) and the consent
+  dialog stay OCR: no Explorer session shows them.
+- **One result line per guest** (`PASS gpolab/machine (N min) ...`, `FAIL gpolab/join ...` with its `not ok` lines,
+  `SKIP gpolab/join-ps` without `WEX_LAB_EXTRA`), logs in `/var/tmp/wex-gpo-lab/`; a failed guest is rerun alone by
+  naming it (`machines wex-gpo join`).
+- **Targeted runs** (docs/TOOLING.md): `scripts/lab/test-map.txt` maps the lab's scripts, the join engine, the
+  policy scripts and units, and the Group Policy programs and dlls to their static tests (`sh:` tests:
+  `test_domain_join.sh`, `test_preg.sh`, `test_secpol_model.sh`, `test_gpedit_model.sh`, `test_gpupdate_users.sh`),
+  the normal suite, and `gpolab`, which `wex-test.sh` prints as the command to run on wexgpo.
+
+The build machine has ccache with wexbuild's settings since 2026-11-23 (`wexgpo-provision.sh`;
+`/var/cache/wex-ccache/ccache.conf`: `base_dir=/root`, `hash_dir=false`, the file-time sloppiness), which
+`wex-make.sh` uses for `wex-run.sh`, `wexgpo-iso.sh` and `wexgpo-setup-tree.sh`.
+
 ## The build machine
 
 `wexgpo` is a WSL distribution of its own (made 2026-11-14 with the owner's agreement), so that Group Policy work
@@ -136,6 +172,15 @@ test passed, as on wexbuild. The lab build (`lab`, `full`) needs `/root/owned-r8
 installed-machine disks and ISOs are not there either; an image is the next thing to make there.
 
 ## State (2026-11-14)
+
+- `machines wex-gpo` passed on 2026-11-23 on wexgpo with the base disk: `machine` 41 checks (12 min, the domain
+  logons included), `join` 38 (11 min), `join-ps` 33 (4 min), 27 minutes in all, with `WEX_LAB_TREE_TOOLS=1
+  WEX_LAB_TREE_GPUPDATE=1` and `WEX_LAB_EXTRA=/root/lab-extra`. Making the base took about 4 minutes (boot 45 s,
+  packages 81 s, the two PowerShell archives 71 s), which each guest used to spend itself (the packages in every
+  guest, the archives in `join-ps`). Every desktop was found by the window probe, after the boot and after the
+logons of `WEXLAB\wexuser1` and `WEXLAB\wexadmin1` (a rerun of `machine` alone: 41 checks, 8 min). On the way: the lab copy
+  (`gpo-lab-run.sh`) lacked the launcher's configuration and peer headers that `wex-sysrun.c` and the account code
+  include now, so `WEX_LAB_TREE_TOOLS=1` could not build; it copies them.
 
 - The controller and the fixtures: made and checked (`check`) on 2026-11-14.
 - `parse` passed on 2026-11-14 against Samba 4.17 (Debian 12). What the real output showed: Samba lists its own
