@@ -1,5 +1,25 @@
 # Changes to stock Wine / third-party code
 
+## server: no way up from a copy of a token of higher integrity (B99 part 2: route 3 and pipe servers, 2026-11-24)
+
+Measured on Windows 11 with our own program: a Low process's `CreateProcessAsUser` with a primary copy of its Medium
+parent's token fails with `ERROR_PRIVILEGE_NOT_HELD`; one with a copy of its own token works. Found by the Codex review
+of part 1, both older than it.
+
+- `server/token.c` (`token_check_assign_primary`, used by process creation and `NtSetInformationProcess`
+  (`ProcessAccessToken`)): a token of the caller's lineage no longer needs `SeAssignPrimaryTokenPrivilege` only when it
+  gives no more than the caller has: not a higher integrity, not elevated while the caller is not. A Low process's token
+  is a copy of its Medium parent's, so the parent's token had its lineage, and a Low process could start a Medium
+  process or take the Medium token as its own (route 3).
+- `server/token.c` (`token_impersonation_level`, pipe servers and ALPC, and so RPC): a client of higher integrity than
+  the server gives identification, also when the server holds `SeImpersonatePrivilege`. Before, the privilege was
+  checked first, so a Low server holding it could impersonate a Medium client. Part 1's entry below said pipe servers
+  already had the integrity check; they had it only without the privilege.
+- Tests: `scripts/sysrun_roles_probe.c` `low-child` (suite c3, under enforcement): a `TOKEN_QUERY` handle of the Medium
+  parent's token, upgraded with `DuplicateHandle`, impersonates at identification level only, and is refused as a new
+  process's or this process's primary token. `dlls/advapi32/tests/security.c` `test_impersonation_cap` now upgrades a
+  `TOKEN_QUERY` handle too, so that it works under enforcement (the limited right opens only for reading there).
+
 ## server: a thread cannot impersonate a token of higher integrity (B99 route 2, 2026-11-24)
 
 Measured black box on Windows 11 with our own program, at Low integrity, against a Medium process of the same user. The
