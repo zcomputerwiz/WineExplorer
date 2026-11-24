@@ -39,7 +39,16 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   surfaces other than index 0 fail, slot 12 checks; `dlls/dxgi` (d87184fd) event handle checks (codes measured) and a
   bounded EnqueueSetEvent wait (test `test_occlusion_status`); `dlls/dwrite` (12926f81) NULL checks;
   `dlls/kernel32/tests/resource.c` (651198ff) the test of the MUI satellite fallback of 769c742f, whose message still
-  says "not yet tested" (history not rewritten).## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
+  says "not yet tested" (history not rewritten).
+- Re-check fixes (on top of 651198ff): `dlls/d3dcompiler_43/library.c` (a7274fb5) constant buffer declarations need
+  their four tokens before merging, function checksums are checked as on Windows (test `test_linker_malformed`, the
+  DXBC checksum after vkd3d-shader's checksum.c); `dlls/d2d1` (9a2ac97d) **stock code**: `geometry.c`
+  `d2d_geometry_flatten_cubic` ends on a NaN deviation and at a depth of 16 (it recursed without end on NaN control
+  points), CombineWithGeometry checks the transform and bounds before Simplify and limits the pieces, the private
+  factory interface {6f72c0a2} only on x86_64; `dlls/dxgi` (59703e4c) EnqueueSetEvent returns
+  DXGI_ERROR_DEVICE_REMOVED without waiting after a query that never completed.
+
+## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
 - `server/session0.c` (`pipe_request`, `session0_open_pipe`, the `PIPE` handler): a `PIPE` request carries the
   opener's process id after the pipe's name (`include/wine/wex_session0.h`, protocol version 7). Session 0 keeps it
