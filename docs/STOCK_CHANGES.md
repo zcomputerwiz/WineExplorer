@@ -4632,3 +4632,12 @@ name, so a prefixed function call compiles (before, `ms:string-compare(` became 
 `xpath_lookup_function` no longer compares a NULL namespace; `xpath_eval` traces the error code of a failed
 expression. Test `test_ms_string_compare` in `dlls/msxml3/tests/domdoc.c`, its 16 cases checked on Windows. Why: Office's
 App-V filters its file system metadata with this function, and its failure was B76's E_FAIL.
+
+2026-11-24 (Wine f51581f5, branch `claude/dwrite-collection-race`, from UWP's Notepad work): `dlls/dwrite/main.c`,
+`font.c`, `dwrite_private.h`. The factory caches its system font collections without owning a reference; when two
+threads raced in `factory_get_system_collection`, one released a reference it never took and freed a collection a
+text format still used (riched20's `CreateFontFromLOGFONT` dropped the last reference; a page fault on Notepad's
+device thread). The cache is now read and written under the factory's lock, a cached collection is used only while its
+count is above 0 (`fontcollection_addref_if_alive`), and `factory_detach_fontcollection` clears the slots under the
+same lock. Test `test_system_fontcollection_threads` (dlls/dwrite/tests/font.c): unfixed dwrite dies in it on x86_64
+and i386; the font suite passes on both.
