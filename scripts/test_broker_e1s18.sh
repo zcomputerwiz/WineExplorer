@@ -82,7 +82,7 @@ cc -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit
 echo "==> Cross-compiling real broker with lab define for x86_64 and i686 MinGW (-Wall -Werror)"
 x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -DWEXELEVATE_TEST_APPROVAL -DWEXELEVATE_E1S18 -DWEX_E1_TEST_HOOKS \
-    -I"$REPO/src/include" \
+    -I"$REPO/src/include" -idirafter "$REPO/wine/include" \
     -o "$FIXTURE/wexelevate_lab64.exe" \
     "$REPO/src/programs/wexelevate/main.c" \
     "$REPO/src/programs/wexelevate/standard.c" \
@@ -95,7 +95,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
 
 i686-w64-mingw32-gcc -O2 -Wall -Werror -municode \
     -DWEXELEVATE_TEST_APPROVAL -DWEXELEVATE_E1S18 -DWEX_E1_TEST_HOOKS \
-    -I"$REPO/src/include" \
+    -I"$REPO/src/include" -idirafter "$REPO/wine/include" \
     -o "$FIXTURE/wexelevate_lab32.exe" \
     "$REPO/src/programs/wexelevate/main.c" \
     "$REPO/src/programs/wexelevate/standard.c" \
@@ -128,7 +128,7 @@ echo "PASS standard-user units empty in a shipping build"
 BASELINE_DIR=/tmp/wex-baseline/$(basename "$REPO")
 echo "==> Verifying production objects are byte-for-byte identical (cmp, $BASELINE_DIR)"
 x86_64-w64-mingw32-gcc -O2 -Wall -Werror -municode \
-    -I"$REPO/src/include" \
+    -I"$REPO/src/include" -idirafter "$REPO/wine/include" \
     -c "$REPO/src/programs/wexelevate/main.c" \
     -o "$FIXTURE/main_prod64.o"
 if [ -f "$BASELINE_DIR/main_prod64_baseline.o" ]; then
@@ -138,7 +138,7 @@ else
 fi
 
 i686-w64-mingw32-gcc -O2 -Wall -Werror -municode \
-    -I"$REPO/src/include" \
+    -I"$REPO/src/include" -idirafter "$REPO/wine/include" \
     -c "$REPO/src/programs/wexelevate/main.c" \
     -o "$FIXTURE/main_prod32.o"
 if [ -f "$BASELINE_DIR/main_prod32_baseline.o" ]; then
