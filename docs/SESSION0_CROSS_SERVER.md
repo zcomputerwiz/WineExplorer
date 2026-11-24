@@ -305,6 +305,152 @@ session 0 keep stock behaviour.
 1. X1's Edge check: does Edge's updater wait on a `Global\` object when the update service is new? From the other
    session's updater log, before X1 is built.
 
+## Appendix: X0 wire protocol and how its tests reach it
+
+Written by the X0 session (2026-11-24) before the code, for the reviewer. Names are those of
+`include/wine/wex_session0.h` and `server/session0.c`.
+
+### Frames on the session link
+
+The session link (a SEQPACKET connection, T6.2) carries two kinds of message from version 8 on (`WEX_SESSION0_VERSION`
+8; a server of another version is refused at `SESSION_ID`, as today):
+
+- session 0's orders and their answers (`struct wex_session0_order`, `_order_reply`, 16 bytes, magic `WXS0`),
+  unchanged;
+- **X frames**, in both directions: a 32-byte header (`struct wex_x_header`: magic `WX0X`, `size` of the whole frame
+  with the header, `type`, `call`, `status`, `desc_size`, a 64-bit `ref`), then a body by type, then for `OPEN` the
+  caller's token description and the name. `size` is at most `WEX_SESSION0_MAX_MSG` (65536) and equals the number of
+  bytes received; a frame that is cut (`MSG_TRUNC`), carries a descriptor, or whose sizes do not add up is answered
+  `STATUS_INVALID_PARAMETER` when its header could be read (the link stays: the peer is a trusted server; it is
+  logged), and ignored otherwise.
+
+A request carries a `call` number chosen by its sender; the reply has the same `call` and `type | WEX_X_REPLY`.
+Replies come in any order (asynchronous dispatch): the sender keeps a table of calls in flight, each with a
+completion. Nothing on the link uses the synchronous `link_request` (2 s), which stays for session 0's short requests
+on their own connections. All sends are non-blocking; what the socket does not take is queued per link and sent on
+`POLLOUT`.
+
+| Type | Direction | Body | Reply |
+|---|---|---|---|
+| `HELLO` | each side once, session 0 first | epoch, connection number, session | none |
+| `OPEN` | holder to owner | kind, desired access, name size; description; name | `ref`, granted access |
+| `QUERY` | holder to owner | (`ref`) | granted access, ready |
+| `RELEASE` | holder to owner | (`ref`) | always `STATUS_SUCCESS` (idempotent) |
+| `SUBSCRIBE` | holder to owner | (`ref`) | success; arms the subscription |
+| `CANCEL` | holder to owner | (`ref`) | always success (idempotent): ends the subscription |
+| `TRY` | holder to owner | (`ref`) | success (acquired) or `STATUS_TIMEOUT`; re-arms the subscription in the same message |
+| `NOTICE` | owner to holder | (`ref`) | none |
+| `PING` | either | up to the frame limit | the same bytes |
+
+`OPEN` names a **kind**; X0 defines none for production (every kind is `STATUS_NOT_SUPPORTED`), X1 adds global
+names, X3 process ids. The lab build has one kind, a lab object (below). `QUERY`, `RELEASE`, `SUBSCRIBE`, `CANCEL`,
+`TRY` and `NOTICE` are generic over a small interface an object kind implements (`ready`, `try_acquire`, and a call
+to `x_object_changed` when it may have become ready).
+
+### Epochs and links
+
+- A server's **epoch** is its Unix pid, its start time (`/proc/<pid>/stat`, as `id_block_owner_alive`) and a 64-bit
+  nonce from `getrandom` at start. Each side sends its epoch in `HELLO`; session 0 also numbers each connection.
+- The owner keeps a **peer** per epoch: account (uid), session, the current connection (or none while lost), its
+  references, subscriptions, calls in flight and queued bytes. A reference is bound to the peer (the epoch), not to the
+  connection: the same epoch linking again (the existing relink, `SESSION_ID` with its own id) gets its peer back
+  with every reference. Another server is another peer, even of the same account and session.
+- **Link loss** (end of file, error) while the peer's process is alive (pid, start time, not a zombie): the peer is
+  kept for at most 120 s; the owner checks the process each second. Calls in flight fail at the holder with
+  `STATUS_CONNECTION_DISCONNECTED` once the link has ended (a reply already queued in the socket is read first).
+- **Epoch ended** (the process is gone, a zombie, or another start time; a `HELLO` with another epoch; or the 120 s
+  ran out): the owner drops every reference and subscription of that peer (releasing the pinned objects); the holder
+  marks every reference into that epoch dead: each later operation fails at once with
+  `STATUS_CONNECTION_DISCONNECTED`, and a raw use of the old id at the new epoch finds nothing.
+- **A user's server has one peer, session 0.** It accepts X frames only on its session link, which it opened itself
+  to the configured socket after checking session 0's account (`connect_session0`). Session 0 never forwards a frame
+  from one link to another: no user server to user server relay (condition 4). A user's server as owner believes
+  session 0 for any account, but only for session 0 callers: a description whose session is not 0 is refused there.
+
+### References
+
+- An owner-side entry: a random 64-bit id (never 0, unique among live entries, never reused within an epoch), the
+  peer, the pinned object, the granted rights, the caller's token built by `link_bound_token()` (kept for re-checks
+  and the audit), the account. Every operation looks the id up **in the peer's own table**: an id of another peer,
+  a released id, a forged id and an id of an earlier epoch all answer `STATUS_INVALID_HANDLE` (one status, so the
+  answer says nothing about other peers' ids).
+- Rights: an operation needs its right in the entry (`QUERY`: none beyond the reference; `SUBSCRIBE`, `TRY`:
+  `SYNCHRONIZE`). The granted mask in the reply is information only.
+- **Counting is the holder's**: every `OPEN` gives a new entry; the holder counts its own handles to it (duplicates
+  share the id) and sends one `RELEASE` when its last handle closes. `RELEASE` and `CANCEL` of an id the peer does not
+  hold are no-ops that answer success, so a release sent twice (or crossing a link loss) never drops another entry.
+  A subscription ends with its reference.
+- Released entries are freed at once; a `TRY` in flight on an entry being released still gets its answer.
+
+### `link_bound_token()` (condition 1)
+
+The only function that turns a description received in an X frame into a token: `token_create_described`, then the
+binding of `described_token_bound` for the peer's uid (session 0 as owner; a user's server as owner binds session 0's
+descriptions to session 0's account rule: any account), then the description's `session_id` must be the peer's
+session (session 0 as owner: the session of the peer's link; a user's server as owner: 0). Refused:
+`STATUS_ACCESS_DENIED`; malformed: `STATUS_INVALID_PARAMETER`. On the caller's side, `x_describe_caller()` takes the
+thread's effective token (its impersonation token, else the process's) and refuses an impersonation token below
+`SecurityImpersonation` with `STATUS_BAD_IMPERSONATION_LEVEL` before describing anything.
+
+### Subscriptions and tries (condition 2)
+
+- **Level-triggered with one notice outstanding.** A subscription is armed by `SUBSCRIBE` and by every `TRY`. An
+  armed subscription whose object is ready gets one `NOTICE` and is disarmed: at once if the object is ready when it
+  is armed, else at the next `x_object_changed` that finds it ready. The holder keeps the notice as a set hint until
+  it tries; so a readiness that comes between a notice and the next request is never lost, and the number of queued
+  notices is bounded by the subscriptions.
+- **A failed try re-arms in the same message**: the owner answers `STATUS_TIMEOUT` and arms the subscription in one
+  step of its loop, so an object that becomes ready right after the failed try gets a new notice.
+- **A try is not cancellable by the holder.** There is no frame to cancel a `TRY`; the holder keeps its call until
+  the answer comes (or the link ends), and a success is reported as acquired even when the holder's wait timed out or
+  an APC came meanwhile (X2 makes the wait report it). The owner sends a success only through the socket: if the send
+  fails (the link is gone), the owner gives the acquisition back by the object's own rules (for the lab object: the
+  count is restored) before anything else runs.
+
+### Caps (in flight, per account)
+
+| What | Cap | Counted at | Over the cap |
+|---|---|---|---|
+| References | 16384 | the owner, per account of the holder (session 0: the peer's uid over all its servers) | `OPEN` answers `STATUS_INSUFFICIENT_RESOURCES` |
+| Subscriptions and waits | 4096 | the owner, per account | `SUBSCRIBE` answers `STATUS_INSUFFICIENT_RESOURCES` |
+| Requests in flight | 256 per link | both: the holder before sending, the owner for requests it has not answered yet | the holder fails the call locally, the owner answers `STATUS_INSUFFICIENT_RESOURCES` |
+| Queued bytes | 4 MiB per account | both, bytes waiting for the socket | the holder fails new calls locally; the owner stops reading that peer's link until its queue is under half (back-pressure, nothing dropped) |
+
+Each owner logs an account once when a count reaches half of its cap (`x0: uid U at half of the C cap`), and again
+after it fell under a quarter.
+
+### Session 0 without `ntsync` (condition 3)
+
+`get_inproc_device_fd()` returns -1 when `session0_server`, checked at each call (not only cached), so session 0's
+events, mutexes, semaphores and internal syncs are always the server's own objects.
+
+### How the tests reach the protocol: lab hooks
+
+A user's server links only when the launcher started it (`peer_trusted`), so a harness cannot pose as one, and no
+production kind exists in X0. The smallest real consumer (M3's death notice for a service in session 0) needs X3's
+routing of `OpenProcess`, and could only show the paths a well-behaved server takes, not forged frames. So X0's tests
+use **lab hooks** in the existing pattern:
+
+- `server/wex_x0lab.c`, compiled only with `-DWEX_X0_LAB_TEST` (added to `SERVER_FLAGS` and `SERVER_OBJECTS` in
+  `scripts/lab/r8-lab-build.sh`); `wex_e1lab.h` declares its hooks, each listed in `STOCK_CHANGES.md`. A normal build
+  contains none of it.
+- Every lab server (session 0 and each user's server) listens on `wex-x0-lab` in its server directory (its working
+  directory, reached by root as `/proc/<pid>/cwd/wex-x0-lab`), mode 0600, and serves only a peer of uid 0
+  (`SO_PEERCRED`). One text command per message, one text answer.
+- The lab object kind (`OPEN` kind `WEX_X_KIND_LAB`, only in lab builds): a named counter in the owner; `ready` when
+  the count is above 0, `try_acquire` takes one.
+- Commands: `epoch`, `peers` (owner's view: per peer, epoch, account, link state, references, subscriptions, calls
+  in flight, queued bytes), `set NAME COUNT` (owner), `open NAME [ACCESS] [desc=self|session=N|level=ident|anon]`
+  (holder; a lab token: the first interactive token of the server's session, SYSTEM in session 0, duplicated at the
+  level asked, the description's session id patched for `session=N`), `query|release|sub|cancel|try ID [raw]`
+  (`raw`: sent as given, past the holder's own table), `ping N SIZE [raw]`, `defer on|off` (owner: holds `PING`
+  answers, to fill the owner's in-flight count), `pause|resume` (holder: stops reading its link, to fill the
+  owner's queue), `droplink` (a user's server closes its session link; the existing relink brings it back),
+  `notices` (holder: notices received per id). On session 0 the holder commands take `session=N` to choose the peer.
+- `scripts/test_sysrun_server.sh` gets a lab section `s0_x0` (suite `l`, group `lab`, needs `s0_base`) with one
+  check per test of X0 (condition 5) and a small Python client for the control sockets (`scripts/x0lab.py`). The
+  targeted run already sends `wine:server/*` to the normal, T1 and lab suites (`scripts/lab/test-map.txt`).
+
 ## Review record
 
 Draft 1 (2026-11-24) was reviewed by Codex, static and read-only, against development's Wine. Its findings and what
