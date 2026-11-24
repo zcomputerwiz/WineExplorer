@@ -532,3 +532,19 @@ art, and it has no private interfaces). So the findings below are measurements (
 * Two ways on, both need the black-box method (record the outputs of the five slot-46 calls on Windows, entry and return dumps of the two structs):
   (A) behave like Windows: contract 19 plus the CoreMessaging session methods the newer path needs, so FrameworkUdk calls slot 46 with the small codes;
   (B) stay on the fallback table and make slot 46 fill what the engine expects for code 0xFFFF7FFF.
+
+## 2026-11-23: contract 19 and the CoreMessaging session, checked (route A)
+
+The CoreMessaging work is in place (`dlls/coremessaging/coreui.c`: `CoreUICreate`, the session interface, the item, the generic objects). With
+`UniversalApiContract` 19 (lab patch of `wintypes`, not committed: it changes what every app is told) the runtime calls session slot 13 with the
+same four arguments as slot 12 (a function of the runtime, a context, the object, a handler pointer); `E_NOTIMPL` was the fail-fast. Slot 13 now
+succeeds like slot 12 (committed). Result on the merged build: Notepad draws its XAML frame (light content area, title and status areas, the
+icon), `dwmcorei` creates its D3D11 device and D2D contexts, text is still not drawn.
+
+Still the fallback table: even with contract 19 the call of private method 46 carries 0xFFFF7FFF, and `DwmSceneI.dll` is not loaded. The Windows
+stack shows why: `dwmcorei` -> `DCompPrivates_CreateCompositionBatchQuery` (FrameworkUdk export, wrapper at RVA 0x15a10, table slot 0xb8) ->
+the system-side FrameworkUdk component -> dcomp private method 46 with a small code (the structs are translated there). The decision is not the
+contract: the table is filled from `Microsoft.Internal.FrameworkUdk.System.dll` (named in the package's string table) and Wine has no such
+module. Route A is therefore a Wine module of that name that implements the exports FrameworkUdk asks for, starting with the DCompPrivates
+group (15 exports, `DCompPrivates_*`), on top of dcomp methods that Wine implements (slot 46 with the small codes, measured: five calls, S_OK,
+outputs 0 / pointer, 1, 2, 0x3f00000002, 0x3f00000003).
