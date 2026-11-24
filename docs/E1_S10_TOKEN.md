@@ -2,6 +2,11 @@
 <!-- Copyright 2026 WineExplorer contributors -->
 # E1-S10 account-specific server token
 
+> **Retired 2026-11-24.** The S10/S11/S13/S14 harness named below (`test_e1s10_token.sh`, `test_hku_load.sh`,
+> `lib/e1s13-fixture.sh`, the probes) and `WEX_E1S14_CRASH_TEST` are removed; the last tree with them is
+> fb28c5d9. The S13 profile code stays in the lab build and is tested by the R9 end-to-end cases of
+> `scripts/test_sysrun_server.sh`'s lab suite. See [STOCK_CHANGES](STOCK_CHANGES.md). What follows is history.
+
 Current-tree protocol note: [S13](E1_S13_HKU_LOAD.md) advances the protocol to
 978 and appends request 325. Request 324 and S10's byte records are unchanged.
 S13 adds internal token provenance and a separate one-shot load attempt; the

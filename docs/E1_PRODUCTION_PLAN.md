@@ -45,7 +45,7 @@ behind a flag that only tests set, before its flag goes:
 - `src/dlls/wexhost/e1s6.c`: the `E1S6_TEST_*` operations (782-842) and the lab bus name
   (`src/include/e1s6_protocol.h:14-15, 22-25`).
 - `wex_profile_storage.c`: the `checkpoint` / `test_stop_step` block (101-107).
-- `WEX_R8_SERVER_TEST` traces, `WEX_E1S14_CRASH_TEST`, `WEX_E1S7_TEST`, `WEXELEVATE_TEST_APPROVAL`,
+- `WEX_R8_SERVER_TEST` traces, `WEX_E1S14_CRASH_TEST` (retired 2026-11-24 with the S10/S13 harness, STOCK_CHANGES), `WEX_E1S7_TEST`, `WEXELEVATE_TEST_APPROVAL`,
   `WEXCONSENT_TEST_HOOK`, `WEX_CRED_DIALOG_TEST_HOOK`: test only, they stay flags that only tests set.
 - In the verifier script: `--lab-service`, `--impostor`, `WEX_E1S6_LAB_NO_RECEIPT`, the fallback to the source
   tree's worker, the legacy fixture phases, the stdout traces.
@@ -131,7 +131,7 @@ builds, T1.
 - `wine/server/wex_profile_storage.c` and `tools/wex-profile/wex-profile.c`: the `checkpoint` stops and the
   argument that selects them (refused without it).
 - `src/dlls/wexhost/e1s6.c` and `src/include/e1s6_protocol.h`: the four `E1S6_TEST_*` fault injections.
-- The lab build scripts (`r8-lab-build.sh`, `test_e1s10_token.sh`, `test_profile_storage.sh`, the lab part of
+- The lab build scripts (`r8-lab-build.sh`, `test_e1s10_token.sh` (retired 2026-11-24), `test_profile_storage.sh`, the lab part of
   `test_sysrun_server.sh`) define it next to the lab flags.
 
 Tested: normal suite 347, lab suite 421, broker test, T1; the lab-flagged objects compile without the hooks
@@ -146,7 +146,7 @@ on the lab flags. Findings that change the plan:
   `WEXELEVATE_E1S18` guard mostly product code (transport, token issue, profile paths in the server and in
   ntdll, kernelbase, userenv, shell32, the broker and dialog): a product flag can turn them on together.
 - `WEX_R8_SERVER_TEST` (stderr traces, 7 places) and `WEX_E1S14_CRASH_TEST` (crash injection) are test only and
-  stay test flags.
+  stay test flags. (2026-11-24: `WEX_E1S14_CRASH_TEST` is retired with the only harness that built it.)
 - Done the same day: the broker's `r8_trace_line` / `r8_trace_err` (about 60 calls) print nothing without
   `WEX_E1_TEST_HOOKS` (full run passed). A product log belongs to the audit record (decision 3). Still to look at:
   `e1s18_broker.h:354`.

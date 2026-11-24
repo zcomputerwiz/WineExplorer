@@ -2,6 +2,11 @@
 <!-- Copyright 2026 WineExplorer contributors -->
 # E1-S14: managed hive leases, persistence and recovery
 
+> **Retired 2026-11-24.** The S10/S11/S13/S14 harness named below (`test_e1s10_token.sh`, `test_hku_load.sh`,
+> `lib/e1s13-fixture.sh`, the probes) and `WEX_E1S14_CRASH_TEST` are removed; the last tree with them is
+> fb28c5d9. The S13 profile code stays in the lab build and is tested by the R9 end-to-end cases of
+> `scripts/test_sysrun_server.sh`'s lab suite. See [STOCK_CHANGES](STOCK_CHANGES.md). What follows is history.
+
 ## E1-S14b: broker-only production lease commit (2026-11-08)
 
 Implemented and reviewed statically; no build, test, harness, generator, Wine,

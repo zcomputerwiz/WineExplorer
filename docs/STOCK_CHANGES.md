@@ -1,5 +1,26 @@
 # Changes to stock Wine / third-party code
 
+## server: the E1 S14 crash-injection lab switch retired (2026-11-24)
+
+Removed lab define: `WEX_E1S14_CRASH_TEST`. Only the S10/S11/S13/S14 token harness built it, and that harness has
+not run since 2026-11-09 (it asserted protocol 979 and fixed request positions). The harness is removed with it:
+`scripts/test_e1s10_token.sh`, `scripts/test_hku_load.sh`, `scripts/lib/e1s13-fixture.sh`,
+`scripts/e1s10_token_probe.c`, `scripts/e1s13_hku_probe.c`, `scripts/e1s13_hku_checks.h` (last in fb28c5d9).
+
+- `server/wex_profile_storage.c`: `save_checkpoint` (an `_exit(86)` at three steps of the durable save) and its
+  three calls are gone; `server/wex_profile_storage.h` loses `test_crash_step`.
+- `server/wex_e1lab_registry.h`: the lab opcode `WEX_HKU_TEST_CRASH` (9) always denies with
+  `STATUS_NOT_SUPPORTED`, as it did in every lab build without the crash switch, next to the retired
+  `WEX_HKU_TEST_TRANSFER` (10). `include/wine/wex_profile.h` keeps the number reserved: never reuse it.
+
+Not removed: `WEX_E1S13_HKU_TEST`. `scripts/lab/r8-lab-build.sh` builds it into the lab server and the four
+profile DLLs (ntdll, kernelbase, userenv, shell32), and the lab suite's R9 end-to-end cases run it: the
+administrator's profile is provisioned and then reused (`E1R8_PROFILE ... reused=`), and a second elevation joins
+the loaded profile's lease (`E1S14 join lease`). The harness's raw S10 request negatives (unknown, tombstone,
+stale, replay, `raw-*` and the rest) are not ported: they drove lab request layouts of protocol 979 directly. The
+lab suite's R9 cases test the verifier's and broker's denials, but no test sends the server a malformed S10 issue
+request, as none has since 2026-11-09.
+
 ## server: only session 0 writes the machine hives; merge-on-save and the launcher without session 0 removed (R4c of SESSION0_SPLIT_REVIEW.md, 2026-11-23)
 
 The owner's decision 2 retired the launcher without session 0. This removes code from stock files; what stays is
@@ -47,7 +68,7 @@ Wine branch `claude/taskmgr-labels-shield`, on `70c5ce49`: `d8a22517` (comctl32)
 Wine branch `claude/r5-elevation-engine` (on development c8f1bb13, which has R2, R3 and the token-read change). No change of behaviour in either build: a normal build preprocesses `registry.c`, `token.c` and
 `sysrun.c` exactly as before, and `named_pipe.c` up to one pair of braces. The lab code (the switches
 `WEX_E1S6_TRANSPORT_TEST`, `WEX_E1S10_TOKEN_TEST`, `WEX_E1S13_HKU_TEST`, `WEX_E1_TEST_HOOKS`, `WEX_E1S14_CRASH_TEST`
-and `WEX_R8_SERVER_TEST`, about 2,600 lines) moved into WineExplorer files; the hooks it left behind:
+(retired 2026-11-24, above) and `WEX_R8_SERVER_TEST`, about 2,600 lines) moved into WineExplorer files; the hooks it left behind:
 
 - `named_pipe.c` (about 990 lab lines before, 20 now). The R8 binding of a server end and its four E1R8 operations
   are `wex_e1lab_pipe.c`, a file of its own. Hooks: the `binding` pointer of `struct pipe_end` and the `desktop` of
