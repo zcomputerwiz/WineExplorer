@@ -53,12 +53,28 @@ gtk_greeter() {
 }
 if [ -n "$SAFE" ] && [ ! -x "$WINE" ]; then gtk_greeter "no Wine at $WINE"; fi
 
+# Waits at most $1 seconds for the logon prefix's Wine server to end; one that does not end (a process left behind,
+# such as the desktop that never closed in B100) is ended, so the logon screen comes late instead of never. Said in
+# this log and in the journal. (WEX_GREETER_SERVER_WAIT shortens the wait for scripts/test_safemode.py.)
+SERVER_WAIT=${WEX_GREETER_SERVER_WAIT:-60}
+wait_server() {
+    local server rc
+    server="$(dirname "$WINE")/wineserver"
+    timeout "$1" "$server" -w
+    rc=$?
+    [ "$rc" -eq 124 ] || return 0   # it ended (or there is none to wait for)
+    echo "=== the Wine server of $WINEPREFIX did not end within $1 s; ending it: $(date) ==="
+    logger -t wex-greeter "the Wine server of $WINEPREFIX did not end within $1 s; ended it" 2>/dev/null || true
+    "$server" -k
+    timeout 10 "$server" -w || true
+}
+
 # update the prefix after a Wine (re)install before showing anything (as the session script does). A made prefix
 # always has user.reg; under the system role its HKLM comes from the machine root and it has no system.reg.
 if [ ! -e "$WINEPREFIX/user.reg" ] || wex_prefix_needs_update "$WINEPREFIX"; then
     # built-in DLLs as links to the packaged files (docs/PREFIX_SPLIT.md), not 1.7 GB of copies
     "${LIMIT[@]}" env -u DISPLAY WINELINKFAKEDLLS=1 "$WINE" wineboot.exe -u
-    "${LIMIT[@]}" "$(dirname "$WINE")/wineserver" -w
+    wait_server "$SERVER_WAIT"
 fi
 
 RES=$(xrandr 2>/dev/null | sed -nE 's/.*current ([0-9]+) x ([0-9]+).*/\1x\2/p' | head -1)
@@ -81,7 +97,7 @@ if [ -z "$SAFE" ]; then
             echo "=== applying the default theme (Open Luna) to the logon prefix ==="
             "$WINE" explorer.exe '/theme=C:\windows\Resources\Themes\Luna.theme' \
                 || echo "=== the default theme was not applied (exit $?) ==="
-            timeout 60 "$(dirname "$WINE")/wineserver" -w
+            wait_server "$SERVER_WAIT"
         fi
     fi
     exec "$WINE" explorer.exe "/desktop=Logon,${RES:-1024x768}" logonui.exe
