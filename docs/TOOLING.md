@@ -251,6 +251,9 @@ Antigravity: user-reported operational guidance is `agy_run`, `mode: edit` for w
   older pins (2026-10-05..13, and three local test merges of 2026-11-15) point at Wine commits that no longer exist
   anywhere, so such a fetch always fails. Fetch only the pin of the commit you build (`git ls-tree HEAD wine`). Before
   pushing a superproject commit, check that its Wine pin is on a pushed Wine branch.
+* Copy files into a running lab VM with `vmtest.py put NAME USER PWFILE LOCAL GUESTPATH`, not base64 over the serial
+  console: the guest downloads the file from a one-shot server on 127.0.0.1 of the host (10.0.2.2 in QEMU's user
+  network) and checks its SHA-256. 15 MB take about 2 s; the console copy took close to an hour. The guest needs python3.
 * On the Windows host, execute only our own test executables. A compile, window-DC sample or screenshot alone does not establish presented-pixel correctness; validate visible screen pixels and fresh-prefix guest behavior when required.
 
 ## Added 2026-11-10: R8 lab chain

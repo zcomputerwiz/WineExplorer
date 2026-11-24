@@ -20,6 +20,9 @@ Set VMTEST_DIR to a persistent directory if /tmp is a RAM filesystem.
   vmtest.py wait NAME TEXT [--timeout 120]                                wait until OCR finds TEXT on screen
   vmtest.py text NAME                                                     print the OCR text of the screen
   vmtest.py sh NAME USER PASSWORD_FILE COMMAND [--timeout 60]             run COMMAND on the serial console
+  vmtest.py put NAME USER PASSWORD_FILE LOCAL GUESTPATH [--timeout 300]  copy a file into the guest: the guest downloads
+                                                                          it from a one-shot server on this host (seconds
+                                                                          for megabytes, against base64 over the console)
   vmtest.py loader-timeout NAME SECONDS                                   (UEFI, VM off) the boot menu shows once,
                                                                           with this timeout (LoaderConfigTimeoutOneShot)
 
@@ -299,6 +302,54 @@ def type_text(name, text):
             seq.append(US[ch])
     keys(name, seq, hold=30)
 
+def put(name, user, pwfile, local, guest, timeout):
+    """Copy LOCAL into the running guest as GUEST. QEMU's user networking shows this host to the guest as 10.0.2.2, so
+    the guest downloads the file (python3 in the guest) from a one-shot web server here that listens on 127.0.0.1
+    only, serves this one file under a random name, and stops afterwards; the guest's SHA-256 must match."""
+    import contextlib, hashlib, http.server, io, threading
+
+    path = os.path.abspath(local)
+    if not os.path.isfile(path):
+        print(f"put: {local} is not a file", file=sys.stderr)
+        return 2
+    size = os.path.getsize(path)
+    sha = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            sha.update(block)
+    token = secrets.token_hex(8)
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != "/" + token:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with open(path, "rb") as f:
+                for block in iter(lambda: f.read(1 << 20), b""):
+                    self.wfile.write(block)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    command = ("python3 -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' "
+               f"http://10.0.2.2:{server.server_address[1]}/{token} {shlex.quote(guest)} && sha256sum {shlex.quote(guest)}")
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out):
+            rc = serial(name, user, pwfile, command, timeout)
+    finally:
+        server.shutdown()
+    if rc == 0 and out.getvalue().split()[:1] == [sha.hexdigest()]:
+        print(f"{local} -> {guest}: {size} bytes, sha256 ok")
+        return 0
+    print(f"put failed (status {rc}): {out.getvalue().strip()[-300:]}", file=sys.stderr)
+    return 1
+
 def serial(name, user, pwfile, command, timeout):
     password = open(pwfile).read().strip()
     s = socket.socket(socket.AF_UNIX)
@@ -410,6 +461,8 @@ def main():
     s = sub.add_parser("wait"); s.add_argument("name"); s.add_argument("text"); s.add_argument("--timeout", type=float, default=120)
     s = sub.add_parser("sh"); s.add_argument("name"); s.add_argument("user"); s.add_argument("pwfile"); s.add_argument("command")
     s.add_argument("--timeout", type=float, default=60)
+    s = sub.add_parser("put"); s.add_argument("name"); s.add_argument("user"); s.add_argument("pwfile")
+    s.add_argument("local"); s.add_argument("guest"); s.add_argument("--timeout", type=float, default=300)
     s = sub.add_parser("listen"); s.add_argument("name"); s.add_argument("seconds", type=float)
     s = sub.add_parser("loader-timeout"); s.add_argument("name"); s.add_argument("seconds", type=int)
     a = p.parse_args()
@@ -465,6 +518,8 @@ def main():
         sys.exit(f"timeout waiting for {a.text!r}")
     elif a.op == "sh":
         sys.exit(serial(a.name, a.user, a.pwfile, a.command, a.timeout))
+    elif a.op == "put":
+        sys.exit(put(a.name, a.user, a.pwfile, a.local, a.guest, a.timeout))
     elif a.op == "listen":
         print(listen(a.name, a.seconds), end="")
 
