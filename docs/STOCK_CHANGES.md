@@ -16,6 +16,13 @@
   descriptor as SDDL) and reads and writes with `wex_pipe_io`. The server check now opens the broker with
   `PROCESS_QUERY_LIMITED_INFORMATION`, the Windows rule, which the token-read change allows under enforcement.
   Caller policy (`check_caller`) is unchanged.
+- `include/wine/wex_pipe.h`: `wex_pipe_create_instances` (a limit on instances; `wex_pipe_create` is it without one)
+  and `wex_pipe_io_until` (also ended by a stop event; `wex_pipe_io` is it without one; an ended I/O reports 0
+  bytes). `wexelevate` uses them: its `pipe_io` (bounded, ended by the service's stop) and both pipe servers
+  (`\pipe\wexelevate`, and B0's `\pipe\wexelevate.r9` with its 8 instances). Its out buffer is now the request size
+  instead of 4096 (replies are small). Its audit sites `pipe-start-io` and `pipe-io-result` are one, `pipe-io`. The
+  lab agent's connect to B0 (`standard.c`) keeps its own open: `wex_pipe_connect` would add identification-level
+  impersonation and a wait for a busy pipe, which that path was not built for.
 
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
