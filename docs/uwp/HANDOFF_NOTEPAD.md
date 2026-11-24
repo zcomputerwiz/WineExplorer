@@ -41,9 +41,11 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
      (Wine's d2d asked it for `ID3D11Texture2D`, which Windows' subresource surfaces do not answer either; Windows' d2d reaches
      the texture through `IDXGISurface2::GetResource`). Fixed in Wine 01af4686: the draws succeed now (0 refusals).
    * After its draws the compositor thread still goes idle and never calls `Commit` (on Windows it commits about every 2 s, from
-     `dwmcorei.dll`, after private method 46). New in the last run: Wine's composition surface is asked for
-     `{790a45f7-0d42-4876-983a-0a55cfe6f4aa}` (`dcomp_surface_QueryInterface`: unsupported, three times), the first lead; and that
-     run ended early (2176 log lines, no screenshot), to be looked at.
+     `dwmcorei.dll`, after private method 46). Wine's composition surface is asked for
+     `{790a45f7-0d42-4876-983a-0a55cfe6f4aa}` three times: that is the public `IDXGISwapChain1`, and Windows 11 refuses it on
+     both surface kinds too (`tests/uwp/alpc/dcomp-surface-qi-probe.cpp`), so it is a type check, not the cause. The probe
+     found `IDCompositionDevice::CreateSurface` stubbed in Wine (fixed in Wine 2c72ac3a). The last run also ended early (2176
+     log lines, no screenshot), to be looked at.
 
 ## Branches and commits (local state of 2026-11-24)
 
@@ -121,9 +123,8 @@ the lab helpers below and these docs.
 
 ## Open work, in order
 
-1. Measure `{790a45f7-...}` on Windows: does a composition surface (`IDCompositionSurfaceFactory::CreateSurface`) answer it, with
-   which methods (a wintrace target on a surface the tracer creates), and does the compositor commit once Wine answers it.
-2. If it still does not commit: trace the compositor thread after its draws with `+d3d11,+d2d,+dxgi,+dcomp,+sync` (the bypass run)
+1. Done (2026-11-24): `{790a45f7-...}` is `IDXGISwapChain1`, refused on Windows too; not the cause.
+2. Why it does not commit: trace the compositor thread after its draws with `+d3d11,+d2d,+dxgi,+dcomp,+sync` (the bypass run)
    and compare with a Windows trace at `dcomp.dll!desktop[3]` (Commit), `[45]`, `[46]`. On Windows the order is 46, Commit, 45.
 3. When it commits: Wine's dcomp composes a target's surface layers through an auxiliary producer per target and refuses several
    cases with E_NOTIMPL (formats other than B8G8R8A8/R8G8B8A8, two targets on one window, content of two devices in one scene,

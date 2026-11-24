@@ -53,6 +53,9 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   `dlls/kernelbase/loader.c` (104c04bc) the MUI satellite fallback also covers LOAD_LIBRARY_AS_DATAFILE modules (path
   from the mapping; the satellite freed with the module), measured on Windows 11, and `test_mui_satellite` checks a
   data-file load, which Windows 11 runs too.
+- `dlls/dcomp/device.c` (2c72ac3a, branch claude/notepad-commit): IDCompositionDevice::CreateSurface makes a surface
+  through the implementation the other device interfaces share (it was a stub); test in `test_surface_suspend_scroll_virtual` (dcomp.c), which
+  also checks that a surface refuses IDXGISwapChain1, as on Windows 11.
 
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
