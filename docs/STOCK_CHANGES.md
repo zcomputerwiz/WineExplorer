@@ -4376,4 +4376,4 @@ with a low integrity token; the suite requires the client's warning for the seco
 (`test_lockout_forever`, Wine only: the key is WineExplorer's).
 
 2026-11-24 (UWP, Wine branch `claude/staterepository-11.22`, Windows App SDK / Notepad):
-- `dlls/dxgi/factory.c`: `RegisterAdaptersChangedEvent` hands out a cookie and succeeds (the event is never signaled: the adapters do not change) and `UnregisterAdaptersChangedEvent` succeeds, instead of E_NOTIMPL. The composition engine of the Windows App Runtime logs a failure here.
+- `dlls/dxgi/factory.c`, `dxgi_private.h`, `tests/dxgi.c`: `RegisterAdaptersChangedEvent` and `UnregisterAdaptersChangedEvent` follow Windows 11 (measured by Integration): a per-factory list of (cookie, duplicated event handle), cookies from 1; NULL event or cookie and the same event twice give DXGI_ERROR_INVALID_CALL, a bad handle E_OUTOFMEMORY, an unknown or repeated cookie DXGI_ERROR_NOT_FOUND; the event is never signaled; the factory releases what is left. New test `test_factory_adapters_changed_event`. The composition engine of the Windows App Runtime logs a failure when the registration fails.
