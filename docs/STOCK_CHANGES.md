@@ -47,6 +47,12 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   points), CombineWithGeometry checks the transform and bounds before Simplify and limits the pieces, the private
   factory interface {6f72c0a2} only on x86_64; `dlls/dxgi` (59703e4c) EnqueueSetEvent returns
   DXGI_ERROR_DEVICE_REMOVED without waiting after a query that never completed.
+- Follow-ups to the review notes (branch claude/notepad-followups, on top of 59703e4c): `dlls/dxgi` (d0f63afb) the
+  device keeps the timed-out query and works again once it completes (one long stall is not a device loss); `dlls/d2d1`
+  (be98257e) CombineWithGeometry stops collecting edges at its limit of 16384 instead of after storing them all;
+  `dlls/kernelbase/loader.c` (104c04bc) the MUI satellite fallback also covers LOAD_LIBRARY_AS_DATAFILE modules (path
+  from the mapping; the satellite freed with the module), measured on Windows 11, and `test_mui_satellite` checks a
+  data-file load, which Windows 11 runs too.
 
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
