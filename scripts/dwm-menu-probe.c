@@ -27,14 +27,17 @@
  * Build: x86_64-w64-mingw32-gcc -municode -mwindows -o dwm-menu-probe.exe dwm-menu-probe.c -luser32 -lgdi32 */
 
 #include <windows.h>
+#include <commctrl.h>
 #include <stdio.h>
 
 static HWND owner;
+static HWND tip;
+static BOOL tooltip_mode;
 static DWORD deadline;
 
 static void log_menu_window( void )
 {
-    HWND menu = FindWindowW( L"#32768", NULL );
+    HWND menu = tooltip_mode ? tip : FindWindowW( L"#32768", NULL );
     RECT rect;
 
     if (menu && GetWindowRect( menu, &rect ))
@@ -57,7 +60,7 @@ static LRESULT CALLBACK owner_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
         else if (GetFileAttributesW( L"C:\\menu.stop" ) != INVALID_FILE_ATTRIBUTES || GetTickCount() > deadline)
         {
             KillTimer( hwnd, 2 );
-            EndMenu();
+            if (tooltip_mode) PostQuitMessage( 0 ); else EndMenu();
         }
         return 0;
     }
@@ -103,6 +106,28 @@ int WINAPI wWinMain( HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show )
     SetTimer( owner, 1, 1500, NULL );   /* after the menu is up */
     SetTimer( owner, 2, 200, NULL );
     SetForegroundWindow( owner );
+    if (cmdline && wcsstr( cmdline, L"tooltip" ))
+    {
+        /* the command line "tooltip": a tracking tooltip (comctl32's class, CS_DROPSHADOW) at (100,100) instead of the menu */
+        INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_WIN95_CLASSES };
+        TOOLINFOW ti = {0};
+        MSG msg;
+
+        tooltip_mode = TRUE;
+        InitCommonControlsEx( &icc );
+        tip = CreateWindowExW( WS_EX_TOPMOST, TOOLTIPS_CLASSW, NULL, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+                               CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, owner, NULL, inst, NULL );
+        ti.cbSize = sizeof(ti);
+        ti.uFlags = TTF_TRACK | TTF_ABSOLUTE;
+        ti.hwnd = owner;
+        ti.uId = 1;
+        ti.lpszText = (WCHAR *)L"A tracking tooltip with some text";
+        SendMessageW( tip, TTM_ADDTOOLW, 0, (LPARAM)&ti );
+        SendMessageW( tip, TTM_TRACKPOSITION, 0, MAKELPARAM( 100, 100 ) );
+        SendMessageW( tip, TTM_TRACKACTIVATE, TRUE, (LPARAM)&ti );
+        while (GetMessageW( &msg, NULL, 0, 0 )) { TranslateMessage( &msg ); DispatchMessageW( &msg ); }
+        return 0;
+    }
     TrackPopupMenu( menu, TPM_LEFTALIGN | TPM_TOPALIGN, 100, 100, 0, owner, NULL );
     return 0;
 }

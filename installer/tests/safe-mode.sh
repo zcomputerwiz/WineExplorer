@@ -113,7 +113,7 @@
 #   popups      the shell's own popups on the desktop with no black box around them, and with desktop composition
 #                on (HKCU Composition=1 in the guest's user.reg, which WEX_DWM_COMPOSITION=1 at packaging gives every
 #                account) a soft shadow: the Start menu (the Windows key), the desktop's context menu (a right
-#                click) and the tooltip of the clock (the pointer rests on it). Each is a subresult; the popup is the new viewable window after the action (the window
+#                click) and the tooltip of the clock (the pointer rests on it) and the Run dialog's drop-down list (F4; one command is run first so the history has an entry). Each is a subresult; the popup is the new viewable window after the action (the window
 #                probe's list before and after), found in a screendump (installer/tests/popup-check.py). Only when
 #                named, or in the chain's default stages.
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
@@ -2306,6 +2306,22 @@ popup_tooltip() {   # the pointer rests on the notification area's clock (the bo
     sleep 2           # past the tooltip's delay
 }
 
+popup_combo() {   # the Run dialog's drop-down list: the dialog is open first (it is in the "before" list), so the new window
+                  # popup_one finds is the list. Its history needs an entry: one command is run first.
+    "${V[@]}" key "$TEST" meta_l-r >/dev/null
+    wait_window '^Run$' 20 "Type the name" || fail "combo: Win+R did not open Run"
+    "${V[@]}" type "$TEST" 'cmd /c exit'
+    "${V[@]}" key "$TEST" ret >/dev/null
+    window_gone '^Run$' 20
+    "${V[@]}" key "$TEST" meta_l-r >/dev/null
+    wait_window '^Run$' 20 "Type the name" || fail "combo: Win+R did not open Run the second time"
+    popup_one combo-dropdown popup_combo_open esc
+    local rc=$?
+    close_window esc '^Run$'
+    return $rc
+}
+popup_combo_open() { "${V[@]}" key "$TEST" f4 >/dev/null; }   # F4 drops a combo box's list
+
 phase_popups() {   # see the header: the shell's popups have no black box, and a shadow with composition on
     start_vm
     desktop 600
@@ -2316,6 +2332,7 @@ phase_popups() {   # see the header: the shell's popups have no black box, and a
     subresult start-menu popup_one start-menu popup_start_menu esc
     subresult context-menu popup_one context-menu popup_context_menu esc
     subresult tooltip popup_one tooltip popup_tooltip esc
+    subresult combo-dropdown popup_combo
     shutdown_vm
     subresults_end
 }
