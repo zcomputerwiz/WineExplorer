@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# Probes the comparison runner builds and runs on Windows and under Wine.
+# name | timeout seconds | extra normalisation (regexes, ';' separated, each match is replaced by '<N>') | what it checks
+sched2-probe  | 30 | wp 0x51[0-9a-f]{2}                       | ordinal 2582 queues a sent 0x60 (0,0); QS_SENDMESSAGE; delivered inside the next Peek
+smcb2-probe   | 30 | wp 0x51[0-9a-f]{2}                       | which call delivers a deferred SendMessageCallbackW
+order-probe   | 30 |                                          | order of 0x60 messages: callback (5,5), post (5,4), ordinal 2582 (0,0), posted copy
+post2-probe   | 30 |                                          | PostMessage(0x60): notification at retrieval, not at post time, no QS_SENDMESSAGE
+as-probe      | 60 |                                          | wait packet on an already signaled target: AlreadySignaled, auto-reset consumption, (3,0)
+key-probe     | 60 |                                          | packet key value does not change the delivered wparam
+peek-probe    | 60 |                                          | which retrieval calls deliver a pending completion
+io-probe      | 90 | wait 0x[0-9a-f]+                         | which waits deliver a queued packet; zero-APC packets with several keys
+win-probe     | 30 |                                          | at most two windows per thread; zero APC reaches the first window only

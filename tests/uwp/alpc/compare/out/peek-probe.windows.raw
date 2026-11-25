@@ -1,0 +1,14 @@
+  apc 0     PeekMessage(PM_REMOVE)                         returned 0; delivered 0:; left in the port 1
+  apc 0     PeekMessage(PM_NOREMOVE)                       returned 0; delivered 0:; left in the port 1
+  apc 0     PeekMessage(hwnd, 0x60..0x60, PM_REMOVE)       returned 0; delivered 1: (wp 0x3 lp 0); left in the port 0
+  apc 0     PeekMessage(WM_USER, PM_REMOVE)                returned 0; delivered 0:; left in the port 1
+  apc 0     GetMessage (a posted WM_USER is there)         GetMessage returned msg 0x400; delivered 1: (wp 0x3 lp 0); left in the port 0
+  apc 0     GetQueueStatus(QS_ALLINPUT)                    status 0; delivered 1: (wp 0x3 lp 0); left in the port 0
+  apc 0     MsgWait(0 handles, 100 ms)                     wait 0x102; delivered 1: (wp 0x3 lp 0); left in the port 0
+  apc 21    PeekMessage(PM_REMOVE)                         returned 0; delivered 0:; left in the port 1
+  apc 21    PeekMessage(PM_NOREMOVE)                       returned 0; delivered 0:; left in the port 1
+  apc 21    PeekMessage(hwnd, 0x60..0x60, PM_REMOVE)       returned 0; delivered 1: (wp 0x8 lp 0x21); left in the port 1
+  apc 21    PeekMessage(WM_USER, PM_REMOVE)                returned 0; delivered 0:; left in the port 1
+  apc 21    GetMessage (a posted WM_USER is there)         GetMessage returned msg 0x400; delivered 1: (wp 0x8 lp 0x21); left in the port 1
+  apc 21    GetQueueStatus(QS_ALLINPUT)                    status 0; delivered 1: (wp 0x8 lp 0x21); left in the port 1
+  apc 21    MsgWait(0 handles, 100 ms)                     wait 0; delivered 1: (wp 0x8 lp 0x21); left in the port 0

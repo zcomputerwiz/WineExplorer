@@ -1,0 +1,12 @@
+round 0: 2582 -> 2 (proc calls so far: 0)
+  GetQueueStatus before pump: 0x400040
+    proc: 0x60 wp 0 lp 0, during: PeekMessageW(PM_REMOVE), InSendMessageEx 0x4
+  PeekMessageW returned 0 (msg 0 wp 0 lp 0 hwnd <ADDR>)
+  second PeekMessageW returned 0
+round 1: 2582 -> 2 (proc calls so far: 0)
+  GetQueueStatus before pump: 0x400040
+  GetQueueStatus high word = 0x40 (new msgs)
+    proc: 0x60 wp 0 lp 0, during: PeekMessageW(PM_REMOVE), InSendMessageEx 0x4
+  PeekMessageW returned 0 (msg 0 wp 0 lp 0 hwnd <ADDR>)
+  second PeekMessageW returned 0
+

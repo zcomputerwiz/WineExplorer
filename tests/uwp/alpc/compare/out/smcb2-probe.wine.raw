@@ -1,0 +1,8 @@
+after SendMessageCallbackW:
+  GetQueueStatus(QS_ALLINPUT)                    -> not yet
+  SetTimer                                       -> not yet
+  CreateWindowExW (message window)               -> not yet
+  SendMessageW to another window of this thread  -> not yet
+  PostMessageW to self (not pumped)              -> not yet
+  InSendMessage / GetMessageTime                 -> not yet
+  PeekMessageW(PM_NOREMOVE, WM_PAINT..WM_PAINT)  -> DELIVERED

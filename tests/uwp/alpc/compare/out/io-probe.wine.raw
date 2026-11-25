@@ -1,0 +1,16 @@
+== which wait delivers a queued packet (key 0x11, apc 0x21)
+  Sleep(100)                                           delivered 0 message(s) (wp 0 lp 0), port left with 1 packet(s)
+  SleepEx(100, TRUE)                                   delivered 0 message(s) (wp 0 lp 0), port left with 1 packet(s)
+  WaitForSingleObject(ev, 100)                         delivered 0 message(s) (wp 0 lp 0), port left with 1 packet(s)
+  WaitForSingleObjectEx(ev, 100, TRUE)                 delivered 0 message(s) (wp 0 lp 0), port left with 1 packet(s)
+  MsgWaitForMultipleObjectsEx(0, 100, QS_ALLINPUT)     delivered 1 message(s) (wp 0x8 lp 0x21), port left with 0 packet(s)
+  PeekMessage only                                     delivered 0 message(s) (wp 0 lp 0), port left with 1 packet(s)
+  GetQueueStatus + Sleep(0)                            delivered 0 message(s) (wp 0 lp 0), port left with 1 packet(s)
+== NtSetIoCompletion packets, MsgWaitForMultipleObjectsEx(0, 300, QS_ALLINPUT)
+  key 0x11 apc 0x21 status 0 info 0: wait 0, delivered 1 (wp 0x8 lp 0x21), port left 0
+  key 0x7777 apc 0 status 0 info 0: wait 0, delivered 0 (wp 0 lp 0), port left 0
+  key 0x7777 apc 0 status 0 info 0x6666: wait 0, delivered 0 (wp 0 lp 0), port left 0
+  key 0x7777 apc 0 status 5 info 0: wait 0, delivered 0 (wp 0 lp 0), port left 0
+  key 0 apc 0 status 0 info 0: wait 0, delivered 0 (wp 0 lp 0), port left 0
+  key 0xabcd0000 apc 0 status 0 info 0: wait 0, delivered 0 (wp 0 lp 0), port left 0
+  key 0x7777 apc 0x1 status 0 info 0: wait 0, delivered 1 (wp 0x8 lp 0x1), port left 0
