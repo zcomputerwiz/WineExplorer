@@ -159,6 +159,26 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   the queue; objects queued during EndDraw's run and those left at release are released uncalled (all measured). The lifted
   compositor draws its sprites that way. Test
   `test_context_private_queued_draw` (d2d1.c, x86_64, d3d11).
+- `server/protocol.def` (`set_queue_completion`), `server/queue.c`, `server/completion.c`, `server/file.h`,
+  `dlls/win32u/message.c`, `main.c`, `window.c`, `sysparams.c`, `ntuser_private.h`, `win32u_private.h`, `win32u.spec`,
+  `win32syscalls.h` (regenerated), `include/ntuser.h`, `dlls/user32/user32.spec` (ordinals 2669 and 2670), test
+  `test_core_messaging_completions` in `dlls/user32/tests/msg.c` (Wine branch claude/win32u-coremessaging-iocp2):
+  `NtUserInitThreadCoreMessagingIocp2` and `NtUserDrainThreadCoreMessagingCompletions2`, as measured on Windows 11
+  (`tests/uwp/alpc/cmq-probe.c`). The first Init2 call of a thread creates an IoCompletion port that the thread's message
+  queue owns (new server request `set_queue_completion`; the handle is protected from close) and registers the window;
+  later calls with other windows return the same handle. A packet on the port wakes the owner's message waits through a new
+  internal queue bit (QS_COMPLETION, next to QS_DRIVER, not part of any wake or changed bits, so no QS_* status changes and no
+  other thread wakes); the wait takes one packet and sends window message 0x60 to every registered window in the thread
+  (wparam 8 and lparam the packet's APC context when that is not zero, wparam 3 and lparam 0 when it is; the key, status and
+  information are not passed), nested waits and the wait for a SendMessage reply included (all measured), and returns as for
+  input; Drain2 does the same for one packet. `NtUserPostMessage` of message 0x60 (any window of any thread, measured) also
+  notifies the window at once with the original parameters (in the sent message processing of the owner for another thread) and
+  queues a copy with 0x80000000 set in wparam; SendMessage and SendNotifyMessage deliver it once. Branch
+  claude/win32u-coremessaging-iocp2 (05d70cdc, a205b304, merged with 25f4e297). A window leaves the list when destroyed; the thread's port is
+  unprotected and closed at thread detach. Not replicated: the packet with key 0 and APC context 0xffffffff80000001 that
+  Windows leaves in the port after a drain (not understood; Drain2 writes nothing through its pointer arguments, measured).
+  The 32-bit entries (and their wow64win thunks) have the same arguments but they are not measured on 32-bit Windows.
+  Notepad's CoreMessagingXP takes this path from Windows build 26100 (a Windows 10 build takes its own thread and ALPC path).
 - Not in this batch (branch claude/notepad-commit, waiting for a design sign-off): `dlls/dcomp/device.c` (7f2fe720)
   shared visual handles are matched by kernel object; a target opened from one is a portal whose committed root is
   composed inside the shared visual; devices showing a changed portal redraw their committed scenes. cedb07b0:

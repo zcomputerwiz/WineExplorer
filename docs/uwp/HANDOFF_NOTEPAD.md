@@ -170,7 +170,32 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          aborts: "unimplemented function user32.dll.InitThreadCoreMessagingIocp2". Not involved: RtlGetVersion,
          feature configuration, IsApiSetImplemented, QueryOptionalDelayLoadedAPI (none called by CoreMessagingXP before).
          The exact threshold between 22000 and 26100 is not measured.
-       * Two ways on from here: implement ordinals 2669/2670 (win32u `NtUserInitThreadCoreMessagingIocp2` /
+       * **Implemented (Wine claude/win32u-coremessaging-iocp2, d26397bb; 2026-11-25/26).** Probe: `tests/uwp/alpc/cmq-probe.c`
+         (host, black box). Measured on Windows 11: Init2 returns the thread's IoCompletion port (first call creates it, out
+         dword 0; later windows get the same handle, out 1; a registered window again returns 0); a packet on it wakes any
+         message wait and the wait takes it and calls each registered window with message 0x60, wparam 8 and lparam the APC
+         context, or wparam 3 and lparam 0 when the context is zero (key, status, information are not passed); queue status
+         bits do not change; PeekMessage, GetQueueStatus, Sleep do not drain; nested waits and the wait for a SendMessage reply
+         deliver too; Drain2 delivers one packet, returns 1 (0 without a window) and writes nothing through its pointers.
+         **PostMessage of 0x60 (any window, any thread):** the window is notified at once with the original parameters (inside
+         the call for the caller's own thread, in the owner's sent-message processing otherwise) and a copy with
+         0x80000000 set in wparam is queued; SendMessage and SendNotifyMessage deliver once; 0x5f, 0x61 and 0x401 are normal.
+         Also measured with hooks inside the test app (`cmtest/HookLog.cs`): all of CoreMessagingXP's own 0x60 traffic on
+         Windows is such posts (wparam 5, 6, 1 with the top bit set in the queued copies); no completion (wparam 3 or 8) shows
+         up in an idle app. Injecting a completion into CoreMessagingXP's real port (key 0x77, any APC context) from inside
+         the app **kills it with the same fail-fast (0xE0464645)**: its handler checks its own state.
+       * **Still open: Notepad with build 26100 fail-fasts in that handler.** With the prefix reporting 26100 CoreMessagingXP
+         now gets through Init2, arms its wait packets and posts its messages, but its window procedure raises the fail-fast
+         (CoreMessagingXP offset 0x6279, no API call before it) on the first PostMessageW(hwnd, 0x60, 5, 4) it makes on the UI
+         thread, i.e. on the immediate notification (wparam 5, lparam 4). Not the order (queue first or notify first), not the
+         wparam of the completion messages. What state that handler checks is not known. Ideas: the order of the setup
+         (the `SendMessageCallbackW(hwnd, 0x60, 5, 5, NULL, 1)` handler, whose reply or side effects Windows may treat
+         differently), whether Windows runs the immediate notification in a different context (user mode, after the call),
+         or a 0x60 message sent or posted from another CoreMessaging thread before it. Compare the calls of CoreMessagingXP
+         around its first PostMessageW(0x60) on Windows (wintrace of `tests/uwp/alpc/cmtest` with labels on PostMessageW, SetTimer,
+         NtAssociateWaitCompletionPacket and Init2/Drain2, in order) with a Wine run that has +relay limited to calls from
+         CoreMessagingXP (RelayFromInclude), reporting build 26100 through the registry (`CurrentBuildNumber`).
+       * Two ways on from here (older note): implement ordinals 2669/2670 (win32u `NtUserInitThreadCoreMessagingIocp2` /
          `NtUserDrainThreadCoreMessagingCompletions2`, a queue-owned completion port in the server) and report a build
          that uses them; or find why the Windows 10 path leaves the UI thread in an untimed ALPC receive under Wine.
        * Older note: (a) find what that other path expects to wake the UI thread (it ends blocked in the ALPC receive instead of
