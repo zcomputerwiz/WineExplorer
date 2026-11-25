@@ -4934,10 +4934,13 @@ ok ev_write_in_one_session_read_in_another
 # the access table: a standard user cannot write System nor read Security; System is written by session 0's processes
 # only; a session's system role (SYSTEM in the user's own server) counts as the user (E1)
 s0_wine reg add "$EVK\\System\\WexL1Sys" /f >/dev/null || evfail "eventlog: register a System source"
+# a source of the Security log (an unregistered source writes Application, as on Windows)
+s0_wine reg add "$EVK\\Security\\WexL1Sec" /f >/dev/null || evfail "eventlog: register a Security source"
 [ "$(ev "$STD" report WexL1Sys 1 7 x | v report)" = 5 ] || evfail "eventlog: a standard user wrote System"
 [ "$(ev "$ADM" report WexL1Sys 1 7 x | v report)" = 5 ] || evfail "eventlog: an administrator's session wrote System"
 [ "$(ev "$STD" read Security | v read)" = 5 ] || evfail "eventlog: a standard user read Security"
-[ "$(ev "$STD" report Security 1 7 x | v report)" = 5 ] || evfail "eventlog: a session wrote Security"
+[ "$(ev "$STD" report WexL1Sec 1 7 x | v report)" = 5 ] || evfail "eventlog: a session wrote Security"
+[ "$(evs report WexL1Sec 1 7 x | v report)" = 5 ] || evfail "eventlog: session 0 wrote Security before auditing exists"
 [ "$(evs report WexL1Sys 4 8 from-session0 | v report)" = 0 ] || evfail "eventlog: session 0's process cannot write System"
 evs read System | grep -q 'id=8 type=4 source=WexL1Sys strings=1 first=from-session0$' || evfail "eventlog: System lacks session 0's record"
 [ "$(evs read Security | v read)" = 0 ] && [ "$(evs count Security | v value)" = 0 ] ||
@@ -5097,6 +5100,7 @@ for nm in Torn Stale Ring Full Ret Old; do
     s0_wine reg delete "$EVK\\WexL1$nm" /f >/dev/null || true
 done
 s0_wine reg delete "$EVK\\System\\WexL1Sys" /f >/dev/null || true
+s0_wine reg delete "$EVK\\Security\\WexL1Sec" /f >/dev/null || true
 el_down "$STD"; el_down "$ADM"
 true; ); section_leave $?; fi
 if section s0_programs; then set +e; ( section_enter
