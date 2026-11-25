@@ -112,8 +112,8 @@
 #                or later; an older image needs that shell32.dll from WEX_TEST_WINE).
 #   popups      the shell's own popups on the desktop with no black box around them, and with desktop composition
 #                on (HKCU Composition=1 in the guest's user.reg, which WEX_DWM_COMPOSITION=1 at packaging gives every
-#                account) a soft shadow: the Start menu (the Windows key) and the desktop's context menu (a right
-#                click). Each is a subresult; the popup is the new viewable window after the action (the window
+#                account) a soft shadow: the Start menu (the Windows key), the desktop's context menu (a right
+#                click) and the tooltip of the clock (the pointer rests on it). Each is a subresult; the popup is the new viewable window after the action (the window
 #                probe's list before and after), found in a screendump (installer/tests/popup-check.py). Only when
 #                named, or in the chain's default stages.
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
@@ -2295,6 +2295,16 @@ popup_one() {   # popup_one NAME ACTION CLOSE_KEY: ACTION (a function) opens a p
 }
 popup_start_menu() { "${V[@]}" key "$TEST" meta_l >/dev/null; }
 popup_context_menu() { "${V[@]}" click "$TEST" 640 300 right >/dev/null; }
+popup_tooltip() {   # the pointer rests on the notification area's clock (the bottom right corner of the taskbar)
+    local size w h
+    size=$(grep -o 'size=[0-9]*x[0-9]*' "$OUT/popups-tooltip-before.txt" | sed 's/size=//' | sort -t x -k1,1nr | head -1)
+    w=${size%x*}; h=${size#*x}
+    [ -n "$w" ] && [ -n "$h" ] || return 1
+    "${V[@]}" move "$TEST" $((w - 90)) $((h - 40)) >/dev/null   # off it first: a tooltip needs the pointer to arrive
+    sleep 1
+    "${V[@]}" move "$TEST" $((w - 40)) $((h - 14)) >/dev/null
+    sleep 2           # past the tooltip's delay
+}
 
 phase_popups() {   # see the header: the shell's popups have no black box, and a shadow with composition on
     start_vm
@@ -2305,6 +2315,7 @@ phase_popups() {   # see the header: the shell's popups have no black box, and a
     echo "  guest desktop composition: $POPUP_COMPOSITION"
     subresult start-menu popup_one start-menu popup_start_menu esc
     subresult context-menu popup_one context-menu popup_context_menu esc
+    subresult tooltip popup_one tooltip popup_tooltip esc
     shutdown_vm
     subresults_end
 }
