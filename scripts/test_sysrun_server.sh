@@ -4549,7 +4549,7 @@ x0waitn()   # ID COUNT: the holder has COUNT notices of ID (within 3 s)
     for i in $(seq 1 30); do [ "$(x0notices "$1")" = "$2" ] && return 0; sleep 0.1; done
     echo "notices of $1: $(x0 "$SP" notices "$1"), wanted $2" >&2; return 1
 }
-s0refs() { x0 "$S0" peers | grep "^account uid=$1 " | fld refs; }
+s0refs() { x0 "$S0" peers | grep "^account uid=$1 " | fld refs || true; }
 S0="$(s0pid)"
 [ -S "/proc/$S0/cwd/wex-x0-lab" ] || section_skip "X0: session 0 has no lab control socket (not the X0 lab build)"
 ( while :; do probe "$STD" 64 hold >>"$ROOT/x0-$STD.log" 2>&1; done ) & X0LOOP_STD=$!
@@ -4715,7 +4715,7 @@ ok x0_killed_holder_references_dropped_and_unsent_try_given_back
 SP="$(x0srv "$STD")" || { cat "$ROOT/x0srv.diag"; fail "X0: no new lab server of $STD"; }
 SESS="$(x0sess "$STD" "$SP")" || fail "X0: the new server did not link"
 IDK="$(x0 "$SP" open keep | fld id)"
-LINKED="$(grep -ac 'references kept' "$ROOT/session0.log")"
+LINKED="$(grep -ac 'references kept' "$ROOT/session0.log" || true)"
 x0 "$SP" droplink >/dev/null
 for i in $(seq 1 200); do [ "$(grep -ac 'references kept' "$ROOT/session0.log")" -gt "$LINKED" ] && x0 "$SP" peers | grep '^peer ' | grep -q 'link=up' && break; sleep 0.1; done
 grep -aq "x0: link to peer pid $SP (uid $STD_UID, session $SESS) lost: 1 references wait for it" "$ROOT/session0.log" ||
@@ -4744,7 +4744,7 @@ x0 "$SP" pause >/dev/null
 BT="$(x0 "$SP" try "$IDT" nowait | fld batch)"
 for i in $(seq 1 30); do [ "$(x0 "$S0" get rt | fld count)" = 0 ] && break; sleep 0.1; done
 [ "$(x0 "$S0" get rt | fld count)" = 0 ] || fail "X0: the try was not served before the drop"
-R="$(grep -ac 'linked again:' "$ROOT/session0.log")"
+R="$(grep -ac 'linked again:' "$ROOT/session0.log" || true)"
 x0 "$SP" droplink >/dev/null
 x0relink "$R" || fail "X0: no relink after the drop (TRY)"
 x0batch "$SP" "$BT" 1 || fail "X0: the try in flight never completed: $(x0 "$SP" batch "$BT")"
@@ -4759,7 +4759,7 @@ sleep 0.3; x0waitn "$IDO" 0 || fail "X0: a notice before the object was ready"
 x0 "$SP" pause >/dev/null
 x0 "$S0" set rn 1 >/dev/null
 sleep 0.5
-R="$(grep -ac 'linked again:' "$ROOT/session0.log")"
+R="$(grep -ac 'linked again:' "$ROOT/session0.log" || true)"
 x0 "$SP" droplink >/dev/null
 x0relink "$R" || fail "X0: no relink after the drop (NOTICE)"
 x0waitn "$IDO" 1 || fail "X0: a NOTICE in the socket was lost over the relink"
@@ -4770,7 +4770,7 @@ BEFORE="$(s0refs "$STD_UID")"
 x0 "$S0" pause peer="$SESS" >/dev/null
 BR="$(x0 "$SP" release "$IDE" nowait | fld batch)"
 sleep 0.3
-R="$(grep -ac 'linked again:' "$ROOT/session0.log")"
+R="$(grep -ac 'linked again:' "$ROOT/session0.log" || true)"
 x0 "$SP" droplink >/dev/null
 x0relink "$R" || fail "X0: no relink after the drop (RELEASE)"
 x0batch "$SP" "$BR" 1 || fail "X0: the release in flight never completed"
@@ -4778,8 +4778,8 @@ x0batch "$SP" "$BR" 1 || fail "X0: the release in flight never completed"
     fail "X0: a RELEASE in the socket was lost over the relink: $(x0 "$SP" batch "$BR"), refs $(s0refs "$STD_UID") of $BEFORE"
 ok x0_relink_sends_a_release_that_was_in_the_socket_again
 # frames that are never answered: a reply to no call, a NOTICE of an unknown reference, a cut HELLO
-STRAY_S0="$(x0 "$S0" peers | grep "^peer .* session=$SESS " | fld stray)"
-STRAY_U="$(x0 "$SP" peers | grep '^peer ' | fld stray)"
+STRAY_S0="$(x0 "$S0" peers | grep "^peer .* session=$SESS " | fld stray || true)"
+STRAY_U="$(x0 "$SP" peers | grep '^peer ' | fld stray || true)"
 x0 "$SP" frame 80000003 123 >/dev/null
 x0 "$SP" frame 8 123 >/dev/null
 x0 "$SP" frame 1 >/dev/null
@@ -4790,7 +4790,7 @@ sleep 0.5
 [ "$(x0 "$SP" query "$IDK" | fld st)" = 0:1 ] || fail "X0: the link after the stray frames"
 ok x0_replies_notices_and_hellos_are_never_answered
 # a HELLO that names another pid than the connected process's (SO_PEERCRED) is refused
-R="$(grep -ac 'linked again:' "$ROOT/session0.log")"
+R="$(grep -ac 'linked again:' "$ROOT/session0.log" || true)"
 x0 "$SP" droplink forge >/dev/null
 for i in $(seq 1 300); do grep -aq "x0: HELLO from server pid $SP (uid $STD_UID) with an epoch not its own: ignored" "$ROOT/session0.log" && break; sleep 0.1; done
 grep -aq "x0: HELLO from server pid $SP (uid $STD_UID) with an epoch not its own: ignored" "$ROOT/session0.log" ||
