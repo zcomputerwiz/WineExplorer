@@ -229,17 +229,13 @@ static DWORD create_user( HWND owner, const struct new_user_data *d )
     u.usri1_name = (WCHAR *)d->name;
     u.usri1_password = (WCHAR *)d->pw1;
     u.usri1_priv = USER_PRIV_USER;
-    u.usri1_flags = UF_SCRIPT | UF_NORMAL_ACCOUNT;
+    /* a disabled account is asked for at the creation: netapi32 locks it at once, and removes it again if the lock fails */
+    u.usri1_flags = UF_SCRIPT | UF_NORMAL_ACCOUNT | (d->disabled ? UF_ACCOUNTDISABLE : 0);
     if ((err = NetUserAdd( NULL, 1, (BYTE *)&u, &parm ))) return err;
     if (d->full[0])
     {
         USER_INFO_1011 f = { (WCHAR *)d->full };
         if ((err = NetUserSetInfo( NULL, d->name, 1011, (BYTE *)&f, &parm ))) return err;
-    }
-    if (d->disabled)
-    {
-        USER_INFO_1008 f = { UF_SCRIPT | UF_NORMAL_ACCOUNT | UF_ACCOUNTDISABLE };
-        if ((err = NetUserSetInfo( NULL, d->name, 1008, (BYTE *)&f, &parm ))) return err;
     }
     return 0;
 }

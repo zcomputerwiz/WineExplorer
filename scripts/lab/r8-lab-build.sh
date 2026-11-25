@@ -80,4 +80,15 @@ rm -f programs/consent/*-windows/consent.o programs/consent/*-windows/consent.ex
 make -j16 programs/wexelevate/all programs/consent/all >> "$LOG" 2>&1
 echo "lab wexelevate and consent ok"
 
+echo "=== 6. lab netapi32 (the accounts test pipe, both ABIs) ==="
+NETAPI_OBJECTS=() NETAPI_DLLS=()
+for arch in x86_64 i386; do
+    NETAPI_OBJECTS+=("dlls/netapi32/$arch-windows/wexaccounts.o")
+    NETAPI_DLLS+=("dlls/netapi32/$arch-windows/netapi32.dll")
+done
+rm -f "${NETAPI_OBJECTS[@]}"
+make -j1 x86_64_CFLAGS='-g -O2 -DWEX_NETAPI_LAB_TEST' i386_CFLAGS='-g -O2 -DWEX_NETAPI_LAB_TEST' "${NETAPI_OBJECTS[@]}" >> "$LOG" 2>&1
+make -j16 "${NETAPI_DLLS[@]}" >> "$LOG" 2>&1
+echo "lab netapi32 ok"
+
 echo "LAB_BUILD_COMPLETE"

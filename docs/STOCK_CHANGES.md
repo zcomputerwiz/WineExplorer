@@ -5091,7 +5091,7 @@ exported, levels 0 (rename), 1, 1003, 1008, 1011. Passwords are hashed in the cl
 `bcrypt`, written from the published description and checked against `openssl passwd -6`); the helper only checks the form.
 Phase 1 knows two local groups, Administrators and Users. A machine without a session 0 keeps Wine's own behaviour;
 the test hooks (Stock=1 forces that on any machine, Pipe names another pipe) are the values `Stock` and `Pipe` of
-`HKLM\Software\WineExplorer\AccountsTest`, which only an administrator writes: environment variables are not honoured (the
+`HKLM\Software\WineExplorer\AccountsTest`, (the 64-bit view; `Pipe` is honoured only under `\\.\pipe\WexSession0\`, a prefix a session's program cannot create), which only an administrator writes: environment variables are not honoured (the
 elevated half of a program has the environment of the limited half, and a pipe served by the limited half would receive a
 new password's hash). The pipe is opened with SECURITY_IDENTIFICATION, so a server of it cannot act as the caller. With a
 session 0 and the service unreachable the calls give 1722, never the in-memory list (U5); access denied on the pipe is 5.

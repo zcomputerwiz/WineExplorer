@@ -41,9 +41,15 @@ int main(int argc, char **argv)
     HANDLE pipe;
     int served = 0;
 
+    SECURITY_DESCRIPTOR sd;
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), &sd, FALSE };
+
     if (argc < 2) return 2;
+    /* open to everyone: the client is a program of a session, the server a process of session 0 */
+    InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
+    SetSecurityDescriptorDacl(&sd, TRUE, NULL, FALSE);
     pipe = CreateNamedPipeA(argv[1], PIPE_ACCESS_DUPLEX, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 1,
-                            WEXA_MAX_FRAME, WEXA_MAX_FRAME, 0, NULL);
+                            WEXA_MAX_FRAME, WEXA_MAX_FRAME, 0, &sa);
     if (pipe == INVALID_HANDLE_VALUE) { printf("create_error=%lu\n", GetLastError()); return 1; }
     while (served < 2)
     {

@@ -203,6 +203,7 @@ s0_accounts      s0_base,c5_build   n   s0
 s0_x0            s0_base            l   lab
 s0_accounts_svc  s0_base            n   s0
 s0_accounts_chain s0_base,c5_build  n   s0
+s0_netapi_lab    s0_base,c5_build   l   lab
 gp_registry      s0_base            n   gp
 gp_local         s0_base            n   gp
 gp_template      s0_base            n   gp
@@ -650,7 +651,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/scmloop64.exe" "$SRC/scripts/s
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/pipeloop64.exe" "$SRC/scripts/pipe_loop_probe.c"
 x86_64-w64-mingw32-gcc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/accchain64.exe" "$SRC/scripts/accounts_chain_probe.c"
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/netapi64.exe" "$SRC/scripts/netapi_accounts_probe.c" -lnetapi32
-x86_64-w64-mingw32-gcc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/accmock64.exe" "$SRC/scripts/accounts_mock_server.c"
+x86_64-w64-mingw32-gcc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/accmock64.exe" "$SRC/scripts/accounts_mock_server.c" -ladvapi32
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe32.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/alpcpair64.exe" "$SRC/tests/uwp/alpc/alpc-pair.c" -ladvapi32   # ALPC impersonation, one role per process
 # the WinSta0 holder of el_up, which sections of every group use (built here, not in c4_build, so a section run alone has it)
@@ -5911,23 +5912,44 @@ grep -q 'names=.*alice' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: WEX_
 OUT="$(el_na n6 --setenv WEX_ACCOUNTS_PIPE=wexbogus list)"
 [ "$(st <<<"$OUT")" = 0 ] && grep -q 'names=.*alice' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: WEX_ACCOUNTS_PIPE steered an elevated process"; }
 ok st_netapi_environment_does_not_steer_the_client
-# a list that changed between two pages: the second page has a larger total than the first; refused, no write past the buffer (M1)
+# the hooks: only an administrator's hive write sets them (a standard user and a limited administrator are refused), and the Pipe
+# value is read by the lab build only: in this (shipped) build a leftover value that names a pipe a user could serve is ignored,
+# and the real service answers (the reviewer's C1)
+as_wine "$STD" reg add 'HKLM\Software\WineExplorer\AccountsTest' /v Pipe /t REG_SZ /d x /f >/dev/null 2>&1 && chain_fail "netapi: a standard user wrote the test hook"
+as_wine "$ADM" reg add 'HKLM\Software\WineExplorer\AccountsTest' /v Pipe /t REG_SZ /d x /f >/dev/null 2>&1 && chain_fail "netapi: a limited administrator wrote the test hook"
+! s0_wine reg query 'HKLM\Software\WineExplorer\AccountsTest' >/dev/null 2>&1 || chain_fail "netapi: the test hook key exists after refused writes"
 s0_wine reg add 'HKLM\Software\WineExplorer\AccountsTest' /v Pipe /t REG_SZ /d '\\.\pipe\wexmock' /f >/dev/null
-( as_wine "$STD" "$ROOT/probes/accmock64.exe" '\\.\pipe\wexmock' > "$CH/mock.out" 2>&1 ) & MOCKPID=$!
+( as_wine "$STD" "$ROOT/probes/accmock64.exe" '\\.\pipe\wexmock' > "$CH/mock0.out" 2>&1 ) & MOCK0=$!
 sleep 3
 OUT="$(as_na "$STD" list)"
+kill "$MOCK0" 2>/dev/null; pkill -f accmock64 2>/dev/null; wait "$MOCK0" 2>/dev/null || true
 s0_wine reg delete 'HKLM\Software\WineExplorer\AccountsTest' /f >/dev/null 2>&1
-wait "$MOCKPID" 2>/dev/null || true
-[ "$(st <<<"$OUT")" = 13 ] || { echo "$OUT" >&2; cat "$CH/mock.out" >&2; chain_fail "netapi: a list that grew between two pages was not refused with ERROR_INVALID_DATA"; }
-grep -q 'served=2' "$CH/mock.out" || { cat "$CH/mock.out" >&2; chain_fail "netapi: the mock service did not serve both pages"; }
-[ "$(as_na "$STD" info alice | st)" = 0 ] || chain_fail "netapi: no way back to the real service after the hook was removed"
-ok st_netapi_list_that_changes_between_pages_is_refused
+[ "$(st <<<"$OUT")" = 0 ] && grep -q 'names=.*alice' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: a Pipe value steered the client of a shipped build"; }
+ok st_netapi_pipe_hook_is_not_read_by_a_shipped_build
 # what the helper logged: reads as users, changes as elevated, the caller's uid, never a hash
 grep -q 'verdict 1 ' "$CH/helper.log" && grep -q 'verdict 2 ' "$CH/helper.log" || chain_fail "chain: the helper's log lacks the verdicts of both classes"
 grep -q "caller $ADM_UID " "$CH/helper.log" || chain_fail "chain: the helper's log lacks the caller's uid"
 ! grep -q 'chainsalt' "$CH/helper.log" || chain_fail "chain: a hash reached the helper's log"
 ok st_chain_verdicts_and_caller_uid_reach_the_helper
 chain_teardown
+kill_servers
+true; ); section_leave $?; fi
+if section s0_netapi_lab; then set +e; ( section_enter
+# netapi32's client against a stand-in service (the lab build reads the hook HKLM\Software\WineExplorer\AccountsTest\Pipe, a shipped one
+# does not: s0_accounts_chain). scripts/accounts_mock_server.c answers WEXA_LIST_USERS in two pages, and the second page has a larger total
+# than the first (an account was made between the two calls): the client must refuse the list with ERROR_INVALID_DATA, not write past the
+# buffer it sized for the first page (the reviewer's M1)
+NL="$ROOT/netapi-lab"; rm -rf "$NL"; install -d -m 0777 "$NL"
+nl_st() { sed -n 's/^status=//p' | head -1; }
+s0_wine reg add 'HKLM\Software\WineExplorer\AccountsTest' /v Pipe /t REG_SZ /d '\\.\pipe\wexmock' /f >/dev/null
+( as_wine "$STD" "$ROOT/probes/accmock64.exe" '\\.\pipe\wexmock' > "$NL/mock.out" 2>&1 ) & MOCKPID=$!
+sleep 3
+OUT="$(as_wine "$STD" "$ROOT/probes/netapi64.exe" list | tr -d '\r')"
+s0_wine reg delete 'HKLM\Software\WineExplorer\AccountsTest' /f >/dev/null 2>&1
+wait "$MOCKPID" 2>/dev/null || true
+[ "$(nl_st <<<"$OUT")" = 13 ] || { echo "$OUT" >&2; cat "$NL/mock.out" >&2; fail "netapi: a list that grew between two pages was not refused with ERROR_INVALID_DATA"; }
+grep -q 'served=2' "$NL/mock.out" || { cat "$NL/mock.out" >&2; fail "netapi: the mock service did not serve both pages"; }
+ok st_netapi_list_that_changes_between_pages_is_refused
 kill_servers
 true; ); section_leave $?; fi
 STD_SID="S-1-5-21-$(awk -v n="$STD" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
