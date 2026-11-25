@@ -3503,6 +3503,9 @@ command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || secti
 x86_64-w64-mingw32-g++ -municode -mwindows -o "$POPD/dwm-popup-probe.exe" "$SRC/scripts/dwm-popup-probe.cpp" \
     -ld3d11 -ldxgi -ldcomp -luser32 -lgdi32 2>"$POPD/build.log" || { cat "$POPD/build.log" >&2; fail "popup: the probe does not build"; }
 chmod 0755 "$POPD/dwm-popup-probe.exe"
+# a wineserver left by earlier sections (started on their display, with their state) is not this section's
+pkill -u "$ADM" -x wineserver 2>/dev/null || true
+for _ in $(seq 50); do pgrep -u "$ADM" -x wineserver >/dev/null || break; sleep 0.1; done
 DWMKEY='HKCU\Software\WineExplorer\Shell'
 POPCOMP="$(wine_as "$ADM" reg query "$DWMKEY" /v Composition 2>/dev/null | tr -d '\r' | awk '$1 == "Composition" { print $NF }' || true)"
 if [ "$POPCOMP" = 0x1 ]; then
@@ -3566,6 +3569,9 @@ command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || secti
 x86_64-w64-mingw32-gcc -municode -mwindows -o "$MENUD/dwm-menu-probe.exe" "$SRC/scripts/dwm-menu-probe.c" -luser32 -lgdi32 -lcomctl32 2>"$MENUD/build.log" ||
     { cat "$MENUD/build.log" >&2; fail "menu: the probe does not build"; }
 chmod 0755 "$MENUD/dwm-menu-probe.exe"
+# a wineserver left by earlier sections (started on their display, with their state) is not this section's
+pkill -u "$ADM" -x wineserver 2>/dev/null || true
+for _ in $(seq 50); do pgrep -u "$ADM" -x wineserver >/dev/null || break; sleep 0.1; done
 DWMKEY='HKCU\Software\WineExplorer\Shell'
 MENUCOMP="$(wine_as "$ADM" reg query "$DWMKEY" /v Composition 2>/dev/null | tr -d '\r' | awk '$1 == "Composition" { print $NF }' || true)"
 if [ "$MENUCOMP" = 0x1 ]; then
