@@ -1,0 +1,9 @@
+* SPDX-License-Identifier: GPL-2.0-or-later
+* Copyright 2026 WineExplorer contributors
+.echo ==START
+.prompt_allow -dis -ea -reg -src -sym
+dx -g @$cursession.TTD.Calls("ntdll!NtCreateThreadEx","ntdll!RtlCreateUserThread").Select(c => new { T = c.TimeStart, Parent = c.ThreadId, Fn = c.Function, Ret = c.ReturnValue, A1 = c.Parameters[0], A2 = c.Parameters[1], A3 = c.Parameters[2], A4 = c.Parameters[3] }),80
+.echo ==THREADOBJ
+dx -r1 @$cursession.Processes.First().Threads.First()
+.echo ==END
+q

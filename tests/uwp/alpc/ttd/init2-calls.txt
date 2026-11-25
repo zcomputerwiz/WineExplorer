@@ -1,0 +1,9 @@
+* SPDX-License-Identifier: GPL-2.0-or-later
+* Copyright 2026 WineExplorer contributors
+.echo ==START
+.prompt_allow -dis -ea -reg -src -sym
+dx -g @$cursession.TTD.Calls("win32u!NtUserInitThreadCoreMessagingIocp2").Select(c => new { Tid = c.ThreadId, T = c.TimeStart, Ret = c.ReturnValue, Hwnd = c.Parameters[0], Out = c.Parameters[1] }),50
+.echo ==THREADS
+dx -g @$cursession.Processes.First().Threads.Select(t => new { Id = t.Id, Start = t.LifeTime.MinPosition, End = t.LifeTime.MaxPosition }),80
+.echo ==END
+q

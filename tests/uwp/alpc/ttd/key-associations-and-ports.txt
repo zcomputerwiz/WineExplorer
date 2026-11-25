@@ -1,0 +1,9 @@
+* SPDX-License-Identifier: GPL-2.0-or-later
+* Copyright 2026 WineExplorer contributors
+.echo ==START
+.prompt_allow -dis -ea -reg -src -sym
+dx -g @$cursession.TTD.Calls("ntdll!NtAssociateWaitCompletionPacket").Where(c => (c.Parameters[3] & 0xFFFFFFFF00000000) == 0 && (c.Parameters[3] & 0x40000000) != 0).Select(c => new { T = c.TimeStart, Tid = c.ThreadId, Packet = c.Parameters[0], Port = c.Parameters[1], Target = c.Parameters[2], Key = c.Parameters[3] }),60
+.echo ==PORTS
+dx -g @$cursession.TTD.Calls("ntdll!NtCreateIoCompletion").Select(c => new { T = c.TimeStart, Tid = c.ThreadId, Ret = c.ReturnValue, Out = c.Parameters[0] }),30
+.echo ==END
+q

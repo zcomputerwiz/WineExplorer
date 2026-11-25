@@ -344,3 +344,25 @@ Measured on Windows 11 (tests/uwp/alpc/sched2-probe.c, smcb2-probe.c, order-prob
 With the new ordering the UI thread no longer fails. Open: the worker thread (adapter window 0x3006e) fail-fasts on a wparam-3
 completion that arrives after it handled the (5,5), drained (Drain2 returns 1) and waited. Not yet different from Windows: the
 order of (0,0) relative to the posted copy (Windows: after), the InSendMessageEx value of the callback message (Windows 2, Wine 4).
+
+## 2026-11-25: Time Travel Debugging of Windows Notepad (tests/uwp/alpc/ttd)
+
+How: `ttd-notepad2.ps1` (elevated, tttracer monitor mode) records Notepad from process creation; `run-cdb.ps1` runs WinDbg's cdb on the .run with a command
+file (`dx @$cursession.TTD.Calls("ntdll!Nt...")` gives every call with arguments, return value, thread and position; `!tt <pos>` + `dq @rsp+28 L4` gives
+the stack arguments). API-boundary level only, no disassembly. The traces live outside the repository (D:\DeepThought\ttd-notepad2).
+
+Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
+- Three threads call Init2: the UI thread (two windows: the app's and the system CoreMessaging.dll's), a CoreMessagingXP worker (also two windows) and a
+  system CoreMessaging.dll thread (one window). Wake packets all have APC context 0 (stack argument 5), so they arrive as (3,0).
+- A CoreMessagingXP worker thread starts with: auto-reset event, manual-reset event, thread-pool wait on it (TpAllocWait/TpSetWait, packet associated
+  with the process thread-pool port), manual event, DuplicateHandle(current thread), thread-pool wait on that, then **NtCreateIoCompletion (a private
+  port), NtCreateWaitCompletionPacket, NtAssociateWaitCompletionPacket(packet, private port, first event, key 0x40000002)**, then the window, Init2,
+  SetTimer(hwnd,1,0x7fffffff), DuplicateHandle(first event), SendMessageCallbackW(hwnd,0x60,5,5), **NtCancelWaitCompletionPacket(packet, FALSE)**,
+  **NtAssociateWaitCompletionPacket(same packet, Init2 port, first event, key = heap pointer)**, a second packet created, then MsgWait; the (5,5)
+  handler associates the second packet (second event) with the Init2 port and calls Drain2(hwnd,NULL,NULL,NULL) once.
+- The wake: another thread (the UI thread) calls SetEvent(first event); the worker's handler then calls Drain2(hwnd, ptr, ptr, ptr) with real buffers,
+  re-associates the first packet, posts (5,4), calls ordinal 2582, SetTimer(hwnd,1,0) and SetTimer(hwnd,1,0x7fffffff), Drain2 again, MsgWait.
+- Wine's worker (the failing one) does none of the private-port part: it creates a new packet after the (5,5) callback instead of cancelling and
+  re-associating the first one, and the private-port block runs on separate threads that have no window (Windows: the same thread that owns the window).
+  Wine's UI thread also has one window where Windows has two (the system CoreMessaging.dll instance is missing under Wine). Open: why the thread start
+  code takes that path under Wine (the decision is made before the window exists), and whether the missing system instance matters to the handler.

@@ -1,0 +1,7 @@
+* SPDX-License-Identifier: GPL-2.0-or-later
+* Copyright 2026 WineExplorer contributors
+.echo ==START
+.prompt_allow -dis -ea -reg -src -sym
+dx -g @$cursession.TTD.Calls("ntdll!NtSetEvent","ntdll!NtResetEvent","user32!PostMessageW","user32!SendMessageCallbackW","win32u!NtUserScheduleDispatchNotification","win32u!NtUserDrainThreadCoreMessagingCompletions2","win32u!NtUserMsgWaitForMultipleObjectsEx","ntdll!NtAssociateWaitCompletionPacket","ntdll!NtCancelWaitCompletionPacket","ntdll!NtCreateWaitCompletionPacket").Where(c => c.TimeStart.Sequence >= 0x2BA00 && c.TimeStart.Sequence <= 0x2DA00 && (c.ThreadId == 0x741c || c.Parameters[0] == 0x53c || c.Parameters[0] == 0x170dde || c.Parameters[0] == 0x9e0 || c.Parameters[0] == 0x950)).Select(c => new { T = c.TimeStart, Tid = c.ThreadId, Fn = c.Function, Ret = c.ReturnValue, A1 = c.Parameters[0], A2 = c.Parameters[1], A3 = c.Parameters[2], A4 = c.Parameters[3] }),200
+.echo ==END
+q

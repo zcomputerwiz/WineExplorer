@@ -1,0 +1,28 @@
+* SPDX-License-Identifier: GPL-2.0-or-later
+* Copyright 2026 WineExplorer contributors
+.echo ==START
+.prompt_allow -dis -ea -reg -src -sym
+.echo == Associate 0x161 (before window) at 2B9F0:558
+!tt 2B9F0:558
+r rcx,rdx,r8,r9
+dq @rsp+28 L4
+.echo == Create packet 0x160 at 2B9E6:F0
+!tt 2B9E6:F0
+r rcx
+.echo == Cancel 0x168 at 2BA8E:102
+!tt 2BA8E:102
+r rcx,rdx
+.echo == Associate 0x169 (re-associate to Init2 port) at 2BAA0:BC
+!tt 2BAA0:BC
+r rcx,rdx,r8,r9
+dq @rsp+28 L4
+.echo == Associate 0x19f ((5,5) handler) at 2CCFF:71
+!tt 2CCFF:71
+r rcx,rdx,r8,r9
+dq @rsp+28 L4
+.echo == Associate 0x1b0 (wake handler rearm) at 2D858:FE
+!tt 2D858:FE
+r rcx,rdx,r8,r9
+dq @rsp+28 L4
+.echo ==END
+q

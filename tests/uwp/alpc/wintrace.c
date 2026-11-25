@@ -27,7 +27,7 @@
  *   d3dcompiler_47.dll!flg[N] / linker[N] / module[N] / instance[N]   slot N of a function linking graph, linker, shader-library module or
  *                                module instance that this program creates (from a one-line library of its own)
  * For the last six, only calls on an object with that vtable are counted (the slots may share code with other objects).
- * The label may end in _S (rdx, r8, r9 as C strings), _P (rdx: an array of r8 D3D11_PARAMETER_DESC), _D (the 32 qwords at rcx), _H (rcx is a WinRT string, such as a class name: its text), _E (48 qwords at rdx and r8, at entry and at return) or _F (the low float and double of
+ * The label may end in _S (rdx, r8, r9 as C strings), _P (rdx: an array of r8 D3D11_PARAMETER_DESC), _D (the 32 qwords at rcx), _H (rcx is a WinRT string, such as a class name: its text), _E (48 qwords at rdx and r8, at entry and at return), _K (the fifth to eighth arguments, from the stack) or _F (the low float and double of
  * xmm0 to xmm3); the fifth field R logs the return value and what the argument registers point to.
  * The load of every module is logged too (with the load order), so the order of events can be compared with a Wine run.
  * Build (mingw): x86_64-w64-mingw32-gcc -O2 -o wintrace.exe wintrace.c -lole32 -luuid
@@ -172,6 +172,15 @@ static void hit(struct bp *b, DWORD tid)
     {
         log_line("HIT %s #%d tid %lu rcx %#llx rdx %#llx r8 %#llx r9 %#llx", b->label, b->hits, (unsigned long)tid,
                  (unsigned long long)ctx.Rcx, (unsigned long long)ctx.Rdx, (unsigned long long)ctx.R8, (unsigned long long)ctx.R9);
+        if (strstr(b->label, "_K"))   /* _K: the fifth to eighth arguments (the four qwords after the shadow space at entry) */
+        {
+            ULONG_PTR sa[4] = {0};
+            SIZE_T n = 0;
+
+            ReadProcessMemory(proc, (void *)(ctx.Rsp + 0x28), sa, sizeof(sa), &n);
+            log_line("    stack args %#llx %#llx %#llx %#llx", (unsigned long long)sa[0], (unsigned long long)sa[1],
+                     (unsigned long long)sa[2], (unsigned long long)sa[3]);
+        }
         if (strstr(b->label, "_F"))   /* _F: the low float and the low double of xmm0..xmm3 */
         {
             float f0, f1, f2, f3;
