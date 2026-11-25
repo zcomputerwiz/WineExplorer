@@ -5194,7 +5194,7 @@ s0_wine sc create WexAccSquat binPath= "$(winpath "$ROOT/probes/accp64.exe") squ
 s0_wine sc start WexAccSquat >/dev/null || true   # not a real service: it writes its result and exits
 for i in $(seq 1 100); do grep -q '^squat_bridged=' /tmp/accls.txt 2>/dev/null && break; sleep 0.2; done
 s0_wine sc delete WexAccSquat >/dev/null || true
-OUT="$(cat /tmp/accls.txt 2>/dev/null || true)"; rm -f /tmp/accls.txt
+OUT="$(tr -d '\r' < /tmp/accls.txt 2>/dev/null || true)"; rm -f /tmp/accls.txt   # written in text mode: CRLF
 [ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
     accfail "accounts: a LocalService service created a reserved pipe: [$OUT]"
 ok acc_reserved_pipe_only_for_localsystem_in_session0
