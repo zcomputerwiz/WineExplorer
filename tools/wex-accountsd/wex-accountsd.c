@@ -735,6 +735,16 @@ static int op_start_sync( void )
     return WEXA_OK;
 }
 
+/* A created, deleted or renamed user reaches the account map when the sync unit has run: the helper asks for it itself (the server
+ * forwards one client message once, so the Windows-side service has no request of its own to send), and the service watches the map's
+ * generation. A refusal of the unit is only logged: the change was made, and the timer syncs anyway. */
+static void sync_after_change( void )
+{
+    int r = op_start_sync();
+
+    if (r != WEXA_OK) logf_( "the sync unit could not be started (status %d)", r );
+}
+
 /* F5: only a name that cannot carry a control character or a newline goes into the journal; anything else is "<invalid>" */
 static void set_logname( char *out, const char *name )
 {
@@ -836,6 +846,7 @@ static int handle_op( const struct wexa_request *req, const uint8_t *body, struc
             return status;
         }
         if (find_user( name, &u ) == WEXA_OK) wr_record( w, &u );
+        sync_after_change();
         return WEXA_OK;
 
     case WEXA_DELETE_USER:
@@ -853,6 +864,7 @@ static int handle_op( const struct wexa_request *req, const uint8_t *body, struc
 
             if (rr < 0) { rr = map_error( rr, &err ); sd_bus_error_free( &err ); return rr; }
         }
+        sync_after_change();
         return WEXA_OK;
 
     case WEXA_RENAME_USER:
@@ -865,7 +877,9 @@ static int handle_op( const struct wexa_request *req, const uint8_t *body, struc
         if ((status = check_target( &u, req->caller_uid )) != WEXA_OK) return status;
         if (!name_is_free( other )) return WEXA_EXISTS;
         if (is_logged_in( u.uid )) return WEXA_LOGGED_IN;
-        return call_user_method( &u, "SetUserName", "s", other );
+        status = call_user_method( &u, "SetUserName", "s", other );
+        if (status == WEXA_OK) sync_after_change();
+        return status;
 
     case WEXA_SET_FULLNAME:
         rd_str( &r, name, sizeof(name) );

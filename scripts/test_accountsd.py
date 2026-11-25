@@ -197,6 +197,8 @@ def tests_operations(rig):
     calls = rig.calls()
     check(any(x['op'] == 'CreateUser' and x['user'] == 'eve' and x['type'] == 0 for x in calls), 'create: CreateUser as a standard user')
     check(any(x['op'] == 'SetPassword' and x['user'] == 'eve' and x['value'] == HASH for x in calls), 'create: SetPassword with the hash')
+    check(any(x['op'] == 'StartUnit' and x['unit'] == 'wex-accounts-sync.service' for x in calls),
+          'create: the helper asks for the account map sync itself')
     st, body = c.req(frame(CREATE, s('frank') + s('Frank') + u(1) + s(HASH2)))
     check(st == OK and any(x['op'] == 'SetAccountType' and x['user'] == 'frank' and x['value'] == 1 for x in rig.calls()),
           'create: an administrator gets the type set')

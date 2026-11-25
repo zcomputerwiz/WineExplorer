@@ -196,6 +196,7 @@ s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
 s0_accounts      s0_base            n   s0
+s0_accounts_chain s0_base,c5_build  n   s0
 gp_registry      s0_base            n   gp
 gp_local         s0_base            n   gp
 gp_template      s0_base            n   gp
@@ -639,6 +640,7 @@ read -r -u "${XV[0]}" DNUM
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe64.exe" "$SRC/scripts/sysrun_server_probe.c" -ladvapi32
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe32.exe" "$SRC/scripts/sysrun_server_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe64.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
+x86_64-w64-mingw32-gcc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/accchain64.exe" "$SRC/scripts/accounts_chain_probe.c"
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe32.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/alpcpair64.exe" "$SRC/tests/uwp/alpc/alpc-pair.c" -ladvapi32   # ALPC impersonation, one role per process
 # the WinSta0 holder of el_up, which sections of every group use (built here, not in c4_build, so a section run alone has it)
@@ -4693,6 +4695,127 @@ pgrep -u "$STD" -f wexaccounts >/dev/null || fail "Local Accounts: the service d
 ok st_the_accounts_service_starts_on_demand_in_a_plain_prefix
 run_as "$STD" WINEPREFIX="$PP" "$BUILD/server/wineserver" -k || true
 run_as "$STD" rm -rf "$PP"
+kill_servers
+true; ); section_leave $?; fi
+if section s0_accounts_chain; then set +e; ( section_enter
+# Local Accounts through the whole chain (docs/LOCAL_USERS_DESIGN.md): a program in a session -> the bridge -> wexaccounts in session 0 ->
+# the server's accounts_forward -> the helper wex-accountsd, here a lab build run as root on a fake AccountsService, logind and systemd
+# (scripts/accountsd-fake-bus.py) on a private bus. The helper's account in accountsd.conf is root for the test. Checks: who may read and who may
+# change (the verdict is the server's: a standard user and a limited administrator read, only an elevated administrator changes), the caller's
+# own account (the link's uid), a caller of session 0 itself (not bridged: refused), the helper gone, and the helper restarted in the
+# middle of a request.
+CH="$ROOT/chain"; rm -rf "$CH"; install -d -m 0755 "$CH"
+# the helper runs as an account of its own: the server refuses a helper that is root (accountsd.conf's helper_user)
+HELPER_NEW=0; id wexaccounts >/dev/null 2>&1 || { useradd --system --no-create-home --shell /usr/sbin/nologin wexaccounts && HELPER_NEW=1; }
+chown wexaccounts "$CH"
+as_helper() { runuser -u wexaccounts -- "$@"; }
+gcc -O2 -Wall -DWEX_ACCOUNTSD_LAB_TEST -o "$CH/wex-accountsd" "$SRC/tools/wex-accountsd/wex-accountsd.c" -lsystemd || fail "chain: the helper's lab build"
+as_helper dbus-daemon --session --nofork --print-address=1 > "$CH/bus.addr" 2>/dev/null & BUSPID=$!
+for i in $(seq 1 40); do [ -s "$CH/bus.addr" ] && break; sleep 0.25; done
+ADDR="$(head -1 "$CH/bus.addr")"; [ -n "$ADDR" ] || fail "chain: no private bus"
+ADM_UID="$(id -u "$ADM")"
+as_helper env FAKE_EXTRA="$ADM:$ADM_UID" python3 "$SRC/scripts/accountsd-fake-bus.py" "$ADDR" "$CH/fake.log" > "$CH/fake.out" 2>&1 & FAKEPID=$!
+for i in $(seq 1 40); do grep -q READY "$CH/fake.out" && break; sleep 0.25; done
+grep -q READY "$CH/fake.out" || { cat "$CH/fake.out" >&2; echo "bus address [$ADDR]" >&2; kill "$BUSPID" 2>/dev/null; fail "chain: the fake bus did not start"; }
+install -d -m 0755 /etc/wineexplorer
+install -d -m 0755 -o wexaccounts /run/wineexplorer
+[ ! -f /etc/wineexplorer/accountsd.conf ] || cp -p /etc/wineexplorer/accountsd.conf "$CH/accountsd.conf.orig"
+printf 'session0_user=%s\nsession0_unit=wex-session0.service\nadmin_group=sudo\nbuiltin_administrator=builtin\nsync_unit=wex-accounts-sync.service\nhelper_user=wexaccounts\n' \
+    "$S0U" > /etc/wineexplorer/accountsd.conf
+chmod 0644 /etc/wineexplorer/accountsd.conf
+s0_pid() { pgrep -u "$S0U" -f 'wineserver --session0' | head -1; }
+start_helper()
+{
+    s0_pid > "$CH/mainpid"
+    rm -f /run/wineexplorer/accounts.sock
+    as_helper env WEX_ACCOUNTSD_TEST=1 "$CH/wex-accountsd" --config /etc/wineexplorer/accountsd.conf --bus "$ADDR" --listen /run/wineexplorer/accounts.sock \
+        --mainpid-file "$CH/mainpid" --any-dumpable --admin-members alice,bob >> "$CH/helper.log" 2>&1 & HELPERPID=$!
+    for i in $(seq 1 40); do [ -S /run/wineexplorer/accounts.sock ] && break; sleep 0.25; done
+    chmod 0666 /run/wineexplorer/accounts.sock   # the file mode is not the authority: the helper checks its peer
+}
+stop_helper() { pkill -9 -u wexaccounts -f wex-accountsd 2>/dev/null; wait "$HELPERPID" 2>/dev/null || true; rm -f /run/wineexplorer/accounts.sock; return 0; }
+chain_teardown()
+{
+    stop_helper; pkill -9 -u wexaccounts 2>/dev/null; wait "$FAKEPID" "$BUSPID" 2>/dev/null || true
+    [ "$HELPER_NEW" != 1 ] || userdel wexaccounts 2>/dev/null
+    if [ -f "$CH/accountsd.conf.orig" ]; then cp -p "$CH/accountsd.conf.orig" /etc/wineexplorer/accountsd.conf; else rm -f /etc/wineexplorer/accountsd.conf; fi
+}
+start_helper
+# the service of session 0 must be up (its manager answers after the auto-start pass)
+for i in $(seq 1 30); do s0_wine sc query wexaccounts 2>/dev/null | grep -q RUNNING && break; sleep 1; done
+s0_wine sc query wexaccounts 2>/dev/null | grep -q RUNNING || { chain_teardown; fail "chain: the accounts service does not run in session 0"; }
+# one run of the probe as a user; the first lines of its output
+as_chain() { local u="$1"; shift; as_wine "$u" "$ROOT/probes/accchain64.exe" "$@"; }
+: > "$CH/fake.log"; chown wexaccounts "$CH/fake.log"
+el_up "$ADM"   # the administrator's session, where the consent window of an elevated run comes up
+# an elevated administrator's run (the broker's test approval), output through a file
+el_run()   # name args...: the probe as ADM's elevated process (the consent window approved, as el_cmd does it); prints its output
+{
+    local name="$1" out="/tmp/wexchain.$1.txt"; shift
+    rm -f "$out"
+    run_as "$ADM" install -d -m 0755 "/home/$ADM/wexel"; run_as "$ADM" cp "$ROOT/probes/accchain64.exe" "/home/$ADM/wexel/accchain.exe"
+    el_cmd "chain_$name" "$ADM" "$(winpath /home/$ADM/wexel/accchain.exe) $* --out $(winpath "$out")"
+    tr -d '\r' < "$out" 2>/dev/null
+}
+chain_fail() { echo "--- helper log:" >&2; tail -15 "$CH/helper.log" >&2; echo "--- session 0 log:" >&2; tail -15 "$ROOT/session0.log" >&2; chain_teardown; fail "$1"; }
+st() { sed -n 's/^status=//p' | head -1; }
+
+# who may read: a standard user and a limited administrator; the record comes back through the chain
+OUT="$(as_chain "$STD" read alice)"
+[ "$(st <<<"$OUT")" = 0 ] && grep -q 'uid=1001 type=1' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "chain: $STD cannot read a user through the chain"; }
+ok st_chain_standard_user_reads
+OUT="$(as_chain "$ADM" list)"
+[ "$(st <<<"$OUT")" = 0 ] && grep -q 'names=.*alice' <<<"$OUT" && grep -q 'carol' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "chain: the list through the chain"; }
+ok st_chain_limited_administrator_lists
+OUT="$(as_chain "$STD" admins)"
+grep -q 'names=alice,bob' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "chain: the administrators through the chain"; }
+# who may not change
+[ "$(as_chain "$STD" create zedchain | st)" = 1 ] || chain_fail "chain: a standard user was not refused a create"
+[ "$(as_chain "$ADM" create zedchain | st)" = 1 ] || chain_fail "chain: a limited administrator was not refused a create"
+[ "$(as_chain "$ADM" delete carol | st)" = 1 ] || chain_fail "chain: a limited administrator was not refused a delete"
+! grep -q '"op": "CreateUser"' "$CH/fake.log" || chain_fail "chain: a refused create reached AccountsService"
+ok st_chain_only_elevated_changes_part1
+# the elevated administrator changes: the verdict is the server's
+OUT="$(el_run c1 create zedchain)"
+case "$(st <<<"$OUT")" in 0|10) ;; *) echo "$OUT" >&2; chain_fail "chain: the elevated create gave [$(st <<<"$OUT")]";; esac
+grep -q '"op": "CreateUser", "user": "zedchain"' "$CH/fake.log" || chain_fail "chain: the elevated create did not reach AccountsService"
+grep -q '"op": "SetPassword", "user": "zedchain"' "$CH/fake.log" || chain_fail "chain: the elevated create did not set the password"
+[ "$(as_chain "$STD" read zedchain | st)" = 0 ] || chain_fail "chain: the created user is not there for a reader"
+case "$(el_run c2 delete zedchain | st)" in 0|10) ;; *) chain_fail "chain: the elevated delete failed";; esac   # 10: made, the account map had not moved (the fixture's map is not synced by the fake)
+grep -q '"op": "DeleteUser"' "$CH/fake.log" || chain_fail "chain: the elevated delete did not reach AccountsService"
+ok st_chain_elevated_administrator_creates_and_deletes
+# the caller's own account: the link's uid
+[ "$(el_run c3 delete "$ADM" | st)" = 1 ] || chain_fail "chain: an elevated administrator deleted its own account"
+ok st_chain_the_callers_own_account_is_refused
+# a caller of session 0 itself is not bridged: refused (the server's accounts_forward)
+OUT="$(s0_wine "$ROOT/probes/accchain64.exe" read alice | tr -d '\r')"
+[ "$(st <<<"$OUT")" = 1 ] || { echo "$OUT" >&2; chain_fail "chain: a process of session 0 was served over the local pipe"; }
+ok st_chain_a_session0_process_is_not_served
+# the helper is gone: not reachable (1722 for netapi32)
+stop_helper
+[ "$(as_chain "$STD" read alice | st)" = 7 ] || chain_fail "chain: with no helper the answer was not UNAVAILABLE"
+ok st_chain_no_helper_gives_unavailable
+# the helper restarted in the middle of a request: no hang, not reachable
+start_helper
+touch "$CH/fake.log.slow"
+( el_run c4 fullname carol Mid > "$CH/mid.out" ) & MIDPID=$!
+sleep 6
+stop_helper
+t0=$SECONDS
+wait "$MIDPID"
+took=$((SECONDS - t0))
+rm -f "$CH/fake.log.slow"
+[ "$(st < "$CH/mid.out")" = 7 ] && [ "$took" -lt 25 ] || { cat "$CH/mid.out" >&2; chain_fail "chain: a request in flight when the helper went away did not give UNAVAILABLE in time (status [$(st < "$CH/mid.out")] after $took s)"; }
+ok st_chain_helper_restart_in_flight_gives_unavailable
+start_helper
+[ "$(as_chain "$STD" read alice | st)" = 0 ] || chain_fail "chain: the chain did not recover after the helper came back"
+ok st_chain_recovers_after_the_helper_returns
+# what the helper logged: reads as users, changes as elevated, the caller's uid, never a hash
+grep -q 'verdict 1 ' "$CH/helper.log" && grep -q 'verdict 2 ' "$CH/helper.log" || chain_fail "chain: the helper's log lacks the verdicts of both classes"
+grep -q "caller $ADM_UID " "$CH/helper.log" || chain_fail "chain: the helper's log lacks the caller's uid"
+! grep -q 'chainsalt' "$CH/helper.log" || chain_fail "chain: a hash reached the helper's log"
+ok st_chain_verdicts_and_caller_uid_reach_the_helper
+chain_teardown
 kill_servers
 true; ); section_leave $?; fi
 STD_SID="S-1-5-21-$(awk -v n="$STD" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"

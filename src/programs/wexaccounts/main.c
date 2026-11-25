@@ -35,6 +35,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+/* In the Wine tree that has the server's accounts_forward (include/wine/wex_accounts.h) the service calls it; in a lab build
+ * (-DWEXACCOUNTS_LAB) a stand-in takes the helper's place; in any other tree the service answers that the helper cannot be reached. */
+#if !defined(WEXACCOUNTS_LAB) && defined(__has_include)
+# if __has_include("wine/wex_accounts.h")
+#  define WEXACCOUNTS_SERVER_FORWARD
+# endif
+#endif
+
+#ifdef WEXACCOUNTS_SERVER_FORWARD
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
+#endif
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,6 +56,10 @@
 #include <winbase.h>
 #include <winsvc.h>
 #include <sddl.h>
+#ifdef WEXACCOUNTS_SERVER_FORWARD
+#include <winternl.h>
+#include "wine/wex_accounts.h"
+#endif
 
 #include "wexaccounts_proto.h"
 
@@ -120,13 +136,47 @@ static BOOL forward( HANDLE pipe, unsigned int op, const BYTE *body, DWORD body_
     if (change) InterlockedDecrement( &lab_in_change );
     return *status != WEXA_UNAVAILABLE;
 }
+#elif defined(WEXACCOUNTS_SERVER_FORWARD)
+/* The body is not passed: the server takes it from the client message this thread last read from the pipe (one whole message in one
+ * ReadFile, forwarded once): body_len bytes from the offset where the body starts after the client's header. reply must hold
+ * WEX_ACCOUNTS_MAX_REPLY bytes; reply_len: in, the size of reply, out, the bytes of the helper's reply body. The server refuses
+ * (STATUS_ACCESS_DENIED) a pipe that is not the reserved accounts pipe or a client that did not come over the bridge: that is a
+ * refusal, answered as such. A helper that is not there, went away, answers badly or takes over 15 s is "not reachable"
+ * (netapi32: RPC_S_SERVER_UNAVAILABLE). */
+static BOOL forward( HANDLE pipe, unsigned int op, const BYTE *body, DWORD body_len, BYTE *reply, DWORD *reply_len,
+                     unsigned int *status )
+{
+    ULONG out_len = WEX_ACCOUNTS_MAX_REPLY;
+    USHORT helper_status = 0;
+    NTSTATUS st;
+
+    if (*reply_len < WEX_ACCOUNTS_MAX_REPLY)
+    {
+        *reply_len = 0;
+        *status = WEXA_UNAVAILABLE;   /* the caller's mistake: no room for the largest reply */
+        return FALSE;
+    }
+    st = wex_accounts_forward( pipe, sizeof(struct wexa_request), body_len, op, reply, &out_len, &helper_status );
+    *reply_len = 0;
+    if (st == STATUS_ACCESS_DENIED)
+    {
+        *status = WEXA_DENIED;
+        return TRUE;
+    }
+    if (st)
+    {
+        *status = WEXA_UNAVAILABLE;   /* STATUS_PIPE_DISCONNECTED, STATUS_IO_TIMEOUT; STATUS_INVALID_DEVICE_STATE and STATUS_INVALID_PARAMETER are this service's own mistakes */
+        return FALSE;
+    }
+    *reply_len = out_len;
+    *status = helper_status;
+    return TRUE;
+}
 #else
 static BOOL forward( HANDLE pipe, unsigned int op, const BYTE *body, DWORD body_len, BYTE *reply, DWORD *reply_len,
                      unsigned int *status )
 {
-    /* the server's request accounts_forward (the L1 session's work, docs/LOCAL_USERS_DESIGN.md "Amendments H1 and H2")
-     * does not exist yet: until it does the service answers that the helper is not reachable, which netapi32 maps to
-     * RPC_S_SERVER_UNAVAILABLE */
+    /* a tree without the server's accounts_forward: the helper cannot be reached from here */
     *reply_len = 0;
     *status = WEXA_UNAVAILABLE;
     return FALSE;
@@ -154,15 +204,14 @@ static unsigned long long map_generation( void )
     return generation;
 }
 
-/* after a change the map must show: the sync is asked for and the generation watched; TRUE when it moved */
+/* after a change the map must show: the generation is watched; TRUE when it moved. The helper asks for the sync itself once a
+ * create, delete or rename has been made (the server forwards one client message once, so the service has no request of its own
+ * to send). */
 static BOOL wait_for_map( HANDLE pipe, unsigned long long before )
 {
-    BYTE reply[64];
-    DWORD reply_len, waited;
-    unsigned int status;
+    DWORD waited;
 
     if (!before) return TRUE;   /* no map to watch (no map yet, or not readable): nothing to wait for */
-    forward( pipe, WEXA_START_SYNC, NULL, 0, reply, &reply_len, &status );
     for (waited = 0; waited < SYNC_WAIT_MS; waited += SYNC_POLL_MS)
     {
         if (map_generation() > before) return TRUE;
@@ -288,6 +337,7 @@ static void serve_request( HANDLE pipe, const struct wexa_request *req, const BY
         EnterCriticalSection( &change_lock );
         if (wait_map) before = map_generation();
     }
+    reply_len = sizeof(reply) - sizeof(struct wexa_reply);   /* in: the room for the helper's reply body */
     reached = forward( pipe, req->op, body, req->body_len, reply, &reply_len, &status );
     if (change) LeaveCriticalSection( &change_lock );
     if (!reached || reply_len > sizeof(reply) - sizeof(struct wexa_reply))
