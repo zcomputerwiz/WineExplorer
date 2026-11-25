@@ -3585,6 +3585,13 @@ wine_as "$ADM" reg add 'HKCU\Software\Wine\Explorer\Desktops\Default' /v EnableS
 run_as "$ADM" env DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell.log" 2>&1 &
 MENUSHELL=$!
 sleep 10
+if [ "${MENU_PROBE_ARGS:-}" = startmenu ]; then   # exploring: the Start menu itself, no probe
+    sleep 5; DISPLAY=":$MENUDN" xdotool key super; sleep 4
+    DISPLAY=":$MENUDN" import -window root "/root/start-screen-${MENUCOMP:-off}.png" 2>/dev/null || true
+    DISPLAY=":$MENUDN" xwininfo -root -tree > "/root/start-tree-${MENUCOMP:-off}.txt" 2>&1 || true
+    kill "$MENUSHELL" 2>/dev/null || true; pkill -u "$ADM" -x wineserver 2>/dev/null || true; kill "$MENUX" 2>/dev/null || true
+    section_skip "startmenu exploration only"
+fi
 run_as "$ADM" env DISPLAY=":$MENUDN" timeout 100 "$BUILD/wine" "$(winpath "$MENUD/dwm-menu-probe.exe")" ${MENU_PROBE_ARGS:-} >"$MENUD/probe.log" 2>&1 &
 MENUPROBE=$!
 for i in $(seq 1 60); do grep -q 'menu ready' "$MENULOG" 2>/dev/null && break; sleep 1; done

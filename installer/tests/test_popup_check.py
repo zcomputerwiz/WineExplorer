@@ -83,6 +83,26 @@ class PopupCheck(unittest.TestCase):
                                capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stdout)
 
+    def test_shadow_is_found_for_a_popup_at_the_screen_edge(self):
+        # no room for the 30 px reference above or below it: the same row beside the popup is the reference
+        global POPUP
+        saved = POPUP
+        POPUP = (150, 5, 100, 285)
+        try:
+            for shadow, expected in ((True, 0), (False, 0)):
+                with tempfile.TemporaryDirectory() as d:
+                    d = Path(d)
+                    (d / "b.txt").write_text(BEFORE)
+                    (d / "a.txt").write_text(BEFORE + "window id=0x2 viewable=1 size=100x285 at=150,5 class=explorer.exe name=\n")
+                    screen(d / "s.ppm", shadow=shadow)
+                    r = subprocess.run([sys.executable, str(CHECK), d / "b.txt", d / "a.txt", d / "s.ppm", "1", "strict"],
+                                       capture_output=True, text=True)
+                self.assertEqual(r.returncode, 0 if shadow else 1, r.stdout)
+                if shadow:
+                    self.assertIn("shadow on:", r.stdout)
+        finally:
+            POPUP = saved
+
     def test_no_popup_fails(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
