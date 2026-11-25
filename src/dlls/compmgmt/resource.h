@@ -79,6 +79,11 @@
 #define IDC_SVC_DEPENDS_ON      311
 #define IDC_SVC_DEPENDENTS      312
 #define IDC_SVC_NOTE            313
+#define IDC_REC_FIRST           320
+#define IDC_REC_SECOND          321
+#define IDC_REC_THIRD           322
+#define IDC_REC_RESET           323
+#define IDC_REC_DELAY           324
 
 #define IDS_COL_STATUS          20
 #define IDS_COL_STARTUP         21
@@ -98,6 +103,11 @@
 #define IDS_SVC_NO_DESCRIPTION  35
 #define IDS_STARTUP_BOOT        36
 #define IDS_STARTUP_SYSTEM      37
+#define IDS_REC_NONE            60
+#define IDS_REC_RESTART         61
+#define IDS_REC_RUN             62
+#define IDS_REC_REBOOT          63
+#define IDS_REC_BAD_NUMBER      64
 
 /* the Users and Groups nodes */
 #define IDM_USR_NEW             1040

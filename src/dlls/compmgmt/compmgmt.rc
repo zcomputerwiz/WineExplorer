@@ -94,7 +94,20 @@ STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
 CAPTION "Recovery"
 FONT 8, "MS Shell Dlg"
 {
-    LTEXT        "", IDC_SVC_NOTE, 10, 12, 232, 50
+    LTEXT        "Select the computer's response if this service fails.", -1, 10, 10, 232, 10
+    LTEXT        "&First failure:", -1, 10, 30, 80, 10
+    COMBOBOX     IDC_REC_FIRST, 96, 28, 146, 50, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT        "&Second failure:", -1, 10, 48, 80, 10
+    COMBOBOX     IDC_REC_SECOND, 96, 46, 146, 50, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT        "Subsequent failure&s:", -1, 10, 66, 80, 10
+    COMBOBOX     IDC_REC_THIRD, 96, 64, 146, 50, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT        "Reset fail &count after:", -1, 10, 92, 80, 10
+    EDITTEXT     IDC_REC_RESET, 96, 90, 40, 12, ES_AUTOHSCROLL | ES_NUMBER
+    LTEXT        "days", -1, 142, 92, 60, 10
+    LTEXT        "R&estart service after:", -1, 10, 110, 80, 10
+    EDITTEXT     IDC_REC_DELAY, 96, 108, 40, 12, ES_AUTOHSCROLL | ES_NUMBER
+    LTEXT        "minutes", -1, 142, 110, 60, 10
+    LTEXT        "", IDC_SVC_NOTE, 10, 136, 232, 40
 }
 
 IDD_SVC_DEPENDENCIES DIALOGEX 0, 0, 252, 218
@@ -215,7 +228,12 @@ STRINGTABLE
     IDS_SVC_PROPS_TITLE "%s Properties (Local Computer)"
     IDS_SVC_ERROR "The service %s could not be changed.\n\n%s"
     IDS_SVC_TIMEOUT "The service %s did not answer in time. Its state is shown as it is now."
-    IDS_RECOVERY_NOTE "Recovery actions are not available yet: the service manager cannot report them (QueryServiceConfig2 for failure actions is not implemented)."
+    IDS_RECOVERY_NOTE "Run a Program and Restart the Computer are not available on this system yet: only Take No Action and Restart the Service can be chosen."
+    IDS_REC_NONE "Take No Action"
+    IDS_REC_RESTART "Restart the Service"
+    IDS_REC_RUN "Run a Program"
+    IDS_REC_REBOOT "Restart the Computer"
+    IDS_REC_BAD_NUMBER "Type a whole number of days and of minutes."
     IDS_LOGON_NOTE "Changing the account a service logs on with is not available here."
     IDS_SVC_NO_DESCRIPTION "(no description)"
 }

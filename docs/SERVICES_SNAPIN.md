@@ -52,7 +52,7 @@ the session 0 service in every row, delete included.
 
 ## Gaps (to the system tier as general bugs)
 
-1. **QueryServiceConfig2W with SERVICE_CONFIG_FAILURE_ACTIONS returns ERROR_INVALID_LEVEL (124)**, for every caller, on
+1. **(Fixed: B105, batch 1137; the Recovery page works since 2026-11-25.)** **QueryServiceConfig2W with SERVICE_CONFIG_FAILURE_ACTIONS returns ERROR_INVALID_LEVEL (124)**, for every caller, on
    session 0 services and on services created by the caller, also right after a successful
    ChangeServiceConfig2W(SERVICE_CONFIG_FAILURE_ACTIONS). The Recovery page of the service properties needs it. Whether
    the change is stored is not known from the outside: `ChangeServiceConfig2W` returns success and the query cannot show
@@ -69,7 +69,7 @@ control codes, and a service in a session (not session 0) other than one the cal
 `src/dlls/compmgmt/services.c`: the list (Name, Description, Status, Startup Type, Log On As), Start, Stop, Pause, Resume and
 Restart from the Action menu and the right-click menu (enabled as the selected service's state and accepted controls allow),
 and the Properties sheet (General: names, description, path, startup type and the four buttons; Log On: the account, read
-only; Recovery: grayed with the reason of gap 1; Dependencies: both lists). A change refused with access denied offers to open
+only; Recovery: the failure actions of the service (first, second and later failure: Take No Action or Restart the Service; the reset period in days and the restart delay in minutes; Run a Program and Restart the Computer are kept when the service has them but cannot be chosen, as the service manager does not run them yet; the service is opened with SERVICE_START as well, which a restart action needs; test `scripts/lab/compmgmt-recovery-test.sh`); Dependencies: both lists). A change refused with access denied offers to open
 Computer Management again as an administrator (the consent prompt), as the other consoles do.
 
 Test: `scripts/lab/compmgmt-services-test.sh` (as root in wexgpo, after `wex-run.sh build`): drives the console under Xvfb,
