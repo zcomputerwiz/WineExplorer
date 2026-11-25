@@ -33,12 +33,13 @@
 #include <commctrl.h>
 #include <shellapi.h>
 
+#include "compmgmt.h"
 #include "resource.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(compmgmt);
 
-enum kind { CONTAINER, HOSTED_DEVMGR, MISSING };
+enum kind { CONTAINER, HOSTED_DEVMGR, SERVICES, MISSING };
 
 /* the console tree, in the order of the string tables; parent is an index, -1 for the root */
 static const struct { int parent; enum kind kind; } nodes[] =
@@ -55,7 +56,7 @@ static const struct { int parent; enum kind kind; } nodes[] =
     {  7, MISSING },         /*  9 Disk Defragmenter */
     {  7, MISSING },         /* 10 Disk Management */
     {  0, CONTAINER },       /* 11 Services and Applications */
-    { 11, MISSING },         /* 12 Services */
+    { 11, SERVICES },        /* 12 Services */
     { 11, MISSING },         /* 13 WMI Control */
     { 11, MISSING },         /* 14 Indexing Service */
 };
@@ -64,11 +65,11 @@ static const struct { int parent; enum kind kind; } nodes[] =
 typedef HWND (WINAPI *CREATE_PANE)( HWND, int, int, int, int );
 typedef BOOL (WINAPI *PANE_COMMAND)( HWND, int );
 
-static HINSTANCE module;
+HINSTANCE compmgmt_module;
 
 static struct
 {
-    HWND hwnd, tree, list, text, pane;
+    HWND hwnd, tree, list, text, pane, svc;
     HTREEITEM items[NODE_COUNT];
     int selected, split;
     BOOL dragging;
@@ -79,13 +80,13 @@ static struct
     PANE_COMMAND pane_command;
 } cm;
 
-static const WCHAR *load_string( UINT id )
+const WCHAR *cm_string( UINT id )
 {
     static WCHAR buffer[8][1024];
     static int next;
     WCHAR *text = buffer[next++ % ARRAY_SIZE(buffer)];
 
-    if (!LoadStringW( module, id, text, ARRAY_SIZE(buffer[0]) )) text[0] = 0;
+    if (!LoadStringW( compmgmt_module, id, text, ARRAY_SIZE(buffer[0]) )) text[0] = 0;
     return text;
 }
 
@@ -124,7 +125,7 @@ static HTREEITEM add_node( int node )
     insert.hParent = nodes[node].parent < 0 ? TVI_ROOT : cm.items[nodes[node].parent];
     insert.hInsertAfter = TVI_LAST;
     insert.item.mask = TVIF_TEXT | TVIF_IMAGE | TVIF_SELECTEDIMAGE | TVIF_PARAM;
-    insert.item.pszText = (WCHAR *)load_string( IDS_NODE_BASE + node );
+    insert.item.pszText = (WCHAR *)cm_string( IDS_NODE_BASE + node );
     insert.item.iImage = insert.item.iSelectedImage = node_image( node );
     insert.item.lParam = node;
     return (HTREEITEM)SendMessageW( cm.tree, TVM_INSERTITEMW, 0, (LPARAM)&insert );
@@ -138,6 +139,31 @@ static void fill_tree( void )
     SendMessageW( cm.tree, TVM_EXPAND, TVE_EXPAND, (LPARAM)cm.items[0] );
     for (i = 1; i < NODE_COUNT; i++)
         if (nodes[i].kind == CONTAINER) SendMessageW( cm.tree, TVM_EXPAND, TVE_EXPAND, (LPARAM)cm.items[i] );
+}
+
+/* the Services commands at the top of the Action menu while the Services node is shown, as the selected service allows */
+static void update_action_menu( HMENU action )
+{
+    static const struct { UINT id; const WCHAR *text; DWORD flag; } items[] =
+    {
+        { IDM_SVC_START, L"&Start", SVC_CAN_START }, { IDM_SVC_STOP, L"S&top", SVC_CAN_STOP },
+        { IDM_SVC_PAUSE, L"&Pause", SVC_CAN_PAUSE }, { IDM_SVC_RESUME, L"&Resume", SVC_CAN_RESUME },
+        { IDM_SVC_RESTART, L"R&estart", SVC_CAN_RESTART },
+    };
+    BOOL services = cm.selected >= 0 && nodes[cm.selected].kind == SERVICES;
+    DWORD flags = services ? svc_commands( cm.svc ) : 0;
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(items); i++) DeleteMenu( action, items[i].id, MF_BYCOMMAND );
+    if (GetMenuState( action, 0, MF_BYPOSITION ) & MF_SEPARATOR) DeleteMenu( action, 0, MF_BYPOSITION );
+    if (services)
+    {
+        for (i = 0; i < ARRAY_SIZE(items); i++)
+            InsertMenuW( action, i, MF_BYPOSITION | MF_STRING | ((flags & items[i].flag) ? 0 : MF_GRAYED), items[i].id,
+                         items[i].text );
+        InsertMenuW( action, ARRAY_SIZE(items), MF_BYPOSITION | MF_SEPARATOR, 0, NULL );
+        EnableMenuItem( action, IDM_PROPERTIES, MF_BYCOMMAND | ((flags & SVC_SELECTED) ? MF_ENABLED : MF_GRAYED) );
+    }
 }
 
 /* the menus of a snap-in come with it: Device Manager's views and its scan, the list views otherwise */
@@ -167,8 +193,27 @@ static void update_menus( void )
         AppendMenuW( view, flags, IDM_VIEW_DETAIL, L"&Detail" );
     }
     EnableMenuItem( action, IDM_PROPERTIES, MF_BYCOMMAND | MF_GRAYED );
+    update_action_menu( action );
     EnableMenuItem( action, IDM_REFRESH, MF_BYCOMMAND | MF_ENABLED );
     DrawMenuBar( cm.hwnd );
+}
+
+/* a change was refused for want of rights: the console opens again as an administrator (the consent prompt) */
+BOOL cm_offer_elevation( HWND owner )
+{
+    WCHAR program[MAX_PATH], console[MAX_PATH + 24];
+    UINT n;
+
+    if (MessageBoxW( owner, cm_string( IDS_ASK_ELEVATE ), cm_string( IDS_ELEVATE_TITLE ), MB_YESNO | MB_ICONQUESTION ) != IDYES)
+        return FALSE;
+    /* the programs of the system folder, not whatever the current directory has under those names */
+    n = GetSystemDirectoryW( program, ARRAY_SIZE(program) - 12 );
+    if (!n) return FALSE;
+    swprintf( console, ARRAY_SIZE(console), L"\"%ls\\compmgmt.msc\"", program );
+    wcscat( program, L"\\mmc.exe" );
+    if ((INT_PTR)ShellExecuteW( owner, L"runas", program, console, NULL, SW_SHOWNORMAL ) <= 32) return FALSE;
+    if (IsWindow( cm.hwnd )) DestroyWindow( cm.hwnd );
+    return TRUE;
 }
 
 static void list_children( int node )
@@ -183,13 +228,13 @@ static void list_children( int node )
         if (nodes[i].parent != node) continue;
         item.mask = LVIF_TEXT | LVIF_IMAGE | LVIF_PARAM;
         item.iItem = count++;
-        item.pszText = (WCHAR *)load_string( IDS_NODE_BASE + i );
+        item.pszText = (WCHAR *)cm_string( IDS_NODE_BASE + i );
         item.iImage = node_image( i );
         item.lParam = i;
         SendMessageW( cm.list, LVM_INSERTITEMW, 0, (LPARAM)&item );
         item.mask = LVIF_TEXT;
         item.iSubItem = 1;
-        item.pszText = (WCHAR *)load_string( IDS_DESC_BASE + i );
+        item.pszText = (WCHAR *)cm_string( IDS_DESC_BASE + i );
         SendMessageW( cm.list, LVM_SETITEMW, 0, (LPARAM)&item );
         item.iSubItem = 0;
     }
@@ -207,6 +252,7 @@ static void layout( void )
     MoveWindow( cm.tree, 0, 0, split, client.bottom, TRUE );
     MoveWindow( cm.list, split + 4, 0, client.right - split - 4, client.bottom, TRUE );
     MoveWindow( cm.text, split + 4, 0, client.right - split - 4, client.bottom, TRUE );
+    MoveWindow( cm.svc, split + 4, 0, client.right - split - 4, client.bottom, TRUE );
     if (cm.pane) MoveWindow( cm.pane, split + 4, 0, client.right - split - 4, client.bottom, TRUE );
 }
 
@@ -239,19 +285,24 @@ static void select_node( int node )
     close_pane();
     ShowWindow( cm.list, SW_HIDE );
     ShowWindow( cm.text, SW_HIDE );
+    ShowWindow( cm.svc, SW_HIDE );
     switch (nodes[node].kind)
     {
+    case SERVICES:
+        svc_refresh( cm.svc );
+        ShowWindow( cm.svc, SW_SHOW );
+        break;
     case CONTAINER:
         list_children( node );
         ShowWindow( cm.list, SW_SHOW );
         break;
     case HOSTED_DEVMGR:
         if (open_pane()) break;
-        SetWindowTextW( cm.text, load_string( IDS_NO_DEVMGR ) );
+        SetWindowTextW( cm.text, cm_string( IDS_NO_DEVMGR ) );
         ShowWindow( cm.text, SW_SHOW );
         break;
     default:
-        SetWindowTextW( cm.text, load_string( IDS_REASON_BASE + node ) );
+        SetWindowTextW( cm.text, cm_string( IDS_REASON_BASE + node ) );
         ShowWindow( cm.text, SW_SHOW );
         break;
     }
@@ -261,7 +312,8 @@ static void select_node( int node )
 static void refresh( void )
 {
     if (cm.selected < 0) return;
-    if (cm.pane && cm.pane_command) cm.pane_command( cm.pane, 1 );
+    if (nodes[cm.selected].kind == SERVICES) svc_refresh( cm.svc );
+    else if (cm.pane && cm.pane_command) cm.pane_command( cm.pane, 1 );
     else if (nodes[cm.selected].kind == CONTAINER) list_children( cm.selected );
 }
 
@@ -271,11 +323,11 @@ static void create_list_columns( void )
 
     col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
     col.cx = 200;
-    col.pszText = (WCHAR *)load_string( IDS_COL_NAME );
+    col.pszText = (WCHAR *)cm_string( IDS_COL_NAME );
     SendMessageW( cm.list, LVM_INSERTCOLUMNW, 0, (LPARAM)&col );
     col.cx = 300;
     col.iSubItem = 1;
-    col.pszText = (WCHAR *)load_string( IDS_COL_DESCRIPTION );
+    col.pszText = (WCHAR *)cm_string( IDS_COL_DESCRIPTION );
     SendMessageW( cm.list, LVM_INSERTCOLUMNW, 1, (LPARAM)&col );
 }
 
@@ -304,14 +356,15 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         create_images();
         cm.tree = CreateWindowExW( WS_EX_CLIENTEDGE, WC_TREEVIEWW, NULL, WS_CHILD | WS_VISIBLE | WS_TABSTOP |
                                    TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS, 0, 0, 0, 0,
-                                   hwnd, NULL, module, NULL );
+                                   hwnd, NULL, compmgmt_module, NULL );
         SendMessageW( cm.tree, TVM_SETIMAGELIST, TVSIL_NORMAL, (LPARAM)cm.images );
         cm.list = CreateWindowExW( WS_EX_CLIENTEDGE, WC_LISTVIEWW, NULL, WS_CHILD | WS_TABSTOP | LVS_REPORT |
-                                   LVS_SHOWSELALWAYS | LVS_SINGLESEL, 0, 0, 0, 0, hwnd, NULL, module, NULL );
+                                   LVS_SHOWSELALWAYS | LVS_SINGLESEL, 0, 0, 0, 0, hwnd, NULL, compmgmt_module, NULL );
         SendMessageW( cm.list, LVM_SETIMAGELIST, LVSIL_SMALL, (LPARAM)cm.images );
         create_list_columns();
+        cm.svc = svc_create_view( hwnd );
         cm.text = CreateWindowExW( WS_EX_CLIENTEDGE, L"STATIC", NULL, WS_CHILD | SS_LEFT, 0, 0, 0, 0, hwnd, NULL,
-                                   module, NULL );
+                                   compmgmt_module, NULL );
         SendMessageW( cm.text, WM_SETFONT, (WPARAM)GetStockObject( DEFAULT_GUI_FONT ), 0 );
         fill_tree();
         CheckMenuRadioItem( GetSubMenu( GetMenu( hwnd ), 1 ), IDM_VIEW_LARGE, IDM_VIEW_DETAIL, IDM_VIEW_DETAIL,
@@ -398,6 +451,17 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
                 }
             }
         }
+        else if (hdr->hwndFrom == cm.svc)
+        {
+            if (hdr->code == NM_DBLCLK || hdr->code == NM_RETURN) svc_command( cm.svc, hwnd, IDM_SVC_PROPERTIES );
+            else if (hdr->code == NM_RCLICK)
+            {
+                POINT pt;
+                GetCursorPos( &pt );
+                svc_context_menu( cm.svc, hwnd, pt.x, pt.y );
+            }
+            return 0;
+        }
         else if (hdr->hwndFrom == cm.list && (hdr->code == NM_DBLCLK || hdr->code == NM_RETURN))
         {
             int index = (int)SendMessageW( cm.list, LVM_GETNEXTITEM, -1, LVNI_SELECTED );
@@ -419,6 +483,12 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         switch (LOWORD(wparam))
         {
         case IDM_REFRESH: refresh(); break;
+        case IDM_SVC_START: case IDM_SVC_STOP: case IDM_SVC_PAUSE: case IDM_SVC_RESUME: case IDM_SVC_RESTART:
+            svc_command( cm.svc, hwnd, LOWORD(wparam) );
+            break;
+        case IDM_PROPERTIES:
+            if (cm.selected >= 0 && nodes[cm.selected].kind == SERVICES) svc_command( cm.svc, hwnd, IDM_SVC_PROPERTIES );
+            break;
         case IDM_EXIT: DestroyWindow( hwnd ); break;
         case IDM_VIEW_LARGE: case IDM_VIEW_SMALL: case IDM_VIEW_LIST: case IDM_VIEW_DETAIL:
             set_list_view( LOWORD(wparam) );
@@ -440,12 +510,21 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
             }
             break;
         case IDM_ABOUT:
-            ShellAboutW( hwnd, load_string( IDS_APPNAME ), NULL, NULL );
+            ShellAboutW( hwnd, cm_string( IDS_APPNAME ), NULL, NULL );
             break;
         }
         return 0;
 
+    case WM_INITMENUPOPUP:
+        if (!HIWORD(lparam) && (HMENU)wparam == GetSubMenu( GetMenu( hwnd ), 0 )) update_action_menu( (HMENU)wparam );
+        break;
+
+    case WM_CONTEXTMENU:
+        if ((HWND)wparam == cm.svc && (short)LOWORD(lparam) == -1) svc_context_menu( cm.svc, hwnd, -1, -1 );
+        return 0;
+
     case WM_DESTROY:
+        svc_free( cm.svc );
         close_pane();
         ImageList_Destroy( cm.images );
         PostQuitMessage( 0 );
@@ -473,7 +552,7 @@ BOOL WINAPI CompMgmt_ExecuteW( HWND parent, HINSTANCE instance, const WCHAR *mac
     }
     InitCommonControlsEx( &icex );
     wc.lpfnWndProc = window_proc;
-    wc.hInstance = module;
+    wc.hInstance = compmgmt_module;
     wc.hCursor = LoadCursorW( NULL, (LPCWSTR)IDC_ARROW );
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszMenuName = MAKEINTRESOURCEW(IDM_MAIN);
@@ -481,8 +560,8 @@ BOOL WINAPI CompMgmt_ExecuteW( HWND parent, HINSTANCE instance, const WCHAR *mac
     RegisterClassExW( &wc );
 
     memset( &cm, 0, sizeof(cm) );
-    hwnd = CreateWindowExW( 0, wc.lpszClassName, load_string( IDS_APPNAME ), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
-                            CW_USEDEFAULT, 800, 560, parent, NULL, module, NULL );
+    hwnd = CreateWindowExW( 0, wc.lpszClassName, cm_string( IDS_APPNAME ), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+                            CW_USEDEFAULT, 800, 560, parent, NULL, compmgmt_module, NULL );
     if (!hwnd) return FALSE;
     ShowWindow( hwnd, show ? show : SW_SHOWNORMAL );
     UpdateWindow( hwnd );
@@ -511,7 +590,7 @@ BOOL WINAPI DllMain( HINSTANCE instance, DWORD reason, void *reserved )
 {
     if (reason == DLL_PROCESS_ATTACH)
     {
-        module = instance;
+        compmgmt_module = instance;
         DisableThreadLibraryCalls( instance );
     }
     return TRUE;

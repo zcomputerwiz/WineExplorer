@@ -52,6 +52,53 @@
 #define IDM_DM_SHOW_HIDDEN      1024
 #define IDM_DM_SCAN             1025
 
+/* the Services node */
+#define IDM_SVC_START           1030
+#define IDM_SVC_STOP            1031
+#define IDM_SVC_PAUSE           1032
+#define IDM_SVC_RESUME          1033
+#define IDM_SVC_RESTART         1034
+#define IDM_SVC_PROPERTIES      1035
+
+#define IDD_SVC_GENERAL         200
+#define IDD_SVC_LOGON           201
+#define IDD_SVC_RECOVERY        202
+#define IDD_SVC_DEPENDENCIES    203
+
+#define IDC_SVC_NAME            300
+#define IDC_SVC_DISPLAY         301
+#define IDC_SVC_DESCRIPTION     302
+#define IDC_SVC_PATH            303
+#define IDC_SVC_STARTUP         304
+#define IDC_SVC_STATUS          305
+#define IDC_SVC_START           306
+#define IDC_SVC_STOP            307
+#define IDC_SVC_PAUSE           308
+#define IDC_SVC_RESUME          309
+#define IDC_SVC_ACCOUNT         310
+#define IDC_SVC_DEPENDS_ON      311
+#define IDC_SVC_DEPENDENTS      312
+#define IDC_SVC_NOTE            313
+
+#define IDS_COL_STATUS          20
+#define IDS_COL_STARTUP         21
+#define IDS_COL_LOGON           22
+#define IDS_STATUS_STARTED      23
+#define IDS_STATUS_PAUSED       24
+#define IDS_STARTUP_AUTO        25
+#define IDS_STARTUP_MANUAL      26
+#define IDS_STARTUP_DISABLED    27
+#define IDS_ASK_ELEVATE         28
+#define IDS_ELEVATE_TITLE       29
+#define IDS_SVC_PROPS_TITLE     30
+#define IDS_SVC_ERROR           31
+#define IDS_SVC_TIMEOUT         32
+#define IDS_RECOVERY_NOTE       33
+#define IDS_LOGON_NOTE          34
+#define IDS_SVC_NO_DESCRIPTION  35
+#define IDS_STARTUP_BOOT        36
+#define IDS_STARTUP_SYSTEM      37
+
 #define IDI_COMPMGMT            1
 
 #endif
