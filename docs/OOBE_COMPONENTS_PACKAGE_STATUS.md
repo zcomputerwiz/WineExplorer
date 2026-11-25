@@ -161,7 +161,8 @@ components install them with msiexec as session 0's account, which is SYSTEM to 
   have the network) still downloaded 158.0.4370.33 differential updates for the installed WebView2 and Edge, with the
   policies set (Edge Update honours update policies only on domain-joined or managed machines). Their setup failed
   (`Failed to set zero data for hollow archive: Request not supported`, `InstallerError 506`), so both stayed on the
-  pinned 157.0.4341.60 and verified; this relies on a Wine gap (FSCTL_SET_ZERO_DATA), not on the policy.
+  pinned 157.0.4341.60 and verified; this relies on a Wine gap (FSCTL_SET_ZERO_DATA, `docs/KNOWN_BUGS.md` B106), not
+  on the policy.
 - **Tested (2026-11-25):** clean overlay of the efr2 image (Wine 0ec8719014e, class 60) with a 27 GB root, as root
   through `prepare_terms`, `license_text` and `install()`: `webview2` 77 s, `edge` 75 s, `copilot` 148 s (including
   the downloads), each `is_installed()` true, all three receipts valid at the end. An earlier run refused Edge before
