@@ -57,6 +57,35 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
      Wine it never draws them. Not the cause: d3d11 fences/queries (none used), `{f13ebcd1}` (refused on Windows too), the d3d11
      private interface `{26c5dc23}` (measured: writes nothing). Next: find what the compositor's sprite pass depends on (compare
      the Microsoft.UI.Composition calls the UI thread makes with Windows; XAML's surfaces of `CompositionDrawingSurface`).
+   * Black strips, part 2, findings of 2026-11-24/25. **The "sprite pass" premise above is not confirmed.** Per-thread traces on
+     Windows 11 (wintrace, 25-40 s runs) show:
+     - The compositor thread (the one that calls `DCompositionWaitForCompositorClock` and Commit) commits only twice. It opens
+       the UI thread's two shared NT-handle textures (`OpenSharedResource1`) and issues no Draw, DrawIndexed or
+       DrawIndexedInstanced, no Direct2D BeginDraw, and no BeginDraw on its dcomp surfaces (`dcomp.dll!surface[3]` and
+       `vsurface[3]`: 0 hits).
+     - All drawing (Direct2D BeginDraw 38, Draw 70, DrawIndexedInstanced 27, OMSetRenderTargets 80) is on the UI thread.
+     - Under Wine the split is the same, except that the compositor calls the public BeginDraw once on each of its three
+       surfaces (1428x32, 1428x33, 287x32; Windows: 1440x32, 1428x33, 1024x832). The textures behind them get render-target
+       views only from that one draw, so under Wine nothing writes the strips after their first, empty frame.
+     - Either the earlier per-frame measurement and these runs differ in the window's state (visible, focused), or the strips'
+       pixels reach the screen another way. **Next: a Windows run with a screenshot during the trace, to check that the strips
+       show content in a traced run; then find who writes the three surface textures (their private interfaces, or the UI
+       thread through a shared device).**
+     - Inside Windows' dcomp, `CreateSurface` asks d3d11's private interface (slot 12, width/height/format) for the texture and
+       d3d11 calls `DCompositionCreateSurfaceHandle`. That is internal to the system dcomp; Wine's dcomp makes its textures
+       itself.
+   * Ruled out on the way (2026-11-25):
+     - d2d context private slot 9 (measured, `tests/uwp/alpc/d2d-ctx-slot9-probe.cpp`): (bitmap, rect, NULL) limits later draws
+       on the bitmap to the rect; (bitmap, NULL, pointer) closes it (later draws fail with D2DERR_WRONG_STATE); the dword is
+       never written. dcompi calls it on the UI thread around each glyph-atlas cell. Wine's stub only lets a draw spill past
+       its cell. Worth implementing, but it is not the gate.
+     - Shared NT-handle textures (Wine fork code in dxgi `resource.c` / d3d11 `OpenSharedResource1`) accept only 4-byte
+       formats, and the UI thread's A8_UNORM glyph atlas is rejected. Allowing 1-byte formats (lab-only experiment) shares it,
+       but the compositor's behaviour does not change.
+     - Refused interfaces on the compositor thread (ID3D11Resource and ID3D11Texture2D on subresource surfaces, `{790a45f7}`,
+       `{f13ebcd1}`) are refused on Windows too. The `NtGdiDdDDIQueryAdapterInfo` calls come from dxgi's
+       `CheckInterfaceSupport`.
+     - wintrace gained `dcomp.dll!surface[N]` and `vsurface[N]` targets.
    * (Earlier note, superseded:) After its draws the compositor thread still goes idle and never calls `Commit` (on Windows it
      commits about every 2 s, from the lifted compositor itself, after private method 46). Wine's composition surface is asked for
      `{790a45f7-0d42-4876-983a-0a55cfe6f4aa}` three times: that is the public `IDXGISwapChain1`, and Windows 11 refuses it on
