@@ -327,3 +327,20 @@ the lab helpers below and these docs.
 5. Before review of the Wine branch: STOCK_CHANGES entries (added for all commits up to 0ab90a38), measure the guessed error codes
    (dwrite layout getters, dxgi SetEvent), 32-bit measurements of the private slots, linker gaps (two functions with immediate
    constant buffers, RDEF in linked shaders, AddClipPlaneFromCBuffer, D3DReflectLibrary).
+
+## 2026-11-25: what moved the failure (Wine branch c3f1f89f, 440d9d4f)
+
+Measured on Windows 11 (tests/uwp/alpc/sched2-probe.c, smcb2-probe.c, order-probe.c, as-probe.c, cinfo-probe.c):
+- user32 ordinal 2582 (ScheduleDispatchNotification) was a stub that sent nothing. It queues a *sent* message 0x60, wparam 0,
+  lparam 0 (QS_SENDMESSAGE until the next message retrieval, InSendMessageEx 0).
+- PostMessage(0x60, 5, 4) does not call the window procedure inside the call. The notification is queued as a sent message and
+  delivered at the next retrieval, in order behind the sent messages already waiting (the deferred SendMessageCallback(5,5) that
+  CoreMessagingXP issues at startup arrives first), then the posted copy (0x80000005), then the (0,0) of ordinal 2582.
+  Wine called the notification at once, so the handler saw (5,4) before (5,5) and fail-fasted.
+- A same-thread SendMessageCallback with a NULL callback and data 1 is delivered at the next PeekMessage, whatever the filter.
+- Wait packets whose target is already signaled complete at once on both systems (AlreadySignaled 1, auto-reset events consumed,
+  (3,0) delivered): identical on Wine.
+- Init2 changes nothing in the thread's Win32ClientInfo / Win32ThreadInfo.
+With the new ordering the UI thread no longer fails. Open: the worker thread (adapter window 0x3006e) fail-fasts on a wparam-3
+completion that arrives after it handled the (5,5), drained (Drain2 returns 1) and waited. Not yet different from Windows: the
+order of (0,0) relative to the posted copy (Windows: after), the InSendMessageEx value of the callback message (Windows 2, Wine 4).

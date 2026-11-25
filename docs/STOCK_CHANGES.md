@@ -172,8 +172,11 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   (wparam 8 and lparam the packet's APC context when that is not zero, wparam 3 and lparam 0 when it is; the key, status and
   information are not passed), nested waits and the wait for a SendMessage reply included (all measured), and returns as for
   input; Drain2 does the same for one packet. `NtUserPostMessage` of message 0x60 (any window of any thread, measured) also
-  notifies the window at once with the original parameters (in the sent message processing of the owner for another thread) and
-  queues a copy with 0x80000000 set in wparam; SendMessage and SendNotifyMessage deliver it once. Branch
+  queues a notification with the original parameters as a sent message (a window of the posting thread sees it inside the next
+  message retrieval, in order behind the sent messages already queued, never inside PostMessage) and queues a copy with
+  0x80000000 set in wparam; SendMessage and SendNotifyMessage deliver it once. `NtUserScheduleDispatchNotification` (user32
+  ordinal 2582) queues a sent message 0x60 with wparam 0 and lparam 0 for the window (measured: QS_SENDMESSAGE until the next
+  retrieval, InSendMessageEx 0; on Windows it arrives after the posted copy, here in queue order). Branch
   claude/win32u-coremessaging-iocp2 (05d70cdc, a205b304, merged with 25f4e297). A window leaves the list when destroyed; the thread's port is
   unprotected and closed at thread detach. Not replicated: the packet with key 0 and APC context 0xffffffff80000001 that
   Windows leaves in the port after a drain (not understood; Drain2 writes nothing through its pointer arguments, measured).
