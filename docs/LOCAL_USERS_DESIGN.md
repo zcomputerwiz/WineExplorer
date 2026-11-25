@@ -182,3 +182,29 @@ Open for the reviewer: (a) the unit that runs `wex-accounts sync` after a change
 or wait for the timer); (b) whether the password may cross the bridged pipe at all in phase 1, or the service should
 accept only a client-made hash (the client then needs libcrypt; the draft keeps the hash in the service, so the
 password is on the pipe once at identification level); (c) the host service that carries the operation set.
+
+## Reviewer's verdict on draft 2 (2026-11-24): go on steps 2, 4, 5 and 6 under U1 to U6
+
+Step 3 (the polkit grant and its installer) and the D-Bus executor wait for the owner's decision on B1 below.
+
+**B1: polkit decides by uid.** A grant to session 0's account is a grant to every process of that uid (every Windows
+service in session 0, the LocalService ones included), and creating an administrator is Linux root: any code execution in
+session 0 would equal root. Options: (A) accept and document; **(B), recommended by the reviewer and the orchestrator:**
+a small native helper under its own system account (a systemd unit, `User=wexaccounts`) makes the D-Bus calls, and polkit
+names that account. The helper accepts requests only from session 0's wineserver, checked the T1 way (`SO_PEERCRED`,
+pidfd pin, comm, non-dumpable, saved gid); the server forwards each request with its own verdict on whether the caller is
+an elevated administrator. Under (B) the `src/` service of this note is the Windows-side half (pipe, protocol, limits).
+
+| | Condition |
+|---|---|
+| U1 | The shared elevated-administrator predicate refuses a session's system and service tokens: a user SY, LS or NS, the SERVICE group and the service SIDs never count; only a real user's elevated token does. One predicate, with its test, plus an accounts test: a session's SYSTEM token cannot create a user. |
+| U2 | The password is hashed in the client, not the service (session 0's processes share a uid and are dumpable): `netapi32`'s unix side makes the SHA-512 crypt hash (libcrypt loaded at run time as `wexhost` does, a `getrandom` salt; a stock change, listed in STOCK_CHANGES). The service checks the form: `$6$`, bounded `rounds=`, length, alphabet. `NetUserChangePassword` (old password) is `ERROR_NOT_SUPPORTED` in phase 1 and grayed in the UI. |
+| U3 | UIDs: `UID_MIN` and `UID_MAX` from `/etc/login.defs`, 65534 excluded, anything AccountsService marks as a system account refused. |
+| U4 | Sync: polkit allows only `org.freedesktop.systemd1.manage-units` with unit == the sync unit and verb == `start`, for the same single account. The wait for the map's generation (about 10 s) runs asynchronously, not on a service thread; success with a warning on timeout. |
+| U5 | `netapi32` decides pipe versus stock from whether the machine has session 0 (the bridge or link answering), not from one connect attempt; only then is "not reachable" 1722. |
+| U6 | Changes are serialized service-wide (closes the last-administrator check-then-act race). The refusal to rename or delete a logged-in user maps to a Windows error code. |
+
+Open items settled: the host is a WineExplorer-owned service program under `src/` in session 0 (not stock Wine, not shared
+with `wevtsvc`); the password crosses the pipe as a client-made hash only (U2); the wait after a change as U4. Draft 2
+above is amended by this table wherever it says otherwise (the hash in the service, the polkit rule for session 0's
+account, the one-connect pipe test).
