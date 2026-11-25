@@ -53,21 +53,30 @@ the earlier 11.20 pin.
 - **Lab:** the scripts and how to use them are in `docs/TOOLING.md` ("the Edge and components lab"). Its VMs
   (`efr2-bios`, `efrc4`, `efrt*`) are deleted; a new test needs an ISO of the current pin. WinRef-EFR (Windows 11,
   VirtualBox) is kept in saved state for Windows black-box probes.
+- **Merged (2026-11-25, batch 1136, session 0):** its bugs were renumbered on merge, B103-B108 -> B107-B112, because
+  master had taken B103-B106 meanwhile; older notes, commit messages and code comments of this branch use the old
+  numbers. Owners of the open items below are in brackets.
 - **Open:**
-  1. Hold Edge Update. Since B110 is fixed, Edge Update's updates (run by session 0's services, which ignore the update
-     policies on a machine that is not managed) are expected to succeed, so the components leave their pins.
-     Choose the hold: no network for those services, or the updater's own switch. Then check that the components
-     stay on their pins.
-  2. Build an ISO from this branch and run a full setup. Check:
+  1. ~~Hold Edge Update.~~ **Owner decision (2026-11-25): no hold.** Edge Update may update the components past their
+     pins. If that breaks the components' post-install checks (`wex-components` verification against the pin), fix
+     it in those checks (accept a newer version, or verify by product rather than exact version), not by stopping the
+     updater. [session 0, when a check fails]
+  2. Build an ISO from this branch and run a full setup (batch 1136's full runs cover the image, B111 and B112 except
+     the sign-in item, which needs the components downloaded). [session 0; the sign-in item with the next components
+     lab run] Check:
      - B111: Gecko is present after setup, and IE opens with no manual step.
      - B112 on a fresh image.
      - Program start and Edge/Copilot sign-in after a components install on the 158 pins (not re-checked since the
        pin move).
   3. B108: the Edge MSI run by a user (not through the components) still fails: a system tier question (what a
-     session's services see of the session's processes).
-  4. B109: services.exe calls to session 0 fail with 1722 after hours of uptime (system tier).
+     session's services see of the session's processes). [session 0: the cross-server design,
+     `docs/SESSION0_CROSS_SERVER.md`; Windows' rule that a deferred custom action without impersonation runs as
+     LocalSystem is the other half]
+  4. B109: services.exe calls to session 0 fail with 1722 after hours of uptime (system tier). [session 0]
   5. The B112 fix has no Wine test: whether it shows depends on which freed process's memory is reused. A check that
-     session 0's service threads are still protected on an installed image would close it.
+     session 0's service threads are still protected on an installed image would close it. [session 0: a suite
+     assertion, together with the audit of every WineExplorer field in the server's object records for a starting
+     value]
 
 Use `development` in both `zcomputerwiz/WineExplorer` and `zcomputerwiz/wine` for
 ongoing integration. WineExplorer combines the completed OOBE/recovery work,
