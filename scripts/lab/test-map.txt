@@ -113,6 +113,8 @@ src/programs/wexappx/*                  normalsuite
 
 # the Safe Mode and greeter code, and its static test (which reads the VM harness too)
 scripts/test_safemode.py                py:scripts/test_safemode.py
+installer/tests/popup-check.py          py:installer/tests/test_popup_check.py
+installer/tests/test_popup_check.py     py:installer/tests/test_popup_check.py
 installer/tests/*                       py:scripts/test_safemode.py
 scripts/wex-greeter.sh                  py:scripts/test_safemode.py,chain
 scripts/lib/wex-common.sh               py:scripts/test_safemode.py,normalsuite,chain
