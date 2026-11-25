@@ -5078,9 +5078,13 @@ for i in $(seq 1 20); do [ "$(evs info WexL1Ring | v maxsize)" = 131072 ] && bre
 [ "$(evs info WexL1Ring | v maxsize)" = 131072 ] || evfail "eventlog: a MaxSize change was not taken without a restart: $(evs info WexL1Ring)"
 s0_wine reg query "$EVK\\Security" >/dev/null || evfail "eventlog: no Security key by default"
 ok ev_information_and_settings_reload
-# the files: session 0's account owns them, no session reads them directly
-[ "$(stat -c %U "$EVDIR/AppEvent.evt")" = "$S0U" ] || evfail "eventlog: AppEvent.evt is $(stat -c '%U %a' "$EVDIR/AppEvent.evt")"
-echo "eventlog: AppEvent.evt mode $(stat -c '%a %U:%G' "$EVDIR/AppEvent.evt")"
+# the files: session 0's (its account, or root with the system group after setup-machine-root.sh's pass, 0660), never
+# readable by others; no desktop user reads them directly
+for f in "$EVDIR"/*.evt; do
+    echo "eventlog: $(basename "$f") $(stat -c '%a %U:%G' "$f")"
+    [ $(( 0$(stat -c %a "$f") & 07 )) = 0 ] || evfail "eventlog: $(basename "$f") is readable by others: $(stat -c '%a %U:%G' "$f")"
+    case "$(stat -c %U "$f")" in root|"$S0U") ;; *) evfail "eventlog: $(basename "$f") is $(stat -c %U "$f")'s" ;; esac
+done
 ! runuser -u "$STD" -- cat "$EVDIR/AppEvent.evt" >/dev/null 2>&1 || evfail "eventlog: a standard user reads AppEvent.evt directly"
 ! runuser -u "$ADM" -- cat "$EVDIR/SecEvent.evt" >/dev/null 2>&1 || evfail "eventlog: an administrator's account reads SecEvent.evt directly"
 ok ev_log_files_are_session0s_only
