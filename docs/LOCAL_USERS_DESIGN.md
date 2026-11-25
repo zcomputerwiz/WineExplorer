@@ -358,7 +358,59 @@ Nothing else is granted to that account, and no rule names any other uid or a gr
   name, one whose pidfd has gone;
 - a hash is never in the journal: the test greps the helper's log for the hash it sent.
 
-### Open points for the reviewer
+### Amendments H1 and H2 (the reviewer's verdict on draft 3, 2026-11-24)
+
+The reviewer: go on the helper itself; H1 and H2 replace the parts of this section they touch, before the server request
+is coded. **Why:** a session 0 process holds genuine elevated-administrator impersonation tokens whenever an
+administrator's program connects to anything it serves (its pipes, the bridged LRPC endpoints, COM). Wine drops the
+client's quality of service (B104), so those are impersonation-level tokens, and a compromised LocalService could
+`SetThreadToken` one and call `accounts_forward`.
+
+**H1: the verdict comes from the accounts pipe connection, not from the thread token** (this replaces "the server reads
+the impersonation token of the calling thread" in the chain above). `accounts_forward` takes the server end of an
+accounts pipe connection, and the server uses **the client token recorded for that connection**. It refuses unless
+(a) the pipe has the reserved accounts name, (b) the connection came through the bridge (the link-bound token, X0's rule)
+and (c) the instance was created under the reservation. The service therefore passes a handle of the connection, never a
+thread's identity.
+
+- **The reservation:** in session 0, only a LocalSystem primary token may create a pipe under the accounts name
+  (`\pipe\WexSession0\accounts`); LocalService, NetworkService and other services get access denied. A pipe not created
+  under the reservation is not an accounts connection to the server.
+- **Session 0's own local processes** (connections that did not come through the bridge) are refused for changes; reads
+  are fine.
+- **Residual risk, stated:** a compromised LocalSystem process in session 0 could squat the name before the service and relay
+  a real administrator's request with altered operations, within the helper's checks (the protective rules and the hash
+  form still apply; it cannot create what the helper refuses). This is parity with Windows, where SYSTEM is the trust
+  anchor.
+
+**H2: the peer rule** (this replaces the use of `wex_sysrun_peer_ok` for this peer; the header stays the rule for the
+user servers). The helper accepts only **the MainPID of session 0's server unit**, read from systemd over sd-bus
+(`org.freedesktop.systemd1` `GetUnit`, `MainPID` of the unit named in `accountsd.conf`) **at each connect**, compared with
+the pidfd-pinned peer pid (the pid from `SO_PEERCRED`, pinned with `SO_PEERPIDFD`; before kernel 6.5 the start-time
+double read of the previous paragraph), **plus** uid = `session0_user` from `accountsd.conf` and non-dumpable
+(`/proc/<pid>` owned by root) as a sanity check. Comm, dumpable, uid and saved gid can all be reached by any session 0
+process, and one could exec a real `wineserver`; the main process of the unit cannot be forged by a process the server
+runs. If session 0's wineserver is not its unit's main process today, it is made so (`ExecStart=` of the session 0 unit
+runs it, or the launcher `exec`s it), a change for the system tier and the installer. Systemd must answer: no answer,
+no accept.
+
+**The smaller notes, adopted:** the peer check runs at accept, before anything is read, and a failed one drops the
+connection at once; the socket is 0660 with a group whose only member is session 0's account (the installer makes
+the group, not the account's primary group if that has other members); the helper refuses user names that collide with
+groups or system names (`sudo`, `wexsys`, `wexaccounts`, `root`, and every existing group name); the caller's unix uid
+comes from the link (the verdict), never from the message. **"Logged-in users"** are decided from logind
+(`org.freedesktop.login1` `ListSessions` and `GetUser`), with `usermod`'s or `userdel`'s own refusal mapped as a backstop.
+"Last administrator" and "RID 500's account" are decided by the helper from the Linux facts (accepted).
+
+**Tests added:** a session 0 process with an administrator's impersonation token from its own endpoint calls
+`accounts_forward` and is refused (H1); a LocalService creating the reserved pipe is refused (H1); a session 0 process
+faking comm, non-dumpable and the uid is refused by the helper (H2); a helper restart in the middle of a request gives 1722.
+
+**H3 (system tier):** the elevated-administrator predicate lives in the server (`token_caller_class`, request
+`get_caller_class`), written by the L1 session together with `accounts_forward` and the reservation; the accounts service
+calls `get_caller_class` through `wex_caller.h`.
+
+### Open points for the reviewer (draft 3; points 1 to 5 settled by the amendments above)
 
 1. Is the server request, evaluated on an impersonating thread, an acceptable carrier for the verdict, or should the
    service hand the server a handle of the caller's token (the same facts, an extra object)?
