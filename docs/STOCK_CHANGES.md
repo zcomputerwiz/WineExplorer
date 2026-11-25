@@ -208,6 +208,20 @@ Wine 83c82756b7a (branch `claude/edge-signin-stacking`). Our code only (the fiel
 - Tests: `advapi32:security` has the same 10 failures with and without the change (run as root). No Wine test is
   added: whether the bits were set depended on which freed object the memory came from.
 
+## server: hardening after the B112 field audit, and B106 (2026-11-25)
+
+Wine `claude/server-init-hardening` (b2fc74c2, 0b4256f8, 862b4bed, faa81a3e), batch 1137. Our code only.
+
+- `server/process.c`: the E1 lab token ids (`e1s6_token_id`, `e1s6_modified_id`) start at 0.
+- `server/named_pipe.c`: a new pipe end's `client_pid`, `server_pid` are 0 and its client session is
+  `PIPE_SESSION_UNKNOWN`. `ClientSessionId` answers `STATUS_NOT_FOUND` while unknown (a local opener without a token,
+  a bridged client without a session). A disconnect clears the client's pid, lease and session.
+- `server/sysrun.c`: `set_egid()` blocks all signals around `setegid` and `set_not_dumpable()` (and keeps `errno`),
+  used by `sysrun_init`, `sysrun_raise` and `sysrun_drop`, so a SIGQUIT the user sends arrives after the dumpable
+  window (B106). `sysrun_main_image` acts on a pending role only when the system role is enabled.
+  `sysrun_latch_role()`, called at the end of `init_registry` (`server/registry.c`), fixes the role's on/off state
+  so it cannot change later; turning it off is for test images only (`WEX_ELEVATION=0`).
+
 ## ntdll: FSCTL_SET_ZERO_DATA (B110, 2026-11-25)
 
 Wine 7217a7389b7 (branch `claude/edge-signin-stacking`), pinned on the owner's word without an update hold (see the
