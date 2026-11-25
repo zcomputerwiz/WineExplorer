@@ -194,6 +194,7 @@ s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
 s0_eventlog      s0_base,c5_build   n   s0
+s0_accounts      s0_base,c5_build   n   s0
 s0_x0            s0_base            l   lab
 gp_registry      s0_base            n   gp
 gp_local         s0_base            n   gp
@@ -5116,6 +5117,134 @@ done
 s0_wine reg delete "$EVK\\System\\WexL1Sys" /f >/dev/null || true
 s0_wine reg delete "$EVK\\Security\\WexL1Sec" /f >/dev/null || true
 el_down "$STD"; el_down "$ADM"
+true; ); section_leave $?; fi
+if section s0_accounts; then set +e; ( section_enter
+# H1: accounts_forward, the accounts service's way to the root helper. scripts/accounts-probe.c stands in for the
+# service (in session 0) and its clients; scripts/accounts-fake-helper.py for the helper, as a fixture account named
+# in accountsd.conf. The server decides the verdict and the uid; only the reserved pipe's bridged clients are served.
+# The probe makes the two requests raw: their numbers and the layout it writes come from the Wine tree that was built
+PSP="$SRC/wine/include/wine/server_protocol.h"
+reqnum() { awk -v r="REQ_$1" '/^enum request$/ { f = 1; n = 0; next } f && /REQ_/ { if ($1 == r || $1 == r ",") print n; n++ } f && /^};/ { f = 0 }' "$PSP"; }
+reqlayout() { sed -n "/^struct $1\$/,/^};/p" "$PSP" | awk 'NF { $1 = $1; print }' | paste -sd ' '; }
+ACCFWD="$(reqnum accounts_forward)"; ACCRES="$(reqnum accounts_result)"
+[ -n "$ACCFWD" ] && [ -n "$ACCRES" ] || fail "accounts: the requests are not in $PSP"
+[ "$(reqlayout accounts_forward_request)" = 'struct accounts_forward_request { struct request_header __header; obj_handle_t pipe; unsigned int op; /* VARARG(body,bytes); */ char __pad_20[4]; };' ] &&
+[ "$(reqlayout accounts_forward_reply)" = 'struct accounts_forward_reply { struct reply_header __header; obj_handle_t call; char __pad_12[4]; };' ] &&
+[ "$(reqlayout accounts_result_request)" = 'struct accounts_result_request { struct request_header __header; obj_handle_t call; };' ] &&
+[ "$(reqlayout accounts_result_reply)" = 'struct accounts_result_reply { struct reply_header __header; unsigned int helper_status; data_size_t total; /* VARARG(body,bytes); */ };' ] ||
+    fail "accounts: the requests' layout changed (scripts/accounts-probe.c writes them raw)"
+for b in 64 32; do
+    cc=x86_64-w64-mingw32-gcc; [ "$b" = 64 ] || cc=i686-w64-mingw32-gcc
+    $cc -O2 -Wall -Werror -DACC_FORWARD_REQ="$ACCFWD" -DACC_RESULT_REQ="$ACCRES" -o "$ROOT/probes/accp$b.exe" \
+        "$SRC/scripts/accounts-probe.c" -ladvapi32 -lntdll || fail "accounts: cannot build the $b-bit probe"
+done
+chmod 0755 "$ROOT/probes"/accp*.exe
+ACCH=wexacch   # the fixture helper's account
+id "$ACCH" >/dev/null 2>&1 || useradd -r -M -d /nonexistent -s /usr/sbin/nologin "$ACCH"
+ACCONF=/etc/wineexplorer/accountsd.conf; ACCRUN=/run/wineexplorer; ACCSOCK="$ACCRUN/accounts.sock"
+ACCLOG="$ROOT/acc-helper.log"; ACCSRV="$ROOT/acc-serve.log"; : > "$ACCLOG"; : > "$ACCSRV"; chmod 666 "$ACCLOG"
+# a helper's configuration and run directory that are already there are put back at the end
+[ ! -e "$ACCONF" ] || mv "$ACCONF" "$ACCONF.wextest"
+ACCRUNWAS="$(stat -c '%U:%G %a' "$ACCRUN" 2>/dev/null || true)"
+install -d -m 755 /etc/wineexplorer
+install -d -m 755 -o "$ACCH" "$ACCRUN"
+[ -z "$ACCRUNWAS" ] || chown "$ACCH" "$ACCRUN"
+acc_conf() { printf 'helper_user=%s\n' "$1" > "$ACCONF"; chmod 644 "$ACCONF"; }
+acc_helper()   # MODE: (re)start the fake helper
+{
+    pkill -u "$ACCH" -f accounts-fake-helper.py 2>/dev/null || true
+    for i in $(seq 1 30); do pgrep -u "$ACCH" -f accounts-fake-helper.py >/dev/null || break; sleep 0.1; done
+    rm -f "$ACCSOCK"
+    (cd / && runuser -u "$ACCH" -- python3 -I "$SRC/scripts/accounts-fake-helper.py" "$1" "$ACCSOCK" "$ACCLOG" \
+        </dev/null >/dev/null 2>>"$ACCLOG" &)
+    for i in $(seq 1 50); do [ -S "$ACCSOCK" ] && return 0; sleep 0.1; done
+    cat "$ACCLOG" >&2; return 1
+}
+acc_cleanup()
+{
+    as_wine "$STD" "$ROOT/probes/accp64.exe" quit >/dev/null 2>&1 || true
+    pkill -u "$ACCH" -f accounts-fake-helper.py 2>/dev/null || true
+    rm -f "$ACCSOCK" "$ACCONF"
+    [ ! -e "$ACCONF.wextest" ] || mv "$ACCONF.wextest" "$ACCONF"
+    if [ -n "$ACCRUNWAS" ]; then chown "${ACCRUNWAS% *}" "$ACCRUN"; chmod "${ACCRUNWAS#* }" "$ACCRUN"; else rmdir "$ACCRUN" 2>/dev/null || true; fi
+}
+accfail()
+{
+    { echo "--- the service probe:"; cat "$ACCSRV"; echo "--- the helper:"; cat "$ACCLOG"
+      echo "--- session 0:"; tail -8 "$ROOT/session0.log"; } >&2 || true
+    acc_cleanup
+    fail "$@"
+}
+acc() { as_wine "$1" "$ROOT/probes/accp$2.exe" client "$3" "$4" || true; }
+accreqs() { grep -c '^req ' "$ACCLOG" || true; }
+# the reservation: in session 0 only LocalSystem itself creates the reserved names; impersonating, it cannot; a session's
+# program cannot create the bridged name (T5.2 reserves the prefix)
+OUT="$(s0_wine "$ROOT/probes/accp64.exe" squat imp | tr -d '\r' || true)"
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
+    accfail "accounts: session 0's SYSTEM, impersonating, created a reserved pipe: $OUT"
+OUT="$(s0_wine "$ROOT/probes/accp64.exe" squat | tr -d '\r' || true)"
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 0 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 0 ] ||
+    accfail "accounts: session 0's SYSTEM cannot create the reserved pipes: $OUT"
+OUT="$(as_wine "$STD" "$ROOT/probes/accp64.exe" squat || true)"
+[ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] || accfail "accounts: a session's program created \\\\.\\pipe\\WexSession0\\accounts: $OUT"
+ok acc_reserved_pipe_only_for_localsystem_in_session0
+# the service, in session 0, for the rest of the section
+acc_conf "$ACCH"
+acc_helper echo || accfail "accounts: the fake helper does not start"
+(cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
+    WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 400 "$BUILD/wine" "$ROOT/probes/accp64.exe" serve 380 \
+    </dev/null >"$ACCSRV" 2>&1 &)
+for i in $(seq 1 100); do grep -aq '^serve=listening' "$ACCSRV" && break; sleep 0.2; done
+grep -aq '^serve=listening' "$ACCSRV" || accfail "accounts: the service probe does not listen"
+# a standard user (64 and 32 bit) and a limited administrator: verdict user, the uid of their session's account
+for who in "$STD:64" "$STD:32" "$ADM:64"; do
+    u="${who%:*}"
+    OUT="$(acc "$u" "${who#*:}" 7 "hello-$u")"
+    grep -q "^status=0x00000000 helper=0 .* reply=verdict=1 uid=$(id -u "$u") op=7 body=hello-$u\$" <<<"$OUT" ||
+        accfail "accounts: $who's request: $OUT"
+done
+grep -q "^req op=7 verdict=1 uid=$(id -u "$STD") id=[1-9][0-9]* flags=0 ok=1 body=hello-$STD\$" "$ACCLOG" ||
+    accfail "accounts: the helper did not get the server's header"
+ok acc_session_client_gets_the_servers_verdict_and_uid
+# an elevated administrator: verdict elevated
+el_up "$ADM"
+rm -f /tmp/accel.txt
+el_cmd acc_elevated_admin_forwards "$ADM" "$(winpath "$ROOT/probes/accp64.exe") client 8 elevated > Z:\\tmp\\accel.txt"
+el_down "$ADM"
+grep -q "^status=0x00000000 helper=0 .* reply=verdict=2 uid=$(id -u "$ADM") op=8 body=elevated\$" <(tr -d '\r' < /tmp/accel.txt) ||
+    { cat /tmp/accel.txt >&2; accfail "accounts: an elevated administrator's verdict"; }
+rm -f /tmp/accel.txt
+ok acc_elevated_admin_gets_verdict_elevated
+# a client in session 0 itself, not through the bridge: refused, and nothing reaches the helper
+N="$(accreqs)"
+OUT="$(s0_wine "$ROOT/probes/accp64.exe" local 7 local | tr -d '\r' || true)"
+grep -q '^status=0xc0000022 ' <<<"$OUT" || accfail "accounts: a client that did not come over the bridge: $OUT"
+[ "$(accreqs)" = "$N" ] || accfail "accounts: a refused request reached the helper"
+ok acc_unbridged_client_refused
+# a socket served by another account than helper_user: no request is sent
+acc_conf daemon
+OUT="$(acc "$STD" 64 7 wronguid)"
+grep -q '^status=0xc00000b0 ' <<<"$OUT" || accfail "accounts: a helper of the wrong account: $OUT"
+[ "$(accreqs)" = "$N" ] || accfail "accounts: a request reached a helper of the wrong account"
+acc_conf "$ACCH"
+ok acc_helper_of_another_account_refused
+# no helper: the call ends at once (the service says 1722)
+pkill -u "$ACCH" -f accounts-fake-helper.py 2>/dev/null || true
+for i in $(seq 1 30); do pgrep -u "$ACCH" -f accounts-fake-helper.py >/dev/null || break; sleep 0.1; done
+rm -f "$ACCSOCK"
+OUT="$(acc "$STD" 64 7 nohelper)"
+grep -q '^status=0xc00000b0 ' <<<"$OUT" || accfail "accounts: no helper: $OUT"
+ok acc_no_helper_is_disconnected
+# a helper that never answers: the server ends the call after 15 s
+acc_helper silent || accfail "accounts: the silent helper does not start"
+T0=$SECONDS
+OUT="$(acc "$STD" 64 7 silent)"
+T1=$((SECONDS - T0))
+grep -q '^status=0xc00000b5 ' <<<"$OUT" || accfail "accounts: a silent helper: $OUT"
+[ "$T1" -ge 14 ] && [ "$T1" -le 30 ] || accfail "accounts: the silent helper's call ended after $T1 s"
+grep -q '^req op=7 verdict=1 .* body=silent$' "$ACCLOG" || accfail "accounts: the silent helper got no request"
+ok acc_silent_helper_times_out
+acc_cleanup
 true; ); section_leave $?; fi
 if section s0_programs; then set +e; ( section_enter
 # T5.3: session 0's account runs programs on the machine root through session 0 (its own services.exe, in session

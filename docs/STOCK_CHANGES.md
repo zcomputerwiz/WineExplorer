@@ -4856,3 +4856,21 @@ Tests: section `s0_x0` of `scripts/test_sysrun_server.sh` (lab suite), client `s
   session forwards it to session 0.
 Tests: section `s0_eventlog` and the `own_prefix` check of `scripts/test_sysrun_server.sh`, the N1 check in `s0_x0`,
 `scripts/eventlog-probe.c`, `scripts/eventlog-corrupt.py`.
+
+2026-11-25 (Wine branch `claude/eventlog-l1`, the reviewer's H1 for GPO's accounts service): `accounts_forward`.
+- `server/named_pipe.c`: in session 0 only LocalSystem's own primary token (not impersonating) creates instances of
+  the pipes `accounts` and `WexSession0\accounts`, which are marked (`pipe_server.reserved`); `accounts` may be opened
+  from a session whose server has a session link. New request handler `accounts_forward`: only for a marked
+  instance's client that came over the bridge with a link-bound token; the verdict from `token_caller_class`, the uid
+  of the link's account.
+- `server/wex_accounts.c` (new): the call. The helper's request header is built by the server; one SEQPACKET datagram
+  on a connection of its own to `/run/wineexplorer/accounts.sock`, whose peer (SO_PEERCRED) must be the uid of
+  `helper_user=` in `/etc/wineexplorer/accountsd.conf` (read at each request); the reply is awaited in the server's
+  loop, at most 15 s; request handler `accounts_result`. `server/Makefile.in` lists it; `session0.h` declares
+  `accounts_call_start`.
+- `server/token.c`, `security.h`: `token_is_link_bound()`. `server/protocol.def`: requests `accounts_forward`,
+  `accounts_result`; generated files.
+- `include/wine/wex_accounts.h` (new): the helper frame's constants (equal to WineExplorer's
+  `src/include/wexaccounts_proto.h`) and the thin wrapper `wex_accounts_forward`. `include/Makefile.in` lists it.
+Tests: section `s0_accounts` of `scripts/test_sysrun_server.sh`, `scripts/accounts-probe.c`,
+`scripts/accounts-fake-helper.py`.
