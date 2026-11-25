@@ -240,10 +240,11 @@ refused. This keeps the Windows-side service small and unprivileged in what it c
 ### The link
 
 - A Unix SEQPACKET socket `/run/wineexplorer/accounts.sock`, made by a systemd socket unit (`wex-accountsd.socket`):
-  owned by `wexaccounts`, in the root-owned directory `/run/wineexplorer` (0711), mode 0666. The file mode is not the
-  authority, the peer check is: any process may connect and is dropped at once unless it is session 0's wineserver.
-  One connection is served at a time; a second waits in the backlog (`Backlog=4`); a connection that sends nothing
-  within 5 s is closed.
+  owned by root, in the root-owned directory `/run/wineexplorer` (0711), mode 0660, group = the primary group of session
+  0's account (`SocketUser=root`, `SocketGroup=` templated by the installer from `session0_user`), so only that account
+  can connect at all; the peer check is still the authority, since any process of session 0 can open the socket. The
+  **server connects to the helper**, never the other way round. One connection is served at a time; a second waits in
+  the backlog (`Backlog=4`); a connection that sends nothing within 5 s is closed.
 - **The peer check (the T1 way), in the helper, on every connection:** `SO_PEERCRED` and `SO_PEERPIDFD`, then
   `wex_sysrun_peer_ok` of `include/wine/wex_sysrun_peer.h` with the rule of session 0's own wineserver: uid = the
   account of session 0 (`session0_user` of the protected `sysrun.conf`), the saved gid the system group, the real gid
@@ -258,6 +259,35 @@ refused. This keeps the Windows-side service small and unprivileged in what it c
   or flag, a short or long datagram, or a field out of bounds closes the connection and is logged once.
 - **The verdict from the server is trusted only on that link**, and the helper still checks everything it can on its own
   (below): a verdict never widens what the helper accepts, it only allows a class of operation.
+
+**The check, in detail (the reviewer's list, 2026-11-24):**
+
+- It is the **same code** as the server's: the helper includes `include/wine/wex_sysrun_peer.h`, which `server/session0.c`
+  (`peer_trusted`), `dlls/ntdll/unix/sysrun.c` and the launcher already share; nothing is copied. The two additions below
+  are made in that header, so every user gets them (a stock change, listed in STOCK_CHANGES, with the header's test).
+- **Non-dumpable:** the header's argument is that a launcher-started process is not dumpable; the helper now checks it:
+  the directory `/proc/<pid>` of a non-dumpable process is owned by root, so `fstat` of it must give uid 0. A dumpable
+  process of the session 0 account (a Windows service, a program the server runs) fails here even if the other fields
+  happened to match.
+- **Before kernel 6.5** (no `SO_PEERPIDFD`, so no pin; the header already skips it): the pid-reuse window is closed
+  by reading the process start time (`/proc/<pid>/stat`, field 22) before and after the status read and requiring
+  the same value, and by requiring the pid's `/proc/<pid>` to be the same inode (`st_ino` is not stable across reuse, but
+  `st_ctime` and the start time are) before and after. A process that exited and whose pid was reused within the few
+  microseconds of the check cannot give the same start time twice. The kernels this project supports (Debian 13, 6.12)
+  have the pin; the fallback is for a development machine and is documented, not relied on.
+- **The server's side:** the server (`session0.c`) holds the helper's socket path and checks nothing about the helper
+  except that the connect succeeded: the helper is root-started by systemd under its own account; the server sends only
+  validated fields (below), so a fake helper could learn only what the server would have sent it, and could not change any
+  account.
+
+**One policy layer.** The protocol syntax and limits (frame size, field lengths, UTF-16 shape, the connection caps) are
+checked by the Windows-side service, which stays in the path because the accounts pipe is a Windows named pipe of session 0
+that the bridge serves, and the wineserver does not speak pipes as a server. **Policy is decided only in the helper**: the
+UID range, never root, the last administrator, RID 500, the caller's own account, logged-in users, `removeFiles` always
+false, the hash form. The server contributes the identity verdict (elevated administrator or not, caller SID and session);
+the service contributes nothing of policy. This gives exactly one copy of each rule, in the one process that has the Linux
+facts the rules need (the admin group, `/etc/login.defs`, AccountsService's system-account flag). The server cannot hold
+those rules without reading them too, which would be a second copy.
 
 ### Operations, and what the helper checks
 
@@ -312,6 +342,21 @@ Nothing else is granted to that account, and no rule names any other uid or a gr
 - **Installer:** the user `wexaccounts`, the socket and service units, the polkit rule, `wex-accounts-sync.service` (a
   oneshot that runs the existing sync), `accountsd.conf` written at sync.
 - **netapi32 (stock):** unchanged from U2 and U5.
+
+### Tests of the helper and its link (the reviewer's list)
+
+- a session 0 Windows process that connects to the helper's socket directly is refused (not the server: the peer check);
+- the helper restarted with a request in flight gives 1722 to the caller, not a hang (the server's read of the reply has a
+  timeout of 15 s and a dead connection is an immediate error; the service maps both);
+- the polkit rule refuses session 0's own account calling AccountsService directly (a test that runs `busctl`-style
+  `CreateUser` as that account and expects the refusal);
+- the installer test checks the unit (User, sandboxing lines, no supplementary groups), the socket (root, 0660, the
+  group of session 0's account) and the rule file;
+- the helper's own native test (`WEX_ACCOUNTSD_TEST`, like `wex-accounts`' lab options): a fake AccountsService on a
+  private bus, every operation, every protective rule, a malformed frame and an unknown version, the hash form, and the
+  peer check against a process of the same uid that is dumpable, one that has no saved system gid, one with the wrong
+  name, one whose pidfd has gone;
+- a hash is never in the journal: the test greps the helper's log for the hash it sent.
 
 ### Open points for the reviewer
 
