@@ -5047,3 +5047,11 @@ A Flush writes back only after a draw, dispatch, copy, clear, update or resolve 
 Without a fence or keyed mutex an opener can load while the write-back is half done (a torn frame: undefined without
 sync). `ReleaseSync` calls Flush while holding the keyed mutex lock, so the device lock nests inside it: never take them
 in the other order.
+
+## Menu and tooltip shadows are on by default (2026-11-25)
+
+Wine `eb00215e` on `claude/menu-shadow`, `dlls/win32u/sysparams.c`: the default `UserPreferencesMask` has the
+`SPI_GETDROPSHADOW` bit (byte 2, 0x04) set, as on Windows XP; stock Wine has it clear. winex11.drv publishes the setting
+as `_WEX_DROPSHADOW` for `CS_DROPSHADOW` windows only when a compositor owns the screen, so without composition nothing
+changes on screen; with composition on, menus and tooltips get the compositor's soft shadow. A prefix that already has
+`UserPreferencesMask` in its registry keeps its value. Suite section `c4_dwm_menu` checks both modes.
