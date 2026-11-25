@@ -4919,7 +4919,8 @@ ev_up || evfail "eventlog: the service in session 0 does not answer a session's 
 s0_wine sc query EventLog | grep -q RUNNING || evfail "eventlog: the service does not run in session 0"
 # one store per machine: a session runs no EventLog of its own (services.c forwards it to session 0 by name); its
 # service manager reports session 0's running service
-as_wine "$STD" sc query EventLog | grep -q RUNNING || evfail "eventlog: a session does not see session 0's EventLog running"
+OUT="$(wine_as "$STD" sc query EventLog 2>&1 | tr -d '\r' || true)"
+grep -q RUNNING <<<"$OUT" || { echo "$OUT" >&2; evfail "eventlog: a session does not see session 0's EventLog running"; }
 ! pgrep -u "$STD" -f 'svchost.exe -k LocalServiceNetworkRestricted' >/dev/null ||
     evfail "eventlog: a session runs an EventLog svchost of its own: $(pgrep -u "$STD" -af svchost)"
 ok ev_service_runs_in_session0_and_answers_sessions
