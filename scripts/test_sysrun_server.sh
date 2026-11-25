@@ -4524,7 +4524,10 @@ x0srv()   # the user's launcher-started lab server, once its control socket is u
         [ -n "$p" ] && [ -S "/proc/$p/cwd/wex-x0-lab" ] && { echo "$p"; return 0; }
         sleep 0.1
     done
-    { echo "x0srv $1: server [$p]"; ps -o pid,ppid,stat,etime,args -u "$1"; tail -15 "$ROOT/session0.log"; } >&2
+    # on stdout, which the suite's log keeps (the caller's output is a command substitution: echoed by the caller)
+    { echo "x0srv $1: server [$p]"; ps -o pid,ppid,stat,etime,args -u "$1"; ls -la "/proc/$p/cwd/" 2>&1 | tail -5
+      echo "--- session0.log"; tail -15 "$ROOT/session0.log"; echo "--- $1's wine"; tail -25 "$ROOT/x0-$1.log"; } \
+        > "$ROOT/x0srv.diag" 2>&1
     return 1
 }
 x0sess()   # session 0's view: the session of the user's linked server (its HELLO came)
@@ -4547,12 +4550,12 @@ x0waitn()   # ID COUNT: the holder has COUNT notices of ID (within 3 s)
 s0refs() { x0 "$S0" peers | grep "^account uid=$1 " | fld refs; }
 S0="$(s0pid)"
 [ -S "/proc/$S0/cwd/wex-x0-lab" ] || section_skip "X0: session 0 has no lab control socket (not the X0 lab build)"
-( while :; do probe "$STD" 64 hold >/dev/null 2>&1; done ) & X0LOOP_STD=$!
-( while :; do probe "$ADM" 64 hold >/dev/null 2>&1; done ) & X0LOOP_ADM=$!
+( while :; do probe "$STD" 64 hold >>"$ROOT/x0-$STD.log" 2>&1; done ) & X0LOOP_STD=$!
+( while :; do probe "$ADM" 64 hold >>"$ROOT/x0-$ADM.log" 2>&1; done ) & X0LOOP_ADM=$!
 x0stop() { kill "$X0LOOP_STD" "$X0LOOP_ADM" 2>/dev/null || true; x0 "$S0" defer off >/dev/null 2>&1 || true; }
 # section_dump reads the section's exit status from $?: keep it across x0stop
 trap 'x0rc=$?; x0stop; (exit "$x0rc"); section_dump' EXIT
-SP="$(x0srv "$STD")" || fail "X0: no lab server of $STD"
+SP="$(x0srv "$STD")" || { cat "$ROOT/x0srv.diag"; fail "X0: no lab server of $STD"; }
 AP="$(x0srv "$ADM")" || fail "X0: no lab server of $ADM"
 SESS="$(x0sess "$STD")" || { x0 "$S0" peers >&2; tail -20 "$ROOT/session0.log" >&2; fail "X0: session 0 has no X peer for $STD"; }
 x0sess "$ADM" >/dev/null || fail "X0: session 0 has no X peer for $ADM"
@@ -4705,7 +4708,7 @@ grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) ended (its server is go
     fail "X0: the unsent try's success was not given back: $(x0 "$S0" get gb)"
 ok x0_killed_holder_references_dropped_and_unsent_try_given_back
 # link loss while the peer's epoch lives: the references survive the relink
-SP="$(x0srv "$STD")" || fail "X0: no new lab server of $STD"
+SP="$(x0srv "$STD")" || { cat "$ROOT/x0srv.diag"; fail "X0: no new lab server of $STD"; }
 SESS="$(x0sess "$STD")" || fail "X0: the new server did not link"
 IDK="$(x0 "$SP" open keep | fld id)"
 LINKED="$(grep -ac 'references kept' "$ROOT/session0.log")"
