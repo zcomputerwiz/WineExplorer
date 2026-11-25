@@ -82,6 +82,8 @@ static ULONG STDMETHODCALLTYPE spy_Release(void *iface)
 static ID3D11Resource *current_target;
 static HRESULT slot3_result = S_OK;
 static int paint_green;
+static void **requeue_priv;   /* when set, slot 3 queues the object once more (once) */
+typedef HRESULT (STDMETHODCALLTYPE *slot15_fn_t)(void *iface, IUnknown *object, UINT_PTR arg2);
 
 /* what Direct3D state Direct2D leaves bound on the immediate context when it calls the object */
 static void dump_d3d_state(void)
@@ -133,6 +135,13 @@ template <int N> static UINT_PTR STDMETHODCALLTYPE spy_slot(void *iface, UINT_PT
     if (N == 3)
     {
         dump_d3d_state();
+        if (requeue_priv)
+        {
+            void **p = requeue_priv;
+            requeue_priv = NULL;
+            HRESULT hr = ((slot15_fn_t)(*(void ***)p)[15])(p, (IUnknown *)iface, 0);
+            printf("    requeued from slot 3: %#lx\n", (unsigned long)hr);
+        }
         if (paint_green)
         {
             static const float green[4] = {0, 1, 0, 1};
@@ -310,6 +319,51 @@ int main(int argc, char **argv)
             readback->Unmap();
         }
         readback->Release();
+        done(&s);
+    }
+
+    /* N1: an object queued from slot 3 during EndDraw */
+    {
+        struct ctx_set s;
+        D2D1_TAG t1, t2;
+        printf("== requeue in EndDraw\n");
+        fresh(&s);
+        slot15_fn slot15 = (slot15_fn)(*(void ***)s.priv)[15];
+        s.ctx->BeginDraw();
+        slot15(s.priv, (IUnknown *)&spy_obj, 0);
+        requeue_priv = s.priv;
+        phase = "requeue EndDraw";
+        printf(" EndDraw: %#lx, refs %ld\n", (unsigned long)s.ctx->EndDraw(&t1, &t2), refs);
+        requeue_priv = NULL;
+        phase = "requeue next draw";
+        s.ctx->BeginDraw();
+        printf(" EndDraw 2: %#lx, refs %ld\n", (unsigned long)s.ctx->EndDraw(&t1, &t2), refs);
+        done(&s);
+    }
+    /* N3: BeginDraw again with an object queued, and a context released with one queued */
+    {
+        struct ctx_set s;
+        D2D1_TAG t1, t2;
+        printf("== BeginDraw twice\n");
+        fresh(&s);
+        slot15_fn slot15 = (slot15_fn)(*(void ***)s.priv)[15];
+        s.ctx->BeginDraw();
+        slot15(s.priv, (IUnknown *)&spy_obj, 0);
+        phase = "second BeginDraw";
+        s.ctx->BeginDraw();
+        printf(" after second BeginDraw: refs %ld\n", refs);
+        phase = "twice EndDraw";
+        printf(" EndDraw: %#lx, refs %ld\n", (unsigned long)s.ctx->EndDraw(&t1, &t2), refs);
+        phase = "twice EndDraw 2";
+        printf(" EndDraw 2: %#lx, refs %ld\n", (unsigned long)s.ctx->EndDraw(&t1, &t2), refs);
+        done(&s);
+
+        printf("== release with one queued\n");
+        fresh(&s);
+        slot15 = (slot15_fn)(*(void ***)s.priv)[15];
+        s.ctx->BeginDraw();
+        slot15(s.priv, (IUnknown *)&spy_obj, 0);
+        printf(" queued: refs %ld\n", refs);
         done(&s);
     }
 
