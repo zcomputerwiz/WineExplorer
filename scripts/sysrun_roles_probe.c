@@ -40,7 +40,7 @@
  *                              query source, read control)
  *   admin-token-rights <img> <expect>  the same with an administrator token (a system role process turns its own)
  *   grants <expect>            write Control\ServiceCurrent and ComputerName\ActiveComputerName; expect is "denied" or "allowed"
- *   svc-table <name> [create]  (Services snap-in survey) one "row|<name>|<operation>|<error>|<detail>" line per service
+ *   svc-table <name> [create|-] [out]  (Services snap-in survey) one "row|<name>|<operation>|<error>|<detail>" line per service
  *                              control operation, with the error code each returns (0 is success); never fails on an
  *                              error, only on the probe's own mistakes; "create" makes the service first (and deletes it)
  *   hold                       sleep 120 seconds
@@ -1149,7 +1149,12 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "svc-start") && argc > 3) svc_start(argv[2], argv[3]);
     else if (!strcmp(mode, "svc-sd-set")) svc_sd_set(arg);
     else if (!strcmp(mode, "start-service") && argc > 3) start_service(argv[2], atoi(argv[3]));
-    else if (!strcmp(mode, "svc-table") && argc > 2) svc_table(argv[2], argc > 3 && !strcmp(argv[3], "create"));
+    else if (!strcmp(mode, "svc-table") && argc > 2)
+    {
+        /* svc-table NAME [create|-] [OUTFILE]: the rows go to OUTFILE when one is given (an elevated process has no console) */
+        if (argc > 4 && !freopen(argv[4], "w", stdout)) return 2;
+        svc_table(argv[2], argc > 3 && !strcmp(argv[3], "create"));
+    }
     else if (!strcmp(mode, "token-denied")) token_denied();
     else if (!strcmp(mode, "low-token")) low_token();
     else if (!strcmp(mode, "token-rights") && argc > 3) token_rights(argv[2], argv[3]);

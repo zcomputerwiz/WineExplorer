@@ -44,9 +44,10 @@ the session 0 service in every row, delete included.
   work for every caller with what exists. Descriptions for services that have none show empty, as on Windows.
 - Changes (start, stop, pause, restart, start type, the failure actions page, description) work for a caller with the
   system role and are denied for the others, the same as the table. The snap-in therefore goes through the elevation
-  (consent) path for its actions, as the plan says: an elevated administrator is expected to behave like the system role
-  column. **Not measured:** the elevated administrator (the suite's broker stub, section `c4_elevated`, is the way in);
-  to be added before the snap-in's actions are called done.
+  (consent) path for its actions, as the plan says. **Measured 2026-11-24 (section `svc_table_elev`):** an administrator's
+  elevated process (started through the broker's test approval, as the consent prompt does) behaves exactly like the system
+  role column, on a session 0 service and on one it creates: every row ok (config, start type, description, start,
+  interrogate, stop, delete), with the same gap 1 (the failure actions query gives 124). The section asserts it.
 - The snap-in does not need `ControlServiceExW` (stock Wine does not implement it either): it uses `ControlService`.
 
 ## Gaps (to the system tier as general bugs)
