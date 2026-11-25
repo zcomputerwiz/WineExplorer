@@ -2297,7 +2297,7 @@ popup_start_menu() { "${V[@]}" key "$TEST" meta_l >/dev/null; }
 popup_context_menu() { "${V[@]}" click "$TEST" 640 300 right >/dev/null; }
 popup_tooltip() {   # the pointer rests on the notification area's clock (the bottom right corner of the taskbar)
     local size w h
-    size=$(grep -o 'size=[0-9]*x[0-9]*' "$OUT/popups-tooltip-before.txt" | sed 's/size=//' | sort -t x -k1,1nr | head -1)
+    size=$(grep -o 'size=[0-9]*x[0-9]*' "$OUT/popups-tooltip-before.txt" | sed 's/size=//' | awk -Fx '{ print $1 * $2, $0 }' | sort -n | tail -1 | cut -d' ' -f2)
     w=${size%x*}; h=${size#*x}
     [ -n "$w" ] && [ -n "$h" ] || return 1
     "${V[@]}" move "$TEST" $((w - 90)) $((h - 40)) >/dev/null   # off it first: a tooltip needs the pointer to arrive
