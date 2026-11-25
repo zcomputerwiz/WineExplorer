@@ -25,9 +25,13 @@
  *
  *   squat [imp]        create \\.\pipe\accounts and \\.\pipe\WexSession0\accounts (imp: while impersonating itself);
  *                      squat=, squat_bridged= are Win32 error codes (0: created)
+ *   squatfile FILE     squat, the result written to FILE (run as a service)
  *   serve SECONDS      the service: serve \\.\pipe\accounts until SECONDS pass or a client sends op 0xffff. Each
- *                      request (u32 op, body) goes through wex_accounts_forward; the client gets back (u32 NTSTATUS,
- *                      u32 helper status, reply body). One "served=" line per request.
+ *                      request (u32 op, body) is forwarded as the client's message from offset 4: first with a length
+ *                      one byte past its end (bounds), then for real, then again (replay); the client gets back (u32
+ *                      NTSTATUS, u32 helper status, u32 bounds NTSTATUS, u32 replay NTSTATUS, reply body). One
+ *                      "served=" line per request.
+ *   regtime SECONDS    machine registry reads every 100 ms; the slowest, in ms
  *   client OP BODY     a session's client: through \\.\pipe\WexSession0\accounts
  *   local OP BODY      a client in session 0 itself, not bridged: \\.\pipe\accounts
  *   quit               end serve (bridged)
@@ -70,9 +74,10 @@ static unsigned int (CDECL *p_wine_server_call)( void *req_ptr );
 static void put32( BYTE *p, DWORD v ) { memcpy( p, &v, 4 ); }
 static DWORD get32( const BYTE *p ) { DWORD v; memcpy( &v, p, 4 ); return v; }
 
-/* wex_accounts_forward of include/wine/wex_accounts.h, with raw requests: accounts_forward {header 12, pipe 12, op 16;
- * reply: call 8}, a wait, accounts_result {call 12; reply: helper_status 8, total 12, body} */
-static NTSTATUS forward( HANDLE pipe, const void *body, ULONG len, ULONG op, void *out, ULONG *out_len, USHORT *status )
+/* wex_accounts_forward of include/wine/wex_accounts.h, with raw requests: accounts_forward {header 12, pipe 12, op 16,
+ * offset 20, length 24; reply: call 8}, a wait, accounts_result {call 12; reply: helper_status 8, total 12, body}.
+ * The body is len bytes at offset of the client message the service last read whole. */
+static NTSTATUS forward( HANDLE pipe, ULONG offset, ULONG len, ULONG op, void *out, ULONG *out_len, USHORT *status )
 {
     struct raw_call r;
     LARGE_INTEGER timeout;
@@ -81,12 +86,10 @@ static NTSTATUS forward( HANDLE pipe, const void *body, ULONG len, ULONG op, voi
 
     memset( &r, 0, sizeof(r) );
     put32( r.u.bytes, ACC_FORWARD_REQ );
-    put32( r.u.bytes + 4, len );
     put32( r.u.bytes + 12, (DWORD)(ULONG_PTR)pipe );
     put32( r.u.bytes + 16, op );
-    r.count = len != 0;
-    r.data[0].ptr = body;
-    r.data[0].size = len;
+    put32( r.u.bytes + 20, offset );
+    put32( r.u.bytes + 24, len );
     if ((ret = p_wine_server_call( &r ))) return ret;
     call = (HANDLE)(ULONG_PTR)get32( r.u.bytes + 8 );
     timeout.QuadPart = -(LONGLONG)(CALL_TIMEOUT + 5) * 10000000;
@@ -128,14 +131,14 @@ static int do_squat( int imp )
 
 static int do_serve( DWORD seconds )
 {
-    static char in[MAX_FRAME + 4], out[MAX_FRAME + 8];
+    static char in[MAX_FRAME + 4], out[2 * MAX_FRAME + 16];
     DWORD end = GetTickCount() + seconds * 1000, got, len, op;
     SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE };
     OVERLAPPED ov;
     HANDLE pipe, event;
-    NTSTATUS status;
-    ULONG reply_len;
-    USHORT helper;
+    NTSTATUS status, bounds, replay;
+    ULONG reply_len, replay_len;
+    USHORT helper, replay_helper;
 
     if (!(p_wine_server_call = (void *)GetProcAddress( GetModuleHandleW( L"ntdll.dll" ), "wine_server_call" )))
     {
@@ -200,20 +203,30 @@ static int do_serve( DWORD seconds )
             DisconnectNamedPipe( pipe );
             break;
         }
-        reply_len = sizeof(out) - 8;
+        /* A3: a body outside the message is refused (and the message stays forwardable); the message is forwarded
+         * once; a replay of it is refused */
+        reply_len = sizeof(out) - 16;
+        bounds = forward( pipe, 4, got - 3, op, out + 16, &reply_len, &helper );
+        reply_len = sizeof(out) - 16;
         helper = 0;
-        status = forward( pipe, in + 4, got - 4, op, out + 8, &reply_len, &helper );
-        printf( "served=0x%08lx op=%lu helper=%u reply=%lu\n", (unsigned long)status, op, helper,
-                status ? 0ul : reply_len );
+        status = forward( pipe, 4, got - 4, op, out + 16, &reply_len, &helper );
+        replay_len = MAX_FRAME;
+        replay = forward( pipe, 4, got - 4, op, out + 16 + (status ? 0 : reply_len), &replay_len, &replay_helper );
+        printf( "served=0x%08lx op=%lu helper=%u reply=%lu bounds=0x%08lx replay=0x%08lx\n", (unsigned long)status, op,
+                helper, status ? 0ul : reply_len, (unsigned long)bounds, (unsigned long)replay );
         fflush( stdout );
         if (status) reply_len = 0;
         len = status;
         memcpy( out, &len, 4 );
         len = helper;
         memcpy( out + 4, &len, 4 );
+        len = bounds;
+        memcpy( out + 8, &len, 4 );
+        len = replay;
+        memcpy( out + 12, &len, 4 );
         memset( &ov, 0, sizeof(ov) );
         ov.hEvent = event;
-        if (!WriteFile( pipe, out, 8 + reply_len, &got, &ov ) && GetLastError() == ERROR_IO_PENDING)
+        if (!WriteFile( pipe, out, 16 + reply_len, &got, &ov ) && GetLastError() == ERROR_IO_PENDING)
             GetOverlappedResult( pipe, &ov, &got, TRUE );
         FlushFileBuffers( pipe );
         DisconnectNamedPipe( pipe );
@@ -224,8 +237,8 @@ static int do_serve( DWORD seconds )
 
 static int do_client( const WCHAR *name, DWORD op, const char *body )
 {
-    static char buf[MAX_FRAME + 8];
-    DWORD mode = PIPE_READMODE_MESSAGE, len = strlen( body ), got, ntstatus, helper, i;
+    static char buf[MAX_FRAME + 16];
+    DWORD mode = PIPE_READMODE_MESSAGE, len = strlen( body ), got, ntstatus, helper, bounds, replay, i;
     HANDLE pipe = INVALID_HANDLE_VALUE;
 
     for (i = 0; i < 100; i++)
@@ -254,7 +267,7 @@ static int do_client( const WCHAR *name, DWORD op, const char *body )
         printf( "quit=0\n" );
         return 0;
     }
-    if (!ReadFile( pipe, buf, sizeof(buf) - 1, &got, NULL ) || got < 8)
+    if (!ReadFile( pipe, buf, sizeof(buf) - 1, &got, NULL ) || got < 16)
     {
         printf( "read=%lu\n", GetLastError() );
         return 1;
@@ -262,8 +275,53 @@ static int do_client( const WCHAR *name, DWORD op, const char *body )
     buf[got] = 0;
     memcpy( &ntstatus, buf, 4 );
     memcpy( &helper, buf + 4, 4 );
-    printf( "status=0x%08lx helper=%lu len=%lu reply=%s\n", ntstatus, helper, got - 8, buf + 8 );
+    memcpy( &bounds, buf + 8, 4 );
+    memcpy( &replay, buf + 12, 4 );
+    printf( "status=0x%08lx helper=%lu bounds=0x%08lx replay=0x%08lx len=%lu reply=%s\n", ntstatus, helper, bounds,
+            replay, got - 16, buf + 16 );
     CloseHandle( pipe );
+    return 0;
+}
+
+/* registry reads of the machine's keys (served by session 0) every 100 ms for SECONDS: the slowest one, in ms */
+static int do_regtime( DWORD seconds )
+{
+    DWORD end = GetTickCount() + seconds * 1000, worst = 0, n = 0, t, subkeys;
+    HKEY key;
+    LONG err;
+
+    while ((int)(end - GetTickCount()) > 0)
+    {
+        t = GetTickCount();
+        if (!(err = RegOpenKeyExW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows NT\\CurrentVersion", 0,
+                                   KEY_READ, &key )))
+        {
+            err = RegQueryInfoKeyW( key, NULL, NULL, NULL, &subkeys, NULL, NULL, NULL, NULL, NULL, NULL, NULL );
+            RegCloseKey( key );
+        }
+        if (err)
+        {
+            printf( "regtime=%ld\n", err );
+            return 1;
+        }
+        t = GetTickCount() - t;
+        if (t > worst) worst = t;
+        n++;
+        Sleep( 100 );
+    }
+    printf( "regtime=0 reads=%lu worst=%lu\n", n, worst );
+    return 0;
+}
+
+/* squat, its result written to FILE (for a run as a service, whose output goes nowhere) */
+static int do_squatfile( const char *file )
+{
+    FILE *f = fopen( file, "w" );
+
+    if (!f) return 1;
+    fprintf( f, "squat=%lu\n", squat( PIPE_PLAIN ) );
+    fprintf( f, "squat_bridged=%lu\n", squat( PIPE_BRIDGED ) );
+    fclose( f );
     return 0;
 }
 
@@ -276,6 +334,9 @@ int main( int argc, char **argv )
     if (argc >= 4 && !strcmp( argv[1], "local" )) return do_client( PIPE_PLAIN, strtoul( argv[2], NULL, 0 ), argv[3] );
     if (argc >= 2 && !strcmp( argv[1], "quit" )) return do_client( PIPE_BRIDGED, OP_QUIT, "" );
     if (argc >= 2 && !strcmp( argv[1], "localquit" )) return do_client( PIPE_PLAIN, OP_QUIT, "" );
-    fprintf( stderr, "usage: accounts-probe squat [imp] | serve SECONDS | client OP BODY | local OP BODY | quit | localquit\n" );
+    if (argc >= 3 && !strcmp( argv[1], "regtime" )) return do_regtime( strtoul( argv[2], NULL, 0 ) );
+    if (argc >= 3 && !strcmp( argv[1], "squatfile" )) return do_squatfile( argv[2] );
+    fprintf( stderr, "usage: accounts-probe squat [imp] | squatfile FILE | serve SECONDS | client OP BODY | "
+             "local OP BODY | quit | localquit | regtime SECONDS\n" );
     return 2;
 }

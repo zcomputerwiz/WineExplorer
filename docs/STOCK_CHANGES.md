@@ -4862,15 +4862,21 @@ Tests: section `s0_eventlog` and the `own_prefix` check of `scripts/test_sysrun_
   the pipes `accounts` and `WexSession0\accounts`, which are marked (`pipe_server.reserved`); `accounts` may be opened
   from a session whose server has a session link. New request handler `accounts_forward`: only for a marked
   instance's client that came over the bridge with a link-bound token; the verdict from `token_caller_class`, the uid
-  of the link's account.
+  of the link's account. The body is the client's own bytes (the reviewer's A3): a marked instance keeps the client
+  message its service last read whole in message mode (`pipe_end.acc_msg`, any other read forgets it), and
+  `accounts_forward` names a range of it; each message is forwarded once.
 - `server/wex_accounts.c` (new): the call. The helper's request header is built by the server; one SEQPACKET datagram
   on a connection of its own to `/run/wineexplorer/accounts.sock`, whose peer (SO_PEERCRED) must be the uid of
-  `helper_user=` in `/etc/wineexplorer/accountsd.conf` (read at each request); the reply is awaited in the server's
-  loop, at most 15 s; request handler `accounts_result`. `server/Makefile.in` lists it; `session0.h` declares
+  `helper_user=` in `/etc/wineexplorer/accountsd.conf` (read at each request; a uid, or a name read from `/etc/passwd`
+  itself, never through NSS, which could stall the server on a domain member: A1); the reply is awaited in the
+  server's loop, at most 15 s; request handler `accounts_result`. `server/Makefile.in` lists it; `session0.h` declares
   `accounts_call_start`.
+- Open (the reviewer's A2): any LocalSystem process of session 0 may create the reserved names, not only wexaccounts;
+  requiring the service's own SID (NT SERVICE\wexaccounts) waits for per-service SIDs in Wine's service tokens.
 - `server/token.c`, `security.h`: `token_is_link_bound()`. `server/protocol.def`: requests `accounts_forward`,
   `accounts_result`; generated files.
 - `include/wine/wex_accounts.h` (new): the helper frame's constants (equal to WineExplorer's
-  `src/include/wexaccounts_proto.h`) and the thin wrapper `wex_accounts_forward`. `include/Makefile.in` lists it.
+  `src/include/wexaccounts_proto.h`) and the thin wrapper `wex_accounts_forward`, which needs a reply buffer of
+  `WEX_ACCOUNTS_MAX_REPLY` bytes so that no reply is lost (A4). `include/Makefile.in` lists it.
 Tests: section `s0_accounts` of `scripts/test_sysrun_server.sh`, `scripts/accounts-probe.c`,
 `scripts/accounts-fake-helper.py`.

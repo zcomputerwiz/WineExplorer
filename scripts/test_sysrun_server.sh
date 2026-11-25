@@ -5128,7 +5128,7 @@ reqnum() { awk -v r="REQ_$1" '/^enum request$/ { f = 1; n = 0; next } f && /REQ_
 reqlayout() { sed -n "/^struct $1\$/,/^};/p" "$PSP" | awk 'NF { $1 = $1; print }' | paste -sd ' '; }
 ACCFWD="$(reqnum accounts_forward)"; ACCRES="$(reqnum accounts_result)"
 [ -n "$ACCFWD" ] && [ -n "$ACCRES" ] || fail "accounts: the requests are not in $PSP"
-[ "$(reqlayout accounts_forward_request)" = 'struct accounts_forward_request { struct request_header __header; obj_handle_t pipe; unsigned int op; /* VARARG(body,bytes); */ char __pad_20[4]; };' ] &&
+[ "$(reqlayout accounts_forward_request)" = 'struct accounts_forward_request { struct request_header __header; obj_handle_t pipe; unsigned int op; data_size_t offset; data_size_t length; char __pad_28[4]; };' ] &&
 [ "$(reqlayout accounts_forward_reply)" = 'struct accounts_forward_reply { struct reply_header __header; obj_handle_t call; char __pad_12[4]; };' ] &&
 [ "$(reqlayout accounts_result_request)" = 'struct accounts_result_request { struct request_header __header; obj_handle_t call; };' ] &&
 [ "$(reqlayout accounts_result_reply)" = 'struct accounts_result_reply { struct reply_header __header; unsigned int helper_status; data_size_t total; /* VARARG(body,bytes); */ };' ] ||
@@ -5187,6 +5187,16 @@ OUT="$(s0_wine "$ROOT/probes/accp64.exe" squat | tr -d '\r' || true)"
     accfail "accounts: session 0's SYSTEM cannot create the reserved pipes: $OUT"
 OUT="$(as_wine "$STD" "$ROOT/probes/accp64.exe" squat || true)"
 [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] || accfail "accounts: a session's program created \\\\.\\pipe\\WexSession0\\accounts: $OUT"
+# a LocalService service in session 0 cannot create them either (A5)
+rm -f /tmp/accls.txt
+s0_wine sc create WexAccSquat binPath= "$(winpath "$ROOT/probes/accp64.exe") squatfile Z:\\tmp\\accls.txt" \
+    obj= "NT AUTHORITY\\LocalService" >/dev/null || accfail "accounts: cannot create the LocalService test service"
+s0_wine sc start WexAccSquat >/dev/null || true   # not a real service: it writes its result and exits
+for i in $(seq 1 100); do grep -q '^squat_bridged=' /tmp/accls.txt 2>/dev/null && break; sleep 0.2; done
+s0_wine sc delete WexAccSquat >/dev/null || true
+OUT="$(cat /tmp/accls.txt 2>/dev/null || true)"; rm -f /tmp/accls.txt
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
+    accfail "accounts: a LocalService service created a reserved pipe: [$OUT]"
 ok acc_reserved_pipe_only_for_localsystem_in_session0
 # the service, in session 0, for the rest of the section
 acc_conf "$ACCH"
@@ -5206,6 +5216,12 @@ done
 grep -q "^req op=7 verdict=1 uid=$(id -u "$STD") id=[1-9][0-9]* flags=0 ok=1 body=hello-$STD\$" "$ACCLOG" ||
     accfail "accounts: the helper did not get the server's header"
 ok acc_session_client_gets_the_servers_verdict_and_uid
+# A3: the body is the client's own message, forwarded once: a range past its end is refused, a replay too, and the
+# helper saw exactly one request per client message
+grep -q '^status=0x00000000 helper=0 bounds=0xc000000d replay=0xc0000184 ' <<<"$OUT" ||
+    accfail "accounts: a body outside the client's message, or a replay of it, was forwarded: $OUT"
+[ "$(grep -c "body=hello-$ADM\$" "$ACCLOG" || true)" = 1 ] || accfail "accounts: the helper got the message more than once"
+ok acc_forward_only_the_clients_message_once
 # an elevated administrator: verdict elevated
 el_up "$ADM"
 rm -f /tmp/accel.txt
@@ -5226,6 +5242,10 @@ acc_conf daemon
 OUT="$(acc "$STD" 64 7 wronguid)"
 grep -q '^status=0xc00000b0 ' <<<"$OUT" || accfail "accounts: a helper of the wrong account: $OUT"
 [ "$(accreqs)" = "$N" ] || accfail "accounts: a request reached a helper of the wrong account"
+# A1: helper_user as a number (names are read from /etc/passwd, never through NSS)
+acc_conf "$(id -u "$ACCH")"
+OUT="$(acc "$STD" 64 7 numeric)"
+grep -q '^status=0x00000000 helper=0 .* body=numeric$' <<<"$OUT" || accfail "accounts: helper_user given as a uid: $OUT"
 acc_conf "$ACCH"
 ok acc_helper_of_another_account_refused
 # no helper: the call ends at once (the service says 1722)
@@ -5238,12 +5258,21 @@ ok acc_no_helper_is_disconnected
 # a helper that never answers: the server ends the call after 15 s
 acc_helper silent || accfail "accounts: the silent helper does not start"
 T0=$SECONDS
-OUT="$(acc "$STD" 64 7 silent)"
+acc "$STD" 64 7 silent > "$ROOT/acc-silent.out" &
+ACCSIL=$!
+# A5: session 0 serves others meanwhile: registry reads from one of its processes, during the call
+for i in $(seq 1 50); do grep -q 'body=silent$' "$ACCLOG" && break; sleep 0.1; done
+OUT2="$(s0_wine "$ROOT/probes/accp64.exe" regtime 8 | tr -d '\r' || true)"
+wait "$ACCSIL" || true
 T1=$((SECONDS - T0))
+OUT="$(cat "$ROOT/acc-silent.out")"
 grep -q '^status=0xc00000b5 ' <<<"$OUT" || accfail "accounts: a silent helper: $OUT"
 [ "$T1" -ge 14 ] && [ "$T1" -le 30 ] || accfail "accounts: the silent helper's call ended after $T1 s"
 grep -q '^req op=7 verdict=1 .* body=silent$' "$ACCLOG" || accfail "accounts: the silent helper got no request"
-ok acc_silent_helper_times_out
+W="$(sed -n 's/^regtime=0 reads=[0-9]* worst=//p' <<<"$OUT2")"
+echo "accounts: session 0's registry during a call: $OUT2"
+[ -n "$W" ] && [ "$W" -lt 1000 ] || accfail "accounts: session 0 stalled during a call to the helper: $OUT2"
+ok acc_silent_helper_times_out_without_stalling_session0
 acc_cleanup
 true; ); section_leave $?; fi
 if section s0_programs; then set +e; ( section_enter
