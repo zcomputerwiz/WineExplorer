@@ -132,7 +132,7 @@ class Rig:
         conf = os.path.join(self.dir, 'accountsd.conf')
         with open(conf, 'w') as f:
             f.write('session0_user=%s\nsession0_unit=wex-session0.service\nadmin_group=sudo\nbuiltin_administrator=builtin\n'
-                    'sync_unit=wex-accounts-sync.service\n' % s0user)
+                    'sync_unit=wex-accounts-sync.service\nhelper_user=wexaccounts\n' % s0user)
         with open(self.pidfile, 'w') as f:
             f.write(str(mainpid if mainpid else os.getpid()))
         env = dict(os.environ, WEX_ACCOUNTSD_TEST='1')

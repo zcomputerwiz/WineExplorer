@@ -47,7 +47,7 @@
 #include <systemd/sd-bus.h>
 #include <systemd/sd-daemon.h>
 
-#include "accountsd_proto.h"
+#include "../../src/include/wexaccounts_proto.h"
 
 #ifndef SO_PEERPIDFD
 #define SO_PEERPIDFD 77
@@ -62,7 +62,7 @@
 
 static struct
 {
-    char s0user[64], unit[128], admin_group[64], builtin[64], sync_unit[128];
+    char s0user[64], unit[128], admin_group[64], builtin[64], sync_unit[128], helper_user[64];
 } cfg;
 
 /* The lab options below bypass the peer check (a private bus, a socket of their own, the MainPID from a file): they exist
@@ -135,6 +135,7 @@ static int load_config( const char *path )
         else if (!strcmp( line, "admin_group" ) && valid_ident( eq, 63 )) strcpy( cfg.admin_group, eq );
         else if (!strcmp( line, "builtin_administrator" ) && (!*eq || valid_ident( eq, 63 ))) strcpy( cfg.builtin, eq );
         else if (!strcmp( line, "sync_unit" ) && valid_ident( eq, 127 )) strcpy( cfg.sync_unit, eq );
+        else if (!strcmp( line, "helper_user" ) && valid_ident( eq, 63 )) strcpy( cfg.helper_user, eq );   /* the server reads it too */
         else { logf_( "unknown or bad key %s in %s", line, path ); fclose( f ); return 0; }
     }
     fclose( f );

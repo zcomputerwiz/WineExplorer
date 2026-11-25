@@ -1018,6 +1018,7 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
                     echo "admin_group=${ACCOUNTSD_ADMIN_GROUP:-sudo}"
                     echo "builtin_administrator=$ACCOUNTSD_BUILTIN"
                     echo 'sync_unit=wex-accounts-sync.service'
+                    echo 'helper_user=wexaccounts'
                 } > "$(dirname -- "$SYSRUN_CONF")/accountsd.conf"
                 chmod 0644 "$(dirname -- "$SYSRUN_CONF")/accountsd.conf"
                 systemctl enable --now wex-accountsd.socket ||
