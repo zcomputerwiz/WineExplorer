@@ -5090,8 +5090,13 @@ three-line `if (...local... && wexa_active())` returns in `netapi32.c`). `NetUse
 exported, levels 0 (rename), 1, 1003, 1008, 1011. Passwords are hashed in the client (`sha512crypt.c`, SHA-512 crypt over
 `bcrypt`, written from the published description and checked against `openssl passwd -6`); the helper only checks the form.
 Phase 1 knows two local groups, Administrators and Users. A machine without a session 0 keeps Wine's own behaviour;
-`WEX_NETAPI_STOCK=1` forces that on any machine, `WEX_ACCOUNTS_PIPE` names another pipe (tests). With a session 0 and the
-service unreachable the calls give 1722, never the in-memory list (U5). `Makefile.in` imports `bcrypt`. Test: the netapi
+the test hooks (Stock=1 forces that on any machine, Pipe names another pipe) are the values `Stock` and `Pipe` of
+`HKLM\Software\WineExplorer\AccountsTest`, which only an administrator writes: environment variables are not honoured (the
+elevated half of a program has the environment of the limited half, and a pipe served by the limited half would receive a
+new password's hash). The pipe is opened with SECURITY_IDENTIFICATION, so a server of it cannot act as the caller. With a
+session 0 and the service unreachable the calls give 1722, never the in-memory list (U5); access denied on the pipe is 5.
+An empty password is refused (NERR_PasswordTooShort, parm 3) until the owner decides how a blank password should work, and
+a list whose total changes between two pages is refused (ERROR_INVALID_DATA). Secrets (hash, key, digests) are zeroed. `Makefile.in` imports `bcrypt`. Test: the netapi
 checks of section `s0_accounts_chain` (`scripts/netapi_accounts_probe.c`).
 
 ## Menu and tooltip shadows are on by default (2026-11-25)

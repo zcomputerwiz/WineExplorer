@@ -244,6 +244,14 @@ static DWORD create_user( HWND owner, const struct new_user_data *d )
     return 0;
 }
 
+/* a password is in memory only as long as it is needed: the edit controls and the copies are cleared when it is used,
+ * refused, or the dialog is left */
+static void wipe_edits( HWND dlg )
+{
+    SetDlgItemTextW( dlg, IDC_USR_PW1, L"" );
+    SetDlgItemTextW( dlg, IDC_USR_PW2, L"" );
+}
+
 static INT_PTR CALLBACK new_user_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM lparam )
 {
     struct new_user_data *d;
@@ -278,13 +286,16 @@ static INT_PTR CALLBACK new_user_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM
             }
             if (lstrcmpW( d->pw1, d->pw2 ))
             {
+                SecureZeroMemory( d->pw1, sizeof(d->pw1) );
+                SecureZeroMemory( d->pw2, sizeof(d->pw2) );
                 MessageBoxW( dlg, cm_string( IDS_USR_PW_MISMATCH ), cm_string( IDS_APPNAME ), MB_OK | MB_ICONWARNING );
-                SetDlgItemTextW( dlg, IDC_USR_PW1, L"" );
-                SetDlgItemTextW( dlg, IDC_USR_PW2, L"" );
+                wipe_edits( dlg );
                 SetFocus( GetDlgItem( dlg, IDC_USR_PW1 ) );
                 break;
             }
             err = create_user( dlg, d );
+            SecureZeroMemory( d->pw1, sizeof(d->pw1) );
+            SecureZeroMemory( d->pw2, sizeof(d->pw2) );
             if (err == ERROR_ACCESS_DENIED)
             {
                 /* an elevated console takes over, and this one closes with its dialog */
@@ -307,6 +318,9 @@ static INT_PTR CALLBACK new_user_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM
             break;
         }
         case IDCANCEL:
+            wipe_edits( dlg );
+            SecureZeroMemory( d->pw1, sizeof(d->pw1) );
+            SecureZeroMemory( d->pw2, sizeof(d->pw2) );
             EndDialog( dlg, d->created ? IDOK : IDCANCEL );
             break;
         }
@@ -343,15 +357,20 @@ static INT_PTR CALLBACK password_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM
             GetDlgItemTextW( dlg, IDC_USR_PW2, d->pw2, ARRAY_SIZE(d->pw2) );
             if (lstrcmpW( d->pw1, d->pw2 ))
             {
+                SecureZeroMemory( d->pw1, sizeof(d->pw1) );
+                SecureZeroMemory( d->pw2, sizeof(d->pw2) );
                 MessageBoxW( dlg, cm_string( IDS_USR_PW_MISMATCH ), cm_string( IDS_APPNAME ), MB_OK | MB_ICONWARNING );
-                SetDlgItemTextW( dlg, IDC_USR_PW1, L"" );
-                SetDlgItemTextW( dlg, IDC_USR_PW2, L"" );
+                wipe_edits( dlg );
                 SetFocus( GetDlgItem( dlg, IDC_USR_PW1 ) );
                 break;
             }
-            EndDialog( dlg, IDOK );
+            wipe_edits( dlg );
+            EndDialog( dlg, IDOK );   /* the caller uses d->pw1 and clears it */
             break;
         case IDCANCEL:
+            wipe_edits( dlg );
+            SecureZeroMemory( d->pw1, sizeof(d->pw1) );
+            SecureZeroMemory( d->pw2, sizeof(d->pw2) );
             EndDialog( dlg, IDCANCEL );
             break;
         }
@@ -584,6 +603,7 @@ BOOL usr_command( HWND list, HWND owner, UINT command )
         d->owner = owner;
         DialogBoxParamW( compmgmt_module, MAKEINTRESOURCEW( IDD_USR_NEW ), owner, new_user_proc, (LPARAM)d );
         changed = d->created;
+        SecureZeroMemory( d, sizeof(*d) );
         free( d );
         return changed;
     }
@@ -619,7 +639,10 @@ BOOL usr_command( HWND list, HWND owner, UINT command )
         USER_INFO_1003 f;
 
         if (DialogBoxParamW( compmgmt_module, MAKEINTRESOURCEW( IDD_USR_PASSWORD ), owner, password_proc, (LPARAM)&d ) != IDOK)
+        {
+            SecureZeroMemory( &d, sizeof(d) );
             return FALSE;
+        }
         f.usri1003_password = d.pw1;
         finish( owner, NetUserSetInfo( NULL, name, 1003, (BYTE *)&f, NULL ) );
         SecureZeroMemory( &d, sizeof(d) );

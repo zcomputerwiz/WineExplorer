@@ -716,8 +716,16 @@ static INT_PTR CALLBACK recovery_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM
             fa.lpsaActions = actions;
             p = r->props;
             scm = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT );
-            /* a restart action needs a handle that may start the service, as on Windows */
-            if (scm) svc = OpenServiceW( scm, p->name, SERVICE_CHANGE_CONFIG | SERVICE_START );
+            /* a restart action needs a handle that may start the service, as on Windows; the right is asked for only when a
+             * restart is among the actions, so that someone who may change the configuration but not start the service can
+             * still save the others */
+            if (scm)
+            {
+                DWORD access = SERVICE_CHANGE_CONFIG;
+
+                for (i = 0; i < 3; i++) if (actions[i].Type == SC_ACTION_RESTART) access |= SERVICE_START;
+                svc = OpenServiceW( scm, p->name, access );
+            }
             if (!svc) err = GetLastError();
             else if (!ChangeServiceConfig2W( svc, SERVICE_CONFIG_FAILURE_ACTIONS, &fa )) err = GetLastError();
             if (svc) CloseServiceHandle( svc );

@@ -18,6 +18,10 @@
  *   addmember GROUP NAME NetLocalGroupAddMembers 3 "status=N"
  *   delmember GROUP NAME NetLocalGroupDelMembers 3 "status=N"
  *   changepw NAME OLD NEW NetUserChangePassword    "status=N"
+ *   addblank NAME        NetUserAdd level 1, empty password          "status=N" "parm=P"
+ *   pwblank NAME         NetUserSetInfo level 1003, empty password   "status=N" "parm=P"
+ * Before the mode: --setenv NAME=VALUE (any number) sets an environment variable first; the suite uses it to show that the
+ * old test variables WEX_ACCOUNTS_PIPE and WEX_NETAPI_STOCK are not honoured any more.
  * The output goes to FILE when --out is given (an elevated process has no console).
  */
 #include <windows.h>
@@ -52,6 +56,15 @@ int main(int argc, char **argv)
 
     for (a = 1; a + 1 < (DWORD)argc; a++)
         if (!strcmp(argv[a], "--out")) { freopen(argv[a + 1], "w", stdout); argc = a; break; }
+    while (argc > 3 && !strcmp(argv[1], "--setenv"))
+    {
+        char *eq = strchr(argv[2], '=');
+
+        if (eq) { *eq = 0; SetEnvironmentVariableA(argv[2], eq + 1); }
+        argv += 2;
+        argc -= 2;
+    }
+    mode = argc > 1 ? argv[1] : "";
 
     if (!strcmp(mode, "list"))
     {
@@ -130,6 +143,24 @@ int main(int argc, char **argv)
         st = !strcmp(mode, "addmember") ? NetLocalGroupAddMembers(NULL, w(argv[2]), 3, (BYTE *)&m, 1)
                                         : NetLocalGroupDelMembers(NULL, w(argv[2]), 3, (BYTE *)&m, 1);
         printf("status=%lu\n", st);
+    }
+    else if (!strcmp(mode, "addblank") && argc > 2)
+    {
+        USER_INFO_1 u = { 0 };
+
+        u.usri1_name = w(argv[2]);
+        u.usri1_password = L"";
+        u.usri1_priv = USER_PRIV_USER;
+        u.usri1_flags = UF_SCRIPT | UF_NORMAL_ACCOUNT;
+        st = NetUserAdd(NULL, 1, (BYTE *)&u, &parm);
+        printf("status=%lu\nparm=%lu\n", st, parm);
+    }
+    else if (!strcmp(mode, "pwblank") && argc > 2)
+    {
+        USER_INFO_1003 u = { L"" };
+
+        st = NetUserSetInfo(NULL, w(argv[2]), 1003, (BYTE *)&u, &parm);
+        printf("status=%lu\nparm=%lu\n", st, parm);
     }
     else if (!strcmp(mode, "changepw") && argc > 4)
     {

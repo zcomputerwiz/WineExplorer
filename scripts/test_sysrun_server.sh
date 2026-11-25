@@ -650,6 +650,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/scmloop64.exe" "$SRC/scripts/s
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/pipeloop64.exe" "$SRC/scripts/pipe_loop_probe.c"
 x86_64-w64-mingw32-gcc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/accchain64.exe" "$SRC/scripts/accounts_chain_probe.c"
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/netapi64.exe" "$SRC/scripts/netapi_accounts_probe.c" -lnetapi32
+x86_64-w64-mingw32-gcc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/accmock64.exe" "$SRC/scripts/accounts_mock_server.c"
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe32.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/alpcpair64.exe" "$SRC/tests/uwp/alpc/alpc-pair.c" -ladvapi32   # ALPC impersonation, one role per process
 # the WinSta0 holder of el_up, which sections of every group use (built here, not in c4_build, so a section run alone has it)
@@ -5893,6 +5894,34 @@ stop_helper
 start_helper
 [ "$(as_na "$STD" info alice | st)" = 0 ] || chain_fail "netapi: no recovery after the helper came back"
 ok st_netapi_unreachable_service_is_1722_not_a_local_list
+# a blank password is refused in the client (NERR_PasswordTooShort, parameter 3), for a new user and for a change: crypt("") would give
+# the unix account a real empty password (the reviewer's M3, until the owner decides)
+OUT="$(as_na "$STD" addblank zedblank)"
+[ "$(st <<<"$OUT")" = 2245 ] && grep -q '^parm=3' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: NetUserAdd with a blank password"; }
+OUT="$(as_na "$STD" pwblank alice)"
+[ "$(st <<<"$OUT")" = 2245 ] && grep -q '^parm=3' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: NetUserSetInfo 1003 with a blank password"; }
+! grep -q '"user": "zedblank"' "$CH/fake.log" || chain_fail "netapi: a blank-password add reached AccountsService"
+ok st_netapi_blank_password_is_refused
+# the environment does not steer the client (the reviewer's M2): a process of the limited half, and the elevated one, ignore the old test
+# variables; the hooks are values of the machine hive, which only an administrator writes
+OUT="$(as_na "$STD" --setenv WEX_ACCOUNTS_PIPE=wexbogus list)"
+[ "$(st <<<"$OUT")" = 0 ] && grep -q 'names=.*alice' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: WEX_ACCOUNTS_PIPE steered a limited process"; }
+OUT="$(as_na "$STD" --setenv WEX_NETAPI_STOCK=1 list)"
+grep -q 'names=.*alice' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: WEX_NETAPI_STOCK switched a limited process to the stock list"; }
+OUT="$(el_na n6 --setenv WEX_ACCOUNTS_PIPE=wexbogus list)"
+[ "$(st <<<"$OUT")" = 0 ] && grep -q 'names=.*alice' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: WEX_ACCOUNTS_PIPE steered an elevated process"; }
+ok st_netapi_environment_does_not_steer_the_client
+# a list that changed between two pages: the second page has a larger total than the first; refused, no write past the buffer (M1)
+s0_wine reg add 'HKLM\Software\WineExplorer\AccountsTest' /v Pipe /t REG_SZ /d '\\.\pipe\wexmock' /f >/dev/null
+( as_wine "$STD" "$ROOT/probes/accmock64.exe" '\\.\pipe\wexmock' > "$CH/mock.out" 2>&1 ) & MOCKPID=$!
+sleep 3
+OUT="$(as_na "$STD" list)"
+s0_wine reg delete 'HKLM\Software\WineExplorer\AccountsTest' /f >/dev/null 2>&1
+wait "$MOCKPID" 2>/dev/null || true
+[ "$(st <<<"$OUT")" = 13 ] || { echo "$OUT" >&2; cat "$CH/mock.out" >&2; chain_fail "netapi: a list that grew between two pages was not refused with ERROR_INVALID_DATA"; }
+grep -q 'served=2' "$CH/mock.out" || { cat "$CH/mock.out" >&2; chain_fail "netapi: the mock service did not serve both pages"; }
+[ "$(as_na "$STD" info alice | st)" = 0 ] || chain_fail "netapi: no way back to the real service after the hook was removed"
+ok st_netapi_list_that_changes_between_pages_is_refused
 # what the helper logged: reads as users, changes as elevated, the caller's uid, never a hash
 grep -q 'verdict 1 ' "$CH/helper.log" && grep -q 'verdict 2 ' "$CH/helper.log" || chain_fail "chain: the helper's log lacks the verdicts of both classes"
 grep -q "caller $ADM_UID " "$CH/helper.log" || chain_fail "chain: the helper's log lacks the caller's uid"
