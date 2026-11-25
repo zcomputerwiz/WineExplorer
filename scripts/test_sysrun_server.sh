@@ -4917,6 +4917,11 @@ s0_stop; s0_start
     </dev/null >/dev/null 2>>"$EVSVCERR") || true
 ev_up || evfail "eventlog: the service in session 0 does not answer a session's client"
 s0_wine sc query EventLog | grep -q RUNNING || evfail "eventlog: the service does not run in session 0"
+# one store per machine: a session runs no EventLog of its own (services.c forwards it to session 0 by name); its
+# service manager reports session 0's running service
+as_wine "$STD" sc query EventLog | grep -q RUNNING || evfail "eventlog: a session does not see session 0's EventLog running"
+! pgrep -u "$STD" -f 'svchost.exe -k LocalServiceNetworkRestricted' >/dev/null ||
+    evfail "eventlog: a session runs an EventLog svchost of its own: $(pgrep -u "$STD" -af svchost)"
 ok ev_service_runs_in_session0_and_answers_sessions
 # E2: a program in a session cannot create the pipe under \pipe\WexSession0\ (the bridge reserves the prefix), and the
 # client opens with identification level only
