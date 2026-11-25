@@ -165,6 +165,7 @@ c4_appx_doc      c4_build           n   c4
 c4_wam           c4_build           n   c4
 c4_dwm           c4_build           n   c4
 c4_dwm_popup     c4_build           n   c4
+c4_dwm_menu      c4_build           n   c4
 c4_std           c4_build           n   c4
 c4_noleases      c4_build           n   c4
 c5_build         c4_build           nl  c5
@@ -3557,6 +3558,77 @@ else
 fi
 [ -z "$popup_fail" ] || { tr -d '\r' < "$POPD/probe.log" | tail -10 >&2; tr -d '\r' < "$POPD/shell.log" | grep -v '^$' | tail -10 >&2; fail "popup:$popup_fail"; }
 if [ "$POPCOMP" = 0x1 ]; then ok c4_dwm_popup_with_composition_is_blended; else ok c4_dwm_popup_without_composition_is_shaped; fi
+true; ); section_leave $?; fi
+if section c4_dwm_menu; then set +e; ( section_enter
+MENUD="$ROOT/c4menu"; rm -rf "$MENUD"; install -d -m 1777 "$MENUD"
+command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 || section_skip "no x86_64 MinGW compiler"
+command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || section_skip "no import or convert (ImageMagick) to read the screen"
+x86_64-w64-mingw32-gcc -municode -mwindows -o "$MENUD/dwm-menu-probe.exe" "$SRC/scripts/dwm-menu-probe.c" -luser32 -lgdi32 2>"$MENUD/build.log" ||
+    { cat "$MENUD/build.log" >&2; fail "menu: the probe does not build"; }
+chmod 0755 "$MENUD/dwm-menu-probe.exe"
+DWMKEY='HKCU\Software\WineExplorer\Shell'
+MENUCOMP="$(wine_as "$ADM" reg query "$DWMKEY" /v Composition 2>/dev/null | tr -d '\r' | awk '$1 == "Composition" { print $NF }' || true)"
+if [ "$MENUCOMP" = 0x1 ]; then
+    ldconfig -p 2>/dev/null | grep -q 'libXdamage[.]so[.]1' || section_skip "composition is on and libXdamage is missing (the compositor needs it)"
+fi
+Xvfb -displayfd 7 -screen 0 1280x800x24 -nolisten tcp +extension Composite +extension DAMAGE +extension RENDER \
+    7>"$MENUD/display" >/dev/null 2>&1 &
+MENUX=$!
+for i in $(seq 1 50); do [ -s "$MENUD/display" ] && break; sleep 0.2; done
+MENUDN="$(tr -dc '0-9' < "$MENUD/display")"
+[ -n "$MENUDN" ] || { kill "$MENUX" 2>/dev/null; fail "menu: Xvfb did not start"; }
+MENULOG="/home/$ADM/.wine/drive_c/menu.log"
+rm -f "$MENULOG" "/home/$ADM/.wine/drive_c/menu.stop"
+wine_as "$ADM" reg add "$DWMKEY" /v DwmService /t REG_DWORD /d 1 /f >/dev/null 2>&1 || fail "menu: HKCU DwmService"
+wine_as "$ADM" reg add 'HKCU\Software\Wine\Explorer\Desktops\Default' /v EnableShell /t REG_DWORD /d 1 /f >/dev/null 2>&1 ||
+    fail "menu: the EnableShell key"
+run_as "$ADM" env DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell.log" 2>&1 &
+MENUSHELL=$!
+sleep 10
+run_as "$ADM" env DISPLAY=":$MENUDN" timeout 100 "$BUILD/wine" "$(winpath "$MENUD/dwm-menu-probe.exe")" >"$MENUD/probe.log" 2>&1 &
+MENUPROBE=$!
+for i in $(seq 1 60); do grep -q 'menu ready' "$MENULOG" 2>/dev/null && break; sleep 1; done
+sleep 2
+DISPLAY=":$MENUDN" import -window root "$MENUD/screen.png" 2>/dev/null || true
+menu_pixel()   # x y: the screen's pixel, as "R,G,B"
+{
+    convert "$MENUD/screen.png" -format "%[pixel:p{$1,$2}]" info: 2>/dev/null |
+        sed -n 's/^srgb(\([0-9]*\),\([0-9]*\),\([0-9]*\)).*/\1,\2,\3/p'
+}
+read -r _ _ MENU_L MENU_T MENU_R MENU_B <<<"$(tr -d '\r' < "$MENULOG" | grep -a '^menu rect' | head -1)"
+MENU_SPI="$(tr -d '\r' < "$MENULOG" | awk '$1 == "SPI_GETDROPSHADOW" { print $2 }')"
+if [ -n "${MENU_R:-}" ]; then
+    MENU_MX=$(( (MENU_L + MENU_R) / 2 )); MENU_MY=$(( (MENU_T + MENU_B) / 2 ))
+    MENU_BELOW="$(menu_pixel "$MENU_MX" $((MENU_B + 3)))"; MENU_RIGHT="$(menu_pixel $((MENU_R + 3)) "$MENU_MY")"
+    MENU_FAR="$(menu_pixel "$MENU_MX" $((MENU_B + 40)))"; MENU_IN="$(menu_pixel "$MENU_MX" "$MENU_MY")"
+fi
+echo "menu (composition ${MENUCOMP:-off}, SPI_GETDROPSHADOW ${MENU_SPI:-?}): rect ${MENU_L:-?},${MENU_T:-?} ${MENU_R:-?},${MENU_B:-?}, inside ${MENU_IN:-?}, 3 px below ${MENU_BELOW:-?}, 3 px right ${MENU_RIGHT:-?}, 40 px below ${MENU_FAR:-?}"
+cp "$MENUD/screen.png" "$ROOT/menu-screen-${MENUCOMP:-off}.png" 2>/dev/null || true
+touch "/home/$ADM/.wine/drive_c/menu.stop"
+sleep 2
+kill "$MENUPROBE" "$MENUSHELL" 2>/dev/null || true; wait "$MENUPROBE" "$MENUSHELL" 2>/dev/null || true
+wine_as "$ADM" reg delete "$DWMKEY" /v DwmService /f >/dev/null 2>&1 || true
+wine_as "$ADM" reg delete 'HKCU\Software\Wine\Explorer\Desktops\Default' /f >/dev/null 2>&1 || true
+pkill -u "$ADM" -x wineserver 2>/dev/null || true
+kill "$MENUX" 2>/dev/null || true
+rm -f "$MENULOG" "/home/$ADM/.wine/drive_c/menu.stop"
+menu_fail=""
+[ -n "${MENU_R:-}" ] || menu_fail="$menu_fail the probe did not report the menu's rectangle;"
+[ "${MENU_FAR:-}" = 255,128,0 ] || menu_fail="$menu_fail 40 px below the menu is not the orange (${MENU_FAR:-none});"
+[ "${MENU_SPI:-}" = 1 ] || menu_fail="$menu_fail SPI_GETDROPSHADOW is not on by default (${MENU_SPI:-none});"
+if [ "$MENUCOMP" = 0x1 ]; then
+    # blended: the shadow (30 % black at the edge) darkens the orange: red 150..245
+    for p in "${MENU_BELOW:-}" "${MENU_RIGHT:-}"; do
+        MENU_R_VAL="${p%%,*}"
+        { [ -n "$MENU_R_VAL" ] && [ "$MENU_R_VAL" -ge 150 ] && [ "$MENU_R_VAL" -le 245 ]; } ||
+            menu_fail="$menu_fail composition on: no soft shadow 3 px outside the menu (${p:-none});"
+    done
+else
+    [ "${MENU_BELOW:-}" = 255,128,0 ] && [ "${MENU_RIGHT:-}" = 255,128,0 ] ||
+        menu_fail="$menu_fail composition off: the menu has a shadow (${MENU_BELOW:-none}, ${MENU_RIGHT:-none});"
+fi
+[ -z "$menu_fail" ] || { tr -d '\r' < "$MENUD/probe.log" | tail -10 >&2; tr -d '\r' < "$MENUD/shell.log" | grep -v '^$' | tail -10 >&2; fail "menu:$menu_fail"; }
+if [ "$MENUCOMP" = 0x1 ]; then ok c4_dwm_menu_with_composition_has_a_shadow; else ok c4_dwm_menu_without_composition_has_none; fi
 true; ); section_leave $?; fi
 amb_down "$ADM"
 

@@ -4830,3 +4830,11 @@ protocol"): the cross-server protocol on the session link between session 0 and 
   control socket `wex-x0-lab` in each lab server's directory (root only) and the lab object kind, a named counter.
   `server/wex_e1lab.h` declares `x0lab_init` and `session0_lab_drop_link`.
 Tests: section `s0_x0` of `scripts/test_sysrun_server.sh` (lab suite), client `scripts/x0lab.py`.
+
+## Menu and tooltip shadows are on by default (2026-11-25)
+
+Wine `eb00215e` on `claude/menu-shadow`, `dlls/win32u/sysparams.c`: the default `UserPreferencesMask` has the
+`SPI_GETDROPSHADOW` bit (byte 2, 0x04) set, as on Windows XP; stock Wine has it clear. winex11.drv publishes the setting
+as `_WEX_DROPSHADOW` for `CS_DROPSHADOW` windows only when a compositor owns the screen, so without composition nothing
+changes on screen; with composition on, menus and tooltips get the compositor's soft shadow. A prefix that already has
+`UserPreferencesMask` in its registry keeps its value. Suite section `c4_dwm_menu` checks both modes.
