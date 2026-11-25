@@ -4881,6 +4881,8 @@ evfail()
     echo "--- the last probe runs:" >&2; tail -8 "$EVLOG" >&2
     { echo "--- now: the service in session 0, and fresh probes"; s0_wine sc query EventLog | tr -d '\r' | grep -E 'STATE|EXIT'
       echo "s0 count: $(s0_wine "$ROOT/probes/evp64.exe" count Application | tr -d '\r')"
+      echo "s0 caller: $(s0_wine "$ROOT/probes/evp64.exe" caller | tr -d '\r')"
+      echo "std caller: $(as_wine "$STD" "$ROOT/probes/evp64.exe" caller)"
       echo "s0 report: $(s0_wine "$ROOT/probes/evp64.exe" report WexL1Diag 4 1 diag | tr -d '\r')"
       echo "std count: $(as_wine "$STD" "$ROOT/probes/evp64.exe" count Application)"
       echo "std report: $(as_wine "$STD" "$ROOT/probes/evp64.exe" report WexL1Diag 4 1 diag)"
