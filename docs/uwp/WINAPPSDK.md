@@ -219,6 +219,12 @@ the Windows host, on Wine with our own logging objects) or on MIT-licensed sourc
 package binaries' licence terms forbid it. Earlier statements of this file that rested on disassembly were removed or rewritten (the null
 call, the CoreUICreate wrappers, the Store wait), and the statements of this branch's earlier revision that did are withdrawn below.
 
+**Time Travel Debugging rule (owner, 2026-11-26).** Recordings of the Windows host's applications with Time Travel Debugging are allowed, with
+queries of exported Windows API calls only: arguments, results, threads and order (for example `TTD.Calls("ntdll!Nt...")`, and the stack arguments
+of such a call, read at the call). Not allowed: internal function names taken from Microsoft's symbols (describe such a place as "the
+application's own fail-fast", "the adapter window's procedure", and so on), stepping, disassembly, memory reads beyond a call's arguments.
+The traces stay outside the repository (they hold the process's memory). Scripts under `tests/uwp/alpc/ttd/` follow this rule.
+
 **MIT source check.** `microsoft/WindowsAppSDK` at tag `v2.7.0` (commit 85b42a60) and `microsoft/microsoft-ui-xaml` at tag
 `winui3/release/2.7.0` (commit 1b5b1a0c), the version of the runtime under test: neither contains FrameworkUdk, `dcompi`, `dwmcorei`,
 `Microsoft.UI.Input`, `Microsoft.InputStateManager`, the `DCompPrivates_*` functions, the composition input sink syscalls or any of the private

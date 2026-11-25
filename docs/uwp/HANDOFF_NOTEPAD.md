@@ -351,6 +351,8 @@ How: `ttd-notepad2.ps1` (elevated, tttracer monitor mode) records Notepad from p
 file (`dx @$cursession.TTD.Calls("ntdll!Nt...")` gives every call with arguments, return value, thread and position; `!tt <pos>` + `dq @rsp+28 L4` gives
 the stack arguments). API-boundary level only, no disassembly. The traces live outside the repository (D:\DeepThought\ttd-notepad2).
 
+**Rule (owner, 2026-11-26).** TTD recordings are allowed with queries of exported Windows API calls only (arguments, results, threads, order; the stack arguments of a call, read at the call). No internal function names from Microsoft's symbols (say 	he application's own fail-fast, 	he adapter window's procedure), no stepping, no disassembly, no memory reads beyond a call's arguments. Traces stay outside the repository. The findings below that were made before this ruling are kept as measured behaviour; their basis is stated without the internal names.
+
 Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
 - Three threads call Init2: the UI thread (two windows: the app's and the system CoreMessaging.dll's), a CoreMessagingXP worker (also two windows) and a
   system CoreMessaging.dll thread (one window). Wake packets all have APC context 0 (stack argument 5), so they arrive as (3,0).
@@ -369,14 +371,13 @@ Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
 
 ## 2026-11-26: the worker no longer fail-fasts (Wine branch 4a0ecd9f)
 
-- Windows App SDK's input thread is `dwmcorei!CLocalMit::Run`; CoreMessagingXP's window procedure is `UserAdapter::WindowProc`, the abort goes through
-  `CFlat::Abandonment::FailWithException` (public symbols resolve in the TTD traces).
+- The thread that fails is Windows App SDK's input thread (it retrieves messages with PeekMessage and waits with MsgWaitForMultipleObjectsEx); the abort is the application's own fail-fast.
 - On Windows a wait packet completion reaches CoreMessagingXP's windows as a posted (0x60, 1, 0): the thread's MsgWait returns as for input, the retrieval of the
   posted message calls the procedure with (1, 0) and returns the message with 0x80000001. Over a whole Notepad run no (3,0) or (8,x) ever reaches those windows.
   Plain test windows get (3,0) inside the wait for the same packets (not understood). Implemented: a zero-APC completion posts (0x60,1,0) to the first window.
 - Result under Wine at build 26100: no fail-fast, the UI thread settles in its message loop, the workers cycle through Drain2; the window still shows black
   strips: the composition layer sees 2 commits and no surfaces (Windows: 94 commits, 5 DCompositionCreateSurfaceHandle, 28 compositor clock waits).
-- Next: the compositor thread (dwmcorei CConnection::CompositionThreadEntryPoint). On Windows after DCompositionWaitForCompositorClock(0, NULL, 80) it polls
+- Next: the compositor thread (the thread of the composition library that waits for the compositor clock). On Windows after DCompositionWaitForCompositorClock(0, NULL, 80) it polls
   a one-handle NtWaitForMultipleObjects with a zero timeout and loops; under Wine the same thread blocks in an infinite one-handle wait and the loop stops.
   Compare the two threads' startup (Windows: thread 0x8278 in the TTD trace, a long sequence of event creations, sections and CreateDevice2).
 - Other apps tried: Get Help, Clock, Paint (managed or UWP, they fail before CoreMessagingXP).
