@@ -114,8 +114,9 @@ in the UI thread's window.
   - Wine has no cross-process composition, so a handle passed to another process opens nothing there (E_HANDLE).
 - **Linking.** The visual and the target store the share pointer and unlink on their final Release. Commit, collection
   and redraw only follow pointers.
-- **A second target opened from the same object** replaces the first as the portal, with a FIXME. Windows' behaviour is to
-  be measured with the probe before the code lands; if Windows refuses it, so will Wine.
+- **An object opens as a target once.** A second target opened from the same object is refused with E_ACCESSDENIED, on
+  the same device or another one, and still after the first target has been released. Measured on Windows 11
+  (`tests/uwp/alpc/dcomp-sharedopen-probe.c`). The share records that a target was opened and keeps that record.
 - **Dropping registry entries.** An entry is dropped when ObjectBasicInformation shows that the share's duplicate is the
   only handle left to the event, which means every caller handle is closed. The check runs on each create and each open
   (a sweep of the registry).
@@ -159,7 +160,8 @@ in the UI thread's window.
 
 ## 8. Tests (dcomp.c, `test_shared_visual_portal` and companions)
 
-1. A duplicate handle opens the same visual on the same device, also after the original handle is closed.
+1. A duplicate handle opens the same visual on the same device, also after the original handle is closed. A second
+   target on the same object is E_ACCESSDENIED, while the first lives and after it is released.
 2. A portal Commit shows in the viewer's window (readback).
 3. Removal: root NULL plus a portal Commit clears the area. A portal target released with a root clears it too (P4).
    Both are checked by readback.

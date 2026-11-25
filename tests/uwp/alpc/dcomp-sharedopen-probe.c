@@ -126,6 +126,28 @@ int main(void)
     try_open("closed as target", device, closed, &IID_IDCompositionTarget_);
     try_open("process as target", device, GetCurrentProcess(), &IID_IDCompositionTarget_);
 
+    /* a second target from the same object: on the same device, and on another device */
+    {
+        void *t1 = NULL, *t2 = NULL, *t3 = NULL, *device2 = NULL;
+        HANDLE h = NULL;
+
+        create_handle(&h);
+        hr = open_of(device)(device, h, &IID_IDCompositionTarget_, &t1);
+        printf("first target                             hr %08lx\n", hr);
+        hr = open_of(device)(device, h, &IID_IDCompositionTarget_, &t2);
+        printf("second target, same device               hr %08lx same %d\n", hr, t1 == t2);
+        create3(NULL, &IID_IDCompositionDesktopDevice_, &device2);
+        hr = open_of(device2)(device2, h, &IID_IDCompositionTarget_, &t3);
+        printf("third target, other device               hr %08lx\n", hr);
+        release(t3); release(t2); release(t1);
+        t1 = NULL;
+        hr = open_of(device2)(device2, h, &IID_IDCompositionTarget_, &t1);
+        printf("target after the first is released       hr %08lx\n", hr);
+        release(t1);
+        printf("device2 release %lu\n", release(device2));
+        CloseHandle(h);
+    }
+
     printf("device release %lu\n", release(device));
     CloseHandle(shared);
     CloseHandle(dup);
