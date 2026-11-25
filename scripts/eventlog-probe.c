@@ -178,24 +178,20 @@ static void print_records( const BYTE *buf, DWORD size )
 }
 
 /* the backup file, our storage format (E3: written by the client, with its own rights): header, records, trailers */
-struct file_header { char magic[8]; DWORD version, next, reserved[4]; };
+struct file_header { char magic[8]; DWORD version, next; ULONGLONG created, written, read, reserved; };
 
-static DWORD backup( HANDLE pipe, unsigned int handle, const char *path, DWORD *records )
+/* stream the records from *next on into file (appended); *next and *last follow what was written */
+static DWORD stream_into( HANDLE pipe, unsigned int handle, HANDLE file, DWORD *next, DWORD *records, DWORD *last )
 {
-    struct file_header fh = { "WXEVLOG1", 1, 0, { 0 } };
     struct wex_evtlog_header out;
-    DWORD next = 0, status, written;
-    HANDLE file = CreateFileA( path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL );
+    DWORD status, written;
 
-    *records = 0;
-    if (file == INVALID_HANDLE_VALUE) return GetLastError();
-    WriteFile( file, &fh, sizeof(fh), &written, NULL );
     for (;;)
     {
         BYTE *buf;
         DWORD size, pos = 0;
 
-        status = call( pipe, WEX_EVTLOG_STREAM, handle, next, 0, NULL, 0, &out, &buf, &size );
+        status = call( pipe, WEX_EVTLOG_STREAM, handle, *next, 0, NULL, 0, &out, &buf, &size );
         if (status) { free( buf ); break; }
         while (pos + sizeof(EVENTLOGRECORD) <= size)
         {
@@ -204,14 +200,46 @@ static DWORD backup( HANDLE pipe, unsigned int handle, const char *path, DWORD *
 
             WriteFile( file, buf + pos, rec->Length, &written, NULL );
             WriteFile( file, trailer, sizeof(trailer), &written, NULL );
+            *last = rec->RecordNumber;
             pos += rec->Length;
             (*records)++;
         }
         free( buf );
-        next = out.arg[0];
+        *next = out.arg[0];
+    }
+    return status == ERROR_HANDLE_EOF ? ERROR_SUCCESS : status;
+}
+
+/* a backup and, with clear, the clear after it: CLEAR names the last record the backup has, and newer records
+ * (ERROR_RETRY) make the client stream the rest and clear again, a bounded number of times (N6) */
+static DWORD backup_and_clear( HANDLE pipe, unsigned int handle, const char *path, BOOL clear, DWORD *records,
+                               DWORD *last, DWORD *retries )
+{
+    struct file_header fh = { "WXEVLOG1", 1, 0, 0, 0, 0, 0 };
+    struct wex_evtlog_header out;
+    DWORD next = 0, status, written;
+    HANDLE file = CreateFileA( path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL );
+
+    *records = *last = *retries = 0;
+    if (file == INVALID_HANDLE_VALUE) return GetLastError();
+    WriteFile( file, &fh, sizeof(fh), &written, NULL );
+    status = stream_into( pipe, handle, file, &next, records, last );
+    while (!status && clear)
+    {
+        /* after 8 retries against a steady writer: clear through the backup's last record, keep the newer ones */
+        status = call( pipe, WEX_EVTLOG_CLEAR, handle, *retries >= 8 ? 2 : 1, *last, NULL, 0, &out, NULL, NULL );
+        if (status != ERROR_RETRY) break;
+        ++*retries;
+        status = stream_into( pipe, handle, file, &next, records, last );
     }
     CloseHandle( file );
-    return status == ERROR_HANDLE_EOF ? ERROR_SUCCESS : status;
+    return status;
+}
+
+static DWORD backup( HANDLE pipe, unsigned int handle, const char *path, DWORD *records )
+{
+    DWORD last, retries;
+    return backup_and_clear( pipe, handle, path, FALSE, records, &last, &retries );
 }
 
 static int frame_test( HANDLE pipe, const char *kind )
@@ -310,14 +338,21 @@ static int caps_test( const char *kind )
     if (!strcmp( kind, "connections" ))
     {
         /* each connection is refused at once when the account holds the cap */
+        DWORD connect_error = 0;
         for (n = 0; n < 300; n++)
         {
-            if ((pipes[n] = connect_log()) == INVALID_HANDLE_VALUE) break;
+            /* a refusal at the open (the bridge's own cap) or the service closing the connection (its cap) */
+            if ((pipes[n] = connect_log()) == INVALID_HANDLE_VALUE)
+            {
+                connect_error = GetLastError();
+                break;
+            }
             status = open_handle( pipes[n], WEX_EVTLOG_OPEN_LOG, L"Application", &handle );
             if (status) break;
             granted++;
         }
-        printf( "caps=connections granted=%lu refused=%lu\n", (unsigned long)granted, (unsigned long)status );
+        printf( "caps=connections granted=%lu refused=%lu by=%s connect_error=%lu\n", (unsigned long)granted,
+                (unsigned long)status, connect_error ? "open" : "service", (unsigned long)connect_error );
     }
     else if (!strcmp( kind, "handles" ))
     {
@@ -512,8 +547,19 @@ int main( int argc, char **argv )
     {
         unsigned int op = !strcmp( argv[1], "count" ) ? WEX_EVTLOG_COUNT :
                           !strcmp( argv[1], "oldest" ) ? WEX_EVTLOG_OLDEST : WEX_EVTLOG_INFO;
-        status = call( pipe, op, handle, 0, 0, NULL, 0, &out, NULL, NULL );
-        printf( "%s=%lu value=%u\n", argv[1], (unsigned long)status, out.arg[0] );
+        BYTE *body = NULL;
+        status = call( pipe, op, handle, 0, 0, NULL, 0, &out, &body, &size );
+        printf( "%s=%lu value=%u", argv[1], (unsigned long)status, out.arg[0] );
+        if (op == WEX_EVTLOG_INFO && !status && size >= sizeof(struct wex_evtlog_information))
+        {
+            struct wex_evtlog_information info;
+            memcpy( &info, body, sizeof(info) );
+            printf( " full=%u count=%u oldest=%u next=%u maxsize=%u retention=%u filesize=%llu created=%d written=%d read=%d",
+                    info.full, info.count, info.oldest, info.next, info.max_size, info.retention, info.file_size,
+                    info.created != 0, info.written != 0, info.read != 0 );
+        }
+        printf( "\n" );
+        free( body );
         return 0;
     }
     if (!strcmp( argv[1], "backup" ) && argc == 4)
@@ -525,18 +571,11 @@ int main( int argc, char **argv )
     }
     if (!strcmp( argv[1], "clear" ))
     {
-        DWORD records = 0, backed = 0;
-        if (argc == 4)
-        {
-            if ((status = backup( pipe, handle, argv[3], &records )))
-            {
-                printf( "clear=%lu (backup)\n", (unsigned long)status );
-                return 0;
-            }
-            backed = 1;  /* the clear comes only after the stream completed */
-        }
-        status = call( pipe, WEX_EVTLOG_CLEAR, handle, backed, 0, NULL, 0, &out, NULL, NULL );
-        printf( "clear=%lu backed=%lu\n", (unsigned long)status, (unsigned long)records );
+        DWORD records = 0, last = 0, retries = 0;
+        if (argc == 4) status = backup_and_clear( pipe, handle, argv[3], TRUE, &records, &last, &retries );
+        else status = call( pipe, WEX_EVTLOG_CLEAR, handle, 0, 0, NULL, 0, &out, NULL, NULL );
+        printf( "clear=%lu backed=%lu last=%lu retries=%lu\n", (unsigned long)status, (unsigned long)records,
+                (unsigned long)last, (unsigned long)retries );
         return 0;
     }
     if (!strcmp( argv[1], "notify" ) && argc == 4)

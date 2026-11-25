@@ -6,13 +6,13 @@
 # is stopped, for the test of its load rule:
 #   torn FILE   flip a byte in the middle of the third record (its CRC no longer matches): the load keeps two records
 #   stale FILE  append a copy of the first record and its trailer after the last: the load cuts it
-# The file: a 32-byte header, then records, each an EVENTLOGRECORD (its first DWORD is its length) and an 8-byte
+# The file: a 48-byte header, then records, each an EVENTLOGRECORD (its first DWORD is its length) and an 8-byte
 # trailer (CRC32, record number).
 
 import struct
 import sys
 
-HEADER = 32
+HEADER = 48
 TRAILER = 8
 
 

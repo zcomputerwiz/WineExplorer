@@ -193,7 +193,7 @@ s0_link          s0_base            n   s0
 s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
-s0_eventlog      s0_base            n   s0
+s0_eventlog      s0_base,c5_build   n   s0
 s0_x0            s0_base            l   lab
 gp_registry      s0_base            n   gp
 gp_local         s0_base            n   gp
@@ -4824,6 +4824,16 @@ for i in $(seq 1 150); do grep -aq "x0: peer pid $SP (uid $STD_UID, session $SES
 grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) ended (its link did not come back)" "$ROOT/session0.log" ||
     { x0 "$SP" relink; x0 "$S0" lostbound 120; fail "X0: session 0 did not drop the peer after its bound"; }
 [ "$(x0 "$S0" get fr | fld count)" = 1 ] || fail "X0: the unacknowledged try was not given back when the peer was dropped"
+# event log L1, N1: while this server has no session link, the bridge refuses the event log's pipe (link_bound_token
+# would have no session to bind) instead of describing the caller
+[ -f "$ROOT/probes/evp64.exe" ] || x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" \
+    -o "$ROOT/probes/evp64.exe" "$SRC/scripts/eventlog-probe.c" -ladvapi32 -lntdll || fail "eventlog: cannot build the probe"
+S0L="$(wc -l < "$ROOT/session0.log")"
+OUT="$(as_wine "$STD" "$ROOT/probes/evp64.exe" count Application)"
+[ "$(sed -n 's/^connect=//p' <<<"$OUT")" = 5 ] || { x0 "$SP" relink; x0 "$S0" lostbound 120; fail "eventlog: a server without a session link reached the event log (N1): $OUT"; }
+tail -n +"$((S0L + 1))" "$ROOT/session0.log" | grep -aq 'pipe open refused .*: the server has no session link' ||
+    { x0 "$SP" relink; x0 "$S0" lostbound 120; fail "eventlog: the bridge did not refuse for the missing link"; }
+ok ev_bridge_refuses_the_event_log_without_a_session_link
 x0 "$SP" relink >/dev/null
 x0 "$S0" lostbound 120 >/dev/null
 x0batch "$SP" "$BF" 1 || fail "X0: the pending try hangs after a fresh relink"
@@ -4914,9 +4924,22 @@ for d in system32 syswow64; do
 done
 install -m 775 -o root -g "$GRP" "$ROOT/probes/evp64.exe" "$M/drive_c/windows/system32/winedevice.exe"
 install -m 775 -o root -g "$GRP" "$ROOT/probes/evp32.exe" "$M/drive_c/windows/syswow64/winedevice.exe"
-OUT="$(run_as "$STD" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$M/drive_c/windows/system32/winedevice.exe" report WexL1Sys 1 9 sysrole 2>&1 | tr -d '\r')"
+sysrole_ev() { run_as "$STD" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$M/drive_c/windows/system32/winedevice.exe" "$@" 2>&1 | tr -d '\r'; }
+# its token has SYSTEM as user and Administrators and SERVICE as groups (Wine's service tokens): the cap after
+# AccessCheck and the deny-only SERVICE group leave it a user's rights
+OUT="$(sysrole_ev report WexL1Sys 1 9 sysrole)"
+OUT2="$(sysrole_ev clear WexL1Sys)"
+OUT3="$(sysrole_ev report WexL1 4 11 sysrole-app)"
 for d in system32 syswow64; do mv -f "$M/drive_c/windows/$d/winedevice.exe.evorig" "$M/drive_c/windows/$d/winedevice.exe"; done
 [ "$(v report <<<"$OUT")" = 5 ] || { echo "$OUT" >&2; fail "eventlog: a session's system role (SYSTEM token) wrote System (E1)"; }
+[ "$(v clear <<<"$OUT2")" = 5 ] || { echo "$OUT2" >&2; fail "eventlog: a session's system role cleared System (E1)"; }
+[ "$(v report <<<"$OUT3")" = 0 ] || { echo "$OUT3" >&2; fail "eventlog: a session's system role cannot write Application, as its user can"; }
+# an elevated administrator of a session writes System and clears (BA in Windows' descriptors; T1 believes the token)
+el_up "$ADM"
+el_cmd ev_elevated_admin_reports_to_system "$ADM" "$(winpath "$ROOT/probes/evp64.exe") report WexL1Sys 4 10 elevated-admin"
+el_down "$ADM"
+evs read System | grep -q 'id=10 type=4 source=WexL1Sys strings=1 first=elevated-admin$' ||
+    fail "eventlog: an elevated administrator's record is not in System"
 ok ev_access_table_and_system_by_process
 # E3: a backup made by the client, in the session's namespace and with its rights; the service opens no client path
 BAK="/home/$STD/.wine/drive_c/users/$STD/app.bak"
@@ -4929,6 +4952,21 @@ OUT="$(evs clear Application 'Z:\tmp\evclear.bak')"; rm -f /tmp/evclear.bak
 [ "$(v clear <<<"$OUT")" = 0 ] && [ "$(v backed <<<"$OUT")" -ge 2 ] || { echo "$OUT" >&2; fail "eventlog: clear with a backup"; }
 [ "$(ev "$STD" count Application | v value)" = 0 ] || fail "eventlog: Application is not empty after the clear"
 ok ev_backup_by_the_client_in_its_namespace
+# N6: a clear racing a writer loses nothing: CLEAR names the backup's last record, and newer records make the client
+# stream the rest first. Afterwards the log holds only records newer than the backup's last
+evs fill WexL1 3000 50 > "$ROOT/evrace.fill" &
+EVFILL=$!
+sleep 1
+OUT="$(evs clear Application 'Z:\tmp\evrace.bak')"
+wait "$EVFILL" || true
+LAST="$(v last <<<"$OUT")"
+[ "$(v clear <<<"$OUT")" = 0 ] && [ -n "$LAST" ] || { echo "$OUT" >&2; fail "eventlog: a clear racing a writer"; }
+OLDEST="$(evs oldest Application | v value)"
+[ "$OLDEST" = 0 ] || [ "$OLDEST" -gt "$LAST" ] || fail "eventlog: records up to $LAST stayed after the clear (oldest $OLDEST)"
+[ "$(evs openbackup 'Z:\tmp\evrace.bak' | v records)" = "$(v backed <<<"$OUT")" ] || fail "eventlog: the race's backup does not parse whole"
+echo "eventlog: clear during writes: $OUT, oldest after: $OLDEST"
+rm -f /tmp/evrace.bak
+ok ev_clear_racing_a_writer_loses_nothing
 # E4: malformed and oversized frames close the connection; versions, operations, strings, SIDs, buffers and seeks are
 # checked
 [ "$(ev "$STD" frame badmagic | v closed)" = 1 ] || fail "eventlog: a frame with a bad magic did not close the connection"
@@ -4951,6 +4989,10 @@ OUT="$(ev "$STD" caps handles)"
 OUT="$(evs caps subs)"
 [ "$(v granted <<<"$OUT")" = 256 ] || { echo "$OUT" >&2; fail "eventlog: the subscription cap"; }
 [ "$(ev "$STD" count Application | v count)" = 0 ] || fail "eventlog: the service after the caps"
+# from a session: which limit a session's caller meets first (the bridge's per-user cap counts every bridged pipe)
+OUT="$(ev "$STD" caps connections)"
+echo "eventlog: a session's connections: $OUT"
+[ "$(v granted <<<"$OUT")" -ge 200 ] && [ "$(v granted <<<"$OUT")" -le 256 ] || { echo "$OUT" >&2; fail "eventlog: a session's connection cap"; }
 ok ev_per_account_caps
 # E5: a torn record in the middle, and a stale record after the end, are cut on load
 s0_wine reg add "$EVK\\WexL1Torn" /f >/dev/null && s0_wine reg add "$EVK\\WexL1Torn\\WexL1TornSrc" /f >/dev/null &&
@@ -4987,6 +5029,16 @@ sleep 3
 OUT="$(evs fill WexL1OldSrc 20 900)"   # 40 records do not fit in 64 KiB: the old ones go
 [ "$(v fill <<<"$OUT")" = 0 ] || { echo "$OUT" >&2; fail "eventlog: overwrite older than 2 s did not drop the old records"; }
 ok ev_size_limit_and_retention_policies
+# section 9 (Event Viewer): the full information, a settings change taken without a restart, the Security key by default
+OUT="$(evs info Application)"
+[ "$(v info <<<"$OUT")" = 0 ] && [ "$(v filesize <<<"$OUT")" -gt 0 ] && [ "$(v created <<<"$OUT")" = 1 ] &&
+    [ "$(v written <<<"$OUT")" = 1 ] && [ "$(v maxsize <<<"$OUT")" = 524288 ] && [ "$(v retention <<<"$OUT")" = 0 ] &&
+    [ "$(v count <<<"$OUT")" = "$(evs count Application | v value)" ] || { echo "$OUT" >&2; fail "eventlog: the full information"; }
+s0_wine reg add "$EVK\\WexL1Ring" /v MaxSize /t REG_DWORD /d 131072 /f >/dev/null || fail "eventlog: change MaxSize"
+for i in $(seq 1 20); do [ "$(evs info WexL1Ring | v maxsize)" = 131072 ] && break; sleep 0.5; done
+[ "$(evs info WexL1Ring | v maxsize)" = 131072 ] || fail "eventlog: a MaxSize change was not taken without a restart: $(evs info WexL1Ring)"
+s0_wine reg query "$EVK\\Security" >/dev/null || fail "eventlog: no Security key by default"
+ok ev_information_and_settings_reload
 # the files: session 0's account owns them, no session reads them directly
 [ "$(stat -c %U "$EVDIR/AppEvent.evt")" = "$S0U" ] || fail "eventlog: AppEvent.evt is $(stat -c '%U %a' "$EVDIR/AppEvent.evt")"
 echo "eventlog: AppEvent.evt mode $(stat -c '%a %U:%G' "$EVDIR/AppEvent.evt")"
