@@ -71,8 +71,27 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
        rectangle during a trace shows the lock screen, although the window is visible and not cloaked (`IsWindowVisible`,
        `DWMWA_CLOAKED`). While the session is locked nothing is composed, so the compositor idles. The earlier per-frame
        measurement was taken unlocked. **Windows traces of the drawing must be taken with the desktop unlocked and Notepad on
-       screen**; check with a capture of the window (only its rectangle) during the trace. Next, unlocked: find who writes the
-       three surface textures.
+       screen**; check with a capture of the window (only its rectangle) during the trace.
+     - **Unlocked trace (2026-11-25, Notepad on screen, capture checked; 25 s):** the compositor thread (stacks in
+       `dwmcorei.dll`) *does* draw its three surfaces itself through the public `BeginDraw`/`EndDraw` (`surface[3]`/`[4]`: 16
+       each, virtual surfaces 0) and commits 12 times. It redraws as content changes: one surface 13 times, the other two 3 times
+       each, one Commit after each group. Inside every draw: Direct2D work (`UpdateSubresource` 1-3, `Draw` 1-7, called from
+       d2d1) plus 1-9 `DrawIndexed` of the compositor's own; four draws start with `CopySubresourceRegion` called from dcomp
+       (old content carried into the new buffer). The text itself (DWrite in the stacks: 13 Draws) is drawn on the UI thread
+       into its own bitmaps, done by 9.8 s. Under Wine (a8.log) the compositor draws each surface once, and inside it there is
+       only one `DrawIndexed` between d2d's `SwapDeviceContextState` pair (the clear); it never draws again.
+     - **Shared textures are not coherent in this fork** (`dlls/d3d11/device.c` `OpenSharedResource1`, `dxgi/resource.c`,
+       from ade07fe6): the contents travel through a CPU file mapping (`WineSharedTex_*`). The producer publishes to it only in
+       `ID3D11DeviceContext4::Signal`; the consumer reloads only in `Wait` or keyed-mutex `AcquireSync`. Notepad's UI thread
+       and compositor call none of these, so an opened texture keeps its contents from open time. That has to be fixed anyway
+       (same-process sharing without explicit sync), but it is **not** what stops the strips: a lab run (LAB-SYNC: publish on
+       `Flush` and d2d `EndDraw`, reload on `PSSetShaderResources`, plus LAB-A8) gave 0 reloads. Wine's compositor never binds a
+       pixel-shader resource, so it never samples the UI thread's bitmaps at all. It skips the sprite pass: its scene has no
+       sprites to draw, or it does not consider them drawable.
+     - Next: what tells the compositor to draw sprites. Compare on both systems, inside its draws, the Direct2D calls
+       (`d2d1.dll!context@{IID}[N]`: DrawBitmap, FillRectangle, SetTransform) and what it reads before them; and the
+       Microsoft.UI.Composition calls the UI thread makes (sprite visuals, brushes, `CompositionDrawingSurface`) between its
+       draws and the compositor's next redraw.
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.
