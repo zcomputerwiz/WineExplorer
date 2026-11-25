@@ -10,9 +10,12 @@
  * number is a u32. All integers are little-endian as laid out here (the machine is one host).
  *
  * Operations and their body (request -> reply):
- *   WEXA_LIST_USERS     ()                               -> u32 count, count x record
+ *   WEXA_LIST_USERS     ([u32 start])                    -> u32 total, u32 first, u32 count, count x record
  *   WEXA_GET_USER       (name)                           -> record
- *   WEXA_ADMIN_MEMBERS  ()                               -> u32 count, count x name
+ *   WEXA_ADMIN_MEMBERS  ([u32 start])                    -> u32 total, u32 first, u32 count, count x name
+ * The two lists come in pages: a page holds what fits in one frame (it stops before a record that does not), `first` is
+ * the start index asked for (0 when there is none), `total` the number of entries; ask again with start = first + count
+ * until that reaches total. A page may hold fewer than the frame could, never a partial record.
  *   WEXA_CREATE_USER    (name, full name, u32 type, hash)-> record
  *   WEXA_DELETE_USER    (name)                           -> ()
  *   WEXA_RENAME_USER    (name, new name)                 -> ()

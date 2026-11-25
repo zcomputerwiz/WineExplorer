@@ -98,6 +98,28 @@ check('session0_user=$S0_ACCOUNT' in setup and 'sync_unit=wex-accounts-sync.serv
 check('enable --now wex-accountsd.socket' in setup, 'setup: enables the socket')
 check('libsystemd-dev' in read('scripts/lab/wexgpo-iso.sh'), 'the ISO build machine has libsystemd-dev')
 
+# F3: the shipped binary has none of the lab options that bypass the peer check (they exist only with
+# -DWEX_ACCOUNTSD_LAB_TEST); F4: the hash and the receive buffer are wiped
+src = read('tools/wex-accountsd/wex-accountsd.c')
+check(src.count('explicit_bzero') >= 3 and 'memset( buf, 0, 0 )' not in src, 'F4: the hash and the receive buffer are wiped with explicit_bzero')
+if shutil.which('gcc'):
+    tmp = tempfile.mkdtemp(prefix='accountsd-ship-')
+    exe = os.path.join(tmp, 'wex-accountsd')
+    r = subprocess.run(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-o', exe,
+                        os.path.join(ROOT, 'tools/wex-accountsd/wex-accountsd.c'), '-lsystemd'], capture_output=True, text=True)
+    if r.returncode == 0:
+        with open(exe, 'rb') as f:
+            blob = f.read()
+        lab = [o for o in (b'--mainpid', b'--listen', b'--bus', b'--any-dumpable', b'--admin-members', b'--login-defs',
+                           b'--group-file', b'--passwd-file', b'--no-idle-exit', b'WEX_ACCOUNTSD_TEST') if o in blob]
+        check(not lab, 'F3: the shipped binary has no lab option in it (%s)' % ', '.join(x.decode() for x in lab))
+        for opt in ('--mainpid', '--listen', '--bus', '--any-dumpable'):
+            p = subprocess.run([exe, opt, '1'], env=dict(os.environ, WEX_ACCOUNTSD_TEST='1'), capture_output=True, text=True)
+            check(p.returncode == 2 and 'usage' in p.stderr, 'F3: the shipped binary refuses ' + opt + ' even with WEX_ACCOUNTSD_TEST=1')
+    else:
+        print('SKIP F3 (libsystemd is not available to build the shipped binary): ' + r.stderr.strip()[:120])
+    shutil.rmtree(tmp, ignore_errors=True)
+
 # systemd's own parser, when there is one (the executables are missing here: those complaints do not count)
 if shutil.which('systemd-analyze'):
     tmp = tempfile.mkdtemp(prefix='accountsd-units-')

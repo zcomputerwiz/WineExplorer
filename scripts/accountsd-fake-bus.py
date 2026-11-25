@@ -9,7 +9,9 @@ logged in), svc (999, a system account), builtin (1005, administrator: the accou
 the built-in administrator). Every call that changes something is appended to LOGFILE as one JSON line, so that the test
 can see what the helper asked for and, above all, that a password hash is only ever sent to SetPassword."""
 import json
+import os
 import sys
+import time
 
 import dbus
 import dbus.service
@@ -40,6 +42,19 @@ add('dave', 1004, 'Dave D')
 add('svc', 999, 'Service', system=True)
 add('builtin', 1005, 'Built-in Administrator', admin=True)
 LOGGED_IN = {1004}
+# FAKE_MANY=N: N more users with long full names, for the paging of the list (F1)
+for i in range(int(os.environ.get('FAKE_MANY', '0'))):
+    add('many%04d' % i, 3000 + i, 'M' * 250)
+
+
+def injected(method):
+    """LOGFILE.fail lists the methods that fail now (F2); LOGFILE.slow makes SetRealName take 12 s (F6)"""
+    try:
+        with open(logfile + '.fail') as f:
+            if method in f.read().split():
+                raise dbus.exceptions.DBusException('injected failure', name='org.freedesktop.Accounts.Error.Failed')
+    except OSError:
+        pass
 
 
 def path_of(name):
@@ -68,10 +83,13 @@ class User(dbus.service.Object):
     @dbus.service.method('org.freedesktop.Accounts.User', in_signature='s')
     def SetRealName(self, name):
         log(op='SetRealName', user=self.name, value=str(name))
+        if os.path.exists(logfile + '.slow'):
+            time.sleep(12)
         self.u()['full'] = str(name)
 
     @dbus.service.method('org.freedesktop.Accounts.User', in_signature='i')
     def SetAccountType(self, t):
+        injected('SetAccountType')
         log(op='SetAccountType', user=self.name, value=int(t))
         self.u()['type'] = int(t)
 
@@ -90,6 +108,7 @@ class User(dbus.service.Object):
 
     @dbus.service.method('org.freedesktop.Accounts.User', in_signature='ss')
     def SetPassword(self, password, hint):
+        injected('SetPassword')
         log(op='SetPassword', user=self.name, value=str(password))
 
 

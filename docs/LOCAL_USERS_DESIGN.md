@@ -432,3 +432,15 @@ calls `get_caller_class` through `wex_caller.h`.
    not from the map. Acceptable?
 4. sd-bus (libsystemd) or libdbus? sd-bus keeps the helper short; libdbus is what `wexhost` already loads.
 5. "Not a logged-in user": which source decides, the AccountsService session list or the server's own account records?
+
+### The reviewer's findings on the helper (F1 to F6, 2026-11-24), and what was done
+
+| | Finding | Done |
+|---|---|---|
+| F1 | the list could overflow one 64 KiB reply and fail whole at about 200 users | the two lists (users, administrators) come in **pages**: the request carries an optional start index, the reply is `u32 total, u32 first, u32 count`, then entries; a page stops before an entry that does not fit; the client asks again from `first + count` (`accountsd_proto.h`). Tested with 405 users with 250-character full names (2 pages) and 1024 administrators of 63 characters. |
+| F2 | create was not atomic | after `CreateUser`, a failure of the uid check, `SetPassword` or `SetAccountType` deletes the user again (`DeleteUser(uid, false)`) and reports the original status; tested with an injected failure of each |
+| F3 | the lab options bypassed the peer check, gated only by an environment variable | compiled out of every build but one made with `-DWEX_ACCOUNTSD_LAB_TEST` (the test's); `scripts/test_accountsd_units.py` builds the shipped binary and checks that it has none of them in it and refuses each with `WEX_ACCOUNTSD_TEST=1` |
+| F4 | the hash and the receive buffer were not wiped | the hash buffer is the caller's in one wrapper that `explicit_bzero`s it on every way out; the receive and reply buffers are wiped after each datagram |
+| F5 | the log took the name before validating it | a name is logged only if it is made of `[A-Za-z0-9_.@-]` and at most 63 bytes, else `<invalid>`; tested with a newline and an escape sequence in a name |
+| F6 | the default D-Bus wait (about 25 s) is longer than the server's 15 s | every call waits at most 10 s (`sd_bus_set_method_call_timeout`); tested with a call that takes 12 s: answered after 10.0 s |
+| nits | the empty `if`; `gr_mem` only; nscd/sssd staleness | removed; the administrators are read from `/etc/group` and `/etc/passwd` themselves (the group's listed members and the users whose primary group it is), never through `getgrnam`, so a change AccountsService just made is seen at once; the admin group is a local one |

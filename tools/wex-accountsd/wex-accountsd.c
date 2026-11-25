@@ -65,9 +65,25 @@ static struct
     char s0user[64], unit[128], admin_group[64], builtin[64], sync_unit[128];
 } cfg;
 
+/* The lab options below bypass the peer check (a private bus, a socket of their own, the MainPID from a file): they exist
+ * only in a build made with -DWEX_ACCOUNTSD_LAB_TEST (scripts/test_accountsd.py builds one). The shipped binary has none of
+ * them: it refuses the options, and scripts/test_accountsd_units.py checks that. */
+#ifdef WEX_ACCOUNTSD_LAB_TEST
 static int test_mode, any_dumpable, no_idle_exit;
 static const char *test_bus, *test_listen, *test_login_defs, *test_admin_members, *test_mainpid_file;
 static pid_t test_mainpid = -1;
+static const char *group_path = "/etc/group", *passwd_path = "/etc/passwd";
+#else
+#define group_path "/etc/group"
+#define passwd_path "/etc/passwd"
+#define test_mode 0
+#define any_dumpable 0
+#define no_idle_exit 0
+#define test_bus ((const char *)NULL)
+#define test_login_defs ((const char *)NULL)
+#define test_admin_members ((const char *)NULL)
+#endif
+#define BUS_TIMEOUT_USEC (10 * 1000000ULL)   /* below the server's read timeout (15 s), so that 1722 never hides a change that completes */
 static sd_bus *bus;
 static unsigned int uid_min = 1000, uid_max = 60000;
 
@@ -173,6 +189,7 @@ static int unit_main_pid( pid_t *pid )
     uint32_t main_pid = 0;
     int r;
 
+#ifdef WEX_ACCOUNTSD_LAB_TEST
     if (test_mainpid_file)
     {
         FILE *f = fopen( test_mainpid_file, "re" );
@@ -184,6 +201,7 @@ static int unit_main_pid( pid_t *pid )
         if (test_mainpid == -1) return 0;
     }
     if (test_mainpid != -1) { *pid = test_mainpid; return 1; }
+#endif
     if (!bus) return 0;
     r = sd_bus_call_method( bus, SD_DEST, "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "GetUnit", &err,
                             &reply, "s", cfg.unit );
@@ -257,9 +275,10 @@ static int open_bus( void )
         sd_bus_set_address( bus, test_bus );
         sd_bus_set_bus_client( bus, 1 );
         if ((r = sd_bus_start( bus )) < 0) { sd_bus_unref( bus ); bus = NULL; return 0; }
-        return 1;
     }
-    if ((r = sd_bus_open_system( &bus )) < 0) { bus = NULL; return 0; }
+    else if ((r = sd_bus_open_system( &bus )) < 0) { bus = NULL; return 0; }
+    /* F6: every call has the same bounded wait */
+    sd_bus_set_method_call_timeout( bus, BUS_TIMEOUT_USEC );
     return 1;
 }
 
@@ -378,29 +397,14 @@ static int prop_string( const char *path, const char *name, char *out, size_t si
     return 0;
 }
 
-/* the user of a name from AccountsService; the status when it cannot be had */
-static int find_user( const char *name, struct user_info *u )
+/* the properties of the user object at u->path (and u->name), into u; the status when they cannot be had */
+static int load_props( struct user_info *u )
 {
     sd_bus_error err = SD_BUS_ERROR_NULL;
-    sd_bus_message *reply = NULL;
-    const char *path = NULL;
     int32_t type = 0;
     int locked = 0, system = 0, r;
     uint64_t uid = 0;
 
-    memset( u, 0, sizeof(*u) );
-    r = sd_bus_call_method( bus, ACC_DEST, ACC_PATH, ACC_IFACE, "FindUserByName", &err, &reply, "s", name );
-    if (r < 0)
-    {
-        r = map_error( r, &err );
-        sd_bus_error_free( &err );
-        return r == WEXA_BUSY ? WEXA_NOT_FOUND : r;
-    }
-    sd_bus_error_free( &err );
-    if (sd_bus_message_read( reply, "o", &path ) < 0 || !path) { sd_bus_message_unref( reply ); return WEXA_BUSY; }
-    snprintf( u->path, sizeof(u->path), "%s", path );
-    sd_bus_message_unref( reply );
-    snprintf( u->name, sizeof(u->name), "%s", name );
     if (prop_string( u->path, "RealName", u->full, sizeof(u->full) ) < 0) return WEXA_BUSY;
     if (sd_bus_get_property_trivial( bus, ACC_DEST, u->path, ACC_USER, "Uid", &err, 't', &uid ) < 0 ||
         sd_bus_get_property_trivial( bus, ACC_DEST, u->path, ACC_USER, "AccountType", &err, 'i', &type ) < 0 ||
@@ -419,33 +423,108 @@ static int find_user( const char *name, struct user_info *u )
     return WEXA_OK;
 }
 
-/* the members of the administrator group: the group database, or the lab's list */
+/* the user of a name from AccountsService; the status when it cannot be had */
+static int find_user( const char *name, struct user_info *u )
+{
+    sd_bus_error err = SD_BUS_ERROR_NULL;
+    sd_bus_message *reply = NULL;
+    const char *path = NULL;
+    int r;
+
+    memset( u, 0, sizeof(*u) );
+    r = sd_bus_call_method( bus, ACC_DEST, ACC_PATH, ACC_IFACE, "FindUserByName", &err, &reply, "s", name );
+    if (r < 0)
+    {
+        r = map_error( r, &err );
+        sd_bus_error_free( &err );
+        return r == WEXA_BUSY ? WEXA_NOT_FOUND : r;
+    }
+    sd_bus_error_free( &err );
+    if (sd_bus_message_read( reply, "o", &path ) < 0 || !path) { sd_bus_message_unref( reply ); return WEXA_BUSY; }
+    snprintf( u->path, sizeof(u->path), "%s", path );
+    sd_bus_message_unref( reply );
+    snprintf( u->name, sizeof(u->name), "%s", name );
+    return load_props( u );
+}
+
+#define MAX_ADMINS 1024
+
+static int add_member( char names[][64], unsigned int *n, unsigned int max, const char *name )
+{
+    unsigned int i;
+
+    if (!name[0] || strlen( name ) > 63) return 1;
+    for (i = 0; i < *n; i++) if (!strcmp( names[i], name )) return 1;
+    if (*n >= max) return 0;
+    snprintf( names[(*n)++], 64, "%s", name );
+    return 1;
+}
+
+/* The members of the administrator group: those the group file lists and the users whose primary group it is, read from
+ * /etc/group and /etc/passwd themselves (not through getgrnam: nscd or sssd may answer from a cache that has not yet
+ * seen a change that AccountsService just made, which the last-administrator rule must not trust). The admin group is a
+ * local one. The lab's list stands in for both. */
 static unsigned int admin_members( char names[][64], unsigned int max )
 {
     unsigned int n = 0;
+    char *line = NULL, *save;
+    size_t cap = 0;
+    long gid = -1;
+    FILE *f;
 
+#ifdef WEX_ACCOUNTSD_LAB_TEST
     if (test_admin_members)
     {
-        char *copy = strdup( test_admin_members ), *tok, *save = NULL;
-        for (tok = strtok_r( copy, ",", &save ); tok && n < max; tok = strtok_r( NULL, ",", &save ))
-            snprintf( names[n++], 64, "%s", tok );
+        char *copy = strdup( test_admin_members ), *tok;
+        for (tok = strtok_r( copy, ",", &save ); tok; tok = strtok_r( NULL, ",", &save )) add_member( names, &n, max, tok );
         free( copy );
         return n;
     }
+#endif
+    if ((f = fopen( group_path, "re" )))
     {
-        struct group *g = getgrnam( cfg.admin_group );
-        char **m;
+        while (getline( &line, &cap, f ) > 0)
+        {
+            char *name, *pw, *gids, *members, *m;
 
-        if (!g) return 0;
-        for (m = g->gr_mem; *m && n < max; m++) snprintf( names[n++], 64, "%s", *m );
+            line[strcspn( line, "\n" )] = 0;
+            name = strtok_r( line, ":", &save );
+            if (!name || strcmp( name, cfg.admin_group )) continue;
+            pw = strtok_r( NULL, ":", &save );
+            gids = strtok_r( NULL, ":", &save );
+            members = strtok_r( NULL, ":", &save );
+            (void)pw;
+            if (gids) gid = strtol( gids, NULL, 10 );
+            if (members)
+                for (m = strtok_r( members, ",", &save ); m; m = strtok_r( NULL, ",", &save )) add_member( names, &n, max, m );
+            break;
+        }
+        fclose( f );
     }
+    if (gid >= 0 && (f = fopen( passwd_path, "re" )))
+    {
+        while (getline( &line, &cap, f ) > 0)
+        {
+            char *name, *pw, *uid, *pgid;
+
+            line[strcspn( line, "\n" )] = 0;
+            name = strtok_r( line, ":", &save );
+            pw = strtok_r( NULL, ":", &save );
+            uid = strtok_r( NULL, ":", &save );
+            pgid = strtok_r( NULL, ":", &save );
+            (void)pw; (void)uid;
+            if (name && pgid && strtol( pgid, NULL, 10 ) == gid) add_member( names, &n, max, name );
+        }
+        fclose( f );
+    }
+    free( line );
     return n;
 }
 
 static int is_admin_name( const char *name )
 {
-    char names[256][64];
-    unsigned int i, n = admin_members( names, 256 );
+    static char names[MAX_ADMINS][64];
+    unsigned int i, n = admin_members( names, MAX_ADMINS );
 
     for (i = 0; i < n; i++) if (!strcmp( names[i], name )) return 1;
     return 0;
@@ -454,8 +533,8 @@ static int is_admin_name( const char *name )
 /* how many administrators other than this account can still be used: members that exist and are not locked */
 static unsigned int other_active_admins( const char *name )
 {
-    char names[256][64];
-    unsigned int i, n = admin_members( names, 256 ), count = 0;
+    static char names[MAX_ADMINS][64];
+    unsigned int i, n = admin_members( names, MAX_ADMINS ), count = 0;
 
     for (i = 0; i < n; i++)
     {
@@ -573,36 +652,74 @@ static int call_user_method( const struct user_info *u, const char *method, cons
     return WEXA_OK;
 }
 
-static int op_list( struct writer *w )
+#define MAX_LIST 4096   /* users the list can hold (a page is what fits in one frame; the rest comes by start index) */
+
+static size_t record_size( const struct user_info *u )
+{
+    size_t n = strlen( u->name ), f = strlen( u->full );
+    return 2 + (n > WEXA_MAX_STR ? WEXA_MAX_STR : n) + 2 + (f > WEXA_MAX_STR ? WEXA_MAX_STR : f) + 12;
+}
+
+/* F1: a page of the users. The reply is u32 total, u32 first (the start asked for), u32 count in this page, then the
+ * records; the page stops before a record that does not fit, and the client asks again from first + count. */
+static int op_list( struct writer *w, uint32_t start )
 {
     sd_bus_error err = SD_BUS_ERROR_NULL;
     sd_bus_message *reply = NULL;
     const char *path;
-    uint32_t count = 0;
-    size_t count_at = w->used;
-    int r = sd_bus_call_method( bus, ACC_DEST, ACC_PATH, ACC_IFACE, "ListCachedUsers", &err, &reply, "" );
+    struct user_info *all = malloc( MAX_LIST * sizeof(*all) );
+    uint32_t total = 0, count = 0, i;
+    size_t count_at;
+    int r;
 
-    if (r < 0) { r = map_error( r, &err ); sd_bus_error_free( &err ); return r; }
-    wr_u32( w, 0 );
-    if (sd_bus_message_enter_container( reply, 'a', "o" ) < 0) { sd_bus_message_unref( reply ); return WEXA_BUSY; }
-    while (sd_bus_message_read( reply, "o", &path ) > 0)
+    if (!all) return WEXA_BUSY;
+    r = sd_bus_call_method( bus, ACC_DEST, ACC_PATH, ACC_IFACE, "ListCachedUsers", &err, &reply, "" );
+    if (r < 0) { r = map_error( r, &err ); sd_bus_error_free( &err ); free( all ); return r; }
+    if (sd_bus_message_enter_container( reply, 'a', "o" ) < 0) { sd_bus_message_unref( reply ); free( all ); return WEXA_BUSY; }
+    while (total < MAX_LIST && sd_bus_message_read( reply, "o", &path ) > 0)
     {
         struct user_info u;
-        char name[64];
-        char pathcopy[256];
+        char name[64], pathcopy[256];
 
         snprintf( pathcopy, sizeof(pathcopy), "%s", path );
         /* the name is a property of the user object */
-        {
-            int rr = prop_string( pathcopy, "UserName", name, sizeof(name) );
-            if (rr < 0 || find_user( name, &u ) != WEXA_OK) continue;
-        }
+        if (prop_string( pathcopy, "UserName", name, sizeof(name) ) < 0 || find_user( name, &u ) != WEXA_OK) continue;
         if (!uid_in_range( u.uid ) || u.system_account) continue;
-        if (count >= 1024) break;
-        wr_record( w, &u );
-        count++;
+        all[total++] = u;
     }
     sd_bus_message_unref( reply );
+    wr_u32( w, total );
+    wr_u32( w, start );
+    count_at = w->used;
+    wr_u32( w, 0 );
+    for (i = start; i < total; i++)
+    {
+        if (w->size - w->used < record_size( &all[i] )) break;
+        wr_record( w, &all[i] );
+        count++;
+    }
+    memcpy( w->p + count_at, &count, 4 );
+    free( all );
+    return w->bad ? WEXA_BAD_ARGUMENT : WEXA_OK;
+}
+
+/* the same paging for the members of the administrator group: u32 total, u32 first, u32 count, the names */
+static int op_admin_members( struct writer *w, uint32_t start )
+{
+    static char names[MAX_ADMINS][64];
+    unsigned int i, n = admin_members( names, MAX_ADMINS ), count = 0;
+    size_t count_at;
+
+    wr_u32( w, n );
+    wr_u32( w, start );
+    count_at = w->used;
+    wr_u32( w, 0 );
+    for (i = start; i < n; i++)
+    {
+        if (w->size - w->used < 2u + strlen( names[i] )) break;
+        wr_str( w, names[i] );
+        count++;
+    }
     memcpy( w->p + count_at, &count, 4 );
     return w->bad ? WEXA_BAD_ARGUMENT : WEXA_OK;
 }
@@ -617,10 +734,39 @@ static int op_start_sync( void )
     return WEXA_OK;
 }
 
-static int handle( const struct wexa_request *req, const uint8_t *body, struct writer *w, char *logname )
+/* F5: only a name that cannot carry a control character or a newline goes into the journal; anything else is "<invalid>" */
+static void set_logname( char *out, const char *name )
+{
+    size_t i, n = strlen( name );
+
+    if (!n || n > 63) { strcpy( out, "<invalid>" ); return; }
+    for (i = 0; i < n; i++)
+    {
+        char c = name[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.' ||
+              c == '@'))
+        {
+            strcpy( out, "<invalid>" );
+            return;
+        }
+    }
+    memcpy( out, name, n + 1 );
+}
+
+/* F2: a user that was made and then could not be finished is deleted again (files are never removed) */
+static void rollback_create( uint32_t uid )
+{
+    sd_bus_error err = SD_BUS_ERROR_NULL;
+    int r = sd_bus_call_method( bus, ACC_DEST, ACC_PATH, ACC_IFACE, "DeleteUser", &err, NULL, "xb", (int64_t)uid, 0 );
+
+    if (r < 0) logf_( "rollback of a created user (uid %u) failed: %s", uid, err.name ? err.name : "error" );
+    sd_bus_error_free( &err );
+}
+
+static int handle_op( const struct wexa_request *req, const uint8_t *body, struct writer *w, char *logname, char *hash )
 {
     struct reader r = { body, body + req->body_len, 0 };
-    char name[WEXA_MAX_STR + 1], other[WEXA_MAX_STR + 1], full[WEXA_MAX_STR + 1], hash[WEXA_MAX_STR + 1];
+    char name[WEXA_MAX_STR + 1], other[WEXA_MAX_STR + 1], full[WEXA_MAX_STR + 1];
     struct user_info u;
     int status;
     uint32_t value;
@@ -635,20 +781,11 @@ static int handle( const struct wexa_request *req, const uint8_t *body, struct w
     switch (req->op)
     {
     case WEXA_LIST_USERS:
-        if (req->body_len) return WEXA_BAD_REQUEST;
-        return op_list( w );
-
     case WEXA_ADMIN_MEMBERS:
-    {
-        char names[256][64];
-        unsigned int i, n;
-
-        if (req->body_len) return WEXA_BAD_REQUEST;
-        n = admin_members( names, 256 );
-        wr_u32( w, n );
-        for (i = 0; i < n; i++) wr_str( w, names[i] );
-        return w->bad ? WEXA_BAD_ARGUMENT : WEXA_OK;
-    }
+        /* an optional start index: the page asked for (F1) */
+        value = 0;
+        if (req->body_len) { value = rd_u32( &r ); if (r.bad || r.p != r.end) return WEXA_BAD_REQUEST; }
+        return req->op == WEXA_LIST_USERS ? op_list( w, value ) : op_admin_members( w, value );
 
     case WEXA_START_SYNC:
         if (req->body_len) return WEXA_BAD_REQUEST;
@@ -657,7 +794,7 @@ static int handle( const struct wexa_request *req, const uint8_t *body, struct w
     case WEXA_GET_USER:
         rd_str( &r, name, sizeof(name) );
         if (r.bad || r.p != r.end) return WEXA_BAD_REQUEST;
-        snprintf( logname, 64, "%.63s", name );
+        set_logname( logname, name );
         if (!valid_user_name( name ) && !getpwnam( name )) return WEXA_NOT_FOUND;
         if ((status = find_user( name, &u )) != WEXA_OK) return status;
         if (!uid_in_range( u.uid ) || u.system_account) return WEXA_NOT_FOUND;
@@ -668,30 +805,42 @@ static int handle( const struct wexa_request *req, const uint8_t *body, struct w
         rd_str( &r, name, sizeof(name) );
         rd_str( &r, full, sizeof(full) );
         value = rd_u32( &r );
-        rd_str( &r, hash, sizeof(hash) );
+        rd_str( &r, hash, WEXA_MAX_STR + 1 );
         if (r.bad || r.p != r.end) return WEXA_BAD_REQUEST;
-        snprintf( logname, 64, "%.63s", name );
+        set_logname( logname, name );
         if (!valid_user_name( name ) || !valid_full_name( full ) || value > 1 || !valid_hash( hash )) return WEXA_BAD_ARGUMENT;
         if (!name_is_free( name )) return WEXA_EXISTS;
         {
             sd_bus_error err = SD_BUS_ERROR_NULL;
             sd_bus_message *reply = NULL;
+            const char *path = NULL;
             int rr = sd_bus_call_method( bus, ACC_DEST, ACC_PATH, ACC_IFACE, "CreateUser", &err, &reply, "ssi", name, full, 0 );
 
             if (rr < 0) { rr = map_error( rr, &err ); sd_bus_error_free( &err ); return rr; }
+            memset( &u, 0, sizeof(u) );
+            if (sd_bus_message_read( reply, "o", &path ) >= 0 && path) snprintf( u.path, sizeof(u.path), "%s", path );
             sd_bus_message_unref( reply );
+            snprintf( u.name, sizeof(u.name), "%.63s", name );
         }
-        if ((status = find_user( name, &u )) != WEXA_OK) return status;
-        if (!uid_in_range( u.uid ) || u.system_account) return WEXA_DENIED;
-        if ((status = call_user_method( &u, "SetPassword", "ss", hash, "" )) != WEXA_OK) return status;
-        if (value == 1 && (status = call_user_method( &u, "SetAccountType", "i", 1 )) != WEXA_OK) return status;
+        /* from here on the user exists: any failure takes it away again and reports the original status (F2) */
+        if (!u.path[0] || (status = load_props( &u )) != WEXA_OK)
+        {
+            if ((status = find_user( name, &u )) != WEXA_OK) return status;   /* it exists, but we cannot say more */
+        }
+        if (!uid_in_range( u.uid ) || u.system_account) { rollback_create( u.uid ); return WEXA_DENIED; }
+        if ((status = call_user_method( &u, "SetPassword", "ss", hash, "" )) != WEXA_OK) { rollback_create( u.uid ); return status; }
+        if (value == 1 && (status = call_user_method( &u, "SetAccountType", "i", 1 )) != WEXA_OK)
+        {
+            rollback_create( u.uid );
+            return status;
+        }
         if (find_user( name, &u ) == WEXA_OK) wr_record( w, &u );
         return WEXA_OK;
 
     case WEXA_DELETE_USER:
         rd_str( &r, name, sizeof(name) );
         if (r.bad || r.p != r.end) return WEXA_BAD_REQUEST;
-        snprintf( logname, 64, "%.63s", name );
+        set_logname( logname, name );
         if ((status = find_user( name, &u )) != WEXA_OK) return status;
         if ((status = check_target( &u, req->caller_uid )) != WEXA_OK) return status;
         if (u.uid == req->caller_uid) return WEXA_DENIED;
@@ -709,7 +858,7 @@ static int handle( const struct wexa_request *req, const uint8_t *body, struct w
         rd_str( &r, name, sizeof(name) );
         rd_str( &r, other, sizeof(other) );
         if (r.bad || r.p != r.end) return WEXA_BAD_REQUEST;
-        snprintf( logname, 64, "%.63s", name );
+        set_logname( logname, name );
         if (!valid_user_name( other )) return WEXA_BAD_ARGUMENT;
         if ((status = find_user( name, &u )) != WEXA_OK) return status;
         if ((status = check_target( &u, req->caller_uid )) != WEXA_OK) return status;
@@ -721,7 +870,7 @@ static int handle( const struct wexa_request *req, const uint8_t *body, struct w
         rd_str( &r, name, sizeof(name) );
         rd_str( &r, full, sizeof(full) );
         if (r.bad || r.p != r.end) return WEXA_BAD_REQUEST;
-        snprintf( logname, 64, "%.63s", name );
+        set_logname( logname, name );
         if (!valid_full_name( full )) return WEXA_BAD_ARGUMENT;
         if ((status = find_user( name, &u )) != WEXA_OK) return status;
         if ((status = check_target( &u, req->caller_uid )) != WEXA_OK) return status;
@@ -731,7 +880,7 @@ static int handle( const struct wexa_request *req, const uint8_t *body, struct w
         rd_str( &r, name, sizeof(name) );
         value = rd_u32( &r );
         if (r.bad || r.p != r.end || value > 1) return WEXA_BAD_REQUEST;
-        snprintf( logname, 64, "%.63s", name );
+        set_logname( logname, name );
         if ((status = find_user( name, &u )) != WEXA_OK) return status;
         if ((status = check_target( &u, req->caller_uid )) != WEXA_OK) return status;
         if (value && u.uid == req->caller_uid) return WEXA_DENIED;
@@ -742,7 +891,7 @@ static int handle( const struct wexa_request *req, const uint8_t *body, struct w
         rd_str( &r, name, sizeof(name) );
         value = rd_u32( &r );
         if (r.bad || r.p != r.end || value > 1) return WEXA_BAD_REQUEST;
-        snprintf( logname, 64, "%.63s", name );
+        set_logname( logname, name );
         if ((status = find_user( name, &u )) != WEXA_OK) return status;
         if ((status = check_target( &u, req->caller_uid )) != WEXA_OK) return status;
         if (!value && u.uid == req->caller_uid) return WEXA_DENIED;
@@ -751,17 +900,27 @@ static int handle( const struct wexa_request *req, const uint8_t *body, struct w
 
     case WEXA_SET_PASSWORD:
         rd_str( &r, name, sizeof(name) );
-        rd_str( &r, hash, sizeof(hash) );
+        rd_str( &r, hash, WEXA_MAX_STR + 1 );
         if (r.bad || r.p != r.end) return WEXA_BAD_REQUEST;
-        snprintf( logname, 64, "%.63s", name );
+        set_logname( logname, name );
         if (!valid_hash( hash )) return WEXA_BAD_ARGUMENT;
         if ((status = find_user( name, &u )) != WEXA_OK) return status;
         if ((status = check_target( &u, req->caller_uid )) != WEXA_OK) return status;
-        status = call_user_method( &u, "SetPassword", "ss", hash, "" );
-        memset( hash, 0, sizeof(hash) );
-        return status;
+        return call_user_method( &u, "SetPassword", "ss", hash, "" );
     }
     return WEXA_BAD_REQUEST;
+}
+
+/* F4: the hash lives in a buffer of this function and is wiped on every way out */
+static int handle( const struct wexa_request *req, const uint8_t *body, struct writer *w, char *logname )
+{
+    char hash[WEXA_MAX_STR + 1];
+    int status;
+
+    hash[0] = 0;
+    status = handle_op( req, body, w, logname, hash );
+    explicit_bzero( hash, sizeof(hash) );
+    return status;
 }
 
 /* one datagram from the server: the request, the check of its frame, the reply */
@@ -784,14 +943,16 @@ static int serve_datagram( int fd, uint8_t *buf )
     }
     rep.request_id = req.request_id;
     rep.status = (uint16_t)handle( &req, buf + sizeof(req), &w, logname );
-    if (rep.status != WEXA_OK) { w.used = 0; memset( buf, 0, 0 ); }
+    explicit_bzero( buf, (size_t)n );   /* the request may hold a hash: it does not stay in the receive buffer (F4) */
+    if (rep.status != WEXA_OK) w.used = 0;
     if (rep.status == WEXA_UNAVAILABLE) drop_bus();
     rep.body_len = (uint32_t)w.used;
     memcpy( out, &rep, sizeof(rep) );
     /* a line per request: the operation, the kind of verdict, the account named and the result; never the hash */
     logf_( "op %u verdict %u caller %u user '%s': status %u", req.op, req.verdict, req.caller_uid, logname, rep.status );
-    if (send( fd, out, sizeof(rep) + w.used, MSG_NOSIGNAL ) < 0) return 0;
-    return 1;
+    n = send( fd, out, sizeof(rep) + w.used, MSG_NOSIGNAL );
+    explicit_bzero( out, sizeof(rep) + w.used );
+    return n >= 0;
 }
 
 static void serve_connection( int fd )
@@ -799,13 +960,14 @@ static void serve_connection( int fd )
     static uint8_t buf[WEXA_MAX_FRAME + 1];
     struct timeval tv = { 5, 0 };
 
-    /* the peer check first, before anything is read */
-    if (!open_bus() && !test_mode) { /* the check needs systemd: no answer, no accept */ }
+    /* the peer check first, before anything is read (it asks systemd over the bus: no answer, no accept) */
+    open_bus();
     if (!peer_ok( fd )) { logf_( "peer refused" ); return; }
     setsockopt( fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv) );
     while (serve_datagram( fd, buf )) {}
 }
 
+#ifdef WEX_ACCOUNTSD_LAB_TEST
 static int make_listener( const char *path )
 {
     struct sockaddr_un sa;
@@ -819,6 +981,7 @@ static int make_listener( const char *path )
     if (bind( fd, (struct sockaddr *)&sa, sizeof(sa) ) || chmod( path, 0600 ) || listen( fd, 4 )) { close( fd ); return -1; }
     return fd;
 }
+#endif
 
 int main( int argc, char **argv )
 {
@@ -826,26 +989,35 @@ int main( int argc, char **argv )
     struct rlimit nocore = { 0, 0 };
     int i, listener;
 
+#ifdef WEX_ACCOUNTSD_LAB_TEST
     test_mode = getenv( "WEX_ACCOUNTSD_TEST" ) && !strcmp( getenv( "WEX_ACCOUNTSD_TEST" ), "1" );
+#endif
     for (i = 1; i < argc; i++)
     {
         if (!strcmp( argv[i], "--config" ) && i + 1 < argc) config = argv[++i];
+#ifdef WEX_ACCOUNTSD_LAB_TEST
         else if (test_mode && !strcmp( argv[i], "--bus" ) && i + 1 < argc) test_bus = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--listen" ) && i + 1 < argc) test_listen = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--login-defs" ) && i + 1 < argc) test_login_defs = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--admin-members" ) && i + 1 < argc) test_admin_members = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--mainpid" ) && i + 1 < argc) test_mainpid = (pid_t)atoi( argv[++i] );
         else if (test_mode && !strcmp( argv[i], "--mainpid-file" ) && i + 1 < argc) test_mainpid_file = argv[++i];
+        else if (test_mode && !strcmp( argv[i], "--group-file" ) && i + 1 < argc) group_path = argv[++i];
+        else if (test_mode && !strcmp( argv[i], "--passwd-file" ) && i + 1 < argc) passwd_path = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--any-dumpable" )) any_dumpable = 1;
         else if (test_mode && !strcmp( argv[i], "--no-idle-exit" )) no_idle_exit = 1;
+#endif
         else { fprintf( stderr, "usage: wex-accountsd [--config FILE]\n" ); return 2; }
     }
     prctl( PR_SET_DUMPABLE, 0 );
     setrlimit( RLIMIT_CORE, &nocore );
     if (!load_config( config )) return 1;
     load_login_defs();
+#ifdef WEX_ACCOUNTSD_LAB_TEST
     if (test_listen) listener = make_listener( test_listen );
-    else if (sd_listen_fds( 0 ) == 1) listener = SD_LISTEN_FDS_START;
+    else
+#endif
+    if (sd_listen_fds( 0 ) == 1) listener = SD_LISTEN_FDS_START;
     else { logf_( "no socket from systemd" ); return 1; }
     if (listener < 0) { logf_( "cannot listen: %s", strerror( errno ) ); return 1; }
     for (;;)

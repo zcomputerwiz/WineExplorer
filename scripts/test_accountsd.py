@@ -56,7 +56,7 @@ def frame(op, body=b'', verdict=ELEVATED, caller=0, rid=1, flags=0, magic=WEXA_M
 class Conn:
     def __init__(self, path):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-        self.sock.settimeout(8)
+        self.sock.settimeout(20)
         self.sock.connect(path)
 
     def req(self, data):
@@ -76,13 +76,28 @@ class Conn:
         self.sock.close()
 
 
-def parse_records(body):
-    (count,) = struct.unpack_from('<I', body)
-    off, out = 4, []
+def parse_page(body):
+    """(total, first, records) of a page of the user list"""
+    total, first, count = struct.unpack_from('<III', body)
+    off, out = 12, []
     for _ in range(count):
         rec, off = parse_record(body, off)
         out.append(rec)
-    return out
+    return total, first, out
+
+
+def parse_name_page(body):
+    total, first, count = struct.unpack_from('<III', body)
+    off, out = 12, []
+    for _ in range(count):
+        (n,) = struct.unpack_from('<H', body, off)
+        out.append(body[off + 2:off + 2 + n].decode())
+        off += 2 + n
+    return total, first, out
+
+
+def parse_records(body):
+    return parse_page(body)[2]
 
 
 def parse_record(body, off):
@@ -96,7 +111,7 @@ def parse_record(body, off):
 
 
 class Rig:
-    def __init__(self, binary, workdir):
+    def __init__(self, binary, workdir, many=0):
         self.dir = workdir
         self.binary = binary
         self.log = os.path.join(workdir, 'fake.log')
@@ -108,11 +123,11 @@ class Rig:
         self.address = self.bus.stdout.readline().strip()
         open(self.log, 'w').close()
         self.fake = subprocess.Popen([sys.executable, os.path.join(HERE, 'accountsd-fake-bus.py'), self.address, self.log],
-                                     stdout=subprocess.PIPE, text=True)
+                                     stdout=subprocess.PIPE, text=True, env=dict(os.environ, FAKE_MANY=str(many)))
         assert self.fake.stdout.readline().strip() == 'READY'
         self.helper = None
 
-    def start_helper(self, s0user='root', admins='alice,bob', mainpid=None):
+    def start_helper(self, s0user='root', admins='alice,bob', mainpid=None, extra=()):
         self.stop_helper()
         conf = os.path.join(self.dir, 'accountsd.conf')
         with open(conf, 'w') as f:
@@ -121,9 +136,10 @@ class Rig:
         with open(self.pidfile, 'w') as f:
             f.write(str(mainpid if mainpid else os.getpid()))
         env = dict(os.environ, WEX_ACCOUNTSD_TEST='1')
-        self.helper = subprocess.Popen([self.binary, '--config', conf, '--bus', self.address, '--listen', self.sock,
-                                        '--admin-members', admins, '--mainpid-file', self.pidfile],
-                                       env=env, stderr=open(self.helper_log, 'a'))
+        args = [self.binary, '--config', conf, '--bus', self.address, '--listen', self.sock, '--mainpid-file', self.pidfile]
+        if admins is not None:
+            args += ['--admin-members', admins]
+        self.helper = subprocess.Popen(args + list(extra), env=env, stderr=open(self.helper_log, 'a'))
         for _ in range(100):
             if os.path.exists(self.sock):
                 break
@@ -305,13 +321,119 @@ def tests_peer(rig, binary):
     rig.start_helper()
 
 
+def tests_findings(binary, tmp):
+    """The reviewer's findings F1 (paging), F2 (rollback), F5 (log injection), F6 (the timeout) and the group-file nit"""
+    # F1: more users than one frame holds, with long full names: every page is whole, the pages cover the list
+    d = os.path.join(tmp, 'many')
+    os.makedirs(d)
+    os.chmod(d, 0o755)
+    big = Rig(binary, d, many=400)
+    try:
+        big.start_helper()
+        c = big.connect()
+        seen, start, pages, ok = [], 0, 0, True
+        while pages < 50:
+            r = c.req(frame(LIST, u(start), verdict=USER))
+            if r is None or r[0] != OK or len(r[1]) > 65520:
+                ok = False
+                break
+            total, first, recs = parse_page(r[1])
+            if first != start or (not recs and start < total):
+                ok = False
+                break
+            seen += [x['name'] for x in recs]
+            start += len(recs)
+            pages += 1
+            if start >= total:
+                break
+        check(ok and pages > 1 and len(seen) == len(set(seen)) == total == 405,
+              'F1: the list of 405 users with long names comes in %d whole pages (%d seen)' % (pages, len(seen)))
+        r = c.req(frame(LIST, u(100000), verdict=USER))
+        check(r is not None and r[0] == OK and parse_page(r[1])[0] == 405 and parse_page(r[1])[2] == [], 'F1: a start past the end is an empty page')
+        check(c.req(frame(LIST, b'abc', verdict=USER))[0] == BAD_REQUEST, 'F1: a start index that is not a u32 is refused')
+        c.close()
+        # the administrators: 1024 names of 63 characters do not fit in one frame
+        names = ['a%03d' % i + 'x' * 58 for i in range(1024)]
+        big.start_helper(admins=','.join(names))
+        c = big.connect()
+        seen, start, pages = [], 0, 0
+        while pages < 10:
+            r = c.req(frame(ADMINS, u(start), verdict=USER))
+            if r is None or r[0] != OK:
+                break
+            total, first, got = parse_name_page(r[1])
+            seen += got
+            start += len(got)
+            pages += 1
+            if start >= total or not got:
+                break
+        check(pages > 1 and seen == names, 'F1: 1024 administrators come in %d whole pages' % pages)
+        c.close()
+    finally:
+        big.close()
+
+    d = os.path.join(tmp, 'findings')
+    os.makedirs(d)
+    os.chmod(d, 0o755)
+    rig = Rig(binary, d)
+    try:
+        rig.start_helper()
+        c = rig.connect()
+        # F2: a create that cannot be finished takes the user away again, and reports the failure
+        for method, typ, name in (('SetPassword', 0, 'zed'), ('SetAccountType', 1, 'zed2')):
+            with open(rig.log + '.fail', 'w') as f:
+                f.write(method)
+            r = c.req(frame(CREATE, s(name) + s('Z') + u(typ) + s(HASH)))
+            os.unlink(rig.log + '.fail')
+            check(r is not None and r[0] not in (OK, DENIED), 'F2: create fails when %s fails (status %s)' % (method, r and r[0]))
+            check(c.req(frame(GET, s(name), verdict=USER))[0] == NOT_FOUND, 'F2: the half-made user is gone after %s failed' % method)
+            calls = rig.calls()
+            check(any(x['op'] == 'CreateUser' and x['user'] == name for x in calls) and
+                  any(x['op'] == 'DeleteUser' and x['remove'] is False for x in calls), 'F2: it was deleted again, files kept (%s)' % method)
+        check(c.req(frame(CREATE, s('zed') + s('Z') + u(0) + s(HASH)))[0] == OK, 'F2: the name is usable again after the rollback')
+        # F5: a name with a newline cannot forge a journal line
+        c.req(frame(GET, s('x\nwex-accountsd: FORGED op 4 verdict 2'), verdict=USER))
+        c.req(frame(DELETE, s('y\x1b[31m\nwex-accountsd: FORGED2')))
+        c.close()
+        rig.stop_helper()
+        with open(rig.helper_log, errors='replace') as f:
+            text = f.read()
+        check('FORGED' not in text and '\x1b' not in text, 'F5: control characters and forged lines never reach the journal')
+        check("user '<invalid>'" in text, 'F5: an invalid name is logged as <invalid>')
+        # F6: a call that takes longer than the helper's wait is answered in about 10 s, not 25
+        rig.start_helper()
+        c = rig.connect()
+        open(rig.log + '.slow', 'w').close()
+        t0 = time.time()
+        r = c.req(frame(FULLNAME, s('carol') + s('Slow One')))
+        took = time.time() - t0
+        os.unlink(rig.log + '.slow')
+        check(r is not None and r[0] in (BUSY, UNAVAILABLE) and 8 <= took <= 14, 'F6: a slow call fails after about 10 s (%.1f s, status %s)' % (took, r and r[0]))
+        c.close()
+        time.sleep(4)   # the fake finishes its slow call
+        # the nit: the administrators come from the group and passwd files themselves, primary-group users included
+        gf, pf = os.path.join(d, 'group'), os.path.join(d, 'passwd')
+        with open(gf, 'w') as f:
+            f.write('adm:x:4:\nsudo:x:27:alice,bob\n')
+        with open(pf, 'w') as f:
+            f.write('primary1:x:2001:27::/:/bin/false\nalice:x:1001:1001::/:/bin/false\nother:x:2002:100::/:/bin/false\n')
+        rig.start_helper(admins=None, extra=['--group-file', gf, '--passwd-file', pf])
+        c = rig.connect()
+        r = c.req(frame(ADMINS, verdict=USER))
+        got = sorted(parse_name_page(r[1])[2]) if r and r[0] == OK else None
+        check(got == ['alice', 'bob', 'primary1'], 'nit: administrators from the group and passwd files, primary group included (%s)' % got)
+        c.close()
+    finally:
+        rig.close()
+
+
 def main():
     binary = sys.argv[1] if len(sys.argv) > 1 else None
     tmp = tempfile.mkdtemp(prefix='accountsd-')
     os.chmod(tmp, 0o755)   # the peer tests connect as another user
     if not binary:
         binary = os.path.join(tmp, 'wex-accountsd')
-        subprocess.check_call(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-o', binary,
+        subprocess.check_call(['gcc', '-O2', '-Wall', '-Wextra', '-Werror', '-DWEX_ACCOUNTSD_LAB_TEST', '-o', binary,
                                os.path.join(ROOT, 'tools/wex-accountsd/wex-accountsd.c'), '-lsystemd'])
     rig = Rig(binary, tmp)
     try:
@@ -324,6 +446,7 @@ def main():
         check(HASH not in text and HASH2 not in text and 'AAAAAAAAAA' not in text, 'the hash is never in the helper log')
         check("op 4 verdict 2" in text and "user 'eve'" in text, 'the helper logs a line per request')
         tests_peer(rig, binary)
+        tests_findings(binary, tmp)
     finally:
         rig.close()
     print('%d failure(s)' % failures if failures else 'accountsd=PASS')
