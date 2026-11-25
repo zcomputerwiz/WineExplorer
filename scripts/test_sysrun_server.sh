@@ -142,6 +142,7 @@ reg_admin_group  -                  n   reg
 c3_std           -                  nl  c3
 c3_adm           -                  n   c3
 svc_table        -                  n   svc
+svc_table_elev   c4_build           n   svc
 c4_build         -                  nl  c4
 c4_shipping      c4_build           nl  c4
 c4_control       c4_build           nl  c4
@@ -1374,6 +1375,7 @@ if section svc_table; then set +e; ( section_enter
     ok svc_table_survey_recorded
 true; ); section_leave $?; fi
 
+
 # ---- 9. the elevation broker (plan step 4), elevation enforced -------------------------------------------------
 # wexelevate.exe is a LocalSystem service. The shipping broker has no way to ask for consent and fails closed
 # (ERROR_NOT_READY); a broker built from the same source with -DWEXELEVATE_TEST_APPROVAL calls an approval stub that
@@ -1594,6 +1596,40 @@ done
 [ -z "$(ls -A "$B28DIR")" ] || { ls -la "$B28DIR" >&2; fail "B28: files left in the group-only directory"; }
 rm -rf "$B28DIR"
 ok c4_elevated_process_renames_in_a_group_only_directory
+true; ); section_leave $?; fi
+
+# ---- 8c. the same survey as an elevated administrator (the broker's test approval) -----------------------------
+# The administrator's elevated process (started through the broker, the stub approves it) is the caller the Services
+# snap-in's changes run as after the consent prompt. It must behave like the system role column of the survey: change the
+# configuration, start, interrogate, stop and delete a service of session 0 and one it creates. These checks fail when it
+# does not (a gap of the service manager to report); the rows are kept in /var/tmp/wex-run/svc-table-elevated-*.txt.
+if section svc_table_elev; then set +e; ( section_enter
+    echo "--- service manager survey as an elevated administrator (svc_table_elev)"
+    rm -rf "$SVCDIR"; install -d -m 1777 "$SVCDIR"
+    probe "$STD" 64 hold >/dev/null 2>&1 & HOLD=$!
+    sleep 4
+    wait_files "$SVCDIR/sys.txt" "$SVCDIR/ls.txt" "$SVCDIR/ns.txt"
+    el_clean; touch "$EL/approve.all"
+    run_as "$ADM" install -d -m 0755 "/home/$ADM/wexel"
+    run_as "$ADM" cp "$ROOT/probes/rolesprobe64.exe" "/home/$ADM/wexel/rolesprobe.exe"
+    for variant in "WexSvcTbl -" "WexSvcMine create"; do
+        set -- $variant; svcname=$1; mode=$2
+        outf="$EL/svc-elev-$svcname.txt"; rm -f "$outf"
+        OUT="$(bprobe "$ADM" 64 runcmd "$(winpath /home/$ADM/wexel/rolesprobe.exe)" "svc-table $svcname $mode $(winpath "$outf")" 0)"
+        grep -q '^runcmd=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "the elevated survey of $svcname did not run"; }
+        tr -d '\r' < "$outf" > "/var/tmp/wex-run/svc-table-elevated-$svcname.txt"
+        echo "== elevated administrator 64: $svcname"; grep '^row|' "/var/tmp/wex-run/svc-table-elevated-$svcname.txt"
+        row() { grep "^row|$svcname|$1|" "/var/tmp/wex-run/svc-table-elevated-$svcname.txt" | cut -d'|' -f4; }
+        for op in open_scm open_query query_config open_change change_start_type restore_start_type change_description open_start start \
+                  open_stop control_interrogate control_stop open_all open_delete; do
+            [ "$(row $op)" = 0 ] || { cat "/var/tmp/wex-run/svc-table-elevated-$svcname.txt" >&2; fail "elevated administrator, $svcname: $op returned '$(row $op)', not 0"; }
+        done
+        grep -q "|wait_running|0|reached=4" "/var/tmp/wex-run/svc-table-elevated-$svcname.txt" || fail "elevated administrator, $svcname: it did not reach running"
+        grep -q "|wait_stopped|0|reached=1" "/var/tmp/wex-run/svc-table-elevated-$svcname.txt" || fail "elevated administrator, $svcname: it did not stop"
+        [ "$mode" != create ] || [ "$(row delete_service)" = 0 ] || fail "elevated administrator: delete_service returned '$(row delete_service)'"
+        ok "svc_table_elevated_administrator_$svcname"
+    done
+    kill "$HOLD" 2>/dev/null
 true; ); section_leave $?; fi
 
 if section c4_unix; then set +e; ( section_enter
