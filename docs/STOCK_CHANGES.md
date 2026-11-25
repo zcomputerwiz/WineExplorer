@@ -4782,3 +4782,17 @@ protocol"): the cross-server protocol on the session link between session 0 and 
   control socket `wex-x0-lab` in each lab server's directory (root only) and the lab object kind, a named counter.
   `server/wex_e1lab.h` declares `x0lab_init` and `session0_lab_drop_link`.
 Tests: section `s0_x0` of `scripts/test_sysrun_server.sh` (lab suite), client `scripts/x0lab.py`.
+
+2026-11-24 (Wine branch `claude/eventlog-l1`, L1 of `docs/EVENTLOG_DESIGN.md`, "L1 as built"): the EventLog service.
+- `dlls/wevtsvc/wevtsvc.c` (was a stub), `store.c`, `wevtsvc_private.h` (new), `Makefile.in` (imports ntdll): the
+  service keeps the logs. Our own pipe protocol (`include/wine/wex_eventlog.h`, new) on
+  `\.\pipe\WexSession0\eventlog` and, in session 0, `\.\pipe\eventlog`; identification of the caller only; the
+  access table; per-account caps; record streaming for client-made backups; notify requests; files with a CRC32 and
+  record-number trailer per record and the load rule that keeps only the valid rising run.
+- `server/named_pipe.c` (`pipe_bridge_allowed`): `eventlog` may be opened from a session.
+- `server/session0.c` (the `PIPE` handler): the opener's description becomes a token with `link_bound_token()`
+  (account and session of the link) instead of `create_bound_token` (E6).
+- `programs/services/services.c` (`default_session_service`): EventLog is no longer a service of every session; a
+  session forwards it to session 0.
+Tests: section `s0_eventlog` and the `own_prefix` check of `scripts/test_sysrun_server.sh`, `scripts/eventlog-probe.c`,
+`scripts/eventlog-corrupt.py`.
