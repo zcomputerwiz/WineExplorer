@@ -51,8 +51,10 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   device keeps the timed-out query and works again once it completes (one long stall is not a device loss); `dlls/d2d1`
   (be98257e) CombineWithGeometry stops collecting edges at its limit of 16384 instead of after storing them all;
   `dlls/kernelbase/loader.c` (104c04bc) the MUI satellite fallback also covers LOAD_LIBRARY_AS_DATAFILE modules (path
-  from the mapping; the satellite freed with the module), measured on Windows 11, and `test_mui_satellite` checks a
-  data-file load, which Windows 11 runs too.
+  from the mapping (drive and UNC paths only, 9a890915); the satellite freed with the module), measured on Windows 11, and
+  `test_mui_satellite` checks a data-file load, which Windows 11 runs too. 9a890915 (review K1-K5): an image module's
+  satellite is freed when FreeLibrary unmaps it; stale satellites are freed outside the lock; the test covers
+  DATAFILE_EXCLUSIVE and IMAGE_RESOURCE too and checks that the satellite's file is released (Windows 11: 0 failures).
 
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
