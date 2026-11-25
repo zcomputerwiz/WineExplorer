@@ -170,6 +170,13 @@ suite()  # build dir, script, log
     ( cd "$SNAP" && WINE_BUILD_DIR=$1 timeout 3300 unshare --mount --propagation private sh -c \
         "mount --bind /var/tmp/wex-r8-x /tmp/.X11-unix && exec bash $2" ) > "$3" 2>&1
     rc=$?
+    # A failed section can leave a subshell of the suite behind (the same command line, GPO 2026-11-25); the next
+    # run then says BUSY. One run per distribution, and a distribution sees only its own processes, so any left is ours.
+    if pkill -f "^bash $2" 2>/dev/null; then
+        sleep 2
+        pkill -9 -f "^bash $2" 2>/dev/null
+        echo "(left-over suite processes of $2 ended)" >> "$3"
+    fi
     clean_fixture
     return $rc
 }
