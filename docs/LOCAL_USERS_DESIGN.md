@@ -394,6 +394,14 @@ runs. If session 0's wineserver is not its unit's main process today, it is made
 runs it, or the launcher `exec`s it), a change for the system tier and the installer. Systemd must answer: no answer,
 no accept.
 
+The reviewer's re-check (2026-11-24): session 0's own Windows services (LocalService and third-party ones included) run
+as session 0's uid with the saved gid `wexsys` and a real gid that is not, non-dumpable through the setgid exec (so
+`/proc/<pid>/stat` is root-owned for them too), and `prctl(PR_SET_NAME)` gives them any process name. They pass the
+header's checks. So those checks, the root-owned `/proc/<pid>/stat` included, are **sanity checks only**; **the identity is
+the pidfd-pinned MainPID of the unit, read over sd-bus at each connect.** The helper is coded exactly so (`peer_ok` in
+`tools/wex-accountsd/wex-accountsd.c`: the unit's MainPID must equal the pinned peer pid first; the rest only adds). The
+underlying invariant is recorded in [SYSTEM_TIER_DESIGN.md](SYSTEM_TIER_DESIGN.md) (master 4c9bbf5e).
+
 **The smaller notes, adopted:** the peer check runs at accept, before anything is read, and a failed one drops the
 connection at once; the socket is 0660 with a group whose only member is session 0's account (the installer makes
 the group, not the account's primary group if that has other members); the helper refuses user names that collide with
