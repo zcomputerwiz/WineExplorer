@@ -150,6 +150,25 @@ formats them in the reader, from the source's message file, as on Windows. A mis
 Nothing new at first. Candidates later, each a small change: service start failures (the service manager, System
 log), Safe Mode boot notes, the elevation broker's consent results (Security, once auditing exists).
 
+### 9. What Event Viewer needs beyond the classic API (GPO, 2026-11-24)
+
+- **Log properties** (file size, created, last written, last read, record count, oldest and next record numbers, and
+  the `MaxSize` and `Retention` in force): the "information" operation returns all of them, the times from the store's
+  header. advapi32 exposes them through `GetEventLogInformation` with a Wine-private information level (a value
+  outside Windows' documented ones, defined in a Wine header next to the protocol), so no new export is needed.
+  `EVENTLOG_FULL_INFORMATION` stays as documented.
+- **Changing `MaxSize` and `Retention`**: Event Viewer writes the log's registry key (session 0's registry, as an
+  elevated administrator). The service watches the `EventLog` key with a change notification and reloads a log's
+  settings when it changes; no restart and no "reload" operation.
+- **The log tree**: `HKLM\System\CurrentControlSet\Services\EventLog\Application`, `System` and `Security` exist in the
+  machine hive by default (L1 adds whichever Wine's `wine.inf` lacks), so the viewer shows all three before any
+  record exists. Reading Security without `SeSecurityPrivilege` gives "Access is denied", as on XP.
+- **Virtual list reading**: `GetNumberOfEventLogRecords` and `GetOldestEventLogRecord` are exact, and backward
+  sequential plus seek reads return many records per call (up to the read cap).
+- **Wine's own sources** (Service Control Manager, EventLog and the others of section 8) get a small message resource
+  module, so their events format instead of showing "the description cannot be found". It comes with the first Wine
+  source that logs (a follow-up to L1, not part of it).
+
 ## Order of work
 
 1. **L1: the service and storage**, with the pipe protocol, in session 0 and in plain prefixes. Tests:
