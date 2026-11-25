@@ -14,6 +14,8 @@
  *   MODULE.DLL!#ORDINAL          an export, by GetProcAddress by ordinal
  *   dcomp.dll!desktop[N]         slot N of the vtable of a live IDCompositionDesktopDevice that this program creates
  *   dcomp.dll!visual[N]          slot N of the vtable of a live IDCompositionVisual that this program creates
+ *   dcomp.dll!surface[N]         slot N of an IDCompositionSurface that this program creates (on a hardware D3D11 device)
+ *   dcomp.dll!vsurface[N]        the same for an IDCompositionVirtualSurface (CreateVirtualSurface of the factory)
  *   winrt!Class.Name@{IID}[N]    slot N of the vtable of the interface IID of the activation factory of the class (RoGetActivationFactory)
  *   d3d11.dll!device@{IID}[N]    slot N of the vtable of the interface IID of a Direct3D 11 device (hardware, BGRA) that this program creates
  *   d3d11.dll!context[N]         slot N of the immediate context (ID3D11DeviceContext) of such a device that this program creates
@@ -616,6 +618,34 @@ static int resolve_target(const char *target, char *mod, size_t modsize, DWORD *
         /* CreateVisual is slot 6 of IDCompositionDesktopDevice */
         if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, void **))(*(void ***)desktop)[6])(desktop, &visual)) || !visual) return 0;
         return rva_of((*(void ***)visual)[slot], mod, modsize, rva);
+    }
+
+    /* dcomp.dll!surface[N]: slot N of an IDCompositionSurface that this program creates (a desktop device, a surface factory on a
+     * hardware Direct3D 11 device with BGRA support, a 64x64 B8G8R8A8 premultiplied surface); only calls on objects with that
+     * vtable are counted. Slots: 3 BeginDraw, 4 EndDraw, 5 SuspendDraw, 6 ResumeDraw, 7 Scroll. */
+    if (!_stricmp(spec, "dcomp.dll") && (!strcmp(bang, "surface") || !strcmp(bang, "vsurface")) && slot >= 0)
+    {
+        typedef HRESULT (WINAPI *d3d_create_t)(void *, int, HMODULE, UINT, const void *, UINT, UINT, void **, void *, void **);
+        HMODULE dc = LoadLibraryA("dcomp.dll"), d3dm = LoadLibraryA("d3d11.dll");
+        create3_t create3 = dc ? (create3_t)GetProcAddress(dc, "DCompositionCreateDevice3") : NULL;
+        d3d_create_t d3d_create = d3dm ? (d3d_create_t)GetProcAddress(d3dm, "D3D11CreateDevice") : NULL;
+        void *desktop = NULL, *d3d = NULL, *factory = NULL, *surface = NULL;
+        char vmod[80];
+        DWORD vrva;
+
+        if (!create3 || !d3d_create) return 0;
+        if (FAILED(d3d_create(NULL, 1, NULL, 0x20, NULL, 0, 7, &d3d, NULL, NULL)) || !d3d) return 0;
+        if (FAILED(create3(NULL, &iid_desktop, &desktop)) || !desktop) return 0;
+        /* CreateSurfaceFactory is slot 7 of IDCompositionDesktopDevice, CreateSurface slot 3 of the factory */
+        if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, void *, void **))(*(void ***)desktop)[7])(desktop, d3d, &factory))
+                || !factory) return 0;
+        /* DXGI_FORMAT_B8G8R8A8_UNORM 87, DXGI_ALPHA_MODE_PREMULTIPLIED 1; vsurface: CreateVirtualSurface, slot 4 of the factory */
+        if (FAILED(((HRESULT (STDMETHODCALLTYPE *)(void *, UINT, UINT, UINT, UINT, void **))(*(void ***)factory)[bang[0] == 'v' ? 4 : 3])(
+                factory, 64, 64, 87, 1, &surface)) || !surface) return 0;
+        if (rva_of(*(void **)surface, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "dcomp.dll")) resolved_vt_rva = vrva;
+        if (!rva_of((*(void ***)surface)[slot], mod, modsize, rva)) return 0;
+        if (_stricmp(mod, "dcomp.dll")) resolved_vt_rva = 0;
+        return 1;
     }
 
     {
