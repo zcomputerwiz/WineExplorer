@@ -24,6 +24,7 @@ unsloth-tmp/*                           none
 # the suites themselves
 scripts/test_sysrun_server.sh           normalsuite
 scripts/dwm-popup-probe.cpp             normalsuite
+scripts/dwm-menu-probe.c               normalsuite
 scripts/test_broker_e1s18.sh            normalsuite
 scripts/eventlog-*                      normalsuite
 scripts/accounts-probe.c                normalsuite

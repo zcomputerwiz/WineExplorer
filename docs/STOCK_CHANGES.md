@@ -5080,3 +5080,11 @@ for the accounts service alone.
 - `dlls/advapi32/tests/service.c`: the SID type's round trip.
 Tests: section `s0_accounts` (a second LocalSystem service with its own SID, wexaccounts without its SID, the service's
 token).
+
+## Menu and tooltip shadows are on by default (2026-11-25)
+
+Wine `eb00215e` on `claude/menu-shadow`, `dlls/win32u/sysparams.c`: the default `UserPreferencesMask` has the
+`SPI_GETDROPSHADOW` bit (byte 2, 0x04) set, as on Windows XP; stock Wine has it clear. winex11.drv publishes the setting
+as `_WEX_DROPSHADOW` for `CS_DROPSHADOW` windows only when a compositor owns the screen, so without composition nothing
+changes on screen; with composition on, menus and tooltips get the compositor's soft shadow. A prefix that already has
+`UserPreferencesMask` in its registry keeps its value. Suite section `c4_dwm_menu` checks both modes.
