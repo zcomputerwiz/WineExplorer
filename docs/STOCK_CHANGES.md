@@ -62,6 +62,10 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
 - `dlls/dcomp/device.c` (7f2fe720, claude/notepad-commit): shared visual handles are matched by kernel object; a target
   opened from one is a portal whose committed root is composed inside the shared visual; devices showing a changed portal
   redraw their committed scenes; scene collection is bounded by the layer limit.
+- `dlls/dcomp/device.c`, `tests/dcomp.c` (cedb07b0, claude/notepad-commit): `test_shared_visual_portal` (a portal shows in
+  the viewer's window; other handles refused; devices released in both orders; passes on Windows 11). The shared handle
+  is a named event with a Wine prefix, and OpenSharedObject opens only those (E_HANDLE otherwise, as Windows 11); an
+  unsupported interface is E_INVALIDARG (measured, was E_NOINTERFACE).
 
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
