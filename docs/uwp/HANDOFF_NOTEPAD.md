@@ -157,7 +157,23 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
        * The WinUI 3 probe for a Windows 10 comparison: a self-contained test app (Windows App SDK 2.7.0, built in scratch,
          not in the repository) behaves like Notepad on the Windows 11 host. `wintrace exe:PATH` starts it. The Windows 10
          lab VM was too slow to start a guest session on 2026-11-25, so the comparison has not run.
-       * Next: (a) find what that other path expects to wake the UI thread (it ends blocked in the ALPC receive instead of
+       * **The gate is the Windows build number (2026-11-25).** CoreMessagingXP delay-imports three user32 ordinals:
+         2582 (`ScheduleDispatchNotification`), 2669 (`InitThreadCoreMessagingIocp2`) and 2670
+         (`DrainThreadCoreMessagingCompletions2`); Wine's user32.spec has the last two as stubs. On Windows 11 (26300) its
+         order on the UI thread is: IsGUIThread, RegisterClassExW, CreateWindowExW (adapter window), ordinal 2669
+         (window, pointer to a dword) which returns a handle to a completion port, SetTimer, DuplicateHandle of its wake
+         event, NtCreateWaitCompletionPacket, NtAssociateWaitCompletionPacket(packet, that port, the wake event). So the
+         port belongs to the thread's message queue: a completion on it ends GetMessage and ordinal 2670 collects it.
+         Under Wine with build 19045 or 22000 it makes no API call between CreateWindowExW and SetTimer and builds its own
+         port and helper thread (the Windows 10 path). With `CurrentBuildNumber` 26100 in the prefix (the value ntdll and
+         wineboot's shared user data follow; `winecfg /v win11` alone gives 22000) it calls ordinal 2669 at once and Wine
+         aborts: "unimplemented function user32.dll.InitThreadCoreMessagingIocp2". Not involved: RtlGetVersion,
+         feature configuration, IsApiSetImplemented, QueryOptionalDelayLoadedAPI (none called by CoreMessagingXP before).
+         The exact threshold between 22000 and 26100 is not measured.
+       * Two ways on from here: implement ordinals 2669/2670 (win32u `NtUserInitThreadCoreMessagingIocp2` /
+         `NtUserDrainThreadCoreMessagingCompletions2`, a queue-owned completion port in the server) and report a build
+         that uses them; or find why the Windows 10 path leaves the UI thread in an untimed ALPC receive under Wine.
+       * Older note: (a) find what that other path expects to wake the UI thread (it ends blocked in the ALPC receive instead of
          a message wait: compare the helper thread's work on Wine with what a Windows 10 system does, if a Windows 10 lab
          is available), or (b) find the gate (a capability probe CoreMessagingXP makes before the adapter window's Init2
          on Windows). Probe scripts: `wt-iocp*.ps1`, `hwnd-check.ps1` (wintrace with
