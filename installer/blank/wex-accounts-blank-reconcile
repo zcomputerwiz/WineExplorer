@@ -1,0 +1,74 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: blank passwords at the logon screen only (docs/BLANK_PASSWORDS.md). Runs as root, takes no argument.
+#
+# Makes the members of the group nopasswdlogin exactly the local accounts whose password field in /etc/shadow is empty
+# (and whose uid is in the range of ordinary users). Debian's greeter stacks let that group in without a password
+# (auth sufficient pam_succeed_if.so user ingroup nopasswdlogin); every other stack refuses an empty field because
+# common-auth has no nullok (installer/blank/wex-blank-pam.sh). AccountsService does not keep the group on Debian (it
+# runs passwd -d and nothing else), so this is what keeps the rule "in the group if and only if the field is empty":
+#
+#   - after the accounts helper makes a blank account (SetPasswordMode NONE) or gives a blank account a password;
+#   - at boot, and whenever /etc/shadow or /etc/passwd changes (wex-accounts-blank.path), so that a password set by
+#     passwd(1) or a new empty account made outside of us never leaves a member who has a password.
+#
+# Nothing is read from the caller: it can only enforce the rule, never put an account that has a password in the group.
+# The unit that runs it is started by the helper's account through one polkit grant (installer/polkit/49-wexaccounts.rules).
+# The paths and the group name can be changed for a test with WEX_BLANK_ROOT (a directory with etc/passwd, etc/shadow,
+# etc/group and etc/login.defs; the group is then edited as a file, not with gpasswd).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+ROOT=${WEX_BLANK_ROOT:-}
+GROUP=nopasswdlogin
+PASSWD=$ROOT/etc/passwd
+SHADOW=$ROOT/etc/shadow
+GROUPS_FILE=$ROOT/etc/group
+DEFS=$ROOT/etc/login.defs
+
+min=$(awk '$1 == "UID_MIN" { print $2 }' "$DEFS" 2>/dev/null | head -n 1)
+max=$(awk '$1 == "UID_MAX" { print $2 }' "$DEFS" 2>/dev/null | head -n 1)
+case $min in ''|*[!0-9]*) min=1000 ;; esac
+case $max in ''|*[!0-9]*) max=60000 ;; esac
+[ "$min" -ge 1000 ] || min=1000
+
+# the accounts with an empty field and an ordinary uid
+want=$(awk -F: -v min="$min" -v max="$max" '
+    NR == FNR { if ($3 ~ /^[0-9]+$/ && $3 + 0 >= min && $3 + 0 <= max) ok[$1] = 1; next }
+    $2 == "" && ($1 in ok) { print $1 }
+' "$PASSWD" "$SHADOW") || exit 1
+
+have=$(awk -F: -v g="$GROUP" '$1 == g { n = split($4, m, ","); for (i = 1; i <= n; i++) if (m[i] != "") print m[i] }' "$GROUPS_FILE")
+
+status=0
+group_exists() { awk -F: -v g="$GROUP" '$1 == g { f = 1 } END { exit f ? 0 : 1 }' "$GROUPS_FILE"; }
+
+if [ -n "$ROOT" ]; then
+    # the test form: edit the group file directly
+    rewrite() {
+        members=$1
+        { awk -F: -v g="$GROUP" '$1 != g' "$GROUPS_FILE"; printf '%s:x:1234:%s\n' "$GROUP" "$members"; } > "$GROUPS_FILE.new" &&
+            mv "$GROUPS_FILE.new" "$GROUPS_FILE"
+    }
+    members=$(printf '%s\n' "$want" | awk 'NF' | paste -sd, -)
+    [ "$members" = "$(printf '%s\n' "$have" | awk 'NF' | paste -sd, -)" ] && group_exists && exit 0
+    rewrite "$members" || exit 1
+    echo "wex-accounts-blank: $GROUP is now: ${members:-nobody}"
+    exit 0
+fi
+
+group_exists || groupadd --system "$GROUP" || exit 1
+
+for u in $want; do
+    printf '%s\n' "$have" | grep -qx -- "$u" && continue
+    if gpasswd -a "$u" "$GROUP" > /dev/null; then echo "wex-accounts-blank: $u has an empty password: added to $GROUP"
+    else echo "wex-accounts-blank: could not add $u to $GROUP" >&2; status=1; fi
+done
+for u in $have; do
+    printf '%s\n' "$want" | grep -qx -- "$u" && continue
+    if gpasswd -d "$u" "$GROUP" > /dev/null; then echo "wex-accounts-blank: $u has no empty password: removed from $GROUP"
+    else echo "wex-accounts-blank: could not remove $u from $GROUP" >&2; status=1; fi
+done
+exit $status

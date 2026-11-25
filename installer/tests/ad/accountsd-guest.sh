@@ -82,4 +82,43 @@ PYEND
 if [ "$res" = dropped ]; then ok a_process_that_is_not_the_server_is_dropped; else notok a_process_that_is_not_the_server_is_dropped "$res"; fi
 journalctl -u wex-accountsd.service --no-pager -n 20 2>/dev/null | grep -q "peer refused" && ok the_refusal_is_in_the_journal || notok the_refusal_is_in_the_journal "no 'peer refused' line"
 
+# 5. blank passwords at the logon screen only (docs/BLANK_PASSWORDS.md), on the real AccountsService and PAM
+RECON=/usr/local/libexec/wineexplorer/wex-accounts-blank-reconcile
+check blank_units_installed test -f /lib/systemd/system/wex-accounts-blank.service -a -f /lib/systemd/system/wex-accounts-blank.path -a -x "$RECON" -a -x /usr/local/libexec/wineexplorer/wex-blank-pam.sh
+check blank_path_unit_active systemctl is-active wex-accounts-blank.path
+out=$(runuser -u wexaccounts -- "${START[@]}" wex-accounts-blank.service replace 2>&1); rc=$?
+if [ $rc = 0 ]; then ok polkit_allows_starting_the_blank_reconcile_unit; else notok polkit_allows_starting_the_blank_reconcile_unit "rc $rc: $out"; fi
+out=$(runuser -u "$S0_ACCOUNT" -- "${START[@]}" wex-accounts-blank.service replace 2>&1); rc=$?
+if [ $rc != 0 ]; then ok polkit_refuses_session0_account_starting_the_blank_reconcile_unit; else notok polkit_refuses_session0_account_starting_the_blank_reconcile_unit "started: $out"; fi
+# no stack takes an empty password except through the greeter's group
+if grep -rn --exclude='*.pam-old' --exclude='*.dpkg-*' nullok /etc/pam.d > /tmp/accd-nullok.txt 2>&1; then notok no_nullok_in_pam "$(head -3 /tmp/accd-nullok.txt)"; else ok no_nullok_in_pam; fi
+grep -q 'ingroup nopasswdlogin' /etc/pam.d/lightdm && ok greeter_stack_has_the_passwordless_group_rule || notok greeter_stack_has_the_passwordless_group_rule "lightdm has no pam_succeed_if line"
+# AccountsService: SetPasswordMode(NONE) empties the field; the reconcile puts the user in the group; a hash takes it out
+runuser -u wexaccounts -- "${CREATE[@]}" >/dev/null 2>&1
+SETMODE=(busctl --system --timeout=20 call org.freedesktop.Accounts "/org/freedesktop/Accounts/User$(id -u zzaccd 2>/dev/null)" org.freedesktop.Accounts.User)
+if id zzaccd >/dev/null 2>&1; then
+    runuser -u wexaccounts -- "${SETMODE[@]}" SetPasswordMode i 2 >/dev/null 2>&1
+    field=$(getent shadow zzaccd | cut -d: -f2)
+    if [ -z "$field" ]; then ok accountsservice_none_mode_empties_the_shadow_field; else notok accountsservice_none_mode_empties_the_shadow_field "field [$field]"; fi
+    if id -nG zzaccd | grep -qw nopasswdlogin; then echo "noteaccountsservice_keeps_nopasswdlogin_itself: yes (the reconcile is then redundant here)"
+    else echo "noteaccountsservice_keeps_nopasswdlogin_itself: no, as the design assumes (Debian 13: accounts-daemon runs passwd, chage and usermod only)"; fi
+    runuser -u wexaccounts -- "${START[@]}" wex-accounts-blank.service replace >/dev/null 2>&1
+    for _ in 1 2 3 4 5 6 7 8 9 10; do id -nG zzaccd | grep -qw nopasswdlogin && break; sleep 1; done
+    id -nG zzaccd | grep -qw nopasswdlogin && ok reconcile_puts_the_blank_user_in_nopasswdlogin || notok reconcile_puts_the_blank_user_in_nopasswdlogin "groups: $(id -nG zzaccd)"
+    # a locked blank account: the field becomes "!" (not blank, not a member); does usermod -U (SetLocked false) refuse it?
+    runuser -u wexaccounts -- "${SETMODE[@]}" SetLocked b true >/dev/null 2>&1
+    runuser -u wexaccounts -- "${START[@]}" wex-accounts-blank.service replace >/dev/null 2>&1; sleep 2
+    field=$(getent shadow zzaccd | cut -d: -f2)
+    id -nG zzaccd | grep -qw nopasswdlogin && notok locked_blank_user_leaves_nopasswdlogin "field [$field], groups: $(id -nG zzaccd)" || ok locked_blank_user_leaves_nopasswdlogin
+    if runuser -u wexaccounts -- "${SETMODE[@]}" SetLocked b false >/dev/null 2>&1; then echo "noteunlock_of_a_locked_blank_account: SetLocked(false) worked (field [$(getent shadow zzaccd | cut -d: -f2)])"
+    else echo "noteunlock_of_a_locked_blank_account: SetLocked(false) was refused, as the helper assumes"; fi
+    runuser -u wexaccounts -- "${SETMODE[@]}" SetPassword ss '$6$saltsalt$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' '' >/dev/null 2>&1
+    runuser -u wexaccounts -- "${START[@]}" wex-accounts-blank.service replace >/dev/null 2>&1; sleep 2
+    id -nG zzaccd | grep -qw nopasswdlogin && notok a_hash_takes_the_user_out_of_nopasswdlogin "groups: $(id -nG zzaccd)" || ok a_hash_takes_the_user_out_of_nopasswdlogin
+    uid2=$(id -u zzaccd)
+    runuser -u wexaccounts -- busctl --system --timeout=20 call org.freedesktop.Accounts /org/freedesktop/Accounts org.freedesktop.Accounts DeleteUser xb "$uid2" 0 >/dev/null 2>&1
+else
+    notok blank_test_user_created "zzaccd could not be created"
+fi
+
 finish

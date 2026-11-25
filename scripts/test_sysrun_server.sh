@@ -5784,7 +5784,8 @@ as_helper dbus-daemon --session --nofork --print-address=1 > "$CH/bus.addr" 2>/d
 for i in $(seq 1 40); do [ -s "$CH/bus.addr" ] && break; sleep 0.25; done
 ADDR="$(head -1 "$CH/bus.addr")"; [ -n "$ADDR" ] || fail "chain: no private bus"
 ADM_UID="$(id -u "$ADM")"
-as_helper env FAKE_EXTRA="$ADM:$ADM_UID" python3 "$SRC/scripts/accountsd-fake-bus.py" "$ADDR" "$CH/fake.log" > "$CH/fake.out" 2>&1 & FAKEPID=$!
+printf 'sudo:x:27:alice,bob\nnopasswdlogin:x:1234:\n' > "$CH/group"; chown wexaccounts "$CH/group"
+as_helper env FAKE_EXTRA="$ADM:$ADM_UID" FAKE_GROUPFILE="$CH/group" python3 "$SRC/scripts/accountsd-fake-bus.py" "$ADDR" "$CH/fake.log" > "$CH/fake.out" 2>&1 & FAKEPID=$!
 for i in $(seq 1 40); do grep -q READY "$CH/fake.out" && break; sleep 0.25; done
 grep -q READY "$CH/fake.out" || { cat "$CH/fake.out" >&2; echo "bus address [$ADDR]" >&2; kill "$BUSPID" 2>/dev/null; fail "chain: the fake bus did not start"; }
 install -d -m 0755 /etc/wineexplorer
@@ -5799,7 +5800,7 @@ start_helper()
     s0_pid > "$CH/mainpid"
     rm -f /run/wineexplorer/accounts.sock
     as_helper env WEX_ACCOUNTSD_TEST=1 "$CH/wex-accountsd" --config /etc/wineexplorer/accountsd.conf --bus "$ADDR" --listen /run/wineexplorer/accounts.sock \
-        --mainpid-file "$CH/mainpid" --any-dumpable --admin-members alice,bob >> "$CH/helper.log" 2>&1 & HELPERPID=$!
+        --mainpid-file "$CH/mainpid" --any-dumpable --admin-members alice,bob --group-file "$CH/group" >> "$CH/helper.log" 2>&1 & HELPERPID=$!
     for i in $(seq 1 40); do [ -S /run/wineexplorer/accounts.sock ] && break; sleep 0.25; done
     chmod 0666 /run/wineexplorer/accounts.sock   # the file mode is not the authority: the helper checks its peer
 }
@@ -5925,14 +5926,27 @@ stop_helper
 start_helper
 [ "$(as_na "$STD" info alice | st)" = 0 ] || chain_fail "netapi: no recovery after the helper came back"
 ok st_netapi_unreachable_service_is_1722_not_a_local_list
-# a blank password is refused in the client (NERR_PasswordTooShort, parameter 3), for a new user and for a change: crypt("") would give
-# the unix account a real empty password (the reviewer's M3, until the owner decides)
-OUT="$(as_na "$STD" addblank zedblank)"
-[ "$(st <<<"$OUT")" = 2245 ] && grep -q '^parm=3' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: NetUserAdd with a blank password"; }
-OUT="$(as_na "$STD" pwblank alice)"
-[ "$(st <<<"$OUT")" = 2245 ] && grep -q '^parm=3' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: NetUserSetInfo 1003 with a blank password"; }
-! grep -q '"user": "zedblank"' "$CH/fake.log" || chain_fail "netapi: a blank-password add reached AccountsService"
-ok st_netapi_blank_password_is_refused
+# a blank password (docs/BLANK_PASSWORDS.md; B117): refused for a standard user like any change. For an elevated administrator the client
+# sends the empty string, never crypt(""): the helper makes the blank form (SetPasswordMode NONE, no SetPassword) and the reconcile
+# makes the user a member of the logon screen's group. A blank account that is to be disabled is made disabled in the one operation.
+[ "$(as_na "$STD" addblank zedblank | st)" = 5 ] || chain_fail "netapi: a standard user was not refused a blank NetUserAdd"
+[ "$(as_na "$STD" pwblank alice | st)" = 5 ] || chain_fail "netapi: a standard user was not refused a blank NetUserSetInfo 1003"
+! grep -q '"user": "zedblank"' "$CH/fake.log" || chain_fail "netapi: a refused blank add reached AccountsService"
+OUT="$(el_na n7 addblank zedblank)"
+[ "$(st <<<"$OUT")" = 0 ] || { echo "$OUT" >&2; chain_fail "netapi: the elevated blank NetUserAdd gave [$(st <<<"$OUT")]"; }
+grep -q '"op": "SetPasswordMode", "user": "zedblank", "value": 2' "$CH/fake.log" || chain_fail "netapi: a blank password did not become SetPasswordMode(NONE)"
+! grep -q '"op": "SetPassword", "user": "zedblank"' "$CH/fake.log" || chain_fail "netapi: a blank password reached SetPassword (a hash of the empty string?)"
+grep -Eq '^nopasswdlogin:x:1234:.*zedblank' "$CH/group" || { cat "$CH/group" >&2; chain_fail "netapi: the blank user is not in nopasswdlogin"; }
+OUT="$(el_na n8 addblank zedoff disabled)"
+[ "$(st <<<"$OUT")" = 0 ] || { echo "$OUT" >&2; chain_fail "netapi: the elevated blank and disabled NetUserAdd gave [$(st <<<"$OUT")]"; }
+OPS="$(grep '"user": "zedoff"' "$CH/fake.log" | sed 's/.*"op": "\([A-Za-z]*\)".*/\1/' | tr '\n' ' ')"
+[ "$OPS" = "CreateUser SetPasswordMode SetLocked " ] || chain_fail "netapi: a blank disabled account was made in the order [$OPS]"
+! grep -Eq '^nopasswdlogin:.*zedoff' "$CH/group" || chain_fail "netapi: a disabled blank account is in nopasswdlogin"
+OUT="$(el_na n9 pwblank carol)"
+[ "$(st <<<"$OUT")" = 0 ] || { echo "$OUT" >&2; chain_fail "netapi: the elevated blank NetUserSetInfo 1003 gave [$(st <<<"$OUT")]"; }
+grep -q '"op": "SetPasswordMode", "user": "carol", "value": 2' "$CH/fake.log" || chain_fail "netapi: a blank password change did not become SetPasswordMode(NONE)"
+[ "$(el_na n10 del zedblank | st)" = 0 ] && [ "$(el_na n11 del zedoff | st)" = 0 ] || chain_fail "netapi: the blank test users were not deleted"
+ok st_netapi_blank_password_is_the_blank_form
 # the environment does not steer the client (the reviewer's M2): a process of the limited half, and the elevated one, ignore the old test
 # variables; the hooks are values of the machine hive, which only an administrator writes
 OUT="$(as_na "$STD" --setenv WEX_ACCOUNTS_PIPE=wexbogus list)"

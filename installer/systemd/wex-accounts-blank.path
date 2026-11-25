@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# A password set by passwd(1), or an account made empty by hand, changes /etc/shadow: the reconcile then takes a member who
+# now has a password out of nopasswdlogin (docs/BLANK_PASSWORDS.md).
+[Unit]
+Description=Watch the password file for blank-password changes (WineExplorer)
+
+[Path]
+PathChanged=/etc/shadow
+PathChanged=/etc/passwd
+Unit=wex-accounts-blank.service
+
+[Install]
+WantedBy=multi-user.target
