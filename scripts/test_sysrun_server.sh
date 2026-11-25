@@ -166,6 +166,7 @@ c4_wam           c4_build           n   c4
 c4_dwm           c4_build           n   c4
 c4_dwm_popup     c4_build           n   c4
 c4_dwm_menu      c4_build           n   c4
+c4_dwm_restart   c4_build           x   c4
 c4_std           c4_build           n   c4
 c4_noleases      c4_build           n   c4
 c5_build         c4_build           nl  c5
@@ -3562,7 +3563,8 @@ fi
 [ -z "$popup_fail" ] || { tr -d '\r' < "$POPD/probe.log" | tail -10 >&2; tr -d '\r' < "$POPD/shell.log" | grep -v '^$' | tail -10 >&2; fail "popup:$popup_fail"; }
 if [ "$POPCOMP" = 0x1 ]; then ok c4_dwm_popup_with_composition_is_blended; else ok c4_dwm_popup_without_composition_is_shaped; fi
 true; ); section_leave $?; fi
-if section c4_dwm_menu; then set +e; ( section_enter
+dwm_menu_body()   # dwm_menu_body normal|restart SECTION_NAME: the menu probe on a shell, with or without a restart of the shell first
+{
 MENUD="$ROOT/c4menu"; rm -rf "$MENUD"; install -d -m 1777 "$MENUD"
 command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 || section_skip "no x86_64 MinGW compiler"
 command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || section_skip "no import or convert (ImageMagick) to read the screen"
@@ -3591,6 +3593,17 @@ wine_as "$ADM" reg add 'HKCU\Software\Wine\Explorer\Desktops\Default' /v EnableS
 run_as "$ADM" env DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell.log" 2>&1 &
 MENUSHELL=$!
 sleep 10
+if [ "$1" = restart ]; then
+    # B120: the shell's explorer is killed and a new one is started at once on the same display, while the wineserver and
+    # the old dwm.exe are still there. The desktop window of the dead explorer is gone from the X server; the new
+    # explorer must not adopt its id (BadWindow in X_CreateWindow, no shell).
+    pkill -9 -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' 2>/dev/null || true
+    run_as "$ADM" env WINEDEBUG=err+all,warn+win,warn+x11drv DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell2.log" 2>&1 &
+    MENUSHELL=$!
+    sleep 12
+    ! grep -q BadWindow "$MENUD/shell2.log" || { tail -10 "$MENUD/shell2.log" >&2; fail "$2: the restarted explorer died with BadWindow"; }
+    grep -a -v -E "get_work_area|ALSA" "$MENUD/shell2.log" | tail -20 >&2
+fi
 if [ "${MENU_PROBE_ARGS:-}" = startmenu ]; then   # exploring: the Start menu itself, no probe
     sleep 5; DISPLAY=":$MENUDN" xdotool key super; sleep 4
     DISPLAY=":$MENUDN" import -window root "/root/start-screen-${MENUCOMP:-off}.png" 2>/dev/null || true
@@ -3640,9 +3653,12 @@ else
     [ "${MENU_BELOW:-}" = 255,128,0 ] && [ "${MENU_RIGHT:-}" = 255,128,0 ] ||
         menu_fail="$menu_fail composition off: the menu has a shadow (${MENU_BELOW:-none}, ${MENU_RIGHT:-none});"
 fi
-[ -z "$menu_fail" ] || { tr -d '\r' < "$MENUD/probe.log" | tail -10 >&2; tr -d '\r' < "$MENUD/shell.log" | grep -v '^$' | tail -10 >&2; fail "menu:$menu_fail"; }
-if [ "$MENUCOMP" = 0x1 ]; then ok c4_dwm_menu_with_composition_has_a_shadow; else ok c4_dwm_menu_without_composition_has_none; fi
-true; ); section_leave $?; fi
+[ -z "$menu_fail" ] || { tr -d '\r' < "$MENUD/probe.log" | tail -10 >&2; tr -d '\r' < "$MENUD/shell.log" | grep -v '^$' | tail -10 >&2; fail "$2:$menu_fail"; }
+if [ "$MENUCOMP" = 0x1 ]; then ok ${2}_with_composition_has_a_shadow; else ok ${2}_without_composition_has_none; fi
+}
+if section c4_dwm_menu; then set +e; ( section_enter; dwm_menu_body normal c4_dwm_menu; true; ); section_leave $?; fi
+# B120: the same after the shell's explorer was killed and started again
+if section c4_dwm_restart; then set +e; ( section_enter; dwm_menu_body restart c4_dwm_restart; true; ); section_leave $?; fi
 amb_down "$ADM"
 
 if section c4_std; then set +e; ( section_enter
