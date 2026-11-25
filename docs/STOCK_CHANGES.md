@@ -4845,23 +4845,40 @@ screen yet; the chain's `popups` stage will show it.
 
 ## A restarted explorer takes over its desktop (B120, 2026-11-25)
 
-Two changes on Wine `claude/explorer-restart-desktop` (on development `f6ca22d9`):
+Wine `claude/explorer-restart-desktop` (on development `f6ca22d9`). When explorer, the manager of a desktop, dies
+while the desktop lives on (other programs still use it), the desktop window stays with no thread. A restarted explorer
+then failed in two ways: its desktop-class window became a child of the ownerless one and was refused at `WM_NCCREATE`
+(explorer ended at once), and winex11.drv adopted the dead process's X window id (`BadWindow` in `X_CreateWindow`).
+On Windows the desktop and the other programs survive and Winlogon starts the shell again (`AutoRestartShell`); this is
+the Wine half of that (the session supervisor, `wex_run_shell`, is the WineExplorer half).
 
-- `dlls/winex11.drv/window.c` (`ef00f62f349`): `X11DRV_SetDesktopWindow` adopted the X window id stored on the desktop
-  window (the `whole_window` property) whenever the server's desktop window already had a size. After the process that
-  made it died (a crashed explorer), the id names an X window the X server has destroyed, and every child window of the
-  new explorer failed with `BadWindow` in `X_CreateWindow`. It now checks the id (`XGetWindowAttributes` under an error
-  handler) and keeps its own desktop window when the stored one is gone.
-- `server/window.c`: `create_window` for a desktop-class window used the desktop's existing top window as the parent
-  "if any". The top window outlives its owner (`destroy_thread_windows` only detaches it), so a new explorer's desktop
-  window became a child of an ownerless one, its `WM_NCCREATE` was refused, `CreateWindowEx` returned NULL and explorer
-  ended at once. Now, when the desktop's top window has no thread, the new desktop-class window takes its place
-  (`take_over_desktop_window`): the other processes' windows (its children and unlinked children, in the same
-  z-order) become children of the new desktop window, and the ownerless one is freed. Nothing changes while the
-  top window has an owner. On XP the desktop and the other programs survive a crashed explorer and Winlogon starts
-  the shell again; this is the server half of that (the session supervisor, `wex_run_shell`, is the other).
+- `server/window.c`, `server/user.c`, `server/user.h`, `server/winstation.c`, `server/token.c`, `server/security.h`:
+  - The desktop remembers who manages it (the user SID, session and integrity level of the process that created its
+    top window) and whether that manager died (`destroy_thread_windows` sets `manager_died` when the thread of the top
+    window ends; a service desktop's window detaches the same way, so only Wine virtual and root desktops count).
+  - A desktop-class `create_window` on such a desktop re-attaches the existing top window (`reattach_desktop_window`):
+    thread, desktop and class are the new process's, the shared class locator and window procedure are rewritten, the
+    user handle table entry names the new owner thread and process (`set_user_handle_owner`; the clients check it), and
+    the handle stays. The programs that run on the desktop keep the handle they cached: their parent for top-level
+    windows, what `FindWindow` and `EnumWindows` start from. Children, z-order and unlinked windows are untouched. It is
+    refused (`STATUS_ACCESS_DENIED`) when the class has a different extra size.
+  - Who may take over (`may_take_over_desktop`, `token_may_take_desktop`): the manager died, the desktop is a Wine
+    virtual or root desktop, and the caller has the same user SID and session, at least the recorded integrity level,
+    and a token that is neither an AppContainer's nor restricted; the secure desktop only for the system role.
+    Anyone else gets `STATUS_ACCESS_DENIED` during the gap (not tested: no low-integrity or AppContainer caller in the
+    suite yet).
+  - Nothing changes while the top window has an owner.
+- `dlls/winex11.drv/window.c`: `X11DRV_SetDesktopWindow` in the process that made its own X desktop window (the manager)
+  always uses and stores that window, not the one stored on the (older) server window; other processes adopt the stored
+  one as before.
+- `programs/wineboot/wineboot.c`: `--end-session` and `--kill` leave `C:\windows\temp\wex-session-ending` before they
+  start (removed when the end is refused). The session's supervisor tells a Log Off or shutdown from a crash of the
+  shell by it: the exit status of `wine explorer.exe` is 0 after a `kill -9` as well.
 
 On a virtual desktop (the X11 session) the other programs' X windows are children of explorer's X desktop window and
-die with it; on the Wayland session they are separate surfaces and survive. Suite section `c4_dwm_restart` kills the
-shell's explorer and starts a new one on the same display at once, then checks the menu probe with and without
-composition. Stock Wine has the same code and so, by reading it, the same failure; that was not run.
+go with it: such a program keeps a working desktop handle but cannot create a new X window (the X error ends it).
+The Wayland session has no virtual desktop. Suite section `c4_dwm_restart` kills the shell's explorer, starts a new one
+on the same display at once, and checks, with a 64-bit and a 32-bit program that ran before the kill, that
+`IsWindow`, `FindWindow("Shell_TrayWnd")`, `TaskbarCreated` and a notification icon added again work, then the menu
+probe with and without composition. Stock Wine has the same code and so, by reading it, the same failures; that was not
+run.

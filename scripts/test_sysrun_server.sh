@@ -3571,6 +3571,15 @@ command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || secti
 x86_64-w64-mingw32-gcc -municode -mwindows -o "$MENUD/dwm-menu-probe.exe" "$SRC/scripts/dwm-menu-probe.c" -luser32 -lgdi32 -lcomctl32 2>"$MENUD/build.log" ||
     { cat "$MENUD/build.log" >&2; fail "menu: the probe does not build"; }
 chmod 0755 "$MENUD/dwm-menu-probe.exe"
+if [ "$1" = restart ]; then   # the program that runs across the restart, 64- and 32-bit
+    command -v i686-w64-mingw32-gcc >/dev/null 2>&1 || section_skip "no i686 MinGW compiler (a WoW64 build has it)"
+    for a in 64 32; do
+        case $a in 64) cc=x86_64-w64-mingw32-gcc ;; *) cc=i686-w64-mingw32-gcc ;; esac
+        $cc -municode -mwindows -o "$MENUD/dwm-survivor-probe$a.exe" "$SRC/scripts/dwm-survivor-probe.c" -luser32 -lshell32 \
+            2>"$MENUD/build-sv$a.log" || { cat "$MENUD/build-sv$a.log" >&2; fail "restart: the survivor probe $a does not build"; }
+        chmod 0755 "$MENUD/dwm-survivor-probe$a.exe"
+    done
+fi
 # a wineserver left by earlier sections (started on their display, with their state) is not this section's
 pkill -u "$ADM" -x wineserver 2>/dev/null || true
 for _ in $(seq 50); do pgrep -u "$ADM" -x wineserver >/dev/null || break; sleep 0.1; done
@@ -3597,12 +3606,38 @@ if [ "$1" = restart ]; then
     # B120: the shell's explorer is killed and a new one is started at once on the same display, while the wineserver and
     # the old dwm.exe are still there. The desktop window of the dead explorer is gone from the X server; the new
     # explorer must not adopt its id (BadWindow in X_CreateWindow, no shell).
+    SVD="/home/$ADM/.wine/drive_c"
+    rm -f "$SVD"/survivor-*.log "$SVD/survivor.go" "$SVD/survivor.stop"
+    for a in 64 32; do
+        run_as "$ADM" env WINEDEBUG=-all DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" "$(winpath "$MENUD/dwm-survivor-probe$a.exe")" nowin \
+            >"$MENUD/survivor$a.out" 2>&1 &
+    done
+    for _ in $(seq 60); do
+        grep -qs 'survivor ready' "$SVD/survivor-64.log" && grep -qs 'survivor ready' "$SVD/survivor-32.log" && break
+        sleep 1
+    done
+    grep -qs 'survivor ready' "$SVD/survivor-64.log" && grep -qs 'survivor ready' "$SVD/survivor-32.log" ||
+        fail "$2: the survivor probes did not start"
     pkill -9 -u "$ADM" -f 'C:.windows.system32.explorer.exe /desktop=Default' 2>/dev/null || true
-    run_as "$ADM" env WINEDEBUG=err+all,warn+win,warn+x11drv DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell2.log" 2>&1 &
+    run_as "$ADM" env WINEDEBUG=err+all DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell2.log" 2>&1 &
     MENUSHELL=$!
     sleep 12
     ! grep -q BadWindow "$MENUD/shell2.log" || { tail -10 "$MENUD/shell2.log" >&2; fail "$2: the restarted explorer died with BadWindow"; }
-    grep -a -v -E "get_work_area|ALSA" "$MENUD/shell2.log" | tail -20 >&2
+    grep -a -v -E "get_work_area|ALSA" "$MENUD/shell2.log" | tail -20 >&2 || true
+    # the programs that ran before the kill: what they must still be able to do on the new shell's desktop
+    touch "$SVD/survivor.go"
+    for _ in $(seq 60); do
+        grep -qs 'survivor done' "$SVD/survivor-64.log" && grep -qs 'survivor done' "$SVD/survivor-32.log" && break
+        sleep 1
+    done
+    sv_fail=
+    for a in 64 32; do
+        for want in 'iswindow ok' 'findwindow ok' 'taskbarcreated ok' 'trayicon ok' 'survivor done'; do
+            grep -qs "^$want" "$SVD/survivor-$a.log" || sv_fail="$sv_fail $a-bit: no '$want';"
+        done
+    done
+    [ -z "$sv_fail" ] || { tr -d '\r' < "$SVD/survivor-64.log" >&2; tr -d '\r' < "$SVD/survivor-32.log" >&2; fail "$2:$sv_fail"; }
+    echo "restart: both survivors ok (iswindow, findwindow, taskbarcreated, trayicon; no new windows on a virtual desktop)"
 fi
 if [ "${MENU_PROBE_ARGS:-}" = startmenu ]; then   # exploring: the Start menu itself, no probe
     sleep 5; DISPLAY=":$MENUDN" xdotool key super; sleep 4
@@ -3630,14 +3665,15 @@ if [ -n "${MENU_R:-}" ]; then
 fi
 echo "menu (composition ${MENUCOMP:-off}, SPI_GETDROPSHADOW ${MENU_SPI:-?}): rect ${MENU_L:-?},${MENU_T:-?} ${MENU_R:-?},${MENU_B:-?}, inside ${MENU_IN:-?}, 3 px below ${MENU_BELOW:-?}, 3 px right ${MENU_RIGHT:-?}, 40 px below ${MENU_FAR:-?}"
 cp "$MENUD/screen.png" "$ROOT/menu-screen-${MENUCOMP:-off}.png" 2>/dev/null || true
-touch "/home/$ADM/.wine/drive_c/menu.stop"
+touch "/home/$ADM/.wine/drive_c/menu.stop" "/home/$ADM/.wine/drive_c/survivor.stop"
 sleep 2
 kill "$MENUPROBE" "$MENUSHELL" 2>/dev/null || true; wait "$MENUPROBE" "$MENUSHELL" 2>/dev/null || true
 wine_as "$ADM" reg delete "$DWMKEY" /v DwmService /f >/dev/null 2>&1 || true
 wine_as "$ADM" reg delete 'HKCU\Software\Wine\Explorer\Desktops\Default' /f >/dev/null 2>&1 || true
 pkill -u "$ADM" -x wineserver 2>/dev/null || true
 kill "$MENUX" 2>/dev/null || true
-rm -f "$MENULOG" "/home/$ADM/.wine/drive_c/menu.stop"
+rm -f "$MENULOG" "/home/$ADM/.wine/drive_c/menu.stop" "/home/$ADM/.wine/drive_c"/survivor-*.log \
+    "/home/$ADM/.wine/drive_c/survivor.go" "/home/$ADM/.wine/drive_c/survivor.stop"
 menu_fail=""
 [ -n "${MENU_R:-}" ] || menu_fail="$menu_fail the probe did not report the menu's rectangle;"
 [ "${MENU_FAR:-}" = 255,128,0 ] || menu_fail="$menu_fail 40 px below the menu is not the orange (${MENU_FAR:-none});"

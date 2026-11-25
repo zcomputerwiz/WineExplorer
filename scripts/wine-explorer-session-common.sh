@@ -182,41 +182,56 @@ wex_auto_restart_shell()
     esac
 }
 
-# Whether the prefix's wineserver is still running (wineserver -k0 sends no signal and says whether there is one).
-wex_wineserver_alive()
+# The file wineboot --end-session and --kill leave before a session ends on purpose (programs/wineboot, Log Off and
+# shutdown; removed when the end is refused). The shell ending without it is a crash.
+wex_session_ending_marker()
 {
-    "${WEX_WINESERVER:-${WINESERVER:-$(dirname -- "$WINE")/wineserver}}" -k0 2>/dev/null
+    echo "$WINEPREFIX/drive_c/windows/temp/wex-session-ending"
+}
+
+# Whether a shell of this account's desktop is running already (one the user started in the gap, or the supervisor's
+# own); explorer.exe of the desktop manager has the command line "explorer.exe /desktop".
+wex_shell_running()
+{
+    if [ -n "${WEX_SHELL_PGREP:-}" ]; then "$WEX_SHELL_PGREP"; return; fi
+    pgrep -u "$(id -u)" -f 'C:.windows.system32.explorer.exe /desktop' >/dev/null 2>&1
 }
 
 # Runs the shell as Winlogon does: when it ends while the session lives, it is started again (AutoRestartShell).
 #   wex_run_shell COMMAND...
-# A shell that ended with the session (Log Off, shutdown: wineboot --end-session takes the wineserver down with it)
-# ends the session too; the launcher's exit status cannot tell the two apart (it is 0 after a kill -9 as well), so
-# the wineserver does: one that is still there three seconds after the shell ended means the shell alone died.
-# Crash loop guard: no more than WEX_SHELL_RESTARTS (3) restarts in WEX_SHELL_RESTART_WINDOW (60) seconds, then the
-# session ends. WEX_SHELL_RESTART_DELAY (2) seconds pass before each restart. A TERM, HUP or INT to the session is
-# passed to the shell and ends the session.
+# A shell that ended with the session (Log Off, shutdown) ends the session too: wineboot leaves the marker file
+# (wex_session_ending_marker) before it ends one, and the launcher's exit status cannot tell the two apart (it is 0
+# after a kill -9 as well). The shell ending without the marker is restarted after WEX_SHELL_RESTART_DELAY (2) seconds,
+# but not while another shell of the account runs (it waits for that to end). Crash loop guard: no more than
+# WEX_SHELL_RESTARTS (3) restarts in WEX_SHELL_RESTART_WINDOW (60) seconds, then the session ends. A TERM, HUP or INT
+# to the session is passed to the shell and ends the session.
 wex_run_shell()
 {
-    local child rc stopping=0 i now max=${WEX_SHELL_RESTARTS:-3} window=${WEX_SHELL_RESTART_WINDOW:-60}
+    local child= rc stopping=0 i now marker max=${WEX_SHELL_RESTARTS:-3} window=${WEX_SHELL_RESTART_WINDOW:-60}
     local -a times=() kept=()
+    marker=$(wex_session_ending_marker)
+    trap 'stopping=1; [ -z "$child" ] || kill -TERM "$child" 2>/dev/null' TERM HUP INT
+    rm -f "$marker"
     while :; do
         "$@" &
         child=$!
-        trap 'stopping=1; kill -TERM "$child" 2>/dev/null' TERM HUP INT
         wait "$child"; rc=$?
         while kill -0 "$child" 2>/dev/null; do wait "$child"; rc=$?; done
-        trap - TERM HUP INT
-        [ "$stopping" = 0 ] || return "$rc"
-        [ "$(wex_auto_restart_shell)" = 1 ] || { echo "The shell ended (status $rc); AutoRestartShell is off."; return "$rc"; }
-        for i in $(seq "${WEX_SHELL_SERVER_WAIT:-30}"); do wex_wineserver_alive || break; sleep 0.1; done
-        if ! wex_wineserver_alive; then echo "The shell ended (status $rc) with the session."; return "$rc"; fi
+        child=
+        [ "$stopping" = 0 ] || { trap - TERM HUP INT; return "$rc"; }
+        if [ -e "$marker" ]; then echo "The shell ended (status $rc) with the session."; trap - TERM HUP INT; return "$rc"; fi
+        if [ "$(wex_auto_restart_shell)" != 1 ]; then
+            echo "The shell ended (status $rc); AutoRestartShell is off."; trap - TERM HUP INT; return "$rc"
+        fi
+        # a shell the user started in the gap owns the desktop: not a crash of ours, and no restart over it
+        while wex_shell_running && [ "$stopping" = 0 ] && [ ! -e "$marker" ]; do sleep "${WEX_SHELL_WAIT:-1}"; done
+        if [ "$stopping" != 0 ] || [ -e "$marker" ]; then trap - TERM HUP INT; return "$rc"; fi
         now=$SECONDS; kept=()
         for i in "${times[@]}"; do [ $((now - i)) -lt "$window" ] && kept+=("$i"); done
         times=("${kept[@]}")
         if [ "${#times[@]}" -ge "$max" ]; then
             echo "The shell ended (status $rc) $max times in $window seconds; not starting it again."
-            return "$rc"
+            trap - TERM HUP INT; return "$rc"
         fi
         times+=("$now")
         echo "The shell ended (status $rc) while the session runs; starting it again in ${WEX_SHELL_RESTART_DELAY:-2} s (AutoRestartShell)."
