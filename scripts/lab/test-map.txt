@@ -23,6 +23,7 @@ unsloth-tmp/*                           none
 
 # the suites themselves
 scripts/test_sysrun_server.sh           normalsuite
+scripts/dwm-popup-probe.cpp             normalsuite
 scripts/test_broker_e1s18.sh            normalsuite
 scripts/test_e1s6_transport.sh          lab
 scripts/e1s10_issue_probe.c             lab

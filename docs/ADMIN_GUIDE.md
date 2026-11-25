@@ -464,6 +464,7 @@ Compiled C/C++ diagnostic probe binaries located in `scripts/`:
 - `dwm-corner-shadow-probe.c`: Measures corner radius clipping and shadow geometry.
 - `dwm-corner-visual-probe.c`: Validates anti-aliased corner pixel values.
 - `dwm-dcomp-alpha-visual-probe.cpp`: Tests DirectComposition alpha channel presentation.
+- `dwm-popup-probe.cpp`: A translucent popup built the way Chromium and Edge build theirs (a glass sheet whose child window is a DirectComposition target with premultiplied alpha, a white card and a soft shadow), over an orange window. The test suite's section `c4_dwm_popup` runs it and reads the screen: shaped without composition, blended (the shadow) with it.
 - `dwm-frame-metrics-probe.c`: Validates window frame border widths and titlebar height across themes.
 - `dwm-frame-visual-probe.c`: Verifies visual appearance of window non-client frames.
 - `dwm-glass-visual-probe.c`: Checks translucent glass rendering in client margins.
