@@ -4448,7 +4448,8 @@ sleep 2
 [ -n "$(server_pid "$STD")" ] || fail "no server started by $STD without the launcher"
 OUT="$(wine_as "$STD" reg query 'HKLM\Software\WexTier' /v FromSession0 2>/dev/null | awk '$1 == "FromSession0" { print $NF }')"
 [ -n "$OUT" ] || fail "a server started without the launcher cannot read the machine registry of its own files"
-! tail -n +"$((S0_LINES + 1))" "$ROOT/session0.log" | grep -q "uid $(id -u "$STD")" ||
+# (session 0's own lines; X0's "x0:" lines name the uid of earlier servers that end meanwhile)
+! tail -n +"$((S0_LINES + 1))" "$ROOT/session0.log" | grep -a '^session0: ' | grep -q "uid $(id -u "$STD")" ||
     fail "session 0 registered a server started without the launcher"
 prefix_server_env "$STD" -k || true; prefix_server_env "$STD" -w
 ok st_server_started_without_the_launcher_does_not_use_session0
@@ -4548,7 +4549,8 @@ S0="$(s0pid)"
 ( while :; do probe "$STD" 64 hold >/dev/null 2>&1; done ) & X0LOOP_STD=$!
 ( while :; do probe "$ADM" 64 hold >/dev/null 2>&1; done ) & X0LOOP_ADM=$!
 x0stop() { kill "$X0LOOP_STD" "$X0LOOP_ADM" 2>/dev/null || true; x0 "$S0" defer off >/dev/null 2>&1 || true; }
-trap 'x0stop; section_dump' EXIT
+# section_dump reads the section's exit status from $?: keep it across x0stop
+trap 'x0rc=$?; x0stop; (exit "$x0rc"); section_dump' EXIT
 SP="$(x0srv "$STD")" || fail "X0: no lab server of $STD"
 AP="$(x0srv "$ADM")" || fail "X0: no lab server of $ADM"
 SESS="$(x0sess "$STD")" || { x0 "$S0" peers >&2; tail -20 "$ROOT/session0.log" >&2; fail "X0: session 0 has no X peer for $STD"; }
@@ -4654,14 +4656,23 @@ grep -aq "x0: uid $STD_UID at half of the subscriptions cap" "$ROOT/session0.log
 x0 "$SP" release all >/dev/null
 ok x0_cap_subscriptions_per_account
 # cap: queued bytes. The owner: the holder reads nothing, the owner's answers pass 4 MiB, its further requests wait
-# (the link is still read), and all are answered once the holder reads again
+# (the link is still read), and all are answered once the holder reads again. Sent in bursts of 50 (3 MB), so that the
+# holder's own queue stays under its cap while session 0 reads them (200 at once fill the holder's queue too, and it
+# refuses the rest itself: its own cap, tested below)
 x0 "$SP" pause >/dev/null
-OUT="$(x0 "$SP" ping n=200 size=60000 nowait)"; B3="$(fld batch <<<"$OUT")"
-for i in $(seq 1 50); do [ "${STALL:=0}" -gt 0 ] && break; STALL="$(x0 "$S0" peers | grep "^peer .* session=$SESS " | fld stalled)"; sleep 0.1; done
+B3S=""
+for burst in 1 2 3 4; do
+    B3S="$B3S $(x0 "$SP" ping n=50 size=60000 nowait | fld batch)"
+    sleep 1
+done
+STALL=0
+for i in $(seq 1 50); do STALL="$(x0 "$S0" peers | grep "^peer .* session=$SESS " | fld stalled)"; [ "${STALL:-0}" -gt 0 ] && break; sleep 0.1; done
 [ "${STALL:-0}" -gt 0 ] || fail "X0: no request waited over the owner's queued cap: $(x0 "$S0" peers)"
 x0 "$SP" resume >/dev/null
-for i in $(seq 1 100); do [ "$(x0 "$SP" batch "$B3" | fld done)" = 200 ] && break; sleep 0.1; done
-[ "$(x0 "$SP" batch "$B3" | fld ok)" = 200 ] || fail "X0: the requests that waited: $(x0 "$SP" batch "$B3")"
+for B3 in $B3S; do
+    for i in $(seq 1 100); do [ "$(x0 "$SP" batch "$B3" | fld done)" = 50 ] && break; sleep 0.1; done
+    [ "$(x0 "$SP" batch "$B3" | fld ok)" = 50 ] || fail "X0: the requests that waited: $(x0 "$SP" batch "$B3")"
+done
 grep -aq "x0: uid $STD_UID over the queued cap" "$ROOT/session0.log" || fail "X0: the queued cap is not logged"
 # the holder: the owner reads nothing, the holder's own queue passes 4 MiB and its further calls fail at once
 x0 "$S0" pause peer="$SESS" >/dev/null
