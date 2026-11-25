@@ -366,3 +366,17 @@ Findings (Windows 11, Notepad 11.2609 with Windows App Runtime 2.7):
   re-associating the first one, and the private-port block runs on separate threads that have no window (Windows: the same thread that owns the window).
   Wine's UI thread also has one window where Windows has two (the system CoreMessaging.dll instance is missing under Wine). Open: why the thread start
   code takes that path under Wine (the decision is made before the window exists), and whether the missing system instance matters to the handler.
+
+## 2026-11-26: the worker no longer fail-fasts (Wine branch 4a0ecd9f)
+
+- Windows App SDK's input thread is `dwmcorei!CLocalMit::Run`; CoreMessagingXP's window procedure is `UserAdapter::WindowProc`, the abort goes through
+  `CFlat::Abandonment::FailWithException` (public symbols resolve in the TTD traces).
+- On Windows a wait packet completion reaches CoreMessagingXP's windows as a posted (0x60, 1, 0): the thread's MsgWait returns as for input, the retrieval of the
+  posted message calls the procedure with (1, 0) and returns the message with 0x80000001. Over a whole Notepad run no (3,0) or (8,x) ever reaches those windows.
+  Plain test windows get (3,0) inside the wait for the same packets (not understood). Implemented: a zero-APC completion posts (0x60,1,0) to the first window.
+- Result under Wine at build 26100: no fail-fast, the UI thread settles in its message loop, the workers cycle through Drain2; the window still shows black
+  strips: the composition layer sees 2 commits and no surfaces (Windows: 94 commits, 5 DCompositionCreateSurfaceHandle, 28 compositor clock waits).
+- Next: the compositor thread (dwmcorei CConnection::CompositionThreadEntryPoint). On Windows after DCompositionWaitForCompositorClock(0, NULL, 80) it polls
+  a one-handle NtWaitForMultipleObjects with a zero timeout and loops; under Wine the same thread blocks in an infinite one-handle wait and the loop stops.
+  Compare the two threads' startup (Windows: thread 0x8278 in the TTD trace, a long sequence of event creations, sections and CreateDevice2).
+- Other apps tried: Get Help, Clock, Paint (managed or UWP, they fail before CoreMessagingXP).
