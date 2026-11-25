@@ -141,6 +141,7 @@ reg_hku          -                  nl  reg
 reg_admin_group  -                  n   reg
 c3_std           -                  nl  c3
 c3_adm           -                  n   c3
+svc_table        -                  n   svc
 c4_build         -                  nl  c4
 c4_shipping      c4_build           nl  c4
 c4_control       c4_build           nl  c4
@@ -1085,6 +1086,7 @@ add_service WexSvcSys 'LocalSystem' sys 2
 add_service WexSvcLs 'NT AUTHORITY\\LocalService' ls 2
 add_service WexSvcNs 'NT AUTHORITY\\NetworkService' ns 2
 add_service WexSvcBad 'wexstd' bad 3
+add_service WexSvcTbl 'LocalSystem' tbl 3   # demand start: the Services snap-in survey (svc_table)
 
 fact() { grep -m1 "^$2=" "$1" | cut -d= -f2-; }
 expect_fact()   # name file key want
@@ -1335,6 +1337,41 @@ for u in $C3_USERS; do
     prefix_server_env "$u" -k || true; prefix_server_env "$u" -w; wait "$HOLD" 2>/dev/null || true
     true; ); section_leave $?; fi
 done
+
+# ---- 8b. the service manager as the Services snap-in uses it (survey, 2026-11-24) -------------------------------
+# What a caller gets from the service manager on a session 0 service (WexSvcTbl, demand start, LocalSystem) and on a
+# service it creates itself: open with each right the snap-in asks for, query the configuration, the description and
+# the failure actions, change the start type, the description and the failure actions, start, interrogate, stop, and
+# query the status in between. One "row|service|operation|error|detail" line each, as a standard user, an
+# administrator (limited token) and a system role process. A SURVEY: it records what each returns in
+# $ROOT/svc-table-*.txt and in the log, and fails only when the probe itself cannot run. The table goes to
+# docs/SERVICES_SNAPIN.md; each gap is a bug of the service manager.
+if section svc_table; then set +e; ( section_enter
+    echo "--- service manager survey (svc_table)"
+    rm -rf "$SVCDIR"; install -d -m 1777 "$SVCDIR"
+    probe "$STD" 64 hold >/dev/null 2>&1 & HOLD=$!
+    sleep 4
+    wait_files "$SVCDIR/sys.txt" "$SVCDIR/ls.txt" "$SVCDIR/ns.txt"
+    standin_on
+    for who in "$STD" "$ADM"; do
+        for arch in 64 32; do
+            OUT="$(rprobe "$who" "$arch" svc-table WexSvcTbl)"; echo "$OUT" > "/var/tmp/wex-run/svc-table-$who-$arch-session0.txt"
+            grep -q '^row|WexSvcTbl|open_scm|' <<<"$OUT" || { echo "$OUT" >&2; fail "svc-table probe did not run as $who ($arch)"; }
+            echo "== $who $arch: WexSvcTbl"; grep '^row|' <<<"$OUT"
+        done
+        OUT="$(rprobe "$who" 64 svc-table WexSvcMine create)"; echo "$OUT" > "/var/tmp/wex-run/svc-table-$who-64-created.txt"
+        grep -q '^row|WexSvcMine|open_scm|' <<<"$OUT" || { echo "$OUT" >&2; fail "svc-table create probe did not run as $who"; }
+        echo "== $who 64: WexSvcMine (created by the caller)"; grep '^row|' <<<"$OUT"
+    done
+    OUT="$(sys_probe "$STD" 64 svc-table WexSvcTbl)"; echo "$OUT" > "/var/tmp/wex-run/svc-table-system-64-session0.txt"
+    grep -q '^row|WexSvcTbl|open_scm|' <<<"$OUT" || { echo "$OUT" >&2; fail "svc-table probe did not run as the system role"; }
+    echo "== system role 64: WexSvcTbl"; grep '^row|' <<<"$OUT"
+    OUT="$(sys_probe "$STD" 64 svc-table WexSvcMine create)"; echo "$OUT" > "/var/tmp/wex-run/svc-table-system-64-created.txt"
+    grep -q '^row|WexSvcMine|open_scm|' <<<"$OUT" || { echo "$OUT" >&2; fail "svc-table create probe did not run as the system role"; }
+    standin_off
+    kill "$HOLD" 2>/dev/null
+    ok svc_table_survey_recorded
+true; ); section_leave $?; fi
 
 # ---- 9. the elevation broker (plan step 4), elevation enforced -------------------------------------------------
 # wexelevate.exe is a LocalSystem service. The shipping broker has no way to ask for consent and fails closed

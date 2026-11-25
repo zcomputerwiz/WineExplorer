@@ -40,6 +40,9 @@
  *                              query source, read control)
  *   admin-token-rights <img> <expect>  the same with an administrator token (a system role process turns its own)
  *   grants <expect>            write Control\ServiceCurrent and ComputerName\ActiveComputerName; expect is "denied" or "allowed"
+ *   svc-table <name> [create]  (Services snap-in survey) one "row|<name>|<operation>|<error>|<detail>" line per service
+ *                              control operation, with the error code each returns (0 is success); never fails on an
+ *                              error, only on the probe's own mistakes; "create" makes the service first (and deletes it)
  *   hold                       sleep 120 seconds
  * Prints "ok ..." / "FAIL ..." lines and "<mode>=PASS" or "<mode>=FAIL"; exit status 0 only if everything passed.
  */
@@ -634,6 +637,168 @@ static void scm_allowed(void)
     if (scm) CloseServiceHandle(scm);
 }
 
+/* ---- the Services snap-in survey: what a caller gets from the service manager, row by row ---------------------- */
+
+static void row(const char *name, const char *op, DWORD err, const char *fmt, ...)
+{
+    char detail[256] = "";
+    va_list ap;
+
+    if (fmt)
+    {
+        va_start(ap, fmt);
+        vsnprintf(detail, sizeof(detail), fmt, ap);
+        va_end(ap);
+    }
+    printf("row|%s|%s|%lu|%s\n", name, op, err, detail);
+}
+
+static SC_HANDLE open_row(SC_HANDLE scm, const char *name, const char *op, DWORD access)
+{
+    SC_HANDLE svc = OpenServiceA(scm, name, access);
+
+    row(name, op, svc ? 0 : GetLastError(), "access=0x%lx", access);
+    return svc;
+}
+
+static void svc_state(SC_HANDLE svc, const char *name, const char *op)
+{
+    SERVICE_STATUS_PROCESS st;
+    DWORD needed;
+
+    if (QueryServiceStatusEx(svc, SC_STATUS_PROCESS_INFO, (BYTE *)&st, sizeof(st), &needed))
+        row(name, op, 0, "state=%lu pid=%s controls=0x%lx exit=%lu", st.dwCurrentState, st.dwProcessId ? "yes" : "no",
+            st.dwControlsAccepted, st.dwWin32ExitCode);
+    else row(name, op, GetLastError(), NULL);
+}
+
+static DWORD wait_state(SC_HANDLE svc, DWORD want)
+{
+    SERVICE_STATUS_PROCESS st;
+    DWORD needed, i;
+
+    for (i = 0; i < 40; i++)
+    {
+        if (QueryServiceStatusEx(svc, SC_STATUS_PROCESS_INFO, (BYTE *)&st, sizeof(st), &needed) && st.dwCurrentState == want)
+            return want;
+        Sleep(250);
+    }
+    return 0;
+}
+
+static void svc_table_one(SC_HANDLE scm, const char *name)
+{
+    BYTE buf[4096];
+    DWORD needed, err;
+    QUERY_SERVICE_CONFIGW *cfg = (QUERY_SERVICE_CONFIGW *)buf;
+    SERVICE_DESCRIPTIONW *desc = (SERVICE_DESCRIPTIONW *)buf;
+    SERVICE_FAILURE_ACTIONSW *fa = (SERVICE_FAILURE_ACTIONSW *)buf;
+    SC_HANDLE svc;
+    DWORD start_before = 0;
+    SC_ACTION action = { SC_ACTION_RESTART, 1000 };
+    SERVICE_FAILURE_ACTIONSW set_fa = { 86400, NULL, NULL, 1, &action };
+    SERVICE_DESCRIPTIONW set_desc = { (WCHAR *)L"Wine services probe" };
+    SERVICE_STATUS status;
+
+    /* the access rights the snap-in asks for, one open each */
+    svc = open_row(scm, name, "open_query", SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | SERVICE_INTERROGATE);
+    if (svc)
+    {
+        if (QueryServiceConfigW(svc, cfg, sizeof(buf), &needed))
+        {
+            start_before = cfg->dwStartType;
+            row(name, "query_config", 0, "type=0x%lx start=%lu account=%ls", cfg->dwServiceType, cfg->dwStartType,
+                cfg->lpServiceStartName ? cfg->lpServiceStartName : L"(null)");
+        }
+        else row(name, "query_config", GetLastError(), NULL);
+        memset(buf, 0, sizeof(buf));
+        if (QueryServiceConfig2W(svc, SERVICE_CONFIG_DESCRIPTION, buf, sizeof(buf), &needed))
+            row(name, "query_description", 0, "text=%ls", desc->lpDescription ? desc->lpDescription : L"(none)");
+        else row(name, "query_description", GetLastError(), NULL);
+        memset(buf, 0, sizeof(buf));
+        if (QueryServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS, buf, sizeof(buf), &needed))
+            row(name, "query_failure_actions", 0, "actions=%lu reset=%lu", fa->cActions, fa->dwResetPeriod);
+        else row(name, "query_failure_actions", GetLastError(), NULL);
+        svc_state(svc, name, "query_status");
+        CloseServiceHandle(svc);
+    }
+    svc = open_row(scm, name, "open_change", SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG);
+    if (svc)
+    {
+        err = ChangeServiceConfigW(svc, SERVICE_NO_CHANGE, SERVICE_DISABLED, SERVICE_NO_CHANGE, NULL, NULL, NULL, NULL,
+                                   NULL, NULL, NULL) ? 0 : GetLastError();
+        row(name, "change_start_type", err, "to=disabled");
+        if (QueryServiceConfigW(svc, cfg, sizeof(buf), &needed))
+            row(name, "query_after_change", 0, "start=%lu", cfg->dwStartType);
+        err = ChangeServiceConfigW(svc, SERVICE_NO_CHANGE, start_before ? start_before : SERVICE_DEMAND_START,
+                                   SERVICE_NO_CHANGE, NULL, NULL, NULL, NULL, NULL, NULL, NULL) ? 0 : GetLastError();
+        row(name, "restore_start_type", err, "to=%lu", start_before);
+        err = ChangeServiceConfig2W(svc, SERVICE_CONFIG_DESCRIPTION, &set_desc) ? 0 : GetLastError();
+        row(name, "change_description", err, NULL);
+        memset(buf, 0, sizeof(buf));
+        if (QueryServiceConfig2W(svc, SERVICE_CONFIG_DESCRIPTION, buf, sizeof(buf), &needed))
+            row(name, "query_description_after", 0, "text=%ls", desc->lpDescription ? desc->lpDescription : L"(none)");
+        err = ChangeServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS, &set_fa) ? 0 : GetLastError();
+        row(name, "change_failure_actions", err, NULL);
+        memset(buf, 0, sizeof(buf));
+        if (QueryServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS, buf, sizeof(buf), &needed))
+            row(name, "query_failure_actions_after", 0, "actions=%lu reset=%lu", fa->cActions, fa->dwResetPeriod);
+        else row(name, "query_failure_actions_after", GetLastError(), NULL);
+        CloseServiceHandle(svc);
+    }
+    svc = open_row(scm, name, "open_start", SERVICE_START | SERVICE_QUERY_STATUS);
+    if (svc)
+    {
+        err = StartServiceA(svc, 0, NULL) ? 0 : GetLastError();
+        row(name, "start", err, NULL);
+        row(name, "wait_running", 0, "reached=%lu", wait_state(svc, SERVICE_RUNNING));
+        svc_state(svc, name, "query_status_running");
+        CloseServiceHandle(svc);
+    }
+    svc = open_row(scm, name, "open_stop", SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_PAUSE_CONTINUE | SERVICE_INTERROGATE);
+    if (svc)
+    {
+        err = ControlService(svc, SERVICE_CONTROL_INTERROGATE, &status) ? 0 : GetLastError();
+        row(name, "control_interrogate", err, "state=%lu", status.dwCurrentState);
+        err = ControlService(svc, SERVICE_CONTROL_STOP, &status) ? 0 : GetLastError();
+        row(name, "control_stop", err, "state=%lu", status.dwCurrentState);
+        row(name, "wait_stopped", 0, "reached=%lu", wait_state(svc, SERVICE_STOPPED));
+        svc_state(svc, name, "query_status_stopped");
+        CloseServiceHandle(svc);
+    }
+    svc = open_row(scm, name, "open_all", SERVICE_ALL_ACCESS);
+    if (svc) CloseServiceHandle(svc);
+    svc = open_row(scm, name, "open_delete", DELETE);
+    if (svc) CloseServiceHandle(svc);
+}
+
+static void svc_table(const char *name, int create)
+{
+    SC_HANDLE scm = OpenSCManagerA(NULL, NULL, SC_MANAGER_CONNECT | (create ? SC_MANAGER_CREATE_SERVICE : 0)), mine = NULL;
+    char image[MAX_PATH + 64];
+
+    row(name, "open_scm", scm ? 0 : GetLastError(), NULL);
+    if (!scm) return;
+    if (create)
+    {
+        GetModuleFileNameA(NULL, image, MAX_PATH);
+        strcat(image, " svc WexSvcMine Z:\\tmp\\wexsvc\\mine.txt Z:\\var\\lib\\wexsys-c2\\machine");
+        mine = CreateServiceA(scm, name, name, SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS, SERVICE_DEMAND_START,
+                              SERVICE_ERROR_NORMAL, image, NULL, NULL, NULL, NULL, NULL);
+        row(name, "create_service", mine ? 0 : GetLastError(), NULL);
+        if (!mine) { CloseServiceHandle(scm); return; }
+        CloseServiceHandle(mine);
+    }
+    svc_table_one(scm, name);
+    if (create)
+    {
+        SC_HANDLE svc = OpenServiceA(scm, name, DELETE);
+        row(name, "delete_service", svc ? (DeleteService(svc) ? 0 : GetLastError()) : GetLastError(), NULL);
+        if (svc) CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+}
+
 /* ---- a Low integrity program and the token of a normal one ---------------------------------------------- */
 
 static DWORD token_integrity(HANDLE token)
@@ -984,6 +1149,7 @@ int main(int argc, char **argv)
     else if (!strcmp(mode, "svc-start") && argc > 3) svc_start(argv[2], argv[3]);
     else if (!strcmp(mode, "svc-sd-set")) svc_sd_set(arg);
     else if (!strcmp(mode, "start-service") && argc > 3) start_service(argv[2], atoi(argv[3]));
+    else if (!strcmp(mode, "svc-table") && argc > 2) svc_table(argv[2], argc > 3 && !strcmp(argv[3], "create"));
     else if (!strcmp(mode, "token-denied")) token_denied();
     else if (!strcmp(mode, "low-token")) low_token();
     else if (!strcmp(mode, "token-rights") && argc > 3) token_rights(argv[2], argv[3]);
