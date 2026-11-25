@@ -1,4 +1,7 @@
-/* Black-box probe: after SendMessageCallbackW(hwnd, WM_USER+1, 5, 5, NULL, 1) to a window of this thread, which later user32
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2026 WineExplorer contributors
+ *
+ * Black-box probe: after SendMessageCallbackW(hwnd, WM_USER+1, 5, 5, NULL, 1) to a window of this thread, which later user32
  * call makes the (deferred) message reach the window procedure first? Runs on Windows 11 and on Wine. */
 #include <windows.h>
 #include <stdio.h>

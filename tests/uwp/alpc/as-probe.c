@@ -1,4 +1,7 @@
-/* Black-box probe (Windows 11 and Wine): NtAssociateWaitCompletionPacket with a target that is ALREADY signaled, on the port of a thread
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2026 WineExplorer contributors
+ *
+ * Black-box probe (Windows 11 and Wine): NtAssociateWaitCompletionPacket with a target that is ALREADY signaled, on the port of a thread
  * that called NtUserInitThreadCoreMessagingIocp2: does a completion arrive (as 0x60 wp 3 / the port), what does AlreadySignaled report
  * (with and without the pointer), and is an auto-reset event consumed? */
 #include <windows.h>

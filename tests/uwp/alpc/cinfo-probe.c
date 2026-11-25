@@ -1,4 +1,7 @@
-/* Black-box probe on Windows 11: the thread's Win32ClientInfo block (TEB+0x800, 62 pointer-sized slots) and Win32ThreadInfo
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2026 WineExplorer contributors
+ *
+ * Black-box probe on Windows 11: the thread's Win32ClientInfo block (TEB+0x800, 62 pointer-sized slots) and Win32ThreadInfo
  * (TEB+0x78) before and after creating a window, after NtUserInitThreadCoreMessagingIocp2 and after Drain2. */
 #include <windows.h>
 #include <stdio.h>

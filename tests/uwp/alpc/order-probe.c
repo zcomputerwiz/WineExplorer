@@ -1,4 +1,7 @@
-/* Black-box probe (Windows 11 and Wine): the order in which a window procedure sees message 0x60 when, on its own thread, a
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2026 WineExplorer contributors
+ *
+ * Black-box probe (Windows 11 and Wine): the order in which a window procedure sees message 0x60 when, on its own thread, a
  * deferred SendMessageCallbackW(5,5), the ordinal-2582 notification (0,0) and PostMessageW(5,4) are issued back to back (as
  * CoreMessagingXP does), and what is already delivered inside each API call. */
 #include <windows.h>

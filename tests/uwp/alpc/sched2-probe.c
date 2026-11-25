@@ -1,4 +1,7 @@
-/* Black-box probe: user32 ordinal 2582 on a window of this thread: is the 0x60 (wp 0, lp 0) notification delivered inside the
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2026 WineExplorer contributors
+ *
+ * Black-box probe: user32 ordinal 2582 on a window of this thread: is the 0x60 (wp 0, lp 0) notification delivered inside the
  * call, as a sent message (window proc runs inside PeekMessage, which returns FALSE) or as a posted one (PeekMessage returns it)? */
 #include <windows.h>
 #include <stdio.h>
