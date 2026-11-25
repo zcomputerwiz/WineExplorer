@@ -596,3 +596,78 @@ Measured on the test machine (WSL wexbuild, 16 CPUs; the numbers are minutes):
   component without downloading it. The backend still checks size and SHA-256 against its pin, and the terms are
   still accepted as usual; only the download is skipped. Today the cache holds `powershell/PowerShell-7.7.0-win-x64.zip`
   (115330228 bytes). After a pin bump, put the new file there and delete the old one.
+
+## Added 2026-11-25: the Edge and components lab (efr)
+
+Used for B103 to B108 (Edge sign-in, the optional components, Gecko, the IE crash). The scripts are local to this
+machine, in `D:\WSL\wex-iso` (WSL `/mnt/d/WSL/wex-iso`), not in the repository; read one before running it, since
+most have fixed names and paths. `efr-*.sh` run in a WSL distro; `r-*.sh` are bodies that run as root inside a lab
+VM through `efr-root.sh`. Out of `wsl ... bash -c '...'` from PowerShell the quotes get lost: always run a file.
+
+Where things are:
+
+- WSL **Debian** runs the QEMU lab VMs (`VMTEST_DIR=/var/tmp/vmtest-gpt`). Run the VM scripts as root
+  (`wsl -d Debian -u root --exec bash /mnt/d/WSL/wex-iso/NAME.sh`): as another user `vmtest.py sh` fails with
+  `PermissionError` on the VM's `serial.sock`.
+- WSL **wexbuild** has the Wine build clone `/root/WineExplorer/wine` and its WoW64 build
+  `/root/WineExplorer/build/wow64`. Changed files are copied in from the worktree with `tr -d '\r'` (the Windows
+  checkout has CRLF), then only the touched target is made (`make -j12 server/wineserver`, a test exe). The clone's
+  HEAD stays the commit the lab image was built from, so a rebuilt file matches the image's server protocol
+  (`wine --version` in the VM shows that commit).
+- **WinRef-EFR**, a Windows 11 VirtualBox VM, runs the Windows half of a Wine test (clean room: observing only):
+  `VBoxManage guestcontrol WinRef-EFR run --username tester --passwordfile D:\WSL\wex-iso\winprobe\efr\winref-password.txt
+  --exe C:\probe\X.exe -- ARGS`. VBoxManage passes argv[0] itself: repeating the exe name after `--` makes it the
+  first argument (a Wine test then says `test 'ntdll_test64.exe' does not exist`). `efr-zd-copy.sh` copies built
+  test exes to `winprobe\efr` for it. Save its state when done.
+
+Lab VMs:
+
+- `efr-comp-setup2.sh NAME` makes `NAME` from the clean image `efr2-bios` (an overlay: never delete `efr2-bios`
+  while overlays use it). Into the disk it puts this worktree's `wex-components.py`, `session-run.py` and a root
+  hook (`efr-helper.service` runs `/tmp/root-cmd.sh` when `/tmp/go-root` appears), then starts the VM visibly
+  (`-display gtk` on WSLg, title "QEMU (Debian)", 6 GiB) and waits for the desktop. `wineuser` logs on by itself; its
+  password file is `/var/tmp/efrc-vm/password` (empty). `efr-comp-retry.sh NAME GB` grows the disk and installs
+  components; `efr-comp-v158.sh` is the clean-image run of the 158 pins (made `efrc4`).
+- `[PW=FILE] [WAIT=s] [TO=s] efr-root.sh NAME SCRIPT OUTFILE` runs SCRIPT as root in NAME through the hook and writes
+  its output to OUTFILE. Give OUTFILE: `/dev/stdout` fails under `wsl --exec` ("Permission denied").
+- `vmtest.py put NAME wineuser PWFILE LOCAL GUESTPATH` copies a file in (checked by SHA-256); a root script then
+  moves it into place.
+- `vm-list.sh` (running VMs, overlay space), `vm-inventory.sh` (every overlay with its backing file) and
+  `efr-cleanup.sh` (deletes named superseded overlays, children first, only when nothing backs onto them and they are
+  stopped) keep `/var/tmp/vmtest-gpt` tidy. Never delete an overlay another disk backs onto.
+
+Putting a rebuilt Wine file into a lab VM (B108's server; the same for a DLL):
+
+1. `efr-b108-stage.sh` (wexbuild) prints the clone's commit and protocol version, strips the built `wineserver` into
+   `D:\WSL\wex-iso\efr-b108` and prints its SHA-256.
+2. `efr-b108-deploy.sh` (Debian root) puts it into `efrc4`, installs it over `/usr/local/bin/wineserver` with one
+   backup (`wineserver.pre-b108`), reboots through `systemd-run --on-active=5` (session 0 and the logged-on user
+   both restart), and waits for the desktop. The SHA-256 in `r-b108-install.sh` must be the staged file's.
+3. `IE=run|32|64 efr-b108-ie.sh` drives the session: Win+R (`vmtest.py key efrc4 meta_l-r`), types the command,
+   Enter, waits `HOLD` seconds, saves a screenshot (`efr-b108/ieIE.png`) and runs `r-b108-check.sh` (IE and debugger
+   processes, crash lines in `~/.wine-session.log`, `xul.dll` in each IE's maps). `iexplore` from Run opens the
+   32-bit IE.
+
+Wine runs without a VM (wexbuild, root):
+
+- Each script re-runs itself in a private mount namespace with its own `/tmp/.X11-unix` and starts `Xvfb :88`, so
+  it cannot meet another job's X server (`efr-b108-build.sh` shows the pattern), and uses the build tree's server
+  (`WINESERVER=$B/server/wineserver`). Scratch prefixes go under `/root`, not `/tmp` (Wine refuses a prefix whose
+  parent is not the user's: "'/tmp' is not owned by you"), and are deleted at the end.
+- With Gecko: make the prefix with `WINEDLLOVERRIDES=mscoree=` only. `mscoree,mshtml=` also stops mshtml from
+  registering, so `about:` is missing and Gecko never loads, which looks like a pass. The Gecko MSIs are in
+  `/var/cache/wineexplorer/downloads`. Check `+loaddll` for `xul.dll` before trusting a result.
+- A crash with no backtrace (`winedbg --file`, a piped stdin and `ShowCrashDialog=0` gave none for Gecko): a relay
+  trace of only the program's own DLLs (`HKCU\Software\Wine\Debug` `RelayFromInclude`, C runtime calls filtered out)
+  shows the last failing call; `efr-gecko-relay.sh` is the example (it found `NtOpenThread() => c0000022`).
+- Probes are our own C in `D:\WSL\wex-iso\winprobe\efr`, built with MinGW for both architectures
+  (`efr-openthread.sh` builds and runs `openthread.c`: `OpenThread` per access right on the probe's own thread, the
+  thread and process descriptors, the token's user, owner and elevation type). Run the same exe in Wine and on
+  WinRef-EFR.
+- Checks against a baseline: put git's version of the file back, rebuild, run the test, then the fix again
+  (`efr-b108-baseline.sh` for `advapi32:security`). As root, `advapi32:security` has 10 failures and the
+  `ntdll:file` read-only cases fail with or without a change.
+- The machine root as session 0's account (Gecko into the machine root, `r-gecko7.sh`):
+  `runuser -u wexsys -- env -i HOME=TMPDIR WINEPREFIX=/var/lib/wineexplorer/machine ... /usr/local/bin/wine`. A
+  standard user's Wine refuses that prefix ("no session 0 server is running for it"); use `/home/wineuser/.wine`.
+- `timeout` cannot run a shell function ("failed to run command"): put `timeout` inside the function.
