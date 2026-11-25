@@ -34,8 +34,9 @@ pid=$(systemctl show -p MainPID --value wex-session0.service)
 if [ -n "$pid" ] && [ "$pid" != 0 ]; then
     exe=$(readlink "/proc/$pid/exe" 2>&1)
     want_exe=$(readlink -f /usr/local/bin/wineserver)
-    if [ "$exe" = "$want_exe" ] && file -L "$want_exe" | grep -q ELF; then ok mainpid_is_the_real_wineserver
-    else notok mainpid_is_the_real_wineserver "MainPID $pid runs [$exe], /usr/local/bin/wineserver is [$want_exe] $(file -L "$want_exe" | cut -c1-80)"; fi
+    magic=$(head -c4 "$want_exe" | od -An -c | tr -d ' ')   # an ELF binary, not a script that starts it
+    if [ "$exe" = "$want_exe" ] && [ "$magic" = '177ELF' ]; then ok mainpid_is_the_real_wineserver
+    else notok mainpid_is_the_real_wineserver "MainPID $pid runs [$exe], /usr/local/bin/wineserver is [$want_exe], first bytes [$magic]"; fi
 else notok mainpid_is_the_real_wineserver "wex-session0.service has no MainPID"; fi
 
 # 3. polkit: the helper's account may administer users and start the sync unit, nothing else; session 0's own account may not
