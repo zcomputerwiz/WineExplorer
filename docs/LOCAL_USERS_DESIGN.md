@@ -433,6 +433,26 @@ calls `get_caller_class` through `wex_caller.h`.
 4. sd-bus (libsystemd) or libdbus? sd-bus keeps the helper short; libdbus is what `wexhost` already loads.
 5. "Not a logged-in user": which source decides, the AccountsService session list or the server's own account records?
 
+### The Windows-side service as built (`src/programs/wexaccounts`, branch claude/accounts-service)
+
+`wexaccounts.exe`, the service `wexaccounts` ("Local Accounts", LocalSystem, auto start; `wine.inf`). It listens on both
+`\\.\pipe\WexSession0\accounts` (the processes of its own server) and `\\.\pipe\accounts` (what the bridge brings in), each
+created with the first-instance flag and a descriptor that lets everyone connect (who may change what is the verdict's). It
+speaks `src/include/wexaccounts_proto.h` with netapi32: the client's frame is the helper's frame, so the service only checks it
+and passes the operation and the body on. **What it keeps:** the syntax (magic, version, operation, body length, each
+operation's shape: strings of at most 255 bytes without a NUL, u32 numbers; a frame over 64 KiB or a malformed header closes the
+connection, a body that does not fit its operation or a flag gives BAD_REQUEST and the connection stays); at most 128
+connections and a 30 s read time out; changes one at a time service-wide (U6); after a create, delete or rename the wait for
+the account map (it asks for the sync, watches the generation in the map's first line for about 10 s, and answers
+`WEXA_SYNC_PENDING`, success with a warning, when it has not moved; no map, no wait). **What it does not do:** decide the verdict
+(the server's `accounts_forward` makes it from the connection's recorded client token and fills the frame's header), or any
+policy (the helper's). The link to the helper is the `wex_accounts_forward` wrapper (L1, `include/wine/wex_accounts.h`);
+until that exists the real service answers UNAVAILABLE, which netapi32 turns into 1722. A lab build (`-DWEXACCOUNTS_LAB`, never
+shipped) swaps the helper for a stand-in and the map for a file. Test: `scripts/test_accounts_service.sh` (the lab service in a
+plain prefix and `scripts/accounts_service_probe.c` as its client: 28 checks, all passing: relays, every kind of malformed
+request, the helper's statuses passing through, the wait for the map in its three cases, two slow changes served in order with the
+helper never seeing two at once, and the cap of connections).
+
 ### The reviewer's findings on the helper (F1 to F6, 2026-11-24), and what was done
 
 | | Finding | Done |

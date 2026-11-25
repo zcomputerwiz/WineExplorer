@@ -111,6 +111,7 @@ static BOOL forward( HANDLE pipe, unsigned int op, const BYTE *body, DWORD body_
         WORD l = n, f = 8;
         DWORD v[3] = { 1234, 0, 0 };
 
+        if (n == 5 && !memcmp( name, "stats", 5 )) { v[0] = lab_max_in_change; v[1] = lab_calls; }
         memcpy( p, &l, 2 ); memcpy( p + 2, name, n ); p += 2 + n;
         memcpy( p, &f, 2 ); memcpy( p + 2, "Stand-in", 8 ); p += 2 + 8;
         memcpy( p, v, 12 ); p += 12;
