@@ -4974,3 +4974,54 @@ protocol"): the cross-server protocol on the session link between session 0 and 
   control socket `wex-x0-lab` in each lab server's directory (root only) and the lab object kind, a named counter.
   `server/wex_e1lab.h` declares `x0lab_init` and `session0_lab_drop_link`.
 Tests: section `s0_x0` of `scripts/test_sysrun_server.sh` (lab suite), client `scripts/x0lab.py`.
+
+2026-11-24 (Wine branch `claude/eventlog-l1`, L1 of `docs/EVENTLOG_DESIGN.md`, "L1 as built"): the EventLog service.
+- `dlls/wevtsvc/wevtsvc.c` (was a stub), `store.c`, `wevtsvc_private.h` (new), `Makefile.in` (imports ntdll): the
+  service keeps the logs. Our own pipe protocol (`include/wine/wex_eventlog.h`, new) on
+  `\\.\pipe\WexSession0\eventlog` and, in session 0, `\\.\pipe\eventlog`; one thread with an I/O completion port and
+  a 16 MiB budget; identification of the caller only; Windows' measured descriptors with `AccessCheck`, a bridged
+  caller's SERVICE groups deny-only and its service account masked to a user's rights (E1); per-account caps; record
+  streaming for client-made backups and a clear that names the backup's last record (N6); notify requests; the full
+  information and a settings reload on the EventLog key's change notification (section 9); files with a CRC32 and
+  record-number trailer per record and the load rule that keeps only the valid rising run.
+- `server/named_pipe.c` (`pipe_bridge_allowed`): `eventlog` may be opened from a session whose server has a session
+  link (N1). New request handler `get_caller_class`.
+- `server/session0.c` (the `PIPE` handler): the opener's description becomes a token with `link_bound_token()`
+  (account and session of the link) instead of `create_bound_token` (E6); `link_bound_token` marks the token as
+  link-bound.
+- `server/token.c`, `security.h`: the token's `link_bound` and `link_session` (set by `link_bound_token`, copied by
+  `token_duplicate`, cleared in `create_token`); `token_caller_class()`, the one decision of a service's caller
+  class (H3: none, user, elevated administrator, system-local). `server/protocol.def`: request `get_caller_class`
+  (a pipe server end's client, or a token); generated `server_protocol.h`, `request_handlers.h`, `request_trace.h`.
+- `include/wine/wex_caller.h` (new): the class constants and a thin wrapper over `get_caller_class`.
+  `include/Makefile.in` lists it and `wex_eventlog.h`.
+- `loader/wine.inf.in`: the `EventLog\Security` key by default (section 9).
+- `programs/services/services.c` (`default_session_service`): EventLog is no longer a service of every session; a
+  session forwards it to session 0.
+Tests: section `s0_eventlog` and the `own_prefix` check of `scripts/test_sysrun_server.sh`, the N1 check in `s0_x0`,
+`scripts/eventlog-probe.c`, `scripts/eventlog-corrupt.py`.
+
+2026-11-25 (Wine branch `claude/eventlog-l1`, the reviewer's H1 for GPO's accounts service): `accounts_forward`.
+- `server/named_pipe.c`: in session 0 only LocalSystem's own primary token (not impersonating) creates instances of
+  the pipes `accounts` and `WexSession0\accounts`, which are marked (`pipe_server.reserved`); `accounts` may be opened
+  from a session whose server has a session link. New request handler `accounts_forward`: only for a marked
+  instance's client that came over the bridge with a link-bound token; the verdict from `token_caller_class`, the uid
+  of the link's account. The body is the client's own bytes (the reviewer's A3): a marked instance keeps the client
+  message its service last read whole in message mode (`pipe_end.acc_msg`, any other read forgets it), and
+  `accounts_forward` names a range of it; each message is forwarded once.
+- `server/wex_accounts.c` (new): the call. The helper's request header is built by the server; one SEQPACKET datagram
+  on a connection of its own to `/run/wineexplorer/accounts.sock`, whose peer (SO_PEERCRED) must be the uid of
+  `helper_user=` in `/etc/wineexplorer/accountsd.conf` (read at each request; a uid, or a name read from `/etc/passwd`
+  itself, never through NSS, which could stall the server on a domain member: A1); the reply is awaited in the
+  server's loop, at most 15 s; request handler `accounts_result`. `server/Makefile.in` lists it; `session0.h` declares
+  `accounts_call_start`.
+- Open (the reviewer's A2, `docs/KNOWN_BUGS.md` B114): any LocalSystem process of session 0 may create the reserved
+  names, not only wexaccounts; requiring the service's own SID (NT SERVICE\wexaccounts) waits for per-service SIDs in
+  Wine's service tokens.
+- `server/token.c`, `security.h`: `token_is_link_bound()`. `server/protocol.def`: requests `accounts_forward`,
+  `accounts_result`; generated files.
+- `include/wine/wex_accounts.h` (new): the helper frame's constants (equal to WineExplorer's
+  `src/include/wexaccounts_proto.h`) and the thin wrapper `wex_accounts_forward`, which needs a reply buffer of
+  `WEX_ACCOUNTS_MAX_REPLY` bytes so that no reply is lost (A4). `include/Makefile.in` lists it.
+Tests: section `s0_accounts` of `scripts/test_sysrun_server.sh`, `scripts/accounts-probe.c`,
+`scripts/accounts-fake-helper.py`.

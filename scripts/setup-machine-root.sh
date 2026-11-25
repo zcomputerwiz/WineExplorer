@@ -535,7 +535,7 @@ def set_acl(path, data, name=ACCESS):
 
 
 def fix(dirfd, name, rel, kind):
-    """kind: root, hive, dir, file (owner, mode, ACL) or chown (owner only)."""
+    """kind: root, hive, dir, file, private (owner, mode, ACL) or chown (owner only)."""
     fd = os.open(name, os.O_PATH | os.O_NOFOLLOW, dir_fd=dirfd)
     try:
         st = os.fstat(fd)
@@ -562,6 +562,10 @@ def fix(dirfd, name, rel, kind):
             named = 7
         elif kind == 'hive':
             mode, named = 0o664, 6
+        elif kind == 'private':
+            # the event logs (docs/EVENTLOG_DESIGN.md, "Storage"): session 0's service writes them through the system
+            # group; no desktop user reads them directly
+            mode, named = 0o660, 6
         else:
             mode = 0o775 if name.lower().endswith(('.exe', '.dll')) else 0o664
             named = 7 if mode & 0o111 else 6
@@ -633,7 +637,8 @@ for name in sorted(os.listdir(rootfd)):
                 if stat.S_ISLNK(os.stat(entry, dir_fd=dirfd, follow_symlinks=False).st_mode):
                     fix(dirfd, entry, rel + '/' + entry, 'chown')
             for entry in filenames:
-                fix(dirfd, entry, rel + '/' + entry, 'file' if full else 'chown')
+                private = rel.lower() == 'drive_c/windows/system32/config' and entry.lower().endswith('.evt')
+                fix(dirfd, entry, rel + '/' + entry, 'private' if full and private else 'file' if full else 'chown')
     else:
         fix(rootfd, name, name, 'chown')
 FIXPERMS
