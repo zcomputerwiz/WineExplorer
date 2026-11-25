@@ -67,10 +67,15 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
      - Under Wine the split is the same, except that the compositor calls the public BeginDraw once on each of its three
        surfaces (1428x32, 1428x33, 287x32; Windows: 1440x32, 1428x33, 1024x832). The textures behind them get render-target
        views only from that one draw, so under Wine nothing writes the strips after their first, empty frame.
-     - Either the earlier per-frame measurement and these runs differ in the window's state (visible, focused), or the strips'
-       pixels reach the screen another way. **Next: a Windows run with a screenshot during the trace, to check that the strips
-       show content in a traced run; then find who writes the three surface textures (their private interfaces, or the UI
-       thread through a shared device).**
+     - **Explained (2026-11-25): these Windows runs were taken on a locked host session.** A capture of Notepad's window
+       rectangle during a trace shows the lock screen, although the window is visible and not cloaked (`IsWindowVisible`,
+       `DWMWA_CLOAKED`). While the session is locked nothing is composed, so the compositor idles. The earlier per-frame
+       measurement was taken unlocked. **Windows traces of the drawing must be taken with the desktop unlocked and Notepad on
+       screen**; check with a capture of the window (only its rectangle) during the trace. Next, unlocked: find who writes the
+       three surface textures.
+     - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
+       occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
+       open.
      - Inside Windows' dcomp, `CreateSurface` asks d3d11's private interface (slot 12, width/height/format) for the texture and
        d3d11 calls `DCompositionCreateSurfaceHandle`. That is internal to the system dcomp; Wine's dcomp makes its textures
        itself.
