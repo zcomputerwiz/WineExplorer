@@ -6169,8 +6169,14 @@ ok c3_own_prefix_services_run_with_the_users_token
 [ -f "$ROOT/probes/evp64.exe" ] || x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/evp64.exe" \
     "$SRC/scripts/eventlog-probe.c" -ladvapi32 -lntdll || fail "eventlog: cannot build the probe"
 own_ev() { own_wine "$ROOT/probes/evp64.exe" "$@" | tr -d '\r'; }
+own_wine sc start EventLog >/dev/null 2>&1 || true   # (it is an auto-start service; started here in case the boot has not)
 for i in $(seq 1 60); do own_ev count Application | grep -q '^count=0 ' && break; sleep 0.5; done
-[ "$(own_ev report WexL1Own 4 1 own-prefix | sed -n 's/^report=//p')" = 0 ] || fail "eventlog: the own prefix's service does not take a report"
+OUT="$(own_ev report WexL1Own 4 1 own-prefix || true)"
+[ "$(sed -n 's/^report=//p' <<<"$OUT")" = 0 ] || {
+    echo "report: $OUT; count: $(own_ev count Application || true); caller: $(own_ev caller || true)" >&2
+    own_wine sc query EventLog >&2 || true
+    pgrep -u "$STD" -af svchost >&2 || true
+    fail "eventlog: the own prefix's service does not take a report"; }
 own_ev read Application | grep -q 'source=WexL1Own strings=1 first=own-prefix$' || fail "eventlog: the own prefix's record does not read back"
 [ -f "$UP/drive_c/windows/system32/config/AppEvent.evt" ] || fail "eventlog: the own prefix keeps no AppEvent.evt of its own"
 ok ev_plain_prefix_has_its_own_event_log
