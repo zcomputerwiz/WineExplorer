@@ -150,6 +150,15 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   does), slot 15 succeeds; test in `test_device_private`. `dlls/dcomp/device.c` (13a303b3, 9abfb647): Commit is traced;
   private methods 45/46 count the device's successful Commits (0 on a fresh device; Windows 11 reads 0 or 1); test in
   `test_shared_visual` (x86_64); OpenSharedObject answers E_INVALIDARG for an unsupported interface, as Windows 11 does.
+- `dlls/d2d1/device.c`, `d2d1_private.h` (97ee7765, ae84aee8, branch claude/notepad-d2d-slot15): slot 15 of the context's private
+  interface {2ea67ed7} queues an object of the caller (one reference); slot 3 of each queued object is called without
+  arguments, in order, with the target it was queued for bound and viewport and scissor covering it, then the object is
+  released; a failure is the EndDraw result (measured on Windows 11: `tests/uwp/alpc/d2d-ctx-slot15-probe.cpp`, where
+  Windows calls them at Flush/EndDraw). Wine draws at once, so the queue runs before the context's next draw, at a target
+  change, Flush and EndDraw, which keeps Windows' order, and clears the Direct3D state after them. A second BeginDraw keeps
+  the queue; objects queued during EndDraw's run and those left at release are released uncalled (all measured). The lifted
+  compositor draws its sprites that way. Test
+  `test_context_private_queued_draw` (d2d1.c, x86_64, d3d11).
 - Not in this batch (branch claude/notepad-commit, waiting for a design sign-off): `dlls/dcomp/device.c` (7f2fe720)
   shared visual handles are matched by kernel object; a target opened from one is a portal whose committed root is
   composed inside the shared visual; devices showing a changed portal redraw their committed scenes. cedb07b0:
