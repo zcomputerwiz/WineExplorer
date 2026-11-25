@@ -4830,3 +4830,29 @@ protocol"): the cross-server protocol on the session link between session 0 and 
   control socket `wex-x0-lab` in each lab server's directory (root only) and the lab object kind, a named counter.
   `server/wex_e1lab.h` declares `x0lab_init` and `session0_lab_drop_link`.
 Tests: section `s0_x0` of `scripts/test_sysrun_server.sh` (lab suite), client `scripts/x0lab.py`.
+
+2026-11-24 (Wine branch `claude/eventlog-l1`, L1 of `docs/EVENTLOG_DESIGN.md`, "L1 as built"): the EventLog service.
+- `dlls/wevtsvc/wevtsvc.c` (was a stub), `store.c`, `wevtsvc_private.h` (new), `Makefile.in` (imports ntdll): the
+  service keeps the logs. Our own pipe protocol (`include/wine/wex_eventlog.h`, new) on
+  `\\.\pipe\WexSession0\eventlog` and, in session 0, `\\.\pipe\eventlog`; one thread with an I/O completion port and
+  a 16 MiB budget; identification of the caller only; Windows' measured descriptors with `AccessCheck`, a bridged
+  caller's SERVICE groups deny-only and its service account masked to a user's rights (E1); per-account caps; record
+  streaming for client-made backups and a clear that names the backup's last record (N6); notify requests; the full
+  information and a settings reload on the EventLog key's change notification (section 9); files with a CRC32 and
+  record-number trailer per record and the load rule that keeps only the valid rising run.
+- `server/named_pipe.c` (`pipe_bridge_allowed`): `eventlog` may be opened from a session whose server has a session
+  link (N1). New request handler `get_caller_class`.
+- `server/session0.c` (the `PIPE` handler): the opener's description becomes a token with `link_bound_token()`
+  (account and session of the link) instead of `create_bound_token` (E6); `link_bound_token` marks the token as
+  link-bound.
+- `server/token.c`, `security.h`: the token's `link_bound` and `link_session` (set by `link_bound_token`, copied by
+  `token_duplicate`, cleared in `create_token`); `token_caller_class()`, the one decision of a service's caller
+  class (H3: none, user, elevated administrator, system-local). `server/protocol.def`: request `get_caller_class`
+  (a pipe server end's client, or a token); generated `server_protocol.h`, `request_handlers.h`, `request_trace.h`.
+- `include/wine/wex_caller.h` (new): the class constants and a thin wrapper over `get_caller_class`.
+  `include/Makefile.in` lists it and `wex_eventlog.h`.
+- `loader/wine.inf.in`: the `EventLog\Security` key by default (section 9).
+- `programs/services/services.c` (`default_session_service`): EventLog is no longer a service of every session; a
+  session forwards it to session 0.
+Tests: section `s0_eventlog` and the `own_prefix` check of `scripts/test_sysrun_server.sh`, the N1 check in `s0_x0`,
+`scripts/eventlog-probe.c`, `scripts/eventlog-corrupt.py`.

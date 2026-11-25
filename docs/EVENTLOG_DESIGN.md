@@ -201,3 +201,88 @@ Draft 1 (2026-11-24), the Session 0 reviewer: go on L1 with six conditions.
 | E6: the link-bound token, session from the link | Client side |
 | Answers: own protocol yes; ReportEvent succeeds while the service is down, lazy reconnect; Security created now, empty | Client side, access rules |
 | Notifications over the pipe, no X1 dependency; no named objects; registry read in the service | Service, client side |
+
+## L1 as built (branch claude/eventlog-l1)
+
+Written by the L1 session (2026-11-24) and sent to the reviewer before most of the code; the answers to its
+questions are recorded here when they come.
+
+- **Where the service lives:** the existing svchost DLL. `loader/wine.inf.in` already runs EventLog as
+  `svchost.exe -k LocalServiceNetworkRestricted` with ServiceDll `wevtsvc.dll`, a stub until now; the service is that
+  DLL (`dlls/wevtsvc/wevtsvc.c`, `store.c`). No new service entry, no new program. `programs/services/services.c`
+  takes EventLog off the per-session list, so a session forwards it to session 0 and one store serves the machine.
+- **Pipes:** the service listens on `\\.\pipe\WexSession0\eventlog`, which its own server's processes reach (session
+  0's in session 0, every process in a plain prefix). In session 0 it also listens on `\\.\pipe\eventlog`, which a
+  session's open of `\\.\pipe\WexSession0\eventlog` reaches through the bridge (`eventlog` is on
+  `pipe_bridge_allowed`). Which pipe a connection came in on, cross-checked with `GetNamedPipeClientSessionId`, tells
+  a local connection from a bridged one; the caller's class itself is the server's (below, H3).
+- **The caller class (H3, the reviewer's decision):** only the server knows whether a token came over another server's
+  link, so the class is decided once there: tokens made by `link_bound_token()` record it (`link_bound`, the link's
+  session; copies keep it), and `token_caller_class()` (`server/token.c`) gives none, user, elevated administrator
+  (a real user with Administrators enabled, High integrity or more, not the limited token, no SERVICE group or
+  service SID) or system-local (SYSTEM, LocalService or NetworkService of session 0 or a plain prefix itself, never a
+  link-bound token nor a system role in a user's server). The request `get_caller_class` answers it for a pipe server
+  end's client or a token; `include/wine/wex_caller.h` is a thin wrapper with no logic of its own, for every service
+  of session 0 (GPO's accounts service too). The EventLog service takes the class at connect and answers the `CALLER`
+  operation with it for the tests: a session's SYSTEM token, a standard user and a limited administrator are users,
+  an elevated administrator is one, session 0's SYSTEM is system-local.
+  A session cannot reach session 0's local name: the bridge strips one prefix and allows exactly `eventlog`. Creating
+  a pipe under `WexSession0\` in a session is refused by the bridge (`create_named_pipe`, E2), tested.
+- **Identity (E2, E6):** the bridge's `PIPE` request turns the description into a token with `link_bound_token()`
+  (account and session of the link). The service impersonates only to read the token (user, groups, elevation,
+  `SeSecurityPrivilege`) and reverts at once; it never acts as the caller; anonymous callers are refused. Wine drops
+  the client's SQOS today (the server never sees the requested level), so a server end gets impersonation level
+  whatever the client asks; the client asks for identification level as documented, and carrying the level into the
+  server is a step of its own (agreed in review; a general KNOWN_BUGS item, since every pipe server is affected).
+- **Protocol (`include/wine/wex_eventlog.h`):** a message-mode pipe, one request and one reply message, one request in
+  flight per connection, a 32-byte versioned header. A record may be 0x3FFFF bytes and a read 0x7FFFF, which 64 KiB
+  frames cannot carry, so a message is at most 0x7FFFF + 1 + 64 bytes (agreed in review); the service
+  allocates per the operation's limit, never what a request says. Unknown versions get `ERROR_REVISION_MISMATCH`,
+  unknown operations `ERROR_INVALID_FUNCTION`; a malformed message (bad magic, sizes that do not match, over the
+  limit) closes the connection.
+- **Serving (N3, Q2):** one thread and an I/O completion port: overlapped connects, reads and writes, so a waiting
+  subscription holds no thread. Each message's first 4 KiB are read; a larger one is read whole after a peek, into a
+  buffer of exactly its size. The service holds at most 16 MiB of requests and replies at once and stops reading new
+  requests while over it. A read reply is sized to the records that fit. A `NOTIFY` keeps a read posted, so the
+  client's disconnect ends it (N4); a request while it waits closes the connection. Both pipes are made with
+  `FILE_FLAG_FIRST_PIPE_INSTANCE` (N2), and a session 0 process that connects to the bridged name is classed as a
+  session's caller (a harmless downgrade).
+- **Clear after a backup (N6):** `CLEAR` names the last record the client's backup has; newer records give
+  `ERROR_RETRY`, and the client streams the rest and clears again. After 8 retries against a steady writer it clears
+  through the backup's last record only (mode 2): the newer records stay, so nothing is lost and the clear ends.
+- **Section 9:** `INFO` returns `wex_evtlog_information` (full, count, oldest, next, `MaxSize` and `Retention` in force,
+  file size, and the created, last written and last read times kept in the file's 48-byte header);
+  `WEX_EVTLOG_INFORMATION_LEVEL` is the Wine-private level L2's `GetEventLogInformation` will answer. The service
+  watches the EventLog key (`RegNotifyChangeKeyValue`) and reloads every log's settings when it changes. `wine.inf`
+  adds the `Security` key (Application and System were there).
+- **N1:** `eventlog` is a bridged name that needs the opener's server to have a session link (as the broker's), so a
+  caller without a link is refused at the bridge, never described.
+- **Caps:** per account (the token's user SID): 256 connections, 1024 handles (64 a connection), 256 subscriptions.
+  A subscription is a `NOTIFY` in flight on a connection of its own, so the subscription cap is reached together with
+  the connection cap; the test fills both from session 0 (the bridge's own per-user cap is also 256).
+- **Access (decided in review, N7):** every log's rights are read (1), write (2) and clear (4), decided by
+  `AccessCheck` against the log's `CustomSD` (SDDL, from session 0's registry), or else Windows' built-in descriptor,
+  measured on Windows 10 with `wevtutil gl` (configuration values, read-only on the lab VM):
+  - Application (and custom logs without a `CustomSD`): `O:BAG:SYD:(A;;0x2;;;S-1-15-2-1)(A;;0xf0007;;;SY)(A;;0x7;;;BA)(A;;0x7;;;SO)(A;;0x3;;;IU)(A;;0x3;;;SU)(A;;0x3;;;S-1-5-3)(A;;0x3;;;S-1-5-33)(A;;0x1;;;S-1-5-32-573)`
+    (Windows also lists one app capability SID with write, left out);
+  - System: `O:BAG:SYD:(A;;0xf0007;;;SY)(A;;0x7;;;BA)(A;;0x3;;;BO)(A;;0x5;;;SO)(A;;0x1;;;IU)(A;;0x3;;;SU)(A;;0x1;;;S-1-5-3)(A;;0x2;;;S-1-5-33)(A;;0x1;;;S-1-5-32-573)`;
+  - Security: read and cleared with `SeSecurityPrivilege` enabled, never written (its descriptor needs an elevated
+    query on Windows and was not measured).
+
+  So, as on Windows: interactive users write and read Application and read System; SYSTEM, the service accounts and
+  elevated administrators write System; elevated administrators clear. The same table holds in plain prefixes and in
+  session 0, with **one exception for a session's caller over the bridge (E1, L1's form):** its SERVICE group
+  (S-1-5-6) and per-service SIDs (S-1-5-80-*) are made deny-only before the check (`CreateRestrictedToken`), and a
+  token whose user is SYSTEM, LocalService or NetworkService is masked after the check to a user's rights (0x3 on
+  Application and custom logs, 0x1 on System, nothing on Security), whatever groups it holds (Wine's SYSTEM token
+  carries BUILTIN\Administrators, which would otherwise write and clear System). An elevated administrator of a session
+  keeps BA (T1 believes it); session 0's own processes are checked as they are. Streaming for a backup needs read; a
+  clear needs clear. Wine gives the SERVICE group only to service-account tokens, so the session test of the
+  SERVICE rule is the SYSTEM token's; a token with SERVICE alone cannot be made from a session without forging one.
+- **Storage (E5):** `C:\windows\system32\config\{App,Sys,Sec}Event.evt` and `<log>.evt` in session 0's prefix, as
+  designed; files are written again in place (never replaced by a rename, so they keep their owner and mode), and
+  created with a DACL for SYSTEM only, which Wine maps to the owner's mode bits. The test checks the owner and that no
+  user reads the files.
+- **Tests:** `scripts/eventlog-probe.c` (64 and 32 bit) speaks the protocol directly, so it can also send what a
+  client never would; `scripts/eventlog-corrupt.py` damages a stopped log for the load rule; section `s0_eventlog` of
+  the normal suite has one check per item of L1's test list, and `own_prefix` checks the plain prefix's own log.
