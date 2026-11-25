@@ -52,6 +52,8 @@ static const int genuine_images[TB_COUNT] = { 0, 1, 10, 8, 12, 15, 17, 19, 20, 2
 static struct
 {
     HWND hwnd, tree, toolbar, status;
+    BOOL hosted;          /* a pane of another console (Computer Management): no frame, toolbar or status bar */
+    HMENU menu;           /* the menus of a hosted pane (the frame's menu otherwise) */
     struct hardware *hw;
     int view;
     BOOL show_hidden;
@@ -66,6 +68,11 @@ static const struct { int image; UINT command; } buttons[] =
     { TB_ACTION, IDM_ACTION_PANE }, { -1, 3 }, { TB_SCAN, IDM_SCAN }, { -1, 4 }, { TB_UPDATE, IDM_UPDATE },
     { TB_UNINSTALL, IDM_UNINSTALL }, { TB_DISABLE, IDM_DISABLE },
 };
+
+static HMENU frame_menu( HWND hwnd )
+{
+    return dm.hosted ? dm.menu : GetMenu( hwnd );
+}
 
 static BOOL visible( const struct device *dev )
 {
@@ -265,7 +272,7 @@ static void update_commands( void )
 {
     LPARAM param = selection();
     BOOL device = IS_DEVICE( param ), cls = param > 0 && param < 100, any = param != 0;
-    HMENU menu = GetSubMenu( GetMenu( dm.hwnd ), 1 );
+    HMENU menu = GetSubMenu( frame_menu( dm.hwnd ), 1 );
 
     SendMessageW( dm.toolbar, TB_HIDEBUTTON, IDM_PROPERTIES, !(device || cls) );
     SendMessageW( dm.toolbar, TB_HIDEBUTTON, IDM_PRINT, !any );
@@ -317,7 +324,7 @@ static void refresh( void )
 static void set_view( int view )
 {
     dm.view = view;
-    CheckMenuRadioItem( GetMenu( dm.hwnd ), IDM_BY_TYPE, IDM_RES_BY_CONNECTION, IDM_BY_TYPE + view, MF_BYCOMMAND );
+    CheckMenuRadioItem( frame_menu( dm.hwnd ), IDM_BY_TYPE, IDM_RES_BY_CONNECTION, IDM_BY_TYPE + view, MF_BYCOMMAND );
     fill_tree();
     update_commands();
 }
@@ -417,6 +424,11 @@ static void layout( HWND hwnd )
     RECT client, bar, status;
 
     GetClientRect( hwnd, &client );
+    if (dm.hosted)
+    {
+        MoveWindow( dm.tree, 0, 0, client.right, client.bottom, TRUE );
+        return;
+    }
     SendMessageW( dm.toolbar, TB_AUTOSIZE, 0, 0 );
     SendMessageW( dm.status, WM_SIZE, 0, 0 );
     GetWindowRect( dm.toolbar, &bar );
@@ -435,7 +447,7 @@ static void layout( HWND hwnd )
 
 static void context_menu( HWND hwnd, int x, int y )
 {
-    HMENU menu = GetSubMenu( GetMenu( hwnd ), 1 );
+    HMENU menu = GetSubMenu( frame_menu( hwnd ), 1 );
 
     if (x == -1 && y == -1)
     {
@@ -456,15 +468,24 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
     {
     case WM_CREATE:
         dm.hwnd = hwnd;
-        create_toolbar( hwnd );
-        dm.status = CreateWindowExW( 0, STATUSCLASSNAMEW, NULL, WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
-                                     hwnd, NULL, devmgr_instance, NULL );
+        if (dm.hosted)
+        {
+            dm.menu = CreateMenu();   /* the second is the Action menu update_commands fills */
+            AppendMenuW( dm.menu, MF_POPUP, (UINT_PTR)CreatePopupMenu(), L"" );
+            AppendMenuW( dm.menu, MF_POPUP, (UINT_PTR)CreatePopupMenu(), L"" );
+        }
+        else
+        {
+            create_toolbar( hwnd );
+            dm.status = CreateWindowExW( 0, STATUSCLASSNAMEW, NULL, WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0,
+                                         0, hwnd, NULL, devmgr_instance, NULL );
+        }
         dm.tree = CreateWindowExW( WS_EX_CLIENTEDGE, WC_TREEVIEWW, NULL, WS_CHILD | WS_VISIBLE | WS_TABSTOP |
                                    TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS,
                                    0, 0, 0, 0, hwnd, NULL, devmgr_instance, NULL );
         create_images();
         SendMessageW( dm.tree, TVM_SETIMAGELIST, TVSIL_NORMAL, (LPARAM)dm.images );
-        CheckMenuRadioItem( GetMenu( hwnd ), IDM_BY_TYPE, IDM_RES_BY_CONNECTION, IDM_BY_TYPE, MF_BYCOMMAND );
+        CheckMenuRadioItem( frame_menu( hwnd ), IDM_BY_TYPE, IDM_RES_BY_CONNECTION, IDM_BY_TYPE, MF_BYCOMMAND );
         PostMessageW( hwnd, WM_COMMAND, IDM_SCAN, 0 );
         return 0;
 
@@ -481,6 +502,11 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         PAINTSTRUCT ps;
         RECT bar, rect;
         HDC hdc = BeginPaint( hwnd, &ps );
+        if (dm.hosted)
+        {
+            EndPaint( hwnd, &ps );
+            return 0;
+        }
         GetWindowRect( dm.toolbar, &bar );
         GetClientRect( hwnd, &rect );
         rect.top = bar.bottom - bar.top;
@@ -549,7 +575,7 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
             break;
         case IDM_SHOW_HIDDEN:
             dm.show_hidden = !dm.show_hidden;
-            CheckMenuItem( GetMenu( hwnd ), IDM_SHOW_HIDDEN, dm.show_hidden ? MF_CHECKED : MF_UNCHECKED );
+            CheckMenuItem( frame_menu( hwnd ), IDM_SHOW_HIDDEN, dm.show_hidden ? MF_CHECKED : MF_UNCHECKED );
             fill_tree();
             update_commands();
             break;
@@ -567,6 +593,13 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         hardware_free( dm.hw );
         dm.hw = NULL;
         ImageList_Destroy( dm.images );
+        if (dm.hosted)
+        {
+            DestroyMenu( dm.menu );
+            dm.menu = NULL;
+            dm.hosted = FALSE;
+            return 0;
+        }
         PostQuitMessage( 0 );
         return 0;
     }
@@ -580,13 +613,62 @@ static HICON load_app_icon( int size )
     return icon ? icon : LoadImageW( devmgr_instance, MAKEINTRESOURCEW(IDI_DEVMGR), IMAGE_ICON, size, size, 0 );
 }
 
+#define FRAME_CLASS L"DevMgrMMCMainFrame"
+
+static void register_class( void )
+{
+    INITCOMMONCONTROLSEX icex = { sizeof(icex), ICC_TREEVIEW_CLASSES | ICC_BAR_CLASSES };
+    WNDCLASSEXW wc = { sizeof(wc) };
+
+    InitCommonControlsEx( &icex );
+    wc.lpfnWndProc = window_proc;
+    wc.hInstance = devmgr_instance;
+    wc.hIcon = load_app_icon( 32 );
+    wc.hIconSm = load_app_icon( 16 );
+    wc.hCursor = LoadCursorW( NULL, (LPCWSTR)IDC_ARROW );
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    wc.lpszMenuName = MAKEINTRESOURCEW(IDM_MAIN);
+    wc.lpszClassName = FRAME_CLASS;
+    RegisterClassExW( &wc );
+}
+
+/***********************************************************************
+ *              DeviceManager_CreatePane (DEVMGR.@)
+ *
+ * The console tree of Device Manager as a child window of another console (Computer Management): no frame, toolbar
+ * or status bar; the host sends the commands with DeviceManager_PaneCommand. One pane at a time.
+ */
+HWND WINAPI DeviceManager_CreatePane( HWND parent, int x, int y, int cx, int cy )
+{
+    register_class();
+    memset( &dm, 0, sizeof(dm) );
+    dm.hosted = TRUE;
+    return CreateWindowExW( 0, FRAME_CLASS, NULL, WS_CHILD | WS_CLIPCHILDREN, x, y, cx, cy, parent, NULL,
+                            devmgr_instance, NULL );
+}
+
+/***********************************************************************
+ *              DeviceManager_PaneCommand (DEVMGR.@)
+ *
+ * command: 1 Scan for hardware changes, 2 Properties, 3 Show hidden devices (toggle), 4 to 7 the views (Devices by
+ * type, by connection, Resources by type, by connection). Returns FALSE for a command the selection does not allow.
+ */
+BOOL WINAPI DeviceManager_PaneCommand( HWND pane, int command )
+{
+    static const UINT ids[] = { 0, IDM_SCAN, IDM_PROPERTIES, IDM_SHOW_HIDDEN, IDM_BY_TYPE, IDM_BY_CONNECTION,
+                                IDM_RES_BY_TYPE, IDM_RES_BY_CONNECTION };
+
+    if (!dm.hosted || pane != dm.hwnd || command < 1 || command >= (int)ARRAY_SIZE(ids)) return FALSE;
+    if (command == 2 && !IS_DEVICE( selection() )) return FALSE;
+    SendMessageW( pane, WM_COMMAND, ids[command], 0 );
+    return TRUE;
+}
+
 /***********************************************************************
  *              DeviceManager_ExecuteW (DEVMGR.@)
  */
 BOOL WINAPI DeviceManager_ExecuteW( HWND parent, HINSTANCE instance, const WCHAR *machine, int show )
 {
-    INITCOMMONCONTROLSEX icex = { sizeof(icex), ICC_TREEVIEW_CLASSES | ICC_BAR_CLASSES };
-    WNDCLASSEXW wc = { sizeof(wc) };
     HACCEL accel;
     HWND hwnd;
     MSG msg;
@@ -598,19 +680,10 @@ BOOL WINAPI DeviceManager_ExecuteW( HWND parent, HINSTANCE instance, const WCHAR
         SetLastError( ERROR_NOT_SUPPORTED );
         return FALSE;
     }
-    InitCommonControlsEx( &icex );
-    wc.lpfnWndProc = window_proc;
-    wc.hInstance = devmgr_instance;
-    wc.hIcon = load_app_icon( 32 );
-    wc.hIconSm = load_app_icon( 16 );
-    wc.hCursor = LoadCursorW( NULL, (LPCWSTR)IDC_ARROW );
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.lpszMenuName = MAKEINTRESOURCEW(IDM_MAIN);
-    wc.lpszClassName = L"DevMgrMMCMainFrame";
-    RegisterClassExW( &wc );
+    register_class();
 
     memset( &dm, 0, sizeof(dm) );
-    hwnd = CreateWindowExW( 0, wc.lpszClassName, load_string( IDS_APPNAME ), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+    hwnd = CreateWindowExW( 0, FRAME_CLASS, load_string( IDS_APPNAME ), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
                             CW_USEDEFAULT, 640, 450, parent, NULL, devmgr_instance, NULL );
     if (!hwnd) return FALSE;
     ShowWindow( hwnd, show ? show : SW_SHOWNORMAL );

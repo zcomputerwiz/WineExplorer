@@ -11,7 +11,7 @@
 #   gpo-lab.sh machine SOURCE_VM [TEST_VM]
 #                                 Group Policy end to end on an installed WineExplorer machine (machine.sh; run
 #                                 where the installed disks are, with VMTEST_DIR)
-#   gpo-lab.sh machines SOURCE_VM [machine|join|join-ps ...]
+#   gpo-lab.sh machines SOURCE_VM [machine|join|join-ps|accountsd ...]
 #                                 the guests (default all three) on overlays of one base disk, made once per installed
 #                                 disk (machine.sh WEX_AD_BASELINE); one result line each
 #   gpo-lab.sh status             which lab guests run, and the objects in the domain
@@ -80,8 +80,8 @@ machines)
     # share the lab address and the machine's account in the domain); one result line each, and a failed guest is
     # rerun alone by naming it
     shift
-    SRC=${1:?usage: gpo-lab.sh machines SOURCE_VM [machine|join|join-ps ...]}; shift
-    GUESTS=("$@"); [ ${#GUESTS[@]} -gt 0 ] || GUESTS=(machine join join-ps)
+    SRC=${1:?usage: gpo-lab.sh machines SOURCE_VM [machine|join|join-ps|accountsd ...]}; shift
+    GUESTS=("$@"); [ ${#GUESTS[@]} -gt 0 ] || GUESTS=(machine join join-ps accountsd)
     BASE=$SRC-adbase
     LOGS=/var/tmp/wex-gpo-lab; mkdir -p "$LOGS"
     RESULTS=() rc=0 t0=$SECONDS
@@ -99,11 +99,12 @@ machines)
         case $g in
             machine) script=machine-guest.sh ;;
             join) script=join-guest.sh ;;
+            accountsd) script=accountsd-guest.sh ;;
             join-ps) script=join-ps-guest.sh
                 if [ -z "${WEX_LAB_EXTRA:-}" ]; then
                     RESULTS+=("SKIP gpolab/join-ps (needs WEX_LAB_EXTRA: the dlls, the module and join-ps.ps1)"); continue
                 fi ;;
-            *) echo "unknown guest $g (machine, join, join-ps)"; exit 2 ;;
+            *) echo "unknown guest $g (machine, join, join-ps, accountsd)"; exit 2 ;;
         esac
         echo "=== $g: $SRC-ad-$g (log $LOGS/$SRC-ad-$g.log)"
         t=$SECONDS s=0

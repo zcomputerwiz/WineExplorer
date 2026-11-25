@@ -43,3 +43,5 @@ IDI_MMC ICON mmc.ico
 2 WINE_DATA_FILE gpedit.msc
 /* @makedep: secpol.msc */
 3 WINE_DATA_FILE secpol.msc
+/* @makedep: compmgmt.msc */
+4 WINE_DATA_FILE compmgmt.msc

@@ -1,0 +1,185 @@
+/*
+ * Computer Management - resources
+ *
+ * Copyright 2026 WineExplorer Desktop Environment Project
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+ */
+
+#include <windef.h>
+#include <winuser.h>
+#include <winnls.h>
+
+#include "resource.h"
+
+#pragma makedep po
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+
+IDM_MAIN MENU
+{
+    POPUP "&Action"
+    {
+        MENUITEM "&Refresh", IDM_REFRESH
+        MENUITEM "&Export List...", IDM_EXPORT, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "P&roperties", IDM_PROPERTIES, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "&Help", IDM_HELP_TOPICS, GRAYED
+    }
+    POPUP "&View"
+    {
+        MENUITEM "Lar&ge Icons", IDM_VIEW_LARGE
+        MENUITEM "S&mall Icons", IDM_VIEW_SMALL
+        MENUITEM "&List", IDM_VIEW_LIST
+        MENUITEM "&Detail", IDM_VIEW_DETAIL
+    }
+    POPUP "&Help"
+    {
+        MENUITEM "&Help Topics", IDM_HELP_TOPICS, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "&About Computer Management", IDM_ABOUT
+    }
+}
+
+/* the Services properties pages (the sheet is made by services.c) */
+IDD_SVC_GENERAL DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "General"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT        "Service &name:", -1, 10, 12, 62, 10
+    EDITTEXT     IDC_SVC_NAME, 76, 10, 166, 12, ES_AUTOHSCROLL | ES_READONLY
+    LTEXT        "D&isplay name:", -1, 10, 30, 62, 10
+    EDITTEXT     IDC_SVC_DISPLAY, 76, 28, 166, 12, ES_AUTOHSCROLL | ES_READONLY
+    LTEXT        "&Description:", -1, 10, 48, 62, 10
+    EDITTEXT     IDC_SVC_DESCRIPTION, 76, 46, 166, 36, ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL
+    LTEXT        "Pat&h to executable:", -1, 10, 90, 100, 10
+    EDITTEXT     IDC_SVC_PATH, 10, 102, 232, 12, ES_AUTOHSCROLL | ES_READONLY
+    LTEXT        "Startup typ&e:", -1, 10, 124, 62, 10
+    COMBOBOX     IDC_SVC_STARTUP, 76, 122, 100, 50, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    GROUPBOX     "", -1, 10, 142, 232, 1
+    LTEXT        "Service status:", -1, 10, 152, 62, 10
+    LTEXT        "", IDC_SVC_STATUS, 76, 152, 100, 10
+    PUSHBUTTON   "&Start", IDC_SVC_START, 10, 170, 50, 14
+    PUSHBUTTON   "S&top", IDC_SVC_STOP, 64, 170, 50, 14
+    PUSHBUTTON   "&Pause", IDC_SVC_PAUSE, 118, 170, 50, 14
+    PUSHBUTTON   "&Resume", IDC_SVC_RESUME, 172, 170, 50, 14
+}
+
+IDD_SVC_LOGON DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Log On"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT        "Log on as:", -1, 10, 12, 100, 10
+    LTEXT        "", IDC_SVC_ACCOUNT, 10, 26, 232, 10, SS_NOPREFIX
+    LTEXT        "", IDC_SVC_NOTE, 10, 50, 232, 40
+}
+
+IDD_SVC_RECOVERY DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Recovery"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT        "", IDC_SVC_NOTE, 10, 12, 232, 50
+}
+
+IDD_SVC_DEPENDENCIES DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Dependencies"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT        "This service depends on the following system components:", -1, 10, 10, 232, 10
+    LISTBOX      IDC_SVC_DEPENDS_ON, 10, 22, 232, 70, LBS_NOSEL | WS_VSCROLL | WS_BORDER
+    LTEXT        "The following system components depend on this service:", -1, 10, 104, 232, 10
+    LISTBOX      IDC_SVC_DEPENDENTS, 10, 116, 232, 70, LBS_NOSEL | WS_VSCROLL | WS_BORDER
+}
+
+STRINGTABLE
+{
+    IDS_COL_STATUS "Status"
+    IDS_COL_STARTUP "Startup Type"
+    IDS_COL_LOGON "Log On As"
+    IDS_STATUS_STARTED "Started"
+    IDS_STATUS_PAUSED "Paused"
+    IDS_STARTUP_AUTO "Automatic"
+    IDS_STARTUP_MANUAL "Manual"
+    IDS_STARTUP_DISABLED "Disabled"
+    IDS_STARTUP_BOOT "Boot"
+    IDS_STARTUP_SYSTEM "System"
+    IDS_ASK_ELEVATE "Changing a service needs the rights of an administrator.\n\nOpen Computer Management again as an administrator?"
+    IDS_ELEVATE_TITLE "Administrator rights"
+    IDS_SVC_PROPS_TITLE "%s Properties (Local Computer)"
+    IDS_SVC_ERROR "The service %s could not be changed.\n\n%s"
+    IDS_SVC_TIMEOUT "The service %s did not answer in time. Its state is shown as it is now."
+    IDS_RECOVERY_NOTE "Recovery actions are not available yet: the service manager cannot report them (QueryServiceConfig2 for failure actions is not implemented)."
+    IDS_LOGON_NOTE "Changing the account a service logs on with is not available here."
+    IDS_SVC_NO_DESCRIPTION "(no description)"
+}
+
+STRINGTABLE
+{
+    IDS_APPNAME "Computer Management"
+    IDS_ROOT "Computer Management (Local)"
+    IDS_COL_NAME "Name"
+    IDS_COL_DESCRIPTION "Description"
+    IDS_NO_DEVMGR "Device Manager could not be loaded."
+    IDS_ABOUT_TEXT "Computer Management"
+    IDS_NOT_AVAILABLE "Not available"
+
+    IDS_NODE_BASE + 0 "Computer Management (Local)"
+    IDS_NODE_BASE + 1 "System Tools"
+    IDS_NODE_BASE + 2 "Event Viewer"
+    IDS_NODE_BASE + 3 "Shared Folders"
+    IDS_NODE_BASE + 4 "Local Users and Groups"
+    IDS_NODE_BASE + 5 "Performance Logs and Alerts"
+    IDS_NODE_BASE + 6 "Device Manager"
+    IDS_NODE_BASE + 7 "Storage"
+    IDS_NODE_BASE + 8 "Removable Storage"
+    IDS_NODE_BASE + 9 "Disk Defragmenter"
+    IDS_NODE_BASE + 10 "Disk Management"
+    IDS_NODE_BASE + 11 "Services and Applications"
+    IDS_NODE_BASE + 12 "Services"
+    IDS_NODE_BASE + 13 "WMI Control"
+    IDS_NODE_BASE + 14 "Indexing Service"
+
+    IDS_DESC_BASE + 0 ""
+    IDS_DESC_BASE + 1 ""
+    IDS_DESC_BASE + 2 "View event logs"
+    IDS_DESC_BASE + 3 "Manage shared folders"
+    IDS_DESC_BASE + 4 "Manage local users and groups"
+    IDS_DESC_BASE + 5 "Configure performance logs and alerts"
+    IDS_DESC_BASE + 6 "Manage the devices of this computer"
+    IDS_DESC_BASE + 7 ""
+    IDS_DESC_BASE + 8 "Manage removable media"
+    IDS_DESC_BASE + 9 "Defragment the disks"
+    IDS_DESC_BASE + 10 "Manage disks and partitions"
+    IDS_DESC_BASE + 11 ""
+    IDS_DESC_BASE + 12 "Start, stop and configure services"
+    IDS_DESC_BASE + 13 "Configure the WMI service"
+    IDS_DESC_BASE + 14 "Manage the indexing of files"
+
+    IDS_REASON_BASE + 2 "Event Viewer is not available yet. This system has no event log service."
+    IDS_REASON_BASE + 3 "Shared Folders is not available. File sharing is handled by the host system."
+    IDS_REASON_BASE + 4 "Local Users and Groups is not available yet. The accounts belong to the host system."
+    IDS_REASON_BASE + 5 "Performance Logs and Alerts is not available. This system keeps no performance logs."
+    IDS_REASON_BASE + 8 "Removable Storage is not available. The host system manages removable media."
+    IDS_REASON_BASE + 9 "Disk Defragmenter is not available. The host system owns the file systems."
+    IDS_REASON_BASE + 10 "Disk Management is not available. The disks and partitions belong to the host system's own tools."
+    IDS_REASON_BASE + 12 "Services is not available yet."
+    IDS_REASON_BASE + 13 "WMI Control is not available. WMI is not configurable on this system."
+    IDS_REASON_BASE + 14 "The Indexing Service is not available yet."
+}

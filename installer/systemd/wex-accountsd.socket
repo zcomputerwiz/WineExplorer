@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: the accounts helper's socket (docs/LOCAL_USERS_DESIGN.md, "Draft 3: the helper wex-accountsd and its
+# link"). Session 0's wineserver connects to it, never the other way round. Root-owned, 0660, group wexsession0 whose only
+# member is session 0's account, so only that account can connect at all; the helper still checks the peer at each accept
+# (the pidfd-pinned MainPID of session 0's server unit), since any process of that account can open the socket.
+# Enabled with session 0 (setup-machine-root.sh with WEX_SESSION0=1), which makes the group and the account.
+
+[Unit]
+Description=WineExplorer accounts helper (socket)
+
+[Socket]
+ListenSequentialPacket=/run/wineexplorer/accounts.sock
+SocketUser=root
+SocketGroup=wexsession0
+SocketMode=0660
+DirectoryMode=0711
+Backlog=4
+# one connection is served at a time, in the one process: the helper is the place that serializes the changes
+Accept=no
+Service=wex-accountsd.service
+
+[Install]
+WantedBy=sockets.target

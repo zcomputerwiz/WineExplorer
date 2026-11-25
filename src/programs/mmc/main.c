@@ -43,6 +43,7 @@ static const struct { const char *clsid; const WCHAR *dll; const char *entry; co
     { "{74246BFC-4C96-11D0-ABEF-0020AF6B0B7A}", L"devmgr.dll", "DeviceManager_ExecuteW", NULL },   /* Device Manager */
     { "{8FC0B734-A0E1-11D1-A7D3-0000F87571E3}", L"gpedit.dll", "GpEdit_ExecuteW", "GpEdit_ExecuteObjectW" },   /* Group Policy (local) */
     { "{5ADF5BF6-E452-11D1-945A-00C04FB984F9}", L"secpol.dll", "SecPol_ExecuteW", NULL },   /* Security Settings (local) */
+    { "{58221C65-EA27-11CF-ADCF-00AA00A80033}", L"compmgmt.dll", "CompMgmt_ExecuteW", NULL },   /* Computer Management */
 };
 
 static char *read_console( const WCHAR *path )

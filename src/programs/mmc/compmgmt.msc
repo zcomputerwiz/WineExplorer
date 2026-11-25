@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<MMC_ConsoleFile ConsoleVersion="2.0" ProgramMode="UserSDI">
+  <!-- Wine's mmc.exe reads only the snap-in of a console -->
+  <SnapIns>
+    <SnapIn CLSID="{58221C65-EA27-11CF-ADCF-00AA00A80033}"/>
+  </SnapIns>
+  <StringTables>
+    <StringTable>
+      <Strings>
+        <String ID="1">Computer Management</String>
+      </Strings>
+    </StringTable>
+  </StringTables>
+</MMC_ConsoleFile>

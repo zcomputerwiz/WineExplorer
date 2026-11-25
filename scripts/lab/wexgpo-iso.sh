@@ -29,7 +29,7 @@ for f in /etc/apt/sources.list.d/*.sources; do
 done
 export DEBIAN_FRONTEND=noninteractive
 { apt-get update -q && apt-get build-dep -y -q labwc &&
-  apt-get install -y -q live-build debootstrap squashfs-tools xorriso mtools msitools zstd unzip golang-go \
+  apt-get install -y -q live-build debootstrap squashfs-tools xorriso mtools msitools zstd unzip golang-go libsystemd-dev \
       debhelper grub-pc-bin systemd-boot-efi python3-pefile python3-pil tesseract-ocr imagemagick; } > $L-deps.log 2>&1 ||
     { echo "DEPS FAILED"; tail -5 $L-deps.log; exit 1; }
 

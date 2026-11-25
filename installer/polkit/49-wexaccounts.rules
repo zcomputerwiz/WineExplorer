@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright 2026 WineExplorer contributors
+//
+// WineExplorer: what polkit allows the accounts helper wex-accountsd (docs/LOCAL_USERS_DESIGN.md, B1 and U4). The helper
+// runs as the system account wexaccounts and is the only process of the machine that may administer user accounts through
+// AccountsService and start the account map's sync unit. Nothing else is granted to that account, and no rule here names
+// any other user or a group that a user can join. Installed in /etc/polkit-1/rules.d/ (as 49-wexsetup.rules is).
+polkit.addRule(function(action, subject) {
+    if (subject.user != "wexaccounts")
+        return;
+    if (action.id == "org.freedesktop.accounts.user-administration")
+        return polkit.Result.YES;
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "wex-accounts-sync.service" &&
+        action.lookup("verb") == "start")
+        return polkit.Result.YES;
+});
