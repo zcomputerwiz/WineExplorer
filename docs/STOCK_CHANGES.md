@@ -2648,7 +2648,8 @@ marked unconditional. Work order: `ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md`.
 - `programs/services/rpc.c`, `dlls/rpcrt4/rpc_transport.c`, `dlls/sechost/service.c`: `OpenService` also grants
   the process the SCM started for a service the rights it uses to report status
   (`SERVICE_SET_STATUS`, query, `READ_CONTROL`), found by comparing `I_RpcBindingInqLocalClientPID` with the
-  recorded process id. rpcrt4 implements that call for `ncacn_np` (stock has it for `ncalrpc` only). sechost opens
+  recorded process id. rpcrt4 implements that call for `ncacn_np` (stock has it for `ncalrpc` only; the matching
+  check in `dlls/rpcrt4/tests/server.c` is `todo_wine_if` for named pipes). sechost opens
   the second handle of its own service with `SERVICE_QUERY_STATUS|SERVICE_QUERY_CONFIG` instead of
   `GENERIC_READ|GENERIC_WRITE`. `RpcSs` is openable for start and status by anyone, because Wine starts it on demand
   (`shortcut:` comment).
