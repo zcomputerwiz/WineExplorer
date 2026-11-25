@@ -4885,7 +4885,9 @@ evfail()
       echo "std count: $(as_wine "$STD" "$ROOT/probes/evp64.exe" count Application)"
       echo "std report: $(as_wine "$STD" "$ROOT/probes/evp64.exe" report WexL1Diag 4 1 diag)"
       pgrep -u "$S0U" -a svchost; tail -5 "$ROOT/session0.log"
-      echo "--- session 0's services (errors, +eventlog)"; tail -40 "$EVSVCERR"; } >&2 2>&1 || true
+      cp "$EVSVCERR" /var/tmp/wex-run/s0-services.err 2>/dev/null
+      echo "--- session 0's services: EventLog's trace and the exceptions (whole file: /var/tmp/wex-run/s0-services.err)"
+      grep -a ':eventlog:\|code=c0000\|Unhandled\|backtrace' "$EVSVCERR" | tail -40; } >&2 2>&1 || true
     fail "$@"
 }
 EVK='HKLM\System\CurrentControlSet\Services\EventLog'
