@@ -4704,6 +4704,7 @@ x0 "$SP" try "$IDG" nowait >/dev/null
 for i in $(seq 1 30); do [ "$(x0 "$S0" get gb | fld count)" = 0 ] && break; sleep 0.1; done
 [ "$(x0 "$S0" get gb | fld count)" = 0 ] || fail "X0: the try was not served before the kill"
 kill -9 "$SP"
+probe "$STD" 64 hold >>"$ROOT/x0-$STD.log" 2>&1 &   # a new server now, not when the loop's old client gives up
 for i in $(seq 1 50); do [ "$(s0refs "$STD_UID")" = 0 ] && break; sleep 0.1; done
 [ "$(s0refs "$STD_UID")" = 0 ] || { x0 "$S0" peers >&2; fail "X0: session 0 kept the references of a killed server"; }
 grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) ended (its server is gone): 6 references dropped" "$ROOT/session0.log" ||
