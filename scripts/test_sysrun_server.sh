@@ -5241,7 +5241,8 @@ ok ev_clear_racing_a_writer_loses_nothing
 [ "$(ev "$STD" frame badver | v status)" = 1306 ] || evfail "eventlog: an unknown version: $(ev "$STD" frame badver)"
 [ "$(ev "$STD" frame badop | v status)" = 1 ] || evfail "eventlog: an unknown operation: $(ev "$STD" frame badop)"
 # a record first: the clear racing the writer above may leave Application empty, and a seek in an empty log is
-# ERROR_HANDLE_EOF before the range check (87) that seekbad tests
+# ERROR_HANDLE_EOF before the range check (87) that seekbad tests (Windows 11 answers the same: 38 for any seek in an
+# empty log, 87 past the end, at 0 or before the oldest of a non-empty one)
 ev "$STD" report WexL1 4 1003 for-bigread >/dev/null
 for k in longstring manystrings badsid seekbad; do
     [ "$(ev "$STD" frame "$k" | v status)" = 87 ] || evfail "eventlog: $k: $(ev "$STD" frame "$k")"
