@@ -551,12 +551,198 @@ static INT_PTR CALLBACK logon_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM lp
     return FALSE;
 }
 
+/* the Recovery page: the failure actions of the service (SERVICE_CONFIG_FAILURE_ACTIONS). Take No Action and Restart the Service
+ * can be chosen; Run a Program and Restart the Computer are kept as they are when the service already has them, and shown */
+struct recovery
+{
+    DWORD reset;                    /* seconds */
+    DWORD delay;                    /* milliseconds, of the restart */
+    DWORD type[3];
+    WCHAR *command, *message;
+    BOOL changed;
+    struct props *props;
+};
+
+static const WCHAR *recovery_name( DWORD type )
+{
+    switch (type)
+    {
+    case SC_ACTION_RESTART: return cm_string( IDS_REC_RESTART );
+    case SC_ACTION_RUN_COMMAND: return cm_string( IDS_REC_RUN );
+    case SC_ACTION_REBOOT: return cm_string( IDS_REC_REBOOT );
+    default: return cm_string( IDS_REC_NONE );
+    }
+}
+
+static void fill_action_combo( HWND dlg, int id, DWORD type )
+{
+    SendDlgItemMessageW( dlg, id, CB_ADDSTRING, 0, (LPARAM)recovery_name( SC_ACTION_NONE ) );
+    SendDlgItemMessageW( dlg, id, CB_ADDSTRING, 0, (LPARAM)recovery_name( SC_ACTION_RESTART ) );
+    if (type == SC_ACTION_RUN_COMMAND || type == SC_ACTION_REBOOT)
+        SendDlgItemMessageW( dlg, id, CB_ADDSTRING, 0, (LPARAM)recovery_name( type ) );
+    SendDlgItemMessageW( dlg, id, CB_SETCURSEL, type == SC_ACTION_NONE ? 0 : type == SC_ACTION_RESTART ? 1 : 2, 0 );
+}
+
+static DWORD combo_type( HWND dlg, int id, DWORD old )
+{
+    int sel = (int)SendDlgItemMessageW( dlg, id, CB_GETCURSEL, 0, 0 );
+
+    if (sel == 1) return SC_ACTION_RESTART;
+    if (sel == 2 && (old == SC_ACTION_RUN_COMMAND || old == SC_ACTION_REBOOT)) return old;
+    return SC_ACTION_NONE;
+}
+
+static void load_recovery( const WCHAR *name, struct recovery *r )
+{
+    SC_HANDLE scm = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT ), svc;
+
+    r->reset = 0;
+    r->delay = 60000;
+    r->type[0] = r->type[1] = r->type[2] = SC_ACTION_NONE;
+    if (scm && (svc = OpenServiceW( scm, name, SERVICE_QUERY_CONFIG )))
+    {
+        DWORD size = 0;
+        SERVICE_FAILURE_ACTIONSW *fa;
+
+        QueryServiceConfig2W( svc, SERVICE_CONFIG_FAILURE_ACTIONS, NULL, 0, &size );
+        if (size && (fa = malloc( size )))
+        {
+            if (QueryServiceConfig2W( svc, SERVICE_CONFIG_FAILURE_ACTIONS, (BYTE *)fa, size, &size ))
+            {
+                DWORD i;
+
+                r->reset = fa->dwResetPeriod == INFINITE ? 0 : fa->dwResetPeriod;
+                r->command = fa->lpCommand ? copy_string( fa->lpCommand ) : NULL;
+                r->message = fa->lpRebootMsg ? copy_string( fa->lpRebootMsg ) : NULL;
+                for (i = 0; i < fa->cActions && i < 3; i++)
+                {
+                    r->type[i] = fa->lpsaActions[i].Type;
+                    if (fa->lpsaActions[i].Type == SC_ACTION_RESTART) r->delay = fa->lpsaActions[i].Delay;
+                }
+            }
+            free( fa );
+        }
+        CloseServiceHandle( svc );
+    }
+    if (scm) CloseServiceHandle( scm );
+}
+
+static BOOL read_number( HWND dlg, int id, DWORD *value )
+{
+    BOOL ok;
+    UINT v = GetDlgItemInt( dlg, id, &ok, FALSE );
+
+    if (ok) *value = v;
+    return ok;
+}
+
 static INT_PTR CALLBACK recovery_proc( HWND dlg, UINT msg, WPARAM wparam, LPARAM lparam )
 {
-    if (msg == WM_INITDIALOG)
+    struct recovery *r;
+
+    switch (msg)
     {
+    case WM_INITDIALOG:
+    {
+        struct props *p = (struct props *)((PROPSHEETPAGEW *)lparam)->lParam;
+
+        r = calloc( 1, sizeof(*r) );
+        SetWindowLongPtrW( dlg, DWLP_USER, (LONG_PTR)r );
+        if (!r) return TRUE;
+        r->props = p;
+        load_recovery( p->name, r );
+        fill_action_combo( dlg, IDC_REC_FIRST, r->type[0] );
+        fill_action_combo( dlg, IDC_REC_SECOND, r->type[1] );
+        fill_action_combo( dlg, IDC_REC_THIRD, r->type[2] );
+        SetDlgItemInt( dlg, IDC_REC_RESET, r->reset / 86400, FALSE );
+        SetDlgItemInt( dlg, IDC_REC_DELAY, r->delay / 60000, FALSE );
         set_item_text( dlg, IDC_SVC_NOTE, cm_string( IDS_RECOVERY_NOTE ) );
         return TRUE;
+    }
+
+    case WM_DESTROY:
+        if ((r = (struct recovery *)GetWindowLongPtrW( dlg, DWLP_USER )))
+        {
+            free( r->command );
+            free( r->message );
+            free( r );
+        }
+        SetWindowLongPtrW( dlg, DWLP_USER, 0 );
+        return TRUE;
+
+    case WM_COMMAND:
+        if ((r = (struct recovery *)GetWindowLongPtrW( dlg, DWLP_USER )) &&
+            (HIWORD(wparam) == CBN_SELCHANGE || HIWORD(wparam) == EN_CHANGE))
+        {
+            r->changed = TRUE;
+            SendMessageW( GetParent( dlg ), PSM_CHANGED, (WPARAM)dlg, 0 );
+        }
+        return TRUE;
+
+    case WM_NOTIFY:
+        if (((NMHDR *)lparam)->code == PSN_APPLY)
+        {
+            struct props *p = NULL;
+            SC_HANDLE scm, svc = NULL;
+            SERVICE_FAILURE_ACTIONSW fa = {0};
+            SC_ACTION actions[3];
+            DWORD days, minutes, err = 0;
+            int i;
+
+            r = (struct recovery *)GetWindowLongPtrW( dlg, DWLP_USER );
+            if (!r || !r->changed)
+            {
+                SetWindowLongPtrW( dlg, DWLP_MSGRESULT, PSNRET_NOERROR );
+                return TRUE;
+            }
+            if (!read_number( dlg, IDC_REC_RESET, &days ) || !read_number( dlg, IDC_REC_DELAY, &minutes ) ||
+                days > 49000 || minutes > 70000)
+            {
+                MessageBoxW( dlg, cm_string( IDS_REC_BAD_NUMBER ), cm_string( IDS_APPNAME ), MB_OK | MB_ICONWARNING );
+                SetWindowLongPtrW( dlg, DWLP_MSGRESULT, PSNRET_INVALID_NOCHANGEPAGE );
+                return TRUE;
+            }
+            for (i = 0; i < 3; i++)
+            {
+                static const int ids[3] = { IDC_REC_FIRST, IDC_REC_SECOND, IDC_REC_THIRD };
+
+                actions[i].Type = combo_type( dlg, ids[i], r->type[i] );
+                actions[i].Delay = actions[i].Type == SC_ACTION_RESTART ? minutes * 60000 : 0;
+            }
+            fa.dwResetPeriod = days * 86400;
+            fa.lpRebootMsg = r->message;
+            fa.lpCommand = r->command;
+            fa.cActions = 3;
+            fa.lpsaActions = actions;
+            p = r->props;
+            scm = OpenSCManagerW( NULL, NULL, SC_MANAGER_CONNECT );
+            /* a restart action needs a handle that may start the service, as on Windows; the right is asked for only when a
+             * restart is among the actions, so that someone who may change the configuration but not start the service can
+             * still save the others */
+            if (scm)
+            {
+                DWORD access = SERVICE_CHANGE_CONFIG;
+
+                for (i = 0; i < 3; i++) if (actions[i].Type == SC_ACTION_RESTART) access |= SERVICE_START;
+                svc = OpenServiceW( scm, p->name, access );
+            }
+            if (!svc) err = GetLastError();
+            else if (!ChangeServiceConfig2W( svc, SERVICE_CONFIG_FAILURE_ACTIONS, &fa )) err = GetLastError();
+            if (svc) CloseServiceHandle( svc );
+            if (scm) CloseServiceHandle( scm );
+            if (!finish_command( dlg, p->display, err ))
+            {
+                SetWindowLongPtrW( dlg, DWLP_MSGRESULT, PSNRET_INVALID_NOCHANGEPAGE );
+                return TRUE;
+            }
+            for (i = 0; i < 3; i++) r->type[i] = actions[i].Type;
+            r->reset = fa.dwResetPeriod;
+            r->delay = minutes * 60000;
+            r->changed = FALSE;
+            SetWindowLongPtrW( dlg, DWLP_MSGRESULT, PSNRET_NOERROR );
+            return TRUE;
+        }
+        break;
     }
     return FALSE;
 }

@@ -32,6 +32,8 @@
 #include <wingdi.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <stdio.h>
+#include <wchar.h>
 
 #include "compmgmt.h"
 #include "resource.h"
@@ -39,7 +41,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(compmgmt);
 
-enum kind { CONTAINER, HOSTED_DEVMGR, SERVICES, MISSING };
+enum kind { CONTAINER, HOSTED_DEVMGR, SERVICES, USERS, GROUPS, MISSING };
 
 /* the console tree, in the order of the string tables; parent is an index, -1 for the root */
 static const struct { int parent; enum kind kind; } nodes[] =
@@ -48,7 +50,7 @@ static const struct { int parent; enum kind kind; } nodes[] =
     {  0, CONTAINER },       /*  1 System Tools */
     {  1, MISSING },         /*  2 Event Viewer */
     {  1, MISSING },         /*  3 Shared Folders */
-    {  1, MISSING },         /*  4 Local Users and Groups */
+    {  1, CONTAINER },       /*  4 Local Users and Groups */
     {  1, MISSING },         /*  5 Performance Logs and Alerts */
     {  1, HOSTED_DEVMGR },   /*  6 Device Manager */
     {  0, CONTAINER },       /*  7 Storage */
@@ -59,6 +61,8 @@ static const struct { int parent; enum kind kind; } nodes[] =
     { 11, SERVICES },        /* 12 Services */
     { 11, MISSING },         /* 13 WMI Control */
     { 11, MISSING },         /* 14 Indexing Service */
+    {  4, USERS },           /* 15 Users */
+    {  4, GROUPS },          /* 16 Groups */
 };
 #define NODE_COUNT ARRAY_SIZE(nodes)
 
@@ -69,7 +73,7 @@ HINSTANCE compmgmt_module;
 
 static struct
 {
-    HWND hwnd, tree, list, text, pane, svc;
+    HWND hwnd, tree, list, text, pane, svc, usr;
     HTREEITEM items[NODE_COUNT];
     int selected, split;
     BOOL dragging;
@@ -166,6 +170,32 @@ static void update_action_menu( HMENU action )
     }
 }
 
+/* the Users commands at the top of the Action menu while the Users node is shown */
+static void update_users_menu( HMENU action )
+{
+    static const struct { UINT id; const WCHAR *text; DWORD flag; } items[] =
+    {
+        { IDM_USR_NEW, L"New &User...", USR_CAN_NEW }, { IDM_USR_PASSWORD, L"Set &Password...", USR_CAN_CHANGE },
+        { IDM_USR_DELETE, L"&Delete", USR_CAN_CHANGE },
+    };
+    BOOL users = cm.selected >= 0 && nodes[cm.selected].kind == USERS;
+    BOOL groups = cm.selected >= 0 && nodes[cm.selected].kind == GROUPS;
+    DWORD flags = (users || groups) ? usr_commands( cm.usr ) : 0;
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(items); i++) DeleteMenu( action, items[i].id, MF_BYCOMMAND );
+    if (GetMenuState( action, 0, MF_BYPOSITION ) & MF_SEPARATOR) DeleteMenu( action, 0, MF_BYPOSITION );
+    if (!users && !groups) return;
+    if (users)
+    {
+        for (i = 0; i < ARRAY_SIZE(items); i++)
+            InsertMenuW( action, i, MF_BYPOSITION | MF_STRING | ((flags & items[i].flag) ? 0 : MF_GRAYED), items[i].id,
+                         items[i].text );
+        InsertMenuW( action, ARRAY_SIZE(items), MF_BYPOSITION | MF_SEPARATOR, 0, NULL );
+    }
+    EnableMenuItem( action, IDM_PROPERTIES, MF_BYCOMMAND | ((flags & USR_SELECTED) ? MF_ENABLED : MF_GRAYED) );
+}
+
 /* the menus of a snap-in come with it: Device Manager's views and its scan, the list views otherwise */
 static void update_menus( void )
 {
@@ -194,6 +224,7 @@ static void update_menus( void )
     }
     EnableMenuItem( action, IDM_PROPERTIES, MF_BYCOMMAND | MF_GRAYED );
     update_action_menu( action );
+    update_users_menu( action );
     EnableMenuItem( action, IDM_REFRESH, MF_BYCOMMAND | MF_ENABLED );
     DrawMenuBar( cm.hwnd );
 }
@@ -253,6 +284,7 @@ static void layout( void )
     MoveWindow( cm.list, split + 4, 0, client.right - split - 4, client.bottom, TRUE );
     MoveWindow( cm.text, split + 4, 0, client.right - split - 4, client.bottom, TRUE );
     MoveWindow( cm.svc, split + 4, 0, client.right - split - 4, client.bottom, TRUE );
+    MoveWindow( cm.usr, split + 4, 0, client.right - split - 4, client.bottom, TRUE );
     if (cm.pane) MoveWindow( cm.pane, split + 4, 0, client.right - split - 4, client.bottom, TRUE );
 }
 
@@ -281,13 +313,30 @@ static BOOL open_pane( void )
 
 static void select_node( int node )
 {
+    WCHAR message[900];
     cm.selected = node;
     close_pane();
     ShowWindow( cm.list, SW_HIDE );
     ShowWindow( cm.text, SW_HIDE );
     ShowWindow( cm.svc, SW_HIDE );
+    ShowWindow( cm.usr, SW_HIDE );
     switch (nodes[node].kind)
     {
+    case USERS:
+    case GROUPS:
+    {
+        DWORD err = usr_show( cm.usr, nodes[node].kind == GROUPS );
+
+        if (!err)
+        {
+            ShowWindow( cm.usr, SW_SHOW );
+            break;
+        }
+        swprintf( message, ARRAY_SIZE(message), cm_string( IDS_USR_UNAVAILABLE ), usr_error_text( err ) );
+        SetWindowTextW( cm.text, message );
+        ShowWindow( cm.text, SW_SHOW );
+        break;
+    }
     case SERVICES:
         svc_refresh( cm.svc );
         ShowWindow( cm.svc, SW_SHOW );
@@ -313,6 +362,7 @@ static void refresh( void )
 {
     if (cm.selected < 0) return;
     if (nodes[cm.selected].kind == SERVICES) svc_refresh( cm.svc );
+    else if (nodes[cm.selected].kind == USERS || nodes[cm.selected].kind == GROUPS) select_node( cm.selected );
     else if (cm.pane && cm.pane_command) cm.pane_command( cm.pane, 1 );
     else if (nodes[cm.selected].kind == CONTAINER) list_children( cm.selected );
 }
@@ -363,6 +413,7 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         SendMessageW( cm.list, LVM_SETIMAGELIST, LVSIL_SMALL, (LPARAM)cm.images );
         create_list_columns();
         cm.svc = svc_create_view( hwnd );
+        cm.usr = usr_create_view( hwnd );
         cm.text = CreateWindowExW( WS_EX_CLIENTEDGE, L"STATIC", NULL, WS_CHILD | SS_LEFT, 0, 0, 0, 0, hwnd, NULL,
                                    compmgmt_module, NULL );
         SendMessageW( cm.text, WM_SETFONT, (WPARAM)GetStockObject( DEFAULT_GUI_FONT ), 0 );
@@ -462,6 +513,18 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
             }
             return 0;
         }
+        else if (hdr->hwndFrom == cm.usr)
+        {
+            if (hdr->code == NM_DBLCLK || hdr->code == NM_RETURN) SendMessageW( hwnd, WM_COMMAND, IDM_USR_PROPERTIES, 0 );
+            else if (hdr->code == NM_RCLICK)
+            {
+                POINT pt;
+                GetCursorPos( &pt );
+                usr_context_menu( cm.usr, hwnd, pt.x, pt.y );
+            }
+            else if (hdr->code == LVN_ITEMCHANGED) update_menus();
+            return 0;
+        }
         else if (hdr->hwndFrom == cm.list && (hdr->code == NM_DBLCLK || hdr->code == NM_RETURN))
         {
             int index = (int)SendMessageW( cm.list, LVM_GETNEXTITEM, -1, LVNI_SELECTED );
@@ -488,6 +551,13 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
             break;
         case IDM_PROPERTIES:
             if (cm.selected >= 0 && nodes[cm.selected].kind == SERVICES) svc_command( cm.svc, hwnd, IDM_SVC_PROPERTIES );
+            else if (cm.selected >= 0 && (nodes[cm.selected].kind == USERS || nodes[cm.selected].kind == GROUPS))
+                SendMessageW( hwnd, WM_COMMAND, IDM_USR_PROPERTIES, 0 );
+            break;
+        case IDM_USR_NEW: case IDM_USR_DELETE: case IDM_USR_PASSWORD: case IDM_USR_PROPERTIES:
+            if (cm.selected >= 0 && (nodes[cm.selected].kind == USERS || nodes[cm.selected].kind == GROUPS) &&
+                IsWindow( hwnd ) && usr_command( cm.usr, hwnd, LOWORD(wparam) ) && IsWindow( hwnd ))
+                select_node( cm.selected );
             break;
         case IDM_EXIT: DestroyWindow( hwnd ); break;
         case IDM_VIEW_LARGE: case IDM_VIEW_SMALL: case IDM_VIEW_LIST: case IDM_VIEW_DETAIL:
@@ -516,15 +586,21 @@ static LRESULT CALLBACK window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
         return 0;
 
     case WM_INITMENUPOPUP:
-        if (!HIWORD(lparam) && (HMENU)wparam == GetSubMenu( GetMenu( hwnd ), 0 )) update_action_menu( (HMENU)wparam );
+        if (!HIWORD(lparam) && (HMENU)wparam == GetSubMenu( GetMenu( hwnd ), 0 ))
+        {
+            update_action_menu( (HMENU)wparam );
+            update_users_menu( (HMENU)wparam );
+        }
         break;
 
     case WM_CONTEXTMENU:
         if ((HWND)wparam == cm.svc && (short)LOWORD(lparam) == -1) svc_context_menu( cm.svc, hwnd, -1, -1 );
+        if ((HWND)wparam == cm.usr && (short)LOWORD(lparam) == -1) usr_context_menu( cm.usr, hwnd, -1, -1 );
         return 0;
 
     case WM_DESTROY:
         svc_free( cm.svc );
+        usr_free( cm.usr );
         close_pane();
         ImageList_Destroy( cm.images );
         PostQuitMessage( 0 );

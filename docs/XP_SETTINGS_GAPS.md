@@ -203,7 +203,7 @@ The Control Panel **Category View** ("Pick a category") is not implemented eithe
 | XP item | Here | Class |
 |---|---|---|
 | **Computer Management** (`compmgmt.msc`) | the console `src/dlls/compmgmt` (2026-11-24): the XP tree, Device Manager hosted as a node, the other nodes grayed with a reason; the desktop "Manage" item launches it | A (the shell), the snap-ins below |
-| Snap-ins: Event Viewer, Shared Folders, Local Users and Groups, Services, Performance Logs, Disk Management, WMI Control | nodes of Computer Management, grayed with a reason until each exists (Services: probe of the service manager first; Local Users and Groups: design note; Event Viewer: after the event log service, docs/EVENTLOG_DESIGN.md) | C (the Wine tree has `wevtapi`, the services program; `NetUserAdd` and `NetLocalGroupAdd` are stubs); Disk Management B/C |
+| Snap-ins: Event Viewer, Shared Folders, Local Users and Groups, Services, Performance Logs, Disk Management, WMI Control | nodes of Computer Management, grayed with a reason until each exists (Services: probe of the service manager first; Local Users and Groups: Users and Groups nodes in compmgmt.dll through netapi32 and the accounts service, 2026-11-25, `docs/LOCAL_USERS_DESIGN.md`, `scripts/lab/compmgmt-users-test.sh`; Event Viewer: after the event log service, docs/EVENTLOG_DESIGN.md) | C (the Wine tree has `wevtapi`, the services program; `NetUserAdd` and `NetLocalGroupAdd` are stubs); Disk Management B/C |
 | Local Security Policy, Group Policy editor | works; not every XP node | A |
 | Administrative Tools folder | absent (`devmgmt`, `gpedit` exist) | C |
 | Task Manager | stock Wine: Applications, Processes, Performance; no Networking, Users, Shut Down menu | A, C |

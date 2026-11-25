@@ -5104,6 +5104,24 @@ for the accounts service alone.
 Tests: section `s0_accounts` (a second LocalSystem service with its own SID, wexaccounts without its SID, the service's
 token).
 
+## netapi32: Local Users and Groups through the accounts service (2026-11-25)
+
+`dlls/netapi32` (Wine `claude/gpo-lusrmgr`): on a machine that has a session 0, the local-computer calls of `NetUserEnum`,
+`NetUserGetInfo`, `NetUserAdd`, `NetUserDel`, `NetUserGetLocalGroups`, `NetUserChangePassword` and all `NetLocalGroup*` are
+answered by the accounts service over `\\.\pipe\WexSession0\accounts` (new `wexaccounts.c`, `wexaccounts.h`; the hooks are
+three-line `if (...local... && wexa_active())` returns in `netapi32.c`). `NetUserSetInfo` (stock: a stub in the spec) is now
+exported, levels 0 (rename), 1, 1003, 1008, 1011. Passwords are hashed in the client (`sha512crypt.c`, SHA-512 crypt over
+`bcrypt`, written from the published description and checked against `openssl passwd -6`); the helper only checks the form.
+Phase 1 knows two local groups, Administrators and Users. A machine without a session 0 keeps Wine's own behaviour;
+the test hooks (Stock=1 forces that on any machine, Pipe names another pipe) are the values `Stock` and `Pipe` of
+`HKLM\Software\WineExplorer\AccountsTest`, (the 64-bit view; `Pipe` is honoured only under `\\.\pipe\WexSession0\`, a prefix a session's program cannot create), which only an administrator writes: environment variables are not honoured (the
+elevated half of a program has the environment of the limited half, and a pipe served by the limited half would receive a
+new password's hash). The pipe is opened with SECURITY_IDENTIFICATION, so a server of it cannot act as the caller. With a
+session 0 and the service unreachable the calls give 1722, never the in-memory list (U5); access denied on the pipe is 5.
+An empty password is refused (NERR_PasswordTooShort, parm 3) until the owner decides how a blank password should work, and
+a list whose total changes between two pages is refused (ERROR_INVALID_DATA). Secrets (hash, key, digests) are zeroed. `Makefile.in` imports `bcrypt`. Test: the netapi
+checks of section `s0_accounts_chain` (`scripts/netapi_accounts_probe.c`).
+
 ## Menu and tooltip shadows are on by default (2026-11-25)
 
 Wine `eb00215e` on `claude/menu-shadow`, `dlls/win32u/sysparams.c`: the default `UserPreferencesMask` has the

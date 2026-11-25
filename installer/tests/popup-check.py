@@ -83,7 +83,19 @@ def main(argv):
                                       ("left", (x - 2, y + h // 2), (x - 30, y + h // 2), x),
                                       ("right", (x + w + 1, y + h // 2), (x + w + 29, y + h // 2), width - x - w)):
             if room < 32:
-                continue
+                # a popup at a screen edge (a tooltip over the taskbar): 30 px out is off the screen or on another
+                # background. The reference is then the same row (or column) beside the popup, 40 px clear of it.
+                if name in ("top", "bottom"):
+                    shifts = ((-(w // 2 + 40), 0), (w // 2 + 40, 0))
+                else:
+                    shifts = ((0, -(h // 2 + 40)), (0, h // 2 + 40))
+                far = None
+                for dx, dy in shifts:
+                    if at(near[0] + dx, near[1] + dy) is not None:
+                        far = (near[0] + dx, near[1] + dy)
+                        break
+                if far is None or at(*near) is None:
+                    continue
             a, b = at(*near), at(*far)
             print(f"  shadow {name}: 2 px out {a}, 30 px out {b}")
             if a and b and sum(a) + 6 <= sum(b) and all(p <= q for p, q in zip(a, b)):
