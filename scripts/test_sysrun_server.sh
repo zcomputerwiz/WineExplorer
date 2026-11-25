@@ -5375,7 +5375,8 @@ ACCLOG="$ROOT/acc-helper.log"; : > "$ACCLOG"; chmod 666 "$ACCLOG"
 ACCSRV=/tmp/accsrv.txt   # the service probe's output (written by session 0's account, Z:\tmp\accsrv.txt)
 # a helper's configuration and run directory that are already there are put back at the end
 [ ! -e "$ACCONF" ] || mv "$ACCONF" "$ACCONF.wextest"
-ACCRUNWAS="$(stat -c '%U:%G %a' "$ACCRUN" 2>/dev/null || true)"
+# numeric: an owner without a passwd name (a test account an earlier section deleted) reads as UNKNOWN by name
+ACCRUNWAS="$(stat -c '%u:%g %a' "$ACCRUN" 2>/dev/null || true)"
 install -d -m 755 /etc/wineexplorer
 install -d -m 755 -o "$ACCH" "$ACCRUN"
 [ -z "$ACCRUNWAS" ] || chown "$ACCH" "$ACCRUN"
