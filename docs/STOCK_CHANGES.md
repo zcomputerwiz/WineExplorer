@@ -1,5 +1,21 @@
 # Changes to stock Wine / third-party code
 
+## ntdll: FSCTL_SET_ZERO_DATA (B106, 2026-11-25)
+
+Wine 7217a7389b7 (branch `claude/edge-signin-stacking`), **not pinned** (see the effect). Upstreamable.
+
+- `dlls/ntdll/unix/file.c` (`NtFsControlFile`, new `zero_file_range`): the range is deallocated with
+  `fallocate(FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE)`, or written with zeros where the file system does not
+  support that; a range past the end does not extend the file; a short buffer or a reversed range is
+  `STATUS_INVALID_PARAMETER`; the handle needs `FILE_WRITE_DATA`. It went to the server before and failed with
+  `STATUS_NOT_SUPPORTED`. `include/winioctl.h`: `FILE_ZERO_DATA_INFORMATION`.
+- Test: `dlls/ntdll/tests/file.c` (`test_set_zero_data`: the error cases, a plain and a sparse file, the size, a
+  read-only handle). It passes in Wine 64-bit and 32-bit, and on Windows 11 26300 (VM `WinRef-EFR`) with both
+  architectures.
+- Effect: Chromium's setup can zero ranges of its sparse differential update archive. Not checked end to end. This
+  also lets Edge Update update the `webview2`, `edge` and `copilot` components past their pins: the failure of these
+  updates was the only thing that held them. Pin it together with a hold on those updates.
+
 ## ntdll, server, wow64: ProcessCommandLineInformation (B104, 2026-11-24)
 
 Wine 0ec8719014e (branch `claude/edge-signin-stacking`). Upstreamable.
