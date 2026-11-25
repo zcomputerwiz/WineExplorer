@@ -62,3 +62,16 @@ the session 0 service in every row, delete included.
 Not covered here: pause and continue (the test service does not accept them), dependencies (`QueryServiceConfigW`'s
 dependency list is read by the General tab's Dependencies page; to be probed with the page), the service-specific
 control codes, and a service in a session (not session 0) other than one the caller creates.
+
+## The Services node (2026-11-24) and its test
+
+`src/dlls/compmgmt/services.c`: the list (Name, Description, Status, Startup Type, Log On As), Start, Stop, Pause, Resume and
+Restart from the Action menu and the right-click menu (enabled as the selected service's state and accepted controls allow),
+and the Properties sheet (General: names, description, path, startup type and the four buttons; Log On: the account, read
+only; Recovery: grayed with the reason of gap 1; Dependencies: both lists). A change refused with access denied offers to open
+Computer Management again as an administrator (the consent prompt), as the other consoles do.
+
+Test: `scripts/lab/compmgmt-services-test.sh` (as root in wexgpo, after `wex-run.sh build`): drives the console under Xvfb,
+starts and stops the Print Spooler through the right-click menu, checks the state with `sc query`, and keeps screenshots
+(`/root/out/cmsvc-*.png`). Root is allowed to change services, so the elevation offer is not driven there; the denied
+paths are the survey's rows above.
