@@ -118,6 +118,29 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.
+     - **Not occlusion; a lost update, and why (2026-11-25).**
+       * Windows reproduces the black strips: under wintrace (a slow, debugged start) the tab strip, menu bar and status bar
+         stay empty although the window is visible, not cloaked and in the foreground. One ALT key press at 12 s brings
+         everything (18 surface BeginDraw and 22 d2d slot 15 calls within 3 s). Started normally with no input, Windows draws
+         them by itself. So the strips need a later UI frame that a slow start can lose.
+       * Under Wine that later frame never comes because the UI thread stops pumping window messages. On Windows the thread
+         that owns Notepad's window and input site waits in `GetMessageW`. Under Wine the same thread only peeks (`get_message`
+         with PM_REMOVE, empty) and then blocks in a plain ALPC receive on its CoreMessaging port (`alpc_send_receive`, flags
+         0, then an infinite select on the port alone). Window messages to it pile up unread (WM_COMMAND, WM_USER, Wine's
+         internal messages, a sent WM_SETCURSOR). Shared-texture coherence (Integration's 230e5f7e) does not change this
+         (lab run: 3 surface draws, no slot 15).
+       * What Windows does instead (wintrace, `win32u.dll` exports): the UI thread calls
+         `NtUserInitThreadCoreMessagingIocp2` twice early on (it returns a handle, 0x3e8) and
+         `NtUserDrainThreadCoreMessagingCompletions2` later. A second CoreMessaging thread does the same (init once, then
+         drain about every 0.3-0.5 s). `NtUserInitThreadCoreMessagingIocp`, `NtUserDrainThreadCoreMessagingCompletions`,
+         `NtUserRegisterCoreMessagingEndPoint`, `NtUserWaitForMsgAndEvent` and `NtUserRealWaitMessageEx` are not called. In
+         Wine all four CoreMessaging syscalls (and `NtMinInteropCoreMessagingWithInput`) are `@ stub -syscall`, so
+         CoreMessaging falls back to its blocking ALPC loop on the UI thread.
+       * Next: measure the two calls on Windows (black box: their arguments and results, what the returned handle is, how
+         completions reach a thread waiting in GetMessage), then implement them in win32u and the server so that CoreMessaging's
+         port completions wake the thread's message wait. Probe scripts: `wt-iocp.ps1` pattern (wintrace with
+         `win32u.dll!NtUserInitThreadCoreMessagingIocp2:...:R`; no `:R` on hot exports such as `NtAlpcSendWaitReceivePort`,
+         it crashes Notepad).
      - Inside Windows' dcomp, `CreateSurface` asks d3d11's private interface (slot 12, width/height/format) for the texture and
        d3d11 calls `DCompositionCreateSurfaceHandle`. That is internal to the system dcomp; Wine's dcomp makes its textures
        itself.
