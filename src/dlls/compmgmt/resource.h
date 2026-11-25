@@ -99,6 +99,46 @@
 #define IDS_STARTUP_BOOT        36
 #define IDS_STARTUP_SYSTEM      37
 
+/* the Users and Groups nodes */
+#define IDM_USR_NEW             1040
+#define IDM_USR_DELETE          1041
+#define IDM_USR_PASSWORD        1042
+#define IDM_USR_PROPERTIES      1043
+
+#define IDD_USR_NEW             210
+#define IDD_USR_PASSWORD        211
+#define IDD_USR_GENERAL         212
+#define IDD_USR_MEMBEROF        213
+#define IDD_GRP_PROPS           214
+
+#define IDC_USR_NAME            330
+#define IDC_USR_FULLNAME        331
+#define IDC_USR_PW1             332
+#define IDC_USR_PW2             333
+#define IDC_USR_DISABLED        334
+#define IDC_USR_CREATE          335
+#define IDC_USR_NOTE            336
+#define IDC_USR_GROUPS          337
+#define IDC_USR_ADD             338
+#define IDC_USR_REMOVE          339
+
+#define IDS_USR_COL_FULLNAME    40
+#define IDS_USR_ERROR           41
+#define IDS_USR_DELETE_ASK      42
+#define IDS_USR_DELETE_TITLE    43
+#define IDS_USR_PW_MISMATCH     44
+#define IDS_USR_NAME_EMPTY      45
+#define IDS_USR_UNAVAILABLE     46
+#define IDS_USR_PROPS_TITLE     47
+#define IDS_USR_PW_TITLE        48
+#define IDS_USR_PW_WARN         49
+#define IDS_ERR_EXISTS          50
+#define IDS_ERR_PWD_SHORT       51
+#define IDS_ERR_NOT_FOUND       52
+#define IDS_ERR_LAST_ADMIN      53
+#define IDS_ERR_LOGGED_IN       54
+#define IDS_ERR_UNREACHABLE     55
+
 #define IDI_COMPMGMT            1
 
 #endif

@@ -108,6 +108,96 @@ FONT 8, "MS Shell Dlg"
     LISTBOX      IDC_SVC_DEPENDENTS, 10, 116, 232, 70, LBS_NOSEL | WS_VSCROLL | WS_BORDER
 }
 
+/* Local Users and Groups: the dialogs (users.c) */
+IDD_USR_NEW DIALOGEX 0, 0, 220, 170
+STYLE DS_SHELLFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "New User"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT        "&User name:", -1, 10, 12, 70, 10
+    EDITTEXT     IDC_USR_NAME, 84, 10, 126, 12, ES_AUTOHSCROLL
+    LTEXT        "&Full name:", -1, 10, 30, 70, 10
+    EDITTEXT     IDC_USR_FULLNAME, 84, 28, 126, 12, ES_AUTOHSCROLL
+    LTEXT        "&Password:", -1, 10, 54, 70, 10
+    EDITTEXT     IDC_USR_PW1, 84, 52, 126, 12, ES_AUTOHSCROLL | ES_PASSWORD
+    LTEXT        "&Confirm password:", -1, 10, 72, 70, 10
+    EDITTEXT     IDC_USR_PW2, 84, 70, 126, 12, ES_AUTOHSCROLL | ES_PASSWORD
+    AUTOCHECKBOX "Account is &disabled", IDC_USR_DISABLED, 84, 94, 126, 10
+    DEFPUSHBUTTON "C&reate", IDC_USR_CREATE, 100, 140, 50, 14
+    PUSHBUTTON   "Cl&ose", IDCANCEL, 160, 140, 50, 14
+}
+
+IDD_USR_PASSWORD DIALOGEX 0, 0, 240, 150
+STYLE DS_SHELLFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Set Password"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT        "", IDC_USR_NOTE, 10, 8, 220, 60
+    LTEXT        "&New password:", -1, 10, 78, 80, 10
+    EDITTEXT     IDC_USR_PW1, 94, 76, 136, 12, ES_AUTOHSCROLL | ES_PASSWORD
+    LTEXT        "&Confirm password:", -1, 10, 96, 80, 10
+    EDITTEXT     IDC_USR_PW2, 94, 94, 136, 12, ES_AUTOHSCROLL | ES_PASSWORD
+    DEFPUSHBUTTON "OK", IDOK, 120, 128, 50, 14
+    PUSHBUTTON   "Cancel", IDCANCEL, 180, 128, 50, 14
+}
+
+IDD_USR_GENERAL DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "General"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT        "User name:", -1, 10, 14, 62, 10
+    EDITTEXT     IDC_USR_NAME, 76, 12, 166, 12, ES_AUTOHSCROLL | ES_READONLY
+    LTEXT        "&Full name:", -1, 10, 32, 62, 10
+    EDITTEXT     IDC_USR_FULLNAME, 76, 30, 166, 12, ES_AUTOHSCROLL
+    AUTOCHECKBOX "Account is &disabled", IDC_USR_DISABLED, 76, 56, 166, 10
+}
+
+IDD_USR_MEMBEROF DIALOGEX 0, 0, 252, 218
+STYLE DS_SHELLFONT | WS_CHILD | WS_DISABLED | WS_CAPTION
+CAPTION "Member Of"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT        "Member of:", -1, 10, 10, 232, 10
+    LISTBOX      IDC_USR_GROUPS, 10, 22, 232, 120, WS_VSCROLL | WS_BORDER | WS_TABSTOP
+    PUSHBUTTON   "A&dd to Administrators", IDC_USR_ADD, 10, 150, 90, 14
+    PUSHBUTTON   "&Remove", IDC_USR_REMOVE, 106, 150, 50, 14
+}
+
+IDD_GRP_PROPS DIALOGEX 0, 0, 240, 190
+STYLE DS_SHELLFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Group Properties"
+FONT 8, "MS Shell Dlg"
+{
+    LTEXT        "Group name:", -1, 10, 14, 62, 10
+    EDITTEXT     IDC_USR_NAME, 76, 12, 154, 12, ES_AUTOHSCROLL | ES_READONLY
+    LTEXT        "Description:", -1, 10, 32, 62, 10
+    EDITTEXT     IDC_USR_FULLNAME, 76, 30, 154, 12, ES_AUTOHSCROLL | ES_READONLY
+    LTEXT        "Members:", -1, 10, 54, 100, 10
+    LISTBOX      IDC_USR_GROUPS, 10, 66, 220, 90, LBS_NOSEL | WS_VSCROLL | WS_BORDER
+    DEFPUSHBUTTON "OK", IDOK, 180, 166, 50, 14
+}
+
+STRINGTABLE
+{
+    IDS_USR_COL_FULLNAME "Full Name"
+    IDS_USR_ERROR "The operation could not be completed.\n\n%s"
+    IDS_USR_DELETE_ASK "Each user account has a unique identity. If you delete the account %s, the files and settings of the account are not removed, but the account cannot be created again with the same identity.\n\nDo you want to delete the user account?"
+    IDS_USR_DELETE_TITLE "Local Users and Groups"
+    IDS_USR_PW_MISMATCH "The passwords are not the same. Type the same password in both boxes."
+    IDS_USR_NAME_EMPTY "Type a user name."
+    IDS_USR_UNAVAILABLE "The accounts of this computer cannot be shown.\n\n%s"
+    IDS_USR_PROPS_TITLE "%s Properties"
+    IDS_USR_PW_TITLE "Set Password for %s"
+    IDS_USR_PW_WARN "Changing the password lets the user log on with the new one. Anything the user has protected with the old password, such as stored passwords, may not be reachable afterwards."
+    IDS_ERR_EXISTS "The user account already exists."
+    IDS_ERR_PWD_SHORT "The password is shorter than the computer requires."
+    IDS_ERR_NOT_FOUND "The user name could not be found."
+    IDS_ERR_LAST_ADMIN "The last administrator account cannot be removed or changed to a standard account."
+    IDS_ERR_LOGGED_IN "The user is logged on. Log the user off and try again."
+    IDS_ERR_UNREACHABLE "The accounts service of this computer does not answer."
+}
+
 STRINGTABLE
 {
     IDS_COL_STATUS "Status"
@@ -155,6 +245,8 @@ STRINGTABLE
     IDS_NODE_BASE + 12 "Services"
     IDS_NODE_BASE + 13 "WMI Control"
     IDS_NODE_BASE + 14 "Indexing Service"
+    IDS_NODE_BASE + 15 "Users"
+    IDS_NODE_BASE + 16 "Groups"
 
     IDS_DESC_BASE + 0 ""
     IDS_DESC_BASE + 1 ""
@@ -171,10 +263,11 @@ STRINGTABLE
     IDS_DESC_BASE + 12 "Start, stop and configure services"
     IDS_DESC_BASE + 13 "Configure the WMI service"
     IDS_DESC_BASE + 14 "Manage the indexing of files"
+    IDS_DESC_BASE + 15 "Manage the user accounts of this computer"
+    IDS_DESC_BASE + 16 "Manage the groups of this computer"
 
     IDS_REASON_BASE + 2 "Event Viewer is not available yet. This system has no event log service."
     IDS_REASON_BASE + 3 "Shared Folders is not available. File sharing is handled by the host system."
-    IDS_REASON_BASE + 4 "Local Users and Groups is not available yet. The accounts belong to the host system."
     IDS_REASON_BASE + 5 "Performance Logs and Alerts is not available. This system keeps no performance logs."
     IDS_REASON_BASE + 8 "Removable Storage is not available. The host system manages removable media."
     IDS_REASON_BASE + 9 "Disk Defragmenter is not available. The host system owns the file systems."

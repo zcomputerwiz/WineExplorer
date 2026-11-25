@@ -46,4 +46,15 @@ DWORD svc_commands( HWND list );                          /* the SVC_ flags the 
 void svc_command( HWND list, HWND owner, UINT command );   /* IDM_SVC_START ... IDM_SVC_PROPERTIES */
 void svc_context_menu( HWND list, HWND owner, int x, int y );
 
+/* the Users and Groups nodes (users.c): one list view, filled with the accounts or with the groups */
+enum { USR_SELECTED = 1, USR_CAN_NEW = 2, USR_CAN_CHANGE = 4 };
+
+HWND usr_create_view( HWND parent );
+DWORD usr_show( HWND list, BOOL groups );                  /* the error of the netapi32 call; 0 when the list is filled */
+void usr_free( HWND list );
+DWORD usr_commands( HWND list );                           /* the USR_ flags */
+BOOL usr_command( HWND list, HWND owner, UINT command );   /* IDM_USR_*; TRUE when the list should be filled again */
+void usr_context_menu( HWND list, HWND owner, int x, int y );
+const WCHAR *usr_error_text( DWORD err );
+
 #endif
