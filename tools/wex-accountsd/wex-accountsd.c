@@ -18,7 +18,8 @@
  *     checks every rule it can itself: the uid range of /etc/login.defs, never root, system accounts, the grammar and
  *     collisions of names, the hash form, the last administrator, the built-in administrator, the caller's own
  *     account, logged-in users.
- *   - The password is only ever a crypt(3) SHA-512 hash made by the client; it is never logged.
+ *   - The password is only ever a crypt(3) SHA-512 hash made by the client, or the empty string for a blank password
+ *     (docs/BLANK_PASSWORDS.md: an empty shadow field that only the greeter accepts); it is never logged.
  *
  * Usage: wex-accountsd [--config FILE]. Lab options (only with WEX_ACCOUNTSD_TEST=1 in the environment): --bus ADDRESS
  * (a private bus), --listen PATH (make and listen on this socket), --login-defs FILE, --admin-members a,b (instead of
@@ -62,8 +63,11 @@
 
 static struct
 {
-    char s0user[64], unit[128], admin_group[64], builtin[64], sync_unit[128], helper_user[64];
+    char s0user[64], unit[128], admin_group[64], builtin[64], sync_unit[128], helper_user[64], blank_unit[128];
 } cfg;
+
+/* the group that Debian's greeter stacks let in without a password (pam_succeed_if user ingroup nopasswdlogin) */
+#define BLANK_GROUP "nopasswdlogin"
 
 /* The lab options below bypass the peer check (a private bus, a socket of their own, the MainPID from a file): they exist
  * only in a build made with -DWEX_ACCOUNTSD_LAB_TEST (scripts/test_accountsd.py builds one). The shipped binary has none of
@@ -121,6 +125,7 @@ static int load_config( const char *path )
 
     strcpy( cfg.admin_group, "sudo" );
     strcpy( cfg.sync_unit, "wex-accounts-sync.service" );
+    strcpy( cfg.blank_unit, "wex-accounts-blank.service" );
     if (!f) { logf_( "cannot read %s: %s", path, strerror( errno ) ); return 0; }
     while (fgets( line, sizeof(line), f ))
     {
@@ -135,6 +140,7 @@ static int load_config( const char *path )
         else if (!strcmp( line, "admin_group" ) && valid_ident( eq, 63 )) strcpy( cfg.admin_group, eq );
         else if (!strcmp( line, "builtin_administrator" ) && (!*eq || valid_ident( eq, 63 ))) strcpy( cfg.builtin, eq );
         else if (!strcmp( line, "sync_unit" ) && valid_ident( eq, 127 )) strcpy( cfg.sync_unit, eq );
+        else if (!strcmp( line, "blank_unit" ) && valid_ident( eq, 127 )) strcpy( cfg.blank_unit, eq );
         else if (!strcmp( line, "helper_user" ) && valid_ident( eq, 63 )) strcpy( cfg.helper_user, eq );   /* the server reads it too */
         else { logf_( "unknown or bad key %s in %s", line, path ); fclose( f ); return 0; }
     }
@@ -371,6 +377,15 @@ static int valid_hash( const char *h )
     if (strlen( p ) != 86) return 0;
     for (i = 0; i < 86; i++) if (!is_hash_char( (unsigned char)p[i] )) return 0;
     return 1;
+}
+
+/* What a password field of a request may be: a crypt(3) hash of the form above, or the empty string, which is a blank
+ * password (docs/BLANK_PASSWORDS.md). The empty string is never crypt("") (a real password that every stack would take):
+ * it means an empty shadow field, which only the greeter lets in. 0 refuses, 1 a hash, 2 blank. */
+static int password_form( const char *h )
+{
+    if (!h[0]) return 2;
+    return valid_hash( h ) ? 1 : 0;
 }
 
 static int uid_in_range( uid_t uid )
@@ -774,13 +789,93 @@ static void rollback_create( uint32_t uid )
     sd_bus_error_free( &err );
 }
 
+/* ------------------------------------------------------------------------------------- blank passwords */
+
+/* Is this name a member of the greeter's passwordless group? Read from the group file itself, as admin_members does. */
+static int in_blank_group( const char *name )
+{
+    char *line = NULL, *save;
+    size_t cap = 0;
+    int found = 0;
+    FILE *f = fopen( group_path, "re" );
+
+    if (!f) return 0;
+    while (!found && getline( &line, &cap, f ) > 0)
+    {
+        char *g, *members, *m;
+
+        line[strcspn( line, "\n" )] = 0;
+        g = strtok_r( line, ":", &save );
+        if (!g || strcmp( g, BLANK_GROUP )) continue;
+        strtok_r( NULL, ":", &save );
+        strtok_r( NULL, ":", &save );
+        members = strtok_r( NULL, ":", &save );
+        if (members)
+            for (m = strtok_r( members, ",", &save ); m; m = strtok_r( NULL, ",", &save )) if (!strcmp( m, name )) found = 1;
+        break;
+    }
+    free( line );
+    fclose( f );
+    return found;
+}
+
+/* AccountsService on Debian does not keep nopasswdlogin (it runs passwd -d and nothing else), so a root-run unit does: it
+ * makes the group's members exactly the accounts whose shadow field is empty (installer/blank/wex-accounts-blank-reconcile).
+ * The helper only asks for it, through the one polkit grant, and checks the result in the group file. */
+static int start_blank_reconcile( void )
+{
+    sd_bus_error err = SD_BUS_ERROR_NULL;
+    int r = sd_bus_call_method( bus, SD_DEST, "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "StartUnit", &err,
+                                NULL, "ss", cfg.blank_unit, "replace" );
+
+    if (r < 0) { r = map_error( r, &err ); sd_bus_error_free( &err ); return r; }
+    return WEXA_OK;
+}
+
+/* the reconcile has run when the group file says so: wait (at most 8 s) until the user is, or is not, a member */
+static int wait_membership( const char *name, int want )
+{
+    int i;
+
+    for (i = 0; i < 80; i++)
+    {
+        if (in_blank_group( name ) == want) return 1;
+        usleep( 100000 );
+    }
+    return 0;
+}
+
+/* The password of a user, in either form (password_form): a hash is SetPassword; a blank is SetPasswordMode(NONE), which
+ * empties the shadow field. Invariant: a user is in nopasswdlogin if and only if the shadow field is empty. A blank is
+ * finished when the reconcile has put the user in the group (until then the greeter refuses it: fail safe); a hash is
+ * finished when the reconcile has taken the user out (the account is passwordless at the greeter until then, as it was).
+ * An account that is locked has "!" in the field, so it is not blank and not a member. */
+static int apply_password( const struct user_info *u, const char *hash, int will_be_locked )
+{
+    int status;
+
+    if (!hash[0])
+    {
+        if ((status = call_user_method( u, "SetPasswordMode", "i", 2 )) != WEXA_OK) return status;
+        if (will_be_locked) return WEXA_OK;
+        if ((status = start_blank_reconcile()) != WEXA_OK) return status;
+        return wait_membership( u->name, 1 ) ? WEXA_OK : WEXA_BUSY;
+    }
+    if ((status = call_user_method( u, "SetPassword", "ss", hash, "" )) != WEXA_OK) return status;
+    if (!in_blank_group( u->name )) return WEXA_OK;
+    if ((status = start_blank_reconcile()) != WEXA_OK) return status;
+    if (wait_membership( u->name, 0 )) return WEXA_OK;
+    logf_( "user '%s' has a password but is still in %s", u->name, BLANK_GROUP );
+    return WEXA_BUSY;
+}
+
 static int handle_op( const struct wexa_request *req, const uint8_t *body, struct writer *w, char *logname, char *hash )
 {
     struct reader r = { body, body + req->body_len, 0 };
     char name[WEXA_MAX_STR + 1], other[WEXA_MAX_STR + 1], full[WEXA_MAX_STR + 1];
     struct user_info u;
     int status;
-    uint32_t value;
+    uint32_t value, locked;
     int change;
 
     if (req->op < WEXA_LIST_USERS || req->op >= WEXA_OP_LAST || req->flags) return WEXA_BAD_REQUEST;
@@ -817,9 +912,13 @@ static int handle_op( const struct wexa_request *req, const uint8_t *body, struc
         rd_str( &r, full, sizeof(full) );
         value = rd_u32( &r );
         rd_str( &r, hash, WEXA_MAX_STR + 1 );
-        if (r.bad || r.p != r.end) return WEXA_BAD_REQUEST;
+        /* an optional trailing u32: create the account disabled, in the one operation (so that it is never enabled, even
+         * briefly); the older form without it creates an enabled one */
+        locked = 0;
+        if (!r.bad && r.p != r.end) locked = rd_u32( &r );
+        if (r.bad || r.p != r.end || locked > 1) return WEXA_BAD_REQUEST;
         set_logname( logname, name );
-        if (!valid_user_name( name ) || !valid_full_name( full ) || value > 1 || !valid_hash( hash )) return WEXA_BAD_ARGUMENT;
+        if (!valid_user_name( name ) || !valid_full_name( full ) || value > 1 || !password_form( hash )) return WEXA_BAD_ARGUMENT;
         if (!name_is_free( name )) return WEXA_EXISTS;
         {
             sd_bus_error err = SD_BUS_ERROR_NULL;
@@ -839,8 +938,13 @@ static int handle_op( const struct wexa_request *req, const uint8_t *body, struc
             if ((status = find_user( name, &u )) != WEXA_OK) return status;   /* it exists, but we cannot say more */
         }
         if (!uid_in_range( u.uid ) || u.system_account) { rollback_create( u.uid ); return WEXA_DENIED; }
-        if ((status = call_user_method( &u, "SetPassword", "ss", hash, "" )) != WEXA_OK) { rollback_create( u.uid ); return status; }
+        if ((status = apply_password( &u, hash, locked )) != WEXA_OK) { rollback_create( u.uid ); return status; }
         if (value == 1 && (status = call_user_method( &u, "SetAccountType", "i", 1 )) != WEXA_OK)
+        {
+            rollback_create( u.uid );
+            return status;
+        }
+        if (locked && (status = call_user_method( &u, "SetLocked", "b", 1 )) != WEXA_OK)
         {
             rollback_create( u.uid );
             return status;
@@ -918,10 +1022,13 @@ static int handle_op( const struct wexa_request *req, const uint8_t *body, struc
         rd_str( &r, hash, WEXA_MAX_STR + 1 );
         if (r.bad || r.p != r.end) return WEXA_BAD_REQUEST;
         set_logname( logname, name );
-        if (!valid_hash( hash )) return WEXA_BAD_ARGUMENT;
+        if (!password_form( hash )) return WEXA_BAD_ARGUMENT;
         if ((status = find_user( name, &u )) != WEXA_OK) return status;
         if ((status = check_target( &u, req->caller_uid )) != WEXA_OK) return status;
-        return call_user_method( &u, "SetPassword", "ss", hash, "" );
+        /* a blank password for a disabled account would leave it neither blank nor disabled in a way that can be undone
+         * (the lock puts "!" in the field): the account is enabled first, or given a password */
+        if (!hash[0] && u.locked) return WEXA_BAD_ARGUMENT;
+        return apply_password( &u, hash, 0 );
     }
     return WEXA_BAD_REQUEST;
 }
@@ -970,6 +1077,8 @@ static int serve_datagram( int fd, uint8_t *buf )
     return n >= 0;
 }
 
+static int blank_checked;
+
 static void serve_connection( int fd )
 {
     static uint8_t buf[WEXA_MAX_FRAME + 1];
@@ -979,6 +1088,13 @@ static void serve_connection( int fd )
     open_bus();
     if (!peer_ok( fd )) { logf_( "peer refused" ); return; }
     setsockopt( fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv) );
+    /* once per start of the helper: the root-run reconcile repairs the passwordless group (a member whose field is not
+     * empty is removed, an empty field's account is added), so that a change made outside of us never stands */
+    if (!blank_checked && bus)
+    {
+        blank_checked = 1;
+        if (start_blank_reconcile() != WEXA_OK) logf_( "the blank-password reconcile could not be started" );
+    }
     while (serve_datagram( fd, buf )) {}
 }
 
