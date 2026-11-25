@@ -1,0 +1,6 @@
+MODULE    = compmgmt.dll
+IMPORTS   = comctl32 shell32 user32 gdi32 kernel32
+
+SOURCES = \
+	compmgmt.c \
+	compmgmt.rc
