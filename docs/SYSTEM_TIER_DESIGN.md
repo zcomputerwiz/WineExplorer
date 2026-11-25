@@ -201,6 +201,27 @@ candidate for upstream.
 5. **Token attestation** by the user's launcher-started server (recommended), or Unix identity only.
 6. **Order:** T0 now; then T1 with the services split alongside.
 
+## Invariant behind the attestation (recorded 2026-11-24, Session 0 reviewer)
+
+Session 0 believes a token description from a peer that looks like a user's launcher-started server: the user's uids,
+saved group `wexsys` and real group not, non-dumpable, named `wineserver` (`wex_sysrun_peer_ok`). That check is sound
+only while this holds:
+
+**Inside a user's session, the only processes that run with saved group `wexsys` are machine-root code (wineboot's
+init mode from the root-owned machine prefix, with a sanitized environment) and programs an administrator approved
+through the elevation broker.** An administrator is a sudoer anyway, so neither can gain anything by posing as the
+user's server.
+
+Any new launcher mode or path that gives a standard user's own code a saved group of `wexsys` breaks this: that code
+could set its name with `prctl(PR_SET_NAME, "wineserver")`, pass the check, and describe an elevated token. Check every
+change to the launcher (`wex-sysrun`, `server/sysrun.c`) and to the elevation broker against this rule.
+
+The same facts do **not** tell session 0's own server apart from session 0's Windows services: those run under
+session 0's uid with saved group `wexsys`, non-dumpable, and can set their name too. A native helper that must accept
+only session 0's server (for example the accounts helper of `LOCAL_USERS_DESIGN.md`) identifies it as the main process
+of its systemd unit, read over D-Bus at each connection and compared with the pidfd-pinned peer, with the attestation
+checks only as additional sanity checks.
+
 ## Sources
 
 - Registry virtualization: https://learn.microsoft.com/en-us/previous-versions/dotnet/articles/bb530198(v=msdn.10)
