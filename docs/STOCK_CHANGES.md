@@ -5081,6 +5081,19 @@ for the accounts service alone.
 Tests: section `s0_accounts` (a second LocalSystem service with its own SID, wexaccounts without its SID, the service's
 token).
 
+## netapi32: Local Users and Groups through the accounts service (2026-11-25)
+
+`dlls/netapi32` (Wine `claude/gpo-lusrmgr`): on a machine that has a session 0, the local-computer calls of `NetUserEnum`,
+`NetUserGetInfo`, `NetUserAdd`, `NetUserDel`, `NetUserGetLocalGroups`, `NetUserChangePassword` and all `NetLocalGroup*` are
+answered by the accounts service over `\\.\pipe\WexSession0\accounts` (new `wexaccounts.c`, `wexaccounts.h`; the hooks are
+three-line `if (...local... && wexa_active())` returns in `netapi32.c`). `NetUserSetInfo` (stock: a stub in the spec) is now
+exported, levels 0 (rename), 1, 1003, 1008, 1011. Passwords are hashed in the client (`sha512crypt.c`, SHA-512 crypt over
+`bcrypt`, written from the published description and checked against `openssl passwd -6`); the helper only checks the form.
+Phase 1 knows two local groups, Administrators and Users. A machine without a session 0 keeps Wine's own behaviour;
+`WEX_NETAPI_STOCK=1` forces that on any machine, `WEX_ACCOUNTS_PIPE` names another pipe (tests). With a session 0 and the
+service unreachable the calls give 1722, never the in-memory list (U5). `Makefile.in` imports `bcrypt`. Test: the netapi
+checks of section `s0_accounts_chain` (`scripts/netapi_accounts_probe.c`).
+
 ## Menu and tooltip shadows are on by default (2026-11-25)
 
 Wine `eb00215e` on `claude/menu-shadow`, `dlls/win32u/sysparams.c`: the default `UserPreferencesMask` has the

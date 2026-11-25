@@ -649,6 +649,7 @@ x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe64.exe" "$SRC/script
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/scmloop64.exe" "$SRC/scripts/scm_loop_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/pipeloop64.exe" "$SRC/scripts/pipe_loop_probe.c"
 x86_64-w64-mingw32-gcc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/accchain64.exe" "$SRC/scripts/accounts_chain_probe.c"
+x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/netapi64.exe" "$SRC/scripts/netapi_accounts_probe.c" -lnetapi32
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe32.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/alpcpair64.exe" "$SRC/tests/uwp/alpc/alpc-pair.c" -ladvapi32   # ALPC impersonation, one role per process
 # the WinSta0 holder of el_up, which sections of every group use (built here, not in c4_build, so a section run alone has it)
@@ -5847,6 +5848,51 @@ ok st_chain_helper_restart_in_flight_gives_unavailable
 start_helper
 [ "$(as_chain "$STD" read alice | st)" = 0 ] || chain_fail "chain: the chain did not recover after the helper came back"
 ok st_chain_recovers_after_the_helper_returns
+# the same through netapi32 (NetUser*, NetLocalGroup*: Local Users and Groups). A reader sees the accounts and the two groups;
+# only an elevated administrator changes; a new password reaches AccountsService as a SHA-512 crypt hash, never as text
+as_na() { local u="$1"; shift; as_wine "$u" "$ROOT/probes/netapi64.exe" "$@" | tr -d '\r'; }
+el_na()   # name args...: the netapi probe as ADM's elevated process
+{
+    local name="$1" out="/tmp/wexnetapi.$1.txt"; shift
+    rm -f "$out"
+    run_as "$ADM" install -d -m 0755 "/home/$ADM/wexel"; run_as "$ADM" cp "$ROOT/probes/netapi64.exe" "/home/$ADM/wexel/netapi.exe"
+    el_cmd "chain_na_$name" "$ADM" "$(winpath /home/$ADM/wexel/netapi.exe) $* --out $(winpath "$out")"
+    tr -d '\r' < "$out" 2>/dev/null
+}
+OUT="$(as_na "$STD" list)"
+[ "$(st <<<"$OUT")" = 0 ] && grep -q 'names=.*alice' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: NetUserEnum through the chain"; }
+OUT="$(as_na "$STD" info alice)"
+[ "$(st <<<"$OUT")" = 0 ] && grep -q 'name=alice ' <<<"$OUT" && grep -Eq 'rid=[0-9]+' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: NetUserGetInfo"; }
+[ "$(as_na "$STD" info nosuchnetuser | st)" = 2221 ] || chain_fail "netapi: an unknown user is not NERR_UserNotFound"
+OUT="$(as_na "$STD" groups)"
+grep -q 'names=Administrators,Users' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: NetLocalGroupEnum"; }
+OUT="$(as_na "$STD" members Administrators)"
+grep -q '\\alice' <<<"$OUT" && grep -q '\\bob' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: the members of Administrators"; }
+OUT="$(as_na "$STD" localgroups alice)"
+grep -q 'names=.*Administrators' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: the groups of an administrator"; }
+[ "$(as_na "$STD" add zednet 'Passw0rd!x' | st)" = 5 ] || chain_fail "netapi: a standard user was not refused NetUserAdd"
+[ "$(as_na "$STD" changepw alice old new | st)" = 50 ] || chain_fail "netapi: NetUserChangePassword with an old password is not ERROR_NOT_SUPPORTED"
+! grep -q '"user": "zednet"' "$CH/fake.log" || chain_fail "netapi: a refused add reached AccountsService"
+ok st_netapi_reads_and_refusals
+OUT="$(el_na n1 add zednet 'Passw0rd!x')"
+[ "$(st <<<"$OUT")" = 0 ] || { echo "$OUT" >&2; chain_fail "netapi: the elevated NetUserAdd gave [$(st <<<"$OUT")]"; }
+grep -q '"op": "CreateUser", "user": "zednet"' "$CH/fake.log" || chain_fail "netapi: the add did not reach AccountsService"
+grep -Eq '"op": "SetPassword", "user": "zednet", "value": "\$6\$[./0-9A-Za-z]{1,16}\$[./0-9A-Za-z]{86}"' "$CH/fake.log" || { tail -5 "$CH/fake.log" >&2; chain_fail "netapi: the password did not arrive as a SHA-512 crypt hash"; }
+! grep -rq 'Passw0rd' "$CH/fake.log" "$CH/helper.log" || chain_fail "netapi: a password reached a log as text"
+[ "$(as_na "$STD" info zednet | st)" = 0 ] || chain_fail "netapi: the new user is not there for a reader"
+[ "$(el_na n2 fullname zednet NetTest | st)" = 0 ] || chain_fail "netapi: the elevated NetUserSetInfo 1011"
+grep -q '"op": "SetRealName", "user": "zednet", "value": "NetTest"' "$CH/fake.log" || chain_fail "netapi: the full name did not reach AccountsService"
+[ "$(el_na n3 addmember Administrators "$(hostname)\\zednet" | st)" = 0 ] || chain_fail "netapi: NetLocalGroupAddMembers"
+grep -q '"op": "SetAccountType", "user": "zednet", "value": 1' "$CH/fake.log" || chain_fail "netapi: the new administrator did not reach AccountsService"
+[ "$(el_na n4 delmember Administrators "$(hostname)\\zednet" | st)" = 0 ] || chain_fail "netapi: NetLocalGroupDelMembers"
+[ "$(el_na n5 del zednet | st)" = 0 ] || chain_fail "netapi: the elevated NetUserDel"
+grep -q '"op": "DeleteUser"' "$CH/fake.log" || chain_fail "netapi: the delete did not reach AccountsService"
+ok st_netapi_elevated_administrator_manages_users_and_groups
+stop_helper
+[ "$(as_na "$STD" list | st)" = 1722 ] || chain_fail "netapi: with no helper NetUserEnum did not give RPC_S_SERVER_UNAVAILABLE (1722), and must not fall back to a list of its own"
+start_helper
+[ "$(as_na "$STD" info alice | st)" = 0 ] || chain_fail "netapi: no recovery after the helper came back"
+ok st_netapi_unreachable_service_is_1722_not_a_local_list
 # what the helper logged: reads as users, changes as elevated, the caller's uid, never a hash
 grep -q 'verdict 1 ' "$CH/helper.log" && grep -q 'verdict 2 ' "$CH/helper.log" || chain_fail "chain: the helper's log lacks the verdicts of both classes"
 grep -q "caller $ADM_UID " "$CH/helper.log" || chain_fail "chain: the helper's log lacks the caller's uid"
