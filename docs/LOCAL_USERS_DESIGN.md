@@ -2,179 +2,183 @@
 
 # Local Users and Groups (design note)
 
-Status: draft 1, 2026-11-24, GPO and Domain agent. For review by the Session 0 reviewer and the orchestrator before any
-code (step 3 of the Computer Management plan, [XP_SETTINGS_GAPS.md](XP_SETTINGS_GAPS.md)). It is the back end of the
-`lusrmgr.msc` node of Computer Management, and of `net user`, `net localgroup` and, later, the User Accounts panel.
-Constraints from the orchestrator (2026-11-24): the authority stays the Linux accounts plus
-`/etc/wineexplorer/accounts.map`, kept in sync by the root tool `wex-accounts` and its watcher
-([E1_S4_ACCOUNTS_MAP.md](E1_S4_ACCOUNTS_MAP.md)); **Wine never writes the map**; account changes go through D-Bus
-(AccountsService, polkit-authorized for an administrator), as OOBE does (`src/dlls/wexhost/unixlib.c`, `user_create`);
-`netapi32`'s `NetUser*` and `NetLocalGroup*` become clients of that path, so every program gets it, not only the snap-in.
+Status: design draft 2, 2026-11-24, GPO and Domain agent. Draft 1 (the same day) put the authorization in a polkit rule
+that inspected the calling process; the orchestrator answered that only the Wine server knows whether a caller is an
+elevated administrator, and that machine-wide changes go through session 0 (as the registry and the event log do). This
+draft is that design. For review by the Session 0 reviewer and the orchestrator before any code (step 3 of the Computer
+Management plan, [XP_SETTINGS_GAPS.md](XP_SETTINGS_GAPS.md)). It is the back end of the `lusrmgr.msc` node of Computer
+Management, and of `net user`, `net localgroup` and, later, the User Accounts panel.
+
+Constraints (orchestrator, 2026-11-24): the authority stays the Linux accounts plus `/etc/wineexplorer/accounts.map`, kept
+in sync by the root tool `wex-accounts` and its watcher ([E1_S4_ACCOUNTS_MAP.md](E1_S4_ACCOUNTS_MAP.md)); **Wine never
+writes the map**; account changes go through D-Bus (AccountsService, polkit-authorized), as OOBE does
+(`src/dlls/wexhost/unixlib.c`, `user_create`); `netapi32`'s `NetUser*` and `NetLocalGroup*` become clients of that path,
+so every program gets it, not only the snap-in; the same patterns as the event log service
+([EVENTLOG_DESIGN.md](EVENTLOG_DESIGN.md)): a bridged pipe, an identification-level client, our own versioned protocol, limits,
+no path or name trusted from the client.
 
 ## What exists
 
 - `netapi32` (`dlls/netapi32/netapi32.c`) keeps a per-process in-memory `sam_user` list: `NetUserAdd` adds to it,
   `NetUserDel` removes from it (and returns `ERROR_INVALID_LEVEL`, a stock bug), nothing reaches the host, nothing
-  survives the process. `NetUserSetInfo`, `NetUserSetGroups`, `NetGroupAdd` and others are stubs;
+  survives the process. `NetUserSetInfo`, `NetUserSetGroups` and the `NetGroup*` calls are stubs;
   `NetLocalGroupAdd` and `NetLocalGroupAddMember(s)` are stubs that succeed.
-- `wexhost` already talks to `org.freedesktop.Accounts` from the session: `FindUserById`, `ListCachedUsers`, and (OOBE)
-  `CreateUser` with account type 1 (administrator = the sudo group), `SetPassword` (a crypt(3) SHA-512 hash built in
-  the module, libcrypt loaded at run time), `SetPasswordMode`, `SetXSession`, `SetAutomaticLogin`.
+- `wexhost` already talks to `org.freedesktop.Accounts` from the OOBE: `CreateUser` with account type 1 (administrator =
+  the sudo group), `SetPassword` (a crypt(3) SHA-512 hash built in the module, libcrypt loaded at run time),
+  `SetPasswordMode`, and from the session `FindUserById`, `ListCachedUsers`. That code is the model of the calls, not
+  the path: it runs where nothing else is asked.
 - The accounts map gives every account a stable SID (`S-1-5-21-<machine>-<RID>`, RID 500 for the built-in
-  administrator, counter RIDs from 1001; domain accounts from version 2). `wex-accounts sync` runs from a path unit and a
+  administrator, counter RIDs from 1001; domain accounts in version 2). `wex-accounts sync` runs from a path unit and a
   timer, so a new Linux account reaches the map by itself, as root, without Wine writing it.
-- The server decides "administrator" with one rule: membership of `admin_group=` of `sysrun.conf` (default `sudo`),
-  plus Domain Admins (RID 512) of the joined domain (`wex-is-admin`, `user_is_administrator`).
+- The server decides "administrator" with one rule (the `admin_group=` of `sysrun.conf`, default `sudo`, plus Domain
+  Admins), and knows the token of every caller; the pipe bridge (T5.2) hands session 0 the caller's token and real
+  process id (R6 step 2).
 
-## Goals
+## Goals and non-goals
 
-1. `lusrmgr.msc` (a node of Computer Management and a console of its own): list, create, rename, set the full name and
-   description of, disable, enable, set the password of and delete local users; list the local groups and their members;
-   put a user in the Administrators group or take the user out.
-2. `net user` and `net localgroup`, and any program using `NetUser*`/`NetLocalGroup*`, see and change the same accounts.
-3. Nothing here writes the accounts map, the token, or session 0's registry: the map follows the Linux accounts by its own
-   watcher; tokens are made by the server from the map and the group rule, as now.
+Goals: (1) `lusrmgr.msc`: list, create, rename, set the full name of, disable, enable, set the password of and delete
+local users; list the local groups and their members; put a user in Administrators or take the user out. (2) `net user`
+and `net localgroup` and every program that uses `NetUser*`/`NetLocalGroup*` see and change the same accounts.
+(3) Nothing here writes the accounts map, the token, or session 0's registry.
 
-Non-goals (stated as grayed items with a reason, never silently ignored): password policy and age, "password never
-expires", logon hours, profile and home paths, terminal services profile (the host's PAM and the domain own them);
-creating groups of our own (see Groups); remote computers (`ERROR_NOT_SUPPORTED`).
+Non-goals, shown grayed with a reason, never silently ignored: password policy and age, "password never expires",
+logon hours, profile and home paths (the host's PAM and the domain own them); custom local groups and domain members of
+local groups (phase 2); remote computers (`ERROR_NOT_SUPPORTED`).
 
 ## The model
 
 | Windows | Here |
 |---|---|
 | a local user | a Linux account of UID 1000 or more (AccountsService's non-system users), SID from the accounts map |
-| full name | the account's real name (GECOS, AccountsService `RealName`) |
-| description (comment) | AccountsService has no field for it and D-Bus cannot reach the other GECOS parts. Proposed: the description is empty and read-only, shown grayed with the reason. Phase 2 may keep it in a root-owned file the root tool maintains. |
-| account disabled | AccountsService `Locked` (the host's `passwd -l` state); the logon screen already hides locked accounts |
+| full name | the account's real name (AccountsService `RealName`) |
+| description (comment) | AccountsService has no field for it. The description is empty and read-only, grayed with the reason. Phase 2 may keep it in a root-owned file the root tool maintains. |
+| account disabled | AccountsService `Locked`; the logon screen already hides locked accounts |
 | administrator / standard | AccountsService `AccountType` 1 / 0 = membership of the admin group (sudo) |
-| Administrators (S-1-5-32-544) | the admin group, members = users in it (+ Domain Admins implicitly on a joined machine, read-only, as on Windows) |
+| Administrators (S-1-5-32-544) | the admin group, members = the users in it (+ Domain Admins implicitly on a joined machine, read-only, as on Windows) |
 | Users (S-1-5-32-545) | every local account and Authenticated Users: computed, membership not editable |
-| Guests, Power Users, Backup Operators, Replicator, others | shown only if they have a Linux group behind them: none in phase 1, so the node lists Administrators and Users; the rest are absent, not grayed |
-| user rename | `wex-accounts rename` (root tool) exists; through D-Bus only `SetUserName`, which AccountsService implements; the map keeps the SID across a rename (`wex-accounts` rename rule) |
+| Guests, Power Users, Backup Operators, Replicator, custom | none in phase 1: the node lists Administrators and Users, the rest are absent |
+| user rename | AccountsService `SetUserName`; the map keeps the SID across a rename (`wex-accounts` rename rule) |
 
-SIDs are never made by `netapi32`: a user's SID in `NetUserGetInfo` level 23 and the snap-in comes from the accounts map
-(read through the existing lookup the server already offers to `LookupAccountName`), so the answer matches the token's.
+A user's SID in `NetUserGetInfo` level 23 and in the snap-in comes from the accounts map through the lookup the server
+already offers (`LookupAccountName`), so it is the same SID the token has. `netapi32` never makes one.
 
 ## Layers
 
 ```
 lusrmgr snap-in / net.exe / any program
     netapi32: NetUserAdd/Del/Enum/GetInfo/SetInfo/ChangePassword, NetLocalGroup*   (Wine's names and structures)
-        wexhost.dll (PE side) -> wexhost unixlib: libdbus to the SYSTEM bus
-            org.freedesktop.Accounts (AccountsService), polkit decides
+        \pipe\WexSession0\accounts   (bridged to session 0; our protocol, versioned)
+            the accounts service in session 0
+                org.freedesktop.Accounts on the system bus (AccountsService), polkit decides
 ```
 
-- `netapi32` calls `wexhost` only on a WineExplorer system; on any other Wine the in-memory list stays (it is stock
-  behaviour, and Wine's own tests of it must keep passing): the switch is the same one the other wexhost clients use
-  (`wexhost` loadable and D-Bus reachable), decided once per process.
-- Reads (enumerate, get info, group members) need no authorization: AccountsService `ListCachedUsers` and
-  `FindUserByName`, `GetUid`, `Locked`, `AccountType`, and `getgrnam` for the admin group's members (read directly from
-  the group database: it is world readable). A user with UID 1000 or more that AccountsService has not cached yet is
-  found with `CacheUser` (also unauthorized for reading).
-- Writes call `CreateUser`, `DeleteUser(id, removeFiles=false)`, `SetRealName`, `SetAccountType`, `SetLocked`,
-  `SetUserName`, `SetPassword`, each on a user object path, from the process of the caller.
-- Errors map to Windows' codes (`NERR_UserExists`, `NERR_UserNotFound`, `NERR_InvalidComputer`, `ERROR_ACCESS_DENIED` for
-  a polkit refusal, `NERR_PasswordTooShort` is never returned: the host decides, and says `ERROR_INVALID_PASSWORD` with
-  PAM's text in the debug log).
-- Safety limits in the client: names the account grammar of the accounts map accepts (63 bytes ASCII, no `/`, no
-  leading `-`, nothing AccountsService refuses); a request for UID below 1000, `root` or the built-in administrator is
-  refused before D-Bus; `DeleteUser` of the caller's own account, of the last administrator, and of RID 500 is refused
-  with `NERR_LastAdmin` / `ERROR_ACCESS_DENIED`.
+- **The service** is an operation set of a session 0 service, built next to the event log service on the same pipe
+  skeleton (the L1 session builds it: framing, limits, the identification-level client, the bridge's link-bound token).
+  Which service hosts it, a new one (`WexAccounts`) or an existing one, is the orchestrator's call; the protocol does not
+  care. It is the **only** process that talks D-Bus about accounts; no program in a session does.
+- **Identity comes from the pipe and the bridge, never from the message.** The caller's token is the link-bound token
+  at identification level (X0's rule: account and session are the link's), anonymous refused. Reads (list, get info,
+  group members) are open to every authenticated caller. Every change requires a token that is **an elevated
+  administrator's**: the server's own fact (Administrators enabled, High integrity, a full token), decided by the one
+  shared predicate the other session 0 services use (the event log's E1), not by anything the client says. A limited
+  administrator or a standard user gets `ERROR_ACCESS_DENIED`. The snap-in and `net.exe` are therefore started through
+  the existing consent path (the "open again as an administrator" offer the other consoles make).
+- **No names or paths trusted from the client.** A user name is checked against the accounts map's grammar (63 bytes
+  ASCII, nothing AccountsService refuses, no `/`, no leading `-`), UTF-16 strings are even-length, terminated, at most
+  255 characters (a full name 256), a password at most 127 characters and never logged; a frame is at most 64 KiB, one
+  request in flight per connection, an unknown operation or version is refused, a malformed frame closes the connection;
+  per account at most 64 connections. The service resolves every user by AccountsService itself (`FindUserByName`,
+  `GetUid`) and checks the UID is 1000 or more and not the caller-supplied number.
+- **Protective rules in the service** (not the client): never `root`, never a UID below 1000; `DeleteUser` of the
+  caller's own account, of the last administrator, and of the built-in administrator (RID 500) is refused
+  (`NERR_LastAdmin` or `ERROR_ACCESS_DENIED`); the last administrator cannot be removed from Administrators or locked;
+  `removeFiles` is always false (a deleted user's profile stays, as Windows keeps it).
+- **Authorization at the host:** the polkit rule (`installer/polkit/`) grants `org.freedesktop.accounts.user-administration`
+  only to the unix account of session 0, and nothing else; a rule that names the account, never a group a user can
+  join, and never `login-session` or `change-own-password`. A process in a session cannot use it: it is not that
+  account, and the D-Bus caller identity is the connection's uid.
+- **The calls** (AccountsService methods): `CreateUser(name, fullname, type)`, `DeleteUser(id, false)`,
+  `SetRealName`, `SetAccountType`, `SetLocked`, `SetUserName`, `SetPassword(hash, hint)` (the hash made in the service:
+  the password crosses the bridged pipe once, never a file, never an argument, and is wiped after use),
+  `FindUserByName`, `ListCachedUsers`, `CacheUser` (so a Linux account AccountsService has not seen is found). Group
+  membership of the admin group is read with `getgrnam`.
+- **Errors map to Windows' codes:** `NERR_UserExists`, `NERR_UserNotFound`, `ERROR_ACCESS_DENIED` for any refusal,
+  `ERROR_INVALID_PASSWORD` for a password the host rejects (PAM's text goes to the service's log, never to the client),
+  `NERR_InvalidComputer` for a server name that is not this computer, `RPC_S_SERVER_UNAVAILABLE` (1722) when the service
+  cannot be reached.
+- **Plain Wine keeps its behaviour:** where the pipe does not exist (plain Wine, a prefix without session 0, the setup
+  account), `netapi32` uses the stock in-memory list exactly as today, and Wine's own `netapi32` tests keep passing:
+  the choice is made once per process by trying the pipe, with no WineExplorer DLL loaded. Where session 0 is there but
+  the service is down, the calls return 1722 and do **not** fall back to the in-memory list (a user that appears to be
+  created and is not would be worse than an error).
+- **Changes take effect on the next logon:** a change to Administrators does not change a running token (as on
+  Windows); the map picks up a new account at the next `wex-accounts sync`, the service asks the watcher to run
+  (a `systemctl start` of the sync unit through the same polkit grant, if D-Bus to systemd is allowed to session 0; else
+  the timer). Until the map has the new account, a request that needs its SID answers `ERROR_NONE_MAPPED`, never an
+  invented SID. A new user is shown at once in the snap-in with its name and full name; the SID fills in once the map
+  has it.
 
-## Authorization (the decision that needs the reviewer)
+## Groups (phase 1)
 
-AccountsService asks polkit for `org.freedesktop.accounts.user-administration` and the caller is **the user's own
-process**, so polkit's default is "authenticate as an administrator". Windows' model is different: an administrator's
-elevated process is allowed, and the consent prompt (WineExplorer's `consent.exe`, through the broker) is the question.
-Two prompts would be wrong, no authority at all would be worse. Proposed:
-
-1. The snap-in and `net.exe` run elevated through the existing path (the consent prompt, the broker): the elevated
-   process has the full token, Administrators enabled and the **system group** as its supplementary group (what the
-   elevation tests already assert).
-2. A polkit rule in `installer/polkit/` grants `org.freedesktop.accounts.user-administration` to a caller for which
-   `polkit.spawn(["/usr/local/libexec/wineexplorer/wex-polkit-elevated", pid])` exits 0. That helper reads
-   `/proc/<pid>/status` (its supplementary groups) and requires: the system group among them, the process uid an
-   administrator by `wex-is-admin`, uid the same as the D-Bus caller's, and the process started by the launcher (its
-   exe is the Wine loader of the machine root: the same fact the server checks for the system role). Anything else:
-   the rule returns nothing and polkit's default applies. The rule never grants to a process without the group.
-3. Everything the polkit rule allows is the user-administration action only (not `login-session`, not
-   `change-own-password`).
-
-Open points for the reviewer: (a) whether the system group on a process is a good enough proof of "passed the consent
-prompt" (the server grants it only for the fixed system programs and the broker's elevated children; a user process
-cannot gain it); (b) whether polkit's JS `spawn` helper reading `/proc/<pid>` is acceptable against pid reuse (the
-D-Bus caller is a connection; polkit gives the subject's pid and start time: the helper takes the start time too and
-compares); (c) if (a) is not acceptable, the fallback is a root request spool as for `gpupdate` (the session writes a
-request, a root unit validates and applies it, all through the same elevated-process proof): that leaves D-Bus, which
-the orchestrator asked for, so it is only the fallback.
-
-Without elevation (limited administrator or standard user) writes fail with `ERROR_ACCESS_DENIED`; the snap-in itself is
-started through the consent path (`runas` style), as Computer Management is on Windows for a limited administrator.
-
-## Groups
-
-AccountsService has **no group API**. Phase 1 therefore has exactly what it can do:
+AccountsService has **no group API**, so phase 1 does exactly what it can:
 
 - **Administrators**: members are the users in the admin group; add or remove is `SetAccountType(1|0)` on that user.
-  The built-in administrator (RID 500) cannot be removed; the caller cannot remove the last administrator.
-  `NetLocalGroupAddMembers`, `NetLocalGroupDelMembers`, `NetLocalGroupSetMembers`, `NetUserSetGroups` for
+  The built-in administrator (RID 500) cannot be removed; the last administrator cannot be removed.
+  `NetLocalGroupAddMembers`, `NetLocalGroupDelMembers`, `NetLocalGroupSetMembers` and `NetUserSetGroups` for
   Administrators reduce to those calls; for any other group they return `NERR_GroupNotFound`.
 - **Users**: `NetLocalGroupGetMembers` lists all local accounts (computed); changing it returns
   `ERROR_ACCESS_DENIED`.
-- `NetLocalGroupAdd` of a new name returns `ERROR_ACCESS_DENIED` with the debug text "custom local groups need the group
-  service (phase 2)": the snap-in's New Group item is grayed with that reason.
-- **Phase 2 (to decide with the orchestrator, not part of this review):** custom local groups and Power Users and the
-  like as Linux groups `wexgrp-<name>` made by a root helper (the request spool above), and their SIDs by the token
-  side (E1), since a group SID in a token needs the server to know it. This is where Domain accounts as members of a
-  local group would be stored too.
+- `NetLocalGroupAdd` of a new name returns `ERROR_ACCESS_DENIED`; the snap-in's New Group item is grayed with the reason
+  "custom local groups are not available yet".
+- **A domain account in a local group:** Domain Admins is in Administrators by default on a joined machine, as on
+  Windows: the server already treats it as the administrator group, and the snap-in shows it as a member of
+  Administrators, read-only. An individual domain user or another domain group cannot be a member of a local group in
+  phase 1: the Add Member dialog resolves `DOMAIN\name` through Winbind and answers "not supported yet", no silent
+  success. Domain users appear under Users (grayed, with the domain name) only once admitted (a record in the map).
 
-### A domain account in a local group (the orchestrator's question)
-
-- Domain Admins is in Administrators by default on a joined machine, as on Windows: the server already treats it as the
-  administrator group, and the snap-in shows it as a member of Administrators, read-only.
-- An individual domain user or other domain group as a member of Administrators or Users cannot be stored by AccountsService
-  (it manages local users only). Phase 1: the Add Member dialog resolves `DOMAIN\name` through Winbind and answers
-  "not supported yet" for it; no silent success. Phase 2 stores them in a root-owned file next to the map, written by
-  the same root helper, read by the server when it builds the token (the same shape as `domain-groups`, WO 2 of the
-  domain work), so it needs the token side and the orchestrator.
-- Domain users are listed in the snap-in under the same Users node (grayed, with the domain name) only when they have been
-  admitted (they have a record in the map); an account never seen on this machine has no record and no SID here.
+**Phase 2 (after a token-side design with the orchestrator, not part of this review):** custom local groups and the
+Windows built-in ones as groups the token carries, and individual domain members of local groups.
 
 ## The snap-in
 
 `src/dlls/lusrmgr` (a module like the others; Computer Management hosts it as `Local Users and Groups` with `Users` and
-`Groups` below it, the console `lusrmgr.msc` shows only that node). Users: columns Name, Full Name, Description (always
-empty, phase 1); New User (name, full name, password twice, "User must change password at next logon" grayed, "Account is
-disabled"), Set Password, Rename, Delete, Properties (General: full name, disabled; Member Of: the groups, Add and Remove
-as the Groups section allows). Groups: Administrators and Users, Properties with Members and Add/Remove. Every grayed item
-has its reason in the status line. Changes go through `netapi32` only (no D-Bus code in the snap-in).
+`Groups` below it, the console `lusrmgr.msc` shows only that node). Users: columns Name, Full Name, Description (empty,
+grayed in properties); New User (name, full name, password twice, "User must change password at next logon" grayed,
+"Account is disabled"), Set Password, Rename, Delete, Properties (General: full name, disabled; Member Of: Administrators
+and Users, Add and Remove as above). Groups: Administrators and Users, Properties with Members. Every grayed item has its
+reason in the status line. The snap-in uses `netapi32` only and has no pipe or D-Bus code of its own.
 
 ## Tests
 
-- **Wine tests** (netapi32 `tests`, both architectures): the stock in-memory behaviour unchanged when `wexhost` cannot be
-  loaded; the new paths against a fake `org.freedesktop.Accounts` service on a private bus: create, enumerate,
-  set real name, lock, set type, set password, delete, each refusal in the client's limits, each polkit error mapped.
-- **The suite** (a section `localusers`, after `svc_table`): on the fixture, with a private `dbus-daemon` and a small
-  AccountsService stand-in the section starts, drive `net user` and the snap-in's netapi32 calls as the elevated
-  administrator (the c4 broker stub) and as a limited and a standard user; check that the accounts map is not touched
-  by Wine (its bytes unchanged until `wex-accounts sync` runs), that a user created appears after the sync with a SID, and
-  that the polkit helper refuses a process without the system group, with the wrong start time, and for another uid.
-- **The lab** (wexgpo, an installed machine with the real AccountsService and polkit): the whole path once, end to end,
-  including a Domain Admins user shown in Administrators.
+- **Wine tests** (`netapi32` tests, both architectures): the stock in-memory behaviour unchanged when no pipe exists; with
+  a fake accounts service on the pipe name in a prefix without session 0: every call and every mapped error, the client's
+  limits, 1722 when the service is down and no fallback to the list.
+- **The service's own tests** (with the event log's pattern, in the suite as a section `accounts`): over the bridged pipe,
+  with a private `dbus-daemon` and an AccountsService stand-in: create, enumerate, set real name, lock, set type, set
+  password (the hash only on the bus), delete, each protective rule, each limit of the protocol, a malformed frame, a
+  caller that is a limited administrator or a standard user (all changes refused, reads allowed), an elevated
+  administrator (changes allowed; the c4 broker stub is the way to one), a process in a session that tries D-Bus itself
+  (refused by polkit: not session 0's account), and the accounts map's bytes unchanged until `wex-accounts sync`.
+- **The lab** (wexgpo, an installed machine with the real AccountsService and polkit): the whole path once, including a
+  Domain Admins user shown in Administrators.
 
 ## Order of work
 
-1. This note, reviewed. 2. The polkit helper and rule, with their tests (they are the security part; the reviewer first).
-3. `wexhost` account calls (a new small export set, not the OOBE ones changed). 4. `netapi32` clients and Wine tests.
-5. The snap-in (and `net.exe` wiring). 6. Suite section and lab run. Phase 2 (custom groups, domain members) only after
-the orchestrator and E1 decide the token side.
+1. This note, reviewed. 2. The service's operation set on the L1 pipe skeleton, with its tests (the security part; the
+reviewer first). 3. The polkit rule for session 0's account (and the host side of it in the installer). 4. `netapi32`
+clients and Wine tests. 5. The snap-in and `net.exe` wiring. 6. Suite section and lab run. Phase 2 only after the token-side
+design.
 
-## Questions to the orchestrator
+## Review record
 
-1. Authorization: is the system-group proof (above) the right fact, or does the server offer a better one for "this
-   process passed consent"? A polkit helper that asks the server is possible (`wex-is-admin` style) but needs a
-   server-side query that does not exist.
-2. May `netapi32` (stock Wine) depend on `wexhost` at run time (as `wexhost`-using stock modules already do, listed in
-   STOCK_CHANGES), loaded with `LoadLibrary` and absent on plain Wine?
-3. Phase 2: do you want custom local groups at all in the first release, given the token side?
+| Point | Draft 1 | Draft 2 |
+|---|---|---|
+| Authorization | polkit rule inspecting the calling process (system group, `/proc`) | session 0 service decides from the server's token (elevated administrator); polkit grants the action to session 0's account only |
+| Client | `netapi32` over `wexhost` (D-Bus in the session) | `netapi32` over the bridged pipe; no WineExplorer DLL, plain Wine unchanged |
+| Spool fallback | a root request spool | not needed |
+| Custom groups | question | phase 2, after the token-side design |
+
+Open for the reviewer: (a) the unit that runs `wex-accounts sync` after a change (a direct start through the polkit grant,
+or wait for the timer); (b) whether the password may cross the bridged pipe at all in phase 1, or the service should
+accept only a client-made hash (the client then needs libcrypt; the draft keeps the hash in the service, so the
+password is on the pipe once at identification level); (c) the host service that carries the operation set.
