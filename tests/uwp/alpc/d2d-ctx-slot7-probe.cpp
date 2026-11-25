@@ -105,6 +105,18 @@ int main(void)
         printf("  target is the plain bitmap: %d\n", target == plain);
         if (target) target->Release();
     }
+    /* does a refused bitmap leave an error for the next draw (as SetTarget with such a bitmap does)? */
+    ctx->BeginDraw();
+    ctx->Clear(D2D1::ColorF(0, 1, 0, 1));
+    hr = ctx->EndDraw(&t1, &t2);
+    printf("BeginDraw/Clear/EndDraw after slot7(plain): %#lx\n", (unsigned long)hr);
+    /* the same with the public SetTarget, for comparison */
+    ctx->SetTarget(plain);
+    ctx->BeginDraw();
+    ctx->Clear(D2D1::ColorF(0, 1, 0, 1));
+    hr = ctx->EndDraw(&t1, &t2);
+    printf("BeginDraw/Clear/EndDraw after SetTarget(plain): %#lx\n", (unsigned long)hr);
+    ctx->SetTarget(NULL);
     hr = slot7(priv, b, 1);
     printf("slot7(b, 1): %#lx\n", (unsigned long)hr);
     show_target("after slot7(b, 1)", ctx, a, b);

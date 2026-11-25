@@ -58,11 +58,51 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
      private interface `{26c5dc23}` (measured: writes nothing). Next: find what the compositor's sprite pass depends on (compare
      the Microsoft.UI.Composition calls the UI thread makes with Windows; XAML's surfaces of `CompositionDrawingSurface`).
    * (Earlier note, superseded:) After its draws the compositor thread still goes idle and never calls `Commit` (on Windows it
-     commits about every 2 s, from `dwmcorei.dll`, after private method 46). Wine's composition surface is asked for
+     commits about every 2 s, from the lifted compositor itself, after private method 46). Wine's composition surface is asked for
      `{790a45f7-0d42-4876-983a-0a55cfe6f4aa}` three times: that is the public `IDXGISwapChain1`, and Windows 11 refuses it on
      both surface kinds too (`tests/uwp/alpc/dcomp-surface-qi-probe.cpp`), so it is a type check, not the cause. The probe
      found `IDCompositionDevice::CreateSurface` stubbed in Wine (fixed in Wine 2c72ac3a). The last run also ended early (2176
      log lines, no screenshot), to be looked at.
+
+## Portal design for sign-off (review of Wine 7f2fe720, 2026-11-24)
+
+The portal (Wine branch `claude/notepad-commit`, 7f2fe720 + test cedb07b0) is held back. Review findings:
+- **P1, use after free:** the viewer reads the portal device's committed content pointers after leaving that device's lock.
+- **P2, lock cycle:** two devices that each show a portal of the other deadlock.
+- **P3, cost:** NtCompareObjects runs for each pair on every commit.
+- **P4, missed redraw:** removing a portal does not redraw its viewers.
+
+The GO parts of the series are on `claude/notepad-commit-go`. Proposed design, replacing the cross-device reads:
+
+1. **Snapshot per portal target.** At its own Commit, a portal device builds an immutable, refcounted snapshot of each portal
+   target's committed tree. It is the layer list that collection produces today, and every layer holds a reference to its
+   content (surface, swap chain) and its transform, clip and opacity.
+   - A nested portal inside that tree is included by reference to its current snapshot. The depth limit is the layer
+     limit, so a cycle (A shows B, B shows A) ends there instead of hanging.
+   - The new snapshot replaces the old one under the global shared lock. The old one is released after the lock is left.
+2. **Viewers read only snapshots.** When a viewer collects its scene, it takes a reference to the snapshot linked to its
+   shared visual (pointer read under the global lock) and appends its layers, under the shared visual's transform and clip.
+   - The viewer keeps the snapshot references with its committed frame and releases them when the next frame replaces it
+     or the commit fails. This fixes P1: content lives as long as a frame uses it.
+   - A viewer never takes another device's critical section, which fixes P2. The lock order is then: own device cs, then
+     the global shared lock (held briefly, with no calls out).
+3. **Link once (P3).** The shared visual's entry and a portal target are matched with NtCompareObjects once, when either
+   is opened from a handle. Both are linked by pointers and unlinked on release. Commit-time lookups only follow the
+   pointers.
+4. **Redraw on every change (P4).** A portal device's Commit marks its viewers for redraw when a snapshot changed, when the
+   root became NULL (an empty snapshot), or when a target with a snapshot was released. The viewers are collected with
+   references under the global lock and redrawn outside all locks, as today.
+
+Ownership and timing: a portal target owns its snapshot. A snapshot owns references to content only, never to visuals or
+devices. Commit stays synchronous; the viewer's redraw is one extra present of its last committed tree, with no tree
+change.
+
+Tests to add with it:
+- a duplicate handle opens the same visual;
+- a portal commit changes the viewer's scene (layer count or readback);
+- root NULL and target release remove the portal;
+- both devices commit concurrently in a loop;
+- a cycle of two portals returns.
 
 ## Branches and commits (local state of 2026-11-24)
 
