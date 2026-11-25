@@ -4514,7 +4514,7 @@ if section s0_x0; then set +e; ( section_enter
 # driven through the lab's control sockets (server/wex_x0lab.c, lab build only; scripts/x0lab.py). One check per test
 # of the reviewer's condition 5, and conditions 1 to 4 where they show from outside.
 x0() { X0LAB_TIMEOUT=150 python3 -I "$SRC/scripts/x0lab.py" "$@"; }
-fld() { grep -o "\b$1=[^ ]*" | head -1 | cut -d= -f2; }
+fld() { grep -o "\b$1=[^ ]*" | head -1 | cut -d= -f2 || true; }   # empty when absent (pipefail: never a failure)
 s0pid() { pgrep -u "$S0U" -x wineserver | head -1; }
 x0srv()   # the user's launcher-started lab server, once its control socket is up
 {
@@ -4530,12 +4530,14 @@ x0srv()   # the user's launcher-started lab server, once its control socket is u
         > "$ROOT/x0srv.diag" 2>&1
     return 1
 }
-x0sess()   # session 0's view: the session of the user's linked server (its HELLO came)
+x0sess()   # USER [SERVER]: the session of the user's linked server, once both sides have the other's HELLO
 {
     local i s
     for i in $(seq 1 300); do
-        s="$(x0 "$S0" peers | grep "^peer .* uid=$(id -u "$1") " | grep 'link=up' | fld session)"
-        [ -n "$s" ] && { echo "$s"; return 0; }
+        s="$(x0 "$S0" peers | grep "^peer .* uid=$(id -u "$1") " | grep 'link=up' | fld session || true)"
+        if [ -n "$s" ] && { [ -z "${2:-}" ] || x0 "$2" peers | grep '^peer ' | grep -q 'link=up'; }; then
+            echo "$s"; return 0
+        fi
         sleep 0.1
     done
     return 1
@@ -4553,11 +4555,13 @@ S0="$(s0pid)"
 ( while :; do probe "$STD" 64 hold >>"$ROOT/x0-$STD.log" 2>&1; done ) & X0LOOP_STD=$!
 ( while :; do probe "$ADM" 64 hold >>"$ROOT/x0-$ADM.log" 2>&1; done ) & X0LOOP_ADM=$!
 x0stop() { kill "$X0LOOP_STD" "$X0LOOP_ADM" 2>/dev/null || true; x0 "$S0" defer off >/dev/null 2>&1 || true; }
-# section_dump reads the section's exit status from $?: keep it across x0stop
-trap 'x0rc=$?; x0stop; (exit "$x0rc"); section_dump' EXIT
+# section_dump reads the section's exit status from $? (and names the failing command, which this trap does for it)
+trap 'x0rc=$? x0cmd="$BASH_COMMAND"
+      case "$x0rc:$x0cmd" in 0:*|*:exit*) ;; *) echo "FAIL: section s0_x0 ended at a failing command: $x0cmd" >&2 ;; esac
+      x0stop; (exit "$x0rc"); section_dump' EXIT
 SP="$(x0srv "$STD")" || { cat "$ROOT/x0srv.diag"; fail "X0: no lab server of $STD"; }
 AP="$(x0srv "$ADM")" || fail "X0: no lab server of $ADM"
-SESS="$(x0sess "$STD")" || { x0 "$S0" peers >&2; tail -20 "$ROOT/session0.log" >&2; fail "X0: session 0 has no X peer for $STD"; }
+SESS="$(x0sess "$STD" "$SP")" || { x0 "$S0" peers >&2; tail -20 "$ROOT/session0.log" >&2; fail "X0: session 0 has no X peer for $STD"; }
 x0sess "$ADM" >/dev/null || fail "X0: session 0 has no X peer for $ADM"
 [ "$(x0 "$S0" epoch | fld pid)" = "$S0" ] && [ "$(x0 "$SP" peers | grep '^peer ' | fld pid)" = "$S0" ] ||
     fail "X0: the epochs: session 0 says [$(x0 "$S0" epoch)], $STD's server sees [$(x0 "$SP" peers)]"
@@ -4709,11 +4713,11 @@ grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) ended (its server is go
 ok x0_killed_holder_references_dropped_and_unsent_try_given_back
 # link loss while the peer's epoch lives: the references survive the relink
 SP="$(x0srv "$STD")" || { cat "$ROOT/x0srv.diag"; fail "X0: no new lab server of $STD"; }
-SESS="$(x0sess "$STD")" || fail "X0: the new server did not link"
+SESS="$(x0sess "$STD" "$SP")" || fail "X0: the new server did not link"
 IDK="$(x0 "$SP" open keep | fld id)"
 LINKED="$(grep -ac 'references kept' "$ROOT/session0.log")"
 x0 "$SP" droplink >/dev/null
-for i in $(seq 1 200); do [ "$(grep -ac 'references kept' "$ROOT/session0.log")" -gt "$LINKED" ] && break; sleep 0.1; done
+for i in $(seq 1 200); do [ "$(grep -ac 'references kept' "$ROOT/session0.log")" -gt "$LINKED" ] && x0 "$SP" peers | grep '^peer ' | grep -q 'link=up' && break; sleep 0.1; done
 grep -aq "x0: link to peer pid $SP (uid $STD_UID, session $SESS) lost: 1 references wait for it" "$ROOT/session0.log" ||
     fail "X0: session 0 did not keep the references of a lost link"
 grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) linked again: 1 references kept" "$ROOT/session0.log" ||
@@ -4725,7 +4729,7 @@ ok x0_link_loss_keeps_references_while_the_epoch_lives
 x0relink()   # BEFORE: wait until session 0 logs one more relink than BEFORE
 {
     local i
-    for i in $(seq 1 300); do [ "$(grep -ac 'linked again:' "$ROOT/session0.log")" -gt "$1" ] && return 0; sleep 0.1; done
+    for i in $(seq 1 300); do [ "$(grep -ac 'linked again:' "$ROOT/session0.log")" -gt "$1" ] && x0 "$SP" peers | grep '^peer ' | grep -q 'link=up' && return 0; sleep 0.1; done
     tail -10 "$ROOT/session0.log" >&2; return 1
 }
 x0batch()   # SERVER BATCH TOTAL: wait until the batch is done
@@ -4824,7 +4828,7 @@ x0batch "$SP" "$BF" 1 || fail "X0: the pending try hangs after a fresh relink"
 [ "$(x0 "$SP" batch "$BF" | fld st)" = c000020c:1 ] || fail "X0: the pending try after a fresh relink: $(x0 "$SP" batch "$BF")"
 [ "$(x0 "$SP" query "$IDF" | fld st)" = c000020c:1 ] && [ "$(x0 "$SP" notices "$IDF" | fld live)" = 0 ] ||
     fail "X0: a reference into the dropped peer still looks alive"
-x0sess "$STD" >/dev/null || fail "X0: no fresh peer after the relink"
+x0sess "$STD" "$SP" >/dev/null || fail "X0: no fresh peer after the relink"
 [ "$(x0 "$SP" open fr2 | fld st)" = 0:1 ] || fail "X0: the fresh peer does not serve"
 ok x0_relink_after_the_owner_dropped_the_peer_starts_fresh
 # session 0 restarts: what the user's server held into it is dead (and the old id unknown to the new session 0); what
