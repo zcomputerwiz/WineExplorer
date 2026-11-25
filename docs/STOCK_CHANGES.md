@@ -1,5 +1,28 @@
 # Changes to stock Wine / third-party code
 
+## services, sechost: SERVICE_CONFIG_FAILURE_ACTIONS (B105, 2026-11-25)
+
+Wine branch `claude/b105-failure-actions` (9a0dd03a). Stock Wine accepted `ChangeServiceConfig2W(FAILURE_ACTIONS)`
+with a FIXME and stored nothing, and `QueryServiceConfig2W` answered `ERROR_INVALID_LEVEL`. Upstreamable.
+
+- `programs/services/services.c`, `services.h`: the service entry keeps the reset period, the actions, the reboot
+  message and the command. They are loaded from and saved to the service's key as Windows does (measured on Windows
+  11, Spooler): `FailureActions` (REG_BINARY: a SERVICE_FAILURE_ACTIONS header of five 32-bit fields: reset period,
+  two unused pointer slots, the count, the offset 20; then the SC_ACTIONs), `RebootMessage`, `FailureCommand`. When a
+  running service's process ends, the failure is counted (the count restarts once the reset period has passed since
+  the last failure) and the action for it is taken, the last one repeating: a restart after its delay (a threadpool
+  timer); running the command and rebooting are FIXMEs.
+- `programs/services/rpc.c`: `svcctl_ChangeServiceConfig2W` sets them (NULL strings unchanged, empty ones removed;
+  NULL actions leave the actions and the reset period alone; a restart action needs `SERVICE_START` on the handle;
+  an unknown action type is refused); `svcctl_QueryServiceConfig2W` answers in a pointer-free wire layout;
+  `svcctl_StartServiceW` refuses a service marked for delete (`ERROR_SERVICE_MARKED_FOR_DELETE`, as Windows), so a
+  deleted service is not started again. Not in `service_start_process`: services.exe's own winedevice hosts are
+  marked for delete when they are made and then started (a check there stopped every driver, batch 1137).
+- `include/wine/svcctl.idl`: that layout, `struct service_failure_actions`.
+- `dlls/sechost/service.c`: `QueryServiceConfig2W` turns it into the caller's `SERVICE_FAILURE_ACTIONSW`.
+- Test: `dlls/advapi32/tests/service.c` `test_failure_actions` (set, query, the registry layout, strings, removal,
+  the access rule). Not run on Windows (it needs an administrator).
+
 ## server: Windows' descriptors on the system role's tokens, and Windows' rule for opening a token (R7 of SESSION0_SPLIT_REVIEW.md, 2026-11-24)
 
 Measured black box on Windows 10 (the lab VM, 2026-11-24): `OpenProcessToken` for each right from an elevated
@@ -210,6 +233,20 @@ Wine 83c82756b7a (branch `claude/edge-signin-stacking`). Our code only (the fiel
   every right and IE keeps running with Gecko loaded (build tree, plain prefix, 64- and 32-bit).
 - Tests: `advapi32:security` has the same 10 failures with and without the change (run as root). No Wine test is
   added: whether the bits were set depended on which freed object the memory came from.
+
+## server: hardening after the B112 field audit, and B106 (2026-11-25)
+
+Wine `claude/server-init-hardening` (b2fc74c2, 0b4256f8, 862b4bed, faa81a3e), batch 1137. Our code only.
+
+- `server/process.c`: the E1 lab token ids (`e1s6_token_id`, `e1s6_modified_id`) start at 0.
+- `server/named_pipe.c`: a new pipe end's `client_pid`, `server_pid` are 0 and its client session is
+  `PIPE_SESSION_UNKNOWN`. `ClientSessionId` answers `STATUS_NOT_FOUND` while unknown (a local opener without a token,
+  a bridged client without a session). A disconnect clears the client's pid, lease and session.
+- `server/sysrun.c`: `set_egid()` blocks all signals around `setegid` and `set_not_dumpable()` (and keeps `errno`),
+  used by `sysrun_init`, `sysrun_raise` and `sysrun_drop`, so a SIGQUIT the user sends arrives after the dumpable
+  window (B106). `sysrun_main_image` acts on a pending role only when the system role is enabled.
+  (A latch of the role at the end of `init_registry` was taken out again in batch 1137: a new prefix's server would
+  read it as off for good; KNOWN_BUGS B115.)
 
 ## ntdll: FSCTL_SET_ZERO_DATA (B110, 2026-11-25)
 
@@ -483,6 +520,31 @@ merged). No new stock file; the session 0 changes below replace earlier ones of 
   only). The lab-only broker lists under `WEX_E1S6_TRANSPORT_TEST` are left for R5.
 - Test: `scripts/lab/system-tier-t1.sh`, `session_service_value_*` (a service created from session A with
   `WexSessionService`=1 runs in A, not in session 0, and session B has its own stopped copy).
+- **A service that is auto-started in session 0 only (2026-11-25, Local Accounts).** `programs/services`:
+  `WexStartInSession0Only` (REG_DWORD) in a service's key, 1 = the auto-start loop (`scmdatabase_autostart_services`) skips it
+  unless this service manager is session 0's own (`in_session0`: session 0 with the system role, set in
+  `init_forward_mode`); `load_session0_start_only` reads it, `struct service_entry` has `session0_start_only`. A plain prefix
+  and a session without session 0 do not run the service by themselves; it can still be started on demand. `loader/wine.inf.in`
+  gives the new service `wexaccounts` (`programs/wexaccounts`, the Windows side of Local Users and Groups) the value and its
+  entry (`AddService=wexaccounts` in the four install lists, `[WexAccountsService]`, `[WexAccountsServiceKeys]`). Test: section
+  `s0_accounts` of `scripts/test_sysrun_server.sh` (runs in session 0, a session does not run its own, a plain prefix leaves it
+  stopped and starts it on demand). Since batch 1139 `[WexAccountsServiceKeys]` also sets `ServiceSidType`=1 (unrestricted) for
+  `wexaccounts`, so that services.exe puts NT SERVICE\wexaccounts into its token, which the server's check of the accounts pipe
+  (B114, `claude/accounts-service-sid`) requires; the service stays an own-process service. Test: `s0_accounts_chain`.
+
+## rpcrt4: the binding of a generic handle was leaked by every call (B109, 2026-11-25)
+- `dlls/rpcrt4/ndr_stubless.c` (`ndr_client_call`): `finally_ctx.hbinding` was filled from `hbinding` before the call began, when it
+  was still NULL, and the handle that `client_get_handle` made was only put in the local variable. The cleanup
+  (`client_free_handle`) therefore passed NULL to the generic handle's unbind routine, so the binding it had made was never freed,
+  and with it the association's reference and the connection pooled in that association. Every call with an explicit generic
+  binding handle leaked one of each (the async path, `NdrAsyncClientCall`, stores the handle at once and is not affected). The
+  fix sets `finally_ctx.hbinding` after `client_get_handle`. Found through the service manager's forwarding in a session
+  (`programs/services/forward.c`, one binding with options of its own per call): session 0's `services.exe` kept one thread and
+  four descriptors per manager handle until the session ended, up to the bridge's 256 connections per account, after which every
+  forwarded call failed with 1722 (the Edge MSI's "Failed to install service ... RPC server unavailable", B108, and the merged
+  `EnumServicesStatusEx`, B109). Test: section `s0_scmloop` of `scripts/test_sysrun_server.sh` (600 manager and service handles in a
+  user's session with merged enumerations: no failure, and session 0's `services.exe` within 60 threads of where it began; before the
+  fix it reached about 270 and the loop failed within 300 rounds).
 
 ## DWM broker over a named pipe (2026-11-23)
 
@@ -2746,7 +2808,8 @@ marked unconditional. Work order: `ELEVATION_REGISTRY_ENFORCEMENT_WORKORDER.md`.
 - `programs/services/rpc.c`, `dlls/rpcrt4/rpc_transport.c`, `dlls/sechost/service.c`: `OpenService` also grants
   the process the SCM started for a service the rights it uses to report status
   (`SERVICE_SET_STATUS`, query, `READ_CONTROL`), found by comparing `I_RpcBindingInqLocalClientPID` with the
-  recorded process id. rpcrt4 implements that call for `ncacn_np` (stock has it for `ncalrpc` only). sechost opens
+  recorded process id. rpcrt4 implements that call for `ncacn_np` (stock has it for `ncalrpc` only; the matching
+  check in `dlls/rpcrt4/tests/server.c` is `todo_wine_if` for named pipes). sechost opens
   the second handle of its own service with `SERVICE_QUERY_STATUS|SERVICE_QUERY_CONFIG` instead of
   `GENERIC_READ|GENERIC_WRITE`. `RpcSs` is openable for start and status by anyone, because Wine starts it on demand
   (`shortcut:` comment).
@@ -4948,3 +5011,107 @@ protocol"): the cross-server protocol on the session link between session 0 and 
   control socket `wex-x0-lab` in each lab server's directory (root only) and the lab object kind, a named counter.
   `server/wex_e1lab.h` declares `x0lab_init` and `session0_lab_drop_link`.
 Tests: section `s0_x0` of `scripts/test_sysrun_server.sh` (lab suite), client `scripts/x0lab.py`.
+
+2026-11-24 (Wine branch `claude/eventlog-l1`, L1 of `docs/EVENTLOG_DESIGN.md`, "L1 as built"): the EventLog service.
+- `dlls/wevtsvc/wevtsvc.c` (was a stub), `store.c`, `wevtsvc_private.h` (new), `Makefile.in` (imports ntdll): the
+  service keeps the logs. Our own pipe protocol (`include/wine/wex_eventlog.h`, new) on
+  `\\.\pipe\WexSession0\eventlog` and, in session 0, `\\.\pipe\eventlog`; one thread with an I/O completion port and
+  a 16 MiB budget; identification of the caller only; Windows' measured descriptors with `AccessCheck`, a bridged
+  caller's SERVICE groups deny-only and its service account masked to a user's rights (E1); per-account caps; record
+  streaming for client-made backups and a clear that names the backup's last record (N6); notify requests; the full
+  information and a settings reload on the EventLog key's change notification (section 9); files with a CRC32 and
+  record-number trailer per record and the load rule that keeps only the valid rising run.
+- `server/named_pipe.c` (`pipe_bridge_allowed`): `eventlog` may be opened from a session whose server has a session
+  link (N1). New request handler `get_caller_class`.
+- `server/session0.c` (the `PIPE` handler): the opener's description becomes a token with `link_bound_token()`
+  (account and session of the link) instead of `create_bound_token` (E6); `link_bound_token` marks the token as
+  link-bound.
+- `server/token.c`, `security.h`: the token's `link_bound` and `link_session` (set by `link_bound_token`, copied by
+  `token_duplicate`, cleared in `create_token`); `token_caller_class()`, the one decision of a service's caller
+  class (H3: none, user, elevated administrator, system-local). `server/protocol.def`: request `get_caller_class`
+  (a pipe server end's client, or a token); generated `server_protocol.h`, `request_handlers.h`, `request_trace.h`.
+- `include/wine/wex_caller.h` (new): the class constants and a thin wrapper over `get_caller_class`.
+  `include/Makefile.in` lists it and `wex_eventlog.h`.
+- `loader/wine.inf.in`: the `EventLog\Security` key by default (section 9).
+- `programs/services/services.c` (`default_session_service`): EventLog is no longer a service of every session; a
+  session forwards it to session 0.
+Tests: section `s0_eventlog` and the `own_prefix` check of `scripts/test_sysrun_server.sh`, the N1 check in `s0_x0`,
+`scripts/eventlog-probe.c`, `scripts/eventlog-corrupt.py`.
+
+2026-11-25 (Wine branch `claude/eventlog-l1`, the reviewer's H1 for GPO's accounts service): `accounts_forward`.
+- `server/named_pipe.c`: in session 0 only LocalSystem's own primary token (not impersonating) creates instances of
+  the pipes `accounts` and `WexSession0\accounts`, which are marked (`pipe_server.reserved`); `accounts` may be opened
+  from a session whose server has a session link. New request handler `accounts_forward`: only for a marked
+  instance's client that came over the bridge with a link-bound token; the verdict from `token_caller_class`, the uid
+  of the link's account. The body is the client's own bytes (the reviewer's A3): a marked instance keeps the client
+  message its service last read whole in message mode (`pipe_end.acc_msg`, any other read forgets it), and
+  `accounts_forward` names a range of it; each message is forwarded once.
+- `server/wex_accounts.c` (new): the call. The helper's request header is built by the server; one SEQPACKET datagram
+  on a connection of its own to `/run/wineexplorer/accounts.sock`, whose peer (SO_PEERCRED) must be the uid of
+  `helper_user=` in `/etc/wineexplorer/accountsd.conf` (read at each request; a uid, or a name read from `/etc/passwd`
+  itself, never through NSS, which could stall the server on a domain member: A1); the reply is awaited in the
+  server's loop, at most 15 s; request handler `accounts_result`. `server/Makefile.in` lists it; `session0.h` declares
+  `accounts_call_start`.
+- Open (the reviewer's A2, `docs/KNOWN_BUGS.md` B114): any LocalSystem process of session 0 may create the reserved
+  names, not only wexaccounts; requiring the service's own SID (NT SERVICE\wexaccounts) waits for per-service SIDs in
+  Wine's service tokens. Fixed by the entry below (`claude/accounts-service-sid`).
+- `server/token.c`, `security.h`: `token_is_link_bound()`. `server/protocol.def`: requests `accounts_forward`,
+  `accounts_result`; generated files.
+- `include/wine/wex_accounts.h` (new): the helper frame's constants (equal to WineExplorer's
+  `src/include/wexaccounts_proto.h`) and the thin wrapper `wex_accounts_forward`, which needs a reply buffer of
+  `WEX_ACCOUNTS_MAX_REPLY` bytes so that no reply is lost (A4). `include/Makefile.in` lists it.
+Tests: section `s0_accounts` of `scripts/test_sysrun_server.sh`, `scripts/accounts-probe.c`,
+`scripts/accounts-fake-helper.py`.
+
+## Shared textures reach a second device without a fence (2026-11-25)
+
+Wine `230e5f7e` on `claude/shared-texture-coherence`, `dlls/d3d11/{device.c,texture.c,d3d11_private.h}`,
+`dlls/dxgi/resource.c`, `include/wine/d3dkmt_desc.h`, test in `dlls/d3d11/tests/d3d11.c`
+(`test_shared_texture_coherence`). A shared Texture2D (NT handle) is backed by a named file mapping that both devices give
+to wined3d as the texture's system memory. Before: the creator wrote its frame into it only at a fence `Signal`, the device
+that opened it loaded it at open, a fence `Wait` or a keyed mutex `AcquireSync`, so a reader with none of those (a
+compositor, the UWP portal) kept the frame from open time; a texture drawn before `CreateSharedHandle` came out empty
+(`wined3d_texture_update_desc` drops the GPU copy). Now: the mapping starts with a header page holding a sequence number;
+`CreateSharedHandle` reads the frame drawn so far into the memory first; `ID3D11DeviceContext::Flush` and keyed mutex
+`ReleaseSync` write the creator's frame back (staging texture kept per texture) and increment the number; a device that
+opened the texture reloads it when the number changed, before a draw, dispatch, copy or command list. Only the creating
+device writes back. The DXGI resource alone unmaps the mapping. Not covered: the legacy (non-NT) shared handle, formats of
+other than 4 bytes per pixel (both rejected as before), a texture both devices draw to, and a writer that never flushes.
+A Flush writes back only after a draw, dispatch, copy, clear, update or resolve was recorded since the last write-back.
+Without a fence or keyed mutex an opener can load while the write-back is half done (a torn frame: undefined without
+sync). `ReleaseSync` calls Flush while holding the keyed mutex lock, so the device lock nests inside it: never take them
+in the other order.
+
+2026-11-25 (Wine branch `claude/accounts-service-sid`, B114, the reviewer's A2): service SIDs, and the accounts pipe
+for the accounts service alone.
+- `programs/services/services.c`, `services.h`, `rpc.c`: a service's SID type (`ServiceSidType` in its key, set and
+  read with `SERVICE_CONFIG_SERVICE_SID_INFO`; stock Wine had a FIXME). An own-process service of a system account
+  whose type is unrestricted (or restricted, kept but not write-restricted, a FIXME) gets its SID, NT SERVICE\name
+  (`RtlCreateServiceSid`), passed with its account to `ProcessWineCreateServiceToken`. Services in a shared process
+  get none yet.
+- `dlls/sechost/service.c`: `QueryServiceConfig2A/W` pass the level through.
+- `dlls/ntdll/unix/process.c` (`ProcessWineCreateServiceToken`): the account may be followed by the SID.
+- `server/protocol.def`: `create_service_token` takes the SID (`VARARG(sid)`); generated files. `server/token.c`,
+  `security.h`: `token_create_service_sid()` adds it as a group, enabled, enabled by default and owner (as Windows
+  shows a service's own SID); the request accepts only S-1-5-80 with five sub-authorities, from the system role.
+- `server/named_pipe.c`: the reserved names also need NT SERVICE\wexaccounts in the creator's token;
+  `include/wine/wex_accounts.h`: the service name and its SID's sub-authorities. The accounts service has to be
+  registered with SID type unrestricted. This keeps other services' ordinary code off the name; it is no boundary
+  against SYSTEM: any SYSTEM process of session 0 may ask `create_service_token` for a token holding
+  NT SERVICE\wexaccounts and start a process with it, as on Windows, where SYSTEM is the trusted computing base.
+- `include/winsvc.h`: `SERVICE_SID_TYPE_NONE`, `_UNRESTRICTED`, `_RESTRICTED` (missing in Wine).
+- `dlls/advapi32/tests/service.c`: the SID type's round trip.
+Tests: section `s0_accounts` (a second LocalSystem service with its own SID, wexaccounts without its SID, the service's
+token).
+
+## Menu and tooltip shadows are on by default (2026-11-25)
+
+Wine `eb00215e` on `claude/menu-shadow`, `dlls/win32u/sysparams.c`: the default `UserPreferencesMask` has the
+`SPI_GETDROPSHADOW` bit (byte 2, 0x04) set, as on Windows XP; stock Wine has it clear. winex11.drv publishes the setting
+as `_WEX_DROPSHADOW` for `CS_DROPSHADOW` windows only when a compositor owns the screen, so without composition nothing
+changes on screen; with composition on, menus and tooltips get the compositor's soft shadow. A prefix that already has
+`UserPreferencesMask` in its registry keeps its value. Suite section `c4_dwm_menu` checks both modes.
+
+The tooltip class (`dlls/comctl32/tooltips.c`) also gets `CS_DROPSHADOW` (one flag), so tooltips follow the same
+setting. The two-column Start menu window class in wexshell (`startmenu_view.c`) has it too. Neither is verified on
+screen yet; the chain's `popups` stage will show it.

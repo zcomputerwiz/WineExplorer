@@ -47,6 +47,14 @@ for i in range(int(os.environ.get('FAKE_MANY', '0'))):
     add('many%04d' % i, 3000 + i, 'M' * 250)
 
 
+# FAKE_EXTRA=name:uid,name:uid: more users with these uids (the suite's chain test names the account of its caller)
+for spec in filter(None, os.environ.get('FAKE_EXTRA', '').split(',')):
+    extra_name, extra_uid = spec.split(':')
+    for other in [n for n, u in users.items() if u['uid'] == int(extra_uid)]:
+        del users[other]   # the extra user takes that uid (a path of the bus is one user's)
+    add(extra_name, int(extra_uid), extra_name + ' extra')
+
+
 def injected(method):
     """LOGFILE.fail lists the methods that fail now (F2); LOGFILE.slow makes SetRealName take 12 s (F6)"""
     try:

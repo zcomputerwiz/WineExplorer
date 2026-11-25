@@ -110,6 +110,12 @@
 #                name, the folder with no "DDE failure." (shlexec.c); a program that does not exist gets the error,
 #                and Run stays open. Only when named (Wine 1d6c6a65acf
 #                or later; an older image needs that shell32.dll from WEX_TEST_WINE).
+#   popups      the shell's own popups on the desktop with no black box around them, and with desktop composition
+#                on (HKCU Composition=1 in the guest's user.reg, which WEX_DWM_COMPOSITION=1 at packaging gives every
+#                account) a soft shadow: the Start menu (the Windows key), the desktop's context menu (a right
+#                click) and the tooltip of the clock (the pointer rests on it). Each is a subresult; the popup is the new viewable window after the action (the window
+#                probe's list before and after), found in a screendump (installer/tests/popup-check.py). Only when
+#                named, or in the chain's default stages.
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -181,7 +187,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|debugmode|perf) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|popups|debugmode|perf) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -2266,6 +2272,50 @@ phase_rundialog() {   # Run (Win+R) runs what XP's runs: see the header. Each va
     close_window esc '^Run$'   # left open by a failed variant
     subresult missing run_missing;            close_window esc '^Run$'
     gsh 'cd "$HOME/.wine/drive_c/users/$USER" && rm -rf runtest.txt runtest2.txt "Run Test"' >/dev/null
+    shutdown_vm
+    subresults_end
+}
+
+popup_windows() { session_probe "$USER_NAME" 60 "--windows"; }   # the window probe's list of the test account's X windows
+popup_one() {   # popup_one NAME ACTION CLOSE_KEY: ACTION (a function) opens a popup; the new window is checked; CLOSE_KEY closes it
+    local name=$1 action=$2 key=$3
+    popup_windows > "$OUT/popups-$name-before.txt"
+    [ -s "$OUT/popups-$name-before.txt" ] || fail "the window probe gave no list (an image without xwininfo, or a Wayland session)"
+    "$action" || fail "$name: the action failed"
+    sleep 2   # the popup is drawn, and a shadow is composed
+    popup_windows > "$OUT/popups-$name-after.txt"
+    "${V[@]}" shot "$TEST" >/dev/null 2>&1 || fail "$name: no screenshot"
+    shot "$name"
+    python3 "$HERE/popup-check.py" "$OUT/popups-$name-before.txt" "$OUT/popups-$name-after.txt" "$STATE/screen.ppm" \
+        "$POPUP_COMPOSITION" | tee "$OUT/popups-$name.txt"
+    local rc=${PIPESTATUS[0]}
+    "${V[@]}" key "$TEST" "$key" >/dev/null   # closes it, also after a failed check: the next starts from the desktop
+    sleep 1
+    return "$rc"
+}
+popup_start_menu() { "${V[@]}" key "$TEST" meta_l >/dev/null; }
+popup_context_menu() { "${V[@]}" click "$TEST" 640 300 right >/dev/null; }
+popup_tooltip() {   # the pointer rests on the notification area's clock (the bottom right corner of the taskbar)
+    local size w h
+    size=$(grep -o 'size=[0-9]*x[0-9]*' "$OUT/popups-tooltip-before.txt" | sed 's/size=//' | awk -Fx '{ print $1 * $2, $0 }' | sort -n | tail -1 | cut -d' ' -f2)
+    w=${size%x*}; h=${size#*x}
+    [ -n "$w" ] && [ -n "$h" ] || return 1
+    "${V[@]}" move "$TEST" $((w - 90)) $((h - 40)) >/dev/null   # off it first: a tooltip needs the pointer to arrive
+    sleep 1
+    "${V[@]}" move "$TEST" $((w - 40)) $((h - 14)) >/dev/null
+    sleep 2           # past the tooltip's delay
+}
+
+phase_popups() {   # see the header: the shell's popups have no black box, and a shadow with composition on
+    start_vm
+    desktop 600
+    # the guest's own setting (its user.reg), not the host's: 1 on an image packaged with WEX_DWM_COMPOSITION=1
+    POPUP_COMPOSITION=$(gsh 'grep -c "^\"Composition\"=dword:00000001" "$HOME/.wine/user.reg" 2>/dev/null; true' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ "${POPUP_COMPOSITION:-0}" -ge 1 ] 2>/dev/null && POPUP_COMPOSITION=1 || POPUP_COMPOSITION=0
+    echo "  guest desktop composition: $POPUP_COMPOSITION"
+    subresult start-menu popup_one start-menu popup_start_menu esc
+    subresult context-menu popup_one context-menu popup_context_menu esc
+    subresult tooltip popup_one tooltip popup_tooltip esc
     shutdown_vm
     subresults_end
 }

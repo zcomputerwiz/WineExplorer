@@ -132,7 +132,7 @@ class Rig:
         conf = os.path.join(self.dir, 'accountsd.conf')
         with open(conf, 'w') as f:
             f.write('session0_user=%s\nsession0_unit=wex-session0.service\nadmin_group=sudo\nbuiltin_administrator=builtin\n'
-                    'sync_unit=wex-accounts-sync.service\n' % s0user)
+                    'sync_unit=wex-accounts-sync.service\nhelper_user=wexaccounts\n' % s0user)
         with open(self.pidfile, 'w') as f:
             f.write(str(mainpid if mainpid else os.getpid()))
         env = dict(os.environ, WEX_ACCOUNTSD_TEST='1')
@@ -197,6 +197,8 @@ def tests_operations(rig):
     calls = rig.calls()
     check(any(x['op'] == 'CreateUser' and x['user'] == 'eve' and x['type'] == 0 for x in calls), 'create: CreateUser as a standard user')
     check(any(x['op'] == 'SetPassword' and x['user'] == 'eve' and x['value'] == HASH for x in calls), 'create: SetPassword with the hash')
+    check(any(x['op'] == 'StartUnit' and x['unit'] == 'wex-accounts-sync.service' for x in calls),
+          'create: the helper asks for the account map sync itself')
     st, body = c.req(frame(CREATE, s('frank') + s('Frank') + u(1) + s(HASH2)))
     check(st == OK and any(x['op'] == 'SetAccountType' and x['user'] == 'frank' and x['value'] == 1 for x in rig.calls()),
           'create: an administrator gets the type set')

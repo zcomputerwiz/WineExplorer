@@ -14,6 +14,7 @@ Set VMTEST_DIR to a persistent directory if /tmp is a RAM filesystem.
   vmtest.py shot NAME [FILE.png]                                          screenshot (default STATE/last.png)
   vmtest.py key NAME KEY...                                               QEMU key names: ret f8 alt-n ctrl-alt-f2
   vmtest.py click NAME X Y [right]                                        click at screen pixel X,Y
+  vmtest.py move NAME X Y                                                 move the pointer to screen pixel X,Y (hover: a tooltip)
   vmtest.py drag NAME X1 Y1 X2 Y2                                        left-button drag between screen positions
   vmtest.py clicktext NAME TEXT [--timeout 30]                            click the words TEXT (found by OCR)
   vmtest.py type NAME TEXT                                                type text (US layout)
@@ -451,6 +452,7 @@ def main():
     s = sub.add_parser("type"); s.add_argument("name"); s.add_argument("text")
     s = sub.add_parser("click"); s.add_argument("name"); s.add_argument("x", type=int); s.add_argument("y", type=int)
     s.add_argument("button", nargs="?", default="left")
+    s = sub.add_parser("move"); s.add_argument("name"); s.add_argument("x", type=int); s.add_argument("y", type=int)
     s = sub.add_parser("doubleclick"); s.add_argument("name")
     s.add_argument("x", type=int); s.add_argument("y", type=int)
     s = sub.add_parser("drag"); s.add_argument("name")
@@ -491,6 +493,8 @@ def main():
         type_text(a.name, a.text.rstrip("\r\n"))
     elif a.op == "click":
         click(a.name, a.x, a.y, a.button)
+    elif a.op == "move":
+        move(a.name, a.x, a.y)
     elif a.op == "doubleclick":
         click(a.name, a.x, a.y, count=2)
     elif a.op == "drag":

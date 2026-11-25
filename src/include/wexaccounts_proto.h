@@ -56,7 +56,10 @@ enum wexa_verdict
 enum wexa_status
 {
     WEXA_OK = 0, WEXA_DENIED, WEXA_NOT_FOUND, WEXA_EXISTS, WEXA_BAD_ARGUMENT, WEXA_LOGGED_IN, WEXA_BUSY,
-    WEXA_UNAVAILABLE, WEXA_LAST_ADMIN, WEXA_BAD_REQUEST
+    WEXA_UNAVAILABLE, WEXA_LAST_ADMIN, WEXA_BAD_REQUEST,
+    /* made by the Windows-side service, never by the helper: the change was made, and the account map had not shown it
+     * after the wait (about 10 s). The client treats it as success with a warning. */
+    WEXA_SYNC_PENDING
 };
 
 struct wexa_request

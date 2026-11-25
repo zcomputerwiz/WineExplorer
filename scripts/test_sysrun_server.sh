@@ -166,6 +166,8 @@ c4_msi_doc       c4_build           n   c4
 c4_appx_doc      c4_build           n   c4
 c4_wam           c4_build           n   c4
 c4_dwm           c4_build           n   c4
+c4_dwm_popup     c4_build           n   c4
+c4_dwm_menu      c4_build           n   c4
 c4_std           c4_build           n   c4
 c4_noleases      c4_build           n   c4
 c5_build         c4_build           nl  c5
@@ -195,7 +197,12 @@ s0_link          s0_base            n   s0
 s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
+s0_scmloop       s0_base            n   s0
+s0_eventlog      s0_base,c5_build   n   s0
+s0_accounts      s0_base,c5_build   n   s0
 s0_x0            s0_base            l   lab
+s0_accounts_svc  s0_base            n   s0
+s0_accounts_chain s0_base,c5_build  n   s0
 gp_registry      s0_base            n   gp
 gp_local         s0_base            n   gp
 gp_template      s0_base            n   gp
@@ -639,6 +646,9 @@ read -r -u "${XV[0]}" DNUM
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe64.exe" "$SRC/scripts/sysrun_server_probe.c" -ladvapi32
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe32.exe" "$SRC/scripts/sysrun_server_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe64.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
+x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/scmloop64.exe" "$SRC/scripts/scm_loop_probe.c" -ladvapi32
+x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/pipeloop64.exe" "$SRC/scripts/pipe_loop_probe.c"
+x86_64-w64-mingw32-gcc -O2 -Wall -I"$SRC/src/include" -o "$ROOT/probes/accchain64.exe" "$SRC/scripts/accounts_chain_probe.c"
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe32.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/alpcpair64.exe" "$SRC/tests/uwp/alpc/alpc-pair.c" -ladvapi32   # ALPC impersonation, one role per process
 # the WinSta0 holder of el_up, which sections of every group use (built here, not in c4_build, so a section run alone has it)
@@ -3559,6 +3569,148 @@ done
 wine_as "$ADM" reg delete "$DWMKEY" /v DwmService /f >/dev/null 2>&1 || true
 [ -z "$dwm_fail" ] || fail "dwm: dwmapi's tests failed or were skipped as the limited administrator:$dwm_fail"
 true; ); section_leave $?; fi
+
+# -- a translucent popup, the way Chromium and Edge build theirs (scripts/dwm-popup-probe.cpp: a glass sheet whose client is a
+# DirectComposition target with premultiplied alpha, a white card and a soft shadow) over a plain orange window, on an X
+# server of its own with the extensions the compositor needs. Composition off (the shipped default): the popup is shaped
+# to its card, so 3 pixels below it the screen is the orange. Composition on (HKCU Composition=1 for the administrator,
+# which WEX_DWM_COMPOSITION=1 gives every account made from the template prefix): the compositor blends the popup's alpha,
+# so there the screen is the orange darkened by the shadow. 14 pixels below the card, and beside the popup, it is the orange
+# either way; inside the card, white. Skipped with composition on when libXdamage is missing (the compositor needs it).
+if section c4_dwm_popup; then set +e; ( section_enter
+POPD="$ROOT/c4popup"; rm -rf "$POPD"; install -d -m 1777 "$POPD"
+command -v x86_64-w64-mingw32-g++ >/dev/null 2>&1 || section_skip "no x86_64 MinGW C++ compiler"
+command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || section_skip "no import or convert (ImageMagick) to read the screen"
+x86_64-w64-mingw32-g++ -municode -mwindows -o "$POPD/dwm-popup-probe.exe" "$SRC/scripts/dwm-popup-probe.cpp" \
+    -ld3d11 -ldxgi -ldcomp -luser32 -lgdi32 2>"$POPD/build.log" || { cat "$POPD/build.log" >&2; fail "popup: the probe does not build"; }
+chmod 0755 "$POPD/dwm-popup-probe.exe"
+DWMKEY='HKCU\Software\WineExplorer\Shell'
+POPCOMP="$(wine_as "$ADM" reg query "$DWMKEY" /v Composition 2>/dev/null | tr -d '\r' | awk '$1 == "Composition" { print $NF }' || true)"
+if [ "$POPCOMP" = 0x1 ]; then
+    ldconfig -p 2>/dev/null | grep -q 'libXdamage[.]so[.]1' || section_skip "composition is on and libXdamage is missing (the compositor needs it)"
+fi
+# an X server of its own: the suite's has no Composite, Damage or Render
+Xvfb -displayfd 7 -screen 0 1280x800x24 -nolisten tcp +extension Composite +extension DAMAGE +extension RENDER \
+    7>"$POPD/display" >/dev/null 2>&1 &
+POPX=$!
+for i in $(seq 1 50); do [ -s "$POPD/display" ] && break; sleep 0.2; done
+POPDN="$(tr -dc '0-9' < "$POPD/display")"
+[ -n "$POPDN" ] || { kill "$POPX" 2>/dev/null; fail "popup: Xvfb did not start"; }
+POPLOG="/home/$ADM/.wine/drive_c/popup.log"
+rm -f "$POPLOG" "/home/$ADM/.wine/drive_c/popup.stop"
+wine_as "$ADM" reg add "$DWMKEY" /v DwmService /t REG_DWORD /d 1 /f >/dev/null 2>&1 || fail "popup: HKCU DwmService"
+wine_as "$ADM" reg add 'HKCU\Software\Wine\Explorer\Desktops\Default' /v EnableShell /t REG_DWORD /d 1 /f >/dev/null 2>&1 ||
+    fail "popup: the EnableShell key"
+# the shell (its compositor, when composition is on) on a desktop named Default, then the probe on it
+run_as "$ADM" env DISPLAY=":$POPDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$POPD/shell.log" 2>&1 &
+POPSHELL=$!
+sleep 10
+run_as "$ADM" env DISPLAY=":$POPDN" timeout 100 "$BUILD/wine" "$(winpath "$POPD/dwm-popup-probe.exe")" >"$POPD/probe.log" 2>&1 &
+POPPROBE=$!
+for i in $(seq 1 60); do grep -q 'popup ready' "$POPLOG" 2>/dev/null && break; sleep 1; done
+sleep 4
+popup_pixel()   # x y: the screen's pixel, as "R,G,B"
+{
+    DISPLAY=":$POPDN" import -window root png:- 2>/dev/null | convert png:- -format "%[pixel:p{$1,$2}]" info: 2>/dev/null |
+        sed -n 's/^srgb(\([0-9]*\),\([0-9]*\),\([0-9]*\)).*/\1,\2,\3/p'
+}
+POP_IN="$(popup_pixel 300 250)"; POP_NEAR="$(popup_pixel 300 383)"; POP_FAR="$(popup_pixel 300 394)"; POP_OUT="$(popup_pixel 600 500)"
+echo "popup (composition ${POPCOMP:-off}): card $POP_IN, 3 px below $POP_NEAR, 14 px below $POP_FAR, beside $POP_OUT"
+touch "/home/$ADM/.wine/drive_c/popup.stop"
+sleep 2
+kill "$POPPROBE" "$POPSHELL" 2>/dev/null || true; wait "$POPPROBE" "$POPSHELL" 2>/dev/null || true
+wine_as "$ADM" reg delete "$DWMKEY" /v DwmService /f >/dev/null 2>&1 || true
+wine_as "$ADM" reg delete 'HKCU\Software\Wine\Explorer\Desktops\Default' /f >/dev/null 2>&1 || true
+pkill -u "$ADM" -x wineserver 2>/dev/null || true
+kill "$POPX" 2>/dev/null || true
+rm -f "$POPLOG" "/home/$ADM/.wine/drive_c/popup.stop"
+popup_fail=""
+grep -q 'popup ready' "$POPD/probe.log" "$POPLOG" 2>/dev/null || [ -n "$POP_IN" ] || popup_fail="$popup_fail the probe did not run;"
+[ "$POP_IN" = 255,255,255 ] || popup_fail="$popup_fail the card is not white ($POP_IN);"
+[ "$POP_FAR" = 255,128,0 ] || popup_fail="$popup_fail 14 px below the card is not the orange ($POP_FAR);"
+[ "$POP_OUT" = 255,128,0 ] || popup_fail="$popup_fail beside the popup is not the orange ($POP_OUT);"
+if [ "$POPCOMP" = 0x1 ]; then
+    # blended: the shadow (30 % black at the card's edge, 23 % there) darkens the orange: red 150..245, green and blue likewise
+    POPR="${POP_NEAR%%,*}"
+    { [ -n "$POPR" ] && [ "$POPR" -ge 150 ] && [ "$POPR" -le 245 ]; } ||
+        popup_fail="$popup_fail composition on: no soft shadow 3 px below the card ($POP_NEAR);"
+else
+    [ "$POP_NEAR" = 255,128,0 ] || popup_fail="$popup_fail composition off: the popup is not shaped to its card ($POP_NEAR);"
+fi
+[ -z "$popup_fail" ] || { tr -d '\r' < "$POPD/probe.log" | tail -10 >&2; tr -d '\r' < "$POPD/shell.log" | grep -v '^$' | tail -10 >&2; fail "popup:$popup_fail"; }
+if [ "$POPCOMP" = 0x1 ]; then ok c4_dwm_popup_with_composition_is_blended; else ok c4_dwm_popup_without_composition_is_shaped; fi
+true; ); section_leave $?; fi
+if section c4_dwm_menu; then set +e; ( section_enter
+MENUD="$ROOT/c4menu"; rm -rf "$MENUD"; install -d -m 1777 "$MENUD"
+command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 || section_skip "no x86_64 MinGW compiler"
+command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || section_skip "no import or convert (ImageMagick) to read the screen"
+x86_64-w64-mingw32-gcc -municode -mwindows -o "$MENUD/dwm-menu-probe.exe" "$SRC/scripts/dwm-menu-probe.c" -luser32 -lgdi32 -lcomctl32 2>"$MENUD/build.log" ||
+    { cat "$MENUD/build.log" >&2; fail "menu: the probe does not build"; }
+chmod 0755 "$MENUD/dwm-menu-probe.exe"
+DWMKEY='HKCU\Software\WineExplorer\Shell'
+MENUCOMP="$(wine_as "$ADM" reg query "$DWMKEY" /v Composition 2>/dev/null | tr -d '\r' | awk '$1 == "Composition" { print $NF }' || true)"
+if [ "$MENUCOMP" = 0x1 ]; then
+    ldconfig -p 2>/dev/null | grep -q 'libXdamage[.]so[.]1' || section_skip "composition is on and libXdamage is missing (the compositor needs it)"
+fi
+Xvfb -displayfd 7 -screen 0 1280x800x24 -nolisten tcp +extension Composite +extension DAMAGE +extension RENDER \
+    7>"$MENUD/display" >/dev/null 2>&1 &
+MENUX=$!
+for i in $(seq 1 50); do [ -s "$MENUD/display" ] && break; sleep 0.2; done
+MENUDN="$(tr -dc '0-9' < "$MENUD/display")"
+[ -n "$MENUDN" ] || { kill "$MENUX" 2>/dev/null; fail "menu: Xvfb did not start"; }
+MENULOG="/home/$ADM/.wine/drive_c/menu.log"
+rm -f "$MENULOG" "/home/$ADM/.wine/drive_c/menu.stop"
+wine_as "$ADM" reg add "$DWMKEY" /v DwmService /t REG_DWORD /d 1 /f >/dev/null 2>&1 || fail "menu: HKCU DwmService"
+wine_as "$ADM" reg add 'HKCU\Software\Wine\Explorer\Desktops\Default' /v EnableShell /t REG_DWORD /d 1 /f >/dev/null 2>&1 ||
+    fail "menu: the EnableShell key"
+run_as "$ADM" env DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell.log" 2>&1 &
+MENUSHELL=$!
+sleep 10
+run_as "$ADM" env DISPLAY=":$MENUDN" timeout 100 "$BUILD/wine" "$(winpath "$MENUD/dwm-menu-probe.exe")" ${MENU_PROBE_ARGS:-} >"$MENUD/probe.log" 2>&1 &
+MENUPROBE=$!
+for i in $(seq 1 60); do grep -q 'menu ready' "$MENULOG" 2>/dev/null && break; sleep 1; done
+sleep 2
+DISPLAY=":$MENUDN" import -window root "$MENUD/screen.png" 2>/dev/null || true
+menu_pixel()   # x y: the screen's pixel, as "R,G,B"
+{
+    convert "$MENUD/screen.png" -format "%[pixel:p{$1,$2}]" info: 2>/dev/null |
+        sed -n 's/^srgb(\([0-9]*\),\([0-9]*\),\([0-9]*\)).*/\1,\2,\3/p'
+}
+read -r _ _ MENU_L MENU_T MENU_R MENU_B <<<"$(tr -d '\r' < "$MENULOG" | grep -a '^menu rect' | head -1)"
+MENU_SPI="$(tr -d '\r' < "$MENULOG" | awk '$1 == "SPI_GETDROPSHADOW" { print $2 }')"
+if [ -n "${MENU_R:-}" ]; then
+    MENU_MX=$(( (MENU_L + MENU_R) / 2 )); MENU_MY=$(( (MENU_T + MENU_B) / 2 ))
+    MENU_BELOW="$(menu_pixel "$MENU_MX" $((MENU_B + 3)))"; MENU_RIGHT="$(menu_pixel $((MENU_R + 3)) "$MENU_MY")"
+    MENU_FAR="$(menu_pixel "$MENU_MX" $((MENU_B + 40)))"; MENU_IN="$(menu_pixel "$MENU_MX" "$MENU_MY")"
+fi
+echo "menu (composition ${MENUCOMP:-off}, SPI_GETDROPSHADOW ${MENU_SPI:-?}): rect ${MENU_L:-?},${MENU_T:-?} ${MENU_R:-?},${MENU_B:-?}, inside ${MENU_IN:-?}, 3 px below ${MENU_BELOW:-?}, 3 px right ${MENU_RIGHT:-?}, 40 px below ${MENU_FAR:-?}"
+cp "$MENUD/screen.png" "$ROOT/menu-screen-${MENUCOMP:-off}.png" 2>/dev/null || true
+touch "/home/$ADM/.wine/drive_c/menu.stop"
+sleep 2
+kill "$MENUPROBE" "$MENUSHELL" 2>/dev/null || true; wait "$MENUPROBE" "$MENUSHELL" 2>/dev/null || true
+wine_as "$ADM" reg delete "$DWMKEY" /v DwmService /f >/dev/null 2>&1 || true
+wine_as "$ADM" reg delete 'HKCU\Software\Wine\Explorer\Desktops\Default' /f >/dev/null 2>&1 || true
+pkill -u "$ADM" -x wineserver 2>/dev/null || true
+kill "$MENUX" 2>/dev/null || true
+rm -f "$MENULOG" "/home/$ADM/.wine/drive_c/menu.stop"
+menu_fail=""
+[ -n "${MENU_R:-}" ] || menu_fail="$menu_fail the probe did not report the menu's rectangle;"
+[ "${MENU_FAR:-}" = 255,128,0 ] || menu_fail="$menu_fail 40 px below the menu is not the orange (${MENU_FAR:-none});"
+[ "${MENU_SPI:-}" = 1 ] || menu_fail="$menu_fail SPI_GETDROPSHADOW is not on by default (${MENU_SPI:-none});"
+if [ "$MENUCOMP" = 0x1 ]; then
+    # blended: the shadow (30 % black at the edge) darkens the orange: red 150..245
+    for p in "${MENU_BELOW:-}" "${MENU_RIGHT:-}"; do
+        MENU_R_VAL="${p%%,*}"
+        { [ -n "$MENU_R_VAL" ] && [ "$MENU_R_VAL" -ge 150 ] && [ "$MENU_R_VAL" -le 245 ]; } ||
+            menu_fail="$menu_fail composition on: no soft shadow 3 px outside the menu (${p:-none});"
+    done
+else
+    [ "${MENU_BELOW:-}" = 255,128,0 ] && [ "${MENU_RIGHT:-}" = 255,128,0 ] ||
+        menu_fail="$menu_fail composition off: the menu has a shadow (${MENU_BELOW:-none}, ${MENU_RIGHT:-none});"
+fi
+[ -z "$menu_fail" ] || { tr -d '\r' < "$MENUD/probe.log" | tail -10 >&2; tr -d '\r' < "$MENUD/shell.log" | grep -v '^$' | tail -10 >&2; fail "menu:$menu_fail"; }
+if [ "$MENUCOMP" = 0x1 ]; then ok c4_dwm_menu_with_composition_has_a_shadow; else ok c4_dwm_menu_without_composition_has_none; fi
+true; ); section_leave $?; fi
 amb_down "$ADM"
 
 if section c4_std; then set +e; ( section_enter
@@ -4896,6 +5048,16 @@ for i in $(seq 1 150); do grep -aq "x0: peer pid $SP (uid $STD_UID, session $SES
 grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) ended (its link did not come back)" "$ROOT/session0.log" ||
     { x0 "$SP" relink; x0 "$S0" lostbound 120; fail "X0: session 0 did not drop the peer after its bound"; }
 [ "$(x0 "$S0" get fr | fld count)" = 1 ] || fail "X0: the unacknowledged try was not given back when the peer was dropped"
+# event log L1, N1: while this server has no session link, the bridge refuses the event log's pipe (link_bound_token
+# would have no session to bind) instead of describing the caller
+[ -f "$ROOT/probes/evp64.exe" ] || x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" \
+    -o "$ROOT/probes/evp64.exe" "$SRC/scripts/eventlog-probe.c" -ladvapi32 -lntdll || fail "eventlog: cannot build the probe"
+S0L="$(wc -l < "$ROOT/session0.log")"
+OUT="$(as_wine "$STD" "$ROOT/probes/evp64.exe" count Application || true)"   # the probe exits 1 when it cannot connect
+[ "$(sed -n 's/^connect=//p' <<<"$OUT")" = 5 ] || { x0 "$SP" relink; x0 "$S0" lostbound 120; fail "eventlog: a server without a session link reached the event log (N1): $OUT"; }
+tail -n +"$((S0L + 1))" "$ROOT/session0.log" | grep -aq 'pipe open refused .*: the server has no session link' ||
+    { x0 "$SP" relink; x0 "$S0" lostbound 120; fail "eventlog: the bridge did not refuse for the missing link"; }
+ok ev_bridge_refuses_the_event_log_without_a_session_link
 x0 "$SP" relink >/dev/null
 x0 "$S0" lostbound 120 >/dev/null
 x0batch "$SP" "$BF" 1 || fail "X0: the pending try hangs after a fresh relink"
@@ -4920,6 +5082,495 @@ x0 "$SP" peers | grep "^peer pid=$S0 " | grep -q 'link=up' || { x0 "$SP" peers >
 ok x0_session0_restart_ends_references_both_ways
 x0stop
 el_down "$STD"; el_down "$ADM"
+true; ); section_leave $?; fi
+if section s0_eventlog; then set +e; ( section_enter
+# Event logs, L1 (docs/EVENTLOG_DESIGN.md): the EventLog service in session 0 keeps the machine's logs; sessions reach it
+# through the pipe bridge. Driven by scripts/eventlog-probe.c, which speaks the service's protocol directly (L2's
+# advapi32 will be the real client). One check per item of L1's test list.
+for b in 64 32; do
+    cc=x86_64-w64-mingw32-gcc; [ "$b" = 64 ] || cc=i686-w64-mingw32-gcc
+    $cc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/evp$b.exe" "$SRC/scripts/eventlog-probe.c" \
+        -ladvapi32 -lntdll || evfail "eventlog: cannot build the $b-bit probe"
+done
+chmod 0755 "$ROOT/probes"/evp*.exe
+v() { grep -o "\b$1=[^ ]*" | head -1 | cut -d= -f2 || true; }
+# every probe run is logged with its arguments and output: a failure shows the last ones
+EVLOG="$ROOT/ev.log"; : > "$EVLOG"
+evrun() { local who="$1"; shift; local out; out="$("$@" || true)"; printf '%s %s\n  -> %s\n' "$who" "${*: -6}" "$out" >> "$EVLOG"; printf '%s\n' "$out"; }
+ev() { local u="$1"; shift; evrun "$u" as_wine "$u" "$ROOT/probes/evp64.exe" "$@"; }
+ev32() { local u="$1"; shift; evrun "$u/32" as_wine "$u" "$ROOT/probes/evp32.exe" "$@"; }
+evs() { evrun s0 s0_wine "$ROOT/probes/evp64.exe" "$@" | tr -d '\r' || true; }   # a process of session 0
+evfail()
+{
+    echo "--- the last probe runs:" >&2; tail -8 "$EVLOG" >&2
+    { echo "--- now: the service in session 0, and fresh probes"; s0_wine sc query EventLog | tr -d '\r' | grep -E 'STATE|EXIT'
+      echo "s0 count: $(s0_wine "$ROOT/probes/evp64.exe" count Application | tr -d '\r')"
+      echo "s0 caller: $(s0_wine "$ROOT/probes/evp64.exe" caller | tr -d '\r')"
+      echo "std caller: $(as_wine "$STD" "$ROOT/probes/evp64.exe" caller)"
+      echo "s0 report: $(s0_wine "$ROOT/probes/evp64.exe" report WexL1Diag 4 1 diag | tr -d '\r')"
+      echo "std count: $(as_wine "$STD" "$ROOT/probes/evp64.exe" count Application)"
+      echo "std report: $(as_wine "$STD" "$ROOT/probes/evp64.exe" report WexL1Diag 4 1 diag)"
+      pgrep -u "$S0U" -a svchost; tail -5 "$ROOT/session0.log"
+      cp "$EVSVCERR" /var/tmp/wex-run/s0-services.err 2>/dev/null
+      echo "--- session 0's services: EventLog's trace and the exceptions (whole file: /var/tmp/wex-run/s0-services.err)"
+      grep -a ':eventlog:\|code=c0000\|Unhandled\|backtrace' "$EVSVCERR" | tail -40; } >&2 2>&1 || true
+    fail "$@"
+}
+EVK='HKLM\System\CurrentControlSet\Services\EventLog'
+EVDIR="$M/drive_c/windows/system32/config"
+ev_up()   # the service in session 0 answers a session's client (at most 60 s)
+{
+    local i
+    for i in $(seq 1 120); do [ "$(ev "$STD" count Application | v count)" = 0 ] && return 0; sleep 0.5; done
+    ev "$STD" count Application >&2; return 1
+}
+ev_restart()   # stop and start the service in session 0 (its svchost)
+{
+    local i
+    s0_wine sc stop EventLog >/dev/null || true
+    for i in $(seq 1 60); do s0_wine sc query EventLog | grep -q STOPPED && break; sleep 0.5; done
+    s0_wine sc start EventLog >/dev/null || true
+    ev_up
+}
+# session 0's services with their own errors kept (services.exe and the svchost of EventLog inherit this stderr):
+# session 0 restarted, so that this start is what starts its service manager
+EVSVCERR="$ROOT/s0-services.err"; : > "$EVSVCERR"; chmod 666 "$EVSVCERR"
+s0_stop; s0_start
+(cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=err+all,+seh,+eventlog \
+    WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" sc start EventLog \
+    </dev/null >/dev/null 2>>"$EVSVCERR") || true
+ev_up || evfail "eventlog: the service in session 0 does not answer a session's client"
+s0_wine sc query EventLog | grep -q RUNNING || evfail "eventlog: the service does not run in session 0"
+# one store per machine: a session runs no EventLog of its own (services.c forwards it to session 0 by name); its
+# service manager reports session 0's running service
+# (the tier probe's svcstate, as s0_service checks wuauserv: sc in a session prints nothing here)
+OUT="$(as_wine "$STD" "$ROOT/probes/tierprobe64.exe" svcstate EventLog || true)"
+[ "$(sed -n 's/^state=//p' <<<"$OUT")" = 4 ] || { echo "$OUT" >&2; evfail "eventlog: a session does not see session 0's EventLog running"; }
+! pgrep -u "$STD" -f 'svchost.exe -k LocalServiceNetworkRestricted' >/dev/null ||
+    evfail "eventlog: a session runs an EventLog svchost of its own: $(pgrep -u "$STD" -af svchost)"
+ok ev_service_runs_in_session0_and_answers_sessions
+# E2: a program in a session cannot create the pipe under \pipe\WexSession0\ (the bridge reserves the prefix), and the
+# client opens with identification level only
+[ "$(ev "$STD" squat | v squat)" = 5 ] || evfail "eventlog: a session's program created \\\\.\\pipe\\WexSession0\\eventlog: $(ev "$STD" squat)"
+[ "$(ev "$ADM" squat | v squat)" = 5 ] || evfail "eventlog: an administrator's program created the session 0 pipe"
+[ "$(ev "$STD" sqos | v identification)" = 1 ] || evfail "eventlog: the client does not ask for identification level"
+ok ev_session_cannot_squat_the_session0_pipe
+# a write from one session, read in another; 32-bit and 64-bit
+[ "$(ev "$STD" report WexL1 4 1001 hello-std | v report)" = 0 ] || evfail "eventlog: a standard user cannot write Application"
+[ "$(ev32 "$STD" report WexL1 2 1002 hello-std32 | v report)" = 0 ] || evfail "eventlog: a 32-bit program cannot write Application"
+OUT="$(ev "$ADM" read Application)"
+grep -q 'id=1001 type=4 source=WexL1 strings=1 first=hello-std$' <<<"$OUT" &&
+    grep -q 'id=1002 type=2 source=WexL1 strings=1 first=hello-std32$' <<<"$OUT" ||
+    { echo "$OUT" >&2; evfail "eventlog: another session does not read the records"; }
+[ "$(ev32 "$ADM" read Application back | grep '^rec=' | head -1 | v id)" = 1002 ] || evfail "eventlog: a backwards read"
+ok ev_write_in_one_session_read_in_another
+# the access table: a standard user cannot write System nor read Security; System is written by session 0's processes
+# only; a session's system role (SYSTEM in the user's own server) counts as the user (E1)
+s0_wine reg add "$EVK\\System\\WexL1Sys" /f >/dev/null || evfail "eventlog: register a System source"
+# a source of the Security log (an unregistered source writes Application, as on Windows)
+s0_wine reg add "$EVK\\Security\\WexL1Sec" /f >/dev/null || evfail "eventlog: register a Security source"
+[ "$(ev "$STD" report WexL1Sys 1 7 x | v report)" = 5 ] || evfail "eventlog: a standard user wrote System"
+[ "$(ev "$ADM" report WexL1Sys 1 7 x | v report)" = 5 ] || evfail "eventlog: an administrator's session wrote System"
+[ "$(ev "$STD" read Security | v read)" = 5 ] || evfail "eventlog: a standard user read Security"
+[ "$(ev "$STD" report WexL1Sec 1 7 x | v report)" = 5 ] || evfail "eventlog: a session wrote Security"
+[ "$(evs report WexL1Sec 1 7 x | v report)" = 5 ] || evfail "eventlog: session 0 wrote Security before auditing exists"
+[ "$(evs report WexL1Sys 4 8 from-session0 | v report)" = 0 ] || evfail "eventlog: session 0's process cannot write System"
+evs read System | grep -q 'id=8 type=4 source=WexL1Sys strings=1 first=from-session0$' || evfail "eventlog: System lacks session 0's record"
+[ "$(evs read Security | v read)" = 0 ] && [ "$(evs count Security | v value)" = 0 ] ||
+    evfail "eventlog: the Security log is not there, empty, for SYSTEM: $(evs count Security)"
+for d in system32 syswow64; do
+    mv "$M/drive_c/windows/$d/winedevice.exe" "$M/drive_c/windows/$d/winedevice.exe.evorig"
+done
+install -m 775 -o root -g "$GRP" "$ROOT/probes/evp64.exe" "$M/drive_c/windows/system32/winedevice.exe"
+install -m 775 -o root -g "$GRP" "$ROOT/probes/evp32.exe" "$M/drive_c/windows/syswow64/winedevice.exe"
+sysrole_ev() { run_as "$STD" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$M/drive_c/windows/system32/winedevice.exe" "$@" 2>&1 | tr -d '\r'; }
+# its token has SYSTEM as user and Administrators and SERVICE as groups (Wine's service tokens): the cap after
+# AccessCheck and the deny-only SERVICE group leave it a user's rights
+OUT="$(sysrole_ev report WexL1Sys 1 9 sysrole)"
+OUT2="$(sysrole_ev clear WexL1Sys)"
+OUT3="$(sysrole_ev report WexL1 4 11 sysrole-app)"
+OUT4="$(sysrole_ev caller)"
+for d in system32 syswow64; do mv -f "$M/drive_c/windows/$d/winedevice.exe.evorig" "$M/drive_c/windows/$d/winedevice.exe"; done
+# the caller class the server decides (H3): a session's SYSTEM token is a user (neither elevated administrator nor
+# the system); a standard user and a limited administrator are users; session 0's own SYSTEM process is the system
+[ "$(v class <<<"$OUT4")" = 1 ] || { echo "$OUT4" >&2; evfail "eventlog: a session's SYSTEM token is not of class user (H3)"; }
+[ "$(ev "$STD" caller | v class)" = 1 ] || evfail "eventlog: a standard user is not of class user (H3)"
+[ "$(ev "$ADM" caller | v class)" = 1 ] || evfail "eventlog: a limited administrator is not of class user (H3)"
+[ "$(evs caller | v class)" = 3 ] || evfail "eventlog: session 0's SYSTEM process is not system-local (H3)"
+[ "$(v report <<<"$OUT")" = 5 ] || { echo "$OUT" >&2; evfail "eventlog: a session's system role (SYSTEM token) wrote System (E1)"; }
+[ "$(v clear <<<"$OUT2")" = 5 ] || { echo "$OUT2" >&2; evfail "eventlog: a session's system role cleared System (E1)"; }
+[ "$(v report <<<"$OUT3")" = 0 ] || { echo "$OUT3" >&2; evfail "eventlog: a session's system role cannot write Application, as its user can"; }
+# an elevated administrator of a session writes System and clears (BA in Windows' descriptors; T1 believes the token)
+el_up "$ADM"
+el_cmd ev_elevated_admin_reports_to_system "$ADM" "$(winpath "$ROOT/probes/evp64.exe") report WexL1Sys 4 10 elevated-admin"
+rm -f /tmp/evcaller.txt
+el_cmd ev_elevated_admin_caller_class "$ADM" "$(winpath "$ROOT/probes/evp64.exe") caller > Z:\\tmp\\evcaller.txt"
+el_down "$ADM"
+evs read System | grep -q 'id=10 type=4 source=WexL1Sys strings=1 first=elevated-admin$' ||
+    evfail "eventlog: an elevated administrator's record is not in System"
+[ "$(tr -d '\r' < /tmp/evcaller.txt | v class)" = 2 ] || { cat /tmp/evcaller.txt >&2; evfail "eventlog: an elevated administrator is not of class elevated admin (H3)"; }
+rm -f /tmp/evcaller.txt
+ok ev_access_table_and_system_by_process
+# E3: a backup made by the client, in the session's namespace and with its rights; the service opens no client path
+BAK="/home/$STD/.wine/drive_c/users/$STD/app.bak"
+rm -f "$BAK"
+[ "$(ev "$STD" backup Application "C:\\users\\$STD\\app.bak" | v backup)" = 0 ] || evfail "eventlog: a standard user's backup"
+[ "$(stat -c %U "$BAK" 2>/dev/null)" = "$STD" ] || evfail "eventlog: the backup is not the user's own file"
+[ "$(ev "$STD" openbackup "C:\\users\\$STD\\app.bak" | v records)" -ge 2 ] || evfail "eventlog: the backup does not parse"
+[ "$(ev "$STD" clear Application | v clear)" = 5 ] || evfail "eventlog: a standard user cleared Application"
+OUT="$(evs clear Application 'Z:\tmp\evclear.bak')"; rm -f /tmp/evclear.bak
+[ "$(v clear <<<"$OUT")" = 0 ] && [ "$(v backed <<<"$OUT")" -ge 2 ] || { echo "$OUT" >&2; evfail "eventlog: clear with a backup"; }
+[ "$(ev "$STD" count Application | v value)" = 0 ] || evfail "eventlog: Application is not empty after the clear"
+ok ev_backup_by_the_client_in_its_namespace
+# N6: a clear racing a writer loses nothing: CLEAR names the backup's last record, and newer records make the client
+# stream the rest first. Afterwards the log holds only records newer than the backup's last
+evs fill WexL1 3000 50 > "$ROOT/evrace.fill" &
+EVFILL=$!
+sleep 1
+OUT="$(evs clear Application 'Z:\tmp\evrace.bak')"
+wait "$EVFILL" || true
+LAST="$(v last <<<"$OUT")"
+[ "$(v clear <<<"$OUT")" = 0 ] && [ -n "$LAST" ] || { echo "$OUT" >&2; evfail "eventlog: a clear racing a writer"; }
+OLDEST="$(evs oldest Application | v value)"
+[ "$OLDEST" = 0 ] || [ "$OLDEST" -gt "$LAST" ] || evfail "eventlog: records up to $LAST stayed after the clear (oldest $OLDEST)"
+[ "$(evs openbackup 'Z:\tmp\evrace.bak' | v records)" = "$(v backed <<<"$OUT")" ] || evfail "eventlog: the race's backup does not parse whole"
+echo "eventlog: clear during writes: $OUT, oldest after: $OLDEST"
+rm -f /tmp/evrace.bak
+ok ev_clear_racing_a_writer_loses_nothing
+# E4: malformed and oversized frames close the connection; versions, operations, strings, SIDs, buffers and seeks are
+# checked
+[ "$(ev "$STD" frame badmagic | v closed)" = 1 ] || evfail "eventlog: a frame with a bad magic did not close the connection"
+[ "$(ev "$STD" frame oversize | v closed)" = 1 ] || evfail "eventlog: an oversized frame did not close the connection"
+[ "$(ev "$STD" frame badver | v status)" = 1306 ] || evfail "eventlog: an unknown version: $(ev "$STD" frame badver)"
+[ "$(ev "$STD" frame badop | v status)" = 1 ] || evfail "eventlog: an unknown operation: $(ev "$STD" frame badop)"
+# a record first: the clear racing the writer above may leave Application empty, and a seek in an empty log is
+# ERROR_HANDLE_EOF before the range check (87) that seekbad tests (Windows 11 answers the same: 38 for any seek in an
+# empty log, 87 past the end, at 0 or before the oldest of a non-empty one)
+ev "$STD" report WexL1 4 1003 for-bigread >/dev/null
+for k in longstring manystrings badsid seekbad; do
+    [ "$(ev "$STD" frame "$k" | v status)" = 87 ] || evfail "eventlog: $k: $(ev "$STD" frame "$k")"
+done
+OUT="$(ev "$STD" frame bigread)"
+[ "$(v status <<<"$OUT")" = 0 ] && [ "$(v size <<<"$OUT")" -le $((0x7ffff)) ] || { echo "$OUT" >&2; evfail "eventlog: a huge read buffer"; }
+ok ev_protocol_limits
+# E4: per-account caps. Connections and subscriptions from session 0 (no bridge in between, whose own per-user cap is
+# also 256); a subscription holds a connection, so it ends with the connection cap. Handles across a user's connections.
+OUT="$(evs caps connections)"
+[ "$(v granted <<<"$OUT")" = 256 ] || { echo "$OUT" >&2; evfail "eventlog: the connection cap"; }
+OUT="$(ev "$STD" caps handles)"
+[ "$(v granted <<<"$OUT")" = 1024 ] && [ "$(v refused <<<"$OUT")" = 1816 ] || { echo "$OUT" >&2; evfail "eventlog: the handle cap"; }
+OUT="$(evs caps subs)"
+[ "$(v granted <<<"$OUT")" = 256 ] || { echo "$OUT" >&2; evfail "eventlog: the subscription cap"; }
+[ "$(ev "$STD" count Application | v count)" = 0 ] || evfail "eventlog: the service after the caps"
+# from a session: which limit a session's caller meets first (the bridge's per-user cap counts every bridged pipe)
+OUT="$(ev "$STD" caps connections)"
+echo "eventlog: a session's connections: $OUT"
+[ "$(v granted <<<"$OUT")" -ge 200 ] && [ "$(v granted <<<"$OUT")" -le 256 ] || { echo "$OUT" >&2; evfail "eventlog: a session's connection cap"; }
+ok ev_per_account_caps
+# E5: a torn record in the middle, and a stale record after the end, are cut on load
+s0_wine reg add "$EVK\\WexL1Torn" /f >/dev/null && s0_wine reg add "$EVK\\WexL1Torn\\WexL1TornSrc" /f >/dev/null &&
+s0_wine reg add "$EVK\\WexL1Stale" /f >/dev/null && s0_wine reg add "$EVK\\WexL1Stale\\WexL1StaleSrc" /f >/dev/null ||
+    evfail "eventlog: register the test logs"
+[ "$(evs fill WexL1TornSrc 5 40 | v n)" = 5 ] && [ "$(evs fill WexL1StaleSrc 5 40 | v n)" = 5 ] || evfail "eventlog: fill the test logs"
+s0_wine sc stop EventLog >/dev/null || true
+for i in $(seq 1 60); do s0_wine sc query EventLog | grep -q STOPPED && break; sleep 0.5; done
+python3 -I "$SRC/scripts/eventlog-corrupt.py" torn "$EVDIR/WexL1Torn.evt" | grep -q '^corrupt=torn records=5' || evfail "eventlog: tear a record"
+python3 -I "$SRC/scripts/eventlog-corrupt.py" stale "$EVDIR/WexL1Stale.evt" | grep -q '^corrupt=stale records=5' || evfail "eventlog: append a stale record"
+s0_wine sc start EventLog >/dev/null || true
+ev_up || evfail "eventlog: the service after the damaged files"
+[ "$(evs count WexL1Torn | v value)" = 2 ] || evfail "eventlog: the torn log keeps $(evs count WexL1Torn | v value) records, not 2"
+[ "$(evs count WexL1Stale | v value)" = 5 ] || evfail "eventlog: the stale log keeps $(evs count WexL1Stale | v value) records, not 5"
+[ "$(evs read WexL1Stale | grep -c '^rec=' || true)" = 5 ] || evfail "eventlog: the stale record is read"
+ok ev_torn_and_stale_records_cut_on_load
+# size limit and each retention policy (MaxSize 64 KiB, the minimum)
+for spec in Ring:0 Full:4294967295 Ret:3600 Old:2; do
+    IFS=: read -r nm ret <<<"$spec"
+    s0_wine reg add "$EVK\\WexL1$nm" /v MaxSize /t REG_DWORD /d 65536 /f >/dev/null &&
+    s0_wine reg add "$EVK\\WexL1$nm" /v Retention /t REG_DWORD /d "$ret" /f >/dev/null &&
+    s0_wine reg add "$EVK\\WexL1$nm\\WexL1${nm}Src" /f >/dev/null || evfail "eventlog: register WexL1$nm"
+done
+OUT="$(evs fill WexL1RingSrc 200 900)"
+[ "$(v fill <<<"$OUT")" = 0 ] && [ "$(evs count WexL1Ring | v value)" -lt 200 ] && [ "$(evs oldest WexL1Ring | v value)" -gt 1 ] ||
+    { echo "$OUT $(evs count WexL1Ring) $(evs oldest WexL1Ring)" >&2; evfail "eventlog: overwrite as needed"; }
+OUT="$(evs fill WexL1FullSrc 200 900)"
+[ "$(v fill <<<"$OUT")" = 1502 ] && [ "$(v n <<<"$OUT")" -gt 5 ] || { echo "$OUT" >&2; evfail "eventlog: do not overwrite"; }
+evs read System | grep -q 'id=6000 type=1 source=EventLog strings=1 first=WexL1Full$' || evfail "eventlog: no System event for the full log"
+[ "$(evs info WexL1Full | v value)" = 1 ] || evfail "eventlog: the full log does not say it is full"
+[ "$(v fill <<<"$(evs fill WexL1RetSrc 200 900)")" = 1502 ] || evfail "eventlog: overwrite older than an hour overwrote new records"
+[ "$(v fill <<<"$(evs fill WexL1OldSrc 20 900)")" = 0 ] || evfail "eventlog: the first records of WexL1Old"
+sleep 3
+OUT="$(evs fill WexL1OldSrc 20 900)"   # 40 records do not fit in 64 KiB: the old ones go
+[ "$(v fill <<<"$OUT")" = 0 ] || { echo "$OUT" >&2; evfail "eventlog: overwrite older than 2 s did not drop the old records"; }
+ok ev_size_limit_and_retention_policies
+# section 9 (Event Viewer): the full information, a settings change taken without a restart, the Security key by default
+OUT="$(evs info Application)"
+[ "$(v info <<<"$OUT")" = 0 ] && [ "$(v filesize <<<"$OUT")" -gt 0 ] && [ "$(v created <<<"$OUT")" = 1 ] &&
+    [ "$(v written <<<"$OUT")" = 1 ] && [ "$(v maxsize <<<"$OUT")" = 524288 ] && [ "$(v retention <<<"$OUT")" = 0 ] &&
+    [ "$(v count <<<"$OUT")" = "$(evs count Application | v value)" ] || { echo "$OUT" >&2; evfail "eventlog: the full information"; }
+s0_wine reg add "$EVK\\WexL1Ring" /v MaxSize /t REG_DWORD /d 131072 /f >/dev/null || evfail "eventlog: change MaxSize"
+for i in $(seq 1 20); do [ "$(evs info WexL1Ring | v maxsize)" = 131072 ] && break; sleep 0.5; done
+[ "$(evs info WexL1Ring | v maxsize)" = 131072 ] || evfail "eventlog: a MaxSize change was not taken without a restart: $(evs info WexL1Ring)"
+s0_wine reg query "$EVK\\Security" >/dev/null || evfail "eventlog: no Security key by default"
+ok ev_information_and_settings_reload
+# the files: session 0's (its account, or root with the system group after setup-machine-root.sh's pass, 0660), never
+# readable by others; no desktop user reads them directly
+for f in "$EVDIR"/*.evt; do
+    echo "eventlog: $(basename "$f") $(stat -c '%a %U:%G' "$f")"
+    [ $(( 0$(stat -c %a "$f") & 07 )) = 0 ] || evfail "eventlog: $(basename "$f") is readable by others: $(stat -c '%a %U:%G' "$f")"
+    case "$(stat -c %U "$f")" in root|"$S0U") ;; *) evfail "eventlog: $(basename "$f") is $(stat -c %U "$f")'s" ;; esac
+done
+! runuser -u "$STD" -- cat "$EVDIR/AppEvent.evt" >/dev/null 2>&1 || evfail "eventlog: a standard user reads AppEvent.evt directly"
+! runuser -u "$ADM" -- cat "$EVDIR/SecEvent.evt" >/dev/null 2>&1 || evfail "eventlog: an administrator's account reads SecEvent.evt directly"
+ok ev_log_files_are_session0s_only
+# session 0 restarts while a client holds a handle and a subscription: the client connects again
+HOLDOUT="$ROOT/evhold.out"
+: > "$HOLDOUT"; chmod 666 "$HOLDOUT"
+# (wine_as itself, not ev or as_wine: their capture and tr would hold the lines back until the holder ends)
+( wine_as "$STD" "$ROOT/probes/evp64.exe" hold Application 150 > "$HOLDOUT" 2>/dev/null ) & EVHOLD=$!
+for i in $(seq 1 60); do grep -q '^hold=subscribed' "$HOLDOUT" && break; sleep 0.5; done
+grep -q '^hold=subscribed' "$HOLDOUT" || evfail "eventlog: the holder did not subscribe"
+s0_stop; s0_start
+s0_wine sc start EventLog >/dev/null || true
+for i in $(seq 1 120); do [ "$(evs count Application | v count)" = 0 ] && break; sleep 0.5; done
+for i in $(seq 1 60); do [ "$(grep -c '^hold=subscribed' "$HOLDOUT" || true)" -ge 2 ] && break; sleep 0.5; done
+[ "$(ev "$STD" report WexL1 4 1004 after-restart | v report)" = 0 ] || evfail "eventlog: a write after session 0's restart"
+wait "$EVHOLD" || true
+grep -q '^hold=notified reconnects=[1-9]' "$HOLDOUT" || { cat "$HOLDOUT" >&2; evfail "eventlog: the holder did not reconnect after session 0's restart"; }
+ok ev_client_reconnects_after_session0_restart
+for nm in Torn Stale Ring Full Ret Old; do
+    s0_wine reg delete "$EVK\\WexL1$nm" /f >/dev/null || true
+done
+s0_wine reg delete "$EVK\\System\\WexL1Sys" /f >/dev/null || true
+s0_wine reg delete "$EVK\\Security\\WexL1Sec" /f >/dev/null || true
+el_down "$STD"; el_down "$ADM"
+true; ); section_leave $?; fi
+if section s0_accounts; then set +e; ( section_enter
+# H1: accounts_forward, the accounts service's way to the root helper. scripts/accounts-probe.c stands in for the
+# service (in session 0) and its clients; scripts/accounts-fake-helper.py for the helper, as a fixture account named
+# in accountsd.conf. The server decides the verdict and the uid; only the reserved pipe's bridged clients are served.
+# The probe makes the two requests raw: their numbers and the layout it writes come from the Wine tree that was built
+PSP="$SRC/wine/include/wine/server_protocol.h"
+reqnum() { awk -v r="REQ_$1" '/^enum request$/ { f = 1; n = 0; next } f && /REQ_/ { if ($1 == r || $1 == r ",") print n; n++ } f && /^};/ { f = 0 }' "$PSP"; }
+reqlayout() { sed -n "/^struct $1\$/,/^};/p" "$PSP" | awk 'NF { $1 = $1; print }' | paste -sd ' '; }
+ACCFWD="$(reqnum accounts_forward)"; ACCRES="$(reqnum accounts_result)"
+[ -n "$ACCFWD" ] && [ -n "$ACCRES" ] || fail "accounts: the requests are not in $PSP"
+[ "$(reqlayout accounts_forward_request)" = 'struct accounts_forward_request { struct request_header __header; obj_handle_t pipe; unsigned int op; data_size_t offset; data_size_t length; char __pad_28[4]; };' ] &&
+[ "$(reqlayout accounts_forward_reply)" = 'struct accounts_forward_reply { struct reply_header __header; obj_handle_t call; char __pad_12[4]; };' ] &&
+[ "$(reqlayout accounts_result_request)" = 'struct accounts_result_request { struct request_header __header; obj_handle_t call; };' ] &&
+[ "$(reqlayout accounts_result_reply)" = 'struct accounts_result_reply { struct reply_header __header; unsigned int helper_status; data_size_t total; /* VARARG(body,bytes); */ };' ] ||
+    fail "accounts: the requests' layout changed (scripts/accounts-probe.c writes them raw)"
+for b in 64 32; do
+    cc=x86_64-w64-mingw32-gcc; [ "$b" = 64 ] || cc=i686-w64-mingw32-gcc
+    $cc -O2 -Wall -Werror -DACC_FORWARD_REQ="$ACCFWD" -DACC_RESULT_REQ="$ACCRES" -o "$ROOT/probes/accp$b.exe" \
+        "$SRC/scripts/accounts-probe.c" -ladvapi32 -lntdll || fail "accounts: cannot build the $b-bit probe"
+done
+chmod 0755 "$ROOT/probes"/accp*.exe
+ACCH=wexacch   # the fixture helper's account
+id "$ACCH" >/dev/null 2>&1 || useradd -r -M -d /nonexistent -s /usr/sbin/nologin "$ACCH"
+ACCONF=/etc/wineexplorer/accountsd.conf; ACCRUN=/run/wineexplorer; ACCSOCK="$ACCRUN/accounts.sock"
+ACCLOG="$ROOT/acc-helper.log"; : > "$ACCLOG"; chmod 666 "$ACCLOG"
+ACCSRV=/tmp/accsrv.txt   # the service probe's output (written by session 0's account, Z:\tmp\accsrv.txt)
+# a helper's configuration and run directory that are already there are put back at the end
+[ ! -e "$ACCONF" ] || mv "$ACCONF" "$ACCONF.wextest"
+# numeric: an owner without a passwd name (a test account an earlier section deleted) reads as UNKNOWN by name
+ACCRUNWAS="$(stat -c '%u:%g %a' "$ACCRUN" 2>/dev/null || true)"
+install -d -m 755 /etc/wineexplorer
+install -d -m 755 -o "$ACCH" "$ACCRUN"
+[ -z "$ACCRUNWAS" ] || chown "$ACCH" "$ACCRUN"
+acc_conf() { printf 'helper_user=%s\n' "$1" > "$ACCONF"; chmod 644 "$ACCONF"; }
+acc_helper()   # MODE: (re)start the fake helper
+{
+    pkill -u "$ACCH" -f accounts-fake-helper.py 2>/dev/null || true
+    for i in $(seq 1 30); do pgrep -u "$ACCH" -f accounts-fake-helper.py >/dev/null || break; sleep 0.1; done
+    rm -f "$ACCSOCK"
+    (cd / && runuser -u "$ACCH" -- python3 -I "$SRC/scripts/accounts-fake-helper.py" "$1" "$ACCSOCK" "$ACCLOG" \
+        </dev/null >/dev/null 2>>"$ACCLOG" &)
+    for i in $(seq 1 50); do [ -S "$ACCSOCK" ] && return 0; sleep 0.1; done
+    cat "$ACCLOG" >&2; return 1
+}
+acc_cleanup()
+{
+    as_wine "$STD" "$ROOT/probes/accp64.exe" quit >/dev/null 2>&1 || true
+    ! declare -F acc_svcrestore >/dev/null || acc_svcrestore   # wexaccounts as it was
+    pkill -u "$ACCH" -f accounts-fake-helper.py 2>/dev/null || true
+    rm -f "$ACCSOCK" "$ACCONF"
+    [ ! -e "$ACCONF.wextest" ] || mv "$ACCONF.wextest" "$ACCONF"
+    if [ -n "$ACCRUNWAS" ]; then chown "${ACCRUNWAS% *}" "$ACCRUN"; chmod "${ACCRUNWAS#* }" "$ACCRUN"; else rmdir "$ACCRUN" 2>/dev/null || true; fi
+}
+accfail()
+{
+    { echo "--- the service probe:"; cat "$ACCSRV"; echo "--- the helper:"; cat "$ACCLOG"
+      echo "--- session 0:"; tail -8 "$ROOT/session0.log"; } >&2 || true
+    acc_cleanup
+    fail "$@"
+}
+acc() { as_wine "$1" "$ROOT/probes/accp$2.exe" client "$3" "$4" || true; }
+accreqs() { grep -c '^req ' "$ACCLOG" || true; }
+# B114: the reserved names are the accounts service's alone: a LocalSystem process of session 0 whose token holds
+# NT SERVICE\wexaccounts (an own-process service named wexaccounts, SID type unrestricted), not impersonating. The probe
+# plays that service; a wexaccounts already registered (the real one) is stopped, pointed at the probe for the section
+# and put back by acc_cleanup.
+ACCSID='S-1-5-80-2861554723-205673086-2129874643-4023588997-3715158216'   # RtlCreateServiceSid("wexaccounts")
+ACCP="$(winpath "$ROOT/probes/accp64.exe")"
+acc_svcstate() { s0_wine sc query "$1" 2>/dev/null | tr -d '\r' | sed -n 's/.*STATE *: *\([0-9]*\).*/\1/p' | head -1; }
+acc_svcwait()   # NAME: until it is stopped (or gone)
+{
+    local i s
+    for i in $(seq 1 60); do s="$(acc_svcstate "$1")"; [ -z "$s" ] || [ "$s" = 1 ] && return 0; sleep 0.5; done
+    return 1
+}
+acc_squatsvc()   # NAME: start a service whose binary is the probe's squatfile; prints what it wrote
+{
+    rm -f /tmp/accls.txt
+    s0_wine sc start "$1" >/dev/null || true   # not a real service: it writes its result and exits
+    for i in $(seq 1 100); do grep -q '^squat_bridged=' /tmp/accls.txt 2>/dev/null && break; sleep 0.2; done
+    acc_svcwait "$1" || true
+    tr -d '\r' < /tmp/accls.txt 2>/dev/null || true   # written in text mode: CRLF
+    rm -f /tmp/accls.txt
+}
+ACCSVCPATH="$(s0_wine "$ROOT/probes/accp64.exe" svcpath wexaccounts | tr -d '\r' | sed -n 's/^svcpath=//p' || true)"
+ACCSVCSID=
+if [ -n "$ACCSVCPATH" ]; then
+    ACCSVCSID="$(s0_wine "$ROOT/probes/accp64.exe" sidtype wexaccounts | tr -d '\r' | sed -n 's/^sidtype=//p' || true)"
+    s0_wine sc stop wexaccounts >/dev/null 2>&1 || true
+    acc_svcwait wexaccounts || fail "accounts: the registered wexaccounts does not stop"
+fi
+acc_svcrestore()
+{
+    s0_wine sc stop wexaccounts >/dev/null 2>&1 || true
+    acc_svcwait wexaccounts || true
+    if [ -n "$ACCSVCPATH" ]; then
+        s0_wine "$ROOT/probes/accp64.exe" svcpath wexaccounts "$ACCSVCPATH" >/dev/null || true
+        s0_wine "$ROOT/probes/accp64.exe" sidtype wexaccounts "${ACCSVCSID:-0}" >/dev/null || true
+    else
+        s0_wine sc delete wexaccounts >/dev/null 2>&1 || true
+    fi
+}
+# impersonating, session 0's SYSTEM cannot; nor can it as a plain program (no service SID); a session's program cannot
+# create the bridged name (T5.2 reserves the prefix)
+OUT="$(s0_wine "$ROOT/probes/accp64.exe" squat imp | tr -d '\r' || true)"
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
+    accfail "accounts: session 0's SYSTEM, impersonating, created a reserved pipe: $OUT"
+OUT="$(s0_wine "$ROOT/probes/accp64.exe" squat | tr -d '\r' || true)"
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
+    accfail "accounts: a SYSTEM program of session 0 that is not the accounts service created a reserved pipe: $OUT"
+OUT="$(as_wine "$STD" "$ROOT/probes/accp64.exe" squat || true)"
+[ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] || accfail "accounts: a session's program created \\\\.\\pipe\\WexSession0\\accounts: $OUT"
+# a LocalService service in session 0 cannot create them either (A5); it has no service SID (type none)
+s0_wine sc create WexAccSquat binPath= "$ACCP squatfile Z:\\tmp\\accls.txt" \
+    obj= "NT AUTHORITY\\LocalService" >/dev/null || accfail "accounts: cannot create the LocalService test service"
+OUT="$(acc_squatsvc WexAccSquat)"
+s0_wine sc delete WexAccSquat >/dev/null || true
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] &&
+[ "$(sed -n 's/^service_sids=//p' <<<"$OUT")" = none ] ||
+    accfail "accounts: a LocalService service created a reserved pipe: [$OUT]"
+# B114: a second LocalSystem service, with its own service SID (unrestricted), cannot either; its token holds its SID
+s0_wine sc create WexAccSquat2 binPath= "$ACCP squatfile Z:\\tmp\\accls.txt" >/dev/null ||
+    accfail "accounts: cannot create the second LocalSystem test service"
+OUT="$(s0_wine "$ROOT/probes/accp64.exe" sidtype WexAccSquat2 1 | tr -d '\r' || true)"
+[ "$OUT" = sidtype=1 ] || { s0_wine sc delete WexAccSquat2 >/dev/null; accfail "accounts: the SID type of a service: $OUT"; }
+OUT="$(acc_squatsvc WexAccSquat2)"
+s0_wine sc delete WexAccSquat2 >/dev/null || true
+grep -qx 'service_sids=S-1-5-80-[0-9-]*:0xe' <<<"$OUT" && ! grep -q "$ACCSID" <<<"$OUT" ||
+    accfail "accounts: a service of SID type unrestricted has not its own SID (enabled, owner) in its token: [$OUT]"
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
+    accfail "accounts: a LocalSystem service other than wexaccounts created a reserved pipe: [$OUT]"
+# a service named wexaccounts without its SID (type none) cannot either
+if [ -n "$ACCSVCPATH" ]; then
+    s0_wine "$ROOT/probes/accp64.exe" svcpath wexaccounts "$ACCP squatfile Z:\\tmp\\accls.txt" >/dev/null ||
+        accfail "accounts: cannot point the registered wexaccounts at the probe"
+else
+    s0_wine sc create wexaccounts binPath= "$ACCP squatfile Z:\\tmp\\accls.txt" >/dev/null ||
+        accfail "accounts: cannot create the test service wexaccounts"
+fi
+OUT="$(s0_wine "$ROOT/probes/accp64.exe" sidtype wexaccounts 0 | tr -d '\r' || true)"
+[ "$OUT" = sidtype=0 ] || { accfail "accounts: the SID type of wexaccounts: $OUT"; }
+OUT="$(acc_squatsvc wexaccounts)"
+[ "$(sed -n 's/^service_sids=//p' <<<"$OUT")" = none ] &&
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
+    { accfail "accounts: wexaccounts without its service SID created a reserved pipe: [$OUT]"; }
+ok acc_reserved_pipe_only_for_the_accounts_service
+# the service, in session 0, for the rest of the section: wexaccounts with its SID
+acc_conf "$ACCH"
+acc_helper echo || { accfail "accounts: the fake helper does not start"; }
+s0_wine "$ROOT/probes/accp64.exe" svcpath wexaccounts "$ACCP svcserve Z:\\tmp\\accsrv.txt 380" >/dev/null &&
+[ "$(s0_wine "$ROOT/probes/accp64.exe" sidtype wexaccounts 1 | tr -d '\r')" = sidtype=1 ] ||
+    { accfail "accounts: cannot make wexaccounts the serving probe"; }
+rm -f "$ACCSRV"
+s0_wine sc start wexaccounts >/dev/null || true
+for i in $(seq 1 100); do grep -aq '^serve=listening' "$ACCSRV" 2>/dev/null && break; sleep 0.2; done
+grep -aq '^serve=listening' "$ACCSRV" || { accfail "accounts: the service probe does not listen"; }
+grep -aqx "service_sids=$ACCSID:0xe" <(tr -d '\r' < "$ACCSRV") ||
+    { accfail "accounts: the accounts service's token lacks NT SERVICE\\wexaccounts"; }
+ok acc_accounts_service_token_has_its_service_sid
+# a standard user (64 and 32 bit) and a limited administrator: verdict user, the uid of their session's account
+for who in "$STD:64" "$STD:32" "$ADM:64"; do
+    u="${who%:*}"
+    OUT="$(acc "$u" "${who#*:}" 7 "hello-$u")"
+    grep -q "^status=0x00000000 helper=0 .* reply=verdict=1 uid=$(id -u "$u") op=7 body=hello-$u\$" <<<"$OUT" ||
+        accfail "accounts: $who's request: $OUT"
+done
+grep -q "^req op=7 verdict=1 uid=$(id -u "$STD") id=[1-9][0-9]* flags=0 ok=1 body=hello-$STD\$" "$ACCLOG" ||
+    accfail "accounts: the helper did not get the server's header"
+ok acc_session_client_gets_the_servers_verdict_and_uid
+# A3: the body is the client's own message, forwarded once: a range past its end is refused, a replay too, and the
+# helper saw exactly one request per client message
+grep -q '^status=0x00000000 helper=0 bounds=0xc000000d replay=0xc0000184 ' <<<"$OUT" ||
+    accfail "accounts: a body outside the client's message, or a replay of it, was forwarded: $OUT"
+[ "$(grep -c "body=hello-$ADM\$" "$ACCLOG" || true)" = 1 ] || accfail "accounts: the helper got the message more than once"
+ok acc_forward_only_the_clients_message_once
+# an elevated administrator: verdict elevated
+el_up "$ADM"
+rm -f /tmp/accel.txt
+el_cmd acc_elevated_admin_forwards "$ADM" "$(winpath "$ROOT/probes/accp64.exe") client 8 elevated > Z:\\tmp\\accel.txt"
+el_down "$ADM"
+grep -q "^status=0x00000000 helper=0 .* reply=verdict=2 uid=$(id -u "$ADM") op=8 body=elevated\$" <(tr -d '\r' < /tmp/accel.txt) ||
+    { cat /tmp/accel.txt >&2; accfail "accounts: an elevated administrator's verdict"; }
+rm -f /tmp/accel.txt
+ok acc_elevated_admin_gets_verdict_elevated
+# a client in session 0 itself, not through the bridge: refused, and nothing reaches the helper
+N="$(accreqs)"
+OUT="$(s0_wine "$ROOT/probes/accp64.exe" local 7 local | tr -d '\r' || true)"
+grep -q '^status=0xc0000022 ' <<<"$OUT" || accfail "accounts: a client that did not come over the bridge: $OUT"
+[ "$(accreqs)" = "$N" ] || accfail "accounts: a refused request reached the helper"
+ok acc_unbridged_client_refused
+# a socket served by another account than helper_user: no request is sent
+acc_conf daemon
+OUT="$(acc "$STD" 64 7 wronguid)"
+grep -q '^status=0xc00000b0 ' <<<"$OUT" || accfail "accounts: a helper of the wrong account: $OUT"
+[ "$(accreqs)" = "$N" ] || accfail "accounts: a request reached a helper of the wrong account"
+# A1: helper_user as a number (names are read from /etc/passwd, never through NSS)
+acc_conf "$(id -u "$ACCH")"
+OUT="$(acc "$STD" 64 7 numeric)"
+grep -q '^status=0x00000000 helper=0 .* body=numeric$' <<<"$OUT" || accfail "accounts: helper_user given as a uid: $OUT"
+acc_conf "$ACCH"
+ok acc_helper_of_another_account_refused
+# no helper: the call ends at once (the service says 1722)
+pkill -u "$ACCH" -f accounts-fake-helper.py 2>/dev/null || true
+for i in $(seq 1 30); do pgrep -u "$ACCH" -f accounts-fake-helper.py >/dev/null || break; sleep 0.1; done
+rm -f "$ACCSOCK"
+OUT="$(acc "$STD" 64 7 nohelper)"
+grep -q '^status=0xc00000b0 ' <<<"$OUT" || accfail "accounts: no helper: $OUT"
+ok acc_no_helper_is_disconnected
+# a helper that never answers: the server ends the call after 15 s
+acc_helper silent || accfail "accounts: the silent helper does not start"
+T0=$SECONDS
+acc "$STD" 64 7 silent > "$ROOT/acc-silent.out" &
+ACCSIL=$!
+# A5: session 0 serves others meanwhile: registry reads from one of its processes, during the call
+for i in $(seq 1 50); do grep -q 'body=silent$' "$ACCLOG" && break; sleep 0.1; done
+OUT2="$(s0_wine "$ROOT/probes/accp64.exe" regtime 8 | tr -d '\r' || true)"
+wait "$ACCSIL" || true
+T1=$((SECONDS - T0))
+OUT="$(cat "$ROOT/acc-silent.out")"
+grep -q '^status=0xc00000b5 ' <<<"$OUT" || accfail "accounts: a silent helper: $OUT"
+[ "$T1" -ge 14 ] && [ "$T1" -le 30 ] || accfail "accounts: the silent helper's call ended after $T1 s"
+grep -q '^req op=7 verdict=1 .* body=silent$' "$ACCLOG" || accfail "accounts: the silent helper got no request"
+W="$(sed -n 's/^regtime=0 reads=[0-9]* worst=//p' <<<"$OUT2")"
+echo "accounts: session 0's registry during a call: $OUT2"
+[ -n "$W" ] && [ "$W" -lt 1000 ] || accfail "accounts: session 0 stalled during a call to the helper: $OUT2"
+ok acc_silent_helper_times_out_without_stalling_session0
+acc_cleanup
 true; ); section_leave $?; fi
 if section s0_programs; then set +e; ( section_enter
 # T5.3: session 0's account runs programs on the machine root through session 0 (its own services.exe, in session
@@ -4993,6 +5644,217 @@ pgrep -u "$S0U" -f wuauserv >/dev/null || fail "T5.4: a standard user stopped se
 s0_wine sc stop wuauserv >/dev/null || true
 kill_servers
 ok st_services_run_once_in_session0_and_users_cannot_stop_them
+true; ); section_leave $?; fi
+if section s0_scmloop; then set +e; ( section_enter
+# B109: the calls that a session forwards to session 0 (T5.4) failed with 1722 after hours of uptime with many elevated
+# installs. A session opens and closes the service manager and a service many times (scm_loop_probe.c); the resources of
+# session 0's services.exe and server (threads, descriptors) are sampled while it runs, and the loop must end without a failure.
+# WEX_SCMLOOP_ROUNDS sets the rounds (default 400; the bug needed a few hundred at most if the bridge's 256 caps are the cause),
+# WEX_SCMLOOP_MODE the probe's mode (open, enum, nosvc, leakmgr).
+s0_wine sc query PlugPlay >/dev/null 2>&1 || true
+ROUNDS="${WEX_SCMLOOP_ROUNDS:-400}"; MODE="${WEX_SCMLOOP_MODE:-enum}"
+RES="/var/tmp/wex-run/s0_scmloop.$MODE.samples"; : > "$RES"
+res_of() { local p="$1"; [ -n "$p" ] && [ -d "/proc/$p" ] && echo "threads=$(ls /proc/$p/task 2>/dev/null | wc -l) fds=$(ls /proc/$p/fd 2>/dev/null | wc -l)" || echo "gone"; }
+deep() (   # what the threads and descriptors of session 0's services.exe are, when WEX_SCMLOOP_DEEP=1
+    set +e +o pipefail
+    [ "${WEX_SCMLOOP_DEEP:-0}" = 1 ] || exit 0
+    p="$(pgrep -u "$S0U" -f 'services.exe' | head -1)"; [ -n "$p" ] || exit 0
+    { echo "## $(date +%T) threads by wait channel:"; for t in /proc/$p/task/*; do cat $t/wchan 2>/dev/null; echo; done | sort | uniq -c | sort -rn | head -8
+      echo "## descriptors by kind:"; ls -l /proc/$p/fd 2>/dev/null | awk '{print $NF}' | sed 's/[0-9]*\]$//; s/[0-9]*$//' | sort | uniq -c | sort -rn | head -8
+      echo "## threads by comm:"; for t in /proc/$p/task/*; do cat $t/comm 2>/dev/null; done | sort | uniq -c | sort -rn | head -5; } >> "$RES.deep"
+)
+sample() { deep; echo "$(date +%T) round=$1 s0_services[$(res_of "$(pgrep -u "$S0U" -f 'services.exe' | head -1)")] s0_server[$(res_of "$(pgrep -u "$S0U" -f 'wineserver --session0' | head -1)")] user_services[$(res_of "$(pgrep -u "$STD" -f 'services.exe' | head -1)")] user_server[$(res_of "$(pgrep -u "$STD" -f 'wineserver' | head -1)")]" >> "$RES"; }
+if [ "${WEX_SCMLOOP_TRACE:-0}" = 1 ]; then   # the user's session started with the RPC and service traces (the loop must be short)
+    kill_servers
+    # a program that stays keeps this session's server (and its services.exe, which has these traces) alive for the loop
+    run_as "$STD" env WINEDEBUG=+rpc,+service "$BUILD/wine" "$ROOT/probes/rolesprobe64.exe" hold >/dev/null 2> "$ROOT/rpctrace.log" & TRACEHOLD=$!
+    sleep 8
+fi
+as_wine "$STD" "$ROOT/probes/tierprobe64.exe" svcstate PlugPlay >/dev/null 2>&1 || true   # the user's session is up and forwarding
+sample 0
+case "$MODE" in
+    pipe|pipehold)   # raw connections to session 0's service manager pipe through the bridge, without RPC
+        PROBE="$ROOT/probes/pipeloop64.exe"; ARGS=('\\.\pipe\WexSession0\svcctl' "$ROUNDS"); [ "$MODE" != pipehold ] || ARGS+=(hold) ;;
+    *) PROBE="$ROOT/probes/scmloop64.exe"; ARGS=("$MODE" "$ROUNDS") ;;
+esac
+( as_wine "$STD" "$PROBE" "${ARGS[@]}" > "$ROOT/scmloop.out" 2>&1 ) & LP=$!
+while kill -0 "$LP" 2>/dev/null; do sleep 4; sample "$(grep -c '^progress' "$ROOT/scmloop.out" 2>/dev/null)x100"; done
+wait "$LP" || true
+sample end
+cp "$ROOT/scmloop.out" "/var/tmp/wex-run/s0_scmloop.$MODE.out"
+[ ! -f "$ROOT/rpctrace.log" ] || cp "$ROOT/rpctrace.log" "/var/tmp/wex-run/s0_scmloop.$MODE.rpctrace"
+echo "--- scm loop ($MODE, $ROUNDS rounds):"; tail -6 "$ROOT/scmloop.out"; echo "--- samples:"; sed -n '1p;$p' "$RES"
+grep -q '^scm_loop=PASS' "$ROOT/scmloop.out" || fail "B109: the service manager loop failed ($MODE): $(grep FAIL "$ROOT/scmloop.out" | head -2 | tr '\n' ' ')"
+# a connection kept per round shows as threads in session 0's services.exe (one wine_rpcrt4_io thread each, up to the bridge's
+# 256 per account); the count must stay near where it began (the fixed code stays within a few threads)
+T_FIRST="$(sed -n '1s/.*s0_services\[threads=\([0-9]*\).*/\1/p' "$RES")"
+T_MAX="$(sed -n 's/.*s0_services\[threads=\([0-9]*\).*/\1/p' "$RES" | sort -n | tail -1)"
+[ -n "$T_FIRST" ] && [ -n "$T_MAX" ] && [ $((T_MAX - T_FIRST)) -le 60 ] ||
+    fail "B109: session 0's services.exe went from $T_FIRST to $T_MAX threads in $ROUNDS rounds: a connection is left behind per round"
+ok st_service_manager_loop_in_a_session_does_not_fail
+kill_servers
+true; ); section_leave $?; fi
+STD_SID_ANCHOR=1
+if section s0_accounts_svc; then set +e; ( section_enter
+# Local Accounts (docs/LOCAL_USERS_DESIGN.md): the service wexaccounts means something only in session 0 (its pipes are the
+# bridge's, its helper is the machine's), so it is auto-started there and nowhere else (WexStartInSession0Only): a session
+# does not run a copy of its own, and a plain prefix, where no session 0 exists, does not run it unless it is asked to
+# the first call waits until session 0's service manager is up (its auto-start is done by then)
+for i in $(seq 1 30); do s0_wine sc query wexaccounts 2>/dev/null | grep -q RUNNING && break; sleep 1; done
+if ! pgrep -u "$S0U" -f wexaccounts >/dev/null; then
+    echo "--- sc query wexaccounts in session 0:" >&2; s0_wine sc query wexaccounts >&2 || true
+    echo "--- the service's key:" >&2; s0_wine reg query 'HKLM\System\CurrentControlSet\Services\wexaccounts' >&2 || true
+    echo "--- processes of session 0's account:" >&2; pgrep -u "$S0U" -a >&2 || true
+    tail -15 "$ROOT/session0.log" >&2 || true
+    fail "Local Accounts: the service does not run in session 0"
+fi
+ok st_accounts_service_runs_in_session0
+for b in 64 32; do
+    STATE="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" svcstate wexaccounts | sed -n 's/^state=//p')" || true
+    [ "$STATE" = 4 ] || fail "Local Accounts: $STD's $b-bit program sees wexaccounts as [$STATE], not running (session 0's)"
+done
+sleep 5
+! pgrep -u "$STD" -f wexaccounts >/dev/null || fail "Local Accounts: $STD's session runs its own wexaccounts"
+ok st_a_session_does_not_run_its_own_accounts_service
+# a plain prefix (no session 0, no launcher): the service is there, stopped, and starts on demand
+PP="/home/$STD/.wine-plain"
+run_as "$STD" rm -rf "$PP"
+run_as "$STD" WINEPREFIX="$PP" "$BUILD/wine" wineboot.exe -i >/dev/null 2>&1 || true
+run_as "$STD" WINEPREFIX="$PP" "$BUILD/server/wineserver" -w
+plain_state() { run_as "$STD" WINEPREFIX="$PP" "$BUILD/wine" sc query wexaccounts 2>&1 | tr -d '\r' | sed -n 's/.*STATE *: *[0-9]* *//p' | head -1; }
+run_as "$STD" WINEPREFIX="$PP" "$BUILD/wine" cmd /c ver >/dev/null 2>&1 || true
+sleep 4
+[ "$(plain_state)" = STOPPED ] || fail "Local Accounts: in a plain prefix the service is [$(plain_state)], not stopped"
+! pgrep -u "$STD" -f wexaccounts >/dev/null || fail "Local Accounts: a plain prefix runs the accounts service by itself"
+ok st_a_plain_prefix_does_not_start_the_accounts_service
+run_as "$STD" WINEPREFIX="$PP" "$BUILD/wine" sc start wexaccounts >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$STD" -f wexaccounts >/dev/null && break; sleep 0.5; done
+pgrep -u "$STD" -f wexaccounts >/dev/null || fail "Local Accounts: the service does not start on demand in a plain prefix"
+ok st_the_accounts_service_starts_on_demand_in_a_plain_prefix
+run_as "$STD" WINEPREFIX="$PP" "$BUILD/server/wineserver" -k || true
+run_as "$STD" rm -rf "$PP"
+kill_servers
+true; ); section_leave $?; fi
+if section s0_accounts_chain; then set +e; ( section_enter
+# Local Accounts through the whole chain (docs/LOCAL_USERS_DESIGN.md): a program in a session -> the bridge -> wexaccounts in session 0 ->
+# the server's accounts_forward -> the helper wex-accountsd, here a lab build run as root on a fake AccountsService, logind and systemd
+# (scripts/accountsd-fake-bus.py) on a private bus. The helper's account in accountsd.conf is root for the test. Checks: who may read and who may
+# change (the verdict is the server's: a standard user and a limited administrator read, only an elevated administrator changes), the caller's
+# own account (the link's uid), a caller of session 0 itself (not bridged: refused), the helper gone, and the helper restarted in the
+# middle of a request.
+CH="$ROOT/chain"; rm -rf "$CH"; install -d -m 0755 "$CH"
+# the helper runs as an account of its own: the server refuses a helper that is root (accountsd.conf's helper_user)
+HELPER_NEW=0; id wexaccounts >/dev/null 2>&1 || { useradd --system --no-create-home --shell /usr/sbin/nologin wexaccounts && HELPER_NEW=1; }
+chown wexaccounts "$CH"
+as_helper() { runuser -u wexaccounts -- "$@"; }
+gcc -O2 -Wall -DWEX_ACCOUNTSD_LAB_TEST -o "$CH/wex-accountsd" "$SRC/tools/wex-accountsd/wex-accountsd.c" -lsystemd || fail "chain: the helper's lab build"
+as_helper dbus-daemon --session --nofork --print-address=1 > "$CH/bus.addr" 2>/dev/null & BUSPID=$!
+for i in $(seq 1 40); do [ -s "$CH/bus.addr" ] && break; sleep 0.25; done
+ADDR="$(head -1 "$CH/bus.addr")"; [ -n "$ADDR" ] || fail "chain: no private bus"
+ADM_UID="$(id -u "$ADM")"
+as_helper env FAKE_EXTRA="$ADM:$ADM_UID" python3 "$SRC/scripts/accountsd-fake-bus.py" "$ADDR" "$CH/fake.log" > "$CH/fake.out" 2>&1 & FAKEPID=$!
+for i in $(seq 1 40); do grep -q READY "$CH/fake.out" && break; sleep 0.25; done
+grep -q READY "$CH/fake.out" || { cat "$CH/fake.out" >&2; echo "bus address [$ADDR]" >&2; kill "$BUSPID" 2>/dev/null; fail "chain: the fake bus did not start"; }
+install -d -m 0755 /etc/wineexplorer
+install -d -m 0755 -o wexaccounts /run/wineexplorer
+[ ! -f /etc/wineexplorer/accountsd.conf ] || cp -p /etc/wineexplorer/accountsd.conf "$CH/accountsd.conf.orig"
+printf 'session0_user=%s\nsession0_unit=wex-session0.service\nadmin_group=sudo\nbuiltin_administrator=builtin\nsync_unit=wex-accounts-sync.service\nhelper_user=wexaccounts\n' \
+    "$S0U" > /etc/wineexplorer/accountsd.conf
+chmod 0644 /etc/wineexplorer/accountsd.conf
+s0_pid() { pgrep -u "$S0U" -f 'wineserver --session0' | head -1; }
+start_helper()
+{
+    s0_pid > "$CH/mainpid"
+    rm -f /run/wineexplorer/accounts.sock
+    as_helper env WEX_ACCOUNTSD_TEST=1 "$CH/wex-accountsd" --config /etc/wineexplorer/accountsd.conf --bus "$ADDR" --listen /run/wineexplorer/accounts.sock \
+        --mainpid-file "$CH/mainpid" --any-dumpable --admin-members alice,bob >> "$CH/helper.log" 2>&1 & HELPERPID=$!
+    for i in $(seq 1 40); do [ -S /run/wineexplorer/accounts.sock ] && break; sleep 0.25; done
+    chmod 0666 /run/wineexplorer/accounts.sock   # the file mode is not the authority: the helper checks its peer
+}
+stop_helper() { pkill -9 -u wexaccounts -f wex-accountsd 2>/dev/null; wait "$HELPERPID" 2>/dev/null || true; rm -f /run/wineexplorer/accounts.sock; return 0; }
+chain_teardown()
+{
+    stop_helper; pkill -9 -u wexaccounts 2>/dev/null; wait "$FAKEPID" "$BUSPID" 2>/dev/null || true
+    [ "$HELPER_NEW" != 1 ] || userdel wexaccounts 2>/dev/null
+    if [ -f "$CH/accountsd.conf.orig" ]; then cp -p "$CH/accountsd.conf.orig" /etc/wineexplorer/accountsd.conf; else rm -f /etc/wineexplorer/accountsd.conf; fi
+}
+start_helper
+# the service of session 0 must be up (its manager answers after the auto-start pass)
+for i in $(seq 1 30); do s0_wine sc query wexaccounts 2>/dev/null | grep -q RUNNING && break; sleep 1; done
+s0_wine sc query wexaccounts 2>/dev/null | grep -q RUNNING || { chain_teardown; fail "chain: the accounts service does not run in session 0"; }
+# one run of the probe as a user; the first lines of its output
+as_chain() { local u="$1"; shift; as_wine "$u" "$ROOT/probes/accchain64.exe" "$@"; }
+: > "$CH/fake.log"; chown wexaccounts "$CH/fake.log"
+el_up "$ADM"   # the administrator's session, where the consent window of an elevated run comes up
+# an elevated administrator's run (the broker's test approval), output through a file
+el_run()   # name args...: the probe as ADM's elevated process (the consent window approved, as el_cmd does it); prints its output
+{
+    local name="$1" out="/tmp/wexchain.$1.txt"; shift
+    rm -f "$out"
+    run_as "$ADM" install -d -m 0755 "/home/$ADM/wexel"; run_as "$ADM" cp "$ROOT/probes/accchain64.exe" "/home/$ADM/wexel/accchain.exe"
+    el_cmd "chain_$name" "$ADM" "$(winpath /home/$ADM/wexel/accchain.exe) $* --out $(winpath "$out")"
+    tr -d '\r' < "$out" 2>/dev/null
+}
+chain_fail() { echo "--- helper log:" >&2; tail -15 "$CH/helper.log" >&2; echo "--- session 0 log:" >&2; tail -15 "$ROOT/session0.log" >&2; chain_teardown; fail "$1"; }
+st() { sed -n 's/^status=//p' | head -1; }
+
+# who may read: a standard user and a limited administrator; the record comes back through the chain
+OUT="$(as_chain "$STD" read alice)"
+[ "$(st <<<"$OUT")" = 0 ] && grep -q 'uid=1001 type=1' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "chain: $STD cannot read a user through the chain"; }
+ok st_chain_standard_user_reads
+OUT="$(as_chain "$ADM" list)"
+[ "$(st <<<"$OUT")" = 0 ] && grep -q 'names=.*alice' <<<"$OUT" && grep -q 'carol' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "chain: the list through the chain"; }
+ok st_chain_limited_administrator_lists
+OUT="$(as_chain "$STD" admins)"
+grep -q 'names=alice,bob' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "chain: the administrators through the chain"; }
+# who may not change
+[ "$(as_chain "$STD" create zedchain | st)" = 1 ] || chain_fail "chain: a standard user was not refused a create"
+[ "$(as_chain "$ADM" create zedchain | st)" = 1 ] || chain_fail "chain: a limited administrator was not refused a create"
+[ "$(as_chain "$ADM" delete carol | st)" = 1 ] || chain_fail "chain: a limited administrator was not refused a delete"
+! grep -q '"op": "CreateUser"' "$CH/fake.log" || chain_fail "chain: a refused create reached AccountsService"
+ok st_chain_only_elevated_changes_part1
+# the elevated administrator changes: the verdict is the server's
+OUT="$(el_run c1 create zedchain)"
+case "$(st <<<"$OUT")" in 0|10) ;; *) echo "$OUT" >&2; chain_fail "chain: the elevated create gave [$(st <<<"$OUT")]";; esac
+grep -q '"op": "CreateUser", "user": "zedchain"' "$CH/fake.log" || chain_fail "chain: the elevated create did not reach AccountsService"
+grep -q '"op": "SetPassword", "user": "zedchain"' "$CH/fake.log" || chain_fail "chain: the elevated create did not set the password"
+[ "$(as_chain "$STD" read zedchain | st)" = 0 ] || chain_fail "chain: the created user is not there for a reader"
+case "$(el_run c2 delete zedchain | st)" in 0|10) ;; *) chain_fail "chain: the elevated delete failed";; esac   # 10: made, the account map had not moved (the fixture's map is not synced by the fake)
+grep -q '"op": "DeleteUser"' "$CH/fake.log" || chain_fail "chain: the elevated delete did not reach AccountsService"
+ok st_chain_elevated_administrator_creates_and_deletes
+# the caller's own account: the link's uid
+[ "$(el_run c3 delete "$ADM" | st)" = 1 ] || chain_fail "chain: an elevated administrator deleted its own account"
+ok st_chain_the_callers_own_account_is_refused
+# a caller of session 0 itself is not bridged: refused (the server's accounts_forward)
+OUT="$(s0_wine "$ROOT/probes/accchain64.exe" read alice | tr -d '\r')"
+[ "$(st <<<"$OUT")" = 1 ] || { echo "$OUT" >&2; chain_fail "chain: a process of session 0 was served over the local pipe"; }
+ok st_chain_a_session0_process_is_not_served
+# the helper is gone: not reachable (1722 for netapi32)
+stop_helper
+[ "$(as_chain "$STD" read alice | st)" = 7 ] || chain_fail "chain: with no helper the answer was not UNAVAILABLE"
+ok st_chain_no_helper_gives_unavailable
+# the helper restarted in the middle of a request: no hang, not reachable
+start_helper
+touch "$CH/fake.log.slow"
+( el_run c4 fullname carol Mid > "$CH/mid.out" ) & MIDPID=$!
+sleep 6
+stop_helper
+t0=$SECONDS
+wait "$MIDPID"
+took=$((SECONDS - t0))
+rm -f "$CH/fake.log.slow"
+[ "$(st < "$CH/mid.out")" = 7 ] && [ "$took" -lt 25 ] || { cat "$CH/mid.out" >&2; chain_fail "chain: a request in flight when the helper went away did not give UNAVAILABLE in time (status [$(st < "$CH/mid.out")] after $took s)"; }
+ok st_chain_helper_restart_in_flight_gives_unavailable
+start_helper
+[ "$(as_chain "$STD" read alice | st)" = 0 ] || chain_fail "chain: the chain did not recover after the helper came back"
+ok st_chain_recovers_after_the_helper_returns
+# what the helper logged: reads as users, changes as elevated, the caller's uid, never a hash
+grep -q 'verdict 1 ' "$CH/helper.log" && grep -q 'verdict 2 ' "$CH/helper.log" || chain_fail "chain: the helper's log lacks the verdicts of both classes"
+grep -q "caller $ADM_UID " "$CH/helper.log" || chain_fail "chain: the helper's log lacks the caller's uid"
+! grep -q 'chainsalt' "$CH/helper.log" || chain_fail "chain: a hash reached the helper's log"
+ok st_chain_verdicts_and_caller_uid_reach_the_helper
+chain_teardown
+kill_servers
 true; ); section_leave $?; fi
 STD_SID="S-1-5-21-$(awk -v n="$STD" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
 if section gp_registry; then set +e; ( section_enter
@@ -5969,6 +6831,21 @@ for r in sys ls ns; do
     [ "$(fact "$SVCDIR/$r.txt" admins)" != enabled ] || fail "a service in a user-writable prefix has Administrators enabled: $r"
 done
 ok c3_own_prefix_services_run_with_the_users_token
+# event logs (L1) in a prefix without session 0: the prefix's own EventLog service, over the same pipe name, unbridged
+[ -f "$ROOT/probes/evp64.exe" ] || x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/evp64.exe" \
+    "$SRC/scripts/eventlog-probe.c" -ladvapi32 -lntdll || fail "eventlog: cannot build the probe"
+own_ev() { own_wine "$ROOT/probes/evp64.exe" "$@" | tr -d '\r'; }
+own_wine sc start EventLog >/dev/null 2>&1 || true   # (it is an auto-start service; started here in case the boot has not)
+for i in $(seq 1 60); do own_ev count Application | grep -q '^count=0 ' && break; sleep 0.5; done
+OUT="$(own_ev report WexL1Own 4 1 own-prefix || true)"
+[ "$(sed -n 's/^report=//p' <<<"$OUT")" = 0 ] || {
+    echo "report: $OUT; count: $(own_ev count Application || true); caller: $(own_ev caller || true)" >&2
+    own_wine sc query EventLog >&2 || true
+    pgrep -u "$STD" -af svchost >&2 || true
+    fail "eventlog: the own prefix's service does not take a report"; }
+own_ev read Application | grep -q 'source=WexL1Own strings=1 first=own-prefix$' || fail "eventlog: the own prefix's record does not read back"
+[ -f "$UP/drive_c/windows/system32/config/AppEvent.evt" ] || fail "eventlog: the own prefix keeps no AppEvent.evt of its own"
+ok ev_plain_prefix_has_its_own_event_log
 for arch in 64 32; do
     OUT="$(probe_own "$arch" grants allowed)" || { echo "$OUT" >&2; fail "grants allowed $arch"; }
     grep -q '^grants=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "grants allowed $arch"; }

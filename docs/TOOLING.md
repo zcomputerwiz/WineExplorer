@@ -369,6 +369,8 @@ environment. The packaging puts the marker `dwm-composition.enable` in the image
 way the template prefix gets `Composition`, `DwmService` and `DwmAlpha` = 1 in `HKCU\Software\WineExplorer\Shell`, so
 every account made from it, the chain's and the suite's, has composition on. Off by default: the product default
 stays `Composition=0` until the owner decides.
+The suite's section `c4_dwm_popup` (added 2026-11-25) shows what the switch changes for popups: a probe draws a translucent popup the way Chromium and Edge do (`scripts/dwm-popup-probe.cpp`) over an orange window, on an X server of its own with the compositor's extensions, and the section reads the screen: shaped to its card without composition, the soft shadow blended with it (`WEX_DWM_COMPOSITION=1`). It needs ImageMagick's `import` and `convert` and, with composition, libXdamage; it skips otherwise, saying why.
+The section `c4_dwm_menu` (same date) does the same for a standard popup menu (`scripts/dwm-menu-probe.c`): `SPI_GETDROPSHADOW` is on by default (Wine commit `eb00215e`), the menu has a soft shadow with composition on and none with it off. Before that default the shell's menus had no shadow even with composition on.
 
 UEFI test VMs (`vmtest.py start --efi`) have a variable store of their own (`STATE/efivars.fd`, OVMF's split
 `OVMF_CODE_4M.fd`/`OVMF_VARS_4M.fd`), and `vmtest.py loader-timeout NAME SECONDS` writes systemd-boot's

@@ -23,7 +23,12 @@ unsloth-tmp/*                           none
 
 # the suites themselves
 scripts/test_sysrun_server.sh           normalsuite
+scripts/dwm-popup-probe.cpp             normalsuite
+scripts/dwm-menu-probe.c               normalsuite
 scripts/test_broker_e1s18.sh            normalsuite
+scripts/eventlog-*                      normalsuite
+scripts/accounts-probe.c                normalsuite
+scripts/accounts-fake-helper.py         normalsuite
 scripts/test_e1s6_transport.sh          lab
 scripts/e1s10_issue_probe.c             lab
 scripts/lab/system-tier-t1.sh           t1suite
@@ -85,6 +90,11 @@ src/dlls/sysdm.cpl/*                    normalsuite,image,gpolab
 wine:server/*                           normalsuite,t1suite,lab
 wine:include/wine/server_protocol.h     normalsuite,t1suite,lab
 wine:include/wine/wex_session0.h        normalsuite,t1suite,lab
+wine:include/wine/wex_eventlog.h        normalsuite
+wine:include/wine/wex_accounts.h        normalsuite
+wine:include/Makefile.in                normalsuite
+wine:loader/wine.inf.in                 normalsuite,image
+wine:dlls/wevtsvc/*                     normalsuite
 wine:dlls/ntdll/*                       normalsuite,t1suite
 wine:dlls/kernelbase/*                  normalsuite
 wine:dlls/advapi32/*                    normalsuite
@@ -104,6 +114,8 @@ src/programs/wexappx/*                  normalsuite
 
 # the Safe Mode and greeter code, and its static test (which reads the VM harness too)
 scripts/test_safemode.py                py:scripts/test_safemode.py
+installer/tests/popup-check.py          py:installer/tests/test_popup_check.py
+installer/tests/test_popup_check.py     py:installer/tests/test_popup_check.py
 installer/tests/*                       py:scripts/test_safemode.py
 scripts/wex-greeter.sh                  py:scripts/test_safemode.py,chain
 scripts/lib/wex-common.sh               py:scripts/test_safemode.py,normalsuite,chain
