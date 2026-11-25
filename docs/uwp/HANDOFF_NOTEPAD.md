@@ -88,10 +88,22 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
        `Flush` and d2d `EndDraw`, reload on `PSSetShaderResources`, plus LAB-A8) gave 0 reloads. Wine's compositor never binds a
        pixel-shader resource, so it never samples the UI thread's bitmaps at all. It skips the sprite pass: its scene has no
        sprites to draw, or it does not consider them drawable.
-     - Next: what tells the compositor to draw sprites. Compare on both systems, inside its draws, the Direct2D calls
-       (`d2d1.dll!context@{IID}[N]`: DrawBitmap, FillRectangle, SetTransform) and what it reads before them; and the
-       Microsoft.UI.Composition calls the UI thread makes (sprite visuals, brushes, `CompositionDrawingSurface`) between its
-       draws and the compositor's next redraw.
+     - **How the compositor draws sprites (2026-11-25, measured):** per surface it calls BeginDraw, d2d private slot 7
+       (target), SetTransform, slot 10 (pointer, 0), Clear, and once content exists slot 15 (an object of its own, 0), sometimes
+       FillGeometry, then EndDraw. Slot 15 queues the object; at Flush/EndDraw Direct2D calls the object's slot 3 and the
+       object issues the sprite DrawIndexed calls itself (`dwmcorei.dll` frames above `d2d1.dll`). Probe:
+       `tests/uwp/alpc/d2d-ctx-slot15-probe.cpp`. Wine's slot 15 dropped the object; Wine branch `claude/notepad-d2d-slot15`
+       (97ee7765) queues and calls it (STOCK_CHANGES).
+     - **But under Wine the content never arrives:** in a 150 s lab run (`ovr13g.sh`: longer run, mscoree/mshtml disabled,
+       timestamps) slot 15 is never called. Notepad hangs about 10 s in, after the compositor's first frame (Commit, method 45,
+       clock wait, method 46) and the UI thread's first text draws; every thread waits from then on. The hang was already in
+       earlier runs (their logs end at the same place). What is known: the UI thread and both wined3d_cs threads wait on
+       per-thread futex slots (NtWaitForAlertByThreadId: an SRW lock, condition variable or WaitOnAddress, not a critical
+       section, since no "wait timed out" ERR appears); the compositor thread and the rest wait in the server. The traced locks
+       (d2d factory, d3d multithread) are balanced, and dcomp's SRW locks are released on every path. winedbg's attach does not
+       complete; gdb sees no symbols (the preloader hides the library list). Next: name the UI thread's wait (a Windows-side
+       stack: winedbg with a longer wait, or a WaitOnAddress/SRW trace), then compare with what the UI thread does after its
+       first text draws on Windows.
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.
