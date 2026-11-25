@@ -4896,7 +4896,10 @@ for the accounts service alone.
   shows a service's own SID); the request accepts only S-1-5-80 with five sub-authorities, from the system role.
 - `server/named_pipe.c`: the reserved names also need NT SERVICE\wexaccounts in the creator's token;
   `include/wine/wex_accounts.h`: the service name and its SID's sub-authorities. The accounts service has to be
-  registered with SID type unrestricted.
+  registered with SID type unrestricted. This keeps other services' ordinary code off the name; it is no boundary
+  against SYSTEM: any SYSTEM process of session 0 may ask `create_service_token` for a token holding
+  NT SERVICE\wexaccounts and start a process with it, as on Windows, where SYSTEM is the trusted computing base.
+- `include/winsvc.h`: `SERVICE_SID_TYPE_NONE`, `_UNRESTRICTED`, `_RESTRICTED` (missing in Wine).
 - `dlls/advapi32/tests/service.c`: the SID type's round trip.
 Tests: section `s0_accounts` (a second LocalSystem service with its own SID, wexaccounts without its SID, the service's
 token).
