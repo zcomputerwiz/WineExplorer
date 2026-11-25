@@ -1,5 +1,20 @@
 # Changes to stock Wine / third-party code
 
+## server: the system role fields of a new process initialized (B108, 2026-11-25)
+
+Wine 83c82756b7a (branch `claude/edge-signin-stacking`). Our code only (the fields are ours).
+
+- `server/process.c` (`create_process`): `sysrun_protected`, `sysrun_account` and `sysrun_pending` start at 0.
+  `sysrun_process_created` sets them only for the system role's processes; any other process kept the bits of the
+  freed object its memory came from, so its threads could get a service's descriptor (`protect_object`, measured:
+  SYSTEM and NETWORK SERVICE full control, the user no entry) and it could not open its own threads.
+- Effect: Gecko's JavaScript runtime opens its own thread with get/set context and suspend/resume rights and aborts
+  when it cannot (`###!!! ABORT: new XPCJSRuntime failed to initialize`, then the deliberate write to 0 in
+  mozglue.dll), so Internet Explorer crashed at start. With the fix both architectures open their own threads with
+  every right and IE keeps running with Gecko loaded (build tree, plain prefix, 64- and 32-bit).
+- Tests: `advapi32:security` has the same 10 failures with and without the change (run as root). No Wine test is
+  added: whether the bits were set depended on which freed object the memory came from.
+
 ## ntdll: FSCTL_SET_ZERO_DATA (B106, 2026-11-25)
 
 Wine 7217a7389b7 (branch `claude/edge-signin-stacking`), pinned on the owner's word without an update hold (see the
