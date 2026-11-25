@@ -166,6 +166,7 @@ c4_msi_doc       c4_build           n   c4
 c4_appx_doc      c4_build           n   c4
 c4_wam           c4_build           n   c4
 c4_dwm           c4_build           n   c4
+c4_dwm_popup     c4_build           n   c4
 c4_std           c4_build           n   c4
 c4_noleases      c4_build           n   c4
 c5_build         c4_build           nl  c5
@@ -3561,6 +3562,77 @@ for arch in x86_64 i386; do
 done
 wine_as "$ADM" reg delete "$DWMKEY" /v DwmService /f >/dev/null 2>&1 || true
 [ -z "$dwm_fail" ] || fail "dwm: dwmapi's tests failed or were skipped as the limited administrator:$dwm_fail"
+true; ); section_leave $?; fi
+
+# -- a translucent popup, the way Chromium and Edge build theirs (scripts/dwm-popup-probe.cpp: a glass sheet whose client is a
+# DirectComposition target with premultiplied alpha, a white card and a soft shadow) over a plain orange window, on an X
+# server of its own with the extensions the compositor needs. Composition off (the shipped default): the popup is shaped
+# to its card, so 3 pixels below it the screen is the orange. Composition on (HKCU Composition=1 for the administrator,
+# which WEX_DWM_COMPOSITION=1 gives every account made from the template prefix): the compositor blends the popup's alpha,
+# so there the screen is the orange darkened by the shadow. 14 pixels below the card, and beside the popup, it is the orange
+# either way; inside the card, white. Skipped with composition on when libXdamage is missing (the compositor needs it).
+if section c4_dwm_popup; then set +e; ( section_enter
+POPD="$ROOT/c4popup"; rm -rf "$POPD"; install -d -m 1777 "$POPD"
+command -v x86_64-w64-mingw32-g++ >/dev/null 2>&1 || section_skip "no x86_64 MinGW C++ compiler"
+command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || section_skip "no import or convert (ImageMagick) to read the screen"
+x86_64-w64-mingw32-g++ -municode -mwindows -o "$POPD/dwm-popup-probe.exe" "$SRC/scripts/dwm-popup-probe.cpp" \
+    -ld3d11 -ldxgi -ldcomp -luser32 -lgdi32 2>"$POPD/build.log" || { cat "$POPD/build.log" >&2; fail "popup: the probe does not build"; }
+chmod 0755 "$POPD/dwm-popup-probe.exe"
+DWMKEY='HKCU\Software\WineExplorer\Shell'
+POPCOMP="$(wine_as "$ADM" reg query "$DWMKEY" /v Composition 2>/dev/null | tr -d '\r' | awk '$1 == "Composition" { print $NF }' || true)"
+if [ "$POPCOMP" = 0x1 ]; then
+    ldconfig -p 2>/dev/null | grep -q 'libXdamage[.]so[.]1' || section_skip "composition is on and libXdamage is missing (the compositor needs it)"
+fi
+# an X server of its own: the suite's has no Composite, Damage or Render
+Xvfb -displayfd 7 -screen 0 1280x800x24 -nolisten tcp +extension Composite +extension DAMAGE +extension RENDER \
+    7>"$POPD/display" >/dev/null 2>&1 &
+POPX=$!
+for i in $(seq 1 50); do [ -s "$POPD/display" ] && break; sleep 0.2; done
+POPDN="$(tr -dc '0-9' < "$POPD/display")"
+[ -n "$POPDN" ] || { kill "$POPX" 2>/dev/null; fail "popup: Xvfb did not start"; }
+POPLOG="/home/$ADM/.wine/drive_c/popup.log"
+rm -f "$POPLOG" "/home/$ADM/.wine/drive_c/popup.stop"
+wine_as "$ADM" reg add "$DWMKEY" /v DwmService /t REG_DWORD /d 1 /f >/dev/null 2>&1 || fail "popup: HKCU DwmService"
+wine_as "$ADM" reg add 'HKCU\Software\Wine\Explorer\Desktops\Default' /v EnableShell /t REG_DWORD /d 1 /f >/dev/null 2>&1 ||
+    fail "popup: the EnableShell key"
+# the shell (its compositor, when composition is on) on a desktop named Default, then the probe on it
+run_as "$ADM" env DISPLAY=":$POPDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$POPD/shell.log" 2>&1 &
+POPSHELL=$!
+sleep 10
+run_as "$ADM" env DISPLAY=":$POPDN" timeout 100 "$BUILD/wine" "$(winpath "$POPD/dwm-popup-probe.exe")" >"$POPD/probe.log" 2>&1 &
+POPPROBE=$!
+for i in $(seq 1 60); do grep -q 'popup ready' "$POPLOG" 2>/dev/null && break; sleep 1; done
+sleep 4
+popup_pixel()   # x y: the screen's pixel, as "R,G,B"
+{
+    DISPLAY=":$POPDN" import -window root png:- 2>/dev/null | convert png:- -format "%[pixel:p{$1,$2}]" info: 2>/dev/null |
+        sed -n 's/^srgb(\([0-9]*\),\([0-9]*\),\([0-9]*\)).*/\1,\2,\3/p'
+}
+POP_IN="$(popup_pixel 300 250)"; POP_NEAR="$(popup_pixel 300 383)"; POP_FAR="$(popup_pixel 300 394)"; POP_OUT="$(popup_pixel 600 500)"
+echo "popup (composition ${POPCOMP:-off}): card $POP_IN, 3 px below $POP_NEAR, 14 px below $POP_FAR, beside $POP_OUT"
+touch "/home/$ADM/.wine/drive_c/popup.stop"
+sleep 2
+kill "$POPPROBE" "$POPSHELL" 2>/dev/null || true; wait "$POPPROBE" "$POPSHELL" 2>/dev/null || true
+wine_as "$ADM" reg delete "$DWMKEY" /v DwmService /f >/dev/null 2>&1 || true
+wine_as "$ADM" reg delete 'HKCU\Software\Wine\Explorer\Desktops\Default' /f >/dev/null 2>&1 || true
+pkill -u "$ADM" -x wineserver 2>/dev/null || true
+kill "$POPX" 2>/dev/null || true
+rm -f "$POPLOG" "/home/$ADM/.wine/drive_c/popup.stop"
+popup_fail=""
+grep -q 'popup ready' "$POPD/probe.log" "$POPLOG" 2>/dev/null || [ -n "$POP_IN" ] || popup_fail="$popup_fail the probe did not run;"
+[ "$POP_IN" = 255,255,255 ] || popup_fail="$popup_fail the card is not white ($POP_IN);"
+[ "$POP_FAR" = 255,128,0 ] || popup_fail="$popup_fail 14 px below the card is not the orange ($POP_FAR);"
+[ "$POP_OUT" = 255,128,0 ] || popup_fail="$popup_fail beside the popup is not the orange ($POP_OUT);"
+if [ "$POPCOMP" = 0x1 ]; then
+    # blended: the shadow (30 % black at the card's edge, 23 % there) darkens the orange: red 150..245, green and blue likewise
+    POPR="${POP_NEAR%%,*}"
+    { [ -n "$POPR" ] && [ "$POPR" -ge 150 ] && [ "$POPR" -le 245 ]; } ||
+        popup_fail="$popup_fail composition on: no soft shadow 3 px below the card ($POP_NEAR);"
+else
+    [ "$POP_NEAR" = 255,128,0 ] || popup_fail="$popup_fail composition off: the popup is not shaped to its card ($POP_NEAR);"
+fi
+[ -z "$popup_fail" ] || { tr -d '\r' < "$POPD/probe.log" | tail -10 >&2; tr -d '\r' < "$POPD/shell.log" | grep -v '^$' | tail -10 >&2; fail "popup:$popup_fail"; }
+if [ "$POPCOMP" = 0x1 ]; then ok c4_dwm_popup_with_composition_is_blended; else ok c4_dwm_popup_without_composition_is_shaped; fi
 true; ); section_leave $?; fi
 amb_down "$ADM"
 
