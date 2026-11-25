@@ -5290,7 +5290,8 @@ chmod 0755 "$ROOT/probes"/accp*.exe
 ACCH=wexacch   # the fixture helper's account
 id "$ACCH" >/dev/null 2>&1 || useradd -r -M -d /nonexistent -s /usr/sbin/nologin "$ACCH"
 ACCONF=/etc/wineexplorer/accountsd.conf; ACCRUN=/run/wineexplorer; ACCSOCK="$ACCRUN/accounts.sock"
-ACCLOG="$ROOT/acc-helper.log"; ACCSRV="$ROOT/acc-serve.log"; : > "$ACCLOG"; : > "$ACCSRV"; chmod 666 "$ACCLOG"
+ACCLOG="$ROOT/acc-helper.log"; : > "$ACCLOG"; chmod 666 "$ACCLOG"
+ACCSRV=/tmp/accsrv.txt   # the service probe's output (written by session 0's account, Z:\tmp\accsrv.txt)
 # a helper's configuration and run directory that are already there are put back at the end
 [ ! -e "$ACCONF" ] || mv "$ACCONF" "$ACCONF.wextest"
 ACCRUNWAS="$(stat -c '%U:%G %a' "$ACCRUN" 2>/dev/null || true)"
@@ -5311,6 +5312,7 @@ acc_helper()   # MODE: (re)start the fake helper
 acc_cleanup()
 {
     as_wine "$STD" "$ROOT/probes/accp64.exe" quit >/dev/null 2>&1 || true
+    ! declare -F acc_svcrestore >/dev/null || acc_svcrestore   # wexaccounts as it was
     pkill -u "$ACCH" -f accounts-fake-helper.py 2>/dev/null || true
     rm -f "$ACCSOCK" "$ACCONF"
     [ ! -e "$ACCONF.wextest" ] || mv "$ACCONF.wextest" "$ACCONF"
@@ -5325,35 +5327,103 @@ accfail()
 }
 acc() { as_wine "$1" "$ROOT/probes/accp$2.exe" client "$3" "$4" || true; }
 accreqs() { grep -c '^req ' "$ACCLOG" || true; }
-# the reservation: in session 0 only LocalSystem itself creates the reserved names; impersonating, it cannot; a session's
-# program cannot create the bridged name (T5.2 reserves the prefix)
+# B114: the reserved names are the accounts service's alone: a LocalSystem process of session 0 whose token holds
+# NT SERVICE\wexaccounts (an own-process service named wexaccounts, SID type unrestricted), not impersonating. The probe
+# plays that service; a wexaccounts already registered (the real one) is stopped, pointed at the probe for the section
+# and put back by acc_cleanup.
+ACCSID='S-1-5-80-2861554723-205673086-2129874643-4023588997-3715158216'   # RtlCreateServiceSid("wexaccounts")
+ACCP="$(winpath "$ROOT/probes/accp64.exe")"
+acc_svcstate() { s0_wine sc query "$1" 2>/dev/null | tr -d '\r' | sed -n 's/.*STATE *: *\([0-9]*\).*/\1/p' | head -1; }
+acc_svcwait()   # NAME: until it is stopped (or gone)
+{
+    local i s
+    for i in $(seq 1 60); do s="$(acc_svcstate "$1")"; [ -z "$s" ] || [ "$s" = 1 ] && return 0; sleep 0.5; done
+    return 1
+}
+acc_squatsvc()   # NAME: start a service whose binary is the probe's squatfile; prints what it wrote
+{
+    rm -f /tmp/accls.txt
+    s0_wine sc start "$1" >/dev/null || true   # not a real service: it writes its result and exits
+    for i in $(seq 1 100); do grep -q '^squat_bridged=' /tmp/accls.txt 2>/dev/null && break; sleep 0.2; done
+    acc_svcwait "$1" || true
+    tr -d '\r' < /tmp/accls.txt 2>/dev/null || true   # written in text mode: CRLF
+    rm -f /tmp/accls.txt
+}
+ACCSVCPATH="$(s0_wine "$ROOT/probes/accp64.exe" svcpath wexaccounts | tr -d '\r' | sed -n 's/^svcpath=//p' || true)"
+ACCSVCSID=
+if [ -n "$ACCSVCPATH" ]; then
+    ACCSVCSID="$(s0_wine "$ROOT/probes/accp64.exe" sidtype wexaccounts | tr -d '\r' | sed -n 's/^sidtype=//p' || true)"
+    s0_wine sc stop wexaccounts >/dev/null 2>&1 || true
+    acc_svcwait wexaccounts || fail "accounts: the registered wexaccounts does not stop"
+fi
+acc_svcrestore()
+{
+    s0_wine sc stop wexaccounts >/dev/null 2>&1 || true
+    acc_svcwait wexaccounts || true
+    if [ -n "$ACCSVCPATH" ]; then
+        s0_wine "$ROOT/probes/accp64.exe" svcpath wexaccounts "$ACCSVCPATH" >/dev/null || true
+        s0_wine "$ROOT/probes/accp64.exe" sidtype wexaccounts "${ACCSVCSID:-0}" >/dev/null || true
+    else
+        s0_wine sc delete wexaccounts >/dev/null 2>&1 || true
+    fi
+}
+# impersonating, session 0's SYSTEM cannot; nor can it as a plain program (no service SID); a session's program cannot
+# create the bridged name (T5.2 reserves the prefix)
 OUT="$(s0_wine "$ROOT/probes/accp64.exe" squat imp | tr -d '\r' || true)"
 [ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
     accfail "accounts: session 0's SYSTEM, impersonating, created a reserved pipe: $OUT"
 OUT="$(s0_wine "$ROOT/probes/accp64.exe" squat | tr -d '\r' || true)"
-[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 0 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 0 ] ||
-    accfail "accounts: session 0's SYSTEM cannot create the reserved pipes: $OUT"
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
+    accfail "accounts: a SYSTEM program of session 0 that is not the accounts service created a reserved pipe: $OUT"
 OUT="$(as_wine "$STD" "$ROOT/probes/accp64.exe" squat || true)"
 [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] || accfail "accounts: a session's program created \\\\.\\pipe\\WexSession0\\accounts: $OUT"
-# a LocalService service in session 0 cannot create them either (A5)
-rm -f /tmp/accls.txt
-s0_wine sc create WexAccSquat binPath= "$(winpath "$ROOT/probes/accp64.exe") squatfile Z:\\tmp\\accls.txt" \
+# a LocalService service in session 0 cannot create them either (A5); it has no service SID (type none)
+s0_wine sc create WexAccSquat binPath= "$ACCP squatfile Z:\\tmp\\accls.txt" \
     obj= "NT AUTHORITY\\LocalService" >/dev/null || accfail "accounts: cannot create the LocalService test service"
-s0_wine sc start WexAccSquat >/dev/null || true   # not a real service: it writes its result and exits
-for i in $(seq 1 100); do grep -q '^squat_bridged=' /tmp/accls.txt 2>/dev/null && break; sleep 0.2; done
+OUT="$(acc_squatsvc WexAccSquat)"
 s0_wine sc delete WexAccSquat >/dev/null || true
-OUT="$(tr -d '\r' < /tmp/accls.txt 2>/dev/null || true)"; rm -f /tmp/accls.txt   # written in text mode: CRLF
-[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] &&
+[ "$(sed -n 's/^service_sids=//p' <<<"$OUT")" = none ] ||
     accfail "accounts: a LocalService service created a reserved pipe: [$OUT]"
-ok acc_reserved_pipe_only_for_localsystem_in_session0
-# the service, in session 0, for the rest of the section
+# B114: a second LocalSystem service, with its own service SID (unrestricted), cannot either; its token holds its SID
+s0_wine sc create WexAccSquat2 binPath= "$ACCP squatfile Z:\\tmp\\accls.txt" >/dev/null ||
+    accfail "accounts: cannot create the second LocalSystem test service"
+OUT="$(s0_wine "$ROOT/probes/accp64.exe" sidtype WexAccSquat2 1 | tr -d '\r' || true)"
+[ "$OUT" = sidtype=1 ] || { s0_wine sc delete WexAccSquat2 >/dev/null; accfail "accounts: the SID type of a service: $OUT"; }
+OUT="$(acc_squatsvc WexAccSquat2)"
+s0_wine sc delete WexAccSquat2 >/dev/null || true
+grep -qx 'service_sids=S-1-5-80-[0-9-]*:0xe' <<<"$OUT" && ! grep -q "$ACCSID" <<<"$OUT" ||
+    accfail "accounts: a service of SID type unrestricted has not its own SID (enabled, owner) in its token: [$OUT]"
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
+    accfail "accounts: a LocalSystem service other than wexaccounts created a reserved pipe: [$OUT]"
+# a service named wexaccounts without its SID (type none) cannot either
+if [ -n "$ACCSVCPATH" ]; then
+    s0_wine "$ROOT/probes/accp64.exe" svcpath wexaccounts "$ACCP squatfile Z:\\tmp\\accls.txt" >/dev/null ||
+        accfail "accounts: cannot point the registered wexaccounts at the probe"
+else
+    s0_wine sc create wexaccounts binPath= "$ACCP squatfile Z:\\tmp\\accls.txt" >/dev/null ||
+        accfail "accounts: cannot create the test service wexaccounts"
+fi
+OUT="$(s0_wine "$ROOT/probes/accp64.exe" sidtype wexaccounts 0 | tr -d '\r' || true)"
+[ "$OUT" = sidtype=0 ] || { accfail "accounts: the SID type of wexaccounts: $OUT"; }
+OUT="$(acc_squatsvc wexaccounts)"
+[ "$(sed -n 's/^service_sids=//p' <<<"$OUT")" = none ] &&
+[ "$(sed -n 's/^squat=//p' <<<"$OUT")" = 5 ] && [ "$(sed -n 's/^squat_bridged=//p' <<<"$OUT")" = 5 ] ||
+    { accfail "accounts: wexaccounts without its service SID created a reserved pipe: [$OUT]"; }
+ok acc_reserved_pipe_only_for_the_accounts_service
+# the service, in session 0, for the rest of the section: wexaccounts with its SID
 acc_conf "$ACCH"
-acc_helper echo || accfail "accounts: the fake helper does not start"
-(cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=-all \
-    WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 400 "$BUILD/wine" "$ROOT/probes/accp64.exe" serve 380 \
-    </dev/null >"$ACCSRV" 2>&1 &)
-for i in $(seq 1 100); do grep -aq '^serve=listening' "$ACCSRV" && break; sleep 0.2; done
-grep -aq '^serve=listening' "$ACCSRV" || accfail "accounts: the service probe does not listen"
+acc_helper echo || { accfail "accounts: the fake helper does not start"; }
+s0_wine "$ROOT/probes/accp64.exe" svcpath wexaccounts "$ACCP svcserve Z:\\tmp\\accsrv.txt 380" >/dev/null &&
+[ "$(s0_wine "$ROOT/probes/accp64.exe" sidtype wexaccounts 1 | tr -d '\r')" = sidtype=1 ] ||
+    { accfail "accounts: cannot make wexaccounts the serving probe"; }
+rm -f "$ACCSRV"
+s0_wine sc start wexaccounts >/dev/null || true
+for i in $(seq 1 100); do grep -aq '^serve=listening' "$ACCSRV" 2>/dev/null && break; sleep 0.2; done
+grep -aq '^serve=listening' "$ACCSRV" || { accfail "accounts: the service probe does not listen"; }
+grep -aqx "service_sids=$ACCSID:0xe" <(tr -d '\r' < "$ACCSRV") ||
+    { accfail "accounts: the accounts service's token lacks NT SERVICE\\wexaccounts"; }
+ok acc_accounts_service_token_has_its_service_sid
 # a standard user (64 and 32 bit) and a limited administrator: verdict user, the uid of their session's account
 for who in "$STD:64" "$STD:32" "$ADM:64"; do
     u="${who%:*}"

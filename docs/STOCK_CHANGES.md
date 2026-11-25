@@ -5020,7 +5020,7 @@ Tests: section `s0_eventlog` and the `own_prefix` check of `scripts/test_sysrun_
   `accounts_call_start`.
 - Open (the reviewer's A2, `docs/KNOWN_BUGS.md` B114): any LocalSystem process of session 0 may create the reserved
   names, not only wexaccounts; requiring the service's own SID (NT SERVICE\wexaccounts) waits for per-service SIDs in
-  Wine's service tokens.
+  Wine's service tokens. Fixed by the entry below (`claude/accounts-service-sid`).
 - `server/token.c`, `security.h`: `token_is_link_bound()`. `server/protocol.def`: requests `accounts_forward`,
   `accounts_result`; generated files.
 - `include/wine/wex_accounts.h` (new): the helper frame's constants (equal to WineExplorer's
@@ -5047,3 +5047,25 @@ A Flush writes back only after a draw, dispatch, copy, clear, update or resolve 
 Without a fence or keyed mutex an opener can load while the write-back is half done (a torn frame: undefined without
 sync). `ReleaseSync` calls Flush while holding the keyed mutex lock, so the device lock nests inside it: never take them
 in the other order.
+
+2026-11-25 (Wine branch `claude/accounts-service-sid`, B114, the reviewer's A2): service SIDs, and the accounts pipe
+for the accounts service alone.
+- `programs/services/services.c`, `services.h`, `rpc.c`: a service's SID type (`ServiceSidType` in its key, set and
+  read with `SERVICE_CONFIG_SERVICE_SID_INFO`; stock Wine had a FIXME). An own-process service of a system account
+  whose type is unrestricted (or restricted, kept but not write-restricted, a FIXME) gets its SID, NT SERVICE\name
+  (`RtlCreateServiceSid`), passed with its account to `ProcessWineCreateServiceToken`. Services in a shared process
+  get none yet.
+- `dlls/sechost/service.c`: `QueryServiceConfig2A/W` pass the level through.
+- `dlls/ntdll/unix/process.c` (`ProcessWineCreateServiceToken`): the account may be followed by the SID.
+- `server/protocol.def`: `create_service_token` takes the SID (`VARARG(sid)`); generated files. `server/token.c`,
+  `security.h`: `token_create_service_sid()` adds it as a group, enabled, enabled by default and owner (as Windows
+  shows a service's own SID); the request accepts only S-1-5-80 with five sub-authorities, from the system role.
+- `server/named_pipe.c`: the reserved names also need NT SERVICE\wexaccounts in the creator's token;
+  `include/wine/wex_accounts.h`: the service name and its SID's sub-authorities. The accounts service has to be
+  registered with SID type unrestricted. This keeps other services' ordinary code off the name; it is no boundary
+  against SYSTEM: any SYSTEM process of session 0 may ask `create_service_token` for a token holding
+  NT SERVICE\wexaccounts and start a process with it, as on Windows, where SYSTEM is the trusted computing base.
+- `include/winsvc.h`: `SERVICE_SID_TYPE_NONE`, `_UNRESTRICTED`, `_RESTRICTED` (missing in Wine).
+- `dlls/advapi32/tests/service.c`: the SID type's round trip.
+Tests: section `s0_accounts` (a second LocalSystem service with its own SID, wexaccounts without its SID, the service's
+token).

@@ -25,7 +25,12 @@
  *
  *   squat [imp]        create \\.\pipe\accounts and \\.\pipe\WexSession0\accounts (imp: while impersonating itself);
  *                      squat=, squat_bridged= are Win32 error codes (0: created)
- *   squatfile FILE     squat, the result written to FILE (run as a service)
+ *   squatfile FILE     squat, the result written to FILE (run as a service), after service_sids=: the token's service
+ *                      SIDs (S-1-5-80-...) as SID:attributes, or none
+ *   svcserve FILE SECONDS  serve as the service wexaccounts (StartServiceCtrlDispatcher), its output to FILE, after
+ *                      service_sids=
+ *   sidtype NAME [TYPE]  set a service's SID type, then print sidtype=
+ *   svcpath NAME [PATH]  print a service's binary path (svcpath=), then set it to PATH (Wine's sc has no config)
  *   serve SECONDS      the service: serve \\.\pipe\accounts until SECONDS pass or a client sends op 0xffff. Each
  *                      request (u32 op, body) is forwarded as the client's message from offset 4: first with a length
  *                      one byte past its end (bounds), then for real, then again (replay); the client gets back (u32
@@ -313,21 +318,159 @@ static int do_regtime( DWORD seconds )
     return 0;
 }
 
+/* the service SIDs (S-1-5-80-...) among the groups of the process's token, as "SID:attributes", ';' between them */
+static void print_service_sids( FILE *f )
+{
+    static const SID_IDENTIFIER_AUTHORITY nt = { SECURITY_NT_AUTHORITY };
+    static BYTE buf[8192];
+    TOKEN_GROUPS *groups = (TOKEN_GROUPS *)buf;
+    DWORD len, i, n = 0;
+    HANDLE token;
+    char *str;
+
+    if (!OpenProcessToken( GetCurrentProcess(), TOKEN_QUERY, &token ) ||
+        !GetTokenInformation( token, TokenGroups, buf, sizeof(buf), &len ))
+    {
+        fprintf( f, "service_sids=error %lu\n", GetLastError() );
+        return;
+    }
+    CloseHandle( token );
+    fprintf( f, "service_sids=" );
+    for (i = 0; i < groups->GroupCount; i++)
+    {
+        PSID sid = groups->Groups[i].Sid;
+
+        if (*GetSidSubAuthorityCount( sid ) < 1 || memcmp( GetSidIdentifierAuthority( sid ), &nt, sizeof(nt) ) ||
+            *GetSidSubAuthority( sid, 0 ) != SECURITY_SERVICE_ID_BASE_RID || !ConvertSidToStringSidA( sid, &str ))
+            continue;
+        fprintf( f, "%s%s:0x%lx", n++ ? ";" : "", str, groups->Groups[i].Attributes );
+        LocalFree( str );
+    }
+    fprintf( f, "%s\n", n ? "" : "none" );
+}
+
 /* squat, its result written to FILE (for a run as a service, whose output goes nowhere) */
 static int do_squatfile( const char *file )
 {
     FILE *f = fopen( file, "w" );
 
     if (!f) return 1;
+    print_service_sids( f );
     fprintf( f, "squat=%lu\n", squat( PIPE_PLAIN ) );
     fprintf( f, "squat_bridged=%lu\n", squat( PIPE_BRIDGED ) );
     fclose( f );
     return 0;
 }
 
+/* svcserve: serve as a real service of the service manager (the reserved pipe is the accounts service's alone, B114) */
+static SERVICE_STATUS_HANDLE svc_handle;
+static SERVICE_STATUS svc_status;
+static DWORD svc_seconds;
+
+static DWORD WINAPI svc_control( DWORD code, DWORD type, void *data, void *context )
+{
+    if (code == SERVICE_CONTROL_STOP || code == SERVICE_CONTROL_SHUTDOWN)
+    {
+        svc_status.dwCurrentState = SERVICE_STOP_PENDING;
+        SetServiceStatus( svc_handle, &svc_status );
+        ExitProcess( 0 );
+    }
+    return code == SERVICE_CONTROL_INTERROGATE ? NO_ERROR : ERROR_CALL_NOT_IMPLEMENTED;
+}
+
+static void WINAPI svc_main( DWORD argc, WCHAR **argv )
+{
+    svc_handle = RegisterServiceCtrlHandlerExW( L"wexaccounts", svc_control, NULL );
+    svc_status.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+    svc_status.dwCurrentState = SERVICE_RUNNING;
+    svc_status.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+    SetServiceStatus( svc_handle, &svc_status );
+    print_service_sids( stdout );
+    do_serve( svc_seconds );
+    svc_status.dwCurrentState = SERVICE_STOPPED;
+    SetServiceStatus( svc_handle, &svc_status );
+}
+
+static int do_svcserve( const char *file, DWORD seconds )
+{
+    SERVICE_TABLE_ENTRYW table[] = { { (WCHAR *)L"wexaccounts", svc_main }, { NULL, NULL } };
+
+    if (!freopen( file, "w", stdout )) return 1;
+    setvbuf( stdout, NULL, _IONBF, 0 );
+    svc_seconds = seconds;
+    if (!StartServiceCtrlDispatcherW( table )) printf( "dispatcher=%lu\n", GetLastError() );
+    return 0;
+}
+
+/* sidtype NAME [TYPE]: set a service's SID type (SERVICE_CONFIG_SERVICE_SID_INFO), then print it */
+static int do_sidtype( const char *name, const char *type )
+{
+    SC_HANDLE scm, svc;
+    SERVICE_SID_INFO info;
+    DWORD needed;
+
+    if (!(scm = OpenSCManagerA( NULL, NULL, SC_MANAGER_CONNECT )) ||
+        !(svc = OpenServiceA( scm, name, SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG )))
+    {
+        printf( "sidtype=open %lu\n", GetLastError() );
+        return 1;
+    }
+    if (type)
+    {
+        info.dwServiceSidType = strtoul( type, NULL, 0 );
+        if (!ChangeServiceConfig2A( svc, SERVICE_CONFIG_SERVICE_SID_INFO, &info ))
+        {
+            printf( "sidtype=change %lu\n", GetLastError() );
+            return 1;
+        }
+    }
+    info.dwServiceSidType = 0xdeadbeef;
+    if (!QueryServiceConfig2A( svc, SERVICE_CONFIG_SERVICE_SID_INFO, (BYTE *)&info, sizeof(info), &needed ))
+        printf( "sidtype=query %lu\n", GetLastError() );
+    else
+        printf( "sidtype=%lu\n", info.dwServiceSidType );
+    CloseServiceHandle( svc );
+    CloseServiceHandle( scm );
+    return 0;
+}
+
+/* svcpath NAME [PATH]: print a service's binary path (svcpath=), then set it to PATH */
+static int do_svcpath( const char *name, const char *path )
+{
+    static BYTE buf[8192];
+    QUERY_SERVICE_CONFIGA *config = (QUERY_SERVICE_CONFIGA *)buf;
+    SC_HANDLE scm, svc;
+    DWORD needed;
+
+    if (!(scm = OpenSCManagerA( NULL, NULL, SC_MANAGER_CONNECT )) ||
+        !(svc = OpenServiceA( scm, name, SERVICE_CHANGE_CONFIG | SERVICE_QUERY_CONFIG )))
+    {
+        printf( "svcpath_error=open %lu\n", GetLastError() );
+        return 1;
+    }
+    if (!QueryServiceConfigA( svc, config, sizeof(buf), &needed ))
+    {
+        printf( "svcpath_error=query %lu\n", GetLastError() );
+        return 1;
+    }
+    printf( "svcpath=%s\n", config->lpBinaryPathName );
+    if (path && !ChangeServiceConfigA( svc, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE, path, NULL, NULL,
+                                       NULL, NULL, NULL, NULL ))
+    {
+        printf( "svcpath_error=change %lu\n", GetLastError() );
+        return 1;
+    }
+    CloseServiceHandle( svc );
+    CloseServiceHandle( scm );
+    return 0;
+}
+
 int main( int argc, char **argv )
 {
     setvbuf( stdout, NULL, _IONBF, 0 );
+    if (argc >= 4 && !strcmp( argv[1], "svcserve" )) return do_svcserve( argv[2], strtoul( argv[3], NULL, 0 ) );
+    if (argc >= 3 && !strcmp( argv[1], "sidtype" )) return do_sidtype( argv[2], argc >= 4 ? argv[3] : NULL );
+    if (argc >= 3 && !strcmp( argv[1], "svcpath" )) return do_svcpath( argv[2], argc >= 4 ? argv[3] : NULL );
     if (argc >= 2 && !strcmp( argv[1], "squat" )) return do_squat( argc >= 3 && !strcmp( argv[2], "imp" ) );
     if (argc >= 3 && !strcmp( argv[1], "serve" )) return do_serve( strtoul( argv[2], NULL, 0 ) );
     if (argc >= 4 && !strcmp( argv[1], "client" )) return do_client( PIPE_BRIDGED, strtoul( argv[2], NULL, 0 ), argv[3] );
@@ -336,7 +479,7 @@ int main( int argc, char **argv )
     if (argc >= 2 && !strcmp( argv[1], "localquit" )) return do_client( PIPE_PLAIN, OP_QUIT, "" );
     if (argc >= 3 && !strcmp( argv[1], "regtime" )) return do_regtime( strtoul( argv[2], NULL, 0 ) );
     if (argc >= 3 && !strcmp( argv[1], "squatfile" )) return do_squatfile( argv[2] );
-    fprintf( stderr, "usage: accounts-probe squat [imp] | squatfile FILE | serve SECONDS | client OP BODY | "
-             "local OP BODY | quit | localquit | regtime SECONDS\n" );
+    fprintf( stderr, "usage: accounts-probe squat [imp] | squatfile FILE | serve SECONDS | svcserve FILE SECONDS | "
+             "sidtype NAME [TYPE] | svcpath NAME [PATH] | client OP BODY | local OP BODY | quit | localquit | regtime SECONDS\n" );
     return 2;
 }
