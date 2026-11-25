@@ -1,5 +1,25 @@
 # Changes to stock Wine / third-party code
 
+## services, sechost: SERVICE_CONFIG_FAILURE_ACTIONS (B105, 2026-11-25)
+
+Wine branch `claude/b105-failure-actions` (9a0dd03a). Stock Wine accepted `ChangeServiceConfig2W(FAILURE_ACTIONS)`
+with a FIXME and stored nothing, and `QueryServiceConfig2W` answered `ERROR_INVALID_LEVEL`. Upstreamable.
+
+- `programs/services/services.c`, `services.h`: the service entry keeps the reset period, the actions, the reboot
+  message and the command. They are loaded from and saved to the service's key as Windows does (measured on Windows
+  11, Spooler): `FailureActions` (REG_BINARY: a SERVICE_FAILURE_ACTIONS header of five 32-bit fields: reset period,
+  two unused pointer slots, the count, the offset 20; then the SC_ACTIONs), `RebootMessage`, `FailureCommand`. When a
+  running service's process ends, the failure is counted (the count restarts once the reset period has passed since
+  the last failure) and the action for it is taken, the last one repeating: a restart after its delay (a threadpool
+  timer); running the command and rebooting are FIXMEs.
+- `programs/services/rpc.c`: `svcctl_ChangeServiceConfig2W` sets them (NULL strings unchanged, empty ones removed;
+  NULL actions leave the actions and the reset period alone; a restart action needs `SERVICE_START` on the handle;
+  an unknown action type is refused); `svcctl_QueryServiceConfig2W` answers in a pointer-free wire layout.
+- `include/wine/svcctl.idl`: that layout, `struct service_failure_actions`.
+- `dlls/sechost/service.c`: `QueryServiceConfig2W` turns it into the caller's `SERVICE_FAILURE_ACTIONSW`.
+- Test: `dlls/advapi32/tests/service.c` `test_failure_actions` (set, query, the registry layout, strings, removal,
+  the access rule). Not run on Windows (it needs an administrator).
+
 ## server: Windows' descriptors on the system role's tokens, and Windows' rule for opening a token (R7 of SESSION0_SPLIT_REVIEW.md, 2026-11-24)
 
 Measured black box on Windows 10 (the lab VM, 2026-11-24): `OpenProcessToken` for each right from an elevated
