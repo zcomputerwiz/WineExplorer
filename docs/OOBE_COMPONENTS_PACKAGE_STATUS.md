@@ -22,6 +22,8 @@ separate gates. A Winetricks verb is useful prior art, not a licensing grant.
 | tahoma | Disabled pending rights/terms verification | Verified historical CAB contains the two fonts, but Core Fonts EULA does not automatically cover this separate IE language pack; exact applicable terms/use rights remain unresolved |
 | d3dcompiler_47 | Enabled | First-party Microsoft Windows 8.1 Standalone SDK cabinet distribution integrated. License RTF extracted statically from sdksetup.exe Burn manifest (u1, 64,354 bytes -> 18,295-byte plain text, SHA-256 5b575dc8...); offline staging and unshared net execution extracts 32-bit (syswow64) and 64-bit (system32) d3dcompiler_47.dll PEs with exact SHA-256 verification. Machine root DLL overrides protected to retain Wine builtin default globally while enabling native compiler fallback. Verified in live OOBE UI dual-acceptance flow. |
 | webview2 | Enabled | Evergreen standalone x64 installer pinned by SHA-256 and size; terms pinned from Microsoft's own download-page endpoint (see below) |
+| edge | Enabled | Enterprise x64 MSI pinned by SHA-256 and size, installed machine-wide by msiexec as session 0's account; needs webview2 (see below) |
+| copilot | Enabled | Enterprise x64 MSI pinned by SHA-256 and size, installed the same way; needs webview2 (see below) |
 | xact | Disabled pending matched-package/terms integration | First-party DirectX package acquired, but differs from historical pinned hash; outer terms are extractable. Need full applicable terms chain, bounded reviewed extraction and architecture-specific functional/audio proof |
 | physx | Disabled pending modern recipe/testing | 9.23.1019 package downloaded/hashed; old Winetricks bug cutoff is stale. Need matched terms extraction, reviewed recipe change and actual CPU/runtime/application compatibility tests; GPU acceleration is not implied |
 
@@ -117,6 +119,57 @@ Windows ships it; Wine has none, so without it the popup fails in the WebView2 l
 - **Verification:** `msedgewebview2.exe` and `msedge.dll` in `Program Files (x86)\Microsoft\EdgeWebView\Application\<version>`
   and `pv` in the registry key above; the receipt `webview2.json` records the terms digest.
 - **Tested:** fresh VM overlay, `--prepare-terms`, `--install`, `is_installed()` true, 130 s including the download.
+
+## Microsoft Edge and Microsoft Copilot — Enabled, enterprise MSIs, WebView2 first
+
+Both are Microsoft Edge Update ("Omaha") apps that Microsoft ships as enterprise MSIs. Their MSI's `DoInstall` custom
+action (deferred, no impersonation) starts the updater, which installs the app and then hands over to a machine
+updater. On Windows that whole chain runs as `NT AUTHORITY\SYSTEM` (measured, `docs/KNOWN_BUGS.md` B104), so the
+components install them with msiexec as session 0's account, which is SYSTEM to the machine prefix, the way
+`webview2` runs its installer. A user-run MSI of either still fails (B104: the chain then runs as the elevated user).
+
+- **Payloads:** `MicrosoftEdgeEnterpriseX64.msi` (Edge 157.0.4341.60, 215,552,000 bytes, SHA256
+  `b86b238035c47673e1c70589a28f2e0961e8cabdd3ff25edbb1e52239d7ecd76`) and `CopilotStableEnterpriseX64.msi`
+  (Copilot 158.0.4370.33, 425,648,128 bytes, SHA256 `565b5cb202c22dee664193a77300d09063c9a754640f2d27f4ae43fb71eff4db`),
+  both per-file addresses on `msedge.sf.dl.delivery.mp.microsoft.com` (Edge's business download page and Copilot's
+  `go.microsoft.com/fwlink/?linkid=2370805` lead there; neither link is pinned, they follow the newest release).
+- **Prerequisite:** `requires: ['webview2']`. `install()` refuses Edge or Copilot while WebView2 is not installed;
+  the Windows Components frontend adds WebView2 ahead of them when it is missing, and WebView2's terms are accepted
+  on their own. The Copilot app embeds WebView2 for its pages and its Microsoft account sign-in. With WebView2 in
+  place the updater already has an app when the MSI registers its own, which is also what makes a user-run Edge MSI
+  work around B104.
+- **Terms:** web pages, not documents. Edge: `https://explore.microsoft.com/en-us/edge/terms` (Microsoft Software
+  License Terms, Microsoft Edge, as the MSI's own `edge://terms` shows). Copilot: the Microsoft Copilot Terms of Use,
+  `https://www.microsoft.com/en-us/microsoft-copilot/for-individuals/termsofuse` (its supplemental terms; they refer to
+  the Microsoft Services Agreement). The pages' markup changes with every site build, so `extract_html_terms` takes
+  the text of the page's `<main>` element (no scripts or styles) from the agreement's heading (`terms_start`) on, and
+  that text's hash is what is pinned (`terms_sha256` and `terms_text_sha256` are the same). The pages are fetched with
+  the user agent `WineExplorer-components/1.0`: Microsoft's servers refuse Wget's. Nothing of the text is stored here.
+- **Install:** after the terms digest is accepted, the MSI is downloaded (deadline 30 minutes), verified, staged for
+  session 0's account and run as `msiexec /i Z:\…\<msi> /qn /norestart` (msiexec reads a Unix path as an option, so
+  the staged path goes through the machine prefix's `Z:` drive, which must map `/`). As with WebView2, the update
+  policy is set and the machine prefix's Wine stopped afterwards (the updater lingers).
+- **Disk space:** checked before anything is downloaded (`disk_space`: Edge 3 GiB, Copilot 5 GiB free on the machine
+  root). The MSI exists several times over during the install (cache, staged copy, msi's working copy, the updater's
+  `Install` and `Download` copies) and the setup the updater runs unpacks through file mappings; Wine does not
+  implement its preallocation (`failed to pre-allocate the file: Call not implemented`), so on a full disk the setup
+  died with an unhandled page fault halfway (setup exit 0xC0000354 after the auto-debugger, msiexec 1627, seen as exit
+  91). Measured for Copilot: 2.9 GiB more in use at the peak than before. Before the check an 18 GB test image failed so.
+- **Updater policy:** `HKLM\SOFTWARE\Policies\Microsoft\EdgeUpdate` `UpdateDefault=0`, `AutoUpdateCheckPeriodMinutes=0`
+  and `Update{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}=0` (Edge) or `Update{C50565E9-CCCF-44B4-BA15-5AC5C6569197}=0`
+  (Copilot). Observed: during the Copilot install its newer updater (1.3.319.41, run by session 0's services, which
+  have the network) still downloaded 158.0.4370.33 differential updates for the installed WebView2 and Edge, with the
+  policies set (Edge Update honours update policies only on domain-joined or managed machines). Their setup failed
+  (`Failed to set zero data for hollow archive: Request not supported`, `InstallerError 506`), so both stayed on the
+  pinned 157.0.4341.60 and verified; this relies on a Wine gap (FSCTL_SET_ZERO_DATA), not on the policy.
+- **Tested (2026-11-25):** clean overlay of the efr2 image (Wine 0ec8719014e, class 60) with a 27 GB root, as root
+  through `prepare_terms`, `license_text` and `install()`: `webview2` 77 s, `edge` 75 s, `copilot` 148 s (including
+  the downloads), each `is_installed()` true, all three receipts valid at the end. An earlier run refused Edge before
+  WebView2 with the prerequisite message.
+  Program start and sign-in after a components install were not re-checked in this run.
+- **Verification:** Edge: `Edge\Application\msedge.exe` and `Edge\Application\<version>\msedge.dll`; Copilot:
+  `Copilot\Application\copilotapp.exe` and `Copilot\Application\<version>\Installer\setup.exe` (under
+  `Program Files (x86)\Microsoft`), `pv` under `EdgeUpdate\Clients\{app}` and the policy values.
 
 ## Compiler 47 — Enabled with Microsoft SDK cabinet distribution
 
