@@ -4798,3 +4798,35 @@ device thread). The cache is now read and written under the factory's lock, a ca
 count is above 0 (`fontcollection_addref_if_alive`), and `factory_detach_fontcollection` clears the slots under the
 same lock. Test `test_system_fontcollection_threads` (dlls/dwrite/tests/font.c): unfixed dwrite dies in it on x86_64
 and i386; the font suite passes on both.
+
+2026-11-24 (Wine branch `claude/x0-link-protocol`, X0 of `docs/SESSION0_CROSS_SERVER.md`, its appendix "X0 wire
+protocol"): the cross-server protocol on the session link between session 0 and each user's server.
+- `include/wine/wex_session0.h`: `WEX_SESSION0_VERSION` 8; X frames (`struct wex_x_header`, magic `WX0X`), the frame
+  types, `struct wex_x_epoch`, `wex_x_hello`, `wex_x_open`, `wex_x_granted`, the caps (`WEX_X_MAX_*`) and
+  `WEX_X_LOST_SECONDS`.
+- `server/session0_x.c`, `server/session0_x.h` (new, LGPL): epochs (pid, start time, nonce), peers per epoch,
+  owner-side references (random 64-bit ids bound to the peer, the pinned object, granted rights, the caller's token),
+  idempotent release and cancel, level-triggered subscriptions with one notice outstanding, tries that the holder cannot
+  cancel, asynchronous calls that belong to the peer and are sent again after a relink of the same epoch (the owner
+  replays cached `TRY`/`OPEN` successes up to the holder's low-water mark and gives back an unacknowledged `TRY` success
+  when the epoch ends), a fresh start on both sides when a `HELLO`'s `peer_nonce` shows the other side dropped the
+  peer, non-blocking sends with a queue per link (the link is always read), and the caps per account (16384
+  references, 4096 subscriptions, 256 requests in flight per link, 4 MiB queued; logged at half). `server/Makefile.in`
+  lists it and `wex_x0lab.c`.
+- `server/session0.c`: a session link carries X frames both ways (`struct session0_socket`'s `x`;
+  `x_conn_create` when `SESSION_ID` is granted in session 0 and in `open_session_link` of a user's server; frames,
+  `POLLOUT` and the link's end handed to `session0_x.c` in `session0_link_event` and `session_link_event`, which now
+  reads messages up to `WEX_SESSION0_MAX_MSG` with `link_receive`); `connect_session0` keeps session 0's pid for its
+  epoch; `session0_init` calls `x_init`. New `link_bound_token()`: the only way an X request turns a description into
+  a token (`described_token_bound` in session 0, and the description's session must be the link's: the user's
+  server's session in session 0, session 0 in a user's server). Lab only: `x0lab_init` at the end of
+  `session0_init`, `session0_lab_drop_link`.
+- `server/session0.h`: `link_bound_token`.
+- `server/token.c`, `security.h`: `token_can_act` (a primary token, or impersonation at impersonation or delegation
+  level); `x_describe_token` refuses the others with `STATUS_BAD_IMPERSONATION_LEVEL` before describing.
+- `server/inproc_sync.c` (`get_inproc_device_fd`): -1 when `session0_server`, at each call (session 0 never uses
+  ntsync, M2).
+- `server/wex_x0lab.c` (new, GPL, compiled only with `-DWEX_X0_LAB_TEST` by `scripts/lab/r8-lab-build.sh`): the lab's
+  control socket `wex-x0-lab` in each lab server's directory (root only) and the lab object kind, a named counter.
+  `server/wex_e1lab.h` declares `x0lab_init` and `session0_lab_drop_link`.
+Tests: section `s0_x0` of `scripts/test_sysrun_server.sh` (lab suite), client `scripts/x0lab.py`.

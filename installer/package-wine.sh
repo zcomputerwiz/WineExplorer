@@ -71,6 +71,19 @@ if [ ! -d "$STAGE_WINE/usr/local/lib/wine/x86_64-windows" ] || \
     echo "Ensure Wine was configured with --enable-archs=i386,x86_64."
     exit 1
 fi
+# Lab hooks never ship (docs/SESSION0_CROSS_SERVER.md, X0 review): a wineserver built with the lab switches
+# (scripts/lab/r8-lab-build.sh) has the X0 lab's control socket, through which root sends forged protocol frames, or the
+# E1 lab's audit hooks. Their marker strings are only in those builds.
+SERVERS=$(find "$STAGE_WINE" -type f -name wineserver)
+[ -n "$SERVERS" ] || { echo "ERROR: no wineserver in the staged Wine installation."; exit 1; }
+for server in $SERVERS; do
+    for marker in wex-x0-lab E1S6_DENY; do
+        if grep -a -q -F "$marker" "$server"; then
+            echo "ERROR: the staged $server is a lab build (it contains \"$marker\"); package a normal build."
+            exit 1
+        fi
+    done
+done
 mkdir -p "$STAGE_WINE/usr/local/share/wineexplorer/themes"
 install -m644 "$ROOT_DIR/src/resources/themes/"*.theme "$STAGE_WINE/usr/local/share/wineexplorer/themes/"
 

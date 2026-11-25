@@ -77,6 +77,7 @@ src/dlls/sysdm.cpl/*                    normalsuite,image,gpolab
 # the system tier: server, accounts, registry, services, elevation
 wine:server/*                           normalsuite,t1suite,lab
 wine:include/wine/server_protocol.h     normalsuite,t1suite,lab
+wine:include/wine/wex_session0.h        normalsuite,t1suite,lab
 wine:dlls/ntdll/*                       normalsuite,t1suite
 wine:dlls/kernelbase/*                  normalsuite
 wine:dlls/advapi32/*                    normalsuite
