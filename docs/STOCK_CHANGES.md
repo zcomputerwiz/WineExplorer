@@ -4759,8 +4759,9 @@ protocol"): the cross-server protocol on the session link between session 0 and 
 - `server/session0_x.c`, `server/session0_x.h` (new, LGPL): epochs (pid, start time, nonce), peers per epoch,
   owner-side references (random 64-bit ids bound to the peer, the pinned object, granted rights, the caller's token),
   idempotent release and cancel, level-triggered subscriptions with one notice outstanding, tries that the holder cannot
-  cancel (a success never sent is given back), asynchronous calls with completions, non-blocking sends with a queue per
-  link, and the caps per account (16384 references, 4096 subscriptions, 256 requests in flight per link, 4 MiB
+  cancel, asynchronous calls that belong to the peer and are sent again after a relink of the same epoch (the owner
+  replays cached `TRY`/`OPEN` successes up to the holder's low-water mark and gives back an unacknowledged `TRY` success
+  when the epoch ends), non-blocking sends with a queue per link (the link is always read), and the caps per account (16384 references, 4096 subscriptions, 256 requests in flight per link, 4 MiB
   queued; logged at half). `server/Makefile.in` lists it and `wex_x0lab.c`.
 - `server/session0.c`: a session link carries X frames both ways (`struct session0_socket`'s `x`;
   `x_conn_create` when `SESSION_ID` is granted in session 0 and in `open_session_link` of a user's server; frames,

@@ -355,9 +355,23 @@ to `x_object_changed` when it may have become ready).
   references, subscriptions, calls in flight and queued bytes. A reference is bound to the peer (the epoch), not to the
   connection: the same epoch linking again (the existing relink, `SESSION_ID` with its own id) gets its peer back
   with every reference. Another server is another peer, even of the same account and session.
+- **Identity comes from the kernel.** A `HELLO` is accepted only when its pid is the connected process's
+  (`SO_PEERCRED`) and its start time is that process's (`/proc`); the nonce only tells a restarted server from its
+  predecessor. A `HELLO` that names another pid is refused, logged, and its connection gets no peer. (Liveness while a
+  link is lost is a `/proc` check each second; a pidfd from `SO_PEERPIDFD` would avoid the timer and the reuse window,
+  and is left for later.)
 - **Link loss** (end of file, error) while the peer's process is alive (pid, start time, not a zombie): the peer is
-  kept for at most 120 s; the owner checks the process each second. Calls in flight fail at the holder with
-  `STATUS_CONNECTION_DISCONNECTED` once the link has ended (a reply already queued in the socket is read first).
+  kept for at most 120 s; the owner checks the process each second.
+- **Recovery on the relink** (review of this appendix, MUST FIX 1): a SEQPACKET socket drops what its closing end had
+  not read, so replies, notices and requests can vanish with a link. Calls therefore belong to the peer, not to the
+  connection: while the epoch lives they stay pending (a new call during the loss fails at once with
+  `STATUS_CONNECTION_DISCONNECTED`), and on the relink each is sent again with its call number. `RELEASE`, `CANCEL`,
+  `QUERY`, `SUBSCRIBE` and `PING` are idempotent. For `TRY` and `OPEN` the owner keeps each success in a cache per peer
+  and replays it to a request that comes again, so nothing is acquired or opened twice. Each request carries the
+  holder's low-water mark (its lowest pending call, in the header's `status`), and the owner drops cached replies
+  below it (at most 1024 per peer; the oldest counts as delivered). A `TRY` success still cached when the peer's
+  epoch ends is given back by the object's rules. On the relink the owner also arms every subscription of the peer
+  again, so a notice lost in the socket comes again.
 - **Epoch ended** (the process is gone, a zombie, or another start time; a `HELLO` with another epoch; or the 120 s
   ran out): the owner drops every reference and subscription of that peer (releasing the pinned objects); the holder
   marks every reference into that epoch dead: each later operation fails at once with
@@ -402,10 +416,14 @@ thread's effective token (its impersonation token, else the process's) and refus
 - **A failed try re-arms in the same message**: the owner answers `STATUS_TIMEOUT` and arms the subscription in one
   step of its loop, so an object that becomes ready right after the failed try gets a new notice.
 - **A try is not cancellable by the holder.** There is no frame to cancel a `TRY`; the holder keeps its call until
-  the answer comes (or the link ends), and a success is reported as acquired even when the holder's wait timed out or
-  an APC came meanwhile (X2 makes the wait report it). The owner sends a success only through the socket: if the send
-  fails (the link is gone), the owner gives the acquisition back by the object's own rules (for the lab object: the
-  count is restored) before anything else runs.
+  the answer comes, across a relink of the same epoch, and a success is reported as acquired even when the holder's
+  wait timed out or an APC came meanwhile (X2 makes the wait report it). The owner keeps the success until the holder
+  acknowledges it (low-water mark) and replays it to the repeated request after a relink; when the peer's epoch ends
+  first, it gives the acquisition back by the object's own rules (for the lab object: the count is restored).
+- **Never answered:** a reply, a `NOTICE`, a `HELLO`, malformed or not, and any frame before the `HELLO` (two servers
+  would otherwise bounce invalid frames for ever). They are counted (`stray` in the lab's view) and dropped. An
+  unknown request type gets `STATUS_NOT_SUPPORTED`. A frame with a descriptor is refused in one place (`bad` in
+  `x_conn_frame`), which X5 will relax for sections.
 
 ### Caps (in flight, per account)
 
@@ -488,3 +506,17 @@ all written in.
 | Refusing other types would regress today's per-session behaviour | They stay local, with a FIXME (M1) |
 | X0 tests: killed holder, relink, double release, 64 KiB frame | X0's test list; X0 condition 5 |
 | M4's memfd, permissions and seals | Confirmed as designed |
+
+The X0 appendix (2026-11-24, 07595238) was reviewed by the Session 0 reviewer, static: **go for the code**, with these
+fixes, all in the X0 branch:
+
+| Finding | X0 |
+|---|---|
+| A relink loses what was in the socket: a `TRY` success, a `NOTICE`, a `RELEASE`/`CANCEL` | Calls belong to the peer and are sent again on the relink; the owner caches `TRY`/`OPEN` successes until the holder's low-water mark passes them and replays them; every subscription is armed again ("Recovery on the relink"). Tests: droplink with each in flight |
+| Back-pressure by not reading deadlocks two owners; 256 x 64 KiB does not fit 4 MiB | The link is always read; over the queued cap requests wait (at most 256), beyond that 32-byte refusals, a cut at 8 MiB. Replies are served only under the cap, so the queue stays near 4 MiB. Test: both directions busy at once |
+| Never answer replies, `NOTICE`, `HELLO`; drop frames before `HELLO` | Done ("Never answered"); test with a stray reply, notice and cut `HELLO` |
+| Peer identity from the kernel | Already so (pid = `SO_PEERCRED`, start time from `/proc`); test with a forged `HELLO` pid. Liveness by pidfd: later |
+| Lab code out of shipped builds; the socket in a user-owned directory | `installer/package-wine.sh` refuses a staged wineserver with the X0 or E1 lab markers; `scripts/x0lab.py` checks that the socket belongs to the server's account |
+| Reference ids by counter | Kept random: a counter restarting at 1 in a new session 0 would give a stale id to a new reference of the same peer |
+| The user's server reads its link into 17 bytes | Already the 64 KiB `link_receive` path, with cut and descriptor checks |
+| Descriptors on X frames, for X5 | Refused in one place (`bad` in `x_conn_frame`) |

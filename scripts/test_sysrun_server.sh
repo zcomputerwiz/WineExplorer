@@ -4705,6 +4705,89 @@ grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) linked again: 1 referen
     { tail -10 "$ROOT/session0.log" >&2; fail "X0: the references did not survive the relink"; }
 [ "$(x0 "$SP" query "$IDK" | fld st)" = 0:1 ] || fail "X0: the reference does not work after the relink"
 ok x0_link_loss_keeps_references_while_the_epoch_lives
+# What was inside the socket when the link dropped is gone (SEQPACKET): the calls are sent again on the relink, the
+# owner replays a TRY's success from its cache, and re-arms every subscription (the reviewer's MUST FIX 1)
+x0relink()   # BEFORE: wait until session 0 logs one more relink than BEFORE
+{
+    local i
+    for i in $(seq 1 300); do [ "$(grep -ac 'linked again:' "$ROOT/session0.log")" -gt "$1" ] && return 0; sleep 0.1; done
+    tail -10 "$ROOT/session0.log" >&2; return 1
+}
+x0batch()   # SERVER BATCH TOTAL: wait until the batch is done
+{
+    local i
+    for i in $(seq 1 100); do [ "$(x0 "$1" batch "$2" | fld done)" = "$3" ] && return 0; sleep 0.1; done; return 1
+}
+# a TRY whose success was in the socket (the holder had not read it)
+x0 "$S0" set rt 1 >/dev/null
+IDT="$(x0 "$SP" open rt | fld id)"
+x0 "$SP" pause >/dev/null
+BT="$(x0 "$SP" try "$IDT" nowait | fld batch)"
+for i in $(seq 1 30); do [ "$(x0 "$S0" get rt | fld count)" = 0 ] && break; sleep 0.1; done
+[ "$(x0 "$S0" get rt | fld count)" = 0 ] || fail "X0: the try was not served before the drop"
+R="$(grep -ac 'linked again:' "$ROOT/session0.log")"
+x0 "$SP" droplink >/dev/null
+x0relink "$R" || fail "X0: no relink after the drop (TRY)"
+x0batch "$SP" "$BT" 1 || fail "X0: the try in flight never completed: $(x0 "$SP" batch "$BT")"
+[ "$(x0 "$SP" batch "$BT" | fld st)" = 0:1 ] || fail "X0: a TRY's success was lost over the relink: $(x0 "$SP" batch "$BT")"
+[ "$(x0 "$S0" get rt | fld count)" = 0 ] || fail "X0: the replayed try was taken twice or given back: $(x0 "$S0" get rt)"
+ok x0_relink_keeps_a_try_success_that_was_in_the_socket
+# a NOTICE that was in the socket
+x0 "$S0" set rn 0 >/dev/null
+IDO="$(x0 "$SP" open rn | fld id)"
+x0 "$SP" sub "$IDO" >/dev/null
+sleep 0.3; x0waitn "$IDO" 0 || fail "X0: a notice before the object was ready"
+x0 "$SP" pause >/dev/null
+x0 "$S0" set rn 1 >/dev/null
+sleep 0.5
+R="$(grep -ac 'linked again:' "$ROOT/session0.log")"
+x0 "$SP" droplink >/dev/null
+x0relink "$R" || fail "X0: no relink after the drop (NOTICE)"
+x0waitn "$IDO" 1 || fail "X0: a NOTICE in the socket was lost over the relink"
+ok x0_relink_rearms_a_notice_that_was_in_the_socket
+# a RELEASE that was in the socket (session 0 had not read it)
+IDE="$(x0 "$SP" open rr | fld id)"
+BEFORE="$(s0refs "$STD_UID")"
+x0 "$S0" pause peer="$SESS" >/dev/null
+BR="$(x0 "$SP" release "$IDE" nowait | fld batch)"
+sleep 0.3
+R="$(grep -ac 'linked again:' "$ROOT/session0.log")"
+x0 "$SP" droplink >/dev/null
+x0relink "$R" || fail "X0: no relink after the drop (RELEASE)"
+x0batch "$SP" "$BR" 1 || fail "X0: the release in flight never completed"
+[ "$(x0 "$SP" batch "$BR" | fld st)" = 0:1 ] && [ "$(s0refs "$STD_UID")" = $((BEFORE - 1)) ] ||
+    fail "X0: a RELEASE in the socket was lost over the relink: $(x0 "$SP" batch "$BR"), refs $(s0refs "$STD_UID") of $BEFORE"
+ok x0_relink_sends_a_release_that_was_in_the_socket_again
+# frames that are never answered: a reply to no call, a NOTICE of an unknown reference, a cut HELLO
+STRAY_S0="$(x0 "$S0" peers | grep "^peer .* session=$SESS " | fld stray)"
+STRAY_U="$(x0 "$SP" peers | grep '^peer ' | fld stray)"
+x0 "$SP" frame 80000003 123 >/dev/null
+x0 "$SP" frame 8 123 >/dev/null
+x0 "$SP" frame 1 >/dev/null
+sleep 0.5
+[ "$(x0 "$S0" peers | grep "^peer .* session=$SESS " | fld stray)" -gt "$STRAY_S0" ] ||
+    fail "X0: session 0 did not count the stray reply: $(x0 "$S0" peers)"
+[ "$(x0 "$SP" peers | grep '^peer ' | fld stray)" = "$STRAY_U" ] || fail "X0: session 0 answered a reply, a NOTICE or a HELLO"
+[ "$(x0 "$SP" query "$IDK" | fld st)" = 0:1 ] || fail "X0: the link after the stray frames"
+ok x0_replies_notices_and_hellos_are_never_answered
+# a HELLO that names another pid than the connected process's (SO_PEERCRED) is refused
+R="$(grep -ac 'linked again:' "$ROOT/session0.log")"
+x0 "$SP" droplink forge >/dev/null
+for i in $(seq 1 300); do grep -aq "x0: HELLO from server pid $SP (uid $STD_UID) with an epoch not its own: ignored" "$ROOT/session0.log" && break; sleep 0.1; done
+grep -aq "x0: HELLO from server pid $SP (uid $STD_UID) with an epoch not its own: ignored" "$ROOT/session0.log" ||
+    fail "X0: a HELLO with another pid was not refused"
+[ "$(grep -ac 'linked again:' "$ROOT/session0.log")" = "$R" ] || fail "X0: the forged HELLO got the peer's references"
+x0 "$SP" droplink >/dev/null
+x0relink "$R" || fail "X0: no relink after the forged HELLO"
+[ "$(x0 "$SP" query "$IDK" | fld st)" = 0:1 ] || fail "X0: the reference after the forged HELLO"
+ok x0_hello_with_another_pid_refused
+# both directions busy at once: no stall (each side keeps reading)
+B5="$(x0 "$SP" ping n=60 size=60000 nowait | fld batch)"
+B6="$(x0 "$S0" ping n=60 size=60000 nowait peer="$SESS" | fld batch)"
+x0batch "$SP" "$B5" 60 && x0batch "$S0" "$B6" 60 || fail "X0: a stall with both directions busy: $(x0 "$SP" batch "$B5") / $(x0 "$S0" batch "$B6")"
+[ "$(x0 "$SP" batch "$B5" | fld ok)" = 60 ] && [ "$(x0 "$S0" batch "$B6" | fld ok)" = 60 ] ||
+    fail "X0: both directions: $(x0 "$SP" batch "$B5") / $(x0 "$S0" batch "$B6")"
+ok x0_both_directions_saturated_without_a_stall
 # session 0 restarts: what the user's server held into it is dead (and the old id unknown to the new session 0); what
 # session 0 held into the user's server is dropped there
 IDR="$(x0 "$S0" open r0 peer="$SESS" | fld id)"

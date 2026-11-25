@@ -18,6 +18,14 @@ def main():
         print("usage: x0lab.py PID COMMAND [WORDS...]", file=sys.stderr)
         return 2
     path = "/proc/%s/cwd/wex-x0-lab" % sys.argv[1]
+    # the server directory is the user's: trust the socket only when the server's own account owns it
+    try:
+        if os.stat(path).st_uid != os.stat("/proc/%s" % sys.argv[1]).st_uid:
+            print("x0lab: %s is not owned by the server's account" % path, file=sys.stderr)
+            return 1
+    except OSError as e:
+        print("x0lab: %s: %s" % (path, e), file=sys.stderr)
+        return 1
     s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     s.settimeout(float(os.environ.get("X0LAB_TIMEOUT", "120")))
     try:
