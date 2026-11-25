@@ -4871,8 +4871,9 @@ Tests: section `s0_eventlog` and the `own_prefix` check of `scripts/test_sysrun_
   itself, never through NSS, which could stall the server on a domain member: A1); the reply is awaited in the
   server's loop, at most 15 s; request handler `accounts_result`. `server/Makefile.in` lists it; `session0.h` declares
   `accounts_call_start`.
-- Open (the reviewer's A2): any LocalSystem process of session 0 may create the reserved names, not only wexaccounts;
-  requiring the service's own SID (NT SERVICE\wexaccounts) waits for per-service SIDs in Wine's service tokens.
+- Open (the reviewer's A2, `docs/KNOWN_BUGS.md` B114): any LocalSystem process of session 0 may create the reserved
+  names, not only wexaccounts; requiring the service's own SID (NT SERVICE\wexaccounts) waits for per-service SIDs in
+  Wine's service tokens.
 - `server/token.c`, `security.h`: `token_is_link_bound()`. `server/protocol.def`: requests `accounts_forward`,
   `accounts_result`; generated files.
 - `include/wine/wex_accounts.h` (new): the helper frame's constants (equal to WineExplorer's
