@@ -4944,16 +4944,27 @@ sysrole_ev() { run_as "$STD" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$M/drive_c/wi
 OUT="$(sysrole_ev report WexL1Sys 1 9 sysrole)"
 OUT2="$(sysrole_ev clear WexL1Sys)"
 OUT3="$(sysrole_ev report WexL1 4 11 sysrole-app)"
+OUT4="$(sysrole_ev caller)"
 for d in system32 syswow64; do mv -f "$M/drive_c/windows/$d/winedevice.exe.evorig" "$M/drive_c/windows/$d/winedevice.exe"; done
+# the caller class the server decides (H3): a session's SYSTEM token is a user (neither elevated administrator nor
+# the system); a standard user and a limited administrator are users; session 0's own SYSTEM process is the system
+[ "$(v class <<<"$OUT4")" = 1 ] || { echo "$OUT4" >&2; evfail "eventlog: a session's SYSTEM token is not of class user (H3)"; }
+[ "$(ev "$STD" caller | v class)" = 1 ] || evfail "eventlog: a standard user is not of class user (H3)"
+[ "$(ev "$ADM" caller | v class)" = 1 ] || evfail "eventlog: a limited administrator is not of class user (H3)"
+[ "$(evs caller | v class)" = 3 ] || evfail "eventlog: session 0's SYSTEM process is not system-local (H3)"
 [ "$(v report <<<"$OUT")" = 5 ] || { echo "$OUT" >&2; evfail "eventlog: a session's system role (SYSTEM token) wrote System (E1)"; }
 [ "$(v clear <<<"$OUT2")" = 5 ] || { echo "$OUT2" >&2; evfail "eventlog: a session's system role cleared System (E1)"; }
 [ "$(v report <<<"$OUT3")" = 0 ] || { echo "$OUT3" >&2; evfail "eventlog: a session's system role cannot write Application, as its user can"; }
 # an elevated administrator of a session writes System and clears (BA in Windows' descriptors; T1 believes the token)
 el_up "$ADM"
 el_cmd ev_elevated_admin_reports_to_system "$ADM" "$(winpath "$ROOT/probes/evp64.exe") report WexL1Sys 4 10 elevated-admin"
+rm -f /tmp/evcaller.txt
+el_cmd ev_elevated_admin_caller_class "$ADM" "$(winpath "$ROOT/probes/evp64.exe") caller > Z:\\tmp\\evcaller.txt"
 el_down "$ADM"
 evs read System | grep -q 'id=10 type=4 source=WexL1Sys strings=1 first=elevated-admin$' ||
     evfail "eventlog: an elevated administrator's record is not in System"
+[ "$(tr -d '\r' < /tmp/evcaller.txt | v class)" = 2 ] || { cat /tmp/evcaller.txt >&2; evfail "eventlog: an elevated administrator is not of class elevated admin (H3)"; }
+rm -f /tmp/evcaller.txt
 ok ev_access_table_and_system_by_process
 # E3: a backup made by the client, in the session's namespace and with its rights; the service opens no client path
 BAK="/home/$STD/.wine/drive_c/users/$STD/app.bak"

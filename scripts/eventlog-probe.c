@@ -475,6 +475,13 @@ int main( int argc, char **argv )
         return 1;
     }
     if (!strcmp( argv[1], "frame" ) && argc == 3) return frame_test( pipe, argv[2] );
+    if (!strcmp( argv[1], "caller" ))
+    {
+        /* the class the server gives this caller (H3): 0 none, 1 user, 2 elevated administrator, 3 system-local */
+        status = call( pipe, WEX_EVTLOG_CALLER, 0, 0, 0, NULL, 0, &out, NULL, NULL );
+        printf( "caller=%lu class=%u\n", (unsigned long)status, out.arg[0] );
+        return 0;
+    }
     if (!strcmp( argv[1], "report" ) && argc >= 5)
     {
         WCHAR *strings[64];
