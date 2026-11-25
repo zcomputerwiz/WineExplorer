@@ -16,7 +16,9 @@
  * The two lists come in pages: a page holds what fits in one frame (it stops before a record that does not), `first` is
  * the start index asked for (0 when there is none), `total` the number of entries; ask again with start = first + count
  * until that reaches total. A page may hold fewer than the frame could, never a partial record.
- *   WEXA_CREATE_USER    (name, full name, u32 type, hash)-> record
+ *   WEXA_CREATE_USER    (name, full name, u32 type, hash[, u32 locked]) -> record
+ *                       hash: a crypt(3) $6$ hash, or the empty string for a blank password (docs/BLANK_PASSWORDS.md);
+ *                       locked: 1 makes the account disabled in the same operation (absent: enabled)
  *   WEXA_DELETE_USER    (name)                           -> ()
  *   WEXA_RENAME_USER    (name, new name)                 -> ()
  *   WEXA_SET_FULLNAME   (name, full name)                -> ()

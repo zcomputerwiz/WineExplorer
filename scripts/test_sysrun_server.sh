@@ -5903,7 +5903,8 @@ OUT="$(as_na "$STD" members Administrators)"
 grep -q '\\alice' <<<"$OUT" && grep -q '\\bob' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: the members of Administrators"; }
 OUT="$(as_na "$STD" localgroups alice)"
 grep -q 'names=.*Administrators' <<<"$OUT" || { echo "$OUT" >&2; chain_fail "netapi: the groups of an administrator"; }
-[ "$(as_na "$STD" add zednet 'Passw0rd!x' | st)" = 5 ] || chain_fail "netapi: a standard user was not refused NetUserAdd"
+OUT="$(as_na "$STD" add zednet 'Passw0rd!x')"
+[ "$(st <<<"$OUT")" = 5 ] || { echo "$OUT" >&2; chain_fail "netapi: a standard user was not refused NetUserAdd"; }
 [ "$(as_na "$STD" changepw alice old new | st)" = 50 ] || chain_fail "netapi: NetUserChangePassword with an old password is not ERROR_NOT_SUPPORTED"
 ! grep -q '"user": "zednet"' "$CH/fake.log" || chain_fail "netapi: a refused add reached AccountsService"
 ok st_netapi_reads_and_refusals
