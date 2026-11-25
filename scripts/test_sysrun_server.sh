@@ -5096,7 +5096,8 @@ ok ev_log_files_are_session0s_only
 # session 0 restarts while a client holds a handle and a subscription: the client connects again
 HOLDOUT="$ROOT/evhold.out"
 : > "$HOLDOUT"; chmod 666 "$HOLDOUT"
-( ev "$STD" hold Application 150 > "$HOLDOUT" ) & EVHOLD=$!
+# (wine_as itself, not ev or as_wine: their capture and tr would hold the lines back until the holder ends)
+( wine_as "$STD" "$ROOT/probes/evp64.exe" hold Application 150 > "$HOLDOUT" 2>/dev/null ) & EVHOLD=$!
 for i in $(seq 1 60); do grep -q '^hold=subscribed' "$HOLDOUT" && break; sleep 0.5; done
 grep -q '^hold=subscribed' "$HOLDOUT" || evfail "eventlog: the holder did not subscribe"
 s0_stop; s0_start
