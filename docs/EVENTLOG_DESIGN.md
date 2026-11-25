@@ -266,7 +266,8 @@ questions are recorded here when they come.
   - Application (and custom logs without a `CustomSD`): `O:BAG:SYD:(A;;0x2;;;S-1-15-2-1)(A;;0xf0007;;;SY)(A;;0x7;;;BA)(A;;0x7;;;SO)(A;;0x3;;;IU)(A;;0x3;;;SU)(A;;0x3;;;S-1-5-3)(A;;0x3;;;S-1-5-33)(A;;0x1;;;S-1-5-32-573)`
     (Windows also lists one app capability SID with write, left out);
   - System: `O:BAG:SYD:(A;;0xf0007;;;SY)(A;;0x7;;;BA)(A;;0x3;;;BO)(A;;0x5;;;SO)(A;;0x1;;;IU)(A;;0x3;;;SU)(A;;0x1;;;S-1-5-3)(A;;0x2;;;S-1-5-33)(A;;0x1;;;S-1-5-32-573)`;
-  - Security: read and cleared with `SeSecurityPrivilege` enabled, never written (its descriptor needs an elevated
+  - Security: read and cleared by the system (system-local) and with `SeSecurityPrivilege` enabled, never written
+    (Wine's SYSTEM token holds the privilege disabled; its descriptor needs an elevated
     query on Windows and was not measured).
 
   So, as on Windows: interactive users write and read Application and read System; SYSTEM, the service accounts and
