@@ -4761,8 +4761,10 @@ protocol"): the cross-server protocol on the session link between session 0 and 
   idempotent release and cancel, level-triggered subscriptions with one notice outstanding, tries that the holder cannot
   cancel, asynchronous calls that belong to the peer and are sent again after a relink of the same epoch (the owner
   replays cached `TRY`/`OPEN` successes up to the holder's low-water mark and gives back an unacknowledged `TRY` success
-  when the epoch ends), non-blocking sends with a queue per link (the link is always read), and the caps per account (16384 references, 4096 subscriptions, 256 requests in flight per link, 4 MiB
-  queued; logged at half). `server/Makefile.in` lists it and `wex_x0lab.c`.
+  when the epoch ends), a fresh start on both sides when a `HELLO`'s `peer_nonce` shows the other side dropped the
+  peer, non-blocking sends with a queue per link (the link is always read), and the caps per account (16384
+  references, 4096 subscriptions, 256 requests in flight per link, 4 MiB queued; logged at half). `server/Makefile.in`
+  lists it and `wex_x0lab.c`.
 - `server/session0.c`: a session link carries X frames both ways (`struct session0_socket`'s `x`;
   `x_conn_create` when `SESSION_ID` is granted in session 0 and in `open_session_link` of a user's server; frames,
   `POLLOUT` and the link's end handed to `session0_x.c` in `session0_link_event` and `session_link_event`, which now

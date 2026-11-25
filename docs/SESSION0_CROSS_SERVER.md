@@ -372,6 +372,18 @@ to `x_object_changed` when it may have become ready).
   below it (at most 1024 per peer; the oldest counts as delivered). A `TRY` success still cached when the peer's
   epoch ends is given back by the object's rules. On the relink the owner also arms every subscription of the peer
   again, so a notice lost in the socket comes again.
+- **A relink after the other side dropped the peer** (its 120 s ran out while the epoch lived; second review, 1b):
+  each `HELLO` carries the nonce of the epoch the sender still keeps for the connecting server (`peer_nonce`, 0 for
+  none). When it is not the receiver's own nonce, the sender started fresh, and the receiver ends its side of that
+  peer as well: what it holds there is dead, its pending calls fail with `STATUS_CONNECTION_DISCONNECTED`, the
+  references it issued are dropped, and a new peer starts. So no waiter keeps believing in a subscription the owner has
+  forgotten. Test: the link held down past a shortened bound (lab `lostbound`, `droplink hold`, `relink`).
+- Call numbers are compared with serial arithmetic (`(int)(a - b) < 0`), so they work when 32 bits wrap.
+- **Before X1 (second review, 1a):** a low-water mark is pinned by the oldest pending call. In X0 every call is
+  answered at once, but X1's global waits can stay pending for hours, and the owner would keep every later cached
+  success meanwhile. X1 therefore acknowledges explicitly: long calls (waits) are left out of the mark, and the holder
+  acknowledges the cached replies it received, batched in the next request (a list after the body) or in an `ACK`
+  frame when it has none to send. The cache's bound (1024 per peer) stays as the backstop.
 - **Epoch ended** (the process is gone, a zombie, or another start time; a `HELLO` with another epoch; or the 120 s
   ran out): the owner drops every reference and subscription of that peer (releasing the pinned objects); the holder
   marks every reference into that epoch dead: each later operation fails at once with
@@ -520,3 +532,8 @@ fixes, all in the X0 branch:
 | Reference ids by counter | Kept random: a counter restarting at 1 in a new session 0 would give a stale id to a new reference of the same peer |
 | The user's server reads its link into 17 bytes | Already the 64 KiB `link_receive` path, with cut and descriptor checks |
 | Descriptors on X frames, for X5 | Refused in one place (`bad` in `x_conn_frame`) |
+
+Second round (the reviewer on X0's answers): accepted #2, #3, #4, #6, #7; #1's design right, with two holes. 1b, a
+relink after the owner dropped the peer, is fixed in X0 (`peer_nonce` in `HELLO`, test
+`x0_relink_after_the_owner_dropped_the_peer_starts_fresh`). 1a, the low-water mark pinned by long calls, is written
+down for X1 (explicit acknowledgements; serial arithmetic already).

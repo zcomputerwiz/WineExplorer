@@ -4788,6 +4788,30 @@ x0batch "$SP" "$B5" 60 && x0batch "$S0" "$B6" 60 || fail "X0: a stall with both 
 [ "$(x0 "$SP" batch "$B5" | fld ok)" = 60 ] && [ "$(x0 "$S0" batch "$B6" | fld ok)" = 60 ] ||
     fail "X0: both directions: $(x0 "$SP" batch "$B5") / $(x0 "$S0" batch "$B6")"
 ok x0_both_directions_saturated_without_a_stall
+# A relink after the owner dropped the peer (its bound for a lost link ran out while the epoch lived): the owner's
+# HELLO says it keeps no epoch of ours, so the holder ends its side too: its references are dead, its subscriptions
+# with them, and its pending calls fail cleanly (the reviewer's 1b). The bound is shortened for the test.
+x0 "$S0" lostbound 3 >/dev/null
+x0 "$S0" set fr 1 >/dev/null
+IDF="$(x0 "$SP" open fr | fld id)"
+x0 "$SP" sub "$IDF" >/dev/null
+x0 "$SP" pause >/dev/null
+BF="$(x0 "$SP" try "$IDF" nowait | fld batch)"
+for i in $(seq 1 30); do [ "$(x0 "$S0" get fr | fld count)" = 0 ] && break; sleep 0.1; done
+x0 "$SP" droplink hold >/dev/null
+for i in $(seq 1 150); do grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) ended (its link did not come back)" "$ROOT/session0.log" && break; sleep 0.1; done
+grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) ended (its link did not come back)" "$ROOT/session0.log" ||
+    { x0 "$SP" relink; x0 "$S0" lostbound 120; fail "X0: session 0 did not drop the peer after its bound"; }
+[ "$(x0 "$S0" get fr | fld count)" = 1 ] || fail "X0: the unacknowledged try was not given back when the peer was dropped"
+x0 "$SP" relink >/dev/null
+x0 "$S0" lostbound 120 >/dev/null
+x0batch "$SP" "$BF" 1 || fail "X0: the pending try hangs after a fresh relink"
+[ "$(x0 "$SP" batch "$BF" | fld st)" = c000020c:1 ] || fail "X0: the pending try after a fresh relink: $(x0 "$SP" batch "$BF")"
+[ "$(x0 "$SP" query "$IDF" | fld st)" = c000020c:1 ] && [ "$(x0 "$SP" notices "$IDF" | fld live)" = 0 ] ||
+    fail "X0: a reference into the dropped peer still looks alive"
+x0sess "$STD" >/dev/null || fail "X0: no fresh peer after the relink"
+[ "$(x0 "$SP" open fr2 | fld st)" = 0:1 ] || fail "X0: the fresh peer does not serve"
+ok x0_relink_after_the_owner_dropped_the_peer_starts_fresh
 # session 0 restarts: what the user's server held into it is dead (and the old id unknown to the new session 0); what
 # session 0 held into the user's server is dropped there
 IDR="$(x0 "$S0" open r0 peer="$SESS" | fld id)"
