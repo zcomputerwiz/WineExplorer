@@ -166,7 +166,7 @@ c4_wam           c4_build           n   c4
 c4_dwm           c4_build           n   c4
 c4_dwm_popup     c4_build           n   c4
 c4_dwm_menu      c4_build           n   c4
-c4_dwm_restart   c4_build           x   c4
+c4_dwm_restart   c4_build           n   c4
 c4_std           c4_build           n   c4
 c4_noleases      c4_build           n   c4
 c5_build         c4_build           nl  c5

@@ -4842,3 +4842,26 @@ changes on screen; with composition on, menus and tooltips get the compositor's 
 The tooltip class (`dlls/comctl32/tooltips.c`) also gets `CS_DROPSHADOW` (one flag), so tooltips follow the same
 setting. The two-column Start menu window class in wexshell (`startmenu_view.c`) has it too. Neither is verified on
 screen yet; the chain's `popups` stage will show it.
+
+## A restarted explorer takes over its desktop (B120, 2026-11-25)
+
+Two changes on Wine `claude/explorer-restart-desktop` (on development `f6ca22d9`):
+
+- `dlls/winex11.drv/window.c` (`ef00f62f349`): `X11DRV_SetDesktopWindow` adopted the X window id stored on the desktop
+  window (the `whole_window` property) whenever the server's desktop window already had a size. After the process that
+  made it died (a crashed explorer), the id names an X window the X server has destroyed, and every child window of the
+  new explorer failed with `BadWindow` in `X_CreateWindow`. It now checks the id (`XGetWindowAttributes` under an error
+  handler) and keeps its own desktop window when the stored one is gone.
+- `server/window.c`: `create_window` for a desktop-class window used the desktop's existing top window as the parent
+  "if any". The top window outlives its owner (`destroy_thread_windows` only detaches it), so a new explorer's desktop
+  window became a child of an ownerless one, its `WM_NCCREATE` was refused, `CreateWindowEx` returned NULL and explorer
+  ended at once. Now, when the desktop's top window has no thread, the new desktop-class window takes its place
+  (`take_over_desktop_window`): the other processes' windows (its children and unlinked children, in the same
+  z-order) become children of the new desktop window, and the ownerless one is freed. Nothing changes while the
+  top window has an owner. On XP the desktop and the other programs survive a crashed explorer and Winlogon starts
+  the shell again; this is the server half of that (the session supervisor, `wex_run_shell`, is the other).
+
+On a virtual desktop (the X11 session) the other programs' X windows are children of explorer's X desktop window and
+die with it; on the Wayland session they are separate surfaces and survive. Suite section `c4_dwm_restart` kills the
+shell's explorer and starts a new one on the same display at once, then checks the menu probe with and without
+composition. Stock Wine has the same code and so, by reading it, the same failure; that was not run.
