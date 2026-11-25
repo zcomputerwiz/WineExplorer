@@ -5432,7 +5432,10 @@ acc_squatsvc()   # NAME: start a service whose binary is the probe's squatfile; 
 }
 ACCSVCPATH="$(s0_wine "$ROOT/probes/accp64.exe" svcpath wexaccounts | tr -d '\r' | sed -n 's/^svcpath=//p' || true)"
 ACCSVCSID=
+ACCSVCRUN=0
 if [ -n "$ACCSVCPATH" ]; then
+    # running before (it is auto-started in session 0): put back running, or the section after this one finds it stopped (B118)
+    s0_wine sc query wexaccounts 2>/dev/null | grep -q RUNNING && ACCSVCRUN=1
     ACCSVCSID="$(s0_wine "$ROOT/probes/accp64.exe" sidtype wexaccounts | tr -d '\r' | sed -n 's/^sidtype=//p' || true)"
     s0_wine sc stop wexaccounts >/dev/null 2>&1 || true
     acc_svcwait wexaccounts || fail "accounts: the registered wexaccounts does not stop"
@@ -5444,6 +5447,10 @@ acc_svcrestore()
     if [ -n "$ACCSVCPATH" ]; then
         s0_wine "$ROOT/probes/accp64.exe" svcpath wexaccounts "$ACCSVCPATH" >/dev/null || true
         s0_wine "$ROOT/probes/accp64.exe" sidtype wexaccounts "${ACCSVCSID:-0}" >/dev/null || true
+        if [ "$ACCSVCRUN" = 1 ]; then
+            s0_wine sc start wexaccounts >/dev/null 2>&1 || true
+            for i in $(seq 1 15); do s0_wine sc query wexaccounts 2>/dev/null | grep -q RUNNING && break; sleep 1; done
+        fi
     else
         s0_wine sc delete wexaccounts >/dev/null 2>&1 || true
     fi
@@ -5713,7 +5720,16 @@ fi
 ok st_accounts_service_runs_in_session0
 for b in 64 32; do
     STATE="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" svcstate wexaccounts | sed -n 's/^state=//p')" || true
-    [ "$STATE" = 4 ] || fail "Local Accounts: $STD's $b-bit program sees wexaccounts as [$STATE], not running (session 0's)"
+    if [ "$STATE" != 4 ]; then
+        # what decides it: session 0's own state of the service, the session's view, whether the session's server was started by the
+        # launcher (a server that was not is plain: its services.exe answers its own, stopped copy), and the processes
+        echo "--- sc query wexaccounts in session 0:" >&2; s0_wine sc query wexaccounts >&2 || true
+        echo "--- the same in $STD's session:" >&2; as_wine "$STD" sc query wexaccounts >&2 || true
+        echo "--- processes of $STD (servers, services):" >&2; pgrep -u "$STD" -a >&2 || true
+        echo "--- processes of session 0's account:" >&2; pgrep -u "$S0U" -a >&2 || true
+        echo "--- session 0's log (the links and the forwards):" >&2; tail -25 "$ROOT/session0.log" >&2 || true
+        fail "Local Accounts: $STD's $b-bit program sees wexaccounts as [$STATE], not running (session 0's)"
+    fi
 done
 sleep 5
 ! pgrep -u "$STD" -f wexaccounts >/dev/null || fail "Local Accounts: $STD's session runs its own wexaccounts"
