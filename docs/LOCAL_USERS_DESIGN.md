@@ -266,7 +266,7 @@ refused. This keeps the Windows-side service small and unprivileged in what it c
   (`peer_trusted`), `dlls/ntdll/unix/sysrun.c` and the launcher already share; nothing is copied. The two additions below
   are made in that header, so every user gets them (a stock change, listed in STOCK_CHANGES, with the header's test).
 - **Non-dumpable:** the header's argument is that a launcher-started process is not dumpable; the helper now checks it:
-  the directory `/proc/<pid>` of a non-dumpable process is owned by root, so `fstat` of it must give uid 0. A dumpable
+  the files in `/proc/<pid>` of a non-dumpable process (not the directory itself) are owned by root, so `stat` of `/proc/<pid>/stat` must give uid 0. A dumpable
   process of the session 0 account (a Windows service, a program the server runs) fails here even if the other fields
   happened to match.
 - **Before kernel 6.5** (no `SO_PEERPIDFD`, so no pin; the header already skips it): the pid-reuse window is closed
@@ -388,7 +388,7 @@ user servers). The helper accepts only **the MainPID of session 0's server unit*
 (`org.freedesktop.systemd1` `GetUnit`, `MainPID` of the unit named in `accountsd.conf`) **at each connect**, compared with
 the pidfd-pinned peer pid (the pid from `SO_PEERCRED`, pinned with `SO_PEERPIDFD`; before kernel 6.5 the start-time
 double read of the previous paragraph), **plus** uid = `session0_user` from `accountsd.conf` and non-dumpable
-(`/proc/<pid>` owned by root) as a sanity check. Comm, dumpable, uid and saved gid can all be reached by any session 0
+(`/proc/<pid>/stat` owned by root) as a sanity check. Comm, dumpable, uid and saved gid can all be reached by any session 0
 process, and one could exec a real `wineserver`; the main process of the unit cannot be forged by a process the server
 runs. If session 0's wineserver is not its unit's main process today, it is made so (`ExecStart=` of the session 0 unit
 runs it, or the launcher `exec`s it), a change for the system tier and the installer. Systemd must answer: no answer,

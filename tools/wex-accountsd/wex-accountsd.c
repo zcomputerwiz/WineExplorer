@@ -13,7 +13,7 @@
  *   - The peer check runs at accept, before anything is read: the pid from SO_PEERCRED, pinned with SO_PEERPIDFD (before
  *     Linux 6.5: the process start time read before and after), must be the MainPID of the unit of session 0's server
  *     (read from systemd at each connect), its uid the session 0 account's, and the process non-dumpable (its
- *     /proc/<pid> directory is owned by root). Anything else is dropped at once.
+ *     /proc/<pid>/stat file is owned by root). Anything else is dropped at once.
  *   - The server's verdict (none, user, elevated administrator) allows a class of operation and never more. The helper
  *     checks every rule it can itself: the uid range of /etc/login.defs, never root, system accounts, the grammar and
  *     collisions of names, the hash form, the last administrator, the built-in administrator, the caller's own
@@ -22,8 +22,8 @@
  *
  * Usage: wex-accountsd [--config FILE]. Lab options (only with WEX_ACCOUNTSD_TEST=1 in the environment): --bus ADDRESS
  * (a private bus), --listen PATH (make and listen on this socket), --login-defs FILE, --admin-members a,b (instead of
- * the admin group), --mainpid PID (instead of systemd's answer), --any-dumpable (skip the non-dumpable check),
- * --no-idle-exit.
+ * the admin group), --mainpid PID or --mainpid-file FILE (instead of systemd's answer, the file read at each connect),
+ * --any-dumpable (skip the non-dumpable check), --no-idle-exit.
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -66,7 +66,7 @@ static struct
 } cfg;
 
 static int test_mode, any_dumpable, no_idle_exit;
-static const char *test_bus, *test_listen, *test_login_defs, *test_admin_members;
+static const char *test_bus, *test_listen, *test_login_defs, *test_admin_members, *test_mainpid_file;
 static pid_t test_mainpid = -1;
 static sd_bus *bus;
 static unsigned int uid_min = 1000, uid_max = 60000;
@@ -173,6 +173,16 @@ static int unit_main_pid( pid_t *pid )
     uint32_t main_pid = 0;
     int r;
 
+    if (test_mainpid_file)
+    {
+        FILE *f = fopen( test_mainpid_file, "re" );
+        int v = 0;
+
+        if (f && fscanf( f, "%d", &v ) == 1 && v > 0) test_mainpid = v;
+        else test_mainpid = -1;
+        if (f) fclose( f );
+        if (test_mainpid == -1) return 0;
+    }
     if (test_mainpid != -1) { *pid = test_mainpid; return 1; }
     if (!bus) return 0;
     r = sd_bus_call_method( bus, SD_DEST, "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "GetUnit", &err,
@@ -215,8 +225,9 @@ static int peer_ok( int fd )
     before = proc_start( cred.pid );
     if (!before) goto done;
     if (!unit_main_pid( &main_pid ) || main_pid != cred.pid) goto done;
-    /* the directory of a non-dumpable process belongs to root; a dumpable one (a program the server runs) does not */
-    snprintf( path, sizeof(path), "/proc/%d", (int)cred.pid );
+    /* the files of a non-dumpable process in /proc belong to root (the directory itself does not: the kernel gives that one
+     * to the process's user whatever it is); those of a dumpable one (a program the server runs) belong to its user */
+    snprintf( path, sizeof(path), "/proc/%d/stat", (int)cred.pid );
     if (stat( path, &st ) || (!any_dumpable && st.st_uid != 0)) goto done;
     after = proc_start( cred.pid );
     if (after != before) goto done;
@@ -824,6 +835,7 @@ int main( int argc, char **argv )
         else if (test_mode && !strcmp( argv[i], "--login-defs" ) && i + 1 < argc) test_login_defs = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--admin-members" ) && i + 1 < argc) test_admin_members = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--mainpid" ) && i + 1 < argc) test_mainpid = (pid_t)atoi( argv[++i] );
+        else if (test_mode && !strcmp( argv[i], "--mainpid-file" ) && i + 1 < argc) test_mainpid_file = argv[++i];
         else if (test_mode && !strcmp( argv[i], "--any-dumpable" )) any_dumpable = 1;
         else if (test_mode && !strcmp( argv[i], "--no-idle-exit" )) no_idle_exit = 1;
         else { fprintf( stderr, "usage: wex-accountsd [--config FILE]\n" ); return 2; }
