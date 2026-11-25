@@ -219,8 +219,8 @@ Wine `claude/server-init-hardening` (b2fc74c2, 0b4256f8, 862b4bed, faa81a3e), ba
 - `server/sysrun.c`: `set_egid()` blocks all signals around `setegid` and `set_not_dumpable()` (and keeps `errno`),
   used by `sysrun_init`, `sysrun_raise` and `sysrun_drop`, so a SIGQUIT the user sends arrives after the dumpable
   window (B106). `sysrun_main_image` acts on a pending role only when the system role is enabled.
-  `sysrun_latch_role()`, called at the end of `init_registry` (`server/registry.c`), fixes the role's on/off state
-  so it cannot change later; turning it off is for test images only (`WEX_ELEVATION=0`).
+  (A latch of the role at the end of `init_registry` was taken out again in batch 1137: a new prefix's server
+  read it as off for good; KNOWN_BUGS B115.)
 
 ## ntdll: FSCTL_SET_ZERO_DATA (B110, 2026-11-25)
 
