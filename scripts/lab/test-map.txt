@@ -24,6 +24,7 @@ unsloth-tmp/*                           none
 # the suites themselves
 scripts/test_sysrun_server.sh           normalsuite
 scripts/test_broker_e1s18.sh            normalsuite
+scripts/eventlog-*                      normalsuite
 scripts/test_e1s6_transport.sh          lab
 scripts/e1s10_issue_probe.c             lab
 scripts/lab/system-tier-t1.sh           t1suite
@@ -78,6 +79,8 @@ src/dlls/sysdm.cpl/*                    normalsuite,image,gpolab
 wine:server/*                           normalsuite,t1suite,lab
 wine:include/wine/server_protocol.h     normalsuite,t1suite,lab
 wine:include/wine/wex_session0.h        normalsuite,t1suite,lab
+wine:include/wine/wex_eventlog.h        normalsuite
+wine:dlls/wevtsvc/*                     normalsuite
 wine:dlls/ntdll/*                       normalsuite,t1suite
 wine:dlls/kernelbase/*                  normalsuite
 wine:dlls/advapi32/*                    normalsuite
