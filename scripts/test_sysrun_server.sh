@@ -4884,7 +4884,8 @@ evfail()
       echo "s0 report: $(s0_wine "$ROOT/probes/evp64.exe" report WexL1Diag 4 1 diag | tr -d '\r')"
       echo "std count: $(as_wine "$STD" "$ROOT/probes/evp64.exe" count Application)"
       echo "std report: $(as_wine "$STD" "$ROOT/probes/evp64.exe" report WexL1Diag 4 1 diag)"
-      pgrep -u "$S0U" -a svchost; tail -5 "$ROOT/session0.log"; } >&2 2>&1 || true
+      pgrep -u "$S0U" -a svchost; tail -5 "$ROOT/session0.log"
+      echo "--- session 0's services (errors, +eventlog)"; tail -40 "$EVSVCERR"; } >&2 2>&1 || true
     fail "$@"
 }
 EVK='HKLM\System\CurrentControlSet\Services\EventLog'
@@ -4903,7 +4904,13 @@ ev_restart()   # stop and start the service in session 0 (its svchost)
     s0_wine sc start EventLog >/dev/null || true
     ev_up
 }
-s0_wine sc start EventLog >/dev/null || true
+# session 0's services with their own errors kept (services.exe and the svchost of EventLog inherit this stderr):
+# session 0 restarted, so that this start is what starts its service manager
+EVSVCERR="$ROOT/s0-services.err"; : > "$EVSVCERR"; chmod 666 "$EVSVCERR"
+s0_stop; s0_start
+(cd / && runuser -u "$S0U" -- env -i WINEPREFIX="$M" HOME="$M" PATH=/usr/bin:/bin WINEDEBUG=err+all,+seh,+eventlog \
+    WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d' timeout 120 "$BUILD/wine" sc start EventLog \
+    </dev/null >/dev/null 2>>"$EVSVCERR") || true
 ev_up || evfail "eventlog: the service in session 0 does not answer a session's client"
 s0_wine sc query EventLog | grep -q RUNNING || evfail "eventlog: the service does not run in session 0"
 ok ev_service_runs_in_session0_and_answers_sessions
