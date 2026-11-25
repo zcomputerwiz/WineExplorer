@@ -99,8 +99,9 @@ Programs that embed WebView2 (Copilot's "Continue with Microsoft" popup, Office 
 registered under `HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`.
 Windows ships it; Wine has none, so without it the popup fails in the WebView2 loader's runtime discovery.
 
-- **Payload:** `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` (215,116,512 bytes, SHA256
-  `d3cbe8fedb104282d745fff106993efead51ae94f5595a4e75804446a974f9c3`, runtime 157.0.4341.60) from
+- **Payload:** `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` (294,099,168 bytes, SHA256
+  `47bc51387aff95c1275ce38cfbbb5fbab99b43b33214049877bbcdbcc7a970d5`, runtime 158.0.4370.33, since 2026-11-25; it was
+  157.0.4341.60) from
   `msedge.sf.dl.delivery.mp.microsoft.com`, the per-file address Microsoft's `go.microsoft.com/fwlink/p/?LinkId=2124701`
   redirects to. The fwlink always serves the latest version, so it is not pinned. When Microsoft retires this file,
   update `payloads`, `release` and the hash together; a changed hash fails closed before anything runs.
@@ -128,8 +129,9 @@ updater. On Windows that whole chain runs as `NT AUTHORITY\SYSTEM` (measured, `d
 components install them with msiexec as session 0's account, which is SYSTEM to the machine prefix, the way
 `webview2` runs its installer. A user-run MSI of either still fails (B104: the chain then runs as the elevated user).
 
-- **Payloads:** `MicrosoftEdgeEnterpriseX64.msi` (Edge 157.0.4341.60, 215,552,000 bytes, SHA256
-  `b86b238035c47673e1c70589a28f2e0961e8cabdd3ff25edbb1e52239d7ecd76`) and `CopilotStableEnterpriseX64.msi`
+- **Payloads:** `MicrosoftEdgeEnterpriseX64.msi` (Edge 158.0.4370.33, 294,612,992 bytes, SHA256
+  `54eeab6848e54294ca9c5ae62032304bf2f078dbd76eda8efd4c05791335c4ec`, as `edgeupdates.microsoft.com/api/products?view=enterprise`
+  publishes it; it was 157.0.4341.60) and `CopilotStableEnterpriseX64.msi`
   (Copilot 158.0.4370.33, 425,648,128 bytes, SHA256 `565b5cb202c22dee664193a77300d09063c9a754640f2d27f4ae43fb71eff4db`),
   both per-file addresses on `msedge.sf.dl.delivery.mp.microsoft.com` (Edge's business download page and Copilot's
   `go.microsoft.com/fwlink/?linkid=2370805` lead there; neither link is pinned, they follow the newest release).
@@ -169,6 +171,11 @@ components install them with msiexec as session 0's account, which is SYSTEM to 
   the downloads), each `is_installed()` true, all three receipts valid at the end. An earlier run refused Edge before
   WebView2 with the prerequisite message.
   Program start and sign-in after a components install were not re-checked in this run.
+- **Pins moved to 158.0.4370.33 (2026-11-25):** the latest Stable for all three (the enterprise products API for
+  Edge, the fwlinks for WebView2 and Copilot; Copilot's MSI was already this one). Both new files are signed by
+  Microsoft Corporation (signature valid) and the Edge MSI's hash matches the API's. The same clean test on a new
+  overlay: `webview2` 114 s (registered `pv` 158.0.4370.33), `edge` 111 s, `copilot` 155 s, each `is_installed()`
+  true, all three receipts valid; about 10.5 GiB more in use at the peak than at the start, 11 GB free at the end.
 - **Verification:** Edge: `Edge\Application\msedge.exe` and `Edge\Application\<version>\msedge.dll`; Copilot:
   `Copilot\Application\copilotapp.exe` and `Copilot\Application\<version>\Installer\setup.exe` (under
   `Program Files (x86)\Microsoft`), `pv` under `EdgeUpdate\Clients\{app}` and the policy values.
