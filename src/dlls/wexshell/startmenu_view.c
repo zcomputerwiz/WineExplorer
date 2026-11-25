@@ -2530,7 +2530,7 @@ void startmenu_view_show(HWND tray_hwnd, const RECT *btn_rect)
         {
             WNDCLASSW wc;
             memset(&wc, 0, sizeof(wc));
-            wc.style = CS_DBLCLKS;
+            wc.style = CS_DBLCLKS | CS_DROPSHADOW;   /* the XP Start menu casts a shadow (SPI_GETDROPSHADOW) */
             wc.lpfnWndProc = two_column_startmenu_proc;
             wc.hInstance = explorer_hInstance;
             wc.lpszClassName = STARTMENU_WND_CLASS;
