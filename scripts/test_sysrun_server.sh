@@ -3563,7 +3563,7 @@ if section c4_dwm_menu; then set +e; ( section_enter
 MENUD="$ROOT/c4menu"; rm -rf "$MENUD"; install -d -m 1777 "$MENUD"
 command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 || section_skip "no x86_64 MinGW compiler"
 command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || section_skip "no import or convert (ImageMagick) to read the screen"
-x86_64-w64-mingw32-gcc -municode -mwindows -o "$MENUD/dwm-menu-probe.exe" "$SRC/scripts/dwm-menu-probe.c" -luser32 -lgdi32 2>"$MENUD/build.log" ||
+x86_64-w64-mingw32-gcc -municode -mwindows -o "$MENUD/dwm-menu-probe.exe" "$SRC/scripts/dwm-menu-probe.c" -luser32 -lgdi32 -lcomctl32 2>"$MENUD/build.log" ||
     { cat "$MENUD/build.log" >&2; fail "menu: the probe does not build"; }
 chmod 0755 "$MENUD/dwm-menu-probe.exe"
 DWMKEY='HKCU\Software\WineExplorer\Shell'
@@ -3585,7 +3585,7 @@ wine_as "$ADM" reg add 'HKCU\Software\Wine\Explorer\Desktops\Default' /v EnableS
 run_as "$ADM" env DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell.log" 2>&1 &
 MENUSHELL=$!
 sleep 10
-run_as "$ADM" env DISPLAY=":$MENUDN" timeout 100 "$BUILD/wine" "$(winpath "$MENUD/dwm-menu-probe.exe")" >"$MENUD/probe.log" 2>&1 &
+run_as "$ADM" env DISPLAY=":$MENUDN" timeout 100 "$BUILD/wine" "$(winpath "$MENUD/dwm-menu-probe.exe")" ${MENU_PROBE_ARGS:-} >"$MENUD/probe.log" 2>&1 &
 MENUPROBE=$!
 for i in $(seq 1 60); do grep -q 'menu ready' "$MENULOG" 2>/dev/null && break; sleep 1; done
 sleep 2
