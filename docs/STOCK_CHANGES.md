@@ -59,6 +59,9 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
 - `dlls/d2d1/device.c` (65a01349, claude/notepad-commit): slot 7 of the context's private interface {2ea67ed7} sets the
   target (measured), slot 15 succeeds; test in `test_device_private`. `dlls/dcomp/device.c` (13a303b3): Commit is traced;
   private methods 45/46 count the device's Commits (0 on a fresh device, as measured).
+- `dlls/dcomp/device.c` (7f2fe720, claude/notepad-commit): shared visual handles are matched by kernel object; a target
+  opened from one is a portal whose committed root is composed inside the shared visual; devices showing a changed portal
+  redraw their committed scenes; scene collection is bounded by the layer limit.
 
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 

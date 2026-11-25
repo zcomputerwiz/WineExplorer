@@ -16,6 +16,7 @@
  *   dcomp.dll!visual[N]          slot N of the vtable of a live IDCompositionVisual that this program creates
  *   winrt!Class.Name@{IID}[N]    slot N of the vtable of the interface IID of the activation factory of the class (RoGetActivationFactory)
  *   d3d11.dll!device@{IID}[N]    slot N of the vtable of the interface IID of a Direct3D 11 device (hardware, BGRA) that this program creates
+ *   d3d11.dll!context[N]         slot N of the immediate context (ID3D11DeviceContext) of such a device that this program creates
  *   dwrite.dll!analyzer@{IID}[N] slot N of the vtable of the interface IID of a DirectWrite text analyzer that this program creates
  *   d2d1.dll!context@{IID}[N]    slot N of the vtable of the interface IID of a Direct2D device context that this program creates
  *   d2d1.dll!d2ddevice@{IID}[N]  slot N of the vtable of the interface IID of a Direct2D device that this program creates
@@ -448,6 +449,29 @@ static int resolve_target(const char *target, char *mod, size_t modsize, DWORD *
         }
         if (!rva_of((*(void ***)obj)[slot], mod, modsize, rva)) return 0;
         if (_stricmp(mod, "d3d11.dll")) resolved_vt_rva = 0;   /* the filter compares with the base of the module of the slot */
+        return 1;
+    }
+
+    /* d3d11.dll!context[N]: slot N of ID3D11DeviceContext of the immediate context of a hardware device with BGRA support that this
+     * program creates (for example 12 DrawIndexed, 13 Draw, 8 PSSetShaderResources, 9 PSSetShader) */
+    if (!_stricmp(spec, "d3d11.dll") && !strcmp(bang, "context") && slot >= 0)
+    {
+        typedef HRESULT (WINAPI *create_t)(void *, int, HMODULE, UINT, const void *, UINT, UINT, void **, void *, void **);
+        HMODULE d3d = LoadLibraryA("d3d11.dll");
+        create_t create = d3d ? (create_t)GetProcAddress(d3d, "D3D11CreateDevice") : NULL;
+        void *device = NULL, *context = NULL;
+
+        if (!create) return 0;
+        /* D3D_DRIVER_TYPE_HARDWARE, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION; the last argument is the immediate context */
+        if (FAILED(create(NULL, 1, NULL, 0x20, NULL, 0, 7, &device, NULL, &context)) || !context) return 0;
+        {
+            char vmod[80];
+            DWORD vrva;
+
+            if (rva_of(*(void **)context, vmod, sizeof(vmod), &vrva) && !_stricmp(vmod, "d3d11.dll")) resolved_vt_rva = vrva;
+        }
+        if (!rva_of((*(void ***)context)[slot], mod, modsize, rva)) return 0;
+        if (_stricmp(mod, "d3d11.dll")) resolved_vt_rva = 0;
         return 1;
     }
 
