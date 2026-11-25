@@ -589,6 +589,16 @@ class D3DCompiler47ArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Microsoft Edge file missing'):
             c.verify_webview2_artifacts(self.machine, 'edge')
 
+    def test_too_little_space_is_refused_before_download(self):
+        meta = c.COMPONENTS_METADATA['copilot']
+        usage = type('Usage', (), {'free': meta['disk_space'] - 1})
+        with patch.object(c.shutil, 'disk_usage', return_value=usage), \
+                self.assertRaisesRegex(ValueError, 'Nothing was downloaded'):
+            c.check_free_space(self.machine, meta)
+        usage.free = meta['disk_space']
+        with patch.object(c.shutil, 'disk_usage', return_value=usage):
+            c.check_free_space(self.machine, meta)
+
     def test_msi_path_goes_through_the_root_drive(self):
         devices = self.machine / 'dosdevices'
         devices.mkdir(exist_ok=True)

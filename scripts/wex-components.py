@@ -277,6 +277,7 @@ COMPONENTS_METADATA = {
         'client_guid': '{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}',
         'artifacts': ['Edge/Application/msedge.exe', 'Edge/Application/{release}/msedge.dll'],
         'requires': ['webview2'],
+        'disk_space': 3 << 30,
         'recipe_files': [],
     },
     'copilot': {
@@ -304,6 +305,8 @@ COMPONENTS_METADATA = {
         'client_guid': '{C50565E9-CCCF-44B4-BA15-5AC5C6569197}',
         'artifacts': ['Copilot/Application/copilotapp.exe', 'Copilot/Application/{release}/Installer/setup.exe'],
         'requires': ['webview2'],
+        'disk_space': 5 << 30,   # measured: 2.9 GiB more in use at the peak than before the install
+
         'recipe_files': [],
     },
     # Microsoft's open-source PowerShell (MIT), the release zip unpacked as it is; no installer program runs. The
@@ -919,6 +922,16 @@ def edgeupdate_policy(verb):
         return WEBVIEW2_POLICY
     return (('UpdateDefault', 0), ('Update' + COMPONENTS_METADATA[verb]['client_guid'], 0),
             ('AutoUpdateCheckPeriodMinutes', 0))
+
+
+def check_free_space(machine, meta):
+    """Refuse before downloading when the machine root lacks META's disk_space: the setup the MSI's updater runs
+    writes the unpacked program through file mappings and has no preallocation in Wine, so a full disk crashes it
+    (SIGBUS, an unhandled page fault) halfway instead of failing cleanly."""
+    free = shutil.disk_usage(machine).free
+    if free < meta['disk_space']:
+        raise ValueError(f'{meta["title"]} needs {format_size(meta["disk_space"])} free on the machine root '
+                         f'while it installs; {format_size(free)} is free. Nothing was downloaded or installed.')
 
 
 def msi_dos_path(machine, path):
@@ -4529,6 +4542,7 @@ def install(verb, accepted_digest):
             argv = ['/usr/bin/xvfb-run', '-a', wine.WINE, str(installer), '/silent', '/install']
         elif verb in EDGEUPDATE_APPS:
             payload = meta['payloads'][0]
+            check_free_space(MACHINE, meta)
             installer = cache_pinned_download(verb, payload, cache, ('https://' + payload['host'] + '/',),
                                               meta['title'], deadline=1800)
             execution_digest = hashlib.sha256((meta['execution_policy'] + ' ' + payload['sha256']).encode()).hexdigest()
