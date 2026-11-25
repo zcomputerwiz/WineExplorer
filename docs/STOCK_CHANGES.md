@@ -4830,3 +4830,19 @@ protocol"): the cross-server protocol on the session link between session 0 and 
   control socket `wex-x0-lab` in each lab server's directory (root only) and the lab object kind, a named counter.
   `server/wex_e1lab.h` declares `x0lab_init` and `session0_lab_drop_link`.
 Tests: section `s0_x0` of `scripts/test_sysrun_server.sh` (lab suite), client `scripts/x0lab.py`.
+
+## Shared textures reach a second device without a fence (2026-11-25)
+
+Wine `230e5f7e` on `claude/shared-texture-coherence`, `dlls/d3d11/{device.c,texture.c,d3d11_private.h}`,
+`dlls/dxgi/resource.c`, `include/wine/d3dkmt_desc.h`, test in `dlls/d3d11/tests/d3d11.c`
+(`test_shared_texture_coherence`). A shared Texture2D (NT handle) is backed by a named file mapping that both devices give
+to wined3d as the texture's system memory. Before: the creator wrote its frame into it only at a fence `Signal`, the device
+that opened it loaded it at open, a fence `Wait` or a keyed mutex `AcquireSync`, so a reader with none of those (a
+compositor, the UWP portal) kept the frame from open time; a texture drawn before `CreateSharedHandle` came out empty
+(`wined3d_texture_update_desc` drops the GPU copy). Now: the mapping starts with a header page holding a sequence number;
+`CreateSharedHandle` reads the frame drawn so far into the memory first; `ID3D11DeviceContext::Flush` and keyed mutex
+`ReleaseSync` write the creator's frame back (staging texture kept per texture) and increment the number; a device that
+opened the texture reloads it when the number changed, before a draw, dispatch, copy or command list. Only the creating
+device writes back. The DXGI resource alone unmaps the mapping. Not covered: the legacy (non-NT) shared handle, formats of
+other than 4 bytes per pixel (both rejected as before), a texture both devices draw to, and a writer that never flushes.
+The write-back costs a read-back of each shared texture per Flush (no dirty tracking yet).
