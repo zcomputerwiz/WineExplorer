@@ -6,6 +6,7 @@
  * on the stack resolved to module+offset). Observation of a local program from outside; nothing of it is copied.
  *
  *   wintrace.exe AUMID SECONDS OUTFILE TARGET:LABEL[:MAXHITS[:R]] ...
+ *   wintrace.exe exe:PATH SECONDS OUTFILE TARGET:LABEL[:MAXHITS[:R]] ...   (an unpackaged program, started suspended and attached)
  *
  * A target is an entry point that this program finds at run time, in its own process, from the same module the application loads. A raw
  * address or RVA is not accepted, and no code bytes are logged or stored (the one byte that the breakpoint replaces is only kept in memory
@@ -692,15 +693,38 @@ int main(int argc, char **argv)
         bps[nbps].max = m ? atoi(m) : 30;
         nbps++;
     }
-    MultiByteToWideChar(CP_UTF8, 0, argv[1], -1, aumid, 256);
-    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
-    hr = CoCreateInstance(&CLSID_ApplicationActivationManager, NULL, CLSCTX_LOCAL_SERVER, &IID_IApplicationActivationManager, (void **)&mgr);
-    if (SUCCEEDED(hr)) hr = IApplicationActivationManager_ActivateApplication(mgr, aumid, NULL, AO_NOERRORUI, &pid);
-    t0 = GetTickCount();
-    fprintf(out, "activate %s: hr %08lx pid %lu\n", argv[1], (unsigned long)hr, (unsigned long)pid);
-    if (FAILED(hr) || !pid) return 1;
-    DebugSetProcessKillOnExit(FALSE);
-    if (!DebugActiveProcess(pid)) { fprintf(out, "DebugActiveProcess: error %lu\n", GetLastError()); return 1; }
+    if (!strncmp(argv[1], "exe:", 4))
+    {
+        /* an unpackaged program: started suspended, attached, then resumed */
+        STARTUPINFOA si = {sizeof(si)};
+        PROCESS_INFORMATION pi;
+
+        if (!CreateProcessA(argv[1] + 4, NULL, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &si, &pi))
+        {
+            fprintf(out, "CreateProcess %s: error %lu\n", argv[1] + 4, GetLastError());
+            return 1;
+        }
+        pid = pi.dwProcessId;
+        t0 = GetTickCount();
+        fprintf(out, "start %s: pid %lu\n", argv[1] + 4, (unsigned long)pid);
+        DebugSetProcessKillOnExit(FALSE);
+        if (!DebugActiveProcess(pid)) { fprintf(out, "DebugActiveProcess: error %lu\n", GetLastError()); return 1; }
+        ResumeThread(pi.hThread);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+    else
+    {
+        MultiByteToWideChar(CP_UTF8, 0, argv[1], -1, aumid, 256);
+        CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+        hr = CoCreateInstance(&CLSID_ApplicationActivationManager, NULL, CLSCTX_LOCAL_SERVER, &IID_IApplicationActivationManager, (void **)&mgr);
+        if (SUCCEEDED(hr)) hr = IApplicationActivationManager_ActivateApplication(mgr, aumid, NULL, AO_NOERRORUI, &pid);
+        t0 = GetTickCount();
+        fprintf(out, "activate %s: hr %08lx pid %lu\n", argv[1], (unsigned long)hr, (unsigned long)pid);
+        if (FAILED(hr) || !pid) return 1;
+        DebugSetProcessKillOnExit(FALSE);
+        if (!DebugActiveProcess(pid)) { fprintf(out, "DebugActiveProcess: error %lu\n", GetLastError()); return 1; }
+    }
     for (i = 0; i < 65536; i++) pending[i] = 0;
     while (GetTickCount() - t0 < limit)
     {
