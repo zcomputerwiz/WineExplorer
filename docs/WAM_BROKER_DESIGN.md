@@ -300,7 +300,7 @@ owner's real sign-ins (no tokens kept) and, for the shapes, from the Windows pro
   notification or the internal `Windows.Internal.Security.WebAuthentication.AuthenticationManager`, which is missing.
 - `--force-first-run` is not a fair test: with the shared store present the flow behaves differently.
 
-### Edge's first-run Sign in button, 2026-11-24 (B103)
+### Edge's first-run Sign in button, 2026-11-24 (B107)
 
 - On a new image with no account anywhere (no `OneAuth`, `IdentityCache` or broker cache), "Sign in" on Edge's
   first-run page did nothing. Edge asks silently first (`GetTokenSilentlyAsync`, no account), then opens **its own**

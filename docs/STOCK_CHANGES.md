@@ -1,6 +1,6 @@
 # Changes to stock Wine / third-party code
 
-## server: the system role fields of a new process initialized (B108, 2026-11-25)
+## server: the system role fields of a new process initialized (B112, 2026-11-25)
 
 Wine 83c82756b7a (branch `claude/edge-signin-stacking`). Our code only (the fields are ours).
 
@@ -15,7 +15,7 @@ Wine 83c82756b7a (branch `claude/edge-signin-stacking`). Our code only (the fiel
 - Tests: `advapi32:security` has the same 10 failures with and without the change (run as root). No Wine test is
   added: whether the bits were set depended on which freed object the memory came from.
 
-## ntdll: FSCTL_SET_ZERO_DATA (B106, 2026-11-25)
+## ntdll: FSCTL_SET_ZERO_DATA (B110, 2026-11-25)
 
 Wine 7217a7389b7 (branch `claude/edge-signin-stacking`), pinned on the owner's word without an update hold (see the
 effect). Upstreamable.
@@ -33,7 +33,7 @@ effect). Upstreamable.
   updates was the only thing that held them. An update probably makes the components' verification fail (it checks
   the pinned version's folder). A hold on those updates is still to do.
 
-## ntdll, server, wow64: ProcessCommandLineInformation (B104, 2026-11-24)
+## ntdll, server, wow64: ProcessCommandLineInformation (B108, 2026-11-24)
 
 Wine 0ec8719014e (branch `claude/edge-signin-stacking`). Upstreamable.
 
@@ -48,7 +48,7 @@ Wine 0ec8719014e (branch `claude/edge-signin-stacking`). Upstreamable.
   image name.
 - Test: `dlls/ntdll/tests/info.c` (`test_query_process_command_line`: the own command line, a suspended child opened
   with the limited right, a too small buffer, a handle without query rights); `ntdll:info` passes 64-bit and 32-bit.
-- Effect (B104): the Edge enterprise MSI installed as SYSTEM in session 0 (the components' way) on a clean image no
+- Effect (B108): the Edge enterprise MSI installed as SYSTEM in session 0 (the components' way) on a clean image no
   longer makes Edge Update uninstall itself; it did before. A program that runs the MSI itself, elevated, still does
   (the install chain is the user's there, the updater's service SYSTEM in session 0).
 - Building: a new request renumbers the later ones, so every module that calls the server needs rebuilding (a
@@ -3115,7 +3115,7 @@ Project modules: `dlls/wexhost` (`elevate.c`, export `WexElevateRun`, imports `a
 | `dlls/user32` (`cursoricon.c`, `user_private.h`, `sysparams.c`, `defwnd.c`) | load system cursor schemes from `HKCU\Control Panel\Cursors` and cache the file-backed cursors, falling back to built-ins; `reset_scheme_cursors()` flushes cached cursor handles on `SPI_SETCURSORS` and `WM_SETTINGCHANGE` for live scheme updates | system cursor resource loads; cache/refresh semantics require review in P0 |
 | `dlls/win32u` (`window.c`, `input.c`, `defwnd.c`), `dlls/user32/misc.c` | `RegisterShellHookWindow`/`DeregisterShellHookWindow` implemented: the desktop's taskman window gets the registered `SHELLHOOK` message for window created/destroyed/activated/redraw/flash | always (no cost without a registered window except one server call per event) |
 | `dlls/mmdevapi` (`audiovolume.c`, `unixlib.h`), `dlls/winepulse.drv` | `IAudioEndpointVolume`: master volume and mute of the default device through the driver (PulseAudio/PipeWire); two new unix calls `get/set_endpoint_volume`; other drivers (alsa, oss, coreaudio) return E_NOTIMPL; the wow64 table of winepulse has stubs, so 32-bit callers get E_NOTIMPL for now | always |
-| `dlls/winex11.drv/window.c` (`sync_window_position`, `restack_below`, `visible_window_before`, `create_whole_window`), `event.c` (`set_input_focus`) | in a virtual desktop, a window that is not the top one is restacked in X directly below the window it follows in the Win32 z-order (stock only ever raises, for the sake of window managers), and focusing a window no longer raises it in X; without it an activated window covers topmost ones such as the taskbar. Since Wine e71d91ab13e (2026-11-24) an X window is also put in its Win32 place as soon as it is created: X puts a new window on top, and a visible window that gets a new X window (a layered one does, for its visual) covered the windows above it, so Edge's first-run page hid its own sign-in window (B103) | only in a virtual desktop, unmanaged windows |
+| `dlls/winex11.drv/window.c` (`sync_window_position`, `restack_below`, `visible_window_before`, `create_whole_window`), `event.c` (`set_input_focus`) | in a virtual desktop, a window that is not the top one is restacked in X directly below the window it follows in the Win32 z-order (stock only ever raises, for the sake of window managers), and focusing a window no longer raises it in X; without it an activated window covers topmost ones such as the taskbar. Since Wine e71d91ab13e (2026-11-24) an X window is also put in its Win32 place as soon as it is created: X puts a new window on top, and a visible window that gets a new X window (a layered one does, for its visual) covered the windows above it, so Edge's first-run page hid its own sign-in window (B107) | only in a virtual desktop, unmanaged windows |
 | `dlls/winex11.drv/event.c` (`X11DRV_ActivateWindow`) | in a virtual desktop the window that becomes active is raised to the top of the Win32 z-order, as Windows does on activation (Wine leaves it to the X window manager, and the row above removed the X raise); the X stacking follows, below topmost windows. Before, clicking a window or its taskbar button activated it without bringing it to the front | only in a virtual desktop, unmanaged windows |
 | `dlls/win32u/sysparams.c` (`SPI_SETWORKAREA`/`SPI_GETWORKAREA`) | the work area is the monitor's and every process sees it, like on Windows and ReactOS (stock kept it per process, so windows maximized in other processes covered the taskbar): it is written to the monitor's registry key, the monitor serial is bumped so other processes reload, and a volatile copy in `HKLM\Software\Wine\WorkArea` (by monitor path) is applied again whenever the monitors are rebuilt from the driver, which every process entering a virtual desktop does; it is dropped once it no longer fits the monitor. `SPI_GETWORKAREA` reads the primary monitor every time. As on Windows, the rectangle has to lie on one monitor, and a non-zero uiParam (the taskbar passes TRUE) fits the maximized windows of that monitor to the new work area | always (only matters once something sets a work area) |
 | `dlls/shell32` (`shell32.rc`, `shresdef.h`, `shell32.rgs`) | Windows XP names in the namespace: string 8964 "Recycle Bin" (was "Trash", with the delete prompts worded like XP), new string 9227 "My Documents" as the `LocalizedString` of CLSID_MyDocuments (string 46 stays the folder name "Documents") | always |

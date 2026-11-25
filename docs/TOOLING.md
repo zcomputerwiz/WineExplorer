@@ -599,7 +599,7 @@ Measured on the test machine (WSL wexbuild, 16 CPUs; the numbers are minutes):
 
 ## Added 2026-11-25: the Edge and components lab (efr)
 
-Used for B103 to B108 (Edge sign-in, the optional components, Gecko, the IE crash). The scripts are local to this
+Used for B107 to B112 (Edge sign-in, the optional components, Gecko, the IE crash). The scripts are local to this
 machine, in `D:\WSL\wex-iso` (WSL `/mnt/d/WSL/wex-iso`), not in the repository; read one before running it, since
 most have fixed names and paths. `efr-*.sh` run in a WSL distro; `r-*.sh` are bodies that run as root inside a lab
 VM through `efr-root.sh`. Out of `wsl ... bash -c '...'` from PowerShell the quotes get lost: always run a file.
@@ -637,7 +637,7 @@ Lab VMs:
   `efr-cleanup.sh` (deletes named superseded overlays, children first, only when nothing backs onto them and they are
   stopped) keep `/var/tmp/vmtest-gpt` tidy. Never delete an overlay another disk backs onto.
 
-Putting a rebuilt Wine file into a lab VM (B108's server; the same for a DLL):
+Putting a rebuilt Wine file into a lab VM (B112's server; the same for a DLL):
 
 1. `efr-b108-stage.sh` (wexbuild) prints the clone's commit and protocol version, strips the built `wineserver` into
    `D:\WSL\wex-iso\efr-b108` and prints its SHA-256.

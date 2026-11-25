@@ -249,7 +249,7 @@ COMPONENTS_METADATA = {
         'recipe_files': [],
     },
     # Microsoft's enterprise MSIs, installed machine-wide by msiexec as session 0's account (SYSTEM), as Windows runs
-    # their DoInstall chain (docs/KNOWN_BUGS.md B104). WebView2 goes first: the Copilot app embeds it, and with it
+    # their DoInstall chain (docs/KNOWN_BUGS.md B108). WebView2 goes first: the Copilot app embeds it, and with it
     # installed Edge Update already has an app when the MSI's updater registers the browser. Their terms are web
     # pages: only the text of the page's main element, from terms_start on, is pinned (the markup around it changes).
     'edge': {

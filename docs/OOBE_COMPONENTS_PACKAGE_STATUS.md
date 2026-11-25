@@ -125,9 +125,9 @@ Windows ships it; Wine has none, so without it the popup fails in the WebView2 l
 
 Both are Microsoft Edge Update ("Omaha") apps that Microsoft ships as enterprise MSIs. Their MSI's `DoInstall` custom
 action (deferred, no impersonation) starts the updater, which installs the app and then hands over to a machine
-updater. On Windows that whole chain runs as `NT AUTHORITY\SYSTEM` (measured, `docs/KNOWN_BUGS.md` B104), so the
+updater. On Windows that whole chain runs as `NT AUTHORITY\SYSTEM` (measured, `docs/KNOWN_BUGS.md` B108), so the
 components install them with msiexec as session 0's account, which is SYSTEM to the machine prefix, the way
-`webview2` runs its installer. A user-run MSI of either still fails (B104: the chain then runs as the elevated user).
+`webview2` runs its installer. A user-run MSI of either still fails (B108: the chain then runs as the elevated user).
 
 - **Payloads:** `MicrosoftEdgeEnterpriseX64.msi` (Edge 158.0.4370.33, 294,612,992 bytes, SHA256
   `54eeab6848e54294ca9c5ae62032304bf2f078dbd76eda8efd4c05791335c4ec`, as `edgeupdates.microsoft.com/api/products?view=enterprise`
@@ -139,7 +139,7 @@ components install them with msiexec as session 0's account, which is SYSTEM to 
   the Windows Components frontend adds WebView2 ahead of them when it is missing, and WebView2's terms are accepted
   on their own. The Copilot app embeds WebView2 for its pages and its Microsoft account sign-in. With WebView2 in
   place the updater already has an app when the MSI registers its own, which is also what makes a user-run Edge MSI
-  work around B104.
+  work around B108.
 - **Terms:** web pages, not documents. Edge: `https://explore.microsoft.com/en-us/edge/terms` (Microsoft Software
   License Terms, Microsoft Edge, as the MSI's own `edge://terms` shows). Copilot: the Microsoft Copilot Terms of Use,
   `https://www.microsoft.com/en-us/microsoft-copilot/for-individuals/termsofuse` (its supplemental terms; they refer to
@@ -163,7 +163,7 @@ components install them with msiexec as session 0's account, which is SYSTEM to 
   have the network) still downloaded 158.0.4370.33 differential updates for the installed WebView2 and Edge, with the
   policies set (Edge Update honours update policies only on domain-joined or managed machines). Their setup failed
   (`Failed to set zero data for hollow archive: Request not supported`, `InstallerError 506`), so both stayed on the
-  pinned 157.0.4341.60 and verified; this relied on a Wine gap (FSCTL_SET_ZERO_DATA, `docs/KNOWN_BUGS.md` B106), not
+  pinned 157.0.4341.60 and verified; this relied on a Wine gap (FSCTL_SET_ZERO_DATA, `docs/KNOWN_BUGS.md` B110), not
   on the policy. Wine 7217a7389b7 closes the gap, so from that pin on such updates are expected to succeed and the
   components to leave their pins (not checked); a hold on these updates is still to do.
 - **Tested (2026-11-25):** clean overlay of the efr2 image (Wine 0ec8719014e, class 60) with a 27 GB root, as root

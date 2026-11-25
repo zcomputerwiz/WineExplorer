@@ -322,7 +322,7 @@ else
     ensure_common_shell_dirs
 fi
 
-# Wine Gecko (KNOWN_BUGS B107). Wine installs Mono when the prefix is made, but Gecko only when mshtml is first used, from
+# Wine Gecko (KNOWN_BUGS B111). Wine installs Mono when the prefix is made, but Gecko only when mshtml is first used, from
 # the MSI the package ships in /usr/local/share/wine/gecko. That first use is a standard user's (Internet Explorer), who
 # cannot install a per-machine package ("This installation package could not be opened"). mshtml's DllInstall installs
 # it here instead, both architectures; it does nothing when Gecko is already installed.
