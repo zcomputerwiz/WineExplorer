@@ -105,6 +105,7 @@ installer/tests/*                       py:scripts/test_safemode.py
 scripts/wex-greeter.sh                  py:scripts/test_safemode.py,chain
 scripts/lib/wex-common.sh               py:scripts/test_safemode.py,normalsuite,chain
 scripts/wine-explorer-session.sh        sh:scripts/test_session_supervisor.sh,sh:scripts/test_session_init.sh,chain
+scripts/wine-explorer-wayland-session.sh sh:scripts/test_session_supervisor.sh,chain
 scripts/wine-explorer-session-common.sh sh:scripts/test_session_supervisor.sh,sh:scripts/test_session_init.sh,chain
 scripts/test_session_supervisor.sh      sh:scripts/test_session_supervisor.sh
 scripts/vmtest.py                       py:scripts/test_safemode.py

@@ -185,7 +185,7 @@ wex_auto_restart_shell()
 # Whether the prefix's wineserver is still running (wineserver -k0 sends no signal and says whether there is one).
 wex_wineserver_alive()
 {
-    "${WEX_WINESERVER:-$(dirname -- "$WINE")/wineserver}" -k0 2>/dev/null
+    "${WEX_WINESERVER:-${WINESERVER:-$(dirname -- "$WINE")/wineserver}}" -k0 2>/dev/null
 }
 
 # Runs the shell as Winlogon does: when it ends while the session lives, it is started again (AutoRestartShell).

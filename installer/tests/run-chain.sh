@@ -11,7 +11,7 @@
 #   NAME      the installed test disks are NAME-bios and NAME-uefi (VMTEST_DIR, default /var/tmp/vmtest-gpt)
 #   --iso     install them first from FILE.iso (built with --unattended or not: the test's unattend.sif is put in),
 #             both firmwares at once, through Vintner Boot (install-unattended.sh, check-vintner.py)
-#   STAGE     defaults accounts classic rundialog popups wayland startrec (all when none is named), or NAME=PHASE,PHASE
+#   STAGE     defaults accounts classic rundialog popups shellrestart wayland startrec (all when none is named), or NAME=PHASE,PHASE
 #             for other phases of safe-mode.sh. Each stage on each firmware is one job on its own overlay
 #             (NAME-STAGE-FW), so jobs do not share a disk. The overlays are forked from one provisioned baseline
 #             per firmware (NAME-base-FW: the test accounts and the provisioning boot, once; WEX_CHAIN_BASELINE=0
@@ -48,7 +48,7 @@ shift
 phases_of() {   # the safe-mode.sh phases of a stage; nothing for the defaults
     case "$1" in
         defaults) ;;
-        accounts|classic|rundialog|popups|startrec) echo "$1" ;;
+        accounts|classic|rundialog|popups|startrec|shellrestart) echo "$1" ;;
         wayland) echo waylanddisplay waylandsafe waylandcmd ;;
         *=*) echo "${1#*=}" | tr ',' ' ' ;;
         *) return 1 ;;
@@ -58,7 +58,7 @@ stage_name() { echo "${1%%=*}"; }
 
 STAGES=("$@")
 # the longest first, so the short ones fill the lanes around it
-[ ${#STAGES[@]} -gt 0 ] || STAGES=(defaults startrec wayland classic accounts rundialog popups)
+[ ${#STAGES[@]} -gt 0 ] || STAGES=(defaults startrec wayland classic accounts rundialog popups shellrestart)
 for s in "${STAGES[@]}"; do
     phases_of "$s" >/dev/null || { echo "unknown stage $s"; exit 2; }
 done

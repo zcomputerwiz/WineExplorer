@@ -116,6 +116,11 @@
 #                click) and the tooltip of the clock (the pointer rests on it) and the Run dialog's drop-down list (F4; one command is run first so the history has an entry). Each is a subresult; the popup is the new viewable window after the action (the window
 #                probe's list before and after), found in a screendump (installer/tests/popup-check.py). Only when
 #                named, or in the chain's default stages.
+#   shellrestart  the shell comes back after its explorer is killed (kill -9): the session's supervisor (wex_run_shell,
+#                Winlogon's AutoRestartShell) starts it again, the new explorer takes over the desktop, and its taskbar is
+#                there again; the desktop's context menu then has no black box around it and, with composition on, its
+#                shadow. In the X11 session the programs' windows are lost with explorer's X desktop window (virtual
+#                desktop); only the Wayland session keeps them. Only when named, or in the chain's default stages.
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -187,7 +192,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|popups|debugmode|perf) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|popups|shellrestart|debugmode|perf) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -2321,6 +2326,36 @@ popup_combo() {   # the Run dialog's drop-down list: the dialog is open first (i
     return $rc
 }
 popup_combo_open() { "${V[@]}" key "$TEST" f4 >/dev/null; }   # F4 drops a combo box's list
+
+shell_kill() {   # the test account's explorer is killed; the new one's desktop and taskbar must come up (B120)
+    local old new i
+    old=$(gsh 'pgrep -u "$USER" -f "explorer.exe /desktop" | tail -1' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ -n "$old" ] || fail "no explorer of $USER_NAME to kill"
+    gsh 'pkill -9 -u "$USER" -f "C:.windows.system32.explorer.exe /desktop"; true' >/dev/null
+    sleep 5
+    desktop 120 || fail "the shell did not come back after kill -9 (the supervisor's restart)"
+    for i in 1 2 3 4 5 6; do
+        new=$(gsh 'pgrep -u "$USER" -f "C:.windows.system32.explorer.exe /desktop" | tail -1' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+        [ -n "$new" ] && break
+        sleep 2
+    done
+    [ -n "$new" ] || fail "no explorer after the restart"
+    [ "$new" != "$old" ] || fail "the explorer after the restart is the old one ($old)"
+    echo "  explorer $old killed, now $new"
+    shot shell-restarted
+}
+
+phase_shellrestart() {   # see the header
+    start_vm
+    desktop 600
+    POPUP_COMPOSITION=$(gsh 'grep -c "^\"Composition\"=dword:00000001" "$HOME/.wine/user.reg" 2>/dev/null; true' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ "${POPUP_COMPOSITION:-0}" -ge 1 ] 2>/dev/null && POPUP_COMPOSITION=1 || POPUP_COMPOSITION=0
+    echo "  guest desktop composition: $POPUP_COMPOSITION"
+    subresult restart shell_kill
+    subresult popup-after popup_one context-menu-after-restart popup_context_menu esc
+    shutdown_vm
+    subresults_end
+}
 
 phase_popups() {   # see the header: the shell's popups have no black box, and a shadow with composition on
     start_vm
