@@ -322,6 +322,17 @@ else
     ensure_common_shell_dirs
 fi
 
+# Wine Gecko (KNOWN_BUGS B111). Wine installs Mono when the prefix is made, but Gecko only when mshtml is first used, from
+# the MSI the package ships in /usr/local/share/wine/gecko. That first use is a standard user's (Internet Explorer), who
+# cannot install a per-machine package ("This installation package could not be opened"). mshtml's DllInstall installs
+# it here instead, both architectures; it does nothing when Gecko is already installed.
+if [ "${WEX_SKIP_WINEBOOT:-0}" != "1" ]; then
+    machine_wine regsvr32.exe /s /n /i mshtml.dll || echo "warning: Wine Gecko (64-bit) was not installed" >&2
+    machine_wine 'C:\windows\syswow64\regsvr32.exe' /s /n /i mshtml.dll ||
+        echo "warning: Wine Gecko (32-bit) was not installed" >&2
+    machine_wine_wait
+fi
+
 # Install themes into machine root
 THEME_DATA_DIR="${WEX_THEME_DATA_DIR:-/usr/local/share/wineexplorer/themes}"
 if [ -d "$THEME_DATA_DIR" ]; then

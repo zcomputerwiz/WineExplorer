@@ -66,6 +66,62 @@ class WebView2TermsTests(unittest.TestCase):
         self.assertEqual(urllib_host(payload['url']), payload['host'])
 
 
+class WebPageTermsTests(unittest.TestCase):
+    """Edge and Copilot: the agreement is the text of a web page's main element; fixtures are synthetic."""
+
+    @staticmethod
+    def page(start='SYNTHETIC AGREEMENT', body='Synthetic clause. ' * 40):
+        return (f'<html><head><script>var nav = "menu";</script></head><body><nav><p>Menu link</p></nav>'
+                f'<main id="m"><p>Last updated</p><h1>{start}</h1><style>p{{}}</style><p>{body}</p>'
+                f'<noscript>Enable scripts</noscript><p>Fees &amp; costs</p></main>'
+                f'<footer><p>Footer link</p></footer></body></html>').encode()
+
+    def test_main_text_from_the_agreement_on(self):
+        text = components.extract_html_terms(self.page(), 'SYNTHETIC AGREEMENT')
+        self.assertTrue(text.startswith('SYNTHETIC AGREEMENT\n\nSynthetic clause.'))
+        self.assertIn('Fees & costs', text)
+        for outside in ('Menu link', 'Footer link', 'Last updated', 'var nav', 'Enable scripts', 'p{}'):
+            self.assertNotIn(outside, text)
+
+    def test_other_page_or_short_text_is_refused(self):
+        with self.assertRaises(ValueError):
+            components.extract_html_terms(self.page(start='OTHER TERMS'), 'SYNTHETIC AGREEMENT')
+        with self.assertRaises(ValueError):
+            components.extract_html_terms(self.page(body='too short'), 'SYNTHETIC AGREEMENT')
+        with self.assertRaises(ValueError):
+            components.extract_html_terms(self.page(), '')
+
+    def test_extracted_text_is_what_is_pinned(self):
+        page = self.page()
+        text = components.extract_html_terms(page, 'SYNTHETIC AGREEMENT')
+        pinned = {'url': 'https://example.invalid/terms', 'format': 'html', 'start': 'SYNTHETIC AGREEMENT',
+                  'sha256': hashlib.sha256(text.encode()).hexdigest()}
+        with patch.object(components, '_terms_download', return_value=(page.replace(b'menu', b'other'), None)) as get:
+            self.assertEqual(components.terms_document_text('edge', pinned), text)
+        self.assertNotIn('Wget', get.call_args[0][1]['User-Agent'])
+        changed = page.replace(b'Synthetic clause. ', b'Changed clause. ', 1)
+        with patch.object(components, '_terms_download', return_value=(changed, None)), self.assertRaises(ValueError):
+            components.terms_document_text('edge', pinned)
+
+    def test_component_pins(self):
+        for verb in ('edge', 'copilot'):
+            meta = components.COMPONENTS_METADATA[verb]
+            payload = meta['payloads'][0]
+            self.assertEqual(meta['terms_format'], 'html')
+            self.assertEqual(meta['terms_sha256'], meta['terms_text_sha256'])
+            self.assertEqual(len(meta['terms_sha256']), 64)
+            self.assertEqual(len(payload['sha256']), 64)
+            self.assertEqual(urllib_host(payload['url']), payload['host'])
+            self.assertEqual(meta['requires'], ['webview2'])
+            self.assertEqual(meta['execution_policy'], components.EDGEUPDATE_MSI_POLICY)
+
+    def test_prerequisites_come_first_unless_installed(self):
+        self.assertEqual(components.with_prerequisites(['copilot', 'edge'], installed=set()),
+                         ['webview2', 'edge', 'copilot'])
+        self.assertEqual(components.with_prerequisites(['edge'], installed={'webview2'}), ['edge'])
+        self.assertEqual(components.with_prerequisites(['corefonts'], installed=set()), ['corefonts'])
+
+
 def urllib_host(url):
     import urllib.parse
     return urllib.parse.urlsplit(url).hostname

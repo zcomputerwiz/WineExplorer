@@ -565,6 +565,48 @@ class D3DCompiler47ArtifactTests(unittest.TestCase):
         registry.write_text(parent + values + '\n' + child + '\n' + client, encoding='utf-8')
         c.verify_webview2_artifacts(self.machine)
 
+    def test_edge_verification_needs_its_files_registration_and_policy(self):
+        meta = c.COMPONENTS_METADATA['edge']
+        base = self.machine / 'drive_c/Program Files (x86)/Microsoft'
+        for name in meta['artifacts']:
+            path = base / name.format(release=meta['release'])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, 'wb') as out:
+                out.truncate(2 * 1024 * 1024)
+        client = (r'[Software\\Wow6432Node\\Microsoft\\EdgeUpdate\\Clients\\' + meta['client_guid'] + '] 1\n'
+                  '"pv"="' + meta['release'] + '"\n\n')
+        parent = r'[Software\\Policies\\Microsoft\\EdgeUpdate] 1' + '\n'
+        registry = self.machine / 'system.reg'
+        # WebView2's policy alone does not stop Edge's updates
+        webview2 = ''.join(f'"{name}"=dword:{data:08x}\n' for name, data in c.WEBVIEW2_POLICY)
+        registry.write_text(parent + webview2 + '\n' + client, encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'Microsoft Edge update policy'):
+            c.verify_webview2_artifacts(self.machine, 'edge')
+        values = webview2 + f'"Update{meta["client_guid"]}"=dword:00000000\n'
+        registry.write_text(parent + values + '\n' + client, encoding='utf-8')
+        c.verify_webview2_artifacts(self.machine, 'edge')
+        (base / meta['artifacts'][0]).unlink()
+        with self.assertRaisesRegex(ValueError, 'Microsoft Edge file missing'):
+            c.verify_webview2_artifacts(self.machine, 'edge')
+
+    def test_too_little_space_is_refused_before_download(self):
+        meta = c.COMPONENTS_METADATA['copilot']
+        usage = type('Usage', (), {'free': meta['disk_space'] - 1})
+        with patch.object(c.shutil, 'disk_usage', return_value=usage), \
+                self.assertRaisesRegex(ValueError, 'Nothing was downloaded'):
+            c.check_free_space(self.machine, meta)
+        usage.free = meta['disk_space']
+        with patch.object(c.shutil, 'disk_usage', return_value=usage):
+            c.check_free_space(self.machine, meta)
+
+    def test_msi_path_goes_through_the_root_drive(self):
+        devices = self.machine / 'dosdevices'
+        devices.mkdir(exist_ok=True)
+        with self.assertRaisesRegex(ValueError, 'Z: drive'):
+            c.msi_dos_path(self.machine, '/var/lib/x/edge.msi')
+        os.symlink('/', devices / 'z:')
+        self.assertEqual(c.msi_dos_path(self.machine, '/var/lib/x/edge.msi'), 'Z:\\var\\lib\\x\\edge.msi')
+
 
 if __name__ == '__main__':
     unittest.main()

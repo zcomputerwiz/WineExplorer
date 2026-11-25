@@ -164,6 +164,61 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   - A surface's last Release takes no lock.
   - Tests: `test_shared_visual_portal_cases` (passes on Windows 11).
 
+## server: the system role fields of a new process initialized (B112, 2026-11-25)
+
+Wine 83c82756b7a (branch `claude/edge-signin-stacking`). Our code only (the fields are ours).
+
+- `server/process.c` (`create_process`): `sysrun_protected`, `sysrun_account` and `sysrun_pending` start at 0.
+  `sysrun_process_created` sets them only for the system role's processes; any other process kept the bits of the
+  freed object its memory came from, so its threads could get a service's descriptor (`protect_object`, measured:
+  SYSTEM and NETWORK SERVICE full control, the user no entry) and it could not open its own threads.
+- Effect: Gecko's JavaScript runtime opens its own thread with get/set context and suspend/resume rights and aborts
+  when it cannot (`###!!! ABORT: new XPCJSRuntime failed to initialize`, then the deliberate write to 0 in
+  mozglue.dll), so Internet Explorer crashed at start. With the fix both architectures open their own threads with
+  every right and IE keeps running with Gecko loaded (build tree, plain prefix, 64- and 32-bit).
+- Tests: `advapi32:security` has the same 10 failures with and without the change (run as root). No Wine test is
+  added: whether the bits were set depended on which freed object the memory came from.
+
+## ntdll: FSCTL_SET_ZERO_DATA (B110, 2026-11-25)
+
+Wine 7217a7389b7 (branch `claude/edge-signin-stacking`), pinned on the owner's word without an update hold (see the
+effect). Upstreamable.
+
+- `dlls/ntdll/unix/file.c` (`NtFsControlFile`, new `zero_file_range`): the range is deallocated with
+  `fallocate(FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE)`, or written with zeros where the file system does not
+  support that; a range past the end does not extend the file; a short buffer or a reversed range is
+  `STATUS_INVALID_PARAMETER`; the handle needs `FILE_WRITE_DATA`. It went to the server before and failed with
+  `STATUS_NOT_SUPPORTED`. `include/winioctl.h`: `FILE_ZERO_DATA_INFORMATION`.
+- Test: `dlls/ntdll/tests/file.c` (`test_set_zero_data`: the error cases, a plain and a sparse file, the size, a
+  read-only handle). It passes in Wine 64-bit and 32-bit, and on Windows 11 26300 (VM `WinRef-EFR`) with both
+  architectures.
+- Effect: Chromium's setup can zero ranges of its sparse differential update archive. Not checked end to end. This
+  also lets Edge Update update the `webview2`, `edge` and `copilot` components past their pins: the failure of these
+  updates was the only thing that held them. An update probably makes the components' verification fail (it checks
+  the pinned version's folder). A hold on those updates is still to do.
+
+## ntdll, server, wow64: ProcessCommandLineInformation (B108, 2026-11-24)
+
+Wine 0ec8719014e (branch `claude/edge-signin-stacking`). Upstreamable.
+
+- `server/process.c`, `process.h`, `protocol.def` (new request `get_process_command_line`, protocol 994): a process
+  keeps the command line of the startup data it was created with (`cmdline`, `cmdlinelen`); the request answers it
+  with `PROCESS_QUERY_LIMITED_INFORMATION`, as Windows 8.1 and later do, and reads it from the PEB (PEB64,
+  `RTL_USER_PROCESS_PARAMETERS64`) for a process started without startup data. Reading the memory is not enough
+  alone: a limited handle has no `PROCESS_VM_READ`, and the system role's setgid launcher makes a session's elevated
+  processes not dumpable, so their own server cannot read them.
+- `dlls/ntdll/unix/process.c` (`NtQueryInformationProcess`, `ProcessCommandLineInformation`): UNICODE_STRING plus
+  the string, `STATUS_INFO_LENGTH_MISMATCH` with the needed size; `dlls/wow64/process.c` converts it as for the
+  image name.
+- Test: `dlls/ntdll/tests/info.c` (`test_query_process_command_line`: the own command line, a suspended child opened
+  with the limited right, a too small buffer, a handle without query rights); `ntdll:info` passes 64-bit and 32-bit.
+- Effect (B108): the Edge enterprise MSI installed as SYSTEM in session 0 (the components' way) on a clean image no
+  longer makes Edge Update uninstall itself; it did before. A program that runs the MSI itself, elevated, still does
+  (the install chain is the user's there, the updater's service SYSTEM in session 0).
+- Building: a new request renumbers the later ones, so every module that calls the server needs rebuilding (a
+  partial rebuild left win32u on the old numbers: no desktop, and each program started another explorer.exe until
+  WSL ran out, 2026-11-24).
+
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
 - `server/session0.c` (`pipe_request`, `session0_open_pipe`, the `PIPE` handler): a `PIPE` request carries the
@@ -726,7 +781,9 @@ when `/etc/wineexplorer/sysrun.conf` has `session0_socket=` (or, for a server th
   `HKCU\Software\Wine\WebAuthentication` `DiagnosticProvider` = 1, provider lookups answer with a provider for the
   id and authority asked for and token requests are written to the log and fail (silent ones with
   UserInteractionRequired, interactive ones with ProviderError), to learn what a program asks a broker for
-  (WAM_PLAN step 3, Copilot's sign-in). Wine-only test `test_diagnostic_provider`.
+  (WAM_PLAN step 3, Copilot's sign-in). Wine-only test `test_diagnostic_provider`. Wine fcdb13f42d4 (2026-11-24):
+  a silent `consumers` request fails with `0x80070525` (HRESULT_FROM_WIN32(ERROR_NO_SUCH_USER)), as Windows 11
+  26300 answers a silent request that names no account; it was `0x80860006`.
 - `dlls/dwrite/opentype.c` (`opentype_get_named_instance_count`, `opentype_get_named_instance`: fvar instance
   records and a STAT reader), `font.c` (font set entries, `init_font_data`, `IDWriteFont::Equals`), `main.c`,
   `dwrite_private.h`: a variable font with a STAT table gives a font set one entry per fvar named instance, as on
@@ -3222,7 +3279,7 @@ Project modules: `dlls/wexhost` (`elevate.c`, export `WexElevateRun`, imports `a
 | `dlls/user32` (`cursoricon.c`, `user_private.h`, `sysparams.c`, `defwnd.c`) | load system cursor schemes from `HKCU\Control Panel\Cursors` and cache the file-backed cursors, falling back to built-ins; `reset_scheme_cursors()` flushes cached cursor handles on `SPI_SETCURSORS` and `WM_SETTINGCHANGE` for live scheme updates | system cursor resource loads; cache/refresh semantics require review in P0 |
 | `dlls/win32u` (`window.c`, `input.c`, `defwnd.c`), `dlls/user32/misc.c` | `RegisterShellHookWindow`/`DeregisterShellHookWindow` implemented: the desktop's taskman window gets the registered `SHELLHOOK` message for window created/destroyed/activated/redraw/flash | always (no cost without a registered window except one server call per event) |
 | `dlls/mmdevapi` (`audiovolume.c`, `unixlib.h`), `dlls/winepulse.drv` | `IAudioEndpointVolume`: master volume and mute of the default device through the driver (PulseAudio/PipeWire); two new unix calls `get/set_endpoint_volume`; other drivers (alsa, oss, coreaudio) return E_NOTIMPL; the wow64 table of winepulse has stubs, so 32-bit callers get E_NOTIMPL for now | always |
-| `dlls/winex11.drv/window.c` (`sync_window_position`), `event.c` (`set_input_focus`) | in a virtual desktop, a window that is not the top one is restacked in X directly below the window it follows in the Win32 z-order (stock only ever raises, for the sake of window managers), and focusing a window no longer raises it in X; without it an activated window covers topmost ones such as the taskbar | only in a virtual desktop, unmanaged windows |
+| `dlls/winex11.drv/window.c` (`sync_window_position`, `restack_below`, `visible_window_before`, `create_whole_window`), `event.c` (`set_input_focus`) | in a virtual desktop, a window that is not the top one is restacked in X directly below the window it follows in the Win32 z-order (stock only ever raises, for the sake of window managers), and focusing a window no longer raises it in X; without it an activated window covers topmost ones such as the taskbar. Since Wine e71d91ab13e (2026-11-24) an X window is also put in its Win32 place as soon as it is created: X puts a new window on top, and a visible window that gets a new X window (a layered one does, for its visual) covered the windows above it, so Edge's first-run page hid its own sign-in window (B107) | only in a virtual desktop, unmanaged windows |
 | `dlls/winex11.drv/event.c` (`X11DRV_ActivateWindow`) | in a virtual desktop the window that becomes active is raised to the top of the Win32 z-order, as Windows does on activation (Wine leaves it to the X window manager, and the row above removed the X raise); the X stacking follows, below topmost windows. Before, clicking a window or its taskbar button activated it without bringing it to the front | only in a virtual desktop, unmanaged windows |
 | `dlls/win32u/sysparams.c` (`SPI_SETWORKAREA`/`SPI_GETWORKAREA`) | the work area is the monitor's and every process sees it, like on Windows and ReactOS (stock kept it per process, so windows maximized in other processes covered the taskbar): it is written to the monitor's registry key, the monitor serial is bumped so other processes reload, and a volatile copy in `HKLM\Software\Wine\WorkArea` (by monitor path) is applied again whenever the monitors are rebuilt from the driver, which every process entering a virtual desktop does; it is dropped once it no longer fits the monitor. `SPI_GETWORKAREA` reads the primary monitor every time. As on Windows, the rectangle has to lie on one monitor, and a non-zero uiParam (the taskbar passes TRUE) fits the maximized windows of that monitor to the new work area | always (only matters once something sets a work area) |
 | `dlls/shell32` (`shell32.rc`, `shresdef.h`, `shell32.rgs`) | Windows XP names in the namespace: string 8964 "Recycle Bin" (was "Trash", with the delete prompts worded like XP), new string 9227 "My Documents" as the `LocalizedString` of CLSID_MyDocuments (string 46 stays the folder name "Documents") | always |

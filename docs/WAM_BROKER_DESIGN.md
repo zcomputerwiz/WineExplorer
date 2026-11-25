@@ -300,6 +300,30 @@ owner's real sign-ins (no tokens kept) and, for the shapes, from the Windows pro
   notification or the internal `Windows.Internal.Security.WebAuthentication.AuthenticationManager`, which is missing.
 - `--force-first-run` is not a fair test: with the shared store present the flow behaves differently.
 
+### Edge's first-run Sign in button, 2026-11-24 (B107)
+
+- On a new image with no account anywhere (no `OneAuth`, `IdentityCache` or broker cache), "Sign in" on Edge's
+  first-run page did nothing. Edge asks silently first (`GetTokenSilentlyAsync`, no account), then opens **its own**
+  sign-in window: Microsoft's identity library's `OneAuthWebView2Browser` "Sign in" window, owned by the first-run
+  page, with a WebView2 inside (like Copilot's). It only calls the broker interactively after the account name is
+  typed there. Without a WebView2 runtime Edge says so in a dialog ("We can't sign you in right now").
+- The window was open and on top in Win32 but hidden in X: winex11 gives the layered first-run page a new X window
+  after it is shown, X puts it on top of all, and nothing restacked it. Fixed in winex11 (Wine e71d91ab13e,
+  STOCK_CHANGES.md). The broker's own window, kept `HWND_TOPMOST` while it is open (above), may have met the same
+  cause; the topmost workaround is left as it is.
+- Windows' answer to that silent request, measured with `SilentNoAccount.exe` (outside the repository, shapes only)
+  on this host (one Microsoft account in WAM) and in a new Windows 11 26300 VM with a local account and no account in
+  WAM: `UserInteractionRequired`, error `0x80070525` (ERROR_NO_SUCH_USER) "Error", a `MATS` error property (21 keys)
+  and one response with an empty token and the same error, for Edge's client id, the zero GUID and an unregistered one.
+  `login.windows.local` is null there. The broker and the diagnostic provider gave `0x80860006`; they now give
+  `0x80070525` (`E_MSA_NO_ACCOUNT` in `src/programs/tokenbroker/provider.c`, Wine fcdb13f42d4). Edge does not depend
+  on it. Not sent yet: the `MATS` error property and the empty response.
+- The same flow with another program signed in did not need the window: Edge signs a new profile in from the shared
+  store ("implicit sign-in", above), which is why it worked there and in Copilot.
+- Test recipe (headless, master's build tree in wexbuild): Xvfb, a desktop with `EnableShell`, Edge 157 in a prefix
+  with the WebView2 runtime registered (`EdgeUpdate\Clients` and `ClientState` of `{F3017226-...}`), the broker on,
+  click Continue twice and Sign in, then compare `xwininfo -root -tree` (top first) with the Win32 z-order.
+
 ### Edge and GPU rendering (2026-11-23)
 
 - **The sign-in window is no longer behind Edge.** It is created unowned (Edge's request has window handle 0) and
