@@ -4876,7 +4876,17 @@ evrun() { local who="$1"; shift; local out; out="$("$@" || true)"; printf '%s %s
 ev() { local u="$1"; shift; evrun "$u" as_wine "$u" "$ROOT/probes/evp64.exe" "$@"; }
 ev32() { local u="$1"; shift; evrun "$u/32" as_wine "$u" "$ROOT/probes/evp32.exe" "$@"; }
 evs() { evrun s0 s0_wine "$ROOT/probes/evp64.exe" "$@" | tr -d '\r' || true; }   # a process of session 0
-evfail() { echo "--- the last probe runs:" >&2; tail -8 "$EVLOG" >&2; fail "$@"; }
+evfail()
+{
+    echo "--- the last probe runs:" >&2; tail -8 "$EVLOG" >&2
+    { echo "--- now: the service in session 0, and fresh probes"; s0_wine sc query EventLog | tr -d '\r' | grep -E 'STATE|EXIT'
+      echo "s0 count: $(s0_wine "$ROOT/probes/evp64.exe" count Application | tr -d '\r')"
+      echo "s0 report: $(s0_wine "$ROOT/probes/evp64.exe" report WexL1Diag 4 1 diag | tr -d '\r')"
+      echo "std count: $(as_wine "$STD" "$ROOT/probes/evp64.exe" count Application)"
+      echo "std report: $(as_wine "$STD" "$ROOT/probes/evp64.exe" report WexL1Diag 4 1 diag)"
+      pgrep -u "$S0U" -a svchost; tail -5 "$ROOT/session0.log"; } >&2 2>&1 || true
+    fail "$@"
+}
 EVK='HKLM\System\CurrentControlSet\Services\EventLog'
 EVDIR="$M/drive_c/windows/system32/config"
 ev_up()   # the service in session 0 answers a session's client (at most 60 s)
