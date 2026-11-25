@@ -134,6 +134,35 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   points), CombineWithGeometry checks the transform and bounds before Simplify and limits the pieces, the private
   factory interface {6f72c0a2} only on x86_64; `dlls/dxgi` (59703e4c) EnqueueSetEvent returns
   DXGI_ERROR_DEVICE_REMOVED without waiting after a query that never completed.
+- Follow-ups to the review notes (branch claude/notepad-followups, on top of 59703e4c): `dlls/dxgi` (d0f63afb) the
+  device keeps the timed-out query and works again once it completes (one long stall is not a device loss); `dlls/d2d1`
+  (be98257e) CombineWithGeometry stops collecting edges at its limit of 16384 instead of after storing them all;
+  `dlls/kernelbase/loader.c` (104c04bc) the MUI satellite fallback also covers LOAD_LIBRARY_AS_DATAFILE modules (path
+  from the mapping (drive and UNC paths only, 9a890915); the satellite freed with the module), measured on Windows 11, and
+  `test_mui_satellite` checks a data-file load, which Windows 11 runs too. 9a890915 (review K1-K5): an image module's
+  satellite is freed when FreeLibrary unmaps it; stale satellites are freed outside the lock; the test covers
+  DATAFILE_EXCLUSIVE and IMAGE_RESOURCE too and checks that the satellite's file is released (Windows 11: 0 failures).
+- `dlls/dcomp/device.c` (2c72ac3a, branch claude/notepad-commit-go): IDCompositionDevice::CreateSurface makes a surface
+  through the implementation the other device interfaces share (it was a stub); test in `test_surface_suspend_scroll_virtual` (dcomp.c), which
+  also checks that a surface refuses IDXGISwapChain1, as on Windows 11.
+- `dlls/d2d1/device.c` (65a01349, claude/notepad-commit-go): slot 7 of the context's private interface {2ea67ed7} sets the
+  target (measured; a bitmap without the target option fails the next draw with D2DERR_INVALID_TARGET, as SetTarget
+  does), slot 15 succeeds; test in `test_device_private`. `dlls/dcomp/device.c` (13a303b3, 9abfb647): Commit is traced;
+  private methods 45/46 count the device's successful Commits (0 on a fresh device; Windows 11 reads 0 or 1); test in
+  `test_shared_visual` (x86_64); OpenSharedObject answers E_INVALIDARG for an unsupported interface, as Windows 11 does.
+- Not in this batch (branch claude/notepad-commit, waiting for a design sign-off): `dlls/dcomp/device.c` (7f2fe720)
+  shared visual handles are matched by kernel object; a target opened from one is a portal whose committed root is
+  composed inside the shared visual; devices showing a changed portal redraw their committed scenes. cedb07b0:
+  `test_shared_visual_portal`; the shared handle is a named event with a Wine prefix, and OpenSharedObject opens only
+  those (E_HANDLE otherwise, as Windows 11).
+- `dlls/dcomp/device.c`, `tests/dcomp.c` (82f9cc65, branch claude/notepad-portal, on 7f2fe720/cedb07b0 and the K4 notes):
+  the signed-off portal snapshot design (`docs/uwp/PORTAL_SNAPSHOT_DESIGN.md`, with the measured differences at its top).
+  - Shared handles are unnamed events in a process-local registry; an object opens as a target once and as one visual at a
+    time on its first device (Windows 11: E_ACCESSDENIED).
+  - Portal devices publish immutable snapshots (surfaces only, nested portals flattened). Viewers read them without
+    another device's lock and keep them while their scene shows them. Redraws republish and propagate once per device.
+  - A surface's last Release takes no lock.
+  - Tests: `test_shared_visual_portal_cases` (passes on Windows 11).
 
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 
