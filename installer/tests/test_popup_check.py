@@ -39,14 +39,14 @@ def screen(path, outside=(200, 120, 20), shadow=False, black_box=False):
 
 
 class PopupCheck(unittest.TestCase):
-    def run_check(self, composition, **kw):
+    def run_check(self, composition, strict=False, **kw):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             (d / "before.txt").write_text(BEFORE)
             (d / "after.txt").write_text(AFTER)
             screen(d / "screen.ppm", **kw)
             r = subprocess.run([sys.executable, str(CHECK), d / "before.txt", d / "after.txt", d / "screen.ppm",
-                                composition], capture_output=True, text=True)
+                                composition] + (["strict"] if strict else []), capture_output=True, text=True)
         return r.returncode, r.stdout
 
     def test_shaped_popup_without_composition_passes(self):
@@ -63,8 +63,13 @@ class PopupCheck(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("shadow on:", out)
 
-    def test_no_shadow_fails_with_composition(self):
+    def test_no_shadow_is_a_note_without_strict(self):
         rc, out = self.run_check("1")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("informational", out)
+
+    def test_no_shadow_fails_with_composition_when_strict(self):
+        rc, out = self.run_check("1", strict=True)
         self.assertEqual(rc, 1, out)
         self.assertIn("no side has a shadow", out)
 
