@@ -68,6 +68,14 @@ From the UWP track's Notepad work, on Wine 035c3f1e. Basis of every private inte
   composed inside the shared visual; devices showing a changed portal redraw their committed scenes. cedb07b0:
   `test_shared_visual_portal`; the shared handle is a named event with a Wine prefix, and OpenSharedObject opens only
   those (E_HANDLE otherwise, as Windows 11).
+- `dlls/dcomp/device.c`, `tests/dcomp.c` (82f9cc65, branch claude/notepad-portal, on 7f2fe720/cedb07b0 and the K4 notes):
+  the signed-off portal snapshot design (`docs/uwp/PORTAL_SNAPSHOT_DESIGN.md`, with the measured differences at its top).
+  - Shared handles are unnamed events in a process-local registry; an object opens as a target once and as one visual at a
+    time on its first device (Windows 11: E_ACCESSDENIED).
+  - Portal devices publish immutable snapshots (surfaces only, nested portals flattened). Viewers read them without
+    another device's lock and keep them while their scene shows them. Redraws republish and propagate once per device.
+  - A surface's last Release takes no lock.
+  - Tests: `test_shared_visual_portal_cases` (passes on Windows 11).
 
 ## server, services: real process ids across the pipe bridge and the service forward (R6 step 2 of SESSION0_PROCESS_IDS.md, 2026-11-24)
 

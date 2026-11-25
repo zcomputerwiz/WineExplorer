@@ -4,6 +4,32 @@
 to Integration when it runs again.** The sign-off covers this note as amended with D1-D3 and A1-A4. The reviewer reviews
 the code before it is batched.
 
+**Implemented in Wine 82f9cc65 (branch `claude/notepad-portal`).** Measurements and Notepad made the code differ from the note
+below in these points; each is in the code's comments and is listed here for the reviewer:
+1. **Visuals:** an object has one visual at a time, on the device that opened it first. Another open is E_ACCESSDENIED,
+   also from another device after the visual is released (Windows 11, `tests/uwp/alpc/dcomp-sharedopen-probe.c`). It is
+   not one visual per device.
+2. **Released portal target:** what a released portal target committed last stays visible in the shared visual. It stays
+   after the viewer commits, and when the visual is taken out of the window and put back (Windows 11, in the test).
+   Release does not clear the portal; a root of NULL committed does. The snapshot is dropped once neither the target nor
+   a visual is left.
+3. **Nested portals stay current:** Notepad nests (its window shows the UI thread's portal, whose tree holds the shared
+   visual of the compositor's portal), so section 1's "the nested content is as new as the outer portal's last Commit"
+   would freeze the compositor's content.
+   - A redraw now also publishes the redrawn device's portal snapshots again from its committed trees (no tree change),
+     before its scenes, and the viewers of those are redrawn in turn.
+   - Each device is redrawn at most once per Commit (a work list with a visited set), so a cycle ends.
+   - Snapshots still refer to surfaces only.
+4. **Every Commit publishes** a snapshot for a portal target with a root: a surface drawn since the last Commit changes no
+   setter, and is only shown after a Commit of its device. There is no dirty flag.
+5. **Freeing:** the last Release of a surface no longer takes its device's lock (a compare-exchange of the device's
+   drawing pointer). So a snapshot is freed wherever its last reference goes, never under the shared lock, instead of
+   after every lock is left.
+6. **Allocation at open:** opening a handle as a visual creates the visual under the shared lock, so that of two opens at
+   the same time one is refused. The commit and read paths still never allocate under it.
+7. **Redraws revoke** an auxiliary producer they no longer present through, as a Commit does, so a portal taken away
+   leaves the window.
+
 The design replaces the cross-device reads of Wine 7f2fe720 (branch `claude/notepad-commit`), which the review held back:
 - **P1:** a use after free;
 - **P2:** a lock cycle;

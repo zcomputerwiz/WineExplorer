@@ -148,6 +148,38 @@ int main(void)
         CloseHandle(h);
     }
 
+    /* visuals: a second visual from the same object, on the same device and on another device, while the first lives and after */
+    {
+        void *v1 = NULL, *v2 = NULL, *v3 = NULL, *v4 = NULL, *device2 = NULL;
+        HANDLE h = NULL, dup = NULL;
+
+        create_handle(&h);
+        DuplicateHandle(GetCurrentProcess(), h, GetCurrentProcess(), &dup, 0, FALSE, DUPLICATE_SAME_ACCESS);
+        hr = open_of(device)(device, h, &IID_IDCompositionVisual_, &v1);
+        printf("first visual                             hr %08lx\n", hr);
+        hr = open_of(device)(device, dup, &IID_IDCompositionVisual_, &v2);
+        printf("second visual, same device (duplicate)   hr %08lx same %d\n", hr, v1 == v2);
+        create3(NULL, &IID_IDCompositionDesktopDevice_, &device2);
+        hr = open_of(device2)(device2, h, &IID_IDCompositionVisual_, &v3);
+        printf("visual, other device                     hr %08lx\n", hr);
+        release(v2); release(v1); release(v3);
+        v4 = NULL;
+        hr = open_of(device2)(device2, h, &IID_IDCompositionVisual_, &v4);
+        printf("visual, other device, after release      hr %08lx\n", hr);
+        release(v4);
+        v4 = NULL;
+        hr = open_of(device)(device, h, &IID_IDCompositionVisual_, &v4);
+        printf("visual after the first is released      hr %08lx\n", hr);
+        release(v4);
+        v4 = NULL;
+        hr = open_of(device)(device, h, &IID_IDCompositionTarget_, &v4);
+        printf("target after visuals                     hr %08lx\n", hr);
+        release(v4);
+        printf("device2 release %lu\n", release(device2));
+        CloseHandle(h);
+        CloseHandle(dup);
+    }
+
     printf("device release %lu\n", release(device));
     CloseHandle(shared);
     CloseHandle(dup);
