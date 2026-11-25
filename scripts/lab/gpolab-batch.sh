@@ -28,7 +28,7 @@ for a in x86_64-windows i386-windows; do
 done
 cp -a /root/WE-iso/src/powershell/WexComputer $X/ && cp /root/WE-iso/installer/tests/ad/join-ps.ps1 $X/ || exit 1
 export VMTEST_DIR=/root/vmtest-gpo WEX_LAB_EXTRA=$X
-WEX_GPO_TREE=$T bash <(sed 's/\r$//' "$T/scripts/lab/gpo-lab-run.sh") machines wex-gpo >> $L 2>&1
+WEX_GPO_TREE=$T bash <(sed 's/\r$//' "$T/scripts/lab/gpo-lab-run.sh") machines wex-gpo ${WEX_BATCH_GUESTS:-} >> $L 2>&1
 echo "EXIT=$? $(date +%T)" >> $L
 grep -E '^=== [a-z]|^iso rc' $L
 sed -n '/^=== results/,$p' $L
