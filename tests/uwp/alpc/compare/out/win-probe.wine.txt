@@ -1,7 +1,0 @@
-Init2(window 1) -> <ADDR>, existing 0, error 0
-Init2(window 2) -> <ADDR>, existing 0x1, error 0
-Init2(window 3) -> <ADDR>, existing 0xdeadbeef, error 1247
-Init2(window 4) -> <ADDR>, existing 0xdeadbeef, error 1247
-apc 0: 0 delivery(ies):
-apc 0x21: 2 delivery(ies): window 1 (wp 8) window 2 (wp 8)
-
