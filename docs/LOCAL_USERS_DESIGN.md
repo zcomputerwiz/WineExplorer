@@ -433,11 +433,31 @@ calls `get_caller_class` through `wex_caller.h`.
 4. sd-bus (libsystemd) or libdbus? sd-bus keeps the helper short; libdbus is what `wexhost` already loads.
 5. "Not a logged-in user": which source decides, the AccountsService session list or the server's own account records?
 
+### The Windows-side service as built (`src/programs/wexaccounts`, branch claude/accounts-service)
+
+`wexaccounts.exe`, the service `wexaccounts` ("Local Accounts", LocalSystem, auto start; `wine.inf`). It listens on both
+`\\.\pipe\WexSession0\accounts` (the processes of its own server) and `\\.\pipe\accounts` (what the bridge brings in), each
+created with the first-instance flag and a descriptor that lets everyone connect (who may change what is the verdict's). It
+speaks `src/include/wexaccounts_proto.h` with netapi32: the client's frame is the helper's frame, so the service only checks it
+and passes the operation and the body on. **What it keeps:** the syntax (magic, version, operation, body length, each
+operation's shape: strings of at most 255 bytes without a NUL, u32 numbers; a frame over 64 KiB or a malformed header closes the
+connection, a body that does not fit its operation or a flag gives BAD_REQUEST and the connection stays); at most 128
+connections and a 30 s read time out; changes one at a time service-wide (U6); after a create, delete or rename the wait for
+the account map (it asks for the sync, watches the generation in the map's first line for about 10 s, and answers
+`WEXA_SYNC_PENDING`, success with a warning, when it has not moved; no map, no wait). **What it does not do:** decide the verdict
+(the server's `accounts_forward` makes it from the connection's recorded client token and fills the frame's header), or any
+policy (the helper's). The link to the helper is the `wex_accounts_forward` wrapper (L1, `include/wine/wex_accounts.h`);
+until that exists the real service answers UNAVAILABLE, which netapi32 turns into 1722. A lab build (`-DWEXACCOUNTS_LAB`, never
+shipped) swaps the helper for a stand-in and the map for a file. Test: `scripts/test_accounts_service.sh` (the lab service in a
+plain prefix and `scripts/accounts_service_probe.c` as its client: 28 checks, all passing: relays, every kind of malformed
+request, the helper's statuses passing through, the wait for the map in its three cases, two slow changes served in order with the
+helper never seeing two at once, and the cap of connections).
+
 ### The reviewer's findings on the helper (F1 to F6, 2026-11-24), and what was done
 
 | | Finding | Done |
 |---|---|---|
-| F1 | the list could overflow one 64 KiB reply and fail whole at about 200 users | the two lists (users, administrators) come in **pages**: the request carries an optional start index, the reply is `u32 total, u32 first, u32 count`, then entries; a page stops before an entry that does not fit; the client asks again from `first + count` (`accountsd_proto.h`). Tested with 405 users with 250-character full names (2 pages) and 1024 administrators of 63 characters. |
+| F1 | the list could overflow one 64 KiB reply and fail whole at about 200 users | the two lists (users, administrators) come in **pages**: the request carries an optional start index, the reply is `u32 total, u32 first, u32 count`, then entries; a page stops before an entry that does not fit; the client asks again from `first + count` (`src/include/wexaccounts_proto.h`). Tested with 405 users with 250-character full names (2 pages) and 1024 administrators of 63 characters. |
 | F2 | create was not atomic | after `CreateUser`, a failure of the uid check, `SetPassword` or `SetAccountType` deletes the user again (`DeleteUser(uid, false)`) and reports the original status; tested with an injected failure of each |
 | F3 | the lab options bypassed the peer check, gated only by an environment variable | compiled out of every build but one made with `-DWEX_ACCOUNTSD_LAB_TEST` (the test's); `scripts/test_accountsd_units.py` builds the shipped binary and checks that it has none of them in it and refuses each with `WEX_ACCOUNTSD_TEST=1` |
 | F4 | the hash and the receive buffer were not wiped | the hash buffer is the caller's in one wrapper that `explicit_bzero`s it on every way out; the receive and reply buffers are wiped after each datagram |

@@ -94,7 +94,8 @@ check('49-wexaccounts.rules' in package and 'etc/polkit-1/rules.d/49-wexaccounts
 check('useradd --system' in setup and 'wexaccounts' in setup and "usermod -G '' wexaccounts" in setup,
       'setup: the account has no other group')
 check('gpasswd -M "$S0_ACCOUNT" wexsession0' in setup, "setup: the socket's group has session 0's account as its only member")
-check('session0_user=$S0_ACCOUNT' in setup and 'sync_unit=wex-accounts-sync.service' in setup, 'setup: writes accountsd.conf')
+check('session0_user=$S0_ACCOUNT' in setup and 'sync_unit=wex-accounts-sync.service' in setup and 'helper_user=wexaccounts' in setup,
+      'setup: writes accountsd.conf (with helper_user, which the server reads too)')
 check('enable --now wex-accountsd.socket' in setup, 'setup: enables the socket')
 check('libsystemd-dev' in read('scripts/lab/wexgpo-iso.sh'), 'the ISO build machine has libsystemd-dev')
 
