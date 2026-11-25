@@ -623,7 +623,8 @@ Where things are:
 Lab VMs:
 
 - `efr-comp-setup2.sh NAME` makes `NAME` from the clean image `efr2-bios` (an overlay: never delete `efr2-bios`
-  while overlays use it). Into the disk it puts this worktree's `wex-components.py`, `session-run.py` and a root
+  while overlays use it). `efr2-bios`, `efrc4` and the `efrt*` VMs were deleted on 2026-11-25: install an ISO of the
+  current pin first (the Safe Mode chain's install step makes `NAME-bios`), then set `BASE` in the script to it. Into the disk it puts this worktree's `wex-components.py`, `session-run.py` and a root
   hook (`efr-helper.service` runs `/tmp/root-cmd.sh` when `/tmp/go-root` appears), then starts the VM visibly
   (`-display gtk` on WSLg, title "QEMU (Debian)", 6 GiB) and waits for the desktop. `wineuser` logs on by itself; its
   password file is `/var/tmp/efrc-vm/password` (empty). `efr-comp-retry.sh NAME GB` grows the disk and installs
