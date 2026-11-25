@@ -14,7 +14,10 @@ with a FIXME and stored nothing, and `QueryServiceConfig2W` answered `ERROR_INVA
   timer); running the command and rebooting are FIXMEs.
 - `programs/services/rpc.c`: `svcctl_ChangeServiceConfig2W` sets them (NULL strings unchanged, empty ones removed;
   NULL actions leave the actions and the reset period alone; a restart action needs `SERVICE_START` on the handle;
-  an unknown action type is refused); `svcctl_QueryServiceConfig2W` answers in a pointer-free wire layout.
+  an unknown action type is refused); `svcctl_QueryServiceConfig2W` answers in a pointer-free wire layout;
+  `svcctl_StartServiceW` refuses a service marked for delete (`ERROR_SERVICE_MARKED_FOR_DELETE`, as Windows), so a
+  deleted service is not started again. Not in `service_start_process`: services.exe's own winedevice hosts are
+  marked for delete when they are made and then started (a check there stopped every driver, batch 1137).
 - `include/wine/svcctl.idl`: that layout, `struct service_failure_actions`.
 - `dlls/sechost/service.c`: `QueryServiceConfig2W` turns it into the caller's `SERVICE_FAILURE_ACTIONSW`.
 - Test: `dlls/advapi32/tests/service.c` `test_failure_actions` (set, query, the registry layout, strings, removal,
@@ -219,7 +222,7 @@ Wine `claude/server-init-hardening` (b2fc74c2, 0b4256f8, 862b4bed, faa81a3e), ba
 - `server/sysrun.c`: `set_egid()` blocks all signals around `setegid` and `set_not_dumpable()` (and keeps `errno`),
   used by `sysrun_init`, `sysrun_raise` and `sysrun_drop`, so a SIGQUIT the user sends arrives after the dumpable
   window (B106). `sysrun_main_image` acts on a pending role only when the system role is enabled.
-  (A latch of the role at the end of `init_registry` was taken out again in batch 1137: a new prefix's server
+  (A latch of the role at the end of `init_registry` was taken out again in batch 1137: a new prefix's server would
   read it as off for good; KNOWN_BUGS B115.)
 
 ## ntdll: FSCTL_SET_ZERO_DATA (B110, 2026-11-25)
