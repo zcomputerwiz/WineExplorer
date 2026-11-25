@@ -3587,6 +3587,9 @@ command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || secti
 x86_64-w64-mingw32-g++ -municode -mwindows -o "$POPD/dwm-popup-probe.exe" "$SRC/scripts/dwm-popup-probe.cpp" \
     -ld3d11 -ldxgi -ldcomp -luser32 -lgdi32 2>"$POPD/build.log" || { cat "$POPD/build.log" >&2; fail "popup: the probe does not build"; }
 chmod 0755 "$POPD/dwm-popup-probe.exe"
+# a wineserver left by earlier sections (started on their display, with their state) is not this section's
+pkill -u "$ADM" -x wineserver 2>/dev/null || true
+for _ in $(seq 50); do pgrep -u "$ADM" -x wineserver >/dev/null || break; sleep 0.1; done
 DWMKEY='HKCU\Software\WineExplorer\Shell'
 POPCOMP="$(wine_as "$ADM" reg query "$DWMKEY" /v Composition 2>/dev/null | tr -d '\r' | awk '$1 == "Composition" { print $NF }' || true)"
 if [ "$POPCOMP" = 0x1 ]; then
@@ -3650,6 +3653,9 @@ command -v import >/dev/null 2>&1 && command -v convert >/dev/null 2>&1 || secti
 x86_64-w64-mingw32-gcc -municode -mwindows -o "$MENUD/dwm-menu-probe.exe" "$SRC/scripts/dwm-menu-probe.c" -luser32 -lgdi32 -lcomctl32 2>"$MENUD/build.log" ||
     { cat "$MENUD/build.log" >&2; fail "menu: the probe does not build"; }
 chmod 0755 "$MENUD/dwm-menu-probe.exe"
+# a wineserver left by earlier sections (started on their display, with their state) is not this section's
+pkill -u "$ADM" -x wineserver 2>/dev/null || true
+for _ in $(seq 50); do pgrep -u "$ADM" -x wineserver >/dev/null || break; sleep 0.1; done
 DWMKEY='HKCU\Software\WineExplorer\Shell'
 MENUCOMP="$(wine_as "$ADM" reg query "$DWMKEY" /v Composition 2>/dev/null | tr -d '\r' | awk '$1 == "Composition" { print $NF }' || true)"
 if [ "$MENUCOMP" = 0x1 ]; then
@@ -3669,6 +3675,13 @@ wine_as "$ADM" reg add 'HKCU\Software\Wine\Explorer\Desktops\Default' /v EnableS
 run_as "$ADM" env DISPLAY=":$MENUDN" timeout 150 "$BUILD/wine" explorer.exe /desktop=Default,1280x800 /shell >"$MENUD/shell.log" 2>&1 &
 MENUSHELL=$!
 sleep 10
+if [ "${MENU_PROBE_ARGS:-}" = startmenu ]; then   # exploring: the Start menu itself, no probe
+    sleep 5; DISPLAY=":$MENUDN" xdotool key super; sleep 4
+    DISPLAY=":$MENUDN" import -window root "/root/start-screen-${MENUCOMP:-off}.png" 2>/dev/null || true
+    DISPLAY=":$MENUDN" xwininfo -root -tree > "/root/start-tree-${MENUCOMP:-off}.txt" 2>&1 || true
+    kill "$MENUSHELL" 2>/dev/null || true; pkill -u "$ADM" -x wineserver 2>/dev/null || true; kill "$MENUX" 2>/dev/null || true
+    section_skip "startmenu exploration only"
+fi
 run_as "$ADM" env DISPLAY=":$MENUDN" timeout 100 "$BUILD/wine" "$(winpath "$MENUD/dwm-menu-probe.exe")" ${MENU_PROBE_ARGS:-} >"$MENUD/probe.log" 2>&1 &
 MENUPROBE=$!
 for i in $(seq 1 60); do grep -q 'menu ready' "$MENULOG" 2>/dev/null && break; sleep 1; done
