@@ -101,9 +101,20 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
        per-thread futex slots (NtWaitForAlertByThreadId: an SRW lock, condition variable or WaitOnAddress, not a critical
        section, since no "wait timed out" ERR appears); the compositor thread and the rest wait in the server. The traced locks
        (d2d factory, d3d multithread) are balanced, and dcomp's SRW locks are released on every path. winedbg's attach does not
-       complete; gdb sees no symbols (the preloader hides the library list). Next: name the UI thread's wait (a Windows-side
-       stack: winedbg with a longer wait, or a WaitOnAddress/SRW trace), then compare with what the UI thread does after its
-       first text draws on Windows.
+       complete; gdb sees no symbols (the preloader hides the library list).
+     - **Not a hang, both threads idle (2026-11-25, `+server` run):** the wineserver answers (a fresh `wine cmd` runs). The UI
+       thread ends in its ALPC message receive (`alpc_send_receive` on its port, then an infinite select on it): its normal
+       message loop. The compositor thread ends in a wait on six handles, among them an I/O completion port that receives
+       packets from `NtAssociateWaitCompletionPacket` on an auto-reset event that the UI thread sets once per batch. The UI
+       thread set it three times; the compositor got the three packets, the last one right after the UI thread's text draws,
+       committed, re-armed the packet and reset the event. So the compositor did receive the batch with the text, and did not
+       call BeginDraw on its surfaces for it (its three draws are all in its first frame). The main thread waits in
+       WaitOnAddress from Notepad's own code (cmp 1), probably its idle state. A lab-only stack log of infinite
+       RtlWaitOnAddress waits (LAB-WAIT) showed nothing blocked in d2d, d3d or dcomp.
+     - Next: why the compositor skips redrawing its surfaces for a batch with new content. Candidates: a visibility or
+       occlusion check (the first frame is drawn regardless; dxgi occlusion status, DXGI_STATUS_OCCLUDED from Present,
+       cloaking or IsWindowVisible), or a batch without the sprite updates (compare the UI thread's Microsoft.UI.Composition
+       calls between its text draws and the batch with Windows).
      - The compositor registers an occlusion status event with the dxgi factory. Wine sets it at once and never reports
        occlusion, so that event alone is not what stops Wine's compositor. Whether it checks occlusion some other way is
        open.
