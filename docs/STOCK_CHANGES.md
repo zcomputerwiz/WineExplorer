@@ -4845,4 +4845,7 @@ compositor, the UWP portal) kept the frame from open time; a texture drawn befor
 opened the texture reloads it when the number changed, before a draw, dispatch, copy or command list. Only the creating
 device writes back. The DXGI resource alone unmaps the mapping. Not covered: the legacy (non-NT) shared handle, formats of
 other than 4 bytes per pixel (both rejected as before), a texture both devices draw to, and a writer that never flushes.
-The write-back costs a read-back of each shared texture per Flush (no dirty tracking yet).
+A Flush writes back only after a draw, dispatch, copy, clear, update or resolve was recorded since the last write-back.
+Without a fence or keyed mutex an opener can load while the write-back is half done (a torn frame: undefined without
+sync). `ReleaseSync` calls Flush while holding the keyed mutex lock, so the device lock nests inside it: never take them
+in the other order.
