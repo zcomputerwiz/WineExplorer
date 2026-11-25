@@ -367,6 +367,15 @@ merged). No new stock file; the session 0 changes below replace earlier ones of 
   only). The lab-only broker lists under `WEX_E1S6_TRANSPORT_TEST` are left for R5.
 - Test: `scripts/lab/system-tier-t1.sh`, `session_service_value_*` (a service created from session A with
   `WexSessionService`=1 runs in A, not in session 0, and session B has its own stopped copy).
+- **A service that is auto-started in session 0 only (2026-11-25, Local Accounts).** `programs/services`:
+  `WexStartInSession0Only` (REG_DWORD) in a service's key, 1 = the auto-start loop (`scmdatabase_autostart_services`) skips it
+  unless this service manager is session 0's own (`in_session0`: session 0 with the system role, set in
+  `init_forward_mode`); `load_session0_start_only` reads it, `struct service_entry` has `session0_start_only`. A plain prefix
+  and a session without session 0 do not run the service by themselves; it can still be started on demand. `loader/wine.inf.in`
+  gives the new service `wexaccounts` (`programs/wexaccounts`, the Windows side of Local Users and Groups) the value and its
+  entry (`AddService=wexaccounts` in the four install lists, `[WexAccountsService]`, `[WexAccountsServiceKeys]`). Test: section
+  `s0_accounts` of `scripts/test_sysrun_server.sh` (runs in session 0, a session does not run its own, a plain prefix leaves it
+  stopped and starts it on demand).
 
 ## DWM broker over a named pipe (2026-11-23)
 

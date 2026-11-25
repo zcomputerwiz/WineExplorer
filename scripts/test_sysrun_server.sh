@@ -195,6 +195,7 @@ s0_link          s0_base            n   s0
 s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
+s0_accounts      s0_base            n   s0
 gp_registry      s0_base            n   gp
 gp_local         s0_base            n   gp
 gp_template      s0_base            n   gp
@@ -4652,6 +4653,47 @@ pgrep -u "$S0U" -f wuauserv >/dev/null || fail "T5.4: a standard user stopped se
 s0_wine sc stop wuauserv >/dev/null || true
 kill_servers
 ok st_services_run_once_in_session0_and_users_cannot_stop_them
+true; ); section_leave $?; fi
+STD_SID_ANCHOR=1
+if section s0_accounts; then set +e; ( section_enter
+# Local Accounts (docs/LOCAL_USERS_DESIGN.md): the service wexaccounts means something only in session 0 (its pipes are the
+# bridge's, its helper is the machine's), so it is auto-started there and nowhere else (WexStartInSession0Only): a session
+# does not run a copy of its own, and a plain prefix, where no session 0 exists, does not run it unless it is asked to
+# the first call waits until session 0's service manager is up (its auto-start is done by then)
+for i in $(seq 1 30); do s0_wine sc query wexaccounts 2>/dev/null | grep -q RUNNING && break; sleep 1; done
+if ! pgrep -u "$S0U" -f wexaccounts >/dev/null; then
+    echo "--- sc query wexaccounts in session 0:" >&2; s0_wine sc query wexaccounts >&2 || true
+    echo "--- the service's key:" >&2; s0_wine reg query 'HKLM\System\CurrentControlSet\Services\wexaccounts' >&2 || true
+    echo "--- processes of session 0's account:" >&2; pgrep -u "$S0U" -a >&2 || true
+    tail -15 "$ROOT/session0.log" >&2 || true
+    fail "Local Accounts: the service does not run in session 0"
+fi
+ok st_accounts_service_runs_in_session0
+for b in 64 32; do
+    STATE="$(as_wine "$STD" "$ROOT/probes/tierprobe$b.exe" svcstate wexaccounts | sed -n 's/^state=//p')" || true
+    [ "$STATE" = 4 ] || fail "Local Accounts: $STD's $b-bit program sees wexaccounts as [$STATE], not running (session 0's)"
+done
+sleep 5
+! pgrep -u "$STD" -f wexaccounts >/dev/null || fail "Local Accounts: $STD's session runs its own wexaccounts"
+ok st_a_session_does_not_run_its_own_accounts_service
+# a plain prefix (no session 0, no launcher): the service is there, stopped, and starts on demand
+PP="/home/$STD/.wine-plain"
+run_as "$STD" rm -rf "$PP"
+run_as "$STD" WINEPREFIX="$PP" "$BUILD/wine" wineboot.exe -i >/dev/null 2>&1 || true
+run_as "$STD" WINEPREFIX="$PP" "$BUILD/server/wineserver" -w
+plain_state() { run_as "$STD" WINEPREFIX="$PP" "$BUILD/wine" sc query wexaccounts 2>&1 | tr -d '\r' | sed -n 's/.*STATE *: *[0-9]* *//p' | head -1; }
+run_as "$STD" WINEPREFIX="$PP" "$BUILD/wine" cmd /c ver >/dev/null 2>&1 || true
+sleep 4
+[ "$(plain_state)" = STOPPED ] || fail "Local Accounts: in a plain prefix the service is [$(plain_state)], not stopped"
+! pgrep -u "$STD" -f wexaccounts >/dev/null || fail "Local Accounts: a plain prefix runs the accounts service by itself"
+ok st_a_plain_prefix_does_not_start_the_accounts_service
+run_as "$STD" WINEPREFIX="$PP" "$BUILD/wine" sc start wexaccounts >/dev/null 2>&1 || true
+for i in $(seq 1 20); do pgrep -u "$STD" -f wexaccounts >/dev/null && break; sleep 0.5; done
+pgrep -u "$STD" -f wexaccounts >/dev/null || fail "Local Accounts: the service does not start on demand in a plain prefix"
+ok st_the_accounts_service_starts_on_demand_in_a_plain_prefix
+run_as "$STD" WINEPREFIX="$PP" "$BUILD/server/wineserver" -k || true
+run_as "$STD" rm -rf "$PP"
+kill_servers
 true; ); section_leave $?; fi
 STD_SID="S-1-5-21-$(awk -v n="$STD" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
 if section gp_registry; then set +e; ( section_enter
