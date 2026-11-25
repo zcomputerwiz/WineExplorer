@@ -4519,11 +4519,12 @@ s0pid() { pgrep -u "$S0U" -x wineserver | head -1; }
 x0srv()   # the user's launcher-started lab server, once its control socket is up
 {
     local i p
-    for i in $(seq 1 300); do
+    for i in $(seq 1 1200); do
         p="$(server_pid "$1")"
         [ -n "$p" ] && [ -S "/proc/$p/cwd/wex-x0-lab" ] && { echo "$p"; return 0; }
         sleep 0.1
     done
+    { echo "x0srv $1: server [$p]"; ps -o pid,ppid,stat,etime,args -u "$1"; tail -15 "$ROOT/session0.log"; } >&2
     return 1
 }
 x0sess()   # session 0's view: the session of the user's linked server (its HELLO came)
