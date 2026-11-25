@@ -147,6 +147,16 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          wait-completion packets on it and a helper thread, plus a timer and a callback message on the adapter window. That
          is CoreMessaging's other path; the gate between the two is not known yet (not the build number, not the stub's
          presence). Implementing the two calls alone will therefore change nothing until that gate is found.
+       * The other path, as Wine runs it (+server and a relay run limited to the wait and ALPC functions): CoreMessagingXP
+         creates an auto-reset wake event, a completion port with a wait-completion packet on that event, and a helper
+         thread. When another thread sets the event (the compositor does, twice, after the text batch), the helper posts
+         message 0x60 to the UI thread's adapter window. The UI thread first pumps normally (window procedures run, 0x60
+         and WM_TIMER on the adapter window, WM_PAINT), but its last call is an untimed
+         `NtAlpcSendWaitReceivePort(port, 0, NULL, NULL, receive buffer, ...)` from CoreMessagingXP. Nothing ends that
+         wait, so the posted 0x60 and every later message stay unread. Why it calls that receive there is not known.
+       * The WinUI 3 probe for a Windows 10 comparison: a self-contained test app (Windows App SDK 2.7.0, built in scratch,
+         not in the repository) behaves like Notepad on the Windows 11 host. `wintrace exe:PATH` starts it. The Windows 10
+         lab VM was too slow to start a guest session on 2026-11-25, so the comparison has not run.
        * Next: (a) find what that other path expects to wake the UI thread (it ends blocked in the ALPC receive instead of
          a message wait: compare the helper thread's work on Wine with what a Windows 10 system does, if a Windows 10 lab
          is available), or (b) find the gate (a capability probe CoreMessagingXP makes before the adapter window's Init2
