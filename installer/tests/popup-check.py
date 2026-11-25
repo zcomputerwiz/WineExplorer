@@ -7,7 +7,7 @@
 
 BEFORE.txt and AFTER.txt are the window probe's `--windows` output (session-run.py) before and after the popup was opened,
 SCREEN.ppm a QEMU screendump taken while it is open, COMPOSITION 1 when the guest has desktop composition on (0 otherwise).
-The popup is the largest window that is viewable in AFTER and was not in BEFORE. Asserted:
+The popup is the largest window that is viewable in AFTER and was not viewable in BEFORE (absent, or hidden: a tooltip window exists, 1x1 and hidden, before it shows). Asserted:
 
   * a popup was found (a new viewable window of at least 12x12 pixels);
   * no black box: of the 12 pixels that lie 3 pixels outside its edges (the four corners and the middle of each side) that
@@ -41,7 +41,8 @@ def windows(path):
 
 
 def popup_of(before, after):
-    new = [w for ident, w in after.items() if w["viewable"] and ident not in before and w["w"] >= 12 and w["h"] >= 12]
+    new = [w for ident, w in after.items() if w["viewable"] and w["w"] >= 12 and w["h"] >= 12
+           and (ident not in before or not before[ident]["viewable"])]
     return max(new, key=lambda w: w["w"] * w["h"], default=None)
 
 

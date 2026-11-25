@@ -73,6 +73,16 @@ class PopupCheck(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("no side has a shadow", out)
 
+    def test_a_hidden_window_that_becomes_viewable_is_the_popup(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "b.txt").write_text(BEFORE + "window id=0x2 viewable=0 size=1x1 at=0,0 class=explorer.exe name=\n")
+            (d / "a.txt").write_text(AFTER)
+            screen(d / "s.ppm")
+            r = subprocess.run([sys.executable, str(CHECK), d / "b.txt", d / "a.txt", d / "s.ppm", "0"],
+                               capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
     def test_no_popup_fails(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
