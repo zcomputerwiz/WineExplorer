@@ -208,3 +208,122 @@ Open items settled: the host is a WineExplorer-owned service program under `src/
 with `wevtsvc`); the password crosses the pipe as a client-made hash only (U2); the wait after a change as U4. Draft 2
 above is amended by this table wherever it says otherwise (the hash in the service, the polkit rule for session 0's
 account, the one-connect pipe test).
+
+## Draft 3: the helper `wex-accountsd` and its link (owner's decision on B1: option B, narrowed; 2026-11-24)
+
+The owner decided: a native helper under its own system account makes the AccountsService and sync-unit D-Bus calls,
+and the polkit rules name only that account. The helper accepts requests only from session 0's wineserver, checked the T1
+way, together with the server's verdict on the caller. This section is the helper and the link; it replaces draft 2's
+"Authorization at the host" bullet and its polkit rule. For the reviewer before any helper code.
+
+### The chain
+
+```
+caller (a session's program: lusrmgr, net.exe)
+  netapi32 -- \pipe\WexSession0\accounts (bridged; identification-level client) -->
+    the accounts service (src/, a Windows program in session 0): framing, limits, protocol, serialization (U6),
+    asynchronous wait for the map's generation (U4); it impersonates the caller at identification level on the thread
+    that makes the next call
+      wineserver of session 0: the request accounts_forward (new, system tier): the server reads the
+      IMPERSONATION token of the calling thread, makes the verdict itself (below), and sends request plus verdict
+      down a Unix socket to the helper
+        wex-accountsd (User=wexaccounts): checks the peer, the verdict and the request again, then D-Bus:
+        org.freedesktop.Accounts and, for the sync, org.freedesktop.systemd1 StartUnit
+          polkit: grants only to the unix account wexaccounts, only the two actions below
+```
+
+The verdict is never data the service or the client supplies: the service makes a server request on a thread that
+impersonates the caller, and the server computes the verdict from that thread's impersonation token with the shared
+predicate (U1). A service thread that does not impersonate anybody gets the verdict "no caller": reads and changes
+refused. This keeps the Windows-side service small and unprivileged in what it can claim.
+
+### The link
+
+- A Unix SEQPACKET socket `/run/wineexplorer/accounts.sock`, made by a systemd socket unit (`wex-accountsd.socket`):
+  owned by `wexaccounts`, in the root-owned directory `/run/wineexplorer` (0711), mode 0666. The file mode is not the
+  authority, the peer check is: any process may connect and is dropped at once unless it is session 0's wineserver.
+  One connection is served at a time; a second waits in the backlog (`Backlog=4`); a connection that sends nothing
+  within 5 s is closed.
+- **The peer check (the T1 way), in the helper, on every connection:** `SO_PEERCRED` and `SO_PEERPIDFD`, then
+  `wex_sysrun_peer_ok` of `include/wine/wex_sysrun_peer.h` with the rule of session 0's own wineserver: uid = the
+  account of session 0 (`session0_user` of the protected `sysrun.conf`), the saved gid the system group, the real gid
+  not, the name `wineserver`, the pid pinned. A process of the same uid that is not the server (a Windows service of
+  session 0, any program the server runs) is dumpable or has no saved system gid: refused. The pidfd pin guards against
+  pid reuse. The helper cannot read `sysrun.conf` (root:wexsys 0640, and the helper stays out of `wexsys`), so the two
+  facts it needs, the account of session 0 and the system group, come from `/etc/wineexplorer/accountsd.conf`, written by
+  the root tool at sync (0644, never edited by hand).
+- **Framing:** a message is one datagram of at most 64 KiB, `{ magic "WEXA", version 1, op, request id, flags }`, a
+  verdict block `{ kind: none | user | elevated-administrator, the caller's unix uid, the caller's SID }`, then the
+  operation's fields (strings UTF-8, length-prefixed, at most 255 bytes each, nothing NUL inside). An unknown version, op
+  or flag, a short or long datagram, or a field out of bounds closes the connection and is logged once.
+- **The verdict from the server is trusted only on that link**, and the helper still checks everything it can on its own
+  (below): a verdict never widens what the helper accepts, it only allows a class of operation.
+
+### Operations, and what the helper checks
+
+| Op | Verdict needed | The helper's own checks | D-Bus |
+|---|---|---|---|
+| list users | user | UID_MIN to UID_MAX of `/etc/login.defs`, 65534 excluded, system accounts (AccountsService `SystemAccount`) left out | `ListCachedUsers` + properties |
+| get user (name) | user | the name's grammar; UID in range; not a system account | `FindUserByName`, properties |
+| admin group members | user | none (reads `getgrnam` of the admin group named in the accounts config) | none |
+| create user (name, full name, type, hash) | elevated administrator | name grammar and not existing; the full name at most 255, no control characters; **hash form** `$6$` + bounded `rounds=` + salt + digest, length and alphabet (U2); type 0 or 1 | `CreateUser`, `SetPassword`, then `SetAccountType` |
+| delete user | elevated administrator | UID in range; not the caller's own account (the verdict carries it); not the last administrator; not RID 500's account; not a logged-in user (`loginctl`-style check through `ListSessions` or utmp: refused with a distinct status) | `DeleteUser(id, false)` |
+| rename user | elevated administrator | the new name's grammar; not existing; not a logged-in user; not RID 500's | `SetUserName` |
+| set full name | elevated administrator | as above | `SetRealName` |
+| lock / unlock | elevated administrator | not the last administrator when locking; not the caller | `SetLocked` |
+| set account type | elevated administrator | not removing the last administrator or RID 500's | `SetAccountType` |
+| set password (hash) | elevated administrator | hash form (U2); the account in range | `SetPassword` |
+| start the map sync | elevated administrator | none beyond the verdict | systemd1 `StartUnit("wex-accounts-sync.service", "replace")` |
+
+**Serialization (U6):** the helper handles one request at a time, start to end, so the last-administrator check and the
+change cannot race (the service also serializes; the helper is the last line). **Statuses:** a small table the service maps
+to Windows codes: ok, denied (verdict too low or a protective rule), not found, exists, bad argument, logged in, busy
+(AccountsService or polkit refused), unavailable (the bus is not reachable).
+
+### The helper's own hardening
+
+A native program of about 600 lines under `tools/wex-accountsd/` (as `tools/wex-accounts/`), using sd-bus
+(`libsystemd`), no other library. `User=wexaccounts`, no supplementary groups (it is **not** in `wexsys`: it must not
+carry the system group), `NoNewPrivileges=yes`, `CapabilityBoundingSet=` (none), `ProtectSystem=strict`,
+`ProtectHome=yes`, `PrivateTmp=yes`, `RestrictAddressFamilies=AF_UNIX`, `SystemCallFilter=@system-service`,
+`MemoryDenyWriteExecute=yes`, `LimitCORE=0`, `prctl(PR_SET_DUMPABLE, 0)`; the password hash is never logged and is
+wiped after use; a log line per request (op, verdict kind, result, never the hash). The account `wexaccounts` has no
+login shell, no home, and is made by the installer.
+
+### The polkit rules (the host side, step 3, `installer/polkit/`)
+
+```js
+polkit.addRule(function(action, subject) {
+    if (subject.user != "wexaccounts") return;
+    if (action.id == "org.freedesktop.accounts.user-administration") return polkit.Result.YES;
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "wex-accounts-sync.service" && action.lookup("verb") == "start")
+        return polkit.Result.YES;
+});
+```
+
+Nothing else is granted to that account, and no rule names any other uid or a group a user can join.
+
+### What this changes elsewhere, for the orchestrator
+
+- **System tier:** the server request `accounts_forward` (reads the impersonation token of the calling thread, computes
+  the verdict with the U1 predicate, forwards to the helper's socket); the server holds the helper's address and the
+  account facts from the protected configuration. The server is the only client of the helper.
+- **Installer:** the user `wexaccounts`, the socket and service units, the polkit rule, `wex-accounts-sync.service` (a
+  oneshot that runs the existing sync), `accountsd.conf` written at sync.
+- **netapi32 (stock):** unchanged from U2 and U5.
+
+### Open points for the reviewer
+
+1. Is the server request, evaluated on an impersonating thread, an acceptable carrier for the verdict, or should the
+   service hand the server a handle of the caller's token (the same facts, an extra object)?
+2. The rule of the peer check: it assumes session 0's wineserver is started by the launcher and holds the system group
+   as its saved gid like the user servers. The reviewer knows the session 0 start better: if session 0's own server
+   differs (it runs as the session 0 account without that saved gid), the rule needs a field the header has not got
+   ("the peer is the server of the account X, not dumpable, its parent the unit's main process").
+3. The helper cannot read the accounts map (it is `root:wexsys` and the helper stays out of the group), so the wait
+   for the map's generation (U4) is the service's, and "RID 500's account" and "the last administrator" are decided by the
+   helper from the Linux facts (the admin group's members, the built-in administrator's name from `accountsd.conf`),
+   not from the map. Acceptable?
+4. sd-bus (libsystemd) or libdbus? sd-bus keeps the helper short; libdbus is what `wexhost` already loads.
+5. "Not a logged-in user": which source decides, the AccountsService session list or the server's own account records?
