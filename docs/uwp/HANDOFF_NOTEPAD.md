@@ -134,11 +134,23 @@ riched20, a Win32 control). Everything XAML draws, the title/tab strip and the s
          `NtUserDrainThreadCoreMessagingCompletions2` later. A second CoreMessaging thread does the same (init once, then
          drain about every 0.3-0.5 s). `NtUserInitThreadCoreMessagingIocp`, `NtUserDrainThreadCoreMessagingCompletions`,
          `NtUserRegisterCoreMessagingEndPoint`, `NtUserWaitForMsgAndEvent` and `NtUserRealWaitMessageEx` are not called. In
-         Wine all four CoreMessaging syscalls (and `NtMinInteropCoreMessagingWithInput`) are `@ stub -syscall`, so
-         CoreMessaging falls back to its blocking ALPC loop on the UI thread.
-       * Next: measure the two calls on Windows (black box: their arguments and results, what the returned handle is, how
-         completions reach a thread waiting in GetMessage), then implement them in win32u and the server so that CoreMessaging's
-         port completions wake the thread's message wait. Probe scripts: `wt-iocp.ps1` pattern (wintrace with
+         Wine all four CoreMessaging syscalls (and `NtMinInteropCoreMessagingWithInput`) are `@ stub -syscall`.
+       * The first argument of `NtUserInitThreadCoreMessagingIocp2` is a window: a message-only window (parent: the
+         message root) of class `DcppUserAdapterWindowClass` (calls from CoreMessagingXP) or `SystemUserAdapterWindowClass`
+         (from the system's CoreMessaging.dll), checked live with IsWindow/GetClassName while the trace ran. The call
+         returns a small value (0x3e8, 0x8c4: handle-like); the second argument points to a dword that comes back 0 or 1;
+         the third is -4 or 0; `Drain...2` takes the same window first. So CoreMessaging makes a "user adapter" window per
+         thread and ties its completions to that window's thread with this call.
+       * **Under Wine, Notepad never calls the stub** (a `+seh` run has no 80000100 exception, caught or not), not even
+         when the prefix reports Windows 11 (build 22000, and a lab-only 26100). The UI thread does create the
+         `DcppUserAdapterWindowClass` window, then builds its own replacement: an I/O completion port, an event,
+         wait-completion packets on it and a helper thread, plus a timer and a callback message on the adapter window. That
+         is CoreMessaging's other path; the gate between the two is not known yet (not the build number, not the stub's
+         presence). Implementing the two calls alone will therefore change nothing until that gate is found.
+       * Next: (a) find what that other path expects to wake the UI thread (it ends blocked in the ALPC receive instead of
+         a message wait: compare the helper thread's work on Wine with what a Windows 10 system does, if a Windows 10 lab
+         is available), or (b) find the gate (a capability probe CoreMessagingXP makes before the adapter window's Init2
+         on Windows). Probe scripts: `wt-iocp*.ps1`, `hwnd-check.ps1` (wintrace with
          `win32u.dll!NtUserInitThreadCoreMessagingIocp2:...:R`; no `:R` on hot exports such as `NtAlpcSendWaitReceivePort`,
          it crashes Notepad).
      - Inside Windows' dcomp, `CreateSurface` asks d3d11's private interface (slot 12, width/height/format) for the texture and
