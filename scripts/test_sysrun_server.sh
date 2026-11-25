@@ -193,6 +193,7 @@ s0_link          s0_base            n   s0
 s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
+s0_eventlog      s0_base            n   s0
 s0_x0            s0_base            l   lab
 gp_registry      s0_base            n   gp
 gp_local         s0_base            n   gp
@@ -4848,6 +4849,170 @@ ok x0_session0_restart_ends_references_both_ways
 x0stop
 el_down "$STD"; el_down "$ADM"
 true; ); section_leave $?; fi
+if section s0_eventlog; then set +e; ( section_enter
+# Event logs, L1 (docs/EVENTLOG_DESIGN.md): the EventLog service in session 0 keeps the machine's logs; sessions reach it
+# through the pipe bridge. Driven by scripts/eventlog-probe.c, which speaks the service's protocol directly (L2's
+# advapi32 will be the real client). One check per item of L1's test list.
+for b in 64 32; do
+    cc=x86_64-w64-mingw32-gcc; [ "$b" = 64 ] || cc=i686-w64-mingw32-gcc
+    $cc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/evp$b.exe" "$SRC/scripts/eventlog-probe.c" \
+        -ladvapi32 -lntdll || fail "eventlog: cannot build the $b-bit probe"
+done
+chmod 0755 "$ROOT/probes"/evp*.exe
+v() { grep -o "\b$1=[^ ]*" | head -1 | cut -d= -f2 || true; }
+ev() { local u="$1"; shift; as_wine "$u" "$ROOT/probes/evp64.exe" "$@"; }
+ev32() { local u="$1"; shift; as_wine "$u" "$ROOT/probes/evp32.exe" "$@"; }
+evs() { s0_wine "$ROOT/probes/evp64.exe" "$@" | tr -d '\r' || true; }   # a process of session 0
+EVK='HKLM\System\CurrentControlSet\Services\EventLog'
+EVDIR="$M/drive_c/windows/system32/config"
+ev_up()   # the service in session 0 answers a session's client (at most 60 s)
+{
+    local i
+    for i in $(seq 1 120); do [ "$(ev "$STD" count Application | v count)" = 0 ] && return 0; sleep 0.5; done
+    ev "$STD" count Application >&2; return 1
+}
+ev_restart()   # stop and start the service in session 0 (its svchost)
+{
+    local i
+    s0_wine sc stop EventLog >/dev/null || true
+    for i in $(seq 1 60); do s0_wine sc query EventLog | grep -q STOPPED && break; sleep 0.5; done
+    s0_wine sc start EventLog >/dev/null || true
+    ev_up
+}
+s0_wine sc start EventLog >/dev/null || true
+ev_up || fail "eventlog: the service in session 0 does not answer a session's client"
+s0_wine sc query EventLog | grep -q RUNNING || fail "eventlog: the service does not run in session 0"
+ok ev_service_runs_in_session0_and_answers_sessions
+# E2: a program in a session cannot create the pipe under \pipe\WexSession0\ (the bridge reserves the prefix), and the
+# client opens with identification level only
+[ "$(ev "$STD" squat | v squat)" = 5 ] || fail "eventlog: a session's program created \\\\.\\pipe\\WexSession0\\eventlog: $(ev "$STD" squat)"
+[ "$(ev "$ADM" squat | v squat)" = 5 ] || fail "eventlog: an administrator's program created the session 0 pipe"
+[ "$(ev "$STD" sqos | v identification)" = 1 ] || fail "eventlog: the client does not ask for identification level"
+ok ev_session_cannot_squat_the_session0_pipe
+# a write from one session, read in another; 32-bit and 64-bit
+[ "$(ev "$STD" report WexL1 4 1001 hello-std | v report)" = 0 ] || fail "eventlog: a standard user cannot write Application"
+[ "$(ev32 "$STD" report WexL1 2 1002 hello-std32 | v report)" = 0 ] || fail "eventlog: a 32-bit program cannot write Application"
+OUT="$(ev "$ADM" read Application)"
+grep -q 'id=1001 type=4 source=WexL1 strings=1 first=hello-std$' <<<"$OUT" &&
+    grep -q 'id=1002 type=2 source=WexL1 strings=1 first=hello-std32$' <<<"$OUT" ||
+    { echo "$OUT" >&2; fail "eventlog: another session does not read the records"; }
+[ "$(ev32 "$ADM" read Application back | grep '^rec=' | head -1 | v id)" = 1002 ] || fail "eventlog: a backwards read"
+ok ev_write_in_one_session_read_in_another
+# the access table: a standard user cannot write System nor read Security; System is written by session 0's processes
+# only; a session's system role (SYSTEM in the user's own server) counts as the user (E1)
+s0_wine reg add "$EVK\\System\\WexL1Sys" /f >/dev/null || fail "eventlog: register a System source"
+[ "$(ev "$STD" report WexL1Sys 1 7 x | v report)" = 5 ] || fail "eventlog: a standard user wrote System"
+[ "$(ev "$ADM" report WexL1Sys 1 7 x | v report)" = 5 ] || fail "eventlog: an administrator's session wrote System"
+[ "$(ev "$STD" read Security | v read)" = 5 ] || fail "eventlog: a standard user read Security"
+[ "$(ev "$STD" report Security 1 7 x | v report)" = 5 ] || fail "eventlog: a session wrote Security"
+[ "$(evs report WexL1Sys 4 8 from-session0 | v report)" = 0 ] || fail "eventlog: session 0's process cannot write System"
+evs read System | grep -q 'id=8 type=4 source=WexL1Sys strings=1 first=from-session0$' || fail "eventlog: System lacks session 0's record"
+[ "$(evs read Security | v read)" = 0 ] && [ "$(evs count Security | v value)" = 0 ] ||
+    fail "eventlog: the Security log is not there, empty, for SYSTEM: $(evs count Security)"
+for d in system32 syswow64; do
+    mv "$M/drive_c/windows/$d/winedevice.exe" "$M/drive_c/windows/$d/winedevice.exe.evorig"
+done
+install -m 775 -o root -g "$GRP" "$ROOT/probes/evp64.exe" "$M/drive_c/windows/system32/winedevice.exe"
+install -m 775 -o root -g "$GRP" "$ROOT/probes/evp32.exe" "$M/drive_c/windows/syswow64/winedevice.exe"
+OUT="$(run_as "$STD" "$ROOT/bin/asgroup.sg" "$BUILD/wine" "$M/drive_c/windows/system32/winedevice.exe" report WexL1Sys 1 9 sysrole 2>&1 | tr -d '\r')"
+for d in system32 syswow64; do mv -f "$M/drive_c/windows/$d/winedevice.exe.evorig" "$M/drive_c/windows/$d/winedevice.exe"; done
+[ "$(v report <<<"$OUT")" = 5 ] || { echo "$OUT" >&2; fail "eventlog: a session's system role (SYSTEM token) wrote System (E1)"; }
+ok ev_access_table_and_system_by_process
+# E3: a backup made by the client, in the session's namespace and with its rights; the service opens no client path
+BAK="/home/$STD/.wine/drive_c/users/$STD/app.bak"
+rm -f "$BAK"
+[ "$(ev "$STD" backup Application "C:\\users\\$STD\\app.bak" | v backup)" = 0 ] || fail "eventlog: a standard user's backup"
+[ "$(stat -c %U "$BAK" 2>/dev/null)" = "$STD" ] || fail "eventlog: the backup is not the user's own file"
+[ "$(ev "$STD" openbackup "C:\\users\\$STD\\app.bak" | v records)" -ge 2 ] || fail "eventlog: the backup does not parse"
+[ "$(ev "$STD" clear Application | v clear)" = 5 ] || fail "eventlog: a standard user cleared Application"
+OUT="$(evs clear Application 'Z:\tmp\evclear.bak')"; rm -f /tmp/evclear.bak
+[ "$(v clear <<<"$OUT")" = 0 ] && [ "$(v backed <<<"$OUT")" -ge 2 ] || { echo "$OUT" >&2; fail "eventlog: clear with a backup"; }
+[ "$(ev "$STD" count Application | v value)" = 0 ] || fail "eventlog: Application is not empty after the clear"
+ok ev_backup_by_the_client_in_its_namespace
+# E4: malformed and oversized frames close the connection; versions, operations, strings, SIDs, buffers and seeks are
+# checked
+[ "$(ev "$STD" frame badmagic | v closed)" = 1 ] || fail "eventlog: a frame with a bad magic did not close the connection"
+[ "$(ev "$STD" frame oversize | v closed)" = 1 ] || fail "eventlog: an oversized frame did not close the connection"
+[ "$(ev "$STD" frame badver | v status)" = 1306 ] || fail "eventlog: an unknown version: $(ev "$STD" frame badver)"
+[ "$(ev "$STD" frame badop | v status)" = 1 ] || fail "eventlog: an unknown operation: $(ev "$STD" frame badop)"
+for k in longstring manystrings badsid seekbad; do
+    [ "$(ev "$STD" frame "$k" | v status)" = 87 ] || fail "eventlog: $k: $(ev "$STD" frame "$k")"
+done
+ev "$STD" report WexL1 4 1003 for-bigread >/dev/null
+OUT="$(ev "$STD" frame bigread)"
+[ "$(v status <<<"$OUT")" = 0 ] && [ "$(v size <<<"$OUT")" -le $((0x7ffff)) ] || { echo "$OUT" >&2; fail "eventlog: a huge read buffer"; }
+ok ev_protocol_limits
+# E4: per-account caps. Connections and subscriptions from session 0 (no bridge in between, whose own per-user cap is
+# also 256); a subscription holds a connection, so it ends with the connection cap. Handles across a user's connections.
+OUT="$(evs caps connections)"
+[ "$(v granted <<<"$OUT")" = 256 ] || { echo "$OUT" >&2; fail "eventlog: the connection cap"; }
+OUT="$(ev "$STD" caps handles)"
+[ "$(v granted <<<"$OUT")" = 1024 ] && [ "$(v refused <<<"$OUT")" = 1816 ] || { echo "$OUT" >&2; fail "eventlog: the handle cap"; }
+OUT="$(evs caps subs)"
+[ "$(v granted <<<"$OUT")" = 256 ] || { echo "$OUT" >&2; fail "eventlog: the subscription cap"; }
+[ "$(ev "$STD" count Application | v count)" = 0 ] || fail "eventlog: the service after the caps"
+ok ev_per_account_caps
+# E5: a torn record in the middle, and a stale record after the end, are cut on load
+s0_wine reg add "$EVK\\WexL1Torn" /f >/dev/null && s0_wine reg add "$EVK\\WexL1Torn\\WexL1TornSrc" /f >/dev/null &&
+s0_wine reg add "$EVK\\WexL1Stale" /f >/dev/null && s0_wine reg add "$EVK\\WexL1Stale\\WexL1StaleSrc" /f >/dev/null ||
+    fail "eventlog: register the test logs"
+[ "$(evs fill WexL1TornSrc 5 40 | v n)" = 5 ] && [ "$(evs fill WexL1StaleSrc 5 40 | v n)" = 5 ] || fail "eventlog: fill the test logs"
+s0_wine sc stop EventLog >/dev/null || true
+for i in $(seq 1 60); do s0_wine sc query EventLog | grep -q STOPPED && break; sleep 0.5; done
+python3 -I "$SRC/scripts/eventlog-corrupt.py" torn "$EVDIR/WexL1Torn.evt" | grep -q '^corrupt=torn records=5' || fail "eventlog: tear a record"
+python3 -I "$SRC/scripts/eventlog-corrupt.py" stale "$EVDIR/WexL1Stale.evt" | grep -q '^corrupt=stale records=5' || fail "eventlog: append a stale record"
+s0_wine sc start EventLog >/dev/null || true
+ev_up || fail "eventlog: the service after the damaged files"
+[ "$(evs count WexL1Torn | v value)" = 2 ] || fail "eventlog: the torn log keeps $(evs count WexL1Torn | v value) records, not 2"
+[ "$(evs count WexL1Stale | v value)" = 5 ] || fail "eventlog: the stale log keeps $(evs count WexL1Stale | v value) records, not 5"
+[ "$(evs read WexL1Stale | grep -c '^rec=' || true)" = 5 ] || fail "eventlog: the stale record is read"
+ok ev_torn_and_stale_records_cut_on_load
+# size limit and each retention policy (MaxSize 64 KiB, the minimum)
+for spec in Ring:0 Full:4294967295 Ret:3600 Old:2; do
+    IFS=: read -r nm ret <<<"$spec"
+    s0_wine reg add "$EVK\\WexL1$nm" /v MaxSize /t REG_DWORD /d 65536 /f >/dev/null &&
+    s0_wine reg add "$EVK\\WexL1$nm" /v Retention /t REG_DWORD /d "$ret" /f >/dev/null &&
+    s0_wine reg add "$EVK\\WexL1$nm\\WexL1${nm}Src" /f >/dev/null || fail "eventlog: register WexL1$nm"
+done
+OUT="$(evs fill WexL1RingSrc 200 900)"
+[ "$(v fill <<<"$OUT")" = 0 ] && [ "$(evs count WexL1Ring | v value)" -lt 200 ] && [ "$(evs oldest WexL1Ring | v value)" -gt 1 ] ||
+    { echo "$OUT $(evs count WexL1Ring) $(evs oldest WexL1Ring)" >&2; fail "eventlog: overwrite as needed"; }
+OUT="$(evs fill WexL1FullSrc 200 900)"
+[ "$(v fill <<<"$OUT")" = 1502 ] && [ "$(v n <<<"$OUT")" -gt 5 ] || { echo "$OUT" >&2; fail "eventlog: do not overwrite"; }
+evs read System | grep -q 'id=6000 type=1 source=EventLog strings=1 first=WexL1Full$' || fail "eventlog: no System event for the full log"
+[ "$(evs info WexL1Full | v value)" = 1 ] || fail "eventlog: the full log does not say it is full"
+[ "$(v fill <<<"$(evs fill WexL1RetSrc 200 900)")" = 1502 ] || fail "eventlog: overwrite older than an hour overwrote new records"
+[ "$(v fill <<<"$(evs fill WexL1OldSrc 20 900)")" = 0 ] || fail "eventlog: the first records of WexL1Old"
+sleep 3
+OUT="$(evs fill WexL1OldSrc 20 900)"   # 40 records do not fit in 64 KiB: the old ones go
+[ "$(v fill <<<"$OUT")" = 0 ] || { echo "$OUT" >&2; fail "eventlog: overwrite older than 2 s did not drop the old records"; }
+ok ev_size_limit_and_retention_policies
+# the files: session 0's account owns them, no session reads them directly
+[ "$(stat -c %U "$EVDIR/AppEvent.evt")" = "$S0U" ] || fail "eventlog: AppEvent.evt is $(stat -c '%U %a' "$EVDIR/AppEvent.evt")"
+echo "eventlog: AppEvent.evt mode $(stat -c '%a %U:%G' "$EVDIR/AppEvent.evt")"
+! runuser -u "$STD" -- cat "$EVDIR/AppEvent.evt" >/dev/null 2>&1 || fail "eventlog: a standard user reads AppEvent.evt directly"
+! runuser -u "$ADM" -- cat "$EVDIR/SecEvent.evt" >/dev/null 2>&1 || fail "eventlog: an administrator's account reads SecEvent.evt directly"
+ok ev_log_files_are_session0s_only
+# session 0 restarts while a client holds a handle and a subscription: the client connects again
+HOLDOUT="$ROOT/evhold.out"
+: > "$HOLDOUT"; chmod 666 "$HOLDOUT"
+( ev "$STD" hold Application 150 > "$HOLDOUT" ) & EVHOLD=$!
+for i in $(seq 1 60); do grep -q '^hold=subscribed' "$HOLDOUT" && break; sleep 0.5; done
+grep -q '^hold=subscribed' "$HOLDOUT" || fail "eventlog: the holder did not subscribe"
+s0_stop; s0_start
+s0_wine sc start EventLog >/dev/null || true
+for i in $(seq 1 120); do [ "$(evs count Application | v count)" = 0 ] && break; sleep 0.5; done
+for i in $(seq 1 60); do [ "$(grep -c '^hold=subscribed' "$HOLDOUT" || true)" -ge 2 ] && break; sleep 0.5; done
+[ "$(ev "$STD" report WexL1 4 1004 after-restart | v report)" = 0 ] || fail "eventlog: a write after session 0's restart"
+wait "$EVHOLD" || true
+grep -q '^hold=notified reconnects=[1-9]' "$HOLDOUT" || { cat "$HOLDOUT" >&2; fail "eventlog: the holder did not reconnect after session 0's restart"; }
+ok ev_client_reconnects_after_session0_restart
+for nm in Torn Stale Ring Full Ret Old; do
+    s0_wine reg delete "$EVK\\WexL1$nm" /f >/dev/null || true
+done
+s0_wine reg delete "$EVK\\System\\WexL1Sys" /f >/dev/null || true
+el_down "$STD"; el_down "$ADM"
+true; ); section_leave $?; fi
 if section s0_programs; then set +e; ( section_enter
 # T5.3: session 0's account runs programs on the machine root through session 0 (its own services.exe, in session
 # 0); T5.2: a standard user's 64-bit and 32-bit programs reach that service manager through \pipe\WexSession0\svcctl
@@ -5896,6 +6061,15 @@ for r in sys ls ns; do
     [ "$(fact "$SVCDIR/$r.txt" admins)" != enabled ] || fail "a service in a user-writable prefix has Administrators enabled: $r"
 done
 ok c3_own_prefix_services_run_with_the_users_token
+# event logs (L1) in a prefix without session 0: the prefix's own EventLog service, over the same pipe name, unbridged
+[ -f "$ROOT/probes/evp64.exe" ] || x86_64-w64-mingw32-gcc -O2 -Wall -idirafter "$SRC/wine/include" -o "$ROOT/probes/evp64.exe" \
+    "$SRC/scripts/eventlog-probe.c" -ladvapi32 -lntdll || fail "eventlog: cannot build the probe"
+own_ev() { own_wine "$ROOT/probes/evp64.exe" "$@" | tr -d '\r'; }
+for i in $(seq 1 60); do own_ev count Application | grep -q '^count=0 ' && break; sleep 0.5; done
+[ "$(own_ev report WexL1Own 4 1 own-prefix | sed -n 's/^report=//p')" = 0 ] || fail "eventlog: the own prefix's service does not take a report"
+own_ev read Application | grep -q 'source=WexL1Own strings=1 first=own-prefix$' || fail "eventlog: the own prefix's record does not read back"
+[ -f "$UP/drive_c/windows/system32/config/AppEvent.evt" ] || fail "eventlog: the own prefix keeps no AppEvent.evt of its own"
+ok ev_plain_prefix_has_its_own_event_log
 for arch in 64 32; do
     OUT="$(probe_own "$arch" grants allowed)" || { echo "$OUT" >&2; fail "grants allowed $arch"; }
     grep -q '^grants=PASS' <<<"$OUT" || { echo "$OUT" >&2; fail "grants allowed $arch"; }
