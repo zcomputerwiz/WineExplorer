@@ -195,6 +195,7 @@ s0_link          s0_base            n   s0
 s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
+s0_scmloop       s0_base            n   s0
 s0_x0            s0_base            l   lab
 gp_registry      s0_base            n   gp
 gp_local         s0_base            n   gp
@@ -639,6 +640,8 @@ read -r -u "${XV[0]}" DNUM
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe64.exe" "$SRC/scripts/sysrun_server_probe.c" -ladvapi32
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/probe32.exe" "$SRC/scripts/sysrun_server_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe64.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
+x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/scmloop64.exe" "$SRC/scripts/scm_loop_probe.c" -ladvapi32
+x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/pipeloop64.exe" "$SRC/scripts/pipe_loop_probe.c"
 i686-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/rolesprobe32.exe" "$SRC/scripts/sysrun_roles_probe.c" -ladvapi32
 x86_64-w64-mingw32-gcc -O2 -Wall -o "$ROOT/probes/alpcpair64.exe" "$SRC/tests/uwp/alpc/alpc-pair.c" -ladvapi32   # ALPC impersonation, one role per process
 # the WinSta0 holder of el_up, which sections of every group use (built here, not in c4_build, so a section run alone has it)
@@ -4993,6 +4996,55 @@ pgrep -u "$S0U" -f wuauserv >/dev/null || fail "T5.4: a standard user stopped se
 s0_wine sc stop wuauserv >/dev/null || true
 kill_servers
 ok st_services_run_once_in_session0_and_users_cannot_stop_them
+true; ); section_leave $?; fi
+if section s0_scmloop; then set +e; ( section_enter
+# B109: the calls that a session forwards to session 0 (T5.4) failed with 1722 after hours of uptime with many elevated
+# installs. A session opens and closes the service manager and a service many times (scm_loop_probe.c); the resources of
+# session 0's services.exe and server (threads, descriptors) are sampled while it runs, and the loop must end without a failure.
+# WEX_SCMLOOP_ROUNDS sets the rounds (default 400; the bug needed a few hundred at most if the bridge's 256 caps are the cause),
+# WEX_SCMLOOP_MODE the probe's mode (open, enum, nosvc, leakmgr).
+s0_wine sc query PlugPlay >/dev/null 2>&1 || true
+ROUNDS="${WEX_SCMLOOP_ROUNDS:-400}"; MODE="${WEX_SCMLOOP_MODE:-enum}"
+RES="/var/tmp/wex-run/s0_scmloop.$MODE.samples"; : > "$RES"
+res_of() { local p="$1"; [ -n "$p" ] && [ -d "/proc/$p" ] && echo "threads=$(ls /proc/$p/task 2>/dev/null | wc -l) fds=$(ls /proc/$p/fd 2>/dev/null | wc -l)" || echo "gone"; }
+deep() (   # what the threads and descriptors of session 0's services.exe are, when WEX_SCMLOOP_DEEP=1
+    set +e +o pipefail
+    [ "${WEX_SCMLOOP_DEEP:-0}" = 1 ] || exit 0
+    p="$(pgrep -u "$S0U" -f 'services.exe' | head -1)"; [ -n "$p" ] || exit 0
+    { echo "## $(date +%T) threads by wait channel:"; for t in /proc/$p/task/*; do cat $t/wchan 2>/dev/null; echo; done | sort | uniq -c | sort -rn | head -8
+      echo "## descriptors by kind:"; ls -l /proc/$p/fd 2>/dev/null | awk '{print $NF}' | sed 's/[0-9]*\]$//; s/[0-9]*$//' | sort | uniq -c | sort -rn | head -8
+      echo "## threads by comm:"; for t in /proc/$p/task/*; do cat $t/comm 2>/dev/null; done | sort | uniq -c | sort -rn | head -5; } >> "$RES.deep"
+)
+sample() { deep; echo "$(date +%T) round=$1 s0_services[$(res_of "$(pgrep -u "$S0U" -f 'services.exe' | head -1)")] s0_server[$(res_of "$(pgrep -u "$S0U" -f 'wineserver --session0' | head -1)")] user_services[$(res_of "$(pgrep -u "$STD" -f 'services.exe' | head -1)")] user_server[$(res_of "$(pgrep -u "$STD" -f 'wineserver' | head -1)")]" >> "$RES"; }
+if [ "${WEX_SCMLOOP_TRACE:-0}" = 1 ]; then   # the user's session started with the RPC and service traces (the loop must be short)
+    kill_servers
+    # a program that stays keeps this session's server (and its services.exe, which has these traces) alive for the loop
+    run_as "$STD" env WINEDEBUG=+rpc,+service "$BUILD/wine" "$ROOT/probes/rolesprobe64.exe" hold >/dev/null 2> "$ROOT/rpctrace.log" & TRACEHOLD=$!
+    sleep 8
+fi
+as_wine "$STD" "$ROOT/probes/tierprobe64.exe" svcstate PlugPlay >/dev/null 2>&1 || true   # the user's session is up and forwarding
+sample 0
+case "$MODE" in
+    pipe|pipehold)   # raw connections to session 0's service manager pipe through the bridge, without RPC
+        PROBE="$ROOT/probes/pipeloop64.exe"; ARGS=('\\.\pipe\WexSession0\svcctl' "$ROUNDS"); [ "$MODE" != pipehold ] || ARGS+=(hold) ;;
+    *) PROBE="$ROOT/probes/scmloop64.exe"; ARGS=("$MODE" "$ROUNDS") ;;
+esac
+( as_wine "$STD" "$PROBE" "${ARGS[@]}" > "$ROOT/scmloop.out" 2>&1 ) & LP=$!
+while kill -0 "$LP" 2>/dev/null; do sleep 4; sample "$(grep -c '^progress' "$ROOT/scmloop.out" 2>/dev/null)x100"; done
+wait "$LP" || true
+sample end
+cp "$ROOT/scmloop.out" "/var/tmp/wex-run/s0_scmloop.$MODE.out"
+[ ! -f "$ROOT/rpctrace.log" ] || cp "$ROOT/rpctrace.log" "/var/tmp/wex-run/s0_scmloop.$MODE.rpctrace"
+echo "--- scm loop ($MODE, $ROUNDS rounds):"; tail -6 "$ROOT/scmloop.out"; echo "--- samples:"; sed -n '1p;$p' "$RES"
+grep -q '^scm_loop=PASS' "$ROOT/scmloop.out" || fail "B109: the service manager loop failed ($MODE): $(grep FAIL "$ROOT/scmloop.out" | head -2 | tr '\n' ' ')"
+# a connection kept per round shows as threads in session 0's services.exe (one wine_rpcrt4_io thread each, up to the bridge's
+# 256 per account); the count must stay near where it began (the fixed code stays within a few threads)
+T_FIRST="$(sed -n '1s/.*s0_services\[threads=\([0-9]*\).*/\1/p' "$RES")"
+T_MAX="$(sed -n 's/.*s0_services\[threads=\([0-9]*\).*/\1/p' "$RES" | sort -n | tail -1)"
+[ -n "$T_FIRST" ] && [ -n "$T_MAX" ] && [ $((T_MAX - T_FIRST)) -le 60 ] ||
+    fail "B109: session 0's services.exe went from $T_FIRST to $T_MAX threads in $ROUNDS rounds: a connection is left behind per round"
+ok st_service_manager_loop_in_a_session_does_not_fail
+kill_servers
 true; ); section_leave $?; fi
 STD_SID="S-1-5-21-$(awk -v n="$STD" '$1 == n && $4 == "active" { print $6 "-" $7 "-" $8 "-" $9 }' /etc/wineexplorer/accounts.map)"
 if section gp_registry; then set +e; ( section_enter

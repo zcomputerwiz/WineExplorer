@@ -472,6 +472,20 @@ merged). No new stock file; the session 0 changes below replace earlier ones of 
 - Test: `scripts/lab/system-tier-t1.sh`, `session_service_value_*` (a service created from session A with
   `WexSessionService`=1 runs in A, not in session 0, and session B has its own stopped copy).
 
+## rpcrt4: the binding of a generic handle was leaked by every call (B109, 2026-11-25)
+- `dlls/rpcrt4/ndr_stubless.c` (`ndr_client_call`): `finally_ctx.hbinding` was filled from `hbinding` before the call began, when it
+  was still NULL, and the handle that `client_get_handle` made was only put in the local variable. The cleanup
+  (`client_free_handle`) therefore passed NULL to the generic handle's unbind routine, so the binding it had made was never freed,
+  and with it the association's reference and the connection pooled in that association. Every call with an explicit generic
+  binding handle leaked one of each (the async path, `NdrAsyncClientCall`, stores the handle at once and is not affected). The
+  fix sets `finally_ctx.hbinding` after `client_get_handle`. Found through the service manager's forwarding in a session
+  (`programs/services/forward.c`, one binding with options of its own per call): session 0's `services.exe` kept one thread and
+  four descriptors per manager handle until the session ended, up to the bridge's 256 connections per account, after which every
+  forwarded call failed with 1722 (the Edge MSI's "Failed to install service ... RPC server unavailable", B108, and the merged
+  `EnumServicesStatusEx`, B109). Test: section `s0_scmloop` of `scripts/test_sysrun_server.sh` (600 manager and service handles in a
+  user's session with merged enumerations: no failure, and session 0's `services.exe` within 60 threads of where it began; before the
+  fix it reached about 270 and the loop failed within 300 rounds).
+
 ## DWM broker over a named pipe (2026-11-23)
 
 Wine branch `claude/dwm-pipe`, on `claude/compositor-review` `49215d78`. Owner decision; the design is in
