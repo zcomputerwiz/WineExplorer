@@ -414,10 +414,12 @@ thread's effective token (its impersonation token, else the process's) and refus
 | References | 16384 | the owner, per account of the holder (session 0: the peer's uid over all its servers) | `OPEN` answers `STATUS_INSUFFICIENT_RESOURCES` |
 | Subscriptions and waits | 4096 | the owner, per account | `SUBSCRIBE` answers `STATUS_INSUFFICIENT_RESOURCES` |
 | Requests in flight | 256 per link | both: the holder before sending, the owner for requests it has not answered yet | the holder fails the call locally, the owner answers `STATUS_INSUFFICIENT_RESOURCES` |
-| Queued bytes | 4 MiB per account | both, bytes waiting for the socket | the holder fails new calls locally; the owner stops reading that peer's link until its queue is under half (back-pressure, nothing dropped) |
+| Queued bytes | 4 MiB per account | both, bytes waiting for the socket | the holder fails new calls locally; the owner keeps reading the link but serves none of that peer's requests: they wait, counted in flight (so at most 256), until its queue is under half. Nothing is dropped. A peer whose queue at the owner passes 8 MiB anyway loses its link (a link loss: its references wait for the relink) |
 
 Each owner logs an account once when a count reaches half of its cap (`x0: uid U at half of the C cap`), and again
-after it fell under a quarter.
+after it fell under a quarter. (Draft of this appendix: the owner stopped reading the link over the queued cap. The
+code keeps reading instead, because session 0 and a user's server can each own objects of the other: two owners that
+both stopped reading would wait on each other forever.)
 
 ### Session 0 without `ntsync` (condition 3)
 
@@ -442,11 +444,12 @@ use **lab hooks** in the existing pattern:
 - Commands: `epoch`, `peers` (owner's view: per peer, epoch, account, link state, references, subscriptions, calls
   in flight, queued bytes), `set NAME COUNT` (owner), `open NAME [ACCESS] [desc=self|session=N|level=ident|anon]`
   (holder; a lab token: the first interactive token of the server's session, SYSTEM in session 0, duplicated at the
-  level asked, the description's session id patched for `session=N`), `query|release|sub|cancel|try ID [raw]`
-  (`raw`: sent as given, past the holder's own table), `ping N SIZE [raw]`, `defer on|off` (owner: holds `PING`
-  answers, to fill the owner's in-flight count), `pause|resume` (holder: stops reading its link, to fill the
-  owner's queue), `droplink` (a user's server closes its session link; the existing relink brings it back),
-  `notices` (holder: notices received per id). On session 0 the holder commands take `session=N` to choose the peer.
+  level asked, the description's session id patched for `session=N`), `query|release|sub|cancel|try ID|all [raw]`
+  (`raw`: sent as given, past the holder's own table), `ping [n=N] [size=BYTES] [raw]`, `nowait` on any of these
+  (answers once sent; `batch N` reports later), `defer on|off` (owner: holds `PING` answers, to fill the owner's
+  in-flight count), `pause|resume` (stops reading the link to a peer, to fill the other side's queue), `droplink` (a
+  user's server shuts its session link down; the existing relink brings it back), `notices ID` (holder). On session 0
+  the holder commands take `peer=S` to choose the peer of session S.
 - `scripts/test_sysrun_server.sh` gets a lab section `s0_x0` (suite `l`, group `lab`, needs `s0_base`) with one
   check per test of X0 (condition 5) and a small Python client for the control sockets (`scripts/x0lab.py`). The
   targeted run already sends `wine:server/*` to the normal, T1 and lab suites (`scripts/lab/test-map.txt`).

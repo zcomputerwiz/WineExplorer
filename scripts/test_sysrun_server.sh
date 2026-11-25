@@ -193,6 +193,7 @@ s0_link          s0_base            n   s0
 s0_link2         s0_base            n   s0
 s0_programs      s0_base            n   s0
 s0_service       s0_base            n   s0
+s0_x0            s0_base            l   lab
 gp_registry      s0_base            n   gp
 gp_local         s0_base            n   gp
 gp_template      s0_base            n   gp
@@ -4256,7 +4257,7 @@ true; ); section_leave $?; fi
 
 # System tier T1 (docs/SYSTEM_TIER_WORK_ORDERS.md): session 0 holds the machine registry. It runs as an account
 # of its own; the users' launcher-started servers send their programs' machine-registry calls there.
-if [ "$SEC_S0" = 1 ] && sec_planned_any $(sec_in_groups s0 gp) r8e2e; then
+if [ "$SEC_S0" = 1 ] && sec_planned_any $(sec_in_groups s0 gp) r8e2e s0_x0; then
 echo "--- system tier: session 0's own sections"
 set_val 'Software\\WexTier' FromSession0 1
 reg_append "$M/system.reg" 'Software\\Wow6432Node\\WexVirtMerge' '"real"="machine"'   # for the T2b merged view
@@ -4506,6 +4507,219 @@ read -r FAKEACC FAKEGOT < "$FAKE/got" || true   # no final newline
 [ "$FAKEGOT" = 0 ] || fail "T6.2: a server sent $FAKEGOT messages to a socket of another account"
 rm -rf "$FAKE"
 ok st_user_server_ignores_a_socket_of_another_account
+true; ); section_leave $?; fi
+if section s0_x0; then set +e; ( section_enter
+# X0 (docs/SESSION0_CROSS_SERVER.md, "Appendix: X0 wire protocol"): the cross-server protocol on the session link,
+# driven through the lab's control sockets (server/wex_x0lab.c, lab build only; scripts/x0lab.py). One check per test
+# of the reviewer's condition 5, and conditions 1 to 4 where they show from outside.
+x0() { X0LAB_TIMEOUT=150 python3 -I "$SRC/scripts/x0lab.py" "$@"; }
+fld() { grep -o "\b$1=[^ ]*" | head -1 | cut -d= -f2; }
+s0pid() { pgrep -u "$S0U" -x wineserver | head -1; }
+x0srv()   # the user's launcher-started lab server, once its control socket is up
+{
+    local i p
+    for i in $(seq 1 300); do
+        p="$(server_pid "$1")"
+        [ -n "$p" ] && [ -S "/proc/$p/cwd/wex-x0-lab" ] && { echo "$p"; return 0; }
+        sleep 0.1
+    done
+    return 1
+}
+x0sess()   # session 0's view: the session of the user's linked server (its HELLO came)
+{
+    local i s
+    for i in $(seq 1 300); do
+        s="$(x0 "$S0" peers | grep "^peer .* uid=$(id -u "$1") " | grep 'link=up' | fld session)"
+        [ -n "$s" ] && { echo "$s"; return 0; }
+        sleep 0.1
+    done
+    return 1
+}
+x0notices() { x0 "$SP" notices "$1" | fld notices; }
+x0waitn()   # ID COUNT: the holder has COUNT notices of ID (within 3 s)
+{
+    local i
+    for i in $(seq 1 30); do [ "$(x0notices "$1")" = "$2" ] && return 0; sleep 0.1; done
+    echo "notices of $1: $(x0 "$SP" notices "$1"), wanted $2" >&2; return 1
+}
+s0refs() { x0 "$S0" peers | grep "^account uid=$1 " | fld refs; }
+S0="$(s0pid)"
+[ -S "/proc/$S0/cwd/wex-x0-lab" ] || section_skip "X0: session 0 has no lab control socket (not the X0 lab build)"
+( while :; do probe "$STD" 64 hold >/dev/null 2>&1; done ) & X0LOOP_STD=$!
+( while :; do probe "$ADM" 64 hold >/dev/null 2>&1; done ) & X0LOOP_ADM=$!
+x0stop() { kill "$X0LOOP_STD" "$X0LOOP_ADM" 2>/dev/null || true; x0 "$S0" defer off >/dev/null 2>&1 || true; }
+trap 'x0stop; section_dump' EXIT
+SP="$(x0srv "$STD")" || fail "X0: no lab server of $STD"
+AP="$(x0srv "$ADM")" || fail "X0: no lab server of $ADM"
+SESS="$(x0sess "$STD")" || { x0 "$S0" peers >&2; tail -20 "$ROOT/session0.log" >&2; fail "X0: session 0 has no X peer for $STD"; }
+x0sess "$ADM" >/dev/null || fail "X0: session 0 has no X peer for $ADM"
+[ "$(x0 "$S0" epoch | fld pid)" = "$S0" ] && [ "$(x0 "$SP" peers | grep '^peer ' | fld pid)" = "$S0" ] ||
+    fail "X0: the epochs: session 0 says [$(x0 "$S0" epoch)], $STD's server sees [$(x0 "$SP" peers)]"
+ok x0_epochs_exchanged_both_ways_on_the_session_link
+# condition 3: session 0's server never opens /dev/ntsync
+! ls -l "/proc/$S0/fd" 2>/dev/null | grep -q ntsync || fail "X0: session 0 has /dev/ntsync open"
+[ -e /dev/ntsync ] || echo "x0: this kernel has no /dev/ntsync (the check shows only that session 0 did not open it)"
+ok x0_session0_without_ntsync
+# forged references: refused with the one status that says nothing about other peers' ids
+[ "$(x0 "$SP" query 123456789abcdef raw | fld st)" = c0000008:1 ] || fail "X0: a forged reference was not refused"
+[ "$(x0 "$SP" try 1 raw | fld st)" = c0000008:1 ] || fail "X0: a forged try was not refused"
+ok x0_forged_references_refused
+OUT="$(x0 "$SP" open x0a)"; ID="$(fld id <<<"$OUT")"
+[ "$(fld st <<<"$OUT")" = 0:1 ] && [ -n "$ID" ] || fail "X0: open: $OUT"
+[ "$(x0 "$SP" query "$ID" | fld st)" = 0:1 ] || fail "X0: the holder cannot use its reference"
+# a reference cannot be used over another link (the administrator's server sends the standard user's id)
+[ "$(x0 "$AP" query "$ID" raw | fld st)" = c0000008:1 ] || fail "X0: another server's link used the reference"
+[ "$(x0 "$AP" release "$ID" raw | fld st)" = 0:1 ] && [ "$(x0 "$SP" query "$ID" | fld st)" = 0:1 ] ||
+    fail "X0: another link's release dropped the reference"
+ok x0_reference_unusable_over_another_link
+# condition 1: link_bound_token refuses a description of another session; the caller's server refuses identification
+# and anonymous impersonation before it describes
+[ "$(x0 "$SP" open x0b session=$((SESS + 1000)) | fld st)" = c0000022:1 ] || fail "X0: a description of another session was accepted"
+[ "$(x0 "$SP" open x0b level=ident | fld st)" = c00000a5:1 ] || fail "X0: an identification-level impersonation was described"
+[ "$(x0 "$SP" open x0b level=anon | fld st)" = c00000a5:1 ] || fail "X0: an anonymous impersonation was described"
+OUT="$(x0 "$SP" open x0b level=imp)"
+[ "$(fld st <<<"$OUT")" = 0:1 ] || fail "X0: an impersonation-level token was refused: $OUT"
+x0 "$SP" release "$(fld id <<<"$OUT")" >/dev/null
+grep -aq "x0: OPEN refused for uid $STD_UID, session $SESS" "$ROOT/session0.log" || fail "X0: the refused description is not logged"
+ok x0_other_session_and_identification_level_refused
+# condition 4 in X0's terms: a user's server as owner serves callers in session 0 only
+OUT="$(x0 "$S0" open x0c peer="$SESS")"
+[ "$(fld st <<<"$OUT")" = 0:1 ] || fail "X0: session 0 cannot open on the user's server: $OUT"
+[ "$(x0 "$SP" peers | grep '^peer ' | fld refs)" = 1 ] || fail "X0: the user's server does not hold session 0's reference"
+[ "$(x0 "$S0" open x0d peer="$SESS" session=7 | fld st)" = c0000022:1 ] || fail "X0: a user's server accepted a caller of session 7"
+x0 "$S0" release "$(fld id <<<"$OUT")" >/dev/null
+[ "$(x0 "$SP" peers | grep '^peer ' | fld refs)" = 0 ] || fail "X0: session 0's release did not reach the user's server"
+ok x0_user_server_serves_session0_callers_only
+# a release sent twice drops one reference, never another
+OUT="$(x0 "$SP" open x0e)"; ID2="$(fld id <<<"$OUT")"
+BEFORE="$(s0refs "$STD_UID")"
+[ "$(x0 "$SP" release "$ID2" | fld st)" = 0:1 ] && [ "$(x0 "$SP" release "$ID2" raw | fld st)" = 0:1 ] ||
+    fail "X0: a second release is not idempotent"
+[ "$(s0refs "$STD_UID")" = $((BEFORE - 1)) ] || fail "X0: two releases dropped $((BEFORE - $(s0refs "$STD_UID"))) references"
+[ "$(x0 "$SP" query "$ID" | fld st)" = 0:1 ] || fail "X0: a second release dropped another reference"
+[ "$(x0 "$SP" query "$ID2" raw | fld st)" = c0000008:1 ] || fail "X0: a released reference still works"
+ok x0_release_twice_is_idempotent
+# condition 2: level-triggered subscriptions with one notice outstanding; every try re-arms, a failed one too
+x0 "$S0" set lvl 0 >/dev/null
+OUT="$(x0 "$SP" open lvl)"; IDL="$(fld id <<<"$OUT")"
+[ "$(x0 "$SP" sub "$IDL" | fld st)" = 0:1 ] || fail "X0: subscribe"
+sleep 0.3; x0waitn "$IDL" 0 || fail "X0: a notice for an object that is not ready"
+x0 "$S0" set lvl 2 >/dev/null; x0waitn "$IDL" 1 || fail "X0: no notice when the object became ready"
+x0 "$S0" set lvl 3 >/dev/null; sleep 0.5; x0waitn "$IDL" 1 || fail "X0: more than one notice outstanding"
+[ "$(x0 "$SP" try "$IDL" | fld st)" = 0:1 ] && x0waitn "$IDL" 2 || fail "X0: a successful try did not re-arm (still ready)"
+[ "$(x0 "$SP" try "$IDL" | fld st)" = 0:1 ] && x0waitn "$IDL" 3 || fail "X0: the second try"
+[ "$(x0 "$SP" try "$IDL" | fld st)" = 0:1 ] && sleep 0.3 && x0waitn "$IDL" 3 || fail "X0: a notice for an empty object"
+[ "$(x0 "$SP" try "$IDL" | fld st)" = 102:1 ] || fail "X0: a try of an empty object did not fail with STATUS_TIMEOUT"
+[ "$(x0 "$S0" get lvl | fld count)" = 0 ] || fail "X0: the counter after the tries: $(x0 "$S0" get lvl)"
+x0 "$S0" set lvl 1 >/dev/null; x0waitn "$IDL" 4 || fail "X0: a failed try did not re-arm the subscription"
+[ "$(x0 "$SP" cancel "$IDL" | fld st)" = 0:1 ] && [ "$(x0 "$SP" cancel "$IDL" | fld st)" = 0:1 ] || fail "X0: cancel twice"
+x0 "$S0" set lvl 4 >/dev/null; sleep 0.5; x0waitn "$IDL" 4 || fail "X0: a notice after the cancel"
+# rights are the owner's: a reference without SYNCHRONIZE cannot subscribe or try
+OUT="$(x0 "$SP" open lvl access=1)"; IDN="$(fld id <<<"$OUT")"
+[ "$(x0 "$SP" sub "$IDN" | fld st)" = c0000022:1 ] && [ "$(x0 "$SP" try "$IDN" | fld st)" = c0000022:1 ] ||
+    fail "X0: a reference without SYNCHRONIZE subscribed or tried"
+x0 "$SP" release "$IDN" >/dev/null
+ok x0_level_triggered_subscriptions_and_rearming_tries
+# frames: one of exactly 64 KiB with its header passes both ways; one byte more is refused
+[ "$(x0 "$SP" ping size=65536 | fld st)" = 0:1 ] || fail "X0: a frame at the 64 KiB limit"
+[ "$(x0 "$S0" ping size=65536 peer="$SESS" | fld st)" = 0:1 ] || fail "X0: a frame at the 64 KiB limit from session 0"
+[ "$(x0 "$SP" ping size=65537 raw | fld st)" = c000000d:1 ] || fail "X0: a frame over the limit was not refused"
+grep -aq 'x0: a cut or malformed frame' "$ROOT/session0.log" || fail "X0: the cut frame is not logged"
+ok x0_frame_at_the_64k_limit
+# cap: requests in flight per link (the holder's own cap, then the owner's for a raw sender)
+x0 "$S0" defer on >/dev/null
+OUT="$(x0 "$SP" ping n=257 nowait)"; B1="$(fld batch <<<"$OUT")"
+[ "$(fld st <<<"$OUT")" = c000009a:1 ] || fail "X0: the holder sent more than 256 requests at once: $OUT"
+for i in $(seq 1 30); do [ "$(x0 "$S0" peers | grep "^peer .* session=$SESS " | fld inflight)" = 256 ] && break; sleep 0.1; done
+OUT="$(x0 "$SP" ping n=5 raw nowait)"; B2="$(fld batch <<<"$OUT")"
+for i in $(seq 1 30); do [ "$(x0 "$SP" batch "$B2" | fld done)" = 5 ] && break; sleep 0.1; done
+[ "$(x0 "$SP" batch "$B2" | fld st)" = c000009a:5 ] || fail "X0: the owner served a 257th request in flight: $(x0 "$SP" batch "$B2")"
+x0 "$S0" defer off >/dev/null
+for i in $(seq 1 50); do [ "$(x0 "$SP" batch "$B1" | fld done)" = 257 ] && break; sleep 0.1; done
+[ "$(x0 "$SP" batch "$B1" | fld ok)" = 256 ] || fail "X0: the held requests: $(x0 "$SP" batch "$B1")"
+grep -aq "x0: uid $STD_UID at half of the requests in flight cap" "$ROOT/session0.log" || fail "X0: half of the in-flight cap is not logged"
+ok x0_cap_requests_in_flight_per_link
+# cap: references per account
+x0 "$SP" release all >/dev/null
+OUT="$(x0 "$SP" open capx n=16385)"
+[ "$(fld ok <<<"$OUT")" = 16384 ] && grep -q 'c000009a:1' <<<"$OUT" || fail "X0: the references cap: $OUT"
+grep -aq "x0: uid $STD_UID at half of the references cap" "$ROOT/session0.log" || fail "X0: half of the references cap is not logged"
+[ "$(x0 "$SP" release all | fld ok)" = 16384 ] && [ "$(s0refs "$STD_UID")" = 0 ] || fail "X0: releasing the references"
+ok x0_cap_references_per_account
+# cap: subscriptions per account
+x0 "$SP" open subx n=4097 >/dev/null
+OUT="$(x0 "$SP" sub all)"
+[ "$(fld ok <<<"$OUT")" = 4096 ] && grep -q 'c000009a:1' <<<"$OUT" || fail "X0: the subscriptions cap: $OUT"
+grep -aq "x0: uid $STD_UID at half of the subscriptions cap" "$ROOT/session0.log" || fail "X0: half of the subscriptions cap is not logged"
+x0 "$SP" release all >/dev/null
+ok x0_cap_subscriptions_per_account
+# cap: queued bytes. The owner: the holder reads nothing, the owner's answers pass 4 MiB, its further requests wait
+# (the link is still read), and all are answered once the holder reads again
+x0 "$SP" pause >/dev/null
+OUT="$(x0 "$SP" ping n=200 size=60000 nowait)"; B3="$(fld batch <<<"$OUT")"
+for i in $(seq 1 50); do [ "${STALL:=0}" -gt 0 ] && break; STALL="$(x0 "$S0" peers | grep "^peer .* session=$SESS " | fld stalled)"; sleep 0.1; done
+[ "${STALL:-0}" -gt 0 ] || fail "X0: no request waited over the owner's queued cap: $(x0 "$S0" peers)"
+x0 "$SP" resume >/dev/null
+for i in $(seq 1 100); do [ "$(x0 "$SP" batch "$B3" | fld done)" = 200 ] && break; sleep 0.1; done
+[ "$(x0 "$SP" batch "$B3" | fld ok)" = 200 ] || fail "X0: the requests that waited: $(x0 "$SP" batch "$B3")"
+grep -aq "x0: uid $STD_UID over the queued cap" "$ROOT/session0.log" || fail "X0: the queued cap is not logged"
+# the holder: the owner reads nothing, the holder's own queue passes 4 MiB and its further calls fail at once
+x0 "$S0" pause peer="$SESS" >/dev/null
+OUT="$(x0 "$SP" ping n=150 size=60000 nowait)"; B4="$(fld batch <<<"$OUT")"
+grep -q 'c000009a:' <<<"$OUT" || { x0 "$S0" resume peer="$SESS"; fail "X0: the holder queued past its cap: $OUT"; }
+x0 "$S0" resume peer="$SESS" >/dev/null
+for i in $(seq 1 100); do [ "$(x0 "$SP" batch "$B4" | fld done)" = 150 ] && break; sleep 0.1; done
+[ "$(x0 "$SP" batch "$B4" | fld done)" = 150 ] && [ "$(x0 "$SP" batch "$B4" | fld ok)" -gt 0 ] ||
+    fail "X0: the holder's queued requests: $(x0 "$SP" batch "$B4")"
+ok x0_cap_queued_bytes_both_sides
+# a holder server killed with live references: the owner drops them all. A try's success still queued for it is
+# given back (the uncancellable try: the owner only counts a success as delivered once it is sent)
+x0 "$S0" set gb 1 >/dev/null
+IDG="$(x0 "$SP" open gb | fld id)"
+x0 "$SP" open k0 n=5 >/dev/null
+[ "$(s0refs "$STD_UID")" = 6 ] || fail "X0: references before the kill: $(s0refs "$STD_UID")"
+x0 "$SP" pause >/dev/null
+x0 "$SP" ping n=20 size=60000 nowait >/dev/null
+sleep 0.5
+x0 "$SP" try "$IDG" nowait >/dev/null
+for i in $(seq 1 30); do [ "$(x0 "$S0" get gb | fld count)" = 0 ] && break; sleep 0.1; done
+[ "$(x0 "$S0" get gb | fld count)" = 0 ] || fail "X0: the try was not served before the kill"
+kill -9 "$SP"
+for i in $(seq 1 50); do [ "$(s0refs "$STD_UID")" = 0 ] && break; sleep 0.1; done
+[ "$(s0refs "$STD_UID")" = 0 ] || { x0 "$S0" peers >&2; fail "X0: session 0 kept the references of a killed server"; }
+grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) ended (its server is gone): 6 references dropped" "$ROOT/session0.log" ||
+    { grep -a 'x0: peer' "$ROOT/session0.log" | tail -5 >&2; fail "X0: the drop is not logged"; }
+[ "$(x0 "$S0" get gb | fld count)" = 1 ] && grep -aq 'x0lab: a try.s success could not be sent: gb given back' "$ROOT/session0.log" ||
+    fail "X0: the unsent try's success was not given back: $(x0 "$S0" get gb)"
+ok x0_killed_holder_references_dropped_and_unsent_try_given_back
+# link loss while the peer's epoch lives: the references survive the relink
+SP="$(x0srv "$STD")" || fail "X0: no new lab server of $STD"
+SESS="$(x0sess "$STD")" || fail "X0: the new server did not link"
+IDK="$(x0 "$SP" open keep | fld id)"
+LINKED="$(grep -ac 'references kept' "$ROOT/session0.log")"
+x0 "$SP" droplink >/dev/null
+for i in $(seq 1 200); do [ "$(grep -ac 'references kept' "$ROOT/session0.log")" -gt "$LINKED" ] && break; sleep 0.1; done
+grep -aq "x0: link to peer pid $SP (uid $STD_UID, session $SESS) lost: 1 references wait for it" "$ROOT/session0.log" ||
+    fail "X0: session 0 did not keep the references of a lost link"
+grep -aq "x0: peer pid $SP (uid $STD_UID, session $SESS) linked again: 1 references kept" "$ROOT/session0.log" ||
+    { tail -10 "$ROOT/session0.log" >&2; fail "X0: the references did not survive the relink"; }
+[ "$(x0 "$SP" query "$IDK" | fld st)" = 0:1 ] || fail "X0: the reference does not work after the relink"
+ok x0_link_loss_keeps_references_while_the_epoch_lives
+# session 0 restarts: what the user's server held into it is dead (and the old id unknown to the new session 0); what
+# session 0 held into the user's server is dropped there
+IDR="$(x0 "$S0" open r0 peer="$SESS" | fld id)"
+[ -n "$IDR" ] && [ "$(x0 "$SP" peers | grep '^peer ' | fld refs)" = 1 ] || fail "X0: session 0's reference before the restart"
+s0_stop; s0_start
+S0="$(s0pid)"
+for i in $(seq 1 300); do x0 "$SP" peers | grep "^peer pid=$S0 " | grep -q 'link=up' && break; sleep 0.1; done
+x0 "$SP" peers | grep "^peer pid=$S0 " | grep -q 'link=up' || { x0 "$SP" peers >&2; fail "X0: no relink to the new session 0"; }
+[ "$(x0 "$SP" peers | grep -c '^peer ')" = 1 ] && [ "$(x0 "$SP" peers | grep '^peer ' | fld refs)" = 0 ] ||
+    fail "X0: the user's server kept the old session 0's references: $(x0 "$SP" peers)"
+[ "$(x0 "$SP" query "$IDK" | fld st)" = c000020c:1 ] || fail "X0: a reference into the old session 0 still answers"
+[ "$(x0 "$SP" query "$IDK" raw | fld st)" = c0000008:1 ] || fail "X0: the new session 0 knows a stale reference"
+ok x0_session0_restart_ends_references_both_ways
+x0stop
+el_down "$STD"; el_down "$ADM"
 true; ); section_leave $?; fi
 if section s0_programs; then set +e; ( section_enter
 # T5.3: session 0's account runs programs on the machine root through session 0 (its own services.exe, in session

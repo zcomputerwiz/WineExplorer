@@ -4,7 +4,7 @@
 #
 # Lab build for the R8 standard-user chain (E1-S18e), in wexbuild as root. Never for a shipped image.
 # Copies the already built WoW64 tree and rebuilds, in the copy only:
-#   * the server with the S6 transport, R8, S10 token and S13 profile lab switches,
+#   * the server with the S6 transport, R8, S10 token, S13 profile and X0 protocol lab switches,
 #   * wexhost's Unix side with the S6 transport,
 #   * the registry/profile client DLLs with the S13 switch (both ABIs),
 #   * wexelevate.exe and consent.exe with WEXELEVATE_E1S18, kept as *-e1s18.exe next to the normal ones.
@@ -17,11 +17,11 @@ LABROOT=${2:-/root/owned-r8}
 LAB=$LABROOT/build/wow64
 LOG=${R8_LAB_LOG:-/tmp/r8-lab-build.log}
 WINE_SRC=$(dirname "$(dirname "$MAIN")")/wine
-SERVER_FLAGS='-DWEX_E1S6_TRANSPORT_TEST -DWEX_R8_SERVER_TEST -DWEX_E1S10_TOKEN_TEST -DWEX_E1S13_HKU_TEST -DWEX_E1_TEST_HOOKS'
+SERVER_FLAGS='-DWEX_E1S6_TRANSPORT_TEST -DWEX_R8_SERVER_TEST -DWEX_E1S10_TOKEN_TEST -DWEX_E1S13_HKU_TEST -DWEX_E1_TEST_HOOKS -DWEX_X0_LAB_TEST'
 SERVER_OBJECTS=(server/named_pipe.o server/sysrun.o server/accounts.o server/registry.o server/process.o
                 server/request.o server/handle.o server/token.o server/thread.o server/e1s_profile.o
                 server/wex_profile_storage.o server/file.o server/fd.o
-                server/wex_e1lab_pipe.o server/wex_e1lab_sysrun.o)
+                server/wex_e1lab_pipe.o server/wex_e1lab_sysrun.o server/session0.o server/wex_x0lab.o)
 
 echo "=== 1. prepare lab tree ==="
 # an incremental copy (the same tree as a fresh cp -a: --delete, times kept): only what the main build changed is
