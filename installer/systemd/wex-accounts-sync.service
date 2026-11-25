@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2026 WineExplorer contributors
+#
+# WineExplorer: the account map's synchronization, started on request (docs/LOCAL_USERS_DESIGN.md, U4). The accounts helper
+# starts exactly this unit, through the one polkit grant of systemd's manage-units for this unit name and the verb start
+# (installer/polkit/49-wexaccounts.rules), after a change of the Linux accounts, so that a new account reaches the map
+# (and its SID) at once instead of at the next path or timer event. It does what wex-accounts.service does.
+
+[Unit]
+Description=Synchronize WineExplorer account authority (on request)
+ConditionPathExists=/etc/wineexplorer/accounts.map
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/wineexplorer/wex-accounts sync

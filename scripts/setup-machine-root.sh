@@ -985,6 +985,47 @@ if [ "${WEX_SYSRUN_ENABLE:-1}" != "0" ]; then
             if [ -f /lib/systemd/system/wex-domain-query.socket ]; then
                 systemctl enable --now wex-domain-query.socket || true
             fi
+            # the accounts helper (docs/LOCAL_USERS_DESIGN.md): its own account (wexaccounts, no other group), a group whose
+            # only member is session 0's account (the socket's group), the configuration it reads (it cannot read
+            # sysrun.conf), the binary and the socket. A failure here leaves Local Users and Groups unavailable, nothing else.
+            ACCOUNTSD_PKG="$(dirname -- "$(readlink -f -- "$0")")/wex-accountsd.bin"
+            ACCOUNTSD_SOURCE="$(dirname -- "$(readlink -f -- "$0")")/../tools/wex-accountsd/wex-accountsd.c"
+            ACCOUNTSD_TMP="$(mktemp -d)"
+            ACCOUNTSD_OK=0
+            if [ -f /lib/systemd/system/wex-accountsd.socket ]; then
+                if [ -n "${WEX_ACCOUNTSD_BIN:-}" ]; then
+                    cp -- "$WEX_ACCOUNTSD_BIN" "$ACCOUNTSD_TMP/wex-accountsd" && ACCOUNTSD_OK=1
+                elif [ -f "$ACCOUNTSD_PKG" ]; then
+                    cp -- "$ACCOUNTSD_PKG" "$ACCOUNTSD_TMP/wex-accountsd" && ACCOUNTSD_OK=1
+                elif [ -f "$ACCOUNTSD_SOURCE" ] && command -v cc >/dev/null 2>&1; then
+                    cc -O2 -Wall -Wextra -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+                        -o "$ACCOUNTSD_TMP/wex-accountsd" "$ACCOUNTSD_SOURCE" -lsystemd && ACCOUNTSD_OK=1
+                fi
+            fi
+            if [ "$ACCOUNTSD_OK" = 1 ]; then
+                install -m 0755 -o root -g root -- "$ACCOUNTSD_TMP/wex-accountsd" "$SYSRUN_DIR/wex-accountsd"
+                id wexaccounts >/dev/null 2>&1 ||
+                    useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin --user-group wexaccounts
+                usermod -G '' wexaccounts
+                getent group wexsession0 >/dev/null || groupadd --system wexsession0
+                gpasswd -M "$S0_ACCOUNT" wexsession0 >/dev/null
+                ACCOUNTSD_ADMIN_GROUP="$(sed -n 's/^admin_group=//p' "$SYSRUN_CONF" | head -n 1)"
+                ACCOUNTSD_BUILTIN="$(sed -n 's/^builtin_administrator=//p' "$SYSRUN_CONF" | head -n 1)"
+                {
+                    echo '# written by wex-setup-machine.sh: what the accounts helper needs from sysrun.conf, which it cannot read'
+                    echo "session0_user=$S0_ACCOUNT"
+                    echo 'session0_unit=wex-session0.service'
+                    echo "admin_group=${ACCOUNTSD_ADMIN_GROUP:-sudo}"
+                    echo "builtin_administrator=$ACCOUNTSD_BUILTIN"
+                    echo 'sync_unit=wex-accounts-sync.service'
+                } > "$(dirname -- "$SYSRUN_CONF")/accountsd.conf"
+                chmod 0644 "$(dirname -- "$SYSRUN_CONF")/accountsd.conf"
+                systemctl enable --now wex-accountsd.socket ||
+                    echo "WARNING: the accounts helper's socket did not start (wex-accountsd.socket)" >&2
+            else
+                echo "NOTE: no accounts helper binary: Local Users and Groups stays unavailable" >&2
+            fi
+            rm -rf -- "$ACCOUNTSD_TMP"
         fi
     fi
 fi

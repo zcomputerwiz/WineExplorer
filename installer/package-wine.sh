@@ -287,6 +287,9 @@ cc -O2 -Wall -Wextra -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl
 # Unprivileged administrator check for scripts (same parser and rule as the server).
 cc -O2 -Wall -Wextra -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
     -o "$STAGE_SESSION/usr/local/bin/wex-is-admin.bin" "$ROOT_DIR/tools/wex-is-admin/wex-is-admin.c"
+# The accounts helper (docs/LOCAL_USERS_DESIGN.md): its own account, polkit-granted; talks D-Bus through libsystemd
+cc -O2 -Wall -Wextra -fPIE -pie -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wl,-z,relro,-z,now \
+    -o "$STAGE_SESSION/usr/local/bin/wex-accountsd.bin" "$ROOT_DIR/tools/wex-accountsd/wex-accountsd.c" -lsystemd
 install -m755 "$ROOT_DIR/scripts/wex-graphics.py" "$STAGE_SESSION/usr/local/bin/wex-graphics"
 install -m755 "$ROOT_DIR/scripts/wex-components.py" "$STAGE_SESSION/usr/local/bin/wex-components"
 # winetricks' wineserver for component installs through session 0 (MachineWine in wex-components)
@@ -330,6 +333,10 @@ for unit in wex-advanced-options.target wex-advanced-options.service wex-safemod
     cp "$SCRIPT_DIR/systemd/$unit" "$STAGE_SESSION/lib/systemd/system/"
 done
 cp "$SCRIPT_DIR/systemd/wex-accounts.service" "$SCRIPT_DIR/systemd/wex-accounts.path" "$SCRIPT_DIR/systemd/wex-accounts.timer" "$STAGE_SESSION/lib/systemd/system/"
+# the accounts helper's units and the one polkit rule that names its account (enabled with session 0 by setup-machine-root.sh)
+cp "$SCRIPT_DIR/systemd/wex-accounts-sync.service" "$SCRIPT_DIR/systemd/wex-accountsd.socket" "$SCRIPT_DIR/systemd/wex-accountsd.service" \
+    "$STAGE_SESSION/lib/systemd/system/"
+install -D -m644 "$SCRIPT_DIR/polkit/49-wexaccounts.rules" "$STAGE_SESSION/etc/polkit-1/rules.d/49-wexaccounts.rules"
 # system tier session 0 (docs/SYSTEM_TIER_WORK_ORDERS.md); enabled by setup-machine-root.sh with WEX_SESSION0=1 (the
 # default for new installs, below)
 cp "$SCRIPT_DIR/systemd/wex-session0.service" "$SCRIPT_DIR/systemd/wex-session0-services.service" "$STAGE_SESSION/lib/systemd/system/"
