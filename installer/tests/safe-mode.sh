@@ -117,6 +117,14 @@
 #                probe's list before and after), found in a screendump (installer/tests/popup-check.py). Only when
 #                named, or in the chain's default stages. With composition on the Start menu and the context menu must have
 #                their shadow (popup-check.py strict); the tooltip's missing shadow stays a note (it sits at the taskbar's edge).
+#   shellrestart  the shell comes back after its explorer is killed (kill -9): the session's supervisor (wex_run_shell,
+#                Winlogon's AutoRestartShell) starts it again, the new explorer takes over the desktop, and its taskbar is
+#                there again; the desktop's context menu then has no black box around it and, with composition on, its
+#                shadow. In the X11 session the programs' windows are lost with explorer's X desktop window (virtual
+#                desktop); only the Wayland session keeps them. Only when named, or in the chain's default stages.
+#   waylandshellrestart  shellrestart in the Wayland session (B120): Notepad is open (Run), the shell's explorer is killed
+#                (kill -9), the supervisor starts it again, and the desktop is back; Notepad is still running and still
+#                opens a dialog (Ctrl+O), as on XP, where the programs survive the shell. Only when named.
 # Provisioning also gives the Administrator account a random test password ($OUT/admin-password) and adds the
 # account wexhidden ("Hidden Test", no password) with a value of 0 under SpecialAccounts\UserList in the logon
 # prefix's registry.
@@ -188,7 +196,7 @@ done
 [ "$SOURCE" != "$TEST" ] || { echo "TEST_VM must differ from SOURCE_VM"; exit 2; }
 for phase in "${PHASES[@]}"; do
     case "$phase" in
-        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|popups|debugmode|perf) ;;
+        safe|safenet|safecmd|nowine|bootlog|vga|startnormal|oschoices|normal|lastgood|lastgoodgen|vfailed|vlasttry|accounts|waylandsafe|waylandcmd|waylandauto|waylanddisplay|shellkeys|waylandshellkeys|vgafailed|waylandlogon|waylandfallback|waylandxlock|startrec|classic|rundialog|popups|shellrestart|waylandshellrestart|debugmode|perf) ;;
         *) echo "Unknown phase: $phase"; exit 2 ;;
     esac
 done
@@ -1472,6 +1480,38 @@ phase_waylandshellkeys() {   # the same in the Wayland session (wexcomp v15 and 
     saved_session restore || fail "cannot put the saved session back"
 }
 
+phase_waylandshellrestart() {   # see the header: Notepad survives the shell's restart in the Wayland session
+    local old new
+    saved_session wine-explorer-wayland || fail "cannot save the Wayland session for $USER_NAME"
+    start_vm
+    desktop 600
+    expect_compositor
+    "${V[@]}" key "$TEST" meta_l-r >/dev/null
+    wait_text "Type the name" 20 || { shot no-run; fail "Win+R did not open Run"; }
+    "${V[@]}" type "$TEST" "notepad"
+    "${V[@]}" key "$TEST" ret >/dev/null
+    wait_text "Untitled - Notepad" 60 || { shot no-notepad; fail "Notepad did not open"; }
+    old=$(gsh 'pgrep -u "$USER" -f "C:.windows.system32.explorer.exe /shell" | tail -1' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ -n "$old" ] || fail "no explorer of $USER_NAME to kill"
+    gsh 'pkill -9 -u "$USER" -f "C:.windows.system32.explorer.exe /shell"; true' >/dev/null
+    sleep 5
+    desktop 120 || fail "the shell did not come back after kill -9 (the supervisor's restart)"
+    new=$(gsh 'pgrep -u "$USER" -f "C:.windows.system32.explorer.exe /shell" | tail -1' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ -n "$new" ] && [ "$new" != "$old" ] || fail "no new explorer after the restart (old $old, new ${new:-none})"
+    echo "  explorer $old killed, now $new"
+    gsh 'pgrep -u "$USER" -f "notepad.exe" >/dev/null && echo notepad=running' | grep -q '^notepad=running' ||
+        fail "Notepad ended with the shell"
+    wait_text "Untitled - Notepad" 20 || { shot notepad-gone; fail "Notepad's window is gone after the shell's restart"; }
+    "${V[@]}" key "$TEST" ctrl-o >/dev/null
+    wait_text "Open" 30 || { shot no-dialog; fail "Notepad opens no dialog after the shell's restart"; }
+    shot notepad-dialog
+    "${V[@]}" key "$TEST" esc >/dev/null
+    expect_compositor
+    shutdown_vm
+    wait_off 60 || fail "the VM did not power off"
+    saved_session restore || fail "cannot put the saved session back"
+}
+
 phase_waylandsafe() {   # work order A3
     menu_choice "$ROW_SAFE" "Safe Mode"
     logon_screen
@@ -2306,6 +2346,37 @@ popup_tooltip() {   # the pointer rests on the notification area's clock (the bo
     sleep 1
     "${V[@]}" move "$TEST" $((w - 40)) $((h - 14)) >/dev/null
     sleep 2           # past the tooltip's delay
+}
+
+
+shell_kill() {   # the test account's explorer is killed; the new one's desktop and taskbar must come up (B120)
+    local old new i
+    old=$(gsh 'pgrep -u "$USER" -f "explorer.exe /desktop" | tail -1' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ -n "$old" ] || fail "no explorer of $USER_NAME to kill"
+    gsh 'pkill -9 -u "$USER" -f "C:.windows.system32.explorer.exe /desktop"; true' >/dev/null
+    sleep 5
+    desktop 120 || fail "the shell did not come back after kill -9 (the supervisor's restart)"
+    for i in 1 2 3 4 5 6; do
+        new=$(gsh 'pgrep -u "$USER" -f "C:.windows.system32.explorer.exe /desktop" | tail -1' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+        [ -n "$new" ] && break
+        sleep 2
+    done
+    [ -n "$new" ] || fail "no explorer after the restart"
+    [ "$new" != "$old" ] || fail "the explorer after the restart is the old one ($old)"
+    echo "  explorer $old killed, now $new"
+    shot shell-restarted
+}
+
+phase_shellrestart() {   # see the header
+    start_vm
+    desktop 600
+    POPUP_COMPOSITION=$(gsh 'grep -c "^\"Composition\"=dword:00000001" "$HOME/.wine/user.reg" 2>/dev/null; true' | tr -d '\r' | grep -m1 -E '^[0-9]+$')
+    [ "${POPUP_COMPOSITION:-0}" -ge 1 ] 2>/dev/null && POPUP_COMPOSITION=1 || POPUP_COMPOSITION=0
+    echo "  guest desktop composition: $POPUP_COMPOSITION"
+    subresult restart shell_kill
+    subresult popup-after popup_one context-menu-after-restart popup_context_menu esc
+    shutdown_vm
+    subresults_end
 }
 
 phase_popups() {   # see the header: the shell's popups have no black box, and a shadow with composition on
