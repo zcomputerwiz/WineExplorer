@@ -5219,3 +5219,25 @@ periodic and exit saves use) instead of doing nothing. A server that is killed d
 changes were lost; the logon screen's last user (`DefaultUserName`, `logonui.exe` `save_default_user`, which now
 flushes) was lost this way in the classic stage. Test: `dlls/advapi32/tests/registry.c` `test_flush_key_saves` (a value
 set and flushed is in the prefix's `user.reg`; skipped off Wine).
+
+## Wine's internal locks in \KernelObjects (2026-11-26)
+
+Wine `claude/internal-locks-kernelobjects` (one commit per module on development), from the audit in
+`docs/SESSION0_CROSS_SERVER.md` ("Audit: Wine's own names in `\BaseNamedObjects`"). Wine's own once-per-server locks
+were in the session's `\BaseNamedObjects` or in `\BaseNamedObjects` itself. Session 0's local namespace is
+`\BaseNamedObjects`, which M1 will share with the sessions, so a session could then hold, or create first, a lock that
+session 0's processes wait on. They are now in `\KernelObjects`, which no Win32 name reaches and M1 never forwards;
+the scope stays the server's (one per logon under WineExplorer, one in a plain prefix).
+
+- `include/wine/internal_lock.h` (new, LGPL): `wine_create_internal_mutex` and `wine_create_internal_semaphore`, with
+  `CreateMutexW`'s and `CreateSemaphoreW`'s results and last errors, in `\KernelObjects`.
+- Absolute names changed: `dlls/kernelbase/security.c` (`WineAppContainerRegistrationLock`, and its tests),
+  `dlls/win32u/font.c` (`__WINE_FONT_MUTEX__`), `dlls/win32u/sysparams.c` (`display_device_init`, was
+  `\Sessions\%u\BaseNamedObjects`), `dlls/winewayland.drv/wayland_zones.c` (`WineWaylandZones`).
+- `Create*W` replaced by the helper: `programs/services/services.c` (`__wine_SvcctlInstance`), `dlls/sxs/cache.c`,
+  `dlls/fusion/asmcache.c`, `dlls/winspool.drv/info.c`, `dlls/crypt32/rootstore.c` (`crypt32_root_semaphore`),
+  `dlls/powrprof/powrprof.c`, `dlls/dinput/joystick_hid.c`, `programs/winemenubuilder/winemenubuilder.c`,
+  `programs/explorer/desktop.c` (the clipboard and display settings restorer mutexes; `src/dlls/wexshell/desktop.c`
+  takes the same objects).
+- Test: `dlls/kernel32/tests/sync.c` `test_wine_internal_locks` (services.exe's instance mutex is in `\KernelObjects`,
+  not under its Win32 name nor `Global\`; skipped off Wine).
